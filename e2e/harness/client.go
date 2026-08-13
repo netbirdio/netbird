@@ -120,6 +120,26 @@ func (cl *Client) Restart(ctx context.Context) error {
 	return nil
 }
 
+// Up re-runs `netbird up` inside the client with the given extra flags (e.g.
+// "--allow-remote-jobs"), bouncing the connection first so the new config is
+// picked up and re-synced to management. Used to toggle peer options that ride
+// on the login/sync request without recreating the container.
+func (cl *Client) Up(ctx context.Context, extraArgs ...string) error {
+	if _, _, err := cl.container.Exec(ctx, []string{"netbird", "down"}, tcexec.Multiplexed()); err != nil {
+		return fmt.Errorf("netbird down: %w", err)
+	}
+	time.Sleep(2 * time.Second)
+	code, reader, err := cl.container.Exec(ctx, append([]string{"netbird", "up"}, extraArgs...), tcexec.Multiplexed())
+	if err != nil {
+		return fmt.Errorf("netbird up: %w", err)
+	}
+	if code != 0 {
+		out, _ := io.ReadAll(reader)
+		return fmt.Errorf("netbird up %v exited %d: %s", extraArgs, code, string(out))
+	}
+	return nil
+}
+
 // Status returns `netbird status` output from inside the client.
 func (cl *Client) Status(ctx context.Context) (string, error) {
 	code, reader, err := cl.container.Exec(ctx, []string{"netbird", "status"}, tcexec.Multiplexed())
