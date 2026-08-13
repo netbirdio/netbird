@@ -115,7 +115,7 @@ func (s *BaseServer) NetworkMapStore() *networkmapdb.NetworkMapDBStoreImpl {
 		// networkmap db store supports postgres and sqlite backends only
 		// for other backends a fallback is used, so NotSupportedStoreEngineError
 		// is not a fatal error
-		if err != nil && !errors.Is(err, networkmapdbfactory.NotSupportedStoreEngineError) {
+		if err != nil && !errors.Is(err, networkmapdbfactory.ErrNotSupportedStoreEngine) {
 			log.Fatalf("failed to create network map store: %v", err)
 		}
 		return store

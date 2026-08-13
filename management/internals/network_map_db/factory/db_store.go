@@ -18,7 +18,7 @@ import (
 
 const storeSqliteFileName = "store.db"
 
-var NotSupportedStoreEngineError = errors.New("unsupported store engine")
+var ErrNotSupportedStoreEngine = errors.New("unsupported store engine")
 
 func NewNetworkMapDBStore(
 	ctx context.Context,
@@ -61,7 +61,7 @@ func NewNetworkMapDBStore(
 		}, nil
 	}
 
-	return nil, fmt.Errorf("networkmap store doesn't support engine %s, %w", kind, NotSupportedStoreEngineError)
+	return nil, fmt.Errorf("networkmap store doesn't support engine %s, %w", kind, ErrNotSupportedStoreEngine)
 }
 
 func mustLookupDsnEnv() (string, error) {
