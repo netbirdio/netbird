@@ -293,23 +293,33 @@ func TestWithSetupKeyAdvice(t *testing.T) {
 	assert.True(t, IsSSOUnavailable(advised), "advice must keep the error classifiable")
 }
 
-func TestFlowOrder(t *testing.T) {
-	graphical := flowOrder(false, true)
-	require.Len(t, graphical, 2, "both flows must be attempted when the device has a browser")
-	assert.Equal(t, "pkce authorization flow", graphical[0].name)
-
-	headless := flowOrder(false, false)
-	require.Len(t, headless, 2)
-	if runtime.GOOS == "linux" || runtime.GOOS == "freebsd" {
-		assert.Equal(t, "device code flow", headless[0].name, "a headless unix host prefers the device flow")
+func flowNames(flows []oauthFlowInit) []string {
+	names := make([]string, 0, len(flows))
+	for _, f := range flows {
+		names = append(names, f.name)
 	}
+	return names
+}
+
+func TestFlowOrder(t *testing.T) {
+	const pkce, device = "pkce authorization flow", "device code flow"
+
+	assert.Equal(t, []string{pkce, device}, flowNames(flowOrder(false, true)),
+		"a device with a browser tries PKCE first and keeps the device code flow as a fallback")
+
+	// only a unix host without a graphical session lacks a browser; the other platforms have one
+	headless := []string{pkce, device}
+	if runtime.GOOS == "linux" || runtime.GOOS == "freebsd" {
+		headless = []string{device, pkce}
+	}
+	assert.Equal(t, headless, flowNames(flowOrder(false, false)), "on %s", runtime.GOOS)
 
 	// Android TV and tvOS have no browser, so PKCE cannot complete there even from another
 	// device: the redirect must reach the loopback listener of the device being enrolled.
-	forced := flowOrder(true, false)
-	require.Len(t, forced, 1, "a forced device code flow must not fall back to PKCE")
-	assert.Equal(t, "device code flow", forced[0].name)
-	assert.Len(t, flowOrder(true, true), 1, "force wins over a reported graphical session")
+	assert.Equal(t, []string{device}, flowNames(flowOrder(true, false)),
+		"a forced device code flow must not fall back to PKCE")
+	assert.Equal(t, []string{device}, flowNames(flowOrder(true, true)),
+		"force wins over a reported graphical session")
 }
 
 func TestPreferDeviceFlow(t *testing.T) {
