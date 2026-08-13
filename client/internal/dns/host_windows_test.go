@@ -25,7 +25,7 @@ func TestNRPTEntriesCleanupOnConfigChange(t *testing.T) {
 
 	// Create a test interface registry key so updateSearchDomains doesn't fail
 	testGUID := "{12345678-1234-1234-1234-123456789ABC}"
-	interfacePath := `SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\` + testGUID
+	interfacePath := interfaceConfigPath + `\` + testGUID
 	testKey, _, err := registry.CreateKey(registry.LOCAL_MACHINE, interfacePath, registry.SET_VALUE)
 	require.NoError(t, err, "Should create test interface registry key")
 	testKey.Close()
@@ -56,7 +56,7 @@ func TestNRPTEntriesCleanupOnConfigChange(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify 3 NRPT rules exist
-	assert.Equal(t, 3, cfg.nrptEntryCount, "Should create 3 NRPT rules for 125 domains")
+	assert.Equal(t, 3, countNRPTRuleKeys(t), "Should create 3 NRPT rules for 125 domains")
 	for i := 0; i < 3; i++ {
 		exists, err := registryKeyExists(fmt.Sprintf("%s-%d", dnsPolicyConfigMatchPath, i))
 		require.NoError(t, err)
@@ -81,7 +81,7 @@ func TestNRPTEntriesCleanupOnConfigChange(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify first 2 NRPT rules exist
-	assert.Equal(t, 2, cfg.nrptEntryCount, "Should create 2 NRPT rules for 75 domains")
+	assert.Equal(t, 2, countNRPTRuleKeys(t), "Should create 2 NRPT rules for 75 domains")
 	for i := 0; i < 2; i++ {
 		exists, err := registryKeyExists(fmt.Sprintf("%s-%d", dnsPolicyConfigMatchPath, i))
 		require.NoError(t, err)
@@ -106,9 +106,65 @@ func registryKeyExists(path string) (bool, error) {
 	return true, nil
 }
 
+// TestNRPTCleanupWithoutRuleCount verifies that rules written by a previous run
+// are removed by a configurator that has no record of how many there are: an
+// unclean exit loses the in-memory count and a clean disconnect deletes the
+// persisted one, so cleanup cannot depend on either.
+func TestNRPTCleanupWithoutRuleCount(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping registry integration test in short mode")
+	}
+
+	defer cleanupRegistryKeys(t)
+	cleanupRegistryKeys(t)
+
+	testIP := netip.MustParseAddr("100.64.0.1")
+
+	// 75 domains produce two indexed rules, as the current layout does
+	domains := make([]string, 75)
+	for i := range domains {
+		domains[i] = fmt.Sprintf(".domain%d.com", i+1)
+	}
+
+	previousRun := &registryConfigurator{}
+	require.NoError(t, previousRun.addDNSMatchPolicy(domains, testIP))
+
+	// the unsuffixed key an older version would have written
+	require.NoError(t, previousRun.configureDNSPolicy(dnsPolicyConfigMatchPath, []string{".legacy.example.com"}, testIP))
+
+	// a policy owned by someone else, which cleanup must not touch
+	foreignPath := dnsPolicyConfigRoot + `\DnsPolicyConfigTestForeign`
+	foreignKey, _, err := registry.CreateKey(registry.LOCAL_MACHINE, foreignPath, registry.SET_VALUE)
+	require.NoError(t, err, "Should create foreign policy key")
+	foreignKey.Close()
+	defer func() {
+		_ = registry.DeleteKey(registry.LOCAL_MACHINE, foreignPath)
+	}()
+
+	require.Equal(t, 3, countNRPTRuleKeys(t), "Should have two indexed rules and the legacy one")
+
+	// a configurator that never applied a DNS config, as one built after a
+	// restart or from a shutdown state without a count is
+	freshRun := &registryConfigurator{}
+	require.NoError(t, freshRun.removeDNSMatchPolicies())
+
+	assert.Equal(t, 0, countNRPTRuleKeys(t), "Should remove every rule left by the previous run")
+
+	exists, err := registryKeyExists(foreignPath)
+	require.NoError(t, err)
+	assert.True(t, exists, "Should not remove a policy that is not ours")
+}
+
+func countNRPTRuleKeys(t *testing.T) int {
+	t.Helper()
+
+	names, err := listNRPTRuleKeys(dnsPolicyConfigRoot)
+	require.NoError(t, err, "Should list NRPT rule keys")
+	return len(names)
+}
+
 func cleanupRegistryKeys(*testing.T) {
-	// Clean up more entries to account for batching tests with many domains
-	cfg := &registryConfigurator{nrptEntryCount: 20}
+	cfg := &registryConfigurator{}
 	_ = cfg.removeDNSMatchPolicies()
 }
 
@@ -125,7 +181,7 @@ func TestNRPTDomainBatching(t *testing.T) {
 
 	// Create a test interface registry key so updateSearchDomains doesn't fail
 	testGUID := "{12345678-1234-1234-1234-123456789ABC}"
-	interfacePath := `SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\` + testGUID
+	interfacePath := interfaceConfigPath + `\` + testGUID
 	testKey, _, err := registry.CreateKey(registry.LOCAL_MACHINE, interfacePath, registry.SET_VALUE)
 	require.NoError(t, err, "Should create test interface registry key")
 	testKey.Close()
@@ -193,7 +249,7 @@ func TestNRPTDomainBatching(t *testing.T) {
 			require.NoError(t, err)
 
 			// Verify that exactly expectedRuleCount rules were created
-			assert.Equal(t, tc.expectedRuleCount, cfg.nrptEntryCount,
+			assert.Equal(t, tc.expectedRuleCount, countNRPTRuleKeys(t),
 				"Should create %d NRPT rules for %d domains", tc.expectedRuleCount, tc.domainCount)
 
 			// Verify all expected rules exist
