@@ -626,7 +626,7 @@ func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte
 		NatExternalIPs:      natExternalIPs,
 		CleanNATExternalIPs: natExternalIPs != nil && len(natExternalIPs) == 0,
 		CustomDNSAddress:    customDNSAddressConverted,
-		IsUnixDesktopClient: isUnixRunningDesktop(),
+		IsUnixDesktopClient: util.HasGraphicalSession(),
 		Hostname:            hostName,
 		ExtraIFaceBlacklist: extraIFaceBlackList,
 		DnsLabels:           dnsLabels,

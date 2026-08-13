@@ -5628,9 +5628,13 @@ func (x *GetPeerSSHHostKeyResponse) GetFound() bool {
 type RequestJWTAuthRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// hint for OIDC login_hint parameter (typically email address)
-	Hint          *string `protobuf:"bytes,1,opt,name=hint,proto3,oneof" json:"hint,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Hint *string `protobuf:"bytes,1,opt,name=hint,proto3,oneof" json:"hint,omitempty"`
+	// hasGraphicalSession tells the daemon that the caller has a graphical session,
+	// which decides whether PKCE or the device code flow is preferred. The daemon
+	// cannot detect this itself: it does not inherit the session environment.
+	HasGraphicalSession bool `protobuf:"varint,2,opt,name=hasGraphicalSession,proto3" json:"hasGraphicalSession,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *RequestJWTAuthRequest) Reset() {
@@ -5668,6 +5672,13 @@ func (x *RequestJWTAuthRequest) GetHint() string {
 		return *x.Hint
 	}
 	return ""
+}
+
+func (x *RequestJWTAuthRequest) GetHasGraphicalSession() bool {
+	if x != nil {
+		return x.HasGraphicalSession
+	}
+	return false
 }
 
 // RequestJWTAuthResponse contains authentication flow information
@@ -5894,9 +5905,13 @@ type RequestExtendAuthSessionRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Optional OIDC login_hint (typically the user's email) to pre-fill the
 	// IdP login form.
-	Hint          *string `protobuf:"bytes,1,opt,name=hint,proto3,oneof" json:"hint,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Hint *string `protobuf:"bytes,1,opt,name=hint,proto3,oneof" json:"hint,omitempty"`
+	// hasGraphicalSession tells the daemon that the caller has a graphical session,
+	// which decides whether PKCE or the device code flow is preferred. The daemon
+	// cannot detect this itself: it does not inherit the session environment.
+	HasGraphicalSession bool `protobuf:"varint,2,opt,name=hasGraphicalSession,proto3" json:"hasGraphicalSession,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *RequestExtendAuthSessionRequest) Reset() {
@@ -5934,6 +5949,13 @@ func (x *RequestExtendAuthSessionRequest) GetHint() string {
 		return *x.Hint
 	}
 	return ""
+}
+
+func (x *RequestExtendAuthSessionRequest) GetHasGraphicalSession() bool {
+	if x != nil {
+		return x.HasGraphicalSession
+	}
+	return false
 }
 
 // RequestExtendAuthSessionResponse carries the verification URI the UI
@@ -7503,9 +7525,10 @@ const file_daemon_proto_rawDesc = "" +
 	"sshHostKey\x12\x16\n" +
 	"\x06peerIP\x18\x02 \x01(\tR\x06peerIP\x12\x1a\n" +
 	"\bpeerFQDN\x18\x03 \x01(\tR\bpeerFQDN\x12\x14\n" +
-	"\x05found\x18\x04 \x01(\bR\x05found\"9\n" +
+	"\x05found\x18\x04 \x01(\bR\x05found\"k\n" +
 	"\x15RequestJWTAuthRequest\x12\x17\n" +
-	"\x04hint\x18\x01 \x01(\tH\x00R\x04hint\x88\x01\x01B\a\n" +
+	"\x04hint\x18\x01 \x01(\tH\x00R\x04hint\x88\x01\x01\x120\n" +
+	"\x13hasGraphicalSession\x18\x02 \x01(\bR\x13hasGraphicalSessionB\a\n" +
 	"\x05_hint\"\x9a\x02\n" +
 	"\x16RequestJWTAuthResponse\x12(\n" +
 	"\x0fverificationURI\x18\x01 \x01(\tR\x0fverificationURI\x128\n" +
@@ -7525,9 +7548,10 @@ const file_daemon_proto_rawDesc = "" +
 	"\x14WaitJWTTokenResponse\x12\x14\n" +
 	"\x05token\x18\x01 \x01(\tR\x05token\x12\x1c\n" +
 	"\ttokenType\x18\x02 \x01(\tR\ttokenType\x12\x1c\n" +
-	"\texpiresIn\x18\x03 \x01(\x03R\texpiresIn\"C\n" +
+	"\texpiresIn\x18\x03 \x01(\x03R\texpiresIn\"u\n" +
 	"\x1fRequestExtendAuthSessionRequest\x12\x17\n" +
-	"\x04hint\x18\x01 \x01(\tH\x00R\x04hint\x88\x01\x01B\a\n" +
+	"\x04hint\x18\x01 \x01(\tH\x00R\x04hint\x88\x01\x01\x120\n" +
+	"\x13hasGraphicalSession\x18\x02 \x01(\bR\x13hasGraphicalSessionB\a\n" +
 	"\x05_hint\"\xe0\x01\n" +
 	" RequestExtendAuthSessionResponse\x12(\n" +
 	"\x0fverificationURI\x18\x01 \x01(\tR\x0fverificationURI\x128\n" +
