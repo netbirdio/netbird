@@ -32,12 +32,18 @@ const (
 	nrptPolicyTimeout = 15 * time.Second
 )
 
-// COM initialization results that mean the calling thread is already usable.
+// COM initialization results that leave the calling thread usable: S_FALSE for
+// a thread this process already initialized, RPC_E_CHANGED_MODE for one that
+// belongs to another apartment.
 const (
-	sFalse           = 0x00000001
-	rpcEChangedMode  = 0x80010106
-	nrptQueryTimeout = "timed out"
+	sFalse          = 0x00000001
+	rpcEChangedMode = 0x80010106
 )
+
+// nrptQueryInFlight admits one read of the policy table at a time. A provider
+// that stops answering keeps its goroutine and the OS thread that goroutine
+// pinned, so a later bundle reports that instead of pinning another one.
+var nrptQueryInFlight = make(chan struct{}, 1)
 
 // nrptPolicyEntry is one namespace of the effective policy table, holding the
 // values of an embedded DnsClientPolicyConfiguration instance in the order the
@@ -62,8 +68,18 @@ func effectiveNRPTPolicies() ([]nrptPolicyEntry, error) {
 		err  error
 	}
 
+	select {
+	case nrptQueryInFlight <- struct{}{}:
+	default:
+		return nil, errors.New("an earlier read of the policy table has not returned")
+	}
+
 	done := make(chan result, 1)
 	go func() {
+		// the slot is released here rather than by the caller, so a read that
+		// outlives the timeout holds it until the provider answers
+		defer func() { <-nrptQueryInFlight }()
+
 		text, err := nrptPolicyTableText()
 		done <- result{text: text, err: err}
 	}()
@@ -75,7 +91,7 @@ func effectiveNRPTPolicies() ([]nrptPolicyEntry, error) {
 		}
 		return parseNRPTPolicyTable(res.text), nil
 	case <-time.After(nrptPolicyTimeout):
-		return nil, errors.New(nrptQueryTimeout)
+		return nil, errors.New("read of the policy table timed out")
 	}
 }
 
@@ -95,10 +111,13 @@ func nrptPolicyTableText() (text string, err error) {
 		}
 	}()
 
-	if err := coInitialize(); err != nil {
+	owns, err := coInitialize()
+	if err != nil {
 		return "", err
 	}
-	defer ole.CoUninitialize()
+	if owns {
+		defer ole.CoUninitialize()
+	}
 
 	locator, err := oleutil.CreateObject("WbemScripting.SWbemLocator")
 	if err != nil {
@@ -242,25 +261,29 @@ func unquoteMOFValue(value string) string {
 	return strings.Trim(value, `"`)
 }
 
-func coInitialize() error {
+// coInitialize prepares the calling thread for COM and reports whether this
+// call owns the initialization, which decides whether it may be balanced with
+// CoUninitialize. S_FALSE took a reference on a thread this process had already
+// initialized and so has to be released, while RPC_E_CHANGED_MODE took none:
+// the thread belongs to another apartment, which is usable but is not ours to
+// uninitialize.
+func coInitialize() (bool, error) {
 	err := ole.CoInitializeEx(0, ole.COINIT_MULTITHREADED)
 	if err == nil {
-		return nil
+		return true, nil
 	}
 
-	// An already initialized thread reports S_FALSE, and one initialized in
-	// another apartment reports RPC_E_CHANGED_MODE. Both are usable, and
-	// neither owns the uninitialize call, which is balanced per successful
-	// initialization.
 	var oleErr *ole.OleError
 	if errors.As(err, &oleErr) {
 		switch oleErr.Code() {
-		case sFalse, rpcEChangedMode:
-			return nil
+		case sFalse:
+			return true, nil
+		case rpcEChangedMode:
+			return false, nil
 		}
 	}
 
-	return fmt.Errorf("initialize COM: %w", err)
+	return false, fmt.Errorf("initialize COM: %w", err)
 }
 
 // dispatchCall calls a COM method that returns an object.

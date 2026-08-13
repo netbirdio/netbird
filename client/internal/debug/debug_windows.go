@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/netip"
 	"strings"
 	"unsafe"
 
@@ -41,7 +42,28 @@ var interfaceDNSValues = []string{
 
 // addDNSInfo collects and adds DNS configuration information to the archive
 func (g *BundleGenerator) addDNSInfo() error {
+	if err := g.addFileToZip(strings.NewReader(g.collectDNSInfo()), dnsInfoFileName); err != nil {
+		return fmt.Errorf("add DNS info to zip: %w", err)
+	}
+
+	return nil
+}
+
+// collectDNSInfo renders the report. Everything below it reaches the platform
+// through COM and through lazily resolved procedures, which panic when a
+// procedure is missing rather than returning an error, and a debug bundle is not
+// allowed to take the daemon down. The panic is contained here, and whatever was
+// collected before it is kept and reported with it.
+func (g *BundleGenerator) collectDNSInfo() (content string) {
 	var sb strings.Builder
+
+	defer func() {
+		if r := recover(); r != nil {
+			log.Errorf("collecting Windows DNS configuration panicked: %v", r)
+			fmt.Fprintf(&sb, "\nerror: collection stopped: %v\n", r)
+		}
+		content = sb.String()
+	}()
 
 	sb.WriteString("Windows DNS configuration\n")
 	sb.WriteString("=========================\n")
@@ -58,11 +80,7 @@ func (g *BundleGenerator) addDNSInfo() error {
 	g.writeInterfaceDNS(&sb, "Per-interface DNS, IPv6", nbdns.InterfaceConfigPathV6, adapterNames(adapters))
 	g.writeAdapterDNS(&sb, adapters, adaptersErr)
 
-	if err := g.addFileToZip(strings.NewReader(sb.String()), dnsInfoFileName); err != nil {
-		return fmt.Errorf("add DNS info to zip: %w", err)
-	}
-
-	return nil
+	return sb.String()
 }
 
 // writeNRPTRules lists every rule in a policy store, ours and any other
@@ -170,10 +188,14 @@ func (g *BundleGenerator) writeRegistryKey(sb *strings.Builder, title, path stri
 // value, otherwise only those named and present.
 func (g *BundleGenerator) writeValues(sb *strings.Builder, path string, names []string, indent string) {
 	k, err := registry.OpenKey(registry.LOCAL_MACHINE, path, registry.QUERY_VALUE)
-	if err != nil {
+	switch {
+	case errors.Is(err, registry.ErrNotExist), errors.Is(err, windows.ERROR_PATH_NOT_FOUND):
 		// an absent key is the normal state for the GPO store and for
 		// interfaces without DNS settings
-		log.Debugf("open HKEY_LOCAL_MACHINE\\%s: %v", path, err)
+		log.Debugf("HKEY_LOCAL_MACHINE\\%s does not exist", path)
+		return
+	case err != nil:
+		fmt.Fprintf(sb, "%serror: open HKEY_LOCAL_MACHINE\\%s: %v\n", indent, path, err)
 		return
 	}
 	defer closeKey(k)
@@ -188,7 +210,15 @@ func (g *BundleGenerator) writeValues(sb *strings.Builder, path string, names []
 
 	for _, name := range names {
 		value, err := readRegistryValue(k, name)
-		if err != nil {
+		switch {
+		case errors.Is(err, registry.ErrNotExist):
+			// the caller asks for a fixed set of values, most of which a
+			// given interface does not carry
+			continue
+		case err != nil:
+			// report rather than omit: a value that is there but cannot be
+			// read reads as unset otherwise
+			fmt.Fprintf(sb, "%s%s: error: %v\n", indent, name, err)
 			continue
 		}
 
@@ -262,16 +292,16 @@ func (g *BundleGenerator) writeAdapterDNS(sb *strings.Builder, adapters []*windo
 
 		var servers []string
 		for server := adapter.FirstDnsServerAddress; server != nil; server = server.Next {
-			ip := server.Address.IP()
-			if ip == nil {
+			addr, ok := netip.AddrFromSlice(server.Address.IP())
+			if !ok {
 				continue
 			}
 
-			address := ip.String()
+			addr = addr.Unmap()
 			if g.anonymize {
-				address = g.anonymizer.AnonymizeIPString(address)
+				addr = g.anonymizer.AnonymizeIP(addr)
 			}
-			servers = append(servers, address)
+			servers = append(servers, addr.String())
 		}
 
 		fmt.Fprintf(sb, "  DNS servers: %s\n", strings.Join(servers, ", "))
@@ -372,7 +402,16 @@ func readRegistryValue(k registry.Key, name string) (string, error) {
 
 // adapterAddresses returns the adapter list including DNS servers. The call
 // reports the size it needs, so grow the buffer and retry until it fits.
-func adapterAddresses() ([]*windows.IpAdapterAddresses, error) {
+func adapterAddresses() (adapters []*windows.IpAdapterAddresses, err error) {
+	// GetAdaptersAddresses is resolved on first use and panics when it is
+	// missing, so this reports it as an error and leaves the rest of the
+	// report intact.
+	defer func() {
+		if r := recover(); r != nil {
+			adapters, err = nil, fmt.Errorf("GetAdaptersAddresses: %v", r)
+		}
+	}()
+
 	const flags = windows.GAA_FLAG_SKIP_ANYCAST | windows.GAA_FLAG_SKIP_MULTICAST
 
 	size := uint32(15000)
@@ -388,7 +427,6 @@ func adapterAddresses() ([]*windows.IpAdapterAddresses, error) {
 			return nil, fmt.Errorf("GetAdaptersAddresses: %w", err)
 		}
 
-		var adapters []*windows.IpAdapterAddresses
 		for adapter := first; adapter != nil; adapter = adapter.Next {
 			adapters = append(adapters, adapter)
 		}
