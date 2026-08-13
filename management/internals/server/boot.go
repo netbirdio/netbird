@@ -5,6 +5,7 @@ package server
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"net/http"
 	"net/netip"
 	"slices"
@@ -111,7 +112,10 @@ func (s *BaseServer) NetworkMapStore() *networkmapdb.NetworkMapDBStoreImpl {
 			s.Config.Datadir,
 			s.IntegratedValidator(),
 			s.SettingsManager())
-		if err != nil {
+		// networkmap db store supports postgres and sqlite backends only
+		// for other backends a fallback is used, so NotSupportedStoreEngineError
+		// is not a fatal error
+		if err != nil && !errors.Is(err, networkmapdbfactory.NotSupportedStoreEngineError) {
 			log.Fatalf("failed to create network map store: %v", err)
 		}
 		return store
