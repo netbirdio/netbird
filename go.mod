@@ -57,6 +57,7 @@ require (
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/gliderlabs/ssh v0.3.8
 	github.com/go-jose/go-jose/v4 v4.1.4
+	github.com/go-ole/go-ole v1.3.0
 	github.com/gobwas/ws v1.4.0
 	github.com/goccy/go-yaml v1.18.0
 	github.com/godbus/dbus/v5 v5.2.2
@@ -199,7 +200,6 @@ require (
 	github.com/go-ldap/ldap/v3 v3.4.13 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/go-openapi/analysis v0.23.0 // indirect
 	github.com/go-openapi/errors v0.22.2 // indirect
 	github.com/go-openapi/jsonpointer v0.21.1 // indirect

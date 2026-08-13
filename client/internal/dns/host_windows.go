@@ -31,10 +31,28 @@ var (
 	dnsFlushResolverCacheFn = dnsapi.NewProc("DnsFlushResolverCache")
 )
 
+// Registry locations of the host DNS configuration this package programs,
+// exported so a diagnostic reader reports the same locations that are written.
 const (
-	dnsPolicyConfigMatchPath    = `SYSTEM\CurrentControlSet\Services\Dnscache\Parameters\DnsPolicyConfig\NetBird-Match`
-	gpoDnsPolicyRoot            = `SOFTWARE\Policies\Microsoft\Windows NT\DNSClient\DnsPolicyConfig`
-	gpoDnsPolicyConfigMatchPath = gpoDnsPolicyRoot + `\NetBird-Match`
+	// NRPTKeyPrefix starts the name of every NRPT rule key this client creates.
+	NRPTKeyPrefix = "NetBird-Match"
+
+	// DNSPolicyConfigRoot holds the NRPT rules of the local policy store.
+	DNSPolicyConfigRoot = `SYSTEM\CurrentControlSet\Services\Dnscache\Parameters\DnsPolicyConfig`
+
+	// GPODNSPolicyConfigRoot holds the NRPT rules of the group policy store,
+	// which takes precedence over the local one when it is present.
+	GPODNSPolicyConfigRoot = `SOFTWARE\Policies\Microsoft\Windows NT\DNSClient\DnsPolicyConfig`
+
+	// InterfaceConfigPath and InterfaceConfigPathV6 hold the per-interface DNS
+	// settings, keyed by interface GUID, in separate hives per address family.
+	InterfaceConfigPath   = `SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces`
+	InterfaceConfigPathV6 = `SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters\Interfaces`
+)
+
+const (
+	dnsPolicyConfigMatchPath    = DNSPolicyConfigRoot + `\` + NRPTKeyPrefix
+	gpoDnsPolicyConfigMatchPath = GPODNSPolicyConfigRoot + `\` + NRPTKeyPrefix
 
 	dnsPolicyConfigVersionKey           = "Version"
 	dnsPolicyConfigVersionValue         = 2
@@ -45,8 +63,6 @@ const (
 
 	nrptMaxDomainsPerRule = 50
 
-	interfaceConfigPath           = `SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces`
-	interfaceConfigPathV6         = `SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters\Interfaces`
 	interfaceConfigNameServerKey  = "NameServer"
 	interfaceConfigDhcpNameSrvKey = "DhcpNameServer"
 	interfaceConfigSearchListKey  = "SearchList"
@@ -84,7 +100,7 @@ func newHostManager(wgInterface WGIface) (*registryConfigurator, error) {
 	}
 
 	var useGPO bool
-	k, err := registry.OpenKey(registry.LOCAL_MACHINE, gpoDnsPolicyRoot, registry.QUERY_VALUE)
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, GPODNSPolicyConfigRoot, registry.QUERY_VALUE)
 	if err != nil {
 		log.Debugf("failed to open GPO DNS policy root: %v", err)
 	} else {
@@ -123,7 +139,7 @@ func (r *registryConfigurator) captureOriginalNameservers() ([]netip.Addr, error
 	seen := make(map[netip.Addr]struct{})
 	var out []netip.Addr
 	var merr *multierror.Error
-	for _, root := range []string{interfaceConfigPath, interfaceConfigPathV6} {
+	for _, root := range []string{InterfaceConfigPath, InterfaceConfigPathV6} {
 		addrs, err := r.captureFromTcpipRoot(root)
 		if err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("%s: %w", root, err))
@@ -496,7 +512,7 @@ func (r *registryConfigurator) deleteInterfaceRegistryKeyProperty(propertyKey st
 }
 
 func (r *registryConfigurator) getInterfaceRegistryKey() (registry.Key, error) {
-	regKeyPath := interfaceConfigPath + "\\" + r.guid
+	regKeyPath := InterfaceConfigPath + "\\" + r.guid
 	regKey, err := registry.OpenKey(registry.LOCAL_MACHINE, regKeyPath, registry.SET_VALUE)
 	if err != nil {
 		return regKey, fmt.Errorf("open HKEY_LOCAL_MACHINE\\%s: %w", regKeyPath, err)
