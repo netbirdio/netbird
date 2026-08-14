@@ -55,11 +55,18 @@ func requireUsableIPv6Nexthop(t *testing.T) {
 		t.Skipf("resolve IPv6 default nexthop: %v", err)
 	}
 
-	probe := netip.MustParsePrefix("100::64/128")
-	switch err := addRoute(probe, nexthop, syscall.RT_TABLE_MAIN); {
+	probe := &netlink.Route{
+		Scope:  netlink.SCOPE_UNIVERSE,
+		Table:  syscall.RT_TABLE_MAIN,
+		Family: netlink.FAMILY_V6,
+		Dst:    &net.IPNet{IP: net.ParseIP("100::64"), Mask: net.CIDRMask(128, 128)},
+	}
+	require.NoError(t, addNextHop(nexthop, probe), "build IPv6 probe route")
+
+	switch err := netlink.RouteAdd(probe); {
 	case err == nil:
-		if err := removeRoute(probe, nexthop, syscall.RT_TABLE_MAIN); err != nil {
-			t.Logf("remove IPv6 probe route: %v", err)
+		if err := netlink.RouteDel(probe); err != nil && !errors.Is(err, syscall.ESRCH) {
+			t.Logf("delete IPv6 probe route: %v", err)
 		}
 	case errors.Is(err, syscall.EEXIST):
 	default:
