@@ -274,7 +274,8 @@ detect_postgres_depends_condition() {
 
 # Compose interpolates .env values, so a literal $ has to be written as $$.
 env_value() {
-  printf '%s' "$1" | sed 's/\$/$$/g'
+  local value="$1"
+  printf '%s' "$value" | sed 's/\$/$$/g'
 }
 
 detect_compose_network() {
