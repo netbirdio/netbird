@@ -21,6 +21,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
@@ -520,7 +521,7 @@ func (c *Client) VerifySSHHostKey(peerAddress string, key []byte) error {
 		return err
 	}
 
-	return engine.VerifySSHHostKey(peerAddress, key)
+	return nbssh.PeerKeyLookup(engine.GetPeerSSHKey).VerifySSHHostKey(peerAddress, key)
 }
 
 // SetPerformance retunes a running Client. Only PreallocatedBuffersPerPool

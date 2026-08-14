@@ -34,6 +34,19 @@ type HostKeyVerifier interface {
 	VerifySSHHostKey(peerAddress string, key []byte) error
 }
 
+// PeerKeyLookup returns the stored SSH host key for a peer address.
+type PeerKeyLookup func(peerAddress string) ([]byte, bool)
+
+// VerifySSHHostKey implements HostKeyVerifier by looking up the stored key
+// and comparing it against the presented key.
+func (l PeerKeyLookup) VerifySSHHostKey(peerAddress string, presentedKey []byte) error {
+	storedKey, found := l(peerAddress)
+	if !found {
+		return ErrPeerNotFound
+	}
+	return VerifyHostKey(storedKey, presentedKey, peerAddress)
+}
+
 // DaemonHostKeyVerifier implements HostKeyVerifier using the NetBird daemon
 type DaemonHostKeyVerifier struct {
 	client proto.DaemonServiceClient
@@ -193,4 +206,3 @@ func buildAddressList(hostname string, remote net.Addr) []string {
 	}
 	return addresses
 }
-

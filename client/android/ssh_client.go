@@ -355,7 +355,7 @@ func (s *SSHClient) buildAuth(cfg *profilemanager.Config, engine *internal.Engin
 			return nil, nil, fmt.Errorf("jwt: %w", err)
 		}
 		auths := []gossh.AuthMethod{gossh.Password(token)}
-		return auths, nbssh.CreateHostKeyCallback(engine), nil
+		return auths, nbssh.CreateHostKeyCallback(nbssh.PeerKeyLookup(engine.GetPeerSSHKey)), nil
 
 	case detection.ServerTypeNetBirdNoJWT:
 		if cfg.SSHKey == "" {
@@ -366,7 +366,7 @@ func (s *SSHClient) buildAuth(cfg *profilemanager.Config, engine *internal.Engin
 			return nil, nil, fmt.Errorf("parse netbird ssh key: %w", err)
 		}
 		auths := []gossh.AuthMethod{gossh.PublicKeys(signer)}
-		return auths, nbssh.CreateHostKeyCallback(engine), nil
+		return auths, nbssh.CreateHostKeyCallback(nbssh.PeerKeyLookup(engine.GetPeerSSHKey)), nil
 
 	case detection.ServerTypeRegular:
 		var auths []gossh.AuthMethod

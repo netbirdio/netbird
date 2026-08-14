@@ -12,7 +12,6 @@ import (
 	firewallManager "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface/netstack"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
-	nbssh "github.com/netbirdio/netbird/client/ssh"
 	sshauth "github.com/netbirdio/netbird/client/ssh/auth"
 	sshconfig "github.com/netbirdio/netbird/client/ssh/config"
 	sshserver "github.com/netbirdio/netbird/client/ssh/server"
@@ -215,16 +214,6 @@ func (e *Engine) GetPeerSSHKey(peerAddress string) ([]byte, bool) {
 	}
 
 	return nil, false
-}
-
-// VerifySSHHostKey verifies a presented SSH host key against the stored key of
-// the peer at peerAddress. It implements ssh.HostKeyVerifier.
-func (e *Engine) VerifySSHHostKey(peerAddress string, presentedKey []byte) error {
-	storedKey, found := e.GetPeerSSHKey(peerAddress)
-	if !found {
-		return nbssh.ErrPeerNotFound
-	}
-	return nbssh.VerifyHostKey(storedKey, presentedKey, peerAddress)
 }
 
 // cleanupSSHConfig removes NetBird SSH client configuration on shutdown
