@@ -43,6 +43,16 @@ type ProxyServiceClient interface {
 	// issue a session cookie without redirecting through the OIDC flow.
 	// Mirrors ValidateSession's response shape.
 	ValidateTunnelPeer(ctx context.Context, in *ValidateTunnelPeerRequest, opts ...grpc.CallOption) (*ValidateTunnelPeerResponse, error)
+	// CheckLLMPolicyLimits is the pre-flight RPC the proxy calls before each
+	// LLM request. Management runs the per-policy headroom selection across
+	// every policy authorising the caller's user / groups for the resolved
+	// provider and returns the chosen attribution policy + group, or a deny
+	// when no applicable policy has headroom > 0.
+	CheckLLMPolicyLimits(ctx context.Context, in *CheckLLMPolicyLimitsRequest, opts ...grpc.CallOption) (*CheckLLMPolicyLimitsResponse, error)
+	// RecordLLMUsage is the post-flight RPC the proxy calls after the upstream
+	// returns. Increments the per-(dimension, window) counters for the
+	// attribution policy chosen by CheckLLMPolicyLimits.
+	RecordLLMUsage(ctx context.Context, in *RecordLLMUsageRequest, opts ...grpc.CallOption) (*RecordLLMUsageResponse, error)
 }
 
 type proxyServiceClient struct {
@@ -179,6 +189,24 @@ func (c *proxyServiceClient) ValidateTunnelPeer(ctx context.Context, in *Validat
 	return out, nil
 }
 
+func (c *proxyServiceClient) CheckLLMPolicyLimits(ctx context.Context, in *CheckLLMPolicyLimitsRequest, opts ...grpc.CallOption) (*CheckLLMPolicyLimitsResponse, error) {
+	out := new(CheckLLMPolicyLimitsResponse)
+	err := c.cc.Invoke(ctx, "/management.ProxyService/CheckLLMPolicyLimits", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *proxyServiceClient) RecordLLMUsage(ctx context.Context, in *RecordLLMUsageRequest, opts ...grpc.CallOption) (*RecordLLMUsageResponse, error) {
+	out := new(RecordLLMUsageResponse)
+	err := c.cc.Invoke(ctx, "/management.ProxyService/RecordLLMUsage", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ProxyServiceServer is the server API for ProxyService service.
 // All implementations must embed UnimplementedProxyServiceServer
 // for forward compatibility
@@ -208,6 +236,16 @@ type ProxyServiceServer interface {
 	// issue a session cookie without redirecting through the OIDC flow.
 	// Mirrors ValidateSession's response shape.
 	ValidateTunnelPeer(context.Context, *ValidateTunnelPeerRequest) (*ValidateTunnelPeerResponse, error)
+	// CheckLLMPolicyLimits is the pre-flight RPC the proxy calls before each
+	// LLM request. Management runs the per-policy headroom selection across
+	// every policy authorising the caller's user / groups for the resolved
+	// provider and returns the chosen attribution policy + group, or a deny
+	// when no applicable policy has headroom > 0.
+	CheckLLMPolicyLimits(context.Context, *CheckLLMPolicyLimitsRequest) (*CheckLLMPolicyLimitsResponse, error)
+	// RecordLLMUsage is the post-flight RPC the proxy calls after the upstream
+	// returns. Increments the per-(dimension, window) counters for the
+	// attribution policy chosen by CheckLLMPolicyLimits.
+	RecordLLMUsage(context.Context, *RecordLLMUsageRequest) (*RecordLLMUsageResponse, error)
 	mustEmbedUnimplementedProxyServiceServer()
 }
 
@@ -241,6 +279,12 @@ func (UnimplementedProxyServiceServer) ValidateSession(context.Context, *Validat
 }
 func (UnimplementedProxyServiceServer) ValidateTunnelPeer(context.Context, *ValidateTunnelPeerRequest) (*ValidateTunnelPeerResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ValidateTunnelPeer not implemented")
+}
+func (UnimplementedProxyServiceServer) CheckLLMPolicyLimits(context.Context, *CheckLLMPolicyLimitsRequest) (*CheckLLMPolicyLimitsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CheckLLMPolicyLimits not implemented")
+}
+func (UnimplementedProxyServiceServer) RecordLLMUsage(context.Context, *RecordLLMUsageRequest) (*RecordLLMUsageResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RecordLLMUsage not implemented")
 }
 func (UnimplementedProxyServiceServer) mustEmbedUnimplementedProxyServiceServer() {}
 
@@ -428,6 +472,42 @@ func _ProxyService_ValidateTunnelPeer_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ProxyService_CheckLLMPolicyLimits_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CheckLLMPolicyLimitsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProxyServiceServer).CheckLLMPolicyLimits(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/management.ProxyService/CheckLLMPolicyLimits",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProxyServiceServer).CheckLLMPolicyLimits(ctx, req.(*CheckLLMPolicyLimitsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProxyService_RecordLLMUsage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RecordLLMUsageRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProxyServiceServer).RecordLLMUsage(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/management.ProxyService/RecordLLMUsage",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProxyServiceServer).RecordLLMUsage(ctx, req.(*RecordLLMUsageRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ProxyService_ServiceDesc is the grpc.ServiceDesc for ProxyService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -462,6 +542,14 @@ var ProxyService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ValidateTunnelPeer",
 			Handler:    _ProxyService_ValidateTunnelPeer_Handler,
+		},
+		{
+			MethodName: "CheckLLMPolicyLimits",
+			Handler:    _ProxyService_CheckLLMPolicyLimits_Handler,
+		},
+		{
+			MethodName: "RecordLLMUsage",
+			Handler:    _ProxyService_RecordLLMUsage_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

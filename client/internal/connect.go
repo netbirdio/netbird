@@ -11,6 +11,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -26,12 +27,14 @@ import (
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/internal/dns"
+	"github.com/netbirdio/netbird/client/internal/lazyconn"
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/metrics"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
+	"github.com/netbirdio/netbird/client/internal/tunnelnotifier"
 	"github.com/netbirdio/netbird/client/internal/updater"
 	"github.com/netbirdio/netbird/client/internal/updater/installer"
 	nbnet "github.com/netbirdio/netbird/client/net"
@@ -54,6 +57,10 @@ var androidRunOverride func(c *ConnectClient, runningChan chan struct{}, logPath
 
 type ConnectClient struct {
 	ctx            context.Context
+	runCancel      context.CancelFunc
+	runExited      chan struct{}
+	runOnce        sync.Once
+	runStarted     atomic.Bool
 	config         *profilemanager.Config
 	statusRecorder *peer.Status
 
@@ -70,8 +77,14 @@ func NewConnectClient(
 	config *profilemanager.Config,
 	statusRecorder *peer.Status,
 ) *ConnectClient {
+	// Derive the run context here so Stop owns the cancel that unblocks the run
+	// loop. runCancel is set once at construction, so Stop can call it without
+	// racing the run loop's startup. Callers therefore need not cancel before Stop.
+	runCtx, runCancel := context.WithCancel(ctx)
 	return &ConnectClient{
-		ctx:            ctx,
+		ctx:            runCtx,
+		runCancel:      runCancel,
+		runExited:      make(chan struct{}),
 		config:         config,
 		statusRecorder: statusRecorder,
 		engineMutex:    sync.Mutex{},
@@ -100,11 +113,14 @@ func (c *ConnectClient) RunOnAndroid(
 	stateFilePath string,
 	cacheDir string,
 ) error {
+	notifier := tunnelnotifier.New(networkChangeListener, nil)
+	defer notifier.Close()
+
 	// in case of non Android os these variables will be nil
 	mobileDependency := MobileDependency{
 		TunAdapter:            tunAdapter,
 		IFaceDiscover:         iFaceDiscover,
-		NetworkChangeListener: networkChangeListener,
+		NetworkChangeListener: notifier,
 		HostDNSAddresses:      dnsAddresses,
 		DnsReadyListener:      dnsReadyListener,
 		StateFilePath:         stateFilePath,
@@ -118,20 +134,31 @@ func (c *ConnectClient) RunOniOS(
 	networkChangeListener listener.NetworkChangeListener,
 	dnsManager dns.IosDnsManager,
 	stateFilePath string,
+	cacheDir string,
+	logFilePath string,
 ) error {
 	// Set GC percent to 5% to reduce memory usage as iOS only allows 50MB of memory for the extension.
 	debug.SetGCPercent(5)
 
+	notifier := tunnelnotifier.New(networkChangeListener, dnsManager)
+	defer notifier.Close()
+
 	mobileDependency := MobileDependency{
 		FileDescriptor:        fileDescriptor,
-		NetworkChangeListener: networkChangeListener,
-		DnsManager:            dnsManager,
+		NetworkChangeListener: notifier,
+		DnsManager:            notifier,
 		StateFilePath:         stateFilePath,
+		TempDir:               cacheDir,
 	}
-	return c.run(mobileDependency, nil, "")
+	return c.run(mobileDependency, nil, logFilePath)
 }
 
 func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan struct{}, logPath string) error {
+	// Mark the loop as started and signal exit on return so Stop can wait for
+	// the loop to finish (and skip the wait if the loop never ran).
+	c.runStarted.Store(true)
+	defer c.runOnce.Do(func() { close(c.runExited) })
+
 	defer func() {
 		if r := recover(); r != nil {
 			rec := c.statusRecorder
@@ -237,7 +264,10 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		log.Errorf("failed to clean up temporary installer file: %v", err)
 	}
 
-	defer c.statusRecorder.ClientStop()
+	defer func() {
+		c.statusRecorder.SetSessionExpiresAt(time.Time{})
+		c.statusRecorder.ClientStop()
+	}()
 	operation := func() error {
 		// if context cancelled we not start new backoff cycle
 		if c.ctx.Err() != nil {
@@ -257,6 +287,15 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		log.Debugf("connecting to the Management service %s", c.config.ManagementURL.Host)
 		mgmClient, err := mgm.NewClient(engineCtx, c.config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled)
 		if err != nil {
+			// On daemon shutdown / Down() the parent context is cancelled
+			// and the dial fails with "context canceled". Wrapping that
+			// into state would leave the snapshot stuck at Connecting+err
+			// until the backoff loop wakes up — instead let the operation
+			// return cleanly so the deferred state.Set(StatusIdle) takes
+			// effect on the next iteration.
+			if c.ctx.Err() != nil {
+				return nil
+			}
 			return wrapErr(gstatus.Errorf(codes.FailedPrecondition, "failed connecting to Management Service : %s", err))
 		}
 		mgmNotifier := statusRecorderToMgmConnStateNotifier(c.statusRecorder)
@@ -287,13 +326,17 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			log.Debug(err)
 			if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.PermissionDenied) {
 				state.Set(StatusNeedsLogin)
-				_ = c.Stop()
+				c.runCancel()
 				return backoff.Permanent(wrapErr(err)) // unrecoverable error
 			}
 			return wrapErr(err)
 		}
 		c.clientMetrics.RecordLoginDuration(engineCtx, time.Since(loginStarted), true)
 		c.statusRecorder.MarkManagementConnected()
+
+		if metricsConfig := loginResp.GetNetbirdConfig().GetMetrics(); metricsConfig != nil {
+			c.clientMetrics.UpdatePushFromMgm(c.ctx, metricsConfig.GetEnabled())
+		}
 
 		localPeerState := peer.LocalPeerState{
 			IP:              loginResp.GetPeerConfig().GetAddress(),
@@ -380,6 +423,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			StateManager:   stateManager,
 			UpdateManager:  c.updateManager,
 			ClientMetrics:  c.clientMetrics,
+			MetricsCtx:     c.ctx,
 		}, mobileDependency)
 		engine.SetSyncResponsePersistence(c.persistSyncResponse)
 		c.engine = engine
@@ -389,6 +433,10 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			log.Errorf("error while starting Netbird Connection Engine: %s", err)
 			return wrapErr(err)
 		}
+
+		// Seed the session-expiry deadline from the LoginResponse. Subsequent
+		// changes flow in through SyncResponse and are applied in handleSync.
+		engine.ApplySessionDeadline(loginResp.GetSessionExpiresAt())
 
 		log.Infof("Netbird engine started, the IP is: %s", peerConfig.GetAddress())
 		state.Set(StatusConnected)
@@ -407,14 +455,10 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		c.engine = nil
 		c.engineMutex.Unlock()
 
-		// todo: consider to remove this condition. Is not thread safe.
-		// We should always call Stop(), but we need to verify that it is idempotent
-		if engine.wgInterface != nil {
-			log.Infof("ensuring %s is removed, Netbird engine context cancelled", engine.wgInterface.Name())
+		log.Infof("ensuring wg interface is removed, Netbird engine context cancelled")
 
-			if err := engine.Stop(); err != nil {
-				log.Errorf("Failed to stop engine: %v", err)
-			}
+		if err := engine.Stop(); err != nil {
+			log.Errorf("Failed to stop engine: %v", err)
 		}
 		c.statusRecorder.ClientTeardown()
 
@@ -430,12 +474,16 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 	}
 
 	c.statusRecorder.ClientStart()
-	err = backoff.Retry(operation, backOff)
+	// Wrap the backoff with c.ctx so Down()/actCancel propagates into the
+	// inter-attempt sleep — otherwise a 15s MaxInterval can keep the retry
+	// loop alive long after the caller asked to give up, leaving the
+	// status stream stuck at Connecting.
+	err = backoff.Retry(operation, backoff.WithContext(backOff, c.ctx))
 	if err != nil {
 		log.Debugf("exiting client retry loop due to unrecoverable error: %s", err)
 		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.PermissionDenied) {
 			state.Set(StatusNeedsLogin)
-			_ = c.Stop()
+			c.runCancel()
 		}
 		return err
 	}
@@ -513,11 +561,9 @@ func (c *ConnectClient) Status() StatusType {
 }
 
 func (c *ConnectClient) Stop() error {
-	engine := c.Engine()
-	if engine != nil {
-		if err := engine.Stop(); err != nil {
-			return fmt.Errorf("stop engine: %w", err)
-		}
+	c.runCancel()
+	if c.runStarted.Load() {
+		<-c.runExited
 	}
 	return nil
 }
@@ -582,8 +628,9 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 		BlockLANAccess:      config.BlockLANAccess,
 		BlockInbound:        config.BlockInbound,
 		DisableIPv6:         config.DisableIPv6,
+		SyncMessageVersion:  config.SyncMessageVersion,
 
-		LazyConnectionEnabled: config.LazyConnectionEnabled,
+		LazyConnection: lazyconn.ParseState(config.LazyConnection),
 
 		MTU:     selectMTU(config.MTU, peerConfig.Mtu),
 		LogPath: logPath,
@@ -657,7 +704,7 @@ func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte,
 		config.BlockLANAccess,
 		config.BlockInbound,
 		config.DisableIPv6,
-		config.LazyConnectionEnabled,
+		config.SyncMessageVersion,
 		config.EnableSSHRoot,
 		config.EnableSSHSFTP,
 		config.EnableSSHLocalPortForwarding,

@@ -19,9 +19,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/proxy/auth"
+	"github.com/netbirdio/netbird/proxy/internal/middleware"
 	"github.com/netbirdio/netbird/proxy/internal/roundtrip"
 	"github.com/netbirdio/netbird/proxy/internal/types"
 	"github.com/netbirdio/netbird/proxy/web"
+	"github.com/netbirdio/netbird/trustedproxy"
 )
 
 func TestRewriteFunc_HostRewriting(t *testing.T) {
@@ -301,7 +303,7 @@ func TestExtractHostIP(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, extractHostIP(tt.remoteAddr))
+			assert.Equal(t, tt.expected, trustedproxy.ExtractHostIP(tt.remoteAddr))
 		})
 	}
 }
@@ -329,7 +331,7 @@ func TestExtractForwardedPort(t *testing.T) {
 
 func TestRewriteFunc_TrustedProxy(t *testing.T) {
 	target, _ := url.Parse("http://backend.internal:8080")
-	trusted := []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
+	trusted := trustedproxy.FromPrefixes([]netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")})
 
 	t.Run("appends to X-Forwarded-For", func(t *testing.T) {
 		p := &ReverseProxy{forwardedProto: "auto", trustedProxies: trusted}
@@ -1406,4 +1408,46 @@ func TestStampNetBirdIdentity_CapturedDataPresentButEmpty(t *testing.T) {
 		"X-NetBird-User must be stripped when CapturedData has no email")
 	assert.Empty(t, pr.Out.Header.Get(headerNetBirdGroups),
 		"X-NetBird-Groups must be stripped when CapturedData has no groups")
+}
+
+// TestBuildRequestInput_PropagatesIdentityAndGroups locks the final wiring link
+// between auth and the middleware chain: CapturedData identity (user, groups,
+// auth method, client IP) and the target's AgentNetwork flag must land on the
+// middleware Input the chain runs against. If UserGroups stops flowing here,
+// llm_router denies every request with no_authorised_provider.
+func TestBuildRequestInput_PropagatesIdentityAndGroups(t *testing.T) {
+	cd := NewCapturedData("req-123")
+	cd.SetUserID("user-1")
+	cd.SetUserEmail("user@example.com")
+	cd.SetUserGroups([]string{"grp-admins", "grp-users"})
+	cd.SetUserGroupNames([]string{"Admins", "Users"})
+	cd.SetAuthMethod("oidc")
+	cd.SetClientIP(netip.MustParseAddr("100.90.1.14"))
+
+	r := httptest.NewRequest(http.MethodPost, "http://agent.example.com/v1/chat/completions", nil)
+	r.Header.Set("Content-Type", "application/json")
+
+	result := targetResult{
+		target:      &PathTarget{AgentNetwork: true},
+		matchedPath: "/",
+		serviceID:   types.ServiceID("svc-1"),
+		accountID:   types.AccountID("acct-1"),
+	}
+
+	body := []byte(`{"model":"gpt-5.4"}`)
+	in := buildRequestInput(r, result, cd, body, false, int64(len(body)))
+
+	require.NotNil(t, in, "buildRequestInput must return an envelope")
+	assert.Equal(t, middleware.SlotOnRequest, in.Slot, "request input runs in the on-request slot")
+	assert.Equal(t, "svc-1", in.ServiceID, "service id must propagate")
+	assert.Equal(t, "acct-1", in.AccountID, "account id must propagate")
+	assert.Equal(t, "user-1", in.UserID, "user id must propagate")
+	assert.Equal(t, "user@example.com", in.UserEmail, "user email must propagate")
+	assert.Equal(t, []string{"grp-admins", "grp-users"}, in.UserGroups,
+		"CapturedData groups MUST reach the middleware Input — llm_router authorises against this")
+	assert.Equal(t, []string{"Admins", "Users"}, in.UserGroupNames, "group names must propagate")
+	assert.Equal(t, "oidc", in.AuthMethod, "auth method must propagate")
+	assert.Equal(t, "100.90.1.14", in.SourceIP, "client IP must propagate")
+	assert.True(t, in.AgentNetwork, "agent-network target flag must reach the Input")
+	assert.Equal(t, body, in.Body, "captured body must reach the Input")
 }

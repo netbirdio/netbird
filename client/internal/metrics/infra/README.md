@@ -56,13 +56,32 @@ Measurement: `netbird_peer_connection`
 
 Tags:
 - `deployment_type`: "cloud" | "selfhosted" | "unknown"
-- `connection_type`: "ice" | "relay"
+- `connection_type`: "ice_p2p" | "ice_turn" | "relay" (see below)
 - `attempt_type`: "initial" | "reconnection"
 - `version`: NetBird version string
 - `os`: Operating system (linux, darwin, windows, android, ios, etc.)
 - `arch`: CPU architecture (amd64, arm64, etc.)
+- `peer_id`: anonymised peer identifier (truncated SHA-256 of the WireGuard public key)
+- `connection_pair_id`: deterministic identifier for the peer pair, identical on both sides
 
 **Note:** `SignalingReceived` is set when the first offer or answer arrives from the remote peer (in both initial and reconnection paths). It excludes the potentially unbounded wait for the remote peer to come online.
+
+#### `connection_type` values
+
+Derived from the connection priority (`conntype.ConnPriority`) by `metricsConnType` in `client/internal/peer/conn.go`:
+
+| Value | Priority | Traffic is |
+|-------|----------|------------|
+| `ice_p2p` | `ICEP2P` | direct peer-to-peer |
+| `ice_turn` | `ICETurn` | relayed, through a TURN server |
+| `relay` | `Relay` | relayed, through a NetBird relay |
+| `unknown` | `None` or unrecognised | no active transport — **the sample is not pushed** |
+
+**Direct traffic is `ice_p2p` only.** `ice_turn` is relayed despite being negotiated by ICE, matching `Conn.isRelayed`.
+
+`None` means no transport is active: not established yet, or reset after a relay drop or a peer-state reset. Such a sample cannot be attributed to a transport, so `recordConnectionMetrics` drops it instead of pushing it — `unknown` therefore never appears in the bucket. Connection counts are counts of connections whose transport was known at sampling time.
+
+**Samples recorded before 0.77 used a single `ice` value** which covered `ICEP2P`, `ICETurn` *and* `None`, so historical `ice` samples overstate direct connections by an unknown amount and must not be compared with `ice_p2p`.
 
 ### Sync Duration
 
@@ -77,6 +96,25 @@ Tags:
 - `version`: NetBird version string
 - `os`: Operating system (linux, darwin, windows, android, ios, etc.)
 - `arch`: CPU architecture (amd64, arm64, etc.)
+
+### Sync Phase Timing
+
+Measurement: `netbird_sync_phase`
+
+Breaks down where time goes inside a single sync, so the total `netbird_sync` duration can be attributed to the sub-step that dominates.
+
+| Field | Description |
+|-------|-------------|
+| `duration_seconds` | Time spent in one sub-phase of sync processing |
+
+Tags:
+- `phase`: the sub-phase — `netbird_config`, `checks`, `persist`, `dns_server`, `routes_classify`, `routes_apply`, `filtering`, `dns_forwarder`, `forward_rules`, `offline_peers`, `removed_peers`, `modified_peers`, `added_peers`, `lazy_exclude`
+- `deployment_type`: "cloud" | "selfhosted" | "unknown"
+- `version`: NetBird version string
+- `os`: Operating system (linux, darwin, windows, android, ios, etc.)
+- `arch`: CPU architecture (amd64, arm64, etc.)
+
+**Note:** this is wall-time per phase — it includes both CPU work and time spent waiting on locks. A slow phase points to *where* the time goes, not *why*; pair it with lock-wait metrics to tell contention apart from real work.
 
 ### Login Duration
 
@@ -192,3 +230,51 @@ docker compose exec influxdb influx query \
 # Check ingest server health
 curl http://localhost:8087/health
 ```
+
+## Analyzing a Debug Bundle
+
+Metrics collection is always on, so every debug bundle ships a `metrics.txt` in InfluxDB line protocol — a timestamped time series of all recorded events (sync durations, sync phases, connection stages, login). You can replay it into the local stack and graph it, without a running client.
+
+The bundle's `metrics.txt` is a rolling window (capped at 5 days / ~20k samples, see [Buffer Limits](#buffer-limits)). For a connection incident the relevant window is short (connection setup is seconds), so a bundle captured during the issue is enough.
+
+### 1. Start the stack
+
+```bash
+# From this directory (client/internal/metrics/infra)
+INFLUXDB_ADMIN_TOKEN=admin123 INFLUXDB_ADMIN_PASSWORD=admin123 GRAFANA_ADMIN_PASSWORD=admin123 \
+  docker compose up -d
+```
+
+(`admin123` are throwaway local credentials — fine for offline analysis.)
+
+### 2. Clear any previous data
+
+So you only see this bundle:
+
+```bash
+docker exec influxdb influx delete --org netbird --bucket metrics --token admin123 \
+  --start 1970-01-01T00:00:00Z --stop 2100-01-01T00:00:00Z
+```
+
+### 3. Import the bundle's metrics.txt
+
+InfluxDB is not exposed on the host, so import inside the container:
+
+```bash
+docker cp /path/to/bundle/metrics.txt influxdb:/tmp/m.txt
+docker exec influxdb influx write --org netbird --bucket metrics --precision ns \
+  --token admin123 --file /tmp/m.txt
+```
+
+Re-importing the same file is idempotent (same measurement+tags+timestamp overwrites).
+
+### 4. View the dashboards
+
+Grafana on http://localhost:3001 (login `admin` / `admin123`), datasource pre-provisioned:
+
+- **Where sync time goes:** http://localhost:3001/d/netbird-sync-phases/netbird-sync-phases-where-time-goes
+- **General client metrics:** http://localhost:3001/d/netbird-influxdb-metrics
+
+**Set the time range** to cover the bundle's timestamps (e.g. "Last 7 days" or an absolute range matching when the bundle was taken) — with the default short range the panels look empty.
+
+Bundles are distinguishable by the `version` tag; add a tag at import time (e.g. `sed 's/^netbird_\([a-z_]*\),/netbird_\1,bundle=mycase,/' metrics.txt`) if you want to compare several side by side.

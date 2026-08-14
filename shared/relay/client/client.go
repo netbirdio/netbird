@@ -145,6 +145,11 @@ func (cc *connContainer) close() {
 	}
 }
 
+// transportConn is implemented by relay connections that know their transport.
+type transportConn interface {
+	Protocol() string
+}
+
 // Client is a client for the relay server. It is responsible for establishing a connection to the relay server and
 // managing connections to other peers. All exported functions are safe to call concurrently. After close the connection,
 // the client can be reused by calling Connect again. When the client is closed, all connections are closed too.
@@ -182,6 +187,18 @@ type Client struct {
 	// datagramFallbackTriggered guards a single fallback per connection so a
 	// burst of oversized datagrams triggers one reconnect, not many.
 	datagramFallbackTriggered atomic.Bool
+
+	// transport is the negotiated relay transport of the
+	// current connection, guarded by mu.
+	transport string
+}
+
+// Transport returns the negotiated relay transport of the current connection,
+// or an empty string when not connected.
+func (c *Client) Transport() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.transport
 }
 
 // SetTransportFallback wires the shared datagram-transport fallback tracker.
@@ -402,6 +419,9 @@ func (c *Client) connect(ctx context.Context) (*RelayAddr, error) {
 	}
 	c.relayConn = conn
 	c.datagramFallbackTriggered.Store(false)
+	if tc, ok := conn.(transportConn); ok {
+		c.transport = tc.Protocol()
+	}
 
 	instanceURL, err := c.handShake(ctx)
 	if err != nil {
@@ -792,6 +812,7 @@ func (c *Client) close(gracefullyExit bool) error {
 		return nil
 	}
 	c.serviceIsRunning = false
+	c.transport = ""
 
 	c.muInstanceURL.Lock()
 	c.instanceURL = nil

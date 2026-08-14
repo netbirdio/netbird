@@ -20,6 +20,7 @@ type RoutesSelectionInfo struct {
 	Network  string
 	Domains  *DomainDetails
 	Selected bool
+	Status   string
 }
 
 type DomainCollection interface {

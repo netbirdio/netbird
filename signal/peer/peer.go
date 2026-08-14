@@ -26,11 +26,22 @@ type Peer struct {
 
 	// a gRpc connection stream to the Peer
 	Stream proto.SignalExchange_ConnectStreamServer
+	// sendMu serializes writes to Stream. gRPC forbids concurrent SendMsg on
+	// the same ServerStream, and a peer can be the target of many senders at
+	// once.
+	sendMu sync.Mutex
 
 	// registration time
 	RegisteredAt time.Time
 
 	Cancel context.CancelFunc
+}
+
+// Send writes a message to the peer's stream, serializing concurrent senders.
+func (p *Peer) Send(msg *proto.EncryptedMessage) error {
+	p.sendMu.Lock()
+	defer p.sendMu.Unlock()
+	return p.Stream.Send(msg)
 }
 
 // NewPeer creates a new instance of a connected Peer

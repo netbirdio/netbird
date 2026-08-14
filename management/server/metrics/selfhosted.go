@@ -55,6 +55,7 @@ type DataSource interface {
 	GetStoreEngine() types.Engine
 	GetCustomDomainsCounts(ctx context.Context) (total int64, validated int64, err error)
 	GetProxyMetrics(ctx context.Context) (store.ProxyMetrics, error)
+	GetAgentNetworkMetrics(ctx context.Context) (store.AgentNetworkMetrics, error)
 }
 
 // ConnManager peer connection manager that holds state for current active connections
@@ -413,6 +414,13 @@ func (w *Worker) generateProperties(ctx context.Context) properties {
 		log.WithContext(ctx).Debugf("collect proxy metrics: %v", err)
 	}
 
+	// Agent-network adoption + usage, aggregated across all accounts in a few
+	// cheap queries; nil on FileStore.
+	agentNetworkMetrics, err := w.dataSource.GetAgentNetworkMetrics(ctx)
+	if err != nil {
+		log.WithContext(ctx).Debugf("collect agent network metrics: %v", err)
+	}
+
 	minActivePeerVersion, maxActivePeerVersion := getMinMaxVersion(peerActiveVersions)
 	metricsProperties["uptime"] = uptime
 	metricsProperties["accounts"] = accounts
@@ -471,6 +479,14 @@ func (w *Worker) generateProperties(ctx context.Context) properties {
 	metricsProperties["proxies_connected"] = proxyMetrics.ProxiesConnected
 	metricsProperties["custom_domains"] = customDomains
 	metricsProperties["custom_domains_validated"] = customDomainsValidated
+	metricsProperties["agent_network_accounts"] = agentNetworkMetrics.Accounts
+	metricsProperties["agent_network_providers"] = agentNetworkMetrics.Providers
+	metricsProperties["agent_network_policies"] = agentNetworkMetrics.Policies
+	metricsProperties["agent_network_budget_rules"] = agentNetworkMetrics.BudgetRules
+	metricsProperties["agent_network_log_collection_enabled"] = agentNetworkMetrics.LogCollectionEnabled
+	metricsProperties["agent_network_input_tokens"] = agentNetworkMetrics.InputTokens
+	metricsProperties["agent_network_output_tokens"] = agentNetworkMetrics.OutputTokens
+	metricsProperties["agent_network_cost_usd"] = agentNetworkMetrics.CostUSD
 
 	for targetType, count := range servicesTargetType {
 		metricsProperties["services_target_type_"+string(targetType)] = count

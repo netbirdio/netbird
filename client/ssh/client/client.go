@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
-	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -17,7 +16,6 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 	"golang.org/x/term"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/netbirdio/netbird/client/internal/daemonaddr"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
@@ -32,7 +30,7 @@ const (
 	// DefaultDaemonAddr is the default address for the NetBird daemon
 	DefaultDaemonAddr = "unix:///var/run/netbird.sock"
 	// DefaultDaemonAddrWindows is the default address for the NetBird daemon on Windows
-	DefaultDaemonAddrWindows = "tcp://127.0.0.1:41731"
+	DefaultDaemonAddrWindows = daemonaddr.WindowsPipeAddr
 )
 
 // Client wraps crypto/ssh Client for simplified SSH operations
@@ -268,7 +266,7 @@ func getDefaultDaemonAddr() string {
 		return addr
 	}
 	if runtime.GOOS == "windows" {
-		return DefaultDaemonAddrWindows
+		return daemonaddr.ResolveDaemonAddr(DefaultDaemonAddrWindows)
 	}
 	return daemonaddr.ResolveUnixDaemonAddr(DefaultDaemonAddr)
 }
@@ -410,12 +408,9 @@ func verifyHostKeyViaDaemon(hostname string, remote net.Addr, key ssh.PublicKey,
 }
 
 func connectToDaemon(daemonAddr string) (*grpc.ClientConn, error) {
-	addr := strings.TrimPrefix(daemonAddr, "tcp://")
+	target, opts := daemonaddr.DialTarget(daemonAddr)
 
-	conn, err := grpc.NewClient(
-		addr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
+	conn, err := grpc.NewClient(target, opts...)
 	if err != nil {
 		log.Debugf("failed to create gRPC client for NetBird daemon at %s: %v", daemonAddr, err)
 		return nil, fmt.Errorf("failed to connect to NetBird daemon: %w", err)

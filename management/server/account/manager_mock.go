@@ -15,6 +15,7 @@ import (
 	dns "github.com/netbirdio/netbird/dns"
 	service "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	activity "github.com/netbirdio/netbird/management/server/activity"
+	affectedpeers "github.com/netbirdio/netbird/management/server/affectedpeers"
 	idp "github.com/netbirdio/netbird/management/server/idp"
 	peer "github.com/netbirdio/netbird/management/server/peer"
 	posture "github.com/netbirdio/netbird/management/server/posture"
@@ -79,14 +80,15 @@ func (mr *MockManagerMockRecorder) AccountExists(ctx, accountID interface{}) *go
 }
 
 // AddPeer mocks base method.
-func (m *MockManager) AddPeer(ctx context.Context, accountID, setupKey, userID string, p *peer.Peer, temporary bool) (*peer.Peer, *types.NetworkMap, []*posture.Checks, error) {
+func (m *MockManager) AddPeer(ctx context.Context, accountID, setupKey, userID string, p *peer.Peer, temporary bool) (*peer.Peer, *types.Network, []*posture.Checks, bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "AddPeer", ctx, accountID, setupKey, userID, p, temporary)
 	ret0, _ := ret[0].(*peer.Peer)
-	ret1, _ := ret[1].(*types.NetworkMap)
+	ret1, _ := ret[1].(*types.Network)
 	ret2, _ := ret[2].([]*posture.Checks)
-	ret3, _ := ret[3].(error)
-	return ret0, ret1, ret2, ret3
+	ret3, _ := ret[3].(bool)
+	ret4, _ := ret[4].(error)
+	return ret0, ret1, ret2, ret3, ret4
 }
 
 // AddPeer indicates an expected call of AddPeer.
@@ -1288,14 +1290,15 @@ func (mr *MockManagerMockRecorder) ListUsers(ctx, accountID interface{}) *gomock
 }
 
 // LoginPeer mocks base method.
-func (m *MockManager) LoginPeer(ctx context.Context, login types.PeerLogin) (*peer.Peer, *types.NetworkMap, []*posture.Checks, error) {
+func (m *MockManager) LoginPeer(ctx context.Context, login types.PeerLogin) (*peer.Peer, *types.Network, []*posture.Checks, bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "LoginPeer", ctx, login)
 	ret0, _ := ret[0].(*peer.Peer)
-	ret1, _ := ret[1].(*types.NetworkMap)
+	ret1, _ := ret[1].(*types.Network)
 	ret2, _ := ret[2].([]*posture.Checks)
-	ret3, _ := ret[3].(error)
-	return ret0, ret1, ret2, ret3
+	ret3, _ := ret[3].(bool)
+	ret4, _ := ret[4].(error)
+	return ret0, ret1, ret2, ret3, ret4
 }
 
 // LoginPeer indicates an expected call of LoginPeer.
@@ -1320,17 +1323,17 @@ func (mr *MockManagerMockRecorder) ExtendPeerSession(ctx, peerPubKey, userID int
 }
 
 // MarkPeerConnected mocks base method.
-func (m *MockManager) MarkPeerConnected(ctx context.Context, peerKey string, realIP net.IP, accountID string, sessionStartedAt int64) error {
+func (m *MockManager) MarkPeerConnected(ctx context.Context, peerKey string, accountID string, sessionStartedAt int64, nmap *types.NetworkMap) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "MarkPeerConnected", ctx, peerKey, realIP, accountID, sessionStartedAt)
+	ret := m.ctrl.Call(m, "MarkPeerConnected", ctx, peerKey, accountID, sessionStartedAt, nmap)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // MarkPeerConnected indicates an expected call of MarkPeerConnected.
-func (mr *MockManagerMockRecorder) MarkPeerConnected(ctx, peerKey, realIP, accountID, sessionStartedAt interface{}) *gomock.Call {
+func (mr *MockManagerMockRecorder) MarkPeerConnected(ctx, peerKey, accountID, sessionStartedAt, nmap interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkPeerConnected", reflect.TypeOf((*MockManager)(nil).MarkPeerConnected), ctx, peerKey, realIP, accountID, sessionStartedAt)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkPeerConnected", reflect.TypeOf((*MockManager)(nil).MarkPeerConnected), ctx, peerKey, accountID, sessionStartedAt, nmap)
 }
 
 // MarkPeerDisconnected mocks base method.
@@ -1583,17 +1586,17 @@ func (mr *MockManagerMockRecorder) SyncPeer(ctx, sync, accountID interface{}) *g
 }
 
 // SyncPeerMeta mocks base method.
-func (m *MockManager) SyncPeerMeta(ctx context.Context, peerPubKey string, meta peer.PeerSystemMeta) error {
+func (m *MockManager) SyncPeerMeta(ctx context.Context, peerPubKey string, meta peer.PeerSystemMeta, realIP net.IP) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SyncPeerMeta", ctx, peerPubKey, meta)
+	ret := m.ctrl.Call(m, "SyncPeerMeta", ctx, peerPubKey, meta, realIP)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // SyncPeerMeta indicates an expected call of SyncPeerMeta.
-func (mr *MockManagerMockRecorder) SyncPeerMeta(ctx, peerPubKey, meta interface{}) *gomock.Call {
+func (mr *MockManagerMockRecorder) SyncPeerMeta(ctx, peerPubKey, meta, realIP interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SyncPeerMeta", reflect.TypeOf((*MockManager)(nil).SyncPeerMeta), ctx, peerPubKey, meta)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SyncPeerMeta", reflect.TypeOf((*MockManager)(nil).SyncPeerMeta), ctx, peerPubKey, meta, realIP)
 }
 
 // SyncUserJWTGroups mocks base method.
@@ -1635,6 +1638,18 @@ func (m *MockManager) UpdateAccountPeers(ctx context.Context, accountID string, 
 func (mr *MockManagerMockRecorder) UpdateAccountPeers(ctx, accountID, reason interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateAccountPeers", reflect.TypeOf((*MockManager)(nil).UpdateAccountPeers), ctx, accountID, reason)
+}
+
+// ExpandAndUpdateAffected mocks base method.
+func (m *MockManager) ExpandAndUpdateAffected(ctx context.Context, accountID string, snap *affectedpeers.Snapshot, change affectedpeers.Change) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "ExpandAndUpdateAffected", ctx, accountID, snap, change)
+}
+
+// ExpandAndUpdateAffected indicates an expected call of ExpandAndUpdateAffected.
+func (mr *MockManagerMockRecorder) ExpandAndUpdateAffected(ctx, accountID, snap, change interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExpandAndUpdateAffected", reflect.TypeOf((*MockManager)(nil).ExpandAndUpdateAffected), ctx, accountID, snap, change)
 }
 
 // UpdateAccountSettings mocks base method.

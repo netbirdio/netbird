@@ -93,7 +93,7 @@ func newRouter(workTable *nftables.Table, wgIface iFaceMapper, mtu uint16) (*rou
 		rules:      make(map[string]*nftables.Rule),
 		af:         familyForAddr(workTable.Family == nftables.TableFamilyIPv4),
 		wgIface:    wgIface,
-		ipFwdState: ipfwdstate.NewIPForwardingState(),
+		ipFwdState: ipfwdstate.NewIPForwardingState(wgIface.Name()),
 		mtu:        mtu,
 	}
 
@@ -953,6 +953,17 @@ func (r *router) addMSSClampingRules() error {
 	return r.conn.Flush()
 }
 
+func buildLegacyRouteRuleExpressions(sourceExp, destExp []expr.Any) []expr.Any {
+	exprs := make([]expr.Any, 0, len(sourceExp)+len(destExp)+2)
+	exprs = append(exprs, sourceExp...)
+	exprs = append(exprs, destExp...)
+	exprs = append(exprs,
+		&expr.Counter{},
+		&expr.Verdict{Kind: expr.VerdictAccept},
+	)
+	return exprs
+}
+
 // addLegacyRouteRule adds a legacy routing rule for mgmt servers pre route acls
 func (r *router) addLegacyRouteRule(pair firewall.RouterPair) error {
 	sourceExp, err := r.applyNetwork(pair.Source, nil, true)
@@ -965,15 +976,7 @@ func (r *router) addLegacyRouteRule(pair firewall.RouterPair) error {
 		return fmt.Errorf("apply destination: %w", err)
 	}
 
-	exprs := []expr.Any{
-		&expr.Counter{},
-		&expr.Verdict{
-			Kind: expr.VerdictAccept,
-		},
-	}
-
-	exprs = append(exprs, sourceExp...)
-	exprs = append(exprs, destExp...)
+	exprs := buildLegacyRouteRuleExpressions(sourceExp, destExp)
 
 	ruleKey := firewall.GenKey(firewall.ForwardingFormat, pair)
 
@@ -1550,10 +1553,6 @@ func (r *router) refreshRulesMap() error {
 }
 
 func (r *router) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
-	if err := r.ipFwdState.RequestForwarding(); err != nil {
-		return nil, err
-	}
-
 	ruleKey := rule.ID()
 	if _, exists := r.rules[ruleKey+dnatSuffix]; exists {
 		return rule, nil
@@ -1564,7 +1563,18 @@ func (r *router) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
 		return nil, fmt.Errorf("convert protocol to number: %w", err)
 	}
 
+	// Request forwarding before queueing rules: addDnatRedirect/addDnatMasq
+	// buffer netlink messages on r.conn that the next caller's Flush would
+	// commit if we returned without flushing them ourselves.
+	v6 := r.af.tableFamily == nftables.TableFamilyIPv6
+	if err := r.ipFwdState.RequestForwarding(v6); err != nil {
+		return nil, fmt.Errorf("enable forwarding: %w", err)
+	}
+
 	if err := r.addDnatRedirect(rule, protoNum, ruleKey); err != nil {
+		if rerr := r.ipFwdState.ReleaseForwarding(v6); rerr != nil {
+			log.Warnf("rollback forwarding refcount: %v", rerr)
+		}
 		return nil, err
 	}
 
@@ -1576,6 +1586,11 @@ func (r *router) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
 	// TODO: find chains with drop policies and add rules there
 
 	if err := r.conn.Flush(); err != nil {
+		if rerr := r.ipFwdState.ReleaseForwarding(v6); rerr != nil {
+			log.Warnf("rollback forwarding refcount: %v", rerr)
+		}
+		delete(r.rules, ruleKey+dnatSuffix)
+		delete(r.rules, ruleKey+snatSuffix)
 		return nil, fmt.Errorf("flush rules: %w", err)
 	}
 
@@ -1778,14 +1793,16 @@ func (r *router) addDnatMasq(rule firewall.ForwardRule, protoNum uint8, ruleKey 
 }
 
 func (r *router) DeleteDNATRule(rule firewall.Rule) error {
-	if err := r.ipFwdState.ReleaseForwarding(); err != nil {
-		log.Errorf("%v", err)
-	}
-
 	ruleKey := rule.ID()
 
 	if err := r.refreshRulesMap(); err != nil {
 		return fmt.Errorf(refreshRulesMapError, err)
+	}
+
+	_, hadDNAT := r.rules[ruleKey+dnatSuffix]
+	_, hadSNAT := r.rules[ruleKey+snatSuffix]
+	if !hadDNAT && !hadSNAT {
+		return nil
 	}
 
 	var merr *multierror.Error
@@ -1819,9 +1836,16 @@ func (r *router) DeleteDNATRule(rule firewall.Rule) error {
 		}
 	}
 
+	// Release the refcount only once the rules are gone from the kernel. On
+	// failure (including the refreshRulesMap error above) the rules and their
+	// map entries remain, keeping forwarding on until a retry removes them.
 	if merr == nil {
 		delete(r.rules, ruleKey+dnatSuffix)
 		delete(r.rules, ruleKey+snatSuffix)
+
+		if err := r.ipFwdState.ReleaseForwarding(r.af.tableFamily == nftables.TableFamilyIPv6); err != nil {
+			log.Errorf("%v", err)
+		}
 	}
 
 	return nberrors.FormatErrorOrNil(merr)

@@ -120,6 +120,30 @@ func (m *influxDBMetrics) RecordSyncDuration(_ context.Context, agentInfo AgentI
 	m.trimLocked()
 }
 
+func (m *influxDBMetrics) RecordSyncPhase(_ context.Context, agentInfo AgentInfo, phase string, duration time.Duration) {
+	tags := fmt.Sprintf("deployment_type=%s,version=%s,os=%s,arch=%s,peer_id=%s,phase=%s",
+		agentInfo.DeploymentType.String(),
+		agentInfo.Version,
+		agentInfo.OS,
+		agentInfo.Arch,
+		agentInfo.peerID,
+		phase,
+	)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.samples = append(m.samples, influxSample{
+		measurement: "netbird_sync_phase",
+		tags:        tags,
+		fields: map[string]float64{
+			"duration_seconds": duration.Seconds(),
+		},
+		timestamp: time.Now(),
+	})
+	m.trimLocked()
+}
+
 func (m *influxDBMetrics) RecordLoginDuration(_ context.Context, agentInfo AgentInfo, duration time.Duration, success bool) {
 	result := "success"
 	if !success {

@@ -279,9 +279,11 @@ func (c *Client) Start(startCtx context.Context) error {
 
 	select {
 	case <-startCtx.Done():
-		// Cancel the client context before stopping: Engine.Start blocks on the
-		// signal stream while holding the engine mutex and only unblocks on
-		// cancellation. Stopping first would deadlock on that mutex.
+		// ConnectClient.Stop now cancels its own run context and waits for the
+		// run loop to tear the engine down, so this cancel() is no longer
+		// required to break the deadlock and could be removed. It is kept as a
+		// defensive belt-and-suspenders: cancelling the parent context first
+		// guarantees the run loop is unblocked even if Stop's contract regresses.
 		cancel()
 		if stopErr := client.Stop(); stopErr != nil {
 			return fmt.Errorf("stop error after context done. Stop error: %w. Context done: %w", stopErr, startCtx.Err())
@@ -468,7 +470,7 @@ func (c *Client) Status() (peer.FullStatus, error) {
 	if connect != nil {
 		engine := connect.Engine()
 		if engine != nil {
-			_ = engine.RunHealthProbes(false)
+			_ = engine.RunHealthProbes(context.Background(), false)
 		}
 	}
 
