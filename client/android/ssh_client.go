@@ -59,19 +59,6 @@ func (e *errHostKeyUnknown) Error() string {
 	return HostKeyUnknownMarker + ":" + e.fingerprint
 }
 
-// engineHostKeyVerifier adapts *internal.Engine to nbssh.HostKeyVerifier.
-type engineHostKeyVerifier struct {
-	engine *internal.Engine
-}
-
-func (v *engineHostKeyVerifier) VerifySSHHostKey(peerAddress string, presented []byte) error {
-	storedKey, found := v.engine.GetPeerSSHKey(peerAddress)
-	if !found {
-		return nbssh.ErrPeerNotFound
-	}
-	return nbssh.VerifyHostKey(storedKey, presented, peerAddress)
-}
-
 // SSHTerminalListener receives SSH session events. It is implemented in Java.
 //
 // All callbacks are invoked from goroutines and may run concurrently with each
@@ -329,58 +316,24 @@ func (s *SSHClient) startSession(cols, rows int) error {
 		return errors.New("ssh client not connected")
 	}
 
-	session, err := sshClient.NewSession()
+	pty, err := nbssh.StartPTYSession(sshClient, cols, rows)
 	if err != nil {
-		return fmt.Errorf("new session: %w", err)
-	}
-
-	modes := gossh.TerminalModes{
-		gossh.ECHO:          1,
-		gossh.TTY_OP_ISPEED: 14400,
-		gossh.TTY_OP_OSPEED: 14400,
-		gossh.VINTR:         3,
-		gossh.VQUIT:         28,
-		gossh.VERASE:        127,
-	}
-	if err := session.RequestPty("xterm-256color", rows, cols, modes); err != nil {
-		closeQuiet(session, "session after pty error")
-		return fmt.Errorf("request pty: %w", err)
-	}
-
-	stdin, err := session.StdinPipe()
-	if err != nil {
-		closeQuiet(session, "session after stdin error")
-		return fmt.Errorf("stdin pipe: %w", err)
-	}
-	stdout, err := session.StdoutPipe()
-	if err != nil {
-		closeQuiet(session, "session after stdout error")
-		return fmt.Errorf("stdout pipe: %w", err)
-	}
-	stderr, err := session.StderrPipe()
-	if err != nil {
-		closeQuiet(session, "session after stderr error")
-		return fmt.Errorf("stderr pipe: %w", err)
-	}
-
-	if err := session.Shell(); err != nil {
-		closeQuiet(session, "session after shell error")
-		return fmt.Errorf("start shell: %w", err)
+		return err
 	}
 
 	s.mu.Lock()
 	if gen != s.gen {
 		s.mu.Unlock()
-		closeQuiet(session, "stale session")
+		closeQuiet(pty.Session, "stale session")
 		return errClientClosed
 	}
-	s.session = session
-	s.stdin = stdin
+	s.session = pty.Session
+	s.stdin = pty.Stdin
 	s.mu.Unlock()
 
 	readerDone := make(chan string, 2)
-	go func() { readerDone <- s.readLoop(stdout, "stdout") }()
-	go func() { readerDone <- s.readLoop(stderr, "stderr") }()
+	go func() { readerDone <- s.readLoop(pty.Stdout, "stdout") }()
+	go func() { readerDone <- s.readLoop(pty.Stderr, "stderr") }()
 	go func() {
 		reason := <-readerDone
 		if second := <-readerDone; reason == "" {
@@ -402,7 +355,7 @@ func (s *SSHClient) buildAuth(cfg *profilemanager.Config, engine *internal.Engin
 			return nil, nil, fmt.Errorf("jwt: %w", err)
 		}
 		auths := []gossh.AuthMethod{gossh.Password(token)}
-		return auths, nbssh.CreateHostKeyCallback(&engineHostKeyVerifier{engine: engine}), nil
+		return auths, nbssh.CreateHostKeyCallback(engine), nil
 
 	case detection.ServerTypeNetBirdNoJWT:
 		if cfg.SSHKey == "" {
@@ -413,7 +366,7 @@ func (s *SSHClient) buildAuth(cfg *profilemanager.Config, engine *internal.Engin
 			return nil, nil, fmt.Errorf("parse netbird ssh key: %w", err)
 		}
 		auths := []gossh.AuthMethod{gossh.PublicKeys(signer)}
-		return auths, nbssh.CreateHostKeyCallback(&engineHostKeyVerifier{engine: engine}), nil
+		return auths, nbssh.CreateHostKeyCallback(engine), nil
 
 	case detection.ServerTypeRegular:
 		var auths []gossh.AuthMethod

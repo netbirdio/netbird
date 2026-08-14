@@ -125,51 +125,17 @@ func (c *Client) StartSession(cols, rows int) error {
 		return fmt.Errorf("SSH client not connected")
 	}
 
-	session, err := c.sshClient.NewSession()
+	pty, err := nbssh.StartPTYSession(c.sshClient, cols, rows)
 	if err != nil {
-		return fmt.Errorf("create session: %w", err)
+		return err
 	}
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.session = session
-
-	modes := ssh.TerminalModes{
-		ssh.ECHO:          1,
-		ssh.TTY_OP_ISPEED: 14400,
-		ssh.TTY_OP_OSPEED: 14400,
-		ssh.VINTR:         3,
-		ssh.VQUIT:         28,
-		ssh.VERASE:        127,
-	}
-
-	if err := session.RequestPty("xterm-256color", rows, cols, modes); err != nil {
-		closeWithLog(session, "session after PTY error")
-		return fmt.Errorf("PTY request: %w", err)
-	}
-
-	c.stdin, err = session.StdinPipe()
-	if err != nil {
-		closeWithLog(session, "session after stdin error")
-		return fmt.Errorf("get stdin: %w", err)
-	}
-
-	c.stdout, err = session.StdoutPipe()
-	if err != nil {
-		closeWithLog(session, "session after stdout error")
-		return fmt.Errorf("get stdout: %w", err)
-	}
-
-	c.stderr, err = session.StderrPipe()
-	if err != nil {
-		closeWithLog(session, "session after stderr error")
-		return fmt.Errorf("get stderr: %w", err)
-	}
-
-	if err := session.Shell(); err != nil {
-		closeWithLog(session, "session after shell error")
-		return fmt.Errorf("start shell: %w", err)
-	}
+	c.session = pty.Session
+	c.stdin = pty.Stdin
+	c.stdout = pty.Stdout
+	c.stderr = pty.Stderr
 
 	logrus.Info("SSH: Session started with PTY")
 	return nil
