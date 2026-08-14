@@ -155,12 +155,7 @@ func (h *handler) createProvider(w http.ResponseWriter, r *http.Request) {
 	provider := types.NewProvider(userAuth.AccountId)
 	provider.FromAPIRequest(&req)
 
-	bootstrapCluster := ""
-	if req.BootstrapCluster != nil {
-		bootstrapCluster = *req.BootstrapCluster
-	}
-
-	created, err := h.manager.CreateProvider(r.Context(), userAuth.UserId, provider, bootstrapCluster)
+	created, err := h.manager.CreateProvider(r.Context(), userAuth.UserId, provider)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
