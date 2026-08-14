@@ -80,13 +80,12 @@ func (c *Client) Connect(host string, port int, username, jwtToken string, ipVer
 		return fmt.Errorf("dial %s: %w", addr, err)
 	}
 
-	sshConn, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
+	sshClient, err := nbssh.Handshake(ctx, conn, addr, config)
 	if err != nil {
-		closeWithLog(conn, "connection after handshake error")
-		return fmt.Errorf("SSH handshake: %w", err)
+		return err
 	}
 
-	c.sshClient = ssh.NewClient(sshConn, chans, reqs)
+	c.sshClient = sshClient
 	logrus.Infof("SSH: Connected to %s", addr)
 
 	return nil
