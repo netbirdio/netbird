@@ -165,6 +165,11 @@ func (pm *ProfileManager) setActiveProfileState(id ID) error {
 }
 
 // GetLoginHint retrieves the email from the active profile to use as login_hint.
+//
+// TODO: only works when called as the logged-in user; the root-owned daemon
+// resolves the state file under /root/.config/netbird and always gets "".
+// Every caller now fills the hint itself, so dropping this and the daemon-side
+// fallbacks in client/server/server.go is the suggested fix.
 func GetLoginHint() string {
 	pm := NewProfileManager()
 	activeProf, err := pm.GetActiveProfile()

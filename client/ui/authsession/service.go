@@ -9,6 +9,7 @@ import (
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
 )
 
@@ -60,6 +61,9 @@ func (s *Session) RequestExtend(ctx context.Context, p ExtendStartParams) (Exten
 
 	// a request from the UI implies a graphical session, which the daemon cannot detect itself
 	req := &proto.RequestExtendAuthSessionRequest{HasGraphicalSession: true}
+	if p.Hint == "" {
+		p.Hint = profilemanager.GetLoginHint()
+	}
 	if p.Hint != "" {
 		h := p.Hint
 		req.Hint = &h
