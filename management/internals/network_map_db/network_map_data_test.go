@@ -71,9 +71,8 @@ func TestRecordForProxyPeer(t *testing.T) {
 
 	// invalid address
 	var addr netip.Addr
-	record, ok = recordForProxyPeer("test.cluster", addr)
+	_, ok = recordForProxyPeer("test.cluster", addr)
 	assert.False(t, ok)
-
 }
 
 var empty []networkmap.PrivateServiceCandidate
