@@ -191,20 +191,13 @@ func (a *Auth) login(urlOpener URLOpener, isAndroidTV bool) error {
 	return nil
 }
 
-// loginHintSetter is implemented by both concrete flows (PKCE and device code)
-// but absent from the OAuthFlow interface, hence the assertion below — the same
-// way internal/auth wires it in authenticateWithPKCEFlow.
-type loginHintSetter interface {
-	SetLoginHint(hint string)
-}
-
 func (a *Auth) foregroundGetTokenInfo(authClient *auth.Auth, urlOpener URLOpener, isAndroidTV bool) (*auth.TokenInfo, error) {
-	oAuthFlow, err := authClient.GetOAuthFlow(a.ctx, isAndroidTV)
+	oAuthFlow, err := authClient.GetOAuthFlow(a.ctx, isAndroidTV, profileLoginHint(a.cfgPath))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get OAuth flow: %v", err)
 	}
 
-	return runOAuthFlow(a.ctx, oAuthFlow, profileLoginHint(a.cfgPath), urlOpener, nil)
+	return runOAuthFlow(a.ctx, oAuthFlow, urlOpener, nil)
 }
 
 // profileLoginHint returns the stored account email for the profile at cfgPath.
@@ -217,21 +210,15 @@ func profileLoginHint(cfgPath string) string {
 	return readProfileEmail(cfgPath)
 }
 
-// runOAuthFlow drives an already acquired OAuth flow to a token: applies the
-// login hint, requests the flow info, presents the verification URL through
-// the opener and waits for the browser round-trip. Open is called
-// synchronously — it is what marks the surface as opened on the client side,
-// and a fast token's OnLoginSuccess is a no-op until it has, so the dismissal
-// would be dropped rather than delayed. Openers must therefore not block:
-// they post their UI work and return. onWaiting, when set, runs after the URL
-// is shown, right before the blocking wait.
-func runOAuthFlow(ctx context.Context, flow auth.OAuthFlow, hint string, urlOpener URLOpener, onWaiting func()) (*auth.TokenInfo, error) {
-	if hint != "" {
-		if setter, ok := flow.(loginHintSetter); ok {
-			setter.SetLoginHint(hint)
-		}
-	}
-
+// runOAuthFlow drives an already acquired OAuth flow to a token: requests the
+// flow info, presents the verification URL through the opener and waits for
+// the browser round-trip. Open is called synchronously — it is what marks the
+// surface as opened on the client side, and a fast token's OnLoginSuccess is
+// a no-op until it has, so the dismissal would be dropped rather than
+// delayed. Openers must therefore not block: they post their UI work and
+// return. onWaiting, when set, runs after the URL is shown, right before the
+// blocking wait.
+func runOAuthFlow(ctx context.Context, flow auth.OAuthFlow, urlOpener URLOpener, onWaiting func()) (*auth.TokenInfo, error) {
 	flowInfo, err := flow.RequestAuthInfo(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("request auth info: %w", err)

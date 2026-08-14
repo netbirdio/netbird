@@ -476,14 +476,14 @@ func (s *SSHClient) requestJWTToken(cfg *profilemanager.Config, cfgPath string) 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	flow, err := auth.NewOAuthFlow(ctx, cfg, false, true, "")
+	flow, err := auth.NewOAuthFlow(ctx, cfg, false, true, profileLoginHint(cfgPath))
 	if err != nil {
 		return "", fmt.Errorf("create oauth flow: %w", err)
 	}
 
 	// The status callback covers the browser round-trip, which would
 	// otherwise leave the terminal blank.
-	tokenInfo, err := runOAuthFlow(ctx, flow, profileLoginHint(cfgPath), urlOpener, func() {
+	tokenInfo, err := runOAuthFlow(ctx, flow, urlOpener, func() {
 		s.notifyStatus("Waiting for browser authentication...")
 	})
 	if err != nil {
