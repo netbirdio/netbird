@@ -25,7 +25,7 @@ func TestNRPTEntriesCleanupOnConfigChange(t *testing.T) {
 
 	// Create a test interface registry key so updateSearchDomains doesn't fail
 	testGUID := "{12345678-1234-1234-1234-123456789ABC}"
-	interfacePath := interfaceConfigPath + `\` + testGUID
+	interfacePath := InterfaceConfigPath + `\` + testGUID
 	testKey, _, err := registry.CreateKey(registry.LOCAL_MACHINE, interfacePath, registry.SET_VALUE)
 	require.NoError(t, err, "Should create test interface registry key")
 	testKey.Close()
@@ -133,7 +133,7 @@ func TestNRPTCleanupWithoutRuleCount(t *testing.T) {
 	require.NoError(t, previousRun.configureDNSPolicy(dnsPolicyConfigMatchPath, []string{".legacy.example.com"}, testIP))
 
 	// a policy owned by someone else, which cleanup must not touch
-	foreignPath := dnsPolicyConfigRoot + `\DnsPolicyConfigTestForeign`
+	foreignPath := DNSPolicyConfigRoot + `\DnsPolicyConfigTestForeign`
 	foreignKey, _, err := registry.CreateKey(registry.LOCAL_MACHINE, foreignPath, registry.SET_VALUE)
 	require.NoError(t, err, "Should create foreign policy key")
 	foreignKey.Close()
@@ -158,7 +158,7 @@ func TestNRPTCleanupWithoutRuleCount(t *testing.T) {
 func countNRPTRuleKeys(t *testing.T) int {
 	t.Helper()
 
-	names, err := listNRPTRuleKeys(dnsPolicyConfigRoot)
+	names, err := listNRPTRuleKeys(DNSPolicyConfigRoot)
 	require.NoError(t, err, "Should list NRPT rule keys")
 	return len(names)
 }
@@ -181,7 +181,7 @@ func TestNRPTDomainBatching(t *testing.T) {
 
 	// Create a test interface registry key so updateSearchDomains doesn't fail
 	testGUID := "{12345678-1234-1234-1234-123456789ABC}"
-	interfacePath := interfaceConfigPath + `\` + testGUID
+	interfacePath := InterfaceConfigPath + `\` + testGUID
 	testKey, _, err := registry.CreateKey(registry.LOCAL_MACHINE, interfacePath, registry.SET_VALUE)
 	require.NoError(t, err, "Should create test interface registry key")
 	testKey.Close()
