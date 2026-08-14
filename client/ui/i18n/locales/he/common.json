@@ -195,7 +195,7 @@
         "message": "סגירה"
     },
     "common.copy": {
-        "message": "העתקת"
+        "message": "העתקה"
     },
     "common.togglePasswordVisibility": {
         "message": "הסתרת/חשיפת סיסמה"
@@ -237,7 +237,7 @@
         "message": "מנותק"
     },
     "notConnected.description": {
-        "message": "יש להתחבר ל־NetBird תחילה כדי לצפות בפרטי פרטים על העמיתים, משאבי הרשת ונקודות היציאה שלך."
+        "message": "יש להתחבר ל־NetBird תחילה כדי לצפות במידע מפורט על העמיתים, משאבי הרשת ונקודות היציאה שלך."
     },
     "connect.status.disconnected": {
         "message": "מנותק"
@@ -447,7 +447,7 @@
         "message": "עריכת פרופיל נכשלה"
     },
     "profile.error.loadTitle": {
-        "message": "טעינת פרופיל נכשלה"
+        "message": "טעינת הפרופילים נכשלה"
     },
     "profile.dropdown.activeProfile": {
         "message": "הפרופיל הפעיל"
@@ -732,7 +732,7 @@
         "message": "פתחה"
     },
     "settings.advanced.port.error": {
-        "message": "נא מלא פתחה בין {min} ל־{max}."
+        "message": "נא kמלא פתחה בין {min} ל־{max}."
     },
     "settings.advanced.port.help": {
         "message": "אם מוגדר ל־0, ייעשה שימוש בפתחה פנויה אקראית."
@@ -747,7 +747,7 @@
         "message": "מפתח ששותף מראש"
     },
     "settings.advanced.psk.help": {
-        "message": "מפתח ששותף מראש (PSK) כרשות להצפנה סימטרית במיוחד. לא זהה למפתח התקנה של NetBird. תהיה לך תקשורת רק מול עמיתים שמשתמשים באותו המפתח ששותף מראש."
+        "message": "מפתח ששותף מראש (PSK) של WireGuard כרשות להצפנה סימטרית בנוסף. לא זהה למפתח התקנה של NetBird. תהיה לך תקשורת רק מול עמיתים שמשתמשים באותו המפתח ששותף מראש."
     },
     "settings.troubleshooting.section.title": {
         "message": "מאגד ניפוי שגיאות"
@@ -1080,7 +1080,7 @@
         "message": "יש להשלים את הכניסה בדפדפן שלך"
     },
     "browserLogin.notSeeing": {
-        "message": "פתחנו לשונית בדפדפן כדי שנוכל לסיים עם הכניסה למערכת. לא רואה אותה?"
+        "message": "פתחנו לשונית בדפדפן כדי לאפשר לך לסיים את הכניסה למערכת. לא רואה אותה?"
     },
     "browserLogin.tryAgain": {
         "message": "לנסות שוב"
@@ -1296,7 +1296,7 @@
         "message": "שירות NetBird אינו עדכני"
     },
     "daemon.outdated.description": {
-        "message": "יש לעדכן את שירות NetBird כדי להשתמש ביישום הזה."
+        "message": "ממשק המשתמש החדש לא תואם ללקוח ישן יותר של NetBird. יש לעדכן את הלקוח שלך כדי להשתמש ביישום החדש"
     },
     "error.jwt_clock_skew": {
         "message": "הכניסה נכשלה: השעון של המכשיר הזה לא תואם במדויק את זה של השרת. נא לכוון את שעון המערכת שלך ולנסות שוב."
