@@ -119,8 +119,13 @@ func (c *Client) getAuthMethods(jwtToken string) ([]ssh.AuthMethod, error) {
 	return []ssh.AuthMethod{ssh.PublicKeys(signer)}, nil
 }
 
-// StartSession starts an SSH session with PTY
+// StartSession starts an SSH session with PTY. It holds the client lock for
+// the whole startup so Close cannot tear the client down mid-setup and the
+// new session cannot be installed into an already closed client.
 func (c *Client) StartSession(cols, rows int) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	if c.sshClient == nil {
 		return fmt.Errorf("SSH client not connected")
 	}
@@ -130,8 +135,6 @@ func (c *Client) StartSession(cols, rows int) error {
 		return err
 	}
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.session = pty.Session
 	c.stdin = pty.Stdin
 	c.stdout = pty.Stdout
