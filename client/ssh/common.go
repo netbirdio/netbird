@@ -13,6 +13,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/netbirdio/netbird/client/proto"
+	"github.com/netbirdio/netbird/util"
 )
 
 const (
@@ -105,7 +106,8 @@ func printAuthInstructions(stderr io.Writer, authResponse *proto.RequestJWTAuthR
 
 // RequestJWTToken requests or retrieves a JWT token for SSH authentication
 func RequestJWTToken(ctx context.Context, client proto.DaemonServiceClient, stdout, stderr io.Writer, useCache bool, hint string, openBrowser func(string) error) (string, error) {
-	req := &proto.RequestJWTAuthRequest{}
+	// the ssh client runs in the user's session, the daemon does not: tell it what we can see
+	req := &proto.RequestJWTAuthRequest{HasGraphicalSession: util.HasGraphicalSession()}
 	if hint != "" {
 		req.Hint = &hint
 	}

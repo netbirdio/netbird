@@ -201,8 +201,9 @@ func (a *Auth) foregroundGetTokenInfo(authClient *auth.Auth, urlOpener URLOpener
 }
 
 // profileLoginHint returns the stored account email for the profile at cfgPath.
-// An empty hint is deliberate, not a fallback: a fresh or logged-out profile
-// leaves the choice to the IdP, which is how accounts get switched.
+// An empty hint is deliberate, not a fallback: a fresh profile leaves the
+// choice to the IdP. Switching accounts is done by switching or removing
+// profiles, not by logging out — logout keeps the email.
 func profileLoginHint(cfgPath string) string {
 	if cfgPath == "" {
 		return ""
