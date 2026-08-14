@@ -1,0 +1,21 @@
+module nm_netbird_local 1.1;
+
+require {
+	type NetworkManager_t;
+	type var_run_t;
+	type unconfined_service_t;
+	class sock_file { getattr write };
+	class unix_stream_socket connectto;
+}
+
+# nm-netbird-service runs under NetworkManager_t (NetworkManager execs VPN
+# plugin programs directly, and there is no dedicated SELinux domain for
+# this plugin the way there is for nm-openvpn). It needs to dial the
+# netbird daemon's control socket at /var/run/netbird.sock, which the
+# targeted policy does not allow NetworkManager_t to do by default.
+allow NetworkManager_t var_run_t:sock_file { getattr write };
+
+# The netbird daemon's systemd unit sets no SELinux type, so it runs as
+# unconfined_service_t; connecting to its listening socket needs an
+# explicit connectto allow rule for the same reason as above.
+allow NetworkManager_t unconfined_service_t:unix_stream_socket connectto;

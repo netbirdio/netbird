@@ -1,0 +1,1 @@
+SUBSYSTEM=="net", ACTION=="add|change", ENV{INTERFACE}=="wt0", ENV{NM_UNMANAGED}="1"

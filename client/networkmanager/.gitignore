@@ -1,0 +1,7 @@
+bin
+properties/*.o
+properties/*.so
+properties/resources.c
+properties/resources-gtk3.c
+selinux/*.mod
+selinux/*.pp

@@ -1,0 +1,13 @@
+[VPN Connection]
+name=netbird
+service=org.freedesktop.NetworkManager.netbird
+program=@LIBEXECDIR@/nm-netbird-service
+supports-multiple-connections=true
+
+[libnm]
+plugin=@PLUGINDIR@/libnm-vpn-plugin-netbird.so
+
+[GNOME]
+auth-dialog=@LIBEXECDIR@/nm-netbird-auth-dialog
+supports-external-ui-mode=true
+supports-hints=true

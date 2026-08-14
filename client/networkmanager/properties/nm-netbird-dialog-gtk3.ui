@@ -1,0 +1,426 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<interface>
+  <requires lib="gtk+" version="3.0"/>
+  <object class="GtkAdjustment" id="mtu_adjustment">
+    <property name="lower">0</property>
+    <property name="upper">9000</property>
+    <property name="step_increment">1</property>
+    <property name="page_increment">100</property>
+  </object>
+  <object class="GtkAdjustment" id="wireguard_port_adjustment">
+    <property name="lower">0</property>
+    <property name="upper">65535</property>
+    <property name="step_increment">1</property>
+    <property name="page_increment">100</property>
+  </object>
+  <object class="GtkSizeGroup" id="label_size_group">
+    <property name="mode">horizontal</property>
+    <widgets>
+      <widget name="management_url_label"/>
+      <widget name="setup_key_label"/>
+      <widget name="management_url_hint_spacer"/>
+      <widget name="setup_key_hint_spacer"/>
+    </widgets>
+  </object>
+  <object class="GtkSizeGroup" id="advanced_label_size_group">
+    <property name="mode">horizontal</property>
+    <widgets>
+      <widget name="admin_url_label"/>
+      <widget name="interface_name_label"/>
+      <widget name="hostname_label"/>
+      <widget name="mtu_label"/>
+      <widget name="wireguard_port_label"/>
+    </widgets>
+  </object>
+  <object class="GtkBox" id="netbird-vbox">
+    <property name="visible">true</property>
+    <property name="orientation">vertical</property>
+    <property name="spacing">12</property>
+    <property name="margin_start">12</property>
+    <property name="margin_end">12</property>
+    <property name="margin_top">12</property>
+    <property name="margin_bottom">12</property>
+    <child>
+      <object class="GtkBox" id="main_box">
+        <property name="visible">true</property>
+        <property name="orientation">vertical</property>
+        <property name="spacing">6</property>
+        <child>
+          <object class="GtkBox">
+            <property name="visible">true</property>
+            <property name="orientation">horizontal</property>
+            <property name="spacing">12</property>
+            <child>
+              <object class="GtkLabel" id="management_url_label">
+                <property name="visible">true</property>
+                <property name="label" translatable="yes">Management URL</property>
+                <property name="halign">start</property>
+              </object>
+              <packing>
+                <property name="expand">false</property>
+                <property name="fill">false</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkEntry" id="management_url_entry">
+                <property name="visible">true</property>
+              </object>
+              <packing>
+                <property name="expand">true</property>
+                <property name="fill">true</property>
+              </packing>
+            </child>
+          </object>
+          <packing>
+            <property name="expand">false</property>
+            <property name="fill">false</property>
+          </packing>
+        </child>
+        <child>
+          <object class="GtkBox">
+            <property name="visible">true</property>
+            <property name="orientation">horizontal</property>
+            <property name="spacing">12</property>
+            <child>
+              <object class="GtkLabel" id="management_url_hint_spacer">
+                <property name="visible">true</property>
+              </object>
+              <packing>
+                <property name="expand">false</property>
+                <property name="fill">false</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkLabel" id="management_url_hint_label">
+                <property name="visible">true</property>
+                <property name="label" translatable="yes">Leave empty to use NetBird's hosted management service.</property>
+                <property name="halign">start</property>
+                <property name="xalign">0</property>
+                <property name="wrap">true</property>
+                <attributes>
+                  <attribute name="scale" value="0.83"/>
+                </attributes>
+                <style>
+                  <class name="dim-label"/>
+                </style>
+              </object>
+              <packing>
+                <property name="expand">true</property>
+                <property name="fill">true</property>
+              </packing>
+            </child>
+          </object>
+          <packing>
+            <property name="expand">false</property>
+            <property name="fill">false</property>
+          </packing>
+        </child>
+        <child>
+          <object class="GtkBox">
+            <property name="visible">true</property>
+            <property name="orientation">horizontal</property>
+            <property name="spacing">12</property>
+            <child>
+              <object class="GtkLabel" id="setup_key_label">
+                <property name="visible">true</property>
+                <property name="label" translatable="yes">Setup key</property>
+                <property name="halign">start</property>
+              </object>
+              <packing>
+                <property name="expand">false</property>
+                <property name="fill">false</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkEntry" id="setup_key_entry">
+                <property name="visible">true</property>
+                <property name="visibility">false</property>
+                <property name="input-purpose">password</property>
+              </object>
+              <packing>
+                <property name="expand">true</property>
+                <property name="fill">true</property>
+              </packing>
+            </child>
+          </object>
+          <packing>
+            <property name="expand">false</property>
+            <property name="fill">false</property>
+          </packing>
+        </child>
+      </object>
+    </child>
+    <child>
+      <object class="GtkBox">
+        <property name="visible">true</property>
+        <property name="orientation">horizontal</property>
+        <property name="spacing">12</property>
+        <child>
+          <object class="GtkLabel" id="setup_key_hint_spacer">
+            <property name="visible">true</property>
+          </object>
+          <packing>
+            <property name="expand">false</property>
+            <property name="fill">false</property>
+          </packing>
+        </child>
+        <child>
+          <object class="GtkLabel" id="setup_key_hint_label">
+            <property name="visible">true</property>
+            <property name="label" translatable="yes">Leave the setup key empty to sign in with your browser (SSO) instead.</property>
+            <property name="halign">start</property>
+            <property name="xalign">0</property>
+            <property name="wrap">true</property>
+            <attributes>
+              <attribute name="scale" value="0.83"/>
+            </attributes>
+            <style>
+              <class name="dim-label"/>
+            </style>
+          </object>
+          <packing>
+            <property name="expand">true</property>
+            <property name="fill">true</property>
+          </packing>
+        </child>
+      </object>
+    </child>
+    <child>
+      <object class="GtkExpander" id="advanced_expander">
+        <property name="visible">true</property>
+        <property name="label" translatable="yes">Advanced</property>
+        <child>
+          <object class="GtkBox" id="advanced_box">
+            <property name="visible">true</property>
+            <property name="orientation">vertical</property>
+            <property name="spacing">12</property>
+            <property name="margin_top">6</property>
+            <child>
+              <object class="GtkBox" id="advanced_fields_box">
+                <property name="visible">true</property>
+                <property name="orientation">vertical</property>
+                <property name="spacing">6</property>
+                <child>
+                  <object class="GtkBox">
+                    <property name="visible">true</property>
+                    <property name="orientation">horizontal</property>
+                    <property name="spacing">12</property>
+                    <child>
+                      <object class="GtkLabel" id="admin_url_label">
+                        <property name="visible">true</property>
+                        <property name="label" translatable="yes">Admin URL</property>
+                        <property name="halign">start</property>
+                      </object>
+                      <packing>
+                        <property name="expand">false</property>
+                        <property name="fill">false</property>
+                      </packing>
+                    </child>
+                    <child>
+                      <object class="GtkEntry" id="admin_url_entry">
+                        <property name="visible">true</property>
+                      </object>
+                      <packing>
+                        <property name="expand">true</property>
+                        <property name="fill">true</property>
+                      </packing>
+                    </child>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkBox">
+                    <property name="visible">true</property>
+                    <property name="orientation">horizontal</property>
+                    <property name="spacing">12</property>
+                    <child>
+                      <object class="GtkLabel" id="interface_name_label">
+                        <property name="visible">true</property>
+                        <property name="label" translatable="yes">Interface name</property>
+                        <property name="halign">start</property>
+                      </object>
+                      <packing>
+                        <property name="expand">false</property>
+                        <property name="fill">false</property>
+                      </packing>
+                    </child>
+                    <child>
+                      <object class="GtkEntry" id="interface_name_entry">
+                        <property name="visible">true</property>
+                        <property name="placeholder-text">(automatic)</property>
+                      </object>
+                      <packing>
+                        <property name="expand">true</property>
+                        <property name="fill">true</property>
+                      </packing>
+                    </child>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkBox">
+                    <property name="visible">true</property>
+                    <property name="orientation">horizontal</property>
+                    <property name="spacing">12</property>
+                    <child>
+                      <object class="GtkLabel" id="hostname_label">
+                        <property name="visible">true</property>
+                        <property name="label" translatable="yes">Hostname</property>
+                        <property name="halign">start</property>
+                      </object>
+                      <packing>
+                        <property name="expand">false</property>
+                        <property name="fill">false</property>
+                      </packing>
+                    </child>
+                    <child>
+                      <object class="GtkEntry" id="hostname_entry">
+                        <property name="visible">true</property>
+                        <property name="placeholder-text">(automatic)</property>
+                      </object>
+                      <packing>
+                        <property name="expand">true</property>
+                        <property name="fill">true</property>
+                      </packing>
+                    </child>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkBox">
+                    <property name="visible">true</property>
+                    <property name="orientation">horizontal</property>
+                    <property name="spacing">12</property>
+                    <child>
+                      <object class="GtkLabel" id="mtu_label">
+                        <property name="visible">true</property>
+                        <property name="label" translatable="yes">MTU (0 = automatic)</property>
+                        <property name="halign">start</property>
+                      </object>
+                      <packing>
+                        <property name="expand">false</property>
+                        <property name="fill">false</property>
+                      </packing>
+                    </child>
+                    <child>
+                      <object class="GtkSpinButton" id="mtu_spin">
+                        <property name="visible">true</property>
+                        <property name="adjustment">mtu_adjustment</property>
+                        <property name="numeric">true</property>
+                      </object>
+                      <packing>
+                        <property name="expand">true</property>
+                        <property name="fill">true</property>
+                      </packing>
+                    </child>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkBox">
+                    <property name="visible">true</property>
+                    <property name="orientation">horizontal</property>
+                    <property name="spacing">12</property>
+                    <child>
+                      <object class="GtkLabel" id="wireguard_port_label">
+                        <property name="visible">true</property>
+                        <property name="label" translatable="yes">WireGuard port (0 = automatic)</property>
+                        <property name="halign">start</property>
+                      </object>
+                      <packing>
+                        <property name="expand">false</property>
+                        <property name="fill">false</property>
+                      </packing>
+                    </child>
+                    <child>
+                      <object class="GtkSpinButton" id="wireguard_port_spin">
+                        <property name="visible">true</property>
+                        <property name="adjustment">wireguard_port_adjustment</property>
+                        <property name="numeric">true</property>
+                      </object>
+                      <packing>
+                        <property name="expand">true</property>
+                        <property name="fill">true</property>
+                      </packing>
+                    </child>
+                  </object>
+                </child>
+              </object>
+            </child>
+            <child>
+              <object class="GtkBox" id="checks_box">
+                <property name="visible">true</property>
+                <property name="orientation">vertical</property>
+                <property name="spacing">6</property>
+                <child>
+                  <object class="GtkCheckButton" id="block_inbound_check">
+                    <property name="visible">true</property>
+                    <property name="label" translatable="yes">Block inbound connections</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkCheckButton" id="disable_server_routes_check">
+                    <property name="visible">true</property>
+                    <property name="label" translatable="yes">Disable routes received from the management server</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkCheckButton" id="block_lan_access_check">
+                    <property name="visible">true</property>
+                    <property name="label" translatable="yes">Block access to the local network while connected</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkCheckButton" id="disable_client_routes_check">
+                    <property name="visible">true</property>
+                    <property name="label" translatable="yes">Disable advertising local routes to peers</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkCheckButton" id="disable_dns_check">
+                    <property name="visible">true</property>
+                    <property name="label" translatable="yes">Disable NetBird's DNS management</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkCheckButton" id="disable_firewall_check">
+                    <property name="visible">true</property>
+                    <property name="label" translatable="yes">Disable NetBird's firewall management</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkCheckButton" id="disable_ipv6_check">
+                    <property name="visible">true</property>
+                    <property name="label" translatable="yes">Disable IPv6</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkCheckButton" id="rosenpass_enabled_check">
+                    <property name="visible">true</property>
+                    <property name="label" translatable="yes">Enable Rosenpass (post-quantum secure tunnel)</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkCheckButton" id="rosenpass_permissive_check">
+                    <property name="visible">true</property>
+                    <property name="label" translatable="yes">Accept non-Rosenpass peers too</property>
+                    <property name="margin_start">24</property>
+                    <property name="sensitive">false</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkCheckButton" id="disable_auto_connect_check">
+                    <property name="visible">true</property>
+                    <property name="label" translatable="yes">Do not connect automatically when the daemon starts</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkCheckButton" id="network_monitor_check">
+                    <property name="visible">true</property>
+                    <property name="label" translatable="yes">Monitor network changes and reconnect automatically</property>
+                  </object>
+                </child>
+              </object>
+            </child>
+          </object>
+        </child>
+      </object>
+    </child>
+  </object>
+</interface>
