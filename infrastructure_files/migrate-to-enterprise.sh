@@ -250,7 +250,8 @@ dsn_host() {
 # reach the enricher rather than Postgres. Only flag hosts we can positively
 # identify — an unparseable DSN must not leave the operator with no way forward.
 dsn_host_reachable() {
-  case "$(dsn_host "$1")" in
+  local dsn="$1"
+  case "$(dsn_host "$dsn")" in
     localhost | 127.* | ::1 | 0.0.0.0 | /*) return 1 ;;
     *) return 0 ;;
   esac
