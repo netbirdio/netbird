@@ -40,6 +40,7 @@ func TestMain(m *testing.M) {
 	case string(types.PostgresStoreEngine):
 		engine = string(types.PostgresStoreEngine)
 		pgstore, cleanup = createPGTestStore(baseData, pgData)
+		pgstore.UsingTimeZone(time.UTC)
 	case "", string(types.SqliteStoreEngine):
 		engine = string(types.SqliteStoreEngine)
 		sqlitestore, cleanup = createSqliteTestStore(baseData, sqliteData)
@@ -67,6 +68,18 @@ func conn(t *testing.T, ctx context.Context) networkmapdb.NetworkMapDBStoreConn 
 	return nil
 }
 
+func store(t *testing.T) networkmapdb.NetworkMapDBStore {
+	t.Helper()
+	switch engine {
+	case string(types.PostgresStoreEngine):
+		return pgstore
+	case string(types.SqliteStoreEngine):
+		return sqlitestore
+	}
+	log.Fatalf("unknown db engine kind %s", engine)
+	return nil
+}
+
 func execQuery(t *testing.T, ctx context.Context, q string) {
 	t.Helper()
 	switch engine {
@@ -80,20 +93,13 @@ func execQuery(t *testing.T, ctx context.Context, q string) {
 }
 
 // use to parse time in time.RFC3339Nano format
-// returns the time in the local time zone, as that's what being returned from sql queries
-// pgx returns time in the "local" timezone
-// sql with sqlite driver returns time in UTC timezone
+// returns the time in the UTC time zone
 func mustParseTime(t string) *time.Time {
 	tt, err := time.Parse(time.RFC3339Nano, t)
 	if err != nil {
 		panic(err)
 	}
 
-	if engine == string(types.SqliteStoreEngine) {
-		utc := tt.UTC()
-		return &utc
-	}
-
-	local := tt.Local()
-	return &local
+	utc := tt.UTC()
+	return &utc
 }

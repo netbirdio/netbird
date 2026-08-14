@@ -1,0 +1,372 @@
+{
+  "Peers": {
+    "peer-id-1": {
+      "ID": "peer-id-1",
+      "Key": "key-1",
+      "SSHKey": "ssh-key-1",
+      "DNSLabel": "peer-1",
+      "UserID": "user-id-1",
+      "SSHEnabled": true,
+      "LoginExpirationEnabled": true,
+      "LastLogin": "2026-08-06T13:25:59.12999Z",
+      "IP": "10.10.10.1",
+      "IPv6": "fdf4:ba80:6aa5:89f1:44d7:8701:8699:4940",
+      "RequiresApproval": false,
+      "ExtraDNSLabels": [
+        "extra-peer-1"
+      ],
+      "Meta": {
+        "WtVersion": "0.76.0",
+        "GoOS": "linux",
+        "OSVersion": "26.4.1",
+        "KernelVersion": "6.8.0-134-generic",
+        "NetworkAddresses": [
+          {
+            "NetIP": "fe80::8b4c:973f:a76b:3771/64"
+          },
+          {
+            "NetIP": "192.168.16.1/20"
+          }
+        ],
+        "Files": [
+          {
+            "Path": "/usr/bin/netbird",
+            "ProcessIsRunning": false
+          }
+        ],
+        "Capabilities": [
+          1,
+          2
+        ],
+        "Flags": {
+          "ServerSSHAllowed": true,
+          "DisableIPv6": false
+        },
+        "SyncMessageVersion": 1
+      },
+      "ProxyMeta": {
+        "Embedded": true
+      },
+      "Location": {
+        "CountryCode": "DE",
+        "CityName": "Berlin",
+        "ConnectionIP": "46.201.148.187"
+      }
+    },
+    "peer-id-2": {
+      "ID": "peer-id-2",
+      "Key": "key-2",
+      "SSHKey": "ssh-key-2",
+      "DNSLabel": "peer-2",
+      "UserID": "user-id-2",
+      "SSHEnabled": true,
+      "LoginExpirationEnabled": true,
+      "LastLogin": "2026-08-06T14:25:59.12999Z",
+      "IP": "10.10.100.1",
+      "IPv6": "fdf5:ba80:6aa5:89f1:44d7:8701:8699:4940",
+      "RequiresApproval": false,
+      "ExtraDNSLabels": [
+        "extra-peer-2"
+      ],
+      "Meta": {
+        "WtVersion": "0.76.1",
+        "GoOS": "linux",
+        "OSVersion": "26.4.2",
+        "KernelVersion": "6.8.0-135-generic",
+        "NetworkAddresses": [
+          {
+            "NetIP": "fe81::8b4c:973f:a76b:3771/64"
+          },
+          {
+            "NetIP": "192.168.17.1/20"
+          }
+        ],
+        "Files": [
+          {
+            "Path": "/usr/bin/netbird",
+            "ProcessIsRunning": false
+          }
+        ],
+        "Capabilities": [
+          1,
+          2
+        ],
+        "Flags": {
+          "ServerSSHAllowed": true,
+          "DisableIPv6": false
+        },
+        "SyncMessageVersion": 0
+      },
+      "ProxyMeta": {
+        "Embedded": true
+      },
+      "Location": {
+        "CountryCode": "DE",
+        "CityName": "Berlin",
+        "ConnectionIP": "46.201.149.187"
+      }
+    },
+    "peer-id-3": {
+      "ID": "peer-id-3",
+      "Key": "key-3",
+      "SSHKey": "ssh-key-3",
+      "DNSLabel": "peer-3",
+      "UserID": "user-id-3",
+      "SSHEnabled": true,
+      "LoginExpirationEnabled": true,
+      "LastLogin": "2026-08-06T12:25:59.12999Z",
+      "IP": "10.10.200.1",
+      "IPv6": "fdf6:ba80:6aa5:89f1:44d7:8701:8699:4940",
+      "RequiresApproval": false,
+      "ExtraDNSLabels": [
+        "extra-peer-3"
+      ],
+      "Meta": {
+        "WtVersion": "0.76.2",
+        "GoOS": "linux",
+        "OSVersion": "26.4.3",
+        "KernelVersion": "6.8.0-136-generic",
+        "NetworkAddresses": [
+          {
+            "NetIP": "fe82::8b4c:973f:a76b:3771/64"
+          },
+          {
+            "NetIP": "192.168.18.1/20"
+          }
+        ],
+        "Files": [
+          {
+            "Path": "/usr/bin/netbird",
+            "ProcessIsRunning": false
+          }
+        ],
+        "Capabilities": [
+          1,
+          2
+        ],
+        "Flags": {
+          "ServerSSHAllowed": true,
+          "DisableIPv6": false
+        },
+        "SyncMessageVersion": 1
+      },
+      "ProxyMeta": {
+        "Embedded": true
+      },
+      "Location": {
+        "CountryCode": "DE",
+        "CityName": "Berlin",
+        "ConnectionIP": "46.201.150.187"
+      }
+    }
+  },
+  "Groups": {
+    "group-no-resources-id": {
+      "ID": "group-no-resources-id",
+      "Name": "group-3-name",
+      "PublicID": "group-no-resources-id-public",
+      "Peers": null,
+      "Resources": null
+    },
+    "group-one-resource-id": {
+      "ID": "group-one-resource-id",
+      "Name": "group-1-name",
+      "PublicID": "group-one-resource-id-public",
+      "Peers": [
+        "peer-id-1"
+      ],
+      "Resources": [
+        {
+          "ID": "host-id-1",
+          "Type": "host"
+        }
+      ]
+    },
+    "group-two-resources-id": {
+      "ID": "group-two-resources-id",
+      "Name": "group-2-name",
+      "PublicID": "group-two-resources-id-public",
+      "Peers": [
+        "peer-id-2",
+        "peer-id-3"
+      ],
+      "Resources": [
+        {
+          "ID": "subnet-id-1",
+          "Type": "subnet"
+        },
+        {
+          "ID": "host-id-2",
+          "Type": "host"
+        }
+      ]
+    }
+  },
+  "Policies": [],
+  "Routes": [],
+  "NameServerGroups": [
+    {
+      "ID": "nsgroup-1",
+      "PublicID": "nsgroup-1-public",
+      "Name": "nsgroup-1",
+      "Description": "nsgroup-1",
+      "NameServers": [
+        {
+          "IP": "192.168.31.2",
+          "NSType": 1,
+          "Port": 53
+        }
+      ],
+      "Groups": [
+        "group-one-resource-id"
+      ],
+      "Primary": true,
+      "Domains": [
+        "test-1.com"
+      ],
+      "Enabled": true,
+      "SearchDomainsEnabled": false
+    },
+    {
+      "ID": "nsgroup-2",
+      "PublicID": "nsgroup-2-public",
+      "Name": "nsgroup-2",
+      "Description": "nsgroup-2",
+      "NameServers": [
+        {
+          "IP": "192.168.32.3",
+          "NSType": 1,
+          "Port": 53
+        }
+      ],
+      "Groups": [
+        "group-one-resource-id",
+        "group-no-resources-id"
+      ],
+      "Primary": true,
+      "Domains": [
+        "test-1.com",
+        "test-2.com"
+      ],
+      "Enabled": true,
+      "SearchDomainsEnabled": false
+    },
+    {
+      "ID": "nsgroup-3",
+      "PublicID": "nsgroup-3-public",
+      "Name": "",
+      "Description": "",
+      "NameServers": null,
+      "Groups": null,
+      "Primary": false,
+      "Domains": null,
+      "Enabled": true,
+      "SearchDomainsEnabled": false
+    }
+  ],
+  "NetworkResources": [],
+  "Network": {
+    "Identifier": "network-1",
+    "Net": {
+      "IP": "100.103.0.0",
+      "Mask": "//8AAA=="
+    },
+    "NetV6": {
+      "IP": "fdde:e995:fd38:a465::",
+      "Mask": "//////////8AAAAAAAAAAA=="
+    },
+    "Dns": "",
+    "Serial": 1
+  },
+  "DNSSettings": {
+    "DisabledManagementGroups": [
+      "disabled-group-1",
+      "disabled-group-2"
+    ]
+  },
+  "AccountSettings": {
+    "PeerLoginExpirationEnabled": true,
+    "PeerLoginExpiration": 86400000000000,
+    "PeerInactivityExpirationEnabled": false,
+    "PeerInactivityExpiration": 86400000000000,
+    "DNSDomain": "",
+    "IPv6EnabledGroups": [
+      "group-one-resource-id"
+    ],
+    "RoutingPeerDNSResolutionEnabled": false,
+    "LazyConnectionEnabled": false,
+    "AutoUpdateVersion": "disabled",
+    "AutoUpdateAlways": false,
+    "MetricsPushEnabled": false
+  },
+  "PostureChecks": {},
+  "PostureValidation": null,
+  "AllowedUserIDs": {},
+  "NetworkXIDToPublicID": {},
+  "PostureCheckXIDToPublicID": {},
+  "ValidatedPeers": {
+    "peer-id-1": {},
+    "peer-id-2": {},
+    "peer-id-3": {}
+  },
+  "ResourcePolicies": {},
+  "Routers": {},
+  "GroupIDToUserIDs": {},
+  "DNSDomain": "",
+  "ProxyTargetedDomainResourceIDs": {},
+  "AppliedZoneCandidates": [
+    {
+      "DistributionGroups": [
+        "group-one-resource-id"
+      ],
+      "Zone": {
+        "Domain": "test-1.com",
+        "Records": [
+          {
+            "Name": "test.test-1.com",
+            "Type": 1,
+            "Class": "IN",
+            "TTL": 1800,
+            "RData": "1.1.1.1"
+          },
+          {
+            "Name": "test2.test-1.com",
+            "Type": 1,
+            "Class": "IN",
+            "TTL": 1800,
+            "RData": "1.1.1.2"
+          },
+          {
+            "Name": "test3.test-1.com",
+            "Type": 5,
+            "Class": "IN",
+            "TTL": 1800,
+            "RData": "test4.test-1.com."
+          }
+        ],
+        "SearchDomainDisabled": false,
+        "NonAuthoritative": false
+      }
+    },
+    {
+      "DistributionGroups": [
+        "group-two-resources-id"
+      ],
+      "Zone": {
+        "Domain": "test-2.com",
+        "Records": [
+          {
+            "Name": "test2.test-2.com",
+            "Type": 5,
+            "Class": "IN",
+            "TTL": 1800,
+            "RData": "test3.test-2.com."
+          }
+        ],
+        "SearchDomainDisabled": true,
+        "NonAuthoritative": false
+      }
+    }
+  ],
+  "PrivateServiceCandidates": null
+}

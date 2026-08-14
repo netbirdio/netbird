@@ -3,6 +3,7 @@ package networkmapdb
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"strings"
 
 	"github.com/miekg/dns"
@@ -88,34 +89,12 @@ func (s *NetworkMapDBStoreImpl) GetNetworkMapData(ctx context.Context, accountId
 		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get proxy targeted domain resources: %w", err))
 	}
 
-	resourcePolicies := make(map[string][]*nmdata.Policy)
-	for _, resource := range networkResources {
-		if !resource.Enabled {
-			continue
-		}
-		networkResourceGroups := resourceToGroupIdx[resource.ID]
-		for _, policy := range policies {
-			if !policy.Enabled {
-				continue
-			}
-			if _, ok := policyToDestinationResourceIdx[policy.ID][resource.ID]; ok {
-				resourcePolicies[resource.ID] = append(resourcePolicies[resource.ID], &policy) // TODO (dmitri) maybe use public id?
-				continue
-			}
-			if groupIds, ok := policyToDestinationGroupIdx[policy.ID]; ok {
-				for networkResourceGroup := range networkResourceGroups {
-					if _, ok := groupIds[networkResourceGroup]; ok {
-						resourcePolicies[resource.ID] = append(resourcePolicies[resource.ID], &policy)
-						break
-					}
-				}
-			}
-		}
-	}
-
 	if err = tx.CommitTx(ctx); err != nil {
 		log.WithContext(ctx).Warnf("failed to commit network map read transaction: %v", err)
 	}
+
+	resourcePolicies := buildResourcePolicies(
+		networkResources, policies, resourceToGroupIdx, policyToDestinationResourceIdx, policyToDestinationGroupIdx)
 
 	toret := networkmap.NetworkMapData{
 		AccountSettings:                &acctSettings,
@@ -220,18 +199,16 @@ func buildPrivateServiceCandidates(svcs []Service, domains []Domain, proxyPeersB
 			continue
 		}
 
+		// this is implied when domainZone != "", but for maintainability's sake the check is explicit
+		// TODO (dmitri) make this an invariant
+		if svc.Domain.String == "" {
+			continue
+		}
 		var records []nmdata.SimpleRecord
 		for _, proxyPeer := range proxyPeersByCluster[svc.ProxyCluster.String] {
-			if !proxyPeer.IP.IsValid() {
-				continue
+			if record, ok := recordForProxyPeer(svc.Domain.String, proxyPeer.IP); ok {
+				records = append(records, record)
 			}
-			records = append(records, nmdata.SimpleRecord{
-				Name:  dns.Fqdn(svc.Domain.String),
-				Type:  int(dns.TypeA),
-				Class: "IN",
-				TTL:   5,
-				RData: proxyPeer.IP.String(),
-			})
 		}
 		if len(records) == 0 {
 			continue
@@ -249,4 +226,52 @@ func buildPrivateServiceCandidates(svcs []Service, domains []Domain, proxyPeersB
 	}
 
 	return out
+}
+
+func recordForProxyPeer(fqdn string, ip netip.Addr) (nmdata.SimpleRecord, bool) {
+	if !ip.IsValid() {
+		return nmdata.SimpleRecord{}, false
+	}
+
+	return nmdata.SimpleRecord{
+		Name:  dns.Fqdn(fqdn),
+		Type:  int(dns.TypeA),
+		Class: "IN",
+		TTL:   5,
+		RData: ip.String(),
+	}, true
+}
+
+func buildResourcePolicies(networkResources []nmdata.NetworkResource,
+	policies []nmdata.Policy,
+	resourceToGroupIdx map[string]map[string]any,
+	policyToDestinationResourceIdx map[string]map[string]any,
+	policyToDestinationGroupIdx map[string]map[string]any) map[string][]*nmdata.Policy {
+
+	resourcePolicies := make(map[string][]*nmdata.Policy)
+	for _, resource := range networkResources {
+		if !resource.Enabled {
+			continue
+		}
+		networkResourceGroups := resourceToGroupIdx[resource.ID]
+		for _, policy := range policies {
+			if !policy.Enabled {
+				continue
+			}
+			if _, ok := policyToDestinationResourceIdx[policy.ID][resource.ID]; ok {
+				resourcePolicies[resource.ID] = append(resourcePolicies[resource.ID], &policy) // TODO (dmitri) maybe use public id?
+				continue
+			}
+			if groupIds, ok := policyToDestinationGroupIdx[policy.ID]; ok {
+				for networkResourceGroup := range networkResourceGroups {
+					if _, ok := groupIds[networkResourceGroup]; ok {
+						resourcePolicies[resource.ID] = append(resourcePolicies[resource.ID], &policy)
+						break
+					}
+				}
+			}
+		}
+	}
+
+	return resourcePolicies
 }

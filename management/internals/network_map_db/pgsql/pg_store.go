@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 )
@@ -22,7 +23,8 @@ const (
 var _ networkmapdb.NetworkMapDBStore = &PgStore{}
 
 type PgStore struct {
-	Pool *pgxpool.Pool
+	Pool     *pgxpool.Pool
+	Location *time.Location
 }
 
 type PgStoreConn struct {
@@ -45,7 +47,23 @@ func NewPostgresqlStore(ctx context.Context, dsn string) (*PgStore, error) {
 	return &PgStore{Pool: pool}, nil
 }
 
+// This is used to control the timezone timestamps returned in.
+// By default pgx returns timestamps in the local timezone,
+// which may not be desirable.
+// use .UsingTimeZone(time.UTC) to return timestamps in UTC TZ
+func (p *PgStore) UsingTimeZone(location *time.Location) {
+	p.Location = location
+}
+
 func (p *PgStore) UsingConnection(c *pgx.Conn) networkmapdb.NetworkMapDBStoreConn {
+	if p.Location != nil {
+		c.TypeMap().RegisterType(&pgtype.Type{
+			Name:  "timestamptz",
+			OID:   pgtype.TimestamptzOID,
+			Codec: &pgtype.TimestamptzCodec{ScanLocation: time.UTC},
+		})
+	}
+
 	return &PgStoreConn{Conn: c}
 }
 
@@ -53,6 +71,13 @@ func (p *PgStore) BeginTx(ctx context.Context) (networkmapdb.NetworkMapDBStoreCo
 	tx, err := p.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
 		return nil, err
+	}
+	if p.Location != nil {
+		tx.Conn().TypeMap().RegisterType(&pgtype.Type{
+			Name:  "timestamptz",
+			OID:   pgtype.TimestamptzOID,
+			Codec: &pgtype.TimestamptzCodec{ScanLocation: time.UTC},
+		})
 	}
 	return &PgStoreConn{Conn: tx}, nil
 }
