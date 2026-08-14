@@ -246,6 +246,16 @@ dsn_host() {
   esac
 }
 
+# flow-enricher is its own container, so a loopback host or a socket path would
+# reach the enricher rather than Postgres. Only flag hosts we can positively
+# identify — an unparseable DSN must not leave the operator with no way forward.
+dsn_host_reachable() {
+  case "$(dsn_host "$1")" in
+    localhost | 127.* | ::1 | 0.0.0.0 | /*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
 # Names the compose service running this deployment's Postgres, for depends_on.
 # Empty means external — the DSN host matched no service. A DSN with no readable
 # host falls back to matching on image.
@@ -950,12 +960,28 @@ init_migration() {
       fi
 
       # flow-enricher talks to Postgres directly, so this is the one place an
-      # existing deployment's DSN is actually needed.
-      if [[ -z "$POSTGRES_DSN" ]]; then
+      # existing deployment's DSN is actually needed — and the one place a host
+      # that only works from inside the server container shows up.
+      while :; do
+        local dsn_problem=""
+        if [[ -z "$POSTGRES_DSN" ]]; then
+          dsn_problem="No DSN could be read from $CONFIG_YAML_HOST or from the $COMBINED_SERVICE environment."
+        elif ! dsn_host_reachable "$POSTGRES_DSN"; then
+          dsn_problem="Its host '$(dsn_host "$POSTGRES_DSN")' only resolves inside the server container."
+        fi
+        [[ -n "$dsn_problem" ]] || break
+
         echo ""
-        echo "  The flow enricher connects to Postgres directly, but no DSN could be"
-        echo "  read from $CONFIG_YAML_HOST or from the $COMBINED_SERVICE environment."
+        echo "  The flow enricher reaches Postgres from a container of its own."
+        echo "  $dsn_problem"
+        echo "  Enter a DSN reachable from other containers, or press Ctrl-C to abort."
         POSTGRES_DSN=$(read_required "  Postgres DSN (host=… user=… password=… dbname=… port=5432 sslmode=disable)")
+      done
+
+      # A DSN entered above names a different host, which decides what to wait on.
+      POSTGRES_SERVICE=$(detect_postgres_service)
+      if [[ -n "$POSTGRES_SERVICE" ]]; then
+        POSTGRES_DEPENDS_CONDITION=$(detect_postgres_depends_condition)
       fi
     fi
   else
