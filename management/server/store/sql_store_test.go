@@ -1972,6 +1972,32 @@ func TestSqlStore_GetPolicyByID(t *testing.T) {
 	}
 }
 
+func TestSqlStore_GetPolicyByIDOrPublicID(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	policyID := "cs1tnh0hhcjnqoiuebf0"
+
+	policy, err := store.GetPolicyByID(context.Background(), LockingStrengthNone, accountID, policyID)
+	require.NoError(t, err)
+	require.NotEmpty(t, policy.PublicID)
+
+	for _, id := range []string{policyID, policy.PublicID} {
+		policy, err := store.GetPolicyByIDOrPublicID(context.Background(), LockingStrengthNone, accountID, id)
+		require.NoError(t, err)
+		require.Equal(t, policyID, policy.ID)
+	}
+
+	policy, err = store.GetPolicyByIDOrPublicID(context.Background(), LockingStrengthNone, accountID, "non-existing")
+	require.Error(t, err)
+	sErr, ok := status.FromError(err)
+	require.True(t, ok)
+	require.Equal(t, sErr.Type(), status.NotFound)
+	require.Nil(t, policy)
+}
+
 func TestSqlStore_CreatePolicy(t *testing.T) {
 	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanup)
@@ -2629,6 +2655,32 @@ func TestSqlStore_GetNetworkResourceByID(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSqlStore_GetNetworkResourceByIDOrPublicID(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	netResourceID := "ctc4nci7qv9061u6ilfg"
+
+	netResource, err := store.GetNetworkResourceByID(context.Background(), LockingStrengthNone, accountID, netResourceID)
+	require.NoError(t, err)
+	require.NotEmpty(t, netResource.PublicID)
+
+	for _, id := range []string{netResourceID, netResource.PublicID} {
+		netResource, err := store.GetNetworkResourceByIDOrPublicID(context.Background(), LockingStrengthNone, accountID, id)
+		require.NoError(t, err)
+		require.Equal(t, netResourceID, netResource.ID)
+	}
+
+	netResource, err = store.GetNetworkResourceByIDOrPublicID(context.Background(), LockingStrengthNone, accountID, "non-existing")
+	require.Error(t, err)
+	sErr, ok := status.FromError(err)
+	require.True(t, ok)
+	require.Equal(t, sErr.Type(), status.NotFound)
+	require.Nil(t, netResource)
 }
 
 func TestSqlStore_SaveNetworkResource(t *testing.T) {
@@ -3746,6 +3798,32 @@ func TestSqlStore_GetRouteByID(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSqlStore_GetRouteByIDOrPublicID(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	routeID := "ct03t427qv97vmtmglog"
+
+	route, err := store.GetRouteByID(context.Background(), LockingStrengthNone, accountID, routeID)
+	require.NoError(t, err)
+	require.NotEmpty(t, route.PublicID)
+
+	for _, id := range []string{routeID, route.PublicID} {
+		route, err := store.GetRouteByIDOrPublicID(context.Background(), LockingStrengthNone, accountID, id)
+		require.NoError(t, err)
+		require.Equal(t, routeID, string(route.ID))
+	}
+
+	route, err = store.GetRouteByIDOrPublicID(context.Background(), LockingStrengthNone, accountID, "non-existing")
+	require.Error(t, err)
+	sErr, ok := status.FromError(err)
+	require.True(t, ok)
+	require.Equal(t, sErr.Type(), status.NotFound)
+	require.Nil(t, route)
 }
 
 func TestSqlStore_SaveRoute(t *testing.T) {
