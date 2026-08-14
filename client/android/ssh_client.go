@@ -165,7 +165,7 @@ func (s *SSHClient) Connect(host string, port int, user, password string) error 
 		return fmt.Errorf("invalid port: %d", port)
 	}
 
-	cfg, _, cc := s.nb.stateSnapshot()
+	cfg, cfgPath, cc := s.nb.authSnapshot()
 	if cc == nil {
 		return errors.New("netbird client not running")
 	}
@@ -185,7 +185,7 @@ func (s *SSHClient) Connect(host string, port int, user, password string) error 
 	serverType := detectServerType(host, port)
 	log.Debugf("SSH server type: %s", serverType)
 
-	authMethods, hostKeyCallback, err := s.buildAuth(cfg, engine, serverType, password)
+	authMethods, hostKeyCallback, err := s.buildAuth(cfg, cfgPath, engine, serverType, password)
 	if err != nil {
 		return err
 	}
@@ -345,12 +345,12 @@ func (s *SSHClient) startSession(cols, rows int) error {
 	return nil
 }
 
-func (s *SSHClient) buildAuth(cfg *profilemanager.Config, engine *internal.Engine,
+func (s *SSHClient) buildAuth(cfg *profilemanager.Config, cfgPath string, engine *internal.Engine,
 	serverType detection.ServerType, password string) ([]gossh.AuthMethod, gossh.HostKeyCallback, error) {
 
 	switch serverType {
 	case detection.ServerTypeNetBirdJWT:
-		token, err := s.requestJWTToken(cfg)
+		token, err := s.requestJWTToken(cfg, cfgPath)
 		if err != nil {
 			return nil, nil, fmt.Errorf("jwt: %w", err)
 		}
@@ -465,7 +465,7 @@ func (s *SSHClient) tofuHostKeyCallback() (gossh.HostKeyCallback, error) {
 	}, nil
 }
 
-func (s *SSHClient) requestJWTToken(cfg *profilemanager.Config) (string, error) {
+func (s *SSHClient) requestJWTToken(cfg *profilemanager.Config, cfgPath string) (string, error) {
 	s.mu.Lock()
 	urlOpener := s.urlOpener
 	s.mu.Unlock()
@@ -476,29 +476,18 @@ func (s *SSHClient) requestJWTToken(cfg *profilemanager.Config) (string, error) 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	flow, err := auth.NewOAuthFlow(ctx, cfg, false, true, profilemanager.GetLoginHint())
+	flow, err := auth.NewOAuthFlow(ctx, cfg, false, true, "")
 	if err != nil {
 		return "", fmt.Errorf("create oauth flow: %w", err)
 	}
 
-	flowInfo, err := flow.RequestAuthInfo(ctx)
+	// The status callback covers the browser round-trip, which would
+	// otherwise leave the terminal blank.
+	tokenInfo, err := runOAuthFlow(ctx, flow, profileLoginHint(cfgPath), urlOpener, func() {
+		s.notifyStatus("Waiting for browser authentication...")
+	})
 	if err != nil {
-		return "", fmt.Errorf("request auth info: %w", err)
-	}
-
-	// Called synchronously: Open is what marks the surface as opened on the
-	// client side, and OnLoginSuccess below is a no-op until it has. Starting
-	// both in their own goroutines let them race, so a fast token left the
-	// browser in front of the terminal.
-	urlOpener.Open(flowInfo.VerificationURIComplete, flowInfo.UserCode)
-
-	// WaitToken blocks for as long as the browser round-trip takes, so say so
-	// rather than leaving the terminal blank.
-	s.notifyStatus("Waiting for browser authentication...")
-
-	tokenInfo, err := flow.WaitToken(ctx, flowInfo)
-	if err != nil {
-		return "", fmt.Errorf("wait for token: %w", err)
+		return "", err
 	}
 
 	token := tokenInfo.GetTokenToUse()

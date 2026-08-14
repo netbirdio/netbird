@@ -204,26 +204,48 @@ func (a *Auth) foregroundGetTokenInfo(authClient *auth.Auth, urlOpener URLOpener
 		return nil, fmt.Errorf("failed to get OAuth flow: %v", err)
 	}
 
-	// An empty hint is deliberate, not a fallback: a fresh or logged-out profile
-	// leaves the choice to the IdP, which is how accounts get switched.
-	if a.cfgPath != "" {
-		if hint := readProfileEmail(a.cfgPath); hint != "" {
-			if setter, ok := oAuthFlow.(loginHintSetter); ok {
-				setter.SetLoginHint(hint)
-			}
+	return runOAuthFlow(a.ctx, oAuthFlow, profileLoginHint(a.cfgPath), urlOpener, nil)
+}
+
+// profileLoginHint returns the stored account email for the profile at cfgPath.
+// An empty hint is deliberate, not a fallback: a fresh or logged-out profile
+// leaves the choice to the IdP, which is how accounts get switched.
+func profileLoginHint(cfgPath string) string {
+	if cfgPath == "" {
+		return ""
+	}
+	return readProfileEmail(cfgPath)
+}
+
+// runOAuthFlow drives an already acquired OAuth flow to a token: applies the
+// login hint, requests the flow info, presents the verification URL through
+// the opener and waits for the browser round-trip. Open is called
+// synchronously — it is what marks the surface as opened on the client side,
+// and a fast token's OnLoginSuccess is a no-op until it has, so the dismissal
+// would be dropped rather than delayed. Openers must therefore not block:
+// they post their UI work and return. onWaiting, when set, runs after the URL
+// is shown, right before the blocking wait.
+func runOAuthFlow(ctx context.Context, flow auth.OAuthFlow, hint string, urlOpener URLOpener, onWaiting func()) (*auth.TokenInfo, error) {
+	if hint != "" {
+		if setter, ok := flow.(loginHintSetter); ok {
+			setter.SetLoginHint(hint)
 		}
 	}
 
-	flowInfo, err := oAuthFlow.RequestAuthInfo(context.TODO())
+	flowInfo, err := flow.RequestAuthInfo(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("getting a request OAuth flow info failed: %v", err)
+		return nil, fmt.Errorf("request auth info: %w", err)
 	}
 
-	go urlOpener.Open(flowInfo.VerificationURIComplete, flowInfo.UserCode)
+	urlOpener.Open(flowInfo.VerificationURIComplete, flowInfo.UserCode)
 
-	tokenInfo, err := oAuthFlow.WaitToken(a.ctx, flowInfo)
+	if onWaiting != nil {
+		onWaiting()
+	}
+
+	tokenInfo, err := flow.WaitToken(ctx, flowInfo)
 	if err != nil {
-		return nil, fmt.Errorf("waiting for browser login failed: %v", err)
+		return nil, fmt.Errorf("wait for token: %w", err)
 	}
 
 	return &tokenInfo, nil
