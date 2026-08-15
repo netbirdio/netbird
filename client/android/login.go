@@ -199,7 +199,15 @@ type loginHintSetter interface {
 }
 
 func (a *Auth) foregroundGetTokenInfo(authClient *auth.Auth, urlOpener URLOpener, isAndroidTV bool) (*auth.TokenInfo, error) {
-	oAuthFlow, err := authClient.GetOAuthFlow(a.ctx, isAndroidTV)
+	return a.foregroundGetTokenInfoFlow(authClient, urlOpener, isAndroidTV, false)
+}
+
+// foregroundGetTokenInfoFlow runs the interactive flow. sessionExtend tells the
+// server the token will renew this peer's session rather than log a peer in, so
+// it can rule out a silent authorization the IdP could answer from an unrelated
+// account. See PKCEAuthorizationFlowRequest.
+func (a *Auth) foregroundGetTokenInfoFlow(authClient *auth.Auth, urlOpener URLOpener, isAndroidTV bool, sessionExtend bool) (*auth.TokenInfo, error) {
+	oAuthFlow, err := authClient.GetOAuthFlow(a.ctx, isAndroidTV, sessionExtend)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get OAuth flow: %v", err)
 	}

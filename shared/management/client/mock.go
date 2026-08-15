@@ -16,7 +16,7 @@ type MockClient struct {
 	LoginFunc                      func(info *system.Info, sshKey []byte, dnsLabels domain.List) (*proto.LoginResponse, error)
 	ExtendAuthSessionFunc          func(info *system.Info, jwtToken string) (*proto.ExtendAuthSessionResponse, error)
 	GetDeviceAuthorizationFlowFunc func() (*proto.DeviceAuthorizationFlow, error)
-	GetPKCEAuthorizationFlowFunc   func() (*proto.PKCEAuthorizationFlow, error)
+	GetPKCEAuthorizationFlowFunc   func(sessionExtend bool) (*proto.PKCEAuthorizationFlow, error)
 	GetServerURLFunc               func() string
 	HealthCheckFunc                func() error
 	SyncMetaFunc                   func(sysInfo *system.Info) error
@@ -80,11 +80,11 @@ func (m *MockClient) GetDeviceAuthorizationFlow() (*proto.DeviceAuthorizationFlo
 	return m.GetDeviceAuthorizationFlowFunc()
 }
 
-func (m *MockClient) GetPKCEAuthorizationFlow() (*proto.PKCEAuthorizationFlow, error) {
+func (m *MockClient) GetPKCEAuthorizationFlow(sessionExtend bool) (*proto.PKCEAuthorizationFlow, error) {
 	if m.GetPKCEAuthorizationFlowFunc == nil {
 		return nil, nil
 	}
-	return m.GetPKCEAuthorizationFlowFunc()
+	return m.GetPKCEAuthorizationFlowFunc(sessionExtend)
 }
 
 func (m *MockClient) HealthCheck() error {

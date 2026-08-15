@@ -1180,7 +1180,8 @@ func (s *Server) GetPKCEAuthorizationFlow(ctx context.Context, req *proto.Encryp
 		return nil, status.Errorf(codes.Internal, "failed to get server key")
 	}
 
-	err = encryption.DecryptMessage(peerKey, key, req.Body, &proto.PKCEAuthorizationFlowRequest{})
+	flowReq := &proto.PKCEAuthorizationFlowRequest{}
+	err = encryption.DecryptMessage(peerKey, key, req.Body, flowReq)
 	if err != nil {
 		errMSG := fmt.Sprintf("error while decrypting peer's message with Wireguard public key %s.", req.WgPubKey)
 		log.WithContext(ctx).Warn(errMSG)
@@ -1224,6 +1225,7 @@ func (s *Server) GetPKCEAuthorizationFlow(ctx context.Context, req *proto.Encryp
 	}
 
 	flowInfoResp := s.integratedPeerValidator.ValidateFlowResponse(ctx, peerKey.String(), initInfoFlow)
+	applySessionExtendFlowPolicy(flowInfoResp, flowReq.GetSessionExtend())
 
 	encryptedResp, err := encryption.EncryptMessage(peerKey, key, flowInfoResp)
 	if err != nil {
@@ -1234,6 +1236,32 @@ func (s *Server) GetPKCEAuthorizationFlow(ctx context.Context, req *proto.Encryp
 		WgPubKey: key.PublicKey().String(),
 		Body:     encryptedResp,
 	}, nil
+}
+
+// applySessionExtendFlowPolicy forces a prompt=login flow for a session extend.
+//
+// An extend renews the session of one specific peer, so its token has to come
+// from the account that peer is registered under. A flow that does not prompt
+// leaves the choice to the IdP, which answers a silent authorization from any
+// session it already holds — not necessarily this peer's account when several
+// are signed in, and login_hint is a suggestion the IdP may ignore. The token
+// then fails the jwt.UserID == peer.UserID check in ExtendAuthSession, and the
+// user is given no opportunity to pick a different account.
+//
+// LoginFlagPromptLogin rather than max_age=0: both re-authenticate, but with
+// prompt=login the IdP honours login_hint and offers the peer's own account,
+// whereas max_age=0 leaves the user to find it among every account signed in.
+//
+// Called after ValidateFlowResponse so that a per-peer override cannot reinstate
+// the silent flow for an extend.
+func applySessionExtendFlowPolicy(flow *proto.PKCEAuthorizationFlow, sessionExtend bool) {
+	if !sessionExtend {
+		return
+	}
+	if cfg := flow.GetProviderConfig(); cfg != nil {
+		cfg.DisablePromptLogin = false
+		cfg.LoginFlag = uint32(common.LoginFlagPromptLogin)
+	}
 }
 
 // SyncMeta endpoint is used to synchronize peer's system metadata and notifies the connected,

@@ -679,7 +679,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		if msg.Hint != nil {
 			hint = *msg.Hint
 		}
-		oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.IsUnixDesktopClient, false, hint)
+		oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.IsUnixDesktopClient, false, hint, false)
 		if err != nil {
 			state.Set(internal.StatusLoginFailed)
 			return nil, err
@@ -1724,7 +1724,7 @@ func (s *Server) RequestJWTAuth(
 	}
 
 	// the daemon has no graphical session of its own, only the caller can answer this
-	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.GetHasGraphicalSession(), false, hint)
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.GetHasGraphicalSession(), false, hint, false)
 	if err != nil {
 		return nil, gstatus.Errorf(codes.Internal, "failed to create OAuth flow: %v", err)
 	}
@@ -1828,7 +1828,7 @@ func (s *Server) RequestExtendAuthSession(
 	}
 
 	// the daemon has no graphical session of its own, only the caller can answer this
-	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.GetHasGraphicalSession(), false, hint)
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.GetHasGraphicalSession(), false, hint, true)
 	if err != nil {
 		return nil, gstatus.Errorf(codes.Internal, "failed to create OAuth flow: %v", err)
 	}

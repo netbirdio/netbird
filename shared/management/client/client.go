@@ -21,7 +21,7 @@ type Client interface {
 	// is not eligible for session extension.
 	ExtendAuthSession(sysInfo *system.Info, jwtToken string) (*proto.ExtendAuthSessionResponse, error)
 	GetDeviceAuthorizationFlow() (*proto.DeviceAuthorizationFlow, error)
-	GetPKCEAuthorizationFlow() (*proto.PKCEAuthorizationFlow, error)
+	GetPKCEAuthorizationFlow(sessionExtend bool) (*proto.PKCEAuthorizationFlow, error)
 	GetServerURL() string
 	// IsHealthy returns the current connection status without blocking.
 	// Used by the engine to monitor connectivity in the background.

@@ -70,12 +70,15 @@ func shouldUseDeviceFlow(force bool, isUnixDesktopClient bool) bool {
 //
 // On Linux distros without desktop environment support, it only tries to initialize the Device Code Flow
 // forceDeviceCodeFlow can be used to skip PKCE and go directly to Device Code Flow (e.g., for Android TV)
-func NewOAuthFlow(ctx context.Context, config *profilemanager.Config, isUnixDesktopClient bool, forceDeviceCodeFlow bool, hint string) (OAuthFlow, error) {
+//
+// sessionExtend marks the flow as renewing an existing peer's session rather than
+// logging one in; see PKCEAuthorizationFlowRequest for what the server makes of it.
+func NewOAuthFlow(ctx context.Context, config *profilemanager.Config, isUnixDesktopClient bool, forceDeviceCodeFlow bool, hint string, sessionExtend bool) (OAuthFlow, error) {
 	if shouldUseDeviceFlow(forceDeviceCodeFlow, isUnixDesktopClient) {
 		return authenticateWithDeviceCodeFlow(ctx, config, hint)
 	}
 
-	pkceFlow, err := authenticateWithPKCEFlow(ctx, config, hint)
+	pkceFlow, err := authenticateWithPKCEFlow(ctx, config, hint, sessionExtend)
 	if err != nil {
 		log.Debugf("failed to initialize pkce authentication with error: %v\n", err)
 		log.Debug("falling back to device code flow")
@@ -85,14 +88,14 @@ func NewOAuthFlow(ctx context.Context, config *profilemanager.Config, isUnixDesk
 }
 
 // authenticateWithPKCEFlow initializes the Proof Key for Code Exchange flow auth flow
-func authenticateWithPKCEFlow(ctx context.Context, config *profilemanager.Config, hint string) (OAuthFlow, error) {
+func authenticateWithPKCEFlow(ctx context.Context, config *profilemanager.Config, hint string, sessionExtend bool) (OAuthFlow, error) {
 	authClient, err := NewAuth(ctx, config.PrivateKey, config.ManagementURL, config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create auth client: %v", err)
 	}
 	defer authClient.Close()
 
-	pkceFlowInfo, err := authClient.getPKCEFlow(authClient.client)
+	pkceFlowInfo, err := authClient.getPKCEFlow(authClient.client, sessionExtend)
 	if err != nil {
 		return nil, fmt.Errorf("getting pkce authorization flow info failed with error: %v", err)
 	}

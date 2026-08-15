@@ -530,8 +530,18 @@ message DeviceAuthorizationFlow {
   }
 }
 
-// PKCEAuthorizationFlowRequest empty struct for future expansion
-message PKCEAuthorizationFlowRequest {}
+// PKCEAuthorizationFlowRequest asks for the PKCE flow configuration to use for
+// an upcoming authorization request.
+message PKCEAuthorizationFlowRequest {
+  // SessionExtend indicates the flow will renew the SSO session of a peer that
+  // is already registered, rather than log in or register one. An extend is
+  // bound to the account that peer belongs to, so the server must not answer it
+  // with a configuration that lets the IdP reply from whatever session is
+  // already active: with several accounts signed in at the IdP that need not be
+  // the peer's own, and the resulting token is rejected as a peer/user mismatch
+  // with no way for the user to correct it.
+  bool SessionExtend = 1;
+}
 
 // PKCEAuthorizationFlow represents Authorization Code Flow information
 // that can be used by the client to login initiate a Oauth 2.0 authorization code grant flow
