@@ -67,6 +67,30 @@ components:
   — the management-side control plane: providers, policies, guardrails, limits, routing,
   and usage/access logs.
 
+## Access roles
+
+Agent Network permissions build on the account permission matrix
+([`management/server/permissions/`](../management/server/permissions)). The
+`agent_network` area is split into dotted submodules (`agent_network.providers`,
+`.policies`, `.guardrails`, `.budgets`, `.usage`, `.logs`, `.settings`); a role may
+grant a single submodule or the parent, which cascades to all of them.
+
+Two roles delegate Agent Network access without account-admin rights:
+
+- **`agent_network_admin`** — full control over the whole `agent_network` area plus
+  read-only users, groups, peers, and account info (needed to build policies).
+  Nothing else in the account.
+- **`usage_viewer`** — the regular User baseline plus read on
+  `agent_network.usage` (the aggregated usage and cost overview). No provider
+  configuration, no policies, no request-level access logs.
+
+Every authenticated user, regardless of role, can read the caller-scoped
+self-service endpoints: `GET /api/agent-network/me/setup` (the endpoint, providers,
+and models the caller's own policies allow — what a local AI tool needs and nothing
+more) and `GET /api/agent-network/me/consumption` (the caller's own token and cost
+counters). Role definitions live in
+[`management/server/permissions/roles/`](../management/server/permissions/roles).
+
 ## Documentation
 
 Full documentation, architecture, and quickstart:

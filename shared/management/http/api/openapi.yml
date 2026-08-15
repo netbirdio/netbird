@@ -5729,6 +5729,57 @@ components:
       required:
         - name
         - checks
+    AgentNetworkMeSetup:
+      type: object
+      description: The caller-scoped Agent Network connection info backing the "My Agent Network" self-service view. Available to every authenticated user; the answer is computed from the caller's own groups and carries display metadata only.
+      properties:
+        configured:
+          type: boolean
+          description: False when the account has no Agent Network set up or the caller's groups authorize none of it. The two cases are deliberately indistinguishable.
+        endpoint:
+          type: string
+          description: The account's Agent Network base URL, reachable over the NetBird tunnel only. Empty when configured is false.
+          example: https://calm-otter.proxy.example.com
+        providers:
+          type: array
+          description: The providers at least one of the caller's policies authorizes, in creation order.
+          items:
+            $ref: '#/components/schemas/AgentNetworkMeProvider'
+      required:
+        - configured
+        - endpoint
+        - providers
+    AgentNetworkMeProvider:
+      type: object
+      description: One provider the caller may use, reduced to what a local tool needs for configuration.
+      properties:
+        name:
+          type: string
+          description: Operator-assigned provider label.
+          example: Bedrock prod
+        catalog_id:
+          type: string
+          description: Catalog entry id naming the provider type.
+          example: bedrock_api
+        api_flavor:
+          type: string
+          description: Request-body shape the provider speaks ("anthropic", "openai"). Empty when the gateway dispatches it by URL path instead.
+          example: anthropic
+        all_models_allowed:
+          type: boolean
+          description: True when no model allowlist restricts this provider for the caller; models then lists the declared or catalog models as a courtesy.
+        models:
+          type: array
+          description: The effective model allowlist for the caller (or the declared/catalog models when all_models_allowed is true).
+          items:
+            type: string
+          example: [ "anthropic.claude-sonnet-4-5" ]
+      required:
+        - name
+        - catalog_id
+        - api_flavor
+        - all_models_allowed
+        - models
     AgentNetworkConsumption:
       type: object
       description: One per-(dimension, window) consumption counter row. The proxy ticks one row per dimension on every served LLM request; the dashboard reads this listing to surface live counter growth.
@@ -13721,6 +13772,46 @@ paths:
           "$ref": "#/components/responses/requires_authentication"
         '403':
           "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/agent-network/me/setup:
+    get:
+      summary: Retrieve the caller's Agent Network setup
+      description: Returns everything the caller needs to configure a local AI tool and nothing more - the account's Agent Network endpoint plus the providers and models the caller's own policies allow. Available to every authenticated user regardless of role; the response never contains provider credentials, policy or guardrail configuration, or providers the caller cannot reach.
+      tags: [ Agent Network ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: The caller-scoped Agent Network connection info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentNetworkMeSetup'
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/agent-network/me/consumption:
+    get:
+      summary: List the caller's own Agent Network consumption
+      description: Returns the caller's own per-window token and cost counters (the user dimension recorded for the calling user), ordered window-newest-first. Available to every authenticated user regardless of role. Empty list when the caller has not consumed anything yet.
+      tags: [ Agent Network ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: A JSON Array of the caller's own consumption counter rows
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AgentNetworkConsumption'
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
         '500':
           "$ref": "#/components/responses/internal_error"
   /api/agent-network/settings:
