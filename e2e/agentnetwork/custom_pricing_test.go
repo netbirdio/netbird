@@ -170,23 +170,43 @@ func chatOnce(t *testing.T, ctx context.Context, env pricedEnv, model, sessionID
 	return body
 }
 
-// findAccessLogBySession polls the access-log page for the row carrying sessionID.
-func findAccessLogBySession(t *testing.T, ctx context.Context, sessionID string) api.AgentNetworkAccessLog {
-	t.Helper()
-	var row api.AgentNetworkAccessLog
-	require.Eventually(t, func() bool {
-		logs, lerr := srv.ListAccessLogs(ctx)
-		if lerr != nil {
-			return false
-		}
-		for _, r := range logs.Data {
-			if r.SessionId != nil && *r.SessionId == sessionID {
-				row = r
-				return true
+// accessLogIngestWindow is how long a single request's access-log row is given
+// to appear before the caller gives up on it.
+const accessLogIngestWindow = 30 * time.Second
+
+// lookupAccessLogBySession polls the access-log page for the row carrying
+// sessionID and reports whether it arrived within the window. It never fails
+// the test: callers that can recover — by firing a fresh request under a new
+// session — need to see the miss rather than die on it.
+func lookupAccessLogBySession(ctx context.Context, sessionID string, within time.Duration) (api.AgentNetworkAccessLog, bool) {
+	deadline := time.Now().Add(within)
+	for {
+		if logs, lerr := srv.ListAccessLogs(ctx); lerr == nil {
+			for _, r := range logs.Data {
+				if r.SessionId != nil && *r.SessionId == sessionID {
+					return r, true
+				}
 			}
 		}
-		return false
-	}, 30*time.Second, 2*time.Second, "session id %q must be recorded in an access-log row", sessionID)
+		if time.Now().After(deadline) {
+			return api.AgentNetworkAccessLog{}, false
+		}
+		select {
+		case <-ctx.Done():
+			return api.AgentNetworkAccessLog{}, false
+		case <-time.After(2 * time.Second):
+		}
+	}
+}
+
+// findAccessLogBySession polls the access-log page for the row carrying
+// sessionID, failing the test if it never lands. Use it for a request whose row
+// must exist; where a missing row is a recoverable race, use
+// lookupAccessLogBySession and retry.
+func findAccessLogBySession(t *testing.T, ctx context.Context, sessionID string) api.AgentNetworkAccessLog {
+	t.Helper()
+	row, ok := lookupAccessLogBySession(ctx, sessionID, accessLogIngestWindow)
+	require.True(t, ok, "session id %q must be recorded in an access-log row", sessionID)
 	return row
 }
 
@@ -320,6 +340,11 @@ func TestPriceChangeUpdatesRecordedCost(t *testing.T) {
 		outRateA    = 0.020
 		inRateB     = 0.050 // 5x / 4x the original, so a repriced row is unmistakable
 		outRateB    = 0.080
+		// Per-attempt ingest wait, shorter than the default so a request that
+		// produces no row costs one retry rather than most of the budget, and an
+		// overall deadline long enough to hold several attempts.
+		repriceIngestWindow = 20 * time.Second
+		repriceDeadline     = 180 * time.Second
 	)
 
 	env := provisionPricedProvider(t, ctx, "reprice", []api.AgentNetworkProviderModel{
@@ -354,10 +379,15 @@ func TestPriceChangeUpdatesRecordedCost(t *testing.T) {
 	// reading its cost, so an un-ingested row is never mistaken for "still rate A".
 	// The expected new input cost is unmistakably higher than rate A, so a
 	// lingering old-rate row can't satisfy the check.
+	//
+	// Every way an iteration can come up short — the request failing, its row not
+	// landing, or the row still carrying rate A — is a symptom of the same
+	// in-flight rebuild, so each one retries under a fresh session rather than
+	// ending the test. Only the outer deadline is fatal.
 	wantInputB := float64(vllmPromptTokens) / 1000 * inRateB
 	var repriced api.AgentNetworkAccessLog
 	var lastSession string
-	deadline := time.Now().Add(90 * time.Second)
+	deadline := time.Now().Add(repriceDeadline)
 	for time.Now().Before(deadline) {
 		lastSession = fmt.Sprintf("e2e-session-reprice-b-%d", time.Now().UnixNano())
 		code, _, cerr := env.client.Chat(ctx, env.endpoint, env.proxyIP, harness.WireChat, customModel, "Reply with exactly: pong", lastSession)
@@ -365,7 +395,15 @@ func TestPriceChangeUpdatesRecordedCost(t *testing.T) {
 			time.Sleep(5 * time.Second)
 			continue
 		}
-		row := findAccessLogBySession(t, ctx, lastSession)
+		row, ok := lookupAccessLogBySession(ctx, lastSession, repriceIngestWindow)
+		if !ok {
+			// No row for this request. The provider update rebuilds the proxy's
+			// middleware chain, and a request served mid-rebuild can complete
+			// without a resolved provider — 200 to the caller, nothing to
+			// attribute, so no row is ever written for it. Fire another one.
+			t.Logf("no access-log row for session %q within %s; retrying under a fresh session", lastSession, repriceIngestWindow)
+			continue
+		}
 		if inDelta(row.InputCostUsd, wantInputB, 1e-6) {
 			repriced = row
 			break
