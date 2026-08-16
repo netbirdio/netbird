@@ -1215,7 +1215,7 @@ func TestProtect_MTLSHostWithCommentedPEMBundleAllowed(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, http.StatusOK, rec.Code, "allow a client certificate signed by a CA in the commented PEM bundle")
 }
 
 func TestProtect_MTLSHostWithNonMatchingCertDenied(t *testing.T) {
