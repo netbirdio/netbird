@@ -1,6 +1,8 @@
 package peer
 
 import (
+	"sync/atomic"
+
 	"github.com/pion/ice/v4"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -12,6 +14,7 @@ import (
 type Signaler struct {
 	signal       signal.Client
 	wgPrivateKey wgtypes.Key
+	filedropPort atomic.Uint32
 }
 
 func NewSignaler(signal signal.Client, wgPrivateKey wgtypes.Key) *Signaler {
@@ -44,6 +47,12 @@ func (s *Signaler) Ready() bool {
 	return s.signal.Ready()
 }
 
+// SetFiledropPort sets the file drop listen port advertised in offers and answers;
+// 0 means the well-known default and is not put on the wire.
+func (s *Signaler) SetFiledropPort(port uint16) {
+	s.filedropPort.Store(uint32(port))
+}
+
 // SignalOfferAnswer signals either an offer or an answer to remote peer
 func (s *Signaler) signalOfferAnswer(offerAnswer OfferAnswer, remoteKey string, bodyType sProto.Body_Type) error {
 	var sessionIDBytes []byte
@@ -57,6 +66,7 @@ func (s *Signaler) signalOfferAnswer(offerAnswer OfferAnswer, remoteKey string, 
 	msg, err := signal.MarshalCredential(s.wgPrivateKey, remoteKey, signal.CredentialPayload{
 		Type:         bodyType,
 		WgListenPort: offerAnswer.WgListenPort,
+		FiledropPort: uint16(s.filedropPort.Load()),
 		Credential: &signal.Credential{
 			UFrag: offerAnswer.IceCredentials.UFrag,
 			Pwd:   offerAnswer.IceCredentials.Pwd,

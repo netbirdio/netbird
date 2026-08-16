@@ -75,6 +75,10 @@ message Body {
   // fallback dial target when DNS resolution of relayServerAddress fails.
   // SNI/TLS verification still uses relayServerAddress.
   optional bytes relayServerIP = 11;
+
+  // filedropPort is the sender's file drop listen port when it differs from
+  // the well-known default; 0 (absent) means the default port.
+  uint32 filedropPort = 12;
 }
 
 // Mode indicates a connection mode

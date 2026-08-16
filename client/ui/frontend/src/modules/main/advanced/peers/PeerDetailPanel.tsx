@@ -20,6 +20,7 @@ import {
     Check as CheckIcon,
     ChevronDownIcon,
     ChevronsLeftRightEllipsisIcon,
+    ClipboardIcon,
     ClockIcon,
     Copy as CopyIcon,
     GaugeIcon,
@@ -31,9 +32,13 @@ import {
     MonitorIcon,
     Radio,
     RefreshCwIcon,
+    SendIcon,
     WaypointsIcon,
 } from "lucide-react";
+import { FileDrop } from "@bindings/services";
 import type { PeerStatus } from "@bindings/services/models.js";
+import { Button } from "@/components/buttons/Button";
+import { useNavSection } from "@/contexts/NavSectionContext";
 import { cn } from "@/lib/cn";
 import { CopyToClipboard } from "@/components/CopyToClipboard";
 import { Tooltip } from "@/components/Tooltip";
@@ -250,6 +255,7 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
                     </div>
                     <ScrollArea.Root type={"auto"} className={"min-h-0 flex-1 overflow-hidden"}>
                         <ScrollArea.Viewport className={"h-full w-full"}>
+                            <PeerSendActions peer={selected} />
                             <PeerDetails peer={selected} now={now} />
                         </ScrollArea.Viewport>
                         <ScrollArea.Scrollbar
@@ -269,6 +275,76 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
                 </motion.div>
             )}
         </AnimatePresence>
+    );
+};
+
+const PeerSendActions = ({ peer }: { peer: PeerStatus }) => {
+    const { t } = useTranslation();
+    const { setSection } = useNavSection();
+    const { setSelected } = usePeerDetail();
+    const [error, setError] = useState<string | null>(null);
+    // Deliberately not gated on connStatus: an idle peer is the normal resting
+    // state under lazy connections, and the outgoing packets of the transfer are
+    // exactly what wakes it. Only a peer without an overlay address has nothing
+    // to dial.
+    const canSend = peer.ip !== "";
+
+    const finishSend = () => {
+        setSelected(null);
+        setSection("files");
+    };
+
+    const sendFiles = async () => {
+        setError(null);
+        try {
+            const paths = await FileDrop.PickFiles();
+            if (!paths || paths.length === 0) return;
+            await FileDrop.Send(peer.pubKey, paths, "");
+            finishSend();
+        } catch (e) {
+            setError(String(e));
+        }
+    };
+
+    const sendClipboard = async () => {
+        setError(null);
+        try {
+            const text = await FileDrop.ClipboardText();
+            if (!text) {
+                setError(t("peers.details.sendClipboard.empty"));
+                return;
+            }
+            await FileDrop.Send(peer.pubKey, [], text);
+            finishSend();
+        } catch (e) {
+            setError(String(e));
+        }
+    };
+
+    return (
+        <div className={"border-b border-nb-gray-920 px-5 py-3"}>
+            <div className={"flex items-center gap-2"}>
+                <Button
+                    variant={"secondary"}
+                    size={"xs"}
+                    disabled={!canSend}
+                    onClick={() => void sendFiles()}
+                >
+                    <SendIcon size={12} aria-hidden={"true"} />
+                    {t("peers.details.sendFile")}
+                </Button>
+                <Button
+                    variant={"secondary"}
+                    size={"xs"}
+                    disabled={!canSend}
+                    onClick={() => void sendClipboard()}
+                >
+                    <ClipboardIcon size={12} aria-hidden={"true"} />
+                    {t("peers.details.sendClipboard")}
+                </Button>
+            </div>
+            {error && <div className={"mt-2 text-xs text-red-400"}>{error}</div>}
+        </div>
     );
 };
 
