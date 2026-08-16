@@ -40,6 +40,7 @@ import (
 	dnsconfig "github.com/netbirdio/netbird/client/internal/dns/config"
 	"github.com/netbirdio/netbird/client/internal/dnsfwd"
 	"github.com/netbirdio/netbird/client/internal/expose"
+	"github.com/netbirdio/netbird/client/internal/filedrop"
 	"github.com/netbirdio/netbird/client/internal/ingressgw"
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
 	"github.com/netbirdio/netbird/client/internal/metrics"
@@ -181,6 +182,7 @@ type EngineServices struct {
 	UpdateManager  *updater.Manager
 	ClientMetrics  *metrics.ClientMetrics
 	MetricsCtx     context.Context
+	FileDrop       *filedrop.Manager
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -235,6 +237,10 @@ type Engine struct {
 	networkMonitor *networkmonitor.NetworkMonitor
 
 	sshServer sshServer
+
+	fileDrop        *filedrop.Manager
+	fileDropRunning bool
+	fileDropPort    uint16
 
 	statusRecorder *peer.Status
 
@@ -350,6 +356,7 @@ func NewEngine(
 		metricsCtx:         services.MetricsCtx,
 		updateManager:      services.UpdateManager,
 		syncStoreDir:       config.StateDir,
+		fileDrop:           services.FileDrop,
 	}
 	// sessionWatcher keeps the SubscribeStatus consumers in sync with the
 	// session expiry deadline. Deadline-change ticks come for free via
@@ -414,6 +421,8 @@ func (e *Engine) stopLocked() {
 	if err := e.stopSSHServer(); err != nil {
 		log.Warnf("failed to stop SSH server: %v", err)
 	}
+
+	e.stopFileDrop()
 
 	e.cleanupSSHConfig()
 
@@ -1293,6 +1302,8 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 		}
 	}
 
+	e.startFileDrop()
+
 	state := e.statusRecorder.GetLocalPeerState()
 	state.IP = e.wgInterface.Address().String()
 	state.IPv6 = e.wgInterface.Address().IPv6String()
@@ -1959,6 +1970,8 @@ func (e *Engine) receiveSignalEvents() error {
 				if err != nil {
 					return err
 				}
+
+				e.recordFiledropPort(msg.Key, msg.GetBody().GetFiledropPort())
 
 				log.Debugf("receiveMSG: took %s to get lock for peer %s with session id %s", gotLock, msg.Key, offerAnswer.SessionID)
 

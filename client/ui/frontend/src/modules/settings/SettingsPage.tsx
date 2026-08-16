@@ -12,6 +12,7 @@ import { SettingsGeneral } from "@/modules/settings/SettingsGeneral.tsx";
 import { SettingsNetwork } from "@/modules/settings/SettingsNetwork.tsx";
 import { SettingsSecurity } from "@/modules/settings/SettingsSecurity.tsx";
 import { ProfilesTab } from "@/modules/profiles/ProfilesTab.tsx";
+import { SettingsFileSharing } from "@/modules/settings/SettingsFileSharing.tsx";
 import { SettingsSSH } from "@/modules/settings/SettingsSSH.tsx";
 import { SettingsAdvanced } from "@/modules/settings/SettingsAdvanced.tsx";
 import { SettingsTroubleshooting } from "@/modules/settings/SettingsTroubleshooting.tsx";
@@ -24,6 +25,7 @@ const enum Tab {
     General = "general",
     Network = "network",
     Security = "security",
+    FileSharing = "fileSharing",
     Profiles = "profiles",
     SSH = "ssh",
     Advanced = "advanced",
@@ -35,6 +37,7 @@ const TAB_CONTENT: Record<Tab, ReactNode> = {
     [Tab.General]: <SettingsGeneral />,
     [Tab.Network]: <SettingsNetwork />,
     [Tab.Security]: <SettingsSecurity />,
+    [Tab.FileSharing]: <SettingsFileSharing />,
     [Tab.Profiles]: <ProfilesTab />,
     [Tab.SSH]: <SettingsSSH />,
     [Tab.Advanced]: <SettingsAdvanced />,
@@ -53,6 +56,7 @@ export const SettingsPage = () => {
             [Tab.General]: true,
             [Tab.Network]: editable,
             [Tab.Security]: editable,
+            [Tab.FileSharing]: true,
             [Tab.Profiles]: !features.disableProfiles,
             [Tab.SSH]: mdm.allowServerSSH ?? editable,
             [Tab.Advanced]: editable,

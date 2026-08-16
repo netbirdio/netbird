@@ -1338,5 +1338,174 @@
     },
     "error.unknown": {
         "message": "Не удалось выполнить операцию."
+    },
+    "nav.files.title": {
+        "message": "Файлы"
+    },
+    "files.search.placeholder": {
+        "message": "Поиск передач по файлу или пиру"
+    },
+    "files.empty.title": {
+        "message": "Передач пока нет"
+    },
+    "files.empty.description": {
+        "message": "Отправленные и полученные файлы появятся здесь."
+    },
+    "files.group.today": {
+        "message": "Сегодня"
+    },
+    "files.group.yesterday": {
+        "message": "Вчера"
+    },
+    "files.offer.subtitle": {
+        "message": "{peer} хочет отправить"
+    },
+    "files.offer.accept": {
+        "message": "Принять"
+    },
+    "files.offer.decline": {
+        "message": "Отклонить"
+    },
+    "files.row.to": {
+        "message": "кому: {peer}"
+    },
+    "files.row.from": {
+        "message": "от {peer}"
+    },
+    "files.state.pending": {
+        "message": "Ожидание"
+    },
+    "files.state.transferring": {
+        "message": "Передача"
+    },
+    "files.state.progress": {
+        "message": "{percent}%"
+    },
+    "files.state.received": {
+        "message": "Получено"
+    },
+    "files.state.sent": {
+        "message": "Отправлено"
+    },
+    "files.state.declined": {
+        "message": "Отклонено"
+    },
+    "files.state.expired": {
+        "message": "Нет ответа"
+    },
+    "files.state.cancelled": {
+        "message": "Отменено"
+    },
+    "files.state.failed": {
+        "message": "Ошибка"
+    },
+    "files.action.copy": {
+        "message": "Копировать"
+    },
+    "files.action.reveal": {
+        "message": "Показать в папке"
+    },
+    "files.action.cancel": {
+        "message": "Отменить"
+    },
+    "files.action.more": {
+        "message": "Ещё"
+    },
+    "files.action.open": {
+        "message": "Открыть"
+    },
+    "files.action.alwaysAccept": {
+        "message": "Всегда принимать от этого пира"
+    },
+    "files.action.block": {
+        "message": "Заблокировать этого пира"
+    },
+    "files.action.delete": {
+        "message": "Удалить"
+    },
+    "peers.dropToSend": {
+        "message": "Отпустите для отправки"
+    },
+    "peers.details.sendFile": {
+        "message": "Отправить файл…"
+    },
+    "peers.details.sendClipboard": {
+        "message": "Отправить буфер обмена"
+    },
+    "peers.details.sendClipboard.empty": {
+        "message": "Буфер обмена пуст"
+    },
+    "settings.tabs.fileSharing": {
+        "message": "Обмен файлами"
+    },
+    "settings.fileSharing.section": {
+        "message": "Получение файлов"
+    },
+    "settings.fileSharing.loading": {
+        "message": "Загрузка…"
+    },
+    "settings.fileSharing.mode.label": {
+        "message": "Получать файлы от пиров"
+    },
+    "settings.fileSharing.mode.help": {
+        "message": "Как это устройство обрабатывает входящие предложения файлов."
+    },
+    "settings.fileSharing.mode.off": {
+        "message": "Выключено"
+    },
+    "settings.fileSharing.mode.off.help": {
+        "message": "Это устройство не принимает файлы."
+    },
+    "settings.fileSharing.mode.ask": {
+        "message": "Спрашивать каждый раз"
+    },
+    "settings.fileSharing.mode.ask.help": {
+        "message": "Каждое предложение сначала запрашивает согласие."
+    },
+    "settings.fileSharing.mode.auto": {
+        "message": "Автоприём"
+    },
+    "settings.fileSharing.mode.auto.help": {
+        "message": "Файлы приходят без подтверждения."
+    },
+    "settings.fileSharing.destination.label": {
+        "message": "Сохранять полученные файлы в"
+    },
+    "settings.fileSharing.destination.help": {
+        "message": "Полученные файлы помещаются в эту папку."
+    },
+    "settings.fileSharing.destination.unset": {
+        "message": "Не задано"
+    },
+    "settings.fileSharing.destination.change": {
+        "message": "Изменить…"
+    },
+    "settings.fileSharing.exceptions.label": {
+        "message": "Исключения для пиров"
+    },
+    "settings.fileSharing.exceptions.help": {
+        "message": "Переопределения поверх режима приёма."
+    },
+    "settings.fileSharing.exceptions.empty": {
+        "message": "Исключений нет."
+    },
+    "settings.fileSharing.exceptions.blocked": {
+        "message": "Заблокирован"
+    },
+    "settings.fileSharing.exceptions.always": {
+        "message": "Всегда принимается"
+    },
+    "settings.fileSharing.exceptions.remove": {
+        "message": "Удалить исключение"
+    },
+    "files.state.unreachable": {
+        "message": "Отклонено",
+        "description": "Failed-transfer reason: the peer's file drop port refused the offer."
+    },
+    "notify.filedrop.offer.title": {
+        "message": "Входящий файл"
+    },
+    "notify.filedrop.always": {
+        "message": "Всегда принимать"
     }
 }

@@ -110,6 +110,11 @@ type Client struct {
 
 	extendMu     sync.Mutex
 	extendCancel context.CancelFunc
+
+	// The file drop handle survives engine restarts so the UI keeps one listener
+	// registration and one history view across reconnects. See fileDropFor.
+	fileDropMu sync.Mutex
+	fileDrop   *FileDrop
 }
 
 func (c *Client) setState(cfg *profilemanager.Config, cacheDir string, cfgPath string, cc *internal.ConnectClient) {
@@ -197,6 +202,7 @@ func (c *Client) Run(platformFiles PlatformFiles, urlOpener URLOpener, isAndroid
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
 	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder)
+	c.attachFileDrop(connectClient, cfgFile)
 	c.setState(cfg, cacheDir, cfgFile, connectClient)
 	// This path runs the interactive SSO flow, so reaching here means the peer
 	// is authenticated again — release the latch Status() reports from. Clear
@@ -238,6 +244,7 @@ func (c *Client) RunWithoutLogin(platformFiles PlatformFiles, dns *DNSList, dnsR
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
 	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder)
+	c.attachFileDrop(connectClient, cfgFile)
 	c.setState(cfg, cacheDir, cfgFile, connectClient)
 	return connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener, stateFile, cacheDir)
 }

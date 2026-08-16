@@ -27,6 +27,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/internal/dns"
+	"github.com/netbirdio/netbird/client/internal/filedrop"
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/metrics"
@@ -64,10 +65,11 @@ type ConnectClient struct {
 	config         *profilemanager.Config
 	statusRecorder *peer.Status
 
-	engine        *Engine
-	engineMutex   sync.Mutex
-	clientMetrics *metrics.ClientMetrics
-	updateManager *updater.Manager
+	engine          *Engine
+	engineMutex     sync.Mutex
+	clientMetrics   *metrics.ClientMetrics
+	updateManager   *updater.Manager
+	fileDropManager *filedrop.Manager
 
 	persistSyncResponse bool
 }
@@ -93,6 +95,12 @@ func NewConnectClient(
 
 func (c *ConnectClient) SetUpdateManager(um *updater.Manager) {
 	c.updateManager = um
+}
+
+// SetFileDropManager hands the engine the active profile's file drop manager, so
+// the transfer receiver starts and stops with the tunnel. Must be set before Run.
+func (c *ConnectClient) SetFileDropManager(m *filedrop.Manager) {
+	c.fileDropManager = m
 }
 
 // Run with main logic.
@@ -424,6 +432,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			UpdateManager:  c.updateManager,
 			ClientMetrics:  c.clientMetrics,
 			MetricsCtx:     c.ctx,
+			FileDrop:       c.fileDropManager,
 		}, mobileDependency)
 		engine.SetSyncResponsePersistence(c.persistSyncResponse)
 		c.engine = engine

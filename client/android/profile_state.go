@@ -48,6 +48,33 @@ func profileAccountPathFor(configPath string) (string, error) {
 	return filepath.Join(filepath.Dir(configPath), stem+profileAccountSuffix), nil
 }
 
+// profileLocationFor splits a profile's config path back into the config dir and
+// the profile ID: <dir>/netbird.cfg is the default profile, while
+// <dir>/profiles/<id>.json is a named one.
+func profileLocationFor(configPath string) (string, string, error) {
+	if configPath == "" {
+		return "", "", fmt.Errorf("empty config path")
+	}
+
+	base := filepath.Base(configPath)
+	dir := filepath.Dir(configPath)
+
+	if base == defaultConfigFilename {
+		return dir, profilemanager.DefaultProfileName, nil
+	}
+
+	if filepath.Base(dir) != profilesSubdir {
+		return "", "", fmt.Errorf("config path %q is outside the profiles directory", configPath)
+	}
+
+	id := strings.TrimSuffix(base, filepath.Ext(base))
+	if !profilemanager.IsValidProfileFilenameStem(profilemanager.ID(id)) {
+		return "", "", fmt.Errorf("config path %q has no valid profile ID", configPath)
+	}
+
+	return filepath.Dir(dir), id, nil
+}
+
 // readProfileEmail returns the account email stored for the profile whose config
 // lives at configPath. A missing or unreadable file yields "", which leaves the
 // account choice to the IdP.
