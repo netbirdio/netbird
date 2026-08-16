@@ -127,10 +127,10 @@ func TestWriteThenReadProfileEmail(t *testing.T) {
 		t.Fatalf("remove: %v", err)
 	}
 	if got := readProfileEmail(configPath); got != "" {
-		t.Errorf("expected no email after logout, got %q", got)
+		t.Errorf("expected no email after removal, got %q", got)
 	}
 
-	// Logout may run on a never-logged-in profile, so a second remove must pass.
+	// Removal may run on a never-logged-in profile, so a second remove must pass.
 	if err := removeProfileEmail(configPath); err != nil {
 		t.Fatalf("second remove should be a no-op: %v", err)
 	}

@@ -1433,13 +1433,14 @@ components:
           enum: [ "all", "tcp", "udp", "icmp", "netbird-ssh" ]
           example: "tcp"
         ports:
-          description: Policy rule affected ports
+          description: Policy rule affected ports. Mutually exclusive with `port_ranges`. A rule accepts either individual ports or port ranges, not both.
+          x-omit-from-example: true
           type: array
           items:
             type: string
             example: "80"
         port_ranges:
-          description: Policy rule affected ports ranges list
+          description: Policy rule affected ports ranges list. Mutually exclusive with `ports`. To mix individual ports with ranges in one rule, express each single port as a range with identical start and end values (for example, start 443, end 443).
           type: array
           items:
             $ref: '#/components/schemas/RulePortRange'
@@ -1459,7 +1460,7 @@ components:
         - action
 
     RulePortRange:
-      description: Policy rule affected ports range
+      description: Policy rule affected ports range. A range with identical start and end values represents a single port.
       type: object
       properties:
         start:

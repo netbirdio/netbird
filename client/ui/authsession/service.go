@@ -58,7 +58,8 @@ func (s *Session) RequestExtend(ctx context.Context, p ExtendStartParams) (Exten
 		return ExtendStartResult{}, err
 	}
 
-	req := &proto.RequestExtendAuthSessionRequest{}
+	// a request from the UI implies a graphical session, which the daemon cannot detect itself
+	req := &proto.RequestExtendAuthSessionRequest{HasGraphicalSession: true}
 	if p.Hint != "" {
 		h := p.Hint
 		req.Hint = &h

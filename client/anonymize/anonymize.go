@@ -305,6 +305,12 @@ func (a *Anonymizer) AnonymizeDomain(domain string) string {
 		return domain
 	}
 
+	// A reverse zone names an address prefix, so it follows the address rules,
+	// which also keeps its digit labels intact.
+	if zone, ok := a.anonymizeReverseZone(baseDomain); ok {
+		return withTrailingDot(zone, hasDot)
+	}
+
 	if suffix := protectedSuffix(baseDomain); suffix != "" {
 		if a.level < LevelStrict || baseDomain == suffix || suffix == infraDomain {
 			return domain
@@ -405,6 +411,10 @@ func (a *Anonymizer) AnonymizeString(str string) string {
 	ipv4Regex := regexp.MustCompile(`\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b`)
 	ipv6Regex := regexp.MustCompile(`\b([0-9a-fA-F:]+:+[0-9a-fA-F]{0,4})(?:%[0-9a-zA-Z]+)?(?:\/[0-9]{1,3})?(?::[0-9]{1,5})?\b`)
 
+	// Reverse zones go first and are then held out of the passes below: their
+	// labels are digits, which the address patterns would otherwise consume.
+	str, restoreZones := a.replaceReverseZones(str)
+
 	str = ipv4Regex.ReplaceAllStringFunc(str, a.AnonymizeIPString)
 	str = ipv6Regex.ReplaceAllStringFunc(str, a.AnonymizeIPString)
 
@@ -425,7 +435,7 @@ func (a *Anonymizer) AnonymizeString(str string) string {
 		str = wgKeyRegex.ReplaceAllStringFunc(str, a.AnonymizeWGKey)
 	}
 
-	return str
+	return restoreZones(str)
 }
 
 // sortedDomains returns the domain mappings longest-first, so a full-FQDN
