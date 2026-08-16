@@ -3,14 +3,11 @@
 package android
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"net"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,7 +15,6 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	gossh "golang.org/x/crypto/ssh"
-	"golang.org/x/crypto/ssh/knownhosts"
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/auth"
@@ -93,11 +89,13 @@ type SSHClient struct {
 	gen        uint64
 	dialCancel context.CancelFunc
 
-	// knownHostsPath is the TOFU store for regular SSH servers. Java supplies a
-	// per-profile path, since an overlay IP is a different host under a
-	// different profile. Empty until set: without it a regular server cannot be
-	// verified and Connect refuses one.
-	knownHostsPath string
+	// knownHostsConfigDir and knownHostsProfile locate the TOFU store for
+	// regular SSH servers in the profile's preferences. Java supplies them,
+	// since an overlay IP is a different host under a different profile. Empty
+	// until set: without them a regular server cannot be verified and Connect
+	// refuses one.
+	knownHostsConfigDir string
+	knownHostsProfile   string
 	// trustHostKey carries the fingerprint the user confirmed on a previous
 	// attempt, so the retry accepts exactly that key and persists it.
 	trustHostKey string
@@ -125,12 +123,13 @@ func (s *SSHClient) SetURLOpener(opener URLOpener) {
 	s.mu.Unlock()
 }
 
-// SetKnownHostsPath points the TOFU host-key store at a per-profile file. Must
-// be set before connecting to a regular SSH server; without it such a server
-// cannot be verified and Connect refuses one.
-func (s *SSHClient) SetKnownHostsPath(path string) {
+// SetKnownHostsStore points the TOFU host-key store at a profile's preferences.
+// Must be set before connecting to a regular SSH server; without it such a
+// server cannot be verified and Connect refuses one.
+func (s *SSHClient) SetKnownHostsStore(configDir, profileID string) {
 	s.mu.Lock()
-	s.knownHostsPath = path
+	s.knownHostsConfigDir = configDir
+	s.knownHostsProfile = profileID
 	s.mu.Unlock()
 }
 
@@ -405,44 +404,36 @@ func (s *SSHClient) buildAuth(cfg *profilemanager.Config, cfgPath string, engine
 }
 
 // tofuHostKeyCallback verifies a regular server's host key against the
-// per-profile known-hosts file. An unknown host returns errHostKeyUnknown so
+// per-profile known-hosts store. An unknown host returns errHostKeyUnknown so
 // Java can show the fingerprint and, once confirmed, retry with the key
 // trusted; a changed key is rejected outright, as OpenSSH does. When the user
 // has confirmed a fingerprint, the callback accepts exactly that key and
 // appends it to the store.
 func (s *SSHClient) tofuHostKeyCallback() (gossh.HostKeyCallback, error) {
 	s.mu.Lock()
-	path := s.knownHostsPath
+	configDir := s.knownHostsConfigDir
+	profileID := s.knownHostsProfile
 	trusted := s.trustHostKey
 	s.mu.Unlock()
 
-	if path == "" {
+	if configDir == "" || profileID == "" {
 		return nil, errors.New("no known-hosts store configured for regular SSH")
 	}
 
-	if err := ensureFileExists(path); err != nil {
-		return nil, fmt.Errorf("prepare known-hosts store: %w", err)
-	}
-
-	known, err := knownhosts.New(path)
+	store, err := openKnownHostsStore(configDir, profileID)
 	if err != nil {
 		return nil, fmt.Errorf("load known-hosts store: %w", err)
 	}
 
 	return func(hostname string, remote net.Addr, key gossh.PublicKey) error {
-		err := known(hostname, remote, key)
-		if err == nil {
-			return nil
-		}
-
-		var keyErr *knownhosts.KeyError
-		if !errors.As(err, &keyErr) {
+		verdict, err := store.verify(hostname, remote, key)
+		if err != nil {
 			return err
 		}
-		// Want holds the keys already stored for this host: non-empty means the
-		// presented key replaced a known one, which TOFU must never accept
-		// silently.
-		if len(keyErr.Want) > 0 {
+		if verdict == hostKeyMatched {
+			return nil
+		}
+		if verdict == hostKeyChanged {
 			return fmt.Errorf("SSH host key changed for %s (possible attack)", hostname)
 		}
 
@@ -453,7 +444,7 @@ func (s *SSHClient) tofuHostKeyCallback() (gossh.HostKeyCallback, error) {
 		if trusted != fingerprint {
 			return fmt.Errorf("SSH host key changed since it was confirmed for %s", hostname)
 		}
-		if err := appendKnownHost(path, hostname, remote, key); err != nil {
+		if err := store.append(hostname, remote, key); err != nil {
 			return fmt.Errorf("persist trusted host key: %w", err)
 		}
 		// The confirmation is spent: now that the key is stored, a later
@@ -594,46 +585,6 @@ func (s *SSHClient) notifyClose(gen uint64, reason string) {
 	}
 }
 
-// RemoveKnownHost deletes every known_hosts entry for host:port from the store,
-// so a host trusted for a session that is being deleted does not linger. Java
-// calls this only once no session targets that host, so a shared host stays
-// trusted. Missing file or entry is not an error: the goal state is "absent".
-func RemoveKnownHost(path, host string, port int) error {
-	target := knownhosts.Normalize(net.JoinHostPort(host, strconv.Itoa(port)))
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-
-	var kept []string
-	changed := false
-	scanner := bufio.NewScanner(bytes.NewReader(data))
-	for scanner.Scan() {
-		line := scanner.Text()
-		if knownHostsLineMatches(line, target) {
-			changed = true
-			continue
-		}
-		kept = append(kept, line)
-	}
-	if err := scanner.Err(); err != nil {
-		return err
-	}
-	if !changed {
-		return nil
-	}
-
-	out := strings.Join(kept, "\n")
-	if len(kept) > 0 {
-		out += "\n"
-	}
-	return os.WriteFile(path, []byte(out), 0o600)
-}
-
 func closeQuiet(c io.Closer, label string) {
 	if c == nil {
 		return
@@ -670,60 +621,6 @@ func rootCause(err error) error {
 		}
 		err = next
 	}
-}
-
-// ensureFileExists creates an empty known-hosts file when none exists yet, so
-// knownhosts.New has something to parse on the first connection to any host.
-func ensureFileExists(path string) error {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		return err
-	}
-	return f.Close()
-}
-
-// appendKnownHost adds the confirmed key to the store in the standard
-// known_hosts format, so it verifies silently on later connections and can be
-// inspected or edited like any OpenSSH known_hosts file.
-func appendKnownHost(path, hostname string, remote net.Addr, key gossh.PublicKey) error {
-	addresses := []string{knownhosts.Normalize(hostname)}
-	if remote != nil {
-		if normalized := knownhosts.Normalize(remote.String()); normalized != addresses[0] {
-			addresses = append(addresses, normalized)
-		}
-	}
-	line := knownhosts.Line(addresses, key)
-
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if cerr := f.Close(); cerr != nil {
-			log.Debugf("ssh: close known-hosts after append: %v", cerr)
-		}
-	}()
-	_, err = f.WriteString(line + "\n")
-	return err
-}
-
-// knownHostsLineMatches reports whether a known_hosts line's address list
-// contains the normalized target. Comment and blank lines never match.
-func knownHostsLineMatches(line, target string) bool {
-	trimmed := strings.TrimSpace(line)
-	if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-		return false
-	}
-	fields := strings.Fields(trimmed)
-	if len(fields) == 0 {
-		return false
-	}
-	for _, addr := range strings.Split(fields[0], ",") {
-		if addr == target {
-			return true
-		}
-	}
-	return false
 }
 
 // isAuthFailure distinguishes credential rejection from dial, timeout and
