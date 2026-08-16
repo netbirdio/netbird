@@ -103,6 +103,22 @@ func (e *Engine) setFileDropTunnel() {
 	e.fileDrop.SetTunnel(dial, e.statusRecorder.GetLocalPeerState().FQDN)
 }
 
+// restartFileDrop rebinds the receiver after the platform replaced the tunnel
+// device. The listeners are bound to the overlay address of the interface being
+// swapped out and do not survive it: Android renews the tun on every route
+// change, which leaves the IPv4 listener dead with accept4: invalid argument.
+func (e *Engine) restartFileDrop() {
+	e.syncMsgMux.Lock()
+	defer e.syncMsgMux.Unlock()
+
+	if e.fileDrop == nil || !e.fileDropRunning || e.wgInterface == nil {
+		return
+	}
+
+	e.stopFileDrop()
+	e.startFileDrop()
+}
+
 func (e *Engine) stopFileDrop() {
 	if e.fileDrop == nil {
 		return

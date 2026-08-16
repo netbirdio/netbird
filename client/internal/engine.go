@@ -2452,6 +2452,8 @@ func (e *Engine) GetWgV6Addr() netip.Addr {
 	return e.wgInterface.Address().IPv6
 }
 
+// RenewTun swaps the tunnel device for the one behind fd, which the platform
+// hands over whenever it re-establishes the interface.
 func (e *Engine) RenewTun(fd int) error {
 	e.syncMsgMux.Lock()
 	wgInterface := e.wgInterface
@@ -2461,7 +2463,12 @@ func (e *Engine) RenewTun(fd int) error {
 		return fmt.Errorf("wireguard interface not initialized")
 	}
 
-	return wgInterface.RenewTun(fd)
+	if err := wgInterface.RenewTun(fd); err != nil {
+		return err
+	}
+
+	e.restartFileDrop()
+	return nil
 }
 
 // updateDNSForwarder start or stop the DNS forwarder based on the domains and the feature flag
