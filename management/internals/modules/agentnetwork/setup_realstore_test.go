@@ -258,6 +258,9 @@ func TestGetSetupForUser_RealStore(t *testing.T) {
 	require.NoError(t, s.SaveAgentNetworkProvider(ctx, provider))
 	require.NoError(t, s.SaveAgentNetworkPolicy(ctx, newSynthTestPolicy(provider.ID, "grp-eng", "")))
 
+	// users.account_id is a foreign key into accounts, enforced on
+	// MySQL/Postgres, so the account row must exist before its users.
+	require.NoError(t, s.SaveAccount(ctx, &nbtypes.Account{Id: testAccountID}))
 	require.NoError(t, s.SaveUser(ctx, &nbtypes.User{
 		Id: "user-in", AccountID: testAccountID, Role: nbtypes.UserRoleUser, AutoGroups: []string{"grp-eng"},
 	}))
