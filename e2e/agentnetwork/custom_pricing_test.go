@@ -669,3 +669,47 @@ func inDelta(a, b, tol float64) bool {
 	}
 	return d <= tol
 }
+
+// TestCustomDatedModelKeepsItsOwnPrice covers the review fix that anchored the
+// release-date fallback to Claude ids. Pricing looks every model up through
+// that helper, so while it matched a bare trailing date any operator id ending
+// in eight digits inherited the rate of its undated sibling — a silent
+// mis-bill on models NetBird knows nothing about.
+func TestCustomDatedModelKeepsItsOwnPrice(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
+
+	const (
+		baseModel  = "internal-llm"
+		datedModel = "internal-llm-20250101"
+		baseIn     = 0.010
+		baseOut    = 0.020
+		// An order of magnitude apart, so a row billed at the wrong entry is
+		// unmistakable rather than a rounding argument.
+		datedIn  = 0.100
+		datedOut = 0.200
+	)
+
+	env := provisionPricedProvider(t, ctx, "customdated", []api.AgentNetworkProviderModel{
+		{Id: baseModel, InputPer1k: baseIn, OutputPer1k: baseOut},
+		{Id: datedModel, InputPer1k: datedIn, OutputPer1k: datedOut},
+	})
+
+	t.Run("the undated id bills at its own rate", func(t *testing.T) {
+		session := fmt.Sprintf("e2e-session-customdated-base-%d", time.Now().UnixNano())
+		chatOnce(t, ctx, env, baseModel, session)
+		assertOpenAICostAtRates(t, findAccessLogBySession(t, ctx, session), baseIn, baseOut)
+	})
+
+	t.Run("the dated id keeps its own rate", func(t *testing.T) {
+		session := fmt.Sprintf("e2e-session-customdated-dated-%d", time.Now().UnixNano())
+		chatOnce(t, ctx, env, datedModel, session)
+		row := findAccessLogBySession(t, ctx, session)
+		assertOpenAICostAtRates(t, row, datedIn, datedOut)
+
+		// Spelled out because it is the regression: inheriting the sibling's
+		// rate would bill this request at a tenth of its price.
+		assert.Greater(t, row.InputCostUsd, float64(vllmPromptTokens)/1000*baseIn*2,
+			"a custom dated id must not inherit the undated entry's rate")
+	})
+}

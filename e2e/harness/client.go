@@ -293,6 +293,27 @@ func (cl *Client) ChatPrefixed(ctx context.Context, endpoint, proxyIP, pathPrefi
 	return cl.post(ctx, endpoint, proxyIP, pathPrefix+path, body, withSessionID(headers, sessionID))
 }
 
+// ChatStream is Chat with "stream": true in the request body, so the proxy's
+// request parser marks the call as streaming and its response parser takes the
+// SSE accumulator rather than the buffered-body path. Pair it with a provider
+// pointed at VLLM.StreamURL, which answers every request as an event stream.
+func (cl *Client) ChatStream(ctx context.Context, endpoint, proxyIP, kind, model, prompt, sessionID string) (int, string, error) {
+	var path, body string
+	var headers []string
+	switch kind {
+	case WireMessages:
+		path = "/v1/messages"
+		headers = []string{"anthropic-version: 2023-06-01"}
+		body = fmt.Sprintf(`{"model":%q,"max_tokens":2048,"stream":true,"messages":[{"role":"user","content":%q}]}`, model, prompt)
+	default:
+		path = "/v1/chat/completions"
+		// include_usage is what makes a real OpenAI stream emit its final usage
+		// frame; without it the last chunk carries no tokens at all.
+		body = fmt.Sprintf(`{"model":%q,"stream":true,"stream_options":{"include_usage":true},"messages":[{"role":"user","content":%q}]}`, model, prompt)
+	}
+	return cl.post(ctx, endpoint, proxyIP, path, body, withSessionID(headers, sessionID))
+}
+
 // Vertex issues an Anthropic-on-Vertex rawPredict POST over the tunnel. Unlike
 // Chat, the model is carried in the request path (project/region/model), so the
 // proxy routes by path and mints the service-account OAuth token; the body uses
