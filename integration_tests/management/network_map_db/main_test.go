@@ -21,12 +21,6 @@ import (
 //go:embed base_data.sql
 var baseData string
 
-//go:embed pg_data.sql
-var pgData string
-
-//go:embed sqlite_data.sql
-var sqliteData string
-
 var (
 	pgstore     *networkmap_pgsql.PgStore
 	sqlitestore *networkmap_sqlite.SqliteStore
@@ -39,11 +33,11 @@ func TestMain(m *testing.M) {
 	switch kind {
 	case string(types.PostgresStoreEngine):
 		engine = string(types.PostgresStoreEngine)
-		pgstore, cleanup = createPGTestStore(baseData, pgData)
+		pgstore, cleanup = createPGTestStore(baseData)
 		pgstore.UsingTimeZone(time.UTC)
 	case "", string(types.SqliteStoreEngine):
 		engine = string(types.SqliteStoreEngine)
-		sqlitestore, cleanup = createSqliteTestStore(baseData, sqliteData)
+		sqlitestore, cleanup = createSqliteTestStore(baseData)
 	default:
 		log.Fatalf("unsupported db '%s' in NETBIRD_STORE_ENGINE env var", kind)
 	}

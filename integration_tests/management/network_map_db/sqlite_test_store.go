@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"runtime"
-	"slices"
 	"strings"
 
 	networkmap_sqlite "github.com/netbirdio/netbird/management/internals/network_map_db/sqlite"
@@ -17,7 +16,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func createSqliteTestStore(baseData, sqliteData string) (*networkmap_sqlite.SqliteStore, func()) {
+func createSqliteTestStore(baseData string) (*networkmap_sqlite.SqliteStore, func()) {
 	storeSqliteFileName := ":memory:"
 	storeStr := fmt.Sprintf("%s?cache=shared", storeSqliteFileName)
 	if runtime.GOOS == "windows" {
@@ -39,7 +38,7 @@ func createSqliteTestStore(baseData, sqliteData string) (*networkmap_sqlite.Sqli
 		log.Fatalf("error initializing db: %s", err.Error())
 
 	}
-	for _, query := range slices.Concat(strings.Split(baseData, ";"), strings.Split(sqliteData, ";")) {
+	for _, query := range strings.Split(baseData, ";") {
 		if _, err := sqldb.Exec(query); err != nil {
 			log.Fatalf("error initializing db: %s", err.Error())
 		}
