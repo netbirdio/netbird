@@ -879,8 +879,7 @@ func (conn *Conn) newProxy(remoteConn net.Conn) (wgproxy.Proxy, error) {
 
 	wgProxy := conn.config.WgConfig.WgInterface.GetProxy()
 	if err := wgProxy.AddRelayedConn(conn.ctx, udpAddr, remoteConn); err != nil {
-		conn.Log.Errorf("failed to add relayed net.Conn to local proxy: %v", err)
-		return nil, err
+		return nil, fmt.Errorf("add relayed conn to proxy: %w", err)
 	}
 	return wgProxy, nil
 }

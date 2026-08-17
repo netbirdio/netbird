@@ -51,7 +51,7 @@ func NewWGUDPProxy(wgPort int, mtu uint16) *WGUDPProxy {
 	return p
 }
 
-// AddRelayedConn
+// AddRelayedConn dials the local WireGuard port and stores the relayed connection.
 // The provided Context must be non-nil. If the context expires before
 // the connection is complete, an error is returned. Once successfully
 // connected, any expiration of the context will not affect the
