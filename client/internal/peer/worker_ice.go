@@ -517,8 +517,8 @@ func (w *WorkerICE) onConnectionStateChange(agent *icemaker.ThreadSafeAgent, dia
 			w.logSuccessfulPaths(agent)
 			return
 		case ice.ConnectionStateFailed, ice.ConnectionStateDisconnected, ice.ConnectionStateClosed:
-			// ice.ConnectionStateClosed happens when we recreate the agent. For the P2P to TURN switch important to
-			// notify the conn.onICEStateDisconnected changes to update the current used priority
+			// ice.ConnectionStateClosed happens when we recreate the agent. The P2P to relay switch requires
+			// notifying conn.onICEStateDisconnected so it can update the currently used priority.
 
 			sessionChanged := w.closeAgent(agent, dialerCancel)
 
