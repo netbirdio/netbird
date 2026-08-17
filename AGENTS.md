@@ -1,6 +1,6 @@
 # NetBird Agent Guidelines
 
-**NetBird** is an open-source connectivity platform: a WireGuard®-based overlay
+**NetBird** is an open source connectivity platform: a WireGuard®-based overlay
 network with a control plane. The **agent** (`client/`) runs on user machines as
 a privileged daemon and manages the WireGuard interface, routing, firewall, and
 DNS. **Management** (`management/`) is the control plane and REST/gRPC API,

@@ -221,9 +221,6 @@ render_override() {
 # Remove this file (and config.yaml.enterprise if present) to revert.
 
 services:
-  ${DASHBOARD_SERVICE}:
-    image: \${NETBIRD_DASHBOARD_IMAGE:-ghcr.io/netbirdio/dashboard-cloud:latest}
-
   ${COMBINED_SERVICE}:
     image: \${NETBIRD_SERVER_IMAGE:-ghcr.io/netbirdio/netbird-server-cloud:latest}
     environment:
