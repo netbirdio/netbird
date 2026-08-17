@@ -281,10 +281,12 @@ func newApplication(onSecondInstance func()) *application.App {
 			ActivationPolicy: application.ActivationPolicyAccessory,
 		},
 		Linux: application.LinuxOptions{
-			ProgramName: "netbird",
+			ProgramName:                   "netbird",
+			DisableQuitOnLastWindowClosed: true,
 		},
 		Windows: application.WindowsOptions{
-			WndProcInterceptor: endSessionInterceptor(),
+			WndProcInterceptor:            endSessionInterceptor(),
+			DisableQuitOnLastWindowClosed: true,
 		},
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID: "io.netbird.ui",
