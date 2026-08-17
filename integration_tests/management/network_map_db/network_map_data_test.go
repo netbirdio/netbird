@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/golang/mock/gomock"
@@ -16,8 +17,12 @@ import (
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/types"
+	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 )
+
+//go:embed network_map_data.sql
+var nmapData string
 
 //go:embed network_map_data_golden.json
 var goldenNMap string
@@ -45,7 +50,13 @@ func TestGetNetworkMapData(t *testing.T) {
 		IntegratedPeerValidator: peerValidators,
 	}
 
-	nmap, err := storeImpl.GetNetworkMapData(ctx, "account-1")
+	for _, query := range strings.Split(nmapData, ";") {
+		if err := store(t).Exec(ctx, query); err != nil {
+			log.Fatalf("error initializing nmap test: %s", err.Error())
+		}
+	}
+
+	nmap, err := storeImpl.GetNetworkMapData(ctx, "account-33")
 	assert.NoError(t, err)
 
 	serializedNMap, err := json.MarshalIndent(nmap, "", "  ")

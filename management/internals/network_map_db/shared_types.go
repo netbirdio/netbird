@@ -19,6 +19,7 @@ var ErrDnsUnsupportedRecordType = errors.New("unsupported record type")
 
 type NetworkMapDBStore interface { //nolint:revive // established name across the codebase
 	BeginTx(ctx context.Context) (NetworkMapDBStoreConn, error)
+	Exec(ctx context.Context, query string, args ...any) error
 }
 
 type NetworkMapDBStoreConn interface { //nolint:revive // established name across the codebase

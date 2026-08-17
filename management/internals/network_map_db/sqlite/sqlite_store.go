@@ -84,6 +84,11 @@ func (s *SqliteStore) BeginTx(ctx context.Context) (networkmapdb.NetworkMapDBSto
 	return &SqliteStoreConn{Conn: tx}, nil
 }
 
+func (s *SqliteStore) Exec(_ context.Context, query string, args ...any) error {
+	_, err := s.Db.Exec(query, args...)
+	return err
+}
+
 func (sc *SqliteStoreConn) RollbackTx(ctx context.Context) error {
 	tx, ok := sc.Conn.(*sql.Tx)
 	if !ok {

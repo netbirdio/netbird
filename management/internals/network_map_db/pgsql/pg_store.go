@@ -67,6 +67,11 @@ func (p *PgStore) UsingConnection(c *pgx.Conn) networkmapdb.NetworkMapDBStoreCon
 	return &PgStoreConn{Conn: c}
 }
 
+func (p *PgStore) Exec(ctx context.Context, query string, args ...any) error {
+	_, err := p.Pool.Exec(ctx, query, args...)
+	return err
+}
+
 func (p *PgStore) BeginTx(ctx context.Context) (networkmapdb.NetworkMapDBStoreConn, error) {
 	tx, err := p.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
