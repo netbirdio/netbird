@@ -51,6 +51,7 @@ nftables.txt: Anonymized nftables rules with packet counters across all families
 sysctls.txt: Forwarding, reverse-path filter, source-validation, and conntrack accounting sysctl values that the NetBird client may read or modify, if --system-info flag was provided (Linux only).
 resolv.conf: DNS resolver configuration from /etc/resolv.conf (Unix systems only), if --system-info flag was provided.
 scutil_dns.txt: DNS configuration from scutil --dns (macOS only), if --system-info flag was provided.
+dns_windows.txt: Anonymized NRPT rules and policy table in effect, DNS client policy, and per-interface and per-adapter DNS configuration (Windows only), if --system-info flag was provided.
 resolved_domains.txt: Anonymized resolved domain IP addresses from the status recorder.
 config.txt: Anonymized configuration information of the NetBird client.
 network_map.json: Anonymized sync response containing peer configurations, routes, DNS settings, and firewall rules.
@@ -236,6 +237,13 @@ scutil_dns.txt (macOS only):
 - Contains detailed DNS configuration from scutil --dns
 - Shows DNS configuration for all network interfaces
 - Includes search domains, nameservers, and DNS resolver settings
+- All IP addresses and domain names are anonymized
+
+dns_windows.txt (Windows only):
+- Lists the NRPT rules of both policy stores, the local one and the group policy one, marking the rules the client created
+- Follows them with the policy table the resolver has loaded, which differs from the rules while a change has not been picked up yet
+- Includes the DNS client group policy, the global TCP/IP and Dnscache parameters, and the DNS values of every interface that has any
+- Ends with the resolver configuration in effect per adapter, from GetAdaptersAddresses
 - All IP addresses and domain names are anonymized
 `
 

@@ -894,6 +894,10 @@ message GetPeerSSHHostKeyResponse {
 message RequestJWTAuthRequest {
   // hint for OIDC login_hint parameter (typically email address)
   optional string hint = 1;
+  // hasGraphicalSession tells the daemon that the caller has a graphical session,
+  // which decides whether PKCE or the device code flow is preferred. The daemon
+  // cannot detect this itself: it does not inherit the session environment.
+  bool hasGraphicalSession = 2;
 }
 
 // RequestJWTAuthResponse contains authentication flow information
@@ -937,6 +941,10 @@ message RequestExtendAuthSessionRequest {
   // Optional OIDC login_hint (typically the user's email) to pre-fill the
   // IdP login form.
   optional string hint = 1;
+  // hasGraphicalSession tells the daemon that the caller has a graphical session,
+  // which decides whether PKCE or the device code flow is preferred. The daemon
+  // cannot detect this itself: it does not inherit the session environment.
+  bool hasGraphicalSession = 2;
 }
 
 // RequestExtendAuthSessionResponse carries the verification URI the UI

@@ -2876,7 +2876,7 @@ type EDRFleetDMRequest struct {
 	// LastSyncedInterval The devices last sync requirement interval in hours. Minimum value is 24 hours
 	LastSyncedInterval int `json:"last_synced_interval"`
 
-	// MatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open-source version. Premium-only attributes are marked accordingly
+	// MatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open source version. Premium-only attributes are marked accordingly
 	MatchAttributes FleetDMMatchAttributes `json:"match_attributes"`
 }
 
@@ -2909,7 +2909,7 @@ type EDRFleetDMResponse struct {
 	// LastSyncedInterval The devices last sync requirement interval in hours.
 	LastSyncedInterval int `json:"last_synced_interval"`
 
-	// MatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open-source version. Premium-only attributes are marked accordingly
+	// MatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open source version. Premium-only attributes are marked accordingly
 	MatchAttributes FleetDMMatchAttributes `json:"match_attributes"`
 
 	// UpdatedAt Timestamp of when the integration was last updated.
@@ -3129,7 +3129,7 @@ type Event struct {
 // EventActivityCode The string code of the activity that occurred during the event
 type EventActivityCode string
 
-// FleetDMMatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open-source version. Premium-only attributes are marked accordingly
+// FleetDMMatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open source version. Premium-only attributes are marked accordingly
 type FleetDMMatchAttributes struct {
 	// DiskEncryptionEnabled Whether disk encryption (FileVault/BitLocker) must be enabled on the host
 	DiskEncryptionEnabled *bool `json:"disk_encryption_enabled,omitempty"`
@@ -4468,10 +4468,10 @@ type PolicyRule struct {
 	// Name Policy rule name identifier
 	Name string `json:"name"`
 
-	// PortRanges Policy rule affected ports ranges list
+	// PortRanges Policy rule affected ports ranges list. Mutually exclusive with `ports`. To mix individual ports with ranges in one rule, express each single port as a range with identical start and end values (for example, start 443, end 443).
 	PortRanges *[]RulePortRange `json:"port_ranges,omitempty"`
 
-	// Ports Policy rule affected ports
+	// Ports Policy rule affected ports. Mutually exclusive with `port_ranges`. A rule accepts either individual ports or port ranges, not both.
 	Ports *[]string `json:"ports,omitempty"`
 
 	// Protocol Policy rule type of the traffic
@@ -4508,10 +4508,10 @@ type PolicyRuleMinimum struct {
 	// Name Policy rule name identifier
 	Name string `json:"name"`
 
-	// PortRanges Policy rule affected ports ranges list
+	// PortRanges Policy rule affected ports ranges list. Mutually exclusive with `ports`. To mix individual ports with ranges in one rule, express each single port as a range with identical start and end values (for example, start 443, end 443).
 	PortRanges *[]RulePortRange `json:"port_ranges,omitempty"`
 
-	// Ports Policy rule affected ports
+	// Ports Policy rule affected ports. Mutually exclusive with `port_ranges`. A rule accepts either individual ports or port ranges, not both.
 	Ports *[]string `json:"ports,omitempty"`
 
 	// Protocol Policy rule type of the traffic
@@ -4551,10 +4551,10 @@ type PolicyRuleUpdate struct {
 	// Name Policy rule name identifier
 	Name string `json:"name"`
 
-	// PortRanges Policy rule affected ports ranges list
+	// PortRanges Policy rule affected ports ranges list. Mutually exclusive with `ports`. To mix individual ports with ranges in one rule, express each single port as a range with identical start and end values (for example, start 443, end 443).
 	PortRanges *[]RulePortRange `json:"port_ranges,omitempty"`
 
-	// Ports Policy rule affected ports
+	// Ports Policy rule affected ports. Mutually exclusive with `port_ranges`. A rule accepts either individual ports or port ranges, not both.
 	Ports *[]string `json:"ports,omitempty"`
 
 	// Protocol Policy rule type of the traffic
@@ -4962,7 +4962,7 @@ type RouteRequest struct {
 	SkipAutoApply *bool `json:"skip_auto_apply,omitempty"`
 }
 
-// RulePortRange Policy rule affected ports range
+// RulePortRange Policy rule affected ports range. A range with identical start and end values represents a single port.
 type RulePortRange struct {
 	// End The ending port of the range
 	End int `json:"end"`
