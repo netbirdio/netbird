@@ -46,15 +46,22 @@
 //     - macOS Homebrew: brew upgrade netbirdio/tap/netbird
 //  4. Installer terminates the daemon
 //  5. Installer replaces binaries with new version
-//  6. Updater waits for installer to complete
+//  6. Updater waits for installer to complete. On Windows, MSI exit codes 3010
+//     (ERROR_SUCCESS_REBOOT_REQUIRED) and 1641 (ERROR_SUCCESS_REBOOT_INITIATED)
+//     are a pending-reboot outcome, not a failure: the install succeeded, but
+//     some files are only replaced on the next restart (the reboot itself is
+//     suppressed via /norestart and REBOOT=ReallySuppress), and the flow
+//     continues as on success
 //  7. Updater restarts daemon:
 //     - Windows: netbird.exe service start
 //     - macOS/Linux: netbird service start
 //  8. Updater restarts UI:
-//     - Windows: Launches netbird-ui.exe as active console user using CreateProcessAsUser
+//     - Windows: Launches netbird-ui.exe using CreateProcessAsUser in every
+//     session it was terminated in, falling back to the active console session
 //     - macOS: Uses launchctl asuser to launch NetBird.app for console user
 //     - Linux: Not implemented (UI typically auto-starts)
-//  9. Updater writes result.json with success/error status
+//  9. Updater writes result.json with success/error status (a pending reboot is
+//     recorded as success)
 //  10. Updater process exits
 //
 // # Result Communication
