@@ -61,6 +61,10 @@ const (
 
 var ErrServiceNotUp = errors.New("service is not up")
 
+type statusSetter interface {
+	Set(update internal.StatusType)
+}
+
 // Server for service control.
 type Server struct {
 	rootCtx   context.Context
@@ -675,54 +679,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	}
 
 	if msg.SetupKey == "" {
-		hint := ""
-		if msg.Hint != nil {
-			hint = *msg.Hint
-		}
-		oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.IsUnixDesktopClient, false, hint, false)
-		if err != nil {
-			state.Set(internal.StatusLoginFailed)
-			return nil, err
-		}
-
-		if s.oauthAuthFlow.flow != nil && s.oauthAuthFlow.flow.GetClientID(ctx) == oAuthFlow.GetClientID(ctx) {
-			if s.oauthAuthFlow.expiresAt.After(time.Now().Add(90 * time.Second)) {
-				log.Debugf("using previous oauth flow info")
-				state.Set(internal.StatusNeedsLogin)
-				return &proto.LoginResponse{
-					NeedsSSOLogin:           true,
-					VerificationURI:         s.oauthAuthFlow.info.VerificationURI,
-					VerificationURIComplete: s.oauthAuthFlow.info.VerificationURIComplete,
-					UserCode:                s.oauthAuthFlow.info.UserCode,
-				}, nil
-			} else {
-				log.Warnf("canceling previous waiting execution")
-				if s.oauthAuthFlow.waitCancel != nil {
-					s.oauthAuthFlow.waitCancel()
-				}
-			}
-		}
-
-		authInfo, err := oAuthFlow.RequestAuthInfo(ctx)
-		if err != nil {
-			log.Errorf("getting a request OAuth flow failed: %v", err)
-			return nil, err
-		}
-
-		s.mutex.Lock()
-		s.oauthAuthFlow.flow = oAuthFlow
-		s.oauthAuthFlow.info = authInfo
-		s.oauthAuthFlow.expiresAt = time.Now().Add(time.Duration(authInfo.ExpiresIn) * time.Second)
-		s.mutex.Unlock()
-
-		state.Set(internal.StatusNeedsLogin)
-
-		return &proto.LoginResponse{
-			NeedsSSOLogin:           true,
-			VerificationURI:         authInfo.VerificationURI,
-			VerificationURIComplete: authInfo.VerificationURIComplete,
-			UserCode:                authInfo.UserCode,
-		}, nil
+		return s.startSSOLogin(ctx, msg, config, state)
 	}
 
 	// Setup-key path: we are about to dial Management with the key, so the
@@ -736,6 +693,72 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	}
 
 	return &proto.LoginResponse{}, nil
+}
+
+// startSSOLogin opens the interactive leg of a login: it reuses the in-flight
+// OAuth flow when one is still valid for the same client, and otherwise
+// requests fresh auth info and parks the daemon on StatusNeedsLogin.
+func (s *Server) startSSOLogin(ctx context.Context, msg *proto.LoginRequest, config *profilemanager.Config, state statusSetter) (*proto.LoginResponse, error) {
+	hint := ""
+	if msg.Hint != nil {
+		hint = *msg.Hint
+	}
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.IsUnixDesktopClient, false, hint, false)
+	if err != nil {
+		state.Set(internal.StatusLoginFailed)
+		return nil, err
+	}
+
+	if resp := s.reuseOAuthFlow(ctx, oAuthFlow, state); resp != nil {
+		return resp, nil
+	}
+
+	authInfo, err := oAuthFlow.RequestAuthInfo(ctx)
+	if err != nil {
+		log.Errorf("getting a request OAuth flow failed: %v", err)
+		return nil, err
+	}
+
+	s.mutex.Lock()
+	s.oauthAuthFlow.flow = oAuthFlow
+	s.oauthAuthFlow.info = authInfo
+	s.oauthAuthFlow.expiresAt = time.Now().Add(time.Duration(authInfo.ExpiresIn) * time.Second)
+	s.mutex.Unlock()
+
+	state.Set(internal.StatusNeedsLogin)
+
+	return &proto.LoginResponse{
+		NeedsSSOLogin:           true,
+		VerificationURI:         authInfo.VerificationURI,
+		VerificationURIComplete: authInfo.VerificationURIComplete,
+		UserCode:                authInfo.UserCode,
+	}, nil
+}
+
+// reuseOAuthFlow returns the cached auth info when the previous flow targets
+// the same client and still has enough life left, and otherwise cancels the
+// stale wait and returns nil so the caller requests a fresh flow.
+func (s *Server) reuseOAuthFlow(ctx context.Context, oAuthFlow auth.OAuthFlow, state statusSetter) *proto.LoginResponse {
+	if s.oauthAuthFlow.flow == nil || s.oauthAuthFlow.flow.GetClientID(ctx) != oAuthFlow.GetClientID(ctx) {
+		return nil
+	}
+
+	if !s.oauthAuthFlow.expiresAt.After(time.Now().Add(90 * time.Second)) {
+		log.Warnf("canceling previous waiting execution")
+		if s.oauthAuthFlow.waitCancel != nil {
+			s.oauthAuthFlow.waitCancel()
+		}
+		return nil
+	}
+
+	log.Debugf("using previous oauth flow info")
+	state.Set(internal.StatusNeedsLogin)
+	return &proto.LoginResponse{
+		NeedsSSOLogin:           true,
+		VerificationURI:         s.oauthAuthFlow.info.VerificationURI,
+		VerificationURIComplete: s.oauthAuthFlow.info.VerificationURIComplete,
+		UserCode:                s.oauthAuthFlow.info.UserCode,
+	}
 }
 
 // WaitSSOLogin validates the supplied userCode against the in-flight OAuth
