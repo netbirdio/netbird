@@ -30,6 +30,11 @@ func GetInfo(ctx context.Context) *Info {
 		kernelVersion = osInfo[2]
 	}
 
+	addrs, err := networkAddresses()
+	if err != nil {
+		log.Warnf("failed to discover network addresses: %s", err)
+	}
+
 	gio := &Info{
 		GoOS:               runtime.GOOS,
 		Kernel:             kernel,
@@ -41,6 +46,7 @@ func GetInfo(ctx context.Context) *Info {
 		NetbirdVersion:     version.NetbirdVersion(),
 		UIVersion:          extractUIVersion(ctx),
 		KernelVersion:      kernelVersion,
+		NetworkAddresses:   addrs,
 		SystemSerialNumber: serial(),
 		SystemProductName:  productModel(),
 		SystemManufacturer: productManufacturer(),
