@@ -51,12 +51,12 @@ func NewWGUDPProxy(wgPort int, mtu uint16) *WGUDPProxy {
 	return p
 }
 
-// AddTurnConn
+// AddRelayedConn
 // The provided Context must be non-nil. If the context expires before
 // the connection is complete, an error is returned. Once successfully
 // connected, any expiration of the context will not affect the
 // connection.
-func (p *WGUDPProxy) AddTurnConn(ctx context.Context, _ *net.UDPAddr, remoteConn net.Conn) error {
+func (p *WGUDPProxy) AddRelayedConn(ctx context.Context, _ *net.UDPAddr, remoteConn net.Conn) error {
 	dialer := net.Dialer{}
 	localConn, err := dialer.DialContext(ctx, "udp", fmt.Sprintf(":%d", p.localWGListenPort))
 	if err != nil {

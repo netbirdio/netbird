@@ -30,9 +30,9 @@ type WGEBPFProxy struct {
 	proxyPort         int
 	mtu               uint16
 
-	ebpfManager   ebpfMgr.Manager
-	turnConnStore map[uint16]net.Conn
-	turnConnMutex sync.Mutex
+	ebpfManager      ebpfMgr.Manager
+	relayedConnStore map[uint16]net.Conn
+	relayedConnMutex sync.Mutex
 
 	lastUsedPort uint16
 	rawConnIPv4  net.PacketConn
@@ -50,7 +50,7 @@ func NewWGEBPFProxy(wgPort int, mtu uint16) *WGEBPFProxy {
 		localWGListenPort: wgPort,
 		mtu:               mtu,
 		ebpfManager:       ebpf.GetEbpfManagerInstance(),
-		turnConnStore:     make(map[uint16]net.Conn),
+		relayedConnStore:  make(map[uint16]net.Conn),
 	}
 	return wgProxy
 }
@@ -110,14 +110,14 @@ func (p *WGEBPFProxy) Listen() error {
 	return nil
 }
 
-// AddTurnConn add new turn connection for the proxy
-func (p *WGEBPFProxy) AddTurnConn(turnConn net.Conn) (*net.UDPAddr, error) {
-	wgEndpointPort, err := p.storeTurnConn(turnConn)
+// AddRelayedConn add new relayed connection for the proxy
+func (p *WGEBPFProxy) AddRelayedConn(relayedConn net.Conn) (*net.UDPAddr, error) {
+	wgEndpointPort, err := p.storeRelayedConn(relayedConn)
 	if err != nil {
 		return nil, err
 	}
 
-	log.Infof("turn conn added to wg proxy store: %s, endpoint port: :%d", turnConn.RemoteAddr(), wgEndpointPort)
+	log.Infof("relayed conn added to wg proxy store: %s, endpoint port: :%d", relayedConn.RemoteAddr(), wgEndpointPort)
 
 	wgEndpoint := &net.UDPAddr{
 		IP:   net.ParseIP(loopbackAddr),
@@ -186,12 +186,12 @@ func (p *WGEBPFProxy) readAndForwardPacket(buf []byte) error {
 		return fmt.Errorf("failed to read UDP packet from WG: %w", err)
 	}
 
-	p.turnConnMutex.Lock()
-	conn, ok := p.turnConnStore[uint16(addr.Port)]
-	p.turnConnMutex.Unlock()
+	p.relayedConnMutex.Lock()
+	conn, ok := p.relayedConnStore[uint16(addr.Port)]
+	p.relayedConnMutex.Unlock()
 	if !ok {
 		if p.ctx.Err() == nil {
-			log.Debugf("turn conn not found by port because conn already has been closed: %d", addr.Port)
+			log.Debugf("relayed conn not found by port because conn already has been closed: %d", addr.Port)
 		}
 		return nil
 	}
@@ -202,32 +202,32 @@ func (p *WGEBPFProxy) readAndForwardPacket(buf []byte) error {
 	return nil
 }
 
-func (p *WGEBPFProxy) storeTurnConn(turnConn net.Conn) (uint16, error) {
-	p.turnConnMutex.Lock()
-	defer p.turnConnMutex.Unlock()
+func (p *WGEBPFProxy) storeRelayedConn(relayedConn net.Conn) (uint16, error) {
+	p.relayedConnMutex.Lock()
+	defer p.relayedConnMutex.Unlock()
 
 	np, err := p.nextFreePort()
 	if err != nil {
 		return np, err
 	}
-	p.turnConnStore[np] = turnConn
+	p.relayedConnStore[np] = relayedConn
 	return np, nil
 }
 
-func (p *WGEBPFProxy) removeTurnConn(turnConnID uint16) {
-	p.turnConnMutex.Lock()
-	defer p.turnConnMutex.Unlock()
+func (p *WGEBPFProxy) removeRelayedConn(relayedConnID uint16) {
+	p.relayedConnMutex.Lock()
+	defer p.relayedConnMutex.Unlock()
 
-	_, ok := p.turnConnStore[turnConnID]
+	_, ok := p.relayedConnStore[relayedConnID]
 	if ok {
-		log.Debugf("remove turn conn from store by port: %d", turnConnID)
+		log.Debugf("remove relayed conn from store by port: %d", relayedConnID)
 	}
-	delete(p.turnConnStore, turnConnID)
+	delete(p.relayedConnStore, relayedConnID)
 }
 
 func (p *WGEBPFProxy) nextFreePort() (uint16, error) {
-	if len(p.turnConnStore) == 65535 {
-		return 0, fmt.Errorf("reached maximum turn connection numbers")
+	if len(p.relayedConnStore) == 65535 {
+		return 0, fmt.Errorf("reached maximum relayed connection numbers")
 	}
 generatePort:
 	if p.lastUsedPort == 65535 {
@@ -236,7 +236,7 @@ generatePort:
 		p.lastUsedPort++
 	}
 
-	if _, ok := p.turnConnStore[p.lastUsedPort]; ok {
+	if _, ok := p.relayedConnStore[p.lastUsedPort]; ok {
 		goto generatePort
 	}
 	return p.lastUsedPort, nil
