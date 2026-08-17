@@ -111,7 +111,9 @@ func (tf *GeneralManager) attachXdp(iFaceIndex int, multiBuffer bool) error {
 		Interface: iFaceIndex,
 	})
 	if err != nil {
-		_ = tf.bpfObjs.Close()
+		if closeErr := tf.bpfObjs.Close(); closeErr != nil {
+			log.Debugf("failed to close bpf objects after xdp attach error: %s", closeErr)
+		}
 		tf.link = nil
 		return fmt.Errorf("attach xdp: %w", err)
 	}
