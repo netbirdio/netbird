@@ -45,6 +45,8 @@ var (
 func (u *Installer) Setup(ctx context.Context, dryRun bool, installerFile string, daemonFolder string) (resultErr error) {
 	resultHandler := NewResultHandler(u.tempDir)
 
+	var uiSessions []uint32
+
 	// Always ensure daemon and UI are restarted after setup
 	defer func() {
 		log.Infof("starting daemon back")
@@ -53,7 +55,7 @@ func (u *Installer) Setup(ctx context.Context, dryRun bool, installerFile string
 		}
 
 		log.Infof("starting UI back")
-		if err := u.startUIAsUser(daemonFolder); err != nil {
+		if err := u.startUI(daemonFolder, uiSessions); err != nil {
 			log.Errorf("failed to start UI: %v", err)
 		}
 
@@ -88,7 +90,7 @@ func (u *Installer) Setup(ctx context.Context, dryRun bool, installerFile string
 	// marks the install as restart-required. The deferred close-application action
 	// in the package runs too late to prevent that, it happens after
 	// InstallValidate has already registered the file as in use.
-	killUI()
+	uiSessions = killUI()
 
 	var cmd *exec.Cmd
 	switch installerType {
@@ -138,16 +140,142 @@ func (u *Installer) startDaemon(daemonFolder string) error {
 	return nil
 }
 
-func (u *Installer) startUIAsUser(daemonFolder string) error {
+func (u *Installer) startUI(daemonFolder string, sessionIDs []uint32) error {
 	uiPath := filepath.Join(daemonFolder, uiName)
 	log.Infof("starting netbird-ui: %s", uiPath)
 
-	// Get the active console session ID
-	sessionID := windows.WTSGetActiveConsoleSessionId()
-	if sessionID == 0xFFFFFFFF {
-		return fmt.Errorf("no active user session found")
+	if len(sessionIDs) == 0 {
+		sessionID := windows.WTSGetActiveConsoleSessionId()
+		if sessionID == 0xFFFFFFFF {
+			return fmt.Errorf("no active user session found")
+		}
+		sessionIDs = []uint32{sessionID}
 	}
 
+	var errs []error
+	for _, sessionID := range sessionIDs {
+		if err := startUIInSession(uiPath, sessionID); err != nil {
+			errs = append(errs, fmt.Errorf("session %d: %w", sessionID, err))
+			continue
+		}
+		log.Infof("netbird-ui started successfully in session %d", sessionID)
+	}
+	return errors.Join(errs...)
+}
+
+// isRebootPending reports whether the installer exit code means it succeeded but
+// left work for the next restart. The reboot itself is suppressed, so this is not
+// a failure.
+func isRebootPending(err error) bool {
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		return false
+	}
+
+	switch exitErr.ExitCode() {
+	case msiRebootRequired, msiRebootInitiated:
+		return true
+	default:
+		return false
+	}
+}
+
+// killUI terminates any running netbird-ui process and returns the IDs of the
+// interactive sessions the terminated processes belonged to. Setup starts the
+// UI again in those sessions once the installer is done.
+func killUI() []uint32 {
+	pids, err := processIDsByName(uiName)
+	if err != nil {
+		log.Warnf("failed to look up %s processes: %v", uiName, err)
+		return nil
+	}
+
+	sessions := make(map[uint32]struct{})
+	for _, pid := range pids {
+		var sessionID uint32
+		if err := windows.ProcessIdToSessionId(pid, &sessionID); err != nil {
+			log.Warnf("failed to look up session of %s (PID %d): %v", uiName, pid, err)
+		}
+
+		if err := terminateProcess(pid); err != nil {
+			log.Warnf("failed to terminate %s (PID %d): %v", uiName, pid, err)
+			continue
+		}
+		log.Infof("terminated %s (PID %d) in session %d", uiName, pid, sessionID)
+
+		if sessionID != 0 {
+			sessions[sessionID] = struct{}{}
+		}
+	}
+
+	sessionIDs := make([]uint32, 0, len(sessions))
+	for sessionID := range sessions {
+		sessionIDs = append(sessionIDs, sessionID)
+	}
+	return sessionIDs
+}
+
+func processIDsByName(name string) ([]uint32, error) {
+	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
+	if err != nil {
+		return nil, fmt.Errorf("create process snapshot: %w", err)
+	}
+	defer func() {
+		if err := windows.CloseHandle(snapshot); err != nil {
+			log.Warnf("failed to close process snapshot: %v", err)
+		}
+	}()
+
+	var entry windows.ProcessEntry32
+	entry.Size = uint32(unsafe.Sizeof(entry))
+
+	var pids []uint32
+	for err = windows.Process32First(snapshot, &entry); err == nil; err = windows.Process32Next(snapshot, &entry) {
+		if strings.EqualFold(windows.UTF16ToString(entry.ExeFile[:]), name) {
+			pids = append(pids, entry.ProcessID)
+		}
+	}
+	if !errors.Is(err, windows.ERROR_NO_MORE_FILES) {
+		return nil, fmt.Errorf("enumerate processes: %w", err)
+	}
+
+	return pids, nil
+}
+
+func terminateProcess(pid uint32) error {
+	handle, err := windows.OpenProcess(windows.PROCESS_TERMINATE|windows.SYNCHRONIZE, false, pid)
+	if err != nil {
+		// The process may have exited between enumeration and now.
+		if errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
+			return nil
+		}
+		return fmt.Errorf("open process: %w", err)
+	}
+	defer func() {
+		if err := windows.CloseHandle(handle); err != nil {
+			log.Warnf("failed to close process handle: %v", err)
+		}
+	}()
+
+	if err := windows.TerminateProcess(handle, 0); err != nil {
+		return fmt.Errorf("terminate process: %w", err)
+	}
+
+	// Wait for the handle to signal so the image file is released before the
+	// installer tries to overwrite it. A timeout is reported through the returned
+	// event, not through err, which stays nil unless the wait itself failed.
+	event, err := windows.WaitForSingleObject(handle, uint32(processExitWait.Milliseconds()))
+	if err != nil {
+		return fmt.Errorf("wait for process exit: %w", err)
+	}
+	if event != windows.WAIT_OBJECT_0 {
+		return fmt.Errorf("wait for process exit: unexpected wait result %#x", event)
+	}
+
+	return nil
+}
+
+func startUIInSession(uiPath string, sessionID uint32) error {
 	// Get the user token for that session
 	var userToken windows.Token
 	err := windows.WTSQueryUserToken(sessionID, &userToken)
@@ -216,102 +344,6 @@ func (u *Installer) startUIAsUser(daemonFolder string) error {
 	}
 	if err := windows.CloseHandle(pi.Thread); err != nil {
 		log.Warnf("failed to close thread handle: %v", err)
-	}
-
-	log.Infof("netbird-ui started successfully in session %d", sessionID)
-	return nil
-}
-
-// isRebootPending reports whether the installer exit code means it succeeded but
-// left work for the next restart. The reboot itself is suppressed, so this is not
-// a failure.
-func isRebootPending(err error) bool {
-	var exitErr *exec.ExitError
-	if !errors.As(err, &exitErr) {
-		return false
-	}
-
-	switch exitErr.ExitCode() {
-	case msiRebootRequired, msiRebootInitiated:
-		return true
-	default:
-		return false
-	}
-}
-
-// killUI terminates any running netbird-ui process. Setup starts the UI again
-// once the installer is done.
-func killUI() {
-	pids, err := processIDsByName(uiName)
-	if err != nil {
-		log.Warnf("failed to look up %s processes: %v", uiName, err)
-		return
-	}
-
-	for _, pid := range pids {
-		if err := terminateProcess(pid); err != nil {
-			log.Warnf("failed to terminate %s (PID %d): %v", uiName, pid, err)
-			continue
-		}
-		log.Infof("terminated %s (PID %d)", uiName, pid)
-	}
-}
-
-func processIDsByName(name string) ([]uint32, error) {
-	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
-	if err != nil {
-		return nil, fmt.Errorf("create process snapshot: %w", err)
-	}
-	defer func() {
-		if err := windows.CloseHandle(snapshot); err != nil {
-			log.Warnf("failed to close process snapshot: %v", err)
-		}
-	}()
-
-	var entry windows.ProcessEntry32
-	entry.Size = uint32(unsafe.Sizeof(entry))
-
-	var pids []uint32
-	for err = windows.Process32First(snapshot, &entry); err == nil; err = windows.Process32Next(snapshot, &entry) {
-		if strings.EqualFold(windows.UTF16ToString(entry.ExeFile[:]), name) {
-			pids = append(pids, entry.ProcessID)
-		}
-	}
-	if !errors.Is(err, windows.ERROR_NO_MORE_FILES) {
-		return nil, fmt.Errorf("enumerate processes: %w", err)
-	}
-
-	return pids, nil
-}
-
-func terminateProcess(pid uint32) error {
-	handle, err := windows.OpenProcess(windows.PROCESS_TERMINATE|windows.SYNCHRONIZE, false, pid)
-	if err != nil {
-		// The process may have exited between enumeration and now.
-		if errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
-			return nil
-		}
-		return fmt.Errorf("open process: %w", err)
-	}
-	defer func() {
-		if err := windows.CloseHandle(handle); err != nil {
-			log.Warnf("failed to close process handle: %v", err)
-		}
-	}()
-
-	if err := windows.TerminateProcess(handle, 0); err != nil {
-		return fmt.Errorf("terminate process: %w", err)
-	}
-
-	// Wait for the handle to signal so the image file is released before the
-	// installer tries to overwrite it. A timeout is reported through the returned
-	// event, not through err, which stays nil unless the wait itself failed.
-	event, err := windows.WaitForSingleObject(handle, uint32(processExitWait.Milliseconds()))
-	if err != nil {
-		return fmt.Errorf("wait for process exit: %w", err)
-	}
-	if event != windows.WAIT_OBJECT_0 {
-		return fmt.Errorf("wait for process exit: unexpected wait result %#x", event)
 	}
 
 	return nil
