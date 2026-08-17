@@ -197,7 +197,7 @@ func (p *WGEBPFProxy) readAndForwardPacket(buf []byte) error {
 	}
 
 	if _, err := conn.Write(buf[:n]); err != nil {
-		return fmt.Errorf("failed to forward local WG packet (%d) to remote turn conn: %w", addr.Port, err)
+		return fmt.Errorf("forward local WG packet (%d) to remote relayed conn: %w", addr.Port, err)
 	}
 	return nil
 }
