@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
-	"os/user"
 	"runtime"
 	"strings"
 	"time"
@@ -122,7 +121,7 @@ func upFunc(cmd *cobra.Command, args []string) error {
 
 	pm := profilemanager.NewProfileManager()
 
-	username, err := user.Current()
+	username, err := profilemanager.InvokingUser()
 	if err != nil {
 		return fmt.Errorf("get current user: %v", err)
 	}
@@ -295,6 +294,21 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 
 	client := proto.NewDaemonServiceClient(conn)
 
+	// Plain root has no invoking user to resolve profiles for, so the local
+	// state falls back to root's own — the default profile. Acting on that
+	// while the daemon runs another user's profile would silently switch the
+	// daemon away from it (and a later browser login would register the
+	// default profile's peer under whichever account the IdP returns). Refuse
+	// the ambiguity instead of guessing.
+	if profilemanager.IsPlainRoot() && profileName == "" {
+		if active, err := client.GetActiveProfile(ctx, &proto.GetActiveProfileRequest{}); err == nil &&
+			active.GetId() != "" && active.GetId() != activeProf.ID.String() {
+			return fmt.Errorf(
+				"running as root: the daemon's active profile is %q (user %q), but this invocation resolves to %q; pass --profile to choose one explicitly, or run via sudo from your own user",
+				active.GetProfileName(), active.GetUsername(), activeProf.ID)
+		}
+	}
+
 	status, err := client.Status(ctx, &proto.StatusRequest{
 		WaitForReady: func() *bool { b := true; return &b }(),
 	})
@@ -314,7 +328,7 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 		}
 	}
 
-	username, err := user.Current()
+	username, err := profilemanager.InvokingUser()
 	if err != nil {
 		return fmt.Errorf("get current user: %v", err)
 	}

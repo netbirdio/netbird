@@ -217,6 +217,12 @@ func getConfigDir() (string, error) {
 	}
 
 	configDir := filepath.Join(base, "netbird")
+	// Under sudo this is the invoking user's directory and strictly read-only:
+	// anything root creates in it would be root-owned and break the user's own
+	// runs. Reads of a missing directory fall through to defaults.
+	if _, sudo := sudoInvokingUser(); sudo {
+		return configDir, nil
+	}
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		return "", err
 	}
@@ -224,6 +230,9 @@ func getConfigDir() (string, error) {
 }
 
 func baseConfigDir() (string, error) {
+	if u, ok := sudoInvokingUser(); ok {
+		return userBaseConfigDir(u)
+	}
 	if runtime.GOOS == "darwin" {
 		if u, err := user.Current(); err == nil && u.HomeDir != "" {
 			return filepath.Join(u.HomeDir, "Library", "Application Support"), nil

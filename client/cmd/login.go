@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/user"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
@@ -53,7 +52,7 @@ var loginCmd = &cobra.Command{
 			// nolint
 			ctx = context.WithValue(ctx, system.DeviceNameCtxKey, hostName)
 		}
-		username, err := user.Current()
+		username, err := profilemanager.InvokingUser()
 		if err != nil {
 			return fmt.Errorf("get current user: %v", err)
 		}
