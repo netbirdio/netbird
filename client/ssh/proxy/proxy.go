@@ -610,13 +610,10 @@ func (p *SSHProxy) dialBackend(ctx context.Context, addr, user, jwtToken string)
 		return nil, fmt.Errorf("connect to server: %w", err)
 	}
 
-	clientConn, chans, reqs, err := cryptossh.NewClientConn(conn, addr, config)
-	if err != nil {
-		_ = conn.Close()
-		return nil, fmt.Errorf("SSH handshake: %w", err)
-	}
+	handshakeCtx, cancel := context.WithTimeout(ctx, sshHandshakeTimeout)
+	defer cancel()
 
-	return cryptossh.NewClient(clientConn, chans, reqs), nil
+	return nbssh.Handshake(handshakeCtx, conn, addr, config)
 }
 
 func (p *SSHProxy) verifyHostKey(hostname string, remote net.Addr, key cryptossh.PublicKey) error {
