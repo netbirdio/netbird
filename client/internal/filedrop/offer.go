@@ -121,6 +121,30 @@ func (s *OfferStore) Decide(id OfferID, decision Decision) (Offer, bool) {
 	return entry.offer.clone(), true
 }
 
+// Revoke withdraws consent for an offer whatever it has already answered, so an
+// upload in flight can be stopped. Decide only moves an offer out of Pending: a
+// transfer that is already running has no way back through it.
+func (s *OfferStore) Revoke(id OfferID) (Offer, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	entry, ok := s.offers[id]
+	if !ok {
+		return Offer{}, false
+	}
+
+	// An offer still waiting has a reader parked on its channel; one that was
+	// answered has already had it closed, and closing twice would panic.
+	if entry.offer.Decision == DecisionPending {
+		close(entry.decided)
+	}
+
+	entry.offer.Decision = DecisionDeclined
+	entry.offer.State = StateCancelled
+
+	return entry.offer.clone(), true
+}
+
 // Await blocks until a decision, expiry, or ctx cancellation.
 func (s *OfferStore) Await(ctx context.Context, sender PeerKey, id OfferID) (Offer, error) {
 	s.mu.RLock()

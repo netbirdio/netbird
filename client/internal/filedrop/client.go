@@ -43,28 +43,12 @@ type ClientConfig struct {
 	OfferTimeout time.Duration
 }
 
-type progressReader struct {
-	r      io.Reader
-	sent   int64
-	total  int64
-	report func(sent int64)
-}
-
 // Client sends offers and payloads to a peer's file drop service.
 type Client struct {
 	http         *http.Client
 	senderName   string
 	pollTimeout  time.Duration
 	offerTimeout time.Duration
-}
-
-func (p *progressReader) Read(b []byte) (int, error) {
-	n, err := p.r.Read(b)
-	if n > 0 {
-		p.sent += int64(n)
-		p.report(p.sent)
-	}
-	return n, err
 }
 
 // NewClient builds a sending client over the given dialer.
@@ -301,6 +285,12 @@ func (c *Client) uploadFile(ctx context.Context, base string, id OfferID, index 
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
+			// A refusal and a vanished offer are answers, not transport
+			// hiccups: the receiver has withdrawn, and retrying only keeps
+			// pushing bytes at someone who said no.
+			if errors.Is(err, ErrNotAccepted) || errors.Is(err, ErrOfferNotFound) {
+				return err
+			}
 			lastErr = err
 			log.Debugf("upload attempt %d for %s: %v", attempt+1, p.Meta.Name, err)
 			continue
@@ -354,6 +344,9 @@ func (c *Client) putFile(ctx context.Context, base string, id OfferID, index int
 
 	if resp.StatusCode == http.StatusForbidden {
 		return ErrNotAccepted
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		return ErrOfferNotFound
 	}
 	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
 		return statusError(resp)
