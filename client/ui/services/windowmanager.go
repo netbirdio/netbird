@@ -119,6 +119,7 @@ type WindowManager struct {
 	ready          map[uint]bool
 	showPending    map[uint]bool
 	pendingTab     map[uint]string
+	pendingEmits   map[uint][]string
 	fallbackTimers map[uint]*time.Timer
 	// recenterOnShow is set only on the minimal-WM/XEmbed path, where the WM neither centers nor
 	// restores position; nil on full desktops so re-centering can't fight a user-moved window.
@@ -135,6 +136,7 @@ func NewWindowManager(app *application.App, mainWindow *application.WebviewWindo
 		ready:          map[uint]bool{},
 		showPending:    map[uint]bool{},
 		pendingTab:     map[uint]string{},
+		pendingEmits:   map[uint][]string{},
 		fallbackTimers: map[uint]*time.Timer{},
 	}
 	s.watchPainted()
@@ -470,6 +472,27 @@ func (s *WindowManager) ShowMain() {
 	s.showWhenReady(s.MainWindow())
 }
 
+// ShowMainAndEmit brings the main window forward and emits event once its frontend is ready.
+func (s *WindowManager) ShowMainAndEmit(event string) {
+	w := s.MainWindow()
+	if w == nil {
+		return
+	}
+
+	id := w.ID()
+	s.mu.Lock()
+	ready := s.ready[id]
+	if !ready {
+		s.pendingEmits[id] = append(s.pendingEmits[id], event)
+	}
+	s.mu.Unlock()
+
+	s.showWhenReady(w)
+	if ready {
+		s.app.Event.Emit(event)
+	}
+}
+
 func (s *WindowManager) MainWindow() *application.WebviewWindow {
 	s.mu.Lock()
 	factory := s.newMain
@@ -533,6 +556,7 @@ func (s *WindowManager) forgetWindowLocked(w *application.WebviewWindow) {
 	delete(s.ready, id)
 	delete(s.showPending, id)
 	delete(s.pendingTab, id)
+	delete(s.pendingEmits, id)
 
 	kept := s.hiddenForLogin[:0]
 	for _, hidden := range s.hiddenForLogin {
@@ -563,12 +587,14 @@ func (s *WindowManager) markReady(w *application.WebviewWindow) {
 	s.ready[id] = true
 	wanted := s.showPending[id]
 	tab, hasTab := s.pendingTab[id]
+	emits := s.pendingEmits[id]
 	if timer := s.fallbackTimers[id]; timer != nil {
 		timer.Stop()
 		delete(s.fallbackTimers, id)
 	}
 	delete(s.showPending, id)
 	delete(s.pendingTab, id)
+	delete(s.pendingEmits, id)
 	s.mu.Unlock()
 
 	if already {
@@ -581,6 +607,10 @@ func (s *WindowManager) markReady(w *application.WebviewWindow) {
 
 	if wanted {
 		s.showNow(w)
+	}
+
+	for _, event := range emits {
+		s.app.Event.Emit(event)
 	}
 }
 

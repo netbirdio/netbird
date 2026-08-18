@@ -284,6 +284,15 @@ func (t *Tray) showMain() {
 	}
 }
 
+func (t *Tray) showMainAndEmit(event string) {
+	if t.svc.WindowManager != nil {
+		t.svc.WindowManager.ShowMainAndEmit(event)
+		return
+	}
+	t.showMain()
+	t.app.Event.Emit(event)
+}
+
 // applyLanguage re-renders every translated surface in the Localizer's current
 // language. Wails dispatches menu/tray APIs onto the UI thread internally, so
 // calling them from the Localizer's background goroutine is safe; profileLoadMu

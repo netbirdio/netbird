@@ -304,8 +304,7 @@ func (t *Tray) openSessionExtendFlow() {
 	}
 	seconds := int(time.Until(deadline).Seconds())
 	if seconds <= 0 {
-		t.showMain()
-		t.app.Event.Emit(services.EventTriggerLogin)
+		t.showMainAndEmit(services.EventTriggerLogin)
 		return
 	}
 	if t.svc.WindowManager == nil {
