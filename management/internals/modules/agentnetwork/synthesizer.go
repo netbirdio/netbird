@@ -211,7 +211,19 @@ func SynthesizeServices(ctx context.Context, s store.Store, accountID string) ([
 
 	groupIndex := indexProviderGroups(enabledPolicies)
 
-	routerCfgJSON, err := buildRouterConfigJSON(enabledProviders, groupIndex)
+	// The proxy guardrail is a per-provider fail-closed backstop; the
+	// authoritative per-policy/group decision is management's
+	// SelectPolicyForRequest. A provider lands in that map only when every
+	// authorising policy restricts models.
+	providerAllowlists := buildProviderAllowlists(enabledPolicies, guardrailsByID)
+
+	// Discovery gets the finer view: per policy rather than flattened per
+	// provider, so a listing can be bounded to what the calling groups may
+	// actually use instead of the union across everyone who reaches the
+	// provider.
+	modelPolicies := buildModelPolicies(enabledPolicies, guardrailsByID)
+
+	routerCfgJSON, err := buildRouterConfigJSON(enabledProviders, groupIndex, modelPolicies)
 	if err != nil {
 		return nil, err
 	}
@@ -228,11 +240,6 @@ func SynthesizeServices(ctx context.Context, s store.Store, accountID string) ([
 
 	mergedGuardrails := mergeGuardrails(enabledPolicies, guardrailsByID)
 	applyAccountCollectionControls(&mergedGuardrails, settings)
-	// The proxy guardrail is a per-provider fail-closed backstop; the
-	// authoritative per-policy/group decision is management's
-	// SelectPolicyForRequest. A provider lands in this map only when every
-	// authorising policy restricts models.
-	providerAllowlists := buildProviderAllowlists(enabledPolicies, guardrailsByID)
 	guardrailJSON, err := marshalGuardrailConfig(providerAllowlists, mergedGuardrails.PromptCapture)
 	if err != nil {
 		return nil, err
@@ -351,6 +358,11 @@ type routerProviderRoute struct {
 	AuthHeaderName  string   `json:"auth_header_name"`
 	AuthHeaderValue string   `json:"auth_header_value"`
 	AllowedGroupIDs []string `json:"allowed_group_ids,omitempty"`
+	// ModelPolicies is one entry per enabled policy authorising this provider,
+	// carrying that policy's source groups and the models it permits. The
+	// router bounds a model listing with it, so a provider two groups reach
+	// under different allowlists offers each only its own.
+	ModelPolicies []routerModelPolicy `json:"model_policies,omitempty"`
 	// Vertex marks a Google Vertex AI provider, whose requests carry the
 	// model in the URL path. The router selects it by path, bypassing the
 	// model/vendor table.
@@ -422,7 +434,7 @@ func indexProviderGroups(policies []*types.Policy) map[string][]string {
 // path-prefix tiebreak. Providers no enabled policy authorises
 // (orphans) are intentionally OMITTED so the router never observes a
 // route with an empty ACL.
-func buildRouterConfigJSON(providers []*types.Provider, groupIndex map[string][]string) ([]byte, error) {
+func buildRouterConfigJSON(providers []*types.Provider, groupIndex map[string][]string, modelPolicies map[string][]routerModelPolicy) ([]byte, error) {
 	cfg := routerConfig{Providers: make([]routerProviderRoute, 0, len(providers))}
 	for _, p := range providers {
 		groups, hasPolicy := groupIndex[p.ID]
@@ -449,6 +461,7 @@ func buildRouterConfigJSON(providers []*types.Provider, groupIndex map[string][]
 			AuthHeaderName:          headerName,
 			AuthHeaderValue:         headerValue,
 			AllowedGroupIDs:         groups,
+			ModelPolicies:           modelPolicies[p.ID],
 			Vertex:                  catalog.IsVertexPathStyle(p.ProviderID),
 			Bedrock:                 catalog.IsBedrockPathStyle(p.ProviderID),
 			GCPServiceAccountKeyB64: gcpSAKeyB64,
@@ -1097,4 +1110,47 @@ func mergeGuardrail(g *types.Guardrail, merged *MergedGuardrails) {
 			merged.PromptCapture.RedactPii = true
 		}
 	}
+}
+
+// routerModelPolicy mirrors the router's ModelPolicyRule: one authorising
+// policy's source groups plus the models it permits. Models is nil for a
+// policy that sets no model allowlist, which lifts the restriction for the
+// groups it binds — so nil and empty must survive the round trip distinctly.
+type routerModelPolicy struct {
+	GroupIDs []string `json:"group_ids"`
+	Models   []string `json:"models"`
+}
+
+// buildModelPolicies indexes, per provider, one rule for each enabled policy
+// authorising it: the policy's source groups and the models its guardrail
+// permits.
+//
+// This is deliberately finer than buildProviderAllowlists, which flattens the
+// same inputs into one list per provider for the proxy's fail-closed guardrail.
+// A flattened list cannot answer "what may THIS caller see", so a provider two
+// teams reach under different allowlists would offer each team the other's
+// models — a picker full of entries the next request refuses. Keeping the
+// source groups alongside the models lets the router answer it at request time,
+// where it knows the caller's groups.
+func buildModelPolicies(policies []*types.Policy, byID map[string]*types.Guardrail) map[string][]routerModelPolicy {
+	out := make(map[string][]routerModelPolicy)
+	for _, p := range policies {
+		if p == nil || len(p.SourceGroups) == 0 {
+			continue
+		}
+		restricted, models := policyModelAllowlist(p, byID)
+		rule := routerModelPolicy{GroupIDs: append([]string(nil), p.SourceGroups...)}
+		if restricted {
+			// Never nil when restricted: an allowlist permitting nothing must
+			// stay distinguishable from no allowlist at all.
+			rule.Models = append([]string{}, models...)
+		}
+		for _, providerID := range p.DestinationProviderIDs {
+			if providerID == "" {
+				continue
+			}
+			out[providerID] = append(out[providerID], rule)
+		}
+	}
+	return out
 }

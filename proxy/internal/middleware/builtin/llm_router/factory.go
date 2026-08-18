@@ -44,6 +44,12 @@ type ProviderRoute struct {
 	AuthHeaderName  string   `json:"auth_header_name"`
 	AuthHeaderValue string   `json:"auth_header_value"`
 	AllowedGroupIDs []string `json:"allowed_group_ids"`
+	// ModelPolicies carries, per authorising policy, the source groups it
+	// binds and the models it permits. The router uses it to bound a model
+	// listing to what THIS caller may use: a provider reachable by two groups
+	// under different allowlists must not offer either group the other's
+	// models. Empty means no policy restricts models on this route.
+	ModelPolicies []ModelPolicyRule `json:"model_policies,omitempty"`
 	// Vertex marks a Google Vertex AI provider. Vertex requests carry the
 	// model in the URL path, so the router selects this route by path
 	// (isVertexPath) and bypasses the model/vendor table entirely.
@@ -63,6 +69,18 @@ type ProviderRoute struct {
 	// this route's upstream. For self-hosted / internal gateways behind a
 	// private or self-signed certificate.
 	SkipTLSVerify bool `json:"skip_tls_verify,omitempty"`
+}
+
+// ModelPolicyRule is one authorising policy's contribution to what a caller
+// may use on a route: the source groups it binds, and the models it permits.
+//
+// Models is nil when the policy sets no model allowlist — an unrestricted
+// policy, which lifts the restriction for the groups it binds. That is why
+// nil and empty must stay distinct: an empty list is a guardrail that permits
+// nothing, and collapsing the two would let a listing fail open.
+type ModelPolicyRule struct {
+	GroupIDs []string `json:"group_ids"`
+	Models   []string `json:"models"`
 }
 
 // Config is the on-wire configuration accepted by the factory. An

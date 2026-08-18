@@ -242,12 +242,13 @@ func (m *Middleware) routeModelless(reqPath, surface, method string, userGroups 
 		if _, hadPrefix := splitBedrockNamespace(reqPath); hadPrefix {
 			stripBedrockNamespace(out)
 		}
-		// A route that enumerates its models bounds what the caller may use,
-		// so the picker must not offer the rest: every entry outside the list
-		// is a request the chain will deny.
-		if reqPath == modelListingPath && len(route.Models) > 0 &&
-			out.Mutations != nil && out.Mutations.RewriteUpstream != nil {
-			out.Mutations.RewriteUpstream.DiscoveryModels = append([]string(nil), route.Models...)
+		// What the caller may actually use bounds what the picker may offer:
+		// every entry outside it is a request the chain will deny a moment
+		// later.
+		if reqPath == modelListingPath && out.Mutations != nil && out.Mutations.RewriteUpstream != nil {
+			if models, bounded := discoverableModels(route, userGroups); bounded {
+				out.Mutations.RewriteUpstream.DiscoveryModels = models
+			}
 		}
 		return out
 	case matchOutcomeUnauthorised:
@@ -269,6 +270,96 @@ func (m *Middleware) routeModelless(reqPath, surface, method string, userGroups 
 // routing, which denies when the request names no model.
 func isNonInferenceMethod(method string) bool {
 	return method == http.MethodGet || method == http.MethodHead
+}
+
+// discoverableModels returns the model ids a caller in userGroups may actually
+// use on this route, and whether the listing should be bounded to them at all.
+//
+// Two things narrow a listing, and both must apply or the picker offers models
+// the very next request refuses:
+//
+//   - the provider's own enumerated models, when it lists any (a gateway record
+//     enumerates nothing and claims everything);
+//   - the model allowlists of the policies that authorise THIS caller. A
+//     provider reachable by two groups under different allowlists must not
+//     offer either group the other's models, which is why the rules carry their
+//     source groups rather than arriving pre-flattened.
+//
+// A policy that sets no allowlist lifts the restriction for the groups it
+// binds, so a caller holding one unrestricted policy sees the provider's full
+// list. bounded is false when nothing narrows the listing — an unrestricted
+// caller on a route that enumerates nothing — in which case the upstream's own
+// answer passes through untouched.
+func discoverableModels(route ProviderRoute, userGroups []string) ([]string, bool) {
+	permitted, restricted := policyPermittedModels(route, userGroups)
+
+	switch {
+	case !restricted && len(route.Models) == 0:
+		return nil, false
+	case !restricted:
+		return append([]string(nil), route.Models...), true
+	case len(route.Models) == 0:
+		// A gateway record enumerates nothing, so the allowlist is the whole
+		// bound — previously such a record offered the upstream's entire
+		// catalogue however narrow the policy was.
+		return sortedModels(permitted), true
+	}
+
+	// Both bound: only what the provider serves and the policy permits.
+	intersection := make(map[string]struct{}, len(route.Models))
+	for _, m := range route.Models {
+		if _, ok := permitted[m]; ok {
+			intersection[m] = struct{}{}
+		}
+	}
+	return sortedModels(intersection), true
+}
+
+// policyPermittedModels folds the rules whose groups intersect the caller's
+// into the set of models they permit. restricted is false when the caller
+// holds at least one authorising policy that sets no allowlist, or when no
+// rule binds them at all.
+func policyPermittedModels(route ProviderRoute, userGroups []string) (map[string]struct{}, bool) {
+	permitted := make(map[string]struct{})
+	restricted := false
+	for _, rule := range route.ModelPolicies {
+		if !groupsIntersect(rule.GroupIDs, userGroups) {
+			continue
+		}
+		if rule.Models == nil {
+			// An unrestricted policy the caller holds lifts the restriction
+			// entirely, whatever the others say.
+			return nil, false
+		}
+		restricted = true
+		for _, m := range rule.Models {
+			permitted[m] = struct{}{}
+		}
+	}
+	return permitted, restricted
+}
+
+// groupsIntersect reports whether the two group-id sets share a member.
+func groupsIntersect(a, b []string) bool {
+	for _, x := range a {
+		for _, y := range b {
+			if x == y {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// sortedModels flattens a model set into a stable slice so the bound the proxy
+// applies — and any test asserting on it — does not depend on map order.
+func sortedModels(set map[string]struct{}) []string {
+	out := make([]string, 0, len(set))
+	for m := range set {
+		out = append(out, m)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // markNonInference tags an allow as a request that spends no tokens, so the

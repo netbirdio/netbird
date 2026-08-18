@@ -1145,3 +1145,144 @@ func TestRouter_PinnedDatedModelStaysDistinct(t *testing.T) {
 			"declaration order must not decide between two deliberately pinned builds")
 	})
 }
+
+// TestRouter_DiscoveryBoundToCallersPolicies pins that a model listing is
+// bounded by the policies that authorise the caller, not by the union across
+// everyone who can reach the provider. Two teams sharing one provider record
+// under different allowlists is the case that makes the difference visible: a
+// flattened per-provider list would offer each team the other's models, and
+// every one of those entries is a request the guardrail then refuses.
+func TestRouter_DiscoveryBoundToCallersPolicies(t *testing.T) {
+	const (
+		eng   = "grp-eng"
+		sales = "grp-sales"
+	)
+	route := ProviderRoute{
+		ID:              "shared-gateway",
+		Models:          []string{"claude-sonnet-5", "claude-haiku-4-5", "gpt-4o"},
+		AllowedGroupIDs: []string{eng, sales},
+		UpstreamScheme:  "https",
+		UpstreamHost:    "gateway.example.com",
+		ModelPolicies: []ModelPolicyRule{
+			{GroupIDs: []string{eng}, Models: []string{"claude-sonnet-5"}},
+			{GroupIDs: []string{sales}, Models: []string{"gpt-4o"}},
+		},
+	}
+
+	listingFor := func(t *testing.T, group string) []string {
+		t.Helper()
+		mw := New(Config{Providers: []ProviderRoute{route}})
+		in := newModellessInput(modelListingPath)
+		in.UserGroups = []string{group}
+
+		out, err := mw.Invoke(context.Background(), in)
+		require.NoError(t, err)
+		require.Equal(t, middleware.DecisionAllow, out.Decision)
+		require.NotNil(t, out.Mutations)
+		require.NotNil(t, out.Mutations.RewriteUpstream)
+		return out.Mutations.RewriteUpstream.DiscoveryModels
+	}
+
+	t.Run("each group sees only its own policy's models", func(t *testing.T) {
+		assert.Equal(t, []string{"claude-sonnet-5"}, listingFor(t, eng),
+			"engineering must not be offered the model only sales may use")
+		assert.Equal(t, []string{"gpt-4o"}, listingFor(t, sales),
+			"sales must not be offered the model only engineering may use")
+	})
+
+	t.Run("a model no policy allows is offered to nobody", func(t *testing.T) {
+		for _, group := range []string{eng, sales} {
+			assert.NotContains(t, listingFor(t, group), "claude-haiku-4-5",
+				"the provider serves it, but no policy permits it")
+		}
+	})
+}
+
+// TestRouter_DiscoveryUnrestrictedPolicy covers the lifting rule: a caller
+// holding one policy without a model allowlist sees everything the provider
+// enumerates, whatever the other policies say.
+func TestRouter_DiscoveryUnrestrictedPolicy(t *testing.T) {
+	const (
+		eng   = "grp-eng"
+		admin = "grp-admin"
+	)
+	route := ProviderRoute{
+		ID:              "shared-gateway",
+		Models:          []string{"claude-sonnet-5", "gpt-4o"},
+		AllowedGroupIDs: []string{eng, admin},
+		UpstreamScheme:  "https",
+		UpstreamHost:    "gateway.example.com",
+		ModelPolicies: []ModelPolicyRule{
+			{GroupIDs: []string{eng}, Models: []string{"claude-sonnet-5"}},
+			// nil Models: a policy that sets no allowlist at all.
+			{GroupIDs: []string{admin}},
+		},
+	}
+	mw := New(Config{Providers: []ProviderRoute{route}})
+
+	in := newModellessInput(modelListingPath)
+	in.UserGroups = []string{eng, admin}
+
+	out, err := mw.Invoke(context.Background(), in)
+	require.NoError(t, err)
+	require.NotNil(t, out.Mutations.RewriteUpstream)
+	assert.ElementsMatch(t, []string{"claude-sonnet-5", "gpt-4o"},
+		out.Mutations.RewriteUpstream.DiscoveryModels,
+		"an unrestricted policy the caller holds lifts the restriction")
+}
+
+// TestRouter_DiscoveryOnGatewayRecord covers a record that enumerates no
+// models. It previously offered the upstream's whole catalogue however narrow
+// the policy was, because there was nothing to intersect against; the policy
+// allowlist is now the bound on its own.
+func TestRouter_DiscoveryOnGatewayRecord(t *testing.T) {
+	const eng = "grp-eng"
+	base := ProviderRoute{
+		ID:              "litellm",
+		AllowedGroupIDs: []string{eng},
+		UpstreamScheme:  "https",
+		UpstreamHost:    "litellm.internal",
+	}
+
+	t.Run("a policy allowlist bounds it", func(t *testing.T) {
+		route := base
+		route.ModelPolicies = []ModelPolicyRule{{GroupIDs: []string{eng}, Models: []string{"gpt-4o"}}}
+		mw := New(Config{Providers: []ProviderRoute{route}})
+
+		in := newModellessInput(modelListingPath)
+		in.UserGroups = []string{eng}
+
+		out, err := mw.Invoke(context.Background(), in)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"gpt-4o"}, out.Mutations.RewriteUpstream.DiscoveryModels,
+			"a catch-all record must still be bounded by what policy permits")
+	})
+
+	t.Run("an allowlist permitting nothing offers nothing", func(t *testing.T) {
+		route := base
+		route.ModelPolicies = []ModelPolicyRule{{GroupIDs: []string{eng}, Models: []string{}}}
+		mw := New(Config{Providers: []ProviderRoute{route}})
+
+		in := newModellessInput(modelListingPath)
+		in.UserGroups = []string{eng}
+
+		out, err := mw.Invoke(context.Background(), in)
+		require.NoError(t, err)
+		require.NotNil(t, out.Mutations.RewriteUpstream)
+		assert.Empty(t, out.Mutations.RewriteUpstream.DiscoveryModels,
+			"an empty allowlist permits nothing, and must not be read as unrestricted")
+	})
+
+	t.Run("no policy restriction leaves the listing alone", func(t *testing.T) {
+		mw := New(Config{Providers: []ProviderRoute{base}})
+
+		in := newModellessInput(modelListingPath)
+		in.UserGroups = []string{eng}
+
+		out, err := mw.Invoke(context.Background(), in)
+		require.NoError(t, err)
+		require.NotNil(t, out.Mutations.RewriteUpstream)
+		assert.Nil(t, out.Mutations.RewriteUpstream.DiscoveryModels,
+			"nothing narrows the listing, so the upstream's own answer passes through")
+	})
+}
