@@ -108,10 +108,11 @@ func (s *Connection) Login(ctx context.Context, p LoginParams) (LoginResult, err
 	}
 
 	req := &proto.LoginRequest{
-		ManagementUrl:       p.ManagementURL,
-		SetupKey:            p.SetupKey,
-		Hostname:            p.Hostname,
-		IsUnixDesktopClient: runtime.GOOS == "linux",
+		ManagementUrl: p.ManagementURL,
+		SetupKey:      p.SetupKey,
+		Hostname:      p.Hostname,
+		// a login driven by the UI always has a graphical session available
+		IsUnixDesktopClient: true,
 	}
 	if profileName != "" {
 		req.ProfileName = ptrStr(profileName)
@@ -122,8 +123,16 @@ func (s *Connection) Login(ctx context.Context, p LoginParams) (LoginResult, err
 	if p.PreSharedKey != "" {
 		req.OptionalPreSharedKey = ptrStr(p.PreSharedKey)
 	}
-	if p.Hint != "" {
-		req.Hint = ptrStr(p.Hint)
+	hint := p.Hint
+	if hint == "" && profileID != "" {
+		if state, serr := profilemanager.NewProfileManager().GetProfileState(profilemanager.ID(profileID)); serr == nil {
+			hint = state.Email
+		} else {
+			log.Debugf("failed to get profile state for login hint: %v", serr)
+		}
+	}
+	if hint != "" {
+		req.Hint = ptrStr(hint)
 	}
 
 	resp, err := cli.Login(ctx, req)
@@ -227,16 +236,6 @@ func (s *Connection) Logout(ctx context.Context, p LogoutParams) error {
 		return s.classifyDaemonError(err)
 	}
 
-	// The daemon runs as root and can't reach the user-owned per-profile state
-	// file holding the account email (see Profiles.List), so clear the stale
-	// email here; the next SSO login recreates it.
-	if p.ProfileName != "" {
-		if err := profilemanager.NewProfileManager().RemoveProfileState(p.ProfileName); err != nil {
-			// Non-fatal: the logout itself succeeded.
-			log.Warnf("failed to remove profile state for %s: %v", p.ProfileName, err)
-		}
-	}
-
 	return nil
 }
 
@@ -260,7 +259,7 @@ func (s *Connection) waitSSOLogin(ctx context.Context, p WaitSSOParams) (string,
 
 	// Persist the account email the same way the CLI does after its own
 	// WaitSSOLogin: the daemon returns it but cannot store it, since it runs as
-	// root and the per-profile state file is user-owned (see Logout below).
+	// root and the per-profile state file is user-owned (see Profiles.List).
 	// Without this the profile has no email, so Profiles.List shows no account
 	// and later logins and session extends go out without a login_hint —
 	// leaving the IdP to guess which account was meant.

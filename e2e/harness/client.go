@@ -32,12 +32,36 @@ type Client struct {
 	container testcontainers.Container
 }
 
+// clientOptions is what the ClientOption values assemble.
+type clientOptions struct {
+	name string
+}
+
+// ClientOption adjusts how StartClient runs the agent.
+type ClientOption func(*clientOptions)
+
+// WithClientName names the agent, which sets both its network alias and its
+// container hostname. The hostname matters beyond addressing: the agent reports
+// it to management at registration, so it is the name the peer appears under in
+// the API.
+//
+// Required to run more than one agent against the same server — the default name
+// is shared, and two containers cannot hold the same alias on one network.
+func WithClientName(name string) ClientOption {
+	return func(o *clientOptions) { o.name = name }
+}
+
 // StartClient builds the client image and runs it on the combined server's
 // network, joining via the given setup key. The image entrypoint brings the
 // daemon up automatically; callers wait for connectivity with WaitConnected /
 // WaitProxyPeer.
-func StartClient(ctx context.Context, c *Combined, setupKey string) (*Client, error) {
-	root, err := repoRoot()
+func StartClient(ctx context.Context, c *Combined, setupKey string, opts ...ClientOption) (*Client, error) {
+	o := clientOptions{name: clientAlias}
+	for _, opt := range opts {
+		opt(&o)
+	}
+
+	root, err := repoRoot(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -47,9 +71,13 @@ func StartClient(ctx context.Context, c *Combined, setupKey string) (*Client, er
 	}
 
 	req := testcontainers.ContainerRequest{
-		Image:          clientImage,
+		Image: clientImage,
+		// The agent reports the container's hostname to management, so this is
+		// the name the peer is addressable by in the API as well as on the
+		// network. The entrypoint takes no hostname flag of its own.
+		Hostname:       o.name,
 		Networks:       []string{c.network.Name},
-		NetworkAliases: map[string][]string{c.network.Name: {clientAlias}},
+		NetworkAliases: map[string][]string{c.network.Name: {o.name}},
 		Env: map[string]string{
 			"NB_MANAGEMENT_URL": combinedExposedURL,
 			"NB_SETUP_KEY":      setupKey,
