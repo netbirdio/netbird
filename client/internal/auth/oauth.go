@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"runtime"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
@@ -23,6 +24,14 @@ type OAuthFlow interface {
 // HTTPClient http client interface for API calls
 type HTTPClient interface {
 	Do(req *http.Request) (*http.Response, error)
+}
+
+// accountPromptForcer is implemented by the PKCE flow only. The device code
+// flow has no equivalent: RFC 8628 defines no prompt parameter, and the user
+// confirms the code on a page that shows which account signs in, so a silent
+// wrong-account answer is not the failure mode there.
+type accountPromptForcer interface {
+	ForceAccountPrompt()
 }
 
 // AuthFlowInfo holds information for the OAuth 2.0  authorization flow
@@ -49,6 +58,22 @@ type TokenInfo struct {
 	ExpiresIn    int    `json:"expires_in"`
 	UseIDToken   bool   `json:"-"`
 	Email        string `json:"-"`
+}
+
+// MatchesAccount reports whether the token belongs to the account a profile is
+// bound to. A hint the IdP could not have acted on — no hint stored, or a token
+// that carried no email — is reported as a match: the check exists to catch a
+// login answered from the wrong account, not to block one it cannot judge.
+//
+// The comparison is case-insensitive. Local-parts are case-sensitive per RFC
+// 5321, but no IdP in practice issues two accounts differing only in case, and
+// an IdP that echoes a differently-cased address would otherwise fail every
+// login.
+func (t TokenInfo) MatchesAccount(hint string) bool {
+	if hint == "" || t.Email == "" {
+		return true
+	}
+	return strings.EqualFold(t.Email, hint)
 }
 
 // GetTokenToUse returns either the access or id token based on UseIDToken field
@@ -135,4 +160,22 @@ func authenticateWithDeviceCodeFlow(ctx context.Context, config *profilemanager.
 	}
 
 	return deviceFlowInfo, nil
+}
+
+// RetryFlowForAccount returns a flow that asks the IdP to re-authenticate, for
+// a login answered with an account other than the one hinted. Returns nil when
+// the flow cannot ask — the caller then proceeds with the token it has.
+//
+// Proceeding rather than failing is deliberate. The hint is an email that may
+// simply have changed since it was stored, and refusing the login would lock a
+// user out of their own profile over a rename. The retry gives the account a
+// chance to be corrected; the server still rejects a token that does not own
+// the peer.
+func RetryFlowForAccount(flow OAuthFlow) OAuthFlow {
+	forcer, ok := flow.(accountPromptForcer)
+	if !ok {
+		return nil
+	}
+	forcer.ForceAccountPrompt()
+	return flow
 }

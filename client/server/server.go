@@ -82,6 +82,12 @@ type Server struct {
 	uiLogPath string
 
 	oauthAuthFlow oauthAuthFlow
+	// forceAccountPrompt makes the next startSSOLogin build its flow with a
+	// forced account prompt. Armed when a login came back for an account other
+	// than the hinted one: that flow's browser is gone, so the correction has to
+	// ride on the user's next connect. Guarded by mutex; deliberately not
+	// persisted — a lost flag only costs one more mismatch round.
+	forceAccountPrompt bool
 	// extendAuthSessionFlow holds the pending PKCE flow created by
 	// RequestExtendAuthSession until WaitExtendAuthSession resolves it.
 	// Kept separate from oauthAuthFlow (which is reserved for the SSH
@@ -153,6 +159,14 @@ type oauthAuthFlow struct {
 	flow       auth.OAuthFlow
 	info       auth.AuthFlowInfo
 	waitCancel context.CancelFunc
+	// hint is the account the flow was asked to sign in (login_hint). The token
+	// that comes back is compared against it; empty means nothing to compare.
+	hint string
+	// accountPrompted records that this flow already asked the IdP to re-decide
+	// the account (or could not ask — the device flow has no way to). A token
+	// for the wrong account is then let through with a warning instead of
+	// erroring again, so the flow cannot loop.
+	accountPrompted bool
 }
 
 // New server instance constructor.
@@ -709,6 +723,16 @@ func (s *Server) startSSOLogin(ctx context.Context, msg *proto.LoginRequest, con
 		return nil, err
 	}
 
+	s.mutex.Lock()
+	promptForAccount := s.forceAccountPrompt
+	s.forceAccountPrompt = false
+	s.mutex.Unlock()
+	if promptForAccount && auth.RetryFlowForAccount(oAuthFlow) == nil {
+		// The device flow cannot ask; run it as-is. accountPrompted still goes
+		// true below so a second mismatch is let through instead of looping.
+		log.Warnf("the previous login returned a different account, but this flow cannot ask the IdP to choose one")
+	}
+
 	if resp := s.reuseOAuthFlow(ctx, oAuthFlow, state); resp != nil {
 		return resp, nil
 	}
@@ -723,6 +747,8 @@ func (s *Server) startSSOLogin(ctx context.Context, msg *proto.LoginRequest, con
 	s.oauthAuthFlow.flow = oAuthFlow
 	s.oauthAuthFlow.info = authInfo
 	s.oauthAuthFlow.expiresAt = time.Now().Add(time.Duration(authInfo.ExpiresIn) * time.Second)
+	s.oauthAuthFlow.hint = hint
+	s.oauthAuthFlow.accountPrompted = promptForAccount
 	s.mutex.Unlock()
 
 	state.Set(internal.StatusNeedsLogin)
@@ -923,7 +949,32 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 
 	s.mutex.Lock()
 	s.oauthAuthFlow.expiresAt = time.Now()
+	hint := s.oauthAuthFlow.hint
+	accountPrompted := s.oauthAuthFlow.accountPrompted
 	s.mutex.Unlock()
+
+	if !tokenInfo.MatchesAccount(hint) {
+		if !accountPrompted {
+			// The IdP answered from a session belonging to another account. The
+			// browser for this flow is gone, so a new URL cannot be handed out
+			// here — arm the prompt for the user's next connect and fail this
+			// round. Never log in with the token: on a registered peer the
+			// server would reject it, and on a fresh one it would silently
+			// register the peer under the wrong account.
+			log.Warnf("login returned an account other than the one this profile is bound to; the next connect will ask the IdP to choose")
+			s.mutex.Lock()
+			s.oauthAuthFlow = oauthAuthFlow{}
+			s.forceAccountPrompt = true
+			s.mutex.Unlock()
+			state.Set(internal.StatusNeedsLogin)
+			return nil, gstatus.Errorf(codes.FailedPrecondition, "the login used a different account than this profile; connect again to choose the account")
+		}
+		// Already asked once; the account may legitimately differ (a changed
+		// email address). Refusing again would lock the user out of the profile,
+		// and the management server still rejects a token that does not own the
+		// peer.
+		log.Warnf("login still returned a different account after the prompt, continuing with it")
+	}
 
 	if loginStatus, err := s.attemptLogin(ctx, "", tokenInfo.GetTokenToUse()); err != nil {
 		state.Set(loginStatus)
@@ -1224,6 +1275,16 @@ func (s *Server) SwitchProfile(callerCtx context.Context, msg *proto.SwitchProfi
 	}
 
 	s.config = config
+
+	// A pending login flow and the account-prompt flag describe the previous
+	// profile's login; carried across a switch they would judge the new
+	// profile's token against the old profile's account. CancelFunc is
+	// non-blocking, so calling it under the mutex is safe.
+	if cancel := s.oauthAuthFlow.waitCancel; cancel != nil {
+		cancel()
+	}
+	s.oauthAuthFlow = oauthAuthFlow{}
+	s.forceAccountPrompt = false
 
 	if msg != nil && msg.ProfileName != nil {
 		s.publishProfileListChanged(*msg.ProfileName)

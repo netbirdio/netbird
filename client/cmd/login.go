@@ -413,6 +413,39 @@ func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *pro
 		return nil, err
 	}
 
+	tokenInfo, err := runInteractiveFlow(cmd, oAuthFlow)
+	if err != nil {
+		return nil, err
+	}
+
+	if tokenInfo.MatchesAccount(hint) {
+		return tokenInfo, nil
+	}
+
+	// The IdP answered from a session belonging to another account. Retrying is
+	// what makes this recoverable: on a peer already registered the server would
+	// reject the token, and on a fresh one it would silently register the peer
+	// under the wrong account and bind the profile to it.
+	cmd.Println("The login returned a different account than this profile uses. Asking to sign in again.")
+	retryFlow := auth.RetryFlowForAccount(oAuthFlow)
+	if retryFlow == nil {
+		return tokenInfo, nil
+	}
+
+	retryToken, err := runInteractiveFlow(cmd, retryFlow)
+	if err != nil {
+		return nil, err
+	}
+	if !retryToken.MatchesAccount(hint) {
+		log.Warnf("login still returned a different account after the prompt, continuing with it")
+	}
+
+	return retryToken, nil
+}
+
+// runInteractiveFlow requests the authorization info, shows the URL to the user
+// and blocks until the token comes back.
+func runInteractiveFlow(cmd *cobra.Command, oAuthFlow auth.OAuthFlow) (*auth.TokenInfo, error) {
 	flowInfo, err := oAuthFlow.RequestAuthInfo(context.TODO())
 	if err != nil {
 		return nil, fmt.Errorf("getting a request OAuth flow info failed: %v", err)

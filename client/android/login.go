@@ -215,14 +215,49 @@ func (a *Auth) foregroundGetTokenInfoFlow(authClient *auth.Auth, urlOpener URLOp
 	// An empty hint is deliberate, not a fallback: a fresh profile leaves the
 	// choice to the IdP. Switching accounts is done by switching or removing
 	// profiles, not by logging out — logout keeps the email.
+	hint := ""
 	if a.cfgPath != "" {
-		if hint := readProfileEmail(a.cfgPath); hint != "" {
-			if setter, ok := oAuthFlow.(loginHintSetter); ok {
-				setter.SetLoginHint(hint)
-			}
+		hint = readProfileEmail(a.cfgPath)
+	}
+	if hint != "" {
+		if setter, ok := oAuthFlow.(loginHintSetter); ok {
+			setter.SetLoginHint(hint)
 		}
 	}
 
+	tokenInfo, err := a.runInteractiveFlow(oAuthFlow, urlOpener)
+	if err != nil {
+		return nil, err
+	}
+
+	if tokenInfo.MatchesAccount(hint) {
+		return tokenInfo, nil
+	}
+
+	// The IdP answered from a session belonging to another account. Retrying is
+	// what makes this recoverable: on a peer already registered the server would
+	// reject the token, and on a fresh one it would silently register the peer
+	// under the wrong account and bind the profile to it.
+	log.Infof("login returned an account other than the one this profile is bound to, retrying with an account prompt")
+	retryFlow := auth.RetryFlowForAccount(oAuthFlow)
+	if retryFlow == nil {
+		return tokenInfo, nil
+	}
+
+	retryToken, err := a.runInteractiveFlow(retryFlow, urlOpener)
+	if err != nil {
+		return nil, err
+	}
+	if !retryToken.MatchesAccount(hint) {
+		log.Warnf("login still returned a different account after the prompt, continuing with it")
+	}
+
+	return retryToken, nil
+}
+
+// runInteractiveFlow requests the authorization info, hands the URL to the
+// user and blocks until the token comes back.
+func (a *Auth) runInteractiveFlow(oAuthFlow auth.OAuthFlow, urlOpener URLOpener) (*auth.TokenInfo, error) {
 	flowInfo, err := oAuthFlow.RequestAuthInfo(context.TODO())
 	if err != nil {
 		return nil, fmt.Errorf("getting a request OAuth flow info failed: %v", err)
