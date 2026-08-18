@@ -43,16 +43,25 @@ func TestDiscoveryBoundToCallersPolicies(t *testing.T) {
 	t.Cleanup(func() { _ = srv.API().Groups.Delete(context.Background(), grpOther.Id) })
 
 	ephemeral := false
-	sk, err := srv.API().SetupKeys.Create(ctx, api.PostApiSetupKeysJSONRequestBody{
-		Name:       "e2e-disc-mp-client",
-		Type:       "reusable",
-		ExpiresIn:  86400,
-		UsageLimit: 0,
-		AutoGroups: []string{grpMain.Id}, // the client joins grpMain only
-		Ephemeral:  &ephemeral,
-	})
-	require.NoError(t, err, "mint setup key")
-	require.NotEmpty(t, sk.Key, "setup key plaintext")
+	mkKey := func(name, groupID string) string {
+		sk, kerr := srv.API().SetupKeys.Create(ctx, api.PostApiSetupKeysJSONRequestBody{
+			Name:       name,
+			Type:       "reusable",
+			ExpiresIn:  86400,
+			UsageLimit: 0,
+			AutoGroups: []string{groupID},
+			Ephemeral:  &ephemeral,
+		})
+		require.NoError(t, kerr, "mint setup key %s", name)
+		require.NotEmpty(t, sk.Key, "setup key plaintext")
+		return sk.Key
+	}
+	// One client per group. The second is what makes the first assertion mean
+	// something: without a client that DOES see the other team's model, its
+	// absence from the main client's listing could equally be a policy that
+	// never propagated.
+	keyMain := mkKey("e2e-disc-mp-main-client", grpMain.Id)
+	keyOther := mkKey("e2e-disc-mp-other-client", grpOther.Id)
 
 	// One provider enumerating both models the upstream advertises, so the
 	// listing is narrowed by policy rather than by what the provider serves.
@@ -107,16 +116,53 @@ func TestDiscoveryBoundToCallersPolicies(t *testing.T) {
 	require.NoError(t, err, "create other policy")
 	t.Cleanup(func() { _ = srv.DeletePolicy(context.Background(), polOther.Id) })
 
-	endpoint, proxyIP, cl, px := connectClient(t, ctx, "disc-mp", sk.Key)
-	_ = px
+	endpoint, proxyIP, clMain, px := connectClient(t, ctx, "disc-mp", keyMain)
+	clOther := joinClient(t, ctx, px, endpoint, keyOther)
 
-	code, body := callUntil(t, func() (int, string, error) {
-		return cl.Get(ctx, endpoint, proxyIP, "/v1/models?limit=1000", nil)
-	}, 200)
-	require.Equal(t, 200, code, "discovery must be served; body: %s", body)
+	listing := func(t *testing.T, cl *harness.Client, ip string) string {
+		t.Helper()
+		code, body := callUntil(t, func() (int, string, error) {
+			return cl.Get(ctx, endpoint, ip, "/v1/models?limit=1000", nil)
+		}, 200)
+		require.Equal(t, 200, code, "discovery must be served; body: %s", body)
+		return body
+	}
 
-	assert.Contains(t, body, harness.VLLMModel,
+	otherIP, err := clOther.ResolveProxyIP(ctx, endpoint)
+	require.NoError(t, err, "resolve endpoint from the other client")
+
+	// The other team's client first: seeing its own model proves polOther is
+	// live, so the main client's listing is narrowed by policy scoping rather
+	// than by the other policy having failed to apply at all.
+	otherBody := listing(t, clOther, otherIP)
+	assert.Contains(t, otherBody, harness.VLLMUnlistedModel,
+		"the other group's policy must be in force, or this test proves nothing")
+	assert.NotContains(t, otherBody, harness.VLLMModel,
+		"and it must not be offered the main group's model either — isolation runs both ways")
+
+	mainBody := listing(t, clMain, proxyIP)
+	assert.Contains(t, mainBody, harness.VLLMModel,
 		"the model the caller's own policy permits must reach the picker")
-	assert.NotContains(t, body, harness.VLLMUnlistedModel,
+	assert.NotContains(t, mainBody, harness.VLLMUnlistedModel,
 		"a model only another group's policy permits must not be offered to this caller")
+}
+
+// joinClient starts a second tunnel client against an already-running proxy, so
+// a test can drive the same endpoint as two different group memberships without
+// paying for a second proxy.
+func joinClient(t *testing.T, ctx context.Context, px *harness.Proxy, endpoint, setupKey string) *harness.Client {
+	t.Helper()
+
+	cl, err := harness.StartClient(ctx, srv, setupKey)
+	require.NoError(t, err, "start second client")
+	t.Cleanup(func() { _ = cl.Terminate(context.Background()) })
+
+	require.NoError(t, cl.WaitConnected(ctx, 90*time.Second), "second client must connect to management")
+	if _, err := cl.ResolveProxyIP(ctx, endpoint); err != nil {
+		t.Fatalf("second client could not resolve the endpoint: %v", err)
+	}
+	if err := cl.WaitProxyPeer(ctx, 180*time.Second); err != nil {
+		t.Fatalf("second client did not see the proxy peer: %v\n=== proxy logs ===\n%s", err, px.Logs(context.Background()))
+	}
+	return cl
 }
