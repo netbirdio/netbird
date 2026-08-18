@@ -33,7 +33,7 @@ func TestRetryWakesOnNetworkChange(t *testing.T) {
 	err := Retry(context.Background(), operation, backoff.NewConstantBackOff(time.Minute), ns)
 
 	require.NoError(t, err)
-	assert.Equal(t, 2, attempts)
+	assert.Equal(t, 2, attempts, "network change must cause one immediate retry")
 	assert.Less(t, time.Since(start), time.Second, "the transition must cut the minute-long sleep short")
 }
 
@@ -44,7 +44,7 @@ func TestRetryPermanentError(t *testing.T) {
 	}
 
 	err := Retry(context.Background(), operation, backoff.NewConstantBackOff(time.Millisecond), nil)
-	assert.ErrorIs(t, err, sentinel)
+	assert.ErrorIs(t, err, sentinel, "permanent errors must stop retries")
 }
 
 func TestRetryNilNetState(t *testing.T) {
@@ -59,7 +59,7 @@ func TestRetryNilNetState(t *testing.T) {
 
 	err := Retry(context.Background(), operation, backoff.NewConstantBackOff(time.Millisecond), nil)
 	require.NoError(t, err)
-	assert.Equal(t, 3, attempts)
+	assert.Equal(t, 3, attempts, "nil network state must preserve timed retries")
 }
 
 func TestRetryStops(t *testing.T) {
@@ -69,7 +69,7 @@ func TestRetryStops(t *testing.T) {
 	}
 
 	err := Retry(context.Background(), operation, &backoff.StopBackOff{}, nil)
-	assert.ErrorIs(t, err, failure)
+	assert.ErrorIs(t, err, failure, "stop backoff must return the operation error")
 }
 
 func TestRetryCtxCancelDuringSleep(t *testing.T) {
@@ -86,6 +86,6 @@ func TestRetryCtxCancelDuringSleep(t *testing.T) {
 	start := time.Now()
 	err := Retry(ctx, operation, backoff.NewConstantBackOff(time.Minute), netstate.New())
 
-	assert.ErrorIs(t, err, context.Canceled)
-	assert.Less(t, time.Since(start), time.Second)
+	assert.ErrorIs(t, err, context.Canceled, "context cancellation must stop the retry loop")
+	assert.Less(t, time.Since(start), time.Second, "context cancellation must interrupt backoff sleep")
 }
