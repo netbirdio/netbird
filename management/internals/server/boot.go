@@ -27,6 +27,8 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	accesslogsmanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs/manager"
+	proxyactivity "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/activity"
+	proxyactivitymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/activity/manager"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -231,6 +233,7 @@ func (s *BaseServer) ReverseProxyGRPCServer() *nbgrpc.ProxyServiceServer {
 		proxyService := nbgrpc.NewProxyServiceServer(s.AccessLogsManager(), s.ProxyTokenStore(), s.PKCEVerifierStore(), s.proxyOIDCConfig(), s.PeersManager(), s.UsersManager(), s.IdpManager(), s.ProxyManager(), s.Store())
 		s.AfterInit(func(s *BaseServer) {
 			proxyService.SetServiceManager(s.ServiceManager())
+			proxyService.SetActivityManager(s.ProxyActivityManager())
 			proxyService.SetProxyController(s.ServiceProxyController())
 			proxyService.SetAgentNetworkSynthesizer(newAgentNetworkSynthesizer(s.Store()))
 			proxyService.SetAgentNetworkLimitsService(s.AgentNetworkManager())
@@ -287,6 +290,13 @@ func (s *BaseServer) ProxyTokenStore() *nbgrpc.OneTimeTokenStore {
 func (s *BaseServer) PKCEVerifierStore() *nbgrpc.PKCEVerifierStore {
 	return Create(s, func() *nbgrpc.PKCEVerifierStore {
 		return nbgrpc.NewPKCEVerifierStore(context.Background(), s.CacheStore())
+	})
+}
+
+// ProxyActivityManager records reverse proxy usage for activity accounting.
+func (s *BaseServer) ProxyActivityManager() proxyactivity.Manager {
+	return Create(s, func() proxyactivity.Manager {
+		return proxyactivitymanager.NewManager(s.Store())
 	})
 }
 
