@@ -18,12 +18,14 @@ import (
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 )
 
-// The event kinds. Progress is not an event: live transfers are polled.
+// The event kinds. Progress is one of them, thinned to a few reports a second
+// by the reader that raises it; see progressInterval.
 const (
 	EventOffer EventKind = iota
 	EventCompleted
 	EventFailed
 	EventWithdrawn
+	EventProgress
 )
 
 // portSignalGrace bounds how long a failed attempt waits for one signal message
@@ -304,7 +306,7 @@ func (m *Manager) Cancel(id OfferID) {
 	}
 
 	if server != nil {
-		if offer, ok := server.Offers().Decide(id, DecisionDeclined); ok {
+		if offer, ok := server.Offers().Revoke(id); ok {
 			server.Spool().Remove(offer.ID)
 		}
 	}
@@ -409,6 +411,7 @@ func (m *Manager) runSend(ctx context.Context, client *Client, handle *sendHandl
 			total += n
 		}
 		m.history.SetProgress(transfer.ID, total)
+		m.emit(EventProgress, m.transferOf(transfer.ID))
 	}
 
 	if err := client.Upload(ctx, addr, remoteID, payloads, progress); err != nil {
@@ -484,7 +487,10 @@ func (m *Manager) failSend(ctx context.Context, id OfferID, err error) {
 
 	state := StateFailed
 	switch {
-	case errors.Is(err, ErrDeclined):
+	// Withdrawn mid-transfer reads the same way as refused up front: the
+	// receiver said no, which is an answer rather than a failure.
+	case errors.Is(err, ErrDeclined), errors.Is(err, ErrNotAccepted),
+		errors.Is(err, ErrOfferNotFound):
 		state = StateDeclined
 	case errors.Is(err, ErrExpired):
 		state = StateExpired
@@ -554,6 +560,7 @@ func (m *Manager) OnProgress(offer Offer, index int, received int64) {
 		total += n
 	}
 	m.history.SetProgress(offer.ID, total)
+	m.emit(EventProgress, m.transferOf(offer.ID))
 }
 
 // OnCompleted implements Notifier.

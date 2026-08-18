@@ -46,6 +46,7 @@ const (
 	FileDropEventCompleted = int(filedrop.EventCompleted)
 	FileDropEventFailed    = int(filedrop.EventFailed)
 	FileDropEventWithdrawn = int(filedrop.EventWithdrawn)
+	FileDropEventProgress  = int(filedrop.EventProgress)
 )
 
 // FileDropListener receives transfer events. Calls arrive on background

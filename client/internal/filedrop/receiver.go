@@ -138,7 +138,38 @@ func (r *receiver) upload(sender senderIdentity, id OfferID, index int, offset i
 		return fmt.Errorf("%w: offset out of range", ErrInvalidOffer)
 	}
 
-	received, err := r.spool.Write(id, index, offset, body, size)
+	// The decision is read once, at the top, but a whole file goes into this
+	// one request: a receiver that declines halfway through would otherwise be
+	// streamed the rest of it, into a spool it has already thrown away.
+	watched := &acceptedReader{
+		r: body,
+		accepted: func() bool {
+			current, ok := r.offers.Get(sender.key, id)
+			return ok && current.Decision == DecisionAccepted
+		},
+	}
+
+	// Write drains the whole body before returning, so without a reader in
+	// between the only progress the receiver would ever report is the finished
+	// file. Reports are thinned the same way the sender thins its own.
+	staged := &progressReader{
+		r:     watched,
+		sent:  offset,
+		total: size,
+		report: func(sent int64) {
+			r.offers.SetProgress(id, index, sent)
+			r.notifyProgress(offer, index, sent)
+		},
+	}
+
+	received, err := r.spool.Write(id, index, offset, staged, size)
+
+	// A withdrawn offer is an answer, not a failure: the state it moved to is
+	// the one the user chose, and the spool is already gone.
+	if errors.Is(err, ErrNotAccepted) {
+		return err
+	}
+
 	r.offers.SetProgress(id, index, received)
 	r.notifyProgress(offer, index, received)
 
@@ -168,6 +199,27 @@ func (r *receiver) close() {
 	for _, offer := range r.offers.List() {
 		r.offers.Remove(offer.ID)
 	}
+}
+
+// acceptedReader stops a staged copy as soon as the offer behind it stops being
+// accepted. The check runs on the same cadence as progress rather than on every
+// read: it takes the offer store's lock, and a request that keeps going for one
+// more chunk after a decline costs nothing.
+type acceptedReader struct {
+	r        io.Reader
+	accepted func() bool
+	last     time.Time
+}
+
+func (a *acceptedReader) Read(b []byte) (int, error) {
+	now := time.Now()
+	if now.Sub(a.last) >= progressInterval {
+		a.last = now
+		if !a.accepted() {
+			return 0, ErrNotAccepted
+		}
+	}
+	return a.r.Read(b)
 }
 
 func (r *receiver) notifyOffer(offer Offer) {
