@@ -1,0 +1,364 @@
+//go:build e2e
+
+package agentnetwork
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"sort"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/e2e/harness"
+	sharedllm "github.com/netbirdio/netbird/shared/llm"
+	"github.com/netbirdio/netbird/shared/management/http/api"
+)
+
+// TestLiveModelDiscovery drives model discovery against the REAL vendor
+// endpoints — OpenAI, Anthropic, Bedrock and Vertex — rather than the mock.
+//
+// The mock upstream proves the filter's mechanics: it advertises ids we chose,
+// so a listing narrowing to the ones we authorised is arithmetic we already
+// controlled both sides of. What it cannot prove is that the filter survives
+// contact with a real catalogue — ids we never enumerated, dated builds whose
+// suffix the vendor picks, surfaces that answer a listing request with
+// something other than a listing. That is what this covers, and it is the part
+// a QA engineer would otherwise have to walk through by hand.
+//
+// One proxy serves every case. Each provider gets its own group, policy and
+// client, because a model-less request matches exactly ONE route
+// (matchModelless): with two providers authorised for the same caller, the
+// listing would go to whichever won the tiebreak and the other would go
+// untested. Group-scoping the caller makes each provider the only candidate
+// for its own client.
+func TestLiveModelDiscovery(t *testing.T) {
+	cases := liveDiscoveryCases()
+	if len(cases) == 0 {
+		t.Skip("no provider keys set; source ~/.llm-keys to run live model discovery")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	t.Logf("[discovery] live matrix: %s", strings.Join(caseNames(cases), ", "))
+
+	// Provision every provider, group and policy before the proxy starts: the
+	// proxy takes a configuration snapshot at connect time and does not
+	// reconcile provider changes made afterwards.
+	keys := make(map[string]string, len(cases))
+	for i := range cases {
+		keys[cases[i].name] = provisionLiveDiscovery(t, ctx, &cases[i])
+	}
+
+	endpoint, firstIP, firstClient, px := connectClient(t, ctx, "disc-live", keys[cases[0].name])
+	clients := map[string]*harness.Client{cases[0].name: firstClient}
+	ips := map[string]string{cases[0].name: firstIP}
+	for _, tc := range cases[1:] {
+		cl := joinClient(t, ctx, px, endpoint, keys[tc.name])
+		ip, err := cl.ResolveProxyIP(ctx, endpoint)
+		require.NoError(t, err, "resolve endpoint from the %s client", tc.name)
+		clients[tc.name] = cl
+		ips[tc.name] = ip
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			runLiveDiscoveryCase(t, ctx, tc, clients[tc.name], endpoint, ips[tc.name])
+		})
+	}
+}
+
+// liveDiscoveryCase is one provider's discovery surface and what the proxy
+// must make of it.
+type liveDiscoveryCase struct {
+	name      string
+	catalogID string
+	upstream  string
+	apiKey    string
+
+	// path is the discovery endpoint the client calls. Not every surface uses
+	// /v1/models: Bedrock lists inference profiles instead.
+	path string
+	// headers the vendor requires on a bare GET (Anthropic versions its API
+	// through a header, and rejects a request without one).
+	headers []string
+
+	// models the provider record enumerates. Empty models a gateway record,
+	// which enumerates nothing and claims everything.
+	models []string
+	// allowlist, when non-empty, is a guardrail narrowing the policy below the
+	// provider's own enumeration — the second of the two bounds discovery
+	// applies, and the only one a provider record alone cannot demonstrate.
+	allowlist []string
+
+	// routed is false for a surface the proxy must refuse outright because no
+	// provider of this shape can serve it.
+	routed bool
+	// filtered is false where the proxy routes the surface but applies no
+	// model bound to the response.
+	filtered bool
+
+	// permitted is every id allowed to survive filtering, in the form the
+	// provider record registers it. A surviving id counts as permitted when it
+	// matches one of these outright or after Anthropic date-normalisation.
+	permitted []string
+	// wantHidden are ids the upstream is known to advertise and the bound must
+	// remove. Only set where we enumerate the model ourselves, so the
+	// expectation cannot rot when a vendor changes its catalogue.
+	wantHidden []string
+}
+
+// liveDiscoveryCases builds the matrix from whichever provider credentials are
+// present, mirroring availableProviders' env-var gating so a partial key set
+// still yields partial coverage.
+func liveDiscoveryCases() []liveDiscoveryCase {
+	var cases []liveDiscoveryCase
+
+	// OpenAI enumerates TWO real models and the policy permits one. That is
+	// the only case here where both bounds are observable at once: the
+	// upstream advertises dozens of ids, the provider record cuts them to two,
+	// and the guardrail cuts those to one.
+	if k := os.Getenv("OPENAI_TOKEN"); k != "" {
+		cases = append(cases, liveDiscoveryCase{
+			name: "openai", catalogID: "openai_api", upstream: "https://api.openai.com", apiKey: k,
+			path:      "/v1/models",
+			models:    []string{"gpt-4o-mini", "gpt-4o"},
+			allowlist: []string{"gpt-4o-mini"},
+			routed:    true, filtered: true,
+			permitted:  []string{"gpt-4o-mini"},
+			wantHidden: []string{"gpt-4o"},
+		})
+	}
+
+	// Anthropic is the surface Claude Code actually calls. Its listing returns
+	// DATED build ids (claude-haiku-4-5-20251001) while the provider record
+	// registers the undated id, so this is the case that proves the filter's
+	// date-normalisation against ids the vendor chose rather than ids we wrote.
+	if k := os.Getenv("ANTHROPIC_TOKEN"); k != "" {
+		cases = append(cases, liveDiscoveryCase{
+			name: "anthropic", catalogID: "anthropic_api", upstream: "https://api.anthropic.com", apiKey: k,
+			path:    "/v1/models",
+			headers: []string{"anthropic-version: 2023-06-01"},
+			models:  []string{"claude-haiku-4-5"},
+			routed:  true, filtered: true,
+			permitted: []string{"claude-haiku-4-5"},
+		})
+	}
+
+	// Bedrock lists inference profiles, not models: matchModelless routes
+	// /inference-profiles to a Bedrock route and refuses /v1/models for one.
+	// Filtering is keyed on /v1/models alone, so this response is routed but
+	// NOT bounded — asserted below, and worth knowing rather than assuming.
+	if k := os.Getenv("AWS_BEARER_TOKEN_BEDROCK"); k != "" {
+		region := os.Getenv("AWS_REGION")
+		if region == "" {
+			region = "eu-central-1"
+		}
+		model := os.Getenv("AWS_BEDROCK_MODEL")
+		if model == "" {
+			model = "global.anthropic.claude-sonnet-4-6"
+		}
+		cases = append(cases, liveDiscoveryCase{
+			name: "bedrock", catalogID: "bedrock_api",
+			upstream: "https://bedrock-runtime." + region + ".amazonaws.com", apiKey: k,
+			path:   "/inference-profiles",
+			models: []string{sharedllm.NormalizeAnthropicModel(strings.TrimPrefix(model, "global."))},
+			routed: true, filtered: false,
+		})
+	}
+
+	// Vertex carries the model in the rawPredict path and serves no listing
+	// endpoint at all, so the proxy must refuse discovery rather than rewrite
+	// it onto an upstream that would 404.
+	if sa := os.Getenv("GOOGLE_VERTEX_SA_BASE64"); sa != "" {
+		if project := os.Getenv("GOOGLE_VERTEX_PROJECT"); project != "" {
+			region := os.Getenv("GOOGLE_VERTEX_REGION")
+			if region == "" {
+				region = "global"
+			}
+			host := "aiplatform.googleapis.com"
+			if region != "global" {
+				host = region + "-aiplatform.googleapis.com"
+			}
+			cases = append(cases, liveDiscoveryCase{
+				name: "vertex", catalogID: "vertex_ai_api", upstream: "https://" + host,
+				apiKey: "keyfile::" + sa,
+				path:   "/v1/models",
+				routed: false,
+			})
+		}
+	}
+
+	return cases
+}
+
+// provisionLiveDiscovery creates the group, provider, optional guardrail and
+// policy for one case, and returns the setup key a client joins that group
+// with. Scoping each provider to its own group is what keeps it the only
+// candidate for its own client's model-less request.
+func provisionLiveDiscovery(t *testing.T, ctx context.Context, tc *liveDiscoveryCase) string {
+	t.Helper()
+
+	grp, err := srv.API().Groups.Create(ctx, api.PostApiGroupsJSONRequestBody{Name: "e2e-disc-live-" + tc.name})
+	require.NoError(t, err, "create group for %s", tc.name)
+	t.Cleanup(func() { _ = srv.API().Groups.Delete(context.Background(), grp.Id) })
+
+	ephemeral := false
+	sk, err := srv.API().SetupKeys.Create(ctx, api.PostApiSetupKeysJSONRequestBody{
+		Name:       "e2e-disc-live-" + tc.name,
+		Type:       "reusable",
+		ExpiresIn:  86400,
+		UsageLimit: 0,
+		AutoGroups: []string{grp.Id},
+		Ephemeral:  &ephemeral,
+	})
+	require.NoError(t, err, "mint setup key for %s", tc.name)
+	require.NotEmpty(t, sk.Key, "setup key plaintext for %s", tc.name)
+
+	req := api.AgentNetworkProviderRequest{
+		Name:        "e2e-disc-live-" + tc.name,
+		ProviderId:  tc.catalogID,
+		UpstreamUrl: tc.upstream,
+		ApiKey:      &tc.apiKey,
+		Enabled:     ptr(true),
+	}
+	if len(tc.models) > 0 {
+		models := make([]api.AgentNetworkProviderModel, 0, len(tc.models))
+		for _, id := range tc.models {
+			models = append(models, api.AgentNetworkProviderModel{Id: id, InputPer1k: 0.001, OutputPer1k: 0.002})
+		}
+		req.Models = &models
+	}
+	prov, err := srv.CreateProvider(ctx, req)
+	require.NoError(t, err, "create provider %s", tc.name)
+	t.Cleanup(func() { _ = srv.DeleteProvider(context.Background(), prov.Id) })
+
+	polReq := api.AgentNetworkPolicyRequest{
+		Name:                   "e2e-disc-live-" + tc.name,
+		Enabled:                ptr(true),
+		SourceGroups:           []string{grp.Id},
+		DestinationProviderIds: []string{prov.Id},
+	}
+	if len(tc.allowlist) > 0 {
+		var gr api.AgentNetworkGuardrailRequest
+		gr.Name = "e2e-disc-live-" + tc.name
+		gr.Checks.ModelAllowlist.Enabled = true
+		gr.Checks.ModelAllowlist.Models = tc.allowlist
+		g, gerr := srv.CreateGuardrail(ctx, gr)
+		require.NoError(t, gerr, "create guardrail for %s", tc.name)
+		t.Cleanup(func() { _ = srv.DeleteGuardrail(context.Background(), g.Id) })
+		polReq.GuardrailIds = &[]string{g.Id}
+	}
+	pol, err := srv.CreatePolicy(ctx, polReq)
+	require.NoError(t, err, "create policy for %s", tc.name)
+	t.Cleanup(func() { _ = srv.DeletePolicy(context.Background(), pol.Id) })
+
+	return sk.Key
+}
+
+// runLiveDiscoveryCase issues the discovery request and reports everything the
+// vendor said before asserting on any of it. The log is the point on the first
+// run: a live catalogue is the one input we do not control, so a failure has to
+// arrive with the response that caused it rather than just a count.
+func runLiveDiscoveryCase(t *testing.T, ctx context.Context, tc liveDiscoveryCase, cl *harness.Client, endpoint, proxyIP string) {
+	t.Helper()
+
+	if !tc.routed {
+		code, body, err := cl.Get(ctx, endpoint, proxyIP, tc.path, tc.headers)
+		require.NoError(t, err, "request must reach the proxy")
+		t.Logf("[discovery] %s GET %s -> %d; body: %s", tc.name, tc.path, code, truncate(body, 2000))
+		assert.NotEqual(t, 200, code,
+			"%s serves no model listing, so the proxy must refuse discovery rather than rewrite it onto an upstream that would 404; body: %s",
+			tc.name, truncate(body, 2000))
+		return
+	}
+
+	code, body := callUntil(t, func() (int, string, error) {
+		return cl.Get(ctx, endpoint, proxyIP, tc.path, tc.headers)
+	}, 200)
+	t.Logf("[discovery] %s GET %s -> %d; body: %s", tc.name, tc.path, code, truncate(body, 4000))
+	require.Equal(t, 200, code, "%s discovery must be served; body: %s", tc.name, truncate(body, 2000))
+
+	ids, ok := listingIDs(body)
+	if !ok {
+		t.Logf("[discovery] %s: response is not a {\"data\":[{\"id\":…}]} listing; nothing to bound", tc.name)
+		// A shape the filter cannot parse is forwarded untouched by design. Say
+		// so plainly rather than failing: the contract is that the client gets
+		// the upstream's own answer, not a corrupted rewrite.
+		assert.False(t, tc.filtered,
+			"%s was expected to return a filterable listing but did not; body: %s", tc.name, truncate(body, 2000))
+		return
+	}
+	sort.Strings(ids)
+	t.Logf("[discovery] %s: %d ids after filtering: %s", tc.name, len(ids), strings.Join(ids, ", "))
+
+	if !tc.filtered {
+		// Routed but not bounded. Recorded as an assertion so that the day
+		// filtering does extend to this surface, this test is what tells us.
+		t.Logf("[discovery] %s: surface is routed but NOT model-bounded (filtering keys on /v1/models only)", tc.name)
+		assert.NotEmpty(t, ids, "%s must return the upstream's own listing untouched", tc.name)
+		return
+	}
+
+	require.NotEmpty(t, ids, "%s filtered the listing down to nothing; the caller would see an empty picker", tc.name)
+
+	permitted := make(map[string]struct{}, len(tc.permitted)*2)
+	for _, id := range tc.permitted {
+		permitted[id] = struct{}{}
+		permitted[sharedllm.NormalizeAnthropicModel(id)] = struct{}{}
+	}
+	for _, id := range ids {
+		_, direct := permitted[id]
+		_, normalised := permitted[sharedllm.NormalizeAnthropicModel(id)]
+		assert.Truef(t, direct || normalised,
+			"%s offered %q, which no policy on this route permits — every entry the picker shows must be a request the guardrail would allow", tc.name, id)
+	}
+	for _, hidden := range tc.wantHidden {
+		assert.NotContainsf(t, ids, hidden,
+			"%s offered %q, which the provider enumerates but the policy does not permit", tc.name, hidden)
+	}
+}
+
+// listingIDs pulls the model ids out of a listing response. ok is false when
+// the body is not the {"data":[{"id":…}]} shape the filter recognises.
+func listingIDs(body string) ([]string, bool) {
+	var doc struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(body), &doc); err != nil {
+		return nil, false
+	}
+	if doc.Data == nil {
+		return nil, false
+	}
+	ids := make([]string, 0, len(doc.Data))
+	for _, entry := range doc.Data {
+		ids = append(ids, entry.ID)
+	}
+	return ids, true
+}
+
+func caseNames(cases []liveDiscoveryCase) []string {
+	names := make([]string, 0, len(cases))
+	for _, c := range cases {
+		names = append(names, c.name)
+	}
+	return names
+}
+
+// truncate bounds a logged response body. A live catalogue can run to tens of
+// kilobytes, and the useful part is the front.
+func truncate(s string, limit int) string {
+	if len(s) <= limit {
+		return s
+	}
+	return s[:limit] + "… (" + strconv.Itoa(len(s)-limit) + " more bytes)"
+}
