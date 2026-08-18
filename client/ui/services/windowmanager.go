@@ -34,6 +34,8 @@ const EventWindowPainted = "netbird:window-painted"
 
 const paintedFallback = 2 * time.Second
 
+const headlessTeardownDelay = 2 * time.Second
+
 var WindowBackgroundColour = application.NewRGB(24, 26, 29) // bg-nb-gray-950
 
 // WindowHeight is shared by the main and Settings windows.
@@ -121,6 +123,8 @@ type WindowManager struct {
 	pendingTab     map[uint]string
 	pendingEmits   map[uint][]string
 	fallbackTimers map[uint]*time.Timer
+	headlessMain   bool
+	headlessTimer  *time.Timer
 	// recenterOnShow is set only on the minimal-WM/XEmbed path, where the WM neither centers nor
 	// restores position; nil on full desktops so re-centering can't fight a user-moved window.
 	recenterOnShow func() bool
@@ -140,6 +144,7 @@ func NewWindowManager(app *application.App, mainWindow *application.WebviewWindo
 		fallbackTimers: map[uint]*time.Timer{},
 	}
 	s.watchPainted()
+	s.watchTriggerLogin()
 	// Re-title live windows on language flip. Wired internally so the binding generator
 	// doesn't try to expose the interface param.
 	if sub, ok := prefs.(LanguageSubscriber); ok && sub != nil {
@@ -553,6 +558,80 @@ func (s *WindowManager) watchPainted() {
 	})
 }
 
+func (s *WindowManager) watchTriggerLogin() {
+	s.app.Event.On(EventTriggerLogin, func(_ *application.CustomEvent) {
+		s.mu.Lock()
+		if s.headlessTimer != nil {
+			s.headlessTimer.Stop()
+			s.headlessTimer = nil
+		}
+		w := s.mainWindow
+		ready := w != nil && s.ready[w.ID()]
+		s.mu.Unlock()
+		if ready {
+			return
+		}
+
+		w, created := s.ensureMain("/")
+		if w == nil {
+			return
+		}
+
+		s.mu.Lock()
+		if created {
+			s.headlessMain = true
+		}
+		pending := !s.ready[w.ID()]
+		if pending {
+			s.pendingEmits[w.ID()] = append(s.pendingEmits[w.ID()], EventTriggerLogin)
+		}
+		s.mu.Unlock()
+
+		if !pending {
+			s.app.Event.Emit(EventTriggerLogin)
+		}
+	})
+
+	s.app.Event.On(EventBrowserLoginCancel, func(_ *application.CustomEvent) {
+		s.scheduleHeadlessTeardown()
+	})
+
+	s.app.Event.On(EventStatusSnapshot, func(e *application.CustomEvent) {
+		st, ok := e.Data.(Status)
+		if !ok {
+			return
+		}
+		switch st.Status {
+		case StatusConnected, StatusLoginFailed, StatusDaemonUnavailable:
+			s.scheduleHeadlessTeardown()
+		}
+	})
+}
+
+func (s *WindowManager) scheduleHeadlessTeardown() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.headlessMain || s.mainWindow == nil {
+		return
+	}
+	if s.headlessTimer != nil {
+		s.headlessTimer.Stop()
+	}
+	s.headlessTimer = time.AfterFunc(headlessTeardownDelay, s.closeHeadlessMain)
+}
+
+func (s *WindowManager) closeHeadlessMain() {
+	s.mu.Lock()
+	w := s.mainWindow
+	headless := s.headlessMain
+	s.headlessTimer = nil
+	s.mu.Unlock()
+	if !headless || w == nil {
+		return
+	}
+	w.Close()
+}
+
 func (s *WindowManager) forgetWindowLocked(w *application.WebviewWindow) {
 	if w == nil {
 		return
@@ -643,6 +722,15 @@ func (s *WindowManager) showWhenReady(w *application.WebviewWindow) {
 }
 
 func (s *WindowManager) showNow(w *application.WebviewWindow) {
+	s.mu.Lock()
+	if w == s.mainWindow {
+		s.headlessMain = false
+		if s.headlessTimer != nil {
+			s.headlessTimer.Stop()
+			s.headlessTimer = nil
+		}
+	}
+	s.mu.Unlock()
 	w.Show()
 	w.Focus()
 	s.centerWhenReady(w)
@@ -670,6 +758,11 @@ func (s *WindowManager) ForgetMain() {
 	defer s.mu.Unlock()
 	s.forgetWindowLocked(s.mainWindow)
 	s.mainWindow = nil
+	s.headlessMain = false
+	if s.headlessTimer != nil {
+		s.headlessTimer.Stop()
+		s.headlessTimer = nil
+	}
 }
 
 // SetRecenterOnShow installs the recenterOnShow predicate (see the field).

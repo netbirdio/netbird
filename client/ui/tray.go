@@ -517,7 +517,8 @@ func (t *Tray) handleConnect(upItem *application.MenuItem) {
 	// NeedsLogin/SessionExpired/LoginFailed won't honor a plain Up RPC — they
 	// need the Login → WaitSSOLogin → Up sequence. Emit EventTriggerLogin so
 	// the React startLogin() (which owns the BrowserLogin popup) drives it;
-	// the hidden main webview is alive and subscribed, so only the popup shows.
+	// the WindowManager materialises a hidden main webview when none is live,
+	// so only the popup shows.
 	t.statusMu.Lock()
 	needsLogin := strings.EqualFold(t.lastStatus, services.StatusNeedsLogin) ||
 		strings.EqualFold(t.lastStatus, services.StatusSessionExpired) ||
