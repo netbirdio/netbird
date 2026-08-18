@@ -40,6 +40,7 @@ import (
 	dnsconfig "github.com/netbirdio/netbird/client/internal/dns/config"
 	"github.com/netbirdio/netbird/client/internal/dnsfwd"
 	"github.com/netbirdio/netbird/client/internal/expose"
+	"github.com/netbirdio/netbird/client/internal/filedrop"
 	"github.com/netbirdio/netbird/client/internal/ingressgw"
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
 	"github.com/netbirdio/netbird/client/internal/metrics"
@@ -59,6 +60,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/syncstore"
 	"github.com/netbirdio/netbird/client/internal/updater"
 	"github.com/netbirdio/netbird/client/jobexec"
+	"github.com/netbirdio/netbird/client/netstate"
 	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -181,6 +183,10 @@ type EngineServices struct {
 	UpdateManager  *updater.Manager
 	ClientMetrics  *metrics.ClientMetrics
 	MetricsCtx     context.Context
+	FileDrop       *filedrop.Manager
+	// NetState gates the reconnection loops on OS-reported network
+	// availability; nil disables gating.
+	NetState *netstate.State
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -203,6 +209,10 @@ type Engine struct {
 
 	config    *EngineConfig
 	mobileDep MobileDependency
+
+	// netState gates the peer reconnection guards on OS-reported network
+	// availability; nil disables gating.
+	netState *netstate.State
 
 	// STUNs is a list of STUN servers used by ICE
 	STUNs []*stun.URI
@@ -235,6 +245,10 @@ type Engine struct {
 	networkMonitor *networkmonitor.NetworkMonitor
 
 	sshServer sshServer
+
+	fileDrop        *filedrop.Manager
+	fileDropRunning bool
+	fileDropPort    uint16
 
 	statusRecorder *peer.Status
 
@@ -337,6 +351,7 @@ func NewEngine(
 		syncMsgMux:         &sync.Mutex{},
 		config:             config,
 		mobileDep:          mobileDep,
+		netState:           services.NetState,
 		STUNs:              []*stun.URI{},
 		TURNs:              []*stun.URI{},
 		networkSerial:      0,
@@ -350,6 +365,7 @@ func NewEngine(
 		metricsCtx:         services.MetricsCtx,
 		updateManager:      services.UpdateManager,
 		syncStoreDir:       config.StateDir,
+		fileDrop:           services.FileDrop,
 	}
 	// sessionWatcher keeps the SubscribeStatus consumers in sync with the
 	// session expiry deadline. Deadline-change ticks come for free via
@@ -414,6 +430,8 @@ func (e *Engine) stopLocked() {
 	if err := e.stopSSHServer(); err != nil {
 		log.Warnf("failed to stop SSH server: %v", err)
 	}
+
+	e.stopFileDrop()
 
 	e.cleanupSSHConfig()
 
@@ -1293,6 +1311,8 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 		}
 	}
 
+	e.startFileDrop()
+
 	state := e.statusRecorder.GetLocalPeerState()
 	state.IP = e.wgInterface.Address().String()
 	state.IPv6 = e.wgInterface.Address().IPv6String()
@@ -1893,7 +1913,8 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix, agentV
 			Addr:           e.getRosenpassAddr(),
 			PermissiveMode: e.config.RosenpassPermissive,
 		},
-		ICEConfig: e.createICEConfig(),
+		ICEConfig:    e.createICEConfig(),
+		NetworkState: e.netState,
 	}
 
 	serviceDependencies := peer.ServiceDependencies{
@@ -1959,6 +1980,8 @@ func (e *Engine) receiveSignalEvents() error {
 				if err != nil {
 					return err
 				}
+
+				e.recordFiledropPort(msg.Key, msg.GetBody().GetFiledropPort())
 
 				log.Debugf("receiveMSG: took %s to get lock for peer %s with session id %s", gotLock, msg.Key, offerAnswer.SessionID)
 
@@ -2439,6 +2462,8 @@ func (e *Engine) GetWgV6Addr() netip.Addr {
 	return e.wgInterface.Address().IPv6
 }
 
+// RenewTun swaps the tunnel device for the one behind fd, which the platform
+// hands over whenever it re-establishes the interface.
 func (e *Engine) RenewTun(fd int) error {
 	e.syncMsgMux.Lock()
 	wgInterface := e.wgInterface
@@ -2448,7 +2473,12 @@ func (e *Engine) RenewTun(fd int) error {
 		return fmt.Errorf("wireguard interface not initialized")
 	}
 
-	return wgInterface.RenewTun(fd)
+	if err := wgInterface.RenewTun(fd); err != nil {
+		return err
+	}
+
+	e.restartFileDrop()
+	return nil
 }
 
 // updateDNSForwarder start or stop the DNS forwarder based on the domains and the feature flag

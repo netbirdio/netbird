@@ -1810,5 +1810,229 @@
     "settings.ssh.privilege.oneWayInverted": {
         "message": "You can switch this on, but switching it back off needs {actor}:",
         "description": "Warning under the SSH authentication setting, which an unprivileged user may re-enable but not disable again. {actor} is 'root' on Linux/macOS or 'administrator privileges' on Windows. Followed by a copyable command."
+    },
+    "nav.files.title": {
+        "message": "Files",
+        "description": "Navigation label for the Files section (file transfers)."
+    },
+    "files.search.placeholder": {
+        "message": "Search transfers by file or peer",
+        "description": "Placeholder of the transfer search field."
+    },
+    "files.empty.title": {
+        "message": "No transfers yet",
+        "description": "Empty state title of the Files section."
+    },
+    "files.empty.description": {
+        "message": "Files you send or receive will show up here.",
+        "description": "Empty state description of the Files section."
+    },
+    "files.group.today": {
+        "message": "Today",
+        "description": "Day group header for today's transfers."
+    },
+    "files.group.yesterday": {
+        "message": "Yesterday",
+        "description": "Day group header for yesterday's transfers."
+    },
+    "files.offer.subtitle": {
+        "message": "{peer} wants to send",
+        "description": "Subtitle of a pending incoming offer. {peer} is the sender's name."
+    },
+    "files.offer.accept": {
+        "message": "Accept",
+        "description": "Accept button of a pending offer."
+    },
+    "files.offer.decline": {
+        "message": "Decline",
+        "description": "Decline button of a pending offer."
+    },
+    "files.row.to": {
+        "message": "to {peer}",
+        "description": "Direction label of a sent transfer. {peer} is the receiver's name."
+    },
+    "files.row.from": {
+        "message": "from {peer}",
+        "description": "Direction label of a received transfer. {peer} is the sender's name."
+    },
+    "files.state.pending": {
+        "message": "Waiting",
+        "description": "Transfer state: waiting for the receiver's decision."
+    },
+    "files.state.transferring": {
+        "message": "Transferring",
+        "description": "Transfer state: payload is streaming."
+    },
+    "files.state.progress": {
+        "message": "{percent}%",
+        "description": "Transfer progress. {percent} is a number."
+    },
+    "files.state.received": {
+        "message": "Received",
+        "description": "Transfer state: completed incoming transfer."
+    },
+    "files.state.sent": {
+        "message": "Sent",
+        "description": "Transfer state: completed outgoing transfer."
+    },
+    "files.state.declined": {
+        "message": "Declined",
+        "description": "Transfer state: the receiver declined."
+    },
+    "files.state.expired": {
+        "message": "No response",
+        "description": "Transfer state: the offer expired unanswered."
+    },
+    "files.state.cancelled": {
+        "message": "Cancelled",
+        "description": "Transfer state: cancelled by a user."
+    },
+    "files.state.failed": {
+        "message": "Failed",
+        "description": "Transfer state: the transfer failed."
+    },
+    "files.action.copy": {
+        "message": "Copy",
+        "description": "Copy a received text snippet."
+    },
+    "files.action.reveal": {
+        "message": "Show in folder",
+        "description": "Open the file manager at the delivered file."
+    },
+    "files.action.cancel": {
+        "message": "Cancel",
+        "description": "Cancel a running transfer."
+    },
+    "files.action.more": {
+        "message": "More",
+        "description": "Open the row's overflow menu."
+    },
+    "files.action.open": {
+        "message": "Open",
+        "description": "Open the delivered file."
+    },
+    "files.action.alwaysAccept": {
+        "message": "Always accept from this peer",
+        "description": "Per-sender exception shortcut."
+    },
+    "files.action.block": {
+        "message": "Block this peer",
+        "description": "Per-sender block shortcut."
+    },
+    "files.action.delete": {
+        "message": "Delete",
+        "description": "Remove the entry from the history."
+    },
+    "peers.dropToSend": {
+        "message": "Drop to send",
+        "description": "Overlay shown while dragging files over a peer row."
+    },
+    "peers.details.sendFile": {
+        "message": "Send file…",
+        "description": "Peer action opening the file picker."
+    },
+    "peers.details.sendClipboard": {
+        "message": "Send clipboard",
+        "description": "Peer action sending the clipboard text."
+    },
+    "peers.details.sendClipboard.empty": {
+        "message": "Clipboard is empty",
+        "description": "Error when the clipboard has no text."
+    },
+    "settings.tabs.fileSharing": {
+        "message": "File sharing",
+        "description": "Settings tab for file transfer policy."
+    },
+    "settings.fileSharing.section": {
+        "message": "File receiving",
+        "description": "Section title of the file receiving policy."
+    },
+    "settings.fileSharing.loading": {
+        "message": "Loading…",
+        "description": "Shown while the policy is being fetched."
+    },
+    "settings.fileSharing.mode.label": {
+        "message": "Receive files from peers",
+        "description": "Label of the receiving mode selector."
+    },
+    "settings.fileSharing.mode.help": {
+        "message": "How this device handles incoming file offers.",
+        "description": "Help text of the receiving mode selector."
+    },
+    "settings.fileSharing.mode.off": {
+        "message": "Off",
+        "description": "Receiving mode: no files are accepted."
+    },
+    "settings.fileSharing.mode.off.help": {
+        "message": "This device does not accept files.",
+        "description": "Help text of the Off mode."
+    },
+    "settings.fileSharing.mode.ask": {
+        "message": "Ask every time",
+        "description": "Receiving mode: each offer asks for consent."
+    },
+    "settings.fileSharing.mode.ask.help": {
+        "message": "Every offer asks for your consent first.",
+        "description": "Help text of the Ask mode."
+    },
+    "settings.fileSharing.mode.auto": {
+        "message": "Auto-accept",
+        "description": "Receiving mode: files arrive without interaction."
+    },
+    "settings.fileSharing.mode.auto.help": {
+        "message": "Files arrive without interaction.",
+        "description": "Help text of the Auto-accept mode."
+    },
+    "settings.fileSharing.destination.label": {
+        "message": "Save received files to",
+        "description": "Label of the delivery directory row."
+    },
+    "settings.fileSharing.destination.help": {
+        "message": "Received files are delivered into this folder.",
+        "description": "Help text of the delivery directory row."
+    },
+    "settings.fileSharing.destination.unset": {
+        "message": "Not set",
+        "description": "Placeholder when no delivery directory is configured."
+    },
+    "settings.fileSharing.destination.change": {
+        "message": "Change…",
+        "description": "Button opening the directory picker."
+    },
+    "settings.fileSharing.exceptions.label": {
+        "message": "Per-peer exceptions",
+        "description": "Label of the exception list."
+    },
+    "settings.fileSharing.exceptions.help": {
+        "message": "Overrides on top of the receiving mode.",
+        "description": "Help text of the exception list."
+    },
+    "settings.fileSharing.exceptions.empty": {
+        "message": "No exceptions.",
+        "description": "Shown when the exception list is empty."
+    },
+    "settings.fileSharing.exceptions.blocked": {
+        "message": "Blocked",
+        "description": "Exception kind: sender is blocked."
+    },
+    "settings.fileSharing.exceptions.always": {
+        "message": "Always accepted",
+        "description": "Exception kind: sender is always accepted."
+    },
+    "settings.fileSharing.exceptions.remove": {
+        "message": "Remove exception",
+        "description": "Button removing one exception."
+    },
+    "files.state.unreachable": {
+        "message": "Declined",
+        "description": "Failed-transfer reason: the peer's file drop port refused the offer."
+    },
+    "notify.filedrop.offer.title": {
+        "message": "Incoming file",
+        "description": "Title of the consent notification for an incoming file offer."
+    },
+    "notify.filedrop.always": {
+        "message": "Always accept",
+        "description": "Consent-notification button: accept this offer and auto-accept this sender from now on."
     }
 }

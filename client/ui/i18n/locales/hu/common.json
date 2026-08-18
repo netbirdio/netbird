@@ -1338,5 +1338,174 @@
     },
     "error.unknown": {
         "message": "A művelet meghiúsult."
+    },
+    "nav.files.title": {
+        "message": "Fájlok"
+    },
+    "files.search.placeholder": {
+        "message": "Keresés fájl vagy peer szerint"
+    },
+    "files.empty.title": {
+        "message": "Még nincs átvitel"
+    },
+    "files.empty.description": {
+        "message": "Az elküldött és fogadott fájlok itt jelennek meg."
+    },
+    "files.group.today": {
+        "message": "Ma"
+    },
+    "files.group.yesterday": {
+        "message": "Tegnap"
+    },
+    "files.offer.subtitle": {
+        "message": "{peer} küldeni szeretne"
+    },
+    "files.offer.accept": {
+        "message": "Elfogadás"
+    },
+    "files.offer.decline": {
+        "message": "Elutasítás"
+    },
+    "files.row.to": {
+        "message": "ide: {peer}"
+    },
+    "files.row.from": {
+        "message": "tőle: {peer}"
+    },
+    "files.state.pending": {
+        "message": "Várakozás"
+    },
+    "files.state.transferring": {
+        "message": "Átvitel folyamatban"
+    },
+    "files.state.progress": {
+        "message": "{percent}%"
+    },
+    "files.state.received": {
+        "message": "Fogadva"
+    },
+    "files.state.sent": {
+        "message": "Elküldve"
+    },
+    "files.state.declined": {
+        "message": "Elutasítva"
+    },
+    "files.state.expired": {
+        "message": "Nincs válasz"
+    },
+    "files.state.cancelled": {
+        "message": "Megszakítva"
+    },
+    "files.state.failed": {
+        "message": "Sikertelen"
+    },
+    "files.action.copy": {
+        "message": "Másolás"
+    },
+    "files.action.reveal": {
+        "message": "Megjelenítés a mappában"
+    },
+    "files.action.cancel": {
+        "message": "Megszakítás"
+    },
+    "files.action.more": {
+        "message": "Továbbiak"
+    },
+    "files.action.open": {
+        "message": "Megnyitás"
+    },
+    "files.action.alwaysAccept": {
+        "message": "Mindig elfogadás ettől a peertől"
+    },
+    "files.action.block": {
+        "message": "Peer tiltása"
+    },
+    "files.action.delete": {
+        "message": "Törlés"
+    },
+    "peers.dropToSend": {
+        "message": "Engedd el a küldéshez"
+    },
+    "peers.details.sendFile": {
+        "message": "Fájl küldése…"
+    },
+    "peers.details.sendClipboard": {
+        "message": "Vágólap küldése"
+    },
+    "peers.details.sendClipboard.empty": {
+        "message": "A vágólap üres"
+    },
+    "settings.tabs.fileSharing": {
+        "message": "Fájlmegosztás"
+    },
+    "settings.fileSharing.section": {
+        "message": "Fájlfogadás"
+    },
+    "settings.fileSharing.loading": {
+        "message": "Betöltés…"
+    },
+    "settings.fileSharing.mode.label": {
+        "message": "Fájlok fogadása peerektől"
+    },
+    "settings.fileSharing.mode.help": {
+        "message": "Így kezeli az eszköz a bejövő fájlfelajánlásokat."
+    },
+    "settings.fileSharing.mode.off": {
+        "message": "Kikapcsolva"
+    },
+    "settings.fileSharing.mode.off.help": {
+        "message": "Az eszköz nem fogad fájlokat."
+    },
+    "settings.fileSharing.mode.ask": {
+        "message": "Mindig kérdezzen"
+    },
+    "settings.fileSharing.mode.ask.help": {
+        "message": "Minden felajánlás először engedélyt kér."
+    },
+    "settings.fileSharing.mode.auto": {
+        "message": "Automatikus elfogadás"
+    },
+    "settings.fileSharing.mode.auto.help": {
+        "message": "A fájlok beavatkozás nélkül érkeznek."
+    },
+    "settings.fileSharing.destination.label": {
+        "message": "Fogadott fájlok mentése ide"
+    },
+    "settings.fileSharing.destination.help": {
+        "message": "A fogadott fájlok ebbe a mappába kerülnek."
+    },
+    "settings.fileSharing.destination.unset": {
+        "message": "Nincs beállítva"
+    },
+    "settings.fileSharing.destination.change": {
+        "message": "Módosítás…"
+    },
+    "settings.fileSharing.exceptions.label": {
+        "message": "Peerenkénti kivételek"
+    },
+    "settings.fileSharing.exceptions.help": {
+        "message": "A fogadási módot felülíró szabályok."
+    },
+    "settings.fileSharing.exceptions.empty": {
+        "message": "Nincsenek kivételek."
+    },
+    "settings.fileSharing.exceptions.blocked": {
+        "message": "Tiltva"
+    },
+    "settings.fileSharing.exceptions.always": {
+        "message": "Mindig elfogadva"
+    },
+    "settings.fileSharing.exceptions.remove": {
+        "message": "Kivétel eltávolítása"
+    },
+    "files.state.unreachable": {
+        "message": "Elutasítva",
+        "description": "Failed-transfer reason: the peer's file drop port refused the offer."
+    },
+    "notify.filedrop.offer.title": {
+        "message": "Bejövő fájl"
+    },
+    "notify.filedrop.always": {
+        "message": "Mindig elfogadás"
     }
 }

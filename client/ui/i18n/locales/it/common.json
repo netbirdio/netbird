@@ -1338,5 +1338,174 @@
     },
     "error.unknown": {
         "message": "Operazione non riuscita."
+    },
+    "nav.files.title": {
+        "message": "File"
+    },
+    "files.search.placeholder": {
+        "message": "Cerca trasferimenti per file o peer"
+    },
+    "files.empty.title": {
+        "message": "Nessun trasferimento"
+    },
+    "files.empty.description": {
+        "message": "I file inviati o ricevuti appariranno qui."
+    },
+    "files.group.today": {
+        "message": "Oggi"
+    },
+    "files.group.yesterday": {
+        "message": "Ieri"
+    },
+    "files.offer.subtitle": {
+        "message": "{peer} vuole inviare"
+    },
+    "files.offer.accept": {
+        "message": "Accetta"
+    },
+    "files.offer.decline": {
+        "message": "Rifiuta"
+    },
+    "files.row.to": {
+        "message": "a {peer}"
+    },
+    "files.row.from": {
+        "message": "da {peer}"
+    },
+    "files.state.pending": {
+        "message": "In attesa"
+    },
+    "files.state.transferring": {
+        "message": "Trasferimento"
+    },
+    "files.state.progress": {
+        "message": "{percent}%"
+    },
+    "files.state.received": {
+        "message": "Ricevuto"
+    },
+    "files.state.sent": {
+        "message": "Inviato"
+    },
+    "files.state.declined": {
+        "message": "Rifiutato"
+    },
+    "files.state.expired": {
+        "message": "Nessuna risposta"
+    },
+    "files.state.cancelled": {
+        "message": "Annullato"
+    },
+    "files.state.failed": {
+        "message": "Non riuscito"
+    },
+    "files.action.copy": {
+        "message": "Copia"
+    },
+    "files.action.reveal": {
+        "message": "Mostra nella cartella"
+    },
+    "files.action.cancel": {
+        "message": "Annulla"
+    },
+    "files.action.more": {
+        "message": "Altro"
+    },
+    "files.action.open": {
+        "message": "Apri"
+    },
+    "files.action.alwaysAccept": {
+        "message": "Accetta sempre da questo peer"
+    },
+    "files.action.block": {
+        "message": "Blocca questo peer"
+    },
+    "files.action.delete": {
+        "message": "Elimina"
+    },
+    "peers.dropToSend": {
+        "message": "Rilascia per inviare"
+    },
+    "peers.details.sendFile": {
+        "message": "Invia file…"
+    },
+    "peers.details.sendClipboard": {
+        "message": "Invia appunti"
+    },
+    "peers.details.sendClipboard.empty": {
+        "message": "Gli appunti sono vuoti"
+    },
+    "settings.tabs.fileSharing": {
+        "message": "Condivisione file"
+    },
+    "settings.fileSharing.section": {
+        "message": "Ricezione file"
+    },
+    "settings.fileSharing.loading": {
+        "message": "Caricamento…"
+    },
+    "settings.fileSharing.mode.label": {
+        "message": "Ricevi file dai peer"
+    },
+    "settings.fileSharing.mode.help": {
+        "message": "Come questo dispositivo gestisce le offerte di file in arrivo."
+    },
+    "settings.fileSharing.mode.off": {
+        "message": "Disattivato"
+    },
+    "settings.fileSharing.mode.off.help": {
+        "message": "Questo dispositivo non accetta file."
+    },
+    "settings.fileSharing.mode.ask": {
+        "message": "Chiedi ogni volta"
+    },
+    "settings.fileSharing.mode.ask.help": {
+        "message": "Ogni offerta chiede prima il tuo consenso."
+    },
+    "settings.fileSharing.mode.auto": {
+        "message": "Accettazione automatica"
+    },
+    "settings.fileSharing.mode.auto.help": {
+        "message": "I file arrivano senza interazione."
+    },
+    "settings.fileSharing.destination.label": {
+        "message": "Salva i file ricevuti in"
+    },
+    "settings.fileSharing.destination.help": {
+        "message": "I file ricevuti vengono consegnati in questa cartella."
+    },
+    "settings.fileSharing.destination.unset": {
+        "message": "Non impostato"
+    },
+    "settings.fileSharing.destination.change": {
+        "message": "Cambia…"
+    },
+    "settings.fileSharing.exceptions.label": {
+        "message": "Eccezioni per peer"
+    },
+    "settings.fileSharing.exceptions.help": {
+        "message": "Sostituzioni rispetto alla modalità di ricezione."
+    },
+    "settings.fileSharing.exceptions.empty": {
+        "message": "Nessuna eccezione."
+    },
+    "settings.fileSharing.exceptions.blocked": {
+        "message": "Bloccato"
+    },
+    "settings.fileSharing.exceptions.always": {
+        "message": "Sempre accettato"
+    },
+    "settings.fileSharing.exceptions.remove": {
+        "message": "Rimuovi eccezione"
+    },
+    "files.state.unreachable": {
+        "message": "Rifiutato",
+        "description": "Failed-transfer reason: the peer's file drop port refused the offer."
+    },
+    "notify.filedrop.offer.title": {
+        "message": "File in arrivo"
+    },
+    "notify.filedrop.always": {
+        "message": "Accetta sempre"
     }
 }

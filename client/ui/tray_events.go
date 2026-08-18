@@ -65,6 +65,11 @@ func (t *Tray) onSystemEvent(ev *application.CustomEvent) {
 	// category/severity so a daemon-side reword still lands here. Final warning
 	// auto-opens the SessionExpiration dialog with no notification (the dialog is
 	// the last-chance reminder; doubling up would be noise).
+	if se.Metadata[proto.MetadataKindKey] == proto.MetadataKindFileDropOffer {
+		t.notifyFileDropOffer(se)
+		return
+	}
+
 	if isDeadlineRejected {
 		t.notify(
 			t.loc.T("notify.sessionDeadlineRejected.title"),
