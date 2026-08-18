@@ -196,12 +196,13 @@ func (s *WindowManager) OpenSettings(tab string) {
 		s.armReady(s.settings)
 	}
 	w := s.settings
-	if fresh {
+	ready := s.ready[w.ID()]
+	if !ready {
 		s.pendingTab[w.ID()] = target
 	}
 	s.mu.Unlock()
 
-	if !fresh {
+	if ready {
 		s.app.Event.Emit(EventSettingsOpen, target)
 	}
 	s.showWhenReady(w)

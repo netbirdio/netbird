@@ -381,10 +381,10 @@ func registerDockReopenHook(app *application.App, wm *services.WindowManager) {
 		return
 	}
 	app.Event.RegisterApplicationEventHook(events.Mac.ApplicationShouldHandleReopen, func(e *application.ApplicationEvent) {
-		e.Cancel()
 		if e.Context().HasVisibleWindows() {
 			return
 		}
+		e.Cancel()
 		wm.ShowMain()
 	})
 }

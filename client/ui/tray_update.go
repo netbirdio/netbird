@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	neturl "net/url"
 	"sync"
 	"time"
 
@@ -190,7 +191,7 @@ func (u *trayUpdater) openProgressWindow(version string) {
 	}
 	url := "/#/update"
 	if version != "" {
-		url += "?version=" + version
+		url += "?version=" + neturl.QueryEscape(version)
 	}
 	u.showMainAt(url)
 }
