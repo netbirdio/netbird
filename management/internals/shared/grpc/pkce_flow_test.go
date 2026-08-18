@@ -18,18 +18,6 @@ func TestApplySessionExtendFlowPolicy(t *testing.T) {
 		loginFlag          uint32
 	}{
 		{
-			name: "extend forces prompt=login over a silent flow",
-			flow: &proto.PKCEAuthorizationFlow{
-				ProviderConfig: &proto.ProviderConfig{
-					DisablePromptLogin: true,
-					LoginFlag:          uint32(common.LoginFlagMaxAge0),
-				},
-			},
-			sessionExtend:      true,
-			disablePromptLogin: false,
-			loginFlag:          uint32(common.LoginFlagPromptLogin),
-		},
-		{
 			name: "extend replaces max_age=0 so login_hint is honoured",
 			flow: &proto.PKCEAuthorizationFlow{
 				ProviderConfig: &proto.ProviderConfig{
@@ -42,15 +30,39 @@ func TestApplySessionExtendFlowPolicy(t *testing.T) {
 			loginFlag:          uint32(common.LoginFlagPromptLogin),
 		},
 		{
-			name: "login keeps the configured flow untouched",
+			name: "extend replaces the none flag so the extend is not silent",
+			flow: &proto.PKCEAuthorizationFlow{
+				ProviderConfig: &proto.ProviderConfig{
+					DisablePromptLogin: false,
+					LoginFlag:          uint32(common.LoginFlagNone),
+				},
+			},
+			sessionExtend:      true,
+			disablePromptLogin: false,
+			loginFlag:          uint32(common.LoginFlagPromptLogin),
+		},
+		{
+			name: "extend respects DisablePromptLogin",
 			flow: &proto.PKCEAuthorizationFlow{
 				ProviderConfig: &proto.ProviderConfig{
 					DisablePromptLogin: true,
 					LoginFlag:          uint32(common.LoginFlagMaxAge0),
 				},
 			},
-			sessionExtend:      false,
+			sessionExtend:      true,
 			disablePromptLogin: true,
+			loginFlag:          uint32(common.LoginFlagMaxAge0),
+		},
+		{
+			name: "login keeps the configured flow untouched",
+			flow: &proto.PKCEAuthorizationFlow{
+				ProviderConfig: &proto.ProviderConfig{
+					DisablePromptLogin: false,
+					LoginFlag:          uint32(common.LoginFlagMaxAge0),
+				},
+			},
+			sessionExtend:      false,
+			disablePromptLogin: false,
 			loginFlag:          uint32(common.LoginFlagMaxAge0),
 		},
 	}

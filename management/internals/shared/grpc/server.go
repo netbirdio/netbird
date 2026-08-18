@@ -1252,16 +1252,24 @@ func (s *Server) GetPKCEAuthorizationFlow(ctx context.Context, req *proto.Encryp
 // prompt=login the IdP honours login_hint and offers the peer's own account,
 // whereas max_age=0 leaves the user to find it among every account signed in.
 //
+// DisablePromptLogin is left alone. It is set for IdPs that break on
+// prompt=login — Authentik triggers a double authentication, and social logins
+// fail outright — so overriding it would trade a recoverable session extend for
+// a login that cannot complete at all. Those deployments keep the silent flow
+// and, with several accounts signed in, an extend answered from the wrong one
+// still fails the user match.
+//
 // Called after ValidateFlowResponse so that a per-peer override cannot reinstate
 // the silent flow for an extend.
 func applySessionExtendFlowPolicy(flow *proto.PKCEAuthorizationFlow, sessionExtend bool) {
 	if !sessionExtend {
 		return
 	}
-	if cfg := flow.GetProviderConfig(); cfg != nil {
-		cfg.DisablePromptLogin = false
-		cfg.LoginFlag = uint32(common.LoginFlagPromptLogin)
+	cfg := flow.GetProviderConfig()
+	if cfg == nil || cfg.GetDisablePromptLogin() {
+		return
 	}
+	cfg.LoginFlag = uint32(common.LoginFlagPromptLogin)
 }
 
 // SyncMeta endpoint is used to synchronize peer's system metadata and notifies the connected,
