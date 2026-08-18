@@ -738,15 +738,26 @@ func (s *Server) startSSOLogin(ctx context.Context, msg *proto.LoginRequest, con
 // reuseOAuthFlow returns the cached auth info when the previous flow targets
 // the same client and still has enough life left, and otherwise cancels the
 // stale wait and returns nil so the caller requests a fresh flow.
+//
+// The whole decision runs off one snapshot taken under s.mutex: a concurrent
+// WaitSSOLogin replaces waitCancel and expires the flow, so reading the fields
+// one at a time could cancel a wait that no longer belongs to the flow just
+// judged stale, or answer with auth info from a flow that was already replaced.
+// The cancel itself is called after unlocking — it runs arbitrary teardown, and
+// WaitSSOLogin takes s.mutex on the way out.
 func (s *Server) reuseOAuthFlow(ctx context.Context, oAuthFlow auth.OAuthFlow, state statusSetter) *proto.LoginResponse {
-	if s.oauthAuthFlow.flow == nil || s.oauthAuthFlow.flow.GetClientID(ctx) != oAuthFlow.GetClientID(ctx) {
+	s.mutex.Lock()
+	current := s.oauthAuthFlow
+	s.mutex.Unlock()
+
+	if current.flow == nil || current.flow.GetClientID(ctx) != oAuthFlow.GetClientID(ctx) {
 		return nil
 	}
 
-	if !s.oauthAuthFlow.expiresAt.After(time.Now().Add(90 * time.Second)) {
+	if !current.expiresAt.After(time.Now().Add(90 * time.Second)) {
 		log.Warnf("canceling previous waiting execution")
-		if s.oauthAuthFlow.waitCancel != nil {
-			s.oauthAuthFlow.waitCancel()
+		if current.waitCancel != nil {
+			current.waitCancel()
 		}
 		return nil
 	}
@@ -755,9 +766,9 @@ func (s *Server) reuseOAuthFlow(ctx context.Context, oAuthFlow auth.OAuthFlow, s
 	state.Set(internal.StatusNeedsLogin)
 	return &proto.LoginResponse{
 		NeedsSSOLogin:           true,
-		VerificationURI:         s.oauthAuthFlow.info.VerificationURI,
-		VerificationURIComplete: s.oauthAuthFlow.info.VerificationURIComplete,
-		UserCode:                s.oauthAuthFlow.info.UserCode,
+		VerificationURI:         current.info.VerificationURI,
+		VerificationURIComplete: current.info.VerificationURIComplete,
+		UserCode:                current.info.UserCode,
 	}
 }
 
@@ -831,9 +842,10 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 	}
 
 	s.actCancel = cancel
+	flow := s.oauthAuthFlow.flow
 	s.mutex.Unlock()
 
-	if s.oauthAuthFlow.flow == nil {
+	if flow == nil {
 		return nil, gstatus.Errorf(codes.Internal, "oauth flow is not initialized")
 	}
 
@@ -860,18 +872,23 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 		return nil, gstatus.Errorf(codes.InvalidArgument, "sso user code is invalid")
 	}
 
-	if s.oauthAuthFlow.waitCancel != nil {
-		s.oauthAuthFlow.waitCancel()
-	}
-
 	waitCTX, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	// Swap in this wait's cancel and take over the one it displaces in a single
+	// critical section, so two WaitSSOLogin calls racing here cannot both read
+	// the same predecessor and leave one wait uncancelled. Cancelling happens
+	// after the unlock: the displaced wait takes s.mutex as it unwinds.
 	s.mutex.Lock()
+	staleCancel := s.oauthAuthFlow.waitCancel
 	s.oauthAuthFlow.waitCancel = cancel
 	s.mutex.Unlock()
 
-	tokenInfo, err := s.oauthAuthFlow.flow.WaitToken(waitCTX, flowInfo)
+	if staleCancel != nil {
+		staleCancel()
+	}
+
+	tokenInfo, err := flow.WaitToken(waitCTX, flowInfo)
 	if err != nil {
 		s.mutex.Lock()
 		s.oauthAuthFlow.expiresAt = time.Now()
