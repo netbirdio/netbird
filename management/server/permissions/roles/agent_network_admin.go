@@ -9,8 +9,10 @@ import (
 // AgentNetworkAdmin is the delegated administrator for the Agent Network
 // area: full control over providers, policies, guardrails, budgets, usage,
 // logs, and its settings, plus read-only visibility into the account
-// objects needed to build policies (users, groups, peers). Nothing else in
-// the account is visible.
+// objects needed to build policies (users, groups, peers) and the account
+// settings/meta read the dashboard needs to boot (GET /api/accounts
+// validates Settings read, same as network_admin). Nothing else in the
+// account is visible.
 var AgentNetworkAdmin = RolePermissions{
 	Role: types.UserRoleAgentNetworkAdmin,
 	AutoAllowNew: map[operations.Operation]bool{
@@ -45,6 +47,12 @@ var AgentNetworkAdmin = RolePermissions{
 			operations.Delete: false,
 		},
 		modules.Accounts: {
+			operations.Read:   true,
+			operations.Create: false,
+			operations.Update: false,
+			operations.Delete: false,
+		},
+		modules.Settings: {
 			operations.Read:   true,
 			operations.Create: false,
 			operations.Update: false,

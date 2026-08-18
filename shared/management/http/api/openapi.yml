@@ -13793,23 +13793,43 @@ paths:
           "$ref": "#/components/responses/requires_authentication"
         '500':
           "$ref": "#/components/responses/internal_error"
-  /api/agent-network/me/consumption:
+  /api/agent-network/me/usage/overview:
     get:
-      summary: List the caller's own Agent Network consumption
-      description: Returns the caller's own per-window token and cost counters (the user dimension recorded for the calling user), ordered window-newest-first. Available to every authenticated user regardless of role. Empty list when the caller has not consumed anything yet.
+      summary: The caller's own Agent Network usage overview
+      description: Returns the same aggregated time-bucket usage as /api/agent-network/usage/overview, pinned server-side to the calling user's own rows (any user_id or group_id filter is overridden). Available to every authenticated user regardless of role. Empty list when the caller has not consumed anything yet.
       tags: [ Agent Network ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
+      parameters:
+        - in: query
+          name: granularity
+          schema:
+            type: string
+            enum: [day, week, month]
+            default: day
+          description: Time bucket width. Defaults to day.
+        - in: query
+          name: start_date
+          schema:
+            type: string
+            format: date-time
+          description: Filter by timestamp >= start_date (RFC3339 format).
+        - in: query
+          name: end_date
+          schema:
+            type: string
+            format: date-time
+          description: Filter by timestamp <= end_date (RFC3339 format).
       responses:
         '200':
-          description: A JSON Array of the caller's own consumption counter rows
+          description: A JSON Array of usage buckets for the calling user
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/AgentNetworkConsumption'
+                  $ref: '#/components/schemas/AgentNetworkUsageBucket'
         '401':
           "$ref": "#/components/responses/requires_authentication"
         '500':

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/gorilla/mux"
 
@@ -17,7 +18,7 @@ import (
 // role gate could be.
 func (h *handler) addMeEndpoints(router *mux.Router) {
 	router.HandleFunc("/agent-network/me/setup", h.getMySetup).Methods("GET", "OPTIONS")
-	router.HandleFunc("/agent-network/me/consumption", h.listMyConsumption).Methods("GET", "OPTIONS")
+	router.HandleFunc("/agent-network/me/usage/overview", h.getMyUsageOverview).Methods("GET", "OPTIONS")
 }
 
 func (h *handler) getMySetup(w http.ResponseWriter, r *http.Request) {
@@ -36,22 +37,34 @@ func (h *handler) getMySetup(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, setupToAPI(setup))
 }
 
-func (h *handler) listMyConsumption(w http.ResponseWriter, r *http.Request) {
+// getMyUsageOverview mirrors the admin usage overview — same filter
+// parsing, bounds, granularity, and bucket response — with the identity
+// filters overridden to the caller inside the manager, so the dashboard
+// renders "My Usage" with the exact component the admin view uses.
+func (h *handler) getMyUsageOverview(w http.ResponseWriter, r *http.Request) {
 	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	rows, err := h.manager.ListConsumptionForUser(r.Context(), userAuth.AccountId, userAuth.UserId)
+	var filter types.AgentNetworkAccessLogFilter
+	if err := filter.ParseFromRequest(r); err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	filter.ApplyUsageOverviewBounds(time.Now())
+	granularity := types.ParseUsageGranularity(r.URL.Query().Get("granularity"))
+
+	buckets, err := h.manager.GetUsageOverviewForUser(r.Context(), userAuth.AccountId, userAuth.UserId, filter, granularity)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	out := make([]api.AgentNetworkConsumption, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, consumptionToAPI(row))
+	out := make([]api.AgentNetworkUsageBucket, 0, len(buckets))
+	for _, b := range buckets {
+		out = append(out, b.ToAPIResponse())
 	}
 	util.WriteJSONObject(r.Context(), w, out)
 }

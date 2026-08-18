@@ -87,8 +87,8 @@ Two roles delegate Agent Network access without account-admin rights:
 Every authenticated user, regardless of role, can read the caller-scoped
 self-service endpoints: `GET /api/agent-network/me/setup` (the endpoint, providers,
 and models the caller's own policies allow — what a local AI tool needs and nothing
-more) and `GET /api/agent-network/me/consumption` (the caller's own token and cost
-counters). Role definitions live in
+more) and `GET /api/agent-network/me/usage/overview` (the caller's own usage,
+aggregated exactly like the admin overview). Role definitions live in
 [`management/server/permissions/roles/`](../management/server/permissions/roles).
 
 ## Documentation

@@ -24,21 +24,20 @@ func (m *managerImpl) GetSetupForUser(ctx context.Context, accountID, userID str
 	return m.effectiveSetupForGroups(ctx, accountID, user.AutoGroups)
 }
 
-// ListConsumptionForUser returns the caller's own consumption counters:
-// the user-dimension rows recorded for userID. Caller-scoped by design —
-// no role permission check, mirroring GetSetupForUser.
-func (m *managerImpl) ListConsumptionForUser(ctx context.Context, accountID, userID string) ([]*types.Consumption, error) {
-	rows, err := m.store.ListAgentNetworkConsumption(ctx, store.LockingStrengthNone, accountID)
+// GetUsageOverviewForUser returns the same aggregated usage buckets the
+// admin overview serves, pinned to the caller's own rows: the filter's
+// user id is forced to the caller and any group filter is dropped, which
+// is tighter than any role gate — so, like GetSetupForUser, no permission
+// check. The response shape is identical to GetUsageOverview so the
+// dashboard renders both views with the same component.
+func (m *managerImpl) GetUsageOverviewForUser(ctx context.Context, accountID, userID string, filter types.AgentNetworkAccessLogFilter, granularity types.UsageGranularity) ([]*types.AgentNetworkUsageBucket, error) {
+	filter.UserID = &userID
+	filter.GroupIDs = nil
+	rows, err := m.store.GetAgentNetworkUsageRows(ctx, store.LockingStrengthNone, accountID, filter)
 	if err != nil {
 		return nil, err
 	}
-	own := make([]*types.Consumption, 0)
-	for _, row := range rows {
-		if row.DimensionKind == types.DimensionUser && row.DimensionID == userID {
-			own = append(own, row)
-		}
-	}
-	return own, nil
+	return types.AggregateUsageByGranularity(rows, granularity), nil
 }
 
 // effectiveSetupForGroups computes the effective Agent Network setup for
@@ -255,7 +254,7 @@ func (*mockManager) GetSetupForUser(_ context.Context, _, _ string) (*types.Effe
 	return &types.EffectiveSetup{Providers: []types.EffectiveProvider{}}, nil
 }
 
-// ListConsumptionForUser on the mock manager returns no rows.
-func (*mockManager) ListConsumptionForUser(_ context.Context, _, _ string) ([]*types.Consumption, error) {
+// GetUsageOverviewForUser on the mock manager returns no buckets.
+func (*mockManager) GetUsageOverviewForUser(_ context.Context, _, _ string, _ types.AgentNetworkAccessLogFilter, _ types.UsageGranularity) ([]*types.AgentNetworkUsageBucket, error) {
 	return nil, nil
 }

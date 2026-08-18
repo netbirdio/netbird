@@ -43,16 +43,18 @@ func TestAgentNetworkAdminRole(t *testing.T) {
 		}
 	}
 
-	for _, m := range []modules.Module{modules.Users, modules.Groups, modules.Peers, modules.Accounts} {
+	// Settings read rides along because GET /api/accounts (which the
+	// dashboard needs to boot) validates it, like network_admin.
+	for _, m := range []modules.Module{modules.Users, modules.Groups, modules.Peers, modules.Accounts, modules.Settings} {
 		assert.True(t, manager.ValidateRoleModuleAccess(ctx, "account", role, m, operations.Read),
-			"agent_network_admin must read %s to build policies", m)
+			"agent_network_admin must read %s to build policies and load the dashboard", m)
 		for _, op := range []operations.Operation{operations.Create, operations.Update, operations.Delete} {
 			assert.False(t, manager.ValidateRoleModuleAccess(ctx, "account", role, m, op),
 				"agent_network_admin must not have %s on %s", op, m)
 		}
 	}
 
-	for _, m := range []modules.Module{modules.Networks, modules.Dns, modules.SetupKeys, modules.Routes, modules.Settings} {
+	for _, m := range []modules.Module{modules.Networks, modules.Dns, modules.SetupKeys, modules.Routes} {
 		for _, op := range allOps {
 			assert.False(t, manager.ValidateRoleModuleAccess(ctx, "account", role, m, op),
 				"agent_network_admin must not have %s on %s", op, m)

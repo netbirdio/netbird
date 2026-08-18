@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	"github.com/netbirdio/netbird/management/server/store"
 	nbtypes "github.com/netbirdio/netbird/management/server/types"
 )
@@ -278,21 +279,30 @@ func TestGetSetupForUser_RealStore(t *testing.T) {
 	assert.False(t, setupOut.Configured, "user outside the policy's source groups gets the not-configured answer")
 }
 
-// TestListConsumptionForUser_RealStore pins the own-consumption scope: only
-// the caller's user-dimension rows come back, never another user's rows or
-// group rows.
-func TestListConsumptionForUser_RealStore(t *testing.T) {
+// TestGetUsageOverviewForUser_RealStore pins the own-usage scope: the same
+// aggregation the admin overview serves, but only ever the caller's rows —
+// a user_id filter for someone else must be overridden, not honored.
+func TestGetUsageOverviewForUser_RealStore(t *testing.T) {
 	mgr, s := newSetupTestMgr(t)
 	ctx := context.Background()
 
-	now := time.Now().UTC().Truncate(time.Hour)
-	require.NoError(t, s.IncrementAgentNetworkConsumption(ctx, testAccountID, types.DimensionUser, "user-a", 3600, now, 100, 50, 0.5))
-	require.NoError(t, s.IncrementAgentNetworkConsumption(ctx, testAccountID, types.DimensionUser, "user-b", 3600, now, 999, 999, 9.9))
-	require.NoError(t, s.IncrementAgentNetworkConsumption(ctx, testAccountID, types.DimensionGroup, "grp-eng", 3600, now, 1, 1, 0.1))
+	require.NoError(t, s.SaveAgentNetworkSettings(ctx, newSynthTestSettings()))
 
-	rows, err := mgr.ListConsumptionForUser(ctx, testAccountID, "user-a")
+	own1 := newIngestTestEntry()
+	own1.ID, own1.UserId = "log-own-1", "user-a"
+	own2 := newIngestTestEntry()
+	own2.ID, own2.UserId = "log-own-2", "user-a"
+	other := newIngestTestEntry()
+	other.ID, other.UserId = "log-other", "user-b"
+	for _, e := range []*accesslogs.AccessLogEntry{own1, own2, other} {
+		require.NoError(t, IngestAccessLog(ctx, s, e))
+	}
+
+	otherID := "user-b"
+	filter := types.AgentNetworkAccessLogFilter{UserID: &otherID}
+	buckets, err := mgr.GetUsageOverviewForUser(ctx, testAccountID, "user-a", filter, types.ParseUsageGranularity(""))
 	require.NoError(t, err)
-	require.Len(t, rows, 1, "only the caller's own user-dimension rows are visible")
-	assert.Equal(t, "user-a", rows[0].DimensionID)
-	assert.Equal(t, int64(100), rows[0].TokensInput)
+	require.Len(t, buckets, 1, "same-day rows aggregate into one daily bucket")
+	assert.Equal(t, int64(200), buckets[0].InputTokens, "only the caller's two rows count — the foreign user_id filter is overridden")
+	assert.Equal(t, int64(100), buckets[0].OutputTokens)
 }

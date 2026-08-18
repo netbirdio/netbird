@@ -84,11 +84,11 @@ type Manager interface {
 	RecordUsage(ctx context.Context, in RecordUsageInput) error
 	SelectPolicyForRequest(ctx context.Context, in PolicySelectionInput) (*PolicySelectionResult, error)
 
-	// GetSetupForUser and ListConsumptionForUser back the self-service
+	// GetSetupForUser and GetUsageOverviewForUser back the self-service
 	// "My Agent Network" endpoints. Both are caller-scoped and skip the
 	// role permission gate; see the implementations.
 	GetSetupForUser(ctx context.Context, accountID, userID string) (*types.EffectiveSetup, error)
-	ListConsumptionForUser(ctx context.Context, accountID, userID string) ([]*types.Consumption, error)
+	GetUsageOverviewForUser(ctx context.Context, accountID, userID string, filter types.AgentNetworkAccessLogFilter, granularity types.UsageGranularity) ([]*types.AgentNetworkUsageBucket, error)
 }
 
 // PolicySelectionInput is the per-request selection envelope. The
