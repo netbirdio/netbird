@@ -28,7 +28,9 @@ type State struct {
 	changed chan struct{}
 }
 
-// New creates a State that starts online.
+// New creates a State that starts online. Platforms without network tracking
+// pass a nil *State instead: the read methods treat nil as always online and
+// never block, so consumers need no nil guards.
 func New() *State {
 	return &State{
 		online:  true,
@@ -37,7 +39,8 @@ func New() *State {
 }
 
 // Set records whether the OS reports any usable network. Transitions wake up
-// all Wait callers immediately.
+// all Wait callers immediately. Unlike the read methods, Set is not nil-safe:
+// it is only for the platform owner that created the State with New.
 func (s *State) Set(online bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
