@@ -81,14 +81,17 @@ Two roles delegate Agent Network access without account-admin rights:
   read-only users, groups, peers, and account info (needed to build policies).
   Nothing else in the account.
 - **`usage_viewer`** — the regular User baseline plus read on
-  `agent_network.usage` (the aggregated usage and cost overview). No provider
-  configuration, no policies, no request-level access logs.
+  `agent_network.usage` (the aggregated usage and cost overview) and read-only
+  access to the resources the usage filters resolve against: users, groups,
+  peers, and the provider list. No policies, no request-level access logs.
 
 Every authenticated user, regardless of role, can read the caller-scoped
-self-service endpoints: `GET /api/agent-network/me/setup` (the endpoint, providers,
+self-service endpoint `GET /api/agent-network/me/setup` (the endpoint, providers,
 and models the caller's own policies allow — what a local AI tool needs and nothing
-more) and `GET /api/agent-network/me/usage/overview` (the caller's own usage,
-aggregated exactly like the admin overview). Role definitions live in
+more). The regular usage and access-log endpoints self-scope instead of denying:
+a caller without the account-wide grant gets their own rows back, so "my usage"
+and "my requests" are the same endpoints the admin dashboard uses. Role
+definitions live in
 [`management/server/permissions/roles/`](../management/server/permissions/roles).
 
 ## Documentation

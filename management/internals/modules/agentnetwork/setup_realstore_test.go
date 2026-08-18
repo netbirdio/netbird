@@ -10,6 +10,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
+	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/store"
 	nbtypes "github.com/netbirdio/netbird/management/server/types"
 )
@@ -279,14 +280,24 @@ func TestGetSetupForUser_RealStore(t *testing.T) {
 	assert.False(t, setupOut.Configured, "user outside the policy's source groups gets the not-configured answer")
 }
 
-// TestGetUsageOverviewForUser_RealStore pins the own-usage scope: the same
-// aggregation the admin overview serves, but only ever the caller's rows —
-// a user_id filter for someone else must be overridden, not honored.
-func TestGetUsageOverviewForUser_RealStore(t *testing.T) {
+// TestGetUsageOverview_RealStore_SelfScoped pins the self-scope fallback:
+// a caller without the account-wide usage grant gets the same aggregation
+// the admin overview serves, but only ever their own rows — a user_id
+// filter for someone else must be overridden, not honored, and never
+// denied. A caller holding the grant keeps the account-wide view.
+func TestGetUsageOverview_RealStore_SelfScoped(t *testing.T) {
 	mgr, s := newSetupTestMgr(t)
+	mgr.permissionsManager = permissions.NewManager(s)
 	ctx := context.Background()
 
 	require.NoError(t, s.SaveAgentNetworkSettings(ctx, newSynthTestSettings()))
+	require.NoError(t, s.SaveAccount(ctx, &nbtypes.Account{Id: testAccountID}))
+	require.NoError(t, s.SaveUser(ctx, &nbtypes.User{
+		Id: "user-a", AccountID: testAccountID, Role: nbtypes.UserRoleUser,
+	}))
+	require.NoError(t, s.SaveUser(ctx, &nbtypes.User{
+		Id: "admin", AccountID: testAccountID, Role: nbtypes.UserRoleAdmin,
+	}))
 
 	own1 := newIngestTestEntry()
 	own1.ID, own1.UserId = "log-own-1", "user-a"
@@ -300,9 +311,14 @@ func TestGetUsageOverviewForUser_RealStore(t *testing.T) {
 
 	otherID := "user-b"
 	filter := types.AgentNetworkAccessLogFilter{UserID: &otherID}
-	buckets, err := mgr.GetUsageOverviewForUser(ctx, testAccountID, "user-a", filter, types.ParseUsageGranularity(""))
+	buckets, err := mgr.GetUsageOverview(ctx, testAccountID, "user-a", filter, types.ParseUsageGranularity(""))
 	require.NoError(t, err)
 	require.Len(t, buckets, 1, "same-day rows aggregate into one daily bucket")
 	assert.Equal(t, int64(200), buckets[0].InputTokens, "only the caller's two rows count — the foreign user_id filter is overridden")
 	assert.Equal(t, int64(100), buckets[0].OutputTokens)
+
+	adminBuckets, err := mgr.GetUsageOverview(ctx, testAccountID, "admin", types.AgentNetworkAccessLogFilter{}, types.ParseUsageGranularity(""))
+	require.NoError(t, err)
+	require.Len(t, adminBuckets, 1)
+	assert.Equal(t, int64(300), adminBuckets[0].InputTokens, "the account-wide grant keeps the unscoped view")
 }

@@ -13444,7 +13444,7 @@ paths:
   /api/agent-network/access-logs:
     get:
       summary: List Agent Network access logs
-      description: Returns a paginated, server-side-filtered list of agent-network (LLM) access log entries. Available only when the account has log collection enabled; otherwise entries are not retained.
+      description: Returns a paginated, server-side-filtered list of agent-network (LLM) access log entries. Available only when the account has log collection enabled; otherwise entries are not retained. Callers without the account-wide grant are not denied - the response is scoped to their own requests (any user_id or group_id filter is overridden).
       tags: [ Agent Network ]
       security:
         - BearerAuth: [ ]
@@ -13559,7 +13559,7 @@ paths:
   /api/agent-network/access-log-sessions:
     get:
       summary: List Agent Network access logs grouped by session
-      description: Returns a paginated, server-side-filtered list of agent-network (LLM) access logs grouped by session. The page unit is a session (total_records counts sessions); each session carries an aggregate summary and its ordered entries. Requests the client sent no session id for each form their own singleton group. Accepts the same filters as the flat access-logs endpoint. Available only when the account has log collection enabled.
+      description: Returns a paginated, server-side-filtered list of agent-network (LLM) access logs grouped by session. The page unit is a session (total_records counts sessions); each session carries an aggregate summary and its ordered entries. Requests the client sent no session id for each form their own singleton group. Accepts the same filters as the flat access-logs endpoint. Available only when the account has log collection enabled. Callers without the account-wide grant are not denied - the response is scoped to their own requests (any user_id or group_id filter is overridden).
       tags: [ Agent Network ]
       security:
         - BearerAuth: [ ]
@@ -13674,7 +13674,7 @@ paths:
   /api/agent-network/usage/overview:
     get:
       summary: Agent Network usage overview
-      description: Returns agent-network token and cost usage aggregated into time buckets, server-side filtered. Usage is always collected (independent of log collection).
+      description: Returns agent-network token and cost usage aggregated into time buckets, server-side filtered. Usage is always collected (independent of log collection). Callers without the account-wide grant are not denied - the response is scoped to their own usage (any user_id or group_id filter is overridden).
       tags: [ Agent Network ]
       security:
         - BearerAuth: [ ]
@@ -13789,47 +13789,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AgentNetworkMeSetup'
-        '401':
-          "$ref": "#/components/responses/requires_authentication"
-        '500':
-          "$ref": "#/components/responses/internal_error"
-  /api/agent-network/me/usage/overview:
-    get:
-      summary: The caller's own Agent Network usage overview
-      description: Returns the same aggregated time-bucket usage as /api/agent-network/usage/overview, pinned server-side to the calling user's own rows (any user_id or group_id filter is overridden). Available to every authenticated user regardless of role. Empty list when the caller has not consumed anything yet.
-      tags: [ Agent Network ]
-      security:
-        - BearerAuth: [ ]
-        - TokenAuth: [ ]
-      parameters:
-        - in: query
-          name: granularity
-          schema:
-            type: string
-            enum: [day, week, month]
-            default: day
-          description: Time bucket width. Defaults to day.
-        - in: query
-          name: start_date
-          schema:
-            type: string
-            format: date-time
-          description: Filter by timestamp >= start_date (RFC3339 format).
-        - in: query
-          name: end_date
-          schema:
-            type: string
-            format: date-time
-          description: Filter by timestamp <= end_date (RFC3339 format).
-      responses:
-        '200':
-          description: A JSON Array of usage buckets for the calling user
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/AgentNetworkUsageBucket'
         '401':
           "$ref": "#/components/responses/requires_authentication"
         '500':

@@ -24,22 +24,6 @@ func (m *managerImpl) GetSetupForUser(ctx context.Context, accountID, userID str
 	return m.effectiveSetupForGroups(ctx, accountID, user.AutoGroups)
 }
 
-// GetUsageOverviewForUser returns the same aggregated usage buckets the
-// admin overview serves, pinned to the caller's own rows: the filter's
-// user id is forced to the caller and any group filter is dropped, which
-// is tighter than any role gate — so, like GetSetupForUser, no permission
-// check. The response shape is identical to GetUsageOverview so the
-// dashboard renders both views with the same component.
-func (m *managerImpl) GetUsageOverviewForUser(ctx context.Context, accountID, userID string, filter types.AgentNetworkAccessLogFilter, granularity types.UsageGranularity) ([]*types.AgentNetworkUsageBucket, error) {
-	filter.UserID = &userID
-	filter.GroupIDs = nil
-	rows, err := m.store.GetAgentNetworkUsageRows(ctx, store.LockingStrengthNone, accountID, filter)
-	if err != nil {
-		return nil, err
-	}
-	return types.AggregateUsageByGranularity(rows, granularity), nil
-}
-
 // effectiveSetupForGroups computes the effective Agent Network setup for
 // a set of caller groups: the account endpoint plus, per authorized
 // provider, the effective model set. It mirrors what the proxy enforces
@@ -252,9 +236,4 @@ func declaredModelIDs(provider *types.Provider) []string {
 // that don't care about setup still compile.
 func (*mockManager) GetSetupForUser(_ context.Context, _, _ string) (*types.EffectiveSetup, error) {
 	return &types.EffectiveSetup{Providers: []types.EffectiveProvider{}}, nil
-}
-
-// GetUsageOverviewForUser on the mock manager returns no buckets.
-func (*mockManager) GetUsageOverviewForUser(_ context.Context, _, _ string, _ types.AgentNetworkAccessLogFilter, _ types.UsageGranularity) ([]*types.AgentNetworkUsageBucket, error) {
-	return nil, nil
 }

@@ -84,11 +84,12 @@ type Manager interface {
 	RecordUsage(ctx context.Context, in RecordUsageInput) error
 	SelectPolicyForRequest(ctx context.Context, in PolicySelectionInput) (*PolicySelectionResult, error)
 
-	// GetSetupForUser and GetUsageOverviewForUser back the self-service
-	// "My Agent Network" endpoints. Both are caller-scoped and skip the
-	// role permission gate; see the implementations.
+	// GetSetupForUser backs the self-service "My Agent Network" setup
+	// endpoint. Caller-scoped, so it skips the role permission gate; see
+	// the implementation. The caller's own usage and requests come
+	// through GetUsageOverview / ListAccessLogs, which self-scope when
+	// the account-wide grant is missing.
 	GetSetupForUser(ctx context.Context, accountID, userID string) (*types.EffectiveSetup, error)
-	GetUsageOverviewForUser(ctx context.Context, accountID, userID string, filter types.AgentNetworkAccessLogFilter, granularity types.UsageGranularity) ([]*types.AgentNetworkUsageBucket, error)
 }
 
 // PolicySelectionInput is the per-request selection envelope. The
@@ -907,8 +908,11 @@ func (m *managerImpl) ListConsumption(ctx context.Context, accountID, userID str
 
 // ListAccessLogs returns a paginated, server-side-filtered page of
 // agent-network access logs plus the total count matching the filter.
+// Callers without the account-wide logs grant get a self-scoped page —
+// only their own requests — instead of a denial.
 func (m *managerImpl) ListAccessLogs(ctx context.Context, accountID, userID string, filter types.AgentNetworkAccessLogFilter) ([]*types.AgentNetworkAccessLog, int64, error) {
-	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkLogs, operations.Read); err != nil {
+	filter, err := m.scopeFilterToCaller(ctx, accountID, userID, modules.AgentNetworkLogs, filter)
+	if err != nil {
 		return nil, 0, err
 	}
 	return m.store.GetAgentNetworkAccessLogs(ctx, store.LockingStrengthNone, accountID, filter)
@@ -916,18 +920,23 @@ func (m *managerImpl) ListAccessLogs(ctx context.Context, accountID, userID stri
 
 // ListAccessLogSessions returns a paginated, server-side-filtered page of
 // agent-network access logs grouped by session, plus the total number of
-// sessions matching the filter.
+// sessions matching the filter. Self-scoped like ListAccessLogs for
+// callers without the account-wide logs grant.
 func (m *managerImpl) ListAccessLogSessions(ctx context.Context, accountID, userID string, filter types.AgentNetworkAccessLogFilter) ([]*types.AgentNetworkAccessLogSession, int64, error) {
-	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkLogs, operations.Read); err != nil {
+	filter, err := m.scopeFilterToCaller(ctx, accountID, userID, modules.AgentNetworkLogs, filter)
+	if err != nil {
 		return nil, 0, err
 	}
 	return m.store.GetAgentNetworkAccessLogSessions(ctx, store.LockingStrengthNone, accountID, filter)
 }
 
 // GetUsageOverview returns the filtered usage rows aggregated into time buckets
-// at the requested granularity, oldest-first.
+// at the requested granularity, oldest-first. Callers without the
+// account-wide usage grant get their own rows aggregated instead of a
+// denial, so the dashboard serves "my usage" from the same endpoint.
 func (m *managerImpl) GetUsageOverview(ctx context.Context, accountID, userID string, filter types.AgentNetworkAccessLogFilter, granularity types.UsageGranularity) ([]*types.AgentNetworkUsageBucket, error) {
-	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkUsage, operations.Read); err != nil {
+	filter, err := m.scopeFilterToCaller(ctx, accountID, userID, modules.AgentNetworkUsage, filter)
+	if err != nil {
 		return nil, err
 	}
 	rows, err := m.store.GetAgentNetworkUsageRows(ctx, store.LockingStrengthNone, accountID, filter)
@@ -935,6 +944,25 @@ func (m *managerImpl) GetUsageOverview(ctx context.Context, accountID, userID st
 		return nil, err
 	}
 	return types.AggregateUsageByGranularity(rows, granularity), nil
+}
+
+// scopeFilterToCaller applies the account-wide read gate for module and,
+// when the caller lacks the grant, pins the filter to the caller instead
+// of denying: their own user id replaces any requested one and group
+// filters are dropped. A caller may always see their own rows — strictly
+// tighter than any role gate — which is what lets every authenticated
+// user read their usage and requests through the regular endpoints.
+// Validation errors (not denials) still fail closed.
+func (m *managerImpl) scopeFilterToCaller(ctx context.Context, accountID, userID string, module modules.Module, filter types.AgentNetworkAccessLogFilter) (types.AgentNetworkAccessLogFilter, error) {
+	ok, _, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, module, operations.Read)
+	if err != nil {
+		return filter, status.NewPermissionValidationError(err)
+	}
+	if !ok {
+		filter.UserID = &userID
+		filter.GroupIDs = nil
+	}
+	return filter, nil
 }
 
 // StartAccessLogCleanup launches a background sweep that periodically deletes

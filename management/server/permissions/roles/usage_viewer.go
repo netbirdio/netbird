@@ -7,10 +7,12 @@ import (
 )
 
 // UsageViewer is the regular User baseline plus read access to the
-// aggregated Agent Network usage and cost overview. It sees no provider
-// configuration, no policies, and no request-level access logs (which can
-// contain captured prompts): usage rows carry user and group display names
-// in the response itself, so no team-wide read access is needed.
+// aggregated Agent Network usage and cost overview, and read-only access
+// to the resources the usage filters and display columns resolve against:
+// users and groups (identity filters and name resolution), peers (agent
+// principals in the caller column), and the provider list (provider and
+// model filter options). It sees no policies and no request-level access
+// logs (which can contain captured prompts).
 var UsageViewer = RolePermissions{
 	Role: types.UserRoleUsageViewer,
 	AutoAllowNew: map[operations.Operation]bool{
@@ -21,6 +23,30 @@ var UsageViewer = RolePermissions{
 	},
 	Permissions: Permissions{
 		modules.AgentNetworkUsage: {
+			operations.Read:   true,
+			operations.Create: false,
+			operations.Update: false,
+			operations.Delete: false,
+		},
+		modules.AgentNetworkProviders: {
+			operations.Read:   true,
+			operations.Create: false,
+			operations.Update: false,
+			operations.Delete: false,
+		},
+		modules.Users: {
+			operations.Read:   true,
+			operations.Create: false,
+			operations.Update: false,
+			operations.Delete: false,
+		},
+		modules.Groups: {
+			operations.Read:   true,
+			operations.Create: false,
+			operations.Update: false,
+			operations.Delete: false,
+		},
+		modules.Peers: {
 			operations.Read:   true,
 			operations.Create: false,
 			operations.Update: false,
