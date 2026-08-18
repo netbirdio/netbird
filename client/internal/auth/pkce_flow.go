@@ -87,10 +87,11 @@ func validatePKCEConfig(config *PKCEAuthProviderConfig) error {
 // PKCEAuthorizationFlow implements the OAuthFlow interface for
 // the Authorization Code Flow with PKCE.
 type PKCEAuthorizationFlow struct {
-	providerConfig PKCEAuthProviderConfig
-	state          string
-	codeVerifier   string
-	oAuthConfig    *oauth2.Config
+	providerConfig     PKCEAuthProviderConfig
+	state              string
+	codeVerifier       string
+	oAuthConfig        *oauth2.Config
+	forceAccountPrompt bool
 }
 
 // NewPKCEAuthorizationFlow returns new PKCE authorization code flow.
@@ -154,10 +155,12 @@ func (p *PKCEAuthorizationFlow) RequestAuthInfo(ctx context.Context) (AuthFlowIn
 		oauth2.SetAuthURLParam("audience", p.providerConfig.Audience),
 	}
 	if !p.providerConfig.DisablePromptLogin {
-		switch p.providerConfig.LoginFlag {
-		case common.LoginFlagPromptLogin:
+		switch {
+		case p.forceAccountPrompt:
 			params = append(params, oauth2.SetAuthURLParam("prompt", "login"))
-		case common.LoginFlagMaxAge0:
+		case p.providerConfig.LoginFlag == common.LoginFlagPromptLogin:
+			params = append(params, oauth2.SetAuthURLParam("prompt", "login"))
+		case p.providerConfig.LoginFlag == common.LoginFlagMaxAge0:
 			params = append(params, oauth2.SetAuthURLParam("max_age", "0"))
 		}
 	}
@@ -176,6 +179,17 @@ func (p *PKCEAuthorizationFlow) RequestAuthInfo(ctx context.Context) (AuthFlowIn
 // SetLoginHint sets the login hint for the PKCE authorization flow
 func (p *PKCEAuthorizationFlow) SetLoginHint(hint string) {
 	p.providerConfig.LoginHint = hint
+}
+
+// ForceAccountPrompt makes the next authorization request ask the IdP to
+// re-authenticate instead of answering from the session it already holds. Used
+// to retry a login that came back for an account other than the one hinted.
+//
+// DisablePromptLogin still wins: it is set for IdPs that break on prompt=login,
+// where retrying with it would replace a wrong-account login with one that
+// cannot complete at all.
+func (p *PKCEAuthorizationFlow) ForceAccountPrompt() {
+	p.forceAccountPrompt = true
 }
 
 // WaitToken waits for the OAuth token in the PKCE Authorization Flow.
@@ -321,10 +335,10 @@ func (p *PKCEAuthorizationFlow) parseOAuthToken(token *oauth2.Token) (TokenInfo,
 }
 
 // parseEmailFromIDToken extracts the email (or name) claim from an ID token
-// without verifying its signature. The value is best-effort and used only as a
-// UX convenience (login hint prefill and display); it never drives an
-// authorization decision. The authoritative identity is established server-side
-// from the signature-verified token.
+// without verifying its signature. The value is best-effort: it prefills the
+// login hint, is displayed, and is compared against the account a profile is
+// bound to (see MatchesAccount). It never grants anything — the authoritative
+// identity is established server-side from the signature-verified token.
 func parseEmailFromIDToken(token string) (string, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) < 2 {
@@ -340,19 +354,14 @@ func parseEmailFromIDToken(token string) (string, error) {
 		return "", fmt.Errorf("json unmarshal error: %w", err)
 	}
 
-	var email string
-	if emailValue, ok := claims["email"].(string); ok {
-		email = emailValue
-	} else {
-		val, ok := claims["name"].(string)
-		if ok {
-			email = val
-		} else {
-			return "", fmt.Errorf("email or name field not found in token payload")
-		}
+	if email, ok := claims["email"].(string); ok {
+		return email, nil
+	}
+	if name, ok := claims["name"].(string); ok {
+		return name, nil
 	}
 
-	return email, nil
+	return "", fmt.Errorf("email or name field not found in token payload")
 }
 
 func createCodeChallenge(codeVerifier string) string {

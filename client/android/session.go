@@ -293,11 +293,13 @@ func (c *Client) extendAuthSession(ctx context.Context, urlOpener URLOpener, isA
 	}
 	defer authClient.Close()
 
-	// Passing the config path makes the flow pick up the login_hint: an extend
-	// renews the session of the account already signed in, so it must not stop to
-	// offer a choice.
+	// Passing the config path makes the flow pick up the login_hint. That alone
+	// cannot keep the IdP on this profile's account though — a hint is only a
+	// suggestion, and a silent authorization is answered from whatever session the
+	// IdP already has, which need not be this peer's when several accounts are
+	// signed in. Marking the flow as an extend lets the server rule that out.
 	a := NewAuthWithConfig(ctx, cfg, cfgPath)
-	tokenInfo, err := a.foregroundGetTokenInfo(authClient, urlOpener, isAndroidTV)
+	tokenInfo, err := a.foregroundGetTokenInfoFlow(authClient, urlOpener, isAndroidTV, true)
 	if err != nil {
 		return fmt.Errorf("interactive sso login failed: %v", err)
 	}
