@@ -16,12 +16,12 @@ func TestWaitForNetworkSettlesAfterOutage(t *testing.T) {
 	g := NewGuard(nil, 0, ns)
 
 	const outage = 2 * verdictSettleWindow
+	start := time.Now()
 	go func() {
 		time.Sleep(outage)
 		ns.Set(true)
 	}()
 
-	start := time.Now()
 	ok := g.waitForNetwork(context.Background())
 	elapsed := time.Since(start)
 
