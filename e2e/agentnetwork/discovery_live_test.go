@@ -74,6 +74,25 @@ func TestLiveModelDiscovery(t *testing.T) {
 	}
 }
 
+// discoveryOutcome is what a discovery request must produce end to end. The
+// three are genuinely different contracts, not degrees of success: only the
+// first puts a bounded listing in front of the caller.
+type discoveryOutcome int
+
+const (
+	// outcomeFiltered: the proxy routes the request and bounds the response to
+	// what the caller may use.
+	outcomeFiltered discoveryOutcome = iota
+	// outcomeDenied: no provider of this shape can serve the surface, so the
+	// proxy refuses rather than rewriting the request onto an upstream that
+	// would 404 it. The caller gets a NetBird error, not a vendor one.
+	outcomeDenied
+	// outcomeUpstreamNoListing: the proxy routes the request to the configured
+	// upstream, and the vendor does not implement the endpoint there. Proxy
+	// side correct, product side a dead end — see the Bedrock case.
+	outcomeUpstreamNoListing
+)
+
 // liveDiscoveryCase is one provider's discovery surface and what the proxy
 // must make of it.
 type liveDiscoveryCase struct {
@@ -97,12 +116,8 @@ type liveDiscoveryCase struct {
 	// applies, and the only one a provider record alone cannot demonstrate.
 	allowlist []string
 
-	// routed is false for a surface the proxy must refuse outright because no
-	// provider of this shape can serve it.
-	routed bool
-	// filtered is false where the proxy routes the surface but applies no
-	// model bound to the response.
-	filtered bool
+	// outcome is what this surface must produce end to end.
+	outcome discoveryOutcome
 
 	// permitted is every id allowed to survive filtering, in the form the
 	// provider record registers it. A surviving id counts as permitted when it
@@ -127,10 +142,10 @@ func liveDiscoveryCases() []liveDiscoveryCase {
 	if k := os.Getenv("OPENAI_TOKEN"); k != "" {
 		cases = append(cases, liveDiscoveryCase{
 			name: "openai", catalogID: "openai_api", upstream: "https://api.openai.com", apiKey: k,
-			path:      "/v1/models",
-			models:    []string{"gpt-4o-mini", "gpt-4o"},
-			allowlist: []string{"gpt-4o-mini"},
-			routed:    true, filtered: true,
+			path:       "/v1/models",
+			models:     []string{"gpt-4o-mini", "gpt-4o"},
+			allowlist:  []string{"gpt-4o-mini"},
+			outcome:    outcomeFiltered,
 			permitted:  []string{"gpt-4o-mini"},
 			wantHidden: []string{"gpt-4o"},
 		})
@@ -143,18 +158,28 @@ func liveDiscoveryCases() []liveDiscoveryCase {
 	if k := os.Getenv("ANTHROPIC_TOKEN"); k != "" {
 		cases = append(cases, liveDiscoveryCase{
 			name: "anthropic", catalogID: "anthropic_api", upstream: "https://api.anthropic.com", apiKey: k,
-			path:    "/v1/models",
-			headers: []string{"anthropic-version: 2023-06-01"},
-			models:  []string{"claude-haiku-4-5"},
-			routed:  true, filtered: true,
+			path:      "/v1/models",
+			headers:   []string{"anthropic-version: 2023-06-01"},
+			models:    []string{"claude-haiku-4-5"},
+			outcome:   outcomeFiltered,
 			permitted: []string{"claude-haiku-4-5"},
 		})
 	}
 
 	// Bedrock lists inference profiles, not models: matchModelless routes
 	// /inference-profiles to a Bedrock route and refuses /v1/models for one.
-	// Filtering is keyed on /v1/models alone, so this response is routed but
-	// NOT bounded — asserted below, and worth knowing rather than assuming.
+	//
+	// The request reaches AWS and AWS refuses it — bedrock-runtime answers
+	// <UnknownOperationException/>, because ListInferenceProfiles is a CONTROL
+	// PLANE operation served by bedrock.<region>.amazonaws.com, not the runtime
+	// host. A provider record carries one upstream and it has to be the runtime
+	// host for InvokeModel to work, so no Bedrock record can serve a listing as
+	// the model stands today.
+	//
+	// The mock upstream hides this entirely: it answers /inference-profiles on
+	// the same listener as everything else, so the routing test passes there
+	// while the real endpoint 404s. That is the whole reason this file exists,
+	// so the case is kept, asserting what actually happens.
 	if k := os.Getenv("AWS_BEARER_TOKEN_BEDROCK"); k != "" {
 		region := os.Getenv("AWS_REGION")
 		if region == "" {
@@ -167,9 +192,9 @@ func liveDiscoveryCases() []liveDiscoveryCase {
 		cases = append(cases, liveDiscoveryCase{
 			name: "bedrock", catalogID: "bedrock_api",
 			upstream: "https://bedrock-runtime." + region + ".amazonaws.com", apiKey: k,
-			path:   "/inference-profiles",
-			models: []string{sharedllm.NormalizeAnthropicModel(strings.TrimPrefix(model, "global."))},
-			routed: true, filtered: false,
+			path:    "/inference-profiles",
+			models:  []string{sharedllm.NormalizeAnthropicModel(strings.TrimPrefix(model, "global."))},
+			outcome: outcomeUpstreamNoListing,
 		})
 	}
 
@@ -188,9 +213,9 @@ func liveDiscoveryCases() []liveDiscoveryCase {
 			}
 			cases = append(cases, liveDiscoveryCase{
 				name: "vertex", catalogID: "vertex_ai_api", upstream: "https://" + host,
-				apiKey: "keyfile::" + sa,
-				path:   "/v1/models",
-				routed: false,
+				apiKey:  "keyfile::" + sa,
+				path:    "/v1/models",
+				outcome: outcomeDenied,
 			})
 		}
 	}
@@ -269,12 +294,28 @@ func provisionLiveDiscovery(t *testing.T, ctx context.Context, tc *liveDiscovery
 func runLiveDiscoveryCase(t *testing.T, ctx context.Context, tc liveDiscoveryCase, cl *harness.Client, endpoint, proxyIP string) {
 	t.Helper()
 
-	if !tc.routed {
+	// A single request is enough for the two non-listing outcomes, and retrying
+	// them would burn the retry window waiting for a status that is never
+	// coming.
+	if tc.outcome != outcomeFiltered {
 		code, body, err := cl.Get(ctx, endpoint, proxyIP, tc.path, tc.headers)
 		require.NoError(t, err, "request must reach the proxy")
 		t.Logf("[discovery] %s GET %s -> %d; body: %s", tc.name, tc.path, code, truncate(body, 2000))
 		assert.NotEqual(t, 200, code,
-			"%s serves no model listing, so the proxy must refuse discovery rather than rewrite it onto an upstream that would 404; body: %s",
+			"%s serves no bounded listing, so a 200 here would mean the caller was handed a picker nothing narrows; body: %s",
+			tc.name, truncate(body, 2000))
+
+		// Which side refused is the whole distinction between these two
+		// outcomes, and a NetBird error is the thing that tells them apart: the
+		// middleware chain stamps its own name on anything it generates.
+		if tc.outcome == outcomeDenied {
+			assert.True(t, isProxyError(body),
+				"%s serves no listing endpoint at all, so the proxy must refuse the request itself rather than forward it to an upstream that would answer for us; body: %s",
+				tc.name, truncate(body, 2000))
+			return
+		}
+		assert.False(t, isProxyError(body),
+			"%s discovery must be routed to the configured upstream and refused by the vendor, not blocked by the proxy; body: %s",
 			tc.name, truncate(body, 2000))
 		return
 	}
@@ -286,25 +327,11 @@ func runLiveDiscoveryCase(t *testing.T, ctx context.Context, tc liveDiscoveryCas
 	require.Equal(t, 200, code, "%s discovery must be served; body: %s", tc.name, truncate(body, 2000))
 
 	ids, ok := listingIDs(body)
-	if !ok {
-		t.Logf("[discovery] %s: response is not a {\"data\":[{\"id\":…}]} listing; nothing to bound", tc.name)
-		// A shape the filter cannot parse is forwarded untouched by design. Say
-		// so plainly rather than failing: the contract is that the client gets
-		// the upstream's own answer, not a corrupted rewrite.
-		assert.False(t, tc.filtered,
-			"%s was expected to return a filterable listing but did not; body: %s", tc.name, truncate(body, 2000))
-		return
-	}
+	require.Truef(t, ok,
+		"%s answered discovery with something other than a {\"data\":[{\"id\":…}]} listing, which the filter forwards untouched — the caller would get an unbounded picker; body: %s",
+		tc.name, truncate(body, 2000))
 	sort.Strings(ids)
 	t.Logf("[discovery] %s: %d ids after filtering: %s", tc.name, len(ids), strings.Join(ids, ", "))
-
-	if !tc.filtered {
-		// Routed but not bounded. Recorded as an assertion so that the day
-		// filtering does extend to this surface, this test is what tells us.
-		t.Logf("[discovery] %s: surface is routed but NOT model-bounded (filtering keys on /v1/models only)", tc.name)
-		assert.NotEmpty(t, ids, "%s must return the upstream's own listing untouched", tc.name)
-		return
-	}
 
 	require.NotEmpty(t, ids, "%s filtered the listing down to nothing; the caller would see an empty picker", tc.name)
 
@@ -323,6 +350,15 @@ func runLiveDiscoveryCase(t *testing.T, ctx context.Context, tc liveDiscoveryCas
 		assert.NotContainsf(t, ids, hidden,
 			"%s offered %q, which the provider enumerates but the policy does not permit", tc.name, hidden)
 	}
+}
+
+// isProxyError reports whether a response body was generated by the middleware
+// chain rather than forwarded from a vendor. Every chain-generated error names
+// the middleware that raised it, which no upstream's error body does — so this
+// separates "the proxy refused" from "the proxy routed it and the vendor
+// refused", the two failures that otherwise look alike from the client side.
+func isProxyError(body string) bool {
+	return strings.Contains(body, `"middleware":`)
 }
 
 // listingIDs pulls the model ids out of a listing response. ok is false when
