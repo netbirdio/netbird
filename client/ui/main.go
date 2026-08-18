@@ -140,8 +140,8 @@ func main() {
 	})
 
 	windowManager := services.NewWindowManager(app, nil, bundle, prefStore, iconWindow)
-	windowManager.SetMainFactory(func() *application.WebviewWindow {
-		return newMainWindow(app, prefStore, windowManager)
+	windowManager.SetMainFactory(func(startURL string) *application.WebviewWindow {
+		return newMainWindow(app, prefStore, windowManager, startURL)
 	})
 	registerDockReopenHook(app, windowManager)
 	// Minimal WMs (XEmbed-tray path) neither center small windows nor restore
@@ -338,7 +338,7 @@ func registerServices(app *application.App, conn *Conn, s registeredServices) {
 	app.RegisterService(application.NewService(s.compat))
 }
 
-func newMainWindow(app *application.App, prefStore *preferences.Store, wm *services.WindowManager) *application.WebviewWindow {
+func newMainWindow(app *application.App, prefStore *preferences.Store, wm *services.WindowManager, startURL string) *application.WebviewWindow {
 	// Width matches the last view mode so Advanced-mode users don't see the
 	// window pop from 380px to 900px on launch. Height is mode-agnostic.
 	initialWidth := 380
@@ -355,7 +355,7 @@ func newMainWindow(app *application.App, prefStore *preferences.Store, wm *servi
 		InitialPosition:     application.WindowCentered,
 		Hidden:              true,
 		BackgroundColour:    services.WindowBackgroundColour,
-		URL:                 "/",
+		URL:                 startURL,
 		DisableResize:       true,
 		MinimiseButtonState: application.ButtonHidden,
 		MaximiseButtonState: application.ButtonHidden,

@@ -115,7 +115,7 @@ type WindowManager struct {
 	hiddenForLogin []application.Window
 	mu             sync.Mutex
 	createMu       sync.Mutex
-	newMain        func() *application.WebviewWindow
+	newMain        func(startURL string) *application.WebviewWindow
 	ready          map[uint]bool
 	showPending    map[uint]bool
 	pendingTab     map[uint]string
@@ -192,7 +192,7 @@ func (s *WindowManager) OpenSettings(tab string) {
 		target = "general"
 	}
 
-	w := s.ensureWindow(&s.settings, s.newSettingsWindow)
+	w, _ := s.ensureWindow(&s.settings, s.newSettingsWindow)
 
 	s.mu.Lock()
 	ready := s.ready[w.ID()]
@@ -494,13 +494,23 @@ func (s *WindowManager) ShowMainAndEmit(event string) {
 }
 
 func (s *WindowManager) MainWindow() *application.WebviewWindow {
+	w, _ := s.ensureMain("/")
+	return w
+}
+
+func (s *WindowManager) ensureMain(startURL string) (*application.WebviewWindow, bool) {
 	s.mu.Lock()
 	factory := s.newMain
 	s.mu.Unlock()
-	return s.ensureWindow(&s.mainWindow, factory)
+	if factory == nil {
+		return s.ensureWindow(&s.mainWindow, nil)
+	}
+	return s.ensureWindow(&s.mainWindow, func() *application.WebviewWindow {
+		return factory(startURL)
+	})
 }
 
-func (s *WindowManager) ensureWindow(slot **application.WebviewWindow, factory func() *application.WebviewWindow) *application.WebviewWindow {
+func (s *WindowManager) ensureWindow(slot **application.WebviewWindow, factory func() *application.WebviewWindow) (*application.WebviewWindow, bool) {
 	s.createMu.Lock()
 	defer s.createMu.Unlock()
 
@@ -508,7 +518,7 @@ func (s *WindowManager) ensureWindow(slot **application.WebviewWindow, factory f
 	w := *slot
 	s.mu.Unlock()
 	if w != nil || factory == nil {
-		return w
+		return w, false
 	}
 
 	w = factory()
@@ -517,7 +527,7 @@ func (s *WindowManager) ensureWindow(slot **application.WebviewWindow, factory f
 	s.mu.Lock()
 	*slot = w
 	s.mu.Unlock()
-	return w
+	return w, true
 }
 
 func (s *WindowManager) armReady(w *application.WebviewWindow) {
@@ -639,15 +649,17 @@ func (s *WindowManager) showNow(w *application.WebviewWindow) {
 }
 
 func (s *WindowManager) ShowMainAt(url string) {
-	w := s.MainWindow()
+	w, created := s.ensureMain(url)
 	if w == nil {
 		return
 	}
-	w.SetURL(url)
+	if !created {
+		w.SetURL(url)
+	}
 	s.showWhenReady(w)
 }
 
-func (s *WindowManager) SetMainFactory(f func() *application.WebviewWindow) {
+func (s *WindowManager) SetMainFactory(f func(startURL string) *application.WebviewWindow) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.newMain = f
