@@ -114,6 +114,7 @@ type WindowManager struct {
 	// hiddenForLogin holds windows hidden while the BrowserLogin popup is open, restored on close.
 	hiddenForLogin []application.Window
 	mu             sync.Mutex
+	createMu       sync.Mutex
 	newMain        func() *application.WebviewWindow
 	ready          map[uint]bool
 	showPending    map[uint]bool
@@ -189,13 +190,9 @@ func (s *WindowManager) OpenSettings(tab string) {
 		target = "general"
 	}
 
+	w := s.ensureWindow(&s.settings, s.newSettingsWindow)
+
 	s.mu.Lock()
-	fresh := s.settings == nil
-	if fresh {
-		s.settings = s.newSettingsWindow()
-		s.armReady(s.settings)
-	}
-	w := s.settings
 	ready := s.ready[w.ID()]
 	if !ready {
 		s.pendingTab[w.ID()] = target
@@ -475,12 +472,29 @@ func (s *WindowManager) ShowMain() {
 
 func (s *WindowManager) MainWindow() *application.WebviewWindow {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.mainWindow == nil && s.newMain != nil {
-		s.mainWindow = s.newMain()
-		s.armReady(s.mainWindow)
+	factory := s.newMain
+	s.mu.Unlock()
+	return s.ensureWindow(&s.mainWindow, factory)
+}
+
+func (s *WindowManager) ensureWindow(slot **application.WebviewWindow, factory func() *application.WebviewWindow) *application.WebviewWindow {
+	s.createMu.Lock()
+	defer s.createMu.Unlock()
+
+	s.mu.Lock()
+	w := *slot
+	s.mu.Unlock()
+	if w != nil || factory == nil {
+		return w
 	}
-	return s.mainWindow
+
+	w = factory()
+	s.armReady(w)
+
+	s.mu.Lock()
+	*slot = w
+	s.mu.Unlock()
+	return w
 }
 
 func (s *WindowManager) armReady(w *application.WebviewWindow) {
