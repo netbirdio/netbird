@@ -1316,6 +1316,27 @@ func (e GetApiAgentNetworkAccessLogsParamsSortOrder) Valid() bool {
 	}
 }
 
+// Defines values for GetApiAgentNetworkMeUsageOverviewParamsGranularity.
+const (
+	GetApiAgentNetworkMeUsageOverviewParamsGranularityDay   GetApiAgentNetworkMeUsageOverviewParamsGranularity = "day"
+	GetApiAgentNetworkMeUsageOverviewParamsGranularityMonth GetApiAgentNetworkMeUsageOverviewParamsGranularity = "month"
+	GetApiAgentNetworkMeUsageOverviewParamsGranularityWeek  GetApiAgentNetworkMeUsageOverviewParamsGranularity = "week"
+)
+
+// Valid indicates whether the value is a known member of the GetApiAgentNetworkMeUsageOverviewParamsGranularity enum.
+func (e GetApiAgentNetworkMeUsageOverviewParamsGranularity) Valid() bool {
+	switch e {
+	case GetApiAgentNetworkMeUsageOverviewParamsGranularityDay:
+		return true
+	case GetApiAgentNetworkMeUsageOverviewParamsGranularityMonth:
+		return true
+	case GetApiAgentNetworkMeUsageOverviewParamsGranularityWeek:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for GetApiAgentNetworkUsageOverviewParamsGranularity.
 const (
 	GetApiAgentNetworkUsageOverviewParamsGranularityDay   GetApiAgentNetworkUsageOverviewParamsGranularity = "day"
@@ -5968,6 +5989,21 @@ type GetApiAgentNetworkAccessLogsParamsSortBy string
 
 // GetApiAgentNetworkAccessLogsParamsSortOrder defines parameters for GetApiAgentNetworkAccessLogs.
 type GetApiAgentNetworkAccessLogsParamsSortOrder string
+
+// GetApiAgentNetworkMeUsageOverviewParams defines parameters for GetApiAgentNetworkMeUsageOverview.
+type GetApiAgentNetworkMeUsageOverviewParams struct {
+	// Granularity Time bucket width. Defaults to day.
+	Granularity *GetApiAgentNetworkMeUsageOverviewParamsGranularity `form:"granularity,omitempty" json:"granularity,omitempty"`
+
+	// StartDate Filter by timestamp >= start_date (RFC3339 format).
+	StartDate *time.Time `form:"start_date,omitempty" json:"start_date,omitempty"`
+
+	// EndDate Filter by timestamp <= end_date (RFC3339 format).
+	EndDate *time.Time `form:"end_date,omitempty" json:"end_date,omitempty"`
+}
+
+// GetApiAgentNetworkMeUsageOverviewParamsGranularity defines parameters for GetApiAgentNetworkMeUsageOverview.
+type GetApiAgentNetworkMeUsageOverviewParamsGranularity string
 
 // GetApiAgentNetworkUsageOverviewParams defines parameters for GetApiAgentNetworkUsageOverview.
 type GetApiAgentNetworkUsageOverviewParams struct {
