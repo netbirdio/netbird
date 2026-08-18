@@ -223,17 +223,24 @@ func (g *Guard) waitForNetwork(ctx context.Context) bool {
 			case <-settle.C:
 				return true
 			case <-changedCh:
-				continue
+			case <-ctx.Done():
+				return false
+			}
+		} else {
+			select {
+			case <-budget.C:
+				return true
+			case <-changedCh:
 			case <-ctx.Done():
 				return false
 			}
 		}
-		select {
-		case <-budget.C:
-			return true
-		case <-changedCh:
-		case <-ctx.Done():
-			return false
+		if !settle.Stop() {
+			select {
+			case <-settle.C:
+			default:
+			}
 		}
+		settle.Reset(settleWindow)
 	}
 }
