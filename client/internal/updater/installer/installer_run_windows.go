@@ -307,6 +307,16 @@ func startUIInSession(uiPath string, sessionID uint32) error {
 		}
 	}()
 
+	var env *uint16
+	if err := windows.CreateEnvironmentBlock(&env, primaryToken, false); err != nil {
+		return fmt.Errorf("create environment block: %w", err)
+	}
+	defer func() {
+		if err := windows.DestroyEnvironmentBlock(env); err != nil {
+			log.Warnf("failed to destroy environment block: %v", err)
+		}
+	}()
+
 	// Prepare startup info
 	var si windows.StartupInfo
 	si.Cb = uint32(unsafe.Sizeof(si))
@@ -329,7 +339,7 @@ func startUIInSession(uiPath string, sessionID uint32) error {
 		nil,
 		false,
 		creationFlags,
-		nil,
+		env,
 		nil,
 		&si,
 		&pi,
