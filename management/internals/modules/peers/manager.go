@@ -1,6 +1,6 @@
 package peers
 
-//go:generate go run github.com/golang/mock/mockgen -package peers -destination=manager_mock.go -source=./manager.go -build_flags=-mod=mod
+//go:generate go run go.uber.org/mock/mockgen -package peers -destination=manager_mock.go -source=./manager.go -build_flags=-mod=mod
 
 import (
 	"context"

@@ -1,6 +1,6 @@
 package store
 
-//go:generate go run github.com/golang/mock/mockgen -package store -destination=store_mock.go -source=./store.go -build_flags=-mod=mod
+//go:generate go run go.uber.org/mock/mockgen -package store -destination=store_mock.go -source=./store.go -build_flags=-mod=mod
 
 import (
 	"context"

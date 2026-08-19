@@ -1,6 +1,6 @@
 package permissions
 
-//go:generate go run github.com/golang/mock/mockgen -package permissions -destination=manager_mock.go -source=./manager.go -build_flags=-mod=mod
+//go:generate go run go.uber.org/mock/mockgen -package permissions -destination=manager_mock.go -source=./manager.go -build_flags=-mod=mod
 
 import (
 	"context"
