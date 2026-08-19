@@ -242,10 +242,16 @@ func (m *Middleware) routeModelless(reqPath, surface, method string, userGroups 
 		if _, hadPrefix := splitBedrockNamespace(reqPath); hadPrefix {
 			stripBedrockNamespace(out)
 		}
-		// What the caller may actually use bounds what the picker may offer:
-		// every entry outside it is a request the chain will deny a moment
-		// later.
-		if reqPath == modelListingPath && out.Mutations != nil && out.Mutations.RewriteUpstream != nil {
+		if isListingPath(reqPath) && out.Mutations != nil && out.Mutations.RewriteUpstream != nil {
+			// A vendor that serves its listing from somewhere other than its
+			// inference upstream is redirected here, and only for the listing
+			// — every other request still goes to the configured upstream.
+			if route.DiscoveryHost != "" {
+				out.Mutations.RewriteUpstream.Host = route.DiscoveryHost
+			}
+			// What the caller may actually use bounds what the picker may
+			// offer: every entry outside it is a request the chain will deny a
+			// moment later.
 			if models, bounded := discoverableModels(route, userGroups); bounded {
 				out.Mutations.RewriteUpstream.DiscoveryModels = models
 			}
@@ -310,6 +316,20 @@ func discoverableModels(route ProviderRoute, userGroups []string) ([]string, boo
 	for _, m := range route.Models {
 		if _, ok := permitted[m]; ok {
 			intersection[m] = struct{}{}
+			continue
+		}
+		// The two sides are not always written the same way. A Bedrock record
+		// may register the raw inference-profile id an operator copied from
+		// AWS while a guardrail allowlist names the catalog key, and comparing
+		// those verbatim finds nothing — which would bound a correctly
+		// configured provider's listing down to empty. routeClaimsModel
+		// already normalises the candidate for exactly this reason, and the
+		// listing bound has to agree with it or the picker disagrees with what
+		// the guardrail will actually allow.
+		if route.Bedrock {
+			if _, ok := permitted[llm.NormalizeBedrockModel(m)]; ok {
+				intersection[m] = struct{}{}
+			}
 		}
 	}
 	return sortedModels(intersection), true
@@ -471,6 +491,14 @@ const connectionWarmPath = "/api/hello"
 // per-model "/v1/models/{id}" lookup returns a single object and is left
 // alone.
 const modelListingPath = "/v1/models"
+
+// isListingPath reports whether reqPath asks for a MODEL LISTING, as opposed
+// to the other model-less endpoints. Only a listing gets an upstream redirect
+// and a policy bound: the connection-warming probe carries no model list to
+// filter, and rewriting its host would send the warm-up to the wrong pool.
+func isListingPath(reqPath string) bool {
+	return reqPath == modelListingPath || isBedrockModelLessPath(reqPath)
+}
 
 // isModelLessPath reports whether reqPath is a known non-inference endpoint
 // that legitimately carries no model at all: the model listing and the
