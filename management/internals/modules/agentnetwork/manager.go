@@ -13,6 +13,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/labelgen"
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/modeldiscovery"
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/sessionkey"
@@ -50,6 +51,7 @@ type Manager interface {
 	CreateProvider(ctx context.Context, userID string, provider *types.Provider) (*types.Provider, error)
 	UpdateProvider(ctx context.Context, userID string, provider *types.Provider) (*types.Provider, error)
 	DeleteProvider(ctx context.Context, accountID, userID, providerID string) error
+	DiscoverProviderModels(ctx context.Context, accountID, userID string, req modeldiscovery.Request, recordID string) ([]modeldiscovery.Model, error)
 
 	GetAllPolicies(ctx context.Context, accountID, userID string) ([]*types.Policy, error)
 	GetPolicy(ctx context.Context, accountID, userID, policyID string) (*types.Policy, error)
@@ -123,6 +125,11 @@ type managerImpl struct {
 	permissionsManager permissions.Manager
 	proxyController    proxy.Controller
 
+	// modelDiscovery queries vendors for the models a credential can reach.
+	// A field rather than a package call so tests can drive it without
+	// reaching the network.
+	modelDiscovery *modeldiscovery.Client
+
 	// reconcileCache holds the last set of synthesised proxy mappings
 	// per account, each paired with the proxy that served it, so a change
 	// of serving proxy can be diffed without re-deriving it.
@@ -151,6 +158,7 @@ func NewManager(
 		accountManager:     accountManager,
 		permissionsManager: permissionsManager,
 		proxyController:    proxyController,
+		modelDiscovery:     &modeldiscovery.Client{},
 		reconcileCache:     make(map[string]map[string]syntheticMapping),
 		labelRng:           rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
@@ -168,6 +176,37 @@ func (m *managerImpl) GetProvider(ctx context.Context, accountID, userID, provid
 		return nil, err
 	}
 	return m.store.GetAgentNetworkProviderByID(ctx, store.LockingStrengthNone, accountID, providerID)
+}
+
+// DiscoverProviderModels asks the vendor which models a credential can reach.
+//
+// recordID, when set, names an existing provider whose stored credential and
+// upstream are used instead of the ones in req — so the dashboard can refresh
+// the list without ever holding the key. Reading a stored credential is a read
+// of that provider, and is permission-checked as one.
+//
+// Gated on Create rather than Read: this spends the operator's credential
+// against a third party, which is not something a read-only role should be
+// able to make the server do.
+func (m *managerImpl) DiscoverProviderModels(ctx context.Context, accountID, userID string, req modeldiscovery.Request, recordID string) ([]modeldiscovery.Model, error) {
+	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkProviders, operations.Create); err != nil {
+		return nil, err
+	}
+
+	if recordID != "" {
+		record, err := m.store.GetAgentNetworkProviderByID(ctx, store.LockingStrengthNone, accountID, recordID)
+		if err != nil {
+			return nil, err
+		}
+		// The catalog id comes from the stored record too: letting the caller
+		// name a different one would run a provider's credential against
+		// whichever vendor endpoint they picked.
+		req.CatalogID = record.ProviderID
+		req.UpstreamURL = record.UpstreamURL
+		req.APIKey = record.APIKey
+	}
+
+	return m.modelDiscovery.Fetch(ctx, req)
 }
 
 // CreateProvider persists a new provider for the account. Providers have no
@@ -1015,6 +1054,10 @@ func NewManagerMock() Manager {
 
 func (*mockManager) GetAllProviders(_ context.Context, _, _ string) ([]*types.Provider, error) {
 	return []*types.Provider{}, nil
+}
+
+func (*mockManager) DiscoverProviderModels(_ context.Context, _, _ string, _ modeldiscovery.Request, _ string) ([]modeldiscovery.Model, error) {
+	return nil, nil
 }
 
 func (*mockManager) GetProvider(_ context.Context, _, _, _ string) (*types.Provider, error) {

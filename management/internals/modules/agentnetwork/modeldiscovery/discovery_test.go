@@ -203,14 +203,17 @@ func TestFetchRequiresACredential(t *testing.T) {
 func TestDiscoveryURLNeedsARegionWhenTheHostTemplatesOne(t *testing.T) {
 	cl, _ := newStubClient(http.StatusOK, bedrockListing)
 
+	// An upstream that matches no catalog template — a proxy in front of
+	// Bedrock, say — leaves nothing to read the region from. Refusing beats
+	// guessing: an unsubstituted placeholder would dial a host that does not
+	// exist, and a guessed region would dial the wrong account's endpoint.
 	_, err := cl.Fetch(context.Background(), Request{
 		CatalogID:   "bedrock_api",
-		UpstreamURL: "https://bedrock-runtime.eu-central-1.amazonaws.com",
+		UpstreamURL: "https://bedrock.internal-proxy.example.com",
 		APIKey:      "aws-bearer",
 	})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "region",
-		"an unsubstituted <region> placeholder would dial a host that does not exist")
+	assert.Contains(t, err.Error(), "region")
 }
 
 // TestHostGuardRejectsNonPublicAddresses is the SSRF guard. Management holds a
@@ -274,4 +277,45 @@ func ids(models []Model) []string {
 		out = append(out, m.ID)
 	}
 	return out
+}
+
+// TestRegionIsReadBackFromTheUpstream covers the reason the API takes no
+// region field: a provider record has none, and the operator already encoded
+// it in the upstream host when they configured inference.
+func TestRegionIsReadBackFromTheUpstream(t *testing.T) {
+	cl, tr := newStubClient(http.StatusOK, bedrockListing)
+
+	_, err := cl.Fetch(context.Background(), Request{
+		CatalogID:   "bedrock_api",
+		UpstreamURL: "https://bedrock-runtime.us-west-2.amazonaws.com",
+		APIKey:      "aws-bearer",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "bedrock.us-west-2.amazonaws.com", tr.got.URL.Host)
+}
+
+func TestRegionFromUpstream(t *testing.T) {
+	bedrock, ok := catalog.Lookup("bedrock_api")
+	require.True(t, ok)
+	vertex, ok := catalog.Lookup("vertex_ai_api")
+	require.True(t, ok)
+
+	for _, tc := range []struct {
+		name     string
+		entry    catalog.Provider
+		upstream string
+		want     string
+	}{
+		{"bedrock runtime host", bedrock, "https://bedrock-runtime.eu-central-1.amazonaws.com", "eu-central-1"},
+		{"bedrock without scheme", bedrock, "bedrock-runtime.ap-south-1.amazonaws.com", "ap-south-1"},
+		{"vertex regional host", vertex, "https://us-east5-aiplatform.googleapis.com", "us-east5"},
+		// A proxied or self-hosted upstream matches no template, and guessing
+		// a region from it would build a URL pointing somewhere arbitrary.
+		{"unrelated upstream", bedrock, "https://llm.internal.example.com", ""},
+		{"vertex global host has no region segment", vertex, "https://aiplatform.googleapis.com", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, regionFromUpstream(tc.entry, tc.upstream))
+		})
+	}
 }
