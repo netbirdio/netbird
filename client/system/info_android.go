@@ -32,7 +32,7 @@ func GetInfo(ctx context.Context) *Info {
 
 	addrs, err := networkAddresses()
 	if err != nil {
-		log.Warnf("failed to discover network addresses: %s", err)
+		log.Warnf("discover network addresses: %s", err)
 	}
 
 	gio := &Info{

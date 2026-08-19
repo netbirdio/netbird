@@ -11,6 +11,7 @@ type IFaceDiscover interface {
 	IFaces() (string, error)
 }
 
+// SetIFaceDiscover configures the Android interface discovery provider.
 func SetIFaceDiscover(discover IFaceDiscover) {
 	iFaceDiscover = discover
 }
