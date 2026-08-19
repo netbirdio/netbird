@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/catalog"
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/modeldiscovery"
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/sessionkey"
@@ -380,6 +381,9 @@ type routerProviderRoute struct {
 	// proxy dials this provider's upstream. For self-hosted / internal gateways
 	// behind a private or self-signed certificate.
 	SkipTLSVerify bool `json:"skip_tls_verify,omitempty"`
+	// DiscoveryHost, when set, is the host serving this provider's model
+	// listing, for a vendor that does not serve it from the inference host.
+	DiscoveryHost string `json:"discovery_host,omitempty"`
 }
 
 // indexProviderGroups walks the enabled policies and returns, per
@@ -447,6 +451,9 @@ func buildRouterConfigJSON(providers []*types.Provider, groupIndex map[string][]
 		if err != nil {
 			return nil, fmt.Errorf("router config for provider %s: %w", p.ID, err)
 		}
+		// Lookup rather than assume: an unknown provider id yields the zero
+		// entry, which declares no discovery and so contributes nothing.
+		catalogEntry, _ := catalog.Lookup(p.ProviderID)
 		headerName, headerValue, gcpSAKeyB64, err := providerAuthHeader(p)
 		if err != nil {
 			return nil, err
@@ -466,6 +473,7 @@ func buildRouterConfigJSON(providers []*types.Provider, groupIndex map[string][]
 			Bedrock:                 catalog.IsBedrockPathStyle(p.ProviderID),
 			GCPServiceAccountKeyB64: gcpSAKeyB64,
 			SkipTLSVerify:           p.SkipTLSVerification,
+			DiscoveryHost:           discoveryHost(catalogEntry, p.UpstreamURL),
 		})
 	}
 	out, err := json.Marshal(cfg)
@@ -473,6 +481,33 @@ func buildRouterConfigJSON(providers []*types.Provider, groupIndex map[string][]
 		return nil, fmt.Errorf("marshal llm_router middleware config: %w", err)
 	}
 	return out, nil
+}
+
+// discoveryHost returns the host serving this provider's model listing when it
+// differs from the inference host, and empty when the two are the same — which
+// is true of every vendor but Bedrock, whose ListInferenceProfiles is a control
+// plane operation on bedrock.<region> while InvokeModel must go to
+// bedrock-runtime.<region>. One provider record therefore needs two hosts.
+//
+// The catalog declares the listing host; the region is recovered from the
+// upstream the operator configured, since a provider record carries no region
+// field. An upstream matching no catalog template yields empty rather than a
+// guess: a proxied or self-hosted Bedrock endpoint may serve both from one
+// place, and inventing a host would send the credential somewhere the operator
+// never configured.
+func discoveryHost(entry catalog.Provider, upstreamURL string) string {
+	if entry.Discovery == nil || entry.Discovery.Host == "" {
+		return ""
+	}
+	host := entry.Discovery.Host
+	if !strings.Contains(host, catalog.RegionPlaceholder) {
+		return host
+	}
+	region := modeldiscovery.RegionFromUpstream(entry, upstreamURL)
+	if region == "" {
+		return ""
+	}
+	return strings.ReplaceAll(host, catalog.RegionPlaceholder, region)
 }
 
 // providerVendor returns the parser surface ("openai", "anthropic", …)

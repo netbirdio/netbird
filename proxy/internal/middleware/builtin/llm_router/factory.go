@@ -50,6 +50,13 @@ type ProviderRoute struct {
 	// under different allowlists must not offer either group the other's
 	// models. Empty means no policy restricts models on this route.
 	ModelPolicies []ModelPolicyRule `json:"model_policies,omitempty"`
+	// DiscoveryHost, when set, is the host that serves this provider's model
+	// listing, for a vendor that does not serve it from the same host as
+	// inference. Bedrock is why it exists: ListInferenceProfiles is a control
+	// plane operation on bedrock.<region>, while InvokeModel must go to
+	// bedrock-runtime.<region>, so one record genuinely needs two hosts.
+	// Empty means the listing is served from UpstreamHost like everything else.
+	DiscoveryHost string `json:"discovery_host,omitempty"`
 	// Vertex marks a Google Vertex AI provider. Vertex requests carry the
 	// model in the URL path, so the router selects this route by path
 	// (isVertexPath) and bypasses the model/vendor table entirely.
