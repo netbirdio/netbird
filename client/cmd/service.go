@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/netbirdio/netbird/client/server"
 )
 
@@ -45,6 +46,7 @@ type program struct {
 	jsonServMu       sync.Mutex
 	serverInstance   *server.Server
 	serverInstanceMu sync.Mutex
+	policyGate       *ipcauth.PolicyGate
 }
 
 func init() {
