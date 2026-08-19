@@ -14,6 +14,7 @@ import "C"
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 	"unsafe"
@@ -66,9 +67,18 @@ type xembedHost struct {
 	stopCh chan struct{}
 }
 
-// newXembedHost creates an XEmbed tray icon for the given SNI item.
-// Errors when no XEmbed tray manager is available, so callers can fall back.
+// newXembedHost creates an XEmbed tray icon for the given SNI item. Errors when
+// the item has no icon to paint or no XEmbed tray manager is available, so
+// callers can fall back.
 func newXembedHost(conn *dbus.Conn, busName string, objPath dbus.ObjectPath) (*xembedHost, error) {
+	// Resolve the icon before docking: a window docked with nothing to paint
+	// renders as a solid black square in the panel, which is worse for the user
+	// than the item having no tray icon at all.
+	icon, err := fetchIconPixmap(conn, busName, objPath)
+	if err != nil {
+		return nil, err
+	}
+
 	dpy := C.XOpenDisplay(nil)
 	if dpy == nil {
 		return nil, errors.New("cannot open X display")
@@ -107,42 +117,52 @@ func newXembedHost(conn *dbus.Conn, busName string, objPath dbus.ObjectPath) (*x
 		trayMgr:  trayMgr,
 		iconWin:  iconWin,
 		iconSize: iconSize,
+		iconData: icon.Pix,
+		iconW:    int(icon.W),
+		iconH:    int(icon.H),
 		stopCh:   make(chan struct{}),
 	}
 
-	h.fetchAndDrawIcon()
+	h.drawIcon()
 	return h, nil
 }
 
-func (h *xembedHost) fetchAndDrawIcon() {
-	obj := h.conn.Object(h.busName, h.objPath)
-	variant, err := obj.GetProperty("org.kde.StatusNotifierItem.IconPixmap")
+// iconPixmap is one frame of org.kde.StatusNotifierItem.IconPixmap, whose D-Bus
+// signature is a(iiay): width, height, and ARGB32 pixels.
+type iconPixmap struct {
+	W   int32
+	H   int32
+	Pix []byte
+}
+
+// fetchIconPixmap reads the item's first icon frame. Items that publish only
+// IconName carry an empty IconPixmap and are reported as an error, since this
+// host has no icon-theme lookup to fall back on.
+func fetchIconPixmap(conn *dbus.Conn, busName string, objPath dbus.ObjectPath) (iconPixmap, error) {
+	variant, err := conn.Object(busName, objPath).GetProperty("org.kde.StatusNotifierItem.IconPixmap")
 	if err != nil {
-		log.Debugf("xembed: failed to get IconPixmap: %v", err)
-		return
+		return iconPixmap{}, fmt.Errorf("get IconPixmap: %w", err)
 	}
 
-	// IconPixmap has D-Bus signature a(iiay).
-	type px struct {
-		W   int32
-		H   int32
-		Pix []byte
-	}
-
-	var icons []px
+	var icons []iconPixmap
 	if err := variant.Store(&icons); err != nil {
-		log.Debugf("xembed: failed to decode IconPixmap: %v", err)
-		return
+		return iconPixmap{}, fmt.Errorf("decode IconPixmap: %w", err)
 	}
-
 	if len(icons) == 0 {
-		log.Debug("xembed: IconPixmap is empty")
-		return
+		return iconPixmap{}, errors.New("IconPixmap is empty")
 	}
 
 	icon := icons[0]
 	if icon.W <= 0 || icon.H <= 0 || len(icon.Pix) < int(icon.W*icon.H*4) {
-		log.Debug("xembed: invalid IconPixmap data")
+		return iconPixmap{}, errors.New("invalid IconPixmap data")
+	}
+	return icon, nil
+}
+
+func (h *xembedHost) fetchAndDrawIcon() {
+	icon, err := fetchIconPixmap(h.conn, h.busName, h.objPath)
+	if err != nil {
+		log.Debugf("xembed: %v", err)
 		return
 	}
 

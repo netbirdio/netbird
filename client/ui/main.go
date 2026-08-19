@@ -164,8 +164,8 @@ func main() {
 
 	// In-process StatusNotifierWatcher so the tray works on minimal WMs that
 	// don't ship one (Fluxbox, i3, GNOME without AppIndicator). No-op off
-	// Linux. Must run before NewTray so the systray's
-	// RegisterStatusNotifierItem hits a watcher we control.
+	// Linux. Ordering against NewTray does not matter: the Wails systray
+	// re-registers its item when the watcher name changes owner.
 	startStatusNotifierWatcher()
 
 	tray = NewTray(app, window, TrayServices{
