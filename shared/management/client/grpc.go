@@ -21,8 +21,7 @@ import (
 	"google.golang.org/grpc/connectivity"
 
 	nbgrpc "github.com/netbirdio/netbird/client/grpc"
-	"github.com/netbirdio/netbird/client/netstate"
-	"github.com/netbirdio/netbird/client/netsweep"
+	"github.com/netbirdio/netbird/client/netevents"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/shared/management/domain"
@@ -64,12 +63,9 @@ type GrpcClient struct {
 	connStateCallbackLock sync.RWMutex
 	serverURL             string
 
-	// netState gates the stream retry loop on OS-reported network
-	// availability; nil (the default) disables gating.
-	netState *netstate.State
-
-	// sweeper cuts the transport connections on network change; nil disables it.
-	sweeper *netsweep.Sweeper
+	// netEvents gates the stream retry loop on OS-reported network
+	// availability and sweeps the transport on network change.
+	netEvents *netevents.Manager
 
 	// syncStreamErr holds the last Sync stream error, or nil while the stream
 	// is established and healthy. GetServerKey succeeds even when the peer
@@ -123,15 +119,9 @@ func MaxRecvMsgSize() int {
 // Option configures optional GrpcClient behavior.
 type Option func(*GrpcClient)
 
-// WithNetworkState injects the OS network availability state that gates the
-// stream retry loop; without it gating is disabled.
-func WithNetworkState(netState *netstate.State) Option {
-	return func(c *GrpcClient) { c.netState = netState }
-}
-
-// WithSweeper injects the network change sweeper.
-func WithSweeper(sweeper *netsweep.Sweeper) Option {
-	return func(c *GrpcClient) { c.sweeper = sweeper }
+// WithNetEvents injects the OS network event handling.
+func WithNetEvents(events *netevents.Manager) Option {
+	return func(c *GrpcClient) { c.netEvents = events }
 }
 
 // NewClient creates a new client to Management service
@@ -152,9 +142,7 @@ func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsE
 		extraOpts = append(extraOpts, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxSize)))
 		log.Infof("management gRPC max receive message size set to %d bytes", maxSize)
 	}
-	if c.sweeper != nil {
-		extraOpts = append(extraOpts, nbgrpc.WithSweeper(c.sweeper))
-	}
+	extraOpts = append(extraOpts, nbgrpc.WithSweeper(c.netEvents))
 
 	var conn *grpc.ClientConn
 	operation := func() error {
@@ -235,12 +223,12 @@ func (c *GrpcClient) withMgmtStream(
 	ctx context.Context,
 	handler func(ctx context.Context, serverPubKey wgtypes.Key, backOff backoff.BackOff) error,
 ) error {
-	backOff := c.sweeper.QuickRetryBackoff(ctx, defaultBackoff(ctx), c.netState)
+	backOff := c.netEvents.QuickRetryBackoff(ctx, defaultBackoff(ctx))
 	operation := func() error {
 		// suspend reconnect attempts while the OS reports no usable network.
 		// Wait only errors on a cancelled context, which means shutdown, so
 		// stop the loop without reporting a failure.
-		if waited, err := c.netState.Wait(ctx); err != nil {
+		if waited, err := c.netEvents.Wait(ctx); err != nil {
 			log.Debugf("management connection context has been canceled while offline, this usually indicates shutdown")
 			return nil //nolint:nilerr // a cancelled context means shutdown, not a retryable failure
 		} else if waited {
@@ -273,7 +261,7 @@ func (c *GrpcClient) withMgmtStream(
 		return handler(ctx, *serverPubKey, backOff)
 	}
 
-	err := nbgrpc.Retry(ctx, operation, backOff, c.netState)
+	err := nbgrpc.Retry(ctx, operation, backOff, c.netEvents)
 	if err != nil {
 		log.Warnf("exiting the Management service connection retry loop due to the unrecoverable error: %s", err)
 	}

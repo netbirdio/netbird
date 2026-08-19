@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/netbirdio/netbird/client/netstate"
+	"github.com/netbirdio/netbird/client/netevents/netstate"
 )
 
 func TestRetryWakesOnNetworkChange(t *testing.T) {
