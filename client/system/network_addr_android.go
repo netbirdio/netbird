@@ -66,6 +66,12 @@ func toNetworkAddress(address string) (NetworkAddress, bool) {
 	if err != nil {
 		return NetworkAddress{}, false
 	}
+	if prefix.Addr().Is4In6() {
+		if prefix.Bits() < 96 {
+			return NetworkAddress{}, false
+		}
+		prefix = netip.PrefixFrom(prefix.Addr().Unmap(), prefix.Bits()-96)
+	}
 	ip := prefix.Addr()
 	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsMulticast() {
 		return NetworkAddress{}, false
