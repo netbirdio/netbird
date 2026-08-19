@@ -136,6 +136,24 @@ func TestExtractClusterFromCustomDomains(t *testing.T) {
 			wantCluster: "",
 			wantOK:      false,
 		},
+		"equal suffix non-wildcard beats wildcard": {
+			host: "app.example.com",
+			customDomains: []*domain.Domain{
+				{Domain: "*.example.com", TargetCluster: "cluster-wild"},
+				{Domain: "example.com", TargetCluster: "cluster-exact"},
+			},
+			wantCluster: "cluster-exact",
+			wantOK:      true,
+		},
+		"equal suffix non-wildcard beats wildcard regardless of order": {
+			host: "app.example.com",
+			customDomains: []*domain.Domain{
+				{Domain: "example.com", TargetCluster: "cluster-exact"},
+				{Domain: "*.example.com", TargetCluster: "cluster-wild"},
+			},
+			wantCluster: "cluster-exact",
+			wantOK:      true,
+		},
 	}
 
 	for name, tc := range tests {
@@ -148,6 +166,30 @@ func TestExtractClusterFromCustomDomains(t *testing.T) {
 				t.Errorf("cluster: got %q, want %q", cluster, tc.wantCluster)
 			}
 		})
+	}
+}
+
+func TestExtractClusterFromCustomDomains_EqualSuffixPermutationStable(t *testing.T) {
+	host := "app.example.com"
+	permutations := [][]*domain.Domain{
+		{
+			{Domain: "*.example.com", TargetCluster: "cluster-wild"},
+			{Domain: "example.com", TargetCluster: "cluster-exact"},
+		},
+		{
+			{Domain: "example.com", TargetCluster: "cluster-exact"},
+			{Domain: "*.example.com", TargetCluster: "cluster-wild"},
+		},
+	}
+
+	for i, customDomains := range permutations {
+		cluster, ok := extractClusterFromCustomDomains(host, customDomains)
+		if !ok {
+			t.Fatalf("permutation %d: expected match", i)
+		}
+		if cluster != "cluster-exact" {
+			t.Fatalf("permutation %d: got cluster %q, want %q", i, cluster, "cluster-exact")
+		}
 	}
 }
 

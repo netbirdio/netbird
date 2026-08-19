@@ -46,7 +46,7 @@ Both wildcard and non-wildcard custom domains are supported:
 Ownership of a custom domain is verified via a CNAME record on the `validation` subdomain.
 For any custom domain (including apex and wildcard), create:
 
-```
+```text
 validation.example.com.  CNAME  <proxy-cluster-address>.
 ```
 

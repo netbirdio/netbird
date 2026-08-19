@@ -374,6 +374,7 @@ func (m Manager) reservedGatewayAddress(ctx context.Context, accountID string) (
 // Supports both non-wildcard and wildcard custom domains.
 // An exact non-wildcard match always takes priority. Among other matches
 // (wildcard or subdomain of non-wildcard), the longest matching suffix wins.
+// When suffix lengths tie, a non-wildcard match beats a wildcard match.
 func extractClusterFromCustomDomains(host string, customDomains []*domain.Domain) (string, bool) {
 	normalizedHost := strings.ToLower(strings.TrimSuffix(host, "."))
 
@@ -388,6 +389,7 @@ func extractClusterFromCustomDomains(host string, customDomains []*domain.Domain
 	// Fall back to the longest wildcard or non-wildcard subdomain match.
 	var bestCluster string
 	bestLen := -1
+	bestIsWildcard := false
 
 	for _, cd := range customDomains {
 		normalizedCD := strings.ToLower(strings.TrimSuffix(cd.Domain, "."))
@@ -395,19 +397,30 @@ func extractClusterFromCustomDomains(host string, customDomains []*domain.Domain
 		if strings.HasPrefix(normalizedCD, "*.") {
 			suffix := normalizedCD[2:]
 			if normalizedHost == suffix || strings.HasSuffix(normalizedHost, "."+suffix) {
-				if len(suffix) > bestLen {
+				if isBetterCustomDomainMatch(len(suffix), true, bestLen, bestIsWildcard) {
 					bestCluster = cd.TargetCluster
 					bestLen = len(suffix)
+					bestIsWildcard = true
 				}
 			}
 		} else if strings.HasSuffix(normalizedHost, "."+normalizedCD) {
-			if len(normalizedCD) > bestLen {
+			if isBetterCustomDomainMatch(len(normalizedCD), false, bestLen, bestIsWildcard) {
 				bestCluster = cd.TargetCluster
 				bestLen = len(normalizedCD)
+				bestIsWildcard = false
 			}
 		}
 	}
 	return bestCluster, bestLen >= 0
+}
+
+// isBetterCustomDomainMatch reports whether candidate should replace the current best match.
+// Longer suffixes win; equal-length ties prefer non-wildcard over wildcard.
+func isBetterCustomDomainMatch(suffixLen int, isWildcard bool, bestLen int, bestIsWildcard bool) bool {
+	if suffixLen != bestLen {
+		return suffixLen > bestLen
+	}
+	return bestIsWildcard && !isWildcard
 }
 
 // ExtractClusterFromFreeDomain extracts the cluster address from a free domain.
