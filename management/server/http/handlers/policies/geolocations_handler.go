@@ -7,11 +7,8 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/netbirdio/netbird/management/server/account"
-	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/permissions"
-	"github.com/netbirdio/netbird/management/server/permissions/modules"
-	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -45,11 +42,6 @@ func newGeolocationsHandlerHandler(accountManager account.Manager, geolocationMa
 
 // getAllCountries retrieves a list of all countries
 func (l *geolocationsHandler) getAllCountries(w http.ResponseWriter, r *http.Request) {
-	if err := l.authenticateUser(r); err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
 	if l.geolocationManager == nil {
 		// TODO: update error message to include geo db self hosted doc link when ready
 		util.WriteError(r.Context(), status.Errorf(status.PreconditionFailed, "Geo location database is not initialized"), w)
@@ -71,11 +63,6 @@ func (l *geolocationsHandler) getAllCountries(w http.ResponseWriter, r *http.Req
 
 // getCitiesByCountry retrieves a list of cities based on the given country code
 func (l *geolocationsHandler) getCitiesByCountry(w http.ResponseWriter, r *http.Request) {
-	if err := l.authenticateUser(r); err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
 	vars := mux.Vars(r)
 	countryCode := vars["country"]
 	if !countryCodeRegex.MatchString(countryCode) {
@@ -100,27 +87,6 @@ func (l *geolocationsHandler) getCitiesByCountry(w http.ResponseWriter, r *http.
 		cities = append(cities, toCityResponse(city))
 	}
 	util.WriteJSONObject(r.Context(), w, cities)
-}
-
-func (l *geolocationsHandler) authenticateUser(r *http.Request) error {
-	ctx := r.Context()
-
-	userAuth, err := nbcontext.GetUserAuthFromContext(ctx)
-	if err != nil {
-		return err
-	}
-
-	accountID, userID := userAuth.AccountId, userAuth.UserId
-
-	allowed, err := l.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operations.Read)
-	if err != nil {
-		return status.NewPermissionValidationError(err)
-	}
-
-	if !allowed {
-		return status.NewPermissionDeniedError()
-	}
-	return nil
 }
 
 func toCountryResponse(country geolocation.Country) api.Country {

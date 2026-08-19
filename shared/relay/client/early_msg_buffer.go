@@ -10,7 +10,7 @@ import (
 
 const (
 	earlyMsgTTL      = 5 * time.Second
-	earlyMsgCapacity = 1000
+	earlyMsgCapacity = 10000
 )
 
 // earlyMsgBuffer buffers transport messages that arrive before the corresponding
@@ -65,8 +65,8 @@ func (b *earlyMsgBuffer) put(peerID messages.PeerID, msg Msg) bool {
 	}
 
 	entry := earlyMsg{
-		peerID: peerID,
-		msg: msg,
+		peerID:    peerID,
+		msg:       msg,
 		createdAt: time.Now(),
 	}
 	elem := b.order.PushBack(entry)

@@ -88,7 +88,7 @@ func validateIdentityProviderConfig(ctx context.Context, idpConfig *types.Identi
 
 // GetIdentityProviders returns all identity providers for an account
 func (am *DefaultAccountManager) GetIdentityProviders(ctx context.Context, accountID, userID string) ([]*types.IdentityProvider, error) {
-	ok, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.IdentityProviders, operations.Read)
+	ok, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.IdentityProviders, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -117,7 +117,7 @@ func (am *DefaultAccountManager) GetIdentityProviders(ctx context.Context, accou
 
 // GetIdentityProvider returns a specific identity provider by ID
 func (am *DefaultAccountManager) GetIdentityProvider(ctx context.Context, accountID, idpID, userID string) (*types.IdentityProvider, error) {
-	ok, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.IdentityProviders, operations.Read)
+	ok, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.IdentityProviders, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -143,7 +143,7 @@ func (am *DefaultAccountManager) GetIdentityProvider(ctx context.Context, accoun
 
 // CreateIdentityProvider creates a new identity provider
 func (am *DefaultAccountManager) CreateIdentityProvider(ctx context.Context, accountID, userID string, idpConfig *types.IdentityProvider) (*types.IdentityProvider, error) {
-	ok, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.IdentityProviders, operations.Create)
+	ok, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.IdentityProviders, operations.Create)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -180,7 +180,7 @@ func (am *DefaultAccountManager) CreateIdentityProvider(ctx context.Context, acc
 
 // UpdateIdentityProvider updates an existing identity provider
 func (am *DefaultAccountManager) UpdateIdentityProvider(ctx context.Context, accountID, idpID, userID string, idpConfig *types.IdentityProvider) (*types.IdentityProvider, error) {
-	ok, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.IdentityProviders, operations.Update)
+	ok, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.IdentityProviders, operations.Update)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -213,7 +213,7 @@ func (am *DefaultAccountManager) UpdateIdentityProvider(ctx context.Context, acc
 
 // DeleteIdentityProvider deletes an identity provider
 func (am *DefaultAccountManager) DeleteIdentityProvider(ctx context.Context, accountID, idpID, userID string) error {
-	ok, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.IdentityProviders, operations.Delete)
+	ok, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.IdentityProviders, operations.Delete)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}
@@ -274,7 +274,7 @@ func identityProviderToConnectorConfig(idpConfig *types.IdentityProvider) *dex.C
 }
 
 // generateIdentityProviderID generates a unique ID for an identity provider.
-// For specific provider types (okta, zitadel, entra, google, pocketid, microsoft),
+// For specific provider types (okta, zitadel, entra, google, pocketid, microsoft, adfs),
 // the ID is prefixed with the type name. Generic OIDC providers get no prefix.
 func generateIdentityProviderID(idpType types.IdentityProviderType) string {
 	id := xid.New().String()
@@ -296,6 +296,8 @@ func generateIdentityProviderID(idpType types.IdentityProviderType) string {
 		return "authentik-" + id
 	case types.IdentityProviderTypeKeycloak:
 		return "keycloak-" + id
+	case types.IdentityProviderTypeADFS:
+		return "adfs-" + id
 	default:
 		// Generic OIDC - no prefix
 		return id

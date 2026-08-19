@@ -52,7 +52,7 @@ func AllocateTurnClient(serverAddr string) *TurnConn {
 
 func getTurnClient(address string, conn net.Conn) (*turn.Client, error) {
 	// Dial TURN Server
-	addrStr := fmt.Sprintf("%s:%d", address, 443)
+	addrStr := net.JoinHostPort(address, "443")
 
 	fac := logging.NewDefaultLoggerFactory()
 	//fac.DefaultLogLevel = logging.LogLevelTrace

@@ -6,6 +6,7 @@ package peers
 
 import (
 	context "context"
+	net "net"
 	reflect "reflect"
 
 	gomock "github.com/golang/mock/gomock"
@@ -13,6 +14,7 @@ import (
 	account "github.com/netbirdio/netbird/management/server/account"
 	integrated_validator "github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	peer "github.com/netbirdio/netbird/management/server/peer"
+	types "github.com/netbirdio/netbird/management/server/types"
 )
 
 // MockManager is a mock of Manager interface.
@@ -36,6 +38,20 @@ func NewMockManager(ctrl *gomock.Controller) *MockManager {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockManager) EXPECT() *MockManagerMockRecorder {
 	return m.recorder
+}
+
+// CreateProxyPeer mocks base method.
+func (m *MockManager) CreateProxyPeer(ctx context.Context, accountID, peerKey, cluster string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateProxyPeer", ctx, accountID, peerKey, cluster)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateProxyPeer indicates an expected call of CreateProxyPeer.
+func (mr *MockManagerMockRecorder) CreateProxyPeer(ctx, accountID, peerKey, cluster interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateProxyPeer", reflect.TypeOf((*MockManager)(nil).CreateProxyPeer), ctx, accountID, peerKey, cluster)
 }
 
 // DeletePeers mocks base method.
@@ -97,6 +113,21 @@ func (mr *MockManagerMockRecorder) GetPeerAccountID(ctx, peerID interface{}) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPeerAccountID", reflect.TypeOf((*MockManager)(nil).GetPeerAccountID), ctx, peerID)
 }
 
+// GetPeerByTunnelIP mocks base method.
+func (m *MockManager) GetPeerByTunnelIP(ctx context.Context, accountID string, ip net.IP) (*peer.Peer, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPeerByTunnelIP", ctx, accountID, ip)
+	ret0, _ := ret[0].(*peer.Peer)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPeerByTunnelIP indicates an expected call of GetPeerByTunnelIP.
+func (mr *MockManagerMockRecorder) GetPeerByTunnelIP(ctx, accountID, ip interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPeerByTunnelIP", reflect.TypeOf((*MockManager)(nil).GetPeerByTunnelIP), ctx, accountID, ip)
+}
+
 // GetPeerID mocks base method.
 func (m *MockManager) GetPeerID(ctx context.Context, peerKey string) (string, error) {
 	m.ctrl.T.Helper()
@@ -110,6 +141,22 @@ func (m *MockManager) GetPeerID(ctx context.Context, peerKey string) (string, er
 func (mr *MockManagerMockRecorder) GetPeerID(ctx, peerKey interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPeerID", reflect.TypeOf((*MockManager)(nil).GetPeerID), ctx, peerKey)
+}
+
+// GetPeerWithGroups mocks base method.
+func (m *MockManager) GetPeerWithGroups(ctx context.Context, accountID, peerID string) (*peer.Peer, []*types.Group, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPeerWithGroups", ctx, accountID, peerID)
+	ret0, _ := ret[0].(*peer.Peer)
+	ret1, _ := ret[1].([]*types.Group)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// GetPeerWithGroups indicates an expected call of GetPeerWithGroups.
+func (mr *MockManagerMockRecorder) GetPeerWithGroups(ctx, accountID, peerID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPeerWithGroups", reflect.TypeOf((*MockManager)(nil).GetPeerWithGroups), ctx, accountID, peerID)
 }
 
 // GetPeersByGroupIDs mocks base method.
@@ -161,18 +208,4 @@ func (m *MockManager) SetNetworkMapController(networkMapController network_map.C
 func (mr *MockManagerMockRecorder) SetNetworkMapController(networkMapController interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetNetworkMapController", reflect.TypeOf((*MockManager)(nil).SetNetworkMapController), networkMapController)
-}
-
-// CreateProxyPeer mocks base method.
-func (m *MockManager) CreateProxyPeer(ctx context.Context, accountID string, peerKey string, cluster string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateProxyPeer", ctx, accountID, peerKey, cluster)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// CreateProxyPeer indicates an expected call of CreateProxyPeer.
-func (mr *MockManagerMockRecorder) CreateProxyPeer(ctx, accountID, peerKey, cluster interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateProxyPeer", reflect.TypeOf((*MockManager)(nil).CreateProxyPeer), ctx, accountID, peerKey, cluster)
 }

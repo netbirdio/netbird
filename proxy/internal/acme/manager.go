@@ -23,6 +23,7 @@ import (
 	"golang.org/x/crypto/acme/autocert"
 
 	"github.com/netbirdio/netbird/proxy/internal/certwatch"
+	"github.com/netbirdio/netbird/proxy/internal/types"
 	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
@@ -30,7 +31,7 @@ import (
 var oidSCTList = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 11129, 2, 4, 2}
 
 type certificateNotifier interface {
-	NotifyCertificateIssued(ctx context.Context, accountID, serviceID, domain string) error
+	NotifyCertificateIssued(ctx context.Context, accountID types.AccountID, serviceID types.ServiceID, domain string) error
 }
 
 type domainState int
@@ -42,8 +43,8 @@ const (
 )
 
 type domainInfo struct {
-	accountID string
-	serviceID string
+	accountID types.AccountID
+	serviceID types.ServiceID
 	state     domainState
 	err       string
 }
@@ -301,7 +302,7 @@ func (mgr *Manager) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate
 // When AddDomain returns true the caller is responsible for sending any
 // certificate-ready notifications after the surrounding operation (e.g.
 // mapping update) has committed successfully.
-func (mgr *Manager) AddDomain(d domain.Domain, accountID, serviceID string) (wildcardHit bool) {
+func (mgr *Manager) AddDomain(d domain.Domain, accountID types.AccountID, serviceID types.ServiceID) (wildcardHit bool) {
 	name := d.PunycodeString()
 	if e := mgr.findWildcardEntry(name); e != nil {
 		mgr.mu.Lock()

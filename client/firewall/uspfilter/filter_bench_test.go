@@ -1023,7 +1023,8 @@ func BenchmarkMSSClamping(b *testing.B) {
 			}()
 
 			manager.mssClampEnabled = true
-			manager.mssClampValue = 1240
+			manager.mssClampValueIPv4 = 1240
+			manager.mssClampValueIPv6 = 1220
 
 			srcIP := net.ParseIP("100.64.0.2")
 			dstIP := net.ParseIP("8.8.8.8")
@@ -1088,7 +1089,8 @@ func BenchmarkMSSClampingOverhead(b *testing.B) {
 
 			manager.mssClampEnabled = sc.enabled
 			if sc.enabled {
-				manager.mssClampValue = 1240
+				manager.mssClampValueIPv4 = 1240
+				manager.mssClampValueIPv6 = 1220
 			}
 
 			srcIP := net.ParseIP("100.64.0.2")
@@ -1141,7 +1143,8 @@ func BenchmarkMSSClampingMemory(b *testing.B) {
 			}()
 
 			manager.mssClampEnabled = true
-			manager.mssClampValue = 1240
+			manager.mssClampValueIPv4 = 1240
+			manager.mssClampValueIPv6 = 1220
 
 			srcIP := net.ParseIP("100.64.0.2")
 			dstIP := net.ParseIP("8.8.8.8")

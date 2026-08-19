@@ -110,6 +110,15 @@ type Client struct {
 	// see more: https://docs.netbird.io/api/resources/scim
 	SCIM *SCIMAPI
 
+	// GoogleIDP NetBird Google Workspace IDP integration APIs
+	GoogleIDP *GoogleIDPAPI
+
+	// AzureIDP NetBird Azure AD IDP integration APIs
+	AzureIDP *AzureIDPAPI
+
+	// OktaScimIDP NetBird Okta SCIM IDP integration APIs
+	OktaScimIDP *OktaScimIDPAPI
+
 	// EventStreaming NetBird Event Streaming integration APIs
 	// see more: https://docs.netbird.io/api/resources/event-streaming
 	EventStreaming *EventStreamingAPI
@@ -134,6 +143,14 @@ type Client struct {
 
 	// ReverseProxyDomains NetBird reverse proxy domains APIs
 	ReverseProxyDomains *ReverseProxyDomainsAPI
+
+	// ReverseProxyTokens account-scoped proxy access tokens used to register
+	// self-hosted (bring-your-own-proxy) `netbird proxy` instances.
+	ReverseProxyTokens *ReverseProxyTokensAPI
+
+	// AgentNetwork NetBird Agent Network (AI/LLM gateway) APIs: catalog,
+	// providers, policies, guardrails, budget rules and account settings.
+	AgentNetwork *AgentNetworkAPI
 }
 
 // New initialize new Client instance using PAT token
@@ -185,6 +202,9 @@ func (c *Client) initialize() {
 	c.MSP = &MSPAPI{c}
 	c.EDR = &EDRAPI{c}
 	c.SCIM = &SCIMAPI{c}
+	c.GoogleIDP = &GoogleIDPAPI{c}
+	c.AzureIDP = &AzureIDPAPI{c}
+	c.OktaScimIDP = &OktaScimIDPAPI{c}
 	c.EventStreaming = &EventStreamingAPI{c}
 	c.IdentityProviders = &IdentityProvidersAPI{c}
 	c.Ingress = &IngressAPI{c}
@@ -192,6 +212,8 @@ func (c *Client) initialize() {
 	c.ReverseProxyServices = &ReverseProxyServicesAPI{c}
 	c.ReverseProxyClusters = &ReverseProxyClustersAPI{c}
 	c.ReverseProxyDomains = &ReverseProxyDomainsAPI{c}
+	c.ReverseProxyTokens = &ReverseProxyTokensAPI{c}
+	c.AgentNetwork = &AgentNetworkAPI{c}
 }
 
 // NewRequest creates and executes new management API request

@@ -6,7 +6,6 @@ import (
 	"net/netip"
 	"slices"
 	"sort"
-	"strings"
 	"sync"
 
 	"github.com/netbirdio/netbird/client/internal/listener"
@@ -14,11 +13,15 @@ import (
 )
 
 type Notifier struct {
-	initialRoutes []*route.Route
+	mu sync.Mutex
+
+	// currentRoutes is the last announced route set. It exists only to
+	// suppress noise: without it every network map sync would trigger the
+	// Java side, even when the routes did not change. The actual TUN route
+	// state is owned by the route manager and pulled from there.
 	currentRoutes []*route.Route
 
-	listener    listener.NetworkChangeListener
-	listenerMux sync.Mutex
+	listener listener.NetworkChangeListener
 }
 
 func NewNotifier() *Notifier {
@@ -26,31 +29,15 @@ func NewNotifier() *Notifier {
 }
 
 func (n *Notifier) SetListener(listener listener.NetworkChangeListener) {
-	n.listenerMux.Lock()
-	defer n.listenerMux.Unlock()
+	n.mu.Lock()
+	defer n.mu.Unlock()
 	n.listener = listener
 }
 
-func (n *Notifier) SetInitialClientRoutes(initialRoutes []*route.Route, routesForComparison []*route.Route) {
-	// initialRoutes contains fake IP block for interface configuration
-	filteredInitial := make([]*route.Route, 0)
-	for _, r := range initialRoutes {
-		if r.IsDynamic() {
-			continue
-		}
-		filteredInitial = append(filteredInitial, r)
-	}
-	n.initialRoutes = filteredInitial
-
-	// routesForComparison excludes fake IP block for comparison with new routes
-	filteredComparison := make([]*route.Route, 0)
-	for _, r := range routesForComparison {
-		if r.IsDynamic() {
-			continue
-		}
-		filteredComparison = append(filteredComparison, r)
-	}
-	n.currentRoutes = filteredComparison
+func (n *Notifier) NotifyRouteChange() {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.notifyLocked()
 }
 
 func (n *Notifier) OnNewRoutes(idMap route.HAMap) {
@@ -64,33 +51,32 @@ func (n *Notifier) OnNewRoutes(idMap route.HAMap) {
 		}
 	}
 
-	if !n.hasRouteDiff(n.currentRoutes, newRoutes) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if !hasRouteDiff(n.currentRoutes, newRoutes) {
 		return
 	}
 
 	n.currentRoutes = newRoutes
-	n.notify()
+	n.notifyLocked()
 }
 
 func (n *Notifier) OnNewPrefixes([]netip.Prefix) {
 	// Not used on Android
 }
 
-func (n *Notifier) notify() {
-	n.listenerMux.Lock()
-	defer n.listenerMux.Unlock()
+func (n *Notifier) notifyLocked() {
 	if n.listener == nil {
 		return
 	}
-
-	routeStrings := n.routesToStrings(n.currentRoutes)
-	sort.Strings(routeStrings)
-	go func(l listener.NetworkChangeListener) {
-		l.OnNetworkChanged(strings.Join(n.addIPv6RangeIfNeeded(routeStrings, n.currentRoutes), ","))
-	}(n.listener)
+	n.listener.OnNetworkChanged("")
 }
 
-func (n *Notifier) routesToStrings(routes []*route.Route) []string {
+func (n *Notifier) Close() {
+	// unused
+}
+
+func routesToStrings(routes []*route.Route) []string {
 	nets := make([]string, 0, len(routes))
 	for _, r := range routes {
 		nets = append(nets, r.NetString())
@@ -98,30 +84,10 @@ func (n *Notifier) routesToStrings(routes []*route.Route) []string {
 	return nets
 }
 
-func (n *Notifier) hasRouteDiff(a []*route.Route, b []*route.Route) bool {
-	slices.SortFunc(a, func(x, y *route.Route) int {
-		return strings.Compare(x.NetString(), y.NetString())
-	})
-	slices.SortFunc(b, func(x, y *route.Route) int {
-		return strings.Compare(x.NetString(), y.NetString())
-	})
-
-	return !slices.EqualFunc(a, b, func(x, y *route.Route) bool {
-		return x.NetString() == y.NetString()
-	})
-}
-
-func (n *Notifier) GetInitialRouteRanges() []string {
-	initialStrings := n.routesToStrings(n.initialRoutes)
-	sort.Strings(initialStrings)
-	return n.addIPv6RangeIfNeeded(initialStrings, n.initialRoutes)
-}
-
-func (n *Notifier) addIPv6RangeIfNeeded(inputRanges []string, routes []*route.Route) []string {
-	for _, r := range routes {
-		if r.Network.Addr().Is4() && r.Network.Bits() == 0 {
-			return append(slices.Clone(inputRanges), "::/0")
-		}
-	}
-	return inputRanges
+func hasRouteDiff(a []*route.Route, b []*route.Route) bool {
+	as := routesToStrings(a)
+	bs := routesToStrings(b)
+	sort.Strings(as)
+	sort.Strings(bs)
+	return !slices.Equal(as, bs)
 }

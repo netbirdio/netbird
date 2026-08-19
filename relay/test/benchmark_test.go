@@ -337,7 +337,7 @@ func runTurnDataTransfer(t *testing.T, testData []byte) time.Duration {
 func getTurnClient(t *testing.T, address string, conn net.Conn) (*turn.Client, error) {
 	t.Helper()
 	// Dial TURN Server
-	addrStr := fmt.Sprintf("%s:%d", address, 443)
+	addrStr := net.JoinHostPort(address, "443")
 
 	fac := logging.NewDefaultLoggerFactory()
 	//fac.DefaultLogLevel = logging.LogLevelTrace

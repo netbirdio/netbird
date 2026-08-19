@@ -7,6 +7,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/permissions"
@@ -31,8 +32,14 @@ func NewManager(store store.Store, permissionsManager permissions.Manager, geo g
 	}
 }
 
-// SaveAccessLog saves an access log entry to the database after enriching it
+// SaveAccessLog saves an access log entry to the database after enriching it.
+// Agent-network entries are flattened into their own dedicated table (queryable
+// LLM columns + group child rows) instead of the shared reverse-proxy table.
 func (m *managerImpl) SaveAccessLog(ctx context.Context, logEntry *accesslogs.AccessLogEntry) error {
+	if logEntry.AgentNetwork {
+		return agentnetwork.IngestAccessLog(ctx, m.store, logEntry)
+	}
+
 	if m.geo != nil && logEntry.GeoLocation.ConnectionIP != nil {
 		location, err := m.geo.Lookup(logEntry.GeoLocation.ConnectionIP)
 		if err != nil {
@@ -41,6 +48,9 @@ func (m *managerImpl) SaveAccessLog(ctx context.Context, logEntry *accesslogs.Ac
 			logEntry.GeoLocation.CountryCode = location.Country.ISOCode
 			logEntry.GeoLocation.CityName = location.City.Names.En
 			logEntry.GeoLocation.GeoNameID = location.City.GeonameID
+			if len(location.Subdivisions) > 0 {
+				logEntry.SubdivisionCode = location.Subdivisions[0].ISOCode
+			}
 		}
 	}
 
@@ -60,7 +70,7 @@ func (m *managerImpl) SaveAccessLog(ctx context.Context, logEntry *accesslogs.Ac
 
 // GetAllAccessLogs retrieves access logs for an account with pagination and filtering
 func (m *managerImpl) GetAllAccessLogs(ctx context.Context, accountID, userID string, filter *accesslogs.AccessLogFilter) ([]*accesslogs.AccessLogEntry, int64, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Read)
+	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Read)
 	if err != nil {
 		return nil, 0, status.NewPermissionValidationError(err)
 	}
@@ -103,13 +113,23 @@ func (m *managerImpl) CleanupOldAccessLogs(ctx context.Context, retentionDays in
 
 // StartPeriodicCleanup starts a background goroutine that periodically cleans up old access logs
 func (m *managerImpl) StartPeriodicCleanup(ctx context.Context, retentionDays, cleanupIntervalHours int) {
-	if retentionDays <= 0 {
-		log.WithContext(ctx).Debug("periodic access log cleanup disabled: retention days is 0 or negative")
+	if retentionDays < 0 {
+		log.WithContext(ctx).Debug("periodic access log cleanup disabled: retention days is negative")
 		return
+	}
+
+	if retentionDays == 0 {
+		retentionDays = 7
+		log.WithContext(ctx).Debugf("no retention days specified for access log cleanup, defaulting to %d days", retentionDays)
+	} else {
+		log.WithContext(ctx).Debugf("access log retention period set to %d days", retentionDays)
 	}
 
 	if cleanupIntervalHours <= 0 {
 		cleanupIntervalHours = 24
+		log.WithContext(ctx).Debugf("no cleanup interval specified for access log cleanup, defaulting to %d hours", cleanupIntervalHours)
+	} else {
+		log.WithContext(ctx).Debugf("access log cleanup interval set to %d hours", cleanupIntervalHours)
 	}
 
 	cleanupCtx, cancel := context.WithCancel(ctx)

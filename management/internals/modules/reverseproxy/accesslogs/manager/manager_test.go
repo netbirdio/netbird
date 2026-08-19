@@ -121,7 +121,7 @@ func TestCleanupWithExactBoundary(t *testing.T) {
 }
 
 func TestStartPeriodicCleanup(t *testing.T) {
-	t.Run("periodic cleanup disabled with zero retention", func(t *testing.T) {
+	t.Run("periodic cleanup disabled with negative retention", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 
@@ -135,7 +135,7 @@ func TestStartPeriodicCleanup(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		manager.StartPeriodicCleanup(ctx, 0, 1)
+		manager.StartPeriodicCleanup(ctx, -1, 1)
 
 		time.Sleep(100 * time.Millisecond)
 

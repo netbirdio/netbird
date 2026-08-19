@@ -9,12 +9,13 @@ import (
 func NewRequest(req *daemonProto.ExposeServiceRequest) *Request {
 	return &Request{
 		Port:       uint16(req.Port),
-		Protocol:   int(req.Protocol),
+		Protocol:   ProtocolType(req.Protocol),
 		Pin:        req.Pin,
 		Password:   req.Password,
 		UserGroups: req.UserGroups,
 		Domain:     req.Domain,
 		NamePrefix: req.NamePrefix,
+		ListenPort: uint16(req.ListenPort),
 	}
 }
 
@@ -23,17 +24,19 @@ func toClientExposeRequest(req Request) mgm.ExposeRequest {
 		NamePrefix: req.NamePrefix,
 		Domain:     req.Domain,
 		Port:       req.Port,
-		Protocol:   req.Protocol,
+		Protocol:   int(req.Protocol),
 		Pin:        req.Pin,
 		Password:   req.Password,
 		UserGroups: req.UserGroups,
+		ListenPort: req.ListenPort,
 	}
 }
 
 func fromClientExposeResponse(response *mgm.ExposeResponse) *Response {
 	return &Response{
-		ServiceName: response.ServiceName,
-		Domain:      response.Domain,
-		ServiceURL:  response.ServiceURL,
+		ServiceName:      response.ServiceName,
+		Domain:           response.Domain,
+		ServiceURL:       response.ServiceURL,
+		PortAutoAssigned: response.PortAutoAssigned,
 	}
 }

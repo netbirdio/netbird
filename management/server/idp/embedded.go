@@ -2,9 +2,13 @@ package idp
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
+	"os"
+	"path"
 	"strings"
 
 	"github.com/dexidp/dex/storage"
@@ -13,15 +17,20 @@ import (
 
 	"github.com/netbirdio/netbird/idp/dex"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	nbjwt "github.com/netbirdio/netbird/shared/auth/jwt"
 )
 
 const (
-	staticClientDashboard  = "netbird-dashboard"
-	staticClientCLI        = "netbird-cli"
-	defaultCLIRedirectURL1 = "http://localhost:53000/"
-	defaultCLIRedirectURL2 = "http://localhost:54000/"
-	defaultScopes          = "openid profile email groups"
-	defaultUserIDClaim     = "sub"
+	StaticClientDashboard      = "netbird-dashboard"
+	StaticClientCLI            = "netbird-cli"
+	DefaultTOTPAuthenticatorID = "default-totp"
+	LocalConnectorID           = dex.LocalConnectorID
+
+	defaultCLIRedirectURL1        = "http://localhost:53000/"
+	defaultCLIRedirectURL2        = "http://localhost:54000/"
+	defaultScopes                 = "openid profile email groups"
+	defaultUserIDClaim            = "sub"
+	sessionCookieEncryptionKeyEnv = "NB_IDP_SESSION_COOKIE_ENCRYPTION_KEY"
 )
 
 // EmbeddedIdPConfig contains configuration for the embedded Dex OIDC identity provider
@@ -48,6 +57,31 @@ type EmbeddedIdPConfig struct {
 	// Existing local users are preserved and will be able to login again if re-enabled.
 	// Cannot be enabled if no external identity provider connectors are configured.
 	LocalAuthDisabled bool
+	// MfaSessionMaxLifetime is the maximum MFA session duration from creation (e.g. "24h").
+	// Defaults to "24h" if empty.
+	MfaSessionMaxLifetime string
+	// MfaSessionIdleTimeout is the idle timeout after which the MFA session expires (e.g. "1h").
+	// Defaults to "1h" if empty.
+	MfaSessionIdleTimeout string
+	// MfaSessionRememberMe controls the default state of the "remember me" checkbox on the
+	// login screen. When true, the session cookie persists across browser tabs/restarts so
+	// MFA is not re-prompted until the session expires. Defaults to false.
+	MfaSessionRememberMe bool
+	// SessionCookieEncryptionKey is the optional AES key used to encrypt embedded IdP session cookies.
+	// It can also be set with NB_IDP_SESSION_COOKIE_ENCRYPTION_KEY. The value must be 16, 24, or 32
+	// bytes when provided as a raw string, or base64-encoded to one of those lengths.
+	SessionCookieEncryptionKey string
+	// Dashboard Post logout redirect URIs, these are required to tell
+	// Dex what to allow when an RP-Initiated logout is started by the frontend
+	// at least one of these must match the dashboard base URL or the dashboard
+	// DASHBOARD_POST_LOGOUT_URL environment variable
+	// WARNING: Dex only uses exact match, not wildcards
+	DashboardPostLogoutRedirectURIs []string
+	// StaticConnectors are additional connectors to seed during initialization
+	StaticConnectors []dex.Connector
+	// GrantTypes restricts allowed OAuth2 grants; empty means all (Dex default). Omit the
+	// device_code grant to disable the device flow; keep authorization_code and refresh_token.
+	GrantTypes []string
 }
 
 // EmbeddedStorageConfig holds storage configuration for the embedded IdP.
@@ -112,16 +146,28 @@ func (c *EmbeddedIdPConfig) ToYAMLConfig() (*dex.YAMLConfig, error) {
 		return nil, fmt.Errorf("invalid IdP storage config: %w", err)
 	}
 
-	// Build CLI redirect URIs including the device callback (both relative and absolute)
+	// Build CLI redirect URIs including the device callback. Dex uses the issuer-relative
+	// path (for example, /oauth2/device/callback) when completing the device flow, so
+	// include it explicitly in addition to the legacy bare path and absolute URL.
 	cliRedirectURIs := c.CLIRedirectURIs
 	cliRedirectURIs = append(cliRedirectURIs, "/device/callback")
-	cliRedirectURIs = append(cliRedirectURIs, c.Issuer+"/device/callback")
+	cliRedirectURIs = append(cliRedirectURIs, issuerRelativeDeviceCallback(c.Issuer))
+	cliRedirectURIs = append(cliRedirectURIs, strings.TrimSuffix(c.Issuer, "/")+"/device/callback")
 
 	// Build dashboard redirect URIs including the OAuth callback for proxy authentication
 	dashboardRedirectURIs := c.DashboardRedirectURIs
 	baseURL := strings.TrimSuffix(c.Issuer, "/oauth2")
 	// todo: resolve import cycle
 	dashboardRedirectURIs = append(dashboardRedirectURIs, baseURL+"/api/reverse-proxy/callback")
+
+	dashboardPostLogoutRedirectURIs := c.DashboardPostLogoutRedirectURIs
+	// It is safe to assume that most installations will share the location of the
+	// MGMT api and the dashboard, adding baseURL means less configuration for the instance admin
+	dashboardPostLogoutRedirectURIs = append(dashboardPostLogoutRedirectURIs, baseURL)
+
+	redirectURIs := make([]string, 0)
+	redirectURIs = append(redirectURIs, cliRedirectURIs...)
+	redirectURIs = append(redirectURIs, dashboardRedirectURIs...)
 
 	cfg := &dex.YAMLConfig{
 		Issuer: c.Issuer,
@@ -135,6 +181,7 @@ func (c *EmbeddedIdPConfig) ToYAMLConfig() (*dex.YAMLConfig, error) {
 		},
 		OAuth2: dex.OAuth2{
 			SkipApprovalScreen: true,
+			GrantTypes:         c.GrantTypes,
 		},
 		Frontend: dex.Frontend{
 			Issuer: "NetBird",
@@ -145,18 +192,26 @@ func (c *EmbeddedIdPConfig) ToYAMLConfig() (*dex.YAMLConfig, error) {
 		EnablePasswordDB: true,
 		StaticClients: []storage.Client{
 			{
-				ID:           staticClientDashboard,
-				Name:         "NetBird Dashboard",
-				Public:       true,
-				RedirectURIs: dashboardRedirectURIs,
+				ID:                     StaticClientDashboard,
+				Name:                   "NetBird Dashboard",
+				Public:                 true,
+				RedirectURIs:           redirectURIs,
+				PostLogoutRedirectURIs: sanitizePostLogoutRedirectURIs(dashboardPostLogoutRedirectURIs),
 			},
 			{
-				ID:           staticClientCLI,
+				ID:           StaticClientCLI,
 				Name:         "NetBird CLI",
 				Public:       true,
-				RedirectURIs: cliRedirectURIs,
+				RedirectURIs: redirectURIs,
 			},
 		},
+		StaticConnectors: c.StaticConnectors,
+	}
+
+	// Always initialize MFA providers and sessions so TOTP can be toggled at runtime.
+	// MFAChain on clients is NOT set here — it's synced from the DB setting on startup.
+	if err := configureMFA(cfg, c.MfaSessionMaxLifetime, c.MfaSessionIdleTimeout, c.MfaSessionRememberMe, c.SessionCookieEncryptionKey); err != nil {
+		return nil, err
 	}
 
 	// Add owner user if provided
@@ -178,6 +233,108 @@ func (c *EmbeddedIdPConfig) ToYAMLConfig() (*dex.YAMLConfig, error) {
 	return cfg, nil
 }
 
+func issuerRelativeDeviceCallback(issuer string) string {
+	u, err := url.Parse(issuer)
+	if err != nil || u.Path == "" {
+		return "/device/callback"
+	}
+	return path.Join(u.Path, "/device/callback")
+}
+
+// Due to how the frontend generates the logout, sometimes it appends a trailing slash
+// and because Dex only allows exact matches, we need to make sure we always have both
+// versions of each provided uri
+func sanitizePostLogoutRedirectURIs(uris []string) []string {
+	result := make([]string, 0)
+	for _, uri := range uris {
+		if strings.HasSuffix(uri, "/") {
+			result = append(result, uri)
+			result = append(result, strings.TrimSuffix(uri, "/"))
+		} else {
+			result = append(result, uri)
+			result = append(result, uri+"/")
+		}
+	}
+
+	return result
+}
+
+func configureMFA(cfg *dex.YAMLConfig, sessionMaxLifetime, sessionIdleTimeout string, rememberMe bool, sessionCookieEncryptionKey string) error {
+	cfg.MFA.Authenticators = []dex.MFAAuthenticator{{
+		ID: DefaultTOTPAuthenticatorID,
+		// Has to be caps otherwise it will fail
+		Type: "TOTP",
+		Config: map[string]interface{}{
+			"issuer": "NetBird",
+		},
+		ConnectorTypes: []string{LocalConnectorID},
+	}}
+
+	if sessionMaxLifetime == "" {
+		sessionMaxLifetime = "24h"
+	}
+	if sessionIdleTimeout == "" {
+		sessionIdleTimeout = "1h"
+	}
+
+	cookieEncryptionKey, err := resolveSessionCookieEncryptionKey(sessionCookieEncryptionKey)
+	if err != nil {
+		return err
+	}
+
+	cfg.Sessions = &dex.Sessions{
+		CookieName:                 "netbird-session",
+		AbsoluteLifetime:           sessionMaxLifetime,
+		ValidIfNotUsedFor:          sessionIdleTimeout,
+		RememberMeCheckedByDefault: &rememberMe,
+		SSOSharedWithDefault:       "all",
+		CookieEncryptionKey:        cookieEncryptionKey,
+	}
+	// Absolutely required, otherwise the dex server will omit the MFA configuration entirely
+	os.Setenv("DEX_SESSIONS_ENABLED", "true")
+
+	// Note: MFAChain on clients is NOT set here.
+	// It is toggled at runtime via SetMFAEnabled() based on the account settings DB value.
+	return nil
+}
+
+func resolveSessionCookieEncryptionKey(configuredKey string) (string, error) {
+	key := strings.TrimSpace(configuredKey)
+	if key == "" {
+		key = strings.TrimSpace(os.Getenv(sessionCookieEncryptionKeyEnv))
+	}
+	if key == "" {
+		return "", nil
+	}
+
+	if validSessionCookieEncryptionKeyLength(len([]byte(key))) {
+		return key, nil
+	}
+
+	for _, encoding := range []*base64.Encoding{
+		base64.StdEncoding,
+		base64.RawStdEncoding,
+		base64.URLEncoding,
+		base64.RawURLEncoding,
+	} {
+		decoded, err := encoding.DecodeString(key)
+		if err == nil && validSessionCookieEncryptionKeyLength(len(decoded)) {
+			return string(decoded), nil
+		}
+	}
+
+	return "", fmt.Errorf("invalid embedded IdP session cookie encryption key:%s (or sessionCookieEncryptionKey) must be 16, 24, or 32 bytes as a raw string or base64-encoded to one of those lengths; got %d raw bytes", sessionCookieEncryptionKeyEnv, len([]byte(key)))
+}
+
+func validSessionCookieEncryptionKeyLength(length int) bool {
+	switch length {
+	case 16, 24, 32:
+		return true
+	default:
+		return false
+	}
+}
+
 // Compile-time check that EmbeddedIdPManager implements Manager interface
 var _ Manager = (*EmbeddedIdPManager)(nil)
 
@@ -193,6 +350,9 @@ type OAuthConfigProvider interface {
 	// Management server has embedded Dex and can validate tokens via localhost,
 	// avoiding external network calls and DNS resolution issues during startup.
 	GetLocalKeysLocation() string
+	// GetKeyFetcher returns a KeyFetcher that reads keys directly from the IDP storage,
+	// or nil if direct key fetching is not supported (falls back to HTTP).
+	GetKeyFetcher() nbjwt.KeyFetcher
 	GetClientIDs() []string
 	GetUserIDClaim() string
 	GetTokenEndpoint() string
@@ -208,6 +368,7 @@ type EmbeddedIdPManager struct {
 	provider   *dex.Provider
 	appMetrics telemetry.AppMetrics
 	config     EmbeddedIdPConfig
+	mfaEnabled bool
 }
 
 // NewEmbeddedIdPManager creates a new instance of EmbeddedIdPManager from a configuration.
@@ -582,7 +743,7 @@ func (m *EmbeddedIdPManager) GetDefaultScopes() string {
 
 // GetCLIClientID returns the client ID for CLI authentication.
 func (m *EmbeddedIdPManager) GetCLIClientID() string {
-	return staticClientCLI
+	return StaticClientCLI
 }
 
 // GetCLIRedirectURLs returns the redirect URLs configured for the CLI client.
@@ -591,6 +752,11 @@ func (m *EmbeddedIdPManager) GetCLIRedirectURLs() []string {
 		return []string{defaultCLIRedirectURL1, defaultCLIRedirectURL2}
 	}
 	return m.config.CLIRedirectURIs
+}
+
+// GetKeyFetcher returns a KeyFetcher that reads keys directly from Dex storage.
+func (m *EmbeddedIdPManager) GetKeyFetcher() nbjwt.KeyFetcher {
+	return m.provider.GetJWKS
 }
 
 // GetKeysLocation returns the JWKS endpoint URL for token validation.
@@ -616,7 +782,7 @@ func (m *EmbeddedIdPManager) GetLocalKeysLocation() string {
 
 // GetClientIDs returns the OAuth2 client IDs configured for this provider.
 func (m *EmbeddedIdPManager) GetClientIDs() []string {
-	return []string{staticClientDashboard, staticClientCLI}
+	return []string{StaticClientDashboard, StaticClientCLI}
 }
 
 // GetUserIDClaim returns the JWT claim name used for user identification.
@@ -627,6 +793,27 @@ func (m *EmbeddedIdPManager) GetUserIDClaim() string {
 // IsLocalAuthDisabled returns whether local authentication is disabled based on configuration.
 func (m *EmbeddedIdPManager) IsLocalAuthDisabled() bool {
 	return m.config.LocalAuthDisabled
+}
+
+// SetMFAEnabled enables or disables TOTP MFA for local users by updating the MFAChain on OAuth2 clients.
+func (m *EmbeddedIdPManager) SetMFAEnabled(ctx context.Context, enabled bool) error {
+	var mfaChain []string
+	if enabled {
+		mfaChain = []string{DefaultTOTPAuthenticatorID}
+	}
+	if err := m.provider.SetClientsMFAChain(ctx, []string{
+		StaticClientCLI,
+		StaticClientDashboard,
+	}, mfaChain); err != nil {
+		return fmt.Errorf("failed to set MFA enabled=%v: %w", enabled, err)
+	}
+	m.mfaEnabled = enabled
+	return nil
+}
+
+// IsMFAEnabled returns whether TOTP MFA is currently enabled for local users.
+func (m *EmbeddedIdPManager) IsMFAEnabled() bool {
+	return m.mfaEnabled
 }
 
 // HasNonLocalConnectors checks if there are any identity provider connectors other than local.

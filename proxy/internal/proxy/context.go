@@ -2,6 +2,8 @@ package proxy
 
 import (
 	"context"
+	"maps"
+	"net/netip"
 	"sync"
 
 	"github.com/netbirdio/netbird/proxy/internal/types"
@@ -10,8 +12,6 @@ import (
 type requestContextKey string
 
 const (
-	serviceIdKey    requestContextKey = "serviceId"
-	accountIdKey    requestContextKey = "accountId"
 	capturedDataKey requestContextKey = "capturedData"
 )
 
@@ -46,112 +46,254 @@ func (o ResponseOrigin) String() string {
 // to pass data back up the middleware chain.
 type CapturedData struct {
 	mu         sync.RWMutex
-	RequestID  string
-	ServiceId  string
-	AccountId  types.AccountID
-	Origin     ResponseOrigin
-	ClientIP   string
-	UserID     string
-	AuthMethod string
+	requestID  string
+	serviceID  types.ServiceID
+	accountID  types.AccountID
+	origin     ResponseOrigin
+	clientIP   netip.Addr
+	userID     string
+	userEmail  string
+	userGroups []string
+	// userGroupNames pairs positionally with userGroups; populated from
+	// the JWT's group_names claim or from ValidateSession/Tunnel
+	// responses. Slice may be shorter than userGroups for tokens minted
+	// before names were resolvable.
+	userGroupNames    []string
+	authMethod        string
+	metadata          map[string]string
+	agentNetwork      bool
+	suppressAccessLog bool
 }
 
-// GetRequestID safely gets the request ID
+// NewCapturedData creates a CapturedData with the given request ID.
+func NewCapturedData(requestID string) *CapturedData {
+	return &CapturedData{requestID: requestID}
+}
+
+// GetRequestID returns the request ID.
 func (c *CapturedData) GetRequestID() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.RequestID
+	return c.requestID
 }
 
-// SetServiceId safely sets the service ID
-func (c *CapturedData) SetServiceId(serviceId string) {
+// SetServiceID sets the service ID.
+func (c *CapturedData) SetServiceID(serviceID types.ServiceID) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.ServiceId = serviceId
+	c.serviceID = serviceID
 }
 
-// GetServiceId safely gets the service ID
-func (c *CapturedData) GetServiceId() string {
+// GetServiceID returns the service ID.
+func (c *CapturedData) GetServiceID() types.ServiceID {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.ServiceId
+	return c.serviceID
 }
 
-// SetAccountId safely sets the account ID
-func (c *CapturedData) SetAccountId(accountId types.AccountID) {
+// SetAccountID sets the account ID.
+func (c *CapturedData) SetAccountID(accountID types.AccountID) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.AccountId = accountId
+	c.accountID = accountID
 }
 
-// GetAccountId safely gets the account ID
-func (c *CapturedData) GetAccountId() types.AccountID {
+// GetAccountID returns the account ID.
+func (c *CapturedData) GetAccountID() types.AccountID {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.AccountId
+	return c.accountID
 }
 
-// SetOrigin safely sets the response origin
+// SetOrigin sets the response origin.
 func (c *CapturedData) SetOrigin(origin ResponseOrigin) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.Origin = origin
+	c.origin = origin
 }
 
-// GetOrigin safely gets the response origin
+// GetOrigin returns the response origin.
 func (c *CapturedData) GetOrigin() ResponseOrigin {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.Origin
+	return c.origin
 }
 
-// SetClientIP safely sets the resolved client IP.
-func (c *CapturedData) SetClientIP(ip string) {
+// SetClientIP sets the resolved client IP.
+func (c *CapturedData) SetClientIP(ip netip.Addr) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.ClientIP = ip
+	c.clientIP = ip
 }
 
-// GetClientIP safely gets the resolved client IP.
-func (c *CapturedData) GetClientIP() string {
+// GetClientIP returns the resolved client IP.
+func (c *CapturedData) GetClientIP() netip.Addr {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.ClientIP
+	return c.clientIP
 }
 
-// SetUserID safely sets the authenticated user ID.
+// SetUserID sets the authenticated user ID.
 func (c *CapturedData) SetUserID(userID string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.UserID = userID
+	c.userID = userID
 }
 
-// GetUserID safely gets the authenticated user ID.
+// GetUserID returns the authenticated user ID.
 func (c *CapturedData) GetUserID() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.UserID
+	return c.userID
 }
 
-// SetAuthMethod safely sets the authentication method used.
+// SetUserEmail records the authenticated user's email address. Used by
+// policy-aware middlewares to stamp identity onto upstream requests
+// (e.g. x-litellm-end-user-id) without a management round-trip.
+func (c *CapturedData) SetUserEmail(email string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.userEmail = email
+}
+
+// GetUserEmail returns the authenticated user's email address. Returns
+// the empty string when the auth path didn't carry an email (e.g.
+// non-OIDC schemes or legacy JWTs minted before the email claim).
+func (c *CapturedData) GetUserEmail() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.userEmail
+}
+
+// SetUserGroups records the authenticated user's group memberships so
+// downstream policy-aware middlewares can authorise the request without
+// an additional management round-trip. The auth middleware populates this
+// from ValidateSessionResponse / ValidateTunnelPeerResponse and from the
+// session JWT's groups claim on cookie-bearing requests.
+func (c *CapturedData) SetUserGroups(groups []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(groups) == 0 {
+		c.userGroups = nil
+		return
+	}
+	c.userGroups = append(c.userGroups[:0], groups...)
+}
+
+// SetAgentNetwork records whether the request hit a synthesised
+// agent-network target. The terminal access-log middleware stamps the
+// flag onto the proto so management can distinguish synthetic traffic.
+func (c *CapturedData) SetAgentNetwork(b bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.agentNetwork = b
+}
+
+// GetAgentNetwork reports whether the request matched a synthesised
+// agent-network target.
+func (c *CapturedData) GetAgentNetwork() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.agentNetwork
+}
+
+// SetSuppressAccessLog records whether the per-request access-log emission
+// must be skipped for this request. Stamped from the matched target's
+// DisableAccessLog flag so the access-log middleware can short-circuit
+// log delivery for opted-out agent-network targets.
+func (c *CapturedData) SetSuppressAccessLog(b bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.suppressAccessLog = b
+}
+
+// GetSuppressAccessLog reports whether access-log emission has been
+// suppressed for this request.
+func (c *CapturedData) GetSuppressAccessLog() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.suppressAccessLog
+}
+
+// GetUserGroups returns a copy of the authenticated user's group
+// memberships.
+func (c *CapturedData) GetUserGroups() []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if len(c.userGroups) == 0 {
+		return nil
+	}
+	out := make([]string, len(c.userGroups))
+	copy(out, c.userGroups)
+	return out
+}
+
+// SetUserGroupNames records the human-readable display names for the
+// user's groups, ordered identically to UserGroups (positional
+// pairing). Stamped onto upstream requests as X-NetBird-Groups so
+// downstream services can read names rather than opaque ids.
+func (c *CapturedData) SetUserGroupNames(names []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(names) == 0 {
+		c.userGroupNames = nil
+		return
+	}
+	c.userGroupNames = append(c.userGroupNames[:0], names...)
+}
+
+// GetUserGroupNames returns a copy of the authenticated user's group
+// display names. Position i pairs with UserGroups[i]. May be shorter
+// than UserGroups for tokens minted before names were resolvable; the
+// consumer should fall back to ids for missing positions.
+func (c *CapturedData) GetUserGroupNames() []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if len(c.userGroupNames) == 0 {
+		return nil
+	}
+	out := make([]string, len(c.userGroupNames))
+	copy(out, c.userGroupNames)
+	return out
+}
+
+// SetAuthMethod sets the authentication method used.
 func (c *CapturedData) SetAuthMethod(method string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.AuthMethod = method
+	c.authMethod = method
 }
 
-// GetAuthMethod safely gets the authentication method used.
+// GetAuthMethod returns the authentication method used.
 func (c *CapturedData) GetAuthMethod() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.AuthMethod
+	return c.authMethod
 }
 
-// WithCapturedData adds a CapturedData struct to the context
+// SetMetadata sets a key-value pair in the metadata map.
+func (c *CapturedData) SetMetadata(key, value string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.metadata == nil {
+		c.metadata = make(map[string]string)
+	}
+	c.metadata[key] = value
+}
+
+// GetMetadata returns a copy of the metadata map.
+func (c *CapturedData) GetMetadata() map[string]string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return maps.Clone(c.metadata)
+}
+
+// WithCapturedData adds a CapturedData struct to the context.
 func WithCapturedData(ctx context.Context, data *CapturedData) context.Context {
 	return context.WithValue(ctx, capturedDataKey, data)
 }
 
-// CapturedDataFromContext retrieves the CapturedData from context
+// CapturedDataFromContext retrieves the CapturedData from context.
 func CapturedDataFromContext(ctx context.Context) *CapturedData {
 	v := ctx.Value(capturedDataKey)
 	data, ok := v.(*CapturedData)
@@ -159,29 +301,4 @@ func CapturedDataFromContext(ctx context.Context) *CapturedData {
 		return nil
 	}
 	return data
-}
-
-func withServiceId(ctx context.Context, serviceId string) context.Context {
-	return context.WithValue(ctx, serviceIdKey, serviceId)
-}
-
-func ServiceIdFromContext(ctx context.Context) string {
-	v := ctx.Value(serviceIdKey)
-	serviceId, ok := v.(string)
-	if !ok {
-		return ""
-	}
-	return serviceId
-}
-func withAccountId(ctx context.Context, accountId types.AccountID) context.Context {
-	return context.WithValue(ctx, accountIdKey, accountId)
-}
-
-func AccountIdFromContext(ctx context.Context) types.AccountID {
-	v := ctx.Value(accountIdKey)
-	accountId, ok := v.(types.AccountID)
-	if !ok {
-		return ""
-	}
-	return accountId
 }

@@ -2,14 +2,54 @@ package dex
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/dexidp/dex/storage"
+	"github.com/dexidp/dex/storage/memory"
+	sqllib "github.com/dexidp/dex/storage/sql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type updateFailingStorage struct {
+	storage.Storage
+	failClientID string
+}
+
+func (s *updateFailingStorage) UpdateClient(ctx context.Context, id string, updater func(storage.Client) (storage.Client, error)) error {
+	if id == s.failClientID {
+		return errors.New("forced update failure")
+	}
+	return s.Storage.UpdateClient(ctx, id, updater)
+}
+
+func TestSetClientsMFAChainRollsBackUpdatedClients(t *testing.T) {
+	ctx := context.Background()
+	st := memory.New(slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	require.NoError(t, st.CreateClient(ctx, storage.Client{ID: "client-1", MFAChain: []string{"old-1"}}))
+	require.NoError(t, st.CreateClient(ctx, storage.Client{ID: "client-2", MFAChain: []string{"old-2"}}))
+
+	err := SetClientsMFAChain(ctx, &updateFailingStorage{Storage: st, failClientID: "client-2"}, []string{"client-1", "client-2"}, []string{"new"})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "failed to update MFA chain on client client-2")
+
+	client1, err := st.GetClient(ctx, "client-1")
+	require.NoError(t, err)
+	require.Equal(t, []string{"old-1"}, client1.MFAChain)
+
+	client2, err := st.GetClient(ctx, "client-2")
+	require.NoError(t, err)
+	require.Equal(t, []string{"old-2"}, client2.MFAChain)
+}
 
 func TestUserCreationFlow(t *testing.T) {
 	ctx := context.Background()
@@ -110,6 +150,26 @@ func TestDecodeDexUserID(t *testing.T) {
 	}
 }
 
+func TestIsLocalUserID(t *testing.T) {
+	tests := []struct {
+		name      string
+		encodedID string
+		want      bool
+	}{
+		{name: "local connector", encodedID: EncodeDexUserID("7aad8c05-3287-473f-b42a-365504bf25e7", "local"), want: true},
+		{name: "federated connector", encodedID: EncodeDexUserID("entra-user", "entra"), want: false},
+		{name: "non-dex external IdP id", encodedID: "google-oauth2|1234567890", want: false},
+		{name: "invalid base64", encodedID: "not-valid-base64!!!", want: false},
+		{name: "empty", encodedID: "", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, IsLocalUserID(tt.encodedID))
+		})
+	}
+}
+
 func TestEncodeDexUserID(t *testing.T) {
 	userID := "7aad8c05-3287-473f-b42a-365504bf25e7"
 	connectorID := "local"
@@ -139,6 +199,30 @@ func TestEncodeDexUserID_MatchesDexFormat(t *testing.T) {
 	// Re-encode and verify it matches
 	reEncoded := EncodeDexUserID(knownUserID, knownConnectorID)
 	assert.Equal(t, knownEncodedID, reEncoded)
+}
+
+func TestHandlerRedirectsLogoutWithoutIDTokenHint(t *testing.T) {
+	ctx := context.Background()
+
+	tmpDir, err := os.MkdirTemp("", "dex-logout-handler-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	provider, err := NewProvider(ctx, &Config{
+		Issuer:  "http://localhost:5556/oauth2",
+		Port:    5556,
+		DataDir: tmpDir,
+	})
+	require.NoError(t, err)
+	defer func() { _ = provider.Stop(ctx) }()
+
+	req := httptest.NewRequest(http.MethodGet, "/oauth2/logout?post_logout_redirect_uri=https://example.com", nil)
+	rec := httptest.NewRecorder()
+
+	provider.Handler().ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusSeeOther, rec.Code)
+	require.Equal(t, "/", rec.Header().Get("Location"))
 }
 
 func TestCreateUserInTempDB(t *testing.T) {
@@ -195,6 +279,295 @@ enablePasswordDB: true
 	assert.Equal(t, rawID, user.UserID)
 
 	t.Logf("User lookup successful: rawID=%s, connectorID=%s", rawID, connID)
+}
+
+// openTestStorage creates a SQLite storage in the given directory for testing.
+func openTestStorage(t *testing.T, tmpDir string) storage.Storage {
+	t.Helper()
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	stor, err := (&sqllib.SQLite3{File: filepath.Join(tmpDir, "dex.db")}).Open(logger)
+	require.NoError(t, err)
+	return stor
+}
+
+func TestStaticConnectors_CreatedFromYAML(t *testing.T) {
+	ctx := context.Background()
+
+	tmpDir, err := os.MkdirTemp("", "dex-static-conn-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	yamlContent := `
+issuer: http://localhost:5556/dex
+storage:
+  type: sqlite3
+  config:
+    file: ` + filepath.Join(tmpDir, "dex.db") + `
+web:
+  http: 127.0.0.1:5556
+enablePasswordDB: true
+connectors:
+- type: oidc
+  id: my-oidc
+  name: My OIDC Provider
+  config:
+    issuer: https://accounts.example.com
+    clientID: test-client-id
+    clientSecret: test-client-secret
+    redirectURI: http://localhost:5556/dex/callback
+`
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	err = os.WriteFile(configPath, []byte(yamlContent), 0644)
+	require.NoError(t, err)
+
+	yamlConfig, err := LoadConfig(configPath)
+	require.NoError(t, err)
+
+	// Open storage and run initializeStorage directly (avoids Dex server
+	// trying to dial the OIDC issuer)
+	stor := openTestStorage(t, tmpDir)
+	defer stor.Close()
+
+	err = initializeStorage(ctx, stor, yamlConfig)
+	require.NoError(t, err)
+
+	// Verify connector was created in storage
+	conn, err := stor.GetConnector(ctx, "my-oidc")
+	require.NoError(t, err)
+	assert.Equal(t, "my-oidc", conn.ID)
+	assert.Equal(t, "My OIDC Provider", conn.Name)
+	assert.Equal(t, "oidc", conn.Type)
+
+	// Verify config fields were serialized correctly
+	var configMap map[string]interface{}
+	err = json.Unmarshal(conn.Config, &configMap)
+	require.NoError(t, err)
+	assert.Equal(t, "https://accounts.example.com", configMap["issuer"])
+	assert.Equal(t, "test-client-id", configMap["clientID"])
+}
+
+func TestStaticConnectors_UpdatedOnRestart(t *testing.T) {
+	ctx := context.Background()
+
+	tmpDir, err := os.MkdirTemp("", "dex-static-conn-update-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	dbFile := filepath.Join(tmpDir, "dex.db")
+
+	// First: load config with initial connector
+	yamlContent1 := `
+issuer: http://localhost:5556/dex
+storage:
+  type: sqlite3
+  config:
+    file: ` + dbFile + `
+web:
+  http: 127.0.0.1:5556
+enablePasswordDB: true
+connectors:
+- type: oidc
+  id: my-oidc
+  name: Original Name
+  config:
+    issuer: https://accounts.example.com
+    clientID: original-client-id
+    clientSecret: original-secret
+`
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	err = os.WriteFile(configPath, []byte(yamlContent1), 0644)
+	require.NoError(t, err)
+
+	yamlConfig1, err := LoadConfig(configPath)
+	require.NoError(t, err)
+
+	stor := openTestStorage(t, tmpDir)
+	err = initializeStorage(ctx, stor, yamlConfig1)
+	require.NoError(t, err)
+
+	// Verify initial state
+	conn, err := stor.GetConnector(ctx, "my-oidc")
+	require.NoError(t, err)
+	assert.Equal(t, "Original Name", conn.Name)
+
+	var configMap1 map[string]interface{}
+	err = json.Unmarshal(conn.Config, &configMap1)
+	require.NoError(t, err)
+	assert.Equal(t, "original-client-id", configMap1["clientID"])
+
+	// Close storage to simulate restart
+	stor.Close()
+
+	// Second: load updated config against the same DB
+	yamlContent2 := `
+issuer: http://localhost:5556/dex
+storage:
+  type: sqlite3
+  config:
+    file: ` + dbFile + `
+web:
+  http: 127.0.0.1:5556
+enablePasswordDB: true
+connectors:
+- type: oidc
+  id: my-oidc
+  name: Updated Name
+  config:
+    issuer: https://accounts.example.com
+    clientID: updated-client-id
+    clientSecret: updated-secret
+`
+	err = os.WriteFile(configPath, []byte(yamlContent2), 0644)
+	require.NoError(t, err)
+
+	yamlConfig2, err := LoadConfig(configPath)
+	require.NoError(t, err)
+
+	stor2 := openTestStorage(t, tmpDir)
+	defer stor2.Close()
+
+	err = initializeStorage(ctx, stor2, yamlConfig2)
+	require.NoError(t, err)
+
+	// Verify connector was updated, not duplicated
+	allConnectors, err := stor2.ListConnectors(ctx)
+	require.NoError(t, err)
+
+	nonLocalCount := 0
+	for _, c := range allConnectors {
+		if c.ID != "local" {
+			nonLocalCount++
+		}
+	}
+	assert.Equal(t, 1, nonLocalCount, "connector should be updated, not duplicated")
+
+	conn2, err := stor2.GetConnector(ctx, "my-oidc")
+	require.NoError(t, err)
+	assert.Equal(t, "Updated Name", conn2.Name)
+
+	var configMap2 map[string]interface{}
+	err = json.Unmarshal(conn2.Config, &configMap2)
+	require.NoError(t, err)
+	assert.Equal(t, "updated-client-id", configMap2["clientID"])
+}
+
+func TestStaticConnectors_MultipleConnectors(t *testing.T) {
+	ctx := context.Background()
+
+	tmpDir, err := os.MkdirTemp("", "dex-static-conn-multi-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	yamlContent := `
+issuer: http://localhost:5556/dex
+storage:
+  type: sqlite3
+  config:
+    file: ` + filepath.Join(tmpDir, "dex.db") + `
+web:
+  http: 127.0.0.1:5556
+enablePasswordDB: true
+connectors:
+- type: oidc
+  id: my-oidc
+  name: My OIDC Provider
+  config:
+    issuer: https://accounts.example.com
+    clientID: oidc-client-id
+    clientSecret: oidc-secret
+- type: google
+  id: my-google
+  name: Google Login
+  config:
+    clientID: google-client-id
+    clientSecret: google-secret
+`
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	err = os.WriteFile(configPath, []byte(yamlContent), 0644)
+	require.NoError(t, err)
+
+	yamlConfig, err := LoadConfig(configPath)
+	require.NoError(t, err)
+
+	stor := openTestStorage(t, tmpDir)
+	defer stor.Close()
+
+	err = initializeStorage(ctx, stor, yamlConfig)
+	require.NoError(t, err)
+
+	allConnectors, err := stor.ListConnectors(ctx)
+	require.NoError(t, err)
+
+	// Build a map for easier assertion
+	connByID := make(map[string]storage.Connector)
+	for _, c := range allConnectors {
+		connByID[c.ID] = c
+	}
+
+	// Verify both static connectors exist
+	oidcConn, ok := connByID["my-oidc"]
+	require.True(t, ok, "oidc connector should exist")
+	assert.Equal(t, "My OIDC Provider", oidcConn.Name)
+	assert.Equal(t, "oidc", oidcConn.Type)
+
+	var oidcConfig map[string]interface{}
+	err = json.Unmarshal(oidcConn.Config, &oidcConfig)
+	require.NoError(t, err)
+	assert.Equal(t, "oidc-client-id", oidcConfig["clientID"])
+
+	googleConn, ok := connByID["my-google"]
+	require.True(t, ok, "google connector should exist")
+	assert.Equal(t, "Google Login", googleConn.Name)
+	assert.Equal(t, "google", googleConn.Type)
+
+	var googleConfig map[string]interface{}
+	err = json.Unmarshal(googleConn.Config, &googleConfig)
+	require.NoError(t, err)
+	assert.Equal(t, "google-client-id", googleConfig["clientID"])
+
+	// Verify local connector still exists alongside them (enablePasswordDB: true)
+	localConn, ok := connByID["local"]
+	require.True(t, ok, "local connector should exist")
+	assert.Equal(t, "local", localConn.Type)
+}
+
+func TestStaticConnectors_EmptyList(t *testing.T) {
+	ctx := context.Background()
+
+	tmpDir, err := os.MkdirTemp("", "dex-static-conn-empty-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	yamlContent := `
+issuer: http://localhost:5556/dex
+storage:
+  type: sqlite3
+  config:
+    file: ` + filepath.Join(tmpDir, "dex.db") + `
+web:
+  http: 127.0.0.1:5556
+enablePasswordDB: true
+`
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	err = os.WriteFile(configPath, []byte(yamlContent), 0644)
+	require.NoError(t, err)
+
+	yamlConfig, err := LoadConfig(configPath)
+	require.NoError(t, err)
+
+	provider, err := NewProviderFromYAML(ctx, yamlConfig)
+	require.NoError(t, err)
+	defer func() { _ = provider.Stop(ctx) }()
+
+	// No static connectors configured, so ListConnectors should return empty
+	connectors, err := provider.ListConnectors(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, connectors)
+
+	// But local connector should still exist
+	localConn, err := provider.Storage().GetConnector(ctx, "local")
+	require.NoError(t, err)
+	assert.Equal(t, "local", localConn.ID)
 }
 
 func TestNewProvider_ContinueOnConnectorFailure(t *testing.T) {
@@ -256,4 +629,91 @@ enablePasswordDB: true
 
 	assert.True(t, cfg.ContinueOnConnectorFailure,
 		"buildDexConfig must set ContinueOnConnectorFailure to true so management starts even if an external IdP is down")
+}
+
+func TestToServerConfig_WiresGrantTypes(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "dex-grants-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	stor := openTestStorage(t, tmpDir)
+	defer stor.Close()
+
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+
+	grants := []string{"authorization_code", "refresh_token"}
+	cfg := &YAMLConfig{Issuer: "http://localhost:5599/oauth2", OAuth2: OAuth2{GrantTypes: grants}}
+	assert.Equal(t, grants, cfg.ToServerConfig(stor, logger).AllowedGrantTypes)
+
+	empty := &YAMLConfig{Issuer: "http://localhost:5599/oauth2"}
+	assert.Empty(t, empty.ToServerConfig(stor, logger).AllowedGrantTypes)
+}
+
+func newDeviceGuardProvider(t *testing.T, grantTypesYAML string) *Provider {
+	t.Helper()
+
+	tmpDir, err := os.MkdirTemp("", "dex-devguard-*")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(tmpDir) })
+
+	yamlContent := `
+issuer: http://localhost:5599/oauth2
+storage:
+  type: sqlite3
+  config:
+    file: ` + filepath.Join(tmpDir, "dex.db") + `
+web:
+  http: 127.0.0.1:5599
+enablePasswordDB: true
+` + grantTypesYAML
+
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte(yamlContent), 0644))
+
+	yamlConfig, err := LoadConfig(configPath)
+	require.NoError(t, err)
+
+	provider, err := NewProviderFromYAML(context.Background(), yamlConfig)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = provider.Stop(context.Background()) })
+	return provider
+}
+
+func TestHandler_BlocksDeviceEndpointsWhenDeviceGrantDisabled(t *testing.T) {
+	provider := newDeviceGuardProvider(t, `
+oauth2:
+  grantTypes:
+    - authorization_code
+    - refresh_token
+`)
+
+	devicePaths := []string{
+		"/oauth2/device",
+		"/oauth2/device/code",
+		"/oauth2/device/token",
+		"/oauth2/device/auth/verify_code",
+		"/oauth2/device/callback",
+	}
+	for _, path := range devicePaths {
+		for _, method := range []string{http.MethodGet, http.MethodPost} {
+			req := httptest.NewRequest(method, path, nil)
+			rec := httptest.NewRecorder()
+			provider.Handler().ServeHTTP(rec, req)
+			assert.Equal(t, http.StatusNotFound, rec.Code, "%s %s must be blocked", method, path)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/oauth2/.well-known/openid-configuration", nil)
+	rec := httptest.NewRecorder()
+	provider.Handler().ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestHandler_AllowsDeviceEndpointsWhenGrantsDefault(t *testing.T) {
+	provider := newDeviceGuardProvider(t, "")
+
+	req := httptest.NewRequest(http.MethodPost, "/oauth2/device/code", nil)
+	rec := httptest.NewRecorder()
+	provider.Handler().ServeHTTP(rec, req)
+	assert.NotEqual(t, http.StatusNotFound, rec.Code)
 }

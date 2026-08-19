@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"reflect"
 	"time"
 
@@ -564,7 +565,7 @@ func HandlerFromRoute(params common.HandlerParams) RouteHandler {
 		return dnsinterceptor.New(params)
 	case handlerTypeDynamic:
 		dns := nbdns.NewServiceViaMemory(params.WgInterface)
-		dnsAddr := fmt.Sprintf("%s:%d", dns.RuntimeIP(), dns.RuntimePort())
+		dnsAddr := netip.AddrPortFrom(dns.RuntimeIP(), uint16(dns.RuntimePort()))
 		return dynamic.NewRoute(params, dnsAddr)
 	default:
 		return static.NewRoute(params)

@@ -9,6 +9,7 @@ import (
 	reflect "reflect"
 
 	gomock "github.com/golang/mock/gomock"
+	proxy "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 )
 
 // MockManager is a mock of Manager interface.
@@ -62,6 +63,20 @@ func (m *MockManager) CreateServiceFromPeer(ctx context.Context, accountID, peer
 func (mr *MockManagerMockRecorder) CreateServiceFromPeer(ctx, accountID, peerID, req interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateServiceFromPeer", reflect.TypeOf((*MockManager)(nil).CreateServiceFromPeer), ctx, accountID, peerID, req)
+}
+
+// DeleteAccountCluster mocks base method.
+func (m *MockManager) DeleteAccountCluster(ctx context.Context, accountID, userID, clusterAddress string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteAccountCluster", ctx, accountID, userID, clusterAddress)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteAccountCluster indicates an expected call of DeleteAccountCluster.
+func (mr *MockManagerMockRecorder) DeleteAccountCluster(ctx, accountID, userID, clusterAddress interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAccountCluster", reflect.TypeOf((*MockManager)(nil).DeleteAccountCluster), ctx, accountID, userID, clusterAddress)
 }
 
 // DeleteAllServices mocks base method.
@@ -122,6 +137,21 @@ func (mr *MockManagerMockRecorder) GetAllServices(ctx, accountID, userID interfa
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllServices", reflect.TypeOf((*MockManager)(nil).GetAllServices), ctx, accountID, userID)
 }
 
+// GetClusters mocks base method.
+func (m *MockManager) GetClusters(ctx context.Context, accountID, userID string) ([]proxy.Cluster, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetClusters", ctx, accountID, userID)
+	ret0, _ := ret[0].([]proxy.Cluster)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetClusters indicates an expected call of GetClusters.
+func (mr *MockManagerMockRecorder) GetClusters(ctx, accountID, userID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetClusters", reflect.TypeOf((*MockManager)(nil).GetClusters), ctx, accountID, userID)
+}
+
 // GetGlobalServices mocks base method.
 func (m *MockManager) GetGlobalServices(ctx context.Context) ([]*Service, error) {
 	m.ctrl.T.Helper()
@@ -150,6 +180,21 @@ func (m *MockManager) GetService(ctx context.Context, accountID, userID, service
 func (mr *MockManagerMockRecorder) GetService(ctx, accountID, userID, serviceID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetService", reflect.TypeOf((*MockManager)(nil).GetService), ctx, accountID, userID, serviceID)
+}
+
+// GetServiceByDomain mocks base method.
+func (m *MockManager) GetServiceByDomain(ctx context.Context, domain string) (*Service, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetServiceByDomain", ctx, domain)
+	ret0, _ := ret[0].(*Service)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetServiceByDomain indicates an expected call of GetServiceByDomain.
+func (mr *MockManagerMockRecorder) GetServiceByDomain(ctx, domain interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetServiceByDomain", reflect.TypeOf((*MockManager)(nil).GetServiceByDomain), ctx, domain)
 }
 
 // GetServiceByID mocks base method.
@@ -211,17 +256,17 @@ func (mr *MockManagerMockRecorder) ReloadService(ctx, accountID, serviceID inter
 }
 
 // RenewServiceFromPeer mocks base method.
-func (m *MockManager) RenewServiceFromPeer(ctx context.Context, accountID, peerID, domain string) error {
+func (m *MockManager) RenewServiceFromPeer(ctx context.Context, accountID, peerID, serviceID string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RenewServiceFromPeer", ctx, accountID, peerID, domain)
+	ret := m.ctrl.Call(m, "RenewServiceFromPeer", ctx, accountID, peerID, serviceID)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // RenewServiceFromPeer indicates an expected call of RenewServiceFromPeer.
-func (mr *MockManagerMockRecorder) RenewServiceFromPeer(ctx, accountID, peerID, domain interface{}) *gomock.Call {
+func (mr *MockManagerMockRecorder) RenewServiceFromPeer(ctx, accountID, peerID, serviceID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RenewServiceFromPeer", reflect.TypeOf((*MockManager)(nil).RenewServiceFromPeer), ctx, accountID, peerID, domain)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RenewServiceFromPeer", reflect.TypeOf((*MockManager)(nil).RenewServiceFromPeer), ctx, accountID, peerID, serviceID)
 }
 
 // SetCertificateIssuedAt mocks base method.
@@ -265,17 +310,17 @@ func (mr *MockManagerMockRecorder) StartExposeReaper(ctx interface{}) *gomock.Ca
 }
 
 // StopServiceFromPeer mocks base method.
-func (m *MockManager) StopServiceFromPeer(ctx context.Context, accountID, peerID, domain string) error {
+func (m *MockManager) StopServiceFromPeer(ctx context.Context, accountID, peerID, serviceID string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "StopServiceFromPeer", ctx, accountID, peerID, domain)
+	ret := m.ctrl.Call(m, "StopServiceFromPeer", ctx, accountID, peerID, serviceID)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // StopServiceFromPeer indicates an expected call of StopServiceFromPeer.
-func (mr *MockManagerMockRecorder) StopServiceFromPeer(ctx, accountID, peerID, domain interface{}) *gomock.Call {
+func (mr *MockManagerMockRecorder) StopServiceFromPeer(ctx, accountID, peerID, serviceID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StopServiceFromPeer", reflect.TypeOf((*MockManager)(nil).StopServiceFromPeer), ctx, accountID, peerID, domain)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StopServiceFromPeer", reflect.TypeOf((*MockManager)(nil).StopServiceFromPeer), ctx, accountID, peerID, serviceID)
 }
 
 // UpdateService mocks base method.

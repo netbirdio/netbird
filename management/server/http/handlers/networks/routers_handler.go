@@ -105,6 +105,12 @@ func (h *routersHandler) createRouter(w http.ResponseWriter, r *http.Request) {
 	router.NetworkID = networkID
 	router.AccountID = accountID
 	router.Enabled = true
+
+	if err := router.Validate(); err != nil {
+		util.WriteErrorResponse(err.Error(), http.StatusBadRequest, w)
+		return
+	}
+
 	router, err = h.routersManager.CreateRouter(r.Context(), userID, router)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
@@ -156,6 +162,11 @@ func (h *routersHandler) updateRouter(w http.ResponseWriter, r *http.Request) {
 	router.NetworkID = mux.Vars(r)["networkId"]
 	router.ID = mux.Vars(r)["routerId"]
 	router.AccountID = accountID
+
+	if err := router.Validate(); err != nil {
+		util.WriteErrorResponse(err.Error(), http.StatusBadRequest, w)
+		return
+	}
 
 	router, err = h.routersManager.UpdateRouter(r.Context(), userID, router)
 	if err != nil {

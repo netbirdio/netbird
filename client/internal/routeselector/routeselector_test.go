@@ -330,6 +330,171 @@ func TestRouteSelector_FilterSelectedExitNodes(t *testing.T) {
 	assert.Len(t, filtered, 0) // No routes should be selected
 }
 
+// TestRouteSelector_V6ExitPairSync covers SyncPairedSelection, which keeps a v4
+// exit node and its synthesized "-v6" counterpart consistent. The selector itself
+// is literal and never infers a v6 entry's state from its v4 base; callers that know
+// the pairing (exit-node code paths) call SyncPairedSelection to force the v6 entry
+// to follow the base, treating the pair as a single toggle.
+func TestRouteSelector_V6ExitPairSync(t *testing.T) {
+	all := []route.NetID{"exit1", "exit1-v6", "exit2", "exit2-v6", "corp", "corp-v6"}
+
+	t.Run("selector lookups stay literal without sync", func(t *testing.T) {
+		rs := routeselector.NewRouteSelector()
+		require.NoError(t, rs.DeselectRoutes([]route.NetID{"exit1"}, all))
+
+		// The selector does not pair-resolve: the v6 entry is independent until synced.
+		assert.False(t, rs.HasUserSelectionForRoute("exit1-v6"), "v6 entry has no state of its own")
+		assert.True(t, rs.IsSelected("exit1-v6"), "unsynced v6 entry stays selected by default")
+
+		// A route literally named "exit1-something" must never pair-resolve either.
+		assert.False(t, rs.HasUserSelectionForRoute("exit1-something"))
+	})
+
+	t.Run("sync mirrors deselected v4 base onto v6", func(t *testing.T) {
+		rs := routeselector.NewRouteSelector()
+		require.NoError(t, rs.DeselectRoutes([]route.NetID{"exit1"}, all))
+
+		rs.SyncPairedSelection("exit1", "exit1-v6")
+
+		assert.False(t, rs.IsSelected("exit1"))
+		assert.False(t, rs.IsSelected("exit1-v6"), "v6 pair follows v4 base deselect")
+		assert.True(t, rs.HasUserSelectionForRoute("exit1-v6"), "v6 carries explicit deselect after sync")
+	})
+
+	t.Run("sync mirrors selected v4 base onto v6", func(t *testing.T) {
+		rs := routeselector.NewRouteSelector()
+		require.NoError(t, rs.SelectRoutes([]route.NetID{"exit1"}, false, all))
+
+		rs.SyncPairedSelection("exit1", "exit1-v6")
+
+		assert.True(t, rs.IsSelected("exit1"))
+		assert.True(t, rs.IsSelected("exit1-v6"), "v6 pair follows v4 base select")
+	})
+
+	t.Run("sync clears v6 state when base has no explicit selection", func(t *testing.T) {
+		rs := routeselector.NewRouteSelector()
+		require.NoError(t, rs.SelectRoutes([]route.NetID{"exit1-v6"}, true, all))
+		require.True(t, rs.HasUserSelectionForRoute("exit1-v6"))
+
+		rs.SyncPairedSelection("exit1", "exit1-v6")
+
+		assert.False(t, rs.HasUserSelectionForRoute("exit1-v6"),
+			"v6 explicit state is cleared so it follows management like its base")
+	})
+
+	// Regression for the observed bug (see netbird-engine.log): persisted state has
+	// the v4 base deselected but the v6 sibling explicitly selected (orphaned). The
+	// sync must reset the orphan so the ::/0 route does not leak onto the tunnel.
+	t.Run("sync clears orphaned explicit v6 selection on deselected base", func(t *testing.T) {
+		rs := routeselector.NewRouteSelector()
+
+		// Prior state: both explicitly selected, then only the v4 base deselected,
+		// leaving the v6 entry as a stale explicit selection.
+		require.NoError(t, rs.SelectRoutes([]route.NetID{"exit1", "exit1-v6"}, true, all))
+		require.NoError(t, rs.DeselectRoutes([]route.NetID{"exit1"}, all))
+		require.True(t, rs.IsSelected("exit1-v6"), "precondition: orphaned v6 selection")
+
+		rs.SyncPairedSelection("exit1", "exit1-v6")
+
+		assert.False(t, rs.IsSelected("exit1-v6"), "orphaned v6 selection reset to follow v4 deselect")
+
+		v4Route := &route.Route{NetID: "exit1", Network: netip.MustParsePrefix("0.0.0.0/0")}
+		v6Route := &route.Route{NetID: "exit1-v6", Network: netip.MustParsePrefix("::/0")}
+		routes := route.HAMap{
+			"exit1|0.0.0.0/0": {v4Route},
+			"exit1-v6|::/0":   {v6Route},
+		}
+		filtered := rs.FilterSelectedExitNodes(routes)
+		assert.Empty(t, filtered, "deselecting v4 base must drop the v6 pair even if it was explicitly selected before")
+	})
+
+	t.Run("filter drops synced v6 pair of deselected v4 base", func(t *testing.T) {
+		rs := routeselector.NewRouteSelector()
+		require.NoError(t, rs.DeselectRoutes([]route.NetID{"exit1"}, all))
+		rs.SyncPairedSelection("exit1", "exit1-v6")
+
+		v4Route := &route.Route{NetID: "exit1", Network: netip.MustParsePrefix("0.0.0.0/0")}
+		v6Route := &route.Route{NetID: "exit1-v6", Network: netip.MustParsePrefix("::/0")}
+		routes := route.HAMap{
+			"exit1|0.0.0.0/0": {v4Route},
+			"exit1-v6|::/0":   {v6Route},
+		}
+
+		filtered := rs.FilterSelectedExitNodes(routes)
+		assert.Empty(t, filtered, "deselecting v4 base must also drop the v6 pair")
+	})
+
+	t.Run("deselectAll makes sync a no-op", func(t *testing.T) {
+		rs := routeselector.NewRouteSelector()
+		rs.DeselectAllRoutes()
+
+		rs.SyncPairedSelection("exit1", "exit1-v6")
+
+		assert.False(t, rs.HasUserSelectionForRoute("exit1-v6"), "sync must not write explicit state under deselectAll")
+	})
+
+	t.Run("non-exit *-v6 routes pass through FilterSelectedExitNodes", func(t *testing.T) {
+		rs := routeselector.NewRouteSelector()
+		require.NoError(t, rs.DeselectRoutes([]route.NetID{"corp"}, all))
+
+		// A non-default-route entry named "corp-v6" is not an exit node and
+		// must not be skipped because its v4 base "corp" is deselected.
+		corpV6 := &route.Route{NetID: "corp-v6", Network: netip.MustParsePrefix("10.0.0.0/8")}
+		routes := route.HAMap{
+			"corp-v6|10.0.0.0/8": {corpV6},
+		}
+
+		filtered := rs.FilterSelectedExitNodes(routes)
+		assert.Contains(t, filtered, route.HAUniqueID("corp-v6|10.0.0.0/8"),
+			"non-exit *-v6 routes must not inherit unrelated v4 state in FilterSelectedExitNodes")
+	})
+}
+
+// TestRouteSelector_SkipAutoApplyPerRoute verifies that management's
+// SkipAutoApply flag governs each untouched route independently, even when
+// the user has explicit selections on other routes.
+func TestRouteSelector_SkipAutoApplyPerRoute(t *testing.T) {
+	autoApplied := &route.Route{
+		NetID:         "Auto",
+		Network:       netip.MustParsePrefix("0.0.0.0/0"),
+		SkipAutoApply: false,
+	}
+	skipApply := &route.Route{
+		NetID:         "Skip",
+		Network:       netip.MustParsePrefix("0.0.0.0/0"),
+		SkipAutoApply: true,
+	}
+	routes := route.HAMap{
+		"Auto|0.0.0.0/0": {autoApplied},
+		"Skip|0.0.0.0/0": {skipApply},
+	}
+
+	rs := routeselector.NewRouteSelector()
+	// User makes an unrelated explicit selection elsewhere.
+	require.NoError(t, rs.DeselectRoutes([]route.NetID{"Unrelated"}, []route.NetID{"Auto", "Skip", "Unrelated"}))
+
+	filtered := rs.FilterSelectedExitNodes(routes)
+	assert.Contains(t, filtered, route.HAUniqueID("Auto|0.0.0.0/0"), "AutoApply route should be included")
+	assert.NotContains(t, filtered, route.HAUniqueID("Skip|0.0.0.0/0"), "SkipAutoApply route should be excluded without explicit user selection")
+}
+
+// TestRouteSelector_V6ExitIsExitNode verifies that ::/0 routes are recognized
+// as exit nodes by the selector's filter path.
+func TestRouteSelector_V6ExitIsExitNode(t *testing.T) {
+	v6Exit := &route.Route{
+		NetID:         "V6Only",
+		Network:       netip.MustParsePrefix("::/0"),
+		SkipAutoApply: true,
+	}
+	routes := route.HAMap{
+		"V6Only|::/0": {v6Exit},
+	}
+
+	rs := routeselector.NewRouteSelector()
+	filtered := rs.FilterSelectedExitNodes(routes)
+	assert.Empty(t, filtered, "::/0 should be treated as an exit node and respect SkipAutoApply")
+}
+
 func TestRouteSelector_NewRoutesBehavior(t *testing.T) {
 	initialRoutes := []route.NetID{"route1", "route2", "route3"}
 	newRoutes := []route.NetID{"route1", "route2", "route3", "route4", "route5"}
@@ -693,4 +858,32 @@ func TestRouteSelector_ComplexScenarios(t *testing.T) {
 				"FilterSelected returned wrong number of routes")
 		})
 	}
+}
+
+// TestRouteSelector_EnableExitNodeKeepsOtherRoutes is a regression test for the
+// tray exit-node toggle disabling every non-exit routed network. The tray used
+// to Select an exit node with append=false, which the RouteSelector treats as
+// "drop the whole current selection" (default-on semantics) — so enabling an
+// exit node also turned off every LAN/route the user had on. The fix sends
+// append=true and lets the daemon's SelectNetworks handler deselect only the
+// sibling exit nodes. This test models that handler sequence against the
+// selector: SelectRoutes(exit, append=true) followed by DeselectRoutes(other
+// exit nodes) must leave non-exit routes untouched.
+func TestRouteSelector_EnableExitNodeKeepsOtherRoutes(t *testing.T) {
+	rs := routeselector.NewRouteSelector()
+	all := []route.NetID{"exitA", "exitB", "lan1", "lan2"}
+
+	// User has two LAN routes on (default-on: nothing deselected => all selected).
+	require.True(t, rs.IsSelected("lan1"))
+	require.True(t, rs.IsSelected("lan2"))
+
+	// Tray enables exitA: SelectNetworks handler does SelectRoutes(append=true)
+	// then deselects sibling exit nodes (exitB), never the LAN routes.
+	require.NoError(t, rs.SelectRoutes([]route.NetID{"exitA"}, true, all))
+	require.NoError(t, rs.DeselectRoutes([]route.NetID{"exitB"}, all))
+
+	assert.True(t, rs.IsSelected("exitA"), "selected exit node stays on")
+	assert.False(t, rs.IsSelected("exitB"), "sibling exit node is deselected")
+	assert.True(t, rs.IsSelected("lan1"), "non-exit route must stay selected")
+	assert.True(t, rs.IsSelected("lan2"), "non-exit route must stay selected")
 }

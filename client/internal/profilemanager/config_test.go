@@ -10,11 +10,20 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal/routemanager/dynamic"
 	"github.com/netbirdio/netbird/util"
 )
+
+type mockMgmProber struct{}
+
+func (m *mockMgmProber) HealthCheck() error {
+	return nil
+}
+
+func (m *mockMgmProber) Close() error { return nil }
 
 func TestGetConfig(t *testing.T) {
 	// case 1: new default config has to be generated
@@ -233,7 +242,42 @@ func TestWireguardPortDefaultVsExplicit(t *testing.T) {
 	}
 }
 
+func TestUpdateConfigServerSSHAllowedNotSet(t *testing.T) {
+	// Configs written before ServerSSHAllowed was introduced lack the field and
+	// unmarshal to nil. Supplying the SSH server flag on top of such a config must
+	// apply the value instead of panicking on a nil pointer dereference.
+	tests := []struct {
+		name  string
+		input *bool
+		want  bool
+	}{
+		{"enable", util.True(), true},
+		{"disable", util.False(), false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			configPath := filepath.Join(t.TempDir(), "config.json")
+			require.NoError(t, os.WriteFile(configPath, []byte("{}"), 0600))
+
+			config, err := UpdateConfig(ConfigInput{
+				ConfigPath:       configPath,
+				ServerSSHAllowed: tt.input,
+			})
+			require.NoError(t, err)
+			require.NotNil(t, config.ServerSSHAllowed, "ServerSSHAllowed should be set from input")
+			assert.Equal(t, tt.want, *config.ServerSSHAllowed)
+		})
+	}
+}
+
 func TestUpdateOldManagementURL(t *testing.T) {
+	origProber := newMgmProber
+	newMgmProber = func(_ context.Context, _ string, _ wgtypes.Key, _ bool) (mgmProber, error) {
+		return &mockMgmProber{}, nil
+	}
+	t.Cleanup(func() { newMgmProber = origProber })
+
 	tests := []struct {
 		name                  string
 		previousManagementURL string
@@ -273,18 +317,17 @@ func TestUpdateOldManagementURL(t *testing.T) {
 				ConfigPath:    configPath,
 			})
 			require.NoError(t, err, "failed to create testing config")
-			previousStats, err := os.Stat(configPath)
-			require.NoError(t, err, "failed to create testing config stats")
+			previousContent, err := os.ReadFile(configPath)
+			require.NoError(t, err, "failed to read initial config")
 			resultConfig, err := UpdateOldManagementURL(context.TODO(), config, configPath)
 			require.NoError(t, err, "got error when updating old management url")
 			require.Equal(t, tt.expectedManagementURL, resultConfig.ManagementURL.String())
-			newStats, err := os.Stat(configPath)
-			require.NoError(t, err, "failed to create testing config stats")
-			switch tt.fileShouldNotChange {
-			case true:
-				require.Equal(t, previousStats.ModTime(), newStats.ModTime(), "file should not change")
-			case false:
-				require.NotEqual(t, previousStats.ModTime(), newStats.ModTime(), "file should have changed")
+			newContent, err := os.ReadFile(configPath)
+			require.NoError(t, err, "failed to read updated config")
+			if tt.fileShouldNotChange {
+				require.Equal(t, string(previousContent), string(newContent), "file should not change")
+			} else {
+				require.NotEqual(t, string(previousContent), string(newContent), "file should have changed")
 			}
 		})
 	}

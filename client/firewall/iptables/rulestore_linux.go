@@ -1,6 +1,9 @@
 package iptables
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"maps"
+)
 
 type ipList struct {
 	ips map[string]struct{}
@@ -17,6 +20,14 @@ func newIpList(ip string) *ipList {
 
 func (s *ipList) addIP(ip string) {
 	s.ips[ip] = struct{}{}
+}
+
+// clone returns a deep copy of the ipList with its own ips map.
+func (s *ipList) clone() *ipList {
+	if s == nil {
+		return nil
+	}
+	return &ipList{ips: maps.Clone(s.ips)}
 }
 
 // MarshalJSON implements json.Marshaler
@@ -53,6 +64,19 @@ func newIpsetStore() *ipsetStore {
 	return &ipsetStore{
 		ipsets: make(map[string]*ipList),
 	}
+}
+
+// clone returns a deep copy of the ipsetStore with its own ipsets map and
+// independent ipList entries.
+func (s *ipsetStore) clone() *ipsetStore {
+	if s == nil {
+		return nil
+	}
+	cloned := &ipsetStore{ipsets: make(map[string]*ipList, len(s.ipsets))}
+	for name, list := range s.ipsets {
+		cloned.ipsets[name] = list.clone()
+	}
+	return cloned
 }
 
 func (s *ipsetStore) ipset(ipsetName string) (*ipList, bool) {

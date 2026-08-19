@@ -9,7 +9,10 @@ import (
 	"fmt"
 	"html/template"
 	"maps"
+	"net"
 	"net/http"
+	"os"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -58,6 +61,24 @@ func sortedAccountIDs(m map[types.AccountID]roundtrip.ClientDebugInfo) []types.A
 type clientProvider interface {
 	GetClient(accountID types.AccountID) (*nbembed.Client, bool)
 	ListClientsForDebug() map[types.AccountID]roundtrip.ClientDebugInfo
+	ListClientsForStartup() map[types.AccountID]*nbembed.Client
+}
+
+// InboundListenerInfo describes a per-account inbound listener as
+// surfaced through the debug HTTP handler. Mirrors the proto sub-message
+// emitted with SendStatusUpdate so dashboards and CLI tooling see the
+// same shape.
+type InboundListenerInfo struct {
+	TunnelIP  string `json:"tunnel_ip"`
+	HTTPSPort uint16 `json:"https_port"`
+	HTTPPort  uint16 `json:"http_port"`
+}
+
+// InboundProvider exposes per-account inbound listener state. Optional;
+// when nil the debug endpoint omits the inbound section entirely so the
+// existing JSON shape stays additive.
+type InboundProvider interface {
+	InboundListeners() map[types.AccountID]InboundListenerInfo
 }
 
 // healthChecker provides health probe state.
@@ -79,6 +100,7 @@ type Handler struct {
 	provider   clientProvider
 	health     healthChecker
 	certStatus certStatus
+	inbound    InboundProvider
 	logger     *log.Logger
 	startTime  time.Time
 	templates  *template.Template
@@ -105,6 +127,13 @@ func NewHandler(provider clientProvider, healthChecker healthChecker, logger *lo
 // SetCertStatus sets the certificate status provider for ACME prefetch observability.
 func (h *Handler) SetCertStatus(cs certStatus) {
 	h.certStatus = cs
+}
+
+// SetInboundProvider wires per-account inbound listener observability.
+// Pass nil (or skip the call) to keep the inbound section out of debug
+// responses on proxies that don't run --private.
+func (h *Handler) SetInboundProvider(p InboundProvider) {
+	h.inbound = p
 }
 
 func (h *Handler) loadTemplates() error {
@@ -139,6 +168,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleListClients(w, r, wantJSON)
 	case "/debug/health":
 		h.handleHealth(w, r, wantJSON)
+	case "/debug/perf":
+		h.handlePerf(w, r)
+	case "/debug/runtime":
+		h.handleRuntime(w, r)
 	default:
 		if h.handleClientRoutes(w, r, path, wantJSON) {
 			return
@@ -174,6 +207,8 @@ func (h *Handler) handleClientRoutes(w http.ResponseWriter, r *http.Request, pat
 		h.handleClientStart(w, r, accountID)
 	case "stop":
 		h.handleClientStop(w, r, accountID)
+	case "capture":
+		h.handleCapture(w, r, accountID)
 	default:
 		return false
 	}
@@ -189,7 +224,7 @@ type indexData struct {
 	Version             string
 	Uptime              string
 	ClientCount         int
-	TotalDomains        int
+	TotalServices       int
 	CertsTotal          int
 	CertsReady          int
 	CertsPending        int
@@ -202,7 +237,7 @@ type indexData struct {
 
 type clientData struct {
 	AccountID string
-	Domains   string
+	Services  string
 	Age       string
 	Status    string
 }
@@ -211,9 +246,9 @@ func (h *Handler) handleIndex(w http.ResponseWriter, _ *http.Request, wantJSON b
 	clients := h.provider.ListClientsForDebug()
 	sortedIDs := sortedAccountIDs(clients)
 
-	totalDomains := 0
+	totalServices := 0
 	for _, info := range clients {
-		totalDomains += info.DomainCount
+		totalServices += info.ServiceCount
 	}
 
 	var certsTotal, certsReady, certsPending, certsFailed int
@@ -230,28 +265,28 @@ func (h *Handler) handleIndex(w http.ResponseWriter, _ *http.Request, wantJSON b
 	}
 
 	if wantJSON {
-		clientsJSON := make([]map[string]interface{}, 0, len(clients))
+		clientsJSON := make([]map[string]any, 0, len(clients))
 		for _, id := range sortedIDs {
 			info := clients[id]
-			clientsJSON = append(clientsJSON, map[string]interface{}{
-				"account_id":   info.AccountID,
-				"domain_count": info.DomainCount,
-				"domains":      info.Domains,
-				"has_client":   info.HasClient,
-				"created_at":   info.CreatedAt,
-				"age":          time.Since(info.CreatedAt).Round(time.Second).String(),
+			clientsJSON = append(clientsJSON, map[string]any{
+				"account_id":    info.AccountID,
+				"service_count": info.ServiceCount,
+				"service_keys":  info.ServiceKeys,
+				"has_client":    info.HasClient,
+				"created_at":    info.CreatedAt,
+				"age":           time.Since(info.CreatedAt).Round(time.Second).String(),
 			})
 		}
-		resp := map[string]interface{}{
-			"version":       version.NetbirdVersion(),
-			"uptime":        time.Since(h.startTime).Round(time.Second).String(),
-			"client_count":  len(clients),
-			"total_domains": totalDomains,
-			"certs_total":   certsTotal,
-			"certs_ready":   certsReady,
-			"certs_pending": certsPending,
-			"certs_failed":  certsFailed,
-			"clients":       clientsJSON,
+		resp := map[string]any{
+			"version":        version.NetbirdVersion(),
+			"uptime":         time.Since(h.startTime).Round(time.Second).String(),
+			"client_count":   len(clients),
+			"total_services": totalServices,
+			"certs_total":    certsTotal,
+			"certs_ready":    certsReady,
+			"certs_pending":  certsPending,
+			"certs_failed":   certsFailed,
+			"clients":        clientsJSON,
 		}
 		if len(certsPendingDomains) > 0 {
 			resp["certs_pending_domains"] = certsPendingDomains
@@ -278,7 +313,7 @@ func (h *Handler) handleIndex(w http.ResponseWriter, _ *http.Request, wantJSON b
 		Version:             version.NetbirdVersion(),
 		Uptime:              time.Since(h.startTime).Round(time.Second).String(),
 		ClientCount:         len(clients),
-		TotalDomains:        totalDomains,
+		TotalServices:       totalServices,
 		CertsTotal:          certsTotal,
 		CertsReady:          certsReady,
 		CertsPending:        certsPending,
@@ -291,9 +326,9 @@ func (h *Handler) handleIndex(w http.ResponseWriter, _ *http.Request, wantJSON b
 
 	for _, id := range sortedIDs {
 		info := clients[id]
-		domains := info.Domains.SafeString()
-		if domains == "" {
-			domains = "-"
+		services := strings.Join(info.ServiceKeys, ", ")
+		if services == "" {
+			services = "-"
 		}
 		status := "No client"
 		if info.HasClient {
@@ -301,7 +336,7 @@ func (h *Handler) handleIndex(w http.ResponseWriter, _ *http.Request, wantJSON b
 		}
 		data.Clients = append(data.Clients, clientData{
 			AccountID: string(info.AccountID),
-			Domains:   domains,
+			Services:  services,
 			Age:       time.Since(info.CreatedAt).Round(time.Second).String(),
 			Status:    status,
 		})
@@ -320,23 +355,35 @@ func (h *Handler) handleListClients(w http.ResponseWriter, _ *http.Request, want
 	sortedIDs := sortedAccountIDs(clients)
 
 	if wantJSON {
-		clientsJSON := make([]map[string]interface{}, 0, len(clients))
+		var inboundAll map[types.AccountID]InboundListenerInfo
+		if h.inbound != nil {
+			inboundAll = h.inbound.InboundListeners()
+		}
+		clientsJSON := make([]map[string]any, 0, len(clients))
 		for _, id := range sortedIDs {
 			info := clients[id]
-			clientsJSON = append(clientsJSON, map[string]interface{}{
-				"account_id":   info.AccountID,
-				"domain_count": info.DomainCount,
-				"domains":      info.Domains,
-				"has_client":   info.HasClient,
-				"created_at":   info.CreatedAt,
-				"age":          time.Since(info.CreatedAt).Round(time.Second).String(),
-			})
+			row := map[string]any{
+				"account_id":    info.AccountID,
+				"service_count": info.ServiceCount,
+				"service_keys":  info.ServiceKeys,
+				"has_client":    info.HasClient,
+				"created_at":    info.CreatedAt,
+				"age":           time.Since(info.CreatedAt).Round(time.Second).String(),
+			}
+			if inb, ok := inboundAll[id]; ok {
+				row["inbound_listener"] = inb
+			}
+			clientsJSON = append(clientsJSON, row)
 		}
-		h.writeJSON(w, map[string]interface{}{
+		resp := map[string]any{
 			"uptime":       time.Since(h.startTime).Round(time.Second).String(),
 			"client_count": len(clients),
 			"clients":      clientsJSON,
-		})
+		}
+		if len(inboundAll) > 0 {
+			resp["inbound_listener_count"] = len(inboundAll)
+		}
+		h.writeJSON(w, resp)
 		return
 	}
 
@@ -347,9 +394,9 @@ func (h *Handler) handleListClients(w http.ResponseWriter, _ *http.Request, want
 
 	for _, id := range sortedIDs {
 		info := clients[id]
-		domains := info.Domains.SafeString()
-		if domains == "" {
-			domains = "-"
+		services := strings.Join(info.ServiceKeys, ", ")
+		if services == "" {
+			services = "-"
 		}
 		status := "No client"
 		if info.HasClient {
@@ -357,7 +404,7 @@ func (h *Handler) handleListClients(w http.ResponseWriter, _ *http.Request, want
 		}
 		data.Clients = append(data.Clients, clientData{
 			AccountID: string(info.AccountID),
-			Domains:   domains,
+			Services:  services,
 			Age:       time.Since(info.CreatedAt).Round(time.Second).String(),
 			Status:    status,
 		})
@@ -409,23 +456,23 @@ func (h *Handler) handleClientStatus(w http.ResponseWriter, r *http.Request, acc
 	}
 
 	pbStatus := nbstatus.ToProtoFullStatus(fullStatus)
-	overview := nbstatus.ConvertToStatusOutputOverview(
-		pbStatus,
-		false,
-		version.NetbirdVersion(),
-		statusFilter,
-		prefixNamesFilter,
-		prefixNamesFilterMap,
-		ipsFilterMap,
-		connectionTypeFilter,
-		"",
-	)
+	overview := nbstatus.ConvertToStatusOutputOverview(pbStatus, nbstatus.ConvertOptions{
+		StatusFilter:         statusFilter,
+		PrefixNamesFilter:    prefixNamesFilter,
+		PrefixNamesFilterMap: prefixNamesFilterMap,
+		IPsFilter:            ipsFilterMap,
+		ConnectionTypeFilter: connectionTypeFilter,
+	})
 
 	if wantJSON {
-		h.writeJSON(w, map[string]interface{}{
+		resp := map[string]any{
 			"account_id": accountID,
 			"status":     overview.FullDetailSummary(),
-		})
+		}
+		if info, ok := h.inboundInfoFor(accountID); ok {
+			resp["inbound_listener"] = info
+		}
+		h.writeJSON(w, resp)
 		return
 	}
 
@@ -436,6 +483,18 @@ func (h *Handler) handleClientStatus(w http.ResponseWriter, r *http.Request, acc
 	}
 
 	h.renderTemplate(w, "clientDetail", data)
+}
+
+// inboundInfoFor returns the inbound listener info for an account, or
+// ok=false when no inbound provider is wired or the account has no live
+// listener.
+func (h *Handler) inboundInfoFor(accountID types.AccountID) (InboundListenerInfo, bool) {
+	if h.inbound == nil {
+		return InboundListenerInfo{}, false
+	}
+	all := h.inbound.InboundListeners()
+	info, ok := all[accountID]
+	return info, ok
 }
 
 func (h *Handler) handleClientSyncResponse(w http.ResponseWriter, _ *http.Request, accountID types.AccountID, wantJSON bool) {
@@ -505,20 +564,20 @@ func (h *Handler) handleClientTools(w http.ResponseWriter, _ *http.Request, acco
 func (h *Handler) handlePingTCP(w http.ResponseWriter, r *http.Request, accountID types.AccountID) {
 	client, ok := h.provider.GetClient(accountID)
 	if !ok {
-		h.writeJSON(w, map[string]interface{}{"error": "client not found"})
+		h.writeJSON(w, map[string]any{"error": "client not found"})
 		return
 	}
 
 	host := r.URL.Query().Get("host")
 	portStr := r.URL.Query().Get("port")
 	if host == "" || portStr == "" {
-		h.writeJSON(w, map[string]interface{}{"error": "host and port parameters required"})
+		h.writeJSON(w, map[string]any{"error": "host and port parameters required"})
 		return
 	}
 
 	port, err := strconv.Atoi(portStr)
 	if err != nil || port < 1 || port > 65535 {
-		h.writeJSON(w, map[string]interface{}{"error": "invalid port"})
+		h.writeJSON(w, map[string]any{"error": "invalid port"})
 		return
 	}
 
@@ -529,15 +588,20 @@ func (h *Handler) handlePingTCP(w http.ResponseWriter, r *http.Request, accountI
 		}
 	}
 
+	network := "tcp"
+	if v := r.URL.Query().Get("ip_version"); v == "4" || v == "6" {
+		network += v
+	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 
-	address := fmt.Sprintf("%s:%d", host, port)
+	address := net.JoinHostPort(host, strconv.Itoa(port))
 	start := time.Now()
 
-	conn, err := client.Dial(ctx, "tcp", address)
+	conn, err := client.Dial(ctx, network, address)
 	if err != nil {
-		h.writeJSON(w, map[string]interface{}{
+		h.writeJSON(w, map[string]any{
 			"success": false,
 			"host":    host,
 			"port":    port,
@@ -545,15 +609,18 @@ func (h *Handler) handlePingTCP(w http.ResponseWriter, r *http.Request, accountI
 		})
 		return
 	}
+
+	remote := conn.RemoteAddr().String()
 	if err := conn.Close(); err != nil {
 		h.logger.Debugf("close tcp ping connection: %v", err)
 	}
 
 	latency := time.Since(start)
-	h.writeJSON(w, map[string]interface{}{
+	h.writeJSON(w, map[string]any{
 		"success":    true,
 		"host":       host,
 		"port":       port,
+		"remote":     remote,
 		"latency_ms": latency.Milliseconds(),
 		"latency":    formatDuration(latency),
 	})
@@ -562,25 +629,25 @@ func (h *Handler) handlePingTCP(w http.ResponseWriter, r *http.Request, accountI
 func (h *Handler) handleLogLevel(w http.ResponseWriter, r *http.Request, accountID types.AccountID) {
 	client, ok := h.provider.GetClient(accountID)
 	if !ok {
-		h.writeJSON(w, map[string]interface{}{"error": "client not found"})
+		h.writeJSON(w, map[string]any{"error": "client not found"})
 		return
 	}
 
 	level := r.URL.Query().Get("level")
 	if level == "" {
-		h.writeJSON(w, map[string]interface{}{"error": "level parameter required (trace, debug, info, warn, error)"})
+		h.writeJSON(w, map[string]any{"error": "level parameter required (trace, debug, info, warn, error)"})
 		return
 	}
 
 	if err := client.SetLogLevel(level); err != nil {
-		h.writeJSON(w, map[string]interface{}{
+		h.writeJSON(w, map[string]any{
 			"success": false,
 			"error":   err.Error(),
 		})
 		return
 	}
 
-	h.writeJSON(w, map[string]interface{}{
+	h.writeJSON(w, map[string]any{
 		"success": true,
 		"level":   level,
 	})
@@ -591,7 +658,7 @@ const clientActionTimeout = 30 * time.Second
 func (h *Handler) handleClientStart(w http.ResponseWriter, r *http.Request, accountID types.AccountID) {
 	client, ok := h.provider.GetClient(accountID)
 	if !ok {
-		h.writeJSON(w, map[string]interface{}{"error": "client not found"})
+		h.writeJSON(w, map[string]any{"error": "client not found"})
 		return
 	}
 
@@ -599,14 +666,14 @@ func (h *Handler) handleClientStart(w http.ResponseWriter, r *http.Request, acco
 	defer cancel()
 
 	if err := client.Start(ctx); err != nil {
-		h.writeJSON(w, map[string]interface{}{
+		h.writeJSON(w, map[string]any{
 			"success": false,
 			"error":   err.Error(),
 		})
 		return
 	}
 
-	h.writeJSON(w, map[string]interface{}{
+	h.writeJSON(w, map[string]any{
 		"success": true,
 		"message": "client started",
 	})
@@ -615,7 +682,7 @@ func (h *Handler) handleClientStart(w http.ResponseWriter, r *http.Request, acco
 func (h *Handler) handleClientStop(w http.ResponseWriter, r *http.Request, accountID types.AccountID) {
 	client, ok := h.provider.GetClient(accountID)
 	if !ok {
-		h.writeJSON(w, map[string]interface{}{"error": "client not found"})
+		h.writeJSON(w, map[string]any{"error": "client not found"})
 		return
 	}
 
@@ -623,17 +690,198 @@ func (h *Handler) handleClientStop(w http.ResponseWriter, r *http.Request, accou
 	defer cancel()
 
 	if err := client.Stop(ctx); err != nil {
-		h.writeJSON(w, map[string]interface{}{
+		h.writeJSON(w, map[string]any{
 			"success": false,
 			"error":   err.Error(),
 		})
 		return
 	}
 
-	h.writeJSON(w, map[string]interface{}{
+	h.writeJSON(w, map[string]any{
 		"success": true,
 		"message": "client stopped",
 	})
+}
+
+func (h *Handler) handlePerf(w http.ResponseWriter, r *http.Request) {
+	raw := r.URL.Query().Get("value")
+	if raw == "" {
+		http.Error(w, "value parameter is required", http.StatusBadRequest)
+		return
+	}
+	n, err := strconv.ParseUint(raw, 10, 32)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("invalid value %q: %v", raw, err), http.StatusBadRequest)
+		return
+	}
+
+	capN := uint32(n)
+	applied := 0
+	failed := map[string]string{}
+	for accountID, client := range h.provider.ListClientsForStartup() {
+		if err := client.SetPerformance(nbembed.Performance{PreallocatedBuffersPerPool: &capN}); err != nil {
+			failed[string(accountID)] = err.Error()
+			continue
+		}
+		applied++
+	}
+
+	resp := map[string]any{
+		"success": true,
+		"value":   capN,
+		"applied": applied,
+	}
+	if len(failed) > 0 {
+		resp["failed"] = failed
+	}
+	h.writeJSON(w, resp)
+}
+
+// handleRuntime returns cheap runtime and process stats. Safe to hit on a
+// running proxy; does not read pprof profiles.
+func (h *Handler) handleRuntime(w http.ResponseWriter, _ *http.Request) {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+
+	clients := h.provider.ListClientsForDebug()
+	started := 0
+	for _, c := range clients {
+		if c.HasClient {
+			started++
+		}
+	}
+
+	resp := map[string]any{
+		"uptime":         time.Since(h.startTime).Round(time.Second).String(),
+		"goroutines":     runtime.NumGoroutine(),
+		"num_cpu":        runtime.NumCPU(),
+		"gomaxprocs":     runtime.GOMAXPROCS(0),
+		"go_version":     runtime.Version(),
+		"heap_alloc":     m.HeapAlloc,
+		"heap_inuse":     m.HeapInuse,
+		"heap_idle":      m.HeapIdle,
+		"heap_released":  m.HeapReleased,
+		"heap_sys":       m.HeapSys,
+		"sys":            m.Sys,
+		"live_objects":   m.Mallocs - m.Frees,
+		"num_gc":         m.NumGC,
+		"pause_total_ns": m.PauseTotalNs,
+		"clients":        len(clients),
+		"started":        started,
+	}
+
+	if proc := readProcStatus(); proc != nil {
+		resp["vm_rss"] = proc["VmRSS"]
+		resp["vm_size"] = proc["VmSize"]
+		resp["vm_data"] = proc["VmData"]
+	}
+
+	h.writeJSON(w, resp)
+}
+
+// readProcStatus parses /proc/self/status on Linux and returns size fields
+// in bytes. Returns nil on non-Linux or read failure.
+func readProcStatus() map[string]uint64 {
+	raw, err := os.ReadFile("/proc/self/status")
+	if err != nil {
+		return nil
+	}
+	out := map[string]uint64{}
+	for _, line := range strings.Split(string(raw), "\n") {
+		k, v, ok := strings.Cut(line, ":")
+		if !ok {
+			continue
+		}
+		if k != "VmRSS" && k != "VmSize" && k != "VmData" {
+			continue
+		}
+		fields := strings.Fields(v)
+		if len(fields) < 1 {
+			continue
+		}
+		n, err := strconv.ParseUint(fields[0], 10, 64)
+		if err != nil {
+			continue
+		}
+		// Values are reported in kB.
+		out[k] = n * 1024
+	}
+	return out
+}
+
+const maxCaptureDuration = 30 * time.Minute
+
+// handleCapture streams a pcap or text packet capture for the given client.
+//
+// Query params:
+//
+//	duration: capture duration (0 or absent = max, capped at 30m)
+//	format:   "text" for human-readable output (default: pcap)
+//	filter:   BPF-like filter expression (e.g. "host 10.0.0.1 and tcp port 443")
+func (h *Handler) handleCapture(w http.ResponseWriter, r *http.Request, accountID types.AccountID) {
+	client, ok := h.provider.GetClient(accountID)
+	if !ok {
+		http.Error(w, "client not found", http.StatusNotFound)
+		return
+	}
+
+	duration := maxCaptureDuration
+	if durationStr := r.URL.Query().Get("duration"); durationStr != "" {
+		d, err := time.ParseDuration(durationStr)
+		if err != nil {
+			http.Error(w, "invalid duration: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if d < 0 {
+			http.Error(w, "duration must not be negative", http.StatusBadRequest)
+			return
+		}
+		if d > 0 {
+			duration = min(d, maxCaptureDuration)
+		}
+	}
+
+	filter := r.URL.Query().Get("filter")
+	wantText := r.URL.Query().Get("format") == "text"
+	verbose := r.URL.Query().Get("verbose") == "true"
+	ascii := r.URL.Query().Get("ascii") == "true"
+
+	opts := nbembed.CaptureOptions{Filter: filter, Verbose: verbose, ASCII: ascii}
+	if wantText {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		opts.TextOutput = w
+	} else {
+		w.Header().Set("Content-Type", "application/vnd.tcpdump.pcap")
+		w.Header().Set("Content-Disposition",
+			fmt.Sprintf("attachment; filename=capture-%s.pcap", accountID))
+		opts.Output = w
+	}
+
+	cs, err := client.StartCapture(opts)
+	if err != nil {
+		http.Error(w, "start capture: "+err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	defer cs.Stop()
+
+	// Flush headers after setup succeeds so errors above can still set status codes.
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+
+	select {
+	case <-r.Context().Done():
+	case <-timer.C:
+	}
+
+	cs.Stop()
+
+	stats := cs.Stats()
+	h.logger.Infof("capture for %s finished: %d packets, %d bytes, %d dropped",
+		accountID, stats.Packets, stats.Bytes, stats.Dropped)
 }
 
 func (h *Handler) handleHealth(w http.ResponseWriter, r *http.Request, wantJSON bool) {
@@ -689,7 +937,7 @@ func (h *Handler) handleHealth(w http.ResponseWriter, r *http.Request, wantJSON 
 	h.writeJSON(w, resp)
 }
 
-func (h *Handler) renderTemplate(w http.ResponseWriter, name string, data interface{}) {
+func (h *Handler) renderTemplate(w http.ResponseWriter, name string, data any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	tmpl := h.getTemplates()
 	if tmpl == nil {
@@ -702,7 +950,7 @@ func (h *Handler) renderTemplate(w http.ResponseWriter, name string, data interf
 	}
 }
 
-func (h *Handler) writeJSON(w http.ResponseWriter, v interface{}) {
+func (h *Handler) writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")

@@ -12,6 +12,7 @@ import (
 	"github.com/netbirdio/netbird/shared/auth"
 
 	"github.com/netbirdio/netbird/base62"
+	"github.com/netbirdio/netbird/idp/dex"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	nbjwt "github.com/netbirdio/netbird/shared/auth/jwt"
@@ -33,15 +34,20 @@ type manager struct {
 	extractor *nbjwt.ClaimsExtractor
 }
 
-func NewManager(store store.Store, issuer, audience, keysLocation, userIdClaim string, allAudiences []string, idpRefreshKeys bool) Manager {
-	// @note if invalid/missing parameters are sent the validator will instantiate
-	// but it will fail when validating and parsing the token
-	jwtValidator := nbjwt.NewValidator(
-		issuer,
-		allAudiences,
-		keysLocation,
-		idpRefreshKeys,
-	)
+func NewManager(store store.Store, issuer, audience, keysLocation, userIdClaim string, allAudiences []string, idpRefreshKeys bool, keyFetcher nbjwt.KeyFetcher) Manager {
+	var jwtValidator *nbjwt.Validator
+	if keyFetcher != nil {
+		jwtValidator = nbjwt.NewValidatorWithKeyFetcher(issuer, allAudiences, keyFetcher)
+	} else {
+		// @note if invalid/missing parameters are sent the validator will instantiate
+		// but it will fail when validating and parsing the token
+		jwtValidator = nbjwt.NewValidator(
+			issuer,
+			allAudiences,
+			keysLocation,
+			idpRefreshKeys,
+		)
+	}
 
 	claimsExtractor := nbjwt.NewClaimsExtractor(
 		nbjwt.WithAudience(audience),
@@ -69,7 +75,10 @@ func (m *manager) ValidateAndParseToken(ctx context.Context, value string) (auth
 }
 
 func (m *manager) EnsureUserAccessByJWTGroups(ctx context.Context, userAuth auth.UserAuth, token *jwt.Token) (auth.UserAuth, error) {
-	if userAuth.IsChild || userAuth.IsPAT {
+	// Child accounts and PAT-authenticated requests do not use JWT group access checks.
+	// Embedded-Dex local users also skip them because local password authentication
+	// does not provide external IdP group claims.
+	if userAuth.IsChild || userAuth.IsPAT || dex.IsLocalUserID(userAuth.UserId) {
 		return userAuth, nil
 	}
 

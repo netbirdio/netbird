@@ -3,6 +3,9 @@
 package uspfilter
 
 import (
+	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/firewall/firewalld"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
@@ -16,6 +19,9 @@ func (m *Manager) Close(stateManager *statemanager.Manager) error {
 	if m.nativeFirewall != nil {
 		return m.nativeFirewall.Close(stateManager)
 	}
+	if err := firewalld.UntrustInterface(m.wgIface.Name()); err != nil {
+		log.Warnf("failed to untrust interface in firewalld: %v", err)
+	}
 	return nil
 }
 
@@ -23,6 +29,9 @@ func (m *Manager) Close(stateManager *statemanager.Manager) error {
 func (m *Manager) AllowNetbird() error {
 	if m.nativeFirewall != nil {
 		return m.nativeFirewall.AllowNetbird()
+	}
+	if err := firewalld.TrustInterface(m.wgIface.Name()); err != nil {
+		log.Warnf("failed to trust interface in firewalld: %v", err)
 	}
 	return nil
 }

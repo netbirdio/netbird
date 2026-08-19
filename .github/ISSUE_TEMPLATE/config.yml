@@ -1,14 +1,26 @@
-blank_issues_enabled: true
+blank_issues_enabled: false
 contact_links:
-  - name: Community Support
+  - name: Start an Issue Triage discussion
+    url: https://github.com/netbirdio/netbird/discussions/new?category=issue-triage
+    about: Report a bug, regression, or unexpected behavior so DevRel can validate it before it becomes an issue.
+  - name: Propose an idea or feature request
+    url: https://github.com/netbirdio/netbird/discussions/new?category=ideas-feature-requests
+    about: Share feature requests, enhancements, and integration ideas for community feedback and prioritization.
+  - name: Ask a Q&A / Support question
+    url: https://github.com/netbirdio/netbird/discussions/new?category=q-a-support
+    about: Get help with setup, configuration, self-hosting, troubleshooting, and general usage.
+  - name: Security vulnerability disclosure
+    url: https://github.com/netbirdio/netbird/security/policy
+    about: Please do not report security vulnerabilities in public issues or discussions.
+  - name: Community Support Forum
     url: https://forum.netbird.io/
-    about: Community support forum
+    about: Community support forum.
   - name: Cloud Support
     url: https://docs.netbird.io/help/report-bug-issues
-    about: Contact us for support
-  - name: Client/Connection Troubleshooting
+    about: Contact NetBird for Cloud support.
+  - name: Client / Connection Troubleshooting
     url: https://docs.netbird.io/help/troubleshooting-client
-    about: See our client troubleshooting guide for help addressing common issues
+    about: See the client troubleshooting guide for common connectivity issues.
   - name: Self-host Troubleshooting
     url: https://docs.netbird.io/selfhosted/troubleshooting
-    about: See our self-host troubleshooting guide for help addressing common issues
+    about: See the self-host troubleshooting guide for common deployment issues.

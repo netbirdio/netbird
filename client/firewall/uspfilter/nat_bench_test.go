@@ -342,12 +342,17 @@ func BenchmarkDNATMemoryAllocations(b *testing.B) {
 
 		// Parse the packet fresh each time to get a clean decoder
 		d := &decoder{decoded: []gopacket.LayerType{}}
-		d.parser = gopacket.NewDecodingLayerParser(
+		d.parser4 = gopacket.NewDecodingLayerParser(
 			layers.LayerTypeIPv4,
 			&d.eth, &d.ip4, &d.ip6, &d.icmp4, &d.icmp6, &d.tcp, &d.udp,
 		)
-		d.parser.IgnoreUnsupported = true
-		err = d.parser.DecodeLayers(testPacket, &d.decoded)
+		d.parser4.IgnoreUnsupported = true
+		d.parser6 = gopacket.NewDecodingLayerParser(
+			layers.LayerTypeIPv6,
+			&d.eth, &d.ip4, &d.ip6, &d.icmp4, &d.icmp6, &d.tcp, &d.udp,
+		)
+		d.parser6.IgnoreUnsupported = true
+		err = d.decodePacket(testPacket)
 		assert.NoError(b, err)
 
 		manager.translateOutboundDNAT(testPacket, d)
@@ -371,12 +376,17 @@ func BenchmarkDirectIPExtraction(b *testing.B) {
 	b.Run("decoder_extraction", func(b *testing.B) {
 		// Create decoder once for comparison
 		d := &decoder{decoded: []gopacket.LayerType{}}
-		d.parser = gopacket.NewDecodingLayerParser(
+		d.parser4 = gopacket.NewDecodingLayerParser(
 			layers.LayerTypeIPv4,
 			&d.eth, &d.ip4, &d.ip6, &d.icmp4, &d.icmp6, &d.tcp, &d.udp,
 		)
-		d.parser.IgnoreUnsupported = true
-		err := d.parser.DecodeLayers(packet, &d.decoded)
+		d.parser4.IgnoreUnsupported = true
+		d.parser6 = gopacket.NewDecodingLayerParser(
+			layers.LayerTypeIPv6,
+			&d.eth, &d.ip4, &d.ip6, &d.icmp4, &d.icmp6, &d.tcp, &d.udp,
+		)
+		d.parser6.IgnoreUnsupported = true
+		err := d.decodePacket(packet)
 		assert.NoError(b, err)
 
 		for i := 0; i < b.N; i++ {

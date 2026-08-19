@@ -63,20 +63,11 @@ func (ac *AccountRequestBuffer) GetAccountWithBackpressure(ctx context.Context, 
 
 	log.WithContext(ctx).Tracef("requesting account %s with backpressure", accountID)
 	startTime := time.Now()
+	ac.getAccountRequestCh <- req
 
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case ac.getAccountRequestCh <- req:
-	}
-
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case result := <-req.ResultChan:
-		log.WithContext(ctx).Tracef("got account with backpressure after %s", time.Since(startTime))
-		return result.Account, result.Err
-	}
+	result := <-req.ResultChan
+	log.WithContext(ctx).Tracef("got account with backpressure after %s", time.Since(startTime))
+	return result.Account, result.Err
 }
 
 func (ac *AccountRequestBuffer) processGetAccountBatch(ctx context.Context, accountID string) {

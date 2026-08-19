@@ -5,17 +5,19 @@ import (
 	"net/http"
 
 	"github.com/netbirdio/netbird/proxy/auth"
+	"github.com/netbirdio/netbird/proxy/internal/types"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
 const pinFormId = "pin"
 
 type Pin struct {
-	id, accountId string
-	client        authenticator
+	id        types.ServiceID
+	accountId types.AccountID
+	client    authenticator
 }
 
-func NewPin(client authenticator, id, accountId string) Pin {
+func NewPin(client authenticator, id types.ServiceID, accountId types.AccountID) Pin {
 	return Pin{
 		id:        id,
 		accountId: accountId,
@@ -41,8 +43,8 @@ func (p Pin) Authenticate(r *http.Request) (string, string, error) {
 	}
 
 	res, err := p.client.Authenticate(r.Context(), &proto.AuthenticateRequest{
-		Id:        p.id,
-		AccountId: p.accountId,
+		Id:        string(p.id),
+		AccountId: string(p.accountId),
 		Request: &proto.AuthenticateRequest_Pin{
 			Pin: &proto.PinRequest{
 				Pin: pin,

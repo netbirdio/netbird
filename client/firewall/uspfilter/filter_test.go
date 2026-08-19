@@ -12,6 +12,7 @@ import (
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	wgdevice "golang.zx2c4.com/wireguard/device"
 
@@ -30,10 +31,18 @@ var logger = log.NewFromLogrus(logrus.StandardLogger())
 var flowLogger = netflow.NewManager(nil, []byte{}, nil).GetLogger()
 
 type IFaceMock struct {
+	NameFunc        func() string
 	SetFilterFunc   func(device.PacketFilter) error
 	AddressFunc     func() wgaddr.Address
 	GetWGDeviceFunc func() *wgdevice.Device
 	GetDeviceFunc   func() *device.FilteredDevice
+}
+
+func (i *IFaceMock) Name() string {
+	if i.NameFunc == nil {
+		return "wgtest"
+	}
+	return i.NameFunc()
 }
 
 func (i *IFaceMock) GetWGDevice() *wgdevice.Device {
@@ -186,81 +195,52 @@ func TestManagerDeleteRule(t *testing.T) {
 	}
 }
 
-func TestAddUDPPacketHook(t *testing.T) {
-	tests := []struct {
-		name       string
-		in         bool
-		expDir     fw.RuleDirection
-		ip         netip.Addr
-		dPort      uint16
-		hook       func([]byte) bool
-		expectedID string
-	}{
-		{
-			name:   "Test Outgoing UDP Packet Hook",
-			in:     false,
-			expDir: fw.RuleDirectionOUT,
-			ip:     netip.MustParseAddr("10.168.0.1"),
-			dPort:  8000,
-			hook:   func([]byte) bool { return true },
-		},
-		{
-			name:   "Test Incoming UDP Packet Hook",
-			in:     true,
-			expDir: fw.RuleDirectionIN,
-			ip:     netip.MustParseAddr("::1"),
-			dPort:  9000,
-			hook:   func([]byte) bool { return false },
-		},
-	}
+func TestSetUDPPacketHook(t *testing.T) {
+	manager, err := Create(&IFaceMock{
+		SetFilterFunc: func(device.PacketFilter) error { return nil },
+	}, false, flowLogger, nbiface.DefaultMTU)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, manager.Close(nil)) })
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			manager, err := Create(&IFaceMock{
-				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			}, false, flowLogger, nbiface.DefaultMTU)
-			require.NoError(t, err)
+	var called bool
+	manager.SetUDPPacketHook(netip.MustParseAddr("10.168.0.1"), 8000, func([]byte) bool {
+		called = true
+		return true
+	})
 
-			manager.AddUDPPacketHook(tt.in, tt.ip, tt.dPort, tt.hook)
+	h := manager.udpHookOut.Load()
+	require.NotNil(t, h)
+	assert.Equal(t, netip.MustParseAddr("10.168.0.1"), h.IP)
+	assert.Equal(t, uint16(8000), h.Port)
+	assert.True(t, h.Fn(nil))
+	assert.True(t, called)
 
-			var addedRule PeerRule
-			if tt.in {
-				// Incoming UDP hooks are stored in allow rules map
-				if len(manager.incomingRules[tt.ip]) != 1 {
-					t.Errorf("expected 1 incoming rule, got %d", len(manager.incomingRules[tt.ip]))
-					return
-				}
-				for _, rule := range manager.incomingRules[tt.ip] {
-					addedRule = rule
-				}
-			} else {
-				if len(manager.outgoingRules[tt.ip]) != 1 {
-					t.Errorf("expected 1 outgoing rule, got %d", len(manager.outgoingRules[tt.ip]))
-					return
-				}
-				for _, rule := range manager.outgoingRules[tt.ip] {
-					addedRule = rule
-				}
-			}
+	manager.SetUDPPacketHook(netip.MustParseAddr("10.168.0.1"), 8000, nil)
+	assert.Nil(t, manager.udpHookOut.Load())
+}
 
-			if tt.ip.Compare(addedRule.ip) != 0 {
-				t.Errorf("expected ip %s, got %s", tt.ip, addedRule.ip)
-				return
-			}
-			if tt.dPort != addedRule.dPort.Values[0] {
-				t.Errorf("expected dPort %d, got %d", tt.dPort, addedRule.dPort.Values[0])
-				return
-			}
-			if layers.LayerTypeUDP != addedRule.protoLayer {
-				t.Errorf("expected protoLayer %s, got %s", layers.LayerTypeUDP, addedRule.protoLayer)
-				return
-			}
-			if addedRule.udpHook == nil {
-				t.Errorf("expected udpHook to be set")
-				return
-			}
-		})
-	}
+func TestSetTCPPacketHook(t *testing.T) {
+	manager, err := Create(&IFaceMock{
+		SetFilterFunc: func(device.PacketFilter) error { return nil },
+	}, false, flowLogger, nbiface.DefaultMTU)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, manager.Close(nil)) })
+
+	var called bool
+	manager.SetTCPPacketHook(netip.MustParseAddr("10.168.0.1"), 53, func([]byte) bool {
+		called = true
+		return true
+	})
+
+	h := manager.tcpHookOut.Load()
+	require.NotNil(t, h)
+	assert.Equal(t, netip.MustParseAddr("10.168.0.1"), h.IP)
+	assert.Equal(t, uint16(53), h.Port)
+	assert.True(t, h.Fn(nil))
+	assert.True(t, called)
+
+	manager.SetTCPPacketHook(netip.MustParseAddr("10.168.0.1"), 53, nil)
+	assert.Nil(t, manager.tcpHookOut.Load())
 }
 
 // TestPeerRuleLifecycleDenyRules verifies that deny rules are correctly added
@@ -530,39 +510,12 @@ func TestRemovePacketHook(t *testing.T) {
 		require.NoError(t, manager.Close(nil))
 	}()
 
-	// Add a UDP packet hook
-	hookFunc := func(data []byte) bool { return true }
-	hookID := manager.AddUDPPacketHook(false, netip.MustParseAddr("192.168.0.1"), 8080, hookFunc)
+	manager.SetUDPPacketHook(netip.MustParseAddr("192.168.0.1"), 8080, func([]byte) bool { return true })
 
-	// Assert the hook is added by finding it in the manager's outgoing rules
-	found := false
-	for _, arr := range manager.outgoingRules {
-		for _, rule := range arr {
-			if rule.id == hookID {
-				found = true
-				break
-			}
-		}
-	}
+	require.NotNil(t, manager.udpHookOut.Load(), "hook should be registered")
 
-	if !found {
-		t.Fatalf("The hook was not added properly.")
-	}
-
-	// Now remove the packet hook
-	err = manager.RemovePacketHook(hookID)
-	if err != nil {
-		t.Fatalf("Failed to remove hook: %s", err)
-	}
-
-	// Assert the hook is removed by checking it in the manager's outgoing rules
-	for _, arr := range manager.outgoingRules {
-		for _, rule := range arr {
-			if rule.id == hookID {
-				t.Fatalf("The hook was not removed properly.")
-			}
-		}
-	}
+	manager.SetUDPPacketHook(netip.MustParseAddr("192.168.0.1"), 8080, nil)
+	assert.Nil(t, manager.udpHookOut.Load(), "hook should be removed")
 }
 
 func TestProcessOutgoingHooks(t *testing.T) {
@@ -582,18 +535,22 @@ func TestProcessOutgoingHooks(t *testing.T) {
 			d := &decoder{
 				decoded: []gopacket.LayerType{},
 			}
-			d.parser = gopacket.NewDecodingLayerParser(
+			d.parser4 = gopacket.NewDecodingLayerParser(
 				layers.LayerTypeIPv4,
 				&d.eth, &d.ip4, &d.ip6, &d.icmp4, &d.icmp6, &d.tcp, &d.udp,
 			)
-			d.parser.IgnoreUnsupported = true
+			d.parser4.IgnoreUnsupported = true
+			d.parser6 = gopacket.NewDecodingLayerParser(
+				layers.LayerTypeIPv6,
+				&d.eth, &d.ip4, &d.ip6, &d.icmp4, &d.icmp6, &d.tcp, &d.udp,
+			)
+			d.parser6.IgnoreUnsupported = true
 			return d
 		},
 	}
 
 	hookCalled := false
-	hookID := manager.AddUDPPacketHook(
-		false,
+	manager.SetUDPPacketHook(
 		netip.MustParseAddr("100.10.0.100"),
 		53,
 		func([]byte) bool {
@@ -601,7 +558,6 @@ func TestProcessOutgoingHooks(t *testing.T) {
 			return true
 		},
 	)
-	require.NotEmpty(t, hookID)
 
 	// Create test UDP packet
 	ipv4 := &layers.IPv4{
@@ -687,11 +643,16 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 			d := &decoder{
 				decoded: []gopacket.LayerType{},
 			}
-			d.parser = gopacket.NewDecodingLayerParser(
+			d.parser4 = gopacket.NewDecodingLayerParser(
 				layers.LayerTypeIPv4,
 				&d.eth, &d.ip4, &d.ip6, &d.icmp4, &d.icmp6, &d.tcp, &d.udp,
 			)
-			d.parser.IgnoreUnsupported = true
+			d.parser4.IgnoreUnsupported = true
+			d.parser6 = gopacket.NewDecodingLayerParser(
+				layers.LayerTypeIPv6,
+				&d.eth, &d.ip4, &d.ip6, &d.icmp4, &d.icmp6, &d.tcp, &d.udp,
+			)
+			d.parser6.IgnoreUnsupported = true
 			return d
 		},
 	}
@@ -1097,8 +1058,8 @@ func TestMSSClamping(t *testing.T) {
 	}()
 
 	require.True(t, manager.mssClampEnabled, "MSS clamping should be enabled by default")
-	expectedMSSValue := uint16(1280 - ipTCPHeaderMinSize)
-	require.Equal(t, expectedMSSValue, manager.mssClampValue, "MSS clamp value should be MTU - 40")
+	require.Equal(t, uint16(1280-ipv4TCPHeaderMinSize), manager.mssClampValueIPv4, "IPv4 MSS clamp value should be MTU - 40")
+	require.Equal(t, uint16(1280-ipv6TCPHeaderMinSize), manager.mssClampValueIPv6, "IPv6 MSS clamp value should be MTU - 60")
 
 	err = manager.UpdateLocalIPs()
 	require.NoError(t, err)
@@ -1116,7 +1077,7 @@ func TestMSSClamping(t *testing.T) {
 		require.Len(t, d.tcp.Options, 1, "Should have MSS option")
 		require.Equal(t, uint8(layers.TCPOptionKindMSS), uint8(d.tcp.Options[0].OptionType))
 		actualMSS := binary.BigEndian.Uint16(d.tcp.Options[0].OptionData)
-		require.Equal(t, expectedMSSValue, actualMSS, "MSS should be clamped to MTU - 40")
+		require.Equal(t, manager.mssClampValueIPv4, actualMSS, "MSS should be clamped to MTU - 40")
 	})
 
 	t.Run("SYN packet with low MSS unchanged", func(t *testing.T) {
@@ -1140,7 +1101,7 @@ func TestMSSClamping(t *testing.T) {
 		d := parsePacket(t, packet)
 		require.Len(t, d.tcp.Options, 1, "Should have MSS option")
 		actualMSS := binary.BigEndian.Uint16(d.tcp.Options[0].OptionData)
-		require.Equal(t, expectedMSSValue, actualMSS, "MSS in SYN-ACK should be clamped")
+		require.Equal(t, manager.mssClampValueIPv4, actualMSS, "MSS in SYN-ACK should be clamped")
 	})
 
 	t.Run("Non-SYN packet unchanged", func(t *testing.T) {
@@ -1312,13 +1273,18 @@ func TestShouldForward(t *testing.T) {
 		d := &decoder{
 			decoded: []gopacket.LayerType{},
 		}
-		d.parser = gopacket.NewDecodingLayerParser(
+		d.parser4 = gopacket.NewDecodingLayerParser(
 			layers.LayerTypeIPv4,
 			&d.eth, &d.ip4, &d.ip6, &d.icmp4, &d.icmp6, &d.tcp, &d.udp,
 		)
-		d.parser.IgnoreUnsupported = true
+		d.parser4.IgnoreUnsupported = true
+		d.parser6 = gopacket.NewDecodingLayerParser(
+			layers.LayerTypeIPv6,
+			&d.eth, &d.ip4, &d.ip6, &d.icmp4, &d.icmp6, &d.tcp, &d.udp,
+		)
+		d.parser6.IgnoreUnsupported = true
 
-		err = d.parser.DecodeLayers(buf.Bytes(), &d.decoded)
+		err = d.decodePacket(buf.Bytes())
 		require.NoError(t, err)
 
 		return d
@@ -1376,6 +1342,44 @@ func TestShouldForward(t *testing.T) {
 			expected:          false,
 			description:       "should send to netstack listeners when service is registered",
 		},
+	}
+
+	// Add IPv6 to the interface and test dual-stack cases
+	wgIPv6 := netip.MustParseAddr("fd00::1")
+	otherIPv6 := netip.MustParseAddr("fd00::2")
+	ifaceMock.AddressFunc = func() wgaddr.Address {
+		return wgaddr.Address{
+			IP:      wgIP,
+			Network: netip.PrefixFrom(wgIP, 24),
+			IPv6:    wgIPv6,
+			IPv6Net: netip.PrefixFrom(wgIPv6, 64),
+		}
+	}
+
+	// Re-create manager to pick up the new address with IPv6
+	require.NoError(t, manager.Close(nil))
+	manager, err = Create(ifaceMock, false, flowLogger, nbiface.DefaultMTU)
+	require.NoError(t, err)
+
+	v6Cases := []struct {
+		name        string
+		dstIP       netip.Addr
+		expected    bool
+		description string
+	}{
+		{"v6 traffic to other address", otherIPv6, true, "should forward v6 traffic not destined to our v6 address"},
+		{"v6 traffic to our v6 IP", wgIPv6, false, "should not forward traffic destined to our v6 address"},
+		{"v4 traffic to other with v6 configured", otherIP, true, "should forward v4 traffic when v6 configured"},
+		{"v4 traffic to our v4 IP with v6 configured", wgIP, false, "should not forward traffic to our v4 address"},
+	}
+	for _, tt := range v6Cases {
+		t.Run(tt.name, func(t *testing.T) {
+			manager.localForwarding = true
+			manager.netstack = false
+			decoder := createTCPDecoder(8080)
+			result := manager.shouldForward(decoder, tt.dstIP)
+			require.Equal(t, tt.expected, result, tt.description)
+		})
 	}
 
 	for _, tt := range tests {

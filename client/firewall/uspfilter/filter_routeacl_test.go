@@ -189,21 +189,21 @@ func TestBlockInvalidRoutedIdempotent(t *testing.T) {
 	})
 
 	// Call blockInvalidRouted directly multiple times
-	rule1, err := manager.blockInvalidRouted(ifaceMock)
+	rules1, err := manager.blockInvalidRouted(ifaceMock)
 	require.NoError(t, err)
-	require.NotNil(t, rule1)
+	require.NotEmpty(t, rules1)
 
-	rule2, err := manager.blockInvalidRouted(ifaceMock)
+	rules2, err := manager.blockInvalidRouted(ifaceMock)
 	require.NoError(t, err)
-	require.NotNil(t, rule2)
+	require.NotEmpty(t, rules2)
 
-	rule3, err := manager.blockInvalidRouted(ifaceMock)
+	rules3, err := manager.blockInvalidRouted(ifaceMock)
 	require.NoError(t, err)
-	require.NotNil(t, rule3)
+	require.NotEmpty(t, rules3)
 
-	// All should return the same rule
-	assert.Equal(t, rule1.ID(), rule2.ID(), "Second call should return same rule")
-	assert.Equal(t, rule2.ID(), rule3.ID(), "Third call should return same rule")
+	// All calls should return the same v4 block rule (idempotent install).
+	assert.Equal(t, rules1[0].ID(), rules2[0].ID(), "Second call should return same v4 rule")
+	assert.Equal(t, rules2[0].ID(), rules3[0].ID(), "Third call should return same v4 rule")
 
 	// Should have exactly 1 route rule
 	manager.mutex.RLock()

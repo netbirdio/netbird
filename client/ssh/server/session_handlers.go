@@ -60,7 +60,7 @@ func (s *Server) sessionHandler(session ssh.Session) {
 	}
 
 	ptyReq, winCh, isPty := session.Pty()
-	hasCommand := len(session.Command()) > 0
+	hasCommand := session.RawCommand() != ""
 
 	if isPty && !hasCommand {
 		// ssh <host> - PTY interactive session (login)

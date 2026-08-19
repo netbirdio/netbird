@@ -7,4 +7,5 @@ package android
 type PlatformFiles interface {
 	ConfigurationFilePath() string
 	StateFilePath() string
+	CacheDir() string
 }

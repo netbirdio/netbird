@@ -19,7 +19,7 @@ func (n *Notifier) SetListener(listener listener.NetworkChangeListener) {
 	// Not used on non-mobile platforms
 }
 
-func (n *Notifier) SetInitialClientRoutes([]*route.Route, []*route.Route) {
+func (n *Notifier) NotifyRouteChange() {
 	// Not used on non-mobile platforms
 }
 
@@ -31,6 +31,6 @@ func (n *Notifier) OnNewPrefixes(prefixes []netip.Prefix) {
 	// Not used on non-mobile platforms
 }
 
-func (n *Notifier) GetInitialRouteRanges() []string {
-	return []string{}
+func (n *Notifier) Close() {
+	// unused
 }

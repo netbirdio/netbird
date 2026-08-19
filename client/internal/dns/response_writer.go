@@ -104,3 +104,23 @@ func (r *responseWriter) TsigTimersOnly(bool) {
 // After a call to Hijack(), the DNS package will not do anything with the connection.
 func (r *responseWriter) Hijack() {
 }
+
+// remoteAddrFromPacket extracts the source IP:port from a decoded packet for logging.
+func remoteAddrFromPacket(packet gopacket.Packet) *net.UDPAddr {
+	var srcIP net.IP
+	if ipv4 := packet.Layer(layers.LayerTypeIPv4); ipv4 != nil {
+		srcIP = ipv4.(*layers.IPv4).SrcIP
+	} else if ipv6 := packet.Layer(layers.LayerTypeIPv6); ipv6 != nil {
+		srcIP = ipv6.(*layers.IPv6).SrcIP
+	}
+
+	var srcPort int
+	if udp := packet.Layer(layers.LayerTypeUDP); udp != nil {
+		srcPort = int(udp.(*layers.UDP).SrcPort)
+	}
+
+	if srcIP == nil {
+		return nil
+	}
+	return &net.UDPAddr{IP: srcIP, Port: srcPort}
+}

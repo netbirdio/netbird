@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"net"
 	"net/netip"
 	"strconv"
 	"sync"
@@ -19,6 +18,8 @@ import (
 	"golang.org/x/exp/maps"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
+	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/networks"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
@@ -126,6 +127,21 @@ func TestDefaultAccountManager_DeleteGroup(t *testing.T) {
 			"grp-for-integration",
 			"only service users with admin power can delete integration group",
 		},
+		{
+			"agent network policy",
+			"grp-for-agent-network-policy",
+			"agent network policy",
+		},
+		{
+			"reverse proxy private service access group",
+			"grp-for-rp-private",
+			"reverse proxy service",
+		},
+		{
+			"reverse proxy bearer distribution group",
+			"grp-for-rp-bearer",
+			"reverse proxy service",
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -220,6 +236,17 @@ func TestDefaultAccountManager_DeleteGroups(t *testing.T) {
 			expectedReasons: []string{"only service users with admin power can delete integration group"},
 		},
 		{
+			name:            "agent network policy",
+			groupIDs:        []string{"grp-for-agent-network-policy"},
+			expectedReasons: []string{"agent network policy"},
+		},
+		{
+			name:               "reverse proxy services",
+			groupIDs:           []string{"grp-for-rp-private", "grp-for-rp-bearer"},
+			expectedReasons:    []string{"reverse proxy service", "reverse proxy service"},
+			expectedNotDeleted: []string{"grp-for-rp-private", "grp-for-rp-bearer"},
+		},
+		{
 			name:            "successfully delete multiple groups",
 			groupIDs:        []string{"group-1", "group-2"},
 			expectedDeleted: []string{"group-1", "group-2"},
@@ -283,6 +310,65 @@ func TestDefaultAccountManager_DeleteGroups(t *testing.T) {
 				assert.NotNil(t, group, "group should exist: %s", groupID)
 			}
 		})
+	}
+}
+
+func TestDefaultAccountManager_DeleteGroupUnlinkedFromReverseProxyService(t *testing.T) {
+	am, _, err := createManager(t)
+	require.NoError(t, err, "Failed to create account manager")
+
+	_, account, err := initTestGroupAccount(am)
+	require.NoError(t, err, "Failed to init testing account")
+
+	deletableGroups := []*types.Group{
+		{
+			ID:        "grp-rp-bearer-disabled",
+			AccountID: account.Id,
+			Name:      "Group only in a disabled bearer auth",
+			Issued:    types.GroupIssuedAPI,
+			Peers:     make([]string, 0),
+		},
+		{
+			ID:        "grp-rp-nonprivate-access",
+			AccountID: account.Id,
+			Name:      "Group only in a non-private service's access groups",
+			Issued:    types.GroupIssuedAPI,
+			Peers:     make([]string, 0),
+		},
+	}
+	for _, group := range deletableGroups {
+		require.NoError(t, am.CreateGroup(context.Background(), account.Id, groupAdminUserID, group))
+	}
+
+	// Disabled bearer auth and stale access groups on a non-private service
+	// are inert configuration and must not block group deletion.
+	services := []*rpservice.Service{
+		{
+			ID:        "rp-svc-bearer-disabled",
+			AccountID: account.Id,
+			Domain:    "bearer-disabled.services.example.com",
+			Auth: rpservice.AuthConfig{
+				BearerAuth: &rpservice.BearerAuthConfig{
+					Enabled:            false,
+					DistributionGroups: []string{"grp-rp-bearer-disabled"},
+				},
+			},
+		},
+		{
+			ID:           "rp-svc-nonprivate-access",
+			AccountID:    account.Id,
+			Domain:       "nonprivate.services.example.com",
+			Private:      false,
+			AccessGroups: []string{"grp-rp-nonprivate-access"},
+		},
+	}
+	for _, svc := range services {
+		require.NoError(t, am.Store.CreateService(context.Background(), svc))
+	}
+
+	for _, group := range deletableGroups {
+		err = am.DeleteGroup(context.Background(), account.Id, groupAdminUserID, group.ID)
+		assert.NoError(t, err, "group %s is not referenced by an active reverse proxy gate and should be deletable", group.ID)
 	}
 }
 
@@ -407,6 +493,30 @@ func initTestGroupAccount(am *DefaultAccountManager) (*DefaultAccountManager, *t
 		Peers:     make([]string, 0),
 	}
 
+	groupForAgentNetworkPolicy := &types.Group{
+		ID:        "grp-for-agent-network-policy",
+		AccountID: "account-id",
+		Name:      "Group for agent network policies",
+		Issued:    types.GroupIssuedAPI,
+		Peers:     make([]string, 0),
+	}
+
+	groupForRPPrivate := &types.Group{
+		ID:        "grp-for-rp-private",
+		AccountID: "account-id",
+		Name:      "Group for private reverse proxy service",
+		Issued:    types.GroupIssuedAPI,
+		Peers:     make([]string, 0),
+	}
+
+	groupForRPBearer := &types.Group{
+		ID:        "grp-for-rp-bearer",
+		AccountID: "account-id",
+		Name:      "Group for bearer reverse proxy service",
+		Issued:    types.GroupIssuedAPI,
+		Peers:     make([]string, 0),
+	}
+
 	routeResource := &route.Route{
 		ID:     "example route",
 		Groups: []string{groupForRoute.ID},
@@ -462,6 +572,66 @@ func initTestGroupAccount(am *DefaultAccountManager) (*DefaultAccountManager, *t
 	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForSetupKeys)
 	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForUsers)
 	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForIntegration)
+	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForAgentNetworkPolicy)
+	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForRPPrivate)
+	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForRPBearer)
+
+	agentNetworkPolicy := &agentNetworkTypes.Policy{
+		ID:           "example agent network policy",
+		AccountID:    accountID,
+		Name:         "Example agent network policy",
+		Enabled:      true,
+		SourceGroups: []string{groupForAgentNetworkPolicy.ID},
+	}
+	if err := am.Store.SaveAgentNetworkPolicy(context.Background(), agentNetworkPolicy); err != nil {
+		return nil, nil, err
+	}
+
+	// The decoy services are created first so the linkage check has to scan
+	// past services that do not reference the groups under test.
+	rpServices := []*rpservice.Service{
+		{
+			ID:           "rp-svc-private-decoy",
+			AccountID:    accountID,
+			Domain:       "private-decoy.services.example.com",
+			Private:      true,
+			AccessGroups: []string{"unrelated-group"},
+		},
+		{
+			ID:        "rp-svc-bearer-decoy",
+			AccountID: accountID,
+			Domain:    "bearer-decoy.services.example.com",
+			Auth: rpservice.AuthConfig{
+				BearerAuth: &rpservice.BearerAuthConfig{
+					Enabled:            true,
+					DistributionGroups: []string{"unrelated-group"},
+				},
+			},
+		},
+		{
+			ID:           "rp-svc-private",
+			AccountID:    accountID,
+			Domain:       "private.services.example.com",
+			Private:      true,
+			AccessGroups: []string{groupForRPPrivate.ID},
+		},
+		{
+			ID:        "rp-svc-bearer",
+			AccountID: accountID,
+			Domain:    "bearer.services.example.com",
+			Auth: rpservice.AuthConfig{
+				BearerAuth: &rpservice.BearerAuthConfig{
+					Enabled:            true,
+					DistributionGroups: []string{groupForRPBearer.ID},
+				},
+			},
+		},
+	}
+	for _, svc := range rpServices {
+		if err := am.Store.CreateService(context.Background(), svc); err != nil {
+			return nil, nil, err
+		}
+	}
 
 	acc, err := am.Store.GetAccount(context.Background(), account.Id)
 	if err != nil {
@@ -620,7 +790,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -638,7 +808,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -656,7 +826,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -689,7 +859,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -730,7 +900,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -757,7 +927,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -804,7 +974,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -999,10 +1169,10 @@ func Test_AddPeerAndAddToAll(t *testing.T) {
 	assert.Equal(t, totalPeers, len(account.Peers), "Expected %d peers in account %s, got %d", totalPeers, accountID, len(account.Peers))
 }
 
-func uint32ToIP(n uint32) net.IP {
-	ip := make(net.IP, 4)
-	binary.BigEndian.PutUint32(ip, n)
-	return ip
+func uint32ToIP(n uint32) netip.Addr {
+	var b [4]byte
+	binary.BigEndian.PutUint32(b[:], n)
+	return netip.AddrFrom4(b)
 }
 
 func Test_IncrementNetworkSerial(t *testing.T) {

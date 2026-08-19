@@ -4,9 +4,13 @@ package service
 
 import (
 	"context"
+
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 )
 
 type Manager interface {
+	GetClusters(ctx context.Context, accountID, userID string) ([]proxy.Cluster, error)
+	DeleteAccountCluster(ctx context.Context, accountID, userID, clusterAddress string) error
 	GetAllServices(ctx context.Context, accountID, userID string) ([]*Service, error)
 	GetService(ctx context.Context, accountID, userID, serviceID string) (*Service, error)
 	CreateService(ctx context.Context, accountID, userID string, service *Service) (*Service, error)
@@ -22,7 +26,8 @@ type Manager interface {
 	GetAccountServices(ctx context.Context, accountID string) ([]*Service, error)
 	GetServiceIDByTargetID(ctx context.Context, accountID string, resourceID string) (string, error)
 	CreateServiceFromPeer(ctx context.Context, accountID, peerID string, req *ExposeServiceRequest) (*ExposeServiceResponse, error)
-	RenewServiceFromPeer(ctx context.Context, accountID, peerID, domain string) error
-	StopServiceFromPeer(ctx context.Context, accountID, peerID, domain string) error
+	RenewServiceFromPeer(ctx context.Context, accountID, peerID, serviceID string) error
+	StopServiceFromPeer(ctx context.Context, accountID, peerID, serviceID string) error
 	StartExposeReaper(ctx context.Context)
+	GetServiceByDomain(ctx context.Context, domain string) (*Service, error)
 }

@@ -9,6 +9,7 @@ import (
 
 // IFaceMapper defines subset methods of interface required for manager
 type IFaceMapper interface {
+	Name() string
 	SetFilter(device.PacketFilter) error
 	Address() wgaddr.Address
 	GetWGDevice() *wgdevice.Device

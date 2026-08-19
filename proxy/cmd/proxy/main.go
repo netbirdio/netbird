@@ -1,7 +1,12 @@
 package main
 
 import (
+	"net/http"
+	// nolint:gosec
+	_ "net/http/pprof"
 	"runtime"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/proxy/cmd/proxy/cmd"
 )
@@ -21,6 +26,9 @@ var (
 )
 
 func main() {
+	go func() {
+		log.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
 	cmd.SetVersionInfo(Version, Commit, BuildDate, GoVersion)
 	cmd.Execute()
 }

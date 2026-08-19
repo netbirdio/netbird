@@ -11,19 +11,22 @@ import (
 	domainmanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain/manager"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 type handler struct {
-	manager rpservice.Manager
+	manager            rpservice.Manager
+	permissionsManager permissions.Manager
 }
 
 // RegisterEndpoints registers all service HTTP endpoints.
-func RegisterEndpoints(manager rpservice.Manager, domainManager domainmanager.Manager, accessLogsManager accesslogs.Manager, router *mux.Router) {
+func RegisterEndpoints(manager rpservice.Manager, domainManager domainmanager.Manager, accessLogsManager accesslogs.Manager, permissionsManager permissions.Manager, router *mux.Router) {
 	h := &handler{
-		manager: manager,
+		manager:            manager,
+		permissionsManager: permissionsManager,
 	}
 
 	domainRouter := router.PathPrefix("/reverse-proxies").Subrouter()
@@ -31,6 +34,8 @@ func RegisterEndpoints(manager rpservice.Manager, domainManager domainmanager.Ma
 
 	accesslogsmanager.RegisterEndpoints(router, accessLogsManager)
 
+	router.HandleFunc("/reverse-proxies/clusters", h.getClusters).Methods("GET", "OPTIONS")
+	router.HandleFunc("/reverse-proxies/clusters/{clusterAddress}", h.deleteCluster).Methods("DELETE", "OPTIONS")
 	router.HandleFunc("/reverse-proxies/services", h.getAllServices).Methods("GET", "OPTIONS")
 	router.HandleFunc("/reverse-proxies/services", h.createService).Methods("POST", "OPTIONS")
 	router.HandleFunc("/reverse-proxies/services/{serviceId}", h.getService).Methods("GET", "OPTIONS")
@@ -168,6 +173,58 @@ func (h *handler) deleteService(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.manager.DeleteService(r.Context(), userAuth.AccountId, userAuth.UserId, serviceID); err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
+}
+
+func (h *handler) getClusters(w http.ResponseWriter, r *http.Request) {
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	clusters, err := h.manager.GetClusters(r.Context(), userAuth.AccountId, userAuth.UserId)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	apiClusters := make([]api.ProxyCluster, 0, len(clusters))
+	for _, c := range clusters {
+		apiClusters = append(apiClusters, api.ProxyCluster{
+			Id:                  c.ID,
+			Address:             c.Address,
+			Type:                api.ProxyClusterType(c.Type),
+			Online:              c.Online,
+			ConnectedProxies:    c.ConnectedProxies,
+			SupportsCustomPorts: c.SupportsCustomPorts,
+			RequireSubdomain:    c.RequireSubdomain,
+			SupportsCrowdsec:    c.SupportsCrowdSec,
+			Private:             c.Private,
+		})
+	}
+
+	util.WriteJSONObject(r.Context(), w, apiClusters)
+}
+
+func (h *handler) deleteCluster(w http.ResponseWriter, r *http.Request) {
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	clusterAddress := mux.Vars(r)["clusterAddress"]
+	if clusterAddress == "" {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "cluster address is required"), w)
+		return
+	}
+
+	if err := h.manager.DeleteAccountCluster(r.Context(), userAuth.AccountId, userAuth.UserId, clusterAddress); err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}

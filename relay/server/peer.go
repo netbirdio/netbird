@@ -10,6 +10,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/relay/metrics"
+	"github.com/netbirdio/netbird/relay/server/listener"
 	"github.com/netbirdio/netbird/relay/server/store"
 	"github.com/netbirdio/netbird/shared/relay/healthcheck"
 	"github.com/netbirdio/netbird/shared/relay/messages"
@@ -26,10 +27,13 @@ type Peer struct {
 	metrics  *metrics.Metrics
 	log      *log.Entry
 	id       messages.PeerID
-	conn     net.Conn
+	conn     listener.Conn
 	connMu   sync.RWMutex
 	store    *store.Store
 	notifier *store.PeerNotifier
+
+	ctx       context.Context
+	ctxCancel context.CancelFunc
 
 	peersListener *store.Listener
 
@@ -38,14 +42,17 @@ type Peer struct {
 }
 
 // NewPeer creates a new Peer instance and prepare custom logging
-func NewPeer(metrics *metrics.Metrics, id messages.PeerID, conn net.Conn, store *store.Store, notifier *store.PeerNotifier) *Peer {
+func NewPeer(metrics *metrics.Metrics, id messages.PeerID, conn listener.Conn, store *store.Store, notifier *store.PeerNotifier) *Peer {
+	ctx, cancel := context.WithCancel(context.Background())
 	p := &Peer{
-		metrics:  metrics,
-		log:      log.WithField("peer_id", id.String()),
-		id:       id,
-		conn:     conn,
-		store:    store,
-		notifier: notifier,
+		metrics:   metrics,
+		log:       log.WithField("peer_id", id.String()),
+		id:        id,
+		conn:      conn,
+		store:     store,
+		notifier:  notifier,
+		ctx:       ctx,
+		ctxCancel: cancel,
 	}
 
 	return p
@@ -57,6 +64,7 @@ func NewPeer(metrics *metrics.Metrics, id messages.PeerID, conn net.Conn, store 
 func (p *Peer) Work() {
 	p.peersListener = p.notifier.NewListener(p.sendPeersOnline, p.sendPeersWentOffline)
 	defer func() {
+		p.ctxCancel()
 		p.notifier.RemoveListener(p.peersListener)
 
 		if err := p.conn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
@@ -64,8 +72,7 @@ func (p *Peer) Work() {
 		}
 	}()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := p.ctx
 
 	hc := healthcheck.NewSender(p.log)
 	go hc.StartHealthCheck(ctx)
@@ -73,7 +80,7 @@ func (p *Peer) Work() {
 
 	buf := make([]byte, bufferSize)
 	for {
-		n, err := p.conn.Read(buf)
+		n, err := p.conn.Read(ctx, buf)
 		if err != nil {
 			if !errors.Is(err, net.ErrClosed) {
 				p.log.Errorf("failed to read message: %s", err)
@@ -131,10 +138,10 @@ func (p *Peer) handleMsgType(ctx context.Context, msgType messages.MsgType, hc *
 }
 
 // Write writes data to the connection
-func (p *Peer) Write(b []byte) (int, error) {
+func (p *Peer) Write(ctx context.Context, b []byte) (int, error) {
 	p.connMu.RLock()
 	defer p.connMu.RUnlock()
-	return p.conn.Write(b)
+	return p.conn.Write(ctx, b)
 }
 
 // CloseGracefully closes the connection with the peer gracefully. Send a close message to the client and close the
@@ -147,6 +154,7 @@ func (p *Peer) CloseGracefully(ctx context.Context) {
 		p.log.Errorf("failed to send close message to peer: %s", p.String())
 	}
 
+	p.ctxCancel()
 	if err := p.conn.Close(); err != nil {
 		p.log.Errorf(errCloseConn, err)
 	}
@@ -156,6 +164,7 @@ func (p *Peer) Close() {
 	p.connMu.Lock()
 	defer p.connMu.Unlock()
 
+	p.ctxCancel()
 	if err := p.conn.Close(); err != nil {
 		p.log.Errorf(errCloseConn, err)
 	}
@@ -170,26 +179,15 @@ func (p *Peer) writeWithTimeout(ctx context.Context, buf []byte) error {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
-	writeDone := make(chan struct{})
-	var err error
-	go func() {
-		_, err = p.conn.Write(buf)
-		close(writeDone)
-	}()
-
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-writeDone:
-		return err
-	}
+	_, err := p.conn.Write(ctx, buf)
+	return err
 }
 
 func (p *Peer) handleHealthcheckEvents(ctx context.Context, hc *healthcheck.Sender) {
 	for {
 		select {
 		case <-hc.HealthCheck:
-			_, err := p.Write(messages.MarshalHealthcheck())
+			_, err := p.Write(ctx, messages.MarshalHealthcheck())
 			if err != nil {
 				p.log.Errorf("failed to send healthcheck message: %s", err)
 				return
@@ -228,12 +226,12 @@ func (p *Peer) handleTransportMsg(msg []byte) {
 		return
 	}
 
-	n, err := dp.Write(msg)
+	n, err := dp.Write(dp.ctx, msg)
 	if err != nil {
 		p.log.Errorf("failed to write transport message to: %s", dp.String())
 		return
 	}
-	p.metrics.TransferBytesSent.Add(context.Background(), int64(n))
+	p.metrics.TransferBytesSent.Add(p.ctx, int64(n))
 }
 
 func (p *Peer) handleSubscribePeerState(msg []byte) {
@@ -276,7 +274,7 @@ func (p *Peer) sendPeersOnline(peers []messages.PeerID) {
 	}
 
 	for n, msg := range msgs {
-		if _, err := p.Write(msg); err != nil {
+		if _, err := p.Write(p.ctx, msg); err != nil {
 			p.log.Errorf("failed to write %d. peers offline message: %s", n, err)
 		}
 	}
@@ -293,7 +291,7 @@ func (p *Peer) sendPeersWentOffline(peers []messages.PeerID) {
 	}
 
 	for n, msg := range msgs {
-		if _, err := p.Write(msg); err != nil {
+		if _, err := p.Write(p.ctx, msg); err != nil {
 			p.log.Errorf("failed to write %d. peers offline message: %s", n, err)
 		}
 	}

@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,6 +20,25 @@ import (
 	mgm "github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/management/client/common"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
+)
+
+// peerLoginExpiredMsg is the exact phrase the management server returns
+// when a previously SSO-enrolled peer's login has expired. Sourced from
+// shared/management/status/error.go (NewPeerLoginExpiredError). Matched
+// by substring so a future server-side rewording that keeps the phrase
+// still triggers the friendly fallback in Login().
+const peerLoginExpiredMsg = "peer login has expired"
+
+// errSetupKeyOnSSOExpiredPeer replaces the raw management error when the
+// user runs `netbird login -k <setup-key>` against a peer that was
+// originally enrolled via SSO. Wrapped in a PermissionDenied gRPC status
+// so callers' existing isPermissionDenied / isAuthError checks still
+// classify it correctly (early-exit from retry backoff, StatusNeedsLogin
+// in the server state machine).
+var errSetupKeyOnSSOExpiredPeer = status.Error(
+	codes.PermissionDenied,
+	"this peer was originally enrolled via SSO and its session has expired. "+
+		"Setup keys can only enrol new peers — run `netbird up` (interactive SSO) to re-login.",
 )
 
 // Auth manages authentication operations with the management server
@@ -118,26 +138,37 @@ func (a *Auth) IsSSOSupported(ctx context.Context) (bool, error) {
 
 // GetOAuthFlow returns an OAuth flow (PKCE or Device) using the existing management connection
 // This avoids creating a new connection to the management server
-func (a *Auth) GetOAuthFlow(ctx context.Context, forceDeviceAuth bool) (OAuthFlow, error) {
+func (a *Auth) GetOAuthFlow(ctx context.Context, forceDeviceAuth bool, hint string) (OAuthFlow, error) {
 	var flow OAuthFlow
-	var err error
 
-	err = a.withRetry(ctx, func(client *mgm.GrpcClient) error {
+	err := a.withRetry(ctx, func(client *mgm.GrpcClient) error {
 		if forceDeviceAuth {
-			flow, err = a.getDeviceFlow(client)
-			return err
+			deviceFlow, err := a.getDeviceFlow(client)
+			if err != nil {
+				return err
+			}
+			deviceFlow.SetLoginHint(hint)
+			flow = deviceFlow
+			return nil
 		}
 
 		// Try PKCE flow first
-		flow, err = a.getPKCEFlow(client)
+		pkceFlow, err := a.getPKCEFlow(client)
 		if err != nil {
 			// If PKCE not supported, try Device flow
 			if s, ok := status.FromError(err); ok && (s.Code() == codes.NotFound || s.Code() == codes.Unimplemented) {
-				flow, err = a.getDeviceFlow(client)
-				return err
+				deviceFlow, err := a.getDeviceFlow(client)
+				if err != nil {
+					return err
+				}
+				deviceFlow.SetLoginHint(hint)
+				flow = deviceFlow
+				return nil
 			}
 			return err
 		}
+		pkceFlow.SetLoginHint(hint)
+		flow = pkceFlow
 		return nil
 	})
 
@@ -155,7 +186,7 @@ func (a *Auth) IsLoginRequired(ctx context.Context) (bool, error) {
 	var needsLogin bool
 
 	err = a.withRetry(ctx, func(client *mgm.GrpcClient) error {
-		_, _, err := a.doMgmLogin(client, ctx, pubSSHKey)
+		err := a.doMgmLogin(client, ctx, pubSSHKey)
 		if isLoginNeeded(err) {
 			needsLogin = true
 			return nil
@@ -179,11 +210,20 @@ func (a *Auth) Login(ctx context.Context, setupKey string, jwtToken string) (err
 	var isAuthError bool
 
 	err = a.withRetry(ctx, func(client *mgm.GrpcClient) error {
-		serverKey, _, err := a.doMgmLogin(client, ctx, pubSSHKey)
-		if serverKey != nil && isRegistrationNeeded(err) {
+		err := a.doMgmLogin(client, ctx, pubSSHKey)
+		if isRegistrationNeeded(err) {
 			log.Debugf("peer registration required")
 			_, err = a.registerPeer(client, ctx, setupKey, jwtToken, pubSSHKey)
 			if err != nil {
+				// The peer pub-key is already on file with the management
+				// server (originally enrolled via SSO) and the session has
+				// expired. The setup-key path can only enrol new peers, so
+				// retrying with -k will keep failing. Replace the raw mgm
+				// message with an actionable hint that tells the user to
+				// re-authenticate via SSO instead.
+				if setupKey != "" && jwtToken == "" && isPeerLoginExpired(err) {
+					err = errSetupKeyOnSSOExpiredPeer
+				}
 				isAuthError = isPermissionDenied(err)
 				return err
 			}
@@ -201,13 +241,7 @@ func (a *Auth) Login(ctx context.Context, setupKey string, jwtToken string) (err
 
 // getPKCEFlow retrieves PKCE authorization flow configuration and creates a flow instance
 func (a *Auth) getPKCEFlow(client *mgm.GrpcClient) (*PKCEAuthorizationFlow, error) {
-	serverKey, err := client.GetServerPublicKey()
-	if err != nil {
-		log.Errorf("failed while getting Management Service public key: %v", err)
-		return nil, err
-	}
-
-	protoFlow, err := client.GetPKCEAuthorizationFlow(*serverKey)
+	protoFlow, err := client.GetPKCEAuthorizationFlow()
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
 			log.Warnf("server couldn't find pkce flow, contact admin: %v", err)
@@ -221,7 +255,7 @@ func (a *Auth) getPKCEFlow(client *mgm.GrpcClient) (*PKCEAuthorizationFlow, erro
 	config := &PKCEAuthProviderConfig{
 		Audience:              protoConfig.GetAudience(),
 		ClientID:              protoConfig.GetClientID(),
-		ClientSecret:          protoConfig.GetClientSecret(),
+		ClientSecret:          protoConfig.GetClientSecret(), //nolint:staticcheck
 		TokenEndpoint:         protoConfig.GetTokenEndpoint(),
 		AuthorizationEndpoint: protoConfig.GetAuthorizationEndpoint(),
 		Scope:                 protoConfig.GetScope(),
@@ -246,13 +280,7 @@ func (a *Auth) getPKCEFlow(client *mgm.GrpcClient) (*PKCEAuthorizationFlow, erro
 
 // getDeviceFlow retrieves device authorization flow configuration and creates a flow instance
 func (a *Auth) getDeviceFlow(client *mgm.GrpcClient) (*DeviceAuthorizationFlow, error) {
-	serverKey, err := client.GetServerPublicKey()
-	if err != nil {
-		log.Errorf("failed while getting Management Service public key: %v", err)
-		return nil, err
-	}
-
-	protoFlow, err := client.GetDeviceAuthorizationFlow(*serverKey)
+	protoFlow, err := client.GetDeviceAuthorizationFlow()
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
 			log.Warnf("server couldn't find device flow, contact admin: %v", err)
@@ -266,7 +294,7 @@ func (a *Auth) getDeviceFlow(client *mgm.GrpcClient) (*DeviceAuthorizationFlow, 
 	config := &DeviceAuthProviderConfig{
 		Audience:           protoConfig.GetAudience(),
 		ClientID:           protoConfig.GetClientID(),
-		ClientSecret:       protoConfig.GetClientSecret(),
+		ClientSecret:       protoConfig.GetClientSecret(), //nolint:staticcheck
 		Domain:             protoConfig.Domain,
 		TokenEndpoint:      protoConfig.GetTokenEndpoint(),
 		DeviceAuthEndpoint: protoConfig.GetDeviceAuthEndpoint(),
@@ -292,28 +320,16 @@ func (a *Auth) getDeviceFlow(client *mgm.GrpcClient) (*DeviceAuthorizationFlow, 
 }
 
 // doMgmLogin performs the actual login operation with the management service
-func (a *Auth) doMgmLogin(client *mgm.GrpcClient, ctx context.Context, pubSSHKey []byte) (*wgtypes.Key, *mgmProto.LoginResponse, error) {
-	serverKey, err := client.GetServerPublicKey()
-	if err != nil {
-		log.Errorf("failed while getting Management Service public key: %v", err)
-		return nil, nil, err
-	}
-
+func (a *Auth) doMgmLogin(client *mgm.GrpcClient, ctx context.Context, pubSSHKey []byte) error {
 	sysInfo := system.GetInfo(ctx)
 	a.setSystemInfoFlags(sysInfo)
-	loginResp, err := client.Login(*serverKey, sysInfo, pubSSHKey, a.config.DNSLabels)
-	return serverKey, loginResp, err
+	_, err := client.Login(sysInfo, pubSSHKey, a.config.DNSLabels)
+	return err
 }
 
 // registerPeer checks whether setupKey was provided via cmd line and if not then it prompts user to enter a key.
 // Otherwise tries to register with the provided setupKey via command line.
 func (a *Auth) registerPeer(client *mgm.GrpcClient, ctx context.Context, setupKey string, jwtToken string, pubSSHKey []byte) (*mgmProto.LoginResponse, error) {
-	serverPublicKey, err := client.GetServerPublicKey()
-	if err != nil {
-		log.Errorf("failed while getting Management Service public key: %v", err)
-		return nil, err
-	}
-
 	validSetupKey, err := uuid.Parse(setupKey)
 	if err != nil && jwtToken == "" {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid setup-key or no sso information provided, err: %v", err)
@@ -322,7 +338,7 @@ func (a *Auth) registerPeer(client *mgm.GrpcClient, ctx context.Context, setupKe
 	log.Debugf("sending peer registration request to Management Service")
 	info := system.GetInfo(ctx)
 	a.setSystemInfoFlags(info)
-	loginResp, err := client.Register(*serverPublicKey, validSetupKey.String(), jwtToken, info, pubSSHKey, a.config.DNSLabels)
+	loginResp, err := client.Register(validSetupKey.String(), jwtToken, info, pubSSHKey, a.config.DNSLabels)
 	if err != nil {
 		log.Errorf("failed registering peer %v", err)
 		return nil, err
@@ -345,7 +361,8 @@ func (a *Auth) setSystemInfoFlags(info *system.Info) {
 		a.config.DisableFirewall,
 		a.config.BlockLANAccess,
 		a.config.BlockInbound,
-		a.config.LazyConnectionEnabled,
+		a.config.DisableIPv6,
+		a.config.SyncMessageVersion,
 		a.config.EnableSSHRoot,
 		a.config.EnableSSHSFTP,
 		a.config.EnableSSHLocalPortForwarding,
@@ -496,4 +513,17 @@ func isLoginNeeded(err error) bool {
 
 func isRegistrationNeeded(err error) bool {
 	return isPermissionDenied(err)
+}
+
+// isPeerLoginExpired reports whether err is the management server's
+// "peer login has expired" PermissionDenied response. Used by Login to
+// detect the case where the caller passed a setup-key but the peer is
+// actually an SSO-enrolled record whose session needs refreshing — the
+// setup-key path cannot help there.
+func isPeerLoginExpired(err error) bool {
+	if !isPermissionDenied(err) {
+		return false
+	}
+	s, _ := status.FromError(err)
+	return strings.Contains(s.Message(), peerLoginExpiredMsg)
 }
