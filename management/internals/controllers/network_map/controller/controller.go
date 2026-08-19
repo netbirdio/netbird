@@ -131,12 +131,12 @@ func (c *Controller) OnPeerDisconnected(ctx context.Context, accountID string, p
 
 // injectAllProxyPolicies prepares an account for the per-peer network-map
 // computation. It prepends the in-memory agent-network services synthesised
-// from the account's current provider/policy state to account.Services so
-// the existing InjectProxyPolicies + injectPrivateServicePolicies walks pick
-// them up alongside persisted reverse-proxy services. Synthesised services
-// are never persisted; the account is loaded fresh per cycle so re-prepending
-// is safe and idempotent. Accounts without agent-network providers get an
-// empty synth slice — no behaviour change.
+// from the account's current provider/policy state to account.Services, so the
+// twin store built from the account carries them alongside the persisted
+// reverse-proxy services and synthesises their ACLs. Synthesised services are
+// never persisted; the account is loaded fresh per cycle so re-prepending is
+// safe and idempotent. Accounts without agent-network providers get an empty
+// synth slice — no behaviour change.
 func (c *Controller) injectAllProxyPolicies(ctx context.Context, account *types.Account) {
 	synth, err := c.repo.SynthesizeAgentNetworkServices(ctx, account.Id)
 	if err != nil {
@@ -144,7 +144,26 @@ func (c *Controller) injectAllProxyPolicies(ctx context.Context, account *types.
 	} else if len(synth) > 0 {
 		account.Services = append(synth, account.Services...)
 	}
-	account.InjectProxyPolicies(ctx)
+}
+
+// proxyServicesFromRepo is the store-path counterpart of
+// injectAllProxyPolicies: the network-map store reads the policies table, which
+// never holds the proxy ACLs, so the twin gets the services they are
+// synthesised from — the synthesised agent-network ones first, exactly as the
+// account path orders them.
+func (c *Controller) proxyServicesFromRepo(ctx context.Context, accountID string) []*nmdata.Service {
+	persisted, err := c.repo.GetAccountServices(ctx, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get services for account %s: %v", accountID, err)
+		return nil
+	}
+
+	synth, err := c.repo.SynthesizeAgentNetworkServices(ctx, accountID)
+	if err != nil {
+		log.WithContext(ctx).Warnf("synthesise agent-network services for account %s: %v", accountID, err)
+	}
+
+	return types.TwinServices(append(synth, persisted...))
 }
 
 func (c *Controller) CountStreams() int {
@@ -466,6 +485,8 @@ func (c *Controller) getNetworkMapData(ctx context.Context, accountID string) *n
 		log.WithContext(ctx).Errorf("failed to get network map data for account %s, falling back to account-based computation: %v", accountID, err)
 		return nil
 	}
+
+	nmData.Services = c.proxyServicesFromRepo(ctx, accountID)
 
 	return nmData
 }

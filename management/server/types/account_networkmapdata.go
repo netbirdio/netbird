@@ -4,6 +4,7 @@ import (
 	"github.com/miekg/dns"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
@@ -112,8 +113,52 @@ func (a *Account) toNetworkMapData(
 	nmd.ProxyTargetedDomainResourceIDs = a.proxyTargetedDomainResourceIDs()
 	nmd.AppliedZoneCandidates = buildAppliedZoneCandidates(accountZones)
 	nmd.PrivateServiceCandidates = a.buildPrivateServiceCandidates()
+	nmd.Services = TwinServices(a.Services)
 
 	return nmd
+}
+
+// TwinServices converts reverse-proxy services to their slim nmdata twins.
+// Exported for the network-map controller, which hands the store-backed twin
+// the same services the account carries.
+func TwinServices(services []*service.Service) []*nmdata.Service {
+	if len(services) == 0 {
+		return nil
+	}
+	out := make([]*nmdata.Service, 0, len(services))
+	for _, svc := range services {
+		if svc == nil {
+			continue
+		}
+		targets := make([]*nmdata.ServiceTarget, 0, len(svc.Targets))
+		for _, t := range svc.Targets {
+			if t == nil {
+				continue
+			}
+			path := ""
+			if t.Path != nil {
+				path = *t.Path
+			}
+			targets = append(targets, &nmdata.ServiceTarget{
+				Enabled:    t.Enabled,
+				Path:       path,
+				Port:       t.Port,
+				Protocol:   t.Protocol,
+				TargetID:   t.TargetId,
+				TargetType: string(t.TargetType),
+			})
+		}
+		out = append(out, &nmdata.Service{
+			ID:           svc.ID,
+			Enabled:      svc.Enabled,
+			Private:      svc.Private,
+			Mode:         svc.Mode,
+			ProxyCluster: svc.ProxyCluster,
+			AccessGroups: svc.AccessGroups,
+			Targets:      targets,
+		})
+	}
+	return out
 }
 
 func twinPeer(p *nbpeer.Peer) *nmdata.Peer {
@@ -141,7 +186,7 @@ func twinPeer(p *nbpeer.Peer) *nmdata.Peer {
 		IPv6:                   p.IPv6,
 		RequiresApproval:       p.Status != nil && p.Status.RequiresApproval,
 		ExtraDNSLabels:         p.ExtraDNSLabels,
-		ProxyMeta:              nmdata.ProxyMeta{Embedded: p.ProxyMeta.Embedded},
+		ProxyMeta:              nmdata.ProxyMeta{Embedded: p.ProxyMeta.Embedded, Cluster: p.ProxyMeta.Cluster},
 		Meta: nmdata.PeerSystemMeta{
 			WtVersion:          p.Meta.WtVersion,
 			GoOS:               p.Meta.GoOS,

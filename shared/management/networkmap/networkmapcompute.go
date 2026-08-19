@@ -17,6 +17,8 @@ type sshRequirements struct {
 // exactly, operating on nmdata twins throughout — no Account reference and no
 // twin↔real conversion, since the produced components hold twins.
 func (nmd *NetworkMapData) GetPeerNetworkMapComponents(peerID string, peersCustomZone nmdata.CustomZone) *types.NetworkMapComponents {
+	nmd.InjectProxyPolicies()
+
 	forceRoutingPeerDNS := nmd.forcesRoutingPeerDNSResolution(peerID)
 
 	peer := nmd.Peers[peerID]

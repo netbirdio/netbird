@@ -48,8 +48,16 @@ type NetworkMapData struct { //nolint:revive // established name across the code
 	AppliedZoneCandidates    []AppliedZoneCandidate
 	PrivateServiceCandidates []PrivateServiceCandidate
 
+	// Services are the account's reverse-proxy services, persisted ones and
+	// the in-memory ones synthesised from agent-network state. They are the
+	// source of the proxy ACLs injectProxyPolicies synthesises, which no
+	// builder can load because they are never written to the database.
+	Services []*nmdata.Service
+
 	peerGroupsOnce sync.Once
 	peerGroupsIdx  map[string]map[string]struct{}
+
+	proxyPoliciesOnce sync.Once
 }
 
 // AppliedZoneCandidate is an account-level custom DNS zone reduced to the

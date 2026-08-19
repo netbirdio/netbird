@@ -18,7 +18,6 @@ func TestPrivateService_NetworkMap_UserPeer_AndProxyPeer(t *testing.T) {
 	account.Peers["proxy-peer"].Meta.WtVersion = "0.50.0"
 
 	ctx := context.Background()
-	account.InjectProxyPolicies(ctx)
 
 	validated := map[string]struct{}{
 		"user-peer":  {},

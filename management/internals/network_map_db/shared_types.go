@@ -294,6 +294,7 @@ func ConvertToNmdataPeers(peers []Peer) ([]nmdata.Peer, map[string][]*nmdata.Pee
 		if p.ProxyMetaEmbedded.Valid {
 			dp.ProxyMeta.Embedded = p.ProxyMetaEmbedded.Bool
 		}
+		dp.ProxyMeta.Cluster = p.ProxyMetaCluster.String
 		// This is only used to build private service candidates, not connected peers are skipped
 		if dp.ProxyMeta.Embedded && p.PeerStatusConnected.Bool {
 			clusterToPeerIdx[p.ProxyMetaCluster.String] = append(clusterToPeerIdx[p.ProxyMetaCluster.String], &dp)

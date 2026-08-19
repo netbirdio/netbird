@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"strings"
 	"testing"
 
 	"github.com/miekg/dns"
@@ -1051,6 +1052,7 @@ func TestInjectPrivateServicePolicies_ProxyPeerGetsInboundRule(t *testing.T) {
 			Identifier: "net-1",
 			Net:        net.IPNet{IP: net.ParseIP("100.64.0.0"), Mask: net.CIDRMask(10, 32)},
 		},
+		Settings: &Settings{},
 		Peers: map[string]*nbpeer.Peer{
 			"user-peer": {
 				ID:        "user-peer",
@@ -1101,41 +1103,25 @@ func TestInjectPrivateServicePolicies_ProxyPeerGetsInboundRule(t *testing.T) {
 		},
 	}
 
-	account.InjectProxyPolicies(ctx)
-
-	var found *Policy
-	for _, p := range account.Policies {
-		if p != nil && p.ID == "private-access-svc-1-proxy-peer" {
-			found = p
-			break
-		}
-	}
-	require.NotNil(t, found, "expected synthesised private-access policy in account.Policies")
+	found := findPolicy(injectedPolicies(account), "private-access-svc-1-proxy-peer")
+	require.NotNil(t, found, "expected synthesised private-access policy in the twin store")
 	require.Len(t, found.Rules, 1, "policy should have exactly one rule")
 	rule := found.Rules[0]
 	assert.Equal(t, []string{"grp-admins"}, rule.Sources, "sources should be group IDs verbatim")
 	assert.Equal(t, "proxy-peer", rule.DestinationResource.ID, "destination resource should be the proxy peer ID")
-	assert.Equal(t, ResourceTypePeer, rule.DestinationResource.Type, "destination resource type should be peer")
+	assert.Equal(t, string(ResourceTypePeer), rule.DestinationResource.Type, "destination resource type should be peer")
 
 	validatedPeersMap := map[string]struct{}{
 		"user-peer":  {},
 		"proxy-peer": {},
 	}
 
-	proxyPeer := account.Peers["proxy-peer"]
-	aclPeers, firewallRules, _, _ := account.GetPeerConnectionResources(ctx, proxyPeer, validatedPeersMap, nil)
+	nm := account.GetPeerNetworkMapFromComponents(ctx, "proxy-peer", nbdns.CustomZone{}, nil, validatedPeersMap, nil, nil, nil, nil)
 
-	var sawUserAsAclPeer bool
-	for _, p := range aclPeers {
-		if p.ID == "user-peer" {
-			sawUserAsAclPeer = true
-			break
-		}
-	}
-	assert.True(t, sawUserAsAclPeer, "proxy peer should see the user peer as an ACL peer")
+	assert.Contains(t, netmapPeerIDs(nm.Peers), "user-peer", "proxy peer should see the user peer as an ACL peer")
 
 	var inboundRules []*FirewallRule
-	for _, r := range firewallRules {
+	for _, r := range nm.FirewallRules {
 		if r.Direction == FirewallRuleDirectionIN && r.PeerIP == userPeerIP.String() {
 			inboundRules = append(inboundRules, r)
 		}
@@ -1144,29 +1130,23 @@ func TestInjectPrivateServicePolicies_ProxyPeerGetsInboundRule(t *testing.T) {
 }
 
 func TestInjectPrivateServicePolicies_NotPrivate_NoPolicy(t *testing.T) {
-	ctx := context.Background()
 	account := privateServiceTestAccount(t)
 	account.Services[0].Private = false
 
-	account.InjectProxyPolicies(ctx)
 	assert.False(t, hasPrivateAccessPolicy(account, "svc-1"), "non-private service must not synthesise an access policy")
 }
 
 func TestInjectPrivateServicePolicies_EmptyAccessGroups_NoPolicy(t *testing.T) {
-	ctx := context.Background()
 	account := privateServiceTestAccount(t)
 	account.Services[0].AccessGroups = nil
 
-	account.InjectProxyPolicies(ctx)
 	assert.False(t, hasPrivateAccessPolicy(account, "svc-1"), "private service with no access groups must not synthesise a policy")
 }
 
 func TestInjectPrivateServicePolicies_NoProxyPeers_NoPolicy(t *testing.T) {
-	ctx := context.Background()
 	account := privateServiceTestAccount(t)
 	delete(account.Peers, "proxy-peer")
 
-	account.InjectProxyPolicies(ctx)
 	assert.False(t, hasPrivateAccessPolicy(account, "svc-1"), "policy must not synthesise when the cluster has no proxy peers")
 }
 
@@ -1229,10 +1209,27 @@ func privateServiceTestAccount(t *testing.T) *Account {
 	}
 }
 
+// injectedPolicies returns the twin's policies with the synthesised proxy ACLs
+// already in place, the way the per-peer computation sees them.
+func injectedPolicies(account *Account) []*nmdata.Policy {
+	nmd := account.toNetworkMapData(nil, nil, nil, nil, nil)
+	nmd.InjectProxyPolicies()
+	return nmd.Policies
+}
+
+func findPolicy(policies []*nmdata.Policy, id string) *nmdata.Policy {
+	for _, p := range policies {
+		if p != nil && p.ID == id {
+			return p
+		}
+	}
+	return nil
+}
+
 func hasPrivateAccessPolicy(account *Account, serviceID string) bool {
 	prefix := "private-access-" + serviceID + "-"
-	for _, p := range account.Policies {
-		if p != nil && len(p.ID) > len(prefix) && p.ID[:len(prefix)] == prefix {
+	for _, p := range injectedPolicies(account) {
+		if p != nil && strings.HasPrefix(p.ID, prefix) {
 			return true
 		}
 	}

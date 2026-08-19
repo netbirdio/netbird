@@ -36,6 +36,7 @@ type Peer struct {
 // ProxyMeta is the slim twin of peer.ProxyMeta.
 type ProxyMeta struct {
 	Embedded bool
+	Cluster  string
 }
 
 // PeerSystemMeta is the slim twin of peer.PeerSystemMeta.
