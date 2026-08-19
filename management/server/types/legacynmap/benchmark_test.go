@@ -94,7 +94,7 @@ func BenchmarkGetNetworkMapData(b *testing.B) {
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	require.NoError(b, err, "connect nmdata store")
 	b.Cleanup(pool.Close)
-	nmStore := &networkmap_pgsql.PgStore{Pool: pool}
+	nmStore := nmDataStore(b, &networkmap_pgsql.PgStore{Pool: pool})
 
 	for _, accountID := range benchAccountIDs(b, ctx, statsConn) {
 		b.Run(accountID, func(b *testing.B) {
@@ -161,7 +161,7 @@ func BenchmarkNetworkMapDataFullRound(b *testing.B) {
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	require.NoError(b, err, "connect nmdata store")
 	b.Cleanup(pool.Close)
-	nmStore := &networkmap_pgsql.PgStore{Pool: pool}
+	nmStore := nmDataStore(b, &networkmap_pgsql.PgStore{Pool: pool})
 
 	for _, accountID := range benchAccountIDs(b, ctx, statsConn) {
 		b.Run(accountID, func(b *testing.B) {

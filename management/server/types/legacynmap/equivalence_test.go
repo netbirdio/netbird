@@ -42,6 +42,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/prototext"
 	goproto "google.golang.org/protobuf/proto"
@@ -51,8 +52,11 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller/cache"
+	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 	networkmap_pgsql "github.com/netbirdio/netbird/management/internals/network_map_db/pgsql"
 	mgmtgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
+	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator/validator"
+	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/types/legacynmap"
@@ -86,9 +90,10 @@ func TestNetworkMapProtoEquivalence(t *testing.T) {
 	require.NoError(t, err, "connect to postgres")
 	t.Cleanup(func() { testStore.Close(ctx) })
 
-	nmStore, err := networkmap_pgsql.NewPostgresqlStore(ctx, dsn)
+	pgStore, err := networkmap_pgsql.NewPostgresqlStore(ctx, dsn)
 	require.NoError(t, err, "connect nmdata store")
-	t.Cleanup(func() { nmStore.Pool.Close() })
+	t.Cleanup(func() { pgStore.Pool.Close() })
+	nmStore := nmDataStore(t, pgStore)
 
 	accountIDs := equivAccountIDs(t, dsn)
 	require.NotEmpty(t, accountIDs, "no accounts selected")
@@ -121,7 +126,7 @@ func TestNetworkMapProtoEquivalence(t *testing.T) {
 
 // checkAccount compares both paths for every peer of one account. Nothing is
 // retained across peers, so memory stays flat within an account.
-func checkAccount(ctx context.Context, t *testing.T, nmStore *networkmap_pgsql.PgStore, account *types.Account, maxPeers int, stats *equivStats) {
+func checkAccount(ctx context.Context, t *testing.T, nmStore *networkmapdb.NetworkMapDBStoreImpl, account *types.Account, maxPeers int, stats *equivStats) {
 	t.Helper()
 
 	if len(account.Peers) == 0 {
@@ -215,6 +220,23 @@ func checkAccount(ctx context.Context, t *testing.T, nmStore *networkmap_pgsql.P
 		if !goproto.Equal(legacyProto, acctProto) {
 			t.Fatalf("after %d peers: account path: %s", stats.peersChecked, describeDivergence(legacyProto, acctProto, account.Id, peerID))
 		}
+	}
+}
+
+// nmDataStore wraps a raw connection store the way production's factory does.
+// The validator marks every peer validated and the extra settings are empty:
+// checkAccount overwrites ValidatedPeers anyway, and neither reaches the
+// compared network map.
+func nmDataStore(tb testing.TB, s networkmapdb.NetworkMapDBStore) *networkmapdb.NetworkMapDBStoreImpl {
+	tb.Helper()
+
+	extraSettings := settings.NewMockManager(gomock.NewController(tb))
+	extraSettings.EXPECT().GetExtraSettings(gomock.Any(), gomock.Any()).Return(&types.ExtraSettings{}, nil).AnyTimes()
+
+	return &networkmapdb.NetworkMapDBStoreImpl{
+		Store:                   s,
+		IntegratedPeerValidator: &validator.IntegratedValidatorImpl{},
+		ExtraSettingsManager:    extraSettings,
 	}
 }
 
