@@ -13,9 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"go.uber.org/mock/gomock"
 	"github.com/gorilla/mux"
-	ugomock "go.uber.org/mock/gomock"
+	"go.uber.org/mock/gomock"
 	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
@@ -106,7 +105,7 @@ func initTestMetaData(t *testing.T, peers ...*nbpeer.Peer) *Handler {
 		},
 	}
 
-	ctrl := ugomock.NewController(t)
+	ctrl := gomock.NewController(t)
 
 	networkMapController := network_map.NewMockController(ctrl)
 	networkMapController.EXPECT().
