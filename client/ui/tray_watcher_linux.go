@@ -68,17 +68,31 @@ type statusNotifierWatcher struct {
 // RegisterStatusNotifierItem is the D-Bus method called by tray clients.
 // sender is injected by godbus and is not part of the D-Bus signature.
 func (w *statusNotifierWatcher) RegisterStatusNotifierItem(sender dbus.Sender, service string) *dbus.Error {
-	if !w.addItem(service) {
-		return nil
-	}
-	log.Debugf("StatusNotifierWatcher: registered item %q from %s", service, sender)
+	id := itemID(sender, service)
+	if w.addItem(id) {
+		log.Debugf("StatusNotifierWatcher: registered item %q from %s", service, sender)
 
-	if err := w.conn.Emit(watcherPath, watcherIface+".StatusNotifierItemRegistered", service); err != nil {
-		log.Debugf("StatusNotifierWatcher: emitting StatusNotifierItemRegistered failed: %v", err)
+		if err := w.conn.Emit(watcherPath, watcherIface+".StatusNotifierItemRegistered", id); err != nil {
+			log.Debugf("StatusNotifierWatcher: emitting StatusNotifierItemRegistered failed: %v", err)
+		}
 	}
 
-	go w.tryStartXembedHost(string(sender), itemObjectPath(service))
+	// Attempted on every call, not only the first: a client re-registers when
+	// the watcher name changes owner, and that is the chance to host an item
+	// again after its previous host lost the tray.
+	go w.tryStartXembedHost(id, string(sender), itemObjectPath(service))
 	return nil
+}
+
+// itemID identifies a registered item. A client may register by bus name or by
+// object path, and clients that register by path mostly use the same well-known
+// one, so the path form is qualified with the sender's unique name to keep two
+// items from colliding.
+func itemID(sender dbus.Sender, service string) string {
+	if strings.HasPrefix(service, "/") {
+		return string(sender) + service
+	}
+	return service
 }
 
 // addItem records the item and publishes the new list, reporting false when the
@@ -123,8 +137,8 @@ func (w *statusNotifierWatcher) RegisterStatusNotifierHost(service string) *dbus
 // tryStartXembedHost is a no-op when no XEmbed tray manager is available. The
 // host is built outside hostsMu because newXembedHost blocks on a D-Bus
 // round-trip to the item, and one unresponsive item must not hold up the rest.
-func (w *statusNotifierWatcher) tryStartXembedHost(busName string, objPath dbus.ObjectPath) {
-	if w.hasHost(busName) {
+func (w *statusNotifierWatcher) tryStartXembedHost(id, busName string, objPath dbus.ObjectPath) {
+	if w.hasHost(id) {
 		return
 	}
 
@@ -143,35 +157,52 @@ func (w *statusNotifierWatcher) tryStartXembedHost(busName string, objPath dbus.
 		return
 	}
 
-	if !w.addHost(busName, host) {
+	if !w.addHost(id, host) {
 		host.stop()
 		closeBus(sessionConn)
 		return
 	}
 
-	go host.run()
-	log.Infof("StatusNotifierWatcher: XEmbed tray icon created for %s", busName)
+	go func() {
+		host.run()
+		w.removeHost(id, host, sessionConn)
+	}()
+	log.Infof("StatusNotifierWatcher: XEmbed tray icon created for %s", id)
 }
 
-func (w *statusNotifierWatcher) hasHost(busName string) bool {
+func (w *statusNotifierWatcher) hasHost(id string) bool {
 	w.hostsMu.Lock()
 	defer w.hostsMu.Unlock()
 
-	_, exists := w.hosts[busName]
+	_, exists := w.hosts[id]
 	return exists
 }
 
 // addHost publishes the host, reporting false when a concurrent registration
-// for the same bus name got there first.
-func (w *statusNotifierWatcher) addHost(busName string, host *xembedHost) bool {
+// for the same item got there first.
+func (w *statusNotifierWatcher) addHost(id string, host *xembedHost) bool {
 	w.hostsMu.Lock()
 	defer w.hostsMu.Unlock()
 
-	if _, exists := w.hosts[busName]; exists {
+	if _, exists := w.hosts[id]; exists {
 		return false
 	}
-	w.hosts[busName] = host
+	w.hosts[id] = host
 	return true
+}
+
+// removeHost releases the host once its run loop has exited, which happens when
+// the tray manager goes away. Dropping the entry lets the item be hosted again
+// if it re-registers.
+func (w *statusNotifierWatcher) removeHost(id string, host *xembedHost, conn *dbus.Conn) {
+	w.hostsMu.Lock()
+	if w.hosts[id] == host {
+		delete(w.hosts, id)
+	}
+	w.hostsMu.Unlock()
+
+	host.stop()
+	closeBus(conn)
 }
 
 // startStatusNotifierWatcher claims org.kde.StatusNotifierWatcher only as a

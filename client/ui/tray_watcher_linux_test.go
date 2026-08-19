@@ -54,3 +54,30 @@ func TestItemObjectPath(t *testing.T) {
 		})
 	}
 }
+
+func TestItemID(t *testing.T) {
+	tests := []struct {
+		name    string
+		sender  dbus.Sender
+		service string
+		want    string
+	}{
+		{"bus name stands alone", ":1.84", ":1.84", ":1.84"},
+		{"path is qualified by its sender", ":1.84", "/StatusNotifierItem", ":1.84/StatusNotifierItem"},
+		{"other sender, same path", ":1.93", "/StatusNotifierItem", ":1.93/StatusNotifierItem"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, itemID(tc.sender, tc.service))
+		})
+	}
+}
+
+// Two Qt-style clients both register the well-known path, and neither may be
+// mistaken for the other.
+func TestItemIDDistinguishesSendersOnTheSamePath(t *testing.T) {
+	const path = "/StatusNotifierItem"
+
+	assert.NotEqual(t, itemID(":1.84", path), itemID(":1.93", path))
+}
