@@ -56,7 +56,7 @@ func startClient(ctx context.Context, nbClient *netbird.Client) error {
 // parseClientOptions extracts NetBird options from JavaScript object
 func parseClientOptions(jsOptions js.Value) (netbird.Options, error) {
 	options := netbird.Options{
-		DeviceName: "dashboard-client",
+		DeviceName: "wasm-client",
 		LogLevel:   defaultLogLevel,
 	}
 
@@ -89,6 +89,15 @@ func parseClientOptions(jsOptions js.Value) (netbird.Options, error) {
 
 	if disableIPv6 := jsOptions.Get("disableIPv6"); !disableIPv6.IsNull() && !disableIPv6.IsUndefined() {
 		options.DisableIPv6 = disableIPv6.Bool()
+	}
+
+	// The caller decides whether this client uses lazy connections; left unset it
+	// defers to the management feature flag. A short-lived, interactive caller
+	// turns it off so its sessions reach the few peers their grant covers eagerly,
+	// instead of the first request waiting for the connection to be established.
+	if v := jsOptions.Get("lazyConnectionEnabled"); !v.IsNull() && !v.IsUndefined() {
+		lazyConnectionEnabled := v.Bool()
+		options.LazyConnectionEnabled = &lazyConnectionEnabled
 	}
 
 	return options, nil
