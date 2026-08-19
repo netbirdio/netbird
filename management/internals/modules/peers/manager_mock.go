@@ -9,7 +9,7 @@ import (
 	net "net"
 	reflect "reflect"
 
-	gomock "github.com/golang/mock/gomock"
+	gomock "go.uber.org/mock/gomock"
 	network_map "github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	account "github.com/netbirdio/netbird/management/server/account"
 	integrated_validator "github.com/netbirdio/netbird/management/server/integrations/integrated_validator"

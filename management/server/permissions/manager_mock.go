@@ -8,7 +8,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	gomock "github.com/golang/mock/gomock"
+	gomock "go.uber.org/mock/gomock"
 	account "github.com/netbirdio/netbird/management/server/account"
 	modules "github.com/netbirdio/netbird/management/server/permissions/modules"
 	operations "github.com/netbirdio/netbird/management/server/permissions/operations"
