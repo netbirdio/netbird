@@ -50,20 +50,6 @@ func (mr *MockManagerMockRecorder) CleanupStale(ctx, inactivityDuration interfac
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CleanupStale", reflect.TypeOf((*MockManager)(nil).CleanupStale), ctx, inactivityDuration)
 }
 
-// ClusterSupportsCustomPorts mocks base method.
-func (m *MockManager) ClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ClusterSupportsCustomPorts", ctx, clusterAddr)
-	ret0, _ := ret[0].(*bool)
-	return ret0
-}
-
-// ClusterSupportsCustomPorts indicates an expected call of ClusterSupportsCustomPorts.
-func (mr *MockManagerMockRecorder) ClusterSupportsCustomPorts(ctx, clusterAddr interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClusterSupportsCustomPorts", reflect.TypeOf((*MockManager)(nil).ClusterSupportsCustomPorts), ctx, clusterAddr)
-}
-
 // ClusterRequireSubdomain mocks base method.
 func (m *MockManager) ClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool {
 	m.ctrl.T.Helper()
@@ -78,6 +64,20 @@ func (mr *MockManagerMockRecorder) ClusterRequireSubdomain(ctx, clusterAddr inte
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClusterRequireSubdomain", reflect.TypeOf((*MockManager)(nil).ClusterRequireSubdomain), ctx, clusterAddr)
 }
 
+// ClusterSupportsAppSec mocks base method.
+func (m *MockManager) ClusterSupportsAppSec(ctx context.Context, clusterAddr string) *bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClusterSupportsAppSec", ctx, clusterAddr)
+	ret0, _ := ret[0].(*bool)
+	return ret0
+}
+
+// ClusterSupportsAppSec indicates an expected call of ClusterSupportsAppSec.
+func (mr *MockManagerMockRecorder) ClusterSupportsAppSec(ctx, clusterAddr interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClusterSupportsAppSec", reflect.TypeOf((*MockManager)(nil).ClusterSupportsAppSec), ctx, clusterAddr)
+}
+
 // ClusterSupportsCrowdSec mocks base method.
 func (m *MockManager) ClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool {
 	m.ctrl.T.Helper()
@@ -90,6 +90,20 @@ func (m *MockManager) ClusterSupportsCrowdSec(ctx context.Context, clusterAddr s
 func (mr *MockManagerMockRecorder) ClusterSupportsCrowdSec(ctx, clusterAddr interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClusterSupportsCrowdSec", reflect.TypeOf((*MockManager)(nil).ClusterSupportsCrowdSec), ctx, clusterAddr)
+}
+
+// ClusterSupportsCustomPorts mocks base method.
+func (m *MockManager) ClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClusterSupportsCustomPorts", ctx, clusterAddr)
+	ret0, _ := ret[0].(*bool)
+	return ret0
+}
+
+// ClusterSupportsCustomPorts indicates an expected call of ClusterSupportsCustomPorts.
+func (mr *MockManagerMockRecorder) ClusterSupportsCustomPorts(ctx, clusterAddr interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClusterSupportsCustomPorts", reflect.TypeOf((*MockManager)(nil).ClusterSupportsCustomPorts), ctx, clusterAddr)
 }
 
 // ClusterSupportsPrivate mocks base method.
@@ -121,6 +135,35 @@ func (mr *MockManagerMockRecorder) Connect(ctx, proxyID, sessionID, clusterAddre
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Connect", reflect.TypeOf((*MockManager)(nil).Connect), ctx, proxyID, sessionID, clusterAddress, ipAddress, accountID, capabilities)
 }
 
+// CountAccountProxies mocks base method.
+func (m *MockManager) CountAccountProxies(ctx context.Context, accountID string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountAccountProxies", ctx, accountID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountAccountProxies indicates an expected call of CountAccountProxies.
+func (mr *MockManagerMockRecorder) CountAccountProxies(ctx, accountID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountAccountProxies", reflect.TypeOf((*MockManager)(nil).CountAccountProxies), ctx, accountID)
+}
+
+// DeleteAccountCluster mocks base method.
+func (m *MockManager) DeleteAccountCluster(ctx context.Context, clusterAddress, accountID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteAccountCluster", ctx, clusterAddress, accountID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteAccountCluster indicates an expected call of DeleteAccountCluster.
+func (mr *MockManagerMockRecorder) DeleteAccountCluster(ctx, clusterAddress, accountID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAccountCluster", reflect.TypeOf((*MockManager)(nil).DeleteAccountCluster), ctx, clusterAddress, accountID)
+}
+
 // Disconnect mocks base method.
 func (m *MockManager) Disconnect(ctx context.Context, proxyID, sessionID string) error {
 	m.ctrl.T.Helper()
@@ -133,6 +176,21 @@ func (m *MockManager) Disconnect(ctx context.Context, proxyID, sessionID string)
 func (mr *MockManagerMockRecorder) Disconnect(ctx, proxyID, sessionID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Disconnect", reflect.TypeOf((*MockManager)(nil).Disconnect), ctx, proxyID, sessionID)
+}
+
+// GetAccountProxy mocks base method.
+func (m *MockManager) GetAccountProxy(ctx context.Context, accountID string) (*Proxy, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAccountProxy", ctx, accountID)
+	ret0, _ := ret[0].(*Proxy)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAccountProxy indicates an expected call of GetAccountProxy.
+func (mr *MockManagerMockRecorder) GetAccountProxy(ctx, accountID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAccountProxy", reflect.TypeOf((*MockManager)(nil).GetAccountProxy), ctx, accountID)
 }
 
 // GetActiveClusterAddresses mocks base method.
@@ -150,6 +208,7 @@ func (mr *MockManagerMockRecorder) GetActiveClusterAddresses(ctx interface{}) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetActiveClusterAddresses", reflect.TypeOf((*MockManager)(nil).GetActiveClusterAddresses), ctx)
 }
 
+// GetActiveClusterAddressesForAccount mocks base method.
 func (m *MockManager) GetActiveClusterAddressesForAccount(ctx context.Context, accountID string) ([]string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetActiveClusterAddressesForAccount", ctx, accountID)
@@ -158,6 +217,7 @@ func (m *MockManager) GetActiveClusterAddressesForAccount(ctx context.Context, a
 	return ret0, ret1
 }
 
+// GetActiveClusterAddressesForAccount indicates an expected call of GetActiveClusterAddressesForAccount.
 func (mr *MockManagerMockRecorder) GetActiveClusterAddressesForAccount(ctx, accountID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetActiveClusterAddressesForAccount", reflect.TypeOf((*MockManager)(nil).GetActiveClusterAddressesForAccount), ctx, accountID)
@@ -177,36 +237,6 @@ func (mr *MockManagerMockRecorder) Heartbeat(ctx, p interface{}) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Heartbeat", reflect.TypeOf((*MockManager)(nil).Heartbeat), ctx, p)
 }
 
-// GetAccountProxy mocks base method.
-func (m *MockManager) GetAccountProxy(ctx context.Context, accountID string) (*Proxy, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetAccountProxy", ctx, accountID)
-	ret0, _ := ret[0].(*Proxy)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetAccountProxy indicates an expected call of GetAccountProxy.
-func (mr *MockManagerMockRecorder) GetAccountProxy(ctx, accountID interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAccountProxy", reflect.TypeOf((*MockManager)(nil).GetAccountProxy), ctx, accountID)
-}
-
-// CountAccountProxies mocks base method.
-func (m *MockManager) CountAccountProxies(ctx context.Context, accountID string) (int64, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CountAccountProxies", ctx, accountID)
-	ret0, _ := ret[0].(int64)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// CountAccountProxies indicates an expected call of CountAccountProxies.
-func (mr *MockManagerMockRecorder) CountAccountProxies(ctx, accountID interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountAccountProxies", reflect.TypeOf((*MockManager)(nil).CountAccountProxies), ctx, accountID)
-}
-
 // IsClusterAddressAvailable mocks base method.
 func (m *MockManager) IsClusterAddressAvailable(ctx context.Context, clusterAddress, accountID string) (bool, error) {
 	m.ctrl.T.Helper()
@@ -220,20 +250,6 @@ func (m *MockManager) IsClusterAddressAvailable(ctx context.Context, clusterAddr
 func (mr *MockManagerMockRecorder) IsClusterAddressAvailable(ctx, clusterAddress, accountID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsClusterAddressAvailable", reflect.TypeOf((*MockManager)(nil).IsClusterAddressAvailable), ctx, clusterAddress, accountID)
-}
-
-// DeleteAccountCluster mocks base method.
-func (m *MockManager) DeleteAccountCluster(ctx context.Context, clusterAddress, accountID string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteAccountCluster", ctx, clusterAddress, accountID)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// DeleteAccountCluster indicates an expected call of DeleteAccountCluster.
-func (mr *MockManagerMockRecorder) DeleteAccountCluster(ctx, clusterAddress, accountID interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAccountCluster", reflect.TypeOf((*MockManager)(nil).DeleteAccountCluster), ctx, clusterAddress, accountID)
 }
 
 // MockController is a mock of Controller interface.

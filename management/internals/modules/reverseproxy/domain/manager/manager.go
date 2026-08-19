@@ -39,6 +39,7 @@ type proxyManager interface {
 	ClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool
 	ClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
 	ClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
+	ClusterSupportsAppSec(ctx context.Context, clusterAddr string) *bool
 	ClusterSupportsPrivate(ctx context.Context, clusterAddr string) *bool
 }
 
@@ -98,6 +99,7 @@ func (m Manager) GetDomains(ctx context.Context, accountID, userID string) ([]*d
 		d.SupportsCustomPorts = m.proxyManager.ClusterSupportsCustomPorts(ctx, cluster)
 		d.RequireSubdomain = m.proxyManager.ClusterRequireSubdomain(ctx, cluster)
 		d.SupportsCrowdSec = m.proxyManager.ClusterSupportsCrowdSec(ctx, cluster)
+		d.SupportsAppSec = m.proxyManager.ClusterSupportsAppSec(ctx, cluster)
 		d.SupportsPrivate = m.proxyManager.ClusterSupportsPrivate(ctx, cluster)
 		ret = append(ret, d)
 	}
@@ -115,6 +117,7 @@ func (m Manager) GetDomains(ctx context.Context, accountID, userID string) ([]*d
 		if d.TargetCluster != "" {
 			cd.SupportsCustomPorts = m.proxyManager.ClusterSupportsCustomPorts(ctx, d.TargetCluster)
 			cd.SupportsCrowdSec = m.proxyManager.ClusterSupportsCrowdSec(ctx, d.TargetCluster)
+			cd.SupportsAppSec = m.proxyManager.ClusterSupportsAppSec(ctx, d.TargetCluster)
 			cd.SupportsPrivate = m.proxyManager.ClusterSupportsPrivate(ctx, d.TargetCluster)
 		}
 		// Custom domains never require a subdomain by default since

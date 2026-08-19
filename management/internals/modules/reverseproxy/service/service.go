@@ -165,6 +165,22 @@ type AccessRestrictions struct {
 	AllowedCountries []string `json:"allowed_countries,omitempty" gorm:"serializer:json"`
 	BlockedCountries []string `json:"blocked_countries,omitempty" gorm:"serializer:json"`
 	CrowdSecMode     string   `json:"crowdsec_mode,omitempty" gorm:"serializer:json"`
+	// AllowMatch controls how the allowlists combine: "" or "all" require
+	// matching every allowlist (AND), "any" requires matching at least one (OR).
+	// Empty is treated as "all" for backward compatibility with existing records.
+	AllowMatch string `json:"allow_match,omitempty" gorm:"serializer:json"`
+	// AppSecMode is the CrowdSec AppSec (WAF) request inspection mode: "",
+	// "off", "enforce", or "observe". HTTP services only.
+	AppSecMode string `json:"appsec_mode,omitempty" gorm:"serializer:json"`
+}
+
+// isEmpty reports whether no restriction is configured. Both conversions drop
+// the object entirely in that case, so a field missing from this check is
+// silently discarded on the way to the API and the proxy.
+func (r AccessRestrictions) isEmpty() bool {
+	return len(r.AllowedCIDRs) == 0 && len(r.BlockedCIDRs) == 0 &&
+		len(r.AllowedCountries) == 0 && len(r.BlockedCountries) == 0 &&
+		r.CrowdSecMode == "" && r.AllowMatch == "" && r.AppSecMode == ""
 }
 
 // Copy returns a deep copy of the AccessRestrictions.
@@ -175,6 +191,8 @@ func (r AccessRestrictions) Copy() AccessRestrictions {
 		AllowedCountries: slices.Clone(r.AllowedCountries),
 		BlockedCountries: slices.Clone(r.BlockedCountries),
 		CrowdSecMode:     r.CrowdSecMode,
+		AllowMatch:       r.AllowMatch,
+		AppSecMode:       r.AppSecMode,
 	}
 }
 
@@ -808,13 +826,23 @@ func restrictionsFromAPI(r *api.AccessRestrictions) (AccessRestrictions, error) 
 		}
 		res.CrowdSecMode = string(*r.CrowdsecMode)
 	}
+	if r.AllowMatch != nil {
+		if !r.AllowMatch.Valid() {
+			return AccessRestrictions{}, fmt.Errorf("invalid allow_match %q", *r.AllowMatch)
+		}
+		res.AllowMatch = string(*r.AllowMatch)
+	}
+	if r.AppsecMode != nil {
+		if !r.AppsecMode.Valid() {
+			return AccessRestrictions{}, fmt.Errorf("invalid appsec_mode %q", *r.AppsecMode)
+		}
+		res.AppSecMode = string(*r.AppsecMode)
+	}
 	return res, nil
 }
 
 func restrictionsToAPI(r AccessRestrictions) *api.AccessRestrictions {
-	if len(r.AllowedCIDRs) == 0 && len(r.BlockedCIDRs) == 0 &&
-		len(r.AllowedCountries) == 0 && len(r.BlockedCountries) == 0 &&
-		r.CrowdSecMode == "" {
+	if r.isEmpty() {
 		return nil
 	}
 	res := &api.AccessRestrictions{}
@@ -834,13 +862,19 @@ func restrictionsToAPI(r AccessRestrictions) *api.AccessRestrictions {
 		mode := api.AccessRestrictionsCrowdsecMode(r.CrowdSecMode)
 		res.CrowdsecMode = &mode
 	}
+	if r.AllowMatch != "" {
+		match := api.AccessRestrictionsAllowMatch(r.AllowMatch)
+		res.AllowMatch = &match
+	}
+	if r.AppSecMode != "" {
+		mode := api.AccessRestrictionsAppsecMode(r.AppSecMode)
+		res.AppsecMode = &mode
+	}
 	return res
 }
 
 func restrictionsToProto(r AccessRestrictions) *proto.AccessRestrictions {
-	if len(r.AllowedCIDRs) == 0 && len(r.BlockedCIDRs) == 0 &&
-		len(r.AllowedCountries) == 0 && len(r.BlockedCountries) == 0 &&
-		r.CrowdSecMode == "" {
+	if r.isEmpty() {
 		return nil
 	}
 	return &proto.AccessRestrictions{
@@ -849,6 +883,8 @@ func restrictionsToProto(r AccessRestrictions) *proto.AccessRestrictions {
 		AllowedCountries: r.AllowedCountries,
 		BlockedCountries: r.BlockedCountries,
 		CrowdsecMode:     r.CrowdSecMode,
+		AllowMatch:       r.AllowMatch,
+		AppsecMode:       r.AppSecMode,
 	}
 }
 
@@ -873,6 +909,11 @@ func (s *Service) Validate() error {
 	}
 	if err := validateAccessRestrictions(&s.Restrictions); err != nil {
 		return err
+	}
+	// AppSec inspects HTTP requests, so it cannot apply to the L4 modes, which
+	// forward opaque byte streams.
+	if appSecEnabled(s.Restrictions.AppSecMode) && s.Mode != ModeHTTP {
+		return fmt.Errorf("appsec_mode is only supported for HTTP services, got mode %q", s.Mode)
 	}
 	if err := s.validatePrivateRequirements(); err != nil {
 		return err
@@ -1242,8 +1283,37 @@ func validateCrowdSecMode(mode string) error {
 	}
 }
 
+func validateAllowMatch(mode string) error {
+	switch mode {
+	case "", "all", "any":
+		return nil
+	default:
+		return fmt.Errorf("allow_match %q is invalid", mode)
+	}
+}
+
+func validateAppSecMode(mode string) error {
+	switch mode {
+	case "", "off", "enforce", "observe":
+		return nil
+	default:
+		return fmt.Errorf("appsec_mode %q is invalid", mode)
+	}
+}
+
+// appSecEnabled reports whether the mode asks for request inspection.
+func appSecEnabled(mode string) bool {
+	return mode == "enforce" || mode == "observe"
+}
+
 func validateAccessRestrictions(r *AccessRestrictions) error {
 	if err := validateCrowdSecMode(r.CrowdSecMode); err != nil {
+		return err
+	}
+	if err := validateAllowMatch(r.AllowMatch); err != nil {
+		return err
+	}
+	if err := validateAppSecMode(r.AppSecMode); err != nil {
 		return err
 	}
 

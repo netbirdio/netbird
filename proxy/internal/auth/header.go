@@ -39,6 +39,11 @@ func (Header) Type() auth.Method {
 	return auth.MethodHeader
 }
 
+// HeaderName returns the request header this scheme reads its credential from.
+func (h Header) HeaderName() string {
+	return h.headerName
+}
+
 // Authenticate checks for the configured header in the request. If absent,
 // returns empty (unauthenticated). If present, validates via gRPC.
 func (h Header) Authenticate(r *http.Request) (string, string, error) {

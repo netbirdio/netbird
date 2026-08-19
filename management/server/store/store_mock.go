@@ -1878,6 +1878,20 @@ func (mr *MockStoreMockRecorder) GetClusterRequireSubdomain(ctx, clusterAddr int
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetClusterRequireSubdomain", reflect.TypeOf((*MockStore)(nil).GetClusterRequireSubdomain), ctx, clusterAddr)
 }
 
+// GetClusterSupportsAppSec mocks base method.
+func (m *MockStore) GetClusterSupportsAppSec(ctx context.Context, clusterAddr string) *bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetClusterSupportsAppSec", ctx, clusterAddr)
+	ret0, _ := ret[0].(*bool)
+	return ret0
+}
+
+// GetClusterSupportsAppSec indicates an expected call of GetClusterSupportsAppSec.
+func (mr *MockStoreMockRecorder) GetClusterSupportsAppSec(ctx, clusterAddr interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetClusterSupportsAppSec", reflect.TypeOf((*MockStore)(nil).GetClusterSupportsAppSec), ctx, clusterAddr)
+}
+
 // GetClusterSupportsCrowdSec mocks base method.
 func (m *MockStore) GetClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool {
 	m.ctrl.T.Helper()

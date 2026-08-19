@@ -21,6 +21,7 @@ type store interface {
 	GetClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool
 	GetClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
 	GetClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
+	GetClusterSupportsAppSec(ctx context.Context, clusterAddr string) *bool
 	GetClusterSupportsPrivate(ctx context.Context, clusterAddr string) *bool
 	CleanupStaleProxies(ctx context.Context, inactivityDuration time.Duration) error
 	GetProxyByAccountID(ctx context.Context, accountID string) (*proxy.Proxy, error)
@@ -136,6 +137,13 @@ func (m Manager) ClusterRequireSubdomain(ctx context.Context, clusterAddr string
 // have CrowdSec configured (unanimous). Returns nil when no proxy has reported capabilities.
 func (m Manager) ClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool {
 	return m.store.GetClusterSupportsCrowdSec(ctx, clusterAddr)
+}
+
+// ClusterSupportsAppSec returns whether all active proxies in the cluster have
+// a CrowdSec AppSec endpoint configured (unanimous). Returns nil when no proxy
+// has reported capabilities.
+func (m Manager) ClusterSupportsAppSec(ctx context.Context, clusterAddr string) *bool {
+	return m.store.GetClusterSupportsAppSec(ctx, clusterAddr)
 }
 
 // ClusterSupportsPrivate reports whether any active proxy claims the private capability (nil = unreported).

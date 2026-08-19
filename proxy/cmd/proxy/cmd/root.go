@@ -79,6 +79,11 @@ var (
 	geoDataDir            string
 	crowdsecAPIURL        string
 	crowdsecAPIKey        string
+	appsecURL             string
+	appsecTimeout         time.Duration
+	appsecMaxBodyBytes    int64
+	captureBudgetBytes    int64
+	appsecMaxConcurrent   int
 )
 
 var rootCmd = &cobra.Command{
@@ -125,6 +130,11 @@ func init() {
 	rootCmd.Flags().StringVar(&geoDataDir, "geo-data-dir", envStringOrDefault("NB_PROXY_GEO_DATA_DIR", "/var/lib/netbird/geolocation"), "Directory for the GeoLite2 MMDB file (auto-downloaded if missing)")
 	rootCmd.Flags().StringVar(&crowdsecAPIURL, "crowdsec-api-url", envStringOrDefault("NB_PROXY_CROWDSEC_API_URL", ""), "CrowdSec LAPI URL for IP reputation checks")
 	rootCmd.Flags().StringVar(&crowdsecAPIKey, "crowdsec-api-key", envStringOrDefault("NB_PROXY_CROWDSEC_API_KEY", ""), "CrowdSec bouncer API key")
+	rootCmd.Flags().StringVar(&appsecURL, "crowdsec-appsec-url", envStringOrDefault("NB_PROXY_CROWDSEC_APPSEC_URL", ""), "CrowdSec AppSec (WAF) endpoint for HTTP request inspection, e.g. http://127.0.0.1:7422/ (reuses the bouncer API key)")
+	rootCmd.Flags().DurationVar(&appsecTimeout, "crowdsec-appsec-timeout", envDurationOrDefault("NB_PROXY_CROWDSEC_APPSEC_TIMEOUT", 0), "Timeout for a single AppSec inspection call (0 = 200ms)")
+	rootCmd.Flags().IntVar(&appsecMaxConcurrent, "crowdsec-appsec-max-concurrent", int(envInt64OrDefault("NB_PROXY_CROWDSEC_APPSEC_MAX_CONCURRENT", 0)), "Cap on AppSec inspections in flight; further requests are denied in enforce mode rather than queued (0 = 256, negative = no cap)")
+	rootCmd.Flags().Int64Var(&captureBudgetBytes, "capture-budget-bytes", envInt64OrDefault("NB_PROXY_CAPTURE_BUDGET_BYTES", 0), "Total in-flight request-body buffering across the proxy, shared by AppSec inspection and agent-network capture (0 = 256MiB)")
+	rootCmd.Flags().Int64Var(&appsecMaxBodyBytes, "crowdsec-appsec-max-body-bytes", envInt64OrDefault("NB_PROXY_CROWDSEC_APPSEC_MAX_BODY_BYTES", 0), "Cap on the request body mirrored to AppSec (0 = 64KiB, negative = headers and URI only)")
 }
 
 // Execute runs the root command.
@@ -218,45 +228,57 @@ func runServer(cmd *cobra.Command, args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
-	srv := proxy.New(ctx, proxy.Config{
-		ListenAddr:               addr,
-		Logger:                   logger,
-		Version:                  Version,
-		ManagementAddress:        mgmtAddr,
-		ProxyURL:                 proxyDomain,
-		ProxyToken:               proxyToken,
-		CertificateDirectory:     certDir,
-		CertificateFile:          certFile,
-		CertificateKeyFile:       certKeyFile,
-		GenerateACMECertificates: acmeCerts,
-		ACMEChallengeAddress:     acmeAddr,
-		ACMEDirectory:            acmeDir,
-		ACMEEABKID:               acmeEABKID,
-		ACMEEABHMACKey:           acmeEABHMACKey,
-		ACMEChallengeType:        acmeChallengeType,
-		DebugEndpointEnabled:     debugEndpoint,
-		DebugEndpointAddress:     debugEndpointAddr,
-		HealthAddr:               healthAddr,
-		ForwardedProto:           forwardedProto,
-		TrustedProxies:           parsedTrustedProxies,
-		CertLockMethod:           nbacme.CertLockMethod(certLockMethod),
-		WildcardCertDir:          wildcardCertDir,
-		WireguardPort:            wgPort,
-		Performance:              perf,
-		ProxyProtocol:            proxyProtocol,
-		PreSharedKey:             preSharedKey,
-		SupportsCustomPorts:      supportsCustomPorts,
-		RequireSubdomain:         requireSubdomain,
-		Private:                  private,
-		MaxDialTimeout:           maxDialTimeout,
-		MaxSessionIdleTimeout:    maxSessionIdleTimeout,
-		MappingBatchWatchdog:     envDurationOrDefault("NB_PROXY_MAPPING_BATCH_WATCHDOG", 0),
-		GeoDataDir:               geoDataDir,
-		CrowdSecAPIURL:           crowdsecAPIURL,
-		CrowdSecAPIKey:           crowdsecAPIKey,
-	})
+	srv := proxy.New(ctx, serverConfig(logger, proxyToken, parsedTrustedProxies, perf))
 
 	return srv.ListenAndServe(ctx, addr)
+}
+
+// serverConfig maps the parsed flags and environment onto the proxy config.
+// Kept separate from runServer so registering a new flag does not grow the
+// startup path.
+func serverConfig(logger *log.Logger, proxyToken string, trustedProxyList *trustedproxy.List, perf embed.Performance) proxy.Config {
+	return proxy.Config{
+		ListenAddr:                   addr,
+		Logger:                       logger,
+		Version:                      Version,
+		ManagementAddress:            mgmtAddr,
+		ProxyURL:                     proxyDomain,
+		ProxyToken:                   proxyToken,
+		CertificateDirectory:         certDir,
+		CertificateFile:              certFile,
+		CertificateKeyFile:           certKeyFile,
+		GenerateACMECertificates:     acmeCerts,
+		ACMEChallengeAddress:         acmeAddr,
+		ACMEDirectory:                acmeDir,
+		ACMEEABKID:                   acmeEABKID,
+		ACMEEABHMACKey:               acmeEABHMACKey,
+		ACMEChallengeType:            acmeChallengeType,
+		DebugEndpointEnabled:         debugEndpoint,
+		DebugEndpointAddress:         debugEndpointAddr,
+		HealthAddr:                   healthAddr,
+		ForwardedProto:               forwardedProto,
+		TrustedProxies:               trustedProxyList,
+		CertLockMethod:               nbacme.CertLockMethod(certLockMethod),
+		WildcardCertDir:              wildcardCertDir,
+		WireguardPort:                wgPort,
+		Performance:                  perf,
+		ProxyProtocol:                proxyProtocol,
+		PreSharedKey:                 preSharedKey,
+		SupportsCustomPorts:          supportsCustomPorts,
+		RequireSubdomain:             requireSubdomain,
+		Private:                      private,
+		MaxDialTimeout:               maxDialTimeout,
+		MaxSessionIdleTimeout:        maxSessionIdleTimeout,
+		MappingBatchWatchdog:         envDurationOrDefault("NB_PROXY_MAPPING_BATCH_WATCHDOG", 0),
+		GeoDataDir:                   geoDataDir,
+		CrowdSecAPIURL:               crowdsecAPIURL,
+		CrowdSecAPIKey:               crowdsecAPIKey,
+		CrowdSecAppSecURL:            appsecURL,
+		CrowdSecAppSecTimeout:        appsecTimeout,
+		CrowdSecAppSecMaxBodyBytes:   appsecMaxBodyBytes,
+		CrowdSecAppSecMaxConcurrent:  appsecMaxConcurrent,
+		MiddlewareCaptureBudgetBytes: captureBudgetBytes,
+	}
 }
 
 func envBoolOrDefault(key string, def bool) bool {
@@ -291,6 +313,19 @@ func envUint16OrDefault(key string, def uint16) uint16 {
 		return def
 	}
 	return uint16(parsed)
+}
+
+func envInt64OrDefault(key string, def int64) int64 {
+	v, exists := os.LookupEnv(key)
+	if !exists {
+		return def
+	}
+	parsed, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
+		log.Warnf("parse %s=%q: %v, using default %d", key, v, err, def)
+		return def
+	}
+	return parsed
 }
 
 func envDurationOrDefault(key string, def time.Duration) time.Duration {
