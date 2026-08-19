@@ -169,17 +169,15 @@ func liveDiscoveryCases() []liveDiscoveryCase {
 	// Bedrock lists inference profiles, not models: matchModelless routes
 	// /inference-profiles to a Bedrock route and refuses /v1/models for one.
 	//
-	// The request reaches AWS and AWS refuses it — bedrock-runtime answers
-	// <UnknownOperationException/>, because ListInferenceProfiles is a CONTROL
-	// PLANE operation served by bedrock.<region>.amazonaws.com, not the runtime
-	// host. A provider record carries one upstream and it has to be the runtime
-	// host for InvokeModel to work, so no Bedrock record can serve a listing as
-	// the model stands today.
+	// The listing is served by the CONTROL PLANE (bedrock.<region>), not the
+	// runtime host a provider record must point at for InvokeModel — the
+	// runtime host answers <UnknownOperationException/>. The router now sends
+	// the listing, and only the listing, to the control plane, so this case
+	// asserts a real filtered listing rather than the 404 it used to get.
 	//
-	// The mock upstream hides this entirely: it answers /inference-profiles on
-	// the same listener as everything else, so the routing test passes there
-	// while the real endpoint 404s. That is the whole reason this file exists,
-	// so the case is kept, asserting what actually happens.
+	// The mock upstream cannot show any of this: it answers
+	// /inference-profiles on the same listener as everything else, so a
+	// mock-based test passes whichever host the request went to.
 	if k := os.Getenv("AWS_BEARER_TOKEN_BEDROCK"); k != "" {
 		region := os.Getenv("AWS_REGION")
 		if region == "" {
@@ -192,9 +190,13 @@ func liveDiscoveryCases() []liveDiscoveryCase {
 		cases = append(cases, liveDiscoveryCase{
 			name: "bedrock", catalogID: "bedrock_api",
 			upstream: "https://bedrock-runtime." + region + ".amazonaws.com", apiKey: k,
-			path:    "/inference-profiles",
-			models:  []string{sharedllm.NormalizeAnthropicModel(strings.TrimPrefix(model, "global."))},
-			outcome: outcomeUpstreamNoListing,
+			path: "/inference-profiles",
+			// Registered verbatim, as an operator would copy it from AWS: the
+			// region prefix is what makes the id invocable, and the listing
+			// returns ids in exactly this form.
+			models:    []string{model},
+			outcome:   outcomeFiltered,
+			permitted: []string{model},
 		})
 	}
 
@@ -342,8 +344,11 @@ func runLiveDiscoveryCase(t *testing.T, ctx context.Context, tc liveDiscoveryCas
 	}
 	for _, id := range ids {
 		_, direct := permitted[id]
-		_, normalised := permitted[sharedllm.NormalizeAnthropicModel(id)]
-		assert.Truef(t, direct || normalised,
+		_, dated := permitted[sharedllm.NormalizeAnthropicModel(id)]
+		// Bedrock ids carry a region prefix and version suffix the record may
+		// not repeat; the proxy's filter tries the same forms.
+		_, bedrock := permitted[sharedllm.NormalizeBedrockModel(id)]
+		assert.Truef(t, direct || dated || bedrock,
 			"%s offered %q, which no policy on this route permits — every entry the picker shows must be a request the guardrail would allow", tc.name, id)
 	}
 	for _, hidden := range tc.wantHidden {

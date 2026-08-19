@@ -97,6 +97,18 @@ func isPlainJSONListing(resp *http.Response) bool {
 	return strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "application/json")
 }
 
+// listingEnvelopes maps a listing's wrapper key to the field naming the model
+// id inside it. Vendors did not converge on one shape: OpenAI's is what
+// Anthropic adopted, while Bedrock returns inference-profile summaries under a
+// key of its own. A body matching none of these is forwarded untouched.
+var listingEnvelopes = []struct {
+	key     string
+	idField string
+}{
+	{"data", "id"},
+	{"inferenceProfileSummaries", "inferenceProfileId"},
+}
+
 // filterListingBody returns the listing with unauthorised entries removed.
 // ok is false when the body is not a listing shape, in which case the
 // caller must forward the original bytes.
@@ -105,38 +117,41 @@ func filterListingBody(body []byte, permitted map[string]struct{}) ([]byte, bool
 	if err := json.Unmarshal(body, &doc); err != nil {
 		return nil, false
 	}
-	raw, present := doc["data"]
-	if !present {
-		return nil, false
-	}
-	var entries []map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &entries); err != nil {
-		return nil, false
-	}
-
-	kept := make([]map[string]json.RawMessage, 0, len(entries))
-	for _, entry := range entries {
-		if entryPermitted(entry, permitted) {
-			kept = append(kept, entry)
+	for _, envelope := range listingEnvelopes {
+		raw, present := doc[envelope.key]
+		if !present {
+			continue
 		}
-	}
+		var entries []map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &entries); err != nil {
+			return nil, false
+		}
 
-	encoded, err := json.Marshal(kept)
-	if err != nil {
-		return nil, false
+		kept := make([]map[string]json.RawMessage, 0, len(entries))
+		for _, entry := range entries {
+			if entryPermitted(entry, envelope.idField, permitted) {
+				kept = append(kept, entry)
+			}
+		}
+
+		encoded, err := json.Marshal(kept)
+		if err != nil {
+			return nil, false
+		}
+		doc[envelope.key] = encoded
+		out, err := json.Marshal(doc)
+		if err != nil {
+			return nil, false
+		}
+		return out, true
 	}
-	doc["data"] = encoded
-	out, err := json.Marshal(doc)
-	if err != nil {
-		return nil, false
-	}
-	return out, true
+	return nil, false
 }
 
 // entryPermitted reports whether a listing entry names a model the policy
 // authorises, trying every form the same model is written in.
-func entryPermitted(entry map[string]json.RawMessage, permitted map[string]struct{}) bool {
-	raw, ok := entry["id"]
+func entryPermitted(entry map[string]json.RawMessage, idField string, permitted map[string]struct{}) bool {
+	raw, ok := entry[idField]
 	if !ok {
 		return false
 	}
@@ -184,6 +199,13 @@ func modelIDForms(id string) []string {
 		return nil
 	}
 	forms := []string{id, sharedllm.NormalizeAnthropicModel(id)}
+	// A Bedrock listing returns region-prefixed, version-suffixed profile ids
+	// ("eu.anthropic.claude-haiku-4-5-20251001-v1:0") while the record may
+	// register the catalog key. Stripping to the key is a no-op for ids that
+	// carry neither, so this costs nothing on the other surfaces.
+	if bedrock := sharedllm.NormalizeBedrockModel(id); bedrock != id {
+		forms = append(forms, bedrock)
+	}
 	if slash := strings.Index(id, "/"); slash > 0 {
 		if _, ok := gatewayNamespaces[id[:slash]]; ok {
 			tail := id[slash+1:]

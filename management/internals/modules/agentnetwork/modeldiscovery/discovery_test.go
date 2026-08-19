@@ -490,7 +490,7 @@ func TestRegionFromUpstream(t *testing.T) {
 		{"bedrock regionless without scheme", bedrock, "bedrock-runtime.amazonaws.com", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, regionFromUpstream(tc.entry, tc.upstream))
+			assert.Equal(t, tc.want, RegionFromUpstream(tc.entry, tc.upstream))
 		})
 	}
 }
