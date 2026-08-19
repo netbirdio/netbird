@@ -1,6 +1,6 @@
 package store
 
-//go:generate -command mockgen -package store -destination=store_mock.go -source=./store.go -build_flags=-mod=mod
+//go:generate go tool mockgen -package store -destination=store_mock.go -source=./store.go -build_flags=-mod=mod
 
 import (
 	"context"

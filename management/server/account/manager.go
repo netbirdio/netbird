@@ -1,6 +1,6 @@
 package account
 
-//go:generate -command mockgen -package account -destination=manager_mock.go -source=./manager.go -build_flags=-mod=mod
+//go:generate go tool mockgen -package account -destination=manager_mock.go -source=./manager.go -build_flags=-mod=mod
 
 import (
 	"context"

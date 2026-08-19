@@ -1,6 +1,6 @@
 package service
 
-//go:generate -command mockgen -package service -destination=interface_mock.go -source=./interface.go -build_flags=-mod=mod
+//go:generate go tool mockgen -package service -destination=interface_mock.go -source=./interface.go -build_flags=-mod=mod
 
 import (
 	"context"
