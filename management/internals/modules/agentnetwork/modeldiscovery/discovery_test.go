@@ -1,0 +1,277 @@
+package modeldiscovery
+
+import (
+	"context"
+	"io"
+	"net/http"
+	"net/netip"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/catalog"
+)
+
+// stubTransport answers every request with one canned response and records the
+// request it was given, so a test can assert on the URL and headers the client
+// built without a network round trip.
+type stubTransport struct {
+	status int
+	body   string
+	got    *http.Request
+}
+
+func (s *stubTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	s.got = req
+	status := s.status
+	if status == 0 {
+		status = http.StatusOK
+	}
+	return &http.Response{
+		StatusCode: status,
+		Body:       io.NopCloser(strings.NewReader(s.body)),
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Request:    req,
+	}, nil
+}
+
+// newStubClient returns a client that never leaves the process. The host guard
+// is disabled because it would otherwise resolve the vendor's real name, which
+// would make these tests depend on DNS.
+func newStubClient(status int, body string) (*Client, *stubTransport) {
+	tr := &stubTransport{status: status, body: body}
+	return &Client{
+		HTTPClient:        &http.Client{Transport: tr},
+		AllowPrivateHosts: true,
+	}, tr
+}
+
+// The payloads below are trimmed from what the vendors actually returned in
+// the discovery e2e, rather than invented, so a parser that only works against
+// an idealised shape fails here.
+
+const openAIListing = `{"object":"list","data":[
+  {"id":"gpt-4o-mini","object":"model","created":1721172741,"owned_by":"system"},
+  {"id":"gpt-4o","object":"model","created":1715367049,"owned_by":"system"}
+]}`
+
+const anthropicListing = `{"data":[
+  {"type":"model","id":"claude-haiku-4-5-20251001","display_name":"Claude Haiku 4.5"},
+  {"type":"model","id":"claude-sonnet-4-6","display_name":"Claude Sonnet 4.6"}
+],"has_more":false}`
+
+const bedrockListing = `{"inferenceProfileSummaries":[
+  {"inferenceProfileId":"eu.anthropic.claude-haiku-4-5-20251001-v1:0",
+   "inferenceProfileName":"EU Anthropic Claude Haiku 4.5","status":"ACTIVE","type":"SYSTEM_DEFINED"},
+  {"inferenceProfileId":"global.cohere.embed-v4:0",
+   "inferenceProfileName":"Global Cohere Embed v4","status":"ACTIVE","type":"SYSTEM_DEFINED"},
+  {"inferenceProfileId":"eu.meta.llama3-2-1b-instruct-v1:0",
+   "inferenceProfileName":"EU Meta Llama 3.2 1B","status":"INACTIVE","type":"SYSTEM_DEFINED"}
+]}`
+
+const vertexListing = `{"publisherModels":[
+  {"name":"publishers/anthropic/models/claude-3-opus","versionId":"20240229","launchStage":"GA"},
+  {"name":"publishers/anthropic/models/claude-sonnet-4-5","versionId":"20250929","launchStage":"GA"}
+]}`
+
+func TestFetchOpenAIListing(t *testing.T) {
+	cl, tr := newStubClient(http.StatusOK, openAIListing)
+
+	models, err := cl.Fetch(context.Background(), Request{
+		CatalogID:   "openai_api",
+		UpstreamURL: "https://api.openai.com",
+		APIKey:      "sk-test",
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, "https://api.openai.com/v1/models", tr.got.URL.String())
+	assert.Equal(t, "Bearer sk-test", tr.got.Header.Get("Authorization"),
+		"the credential must be injected through the catalog's auth template")
+	assert.Equal(t, []string{"gpt-4o-mini", "gpt-4o"}, ids(models))
+	for _, m := range models {
+		assert.True(t, m.PricingKnown, "both models are in the shipped catalog: %s", m.ID)
+	}
+}
+
+func TestFetchAnthropicSendsTheVersionHeader(t *testing.T) {
+	cl, tr := newStubClient(http.StatusOK, anthropicListing)
+
+	models, err := cl.Fetch(context.Background(), Request{
+		CatalogID:   "anthropic_api",
+		UpstreamURL: "https://api.anthropic.com",
+		APIKey:      "sk-ant-test",
+	})
+	require.NoError(t, err)
+
+	// Anthropic rejects a request without the version header, so a listing
+	// that reached us at all proves it was sent — but assert it, because the
+	// failure mode otherwise only shows up against the live API.
+	assert.Equal(t, "2023-06-01", tr.got.Header.Get("anthropic-version"))
+	assert.Equal(t, "sk-ant-test", tr.got.Header.Get("x-api-key"),
+		"Anthropic takes a bare key under its own header, not a Bearer token")
+	assert.Equal(t, "limit=1000", tr.got.URL.RawQuery)
+
+	assert.Equal(t, []string{"claude-haiku-4-5-20251001", "claude-sonnet-4-6"}, ids(models))
+	assert.Equal(t, "Claude Haiku 4.5", models[0].Label)
+}
+
+func TestFetchBedrockUsesTheControlPlaneAndKeepsWireIDs(t *testing.T) {
+	cl, tr := newStubClient(http.StatusOK, bedrockListing)
+
+	models, err := cl.Fetch(context.Background(), Request{
+		CatalogID: "bedrock_api",
+		// The record's upstream is the RUNTIME host, which does not serve
+		// listings. The catalog's own discovery host must win over it.
+		UpstreamURL: "https://bedrock-runtime.eu-central-1.amazonaws.com",
+		Region:      "eu-central-1",
+		APIKey:      "aws-bearer",
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, "https://bedrock.eu-central-1.amazonaws.com/inference-profiles",
+		tr.got.URL.String(), "listings come from the control plane, not the runtime host")
+
+	// Region-prefixed ids verbatim: the prefix is what makes them invocable
+	// and it cannot be reconstructed — global.* alongside eu.* is exactly the
+	// case that defeats deriving it from the configured region.
+	assert.Equal(t, []string{
+		"eu.anthropic.claude-haiku-4-5-20251001-v1:0",
+		"global.cohere.embed-v4:0",
+	}, ids(models), "an INACTIVE profile must not be offered")
+
+	assert.True(t, models[0].PricingKnown,
+		"the catalog prices anthropic.claude-haiku-4-5, which this id normalises to")
+	assert.False(t, models[1].PricingKnown,
+		"cohere embed is not in the shipped Bedrock catalog, so the operator must price it")
+}
+
+func TestFetchVertexJoinsNameAndVersion(t *testing.T) {
+	cl, _ := newStubClient(http.StatusOK, vertexListing)
+
+	models, err := cl.Fetch(context.Background(), Request{
+		CatalogID:   "vertex_ai_api",
+		UpstreamURL: "https://us-east5-aiplatform.googleapis.com",
+		Region:      "us-east5",
+		APIKey:      "ya29.test-token",
+	})
+	require.NoError(t, err)
+
+	// Vertex addresses a model as "<id>@<version>" on rawPredict, and splits
+	// those across two fields in the listing.
+	assert.Equal(t, []string{"claude-3-opus@20240229", "claude-sonnet-4-5@20250929"}, ids(models))
+	assert.Equal(t, "claude-3-opus", models[0].Label)
+}
+
+func TestFetchSurfacesTheVendorStatus(t *testing.T) {
+	cl, _ := newStubClient(http.StatusForbidden, `{"error":{"message":"no access"}}`)
+
+	_, err := cl.Fetch(context.Background(), Request{
+		CatalogID:   "openai_api",
+		UpstreamURL: "https://api.openai.com",
+		APIKey:      "sk-test",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "403",
+		"an operator whose key lacks access needs to see which status the vendor returned")
+}
+
+func TestFetchRejectsAProviderWithoutDiscovery(t *testing.T) {
+	cl, _ := newStubClient(http.StatusOK, openAIListing)
+
+	_, err := cl.Fetch(context.Background(), Request{
+		CatalogID:   "litellm_proxy",
+		UpstreamURL: "https://gateway.example.com",
+		APIKey:      "sk-test",
+	})
+	assert.ErrorIs(t, err, ErrNoDiscovery,
+		"a gateway with no listing endpoint must be distinguishable from a failure, so the caller can fall back")
+}
+
+func TestFetchRequiresACredential(t *testing.T) {
+	cl, _ := newStubClient(http.StatusOK, openAIListing)
+
+	_, err := cl.Fetch(context.Background(), Request{
+		CatalogID:   "openai_api",
+		UpstreamURL: "https://api.openai.com",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "API key")
+}
+
+func TestDiscoveryURLNeedsARegionWhenTheHostTemplatesOne(t *testing.T) {
+	cl, _ := newStubClient(http.StatusOK, bedrockListing)
+
+	_, err := cl.Fetch(context.Background(), Request{
+		CatalogID:   "bedrock_api",
+		UpstreamURL: "https://bedrock-runtime.eu-central-1.amazonaws.com",
+		APIKey:      "aws-bearer",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "region",
+		"an unsubstituted <region> placeholder would dial a host that does not exist")
+}
+
+// TestHostGuardRejectsNonPublicAddresses is the SSRF guard. Management holds a
+// credential for every provider, so an upstream pointed at an internal address
+// would turn discovery into a way to probe — and hand a token to — the
+// management server's own network.
+func TestHostGuardRejectsNonPublicAddresses(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		addr string
+		want bool
+	}{
+		{"loopback v4", "127.0.0.1", false},
+		{"loopback v6", "::1", false},
+		{"private 10/8", "10.0.0.5", false},
+		{"private 172.16/12", "172.16.4.1", false},
+		{"private 192.168/16", "192.168.1.1", false},
+		{"link-local", "169.254.169.254", false}, // cloud metadata
+		{"unspecified", "0.0.0.0", false},
+		{"multicast", "224.0.0.1", false},
+		{"netbird overlay 100.64/10", "100.90.1.2", false},
+		{"v4-mapped loopback", "::ffff:127.0.0.1", false},
+		{"public v4", "1.1.1.1", true},
+		{"public v6", "2606:4700:4700::1111", true},
+		{"just outside CGNAT", "100.128.0.1", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			addr, err := netip.ParseAddr(tc.addr)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, isPublic(addr))
+		})
+	}
+}
+
+func TestHostGuardResolvesAndRejectsLocalhost(t *testing.T) {
+	cl := &Client{}
+	err := cl.checkPublicHost("localhost")
+	require.Error(t, err, "a name resolving to loopback must be refused, not just a literal address")
+	assert.Contains(t, err.Error(), "non-public")
+}
+
+// TestEveryDiscoveryEntryHasAParser keeps the catalog and the parser table from
+// drifting: adding a Discovery block with a shape nothing parses would fail
+// only at runtime, in front of an operator.
+func TestEveryDiscoveryEntryHasAParser(t *testing.T) {
+	for _, entry := range catalog.All() {
+		if entry.Discovery == nil {
+			continue
+		}
+		t.Run(entry.ID, func(t *testing.T) {
+			assert.NotEmpty(t, entry.Discovery.Path, "a discovery entry needs a path")
+			_, err := parseListing(entry.Discovery.Shape, []byte(`{}`))
+			assert.NoError(t, err, "shape %q has no parser", entry.Discovery.Shape)
+		})
+	}
+}
+
+func ids(models []Model) []string {
+	out := make([]string, 0, len(models))
+	for _, m := range models {
+		out = append(out, m.ID)
+	}
+	return out
+}
