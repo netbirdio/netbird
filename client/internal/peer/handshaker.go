@@ -81,14 +81,19 @@ type Handshaker struct {
 
 func NewHandshaker(log *log.Entry, config ConnConfig, signaler *Signaler, ice *WorkerICE, relay *WorkerRelay, metricsStages *MetricsStages) *Handshaker {
 	h := &Handshaker{
-		log:            log,
-		config:         config,
-		signaler:       signaler,
-		ice:            ice,
-		relay:          relay,
-		metricsStages:  metricsStages,
-		remoteOffersCh: make(chan OfferAnswer),
-		remoteAnswerCh: make(chan OfferAnswer),
+		log:           log,
+		config:        config,
+		signaler:      signaler,
+		ice:           ice,
+		relay:         relay,
+		metricsStages: metricsStages,
+		// Buffered by one so an offer or answer that arrives between Open launching
+		// the Listen goroutine and it reaching its receive is held rather than
+		// dropped. A peer activated by an incoming signal receives the remote's
+		// message in that window; an unbuffered channel skips it as "receiver not
+		// ready", and the connection cannot proceed until the remote re-sends.
+		remoteOffersCh: make(chan OfferAnswer, 1),
+		remoteAnswerCh: make(chan OfferAnswer, 1),
 	}
 	// assume remote supports ICE until we learn otherwise from received offers
 	h.remoteICESupported.Store(ice != nil)
