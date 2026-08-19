@@ -231,6 +231,28 @@ func vertexProbes(t *testing.T) []probe {
 				"/locations/" + region + "/publishers/anthropic/models",
 			headers: auth,
 		},
+		{
+			// The project-scoped list under the version that actually answers.
+			// The first run's publisher list returned only two models, fewer
+			// than the catalog ships, which is what a publisher-global list
+			// looks like rather than what THIS project has enabled — and
+			// per-project availability is most of why live discovery beats a
+			// static catalogue. The v1 form 404s, so v1beta1 is the one form
+			// left that could carry it.
+			surface: "vertex_ai_api", variant: "v1beta1-project-scoped",
+			url: "https://" + host + "/v1beta1/projects/" + project +
+				"/locations/" + region + "/publishers/anthropic/models",
+			headers: auth,
+		},
+		{
+			// A publisher model is addressed as "<id>@<version>" on the
+			// rawPredict path, and the plain listing reports one versionId per
+			// model. If a model has several live versions, a picker that only
+			// ever saw one would silently hide the rest.
+			surface: "vertex_ai_api", variant: "v1beta1-all-versions",
+			url:     "https://" + host + "/v1beta1/publishers/anthropic/models?listAllVersions=true",
+			headers: auth,
+		},
 	}
 }
 
@@ -322,9 +344,19 @@ func extractIDs(body []byte) (string, []string) {
 		ids := make([]string, 0, len(entries))
 		for _, entry := range entries {
 			var id string
-			if err := json.Unmarshal(entry[shape.idField], &id); err == nil && id != "" {
-				ids = append(ids, id)
+			if err := json.Unmarshal(entry[shape.idField], &id); err != nil || id == "" {
+				continue
 			}
+			// Vertex splits the wire id across two fields: a publisher model is
+			// addressed as "<id>@<version>" on rawPredict, so a listing that
+			// reported only the name would look usable and not be.
+			var version string
+			if raw, ok := entry["versionId"]; ok {
+				if err := json.Unmarshal(raw, &version); err == nil && version != "" {
+					id += "@" + version
+				}
+			}
+			ids = append(ids, id)
 		}
 		return shape.envelope, ids
 	}
