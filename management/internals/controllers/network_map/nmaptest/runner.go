@@ -3,9 +3,11 @@
 // with a NetworkMapData fixture — the value NetworkMapDBStoreImpl returns for
 // one account — then runs the production per-peer pipeline the controller
 // uses, PeersCustomZone → GetPeerNetworkMapComponents → proto conversion, in
-// both wire shapes: the legacy full map (grpc.ToSyncResponse) and the
-// component envelope expanded client-side (grpc.ToComponentSyncResponse →
-// networkmap.EnvelopeToNetworkMap).
+// both wire shapes: the full map (grpc.ToSyncResponse) and the component
+// envelope expanded client-side (grpc.ToComponentSyncResponse →
+// networkmap.EnvelopeToNetworkMap). A third mode inverts the fixture back into
+// the Account it stands for and runs main's frozen path over it (legacynmap),
+// so every case is pinned to what main shipped as well.
 //
 // The expectation files are the point of the framework. They state what the
 // output should be, so a failing case means the code disagrees with the
@@ -21,12 +23,14 @@
 // mocked store returns, using Go field names; zero values may be omitted and
 // applyFixtureDefaults fills the boilerplate) and golden/<peerID>.json.
 //
-// There is ONE expectation per peer, shared by every mode. The modes are not
-// different computations: CalculateNetworkMapFromComponents is
-// components.Calculate, and both sides assemble the proto with the same
-// encode helpers, so the only variable is what the envelope round-trip did to
-// the components in transit. Any difference between modes is therefore a
-// round-trip fidelity defect, and a shared expectation is what exposes it.
+// There is ONE expectation per peer, shared by every mode, because all three
+// must arrive at the same client-facing map. Full and envelope are not even
+// different computations — CalculateNetworkMapFromComponents is
+// components.Calculate and both assemble the proto with the same encode
+// helpers — so the only variable between them is what the envelope round-trip
+// did in transit, and a difference there is a round-trip fidelity defect.
+// Legacy is a different computation, main's, reached from a rebuilt account;
+// a difference there is this tree having drifted from what main shipped.
 // Results are canonicalized before comparison, since repeated proto fields
 // come from map iteration.
 package nmaptest
@@ -39,6 +43,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -69,12 +74,17 @@ const (
 	// into a NetworkMapEnvelope (grpc.ToComponentSyncResponse) and the map is
 	// expanded the way the client engine does (networkmap.EnvelopeToNetworkMap).
 	ModeEnvelope Mode = "envelope"
+	// ModeLegacy is main's frozen path: the fixture is inverted back into the
+	// Account it stands for and run through legacynmap, the copy of what main
+	// shipped. It is the outside measurement — the other two modes share this
+	// tree's computation, so only this one can catch the whole tree drifting.
+	ModeLegacy Mode = "legacy"
 
 	defaultAccountID = "account"
 	defaultDNSDomain = "netbird.test"
 )
 
-var defaultModes = []Mode{ModeFull, ModeEnvelope}
+var defaultModes = []Mode{ModeFull, ModeEnvelope, ModeLegacy}
 
 // Case is one nmap-generation scenario: store data for a single account, the
 // peers whose network maps are computed, and the directory holding one expected
@@ -190,13 +200,22 @@ func RunCase(t *testing.T, c Case) {
 		}
 	}
 
+	// Built before any mode runs: the first per-peer computation injects the
+	// synthesised proxy ACLs into the twin's policies, and the legacy side
+	// synthesises its own, so inverting a twin that already carries them would
+	// hand the legacy path each ACL twice.
+	var legacy legacyInput
+	if slices.Contains(c.Modes, ModeLegacy) {
+		legacy = legacyInputFromData(c.AccountID, nmData)
+	}
+
 	for _, peerID := range c.Peers {
 		peer := nmData.Peers[peerID]
 		require.NotNil(t, peer, "case %s: target peer %q not in fixture", c.Name, peerID)
 
 		for _, mode := range c.Modes {
 			t.Run(peerID+"/"+string(mode), func(t *testing.T) {
-				got := computeMode(t, ctx, mode, nmData, peerID, zone, dnsDomain, dnsFwdPort)
+				got := computeMode(t, ctx, mode, nmData, peerID, zone, dnsDomain, dnsFwdPort, legacy)
 				canonicalize(got)
 				compareGolden(t, filepath.Join(c.GoldenDir, peerID+".json"), got, mode)
 			})
@@ -207,13 +226,15 @@ func RunCase(t *testing.T, c Case) {
 // computeMode produces the peer's proto.NetworkMap the way the controller does
 // for that wire shape.
 func computeMode(t *testing.T, ctx context.Context, mode Mode, nmData *networkmap.NetworkMapData,
-	peerID string, zone nmdata.CustomZone, dnsDomain string, dnsFwdPort int64) *proto.NetworkMap {
+	peerID string, zone nmdata.CustomZone, dnsDomain string, dnsFwdPort int64, legacy legacyInput) *proto.NetworkMap {
 	t.Helper()
 
 	peer := nmData.Peers[peerID]
 	require.NotNil(t, peer, "target peer %q not in fixture", peerID)
 
 	switch mode {
+	case ModeLegacy:
+		return computeLegacy(t, ctx, legacy, peerID, zone, dnsDomain, dnsFwdPort)
 	case ModeFull:
 		nmap := controller.NetworkMapFromData(ctx, nmData, peerID, zone)
 		return mgmtgrpc.ToSyncResponse(ctx, nil, nil, nil, peer, nil, nil, nmap, dnsDomain, nil,
@@ -254,11 +275,11 @@ func requireEnvelopeSafeKeys(t *testing.T, nmData *networkmap.NetworkMapData, ca
 // code does not produce what this case says it should, so it is reported as a
 // failure and not quietly absorbed.
 //
-// The full mode is compared verbatim, identifiers included, so the expectation
-// pins real ids and stays readable. Other modes have identifiers erased on both
-// sides first, because the envelope currently rewrites them — a tracked defect
-// that TestIDSpaceMatches asserts against on its own, so it does not have to
-// drown out every other case here.
+// The full and legacy modes are compared verbatim, identifiers included, so the
+// expectation pins real ids and stays readable. The envelope mode has
+// identifiers erased on both sides first, because it currently rewrites them —
+// a tracked defect that TestIDSpaceMatches asserts against on its own, so it
+// does not have to drown out every other case here.
 // Nothing here writes to testdata. Expectation files are authored by hand and
 // only ever change through a reviewed edit, so there is no mode in which a run
 // can create or replace one. When a file is missing the computed map is printed
@@ -266,7 +287,7 @@ func requireEnvelopeSafeKeys(t *testing.T, nmData *networkmap.NetworkMapData, ca
 func compareGolden(t *testing.T, path string, got *proto.NetworkMap, mode Mode) {
 	t.Helper()
 
-	if mode != ModeFull {
+	if mode == ModeEnvelope {
 		normalizeIDSpace(got)
 		canonicalize(got)
 	}
@@ -282,14 +303,14 @@ func compareGolden(t *testing.T, path string, got *proto.NetworkMap, mode Mode) 
 	want := &proto.NetworkMap{}
 	require.NoError(t, protojson.Unmarshal(raw, want), "parse expectation %s", path)
 	canonicalize(want)
-	if mode != ModeFull {
+	if mode == ModeEnvelope {
 		normalizeIDSpace(want)
 		canonicalize(want)
 	}
 
 	if diff := cmp.Diff(want, got, protocmp.Transform()); diff != "" {
 		t.Errorf("mode %s does not produce what %s expects (-want +got):\n%s\n"+
-			"Both modes run the same computation on the same components, so they must produce the same map. "+
+			"Every mode has to deliver the same client-facing map for the same account state. "+
 			"The expectation file is the committed statement of correct output — fix the code, or change the "+
 			"expectation deliberately if the intended behaviour really moved.", mode, path, diff)
 	}

@@ -42,6 +42,7 @@
       "DistributionGroups": ["grp-dev"],
       "Zone": {
         "Domain": "corp.internal.",
+        "NonAuthoritative": true,
         "Records": [
           {"Name": "db.corp.internal.", "Type": 1, "Class": "IN", "TTL": 300, "RData": "10.10.0.5"}
         ]

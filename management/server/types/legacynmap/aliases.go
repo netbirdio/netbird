@@ -1,16 +1,3 @@
-//go:build nmapequiv
-
-// Package legacynmap is a frozen copy of main's Account → NetworkMapComponents →
-// NetworkMap → proto path, used only by the main-vs-branch equivalence test.
-// It is build-tagged so it never compiles into production binaries, and it lives
-// in its own package so it cannot reach this tree's unexported helpers — a
-// divergence can therefore never be hidden by the two sides sharing code.
-//
-// Delete this package once the nmdata refactor is validated.
-//
-// Types below are aliased rather than copied because they are byte-identical
-// between main and this branch. Anything that drifted is copied instead; see
-// converters.go and copied_funcs.go.
 package legacynmap
 
 import (

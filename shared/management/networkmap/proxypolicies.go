@@ -113,8 +113,13 @@ func proxyAccessPolicy(svc *nmdata.Service, target *nmdata.ServiceTarget, proxyP
 	}
 
 	return &nmdata.Policy{
-		ID:      policyID,
-		Enabled: true,
+		ID: policyID,
+		// The envelope encoder puts public ids on the wire and degrades to an
+		// empty one when a policy has none. A synthesised policy has no
+		// persisted row to take a public id from, and its own id is already
+		// stable and unique, so it serves as both.
+		PublicID: policyID,
+		Enabled:  true,
 		Rules: []*nmdata.PolicyRule{
 			{
 				ID:                  policyID,
@@ -135,8 +140,9 @@ func privateAccessPolicy(svc *nmdata.Service, proxyPeer *nmdata.Peer, accessGrou
 	policyID := fmt.Sprintf("private-access-%s-%s", svc.ID, proxyPeer.ID)
 
 	return &nmdata.Policy{
-		ID:      policyID,
-		Enabled: true,
+		ID:       policyID,
+		PublicID: policyID,
+		Enabled:  true,
 		Rules: []*nmdata.PolicyRule{
 			{
 				ID:                  policyID,

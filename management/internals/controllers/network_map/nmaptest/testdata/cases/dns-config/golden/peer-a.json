@@ -34,6 +34,7 @@
     "CustomZones": [
       {
         "Domain": "corp.internal.",
+        "NonAuthoritative": true,
         "Records": [
           {
             "Name": "db.corp.internal.",

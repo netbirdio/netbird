@@ -160,6 +160,17 @@ func checkAccount(ctx context.Context, t *testing.T, nmStore *networkmapdb.Netwo
 	routers := account.GetResourceRoutersMap()
 	groupUsers := account.GetActiveGroupUsers()
 
+	// The reverse-proxy ACLs are synthesised, never persisted. Both new paths
+	// derive them inside the twin; main derived them in the controller, onto
+	// the account, before the resource-policy map. The legacy side therefore
+	// runs on its own view of the policies — a shallow copy so the account the
+	// other two paths read stays untouched and cannot double-count them.
+	legacyAccount := *account
+	if synth := legacynmap.SynthesizeProxyPolicies(account); len(synth) > 0 {
+		legacyAccount.Policies = append(slices.Clone(account.Policies), synth...)
+	}
+	legacyResourcePolicies := legacyAccount.GetResourcePoliciesMap()
+
 	settings := account.Settings
 	if settings == nil {
 		settings = &types.Settings{}
@@ -200,7 +211,7 @@ func checkAccount(ctx context.Context, t *testing.T, nmStore *networkmapdb.Netwo
 
 		// LEGACY PATH — main's frozen copy.
 		legacyNM := legacynmap.GetPeerNetworkMapFromComponents(
-			account, ctx, peerID, nbdns.CustomZone{}, nil, validated, resourcePolicies, routers, nil, groupUsers,
+			&legacyAccount, ctx, peerID, nbdns.CustomZone{}, nil, validated, legacyResourcePolicies, routers, nil, groupUsers,
 		)
 		if legacyNM == nil {
 			t.Fatalf("after %d peers: account=%s peer=%s legacy NetworkMap nil, new non-nil", stats.peersChecked, account.Id, peerID)
