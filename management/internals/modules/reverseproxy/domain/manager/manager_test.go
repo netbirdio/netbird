@@ -15,7 +15,7 @@ import (
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
-func TestExtractClusterFromCustomDomains(t *testing.T) {
+func TestExtractClusterFromCustomDomains_MatchingRules(t *testing.T) {
 	tests := map[string]struct {
 		host          string
 		customDomains []*domain.Domain
@@ -184,12 +184,28 @@ func TestExtractClusterFromCustomDomains_EqualSuffixPermutationStable(t *testing
 
 	for i, customDomains := range permutations {
 		cluster, ok := extractClusterFromCustomDomains(host, customDomains)
-		if !ok {
-			t.Fatalf("permutation %d: expected match", i)
-		}
-		if cluster != "cluster-exact" {
-			t.Fatalf("permutation %d: got cluster %q, want %q", i, cluster, "cluster-exact")
-		}
+		assert.True(t, ok, "permutation %d: expected match", i)
+		assert.Equal(t, "cluster-exact", cluster, "permutation %d", i)
+	}
+}
+
+func TestExtractClusterFromCustomDomains_CanonicalDuplicateStable(t *testing.T) {
+	host := "example.com"
+	permutations := [][]*domain.Domain{
+		{
+			{Domain: "Example.com", TargetCluster: "cluster-b"},
+			{Domain: "example.com.", TargetCluster: "cluster-a"},
+		},
+		{
+			{Domain: "example.com.", TargetCluster: "cluster-a"},
+			{Domain: "Example.com", TargetCluster: "cluster-b"},
+		},
+	}
+
+	for i, customDomains := range permutations {
+		cluster, ok := extractClusterFromCustomDomains(host, customDomains)
+		assert.True(t, ok, "permutation %d: expected match", i)
+		assert.Equal(t, "cluster-a", cluster, "permutation %d: lexicographic tie-break", i)
 	}
 }
 
