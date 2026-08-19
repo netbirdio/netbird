@@ -7,6 +7,7 @@ package main
 // an in-process XEmbed host bridges the SNI icon into it.
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"sync"
@@ -21,6 +22,10 @@ const (
 	watcherName  = "org.kde.StatusNotifierWatcher"
 	watcherPath  = "/StatusNotifierWatcher"
 	watcherIface = "org.kde.StatusNotifierWatcher"
+
+	// Returned by GetNameOwner when the name is free, as opposed to a failure
+	// that leaves the current owner unknown.
+	nameHasNoOwnerError = "org.freedesktop.DBus.Error.NameHasNoOwner"
 
 	// Fallback item path for clients that register by bus name.
 	defaultItemPath = "/StatusNotifierItem"
@@ -56,8 +61,6 @@ type statusNotifierWatcher struct {
 	itemsMu sync.Mutex
 	items   []string
 
-	// Separate from itemsMu: tryStartXembedHost holds this across a blocking
-	// D-Bus round-trip, and an unresponsive item must not stall registrations.
 	hostsMu sync.Mutex
 	hosts   map[string]*xembedHost
 }
@@ -65,13 +68,11 @@ type statusNotifierWatcher struct {
 // RegisterStatusNotifierItem is the D-Bus method called by tray clients.
 // sender is injected by godbus and is not part of the D-Bus signature.
 func (w *statusNotifierWatcher) RegisterStatusNotifierItem(sender dbus.Sender, service string) *dbus.Error {
-	items, added := w.addItem(service)
-	if !added {
+	if !w.addItem(service) {
 		return nil
 	}
 	log.Debugf("StatusNotifierWatcher: registered item %q from %s", service, sender)
 
-	w.props.SetMust(watcherIface, "RegisteredStatusNotifierItems", items)
 	if err := w.conn.Emit(watcherPath, watcherIface+".StatusNotifierItemRegistered", service); err != nil {
 		log.Debugf("StatusNotifierWatcher: emitting StatusNotifierItemRegistered failed: %v", err)
 	}
@@ -80,20 +81,23 @@ func (w *statusNotifierWatcher) RegisterStatusNotifierItem(sender dbus.Sender, s
 	return nil
 }
 
-// addItem records the item and reports the new list, or added=false when the
+// addItem records the item and publishes the new list, reporting false when the
 // item was already registered.
-func (w *statusNotifierWatcher) addItem(service string) ([]string, bool) {
+func (w *statusNotifierWatcher) addItem(service string) bool {
 	w.itemsMu.Lock()
 	defer w.itemsMu.Unlock()
 
 	for _, s := range w.items {
 		if s == service {
-			return nil, false
+			return false
 		}
 	}
 	w.items = append(w.items, service)
 
-	return append([]string(nil), w.items...), true
+	// Published under the lock so concurrent registrations cannot leave the
+	// property holding an older snapshot than the slice.
+	w.props.SetMust(watcherIface, "RegisteredStatusNotifierItems", append([]string(nil), w.items...))
+	return true
 }
 
 // itemObjectPath resolves the RegisterStatusNotifierItem argument to the item's
@@ -116,12 +120,11 @@ func (w *statusNotifierWatcher) RegisterStatusNotifierHost(service string) *dbus
 	return nil
 }
 
-// tryStartXembedHost is a no-op when no XEmbed tray manager is available.
+// tryStartXembedHost is a no-op when no XEmbed tray manager is available. The
+// host is built outside hostsMu because newXembedHost blocks on a D-Bus
+// round-trip to the item, and one unresponsive item must not hold up the rest.
 func (w *statusNotifierWatcher) tryStartXembedHost(busName string, objPath dbus.ObjectPath) {
-	w.hostsMu.Lock()
-	defer w.hostsMu.Unlock()
-
-	if _, exists := w.hosts[busName]; exists {
+	if w.hasHost(busName) {
 		return
 	}
 
@@ -140,9 +143,35 @@ func (w *statusNotifierWatcher) tryStartXembedHost(busName string, objPath dbus.
 		return
 	}
 
-	w.hosts[busName] = host
+	if !w.addHost(busName, host) {
+		host.stop()
+		closeBus(sessionConn)
+		return
+	}
+
 	go host.run()
 	log.Infof("StatusNotifierWatcher: XEmbed tray icon created for %s", busName)
+}
+
+func (w *statusNotifierWatcher) hasHost(busName string) bool {
+	w.hostsMu.Lock()
+	defer w.hostsMu.Unlock()
+
+	_, exists := w.hosts[busName]
+	return exists
+}
+
+// addHost publishes the host, reporting false when a concurrent registration
+// for the same bus name got there first.
+func (w *statusNotifierWatcher) addHost(busName string, host *xembedHost) bool {
+	w.hostsMu.Lock()
+	defer w.hostsMu.Unlock()
+
+	if _, exists := w.hosts[busName]; exists {
+		return false
+	}
+	w.hosts[busName] = host
+	return true
 }
 
 // startStatusNotifierWatcher claims org.kde.StatusNotifierWatcher only as a
@@ -185,8 +214,8 @@ func awaitAndClaimWatcher() {
 	trayFound := false
 	deadline := time.Now().Add(watcherProbeTimeout)
 	for {
-		if owner := watcherOwner(conn); owner != "" {
-			log.Debugf("StatusNotifierWatcher: owned by %s, staying a plain SNI client", owner)
+		if owner, unowned := watcherOwner(conn); !unowned {
+			log.Debugf("StatusNotifierWatcher: name not free (owner=%q), staying a plain SNI client", owner)
 			closeBus(conn)
 			return
 		}
@@ -207,14 +236,23 @@ func awaitAndClaimWatcher() {
 	claimStatusNotifierWatcher(conn)
 }
 
-// watcherOwner returns the current owner of org.kde.StatusNotifierWatcher, or
-// "" when the name is unowned.
-func watcherOwner(conn *dbus.Conn) string {
-	var owner string
-	if err := conn.BusObject().Call("org.freedesktop.DBus.GetNameOwner", 0, watcherName).Store(&owner); err != nil {
-		return ""
+// watcherOwner reports the current owner of org.kde.StatusNotifierWatcher.
+// unowned is true only when the bus positively says the name is free: a lookup
+// that fails for any other reason leaves the owner unknown, and the caller must
+// not read that as an invitation to claim the name.
+func watcherOwner(conn *dbus.Conn) (owner string, unowned bool) {
+	err := conn.BusObject().Call("org.freedesktop.DBus.GetNameOwner", 0, watcherName).Store(&owner)
+	if err == nil {
+		return owner, false
 	}
-	return owner
+
+	var dbusErr dbus.Error
+	if errors.As(err, &dbusErr) && dbusErr.Name == nameHasNoOwnerError {
+		return "", true
+	}
+
+	log.Debugf("StatusNotifierWatcher: GetNameOwner failed: %v", err)
+	return "", false
 }
 
 // claimStatusNotifierWatcher takes ownership of the name on conn and exports

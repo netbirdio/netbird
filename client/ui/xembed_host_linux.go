@@ -127,6 +127,12 @@ func newXembedHost(conn *dbus.Conn, busName string, objPath dbus.ObjectPath) (*x
 	return h, nil
 }
 
+// maxIconPixmapDim bounds the dimensions an item may claim. Tray icons are
+// tiny, and any bound keeps the pixel-buffer size check below free of integer
+// overflow, which would otherwise let a malformed frame through to the C
+// renderer and overread the buffer.
+const maxIconPixmapDim = 1024
+
 // iconPixmap is one frame of org.kde.StatusNotifierItem.IconPixmap, whose D-Bus
 // signature is a(iiay): width, height, and ARGB32 pixels.
 type iconPixmap struct {
@@ -141,22 +147,35 @@ type iconPixmap struct {
 func fetchIconPixmap(conn *dbus.Conn, busName string, objPath dbus.ObjectPath) (iconPixmap, error) {
 	variant, err := conn.Object(busName, objPath).GetProperty("org.kde.StatusNotifierItem.IconPixmap")
 	if err != nil {
-		return iconPixmap{}, fmt.Errorf("get IconPixmap: %w", err)
+		return iconPixmap{}, fmt.Errorf("get IconPixmap of %s %s: %w", busName, objPath, err)
 	}
 
 	var icons []iconPixmap
 	if err := variant.Store(&icons); err != nil {
-		return iconPixmap{}, fmt.Errorf("decode IconPixmap: %w", err)
+		return iconPixmap{}, fmt.Errorf("decode IconPixmap of %s %s: %w", busName, objPath, err)
 	}
 	if len(icons) == 0 {
-		return iconPixmap{}, errors.New("IconPixmap is empty")
+		return iconPixmap{}, fmt.Errorf("IconPixmap of %s %s is empty", busName, objPath)
 	}
 
 	icon := icons[0]
-	if icon.W <= 0 || icon.H <= 0 || len(icon.Pix) < int(icon.W*icon.H*4) {
-		return iconPixmap{}, errors.New("invalid IconPixmap data")
+	if err := icon.validate(); err != nil {
+		return iconPixmap{}, fmt.Errorf("IconPixmap of %s %s: %w", busName, objPath, err)
 	}
 	return icon, nil
+}
+
+// validate rejects a frame whose pixel buffer is shorter than the size it
+// claims. The frame comes from another process on the session bus and its
+// dimensions are handed to the C renderer, which reads W*H*4 bytes.
+func (i iconPixmap) validate() error {
+	if i.W <= 0 || i.H <= 0 || i.W > maxIconPixmapDim || i.H > maxIconPixmapDim {
+		return fmt.Errorf("out-of-range size %dx%d", i.W, i.H)
+	}
+	if len(i.Pix) < int(i.W)*int(i.H)*4 {
+		return fmt.Errorf("%d bytes, short of %dx%d ARGB", len(i.Pix), i.W, i.H)
+	}
+	return nil
 }
 
 func (h *xembedHost) fetchAndDrawIcon() {
