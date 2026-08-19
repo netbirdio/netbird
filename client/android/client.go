@@ -152,6 +152,7 @@ func NewClient(androidSDKVersion int, deviceName string, uiVersion string, tunAd
 	execWorkaround(androidSDKVersion)
 
 	net.SetAndroidProtectSocketFn(tunAdapter.ProtectSocket)
+	system.SetIFaceDiscover(iFaceDiscover)
 	return &Client{
 		deviceName:            deviceName,
 		uiVersion:             uiVersion,
