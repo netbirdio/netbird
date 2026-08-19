@@ -2120,6 +2120,18 @@ type AgentNetworkConsumption struct {
 // AgentNetworkConsumptionDimensionKind Whether this row counts a single end user or a single source group across every member.
 type AgentNetworkConsumptionDimensionKind string
 
+// AgentNetworkDiscoveredModel defines model for AgentNetworkDiscoveredModel.
+type AgentNetworkDiscoveredModel struct {
+	// Id Identifier to register on the provider record, in the form the vendor issues it. For Bedrock this is the region-prefixed inference-profile id, which is the only form AWS accepts at invoke time.
+	Id string `json:"id"`
+
+	// Label Vendor-supplied display name, where the vendor supplies one.
+	Label *string `json:"label,omitempty"`
+
+	// PricingKnown Whether NetBird's shipped pricing table can price this model. When false the operator must set input/output rates, or requests to it would record a cost of zero.
+	PricingKnown bool `json:"pricing_known"`
+}
+
 // AgentNetworkGuardrail defines model for AgentNetworkGuardrail.
 type AgentNetworkGuardrail struct {
 	// Checks Guardrail check parameters. Each entry has an `enabled` flag plus per-check configuration; disabled entries are inert.
@@ -2165,6 +2177,27 @@ type AgentNetworkGuardrailRequest struct {
 
 	// Name Display name for the guardrail.
 	Name string `json:"name"`
+}
+
+// AgentNetworkModelDiscoveryRequest defines model for AgentNetworkModelDiscoveryRequest.
+type AgentNetworkModelDiscoveryRequest struct {
+	// ApiKey Credential to query the vendor with, for a provider that has not been saved yet. Mutually exclusive with provider_id.
+	ApiKey *string `json:"api_key,omitempty"`
+
+	// CatalogProviderId Catalog provider to query (AgentNetworkCatalogProvider.id). Determines the listing endpoint, the auth header and the response shape.
+	CatalogProviderId string `json:"catalog_provider_id"`
+
+	// ProviderId Existing Agent Network provider record whose stored credential and upstream should be used. Lets the form refresh the list without the client holding the key.
+	ProviderId *string `json:"provider_id,omitempty"`
+
+	// UpstreamUrl The upstream being configured. Used to reach vendors that serve their listing from the same host as inference, and to read back the region for those whose host embeds one. Ignored when provider_id is supplied.
+	UpstreamUrl *string `json:"upstream_url,omitempty"`
+}
+
+// AgentNetworkModelDiscoveryResponse defines model for AgentNetworkModelDiscoveryResponse.
+type AgentNetworkModelDiscoveryResponse struct {
+	// Models Models the credential can reach, in the order the vendor returned them.
+	Models []AgentNetworkDiscoveredModel `json:"models"`
 }
 
 // AgentNetworkPolicy defines model for AgentNetworkPolicy.
@@ -6178,6 +6211,9 @@ type PostApiAgentNetworkBudgetRulesJSONRequestBody = AgentNetworkBudgetRuleReque
 
 // PutApiAgentNetworkBudgetRulesRuleIdJSONRequestBody defines body for PutApiAgentNetworkBudgetRulesRuleId for application/json ContentType.
 type PutApiAgentNetworkBudgetRulesRuleIdJSONRequestBody = AgentNetworkBudgetRuleRequest
+
+// PostApiAgentNetworkCatalogProvidersModelsJSONRequestBody defines body for PostApiAgentNetworkCatalogProvidersModels for application/json ContentType.
+type PostApiAgentNetworkCatalogProvidersModelsJSONRequestBody = AgentNetworkModelDiscoveryRequest
 
 // PostApiAgentNetworkGuardrailsJSONRequestBody defines body for PostApiAgentNetworkGuardrails for application/json ContentType.
 type PostApiAgentNetworkGuardrailsJSONRequestBody = AgentNetworkGuardrailRequest
