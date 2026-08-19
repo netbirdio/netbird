@@ -1,6 +1,6 @@
 package network_map
 
-//go:generate go run go.uber.org/mock/mockgen -package network_map -destination=interface_mock.go -source=./interface.go -build_flags=-mod=mod
+//go:generate -command mockgen -package network_map -destination=interface_mock.go -source=./interface.go -build_flags=-mod=mod
 
 import (
 	"context"
