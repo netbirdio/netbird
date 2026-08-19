@@ -6,8 +6,6 @@ import (
 
 	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
-
-	"github.com/netbirdio/netbird/client/netstate"
 )
 
 // ConnStatus represents the connection state as seen by the guard.
@@ -24,6 +22,12 @@ const (
 
 type connStatusFunc func() ConnStatus
 
+// NetworkWatcher is the availability view the guard gates reconnects on.
+type NetworkWatcher interface {
+	IsOnline() bool
+	Changed() <-chan struct{}
+}
+
 // Guard is responsible for the reconnection logic.
 // It will trigger to send an offer to the peer then has connection issues.
 // Watch these events:
@@ -39,14 +43,14 @@ type Guard struct {
 	srWatcher           *SRWatcher
 	// netState gates reconnect attempts on OS-reported network availability;
 	// nil disables gating.
-	netState                *netstate.State
+	netState                NetworkWatcher
 	relayedConnDisconnected chan struct{}
 	iCEConnDisconnected     chan struct{}
 }
 
 // NewGuard creates a reconnection guard for a peer connection. A nil netState
 // disables network availability gating.
-func NewGuard(log *log.Entry, isConnectedFn connStatusFunc, timeout time.Duration, srWatcher *SRWatcher, netState *netstate.State) *Guard {
+func NewGuard(log *log.Entry, isConnectedFn connStatusFunc, timeout time.Duration, srWatcher *SRWatcher, netState NetworkWatcher) *Guard {
 	return &Guard{
 		log:                     log,
 		isConnectedOnAllWay:     isConnectedFn,
@@ -104,14 +108,17 @@ func (g *Guard) reconnectLoopWithRetry(ctx context.Context, callback func()) {
 	iceState := &iceRetryState{log: g.log}
 	defer iceState.reset()
 
-	netChanged := g.netState.Changed()
+	var netChanged <-chan struct{}
+	if g.netState != nil {
+		netChanged = g.netState.Changed()
+	}
 
 	for {
 		select {
 		case <-tickerChannel:
 			// skip attempts while the OS reports no usable network; the
 			// netChanged case below resumes the loop once it returns
-			if !g.netState.IsOnline() {
+			if g.netState != nil && !g.netState.IsOnline() {
 				continue
 			}
 			switch g.isConnectedOnAllWay() {

@@ -26,7 +26,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/portforward"
 	"github.com/netbirdio/netbird/client/internal/rosenpass"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
-	"github.com/netbirdio/netbird/client/netstate"
+	"github.com/netbirdio/netbird/client/netevents"
 	"github.com/netbirdio/netbird/route"
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 )
@@ -97,7 +97,7 @@ type ConnConfig struct {
 
 	// NetworkState gates the reconnection guard on OS-reported network
 	// availability; nil disables gating.
-	NetworkState *netstate.State
+	NetworkState *netevents.Manager
 }
 
 type Conn struct {

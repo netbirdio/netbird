@@ -59,7 +59,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/syncstore"
 	"github.com/netbirdio/netbird/client/internal/updater"
 	"github.com/netbirdio/netbird/client/jobexec"
-	"github.com/netbirdio/netbird/client/netstate"
+	"github.com/netbirdio/netbird/client/netevents"
 	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -184,7 +184,7 @@ type EngineServices struct {
 	MetricsCtx     context.Context
 	// NetState gates the reconnection loops on OS-reported network
 	// availability; nil disables gating.
-	NetState *netstate.State
+	NetState *netevents.Manager
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -210,7 +210,7 @@ type Engine struct {
 
 	// netState gates the peer reconnection guards on OS-reported network
 	// availability; nil disables gating.
-	netState *netstate.State
+	netState *netevents.Manager
 
 	// STUNs is a list of STUN servers used by ICE
 	STUNs []*stun.URI
