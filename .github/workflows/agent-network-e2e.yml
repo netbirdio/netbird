@@ -12,6 +12,13 @@ on:
           AWS issues it. Leave empty for the Sonnet 4.6 default.
         required: false
         default: ""
+      test_pattern:
+        description: >-
+          Package pattern to run. Defaults to the whole suite; narrow it to one
+          package (e.g. ./e2e/providerdiscovery/...) when a run only needs that
+          package's answer and not the sixteen minutes the container suite costs.
+        required: false
+        default: "./e2e/..."
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -77,4 +84,8 @@ jobs:
           GOOGLE_VERTEX_PROJECT: ${{ secrets.E2E_GOOGLE_VERTEX_PROJECT }}
           GOOGLE_VERTEX_REGION: ${{ secrets.E2E_GOOGLE_VERTEX_REGION }}
           GOOGLE_VERTEX_MODEL: ${{ secrets.E2E_GOOGLE_VERTEX_MODEL }}
-        run: go test -tags e2e -timeout 40m -v ./e2e/...
+          # Read through an env var rather than interpolated into the run
+          # script: a dispatch input reaching a shell command directly is a
+          # script-injection seam, however trusted the dispatcher.
+          TEST_PATTERN: ${{ inputs.test_pattern || './e2e/...' }}
+        run: go test -tags e2e -timeout 40m -v "$TEST_PATTERN"
