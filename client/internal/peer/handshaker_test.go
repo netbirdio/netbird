@@ -5,35 +5,14 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
-
-	signal "github.com/netbirdio/netbird/shared/signal/client"
-	sProto "github.com/netbirdio/netbird/shared/signal/proto"
+	"github.com/stretchr/testify/assert"
 )
 
 func newTestHandshaker(t *testing.T) *Handshaker {
 	t.Helper()
-
-	localKey, err := wgtypes.GeneratePrivateKey()
-	if err != nil {
-		t.Fatalf("generate local key: %v", err)
-	}
-	remoteKey, err := wgtypes.GeneratePrivateKey()
-	if err != nil {
-		t.Fatalf("generate remote key: %v", err)
-	}
-
-	signaler := NewSignaler(&signal.MockClient{
-		ReadyFunc: func() bool { return true },
-		SendFunc:  func(*sProto.Message) error { return nil },
-	}, localKey)
-
-	cfg := ConnConfig{
-		Key:      remoteKey.PublicKey().String(),
-		LocalKey: localKey.PublicKey().String(),
-	}
-
-	return NewHandshaker(log.WithField("test", t.Name()), cfg, signaler, nil, nil, nil)
+	// The tests exercise the answer path, whose Listen branch dispatches to the
+	// relay listener without sending an answer, so no signaler/ICE/relay is needed.
+	return NewHandshaker(log.WithField("test", t.Name()), ConnConfig{}, nil, nil, nil, nil)
 }
 
 // TestHandshakerHoldsSignalArrivingBeforeListen covers the case where a peer is
@@ -42,28 +21,43 @@ func newTestHandshaker(t *testing.T) *Handshaker {
 // message must be held rather than dropped, or the connection cannot proceed until
 // the remote re-sends. This is the path taken when an eager peer connects to a
 // lazily-managed one.
-//
-// The answer path is used because its Listen branch dispatches to the same
-// listeners as the offer path without also sending an answer, so it exercises the
-// buffered-channel behavior (which covers both channels) without needing a relay.
 func TestHandshakerHoldsSignalArrivingBeforeListen(t *testing.T) {
 	h := newTestHandshaker(t)
 
-	processed := make(chan struct{}, 4)
-	h.AddRelayListener(func(*OfferAnswer) { processed <- struct{}{} })
+	processed := make(chan *OfferAnswer, 4)
+	h.AddRelayListener(func(o *OfferAnswer) { processed <- o })
 
-	// Delivered before Listen is reading, exactly as when the peer is woken by the
-	// remote's signal and the message is delivered right after Open.
-	h.OnRemoteAnswer(OfferAnswer{
-		WgListenPort:   51820,
-		IceCredentials: IceCredentials{UFrag: "ufrag", Pwd: "pwd"},
-	})
+	// Delivered before Listen is reading, as when the peer is woken by the remote's
+	// signal and the message is delivered right after Open.
+	h.OnRemoteAnswer(OfferAnswer{WgListenPort: 51820})
 
 	go h.Listen(t.Context())
 
 	select {
 	case <-processed:
 	case <-time.After(2 * time.Second):
-		t.Fatal("signal that arrived before Listen was ready was dropped")
+		assert.Fail(t, "remote-answer dispatch: signal delivered before Listen was ready was dropped")
+	}
+}
+
+// TestHandshakerKeepsLatestSignalBeforeListen covers several signals arriving
+// before Listen reads: the newest must win (matching the latest-offer contract),
+// rather than the first being kept and later ones discarded.
+func TestHandshakerKeepsLatestSignalBeforeListen(t *testing.T) {
+	h := newTestHandshaker(t)
+
+	processed := make(chan *OfferAnswer, 4)
+	h.AddRelayListener(func(o *OfferAnswer) { processed <- o })
+
+	h.OnRemoteAnswer(OfferAnswer{WgListenPort: 1111})
+	h.OnRemoteAnswer(OfferAnswer{WgListenPort: 2222})
+
+	go h.Listen(t.Context())
+
+	select {
+	case got := <-processed:
+		assert.Equal(t, 2222, got.WgListenPort, "remote-answer dispatch: the latest queued signal should be processed")
+	case <-time.After(2 * time.Second):
+		assert.Fail(t, "remote-answer dispatch: queued signal was dropped")
 	}
 }

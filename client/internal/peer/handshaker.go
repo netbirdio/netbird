@@ -167,29 +167,38 @@ func (h *Handshaker) SendOffer() error {
 	return h.sendOffer()
 }
 
-// OnRemoteOffer handles an offer from the remote peer and returns true if the message was accepted, false otherwise
-// doesn't block, discards the message if connection wasn't ready
+// OnRemoteOffer hands an offer to Listen without blocking, keeping only the most
+// recent one if several arrive before Listen reads them.
 func (h *Handshaker) OnRemoteOffer(offer OfferAnswer) {
-	select {
-	case h.remoteOffersCh <- offer:
-		return
-	default:
-		h.log.Warnf("skipping remote offer message because receiver not ready")
-		// connection might not be ready yet to receive so we ignore the message
-		return
-	}
+	enqueueLatest(h.remoteOffersCh, offer)
 }
 
-// OnRemoteAnswer handles an offer from the remote peer and returns true if the message was accepted, false otherwise
-// doesn't block, discards the message if connection wasn't ready
+// OnRemoteAnswer hands an answer to Listen without blocking, keeping only the most
+// recent one if several arrive before Listen reads them.
 func (h *Handshaker) OnRemoteAnswer(answer OfferAnswer) {
+	enqueueLatest(h.remoteAnswerCh, answer)
+}
+
+// enqueueLatest delivers msg on a one-slot channel without blocking. When the slot
+// already holds an unread message the older one is discarded in favor of msg, so a
+// message arriving before Listen starts reading is held rather than dropped, and
+// the newest wins if several arrive first. Safe because there is a single producer
+// (the engine loop): after draining the stale value the send always has room.
+func enqueueLatest(ch chan OfferAnswer, msg OfferAnswer) {
 	select {
-	case h.remoteAnswerCh <- answer:
+	case ch <- msg:
 		return
 	default:
-		// connection might not be ready yet to receive so we ignore the message
-		h.log.Warnf("skipping remote answer message because receiver not ready")
-		return
+	}
+
+	select {
+	case <-ch:
+	default:
+	}
+
+	select {
+	case ch <- msg:
+	default:
 	}
 }
 
