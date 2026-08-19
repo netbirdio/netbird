@@ -197,6 +197,9 @@ func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Mes
 			return nil
 		} else if waited {
 			backOff.Reset()
+			// dials attempted while offline grew the channel's internal backoff;
+			// reset it too, or the reconnect waits out that timer first
+			c.signalConn.ResetConnectBackoff()
 		}
 
 		c.notifyStreamDisconnected()

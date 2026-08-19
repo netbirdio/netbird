@@ -233,6 +233,9 @@ func (c *GrpcClient) withMgmtStream(
 			return nil //nolint:nilerr // a cancelled context means shutdown, not a retryable failure
 		} else if waited {
 			backOff.Reset()
+			// dials attempted while offline grew the channel's internal backoff;
+			// reset it too, or the reconnect waits out that timer first
+			c.conn.ResetConnectBackoff()
 		}
 
 		connState := c.conn.GetState()
