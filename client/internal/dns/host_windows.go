@@ -459,7 +459,7 @@ func (r *registryConfigurator) flushDNSCache() {
 
 	ret, _, err := dnsFlushResolverCacheFn.Call()
 	if ret == 0 {
-		if err != nil && !errors.Is(err, syscall.Errno(0)) {
+		if !errors.Is(err, syscall.Errno(0)) {
 			log.Errorf("DnsFlushResolverCache failed: %v", err)
 			return
 		}
@@ -627,7 +627,7 @@ func refreshGroupPolicy() error {
 	)
 
 	if ret == 0 {
-		if err != nil && !errors.Is(err, syscall.Errno(0)) {
+		if !errors.Is(err, syscall.Errno(0)) {
 			return fmt.Errorf("RefreshPolicyEx failed: %w", err)
 		}
 		return fmt.Errorf("RefreshPolicyEx failed")
