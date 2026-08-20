@@ -2856,7 +2856,7 @@ func TestSyncPeer_PeerUpdateBumpsNetworkSerial(t *testing.T) {
 		newMeta := peer2.Meta
 		newMeta.WtVersion = "0.99.99"
 
-		_, _, _, _, err := manager.SyncPeer(context.Background(), types.PeerSync{
+		_, nmap, _, _, err := manager.SyncPeer(context.Background(), types.PeerSync{
 			WireGuardPubKey: peer2.Key,
 			Meta:            newMeta,
 		}, peer2.AccountID)
@@ -2865,6 +2865,8 @@ func TestSyncPeer_PeerUpdateBumpsNetworkSerial(t *testing.T) {
 		network, err := manager.Store.GetAccountNetwork(context.Background(), store.LockingStrengthNone, account.Id)
 		require.NoError(t, err)
 		assert.Greater(t, network.CurrentSerial(), serialBefore, "a map-relevant meta change should advance the serial")
+		require.NotNil(t, nmap)
+		assert.Equal(t, network.CurrentSerial(), nmap.Network.CurrentSerial(), "the syncing peer's own map should carry the advanced serial")
 	})
 }
 
