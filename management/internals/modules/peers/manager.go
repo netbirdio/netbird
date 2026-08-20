@@ -8,9 +8,11 @@ import (
 	"net"
 	"time"
 
+	"github.com/hashicorp/go-multierror"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 
+	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral"
 	"github.com/netbirdio/netbird/management/server/account"
@@ -31,9 +33,10 @@ type Manager interface {
 	GetAllPeers(ctx context.Context, accountID, userID string) ([]*peer.Peer, error)
 	GetPeersByGroupIDs(ctx context.Context, accountID string, groupsIDs []string) ([]*peer.Peer, error)
 	// DeletePeers removes the given peers along with their group memberships and
-	// policies. With checkConnected, a peer that is still connected or was seen
-	// too recently is left in place and returned in skipped, so the caller can
-	// retry it later.
+	// policies. Every peer that was not deleted is returned in skipped, so the
+	// caller can retry it later: with checkConnected, a peer that is still
+	// connected or was seen too recently is left in place, and a peer whose
+	// deletion failed is skipped with the failure aggregated into err.
 	DeletePeers(ctx context.Context, accountID string, peerIDs []string, userID string, checkConnected bool) (skipped []string, err error)
 	SetNetworkMapController(networkMapController network_map.Controller)
 	SetIntegratedPeerValidator(integratedPeerValidator integrated_validator.IntegratedValidator)
@@ -148,16 +151,18 @@ const (
 func (m *managerImpl) DeletePeers(ctx context.Context, accountID string, peerIDs []string, userID string, checkConnected bool) ([]string, error) {
 	settings, err := m.store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
-		return nil, err
+		return peerIDs, err
 	}
 	dnsDomain := m.networkMapController.GetDNSDomain(settings)
 
 	var skipped []string
+	var merr *multierror.Error
 	deletedAny := false
 	for _, peerID := range peerIDs {
 		outcome, events, err := m.deleteSinglePeer(ctx, accountID, peerID, userID, checkConnected, dnsDomain)
 		if err != nil {
-			log.WithContext(ctx).Errorf("DeletePeers: failed to delete peer %s: %v", peerID, err)
+			merr = multierror.Append(merr, fmt.Errorf("delete peer %s: %w", peerID, err))
+			skipped = append(skipped, peerID)
 			continue
 		}
 
@@ -177,7 +182,7 @@ func (m *managerImpl) DeletePeers(ctx context.Context, accountID string, peerIDs
 		m.accountManager.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourcePeer, Operation: types.UpdateOperationDelete})
 	}
 
-	return skipped, nil
+	return skipped, nberrors.FormatErrorOrNil(merr)
 }
 
 // deleteSinglePeer deletes one peer along with its group memberships and
@@ -228,7 +233,7 @@ func (m *managerImpl) deleteSinglePeer(ctx context.Context, accountID, peerID, u
 // store once the transaction commits.
 func (m *managerImpl) deletePeerObjects(ctx context.Context, transaction store.Store, accountID, userID, dnsDomain string, p *peer.Peer) ([]func(), error) {
 	if err := transaction.RemovePeerFromAllGroups(ctx, p.ID); err != nil {
-		return nil, fmt.Errorf("failed to remove peer %s from groups", p.ID)
+		return nil, fmt.Errorf("remove peer %s from groups: %w", p.ID, err)
 	}
 
 	var eventsToStore []func()

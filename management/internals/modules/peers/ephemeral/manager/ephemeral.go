@@ -220,13 +220,13 @@ func (e *EphemeralManager) cleanup(ctx context.Context) {
 		if err != nil {
 			log.WithContext(ctx).Errorf("failed to delete ephemeral peers: %s", err)
 			e.metrics.CountCleanupError()
-			continue
 		}
 		if len(skipped) > 0 {
-			// A skipped peer could not be deleted yet (still connected in the
-			// store, or seen too recently), which says nothing about whether a
-			// disconnect will ever be observed for it again. Schedule another
-			// attempt instead of dropping it, or it is never collected.
+			// A skipped peer was not deleted: it is still connected in the
+			// store, was seen too recently, or its deletion failed. None of
+			// that says whether a disconnect will ever be observed for it
+			// again, so schedule another attempt instead of dropping it, or
+			// it is never collected.
 			log.WithContext(ctx).Debugf("cleanup: requeueing %d skipped ephemeral peers for account %s: %s", len(skipped), accountID, skipped)
 			e.requeuePeers(ctx, accountID, skipped)
 		}

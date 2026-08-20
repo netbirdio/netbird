@@ -2,6 +2,7 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -318,6 +319,50 @@ func TestCleanupRequeuesVetoedPeers(t *testing.T) {
 	startTime = startTime.Add(ephemeral.EphemeralLifeTime + time.Second)
 	mgr.cleanup(context.Background())
 	assert.Len(t, mockStore.account.Peers, 0, "vetoed peer should be retried and deleted once the veto clears")
+}
+
+// TestCleanupRequeuesFailedDeletes covers a peer whose deletion attempt errors
+// (DeletePeers reports it as skipped alongside the aggregate error): it must be
+// scheduled for another attempt rather than dropped from the list, or a
+// transient store failure leaks it forever.
+func TestCleanupRequeuesFailedDeletes(t *testing.T) {
+	t.Cleanup(func() {
+		timeNow = time.Now
+	})
+	startTime := time.Now()
+	timeNow = func() time.Time {
+		return startTime
+	}
+
+	mockStore := &MockStore{}
+	seedPeers(mockStore, 0, 1)
+	ctrl := gomock.NewController(t)
+	peersManager := peers.NewMockManager(ctrl)
+
+	// The first attempt fails, the second deletes the peer.
+	first := peersManager.EXPECT().
+		DeletePeers(gomock.Any(), gomock.Any(), []string{"ephemeral_peer_0"}, gomock.Any(), true).
+		Return([]string{"ephemeral_peer_0"}, errors.New("transient store failure"))
+	peersManager.EXPECT().
+		DeletePeers(gomock.Any(), gomock.Any(), []string{"ephemeral_peer_0"}, gomock.Any(), true).
+		After(first).
+		DoAndReturn(func(_ context.Context, _ string, peerIDs []string, _ string, _ bool) ([]string, error) {
+			for _, peerID := range peerIDs {
+				delete(mockStore.account.Peers, peerID)
+			}
+			return nil, nil
+		})
+
+	mgr := NewEphemeralManager(mockStore, peersManager)
+	mgr.loadEphemeralPeers(context.Background())
+
+	startTime = startTime.Add(ephemeral.EphemeralLifeTime + time.Second)
+	mgr.cleanup(context.Background())
+	assert.Len(t, mockStore.account.Peers, 1, "peer whose deletion failed must still exist")
+
+	startTime = startTime.Add(ephemeral.EphemeralLifeTime + time.Second)
+	mgr.cleanup(context.Background())
+	assert.Len(t, mockStore.account.Peers, 0, "peer whose deletion failed should be retried and deleted")
 }
 
 func seedPeers(store *MockStore, numberOfPeers int, numberOfEphemeralPeers int) {
