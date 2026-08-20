@@ -367,24 +367,39 @@ func isProxyError(body string) bool {
 }
 
 // listingIDs pulls the model ids out of a listing response. ok is false when
-// the body is not the {"data":[{"id":…}]} shape the filter recognises.
+// the body is neither envelope the proxy's filter recognises — the two must
+// stay in step, or this test reports "not a listing" for a response the proxy
+// filtered perfectly well.
 func listingIDs(body string) ([]string, bool) {
 	var doc struct {
+		// OpenAI's shape, which Anthropic adopted.
 		Data []struct {
 			ID string `json:"id"`
 		} `json:"data"`
+		// Bedrock returns inference-profile summaries under a key of its own,
+		// with the id under a field of its own.
+		Summaries []struct {
+			ID string `json:"inferenceProfileId"`
+		} `json:"inferenceProfileSummaries"`
 	}
 	if err := json.Unmarshal([]byte(body), &doc); err != nil {
 		return nil, false
 	}
-	if doc.Data == nil {
-		return nil, false
+	switch {
+	case doc.Data != nil:
+		ids := make([]string, 0, len(doc.Data))
+		for _, entry := range doc.Data {
+			ids = append(ids, entry.ID)
+		}
+		return ids, true
+	case doc.Summaries != nil:
+		ids := make([]string, 0, len(doc.Summaries))
+		for _, entry := range doc.Summaries {
+			ids = append(ids, entry.ID)
+		}
+		return ids, true
 	}
-	ids := make([]string, 0, len(doc.Data))
-	for _, entry := range doc.Data {
-		ids = append(ids, entry.ID)
-	}
-	return ids, true
+	return nil, false
 }
 
 func caseNames(cases []liveDiscoveryCase) []string {
