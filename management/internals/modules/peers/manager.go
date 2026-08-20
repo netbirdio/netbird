@@ -132,6 +132,19 @@ func (m *managerImpl) GetPeerWithGroups(ctx context.Context, accountID, peerID s
 	return p, groups, nil
 }
 
+// deletePeerOutcome is the per-peer result of a DeletePeers pass.
+type deletePeerOutcome int
+
+const (
+	// peerMissing means the peer no longer exists, so nothing changed.
+	peerMissing deletePeerOutcome = iota
+	// peerVetoed means the peer cannot be deleted yet: it is still connected or
+	// was seen too recently.
+	peerVetoed
+	// peerDeleted means the peer and its objects were removed.
+	peerDeleted
+)
+
 func (m *managerImpl) DeletePeers(ctx context.Context, accountID string, peerIDs []string, userID string, checkConnected bool) ([]string, error) {
 	settings, err := m.store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
@@ -142,93 +155,19 @@ func (m *managerImpl) DeletePeers(ctx context.Context, accountID string, peerIDs
 	var skipped []string
 	deletedAny := false
 	for _, peerID := range peerIDs {
-		var eventsToStore []func()
-		vetoed := false
-		deleted := false
-		err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-			vetoed = false
-			deleted = false
-			peer, err := transaction.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
-			if err != nil {
-				if e, ok := status.FromError(err); ok && e.Type() == status.NotFound {
-					log.WithContext(ctx).Tracef("DeletePeers: peer %s not found, skipping", peerID)
-					return nil
-				}
-				return err
-			}
-
-			if checkConnected && (peer.Status.Connected || peer.Status.LastSeen.After(time.Now().Add(-(ephemeral.EphemeralLifeTime - 10*time.Second)))) {
-				log.WithContext(ctx).Tracef("DeletePeers: peer %s skipped (connected=%t, lastSeen=%s, threshold=%s, ephemeral=%t)",
-					peerID, peer.Status.Connected,
-					peer.Status.LastSeen.Format(time.RFC3339),
-					time.Now().Add(-(ephemeral.EphemeralLifeTime - 10*time.Second)).Format(time.RFC3339),
-					peer.Ephemeral)
-				vetoed = true
-				return nil
-			}
-
-			if err := transaction.RemovePeerFromAllGroups(ctx, peerID); err != nil {
-				return fmt.Errorf("failed to remove peer %s from groups", peerID)
-			}
-
-			peerPolicyRules, err := transaction.GetPolicyRulesByResourceID(ctx, store.LockingStrengthNone, accountID, peerID)
-			if err != nil {
-				return err
-			}
-			for _, rule := range peerPolicyRules {
-				policy, err := transaction.GetPolicyByID(ctx, store.LockingStrengthNone, accountID, rule.PolicyID)
-				if err != nil {
-					return err
-				}
-
-				err = transaction.DeletePolicy(ctx, accountID, rule.PolicyID)
-				if err != nil {
-					return err
-				}
-
-				eventsToStore = append(eventsToStore, func() {
-					m.accountManager.StoreEvent(ctx, userID, peer.ID, accountID, activity.PolicyRemoved, policy.EventMeta())
-				})
-			}
-
-			if err = transaction.DeletePeer(ctx, accountID, peerID); err != nil {
-				return err
-			}
-			deleted = true
-
-			log.WithContext(ctx).Debugf("DeletePeers: deleted peer %s", peerID)
-
-			if !(peer.ProxyMeta.Embedded || peer.Meta.KernelVersion == "wasm") {
-				eventsToStore = append(eventsToStore, func() {
-					m.accountManager.StoreEvent(ctx, userID, peer.ID, accountID, activity.PeerRemovedByUser, peer.EventMeta(dnsDomain))
-				})
-			}
-
-			return nil
-		})
+		outcome, events, err := m.deleteSinglePeer(ctx, accountID, peerID, userID, checkConnected, dnsDomain)
 		if err != nil {
 			log.WithContext(ctx).Errorf("DeletePeers: failed to delete peer %s: %v", peerID, err)
 			continue
 		}
 
-		if vetoed {
+		switch outcome {
+		case peerVetoed:
 			skipped = append(skipped, peerID)
-			continue
-		}
-
-		if !deleted {
-			continue
-		}
-		deletedAny = true
-
-		if m.integratedPeerValidator != nil {
-			if err = m.integratedPeerValidator.PeerDeleted(ctx, accountID, peerID, settings.Extra); err != nil {
-				log.WithContext(ctx).Errorf("failed to delete peer %s from integrated validator: %v", peerID, err)
-			}
-		}
-
-		for _, event := range eventsToStore {
-			event()
+		case peerDeleted:
+			deletedAny = true
+			m.notifyPeerDeleted(ctx, accountID, peerID, settings.Extra, events)
+		case peerMissing:
 		}
 	}
 
@@ -239,6 +178,105 @@ func (m *managerImpl) DeletePeers(ctx context.Context, accountID string, peerIDs
 	}
 
 	return skipped, nil
+}
+
+// deleteSinglePeer deletes one peer along with its group memberships and
+// policies in a single transaction. With checkConnected, a peer that is still
+// connected or was seen too recently is left untouched and reported as vetoed.
+// The returned events must be stored by the caller once the deletion is final.
+func (m *managerImpl) deleteSinglePeer(ctx context.Context, accountID, peerID, userID string, checkConnected bool, dnsDomain string) (deletePeerOutcome, []func(), error) {
+	outcome := peerMissing
+	var eventsToStore []func()
+	err := m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		outcome = peerMissing
+		eventsToStore = nil
+
+		p, err := transaction.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
+		if err != nil {
+			if e, ok := status.FromError(err); ok && e.Type() == status.NotFound {
+				log.WithContext(ctx).Tracef("DeletePeers: peer %s not found, skipping", peerID)
+				return nil
+			}
+			return err
+		}
+
+		if checkConnected && (p.Status.Connected || p.Status.LastSeen.After(time.Now().Add(-(ephemeral.EphemeralLifeTime - 10*time.Second)))) {
+			log.WithContext(ctx).Tracef("DeletePeers: peer %s skipped (connected=%t, lastSeen=%s, threshold=%s, ephemeral=%t)",
+				peerID, p.Status.Connected,
+				p.Status.LastSeen.Format(time.RFC3339),
+				time.Now().Add(-(ephemeral.EphemeralLifeTime - 10*time.Second)).Format(time.RFC3339),
+				p.Ephemeral)
+			outcome = peerVetoed
+			return nil
+		}
+
+		eventsToStore, err = m.deletePeerObjects(ctx, transaction, accountID, userID, dnsDomain, p)
+		if err != nil {
+			return err
+		}
+		outcome = peerDeleted
+		return nil
+	})
+	if err != nil {
+		return outcome, nil, err
+	}
+	return outcome, eventsToStore, nil
+}
+
+// deletePeerObjects removes the peer's group memberships, its policies and the
+// peer itself within the given transaction, returning the activity events to
+// store once the transaction commits.
+func (m *managerImpl) deletePeerObjects(ctx context.Context, transaction store.Store, accountID, userID, dnsDomain string, p *peer.Peer) ([]func(), error) {
+	if err := transaction.RemovePeerFromAllGroups(ctx, p.ID); err != nil {
+		return nil, fmt.Errorf("failed to remove peer %s from groups", p.ID)
+	}
+
+	var eventsToStore []func()
+	peerPolicyRules, err := transaction.GetPolicyRulesByResourceID(ctx, store.LockingStrengthNone, accountID, p.ID)
+	if err != nil {
+		return nil, err
+	}
+	for _, rule := range peerPolicyRules {
+		policy, err := transaction.GetPolicyByID(ctx, store.LockingStrengthNone, accountID, rule.PolicyID)
+		if err != nil {
+			return nil, err
+		}
+
+		if err := transaction.DeletePolicy(ctx, accountID, rule.PolicyID); err != nil {
+			return nil, err
+		}
+
+		eventsToStore = append(eventsToStore, func() {
+			m.accountManager.StoreEvent(ctx, userID, p.ID, accountID, activity.PolicyRemoved, policy.EventMeta())
+		})
+	}
+
+	if err := transaction.DeletePeer(ctx, accountID, p.ID); err != nil {
+		return nil, err
+	}
+
+	log.WithContext(ctx).Debugf("DeletePeers: deleted peer %s", p.ID)
+
+	if !(p.ProxyMeta.Embedded || p.Meta.KernelVersion == "wasm") {
+		eventsToStore = append(eventsToStore, func() {
+			m.accountManager.StoreEvent(ctx, userID, p.ID, accountID, activity.PeerRemovedByUser, p.EventMeta(dnsDomain))
+		})
+	}
+
+	return eventsToStore, nil
+}
+
+// notifyPeerDeleted reports a completed deletion to the integrated validator and
+// stores the deletion's activity events.
+func (m *managerImpl) notifyPeerDeleted(ctx context.Context, accountID, peerID string, extraSettings *types.ExtraSettings, events []func()) {
+	if m.integratedPeerValidator != nil {
+		if err := m.integratedPeerValidator.PeerDeleted(ctx, accountID, peerID, extraSettings); err != nil {
+			log.WithContext(ctx).Errorf("failed to delete peer %s from integrated validator: %v", peerID, err)
+		}
+	}
+	for _, event := range events {
+		event()
+	}
 }
 
 func (m *managerImpl) GetPeerID(ctx context.Context, peerKey string) (string, error) {
