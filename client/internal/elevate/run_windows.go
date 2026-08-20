@@ -24,12 +24,6 @@ const (
 
 	// swHide: the one-shot has no window to show.
 	swHide = 0
-
-	// sFalse (S_FALSE) answers CoInitializeEx when COM is already up on this
-	// thread in the mode we asked for; rpcChangedMode (RPC_E_CHANGED_MODE) when
-	// it is up in the other one.
-	sFalse         = 1
-	rpcChangedMode = 0x80010106
 )
 
 // shellExecuteInfoW mirrors SHELLEXECUTEINFOW. The field order and Go's own
@@ -106,11 +100,11 @@ func shellExecute(info *shellExecuteInfoW) (windows.Handle, error) {
 	defer runtime.UnlockOSThread()
 
 	switch err := windows.CoInitializeEx(0, windows.COINIT_APARTMENTTHREADED); {
-	case err == nil, isHResult(err, sFalse):
+	case err == nil, isHResult(err, windows.S_FALSE):
 		// Ours, or already initialised in the same mode: either way this call
 		// counts and has to be balanced.
 		defer windows.CoUninitialize()
-	case isHResult(err, rpcChangedMode):
+	case isHResult(err, windows.RPC_E_CHANGED_MODE):
 		// The thread is already in the other apartment model. ShellExecuteExW
 		// works there too, and there is nothing of ours to balance.
 	default:
@@ -153,9 +147,9 @@ func ownerWindow() windows.HWND {
 
 // isHResult reports whether err carries the given HRESULT. CoInitializeEx
 // returns its HRESULT as an Errno, so the comparison is on the raw value.
-func isHResult(err error, hresult uintptr) bool {
+func isHResult(err error, hresult windows.Handle) bool {
 	var errno windows.Errno
-	return errors.As(err, &errno) && uintptr(errno) == hresult
+	return errors.As(err, &errno) && uintptr(errno) == uintptr(hresult)
 }
 
 func waitForProcess(ctx context.Context, process windows.Handle) error {
