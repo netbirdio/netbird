@@ -5,9 +5,9 @@ import (
 	"net/netip"
 	"testing"
 
-	"go.uber.org/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	"github.com/netbirdio/netbird/client/firewall"
 	fwmgr "github.com/netbirdio/netbird/client/firewall/manager"
@@ -134,7 +134,7 @@ func TestGroupPeerRulesMergesSameSelector(t *testing.T) {
 	mk := func(peerIP string) *mgmProto.FirewallRule {
 		return &mgmProto.FirewallRule{
 			PolicyID:  []byte("policy-A"),
-			PeerIP:    peerIP,
+			PeerIP:    peerIP, //nolint:staticcheck
 			Direction: mgmProto.RuleDirection_IN,
 			Action:    mgmProto.RuleAction_ACCEPT,
 			Protocol:  mgmProto.RuleProtocol_TCP,
@@ -158,7 +158,7 @@ func TestGroupPeerRulesPortSeparates(t *testing.T) {
 	mkPort := func(peerIP string, port uint32) *mgmProto.FirewallRule {
 		return &mgmProto.FirewallRule{
 			PolicyID:  []byte("policy-A"),
-			PeerIP:    peerIP,
+			PeerIP:    peerIP, //nolint:staticcheck
 			Direction: mgmProto.RuleDirection_IN,
 			Action:    mgmProto.RuleAction_ACCEPT,
 			Protocol:  mgmProto.RuleProtocol_TCP,
@@ -175,7 +175,7 @@ func TestGroupPeerRulesPortSeparates(t *testing.T) {
 
 	rangeRule := &mgmProto.FirewallRule{
 		PolicyID:  []byte("policy-A"),
-		PeerIP:    "10.0.0.4",
+		PeerIP:    "10.0.0.4", //nolint:staticcheck
 		Direction: mgmProto.RuleDirection_IN,
 		Action:    mgmProto.RuleAction_ACCEPT,
 		Protocol:  mgmProto.RuleProtocol_TCP,

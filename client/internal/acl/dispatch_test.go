@@ -5,9 +5,9 @@ import (
 	"sync"
 	"testing"
 
-	"go.uber.org/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	"github.com/netbirdio/netbird/client/firewall"
 	fwmgr "github.com/netbirdio/netbird/client/firewall/manager"
@@ -155,7 +155,7 @@ func TestDuplicateContentPoliciesShareOneRule(t *testing.T) {
 
 	ruleA := &mgmProto.FirewallRule{
 		PolicyID:  []byte("policy-A"),
-		PeerIP:    "10.0.0.1",
+		PeerIP:    "10.0.0.1", //nolint:staticcheck
 		Direction: mgmProto.RuleDirection_IN,
 		Action:    mgmProto.RuleAction_ACCEPT,
 		Protocol:  mgmProto.RuleProtocol_TCP,
@@ -163,7 +163,7 @@ func TestDuplicateContentPoliciesShareOneRule(t *testing.T) {
 	}
 	ruleB := &mgmProto.FirewallRule{
 		PolicyID:  []byte("policy-B"),
-		PeerIP:    "10.0.0.1",
+		PeerIP:    "10.0.0.1", //nolint:staticcheck
 		Direction: mgmProto.RuleDirection_IN,
 		Action:    mgmProto.RuleAction_ACCEPT,
 		Protocol:  mgmProto.RuleProtocol_TCP,
