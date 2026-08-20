@@ -16,11 +16,11 @@ import (
 	"testing"
 	"time"
 
-	"go.uber.org/mock/gomock"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 	"golang.org/x/exp/maps"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
@@ -2825,6 +2825,46 @@ func TestSyncPeer_IPv6CapabilityChangePropagates(t *testing.T) {
 		}, peer2.AccountID)
 		require.NoError(t, err)
 		peerShouldReceiveUpdate(t, updMsg)
+	})
+}
+
+// TestSyncPeer_PeerUpdateBumpsNetworkSerial ensures that a sync which changes
+// map-relevant peer content (agent version, hostname, capabilities, validation
+// state) advances the network serial before other peers receive the recomputed
+// map. The serial versions the distributed map, so its content must not change
+// under an unchanged serial.
+func TestSyncPeer_PeerUpdateBumpsNetworkSerial(t *testing.T) {
+	manager, _, account, _, peer2, _ := setupNetworkMapTest(t)
+
+	network, err := manager.Store.GetAccountNetwork(context.Background(), store.LockingStrengthNone, account.Id)
+	require.NoError(t, err)
+	serialBefore := network.CurrentSerial()
+
+	t.Run("no bump when nothing changed", func(t *testing.T) {
+		_, _, _, _, err := manager.SyncPeer(context.Background(), types.PeerSync{
+			WireGuardPubKey: peer2.Key,
+			Meta:            peer2.Meta,
+		}, peer2.AccountID)
+		require.NoError(t, err)
+
+		network, err := manager.Store.GetAccountNetwork(context.Background(), store.LockingStrengthNone, account.Id)
+		require.NoError(t, err)
+		assert.Equal(t, serialBefore, network.CurrentSerial(), "an unchanged sync should not advance the serial")
+	})
+
+	t.Run("bump when the agent version changes", func(t *testing.T) {
+		newMeta := peer2.Meta
+		newMeta.WtVersion = "0.99.99"
+
+		_, _, _, _, err := manager.SyncPeer(context.Background(), types.PeerSync{
+			WireGuardPubKey: peer2.Key,
+			Meta:            newMeta,
+		}, peer2.AccountID)
+		require.NoError(t, err)
+
+		network, err := manager.Store.GetAccountNetwork(context.Background(), store.LockingStrengthNone, account.Id)
+		require.NoError(t, err)
+		assert.Greater(t, network.CurrentSerial(), serialBefore, "a map-relevant meta change should advance the serial")
 	})
 }
 

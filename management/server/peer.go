@@ -1066,6 +1066,12 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 
 	metaDiffAffectsPosture := posture.AffectsPosture(ctx, &metaDiff, resPostureChecks)
 	if requiresPeerUpdate(ctx, isStatusChanged, sync.UpdateAccountPeers, ipv6CapabilityChanged, metaDiffAffectsPosture, metaDiff.VersionChanged(), metaDiff.HostnameChanged()) {
+		// The maps pushed below carry changed content (the peer's version,
+		// hostname, capabilities, or validation state). The serial versions the
+		// distributed map, so it must advance with the content.
+		if err = am.Store.IncrementNetworkSerial(ctx, accountID); err != nil {
+			return nil, nil, nil, 0, fmt.Errorf("increment network serial: %w", err)
+		}
 		changedPeerIDs := []string{peer.ID}
 		affectedPeerIDs := am.syncPeerAffectedPeers(ctx, accountID, peer.ID, nmap, peerNotValid, metaDiffAffectsPosture)
 		if err = am.networkMapController.OnPeersUpdated(ctx, accountID, changedPeerIDs, affectedPeerIDs); err != nil {
@@ -1236,6 +1242,11 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 	}
 
 	if shouldUpdatePeers {
+		// The maps pushed below carry changed peer content. The serial versions
+		// the distributed map, so it must advance with the content.
+		if err = am.Store.IncrementNetworkSerial(ctx, accountID); err != nil {
+			return nil, nil, nil, false, fmt.Errorf("increment network serial: %w", err)
+		}
 		changedPeerIDs := []string{peer.ID}
 		affectedPeerIDs := am.resolveAffectedPeersForPeerChanges(ctx, am.Store, accountID, changedPeerIDs)
 		if err = am.networkMapController.OnPeersUpdated(ctx, accountID, changedPeerIDs, affectedPeerIDs); err != nil {
