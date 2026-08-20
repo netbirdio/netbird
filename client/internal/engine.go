@@ -863,15 +863,20 @@ func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 		}
 	}
 
-	// second, close all modified connections and remove them from the state map,
-	// remembering which of them were active
+	// second, look up the activation state of all modified peers before removing
+	// any of them, so an unavailable state leaves the current connections intact
 	active := make(map[string]bool, len(modified))
 	for _, p := range modified {
 		peerPubKey := p.GetWgPubKey()
-		if state, err := e.statusRecorder.GetPeer(peerPubKey); err == nil {
-			active[peerPubKey] = state.ConnStatus != peer.StatusIdle
+		state, err := e.statusRecorder.GetPeer(peerPubKey)
+		if err != nil {
+			return fmt.Errorf("get status of modified peer %s: %w", peerPubKey, err)
 		}
-		if err := e.removePeer(peerPubKey); err != nil {
+		active[peerPubKey] = state.ConnStatus != peer.StatusIdle
+	}
+	// then close all modified connections and remove them from the state map
+	for _, p := range modified {
+		if err := e.removePeer(p.GetWgPubKey()); err != nil {
 			return err
 		}
 	}
