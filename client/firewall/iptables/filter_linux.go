@@ -38,19 +38,41 @@ func (r *family) AddFilterRule(
 		return existing, nil
 	}
 
-	srcMatch, err := r.applySourceMatch(sourceNetwork(sources), sources)
+	rule, err := r.installFilterRules(ruleID, sources, destination, proto, sPort, dPort, action, r.ipsetSupported)
 	if err != nil {
-		return nil, fmt.Errorf("apply source match: %w", err)
-	}
-
-	rule, err := r.installFilterRule(ruleID, srcMatch, destination, proto, sPort, dPort, action)
-	if err != nil {
-		r.dropSourceMatch(srcMatch)
 		return nil, err
 	}
 
 	r.filters[ruleID] = rule
 	r.updateState()
+	return rule, nil
+}
+
+// installFilterRules resolves the source matches and installs one
+// iptables rule per match. It is more than one rule only when useIPSet
+// is false and a multi-source rule has to be expanded per prefix.
+func (r *family) installFilterRules(
+	ruleID nbid.RuleID,
+	sources []netip.Prefix,
+	destination firewall.Network,
+	proto firewall.Protocol,
+	sPort *firewall.Port,
+	dPort *firewall.Port,
+	action firewall.Action,
+	useIPSet bool,
+) (*Rule, error) {
+	srcMatches, err := r.applySourceMatches(sources, useIPSet)
+	if err != nil {
+		return nil, fmt.Errorf("apply source match: %w", err)
+	}
+
+	rule, err := r.installFilterRule(ruleID, srcMatches, destination, proto, sPort, dPort, action)
+	if err != nil {
+		for _, srcMatch := range srcMatches {
+			r.dropSourceMatch(srcMatch)
+		}
+		return nil, err
+	}
 	return rule, nil
 }
 
@@ -80,25 +102,28 @@ func (r *family) DeleteFilterRule(rule firewall.Rule) error {
 		return nil
 	}
 
-	// DeleteIfExists keeps both deletes idempotent so a retry after a
-	// partial failure does not error on the half that was already removed.
+	// DeleteIfExists keeps the deletes idempotent so a retry after a
+	// partial failure does not error on the parts already removed.
 	var merr *multierror.Error
-	if err := r.iptablesClient.DeleteIfExists(tableFilter, pr.chain, pr.specs...); err != nil {
-		merr = multierror.Append(merr, fmt.Errorf("delete rule from %s: %w", pr.chain, err))
-	}
-	if pr.mangleSpecs != nil {
-		if err := r.iptablesClient.DeleteIfExists(tableMangle, chainRTPre, pr.mangleSpecs...); err != nil {
-			merr = multierror.Append(merr, fmt.Errorf("delete mangle rule: %w", err))
+	for _, fs := range pr.allSpecs() {
+		if err := r.iptablesClient.DeleteIfExists(tableFilter, pr.chain, fs.specs...); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("delete rule from %s: %w", pr.chain, err))
+		}
+		if fs.mangleSpecs != nil {
+			if err := r.iptablesClient.DeleteIfExists(tableMangle, chainRTPre, fs.mangleSpecs...); err != nil {
+				merr = multierror.Append(merr, fmt.Errorf("delete mangle rule: %w", err))
+			}
 		}
 	}
 	if merr != nil {
-		// Leave the rule tracked so the caller retries the remaining half.
+		// Leave the rule tracked so the caller retries the remaining part.
 		return nberrors.FormatErrorOrNil(merr)
 	}
 
 	// The rule is gone from iptables, so untrack it regardless of how the
 	// refcount decrement goes, but surface decrement failures so callers
-	// see the ipset desync.
+	// see the ipset desync. Only the primary spec can reference sets: the
+	// per-prefix expansion never uses them.
 	delete(r.filters, ruleID)
 	r.updateState()
 	if err := r.decrementSetCounter(pr.specs); err != nil {
@@ -134,6 +159,28 @@ func sourceNetwork(sources []netip.Prefix) firewall.Network {
 	default:
 		return firewall.Network{Set: firewall.NewPrefixSet(sources)}
 	}
+}
+
+// applySourceMatches returns one source match fragment per iptables
+// rule needed for the sources: normally a single fragment (a set match,
+// a direct -s match, or nil for match-any), and one -s fragment per
+// prefix when a multi-source rule cannot use ipset. Per-prefix rules
+// are the only form a kernel without the ipset modules can express.
+func (r *family) applySourceMatches(sources []netip.Prefix, useIPSet bool) ([][]string, error) {
+	network := sourceNetwork(sources)
+	if !network.IsSet() || useIPSet {
+		match, err := r.applySourceMatch(network, sources)
+		if err != nil {
+			return nil, err
+		}
+		return [][]string{match}, nil
+	}
+
+	matches := make([][]string, 0, len(sources))
+	for _, source := range sources {
+		matches = append(matches, []string{"-s", source.String()})
+	}
+	return matches, nil
 }
 
 // applySourceMatch returns the iptables match fragment for the rule's
@@ -188,14 +235,15 @@ func (r *family) decrementSetCounter(rule []string) error {
 	return nberrors.FormatErrorOrNil(merr)
 }
 
-// installFilterRule assembles and writes one iptables filter-chain
-// rule. With destination empty the rule lands in the peer ACL input
-// chain and a paired mangle PREROUTING rule is added for the redirect
-// mark. With destination set the rule lands in the route ACL forward
-// chain and there is no mangle pairing.
+// installFilterRule assembles and writes the iptables filter-chain
+// rules for one filter rule, one per source match fragment. With
+// destination empty the rules land in the peer ACL input chain and each
+// gets a paired mangle PREROUTING rule for the redirect mark. With
+// destination set the rules land in the route ACL forward chain and
+// there is no mangle pairing.
 func (r *family) installFilterRule(
 	ruleID nbid.RuleID,
-	srcMatch []string,
+	srcMatches [][]string,
 	destination firewall.Network,
 	protocol firewall.Protocol,
 	sPort, dPort *firewall.Port,
@@ -205,7 +253,6 @@ func (r *family) installFilterRule(
 
 	proto := protoForFamily(protocol, r.v6)
 
-	specs := slices.Clone(srcMatch)
 	var destExp []string
 	if isRoute {
 		var err error
@@ -213,62 +260,91 @@ func (r *family) installFilterRule(
 		if err != nil {
 			return nil, fmt.Errorf("apply network -d: %w", err)
 		}
-		specs = append(specs, destExp...)
 	}
-	specs = append(specs, filterMatchSpecs(proto, sPort, dPort)...)
-
-	var mangleSpecs []string
-	if !isRoute {
-		mangleSpecs = slices.Clone(specs)
-		mangleSpecs = append(mangleSpecs,
-			"-i", r.wgIface.Name(),
-			"-m", "addrtype", "--dst-type", "LOCAL",
-			"-j", "MARK", "--set-xmark", fmt.Sprintf("%#x", nbnet.PreroutingFwmarkRedirected),
-		)
-	}
-
-	specs = append(specs, "-j", actionToStr(action))
+	matchSpecs := filterMatchSpecs(proto, sPort, dPort)
 
 	chain := chainACLInput
 	if isRoute {
 		chain = chainRTFwdIn
 	}
 
-	// Peer ACL drops are inserted at position 1 so they precede the
-	// chain's catch-all; route ACL drops are inserted at position 2
-	// to sit immediately after the established/related accept rule.
-	var err error
-	if action == firewall.ActionDrop {
-		pos := 1
-		if isRoute {
-			pos = 2
-		}
-		err = r.iptablesClient.Insert(tableFilter, chain, pos, specs...)
-	} else {
-		err = r.iptablesClient.Append(tableFilter, chain, specs...)
-	}
-	if err != nil {
-		r.dropSourceMatch(destExp)
-		return nil, fmt.Errorf("install filter rule on %s: %w", chain, err)
-	}
+	var installed []filterSpecs
+	for _, srcMatch := range srcMatches {
+		specs := slices.Clone(srcMatch)
+		specs = append(specs, destExp...)
+		specs = append(specs, matchSpecs...)
 
-	// The mangle redirect-mark rule is best effort: the filter rule itself
-	// is what enforces the ACL, so a mangle failure must not undo it. Drop
-	// the spec so teardown does not try to remove a rule that was not added.
-	if mangleSpecs != nil {
-		if err := r.iptablesClient.Append(tableMangle, chainRTPre, mangleSpecs...); err != nil {
-			log.Errorf("add mangle rule: %v", err)
-			mangleSpecs = nil
+		var mangleSpecs []string
+		if !isRoute {
+			mangleSpecs = slices.Clone(specs)
+			mangleSpecs = append(mangleSpecs,
+				"-i", r.wgIface.Name(),
+				"-m", "addrtype", "--dst-type", "LOCAL",
+				"-j", "MARK", "--set-xmark", fmt.Sprintf("%#x", nbnet.PreroutingFwmarkRedirected),
+			)
 		}
+
+		specs = append(specs, "-j", actionToStr(action))
+
+		if err := r.insertFilterRule(chain, action, specs); err != nil {
+			// Leave nothing half-installed: the caller sees an error, so a
+			// partial rule would silently keep matching without being tracked.
+			r.removeFilterSpecs(chain, installed)
+			r.dropSourceMatch(destExp)
+			return nil, fmt.Errorf("install filter rule on %s: %w", chain, err)
+		}
+
+		// The mangle redirect-mark rule is best effort: the filter rule itself
+		// is what enforces the ACL, so a mangle failure must not undo it. Drop
+		// the spec so teardown does not try to remove a rule that was not added.
+		if mangleSpecs != nil {
+			if err := r.iptablesClient.Append(tableMangle, chainRTPre, mangleSpecs...); err != nil {
+				log.Errorf("add mangle rule: %v", err)
+				mangleSpecs = nil
+			}
+		}
+
+		installed = append(installed, filterSpecs{specs: specs, mangleSpecs: mangleSpecs})
 	}
 
 	return &Rule{
 		id:          ruleID,
-		specs:       specs,
-		mangleSpecs: mangleSpecs,
+		specs:       installed[0].specs,
+		mangleSpecs: installed[0].mangleSpecs,
+		extraRules:  installed[1:],
 		chain:       chain,
 		v6:          r.v6,
 	}, nil
+}
+
+// insertFilterRule writes one assembled rule spec into the given ACL
+// chain. Peer ACL drops are inserted at position 1 so they precede the
+// chain's catch-all; route ACL drops are inserted at position 2 to sit
+// immediately after the established/related accept rule.
+func (r *family) insertFilterRule(chain string, action firewall.Action, specs []string) error {
+	if action == firewall.ActionDrop {
+		pos := 1
+		if chain == chainRTFwdIn {
+			pos = 2
+		}
+		return r.iptablesClient.Insert(tableFilter, chain, pos, specs...)
+	}
+	return r.iptablesClient.Append(tableFilter, chain, specs...)
+}
+
+// removeFilterSpecs deletes the already-installed rules of a partially
+// applied filter rule.
+func (r *family) removeFilterSpecs(chain string, installed []filterSpecs) {
+	for _, fs := range installed {
+		if err := r.iptablesClient.DeleteIfExists(tableFilter, chain, fs.specs...); err != nil {
+			log.Debugf("delete partial filter rule: %v", err)
+		}
+		if fs.mangleSpecs != nil {
+			if err := r.iptablesClient.DeleteIfExists(tableMangle, chainRTPre, fs.mangleSpecs...); err != nil {
+				log.Debugf("delete partial mangle rule: %v", err)
+			}
+		}
+	}
 }
 
 // applyNetwork resolves a firewall.Network into the iptables match
