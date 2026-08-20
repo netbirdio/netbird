@@ -61,6 +61,7 @@ func TestGetPeers(t *testing.T) {
 		},
 		ProxyMeta: nmdata.ProxyMeta{
 			Embedded: true,
+			Cluster:  "cluster-1.netbird.services",
 		},
 		Location: nmdata.PeerLocation{
 			CountryCode:  "DE",
@@ -102,6 +103,7 @@ func TestGetPeers(t *testing.T) {
 		},
 		ProxyMeta: nmdata.ProxyMeta{
 			Embedded: true,
+			Cluster:  "cluster-2.netbird.services",
 		},
 		Location: nmdata.PeerLocation{
 			CountryCode:  "DE",
@@ -143,6 +145,7 @@ func TestGetPeers(t *testing.T) {
 		},
 		ProxyMeta: nmdata.ProxyMeta{
 			Embedded: true,
+			Cluster:  "cluster-3.netbird.services",
 		},
 		Location: nmdata.PeerLocation{
 			CountryCode:  "DE",

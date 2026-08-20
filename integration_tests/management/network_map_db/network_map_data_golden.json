@@ -45,7 +45,8 @@
         "SyncMessageVersion": 1
       },
       "ProxyMeta": {
-        "Embedded": true
+        "Embedded": true,
+        "Cluster": "cluster-1.netbird.services"
       },
       "Location": {
         "CountryCode": "DE",
@@ -98,7 +99,8 @@
         "SyncMessageVersion": 0
       },
       "ProxyMeta": {
-        "Embedded": true
+        "Embedded": true,
+        "Cluster": "cluster-2.netbird.services"
       },
       "Location": {
         "CountryCode": "DE",
@@ -151,7 +153,8 @@
         "SyncMessageVersion": 1
       },
       "ProxyMeta": {
-        "Embedded": true
+        "Embedded": true,
+        "Cluster": "cluster-3.netbird.services"
       },
       "Location": {
         "CountryCode": "DE",
@@ -512,5 +515,6 @@
       }
     }
   ],
-  "PrivateServiceCandidates": null
+  "PrivateServiceCandidates": null,
+  "Services": null
 }
