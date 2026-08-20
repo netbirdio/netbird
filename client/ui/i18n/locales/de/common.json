@@ -767,7 +767,7 @@
         "message": "Verbirgt IP-Adressen, Domains und andere sensible Werte."
     },
     "settings.troubleshooting.anonymize.info": {
-        "message": "Standard lässt interne IPv4-Adressen und Peer-Namen für den Support lesbar. Strikt anonymisiert zusätzlich private (RFC 1918), CGNAT- und Link-Local-IP-Adressen, Peer-Namen und öffentliche WireGuard-Schlüssel. Wiederkehrende Werte erhalten denselben Platzhalter, sodass Peers unterscheidbar bleiben. Verwenden Sie Strikt, wenn Sie das Debug-Paket außerhalb Ihrer Organisation weitergeben."
+        "message": "Der Standardmodus lässt interne IPv4-Adressen und Peer-Namen für den Support lesbar. Der strikte Modus anonymisiert zusätzlich private (RFC 1918), CGNAT- und Link-Local-IP-Adressen, Peer-Namen und öffentliche WireGuard-Schlüssel. Wiederkehrende Werte erhalten denselben Platzhalter, sodass Peers unterscheidbar bleiben. Verwenden Sie den strikten Modus, wenn Sie das Debug-Paket außerhalb Ihrer Organisation weitergeben."
     },
     "settings.troubleshooting.anonymize.none": {
         "message": "Keine"

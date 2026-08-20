@@ -767,7 +767,7 @@
         "message": "Oculta direcciones IP, dominios y otros valores sensibles."
     },
     "settings.troubleshooting.anonymize.info": {
-        "message": "Predeterminado mantiene legibles las direcciones IPv4 internas y los nombres de los peers para el soporte. Estricto anonimiza además las direcciones IP privadas (RFC 1918), CGNAT y de enlace local, los nombres de los peers y las claves públicas de WireGuard. Los valores recurrentes se asignan al mismo marcador de posición, por lo que los peers siguen siendo distinguibles. Use Estricto cuando comparta el paquete de diagnóstico fuera de su organización."
+        "message": "El modo predeterminado mantiene legibles las direcciones IPv4 internas y los nombres de los peers para el soporte. El modo estricto anonimiza además las direcciones IP privadas (RFC 1918), CGNAT y de enlace local, los nombres de los peers y las claves públicas de WireGuard. Los valores recurrentes se asignan al mismo marcador de posición, por lo que los peers siguen siendo distinguibles. Use el modo estricto cuando comparta el paquete de diagnóstico fuera de su organización."
     },
     "settings.troubleshooting.anonymize.none": {
         "message": "Ninguno"

@@ -767,7 +767,7 @@
         "message": "Nasconde indirizzi IP, domini e altri valori sensibili."
     },
     "settings.troubleshooting.anonymize.info": {
-        "message": "Predefinito mantiene leggibili gli indirizzi IPv4 interni e i nomi dei peer per il supporto. Rigoroso anonimizza inoltre gli indirizzi IP privati (RFC 1918), CGNAT e link-local, i nomi dei peer e le chiavi pubbliche WireGuard. I valori ricorrenti vengono associati allo stesso segnaposto, quindi i peer restano distinguibili. Usa Rigoroso quando condividi il pacchetto di debug al di fuori della tua organizzazione."
+        "message": "La modalità predefinita mantiene leggibili gli indirizzi IPv4 interni e i nomi dei peer per il supporto. La modalità rigorosa anonimizza inoltre gli indirizzi IP privati (RFC 1918), CGNAT e link-local, i nomi dei peer e le chiavi pubbliche WireGuard. I valori ricorrenti vengono associati allo stesso segnaposto, quindi i peer restano distinguibili. Usa la modalità rigorosa quando condividi il pacchetto di debug al di fuori della tua organizzazione."
     },
     "settings.troubleshooting.anonymize.none": {
         "message": "Nessuna"

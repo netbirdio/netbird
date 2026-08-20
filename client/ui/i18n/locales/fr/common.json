@@ -767,7 +767,7 @@
         "message": "Masque les adresses IP, les domaines et d'autres valeurs sensibles."
     },
     "settings.troubleshooting.anonymize.info": {
-        "message": "Par défaut garde les adresses IPv4 internes et les noms des pairs lisibles pour le support. Strict anonymise en plus les adresses IP privées (RFC 1918), CGNAT et de lien local, les noms des pairs et les clés publiques WireGuard. Les valeurs récurrentes reçoivent le même espace réservé, les pairs restent donc distinguables. Utilisez Strict lorsque vous partagez le lot de diagnostic en dehors de votre organisation."
+        "message": "Le mode par défaut garde les adresses IPv4 internes et les noms des pairs lisibles pour le support. Le mode strict anonymise en plus les adresses IP privées (RFC 1918), CGNAT et de lien local, les noms des pairs et les clés publiques WireGuard. Les valeurs récurrentes reçoivent le même espace réservé, les pairs restent donc distinguables. Utilisez le mode strict lorsque vous partagez le lot de diagnostic en dehors de votre organisation."
     },
     "settings.troubleshooting.anonymize.none": {
         "message": "Aucune"
