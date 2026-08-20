@@ -325,7 +325,12 @@ func runLiveDiscoveryCase(t *testing.T, ctx context.Context, tc liveDiscoveryCas
 	code, body := callUntil(t, func() (int, string, error) {
 		return cl.Get(ctx, endpoint, proxyIP, tc.path, tc.headers)
 	}, 200)
-	t.Logf("[discovery] %s GET %s -> %d; body: %s", tc.name, tc.path, code, truncate(body, 4000))
+	// Status only, not the body. A Bedrock listing embeds inference-profile
+	// ARNs carrying the 12-digit AWS account id, and these job logs are
+	// readable by anyone who can see the run. The ids line below is the finding
+	// anyway; the assertion messages still carry the body, and those only
+	// render on a failure that needs diagnosing.
+	t.Logf("[discovery] %s GET %s -> %d", tc.name, tc.path, code)
 	require.Equal(t, 200, code, "%s discovery must be served; body: %s", tc.name, truncate(body, 2000))
 
 	ids, ok := listingIDs(body)
