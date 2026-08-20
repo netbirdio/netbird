@@ -478,7 +478,7 @@ func TestEngine_ModifiedPeerKeepsActivationState(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(CtxInitState(context.Background()))
-	defer cancel()
+	t.Cleanup(cancel)
 
 	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
 	engine := NewEngine(ctx, cancel, &EngineConfig{
@@ -528,11 +528,13 @@ func TestEngine_ModifiedPeerKeepsActivationState(t *testing.T) {
 	}
 	udpConn, err := net.ListenUDP("udp4", nil)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = udpConn.Close() })
 	engine.udpMux = udpmux.NewUniversalUDPMuxDefault(udpmux.UniversalUDPMuxParams{UDPConn: udpConn, MTU: 1280})
 	engine.ctx = ctx
 	engine.srWatcher = guard.NewSRWatcher(nil, nil, nil, icemaker.Config{})
 	engine.connMgr = NewConnMgr(engine.config, engine.statusRecorder, engine.peerStore, wgIface)
 	engine.connMgr.Start(ctx)
+	t.Cleanup(engine.connMgr.Close)
 
 	// No agent version: not lazy-capable, so the connection opens permanently.
 	activePeer := &mgmtProto.RemotePeerConfig{
