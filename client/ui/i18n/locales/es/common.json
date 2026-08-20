@@ -764,7 +764,19 @@
         "message": "Anonimizar información sensible"
     },
     "settings.troubleshooting.anonymize.help": {
-        "message": "Oculta las direcciones IP públicas y los dominios ajenos a NetBird de los registros."
+        "message": "Oculta direcciones IP, dominios y otros valores sensibles."
+    },
+    "settings.troubleshooting.anonymize.info": {
+        "message": "Predeterminado mantiene legibles las direcciones IPv4 internas y los nombres de los peers para el soporte. Estricto anonimiza además las direcciones IP privadas (RFC 1918), CGNAT y de enlace local, los nombres de los peers y las claves públicas de WireGuard. Los valores recurrentes se asignan al mismo marcador de posición, por lo que los peers siguen siendo distinguibles. Use Estricto cuando comparta el paquete de diagnóstico fuera de su organización."
+    },
+    "settings.troubleshooting.anonymize.none": {
+        "message": "Ninguno"
+    },
+    "settings.troubleshooting.anonymize.default": {
+        "message": "Predeterminado"
+    },
+    "settings.troubleshooting.anonymize.strict": {
+        "message": "Estricto"
     },
     "settings.troubleshooting.systemInfo.label": {
         "message": "Incluir información del sistema"
@@ -1338,5 +1350,14 @@
     },
     "error.unknown": {
         "message": "La operación falló."
+    },
+    "settings.ssh.privilege.hint": {
+        "message": "Requiere {actor}. Ejecute esto en su lugar:"
+    },
+    "settings.ssh.privilege.oneWay": {
+        "message": "Puede desactivarlo, pero volver a activarlo requiere {actor}:"
+    },
+    "settings.ssh.privilege.oneWayInverted": {
+        "message": "Puede activarlo, pero volver a desactivarlo requiere {actor}:"
     }
 }

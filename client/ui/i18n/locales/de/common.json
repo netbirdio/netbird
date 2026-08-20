@@ -764,7 +764,19 @@
         "message": "Sensible Informationen anonymisieren"
     },
     "settings.troubleshooting.anonymize.help": {
-        "message": "Versteckt öffentliche IP-Adressen und nicht-NetBird-Domains in Logs."
+        "message": "Verbirgt IP-Adressen, Domains und andere sensible Werte."
+    },
+    "settings.troubleshooting.anonymize.info": {
+        "message": "Standard lässt interne IPv4-Adressen und Peer-Namen für den Support lesbar. Strikt anonymisiert zusätzlich private (RFC 1918), CGNAT- und Link-Local-IP-Adressen, Peer-Namen und öffentliche WireGuard-Schlüssel. Wiederkehrende Werte erhalten denselben Platzhalter, sodass Peers unterscheidbar bleiben. Verwenden Sie Strikt, wenn Sie das Debug-Paket außerhalb Ihrer Organisation weitergeben."
+    },
+    "settings.troubleshooting.anonymize.none": {
+        "message": "Keine"
+    },
+    "settings.troubleshooting.anonymize.default": {
+        "message": "Standard"
+    },
+    "settings.troubleshooting.anonymize.strict": {
+        "message": "Strikt"
     },
     "settings.troubleshooting.systemInfo.label": {
         "message": "Systeminformationen einschließen"
@@ -1338,5 +1350,14 @@
     },
     "error.unknown": {
         "message": "Vorgang fehlgeschlagen."
+    },
+    "settings.ssh.privilege.hint": {
+        "message": "Erfordert {actor}. Führen Sie stattdessen dies aus:"
+    },
+    "settings.ssh.privilege.oneWay": {
+        "message": "Sie können dies deaktivieren, aber zum erneuten Aktivieren sind {actor} erforderlich:"
+    },
+    "settings.ssh.privilege.oneWayInverted": {
+        "message": "Sie können dies aktivieren, aber zum erneuten Deaktivieren sind {actor} erforderlich:"
     }
 }
