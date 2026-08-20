@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	cachestore "github.com/eko/gocache/lib/v4/store"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -31,7 +30,7 @@ import (
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
-func testCacheStore(t *testing.T) cachestore.StoreInterface {
+func testCacheStore(t *testing.T) nbcache.Store {
 	t.Helper()
 	s, err := nbcache.NewStore(context.Background(), 30*time.Minute, 10*time.Minute, 100)
 	require.NoError(t, err)
@@ -295,6 +294,7 @@ func TestPersistNewService(t *testing.T) {
 		assert.Equal(t, status.AlreadyExists, sErr.Type())
 	})
 }
+
 func TestPreserveExistingAuthSecrets(t *testing.T) {
 	mgr := &Manager{}
 
