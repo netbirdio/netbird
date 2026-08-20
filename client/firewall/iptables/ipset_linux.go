@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/netip"
 
+	"github.com/google/uuid"
 	"github.com/hashicorp/go-multierror"
 	"github.com/lrh3321/ipset-go"
 	log "github.com/sirupsen/logrus"
@@ -13,6 +14,32 @@ import (
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 )
+
+// probeIPSetSupport checks whether the kernel can create the ipset type
+// used for source and destination matches. On kernels lacking the
+// required ipset hash module, set creation fails (e.g. "invalid
+// argument"), which would otherwise fail every multi-source rule and
+// leave traffic the policy permits blocked by the catch-all drop. When
+// unsupported, multi-source rules fall back to one rule per prefix.
+func (r *family) probeIPSetSupport() bool {
+	// Use a unique name so concurrent processes don't collide and we only ever
+	// destroy the set we created ourselves. ipset names are limited to 31 chars,
+	// so use a short random suffix.
+	probeName := "nb-probe-" + uuid.New().String()[:8]
+
+	if err := r.createIPSet(probeName); err != nil {
+		log.Warnf("ipset is not available (failed to create probe set: %v); "+
+			"falling back to per-IP iptables ACL rules. Ensure the kernel provides "+
+			"the ipset hash:net module (ip_set_hash_net) for better performance with large rule sets", err)
+		return false
+	}
+
+	if err := r.destroyIPSet(probeName); err != nil {
+		log.Debugf("destroy ipset probe set %q: %v", probeName, err)
+	}
+
+	return true
+}
 
 func (r *family) createIpSet(setName string, sources []netip.Prefix) error {
 	if err := r.createIPSet(setName); err != nil {

@@ -247,6 +247,99 @@ func TestIptablesManagerIPSet(t *testing.T) {
 	})
 }
 
+// TestIptablesFilterIPSetFallback verifies that when the kernel lacks
+// ipset support, a multi-source rule falls back to one iptables rule
+// per source prefix instead of silently leaving the chain empty. See
+// discussion #6125.
+func TestIptablesFilterIPSetFallback(t *testing.T) {
+	ipv4Client, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
+	require.NoError(t, err)
+
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
+	require.NoError(t, err)
+	require.NoError(t, manager.Init(nil))
+
+	defer func() {
+		require.NoError(t, manager.Close(nil))
+	}()
+
+	// Simulate a kernel without the ipset hash module.
+	manager.family4.ipsetSupported = false
+
+	sources := []netip.Prefix{
+		netip.MustParsePrefix("10.20.0.42/32"),
+		netip.MustParsePrefix("10.20.0.43/32"),
+	}
+	port := &fw.Port{Values: []uint16{22}}
+
+	rule, err := manager.AddFilterRule(nil, sources, fw.Network{}, "tcp", nil, port, fw.ActionAccept)
+	require.NoError(t, err, "AddFilterRule should succeed via fallback")
+
+	rr := rule.(*Rule)
+	all := rr.allSpecs()
+	require.Len(t, all, len(sources), "each source prefix needs its own rule")
+	for i, fs := range all {
+		joined := strings.Join(fs.specs, " ")
+		require.Contains(t, joined, "-s "+sources[i].String(), "fallback rule must match by source prefix")
+		require.NotContains(t, joined, matchSet, "fallback rule must not use ipset matching")
+
+		// The rule must actually be present in the ACL chain (not silently dropped).
+		checkRuleSpecs(t, ipv4Client, rr.chain, true, fs.specs...)
+	}
+
+	require.NoError(t, manager.DeleteFilterRule(rule), "failed to delete fallback rule")
+	for _, fs := range all {
+		checkRuleSpecs(t, ipv4Client, rr.chain, false, fs.specs...)
+	}
+}
+
+// TestIptablesRouteFilterIPSetFallback covers the route ACL side of the
+// fallback: with a destination set, the expanded per-source rules land
+// in the route forward chain and are all removed on delete.
+func TestIptablesRouteFilterIPSetFallback(t *testing.T) {
+	ipv4Client, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
+	require.NoError(t, err)
+
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
+	require.NoError(t, err)
+	require.NoError(t, manager.Init(nil))
+
+	defer func() {
+		require.NoError(t, manager.Close(nil))
+	}()
+
+	manager.family4.ipsetSupported = false
+
+	sources := []netip.Prefix{
+		netip.MustParsePrefix("172.16.0.0/16"),
+		netip.MustParsePrefix("192.168.0.0/16"),
+	}
+	destination := fw.Network{Prefix: netip.MustParsePrefix("10.0.0.0/8")}
+	port := &fw.Port{Values: []uint16{443}}
+
+	rule, err := manager.AddFilterRule(nil, sources, destination, "tcp", nil, port, fw.ActionAccept)
+	require.NoError(t, err, "route ACL must install without ipset")
+
+	rr := rule.(*Rule)
+	require.Equal(t, chainRTFwdIn, rr.chain, "route rule must land in the forward chain")
+
+	all := rr.allSpecs()
+	require.Len(t, all, len(sources), "each source prefix needs its own rule")
+	for i, fs := range all {
+		joined := strings.Join(fs.specs, " ")
+		require.Contains(t, joined, "-s "+sources[i].String(), "fallback rule must match by source prefix")
+		require.NotContains(t, joined, matchSet, "fallback rule must not use ipset matching")
+		require.Nil(t, fs.mangleSpecs, "route rules have no mangle pairing")
+
+		checkRuleSpecs(t, ipv4Client, rr.chain, true, fs.specs...)
+	}
+
+	require.NoError(t, manager.DeleteFilterRule(rule), "failed to delete fallback rule")
+	for _, fs := range all {
+		checkRuleSpecs(t, ipv4Client, rr.chain, false, fs.specs...)
+	}
+}
+
 func checkRuleSpecs(t *testing.T, ipv4Client *iptables.IPTables, chainName string, mustExists bool, rulespec ...string) {
 	t.Helper()
 	exists, err := ipv4Client.Exists("filter", chainName, rulespec...)
