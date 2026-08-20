@@ -107,13 +107,13 @@ func groupWriteAllowed(uid, gid uint32) bool {
 // says nothing about who is in it: a group that has since gained a member is
 // still named that way, and that member can write whatever the group can. So the
 // membership is read rather than assumed. A group whose members cannot be
-// listed, because no source on this host describes it, leaves the name as the
-// only thing to go on.
+// listed, because no source on this host describes it, is treated as shared:
+// the name alone cannot vouch for who writes through it.
 func groupHasOtherMembers(name, owner string) bool {
 	members, err := getent.GroupMembers(name)
 	if err != nil {
-		log.Debugf("cannot list the members of group %q, going by its name alone: %v", name, err)
-		return false
+		log.Debugf("cannot list the members of group %q, treating it as shared: %v", name, err)
+		return true
 	}
 	return slices.ContainsFunc(members, func(member string) bool { return member != owner })
 }

@@ -93,12 +93,11 @@ func TestCheckOnlyOwnerWritableAcceptsOwnPrivateGroup(t *testing.T) {
 	assert.NoError(t, err, "group write in the owner's own private group reaches nobody else")
 }
 
-// A group whose membership no source can answer for leaves the name as the only
-// thing to go on, so the private-group allowance stands rather than collapsing on
-// every host whose groups come from an unreadable source. The membership listing
-// itself lives in the getent package and is tested there.
-func TestGroupHasOtherMembersTolerantOfAnUnknownGroup(t *testing.T) {
-	assert.False(t, groupHasOtherMembers("nonexistent_group_xyzzy_12345", "vma"),
+// A group whose membership no source can answer for is treated as shared: the
+// private-group allowance must not stand on a name nobody can vouch for. The
+// membership listing itself lives in the getent package and is tested there.
+func TestGroupHasOtherMembersRejectsAnUnknownGroup(t *testing.T) {
+	assert.True(t, groupHasOtherMembers("nonexistent_group_xyzzy_12345", "vma"),
 		"a group no source describes")
 }
 
