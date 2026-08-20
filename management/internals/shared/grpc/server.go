@@ -423,7 +423,9 @@ func (s *Server) handleUpdates(ctx context.Context, accountID string, peerKey wg
 	// Create a debouncer for this peer connection
 	debouncer := NewUpdateDebouncer(1000 * time.Millisecond)
 	defer debouncer.Stop()
-	ticker := time.NewTicker(1 * time.Second)
+
+	tickerInterval := 1 * time.Minute
+	ticker := time.NewTicker(tickerInterval)
 
 	for {
 		select {
@@ -449,6 +451,7 @@ func (s *Server) handleUpdates(ctx context.Context, accountID string, peerKey wg
 				}
 			}
 
+			ticker.Reset(tickerInterval)
 			if err := s.accountManager.RefreshPeerLastSeen(ctx, accountID, peer.ID); err != nil {
 				log.WithContext(ctx).Debugf("error updating peer's last seen timestamp %s: %v", peerKey.String(), err)
 				return err
@@ -468,6 +471,7 @@ func (s *Server) handleUpdates(ctx context.Context, accountID string, peerKey wg
 				}
 			}
 
+			ticker.Reset(tickerInterval)
 			if err := s.accountManager.RefreshPeerLastSeen(ctx, accountID, peer.ID); err != nil {
 				log.WithContext(ctx).Debugf("error updating peer's last seen timestamp %s: %v", peerKey.String(), err)
 				return err
