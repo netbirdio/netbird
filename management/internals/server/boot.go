@@ -24,13 +24,15 @@ import (
 
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/formatter/hook"
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	accesslogsmanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs/manager"
+	proxyactivity "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/activity"
+	proxyactivitymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/activity/manager"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/activity"
 	activitystore "github.com/netbirdio/netbird/management/server/activity/store"
-	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
 	nbhttp "github.com/netbirdio/netbird/management/server/http"
@@ -184,6 +186,10 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 			grpc.ChainStreamInterceptor(realip.StreamServerInterceptorOpts(realipOpts...), streamInterceptor, proxyStream),
 		}
 
+		// Append interceptors contributed by registered gRPC extensions. These
+		// run after the built-in chain (ChainUnaryInterceptor is additive).
+		gRPCOpts = appendExtensionInterceptors(gRPCOpts, s.grpcExtensions)
+
 		if s.Config.HttpConfig.LetsEncryptDomain != "" {
 			certManager, err := encryption.CreateCertManager(s.Config.Datadir, s.Config.HttpConfig.LetsEncryptDomain)
 			if err != nil {
@@ -215,6 +221,9 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 		mgmtProto.RegisterProxyServiceServer(gRPCAPIHandler, s.ReverseProxyGRPCServer())
 		log.Info("ProxyService registered on gRPC server")
 
+		// Register services contributed by external modules via the extension seam.
+		registerExtensions(gRPCAPIHandler, s.grpcExtensions)
+
 		return gRPCAPIHandler
 	})
 }
@@ -224,6 +233,7 @@ func (s *BaseServer) ReverseProxyGRPCServer() *nbgrpc.ProxyServiceServer {
 		proxyService := nbgrpc.NewProxyServiceServer(s.AccessLogsManager(), s.ProxyTokenStore(), s.PKCEVerifierStore(), s.proxyOIDCConfig(), s.PeersManager(), s.UsersManager(), s.IdpManager(), s.ProxyManager(), s.Store())
 		s.AfterInit(func(s *BaseServer) {
 			proxyService.SetServiceManager(s.ServiceManager())
+			proxyService.SetActivityManager(s.ProxyActivityManager())
 			proxyService.SetProxyController(s.ServiceProxyController())
 			proxyService.SetAgentNetworkSynthesizer(newAgentNetworkSynthesizer(s.Store()))
 			proxyService.SetAgentNetworkLimitsService(s.AgentNetworkManager())
@@ -280,6 +290,13 @@ func (s *BaseServer) ProxyTokenStore() *nbgrpc.OneTimeTokenStore {
 func (s *BaseServer) PKCEVerifierStore() *nbgrpc.PKCEVerifierStore {
 	return Create(s, func() *nbgrpc.PKCEVerifierStore {
 		return nbgrpc.NewPKCEVerifierStore(context.Background(), s.CacheStore())
+	})
+}
+
+// ProxyActivityManager records reverse proxy usage for activity accounting.
+func (s *BaseServer) ProxyActivityManager() proxyactivity.Manager {
+	return Create(s, func() proxyactivity.Manager {
+		return proxyactivitymanager.NewManager(s.Store())
 	})
 }
 

@@ -80,25 +80,34 @@ func (r *family) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
 		rule:  forwardRule,
 	}
 
-	// Request forwarding once the rule is about to be installed, releasing
-	// it if installation fails so the refcount tracks the real rules.
-	if err := r.ipFwdState.RequestForwarding(); err != nil {
-		return nil, err
-	}
-
 	for key, ruleInfo := range rules {
 		if err := r.iptablesClient.Append(ruleInfo.table, ruleInfo.chain, ruleInfo.rule...); err != nil {
-			if rollbackErr := r.rollbackRules(rules); rollbackErr != nil {
-				log.Errorf("rollback failed: %v", rollbackErr)
-			}
-			r.releaseForwarding()
+			r.cleanupFailedDNATAdd(rules)
 			return nil, fmt.Errorf("add rule %s: %w", key, err)
 		}
 		r.rules[key] = ruleInfo.rule
 	}
 
+	if err := r.ipFwdState.RequestForwarding(r.v6); err != nil {
+		r.cleanupFailedDNATAdd(rules)
+		return nil, fmt.Errorf("enable forwarding: %w", err)
+	}
+
 	r.updateState()
 	return rule, nil
+}
+
+// cleanupFailedDNATAdd removes the bookkeeping written by a partially applied
+// AddDNATRule before rolling back the kernel rules, so no entries remain that
+// never got a forwarding refcount. rollbackRules re-adds entries it failed to
+// remove from the kernel.
+func (r *family) cleanupFailedDNATAdd(rules map[firewall.RuleID]ruleInfo) {
+	for key := range rules {
+		delete(r.rules, key)
+	}
+	if err := r.rollbackRules(rules); err != nil {
+		log.Errorf("rollback failed: %v", err)
+	}
 }
 
 func (r *family) rollbackRules(rules map[firewall.RuleID]ruleInfo) error {
@@ -119,45 +128,53 @@ func (r *family) rollbackRules(rules map[firewall.RuleID]ruleInfo) error {
 func (r *family) DeleteDNATRule(rule firewall.Rule) error {
 	ruleID := rule.ID()
 
+	_, hadDNAT := r.rules[ruleID+dnatSuffix]
+	_, hadSNAT := r.rules[ruleID+snatSuffix]
+	_, hadFWD := r.rules[ruleID+fwdSuffix]
+	if !hadDNAT && !hadSNAT && !hadFWD {
+		return nil
+	}
+
 	var merr *multierror.Error
-	var found bool
 	if dnatRule, exists := r.rules[ruleID+dnatSuffix]; exists {
-		found = true
 		if err := r.iptablesClient.Delete(tableNat, chainRTRdr, dnatRule...); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("delete DNAT rule: %w", err))
+		} else {
+			delete(r.rules, ruleID+dnatSuffix)
 		}
-		delete(r.rules, ruleID+dnatSuffix)
 	}
 
 	if snatRule, exists := r.rules[ruleID+snatSuffix]; exists {
-		found = true
 		if err := r.iptablesClient.Delete(tableNat, chainRTNAT, snatRule...); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("delete SNAT rule: %w", err))
+		} else {
+			delete(r.rules, ruleID+snatSuffix)
 		}
-		delete(r.rules, ruleID+snatSuffix)
 	}
 
 	if fwdRule, exists := r.rules[ruleID+fwdSuffix]; exists {
-		found = true
 		if err := r.iptablesClient.Delete(tableFilter, chainRTFwdOut, fwdRule...); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("delete forward rule: %w", err))
+		} else {
+			delete(r.rules, ruleID+fwdSuffix)
 		}
-		delete(r.rules, ruleID+fwdSuffix)
+	}
+
+	// Release the refcount only once all rules are gone from the kernel. On
+	// partial failure the failed entries stay in r.rules so a retry can remove
+	// them and release then.
+	if merr == nil {
+		r.releaseForwarding()
 	}
 
 	r.updateState()
-
-	// Release once, only if the rule was present and removed.
-	if merr == nil && found {
-		r.releaseForwarding()
-	}
 
 	return nberrors.FormatErrorOrNil(merr)
 }
 
 // releaseForwarding drops one IP forwarding reference, logging any error.
 func (r *family) releaseForwarding() {
-	if err := r.ipFwdState.ReleaseForwarding(); err != nil {
+	if err := r.ipFwdState.ReleaseForwarding(r.v6); err != nil {
 		log.Errorf("release IP forwarding: %v", err)
 	}
 }

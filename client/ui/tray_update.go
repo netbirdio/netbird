@@ -21,7 +21,7 @@ type trayUpdater struct {
 	app          *application.App
 	window       *application.WebviewWindow
 	update       *services.Update
-	notifier     *notifications.NotificationService
+	notifier     *Notifier
 	loc          *Localizer
 	onIconChange func()
 	// onMenuChange drives a full tray relayout: the update row lives in the
@@ -36,7 +36,7 @@ type trayUpdater struct {
 	progressWindowOpen bool
 }
 
-func newTrayUpdater(app *application.App, window *application.WebviewWindow, update *services.Update, notifier *notifications.NotificationService, loc *Localizer, onIconChange func(), onMenuChange func()) *trayUpdater {
+func newTrayUpdater(app *application.App, window *application.WebviewWindow, update *services.Update, notifier *Notifier, loc *Localizer, onIconChange func(), onMenuChange func()) *trayUpdater {
 	u := &trayUpdater{
 		app:          app,
 		window:       window,

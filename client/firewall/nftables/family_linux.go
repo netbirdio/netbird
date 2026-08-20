@@ -112,7 +112,7 @@ func newFamily(workTable *nftables.Table, wgIface iFaceMapper, mtu uint16) *fami
 		routingFwChainName: chainNameRoutingFw,
 		af:                 familyForAddr(workTable.Family == nftables.TableFamilyIPv4),
 		wgIface:            wgIface,
-		ipFwdState:         ipfwdstate.NewIPForwardingState(),
+		ipFwdState:         ipfwdstate.NewIPForwardingState(wgIface.Name()),
 		mtu:                mtu,
 	}
 

@@ -135,7 +135,7 @@ func newFamily(iptablesClient *iptables.IPTables, wgIface iFaceMapper, mtu uint1
 		filters:         make(map[nbid.RuleID]*Rule),
 		rules:           make(routeRules),
 		mtu:             mtu,
-		ipFwdState:      ipfwdstate.NewIPForwardingState(),
+		ipFwdState:      ipfwdstate.NewIPForwardingState(wgIface.Name()),
 	}
 
 	r.ipsetCounter = refcounter.New(

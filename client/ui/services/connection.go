@@ -33,12 +33,21 @@ type LoginResult struct {
 	UserCode                string `json:"userCode"`
 	VerificationURI         string `json:"verificationUri"`
 	VerificationURIComplete string `json:"verificationUriComplete"`
+	// ProfileID is the ID of the profile this login ran against, or "" when the
+	// caller named the profile itself and no ID was resolved. Pass it back in
+	// WaitSSOParams so the account email lands on this profile even if the
+	// active one changes during SSO.
+	ProfileID string `json:"profileId"`
 }
 
 // WaitSSOParams are the inputs to waitSSOLogin.
 type WaitSSOParams struct {
 	UserCode string `json:"userCode"`
 	Hostname string `json:"hostname"`
+	// ProfileID is the profile the login was started for, used to file the
+	// account email against it rather than against whichever profile is active
+	// when the flow returns. Optional: empty falls back to the active profile.
+	ProfileID string `json:"profileId"`
 }
 
 // UpParams selects the profile to bring up.
@@ -77,11 +86,16 @@ func (s *Connection) Login(ctx context.Context, p LoginParams) (LoginResult, err
 	// Fall back to the daemon's active profile and the current OS user.
 	profileName := p.ProfileName
 	username := p.Username
+	// Only set when the daemon told us the ID. A caller-supplied ProfileName is
+	// a handle — a display name or an ID prefix resolve too — and the state file
+	// is named after the ID, so passing a handle on would name the wrong file.
+	profileID := ""
 	if profileName == "" {
 		if active, aerr := cli.GetActiveProfile(ctx, &proto.GetActiveProfileRequest{}); aerr == nil {
 			// Address the active profile by ID (the daemon resolves it as a
 			// handle); names can collide, the ID cannot.
 			profileName = active.GetId()
+			profileID = profileName
 			if username == "" {
 				username = active.GetUsername()
 			}
@@ -94,10 +108,11 @@ func (s *Connection) Login(ctx context.Context, p LoginParams) (LoginResult, err
 	}
 
 	req := &proto.LoginRequest{
-		ManagementUrl:       p.ManagementURL,
-		SetupKey:            p.SetupKey,
-		Hostname:            p.Hostname,
-		IsUnixDesktopClient: runtime.GOOS == "linux",
+		ManagementUrl: p.ManagementURL,
+		SetupKey:      p.SetupKey,
+		Hostname:      p.Hostname,
+		// a login driven by the UI always has a graphical session available
+		IsUnixDesktopClient: true,
 	}
 	if profileName != "" {
 		req.ProfileName = ptrStr(profileName)
@@ -108,8 +123,16 @@ func (s *Connection) Login(ctx context.Context, p LoginParams) (LoginResult, err
 	if p.PreSharedKey != "" {
 		req.OptionalPreSharedKey = ptrStr(p.PreSharedKey)
 	}
-	if p.Hint != "" {
-		req.Hint = ptrStr(p.Hint)
+	hint := p.Hint
+	if hint == "" && profileID != "" {
+		if state, serr := profilemanager.NewProfileManager().GetProfileState(profilemanager.ID(profileID)); serr == nil {
+			hint = state.Email
+		} else {
+			log.Debugf("failed to get profile state for login hint: %v", serr)
+		}
+	}
+	if hint != "" {
+		req.Hint = ptrStr(hint)
 	}
 
 	resp, err := cli.Login(ctx, req)
@@ -122,6 +145,7 @@ func (s *Connection) Login(ctx context.Context, p LoginParams) (LoginResult, err
 		UserCode:                resp.GetUserCode(),
 		VerificationURI:         resp.GetVerificationURI(),
 		VerificationURIComplete: resp.GetVerificationURIComplete(),
+		ProfileID:               profileID,
 	}, nil
 }
 
@@ -212,16 +236,6 @@ func (s *Connection) Logout(ctx context.Context, p LogoutParams) error {
 		return s.classifyDaemonError(err)
 	}
 
-	// The daemon runs as root and can't reach the user-owned per-profile state
-	// file holding the account email (see Profiles.List), so clear the stale
-	// email here; the next SSO login recreates it.
-	if p.ProfileName != "" {
-		if err := profilemanager.NewProfileManager().RemoveProfileState(p.ProfileName); err != nil {
-			// Non-fatal: the logout itself succeeded.
-			log.Warnf("failed to remove profile state for %s: %v", p.ProfileName, err)
-		}
-	}
-
 	return nil
 }
 
@@ -242,6 +256,31 @@ func (s *Connection) waitSSOLogin(ctx context.Context, p WaitSSOParams) (string,
 		return "", s.classifyDaemonError(err)
 	}
 	log.Infof("SSO login completed, daemon reported success")
+
+	// Persist the account email the same way the CLI does after its own
+	// WaitSSOLogin: the daemon returns it but cannot store it, since it runs as
+	// root and the per-profile state file is user-owned (see Profiles.List).
+	// Without this the profile has no email, so Profiles.List shows no account
+	// and later logins and session extends go out without a login_hint —
+	// leaving the IdP to guess which account was meant.
+	if email := resp.GetEmail(); email != "" {
+		state := &profilemanager.ProfileState{Email: email}
+		pm := profilemanager.NewProfileManager()
+
+		// Against the profile the login was started for: SSO spans seconds of
+		// user interaction, and a profile switch in that window would otherwise
+		// file the email under the wrong profile.
+		if p.ProfileID != "" {
+			err = pm.SetProfileState(profilemanager.ID(p.ProfileID), state)
+		} else {
+			err = pm.SetActiveProfileState(state)
+		}
+		if err != nil {
+			// Non-fatal: the login itself succeeded.
+			log.Warnf("failed to store account email: %v", err)
+		}
+	}
+
 	return resp.GetEmail(), nil
 }
 

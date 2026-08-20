@@ -28,10 +28,11 @@ func (r *family) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
 		return nil, fmt.Errorf("convert protocol to number: %w", err)
 	}
 
-	// Request forwarding once the rule is about to be installed, releasing
-	// it if a later step fails so the refcount tracks the real rules.
-	if err := r.ipFwdState.RequestForwarding(); err != nil {
-		return nil, err
+	// Request forwarding before queueing rules: addDnatRedirect/addDnatMasq
+	// buffer netlink messages on r.conn that the next caller's Flush would
+	// commit if we returned without flushing them ourselves.
+	if err := r.ipFwdState.RequestForwarding(r.isV6()); err != nil {
+		return nil, fmt.Errorf("enable forwarding: %w", err)
 	}
 
 	if err := r.addDnatRedirect(rule, protoNum, ruleID); err != nil {
@@ -52,6 +53,8 @@ func (r *family) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
 
 	if err := r.conn.Flush(); err != nil {
 		r.releaseForwarding()
+		delete(r.rules, ruleID+dnatSuffix)
+		delete(r.rules, ruleID+snatSuffix)
 		return nil, fmt.Errorf("flush rules: %w", err)
 	}
 
@@ -322,9 +325,14 @@ func (r *family) DeleteDNATRule(rule firewall.Rule) error {
 
 // releaseForwarding drops one IP forwarding reference, logging any error.
 func (r *family) releaseForwarding() {
-	if err := r.ipFwdState.ReleaseForwarding(); err != nil {
+	if err := r.ipFwdState.ReleaseForwarding(r.isV6()); err != nil {
 		log.Errorf("release IP forwarding: %v", err)
 	}
+}
+
+// isV6 reports whether this family handles the IPv6 table.
+func (r *family) isV6() bool {
+	return r.af.tableFamily == nftables.TableFamilyIPv6
 }
 
 func (r *family) AddInboundDNAT(localAddr netip.Addr, protocol firewall.Protocol, originalPort, translatedPort uint16) error {

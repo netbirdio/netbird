@@ -178,13 +178,13 @@ func (d *DefaultManager) applyPeerACLs(networkMap *mgmProto.NetworkMap) error {
 		log.Warn("this peer is connected to a NetBird Management service with an older version. Allowing all traffic from connected peers")
 		rules = append(rules,
 			&mgmProto.FirewallRule{
-				PeerIP:    "0.0.0.0",
+				PeerIP:    "0.0.0.0", //nolint:staticcheck
 				Direction: mgmProto.RuleDirection_IN,
 				Action:    mgmProto.RuleAction_ACCEPT,
 				Protocol:  mgmProto.RuleProtocol_ALL,
 			},
 			&mgmProto.FirewallRule{
-				PeerIP:    "0.0.0.0",
+				PeerIP:    "0.0.0.0", //nolint:staticcheck
 				Direction: mgmProto.RuleDirection_OUT,
 				Action:    mgmProto.RuleAction_ACCEPT,
 				Protocol:  mgmProto.RuleProtocol_ALL,

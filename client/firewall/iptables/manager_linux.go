@@ -77,8 +77,8 @@ func (m *Manager) createIPv6Components(wgIface iFaceMapper, mtu uint16) error {
 		return fmt.Errorf("create v6 family: %w", err)
 	}
 
-	// Share the same IP forwarding state with the v4 family, since
-	// EnableIPForwarding controls both v4 and v6 sysctls.
+	// Share the same IP forwarding state with the v4 family, since the
+	// forwarding refcounter is per-family but shared between both families.
 	family6.ipFwdState = m.family4.ipFwdState
 
 	m.ipv6Client = ip6Client
@@ -324,17 +324,12 @@ func (m *Manager) SetLogLevel(log.Level) {
 }
 
 func (m *Manager) EnableRouting() error {
-	if err := m.family4.ipFwdState.RequestForwarding(); err != nil {
-		return fmt.Errorf("enable IP forwarding: %w", err)
-	}
-	return nil
+	// v6 only when the overlay actually has v6.
+	return m.family4.ipFwdState.RequestRouting(m.hasIPv6())
 }
 
 func (m *Manager) DisableRouting() error {
-	if err := m.family4.ipFwdState.ReleaseForwarding(); err != nil {
-		return fmt.Errorf("disable IP forwarding: %w", err)
-	}
-	return nil
+	return m.family4.ipFwdState.ReleaseRouting()
 }
 
 // AddDNATRule adds a DNAT rule
