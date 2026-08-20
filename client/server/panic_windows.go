@@ -3,6 +3,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -69,7 +70,7 @@ func setStdHandle(f *os.File) error {
 	handle := f.Fd()
 	r0, _, e1 := setStdHandleFn.Call(stdErrorHandle, handle)
 	if r0 == 0 {
-		if e1 != nil {
+		if !errors.Is(e1, syscall.Errno(0)) {
 			return e1
 		}
 		return syscall.EINVAL
