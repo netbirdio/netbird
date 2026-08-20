@@ -528,7 +528,11 @@ func TestEngine_ModifiedPeerKeepsActivationState(t *testing.T) {
 	}
 	udpConn, err := net.ListenUDP("udp4", nil)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = udpConn.Close() })
+	t.Cleanup(func() {
+		if err := udpConn.Close(); err != nil {
+			t.Errorf("close UDP listener: %v", err)
+		}
+	})
 	engine.udpMux = udpmux.NewUniversalUDPMuxDefault(udpmux.UniversalUDPMuxParams{UDPConn: udpConn, MTU: 1280})
 	engine.ctx = ctx
 	engine.srWatcher = guard.NewSRWatcher(nil, nil, nil, icemaker.Config{})
@@ -589,6 +593,35 @@ func TestEngine_ModifiedPeerKeepsActivationState(t *testing.T) {
 	state, err = engine.statusRecorder.GetPeer(idlePeer.WgPubKey)
 	require.NoError(t, err)
 	assert.Equal(t, peer.StatusIdle, state.ConnStatus, "previously idle peer should stay idle after a modify")
+
+	// A missing status entry fails the modify before any connection is removed.
+	require.NoError(t, engine.statusRecorder.RemovePeer(activePeer.WgPubKey))
+	err = engine.updateNetworkMap(&mgmtProto.NetworkMap{
+		Serial: 3,
+		RemotePeers: []*mgmtProto.RemotePeerConfig{
+			{
+				WgPubKey:     activePeer.WgPubKey,
+				AllowedIps:   []string{"100.64.0.30/24"},
+				AgentVersion: "development",
+			},
+			{
+				WgPubKey:     idlePeer.WgPubKey,
+				AllowedIps:   []string{"100.64.0.31/24"},
+				AgentVersion: "development",
+			},
+		},
+	})
+	require.ErrorContains(t, err, "get status of modified peer", "a modify with an unavailable peer state should fail")
+
+	activeConn, ok := engine.peerStore.PeerConn(activePeer.WgPubKey)
+	require.True(t, ok, "peer with unavailable state should keep its connection")
+	assert.True(t, compareNetIPLists(activeConn.WgConfig().AllowedIps, activePeer.AllowedIps),
+		"peer with unavailable state should keep its allowed IPs")
+
+	idleConn, ok := engine.peerStore.PeerConn(idlePeer.WgPubKey)
+	require.True(t, ok, "the other modified peer should keep its connection")
+	assert.True(t, compareNetIPLists(idleConn.WgConfig().AllowedIps, []string{"100.64.0.21/24"}),
+		"the other modified peer should keep its allowed IPs")
 }
 
 func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
