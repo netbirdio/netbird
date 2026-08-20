@@ -551,6 +551,14 @@
     "settings.general.autostart.errorTitle": {
         "message": "更改自启动设置失败"
     },
+    "settings.general.keepConnectedOnQuit.label": {
+        "message": "退出后保持连接",
+        "description": "Toggle label: keep the VPN connection up after quitting the UI."
+    },
+    "settings.general.keepConnectedOnQuit.help": {
+        "message": "关闭 NetBird 后，连接会在后台保持。只有你自己断开时才会停止。",
+        "description": "Helper text for the stay-connected-after-quitting toggle."
+    },
     "settings.general.language.label": {
         "message": "显示语言"
     },

@@ -15,6 +15,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	nbAnonymize "github.com/netbirdio/netbird/client/anonymize"
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/debug"
@@ -25,6 +26,8 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/client/net"
+	"github.com/netbirdio/netbird/client/netstate"
+	"github.com/netbirdio/netbird/client/netsweep"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/formatter"
 	"github.com/netbirdio/netbird/route"
@@ -32,10 +35,12 @@ import (
 	types "github.com/netbirdio/netbird/upload-server/types"
 )
 
-// ConnectionListener export internal Listener for mobile
-type ConnectionListener interface {
-	peer.Listener
-}
+// AnonymizeLevelDefault and AnonymizeLevelStrict are the accepted
+// anonymizeLevel values for DebugBundle.
+const (
+	AnonymizeLevelDefault = nbAnonymize.LevelDefaultString
+	AnonymizeLevelStrict  = nbAnonymize.LevelStrictString
+)
 
 // TunAdapter export internal TunAdapter for mobile
 type TunAdapter interface {
@@ -77,6 +82,13 @@ type Client struct {
 	deviceName            string
 	uiVersion             string
 	networkChangeListener listener.NetworkChangeListener
+	// netState outlives engine restarts: it mirrors the OS connectivity, not
+	// the engine lifecycle. Run and RunWithoutLogin inject it into each new
+	// ConnectClient, which distributes it to every reconnection loop.
+	netState *netstate.State
+
+	// sweeper also outlives engine restarts; NotifyNetworkChange sweeps it.
+	sweeper *netsweep.Sweeper
 
 	stateMu       sync.RWMutex
 	connectClient *internal.ConnectClient
@@ -140,6 +152,7 @@ func NewClient(androidSDKVersion int, deviceName string, uiVersion string, tunAd
 	execWorkaround(androidSDKVersion)
 
 	net.SetAndroidProtectSocketFn(tunAdapter.ProtectSocket)
+	system.SetIFaceDiscover(iFaceDiscover)
 	return &Client{
 		deviceName:            deviceName,
 		uiVersion:             uiVersion,
@@ -148,6 +161,8 @@ func NewClient(androidSDKVersion int, deviceName string, uiVersion string, tunAd
 		recorder:              peer.NewRecorder(""),
 		ctxCancelLock:         &sync.Mutex{},
 		networkChangeListener: networkChangeListener,
+		netState:              netstate.New(),
+		sweeper:               netsweep.New(),
 	}
 }
 
@@ -188,7 +203,8 @@ func (c *Client) Run(platformFiles PlatformFiles, urlOpener URLOpener, isAndroid
 	}
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
-	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder)
+	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder,
+		internal.WithNetworkState(c.netState), internal.WithSweeper(c.sweeper))
 	c.setState(cfg, cacheDir, cfgFile, connectClient)
 	// This path runs the interactive SSO flow, so reaching here means the peer
 	// is authenticated again — release the latch Status() reports from. Clear
@@ -229,7 +245,8 @@ func (c *Client) RunWithoutLogin(platformFiles PlatformFiles, dns *DNSList, dnsR
 
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
-	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder)
+	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder,
+		internal.WithNetworkState(c.netState), internal.WithSweeper(c.sweeper))
 	c.setState(cfg, cacheDir, cfgFile, connectClient)
 	return connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener, stateFile, cacheDir)
 }
@@ -277,9 +294,29 @@ func (c *Client) GetTunSettings() (*TunSettings, error) {
 	}, nil
 }
 
+// SetNetworkAvailable feeds OS-reported network availability into the client.
+// While unavailable, the internal reconnect loops suspend their attempts and
+// the connection listener reports NoNetwork instead of Connecting; when
+// availability returns, the loops resume immediately with a fresh backoff.
+func (c *Client) SetNetworkAvailable(available bool) {
+	c.netState.Set(available)
+	c.recorder.SetNetworkAvailable(available)
+}
+
+// NotifyNetworkChange marks the management, signal and relay connections
+// stale after the OS switched networks and schedules a sweep that cuts
+// whatever has not redialed on the new network by then. The engine and the
+// TUN device stay untouched.
+func (c *Client) NotifyNetworkChange() {
+	c.sweeper.MarkNetworkChange()
+	log.Infof("network change: connections marked stale")
+}
+
 // DebugBundle generates a debug bundle, uploads it, and returns the upload key.
-// It works both with and without a running engine.
-func (c *Client) DebugBundle(platformFiles PlatformFiles, anonymize bool) (string, error) {
+// It works both with and without a running engine. anonymizeLevel is "default"
+// or "strict"; strict also anonymizes internal IP ranges, peer names, and
+// WireGuard public keys, and implies anonymize.
+func (c *Client) DebugBundle(platformFiles PlatformFiles, anonymize bool, anonymizeLevel string) (string, error) {
 	cfg, cacheDir, cc := c.stateSnapshot()
 
 	// If the engine hasn't been started, load config from disk
@@ -298,6 +335,7 @@ func (c *Client) DebugBundle(platformFiles PlatformFiles, anonymize bool) (strin
 		InternalConfig: cfg,
 		StatusRecorder: c.recorder,
 		TempDir:        cacheDir,
+		StatePath:      platformFiles.StateFilePath(),
 	}
 
 	if cc != nil {
@@ -321,6 +359,7 @@ func (c *Client) DebugBundle(platformFiles PlatformFiles, anonymize bool) (strin
 		deps,
 		debug.BundleConfig{
 			Anonymize:         anonymize,
+			AnonymizeLevel:    nbAnonymize.ParseLevel(anonymizeLevel),
 			IncludeSystemInfo: true,
 		},
 	)
@@ -513,7 +552,11 @@ func (c *Client) OnUpdatedHostDNS(list *DNSList) error {
 
 // SetConnectionListener set the network connection listener
 func (c *Client) SetConnectionListener(listener ConnectionListener) {
-	c.recorder.SetConnectionListener(listener)
+	if listener == nil {
+		c.recorder.RemoveConnectionListener()
+		return
+	}
+	c.recorder.SetConnectionListener(connectionListenerAdapter{listener})
 }
 
 // RemoveConnectionListener remove connection listener

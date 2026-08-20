@@ -1,6 +1,6 @@
 # NetBird Agent Guidelines
 
-**NetBird** is an open-source connectivity platform: a WireGuard®-based overlay
+**NetBird** is an open source connectivity platform: a WireGuard®-based overlay
 network with a control plane. The **agent** (`client/`) runs on user machines as
 a privileged daemon and manages the WireGuard interface, routing, firewall, and
 DNS. **Management** (`management/`) is the control plane and REST/gRPC API,
@@ -14,20 +14,22 @@ in this file, not duplicated there.
 
 ## Contents
 
-- [NetBird Agent Guidelines](#netbird-agent-guidelines)
-  - [Contents](#contents)
-  - [STOP and ask the user before](#stop-and-ask-the-user-before)
-  - [Quick reference](#quick-reference)
-  - [Structure](#structure)
-  - [Where to look](#where-to-look)
-  - [Repo-wide principles](#repo-wide-principles)
-  - [Error handling](#error-handling)
-  - [Comments](#comments)
-  - [Testing](#testing)
-  - [Pitfalls](#pitfalls)
-  - [Commits, PRs, releases](#commits-prs-releases)
-  - [After you push: CI and review bots](#after-you-push-ci-and-review-bots)
-  - [Discussion and support](#discussion-and-support)
+- [STOP and ask the user before](#stop-and-ask-the-user-before)
+- [Quick reference](#quick-reference)
+- [Structure](#structure)
+- [Where to look](#where-to-look)
+- [Security](#security)
+- [Agent conventions](#agent-conventions)
+- [Repo-wide principles](#repo-wide-principles)
+- [Type safety](#type-safety)
+- [Concurrency and lifecycle](#concurrency-and-lifecycle)
+- [Error handling](#error-handling)
+- [Comments](#comments)
+- [Testing](#testing)
+- [Pitfalls](#pitfalls)
+- [Commits, PRs, releases](#commits-prs-releases)
+- [After you push: CI and review bots](#after-you-push-ci-and-review-bots)
+- [Discussion and support](#discussion-and-support)
 
 ## STOP and ask the user before
 
@@ -157,11 +159,125 @@ netbird/
 | LLM routing / Agent Network | `proxy/internal/llm/`, `agent-network/`                      |
 | End-to-end tests            | `e2e/`                                                       |
 
+## Security
+
+### Never fail open
+
+When a security check — access control, an IP restriction, an auth decision —
+hits an error such as an unparseable value, an unavailable lookup, or a state it
+does not recognize, it must **deny**. Never skip the check or allow the request
+through because the check itself failed, and make the `default` and unknown cases
+of a security-related `switch` deny rather than fall through.
+
+### Daemon RPC input is untrusted
+
+The agent runs as root (LocalSystem on Windows), so a daemon RPC crosses a
+privilege boundary: treat every field as untrusted input rather than as something
+the UI or CLI validated on the way in.
+
+When you add or change an RPC, ask what the handler does with caller input while
+running as root. If the answer touches a filesystem path, a URL or host, or a
+privileged state change, it needs a gate **in the handler** — a check in the client
+that normally calls it is not a check at all.
+
+- **A caller-supplied path the daemon opens.** Never `os.Open` it as root.
+  Constrain it, then open it *as the caller* with `ipcauth.OpenOwnedFile`, which
+  opens `O_NOFOLLOW`, requires a regular file, and refuses a file the caller does
+  not own — so a symlink or hardlink aimed at a root-only file is rejected.
+- **A caller-supplied URL or host the daemon fetches.** Restrict the scheme and
+  allow only known hosts for unprivileged callers. Prefer a lexical host
+  allowlist plus TLS verification over "resolve the host, then reject private
+  IPs": the resolve-then-trust pattern has a DNS-rebinding race (public IP at
+  check time, attacker IP at connect time), while a name allowlist has no IP
+  check to race. Never accept `http://` where `https://` is expected.
+- **A privileged state change** (SSH root login, management URL, deregistration)
+  gates on the caller identity from `ipcauth.CallerIdentity(ctx)`.
+
+Caller identity comes from the kernel — `SO_PEERCRED`, `LOCAL_PEERCRED`, or the
+named-pipe client token — and never from an RPC field. When
+`ipcauth.CallerIdentity` reports that it could not determine an identity, **deny**;
+do not fall back to treating the caller as the transport peer.
+
+## Agent conventions
+
+### Three networking modes
+
+Where packets actually flow depends on the mode the agent is running in. The
+three are not interchangeable, so establish which one a change applies to — and
+what it should do in the other two — before you write it.
+
+- **kernel mode** (Linux only): in-kernel WireGuard®. The kernel handles both
+  peer-to-peer and routed traffic, and ACLs are iptables or nftables rules. The
+  client programs kernel facilities but never sees the traffic itself.
+- **userspace mode** (wireguard-go with a TUN): wireguard-go runs in-process. The
+  kernel handles peer-to-peer traffic once it leaves the TUN, while routed traffic
+  — exit nodes and network routes — goes through the userspace forwarder, which
+  terminates the connection and re-establishes it over OS sockets. Used on
+  platforms without kernel WireGuard® or when the user opts out.
+- **netstack mode**: wireguard-go in-process with no TUN and no kernel
+  networking. The forwarder does all routing by stitching userspace sockets, and
+  listeners such as the embedded SSH and DNS servers bind on a gVisor netstack.
+  Used where the process cannot create a TUN device, such as the embedded client
+  (`client/embed/`) and the WASM build.
+
+### The overlay interface is not "WireGuard"
+
+Do not put "WireGuard" in identifiers or comments unless the code is genuinely
+coupled to WireGuard® specifically — a wireguard-go call, a handshake field, a
+kernel WireGuard® netlink attribute. For the interface, the host, peers, or
+traffic in general, say "the NetBird interface", "the interface", or "the overlay".
+Most firewall, routing, and DNS code is transport-agnostic, so a WireGuard®
+reference there is simply inaccurate and rots as the transports change.
+
+### IPv6 is a soft feature
+
+The IPv6 overlay is opt-in dual-stack, and capability can change at runtime. Treat
+it as soft rather than a requirement:
+
+- Gate local v6 paths on the interface accessor (`wgIface.Address().HasIPv6()`),
+  not on raw state fields, and skip the v6 path when the host has no v6 rather
+  than returning an error.
+- Treat an empty or unparseable peer v6 address as "no v6 for that peer" and skip
+  it, keeping the v4 path working.
+- Never let a missing v6 break v4. Fail-closed is for security checks; a
+  capability mismatch skips the v6 work and carries on.
+
+### Environment variables
+
+Name the variable in a constant and parse booleans with `strconv.ParseBool` rather
+than comparing strings inline, so an unexpected value is logged instead of
+silently meaning false:
+
+```go
+const EnvDisableFeature = "NB_DISABLE_FEATURE"
+
+func isDisabledByEnv() bool {
+    val := os.Getenv(EnvDisableFeature)
+    if val == "" {
+        return false
+    }
+    disabled, err := strconv.ParseBool(val)
+    if err != nil {
+        log.Warnf("failed to parse %s: %v", EnvDisableFeature, err)
+        return false
+    }
+    return disabled
+}
+```
+
+### Validating against protocol specs
+
+When a change depends on what a protocol actually mandates, read the specification
+text from the [IETF datatracker](https://datatracker.ietf.org/) rather than a
+summary, and check that you have the current RFC — the widely cited one for a
+protocol is often superseded. Cite the section, not just the document, so a
+reviewer can jump straight to the rule.
+
 ## Repo-wide principles
 
 1. **Run `go fmt` on every modified Go file.** Formatting is not optional.
-2. **Zero unaddressed diagnostics.** Fix IDE and linter warnings on code you
-   touch, and delete imports, helpers, and parameters your refactor orphaned.
+2. **Zero unaddressed linter warnings.** Fix what `golangci-lint` reports on code
+   you touch, and delete imports, helpers, and parameters your refactor orphaned.
    Exception: unused parameters in shared code may be consumed by builds outside
    this repository — do not remove them, ask instead.
 3. **Function comments are mandatory for exported functions**, written as full
@@ -175,15 +291,105 @@ netbird/
 7. **Avoid LLM-slop tells:** em dashes, hedging narration, restating the diff in
    prose, trailing summaries. Defaults, not absolute bans. Applies to code,
    comments, commit messages, and PR descriptions alike.
-8. **Concurrency: do a two-pass race analysis after every change** that adds
-   shared state. Guard maps and slices with a mutex, keep critical sections
-   short, and run `go test -race` on the touched packages.
+8. **Concurrency: do a two-pass race analysis after every change** that touches
+   shared state, including reads of existing maps and slices. Guard them with a
+   mutex (or an atomic or channel where that fits better), keep critical
+   sections short, and run `go test -race` on the touched packages. See
+   [Concurrency and lifecycle](#concurrency-and-lifecycle) for the failure modes
+   to check for.
 9. **Cross-platform builds must keep working.** The agent targets Linux, macOS,
    Windows, FreeBSD, Android, and iOS. When you add a platform-specific file,
    add the counterpart or a build-tagged fallback for the others.
 10. **Never hand-edit generated files.** Change the source and regenerate.
 11. **Never log secrets** — private keys, setup keys, tokens, PAT values — and
     keep peer IPs and hostnames out of logs above debug level.
+
+## Type safety
+
+**No bare primitives for domain concepts.** A `string` parameter for an account
+ID next to a `string` parameter for a peer ID is two bugs waiting to happen,
+because the compiler cannot catch the swap. Declare the type once and use it
+throughout, converting only at the boundaries where data enters or leaves —
+protobuf, gRPC, HTTP, an external library.
+
+```go
+type ServiceID string
+type AccountID string
+
+// Internal: typed all the way through
+func (r *Router) RemoveRoute(host SNIHost, svcID ServiceID) { ... }
+
+// Proto boundary: convert once, on the way in and on the way out
+svcID := ServiceID(mapping.GetId())
+req.ServiceId = string(svcID)
+```
+
+- **IP addresses are `netip.Addr`**, not `string` and not `net.IP`. Parse at the
+  boundary and pass the typed value inward.
+- **Always `Unmap()`** after parsing an address, after converting from `net.IP`,
+  and after extracting one from `RemoteAddr()`. This normalizes a v4-mapped v6
+  address (`::ffff:10.1.2.3`) to plain v4 so IPv4 rules match it. A stored or
+  compared mapped address silently fails to match those rules.
+- **Ports are `uint16`** internally; use `int` only where a library forces it and
+  convert immediately.
+- **Enums are a typed string with constants**, so the valid set is discoverable
+  and a typo fails to compile.
+- **Map keys follow the same rule**, and must be a real type (`type ServiceID
+  string`) rather than an alias (`type serviceID = string`) — an alias silently
+  accepts bare strings.
+
+## Concurrency and lifecycle
+
+Beyond the mutex hygiene in the principles above, check for these failure
+modes.
+
+- **Never read a struct field inside a goroutine** when another goroutine may nil
+  or reassign it. Pass the value as a parameter, or capture it into a local before
+  launching. This matters most when `Stop()` nils a field without waiting for the
+  goroutine to finish.
+
+  ```go
+  go func(ifaceName string) {   // good: passed in, cannot be nilled underneath
+      m.Start(ctx, ifaceName)
+  }(iface.Name())
+  ```
+
+- **Never wait on a channel while holding a lock the sender needs.** Copy what you
+  need out from under the lock, release it, then wait.
+
+  ```go
+  func (m *Manager) Stop() {
+      m.mu.Lock()
+      cancel, done := m.cancel, m.done
+      m.mu.Unlock()
+      if cancel != nil {
+          cancel()
+          <-done
+      }
+  }
+  ```
+
+- **`Stop`/`Close` must be idempotent** — guard on an already-stopped flag or a
+  nil cancel — and must release the state they guarded. Clear maps and caches;
+  a cancelled goroutine holding a live map still pins that memory. Note that a
+  nil map only panics on writes; reads and iteration behave like an empty map,
+  so where post-close use must be rejected, check the stopped flag explicitly.
+- **Publish coupled state only after every fallible step succeeds.** When several
+  fields form an invariant, build them into locals and assign them to the receiver
+  at the end. Assigning as you go leaves the object half-initialized when a later
+  step fails, so a readiness predicate reports ready while a coupled field is nil.
+  If an earlier step already had an external side effect — a created chain, an
+  opened handle, an inserted rule — roll it back before returning the error.
+- **Clean up what you own on constructor error paths.** Once a constructor has
+  started something, every later error path must undo it: cancel a goroutine and
+  wait for it to exit, stop a ticker, close a watcher. The object is never
+  returned, so its `Close` will never run.
+- **A failed `Start` must undo everything it started.** When a component brings up
+  several subsystems in sequence — connection manager, watchers, routing, DNS,
+  flow, persisted state — a failure partway through has to tear down the ones
+  already running, not just close the handle the error came from. Put the
+  already-started guard *before* that teardown path, so a rejected second `Start`
+  cannot dismantle the one that is running.
 
 ## Error handling
 
@@ -248,6 +454,45 @@ Log the errors you choose not to act on:
 - Close errors may be ignored for read-only operations; log them at debug for
   writes.
 
+**Do not log and return the same error.** It gets reported twice, from two places,
+and the second reader cannot tell whether it happened once or twice. Return it and
+let the caller decide. The exception is an API handler that has already written a
+response. Internal helpers return errors rather than logging and swallowing them.
+
+**Never return a typed nil as an error.** A nil `*MyError` stored in an `error`
+interface is not nil, so `err != nil` is true and callers take the failure path on
+success. Return the error only where it is actually set:
+
+```go
+if _, err := conn.Write(buf); err != nil {   // good
+    return err
+}
+return nil
+```
+
+**Accumulate with `multierror` when an operation should continue past individual
+failures** — teardown, cleanup, or setup where partial success is acceptable.
+`client/errors.FormatErrorOrNil` returns nil for an empty accumulator, so callers
+still see a plain nil on full success:
+
+```go
+func (m *Manager) Cleanup() error {
+    var merr *multierror.Error
+    for _, r := range m.resources {
+        if err := r.Close(); err != nil {
+            merr = multierror.Append(merr, fmt.Errorf("close %s: %w", r.Name, err))
+        }
+    }
+    return nberrors.FormatErrorOrNil(merr)
+}
+```
+
+| Scenario              | Approach              | Why                                       |
+| --------------------- | --------------------- | ----------------------------------------- |
+| Cleanup / teardown    | Accumulate            | Clean up as much as possible              |
+| Setup with rollback   | Abort on first error  | Partial state is invalid; undo what stuck |
+| Setup with partial OK | Accumulate            | Degraded operation is still useful        |
+
 ## Comments
 
 Comment the **why**, never the **what**. Default to no comment, and add one only
@@ -269,10 +514,14 @@ checksum = updateChecksum(checksum, oldPort, newPort)
 
 ### Length budget
 
-- **90 characters per line.** Wrap the comment, do not run past it.
-- **250 characters per comment**, roughly three wrapped lines. Doc comments on
-  exported identifiers may exceed it when the API genuinely needs the
-  explanation; inline comments inside a function body may not.
+Neither of these is linter-enforced, so they are conventions the surrounding code
+mostly follows rather than hard limits:
+
+- **Around 90 characters per line.** Wrap the comment rather than running well past
+  it.
+- **Roughly 250 characters per comment**, about three wrapped lines. Doc comments
+  on exported identifiers may exceed it when the API genuinely needs the
+  explanation; inline comments inside a function body rarely should.
 
 The budget is a smell detector, not a rule to game. Do not compress a needed
 explanation into cryptic shorthand to fit — if a block of code needs more than
@@ -329,6 +578,19 @@ up, and the 250-character budget does not apply to them.
   otherwise.
 - **Message guidance:** optional for `NoError`/`Error`; always give context for
   comparison, boolean, and collection assertions.
+- **Reproduce a bug before fixing it.** Write the test, watch it fail *for the
+  reason you expect* — a test that fails for an unrelated reason proves nothing —
+  then apply the fix and confirm it passes. Add the thin surrounding cases while
+  you are there.
+- **Use `t.Setenv`** rather than `os.Setenv` so the previous value is restored on
+  cleanup. To test the unset case, call `t.Setenv` first to register the restore,
+  then `os.Unsetenv`.
+- **Prefer `t.Cleanup` over `defer`** in any test with parallel subtests: the
+  parent function returns, running its `defer`s, while parallel subtests are
+  still suspended. Sequential subtests finish inside `t.Run`, so `defer` is safe
+  there, but `t.Cleanup` works in both cases.
+- **Explanatory comments in tests are welcome.** Describe the scenario being set
+  up; the comment budget below does not apply to them.
 
 ```go
 server, err := StartTestServer()
@@ -380,7 +642,8 @@ assert.Equal(t, expectedResult, result, "Result should match expected")
   than replacing it with your own summary: describe the change, link the issue,
   tick the checklist honestly (including "ran locally" and "single purpose"),
   and complete the documentation section. Do not tick a box you have not
-  verified, and do not delete rows that do not apply.
+  verified, and do not delete rows that do not apply — the docs gate in CI reads
+  that section and fails when it is missing.
 
 - **Keep the PR description short.** Under 1000 words on top of the template's
   own text, and usually far less — a few paragraphs. Reviewers read the diff;
@@ -438,6 +701,12 @@ assert.Equal(t, expectedResult, result, "Result should match expected")
   code, and land it as a sequence of PRs that each build, test, and make sense
   on their own. Propose that split to the user rather than opening one large PR
   and hoping.
+
+  Prefer GitHub's stacked pull requests for such a sequence, rather than
+  hand-managing base branches: open each PR against the branch below it instead of
+  `main`, so every PR's diff shows only its own change. Merging a layer retargets
+  the PRs above it, and branch protections and required checks on the base branch
+  still apply to each one.
 
 - **User-facing changes need a docs PR** in
   [netbirdio/docs](https://github.com/netbirdio/docs), linked from the PR

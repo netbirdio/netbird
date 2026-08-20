@@ -551,6 +551,14 @@
     "settings.general.autostart.errorTitle": {
         "message": "Az automatikus indítás módosítása sikertelen"
     },
+    "settings.general.keepConnectedOnQuit.label": {
+        "message": "Kapcsolat megtartása kilépéskor",
+        "description": "Toggle label: keep the VPN connection up after quitting the UI."
+    },
+    "settings.general.keepConnectedOnQuit.help": {
+        "message": "A kapcsolat a háttérben megmarad, miután bezárod a NetBirdöt. Csak akkor szakad meg, ha te magad bontod.",
+        "description": "Helper text for the stay-connected-after-quitting toggle."
+    },
     "settings.general.language.label": {
         "message": "Megjelenítési nyelv"
     },

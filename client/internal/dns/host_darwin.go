@@ -267,18 +267,38 @@ func (s *systemConfigurator) getSystemDNSSettings() (SystemDNSSettings, error) {
 		return SystemDNSSettings{}, fmt.Errorf("sending the command: %w", err)
 	}
 
-	var dnsSettings SystemDNSSettings
+	dnsSettings, serverAddresses, err := parseSystemDNSSettings(b)
+	if err != nil {
+		return dnsSettings, err
+	}
+
+	s.mu.Lock()
+	s.origNameservers = serverAddresses
+	s.mu.Unlock()
+
+	return dnsSettings, nil
+}
+
+// parseSystemDNSSettings parses the output of `scutil show State:/Network/Service/<id>/DNS`.
+// Lines that don't match the expected "index : value" shape are skipped: hosts with unusual
+// network services (e.g. orphaned hardware ports) can produce entries without a value.
+func parseSystemDNSSettings(out []byte) (SystemDNSSettings, []netip.Addr, error) {
+	// port is not exposed by scutil, default to 53
+	dnsSettings := SystemDNSSettings{ServerPort: DefaultPort}
 	var serverAddresses []netip.Addr
 	inSearchDomainsArray := false
 	inServerAddressesArray := false
 
-	scanner := bufio.NewScanner(bytes.NewReader(b))
+	scanner := bufio.NewScanner(bytes.NewReader(out))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		switch {
 		case strings.HasPrefix(line, "DomainName :"):
-			domainName := strings.TrimSpace(strings.Split(line, ":")[1])
-			dnsSettings.Domains = append(dnsSettings.Domains, domainName)
+			domainName := strings.TrimSpace(strings.TrimPrefix(line, "DomainName :"))
+			if domainName != "" {
+				dnsSettings.Domains = append(dnsSettings.Domains, domainName)
+			}
+			continue
 		case line == "SearchDomains : <array> {":
 			inSearchDomainsArray = true
 			continue
@@ -288,36 +308,45 @@ func (s *systemConfigurator) getSystemDNSSettings() (SystemDNSSettings, error) {
 		case line == "}":
 			inSearchDomainsArray = false
 			inServerAddressesArray = false
+			continue
+		}
+
+		if !inSearchDomainsArray && !inServerAddressesArray {
+			continue
+		}
+
+		parts := strings.SplitN(line, " : ", 2)
+		if len(parts) != 2 {
+			log.Debugf("skipping unexpected scutil DNS line %q", line)
+			continue
+		}
+		value := strings.TrimSpace(parts[1])
+		if value == "" {
+			continue
 		}
 
 		if inSearchDomainsArray {
-			searchDomain := strings.Split(line, " : ")[1]
-			dnsSettings.Domains = append(dnsSettings.Domains, searchDomain)
-		} else if inServerAddressesArray {
-			address := strings.Split(line, " : ")[1]
-			if ip, err := netip.ParseAddr(address); err == nil && !ip.IsUnspecified() {
-				ip = ip.Unmap()
-				serverAddresses = append(serverAddresses, ip)
-				// Prefer the first IPv4 server as ServerIP since our DNS listener is IPv4.
-				if !dnsSettings.ServerIP.IsValid() && ip.Is4() {
-					dnsSettings.ServerIP = ip
-				}
-			}
+			dnsSettings.Domains = append(dnsSettings.Domains, value)
+			continue
+		}
+
+		ip, err := netip.ParseAddr(value)
+		if err != nil || ip.IsUnspecified() {
+			continue
+		}
+		ip = ip.Unmap()
+		serverAddresses = append(serverAddresses, ip)
+		// Prefer the first IPv4 server as ServerIP since our DNS listener is IPv4.
+		if !dnsSettings.ServerIP.IsValid() && ip.Is4() {
+			dnsSettings.ServerIP = ip
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
-		return dnsSettings, err
+		return dnsSettings, serverAddresses, err
 	}
 
-	// default to 53 port
-	dnsSettings.ServerPort = DefaultPort
-
-	s.mu.Lock()
-	s.origNameservers = serverAddresses
-	s.mu.Unlock()
-
-	return dnsSettings, nil
+	return dnsSettings, serverAddresses, nil
 }
 
 func (s *systemConfigurator) getOriginalNameservers() []netip.Addr {
@@ -435,11 +464,15 @@ func (s *systemConfigurator) getPrimaryService() (string, string, error) {
 	router := ""
 	for scanner.Scan() {
 		text := scanner.Text()
+		parts := strings.SplitN(text, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
 		if strings.Contains(text, "PrimaryService") {
-			primaryService = strings.TrimSpace(strings.Split(text, ":")[1])
+			primaryService = strings.TrimSpace(parts[1])
 		}
 		if strings.Contains(text, "Router") {
-			router = strings.TrimSpace(strings.Split(text, ":")[1])
+			router = strings.TrimSpace(parts[1])
 		}
 	}
 	if err := scanner.Err(); err != nil && err != io.EOF {

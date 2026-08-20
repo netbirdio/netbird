@@ -551,6 +551,14 @@
     "settings.general.autostart.errorTitle": {
         "message": "自動起動の変更に失敗しました"
     },
+    "settings.general.keepConnectedOnQuit.label": {
+        "message": "終了後も接続を維持",
+        "description": "Toggle label: keep the VPN connection up after quitting the UI."
+    },
+    "settings.general.keepConnectedOnQuit.help": {
+        "message": "NetBird を閉じたあとも接続はバックグラウンドで維持されます。自分で切断したときにだけ停止します。",
+        "description": "Helper text for the stay-connected-after-quitting toggle."
+    },
     "settings.general.language.label": {
         "message": "表示言語"
     },

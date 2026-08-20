@@ -189,6 +189,7 @@ func main() {
 		WindowManager:   windowManager,
 		Session:         authSession,
 		Localizer:       localizer,
+		Preferences:     prefStore,
 	})
 	listenForShowSignal(context.Background(), tray)
 
