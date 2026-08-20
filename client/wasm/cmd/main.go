@@ -56,8 +56,7 @@ func startClient(ctx context.Context, nbClient *netbird.Client) error {
 // parseClientOptions extracts NetBird options from JavaScript object
 func parseClientOptions(jsOptions js.Value) (netbird.Options, error) {
 	options := netbird.Options{
-		DeviceName: "wasm-client",
-		LogLevel:   defaultLogLevel,
+		LogLevel: defaultLogLevel,
 	}
 
 	if jwtToken := jsOptions.Get("jwtToken"); !jwtToken.IsNull() && !jwtToken.IsUndefined() {
