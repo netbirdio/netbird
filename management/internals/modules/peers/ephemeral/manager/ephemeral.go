@@ -216,13 +216,52 @@ func (e *EphemeralManager) cleanup(ctx context.Context) {
 
 	for accountID, peerIDs := range peerIDsPerAccount {
 		log.WithContext(ctx).Debugf("cleanup: deleting %d ephemeral peers for account %s: %s", len(peerIDs), accountID, peerIDs)
-		err := e.peersManager.DeletePeers(ctx, accountID, peerIDs, activity.SystemInitiator, true)
+		skipped, err := e.peersManager.DeletePeers(ctx, accountID, peerIDs, activity.SystemInitiator, true)
 		if err != nil {
 			log.WithContext(ctx).Errorf("failed to delete ephemeral peers: %s", err)
 			e.metrics.CountCleanupError()
 			continue
 		}
-		e.metrics.CountPeersCleaned(int64(len(peerIDs)))
+		if len(skipped) > 0 {
+			// A skipped peer could not be deleted yet (still connected in the
+			// store, or seen too recently), which says nothing about whether a
+			// disconnect will ever be observed for it again. Schedule another
+			// attempt instead of dropping it, or it is never collected.
+			log.WithContext(ctx).Debugf("cleanup: requeueing %d skipped ephemeral peers for account %s: %s", len(skipped), accountID, skipped)
+			e.requeuePeers(ctx, accountID, skipped)
+		}
+		e.metrics.CountPeersCleaned(int64(len(peerIDs) - len(skipped)))
+	}
+}
+
+// requeuePeers puts peers whose deletion was skipped back on the list with a
+// fresh deadline. A peer that reconnected and disconnected in the meantime is
+// already listed again and keeps its existing entry.
+func (e *EphemeralManager) requeuePeers(ctx context.Context, accountID string, peerIDs []string) {
+	e.peersLock.Lock()
+	defer e.peersLock.Unlock()
+
+	added := 0
+	for _, id := range peerIDs {
+		if e.isPeerOnList(id) {
+			continue
+		}
+		e.addPeer(accountID, id, e.newDeadLine())
+		added++
+	}
+	if added == 0 {
+		return
+	}
+	e.metrics.AddPending(int64(added))
+
+	if e.timer == nil {
+		delay := e.headPeer.deadline.Sub(timeNow()) + e.cleanupWindow
+		if delay < 0 {
+			delay = 0
+		}
+		e.timer = time.AfterFunc(delay, func() {
+			e.cleanup(ctx)
+		})
 	}
 }
 

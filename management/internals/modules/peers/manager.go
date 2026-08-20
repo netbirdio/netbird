@@ -30,7 +30,11 @@ type Manager interface {
 	GetPeerAccountID(ctx context.Context, peerID string) (string, error)
 	GetAllPeers(ctx context.Context, accountID, userID string) ([]*peer.Peer, error)
 	GetPeersByGroupIDs(ctx context.Context, accountID string, groupsIDs []string) ([]*peer.Peer, error)
-	DeletePeers(ctx context.Context, accountID string, peerIDs []string, userID string, checkConnected bool) error
+	// DeletePeers removes the given peers along with their group memberships and
+	// policies. With checkConnected, a peer that is still connected or was seen
+	// too recently is left in place and returned in skipped, so the caller can
+	// retry it later.
+	DeletePeers(ctx context.Context, accountID string, peerIDs []string, userID string, checkConnected bool) (skipped []string, err error)
 	SetNetworkMapController(networkMapController network_map.Controller)
 	SetIntegratedPeerValidator(integratedPeerValidator integrated_validator.IntegratedValidator)
 	SetAccountManager(accountManager account.Manager)
@@ -128,16 +132,22 @@ func (m *managerImpl) GetPeerWithGroups(ctx context.Context, accountID, peerID s
 	return p, groups, nil
 }
 
-func (m *managerImpl) DeletePeers(ctx context.Context, accountID string, peerIDs []string, userID string, checkConnected bool) error {
+func (m *managerImpl) DeletePeers(ctx context.Context, accountID string, peerIDs []string, userID string, checkConnected bool) ([]string, error) {
 	settings, err := m.store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	dnsDomain := m.networkMapController.GetDNSDomain(settings)
 
+	var skipped []string
+	deletedAny := false
 	for _, peerID := range peerIDs {
 		var eventsToStore []func()
+		vetoed := false
+		deleted := false
 		err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+			vetoed = false
+			deleted = false
 			peer, err := transaction.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
 			if err != nil {
 				if e, ok := status.FromError(err); ok && e.Type() == status.NotFound {
@@ -153,6 +163,7 @@ func (m *managerImpl) DeletePeers(ctx context.Context, accountID string, peerIDs
 					peer.Status.LastSeen.Format(time.RFC3339),
 					time.Now().Add(-(ephemeral.EphemeralLifeTime - 10*time.Second)).Format(time.RFC3339),
 					peer.Ephemeral)
+				vetoed = true
 				return nil
 			}
 
@@ -183,6 +194,7 @@ func (m *managerImpl) DeletePeers(ctx context.Context, accountID string, peerIDs
 			if err = transaction.DeletePeer(ctx, accountID, peerID); err != nil {
 				return err
 			}
+			deleted = true
 
 			log.WithContext(ctx).Debugf("DeletePeers: deleted peer %s", peerID)
 
@@ -199,6 +211,16 @@ func (m *managerImpl) DeletePeers(ctx context.Context, accountID string, peerIDs
 			continue
 		}
 
+		if vetoed {
+			skipped = append(skipped, peerID)
+			continue
+		}
+
+		if !deleted {
+			continue
+		}
+		deletedAny = true
+
 		if m.integratedPeerValidator != nil {
 			if err = m.integratedPeerValidator.PeerDeleted(ctx, accountID, peerID, settings.Extra); err != nil {
 				log.WithContext(ctx).Errorf("failed to delete peer %s from integrated validator: %v", peerID, err)
@@ -210,9 +232,13 @@ func (m *managerImpl) DeletePeers(ctx context.Context, accountID string, peerIDs
 		}
 	}
 
-	m.accountManager.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourcePeer, Operation: types.UpdateOperationDelete})
+	// Skipped or missing peers changed nothing, so an update would push an
+	// identical map to every peer in the account.
+	if deletedAny {
+		m.accountManager.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourcePeer, Operation: types.UpdateOperationDelete})
+	}
 
-	return nil
+	return skipped, nil
 }
 
 func (m *managerImpl) GetPeerID(ctx context.Context, peerKey string) (string, error) {

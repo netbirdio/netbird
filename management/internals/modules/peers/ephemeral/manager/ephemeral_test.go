@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"go.uber.org/mock/gomock"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/mock/gomock"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
@@ -104,11 +104,11 @@ func TestNewManager(t *testing.T) {
 	// Expect DeletePeers to be called for ephemeral peers
 	peersManager.EXPECT().
 		DeletePeers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), true).
-		DoAndReturn(func(ctx context.Context, accountID string, peerIDs []string, userID string, checkConnected bool) error {
+		DoAndReturn(func(ctx context.Context, accountID string, peerIDs []string, userID string, checkConnected bool) ([]string, error) {
 			for _, peerID := range peerIDs {
 				delete(store.account.Peers, peerID)
 			}
-			return nil
+			return nil, nil
 		}).
 		AnyTimes()
 
@@ -142,11 +142,11 @@ func TestNewManagerPeerConnected(t *testing.T) {
 	// Expect DeletePeers to be called for ephemeral peers (except the connected one)
 	peersManager.EXPECT().
 		DeletePeers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), true).
-		DoAndReturn(func(ctx context.Context, accountID string, peerIDs []string, userID string, checkConnected bool) error {
+		DoAndReturn(func(ctx context.Context, accountID string, peerIDs []string, userID string, checkConnected bool) ([]string, error) {
 			for _, peerID := range peerIDs {
 				delete(store.account.Peers, peerID)
 			}
-			return nil
+			return nil, nil
 		}).
 		AnyTimes()
 
@@ -183,11 +183,11 @@ func TestNewManagerPeerDisconnected(t *testing.T) {
 	// Expect DeletePeers to be called for the one disconnected peer
 	peersManager.EXPECT().
 		DeletePeers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), true).
-		DoAndReturn(func(ctx context.Context, accountID string, peerIDs []string, userID string, checkConnected bool) error {
+		DoAndReturn(func(ctx context.Context, accountID string, peerIDs []string, userID string, checkConnected bool) ([]string, error) {
 			for _, peerID := range peerIDs {
 				delete(store.account.Peers, peerID)
 			}
-			return nil
+			return nil, nil
 		}).
 		AnyTimes()
 
@@ -240,16 +240,16 @@ func TestCleanupSchedulingBehaviorIsBatched(t *testing.T) {
 	// Set up expectation that DeletePeers will be called once with all peer IDs
 	peersManager.EXPECT().
 		DeletePeers(gomock.Any(), account.Id, gomock.Any(), gomock.Any(), true).
-		DoAndReturn(func(ctx context.Context, accountID string, peerIDs []string, userID string, checkConnected bool) error {
+		DoAndReturn(func(ctx context.Context, accountID string, peerIDs []string, userID string, checkConnected bool) ([]string, error) {
 			// Simulate the actual deletion behavior
 			for _, peerID := range peerIDs {
 				err := mockAM.DeletePeer(ctx, accountID, peerID, userID)
 				if err != nil {
-					return err
+					return nil, err
 				}
 			}
 			mockAM.BufferUpdateAccountPeers(ctx, accountID, types.UpdateReason{})
-			return nil
+			return nil, nil
 		}).
 		Times(1)
 
@@ -274,6 +274,50 @@ func TestCleanupSchedulingBehaviorIsBatched(t *testing.T) {
 	assert.Len(t, mockStore.account.Peers, 0, "all ephemeral peers should be cleaned up after the lifetime")
 	assert.Equal(t, 1, mockAM.GetBufferUpdateCalls(account.Id), "buffer update should be called once")
 	assert.Equal(t, ephemeralPeers, mockAM.GetDeletePeerCalls(), "should have deleted all peers")
+}
+
+// TestCleanupRequeuesVetoedPeers covers a peer whose deletion is vetoed (the
+// store still reports it connected, or it was seen too recently): it must be
+// scheduled for another attempt rather than dropped from the list, or it is
+// never collected once the veto clears.
+func TestCleanupRequeuesVetoedPeers(t *testing.T) {
+	t.Cleanup(func() {
+		timeNow = time.Now
+	})
+	startTime := time.Now()
+	timeNow = func() time.Time {
+		return startTime
+	}
+
+	mockStore := &MockStore{}
+	seedPeers(mockStore, 0, 1)
+	ctrl := gomock.NewController(t)
+	peersManager := peers.NewMockManager(ctrl)
+
+	// The first attempt vetoes the peer, the second deletes it.
+	first := peersManager.EXPECT().
+		DeletePeers(gomock.Any(), gomock.Any(), []string{"ephemeral_peer_0"}, gomock.Any(), true).
+		Return([]string{"ephemeral_peer_0"}, nil)
+	peersManager.EXPECT().
+		DeletePeers(gomock.Any(), gomock.Any(), []string{"ephemeral_peer_0"}, gomock.Any(), true).
+		After(first).
+		DoAndReturn(func(_ context.Context, _ string, peerIDs []string, _ string, _ bool) ([]string, error) {
+			for _, peerID := range peerIDs {
+				delete(mockStore.account.Peers, peerID)
+			}
+			return nil, nil
+		})
+
+	mgr := NewEphemeralManager(mockStore, peersManager)
+	mgr.loadEphemeralPeers(context.Background())
+
+	startTime = startTime.Add(ephemeral.EphemeralLifeTime + time.Second)
+	mgr.cleanup(context.Background())
+	assert.Len(t, mockStore.account.Peers, 1, "vetoed peer must not be deleted yet")
+
+	startTime = startTime.Add(ephemeral.EphemeralLifeTime + time.Second)
+	mgr.cleanup(context.Background())
+	assert.Len(t, mockStore.account.Peers, 0, "vetoed peer should be retried and deleted once the veto clears")
 }
 
 func seedPeers(store *MockStore, numberOfPeers int, numberOfEphemeralPeers int) {
