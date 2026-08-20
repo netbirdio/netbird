@@ -976,10 +976,13 @@ init_migration() {
         POSTGRES_DSN=$(read_required "  Postgres DSN (host=… user=… password=… dbname=… port=5432 sslmode=disable)")
       done
 
-      # A DSN entered above names a different host, which decides what to wait on.
-      POSTGRES_SERVICE=$(detect_postgres_service)
-      if [[ -n "$POSTGRES_SERVICE" ]]; then
-        POSTGRES_DEPENDS_CONDITION=$(detect_postgres_depends_condition)
+      # Only where the operator owns Postgres: a DSN entered above may name a
+      # different host. The sqlite path creates its own service, nothing to find.
+      if [[ "$EXISTING_POSTGRES" == "yes" ]]; then
+        POSTGRES_SERVICE=$(detect_postgres_service)
+        if [[ -n "$POSTGRES_SERVICE" ]]; then
+          POSTGRES_DEPENDS_CONDITION=$(detect_postgres_depends_condition)
+        fi
       fi
     fi
   else
