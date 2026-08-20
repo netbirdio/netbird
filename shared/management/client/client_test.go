@@ -591,7 +591,7 @@ func Test_GetPKCEAuthorizationFlow(t *testing.T) {
 	expectedFlowInfo := &mgmtProto.PKCEAuthorizationFlow{
 		ProviderConfig: &mgmtProto.ProviderConfig{
 			ClientID:     "client",
-			ClientSecret: "secret",
+			ClientSecret: "secret", //nolint:staticcheck
 		},
 	}
 

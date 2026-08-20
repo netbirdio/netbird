@@ -45,8 +45,8 @@ func daemonServerOptions(network string) []grpc.ServerOption {
 		return nil
 	}
 
-	creds := ipcauth.NewTransportCredentials()
-	if creds == nil {
+	creds := ipcauth.NewTransportCredentials() //nolint:staticcheck
+	if creds == nil {                          //nolint:staticcheck // nil only on platforms without a peer-identity primitive
 		log.Warnf("daemon IPC has no peer-identity primitive on %s: privileged operations will be denied", runtime.GOOS)
 		return nil
 	}
