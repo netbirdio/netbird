@@ -636,6 +636,27 @@ var providers = []Provider{
 		Models: []Model{},
 	},
 	{
+		ID:                 "agentgateway",
+		Kind:               KindGateway,
+		Name:               "agentgateway",
+		Description:        "Bring your own agentgateway with trusted NetBird identity stamped on every request",
+		DefaultHost:        "",
+		AuthHeaderName:     "Authorization",
+		AuthHeaderTemplate: "Bearer ${API_KEY}",
+		DefaultContentType: "application/json",
+		BrandColor:         "#8023C3",
+		// Agentgateway accepts both OpenAI and Anthropic request shapes.
+		// Leave ParserID empty so the proxy detects the shape from the URL.
+		ParserID: "",
+		IdentityInjection: &IdentityInjection{
+			HeaderPair: &HeaderPairInjection{
+				EndUserIDHeader: "x-netbird-user-id",
+				TagsHeader:      "x-netbird-groups",
+			},
+		},
+		Models: []Model{},
+	},
+	{
 		ID:          "portkey",
 		Kind:        KindGateway,
 		Name:        "Portkey AI Gateway",
