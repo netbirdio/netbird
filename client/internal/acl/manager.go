@@ -116,11 +116,11 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap, dnsRout
 // firewall state, so an identical hash means an identical resulting ruleset.
 func (d *DefaultManager) firewallConfigHash(networkMap *mgmProto.NetworkMap, dnsRouteFeatureFlag bool) (uint64, error) {
 	return hashstructure.Hash(struct {
-		PeerRules            []*mgmProto.FirewallRule
-		PeerRulesIsEmpty     bool
-		RouteRules           []*mgmProto.RouteFirewallRule
-		RouteRulesIsEmpty    bool
-		DNSRouteFeatureFlag  bool
+		PeerRules           []*mgmProto.FirewallRule
+		PeerRulesIsEmpty    bool
+		RouteRules          []*mgmProto.RouteFirewallRule
+		RouteRulesIsEmpty   bool
+		DNSRouteFeatureFlag bool
 	}{
 		PeerRules:           networkMap.GetFirewallRules(),
 		PeerRulesIsEmpty:    networkMap.GetFirewallRulesIsEmpty(),
@@ -144,13 +144,13 @@ func (d *DefaultManager) applyPeerACLs(networkMap *mgmProto.NetworkMap) {
 		log.Warn("this peer is connected to a NetBird Management service with an older version. Allowing all traffic from connected peers")
 		rules = append(rules,
 			&mgmProto.FirewallRule{
-				PeerIP:    "0.0.0.0",
+				PeerIP:    "0.0.0.0", //nolint:staticcheck
 				Direction: mgmProto.RuleDirection_IN,
 				Action:    mgmProto.RuleAction_ACCEPT,
 				Protocol:  mgmProto.RuleProtocol_ALL,
 			},
 			&mgmProto.FirewallRule{
-				PeerIP:    "0.0.0.0",
+				PeerIP:    "0.0.0.0", //nolint:staticcheck
 				Direction: mgmProto.RuleDirection_OUT,
 				Action:    mgmProto.RuleAction_ACCEPT,
 				Protocol:  mgmProto.RuleProtocol_ALL,
@@ -406,7 +406,6 @@ func (d *DefaultManager) getPeerRuleID(
 func (d *DefaultManager) getRuleGroupingSelector(rule *mgmProto.FirewallRule) string {
 	return fmt.Sprintf("%v:%v:%v:%s:%v", strconv.Itoa(int(rule.Direction)), rule.Action, rule.Protocol, rule.Port, rule.PortInfo)
 }
-
 
 // extractRuleIP extracts the peer IP from a firewall rule.
 // If sourcePrefixes is populated (new management), decode the first entry and use its address.
