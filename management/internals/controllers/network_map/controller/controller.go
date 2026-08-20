@@ -1024,7 +1024,7 @@ func (c *Controller) OnPeersDeleted(ctx context.Context, accountID string, peerI
 					FirewallRules:        []*proto.FirewallRule{},
 					FirewallRulesIsEmpty: true,
 					DNSConfig: &proto.DNSConfig{
-						ForwarderPort: dnsFwdPort,
+						ForwarderPort: dnsFwdPort, //nolint:staticcheck
 					},
 				},
 			},
