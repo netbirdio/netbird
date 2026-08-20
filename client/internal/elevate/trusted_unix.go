@@ -3,23 +3,18 @@
 package elevate
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"os"
-	"os/user"
 	"path/filepath"
 	"slices"
 	"strconv"
-	"strings"
 	"syscall"
 
 	log "github.com/sirupsen/logrus"
-)
 
-// groupFile lists which accounts are in which group, for the membership a user
-// private group's name does not state: see groupHasOtherMembers.
-const groupFile = "/etc/group"
+	"github.com/netbirdio/netbird/client/internal/getent"
+)
 
 // checkOnlyOwnerWritable reports an error unless path, and every directory leading
 // to it, is owned by either root or this user and writable by nobody who could not
@@ -89,12 +84,12 @@ func groupWriteAllowed(uid, gid uint32) bool {
 		return true
 	}
 
-	group, err := user.LookupGroupId(strconv.FormatUint(uint64(gid), 10))
+	group, err := getent.LookupGroupID(strconv.FormatUint(uint64(gid), 10))
 	if err != nil {
 		log.Debugf("cannot look up group %d, treating it as shared: %v", gid, err)
 		return false
 	}
-	owner, err := user.LookupId(strconv.FormatUint(uint64(uid), 10))
+	owner, err := getent.LookupUserID(strconv.FormatUint(uint64(uid), 10))
 	if err != nil {
 		log.Debugf("cannot look up uid %d, treating its group as shared: %v", uid, err)
 		return false
@@ -103,7 +98,7 @@ func groupWriteAllowed(uid, gid uint32) bool {
 	if group.Name != owner.Username {
 		return false
 	}
-	return !groupHasOtherMembers(groupFile, group.Name, owner.Username)
+	return !groupHasOtherMembers(group.Name, owner.Username)
 }
 
 // groupHasOtherMembers reports whether the group lists a member besides owner.
@@ -111,36 +106,14 @@ func groupWriteAllowed(uid, gid uint32) bool {
 // Sharing the owner's name is what a user private group is recognised by, and it
 // says nothing about who is in it: a group that has since gained a member is
 // still named that way, and that member can write whatever the group can. So the
-// membership is read rather than assumed. A group this file does not describe,
-// because it comes from LDAP or another NSS source, cannot be answered here and
-// leaves the name as the only thing to go on.
-func groupHasOtherMembers(path, name, owner string) bool {
-	file, err := os.Open(path)
+// membership is read rather than assumed. A group whose members cannot be
+// listed, because no source on this host describes it, leaves the name as the
+// only thing to go on.
+func groupHasOtherMembers(name, owner string) bool {
+	members, err := getent.GroupMembers(name)
 	if err != nil {
-		log.Debugf("cannot read %s for the members of group %q: %v", path, name, err)
+		log.Debugf("cannot list the members of group %q, going by its name alone: %v", name, err)
 		return false
 	}
-	defer func() {
-		if err := file.Close(); err != nil {
-			log.Debugf("close %s: %v", path, err)
-		}
-	}()
-
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		// name:password:gid:member,member
-		fields := strings.Split(scanner.Text(), ":")
-		if len(fields) < 4 || fields[0] != name {
-			continue
-		}
-		for member := range strings.SplitSeq(fields[3], ",") {
-			if member != "" && member != owner {
-				return true
-			}
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		log.Debugf("read %s: %v", path, err)
-	}
-	return false
+	return slices.ContainsFunc(members, func(member string) bool { return member != owner })
 }

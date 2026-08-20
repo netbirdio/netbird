@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/internal/getent"
 )
 
 var (
@@ -23,8 +25,8 @@ func isPlatformUnix() bool {
 
 // Dependency injection variables for testing - allows mocking dynamic runtime checks
 var (
-	getCurrentUser         = currentUserWithGetent
-	lookupUser             = lookupWithGetent
+	getCurrentUser         = getent.CurrentUser
+	lookupUser             = getent.LookupUser
 	getCurrentOS           = func() string { return runtime.GOOS }
 	getIsProcessPrivileged = isCurrentProcessPrivileged
 

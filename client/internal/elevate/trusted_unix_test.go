@@ -93,41 +93,13 @@ func TestCheckOnlyOwnerWritableAcceptsOwnPrivateGroup(t *testing.T) {
 	assert.NoError(t, err, "group write in the owner's own private group reaches nobody else")
 }
 
-// A group that shares its owner's name but has gained another member is no longer
-// private, and its write access reaches an account that could not elevate.
-func TestGroupHasOtherMembers(t *testing.T) {
-	tests := []struct {
-		name  string
-		entry string
-		want  bool
-	}{
-		{name: "no members", entry: "vma:x:1000:"},
-		{name: "only the owner", entry: "vma:x:1000:vma"},
-		{name: "another member", entry: "vma:x:1000:bob", want: true},
-		{name: "the owner and another", entry: "vma:x:1000:vma,bob", want: true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "group")
-			body := "root:x:0:\n" + tt.entry + "\nsudo:x:27:vma\n"
-			require.NoError(t, os.WriteFile(path, []byte(body), 0o644), "write the group file")
-
-			assert.Equal(t, tt.want, groupHasOtherMembers(path, "vma", "vma"), "entry %q", tt.entry)
-		})
-	}
-}
-
-// A group file that says nothing about the group leaves the name as the only thing
-// to go on, so the private-group allowance stands rather than collapsing on every
-// host whose groups come from LDAP.
+// A group whose membership no source can answer for leaves the name as the only
+// thing to go on, so the private-group allowance stands rather than collapsing on
+// every host whose groups come from an unreadable source. The membership listing
+// itself lives in the getent package and is tested there.
 func TestGroupHasOtherMembersTolerantOfAnUnknownGroup(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "group")
-	require.NoError(t, os.WriteFile(path, []byte("root:x:0:\n"), 0o644), "write the group file")
-
-	assert.False(t, groupHasOtherMembers(path, "vma", "vma"), "a group the file does not describe")
-	assert.False(t, groupHasOtherMembers(filepath.Join(t.TempDir(), "absent"), "vma", "vma"),
-		"no group file at all")
+	assert.False(t, groupHasOtherMembers("nonexistent_group_xyzzy_12345", "vma"),
+		"a group no source describes")
 }
 
 // A writable directory is as good as a writable file: whoever can write the
@@ -171,7 +143,7 @@ func requirePrivatePrimaryGroup(t *testing.T) {
 	if group.Name != self.Username {
 		t.Skipf("the test user's primary group is %q, not their own, so there is nothing to assert here", group.Name)
 	}
-	if groupHasOtherMembers(groupFile, group.Name, self.Username) {
+	if groupHasOtherMembers(group.Name, self.Username) {
 		t.Skipf("group %q has other members, so it is not a private group", group.Name)
 	}
 }
