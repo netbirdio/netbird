@@ -325,6 +325,16 @@ func (mw *Middleware) forwardWithSessionCookie(w http.ResponseWriter, r *http.Re
 	if err != nil {
 		return false
 	}
+
+	// Header auth is checked per request against the mapping's hashes and mints
+	// no session, so a header-method token can only predate that. Honouring it
+	// would keep a rotated credential working until the token expired.
+	if method == auth.MethodHeader.String() {
+		mw.logger.WithField("host", host).
+			Debug("ignoring header-auth session cookie; the header is required on every request")
+		return false
+	}
+
 	if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
 		cd.SetUserID(userID)
 		cd.SetUserEmail(email)

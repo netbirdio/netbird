@@ -1173,6 +1173,50 @@ func TestProtect_HeaderAuth_SubsequentRequestRequiresHeader(t *testing.T) {
 	assert.Equal(t, 1, backendCalls, "backend must not be reached without the header")
 }
 
+// TestProtect_HeaderAuth_LegacySessionCookieIsIgnored covers the upgrade
+// window. Header auth used to mint a session token, so cookies with
+// method=header survive a proxy upgrade and stay signature-valid for their full
+// lifetime. They must not stand in for the header, or a credential rotated
+// right after the upgrade would keep working until every such token expired.
+func TestProtect_HeaderAuth_LegacySessionCookieIsIgnored(t *testing.T) {
+	mw := NewMiddleware(log.StandardLogger(), nil, nil)
+	kp := generateTestKeyPair(t)
+
+	hdr := newHeaderScheme(t, "X-API-Key", "secret-key")
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{hdr}, kp.PublicKey, time.Hour, "acc1", "svc1", nil, false))
+
+	// A token management would have minted for header auth before the upgrade.
+	legacyToken, err := sessionkey.SignToken(kp.PrivateKey, auth.HeaderUserID, "", "example.com", auth.MethodHeader, nil, nil, time.Hour)
+	require.NoError(t, err)
+
+	var backendCalls int
+	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		backendCalls++
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	t.Run("cookie alone is rejected", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+		req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: legacyToken})
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusUnauthorized, rec.Code, "a header-auth cookie must not authenticate on its own")
+		assert.Equal(t, 0, backendCalls, "backend must not be reached without the header")
+	})
+
+	t.Run("cookie does not block the header path", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+		req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: legacyToken})
+		req.Header.Set("X-API-Key", "secret-key")
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusOK, rec.Code, "a client sending both must still be admitted by the header")
+		assert.Equal(t, 1, backendCalls)
+	})
+}
+
 // TestProtect_HeaderAuth_RepeatedValueIsMemoized verifies the KDF is run once
 // per distinct accepted value. argon2id is deliberately expensive, so a
 // credential that repeats on every request must not be re-derived each time.
