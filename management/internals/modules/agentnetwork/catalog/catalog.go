@@ -81,6 +81,10 @@ type Provider struct {
 	// surface — the proxy middleware then falls back to URL sniffing
 	// or skips request-side enrichment.
 	ParserID string
+	// RouterVendors declares every parser surface a gateway route can serve.
+	// Leave empty for single-surface providers, where ParserID remains the
+	// router discriminator for backward compatibility.
+	RouterVendors []string
 	// PricingSurfaces names the cost-meter pricing surfaces this
 	// provider's Models are priced under ("openai", "anthropic",
 	// "bedrock" — the llm.Parser surface the request parser stamps as
@@ -549,7 +553,8 @@ var providers = []Provider{
 		BrandColor:         "#8023C3",
 		// Agentgateway accepts both OpenAI and Anthropic request shapes.
 		// Leave ParserID empty so the proxy detects the shape from the URL.
-		ParserID: "",
+		ParserID:      "",
+		RouterVendors: []string{"openai", "anthropic"},
 		IdentityInjection: &IdentityInjection{
 			HeaderPair: &HeaderPairInjection{
 				EndUserIDHeader: "x-netbird-user-id",

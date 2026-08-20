@@ -19,6 +19,8 @@ func TestAgentgatewayCatalogEntry(t *testing.T) {
 	assert.Equal(t, "Bearer ${API_KEY}", entry.AuthHeaderTemplate)
 	assert.Equal(t, "application/json", entry.DefaultContentType)
 	assert.Empty(t, entry.ParserID, "URL detection must select the OpenAI or Anthropic parser")
+	assert.Equal(t, []string{"openai", "anthropic"}, entry.RouterVendors,
+		"agentgateway must accept both parser surfaces")
 	assert.Empty(t, entry.Models, "an empty model list makes agentgateway a catch-all route")
 
 	require.NotNil(t, entry.IdentityInjection)
