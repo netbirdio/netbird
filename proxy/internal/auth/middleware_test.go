@@ -25,6 +25,7 @@ import (
 	"github.com/netbirdio/netbird/proxy/internal/proxy"
 	"github.com/netbirdio/netbird/proxy/internal/restrict"
 	"github.com/netbirdio/netbird/proxy/internal/types"
+	"github.com/netbirdio/netbird/shared/hash/argon2id"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -1023,38 +1024,24 @@ func TestProtect_OIDCWithOtherMethodShowsLoginPage(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, rec.Code, "should show login page when multiple methods exist")
 }
 
-// mockAuthenticator is a minimal mock for the authenticator gRPC interface
-// used by the Header scheme.
-type mockAuthenticator struct {
-	fn func(ctx context.Context, req *proto.AuthenticateRequest) (*proto.AuthenticateResponse, error)
-}
-
-func (m *mockAuthenticator) Authenticate(ctx context.Context, in *proto.AuthenticateRequest, _ ...grpc.CallOption) (*proto.AuthenticateResponse, error) {
-	return m.fn(ctx, in)
-}
-
-// newHeaderSchemeWithToken creates a Header scheme backed by a mock that
-// returns a signed session token when the expected header value is provided.
-func newHeaderSchemeWithToken(t *testing.T, kp *sessionkey.KeyPair, headerName, expectedValue string) Header {
+// newHeaderScheme creates a Header scheme accepting each of the given values,
+// hashed the way management hashes them before putting them on the mapping.
+func newHeaderScheme(t *testing.T, headerName string, acceptedValues ...string) Header {
 	t.Helper()
-	token, err := sessionkey.SignToken(kp.PrivateKey, "header-user", "", "example.com", auth.MethodHeader, nil, nil, time.Hour)
-	require.NoError(t, err)
-
-	mock := &mockAuthenticator{fn: func(_ context.Context, req *proto.AuthenticateRequest) (*proto.AuthenticateResponse, error) {
-		ha := req.GetHeaderAuth()
-		if ha != nil && ha.GetHeaderValue() == expectedValue {
-			return &proto.AuthenticateResponse{Success: true, SessionToken: token}, nil
-		}
-		return &proto.AuthenticateResponse{Success: false}, nil
-	}}
-	return NewHeader(mock, "svc1", "acc1", headerName)
+	hashes := make([]string, 0, len(acceptedValues))
+	for _, v := range acceptedValues {
+		hash, err := argon2id.Hash(v)
+		require.NoError(t, err, "hashing an accepted header value must succeed")
+		hashes = append(hashes, hash)
+	}
+	return NewHeader(headerName, hashes)
 }
 
 func TestProtect_HeaderAuth_ForwardsOnSuccess(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
 	kp := generateTestKeyPair(t)
 
-	hdr := newHeaderSchemeWithToken(t, kp, "X-API-Key", "secret-key")
+	hdr := newHeaderScheme(t, "X-API-Key", "secret-key")
 	require.NoError(t, mw.AddDomain("example.com", []Scheme{hdr}, kp.PublicKey, time.Hour, "acc1", "svc1", nil, false))
 
 	var backendCalled bool
@@ -1075,19 +1062,12 @@ func TestProtect_HeaderAuth_ForwardsOnSuccess(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "ok", rec.Body.String())
 
-	// Session cookie should be set.
-	var sessionCookie *http.Cookie
+	// The credential rides on every request, so no session cookie is issued.
 	for _, c := range rec.Result().Cookies() {
-		if c.Name == auth.SessionCookieName {
-			sessionCookie = c
-			break
-		}
+		assert.NotEqual(t, auth.SessionCookieName, c.Name, "header auth must not issue a session cookie")
 	}
-	require.NotNil(t, sessionCookie, "session cookie should be set after successful header auth")
-	assert.True(t, sessionCookie.HttpOnly)
-	assert.True(t, sessionCookie.Secure)
 
-	assert.Equal(t, "header-user", capturedData.GetUserID())
+	assert.Equal(t, auth.HeaderUserID, capturedData.GetUserID())
 	assert.Equal(t, "header", capturedData.GetAuthMethod())
 }
 
@@ -1095,7 +1075,7 @@ func TestProtect_HeaderAuth_MissingHeaderFallsThrough(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
 	kp := generateTestKeyPair(t)
 
-	hdr := newHeaderSchemeWithToken(t, kp, "X-API-Key", "secret-key")
+	hdr := newHeaderScheme(t, "X-API-Key", "secret-key")
 	// Also add a PIN scheme so we can verify fallthrough behavior.
 	pinScheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
 	require.NoError(t, mw.AddDomain("example.com", []Scheme{hdr, pinScheme}, kp.PublicKey, time.Hour, "acc1", "svc1", nil, false))
@@ -1114,10 +1094,7 @@ func TestProtect_HeaderAuth_WrongValueReturns401(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
 	kp := generateTestKeyPair(t)
 
-	mock := &mockAuthenticator{fn: func(_ context.Context, _ *proto.AuthenticateRequest) (*proto.AuthenticateResponse, error) {
-		return &proto.AuthenticateResponse{Success: false}, nil
-	}}
-	hdr := NewHeader(mock, "svc1", "acc1", "X-API-Key")
+	hdr := newHeaderScheme(t, "X-API-Key", "secret-key")
 	require.NoError(t, mw.AddDomain("example.com", []Scheme{hdr}, kp.PublicKey, time.Hour, "acc1", "svc1", nil, false))
 
 	capturedData := proxy.NewCapturedData("")
@@ -1131,93 +1108,113 @@ func TestProtect_HeaderAuth_WrongValueReturns401(t *testing.T) {
 
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
 	assert.Equal(t, "header", capturedData.GetAuthMethod())
+	assert.Empty(t, hdr.verified.seen, "a rejected value must not be memoized")
 }
 
-func TestProtect_HeaderAuth_InfraErrorReturns502(t *testing.T) {
+// TestProtect_HeaderAuth_NoHashesFailsClosed covers a mapping that names a
+// header but carries no hash for it: the check cannot be evaluated, so the
+// request must be denied rather than let through unauthenticated.
+func TestProtect_HeaderAuth_NoHashesFailsClosed(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
 	kp := generateTestKeyPair(t)
 
-	mock := &mockAuthenticator{fn: func(_ context.Context, _ *proto.AuthenticateRequest) (*proto.AuthenticateResponse, error) {
-		return nil, errors.New("gRPC unavailable")
-	}}
-	hdr := NewHeader(mock, "svc1", "acc1", "X-API-Key")
+	hdr := NewHeader("X-API-Key", nil)
 	require.NoError(t, mw.AddDomain("example.com", []Scheme{hdr}, kp.PublicKey, time.Hour, "acc1", "svc1", nil, false))
 
-	handler := mw.Protect(newPassthroughHandler())
-
-	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
-	req.Header.Set("X-API-Key", "some-key")
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	assert.Equal(t, http.StatusBadGateway, rec.Code)
-}
-
-func TestProtect_HeaderAuth_SubsequentRequestUsesSessionCookie(t *testing.T) {
-	mw := NewMiddleware(log.StandardLogger(), nil, nil)
-	kp := generateTestKeyPair(t)
-
-	hdr := newHeaderSchemeWithToken(t, kp, "X-API-Key", "secret-key")
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{hdr}, kp.PublicKey, time.Hour, "acc1", "svc1", nil, false))
-
+	var backendCalled bool
 	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		backendCalled = true
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	// First request with header auth.
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	req.Header.Set("X-API-Key", "any-key")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	assert.False(t, backendCalled, "a header auth with no hashes must not admit the request")
+}
+
+// TestProtect_HeaderAuth_SubsequentRequestRequiresHeader verifies that header
+// auth grants no ambient session: a follow-up request that drops the header is
+// treated as unauthenticated.
+func TestProtect_HeaderAuth_SubsequentRequestRequiresHeader(t *testing.T) {
+	mw := NewMiddleware(log.StandardLogger(), nil, nil)
+	kp := generateTestKeyPair(t)
+
+	hdr := newHeaderScheme(t, "X-API-Key", "secret-key")
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{hdr}, kp.PublicKey, time.Hour, "acc1", "svc1", nil, false))
+
+	var backendCalls int
+	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		backendCalls++
+		w.WriteHeader(http.StatusOK)
+	}))
+
 	req1 := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
 	req1.Header.Set("X-API-Key", "secret-key")
 	req1 = req1.WithContext(proxy.WithCapturedData(req1.Context(), proxy.NewCapturedData("")))
 	rec1 := httptest.NewRecorder()
 	handler.ServeHTTP(rec1, req1)
 	require.Equal(t, http.StatusOK, rec1.Code)
+	require.Equal(t, 1, backendCalls)
 
-	// Extract session cookie.
-	var sessionCookie *http.Cookie
-	for _, c := range rec1.Result().Cookies() {
-		if c.Name == auth.SessionCookieName {
-			sessionCookie = c
-			break
-		}
-	}
-	require.NotNil(t, sessionCookie)
-
-	// Second request with only the session cookie (no header).
-	capturedData2 := proxy.NewCapturedData("")
+	// Same client, second request, header omitted: no cookie was handed out, so
+	// there is nothing to carry the earlier success forward.
 	req2 := httptest.NewRequest(http.MethodGet, "http://example.com/other", nil)
-	req2.AddCookie(sessionCookie)
-	req2 = req2.WithContext(proxy.WithCapturedData(req2.Context(), capturedData2))
+	for _, c := range rec1.Result().Cookies() {
+		req2.AddCookie(c)
+	}
 	rec2 := httptest.NewRecorder()
 	handler.ServeHTTP(rec2, req2)
 
-	assert.Equal(t, http.StatusOK, rec2.Code)
-	assert.Equal(t, "header-user", capturedData2.GetUserID())
-	assert.Equal(t, "header", capturedData2.GetAuthMethod())
+	assert.Equal(t, http.StatusUnauthorized, rec2.Code, "dropping the header must revoke access")
+	assert.Equal(t, 1, backendCalls, "backend must not be reached without the header")
 }
 
-// TestProtect_HeaderAuth_MultipleValuesSameHeader verifies that the proxy
-// correctly handles multiple valid credentials for the same header name.
-// In production, the mgmt gRPC authenticateHeader iterates all configured
-// header auths and accepts if any hash matches (OR semantics). The proxy
-// creates one Header scheme per entry, but a single gRPC call checks all.
+// TestProtect_HeaderAuth_RepeatedValueIsMemoized verifies the KDF is run once
+// per distinct accepted value. argon2id is deliberately expensive, so a
+// credential that repeats on every request must not be re-derived each time.
+func TestProtect_HeaderAuth_RepeatedValueIsMemoized(t *testing.T) {
+	mw := NewMiddleware(log.StandardLogger(), nil, nil)
+	kp := generateTestKeyPair(t)
+
+	hdr := newHeaderScheme(t, "X-API-Key", "key-a", "key-b")
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{hdr}, kp.PublicKey, time.Hour, "acc1", "svc1", nil, false))
+
+	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	get := func(value string) int {
+		req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+		req.Header.Set("X-API-Key", value)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		return rec.Code
+	}
+
+	require.Equal(t, http.StatusOK, get("key-a"))
+	require.Equal(t, http.StatusOK, get("key-a"))
+	assert.Len(t, hdr.verified.seen, 1, "the same value must be memoized once")
+
+	require.Equal(t, http.StatusOK, get("key-b"))
+	assert.Len(t, hdr.verified.seen, 2, "each accepted value gets its own entry")
+
+	require.Equal(t, http.StatusUnauthorized, get("key-c"))
+	assert.Len(t, hdr.verified.seen, 2, "rejected values must not grow the set")
+}
+
+// TestProtect_HeaderAuth_MultipleValuesSameHeader verifies that a service with
+// several accepted credentials for one header name accepts any of them.
+// Management applied these OR semantics while it still validated the value; the
+// proxy preserves them by carrying every hash for a name on one scheme.
 func TestProtect_HeaderAuth_MultipleValuesSameHeader(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
 	kp := generateTestKeyPair(t)
 
-	// Mock simulates mgmt behavior: accepts either token-a or token-b.
-	accepted := map[string]bool{"Bearer token-a": true, "Bearer token-b": true}
-	mock := &mockAuthenticator{fn: func(_ context.Context, req *proto.AuthenticateRequest) (*proto.AuthenticateResponse, error) {
-		ha := req.GetHeaderAuth()
-		if ha != nil && accepted[ha.GetHeaderValue()] {
-			token, err := sessionkey.SignToken(kp.PrivateKey, "header-user", "", "example.com", auth.MethodHeader, nil, nil, time.Hour)
-			require.NoError(t, err)
-			return &proto.AuthenticateResponse{Success: true, SessionToken: token}, nil
-		}
-		return &proto.AuthenticateResponse{Success: false}, nil
-	}}
-
-	// Single Header scheme (as if one entry existed), but the mock checks both values.
-	hdr := NewHeader(mock, "svc1", "acc1", "Authorization")
+	hdr := newHeaderScheme(t, "Authorization", "Bearer token-a", "Bearer token-b")
 	require.NoError(t, mw.AddDomain("example.com", []Scheme{hdr}, kp.PublicKey, time.Hour, "acc1", "svc1", nil, false))
 
 	var backendCalled bool

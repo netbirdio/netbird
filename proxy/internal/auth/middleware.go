@@ -146,7 +146,7 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 			return
 		}
 
-		if mw.forwardWithHeaderAuth(w, r, host, config, next) {
+		if mw.forwardWithHeaderAuth(w, r, config, next) {
 			return
 		}
 
@@ -436,14 +436,14 @@ func isTunnelSourceIP(ip netip.Addr) bool {
 
 // forwardWithHeaderAuth checks for a Header auth scheme. If the header validates,
 // the request is forwarded directly (no redirect), which is important for API clients.
-func (mw *Middleware) forwardWithHeaderAuth(w http.ResponseWriter, r *http.Request, host string, config DomainConfig, next http.Handler) bool {
+func (mw *Middleware) forwardWithHeaderAuth(w http.ResponseWriter, r *http.Request, config DomainConfig, next http.Handler) bool {
 	for _, scheme := range config.Schemes {
 		hdr, ok := scheme.(Header)
 		if !ok {
 			continue
 		}
 
-		handled := mw.tryHeaderScheme(w, r, host, config, hdr, next)
+		handled := mw.tryHeaderScheme(w, r, hdr, next)
 		if handled {
 			return true
 		}
@@ -451,58 +451,31 @@ func (mw *Middleware) forwardWithHeaderAuth(w http.ResponseWriter, r *http.Reque
 	return false
 }
 
-func (mw *Middleware) tryHeaderScheme(w http.ResponseWriter, r *http.Request, host string, config DomainConfig, hdr Header, next http.Handler) bool {
-	token, _, err := hdr.Authenticate(r)
-	if err != nil {
-		return mw.handleHeaderAuthError(w, r, err)
-	}
-	if token == "" {
+// tryHeaderScheme verifies the credential against the hashes the service
+// mapping carries. No session token is issued: the credential travels on
+// every request, so there is nothing for a cookie to save.
+func (mw *Middleware) tryHeaderScheme(w http.ResponseWriter, r *http.Request, hdr Header, next http.Handler) bool {
+	present, matched := hdr.Verify(r)
+	if !present {
 		return false
 	}
 
-	result, err := mw.validateSessionToken(r.Context(), host, token, config.SessionPublicKey, auth.MethodHeader)
-	if err != nil {
+	if !matched {
+		mw.logger.WithFields(log.Fields{
+			"host":   r.Host,
+			"header": hdr.headerName,
+		}).Debug("header auth rejected: value does not match any configured hash")
 		setHeaderCapturedData(r.Context(), "", "", nil, nil)
-		status := http.StatusBadRequest
-		msg := "invalid session token"
-		if errors.Is(err, errValidationUnavailable) {
-			status = http.StatusBadGateway
-			msg = "authentication service unavailable"
-		}
-		http.Error(w, msg, status)
-		return true
-	}
-
-	if !result.Valid {
-		setHeaderCapturedData(r.Context(), result.UserID, result.UserEmail, result.Groups, result.GroupNames)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return true
 	}
 
-	setSessionCookie(w, token, config.SessionExpiration)
 	if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
-		cd.SetUserID(result.UserID)
-		cd.SetUserEmail(result.UserEmail)
-		cd.SetUserGroups(result.Groups)
-		cd.SetUserGroupNames(result.GroupNames)
+		cd.SetUserID(auth.HeaderUserID)
 		cd.SetAuthMethod(auth.MethodHeader.String())
 	}
 
 	next.ServeHTTP(w, r)
-	return true
-}
-
-func (mw *Middleware) handleHeaderAuthError(w http.ResponseWriter, r *http.Request, err error) bool {
-	if errors.Is(err, ErrHeaderAuthFailed) {
-		setHeaderCapturedData(r.Context(), "", "", nil, nil)
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return true
-	}
-	mw.logger.WithField("scheme", "header").Warnf("header auth infrastructure error: %v", err)
-	if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
-		cd.SetOrigin(proxy.OriginAuth)
-	}
-	http.Error(w, "authentication service unavailable", http.StatusBadGateway)
 	return true
 }
 
