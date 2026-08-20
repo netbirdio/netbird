@@ -2348,7 +2348,7 @@ func (am *DefaultAccountManager) reallocateAccountPeerIPs(ctx context.Context, t
 		return err
 	}
 
-	peers, err := transaction.GetAccountPeers(ctx, store.LockingStrengthUpdate, accountID, "", "")
+	peers, err := transaction.GetAccountPeers(ctx, store.LockingStrengthUpdate, accountID, "", "", "")
 	if err != nil {
 		return err
 	}
@@ -2385,7 +2385,7 @@ func (am *DefaultAccountManager) reallocateAccountPeerIPs(ctx context.Context, t
 // v6 address get one allocated. When disabled, all v6 addresses are cleared.
 // When the v6 range changes, all v6 addresses are reallocated.
 func (am *DefaultAccountManager) checkIPv6Collision(ctx context.Context, transaction store.Store, accountID, peerID string, newIPv6 netip.Addr) error {
-	peers, err := transaction.GetAccountPeers(ctx, store.LockingStrengthShare, accountID, "", "")
+	peers, err := transaction.GetAccountPeers(ctx, store.LockingStrengthShare, accountID, "", "", "")
 	if err != nil {
 		return fmt.Errorf("get peers: %w", err)
 	}
@@ -2398,7 +2398,7 @@ func (am *DefaultAccountManager) checkIPv6Collision(ctx context.Context, transac
 }
 
 func (am *DefaultAccountManager) updatePeerIPv6Addresses(ctx context.Context, transaction store.Store, accountID string, settings *types.Settings) error {
-	peers, err := transaction.GetAccountPeers(ctx, store.LockingStrengthUpdate, accountID, "", "")
+	peers, err := transaction.GetAccountPeers(ctx, store.LockingStrengthUpdate, accountID, "", "", "")
 	if err != nil {
 		return fmt.Errorf("get peers: %w", err)
 	}
@@ -2560,7 +2560,7 @@ func (am *DefaultAccountManager) buildIPv6AllowedPeers(ctx context.Context, tran
 
 	// Embedded proxy peers sit outside regular group membership but must
 	// participate in any v6-enabled overlay to reach v6-only peers.
-	peers, err := transaction.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "")
+	peers, err := transaction.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "", "")
 	if err != nil {
 		return nil, fmt.Errorf("get peers: %w", err)
 	}
@@ -2631,7 +2631,7 @@ func (am *DefaultAccountManager) updatePeerIPInTransaction(ctx context.Context, 
 			return nil
 		}
 
-		peers, err := transaction.GetAccountPeers(ctx, store.LockingStrengthShare, accountID, "", "")
+		peers, err := transaction.GetAccountPeers(ctx, store.LockingStrengthShare, accountID, "", "", "")
 		if err != nil {
 			return fmt.Errorf("get account peers: %w", err)
 		}
