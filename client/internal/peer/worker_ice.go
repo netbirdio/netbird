@@ -255,8 +255,8 @@ func (w *WorkerICE) connect(ctx context.Context, agent *icemaker.ThreadSafeAgent
 		return
 	}
 
-	w.log.Debugf("turn agent dial")
-	remoteConn, err := w.turnAgentDial(ctx, agent, remoteOfferAnswer)
+	w.log.Debugf("agent dial")
+	remoteConn, err := w.agentDial(ctx, agent, remoteOfferAnswer)
 	if err != nil {
 		w.log.Debugf("failed to dial the remote peer: %s", err)
 		w.closeAgent(agent, w.agentDialerCancel)
@@ -517,8 +517,8 @@ func (w *WorkerICE) onConnectionStateChange(agent *icemaker.ThreadSafeAgent, dia
 			w.logSuccessfulPaths(agent)
 			return
 		case ice.ConnectionStateFailed, ice.ConnectionStateDisconnected, ice.ConnectionStateClosed:
-			// ice.ConnectionStateClosed happens when we recreate the agent. For the P2P to TURN switch important to
-			// notify the conn.onICEStateDisconnected changes to update the current used priority
+			// ice.ConnectionStateClosed happens when we recreate the agent. The P2P to relay switch requires
+			// notifying conn.onICEStateDisconnected so it can update the currently used priority.
 
 			sessionChanged := w.closeAgent(agent, dialerCancel)
 
@@ -532,7 +532,7 @@ func (w *WorkerICE) onConnectionStateChange(agent *icemaker.ThreadSafeAgent, dia
 	}
 }
 
-func (w *WorkerICE) turnAgentDial(ctx context.Context, agent *icemaker.ThreadSafeAgent, remoteOfferAnswer *OfferAnswer) (*ice.Conn, error) {
+func (w *WorkerICE) agentDial(ctx context.Context, agent *icemaker.ThreadSafeAgent, remoteOfferAnswer *OfferAnswer) (*ice.Conn, error) {
 	if isController(w.config) {
 		return agent.Dial(ctx, remoteOfferAnswer.IceCredentials.UFrag, remoteOfferAnswer.IceCredentials.Pwd)
 	} else {
