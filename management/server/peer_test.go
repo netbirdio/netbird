@@ -2870,6 +2870,62 @@ func TestSyncPeer_PeerUpdateBumpsNetworkSerial(t *testing.T) {
 	})
 }
 
+// TestLoginPeer_PeerUpdateBumpsNetworkSerial ensures that a login which changes
+// peer state (an expired login being re-authenticated) advances the network
+// serial before other peers receive the recomputed map, and that the login
+// response itself carries the advanced serial. An unchanged login must leave
+// the serial untouched.
+func TestLoginPeer_PeerUpdateBumpsNetworkSerial(t *testing.T) {
+	manager, _, account, _, _, _ := setupNetworkMapTest(t)
+
+	key, err := wgtypes.GeneratePrivateKey()
+	require.NoError(t, err)
+	userPeer, _, _, _, err := manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
+		Key:  key.PublicKey().String(),
+		Meta: nbpeer.PeerSystemMeta{Hostname: "login-serial-peer"},
+	}, false)
+	require.NoError(t, err, "unable to add the user-owned peer")
+
+	t.Run("bump when an expired login is re-authenticated", func(t *testing.T) {
+		userPeer.Status.LoginExpired = true
+		require.NoError(t, manager.Store.SavePeer(context.Background(), account.Id, userPeer))
+
+		network, err := manager.Store.GetAccountNetwork(context.Background(), store.LockingStrengthNone, account.Id)
+		require.NoError(t, err)
+		serialBefore := network.CurrentSerial()
+
+		_, loginNetwork, _, _, err := manager.LoginPeer(context.Background(), types.PeerLogin{
+			WireGuardPubKey: userPeer.Key,
+			UserID:          userID,
+			Meta:            userPeer.Meta,
+		})
+		require.NoError(t, err)
+
+		network, err = manager.Store.GetAccountNetwork(context.Background(), store.LockingStrengthNone, account.Id)
+		require.NoError(t, err)
+		assert.Greater(t, network.CurrentSerial(), serialBefore, "re-authenticating an expired login should advance the serial")
+		require.NotNil(t, loginNetwork)
+		assert.Equal(t, network.CurrentSerial(), loginNetwork.CurrentSerial(), "the login response should carry the advanced serial")
+	})
+
+	t.Run("no bump when nothing changed", func(t *testing.T) {
+		network, err := manager.Store.GetAccountNetwork(context.Background(), store.LockingStrengthNone, account.Id)
+		require.NoError(t, err)
+		serialBefore := network.CurrentSerial()
+
+		_, _, _, _, err = manager.LoginPeer(context.Background(), types.PeerLogin{
+			WireGuardPubKey: userPeer.Key,
+			UserID:          userID,
+			Meta:            userPeer.Meta,
+		})
+		require.NoError(t, err)
+
+		network, err = manager.Store.GetAccountNetwork(context.Background(), store.LockingStrengthNone, account.Id)
+		require.NoError(t, err)
+		assert.Equal(t, serialBefore, network.CurrentSerial(), "an unchanged login should not advance the serial")
+	})
+}
+
 func TestUpdatePeer_DnsLabelCollisionWithFQDN(t *testing.T) {
 	manager, _, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
