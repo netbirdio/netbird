@@ -253,7 +253,8 @@ func TestGroupMembersFromFileUnknownGroup(t *testing.T) {
 // answers for it.
 func TestGroupMembers_RootGroup(t *testing.T) {
 	rootGroup := "root"
-	if runtime.GOOS == "darwin" {
+	switch runtime.GOOS {
+	case "darwin", "dragonfly", "freebsd", "netbsd", "openbsd":
 		rootGroup = "wheel"
 	}
 
