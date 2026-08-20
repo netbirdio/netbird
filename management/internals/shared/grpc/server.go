@@ -423,6 +423,7 @@ func (s *Server) handleUpdates(ctx context.Context, accountID string, peerKey wg
 	// Create a debouncer for this peer connection
 	debouncer := NewUpdateDebouncer(1000 * time.Millisecond)
 	defer debouncer.Stop()
+	ticker := time.NewTicker(1 * time.Second)
 
 	for {
 		select {
@@ -448,6 +449,8 @@ func (s *Server) handleUpdates(ctx context.Context, accountID string, peerKey wg
 				}
 			}
 
+			s.accountManager.RefreshPeerLastSeen(ctx, accountID, peer.ID)
+
 		// Timer expired - quiet period reached, send pending updates if any
 		case <-debouncer.TimerChannel():
 			pendingUpdates := debouncer.GetPendingUpdates()
@@ -461,6 +464,11 @@ func (s *Server) handleUpdates(ctx context.Context, accountID string, peerKey wg
 					return err
 				}
 			}
+
+			s.accountManager.RefreshPeerLastSeen(ctx, accountID, peer.ID)
+
+		case <-ticker.C:
+			s.accountManager.RefreshPeerLastSeen(ctx, accountID, peer.ID)
 
 		// condition when client <-> server connection has been terminated
 		case <-srv.Context().Done():

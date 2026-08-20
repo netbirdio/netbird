@@ -1382,6 +1382,20 @@ func (mr *MockManagerMockRecorder) OnPeerDisconnected(ctx, accountID, peerPubKey
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OnPeerDisconnected", reflect.TypeOf((*MockManager)(nil).OnPeerDisconnected), ctx, accountID, peerPubKey, streamStartTime)
 }
 
+// RefreshPeerLastSeen mocks base method.
+func (m *MockManager) RefreshPeerLastSeen(ctx context.Context, accountId, peerId string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RefreshPeerLastSeen", ctx, accountId, peerId)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RefreshPeerLastSeen indicates an expected call of RefreshPeerLastSeen.
+func (mr *MockManagerMockRecorder) RefreshPeerLastSeen(ctx, accountId, peerId any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RefreshPeerLastSeen", reflect.TypeOf((*MockManager)(nil).RefreshPeerLastSeen), ctx, accountId, peerId)
+}
+
 // RegenerateUserInvite mocks base method.
 func (m *MockManager) RegenerateUserInvite(ctx context.Context, accountID, initiatorUserID, inviteID string, expiresIn int) (*types.UserInvite, error) {
 	m.ctrl.T.Helper()

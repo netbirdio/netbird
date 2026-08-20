@@ -41,6 +41,7 @@ type MockAccountManager struct {
 	GetPeersFunc                          func(ctx context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error)
 	MarkPeerConnectedFunc                 func(ctx context.Context, peerKey string, accountID string, sessionStartedAt int64, nmap *types.NetworkMap) error
 	MarkPeerDisconnectedFunc              func(ctx context.Context, peerKey string, accountID string, sessionStartedAt int64) error
+	RefreshPeerLastSeenFunc               func(ctx context.Context, accountId, peerId string) error
 	SyncAndMarkPeerFunc                   func(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP, syncTime time.Time) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, int64, error)
 	DeletePeerFunc                        func(ctx context.Context, accountID, peerKey, userID string) error
 	GetNetworkMapFunc                     func(ctx context.Context, peerKey string) (*types.NetworkMap, error)
@@ -358,6 +359,13 @@ func (am *MockAccountManager) MarkPeerDisconnected(ctx context.Context, peerKey 
 		return am.MarkPeerDisconnectedFunc(ctx, peerKey, accountID, sessionStartedAt)
 	}
 	return status.Errorf(codes.Unimplemented, "method MarkPeerDisconnected is not implemented")
+}
+
+func (am *MockAccountManager) RefreshPeerLastSeen(ctx context.Context, accountId, peerId string) error {
+	if am.RefreshPeerLastSeenFunc != nil {
+		return am.RefreshPeerLastSeenFunc(ctx, accountId, peerId)
+	}
+	return status.Errorf(codes.Unimplemented, "method RefreshPeerLastSeen is not implemented")
 }
 
 // DeleteAccount mock implementation of DeleteAccount from server.AccountManager interface
