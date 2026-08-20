@@ -2593,7 +2593,7 @@ func (e *Engine) SetCapture(pc device.PacketCapture) error {
 	}
 
 	afc := capture.NewAFPacketCapture(intf.Name(), sess)
-	if err := afc.Start(); err != nil {
+	if err := afc.Start(); err != nil { //nolint:staticcheck // always errors on non-Linux builds
 		return fmt.Errorf("start AF_PACKET capture on %s: %w", intf.Name(), err)
 	}
 	e.afpacketCapture = afc
