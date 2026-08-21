@@ -1753,6 +1753,21 @@ type AccountSettings struct {
 
 // AgentNetworkAccessLog One per-request agent-network (LLM) access log entry with flattened, queryable LLM dimensions.
 type AgentNetworkAccessLog struct {
+	// CacheCostUsd Portion of cost_usd billed for prompt-cache usage.
+	CacheCostUsd float64 `json:"cache_cost_usd"`
+
+	// CacheCreationCostUsd Cost of the prompt-cache write tokens. Base component of cost_usd, and part of cache_cost_usd.
+	CacheCreationCostUsd float64 `json:"cache_creation_cost_usd"`
+
+	// CacheCreationTokens Input tokens written to the provider's prompt cache. Zero for providers without a cache-write bucket.
+	CacheCreationTokens int64 `json:"cache_creation_tokens"`
+
+	// CachedInputCostUsd Cost of the prompt-cache read tokens. Base component of cost_usd, and part of cache_cost_usd.
+	CachedInputCostUsd float64 `json:"cached_input_cost_usd"`
+
+	// CachedInputTokens Input tokens read from the provider's prompt cache. Additive to input_tokens for Anthropic-shape providers; a subset of input_tokens for OpenAI.
+	CachedInputTokens int64 `json:"cached_input_tokens"`
+
 	// CostUsd Estimated USD cost of the request.
 	CostUsd float64 `json:"cost_usd"`
 
@@ -1774,6 +1789,9 @@ type AgentNetworkAccessLog struct {
 	// Id Unique identifier for the access log entry.
 	Id string `json:"id"`
 
+	// InputCostUsd Cost of the non-cached input tokens. Base component of cost_usd.
+	InputCostUsd float64 `json:"input_cost_usd"`
+
 	// InputTokens Input (prompt) tokens consumed.
 	InputTokens int64 `json:"input_tokens"`
 
@@ -1782,6 +1800,9 @@ type AgentNetworkAccessLog struct {
 
 	// Model Requested LLM model.
 	Model *string `json:"model,omitempty"`
+
+	// OutputCostUsd Cost of the output tokens. Base component of cost_usd.
+	OutputCostUsd float64 `json:"output_cost_usd"`
 
 	// OutputTokens Output (completion) tokens produced.
 	OutputTokens int64 `json:"output_tokens"`
@@ -1822,7 +1843,7 @@ type AgentNetworkAccessLog struct {
 	// Timestamp Timestamp when the request was made.
 	Timestamp time.Time `json:"timestamp"`
 
-	// TotalTokens Total tokens consumed.
+	// TotalTokens Total tokens consumed, including prompt-cache tokens.
 	TotalTokens int64 `json:"total_tokens"`
 
 	// UserId NetBird user id of the authenticated caller, if applicable.
@@ -1831,6 +1852,21 @@ type AgentNetworkAccessLog struct {
 
 // AgentNetworkAccessLogSession A session-grouped view of agent-network access logs — all requests sharing a session id (or a single session-less request) folded into one summary plus its ordered entries.
 type AgentNetworkAccessLogSession struct {
+	// CacheCostUsd Portion of cost_usd billed for prompt-cache usage across the session.
+	CacheCostUsd float64 `json:"cache_cost_usd"`
+
+	// CacheCreationCostUsd Total cost of prompt-cache write tokens across the session.
+	CacheCreationCostUsd float64 `json:"cache_creation_cost_usd"`
+
+	// CacheCreationTokens Total prompt-cache write tokens across the session.
+	CacheCreationTokens int64 `json:"cache_creation_tokens"`
+
+	// CachedInputCostUsd Total cost of prompt-cache read tokens across the session.
+	CachedInputCostUsd float64 `json:"cached_input_cost_usd"`
+
+	// CachedInputTokens Total prompt-cache read tokens across the session.
+	CachedInputTokens int64 `json:"cached_input_tokens"`
+
 	// CostUsd Total estimated USD cost across the session.
 	CostUsd float64 `json:"cost_usd"`
 
@@ -1846,11 +1882,17 @@ type AgentNetworkAccessLogSession struct {
 	// GroupIds Union of the authorising group ids across the session's entries.
 	GroupIds *[]string `json:"group_ids,omitempty"`
 
+	// InputCostUsd Total cost of non-cached input tokens across the session.
+	InputCostUsd float64 `json:"input_cost_usd"`
+
 	// InputTokens Total input (prompt) tokens across the session.
 	InputTokens int64 `json:"input_tokens"`
 
 	// Models Distinct models seen in the session.
 	Models *[]string `json:"models,omitempty"`
+
+	// OutputCostUsd Total cost of output tokens across the session.
+	OutputCostUsd float64 `json:"output_cost_usd"`
 
 	// OutputTokens Total output (completion) tokens across the session.
 	OutputTokens int64 `json:"output_tokens"`
@@ -1867,7 +1909,7 @@ type AgentNetworkAccessLogSession struct {
 	// StartedAt Timestamp of the session's earliest request.
 	StartedAt time.Time `json:"started_at"`
 
-	// TotalTokens Total tokens across the session.
+	// TotalTokens Total tokens across the session, including prompt-cache tokens.
 	TotalTokens int64 `json:"total_tokens"`
 
 	// UserId NetBird user id of the session's caller.
@@ -1996,6 +2038,15 @@ type AgentNetworkCatalogJSONMetadataInjection struct {
 
 // AgentNetworkCatalogModel defines model for AgentNetworkCatalogModel.
 type AgentNetworkCatalogModel struct {
+	// CacheCreationPer1k Anthropic-shape cache rate — default cost per 1k cache-creation tokens (additive to input tokens), in USD. Absent when the model has no cache-creation rate.
+	CacheCreationPer1k *float64 `json:"cache_creation_per_1k,omitempty"`
+
+	// CacheReadPer1k Anthropic-shape cache rate — default cost per 1k cache-read tokens (additive to input tokens), in USD. Absent when the model has no cache-read rate.
+	CacheReadPer1k *float64 `json:"cache_read_per_1k,omitempty"`
+
+	// CachedInputPer1k OpenAI-shape cache rate — default cost per 1k cached prompt tokens (a subset of input tokens), in USD. Absent when the model has no cached-input discount.
+	CachedInputPer1k *float64 `json:"cached_input_per_1k,omitempty"`
+
 	// ContextWindow Maximum context window in tokens.
 	ContextWindow int `json:"context_window"`
 
@@ -2049,6 +2100,9 @@ type AgentNetworkCatalogProvider struct {
 
 	// Name Display name for the provider.
 	Name string `json:"name"`
+
+	// PricingSurfaces Cost-meter pricing surfaces this provider's traffic is metered under ("openai", "anthropic", "bedrock"). Tells the dashboard which cache-rate fields apply to this provider's models: "openai" → cached_input_per_1k (cached prompt tokens are a subset of input); "anthropic"/"bedrock" → cache_read_per_1k + cache_creation_per_1k (additive buckets). Absent/empty for gateway and custom entries, whose upstream shape NetBird cannot know ahead of time — surface all cache fields for those.
+	PricingSurfaces *[]string `json:"pricing_surfaces,omitempty"`
 }
 
 // AgentNetworkCatalogProviderKind Presentation grouping for the provider Select on the dashboard.
@@ -2242,11 +2296,11 @@ type AgentNetworkProvider struct {
 	// Id Provider ID
 	Id string `json:"id"`
 
-	// IdentityHeaderGroups Wire header name the proxy stamps with the caller's NetBird groups as a comma-separated list (sorted) when the catalog entry's HeaderPair is `customizable`. Empty disables stamping for this dimension. Same per-catalog semantics as `identity_header_user_id`.
-	IdentityHeaderGroups *string `json:"identity_header_groups,omitempty"`
+	// IdentityHeaderGroups Wire header name the proxy stamps with the caller's NetBird groups as a comma-separated list (sorted) when the catalog entry's HeaderPair is `customizable`. Always present in responses; empty disables stamping for this dimension. Same per-catalog semantics as `identity_header_user_id`.
+	IdentityHeaderGroups string `json:"identity_header_groups"`
 
-	// IdentityHeaderUserId Wire header name the proxy stamps with the caller's display identity (user email or peer name) when the catalog entry's HeaderPair is `customizable`. Empty disables stamping for this dimension. Ignored when the catalog entry has a fixed HeaderPair (e.g. LiteLLM, Portkey). Used today by Bifrost: typical values are `x-bf-lh-netbird_user_id` (always-on log metadata) or `x-bf-dim-netbird_user_id` (Prometheus / OTEL — requires the label to be pre-declared in the gateway's `client.prometheus_labels` config).
-	IdentityHeaderUserId *string `json:"identity_header_user_id,omitempty"`
+	// IdentityHeaderUserId Wire header name the proxy stamps with the caller's display identity (user email or peer name) when the catalog entry's HeaderPair is `customizable`. Always present in responses; empty disables stamping for this dimension. Ignored when the catalog entry has a fixed HeaderPair (e.g. LiteLLM, Portkey). Used today by Bifrost: typical values are `x-bf-lh-netbird_user_id` (always-on log metadata) or `x-bf-dim-netbird_user_id` (Prometheus / OTEL — requires the label to be pre-declared in the gateway's `client.prometheus_labels` config).
+	IdentityHeaderUserId string `json:"identity_header_user_id"`
 
 	// MetadataDisabled Whether identity metadata injection is disabled for this provider. When enabled (the default), the proxy stamps the caller's user and authorizing group onto upstream requests as provider-specific metadata (e.g. AWS Bedrock's X-Amzn-Bedrock-Request-Metadata header). Set true to suppress it.
 	MetadataDisabled bool `json:"metadata_disabled"`
@@ -2272,6 +2326,15 @@ type AgentNetworkProvider struct {
 
 // AgentNetworkProviderModel A model exposed by the provider, with the operator's per-1k input/output prices in USD.
 type AgentNetworkProviderModel struct {
+	// CacheCreationPer1k Anthropic-shape cache rate — cost per 1k cache-creation tokens (additive to input tokens), in USD. Omitted means inherit NetBird's default rate for this model when one exists; 0 means cache writes bill at input_per_1k.
+	CacheCreationPer1k *float64 `json:"cache_creation_per_1k,omitempty"`
+
+	// CacheReadPer1k Anthropic-shape cache rate — cost per 1k cache-read tokens (additive to input tokens), in USD. Omitted means inherit NetBird's default rate for this model when one exists; 0 means cache reads bill at input_per_1k.
+	CacheReadPer1k *float64 `json:"cache_read_per_1k,omitempty"`
+
+	// CachedInputPer1k OpenAI-shape cache rate — cost per 1k cached prompt tokens (a subset of input tokens), in USD. Omitted means inherit NetBird's default rate for this model when one exists; 0 means no discount (cached tokens bill at input_per_1k).
+	CachedInputPer1k *float64 `json:"cached_input_per_1k,omitempty"`
+
 	// Id Model identifier (e.g. "gpt-4o-mini").
 	Id string `json:"id"`
 
@@ -2287,22 +2350,19 @@ type AgentNetworkProviderRequest struct {
 	// ApiKey Upstream provider API key. Sealed at rest on the management server and never returned in responses. Required on create; optional on update (omit to keep the existing key).
 	ApiKey *string `json:"api_key,omitempty"`
 
-	// BootstrapCluster Proxy cluster used to bootstrap the per-account agent-network endpoint when the first provider is created. Ignored on subsequent creates and on updates because the cluster is pinned on the account-level Settings row.
-	BootstrapCluster *string `json:"bootstrap_cluster,omitempty"`
-
 	// Enabled Whether the provider is enabled. Defaults to true on create.
 	Enabled *bool `json:"enabled,omitempty"`
 
-	// ExtraValues Operator-typed values for catalog-declared extra headers (see AgentNetworkProvider.extra_values). When present on a request, the whole map replaces the stored values. Empty strings drop the corresponding key.
+	// ExtraValues Operator-typed values for catalog-declared extra headers (see AgentNetworkProvider.extra_values). The request's map replaces the stored values; empty strings drop the corresponding key.
 	ExtraValues *map[string]string `json:"extra_values,omitempty"`
 
-	// IdentityHeaderGroups Wire header name for the caller's groups CSV. See AgentNetworkProvider.identity_header_groups. Same omit / empty semantics as `identity_header_user_id`.
+	// IdentityHeaderGroups Wire header name for the caller's groups CSV. See AgentNetworkProvider.identity_header_groups. Same semantics as `identity_header_user_id`.
 	IdentityHeaderGroups *string `json:"identity_header_groups,omitempty"`
 
-	// IdentityHeaderUserId Wire header name for the caller's display identity. See AgentNetworkProvider.identity_header_user_id. When omitted on a request, the stored value is left unchanged; pass an empty string explicitly to clear it (which disables stamping for this dimension).
+	// IdentityHeaderUserId Wire header name for the caller's display identity. See AgentNetworkProvider.identity_header_user_id. Empty or omitted disables stamping for this dimension.
 	IdentityHeaderUserId *string `json:"identity_header_user_id,omitempty"`
 
-	// MetadataDisabled Disable identity metadata injection (the caller's user + authorizing group) for this provider. Defaults to false (metadata is injected). When omitted on update, the stored value is left unchanged.
+	// MetadataDisabled Disable identity metadata injection (the caller's user + authorizing group) for this provider. Defaults to false (metadata is injected).
 	MetadataDisabled *bool `json:"metadata_disabled,omitempty"`
 
 	// Models Models exposed through this endpoint, with the operator's per-1k input/output prices. Empty means all catalog models are allowed at catalog prices.
@@ -2314,23 +2374,23 @@ type AgentNetworkProviderRequest struct {
 	// ProviderId Catalog identifier for the upstream AI provider (e.g. openai_api, anthropic_api, azure_openai_api, bedrock_api, vertex_ai_api, mistral_api, custom).
 	ProviderId string `json:"provider_id"`
 
-	// SkipTlsVerification Skip upstream TLS certificate verification when the proxy dials this provider's URL. For self-hosted / internal gateways behind a private or self-signed certificate. Defaults to false. When omitted on update, the stored value is left unchanged.
+	// SkipTlsVerification Skip upstream TLS certificate verification when the proxy dials this provider's URL. For self-hosted / internal gateways behind a private or self-signed certificate. Defaults to false.
 	SkipTlsVerification *bool `json:"skip_tls_verification,omitempty"`
 
 	// UpstreamUrl Full upstream URL (with scheme) that NetBird forwards traffic to.
 	UpstreamUrl string `json:"upstream_url"`
 }
 
-// AgentNetworkSettings Per-account Agent Network gateway settings. One row per account; cluster and subdomain are auto-assigned on first provider create and immutable thereafter.
+// AgentNetworkSettings Per-account Agent Network gateway settings. One row per account; endpoint and proxy_address are assigned at bootstrap (POST) and immutable thereafter. Before bootstrap the account reads as the default values with empty endpoint and proxy_address.
 type AgentNetworkSettings struct {
 	// AccessLogRetentionDays Days to retain full access-log rows; older rows are swept. 0 or less means keep indefinitely. Usage records are retained independently.
 	AccessLogRetentionDays *int `json:"access_log_retention_days,omitempty"`
 
-	// Cluster Address of the NetBird proxy cluster fronting this account's agent-network endpoint.
-	Cluster string `json:"cluster"`
-
-	// CreatedAt Timestamp when the settings row was created.
+	// CreatedAt Timestamp when the settings row was created. Absent until the account is bootstrapped.
 	CreatedAt *time.Time `json:"created_at,omitempty"`
+
+	// Dedicated Whether the account's gateway is served by a proxy dedicated to it (endpoint equals proxy_address).
+	Dedicated bool `json:"dedicated"`
 
 	// EnableLogCollection Whether per-request access-log entries are collected for this account's agent-network traffic.
 	EnableLogCollection bool `json:"enable_log_collection"`
@@ -2338,23 +2398,44 @@ type AgentNetworkSettings struct {
 	// EnablePromptCollection Master switch for request/response prompt capture. Capture runs only when this is on AND a policy guardrail also enables it.
 	EnablePromptCollection bool `json:"enable_prompt_collection"`
 
-	// Endpoint Bare hostname agents call for this account, computed as `<subdomain>.<cluster>`.
+	// Endpoint Bare hostname agents call for this account. Empty until the account is bootstrapped.
 	Endpoint string `json:"endpoint"`
+
+	// ProxyAddress Declared cluster address of the proxy serving this account's gateway. Equal to `endpoint` when a dedicated proxy serves the account; otherwise the endpoint's immediate parent (a shared cluster the endpoint hangs one label beneath). Empty until the account is bootstrapped.
+	ProxyAddress string `json:"proxy_address"`
 
 	// RedactPii Whether captured prompts have PII redacted. Effective redaction is the OR of this and any policy guardrail's redact setting.
 	RedactPii bool `json:"redact_pii"`
 
-	// Subdomain Auto-generated DNS-safe label that prefixes the cluster to form the agent-network endpoint.
-	Subdomain string `json:"subdomain"`
-
-	// UpdatedAt Timestamp when the settings row was last updated.
+	// UpdatedAt Timestamp when the settings row was last updated. Absent until the account is bootstrapped.
 	UpdatedAt *time.Time `json:"updated_at,omitempty"`
 }
 
-// AgentNetworkSettingsRequest Mutable account-level Agent Network settings. Cluster and subdomain are immutable and not accepted here.
+// AgentNetworkSettingsCreateRequest Bootstraps the per-account Agent Network settings row, assigning the account's immutable endpoint. Exactly one of `proxy_address` and `endpoint` must be provided. `proxy_address` requests a labeled endpoint — the server allocates a label and the endpoint becomes `<label>.<proxy_address>`, served by whichever proxy declares that parent address. `endpoint` claims the given hostname itself as a self-addressed (dedicated) endpoint, served only by a proxy declaring exactly that address — the claim is legitimate before the proxy exists (address-first). Collection toggles may ride along; omitted toggles take their defaults.
+type AgentNetworkSettingsCreateRequest struct {
+	// AccessLogRetentionDays Days to retain full access-log rows; older rows are swept. 0 or less means keep indefinitely. Defaults to 30.
+	AccessLogRetentionDays *int `json:"access_log_retention_days,omitempty"`
+
+	// EnableLogCollection Whether per-request access-log entries are collected for this account's agent-network traffic. Defaults to true.
+	EnableLogCollection *bool `json:"enable_log_collection,omitempty"`
+
+	// EnablePromptCollection Master switch for request/response prompt capture. Defaults to false.
+	EnablePromptCollection *bool `json:"enable_prompt_collection,omitempty"`
+
+	// Endpoint Hostname to claim as the account's self-addressed (dedicated) endpoint. Mutually exclusive with `proxy_address`. Rejected when another account already holds it.
+	Endpoint *string `json:"endpoint,omitempty"`
+
+	// ProxyAddress Cluster address to allocate a labeled endpoint beneath. Mutually exclusive with `endpoint`.
+	ProxyAddress *string `json:"proxy_address,omitempty"`
+
+	// RedactPii Whether captured prompts have PII redacted. Defaults to false.
+	RedactPii *bool `json:"redact_pii,omitempty"`
+}
+
+// AgentNetworkSettingsRequest Account-level Agent Network settings update. Every field is required, matching the PUT convention of the other endpoints. The endpoint and proxy address are assigned at bootstrap (POST) and are immutable — the request must carry them unchanged, and a request carrying different values is rejected. To change them, delete the settings (DELETE, guarded) and bootstrap again; re-creating allocates a new endpoint.
 type AgentNetworkSettingsRequest struct {
 	// AccessLogRetentionDays Days to retain full access-log rows; older rows are swept. 0 or less means keep indefinitely.
-	AccessLogRetentionDays *int `json:"access_log_retention_days,omitempty"`
+	AccessLogRetentionDays int `json:"access_log_retention_days"`
 
 	// EnableLogCollection Whether per-request access-log entries are collected for this account's agent-network traffic.
 	EnableLogCollection bool `json:"enable_log_collection"`
@@ -2362,17 +2443,44 @@ type AgentNetworkSettingsRequest struct {
 	// EnablePromptCollection Master switch for request/response prompt capture.
 	EnablePromptCollection bool `json:"enable_prompt_collection"`
 
+	// Endpoint The account's gateway endpoint hostname. Immutable — must match the assigned value; a different value is rejected.
+	Endpoint string `json:"endpoint"`
+
+	// ProxyAddress Declared cluster address of the proxy serving this account's gateway. Immutable — must match the assigned value; a different value is rejected.
+	ProxyAddress string `json:"proxy_address"`
+
 	// RedactPii Whether captured prompts have PII redacted.
 	RedactPii bool `json:"redact_pii"`
 }
 
 // AgentNetworkUsageBucket One aggregated agent-network usage time bucket (UTC). The bucket width is set by the request's granularity.
 type AgentNetworkUsageBucket struct {
+	// CacheCostUsd Portion of cost_usd billed for prompt-cache usage in the bucket.
+	CacheCostUsd float64 `json:"cache_cost_usd"`
+
+	// CacheCreationCostUsd Total cost of prompt-cache write tokens in the bucket.
+	CacheCreationCostUsd float64 `json:"cache_creation_cost_usd"`
+
+	// CacheCreationTokens Total prompt-cache write tokens in the bucket.
+	CacheCreationTokens int64 `json:"cache_creation_tokens"`
+
+	// CachedInputCostUsd Total cost of prompt-cache read tokens in the bucket.
+	CachedInputCostUsd float64 `json:"cached_input_cost_usd"`
+
+	// CachedInputTokens Total prompt-cache read tokens in the bucket.
+	CachedInputTokens int64 `json:"cached_input_tokens"`
+
 	// CostUsd Total estimated USD spend in the bucket.
 	CostUsd float64 `json:"cost_usd"`
 
+	// InputCostUsd Total cost of non-cached input tokens in the bucket.
+	InputCostUsd float64 `json:"input_cost_usd"`
+
 	// InputTokens Total input (prompt) tokens in the bucket.
 	InputTokens int64 `json:"input_tokens"`
+
+	// OutputCostUsd Total cost of output tokens in the bucket.
+	OutputCostUsd float64 `json:"output_cost_usd"`
 
 	// OutputTokens Total output (completion) tokens in the bucket.
 	OutputTokens int64 `json:"output_tokens"`
@@ -2380,7 +2488,7 @@ type AgentNetworkUsageBucket struct {
 	// PeriodStart Start of the bucket in YYYY-MM-DD (UTC) — the day, the week start (Monday), or the month start, depending on granularity.
 	PeriodStart string `json:"period_start"`
 
-	// TotalTokens Total tokens in the bucket.
+	// TotalTokens Total tokens in the bucket, including prompt-cache tokens.
 	TotalTokens int64 `json:"total_tokens"`
 }
 
@@ -2789,7 +2897,7 @@ type EDRFleetDMRequest struct {
 	// LastSyncedInterval The devices last sync requirement interval in hours. Minimum value is 24 hours
 	LastSyncedInterval int `json:"last_synced_interval"`
 
-	// MatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open-source version. Premium-only attributes are marked accordingly
+	// MatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open source version. Premium-only attributes are marked accordingly
 	MatchAttributes FleetDMMatchAttributes `json:"match_attributes"`
 }
 
@@ -2822,7 +2930,7 @@ type EDRFleetDMResponse struct {
 	// LastSyncedInterval The devices last sync requirement interval in hours.
 	LastSyncedInterval int `json:"last_synced_interval"`
 
-	// MatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open-source version. Premium-only attributes are marked accordingly
+	// MatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open source version. Premium-only attributes are marked accordingly
 	MatchAttributes FleetDMMatchAttributes `json:"match_attributes"`
 
 	// UpdatedAt Timestamp of when the integration was last updated.
@@ -3042,7 +3150,7 @@ type Event struct {
 // EventActivityCode The string code of the activity that occurred during the event
 type EventActivityCode string
 
-// FleetDMMatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open-source version. Premium-only attributes are marked accordingly
+// FleetDMMatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open source version. Premium-only attributes are marked accordingly
 type FleetDMMatchAttributes struct {
 	// DiskEncryptionEnabled Whether disk encryption (FileVault/BitLocker) must be enabled on the host
 	DiskEncryptionEnabled *bool `json:"disk_encryption_enabled,omitempty"`
@@ -4381,10 +4489,10 @@ type PolicyRule struct {
 	// Name Policy rule name identifier
 	Name string `json:"name"`
 
-	// PortRanges Policy rule affected ports ranges list
+	// PortRanges Policy rule affected ports ranges list. Mutually exclusive with `ports`. To mix individual ports with ranges in one rule, express each single port as a range with identical start and end values (for example, start 443, end 443).
 	PortRanges *[]RulePortRange `json:"port_ranges,omitempty"`
 
-	// Ports Policy rule affected ports
+	// Ports Policy rule affected ports. Mutually exclusive with `port_ranges`. A rule accepts either individual ports or port ranges, not both.
 	Ports *[]string `json:"ports,omitempty"`
 
 	// Protocol Policy rule type of the traffic
@@ -4421,10 +4529,10 @@ type PolicyRuleMinimum struct {
 	// Name Policy rule name identifier
 	Name string `json:"name"`
 
-	// PortRanges Policy rule affected ports ranges list
+	// PortRanges Policy rule affected ports ranges list. Mutually exclusive with `ports`. To mix individual ports with ranges in one rule, express each single port as a range with identical start and end values (for example, start 443, end 443).
 	PortRanges *[]RulePortRange `json:"port_ranges,omitempty"`
 
-	// Ports Policy rule affected ports
+	// Ports Policy rule affected ports. Mutually exclusive with `port_ranges`. A rule accepts either individual ports or port ranges, not both.
 	Ports *[]string `json:"ports,omitempty"`
 
 	// Protocol Policy rule type of the traffic
@@ -4464,10 +4572,10 @@ type PolicyRuleUpdate struct {
 	// Name Policy rule name identifier
 	Name string `json:"name"`
 
-	// PortRanges Policy rule affected ports ranges list
+	// PortRanges Policy rule affected ports ranges list. Mutually exclusive with `ports`. To mix individual ports with ranges in one rule, express each single port as a range with identical start and end values (for example, start 443, end 443).
 	PortRanges *[]RulePortRange `json:"port_ranges,omitempty"`
 
-	// Ports Policy rule affected ports
+	// Ports Policy rule affected ports. Mutually exclusive with `port_ranges`. A rule accepts either individual ports or port ranges, not both.
 	Ports *[]string `json:"ports,omitempty"`
 
 	// Protocol Policy rule type of the traffic
@@ -4875,7 +4983,7 @@ type RouteRequest struct {
 	SkipAutoApply *bool `json:"skip_auto_apply,omitempty"`
 }
 
-// RulePortRange Policy rule affected ports range
+// RulePortRange Policy rule affected ports range. A range with identical start and end values represents a single port.
 type RulePortRange struct {
 	// End The ending port of the range
 	End int `json:"end"`
@@ -6136,6 +6244,9 @@ type PostApiAgentNetworkProvidersJSONRequestBody = AgentNetworkProviderRequest
 
 // PutApiAgentNetworkProvidersProviderIdJSONRequestBody defines body for PutApiAgentNetworkProvidersProviderId for application/json ContentType.
 type PutApiAgentNetworkProvidersProviderIdJSONRequestBody = AgentNetworkProviderRequest
+
+// PostApiAgentNetworkSettingsJSONRequestBody defines body for PostApiAgentNetworkSettings for application/json ContentType.
+type PostApiAgentNetworkSettingsJSONRequestBody = AgentNetworkSettingsCreateRequest
 
 // PutApiAgentNetworkSettingsJSONRequestBody defines body for PutApiAgentNetworkSettings for application/json ContentType.
 type PutApiAgentNetworkSettingsJSONRequestBody = AgentNetworkSettingsRequest

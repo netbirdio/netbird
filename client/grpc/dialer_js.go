@@ -3,6 +3,7 @@ package grpc
 import (
 	"google.golang.org/grpc"
 
+	"github.com/netbirdio/netbird/client/netsweep"
 	"github.com/netbirdio/netbird/util/wsproxy/client"
 )
 
@@ -10,4 +11,9 @@ import (
 // The component parameter specifies the WebSocket proxy component path (e.g., "/management", "/signal").
 func WithCustomDialer(tlsEnabled bool, component string) grpc.DialOption {
 	return client.WithWebSocketDialer(tlsEnabled, component)
+}
+
+// WithSweeper is a no-op on WASM/JS: there is no network change signal.
+func WithSweeper(_ *netsweep.Sweeper) grpc.DialOption {
+	return grpc.EmptyDialOption{}
 }

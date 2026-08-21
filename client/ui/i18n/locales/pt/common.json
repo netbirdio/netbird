@@ -551,6 +551,14 @@
     "settings.general.autostart.errorTitle": {
         "message": "Falha ao alterar o início automático"
     },
+    "settings.general.keepConnectedOnQuit.label": {
+        "message": "Permanecer conectado ao sair",
+        "description": "Toggle label: keep the VPN connection up after quitting the UI."
+    },
+    "settings.general.keepConnectedOnQuit.help": {
+        "message": "A conexão continua ativa em segundo plano depois de fechar o NetBird. Ela só para quando você mesmo a desconecta.",
+        "description": "Helper text for the stay-connected-after-quitting toggle."
+    },
     "settings.general.language.label": {
         "message": "Idioma de exibição"
     },
@@ -756,7 +764,19 @@
         "message": "Anonimizar informações sensíveis"
     },
     "settings.troubleshooting.anonymize.help": {
-        "message": "Oculta endereços IP públicos e domínios que não são do NetBird nos logs."
+        "message": "Oculta endereços IP, domínios e outros valores sensíveis."
+    },
+    "settings.troubleshooting.anonymize.info": {
+        "message": "O modo padrão mantém os endereços IPv4 internos e os nomes dos peers legíveis para o suporte. O modo estrito anonimiza também os endereços IP privados (RFC 1918), CGNAT e link-local, os nomes dos peers e as chaves públicas do WireGuard. Valores recorrentes recebem o mesmo marcador, então os peers continuam distinguíveis. Use o modo estrito ao compartilhar o pacote de depuração fora da sua organização."
+    },
+    "settings.troubleshooting.anonymize.none": {
+        "message": "Nenhum"
+    },
+    "settings.troubleshooting.anonymize.default": {
+        "message": "Padrão"
+    },
+    "settings.troubleshooting.anonymize.strict": {
+        "message": "Estrito"
     },
     "settings.troubleshooting.systemInfo.label": {
         "message": "Incluir informações do sistema"
@@ -1330,5 +1350,14 @@
     },
     "error.unknown": {
         "message": "A operação falhou."
+    },
+    "settings.ssh.privilege.hint": {
+        "message": "Requer {actor}. Execute isto em vez disso:"
+    },
+    "settings.ssh.privilege.oneWay": {
+        "message": "Você pode desativar isto, mas ativar novamente requer {actor}:"
+    },
+    "settings.ssh.privilege.oneWayInverted": {
+        "message": "Você pode ativar isto, mas desativar novamente requer {actor}:"
     }
 }

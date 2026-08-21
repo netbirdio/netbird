@@ -11,6 +11,10 @@ SED_STRIP_PADDING='s/=//g'
 
 NETBIRD_EULA_URL="https://netbird.io/self-hosted-EULA"
 
+# Static IP for Traefik inside the compose bridge network. The management
+# server trusts X-Forwarded-* headers from this address only.
+TRAEFIK_IP="172.30.0.10"
+
 check_docker_compose() {
   if command -v docker-compose &> /dev/null; then
     echo "docker-compose"
@@ -80,7 +84,7 @@ read_nb_domain() {
   if ! check_domain_resolves "$value"; then
     echo "" > /dev/stderr
     echo "Warning: '$value' does not resolve via DNS from this host." > /dev/stderr
-    echo "Caddy will not be able to issue TLS certificates until it does." > /dev/stderr
+    echo "Traefik will not be able to issue TLS certificates until it does." > /dev/stderr
     local confirm=""
     echo -n "Continue anyway? [y/N]: " > /dev/stderr
     read -r confirm < /dev/tty
@@ -88,6 +92,23 @@ read_nb_domain() {
       read_nb_domain
       return
     fi
+  fi
+  echo "$value"
+}
+
+read_letsencrypt_email() {
+  if [[ -n "${NETBIRD_LETSENCRYPT_EMAIL:-}" ]]; then
+    echo "$NETBIRD_LETSENCRYPT_EMAIL"
+    return
+  fi
+  local value=""
+  echo "Enter your email for Let's Encrypt certificate notifications." > /dev/stderr
+  echo -n "Email address: " > /dev/stderr
+  read -r value < /dev/tty
+  if [[ -z "$value" ]]; then
+    echo "Email is required for Let's Encrypt." > /dev/stderr
+    read_letsencrypt_email
+    return
   fi
   echo "$value"
 }
@@ -204,11 +225,11 @@ init_environment() {
   check_openssl
   DOCKER_COMPOSE_COMMAND=$(check_docker_compose)
 
-  if [[ -f .env ]] || [[ -f docker-compose.yml ]] || [[ -f config.yaml ]] || [[ -f Caddyfile ]]; then
+  if [[ -f .env ]] || [[ -f docker-compose.yml ]] || [[ -f config.yaml ]]; then
     echo "Generated files already exist in $(pwd)."
     echo "If you want to reinitialize the environment, please remove them first:"
     echo "  $DOCKER_COMPOSE_COMMAND down --volumes # removes all containers and volumes"
-    echo "  rm -f .env docker-compose.yml Caddyfile config.yaml"
+    echo "  rm -f .env docker-compose.yml config.yaml"
     echo "Be aware this will remove all data from the database."
     exit 1
   fi
@@ -231,16 +252,17 @@ init_environment() {
   NETBIRD_DOMAIN=$(read_nb_domain)
 
   echo ""
+  NETBIRD_LETSENCRYPT_EMAIL=$(read_letsencrypt_email)
+
+  echo ""
 
   NETBIRD_LICENSE_KEY=$(read_secret "Enter license key (input hidden)")
-
-  GHCR_USERNAME="netbirdExtAccess1"
-  GHCR_TOKEN=$(read_secret "Enter GHCR token (input hidden)")
 
   POSTGRES_USER="netbird"
   POSTGRES_DB="netbird"
   POSTGRES_PASSWORD=$(rand_secret)
   NETBIRD_ENCRYPTION_KEY=$(rand_b64_key)
+  NETBIRD_SESSION_COOKIE_ENCRYPTION_KEY=$(rand_b64_key)
   NETBIRD_RELAY_AUTH_SECRET=$(rand_secret)
 
   POSTGRES_DSN="host=postgres user=${POSTGRES_USER} password=${POSTGRES_PASSWORD} dbname=${POSTGRES_DB} port=5432 sslmode=disable TimeZone=UTC"
@@ -250,6 +272,7 @@ init_environment() {
   echo "Selected:"
   echo "  Traffic flow: ${NETBIRD_TRAFFIC_FLOW}"
   echo "  Domain:       ${NETBIRD_DOMAIN}"
+  echo "  ACME email:   ${NETBIRD_LETSENCRYPT_EMAIL}"
   echo ""
   echo "Rendering files into $(pwd) ..."
   install -m 600 /dev/null .env
@@ -259,13 +282,8 @@ init_environment() {
   if [[ -z "${NETBIRD_LICENSE_SERVER_BASE_URL:-}" ]]; then
     sed -i.bak '/NETBIRD_LICENSE_SERVER_BASE_URL/d' docker-compose.yml && rm -f docker-compose.yml.bak
   fi
-  render_caddyfile > Caddyfile
   install -m 600 /dev/null config.yaml
   render_config_yaml >> config.yaml
-
-  echo "Logging in to ghcr.io ..."
-  printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
-  unset GHCR_TOKEN
 
   echo ""
   echo "Pulling images ..."
@@ -290,7 +308,7 @@ init_environment() {
   echo "All configuration and secrets are stored (mode 600) in $(pwd)/.env"
   echo ""
   echo "Tail logs:"
-  echo "  cd $(pwd) && $DOCKER_COMPOSE_COMMAND logs -f netbird-server caddy"
+  echo "  cd $(pwd) && $DOCKER_COMPOSE_COMMAND logs -f netbird-server traefik"
 }
 
 # ------------------------------------------------------------------
@@ -312,6 +330,11 @@ NETBIRD_TRAFFIC_FLOW_ENABLED=${NETBIRD_TRAFFIC_FLOW}
 
 # Domain
 NETBIRD_DOMAIN=${NETBIRD_DOMAIN}
+
+# Reverse proxy (Traefik)
+NETBIRD_LETSENCRYPT_EMAIL=${NETBIRD_LETSENCRYPT_EMAIL}
+NETBIRD_TRAEFIK_TAG=${NETBIRD_TRAEFIK_TAG:-v3.6}
+NETBIRD_TRAEFIK_IP=${TRAEFIK_IP}
 
 # Image tags. Default to "latest"
 NETBIRD_DASHBOARD_TAG=${NETBIRD_DASHBOARD_TAG:-latest}
@@ -385,26 +408,78 @@ EOF
 
 render_compose_common() {
   cat <<'EOF'
-  caddy:
+  # Reverse proxy with automatic TLS via Let's Encrypt. Routes are declared as
+  # labels on the services below and picked up through the Docker provider.
+  traefik:
     <<: *default
-    image: caddy:2
-    container_name: netbird-caddy
-    networks: [netbird]
-    environment:
-      - CADDY_SECURE_DOMAIN=${NETBIRD_DOMAIN}
+    image: traefik:${NETBIRD_TRAEFIK_TAG}
+    container_name: netbird-traefik
+    networks:
+      netbird:
+        ipv4_address: ${NETBIRD_TRAEFIK_IP}
+    command:
+      # Logging
+      - "--log.level=INFO"
+      - "--accesslog=true"
+      # Docker provider
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=netbird"
+      # Entrypoints
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.websecure.allowACMEByPass=true"
+      # readTimeout bounds the whole request, and gRPC streams / relay WebSockets
+      # never end one; idleTimeout would close the keep-alive connection they
+      # are reused over. Entrypoint-wide is the only scope Traefik offers here.
+      # writeTimeout is left alone: it already defaults to 0.
+      - "--entrypoints.websecure.transport.respondingTimeouts.readTimeout=0"
+      - "--entrypoints.websecure.transport.respondingTimeouts.idleTimeout=0"
+      # HTTP to HTTPS redirect
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      # Let's Encrypt ACME
+      - "--certificatesresolvers.letsencrypt.acme.email=${NETBIRD_LETSENCRYPT_EMAIL}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
     ports:
       - '443:443'
-      - '443:443/udp'
       - '80:80'
     volumes:
-      - netbird_caddy_data:/data
-      - ./Caddyfile:/etc/caddy/Caddyfile
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - netbird_traefik_letsencrypt:/letsencrypt
+    labels:
+      - traefik.enable=true
+      # Shared security headers, referenced by every NetBird router below. A
+      # label-declared middleware only exists while its container runs, so this
+      # lives on Traefik itself: declaring it on an app container would drop
+      # every router referencing it whenever that container restarts.
+      - traefik.http.middlewares.nb-security.headers.stsSeconds=3600
+      - traefik.http.middlewares.nb-security.headers.stsIncludeSubdomains=true
+      - traefik.http.middlewares.nb-security.headers.contentTypeNosniff=true
+      - traefik.http.middlewares.nb-security.headers.browserXssFilter=true
+      - traefik.http.middlewares.nb-security.headers.referrerPolicy=strict-origin-when-cross-origin
+      - traefik.http.middlewares.nb-security.headers.customResponseHeaders.X-Frame-Options=SAMEORIGIN
+      # Empty value strips the header. Only the dashboard's nginx sets one; the
+      # server emits none. Do not quote it — "" would send a literal Server: "".
+      - traefik.http.middlewares.nb-security.headers.customResponseHeaders.Server=
 
   dashboard:
     <<: *default
     image: ghcr.io/netbirdio/dashboard-cloud:${NETBIRD_DASHBOARD_TAG}
     container_name: netbird-dashboard
     networks: [netbird]
+    labels:
+      - traefik.enable=true
+      # Dashboard catch-all: lowest priority so every route below wins
+      - traefik.http.routers.netbird-dashboard.rule=Host(`${NETBIRD_DOMAIN}`)
+      - traefik.http.routers.netbird-dashboard.entrypoints=websecure
+      - traefik.http.routers.netbird-dashboard.tls=true
+      - traefik.http.routers.netbird-dashboard.tls.certresolver=letsencrypt
+      - traefik.http.routers.netbird-dashboard.middlewares=nb-security@docker
+      - traefik.http.routers.netbird-dashboard.service=dashboard
+      - traefik.http.routers.netbird-dashboard.priority=1
+      - traefik.http.services.dashboard.loadbalancer.server.port=80
     environment:
       - NETBIRD_MGMT_API_ENDPOINT=https://${NETBIRD_DOMAIN}
       - NETBIRD_MGMT_GRPC_API_ENDPOINT=https://${NETBIRD_DOMAIN}
@@ -442,6 +517,28 @@ render_compose_server() {
       - netbird_data:/var/lib/netbird
       - ./config.yaml:/etc/netbird/config.yaml
     command: ["--config", "/etc/netbird/config.yaml"]
+    labels:
+      - traefik.enable=true
+      # Signal + Management gRPC (needs an h2c backend for HTTP/2 cleartext)
+      - traefik.http.routers.netbird-grpc.rule=Host(`${NETBIRD_DOMAIN}`) && (PathPrefix(`/signalexchange.SignalExchange/`) || PathPrefix(`/management.ManagementService/`) || PathPrefix(`/management.ProxyService/`))
+      - traefik.http.routers.netbird-grpc.entrypoints=websecure
+      - traefik.http.routers.netbird-grpc.tls=true
+      - traefik.http.routers.netbird-grpc.tls.certresolver=letsencrypt
+      - traefik.http.routers.netbird-grpc.middlewares=nb-security@docker
+      - traefik.http.routers.netbird-grpc.service=netbird-server-h2c
+      - traefik.http.routers.netbird-grpc.priority=100
+      # Relay WebSocket, management API, and the embedded IdP
+      - traefik.http.routers.netbird-backend.rule=Host(`${NETBIRD_DOMAIN}`) && (PathPrefix(`/relay`) || PathPrefix(`/ws-proxy/`) || PathPrefix(`/api`) || PathPrefix(`/oauth2`))
+      - traefik.http.routers.netbird-backend.entrypoints=websecure
+      - traefik.http.routers.netbird-backend.tls=true
+      - traefik.http.routers.netbird-backend.tls.certresolver=letsencrypt
+      - traefik.http.routers.netbird-backend.middlewares=nb-security@docker
+      - traefik.http.routers.netbird-backend.service=netbird-server
+      - traefik.http.routers.netbird-backend.priority=100
+      # Services
+      - traefik.http.services.netbird-server.loadbalancer.server.port=80
+      - traefik.http.services.netbird-server-h2c.loadbalancer.server.port=80
+      - traefik.http.services.netbird-server-h2c.loadbalancer.server.scheme=h2c
     environment:
       - NB_LICENSE_KEY=${NETBIRD_LICENSE_KEY}
       - NETBIRD_LICENSE_SERVER_BASE_URL=${NETBIRD_LICENSE_SERVER_BASE_URL}
@@ -504,6 +601,18 @@ render_compose_flow() {
       - NB_FLOW_NATS_ENDPOINTS=nats://nats:4222
       - NB_FLOW_NATS_STREAM=traffic-events
       - NB_FLOW_AUTH_SECRET=${NETBIRD_RELAY_AUTH_SECRET}
+    labels:
+      - traefik.enable=true
+      # Flow receiver gRPC (h2c backend)
+      - traefik.http.routers.netbird-flow.rule=Host(`${NETBIRD_DOMAIN}`) && PathPrefix(`/flow.FlowService/`)
+      - traefik.http.routers.netbird-flow.entrypoints=websecure
+      - traefik.http.routers.netbird-flow.tls=true
+      - traefik.http.routers.netbird-flow.tls.certresolver=letsencrypt
+      - traefik.http.routers.netbird-flow.middlewares=nb-security@docker
+      - traefik.http.routers.netbird-flow.service=netbird-flow-h2c
+      - traefik.http.routers.netbird-flow.priority=100
+      - traefik.http.services.netbird-flow-h2c.loadbalancer.server.port=80
+      - traefik.http.services.netbird-flow-h2c.loadbalancer.server.scheme=h2c
 
 EOF
 }
@@ -543,61 +652,16 @@ EOF
   fi
   cat <<'EOF'
   netbird_postgres:
-  netbird_caddy_data:
+  netbird_traefik_letsencrypt:
 
 networks:
   netbird:
-EOF
-}
-
-render_caddyfile() {
-  cat <<'EOF'
-{
-  servers :80,:443 {
-    protocols h1 h2c h2 h3
-  }
-}
-
-(security_headers) {
-    header * {
-        Strict-Transport-Security "max-age=3600; includeSubDomains; preload"
-        X-Content-Type-Options "nosniff"
-        X-Frame-Options "SAMEORIGIN"
-        X-XSS-Protection "1; mode=block"
-        -Server
-        Referrer-Policy strict-origin-when-cross-origin
-    }
-}
-
-:80 {
-    redir https://{$CADDY_SECURE_DOMAIN}{uri} permanent
-}
-
-{$CADDY_SECURE_DOMAIN}:443 {
-    import security_headers
-    # Signal (gRPC over h2c)
-    reverse_proxy /signalexchange.SignalExchange/* h2c://netbird-server:80
-    # Management (gRPC over h2c + HTTP)
-    reverse_proxy /management.ManagementService/* h2c://netbird-server:80
-    reverse_proxy /api/* netbird-server:80
-    reverse_proxy /ws-proxy/* netbird-server:80
-    # Embedded IdP (OAuth2 endpoints served by netbird server)
-    reverse_proxy /oauth2/* netbird-server:80
-    # Relay (WebSocket multiplexed on the same port)
-    reverse_proxy /relay* netbird-server:80
-EOF
-
-  if [[ "$NETBIRD_TRAFFIC_FLOW" == "yes" ]]; then
-    cat <<'EOF'
-    # Flow receiver (gRPC over h2c)
-    reverse_proxy /flow.FlowService/* h2c://receiver:80
-EOF
-  fi
-
-  cat <<'EOF'
-    # Dashboard
-    reverse_proxy /* dashboard:80
-}
+    name: netbird
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+          gateway: 172.30.0.1
 EOF
 }
 
@@ -616,7 +680,7 @@ server:
   logLevel: "info"
   logFile: "console"
 
-  # TLS is terminated by Caddy in front; leave this block empty.
+  # TLS is terminated by Traefik in front; leave this block empty.
   tls:
     certFile: ""
     keyFile: ""
@@ -633,11 +697,22 @@ server:
     issuer: "https://${NETBIRD_DOMAIN}/oauth2"
     localAuthDisabled: false
     signKeyRefreshEnabled: false
+    sessionCookieEncryptionKey: "${NETBIRD_SESSION_COOKIE_ENCRYPTION_KEY}"
     dashboardRedirectURIs:
       - "https://${NETBIRD_DOMAIN}/nb-auth"
       - "https://${NETBIRD_DOMAIN}/nb-silent-auth"
     cliRedirectURIs:
       - "http://localhost:53000/"
+
+  # Trust X-Forwarded-* only from the Traefik container's static address. Both
+  # keys must stay in step with the ipv4_address pinned in docker-compose.yml:
+  # trustedPeers decides whether forwarded headers are read at all, and leaving
+  # it unset falls back to 0.0.0.0/0.
+  reverseProxy:
+    trustedPeers:
+      - "${TRAEFIK_IP}/32"
+    trustedHTTPProxies:
+      - "${TRAEFIK_IP}/32"
 
   store:
     engine: "postgres"

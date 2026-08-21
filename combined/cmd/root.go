@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,6 +25,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/netbirdio/netbird/encryption"
+	agentnetworkpricing "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/pricing"
 	mgmtServer "github.com/netbirdio/netbird/management/internals/server"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -31,6 +33,7 @@ import (
 	relayServer "github.com/netbirdio/netbird/relay/server"
 	"github.com/netbirdio/netbird/relay/server/listener"
 	"github.com/netbirdio/netbird/relay/server/listener/ws"
+	syncgrpc "github.com/netbirdio/netbird/shared/management/grpc"
 	sharedMetrics "github.com/netbirdio/netbird/shared/metrics"
 	"github.com/netbirdio/netbird/shared/relay/auth"
 	"github.com/netbirdio/netbird/shared/signal/proto"
@@ -64,7 +67,8 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "path to YAML configuration file (required)")
 	_ = rootCmd.MarkPersistentFlagRequired("config")
 
-	rootCmd.AddCommand(newTokenCommands())
+	rootCmd.AddCommand(newAdminCommands())
+	rootCmd.AddCommand(newLegacyTokenCommand())
 }
 
 func RootCmd() *cobra.Command {
@@ -122,6 +126,37 @@ func execute(cmd *cobra.Command, _ []string) error {
 }
 
 // initializeConfig loads and validates the configuration, then initializes logging.
+func applyServerStoreEnv(storeConfig StoreConfig) {
+	if dsn := storeConfig.DSN; dsn != "" {
+		switch strings.ToLower(storeConfig.Engine) {
+		case "postgres":
+			os.Setenv("NB_STORE_ENGINE_POSTGRES_DSN", dsn)
+		case "mysql":
+			os.Setenv("NB_STORE_ENGINE_MYSQL_DSN", dsn)
+		}
+	}
+	if file := storeConfig.File; file != "" {
+		os.Setenv("NB_STORE_ENGINE_SQLITE_FILE", file)
+	}
+}
+
+func applyActivityStoreEnv(storeConfig StoreConfig) error {
+	if engine := storeConfig.Engine; engine != "" {
+		engineLower := strings.ToLower(engine)
+		if engineLower == "postgres" && storeConfig.DSN == "" {
+			return fmt.Errorf("activityStore.dsn is required when activityStore.engine is postgres")
+		}
+		os.Setenv("NB_ACTIVITY_EVENT_STORE_ENGINE", engineLower)
+		if dsn := storeConfig.DSN; dsn != "" {
+			os.Setenv("NB_ACTIVITY_EVENT_POSTGRES_DSN", dsn)
+		}
+	}
+	if file := storeConfig.File; file != "" {
+		os.Setenv("NB_ACTIVITY_EVENT_SQLITE_FILE", file)
+	}
+	return nil
+}
+
 func initializeConfig() error {
 	var err error
 	config, err = LoadConfig(configPath)
@@ -137,30 +172,10 @@ func initializeConfig() error {
 		return fmt.Errorf("failed to initialize log: %w", err)
 	}
 
-	if dsn := config.Server.Store.DSN; dsn != "" {
-		switch strings.ToLower(config.Server.Store.Engine) {
-		case "postgres":
-			os.Setenv("NB_STORE_ENGINE_POSTGRES_DSN", dsn)
-		case "mysql":
-			os.Setenv("NB_STORE_ENGINE_MYSQL_DSN", dsn)
-		}
-	}
-	if file := config.Server.Store.File; file != "" {
-		os.Setenv("NB_STORE_ENGINE_SQLITE_FILE", file)
-	}
+	applyServerStoreEnv(config.Server.Store)
 
-	if engine := config.Server.ActivityStore.Engine; engine != "" {
-		engineLower := strings.ToLower(engine)
-		if engineLower == "postgres" && config.Server.ActivityStore.DSN == "" {
-			return fmt.Errorf("activityStore.dsn is required when activityStore.engine is postgres")
-		}
-		os.Setenv("NB_ACTIVITY_EVENT_STORE_ENGINE", engineLower)
-		if dsn := config.Server.ActivityStore.DSN; dsn != "" {
-			os.Setenv("NB_ACTIVITY_EVENT_POSTGRES_DSN", dsn)
-		}
-	}
-	if file := config.Server.ActivityStore.File; file != "" {
-		os.Setenv("NB_ACTIVITY_EVENT_SQLITE_FILE", file)
+	if err := applyActivityStoreEnv(config.Server.ActivityStore); err != nil {
+		return err
 	}
 
 	log.Infof("Starting combined NetBird server")
@@ -273,6 +288,11 @@ func (s *serverInstances) createManagementServer(ctx context.Context, cfg *Combi
 	if err := EnsureEncryptionKey(ctx, mgmtConfig); err != nil {
 		cleanupSTUNListeners(s.stunListeners)
 		return fmt.Errorf("failed to ensure encryption key: %w", err)
+	}
+
+	if err := loadAgentNetworkPricing(ctx, mgmtConfig); err != nil {
+		cleanupSTUNListeners(s.stunListeners)
+		return fmt.Errorf("failed to load agent-network pricing defaults: %w", err)
 	}
 
 	LogConfigInfo(mgmtConfig)
@@ -505,6 +525,16 @@ func createManagementServer(cfg *CombinedConfig, mgmtConfig *nbconfig.Config) (m
 	}
 	mgmtPort, _ := strconv.Atoi(portStr)
 
+	if err := syncgrpc.ValidateSyncMessageVersion(mgmtConfig.HighestSupportedSyncMessageVersion); err != nil {
+		return nil, err
+	}
+
+	for accountId, version := range mgmtConfig.PerAccountHighestSupportedSyncMessageVersion {
+		if err := syncgrpc.ValidateSyncMessageVersion(&version); err != nil {
+			return nil, fmt.Errorf("unrecognized sync message version in perAccountSupportedSyncMessageVersions for account %s %w", accountId, err)
+		}
+	}
+
 	mgmtSrv := newServer(
 		&mgmtServer.Config{
 			NbConfig:                mgmtConfig,
@@ -599,6 +629,32 @@ func handleRelayWebSocket(w http.ResponseWriter, r *http.Request, acceptFn func(
 	acceptFn(conn)
 }
 
+// loadAgentNetworkPricing loads the management-side LLM pricing defaults
+// file for the combined server and starts its periodic reloader. An
+// explicitly configured PricingDefaultsFile is required to load (a typo
+// must fail startup rather than silently bill with built-ins the operator
+// believes they replaced); a relative path is resolved against the data
+// directory so a bare filename like "pricing.yaml" lands in the datadir
+// alongside the store. With no path configured, <datadir>/<DefaultFileName>
+// is probed and may be absent (compiled-in defaults serve).
+func loadAgentNetworkPricing(ctx context.Context, mgmtConfig *nbconfig.Config) error {
+	pricingPath := mgmtConfig.AgentNetwork.PricingDefaultsFile
+	required := pricingPath != ""
+	if !required {
+		pricingPath = agentnetworkpricing.DefaultFileName
+	}
+	if !filepath.IsAbs(pricingPath) {
+		pricingPath = filepath.Join(mgmtConfig.Datadir, pricingPath)
+	}
+
+	log.Infof("loading agent-network pricing defaults from %s (required: %v)", pricingPath, required)
+	if err := agentnetworkpricing.LoadFile(pricingPath, required); err != nil {
+		return err
+	}
+	agentnetworkpricing.StartReloader(ctx, agentnetworkpricing.ReloadInterval)
+	return nil
+}
+
 // logConfig prints all configuration parameters for debugging
 func logConfig(cfg *CombinedConfig) {
 	log.Info("=== Configuration ===")
@@ -674,6 +730,25 @@ func logManagementConfig(cfg *CombinedConfig) {
 	if len(cfg.Management.Relays.Addresses) > 0 {
 		log.Infof("    Relay addresses: %v", cfg.Management.Relays.Addresses)
 		log.Infof("    Relay credentials TTL: %s", cfg.Management.Relays.CredentialsTTL)
+	}
+
+	logAgentNetworkConfig(cfg)
+}
+
+func logAgentNetworkConfig(cfg *CombinedConfig) {
+	log.Info("  Agent Network:")
+	pricingPath := cfg.Server.AgentNetwork.PricingDefaultsFile
+	configured := pricingPath != ""
+	if !configured {
+		pricingPath = agentnetworkpricing.DefaultFileName
+	}
+	if !filepath.IsAbs(pricingPath) {
+		pricingPath = filepath.Join(cfg.Management.DataDir, pricingPath)
+	}
+	if configured {
+		log.Infof("    Pricing defaults file: %s", pricingPath)
+	} else {
+		log.Infof("    Pricing defaults file: %s (default, optional)", pricingPath)
 	}
 }
 

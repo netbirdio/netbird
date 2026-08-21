@@ -13,6 +13,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/ui/services"
 	"github.com/netbirdio/netbird/client/ui/updater"
+	"github.com/netbirdio/netbird/version"
 )
 
 // trayUpdater owns the tray UI that reacts to auto-update. Composed inside Tray.
@@ -20,7 +21,7 @@ type trayUpdater struct {
 	app          *application.App
 	window       *application.WebviewWindow
 	update       *services.Update
-	notifier     *notifications.NotificationService
+	notifier     *Notifier
 	loc          *Localizer
 	onIconChange func()
 	// onMenuChange drives a full tray relayout: the update row lives in the
@@ -35,7 +36,7 @@ type trayUpdater struct {
 	progressWindowOpen bool
 }
 
-func newTrayUpdater(app *application.App, window *application.WebviewWindow, update *services.Update, notifier *notifications.NotificationService, loc *Localizer, onIconChange func(), onMenuChange func()) *trayUpdater {
+func newTrayUpdater(app *application.App, window *application.WebviewWindow, update *services.Update, notifier *Notifier, loc *Localizer, onIconChange func(), onMenuChange func()) *trayUpdater {
 	u := &trayUpdater{
 		app:          app,
 		window:       window,
@@ -76,15 +77,15 @@ func (u *trayUpdater) applyLanguage() {
 	u.refreshMenuItem(state)
 }
 
-// handleClick opens the GitHub releases page when not Enforced, otherwise shows
-// the progress page and asks the daemon to start the installer.
+// handleClick opens the installer download link when not Enforced, otherwise
+// shows the progress page and asks the daemon to start the installer.
 func (u *trayUpdater) handleClick() {
 	u.mu.Lock()
 	state := u.state
 	u.mu.Unlock()
 
 	if !state.Enforced {
-		_ = u.app.Browser.OpenURL(urlGitHubReleases)
+		_ = u.app.Browser.OpenURL(version.DownloadUrl())
 		return
 	}
 

@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang/mock/gomock"
+	"go.uber.org/mock/gomock"
 	"github.com/prometheus/client_golang/prometheus/push"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -1757,6 +1757,7 @@ func TestAccount_Copy(t *testing.T) {
 				AccountID: "account1",
 			},
 		},
+		PostureValidation: map[string]map[string]bool{"1": {"1": true}},
 	}
 	err := hasNilField(account)
 	if err != nil {
@@ -3170,6 +3171,16 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthNone, "user2")
 		assert.NoError(t, err, "unable to get user")
 		assert.Len(t, user.AutoGroups, 1, "new group should be added")
+
+		var newJWTGroup *types.Group
+		for _, g := range groups {
+			if g.Name == "group3" {
+				newJWTGroup = g
+				break
+			}
+		}
+		require.NotNil(t, newJWTGroup, "JIT-created JWT group not found")
+		assert.NotEqual(t, "", newJWTGroup.PublicID, "JIT-created JWT group must have a non-empty PublicID")
 	})
 
 	t.Run("remove all JWT groups when list is empty", func(t *testing.T) {

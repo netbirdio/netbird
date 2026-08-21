@@ -71,7 +71,7 @@ func (s *SqlStore) GetAgentNetworkMetrics(ctx context.Context) (AgentNetworkMetr
 	usageRow := db.Model(&agentNetworkTypes.AgentNetworkUsage{}).
 		Select("COALESCE(SUM(input_tokens), 0) AS input_tokens, " +
 			"COALESCE(SUM(output_tokens), 0) AS output_tokens, " +
-			"COALESCE(SUM(cost_usd), 0) AS cost_usd").Row()
+			"COALESCE(SUM" + agentNetworkTypes.CostUSDSQLExpr + ", 0) AS cost_usd").Row()
 	if err := usageRow.Scan(&m.InputTokens, &m.OutputTokens, &m.CostUSD); err != nil {
 		return AgentNetworkMetrics{}, fmt.Errorf("scan agent network usage metrics: %w", err)
 	}
@@ -315,23 +315,63 @@ func (s *SqlStore) GetAllAgentNetworkSettings(ctx context.Context, lockStrength 
 	return settings, nil
 }
 
-// GetAgentNetworkSettingsByCluster returns every Settings row pinned to
-// the given proxy cluster. Used by the bootstrap label generator to
-// build the set of subdomains already taken on a cluster.
-func (s *SqlStore) GetAgentNetworkSettingsByCluster(ctx context.Context, lockStrength LockingStrength, cluster string) ([]*agentNetworkTypes.Settings, error) {
+// GetAgentNetworkSettingsByProxyAddress returns every Settings row whose
+// gateway is served by the proxy declaring the given cluster address. Used by
+// cluster-scoped synthesis to find the accounts a shared proxy serves.
+func (s *SqlStore) GetAgentNetworkSettingsByProxyAddress(ctx context.Context, lockStrength LockingStrength, proxyAddress string) ([]*agentNetworkTypes.Settings, error) {
 	tx := s.db
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}
 
 	var settings []*agentNetworkTypes.Settings
-	result := tx.Find(&settings, "cluster = ?", cluster)
+	result := tx.Find(&settings, "proxy_address = ?", proxyAddress)
 	if result.Error != nil {
-		log.WithContext(ctx).Errorf("failed to get agent network settings by cluster from store: %v", result.Error)
-		return nil, status.Errorf(status.Internal, "failed to get agent network settings by cluster from store")
+		log.WithContext(ctx).Errorf("failed to get agent network settings by proxy address from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get agent network settings by proxy address from store")
 	}
 
 	return settings, nil
+}
+
+// GetAgentNetworkSettingsByDomain resolves the single Settings row holding the
+// given endpoint hostname — a point query on the domain unique index. Returns
+// status.NotFound when no account owns the domain.
+func (s *SqlStore) GetAgentNetworkSettingsByDomain(ctx context.Context, lockStrength LockingStrength, domain string) (*agentNetworkTypes.Settings, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var settings agentNetworkTypes.Settings
+	result := tx.Take(&settings, "domain = ?", domain)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "agent network settings for domain %s not found", domain)
+		}
+
+		log.WithContext(ctx).Errorf("failed to get agent network settings by domain from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get agent network settings by domain from store")
+	}
+
+	return &settings, nil
+}
+
+// CreateAgentNetworkSettings inserts a new settings row.
+//
+// Unlike SaveAgentNetworkSettings (an upsert) this is a plain INSERT, and it
+// returns the driver error unwrapped. Both properties are required by the
+// bootstrap allocator: an upsert would overwrite whichever row it collided
+// with, and the allocator classifies the rejection by matching the driver's
+// message — a unique violation on the account primary key means a concurrent
+// bootstrap for the same account won, and one on the domain index means the
+// hostname is taken.
+func (s *SqlStore) CreateAgentNetworkSettings(ctx context.Context, settings *agentNetworkTypes.Settings) error {
+	if err := s.db.Create(settings).Error; err != nil {
+		log.WithContext(ctx).Debugf("failed to create agent network settings: %v", err)
+		return err
+	}
+	return nil
 }
 
 // SaveAgentNetworkSettings upserts the per-account Agent Network
@@ -341,6 +381,25 @@ func (s *SqlStore) SaveAgentNetworkSettings(ctx context.Context, settings *agent
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to save agent network settings to store: %v", result.Error)
 		return status.Errorf(status.Internal, "failed to save agent network settings to store")
+	}
+
+	return nil
+}
+
+// DeleteAgentNetworkSettings removes the per-account Agent Network settings
+// row, releasing the account's endpoint. Returns status.NotFound when no row
+// exists. The guards on the delete (no providers, no proxy actively serving
+// the endpoint) live in the manager, which runs this inside a transaction
+// after re-checking them under a row lock.
+func (s *SqlStore) DeleteAgentNetworkSettings(ctx context.Context, accountID string) error {
+	result := s.db.Delete(&agentNetworkTypes.Settings{}, "account_id = ?", accountID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to delete agent network settings from store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to delete agent network settings from store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.Errorf(status.NotFound, "agent network settings for account %s not found", accountID)
 	}
 
 	return nil

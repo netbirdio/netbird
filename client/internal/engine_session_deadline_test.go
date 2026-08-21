@@ -75,4 +75,14 @@ func TestApplySessionDeadline_ThreeState(t *testing.T) {
 		require.True(t, e.statusRecorder.GetSessionExpiresAt().IsZero(),
 			"invalid timestamp must clear the deadline")
 	})
+
+	t.Run("recently expired timestamp stays visible as expired", func(t *testing.T) {
+		e := newEngine()
+		expired := time.Now().Add(-5 * time.Minute).UTC().Truncate(time.Second)
+
+		e.ApplySessionDeadline(timestamppb.New(expired))
+
+		require.True(t, e.statusRecorder.GetSessionExpiresAt().Equal(expired),
+			"recently-expired deadline must stay on the recorder so consumers render it as expired")
+	})
 }
