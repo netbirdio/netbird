@@ -10,7 +10,7 @@ import (
 	"github.com/netbirdio/netbird/client/ssh/auth"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	types "github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/management/server/types"
 	nbroute "github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/networkmap"
 	"github.com/netbirdio/netbird/shared/management/proto"
@@ -89,7 +89,7 @@ func buildJWTConfig(config *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfi
 
 	return &proto.JWTConfig{
 		Issuer:       issuer,
-		Audience:     audience,
+		Audience:     audience, //nolint:staticcheck
 		Audiences:    audiences,
 		KeysLocation: keysLocation,
 	}
