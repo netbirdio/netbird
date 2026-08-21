@@ -158,7 +158,13 @@ func (r *family) queueNatRule(pair firewall.RouterPair, exprs []expr.Any) {
 
 	if _, exists := r.rules[ruleID]; exists {
 		if err := r.removeNatRule(pair); err != nil {
+			// The rule this replaces may still be in the kernel. Keep tracking
+			// it and skip the new one: overwriting the entry would leave the old
+			// rule installed with nothing that can find it again, while keeping
+			// it lets the next update retry the whole replacement.
 			log.Errorf("replace prerouting rule %s: %v", ruleID, err)
+			r.dropNetworkMatch(exprs)
+			return
 		}
 	}
 
@@ -360,7 +366,10 @@ func (r *family) queueLegacyRouteRule(pair firewall.RouterPair, exprs []expr.Any
 
 	if _, exists := r.rules[ruleID]; exists {
 		if err := r.removeLegacyRouteRule(pair); err != nil {
+			// Keep the old rule tracked instead of losing it, as in queueNatRule.
 			log.Errorf("replace legacy forwarding rule %s: %v", ruleID, err)
+			r.dropNetworkMatch(exprs)
+			return
 		}
 	}
 

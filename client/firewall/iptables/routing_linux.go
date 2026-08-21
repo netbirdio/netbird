@@ -231,6 +231,7 @@ func (r *family) addNatRule(pair firewall.RouterPair) (err error) {
 	}
 	destExp, err := r.applyNetwork("-d", pair.Destination, nil)
 	if err != nil {
+		r.dropSourceMatch(sourceExp)
 		return fmt.Errorf("apply network -d: %w", err)
 	}
 

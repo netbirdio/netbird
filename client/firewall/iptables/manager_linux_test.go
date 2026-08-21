@@ -322,6 +322,49 @@ func TestIptablesFilterDestinationSetRequiresIPSet(t *testing.T) {
 	require.ErrorContains(t, err, "requires ipset")
 }
 
+// TestIptablesNatRuleDropsSourceSetOnDestinationFailure covers a marking rule
+// whose source set is created but whose destination set is not: the source
+// reference has to go back, or the set it created stays in the kernel with a
+// count nothing will ever drop.
+func TestIptablesNatRuleDropsSourceSetOnDestinationFailure(t *testing.T) {
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
+	require.NoError(t, err)
+	require.NoError(t, manager.Init(nil))
+
+	defer func() {
+		require.NoError(t, manager.Close(nil))
+	}()
+
+	sourceSet := fw.NewPrefixSet([]netip.Prefix{
+		netip.MustParsePrefix("100.0.0.0/16"),
+		netip.MustParsePrefix("10.10.0.0/16"),
+	})
+	destSet := fw.NewDomainSet(domain.List{"example.org"})
+
+	// Poison the destination set's name so its hash:net creation fails after
+	// the source set has already been created.
+	poisoned := manager.family4.ipsetName(destSet.HashedName())
+	require.NoError(t, ipset.Create(poisoned, ipset.TypeHashIP, ipset.CreateOptions{}))
+	t.Cleanup(func() {
+		if err := ipset.Destroy(poisoned); err != nil {
+			t.Logf("destroy poisoned set %s: %v", poisoned, err)
+		}
+	})
+
+	pair := fw.RouterPair{
+		ID:          "nat-source-set-test",
+		Source:      fw.Network{Set: sourceSet},
+		Destination: fw.Network{Set: destSet},
+		Masquerade:  true,
+		Dynamic:     true,
+	}
+
+	require.Error(t, manager.AddNatRule(pair), "the destination set must fail to be created")
+
+	_, ok := manager.family4.ipsetCounter.Get(manager.family4.ipsetName(sourceSet.HashedName()))
+	require.False(t, ok, "the source set reference must be released")
+}
+
 // TestIptablesNatRuleReAddKeepsSetReferences re-adds the same NAT rule the way
 // a repeated network-map update does. The marking rule's set references must not
 // grow, or RemoveNatRule can never drop the count to zero and the set stays in
@@ -461,13 +504,12 @@ func TestIptablesCloseRemovesAllState(t *testing.T) {
 		TranslatedAddress: netip.MustParseAddr("10.20.0.44"),
 		TranslatedPort:    fw.Port{Values: []uint16{80}},
 	}
-	dnatRule, err := manager.AddDNATRule(dnat)
+	_, err = manager.AddDNATRule(dnat)
 	require.NoError(t, err, "add dnat rule")
 
 	require.NotEqual(t, before, snapshotIptables(t, ipv4Client), "the manager must have installed state")
 
-	require.NoError(t, manager.DeleteDNATRule(dnatRule), "delete dnat rule")
-	require.NoError(t, manager.DisableRouting(), "disable routing")
+	// Everything above stays in place, so Close is what has to remove it.
 	require.NoError(t, manager.Close(nil), "close")
 
 	after := snapshotIptables(t, ipv4Client)
