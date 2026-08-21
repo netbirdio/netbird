@@ -73,6 +73,31 @@ func TestActiveIdleSeriesPersistWithoutPeers(t *testing.T) {
 	assertCount(t, "relay_peers_idle", byTransport(t, rm, "relay_peers_idle"), map[string]int64{"ws": 0})
 }
 
+// TestRefreshActivityIgnoresDisconnectedPeer verifies a late activity event does not recreate a peer
+// that has already disconnected.
+func TestRefreshActivityIgnoresDisconnectedPeer(t *testing.T) {
+	m := &Metrics{
+		peerLastActive: map[string]peerActivity{
+			"live": {transport: "ws"},
+		},
+	}
+
+	// a known peer is refreshed
+	m.refreshActivity("live")
+	if m.peerLastActive["live"].lastActive.IsZero() {
+		t.Errorf("expected live peer to be refreshed, lastActive is still zero")
+	}
+
+	// a late event for an already disconnected peer must not recreate it
+	m.refreshActivity("gone")
+	if _, ok := m.peerLastActive["gone"]; ok {
+		t.Errorf("late activity resurrected a disconnected peer")
+	}
+	if len(m.peerLastActive) != 1 {
+		t.Errorf("unexpected peer count: got %d, want 1", len(m.peerLastActive))
+	}
+}
+
 // TestTransportLabels verifies every relay peer/transfer metric is exported with a transport attribute.
 func TestTransportLabels(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -112,13 +137,19 @@ func TestTransportLabels(t *testing.T) {
 
 func assertCount(t *testing.T, name string, got, want map[string]int64) {
 	t.Helper()
-	if len(got) != len(want) {
-		t.Errorf("%s: got %v, want %v", name, got, want)
-		return
-	}
 	for transport, count := range want {
-		if got[transport] != count {
-			t.Errorf("%s[%s]: got %d, want %d", name, transport, got[transport], count)
+		gotCount, ok := got[transport]
+		if !ok {
+			t.Errorf("%s: missing transport %q", name, transport)
+			continue
+		}
+		if gotCount != count {
+			t.Errorf("%s[%s]: got %d, want %d", name, transport, gotCount, count)
+		}
+	}
+	for transport, count := range got {
+		if _, ok := want[transport]; !ok {
+			t.Errorf("%s: unexpected transport %q (value %d)", name, transport, count)
 		}
 	}
 }
