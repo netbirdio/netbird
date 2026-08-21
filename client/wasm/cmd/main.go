@@ -86,20 +86,39 @@ func parseClientOptions(jsOptions js.Value) (netbird.Options, error) {
 		options.DeviceName = deviceName.String()
 	}
 
-	if disableIPv6 := jsOptions.Get("disableIPv6"); !disableIPv6.IsNull() && !disableIPv6.IsUndefined() {
-		options.DisableIPv6 = disableIPv6.Bool()
+	disableIPv6, err := boolOption(jsOptions, "disableIPv6")
+	if err != nil {
+		return options, err
+	}
+	if disableIPv6 != nil {
+		options.DisableIPv6 = *disableIPv6
 	}
 
 	// The caller decides whether this client uses lazy connections; left unset it
 	// defers to the management feature flag. A short-lived, interactive caller
 	// turns it off so its sessions reach the few peers their grant covers eagerly,
 	// instead of the first request waiting for the connection to be established.
-	if v := jsOptions.Get("lazyConnectionEnabled"); !v.IsNull() && !v.IsUndefined() {
-		lazyConnectionEnabled := v.Bool()
-		options.LazyConnectionEnabled = &lazyConnectionEnabled
+	lazyConnectionEnabled, err := boolOption(jsOptions, "lazyConnectionEnabled")
+	if err != nil {
+		return options, err
 	}
+	options.LazyConnectionEnabled = lazyConnectionEnabled
 
 	return options, nil
+}
+
+// boolOption reads a boolean option, returning nil when the caller left it out.
+// js.Value.Bool panics on any other type, so a wrong type is reported instead.
+func boolOption(jsOptions js.Value, name string) (*bool, error) {
+	v := jsOptions.Get(name)
+	if v.IsNull() || v.IsUndefined() {
+		return nil, nil
+	}
+	if v.Type() != js.TypeBoolean {
+		return nil, fmt.Errorf("option %s must be a boolean, got %s", name, v.Type())
+	}
+	b := v.Bool()
+	return &b, nil
 }
 
 // createStartMethod creates the start method for the client
