@@ -15,6 +15,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -51,6 +52,10 @@ const (
 // reading all fields
 type profileMeta struct {
 	Name string
+}
+
+type ownerMeta struct {
+	Owner string
 }
 
 func (e *ErrAmbiguousHandle) Error() string {
@@ -296,7 +301,7 @@ func (s *ServiceManager) DefaultProfilePath() string {
 // The returned Profile carries the freshly-generated ID so callers can
 // show it to the user (and so the gRPC AddProfileResponse can include
 // it).
-func (s *ServiceManager) AddProfile(displayName, username string) (*Profile, error) {
+func (s *ServiceManager) AddProfile(displayName string, username string, callerId ipcauth.Identity) (*Profile, error) {
 	configDir, err := s.getConfigDir(username)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get config directory: %w", err)
@@ -313,7 +318,7 @@ func (s *ServiceManager) AddProfile(displayName, username string) (*Profile, err
 	}
 
 	profPath := filepath.Join(configDir, id.String()+".json")
-	cfg, err := createNewConfig(ConfigInput{ConfigPath: profPath})
+	cfg, err := createNewConfig(ConfigInput{ConfigPath: profPath, Owner: &callerId})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create new config: %w", err)
 	}
@@ -569,6 +574,35 @@ func readProfileName(path string) string {
 		return ""
 	}
 	return meta.Name
+}
+
+func readProfileOwner(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	var meta ownerMeta
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return ""
+	}
+	return meta.Owner
+}
+
+func stampOwner(path string, owner ipcauth.Identity) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var cfg Config
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return err
+	}
+	cfg.Owner = ipcauth.OwnerPrincipalForIdentity(owner)
+
+	if err := util.WriteJson(context.Background(), path, cfg); err != nil {
+		return fmt.Errorf("failed to write profile owner: %w", err)
+	}
+	return nil
 }
 
 // activeProfileID returns the currently-active profile's ID. The second
