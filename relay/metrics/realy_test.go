@@ -13,6 +13,7 @@ import (
 func TestCalculateActiveIdleConnections(t *testing.T) {
 	now := time.Now()
 	m := &Metrics{
+		seenTransports: map[string]struct{}{"ws": {}, "quic": {}},
 		peerLastActive: map[string]peerActivity{
 			"ws-active-1":   {transport: "ws", lastActive: now},
 			"ws-active-2":   {transport: "ws", lastActive: now.Add(-idleTimeout / 2)},
@@ -33,6 +34,7 @@ func TestCalculateActiveIdleConnections(t *testing.T) {
 // one state still reports a 0 in the other state, so its gauge series does not disappear.
 func TestCalculateActiveIdleConnectionsZeroValuedSeries(t *testing.T) {
 	m := &Metrics{
+		seenTransports: map[string]struct{}{"ws": {}, "quic": {}},
 		peerLastActive: map[string]peerActivity{
 			"ws-active": {transport: "ws", lastActive: time.Now()},    // ws: only active
 			"quic-idle": {transport: "quic", lastActive: time.Time{}}, // quic: only idle
@@ -43,6 +45,32 @@ func TestCalculateActiveIdleConnectionsZeroValuedSeries(t *testing.T) {
 
 	assertCount(t, "active", active, map[string]int64{"ws": 1, "quic": 0})
 	assertCount(t, "idle", idle, map[string]int64{"ws": 0, "quic": 1})
+}
+
+// TestActiveIdleSeriesPersistWithoutPeers verifies that once a transport has been served, its
+// active/idle gauges keep reporting 0 after every peer disconnects, instead of the series vanishing.
+func TestActiveIdleSeriesPersistWithoutPeers(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+
+	m, err := NewMetrics(ctx, provider.Meter("github.com/netbirdio/netbird/relay/metrics"))
+	if err != nil {
+		t.Fatalf("NewMetrics: %v", err)
+	}
+
+	m.PeerConnected("peer-ws", "ws")
+	m.PeerDisconnected("peer-ws", "ws") // relay is now empty, but ws has been served
+
+	var rm metricdata.ResourceMetrics
+	if err := reader.Collect(ctx, &rm); err != nil {
+		t.Fatalf("collect: %v", err)
+	}
+
+	assertCount(t, "relay_peers_active", byTransport(t, rm, "relay_peers_active"), map[string]int64{"ws": 0})
+	assertCount(t, "relay_peers_idle", byTransport(t, rm, "relay_peers_idle"), map[string]int64{"ws": 0})
 }
 
 // TestTransportLabels verifies every relay peer/transfer metric is exported with a transport attribute.
