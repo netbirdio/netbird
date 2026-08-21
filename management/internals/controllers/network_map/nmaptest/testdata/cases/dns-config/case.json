@@ -1,0 +1,7 @@
+{
+  "description": "Nameserver group and applied custom zone distributed to grp-dev; peer-a (with an extra DNS label) receives them, peer-c outside the group receives neither.",
+  "peers": [
+    "peer-a",
+    "peer-c"
+  ]
+}

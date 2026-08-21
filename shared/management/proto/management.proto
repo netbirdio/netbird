@@ -1070,16 +1070,23 @@ message PolicyCompact {
   repeated string source_posture_check_ids = 13;
 }
 
+enum ResourceCompactType {
+  unknown_type = 0; //placeholder
+  peer = 1;
+	domain = 2;
+	host = 3;
+	subnet = 4;
+}
+
 // ResourceCompact mirrors types.Resource. Used by PolicyCompact to carry
 // rule.SourceResource / rule.DestinationResource when the rule targets a
 // specific resource (typically a peer) rather than groups.
-// peer_index_set tells whether peer_index is valid (proto3 uint32 cannot
-// disambiguate "0" from "unset"); set only when type == "peer".
 message ResourceCompact {
-  string type = 1;
-  bool peer_index_set = 2;
-  uint32 peer_index = 3;
-  reserved 4; // future: host/subnet/domain references when needed
+  ResourceCompactType type = 1;
+  oneof resource_id {
+    string id = 2; // for domain/host/subnet resources
+    uint32 peer_index = 3; // for peers
+  }
 }
 
 // UserNameList is a list of local-user names — used as the value type in
@@ -1103,6 +1110,8 @@ message GroupCompact {
   // groups lose that property and the two sides expand policy
   // destinations differently.
   bool is_all = 3;
+
+  repeated ResourceCompact resources = 4;
 }
 
 // DNSSettingsCompact mirrors types.DNSSettings.
