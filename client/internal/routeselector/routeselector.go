@@ -32,6 +32,23 @@ func (rs *RouteSelector) SelectRoutes(routes []route.NetID, appendRoute bool, al
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
 
+	// Validate before mutating: a non-append selection wipes the current selection first, so
+	// a request naming only unavailable routes would deselect everything the user had and put
+	// nothing in its place. Requesting no routes at all is a different thing - that's the
+	// caller asking to deselect all - and still goes through.
+	var err *multierror.Error
+	available := make([]route.NetID, 0, len(routes))
+	for _, r := range routes {
+		if !slices.Contains(allRoutes, r) {
+			err = multierror.Append(err, fmt.Errorf("route '%s' is not available", r))
+			continue
+		}
+		available = append(available, r)
+	}
+	if len(available) == 0 && err != nil {
+		return errors.FormatErrorOrNil(err)
+	}
+
 	if !appendRoute || rs.deselectAll {
 		if rs.deselectedRoutes == nil {
 			rs.deselectedRoutes = map[route.NetID]struct{}{}
@@ -46,14 +63,9 @@ func (rs *RouteSelector) SelectRoutes(routes []route.NetID, appendRoute bool, al
 		}
 	}
 
-	var err *multierror.Error
-	for _, route := range routes {
-		if !slices.Contains(allRoutes, route) {
-			err = multierror.Append(err, fmt.Errorf("route '%s' is not available", route))
-			continue
-		}
-		delete(rs.deselectedRoutes, route)
-		rs.selectedRoutes[route] = struct{}{}
+	for _, r := range available {
+		delete(rs.deselectedRoutes, r)
+		rs.selectedRoutes[r] = struct{}{}
 	}
 
 	rs.deselectAll = false

@@ -887,3 +887,40 @@ func TestRouteSelector_EnableExitNodeKeepsOtherRoutes(t *testing.T) {
 	assert.True(t, rs.IsSelected("lan1"), "non-exit route must stay selected")
 	assert.True(t, rs.IsSelected("lan2"), "non-exit route must stay selected")
 }
+
+// TestRouteSelector_SelectRoutes_AllUnavailableKeepsSelection covers the destructive case: a
+// non-append selection clears the current selection before applying the requested one, so a
+// request naming only unavailable routes used to leave everything deselected while still
+// returning an error - a typo in a route ID silently dropped the user's exit node. A request
+// with at least one available route keeps applying the valid part (see "Select non-existing
+// route" above); this is only about the all-invalid case.
+func TestRouteSelector_SelectRoutes_AllUnavailableKeepsSelection(t *testing.T) {
+	allRoutes := []route.NetID{"route1", "route2", "route3"}
+
+	rs := routeselector.NewRouteSelector()
+	require.NoError(t, rs.SelectRoutes([]route.NetID{"route1"}, false, allRoutes))
+
+	err := rs.SelectRoutes([]route.NetID{"Route1", "route4"}, false, allRoutes)
+
+	assert.Error(t, err, "an unavailable route ID must still be reported")
+	assert.True(t, rs.IsSelected("route1"), "the previous selection must survive a fully invalid request")
+	for _, id := range []route.NetID{"route2", "route3"} {
+		assert.False(t, rs.IsSelected(id), "no other route may become selected")
+	}
+}
+
+// TestRouteSelector_SelectRoutes_EmptyRequestStillDeselectsAll guards the boundary of the check
+// above: asking for no routes is the caller deselecting everything, not a failed request, so it
+// must keep working.
+func TestRouteSelector_SelectRoutes_EmptyRequestStillDeselectsAll(t *testing.T) {
+	allRoutes := []route.NetID{"route1", "route2", "route3"}
+
+	rs := routeselector.NewRouteSelector()
+	require.NoError(t, rs.SelectRoutes([]route.NetID{"route1"}, false, allRoutes))
+
+	require.NoError(t, rs.SelectRoutes(nil, false, allRoutes))
+
+	for _, id := range allRoutes {
+		assert.False(t, rs.IsSelected(id), "an empty selection request must deselect everything")
+	}
+}
