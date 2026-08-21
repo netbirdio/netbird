@@ -179,8 +179,7 @@ type Server struct {
 
 	authorizer *sshauth.Authorizer
 
-	suSupportsPty    bool
-	loginIsUtilLinux bool
+	suSupportsPty bool
 }
 
 type JWTConfig struct {
@@ -236,7 +235,6 @@ func (s *Server) Start(ctx context.Context, addr netip.AddrPort) error {
 	}
 
 	s.suSupportsPty = s.detectSuPtySupport(ctx)
-	s.loginIsUtilLinux = s.detectUtilLinuxLogin(ctx)
 
 	ln, addrDesc, err := s.createListener(ctx, addr)
 	if err != nil {
