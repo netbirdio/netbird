@@ -91,6 +91,13 @@ type Options struct {
 	// when the embedded client must never act as a stepping stone into
 	// the host's local network (e.g. the proxy's overlay peer).
 	BlockLANAccess bool
+	// LazyConnectionEnabled is a tri-state local override for lazy connections,
+	// mirroring the NB_LAZY_CONN env var. Nil defers to the management feature
+	// flag; a set value overrides it in both directions. A short-lived client
+	// that reaches only a few known peers can set this to false, so its peers
+	// connect eagerly and the first request does not wait for the connection to
+	// be established.
+	LazyConnectionEnabled *bool
 	// WireguardPort is the port for the tunnel interface. Use 0 for a random port.
 	WireguardPort *int
 	// MTU is the MTU for the tunnel interface.
@@ -218,6 +225,15 @@ func New(opts Options) (*Client, error) {
 
 	if opts.PrivateKey != "" {
 		config.PrivateKey = opts.PrivateKey
+	}
+
+	if opts.LazyConnectionEnabled != nil {
+		// Runtime-only override, read back through lazyconn.ParseState; a set value
+		// wins over the management feature flag in both directions.
+		config.LazyConnection = "off"
+		if *opts.LazyConnectionEnabled {
+			config.LazyConnection = "on"
+		}
 	}
 
 	if opts.Performance.PreallocatedBuffersPerPool != nil {
