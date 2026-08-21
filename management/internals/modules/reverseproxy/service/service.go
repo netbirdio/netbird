@@ -822,37 +822,10 @@ func validatePortMappings(mappings []*PortMapping) error {
 
 	var listenerCount uint32
 	for i, mapping := range mappings {
-		if mapping == nil {
-			return fmt.Errorf("port_mappings[%d] must not be null", i)
+		mappingListeners, err := validatePortMapping(i, mapping)
+		if err != nil {
+			return err
 		}
-		switch mapping.Protocol {
-		case ModeTCP, ModeUDP, ModeTLS:
-		default:
-			return fmt.Errorf("port_mappings[%d].protocol %q is not supported", i, mapping.Protocol)
-		}
-		if mapping.ListenPortStart == 0 || mapping.ListenPortEnd == 0 ||
-			mapping.TargetPortStart == 0 || mapping.TargetPortEnd == 0 {
-			return fmt.Errorf("port_mappings[%d] ports must be between 1 and 65535", i)
-		}
-		if mapping.ListenPortStart > mapping.ListenPortEnd {
-			return fmt.Errorf("port_mappings[%d] listener range is reversed: %d-%d", i, mapping.ListenPortStart, mapping.ListenPortEnd)
-		}
-		if mapping.TargetPortStart > mapping.TargetPortEnd {
-			return fmt.Errorf("port_mappings[%d] target range is reversed: %d-%d", i, mapping.TargetPortStart, mapping.TargetPortEnd)
-		}
-		listenSize := uint32(mapping.ListenPortEnd) - uint32(mapping.ListenPortStart)
-		targetSize := uint32(mapping.TargetPortEnd) - uint32(mapping.TargetPortStart)
-		if listenSize != targetSize {
-			return fmt.Errorf(
-				"port_mappings[%d] listener range %d-%d and target range %d-%d must contain the same number of ports",
-				i,
-				mapping.ListenPortStart,
-				mapping.ListenPortEnd,
-				mapping.TargetPortStart,
-				mapping.TargetPortEnd,
-			)
-		}
-		mappingListeners := listenSize + 1
 		if mappingListeners > sharedtypes.MaxReverseProxyExpandedListenersPerService-listenerCount {
 			return fmt.Errorf(
 				"port_mappings expands to more than %d listeners per service",
@@ -861,23 +834,65 @@ func validatePortMappings(mappings []*PortMapping) error {
 		}
 		listenerCount += mappingListeners
 
-		for j := 0; j < i; j++ {
-			other := mappings[j]
-			if other == nil || other.Protocol != mapping.Protocol {
-				continue
-			}
-			if rangesOverlap(mapping.ListenPortStart, mapping.ListenPortEnd, other.ListenPortStart, other.ListenPortEnd) {
-				return fmt.Errorf(
-					"port_mappings[%d] listener range %d-%d overlaps port_mappings[%d] range %d-%d for protocol %s",
-					i,
-					mapping.ListenPortStart,
-					mapping.ListenPortEnd,
-					j,
-					other.ListenPortStart,
-					other.ListenPortEnd,
-					mapping.Protocol,
-				)
-			}
+		if err := validatePortMappingOverlaps(i, mapping, mappings); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validatePortMapping(index int, mapping *PortMapping) (uint32, error) {
+	if mapping == nil {
+		return 0, fmt.Errorf("port_mappings[%d] must not be null", index)
+	}
+	switch mapping.Protocol {
+	case ModeTCP, ModeUDP, ModeTLS:
+	default:
+		return 0, fmt.Errorf("port_mappings[%d].protocol %q is not supported", index, mapping.Protocol)
+	}
+	if mapping.ListenPortStart == 0 || mapping.ListenPortEnd == 0 ||
+		mapping.TargetPortStart == 0 || mapping.TargetPortEnd == 0 {
+		return 0, fmt.Errorf("port_mappings[%d] ports must be between 1 and 65535", index)
+	}
+	if mapping.ListenPortStart > mapping.ListenPortEnd {
+		return 0, fmt.Errorf("port_mappings[%d] listener range is reversed: %d-%d", index, mapping.ListenPortStart, mapping.ListenPortEnd)
+	}
+	if mapping.TargetPortStart > mapping.TargetPortEnd {
+		return 0, fmt.Errorf("port_mappings[%d] target range is reversed: %d-%d", index, mapping.TargetPortStart, mapping.TargetPortEnd)
+	}
+
+	listenSize := uint32(mapping.ListenPortEnd) - uint32(mapping.ListenPortStart)
+	targetSize := uint32(mapping.TargetPortEnd) - uint32(mapping.TargetPortStart)
+	if listenSize != targetSize {
+		return 0, fmt.Errorf(
+			"port_mappings[%d] listener range %d-%d and target range %d-%d must contain the same number of ports",
+			index,
+			mapping.ListenPortStart,
+			mapping.ListenPortEnd,
+			mapping.TargetPortStart,
+			mapping.TargetPortEnd,
+		)
+	}
+	return listenSize + 1, nil
+}
+
+func validatePortMappingOverlaps(index int, mapping *PortMapping, mappings []*PortMapping) error {
+	for otherIndex := 0; otherIndex < index; otherIndex++ {
+		other := mappings[otherIndex]
+		if other == nil || other.Protocol != mapping.Protocol {
+			continue
+		}
+		if rangesOverlap(mapping.ListenPortStart, mapping.ListenPortEnd, other.ListenPortStart, other.ListenPortEnd) {
+			return fmt.Errorf(
+				"port_mappings[%d] listener range %d-%d overlaps port_mappings[%d] range %d-%d for protocol %s",
+				index,
+				mapping.ListenPortStart,
+				mapping.ListenPortEnd,
+				otherIndex,
+				other.ListenPortStart,
+				other.ListenPortEnd,
+				mapping.Protocol,
+			)
 		}
 	}
 	return nil
