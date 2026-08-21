@@ -4,6 +4,8 @@
 // 	protoc        v3.21.12
 // source: signalexchange.proto
 
+//go:build !tinygo
+
 package proto
 
 import (

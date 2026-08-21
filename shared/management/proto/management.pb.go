@@ -4,6 +4,8 @@
 // 	protoc        v7.34.1
 // source: management.proto
 
+//go:build !tinygo
+
 package proto
 
 import (
