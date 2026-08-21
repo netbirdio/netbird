@@ -513,6 +513,32 @@
         "SearchDomainDisabled": false,
         "NonAuthoritative": true
       }
+    },
+    {
+      "DistributionGroups": [
+        "33-group-two-resources-id"
+      ],
+      "Zone": {
+        "Domain": "search-off-331.com.",
+        "Records": [
+          {
+            "Name": "test.search-off-331.com.",
+            "Type": 1,
+            "Class": "IN",
+            "TTL": 1800,
+            "RData": "1.1.1.3"
+          },
+          {
+            "Name": "alias.search-off-331.com.",
+            "Type": 5,
+            "Class": "IN",
+            "TTL": 1800,
+            "RData": "test.search-off-331.com."
+          }
+        ],
+        "SearchDomainDisabled": true,
+        "NonAuthoritative": true
+      }
     }
   ],
   "PrivateServiceCandidates": null,

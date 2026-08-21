@@ -46,6 +46,27 @@
         ]
       },
       {
+        "Domain": "search-off.internal.",
+        "SearchDomainDisabled": true,
+        "NonAuthoritative": true,
+        "Records": [
+          {
+            "Name": "alias.search-off.internal.",
+            "Type": "5",
+            "Class": "IN",
+            "TTL": "300",
+            "RData": "app.search-off.internal."
+          },
+          {
+            "Name": "app.search-off.internal.",
+            "Type": "1",
+            "Class": "IN",
+            "TTL": "300",
+            "RData": "10.10.0.6"
+          }
+        ]
+      },
+      {
         "Domain": "netbird.test.",
         "Records": [
           {

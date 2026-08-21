@@ -47,8 +47,14 @@ insert into zones (id, account_id, domain, enabled, enable_search_domain, distri
 		VALUES('zone-331','account-33','test-331.com',true,true,'["33-group-one-resource-id"]');
 insert into zones (id, account_id, domain, enabled, enable_search_domain, distribution_groups)
 		VALUES('zone-332','account-33','disabled-331.com',false,true,'["33-group-one-resource-id"]');
+insert into zones (id, account_id, domain, enabled, enable_search_domain, distribution_groups)
+		VALUES('zone-333','account-33','search-off-331.com',true,false,'["33-group-two-resources-id"]');
 insert into records (id, account_id, zone_id, name, type, ttl, content)
 		VALUES('record-333','account-33','zone-332','test.disabled-331.com','A',1800,'1.1.1.9');
+insert into records (id, account_id, zone_id, name, type, ttl, content)
+		VALUES('record-334','account-33','zone-333','test.search-off-331.com','A',1800,'1.1.1.3');
+insert into records (id, account_id, zone_id, name, type, ttl, content)
+		VALUES('record-335','account-33','zone-333','alias.search-off-331.com','CNAME',1800,'test.search-off-331.com');
 insert into records (id, account_id, zone_id, name, type, ttl, content)
 		VALUES('record-331','account-33','zone-331','test.test-331.com','A',1800,'1.1.1.1');
 insert into records (id, account_id, zone_id, name, type, ttl, content)
