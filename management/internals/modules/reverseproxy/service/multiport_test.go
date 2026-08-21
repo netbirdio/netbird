@@ -114,6 +114,16 @@ func TestValidatePortMappings_InvalidCollections(t *testing.T) {
 			},
 			wantErr: "must not be null",
 		},
+		{
+			name: "too many expanded listeners",
+			mutate: func(s *Service) {
+				s.PortMappings = []*PortMapping{{
+					Protocol: ModeTCP, ListenPortStart: 1, ListenPortEnd: 513,
+					TargetPortStart: 1, TargetPortEnd: 513,
+				}}
+			},
+			wantErr: "more than 512 listeners",
+		},
 	}
 
 	for _, tt := range tests {

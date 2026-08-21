@@ -1051,6 +1051,18 @@ func TestSetupPortMappingsCreatesEveryTCPListener(t *testing.T) {
 	assert.True(t, secondExists)
 }
 
+func TestSetupPortMappingsRejectsExcessExpandedListeners(t *testing.T) {
+	srv := &Server{}
+	mapping := &proto.ProxyMapping{
+		Id: "svc-excess", PortMappings: []*proto.ServicePortMapping{{
+			Protocol: "tcp", ListenPortStart: 1, ListenPortEnd: 513,
+			TargetPortStart: 1, TargetPortEnd: 513,
+		}},
+	}
+
+	require.ErrorContains(t, srv.setupPortMappings(t.Context(), mapping), "more than 512 listeners")
+}
+
 func TestSetupPortMappingsAllowsEqualTCPUDPPortAndMultipleUDPRelays(t *testing.T) {
 	sharedPort := reserveTCPPort(t)
 	secondUDPPort := reserveUDPPort(t)
@@ -1215,10 +1227,18 @@ func TestFailedSnapshotReplacementRestoresPreviousOwner(t *testing.T) {
 		portRouters: make(map[uint16]*portRouter), svcPorts: make(map[types.ServiceID][]uint16),
 		udpRelays: make(map[udpRelayKey]*udprelay.Relay), lastMappings: make(map[types.ServiceID]*proto.ProxyMapping),
 		crowdsecServices: make(map[types.ServiceID]bool),
-		addPeer: func(context.Context, types.AccountID, roundtrip.ServiceKey, string, types.ServiceID) error {
+		addPeer: func(_ context.Context, _ types.AccountID, _ roundtrip.ServiceKey, _ string, svcID types.ServiceID) error {
+			if svcID == "svc-old" {
+				return errors.New("old peer token has already been consumed")
+			}
 			return nil
 		},
-		removePeer: func(context.Context, types.AccountID, roundtrip.ServiceKey) error { return nil },
+		removePeer: func(_ context.Context, _ types.AccountID, key roundtrip.ServiceKey) error {
+			if key == roundtrip.ServiceIDKey("svc-old") {
+				t.Fatal("rollback must preserve the superseded peer")
+			}
+			return nil
+		},
 	}
 	old := &proto.ProxyMapping{
 		Id: "svc-old", AccountId: "acct", Domain: "shared.example.test", Mode: "tcp", ListenPort: int32(port),

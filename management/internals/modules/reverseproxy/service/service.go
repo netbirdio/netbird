@@ -21,6 +21,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	"github.com/netbirdio/netbird/shared/hash/argon2id"
 	nbdomain "github.com/netbirdio/netbird/shared/management/domain"
+	sharedtypes "github.com/netbirdio/netbird/shared/management/types"
 	"github.com/netbirdio/netbird/util/crypt"
 
 	"github.com/netbirdio/netbird/shared/management/http/api"
@@ -819,6 +820,7 @@ func validatePortMappings(mappings []*PortMapping) error {
 		return errors.New("port_mappings must contain at least one mapping")
 	}
 
+	var listenerCount uint32
 	for i, mapping := range mappings {
 		if mapping == nil {
 			return fmt.Errorf("port_mappings[%d] must not be null", i)
@@ -850,6 +852,14 @@ func validatePortMappings(mappings []*PortMapping) error {
 				mapping.TargetPortEnd,
 			)
 		}
+		mappingListeners := listenSize + 1
+		if mappingListeners > sharedtypes.MaxReverseProxyExpandedListenersPerService-listenerCount {
+			return fmt.Errorf(
+				"port_mappings expands to more than %d listeners per service",
+				sharedtypes.MaxReverseProxyExpandedListenersPerService,
+			)
+		}
+		listenerCount += mappingListeners
 
 		for j := 0; j < i; j++ {
 			other := mappings[j]

@@ -37,6 +37,16 @@ type legacyTLSSharedDomainService struct {
 	ListenPort   uint16
 }
 
+type legacyTLSMappingWithoutPort struct {
+	ID        uint `gorm:"primaryKey"`
+	ServiceID string
+	Protocol  string
+}
+
+func (legacyTLSMappingWithoutPort) TableName() string {
+	return "service_port_mappings"
+}
+
 func (legacyTLSSharedDomainService) TableName() string {
 	return "services"
 }
@@ -212,6 +222,28 @@ func TestPrepareReverseProxySharedDomainsRejectsCanonicalMappedTLSRangeCollision
 	err := migration.PrepareReverseProxySharedDomains(context.Background(), db)
 	require.ErrorContains(t, err, "overlapping TLS passthrough listeners")
 	assert.True(t, db.Migrator().HasIndex(&legacyTLSSharedDomainService{}, "idx_services_domain"))
+}
+
+func TestPrepareReverseProxySharedDomainsSkipsTLSMappingsWithoutPorts(t *testing.T) {
+	t.Setenv("NETBIRD_STORE_ENGINE", "sqlite")
+	db := setupDatabase(t)
+	require.NoError(t, db.Migrator().DropTable(&rpservice.PortMapping{}, &rpservice.Service{}))
+	require.NoError(t, db.AutoMigrate(&legacyTLSSharedDomainService{}, &legacyTLSMappingWithoutPort{}))
+
+	for _, svc := range []*legacyTLSSharedDomainService{
+		{ID: "tls-1", AccountID: "account-1", Domain: "TLS.Example", Mode: rpservice.ModeTCP, ProxyCluster: "cluster.example"},
+		{ID: "tls-2", AccountID: "account-1", Domain: "tls.example.", Mode: rpservice.ModeTCP, ProxyCluster: "cluster.example"},
+	} {
+		require.NoError(t, db.Create(svc).Error)
+	}
+	for _, mapping := range []*legacyTLSMappingWithoutPort{
+		{ServiceID: "tls-1", Protocol: rpservice.ModeTLS},
+		{ServiceID: "tls-2", Protocol: rpservice.ModeTLS},
+	} {
+		require.NoError(t, db.Create(mapping).Error)
+	}
+
+	require.NoError(t, migration.PrepareReverseProxySharedDomains(context.Background(), db))
 }
 
 func TestPrepareReverseProxySharedDomainsRejectsCrossAccountCanonicalAlias(t *testing.T) {

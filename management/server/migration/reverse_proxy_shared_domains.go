@@ -226,9 +226,15 @@ func reverseProxyMappingKinds(db *gorm.DB) (mappedServices map[string]struct{}, 
 	for _, mapping := range mappings {
 		mappedServices[mapping.ServiceID] = struct{}{}
 		if mapping.Protocol == rpservice.ModeTLS {
+			if !hasStart || mapping.ListenPortStart == 0 {
+				continue
+			}
 			end := mapping.ListenPortEnd
 			if !hasEnd || end == 0 {
 				end = mapping.ListenPortStart
+			}
+			if end == 0 {
+				continue
 			}
 			tlsListeners[mapping.ServiceID] = append(tlsListeners[mapping.ServiceID], reverseProxyTLSListener{
 				ServiceID: mapping.ServiceID,
@@ -242,8 +248,12 @@ func reverseProxyMappingKinds(db *gorm.DB) (mappedServices map[string]struct{}, 
 
 func validateCanonicalTLSListeners(listeners []reverseProxyTLSListener) error {
 	for i, left := range listeners {
+		if left.Start == 0 || left.End == 0 {
+			continue
+		}
 		for _, right := range listeners[i+1:] {
-			if left.ServiceID == right.ServiceID || left.Domain != right.Domain || left.Cluster != right.Cluster {
+			if right.Start == 0 || right.End == 0 ||
+				left.ServiceID == right.ServiceID || left.Domain != right.Domain || left.Cluster != right.Cluster {
 				continue
 			}
 			if left.Start <= right.End && right.Start <= left.End {

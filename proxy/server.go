@@ -68,6 +68,7 @@ import (
 	"github.com/netbirdio/netbird/proxy/web"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/proto"
+	sharedtypes "github.com/netbirdio/netbird/shared/management/types"
 	"github.com/netbirdio/netbird/trustedproxy"
 	"github.com/netbirdio/netbird/util/embeddedroots"
 )
@@ -1652,16 +1653,18 @@ func (s *Server) addMapping(ctx context.Context, mapping *proto.ProxyMapping) er
 	}
 
 	// During a reconnect snapshot, a service may have been replaced with a
-	// new ID while retaining its HTTP hostname or TCP/UDP listener. Register
-	// the replacement peer first, then release the cached runtime owners so a
-	// UDP socket or TCP fallback can be rebound without a gap in peer state.
+	// new ID while retaining its HTTP hostname or TCP/UDP listener. Keep the
+	// superseded peers until replacement routes are ready so rollback does not
+	// need a consumed one-time token.
 	conflicts := s.conflictingMappingOwners(mapping)
 	for _, old := range conflicts {
 		s.Logger.WithFields(log.Fields{
 			"old_service_id": old.GetId(),
 			"new_service_id": mapping.GetId(),
 		}).Info("removing superseded runtime owner before applying snapshot mapping")
-		s.removeMapping(ctx, old)
+		s.deleteMapping(types.ServiceID(old.GetId()))
+		s.cleanupMappingRoutes(old)
+		s.removeMappingL4Metrics(old)
 	}
 
 	if err := s.setupMappingRoutes(ctx, mapping); err != nil {
@@ -1675,13 +1678,18 @@ func (s *Server) addMapping(ctx context.Context, mapping *proto.ProxyMapping) er
 		}
 		restoreErrors := []error{err}
 		for _, old := range conflicts {
-			if restoreErr := s.restoreMapping(ctx, old); restoreErr != nil {
+			if restoreErr := s.setupMappingRoutes(ctx, old); restoreErr != nil {
 				restoreErrors = append(restoreErrors, fmt.Errorf("restore superseded service %s: %w", old.GetId(), restoreErr))
+				continue
 			}
+			s.storeMapping(old)
 		}
 		return errors.Join(restoreErrors...)
 	}
 	s.storeMapping(mapping)
+	for _, old := range conflicts {
+		s.removeMappingPeer(ctx, old)
+	}
 	return nil
 }
 
@@ -1909,6 +1917,9 @@ func (s *Server) removeMappingL4Metrics(mapping *proto.ProxyMapping) {
 // and in-place updates remain service-scoped and retain the embedded NetBird
 // peer.
 func (s *Server) setupPortMappings(ctx context.Context, mapping *proto.ProxyMapping) error {
+	if err := validateExpandedListenerCount(mapping); err != nil {
+		return err
+	}
 	targetAddress := s.l4TargetAddress(mapping)
 	if targetAddress == "" {
 		return fmt.Errorf("empty target address for multi-port service %s", mapping.GetId())
@@ -1964,6 +1975,25 @@ func (s *Server) setupPortMappings(ctx context.Context, mapping *proto.ProxyMapp
 			}
 			addedModes = append(addedModes, mode)
 		}
+	}
+	return nil
+}
+
+func validateExpandedListenerCount(mapping *proto.ProxyMapping) error {
+	var listenerCount uint32
+	for _, portMapping := range mapping.GetPortMappings() {
+		if portMapping == nil || portMapping.GetListenPortEnd() < portMapping.GetListenPortStart() {
+			continue
+		}
+		mappingListeners := portMapping.GetListenPortEnd() - portMapping.GetListenPortStart() + 1
+		if mappingListeners > sharedtypes.MaxReverseProxyExpandedListenersPerService-listenerCount {
+			return fmt.Errorf(
+				"service %s requests more than %d listeners",
+				mapping.GetId(),
+				sharedtypes.MaxReverseProxyExpandedListenersPerService,
+			)
+		}
+		listenerCount += mappingListeners
 	}
 	return nil
 }
@@ -2553,8 +2583,19 @@ func (s *Server) removeMapping(ctx context.Context, mapping *proto.ProxyMapping)
 	if owned != nil {
 		identity = owned
 	}
-	accountID := types.AccountID(identity.GetAccountId())
-	svcKey := s.serviceKeyForMapping(identity)
+	s.removeMappingPeer(ctx, identity)
+
+	if owned != nil {
+		s.cleanupMappingRoutes(owned)
+		s.removeMappingL4Metrics(owned)
+	} else {
+		s.cleanupMappingRoutes(identity)
+	}
+}
+
+func (s *Server) removeMappingPeer(ctx context.Context, mapping *proto.ProxyMapping) {
+	accountID := types.AccountID(mapping.GetAccountId())
+	svcKey := s.serviceKeyForMapping(mapping)
 	removePeer := s.removePeer
 	if removePeer == nil {
 		removePeer = s.netbird.RemovePeer
@@ -2565,13 +2606,6 @@ func (s *Server) removeMapping(ctx context.Context, mapping *proto.ProxyMapping)
 			"service_id": mapping.GetId(),
 			"error":      err,
 		}).Error("failed to remove NetBird peer, continuing cleanup")
-	}
-
-	if owned != nil {
-		s.cleanupMappingRoutes(owned)
-		s.removeMappingL4Metrics(owned)
-	} else {
-		s.cleanupMappingRoutes(identity)
 	}
 }
 
