@@ -10,6 +10,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal/portforward/pcp"
+	"github.com/netbirdio/netbird/client/internal/portforward/upnp"
 )
 
 // discoverGateway is the function used for NAT gateway discovery.
@@ -24,7 +25,31 @@ func defaultDiscoverGateway(ctx context.Context) (nat.NAT, error) {
 	}
 	log.Debugf("PCP discovery failed: %v, trying NAT-PMP/UPnP", err)
 
-	return nat.DiscoverGateway(ctx)
+	// Multicast SSDP is not delivered on all networks (hypervisor bridges,
+	// IGMP-snooping switches), while MiniUPnPd-based gateways also answer
+	// unicast M-SEARCH sent directly to them. Run a unicast UPnP search
+	// against the default gateway alongside the multicast discovery.
+	unicastResult := make(chan nat.NAT, 1)
+	go func() {
+		gateway, err := upnp.Discover(ctx)
+		if err != nil {
+			log.Debugf("unicast UPnP discovery failed: %v", err)
+			unicastResult <- nil
+			return
+		}
+		unicastResult <- gateway
+	}()
+
+	gateway, err := nat.DiscoverGateway(ctx)
+	if err == nil {
+		return gateway, nil
+	}
+
+	if gateway := <-unicastResult; gateway != nil {
+		log.Debugf("gateway found via unicast UPnP discovery")
+		return gateway, nil
+	}
+	return nil, err
 }
 
 // State is persisted only for crash recovery cleanup
