@@ -160,7 +160,13 @@ export const MainConnectionStatusSwitch = () => {
     }, [driveLogin]);
 
     const handleSwitch = (next: boolean) => {
-        if (unreachable) return;
+        if (unreachable) {
+            void errorDialog({
+                Title: t("connect.error.daemonUnavailableTitle"),
+                Message: t("connect.error.daemonUnavailableMessage"),
+            });
+            return;
+        }
         if (isTransitioning) {
             if (canForceCancel) void forceCancel();
             return;
