@@ -31,6 +31,7 @@ type Metrics struct {
 	peers              metric.Int64UpDownCounter
 	peerActivityChan   chan string
 	peerLastActive     map[string]peerActivity
+	seenTransports     map[string]struct{}
 	mutexActivity      sync.Mutex
 	ctx                context.Context
 }
@@ -106,6 +107,7 @@ func NewMetrics(ctx context.Context, meter metric.Meter) (*Metrics, error) {
 		ctx:              ctx,
 		peerActivityChan: make(chan string, 10),
 		peerLastActive:   make(map[string]peerActivity),
+		seenTransports:   make(map[string]struct{}),
 	}
 
 	_, err = meter.RegisterCallback(
@@ -137,6 +139,7 @@ func (m *Metrics) PeerConnected(id, transport string) {
 
 	// zero lastActive keeps the peer counted as idle until it relays its first message
 	m.peerLastActive[id] = peerActivity{transport: transport}
+	m.seenTransports[transport] = struct{}{}
 }
 
 // RecordBytesSent records the number of bytes relayed out to a peer over the given transport.
@@ -182,18 +185,20 @@ func (m *Metrics) PeerActivity(peerID string) {
 }
 
 // calculateActiveIdleConnections returns the number of active and idle peers grouped by transport.
-// Every transport with at least one connected peer appears in both maps (0 where a bucket is empty)
-// so per-transport gauge series report 0 instead of disappearing when a bucket empties.
+// Every transport the relay has served keeps a 0-valued entry in both maps, so the gauges keep
+// reporting 0 rather than disappearing when a bucket - or the whole relay - has no peers. This
+// preserves the pre-label behaviour where the scalar gauges were always observed, even at zero.
 func (m *Metrics) calculateActiveIdleConnections() (active, idle map[string]int64) {
 	active, idle = make(map[string]int64), make(map[string]int64)
 	m.mutexActivity.Lock()
 	defer m.mutexActivity.Unlock()
 
+	for transport := range m.seenTransports {
+		active[transport] = 0
+		idle[transport] = 0
+	}
+
 	for _, peer := range m.peerLastActive {
-		if _, ok := active[peer.transport]; !ok {
-			active[peer.transport] = 0
-			idle[peer.transport] = 0
-		}
 		if time.Since(peer.lastActive) > idleTimeout {
 			idle[peer.transport]++
 		} else {
