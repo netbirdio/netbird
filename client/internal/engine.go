@@ -863,19 +863,40 @@ func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 		}
 	}
 
-	// second, close all modified connections and remove them from the state map
+	// second, look up the activation state of all modified peers before removing
+	// any of them, so an unavailable state leaves the current connections intact
+	active := make(map[string]bool, len(modified))
 	for _, p := range modified {
-		err := e.removePeer(p.GetWgPubKey())
+		peerPubKey := p.GetWgPubKey()
+		state, err := e.statusRecorder.GetPeer(peerPubKey)
 		if err != nil {
+			return fmt.Errorf("get status of modified peer %s: %w", peerPubKey, err)
+		}
+		active[peerPubKey] = state.ConnStatus != peer.StatusIdle
+	}
+	// then close all modified connections and remove them from the state map
+	for _, p := range modified {
+		if err := e.removePeer(p.GetWgPubKey()); err != nil {
 			return err
 		}
 	}
-	// third, add the peer connections again
+	// third, add the peer connections again, restoring each peer's activation
+	// state: under lazy connections a re-added peer starts idle, but the remote
+	// side of an established connection keeps its state and sends no further
+	// offers, so a previously active peer left idle cannot reconnect until the
+	// remote's connection expires.
 	for _, p := range modified {
-		err := e.addNewPeer(p)
-		if err != nil {
+		if err := e.addNewPeer(p); err != nil {
 			return err
 		}
+		if !active[p.GetWgPubKey()] {
+			continue
+		}
+		conn, ok := e.peerStore.PeerConn(p.GetWgPubKey())
+		if !ok {
+			continue
+		}
+		e.connMgr.ActivatePeer(e.ctx, conn)
 	}
 	return nil
 }
