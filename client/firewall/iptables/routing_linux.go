@@ -192,14 +192,23 @@ func (r *family) insertEstablishedRule(chain string) error {
 	return nil
 }
 
-func (r *family) addNatRule(pair firewall.RouterPair) error {
+func (r *family) addNatRule(pair firewall.RouterPair) (err error) {
 	ruleID := pair.GenKey(firewall.NatFormat)
 
 	if rule, exists := r.rules[ruleID]; exists {
-		if err := r.iptablesClient.DeleteIfExists(tableMangle, chainRTPre, rule...); err != nil {
-			return fmt.Errorf("remove existing marking rule for %s: %w", pair.Destination, err)
+		if derr := r.iptablesClient.DeleteIfExists(tableMangle, chainRTPre, rule...); derr != nil {
+			return fmt.Errorf("remove existing marking rule for %s: %w", pair.Destination, derr)
 		}
 		delete(r.rules, ruleID)
+
+		// Drop the replaced spec's set references only once the new spec has
+		// taken its own, so a set both specs share is not destroyed and
+		// recreated, which would lose the prefixes UpdateSet put in it.
+		defer func() {
+			if derr := r.decrementSetCounter(rule); derr != nil && err == nil {
+				err = fmt.Errorf("decrement ipset counter: %w", derr)
+			}
+		}()
 	}
 
 	markValue := nbnet.PreroutingFwmarkMasquerade

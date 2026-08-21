@@ -23,24 +23,45 @@ func (r *family) AddNatRule(pair firewall.RouterPair) error {
 		return fmt.Errorf(refreshRulesMapError, err)
 	}
 
+	// Resolve every rule's match expressions before queueing any of them: a
+	// message buffered on the shared connection cannot be un-queued, so
+	// returning an error after queueing would leave the next caller's Flush
+	// to commit a rule nothing tracks.
+	var legacyExprs []expr.Any
 	if r.legacyManagement {
 		log.Warnf("This peer is connected to a NetBird Management service with an older version. Allowing all traffic for %s", pair.Destination)
-		if err := r.addLegacyRouteRule(pair); err != nil {
-			r.rollbackRules(pair)
-			return fmt.Errorf("add legacy routing rule: %w", err)
+
+		var err error
+		legacyExprs, err = r.legacyRouteRuleExprs(pair)
+		if err != nil {
+			return fmt.Errorf("build legacy routing rule: %w", err)
 		}
 	}
 
+	inverse := firewall.GetInversePair(pair)
+	var natExprs, inverseExprs []expr.Any
 	if pair.Masquerade {
-		if err := r.addNatRule(pair); err != nil {
-			r.rollbackRules(pair)
-			return fmt.Errorf("add nat rule: %w", err)
+		var err error
+		natExprs, err = r.natRuleExprs(pair)
+		if err != nil {
+			r.dropNetworkMatch(legacyExprs)
+			return fmt.Errorf("build nat rule: %w", err)
 		}
 
-		if err := r.addNatRule(firewall.GetInversePair(pair)); err != nil {
-			r.rollbackRules(pair)
-			return fmt.Errorf("add inverse nat rule: %w", err)
+		inverseExprs, err = r.natRuleExprs(inverse)
+		if err != nil {
+			r.dropNetworkMatch(legacyExprs)
+			r.dropNetworkMatch(natExprs)
+			return fmt.Errorf("build inverse nat rule: %w", err)
 		}
+	}
+
+	if legacyExprs != nil {
+		r.queueLegacyRouteRule(pair, legacyExprs)
+	}
+	if pair.Masquerade {
+		r.queueNatRule(pair, natExprs)
+		r.queueNatRule(inverse, inverseExprs)
 	}
 
 	if err := r.conn.Flush(); err != nil {
@@ -70,17 +91,19 @@ func (r *family) rollbackRules(pair firewall.RouterPair) {
 	}
 }
 
-// addNatRule inserts a nftables rule to the conn client flush queue
-func (r *family) addNatRule(pair firewall.RouterPair) error {
+// natRuleExprs resolves the match expressions of the pair's prerouting
+// marking rule. It reserves the ipset references the matches need but queues
+// nothing on the connection, so its error paths leave the connection clean.
+func (r *family) natRuleExprs(pair firewall.RouterPair) ([]expr.Any, error) {
 	sourceExp, err := r.applyNetwork(pair.Source, nil, true)
 	if err != nil {
-		return fmt.Errorf("apply source: %w", err)
+		return nil, fmt.Errorf("apply source: %w", err)
 	}
 
 	destExp, err := r.applyNetwork(pair.Destination, nil, false)
 	if err != nil {
 		r.dropNetworkMatch(sourceExp)
-		return fmt.Errorf("apply destination: %w", err)
+		return nil, fmt.Errorf("apply destination: %w", err)
 	}
 
 	op := expr.CmpOpEq
@@ -123,13 +146,19 @@ func (r *family) addNatRule(pair firewall.RouterPair) error {
 		},
 	)
 
+	return exprs, nil
+}
+
+// queueNatRule replaces any tracked rule for the pair and queues the new
+// prerouting marking rule on the connection. Failures are logged rather than
+// returned: the caller has already queued messages that only a Flush can
+// commit, so it must not return early.
+func (r *family) queueNatRule(pair firewall.RouterPair, exprs []expr.Any) {
 	ruleID := pair.GenKey(firewall.PreroutingFormat)
 
 	if _, exists := r.rules[ruleID]; exists {
 		if err := r.removeNatRule(pair); err != nil {
-			r.dropNetworkMatch(sourceExp)
-			r.dropNetworkMatch(destExp)
-			return fmt.Errorf("remove prerouting rule: %w", err)
+			log.Errorf("replace prerouting rule %s: %v", ruleID, err)
 		}
 	}
 
@@ -141,8 +170,6 @@ func (r *family) addNatRule(pair firewall.RouterPair) error {
 		Exprs:    exprs,
 		UserData: []byte(ruleID),
 	})
-
-	return nil
 }
 
 func (r *family) addPostroutingRules() {
@@ -308,27 +335,32 @@ func buildLegacyRouteRuleExpressions(sourceExp, destExp []expr.Any) []expr.Any {
 	return exprs
 }
 
-func (r *family) addLegacyRouteRule(pair firewall.RouterPair) error {
+// legacyRouteRuleExprs resolves the match expressions of the pair's legacy
+// forwarding rule, queueing nothing on the connection.
+func (r *family) legacyRouteRuleExprs(pair firewall.RouterPair) ([]expr.Any, error) {
 	sourceExp, err := r.applyNetwork(pair.Source, nil, true)
 	if err != nil {
-		return fmt.Errorf("apply source: %w", err)
+		return nil, fmt.Errorf("apply source: %w", err)
 	}
 
 	destExp, err := r.applyNetwork(pair.Destination, nil, false)
 	if err != nil {
 		r.dropNetworkMatch(sourceExp)
-		return fmt.Errorf("apply destination: %w", err)
+		return nil, fmt.Errorf("apply destination: %w", err)
 	}
 
-	exprs := buildLegacyRouteRuleExpressions(sourceExp, destExp)
+	return buildLegacyRouteRuleExpressions(sourceExp, destExp), nil
+}
 
+// queueLegacyRouteRule replaces any tracked rule for the pair and queues the
+// new legacy forwarding rule. Failures are logged for the same reason as in
+// queueNatRule.
+func (r *family) queueLegacyRouteRule(pair firewall.RouterPair, exprs []expr.Any) {
 	ruleID := pair.GenKey(firewall.ForwardingFormat)
 
 	if _, exists := r.rules[ruleID]; exists {
 		if err := r.removeLegacyRouteRule(pair); err != nil {
-			r.dropNetworkMatch(sourceExp)
-			r.dropNetworkMatch(destExp)
-			return fmt.Errorf("remove legacy routing rule: %w", err)
+			log.Errorf("replace legacy forwarding rule %s: %v", ruleID, err)
 		}
 	}
 
@@ -338,7 +370,6 @@ func (r *family) addLegacyRouteRule(pair firewall.RouterPair) error {
 		Exprs:    exprs,
 		UserData: []byte(ruleID),
 	})
-	return nil
 }
 
 // removeLegacyRouteRule removes a legacy routing rule for mgmt servers pre route acls
@@ -395,14 +426,27 @@ func (r *family) RemoveAllLegacyRouteRules() error {
 	}
 
 	var merr *multierror.Error
+	var found bool
 	for k, rule := range r.rules {
 		if !strings.HasPrefix(string(k), firewall.ForwardingFormatPrefix) {
 			continue
 		}
+		found = true
 		if err := r.deleteLegacyRuleEntry(k, rule); err != nil {
 			merr = multierror.Append(merr, err)
 		}
 	}
+
+	// Commit the queued deletes here instead of leaving them for whichever
+	// caller flushes next: the tracking entries are already gone, so an
+	// uncommitted delete would leave a rule in the kernel that nothing can
+	// find again.
+	if found {
+		if err := r.conn.Flush(); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf(flushError, err))
+		}
+	}
+
 	return nberrors.FormatErrorOrNil(merr)
 }
 

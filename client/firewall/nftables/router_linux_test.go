@@ -540,6 +540,23 @@ func TestNftablesUpdateSetMergesOverlapping(t *testing.T) {
 		netip.MustParsePrefix("192.168.1.1/32"),
 	}
 	require.NoError(t, r.UpdateSet(set, overlapping), "UpdateSet must merge overlapping prefixes")
+
+	fetchedSet, err := r.conn.GetSetByName(r.workTable, set.HashedName())
+	require.NoError(t, err, "fetch updated set")
+	elements, err := r.conn.GetSetElements(fetchedSet)
+	require.NoError(t, err, "get set elements")
+
+	starts := make(map[string]bool)
+	for _, elem := range elements {
+		if elem.IntervalEnd {
+			continue
+		}
+		starts[netip.AddrFrom4(*(*[4]byte)(elem.Key)).String()] = true
+	}
+	// The /32s are covered by the /24, so the update adds one interval and
+	// leaves the one created earlier in place.
+	assert.Equal(t, map[string]bool{"10.0.0.0": true, "192.168.1.0": true}, starts,
+		"merged set must hold the original and the merged interval")
 }
 
 func TestNftablesCreateIpSet_IPv6(t *testing.T) {

@@ -358,6 +358,14 @@ func (r *family) applyNetwork(flag string, network firewall.Network, prefixes []
 	}
 
 	if network.IsSet() {
+		// A destination set is populated later from DNS results, so unlike a
+		// source set it cannot be expanded into per-prefix rules. Without
+		// ipset such a rule is not expressible; report it instead of
+		// installing something broader than the policy allows.
+		if flag == "-d" && !r.ipsetSupported {
+			return nil, fmt.Errorf("destination set %s requires ipset (ip_set_hash_net and xt_set)", network.Set.HashedName())
+		}
+
 		name := r.ipsetName(network.Set.HashedName())
 		if _, err := r.ipsetCounter.Increment(name, prefixes); err != nil {
 			return nil, fmt.Errorf("create or get ipset: %w", err)

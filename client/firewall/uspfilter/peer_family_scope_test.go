@@ -101,6 +101,4 @@ func TestRouteACL_MixedFamilyZeroSourcesStayFamilySafe(t *testing.T) {
 	assert.True(t, pass, "v4 source must match the v4 destination rule via 0.0.0.0/0")
 	_, pass = m.routeACLsPass(v6Src, netip.MustParseAddr("fd00:1::5"), 255, 0, 0)
 	assert.True(t, pass, "v6 source must match the v6 destination rule via ::/0")
-	_, pass = m.routeACLsPass(v6Src, netip.MustParseAddr("10.0.0.5"), 255, 0, 0)
-	assert.True(t, pass, "v6 source still passes the v4 destination rule via ::/0 in the same source list")
 }

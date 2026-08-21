@@ -236,6 +236,12 @@ func (r *family) DeleteFilterRule(rule firewall.Rule) error {
 
 	if pr.nftRule.Handle == 0 {
 		log.Warnf("filter rule %s has no handle, removing stale entry", ruleID)
+		// The paired mangle rule can still be in the kernel with a live
+		// handle. Dropping the tracking entry without removing it would
+		// leave a prerouting rule that nothing can find again.
+		if err := r.deleteMangleRule(pr, ruleID); err != nil {
+			return err
+		}
 		r.dropNetworkMatch(pr.nftRule.Exprs)
 		delete(r.filters, ruleID)
 		return nil
@@ -244,11 +250,7 @@ func (r *family) DeleteFilterRule(rule firewall.Rule) error {
 	if err := r.conn.DelRule(pr.nftRule); err != nil {
 		log.Errorf("queue rule delete: %v", err)
 	}
-	if pr.mangleRule != nil {
-		if err := r.conn.DelRule(pr.mangleRule); err != nil {
-			log.Errorf("queue mangle rule delete: %v", err)
-		}
-	}
+	r.queueMangleDelete(pr)
 	if err := r.conn.Flush(); err != nil {
 		return fmt.Errorf("flush delete %s: %w", ruleID, err)
 	}
@@ -256,6 +258,32 @@ func (r *family) DeleteFilterRule(rule firewall.Rule) error {
 	r.dropNetworkMatch(pr.nftRule.Exprs)
 	delete(r.filters, ruleID)
 	return nil
+}
+
+// deleteMangleRule removes the prerouting rule paired with a filter rule on
+// its own, for the paths that drop the filter rule's tracking without queueing
+// a delete for it.
+func (r *family) deleteMangleRule(pr *Rule, ruleID firewall.RuleID) error {
+	if pr.mangleRule == nil || pr.mangleRule.Handle == 0 {
+		return nil
+	}
+
+	r.queueMangleDelete(pr)
+	if err := r.conn.Flush(); err != nil {
+		return fmt.Errorf("flush mangle delete %s: %w", ruleID, err)
+	}
+	return nil
+}
+
+// queueMangleDelete queues the delete of the rule's prerouting counterpart, if
+// it has one. The caller commits it.
+func (r *family) queueMangleDelete(pr *Rule) {
+	if pr.mangleRule == nil {
+		return
+	}
+	if err := r.conn.DelRule(pr.mangleRule); err != nil {
+		log.Errorf("queue mangle rule delete: %v", err)
+	}
 }
 
 func (r *family) decrementSetCounter(rule *nftables.Rule) error {

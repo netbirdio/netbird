@@ -5,16 +5,19 @@ package iptables
 import (
 	"fmt"
 	"net/netip"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/coreos/go-iptables/iptables"
+	"github.com/lrh3321/ipset-go"
 	"github.com/stretchr/testify/require"
 
 	fw "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
 var ifaceMock = &iFaceMock{
@@ -97,10 +100,7 @@ func TestIptablesManager(t *testing.T) {
 
 		ok, err := ipv4Client.ChainExists("filter", chainACLInput)
 		require.NoError(t, err, "failed check chain exists")
-
-		if ok {
-			require.NoErrorf(t, err, "chain '%v' still exists after Close", chainACLInput)
-		}
+		require.Falsef(t, ok, "chain %q still exists after Close", chainACLInput)
 	})
 }
 
@@ -285,12 +285,78 @@ func TestIptablesFilterIPSetFallback(t *testing.T) {
 
 		// The rule must actually be present in the ACL chain (not silently dropped).
 		checkRuleSpecs(t, ipv4Client, rr.chain, true, fs.specs...)
+
+		// Every expanded peer rule keeps its own redirect-mark pairing.
+		require.NotNil(t, fs.mangleSpecs, "peer rule must carry a mangle pairing")
+		checkTableRuleSpecs(t, ipv4Client, tableMangle, chainRTPre, true, fs.mangleSpecs...)
 	}
 
 	require.NoError(t, manager.DeleteFilterRule(rule), "failed to delete fallback rule")
 	for _, fs := range all {
 		checkRuleSpecs(t, ipv4Client, rr.chain, false, fs.specs...)
+		checkTableRuleSpecs(t, ipv4Client, tableMangle, chainRTPre, false, fs.mangleSpecs...)
 	}
+}
+
+// TestIptablesFilterDestinationSetRequiresIPSet documents that a dynamic
+// (domain) destination cannot be expressed without ipset: its prefixes are only
+// known after DNS resolution, so there is nothing to expand into per-prefix
+// rules. The call must report that rather than install a broader rule than the
+// policy allows.
+func TestIptablesFilterDestinationSetRequiresIPSet(t *testing.T) {
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
+	require.NoError(t, err)
+	require.NoError(t, manager.Init(nil))
+
+	defer func() {
+		require.NoError(t, manager.Close(nil))
+	}()
+
+	manager.family4.ipsetSupported = false
+
+	destination := fw.Network{Set: fw.NewDomainSet(domain.List{"example.com"})}
+
+	_, err = manager.AddFilterRule(nil, []netip.Prefix{netip.MustParsePrefix("172.16.0.0/16")},
+		destination, fw.ProtocolALL, nil, nil, fw.ActionAccept)
+	require.Error(t, err, "a domain destination is not expressible without ipset")
+	require.ErrorContains(t, err, "requires ipset")
+}
+
+// TestIptablesNatRuleReAddKeepsSetReferences re-adds the same NAT rule the way
+// a repeated network-map update does. The marking rule's set references must not
+// grow, or RemoveNatRule can never drop the count to zero and the set stays in
+// the kernel for the rest of the process lifetime.
+func TestIptablesNatRuleReAddKeepsSetReferences(t *testing.T) {
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
+	require.NoError(t, err)
+	require.NoError(t, manager.Init(nil))
+
+	defer func() {
+		require.NoError(t, manager.Close(nil))
+	}()
+
+	set := fw.NewDomainSet(domain.List{"example.com"})
+	pair := fw.RouterPair{
+		ID:          "nat-reference-test",
+		Source:      fw.Network{Prefix: netip.MustParsePrefix("100.0.0.0/16")},
+		Destination: fw.Network{Set: set},
+		Masquerade:  true,
+		Dynamic:     true,
+	}
+
+	require.NoError(t, manager.AddNatRule(pair), "add nat rule")
+	name := manager.family4.ipsetName(set.HashedName())
+	first, ok := manager.family4.ipsetCounter.Get(name)
+	require.True(t, ok, "the marking rule must hold a reference to its set")
+
+	require.NoError(t, manager.AddNatRule(pair), "re-add nat rule")
+	second, ok := manager.family4.ipsetCounter.Get(name)
+	require.True(t, ok, "the set must still be referenced")
+	require.Equal(t, first.Count, second.Count, "re-adding the same rule must not add references")
+
+	require.NoError(t, manager.RemoveNatRule(pair), "remove nat rule")
+	_, ok = manager.family4.ipsetCounter.Get(name)
+	require.False(t, ok, "removing the rule must drop the last reference")
 }
 
 // TestIptablesRouteFilterIPSetFallback covers the route ACL side of the
@@ -340,9 +406,115 @@ func TestIptablesRouteFilterIPSetFallback(t *testing.T) {
 	}
 }
 
+// TestIptablesCloseRemovesAllState exercises a spread of rule kinds and then
+// asserts Close puts every table it touches back exactly as it found it. A
+// leaked chain, jump, or ipset survives the daemon and nothing can remove it
+// afterwards, since the tracking that knew about it is gone.
+func TestIptablesCloseRemovesAllState(t *testing.T) {
+	ipv4Client, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
+	require.NoError(t, err)
+
+	before := snapshotIptables(t, ipv4Client)
+
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
+	require.NoError(t, err)
+	require.NoError(t, manager.Init(nil))
+
+	sources := []netip.Prefix{
+		netip.MustParsePrefix("10.20.0.42/32"),
+		netip.MustParsePrefix("10.20.0.43/32"),
+	}
+
+	// A multi-source peer rule: shared ipset plus the mangle redirect pairing.
+	_, err = manager.AddFilterRule(nil, sources, fw.Network{}, "tcp",
+		nil, &fw.Port{Values: []uint16{22}}, fw.ActionAccept)
+	require.NoError(t, err, "add peer rule")
+
+	// A route rule with a dynamic destination: a second set, in the forward chain.
+	_, err = manager.AddFilterRule(nil, sources,
+		fw.Network{Set: fw.NewDomainSet(domain.List{"example.com"})},
+		fw.ProtocolALL, nil, nil, fw.ActionDrop)
+	require.NoError(t, err, "add route rule")
+
+	// NAT marking for a routed destination, both directions.
+	pair := fw.RouterPair{
+		ID:          "cleanup-test",
+		Source:      fw.Network{Prefix: netip.MustParsePrefix("100.0.0.0/16")},
+		Destination: fw.Network{Prefix: netip.MustParsePrefix("192.168.55.0/24")},
+		Masquerade:  true,
+	}
+	require.NoError(t, manager.AddNatRule(pair), "add nat rule")
+	require.NoError(t, manager.EnableRouting(), "enable routing")
+
+	// A DNAT redirect, which also holds a forwarding reference.
+	dnat := fw.ForwardRule{
+		Protocol:          fw.ProtocolTCP,
+		DestinationPort:   fw.Port{Values: []uint16{8080}},
+		TranslatedAddress: netip.MustParseAddr("10.20.0.44"),
+		TranslatedPort:    fw.Port{Values: []uint16{80}},
+	}
+	dnatRule, err := manager.AddDNATRule(dnat)
+	require.NoError(t, err, "add dnat rule")
+
+	require.NotEqual(t, before, snapshotIptables(t, ipv4Client), "the manager must have installed state")
+
+	require.NoError(t, manager.DeleteDNATRule(dnatRule), "delete dnat rule")
+	require.NoError(t, manager.DisableRouting(), "disable routing")
+	require.NoError(t, manager.Close(nil), "close")
+
+	after := snapshotIptables(t, ipv4Client)
+	require.Equal(t, before.chains, after.chains, "Close must remove every chain it created")
+	require.Equal(t, before.rules, after.rules, "Close must remove every rule it created")
+	require.Equal(t, before.sets, after.sets, "Close must destroy every ipset it created")
+}
+
+// iptablesState is a snapshot of the tables the manager writes to, used to
+// compare the kernel before and after a manager lifetime.
+type iptablesState struct {
+	chains map[string][]string
+	rules  map[string][]string
+	sets   []string
+}
+
+func snapshotIptables(t *testing.T, client *iptables.IPTables) iptablesState {
+	t.Helper()
+
+	state := iptablesState{
+		chains: map[string][]string{},
+		rules:  map[string][]string{},
+	}
+
+	for _, table := range []string{tableFilter, tableNat, tableMangle, tableRaw} {
+		chains, err := client.ListChains(table)
+		require.NoErrorf(t, err, "list chains in %s", table)
+		slices.Sort(chains)
+		state.chains[table] = chains
+
+		for _, chain := range chains {
+			rules, err := client.List(table, chain)
+			require.NoErrorf(t, err, "list rules in %s/%s", table, chain)
+			state.rules[table+"/"+chain] = rules
+		}
+	}
+
+	sets, err := ipset.ListAll()
+	require.NoError(t, err, "list ipsets")
+	for _, set := range sets {
+		state.sets = append(state.sets, set.SetName)
+	}
+	slices.Sort(state.sets)
+
+	return state
+}
+
 func checkRuleSpecs(t *testing.T, ipv4Client *iptables.IPTables, chainName string, mustExists bool, rulespec ...string) {
 	t.Helper()
-	exists, err := ipv4Client.Exists("filter", chainName, rulespec...)
+	checkTableRuleSpecs(t, ipv4Client, tableFilter, chainName, mustExists, rulespec...)
+}
+
+func checkTableRuleSpecs(t *testing.T, ipv4Client *iptables.IPTables, table, chainName string, mustExists bool, rulespec ...string) {
+	t.Helper()
+	exists, err := ipv4Client.Exists(table, chainName, rulespec...)
 	require.NoError(t, err, "failed to check rule")
 	require.Falsef(t, !exists && mustExists, "rule '%v' does not exist", rulespec)
 	require.Falsef(t, exists && !mustExists, "rule '%v' exist", rulespec)
