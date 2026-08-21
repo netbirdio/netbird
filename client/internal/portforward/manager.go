@@ -10,10 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/libp2p/go-nat"
+	"github.com/netbirdio/go-nat"
 	log "github.com/sirupsen/logrus"
-
-	"github.com/netbirdio/netbird/client/internal/portforward/pcp"
 )
 
 const (
@@ -163,6 +161,7 @@ func (m *Manager) setup(ctx context.Context) (nat.NAT, *Mapping, error) {
 	}
 
 	log.Infof("discovered NAT gateway: %s", gateway.Type())
+	logIPv6Pinhole(gateway)
 
 	mapping, err := m.createMapping(ctx, gateway)
 	if err != nil {
@@ -265,7 +264,9 @@ func (m *Manager) checkHealthAndRecreate(ctx context.Context, gateway nat.NAT) b
 		return false
 	}
 
-	pcpNAT, ok := gateway.(*pcp.NAT)
+	// Assert on the interface, not on a concrete type: a dual-stack gateway is
+	// a wrapper around the IPv4 NAT, so a type assertion misses it.
+	checker, ok := gateway.(nat.HealthChecker)
 	if !ok {
 		return false
 	}
@@ -273,7 +274,7 @@ func (m *Manager) checkHealthAndRecreate(ctx context.Context, gateway nat.NAT) b
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	epoch, serverRestarted, err := pcpNAT.CheckServerHealth(ctx)
+	epoch, serverRestarted, err := checker.CheckServerHealth(ctx)
 	if err != nil {
 		log.Debugf("PCP health check failed: %v", err)
 		return false
@@ -339,4 +340,19 @@ func (m *Manager) startTearDown(ctx context.Context) {
 // isPermanentLeaseRequired checks if a UPnP error indicates the gateway only supports permanent leases (error 725).
 func isPermanentLeaseRequired(err error) bool {
 	return err != nil && upnpErrPermanentLeaseOnly.MatchString(err.Error())
+}
+
+// logIPv6Pinhole reports the outcome of the IPv6 pinhole. Pinholes are best
+// effort and never fail a mapping on their own, so this is the only way to see
+// whether one was actually opened.
+func logIPv6Pinhole(gateway nat.NAT) {
+	reporter, ok := gateway.(nat.IPv6PinholeReporter)
+	if !ok {
+		return
+	}
+	if err := reporter.IPv6PinholeError(); err != nil {
+		log.Warnf("IPv6 pinhole: %v", err)
+		return
+	}
+	log.Infof("IPv6 pinhole open")
 }

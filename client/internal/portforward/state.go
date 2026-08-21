@@ -4,27 +4,59 @@ package portforward
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
-	"github.com/libp2p/go-nat"
+	"github.com/netbirdio/go-nat"
+	"github.com/netbirdio/go-nat/pcp"
 	log "github.com/sirupsen/logrus"
-
-	"github.com/netbirdio/netbird/client/internal/portforward/pcp"
 )
 
 // discoverGateway is the function used for NAT gateway discovery.
 // It can be replaced in tests to avoid real network operations.
-// Tries PCP first, then falls back to NAT-PMP/UPnP.
 var discoverGateway = defaultDiscoverGateway
 
-func defaultDiscoverGateway(ctx context.Context) (nat.NAT, error) {
-	pcpGateway, err := pcp.DiscoverPCP(ctx)
-	if err == nil {
-		return pcpGateway, nil
-	}
-	log.Debugf("PCP discovery failed: %v, trying NAT-PMP/UPnP", err)
+// Discovery entry points, as variables so tests can drive the fallback without
+// touching the network.
+var (
+	discoverNATGateway = nat.DiscoverGateway
 
-	return nat.DiscoverGateway(ctx)
+	discoverPCPPinhole = func(ctx context.Context) (nat.NAT, error) {
+		pinhole, err := pcp.DiscoverPCP(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return pinhole, nil
+	}
+)
+
+// defaultDiscoverGateway finds a gateway that can make the WireGuard port
+// reachable. DiscoverGateway prefers PCP for IPv4, races UPnP and NAT-PMP
+// behind it, and attaches an IPv6 pinhole independently of which IPv4 protocol
+// wins.
+//
+// It reports no gateway on a network offering only IPv6, having no IPv4 mapping
+// to attach a pinhole to. Such a network still needs one: there is no
+// translation to traverse, but the router drops inbound IPv6 until something
+// opens it. Fall back to PCP alone, which yields a gateway holding just the
+// pinhole.
+func defaultDiscoverGateway(ctx context.Context) (nat.NAT, error) {
+	gateway, err := discoverNATGateway(ctx)
+	if err == nil {
+		return gateway, nil
+	}
+	if !errors.Is(err, nat.ErrNoNATFound) {
+		return nil, err
+	}
+
+	pinhole, pinholeErr := discoverPCPPinhole(ctx)
+	if pinholeErr != nil {
+		log.Debugf("no IPv6 pinhole after %v: %v", err, pinholeErr)
+		return nil, err
+	}
+
+	log.Infof("no IPv4 gateway, continuing with an IPv6 pinhole only")
+	return pinhole, nil
 }
 
 // State is persisted only for crash recovery cleanup

@@ -1,0 +1,71 @@
+name: No New Replace Directives
+
+on:
+  pull_request:
+    paths:
+      - "go.mod"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || github.actor_id }}
+  cancel-in-progress: true
+
+jobs:
+  check-replace-directives:
+    name: check-replace-directives
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Install Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+
+      - name: Compare replace directives against the base branch
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+
+          # A replace directive only applies when this module is the main
+          # module. Anything importing netbird as a library, the embedded
+          # clients among them, resolves the replaced path upstream instead and
+          # fails to build against whatever the replacement provides. Requiring
+          # a fork under its own module path avoids that; a replace does not.
+          #
+          # go.mod is parsed rather than diffed so that reordering, comments and
+          # single-line versus block syntax do not register as changes.
+          list_replaces() {
+            go mod edit -json "$1" \
+              | jq -r '(.Replace // [])[] | "\(.Old.Path) => \(.New.Path)"' \
+              | sort
+          }
+
+          git show "${BASE_SHA}:go.mod" > /tmp/base-go.mod
+          list_replaces /tmp/base-go.mod > /tmp/base-replaces
+          list_replaces go.mod > /tmp/head-replaces
+
+          added=$(comm -13 /tmp/base-replaces /tmp/head-replaces)
+          if [ -n "$added" ]; then
+            echo "::error::This PR adds a replace directive to go.mod:"
+            echo "$added" | sed 's/^/  /'
+            echo ""
+            echo "A replace directive applies only to the main module, so it does not"
+            echo "reach anything that imports netbird as a library. Require the module"
+            echo "under a path you control instead, as done for github.com/netbirdio/go-nat."
+            exit 1
+          fi
+
+          removed=$(comm -23 /tmp/base-replaces /tmp/head-replaces)
+          if [ -n "$removed" ]; then
+            echo "This PR removes replace directives:"
+            echo "$removed" | sed 's/^/  /'
+          fi
+          echo "No new replace directives."
