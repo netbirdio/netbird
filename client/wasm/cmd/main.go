@@ -12,7 +12,6 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
-	"google.golang.org/protobuf/encoding/protojson"
 
 	netbird "github.com/netbirdio/netbird/client/embed"
 	sshdetection "github.com/netbirdio/netbird/client/ssh/detection"
@@ -466,12 +465,7 @@ func createGetSyncResponseMethod(client *netbird.Client) js.Func {
 				return
 			}
 
-			options := protojson.MarshalOptions{
-				EmitUnpopulated: true,
-				UseProtoNames:   true,
-				AllowPartial:    true,
-			}
-			jsonBytes, err := options.Marshal(syncResp)
+			jsonBytes, err := marshalSyncJSON(syncResp)
 			if err != nil {
 				reject.Invoke(js.ValueOf(fmt.Sprintf("marshal sync response: %v", err)))
 				return
