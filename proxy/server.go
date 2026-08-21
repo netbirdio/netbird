@@ -20,6 +20,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sync"
 	"time"
 
@@ -2062,9 +2063,7 @@ func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping)
 	if mapping.GetAuth().GetOidc() {
 		schemes = append(schemes, auth.NewOIDC(s.mgmtClient, svcID, accountID, s.ForwardedProto))
 	}
-	for _, ha := range mapping.GetAuth().GetHeaderAuths() {
-		schemes = append(schemes, auth.NewHeader(s.mgmtClient, svcID, accountID, ha.GetHeader()))
-	}
+	schemes = append(schemes, headerAuthSchemes(mapping.GetAuth().GetHeaderAuths())...)
 
 	ipRestrictions := s.parseRestrictions(mapping)
 	s.warnIfGeoUnavailable(mapping.GetDomain(), mapping.GetAccessRestrictions())
@@ -2078,6 +2077,34 @@ func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping)
 	s.meter.AddMapping(m)
 	s.rebuildMiddlewareChains(svcID, m)
 	return nil
+}
+
+// headerAuthSchemes builds one scheme per canonical header name, carrying every
+// hash configured for that name so any of them is accepted — the OR semantics
+// management applied while it still validated the credential itself. A name
+// whose entries arrive without a hash yields a scheme with none, which rejects
+// the header rather than leaving the service unprotected.
+func headerAuthSchemes(headerAuths []*proto.HeaderAuth) []auth.Scheme {
+	names := make([]string, 0, len(headerAuths))
+	hashes := make(map[string][]string, len(headerAuths))
+	for _, ha := range headerAuths {
+		name := http.CanonicalHeaderKey(ha.GetHeader())
+		if name == "" {
+			continue
+		}
+		if !slices.Contains(names, name) {
+			names = append(names, name)
+		}
+		if hash := ha.GetHashedValue(); hash != "" {
+			hashes[name] = append(hashes[name], hash)
+		}
+	}
+
+	schemes := make([]auth.Scheme, 0, len(names))
+	for _, name := range names {
+		schemes = append(schemes, auth.NewHeader(name, hashes[name]))
+	}
+	return schemes
 }
 
 // initMiddlewareManager wires the middleware subsystem at boot. It configures
