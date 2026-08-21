@@ -21,6 +21,7 @@ import (
 	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 	"github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/internals/shared/grpc"
+	"github.com/netbirdio/netbird/management/internals/shared/requestbuffer"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
@@ -38,6 +39,8 @@ import (
 	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/version"
 )
+
+const defaultNetworkMapDataBufferInterval = 100 * time.Millisecond
 
 type Controller struct {
 	repo    Repository
@@ -65,7 +68,8 @@ type Controller struct {
 
 	perAccountServerSupportedSyncMessageVersions map[string]sharedgrpc.SyncMessageVersion
 
-	nmdataStore *networkmapdb.NetworkMapDBStoreImpl
+	nmdataStore  *networkmapdb.NetworkMapDBStoreImpl
+	nmdataBuffer *requestbuffer.Buffer[*networkmap.NetworkMapData]
 }
 
 type bufferUpdate struct {
@@ -89,7 +93,7 @@ func NewController(ctx context.Context, store store.Store, metrics telemetry.App
 		log.Fatal(fmt.Errorf("error creating metrics: %w", err))
 	}
 
-	return &Controller{
+	c := &Controller{
 		repo:                    newRepository(store),
 		metrics:                 nMetrics,
 		accountManagerMetrics:   metrics.AccountManagerMetrics(),
@@ -106,6 +110,14 @@ func NewController(ctx context.Context, store store.Store, metrics telemetry.App
 		perAccountServerSupportedSyncMessageVersions: sharedgrpc.SyncMessageVersionsFromMap(config.PerAccountHighestSupportedSyncMessageVersion),
 		nmdataStore:                                  nmdataStore,
 	}
+
+	if nmdataStore != nil {
+		interval := requestbuffer.Interval(ctx, "NB_NETWORK_MAP_DATA_BUFFER_INTERVAL", defaultNetworkMapDataBufferInterval)
+		log.WithContext(ctx).Infof("set network map data request buffer interval to %s", interval)
+		c.nmdataBuffer = requestbuffer.New(ctx, "network map data request buffer", interval, c.fetchNetworkMapData)
+	}
+
+	return c
 }
 
 func (c *Controller) OnPeerConnected(ctx context.Context, accountID string, peerID string) (chan *network_map.UpdateMessage, error) {
@@ -392,8 +404,6 @@ func (c *Controller) sendUpdatesFromData(ctx context.Context, accountID string, 
 		return fmt.Errorf("failed to get flow enabled status: %v", err)
 	}
 
-	nmData.PrecomputePostureValidation()
-
 	dnsCache := &cache.DNSConfigCache{}
 	dnsDomain := c.getDNSDomainFromData(nmData.AccountSettings)
 	peersCustomZone := networkmap.PeersCustomZone(ctx, accountID, dnsDomain, nmData.Peers, IPv6AllowedPeersFromData(nmData))
@@ -476,19 +486,35 @@ func (c *Controller) sendUpdatesFromData(ctx context.Context, accountID string, 
 }
 
 func (c *Controller) getNetworkMapData(ctx context.Context, accountID string) *networkmap.NetworkMapData {
-	if c.nmdataStore == nil {
+	if c.nmdataBuffer == nil {
 		return nil
 	}
 
-	nmData, err := c.nmdataStore.GetNetworkMapData(ctx, accountID)
+	nmData, err := c.nmdataBuffer.Get(ctx, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get network map data for account %s, falling back to account-based computation: %v", accountID, err)
 		return nil
 	}
 
-	nmData.Services = c.proxyServicesFromRepo(ctx, accountID)
-
 	return nmData
+}
+
+// fetchNetworkMapData reads the twin once per buffer window. Its result is
+// shared by every waiter of that window, so the mutating steps run here, before
+// it is handed out: the twin the callers see is read-only. Injected proxy
+// policies carry no posture checks, so precomputing after the injection yields
+// the same validation as precomputing before it.
+func (c *Controller) fetchNetworkMapData(ctx context.Context, accountID string) (*networkmap.NetworkMapData, error) {
+	nmData, err := c.nmdataStore.GetNetworkMapData(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	nmData.Services = c.proxyServicesFromRepo(ctx, accountID)
+	nmData.InjectProxyPolicies()
+	nmData.PrecomputePostureValidation()
+
+	return nmData, nil
 }
 
 func (c *Controller) getDNSDomainFromData(settings *nmdata.AccountSettingsInfo) string {
