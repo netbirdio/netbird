@@ -42,9 +42,16 @@ jobs:
           #
           # go.mod is parsed rather than diffed so that reordering, comments and
           # single-line versus block syntax do not register as changes.
+          #
+          # Versions are part of the key because a replace can be scoped to one
+          # version of a module. Keyed on paths alone, retargeting such a
+          # directive at a different version would read as unchanged.
           list_replaces() {
             go mod edit -json "$1" \
-              | jq -r '(.Replace // [])[] | "\(.Old.Path) => \(.New.Path)"' \
+              | jq -r '
+                  def ref: .Path + (if (.Version // "") == "" then "" else " " + .Version end);
+                  (.Replace // [])[] | "\(.Old | ref) => \(.New | ref)"
+                ' \
               | sort
           }
 

@@ -161,12 +161,16 @@ func (m *Manager) setup(ctx context.Context) (nat.NAT, *Mapping, error) {
 	}
 
 	log.Infof("discovered NAT gateway: %s", gateway.Type())
-	logIPv6Pinhole(gateway)
 
 	mapping, err := m.createMapping(ctx, gateway)
 	if err != nil {
 		return nil, nil, fmt.Errorf("create port mapping: %w", err)
 	}
+
+	// Only meaningful once a mapping has been attempted: that is what opens the
+	// pinhole and records its outcome.
+	logIPv6Pinhole(gateway)
+
 	return gateway, mapping, nil
 }
 
