@@ -388,6 +388,7 @@ func (s *Service) ToProtoMapping(operation Operation, authToken string, oidcConf
 
 	if s.Auth.BearerAuth != nil && s.Auth.BearerAuth.Enabled {
 		auth.Oidc = true
+		auth.AllowedGroupIds = append([]string(nil), s.Auth.BearerAuth.DistributionGroups...)
 	}
 
 	for _, h := range s.Auth.HeaderAuths {
