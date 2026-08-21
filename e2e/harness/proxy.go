@@ -43,7 +43,7 @@ type Proxy struct {
 // or override any NB_PROXY_* var (e.g. NB_PROXY_TUNNEL_CACHE_TTL for tests that
 // need a short authorization-cache window).
 func StartProxy(ctx context.Context, c *Combined, proxyToken string, envOverrides ...map[string]string) (*Proxy, error) {
-	root, err := repoRoot()
+	root, err := repoRoot(ctx)
 	if err != nil {
 		return nil, err
 	}

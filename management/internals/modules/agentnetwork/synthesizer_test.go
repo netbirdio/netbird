@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang/mock/gomock"
+	"go.uber.org/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -19,15 +19,14 @@ import (
 const (
 	testAccountID = "acct-1"
 	testCluster   = "eu.proxy.netbird.io"
-	testSubdomain = "violet"
 	testEndpoint  = "violet.eu.proxy.netbird.io"
 )
 
 func newSynthTestSettings() *types.Settings {
 	return &types.Settings{
-		AccountID: testAccountID,
-		Cluster:   testCluster,
-		Subdomain: testSubdomain,
+		AccountID:    testAccountID,
+		Domain:       testEndpoint,
+		ProxyAddress: testCluster,
 	}
 }
 
