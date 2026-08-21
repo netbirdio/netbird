@@ -420,6 +420,14 @@ func TestIptablesCloseRemovesAllState(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, manager.Init(nil))
 
+	// A failed assertion below returns before the Close under test, which would
+	// leave this test's chains and sets in the kernel for the next one.
+	t.Cleanup(func() {
+		if err := manager.Close(nil); err != nil {
+			t.Logf("close after failure: %v", err)
+		}
+	})
+
 	sources := []netip.Prefix{
 		netip.MustParsePrefix("10.20.0.42/32"),
 		netip.MustParsePrefix("10.20.0.43/32"),
