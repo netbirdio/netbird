@@ -43,6 +43,7 @@ func RegisterEndpoints(manager agentnetwork.Manager, router *mux.Router) {
 	h.addConsumptionEndpoints(router)
 	h.addAccessLogEndpoints(router)
 	h.addBudgetRuleEndpoints(router)
+	h.addMeEndpoints(router)
 }
 
 func (h *handler) getCatalogProviders(w http.ResponseWriter, r *http.Request) {

@@ -2167,6 +2167,36 @@ type AgentNetworkGuardrailRequest struct {
 	Name string `json:"name"`
 }
 
+// AgentNetworkMeProvider One provider the caller may use, reduced to what a local tool needs for configuration.
+type AgentNetworkMeProvider struct {
+	// AllModelsAllowed True when no model allowlist restricts this provider for the caller; models then lists the declared or catalog models as a courtesy.
+	AllModelsAllowed bool `json:"all_models_allowed"`
+
+	// ApiFlavor Request-body shape the provider speaks ("anthropic", "openai"). Empty when the gateway dispatches it by URL path instead.
+	ApiFlavor string `json:"api_flavor"`
+
+	// CatalogId Catalog entry id naming the provider type.
+	CatalogId string `json:"catalog_id"`
+
+	// Models The effective model allowlist for the caller (or the declared/catalog models when all_models_allowed is true).
+	Models []string `json:"models"`
+
+	// Name Operator-assigned provider label.
+	Name string `json:"name"`
+}
+
+// AgentNetworkMeSetup The caller-scoped Agent Network connection info backing the "My Agent Network" self-service view. Available to every authenticated user; the answer is computed from the caller's own groups and carries display metadata only.
+type AgentNetworkMeSetup struct {
+	// Configured False when the account has no Agent Network set up or the caller's groups authorize none of it. The two cases are deliberately indistinguishable.
+	Configured bool `json:"configured"`
+
+	// Endpoint The account's Agent Network base URL, reachable over the NetBird tunnel only. Empty when configured is false.
+	Endpoint string `json:"endpoint"`
+
+	// Providers The providers at least one of the caller's policies authorizes, in creation order.
+	Providers []AgentNetworkMeProvider `json:"providers"`
+}
+
 // AgentNetworkPolicy defines model for AgentNetworkPolicy.
 type AgentNetworkPolicy struct {
 	// CreatedAt Timestamp when the policy was created.
