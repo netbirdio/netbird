@@ -236,7 +236,7 @@ func computeMode(t *testing.T, ctx context.Context, mode Mode, nmData *networkma
 	case ModeLegacy:
 		return computeLegacy(t, ctx, legacy, peerID, zone, dnsDomain, dnsFwdPort)
 	case ModeFull:
-		nmap := controller.NetworkMapFromData(ctx, nmData, peerID, zone)
+		nmap := controller.NetworkMapFromData(ctx, nmData, peerID, zone, nil)
 		return mgmtgrpc.ToSyncResponse(ctx, nil, nil, nil, peer, nil, nil, nmap, dnsDomain, nil,
 			&cache.DNSConfigCache{}, nmData.AccountSettings, nil, nil, dnsFwdPort).NetworkMap
 	case ModeEnvelope:

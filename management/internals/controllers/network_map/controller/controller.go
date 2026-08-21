@@ -452,7 +452,7 @@ func (c *Controller) sendUpdatesFromData(ctx context.Context, accountID string, 
 				return
 			}
 
-			nmap := NetworkMapFromData(ctx, nmData, p.ID, peersCustomZone)
+			nmap := NetworkMapFromData(ctx, nmData, p.ID, peersCustomZone, c.accountManagerMetrics)
 
 			c.metrics.CountCalcPeerNetworkMapDuration(time.Since(start))
 
@@ -522,12 +522,22 @@ func IPv6AllowedPeersFromData(nmData *networkmap.NetworkMapData) map[string]stru
 	return result
 }
 
-func NetworkMapFromData(ctx context.Context, nmData *networkmap.NetworkMapData, peerID string, peersCustomZone nmdata.CustomZone) *types.NetworkMap {
+func NetworkMapFromData(ctx context.Context, nmData *networkmap.NetworkMapData, peerID string, peersCustomZone nmdata.CustomZone, metrics *telemetry.AccountManagerMetrics) *types.NetworkMap {
+	start := time.Now()
+
 	components := nmData.GetPeerNetworkMapComponents(peerID, peersCustomZone)
 	if components.IsEmpty() {
 		return &types.NetworkMap{Network: components.Network}
 	}
-	return types.CalculateNetworkMapFromComponents(ctx, components)
+	nm := types.CalculateNetworkMapFromComponents(ctx, components)
+
+	if metrics != nil {
+		objectCount := int64(len(nm.Peers) + len(nm.OfflinePeers) + len(nm.Routes) + len(nm.FirewallRules) + len(nm.RoutesFirewallRules))
+		metrics.CountNetworkMapObjects(objectCount)
+		metrics.CountGetPeerNetworkMapDuration(time.Since(start))
+	}
+
+	return nm
 }
 
 // peerPostureChecksFromData mirrors getPeerPostureChecks on the twin store. The
@@ -1174,7 +1184,7 @@ func (c *Controller) getValidatedPeerWithMapFromData(ctx context.Context, accoun
 	dnsDomain := c.getDNSDomainFromData(nmData.AccountSettings)
 	peersCustomZone := networkmap.PeersCustomZone(ctx, accountID, dnsDomain, nmData.Peers, IPv6AllowedPeersFromData(nmData))
 
-	networkMap := NetworkMapFromData(ctx, nmData, peerID, peersCustomZone)
+	networkMap := NetworkMapFromData(ctx, nmData, peerID, peersCustomZone, c.accountManagerMetrics)
 	dnsFwdPort := ComputeForwarderPortFromData(nmData.Peers, network_map.DnsForwarderPortMinVersion)
 
 	return networkMap, postureChecks, dnsFwdPort, nil
@@ -1405,7 +1415,12 @@ func (c *Controller) GetNetworkMap(ctx context.Context, peerID string) (*types.N
 		groups[groupID] = group.Peers
 	}
 
-	validatedPeers, err := c.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, types.TwinGroups(maps.Values(account.Groups)), types.TwinPeers(maps.Values(account.Peers)), account.Settings.Extra)
+	extraSettings, err := c.settingsManager.GetExtraSettings(ctx, account.Id)
+	if err != nil {
+		return nil, err
+	}
+
+	validatedPeers, err := c.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, types.TwinGroups(maps.Values(account.Groups)), types.TwinPeers(maps.Values(account.Peers)), extraSettings)
 	if err != nil {
 		return nil, err
 	}
