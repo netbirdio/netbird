@@ -93,10 +93,10 @@ type Options struct {
 	BlockLANAccess bool
 	// LazyConnectionEnabled is a tri-state local override for lazy connections,
 	// mirroring the NB_LAZY_CONN env var. Nil defers to the management feature
-	// flag; a set value overrides it in both directions. A short-lived,
-	// purpose-built client (such as the browser portal) reaches only the few
-	// peers its grant covers and sets this to false, so its peers connect eagerly
-	// and the first request does not pay for the connection being established.
+	// flag; a set value overrides it in both directions. A short-lived client
+	// that reaches only a few known peers can set this to false, so its peers
+	// connect eagerly and the first request does not wait for the connection to
+	// be established.
 	LazyConnectionEnabled *bool
 	// WireguardPort is the port for the tunnel interface. Use 0 for a random port.
 	WireguardPort *int
