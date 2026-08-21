@@ -344,6 +344,7 @@ type routerConfig struct {
 type routerProviderRoute struct {
 	ID              string   `json:"id"`
 	Vendor          string   `json:"vendor,omitempty"`
+	Vendors         []string `json:"vendors,omitempty"`
 	Models          []string `json:"models"`
 	UpstreamScheme  string   `json:"upstream_scheme"`
 	UpstreamHost    string   `json:"upstream_host"`
@@ -442,6 +443,7 @@ func buildRouterConfigJSON(providers []*types.Provider, groupIndex map[string][]
 		cfg.Providers = append(cfg.Providers, routerProviderRoute{
 			ID:                      p.ID,
 			Vendor:                  providerVendor(p),
+			Vendors:                 providerVendors(p),
 			Models:                  providerModelIDs(p),
 			UpstreamScheme:          scheme,
 			UpstreamHost:            host,
@@ -475,6 +477,17 @@ func providerVendor(p *types.Provider) string {
 		return ""
 	}
 	return entry.ParserID
+}
+
+// providerVendors returns the parser surfaces a multi-surface gateway route
+// accepts. Single-surface providers keep using the singular vendor field so
+// existing proxy versions and configurations retain their wire shape.
+func providerVendors(p *types.Provider) []string {
+	entry, ok := catalog.Lookup(p.ProviderID)
+	if !ok || len(entry.RouterVendors) == 0 {
+		return nil
+	}
+	return append([]string(nil), entry.RouterVendors...)
 }
 
 // providerModelIDs returns the model identifiers exposed by the

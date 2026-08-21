@@ -229,7 +229,7 @@ func (m *Middleware) Invoke(_ context.Context, in *middleware.Input) (*middlewar
 //     peer, return matchOutcomeUnauthorised so the caller can emit
 //     the dedicated no_authorised_provider deny code.
 //  3. Vendor precedence: when the request carries a detected vendor
-//     (llm.provider) and at least one candidate is the same vendor,
+//     (llm.provider) and at least one candidate declares that vendor,
 //     drop the rest — a vendor-tagged request must never cross to
 //     another vendor's route (e.g. an Anthropic call landing on an
 //     OpenAI-compatible gateway that also claims the model).
@@ -252,9 +252,9 @@ func (m *Middleware) matchRoute(model, vendor, reqPath string, userGroups []stri
 
 	// Vendor pinning runs BEFORE the group filter so a request the parser
 	// tagged with a vendor can never cross to another vendor's route — not
-	// even an authorised one. Narrow to same-vendor routes when any
-	// model-matched route declares that vendor; setups with no vendor tag on
-	// any route fall through unchanged. After narrowing, if no same-vendor
+	// even an authorised one. Narrow to supporting routes when any
+	// model-matched route declares that vendor; setups with no vendor field on
+	// any route fall through unchanged. After narrowing, if no supporting
 	// route authorises the caller, that's matchOutcomeUnauthorised (no
 	// cross-vendor fallback).
 	if vendor != "" {
@@ -510,19 +510,29 @@ func authorisingGroupsCSV(routeGroups, userGroups []string) string {
 	return strings.Join(out, ",")
 }
 
-// matchingVendor returns the subset of routes whose Vendor equals the
-// request's detected vendor. Routes with an empty Vendor never match — an
-// untagged route can't be asserted to speak the request's surface, so it
-// stays out of the vendor-filtered set (but remains eligible via the
-// fall-through when no route matches the vendor at all).
+// matchingVendor returns the routes that declare the request's detected
+// vendor through either the legacy singular field or the multi-vendor field.
+// Untagged routes remain eligible only when no route declares the vendor.
 func matchingVendor(routes []ProviderRoute, vendor string) []ProviderRoute {
 	var out []ProviderRoute
 	for _, r := range routes {
-		if r.Vendor == vendor {
+		if routeSupportsVendor(r, vendor) {
 			out = append(out, r)
 		}
 	}
 	return out
+}
+
+func routeSupportsVendor(route ProviderRoute, vendor string) bool {
+	if route.Vendor == vendor {
+		return true
+	}
+	for _, candidate := range route.Vendors {
+		if candidate == vendor {
+			return true
+		}
+	}
+	return false
 }
 
 // explicitlyClaiming returns the subset of routes whose Models list
