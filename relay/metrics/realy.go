@@ -212,16 +212,21 @@ func (m *Metrics) readPeerActivity() {
 	for {
 		select {
 		case peerID := <-m.peerActivityChan:
-			m.mutexActivity.Lock()
-			// only refresh known peers; a late activity event must not resurrect a disconnected peer
-			if peer, ok := m.peerLastActive[peerID]; ok {
-				peer.lastActive = time.Now()
-				m.peerLastActive[peerID] = peer
-			}
-			m.mutexActivity.Unlock()
+			m.refreshActivity(peerID)
 		case <-m.ctx.Done():
 			return
 		}
+	}
+}
+
+// refreshActivity updates the last-active time of a connected peer. A late event for a peer that has
+// already disconnected is ignored, so it cannot resurrect the peer in the activity map.
+func (m *Metrics) refreshActivity(peerID string) {
+	m.mutexActivity.Lock()
+	defer m.mutexActivity.Unlock()
+	if peer, ok := m.peerLastActive[peerID]; ok {
+		peer.lastActive = time.Now()
+		m.peerLastActive[peerID] = peer
 	}
 }
 
