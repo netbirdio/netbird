@@ -493,17 +493,17 @@
         "33-group-one-resource-id"
       ],
       "Zone": {
-        "Domain": "test-331.com",
+        "Domain": "test-331.com.",
         "Records": [
           {
-            "Name": "test.test-331.com",
+            "Name": "test.test-331.com.",
             "Type": 1,
             "Class": "IN",
             "TTL": 1800,
             "RData": "1.1.1.1"
           },
           {
-            "Name": "test2.test-331.com",
+            "Name": "test2.test-331.com.",
             "Type": 1,
             "Class": "IN",
             "TTL": 1800,
@@ -511,7 +511,7 @@
           }
         ],
         "SearchDomainDisabled": false,
-        "NonAuthoritative": false
+        "NonAuthoritative": true
       }
     }
   ],

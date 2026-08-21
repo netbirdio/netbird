@@ -500,15 +500,18 @@ func (c *Controller) getDNSDomainFromData(settings *nmdata.AccountSettingsInfo) 
 
 func IPv6AllowedPeersFromData(nmData *networkmap.NetworkMapData) map[string]struct{} {
 	result := make(map[string]struct{})
-	if nmData.AccountSettings != nil {
-		for _, groupID := range nmData.AccountSettings.IPv6EnabledGroups {
-			group := nmData.Groups[groupID]
-			if group == nil {
-				continue
-			}
-			for _, peerID := range group.Peers {
-				result[peerID] = struct{}{}
-			}
+	// An account with no IPv6-enabled group runs no overlay at all, so the
+	// embedded-proxy carve-out below has nothing to reach and stays shut.
+	if nmData.AccountSettings == nil || len(nmData.AccountSettings.IPv6EnabledGroups) == 0 {
+		return result
+	}
+	for _, groupID := range nmData.AccountSettings.IPv6EnabledGroups {
+		group := nmData.Groups[groupID]
+		if group == nil {
+			continue
+		}
+		for _, peerID := range group.Peers {
+			result[peerID] = struct{}{}
 		}
 	}
 	for id, p := range nmData.Peers {
