@@ -1327,6 +1327,29 @@ func TestServeHTTP_SelfTargetLoopReturns421(t *testing.T) {
 		"a peer dialing a service whose target is itself must get 421")
 }
 
+func TestReverseProxyCanonicalHostAndOwnership(t *testing.T) {
+	rp := NewReverseProxy(nopOKTransport{}, "auto", nil, nil)
+	first := Mapping{
+		ID: "svc-1", Host: "Example.COM.",
+		Paths: map[string]*PathTarget{"/": {URL: &url.URL{Scheme: "http", Host: "backend.test"}}},
+	}
+	require.True(t, rp.AddMappingForService(first))
+	require.False(t, rp.AddMappingForService(Mapping{ID: "svc-2", Host: "example.com"}),
+		"another service must not replace the canonical host owner")
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	req.Host = "EXAMPLE.COM.:443"
+	rec := httptest.NewRecorder()
+	rp.ServeHTTP(rec, req)
+	assert.NotEqual(t, http.StatusNotFound, rec.Code)
+
+	assert.False(t, rp.RemoveMapping(Mapping{ID: "svc-2", Host: "example.com"}))
+	owner, ok := rp.MappingOwner("EXAMPLE.COM.")
+	require.True(t, ok)
+	assert.Equal(t, types.ServiceID("svc-1"), owner)
+	assert.True(t, rp.RemoveMapping(Mapping{ID: "svc-1", Host: "example.com"}))
+}
+
 // TestServeHTTP_SelfTargetLoop_NonOverlayRequestPassesThrough verifies
 // the guard is scoped to overlay-origin requests. A public-listener
 // request that happens to share a source IP with the target host must
