@@ -30,6 +30,8 @@ const (
 	SessionJWTIssuer     = "netbird-management"
 )
 
+const ClientIPMetadataKey = "nb-client-ip"
+
 // ResolveProto determines the protocol scheme based on the forwarded proto
 // configuration. When set to "http" or "https" the value is used directly.
 // Otherwise TLS state is used: if conn is non-nil "https" is returned, else "http".

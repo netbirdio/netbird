@@ -16,6 +16,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 
 	"github.com/netbirdio/netbird/proxy/auth"
 	"github.com/netbirdio/netbird/proxy/internal/proxy"
@@ -82,6 +83,7 @@ type Middleware struct {
 	sessionValidator SessionValidator
 	geo              restrict.GeoResolver
 	tunnelCache      *tunnelValidationCache
+	headerCache      *headerAuthCache
 }
 
 // NewMiddleware creates a new authentication middleware. The sessionValidator is
@@ -96,6 +98,7 @@ func NewMiddleware(logger *log.Logger, sessionValidator SessionValidator, geo re
 		sessionValidator: sessionValidator,
 		geo:              geo,
 		tunnelCache:      newTunnelValidationCache(),
+		headerCache:      newHeaderAuthCache(),
 	}
 }
 
@@ -452,7 +455,23 @@ func (mw *Middleware) forwardWithHeaderAuth(w http.ResponseWriter, r *http.Reque
 }
 
 func (mw *Middleware) tryHeaderScheme(w http.ResponseWriter, r *http.Request, host string, config DomainConfig, hdr Header, next http.Handler) bool {
-	token, _, err := hdr.Authenticate(r)
+	credential := r.Header.Get(hdr.headerName)
+	if credential == "" {
+		return false
+	}
+
+	key := mw.headerCache.key(hdr.id, hdr.headerName, credential)
+	authenticate := func() (string, error) {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), headerAuthRPCTimeout)
+		defer cancel()
+		if clientIP := mw.resolveClientIP(r); clientIP.IsValid() {
+			ctx = metadata.AppendToOutgoingContext(ctx, auth.ClientIPMetadataKey, clientIP.String())
+		}
+		token, _, err := hdr.Authenticate(r.WithContext(ctx))
+		return token, err
+	}
+
+	token, cached, err := mw.headerCache.fetch(key, config.SessionExpiration, authenticate)
 	if err != nil {
 		return mw.handleHeaderAuthError(w, r, err)
 	}
@@ -461,6 +480,17 @@ func (mw *Middleware) tryHeaderScheme(w http.ResponseWriter, r *http.Request, ho
 	}
 
 	result, err := mw.validateSessionToken(r.Context(), host, token, config.SessionPublicKey, auth.MethodHeader)
+	if err != nil && cached {
+		mw.headerCache.invalidate(key)
+		if token, err = authenticate(); err != nil {
+			return mw.handleHeaderAuthError(w, r, err)
+		}
+		if token == "" {
+			return false
+		}
+		mw.headerCache.put(key, token, config.SessionExpiration)
+		result, err = mw.validateSessionToken(r.Context(), host, token, config.SessionPublicKey, auth.MethodHeader)
+	}
 	if err != nil {
 		setHeaderCapturedData(r.Context(), "", "", nil, nil)
 		status := http.StatusBadRequest
@@ -645,6 +675,8 @@ func wasCredentialSubmitted(r *http.Request, method auth.Method) bool {
 // AddDomain registers authentication schemes for the given domain. With schemes a valid session public key is required.
 // private=true forces ValidateTunnelPeer enforcement (403 on failure) regardless of the schemes list.
 func (mw *Middleware) AddDomain(domain string, schemes []Scheme, publicKeyB64 string, expiration time.Duration, accountID types.AccountID, serviceID types.ServiceID, ipRestrictions *restrict.Filter, private bool) error {
+	mw.headerCache.invalidateService(serviceID)
+
 	if len(schemes) == 0 {
 		mw.domainsMux.Lock()
 		defer mw.domainsMux.Unlock()
@@ -681,6 +713,10 @@ func (mw *Middleware) AddDomain(domain string, schemes []Scheme, publicKeyB64 st
 
 // RemoveDomain unregisters authentication for the given domain.
 func (mw *Middleware) RemoveDomain(domain string) {
+	if config, exists := mw.getDomainConfig(domain); exists {
+		mw.headerCache.invalidateService(config.ServiceID)
+	}
+
 	mw.domainsMux.Lock()
 	defer mw.domainsMux.Unlock()
 	delete(mw.domains, domain)
