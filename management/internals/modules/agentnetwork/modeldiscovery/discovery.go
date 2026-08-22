@@ -31,6 +31,7 @@ import (
 	"golang.org/x/oauth2/google"
 
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/catalog"
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/pricing"
 )
 
 const (
@@ -75,6 +76,17 @@ type Model struct {
 	// model. False means the operator must set rates, or the request would
 	// meter at zero.
 	PricingKnown bool
+	// The rates below are the defaults for this model, taken from the same
+	// table the proxy bills with, so the form prefills exactly what a request
+	// would cost. All zero when PricingKnown is false — an unpriced model is
+	// offered at zero and flagged, rather than withheld: the vendor says the
+	// credential can reach it, and refusing to show it would hide a model the
+	// operator genuinely has.
+	InputPer1k         float64
+	OutputPer1k        float64
+	CachedInputPer1k   float64
+	CacheReadPer1k     float64
+	CacheCreationPer1k float64
 }
 
 // Request identifies which vendor to ask and with what credential.
@@ -329,14 +341,15 @@ func mintGCPToken(ctx context.Context, saKeyB64 string) (string, error) {
 	return tok.AccessToken, nil
 }
 
-// decorate turns raw vendor ids into the models the caller renders, marking
-// each with whether the shipped pricing table can price it.
+// decorate turns raw vendor ids into the models the caller renders, attaching
+// the rates the request would actually be billed at.
+//
+// Rates come from the live default pricing table rather than the compiled-in
+// catalog, because that is the table the synthesiser ships to the proxy: an
+// operator running a defaults_llm_pricing.yaml would otherwise be shown one
+// price in the form and charged another. It is also the same lookup the catalog
+// endpoint prefills from, so a model reached by either route prices identically.
 func decorate(entry catalog.Provider, ids []listedModel) []Model {
-	priced := make(map[string]struct{}, len(entry.Models))
-	for _, m := range entry.Models {
-		priced[m.ID] = struct{}{}
-	}
-
 	out := make([]Model, 0, len(ids))
 	seen := make(map[string]struct{}, len(ids))
 	for _, listed := range ids {
@@ -348,11 +361,19 @@ func decorate(entry catalog.Provider, ids []listedModel) []Model {
 		}
 		seen[listed.id] = struct{}{}
 
-		// The catalog keys pricing by the normalised id while the vendor
-		// issues the wire form, so normalise before asking whether we can
-		// price it — otherwise every Bedrock profile would report unpriced.
-		_, known := priced[normalizeForPricing(entry.ID, listed.id)]
-		out = append(out, Model{ID: listed.id, Label: listed.label, PricingKnown: known})
+		// The table keys pricing by the normalised id while the vendor issues
+		// the wire form, so normalise before looking it up — otherwise every
+		// Bedrock profile would report unpriced.
+		model := Model{ID: listed.id, Label: listed.label}
+		if rate, known := pricing.LookupDefault(entry.PricingSurfaces, normalizeForPricing(entry.ID, listed.id)); known {
+			model.PricingKnown = true
+			model.InputPer1k = rate.InputPer1k
+			model.OutputPer1k = rate.OutputPer1k
+			model.CachedInputPer1k = rate.CachedInputPer1k
+			model.CacheReadPer1k = rate.CacheReadPer1k
+			model.CacheCreationPer1k = rate.CacheCreationPer1k
+		}
+		out = append(out, model)
 	}
 	return out
 }

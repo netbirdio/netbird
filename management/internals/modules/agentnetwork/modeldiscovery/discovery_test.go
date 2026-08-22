@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/catalog"
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/pricing"
 )
 
 // stubTransport answers every request with one canned response and records the
@@ -146,6 +147,42 @@ func TestFetchBedrockUsesTheControlPlaneAndKeepsWireIDs(t *testing.T) {
 		"the catalog prices anthropic.claude-haiku-4-5, which this id normalises to")
 	assert.False(t, models[1].PricingKnown,
 		"cohere embed is not in the shipped Bedrock catalog, so the operator must price it")
+
+	// The rates travel with the model, so the form can prefill an editable row
+	// rather than making the operator look every price up by hand.
+	assert.Positive(t, models[0].InputPer1k, "a priced model must carry its input rate")
+	assert.Positive(t, models[0].OutputPer1k, "a priced model must carry its output rate")
+	// An unpriced model is offered at zero and flagged, not withheld: the
+	// vendor says the credential can reach it.
+	assert.Zero(t, models[1].InputPer1k)
+	assert.Zero(t, models[1].OutputPer1k)
+}
+
+// TestDiscoveredRatesMatchTheCatalogEndpoint pins the two prefill paths to one
+// table. The provider form fills a model row either from the catalog response
+// or from a discovery response, and an operator who switches between them must
+// not see the price change — both must equal what the proxy will bill.
+func TestDiscoveredRatesMatchTheCatalogEndpoint(t *testing.T) {
+	cl, _ := newStubClient(http.StatusOK, openAIListing)
+
+	models, err := cl.Fetch(context.Background(), Request{
+		CatalogID:   "openai_api",
+		UpstreamURL: "https://api.openai.com",
+		APIKey:      "sk-test",
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, models)
+
+	entry, ok := catalog.Lookup("openai_api")
+	require.True(t, ok)
+
+	for _, m := range models {
+		want, known := pricing.LookupDefault(entry.PricingSurfaces, m.ID)
+		require.True(t, known, "%s should be priced by the default table", m.ID)
+		assert.Equal(t, want.InputPer1k, m.InputPer1k, "input rate for %s", m.ID)
+		assert.Equal(t, want.OutputPer1k, m.OutputPer1k, "output rate for %s", m.ID)
+		assert.Equal(t, want.CachedInputPer1k, m.CachedInputPer1k, "cached-input rate for %s", m.ID)
+	}
 }
 
 func TestFetchVertexJoinsNameAndVersion(t *testing.T) {
