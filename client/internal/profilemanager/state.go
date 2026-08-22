@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -61,6 +63,15 @@ func (pm *ProfileManager) SetProfileState(id ID, state *ProfileState) error {
 	}
 	if id != defaultProfileName && !IsValidProfileFilenameStem(id) {
 		return fmt.Errorf("invalid profile ID: %q", id)
+	}
+
+	// The invoking user's state is read-only under sudo. The file only carries
+	// the account email for the login hint and display, so skipping the write
+	// costs at most one extra account prompt later — a root-owned file in the
+	// user's directory would cost every later update instead.
+	if u, sudo := sudoInvokingUser(); sudo {
+		log.Debugf("running under sudo: not persisting profile state for user %s", u.Username)
+		return nil
 	}
 
 	stateFile := filepath.Join(configDir, id.String()+".state.json")
