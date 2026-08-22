@@ -424,6 +424,9 @@ func (s *Server) handleUpdates(ctx context.Context, accountID string, peerKey wg
 	debouncer := NewUpdateDebouncer(1000 * time.Millisecond)
 	defer debouncer.Stop()
 
+	tickerInterval := 1 * time.Minute
+	ticker := time.NewTicker(tickerInterval)
+
 	for {
 		select {
 		// condition when there are some updates
@@ -448,6 +451,12 @@ func (s *Server) handleUpdates(ctx context.Context, accountID string, peerKey wg
 				}
 			}
 
+			ticker.Reset(tickerInterval)
+			if err := s.accountManager.RefreshPeerLastSeen(ctx, accountID, peer.ID); err != nil {
+				log.WithContext(ctx).Debugf("error updating peer's last seen timestamp %s: %v", peerKey.String(), err)
+				return err
+			}
+
 		// Timer expired - quiet period reached, send pending updates if any
 		case <-debouncer.TimerChannel():
 			pendingUpdates := debouncer.GetPendingUpdates()
@@ -460,6 +469,18 @@ func (s *Server) handleUpdates(ctx context.Context, accountID string, peerKey wg
 					log.WithContext(ctx).Debugf("error while sending an update to peer %s: %v", peerKey.String(), err)
 					return err
 				}
+			}
+
+			ticker.Reset(tickerInterval)
+			if err := s.accountManager.RefreshPeerLastSeen(ctx, accountID, peer.ID); err != nil {
+				log.WithContext(ctx).Debugf("error updating peer's last seen timestamp %s: %v", peerKey.String(), err)
+				return err
+			}
+
+		case <-ticker.C:
+			if err := s.accountManager.RefreshPeerLastSeen(ctx, accountID, peer.ID); err != nil {
+				log.WithContext(ctx).Debugf("error updating peer's last seen timestamp %s: %v", peerKey.String(), err)
+				return err
 			}
 
 		// condition when client <-> server connection has been terminated
