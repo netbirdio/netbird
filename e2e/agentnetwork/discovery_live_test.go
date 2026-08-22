@@ -328,15 +328,16 @@ func runLiveDiscoveryCase(t *testing.T, ctx context.Context, tc liveDiscoveryCas
 	// Status only, not the body. A Bedrock listing embeds inference-profile
 	// ARNs carrying the 12-digit AWS account id, and these job logs are
 	// readable by anyone who can see the run. The ids line below is the finding
-	// anyway; the assertion messages still carry the body, and those only
-	// render on a failure that needs diagnosing.
+	// anyway. The failure paths below are the same log: a listing that fails to
+	// arrive is an AWS refusal naming the resource it refused, and that name is
+	// an ARN carrying the same account id.
 	t.Logf("[discovery] %s GET %s -> %d", tc.name, tc.path, code)
-	require.Equal(t, 200, code, "%s discovery must be served; body: %s", tc.name, truncate(body, 2000))
+	require.Equal(t, 200, code, "%s discovery must be served; response was %s", tc.name, bodyShape(body))
 
 	ids, ok := listingIDs(body)
 	require.Truef(t, ok,
-		"%s answered discovery with something other than a {\"data\":[{\"id\":…}]} listing, which the filter forwards untouched — the caller would get an unbounded picker; body: %s",
-		tc.name, truncate(body, 2000))
+		"%s answered discovery with something other than a {\"data\":[{\"id\":…}]} listing, which the filter forwards untouched — the caller would get an unbounded picker; response was %s",
+		tc.name, bodyShape(body))
 	sort.Strings(ids)
 	t.Logf("[discovery] %s: %d ids after filtering: %s", tc.name, len(ids), strings.Join(ids, ", "))
 
@@ -413,6 +414,27 @@ func caseNames(cases []liveDiscoveryCase) []string {
 		names = append(names, c.name)
 	}
 	return names
+}
+
+// bodyShape describes a response without quoting any of it: its size and the
+// top-level keys it arrived under. That is what a discovery failure is
+// diagnosed from — which envelope the vendor answered with — and it is all
+// that may go in a message rendered into a public job log, because the values
+// underneath can carry an ARN and its account id.
+func bodyShape(body string) string {
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(body), &doc); err != nil {
+		return strconv.Itoa(len(body)) + " bytes, not a JSON object"
+	}
+	keys := make([]string, 0, len(doc))
+	for key := range doc {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	if len(keys) == 0 {
+		return strconv.Itoa(len(body)) + " bytes, an empty JSON object"
+	}
+	return strconv.Itoa(len(body)) + " bytes, keyed by: " + strings.Join(keys, ", ")
 }
 
 // truncate bounds a logged response body. A live catalogue can run to tens of
