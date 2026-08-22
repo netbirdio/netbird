@@ -276,6 +276,98 @@ func TestCleanupSchedulingBehaviorIsBatched(t *testing.T) {
 	assert.Equal(t, ephemeralPeers, mockAM.GetDeletePeerCalls(), "should have deleted all peers")
 }
 
+// TestCleanupDeletesPeerAfterArmingContextCancelled drives the real OnPeerDisconnected -> timer ->
+// cleanup path and asserts a disconnected ephemeral peer is deleted after its lifetime even though
+// the request that armed the timer has already returned (its context cancelled). The peer-registration
+// path (AddPeer -> TrackEphemeralPeer) and the Sync setup-error path arm the timer with the per-request
+// gRPC context; capturing it makes cleanup's DeletePeers fail with context.Canceled and leak the peer.
+//
+// The DeletePeers fake honors ctx cancellation and swallows the error, mirroring managerImpl.DeletePeers
+// (each delete runs in store.ExecuteInTransaction(ctx, ...); the per-peer error is logged and DeletePeers
+// returns nil). This is the behavior the map-based fakes in the tests above do not model.
+func TestCleanupDeletesPeerAfterArmingContextCancelled(t *testing.T) {
+	store := &MockStore{account: newAccountWithId(context.Background(), "account", "", "", false)}
+	peer := &nbpeer.Peer{ID: "ephemeral_peer", AccountID: store.account.Id, Ephemeral: true}
+	store.account.Peers[peer.ID] = peer
+
+	ctrl := gomock.NewController(t)
+	peersManager := peers.NewMockManager(ctrl)
+
+	var deleteCtxErr error
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+	peersManager.EXPECT().
+		DeletePeers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), true).
+		DoAndReturn(func(ctx context.Context, accountID string, peerIDs []string, userID string, checkConnected bool) error {
+			deleteCtxErr = ctx.Err()
+			if deleteCtxErr == nil {
+				for _, peerID := range peerIDs {
+					delete(store.account.Peers, peerID)
+				}
+			}
+			wg.Done()
+			return nil
+		}).
+		Times(1)
+
+	mgr := NewEphemeralManager(store, peersManager)
+	mgr.lifeTime = 100 * time.Millisecond
+	mgr.cleanupWindow = 50 * time.Millisecond
+
+	ctx, cancel := context.WithCancel(context.Background())
+	mgr.OnPeerDisconnected(ctx, peer)
+	cancel() // the arming request returns and cancels its context
+
+	wg.Wait()
+
+	assert.Empty(t, store.account.Peers,
+		"ephemeral peer must be deleted after its lifetime; a leak means cleanup ran under the "+
+			"cancelled request context (delete ctx err: %v)", deleteCtxErr)
+}
+
+// TestCleanupDeletesPeerWithDetachedContext is the control for the test above: the only difference is
+// that the cleanup timer is armed with a context that outlives the request (as cancelPeerRoutines
+// already derives via context.WithoutCancel), which lets cleanup delete the peer. This isolates the
+// cause to the lifetime of the context handed to the cleanup timer.
+func TestCleanupDeletesPeerWithDetachedContext(t *testing.T) {
+	store := &MockStore{account: newAccountWithId(context.Background(), "account", "", "", false)}
+	peer := &nbpeer.Peer{ID: "ephemeral_peer", AccountID: store.account.Id, Ephemeral: true}
+	store.account.Peers[peer.ID] = peer
+
+	ctrl := gomock.NewController(t)
+	peersManager := peers.NewMockManager(ctrl)
+
+	var deleteCtxErr error
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+	peersManager.EXPECT().
+		DeletePeers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), true).
+		DoAndReturn(func(ctx context.Context, accountID string, peerIDs []string, userID string, checkConnected bool) error {
+			deleteCtxErr = ctx.Err()
+			if deleteCtxErr == nil {
+				for _, peerID := range peerIDs {
+					delete(store.account.Peers, peerID)
+				}
+			}
+			wg.Done()
+			return nil
+		}).
+		Times(1)
+
+	mgr := NewEphemeralManager(store, peersManager)
+	mgr.lifeTime = 100 * time.Millisecond
+	mgr.cleanupWindow = 50 * time.Millisecond
+
+	ctx, cancel := context.WithCancel(context.Background())
+	mgr.OnPeerDisconnected(context.WithoutCancel(ctx), peer)
+	cancel()
+
+	wg.Wait()
+
+	assert.NoError(t, deleteCtxErr, "cleanup must run under a live context")
+	assert.Empty(t, store.account.Peers, "ephemeral peer should be deleted when cleanup runs under a live context")
+}
+
 func seedPeers(store *MockStore, numberOfPeers int, numberOfEphemeralPeers int) {
 	store.account = newAccountWithId(context.Background(), "my account", "", "", false)
 
