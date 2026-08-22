@@ -434,8 +434,11 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 		},
 	}
 
+	// Saving the account persists the reverse-proxy target through GORM's
+	// association handling, so verify the database-generated key is returned.
 	err = store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
+	require.NotZero(t, account.Services[0].Targets[0].ID, "saved service targets should receive a database ID")
 
 	if len(store.GetAllAccounts(context.Background())) != 1 {
 		t.Errorf("expecting 1 Accounts to be stored after SaveAccount()")
