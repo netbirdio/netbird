@@ -43,19 +43,17 @@ archives:
       - netbird-ui-gtk3
 
 nfpms:
-  # Same package_name as the GTK4 packages -- the two are mutually-exclusive
-  # alternatives served from separate repo paths (see uploads below); a given
-  # distro points at exactly one of them. The file names must still differ:
-  # the Debian pool is shared storage keyed by file name, so a default-named
-  # gtk3 .deb would overwrite the stable one.
+  # Mutually-exclusive alternative to the GTK4 netbird-ui package -- both
+  # ship the same /usr/bin/netbird-ui from the shared stable/yum repos, so
+  # this one carries its own name and conflicts with the GTK4 package.
   - maintainer: Netbird <dev@netbird.io>
     description: Netbird client UI.
     homepage: https://netbird.io/
     license: BSD-3-Clause
     vendor: NetBird
     id: netbird_ui_deb_gtk3
-    package_name: netbird-ui
-    file_name_template: "{{ .PackageName }}-gtk3_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    package_name: netbird-ui-gtk3
+    file_name_template: "{{ .PackageName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     builds:
       - netbird-ui-gtk3
     formats:
@@ -67,6 +65,10 @@ nfpms:
         dst: /usr/share/applications/org.wails.netbird.desktop
       - src: client/ui/build/appicon.png
         dst: /usr/share/pixmaps/netbird.png
+    conflicts:
+      - netbird-ui
+    replaces:
+      - netbird-ui
     dependencies:
       - netbird (>= 0.75.0)
       - libgtk-3-0
@@ -79,8 +81,8 @@ nfpms:
     license: BSD-3-Clause
     vendor: NetBird
     id: netbird_ui_rpm_gtk3
-    package_name: netbird-ui
-    file_name_template: "{{ .PackageName }}-gtk3_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    package_name: netbird-ui-gtk3
+    file_name_template: "{{ .PackageName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     builds:
       - netbird-ui-gtk3
     formats:
@@ -92,6 +94,10 @@ nfpms:
         dst: /usr/share/applications/org.wails.netbird.desktop
       - src: client/ui/build/appicon.png
         dst: /usr/share/pixmaps/netbird.png
+    # No `replaces` here: nfpm maps it to rpm Obsoletes, which would make
+    # dnf swap installed GTK4 netbird-ui packages for this one on upgrade.
+    conflicts:
+      - netbird-ui
     dependencies:
       - netbird >= 0.75.0
       - (gtk3 or libgtk-3-0)
@@ -111,32 +117,28 @@ changelog:
   disable: true
 
 uploads:
-  # The gtk3 packages reuse the netbird-ui package name, so they live in
-  # dedicated repo paths (deb distribution `gtk3`, yum path `yum-gtk3`) that
-  # legacy distros point their repo config at.
-  #
-  # GoReleaser derives the credential env var from the upload name, so these
-  # would look for UPLOAD_DEBIAN-GTK3_SECRET / UPLOAD_YUM-GTK3_SECRET. The
-  # release workflow only exports UPLOAD_DEBIAN_SECRET / UPLOAD_YUM_SECRET, and
-  # a missing secret is a silent skip rather than a failure -- the packages
-  # reached the GitHub release but never the package repositories. Point
-  # `password` at the exported vars so both uploads authenticate.
-  - name: debian-gtk3
+  - name: debian
     skip: "{{ .Env.SKIP_PUBLISH }}"
     ids:
       - netbird_ui_deb_gtk3
     mode: archive
-    target: https://pkgs.wiretrustee.com/debian/pool/{{ .ArtifactName }};deb.distribution=gtk3;deb.component=main;deb.architecture={{ if .Arm }}armhf{{ else }}{{ .Arch }}{{ end }};deb.package=
+    target: https://pkgs.wiretrustee.com/debian/pool/{{ .ArtifactName }};deb.distribution=stable;deb.component=main;deb.architecture={{ if .Arm }}armhf{{ else }}{{ .Arch }}{{ end }};deb.package=
     username: dev@wiretrustee.com
-    password: "{{ .Env.UPLOAD_DEBIAN_SECRET }}"
     method: PUT
 
-  - name: yum-gtk3
+  - name: yum
     skip: "{{ .Env.SKIP_PUBLISH }}"
     ids:
       - netbird_ui_rpm_gtk3
     mode: archive
-    target: https://pkgs.wiretrustee.com/yum-gtk3/{{ .Arch }}{{ if .Arm }}{{ .Arm }}{{ end }}
+    target: https://pkgs.wiretrustee.com/yum/{{ .Arch }}{{ if .Arm }}{{ .Arm }}{{ end }}
     username: dev@wiretrustee.com
-    password: "{{ .Env.UPLOAD_YUM_SECRET }}"
     method: PUT
+
+release:
+  # Uploads into the release created by the main .goreleaser.yaml run.
+  # make_latest stays false everywhere: the signing pipeline
+  # (netbirdio/sign-pipelines) marks the release latest after the Windows
+  # and macOS artifacts are signed.
+  make_latest: false
+  prerelease: auto

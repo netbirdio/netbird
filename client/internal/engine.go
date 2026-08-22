@@ -60,6 +60,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/syncstore"
 	"github.com/netbirdio/netbird/client/internal/updater"
 	"github.com/netbirdio/netbird/client/jobexec"
+	"github.com/netbirdio/netbird/client/netstate"
 	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -182,6 +183,9 @@ type EngineServices struct {
 	UpdateManager  *updater.Manager
 	ClientMetrics  *metrics.ClientMetrics
 	MetricsCtx     context.Context
+	// NetState gates the reconnection loops on OS-reported network
+	// availability; nil disables gating.
+	NetState *netstate.State
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -204,6 +208,10 @@ type Engine struct {
 
 	config    *EngineConfig
 	mobileDep MobileDependency
+
+	// netState gates the peer reconnection guards on OS-reported network
+	// availability; nil disables gating.
+	netState *netstate.State
 
 	// STUNs is a list of STUN servers used by ICE
 	STUNs []*stun.URI
@@ -343,6 +351,7 @@ func NewEngine(
 		syncMsgMux:         &sync.Mutex{},
 		config:             config,
 		mobileDep:          mobileDep,
+		netState:           services.NetState,
 		STUNs:              []*stun.URI{},
 		TURNs:              []*stun.URI{},
 		networkSerial:      0,
@@ -1899,7 +1908,8 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix, agentV
 			Addr:           e.getRosenpassAddr(),
 			PermissiveMode: e.config.RosenpassPermissive,
 		},
-		ICEConfig: e.createICEConfig(),
+		ICEConfig:    e.createICEConfig(),
+		NetworkState: e.netState,
 	}
 
 	serviceDependencies := peer.ServiceDependencies{
@@ -2586,7 +2596,7 @@ func (e *Engine) SetCapture(pc device.PacketCapture) error {
 	}
 
 	afc := capture.NewAFPacketCapture(intf.Name(), sess)
-	if err := afc.Start(); err != nil {
+	if err := afc.Start(); err != nil { //nolint:staticcheck // always errors on non-Linux builds
 		return fmt.Errorf("start AF_PACKET capture on %s: %w", intf.Name(), err)
 	}
 	e.afpacketCapture = afc
