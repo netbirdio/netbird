@@ -53,7 +53,8 @@ func NewUDPListener(wgIface WgInterface, cfg lazyconn.PeerConfig) (*UDPListener,
 // The first packet that triggers activity is captured so it can be reinjected through the real
 // transport once it is established. Without this, kernel WireGuard's handshake initiation would be
 // dropped and WG would only retry after REKEY_TIMEOUT.
-func (d *UDPListener) ReadPackets() {
+func (d *UDPListener) ReadPackets() ActivityResult {
+	result := ActivityResultClosed
 	for {
 		buf := make([]byte, int(d.wgIface.MTU())+bufsize.WGBufferOverhead)
 		n, remoteAddr, err := d.conn.ReadFromUDP(buf)
@@ -72,6 +73,7 @@ func (d *UDPListener) ReadPackets() {
 		}
 		d.capturedPacket = slices.Clone(buf[:n])
 		d.peerCfg.Log.Infof("activity detected, captured %d bytes for reinjection", n)
+		result = ActivityResultTraffic
 		break
 	}
 
@@ -80,6 +82,7 @@ func (d *UDPListener) ReadPackets() {
 	// triggered activation.
 	_ = d.conn.Close()
 	d.done.Unlock()
+	return result
 }
 
 // CapturedPacket returns the first packet that triggered activity, or nil if none was captured.
