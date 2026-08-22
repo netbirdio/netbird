@@ -215,3 +215,40 @@ func TestModelDiscoveryFilter_OversizedBodyKeepsUpstreamHeaders(t *testing.T) {
 	assert.Equal(t, strconv.Itoa(len(body)), resp.Header.Get("Content-Length"),
 		"the Content-Length header must not be rewritten to the truncated prefix")
 }
+
+// TestFilterBedrockInferenceProfiles covers the second listing envelope. AWS
+// returns inference-profile summaries under a key of its own with an id field
+// of its own, so a filter that only knew OpenAI's shape forwarded a Bedrock
+// listing whole — offering every profile in the account regardless of policy.
+func TestFilterBedrockInferenceProfiles(t *testing.T) {
+	body := []byte(`{"inferenceProfileSummaries":[
+	  {"inferenceProfileId":"eu.anthropic.claude-haiku-4-5-20251001-v1:0","status":"ACTIVE"},
+	  {"inferenceProfileId":"eu.anthropic.claude-sonnet-4-6","status":"ACTIVE"},
+	  {"inferenceProfileId":"global.cohere.embed-v4:0","status":"ACTIVE"}
+	]}`)
+
+	// The permitted set holds what the record registers. Here that is the
+	// catalog key, while the vendor answers with region-prefixed wire ids —
+	// the two must still line up.
+	permitted := map[string]struct{}{"anthropic.claude-haiku-4-5": {}}
+
+	out, ok := filterListingBody(body, permitted)
+	require.True(t, ok, "a Bedrock listing must be recognised as filterable")
+
+	var doc struct {
+		Summaries []struct {
+			ID string `json:"inferenceProfileId"`
+		} `json:"inferenceProfileSummaries"`
+	}
+	require.NoError(t, json.Unmarshal(out, &doc))
+	require.Len(t, doc.Summaries, 1)
+	assert.Equal(t, "eu.anthropic.claude-haiku-4-5-20251001-v1:0", doc.Summaries[0].ID)
+}
+
+// TestFilterLeavesUnknownEnvelopesAlone keeps the best-effort contract: a body
+// the filter cannot parse must reach the client exactly as the upstream sent
+// it, rather than being rewritten into something shorter and wrong.
+func TestFilterLeavesUnknownEnvelopesAlone(t *testing.T) {
+	_, ok := filterListingBody([]byte(`{"models":[{"name":"something"}]}`), map[string]struct{}{})
+	assert.False(t, ok)
+}
