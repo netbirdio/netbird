@@ -53,7 +53,8 @@
         "CertFile":"$NETBIRD_MGMT_API_CERT_FILE",
         "CertKey":"$NETBIRD_MGMT_API_CERT_KEY_FILE",
         "IdpSignKeyRefreshEnabled": $NETBIRD_MGMT_IDP_SIGNKEY_REFRESH,
-        "OIDCConfigEndpoint":"$NETBIRD_AUTH_OIDC_CONFIGURATION_ENDPOINT"
+        "OIDCConfigEndpoint":"$NETBIRD_AUTH_OIDC_CONFIGURATION_ENDPOINT",
+        "ExtraAuthAudience": "$NETBIRD_MGMT_EXTRA_AUTH_AUDIENCE"
     },
     "IdpManagerConfig": {
         "ManagerType": "$NETBIRD_MGMT_IDP",
@@ -68,7 +69,8 @@
         "Auth0ClientCredentials": null,
         "AzureClientCredentials": null,
         "KeycloakClientCredentials": null,
-        "ZitadelClientCredentials": null
+        "ZitadelClientCredentials": null,
+        "LogtoClientCredentials": null
      },
     "DeviceAuthorizationFlow": {
         "Provider": "$NETBIRD_AUTH_DEVICE_AUTH_PROVIDER",
