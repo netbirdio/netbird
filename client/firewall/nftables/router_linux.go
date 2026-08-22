@@ -815,16 +815,6 @@ func (r *router) addPostroutingRules() {
 			Data:     binaryutil.NativeEndian.PutUint32(nbnet.PreroutingFwmarkMasquerade),
 		},
 
-		// We need to exclude the loopback interface as this changes the ebpf proxy port
-		&expr.Meta{
-			Key:      expr.MetaKeyOIFNAME,
-			Register: 1,
-		},
-		&expr.Cmp{
-			Op:       expr.CmpOpNeq,
-			Register: 1,
-			Data:     ifname("lo"),
-		},
 		&expr.Counter{},
 		&expr.Masq{},
 	}
