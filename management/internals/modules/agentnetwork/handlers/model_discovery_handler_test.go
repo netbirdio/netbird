@@ -60,6 +60,9 @@ func TestDiscoverModelsReturnsTheVendorList(t *testing.T) {
 	stub := &discoveryManagerStub{models: []modeldiscovery.Model{
 		{ID: "eu.anthropic.claude-haiku-4-5-20251001-v1:0", Label: "EU Claude Haiku 4.5", PricingKnown: true},
 		{ID: "global.cohere.embed-v4:0", Label: "Global Cohere Embed v4"},
+		// A vendor that supplies no display name at all. Bedrock does for
+		// every profile, but the OpenAI listing carries none.
+		{ID: "gpt-4o-mini", PricingKnown: true},
 	}}
 
 	rec := postDiscovery(t, stub, `{
@@ -71,7 +74,7 @@ func TestDiscoverModelsReturnsTheVendorList(t *testing.T) {
 
 	var out api.AgentNetworkModelDiscoveryResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-	require.Len(t, out.Models, 2)
+	require.Len(t, out.Models, 3)
 
 	assert.Equal(t, "eu.anthropic.claude-haiku-4-5-20251001-v1:0", out.Models[0].Id)
 	assert.True(t, out.Models[0].PricingKnown)
@@ -79,8 +82,19 @@ func TestDiscoverModelsReturnsTheVendorList(t *testing.T) {
 	// from a priced one: registering it silently would meter at zero.
 	assert.False(t, out.Models[1].PricingKnown)
 
+	require.NotNil(t, out.Models[0].Label, "the vendor supplied a display name")
+	assert.Equal(t, "EU Claude Haiku 4.5", *out.Models[0].Label)
+	// A vendor that supplies no name must omit the key rather than send an
+	// empty string: the dashboard falls back to the id on absence, and would
+	// render a blank row for "".
+	assert.Nil(t, out.Models[2].Label, "an absent label must not serialize")
+	assert.NotContains(t, rec.Body.String(), `"label":""`)
+
 	assert.Equal(t, "bedrock_api", stub.gotReq.CatalogID)
 	assert.Equal(t, "aws-bearer", stub.gotReq.APIKey)
+	// The upstream is what the region is read back out of for Bedrock, so
+	// losing it here would break discovery for every regional provider.
+	assert.Equal(t, "https://bedrock-runtime.eu-central-1.amazonaws.com", stub.gotReq.UpstreamURL)
 	assert.Empty(t, stub.gotRecordID)
 }
 
@@ -151,9 +165,9 @@ func TestDiscoverModelsReportsCallerInputAsBadRequest(t *testing.T) {
 
 func TestDiscoverModelsRejectsMalformedRequests(t *testing.T) {
 	for name, body := range map[string]string{
-		"not json":              `{`,
-		"no catalog provider":   `{"api_key":"sk"}`,
-		"blank catalog provide": `{"catalog_provider_id":"   ","api_key":"sk"}`,
+		"not json":               `{`,
+		"no catalog provider":    `{"api_key":"sk"}`,
+		"blank catalog provider": `{"catalog_provider_id":"   ","api_key":"sk"}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			stub := &discoveryManagerStub{}

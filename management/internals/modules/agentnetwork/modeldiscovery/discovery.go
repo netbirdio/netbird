@@ -357,22 +357,37 @@ func decorate(entry catalog.Provider, ids []listedModel) []Model {
 	return out
 }
 
+// refuseRedirect is the redirect policy every discovery request runs under. A
+// redirect is a way to move the request to a host checkPublicHost never saw,
+// so none are followed.
+func refuseRedirect(*http.Request, []*http.Request) error {
+	return http.ErrUseLastResponse
+}
+
 func (c *Client) httpClient() *http.Client {
 	if c.HTTPClient != nil {
-		return c.HTTPClient
+		if c.HTTPClient.CheckRedirect != nil {
+			return c.HTTPClient
+		}
+		// An injected client that states no policy still gets ours: the
+		// no-redirect guarantee should not depend on the caller remembering it.
+		//
+		// Copied rather than assigned into: one Client is shared by every
+		// request for the process's lifetime, so writing to its fields here
+		// would race across request goroutines. The copy shares the Transport,
+		// which is safe for concurrent use by design.
+		clone := *c.HTTPClient
+		clone.CheckRedirect = refuseRedirect
+		return &clone
 	}
 	transport := guardedTransport
 	if c.AllowPrivateHosts {
 		transport = http.DefaultTransport
 	}
 	return &http.Client{
-		Timeout:   fetchTimeout,
-		Transport: transport,
-		// A redirect is a way to move the request to a host the guard above
-		// never checked, so none are followed.
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
+		Timeout:       fetchTimeout,
+		Transport:     transport,
+		CheckRedirect: refuseRedirect,
 	}
 }
 

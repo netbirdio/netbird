@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/netip"
 	"strings"
 	"testing"
@@ -253,6 +254,63 @@ func TestHostGuardResolvesAndRejectsLocalhost(t *testing.T) {
 	err := cl.checkPublicHost("localhost")
 	require.Error(t, err, "a name resolving to loopback must be refused, not just a literal address")
 	assert.Contains(t, err.Error(), "non-public")
+}
+
+// TestRedirectsAreNotFollowed covers a gap the other tests leave open: they all
+// inject an HTTPClient, which bypasses httpClient() and therefore the redirect
+// policy entirely. The policy is a security control — a 302 moves the request
+// to a host checkPublicHost never resolved — so it needs a test that goes
+// through the constructor the manager actually uses.
+func TestRedirectsAreNotFollowed(t *testing.T) {
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		http.Redirect(w, r, "http://169.254.169.254/latest/meta-data/", http.StatusFound)
+	}))
+	t.Cleanup(srv.Close)
+
+	for name, cl := range map[string]*Client{
+		// The production shape: no injected client at all.
+		"default client": {AllowPrivateHosts: true},
+		// An injected client that states no policy must inherit ours rather
+		// than silently chasing the redirect.
+		"injected client with no policy": {
+			AllowPrivateHosts: true,
+			HTTPClient:        &http.Client{},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			hits = 0
+			req, err := http.NewRequest(http.MethodGet, srv.URL, nil)
+			require.NoError(t, err)
+
+			resp, err := cl.httpClient().Do(req)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = resp.Body.Close() })
+
+			assert.Equal(t, http.StatusFound, resp.StatusCode,
+				"the redirect must be surfaced, not followed to an unchecked host")
+			assert.Equal(t, 1, hits, "exactly one request must leave the client")
+		})
+	}
+}
+
+// TestInjectedClientKeepsItsOwnRedirectPolicy pins that the default above is a
+// default, not an override, and that supplying it does not mutate the caller's
+// client — one Client is shared across every request, so a write here would
+// race.
+func TestInjectedClientKeepsItsOwnRedirectPolicy(t *testing.T) {
+	own := func(*http.Request, []*http.Request) error { return nil }
+	injected := &http.Client{CheckRedirect: own}
+	cl := &Client{HTTPClient: injected}
+
+	assert.Same(t, injected, cl.httpClient(),
+		"a client that states a policy must be handed back untouched")
+
+	bare := &http.Client{}
+	cl = &Client{HTTPClient: bare}
+	require.NotSame(t, bare, cl.httpClient(), "the policy must be applied to a copy")
+	assert.Nil(t, bare.CheckRedirect, "the caller's client must not be written to")
 }
 
 // TestDialGuardRejectsRebindingToANonPublicAddress covers the window between
