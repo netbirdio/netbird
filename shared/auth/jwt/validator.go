@@ -40,6 +40,26 @@ const (
 	p521 = "P-521"
 )
 
+// defaultClockSkewLeeway is the tolerance applied to time-based JWT claims
+// (exp, nbf and iat) when validating a token, to account for clock skew between
+// the IdP that issues the token and the NetBird services that validate it.
+//
+// RFC 7519 §4.1.4 (exp) and §4.1.5 (nbf) explicitly allow this:
+//
+//	"Implementers MAY provide for some small leeway, usually no more than a few
+//	 minutes, to account for clock skew."
+//	https://datatracker.ietf.org/doc/html/rfc7519#section-4.1.5
+//
+// golang-jwt/v5 defaults to zero leeway, so without this any token whose iat or
+// nbf is even momentarily in the future relative to the validator's wall clock
+// is rejected (e.g. "token used before issued"). This is common right after
+// boot, before NTP has converged, or with steady drift between separately
+// synced hosts. 60s is conservative next to comparable validators:
+// HashiCorp cap/jwt defaults to 150s, Auth0 go-jwt-middleware exposes a
+// configurable WithAllowedClockSkew, and MIT Kerberos clockskew defaults to
+// 300s.
+const defaultClockSkewLeeway = 60 * time.Second
+
 // JSONWebKey is a representation of a Jason Web Key
 type JSONWebKey struct {
 	Kty string   `json:"kty"`
@@ -217,6 +237,7 @@ func (v *Validator) ValidateAndParse(ctx context.Context, token string) (*jwt.To
 		jwt.WithAudience(v.audienceList...),
 		jwt.WithIssuer(v.issuer),
 		jwt.WithIssuedAt(),
+		jwt.WithLeeway(defaultClockSkewLeeway),
 	)
 
 	// Check if there was an error in parsing...
