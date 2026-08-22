@@ -1,10 +1,10 @@
-// Package netsweep cuts network-bound activity when the OS switches networks:
+// Package sweep cuts network-bound activity when the OS switches networks:
 // a sweep closes the registered connections and aborts the in-flight dials, so
 // their owners redial immediately instead of waiting for the old sockets to
 // time out.
 //
 // A nil *Sweeper disables everything: all methods are nil-safe no-ops.
-package netsweep
+package sweep
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/client/netstate"
+	"github.com/netbirdio/netbird/client/netevents/netstate"
 )
 
 // DefaultSweepDelay absorbs network flapping while the OS settles on a
@@ -34,7 +34,7 @@ type Config struct {
 // ErrSwept reports that a dial finished after a network change swept its
 // registration. The connection is already closed; the caller must treat it
 // as a failed dial and redial on the new network.
-var ErrSwept = errors.New("netsweep: connection swept by network change")
+var ErrSwept = errors.New("sweep: connection swept by network change")
 
 // sweepID identifies one registration in a sweeper. Connections and dials
 // draw from the same counter, so an id is unique across both registries.

@@ -19,8 +19,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	nbgrpc "github.com/netbirdio/netbird/client/grpc"
-	"github.com/netbirdio/netbird/client/netstate"
-	"github.com/netbirdio/netbird/client/netsweep"
+	"github.com/netbirdio/netbird/client/netevents"
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/signal/proto"
@@ -67,12 +66,9 @@ type GrpcClient struct {
 	connStateCallback     ConnStateNotifier
 	connStateCallbackLock sync.RWMutex
 
-	// netState gates the Receive retry loop on OS-reported network
-	// availability; nil (the default) disables gating.
-	netState *netstate.State
-
-	// sweeper cuts the transport connections on network change; nil disables it.
-	sweeper *netsweep.Sweeper
+	// netEvents gates the Receive retry loop on OS-reported network
+	// availability and sweeps the transport on network change.
+	netEvents *netevents.Manager
 
 	onReconnectedListenerFn func()
 
@@ -100,15 +96,9 @@ type GrpcClient struct {
 // Option configures optional GrpcClient behavior.
 type Option func(*GrpcClient)
 
-// WithNetworkState injects the OS network availability state that gates the
-// Receive retry loop; without it gating is disabled.
-func WithNetworkState(netState *netstate.State) Option {
-	return func(c *GrpcClient) { c.netState = netState }
-}
-
-// WithSweeper injects the network change sweeper.
-func WithSweeper(sweeper *netsweep.Sweeper) Option {
-	return func(c *GrpcClient) { c.sweeper = sweeper }
+// WithNetEvents injects the OS network event handling.
+func WithNetEvents(events *netevents.Manager) Option {
+	return func(c *GrpcClient) { c.netEvents = events }
 }
 
 // NewClient creates a new Signal client
@@ -126,9 +116,7 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 	}
 
 	var extraOpts []grpc.DialOption
-	if c.sweeper != nil {
-		extraOpts = append(extraOpts, nbgrpc.WithSweeper(c.sweeper))
-	}
+	extraOpts = append(extraOpts, nbgrpc.WithSweeper(c.netEvents))
 
 	var conn *grpc.ClientConn
 	operation := func() error {
@@ -198,17 +186,20 @@ func defaultBackoff(ctx context.Context) backoff.BackOff {
 // The connection retry logic will try to reconnect for 30 min and if wasn't successful will propagate the error to the function caller.
 func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Message) error) error {
 
-	backOff := c.sweeper.QuickRetryBackoff(ctx, defaultBackoff(ctx), c.netState)
+	backOff := c.netEvents.QuickRetryBackoff(ctx, defaultBackoff(ctx))
 
 	operation := func() error {
 		// suspend reconnect attempts while the OS reports no usable network.
 		// Wait only errors on a cancelled context, which means shutdown, so
 		// stop the loop without reporting a failure.
-		if waited, err := c.netState.Wait(ctx); err != nil {
+		if waited, err := c.netEvents.Wait(ctx); err != nil {
 			log.Debugf("signal connection context has been canceled while offline, this usually indicates shutdown")
 			return nil
 		} else if waited {
 			backOff.Reset()
+			// dials attempted while offline grew the channel's internal backoff;
+			// reset it too, or the reconnect waits out that timer first
+			c.signalConn.ResetConnectBackoff()
 		}
 
 		c.notifyStreamDisconnected()
@@ -281,7 +272,7 @@ func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Mes
 		return nil
 	}
 
-	err := nbgrpc.Retry(ctx, operation, backOff, c.netState)
+	err := nbgrpc.Retry(ctx, operation, backOff, c.netEvents)
 	if err != nil {
 		log.Errorf("exiting the Signal service connection retry loop due to the unrecoverable error: %v", err)
 		return err

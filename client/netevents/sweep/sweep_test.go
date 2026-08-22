@@ -1,4 +1,4 @@
-package netsweep
+package sweep
 
 import (
 	"context"
