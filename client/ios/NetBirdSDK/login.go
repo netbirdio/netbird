@@ -85,7 +85,10 @@ func NewAuth(cfgPath string, mgmURL string) (*Auth, error) {
 	}, nil
 }
 
-// NewAuthWithConfig instantiate Auth based on existing config
+// NewAuthWithConfig instantiates Auth based on an existing config. It carries no
+// config path, so an interactive login started from it sends no login_hint — the
+// caller holds a config, not a profile to attribute an account to. NewAuth, which
+// the interactive path uses, does have the path.
 func NewAuthWithConfig(ctx context.Context, config *profilemanager.Config) *Auth {
 	ctx, cancel := context.WithCancel(ctx)
 	return &Auth{
@@ -284,12 +287,14 @@ func (a *Auth) login(urlOpener URLOpener, forceDeviceAuth bool, deviceName strin
 	}
 
 	jwtToken := ""
+	email := ""
 	if needsLogin {
 		tokenInfo, err := a.foregroundGetTokenInfo(authClient, urlOpener, forceDeviceAuth)
 		if err != nil {
 			return fmt.Errorf("interactive sso login failed: %v", err)
 		}
 		jwtToken = tokenInfo.GetTokenToUse()
+		email = tokenInfo.Email
 	}
 
 	err, isAuthError := authClient.Login(ctx, "", jwtToken)
@@ -299,6 +304,14 @@ func (a *Auth) login(urlOpener URLOpener, forceDeviceAuth bool, deviceName strin
 			return fmt.Errorf("authentication error: %v", err)
 		}
 		return fmt.Errorf("login failed: %v", err)
+	}
+
+	// Stored after Login, not before: a rejected token must not leave a hint
+	// pointing at an account that cannot be used.
+	if email != "" && a.cfgPath != "" {
+		if err := writeProfileEmail(a.cfgPath, email); err != nil {
+			log.Warnf("failed to store profile account email: %v", err)
+		}
 	}
 
 	// Save the config before notifying success to ensure persistence completes
@@ -322,10 +335,27 @@ func (a *Auth) login(urlOpener URLOpener, forceDeviceAuth bool, deviceName strin
 
 const authInfoRequestTimeout = 30 * time.Second
 
+// loginHintSetter is implemented by both concrete flows (PKCE and device code)
+// but absent from the OAuthFlow interface, hence the assertion below — the same
+// way internal/auth wires it in authenticateWithPKCEFlow.
+type loginHintSetter interface {
+	SetLoginHint(hint string)
+}
+
 func (a *Auth) foregroundGetTokenInfo(authClient *auth.Auth, urlOpener URLOpener, forceDeviceAuth bool) (*auth.TokenInfo, error) {
 	oAuthFlow, err := authClient.GetOAuthFlow(a.ctx, forceDeviceAuth, "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get OAuth flow: %v", err)
+	}
+
+	// An empty hint is deliberate, not a fallback: a fresh or logged-out profile
+	// leaves the choice to the IdP, which is how accounts get switched.
+	if a.cfgPath != "" {
+		if hint := readProfileEmail(a.cfgPath); hint != "" {
+			if setter, ok := oAuthFlow.(loginHintSetter); ok {
+				setter.SetLoginHint(hint)
+			}
+		}
 	}
 
 	// Use a bounded timeout for the auth info request to prevent indefinite hangs
