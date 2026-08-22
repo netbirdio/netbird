@@ -203,6 +203,10 @@ message AccessRestrictions {
   repeated string blocked_countries = 4;
   // CrowdSec IP reputation mode: "", "off", "enforce", or "observe".
   string crowdsec_mode = 5;
+  // How the allowlists (CIDR, country) combine: "" or "all" require matching
+  // every allowlist (AND); "any" requires matching at least one (OR).
+  // Blocklists are always a hard-deny gate, independent of this mode.
+  string allow_match = 6;
 }
 
 message ProxyMapping {

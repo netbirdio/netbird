@@ -1900,6 +1900,7 @@ func (s *Server) parseRestrictions(mapping *proto.ProxyMapping) *restrict.Filter
 		BlockedCountries: r.GetBlockedCountries(),
 		CrowdSec:         checker,
 		CrowdSecMode:     csMode,
+		AllowMatch:       restrict.AllowMatch(r.GetAllowMatch()),
 		Logger:           log.NewEntry(s.Logger),
 	})
 }
