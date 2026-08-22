@@ -6439,6 +6439,15 @@ components:
       schema:
         type: string
         example: cot7r4n3l3vh3qj4qveg
+    ETag:
+      description: |
+        Strong entity-tag identifying the returned representation. Send it back
+        in `If-Match` on a subsequent write to make that write conditional, so
+        a change made between the read and the write is refused with `412`
+        rather than silently overwritten.
+      schema:
+        type: string
+        example: '"9f86d081884c7d65"'
   securitySchemes:
     BearerAuth:
       type: http
@@ -13734,6 +13743,9 @@ paths:
       responses:
         '200':
           description: Agent Network settings for the account
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
           content:
             application/json:
               schema:
@@ -13761,6 +13773,9 @@ paths:
       responses:
         '200':
           description: The freshly bootstrapped Agent Network settings
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
           content:
             application/json:
               schema:
@@ -13779,11 +13794,25 @@ paths:
           "$ref": "#/components/responses/internal_error"
     put:
       summary: Update Agent Network settings
-      description: Updates the account-level Agent Network settings; the request carries every field, replacing the mutable ones (collection toggles and retention). Returns 404 when the account has no settings row yet — bootstrap it with POST first. The endpoint and proxy address are assigned at bootstrap and immutable; the request must carry them unchanged, and a request carrying different values is rejected.
+      description: Updates the account-level Agent Network settings; the request carries every field, replacing the mutable ones (collection toggles and retention). Returns 404 when the account has no settings row yet — bootstrap it with POST first. The endpoint and proxy address are assigned at bootstrap and immutable; the request must carry them unchanged, and a request carrying different values is rejected. Supply `If-Match` to make the update conditional; without it the update is unconditional and the last write wins.
       tags: [ Agent Network ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
+      parameters:
+        - name: If-Match
+          in: header
+          required: false
+          description: |
+            Makes the update conditional on the settings not having changed since
+            they were read. Send the `ETag` from an earlier `GET`, `POST` or `PUT`,
+            or `*` to require only that a settings row exists. The precondition is
+            evaluated against the stored row inside the update's own transaction,
+            so two clients starting from the same `ETag` cannot both succeed.
+            Omitting the header leaves the update unconditional.
+          schema:
+            type: string
+          example: '"9f86d081884c7d65"'
       requestBody:
         description: Settings update request
         content:
@@ -13793,6 +13822,9 @@ paths:
       responses:
         '200':
           description: Updated Agent Network settings
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
           content:
             application/json:
               schema:
@@ -13805,17 +13837,34 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '404':
           "$ref": "#/components/responses/not_found"
+        '412':
+          description: The `If-Match` precondition failed — the settings changed since they were read. The stored settings are unmodified; read them again and retry.
+          content: { }
         '422':
           "$ref": "#/components/responses/validation_failed"
         '500':
           "$ref": "#/components/responses/internal_error"
     delete:
       summary: Delete Agent Network settings
-      description: Deletes the account's Agent Network settings row, releasing the endpoint. Guarded — the delete is refused with 412 while any Agent Network provider exists for the account or while a proxy is actively serving the endpoint. Bootstrapping again after a delete allocates a new endpoint; the released hostname is not reserved.
+      description: Deletes the account's Agent Network settings row, releasing the endpoint. Guarded — the delete is refused with 412 while any Agent Network provider exists for the account or while a proxy is actively serving the endpoint. Bootstrapping again after a delete allocates a new endpoint; the released hostname is not reserved. Supply `If-Match` to make the delete conditional, which is worth doing here even more than on update — the other two guards are about state rather than staleness, so nothing else stops a client from deleting a row that was replaced since it read one.
       tags: [ Agent Network ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
+      parameters:
+        - name: If-Match
+          in: header
+          required: false
+          description: |
+            Makes the delete conditional on the settings not having changed since
+            they were read. Send the `ETag` from an earlier `GET`, `POST` or `PUT`,
+            or `*` to require only that a settings row exists. The precondition is
+            evaluated inside the delete's own transaction, ahead of the provider
+            and serving-proxy guards. Omitting the header leaves the delete
+            unconditional.
+          schema:
+            type: string
+          example: '"9f86d081884c7d65"'
       responses:
         '200':
           description: Settings deleted
@@ -13826,7 +13875,7 @@ paths:
         '404':
           "$ref": "#/components/responses/not_found"
         '412':
-          description: Delete refused — Agent Network providers still exist for the account, or a proxy is actively serving the endpoint
+          description: Delete refused — the `If-Match` precondition failed, or Agent Network providers still exist for the account, or a proxy is actively serving the endpoint. The stored settings are unmodified in every case; the response message distinguishes them.
           content: { }
         '500':
           "$ref": "#/components/responses/internal_error"

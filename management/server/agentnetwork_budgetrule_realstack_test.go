@@ -117,7 +117,7 @@ func TestAgentNetwork_UpdateSettings_PreservesImmutableAndTogglesCollection(t *t
 		EnablePromptCollection: true,
 		RedactPii:              true,
 		AccessLogRetentionDays: before.AccessLogRetentionDays,
-	})
+	}, nil)
 	require.NoError(t, err, "UpdateSettings must succeed")
 	assert.Equal(t, before.Domain, updated.Domain, "domain is immutable and must be preserved")
 	assert.Equal(t, before.ProxyAddress, updated.ProxyAddress, "proxy address is immutable and must be preserved")
@@ -147,7 +147,7 @@ func TestAgentNetwork_UpdateSettings_PreservesImmutableAndTogglesCollection(t *t
 				EnablePromptCollection: false,
 				RedactPii:              false,
 				AccessLogRetentionDays: before.AccessLogRetentionDays,
-			})
+			}, nil)
 			assert.Error(t, err, "a mismatched identity echo must be rejected")
 			assert.ErrorContains(t, err, "immutable", "the rejection must name the immutability rule")
 		})

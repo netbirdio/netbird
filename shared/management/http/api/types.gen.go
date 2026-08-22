@@ -5939,6 +5939,28 @@ type GetApiAgentNetworkAccessLogsParamsSortBy string
 // GetApiAgentNetworkAccessLogsParamsSortOrder defines parameters for GetApiAgentNetworkAccessLogs.
 type GetApiAgentNetworkAccessLogsParamsSortOrder string
 
+// DeleteApiAgentNetworkSettingsParams defines parameters for DeleteApiAgentNetworkSettings.
+type DeleteApiAgentNetworkSettingsParams struct {
+	// IfMatch Makes the delete conditional on the settings not having changed since
+	// they were read. Send the `ETag` from an earlier `GET`, `POST` or `PUT`,
+	// or `*` to require only that a settings row exists. The precondition is
+	// evaluated inside the delete's own transaction, ahead of the provider
+	// and serving-proxy guards. Omitting the header leaves the delete
+	// unconditional.
+	IfMatch *string `json:"If-Match,omitempty"`
+}
+
+// PutApiAgentNetworkSettingsParams defines parameters for PutApiAgentNetworkSettings.
+type PutApiAgentNetworkSettingsParams struct {
+	// IfMatch Makes the update conditional on the settings not having changed since
+	// they were read. Send the `ETag` from an earlier `GET`, `POST` or `PUT`,
+	// or `*` to require only that a settings row exists. The precondition is
+	// evaluated against the stored row inside the update's own transaction,
+	// so two clients starting from the same `ETag` cannot both succeed.
+	// Omitting the header leaves the update unconditional.
+	IfMatch *string `json:"If-Match,omitempty"`
+}
+
 // GetApiAgentNetworkUsageOverviewParams defines parameters for GetApiAgentNetworkUsageOverview.
 type GetApiAgentNetworkUsageOverviewParams struct {
 	// Granularity Time bucket width. Defaults to day.
