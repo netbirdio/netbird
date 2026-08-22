@@ -1,0 +1,1343 @@
+{
+    "tray.tooltip": {
+        "message": "NetBird"
+    },
+    "tray.status.disconnected": {
+        "message": "연결 끊김"
+    },
+    "tray.status.daemonUnavailable": {
+        "message": "실행 중 아님"
+    },
+    "tray.status.error": {
+        "message": "오류"
+    },
+    "tray.status.connected": {
+        "message": "연결됨"
+    },
+    "tray.status.connecting": {
+        "message": "연결 중"
+    },
+    "tray.status.needsLogin": {
+        "message": "로그인 필요"
+    },
+    "tray.status.loginFailed": {
+        "message": "로그인 실패"
+    },
+    "tray.status.sessionExpired": {
+        "message": "세션 만료"
+    },
+    "tray.session.expiresIn": {
+        "message": "세션이 {remaining} 후에 만료됩니다"
+    },
+    "tray.session.unit.lessThanMinute": {
+        "message": "1분 미만"
+    },
+    "tray.session.unit.minute": {
+        "message": "1분"
+    },
+    "tray.session.unit.minutes": {
+        "message": "{count}분"
+    },
+    "tray.session.unit.hour": {
+        "message": "1시간"
+    },
+    "tray.session.unit.hours": {
+        "message": "{count}시간"
+    },
+    "tray.session.unit.day": {
+        "message": "1일"
+    },
+    "tray.session.unit.days": {
+        "message": "{count}일"
+    },
+    "tray.menu.open": {
+        "message": "NetBird 열기"
+    },
+    "tray.menu.connect": {
+        "message": "연결"
+    },
+    "tray.menu.disconnect": {
+        "message": "연결 해제"
+    },
+    "tray.menu.exitNode": {
+        "message": "Exit Node"
+    },
+    "tray.menu.networks": {
+        "message": "리소스"
+    },
+    "tray.menu.profiles": {
+        "message": "프로필"
+    },
+    "tray.menu.manageProfiles": {
+        "message": "프로필 관리"
+    },
+    "tray.menu.settings": {
+        "message": "설정..."
+    },
+    "tray.menu.debugBundle": {
+        "message": "디버그 번들 만들기"
+    },
+    "tray.menu.about": {
+        "message": "도움말 및 지원"
+    },
+    "tray.menu.github": {
+        "message": "GitHub"
+    },
+    "tray.menu.documentation": {
+        "message": "문서"
+    },
+    "tray.menu.troubleshoot": {
+        "message": "문제 해결"
+    },
+    "tray.menu.downloadLatest": {
+        "message": "최신 버전 다운로드"
+    },
+    "tray.menu.installVersion": {
+        "message": "{version} 버전 설치"
+    },
+    "tray.menu.guiVersion": {
+        "message": "GUI: {version}"
+    },
+    "tray.menu.daemonVersion": {
+        "message": "데몬: {version}"
+    },
+    "tray.menu.versionUnknown": {
+        "message": "—"
+    },
+    "tray.menu.quit": {
+        "message": "NetBird 종료"
+    },
+    "notify.daemonOutdated.title": {
+        "message": "NetBird 서비스가 오래됨"
+    },
+    "notify.daemonOutdated.body": {
+        "message": "이 앱을 사용하려면 NetBird 서비스를 업데이트하세요."
+    },
+    "notify.update.title": {
+        "message": "NetBird 업데이트 사용 가능"
+    },
+    "notify.update.body": {
+        "message": "NetBird {version}을(를) 사용할 수 있습니다."
+    },
+    "notify.update.enforcedSuffix": {
+        "message": " 관리자가 이 업데이트를 요구합니다."
+    },
+    "notify.error.title": {
+        "message": "오류"
+    },
+    "notify.error.connect": {
+        "message": "연결 실패"
+    },
+    "notify.error.disconnect": {
+        "message": "연결 해제 실패"
+    },
+    "notify.error.switchProfile": {
+        "message": "{profile}(으)로 전환 실패"
+    },
+    "notify.error.exitNode": {
+        "message": "Exit Node {name} 업데이트 실패"
+    },
+    "notify.sessionExpired.title": {
+        "message": "NetBird 세션 만료"
+    },
+    "notify.sessionExpired.body": {
+        "message": "NetBird 세션이 만료되었습니다. 다시 로그인해 주세요."
+    },
+    "notify.sessionWarning.title": {
+        "message": "세션이 곧 만료됩니다"
+    },
+    "notify.sessionWarning.body": {
+        "message": "NetBird 세션이 {remaining} 후에 만료됩니다. 지금 연장을 클릭하여 갱신하세요."
+    },
+    "notify.sessionWarning.bodyGeneric": {
+        "message": "NetBird 세션이 곧 만료됩니다. 지금 연장을 클릭하여 갱신하세요."
+    },
+    "notify.sessionWarning.extend": {
+        "message": "지금 연장"
+    },
+    "notify.sessionWarning.dismiss": {
+        "message": "닫기"
+    },
+    "notify.sessionWarning.failed": {
+        "message": "NetBird 세션 연장 실패"
+    },
+    "notify.sessionWarning.successTitle": {
+        "message": "NetBird 세션 연장됨"
+    },
+    "notify.sessionWarning.successBody": {
+        "message": "세션이 갱신되었습니다."
+    },
+    "notify.sessionDeadlineRejected.title": {
+        "message": "세션 기한 거부됨"
+    },
+    "notify.sessionDeadlineRejected.body": {
+        "message": "서버가 잘못된 세션 기한을 보냈습니다. 다시 로그인해 주세요."
+    },
+    "notify.mdm.policyApplied.title": {
+        "message": "NetBird 설정 업데이트됨"
+    },
+    "notify.mdm.policyApplied.body": {
+        "message": "IT 정책에 의해 NetBird 구성이 업데이트되었습니다."
+    },
+    "common.cancel": {
+        "message": "취소"
+    },
+    "common.save": {
+        "message": "저장"
+    },
+    "common.saveChanges": {
+        "message": "변경 내용 저장"
+    },
+    "common.saving": {
+        "message": "저장 중…"
+    },
+    "common.close": {
+        "message": "닫기"
+    },
+    "common.copy": {
+        "message": "복사"
+    },
+    "common.togglePasswordVisibility": {
+        "message": "비밀번호 표시 전환"
+    },
+    "common.increase": {
+        "message": "증가"
+    },
+    "common.decrease": {
+        "message": "감소"
+    },
+    "common.delete": {
+        "message": "삭제"
+    },
+    "common.create": {
+        "message": "만들기"
+    },
+    "common.add": {
+        "message": "추가"
+    },
+    "common.remove": {
+        "message": "제거"
+    },
+    "common.refresh": {
+        "message": "새로 고침"
+    },
+    "common.loading": {
+        "message": "로드 중…"
+    },
+    "common.netbird": {
+        "message": "NetBird"
+    },
+    "common.noResults.title": {
+        "message": "결과를 찾을 수 없음"
+    },
+    "common.noResults.description": {
+        "message": "결과를 찾을 수 없습니다. 다른 검색어를 시도하거나 필터를 변경하세요."
+    },
+    "notConnected.title": {
+        "message": "연결 끊김"
+    },
+    "notConnected.description": {
+        "message": "피어, 네트워크 리소스 및 Exit Node에 대한 자세한 정보를 보려면 먼저 NetBird에 연결하세요."
+    },
+    "connect.status.disconnected": {
+        "message": "연결 끊김"
+    },
+    "connect.status.connecting": {
+        "message": "연결 중..."
+    },
+    "connect.status.connected": {
+        "message": "연결됨"
+    },
+    "connect.status.disconnecting": {
+        "message": "연결 해제 중..."
+    },
+    "connect.status.daemonUnavailable": {
+        "message": "데몬 사용 불가"
+    },
+    "connect.status.loginRequired": {
+        "message": "로그인 필요"
+    },
+    "connect.error.loginTitle": {
+        "message": "로그인 실패"
+    },
+    "connect.error.connectTitle": {
+        "message": "연결 실패"
+    },
+    "connect.error.disconnectTitle": {
+        "message": "연결 해제 실패"
+    },
+    "nav.peers.title": {
+        "message": "피어"
+    },
+    "nav.peers.description": {
+        "message": "{total}개 중 {connected}개 연결"
+    },
+    "nav.resources.title": {
+        "message": "리소스"
+    },
+    "nav.resources.description": {
+        "message": "{total}개 중 {active}개 활성"
+    },
+    "nav.exitNode.title": {
+        "message": "Exit Node"
+    },
+    "nav.exitNode.none": {
+        "message": "비활성"
+    },
+    "nav.exitNode.using": {
+        "message": "{name} 경유"
+    },
+    "header.openSettings": {
+        "message": "설정 열기"
+    },
+    "header.togglePanel": {
+        "message": "측면 패널 전환"
+    },
+    "profile.selector.loading": {
+        "message": "로드 중..."
+    },
+    "profile.selector.noProfile": {
+        "message": "프로필 없음"
+    },
+    "profile.selector.searchPlaceholder": {
+        "message": "이름으로 프로필 검색..."
+    },
+    "profile.selector.emptyTitle": {
+        "message": "프로필을 찾을 수 없음"
+    },
+    "profile.selector.emptyDescription": {
+        "message": "다른 검색어를 시도하거나 새 프로필을 만드세요."
+    },
+    "profile.selector.newProfile": {
+        "message": "새 프로필"
+    },
+    "profile.selector.moreOptions": {
+        "message": "추가 옵션"
+    },
+    "profile.selector.deregister": {
+        "message": "등록 해제"
+    },
+    "profile.selector.delete": {
+        "message": "삭제"
+    },
+    "profile.selector.switchTo": {
+        "message": "이 프로필로 전환"
+    },
+    "profile.selector.edit": {
+        "message": "편집"
+    },
+    "profile.edit.title": {
+        "message": "프로필 편집"
+    },
+    "profile.edit.submit": {
+        "message": "변경 내용 저장"
+    },
+    "profile.dialog.title": {
+        "message": "프로필 이름 입력"
+    },
+    "profile.dialog.nameLabel": {
+        "message": "프로필 이름"
+    },
+    "profile.dialog.description": {
+        "message": "쉽게 식별할 수 있는 프로필 이름을 설정하세요."
+    },
+    "profile.dialog.placeholder": {
+        "message": "예: 회사"
+    },
+    "profile.dialog.submit": {
+        "message": "프로필 추가"
+    },
+    "profile.dialog.required": {
+        "message": "프로필 이름을 입력하세요(예: 회사, 집)"
+    },
+    "profile.dialog.managementHelp": {
+        "message": "NetBird Cloud 또는 자체 서버를 사용하세요."
+    },
+    "profile.dialog.urlUnreachable": {
+        "message": "서버에 연결할 수 없습니다. URL을 확인하거나, 올바른 것이 확실하면 프로필을 추가하세요."
+    },
+    "header.menu.settings": {
+        "message": "설정..."
+    },
+    "header.menu.defaultView": {
+        "message": "기본 보기"
+    },
+    "header.menu.advancedView": {
+        "message": "고급 보기"
+    },
+    "header.menu.updateAvailable": {
+        "message": "업데이트 사용 가능"
+    },
+    "header.menu.open": {
+        "message": "메뉴 열기"
+    },
+    "header.profile.switch": {
+        "message": "프로필 전환"
+    },
+    "connect.toggle.label": {
+        "message": "NetBird 연결 전환"
+    },
+    "connect.localIp.label": {
+        "message": "로컬 IP 주소"
+    },
+    "common.search": {
+        "message": "검색"
+    },
+    "common.filter": {
+        "message": "필터"
+    },
+    "exitNodes.dropdown.trigger": {
+        "message": "Exit Node 선택"
+    },
+    "peers.row.label": {
+        "message": "{name}, {status} 세부 정보 열기"
+    },
+    "peers.dialog.title": {
+        "message": "피어 세부 정보"
+    },
+    "networks.row.toggle": {
+        "message": "{name} 전환"
+    },
+    "networks.bulk.label": {
+        "message": "표시되는 모든 리소스 전환"
+    },
+    "profile.switch.title": {
+        "message": "\"{name}\"(으)로 프로필을 전환하시겠습니까?"
+    },
+    "profile.switch.message": {
+        "message": "프로필을 전환하시겠습니까?\n현재 프로필의 연결이 끊어집니다."
+    },
+    "profile.switch.confirm": {
+        "message": "확인"
+    },
+    "profile.deregister.title": {
+        "message": "\"{name}\" 프로필 등록을 해제하시겠습니까?"
+    },
+    "profile.deregister.message": {
+        "message": "이 프로필의 등록을 해제하시겠습니까?\n다시 사용하려면 로그인해야 합니다."
+    },
+    "profile.deregister.confirm": {
+        "message": "등록 해제"
+    },
+    "profile.delete.title": {
+        "message": "\"{name}\" 프로필을 삭제하시겠습니까?"
+    },
+    "profile.delete.message": {
+        "message": "이 프로필을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다."
+    },
+    "profile.delete.disabledActive": {
+        "message": "활성 프로필은 삭제할 수 없습니다. 이 프로필을 삭제하기 전에 다른 프로필로 전환하세요."
+    },
+    "profile.delete.disabledDefault": {
+        "message": "기본 프로필은 삭제할 수 없습니다."
+    },
+    "profile.error.switchTitle": {
+        "message": "프로필 전환 실패"
+    },
+    "profile.error.deregisterTitle": {
+        "message": "프로필 등록 해제 실패"
+    },
+    "profile.error.deleteTitle": {
+        "message": "프로필 삭제 실패"
+    },
+    "profile.error.createTitle": {
+        "message": "프로필 만들기 실패"
+    },
+    "profile.error.editTitle": {
+        "message": "프로필 편집 실패"
+    },
+    "profile.error.loadTitle": {
+        "message": "프로필 로드 실패"
+    },
+    "profile.dropdown.activeProfile": {
+        "message": "활성 프로필"
+    },
+    "profile.dropdown.switchProfile": {
+        "message": "프로필 전환"
+    },
+    "profile.dropdown.noEmail": {
+        "message": "기타"
+    },
+    "profile.dropdown.addProfile": {
+        "message": "프로필 추가"
+    },
+    "profile.dropdown.manageProfiles": {
+        "message": "프로필 관리"
+    },
+    "profile.dropdown.settings": {
+        "message": "설정"
+    },
+    "settings.profiles.section.profiles": {
+        "message": "프로필"
+    },
+    "settings.profiles.intro": {
+        "message": "예를 들어 회사 및 개인 계정 또는 다양한 관리 서버를 위해 별도의 NetBird ID를 함께 유지하세요. 아래에서 프로필을 추가, 등록 해제 또는 삭제할 수 있습니다."
+    },
+    "settings.profiles.addProfile": {
+        "message": "프로필 추가"
+    },
+    "settings.profiles.active": {
+        "message": "활성"
+    },
+    "settings.profiles.emptyTitle": {
+        "message": "프로필 없음"
+    },
+    "settings.profiles.emptyDescription": {
+        "message": "NetBird 관리 서버에 연결하려면 프로필을 만드세요."
+    },
+    "settings.error.loadTitle": {
+        "message": "설정 로드 실패"
+    },
+    "settings.error.saveTitle": {
+        "message": "설정 저장 실패"
+    },
+    "settings.error.debugBundleTitle": {
+        "message": "디버그 번들 실패"
+    },
+    "settings.nav.label": {
+        "message": "설정 섹션"
+    },
+    "settings.tabs.general": {
+        "message": "일반"
+    },
+    "settings.tabs.network": {
+        "message": "네트워크"
+    },
+    "settings.tabs.security": {
+        "message": "보안"
+    },
+    "settings.tabs.profiles": {
+        "message": "프로필"
+    },
+    "settings.tabs.ssh": {
+        "message": "SSH"
+    },
+    "settings.tabs.advanced": {
+        "message": "고급"
+    },
+    "settings.tabs.troubleshooting": {
+        "message": "문제 해결"
+    },
+    "settings.tabs.about": {
+        "message": "정보"
+    },
+    "settings.tabs.updateAvailable": {
+        "message": "업데이트 사용 가능"
+    },
+    "settings.general.section.general": {
+        "message": "일반"
+    },
+    "settings.general.section.connection": {
+        "message": "연결"
+    },
+    "settings.general.connectOnStartup.label": {
+        "message": "시작 시 연결"
+    },
+    "settings.general.connectOnStartup.help": {
+        "message": "서비스가 시작되면 자동으로 연결을 설정합니다."
+    },
+    "settings.general.notifications.label": {
+        "message": "데스크톱 알림"
+    },
+    "settings.general.notifications.help": {
+        "message": "새 업데이트 및 연결 이벤트에 대한 데스크톱 알림을 표시합니다."
+    },
+    "settings.general.autostart.label": {
+        "message": "로그인 시 NetBird UI 실행"
+    },
+    "settings.general.autostart.help": {
+        "message": "로그인할 때 NetBird 인터페이스를 자동으로 시작합니다. 이는 그래픽 인터페이스에만 영향을 미치며 백그라운드 서비스에는 영향을 미치지 않습니다."
+    },
+    "settings.general.autostart.errorTitle": {
+        "message": "자동 시작 변경 실패"
+    },
+    "settings.general.language.label": {
+        "message": "표시 언어"
+    },
+    "settings.general.language.help": {
+        "message": "NetBird 인터페이스의 언어를 선택하세요."
+    },
+    "settings.general.language.search": {
+        "message": "언어 검색…"
+    },
+    "settings.general.language.empty": {
+        "message": "일치하는 언어가 없습니다."
+    },
+    "settings.general.management.label": {
+        "message": "관리 서버"
+    },
+    "settings.general.management.help": {
+        "message": "NetBird Cloud 또는 자체 호스팅 관리 서버에 연결하세요. 변경 시 클라이언트가 다시 연결됩니다."
+    },
+    "settings.general.management.cloud": {
+        "message": "클라우드"
+    },
+    "settings.general.management.selfHosted": {
+        "message": "자체 호스팅"
+    },
+    "settings.general.management.urlPlaceholder": {
+        "message": "https://netbird.selfhosted.com:443"
+    },
+    "settings.general.management.urlError": {
+        "message": "올바른 URL을 입력하세요(예: https://netbird.selfhosted.com:443)"
+    },
+    "settings.general.management.urlUnreachable": {
+        "message": "서버에 연결할 수 없습니다. URL을 확인하거나, 올바른 것이 확실하면 저장하세요."
+    },
+    "settings.general.management.switchCloudTitle": {
+        "message": "NetBird Cloud로 전환하시겠습니까?"
+    },
+    "settings.general.management.switchCloudMessage": {
+        "message": "자체 호스팅 서버의 연결이 끊어집니다.\n다시 로그인해야 할 수 있습니다."
+    },
+    "settings.general.management.switchCloudConfirm": {
+        "message": "클라우드로 전환"
+    },
+    "settings.network.section.connectivity": {
+        "message": "연결"
+    },
+    "settings.network.section.routingDns": {
+        "message": "라우팅 및 DNS"
+    },
+    "settings.network.monitor.label": {
+        "message": "네트워크 변경 시 다시 연결"
+    },
+    "settings.network.monitor.help": {
+        "message": "Wi-Fi 전환, 이더넷 변경 또는 최대 절전 모드에서 다시 시작과 같은 변경 시 네트워크를 모니터링하고 자동으로 다시 연결합니다."
+    },
+    "settings.network.dns.label": {
+        "message": "DNS 활성화"
+    },
+    "settings.network.dns.help": {
+        "message": "NetBird 관리 DNS 설정을 호스트 확인자에 적용합니다."
+    },
+    "settings.network.clientRoutes.label": {
+        "message": "클라이언트 라우트 활성화"
+    },
+    "settings.network.clientRoutes.help": {
+        "message": "다른 피어의 네트워크에 연결하기 위해 피어의 라우트를 수락합니다."
+    },
+    "settings.network.serverRoutes.label": {
+        "message": "서버 라우트 활성화"
+    },
+    "settings.network.serverRoutes.help": {
+        "message": "이 호스트의 로컬 라우트를 다른 피어에 알립니다."
+    },
+    "settings.network.ipv6.label": {
+        "message": "IPv6 활성화"
+    },
+    "settings.network.ipv6.help": {
+        "message": "NetBird 오버레이 네트워크에 IPv6 주소 지정을 사용합니다."
+    },
+    "settings.security.section.firewall": {
+        "message": "방화벽"
+    },
+    "settings.security.section.encryption": {
+        "message": "암호화"
+    },
+    "settings.security.blockInbound.label": {
+        "message": "인바운드 트래픽 차단"
+    },
+    "settings.security.blockInbound.help": {
+        "message": "피어에서 이 장치 및 이 장치가 라우팅하는 모든 네트워크로의 원치 않는 연결을 거부합니다. 아웃바운드 트래픽은 영향을 받지 않습니다."
+    },
+    "settings.security.blockLan.label": {
+        "message": "LAN 액세스 차단"
+    },
+    "settings.security.blockLan.help": {
+        "message": "이 장치가 트래픽을 라우팅할 때 피어가 로컬 네트워크 또는 해당 장치에 액세스하지 못하도록 차단합니다."
+    },
+    "settings.security.rosenpass.label": {
+        "message": "양자 내성 활성화"
+    },
+    "settings.security.rosenpass.help": {
+        "message": "WireGuard® 위에 Rosenpass를 통한 양자 후 키 교환을 추가합니다."
+    },
+    "settings.security.rosenpassPermissive.label": {
+        "message": "허용 모드 활성화"
+    },
+    "settings.security.rosenpassPermissive.help": {
+        "message": "양자 내성을 지원하지 않는 피어와의 연결을 허용합니다."
+    },
+    "settings.ssh.section.server": {
+        "message": "서버"
+    },
+    "settings.ssh.section.capabilities": {
+        "message": "기능"
+    },
+    "settings.ssh.section.authentication": {
+        "message": "인증"
+    },
+    "settings.ssh.server.label": {
+        "message": "SSH 서버 활성화"
+    },
+    "settings.ssh.server.help": {
+        "message": "이 호스트에서 NetBird SSH 서버를 실행하여 다른 피어가 연결할 수 있도록 합니다."
+    },
+    "settings.ssh.root.label": {
+        "message": "Root 로그인 허용"
+    },
+    "settings.ssh.root.help": {
+        "message": "피어가 root 사용자로 로그인할 수 있게 합니다. 비활성화하면 비특권 계정이 필요합니다."
+    },
+    "settings.ssh.sftp.label": {
+        "message": "SFTP 허용"
+    },
+    "settings.ssh.sftp.help": {
+        "message": "네이티브 SFTP 또는 SCP 클라이언트를 사용하여 안전하게 파일을 전송합니다."
+    },
+    "settings.ssh.localForward.label": {
+        "message": "로컬 포트 포워딩"
+    },
+    "settings.ssh.localForward.help": {
+        "message": "연결하는 피어가 로컬 포트를 이 호스트에서 연결할 수 있는 서비스로 터널링할 수 있게 합니다."
+    },
+    "settings.ssh.remoteForward.label": {
+        "message": "원격 포트 포워딩"
+    },
+    "settings.ssh.remoteForward.help": {
+        "message": "연결하는 피어가 이 호스트의 포트를 자신의 기기로 노출할 수 있게 합니다."
+    },
+    "settings.ssh.jwt.label": {
+        "message": "JWT 인증 활성화"
+    },
+    "settings.ssh.jwt.help": {
+        "message": "사용자 ID 및 감사를 위해 IdP에 대해 각 SSH 세션을 확인합니다. 비활성화하면 네트워크 ACL 정책에만 의존하며, IdP를 사용할 수 없을 때 유용합니다."
+    },
+    "settings.ssh.jwtTtl.label": {
+        "message": "JWT 캐시 TTL"
+    },
+    "settings.ssh.jwtTtl.help": {
+        "message": "이 클라이언트가 나가는 SSH 연결에서 다시 확인하기 전에 JWT를 캐시하는 시간입니다. 0으로 설정하면 캐싱을 비활성화하고 매 연결마다 인증합니다."
+    },
+    "settings.ssh.jwtTtl.suffix": {
+        "message": "초"
+    },
+    "settings.advanced.section.interface": {
+        "message": "인터페이스"
+    },
+    "settings.advanced.section.security": {
+        "message": "보안"
+    },
+    "settings.advanced.interfaceName.label": {
+        "message": "이름"
+    },
+    "settings.advanced.interfaceName.error": {
+        "message": "1-15자의 문자, 숫자, 마침표, 하이픈 또는 밑줄을 사용하세요."
+    },
+    "settings.advanced.interfaceName.errorMac": {
+        "message": "\"utun\"으로 시작하고 그 뒤에 숫자가 와야 합니다(예: utun100)."
+    },
+    "settings.advanced.port.label": {
+        "message": "포트"
+    },
+    "settings.advanced.port.error": {
+        "message": "{min}에서 {max} 사이의 포트를 입력하세요."
+    },
+    "settings.advanced.port.help": {
+        "message": "0으로 설정하면 임의의 사용 가능한 포트가 사용됩니다."
+    },
+    "settings.advanced.mtu.label": {
+        "message": "MTU"
+    },
+    "settings.advanced.mtu.error": {
+        "message": "{min}에서 {max} 사이의 MTU 값을 입력하세요."
+    },
+    "settings.advanced.psk.label": {
+        "message": "사전 공유 키"
+    },
+    "settings.advanced.psk.help": {
+        "message": "추가 대칭 암호화를 위한 선택적 WireGuard PSK입니다. NetBird Setup Key와 동일하지 않습니다. 동일한 사전 공유 키를 사용하는 피어와만 통신할 수 있습니다."
+    },
+    "settings.troubleshooting.section.title": {
+        "message": "디버그 번들"
+    },
+    "settings.troubleshooting.anonymize.label": {
+        "message": "민감한 정보 익명화"
+    },
+    "settings.troubleshooting.anonymize.help": {
+        "message": "로그에서 공개 IP 주소와 NetBird가 아닌 도메인을 숨깁니다."
+    },
+    "settings.troubleshooting.systemInfo.label": {
+        "message": "시스템 정보 포함"
+    },
+    "settings.troubleshooting.systemInfo.help": {
+        "message": "OS, 커널, 네트워크 인터페이스 및 라우팅 테이블을 포함합니다."
+    },
+    "settings.troubleshooting.upload.label": {
+        "message": "번들을 NetBird 서버에 업로드"
+    },
+    "settings.troubleshooting.upload.help": {
+        "message": "NetBird 지원 팀과 공유할 업로드 키를 반환합니다."
+    },
+    "settings.troubleshooting.trace.label": {
+        "message": "추적 로그 활성화"
+    },
+    "settings.troubleshooting.trace.help": {
+        "message": "로그 수준을 TRACE로 높이고 나중에 복원합니다."
+    },
+    "settings.troubleshooting.capture.label": {
+        "message": "캡처 세션"
+    },
+    "settings.troubleshooting.capture.help": {
+        "message": "다시 연결하고 대기하여 문제를 재현할 수 있습니다."
+    },
+    "settings.troubleshooting.packets.label": {
+        "message": "네트워크 패킷 캡처"
+    },
+    "settings.troubleshooting.packets.help": {
+        "message": "캡처 기간 동안 네트워크 트래픽의 .pcap을 저장합니다."
+    },
+    "settings.troubleshooting.duration.label": {
+        "message": "캡처 기간"
+    },
+    "settings.troubleshooting.duration.help": {
+        "message": "캡처 세션이 실행되는 기간입니다."
+    },
+    "settings.troubleshooting.duration.suffix": {
+        "message": "분"
+    },
+    "settings.troubleshooting.create": {
+        "message": "번들 만들기"
+    },
+    "settings.troubleshooting.progress.description": {
+        "message": "로그, 시스템 세부 정보 및 연결 상태를 수집하는 중입니다. 잠시 시간이 소요됩니다. 완료되는 동안 NetBird를 계속 사용하거나 설정을 닫을 수 있습니다."
+    },
+    "settings.troubleshooting.cancelling": {
+        "message": "취소 중…"
+    },
+    "settings.troubleshooting.done.uploadedTitle": {
+        "message": "디버그 번들이 업로드되었습니다!"
+    },
+    "settings.troubleshooting.done.savedTitle": {
+        "message": "번들 저장됨"
+    },
+    "settings.troubleshooting.done.uploadedDescription": {
+        "message": "아래의 업로드 키를 <docs>NetBird 지원</docs>과 공유하세요. 로컬 사본도 장치에 저장되었습니다."
+    },
+    "settings.troubleshooting.done.savedDescription": {
+        "message": "디버그 번들이 로컬에 저장되었습니다."
+    },
+    "settings.troubleshooting.done.copyKey": {
+        "message": "키 복사"
+    },
+    "settings.troubleshooting.done.openFolder": {
+        "message": "폴더 열기"
+    },
+    "settings.troubleshooting.done.openFileLocation": {
+        "message": "파일 위치 열기"
+    },
+    "settings.troubleshooting.uploadFailedWithReason": {
+        "message": "업로드 실패: {reason} 번들은 여전히 로컬에 저장되어 있습니다."
+    },
+    "settings.troubleshooting.uploadFailed": {
+        "message": "업로드 실패. 번들은 여전히 로컬에 저장되어 있습니다."
+    },
+    "settings.troubleshooting.stage.reconnecting": {
+        "message": "NetBird 다시 연결 중…"
+    },
+    "settings.troubleshooting.stage.capturing": {
+        "message": "디버그 로그 캡처 중"
+    },
+    "settings.troubleshooting.stage.bundling": {
+        "message": "디버그 번들 생성 중…"
+    },
+    "settings.troubleshooting.stage.uploading": {
+        "message": "NetBird에 업로드 중…"
+    },
+    "settings.troubleshooting.stage.cancelling": {
+        "message": "취소 중…"
+    },
+    "settings.about.client": {
+        "message": "NetBird Client v{version}"
+    },
+    "settings.about.clientName": {
+        "message": "NetBird Client"
+    },
+    "settings.about.development": {
+        "message": "[Development]"
+    },
+    "settings.about.gui": {
+        "message": "GUI v{version}"
+    },
+    "settings.about.guiName": {
+        "message": "GUI"
+    },
+    "settings.about.copyright": {
+        "message": "© {year} NetBird. 모든 권리 보유."
+    },
+    "settings.about.links.imprint": {
+        "message": "법적 고지"
+    },
+    "settings.about.links.privacy": {
+        "message": "개인정보 처리방침"
+    },
+    "settings.about.links.cla": {
+        "message": "CLA"
+    },
+    "settings.about.links.terms": {
+        "message": "서비스 약관"
+    },
+    "settings.about.community.github": {
+        "message": "GitHub"
+    },
+    "settings.about.community.slack": {
+        "message": "Slack"
+    },
+    "settings.about.community.forum": {
+        "message": "포럼"
+    },
+    "settings.about.community.documentation": {
+        "message": "문서"
+    },
+    "settings.about.community.feedback": {
+        "message": "피드백"
+    },
+    "update.banner.message": {
+        "message": "NetBird {version} 설치할 준비가 되었습니다."
+    },
+    "update.banner.later": {
+        "message": "나중에"
+    },
+    "update.banner.installNow": {
+        "message": "지금 설치"
+    },
+    "update.card.versionAvailableDownload": {
+        "message": "{version} 버전을 다운로드할 수 있습니다."
+    },
+    "update.card.versionAvailableInstall": {
+        "message": "{version} 버전을 설치할 수 있습니다."
+    },
+    "update.card.whatsNew": {
+        "message": "새로운 기능"
+    },
+    "update.card.installNow": {
+        "message": "지금 설치"
+    },
+    "update.card.getInstaller": {
+        "message": "다운로드"
+    },
+    "update.card.autoCheckInterval": {
+        "message": "NetBird가 백그라운드에서 업데이트를 확인합니다."
+    },
+    "update.card.changelog": {
+        "message": "변경 사항"
+    },
+    "update.card.onLatestVersion": {
+        "message": "최신 버전을 사용 중입니다"
+    },
+    "update.header.tooltip": {
+        "message": "업데이트 사용 가능"
+    },
+    "update.overlay.updatingVersion": {
+        "message": "NetBird를 v{version}(으)로 업데이트 중"
+    },
+    "update.overlay.updating": {
+        "message": "NetBird 업데이트 중"
+    },
+    "update.overlay.description": {
+        "message": "새 버전이 사용 가능하며 설치되고 있습니다. 업데이트가 완료되면 NetBird가 자동으로 다시 시작됩니다."
+    },
+    "update.overlay.error.timeoutTitle": {
+        "message": "업데이트가 너무 오래 걸립니다"
+    },
+    "update.overlay.error.timeoutDescription": {
+        "message": "{target} 설치가 너무 오래 걸려 완료되지 않았습니다."
+    },
+    "update.overlay.error.canceledTitle": {
+        "message": "업데이트가 중지됨"
+    },
+    "update.overlay.error.canceledDescription": {
+        "message": "{target}(으)로의 업데이트가 완료되기 전에 취소되었습니다."
+    },
+    "update.overlay.error.failTitle": {
+        "message": "업데이트를 설치할 수 없습니다"
+    },
+    "update.overlay.error.failDescription": {
+        "message": "{target}을(를) 설치할 수 없습니다."
+    },
+    "update.overlay.error.unknownMessage": {
+        "message": "알 수 없는 오류"
+    },
+    "update.overlay.error.targetVersion": {
+        "message": "v{version}"
+    },
+    "update.overlay.error.targetFallback": {
+        "message": "새 버전"
+    },
+    "update.error.loadStateTitle": {
+        "message": "업데이트 상태 로드 실패"
+    },
+    "update.error.triggerTitle": {
+        "message": "업데이트 시작 실패"
+    },
+    "update.page.versionLine": {
+        "message": "클라이언트를 {version}(으)로 업데이트하는 중."
+    },
+    "update.page.versionLineGeneric": {
+        "message": "클라이언트 업데이트 중."
+    },
+    "update.page.outdated": {
+        "message": "클라이언트 버전이 Management에서 설정한 자동 업데이트 버전보다 오래되었습니다."
+    },
+    "update.page.status.running": {
+        "message": "업데이트 중"
+    },
+    "update.page.status.timeout": {
+        "message": "업데이트 시간이 초과되었습니다. 다시 시도해 주세요."
+    },
+    "update.page.status.canceled": {
+        "message": "업데이트가 취소되었습니다."
+    },
+    "update.page.status.failed": {
+        "message": "업데이트 실패: {message}"
+    },
+    "update.page.status.unknownError": {
+        "message": "알 수 없는 업데이트 오류"
+    },
+    "update.page.failedTitle": {
+        "message": "업데이트 실패"
+    },
+    "update.page.timeoutMessage": {
+        "message": "업데이트 시간이 초과되었습니다."
+    },
+    "update.page.dontClose": {
+        "message": "이 창을 닫지 마세요."
+    },
+    "update.page.updating": {
+        "message": "업데이트 중…"
+    },
+    "update.page.complete": {
+        "message": "업데이트 완료"
+    },
+    "update.page.failed": {
+        "message": "업데이트 실패"
+    },
+    "window.title.settings": {
+        "message": "설정"
+    },
+    "window.title.signIn": {
+        "message": "로그인"
+    },
+    "window.title.sessionExpiration": {
+        "message": "세션 만료"
+    },
+    "window.title.updating": {
+        "message": "업데이트 중"
+    },
+    "window.title.welcome": {
+        "message": "NetBird에 오신 것을 환영합니다"
+    },
+    "window.title.error": {
+        "message": "오류"
+    },
+    "welcome.title": {
+        "message": "트레이에서 NetBird를 찾으세요"
+    },
+    "welcome.titleMac": {
+        "message": "메뉴 막대에서 NetBird를 찾으세요"
+    },
+    "welcome.description": {
+        "message": "NetBird는 트레이에 있습니다. 아이콘을 클릭하여 연결하거나 프로필을 전환하거나 설정을 여세요."
+    },
+    "welcome.descriptionMac": {
+        "message": "NetBird는 메뉴 막대에 있습니다. 아이콘을 클릭하여 연결하거나 프로필을 전환하거나 설정을 여세요."
+    },
+    "welcome.continue": {
+        "message": "계속"
+    },
+    "welcome.back": {
+        "message": "뒤로"
+    },
+    "welcome.management.title": {
+        "message": "NetBird 설정"
+    },
+    "welcome.management.description": {
+        "message": "시작하려면 계속을 클릭하거나, 자체 NetBird 서버가 있는 경우 자체 호스팅을 선택하세요."
+    },
+    "welcome.management.cloud.title": {
+        "message": "NetBird Cloud"
+    },
+    "welcome.management.cloud.description": {
+        "message": "호스팅 서비스를 사용하세요. 설정이 필요하지 않습니다."
+    },
+    "welcome.management.selfHosted.title": {
+        "message": "자체 호스팅"
+    },
+    "welcome.management.selfHosted.description": {
+        "message": "자체 관리 서버에 연결하세요."
+    },
+    "welcome.management.urlLabel": {
+        "message": "관리 서버 URL"
+    },
+    "welcome.management.urlPlaceholder": {
+        "message": "https://netbird.selfhosted.com:443"
+    },
+    "welcome.management.urlInvalid": {
+        "message": "올바른 URL을 입력하세요(예: https://netbird.selfhosted.com:443)"
+    },
+    "welcome.management.urlUnreachable": {
+        "message": "서버에 연결할 수 없습니다. URL 또는 네트워크를 확인하고 올바른 것이 확실하면 계속하세요."
+    },
+    "welcome.management.checking": {
+        "message": "확인 중…"
+    },
+    "browserLogin.title": {
+        "message": "브라우저에서 로그인 완료"
+    },
+    "browserLogin.notSeeing": {
+        "message": "로그인을 완료할 수 있도록 브라우저 탭을 열었습니다. 보이지 않습니까?"
+    },
+    "browserLogin.tryAgain": {
+        "message": "다시 시도"
+    },
+    "browserLogin.openFailedTitle": {
+        "message": "브라우저 열기 실패"
+    },
+    "sessionExpiration.title": {
+        "message": "세션이 곧 만료됩니다"
+    },
+    "sessionExpiration.titleLater": {
+        "message": "세션이 만료됩니다"
+    },
+    "sessionExpiration.description": {
+        "message": "이 장치는 곧 연결이 끊어집니다. 브라우저 로그인으로 갱신하세요."
+    },
+    "sessionExpiration.descriptionLater": {
+        "message": "브라우저 로그인을 통해 이 장치를 네트워크에 연결된 상태로 유지하세요."
+    },
+    "sessionExpiration.stay": {
+        "message": "세션 갱신"
+    },
+    "sessionExpiration.authenticate": {
+        "message": "인증"
+    },
+    "sessionExpiration.logout": {
+        "message": "로그아웃"
+    },
+    "sessionExpiration.expired": {
+        "message": "세션 만료"
+    },
+    "sessionExpiration.expiredDescription": {
+        "message": "장치 연결이 끊어졌습니다. 다시 연결하려면 브라우저 로그인으로 인증하세요."
+    },
+    "sessionExpiration.close": {
+        "message": "닫기"
+    },
+    "sessionExpiration.extendFailedTitle": {
+        "message": "세션 연장 실패"
+    },
+    "sessionExpiration.logoutFailedTitle": {
+        "message": "로그아웃 실패"
+    },
+    "peers.search.placeholder": {
+        "message": "이름 또는 IP로 검색"
+    },
+    "peers.filter.all": {
+        "message": "전체"
+    },
+    "peers.filter.online": {
+        "message": "온라인"
+    },
+    "peers.filter.offline": {
+        "message": "오프라인"
+    },
+    "peers.empty.title": {
+        "message": "사용 가능한 피어가 없음"
+    },
+    "peers.empty.description": {
+        "message": "사용 가능한 피어가 없거나 어느 피어에도 액세스할 수 없습니다."
+    },
+    "peers.details.domain": {
+        "message": "도메인"
+    },
+    "peers.details.netbirdIp": {
+        "message": "NetBird IP"
+    },
+    "peers.details.netbirdIpv6": {
+        "message": "NetBird IPv6"
+    },
+    "peers.details.publicKey": {
+        "message": "공개 키"
+    },
+    "peers.details.connection": {
+        "message": "연결"
+    },
+    "peers.details.latency": {
+        "message": "지연 시간"
+    },
+    "peers.details.lastHandshake": {
+        "message": "마지막 핸드셰이크"
+    },
+    "peers.details.statusSince": {
+        "message": "마지막 연결 업데이트"
+    },
+    "peers.details.bytes": {
+        "message": "바이트"
+    },
+    "peers.details.bytesSent": {
+        "message": "전송"
+    },
+    "peers.details.bytesReceived": {
+        "message": "수신"
+    },
+    "peers.details.localIce": {
+        "message": "로컬 ICE"
+    },
+    "peers.details.remoteIce": {
+        "message": "원격 ICE"
+    },
+    "peers.details.never": {
+        "message": "없음"
+    },
+    "peers.details.justNow": {
+        "message": "방금"
+    },
+    "peers.details.refresh": {
+        "message": "새로 고침"
+    },
+    "peers.status.connected": {
+        "message": "연결됨"
+    },
+    "peers.status.connecting": {
+        "message": "연결 중"
+    },
+    "peers.status.disconnected": {
+        "message": "연결 끊김"
+    },
+    "peers.details.relayAddress": {
+        "message": "릴레이"
+    },
+    "peers.details.networks": {
+        "message": "리소스"
+    },
+    "peers.details.relayed": {
+        "message": "릴레이됨"
+    },
+    "peers.details.p2p": {
+        "message": "P2P"
+    },
+    "peers.details.rosenpass": {
+        "message": "Rosenpass 활성화됨"
+    },
+    "networks.search.placeholder": {
+        "message": "네트워크 또는 도메인으로 검색"
+    },
+    "networks.filter.all": {
+        "message": "전체"
+    },
+    "networks.filter.active": {
+        "message": "활성"
+    },
+    "networks.filter.overlapping": {
+        "message": "중복"
+    },
+    "networks.empty.title": {
+        "message": "사용 가능한 리소스가 없음"
+    },
+    "networks.empty.description": {
+        "message": "사용 가능한 네트워크 리소스가 없거나 어느 리소스에도 액세스할 수 없습니다."
+    },
+    "networks.selected": {
+        "message": "선택됨"
+    },
+    "networks.unselected": {
+        "message": "선택되지 않음"
+    },
+    "networks.ips.heading": {
+        "message": "확인된 IP"
+    },
+    "networks.bulk.selectionCount": {
+        "message": "{total}개 중 {selected}개 활성"
+    },
+    "networks.bulk.enableAll": {
+        "message": "모두 활성화"
+    },
+    "networks.bulk.disableAll": {
+        "message": "모두 비활성화"
+    },
+    "exitNodes.search.placeholder": {
+        "message": "Exit Node 검색"
+    },
+    "exitNodes.none": {
+        "message": "없음"
+    },
+    "exitNodes.empty.title": {
+        "message": "사용 가능한 Exit Node가 없음"
+    },
+    "exitNodes.empty.description": {
+        "message": "이 피어와 공유된 Exit Node가 없습니다."
+    },
+    "exitNodes.card.title": {
+        "message": "Exit Node"
+    },
+    "exitNodes.card.statusActive": {
+        "message": "활성"
+    },
+    "exitNodes.card.statusInactive": {
+        "message": "비활성"
+    },
+    "exitNodes.dropdown.noneTitle": {
+        "message": "없음"
+    },
+    "exitNodes.dropdown.noneDescription": {
+        "message": "Exit Node 없이 직접 연결"
+    },
+    "quickActions.connect": {
+        "message": "연결"
+    },
+    "quickActions.disconnect": {
+        "message": "연결 해제"
+    },
+    "daemon.unavailable.title": {
+        "message": "NetBird 서비스가 실행되고 있지 않음"
+    },
+    "daemon.unavailable.description": {
+        "message": "서비스가 실행되면 앱이 자동으로 다시 연결됩니다."
+    },
+    "daemon.unavailable.docsLink": {
+        "message": "문서"
+    },
+    "daemon.outdated.title": {
+        "message": "NetBird Client가 오래됨"
+    },
+    "daemon.outdated.description": {
+        "message": "새 GUI는 이전 NetBird Client와 호환되지 않습니다. 새 애플리케이션을 사용하려면 클라이언트를 업데이트하세요."
+    },
+    "daemon.outdated.download": {
+        "message": "최신 다운로드"
+    },
+    "error.jwt_clock_skew": {
+        "message": "로그인 실패: 이 장치의 시계가 서버와 동기화되지 않았습니다. 시스템 시계를 동기화하고 다시 시도하세요."
+    },
+    "error.jwt_expired": {
+        "message": "로그인 토큰이 만료되었습니다. 다시 로그인하세요."
+    },
+    "error.jwt_signature_invalid": {
+        "message": "로그인 실패: 토큰 서명이 잘못되었습니다. 관리자에게 문의하세요."
+    },
+    "error.session_expired": {
+        "message": "세션이 만료되었습니다. 다시 로그인하세요."
+    },
+    "error.invalid_setup_key": {
+        "message": "Setup Key가 없거나 잘못되었습니다."
+    },
+    "error.permission_denied": {
+        "message": "서버에서 로그인이 거부되었습니다."
+    },
+    "error.daemon_unreachable": {
+        "message": "NetBird 데몬이 응답하지 않습니다. 서비스가 실행 중인지 확인하세요."
+    },
+    "error.unknown": {
+        "message": "작업이 실패했습니다."
+    },
+    "settings.ssh.privilege.hint": {
+        "message": "{actor}이(가) 필요합니다. 대신 이것을 실행하세요:"
+    },
+    "settings.ssh.privilege.oneWay": {
+        "message": "이것을 끌 수 있지만, 다시 켜려면 {actor}이(가) 필요합니다:"
+    },
+    "settings.ssh.privilege.oneWayInverted": {
+        "message": "이것을 켤 수 있지만, 다시 끄려면 {actor}이(가) 필요합니다:"
+    }
+}
