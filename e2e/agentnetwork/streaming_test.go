@@ -66,9 +66,14 @@ func TestStreamingResponseMetersInputTokens(t *testing.T) {
 	// prices the full input count rather than a remainder.
 	wantInput := float64(harness.VLLMStreamInputTokens) / 1000 * streamInRate
 	wantOutput := float64(harness.VLLMStreamOutputTokens) / 1000 * streamOutRate
+	wantCacheRead := float64(harness.VLLMStreamCacheReadTokens) / 1000 * streamCacheReadRate
 	assert.InDelta(t, wantInput, row.InputCostUsd, 1e-6, "input cost must price the streamed input tokens")
 	assert.InDelta(t, wantOutput, row.OutputCostUsd, 1e-6, "output cost must price the streamed output tokens")
-	assert.Greater(t, row.CostUsd, 0.0, "a streamed request must never record as free")
+	// The total, not merely a positive number: input and output alone are
+	// positive, so a cache bucket parsed and then never billed would pass any
+	// weaker assertion. The gap is 7e-6, well outside the delta.
+	assert.InDelta(t, wantInput+wantOutput+wantCacheRead, row.CostUsd, 1e-6,
+		"the recorded cost must be every bucket the surface bills, cache reads included")
 }
 
 // TestStreamingOnGatewayTypedProvider drives the same streamed Anthropic call

@@ -181,22 +181,37 @@ const accessLogIngestWindow = 30 * time.Second
 func lookupAccessLogBySession(ctx context.Context, sessionID string, within time.Duration) (api.AgentNetworkAccessLog, bool) {
 	deadline := time.Now().Add(within)
 	for {
-		if logs, lerr := srv.ListAccessLogs(ctx); lerr == nil {
+		// Each poll is bounded by what is left of the window rather than by the
+		// caller's context: a single stalled request would otherwise hold the
+		// loop open long past the ingest window it is meant to enforce, and the
+		// caller would read the delay as a missing row.
+		if logs, lerr := listAccessLogsBy(ctx, deadline); lerr == nil {
 			for _, r := range logs.Data {
 				if r.SessionId != nil && *r.SessionId == sessionID {
 					return r, true
 				}
 			}
 		}
-		if time.Now().After(deadline) {
-			return api.AgentNetworkAccessLog{}, false
-		}
 		select {
 		case <-ctx.Done():
 			return api.AgentNetworkAccessLog{}, false
 		case <-time.After(2 * time.Second):
 		}
+		// Checked after the wait rather than before the request: a poll issued
+		// past the deadline carries no budget and would fail on arrival.
+		if !time.Now().Before(deadline) {
+			return api.AgentNetworkAccessLog{}, false
+		}
 	}
+}
+
+// listAccessLogsBy fetches one access-log page under a context that expires at
+// deadline, so no single call can outlive the window its caller is polling
+// within. The parent's cancellation still applies: the child inherits it.
+func listAccessLogsBy(ctx context.Context, deadline time.Time) (api.AgentNetworkAccessLogsResponse, error) {
+	reqCtx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+	return srv.ListAccessLogs(reqCtx)
 }
 
 // findAccessLogBySession polls the access-log page for the row carrying
