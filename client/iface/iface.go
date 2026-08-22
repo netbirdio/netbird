@@ -246,6 +246,30 @@ func (w *WGIface) Close() error {
 	return errors.FormatErrorOrNil(result)
 }
 
+// CloseKeepInterface closes the tunnel like Close, but leaves the OS-level
+// interface in place instead of destroying it, so a follow-up process (e.g.
+// after an in-place binary upgrade) can reuse it. Only kernel-mode WireGuard
+// devices actually preserve anything; other implementations just close.
+func (w *WGIface) CloseKeepInterface() error {
+	w.mu.Lock()
+
+	var result *multierror.Error
+
+	if err := w.wgProxyFactory.Free(); err != nil {
+		result = multierror.Append(result, fmt.Errorf("failed to free WireGuard proxy: %w", err))
+	}
+
+	// See the comment in Close for why w.mu is released before the device call.
+	tun := w.tun
+	w.mu.Unlock()
+
+	if err := tun.CloseKeepInterface(); err != nil {
+		result = multierror.Append(result, fmt.Errorf("failed to close wireguard interface %s: %w", w.Name(), err))
+	}
+
+	return errors.FormatErrorOrNil(result)
+}
+
 // SetFilter sets packet filters for the userspace implementation
 func (w *WGIface) SetFilter(filter device.PacketFilter) error {
 	w.mu.Lock()

@@ -49,6 +49,10 @@ func (f *fakeTunDevice) Close() error {
 	return nil
 }
 
+func (f *fakeTunDevice) CloseKeepInterface() error {
+	return f.Close()
+}
+
 type fakeProxyFactory struct{}
 
 func (fakeProxyFactory) GetProxy() wgproxy.Proxy { return nil }

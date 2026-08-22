@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
@@ -227,6 +228,11 @@ type Engine struct {
 	started bool
 
 	wgInterface WGIface
+
+	// keepInterfaceOnStop, when set, makes close() leave the OS-level WireGuard
+	// interface in place instead of destroying it. Set ahead of stopping the
+	// daemon for an in-place binary upgrade, so the next process can reuse it.
+	keepInterfaceOnStop atomic.Bool
 
 	udpMux *udpmux.UniversalUDPMuxDefault
 
@@ -2061,16 +2067,34 @@ func (e *Engine) parseNATExternalIPMappings() []string {
 	return mappedIPs
 }
 
+// SetKeepInterfaceOnStop controls whether the next close() leaves the OS-level
+// WireGuard interface in place instead of destroying it. Intended for the
+// daemon stopping ahead of an in-place binary upgrade.
+func (e *Engine) SetKeepInterfaceOnStop(keep bool) {
+	e.keepInterfaceOnStop.Store(keep)
+}
+
 func (e *Engine) close() {
 	if e.afpacketCapture != nil {
 		e.afpacketCapture.Stop()
 		e.afpacketCapture = nil
 	}
 
-	log.Debugf("removing Netbird interface %s", e.config.WgIfaceName)
+	keepInterface := e.keepInterfaceOnStop.Load()
+	if keepInterface {
+		log.Infof("closing Netbird interface %s, keeping the OS-level interface for reuse", e.config.WgIfaceName)
+	} else {
+		log.Debugf("removing Netbird interface %s", e.config.WgIfaceName)
+	}
 
 	if e.wgInterface != nil {
-		if err := e.wgInterface.Close(); err != nil {
+		var err error
+		if keepInterface {
+			err = e.wgInterface.CloseKeepInterface()
+		} else {
+			err = e.wgInterface.Close()
+		}
+		if err != nil {
 			log.Errorf("failed closing Netbird interface %s %v", e.config.WgIfaceName, err)
 		}
 		e.wgInterface = nil
