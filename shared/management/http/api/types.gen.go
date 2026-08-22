@@ -2527,6 +2527,9 @@ type BundleParameters struct {
 	// Anonymize Whether sensitive data should be anonymized in the bundle.
 	Anonymize bool `json:"anonymize"`
 
+	// AnonymizeLevel How much the anonymizer redacts. "default" (or empty) keeps internal IP ranges, "strict" also anonymizes them.
+	AnonymizeLevel *string `json:"anonymize_level,omitempty"`
+
 	// BundleFor Whether to generate a bundle for the given timeframe.
 	BundleFor bool `json:"bundle_for"`
 
@@ -2535,6 +2538,9 @@ type BundleParameters struct {
 
 	// LogFileCount Maximum number of log files to include in the bundle.
 	LogFileCount int `json:"log_file_count"`
+
+	// UploadUrl Service URL the client requests an upload URL from before uploading the bundle. Empty selects the default upload server.
+	UploadUrl *string `json:"upload_url,omitempty"`
 }
 
 // BundleResult defines model for BundleResult.
