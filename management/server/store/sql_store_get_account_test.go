@@ -149,6 +149,7 @@ func TestGetAccount_ComprehensiveFieldValidation(t *testing.T) {
 			JWTGroupsEnabled:           true,
 			JWTGroupsClaimName:         "groups",
 			JWTAllowGroups:             []string{"allowed-group-1", "allowed-group-2"},
+			SSHJWTMaxTokenAge:          10 * time.Minute,
 			RegularUsersViewBlocked:    false,
 			Extra: &types.ExtraSettings{
 				PeerApprovalEnabled:       true,
@@ -725,6 +726,7 @@ func TestGetAccount_ComprehensiveFieldValidation(t *testing.T) {
 		assert.Len(t, retrievedAccount.Settings.JWTAllowGroups, 2, "JWTAllowGroups length mismatch")
 		assert.Contains(t, retrievedAccount.Settings.JWTAllowGroups, "allowed-group-1")
 		assert.Contains(t, retrievedAccount.Settings.JWTAllowGroups, "allowed-group-2")
+		assert.Equal(t, 10*time.Minute, retrievedAccount.Settings.SSHJWTMaxTokenAge, "SSHJWTMaxTokenAge mismatch")
 		assert.False(t, retrievedAccount.Settings.RegularUsersViewBlocked, "RegularUsersViewBlocked mismatch")
 
 		// Validate Extra Settings
