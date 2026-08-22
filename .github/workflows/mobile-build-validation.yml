@@ -43,6 +43,9 @@ jobs:
         run: /usr/local/lib/android/sdk/cmdline-tools/7.0/bin/sdkmanager --install "ndk;23.1.7779620"
       - name: install gomobile
         run: go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20251113184115-a159579294ab
+      # `gomobile init` re-installs gobind from golang.org/x/mobile@latest
+      # regardless of the pin above (cmd/gomobile/init.go: "Make sure gobind is
+      # up to date"), so this step resolves a version nobody chose, on every run.
       - name: gomobile init
         run: gomobile init
       - name: build android netbird lib
@@ -64,6 +67,8 @@ jobs:
           go-version-file: "go.mod"
       - name: install gomobile
         run: go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20251113184115-a159579294ab
+      # See the Android job: `gomobile init` re-installs gobind from
+      # golang.org/x/mobile@latest regardless of the pin above.
       - name: gomobile init
         run: gomobile init
       - name: build iOS netbird lib
