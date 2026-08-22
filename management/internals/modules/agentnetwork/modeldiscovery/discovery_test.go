@@ -255,6 +255,81 @@ func TestHostGuardResolvesAndRejectsLocalhost(t *testing.T) {
 	assert.Contains(t, err.Error(), "non-public")
 }
 
+// TestDialGuardRejectsRebindingToANonPublicAddress covers the window between
+// the two DNS lookups. checkPublicHost resolves the host, then the transport
+// resolves it again to dial; a name whose owner answers the first with a public
+// address and the second with 127.0.0.1 would otherwise pass the guard and
+// still reach loopback. The dial-time check sees whatever the second lookup
+// actually returned.
+func TestDialGuardRejectsRebindingToANonPublicAddress(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		address string
+		wantErr string
+	}{
+		{"loopback", "127.0.0.1:443", "non-public"},
+		{"cloud metadata", "169.254.169.254:80", "non-public"},
+		{"rfc1918", "10.1.2.3:443", "non-public"},
+		{"netbird overlay", "100.90.1.2:443", "non-public"},
+		{"loopback v6", "[::1]:443", "non-public"},
+		{"unresolved name", "evil.example.com:443", "not an IP"},
+		{"no port", "1.1.1.1", "unreadable"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := guardDialAddress(tc.address)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+
+	assert.NoError(t, guardDialAddress("1.1.1.1:443"), "a public address must still be dialled")
+	assert.NoError(t, guardDialAddress("[2606:4700:4700::1111]:443"))
+}
+
+// TestDialGuardIsInstalledOnTheDefaultClient pins the wiring rather than the
+// guard: a correct guard nothing calls protects nothing.
+func TestDialGuardIsInstalledOnTheDefaultClient(t *testing.T) {
+	cl := &Client{}
+	transport, ok := cl.httpClient().Transport.(*http.Transport)
+	require.True(t, ok, "the default discovery client must carry the guarded transport")
+	require.NotNil(t, transport.DialContext, "the guarded transport must dial through the guard")
+
+	_, err := transport.DialContext(context.Background(), "tcp", "127.0.0.1:9")
+	require.Error(t, err, "the guard must refuse loopback even when the caller dials it directly")
+	assert.Contains(t, err.Error(), "non-public")
+
+	// Tests point the client at a loopback server on purpose, so the opt-out
+	// has to reach the dialer too.
+	relaxed := &Client{AllowPrivateHosts: true}
+	assert.Equal(t, http.DefaultTransport, relaxed.httpClient().Transport)
+}
+
+// TestCallerInputFailuresAreMarkedInvalid keeps the handler's 400 mapping
+// honest: it branches on this sentinel, so an unmarked caller-input failure
+// silently becomes a 500.
+func TestCallerInputFailuresAreMarkedInvalid(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		req  Request
+	}{
+		{"unknown provider", Request{CatalogID: "not_a_provider", APIKey: "k"}},
+		{"unusable upstream", Request{CatalogID: "openai_api", UpstreamURL: "://", APIKey: "k"}},
+		{"missing api key", Request{CatalogID: "openai_api", UpstreamURL: "https://api.openai.com"}},
+		{"no region to read", Request{
+			CatalogID:   "bedrock_api",
+			UpstreamURL: "https://bedrock-runtime.amazonaws.com",
+			APIKey:      "aws-bearer",
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cl, _ := newStubClient(http.StatusOK, openAIListing)
+			_, err := cl.Fetch(context.Background(), tc.req)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, ErrInvalidRequest)
+		})
+	}
+}
+
 // TestEveryDiscoveryEntryHasAParser keeps the catalog and the parser table from
 // drifting: adding a Discovery block with a shape nothing parses would fail
 // only at runtime, in front of an operator.
@@ -313,6 +388,11 @@ func TestRegionFromUpstream(t *testing.T) {
 		// a region from it would build a URL pointing somewhere arbitrary.
 		{"unrelated upstream", bedrock, "https://llm.internal.example.com", ""},
 		{"vertex global host has no region segment", vertex, "https://aiplatform.googleapis.com", ""},
+		// Bedrock's regionless endpoint carries both halves of the template at
+		// once, with nothing between them. It has to read as "no region here"
+		// rather than as an inverted slice range.
+		{"bedrock regionless endpoint", bedrock, "https://bedrock-runtime.amazonaws.com", ""},
+		{"bedrock regionless without scheme", bedrock, "bedrock-runtime.amazonaws.com", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.want, regionFromUpstream(tc.entry, tc.upstream))
