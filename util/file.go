@@ -26,7 +26,7 @@ func WriteBytesWithRestrictedPermission(ctx context.Context, file string, bs []b
 		return fmt.Errorf("enforce permission: %w", err)
 	}
 
-	return writeBytes(ctx, file, err, configDir, configFileName, bs)
+	return writeBytes(ctx, file, configDir, configFileName, bs)
 }
 
 // WriteJsonWithRestrictedPermission writes JSON config object to a file. Enforces permission on the parent directory
@@ -106,10 +106,10 @@ func writeJson(ctx context.Context, file string, obj interface{}, configDir stri
 		return fmt.Errorf("marshal: %w", err)
 	}
 
-	return writeBytes(ctx, file, err, configDir, configFileName, bs)
+	return writeBytes(ctx, file, configDir, configFileName, bs)
 }
 
-func writeBytes(ctx context.Context, file string, err error, configDir string, configFileName string, bs []byte) error {
+func writeBytes(ctx context.Context, file string, configDir string, configFileName string, bs []byte) error {
 	if ctx.Err() != nil {
 		return fmt.Errorf("write bytes start: %w", ctx.Err())
 	}
