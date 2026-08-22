@@ -166,15 +166,38 @@ func TestEvalConnStatus_FullyAvailable(t *testing.T) {
 			want: guard.ConnStatusDisconnected,
 		},
 		{
-			name: "ICE up, peer uses relay but relay down -> partial (relay required, ICE ignored)",
+			name: "ICE up, relay down for this peer but the shared transport is up -> disconnected",
 			mutator: func(in *connStatusInputs) {
 				in.peerUsesRelay = true
 				in.relayConnected = false
+				in.relayTransportConnected = true
 				in.iceStatusConnecting = true
 			},
-			// relayOK = false (peer uses relay but it's down), iceUp = true
-			// first switch arm fails (relayOK false), relayUsedAndUp = false (relay down),
-			// falls into default: Disconnected.
+			// The transport is fine, so the peer itself is unreachable over relay: it may have
+			// moved to another server, and only an offer carries its new relay address.
+			want: guard.ConnStatusDisconnected,
+		},
+		{
+			name: "ICE up, the shared relay transport is down -> partial",
+			mutator: func(in *connStatusInputs) {
+				in.peerUsesRelay = true
+				in.relayConnected = false
+				in.relayTransportConnected = false
+				in.iceStatusConnecting = true
+			},
+			// ICE carries the traffic and the relay transport is restored by the relay client's
+			// own guard, not by offers, so this must not trigger the aggressive retry.
+			want: guard.ConnStatusPartiallyConnected,
+		},
+		{
+			name: "ICE down and the shared relay transport is down -> disconnected",
+			mutator: func(in *connStatusInputs) {
+				in.peerUsesRelay = true
+				in.relayConnected = false
+				in.relayTransportConnected = false
+				in.iceStatusConnecting = false
+				in.iceInProgress = false
+			},
 			want: guard.ConnStatusDisconnected,
 		},
 		{
