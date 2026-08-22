@@ -88,6 +88,8 @@ func (r *Server) Listen(cfg ListenerConfig) error {
 	errChan := make(chan error, len(r.listeners))
 	wg := sync.WaitGroup{}
 	for _, l := range r.listeners {
+		// report the peer gauges for every served transport from startup, even before the first peer
+		r.relay.metrics.RegisterTransport(string(l.Protocol()))
 		wg.Add(1)
 		go func(listener Listener) {
 			defer wg.Done()

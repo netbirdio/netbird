@@ -73,6 +73,31 @@ func TestActiveIdleSeriesPersistWithoutPeers(t *testing.T) {
 	assertCount(t, "relay_peers_idle", byTransport(t, rm, "relay_peers_idle"), map[string]int64{"ws": 0})
 }
 
+// TestRegisterTransportReportsZeroFromStart verifies a registered transport reports 0 active/idle
+// peers from startup, before any peer has connected.
+func TestRegisterTransportReportsZeroFromStart(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+
+	m, err := NewMetrics(ctx, provider.Meter("github.com/netbirdio/netbird/relay/metrics"))
+	if err != nil {
+		t.Fatalf("NewMetrics: %v", err)
+	}
+
+	m.RegisterTransport("ws") // relay serves ws, but no peer has connected yet
+
+	var rm metricdata.ResourceMetrics
+	if err := reader.Collect(ctx, &rm); err != nil {
+		t.Fatalf("collect: %v", err)
+	}
+
+	assertCount(t, "relay_peers_active", byTransport(t, rm, "relay_peers_active"), map[string]int64{"ws": 0})
+	assertCount(t, "relay_peers_idle", byTransport(t, rm, "relay_peers_idle"), map[string]int64{"ws": 0})
+}
+
 // TestRefreshActivityIgnoresDisconnectedPeer verifies a late activity event does not recreate a peer
 // that has already disconnected.
 func TestRefreshActivityIgnoresDisconnectedPeer(t *testing.T) {

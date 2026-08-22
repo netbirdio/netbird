@@ -131,6 +131,15 @@ func NewMetrics(ctx context.Context, meter metric.Meter) (*Metrics, error) {
 	return m, nil
 }
 
+// RegisterTransport records a transport the relay serves so its active/idle gauges report 0 from
+// startup - even before any peer connects - matching the pre-label behaviour where the scalar gauges
+// were always observed.
+func (m *Metrics) RegisterTransport(transport string) {
+	m.mutexActivity.Lock()
+	defer m.mutexActivity.Unlock()
+	m.seenTransports[transport] = struct{}{}
+}
+
 // PeerConnected increments the number of connected peers and increments number of idle connections
 func (m *Metrics) PeerConnected(id, transport string) {
 	m.peers.Add(m.ctx, 1, metric.WithAttributes(attribute.String("transport", transport)))
