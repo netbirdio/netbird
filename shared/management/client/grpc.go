@@ -1046,6 +1046,7 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 			RosenpassEnabled:    info.RosenpassEnabled,
 			RosenpassPermissive: info.RosenpassPermissive,
 			ServerSSHAllowed:    info.ServerSSHAllowed,
+			RemoteJobsAllowed:   info.RemoteJobsAllowed,
 
 			DisableClientRoutes: info.DisableClientRoutes,
 			DisableServerRoutes: info.DisableServerRoutes,

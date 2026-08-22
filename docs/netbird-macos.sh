@@ -56,6 +56,8 @@ NULL='__UNSET__'
 managementURL='https://api.netbird.io:443'
 preSharedKey="$NULL"                       # secret; redacted in log
 allowServerSSH='true'
+allowRemoteJobs="$NULL"
+debugBundleUploadURL="$NULL"                # HTTPS URL with a host; overrides management
 blockInbound="$NULL"
 disableAutoConnect="$NULL"
 disableAutostart="$NULL"
@@ -128,7 +130,7 @@ emit_bool() {
   case "$value" in
     true|True|TRUE|1|yes)  xml_bool='<true/>'  ; value='true'  ;;
     false|False|FALSE|0|no) xml_bool='<false/>' ; value='false' ;;
-    *) log "invalid boolean for $key: $value (must be true/false); skipping"; return ;;
+    *) log "invalid boolean for $key: $value (must be true/false)"; return 1 ;;
   esac
   printf '    <key>%s</key>\n    %s\n' "$key" "$xml_bool" >> "$PLIST_PATH.tmp"
   log "set $key = $value"
@@ -154,6 +156,12 @@ main() {
   is_set "$managementURL"             && emit_string  managementURL             "$managementURL"
   is_set "$preSharedKey"              && emit_string  preSharedKey              "$preSharedKey"
   is_set "$allowServerSSH"            && emit_bool    allowServerSSH            "$allowServerSSH"
+  # Fail closed: an invalid allowRemoteJobs value must not drop the key and
+  # leave a conflicting local opt-in active — enforce the safe default (false).
+  if is_set "$allowRemoteJobs"; then
+    emit_bool allowRemoteJobs "$allowRemoteJobs" || emit_bool allowRemoteJobs false
+  fi
+  is_set "$debugBundleUploadURL"      && emit_string  debugBundleUploadURL      "$debugBundleUploadURL"
   is_set "$blockInbound"              && emit_bool    blockInbound              "$blockInbound"
   is_set "$disableAutoConnect"        && emit_bool    disableAutoConnect        "$disableAutoConnect"
   is_set "$disableAutostart"          && emit_bool    disableAutostart          "$disableAutostart"

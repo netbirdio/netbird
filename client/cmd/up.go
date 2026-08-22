@@ -398,6 +398,17 @@ func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServ
 	return nil
 }
 
+// setBoolPtrIfChanged points dst at a copy of val when the named bool flag was
+// explicitly set on cmd. It collapses the repeated
+// "if cmd.Flag(x).Changed { field = &val }" pattern in the request builders into
+// a single call, keeping their cognitive complexity within bounds.
+func setBoolPtrIfChanged(cmd *cobra.Command, name string, dst **bool, val bool) {
+	if cmd.Flag(name).Changed {
+		dst2 := val
+		*dst = &dst2
+	}
+}
+
 func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, profileName, username string) *proto.SetConfigRequest {
 	var req proto.SetConfigRequest
 	req.ProfileName = profileName
@@ -421,6 +432,7 @@ func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, pro
 	if cmd.Flag(serverSSHAllowedFlag).Changed {
 		req.ServerSSHAllowed = &serverSSHAllowed
 	}
+	setBoolPtrIfChanged(cmd, remoteJobsAllowedFlag, &req.RemoteJobsAllowed, remoteJobsAllowed)
 	if cmd.Flag(enableSSHRootFlag).Changed {
 		req.EnableSSHRoot = &enableSSHRoot
 	}
@@ -523,6 +535,7 @@ func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configFil
 	if cmd.Flag(serverSSHAllowedFlag).Changed {
 		ic.ServerSSHAllowed = &serverSSHAllowed
 	}
+	setBoolPtrIfChanged(cmd, remoteJobsAllowedFlag, &ic.RemoteJobsAllowed, remoteJobsAllowed)
 
 	if cmd.Flag(enableSSHRootFlag).Changed {
 		ic.EnableSSHRoot = &enableSSHRoot
@@ -648,6 +661,7 @@ func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte
 	if cmd.Flag(serverSSHAllowedFlag).Changed {
 		loginRequest.ServerSSHAllowed = &serverSSHAllowed
 	}
+	setBoolPtrIfChanged(cmd, remoteJobsAllowedFlag, &loginRequest.RemoteJobsAllowed, remoteJobsAllowed)
 
 	if cmd.Flag(enableSSHRootFlag).Changed {
 		loginRequest.EnableSSHRoot = &enableSSHRoot
