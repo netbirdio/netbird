@@ -5381,11 +5381,38 @@ components:
           example: "EU Anthropic Claude Haiku 4.5"
         pricing_known:
           type: boolean
-          description: Whether NetBird's shipped pricing table can price this model. When false the operator must set input/output rates, or requests to it would record a cost of zero.
+          description: Whether NetBird's shipped pricing table can price this model. When false the rates below are all zero and the operator must set them, or requests to this model would record a cost of zero.
           example: true
+        input_per_1k:
+          type: number
+          format: double
+          description: Default input token price per 1k tokens, in USD, from the same table the proxy bills with. Zero when pricing_known is false.
+          example: 0.005
+        output_per_1k:
+          type: number
+          format: double
+          description: Default output token price per 1k tokens, in USD. Zero when pricing_known is false.
+          example: 0.015
+        cached_input_per_1k:
+          type: number
+          format: double
+          description: OpenAI-shape cache rate — default cost per 1k cached prompt tokens (a subset of input tokens), in USD. Absent when the model has no cached-input discount.
+          example: 0.000075
+        cache_read_per_1k:
+          type: number
+          format: double
+          description: Anthropic-shape cache rate — default cost per 1k cache-read tokens (additive to input tokens), in USD. Absent when the model has no cache-read rate.
+          example: 0.0003
+        cache_creation_per_1k:
+          type: number
+          format: double
+          description: Anthropic-shape cache rate — default cost per 1k cache-creation tokens (additive to input tokens), in USD. Absent when the model has no cache-creation rate.
+          example: 0.00375
       required:
         - id
         - pricing_known
+        - input_per_1k
+        - output_per_1k
     AgentNetworkCatalogProvider:
       type: object
       properties:
