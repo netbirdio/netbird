@@ -26,15 +26,6 @@ import (
 const errResolveFailed = "failed to resolve query for domain=%s: %v"
 const upstreamTimeout = 15 * time.Second
 
-// EDE info codes the forwarder emits on upstream failures so the querying
-// client can see the reason without inspecting this peer's logs. They live in
-// the RFC 8914 Private Use range (49152-65535); the Go resolver never exposes a
-// real upstream EDE here, so these cannot collide with a genuine code.
-const (
-	edeNetbirdUpstreamTimeout uint16 = 49152
-	edeNetbirdUpstreamFailure uint16 = 49153
-)
-
 type resolver interface {
 	LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error)
 	LookupMX(ctx context.Context, name string) ([]*net.MX, error)
@@ -216,6 +207,9 @@ func (f *DNSForwarder) handleDNSQuery(logger *log.Entry, w dns.ResponseWriter, q
 		qname, dns.TypeToString[question.Qtype], dns.ClassToString[question.Qclass])
 
 	resp := query.SetReply(query)
+	// Every answer here comes from a recursive lookup on this peer. SetReply
+	// leaves RA unset, which reads to a client as a server that cannot recurse.
+	resp.RecursionAvailable = true
 
 	mostSpecificResId, matchingEntries := f.getMatchingEntries(strings.TrimSuffix(qname, "."))
 	if mostSpecificResId == "" {
@@ -229,20 +223,22 @@ func (f *DNSForwarder) handleDNSQuery(logger *log.Entry, w dns.ResponseWriter, q
 
 	reqHasEdns := query.IsEdns0() != nil
 
-	switch question.Qtype {
-	case dns.TypeA, dns.TypeAAAA:
+	switch {
+	case question.Qtype == dns.TypeA || question.Qtype == dns.TypeAAAA:
 		f.handleAddressQuery(ctx, logger, w, resp, mostSpecificResId, matchingEntries, reqHasEdns, startTime)
-	case dns.TypeMX, dns.TypeTXT, dns.TypeNS, dns.TypeSRV, dns.TypeCNAME, dns.TypePTR:
+	case resutil.SupportedRecordQtype(question.Qtype):
 		f.handleRecordQuery(ctx, logger, w, resp, startTime)
 	default:
 		// The domain is routed here, so any other type is answered NODATA
 		// (NOERROR, empty answer) rather than falling back to a resolver that
 		// would poison the name with NXDOMAIN. The Extended DNS Error lets a
 		// client tell this capability-driven NODATA apart from an
-		// authoritative one. The OPT pseudo-record must not appear unless the
-		// query advertised EDNS0.
+		// authoritative one; a current client knows the type is unsupported and
+		// resolves it through its own handler chain instead of asking at all.
+		// The OPT pseudo-record must not appear unless the query advertised
+		// EDNS0.
 		if reqHasEdns {
-			attachEDE(resp, dns.ExtendedErrorCodeNotSupported, "netbird forwarder: unsupported query type")
+			resutil.AttachEDE(resp, dns.ExtendedErrorCodeNotSupported, "netbird forwarder: unsupported query type")
 		}
 		f.writeResponse(logger, w, resp, qname, startTime)
 	}
@@ -441,7 +437,7 @@ func (f *DNSForwarder) handleDNSError(
 	}
 
 	if reqHasEdns {
-		attachEDE(resp, edeCodeFor(dnsErr), edeText(dnsErr))
+		resutil.AttachEDE(resp, edeCodeFor(dnsErr), edeText(dnsErr))
 	}
 
 	f.writeResponse(logger, w, resp, domain, startTime)
@@ -488,9 +484,9 @@ func (f *DNSForwarder) getMatchingEntries(domain string) (route.ResID, []*Forwar
 // edeCodeFor maps an upstream lookup error to the NetBird EDE info code.
 func edeCodeFor(dnsErr *net.DNSError) uint16 {
 	if dnsErr != nil && dnsErr.IsTimeout {
-		return edeNetbirdUpstreamTimeout
+		return resutil.EDENetbirdUpstreamTimeout
 	}
-	return edeNetbirdUpstreamFailure
+	return resutil.EDENetbirdUpstreamFailure
 }
 
 // edeText builds the EDE extra-text describing the class of upstream failure.
@@ -502,15 +498,4 @@ func edeText(dnsErr *net.DNSError) string {
 		return "netbird forwarder: upstream timeout"
 	}
 	return "netbird forwarder: upstream failure"
-}
-
-// attachEDE adds an Extended DNS Error (RFC 8914) option to the response,
-// creating the OPT pseudo-record if the response does not already carry one.
-func attachEDE(resp *dns.Msg, code uint16, text string) {
-	opt := resp.IsEdns0()
-	if opt == nil {
-		resp.SetEdns0(dns.DefaultMsgSize, false)
-		opt = resp.IsEdns0()
-	}
-	opt.Option = append(opt.Option, &dns.EDNS0_EDE{InfoCode: code, ExtraText: text})
 }
