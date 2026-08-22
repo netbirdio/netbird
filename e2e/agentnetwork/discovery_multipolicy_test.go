@@ -158,11 +158,13 @@ func joinClient(t *testing.T, ctx context.Context, px *harness.Proxy, endpoint, 
 	t.Cleanup(func() { _ = cl.Terminate(context.Background()) })
 
 	require.NoError(t, cl.WaitConnected(ctx, 90*time.Second), "second client must connect to management")
-	if _, err := cl.ResolveProxyIP(ctx, endpoint); err != nil {
-		t.Fatalf("second client could not resolve the endpoint: %v", err)
-	}
+	_, err = cl.ResolveProxyIP(ctx, endpoint)
+	require.NoError(t, err, "second client could not resolve the endpoint")
+	// Guarded rather than passed straight to require: px.Logs pulls the whole
+	// proxy container log, which is only worth fetching when the wait failed.
 	if err := cl.WaitProxyPeer(ctx, 180*time.Second); err != nil {
-		t.Fatalf("second client did not see the proxy peer: %v\n=== proxy logs ===\n%s", err, px.Logs(context.Background()))
+		require.NoError(t, err, "second client did not see the proxy peer\n=== proxy logs ===\n%s",
+			px.Logs(context.Background()))
 	}
 	return cl
 }
