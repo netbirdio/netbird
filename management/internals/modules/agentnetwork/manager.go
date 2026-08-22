@@ -128,6 +128,10 @@ type managerImpl struct {
 	// modelDiscovery queries vendors for the models a credential can reach.
 	// A field rather than a package call so tests can drive it without
 	// reaching the network.
+	//
+	// One instance serves every request for the process's lifetime, so its
+	// fields must stay read-only after construction: lazy initialisation
+	// inside Fetch or httpClient would race across request goroutines.
 	modelDiscovery *modeldiscovery.Client
 
 	// reconcileCache holds the last set of synthesised proxy mappings
@@ -182,12 +186,13 @@ func (m *managerImpl) GetProvider(ctx context.Context, accountID, userID, provid
 //
 // recordID, when set, names an existing provider whose stored credential and
 // upstream are used instead of the ones in req — so the dashboard can refresh
-// the list without ever holding the key. Reading a stored credential is a read
-// of that provider, and is permission-checked as one.
+// the list without ever holding the key.
 //
 // Gated on Create rather than Read: this spends the operator's credential
 // against a third party, which is not something a read-only role should be
-// able to make the server do.
+// able to make the server do. That one check also covers reading the stored
+// record — Create is strictly stronger than Read here, and the lookup is
+// scoped to accountID, so another account's record is never reachable.
 func (m *managerImpl) DiscoverProviderModels(ctx context.Context, accountID, userID string, req modeldiscovery.Request, recordID string) ([]modeldiscovery.Model, error) {
 	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkProviders, operations.Create); err != nil {
 		return nil, err
