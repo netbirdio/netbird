@@ -25,6 +25,7 @@ import (
 	"net/netip"
 	"net/url"
 	"strings"
+	"syscall"
 	"time"
 
 	"golang.org/x/oauth2/google"
@@ -54,6 +55,13 @@ const (
 // back to the catalog list plus free-text entry rather than treating this as
 // a failure.
 var ErrNoDiscovery = errors.New("provider has no model-discovery endpoint")
+
+// ErrInvalidRequest marks a discovery failure caused by the caller's own input
+// rather than by the vendor or by this server. Every one of these is reachable
+// from a well-formed request carrying a bad field value, so the handler owes
+// the caller a 400 — a 500 would both misinform them and bury real server
+// faults in the error rate.
+var ErrInvalidRequest = errors.New("invalid discovery request")
 
 // Model is one discovered model.
 type Model struct {
@@ -98,7 +106,7 @@ type Client struct {
 func (c *Client) Fetch(ctx context.Context, req Request) ([]Model, error) {
 	entry, ok := catalog.Lookup(req.CatalogID)
 	if !ok {
-		return nil, fmt.Errorf("unknown catalog provider %q", req.CatalogID)
+		return nil, fmt.Errorf("%w: unknown catalog provider %q", ErrInvalidRequest, req.CatalogID)
 	}
 	if entry.Discovery == nil {
 		return nil, ErrNoDiscovery
@@ -161,7 +169,7 @@ func (c *Client) discoveryURL(entry catalog.Provider, req Request) (string, erro
 	if host == "" {
 		parsed, err := url.Parse(strings.TrimSpace(req.UpstreamURL))
 		if err != nil || parsed.Host == "" {
-			return "", fmt.Errorf("provider upstream %q is not a usable URL", req.UpstreamURL)
+			return "", fmt.Errorf("%w: provider upstream %q is not a usable URL", ErrInvalidRequest, req.UpstreamURL)
 		}
 		host = parsed.Host
 	}
@@ -174,7 +182,8 @@ func (c *Client) discoveryURL(entry catalog.Provider, req Request) (string, erro
 			region = regionFromUpstream(entry, req.UpstreamURL)
 		}
 		if region == "" {
-			return "", fmt.Errorf("%s discovery needs a region, and none could be read from the provider upstream", entry.Name)
+			return "", fmt.Errorf("%w: %s discovery needs a region, and none could be read from the provider upstream",
+				ErrInvalidRequest, entry.Name)
 		}
 		host = strings.ReplaceAll(host, catalog.RegionPlaceholder, region)
 	}
@@ -206,7 +215,12 @@ func regionFromUpstream(entry catalog.Provider, upstreamURL string) string {
 		// A bare host with no scheme parses as a path, not a host.
 		host = strings.TrimSpace(upstreamURL)
 	}
-	if !strings.HasPrefix(host, prefix) || !strings.HasSuffix(host, suffix) {
+	// The two halves must not overlap. "bedrock-runtime.amazonaws.com" carries
+	// both of Bedrock's — it is the regionless endpoint — and satisfies both
+	// checks above while leaving nothing between them, so slicing it would
+	// panic on an inverted range rather than report "no region here".
+	if !strings.HasPrefix(host, prefix) || !strings.HasSuffix(host, suffix) ||
+		len(host) < len(prefix)+len(suffix) {
 		return ""
 	}
 	region := host[len(prefix) : len(host)-len(suffix)]
@@ -240,7 +254,7 @@ func (c *Client) checkPublicHost(host string) error {
 	// loopback address is still a way to reach loopback.
 	for _, addr := range addrs {
 		if !isPublic(addr) {
-			return fmt.Errorf("discovery host %q resolves to a non-public address", host)
+			return fmt.Errorf("%w: discovery host %q resolves to a non-public address", ErrInvalidRequest, host)
 		}
 	}
 	return nil
@@ -277,7 +291,7 @@ func isPublic(addr netip.Addr) bool {
 func applyAuth(req *http.Request, entry catalog.Provider, apiKey string) error {
 	key := strings.TrimSpace(apiKey)
 	if key == "" {
-		return fmt.Errorf("%s discovery needs an API key", entry.Name)
+		return fmt.Errorf("%w: %s discovery needs an API key", ErrInvalidRequest, entry.Name)
 	}
 	if rest, ok := strings.CutPrefix(key, vertexKeyfilePrefix); ok {
 		token, err := mintGCPToken(req.Context(), rest)
@@ -347,12 +361,73 @@ func (c *Client) httpClient() *http.Client {
 	if c.HTTPClient != nil {
 		return c.HTTPClient
 	}
+	transport := guardedTransport
+	if c.AllowPrivateHosts {
+		transport = http.DefaultTransport
+	}
 	return &http.Client{
-		Timeout: fetchTimeout,
+		Timeout:   fetchTimeout,
+		Transport: transport,
 		// A redirect is a way to move the request to a host the guard above
 		// never checked, so none are followed.
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
 	}
+}
+
+// guardedTransport dials only addresses isPublic accepts.
+//
+// checkPublicHost resolves the host itself, and the transport then resolves it
+// again when it dials — two lookups of a name whose owner chooses the answers.
+// A record that returns a public address to the first and 127.0.0.1 to the
+// second passes the guard and reaches loopback anyway, which is the whole of
+// DNS rebinding. Re-checking at the socket closes that window: whatever the
+// second lookup returned is what Control is handed, and an address the guard
+// refuses never gets connected.
+//
+// Shared package-wide rather than built per Fetch so connections and their
+// pool survive between calls; the guard holds no state.
+var guardedTransport = newGuardedTransport()
+
+func newGuardedTransport() http.RoundTripper {
+	base, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		// Something replaced the default transport. Fall back to it rather
+		// than dropping its behaviour, and rely on checkPublicHost alone.
+		return http.DefaultTransport
+	}
+	// Cloned so proxy settings, TLS defaults and timeouts come from the
+	// standard transport rather than being restated here.
+	transport := base.Clone()
+	dialer := &net.Dialer{
+		Timeout:   fetchTimeout,
+		KeepAlive: 30 * time.Second,
+		Control: func(_, address string, _ syscall.RawConn) error {
+			return guardDialAddress(address)
+		},
+	}
+	transport.DialContext = dialer.DialContext
+	return transport
+}
+
+// guardDialAddress refuses a resolved socket address the discovery client has
+// no business connecting to. Control hands it over post-resolution and
+// pre-connect, once per address the dialer tries, so a name with several A
+// records is checked at each one.
+func guardDialAddress(address string) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return fmt.Errorf("discovery dial address %q is unreadable", address)
+	}
+	addr, err := netip.ParseAddr(host)
+	if err != nil {
+		// Control is documented to receive a resolved address; anything else
+		// is a state we cannot vet, so it does not get dialled.
+		return fmt.Errorf("discovery dial address %q is not an IP", host)
+	}
+	if !isPublic(addr) {
+		return fmt.Errorf("discovery refused to dial non-public address %s", addr)
+	}
+	return nil
 }

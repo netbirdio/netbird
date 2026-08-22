@@ -79,14 +79,18 @@ func (h *handler) discoverProviderModels(w http.ResponseWriter, r *http.Request)
 		util.WriteErrorResponse("invalid json", http.StatusBadRequest, w)
 		return
 	}
-	if strings.TrimSpace(body.CatalogProviderId) == "" {
+	// Trimmed once and carried, not trimmed for the emptiness test and then
+	// discarded: a padded " openai_api " would clear the check here and miss
+	// the catalog lookup, reporting the provider as unknown.
+	catalogID := strings.TrimSpace(body.CatalogProviderId)
+	if catalogID == "" {
 		util.WriteErrorResponse("catalog_provider_id is required", http.StatusBadRequest, w)
 		return
 	}
 
 	recordID := strValue(body.ProviderId)
 	req := modeldiscovery.Request{
-		CatalogID:   body.CatalogProviderId,
+		CatalogID:   catalogID,
 		UpstreamURL: strValue(body.UpstreamUrl),
 		APIKey:      strValue(body.ApiKey),
 	}
@@ -105,6 +109,14 @@ func (h *handler) discoverProviderModels(w http.ResponseWriter, r *http.Request)
 		// models, so it must be able to tell the two apart.
 		if errors.Is(err, modeldiscovery.ErrNoDiscovery) {
 			util.WriteErrorResponse(err.Error(), http.StatusUnprocessableEntity, w)
+			return
+		}
+		// An unknown provider, an unusable upstream, a missing region or a
+		// missing key are all things the caller sent, reachable from a
+		// well-formed request. Reporting them as 500 tells the operator the
+		// server broke and buries genuine faults in the error rate.
+		if errors.Is(err, modeldiscovery.ErrInvalidRequest) {
+			util.WriteErrorResponse(err.Error(), http.StatusBadRequest, w)
 			return
 		}
 		util.WriteError(r.Context(), err, w)

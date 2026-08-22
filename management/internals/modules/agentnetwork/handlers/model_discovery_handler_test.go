@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -120,6 +121,32 @@ func TestDiscoverModelsReportsNoDiscoveryDistinctly(t *testing.T) {
 
 	rec := postDiscovery(t, stub, `{"catalog_provider_id":"litellm_proxy","upstream_url":"https://gw.example.com","api_key":"sk"}`)
 	assert.Equal(t, http.StatusUnprocessableEntity, rec.Code)
+}
+
+// TestDiscoverModelsTrimsTheCatalogID pins that the id the emptiness check
+// accepts is the id the manager receives. A padded value that clears the check
+// but reaches the catalog untrimmed misses the lookup, and the operator is told
+// their provider does not exist.
+func TestDiscoverModelsTrimsTheCatalogID(t *testing.T) {
+	stub := &discoveryManagerStub{}
+
+	rec := postDiscovery(t, stub, `{"catalog_provider_id":"  openai_api  ","api_key":"sk"}`)
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+	assert.Equal(t, "openai_api", stub.gotReq.CatalogID)
+}
+
+// TestDiscoverModelsReportsCallerInputAsBadRequest covers the other half of the
+// error mapping. These failures are all reachable from a well-formed request
+// with a bad field value, so answering 500 both misinforms the operator and
+// puts their typo into the server's error rate.
+func TestDiscoverModelsReportsCallerInputAsBadRequest(t *testing.T) {
+	stub := &discoveryManagerStub{
+		err: fmt.Errorf("%w: unknown catalog provider %q", modeldiscovery.ErrInvalidRequest, "nope"),
+	}
+
+	rec := postDiscovery(t, stub, `{"catalog_provider_id":"nope","api_key":"sk"}`)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "unknown catalog provider")
 }
 
 func TestDiscoverModelsRejectsMalformedRequests(t *testing.T) {
