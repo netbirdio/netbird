@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -292,6 +293,27 @@ func (cl *Client) ChatPrefixed(ctx context.Context, endpoint, proxyIP, pathPrefi
 	return cl.post(ctx, endpoint, proxyIP, pathPrefix+path, body, withSessionID(headers, sessionID))
 }
 
+// ChatStream is Chat with "stream": true in the request body, so the proxy's
+// request parser marks the call as streaming and its response parser takes the
+// SSE accumulator rather than the buffered-body path. Pair it with a provider
+// pointed at VLLM.StreamURL, which answers every request as an event stream.
+func (cl *Client) ChatStream(ctx context.Context, endpoint, proxyIP, kind, model, prompt, sessionID string) (int, string, error) {
+	var path, body string
+	var headers []string
+	switch kind {
+	case WireMessages:
+		path = "/v1/messages"
+		headers = []string{"anthropic-version: 2023-06-01"}
+		body = fmt.Sprintf(`{"model":%q,"max_tokens":2048,"stream":true,"messages":[{"role":"user","content":%q}]}`, model, prompt)
+	default:
+		path = "/v1/chat/completions"
+		// include_usage is what makes a real OpenAI stream emit its final usage
+		// frame; without it the last chunk carries no tokens at all.
+		body = fmt.Sprintf(`{"model":%q,"stream":true,"stream_options":{"include_usage":true},"messages":[{"role":"user","content":%q}]}`, model, prompt)
+	}
+	return cl.post(ctx, endpoint, proxyIP, path, body, withSessionID(headers, sessionID))
+}
+
 // Vertex issues an Anthropic-on-Vertex rawPredict POST over the tunnel. Unlike
 // Chat, the model is carried in the request path (project/region/model), so the
 // proxy routes by path and mints the service-account OAuth token; the body uses
@@ -322,10 +344,29 @@ func withSessionID(headers []string, sessionID string) []string {
 	return append(headers, "x-session-id: "+sessionID)
 }
 
-// post runs curl in a throwaway container sharing the client's network
-// namespace so the request traverses the WireGuard tunnel, pinning the endpoint
-// to the proxy IP. It returns the HTTP status and response body.
+// Get issues a GET to the agent-network endpoint over the client's tunnel.
+// Model discovery and the connection-warming probe are read-only endpoints
+// that carry no body, so they can't go through the chat helpers.
+func (cl *Client) Get(ctx context.Context, endpoint, proxyIP, path string, extraHeaders []string) (int, string, error) {
+	return cl.do(ctx, http.MethodGet, endpoint, proxyIP, path, "", extraHeaders)
+}
+
+// PostJSON issues an arbitrary JSON POST over the client's tunnel, for wire
+// shapes the typed helpers don't cover (token counting, say).
+func (cl *Client) PostJSON(ctx context.Context, endpoint, proxyIP, path, body string, extraHeaders []string) (int, string, error) {
+	return cl.do(ctx, http.MethodPost, endpoint, proxyIP, path, body, extraHeaders)
+}
+
+// post issues a JSON POST. Retained as the shorthand the chat helpers use.
 func (cl *Client) post(ctx context.Context, endpoint, proxyIP, path, body string, extraHeaders []string) (int, string, error) {
+	return cl.do(ctx, http.MethodPost, endpoint, proxyIP, path, body, extraHeaders)
+}
+
+// do runs curl in a throwaway container sharing the client's network
+// namespace so the request traverses the WireGuard tunnel, pinning the endpoint
+// to the proxy IP. It returns the HTTP status and response body. An empty body
+// sends no payload, which is what a GET needs.
+func (cl *Client) do(ctx context.Context, method, endpoint, proxyIP, path, body string, extraHeaders []string) (int, string, error) {
 	url := "https://" + endpoint + path
 	args := []string{
 		"run", "--rm",
@@ -334,13 +375,15 @@ func (cl *Client) post(ctx context.Context, endpoint, proxyIP, path, body string
 		"-sk", "--connect-timeout", "5", "--max-time", "90",
 		"--resolve", endpoint + ":443:" + proxyIP,
 		"-o", "/dev/stderr", "-w", "%{http_code}",
-		"-X", "POST", url,
+		"-X", method, url,
 		"-H", "Content-Type: application/json",
 	}
 	for _, h := range extraHeaders {
 		args = append(args, "-H", h)
 	}
-	args = append(args, "--data", body)
+	if body != "" {
+		args = append(args, "--data", body)
+	}
 	cmd := exec.CommandContext(ctx, "docker", args...)
 	// -w writes the status code to stdout; -o /dev/stderr writes the body to
 	// stderr so we can capture both separately.
