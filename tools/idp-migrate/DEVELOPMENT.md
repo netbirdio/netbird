@@ -127,7 +127,7 @@ Unless `--skip-config` is set, `generateConfig()` runs:
 3. **Add EmbeddedIdP** — inserts a minimal section with:
    - `Enabled: true`
    - `Issuer` built from `--api-domain` + `/oauth2`
-   - `DashboardRedirectURIs` built from `--dashboard-domain` + `/nb-auth` and `/nb-silent-auth`
+   - `DashboardRedirectURIs` built from `--dashboard-domain` + `/#callback` and `/#silent-callback`
    - `StaticConnectors` containing the decoded connector, with `redirectURI` overridden to `--api-domain` + `/oauth2/callback`
 
 4. **Write** — backs up original as `management.json.bak`, writes new config. In dry-run mode, prints to stdout instead.
