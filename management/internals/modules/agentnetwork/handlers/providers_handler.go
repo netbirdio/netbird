@@ -125,7 +125,20 @@ func (h *handler) discoverProviderModels(w http.ResponseWriter, r *http.Request)
 
 	out := api.AgentNetworkModelDiscoveryResponse{Models: make([]api.AgentNetworkDiscoveredModel, 0, len(models))}
 	for _, m := range models {
-		entry := api.AgentNetworkDiscoveredModel{Id: m.ID, PricingKnown: m.PricingKnown}
+		entry := api.AgentNetworkDiscoveredModel{
+			Id:           m.ID,
+			PricingKnown: m.PricingKnown,
+			// Sent even when zero: the form prefills every discovered model as
+			// an editable row, and an unpriced one is shown at zero and flagged
+			// rather than left out.
+			InputPer1k:  m.InputPer1k,
+			OutputPer1k: m.OutputPer1k,
+			// Cache rates stay absent when unset, matching the catalog
+			// response — a zero would read as "free", not "not applicable".
+			CachedInputPer1k:   positiveRatePtr(m.CachedInputPer1k),
+			CacheReadPer1k:     positiveRatePtr(m.CacheReadPer1k),
+			CacheCreationPer1k: positiveRatePtr(m.CacheCreationPer1k),
+		}
 		if m.Label != "" {
 			label := m.Label
 			entry.Label = &label
