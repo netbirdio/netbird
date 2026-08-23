@@ -131,3 +131,45 @@ func TestBedrockListingWithoutADiscoveryHostFallsThrough(t *testing.T) {
 
 	assert.Equal(t, "bedrock.internal.example.com", out.Mutations.RewriteUpstream.Host)
 }
+
+// TestBedrockProfileDetailHonoursTheModelTable covers GetInferenceProfile,
+// which the listing filter cannot help with: it answers for one profile with a
+// single object, not a set, so nothing narrows it on the way back. Authorising
+// it by provider type alone would let any caller with a Bedrock route read the
+// full configuration of every profile in the account.
+//
+// Both registration spellings are exercised, because a record may carry the
+// raw profile id AWS issues or the catalog key it reduces to.
+func TestBedrockProfileDetailHonoursTheModelTable(t *testing.T) {
+	const permitted = "eu.anthropic.claude-sonnet-5-20260514-v1:0"
+
+	for _, registered := range []string{permitted, "anthropic.claude-sonnet-5"} {
+		t.Run(registered, func(t *testing.T) {
+			mw := New(Config{Providers: []ProviderRoute{bedrockRoute([]string{registered}, nil)}})
+
+			out, err := mw.Invoke(context.Background(), getInput("/inference-profiles/"+permitted))
+			require.NoError(t, err)
+			assert.Equal(t, middleware.DecisionAllow, out.Decision,
+				"a profile the record registers must still resolve")
+
+			denied, err := mw.Invoke(context.Background(),
+				getInput("/inference-profiles/eu.anthropic.claude-opus-5-20260514-v1:0"))
+			require.NoError(t, err)
+			assert.Equal(t, middleware.DecisionDeny, denied.Decision,
+				"a profile outside the record's models must not be readable")
+		})
+	}
+}
+
+// TestBedrockProfileListingStaysModelLess pins the other half: the listing
+// names no profile, so it must not be judged against the model table. It is
+// bounded by DiscoveryModels in the response instead, and denying it here
+// would take model discovery away from exactly the records that enumerate
+// their models.
+func TestBedrockProfileListingStaysModelLess(t *testing.T) {
+	mw := New(Config{Providers: []ProviderRoute{bedrockRoute([]string{"anthropic.claude-sonnet-5"}, nil)}})
+
+	out, err := mw.Invoke(context.Background(), getInput("/inference-profiles"))
+	require.NoError(t, err)
+	assert.Equal(t, middleware.DecisionAllow, out.Decision)
+}
