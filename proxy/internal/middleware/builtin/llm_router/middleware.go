@@ -109,6 +109,10 @@ func (m *Middleware) MetadataKeys() []string {
 		middleware.KeyLLMAuthorisingGroups,
 		middleware.KeyLLMPolicyDecision,
 		middleware.KeyLLMPolicyReason,
+		middleware.KeyLLMNonInference,
+		// Emitted only for the per-model lookup, whose model lives in the path
+		// rather than a body the parser could read.
+		middleware.KeyLLMModel,
 	}
 }
 
@@ -137,29 +141,26 @@ const (
 // known to a provider that no policy authorises for the caller deny
 // with no_authorised_provider.
 func (m *Middleware) Invoke(_ context.Context, in *middleware.Input) (*middleware.Output, error) {
+	reqPath := requestPath(in.URL)
+	// The caller's API dialect, used to mirror a denial in the vendor's own
+	// error shape so the client can explain it to the user.
+	surface, _ := lookupMetadata(in.Metadata, middleware.KeyLLMProvider)
+	model, _ := lookupMetadata(in.Metadata, middleware.KeyLLMModel)
+
 	// Vertex AI carries the model in the URL path, not the body, and is
 	// selected by path rather than by the model/vendor table. Route it before
 	// the model lookup so a model the parser extracted from the path can't be
 	// claimed by a same-vendor direct provider (e.g. claude-* on api.anthropic.com).
-	reqPath := requestPath(in.URL)
 	if isVertexPath(reqPath) {
-		model, _ := lookupMetadata(in.Metadata, middleware.KeyLLMModel)
 		// The request parser emits no llm.provider for a Vertex publisher it
 		// can't parse (e.g. google/gemini). Forwarding such a request would
 		// bypass token/budget metering, so deny it rather than serve it
 		// unmetered.
-		if vendor, _ := lookupMetadata(in.Metadata, middleware.KeyLLMProvider); vendor == "" {
-			return denyUnmeterable(), nil
+		if surface == "" {
+			return denyUnmeterable(surface), nil
 		}
 		route, outcome := m.matchVertex(reqPath, model, in.UserGroups)
-		switch outcome {
-		case matchOutcomeFound:
-			return m.allowWithRoute(route, in.UserGroups), nil
-		case matchOutcomeUnauthorised:
-			return denyNoAuthorisedRoute(model), nil
-		default:
-			return denyUnknownModel(model), nil
-		}
+		return m.decide(route, outcome, surface, model, in.UserGroups, nil), nil
 	}
 
 	// Bedrock likewise carries the model in the URL path (/model/{id}/{action}),
@@ -167,52 +168,120 @@ func (m *Middleware) Invoke(_ context.Context, in *middleware.Input) (*middlewar
 	// before the model lookup; when the prefix is present, strip it from the
 	// forwarded path so the real Bedrock endpoint receives its native path.
 	if isBedrockPath(reqPath) {
-		model, _ := lookupMetadata(in.Metadata, middleware.KeyLLMModel)
 		native, hadPrefix := splitBedrockNamespace(reqPath)
 		route, outcome := m.matchBedrock(native, model, in.UserGroups)
-		switch outcome {
-		case matchOutcomeFound:
-			out := m.allowWithRoute(route, in.UserGroups)
-			if hadPrefix && out.Mutations != nil && out.Mutations.RewriteUpstream != nil {
-				out.Mutations.RewriteUpstream.StripPathPrefix = bedrockNamespacePrefix
+		return m.decide(route, outcome, surface, model, in.UserGroups, func(out *middleware.Output) {
+			if hadPrefix {
+				stripBedrockNamespace(out)
 			}
-			return out, nil
-		case matchOutcomeUnauthorised:
-			return denyNoAuthorisedRoute(model), nil
-		default:
-			return denyUnknownModel(model), nil
-		}
+		}), nil
 	}
 
-	model, ok := lookupMetadata(in.Metadata, middleware.KeyLLMModel)
-	if !ok || model == "" {
-		// Non-inference endpoints (model listing) carry no model but still
-		// need rewriting from the synth placeholder to a real upstream;
-		// clients such as Codex call GET /v1/models at startup to enumerate
-		// availability and read a 403 as "model unavailable".
-		route, outcome := m.matchModelless(requestPath(in.URL), in.UserGroups)
-		switch outcome {
-		case matchOutcomeFound:
-			return m.allowWithRoute(route, in.UserGroups), nil
-		case matchOutcomeUnauthorised:
-			// A recognised model-less endpoint exists but no provider
-			// authorises the caller — deny as an authorisation failure
-			// rather than masking it as a missing model.
-			return denyNoAuthorisedRoute(model), nil
-		default:
-			return denyMissingModel(), nil
-		}
+	// GET /v1/models/{id} carries no body, so no model reaches the router in
+	// metadata — but the path names one, and answering it confirms a model
+	// exists and is reachable. Authorise it against the model table like any
+	// other per-model request, then mark it non-inference so it still skips
+	// the token pre-flight it would otherwise charge nothing against.
+	if detail, isDetail := modelDetailID(reqPath); isDetail && isNonInferenceMethod(in.Method) {
+		route, outcome := m.matchRoute(detail, surface, reqPath, in.UserGroups)
+		return m.decide(route, outcome, surface, detail, in.UserGroups, func(out *middleware.Output) {
+			markNonInference(out)
+			// The parser reads models from JSON bodies only, and this request
+			// has none, so stamp the one the path names. Without it the
+			// guardrail's own allowlist — a separate, possibly narrower list
+			// than the route's — never sees a model to check.
+			out.Metadata = append(out.Metadata, middleware.KV{Key: middleware.KeyLLMModel, Value: detail})
+		}), nil
 	}
 
-	vendor, _ := lookupMetadata(in.Metadata, middleware.KeyLLMProvider)
-	route, outcome := m.matchRoute(model, vendor, requestPath(in.URL), in.UserGroups)
+	if model == "" {
+		return m.routeModelless(reqPath, surface, in.Method, in.UserGroups), nil
+	}
+
+	route, outcome := m.matchRoute(model, surface, reqPath, in.UserGroups)
+	return m.decide(route, outcome, surface, model, in.UserGroups, nil), nil
+}
+
+// decide turns a per-model match result into the middleware's decision. Every
+// surface that routes by model shares the same two denial arms — a model no
+// route claims is not routable, one that some route claims but none authorises
+// for this caller is an authorisation failure — so they live here once.
+// decorate, when non-nil, adjusts the allow with whatever that surface needs.
+func (m *Middleware) decide(
+	route ProviderRoute,
+	outcome matchOutcome,
+	surface, model string,
+	userGroups []string,
+	decorate func(*middleware.Output),
+) *middleware.Output {
 	switch outcome {
 	case matchOutcomeFound:
-		return m.allowWithRoute(route, in.UserGroups), nil
+		out := m.allowWithRoute(route, surface, userGroups)
+		if decorate != nil {
+			decorate(out)
+		}
+		return out
 	case matchOutcomeUnauthorised:
-		return denyNoAuthorisedRoute(model), nil
+		return denyNoAuthorisedRoute(surface, model)
 	default:
-		return denyUnknownModel(model), nil
+		return denyUnknownModel(surface, model)
+	}
+}
+
+// routeModelless serves the endpoints that name no model at all: the model
+// listing, the connection-warming probe, and the Bedrock inference-profile
+// lookup. They still need rewriting from the synth placeholder to a real
+// upstream — clients such as Codex call GET /v1/models at startup to enumerate
+// availability and read a 403 as "model unavailable".
+func (m *Middleware) routeModelless(reqPath, surface, method string, userGroups []string) *middleware.Output {
+	route, outcome := m.matchModelless(reqPath, method, userGroups)
+	switch outcome {
+	case matchOutcomeFound:
+		out := m.allowWithRoute(route, surface, userGroups)
+		markNonInference(out)
+		if _, hadPrefix := splitBedrockNamespace(reqPath); hadPrefix {
+			stripBedrockNamespace(out)
+		}
+		// A route that enumerates its models bounds what the caller may use,
+		// so the picker must not offer the rest: every entry outside the list
+		// is a request the chain will deny.
+		if reqPath == modelListingPath && len(route.Models) > 0 &&
+			out.Mutations != nil && out.Mutations.RewriteUpstream != nil {
+			out.Mutations.RewriteUpstream.DiscoveryModels = append([]string(nil), route.Models...)
+		}
+		return out
+	case matchOutcomeUnauthorised:
+		// A recognised model-less endpoint exists but no provider authorises
+		// the caller — deny as an authorisation failure rather than masking it
+		// as a missing model.
+		return denyNoAuthorisedRoute(surface, "")
+	default:
+		return denyMissingModel(surface)
+	}
+}
+
+// isNonInferenceMethod reports whether a request method is one the
+// non-inference endpoints actually use: the listing and the per-model lookup
+// are GET, the connection-warming probe is HEAD or GET. The method is the only
+// thing separating "GET /v1/models/{id}" from a POST to the same path carrying
+// an inference body, and the non-inference mark exempts a request from the
+// token pre-flight — so anything else falls through to normal per-model
+// routing, which denies when the request names no model.
+func isNonInferenceMethod(method string) bool {
+	return method == http.MethodGet || method == http.MethodHead
+}
+
+// markNonInference tags an allow as a request that spends no tokens, so the
+// limit check skips the management pre-flight it would charge nothing against.
+func markNonInference(out *middleware.Output) {
+	out.Metadata = append(out.Metadata, middleware.KV{Key: middleware.KeyLLMNonInference, Value: "true"})
+}
+
+// stripBedrockNamespace tells the rewrite to drop the optional "/bedrock"
+// gateway namespace so the upstream receives its native Bedrock path.
+func stripBedrockNamespace(out *middleware.Output) {
+	if out.Mutations != nil && out.Mutations.RewriteUpstream != nil {
+		out.Mutations.RewriteUpstream.StripPathPrefix = bedrockNamespacePrefix
 	}
 }
 
@@ -300,12 +369,60 @@ func (m *Middleware) matchRoute(model, vendor, reqPath string, userGroups []stri
 	return best, matchOutcomeFound
 }
 
-// isModelLessPath reports whether reqPath is a known OpenAI-shaped
-// non-inference endpoint that legitimately carries no model in its
-// request (the model-listing endpoints). These must route to an upstream
-// rather than deny, so model enumeration works end to end.
+// connectionWarmPath is the probe Anthropic clients send before their first
+// inference request to open the upstream connection early. Forwarding it
+// warms the connection the request will actually use; denying it only fills
+// the access log with rejections at every session start.
+const connectionWarmPath = "/api/hello"
+
+// modelListingPath is the endpoint clients read at startup to populate
+// their model picker. Its response is a list the proxy can bound; the
+// per-model "/v1/models/{id}" lookup returns a single object and is left
+// alone.
+const modelListingPath = "/v1/models"
+
+// isModelLessPath reports whether reqPath is a known non-inference endpoint
+// that legitimately carries no model at all: the model listing and the
+// connection-warming probe. These must route to an upstream rather than
+// deny, so model enumeration works end to end. The per-model
+// "/v1/models/{id}" lookup is deliberately excluded — it names a model, so
+// it is authorised against the model table instead (see modelDetailID).
 func isModelLessPath(reqPath string) bool {
-	return reqPath == "/v1/models" || strings.HasPrefix(reqPath, "/v1/models/")
+	return reqPath == modelListingPath || reqPath == connectionWarmPath
+}
+
+// modelDetailID returns the model id named by a "/v1/models/{id}" lookup.
+// reqPath comes from url.URL.Path, which is already percent-decoded, so an
+// id carrying a "/" (a self-hosted "Qwen/Qwen2.5-0.5B-Instruct" sent as
+// "Qwen%2FQwen2.5-...") arrives whole and everything after the prefix is the
+// id, separators included.
+func modelDetailID(reqPath string) (string, bool) {
+	if !strings.HasPrefix(reqPath, modelListingPath+"/") {
+		return "", false
+	}
+	id := strings.TrimPrefix(reqPath, modelListingPath+"/")
+	if id == "" {
+		return "", false
+	}
+	return id, true
+}
+
+// isBedrockModelLessPath reports whether reqPath is a Bedrock
+// inference-profile lookup, optionally behind the "/bedrock" gateway
+// namespace. Clients read these at startup to resolve a configured profile
+// to its underlying model. They carry no model of their own, so they route
+// by path to a Bedrock provider rather than through the model table.
+//
+// On native AWS these live on the control plane ("bedrock.<region>") while a
+// provider's upstream is normally the runtime host ("bedrock-runtime.<region>"),
+// so forwarding yields a 404 there. That is deliberate: a client has one base
+// URL, so pointing it straight at the runtime host 404s identically, and
+// forwarding keeps the proxy transparent instead of inventing a policy denial
+// the client would never otherwise see. Operators whose Bedrock upstream is a
+// gateway that does serve the lookup get a working answer.
+func isBedrockModelLessPath(reqPath string) bool {
+	native, _ := splitBedrockNamespace(reqPath)
+	return native == "/inference-profiles" || strings.HasPrefix(native, "/inference-profiles/")
 }
 
 // isVertexPath reports whether reqPath is a Google Vertex AI publisher
@@ -332,20 +449,33 @@ func splitBedrockNamespace(reqPath string) (string, bool) {
 	return reqPath, false
 }
 
+// bedrockActions are the runtime actions that follow the model id in a
+// Bedrock path. count-tokens is here so a client can price its context
+// against the dedicated endpoint; denying it pushes that work back onto
+// the inference endpoint, which bills for it.
+var bedrockActions = []string{
+	"/invoke",
+	"/invoke-with-response-stream",
+	"/converse",
+	"/converse-stream",
+	"/count-tokens",
+}
+
 // isBedrockPath reports whether reqPath is an AWS Bedrock runtime model
-// endpoint: /model/{modelId}/{action} where action is invoke,
-// invoke-with-response-stream, converse, or converse-stream — optionally behind
-// a "/bedrock" gateway-namespace prefix. The model lives in the path, so these
-// requests are routed by path to the Bedrock provider.
+// endpoint: /model/{modelId}/{action} — optionally behind a "/bedrock"
+// gateway-namespace prefix. The model lives in the path, so these requests
+// are routed by path to the Bedrock provider.
 func isBedrockPath(reqPath string) bool {
 	native, _ := splitBedrockNamespace(reqPath)
 	if !strings.HasPrefix(native, "/model/") {
 		return false
 	}
-	return strings.HasSuffix(native, "/invoke") ||
-		strings.HasSuffix(native, "/invoke-with-response-stream") ||
-		strings.HasSuffix(native, "/converse") ||
-		strings.HasSuffix(native, "/converse-stream")
+	for _, action := range bedrockActions {
+		if strings.HasSuffix(native, action) {
+			return true
+		}
+	}
+	return false
 }
 
 // matchVertex selects the Vertex provider authorised for the caller's groups
@@ -425,19 +555,26 @@ func (m *Middleware) matchPathRoute(reqPath, model string, userGroups []string, 
 // declaration order), matchOutcomeUnauthorised when no provider authorises
 // the caller, or matchOutcomeUnknownModel when the path isn't a recognised
 // model-less endpoint.
-func (m *Middleware) matchModelless(reqPath string, userGroups []string) (ProviderRoute, matchOutcome) {
-	if !isModelLessPath(reqPath) {
+func (m *Middleware) matchModelless(reqPath, method string, userGroups []string) (ProviderRoute, matchOutcome) {
+	if !isNonInferenceMethod(method) {
 		return ProviderRoute{}, matchOutcomeUnknownModel
 	}
-	var candidates []ProviderRoute
-	for _, route := range m.cfg.Providers {
+	var eligible func(ProviderRoute) bool
+	switch {
+	case isBedrockModelLessPath(reqPath):
+		eligible = func(r ProviderRoute) bool { return r.Bedrock }
+	case isModelLessPath(reqPath):
 		// Vertex/Bedrock are path-routed and don't serve OpenAI-style
 		// model-listing endpoints; including them here could rewrite a
 		// GET /v1/models to an upstream that 404s it.
-		if route.Vertex || route.Bedrock {
-			continue
-		}
-		if routeAuthorisesGroups(route, userGroups) {
+		eligible = func(r ProviderRoute) bool { return !r.Vertex && !r.Bedrock }
+	default:
+		return ProviderRoute{}, matchOutcomeUnknownModel
+	}
+
+	var candidates []ProviderRoute
+	for _, route := range m.cfg.Providers {
+		if eligible(route) && routeAuthorisesGroups(route, userGroups) {
 			candidates = append(candidates, route)
 		}
 	}
@@ -564,6 +701,16 @@ func routeClaimsModel(route ProviderRoute, model string) bool {
 		if route.Bedrock && llm.NormalizeBedrockModel(candidate) == model {
 			return true
 		}
+		// A client may pin a dated Anthropic id ("claude-sonnet-4-5-20250929")
+		// where the operator registered the undated one. Only an undated
+		// registration absorbs a dated request: normalising both sides would
+		// let a route pinned to one dated release claim a different one, so an
+		// operator who deliberately pinned a build would silently serve
+		// another — and with several such routes, ordering would decide which.
+		if candidate == llm.NormalizeAnthropicModel(candidate) &&
+			candidate == llm.NormalizeAnthropicModel(model) {
+			return true
+		}
 	}
 	return false
 }
@@ -612,7 +759,7 @@ func requestPath(raw string) string {
 // provider id so identity-stamping middlewares (llm_identity_inject)
 // tag the request with ONLY the groups that authorised this specific
 // route — not every group the peer happens to be in.
-func (m *Middleware) allowWithRoute(route ProviderRoute, userGroups []string) *middleware.Output {
+func (m *Middleware) allowWithRoute(route ProviderRoute, surface string, userGroups []string) *middleware.Output {
 	rewrite := &middleware.UpstreamRewrite{
 		Scheme: route.UpstreamScheme,
 		Host:   route.UpstreamHost,
@@ -634,7 +781,7 @@ func (m *Middleware) allowWithRoute(route ProviderRoute, userGroups []string) *m
 		// request time (cached + auto-refreshed) instead of a static value.
 		bearer, err := m.gcpBearer(route.GCPServiceAccountKeyB64)
 		if err != nil {
-			return denyUpstreamAuth()
+			return denyUpstreamAuth(surface)
 		}
 		authValue = bearer
 	}
@@ -704,11 +851,12 @@ func (m *Middleware) gcpTokenSource(saKeyB64 string) (oauth2.TokenSource, error)
 // denyUpstreamAuth is returned when the router cannot obtain the upstream
 // credential (e.g. a malformed service-account key or an unreachable token
 // endpoint). It surfaces as a 502 — an upstream problem, not a policy denial.
-func denyUpstreamAuth() *middleware.Output {
+func denyUpstreamAuth(surface string) *middleware.Output {
 	return &middleware.Output{
 		Decision:   middleware.DecisionDeny,
 		DenyStatus: 502,
 		DenyReason: &middleware.DenyReason{
+			Surface: surface,
 			Code:    denyCodeUpstreamAuth,
 			Message: "could not obtain upstream credential",
 		},
@@ -722,11 +870,12 @@ func denyUpstreamAuth() *middleware.Output {
 // denyUnmeterable returns the deny envelope for a path-routed request whose
 // publisher has no parser surface, so its usage can't be metered. Serving it
 // would bypass token/budget caps, so it is rejected with a 403.
-func denyUnmeterable() *middleware.Output {
+func denyUnmeterable(surface string) *middleware.Output {
 	return &middleware.Output{
 		Decision:   middleware.DecisionDeny,
 		DenyStatus: 403,
 		DenyReason: &middleware.DenyReason{
+			Surface: surface,
 			Code:    denyCodeUnmeterable,
 			Message: "request publisher is not supported for metering",
 		},
@@ -739,11 +888,12 @@ func denyUnmeterable() *middleware.Output {
 
 // denyMissingModel returns the deny envelope for a request whose
 // envelope has no llm.model metadata.
-func denyMissingModel() *middleware.Output {
+func denyMissingModel(surface string) *middleware.Output {
 	return &middleware.Output{
 		Decision:   middleware.DecisionDeny,
 		DenyStatus: 403,
 		DenyReason: &middleware.DenyReason{
+			Surface: surface,
 			Code:    denyCodeNotRoutable,
 			Message: "missing llm.model on request envelope",
 		},
@@ -756,11 +906,12 @@ func denyMissingModel() *middleware.Output {
 
 // denyUnknownModel returns the deny envelope for a model that no
 // configured provider claims.
-func denyUnknownModel(model string) *middleware.Output {
+func denyUnknownModel(surface, model string) *middleware.Output {
 	return &middleware.Output{
 		Decision:   middleware.DecisionDeny,
 		DenyStatus: 403,
 		DenyReason: &middleware.DenyReason{
+			Surface: surface,
 			Code:    denyCodeNotRoutable,
 			Message: fmt.Sprintf("no provider configured for model %s", model),
 			Details: map[string]string{"model": model},
@@ -775,11 +926,12 @@ func denyUnknownModel(model string) *middleware.Output {
 // denyNoAuthorisedRoute returns the deny envelope for a model that one
 // or more providers claim, but where no policy authorises the caller's
 // groups for any of those providers.
-func denyNoAuthorisedRoute(model string) *middleware.Output {
+func denyNoAuthorisedRoute(surface, model string) *middleware.Output {
 	return &middleware.Output{
 		Decision:   middleware.DecisionDeny,
 		DenyStatus: 403,
 		DenyReason: &middleware.DenyReason{
+			Surface: surface,
 			Code:    denyCodeNoAuthorisedRoute,
 			Message: fmt.Sprintf("no policy authorises model %s for the caller's groups", model),
 			Details: map[string]string{"model": model},
