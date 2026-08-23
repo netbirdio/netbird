@@ -200,12 +200,18 @@ func (cl *Client) pollStatus(ctx context.Context, timeout time.Duration, want st
 const (
 	// curlExitCouldNotResolve is curl's exit code for a DNS resolution failure, distinct from connection-level failures.
 	curlExitCouldNotResolve = 6
-	// dnsProbeRetryWindow bounds DNS-failure retries: the synthesized zone lands a beat after management connects, so early NXDOMAIN is propagation; a zone still absent after this window is a real failure.
-	dnsProbeRetryWindow   = 30 * time.Second
-	dnsProbeRetryInterval = 2 * time.Second
+	// curlExitCouldNotConnect is curl's exit code for a connection that never
+	// established. The probe exists to WAKE the lazy proxy peer, so the first
+	// attempt legitimately arrives before WireGuard has brought the tunnel up
+	// and fails here — which is propagation, exactly like an early NXDOMAIN,
+	// and belongs inside the retry window rather than failing the test outright.
+	curlExitCouldNotConnect = 7
+	// endpointProbeRetryWindow bounds retries of the transient failures above: the synthesized zone and the tunnel both land a beat after management connects. Still failing after this window is a real failure.
+	endpointProbeRetryWindow   = 30 * time.Second
+	endpointProbeRetryInterval = 2 * time.Second
 )
 
-// ResolveProxyIP GETs https://<endpoint>/ from the client's netns: any HTTP status proves DNS + tunnel and wakes the lazy proxy peer; only DNS failures retry, within dnsProbeRetryWindow. Returns the connected IP for --resolve pinning.
+// ResolveProxyIP GETs https://<endpoint>/ from the client's netns: any HTTP status proves DNS + tunnel and wakes the lazy proxy peer; DNS and connect failures retry, within endpointProbeRetryWindow. Returns the connected IP for --resolve pinning.
 func (cl *Client) ResolveProxyIP(ctx context.Context, endpoint string) (string, error) {
 	args := []string{
 		"run", "--rm",
@@ -216,7 +222,7 @@ func (cl *Client) ResolveProxyIP(ctx context.Context, endpoint string) (string, 
 		"-w", "%{remote_ip}",
 		"https://" + endpoint + "/",
 	}
-	deadline := time.Now().Add(dnsProbeRetryWindow)
+	deadline := time.Now().Add(endpointProbeRetryWindow)
 	for {
 		cmd := exec.CommandContext(ctx, "docker", args...)
 		var stdout, stderr strings.Builder
@@ -232,19 +238,27 @@ func (cl *Client) ResolveProxyIP(ctx context.Context, endpoint string) (string, 
 		}
 
 		var exitErr *exec.ExitError
-		if !errors.As(err, &exitErr) || exitErr.ExitCode() != curlExitCouldNotResolve {
+		if !errors.As(err, &exitErr) || !isTransientProbeExit(exitErr.ExitCode()) {
 			return "", fmt.Errorf("no HTTP response from %s: %w (%s)", endpoint, err, strings.TrimSpace(stderr.String()))
 		}
-		dnsErr := fmt.Errorf("DNS resolution failed for %s: %s", endpoint, strings.TrimSpace(stderr.String()))
-		if time.Until(deadline) < dnsProbeRetryInterval {
-			return "", dnsErr
+		probeErr := fmt.Errorf("endpoint %s not reachable yet: %s", endpoint, strings.TrimSpace(stderr.String()))
+		if time.Until(deadline) < endpointProbeRetryInterval {
+			return "", probeErr
 		}
 		select {
 		case <-ctx.Done():
-			return "", fmt.Errorf("%w (%w)", dnsErr, ctx.Err())
-		case <-time.After(dnsProbeRetryInterval):
+			return "", fmt.Errorf("%w (%w)", probeErr, ctx.Err())
+		case <-time.After(endpointProbeRetryInterval):
 		}
 	}
+}
+
+// isTransientProbeExit reports whether a curl exit code describes a state the
+// endpoint is expected to pass THROUGH on its way up, rather than a settled
+// failure. Anything else — TLS refusal, a protocol error, a bad argument —
+// would still be failing after the retry window, so it fails immediately.
+func isTransientProbeExit(code int) bool {
+	return code == curlExitCouldNotResolve || code == curlExitCouldNotConnect
 }
 
 // Wire shapes for Chat.

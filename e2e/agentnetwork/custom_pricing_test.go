@@ -174,7 +174,12 @@ func chatOnce(t *testing.T, ctx context.Context, env pricedEnv, model, sessionID
 
 // accessLogIngestWindow is how long a single request's access-log row is given
 // to appear before the caller gives up on it.
-const accessLogIngestWindow = 30 * time.Second
+// accessLogIngestWindow bounds how long a row may take to appear after its
+// request returned. The proxy streams each entry to management with a 10s send
+// timeout of its own, so a request whose send hits one full timeout and is
+// retried has not yet missed anything real — 30s left barely three send
+// attempts of headroom and lost the race on a loaded runner.
+const accessLogIngestWindow = 60 * time.Second
 
 // accessLogPollInterval is how long the lookup waits between pages. Ingest is
 // asynchronous, so the row lands somewhere inside the window rather than on
