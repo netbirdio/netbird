@@ -10,9 +10,59 @@ import (
 	"strings"
 )
 
-// bedrockRegionPrefixes are the cross-region inference-profile prefixes that
-// front a Bedrock model id (e.g. "eu.anthropic.claude-...").
-var bedrockRegionPrefixes = []string{"us.", "eu.", "apac.", "global."}
+// bedrockVendorNamespaces are the vendor segments a Bedrock model id is
+// published under. They identify the geography in front of a cross-region
+// inference profile without enumerating geographies: in
+// "eu.anthropic.claude-...", what makes "eu" a geography is that "anthropic"
+// follows it.
+//
+// Listing geographies instead is what this replaced, and it aged badly — the
+// list held us, eu, apac and global, so every profile issued under jp, au, ca,
+// sa or us-gov carried its prefix into the pricing key, matched no catalog
+// entry, and reported the model unpriced.
+//
+// A vendor missing from this map fails safe: its id keeps the geography, which
+// is exactly the behaviour of the list this replaced. Over-stripping is the
+// dangerous direction, because the result also decides which route may claim a
+// model.
+var bedrockVendorNamespaces = map[string]struct{}{
+	"ai21":       {},
+	"amazon":     {},
+	"anthropic":  {},
+	"cohere":     {},
+	"deepseek":   {},
+	"luma":       {},
+	"meta":       {},
+	"mistral":    {},
+	"openai":     {},
+	"qwen":       {},
+	"stability":  {},
+	"twelvelabs": {},
+	"writer":     {},
+}
+
+// stripBedrockGeography removes the cross-region inference-profile geography
+// from a Bedrock model id, leaving the "<vendor>.<model>" form the catalog and
+// the pricing table key on.
+//
+// A leading segment counts as a geography only when a known vendor follows it.
+// "amazon.nova-pro" is a vendor and a model, not a geography and a model, and
+// cutting its first segment would strip the vendor away.
+func stripBedrockGeography(modelID string) string {
+	dot := strings.IndexByte(modelID, '.')
+	if dot <= 0 {
+		return modelID
+	}
+	rest := modelID[dot+1:]
+	vendor, _, found := strings.Cut(rest, ".")
+	if !found {
+		return modelID
+	}
+	if _, ok := bedrockVendorNamespaces[vendor]; !ok {
+		return modelID
+	}
+	return rest
+}
 
 // bedrockVersionSuffix matches the trailing "-vN[:N]" or "-YYYYMMDD-vN[:N]"
 // version/throughput suffix of a Bedrock model id.
@@ -37,12 +87,7 @@ func NormalizeBedrockModel(modelID string) string {
 			m = m[i+1:]
 		}
 	}
-	for _, p := range bedrockRegionPrefixes {
-		if strings.HasPrefix(m, p) {
-			m = m[len(p):]
-			break
-		}
-	}
+	m = stripBedrockGeography(m)
 	return bedrockVersionSuffix.ReplaceAllString(m, "")
 }
 
