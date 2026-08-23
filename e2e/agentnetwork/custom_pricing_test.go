@@ -428,16 +428,23 @@ func TestPriceChangeUpdatesRecordedCost(t *testing.T) {
 	var lastCost float64
 	var sawRow bool
 	deadline := time.Now().Add(repriceDeadline)
+	// Everything inside the loop runs under the deadline rather than the
+	// test's own context. An attempt started just before it would otherwise
+	// run well past it: the chat container is capped at 90s of its own and the
+	// row lookup at another 20s, so the loop could report a repricing failure
+	// nearly two minutes after the window it was given had closed.
+	repriceCtx, cancelReprice := context.WithDeadline(ctx, deadline)
+	defer cancelReprice()
 	for time.Now().Before(deadline) {
 		lastSession = fmt.Sprintf("e2e-session-reprice-b-%d", time.Now().UnixNano())
-		code, _, cerr := env.client.Chat(ctx, env.endpoint, env.proxyIP, harness.WireChat, customModel, "Reply with exactly: pong", lastSession)
+		code, _, cerr := env.client.Chat(repriceCtx, env.endpoint, env.proxyIP, harness.WireChat, customModel, "Reply with exactly: pong", lastSession)
 		if cerr != nil || code != 200 {
-			if !waitBeforeRetry(ctx, 5*time.Second) {
+			if !waitBeforeRetry(repriceCtx, 5*time.Second) {
 				break
 			}
 			continue
 		}
-		row, ok := lookupAccessLogBySession(ctx, lastSession, repriceIngestWindow)
+		row, ok := lookupAccessLogBySession(repriceCtx, lastSession, repriceIngestWindow)
 		if !ok {
 			// No row for this request. The provider update rebuilds the proxy's
 			// middleware chain, and a request served mid-rebuild can complete
@@ -452,7 +459,7 @@ func TestPriceChangeUpdatesRecordedCost(t *testing.T) {
 		}
 		// Still priced at the old rate — the push hasn't landed yet; retry.
 		lastCost, sawRow = row.InputCostUsd, true
-		if !waitBeforeRetry(ctx, 5*time.Second) {
+		if !waitBeforeRetry(repriceCtx, 5*time.Second) {
 			break
 		}
 	}
