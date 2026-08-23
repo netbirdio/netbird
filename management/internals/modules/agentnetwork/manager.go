@@ -126,13 +126,15 @@ type managerImpl struct {
 	proxyController    proxy.Controller
 
 	// modelDiscovery queries vendors for the models a credential can reach.
-	// A field rather than a package call so tests can drive it without
-	// reaching the network.
+	// An interface rather than the concrete client because it is now on a
+	// write path: the credential check runs inside CreateProvider and
+	// UpdateProvider, so every test that saves a provider would otherwise
+	// reach a vendor over the network to do it.
 	//
 	// One instance serves every request for the process's lifetime, so its
 	// fields must stay read-only after construction: lazy initialisation
 	// inside Fetch or httpClient would race across request goroutines.
-	modelDiscovery *modeldiscovery.Client
+	modelDiscovery ModelLister
 
 	// reconcileCache holds the last set of synthesised proxy mappings
 	// per account, each paired with the proxy that served it, so a change
@@ -146,6 +148,19 @@ type managerImpl struct {
 	labelRng   *rand.Rand
 }
 
+// ManagerOption replaces a manager dependency at construction. Production
+// passes none; each option exists for something a test cannot let run for
+// real.
+type ManagerOption func(*managerImpl)
+
+// WithModelLister replaces the vendor call behind the provider credential
+// check. A test that saves a provider needs this — the check runs inside
+// CreateProvider and UpdateProvider, so the write path reaches a vendor
+// without it.
+func WithModelLister(lister ModelLister) ManagerOption {
+	return func(m *managerImpl) { m.modelDiscovery = lister }
+}
+
 // NewManager constructs the persistent Agent Network manager. The
 // manager persists provider/policy/guardrail configuration and, on
 // every mutation, reconciles the in-memory synthesised reverse-proxy
@@ -156,8 +171,9 @@ func NewManager(
 	permissionsManager permissions.Manager,
 	accountManager account.Manager,
 	proxyController proxy.Controller,
+	opts ...ManagerOption,
 ) Manager {
-	return &managerImpl{
+	m := &managerImpl{
 		store:              store,
 		accountManager:     accountManager,
 		permissionsManager: permissionsManager,
@@ -166,6 +182,10 @@ func NewManager(
 		reconcileCache:     make(map[string]map[string]syntheticMapping),
 		labelRng:           rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
 }
 
 func (m *managerImpl) GetAllProviders(ctx context.Context, accountID, userID string) ([]*types.Provider, error) {
@@ -230,6 +250,13 @@ func (m *managerImpl) CreateProvider(ctx context.Context, userID string, provide
 		return nil, status.Errorf(status.InvalidArgument, "api_key is required when creating an agent network provider")
 	}
 
+	// Before anything is persisted: a record whose upstream or credential does
+	// not work is rejected here rather than discovered later as a failed
+	// request with nothing pointing back at it.
+	if err := m.checkProviderCredential(ctx, provider); err != nil {
+		return nil, err
+	}
+
 	if provider.ID == "" {
 		fresh := types.NewProvider(provider.AccountID)
 		provider.ID = fresh.ID
@@ -269,6 +296,20 @@ func (m *managerImpl) UpdateProvider(ctx context.Context, userID string, provide
 	} else if strings.TrimSpace(provider.APIKey) == "" {
 		return nil, status.Errorf(status.InvalidArgument, "api_key must be non-blank when rotating an agent network provider")
 	}
+
+	// Only the two fields the vendor would judge are worth a round-trip. This
+	// same call carries renames, model rows and price edits, and none of those
+	// should wait on a vendor — or be refused because one is having a bad day.
+	//
+	// The comparison runs after the merge above, so an update that changes only
+	// the URL reads as unchanged on the key and is checked against the stored
+	// one, which is the only credential the operator has to offer here.
+	if provider.UpstreamURL != existing.UpstreamURL || provider.APIKey != existing.APIKey {
+		if err := m.checkProviderCredential(ctx, provider); err != nil {
+			return nil, err
+		}
+	}
+
 	// Always preserve the session keypair across updates so existing
 	// session cookies stay valid. The keys are server-managed and
 	// never surfaced through the API.

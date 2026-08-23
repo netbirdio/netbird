@@ -146,7 +146,7 @@ func (c *Client) Fetch(ctx context.Context, req Request) ([]Model, error) {
 
 	resp, err := c.httpClient().Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("reach %s: %w", entry.Name, err)
+		return nil, &UnreachableError{Provider: entry.Name, Err: err}
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -157,7 +157,7 @@ func (c *Client) Fetch(ctx context.Context, req Request) ([]Model, error) {
 	if resp.StatusCode != http.StatusOK {
 		// Surface the vendor's own status. An operator whose key lacks a scope
 		// needs to see 403 rather than a generic failure.
-		return nil, fmt.Errorf("%s returned %d for its model listing", entry.Name, resp.StatusCode)
+		return nil, &VendorStatusError{Provider: entry.Name, Status: resp.StatusCode}
 	}
 
 	ids, err := parseListing(entry.Discovery.Shape, body)
@@ -194,8 +194,8 @@ func (c *Client) discoveryURL(entry catalog.Provider, req Request) (string, erro
 			region = RegionFromUpstream(entry, req.UpstreamURL)
 		}
 		if region == "" {
-			return "", fmt.Errorf("%w: %s discovery needs a region, and none could be read from the provider upstream",
-				ErrInvalidRequest, entry.Name)
+			return "", fmt.Errorf("%w: %w: %s discovery needs a region, and none could be read from the provider upstream",
+				ErrInvalidRequest, ErrNoDiscoveryHost, entry.Name)
 		}
 		host = strings.ReplaceAll(host, catalog.RegionPlaceholder, region)
 	}
@@ -266,7 +266,7 @@ func (c *Client) checkPublicHost(host string) error {
 	// loopback address is still a way to reach loopback.
 	for _, addr := range addrs {
 		if !isPublic(addr) {
-			return fmt.Errorf("%w: discovery host %q resolves to a non-public address", ErrInvalidRequest, host)
+			return fmt.Errorf("%w: %w: discovery host %q resolves to a non-public address", ErrInvalidRequest, ErrPrivateHost, host)
 		}
 	}
 	return nil
@@ -463,7 +463,7 @@ func guardDialAddress(address string) error {
 		return fmt.Errorf("discovery dial address %q is not an IP", host)
 	}
 	if !isPublic(addr) {
-		return fmt.Errorf("discovery refused to dial non-public address %s", addr)
+		return fmt.Errorf("%w: discovery refused to dial non-public address %s", ErrPrivateHost, addr)
 	}
 	return nil
 }
