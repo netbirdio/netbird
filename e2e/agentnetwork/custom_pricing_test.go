@@ -420,6 +420,11 @@ func TestPriceChangeUpdatesRecordedCost(t *testing.T) {
 	wantInputB := float64(vllmPromptTokens) / 1000 * inRateB
 	var repriced api.AgentNetworkAccessLog
 	var lastSession string
+	// The cost last read, kept separately: repriced is the zero value on every
+	// path that gives up, so reporting its cost would say "$0.000000" whether
+	// the rows were still at rate A or no row was ever read.
+	var lastCost float64
+	var sawRow bool
 	deadline := time.Now().Add(repriceDeadline)
 	for time.Now().Before(deadline) {
 		lastSession = fmt.Sprintf("e2e-session-reprice-b-%d", time.Now().UnixNano())
@@ -442,10 +447,15 @@ func TestPriceChangeUpdatesRecordedCost(t *testing.T) {
 			break
 		}
 		// Still priced at the old rate — the push hasn't landed yet; retry.
+		lastCost, sawRow = row.InputCostUsd, true
 		time.Sleep(5 * time.Second)
 	}
-	require.NotEmpty(t, repriced.Id, "a request after the price change must be priced at the new rate B; last input_cost_usd=$%.6f, wanted $%.6f\n=== proxy logs ===\n%s",
-		repriced.InputCostUsd, wantInputB, env.proxy.Logs(context.Background()))
+	lastSeen := "no row was ever read"
+	if sawRow {
+		lastSeen = fmt.Sprintf("last input_cost_usd=$%.6f", lastCost)
+	}
+	require.NotEmpty(t, repriced.Id, "a request after the price change must be priced at the new rate B; %s, wanted $%.6f\n=== proxy logs ===\n%s",
+		lastSeen, wantInputB, env.proxy.Logs(context.Background()))
 
 	assertOpenAICostAtRates(t, repriced, inRateB, outRateB)
 	verifyUsageRowForSession(t, lastSession, inRateB, outRateB)
