@@ -2074,9 +2074,15 @@ func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping)
 		return fmt.Errorf("auth setup for domain %s: %w", mapping.GetDomain(), err)
 	}
 	m := s.protoToMapping(ctx, mapping)
-	s.proxy.AddMapping(m)
-	s.meter.AddMapping(m)
+	// The chain is published before the route that leads to it. A request
+	// arriving at a target whose chain has not been rebuilt yet is served
+	// straight through, so a provider update that added the route first left a
+	// window in which an inference could complete unrouted and unmetered.
+	// Rebuilding first inverts that: the worst a request in the window meets is
+	// the new chain in front of the previous target, which is still counted.
 	s.rebuildMiddlewareChains(svcID, m)
+	s.meter.AddMapping(m)
+	s.proxy.AddMapping(m)
 	return nil
 }
 

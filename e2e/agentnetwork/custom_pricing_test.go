@@ -446,10 +446,10 @@ func TestPriceChangeUpdatesRecordedCost(t *testing.T) {
 		}
 		row, ok := lookupAccessLogBySession(repriceCtx, lastSession, repriceIngestWindow)
 		if !ok {
-			// No row for this request. The provider update rebuilds the proxy's
-			// middleware chain, and a request served mid-rebuild can complete
-			// without a resolved provider — 200 to the caller, nothing to
-			// attribute, so no row is ever written for it. Fire another one.
+			// No row for this request. The proxy now publishes a rebuilt chain
+			// before the route that reaches it, so a request can no longer be
+			// served unattributed mid-update; this retry covers the ingest
+			// window alone. Fire another one under a fresh session.
 			t.Logf("no access-log row for session %q within %s; retrying under a fresh session", lastSession, repriceIngestWindow)
 			continue
 		}
