@@ -171,6 +171,24 @@ func TestModelDiscoveryFilter_KeepsSlashBearingIDs(t *testing.T) {
 		"a slash inside the model id is part of the id, not a provider prefix")
 }
 
+// TestModelDiscoveryFilter_RejectsTailMatchOnUnknownNamespace covers the id
+// an upstream scopes with a prefix of its own. "tenant-b/claude-sonnet-5"
+// ends in a model the policy permits, but it is a different model on a
+// different tenant, and the guardrail denies that string outright — so
+// offering it hands the picker an entry the next request refuses.
+func TestModelDiscoveryFilter_RejectsTailMatchOnUnknownNamespace(t *testing.T) {
+	ids := listedIDs(t, []string{"claude-sonnet-5"}, `{
+		"data": [
+			{"id": "claude-sonnet-5"},
+			{"id": "tenant-b/claude-sonnet-5"},
+			{"id": "Qwen/claude-sonnet-5"}
+		]
+	}`)
+
+	assert.Equal(t, []string{"claude-sonnet-5"}, ids,
+		"only a namespace a gateway is known to prepend may be stripped before matching")
+}
+
 // TestModelDiscoveryFilter_ForwardsOversizedBodyIntact covers a listing past
 // the buffering cap. The filter reads one byte beyond the cap to detect the
 // size; forwarding only what it read would hand the client a body truncated

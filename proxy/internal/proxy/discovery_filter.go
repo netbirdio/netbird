@@ -152,19 +152,43 @@ func entryPermitted(entry map[string]json.RawMessage, permitted map[string]struc
 	return false
 }
 
+// gatewayNamespaces are the provider prefixes a gateway prepends to a model
+// it re-exports: LiteLLM lists a Bedrock model the operator registered as
+// "anthropic.claude-opus-5" under "bedrock/anthropic.claude-opus-5". Only
+// these are stripped before matching.
+//
+// A slash is not by itself a namespace separator. Self-hosted backends ship
+// ids that carry one ("Qwen/Qwen2.5-0.5B-Instruct"), and an upstream is free
+// to scope ids per tenant ("tenant-b/claude-sonnet-5"). Treating every slash
+// as a prefix let any such id match an allowed model by its tail, so the
+// picker offered models the policy never named.
+var gatewayNamespaces = map[string]struct{}{
+	"anthropic": {},
+	"azure":     {},
+	"bedrock":   {},
+	"mistral":   {},
+	"openai":    {},
+	"vertex_ai": {},
+}
+
 // modelIDForms returns the forms a single model id may be written in: the id
-// itself, its undated form, and the same two with a gateway's provider
-// prefix removed ("vertex_ai/claude-sonnet-5"). The bare id is tried first,
-// because a self-hosted id can legitimately contain a slash of its own
-// ("Qwen/Qwen2.5-0.5B-Instruct") and must not be cut down to its tail.
+// itself, its undated form, and — when the id is namespaced by a gateway we
+// recognise — the same two with that namespace removed
+// ("vertex_ai/claude-sonnet-5"). The bare id is always tried first.
+//
+// The namespace is what precedes the FIRST slash: it is a prefix the gateway
+// put in front of the whole id, and everything after it is the id the
+// operator would have registered, separators included.
 func modelIDForms(id string) []string {
 	if id == "" {
 		return nil
 	}
 	forms := []string{id, sharedllm.NormalizeAnthropicModel(id)}
-	if slash := strings.LastIndex(id, "/"); slash >= 0 {
-		tail := id[slash+1:]
-		forms = append(forms, tail, sharedllm.NormalizeAnthropicModel(tail))
+	if slash := strings.Index(id, "/"); slash > 0 {
+		if _, ok := gatewayNamespaces[id[:slash]]; ok {
+			tail := id[slash+1:]
+			forms = append(forms, tail, sharedllm.NormalizeAnthropicModel(tail))
+		}
 	}
 	return forms
 }

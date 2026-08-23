@@ -129,6 +129,9 @@ func provisionStreamingProvider(t *testing.T, ctx context.Context, catalogID str
 		Ephemeral:  &ephemeral,
 	})
 	require.NoError(t, err, "mint setup key")
+	// Deleting the group does not delete the key it auto-joins, so the key
+	// needs a cleanup of its own.
+	t.Cleanup(func() { _ = srv.API().SetupKeys.Delete(context.Background(), sk.Id) })
 	require.NotEmpty(t, sk.Key, "setup key plaintext")
 
 	dummyKey := "sk-stream-e2e"
@@ -195,7 +198,9 @@ func chatStreamUntil(t *testing.T, ctx context.Context, env pricedEnv, kind, mod
 				break
 			}
 		}
-		time.Sleep(5 * time.Second)
+		if !waitBeforeRetry(ctx, 5*time.Second) {
+			break
+		}
 	}
 	if code != 200 {
 		t.Logf("=== proxy logs ===\n%s", env.proxy.Logs(context.Background()))

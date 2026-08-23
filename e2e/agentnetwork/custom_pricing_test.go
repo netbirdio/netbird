@@ -163,7 +163,9 @@ func chatOnce(t *testing.T, ctx context.Context, env pricedEnv, model, sessionID
 				break
 			}
 		}
-		time.Sleep(5 * time.Second)
+		if !waitBeforeRetry(ctx, 5*time.Second) {
+			break
+		}
 	}
 	require.Equal(t, 200, code,
 		"chat for %s must return 200; body: %s\n=== proxy logs ===\n%s", model, body, env.proxy.Logs(context.Background()))
@@ -430,7 +432,9 @@ func TestPriceChangeUpdatesRecordedCost(t *testing.T) {
 		lastSession = fmt.Sprintf("e2e-session-reprice-b-%d", time.Now().UnixNano())
 		code, _, cerr := env.client.Chat(ctx, env.endpoint, env.proxyIP, harness.WireChat, customModel, "Reply with exactly: pong", lastSession)
 		if cerr != nil || code != 200 {
-			time.Sleep(5 * time.Second)
+			if !waitBeforeRetry(ctx, 5*time.Second) {
+				break
+			}
 			continue
 		}
 		row, ok := lookupAccessLogBySession(ctx, lastSession, repriceIngestWindow)
@@ -448,7 +452,9 @@ func TestPriceChangeUpdatesRecordedCost(t *testing.T) {
 		}
 		// Still priced at the old rate — the push hasn't landed yet; retry.
 		lastCost, sawRow = row.InputCostUsd, true
-		time.Sleep(5 * time.Second)
+		if !waitBeforeRetry(ctx, 5*time.Second) {
+			break
+		}
 	}
 	lastSeen := "no row was ever read"
 	if sawRow {
