@@ -81,12 +81,36 @@ func TestNormalizeBedrockModel_GeographiesBeyondTheOriginalFour(t *testing.T) {
 // hand the id to whichever route claims the bare model name.
 func TestNormalizeBedrockModel_KeepsAVendorItCannotMistakeForAGeography(t *testing.T) {
 	cases := map[string]string{
-		"amazon.nova-pro-v1:0":             "amazon.nova-pro",
-		"anthropic.claude-sonnet-5-v1:0":   "anthropic.claude-sonnet-5",
-		"meta.llama3-3-70b-instruct-v1:0":  "meta.llama3-3-70b-instruct",
-		"cohere.command-r-plus-v1:0":       "cohere.command-r-plus",
-		"eu.unknownvendor.some-model-v1:0": "eu.unknownvendor.some-model",
+		"amazon.nova-pro-v1:0":            "amazon.nova-pro",
+		"anthropic.claude-sonnet-5-v1:0":  "anthropic.claude-sonnet-5",
+		"meta.llama3-3-70b-instruct-v1:0": "meta.llama3-3-70b-instruct",
+		"cohere.command-r-plus-v1:0":      "cohere.command-r-plus",
+		// Unknown on both axes: neither the leading segment nor the one
+		// after it is a name we hold, so the id is left exactly as it came.
+		"xx.unknownvendor.some-model-v1:0": "xx.unknownvendor.some-model",
 		"Qwen/Qwen2.5-0.5B-Instruct":       "Qwen/Qwen2.5-0.5B-Instruct",
+	}
+	for in, want := range cases {
+		t.Run(in, func(t *testing.T) {
+			require.Equal(t, want, NormalizeBedrockModel(in))
+		})
+	}
+}
+
+// TestNormalizeBedrockModel_RecognisesAnIdNewOnOneAxis covers what a live
+// eu-central-1 listing returned days after the vendor list was written:
+// "global.xai.grok-4.6", a vendor the list did not hold. Anchoring only on the
+// vendor left the geography in the key, so the id matched no catalog entry and
+// the model metered at zero. Each id below is unfamiliar on one axis and
+// recognised through the other.
+func TestNormalizeBedrockModel_RecognisesAnIdNewOnOneAxis(t *testing.T) {
+	cases := map[string]string{
+		// Known geography, vendor we had never seen (the live case).
+		"global.xai.grok-4.6": "xai.grok-4.6",
+		"eu.xai.grok-4.6":     "xai.grok-4.6",
+		// Known vendor, geography outside the list.
+		"il.anthropic.claude-sonnet-5-20260514-v1:0": "anthropic.claude-sonnet-5",
+		"mx.amazon.nova-2-lite-v1:0":                 "amazon.nova-2-lite",
 	}
 	for in, want := range cases {
 		t.Run(in, func(t *testing.T) {

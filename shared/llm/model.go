@@ -12,19 +12,15 @@ import (
 
 // bedrockVendorNamespaces are the vendor segments a Bedrock model id is
 // published under. They identify the geography in front of a cross-region
-// inference profile without enumerating geographies: in
+// inference profile without knowing the geography: in
 // "eu.anthropic.claude-...", what makes "eu" a geography is that "anthropic"
 // follows it.
 //
-// Listing geographies instead is what this replaced, and it aged badly — the
-// list held us, eu, apac and global, so every profile issued under jp, au, ca,
-// sa or us-gov carried its prefix into the pricing key, matched no catalog
-// entry, and reported the model unpriced.
-//
-// A vendor missing from this map fails safe: its id keeps the geography, which
-// is exactly the behaviour of the list this replaced. Over-stripping is the
-// dangerous direction, because the result also decides which route may claim a
-// model.
+// A vendor missing from here is not fatal — bedrockGeographies covers the
+// same id from the other side — but it is one of the two ways an id can go
+// unrecognised, and the list needs a new entry whenever AWS onboards a
+// vendor. A live listing found "global.xai.grok-4.6" days after this was
+// first written.
 var bedrockVendorNamespaces = map[string]struct{}{
 	"ai21":       {},
 	"amazon":     {},
@@ -39,29 +35,62 @@ var bedrockVendorNamespaces = map[string]struct{}{
 	"stability":  {},
 	"twelvelabs": {},
 	"writer":     {},
+	"xai":        {},
+}
+
+// bedrockGeographies are the geography segments AWS issues cross-region
+// inference profiles under. They recognise a profile whose vendor we have
+// never seen, which is the case bedrockVendorNamespaces alone gets wrong:
+// "global.xai.grok-4.6" is a geography and a model whether or not "xai" is
+// a name we know.
+//
+// Neither list is sufficient alone. A geography list on its own is what this
+// file started with, and it aged badly — it held us, eu, apac and global, so
+// every profile issued under jp, au, ca, sa or us-gov carried its prefix into
+// the pricing key, matched no catalog entry, and reported the model unpriced.
+// A vendor list on its own misses a new vendor under a known geography.
+// Together, an id has to be new on both axes at once to go unrecognised.
+var bedrockGeographies = map[string]struct{}{
+	"apac":   {},
+	"au":     {},
+	"ca":     {},
+	"eu":     {},
+	"global": {},
+	"jp":     {},
+	"sa":     {},
+	"us":     {},
+	"us-gov": {},
 }
 
 // stripBedrockGeography removes the cross-region inference-profile geography
 // from a Bedrock model id, leaving the "<vendor>.<model>" form the catalog and
 // the pricing table key on.
 //
-// A leading segment counts as a geography only when a known vendor follows it.
-// "amazon.nova-pro" is a vendor and a model, not a geography and a model, and
-// cutting its first segment would strip the vendor away.
+// A leading segment counts as a geography when it is one we know, or when a
+// known vendor follows it. Either alone is enough: the id has to be new on
+// both axes before its geography survives.
+//
+// The segment has to be followed by two more, so "amazon.nova-pro" stays a
+// vendor and a model rather than becoming a geography and a model — cutting
+// its first segment would strip the vendor away. Over-stripping is the
+// dangerous direction, because the result also decides which route may claim
+// a model.
 func stripBedrockGeography(modelID string) string {
-	dot := strings.IndexByte(modelID, '.')
-	if dot <= 0 {
+	geo, rest, found := strings.Cut(modelID, ".")
+	if !found || geo == "" {
 		return modelID
 	}
-	rest := modelID[dot+1:]
 	vendor, _, found := strings.Cut(rest, ".")
 	if !found {
 		return modelID
 	}
-	if _, ok := bedrockVendorNamespaces[vendor]; !ok {
-		return modelID
+	if _, ok := bedrockGeographies[geo]; ok {
+		return rest
 	}
-	return rest
+	if _, ok := bedrockVendorNamespaces[vendor]; ok {
+		return rest
+	}
+	return modelID
 }
 
 // bedrockVersionSuffix matches the trailing "-vN[:N]" or "-YYYYMMDD-vN[:N]"
