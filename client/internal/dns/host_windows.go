@@ -35,6 +35,8 @@ var (
 // exported so a diagnostic reader reports the same locations that are written.
 const (
 	// NRPTKeyPrefix starts the name of every NRPT rule key this client creates.
+	// Older versions used different layouts under the same prefix: a single
+	// unsuffixed key, then one key per domain, now one key per batch of domains.
 	NRPTKeyPrefix = "NetBird-Match"
 
 	// DNSPolicyConfigRoot holds the NRPT rules of the local policy store.
@@ -89,7 +91,6 @@ type registryConfigurator struct {
 	guid            string
 	routingAll      bool
 	gpo             bool
-	nrptEntryCount  int
 	origNameservers []netip.Addr
 }
 
@@ -322,14 +323,9 @@ func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig, stateManager
 	}
 
 	if len(matchDomains) != 0 {
-		count, err := r.addDNSMatchPolicy(matchDomains, config.ServerIP)
-		// Update count even on error to ensure cleanup covers partially created rules
-		r.nrptEntryCount = count
-		if err != nil {
+		if err := r.addDNSMatchPolicy(matchDomains, config.ServerIP); err != nil {
 			return fmt.Errorf("add dns match policy: %w", err)
 		}
-	} else {
-		r.nrptEntryCount = 0
 	}
 
 	r.updateState(stateManager)
@@ -345,9 +341,8 @@ func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig, stateManager
 
 func (r *registryConfigurator) updateState(stateManager *statemanager.Manager) {
 	if err := stateManager.UpdateState(&ShutdownState{
-		Guid:           r.guid,
-		GPO:            r.gpo,
-		NRPTEntryCount: r.nrptEntryCount,
+		Guid: r.guid,
+		GPO:  r.gpo,
 	}); err != nil {
 		log.Errorf("failed to update shutdown state: %s", err)
 	}
@@ -362,7 +357,7 @@ func (r *registryConfigurator) addDNSSetupForAll(ip netip.Addr) error {
 	return nil
 }
 
-func (r *registryConfigurator) addDNSMatchPolicy(domains []string, ip netip.Addr) (int, error) {
+func (r *registryConfigurator) addDNSMatchPolicy(domains []string, ip netip.Addr) error {
 	// if the gpo key is present, we need to put our DNS settings there, otherwise our config might be ignored
 	// see https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-gpnrpt/8cc31cb9-20cb-4140-9e85-3e08703b4745
 
@@ -379,19 +374,17 @@ func (r *registryConfigurator) addDNSMatchPolicy(domains []string, ip netip.Addr
 		gpoPath := fmt.Sprintf("%s-%d", gpoDnsPolicyConfigMatchPath, ruleIndex)
 
 		if err := r.configureDNSPolicy(localPath, batchDomains, ip); err != nil {
-			return ruleIndex, fmt.Errorf("configure DNS Local policy for rule %d: %w", ruleIndex, err)
+			return fmt.Errorf("configure DNS Local policy for rule %d: %w", ruleIndex, err)
 		}
-
-		// Increment immediately so the caller's cleanup path knows about this rule
-		ruleIndex++
 
 		if r.gpo {
 			if err := r.configureDNSPolicy(gpoPath, batchDomains, ip); err != nil {
-				return ruleIndex, fmt.Errorf("configure gpo DNS policy for rule %d: %w", ruleIndex-1, err)
+				return fmt.Errorf("configure gpo DNS policy for rule %d: %w", ruleIndex, err)
 			}
 		}
 
-		log.Debugf("added NRPT rule %d with %d domains", ruleIndex-1, len(batchDomains))
+		log.Debugf("added NRPT rule %d with %d domains", ruleIndex, len(batchDomains))
+		ruleIndex++
 	}
 
 	if r.gpo {
@@ -401,7 +394,7 @@ func (r *registryConfigurator) addDNSMatchPolicy(domains []string, ip netip.Addr
 	}
 
 	log.Infof("added %d NRPT rules for %d domains", ruleIndex, len(domains))
-	return ruleIndex, nil
+	return nil
 }
 
 func (r *registryConfigurator) configureDNSPolicy(policyPath string, domains []string, ip netip.Addr) error {
@@ -466,7 +459,7 @@ func (r *registryConfigurator) flushDNSCache() {
 
 	ret, _, err := dnsFlushResolverCacheFn.Call()
 	if ret == 0 {
-		if err != nil && !errors.Is(err, syscall.Errno(0)) {
+		if !errors.Is(err, syscall.Errno(0)) {
 			log.Errorf("DnsFlushResolverCache failed: %v", err)
 			return
 		}
@@ -534,28 +527,28 @@ func (r *registryConfigurator) restoreHostDNS() error {
 	return nil
 }
 
+// removeDNSMatchPolicies deletes every NRPT rule this client may have created,
+// from the local and the GPO policy store. The rules are found by enumerating
+// the registry, the only authoritative record of what was written. Cleanup must
+// not depend on a rule count: the in-memory one is scoped to a single
+// registryConfigurator and the persisted one is deleted on every clean
+// disconnect, and a rule left behind keeps resolving names over an interface
+// that is gone, until reboot discards the volatile key.
 func (r *registryConfigurator) removeDNSMatchPolicies() error {
 	var merr *multierror.Error
 
-	// Try to remove the base entries (for backward compatibility)
-	if err := removeRegistryKeyFromDNSPolicyConfig(dnsPolicyConfigMatchPath); err != nil {
-		merr = multierror.Append(merr, fmt.Errorf("remove local base entry: %w", err))
-	}
-
-	if err := removeRegistryKeyFromDNSPolicyConfig(gpoDnsPolicyConfigMatchPath); err != nil {
-		merr = multierror.Append(merr, fmt.Errorf("remove GPO base entry: %w", err))
-	}
-
-	for i := 0; i < r.nrptEntryCount; i++ {
-		localPath := fmt.Sprintf("%s-%d", dnsPolicyConfigMatchPath, i)
-		gpoPath := fmt.Sprintf("%s-%d", gpoDnsPolicyConfigMatchPath, i)
-
-		if err := removeRegistryKeyFromDNSPolicyConfig(localPath); err != nil {
-			merr = multierror.Append(merr, fmt.Errorf("remove local entry %d: %w", i, err))
+	for _, root := range []string{DNSPolicyConfigRoot, GPODNSPolicyConfigRoot} {
+		names, err := listNRPTRuleKeys(root)
+		if err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("list rule keys under %s: %w", root, err))
+			continue
 		}
 
-		if err := removeRegistryKeyFromDNSPolicyConfig(gpoPath); err != nil {
-			merr = multierror.Append(merr, fmt.Errorf("remove GPO entry %d: %w", i, err))
+		for _, name := range names {
+			path := root + `\` + name
+			if err := removeRegistryKeyFromDNSPolicyConfig(path); err != nil {
+				merr = multierror.Append(merr, fmt.Errorf("remove entry %s: %w", path, err))
+			}
 		}
 	}
 
@@ -568,6 +561,39 @@ func (r *registryConfigurator) removeDNSMatchPolicies() error {
 
 func (r *registryConfigurator) restoreUncleanShutdownDNS() error {
 	return r.restoreHostDNS()
+}
+
+// listNRPTRuleKeys returns the names of our NRPT rule keys under a policy store
+// root. An absent root holds nothing to clean up, which is the normal state of
+// the GPO store on a machine without DNS Client policy.
+func listNRPTRuleKeys(root string) ([]string, error) {
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, root, registry.ENUMERATE_SUB_KEYS)
+	switch {
+	case errors.Is(err, registry.ErrNotExist), errors.Is(err, syscall.ERROR_PATH_NOT_FOUND):
+		// the GPO store is absent on a machine without DNS client policy
+		log.Debugf("HKEY_LOCAL_MACHINE\\%s does not exist", root)
+		return nil, nil
+	case err != nil:
+		// any other failure has to reach the caller: reporting no rules would
+		// report a successful cleanup while leaving the rules in place
+		return nil, fmt.Errorf("open HKEY_LOCAL_MACHINE\\%s: %w", root, err)
+	}
+	defer closer(k)
+
+	names, err := k.ReadSubKeyNames(-1)
+	if err != nil {
+		return nil, fmt.Errorf("read subkey names: %w", err)
+	}
+
+	var ruleKeys []string
+	for _, name := range names {
+		// registry key names are case insensitive
+		if strings.HasPrefix(strings.ToLower(name), strings.ToLower(NRPTKeyPrefix)) {
+			ruleKeys = append(ruleKeys, name)
+		}
+	}
+
+	return ruleKeys, nil
 }
 
 func removeRegistryKeyFromDNSPolicyConfig(regKeyPath string) error {
@@ -601,7 +627,7 @@ func refreshGroupPolicy() error {
 	)
 
 	if ret == 0 {
-		if err != nil && !errors.Is(err, syscall.Errno(0)) {
+		if !errors.Is(err, syscall.Errno(0)) {
 			return fmt.Errorf("RefreshPolicyEx failed: %w", err)
 		}
 		return fmt.Errorf("RefreshPolicyEx failed")
