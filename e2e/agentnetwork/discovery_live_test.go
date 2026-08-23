@@ -169,17 +169,15 @@ func liveDiscoveryCases() []liveDiscoveryCase {
 	// Bedrock lists inference profiles, not models: matchModelless routes
 	// /inference-profiles to a Bedrock route and refuses /v1/models for one.
 	//
-	// The request reaches AWS and AWS refuses it — bedrock-runtime answers
-	// <UnknownOperationException/>, because ListInferenceProfiles is a CONTROL
-	// PLANE operation served by bedrock.<region>.amazonaws.com, not the runtime
-	// host. A provider record carries one upstream and it has to be the runtime
-	// host for InvokeModel to work, so no Bedrock record can serve a listing as
-	// the model stands today.
+	// The listing is served by the CONTROL PLANE (bedrock.<region>), not the
+	// runtime host a provider record must point at for InvokeModel — the
+	// runtime host answers <UnknownOperationException/>. The router now sends
+	// the listing, and only the listing, to the control plane, so this case
+	// asserts a real filtered listing rather than the 404 it used to get.
 	//
-	// The mock upstream hides this entirely: it answers /inference-profiles on
-	// the same listener as everything else, so the routing test passes there
-	// while the real endpoint 404s. That is the whole reason this file exists,
-	// so the case is kept, asserting what actually happens.
+	// The mock upstream cannot show any of this: it answers
+	// /inference-profiles on the same listener as everything else, so a
+	// mock-based test passes whichever host the request went to.
 	if k := os.Getenv("AWS_BEARER_TOKEN_BEDROCK"); k != "" {
 		region := os.Getenv("AWS_REGION")
 		if region == "" {
@@ -192,9 +190,13 @@ func liveDiscoveryCases() []liveDiscoveryCase {
 		cases = append(cases, liveDiscoveryCase{
 			name: "bedrock", catalogID: "bedrock_api",
 			upstream: "https://bedrock-runtime." + region + ".amazonaws.com", apiKey: k,
-			path:    "/inference-profiles",
-			models:  []string{sharedllm.NormalizeAnthropicModel(strings.TrimPrefix(model, "global."))},
-			outcome: outcomeUpstreamNoListing,
+			path: "/inference-profiles",
+			// Registered verbatim, as an operator would copy it from AWS: the
+			// region prefix is what makes the id invocable, and the listing
+			// returns ids in exactly this form.
+			models:    []string{model},
+			outcome:   outcomeFiltered,
+			permitted: []string{model},
 		})
 	}
 
@@ -323,13 +325,19 @@ func runLiveDiscoveryCase(t *testing.T, ctx context.Context, tc liveDiscoveryCas
 	code, body := callUntil(t, func() (int, string, error) {
 		return cl.Get(ctx, endpoint, proxyIP, tc.path, tc.headers)
 	}, 200)
-	t.Logf("[discovery] %s GET %s -> %d; body: %s", tc.name, tc.path, code, truncate(body, 4000))
-	require.Equal(t, 200, code, "%s discovery must be served; body: %s", tc.name, truncate(body, 2000))
+	// Status only, not the body. A Bedrock listing embeds inference-profile
+	// ARNs carrying the 12-digit AWS account id, and these job logs are
+	// readable by anyone who can see the run. The ids line below is the finding
+	// anyway. The failure paths below are the same log: a listing that fails to
+	// arrive is an AWS refusal naming the resource it refused, and that name is
+	// an ARN carrying the same account id.
+	t.Logf("[discovery] %s GET %s -> %d", tc.name, tc.path, code)
+	require.Equal(t, 200, code, "%s discovery must be served; response was %s", tc.name, bodyShape(body))
 
 	ids, ok := listingIDs(body)
 	require.Truef(t, ok,
-		"%s answered discovery with something other than a {\"data\":[{\"id\":…}]} listing, which the filter forwards untouched — the caller would get an unbounded picker; body: %s",
-		tc.name, truncate(body, 2000))
+		"%s answered discovery with something other than a {\"data\":[{\"id\":…}]} listing, which the filter forwards untouched — the caller would get an unbounded picker; response was %s",
+		tc.name, bodyShape(body))
 	sort.Strings(ids)
 	t.Logf("[discovery] %s: %d ids after filtering: %s", tc.name, len(ids), strings.Join(ids, ", "))
 
@@ -342,8 +350,11 @@ func runLiveDiscoveryCase(t *testing.T, ctx context.Context, tc liveDiscoveryCas
 	}
 	for _, id := range ids {
 		_, direct := permitted[id]
-		_, normalised := permitted[sharedllm.NormalizeAnthropicModel(id)]
-		assert.Truef(t, direct || normalised,
+		_, dated := permitted[sharedllm.NormalizeAnthropicModel(id)]
+		// Bedrock ids carry a region prefix and version suffix the record may
+		// not repeat; the proxy's filter tries the same forms.
+		_, bedrock := permitted[sharedllm.NormalizeBedrockModel(id)]
+		assert.Truef(t, direct || dated || bedrock,
 			"%s offered %q, which no policy on this route permits — every entry the picker shows must be a request the guardrail would allow", tc.name, id)
 	}
 	for _, hidden := range tc.wantHidden {
@@ -362,24 +373,39 @@ func isProxyError(body string) bool {
 }
 
 // listingIDs pulls the model ids out of a listing response. ok is false when
-// the body is not the {"data":[{"id":…}]} shape the filter recognises.
+// the body is neither envelope the proxy's filter recognises — the two must
+// stay in step, or this test reports "not a listing" for a response the proxy
+// filtered perfectly well.
 func listingIDs(body string) ([]string, bool) {
 	var doc struct {
+		// OpenAI's shape, which Anthropic adopted.
 		Data []struct {
 			ID string `json:"id"`
 		} `json:"data"`
+		// Bedrock returns inference-profile summaries under a key of its own,
+		// with the id under a field of its own.
+		Summaries []struct {
+			ID string `json:"inferenceProfileId"`
+		} `json:"inferenceProfileSummaries"`
 	}
 	if err := json.Unmarshal([]byte(body), &doc); err != nil {
 		return nil, false
 	}
-	if doc.Data == nil {
-		return nil, false
+	switch {
+	case doc.Data != nil:
+		ids := make([]string, 0, len(doc.Data))
+		for _, entry := range doc.Data {
+			ids = append(ids, entry.ID)
+		}
+		return ids, true
+	case doc.Summaries != nil:
+		ids := make([]string, 0, len(doc.Summaries))
+		for _, entry := range doc.Summaries {
+			ids = append(ids, entry.ID)
+		}
+		return ids, true
 	}
-	ids := make([]string, 0, len(doc.Data))
-	for _, entry := range doc.Data {
-		ids = append(ids, entry.ID)
-	}
-	return ids, true
+	return nil, false
 }
 
 func caseNames(cases []liveDiscoveryCase) []string {
@@ -388,6 +414,27 @@ func caseNames(cases []liveDiscoveryCase) []string {
 		names = append(names, c.name)
 	}
 	return names
+}
+
+// bodyShape describes a response without quoting any of it: its size and the
+// top-level keys it arrived under. That is what a discovery failure is
+// diagnosed from — which envelope the vendor answered with — and it is all
+// that may go in a message rendered into a public job log, because the values
+// underneath can carry an ARN and its account id.
+func bodyShape(body string) string {
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(body), &doc); err != nil {
+		return strconv.Itoa(len(body)) + " bytes, not a JSON object"
+	}
+	keys := make([]string, 0, len(doc))
+	for key := range doc {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	if len(keys) == 0 {
+		return strconv.Itoa(len(body)) + " bytes, an empty JSON object"
+	}
+	return strconv.Itoa(len(body)) + " bytes, keyed by: " + strings.Join(keys, ", ")
 }
 
 // truncate bounds a logged response body. A live catalogue can run to tens of

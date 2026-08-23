@@ -490,7 +490,43 @@ func TestRegionFromUpstream(t *testing.T) {
 		{"bedrock regionless without scheme", bedrock, "bedrock-runtime.amazonaws.com", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, regionFromUpstream(tc.entry, tc.upstream))
+			assert.Equal(t, tc.want, RegionFromUpstream(tc.entry, tc.upstream))
 		})
 	}
+}
+
+// bedrockGeoListing carries profiles from geographies the original prefix list
+// did not name. Every one reduces to a catalog key, so every one must arrive
+// priced — an unstripped geography is what made a real account's listing come
+// back almost entirely at zero.
+const bedrockGeoListing = `{"inferenceProfileSummaries":[
+  {"inferenceProfileId":"jp.anthropic.claude-sonnet-5-20260514-v1:0",
+   "inferenceProfileName":"JP Anthropic Claude Sonnet 5","status":"ACTIVE","type":"SYSTEM_DEFINED"},
+  {"inferenceProfileId":"au.anthropic.claude-haiku-4-5-20251001-v1:0",
+   "inferenceProfileName":"AU Anthropic Claude Haiku 4.5","status":"ACTIVE","type":"SYSTEM_DEFINED"},
+  {"inferenceProfileId":"us-gov.anthropic.claude-sonnet-5-20260514-v1:0",
+   "inferenceProfileName":"GovCloud Anthropic Claude Sonnet 5","status":"ACTIVE","type":"SYSTEM_DEFINED"}
+]}`
+
+func TestBedrockProfilesFromAnyGeographyArrivePriced(t *testing.T) {
+	cl, _ := newStubClient(http.StatusOK, bedrockGeoListing)
+
+	models, err := cl.Fetch(context.Background(), Request{
+		CatalogID:   "bedrock_api",
+		UpstreamURL: "https://bedrock-runtime.eu-central-1.amazonaws.com",
+		APIKey:      "aws-token",
+	})
+	require.NoError(t, err)
+	require.Len(t, models, 3)
+
+	for _, m := range models {
+		assert.True(t, m.PricingKnown, "%s must resolve to a catalog rate", m.ID)
+		assert.Greater(t, m.InputPer1k, 0.0, "input rate for %s", m.ID)
+		assert.Greater(t, m.OutputPer1k, 0.0, "output rate for %s", m.ID)
+		assert.Greater(t, m.CacheReadPer1k, 0.0, "cache-read rate for %s", m.ID)
+	}
+
+	// The wire id is preserved whatever the pricing key reduced to: it is the
+	// only form that works at invoke time.
+	assert.Equal(t, "jp.anthropic.claude-sonnet-5-20260514-v1:0", models[0].ID)
 }

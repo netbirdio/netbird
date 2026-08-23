@@ -191,7 +191,7 @@ func (c *Client) discoveryURL(entry catalog.Provider, req Request) (string, erro
 			// A provider record carries no region field: the region lives
 			// inside the upstream host the operator already configured, so
 			// read it back out rather than asking them for it twice.
-			region = regionFromUpstream(entry, req.UpstreamURL)
+			region = RegionFromUpstream(entry, req.UpstreamURL)
 		}
 		if region == "" {
 			return "", fmt.Errorf("%w: %s discovery needs a region, and none could be read from the provider upstream",
@@ -207,13 +207,13 @@ func (c *Client) discoveryURL(entry catalog.Provider, req Request) (string, erro
 	return target.String(), nil
 }
 
-// regionFromUpstream recovers the region an operator embedded in the provider
+// RegionFromUpstream recovers the region an operator embedded in the provider
 // upstream, by matching it against the catalog's own host template. Bedrock's
 // template is "bedrock-runtime.<region>.amazonaws.com" and Vertex's is
 // "<region>-aiplatform.googleapis.com", so the region is whatever sits between
 // the fixed halves. Returns empty when the upstream does not match the
 // template, which is the case for a custom or proxied endpoint.
-func regionFromUpstream(entry catalog.Provider, upstreamURL string) string {
+func RegionFromUpstream(entry catalog.Provider, upstreamURL string) string {
 	prefix, suffix, found := strings.Cut(entry.DefaultHost, catalog.RegionPlaceholder)
 	if !found {
 		return ""
