@@ -16,6 +16,8 @@ package modeldiscovery
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -26,6 +28,8 @@ import (
 	"testing"
 	"time"
 
+	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/catalog"
@@ -59,8 +63,8 @@ import (
 //     and the filter is the thing to look at
 func TestDebugBedrockProfileCount(t *testing.T) {
 	token := os.Getenv("AWS_BEARER_TOKEN_BEDROCK")
-	if token == "" {
-		t.Skip("AWS_BEARER_TOKEN_BEDROCK not set; export it to run the Bedrock count debug")
+	if token == "" && os.Getenv("AWS_ACCESS_KEY_ID") == "" {
+		t.Skip("no Bedrock credential; export AWS_BEARER_TOKEN_BEDROCK or AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY")
 	}
 	region := os.Getenv("AWS_REGION")
 	if region == "" {
@@ -70,7 +74,11 @@ func TestDebugBedrockProfileCount(t *testing.T) {
 	defer cancel()
 
 	host := "bedrock." + region + ".amazonaws.com"
-	t.Logf("=== region %s, control plane %s ===", region, host)
+	authMode := "bearer token"
+	if token == "" {
+		authMode = "SigV4 (access key)"
+	}
+	t.Logf("=== region %s, control plane %s, auth %s ===", region, host, authMode)
 
 	// [1] Exactly what Fetch asks for: no maxResults, no type filter.
 	first, firstRaw := listProfiles(t, ctx, host, token, nil)
@@ -91,18 +99,23 @@ func TestDebugBedrockProfileCount(t *testing.T) {
 	}
 
 	// [3] The path the Load models button drives, including its ACTIVE filter
-	// and its dedup.
-	var cl Client
-	fetched, err := cl.Fetch(ctx, Request{
-		CatalogID:   "bedrock_api",
-		UpstreamURL: "https://bedrock-runtime." + region + ".amazonaws.com",
-		APIKey:      token,
-	})
-	require.NoError(t, err, "Fetch must reach the control plane")
-	t.Logf("[3] Fetch returned %d models (this is what the dashboard renders)", len(fetched))
-
-	if len(first.Summaries) == len(all) && len(fetched) > len(all) {
-		t.Logf("    NOTE: Fetch returned more than the raw listing — the surplus is ours, not AWS's")
+	// and its dedup. Fetch only knows how to send a bearer token, so with
+	// SigV4 credentials this step is not available — worth recording, because
+	// it means a record holding an access key cannot discover at all.
+	if token == "" {
+		t.Logf("[3] skipped: Fetch sends a bearer token only, and this environment has SigV4 credentials")
+	} else {
+		var cl Client
+		fetched, err := cl.Fetch(ctx, Request{
+			CatalogID:   "bedrock_api",
+			UpstreamURL: "https://bedrock-runtime." + region + ".amazonaws.com",
+			APIKey:      token,
+		})
+		require.NoError(t, err, "Fetch must reach the control plane")
+		t.Logf("[3] Fetch returned %d models (this is what the dashboard renders)", len(fetched))
+		if len(first.Summaries) == len(all) && len(fetched) > len(all) {
+			t.Logf("    NOTE: Fetch returned more than the raw listing — the surplus is ours, not AWS's")
+		}
 	}
 
 	// Decomposition of everything AWS returned.
@@ -203,8 +216,15 @@ func listProfiles(t *testing.T, ctx context.Context, host, token string, query m
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target.String(), nil)
 	require.NoError(t, err)
-	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	} else {
+		// The environment may only carry SigV4 credentials. Sign rather than
+		// skip: the count question is about what the account holds, and a
+		// bearer token is not the only way to ask.
+		signRequestSigV4(t, ctx, req, hostRegion(host))
+	}
 
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err, "reach the Bedrock control plane")
@@ -212,8 +232,13 @@ func listProfiles(t *testing.T, ctx context.Context, host, token string, query m
 
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	require.NoError(t, err)
-	require.Equalf(t, http.StatusOK, resp.StatusCode,
-		"control plane must answer the listing; got %d with %d bytes", resp.StatusCode, len(raw))
+	if resp.StatusCode != http.StatusOK {
+		// The body is the whole point of a failure here: an IAM denial names
+		// the action it refused, which is a different fix from a bad token.
+		t.Logf("control plane answered %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+		t.Logf("  x-amzn-errortype: %s", resp.Header.Get("x-amzn-errortype"))
+	}
+	require.Equal(t, http.StatusOK, resp.StatusCode, "control plane must answer the listing")
 
 	var page profilePage
 	require.NoError(t, json.Unmarshal(raw, &page), "listing must parse")
@@ -256,4 +281,29 @@ func logCounts(t *testing.T, label string, counts map[string]int) {
 	for _, k := range keys {
 		t.Logf("      %-30s %d", k, counts[k])
 	}
+}
+
+// hostRegion pulls the region back out of a control-plane host.
+func hostRegion(host string) string {
+	parts := strings.Split(host, ".")
+	if len(parts) < 2 {
+		return ""
+	}
+	return parts[1]
+}
+
+// signRequestSigV4 signs req for the Bedrock control plane with whatever
+// credentials the default chain resolves.
+func signRequestSigV4(t *testing.T, ctx context.Context, req *http.Request, region string) {
+	t.Helper()
+
+	cfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(region))
+	require.NoError(t, err, "load AWS config")
+	creds, err := cfg.Credentials.Retrieve(ctx)
+	require.NoError(t, err, "resolve AWS credentials")
+
+	empty := sha256.Sum256(nil)
+	require.NoError(t,
+		v4.NewSigner().SignHTTP(ctx, creds, req, hex.EncodeToString(empty[:]), "bedrock", region, time.Now()),
+		"sign the request")
 }
