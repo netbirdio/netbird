@@ -2120,6 +2120,33 @@ type AgentNetworkConsumption struct {
 // AgentNetworkConsumptionDimensionKind Whether this row counts a single end user or a single source group across every member.
 type AgentNetworkConsumptionDimensionKind string
 
+// AgentNetworkDiscoveredModel defines model for AgentNetworkDiscoveredModel.
+type AgentNetworkDiscoveredModel struct {
+	// CacheCreationPer1k Anthropic-shape cache rate — default cost per 1k cache-creation tokens (additive to input tokens), in USD. Absent when the model has no cache-creation rate.
+	CacheCreationPer1k *float64 `json:"cache_creation_per_1k,omitempty"`
+
+	// CacheReadPer1k Anthropic-shape cache rate — default cost per 1k cache-read tokens (additive to input tokens), in USD. Absent when the model has no cache-read rate.
+	CacheReadPer1k *float64 `json:"cache_read_per_1k,omitempty"`
+
+	// CachedInputPer1k OpenAI-shape cache rate — default cost per 1k cached prompt tokens (a subset of input tokens), in USD. Absent when the model has no cached-input discount.
+	CachedInputPer1k *float64 `json:"cached_input_per_1k,omitempty"`
+
+	// Id Identifier to register on the provider record, in the form the vendor issues it. For Bedrock this is the region-prefixed inference-profile id, which is the only form AWS accepts at invoke time.
+	Id string `json:"id"`
+
+	// InputPer1k Default input token price per 1k tokens, in USD, from the same table the proxy bills with. Zero when pricing_known is false.
+	InputPer1k float64 `json:"input_per_1k"`
+
+	// Label Vendor-supplied display name, where the vendor supplies one.
+	Label *string `json:"label,omitempty"`
+
+	// OutputPer1k Default output token price per 1k tokens, in USD. Zero when pricing_known is false.
+	OutputPer1k float64 `json:"output_per_1k"`
+
+	// PricingKnown Whether NetBird's shipped pricing table can price this model. When false the rates below are all zero and the operator must set them, or requests to this model would record a cost of zero.
+	PricingKnown bool `json:"pricing_known"`
+}
+
 // AgentNetworkGuardrail defines model for AgentNetworkGuardrail.
 type AgentNetworkGuardrail struct {
 	// Checks Guardrail check parameters. Each entry has an `enabled` flag plus per-check configuration; disabled entries are inert.
@@ -2195,6 +2222,27 @@ type AgentNetworkMeSetup struct {
 
 	// Providers The providers at least one of the caller's policies authorizes, in creation order.
 	Providers []AgentNetworkMeProvider `json:"providers"`
+}
+
+// AgentNetworkModelDiscoveryRequest defines model for AgentNetworkModelDiscoveryRequest.
+type AgentNetworkModelDiscoveryRequest struct {
+	// ApiKey Credential to query the vendor with, for a provider that has not been saved yet. Mutually exclusive with provider_id.
+	ApiKey *string `json:"api_key,omitempty"`
+
+	// CatalogProviderId Catalog provider to query (AgentNetworkCatalogProvider.id). Determines the listing endpoint, the auth header and the response shape.
+	CatalogProviderId string `json:"catalog_provider_id"`
+
+	// ProviderId Existing Agent Network provider record whose stored credential and upstream should be used. Lets the form refresh the list without the client holding the key.
+	ProviderId *string `json:"provider_id,omitempty"`
+
+	// UpstreamUrl The upstream being configured. Used to reach vendors that serve their listing from the same host as inference, and to read back the region for those whose host embeds one. Ignored when provider_id is supplied.
+	UpstreamUrl *string `json:"upstream_url,omitempty"`
+}
+
+// AgentNetworkModelDiscoveryResponse defines model for AgentNetworkModelDiscoveryResponse.
+type AgentNetworkModelDiscoveryResponse struct {
+	// Models Models the credential can reach, in the order the vendor returned them.
+	Models []AgentNetworkDiscoveredModel `json:"models"`
 }
 
 // AgentNetworkPolicy defines model for AgentNetworkPolicy.
@@ -6208,6 +6256,9 @@ type PostApiAgentNetworkBudgetRulesJSONRequestBody = AgentNetworkBudgetRuleReque
 
 // PutApiAgentNetworkBudgetRulesRuleIdJSONRequestBody defines body for PutApiAgentNetworkBudgetRulesRuleId for application/json ContentType.
 type PutApiAgentNetworkBudgetRulesRuleIdJSONRequestBody = AgentNetworkBudgetRuleRequest
+
+// PostApiAgentNetworkCatalogProvidersModelsJSONRequestBody defines body for PostApiAgentNetworkCatalogProvidersModels for application/json ContentType.
+type PostApiAgentNetworkCatalogProvidersModelsJSONRequestBody = AgentNetworkModelDiscoveryRequest
 
 // PostApiAgentNetworkGuardrailsJSONRequestBody defines body for PostApiAgentNetworkGuardrails for application/json ContentType.
 type PostApiAgentNetworkGuardrailsJSONRequestBody = AgentNetworkGuardrailRequest
