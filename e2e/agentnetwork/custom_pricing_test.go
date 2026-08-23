@@ -174,6 +174,11 @@ func chatOnce(t *testing.T, ctx context.Context, env pricedEnv, model, sessionID
 // to appear before the caller gives up on it.
 const accessLogIngestWindow = 30 * time.Second
 
+// accessLogPollInterval is how long the lookup waits between pages. Ingest is
+// asynchronous, so the row lands somewhere inside the window rather than on
+// any particular poll.
+const accessLogPollInterval = 2 * time.Second
+
 // lookupAccessLogBySession polls the access-log page for the row carrying
 // sessionID and reports whether it arrived within the window. It never fails
 // the test: callers that can recover — by firing a fresh request under a new
@@ -192,10 +197,23 @@ func lookupAccessLogBySession(ctx context.Context, sessionID string, within time
 				}
 			}
 		}
+		// The wait is bounded by the window as well, so the answer arrives when
+		// the caller's budget runs out rather than a poll interval later: a
+		// full interval slept past the deadline reports "no row" up to two
+		// seconds late, which reads as a slower lookup than the one asked for.
+		wait := time.Until(deadline)
+		if wait > accessLogPollInterval {
+			wait = accessLogPollInterval
+		}
+		if wait <= 0 {
+			return api.AgentNetworkAccessLog{}, false
+		}
+		timer := time.NewTimer(wait)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return api.AgentNetworkAccessLog{}, false
-		case <-time.After(2 * time.Second):
+		case <-timer.C:
 		}
 		// Checked after the wait rather than before the request: a poll issued
 		// past the deadline carries no budget and would fail on arrival.
