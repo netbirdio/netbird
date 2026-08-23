@@ -2080,7 +2080,9 @@ func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping)
 	// window in which an inference could complete unrouted and unmetered.
 	// Rebuilding first inverts that: the worst a request in the window meets is
 	// the new chain in front of the previous target, which is still counted.
-	s.rebuildMiddlewareChains(svcID, m)
+	if err := s.rebuildMiddlewareChains(svcID, m); err != nil {
+		return err
+	}
 	s.meter.AddMapping(m)
 	s.proxy.AddMapping(m)
 	return nil
@@ -2120,15 +2122,21 @@ func (s *Server) initMiddlewareManager(ctx context.Context) error {
 }
 
 // rebuildMiddlewareChains converts m into per-path bindings and calls
-// Manager.Rebuild. Short-circuits when the middleware manager is unset.
-func (s *Server) rebuildMiddlewareChains(svcID types.ServiceID, m proxy.Mapping) {
+// Manager.Rebuild. Short-circuits when the middleware manager is unset, which
+// is a deployment without middleware rather than a failure to install it.
+//
+// A rebuild that fails is reported rather than logged: the caller publishes
+// the route once this returns, and a route published over chains that were
+// not installed serves requests with no policy enforcement and no metering.
+func (s *Server) rebuildMiddlewareChains(svcID types.ServiceID, m proxy.Mapping) error {
 	if s.middlewareManager == nil {
-		return
+		return nil
 	}
 	bindings := buildMiddlewareBindings(svcID, m)
 	if err := s.middlewareManager.Rebuild(string(svcID), bindings); err != nil {
-		s.Logger.WithError(err).WithField("service_id", svcID).Error("failed to rebuild middleware chains")
+		return fmt.Errorf("rebuild middleware chains for service %s: %w", svcID, err)
 	}
+	return nil
 }
 
 // isLiveService reports whether svcID is currently present in the live
