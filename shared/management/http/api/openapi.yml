@@ -14143,7 +14143,10 @@ paths:
           "$ref": "#/components/responses/internal_error"
     post:
       summary: Create an Agent Network Provider
-      description: Connects a new Agent Network AI provider for the account.
+      description: |
+        Connects a new Agent Network AI provider for the account.
+
+        The upstream URL and credential are checked against the vendor before the provider is stored, so a record that cannot reach its vendor is refused rather than saved. Returns 422 with a message naming whichever of the two is at fault. A catalog provider with no listing endpoint, and one whose upstream the check cannot reach from the management service, are stored without being checked.
       tags: [ Agent Network ]
       security:
         - BearerAuth: [ ]
@@ -14169,6 +14172,8 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '409':
           "$ref": "#/components/responses/conflict"
+        '422':
+          "$ref": "#/components/responses/validation_failed_simple"
         '500':
           "$ref": "#/components/responses/internal_error"
   /api/agent-network/providers/{providerId}:
@@ -14205,7 +14210,10 @@ paths:
           "$ref": "#/components/responses/internal_error"
     put:
       summary: Update an Agent Network Provider
-      description: Update an existing Agent Network AI provider.
+      description: |
+        Update an existing Agent Network AI provider.
+
+        When the upstream URL or the API key changes, the pair is checked against the vendor before the change is stored, and a refusal returns 422 without replacing what was there. An update omitting the API key is checked against the stored one. Edits touching neither field are stored without a check.
       tags: [ Agent Network ]
       security:
         - BearerAuth: [ ]
@@ -14240,6 +14248,8 @@ paths:
           "$ref": "#/components/responses/not_found"
         '409':
           "$ref": "#/components/responses/conflict"
+        '422':
+          "$ref": "#/components/responses/validation_failed_simple"
         '500':
           "$ref": "#/components/responses/internal_error"
     delete:
