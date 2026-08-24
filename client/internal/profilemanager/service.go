@@ -419,6 +419,11 @@ func (s *ServiceManager) RemoveProfile(id ID, username string) error {
 		log.Warnf("failed to remove profile state file %s: %v", stateFile, err)
 	}
 
+	prefsFile := filepath.Join(filepath.Dir(target.Path), id.String()+prefsFileSuffix)
+	if err := removePrefsFile(prefsFile); err != nil && !os.IsNotExist(err) {
+		log.Warnf("failed to remove profile prefs file %s: %v", prefsFile, err)
+	}
+
 	return nil
 }
 
