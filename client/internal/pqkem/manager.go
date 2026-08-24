@@ -27,6 +27,11 @@ const (
 	// REKEY_AFTER_TIME ~120s) so the rotation's own traffic — which itself renews the
 	// activity signal — ages out before the next rekey, letting an idle tunnel stop
 	// rotating instead of self-sustaining.
+	//
+	// INVARIANT: rotationActivityWindow < the gap between OnDataPathRekeyed calls. That
+	// gap converges to the WireGuard rehandshake interval (REKEY_AFTER_TIME 120s). Setting
+	// rotationActivityWindow to a value higher than 120s will make the rotation
+	// self-sustain (preventing going back to idle). Margin here is ~30s.
 	rotationActivityWindow = 90 * time.Second
 )
 
