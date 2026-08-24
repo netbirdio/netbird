@@ -217,6 +217,32 @@ func applyHeaderPair(rule *HeaderPairRule, in *middleware.Input) *middleware.Mut
 	return mutations
 }
 
+// bodyInjectableSurfaces are the request-body dialects that accept the
+// OpenAI-standard identity fields this middleware writes. A surface
+// outside this set gets header-only stamping: "user" and "metadata.tags"
+// are not part of the Anthropic Messages schema, which rejects unknown
+// top-level fields and permits only "user_id" under metadata, so writing
+// them into an Anthropic-shaped body turns a working request into a 400.
+// Claude Code speaks that shape through gateway records pinned to the
+// OpenAI parser, so the check keys on the detected surface rather than
+// on the provider record.
+var bodyInjectableSurfaces = map[string]struct{}{
+	"openai": {},
+	// An empty surface means no parser claimed the path (a custom gateway
+	// base). Those upstreams are OpenAI-compatible by convention, so keep
+	// the long-standing behaviour rather than silently dropping identity.
+	"": {},
+}
+
+// bodyAcceptsOpenAIIdentity reports whether the request body may carry the
+// OpenAI-standard identity fields, read from the surface llm_request_parser
+// resolved from the request path.
+func bodyAcceptsOpenAIIdentity(in *middleware.Input) bool {
+	surface, _ := lookupMetadata(in.Metadata, middleware.KeyLLMProvider)
+	_, ok := bodyInjectableSurfaces[surface]
+	return ok
+}
+
 // injectIntoBody parses the request body and writes the supplied
 // identity dimensions into it. Tags land at metadata.tags (creating
 // the metadata object when absent); the user identity lands at the
@@ -225,6 +251,8 @@ func applyHeaderPair(rule *HeaderPairRule, in *middleware.Input) *middleware.Mut
 // was written. Returns ok=false (no mutation) when:
 //
 //   - both inputs are empty (nothing to write);
+//   - the body speaks a dialect without these fields (see
+//     bodyInjectableSurfaces);
 //   - the body is empty or truncated (we don't have the full document
 //     to safely round-trip);
 //   - the body isn't a JSON object (skip silently — this middleware
@@ -243,6 +271,9 @@ func injectIntoBody(in *middleware.Input, tags []string, userID string) ([]byte,
 		return nil, false
 	}
 	if in == nil || len(in.Body) == 0 || in.BodyTruncated {
+		return nil, false
+	}
+	if !bodyAcceptsOpenAIIdentity(in) {
 		return nil, false
 	}
 	var doc map[string]any
