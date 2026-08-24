@@ -109,11 +109,13 @@ func (a *Account) GetPeerNetworkMapComponents(
 	// TODO (dmitri) maybe consider using invariants?
 	if peer == nil {
 		log.WithField("peer id", peerID).Error("NetworkMapComponents are computed for a peer missing from the account")
+		// The peer is gone from the account, so there is nothing to carry
+		// for it. The client resolves its own identity from PeerConfig and
+		// tolerates a peers list without it.
 		return EmptyNetworkMapComponents(&NetworkMapComponents{
 			PeerID:  peerID,
 			Network: a.Network.Copy(),
-			// must include the target peer as it's required on the client
-			Peers: map[string]*ComponentPeer{peerID: peer.ToComponent()},
+			Peers:   map[string]*ComponentPeer{},
 		})
 	}
 
@@ -506,7 +508,8 @@ func (a *Account) getPeersGroupsPoliciesRoutes(
 }
 
 func (a *Account) getPeersFromGroups(ctx context.Context, groups []string, peerID string, sourcePostureChecksIDs []string,
-	validatedPeersMap map[string]struct{}, postureFailedPeers *map[string]map[string]struct{}) ([]string, bool) {
+	validatedPeersMap map[string]struct{}, postureFailedPeers *map[string]map[string]struct{},
+) ([]string, bool) {
 	peerInGroups := false
 	var filteredPeerIDs []string
 	var seenPeerIds map[string]struct{}
@@ -705,7 +708,7 @@ func peerPassesPostureChecks(ctx context.Context, checks []posture.Check, peer *
 	return true
 }
 
-func (a *Account) getPostureValidPeersSaveFailed(inputPeers []string, postureChecksIDs []string, validatedPeersMap map[string]struct{}, postureFailedPeers *map[string]map[string]struct{}) []string {
+func (a *Account) getPostureValidPeersSaveFailed(inputPeers, postureChecksIDs []string, validatedPeersMap map[string]struct{}, postureFailedPeers *map[string]map[string]struct{}) []string {
 	var dest []string
 	for _, peerID := range inputPeers {
 		if _, validated := validatedPeersMap[peerID]; !validated {
