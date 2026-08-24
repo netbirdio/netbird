@@ -62,7 +62,6 @@ require (
 	github.com/goccy/go-yaml v1.18.0
 	github.com/godbus/dbus/v5 v5.2.2
 	github.com/golang-jwt/jwt/v5 v5.3.1
-	github.com/golang/mock v1.6.0
 	github.com/google/go-cmp v0.7.0
 	github.com/google/gopacket v1.1.19
 	github.com/google/nftables v0.3.0
@@ -82,8 +81,8 @@ require (
 	github.com/miekg/dns v1.1.72
 	github.com/mitchellh/hashstructure/v2 v2.0.2
 	github.com/moby/moby/api v1.54.1
-	github.com/netbirdio/management-integrations/integrations v0.0.0-20260803100840-78e79ba20f87
 	github.com/netbirdio/go-nat v0.0.0-20260821095157-6b2c8c5c74e8
+	github.com/netbirdio/management-integrations/integrations v0.0.0-20260803100840-78e79ba20f87
 	github.com/netbirdio/signal-dispatcher/dispatcher v0.0.0-20250805121659-6b4ac470ca45
 	github.com/oapi-codegen/runtime v1.1.2
 	github.com/okta/okta-sdk-golang/v2 v2.18.0
@@ -218,6 +217,7 @@ require (
 	github.com/gobwas/pool v0.2.1 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.2 // indirect
+	github.com/golang/mock v1.6.0 // indirect
 	github.com/google/btree v1.1.3 // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/google/go-tpm v0.9.8 // indirect
