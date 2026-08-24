@@ -287,6 +287,13 @@ func (r *registryConfigurator) disableWINSForInterface() error {
 }
 
 func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *statemanager.Manager) error {
+	// Clear every rule the previous apply installed before installing any new
+	// one, including a leftover catch-all: removal is unconditional so a rule
+	// from an earlier run cannot survive into a config that no longer wants it.
+	if err := r.removeDNSMatchPolicies(); err != nil {
+		log.Errorf("cleanup old dns match policies: %s", err)
+	}
+
 	if config.RouteAll {
 		if err := r.addDNSSetupForAll(config.ServerIP); err != nil {
 			return fmt.Errorf("add dns setup: %w", err)
@@ -312,10 +319,6 @@ func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig, stateManager
 		matchDomains = append(matchDomains, "."+strings.TrimSuffix(dConf.Domain, "."))
 	}
 
-	if err := r.removeDNSMatchPolicies(); err != nil {
-		log.Errorf("cleanup old dns match policies: %s", err)
-	}
-
 	if len(matchDomains) != 0 {
 		count, err := r.addDNSMatchPolicy(matchDomains, config.ServerIP)
 		// Update count even on error to ensure cleanup covers partially created rules
@@ -328,12 +331,6 @@ func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig, stateManager
 	}
 
 	r.updateState(stateManager)
-
-	if config.RouteAll {
-		if err := r.addDNSCatchAllPolicy(config.ServerIP); err != nil {
-			return fmt.Errorf("add dns catch-all policy: %w", err)
-		}
-	}
 
 	if err := r.updateSearchDomains(searchDomains); err != nil {
 		return fmt.Errorf("update search domains: %w", err)
@@ -360,7 +357,12 @@ func (r *registryConfigurator) addDNSSetupForAll(ip netip.Addr) error {
 	}
 	r.routingAll = true
 	log.Infof("configured %s:%d as main DNS forwarder for this peer", ip, DefaultPort)
-	return nil
+
+	// The adapter's NameServer alone does not make us the system resolver:
+	// Windows queries the resolvers of every adapter in parallel and takes the
+	// first answer back. A catch-all NRPT rule is evaluated before adapter
+	// selection and restricts every name to the servers it lists.
+	return r.addDNSCatchAllPolicy(ip)
 }
 
 func (r *registryConfigurator) addDNSMatchPolicy(domains []string, ip netip.Addr) (int, error) {
