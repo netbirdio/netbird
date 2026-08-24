@@ -381,30 +381,29 @@ func (e *componentEncoder) groupPublicXid(groupID string) (string, bool) {
 // today (Calculate's resource-typed rule path consults SourceResource only
 // for "peer" — other types fall through to group-based lookup).
 func (e *componentEncoder) resourceToProto(r nmdata.Resource) *proto.ResourceCompact {
-	t, ok := proto.ResourceCompactType_value[string(r.Type)]
-	if !ok || t == 0 || r.ID == "" {
+	if !types.ResourceType(r.Type).Valid() || r.ID == "" {
 		return nil
 	}
-	if t == int32(proto.ResourceCompactType_peer) {
+
+	out := &proto.ResourceCompact{Type: r.Type}
+
+	if r.Type == string(types.ResourceTypePeer) {
 		idx, ok := e.peerOrder[r.ID]
 		if !ok {
 			return nil
 		}
-		return &proto.ResourceCompact{
-			Type:       proto.ResourceCompactType_peer,
-			ResourceId: &proto.ResourceCompact_PeerIndex{PeerIndex: idx},
-		}
+		out.PeerIndexSet = true
+		out.PeerIndex = idx
+		return out
 	}
 
 	publicID, ok := e.networkIdToPublicId[r.ID]
 	if !ok {
 		return nil
 	}
+	out.Id = publicID
 
-	return &proto.ResourceCompact{
-		Type:       proto.ResourceCompactType(t),
-		ResourceId: &proto.ResourceCompact_Id{Id: publicID},
-	}
+	return out
 }
 
 // postureCheckSeqs translates a slice of posture-check xids to their
