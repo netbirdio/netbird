@@ -49,6 +49,32 @@ func (m *managerImpl) checkProviderCredential(ctx context.Context, provider *typ
 	return status.Errorf(status.InvalidArgument, "%s", message)
 }
 
+// discoveryFailure renders a failed model listing for the operator who pressed
+// the button. Every outcome here is something they did or configured — a key
+// the vendor refused, an upstream that does not answer — so it owes them the
+// same sentence a refused save gives, not the generic 500 an unclassified
+// error turns into.
+//
+// ErrNoDiscovery and ErrInvalidRequest pass through untouched: the handler
+// already maps them, and "this provider has no listing endpoint" is a fact
+// about the catalog rather than a failure to report as one.
+func discoveryFailure(ctx context.Context, catalogID string, err error) error {
+	if errors.Is(err, modeldiscovery.ErrNoDiscovery) || errors.Is(err, modeldiscovery.ErrInvalidRequest) {
+		return err
+	}
+
+	message, _ := credentialCheckFailure(err)
+	if message == "" {
+		return err
+	}
+
+	// The operator's message carries no status code, so the vendor's number is
+	// recorded here or nowhere.
+	log.WithContext(ctx).Infof("agent network model discovery for %s failed: %v", catalogID, err)
+
+	return status.Errorf(status.InvalidArgument, "%s", message)
+}
+
 // credentialCheckFailure renders a discovery failure as the sentence the
 // provider form shows, and reports whether it should block the write.
 //

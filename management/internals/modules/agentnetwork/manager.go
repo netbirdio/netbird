@@ -231,7 +231,11 @@ func (m *managerImpl) DiscoverProviderModels(ctx context.Context, accountID, use
 		req.APIKey = record.APIKey
 	}
 
-	return m.modelDiscovery.Fetch(ctx, req)
+	models, err := m.modelDiscovery.Fetch(ctx, req)
+	if err != nil {
+		return nil, discoveryFailure(ctx, req.CatalogID, err)
+	}
+	return models, nil
 }
 
 // CreateProvider persists a new provider for the account. Providers have no

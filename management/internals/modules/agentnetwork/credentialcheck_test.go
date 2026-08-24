@@ -377,3 +377,82 @@ func TestCreateProvider_AProviderWeCannotCheckStillSaves(t *testing.T) {
 		})
 	}
 }
+
+// TestDiscoveryFailure_TellsTheOperatorWhatWentWrong covers the button, not the
+// save. Pressing "Load models from provider" against a bad key used to answer
+// "internal server error", which names neither the thing that failed nor
+// anything the operator could act on — every outcome here is their key or their
+// URL.
+func TestDiscoveryFailure_TellsTheOperatorWhatWentWrong(t *testing.T) {
+	cases := map[string]struct {
+		err  error
+		want string
+	}{
+		"refused credential": {
+			err:  &modeldiscovery.VendorStatusError{Provider: "Bedrock", Status: 403},
+			want: "the provider rejected the credential",
+		},
+		"upstream that is not the api": {
+			err:  &modeldiscovery.VendorStatusError{Provider: "OpenAI", Status: 404},
+			want: "the upstream url did not answer a model listing",
+		},
+		"upstream that does not resolve": {
+			err: &modeldiscovery.UnreachableError{
+				Provider: "OpenAI",
+				Err:      &net.DNSError{Err: "no such host", Name: "api.example.com", IsNotFound: true},
+			},
+			want: "the upstream url could not be reached: no such host",
+		},
+		"vendor having a bad day": {
+			err:  &modeldiscovery.VendorStatusError{Provider: "Anthropic", Status: 503},
+			want: "the provider returned an error",
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			err := discoveryFailure(context.Background(), "openai_api", tc.err)
+			require.EqualError(t, err, tc.want)
+
+			var sErr *status.Error
+			require.ErrorAs(t, err, &sErr)
+			require.Equal(t, status.InvalidArgument, sErr.Type(),
+				"a failure the operator caused must not read as a server fault")
+		})
+	}
+}
+
+// TestDiscoveryFailure_LeavesTheCatalogFactsAlone keeps the two outcomes the
+// handler already maps. A provider with no listing endpoint is a fact about the
+// catalog entry, and the caller falls back to the catalog's own models rather
+// than showing an error at all — rewriting it as a refusal would turn a normal
+// path into one.
+func TestDiscoveryFailure_LeavesTheCatalogFactsAlone(t *testing.T) {
+	for name, err := range map[string]error{
+		"no listing endpoint": modeldiscovery.ErrNoDiscovery,
+		"bad request":         fmt.Errorf("%w: unknown catalog provider", modeldiscovery.ErrInvalidRequest),
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t, err, discoveryFailure(context.Background(), "openai_api", err),
+				"the handler's own mapping must still see the original error")
+		})
+	}
+}
+
+// TestDiscoverProviderModels_SurfacesTheVendorRefusal drives the manager rather
+// than the classifier, so a future refactor that stops translating on this path
+// fails here rather than silently going back to 500s.
+func TestDiscoverProviderModels_SurfacesTheVendorRefusal(t *testing.T) {
+	ctx := context.Background()
+	f := newBootstrapFixture(t)
+	f.vendor.err = &modeldiscovery.VendorStatusError{Provider: "OpenAI", Status: 401}
+	f.expectPermission("account1", "user1", modules.AgentNetworkProviders, operations.Create, true)
+
+	_, err := f.manager.DiscoverProviderModels(ctx, "account1", "user1", modeldiscovery.Request{
+		CatalogID:   "openai_api",
+		UpstreamURL: "https://api.openai.com",
+		APIKey:      "sk-wrong",
+	}, "")
+
+	require.EqualError(t, err, "the provider rejected the credential")
+}
