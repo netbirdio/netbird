@@ -47,6 +47,28 @@
           {"Name": "db.corp.internal.", "Type": 1, "Class": "IN", "TTL": 300, "RData": "10.10.0.5"}
         ]
       }
+    },
+    {
+      "DistributionGroups": ["grp-dev"],
+      "Zone": {
+        "Domain": "search-off.internal.",
+        "NonAuthoritative": true,
+        "SearchDomainDisabled": true,
+        "Records": [
+          {"Name": "app.search-off.internal.", "Type": 1, "Class": "IN", "TTL": 300, "RData": "10.10.0.6"},
+          {"Name": "alias.search-off.internal.", "Type": 5, "Class": "IN", "TTL": 300, "RData": "app.search-off.internal."}
+        ]
+      }
+    },
+    {
+      "DistributionGroups": ["grp-ops"],
+      "Zone": {
+        "Domain": "ops-only.internal.",
+        "NonAuthoritative": true,
+        "Records": [
+          {"Name": "tool.ops-only.internal.", "Type": 1, "Class": "IN", "TTL": 300, "RData": "10.10.0.7"}
+        ]
+      }
     }
   ]
 }

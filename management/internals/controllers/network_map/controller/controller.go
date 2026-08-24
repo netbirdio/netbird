@@ -21,6 +21,7 @@ import (
 	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 	"github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/internals/shared/grpc"
+	"github.com/netbirdio/netbird/management/internals/shared/requestbuffer"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
@@ -38,6 +39,8 @@ import (
 	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/version"
 )
+
+const defaultNetworkMapDataBufferInterval = 100 * time.Millisecond
 
 type Controller struct {
 	repo    Repository
@@ -65,7 +68,8 @@ type Controller struct {
 
 	perAccountServerSupportedSyncMessageVersions map[string]sharedgrpc.SyncMessageVersion
 
-	nmdataStore *networkmapdb.NetworkMapDBStoreImpl
+	nmdataStore  *networkmapdb.NetworkMapDBStoreImpl
+	nmdataBuffer *requestbuffer.Buffer[*networkmap.NetworkMapData]
 }
 
 type bufferUpdate struct {
@@ -89,7 +93,7 @@ func NewController(ctx context.Context, store store.Store, metrics telemetry.App
 		log.Fatal(fmt.Errorf("error creating metrics: %w", err))
 	}
 
-	return &Controller{
+	c := &Controller{
 		repo:                    newRepository(store),
 		metrics:                 nMetrics,
 		accountManagerMetrics:   metrics.AccountManagerMetrics(),
@@ -106,6 +110,14 @@ func NewController(ctx context.Context, store store.Store, metrics telemetry.App
 		perAccountServerSupportedSyncMessageVersions: sharedgrpc.SyncMessageVersionsFromMap(config.PerAccountHighestSupportedSyncMessageVersion),
 		nmdataStore:                                  nmdataStore,
 	}
+
+	if nmdataStore != nil {
+		interval := requestbuffer.Interval(ctx, "NB_NETWORK_MAP_DATA_BUFFER_INTERVAL", defaultNetworkMapDataBufferInterval)
+		log.WithContext(ctx).Infof("set network map data request buffer interval to %s", interval)
+		c.nmdataBuffer = requestbuffer.New(ctx, "network map data request buffer", interval, c.fetchNetworkMapData)
+	}
+
+	return c
 }
 
 func (c *Controller) OnPeerConnected(ctx context.Context, accountID string, peerID string) (chan *network_map.UpdateMessage, error) {
@@ -392,8 +404,6 @@ func (c *Controller) sendUpdatesFromData(ctx context.Context, accountID string, 
 		return fmt.Errorf("failed to get flow enabled status: %v", err)
 	}
 
-	nmData.PrecomputePostureValidation()
-
 	dnsCache := &cache.DNSConfigCache{}
 	dnsDomain := c.getDNSDomainFromData(nmData.AccountSettings)
 	peersCustomZone := networkmap.PeersCustomZone(ctx, accountID, dnsDomain, nmData.Peers, IPv6AllowedPeersFromData(nmData))
@@ -452,7 +462,7 @@ func (c *Controller) sendUpdatesFromData(ctx context.Context, accountID string, 
 				return
 			}
 
-			nmap := NetworkMapFromData(ctx, nmData, p.ID, peersCustomZone)
+			nmap := NetworkMapFromData(ctx, nmData, p.ID, peersCustomZone, c.accountManagerMetrics)
 
 			c.metrics.CountCalcPeerNetworkMapDuration(time.Since(start))
 
@@ -476,19 +486,35 @@ func (c *Controller) sendUpdatesFromData(ctx context.Context, accountID string, 
 }
 
 func (c *Controller) getNetworkMapData(ctx context.Context, accountID string) *networkmap.NetworkMapData {
-	if c.nmdataStore == nil {
+	if c.nmdataBuffer == nil {
 		return nil
 	}
 
-	nmData, err := c.nmdataStore.GetNetworkMapData(ctx, accountID)
+	nmData, err := c.nmdataBuffer.Get(ctx, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get network map data for account %s, falling back to account-based computation: %v", accountID, err)
 		return nil
 	}
 
-	nmData.Services = c.proxyServicesFromRepo(ctx, accountID)
-
 	return nmData
+}
+
+// fetchNetworkMapData reads the twin once per buffer window. Its result is
+// shared by every waiter of that window, so the mutating steps run here, before
+// it is handed out: the twin the callers see is read-only. Injected proxy
+// policies carry no posture checks, so precomputing after the injection yields
+// the same validation as precomputing before it.
+func (c *Controller) fetchNetworkMapData(ctx context.Context, accountID string) (*networkmap.NetworkMapData, error) {
+	nmData, err := c.nmdataStore.GetNetworkMapData(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	nmData.Services = c.proxyServicesFromRepo(ctx, accountID)
+	nmData.InjectProxyPolicies()
+	nmData.PrecomputePostureValidation()
+
+	return nmData, nil
 }
 
 func (c *Controller) getDNSDomainFromData(settings *nmdata.AccountSettingsInfo) string {
@@ -500,15 +526,18 @@ func (c *Controller) getDNSDomainFromData(settings *nmdata.AccountSettingsInfo) 
 
 func IPv6AllowedPeersFromData(nmData *networkmap.NetworkMapData) map[string]struct{} {
 	result := make(map[string]struct{})
-	if nmData.AccountSettings != nil {
-		for _, groupID := range nmData.AccountSettings.IPv6EnabledGroups {
-			group := nmData.Groups[groupID]
-			if group == nil {
-				continue
-			}
-			for _, peerID := range group.Peers {
-				result[peerID] = struct{}{}
-			}
+	// An account with no IPv6-enabled group runs no overlay at all, so the
+	// embedded-proxy carve-out below has nothing to reach and stays shut.
+	if nmData.AccountSettings == nil || len(nmData.AccountSettings.IPv6EnabledGroups) == 0 {
+		return result
+	}
+	for _, groupID := range nmData.AccountSettings.IPv6EnabledGroups {
+		group := nmData.Groups[groupID]
+		if group == nil {
+			continue
+		}
+		for _, peerID := range group.Peers {
+			result[peerID] = struct{}{}
 		}
 	}
 	for id, p := range nmData.Peers {
@@ -519,12 +548,22 @@ func IPv6AllowedPeersFromData(nmData *networkmap.NetworkMapData) map[string]stru
 	return result
 }
 
-func NetworkMapFromData(ctx context.Context, nmData *networkmap.NetworkMapData, peerID string, peersCustomZone nmdata.CustomZone) *types.NetworkMap {
+func NetworkMapFromData(ctx context.Context, nmData *networkmap.NetworkMapData, peerID string, peersCustomZone nmdata.CustomZone, metrics *telemetry.AccountManagerMetrics) *types.NetworkMap {
+	start := time.Now()
+
 	components := nmData.GetPeerNetworkMapComponents(peerID, peersCustomZone)
 	if components.IsEmpty() {
 		return &types.NetworkMap{Network: components.Network}
 	}
-	return types.CalculateNetworkMapFromComponents(ctx, components)
+	nm := types.CalculateNetworkMapFromComponents(ctx, components)
+
+	if metrics != nil {
+		objectCount := int64(len(nm.Peers) + len(nm.OfflinePeers) + len(nm.Routes) + len(nm.FirewallRules) + len(nm.RoutesFirewallRules))
+		metrics.CountNetworkMapObjects(objectCount)
+		metrics.CountGetPeerNetworkMapDuration(time.Since(start))
+	}
+
+	return nm
 }
 
 // peerPostureChecksFromData mirrors getPeerPostureChecks on the twin store. The
@@ -1171,7 +1210,7 @@ func (c *Controller) getValidatedPeerWithMapFromData(ctx context.Context, accoun
 	dnsDomain := c.getDNSDomainFromData(nmData.AccountSettings)
 	peersCustomZone := networkmap.PeersCustomZone(ctx, accountID, dnsDomain, nmData.Peers, IPv6AllowedPeersFromData(nmData))
 
-	networkMap := NetworkMapFromData(ctx, nmData, peerID, peersCustomZone)
+	networkMap := NetworkMapFromData(ctx, nmData, peerID, peersCustomZone, c.accountManagerMetrics)
 	dnsFwdPort := ComputeForwarderPortFromData(nmData.Peers, network_map.DnsForwarderPortMinVersion)
 
 	return networkMap, postureChecks, dnsFwdPort, nil
@@ -1402,7 +1441,12 @@ func (c *Controller) GetNetworkMap(ctx context.Context, peerID string) (*types.N
 		groups[groupID] = group.Peers
 	}
 
-	validatedPeers, err := c.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, types.TwinGroups(maps.Values(account.Groups)), types.TwinPeers(maps.Values(account.Peers)), account.Settings.Extra)
+	extraSettings, err := c.settingsManager.GetExtraSettings(ctx, account.Id)
+	if err != nil {
+		return nil, err
+	}
+
+	validatedPeers, err := c.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, types.TwinGroups(maps.Values(account.Groups)), types.TwinPeers(maps.Values(account.Peers)), extraSettings)
 	if err != nil {
 		return nil, err
 	}

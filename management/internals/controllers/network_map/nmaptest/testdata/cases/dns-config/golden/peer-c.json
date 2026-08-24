@@ -22,6 +22,19 @@
             "RData": "100.64.0.3"
           }
         ]
+      },
+      {
+        "Domain": "ops-only.internal.",
+        "NonAuthoritative": true,
+        "Records": [
+          {
+            "Name": "tool.ops-only.internal.",
+            "Type": "1",
+            "Class": "IN",
+            "TTL": "300",
+            "RData": "10.10.0.7"
+          }
+        ]
       }
     ],
     "ForwarderPort": "22054"

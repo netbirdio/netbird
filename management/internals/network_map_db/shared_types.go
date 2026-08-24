@@ -248,6 +248,12 @@ func ZonesToAppliedZoneCandidates(zones []Zone) ([]networkmap.AppliedZoneCandida
 		}
 
 		if z.Id != currentZoneId {
+			// The account-side builder (types.buildAppliedZoneCandidates) states
+			// the shape of an applied zone: names fully qualified, served
+			// non-authoritatively. Both builders feed the same client-facing map,
+			// so this one has to produce the same value.
+			zone.Domain = dns.Fqdn(zone.Domain)
+			zone.NonAuthoritative = true
 			zone.Records = []nmdata.SimpleRecord{}
 			toret = append(toret, AppliedZoneCandidateFromZone(zone, distributionGroups))
 			currentZoneId = z.Id
@@ -263,7 +269,7 @@ func ZonesToAppliedZoneCandidates(zones []Zone) ([]networkmap.AppliedZoneCandida
 
 		lastZone := &toret[len(toret)-1]
 		lastZone.Zone.Records = append(lastZone.Zone.Records, nmdata.SimpleRecord{
-			Name:  z.RecordName.String,
+			Name:  dns.Fqdn(z.RecordName.String),
 			Class: z.RecordClass.String,
 			TTL:   int(z.RecordTTL.Int64),
 			RData: rdata,

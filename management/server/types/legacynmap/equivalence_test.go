@@ -50,7 +50,7 @@ import (
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 
-	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller/cache"
 	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 	networkmap_pgsql "github.com/netbirdio/netbird/management/internals/network_map_db/pgsql"
@@ -60,7 +60,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/types/legacynmap"
-	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
+	"github.com/netbirdio/netbird/shared/management/networkmap"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -108,7 +108,7 @@ func TestNetworkMapProtoEquivalence(t *testing.T) {
 			continue
 		}
 
-		checkAccount(ctx, t, nmStore, account, maxPeers, stats)
+		checkAccount(ctx, t, testStore, nmStore, account, maxPeers, stats)
 
 		account = nil
 		debug.FreeOSMemory()
@@ -126,7 +126,7 @@ func TestNetworkMapProtoEquivalence(t *testing.T) {
 
 // checkAccount compares both paths for every peer of one account. Nothing is
 // retained across peers, so memory stays flat within an account.
-func checkAccount(ctx context.Context, t *testing.T, nmStore *networkmapdb.NetworkMapDBStoreImpl, account *types.Account, maxPeers int, stats *equivStats) {
+func checkAccount(ctx context.Context, t *testing.T, accountStore store.Store, nmStore *networkmapdb.NetworkMapDBStoreImpl, account *types.Account, maxPeers int, stats *equivStats) {
 	t.Helper()
 
 	if len(account.Peers) == 0 {
@@ -150,11 +150,14 @@ func checkAccount(ctx context.Context, t *testing.T, nmStore *networkmapdb.Netwo
 	// Production fills ValidatedPeers via the integrated-validator wrapper; here
 	// every peer counts as validated, matching the legacy side's map.
 	nmData.ValidatedPeers = validated
-	// The legacy side receives no account zones (main sourced them from the
-	// external zones manager), so the DB-sourced applied-zone candidates must be
-	// dropped to keep the comparison surface identical. PrivateServiceCandidates
-	// stay: all paths derive them from account/DB data.
-	nmData.AppliedZoneCandidates = nil
+
+	// Custom DNS zones are built twice from the same rows — the account side
+	// from the zones manager, the store side in SQL — so both are fed in and
+	// compared rather than dropped. The same goes for the peers zone below:
+	// each side computes it with its own helper, which is where an AAAA gate
+	// that disagrees between the two would show up.
+	accountZones, err := accountStore.GetAccountZones(ctx, store.LockingStrengthNone, account.Id)
+	require.NoError(t, err, "account %s: load account zones", account.Id)
 
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
@@ -176,6 +179,9 @@ func checkAccount(ctx context.Context, t *testing.T, nmStore *networkmapdb.Netwo
 		settings = &types.Settings{}
 	}
 
+	accountPeersZone := account.GetPeersCustomZone(ctx, equivDNSName)
+	storePeersZone := networkmap.PeersCustomZone(ctx, account.Id, equivDNSName, nmData.Peers, controller.IPv6AllowedPeersFromData(nmData))
+
 	for _, peerID := range peerIDs {
 		peer := account.Peers[peerID]
 		if peer == nil {
@@ -188,7 +194,7 @@ func checkAccount(ctx context.Context, t *testing.T, nmStore *networkmapdb.Netwo
 
 		// STORE PATH — nmdata store through the production computation, mirroring
 		// the controller's networkMapFromData.
-		components := nmData.GetPeerNetworkMapComponents(peerID, nmdata.CustomZone{})
+		components := nmData.GetPeerNetworkMapComponents(peerID, storePeersZone)
 		storeNM := &types.NetworkMap{Network: components.Network}
 		if !components.IsEmpty() {
 			storeNM = types.CalculateNetworkMapFromComponents(ctx, components)
@@ -202,7 +208,7 @@ func checkAccount(ctx context.Context, t *testing.T, nmStore *networkmapdb.Netwo
 
 		// ACCOUNT PATH — Account → toNetworkMapData twins → components.
 		acctNM := account.GetPeerNetworkMapFromComponents(
-			ctx, peerID, nbdns.CustomZone{}, nil, validated, resourcePolicies, routers, nil, groupUsers,
+			ctx, peerID, accountPeersZone, accountZones, validated, resourcePolicies, routers, nil, groupUsers,
 		)
 		acctProto := mgmtgrpc.ToSyncResponse(
 			ctx, nil, nil, nil, types.TwinPeer(peer), nil, nil, acctNM, equivDNSName, nil,
@@ -211,7 +217,7 @@ func checkAccount(ctx context.Context, t *testing.T, nmStore *networkmapdb.Netwo
 
 		// LEGACY PATH — main's frozen copy.
 		legacyNM := legacynmap.GetPeerNetworkMapFromComponents(
-			&legacyAccount, ctx, peerID, nbdns.CustomZone{}, nil, validated, legacyResourcePolicies, routers, nil, groupUsers,
+			&legacyAccount, ctx, peerID, accountPeersZone, accountZones, validated, legacyResourcePolicies, routers, nil, groupUsers,
 		)
 		if legacyNM == nil {
 			t.Fatalf("after %d peers: account=%s peer=%s legacy NetworkMap nil, new non-nil", stats.peersChecked, account.Id, peerID)
