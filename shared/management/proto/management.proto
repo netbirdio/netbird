@@ -92,6 +92,7 @@ message JobRequest {
 enum JobStatus {
   unknown_status = 0; //placeholder
   succeeded = 1;
+  failed = 2;
 }
 
 message JobResponse{
