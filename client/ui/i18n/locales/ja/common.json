@@ -764,7 +764,19 @@
         "message": "機密情報を匿名化"
     },
     "settings.troubleshooting.anonymize.help": {
-        "message": "ログからパブリック IP アドレスと NetBird 以外のドメインを隠します。"
+        "message": "IP アドレス、ドメイン、その他の機密性の高い値を隠します。"
+    },
+    "settings.troubleshooting.anonymize.info": {
+        "message": "「デフォルト」では、サポートのために内部 IPv4 アドレスとピア名は読める状態のまま残ります。「厳格」では、さらにプライベート (RFC 1918)、CGNAT、リンクローカルの IP アドレス、ピア名、WireGuard 公開鍵も匿名化されます。繰り返し現れる値は同じプレースホルダーに置き換えられるため、ピアは区別できます。デバッグバンドルを組織外に共有する場合は「厳格」を使用してください。"
+    },
+    "settings.troubleshooting.anonymize.none": {
+        "message": "なし"
+    },
+    "settings.troubleshooting.anonymize.default": {
+        "message": "デフォルト"
+    },
+    "settings.troubleshooting.anonymize.strict": {
+        "message": "厳格"
     },
     "settings.troubleshooting.systemInfo.label": {
         "message": "システム情報を含める"

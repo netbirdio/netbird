@@ -389,6 +389,17 @@ func (w *WorkerICE) injectPortForwardedCandidate(srflxCandidate ice.Candidate) {
 		return
 	}
 
+	// A forwarded candidate only makes sense for an IPv4 mapping, which
+	// translates a port on the gateway's address. An IPv6 pinhole translates
+	// nothing: it unblocks the address ICE already gathers as a host candidate,
+	// so there is no second address to advertise. Injecting one here would also
+	// paste an IPv6 address onto whichever server-reflexive candidate arrived
+	// first, which is usually IPv4.
+	if mapping.ExternalIP != nil && mapping.ExternalIP.To4() == nil {
+		w.log.Debugf("skipping port-forwarded candidate: %s mapping is IPv6-only", mapping.NATType)
+		return
+	}
+
 	w.muxAgent.Lock()
 	if w.portForwardAttempted {
 		w.muxAgent.Unlock()

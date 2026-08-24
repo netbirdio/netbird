@@ -764,7 +764,19 @@
         "message": "Érzékeny információk anonimizálása"
     },
     "settings.troubleshooting.anonymize.help": {
-        "message": "Elrejti a nyilvános IP-címeket és a nem-NetBird tartományokat a naplókban."
+        "message": "Elrejti az IP-címeket, a tartományokat és más érzékeny értékeket."
+    },
+    "settings.troubleshooting.anonymize.info": {
+        "message": "Az Alapértelmezett szint a belső IPv4-címeket és a peer-neveket olvashatóan hagyja a támogatás számára. A Szigorú ezen felül anonimizálja a privát (RFC 1918), CGNAT és link-local IP-címeket, a peer-neveket és a WireGuard nyilvános kulcsokat. Az ismétlődő értékek ugyanazt a helyettesítőt kapják, így a peerek megkülönböztethetők maradnak. Használja a Szigorú szintet, ha a hibakeresési csomagot a szervezetén kívül osztja meg."
+    },
+    "settings.troubleshooting.anonymize.none": {
+        "message": "Nincs"
+    },
+    "settings.troubleshooting.anonymize.default": {
+        "message": "Alapértelmezett"
+    },
+    "settings.troubleshooting.anonymize.strict": {
+        "message": "Szigorú"
     },
     "settings.troubleshooting.systemInfo.label": {
         "message": "Rendszerinformációk beillesztése"
