@@ -12,37 +12,20 @@ import (
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
-// The provider form used to accept anything and find out later. A typo in the
-// upstream URL, a key pasted with a character missing, an AWS access key in a
-// field that wants a Bedrock API key — all saved cleanly, and surfaced as a
-// failed request or an empty model picker some minutes later, with nothing
-// pointing back at the record that caused it.
-//
-// checkProviderCredential closes that gap by spending the credential once, at
-// save time, against the vendor's own model listing.
-
 // ModelLister is the vendor-facing half of the credential check.
 // modeldiscovery.Client is the only production implementation; it is an
 // interface because the check runs on a write path, so without a seam every
-// test that saves a provider would reach a vendor over the network to do it.
+// test that saves a provider would reach a vendor to do it.
 type ModelLister interface {
 	Fetch(ctx context.Context, req modeldiscovery.Request) ([]modeldiscovery.Model, error)
 }
 
-// checkProviderCredential asks the vendor whether this record's upstream and
-// credential actually work, and refuses the write if they do not.
+// checkProviderCredential refuses a record whose upstream or credential the
+// vendor will not accept.
 //
-// Deliberately reuses the discovery Fetch rather than a lighter status probe:
-// it exercises the exact path the model picker will take, so a URL that
-// answers 200 with a login page fails here instead of passing a status check
-// and producing an empty picker later.
-//
-// A provider the check cannot cover is saved, not blocked. That covers the
-// eleven catalog entries with no listing endpoint, a Bedrock record whose
-// upstream is proxied so no control-plane host can be derived, and a
-// self-hosted endpoint on a private network that the proxy reaches through
-// the tunnel but management cannot reach at all. None of those are evidence
-// the record is wrong.
+// It reuses the discovery Fetch rather than a lighter status probe so it
+// exercises the path the model picker takes: a URL answering 200 with a login
+// page fails here instead of producing an empty picker later.
 func (m *managerImpl) checkProviderCredential(ctx context.Context, provider *types.Provider) error {
 	_, err := m.modelDiscovery.Fetch(ctx, modeldiscovery.Request{
 		CatalogID:   provider.ProviderID,
@@ -59,10 +42,8 @@ func (m *managerImpl) checkProviderCredential(ctx context.Context, provider *typ
 		return nil
 	}
 
-	// The operator's message carries no status code, so the number lives here
-	// or nowhere. WriteError logs whatever we return, which is the message
-	// alone, so a support question about a 403 has nothing to go on without
-	// this line.
+	// WriteError logs only what we return, and that carries no status code,
+	// so the vendor's number is recorded here or nowhere.
 	log.WithContext(ctx).Infof("agent network provider %s failed its credential check: %v", provider.ProviderID, err)
 
 	return status.Errorf(status.InvalidArgument, "%s", message)
@@ -71,12 +52,12 @@ func (m *managerImpl) checkProviderCredential(ctx context.Context, provider *typ
 // credentialCheckFailure renders a discovery failure as the sentence the
 // provider form shows, and reports whether it should block the write.
 //
-// The strings are written to survive WriteError lowercasing them, and they
-// never echo the operator's URL: paths are case-sensitive, so an echoed URL
-// would come back altered and describe something they did not type.
+// The strings survive WriteError lowercasing them, and never echo the
+// operator's URL: paths are case-sensitive, so an echoed URL comes back
+// altered and describes something they did not type.
 func credentialCheckFailure(err error) (message string, blocking bool) {
-	// Not checkable. The record may be perfectly good; we simply have no way
-	// to ask, so saying nothing is more honest than reporting a failure.
+	// Not checkable. The record may be perfectly good and we have no way to
+	// ask, so reporting a failure would be a guess.
 	switch {
 	case errors.Is(err, modeldiscovery.ErrNoDiscovery),
 		errors.Is(err, modeldiscovery.ErrNoDiscoveryHost),
@@ -92,10 +73,8 @@ func credentialCheckFailure(err error) (message string, blocking bool) {
 		case http.StatusNotFound, http.StatusMethodNotAllowed:
 			return "the upstream url did not answer a model listing", true
 		default:
-			// Everything else the vendor chose to answer with, 5xx and 429
-			// included. A vendor outage blocks the write: working around it is
-			// not this check's job, and saving a record we could not verify
-			// would put the operator back where they started.
+			// 5xx and 429 included: an outage still leaves the record
+			// unverified, which is what this refuses to save.
 			return "the provider returned an error", true
 		}
 	}
@@ -112,9 +91,8 @@ func credentialCheckFailure(err error) (message string, blocking bool) {
 		return "the upstream url answered, but not with a model listing", true
 	}
 
-	// Anything left is ours, not theirs — a malformed request this code built,
-	// or a catalog entry that does not match its parser. Blocking is still
-	// right: we did not verify the record, and a save that silently skipped
-	// its check is the thing this feature exists to prevent.
+	// Ours rather than the vendor's — a request this code built badly, or a
+	// catalog entry that does not match its parser. Still unverified, so it
+	// still blocks.
 	return "the provider could not be checked", true
 }
