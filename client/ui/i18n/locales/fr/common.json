@@ -764,7 +764,19 @@
         "message": "Anonymiser les informations sensibles"
     },
     "settings.troubleshooting.anonymize.help": {
-        "message": "Masque les adresses IP publiques et les domaines non-NetBird dans les journaux."
+        "message": "Masque les adresses IP, les domaines et d'autres valeurs sensibles."
+    },
+    "settings.troubleshooting.anonymize.info": {
+        "message": "Le mode par défaut garde les adresses IPv4 internes et les noms des pairs lisibles pour le support. Le mode strict anonymise en plus les adresses IP privées (RFC 1918), CGNAT et de lien local, les noms des pairs et les clés publiques WireGuard. Les valeurs récurrentes reçoivent le même espace réservé, les pairs restent donc distinguables. Utilisez le mode strict lorsque vous partagez le lot de diagnostic en dehors de votre organisation."
+    },
+    "settings.troubleshooting.anonymize.none": {
+        "message": "Aucune"
+    },
+    "settings.troubleshooting.anonymize.default": {
+        "message": "Par défaut"
+    },
+    "settings.troubleshooting.anonymize.strict": {
+        "message": "Strict"
     },
     "settings.troubleshooting.systemInfo.label": {
         "message": "Inclure les informations système"
@@ -1338,5 +1350,14 @@
     },
     "error.unknown": {
         "message": "L’opération a échoué."
+    },
+    "settings.ssh.privilege.hint": {
+        "message": "Nécessite {actor}. Exécutez plutôt ceci :"
+    },
+    "settings.ssh.privilege.oneWay": {
+        "message": "Vous pouvez le désactiver, mais le réactiver nécessite {actor} :"
+    },
+    "settings.ssh.privilege.oneWayInverted": {
+        "message": "Vous pouvez l’activer, mais le désactiver de nouveau nécessite {actor} :"
     }
 }
