@@ -10,6 +10,8 @@ package pricing
 import (
 	"fmt"
 	"math"
+
+	sharedllm "github.com/netbirdio/netbird/shared/llm"
 )
 
 // Entry is a single model's input and output pricing, expressed in USD per
@@ -92,7 +94,10 @@ func NewTable(raw map[string]map[string]EntryJSON) (*Table, error) {
 	return &Table{entries: entries}, nil
 }
 
-// Lookup returns the entry for the given provider surface and model.
+// Lookup returns the entry for the given provider surface and model. A
+// dated Anthropic id falls back to its undated form, so a client pinning
+// "claude-sonnet-4-5-20250929" bills at the registered "claude-sonnet-4-5"
+// rate instead of recording no cost at all.
 func (t *Table) Lookup(provider, model string) (Entry, bool) {
 	if t == nil {
 		return Entry{}, false
@@ -101,7 +106,14 @@ func (t *Table) Lookup(provider, model string) (Entry, bool) {
 	if !ok {
 		return Entry{}, false
 	}
-	e, ok := byModel[model]
+	if e, found := byModel[model]; found {
+		return e, true
+	}
+	undated := sharedllm.NormalizeAnthropicModel(model)
+	if undated == model {
+		return Entry{}, false
+	}
+	e, ok := byModel[undated]
 	return e, ok
 }
 

@@ -73,7 +73,6 @@ require (
 	github.com/hashicorp/go-version v1.7.0
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/libdns/route53 v1.5.0
-	github.com/libp2p/go-nat v0.2.0
 	github.com/libp2p/go-netroute v0.4.0
 	github.com/lrh3321/ipset-go v0.0.0-20250619021614-54a0a98ace81
 	github.com/magefile/mage v1.17.2
@@ -83,6 +82,7 @@ require (
 	github.com/mitchellh/hashstructure/v2 v2.0.2
 	github.com/moby/moby/api v1.54.1
 	github.com/netbirdio/management-integrations/integrations v0.0.0-20260803100840-78e79ba20f87
+	github.com/netbirdio/go-nat v0.0.0-20260821095157-6b2c8c5c74e8
 	github.com/netbirdio/signal-dispatcher/dispatcher v0.0.0-20250805121659-6b4ac470ca45
 	github.com/oapi-codegen/runtime v1.1.2
 	github.com/okta/okta-sdk-golang/v2 v2.18.0
