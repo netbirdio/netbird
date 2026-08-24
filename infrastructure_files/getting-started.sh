@@ -144,6 +144,7 @@ check_nb_domain() {
 #   NETBIRD_TRAEFIK_CERTRESOLVER      external-Traefik cert resolver (type 1)
 #   NETBIRD_BIND_LOCALHOST_ONLY       true/false (default true, types 2-5)
 #   NETBIRD_EXTERNAL_PROXY_NETWORK    docker network to join (types 2-4)
+#   NETBIRD_DOCKER_SUBNET             built-in Traefik /24 (default 172.30.0.0/24)
 #   NETBIRD_NON_INTERACTIVE           true forces unattended mode even with a TTY
 
 # tty_available succeeds only when we may prompt: never when the operator has
