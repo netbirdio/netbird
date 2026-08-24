@@ -561,3 +561,39 @@ func TestFetch_AHostThatWillNotResolveIsUnreachable(t *testing.T) {
 	require.ErrorAs(t, err, &unreachable, "a host that will not resolve must classify as unreachable")
 	require.NotErrorIs(t, err, ErrPrivateHost, "it is not a host we declined to dial")
 }
+
+// TestFetch_AProxyInThePathDoesNotSilentlyDisableTheCheck pins a fail-open the
+// dial-time guard can produce. checkPublicHost clears the target before
+// anything is dialled, so a private address refused at the socket is never the
+// operator's upstream — it is a rebinding attempt, or an HTTP proxy the
+// management server egresses through. Reporting either as ErrPrivateHost would
+// read as "this provider cannot be checked" and let every save through
+// unchecked, which is how a proxied deployment would install this feature and
+// have it quietly do nothing.
+func TestFetch_AProxyInThePathDoesNotSilentlyDisableTheCheck(t *testing.T) {
+	// A transport that refuses at the socket exactly as the guard does, with a
+	// loopback address standing in for the proxy the dial went to.
+	client := &Client{HTTPClient: &http.Client{
+		Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return nil, guardDialAddress("127.0.0.1:38599")
+		}),
+		CheckRedirect: refuseRedirect,
+	}}
+
+	_, err := client.Fetch(context.Background(), Request{
+		CatalogID:   "openai_api",
+		UpstreamURL: "https://api.openai.com",
+		APIKey:      "sk-test",
+	})
+
+	require.Error(t, err)
+	require.NotErrorIs(t, err, ErrPrivateHost,
+		"a refusal at the socket must not read as an upstream we cannot check")
+	var unreachable *UnreachableError
+	require.ErrorAs(t, err, &unreachable, "it is the vendor we failed to reach")
+}
+
+// roundTripFunc adapts a function to http.RoundTripper.
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }

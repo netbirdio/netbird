@@ -471,7 +471,14 @@ func guardDialAddress(address string) error {
 		return fmt.Errorf("discovery dial address %q is not an IP", host)
 	}
 	if !isPublic(addr) {
-		return fmt.Errorf("%w: discovery refused to dial non-public address %s", ErrPrivateHost, addr)
+		// Deliberately not ErrPrivateHost, which means "this upstream is on a
+		// private network, so we cannot check it" and lets a save through
+		// unchecked. checkPublicHost has already cleared the target by the
+		// time anything is dialled, so an address refused here is not the
+		// operator's upstream: it is a rebinding attempt, or an HTTP proxy in
+		// the path. Neither may quietly skip the check — one is hostile, and
+		// the other would silently disable this on every provider.
+		return fmt.Errorf("discovery refused to dial non-public address %s", addr)
 	}
 	return nil
 }

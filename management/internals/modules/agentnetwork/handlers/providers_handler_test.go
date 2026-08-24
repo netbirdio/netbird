@@ -64,10 +64,13 @@ func TestValidate_ModelRates(t *testing.T) {
 func TestProviderHandler_UpdateReplacesFullState(t *testing.T) {
 	f := newAgentNetworkHandlerFixture(t)
 
+	// A private upstream: the save-time credential check leaves it unchecked
+	// rather than spending "sk-test" against the real api.openai.com, which
+	// the vendor refuses.
 	create := `{
         "provider_id": "openai_api",
         "name": "openai",
-        "upstream_url": "https://api.openai.com",
+        "upstream_url": "https://10.255.255.1",
         "api_key": "sk-test",
         "enabled": true,
         "metadata_disabled": true,
@@ -84,7 +87,7 @@ func TestProviderHandler_UpdateReplacesFullState(t *testing.T) {
 
 	// Minimal update: only the required fields, no api_key. Everything
 	// optional must land as its zero value.
-	update := `{"provider_id": "openai_api", "name": "openai-renamed", "upstream_url": "https://api.openai.com", "enabled": true}`
+	update := `{"provider_id": "openai_api", "name": "openai-renamed", "upstream_url": "https://10.255.255.1", "enabled": true}`
 	rec = f.do(t, nethttp.MethodPut, "/agent-network/providers/"+created.Id, update)
 	require.Equal(t, nethttp.StatusOK, rec.Code, "update without api_key must succeed (key is preserved): %s", rec.Body.String())
 

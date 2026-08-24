@@ -115,7 +115,7 @@ func TestCredentialCheckFailure_NamesTheTransportFault(t *testing.T) {
 	}{
 		{
 			name: "unknown host",
-			err:  &net.DNSError{Err: "no such host", Name: "api.exmaple.com", IsNotFound: true},
+			err:  &net.DNSError{Err: "no such host", Name: "api.example.com", IsNotFound: true},
 			want: "the upstream url could not be reached: no such host",
 		},
 		{
@@ -191,14 +191,9 @@ func TestCredentialCheckFailure_AnAnsweringUrlThatIsNotTheApi(t *testing.T) {
 // providers. Blocking them would make the feature a lockout.
 func TestCredentialCheckFailure_WhatCannotBeCheckedIsNotAFailure(t *testing.T) {
 	cases := map[string]error{
-		"no listing endpoint":  modeldiscovery.ErrNoDiscovery,
-		"no derivable host":    fmt.Errorf("%w: %w: bedrock", modeldiscovery.ErrInvalidRequest, modeldiscovery.ErrNoDiscoveryHost),
-		"private upstream":     fmt.Errorf("%w: %w: 10.0.0.5", modeldiscovery.ErrInvalidRequest, modeldiscovery.ErrPrivateHost),
-		"private at dial time": fmt.Errorf("%w: discovery refused to dial non-public address 10.0.0.5", modeldiscovery.ErrPrivateHost),
-		"wrapped by unreachable": &modeldiscovery.UnreachableError{
-			Provider: "vLLM",
-			Err:      fmt.Errorf("%w: dial", modeldiscovery.ErrPrivateHost),
-		},
+		"no listing endpoint": modeldiscovery.ErrNoDiscovery,
+		"no derivable host":   fmt.Errorf("%w: %w: bedrock", modeldiscovery.ErrInvalidRequest, modeldiscovery.ErrNoDiscoveryHost),
+		"private upstream":    fmt.Errorf("%w: %w: 10.0.0.5", modeldiscovery.ErrInvalidRequest, modeldiscovery.ErrPrivateHost),
 	}
 
 	for name, err := range cases {
