@@ -2,7 +2,9 @@ package modeldiscovery
 
 import (
 	"context"
+	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -529,4 +531,33 @@ func TestBedrockProfilesFromAnyGeographyArrivePriced(t *testing.T) {
 	// The wire id is preserved whatever the pricing key reduced to: it is the
 	// only form that works at invoke time.
 	assert.Equal(t, "jp.anthropic.claude-sonnet-5-20260514-v1:0", models[0].ID)
+}
+
+// TestFetch_AHostThatWillNotResolveIsUnreachable closes a gap the live suite
+// found. The SSRF guard resolves the host before any request is built, so a
+// name that does not resolve fails there rather than at the transport — and
+// that error used to reach the caller unclassified. A wrong hostname is the
+// commonest way for an upstream to be wrong, so it has to arrive as
+// "unreachable" and not as an unrecognised fault.
+func TestFetch_AHostThatWillNotResolveIsUnreachable(t *testing.T) {
+	// A resolver whose dial always fails, so the lookup errors without the
+	// test depending on real DNS.
+	refusing := &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			return nil, errors.New("resolver unavailable")
+		},
+	}
+	client := &Client{Resolver: refusing}
+
+	_, err := client.Fetch(context.Background(), Request{
+		CatalogID:   "openai_api",
+		UpstreamURL: "https://not-a-real-vendor-host.example.invalid",
+		APIKey:      "sk-test",
+	})
+
+	require.Error(t, err)
+	var unreachable *UnreachableError
+	require.ErrorAs(t, err, &unreachable, "a host that will not resolve must classify as unreachable")
+	require.NotErrorIs(t, err, ErrPrivateHost, "it is not a host we declined to dial")
 }

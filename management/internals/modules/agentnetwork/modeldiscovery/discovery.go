@@ -202,7 +202,15 @@ func (c *Client) discoveryURL(entry catalog.Provider, req Request) (string, erro
 
 	target := &url.URL{Scheme: "https", Host: host, Path: entry.Discovery.Path, RawQuery: entry.Discovery.Query}
 	if err := c.checkPublicHost(target.Hostname()); err != nil {
-		return "", err
+		// A host that refuses to resolve fails here, before any request is
+		// built, and it is the commonest way for an upstream to be wrong. It
+		// has to reach the caller as unreachable rather than as an
+		// unclassified fault. ErrPrivateHost is the other outcome and means
+		// something else entirely — not a bad host, one we decline to dial.
+		if errors.Is(err, ErrPrivateHost) {
+			return "", err
+		}
+		return "", &UnreachableError{Provider: entry.Name, Err: err}
 	}
 	return target.String(), nil
 }
