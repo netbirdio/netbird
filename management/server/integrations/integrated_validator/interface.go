@@ -9,7 +9,7 @@ import (
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
-//go:generate go run github.com/golang/mock/mockgen -package integrated_validator -destination=integrated_validator_mock.go -source=./interface.go -build_flags=-mod=mod
+//go:generate go tool mockgen -package integrated_validator -destination=integrated_validator_mock.go -source=./interface.go -build_flags=-mod=mod
 
 // IntegratedValidator interface exists to avoid the circle dependencies
 type IntegratedValidator interface {

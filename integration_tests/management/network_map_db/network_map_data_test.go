@@ -12,13 +12,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/golang/mock/gomock"
 	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/types"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/mock/gomock"
 )
 
 //go:embed network_map_data.sql
