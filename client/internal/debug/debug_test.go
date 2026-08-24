@@ -885,8 +885,10 @@ func TestAddConfig_AllFieldsCovered(t *testing.T) {
 		DNSRouteInterval:              5 * time.Second,
 		ClientCertPath:                "/tmp/cert",
 		ClientCertKeyPath:             "/tmp/key",
-		LazyConnectionEnabled:         true,
+		LazyConnection:                "on",
 		MTU:                           1280,
+		DisableIPv6:                   true,
+		SyncMessageVersion:            func(v int) *int { return &v }(1),
 	}
 
 	for _, anonymize := range []bool{false, true} {

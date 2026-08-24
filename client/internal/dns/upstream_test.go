@@ -985,19 +985,6 @@ func TestEDEName(t *testing.T) {
 	assert.Equal(t, "EDE 9999", edeName(9999), "unknown code falls back to numeric")
 }
 
-func TestStripOPT(t *testing.T) {
-	rm := &dns.Msg{
-		Extra: []dns.RR{
-			&dns.OPT{Hdr: dns.RR_Header{Name: ".", Rrtype: dns.TypeOPT}},
-			&dns.A{Hdr: dns.RR_Header{Name: "x.", Rrtype: dns.TypeA}, A: net.IPv4(1, 2, 3, 4)},
-		},
-	}
-	stripOPT(rm)
-	assert.Len(t, rm.Extra, 1, "OPT should be removed, A kept")
-	_, isOPT := rm.Extra[0].(*dns.OPT)
-	assert.False(t, isOPT, "remaining record must not be OPT")
-}
-
 func TestUpstreamResolver_NonRetryableEDEShortCircuits(t *testing.T) {
 	upstream1 := netip.MustParseAddrPort("192.0.2.1:53")
 	upstream2 := netip.MustParseAddrPort("192.0.2.2:53")

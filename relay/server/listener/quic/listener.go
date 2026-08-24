@@ -51,7 +51,10 @@ func (l *Listener) Listen(acceptFn func(conn relaylistener.Conn)) error {
 
 		log.Infof("QUIC client connected from: %s", session.RemoteAddr())
 		conn := NewConn(session)
-		acceptFn(conn)
+		// Run the accept handler (which performs the pre-auth handshake) in its
+		// own goroutine so a slow or stalled handshake cannot block accepting
+		// further connections.
+		go acceptFn(conn)
 	}
 }
 

@@ -41,7 +41,7 @@ func TestAffectedPeers_DependencyCoverageMatrix(t *testing.T) {
 				_, err := s.manager.SavePolicy(ctx, s.accountID, userID, peerToResourcePolicyByGroup(s.sourceGroupID, s.resourceGroupID), true)
 				require.NoError(t, err)
 				return affectedpeers.Change{ChangedPeerIDs: []string{s.routerPeerID}},
-					[]string{s.sourcePeerID}, []string{s.unrelatedPeerID}
+					[]string{s.sourcePeerID, s.routerPeerID}, []string{s.unrelatedPeerID}
 			},
 		},
 		{
@@ -106,11 +106,9 @@ func TestAffectedPeers_DependencyCoverageMatrix(t *testing.T) {
 			change, mustContain, mustExclude := r.build(t, s, ctx)
 			affected := resolveAffected(t, s.manager.Store, s.accountID, change)
 
-			for _, id := range mustContain {
-				assert.Contains(t, affected, id, "expected peer to be affected")
-			}
-			for _, id := range mustExclude {
-				assert.NotContains(t, affected, id, "peer must not be affected")
+			assert.ElementsMatch(t, affected, mustContain, "expected peer to be affected")
+			for _, peerID := range mustExclude {
+				assert.NotContains(t, affected, peerID, "peer must not be affected")
 			}
 		})
 	}

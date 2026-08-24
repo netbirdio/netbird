@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/status"
@@ -115,8 +116,19 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 	// manager only knows the active profile ID, not its display name.
 	profName := getActiveProfileName(ctx)
 
+	var sessionExpiresAt time.Time
+	if ts := resp.GetSessionExpiresAt(); ts.IsValid() {
+		sessionExpiresAt = ts.AsTime().UTC()
+	}
+
+	anonymizeEnabled, anonymizeLevel, err := effectiveAnonymize()
+	if err != nil {
+		return err
+	}
+
 	var outputInformationHolder = nbstatus.ConvertToStatusOutputOverview(resp.GetFullStatus(), nbstatus.ConvertOptions{
-		Anonymize:            anonymizeFlag,
+		Anonymize:            anonymizeEnabled,
+		AnonymizeLevel:       anonymizeLevel,
 		DaemonVersion:        resp.GetDaemonVersion(),
 		DaemonStatus:         nbstatus.ParseDaemonStatus(status),
 		StatusFilter:         statusFilter,
@@ -125,6 +137,7 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 		IPsFilter:            ipsFilterMap,
 		ConnectionTypeFilter: connectionTypeFilter,
 		ProfileName:          profName,
+		SessionExpiresAt:     sessionExpiresAt,
 	})
 	var statusOutputString string
 	switch {

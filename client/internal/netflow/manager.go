@@ -9,12 +9,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/netbirdio/netbird/client/internal/netflow/conntrack"
 	"github.com/netbirdio/netbird/client/internal/netflow/logger"
+	"github.com/netbirdio/netbird/client/internal/netflow/store"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/flow/client"
@@ -23,14 +25,16 @@ import (
 
 // Manager handles netflow tracking and logging
 type Manager struct {
-	mux            sync.Mutex
-	shutdownWg     sync.WaitGroup
-	logger         nftypes.FlowLogger
-	flowConfig     *nftypes.FlowConfig
-	conntrack      nftypes.ConnTracker
-	receiverClient *client.GRPCClient
-	publicKey      []byte
-	cancel         context.CancelFunc
+	mux               sync.Mutex
+	shutdownWg        sync.WaitGroup
+	logger            nftypes.FlowLogger
+	flowConfig        *nftypes.FlowConfig
+	conntrack         nftypes.ConnTracker
+	receiverClient    *client.GRPCClient
+	eventsWithoutAcks nftypes.Store
+	publicKey         []byte
+	cancel            context.CancelFunc
+	retryInterval     time.Duration
 }
 
 // NewManager creates a new netflow manager
@@ -48,9 +52,11 @@ func NewManager(iface nftypes.IFaceMapper, publicKey []byte, statusRecorder *pee
 	}
 
 	return &Manager{
-		logger:    flowLogger,
-		conntrack: ct,
-		publicKey: publicKey,
+		logger:            flowLogger,
+		conntrack:         ct,
+		publicKey:         publicKey,
+		retryInterval:     time.Second,
+		eventsWithoutAcks: store.NewMemoryStore(),
 	}
 }
 
@@ -66,6 +72,7 @@ func (m *Manager) needsNewClient(previous *nftypes.FlowConfig) bool {
 }
 
 // enableFlow starts components for flow tracking
+// must be called under m.mux lock
 func (m *Manager) enableFlow(previous *nftypes.FlowConfig) error {
 	// first make sender ready so events don't pile up
 	if m.needsNewClient(previous) {
@@ -85,6 +92,7 @@ func (m *Manager) enableFlow(previous *nftypes.FlowConfig) error {
 	return nil
 }
 
+// must be called under m.mux lock
 func (m *Manager) resetClient() error {
 	if m.receiverClient != nil {
 		if err := m.receiverClient.Close(); err != nil {
@@ -107,14 +115,19 @@ func (m *Manager) resetClient() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
 
-	m.shutdownWg.Add(2)
+	m.shutdownWg.Add(3)
+	flowConfigInterval := m.flowConfig.Interval
 	go func() {
 		defer m.shutdownWg.Done()
-		m.receiveACKs(ctx, flowClient)
+		m.receiveACKs(ctx, flowClient, flowConfigInterval)
 	}()
 	go func() {
 		defer m.shutdownWg.Done()
-		m.startSender(ctx)
+		m.startSender(ctx, flowConfigInterval)
+	}()
+	go func() {
+		defer m.shutdownWg.Done()
+		m.startRetries(ctx, flowConfigInterval)
 	}()
 
 	return nil
@@ -198,8 +211,8 @@ func (m *Manager) GetLogger() nftypes.FlowLogger {
 	return m.logger
 }
 
-func (m *Manager) startSender(ctx context.Context) {
-	ticker := time.NewTicker(m.flowConfig.Interval)
+func (m *Manager) startSender(ctx context.Context, flowConfigInterval time.Duration) {
+	ticker := time.NewTicker(flowConfigInterval)
 	defer ticker.Stop()
 
 	for {
@@ -207,32 +220,79 @@ func (m *Manager) startSender(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			events := m.logger.GetEvents()
+			collectedEvents := m.logger.ResetAggregationWindow()
+			events := collectedEvents.GetAggregatedEvents()
 			for _, event := range events {
+				m.eventsWithoutAcks.StoreEvent(event)
 				if err := m.send(event); err != nil {
 					log.Errorf("failed to send flow event to server: %v", err)
-					continue
+				} else {
+					log.Tracef("sent flow event: %s", event.ID)
 				}
-				log.Tracef("sent flow event: %s", event.ID)
 			}
 		}
 	}
 }
 
-func (m *Manager) receiveACKs(ctx context.Context, client *client.GRPCClient) {
-	err := client.Receive(ctx, m.flowConfig.Interval, func(ack *proto.FlowEventAck) error {
+func (m *Manager) receiveACKs(ctx context.Context, client *client.GRPCClient, flowConfigInterval time.Duration) {
+	err := client.Receive(ctx, flowConfigInterval, func(ack *proto.FlowEventAck) error {
 		id, err := uuid.FromBytes(ack.EventId)
 		if err != nil {
 			log.Warnf("failed to convert ack event id to uuid: %v", err)
 			return nil
 		}
 		log.Tracef("received flow event ack: %s", id)
-		m.logger.DeleteEvents([]uuid.UUID{id})
+		m.eventsWithoutAcks.DeleteEvents([]uuid.UUID{id})
 		return nil
 	})
 
 	if err != nil && !errors.Is(err, context.Canceled) {
 		log.Errorf("failed to receive flow event ack: %v", err)
+	}
+}
+
+// We effectively never drop events (see MaxInterval), which makes eventsWithoutAcks unbounded.
+// We may want to limit the max size of the store, and start dropping oldest events when the threshold is reached.
+func (m *Manager) startRetries(ctx context.Context, flowConfigInterval time.Duration) {
+	timer := time.NewTimer(m.retryInterval)
+	retryBackoff := backoff.WithContext(&backoff.ExponentialBackOff{
+		InitialInterval:     1 * time.Second,
+		RandomizationFactor: 0.5,
+		Multiplier:          1.7,
+		MaxInterval:         flowConfigInterval / 2,
+		MaxElapsedTime:      3 * 30 * 24 * time.Hour, // 3 months
+		Stop:                backoff.Stop,
+		Clock:               backoff.SystemClock,
+	}, ctx)
+	defer timer.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+			resetBackoff := true
+			for _, e := range m.eventsWithoutAcks.GetEvents() {
+				if e.Timestamp.Add(time.Second).After(time.Now()) {
+					// grace period on retries to avoid early retries
+					// do not retry if the event is less than 1 sec old
+					continue
+				}
+				if err := m.send(e); err != nil {
+					if nextBackoff := retryBackoff.NextBackOff(); nextBackoff != backoff.Stop {
+						timer = time.NewTimer(nextBackoff)
+						resetBackoff = false
+					} else {
+						resetBackoff = true // we exhausted retries, reset retry loop
+					}
+					break
+				}
+			}
+			if resetBackoff { // use regular retry interval in absence of network errors
+				retryBackoff.Reset()
+				timer = time.NewTimer(m.retryInterval)
+			}
+		}
 	}
 }
 
@@ -250,9 +310,11 @@ func (m *Manager) send(event *nftypes.Event) error {
 
 func toProtoEvent(publicKey []byte, event *nftypes.Event) *proto.FlowEvent {
 	protoEvent := &proto.FlowEvent{
-		EventId:   event.ID[:],
-		Timestamp: timestamppb.New(event.Timestamp),
-		PublicKey: publicKey,
+		EventId:     event.ID[:],
+		Timestamp:   timestamppb.New(event.Timestamp),
+		PublicKey:   publicKey,
+		WindowStart: timestamppb.New(event.WindowStart),
+		WindowEnd:   timestamppb.New(event.WindowEnd),
 		FlowFields: &proto.FlowFields{
 			FlowId:           event.FlowID[:],
 			RuleId:           event.RuleID,
@@ -267,6 +329,9 @@ func toProtoEvent(publicKey []byte, event *nftypes.Event) *proto.FlowEvent {
 			TxBytes:          event.TxBytes,
 			SourceResourceId: event.SourceResourceID,
 			DestResourceId:   event.DestResourceID,
+			NumOfStarts:      event.NumOfStarts,
+			NumOfEnds:        event.NumOfEnds,
+			NumOfDrops:       event.NumOfDrops,
 		},
 	}
 

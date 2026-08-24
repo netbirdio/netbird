@@ -13,12 +13,14 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/shared/management/http/api"
+	sharedTypes "github.com/netbirdio/netbird/shared/management/types"
 )
 
 // Peer capability constants mirror the proto enum values.
 const (
-	PeerCapabilitySourcePrefixes int32 = 1
-	PeerCapabilityIPv6Overlay    int32 = 2
+	PeerCapabilitySourcePrefixes      int32 = 1
+	PeerCapabilityIPv6Overlay         int32 = 2
+	PeerCapabilityComponentNetworkMap int32 = 3
 )
 
 // Peer represents a machine connected to the network.
@@ -107,6 +109,15 @@ type Location struct {
 	GeoNameID    uint // city level geoname id
 }
 
+// equal reports whether two locations match. ConnectionIP is a net.IP slice, so it uses
+// IP.Equal, not ==.
+func (l Location) equal(other Location) bool {
+	return l.CountryCode == other.CountryCode &&
+		l.CityName == other.CityName &&
+		l.GeoNameID == other.GeoNameID &&
+		l.ConnectionIP.Equal(other.ConnectionIP)
+}
+
 // NetworkAddress is the IP address with network and MAC address of a network interface
 type NetworkAddress struct {
 	NetIP netip.Prefix `gorm:"serializer:json"`
@@ -163,6 +174,7 @@ type PeerSystemMeta struct { //nolint:revive
 	Flags              Flags       `gorm:"serializer:json"`
 	Files              []File      `gorm:"serializer:json"`
 	Capabilities       []int32     `gorm:"serializer:json"`
+	SyncMessageVersion int
 }
 
 func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
@@ -194,6 +206,35 @@ func (p *Peer) AddedWithSSOLogin() bool {
 	return p.UserID != ""
 }
 
+// ToComponent converts the peer to its self-contained components
+// representation, carrying exactly the subset of peer data that crosses the
+// components wire format. Returns nil for a nil peer so callers can convert
+// possibly-missing peers without guarding.
+func (p *Peer) ToComponent() *sharedTypes.ComponentPeer {
+	if p == nil {
+		return nil
+	}
+	cp := &sharedTypes.ComponentPeer{
+		ID:                     p.ID,
+		Key:                    p.Key,
+		IP:                     p.IP,
+		IPv6:                   p.IPv6,
+		DNSLabel:               p.DNSLabel,
+		SSHKey:                 p.SSHKey,
+		SSHEnabled:             p.SSHEnabled,
+		ServerSSHAllowed:       p.Meta.Flags.ServerSSHAllowed,
+		AgentVersion:           p.Meta.WtVersion,
+		SupportsSourcePrefixes: p.SupportsSourcePrefixes(),
+		SupportsIPv6:           p.SupportsIPv6(),
+		LoginExpirationEnabled: p.LoginExpirationEnabled,
+		AddedWithSSOLogin:      p.AddedWithSSOLogin(),
+	}
+	if p.LastLogin != nil {
+		cp.LastLogin = *p.LastLogin
+	}
+	return cp
+}
+
 // HasCapability reports whether the peer has the given capability.
 func (p *Peer) HasCapability(capability int32) bool {
 	return slices.Contains(p.Meta.Capabilities, capability)
@@ -207,6 +248,14 @@ func (p *Peer) SupportsIPv6() bool {
 // SupportsSourcePrefixes reports whether the peer reads SourcePrefixes.
 func (p *Peer) SupportsSourcePrefixes() bool {
 	return p.HasCapability(PeerCapabilitySourcePrefixes)
+}
+
+// SupportsComponentNetworkMap reports whether the peer assembles its
+// NetworkMap from server-shipped components instead of consuming a fully
+// expanded NetworkMap. Determines whether the network_map controller skips
+// Calculate() server-side and emits the components envelope.
+func (p *Peer) SupportsComponentNetworkMap() bool {
+	return p.HasCapability(PeerCapabilityComponentNetworkMap)
 }
 
 func capabilitiesEqual(a, b []int32) bool {
@@ -256,50 +305,88 @@ func (p *Peer) Copy() *Peer {
 	}
 }
 
-// UpdateMetaIfNew updates peer's system metadata if new information is provided
-// returns true if meta was updated, false otherwise
-func (p *Peer) UpdateMetaIfNew(ctx context.Context, meta PeerSystemMeta) (updated, versionChanged bool) {
+// UpdateMetaIfNew updates peer's system metadata and connection geo location if
+// new information is provided. newLocation is the geo location resolved from the
+// peer's current connection IP, or nil when there is nothing to apply (geo
+// disabled, no real IP, or the IP is unchanged); the caller owns the expensive
+// lookup and the same-IP guard. It returns a MetaDiff describing what changed;
+// diff.Updated() reports whether the peer needs to be persisted.
+func (p *Peer) UpdateMetaIfNew(ctx context.Context, meta PeerSystemMeta, newLocation *Location) MetaDiff {
 	if meta.isEmpty() {
-		return updated, versionChanged
+		return MetaDiff{}
 	}
-
-	versionChanged = p.Meta.WtVersion != meta.WtVersion
 
 	// Avoid overwriting UIVersion if the update was triggered sole by the CLI client
 	if meta.UIVersion == "" {
 		meta.UIVersion = p.Meta.UIVersion
 	}
 
-	oldVersion := p.Meta.WtVersion
+	effectiveLocation := p.Location
+	if newLocation != nil {
+		effectiveLocation = *newLocation
+	}
 
-	diff := metaDiff(p.Meta, meta)
-	if len(diff) != 0 {
+	diff := diffMeta(p.Meta, meta, p.Location, effectiveLocation)
+	if diff.Updated() {
 		p.Meta = meta
-		updated = true
+	}
+	p.Location = effectiveLocation
+
+	if diff.Updated() {
+		log.WithContext(ctx).Debug(diff.LogSummary())
 	}
 
-	versionInfo := ""
-	if versionChanged {
-		versionInfo = fmt.Sprintf("version changed: %s -> %s, ", oldVersion, meta.WtVersion)
-	}
-
-	if len(diff) > 0 || versionChanged {
-		log.WithContext(ctx).
-			Debugf("peer meta updated, %s%d field(s) changed: %s", versionInfo, len(diff), strings.Join(diff, ", "))
-	}
-
-	return updated, versionChanged
+	return diff
 }
 
-// metaDiff returns a human-readable list of the fields that differ between the
-// old and new meta, each formatted as `field: <old> -> <new>`. It is the single
-// source of truth for meta comparison: isEqual reports equality as an empty
-// diff, so the log line can never disagree with the change decision. Slices are
-// cloned before sorting, so callers' meta is not mutated.
+// MetaDiff holds a peer's full before/after state across a sync: both metas and both
+// connection locations (the location lives on Peer, not PeerSystemMeta, but posture
+// checks read it). Changed lists what moved, for logging and the persistence decision;
+// the snapshots let a posture check be replayed against old and new. Everything is derived
+// from these fields, so there are no parallel per-field flags to keep in sync.
+type MetaDiff struct {
+	OldMeta     PeerSystemMeta
+	NewMeta     PeerSystemMeta
+	OldLocation Location
+	NewLocation Location
+
+	Changed []string
+}
+
+// Updated reports whether anything changed and the peer must be persisted. diffMeta fills
+// Changed in the pass that builds the diff, so this is a length check, not a re-comparison.
+// Pointer receiver: MetaDiff embeds two metas, so copying it per call is wasteful.
+func (d *MetaDiff) Updated() bool {
+	return len(d.Changed) != 0
+}
+
+// VersionChanged reports whether the WireGuard client version changed (a client upgrade).
+func (d *MetaDiff) VersionChanged() bool {
+	return d.OldMeta.WtVersion != d.NewMeta.WtVersion
+}
+
+// HostnameChanged reports whether the peer's hostname changed.
+func (d *MetaDiff) HostnameChanged() bool {
+	return d.OldMeta.Hostname != d.NewMeta.Hostname
+}
+
+// LogSummary renders the changed fields as a single human-readable line.
+func (d *MetaDiff) LogSummary() string {
+	return fmt.Sprintf("peer meta updated, %d field(s) changed: %s",
+		len(d.Changed), strings.Join(d.Changed, ", "))
+}
+
 func metaDiff(oldMeta, newMeta PeerSystemMeta) []string {
-	var diff []string
+	return diffMeta(oldMeta, newMeta, Location{}, Location{}).Changed
+}
+
+// diffMeta snapshots a peer's old and new state and records a Changed entry per field that
+// moved. It is the single source of truth for the comparison: isEqual is an empty Changed
+// list, so the log line and the persistence decision can never disagree.
+func diffMeta(oldMeta, newMeta PeerSystemMeta, oldLocation, newLocation Location) MetaDiff {
+	d := MetaDiff{OldMeta: oldMeta, NewMeta: newMeta, OldLocation: oldLocation, NewLocation: newLocation}
 	add := func(field string, oldVal, newVal any) {
-		diff = append(diff, fmt.Sprintf("%s: %v -> %v", field, oldVal, newVal))
+		d.Changed = append(d.Changed, fmt.Sprintf("%s: %v -> %v", field, oldVal, newVal))
 	}
 
 	if oldMeta.Hostname != newMeta.Hostname {
@@ -353,16 +440,21 @@ func metaDiff(oldMeta, newMeta PeerSystemMeta) []string {
 	if !capabilitiesEqual(oldMeta.Capabilities, newMeta.Capabilities) {
 		add("capabilities", oldMeta.Capabilities, newMeta.Capabilities)
 	}
-
 	if !sameMultiset(oldMeta.NetworkAddresses, newMeta.NetworkAddresses) {
 		add("network_addresses", fmt.Sprintf("%v", oldMeta.NetworkAddresses), fmt.Sprintf("%v", newMeta.NetworkAddresses))
 	}
-
 	if !sameMultiset(oldMeta.Files, newMeta.Files) {
 		add("files", fmt.Sprintf("%v", oldMeta.Files), fmt.Sprintf("%v", newMeta.Files))
 	}
+	if oldMeta.SyncMessageVersion != newMeta.SyncMessageVersion {
+		add("sync_meta_version", fmt.Sprintf("%d", oldMeta.SyncMessageVersion), fmt.Sprintf("%d", newMeta.SyncMessageVersion))
+	}
 
-	return diff
+	if !oldLocation.equal(newLocation) {
+		add("connection_ip", oldLocation.ConnectionIP, newLocation.ConnectionIP)
+	}
+
+	return d
 }
 
 // sameMultiset reports whether two slices contain the same elements with the

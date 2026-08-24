@@ -11,6 +11,8 @@ import (
 // ensureIPv6DefaultRoute installs an IPv6 default route via the loopback
 // interface so route lookups for global IPv6 prefixes resolve in environments
 // without v6 connectivity. If a default already exists it is left alone.
+//
+//nolint:unused // consumed by the privileged-tagged routing tests
 func ensureIPv6DefaultRoute(t *testing.T) {
 	t.Helper()
 

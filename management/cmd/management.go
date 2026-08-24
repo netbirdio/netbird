@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path"
+	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -22,9 +23,11 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 
 	"github.com/netbirdio/netbird/formatter/hook"
+	agentnetworkpricing "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/pricing"
 	"github.com/netbirdio/netbird/management/internals/server"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	nbdomain "github.com/netbirdio/netbird/shared/management/domain"
+	"github.com/netbirdio/netbird/shared/management/grpc"
 	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/util/crypt"
 )
@@ -110,6 +113,29 @@ var (
 				mgmtSingleAccModeDomain = ""
 			}
 
+			// Load the management-side LLM pricing defaults file: an
+			// explicitly configured path is required to load (a typo must
+			// fail startup — the operator believes those rates are live);
+			// otherwise <datadir>/defaults_llm_pricing.yaml is probed and
+			// may be absent (compiled-in defaults serve). A relative path
+			// is resolved against the datadir so a bare filename lands
+			// alongside the store. Either way the path stays watched: the
+			// reloader picks up edits — and the file appearing later —
+			// without a restart.
+			pricingPath := config.AgentNetwork.PricingDefaultsFile
+			pricingRequired := pricingPath != ""
+			if !pricingRequired {
+				pricingPath = agentnetworkpricing.DefaultFileName
+			}
+			if !filepath.IsAbs(pricingPath) {
+				pricingPath = filepath.Join(config.Datadir, pricingPath)
+			}
+			log.Infof("loading agent-network pricing defaults from %s (required: %v)", pricingPath, pricingRequired)
+			if err := agentnetworkpricing.LoadFile(pricingPath, pricingRequired); err != nil {
+				return fmt.Errorf("load agent-network pricing defaults: %v", err)
+			}
+			agentnetworkpricing.StartReloader(ctx, agentnetworkpricing.ReloadInterval)
+
 			srv := newServer(&server.Config{
 				NbConfig:                    config,
 				DNSDomain:                   dnsDomain,
@@ -153,8 +179,20 @@ func LoadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*nbconfig.Confi
 
 	ApplyCommandLineOverrides(loadedConfig)
 
+	err := grpc.ValidateSyncMessageVersion(loadedConfig.HighestSupportedSyncMessageVersion)
+	if err != nil {
+		return nil, err
+	}
+
+	for account, version := range loadedConfig.PerAccountHighestSupportedSyncMessageVersion {
+		err := grpc.ValidateSyncMessageVersion(&version)
+		if err != nil {
+			return nil, fmt.Errorf("unrecognized sync message version for account %s, %w", account, err)
+		}
+	}
+
 	// Apply EmbeddedIdP config to HttpConfig if embedded IdP is enabled
-	err := ApplyEmbeddedIdPConfig(ctx, loadedConfig)
+	err = ApplyEmbeddedIdPConfig(ctx, loadedConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -209,7 +247,7 @@ func ApplyEmbeddedIdPConfig(ctx context.Context, cfg *nbconfig.Config) error {
 		cfg.EmbeddedIdP.Storage.Type = "sqlite3"
 	}
 	if cfg.EmbeddedIdP.Storage.Config.File == "" && cfg.Datadir != "" {
-		cfg.EmbeddedIdP.Storage.Config.File = path.Join(cfg.Datadir, "idp.db")
+		cfg.EmbeddedIdP.Storage.Config.File = filepath.Join(cfg.Datadir, "idp.db")
 	}
 
 	issuer := cfg.EmbeddedIdP.Issuer

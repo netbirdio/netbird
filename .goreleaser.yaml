@@ -212,6 +212,7 @@ nfpms:
     description: Netbird client.
     homepage: https://netbird.io/
     license: BSD-3-Clause
+    vendor: NetBird
     id: netbird_deb
     bindir: /usr/bin
     builds:
@@ -226,6 +227,7 @@ nfpms:
     description: Netbird client.
     homepage: https://netbird.io/
     license: BSD-3-Clause
+    vendor: NetBird
     id: netbird_rpm
     bindir: /usr/bin
     builds:
@@ -271,8 +273,8 @@ dockers_v2:
        - netbirdio/netbird
        - ghcr.io/netbirdio/netbird
      tags:
-       - "v{{ .Version }}-rootless"
-       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}latest{{ end }}"
+       - "{{ .Version }}-rootless"
+       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}rootless-latest{{ end }}"
      dockerfile: client/Dockerfile-rootless
      extra_files:
        - client/netbird-entrypoint.sh
@@ -462,9 +464,20 @@ checksum:
     - glob: ./infrastructure_files/getting-started-with-zitadel.sh
     - glob: ./release_files/install.sh
     - glob: ./infrastructure_files/getting-started.sh
+    - glob: ./infrastructure_files/getting-started-enterprise.sh
+    - glob: ./infrastructure_files/migrate-to-enterprise.sh
 
 release:
+  # The signing pipeline (netbirdio/sign-pipelines, dispatched by
+  # trigger_signer) marks the release latest once the Windows and macOS
+  # artifacts are signed. Without this override goreleaser marks it latest
+  # at publish time, while those artifacts are still unsigned.
+  make_latest: false
+  # Mark x.y.z-rc.* and other prerelease tags as prereleases on GitHub.
+  prerelease: auto
   extra_files:
     - glob: ./infrastructure_files/getting-started-with-zitadel.sh
     - glob: ./release_files/install.sh
     - glob: ./infrastructure_files/getting-started.sh
+    - glob: ./infrastructure_files/getting-started-enterprise.sh
+    - glob: ./infrastructure_files/migrate-to-enterprise.sh

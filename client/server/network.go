@@ -8,7 +8,6 @@ import (
 	"sort"
 	"strings"
 
-	"golang.org/x/exp/maps"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
@@ -161,19 +160,11 @@ func (s *Server) SelectNetworks(_ context.Context, req *proto.SelectNetworksRequ
 		return nil, fmt.Errorf("no route manager")
 	}
 
-	routeSelector := routeManager.GetRouteSelector()
 	if req.GetAll() {
-		routeSelector.SelectAllRoutes()
-	} else {
-		routes := toNetIDs(req.GetNetworkIDs())
-		routesMap := routeManager.GetClientRoutesWithNetID()
-		routes = route.ExpandV6ExitPairs(routes, routesMap)
-		netIdRoutes := maps.Keys(routesMap)
-		if err := routeSelector.SelectRoutes(routes, req.GetAppend(), netIdRoutes); err != nil {
-			return nil, fmt.Errorf("select routes: %w", err)
-		}
+		routeManager.SelectAllRoutes()
+	} else if err := routeManager.SelectRoutes(toNetIDs(req.GetNetworkIDs()), req.GetAppend()); err != nil {
+		return nil, err
 	}
-	routeManager.TriggerSelection(routeManager.GetClientRoutes())
 
 	s.statusRecorder.PublishEvent(
 		proto.SystemEvent_INFO,
@@ -213,19 +204,11 @@ func (s *Server) DeselectNetworks(_ context.Context, req *proto.SelectNetworksRe
 		return nil, fmt.Errorf("no route manager")
 	}
 
-	routeSelector := routeManager.GetRouteSelector()
 	if req.GetAll() {
-		routeSelector.DeselectAllRoutes()
-	} else {
-		routes := toNetIDs(req.GetNetworkIDs())
-		routesMap := routeManager.GetClientRoutesWithNetID()
-		routes = route.ExpandV6ExitPairs(routes, routesMap)
-		netIdRoutes := maps.Keys(routesMap)
-		if err := routeSelector.DeselectRoutes(routes, netIdRoutes); err != nil {
-			return nil, fmt.Errorf("deselect routes: %w", err)
-		}
+		routeManager.DeselectAllRoutes()
+	} else if err := routeManager.DeselectRoutes(toNetIDs(req.GetNetworkIDs())); err != nil {
+		return nil, err
 	}
-	routeManager.TriggerSelection(routeManager.GetClientRoutes())
 
 	s.statusRecorder.PublishEvent(
 		proto.SystemEvent_INFO,
@@ -249,3 +232,4 @@ func toNetIDs(routes []string) []route.NetID {
 	}
 	return netIDs
 }
+
