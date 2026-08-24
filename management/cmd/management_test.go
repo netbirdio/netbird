@@ -36,7 +36,7 @@ func Test_LoadMgmtConfig(t *testing.T) {
 	tmpFile, err := createConfig(exampleConfig)
 	assert.NoError(t, err)
 
-	cfg, err := LoadMgmtConfig(context.Background(), tmpFile)
+	cfg, err := LoadMgmtConfig(context.Background(), tmpFile, mgmtCmd.Flags())
 	assert.NoError(t, err)
 	assert.NotEmpty(t, cfg.Relay)
 	assert.NotEmpty(t, cfg.Relay.Addresses)
@@ -54,7 +54,7 @@ func Test_LoadMgmtConfig_Empty(t *testing.T) {
 	}`)
 	assert.NoError(t, err)
 
-	cfg, err := LoadMgmtConfig(context.Background(), tmpFile)
+	cfg, err := LoadMgmtConfig(context.Background(), tmpFile, mgmtCmd.Flags())
 	assert.NoError(t, err)
 	assert.Nil(t, cfg.HighestSupportedSyncMessageVersion)
 	assert.Nil(t, cfg.PerAccountHighestSupportedSyncMessageVersion)

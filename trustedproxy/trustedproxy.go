@@ -49,6 +49,16 @@ func Parse(raw string) (*List, error) {
 	return &List{prefixes: prefixes}, nil
 }
 
+// UnmarshalText parses trusted proxy prefixes from text configuration.
+func (l *List) UnmarshalText(text []byte) error {
+	parsed, err := Parse(string(text))
+	if err != nil {
+		return err
+	}
+	*l = *parsed
+	return nil
+}
+
 // FromPrefixes wraps an already-parsed set of prefixes in a List.
 func FromPrefixes(prefixes []netip.Prefix) *List {
 	return &List{prefixes: prefixes}

@@ -10,7 +10,6 @@ import (
 	"net/http"
 	// nolint:gosec
 	_ "net/http/pprof"
-	"os"
 	"time"
 
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
@@ -46,6 +45,8 @@ var (
 	signalLetsencryptDataDir string
 	signalCertFile           string
 	signalCertKey            string
+	signalConfigPath         string
+	signalPprofAddress       string
 
 	signalKaep = grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
 		MinTime:             5 * time.Second,
@@ -64,30 +65,25 @@ var (
 		Short:        "start NetBird Signal Server daemon",
 		SilenceUsage: true,
 		PreRunE: func(cmd *cobra.Command, args []string) error {
-			err := util.InitLog(logLevel, logFile)
+			cfg, err := loadConfig(cmd, signalConfigPath)
 			if err != nil {
-				return fmt.Errorf("failed initializing log: %w", err)
+				return fmt.Errorf("load config: %w", err)
 			}
+			applyConfig(cfg)
 
-			flag.Parse()
-
-			// detect whether user specified a port
-			userPort := cmd.Flag("port").Changed
-
-			var tlsEnabled bool
-			if signalLetsencryptDomain != "" || (signalCertFile != "" && signalCertKey != "") {
-				tlsEnabled = true
-			}
-
-			if !userPort {
-				// different defaults for signalPort
-				if tlsEnabled {
+			if signalPort == 0 {
+				if signalLetsencryptDomain != "" || (signalCertFile != "" && signalCertKey != "") {
 					signalPort = 443
 				} else {
 					signalPort = 80
 				}
 			}
 
+			if err := util.InitLog(logLevel, logFile); err != nil {
+				return fmt.Errorf("initialize log: %w", err)
+			}
+
+			flag.Parse()
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -196,10 +192,10 @@ var (
 )
 
 func startPprof() {
-	if pprofAddr := os.Getenv("NB_PPROF_ADDR"); pprofAddr != "" {
-		log.Infof("pprof enabled, listening on: %s", pprofAddr)
+	if signalPprofAddress != "" {
+		log.Infof("pprof enabled, listening on: %s", signalPprofAddress)
 		go func() {
-			if err := http.ListenAndServe(pprofAddr, nil); err != nil {
+			if err := http.ListenAndServe(signalPprofAddress, nil); err != nil {
 				log.Fatalf("pprof server failed: %v", err)
 			}
 		}()
@@ -328,13 +324,27 @@ func loadTLSConfig(certFile string, certKey string) (*tls.Config, error) {
 }
 
 func init() {
-	runCmd.PersistentFlags().IntVar(&signalPort, "port", 80, "Server port to listen on (defaults to 443 if TLS is enabled, 80 otherwise")
-	runCmd.Flags().IntVar(&metricsPort, "metrics-port", 9090, "metrics endpoint http port. Metrics are accessible under host:metrics-port/metrics")
+	defaults := defaultConfig()
+	runCmd.PersistentFlags().StringVar(&signalConfigPath, "config", "", "path to configuration file")
+	runCmd.PersistentFlags().IntVar(&signalPort, "port", defaults.Port, "Server port to listen on (defaults to 443 if TLS is enabled, 80 otherwise)")
+	runCmd.Flags().IntVar(&metricsPort, "metrics-port", defaults.MetricsPort, "metrics endpoint http port. Metrics are accessible under host:metrics-port/metrics")
 	runCmd.PersistentFlags().StringVar(&signalLetsencryptDataDir, "letsencrypt-data-dir", "", "a directory to store Let's Encrypt data. Required if Let's Encrypt is enabled.")
 	runCmd.PersistentFlags().StringVar(&signalLetsencryptDataDir, "ssl-dir", "", "server ssl directory location. *Required only for Let's Encrypt certificates. Deprecated: use --letsencrypt-data-dir")
 	runCmd.PersistentFlags().StringVar(&signalLetsencryptDomain, "letsencrypt-domain", "", "a domain to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS")
 	runCmd.PersistentFlags().StringVar(&signalLetsencryptEmail, "letsencrypt-email", "", "email address to use for Let's Encrypt certificate registration")
 	runCmd.PersistentFlags().StringVar(&signalCertFile, "cert-file", "", "Location of your SSL certificate. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect")
 	runCmd.PersistentFlags().StringVar(&signalCertKey, "cert-key", "", "Location of your SSL certificate private key. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect")
-	setFlagsFromEnvVars(runCmd)
+}
+
+func applyConfig(cfg *Config) {
+	signalPort = cfg.Port
+	metricsPort = cfg.MetricsPort
+	signalLetsencryptDomain = cfg.LetsencryptDomain
+	signalLetsencryptEmail = cfg.LetsencryptEmail
+	signalLetsencryptDataDir = cfg.LetsencryptDataDir
+	signalCertFile = cfg.CertFile
+	signalCertKey = cfg.CertKey
+	logLevel = cfg.LogLevel
+	logFile = cfg.LogFile
+	signalPprofAddress = cfg.PprofAddress
 }
