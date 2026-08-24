@@ -6,6 +6,7 @@ package netevents
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -25,6 +26,10 @@ type Recorder interface {
 // the valid no-events value: the read methods report always-online and never
 // sweep.
 type Manager struct {
+	// mu serializes availability transitions: the IsOnline check and the
+	// state update must be atomic, or a racing offline flip can skip the sweep
+	// and leave netState and the recorder disagreeing.
+	mu       sync.Mutex
 	netState *netstate.State
 	sweeper  *sweep.Sweeper
 	recorder Recorder
@@ -48,6 +53,9 @@ func NewManager(recorder Recorder) *Manager {
 // "connected" until their own timeouts and the client would keep reporting
 // Connected with no network at all.
 func (m *Manager) SetNetworkAvailable(available bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if !available && m.netState.IsOnline() {
 		m.sweeper.MarkNetworkChange()
 	}
