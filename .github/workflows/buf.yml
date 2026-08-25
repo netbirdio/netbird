@@ -1,8 +1,12 @@
 name: protobuf checks
 on:
   push:
+    branches:
+      - main
+      - "release-*"
+  pull_request:
     paths:
-      - '**.proto'
+      - "**.proto"
 permissions:
   contents: read
   pull-requests: read
