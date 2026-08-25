@@ -11,6 +11,8 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/util/envtemplate"
 )
 
 type testConfig struct {
@@ -138,7 +140,7 @@ server:
 
 	cfg, err := Load(configPath, defaultTestConfig(), Options{
 		TagName:   "yaml",
-		Transform: ExpandEnvTemplate,
+		Transform: envtemplate.Expand,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, ":8443", cfg.Server.Address, "The transform should run before decoding")

@@ -12,7 +12,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	configloader "github.com/netbirdio/netbird/util/config"
+	"github.com/netbirdio/netbird/util/envtemplate"
 )
 
 func WriteBytesWithRestrictedPermission(ctx context.Context, file string, bs []byte) error {
@@ -243,7 +243,7 @@ func ReadJsonWithEnvSub(file string, res interface{}) (interface{}, error) {
 		return nil, err
 	}
 
-	output, err := configloader.ExpandEnvTemplate(bs)
+	output, err := envtemplate.Expand(bs)
 	if err != nil {
 		return nil, err
 	}

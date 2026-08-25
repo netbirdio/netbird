@@ -28,8 +28,7 @@
 //	})
 //
 // Set [Options.AllowMissing] when the service must start without a configuration
-// file. [Options.Transform] can preprocess file contents before decoding, such
-// as with [ExpandEnvTemplate].
+// file. [Options.Transform] can preprocess file contents before decoding.
 package config
 
 import (
@@ -215,65 +214,111 @@ func bindConfigSources(
 	defer delete(visiting, configType)
 
 	for i := range configType.NumField() {
-		field := configType.Field(i)
-		if !field.IsExported() {
-			continue
+		if err := bindConfigField(
+			v,
+			configType.Field(i),
+			prefix,
+			tagName,
+			flagSet,
+			bindEnvironment,
+			bindFlags,
+			visiting,
+		); err != nil {
+			return err
 		}
+	}
+	return nil
+}
 
-		key, inline, skip := configFieldKey(field, tagName)
-		if skip {
-			continue
-		}
-		if inline {
-			key = prefix
-		} else if prefix != "" {
-			key = prefix + "." + key
-		}
+func bindConfigField(
+	v *viper.Viper,
+	field reflect.StructField,
+	prefix string,
+	tagName string,
+	flagSet *pflag.FlagSet,
+	bindEnvironment bool,
+	bindFlags bool,
+	visiting map[reflect.Type]bool,
+) error {
+	if !field.IsExported() {
+		return nil
+	}
 
-		fieldEnvironment := field.Tag.Get("env")
-		fieldFlags := field.Tag.Get("flag")
-		bindFieldEnvironment := bindEnvironment && fieldEnvironment != "-"
-		bindFieldFlags := bindFlags && fieldFlags != "-"
+	key, inline, skip := configFieldKey(field, tagName)
+	if skip {
+		return nil
+	}
+	if inline {
+		key = prefix
+	} else if prefix != "" {
+		key = prefix + "." + key
+	}
 
-		fieldType := field.Type
-		for fieldType.Kind() == reflect.Pointer {
-			fieldType = fieldType.Elem()
-		}
-		if fieldType.Kind() == reflect.Struct && !isScalarUnmarshaler(fieldType) {
-			if !visiting[fieldType] {
-				if err := bindConfigSources(
-					v,
-					fieldType,
-					key,
-					tagName,
-					flagSet,
-					bindFieldEnvironment,
-					bindFieldFlags,
-					visiting,
-				); err != nil {
-					return err
-				}
-			}
-			continue
-		}
+	fieldEnvironment := field.Tag.Get("env")
+	fieldFlags := field.Tag.Get("flag")
+	bindEnvironment = bindEnvironment && fieldEnvironment != "-"
+	bindFlags = bindFlags && fieldFlags != "-"
 
-		if key == "" {
-			return fmt.Errorf("empty config key for field %s", field.Name)
+	fieldType := field.Type
+	for fieldType.Kind() == reflect.Pointer {
+		fieldType = fieldType.Elem()
+	}
+	if fieldType.Kind() == reflect.Struct && !isScalarUnmarshaler(fieldType) {
+		if visiting[fieldType] {
+			return nil
 		}
-		if bindFieldEnvironment {
-			if err := bindEnvironmentVariable(v, key, fieldEnvironment); err != nil {
-				return err
-			}
+		return bindConfigSources(
+			v,
+			fieldType,
+			key,
+			tagName,
+			flagSet,
+			bindEnvironment,
+			bindFlags,
+			visiting,
+		)
+	}
+
+	return bindScalarSources(
+		v,
+		field,
+		key,
+		fieldEnvironment,
+		fieldFlags,
+		flagSet,
+		bindEnvironment,
+		bindFlags,
+	)
+}
+
+func bindScalarSources(
+	v *viper.Viper,
+	field reflect.StructField,
+	key string,
+	environmentName string,
+	flagNames string,
+	flagSet *pflag.FlagSet,
+	bindEnvironment bool,
+	bindFlags bool,
+) error {
+	if key == "" {
+		return fmt.Errorf("empty config key for field %s", field.Name)
+	}
+	if bindEnvironment {
+		if err := bindEnvironmentVariable(v, key, environmentName); err != nil {
+			return err
 		}
-		if bindFieldFlags && flagSet != nil && fieldFlags != "" {
-			flagName, flag, err := selectFlag(flagSet, fieldFlags)
-			if err != nil {
-				return fmt.Errorf("config field %s: %w", field.Name, err)
-			}
-			if err := v.BindPFlag(key, flag); err != nil {
-				return fmt.Errorf("bind flag %s: %w", flagName, err)
-			}
-		}
+	}
+	if !bindFlags || flagSet == nil || flagNames == "" {
+		return nil
+	}
+
+	flagName, flag, err := selectFlag(flagSet, flagNames)
+	if err != nil {
+		return fmt.Errorf("config field %s: %w", field.Name, err)
+	}
+	if err := v.BindPFlag(key, flag); err != nil {
+		return fmt.Errorf("bind flag %s: %w", flagName, err)
 	}
 	return nil
 }

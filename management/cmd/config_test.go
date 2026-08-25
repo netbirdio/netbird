@@ -10,6 +10,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestLoadManagementConfigUsesDefaultDataDirForEmptyValue(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "management.json")
+	require.NoError(t, os.WriteFile(configPath, []byte(`{"Datadir":""}`), 0o600))
+
+	cfg, err := loadManagementConfig(configPath)
+	require.NoError(t, err)
+	assert.Equal(t, defaultMgmtDataDir, cfg.Datadir, "Empty legacy values should use the default data directory")
+}
+
 func TestLoadManagementConfigSources(t *testing.T) {
 	t.Setenv("MANAGEMENT_DATA_DIR", "/template-data")
 	t.Setenv("MANAGEMENT_ENCRYPTION_KEY", "template-key")
