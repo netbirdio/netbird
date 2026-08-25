@@ -1,6 +1,6 @@
 import { useId, type ReactNode } from "react";
 import { Trans, useTranslation } from "react-i18next";
-import { CircleCheckBig, FolderOpen, Loader2 } from "lucide-react";
+import { ChevronDown, CircleCheckBig, FolderOpen, Info, Loader2 } from "lucide-react";
 import { Browser } from "@wailsio/runtime";
 import { Debug as DebugSvc } from "@bindings/services";
 import type { DebugBundleResult } from "@bindings/services/models.js";
@@ -8,13 +8,22 @@ import { Button } from "@/components/buttons/Button";
 import { DialogActions } from "@/components/dialog/DialogActions";
 import { DialogDescription } from "@/components/dialog/DialogDescription";
 import { DialogHeading } from "@/components/dialog/DialogHeading";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuRadioGroup,
+    DropdownMenuRadioItem,
+    DropdownMenuTrigger,
+} from "@/components/DropdownMenu";
 import FancyToggleSwitch from "@/components/switches/FancyToggleSwitch";
 import HelpText from "@/components/typography/HelpText.tsx";
 import { Input } from "@/components/inputs/Input";
 import { Label } from "@/components/typography/Label";
 import { SquareIcon } from "@/components/SquareIcon";
+import { Tooltip } from "@/components/Tooltip";
+import { cn } from "@/lib/cn";
 import { formatRemaining } from "@/lib/formatters";
-import type { DebugStage } from "@/contexts/DebugBundleContext";
+import type { AnonymizeLevel, DebugStage } from "@/contexts/DebugBundleContext";
 import { useDebugBundleContext } from "@/contexts/DebugBundleContext";
 import { SectionGroup, SettingsBottomBar } from "@/modules/settings/SettingsSection.tsx";
 
@@ -24,8 +33,8 @@ export function SettingsTroubleshooting() {
     const { t } = useTranslation();
     const durationId = useId();
     const {
-        anonymize,
-        setAnonymize,
+        anonymizeLevel,
+        setAnonymizeLevel,
         systemInfo,
         setSystemInfo,
         upload,
@@ -55,12 +64,71 @@ export function SettingsTroubleshooting() {
 
     return (
         <SectionGroup title={t("settings.troubleshooting.section.title")}>
-            <FancyToggleSwitch
-                value={anonymize}
-                onChange={setAnonymize}
-                label={t("settings.troubleshooting.anonymize.label")}
-                helpText={t("settings.troubleshooting.anonymize.help")}
-            />
+            <div className={"flex items-center justify-between gap-6"}>
+                <div className={"max-w-md flex-1"}>
+                    <Label as={"div"}>
+                        <span className={"inline-flex items-center gap-1.5"}>
+                            {t("settings.troubleshooting.anonymize.label")}
+                            <Tooltip
+                                content={
+                                    <div className={"max-w-xs whitespace-normal leading-relaxed"}>
+                                        {t("settings.troubleshooting.anonymize.info")}
+                                    </div>
+                                }
+                            >
+                                <Info
+                                    size={14}
+                                    aria-label={t("settings.troubleshooting.anonymize.label")}
+                                    className={"shrink-0 cursor-default text-nb-gray-400"}
+                                />
+                            </Tooltip>
+                        </span>
+                    </Label>
+                    <HelpText margin={false}>
+                        {t("settings.troubleshooting.anonymize.help")}
+                    </HelpText>
+                </div>
+                <div className={"shrink-0"}>
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <button
+                                type={"button"}
+                                aria-label={t("settings.troubleshooting.anonymize.label")}
+                                className={cn(
+                                    "inline-flex h-[40px] min-w-[160px] items-center justify-between gap-2 px-3",
+                                    "rounded-md border bg-white dark:bg-nb-gray-900",
+                                    "border-neutral-200 dark:border-nb-gray-700",
+                                    "cursor-default text-xs font-semibold text-nb-gray-100 outline-none",
+                                    "hover:border-nb-gray-600 data-[state=open]:border-nb-gray-600",
+                                )}
+                            >
+                                {t(`settings.troubleshooting.anonymize.${anonymizeLevel}`)}
+                                <ChevronDown
+                                    size={16}
+                                    aria-hidden={"true"}
+                                    className={"shrink-0 text-nb-gray-200"}
+                                />
+                            </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align={"end"} className={"min-w-[160px]"}>
+                            <DropdownMenuRadioGroup
+                                value={anonymizeLevel}
+                                onValueChange={(v) => setAnonymizeLevel(v as AnonymizeLevel)}
+                            >
+                                <DropdownMenuRadioItem value={"none"}>
+                                    {t("settings.troubleshooting.anonymize.none")}
+                                </DropdownMenuRadioItem>
+                                <DropdownMenuRadioItem value={"default"}>
+                                    {t("settings.troubleshooting.anonymize.default")}
+                                </DropdownMenuRadioItem>
+                                <DropdownMenuRadioItem value={"strict"}>
+                                    {t("settings.troubleshooting.anonymize.strict")}
+                                </DropdownMenuRadioItem>
+                            </DropdownMenuRadioGroup>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                </div>
+            </div>
             <FancyToggleSwitch
                 value={systemInfo}
                 onChange={setSystemInfo}

@@ -27,8 +27,8 @@ func listenOnAddress(addr string) (*socketListener, error) {
 	}
 
 	if network == "npipe" {
-		listener, path, err := listenNamedPipe(address)
-		if err != nil {
+		listener, path, err := listenNamedPipe(address) //nolint:staticcheck
+		if err != nil {                                 //nolint:staticcheck // always errors on non-Windows builds
 			return nil, err
 		}
 		return &socketListener{Listener: listener, network: network, address: path}, nil

@@ -13,6 +13,14 @@ func NormalizeBedrockModel(modelID string) string {
 	return sharedllm.NormalizeBedrockModel(modelID)
 }
 
+// NormalizeAnthropicModel strips the trailing "-YYYYMMDD" release-date suffix
+// from an Anthropic model id so a dated id a client pins matches the undated
+// one the operator registered. Thin delegate to shared/llm for the same
+// contract reason as the two below.
+func NormalizeAnthropicModel(modelID string) string {
+	return sharedllm.NormalizeAnthropicModel(modelID)
+}
+
 // NormalizeVertexModel strips the "@version" suffix from a Vertex AI model id
 // so it matches the catalog/pricing key. Thin delegate to shared/llm, kept
 // beside NormalizeBedrockModel for the same contract reason.

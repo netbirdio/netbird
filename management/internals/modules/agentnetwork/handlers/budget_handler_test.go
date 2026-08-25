@@ -102,8 +102,8 @@ func TestSettingsHandler_GetExposesCollectionToggles(t *testing.T) {
 
 	require.NoError(t, f.store.SaveAgentNetworkSettings(context.Background(), &agentNetworkTypes.Settings{
 		AccountID:              testAccountID,
-		Cluster:                "eu.proxy.netbird.io",
-		Subdomain:              "violet",
+		Domain:                 "violet.eu.proxy.netbird.io",
+		ProxyAddress:           "eu.proxy.netbird.io",
 		EnableLogCollection:    true,
 		EnablePromptCollection: true,
 		RedactPii:              false,

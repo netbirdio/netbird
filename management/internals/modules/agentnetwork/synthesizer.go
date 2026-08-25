@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/catalog"
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/modeldiscovery"
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/sessionkey"
@@ -89,7 +90,7 @@ func SynthesizeServicesForCluster(ctx context.Context, s store.Store, clusterAdd
 		return nil, nil
 	}
 
-	settingsRows, err := s.GetAgentNetworkSettingsByCluster(ctx, store.LockingStrengthNone, clusterAddr)
+	settingsRows, err := s.GetAgentNetworkSettingsByProxyAddress(ctx, store.LockingStrengthNone, clusterAddr)
 	if err != nil {
 		return nil, fmt.Errorf("list agent network settings on cluster: %w", err)
 	}
@@ -116,45 +117,33 @@ func SynthesizeServicesForCluster(ctx context.Context, s store.Store, clusterAdd
 }
 
 // SynthesizeServiceForDomain resolves a single agent-network service by its
-// public endpoint domain. It lists the (few) settings rows on the domain's
-// cluster, matches the one whose endpoint equals the domain, and synthesises
-// only that account — avoiding full per-account synthesis for every tenant on
-// the cluster, which is what auth/session paths previously paid. Returns nil
-// (no error) when no account owns the domain.
+// public endpoint domain — a point query on the settings domain unique index,
+// then synthesis of just that account. Returns nil (no error) when no account
+// owns the domain.
 func SynthesizeServiceForDomain(ctx context.Context, s store.Store, domain string) (*rpservice.Service, error) {
-	domain = strings.TrimSpace(domain)
-	cluster := clusterFromDomain(domain)
-	if domain != "" && cluster != "" {
-		settingsRows, err := s.GetAgentNetworkSettingsByCluster(ctx, store.LockingStrengthNone, cluster)
-		if err != nil {
-			return nil, fmt.Errorf("list agent network settings on cluster: %w", err)
+	domain = strings.ToLower(strings.TrimSpace(domain))
+	if domain == "" {
+		return nil, nil //nolint:nilnil // optional lookup: no account owns the domain
+	}
+
+	settings, err := s.GetAgentNetworkSettingsByDomain(ctx, store.LockingStrengthNone, domain)
+	if err != nil {
+		if isNotFound(err) {
+			return nil, nil //nolint:nilnil // optional lookup: no account owns the domain
 		}
-		for _, settings := range settingsRows {
-			if settings == nil || settings.Endpoint() != domain {
-				continue
-			}
-			services, serr := SynthesizeServices(ctx, s, settings.AccountID)
-			if serr != nil {
-				return nil, serr
-			}
-			for _, svc := range services {
-				if svc != nil && svc.Domain == domain {
-					return svc, nil
-				}
-			}
-			break
+		return nil, fmt.Errorf("get agent network settings by domain: %w", err)
+	}
+
+	services, err := SynthesizeServices(ctx, s, settings.AccountID)
+	if err != nil {
+		return nil, err
+	}
+	for _, svc := range services {
+		if svc != nil && svc.Domain == domain {
+			return svc, nil
 		}
 	}
 	return nil, nil //nolint:nilnil // optional lookup: no account owns the domain
-}
-
-// clusterFromDomain returns the cluster portion of an endpoint domain (every
-// label after the first).
-func clusterFromDomain(domain string) string {
-	if i := strings.IndexByte(domain, '.'); i >= 0 {
-		return domain[i+1:]
-	}
-	return ""
 }
 
 // SynthesizeServices builds the in-memory reverse-proxy service that
@@ -162,7 +151,7 @@ func clusterFromDomain(domain string) string {
 // account has no settings row, no enabled providers, or no enabled
 // policies — in any of those cases there's nothing useful to expose.
 //
-// One service per (account, settings.Cluster) is emitted. The router
+// One service per (account, settings.ProxyAddress) is emitted. The router
 // middleware encodes a denormalised model→provider routing table
 // (auth headers + decrypted API keys baked in); the policy_check
 // middleware encodes per-provider authorised group IDs derived from
@@ -175,7 +164,7 @@ func SynthesizeServices(ctx context.Context, s store.Store, accountID string) ([
 	if err != nil {
 		return nil, err
 	}
-	if !ok || strings.TrimSpace(settings.Cluster) == "" {
+	if !ok || strings.TrimSpace(settings.ProxyAddress) == "" {
 		return nil, nil
 	}
 
@@ -223,7 +212,19 @@ func SynthesizeServices(ctx context.Context, s store.Store, accountID string) ([
 
 	groupIndex := indexProviderGroups(enabledPolicies)
 
-	routerCfgJSON, err := buildRouterConfigJSON(enabledProviders, groupIndex)
+	// The proxy guardrail is a per-provider fail-closed backstop; the
+	// authoritative per-policy/group decision is management's
+	// SelectPolicyForRequest. A provider lands in that map only when every
+	// authorising policy restricts models.
+	providerAllowlists := buildProviderAllowlists(enabledPolicies, guardrailsByID)
+
+	// Discovery gets the finer view: per policy rather than flattened per
+	// provider, so a listing can be bounded to what the calling groups may
+	// actually use instead of the union across everyone who reaches the
+	// provider.
+	modelPolicies := buildModelPolicies(enabledPolicies, guardrailsByID)
+
+	routerCfgJSON, err := buildRouterConfigJSON(enabledProviders, groupIndex, modelPolicies)
 	if err != nil {
 		return nil, err
 	}
@@ -240,11 +241,6 @@ func SynthesizeServices(ctx context.Context, s store.Store, accountID string) ([
 
 	mergedGuardrails := mergeGuardrails(enabledPolicies, guardrailsByID)
 	applyAccountCollectionControls(&mergedGuardrails, settings)
-	// The proxy guardrail is a per-provider fail-closed backstop; the
-	// authoritative per-policy/group decision is management's
-	// SelectPolicyForRequest. A provider lands in this map only when every
-	// authorising policy restricts models.
-	providerAllowlists := buildProviderAllowlists(enabledPolicies, guardrailsByID)
 	guardrailJSON, err := marshalGuardrailConfig(providerAllowlists, mergedGuardrails.PromptCapture)
 	if err != nil {
 		return nil, err
@@ -363,6 +359,11 @@ type routerProviderRoute struct {
 	AuthHeaderName  string   `json:"auth_header_name"`
 	AuthHeaderValue string   `json:"auth_header_value"`
 	AllowedGroupIDs []string `json:"allowed_group_ids,omitempty"`
+	// ModelPolicies is one entry per enabled policy authorising this provider,
+	// carrying that policy's source groups and the models it permits. The
+	// router bounds a model listing with it, so a provider two groups reach
+	// under different allowlists offers each only its own.
+	ModelPolicies []routerModelPolicy `json:"model_policies,omitempty"`
 	// Vertex marks a Google Vertex AI provider, whose requests carry the
 	// model in the URL path. The router selects it by path, bypassing the
 	// model/vendor table.
@@ -380,6 +381,9 @@ type routerProviderRoute struct {
 	// proxy dials this provider's upstream. For self-hosted / internal gateways
 	// behind a private or self-signed certificate.
 	SkipTLSVerify bool `json:"skip_tls_verify,omitempty"`
+	// DiscoveryHost, when set, is the host serving this provider's model
+	// listing, for a vendor that does not serve it from the inference host.
+	DiscoveryHost string `json:"discovery_host,omitempty"`
 }
 
 // indexProviderGroups walks the enabled policies and returns, per
@@ -434,7 +438,7 @@ func indexProviderGroups(policies []*types.Policy) map[string][]string {
 // path-prefix tiebreak. Providers no enabled policy authorises
 // (orphans) are intentionally OMITTED so the router never observes a
 // route with an empty ACL.
-func buildRouterConfigJSON(providers []*types.Provider, groupIndex map[string][]string) ([]byte, error) {
+func buildRouterConfigJSON(providers []*types.Provider, groupIndex map[string][]string, modelPolicies map[string][]routerModelPolicy) ([]byte, error) {
 	cfg := routerConfig{Providers: make([]routerProviderRoute, 0, len(providers))}
 	for _, p := range providers {
 		groups, hasPolicy := groupIndex[p.ID]
@@ -447,6 +451,9 @@ func buildRouterConfigJSON(providers []*types.Provider, groupIndex map[string][]
 		if err != nil {
 			return nil, fmt.Errorf("router config for provider %s: %w", p.ID, err)
 		}
+		// Lookup rather than assume: an unknown provider id yields the zero
+		// entry, which declares no discovery and so contributes nothing.
+		catalogEntry, _ := catalog.Lookup(p.ProviderID)
 		headerName, headerValue, gcpSAKeyB64, err := providerAuthHeader(p)
 		if err != nil {
 			return nil, err
@@ -461,10 +468,12 @@ func buildRouterConfigJSON(providers []*types.Provider, groupIndex map[string][]
 			AuthHeaderName:          headerName,
 			AuthHeaderValue:         headerValue,
 			AllowedGroupIDs:         groups,
+			ModelPolicies:           modelPolicies[p.ID],
 			Vertex:                  catalog.IsVertexPathStyle(p.ProviderID),
 			Bedrock:                 catalog.IsBedrockPathStyle(p.ProviderID),
 			GCPServiceAccountKeyB64: gcpSAKeyB64,
 			SkipTLSVerify:           p.SkipTLSVerification,
+			DiscoveryHost:           discoveryHost(catalogEntry, p.UpstreamURL),
 		})
 	}
 	out, err := json.Marshal(cfg)
@@ -472,6 +481,33 @@ func buildRouterConfigJSON(providers []*types.Provider, groupIndex map[string][]
 		return nil, fmt.Errorf("marshal llm_router middleware config: %w", err)
 	}
 	return out, nil
+}
+
+// discoveryHost returns the host serving this provider's model listing when it
+// differs from the inference host, and empty when the two are the same — which
+// is true of every vendor but Bedrock, whose ListInferenceProfiles is a control
+// plane operation on bedrock.<region> while InvokeModel must go to
+// bedrock-runtime.<region>. One provider record therefore needs two hosts.
+//
+// The catalog declares the listing host; the region is recovered from the
+// upstream the operator configured, since a provider record carries no region
+// field. An upstream matching no catalog template yields empty rather than a
+// guess: a proxied or self-hosted Bedrock endpoint may serve both from one
+// place, and inventing a host would send the credential somewhere the operator
+// never configured.
+func discoveryHost(entry catalog.Provider, upstreamURL string) string {
+	if entry.Discovery == nil || entry.Discovery.Host == "" {
+		return ""
+	}
+	host := entry.Discovery.Host
+	if !strings.Contains(host, catalog.RegionPlaceholder) {
+		return host
+	}
+	region := modeldiscovery.RegionFromUpstream(entry, upstreamURL)
+	if region == "" {
+		return ""
+	}
+	return strings.ReplaceAll(host, catalog.RegionPlaceholder, region)
 }
 
 // providerVendor returns the parser surface ("openai", "anthropic", …)
@@ -934,7 +970,7 @@ func buildAccountService(
 	middlewares []rpservice.MiddlewareConfig,
 	sessionPriv, sessionPub string,
 ) *rpservice.Service {
-	cluster := settings.Cluster
+	cluster := settings.ProxyAddress
 	domain := settings.Endpoint()
 	serviceID := SynthesizedServiceIDPrefix + accountID
 
@@ -1109,4 +1145,47 @@ func mergeGuardrail(g *types.Guardrail, merged *MergedGuardrails) {
 			merged.PromptCapture.RedactPii = true
 		}
 	}
+}
+
+// routerModelPolicy mirrors the router's ModelPolicyRule: one authorising
+// policy's source groups plus the models it permits. Models is nil for a
+// policy that sets no model allowlist, which lifts the restriction for the
+// groups it binds — so nil and empty must survive the round trip distinctly.
+type routerModelPolicy struct {
+	GroupIDs []string `json:"group_ids"`
+	Models   []string `json:"models"`
+}
+
+// buildModelPolicies indexes, per provider, one rule for each enabled policy
+// authorising it: the policy's source groups and the models its guardrail
+// permits.
+//
+// This is deliberately finer than buildProviderAllowlists, which flattens the
+// same inputs into one list per provider for the proxy's fail-closed guardrail.
+// A flattened list cannot answer "what may THIS caller see", so a provider two
+// teams reach under different allowlists would offer each team the other's
+// models — a picker full of entries the next request refuses. Keeping the
+// source groups alongside the models lets the router answer it at request time,
+// where it knows the caller's groups.
+func buildModelPolicies(policies []*types.Policy, byID map[string]*types.Guardrail) map[string][]routerModelPolicy {
+	out := make(map[string][]routerModelPolicy)
+	for _, p := range policies {
+		if p == nil || len(p.SourceGroups) == 0 {
+			continue
+		}
+		restricted, models := policyModelAllowlist(p, byID)
+		rule := routerModelPolicy{GroupIDs: append([]string(nil), p.SourceGroups...)}
+		if restricted {
+			// Never nil when restricted: an allowlist permitting nothing must
+			// stay distinguishable from no allowlist at all.
+			rule.Models = append([]string{}, models...)
+		}
+		for _, providerID := range p.DestinationProviderIDs {
+			if providerID == "" {
+				continue
+			}
+			out[providerID] = append(out[providerID], rule)
+		}
+	}
+	return out
 }

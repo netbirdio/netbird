@@ -40,6 +40,35 @@ You can then use this private endpoint to configure your AI agents, whether that
 Full step-by-step setup:
 **https://docs.netbird.io/agent-network/quickstart**
 
+## Client settings that don't follow the endpoint
+
+Most of an agent's traffic follows the base URL you hand it, but a few
+client-side checks call their vendor directly and never reach the proxy. On a
+network that blocks direct egress they fail even though inference works, so
+they are worth setting once when you roll the endpoint out.
+
+For Claude Code:
+
+- **Fast mode** checks availability against `api.anthropic.com` rather than the
+  configured base URL. Set `CLAUDE_CODE_SKIP_FAST_MODE_ORG_CHECK=1` when the
+  agent authenticates with `ANTHROPIC_AUTH_TOKEN` alone (the usual shape when
+  the proxy injects the real provider key) or when a TLS-inspecting proxy
+  answers the check itself. Set
+  `CLAUDE_CODE_SKIP_FAST_MODE_NETWORK_ERRORS=1` when the network refuses the
+  connection outright. Fast mode is an Anthropic-API feature, so it is
+  unavailable on a Bedrock- or Vertex-backed endpoint whatever you set.
+- **Model discovery** is off by default. Set
+  `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1` for the picker to list the
+  models your policies authorise; the proxy filters the response to that set.
+  The client gives discovery a three-second budget and treats any redirect as
+  a failure, so the endpoint must serve `/v1/models` directly.
+- **The WebFetch domain safety check** also calls `api.anthropic.com` directly
+  and is unaffected by the variables above.
+
+Allowing direct egress to `api.anthropic.com` covers the network cases but not
+the credential one, where the check reaches Anthropic and is rejected because
+the agent presents a proxy-issued key.
+
 ## Architecture 
 
 Agent Network is built on two existing NetBird capabilities:

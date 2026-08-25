@@ -119,9 +119,9 @@ func testRedirectAs(t *testing.T, proxy Proxy, wgPort int, nbAddr, p2pEndpoint *
 	}
 	defer relayConn.Close()
 
-	// Add TURN connection to proxy
-	if err := proxy.AddTurnConn(ctx, nbAddr, relayConn); err != nil {
-		t.Fatalf("failed to add TURN connection: %v", err)
+	// Add relayed connection to proxy
+	if err := proxy.AddRelayedConn(ctx, nbAddr, relayConn); err != nil {
+		t.Fatalf("failed to add relayed connection: %v", err)
 	}
 	defer func() {
 		if err := proxy.CloseConn(); err != nil {
@@ -304,8 +304,8 @@ func TestRedirectAs_Multiple_Switches(t *testing.T) {
 		Port: 38746,
 	}
 
-	if err := proxy.AddTurnConn(ctx, nbAddr, relayConn); err != nil {
-		t.Fatalf("failed to add TURN connection: %v", err)
+	if err := proxy.AddRelayedConn(ctx, nbAddr, relayConn); err != nil {
+		t.Fatalf("failed to add relayed connection: %v", err)
 	}
 	defer func() {
 		if err := proxy.CloseConn(); err != nil {

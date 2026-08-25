@@ -115,14 +115,11 @@ func TestModelAllowlistEnforced(t *testing.T) {
 	})
 	require.NoError(t, err, "mint setup key")
 
-	// Providers with their configured (allowed) models; the first bootstraps the cluster.
+	// Providers with their configured (allowed) models
 	ids := make([]string, 0, len(providers))
 	allowed := make([]string, 0, len(providers))
-	for i, pc := range providers {
+	for _, pc := range providers {
 		req := providerRequest(pc)
-		if i == 0 {
-			req.BootstrapCluster = ptr(harness.AgentNetworkCluster)
-		}
 		prov, perr := srv.CreateProvider(ctx, req)
 		require.NoError(t, perr, "create provider %s", pc.name)
 		id := prov.Id

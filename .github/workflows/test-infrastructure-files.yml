@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - "release-*"
   pull_request:
     paths:
       - "infrastructure_files/**"
@@ -256,6 +257,15 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
+
+      - name: Verify fresh-install session cookie key hardening
+        run: |
+          grep -Fxq '  SESSION_COOKIE_ENCRYPTION_KEY=$(openssl rand -base64 32)' infrastructure_files/getting-started.sh
+          grep -Fxq '    sessionCookieEncryptionKey: "$SESSION_COOKIE_ENCRYPTION_KEY"' infrastructure_files/getting-started.sh
+          grep -Fxq '  install -m 600 /dev/null config.yaml' infrastructure_files/getting-started.sh
+          grep -Fxq '  openssl rand -base64 32' infrastructure_files/getting-started-enterprise.sh
+          grep -Fxq '  NETBIRD_SESSION_COOKIE_ENCRYPTION_KEY=$(rand_b64_key)' infrastructure_files/getting-started-enterprise.sh
+          grep -Fxq '    sessionCookieEncryptionKey: "${NETBIRD_SESSION_COOKIE_ENCRYPTION_KEY}"' infrastructure_files/getting-started-enterprise.sh
 
       - name: Verify Dex retirement notice
         run: |

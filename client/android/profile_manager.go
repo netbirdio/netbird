@@ -22,7 +22,8 @@ type Profile struct {
 	ID   string
 	Name string
 	// Email is the account this profile last logged in with, "" if it never
-	// completed an SSO login or was logged out. See profile_state.go.
+	// completed an SSO login. Kept across logouts; cleared when the profile is
+	// removed. See profile_state.go.
 	Email    string
 	IsActive bool
 }
@@ -200,11 +201,9 @@ func (pm *ProfileManager) LogoutProfile(id string) error {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 
-	// Not fatal: a stale hint costs an account switch, not the logout itself.
-	if err := removeProfileEmail(configPath); err != nil {
-		log.Warnf("failed to clear stored account email for profile %s: %v", id, err)
-	}
-
+	// The stored account email is kept on purpose, matching the desktop and CLI
+	// logout semantics: the next login passes it as the login_hint so the IdP
+	// preselects the account. Removing the profile is what deletes it.
 	log.Infof("logged out from profile: %s", id)
 	return nil
 }
@@ -224,9 +223,22 @@ func (pm *ProfileManager) RenameProfile(id string, newName string) error {
 
 // RemoveProfile deletes a profile
 func (pm *ProfileManager) RemoveProfile(id string) error {
+	configPath, err := pm.getProfileConfigPath(id)
+	if err != nil {
+		return err
+	}
+
 	// Use ServiceManager (removes profile from profiles/ directory)
 	if err := pm.serviceMgr.RemoveProfile(profilemanager.ID(id), androidUsername); err != nil {
 		return fmt.Errorf("failed to remove profile: %w", err)
+	}
+
+	// The account file is this package's, not the ServiceManager's, so it must
+	// go here. The default profile has a fixed filename, so a recreated one
+	// would otherwise inherit the deleted profile's email as its login_hint.
+	// Not fatal: the profile itself is gone.
+	if err := removeProfileEmail(configPath); err != nil {
+		log.Warnf("failed to remove stored account email for profile %s: %v", id, err)
 	}
 
 	log.Infof("removed profile: %s", id)

@@ -15,7 +15,7 @@ import (
 
 func newTestGuard(status connStatusFunc) *Guard {
 	srw := NewSRWatcher(nil, nil, nil, ice.Config{})
-	return NewGuard(log.WithField("test", "guard"), status, 50*time.Millisecond, srw)
+	return NewGuard(log.WithField("test", "guard"), status, 50*time.Millisecond, srw, nil)
 }
 
 // countBackoffTickerGoroutines returns how many goroutines are currently sitting

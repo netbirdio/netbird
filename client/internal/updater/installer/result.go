@@ -54,6 +54,12 @@ func (rh *ResultHandler) GetErrorResultReason() string {
 	return ""
 }
 
+// ClearStaleResult removes a result file left over from a previous installation
+// attempt so result watchers cannot read an outdated outcome for the current attempt.
+func (rh *ResultHandler) ClearStaleResult() error {
+	return rh.cleanup()
+}
+
 func (rh *ResultHandler) WriteSuccess() error {
 	result := Result{
 		Success:    true,

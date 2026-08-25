@@ -3,13 +3,15 @@ package controller
 import (
 	"context"
 
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
-	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	"github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 )
+
+//go:generate go tool mockgen -source=./repository.go -package=controller -destination=repository_mock.go
 
 type Repository interface {
 	GetAccountNetwork(ctx context.Context, accountID string) (*types.Network, error)

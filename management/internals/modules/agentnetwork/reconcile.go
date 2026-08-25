@@ -10,6 +10,17 @@ import (
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
+// syntheticMapping pairs a synthesised proxy mapping with the address of the
+// proxy that serves it. The cluster is recorded rather than derived from the
+// mapping's domain: ProxyMapping does not carry it, and the previous derivation
+// -- everything after the first DNS label -- is wrong whenever the service's
+// domain is not one label under its proxy's address, which silently addressed
+// updates to a cluster no proxy declares.
+type syntheticMapping struct {
+	mapping *proto.ProxyMapping
+	cluster string
+}
+
 // reconcile recomputes the synthesised reverse-proxy services for an
 // account, diffs them against the previously-synthesised set in the
 // in-memory cache, and emits Create / Update / Delete proxy mappings
@@ -45,18 +56,21 @@ func (m *managerImpl) reconcile(ctx context.Context, accountID string) {
 	}
 
 	oidcCfg := m.proxyController.GetOIDCValidationConfig()
-	current := make(map[string]*proto.ProxyMapping, len(services))
+	current := make(map[string]syntheticMapping, len(services))
 	for _, svc := range services {
 		if svc == nil || svc.ID == "" {
 			continue
 		}
-		current[svc.ID] = svc.ToProtoMapping(rpservice.Update, "", oidcCfg)
+		current[svc.ID] = syntheticMapping{
+			mapping: svc.ToProtoMapping(rpservice.Update, "", oidcCfg),
+			cluster: svc.ProxyCluster,
+		}
 	}
 
 	m.reconcileMu.Lock()
 	previous := m.reconcileCache[accountID]
 	if previous == nil {
-		previous = make(map[string]*proto.ProxyMapping)
+		previous = make(map[string]syntheticMapping)
 	}
 
 	creates, updates, deletes := diffMappings(previous, current)
@@ -67,34 +81,36 @@ func (m *managerImpl) reconcile(ctx context.Context, accountID string) {
 	}
 	m.reconcileMu.Unlock()
 
-	for _, mapping := range creates {
-		mapping.Type = proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED
-		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, mapping, clusterFromMapping(mapping))
+	for _, entry := range creates {
+		entry.mapping.Type = proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED
+		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, entry.mapping, entry.cluster)
 	}
-	for _, mapping := range updates {
-		mapping.Type = proto.ProxyMappingUpdateType_UPDATE_TYPE_MODIFIED
-		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, mapping, clusterFromMapping(mapping))
+	for _, entry := range updates {
+		entry.mapping.Type = proto.ProxyMappingUpdateType_UPDATE_TYPE_MODIFIED
+		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, entry.mapping, entry.cluster)
 	}
-	for _, mapping := range deletes {
-		mapping.Type = proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED
-		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, mapping, clusterFromMapping(mapping))
+	for _, entry := range deletes {
+		entry.mapping.Type = proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED
+		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, entry.mapping, entry.cluster)
 	}
 }
 
-// diffMappings classifies the previous→current transition for a
-// single account into Create / Update / Delete sets.
+// diffMappings classifies the previous→current transition for a single
+// account into Create / Update / Delete sets.
 //
-// Cluster moves (current.cluster != previous.cluster) are surfaced as
-// a Delete on the old cluster + Create on the new — handled by
-// emitting both a delete (on previous mapping) and a create (on the
-// current mapping) for that service ID.
-func diffMappings(previous, current map[string]*proto.ProxyMapping) (creates, updates, deletes []*proto.ProxyMapping) {
+// A change of serving proxy for the same service ID is surfaced as a Delete
+// addressed to the old proxy plus a Create addressed to the new one, so the
+// mapping actually moves. Comparing the recorded cluster is what makes that
+// detectable: with a placement-free endpoint the mapping's domain is identical
+// before and after the move, so nothing about the mapping itself reveals it.
+func diffMappings(previous, current map[string]syntheticMapping) (creates, updates, deletes []syntheticMapping) {
 	for id, cur := range current {
 		prev, existed := previous[id]
 		switch {
 		case !existed:
 			creates = append(creates, cur)
-		case prev.GetDomain() == "" || cur.GetAccountId() == prev.GetAccountId() && currentClusterChanged(prev, cur):
+		case prev.mapping.GetDomain() == "" ||
+			cur.mapping.GetAccountId() == prev.mapping.GetAccountId() && prev.cluster != cur.cluster:
 			deletes = append(deletes, prev)
 			creates = append(creates, cur)
 		default:
@@ -107,25 +123,4 @@ func diffMappings(previous, current map[string]*proto.ProxyMapping) (creates, up
 		}
 	}
 	return creates, updates, deletes
-}
-
-func currentClusterChanged(prev, cur *proto.ProxyMapping) bool {
-	return clusterFromMapping(prev) != clusterFromMapping(cur)
-}
-
-// clusterFromMapping returns the cluster the mapping should be sent
-// to. ProxyMapping doesn't carry the cluster directly, so we rely on
-// the synthesised service's domain (`<slug>.<cluster>`) and split on
-// the first '.'.
-func clusterFromMapping(m *proto.ProxyMapping) string {
-	if m == nil {
-		return ""
-	}
-	domain := m.GetDomain()
-	for i := 0; i < len(domain); i++ {
-		if domain[i] == '.' {
-			return domain[i+1:]
-		}
-	}
-	return ""
 }

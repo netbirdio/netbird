@@ -90,10 +90,10 @@ func writeProfileEmail(configPath string, email string) error {
 	return nil
 }
 
-// removeProfileEmail drops the stored account email. Called on logout: while the
-// email is on disk it goes out as a login_hint, which would steer the next login
-// straight back into the account just logged out of. Mirrors the desktop UI's
-// RemoveProfileState call.
+// removeProfileEmail drops the stored account email. Called on profile removal,
+// not on logout: a logged-out profile keeps its email so the next login passes
+// it as the login_hint, matching the desktop and CLI semantics. Mirrors the
+// desktop UI's RemoveProfileState call.
 func removeProfileEmail(configPath string) error {
 	accountPath, err := profileAccountPathFor(configPath)
 	if err != nil {

@@ -15,6 +15,12 @@ set -o pipefail
 #   2. Postgres migration — add Postgres, migrate SQLite data via migrate-store.
 #   3. Traffic flow       — add NATS + flow-enricher + flow-receiver.
 #
+# Step 2 is skipped when the deployment already runs on Postgres
+# (server.store.engine: postgres in config.yaml). Nothing is provisioned or
+# migrated in that case and the store config is left exactly as the operator
+# wrote it — the enterprise image reads the same Postgres the community image
+# did. Such a deployment gets the image swap, and can still opt into step 3.
+#
 # If any step fails once the stack has been touched, the script rolls itself
 # back automatically: generated files are removed, the Postgres volume this run
 # created is dropped, and the original deployment is started again.
@@ -37,6 +43,18 @@ ENV_EXISTED="unknown"
 ENV_BACKUP=""
 PG_VOLUME_NAME=""
 BACKUP_DIR=""
+
+# Store state. STORE_ENGINE is what the deployment runs on today; when it is
+# already postgres, MIGRATE_POSTGRES stays "no" and nothing is provisioned.
+# POSTGRES_SERVICE is empty when Postgres lives outside this compose project.
+STORE_ENGINE=""
+EXISTING_POSTGRES="no"
+POSTGRES_DSN=""
+POSTGRES_SERVICE=""
+POSTGRES_DEPENDS_CONDITION="service_healthy"
+# Whether this run needs to generate config.yaml.enterprise at all. A pure
+# image swap does not.
+ENTERPRISE_CONFIG="no"
 
 NETBIRD_EULA_URL="https://netbird.io/self-hosted-EULA"
 
@@ -173,11 +191,11 @@ EOF
 # ---------------------------------------------------------------------------
 
 detect_combined_service() {
-  yq eval '.services | to_entries | map(select(.value.image | test("^netbirdio/netbird-server"))) | .[0].key // ""' "$COMPOSE_FILE"
+  yq eval '.services | to_entries | map(select(.value.image | test("^(ghcr\\.io/)?netbirdio/netbird-server([:@]|$)"))) | .[0].key // ""' "$COMPOSE_FILE"
 }
 
 detect_dashboard_service() {
-  yq eval '.services | to_entries | map(select(.value.image | test("^netbirdio/dashboard"))) | .[0].key // ""' "$COMPOSE_FILE"
+  yq eval '.services | to_entries | map(select(.value.image | test("^(ghcr\\.io/)?netbirdio/dashboard([:@]|$)"))) | .[0].key // ""' "$COMPOSE_FILE"
 }
 
 detect_config_yaml_host_path() {
@@ -190,6 +208,85 @@ detect_data_volume() {
 
 detect_exposed_address() {
   yq eval '.server.exposedAddress // ""' "$CONFIG_YAML_HOST"
+}
+
+# The engine is a config.yaml-only setting — there is no env override for it
+# (combined/cmd/root.go reads it from YAML and derives the env vars), so
+# config.yaml is authoritative. Absent means the sqlite default.
+detect_store_engine() {
+  local engine
+  engine=$(yq eval '.server.store.engine // ""' "$CONFIG_YAML_HOST")
+  if [[ -z "$engine" ]] || [[ "$engine" == "null" ]]; then
+    engine="sqlite"
+  fi
+  echo "$engine" | tr '[:upper:]' '[:lower:]'
+}
+
+detect_store_dsn() {
+  yq eval '.server.store.dsn // ""' "$CONFIG_YAML_HOST"
+}
+
+# config.yaml is where a combined deployment carries its DSN; this only covers
+# hand-rolled installs that keep it in the environment instead.
+detect_store_dsn_from_compose() {
+  # `compose config` re-escapes a literal $ as $$ on the way out, so undo that
+  # to get the value the container actually receives.
+  $DOCKER_COMPOSE_COMMAND config 2>/dev/null | yq eval "
+    .services[\"$COMBINED_SERVICE\"].environment.NB_STORE_ENGINE_POSTGRES_DSN //
+    .services[\"$COMBINED_SERVICE\"].environment.NETBIRD_STORE_ENGINE_POSTGRES_DSN // \"\"
+  " - 2>/dev/null | sed 's/\$\$/$/g'
+}
+
+# Reads either DSN form: "host=db ..." or "postgres://user:pass@db:5432/name".
+dsn_host() {
+  local dsn="$1"
+  case "$dsn" in
+    *://*) printf '%s' "$dsn" | sed -n 's,^[a-zA-Z+]*://\([^/?]*\).*,\1,p' | sed -e 's,.*@,,' -e 's,:.*,,' ;;
+    *) printf '%s' "$dsn" | sed -n 's/.*[[:space:]]*host=\([^[:space:]]*\).*/\1/p' ;;
+  esac
+}
+
+# flow-enricher is its own container, so a loopback host or a socket path would
+# reach the enricher rather than Postgres. Only flag hosts we can positively
+# identify — an unparseable DSN must not leave the operator with no way forward.
+dsn_host_reachable() {
+  local dsn="$1"
+  case "$(dsn_host "$dsn")" in
+    localhost | 127.* | ::1 | 0.0.0.0 | /*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+# Names the compose service running this deployment's Postgres, for depends_on.
+# Empty means external — the DSN host matched no service. A DSN with no readable
+# host falls back to matching on image.
+detect_postgres_service() {
+  local host
+  host=$(dsn_host "$POSTGRES_DSN")
+  if [[ -n "$host" ]]; then
+    if [[ "$(host="$host" yq eval '.services | has(env(host))' "$COMPOSE_FILE" 2>/dev/null)" == "true" ]]; then
+      echo "$host"
+    fi
+    return
+  fi
+  yq eval '.services | to_entries | map(select(.value.image // "" | test("(^|/)(postgres|postgis|pgvector|timescaledb)(:|@|$)"))) | .[0].key // ""' "$COMPOSE_FILE"
+}
+
+# depends_on: service_healthy is only legal if the service defines a healthcheck.
+detect_postgres_depends_condition() {
+  local tag
+  tag=$(yq eval ".services[\"$POSTGRES_SERVICE\"].healthcheck | tag" "$COMPOSE_FILE" 2>/dev/null)
+  if [[ "$tag" == "!!map" ]]; then
+    echo "service_healthy"
+  else
+    echo "service_started"
+  fi
+}
+
+env_value() {
+  local value="$1"
+  value=$(printf '%s' "$value" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\$/$$/g')
+  printf '"%s"' "$value"
 }
 
 detect_compose_network() {
@@ -221,9 +318,6 @@ render_override() {
 # Remove this file (and config.yaml.enterprise if present) to revert.
 
 services:
-  ${DASHBOARD_SERVICE}:
-    image: \${NETBIRD_DASHBOARD_IMAGE:-ghcr.io/netbirdio/dashboard-cloud:latest}
-
   ${COMBINED_SERVICE}:
     image: \${NETBIRD_SERVER_IMAGE:-ghcr.io/netbirdio/netbird-server-cloud:latest}
     environment:
@@ -231,16 +325,30 @@ services:
       NETBIRD_LICENSE_SERVER_BASE_URL: \${NETBIRD_LICENSE_SERVER_BASE_URL}
 EOF
 
+  # An existing Postgres is already wired up by the operator's own compose file,
+  # so only a Postgres this run creates needs a depends_on.
   if [[ "$MIGRATE_POSTGRES" == "yes" ]]; then
     cat <<EOF
     depends_on:
-      postgres:
-        condition: service_healthy
+      ${POSTGRES_SERVICE}:
+        condition: ${POSTGRES_DEPENDS_CONDITION}
+EOF
+  fi
+
+  # The server is only pointed at a different config file when this run
+  # generates one. A pure image swap leaves it on its original config.yaml.
+  if [[ "$ENTERPRISE_CONFIG" == "yes" ]]; then
+    cat <<EOF
     volumes:
       - ./${ENTERPRISE_CONFIG_FILE}:/etc/netbird/config.yaml.enterprise:ro
     command: ["--config", "/etc/netbird/config.yaml.enterprise"]
+EOF
+  fi
 
-  postgres:
+  if [[ "$MIGRATE_POSTGRES" == "yes" ]]; then
+    cat <<EOF
+
+  ${POSTGRES_SERVICE}:
     image: postgres:17
     container_name: netbird-postgres
     restart: unless-stopped
@@ -260,6 +368,14 @@ EOF
   fi
 
   if [[ "$ENABLE_FLOW" == "yes" ]]; then
+    # Nothing to wait on when Postgres is managed outside this compose project.
+    local enricher_depends=""
+    if [[ -n "$POSTGRES_SERVICE" ]]; then
+      enricher_depends="
+      ${POSTGRES_SERVICE}:
+        condition: ${POSTGRES_DEPENDS_CONDITION}"
+    fi
+
     cat <<EOF
 
   nats:
@@ -276,9 +392,7 @@ EOF
     container_name: netbird-flow-enricher
     restart: unless-stopped
     networks: [${COMPOSE_NETWORK}]
-    depends_on:
-      postgres:
-        condition: service_healthy
+    depends_on:${enricher_depends}
       nats:
         condition: service_started
     environment:
@@ -286,10 +400,10 @@ EOF
       NETBIRD_LICENSE_SERVER_BASE_URL: \${NETBIRD_LICENSE_SERVER_BASE_URL}
       NB_DATADIR: /var/lib/netbird
       NB_MANAGEMENT_STORE_ENGINE: postgres
-      NB_MANAGEMENT_POSTGRES_DSN: "host=postgres user=netbird password=\${POSTGRES_PASSWORD} dbname=netbird port=5432 sslmode=disable"
-      NB_STORE_ENGINE_POSTGRES_DSN: "host=postgres user=netbird password=\${POSTGRES_PASSWORD} dbname=netbird port=5432 sslmode=disable"
+      NB_MANAGEMENT_POSTGRES_DSN: \${NB_ENTERPRISE_POSTGRES_DSN}
+      NB_STORE_ENGINE_POSTGRES_DSN: \${NB_ENTERPRISE_POSTGRES_DSN}
       NB_TRAFFIC_EVENT_STORE_ENGINE: postgres
-      NB_TRAFFIC_EVENT_POSTGRES_DSN: "host=postgres user=netbird password=\${POSTGRES_PASSWORD} dbname=netbird port=5432 sslmode=disable"
+      NB_TRAFFIC_EVENT_POSTGRES_DSN: \${NB_ENTERPRISE_POSTGRES_DSN}
       NB_MANAGEMENT_STORE_KEY: \${NETBIRD_ENCRYPTION_KEY}
       NB_FLOW_ADAPTER_TYPE: nats
       NB_FLOW_NATS_ENDPOINTS: nats://nats:4222
@@ -346,27 +460,41 @@ EOF
   fi
 }
 
-# Build config.yaml.enterprise by yq-editing the operator's existing
-# config.yaml. We don't touch the original file.
+# Build config.yaml.enterprise from the operator's existing config.yaml. We
+# don't touch the original file. Values go through strenv() so a DSN carrying
+# quotes, backslashes or $ cannot break out of the expression.
 render_enterprise_config() {
-  local pg_dsn="host=postgres user=netbird password=${POSTGRES_PASSWORD} dbname=netbird port=5432 sslmode=disable"
+  {
+    echo "# Generated by migrate-to-enterprise.sh from ${CONFIG_YAML_HOST}."
+    echo "# The enterprise server is started with --config pointing at this file,"
+    echo "# so later edits to ${CONFIG_YAML_HOST} have no effect until copied here."
+    cat "$CONFIG_YAML_HOST"
+  } > "$ENTERPRISE_CONFIG_FILE"
 
-  yq eval "
-    .server.store.engine = \"postgres\" |
-    .server.store.dsn = \"$pg_dsn\" |
-    .server.activityStore.engine = \"postgres\" |
-    .server.activityStore.dsn = \"$pg_dsn\" |
-    .server.authStore.engine = \"postgres\" |
-    .server.authStore.dsn = \"$pg_dsn\"
-  " "$CONFIG_YAML_HOST" > "$ENTERPRISE_CONFIG_FILE"
+  if [[ "$MIGRATE_POSTGRES" == "yes" ]]; then
+    # Fresh Postgres: point every store section at it. migrate-store carries the
+    # SQLite contents across.
+    POSTGRES_DSN="$POSTGRES_DSN" yq eval -i '
+      .server.store.engine = "postgres" |
+      .server.store.dsn = strenv(POSTGRES_DSN) |
+      .server.activityStore.engine = "postgres" |
+      .server.activityStore.dsn = strenv(POSTGRES_DSN) |
+      .server.authStore.engine = "postgres" |
+      .server.authStore.dsn = strenv(POSTGRES_DSN)
+    ' "$ENTERPRISE_CONFIG_FILE"
+  fi
+  # Otherwise the store config is the operator's and stays untouched.
+  # activityStore and authStore do not inherit from server.store — each falls
+  # back to its own SQLite file under dataDir — so repointing them at Postgres
+  # here would silently strand the existing audit log and the embedded IdP's
+  # users, with no migrate-store run to carry them over.
 
   if [[ "$ENABLE_FLOW" == "yes" ]]; then
-    local flow_addr="${NETBIRD_DOMAIN}"
-    yq eval -i "
+    NETBIRD_DOMAIN="$NETBIRD_DOMAIN" yq eval -i '
       .server.trafficFlow.enabled = true |
-      .server.trafficFlow.address = \"$flow_addr\" |
-      .server.trafficFlow.interval = \"60s\"
-    " "$ENTERPRISE_CONFIG_FILE"
+      .server.trafficFlow.address = strenv(NETBIRD_DOMAIN) |
+      .server.trafficFlow.interval = "60s"
+    ' "$ENTERPRISE_CONFIG_FILE"
   fi
 }
 
@@ -633,6 +761,91 @@ on_exit() {
 # Main
 # ---------------------------------------------------------------------------
 
+# Already on Postgres: there is nothing to provision and nothing to migrate.
+# The enterprise image reads the very same store config the community image
+# did, so step 2 collapses to a no-op and the run is a plain image swap.
+configure_existing_postgres() {
+  EXISTING_POSTGRES="yes"
+  MIGRATE_POSTGRES="no"
+
+  # DSN first — detect_postgres_service prefers the host it names.
+  POSTGRES_DSN=$(detect_store_dsn)
+  if [[ -z "$POSTGRES_DSN" ]] || [[ "$POSTGRES_DSN" == "null" ]]; then
+    POSTGRES_DSN=$(detect_store_dsn_from_compose)
+  fi
+  if [[ "$POSTGRES_DSN" == "null" ]]; then
+    POSTGRES_DSN=""
+  fi
+
+  POSTGRES_SERVICE=$(detect_postgres_service)
+  if [[ -n "$POSTGRES_SERVICE" ]]; then
+    POSTGRES_DEPENDS_CONDITION=$(detect_postgres_depends_condition)
+  fi
+
+  echo "Step 2: Postgres migration not needed — this deployment already runs on"
+  echo "        Postgres. Its store configuration is reused as-is and left"
+  echo "        untouched; no database is created and no data is moved."
+  if [[ -n "$POSTGRES_SERVICE" ]]; then
+    echo "        Postgres service: $POSTGRES_SERVICE (in $COMPOSE_FILE)"
+  else
+    echo "        Postgres service: managed outside $COMPOSE_FILE"
+  fi
+}
+
+configure_sqlite_store() {
+  MIGRATE_POSTGRES=$(read_yes_no "Step 2: Migrate storage from SQLite to Postgres? (recommended)" "n")
+  [[ "$MIGRATE_POSTGRES" == "yes" ]] || return 0
+
+  # The override would otherwise merge into a service of the same name and
+  # quietly rewrite its image and credentials.
+  local existing
+  existing=$(yq eval '.services | has("postgres")' "$COMPOSE_FILE")
+  if [[ "$existing" == "true" ]]; then
+    echo "" > /dev/stderr
+    echo "$COMPOSE_FILE already defines a service named 'postgres', but config.yaml" > /dev/stderr
+    echo "still has server.store.engine: sqlite. This script would add its own" > /dev/stderr
+    echo "'postgres' service and Compose would merge the two." > /dev/stderr
+    echo "" > /dev/stderr
+    echo "Point server.store.engine at that Postgres yourself, or rename the service," > /dev/stderr
+    echo "then re-run." > /dev/stderr
+    exit 1
+  fi
+
+  echo ""
+  echo "  ⚠  Data will be migrated from SQLite to Postgres. The SQLite store"
+  echo "     will be backed up automatically. To fully revert later, restore"
+  echo "     that backup and delete docker-compose.override.yml +"
+  echo "     config.yaml.enterprise."
+  local confirm
+  confirm=$(read_yes_no "  Continue?" "y")
+  if [[ "$confirm" != "yes" ]]; then
+    MIGRATE_POSTGRES="no"
+    echo "  Skipping Postgres migration."
+    return 0
+  fi
+
+  POSTGRES_PASSWORD=$(rand_password)
+  POSTGRES_SERVICE="postgres"
+  POSTGRES_DEPENDS_CONDITION="service_healthy"
+  POSTGRES_DSN="host=postgres user=netbird password=${POSTGRES_PASSWORD} dbname=netbird port=5432 sslmode=disable"
+}
+
+# mysql, or something this script has never seen. Swapping the images is still
+# valid; touching the store is not.
+configure_unsupported_store() {
+  MIGRATE_POSTGRES="no"
+  echo "  ⚠  server.store.engine is '$STORE_ENGINE'. This script only migrates"
+  echo "     SQLite to Postgres, and traffic flow requires Postgres, so both are"
+  echo "     unavailable here. The store configuration will be left untouched."
+  echo ""
+  local proceed
+  proceed=$(read_yes_no "Step 2 skipped. Continue with the image swap only?" "n")
+  if [[ "$proceed" != "yes" ]]; then
+    echo "Aborted."
+    exit 0
+  fi
+}
+
 init_migration() {
   DOCKER_COMPOSE_COMMAND=$(check_docker_compose)
   check_yq
@@ -661,12 +874,12 @@ init_migration() {
   COMPOSE_NETWORK=$(detect_compose_network)
 
   if [[ -z "$COMBINED_SERVICE" ]]; then
-    echo "Could not find a service running netbirdio/netbird-server* in $COMPOSE_FILE." > /dev/stderr
+    echo "Could not find a service running netbirdio/netbird-server or ghcr.io/netbirdio/netbird-server in $COMPOSE_FILE." > /dev/stderr
     echo "This script targets the community combined-server deployment." > /dev/stderr
     exit 1
   fi
   if [[ -z "$DASHBOARD_SERVICE" ]]; then
-    echo "Could not find a service running netbirdio/dashboard* in $COMPOSE_FILE." > /dev/stderr
+    echo "Could not find a service running netbirdio/dashboard or ghcr.io/netbirdio/dashboard in $COMPOSE_FILE." > /dev/stderr
     exit 1
   fi
   if [[ -z "$CONFIG_YAML_HOST" ]]; then
@@ -682,12 +895,15 @@ init_migration() {
     exit 1
   fi
 
+  STORE_ENGINE=$(detect_store_engine)
+
   echo "Detected existing deployment:"
   echo "  Combined service: $COMBINED_SERVICE"
   echo "  Dashboard:        $DASHBOARD_SERVICE"
   echo "  config.yaml:      $CONFIG_YAML_HOST"
   echo "  Data volume:      $DATA_VOLUME"
   echo "  Network:          $COMPOSE_NETWORK"
+  echo "  Store engine:     $STORE_ENGINE"
   echo ""
 
   require_eula_acceptance
@@ -706,28 +922,17 @@ init_migration() {
   echo "Step 1: Image swap (community → Enterprise). License key required."
   NB_LICENSE_KEY=$(read_secret "  License key")
 
-  # Step 2 — optional
+  # Step 2 — what this does depends on what the deployment already stores in.
   echo ""
-  MIGRATE_POSTGRES=$(read_yes_no "Step 2: Migrate storage from SQLite to Postgres? (recommended)" "n")
-  if [[ "$MIGRATE_POSTGRES" == "yes" ]]; then
-    echo ""
-    echo "  ⚠  Data will be migrated from SQLite to Postgres. The SQLite store"
-    echo "     will be backed up automatically. To fully revert later, restore"
-    echo "     that backup and delete docker-compose.override.yml +"
-    echo "     config.yaml.enterprise."
-    local confirm
-    confirm=$(read_yes_no "  Continue?" "y")
-    if [[ "$confirm" != "yes" ]]; then
-      MIGRATE_POSTGRES="no"
-      echo "  Skipping Postgres migration."
-    else
-      POSTGRES_PASSWORD=$(rand_password)
-    fi
-  fi
+  case "$STORE_ENGINE" in
+    postgres) configure_existing_postgres ;;
+    sqlite) configure_sqlite_store ;;
+    *) configure_unsupported_store ;;
+  esac
 
   # Step 3 — optional, only if Postgres is on (flow requires Postgres)
   echo ""
-  if [[ "$MIGRATE_POSTGRES" == "yes" ]]; then
+  if [[ "$MIGRATE_POSTGRES" == "yes" ]] || [[ "$EXISTING_POSTGRES" == "yes" ]]; then
     ENABLE_FLOW=$(read_yes_no "Step 3: Enable traffic flow? (requires Postgres)" "n")
     if [[ "$ENABLE_FLOW" == "yes" ]]; then
       # Auth secret MUST match server.authSecret from config.yaml
@@ -751,10 +956,44 @@ init_migration() {
         echo "Could not read server.store.encryptionKey from $CONFIG_YAML_HOST." > /dev/stderr
         exit 1
       fi
+
+      # flow-enricher talks to Postgres directly, so this is the one place an
+      # existing deployment's DSN is actually needed — and the one place a host
+      # that only works from inside the server container shows up.
+      while :; do
+        local dsn_problem=""
+        if [[ -z "$POSTGRES_DSN" ]]; then
+          dsn_problem="No DSN could be read from $CONFIG_YAML_HOST or from the $COMBINED_SERVICE environment."
+        elif ! dsn_host_reachable "$POSTGRES_DSN"; then
+          dsn_problem="Its host '$(dsn_host "$POSTGRES_DSN")' only resolves inside the server container."
+        fi
+        [[ -n "$dsn_problem" ]] || break
+
+        echo ""
+        echo "  The flow enricher reaches Postgres from a container of its own."
+        echo "  $dsn_problem"
+        echo "  Enter a DSN reachable from other containers, or press Ctrl-C to abort."
+        POSTGRES_DSN=$(read_required "  Postgres DSN (host=… user=… password=… dbname=… port=5432 sslmode=disable)")
+      done
+
+      # Only where the operator owns Postgres: a DSN entered above may name a
+      # different host. The sqlite path creates its own service, nothing to find.
+      if [[ "$EXISTING_POSTGRES" == "yes" ]]; then
+        POSTGRES_SERVICE=$(detect_postgres_service)
+        if [[ -n "$POSTGRES_SERVICE" ]]; then
+          POSTGRES_DEPENDS_CONDITION=$(detect_postgres_depends_condition)
+        fi
+      fi
     fi
   else
     ENABLE_FLOW="no"
     echo "Step 3 (traffic flow) skipped — requires Postgres."
+  fi
+
+  # config.yaml.enterprise only exists to hold changes; without any there is
+  # nothing to generate and the server keeps running on its own config.yaml.
+  if [[ "$MIGRATE_POSTGRES" == "yes" ]] || [[ "$ENABLE_FLOW" == "yes" ]]; then
+    ENTERPRISE_CONFIG="yes"
   fi
 
   check_data_directory
@@ -774,7 +1013,7 @@ apply_changes() {
     sed -i.bak '/NETBIRD_LICENSE_SERVER_BASE_URL/d' "$OVERRIDE_FILE" && rm -f "$OVERRIDE_FILE.bak"
   fi
 
-  if [[ "$MIGRATE_POSTGRES" == "yes" ]]; then
+  if [[ "$ENTERPRISE_CONFIG" == "yes" ]]; then
     echo "Writing $ENTERPRISE_CONFIG_FILE ..."
     install -m 600 /dev/null "$ENTERPRISE_CONFIG_FILE"
     render_enterprise_config
@@ -810,6 +1049,9 @@ apply_changes() {
       echo "POSTGRES_PASSWORD=${POSTGRES_PASSWORD}"
     fi
     if [[ "$ENABLE_FLOW" == "yes" ]]; then
+      # Own variable name rather than NB_STORE_ENGINE_POSTGRES_DSN so that a
+      # deployment already setting that one keeps its own value.
+      echo "NB_ENTERPRISE_POSTGRES_DSN=$(env_value "$POSTGRES_DSN")"
       echo "NB_FLOW_AUTH_SECRET=${NB_FLOW_AUTH_SECRET}"
       echo "NETBIRD_ENCRYPTION_KEY=${NETBIRD_ENCRYPTION_KEY}"
     fi
@@ -871,14 +1113,19 @@ print_summary() {
   echo " Summary"
   echo "──────────────────────────────────────────────────────────────────────"
   echo "  Images:           swapped to enterprise"
-  [[ "$MIGRATE_POSTGRES" == "yes" ]] && echo "  Storage:          Postgres (data migrated from SQLite)"
-  [[ "$MIGRATE_POSTGRES" != "yes" ]] && echo "  Storage:          SQLite (unchanged)"
+  if [[ "$MIGRATE_POSTGRES" == "yes" ]]; then
+    echo "  Storage:          Postgres (data migrated from SQLite)"
+  elif [[ "$EXISTING_POSTGRES" == "yes" ]]; then
+    echo "  Storage:          Postgres (pre-existing, configuration unchanged)"
+  else
+    echo "  Storage:          $STORE_ENGINE (unchanged)"
+  fi
   [[ "$ENABLE_FLOW" == "yes" ]] && echo "  Traffic flow:     enabled"
   [[ "$ENABLE_FLOW" != "yes" ]] && echo "  Traffic flow:     disabled"
   echo ""
   echo "  Generated files (next to your docker-compose.yml):"
   echo "    $OVERRIDE_FILE"
-  [[ "$MIGRATE_POSTGRES" == "yes" ]] && echo "    $ENTERPRISE_CONFIG_FILE"
+  [[ "$ENTERPRISE_CONFIG" == "yes" ]] && echo "    $ENTERPRISE_CONFIG_FILE"
   echo "    .env  (license key + secrets, mode 600)"
   [[ "$ENV_EXISTED" == "yes" ]] && [[ -f "$ENV_BACKUP" ]] && echo "    $ENV_BACKUP  (.env as it was before this run)"
   [[ "$MIGRATE_POSTGRES" == "yes" ]] && echo "    backups/sqlite-pre-enterprise-*/  (SQLite backup)"
@@ -902,7 +1149,11 @@ print_summary() {
   else
     echo "  $DOCKER_COMPOSE_COMMAND down"
   fi
-  echo "  rm -f $OVERRIDE_FILE $ENTERPRISE_CONFIG_FILE"
+  if [[ "$ENTERPRISE_CONFIG" == "yes" ]]; then
+    echo "  rm -f $OVERRIDE_FILE $ENTERPRISE_CONFIG_FILE"
+  else
+    echo "  rm -f $OVERRIDE_FILE"
+  fi
   if [[ "$ENV_EXISTED" == "yes" ]] && [[ -f "$ENV_BACKUP" ]]; then
     echo "  mv $ENV_BACKUP .env   # restores .env as it was before this run"
   elif [[ "$ENV_EXISTED" == "no" ]]; then

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang/mock/gomock"
+	"go.uber.org/mock/gomock"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -591,7 +591,7 @@ func Test_GetPKCEAuthorizationFlow(t *testing.T) {
 	expectedFlowInfo := &mgmtProto.PKCEAuthorizationFlow{
 		ProviderConfig: &mgmtProto.ProviderConfig{
 			ClientID:     "client",
-			ClientSecret: "secret",
+			ClientSecret: "secret", //nolint:staticcheck
 		},
 	}
 

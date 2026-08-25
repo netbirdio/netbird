@@ -105,8 +105,8 @@ func (m *Manager) createIPv6Components(tableName string, wgIface iFaceMapper, mt
 		return fmt.Errorf("create v6 router: %w", err)
 	}
 
-	// Share the same IP forwarding state with the v4 router, since
-	// EnableIPForwarding controls both v4 and v6 sysctls.
+	// Share the per-family forwarding refcounter with the v4 router so a v4
+	// rule and a v6 rule against the same state machine cooperate cleanly.
 	m.router6.ipFwdState = m.router.ipFwdState
 
 	m.aclManager6, err = newAclManager(workTable6, wgIface, chainNameRoutingFw)
@@ -530,17 +530,12 @@ func (m *Manager) SetLogLevel(log.Level) {
 }
 
 func (m *Manager) EnableRouting() error {
-	if err := m.router.ipFwdState.RequestForwarding(); err != nil {
-		return fmt.Errorf("enable IP forwarding: %w", err)
-	}
-	return nil
+	// v6 only when the overlay actually has v6.
+	return m.router.ipFwdState.RequestRouting(m.router6 != nil)
 }
 
 func (m *Manager) DisableRouting() error {
-	if err := m.router.ipFwdState.ReleaseForwarding(); err != nil {
-		return fmt.Errorf("disable IP forwarding: %w", err)
-	}
-	return nil
+	return m.router.ipFwdState.ReleaseRouting()
 }
 
 // Flush rule/chain/set operations from the buffer

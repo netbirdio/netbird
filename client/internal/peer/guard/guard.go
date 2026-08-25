@@ -6,6 +6,8 @@ import (
 
 	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/netstate"
 )
 
 // ConnStatus represents the connection state as seen by the guard.
@@ -31,20 +33,26 @@ type connStatusFunc func() ConnStatus
 // - Relayed connection disconnected
 // - ICE candidate changes
 type Guard struct {
-	log                     *log.Entry
-	isConnectedOnAllWay     connStatusFunc
-	timeout                 time.Duration
-	srWatcher               *SRWatcher
+	log                 *log.Entry
+	isConnectedOnAllWay connStatusFunc
+	timeout             time.Duration
+	srWatcher           *SRWatcher
+	// netState gates reconnect attempts on OS-reported network availability;
+	// nil disables gating.
+	netState                *netstate.State
 	relayedConnDisconnected chan struct{}
 	iCEConnDisconnected     chan struct{}
 }
 
-func NewGuard(log *log.Entry, isConnectedFn connStatusFunc, timeout time.Duration, srWatcher *SRWatcher) *Guard {
+// NewGuard creates a reconnection guard for a peer connection. A nil netState
+// disables network availability gating.
+func NewGuard(log *log.Entry, isConnectedFn connStatusFunc, timeout time.Duration, srWatcher *SRWatcher, netState *netstate.State) *Guard {
 	return &Guard{
 		log:                     log,
 		isConnectedOnAllWay:     isConnectedFn,
 		timeout:                 timeout,
 		srWatcher:               srWatcher,
+		netState:                netState,
 		relayedConnDisconnected: make(chan struct{}, 1),
 		iCEConnDisconnected:     make(chan struct{}, 1),
 	}
@@ -96,9 +104,16 @@ func (g *Guard) reconnectLoopWithRetry(ctx context.Context, callback func()) {
 	iceState := &iceRetryState{log: g.log}
 	defer iceState.reset()
 
+	netChanged := g.netState.Changed()
+
 	for {
 		select {
 		case <-tickerChannel:
+			// skip attempts while the OS reports no usable network; the
+			// netChanged case below resumes the loop once it returns
+			if !g.netState.IsOnline() {
+				continue
+			}
 			switch g.isConnectedOnAllWay() {
 			case ConnStatusConnected:
 				// all good, nothing to do
@@ -130,6 +145,23 @@ func (g *Guard) reconnectLoopWithRetry(ctx context.Context, callback func()) {
 
 		case <-srReconnectedChan:
 			g.log.Debugf("has network changes, reset reconnection ticker")
+			ticker.Stop()
+			ticker = g.newReconnectTicker(ctx)
+			tickerChannel = ticker.C
+			iceState.reset()
+
+		case <-netChanged:
+			// Re-arm for the next transition before acting on this one.
+			netChanged = g.netState.Changed()
+			if !g.netState.IsOnline() {
+				continue
+			}
+			// Ticks skipped while offline drove the backoff towards its
+			// maximum without ever attempting, and left the ICE budget
+			// frozen — possibly in hourly mode. Recover on our own so the
+			// peer does not depend on a signal or relay event that never
+			// comes when both stayed up across the outage.
+			g.log.Debugf("network is back, reset reconnection ticker")
 			ticker.Stop()
 			ticker = g.newReconnectTicker(ctx)
 			tickerChannel = ticker.C

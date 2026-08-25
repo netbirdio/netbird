@@ -1,4 +1,4 @@
-//go:build linux && !(linux && 386)
+//go:build linux && !gtk3 && !(linux && 386)
 
 package main
 

@@ -2120,6 +2120,33 @@ type AgentNetworkConsumption struct {
 // AgentNetworkConsumptionDimensionKind Whether this row counts a single end user or a single source group across every member.
 type AgentNetworkConsumptionDimensionKind string
 
+// AgentNetworkDiscoveredModel defines model for AgentNetworkDiscoveredModel.
+type AgentNetworkDiscoveredModel struct {
+	// CacheCreationPer1k Anthropic-shape cache rate — default cost per 1k cache-creation tokens (additive to input tokens), in USD. Absent when the model has no cache-creation rate.
+	CacheCreationPer1k *float64 `json:"cache_creation_per_1k,omitempty"`
+
+	// CacheReadPer1k Anthropic-shape cache rate — default cost per 1k cache-read tokens (additive to input tokens), in USD. Absent when the model has no cache-read rate.
+	CacheReadPer1k *float64 `json:"cache_read_per_1k,omitempty"`
+
+	// CachedInputPer1k OpenAI-shape cache rate — default cost per 1k cached prompt tokens (a subset of input tokens), in USD. Absent when the model has no cached-input discount.
+	CachedInputPer1k *float64 `json:"cached_input_per_1k,omitempty"`
+
+	// Id Identifier to register on the provider record, in the form the vendor issues it. For Bedrock this is the region-prefixed inference-profile id, which is the only form AWS accepts at invoke time.
+	Id string `json:"id"`
+
+	// InputPer1k Default input token price per 1k tokens, in USD, from the same table the proxy bills with. Zero when pricing_known is false.
+	InputPer1k float64 `json:"input_per_1k"`
+
+	// Label Vendor-supplied display name, where the vendor supplies one.
+	Label *string `json:"label,omitempty"`
+
+	// OutputPer1k Default output token price per 1k tokens, in USD. Zero when pricing_known is false.
+	OutputPer1k float64 `json:"output_per_1k"`
+
+	// PricingKnown Whether NetBird's shipped pricing table can price this model. When false the rates below are all zero and the operator must set them, or requests to this model would record a cost of zero.
+	PricingKnown bool `json:"pricing_known"`
+}
+
 // AgentNetworkGuardrail defines model for AgentNetworkGuardrail.
 type AgentNetworkGuardrail struct {
 	// Checks Guardrail check parameters. Each entry has an `enabled` flag plus per-check configuration; disabled entries are inert.
@@ -2165,6 +2192,27 @@ type AgentNetworkGuardrailRequest struct {
 
 	// Name Display name for the guardrail.
 	Name string `json:"name"`
+}
+
+// AgentNetworkModelDiscoveryRequest defines model for AgentNetworkModelDiscoveryRequest.
+type AgentNetworkModelDiscoveryRequest struct {
+	// ApiKey Credential to query the vendor with, for a provider that has not been saved yet. Mutually exclusive with provider_id.
+	ApiKey *string `json:"api_key,omitempty"`
+
+	// CatalogProviderId Catalog provider to query (AgentNetworkCatalogProvider.id). Determines the listing endpoint, the auth header and the response shape.
+	CatalogProviderId string `json:"catalog_provider_id"`
+
+	// ProviderId Existing Agent Network provider record whose stored credential and upstream should be used. Lets the form refresh the list without the client holding the key.
+	ProviderId *string `json:"provider_id,omitempty"`
+
+	// UpstreamUrl The upstream being configured. Used to reach vendors that serve their listing from the same host as inference, and to read back the region for those whose host embeds one. Ignored when provider_id is supplied.
+	UpstreamUrl *string `json:"upstream_url,omitempty"`
+}
+
+// AgentNetworkModelDiscoveryResponse defines model for AgentNetworkModelDiscoveryResponse.
+type AgentNetworkModelDiscoveryResponse struct {
+	// Models Models the credential can reach, in the order the vendor returned them.
+	Models []AgentNetworkDiscoveredModel `json:"models"`
 }
 
 // AgentNetworkPolicy defines model for AgentNetworkPolicy.
@@ -2329,9 +2377,6 @@ type AgentNetworkProviderRequest struct {
 	// ApiKey Upstream provider API key. Sealed at rest on the management server and never returned in responses. Required on create; optional on update (omit to keep the existing key).
 	ApiKey *string `json:"api_key,omitempty"`
 
-	// BootstrapCluster Proxy cluster used to bootstrap the per-account agent-network endpoint when the first provider is created. Ignored on subsequent creates and on updates because the cluster is pinned on the account-level Settings row.
-	BootstrapCluster *string `json:"bootstrap_cluster,omitempty"`
-
 	// Enabled Whether the provider is enabled. Defaults to true on create.
 	Enabled *bool `json:"enabled,omitempty"`
 
@@ -2363,16 +2408,16 @@ type AgentNetworkProviderRequest struct {
 	UpstreamUrl string `json:"upstream_url"`
 }
 
-// AgentNetworkSettings Per-account Agent Network gateway settings. One row per account; cluster and subdomain are assigned at bootstrap and immutable thereafter. Before bootstrap the account reads as the default values with empty cluster, subdomain and endpoint.
+// AgentNetworkSettings Per-account Agent Network gateway settings. One row per account; endpoint and proxy_address are assigned at bootstrap (POST) and immutable thereafter. Before bootstrap the account reads as the default values with empty endpoint and proxy_address.
 type AgentNetworkSettings struct {
 	// AccessLogRetentionDays Days to retain full access-log rows; older rows are swept. 0 or less means keep indefinitely. Usage records are retained independently.
 	AccessLogRetentionDays *int `json:"access_log_retention_days,omitempty"`
 
-	// Cluster Address of the NetBird proxy cluster fronting this account's agent-network endpoint. Empty until the account is bootstrapped.
-	Cluster string `json:"cluster"`
-
 	// CreatedAt Timestamp when the settings row was created. Absent until the account is bootstrapped.
 	CreatedAt *time.Time `json:"created_at,omitempty"`
+
+	// Dedicated Whether the account's gateway is served by a proxy dedicated to it (endpoint equals proxy_address).
+	Dedicated bool `json:"dedicated"`
 
 	// EnableLogCollection Whether per-request access-log entries are collected for this account's agent-network traffic.
 	EnableLogCollection bool `json:"enable_log_collection"`
@@ -2380,32 +2425,56 @@ type AgentNetworkSettings struct {
 	// EnablePromptCollection Master switch for request/response prompt capture. Capture runs only when this is on AND a policy guardrail also enables it.
 	EnablePromptCollection bool `json:"enable_prompt_collection"`
 
-	// Endpoint Bare hostname agents call for this account, computed as `<subdomain>.<cluster>`. Empty until the account is bootstrapped.
+	// Endpoint Bare hostname agents call for this account. Empty until the account is bootstrapped.
 	Endpoint string `json:"endpoint"`
+
+	// ProxyAddress Declared cluster address of the proxy serving this account's gateway. Equal to `endpoint` when a dedicated proxy serves the account; otherwise the endpoint's immediate parent (a shared cluster the endpoint hangs one label beneath). Empty until the account is bootstrapped.
+	ProxyAddress string `json:"proxy_address"`
 
 	// RedactPii Whether captured prompts have PII redacted. Effective redaction is the OR of this and any policy guardrail's redact setting.
 	RedactPii bool `json:"redact_pii"`
-
-	// Subdomain Auto-generated DNS-safe label that prefixes the cluster to form the agent-network endpoint. Empty until the account is bootstrapped.
-	Subdomain string `json:"subdomain"`
 
 	// UpdatedAt Timestamp when the settings row was last updated. Absent until the account is bootstrapped.
 	UpdatedAt *time.Time `json:"updated_at,omitempty"`
 }
 
-// AgentNetworkSettingsRequest Account-level Agent Network settings update. The request replaces every mutable field. `cluster` additionally bootstraps the per-account settings row when the account does not have one yet; the subdomain is always server-assigned.
-type AgentNetworkSettingsRequest struct {
-	// AccessLogRetentionDays Days to retain full access-log rows; older rows are swept. 0 or less means keep indefinitely.
+// AgentNetworkSettingsCreateRequest Bootstraps the per-account Agent Network settings row, assigning the account's immutable endpoint. Exactly one of `proxy_address` and `endpoint` must be provided. `proxy_address` requests a labeled endpoint — the server allocates a label and the endpoint becomes `<label>.<proxy_address>`, served by whichever proxy declares that parent address. `endpoint` claims the given hostname itself as a self-addressed (dedicated) endpoint, served only by a proxy declaring exactly that address — the claim is legitimate before the proxy exists (address-first). Collection toggles may ride along; omitted toggles take their defaults.
+type AgentNetworkSettingsCreateRequest struct {
+	// AccessLogRetentionDays Days to retain full access-log rows; older rows are swept. 0 or less means keep indefinitely. Defaults to 30.
 	AccessLogRetentionDays *int `json:"access_log_retention_days,omitempty"`
 
-	// Cluster Address of the NetBird proxy cluster fronting this account's agent-network endpoint. When the account has no settings row yet, providing it bootstraps the row (assigning the subdomain that forms the agent endpoint). The cluster is immutable once assigned — later updates must omit it or send the assigned value; any other value is rejected.
-	Cluster *string `json:"cluster,omitempty"`
+	// EnableLogCollection Whether per-request access-log entries are collected for this account's agent-network traffic. Defaults to true.
+	EnableLogCollection *bool `json:"enable_log_collection,omitempty"`
+
+	// EnablePromptCollection Master switch for request/response prompt capture. Defaults to false.
+	EnablePromptCollection *bool `json:"enable_prompt_collection,omitempty"`
+
+	// Endpoint Hostname to claim as the account's self-addressed (dedicated) endpoint. Mutually exclusive with `proxy_address`. Rejected when another account already holds it.
+	Endpoint *string `json:"endpoint,omitempty"`
+
+	// ProxyAddress Cluster address to allocate a labeled endpoint beneath. Mutually exclusive with `endpoint`.
+	ProxyAddress *string `json:"proxy_address,omitempty"`
+
+	// RedactPii Whether captured prompts have PII redacted. Defaults to false.
+	RedactPii *bool `json:"redact_pii,omitempty"`
+}
+
+// AgentNetworkSettingsRequest Account-level Agent Network settings update. Every field is required, matching the PUT convention of the other endpoints. The endpoint and proxy address are assigned at bootstrap (POST) and are immutable — the request must carry them unchanged, and a request carrying different values is rejected. To change them, delete the settings (DELETE, guarded) and bootstrap again; re-creating allocates a new endpoint.
+type AgentNetworkSettingsRequest struct {
+	// AccessLogRetentionDays Days to retain full access-log rows; older rows are swept. 0 or less means keep indefinitely.
+	AccessLogRetentionDays int `json:"access_log_retention_days"`
 
 	// EnableLogCollection Whether per-request access-log entries are collected for this account's agent-network traffic.
 	EnableLogCollection bool `json:"enable_log_collection"`
 
 	// EnablePromptCollection Master switch for request/response prompt capture.
 	EnablePromptCollection bool `json:"enable_prompt_collection"`
+
+	// Endpoint The account's gateway endpoint hostname. Immutable — must match the assigned value; a different value is rejected.
+	Endpoint string `json:"endpoint"`
+
+	// ProxyAddress Declared cluster address of the proxy serving this account's gateway. Immutable — must match the assigned value; a different value is rejected.
+	ProxyAddress string `json:"proxy_address"`
 
 	// RedactPii Whether captured prompts have PII redacted.
 	RedactPii bool `json:"redact_pii"`
@@ -2855,7 +2924,7 @@ type EDRFleetDMRequest struct {
 	// LastSyncedInterval The devices last sync requirement interval in hours. Minimum value is 24 hours
 	LastSyncedInterval int `json:"last_synced_interval"`
 
-	// MatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open-source version. Premium-only attributes are marked accordingly
+	// MatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open source version. Premium-only attributes are marked accordingly
 	MatchAttributes FleetDMMatchAttributes `json:"match_attributes"`
 }
 
@@ -2888,7 +2957,7 @@ type EDRFleetDMResponse struct {
 	// LastSyncedInterval The devices last sync requirement interval in hours.
 	LastSyncedInterval int `json:"last_synced_interval"`
 
-	// MatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open-source version. Premium-only attributes are marked accordingly
+	// MatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open source version. Premium-only attributes are marked accordingly
 	MatchAttributes FleetDMMatchAttributes `json:"match_attributes"`
 
 	// UpdatedAt Timestamp of when the integration was last updated.
@@ -3108,7 +3177,7 @@ type Event struct {
 // EventActivityCode The string code of the activity that occurred during the event
 type EventActivityCode string
 
-// FleetDMMatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open-source version. Premium-only attributes are marked accordingly
+// FleetDMMatchAttributes Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open source version. Premium-only attributes are marked accordingly
 type FleetDMMatchAttributes struct {
 	// DiskEncryptionEnabled Whether disk encryption (FileVault/BitLocker) must be enabled on the host
 	DiskEncryptionEnabled *bool `json:"disk_encryption_enabled,omitempty"`
@@ -4456,10 +4525,10 @@ type PolicyRule struct {
 	// Name Policy rule name identifier
 	Name string `json:"name"`
 
-	// PortRanges Policy rule affected ports ranges list
+	// PortRanges Policy rule affected ports ranges list. Mutually exclusive with `ports`. To mix individual ports with ranges in one rule, express each single port as a range with identical start and end values (for example, start 443, end 443).
 	PortRanges *[]RulePortRange `json:"port_ranges,omitempty"`
 
-	// Ports Policy rule affected ports
+	// Ports Policy rule affected ports. Mutually exclusive with `port_ranges`. A rule accepts either individual ports or port ranges, not both.
 	Ports *[]string `json:"ports,omitempty"`
 
 	// Protocol Policy rule type of the traffic
@@ -4496,10 +4565,10 @@ type PolicyRuleMinimum struct {
 	// Name Policy rule name identifier
 	Name string `json:"name"`
 
-	// PortRanges Policy rule affected ports ranges list
+	// PortRanges Policy rule affected ports ranges list. Mutually exclusive with `ports`. To mix individual ports with ranges in one rule, express each single port as a range with identical start and end values (for example, start 443, end 443).
 	PortRanges *[]RulePortRange `json:"port_ranges,omitempty"`
 
-	// Ports Policy rule affected ports
+	// Ports Policy rule affected ports. Mutually exclusive with `port_ranges`. A rule accepts either individual ports or port ranges, not both.
 	Ports *[]string `json:"ports,omitempty"`
 
 	// Protocol Policy rule type of the traffic
@@ -4539,10 +4608,10 @@ type PolicyRuleUpdate struct {
 	// Name Policy rule name identifier
 	Name string `json:"name"`
 
-	// PortRanges Policy rule affected ports ranges list
+	// PortRanges Policy rule affected ports ranges list. Mutually exclusive with `ports`. To mix individual ports with ranges in one rule, express each single port as a range with identical start and end values (for example, start 443, end 443).
 	PortRanges *[]RulePortRange `json:"port_ranges,omitempty"`
 
-	// Ports Policy rule affected ports
+	// Ports Policy rule affected ports. Mutually exclusive with `port_ranges`. A rule accepts either individual ports or port ranges, not both.
 	Ports *[]string `json:"ports,omitempty"`
 
 	// Protocol Policy rule type of the traffic
@@ -4950,7 +5019,7 @@ type RouteRequest struct {
 	SkipAutoApply *bool `json:"skip_auto_apply,omitempty"`
 }
 
-// RulePortRange Policy rule affected ports range
+// RulePortRange Policy rule affected ports range. A range with identical start and end values represents a single port.
 type RulePortRange struct {
 	// End The ending port of the range
 	End int `json:"end"`
@@ -6167,6 +6236,9 @@ type PostApiAgentNetworkBudgetRulesJSONRequestBody = AgentNetworkBudgetRuleReque
 // PutApiAgentNetworkBudgetRulesRuleIdJSONRequestBody defines body for PutApiAgentNetworkBudgetRulesRuleId for application/json ContentType.
 type PutApiAgentNetworkBudgetRulesRuleIdJSONRequestBody = AgentNetworkBudgetRuleRequest
 
+// PostApiAgentNetworkCatalogProvidersModelsJSONRequestBody defines body for PostApiAgentNetworkCatalogProvidersModels for application/json ContentType.
+type PostApiAgentNetworkCatalogProvidersModelsJSONRequestBody = AgentNetworkModelDiscoveryRequest
+
 // PostApiAgentNetworkGuardrailsJSONRequestBody defines body for PostApiAgentNetworkGuardrails for application/json ContentType.
 type PostApiAgentNetworkGuardrailsJSONRequestBody = AgentNetworkGuardrailRequest
 
@@ -6184,6 +6256,9 @@ type PostApiAgentNetworkProvidersJSONRequestBody = AgentNetworkProviderRequest
 
 // PutApiAgentNetworkProvidersProviderIdJSONRequestBody defines body for PutApiAgentNetworkProvidersProviderId for application/json ContentType.
 type PutApiAgentNetworkProvidersProviderIdJSONRequestBody = AgentNetworkProviderRequest
+
+// PostApiAgentNetworkSettingsJSONRequestBody defines body for PostApiAgentNetworkSettings for application/json ContentType.
+type PostApiAgentNetworkSettingsJSONRequestBody = AgentNetworkSettingsCreateRequest
 
 // PutApiAgentNetworkSettingsJSONRequestBody defines body for PutApiAgentNetworkSettings for application/json ContentType.
 type PutApiAgentNetworkSettingsJSONRequestBody = AgentNetworkSettingsRequest

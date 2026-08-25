@@ -2,6 +2,7 @@ package llm_router
 
 import (
 	"context"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -60,6 +61,8 @@ func TestMiddlewareIdentity(t *testing.T) {
 		[]string{
 			middleware.KeyLLMResolvedProviderID,
 			middleware.KeyLLMAuthorisingGroups,
+			middleware.KeyLLMNonInference,
+			middleware.KeyLLMModel,
 			middleware.KeyLLMPolicyDecision,
 			middleware.KeyLLMPolicyReason,
 		},
@@ -171,8 +174,12 @@ func TestRouter_MissingModel(t *testing.T) {
 // from which a model could be parsed). UserGroups matches defaultTestGroup.
 func newModellessInput(reqURL string) *middleware.Input {
 	return &middleware.Input{
-		Slot:       middleware.SlotOnRequest,
-		URL:        reqURL,
+		Slot: middleware.SlotOnRequest,
+		URL:  reqURL,
+		// The non-inference endpoints are read requests; the method is what
+		// separates them from an inference body posted to the same path, so
+		// state it rather than leaning on the zero value.
+		Method:     http.MethodGet,
 		UserGroups: []string{defaultTestGroup},
 	}
 }
@@ -197,6 +204,12 @@ func TestRouter_ModelLessPath_RoutesToAuthorisedProvider(t *testing.T) {
 
 	provider, _ := metaValue(t, out.Metadata, middleware.KeyLLMResolvedProviderID)
 	assert.Equal(t, "openai-prod", provider, "resolved provider must be the authorised route")
+
+	// The limits gate reads this to tell "no model applies here" from
+	// "the model could not be determined", which fails closed.
+	nonInference, ok := metaValue(t, out.Metadata, middleware.KeyLLMNonInference)
+	require.True(t, ok, "model-less allow must mark the request non-inference")
+	assert.Equal(t, "true", nonInference)
 }
 
 func TestRouter_ModelLessPath_MultiProviderDeclarationOrder(t *testing.T) {
@@ -872,4 +885,404 @@ func TestRouter_EmptyModelsClaimsAnyModel(t *testing.T) {
 		"a route with empty Models must claim any model so gateway-style providers can route open-ended sets")
 	resolved, _ := metaValue(t, out.Metadata, middleware.KeyLLMResolvedProviderID)
 	assert.Equal(t, "litellm", resolved)
+}
+
+// TestRouter_DatedAnthropicModelRoutes covers a client pinning a release
+// date on a model the operator registered undated. Exact matches still win,
+// so an operator who registers both dated releases keeps them distinct.
+func TestRouter_DatedAnthropicModelRoutes(t *testing.T) {
+	mw := New(Config{Providers: []ProviderRoute{{
+		ID:              "anthropic-prod",
+		Vendor:          "anthropic",
+		Models:          []string{"claude-sonnet-4-5"},
+		AllowedGroupIDs: []string{defaultTestGroup},
+		UpstreamScheme:  "https",
+		UpstreamHost:    "api.anthropic.com",
+	}}})
+
+	in := newInputWithModelAndURL("claude-sonnet-4-5-20250929", "/v1/messages")
+	in.Metadata = append(in.Metadata, middleware.KV{Key: middleware.KeyLLMProvider, Value: "anthropic"})
+
+	out, err := mw.Invoke(context.Background(), in)
+	require.NoError(t, err)
+	require.NotNil(t, out)
+	assert.Equal(t, middleware.DecisionAllow, out.Decision, "a dated id must route to the undated registration")
+	require.NotNil(t, out.Mutations)
+	require.NotNil(t, out.Mutations.RewriteUpstream)
+	assert.Equal(t, "api.anthropic.com", out.Mutations.RewriteUpstream.Host)
+}
+
+// TestRouter_ConnectionWarmProbeRoutes covers the HEAD /api/hello probe an
+// Anthropic client sends before its first request. Forwarding it warms the
+// connection that request will use; denying it only wrote a rejection into
+// the access log at every session start.
+func TestRouter_ConnectionWarmProbeRoutes(t *testing.T) {
+	mw := New(Config{Providers: []ProviderRoute{{
+		ID:              "anthropic-prod",
+		Vendor:          "anthropic",
+		Models:          []string{"claude-sonnet-5"},
+		AllowedGroupIDs: []string{defaultTestGroup},
+		UpstreamScheme:  "https",
+		UpstreamHost:    "api.anthropic.com",
+	}}})
+
+	in := newModellessInput("/api/hello")
+	in.Method = http.MethodHead
+
+	out, err := mw.Invoke(context.Background(), in)
+	require.NoError(t, err)
+	require.NotNil(t, out)
+	assert.Equal(t, middleware.DecisionAllow, out.Decision, "the warm-up probe must reach the upstream")
+	require.NotNil(t, out.Mutations)
+	require.NotNil(t, out.Mutations.RewriteUpstream)
+	assert.Equal(t, "api.anthropic.com", out.Mutations.RewriteUpstream.Host)
+
+	nonInference, _ := metaValue(t, out.Metadata, middleware.KeyLLMNonInference)
+	assert.Equal(t, "true", nonInference, "the probe carries no model to gate on")
+}
+
+// TestRouter_ModelListingCarriesAuthorisedModels pins the list the proxy
+// bounds the discovery response with. A catch-all route enumerates nothing,
+// so it must not bound the upstream's list at all.
+func TestRouter_ModelListingCarriesAuthorisedModels(t *testing.T) {
+	enumerated := ProviderRoute{
+		ID:              "anthropic-prod",
+		Models:          []string{"claude-sonnet-5", "claude-haiku-4-5"},
+		AllowedGroupIDs: []string{defaultTestGroup},
+		UpstreamScheme:  "https",
+		UpstreamHost:    "api.anthropic.com",
+	}
+
+	t.Run("enumerated route bounds the listing", func(t *testing.T) {
+		mw := New(Config{Providers: []ProviderRoute{enumerated}})
+		out, err := mw.Invoke(context.Background(), newModellessInput("/v1/models"))
+		require.NoError(t, err)
+		require.NotNil(t, out.Mutations)
+		require.NotNil(t, out.Mutations.RewriteUpstream)
+		assert.Equal(t, []string{"claude-sonnet-5", "claude-haiku-4-5"},
+			out.Mutations.RewriteUpstream.DiscoveryModels,
+			"the picker must be bounded by what the route authorises")
+	})
+
+	t.Run("catch-all route leaves the listing alone", func(t *testing.T) {
+		catchAll := enumerated
+		catchAll.Models = nil
+		mw := New(Config{Providers: []ProviderRoute{catchAll}})
+
+		out, err := mw.Invoke(context.Background(), newModellessInput("/v1/models"))
+		require.NoError(t, err)
+		require.NotNil(t, out.Mutations.RewriteUpstream)
+		assert.Empty(t, out.Mutations.RewriteUpstream.DiscoveryModels,
+			"a route that claims every model cannot bound the upstream's list")
+	})
+
+	t.Run("per-model lookup is not a listing", func(t *testing.T) {
+		mw := New(Config{Providers: []ProviderRoute{enumerated}})
+		out, err := mw.Invoke(context.Background(), newModellessInput("/v1/models/claude-sonnet-5"))
+		require.NoError(t, err)
+		require.NotNil(t, out.Mutations.RewriteUpstream)
+		assert.Empty(t, out.Mutations.RewriteUpstream.DiscoveryModels,
+			"the single-object lookup has no data array to filter")
+	})
+}
+
+// TestRouter_ModelDetailHonoursAllowlist pins that GET /v1/models/{id} is
+// authorised against the model table. It carries no body model, so treating
+// it as a model-less endpoint would let a caller confirm a model the route
+// does not list — the listing itself is bounded to the allowlist, so the
+// detail lookup must be too.
+func TestRouter_ModelDetailHonoursAllowlist(t *testing.T) {
+	enumerated := ProviderRoute{
+		ID:              "anthropic-prod",
+		Models:          []string{"claude-sonnet-5"},
+		AllowedGroupIDs: []string{defaultTestGroup},
+		UpstreamScheme:  "https",
+		UpstreamHost:    "api.anthropic.com",
+	}
+
+	t.Run("allowlisted model routes and skips metering", func(t *testing.T) {
+		mw := New(Config{Providers: []ProviderRoute{enumerated}})
+		out, err := mw.Invoke(context.Background(), newModellessInput("/v1/models/claude-sonnet-5"))
+		require.NoError(t, err)
+		assert.Equal(t, middleware.DecisionAllow, out.Decision)
+		require.NotNil(t, out.Mutations)
+		require.NotNil(t, out.Mutations.RewriteUpstream)
+		assert.Equal(t, "api.anthropic.com", out.Mutations.RewriteUpstream.Host)
+
+		nonInference, _ := metaValue(t, out.Metadata, middleware.KeyLLMNonInference)
+		assert.Equal(t, "true", nonInference, "a detail lookup spends no tokens")
+	})
+
+	t.Run("model outside the allowlist denies", func(t *testing.T) {
+		mw := New(Config{Providers: []ProviderRoute{enumerated}})
+		out, err := mw.Invoke(context.Background(), newModellessInput("/v1/models/claude-opus-5"))
+		require.NoError(t, err)
+		assert.Equal(t, middleware.DecisionDeny, out.Decision,
+			"a model no route lists must not be confirmed by the detail lookup")
+	})
+
+	t.Run("dated id matches its undated registration", func(t *testing.T) {
+		mw := New(Config{Providers: []ProviderRoute{enumerated}})
+		out, err := mw.Invoke(context.Background(), newModellessInput("/v1/models/claude-sonnet-5-20250929"))
+		require.NoError(t, err)
+		assert.Equal(t, middleware.DecisionAllow, out.Decision,
+			"a pinned release of an allowlisted family stays reachable")
+	})
+
+	t.Run("catch-all route still answers every lookup", func(t *testing.T) {
+		catchAll := enumerated
+		catchAll.Models = nil
+		mw := New(Config{Providers: []ProviderRoute{catchAll}})
+
+		out, err := mw.Invoke(context.Background(), newModellessInput("/v1/models/anything-at-all"))
+		require.NoError(t, err)
+		assert.Equal(t, middleware.DecisionAllow, out.Decision,
+			"a gateway that enumerates nothing cannot refuse a lookup")
+	})
+}
+
+// TestRouter_NonInferenceRequiresReadMethod pins that the non-inference mark —
+// which exempts a request from the token pre-flight — is reachable only by the
+// read methods these endpoints actually use. A POST to the same path could
+// carry an inference body, so it must not buy the exemption; it falls through
+// to normal per-model routing instead, which denies when no model is named.
+func TestRouter_NonInferenceRequiresReadMethod(t *testing.T) {
+	route := ProviderRoute{
+		ID:              "gateway",
+		AllowedGroupIDs: []string{defaultTestGroup},
+		UpstreamScheme:  "https",
+		UpstreamHost:    "gateway.example.com",
+	}
+
+	for _, path := range []string{"/v1/models", "/v1/models/claude-sonnet-5", "/api/hello"} {
+		t.Run("POST "+path, func(t *testing.T) {
+			mw := New(Config{Providers: []ProviderRoute{route}})
+
+			in := newModellessInput(path)
+			in.Method = http.MethodPost
+
+			out, err := mw.Invoke(context.Background(), in)
+			require.NoError(t, err)
+			assert.Equal(t, middleware.DecisionDeny, out.Decision,
+				"a write to a non-inference path must not route unmetered")
+
+			nonInference, _ := metaValue(t, out.Metadata, middleware.KeyLLMNonInference)
+			assert.NotEqual(t, "true", nonInference,
+				"only a read method may skip the token pre-flight")
+		})
+	}
+
+	t.Run("HEAD keeps the warm probe working", func(t *testing.T) {
+		mw := New(Config{Providers: []ProviderRoute{route}})
+
+		in := newModellessInput(connectionWarmPath)
+		in.Method = http.MethodHead
+
+		out, err := mw.Invoke(context.Background(), in)
+		require.NoError(t, err)
+		assert.Equal(t, middleware.DecisionAllow, out.Decision,
+			"the HEAD warm probe must still reach the upstream")
+
+		nonInference, _ := metaValue(t, out.Metadata, middleware.KeyLLMNonInference)
+		assert.Equal(t, "true", nonInference,
+			"the HEAD warm probe carries no model to meter")
+	})
+}
+
+// TestRouter_PinnedDatedModelStaysDistinct pins that a route registered
+// against one dated Anthropic release does not claim another. Normalising
+// both sides of the comparison made every dated build of a family
+// interchangeable, so an operator who deliberately pinned a build would have
+// served a different one — and with several such routes, declaration or path
+// order would have decided which.
+func TestRouter_PinnedDatedModelStaysDistinct(t *testing.T) {
+	pinned := ProviderRoute{
+		ID:              "anthropic-pinned",
+		Vendor:          "anthropic",
+		Models:          []string{"claude-sonnet-4-5-20250101"},
+		AllowedGroupIDs: []string{defaultTestGroup},
+		UpstreamScheme:  "https",
+		UpstreamHost:    "pinned.example.com",
+	}
+
+	t.Run("a different dated release is not claimed", func(t *testing.T) {
+		mw := New(Config{Providers: []ProviderRoute{pinned}})
+		in := newInputWithModelAndURL("claude-sonnet-4-5-20250202", "/v1/messages")
+		in.Metadata = append(in.Metadata, middleware.KV{Key: middleware.KeyLLMProvider, Value: "anthropic"})
+
+		out, err := mw.Invoke(context.Background(), in)
+		require.NoError(t, err)
+		assert.Equal(t, middleware.DecisionDeny, out.Decision,
+			"a route pinned to one dated build must not serve another")
+	})
+
+	t.Run("its own dated release still routes", func(t *testing.T) {
+		mw := New(Config{Providers: []ProviderRoute{pinned}})
+		in := newInputWithModelAndURL("claude-sonnet-4-5-20250101", "/v1/messages")
+		in.Metadata = append(in.Metadata, middleware.KV{Key: middleware.KeyLLMProvider, Value: "anthropic"})
+
+		out, err := mw.Invoke(context.Background(), in)
+		require.NoError(t, err)
+		assert.Equal(t, middleware.DecisionAllow, out.Decision, "the exact match must still route")
+	})
+
+	t.Run("two pinned builds each route to their own provider", func(t *testing.T) {
+		other := pinned
+		other.ID = "anthropic-pinned-newer"
+		other.Models = []string{"claude-sonnet-4-5-20250202"}
+		other.UpstreamHost = "newer.example.com"
+		mw := New(Config{Providers: []ProviderRoute{pinned, other}})
+
+		in := newInputWithModelAndURL("claude-sonnet-4-5-20250202", "/v1/messages")
+		in.Metadata = append(in.Metadata, middleware.KV{Key: middleware.KeyLLMProvider, Value: "anthropic"})
+
+		out, err := mw.Invoke(context.Background(), in)
+		require.NoError(t, err)
+		require.Equal(t, middleware.DecisionAllow, out.Decision)
+		require.NotNil(t, out.Mutations)
+		require.NotNil(t, out.Mutations.RewriteUpstream)
+		assert.Equal(t, "newer.example.com", out.Mutations.RewriteUpstream.Host,
+			"declaration order must not decide between two deliberately pinned builds")
+	})
+}
+
+// TestRouter_DiscoveryBoundToCallersPolicies pins that a model listing is
+// bounded by the policies that authorise the caller, not by the union across
+// everyone who can reach the provider. Two teams sharing one provider record
+// under different allowlists is the case that makes the difference visible: a
+// flattened per-provider list would offer each team the other's models, and
+// every one of those entries is a request the guardrail then refuses.
+func TestRouter_DiscoveryBoundToCallersPolicies(t *testing.T) {
+	const (
+		eng   = "grp-eng"
+		sales = "grp-sales"
+	)
+	route := ProviderRoute{
+		ID:              "shared-gateway",
+		Models:          []string{"claude-sonnet-5", "claude-haiku-4-5", "gpt-4o"},
+		AllowedGroupIDs: []string{eng, sales},
+		UpstreamScheme:  "https",
+		UpstreamHost:    "gateway.example.com",
+		ModelPolicies: []ModelPolicyRule{
+			{GroupIDs: []string{eng}, Models: []string{"claude-sonnet-5"}},
+			{GroupIDs: []string{sales}, Models: []string{"gpt-4o"}},
+		},
+	}
+
+	listingFor := func(t *testing.T, group string) []string {
+		t.Helper()
+		mw := New(Config{Providers: []ProviderRoute{route}})
+		in := newModellessInput(modelListingPath)
+		in.UserGroups = []string{group}
+
+		out, err := mw.Invoke(context.Background(), in)
+		require.NoError(t, err)
+		require.Equal(t, middleware.DecisionAllow, out.Decision)
+		require.NotNil(t, out.Mutations)
+		require.NotNil(t, out.Mutations.RewriteUpstream)
+		return out.Mutations.RewriteUpstream.DiscoveryModels
+	}
+
+	t.Run("each group sees only its own policy's models", func(t *testing.T) {
+		assert.Equal(t, []string{"claude-sonnet-5"}, listingFor(t, eng),
+			"engineering must not be offered the model only sales may use")
+		assert.Equal(t, []string{"gpt-4o"}, listingFor(t, sales),
+			"sales must not be offered the model only engineering may use")
+	})
+
+	t.Run("a model no policy allows is offered to nobody", func(t *testing.T) {
+		for _, group := range []string{eng, sales} {
+			assert.NotContains(t, listingFor(t, group), "claude-haiku-4-5",
+				"the provider serves it, but no policy permits it")
+		}
+	})
+}
+
+// TestRouter_DiscoveryUnrestrictedPolicy covers the lifting rule: a caller
+// holding one policy without a model allowlist sees everything the provider
+// enumerates, whatever the other policies say.
+func TestRouter_DiscoveryUnrestrictedPolicy(t *testing.T) {
+	const (
+		eng   = "grp-eng"
+		admin = "grp-admin"
+	)
+	route := ProviderRoute{
+		ID:              "shared-gateway",
+		Models:          []string{"claude-sonnet-5", "gpt-4o"},
+		AllowedGroupIDs: []string{eng, admin},
+		UpstreamScheme:  "https",
+		UpstreamHost:    "gateway.example.com",
+		ModelPolicies: []ModelPolicyRule{
+			{GroupIDs: []string{eng}, Models: []string{"claude-sonnet-5"}},
+			// nil Models: a policy that sets no allowlist at all.
+			{GroupIDs: []string{admin}},
+		},
+	}
+	mw := New(Config{Providers: []ProviderRoute{route}})
+
+	in := newModellessInput(modelListingPath)
+	in.UserGroups = []string{eng, admin}
+
+	out, err := mw.Invoke(context.Background(), in)
+	require.NoError(t, err)
+	require.NotNil(t, out.Mutations.RewriteUpstream)
+	assert.ElementsMatch(t, []string{"claude-sonnet-5", "gpt-4o"},
+		out.Mutations.RewriteUpstream.DiscoveryModels,
+		"an unrestricted policy the caller holds lifts the restriction")
+}
+
+// TestRouter_DiscoveryOnGatewayRecord covers a record that enumerates no
+// models. It previously offered the upstream's whole catalogue however narrow
+// the policy was, because there was nothing to intersect against; the policy
+// allowlist is now the bound on its own.
+func TestRouter_DiscoveryOnGatewayRecord(t *testing.T) {
+	const eng = "grp-eng"
+	base := ProviderRoute{
+		ID:              "litellm",
+		AllowedGroupIDs: []string{eng},
+		UpstreamScheme:  "https",
+		UpstreamHost:    "litellm.internal",
+	}
+
+	t.Run("a policy allowlist bounds it", func(t *testing.T) {
+		route := base
+		route.ModelPolicies = []ModelPolicyRule{{GroupIDs: []string{eng}, Models: []string{"gpt-4o"}}}
+		mw := New(Config{Providers: []ProviderRoute{route}})
+
+		in := newModellessInput(modelListingPath)
+		in.UserGroups = []string{eng}
+
+		out, err := mw.Invoke(context.Background(), in)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"gpt-4o"}, out.Mutations.RewriteUpstream.DiscoveryModels,
+			"a catch-all record must still be bounded by what policy permits")
+	})
+
+	t.Run("an allowlist permitting nothing offers nothing", func(t *testing.T) {
+		route := base
+		route.ModelPolicies = []ModelPolicyRule{{GroupIDs: []string{eng}, Models: []string{}}}
+		mw := New(Config{Providers: []ProviderRoute{route}})
+
+		in := newModellessInput(modelListingPath)
+		in.UserGroups = []string{eng}
+
+		out, err := mw.Invoke(context.Background(), in)
+		require.NoError(t, err)
+		require.NotNil(t, out.Mutations.RewriteUpstream)
+		assert.Empty(t, out.Mutations.RewriteUpstream.DiscoveryModels,
+			"an empty allowlist permits nothing, and must not be read as unrestricted")
+	})
+
+	t.Run("no policy restriction leaves the listing alone", func(t *testing.T) {
+		mw := New(Config{Providers: []ProviderRoute{base}})
+
+		in := newModellessInput(modelListingPath)
+		in.UserGroups = []string{eng}
+
+		out, err := mw.Invoke(context.Background(), in)
+		require.NoError(t, err)
+		require.NotNil(t, out.Mutations.RewriteUpstream)
+		assert.Nil(t, out.Mutations.RewriteUpstream.DiscoveryModels,
+			"nothing narrows the listing, so the upstream's own answer passes through")
+	})
 }

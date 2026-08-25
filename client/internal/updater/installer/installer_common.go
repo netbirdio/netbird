@@ -42,6 +42,9 @@ func NewWithDir(tempDir string) *Installer {
 // This will run by the original service process
 func (u *Installer) RunInstallation(ctx context.Context, targetVersion string) (err error) {
 	resultHandler := NewResultHandler(u.tempDir)
+	if err := resultHandler.ClearStaleResult(); err != nil {
+		log.Warnf("clear stale installer result: %v", err)
+	}
 
 	defer func() {
 		if err != nil {

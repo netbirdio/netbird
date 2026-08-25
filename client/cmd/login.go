@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/user"
-	"runtime"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
@@ -121,7 +120,7 @@ func doDaemonLogin(ctx context.Context, cmd *cobra.Command, providedSetupKey str
 	loginRequest := proto.LoginRequest{
 		SetupKey:            providedSetupKey,
 		ManagementUrl:       managementURL,
-		IsUnixDesktopClient: isUnixRunningDesktop(),
+		IsUnixDesktopClient: util.HasGraphicalSession(),
 		Hostname:            hostName,
 		DnsLabels:           dnsLabelsReq,
 		ProfileName:         &handle,
@@ -189,7 +188,8 @@ func doExtendSession(ctx context.Context, cmd *cobra.Command) error {
 
 	client := proto.NewDaemonServiceClient(conn)
 
-	req := &proto.RequestExtendAuthSessionRequest{}
+	// the CLI runs in the user's session, the daemon does not: tell it what we can see
+	req := &proto.RequestExtendAuthSessionRequest{HasGraphicalSession: util.HasGraphicalSession()}
 	// Pre-fill the IdP login hint from the active profile so the user
 	// doesn't have to retype their email. Best-effort: we still proceed
 	// without a hint if the lookup fails.
@@ -408,7 +408,7 @@ func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *pro
 		hint = profileState.Email
 	}
 
-	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, isUnixRunningDesktop(), false, hint)
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, util.HasGraphicalSession(), false, hint)
 	if err != nil {
 		return nil, err
 	}
@@ -456,14 +456,6 @@ func openURL(cmd *cobra.Command, verificationURIComplete, userCode string, noBro
 				"https://docs.netbird.io/how-to/register-machines-using-setup-keys")
 		}
 	}
-}
-
-// isUnixRunningDesktop checks if a Linux OS is running desktop environment
-func isUnixRunningDesktop() bool {
-	if runtime.GOOS != "linux" && runtime.GOOS != "freebsd" {
-		return false
-	}
-	return os.Getenv("DESKTOP_SESSION") != "" || os.Getenv("XDG_CURRENT_DESKTOP") != ""
 }
 
 func setEnvAndFlags(cmd *cobra.Command) error {

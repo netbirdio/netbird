@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -15,8 +17,10 @@ import (
 	"go.opentelemetry.io/otel/metric/noop"
 	"google.golang.org/grpc"
 
+	"github.com/netbirdio/netbird/proxy/internal/auth"
 	proxymetrics "github.com/netbirdio/netbird/proxy/internal/metrics"
 	"github.com/netbirdio/netbird/proxy/internal/types"
+	"github.com/netbirdio/netbird/shared/hash/argon2id"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -207,6 +211,62 @@ func TestRedactMappingForLog_HandlesEmptyOrNilFields(t *testing.T) {
 	assert.Equal(t, "", redacted.AuthToken, "empty auth_token must remain empty (no placeholder)")
 	assert.Nil(t, redacted.Auth, "nil Auth must remain nil")
 	assert.Empty(t, redacted.Path, "empty Path must remain empty")
+}
+
+// headerSchemeAccepts reports whether the scheme admits value for headerName.
+func headerSchemeAccepts(t *testing.T, scheme auth.Scheme, headerName, value string) bool {
+	t.Helper()
+	hdr, ok := scheme.(auth.Header)
+	require.True(t, ok, "header auths must produce Header schemes")
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	req.Header.Set(headerName, value)
+	_, matched, _ := hdr.Verify(req)
+	return matched
+}
+
+func TestHeaderAuthSchemes_GroupsValuesByCanonicalHeaderName(t *testing.T) {
+	hashOf := func(v string) string {
+		hash, err := argon2id.Hash(v)
+		require.NoError(t, err)
+		return hash
+	}
+
+	schemes := headerAuthSchemes([]*proto.HeaderAuth{
+		{Header: "Authorization", HashedValue: hashOf("Bearer a")},
+		{Header: "authorization", HashedValue: hashOf("Bearer b")},
+		{Header: "X-Api-Key", HashedValue: hashOf("key-1")},
+	})
+
+	require.Len(t, schemes, 2, "entries differing only in header-name case must collapse into one scheme")
+
+	assert.True(t, headerSchemeAccepts(t, schemes[0], "Authorization", "Bearer a"), "first value for the header must be accepted")
+	assert.True(t, headerSchemeAccepts(t, schemes[0], "Authorization", "Bearer b"), "second value for the same header must be accepted")
+	assert.False(t, headerSchemeAccepts(t, schemes[0], "Authorization", "Bearer c"), "unconfigured value must be rejected")
+	assert.True(t, headerSchemeAccepts(t, schemes[1], "X-Api-Key", "key-1"), "a second header name keeps its own scheme")
+}
+
+// TestHeaderAuthSchemes_MissingHashFailsClosed covers a mapping that names a
+// header but carries no hash for it. Dropping the scheme would leave a service
+// whose only auth is that header wide open, so the scheme is kept and denies.
+func TestHeaderAuthSchemes_MissingHashFailsClosed(t *testing.T) {
+	schemes := headerAuthSchemes([]*proto.HeaderAuth{{Header: "X-Api-Key"}})
+
+	require.Len(t, schemes, 1, "a header without a hash must still register a scheme")
+	assert.False(t, headerSchemeAccepts(t, schemes[0], "X-Api-Key", "anything"),
+		"a header auth without a hash must reject every value")
+}
+
+// TestHeaderAuthSchemes_BlankNameFailsClosed covers a mapping row whose header
+// name is empty. Skipping it would leave a service whose only auth is that entry
+// with no schemes at all, which Protect treats as an unprotected domain, so the
+// entry is kept and the domain stays gated.
+func TestHeaderAuthSchemes_BlankNameFailsClosed(t *testing.T) {
+	schemes := headerAuthSchemes([]*proto.HeaderAuth{{Header: "", HashedValue: "$argon2id$not-a-real-hash"}})
+
+	require.Len(t, schemes, 1, "a blank header name must still register a scheme")
+	assert.False(t, headerSchemeAccepts(t, schemes[0], "X-Api-Key", "anything"),
+		"a blank header auth must not admit any request")
 }
 
 type statusUpdateOnlyClient struct {

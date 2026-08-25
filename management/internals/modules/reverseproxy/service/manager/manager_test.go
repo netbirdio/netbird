@@ -8,7 +8,7 @@ import (
 	"time"
 
 	cachestore "github.com/eko/gocache/lib/v4/store"
-	"github.com/golang/mock/gomock"
+	"go.uber.org/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/metric/noop"

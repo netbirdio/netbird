@@ -12,6 +12,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/netstate"
+	"github.com/netbirdio/netbird/client/netsweep"
 	relayAuth "github.com/netbirdio/netbird/shared/relay/auth/hmac"
 )
 
@@ -65,6 +67,17 @@ func WithMaxBackoffInterval(d time.Duration) ManagerOption {
 	return func(m *Manager) { m.maxBackoffInterval = d }
 }
 
+// WithNetworkState injects the OS network availability state that gates the
+// reconnect guard; without it reconnect attempts are not gated.
+func WithNetworkState(netState *netstate.State) ManagerOption {
+	return func(m *Manager) { m.netState = netState }
+}
+
+// WithSweeper injects the network change sweeper.
+func WithSweeper(sweeper *netsweep.Sweeper) ManagerOption {
+	return func(m *Manager) { m.sweeper = sweeper }
+}
+
 // Manager is a manager for the relay client instances. It establishes one persistent connection to the given relay URL
 // and automatically reconnect to them in case disconnection.
 // The manager also manage temporary relay connection. If a client wants to communicate with a client on a
@@ -92,6 +105,8 @@ type Manager struct {
 
 	mtu                uint16
 	maxBackoffInterval time.Duration
+	netState           *netstate.State
+	sweeper            *netsweep.Sweeper
 
 	cleanupInterval      time.Duration
 	keepUnusedServerTime time.Duration
@@ -128,8 +143,9 @@ func NewManager(ctx context.Context, serverURLs []string, peerID string, mtu uin
 	for _, opt := range opts {
 		opt(m)
 	}
+	m.serverPicker.Sweeper = m.sweeper
 	m.serverPicker.ServerURLs.Store(serverURLs)
-	m.reconnectGuard = NewGuard(m.serverPicker, m.maxBackoffInterval)
+	m.reconnectGuard = NewGuard(m.serverPicker, m.maxBackoffInterval, m.netState)
 	return m
 }
 
@@ -354,6 +370,7 @@ func (m *Manager) openConnVia(ctx context.Context, serverAddress, peerKey string
 
 	relayClient := NewClientWithServerIP(serverAddress, serverIP, m.tokenStore, m.peerID, m.mtu)
 	relayClient.SetTransportFallback(m.transportFallback)
+	relayClient.sweeper = m.sweeper
 	err := relayClient.Connect(m.ctx)
 	if err != nil {
 		rt.Lock()

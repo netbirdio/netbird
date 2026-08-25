@@ -42,6 +42,7 @@ type aclManager struct {
 	optionalEntries map[string][]entry
 	ipsetStore      *ipsetStore
 	v6              bool
+	ipsetSupported  bool
 
 	stateManager *statemanager.Manager
 }
@@ -59,6 +60,8 @@ func newAclManager(iptablesClient *iptables.IPTables, wgIface iFaceMapper) (*acl
 
 func (m *aclManager) init(stateManager *statemanager.Manager) error {
 	m.stateManager = stateManager
+
+	m.ipsetSupported = m.probeIPSetSupport()
 
 	m.seedInitialEntries()
 	m.seedInitialOptionalEntries()
@@ -90,6 +93,12 @@ func (m *aclManager) AddPeerFiltering(
 	ipsetName = transformIPsetName(ipsetName, sPort, dPort, action)
 	if m.v6 && ipsetName != "" {
 		ipsetName += "-v6"
+	}
+	// When the kernel lacks the required ipset hash module, fall back to
+	// per-IP iptables rules (pre-0.68 behavior) so ACLs keep working instead
+	// of silently leaving the chain empty.
+	if ipsetName != "" && !m.ipsetSupported {
+		ipsetName = ""
 	}
 	proto := protoForFamily(protocol, m.v6)
 	specs := filterRuleSpecs(ip, proto, sPort, dPort, action, ipsetName)
@@ -496,6 +505,40 @@ func transformIPsetName(ipsetName string, sPort, dPort *firewall.Port, action fi
 	default:
 		return ipsetName + actionSuffix
 	}
+}
+
+// probeIPSetSupport checks whether the kernel can create the ipset type used for
+// ACL rules. On kernels lacking the required ipset hash module, ipset creation
+// fails (e.g. "invalid argument"), which would otherwise leave the ACL chain
+// empty and silently drop all policy-permitted inbound traffic. When unsupported,
+// the manager falls back to per-IP iptables rules.
+func (m *aclManager) probeIPSetSupport() bool {
+	// Use a unique name so concurrent processes don't collide and we only ever
+	// destroy the set we created ourselves. ipset names are limited to 31 chars,
+	// so use a short random suffix.
+	probeName := "nb-probe-" + uuid.New().String()[:8]
+
+	opts := ipset.CreateOptions{
+		Replace: true,
+	}
+	if m.v6 {
+		opts.Family = ipset.FamilyIPV6
+	}
+
+	if err := ipset.Create(probeName, ipset.TypeHashNet, opts); err != nil {
+		log.Warnf("ipset is not available (failed to create probe set: %v); "+
+			"falling back to per-IP iptables ACL rules. Ensure the kernel provides "+
+			"the ipset hash:net module (ip_set_hash_net) for better performance with large rule sets", err)
+		return false
+	}
+
+	defer func() {
+		if err := ipset.Destroy(probeName); err != nil {
+			log.Debugf("destroy ipset probe set %q: %v", probeName, err)
+		}
+	}()
+
+	return true
 }
 
 func (m *aclManager) createIPSet(name string) error {

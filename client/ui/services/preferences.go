@@ -34,3 +34,7 @@ func (s *Preferences) SetViewMode(_ context.Context, mode preferences.ViewMode) 
 func (s *Preferences) SetOnboardingCompleted(_ context.Context, done bool) error {
 	return s.store.SetOnboardingCompleted(done)
 }
+
+func (s *Preferences) SetKeepConnectedOnQuit(_ context.Context, keep bool) error {
+	return s.store.SetKeepConnectedOnQuit(keep)
+}

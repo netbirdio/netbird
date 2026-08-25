@@ -133,7 +133,12 @@ func (s *Server) checkPrivilegedPortAccess(forwardType string, port uint32, resu
 		return nil
 	}
 
-	if result.User != nil && isPrivilegedUsername(result.User.Username) {
+	// Only uid 0 may bind below the threshold, which is the kernel's own rule and
+	// is asked directly rather than through isPrivilegedOrUnknown: that helper
+	// reports an account it cannot evaluate as privileged, which is safe for a
+	// refusal and unsafe for a grant such as this one. Windows has returned
+	// above, so Uid here is a Unix uid and never a SID.
+	if result.User != nil && result.User.Uid == "0" {
 		return nil
 	}
 
