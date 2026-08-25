@@ -20,6 +20,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sync"
 	"time"
 
@@ -2153,9 +2154,7 @@ func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping)
 	if mapping.GetAuth().GetOidc() {
 		schemes = append(schemes, auth.NewOIDC(s.mgmtClient, svcID, accountID, s.ForwardedProto))
 	}
-	for _, ha := range mapping.GetAuth().GetHeaderAuths() {
-		schemes = append(schemes, auth.NewHeader(s.mgmtClient, svcID, accountID, ha.GetHeader()))
-	}
+	schemes = append(schemes, headerAuthSchemes(mapping.GetAuth().GetHeaderAuths())...)
 
 	ipRestrictions := s.parseRestrictions(mapping)
 	s.warnIfGeoUnavailable(mapping.GetDomain(), mapping.GetAccessRestrictions())
@@ -2175,10 +2174,44 @@ func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping)
 		return fmt.Errorf("auth setup for domain %s: %w", mapping.GetDomain(), err)
 	}
 	m := s.protoToMapping(ctx, mapping)
-	s.proxy.AddMapping(m)
+	// The chain is published before the route that leads to it. A request
+	// arriving at a target whose chain has not been rebuilt yet is served
+	// straight through, so a provider update that added the route first left a
+	// window in which an inference could complete unrouted and unmetered.
+	// Rebuilding first inverts that: the worst a request in the window meets is
+	// the new chain in front of the previous target, which is still counted.
+	if err := s.rebuildMiddlewareChains(svcID, m); err != nil {
+		return err
+	}
 	s.meter.AddMapping(m)
-	s.rebuildMiddlewareChains(svcID, m)
+	s.proxy.AddMapping(m)
 	return nil
+}
+
+// headerAuthSchemes builds one scheme per canonical header name, carrying every
+// hash configured for that name so any of them is accepted — the OR semantics
+// management applied while it still validated the credential itself. No entry is
+// ever dropped: a name that arrives blank, or without a hash, still yields a
+// scheme, because a mapping that lost its only scheme would fall through
+// Protect's no-schemes pass-through and serve the domain unauthenticated.
+func headerAuthSchemes(headerAuths []*proto.HeaderAuth) []auth.Scheme {
+	names := make([]string, 0, len(headerAuths))
+	hashes := make(map[string][]string, len(headerAuths))
+	for _, ha := range headerAuths {
+		name := http.CanonicalHeaderKey(ha.GetHeader())
+		if !slices.Contains(names, name) {
+			names = append(names, name)
+		}
+		if hash := ha.GetHashedValue(); hash != "" {
+			hashes[name] = append(hashes[name], hash)
+		}
+	}
+
+	schemes := make([]auth.Scheme, 0, len(names))
+	for _, name := range names {
+		schemes = append(schemes, auth.NewHeader(name, hashes[name]))
+	}
+	return schemes
 }
 
 // initMiddlewareManager wires the middleware subsystem at boot. It configures
@@ -2215,15 +2248,21 @@ func (s *Server) initMiddlewareManager(ctx context.Context) error {
 }
 
 // rebuildMiddlewareChains converts m into per-path bindings and calls
-// Manager.Rebuild. Short-circuits when the middleware manager is unset.
-func (s *Server) rebuildMiddlewareChains(svcID types.ServiceID, m proxy.Mapping) {
+// Manager.Rebuild. Short-circuits when the middleware manager is unset, which
+// is a deployment without middleware rather than a failure to install it.
+//
+// A rebuild that fails is reported rather than logged: the caller publishes
+// the route once this returns, and a route published over chains that were
+// not installed serves requests with no policy enforcement and no metering.
+func (s *Server) rebuildMiddlewareChains(svcID types.ServiceID, m proxy.Mapping) error {
 	if s.middlewareManager == nil {
-		return
+		return nil
 	}
 	bindings := buildMiddlewareBindings(svcID, m)
 	if err := s.middlewareManager.Rebuild(string(svcID), bindings); err != nil {
-		s.Logger.WithError(err).WithField("service_id", svcID).Error("failed to rebuild middleware chains")
+		return fmt.Errorf("rebuild middleware chains for service %s: %w", svcID, err)
 	}
+	return nil
 }
 
 // isLiveService reports whether svcID is currently present in the live

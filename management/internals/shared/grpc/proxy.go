@@ -1312,7 +1312,7 @@ func (s *ProxyServiceServer) authenticateHeader(ctx context.Context, serviceID s
 			lastErr = err
 			continue
 		}
-		return true, "header-user", proxyauth.MethodHeader
+		return true, proxyauth.HeaderUserID, proxyauth.MethodHeader
 	}
 
 	if lastErr != nil {

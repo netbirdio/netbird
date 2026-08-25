@@ -188,7 +188,7 @@ func TestAddDomain_ResolvesRedactionSetsFromSchemes(t *testing.T) {
 	require.NoError(t, mw.AddDomain("svc.example.com", DomainSettings{
 		Schemes: []Scheme{
 			NewPassword(nil, "svc-1", "acct-1"),
-			NewHeader(nil, "svc-1", "acct-1", "X-Api-Key"),
+			NewHeader("X-Api-Key", nil),
 		},
 		SessionPublicKey:  base64.StdEncoding.EncodeToString(make([]byte, ed25519.PublicKeySize)),
 		SessionExpiration: time.Hour,
