@@ -433,8 +433,8 @@ func (m *Middleware) matchRoute(model, vendor, reqPath string, userGroups []stri
 	// Vendor pinning runs BEFORE the group filter so a request the parser
 	// tagged with a vendor can never cross to another vendor's route — not
 	// even an authorised one. Narrow to supporting routes when any
-	// model-matched route declares that vendor; setups with no vendor field on
-	// any route fall through unchanged. After narrowing, if no supporting
+	// model-matched route declares that vendor; setups with no matching vendor
+	// declaration fall through unchanged. After narrowing, if no supporting
 	// route authorises the caller, that's matchOutcomeUnauthorised (no
 	// cross-vendor fallback).
 	if vendor != "" {
