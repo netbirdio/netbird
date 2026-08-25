@@ -176,6 +176,7 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 	semaphore := make(chan struct{}, 10)
 
 	c.injectAllProxyPolicies(ctx, account)
+	account.PrecomputePostureValidation(ctx)
 	dnsCache := &cache.DNSConfigCache{}
 	dnsDomain := c.GetDNSDomain(account.Settings)
 	peersCustomZone := account.GetPeersCustomZone(ctx, dnsDomain)
@@ -357,6 +358,7 @@ func (c *Controller) sendUpdateForAffectedPeers(ctx context.Context, accountID s
 	// network map that omitted the synth DNS zone, and the agent kept
 	// resolving against the stale or absent record.
 	c.injectAllProxyPolicies(ctx, account)
+	account.PrecomputePostureValidation(ctx)
 	dnsCache := &cache.DNSConfigCache{}
 	dnsDomain := c.GetDNSDomain(account.Settings)
 	peersCustomZone := account.GetPeersCustomZone(ctx, dnsDomain)
@@ -647,6 +649,11 @@ func (c *Controller) GetValidatedPeerWithComponents(ctx context.Context, isRequi
 	account, err := c.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
 	if err != nil {
 		return nil, nil, nil, nil, 0, err
+	}
+
+	// it's possible that the peer gets deleted between the call to "sendInitialSync()" and here, bail out in this case
+	if _, ok := account.Peers[peer.ID]; !ok {
+		return nil, nil, nil, nil, 0, fmt.Errorf("peer '%s' no longer exists", peer.ID)
 	}
 
 	c.injectAllProxyPolicies(ctx, account)
@@ -1022,7 +1029,7 @@ func (c *Controller) OnPeersDeleted(ctx context.Context, accountID string, peerI
 					FirewallRules:        []*proto.FirewallRule{},
 					FirewallRulesIsEmpty: true,
 					DNSConfig: &proto.DNSConfig{
-						ForwarderPort: dnsFwdPort,
+						ForwarderPort: dnsFwdPort, //nolint:staticcheck
 					},
 				},
 			},

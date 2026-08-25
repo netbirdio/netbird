@@ -113,7 +113,60 @@ type Provider struct {
 	// upstream provider + credentials on Portkey's hosted side).
 	ExtraHeaders []ExtraHeader
 	Models       []Model
+	// Discovery, when non-nil, describes how to ask this vendor which
+	// models the operator's own credential can actually reach, so the
+	// provider form can offer a live list instead of only the hand-curated
+	// Models above. Nil for entries with no listing endpoint (gateways
+	// vary too much) — those keep free-text entry.
+	Discovery *Discovery
 }
+
+// ListingShape names the response envelope a vendor returns its model
+// listing in. Every vendor invented its own, and none of them can be
+// guessed from the request, so the catalog states it.
+type ListingShape string
+
+const (
+	// ShapeOpenAIData is {"data":[{"id":…}]} — OpenAI, and Anthropic, which
+	// adopted the same envelope.
+	ShapeOpenAIData ListingShape = "openai_data"
+	// ShapeBedrockInferenceProfiles is
+	// {"inferenceProfileSummaries":[{"inferenceProfileId":…}]}. The ids carry
+	// the region prefix that makes them invocable, which is exactly what an
+	// operator cannot reconstruct by hand.
+	ShapeBedrockInferenceProfiles ListingShape = "bedrock_inference_profiles"
+	// ShapeVertexPublisherModels is {"publisherModels":[{"name":…}]}, where
+	// name is a resource path and the invocable id is its last segment joined
+	// to a separate versionId field.
+	ShapeVertexPublisherModels ListingShape = "vertex_publisher_models"
+)
+
+// Discovery describes one vendor's model-listing endpoint.
+//
+// Host is deliberately separate from the provider record's upstream URL:
+// Bedrock serves listings from the control plane (bedrock.<region>) while
+// inference must go to the runtime host (bedrock-runtime.<region>), so the
+// two cannot be the same value. Empty Host means "use the record's own
+// upstream", which is right for every vendor that serves both from one host.
+//
+// The regionPlaceholder in Host is substituted from the provider record's
+// region. Deriving the discovery host from the catalog rather than accepting
+// one from the caller is also what keeps this from being an open proxy: the
+// only hosts management will dial are the ones written here.
+type Discovery struct {
+	Host  string
+	Path  string
+	Query string
+	Shape ListingShape
+	// Headers are static headers the vendor requires beyond the credential
+	// (Anthropic versions its API through one and rejects a request without
+	// it). The auth header itself comes from AuthHeaderName/Template.
+	Headers map[string]string
+}
+
+// RegionPlaceholder is replaced in Discovery.Host by the provider record's
+// configured region.
+const RegionPlaceholder = "<region>"
 
 // ExtraHeader names a single optional per-provider routing/config
 // header. Catalog declares N of these per provider type; the operator
@@ -245,8 +298,12 @@ var providers = []Provider{
 		AuthHeaderTemplate: "Bearer ${API_KEY}",
 		DefaultContentType: "application/json",
 		BrandColor:         "#10A37F",
-		ParserID:           "openai",
-		PricingSurfaces:    []string{"openai"},
+		Discovery: &Discovery{
+			Path:  "/v1/models",
+			Shape: ShapeOpenAIData,
+		},
+		ParserID:        "openai",
+		PricingSurfaces: []string{"openai"},
 		// Pricing + context windows cross-checked against LiteLLM's
 		// model_prices_and_context_window.json. Notable corrections from
 		// earlier values: o4-mini repriced from $4/$16 to $1.10/$4.40
@@ -284,8 +341,18 @@ var providers = []Provider{
 		AuthHeaderTemplate: "${API_KEY}",
 		DefaultContentType: "application/json",
 		BrandColor:         "#D97757",
-		ParserID:           "anthropic",
-		PricingSurfaces:    []string{"anthropic"},
+		Discovery: &Discovery{
+			Path: "/v1/models",
+			// The default page is short and a picker wants the whole
+			// catalogue in one call.
+			Query: "limit=1000",
+			Shape: ShapeOpenAIData,
+			// Anthropic versions its API through a header and refuses a
+			// request that omits it, listing included.
+			Headers: map[string]string{"anthropic-version": "2023-06-01"},
+		},
+		ParserID:        "anthropic",
+		PricingSurfaces: []string{"anthropic"},
 		// Per Anthropic's current model lineup. Pricing in USD per 1k
 		// tokens. Context windows: 4.6+ family is 1M; Haiku 4.5 stays at
 		// 200K. claude-3-7-sonnet and claude-3-5-haiku retired
@@ -296,6 +363,8 @@ var providers = []Provider{
 		// account to be on >= 30-day data retention or all requests
 		// 400.
 		Models: []Model{
+			{ID: "claude-opus-5", Label: "Claude Opus 5", InputPer1k: 0.005, OutputPer1k: 0.025, CacheReadPer1k: 0.0005, CacheCreationPer1k: 0.00625, ContextWindow: 1000000},
+			{ID: "claude-sonnet-5", Label: "Claude Sonnet 5", InputPer1k: 0.003, OutputPer1k: 0.015, CacheReadPer1k: 0.0003, CacheCreationPer1k: 0.00375, ContextWindow: 1000000},
 			{ID: "claude-fable-5", Label: "Claude Fable 5", InputPer1k: 0.010, OutputPer1k: 0.050, CacheReadPer1k: 0.001, CacheCreationPer1k: 0.0125, ContextWindow: 1000000},
 			{ID: "claude-opus-4-8", Label: "Claude Opus 4.8", InputPer1k: 0.005, OutputPer1k: 0.025, CacheReadPer1k: 0.0005, CacheCreationPer1k: 0.00625, ContextWindow: 1000000},
 			{ID: "claude-opus-4-7", Label: "Claude Opus 4.7", InputPer1k: 0.005, OutputPer1k: 0.025, CacheReadPer1k: 0.0005, CacheCreationPer1k: 0.00625, ContextWindow: 1000000},
@@ -343,6 +412,22 @@ var providers = []Provider{
 		AuthHeaderTemplate: "Bearer ${API_KEY}",
 		DefaultContentType: "application/json",
 		BrandColor:         "#FF9900",
+		// Listings come from the CONTROL PLANE, not the runtime host in
+		// DefaultHost above: ListInferenceProfiles is not an operation
+		// bedrock-runtime implements, and answers <UnknownOperationException/>
+		// there. Inference has to go to the runtime host, so the two hosts
+		// genuinely differ and Discovery.Host carries the difference.
+		//
+		// Inference profiles rather than foundation models because the profile
+		// id is the invocable one: it carries the region prefix (eu., us.,
+		// global.) that AWS requires and that cannot be derived from the
+		// configured region — an eu-central-1 account legitimately holds
+		// global.* profiles.
+		Discovery: &Discovery{
+			Host:  "bedrock." + RegionPlaceholder + ".amazonaws.com",
+			Path:  "/inference-profiles",
+			Shape: ShapeBedrockInferenceProfiles,
+		},
 		// ParserID stays empty (path-style dispatch via IsBedrockPathStyle);
 		// the request parser meters these under the "bedrock" surface.
 		PricingSurfaces: []string{"bedrock"},
@@ -355,6 +440,8 @@ var providers = []Provider{
 		// Llama 3.3 70B entry kept unchanged — LiteLLM tracks only
 		// per-region Llama 3 entries; standalone 3.3 not yet listed.
 		Models: []Model{
+			{ID: "anthropic.claude-opus-5", Label: "Claude Opus 5 (Bedrock)", InputPer1k: 0.005, OutputPer1k: 0.025, CacheReadPer1k: 0.0005, CacheCreationPer1k: 0.00625, ContextWindow: 1000000},
+			{ID: "anthropic.claude-sonnet-5", Label: "Claude Sonnet 5 (Bedrock)", InputPer1k: 0.003, OutputPer1k: 0.015, CacheReadPer1k: 0.0003, CacheCreationPer1k: 0.00375, ContextWindow: 1000000},
 			{ID: "anthropic.claude-opus-4-8", Label: "Claude Opus 4.8 (Bedrock)", InputPer1k: 0.005, OutputPer1k: 0.025, CacheReadPer1k: 0.0005, CacheCreationPer1k: 0.00625, ContextWindow: 1000000},
 			{ID: "anthropic.claude-opus-4-7", Label: "Claude Opus 4.7 (Bedrock)", InputPer1k: 0.005, OutputPer1k: 0.025, CacheReadPer1k: 0.0005, CacheCreationPer1k: 0.00625, ContextWindow: 1000000},
 			{ID: "anthropic.claude-opus-4-6", Label: "Claude Opus 4.6 (Bedrock)", InputPer1k: 0.005, OutputPer1k: 0.025, CacheReadPer1k: 0.0005, CacheCreationPer1k: 0.00625, ContextWindow: 1000000},
@@ -391,6 +478,15 @@ var providers = []Provider{
 		AuthHeaderTemplate: "Bearer ${API_KEY}",
 		DefaultContentType: "application/json",
 		BrandColor:         "#4285F4",
+		// Only the v1beta1 publisher listing answers: the v1 form and the
+		// project-scoped form under BOTH versions return 404. That means the
+		// list is publisher-global — it cannot say which models this project
+		// has enabled — so it is offered as a suggestion beside the catalog
+		// rather than replacing it. See the discovery e2e for the probes.
+		Discovery: &Discovery{
+			Path:  "/v1beta1/publishers/anthropic/models",
+			Shape: ShapeVertexPublisherModels,
+		},
 		// ParserID stays empty (path-style dispatch via IsVertexPathStyle);
 		// Anthropic-on-Vertex requests are metered under the "anthropic"
 		// surface with the bare, unversioned model id.
@@ -406,6 +502,8 @@ var providers = []Provider{
 		// exists — the router denies unmeterable publishers rather than forward
 		// them uncounted.
 		Models: []Model{
+			{ID: "claude-opus-5", Label: "Claude Opus 5 (Vertex)", InputPer1k: 0.005, OutputPer1k: 0.025, CacheReadPer1k: 0.0005, CacheCreationPer1k: 0.00625, ContextWindow: 1000000},
+			{ID: "claude-sonnet-5", Label: "Claude Sonnet 5 (Vertex)", InputPer1k: 0.003, OutputPer1k: 0.015, CacheReadPer1k: 0.0003, CacheCreationPer1k: 0.00375, ContextWindow: 1000000},
 			{ID: "claude-fable-5", Label: "Claude Fable 5 (Vertex)", InputPer1k: 0.010, OutputPer1k: 0.050, CacheReadPer1k: 0.001, CacheCreationPer1k: 0.0125, ContextWindow: 1000000},
 			{ID: "claude-opus-4-8", Label: "Claude Opus 4.8 (Vertex)", InputPer1k: 0.005, OutputPer1k: 0.025, CacheReadPer1k: 0.0005, CacheCreationPer1k: 0.00625, ContextWindow: 1000000},
 			{ID: "claude-opus-4-7", Label: "Claude Opus 4.7 (Vertex)", InputPer1k: 0.005, OutputPer1k: 0.025, CacheReadPer1k: 0.0005, CacheCreationPer1k: 0.00625, ContextWindow: 1000000},
