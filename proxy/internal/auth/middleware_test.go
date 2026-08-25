@@ -16,6 +16,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -1109,6 +1110,131 @@ func TestProtect_HeaderAuth_WrongValueReturns401(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
 	assert.Equal(t, "header", capturedData.GetAuthMethod())
 	assert.Empty(t, hdr.verified.seen, "a rejected value must not be memoized")
+}
+
+// TestProtect_HeaderAuth_MatchesAnyConfiguredHeader covers a client that carries
+// a valid credential on one configured header while also sending an unrelated
+// value on another — an app-level Authorization alongside an API key, say.
+// Schemes OR across header names, so the valid credential admits the request no
+// matter which order the mapping happened to list the headers in.
+func TestProtect_HeaderAuth_MatchesAnyConfiguredHeader(t *testing.T) {
+	tests := []struct {
+		name        string
+		matchedLast bool
+	}{
+		{name: "unmatched header listed first", matchedLast: true},
+		{name: "matched header listed first", matchedLast: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mw := NewMiddleware(log.StandardLogger(), nil, nil)
+			kp := generateTestKeyPair(t)
+
+			authz := newHeaderScheme(t, "Authorization", "Bearer proxy-secret")
+			apiKey := newHeaderScheme(t, "X-Api-Key", "secret-key")
+			schemes := []Scheme{apiKey, authz}
+			if tt.matchedLast {
+				schemes = []Scheme{authz, apiKey}
+			}
+			require.NoError(t, mw.AddDomain("example.com", schemes, kp.PublicKey, time.Hour, "acc1", "svc1", nil, false))
+
+			var backendCalled bool
+			handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				backendCalled = true
+				w.WriteHeader(http.StatusOK)
+			}))
+
+			req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+			req.Header.Set("X-Api-Key", "secret-key")
+			req.Header.Set("Authorization", "Bearer app-level-token")
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			assert.True(t, backendCalled, "a valid credential on one header must admit the request")
+			assert.Equal(t, http.StatusOK, rec.Code)
+		})
+	}
+}
+
+// TestProtect_HeaderAuth_RejectsWhenEveryPresentedHeaderFails is the other half
+// of the OR: trying all schemes before rejecting must not turn into admitting a
+// request that satisfied none of them.
+func TestProtect_HeaderAuth_RejectsWhenEveryPresentedHeaderFails(t *testing.T) {
+	mw := NewMiddleware(log.StandardLogger(), nil, nil)
+	kp := generateTestKeyPair(t)
+
+	authz := newHeaderScheme(t, "Authorization", "Bearer proxy-secret")
+	apiKey := newHeaderScheme(t, "X-Api-Key", "secret-key")
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{authz, apiKey}, kp.PublicKey, time.Hour, "acc1", "svc1", nil, false))
+
+	var backendCalled bool
+	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		backendCalled = true
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	req.Header.Set("X-Api-Key", "wrong-key")
+	req.Header.Set("Authorization", "Bearer wrong-token")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.False(t, backendCalled)
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+}
+
+// TestProtect_HeaderAuth_ReportsUndecodableHash covers a stored hash the proxy
+// cannot decode. No credential can ever match it, so the header is permanently
+// unauthenticatable — an operator fault that has to surface loudly instead of
+// hiding behind the same quiet 401 a wrong credential earns.
+func TestProtect_HeaderAuth_ReportsUndecodableHash(t *testing.T) {
+	validHash, err := argon2id.Hash("secret-key")
+	require.NoError(t, err)
+
+	tests := []struct {
+		name       string
+		hashes     []string
+		wantErrLog bool
+	}{
+		{name: "stored hash cannot be decoded", hashes: []string{"$argon2id$v=19$garbage"}, wantErrLog: true},
+		{name: "wrong credential against a good hash", hashes: []string{validHash}, wantErrLog: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, hook := logtest.NewNullLogger()
+			logger.SetLevel(log.DebugLevel)
+			mw := NewMiddleware(logger, nil, nil)
+			kp := generateTestKeyPair(t)
+
+			require.NoError(t, mw.AddDomain("example.com", []Scheme{NewHeader("X-Api-Key", tt.hashes)},
+				kp.PublicKey, time.Hour, "acc1", "svc1", nil, false))
+
+			handler := mw.Protect(newPassthroughHandler())
+
+			req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+			req.Header.Set("X-Api-Key", "wrong-key")
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			require.Equal(t, http.StatusUnauthorized, rec.Code, "either way the request is denied")
+
+			var errored []string
+			for _, entry := range hook.AllEntries() {
+				if entry.Level == log.ErrorLevel {
+					errored = append(errored, entry.Message)
+				}
+			}
+
+			if !tt.wantErrLog {
+				assert.Empty(t, errored, "a wrong credential is not an operator fault")
+				return
+			}
+			require.Len(t, errored, 1, "an undecodable hash must be reported once")
+			assert.Contains(t, errored[0], "cannot be decoded")
+		})
+	}
 }
 
 // TestProtect_HeaderAuth_NoHashesFailsClosed covers a mapping that names a

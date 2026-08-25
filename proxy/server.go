@@ -2089,17 +2089,15 @@ func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping)
 
 // headerAuthSchemes builds one scheme per canonical header name, carrying every
 // hash configured for that name so any of them is accepted — the OR semantics
-// management applied while it still validated the credential itself. A name
-// whose entries arrive without a hash yields a scheme with none, which rejects
-// the header rather than leaving the service unprotected.
+// management applied while it still validated the credential itself. No entry is
+// ever dropped: a name that arrives blank, or without a hash, still yields a
+// scheme, because a mapping that lost its only scheme would fall through
+// Protect's no-schemes pass-through and serve the domain unauthenticated.
 func headerAuthSchemes(headerAuths []*proto.HeaderAuth) []auth.Scheme {
 	names := make([]string, 0, len(headerAuths))
 	hashes := make(map[string][]string, len(headerAuths))
 	for _, ha := range headerAuths {
 		name := http.CanonicalHeaderKey(ha.GetHeader())
-		if name == "" {
-			continue
-		}
 		if !slices.Contains(names, name) {
 			names = append(names, name)
 		}

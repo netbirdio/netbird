@@ -447,45 +447,43 @@ func isTunnelSourceIP(ip netip.Addr) bool {
 // forwardWithHeaderAuth checks for a Header auth scheme. If the header validates,
 // the request is forwarded directly (no redirect), which is important for API clients.
 func (mw *Middleware) forwardWithHeaderAuth(w http.ResponseWriter, r *http.Request, config DomainConfig, next http.Handler) bool {
+	var presented []string
 	for _, scheme := range config.Schemes {
 		hdr, ok := scheme.(Header)
 		if !ok {
 			continue
 		}
 
-		handled := mw.tryHeaderScheme(w, r, hdr, next)
-		if handled {
+		present, matched, unusable := hdr.Verify(r)
+		if matched {
+			if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
+				cd.SetUserID(auth.HeaderUserID)
+				cd.SetAuthMethod(auth.MethodHeader.String())
+			}
+			next.ServeHTTP(w, r)
 			return true
 		}
+		if unusable != nil {
+			mw.logger.WithFields(log.Fields{
+				"host":   r.Host,
+				"header": hdr.headerName,
+			}).WithError(unusable).Error("header auth: a configured hash cannot be decoded, so this header can never authenticate; re-save the service")
+		}
+		if present {
+			presented = append(presented, hdr.headerName)
+		}
 	}
-	return false
-}
 
-// tryHeaderScheme verifies the credential against the hashes the service
-// mapping carries. No session token is issued: the credential travels on
-// every request, so there is nothing for a cookie to save.
-func (mw *Middleware) tryHeaderScheme(w http.ResponseWriter, r *http.Request, hdr Header, next http.Handler) bool {
-	present, matched := hdr.Verify(r)
-	if !present {
+	if len(presented) == 0 {
 		return false
 	}
 
-	if !matched {
-		mw.logger.WithFields(log.Fields{
-			"host":   r.Host,
-			"header": hdr.headerName,
-		}).Debug("header auth rejected: value does not match any configured hash")
-		setHeaderCapturedData(r.Context(), "", "", nil, nil)
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return true
-	}
-
-	if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
-		cd.SetUserID(auth.HeaderUserID)
-		cd.SetAuthMethod(auth.MethodHeader.String())
-	}
-
-	next.ServeHTTP(w, r)
+	mw.logger.WithFields(log.Fields{
+		"host":    r.Host,
+		"headers": presented,
+	}).Debug("header auth rejected: no presented header matched a configured hash")
+	setHeaderCapturedData(r.Context(), "", "", nil, nil)
+	http.Error(w, "Unauthorized", http.StatusUnauthorized)
 	return true
 }
 

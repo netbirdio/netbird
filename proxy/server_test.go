@@ -221,7 +221,7 @@ func headerSchemeAccepts(t *testing.T, scheme auth.Scheme, headerName, value str
 
 	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
 	req.Header.Set(headerName, value)
-	_, matched := hdr.Verify(req)
+	_, matched, _ := hdr.Verify(req)
 	return matched
 }
 
@@ -255,6 +255,18 @@ func TestHeaderAuthSchemes_MissingHashFailsClosed(t *testing.T) {
 	require.Len(t, schemes, 1, "a header without a hash must still register a scheme")
 	assert.False(t, headerSchemeAccepts(t, schemes[0], "X-Api-Key", "anything"),
 		"a header auth without a hash must reject every value")
+}
+
+// TestHeaderAuthSchemes_BlankNameFailsClosed covers a mapping row whose header
+// name is empty. Skipping it would leave a service whose only auth is that entry
+// with no schemes at all, which Protect treats as an unprotected domain, so the
+// entry is kept and the domain stays gated.
+func TestHeaderAuthSchemes_BlankNameFailsClosed(t *testing.T) {
+	schemes := headerAuthSchemes([]*proto.HeaderAuth{{Header: "", HashedValue: "$argon2id$not-a-real-hash"}})
+
+	require.Len(t, schemes, 1, "a blank header name must still register a scheme")
+	assert.False(t, headerSchemeAccepts(t, schemes[0], "X-Api-Key", "anything"),
+		"a blank header auth must not admit any request")
 }
 
 type statusUpdateOnlyClient struct {

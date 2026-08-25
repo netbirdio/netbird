@@ -2,6 +2,7 @@ package auth
 
 import (
 	"crypto/sha256"
+	"errors"
 	"net/http"
 	"sync"
 
@@ -44,24 +45,33 @@ func (Header) Authenticate(*http.Request) (string, string, error) {
 
 // Verify reports whether the request carries the configured header and, when
 // it does, whether the value matches one of the service's hashes.
-func (h Header) Verify(r *http.Request) (present, matched bool) {
+//
+// A non-nil unusable is a diagnostic rather than a request error: a stored hash
+// could not be decoded, so no credential can ever match it and the header stays
+// unauthenticatable until the service is saved again. Folding that into an
+// ordinary mismatch would hide the misconfiguration behind a permanent 401.
+func (h Header) Verify(r *http.Request) (present, matched bool, unusable error) {
 	value := r.Header.Get(h.headerName)
 	if value == "" {
-		return false, false
+		return false, false, nil
 	}
 
 	digest := sha256.Sum256([]byte(value))
 	if h.verified.has(digest) {
-		return true, true
+		return true, true, nil
 	}
 
 	for _, hash := range h.hashes {
-		if argon2id.Verify(value, hash) == nil {
+		err := argon2id.Verify(value, hash)
+		if err == nil {
 			h.verified.add(digest)
-			return true, true
+			return true, true, nil
+		}
+		if !errors.Is(err, argon2id.ErrMismatchedHashAndPassword) {
+			unusable = err
 		}
 	}
-	return true, false
+	return true, false, unusable
 }
 
 // verifiedValues remembers which header values already passed argon2id
