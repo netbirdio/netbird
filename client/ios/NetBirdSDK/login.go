@@ -323,7 +323,7 @@ func (a *Auth) login(urlOpener URLOpener, forceDeviceAuth bool, deviceName strin
 const authInfoRequestTimeout = 30 * time.Second
 
 func (a *Auth) foregroundGetTokenInfo(authClient *auth.Auth, urlOpener URLOpener, forceDeviceAuth bool) (*auth.TokenInfo, error) {
-	oAuthFlow, err := authClient.GetOAuthFlow(a.ctx, forceDeviceAuth)
+	oAuthFlow, err := authClient.GetOAuthFlow(a.ctx, forceDeviceAuth, "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get OAuth flow: %v", err)
 	}
