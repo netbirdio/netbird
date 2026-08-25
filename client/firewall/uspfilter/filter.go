@@ -751,14 +751,6 @@ func (m *Manager) resetState() {
 	}
 }
 
-// SetupWGProxyNoTrack creates notrack rules for WireGuard proxy loopback traffic.
-func (m *Manager) SetupWGProxyNoTrack(proxyPort, wgPort uint16) error {
-	if m.nativeFirewall == nil {
-		return nil
-	}
-	return m.nativeFirewall.SetupWGProxyNoTrack(proxyPort, wgPort)
-}
-
 // UpdateSet updates the rule destinations associated with the given set
 // by merging the existing prefixes with the new ones, then deduplicating.
 func (m *Manager) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {

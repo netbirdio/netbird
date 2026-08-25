@@ -13,7 +13,6 @@ import (
 	"github.com/google/nftables/expr"
 	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
-	"golang.org/x/sys/unix"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/firewall/firewalld"
@@ -57,9 +56,6 @@ type Manager struct {
 	// IPv6 counterparts, nil when no v6 overlay
 	router6     *router
 	aclManager6 *AclManager
-
-	notrackOutputChain     *nftables.Chain
-	notrackPreroutingChain *nftables.Chain
 
 	extMonitor *externalChainMonitor
 }
@@ -202,8 +198,8 @@ func (m *Manager) initFirewall() (err error) {
 		}
 	}
 
-	if err := m.initNoTrackChains(workTable); err != nil {
-		log.Warnf("raw priority chains not available, notrack rules will be disabled: %v", err)
+	if err := m.cleanupNoTrackChains(); err != nil {
+		log.Debugf("cleanup notrack chains: %v", err)
 	}
 
 	return nil
@@ -556,10 +552,6 @@ func (m *Manager) Flush() error {
 		}
 	}
 
-	if err := m.refreshNoTrackChains(); err != nil {
-		log.Errorf("failed to refresh notrack chains: %v", err)
-	}
-
 	return nil
 }
 
@@ -672,189 +664,38 @@ func (m *Manager) RemoveOutputDNAT(localAddr netip.Addr, protocol firewall.Proto
 	return m.router.RemoveOutputDNAT(localAddr, protocol, originalPort, translatedPort)
 }
 
-// The proxy hands every relayed peer its own address out of 127.0.0.0/8, so the
-// notrack rules match the whole loopback range.
-var (
-	loopbackNet  = []byte{127, 0, 0, 0}
-	loopbackMask = []byte{255, 0, 0, 0}
-	loopbackXor  = []byte{0, 0, 0, 0}
-)
-
 const (
 	chainNameRawOutput     = "netbird-raw-out"
 	chainNameRawPrerouting = "netbird-raw-pre"
 )
 
-// SetupWGProxyNoTrack creates notrack rules for WireGuard proxy loopback traffic.
-// This prevents conntrack from tracking WireGuard proxy traffic on loopback, which
-// can interfere with MASQUERADE rules (e.g., from container runtimes like Podman/netavark).
-//
-// Every relayed peer has its own loopback endpoint address, so the rules match the
-// whole 127.0.0.0/8 range.
-//
-// Traffic flows that need NOTRACK:
-//
-//  1. Egress: WireGuard -> peer endpoint
-//     src=127.0.0.1:wgPort -> dst=127.x.x.x:proxyPort
-//     Matched by: sport=wgPort
-//
-//  2. Egress: Proxy -> WireGuard (via raw socket)
-//     src=127.x.x.x:proxyPort -> dst=127.0.0.1:wgPort
-//     Matched by: dport=wgPort
-//
-//  3. Ingress: Packets to WireGuard
-//     dst=127.0.0.1:wgPort
-//     Matched by: dport=wgPort
-//
-//  4. Ingress: Packets to the proxy
-//     dst=127.x.x.x:proxyPort
-//     Matched by: dport=proxyPort
-//
-// Rules are cleaned up when the firewall manager is closed.
-func (m *Manager) SetupWGProxyNoTrack(proxyPort, wgPort uint16) error {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-
-	if m.notrackOutputChain == nil || m.notrackPreroutingChain == nil {
-		return fmt.Errorf("notrack chains not initialized")
-	}
-
-	proxyPortBytes := binaryutil.BigEndian.PutUint16(proxyPort)
-	wgPortBytes := binaryutil.BigEndian.PutUint16(wgPort)
-
-	// Egress rules: match outgoing loopback UDP packets
-	m.rConn.AddRule(&nftables.Rule{
-		Table: m.notrackOutputChain.Table,
-		Chain: m.notrackOutputChain,
-		Exprs: []expr.Any{
-			&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
-			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: ifname("lo")},
-			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 12, Len: 4}, // saddr
-			&expr.Bitwise{SourceRegister: 1, DestRegister: 1, Len: 4, Mask: loopbackMask, Xor: loopbackXor},
-			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: loopbackNet},
-			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 16, Len: 4}, // daddr
-			&expr.Bitwise{SourceRegister: 1, DestRegister: 1, Len: 4, Mask: loopbackMask, Xor: loopbackXor},
-			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: loopbackNet},
-			&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
-			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{unix.IPPROTO_UDP}},
-			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseTransportHeader, Offset: 0, Len: 2},
-			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: wgPortBytes}, // sport=wgPort
-			&expr.Counter{},
-			&expr.Notrack{},
-		},
-	})
-	m.rConn.AddRule(&nftables.Rule{
-		Table: m.notrackOutputChain.Table,
-		Chain: m.notrackOutputChain,
-		Exprs: []expr.Any{
-			&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
-			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: ifname("lo")},
-			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 12, Len: 4}, // saddr
-			&expr.Bitwise{SourceRegister: 1, DestRegister: 1, Len: 4, Mask: loopbackMask, Xor: loopbackXor},
-			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: loopbackNet},
-			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 16, Len: 4}, // daddr
-			&expr.Bitwise{SourceRegister: 1, DestRegister: 1, Len: 4, Mask: loopbackMask, Xor: loopbackXor},
-			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: loopbackNet},
-			&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
-			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{unix.IPPROTO_UDP}},
-			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseTransportHeader, Offset: 2, Len: 2},
-			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: wgPortBytes}, // dport=wgPort
-			&expr.Counter{},
-			&expr.Notrack{},
-		},
-	})
-
-	// Ingress rules: match incoming loopback UDP packets
-	m.rConn.AddRule(&nftables.Rule{
-		Table: m.notrackPreroutingChain.Table,
-		Chain: m.notrackPreroutingChain,
-		Exprs: []expr.Any{
-			&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
-			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: ifname("lo")},
-			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 12, Len: 4}, // saddr
-			&expr.Bitwise{SourceRegister: 1, DestRegister: 1, Len: 4, Mask: loopbackMask, Xor: loopbackXor},
-			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: loopbackNet},
-			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 16, Len: 4}, // daddr
-			&expr.Bitwise{SourceRegister: 1, DestRegister: 1, Len: 4, Mask: loopbackMask, Xor: loopbackXor},
-			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: loopbackNet},
-			&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
-			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{unix.IPPROTO_UDP}},
-			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseTransportHeader, Offset: 2, Len: 2},
-			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: wgPortBytes}, // dport=wgPort
-			&expr.Counter{},
-			&expr.Notrack{},
-		},
-	})
-	m.rConn.AddRule(&nftables.Rule{
-		Table: m.notrackPreroutingChain.Table,
-		Chain: m.notrackPreroutingChain,
-		Exprs: []expr.Any{
-			&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
-			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: ifname("lo")},
-			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 12, Len: 4}, // saddr
-			&expr.Bitwise{SourceRegister: 1, DestRegister: 1, Len: 4, Mask: loopbackMask, Xor: loopbackXor},
-			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: loopbackNet},
-			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 16, Len: 4}, // daddr
-			&expr.Bitwise{SourceRegister: 1, DestRegister: 1, Len: 4, Mask: loopbackMask, Xor: loopbackXor},
-			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: loopbackNet},
-			&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
-			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{unix.IPPROTO_UDP}},
-			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseTransportHeader, Offset: 2, Len: 2},
-			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: proxyPortBytes}, // dport=proxyPort
-			&expr.Counter{},
-			&expr.Notrack{},
-		},
-	})
-
-	if err := m.rConn.Flush(); err != nil {
-		return fmt.Errorf("flush notrack rules: %w", err)
-	}
-
-	log.Debugf("set up wg proxy notrack rules for ports %d,%d", proxyPort, wgPort)
-	return nil
-}
-
-func (m *Manager) initNoTrackChains(table *nftables.Table) error {
-	m.notrackOutputChain = m.rConn.AddChain(&nftables.Chain{
-		Name:     chainNameRawOutput,
-		Table:    table,
-		Type:     nftables.ChainTypeFilter,
-		Hooknum:  nftables.ChainHookOutput,
-		Priority: nftables.ChainPriorityRaw,
-	})
-
-	m.notrackPreroutingChain = m.rConn.AddChain(&nftables.Chain{
-		Name:     chainNameRawPrerouting,
-		Table:    table,
-		Type:     nftables.ChainTypeFilter,
-		Hooknum:  nftables.ChainHookPrerouting,
-		Priority: nftables.ChainPriorityRaw,
-	})
-
-	if err := m.rConn.Flush(); err != nil {
-		return fmt.Errorf("flush chain creation: %w", err)
-	}
-
-	return nil
-}
-
-func (m *Manager) refreshNoTrackChains() error {
+// cleanupNoTrackChains removes the chains that earlier versions used to exempt
+// the WireGuard proxy's loopback traffic from connection tracking.
+func (m *Manager) cleanupNoTrackChains() error {
 	chains, err := m.rConn.ListChainsOfTableFamily(nftables.TableFamilyIPv4)
 	if err != nil {
 		return fmt.Errorf("list chains: %w", err)
 	}
 
 	tableName := getTableName()
+	var found bool
 	for _, c := range chains {
 		if c.Table.Name != tableName {
 			continue
 		}
-		switch c.Name {
-		case chainNameRawOutput:
-			m.notrackOutputChain = c
-		case chainNameRawPrerouting:
-			m.notrackPreroutingChain = c
+		if c.Name != chainNameRawOutput && c.Name != chainNameRawPrerouting {
+			continue
 		}
+		m.rConn.DelChain(c)
+		found = true
+	}
+
+	if !found {
+		return nil
+	}
+
+	if err := m.rConn.Flush(); err != nil {
+		return fmt.Errorf("flush chain removal: %w", err)
 	}
 
 	return nil

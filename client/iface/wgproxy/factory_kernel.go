@@ -55,14 +55,6 @@ func (w *KernelFactory) GetProxy() Proxy {
 	return loopback.NewProxyWrapper(w.loopbackProxy)
 }
 
-// GetProxyPort returns the loopback proxy port, or 0 if the kernel proxy is not active.
-func (w *KernelFactory) GetProxyPort() uint16 {
-	if w.loopbackProxy == nil {
-		return 0
-	}
-	return w.loopbackProxy.GetProxyPort()
-}
-
 func (w *KernelFactory) Free() error {
 	if w.loopbackProxy == nil {
 		return nil

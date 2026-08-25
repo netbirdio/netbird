@@ -28,10 +28,9 @@ type Manager struct {
 
 	wgIface iFaceMapper
 
-	ipv4Client   *iptables.IPTables
-	aclMgr       *aclManager
-	router       *router
-	rawSupported bool
+	ipv4Client *iptables.IPTables
+	aclMgr     *aclManager
+	router     *router
 
 	// IPv6 counterparts, nil when no v6 overlay
 	ipv6Client *iptables.IPTables
@@ -121,8 +120,8 @@ func (m *Manager) Init(stateManager *statemanager.Manager) error {
 		return err
 	}
 
-	if err := m.initNoTrackChain(); err != nil {
-		log.Warnf("raw table not available, notrack rules will be disabled: %v", err)
+	if err := m.cleanupNoTrackChain(); err != nil {
+		log.Debugf("cleanup notrack chain: %v", err)
 	}
 
 	// Trust after all fatal init steps so a later failure doesn't leave the
@@ -524,110 +523,12 @@ const (
 	tableRaw     = "raw"
 )
 
-// SetupWGProxyNoTrack creates notrack rules for WireGuard proxy loopback traffic.
-// This prevents conntrack from tracking WireGuard proxy traffic on loopback, which
-// can interfere with MASQUERADE rules (e.g., from container runtimes like Podman/netavark).
-//
-// Every relayed peer has its own loopback endpoint address, so the rules match the
-// whole 127.0.0.0/8 range.
-//
-// Traffic flows that need NOTRACK:
-//
-//  1. Egress: WireGuard -> peer endpoint
-//     src=127.0.0.1:wgPort -> dst=127.x.x.x:proxyPort
-//     Matched by: sport=wgPort
-//
-//  2. Egress: Proxy -> WireGuard (via raw socket)
-//     src=127.x.x.x:proxyPort -> dst=127.0.0.1:wgPort
-//     Matched by: dport=wgPort
-//
-//  3. Ingress: Packets to WireGuard
-//     dst=127.0.0.1:wgPort
-//     Matched by: dport=wgPort
-//
-//  4. Ingress: Packets to the proxy
-//     dst=127.x.x.x:proxyPort
-//     Matched by: dport=proxyPort
-//
-// Rules are cleaned up when the firewall manager is closed.
-func (m *Manager) SetupWGProxyNoTrack(proxyPort, wgPort uint16) error {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-
-	if !m.rawSupported {
-		return fmt.Errorf("raw table not available")
-	}
-
-	wgPortStr := fmt.Sprintf("%d", wgPort)
-	proxyPortStr := fmt.Sprintf("%d", proxyPort)
-
-	// Egress rules: match outgoing loopback UDP packets
-	outputRuleSport := []string{"-o", "lo", "-s", "127.0.0.0/8", "-d", "127.0.0.0/8", "-p", "udp", "--sport", wgPortStr, "-j", "NOTRACK"}
-	if err := m.ipv4Client.AppendUnique(tableRaw, chainNameRaw, outputRuleSport...); err != nil {
-		return fmt.Errorf("add output sport notrack rule: %w", err)
-	}
-
-	outputRuleDport := []string{"-o", "lo", "-s", "127.0.0.0/8", "-d", "127.0.0.0/8", "-p", "udp", "--dport", wgPortStr, "-j", "NOTRACK"}
-	if err := m.ipv4Client.AppendUnique(tableRaw, chainNameRaw, outputRuleDport...); err != nil {
-		return fmt.Errorf("add output dport notrack rule: %w", err)
-	}
-
-	// Ingress rules: match incoming loopback UDP packets
-	preroutingRuleWg := []string{"-i", "lo", "-s", "127.0.0.0/8", "-d", "127.0.0.0/8", "-p", "udp", "--dport", wgPortStr, "-j", "NOTRACK"}
-	if err := m.ipv4Client.AppendUnique(tableRaw, chainNameRaw, preroutingRuleWg...); err != nil {
-		return fmt.Errorf("add prerouting wg notrack rule: %w", err)
-	}
-
-	preroutingRuleProxy := []string{"-i", "lo", "-s", "127.0.0.0/8", "-d", "127.0.0.0/8", "-p", "udp", "--dport", proxyPortStr, "-j", "NOTRACK"}
-	if err := m.ipv4Client.AppendUnique(tableRaw, chainNameRaw, preroutingRuleProxy...); err != nil {
-		return fmt.Errorf("add prerouting proxy notrack rule: %w", err)
-	}
-
-	log.Debugf("set up wg proxy notrack rules for ports %d,%d", proxyPort, wgPort)
-	return nil
-}
-
-func (m *Manager) initNoTrackChain() error {
-	if err := m.cleanupNoTrackChain(); err != nil {
-		log.Debugf("cleanup notrack chain: %v", err)
-	}
-
-	if err := m.ipv4Client.NewChain(tableRaw, chainNameRaw); err != nil {
-		return fmt.Errorf("create chain: %w", err)
-	}
-
-	jumpRule := []string{"-j", chainNameRaw}
-
-	if err := m.ipv4Client.InsertUnique(tableRaw, chainOUTPUT, 1, jumpRule...); err != nil {
-		if delErr := m.ipv4Client.DeleteChain(tableRaw, chainNameRaw); delErr != nil {
-			log.Debugf("delete orphan chain: %v", delErr)
-		}
-		return fmt.Errorf("add output jump rule: %w", err)
-	}
-
-	if err := m.ipv4Client.InsertUnique(tableRaw, chainPREROUTING, 1, jumpRule...); err != nil {
-		if delErr := m.ipv4Client.DeleteIfExists(tableRaw, chainOUTPUT, jumpRule...); delErr != nil {
-			log.Debugf("delete output jump rule: %v", delErr)
-		}
-		if delErr := m.ipv4Client.DeleteChain(tableRaw, chainNameRaw); delErr != nil {
-			log.Debugf("delete orphan chain: %v", delErr)
-		}
-		return fmt.Errorf("add prerouting jump rule: %w", err)
-	}
-
-	m.rawSupported = true
-	return nil
-}
-
+// cleanupNoTrackChain removes the chain that earlier versions used to exempt the
+// WireGuard proxy's loopback traffic from connection tracking. The raw table is
+// not always available, so a lookup failure is not an error here.
 func (m *Manager) cleanupNoTrackChain() error {
 	exists, err := m.ipv4Client.ChainExists(tableRaw, chainNameRaw)
-	if err != nil {
-		if !m.rawSupported {
-			return nil
-		}
-		return fmt.Errorf("check chain exists: %w", err)
-	}
-	if !exists {
+	if err != nil || !exists {
 		return nil
 	}
 
@@ -645,7 +546,6 @@ func (m *Manager) cleanupNoTrackChain() error {
 		return fmt.Errorf("clear and delete chain: %w", err)
 	}
 
-	m.rawSupported = false
 	return nil
 }
 

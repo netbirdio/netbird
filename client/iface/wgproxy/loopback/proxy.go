@@ -197,10 +197,6 @@ func (p *Proxy) Free() error {
 	return nberrors.FormatErrorOrNil(result)
 }
 
-// GetProxyPort returns the port every peer endpoint address is reached on.
-func (p *Proxy) GetProxyPort() uint16 {
-	return uint16(p.proxyPort)
-}
 
 // proxyToRemote reads packets from the local WireGuard instance and forwards
 // them to the relayed connection the destination address belongs to.
