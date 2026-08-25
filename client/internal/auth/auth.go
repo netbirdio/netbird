@@ -147,7 +147,7 @@ func (a *Auth) IsSSOSupported(ctx context.Context) (bool, error) {
 
 // GetOAuthFlow returns an OAuth flow (PKCE or Device) using the existing management connection
 // This avoids creating a new connection to the management server
-func (a *Auth) GetOAuthFlow(ctx context.Context, forceDeviceAuth bool) (OAuthFlow, error) {
+func (a *Auth) GetOAuthFlow(ctx context.Context, forceDeviceAuth bool, hint string) (OAuthFlow, error) {
 	var flow OAuthFlow
 
 	// the connection is owned by a and outlives this call, so a later fallback reuses it
@@ -157,7 +157,7 @@ func (a *Auth) GetOAuthFlow(ctx context.Context, forceDeviceAuth bool) (OAuthFlo
 
 	err := a.withRetry(ctx, func(client *mgm.GrpcClient) error {
 		var err error
-		flow, err = oauthFlowWithFallback(a, client, flowOrder(forceDeviceAuth, true), "", newAuth)
+		flow, err = oauthFlowWithFallback(a, client, flowOrder(forceDeviceAuth, true), hint, newAuth)
 
 		if IsSSOUnavailable(err) {
 			return backoff.Permanent(err)

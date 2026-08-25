@@ -101,7 +101,7 @@ func (m *Manager) Start(fwdEntries []*ForwarderEntry) error {
 	m.dnsForwarder = NewDNSForwarder(listenAddress, dnsTTL, m.firewall, m.statusRecorder, m.wgIface)
 
 	go func() {
-		if err := m.dnsForwarder.Listen(fwdEntries); err != nil {
+		if err := m.dnsForwarder.Listen(fwdEntries); err != nil { //nolint:staticcheck
 			// todo handle close error if it is exists
 			log.Errorf("failed to start DNS forwarder, err: %v", err)
 		}
