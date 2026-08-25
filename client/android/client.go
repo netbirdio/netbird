@@ -113,8 +113,9 @@ type Client struct {
 
 	// The file drop handle survives engine restarts so the UI keeps one listener
 	// registration and one history view across reconnects. See fileDropFor.
-	fileDropMu sync.Mutex
-	fileDrop   *FileDrop
+	fileDropMu   sync.Mutex
+	fileDrop     *FileDrop
+	fileDropSink FileDropSink
 }
 
 func (c *Client) setState(cfg *profilemanager.Config, cacheDir string, cfgPath string, cc *internal.ConnectClient) {

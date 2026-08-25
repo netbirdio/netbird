@@ -10,6 +10,15 @@ import (
 	"github.com/netbirdio/netbird/client/internal"
 )
 
+// SetFileDropSink installs the platform sink incoming payloads are staged
+// through. It takes effect on the next handle the client opens, so the platform
+// sets it before asking for one.
+func (c *Client) SetFileDropSink(sink FileDropSink) {
+	c.fileDropMu.Lock()
+	defer c.fileDropMu.Unlock()
+	c.fileDropSink = sink
+}
+
 // FileDrop returns the handle of the active profile, creating it on first use.
 // The UI calls this to list transfers and change settings while disconnected.
 func (c *Client) FileDrop(configDir string) (*FileDrop, error) {
@@ -32,7 +41,7 @@ func (c *Client) fileDropFor(configDir, profileID string) (*FileDrop, error) {
 		return fd, nil
 	}
 
-	fd, err := NewFileDrop(configDir, profileID)
+	fd, err := NewFileDrop(configDir, profileID, c.fileDropSink)
 	if err != nil {
 		c.fileDropMu.Unlock()
 		return nil, err

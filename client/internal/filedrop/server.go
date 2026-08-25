@@ -35,9 +35,12 @@ type Notifier interface {
 	OnWithdrawn(offer Offer)
 }
 
-// ServerConfig configures the receiving side.
+// ServerConfig configures the receiving side. Sink overrides the filesystem
+// spool, for a platform that stages payloads somewhere the engine cannot
+// address; SpoolDir is then unused.
 type ServerConfig struct {
 	SpoolDir    string
+	Sink        Sink
 	Policy      *PolicyStore
 	Resolver    PeerResolver
 	Notifier    Notifier
@@ -70,9 +73,13 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		return nil, errors.New("receiving policy is required")
 	}
 
-	spool, err := NewSpool(cfg.SpoolDir)
-	if err != nil {
-		return nil, fmt.Errorf("create spool: %w", err)
+	spool := cfg.Sink
+	if spool == nil {
+		fsSpool, err := NewSpool(cfg.SpoolDir)
+		if err != nil {
+			return nil, fmt.Errorf("create spool: %w", err)
+		}
+		spool = fsSpool
 	}
 
 	maxAge := cfg.SpoolMaxAge
@@ -96,8 +103,15 @@ func (s *Server) Offers() *OfferStore {
 }
 
 // Spool returns the staging area, so the platform layer can deliver completed payloads.
-func (s *Server) Spool() *Spool {
+func (s *Server) Spool() Sink {
 	return s.recv.spool
+}
+
+// FileSpool returns the staging area as a filesystem spool, nil when the
+// platform staged payloads elsewhere.
+func (s *Server) FileSpool() *Spool {
+	spool, _ := s.recv.spool.(*Spool)
+	return spool
 }
 
 // Policy returns the active profile's receiving policy store.

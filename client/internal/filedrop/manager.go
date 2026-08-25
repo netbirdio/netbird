@@ -50,6 +50,7 @@ type ManagerConfig struct {
 	Store    Store
 	Events   EventSink
 	OfferTTL time.Duration
+	Sink     Sink
 }
 
 type sendHandle struct {
@@ -69,6 +70,7 @@ type Manager struct {
 	history  *History
 	events   EventSink
 	offerTTL time.Duration
+	sink     Sink
 
 	server     *Server
 	ports      *PortRegistry
@@ -95,6 +97,7 @@ func NewManager(cfg ManagerConfig) (*Manager, error) {
 		history:  LoadHistory(cfg.Store),
 		events:   cfg.Events,
 		offerTTL: cfg.OfferTTL,
+		sink:     cfg.Sink,
 		ports:    NewPortRegistry(),
 		sends:    make(map[OfferID]*sendHandle),
 	}
@@ -141,8 +144,13 @@ func (m *Manager) DeleteTransfer(id OfferID) {
 	m.history.Delete(id)
 }
 
-// DestinationDir returns the directory received files are delivered to.
+// DestinationDir returns where received files are delivered: the platform
+// sink's own name for it when one stages payloads, otherwise the configured
+// directory.
 func (m *Manager) DestinationDir() string {
+	if labeller, ok := m.sink.(interface{ DestinationLabel() string }); ok {
+		return labeller.DestinationLabel()
+	}
 	return m.policy.DestinationDir()
 }
 
@@ -162,6 +170,7 @@ func (m *Manager) StartReceiver(ctx context.Context, addr netip.AddrPort, netsta
 
 	server, err := NewServer(ServerConfig{
 		SpoolDir: filepath.Join(m.dataDir, "spool"),
+		Sink:     m.sink,
 		Policy:   m.policy,
 		Resolver: resolver,
 		Notifier: m,
@@ -577,9 +586,12 @@ func (m *Manager) OnCompleted(offer Offer) {
 		return
 	}
 
-	delivered, err := deliver(server.Spool(), offer, m.policy.DestinationDir())
+	delivered, err := server.Spool().Deliver(offer, m.policy.DestinationDir())
 	if err != nil {
 		log.Errorf("failed to deliver file drop payloads: %v", err)
+		// Nothing will ask for these payloads again, and a sink that cannot
+		// address them by path has no sweep of its own to fall back on.
+		server.Spool().Remove(offer.ID)
 		m.finishTransfer(offer.ID, StateFailed, err.Error())
 		m.emit(EventFailed, m.transferOf(offer.ID))
 		return

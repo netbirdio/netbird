@@ -27,11 +27,11 @@ type receiver struct {
 	resolver    PeerResolver
 	notifier    Notifier
 	offers      *OfferStore
-	spool       *Spool
+	spool       Sink
 	spoolMaxAge time.Duration
 }
 
-func newReceiver(cfg ServerConfig, spool *Spool, maxAge time.Duration) *receiver {
+func newReceiver(cfg ServerConfig, spool Sink, maxAge time.Duration) *receiver {
 	return &receiver{
 		policy:      cfg.Policy,
 		resolver:    cfg.Resolver,
@@ -162,7 +162,7 @@ func (r *receiver) upload(sender senderIdentity, id OfferID, index int, offset i
 		},
 	}
 
-	received, err := r.spool.Write(id, index, offset, staged, size)
+	received, err := r.spool.Write(id, index, offer.Files[index].Name, offset, staged, size)
 
 	// A withdrawn offer is an answer, not a failure: the state it moved to is
 	// the one the user chose, and the spool is already gone.

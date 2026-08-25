@@ -61,8 +61,10 @@ func (s *Spool) Received(id OfferID, index int) (int64, error) {
 	return info.Size(), nil
 }
 
-// Write appends the payload at offset, truncating any bytes past it first.
-func (s *Spool) Write(id OfferID, index int, offset int64, r io.Reader, limit int64) (int64, error) {
+// Write appends the payload at offset, truncating any bytes past it first. The
+// announced name plays no part: payloads are staged under their index and only
+// take their name in Deliver.
+func (s *Spool) Write(id OfferID, index int, _ string, offset int64, r io.Reader, limit int64) (int64, error) {
 	if offset < 0 {
 		return 0, fmt.Errorf("negative offset %d", offset)
 	}
@@ -90,6 +92,12 @@ func (s *Spool) Write(id OfferID, index int, offset int64, r io.Reader, limit in
 		return offset + written, fmt.Errorf("write spool file: %w", err)
 	}
 	return offset + written, nil
+}
+
+// Deliver moves an offer's staged payloads into destDir under their announced
+// names and returns where each one landed.
+func (s *Spool) Deliver(offer Offer, destDir string) ([]string, error) {
+	return deliver(s, offer, destDir)
 }
 
 // Path returns the staged path of one item for the platform layer to deliver from.

@@ -28,8 +28,10 @@ type FileDrop struct {
 	listener  FileDropListener
 }
 
-// NewFileDrop opens the file drop state of the given profile.
-func NewFileDrop(configDir, profileID string) (*FileDrop, error) {
+// NewFileDrop opens the file drop state of the given profile. A nil sink leaves
+// payloads staged and delivered on the filesystem, under the destination
+// directory the policy names.
+func NewFileDrop(configDir, profileID string, sink FileDropSink) (*FileDrop, error) {
 	if configDir == "" || profileID == "" {
 		return nil, errors.New("file drop requires a config dir and profile ID")
 	}
@@ -39,12 +41,21 @@ func NewFileDrop(configDir, profileID string) (*FileDrop, error) {
 		return nil, err
 	}
 
+	var platformSink filedrop.Sink
+	if sink != nil {
+		platformSink, err = filedrop.NewPlatformSink(newPlatformSinkAdapter(sink))
+		if err != nil {
+			return nil, fmt.Errorf("wrap file drop sink: %w", err)
+		}
+	}
+
 	fd := &FileDrop{configDir: configDir, profileID: profileID}
 	manager, err := filedrop.NewManager(filedrop.ManagerConfig{
 		Profile: profilemanager.ID(profileID),
 		DataDir: filepath.Join(configDir, filedropDataSubdir, profileID),
 		Store:   filedrop.NewProfileStore(prefs.prefs),
 		Events:  fd.publish,
+		Sink:    platformSink,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create file drop manager: %w", err)

@@ -166,7 +166,7 @@ func TestAutoAcceptTransfersPayload(t *testing.T) {
 
 	assert.Equal(t, int64(len(content)), lastSent, "progress must reach the full payload size")
 
-	staged, err := os.ReadFile(srv.Spool().Path(id, 0))
+	staged, err := os.ReadFile(srv.FileSpool().Path(id, 0))
 	require.NoError(t, err)
 	assert.Equal(t, content, staged, "staged bytes should match what was sent")
 
@@ -200,7 +200,7 @@ func TestAskModeAcceptReleasesUpload(t *testing.T) {
 	id, err := client.Send(context.Background(), testAddr, []Payload{payload}, nil)
 	require.NoError(t, err)
 
-	staged, err := os.ReadFile(srv.Spool().Path(id, 0))
+	staged, err := os.ReadFile(srv.FileSpool().Path(id, 0))
 	require.NoError(t, err)
 	assert.Equal(t, content, staged, "payload should arrive after acceptance")
 
@@ -226,7 +226,7 @@ func TestAskModeDeclineKeepsPayloadOut(t *testing.T) {
 	id, err := client.Send(context.Background(), testAddr, []Payload{filePayload(t, "x.bin", []byte("data"))}, nil)
 	require.ErrorIs(t, err, ErrDeclined, "sender must see the decline")
 
-	_, statErr := os.Stat(srv.Spool().Path(id, 0))
+	_, statErr := os.Stat(srv.FileSpool().Path(id, 0))
 	assert.True(t, os.IsNotExist(statErr), "declined payload must never be staged")
 }
 
@@ -257,7 +257,7 @@ func TestUploadResumesFromConfirmedOffset(t *testing.T) {
 	require.NoError(t, srv.Spool().Prepare(offer.ID))
 
 	half := int64(len(content) / 2)
-	_, err := srv.Spool().Write(offer.ID, 0, 0, strings.NewReader(string(content[:half])), half)
+	_, err := srv.Spool().Write(offer.ID, 0, "", 0, strings.NewReader(string(content[:half])), half)
 	require.NoError(t, err)
 
 	srv.mu.RLock()
@@ -270,7 +270,7 @@ func TestUploadResumesFromConfirmedOffset(t *testing.T) {
 
 	require.NoError(t, client.putFile(context.Background(), base, offer.ID, 0, payload, confirmed, nil))
 
-	staged, err := os.ReadFile(srv.Spool().Path(offer.ID, 0))
+	staged, err := os.ReadFile(srv.FileSpool().Path(offer.ID, 0))
 	require.NoError(t, err)
 	assert.Equal(t, content, staged, "resumed upload must reconstruct the full payload")
 }
@@ -302,7 +302,7 @@ func TestUploadIsBoundedByAnnouncedSize(t *testing.T) {
 	_, err = io.ReadAll(conn)
 	require.NoError(t, err)
 
-	staged, err := os.ReadFile(srv.Spool().Path(offer.ID, 0))
+	staged, err := os.ReadFile(srv.FileSpool().Path(offer.ID, 0))
 	require.NoError(t, err)
 	assert.Len(t, staged, int(announced), "staged size must be capped at the announced size")
 }
@@ -349,7 +349,7 @@ func TestTextPayloadStaysInline(t *testing.T) {
 	assert.Equal(t, "hello peer", offer.Files[0].Text, "text must arrive in the offer itself")
 	assert.Equal(t, StateCompleted, offer.State, "a text-only offer completes without an upload")
 
-	_, statErr := os.Stat(srv.Spool().Path(id, 0))
+	_, statErr := os.Stat(srv.FileSpool().Path(id, 0))
 	assert.True(t, os.IsNotExist(statErr), "text payloads must not be written to the spool")
 }
 
@@ -583,10 +583,10 @@ func TestSpoolWriteTruncatesStaleTail(t *testing.T) {
 	id := OfferID("offer")
 	require.NoError(t, spool.Prepare(id))
 
-	_, err = spool.Write(id, 0, 0, strings.NewReader("AAAAAAAAAA"), 10)
+	_, err = spool.Write(id, 0, "", 0, strings.NewReader("AAAAAAAAAA"), 10)
 	require.NoError(t, err)
 
-	total, err := spool.Write(id, 0, 2, strings.NewReader("BB"), 10)
+	total, err := spool.Write(id, 0, "", 2, strings.NewReader("BB"), 10)
 	require.NoError(t, err)
 	assert.Equal(t, int64(4), total, "staged size follows the resumed write")
 
