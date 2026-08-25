@@ -1,0 +1,41 @@
+# Command-line flags override environment variables, which override this file.
+listenAddress: ":443"
+id: "proxy-1"
+domain: "proxy.example.com"
+managementAddress: "https://api.netbird.io:443"
+proxyToken: "replace-with-a-proxy-token"
+
+certificateDirectory: "/var/lib/netbird/certs"
+certificateFile: "tls.crt"
+certificateKeyFile: "tls.key"
+generateACMECertificates: true
+acmeChallengeAddress: ":80"
+acmeDirectory: "https://acme-v02.api.letsencrypt.org/directory"
+acmeEABKID: ""
+acmeEABHMACKey: ""
+acmeChallengeType: "tls-alpn-01"
+certLockMethod: "auto"
+wildcardCertDir: ""
+
+debugEndpointEnabled: false
+debugEndpointAddress: "localhost:8444"
+healthAddress: "localhost:8080"
+forwardedProto: "auto"
+trustedProxies: ""
+wireguardPort: 0
+proxyProtocol: false
+preSharedKey: ""
+supportsCustomPorts: true
+requireSubdomain: false
+private: false
+maxDialTimeout: "0s"
+maxSessionIdleTimeout: "0s"
+mappingBatchWatchdog: "0s"
+geoDataDir: "/var/lib/netbird/geolocation"
+crowdSecAPIURL: ""
+crowdSecAPIKey: ""
+logLevel: "info"
+
+# Optional tunnel memory and throughput tuning.
+# preallocatedBuffers: 4096
+# maxBatchSize: 128

@@ -10,6 +10,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestExampleConfig(t *testing.T) {
+	require.NoError(t, rootCmd.ParseFlags(nil))
+	cfg, err := loadConfig(rootCmd, filepath.Join("..", "..", "..", "config.example.yaml"))
+	require.NoError(t, err)
+	assert.Equal(t, "proxy.example.com", cfg.ProxyURL, "Example config should load")
+}
+
 func TestLoadConfigPrecedence(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "proxy.yaml")
 	require.NoError(t, os.WriteFile(configPath, []byte(`

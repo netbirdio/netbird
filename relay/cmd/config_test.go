@@ -9,6 +9,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestExampleConfig(t *testing.T) {
+	require.NoError(t, rootCmd.ParseFlags(nil))
+	oldConfigPath := configPath
+	configPath = filepath.Join("..", "config.example.yaml")
+	t.Cleanup(func() {
+		configPath = oldConfigPath
+	})
+
+	cfg, err := loadConfig(rootCmd)
+	require.NoError(t, err)
+	assert.Equal(t, "rels://relay.example.com:443", cfg.ExposedAddress, "Example config should load")
+	assert.True(t, cfg.EnableSTUN, "Example config should enable STUN")
+}
+
 func TestLoadConfigPrecedence(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "relay.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(`

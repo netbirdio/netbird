@@ -9,6 +9,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestExampleConfig(t *testing.T) {
+	require.NoError(t, runCmd.ParseFlags(nil))
+	cfg, err := loadConfig(runCmd, filepath.Join("..", "config.example.yaml"))
+	require.NoError(t, err)
+	assert.Equal(t, "/etc/netbird/tls.crt", cfg.CertFile, "Example config should load")
+}
+
 func TestLoadConfigPrecedence(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "signal.yaml")
 	require.NoError(t, os.WriteFile(configPath, []byte(`
