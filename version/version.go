@@ -13,6 +13,14 @@ import (
 // string, so it must not change without coordinating those consumers.
 const DevelopmentVersion = "development"
 
+// CIVersionPrefix marks CI snapshot builds (e.g. "ci-7470fbdd"). Such builds
+// are treated as development versions by IsDevelopmentVersion.
+const CIVersionPrefix = "ci-"
+
+// DevVersionPrefix marks dev snapshot builds (e.g. "dev-7470fbdd"). Such builds
+// are treated as development versions by IsDevelopmentVersion.
+const DevVersionPrefix = "dev-"
+
 // will be replaced with the release version when using goreleaser
 var version = DevelopmentVersion
 
@@ -63,14 +71,41 @@ func NetbirdCommit() string {
 	return revision
 }
 
+// sanitizeVersion removes anything after the pre-release tag (e.g., "-dev", "-alpha", etc.)
+func sanitizeVersion(version string) string {
+	parts := strings.Split(version, "-")
+	return parts[0]
+}
+
+// MeetsMinVersion checks if the peer's version meets or exceeds the minimum required version
+func MeetsMinVersion(minVer, peerVer string) (bool, error) {
+	peerVer = sanitizeVersion(peerVer)
+	minVer = sanitizeVersion(minVer)
+
+	peerNBVer, err := v.NewVersion(peerVer)
+	if err != nil {
+		return false, err
+	}
+
+	constraints, err := v.NewConstraint(">= " + minVer)
+	if err != nil {
+		return false, err
+	}
+
+	return constraints.Check(peerNBVer), nil
+}
+
 // IsDevelopmentVersion reports whether the given version string identifies
 // a non-release / development build. It is the single source of truth for
 // "is this a dev build" checks across the codebase; use it instead of
 // comparing against the "development" literal or ad-hoc substring checks.
 //
 // Matches the bare DevelopmentVersion constant as well as any future
-// extension such as "development-<sha>" or "development-<sha>-dirty",
-// while excluding tagged prereleases like "v0.31.1-dev".
+// extension such as "development-<sha>" or "development-<sha>-dirty", and
+// CI/dev snapshot builds prefixed with "ci-" or "dev-", while excluding
+// tagged prereleases like "v0.31.1-dev".
 func IsDevelopmentVersion(v string) bool {
-	return strings.HasPrefix(v, DevelopmentVersion)
+	return strings.HasPrefix(v, DevelopmentVersion) ||
+		strings.HasPrefix(v, CIVersionPrefix) ||
+		strings.HasPrefix(v, DevVersionPrefix)
 }

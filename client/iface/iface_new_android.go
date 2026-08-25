@@ -9,7 +9,7 @@ import (
 
 // NewWGIFace Creates a new WireGuard interface instance
 func NewWGIFace(opts WGIFaceOpts) (*WGIface, error) {
-	iceBind := bind.NewICEBind(opts.TransportNet, opts.FilterFn, opts.Address, opts.MTU)
+	iceBind := bind.NewICEBind(opts.TransportNet, opts.Address, opts.MTU)
 
 	if netstack.IsEnabled() {
 		wgIFace := &WGIface{

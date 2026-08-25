@@ -7,7 +7,8 @@ RUN echo "netbird:x:1000:1000:netbird:/var/lib/netbird:/sbin/nologin" > /tmp/pas
     mkdir -p /tmp/certs
 
 FROM gcr.io/distroless/base:debug
-COPY netbird-proxy /go/bin/netbird-proxy
+ARG TARGETPLATFORM
+COPY ${TARGETPLATFORM}/netbird-proxy /go/bin/netbird-proxy
 COPY --from=builder /tmp/passwd /etc/passwd
 COPY --from=builder /tmp/group /etc/group
 COPY --from=builder --chown=1000:1000 /tmp/var/lib/netbird /var/lib/netbird

@@ -1,6 +1,6 @@
 package store
 
-//go:generate go run github.com/golang/mock/mockgen -package store -destination=store_mock.go -source=./store.go -build_flags=-mod=mod
+//go:generate go tool mockgen -package store -destination=store_mock.go -source=./store.go -build_flags=-mod=mod
 
 import (
 	"context"
@@ -37,6 +37,7 @@ import (
 	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/util/crypt"
 
+	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	"github.com/netbirdio/netbird/management/server/migration"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
@@ -162,6 +163,9 @@ type Store interface {
 	GetPeerByID(ctx context.Context, lockStrength LockingStrength, accountID string, peerID string) (*nbpeer.Peer, error)
 	GetPeersByIDs(ctx context.Context, lockStrength LockingStrength, accountID string, peerIDs []string) (map[string]*nbpeer.Peer, error)
 	GetPeersByGroupIDs(ctx context.Context, accountID string, groupIDs []string) ([]*nbpeer.Peer, error)
+	GetPeerIDsByGroups(ctx context.Context, accountID string, groupIDs []string) ([]string, error)
+	GetGroupIDsByPeerIDs(ctx context.Context, accountID string, peerIDs []string) ([]string, error)
+	GetEmbeddedProxyPeerIDsByCluster(ctx context.Context, accountID string) (map[string][]string, error)
 	GetAccountPeersWithExpiration(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbpeer.Peer, error)
 	GetAccountPeersWithInactivity(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbpeer.Peer, error)
 	GetAllEphemeralPeers(ctx context.Context, lockStrength LockingStrength) ([]*nbpeer.Peer, error)
@@ -176,13 +180,20 @@ type Store interface {
 	// Returns true when the update happened, false when this stream lost
 	// the race against a newer session.
 	MarkPeerConnectedIfNewerSession(ctx context.Context, accountID, peerID string, newSessionStartedAt int64) (bool, error)
+	// RefreshPeerLastSeen records that a peer was just seen, stamping the
+	// database clock like the other status writers. Connected and
+	// SessionStartedAt are left alone, so this never interferes with the
+	// session-ownership protocol MarkPeerConnectedIfNewerSession implements.
+	// The write only lands when the stored LastSeen is older than
+	// staleBefore, which keeps a caller's throttle atomic under concurrent
+	// requests for the same peer. Returns true when the update happened.
+	RefreshPeerLastSeen(ctx context.Context, accountID, peerID string, staleBefore time.Time) (bool, error)
 	// MarkPeerDisconnectedIfSameSession sets the peer to disconnected and
 	// resets SessionStartedAt to zero, but only when the stored
 	// SessionStartedAt equals the given sessionStartedAt. LastSeen is
 	// recorded by the database. Returns true when the update happened,
 	// false when a newer session has taken over.
 	MarkPeerDisconnectedIfSameSession(ctx context.Context, accountID, peerID string, sessionStartedAt int64) (bool, error)
-	SavePeerLocation(ctx context.Context, accountID string, peer *nbpeer.Peer) error
 	ApproveAccountPeers(ctx context.Context, accountID string) (int, error)
 	DeletePeer(ctx context.Context, accountID string, peerID string) error
 
@@ -298,6 +309,12 @@ type Store interface {
 	CreateAccessLog(ctx context.Context, log *accesslogs.AccessLogEntry) error
 	GetAccountAccessLogs(ctx context.Context, lockStrength LockingStrength, accountID string, filter accesslogs.AccessLogFilter) ([]*accesslogs.AccessLogEntry, int64, error)
 	DeleteOldAccessLogs(ctx context.Context, olderThan time.Time) (int64, error)
+	CreateAgentNetworkAccessLog(ctx context.Context, entry *agentNetworkTypes.AgentNetworkAccessLog, groups []agentNetworkTypes.AgentNetworkAccessLogGroup) error
+	CreateAgentNetworkUsage(ctx context.Context, usage *agentNetworkTypes.AgentNetworkUsage, groups []agentNetworkTypes.AgentNetworkUsageGroup) error
+	GetAgentNetworkAccessLogs(ctx context.Context, lockStrength LockingStrength, accountID string, filter agentNetworkTypes.AgentNetworkAccessLogFilter) ([]*agentNetworkTypes.AgentNetworkAccessLog, int64, error)
+	GetAgentNetworkAccessLogSessions(ctx context.Context, lockStrength LockingStrength, accountID string, filter agentNetworkTypes.AgentNetworkAccessLogFilter) ([]*agentNetworkTypes.AgentNetworkAccessLogSession, int64, error)
+	GetAgentNetworkUsageRows(ctx context.Context, lockStrength LockingStrength, accountID string, filter agentNetworkTypes.AgentNetworkAccessLogFilter) ([]*agentNetworkTypes.AgentNetworkUsage, error)
+	DeleteOldAgentNetworkAccessLogs(ctx context.Context, accountID string, olderThan time.Time) (int64, error)
 	GetServiceTargetByTargetID(ctx context.Context, lockStrength LockingStrength, accountID string, targetID string) (*rpservice.Target, error)
 	GetTargetsByServiceID(ctx context.Context, lockStrength LockingStrength, accountID string, serviceID string) ([]*rpservice.Target, error)
 	DeleteTarget(ctx context.Context, accountID string, serviceID string, targetID uint) error
@@ -314,9 +331,12 @@ type Store interface {
 	GetClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
 	GetClusterSupportsPrivate(ctx context.Context, clusterAddr string) *bool
 	CleanupStaleProxies(ctx context.Context, inactivityDuration time.Duration) error
+	GetAllProxies(ctx context.Context) ([]*proxy.Proxy, error)
+	DisconnectAllProxies(ctx context.Context) (int64, error)
 	GetProxyByAccountID(ctx context.Context, accountID string) (*proxy.Proxy, error)
 	CountProxiesByAccountID(ctx context.Context, accountID string) (int64, error)
 	IsClusterAddressConflicting(ctx context.Context, clusterAddress, accountID string) (bool, error)
+	HasActiveProxyAtClusterAddress(ctx context.Context, clusterAddress string) (bool, error)
 	DeleteAccountCluster(ctx context.Context, clusterAddress, accountID string) error
 
 	GetCustomDomainsCounts(ctx context.Context) (total int64, validated int64, err error)
@@ -326,7 +346,43 @@ type Store interface {
 	// return a zero-valued struct.
 	GetProxyMetrics(ctx context.Context) (ProxyMetrics, error)
 
+	// GetAgentNetworkMetrics returns aggregated agent-network adoption + usage
+	// counts for the self-hosted metrics worker. Self-hosted only — file-based
+	// stores return a zero-valued struct.
+	GetAgentNetworkMetrics(ctx context.Context) (AgentNetworkMetrics, error)
+
 	GetRoutingPeerNetworks(ctx context.Context, accountID, peerID string) ([]string, error)
+
+	// Agent Network persistence (providers, policies, guardrails, settings).
+	GetAllAgentNetworkProviders(ctx context.Context, lockStrength LockingStrength) ([]*agentNetworkTypes.Provider, error)
+	GetAccountAgentNetworkProviders(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*agentNetworkTypes.Provider, error)
+	GetAgentNetworkProviderByID(ctx context.Context, lockStrength LockingStrength, accountID, providerID string) (*agentNetworkTypes.Provider, error)
+	SaveAgentNetworkProvider(ctx context.Context, provider *agentNetworkTypes.Provider) error
+	DeleteAgentNetworkProvider(ctx context.Context, accountID, providerID string) error
+	GetAccountAgentNetworkPolicies(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*agentNetworkTypes.Policy, error)
+	GetAgentNetworkPolicyByID(ctx context.Context, lockStrength LockingStrength, accountID, policyID string) (*agentNetworkTypes.Policy, error)
+	SaveAgentNetworkPolicy(ctx context.Context, policy *agentNetworkTypes.Policy) error
+	DeleteAgentNetworkPolicy(ctx context.Context, accountID, policyID string) error
+	GetAccountAgentNetworkGuardrails(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*agentNetworkTypes.Guardrail, error)
+	GetAgentNetworkGuardrailByID(ctx context.Context, lockStrength LockingStrength, accountID, guardrailID string) (*agentNetworkTypes.Guardrail, error)
+	SaveAgentNetworkGuardrail(ctx context.Context, guardrail *agentNetworkTypes.Guardrail) error
+	DeleteAgentNetworkGuardrail(ctx context.Context, accountID, guardrailID string) error
+	GetAgentNetworkSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*agentNetworkTypes.Settings, error)
+	GetAllAgentNetworkSettings(ctx context.Context, lockStrength LockingStrength) ([]*agentNetworkTypes.Settings, error)
+	GetAgentNetworkSettingsByProxyAddress(ctx context.Context, lockStrength LockingStrength, proxyAddress string) ([]*agentNetworkTypes.Settings, error)
+	GetAgentNetworkSettingsByDomain(ctx context.Context, lockStrength LockingStrength, domain string) (*agentNetworkTypes.Settings, error)
+	CreateAgentNetworkSettings(ctx context.Context, settings *agentNetworkTypes.Settings) error
+	SaveAgentNetworkSettings(ctx context.Context, settings *agentNetworkTypes.Settings) error
+	DeleteAgentNetworkSettings(ctx context.Context, accountID string) error
+	IncrementAgentNetworkConsumption(ctx context.Context, accountID string, kind agentNetworkTypes.ConsumptionDimension, dimID string, windowSeconds int64, windowStart time.Time, tokensIn, tokensOut int64, costUSD float64) error
+	IncrementAgentNetworkConsumptionBatch(ctx context.Context, accountID string, keys []agentNetworkTypes.ConsumptionKey, tokensIn, tokensOut int64, costUSD float64) error
+	GetAgentNetworkConsumption(ctx context.Context, lockStrength LockingStrength, accountID string, kind agentNetworkTypes.ConsumptionDimension, dimID string, windowSeconds int64, windowStart time.Time) (*agentNetworkTypes.Consumption, error)
+	GetAgentNetworkConsumptionBatch(ctx context.Context, lockStrength LockingStrength, accountID string, keys []agentNetworkTypes.ConsumptionKey) (map[agentNetworkTypes.ConsumptionKey]*agentNetworkTypes.Consumption, error)
+	ListAgentNetworkConsumption(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*agentNetworkTypes.Consumption, error)
+	GetAccountAgentNetworkBudgetRules(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*agentNetworkTypes.AccountBudgetRule, error)
+	GetAgentNetworkBudgetRuleByID(ctx context.Context, lockStrength LockingStrength, accountID, ruleID string) (*agentNetworkTypes.AccountBudgetRule, error)
+	SaveAgentNetworkBudgetRule(ctx context.Context, rule *agentNetworkTypes.AccountBudgetRule) error
+	DeleteAgentNetworkBudgetRule(ctx context.Context, accountID, ruleID string) error
 }
 
 // ProxyMetrics aggregates self-hosted proxy + cluster usage signals
@@ -351,6 +407,32 @@ type ProxyMetrics struct {
 	// (~2 * heartbeat interval). Proxies the controller hasn't pruned
 	// yet but that are visibly stale don't count.
 	ProxiesConnected int64
+}
+
+// AgentNetworkMetrics aggregates self-hosted agent-network adoption + usage
+// signals surfaced to the telemetry payload. Each field is best-effort: when a
+// store cannot answer (e.g. FileStore) all fields are zero.
+type AgentNetworkMetrics struct {
+	// Accounts is the number of distinct accounts with at least one provider
+	// configured (agent-network adoption).
+	Accounts int64
+	// Providers is the total number of configured providers across all accounts.
+	Providers int64
+	// Policies is the total number of agent-network policies across all accounts.
+	Policies int64
+	// BudgetRules is the total number of account-level budget rules ("budget
+	// limits") across all accounts.
+	BudgetRules int64
+	// LogCollectionEnabled is the number of accounts that have agent-network
+	// log collection turned on.
+	LogCollectionEnabled int64
+	// InputTokens / OutputTokens / CostUSD are summed over the always-collected
+	// per-request usage ledger (agent_network_request_usage), independent of the
+	// log-collection toggle. They reflect total metered LLM usage served through
+	// agent networks.
+	InputTokens  int64
+	OutputTokens int64
+	CostUSD      float64
 }
 
 const (
@@ -514,6 +596,33 @@ func getMigrationsPreAuto(ctx context.Context) []migrationFunc {
 		func(db *gorm.DB) error {
 			return migration.CleanupOrphanedResources[domain.Domain, types.Account](ctx, db, "account_id")
 		},
+		func(db *gorm.DB) error {
+			return migration.BackfillPublicIDs[types.Policy](ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.BackfillPublicIDs[types.Group](ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.BackfillPublicIDs[route.Route](ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.BackfillPublicIDs[resourceTypes.NetworkResource](ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.BackfillPublicIDs[routerTypes.NetworkRouter](ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.BackfillPublicIDs[dns.NameServerGroup](ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.BackfillPublicIDs[networkTypes.Network](ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.BackfillPublicIDs[posture.Checks](ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.MigrateAgentNetworkSettingsToDomain(ctx, db)
+		},
 	}
 }
 
@@ -555,6 +664,14 @@ func getMigrationsPostAuto(ctx context.Context) []migrationFunc {
 		},
 		func(db *gorm.DB) error {
 			return migration.DropIndex[proxy.Proxy](ctx, db, "idx_proxy_account_id_unique")
+		},
+		// Post-auto so the per-bucket cost columns already exist when the legacy
+		// aggregates are folded into them and dropped.
+		func(db *gorm.DB) error {
+			return migration.FoldCostAggregatesIntoBuckets[agentNetworkTypes.AgentNetworkAccessLog](ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.FoldCostAggregatesIntoBuckets[agentNetworkTypes.AgentNetworkUsage](ctx, db)
 		},
 	}
 }

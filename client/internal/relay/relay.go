@@ -32,6 +32,9 @@ type ProbeResult struct {
 	URI  string
 	Err  error
 	Addr string
+	// Transport is the negotiated relay transport, empty
+	// for stun/turn probes or when not connected.
+	Transport string
 }
 
 type StunTurnProbe struct {

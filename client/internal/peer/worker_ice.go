@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"net/netip"
 	"strconv"
 	"sync"
 	"time"
@@ -165,10 +164,6 @@ func (w *WorkerICE) OnRemoteCandidate(candidate ice.Candidate, haRoutes route.HA
 		return
 	}
 
-	if candidateViaRoutes(candidate, haRoutes) {
-		return
-	}
-
 	if err := w.agent.AddRemoteCandidate(candidate); err != nil {
 		w.log.Errorf("error while handling remote candidate")
 		return
@@ -260,8 +255,8 @@ func (w *WorkerICE) connect(ctx context.Context, agent *icemaker.ThreadSafeAgent
 		return
 	}
 
-	w.log.Debugf("turn agent dial")
-	remoteConn, err := w.turnAgentDial(ctx, agent, remoteOfferAnswer)
+	w.log.Debugf("agent dial")
+	remoteConn, err := w.agentDial(ctx, agent, remoteOfferAnswer)
 	if err != nil {
 		w.log.Debugf("failed to dial the remote peer: %s", err)
 		w.closeAgent(agent, w.agentDialerCancel)
@@ -394,6 +389,17 @@ func (w *WorkerICE) injectPortForwardedCandidate(srflxCandidate ice.Candidate) {
 		return
 	}
 
+	// A forwarded candidate only makes sense for an IPv4 mapping, which
+	// translates a port on the gateway's address. An IPv6 pinhole translates
+	// nothing: it unblocks the address ICE already gathers as a host candidate,
+	// so there is no second address to advertise. Injecting one here would also
+	// paste an IPv6 address onto whichever server-reflexive candidate arrived
+	// first, which is usually IPv4.
+	if mapping.ExternalIP != nil && mapping.ExternalIP.To4() == nil {
+		w.log.Debugf("skipping port-forwarded candidate: %s mapping is IPv6-only", mapping.NATType)
+		return
+	}
+
 	w.muxAgent.Lock()
 	if w.portForwardAttempted {
 		w.muxAgent.Unlock()
@@ -522,8 +528,8 @@ func (w *WorkerICE) onConnectionStateChange(agent *icemaker.ThreadSafeAgent, dia
 			w.logSuccessfulPaths(agent)
 			return
 		case ice.ConnectionStateFailed, ice.ConnectionStateDisconnected, ice.ConnectionStateClosed:
-			// ice.ConnectionStateClosed happens when we recreate the agent. For the P2P to TURN switch important to
-			// notify the conn.onICEStateDisconnected changes to update the current used priority
+			// ice.ConnectionStateClosed happens when we recreate the agent. The P2P to relay switch requires
+			// notifying conn.onICEStateDisconnected so it can update the currently used priority.
 
 			sessionChanged := w.closeAgent(agent, dialerCancel)
 
@@ -537,7 +543,7 @@ func (w *WorkerICE) onConnectionStateChange(agent *icemaker.ThreadSafeAgent, dia
 	}
 }
 
-func (w *WorkerICE) turnAgentDial(ctx context.Context, agent *icemaker.ThreadSafeAgent, remoteOfferAnswer *OfferAnswer) (*ice.Conn, error) {
+func (w *WorkerICE) agentDial(ctx context.Context, agent *icemaker.ThreadSafeAgent, remoteOfferAnswer *OfferAnswer) (*ice.Conn, error) {
 	if isController(w.config) {
 		return agent.Dial(ctx, remoteOfferAnswer.IceCredentials.UFrag, remoteOfferAnswer.IceCredentials.Pwd)
 	} else {
@@ -587,34 +593,6 @@ func extraSrflxCandidate(candidate ice.Candidate) (*ice.CandidateServerReflexive
 	}
 
 	return ec, nil
-}
-
-func candidateViaRoutes(candidate ice.Candidate, clientRoutes route.HAMap) bool {
-	addr, err := netip.ParseAddr(candidate.Address())
-	if err != nil {
-		log.Errorf("Failed to parse IP address %s: %v", candidate.Address(), err)
-		return false
-	}
-
-	var routePrefixes []netip.Prefix
-	for _, routes := range clientRoutes {
-		if len(routes) > 0 && routes[0] != nil {
-			routePrefixes = append(routePrefixes, routes[0].Network)
-		}
-	}
-
-	for _, prefix := range routePrefixes {
-		// default route is handled by route exclusion / ip rules
-		if prefix.Bits() == 0 {
-			continue
-		}
-
-		if prefix.Contains(addr) {
-			log.Debugf("Ignoring candidate [%s], its address is part of routed network %s", candidate.String(), prefix)
-			return true
-		}
-	}
-	return false
 }
 
 func isRelayCandidate(candidate ice.Candidate) bool {

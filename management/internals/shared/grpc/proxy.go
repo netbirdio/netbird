@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -28,11 +29,15 @@ import (
 
 	"github.com/netbirdio/netbird/shared/management/domain"
 
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/activity"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/sessionkey"
+	"github.com/netbirdio/netbird/management/server/idp"
+	"github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/users"
 	proxyauth "github.com/netbirdio/netbird/proxy/auth"
@@ -57,7 +62,35 @@ type ProxyTokenChecker interface {
 	IsProxyAccessTokenValid(ctx context.Context, tokenID string) (bool, error)
 }
 
+// ProxyConnectAuthorizer authorizes a proxy's claim to the cluster address it
+// declares at connect time. Implementations are supplied by integrations; none
+// is installed by default, so every well-formed claim is authorized — the
+// declared address is otherwise only checked for availability. token is nil
+// when the connection carries no proxy access token. A returned status error
+// is sent to the proxy unchanged; any other error is wrapped as
+// PermissionDenied.
+type ProxyConnectAuthorizer interface {
+	AuthorizeProxyConnect(ctx context.Context, token *types.ProxyAccessToken, proxyID, address string) error
+}
+
 // ProxyServiceServer implements the ProxyService gRPC server
+// AgentNetworkSynthesizer produces in-memory reverse-proxy services from
+// Agent Network provider/policy state for the proxy snapshot path; synthesised
+// services never appear in the reverseproxy_services table.
+type AgentNetworkSynthesizer interface {
+	SynthesizeServicesForCluster(ctx context.Context, clusterAddr string) ([]*rpservice.Service, error)
+	SynthesizeServicesForAccount(ctx context.Context, accountID string) ([]*rpservice.Service, error)
+	SynthesizeServiceForDomain(ctx context.Context, domain string) (*rpservice.Service, error)
+}
+
+// AgentNetworkLimitsService is the minimal slice of agentnetwork.Manager the
+// gRPC layer needs for CheckLLMPolicyLimits + RecordLLMUsage — kept narrow so
+// the grpc package doesn't take a hard import on the full manager.
+type AgentNetworkLimitsService interface {
+	SelectPolicyForRequest(ctx context.Context, in agentnetwork.PolicySelectionInput) (*agentnetwork.PolicySelectionResult, error)
+	RecordUsage(ctx context.Context, in agentnetwork.RecordUsageInput) error
+}
+
 type ProxyServiceServer struct {
 	proto.UnimplementedProxyServiceServer
 
@@ -70,6 +103,17 @@ type ProxyServiceServer struct {
 	mu sync.RWMutex
 	// Manager for reverse proxy operations
 	serviceManager rpservice.Manager
+	// agentNetworkSynth produces synthesised reverse-proxy services from
+	// Agent Network state. Optional — when nil the snapshot path only ships
+	// persisted services.
+	agentNetworkSynth AgentNetworkSynthesizer
+	// agentNetworkLimits handles the pre-flight selection (CheckLLMPolicyLimits)
+	// and the post-flight consumption write (RecordLLMUsage). Optional — when
+	// nil both RPCs return Unimplemented.
+	agentNetworkLimits AgentNetworkLimitsService
+	// connectAuthorizer authorizes address claims at proxy connect time.
+	// Optional — when nil every well-formed claim is authorized.
+	connectAuthorizer ProxyConnectAuthorizer
 	// ProxyController for service updates and cluster management
 	proxyController proxy.Controller
 
@@ -81,6 +125,12 @@ type ProxyServiceServer struct {
 
 	// Manager for users
 	usersManager users.Manager
+
+	// Manager for IdP-enriched user data (may be nil when no IdP is configured)
+	idpManager idp.Manager
+
+	// Manager that records reverse proxy usage for activity accounting
+	activityManager activity.Manager
 
 	// Store for one-time authentication tokens
 	tokenStore *OneTimeTokenStore
@@ -157,7 +207,7 @@ func enforceAccountScope(ctx context.Context, requestAccountID string) error {
 }
 
 // NewProxyServiceServer creates a new proxy service server.
-func NewProxyServiceServer(accessLogMgr accesslogs.Manager, tokenStore *OneTimeTokenStore, pkceStore *PKCEVerifierStore, oidcConfig ProxyOIDCConfig, peersManager peers.Manager, usersManager users.Manager, proxyMgr proxy.Manager, tokenChecker ProxyTokenChecker) *ProxyServiceServer {
+func NewProxyServiceServer(accessLogMgr accesslogs.Manager, tokenStore *OneTimeTokenStore, pkceStore *PKCEVerifierStore, oidcConfig ProxyOIDCConfig, peersManager peers.Manager, usersManager users.Manager, idpManager idp.Manager, proxyMgr proxy.Manager, tokenChecker ProxyTokenChecker) *ProxyServiceServer {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &ProxyServiceServer{
 		accessLogManager:  accessLogMgr,
@@ -166,6 +216,7 @@ func NewProxyServiceServer(accessLogMgr accesslogs.Manager, tokenStore *OneTimeT
 		pkceVerifierStore: pkceStore,
 		peersManager:      peersManager,
 		usersManager:      usersManager,
+		idpManager:        idpManager,
 		proxyManager:      proxyMgr,
 		tokenChecker:      tokenChecker,
 		snapshotBatchSize: snapshotBatchSizeFromEnv(),
@@ -201,6 +252,152 @@ func (s *ProxyServiceServer) SetServiceManager(manager rpservice.Manager) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.serviceManager = manager
+}
+
+// SetActivityManager wires the manager that records reverse proxy usage.
+func (s *ProxyServiceServer) SetActivityManager(manager activity.Manager) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.activityManager = manager
+}
+
+// SetAgentNetworkSynthesizer wires the agent-network service synthesiser.
+// Optional — when nil the snapshot path skips agent-network synthesis. The
+// modules layer injects this after both the proxy server and the agent-network
+// manager are constructed.
+func (s *ProxyServiceServer) SetAgentNetworkSynthesizer(synth AgentNetworkSynthesizer) {
+	s.mu.Lock()
+	s.agentNetworkSynth = synth
+	s.mu.Unlock()
+}
+
+// SetAgentNetworkLimitsService wires the policy-selection + post-flight
+// consumption sink. Pass nil to disable; both RPCs return Unimplemented while
+// unset so partial wiring surfaces during integration.
+func (s *ProxyServiceServer) SetAgentNetworkLimitsService(svc AgentNetworkLimitsService) {
+	s.mu.Lock()
+	s.agentNetworkLimits = svc
+	s.mu.Unlock()
+}
+
+// agentNetworkSynthesizer returns the synthesiser under read lock.
+func (s *ProxyServiceServer) agentNetworkSynthesizer() AgentNetworkSynthesizer {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.agentNetworkSynth
+}
+
+// SetProxyConnectAuthorizer wires the connect-time address-claim authorizer.
+// Optional — when nil (the default) every well-formed claim is authorized,
+// which is the behavior without the hook. The modules layer injects this
+// after the proxy server is constructed, like the other setters.
+func (s *ProxyServiceServer) SetProxyConnectAuthorizer(authorizer ProxyConnectAuthorizer) {
+	s.mu.Lock()
+	s.connectAuthorizer = authorizer
+	s.mu.Unlock()
+}
+
+// proxyConnectAuthorizer returns the connect authorizer under read lock.
+func (s *ProxyServiceServer) proxyConnectAuthorizer() ProxyConnectAuthorizer {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.connectAuthorizer
+}
+
+// CheckLLMPolicyLimits is the pre-flight policy gate the proxy calls before
+// forwarding an LLM request upstream. Delegates to the agent-network selector,
+// which scores applicable policies by remaining headroom and returns the
+// policy that pays for this request (or a deny when all are exhausted).
+func (s *ProxyServiceServer) CheckLLMPolicyLimits(ctx context.Context, req *proto.CheckLLMPolicyLimitsRequest) (*proto.CheckLLMPolicyLimitsResponse, error) {
+	s.mu.RLock()
+	svc := s.agentNetworkLimits
+	s.mu.RUnlock()
+	if svc == nil {
+		return nil, status.Errorf(codes.Unimplemented, "agent-network limits service not configured on management")
+	}
+	if req.GetAccountId() == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "account_id is required")
+	}
+	if err := enforceAccountScope(ctx, req.GetAccountId()); err != nil {
+		return nil, err
+	}
+
+	res, err := svc.SelectPolicyForRequest(ctx, agentnetwork.PolicySelectionInput{
+		AccountID:  req.GetAccountId(),
+		UserID:     req.GetUserId(),
+		GroupIDs:   req.GetGroupIds(),
+		ProviderID: req.GetProviderId(),
+		Model:      req.GetModel(),
+	})
+	if err != nil {
+		log.WithContext(ctx).Errorf("select policy for request: %v", err)
+		return nil, status.Error(codes.Internal, "select policy failed")
+	}
+
+	if !res.Allow {
+		return &proto.CheckLLMPolicyLimitsResponse{
+			Decision:           "deny",
+			SelectedPolicyId:   res.SelectedPolicyID,
+			AttributionGroupId: res.AttributionGroupID,
+			WindowSeconds:      res.WindowSeconds,
+			DenyCode:           res.DenyCode,
+			DenyReason:         res.DenyReason,
+		}, nil
+	}
+	return &proto.CheckLLMPolicyLimitsResponse{
+		Decision:           "allow",
+		SelectedPolicyId:   res.SelectedPolicyID,
+		AttributionGroupId: res.AttributionGroupID,
+		WindowSeconds:      res.WindowSeconds,
+	}, nil
+}
+
+// RecordLLMUsage increments the per-(dimension, window) consumption counter for
+// the user and optional attribution group after a served request. Returns
+// Unimplemented when the agent-network limits service hasn't been wired.
+func (s *ProxyServiceServer) RecordLLMUsage(ctx context.Context, req *proto.RecordLLMUsageRequest) (*proto.RecordLLMUsageResponse, error) {
+	s.mu.RLock()
+	svc := s.agentNetworkLimits
+	s.mu.RUnlock()
+	if svc == nil {
+		return nil, status.Errorf(codes.Unimplemented, "agent-network limits service not configured on management")
+	}
+
+	accountID := req.GetAccountId()
+	if accountID == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "account_id is required")
+	}
+	if err := enforceAccountScope(ctx, accountID); err != nil {
+		return nil, err
+	}
+	tokensIn := req.GetTokensInput()
+	tokensOut := req.GetTokensOutput()
+	costUSD := req.GetCostUsd()
+
+	// Reject impossible counters at the boundary instead of recording them:
+	// a negative window, negative tokens, or a negative / non-finite cost
+	// would otherwise decrement or poison the persisted consumption totals.
+	if req.GetWindowSeconds() < 0 || tokensIn < 0 || tokensOut < 0 || costUSD < 0 || math.IsNaN(costUSD) || math.IsInf(costUSD, 0) {
+		return nil, status.Errorf(codes.InvalidArgument, "usage counters must be non-negative and finite")
+	}
+
+	// Book the policy-window dimensions (when a policy cap bound this request)
+	// and every applicable account budget rule's window in a single batched
+	// transaction.
+	if err := svc.RecordUsage(ctx, agentnetwork.RecordUsageInput{
+		AccountID:          accountID,
+		UserID:             req.GetUserId(),
+		AttributionGroupID: req.GetGroupId(),
+		GroupIDs:           req.GetGroupIds(),
+		WindowSeconds:      req.GetWindowSeconds(),
+		TokensIn:           tokensIn,
+		TokensOut:          tokensOut,
+		CostUSD:            costUSD,
+	}); err != nil {
+		log.WithContext(ctx).Errorf("record usage: %v", err)
+		return nil, status.Error(codes.Internal, "record usage failed")
+	}
+	return &proto.RecordLLMUsageResponse{}, nil
 }
 
 // SetProxyController sets the proxy controller. Must be called before serving.
@@ -291,8 +488,9 @@ func recvSyncInit(stream proto.ProxyService_SyncMappingsServer) (*proto.SyncMapp
 	return init, nil
 }
 
-// validateProxyConnect validates the proxy ID and address, and checks cluster
-// address availability for account-scoped tokens.
+// validateProxyConnect validates the proxy ID and address, checks cluster
+// address availability for account-scoped tokens, and finally consults the
+// connect authorizer (when installed) on the address claim.
 func (s *ProxyServiceServer) validateProxyConnect(proxyID, address string, ctx context.Context) (proxyConnectParams, error) {
 	if proxyID == "" {
 		return proxyConnectParams{}, status.Errorf(codes.InvalidArgument, "proxy_id is required")
@@ -309,6 +507,19 @@ func (s *ProxyServiceServer) validateProxyConnect(proxyID, address string, ctx c
 		}
 		if !available {
 			return proxyConnectParams{}, status.Errorf(codes.AlreadyExists, "cluster address %s is already in use", address)
+		}
+	}
+
+	// The authorizer runs last, outside the account-scoped branch, so it also
+	// sees management-wide and token-less connects. PermissionDenied keeps an
+	// authorization rejection distinguishable from the AlreadyExists address
+	// conflict above in proxy logs.
+	if authorizer := s.proxyConnectAuthorizer(); authorizer != nil {
+		if err := authorizer.AuthorizeProxyConnect(ctx, token, proxyID, address); err != nil {
+			if _, ok := status.FromError(err); ok {
+				return proxyConnectParams{}, err
+			}
+			return proxyConnectParams{}, status.Errorf(codes.PermissionDenied, "proxy connect not authorized: %v", err)
 		}
 	}
 
@@ -454,11 +665,11 @@ func (s *ProxyServiceServer) disconnectProxy(conn *proxyConnection) {
 	if err := s.proxyController.UnregisterProxyFromCluster(context.Background(), conn.address, conn.proxyID); err != nil {
 		log.Warnf("Failed to unregister proxy %s from cluster: %v", conn.proxyID, err)
 	}
+	conn.cancel()
 	if err := s.proxyManager.Disconnect(context.Background(), conn.proxyID, conn.sessionID); err != nil {
 		log.Warnf("Failed to mark proxy %s as disconnected: %v", conn.proxyID, err)
 	}
 
-	conn.cancel()
 	log.Infof("Proxy %s session %s disconnected", conn.proxyID, conn.sessionID)
 }
 
@@ -617,10 +828,38 @@ func (s *ProxyServiceServer) snapshotServiceMappings(ctx context.Context, conn *
 		return nil, fmt.Errorf("get services from store: %w", err)
 	}
 
+	if synth := s.agentNetworkSynthesizer(); synth != nil {
+		var synthesised []*rpservice.Service
+		var serr error
+		// Account-scoped connections synthesise only their own account, so the
+		// snapshot can never carry another tenant's mappings (which embed the
+		// upstream auth header derived from that tenant's provider API key).
+		// Global connections still see the whole cluster.
+		if conn.accountID != nil {
+			synthesised, serr = synth.SynthesizeServicesForAccount(ctx, *conn.accountID)
+		} else {
+			synthesised, serr = synth.SynthesizeServicesForCluster(ctx, conn.address)
+		}
+		if serr != nil {
+			// Surface a real synthesis failure instead of silently shipping an
+			// incomplete snapshot (which would drop the account's agent-network
+			// routes). Consistent with the persisted-services error above; the
+			// proxy retries the snapshot on connection error.
+			return nil, fmt.Errorf("synthesise agent-network services: %w", serr)
+		}
+		services = append(services, synthesised...)
+	}
+
 	oidcCfg := s.GetOIDCValidationConfig()
 	var mappings []*proto.ProxyMapping
 	for _, service := range services {
 		if !service.Enabled || service.ProxyCluster == "" || service.ProxyCluster != conn.address {
+			continue
+		}
+		// Defense in depth: an account-scoped proxy must never receive another
+		// account's mapping, matching the per-account filtering the incremental
+		// update path already applies.
+		if conn.accountID != nil && service.AccountID != *conn.accountID {
 			continue
 		}
 
@@ -1072,7 +1311,7 @@ func (s *ProxyServiceServer) authenticateHeader(ctx context.Context, serviceID s
 			lastErr = err
 			continue
 		}
-		return true, "header-user", proxyauth.MethodHeader
+		return true, proxyauth.HeaderUserID, proxyauth.MethodHeader
 	}
 
 	if lastErr != nil {
@@ -1396,9 +1635,62 @@ func (s *ProxyServiceServer) ValidateState(state string) (verifier, redirectURL 
 	return verifier, redirectURL, nil
 }
 
+// Denied reasons reported to the proxy when access is refused because of the
+// account status of the user behind the request.
+const (
+	deniedReasonPendingApproval = "pending_approval"
+	deniedReasonUserBlocked     = "user_blocked"
+	deniedReasonUserNotFound    = "user_not_found"
+)
+
+var (
+	// ErrUserPendingApproval reports a user whose account still awaits approval
+	// by an administrator and may therefore not hold a proxy session.
+	ErrUserPendingApproval = errors.New("user pending approval")
+
+	// ErrUserBlocked reports a blocked user, who may not hold a proxy session.
+	ErrUserBlocked = errors.New("user blocked")
+
+	errUserUnresolved = errors.New("user could not be resolved")
+)
+
+// checkUserStatus reports whether the user's account status permits reverse
+// proxy access, returning the denied reason for the proxy access log together
+// with the sentinel error callers match on. A user awaiting approval is stored
+// as both pending and blocked, so the pending state is reported first: it is
+// the one an administrator can act on.
+func checkUserStatus(user *types.User) (string, error) {
+	switch {
+	case user == nil:
+		return deniedReasonUserNotFound, errUserUnresolved
+	case user.PendingApproval:
+		return deniedReasonPendingApproval, ErrUserPendingApproval
+	case user.IsBlocked():
+		return deniedReasonUserBlocked, ErrUserBlocked
+	default:
+		return "", nil
+	}
+}
+
+// userStatusDeniedReason returns the denied reason for callers that report a
+// decision rather than an error, and an empty string when the user may proceed.
+func userStatusDeniedReason(user *types.User) string {
+	reason, _ := checkUserStatus(user)
+	return reason
+}
+
+// sameAccount reports whether a user belongs to a service's account. An empty
+// identifier on either side never matches: two unset accounts must not compare
+// equal into a grant.
+func sameAccount(userAccountID, serviceAccountID string) bool {
+	return userAccountID != "" && serviceAccountID != "" && userAccountID == serviceAccountID
+}
+
 // GenerateSessionToken creates a signed session JWT for the given domain and
 // user. The user's group memberships are embedded in the token so policy-aware
 // middlewares on the proxy can authorise without an extra management round-trip.
+// A user the store cannot resolve, or whose account is pending approval or
+// blocked, gets no token at all, so the browser never receives a session cookie.
 func (s *ProxyServiceServer) GenerateSessionToken(ctx context.Context, domain, userID string, method proxyauth.Method) (string, error) {
 	service, err := s.getServiceByDomain(ctx, domain)
 	if err != nil {
@@ -1409,31 +1701,62 @@ func (s *ProxyServiceServer) GenerateSessionToken(ctx context.Context, domain, u
 		return "", fmt.Errorf("no session key configured for domain: %s", domain)
 	}
 
-	var (
-		email      string
-		groupIDs   []string
-		groupNames []string
-	)
-	if s.usersManager != nil {
-		user, userGroups, uerr := s.usersManager.GetUserWithGroups(ctx, userID)
-		if uerr != nil {
-			log.WithContext(ctx).Debugf("session token mint: lookup user %s: %v", userID, uerr)
-		} else if user != nil {
-			email = user.Email
-			groupIDs, groupNames = pairGroupIDsAndNames(userGroups)
-		}
+	if s.usersManager == nil {
+		return "", errors.New("users manager not configured")
 	}
 
-	return sessionkey.SignToken(
+	user, userGroups, err := s.usersManager.GetUserWithGroups(ctx, userID)
+	if err != nil {
+		return "", fmt.Errorf("get user %s: %w", userID, err)
+	}
+
+	if user == nil {
+		return "", fmt.Errorf("get user %s: %w", userID, errUserUnresolved)
+	}
+
+	// Bind the OIDC identity to the service's account before signing anything
+	// with that service's session key. The proxy validates an installed cookie
+	// locally against the service public key, so a token minted for a user of
+	// another account would be honoured without a management round-trip.
+	if !sameAccount(user.AccountID, service.AccountID) {
+		return "", fmt.Errorf("user %s does not belong to the service account", userID)
+	}
+
+	if _, err := checkUserStatus(user); err != nil {
+		return "", fmt.Errorf("session token for user %s: %w", userID, err)
+	}
+
+	groupIDs, groupNames := pairGroupIDsAndNames(userGroups)
+
+	token, err := sessionkey.SignToken(
 		service.SessionPrivateKey,
 		userID,
-		email,
+		user.Email,
 		domain,
 		method,
 		groupIDs,
 		groupNames,
 		proxyauth.DefaultSessionExpiry,
 	)
+	if err != nil {
+		return "", err
+	}
+
+	s.recordUserLogin(ctx, service.AccountID, user)
+
+	return token, nil
+}
+
+// recordUserLogin hands the sign-in to the activity manager. The RPC must not
+// fail on it, so the error is logged and dropped here rather than returned.
+func (s *ProxyServiceServer) recordUserLogin(ctx context.Context, accountID string, user *types.User) {
+	if s.activityManager == nil {
+		return
+	}
+
+	if err := s.activityManager.RecordUserLogin(ctx, accountID, user); err != nil {
+		log.WithContext(ctx).Debugf("record proxy login for user %s: %v", user.Id, err)
+	}
 }
 
 // ValidateUserGroupAccess checks if a user has access to a service.
@@ -1443,6 +1766,10 @@ func (s *ProxyServiceServer) ValidateUserGroupAccess(ctx context.Context, domain
 	user, err := s.usersManager.GetUser(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("user not found: %s", userID)
+	}
+
+	if _, err := checkUserStatus(user); err != nil {
+		return fmt.Errorf("user %s denied access to domain %s: %w", userID, domain, err)
 	}
 
 	service, err := s.getAccountServiceByDomain(ctx, user.AccountID, domain)
@@ -1499,10 +1826,7 @@ func (s *ProxyServiceServer) ValidateSession(ctx context.Context, req *proto.Val
 	sessionToken := req.GetSessionToken()
 
 	if domain == "" || sessionToken == "" {
-		return &proto.ValidateSessionResponse{
-			Valid:        false,
-			DeniedReason: "missing domain or session_token",
-		}, nil
+		return deniedSessionResponse("missing domain or session_token"), nil
 	}
 
 	service, err := s.getServiceByDomain(ctx, domain)
@@ -1512,83 +1836,49 @@ func (s *ProxyServiceServer) ValidateSession(ctx context.Context, req *proto.Val
 			"error":  err.Error(),
 		}).Debug("ValidateSession: service not found")
 		//nolint:nilerr
-		return &proto.ValidateSessionResponse{
-			Valid:        false,
-			DeniedReason: "service_not_found",
-		}, nil
+		return deniedSessionResponse("service_not_found"), nil
 	}
 
 	if err := enforceAccountScope(ctx, service.AccountID); err != nil {
 		return nil, err
 	}
 
-	pubKeyBytes, err := base64.StdEncoding.DecodeString(service.SessionPublicKey)
-	if err != nil {
-		log.WithFields(log.Fields{
-			"domain": domain,
-			"error":  err.Error(),
-		}).Error("ValidateSession: decode public key")
-		//nolint:nilerr
-		return &proto.ValidateSessionResponse{
-			Valid:        false,
-			DeniedReason: "invalid_service_config",
-		}, nil
-	}
-
-	userID, _, _, _, _, err := proxyauth.ValidateSessionJWT(sessionToken, domain, pubKeyBytes)
-	if err != nil {
-		log.WithFields(log.Fields{
-			"domain": domain,
-			"error":  err.Error(),
-		}).Debug("ValidateSession: invalid session token")
-		//nolint:nilerr
-		return &proto.ValidateSessionResponse{
-			Valid:        false,
-			DeniedReason: "invalid_token",
-		}, nil
+	userID, reason := sessionTokenSubject(domain, service, sessionToken)
+	if reason != "" {
+		return deniedSessionResponse(reason), nil
 	}
 
 	user, userGroups, err := s.usersManager.GetUserWithGroups(ctx, userID)
-	if err != nil {
+	if err != nil || user == nil {
 		log.WithFields(log.Fields{
 			"domain":  domain,
 			"user_id": userID,
-			"error":   err.Error(),
+			"error":   err,
 		}).Debug("ValidateSession: user not found")
 		//nolint:nilerr
-		return &proto.ValidateSessionResponse{
-			Valid:        false,
-			DeniedReason: "user_not_found",
-		}, nil
+		return deniedSessionResponse(deniedReasonUserNotFound), nil
 	}
 
-	if user.AccountID != service.AccountID {
+	// A user from another account gets a bare response: none of their identity
+	// belongs in an answer to a proxy serving a different account.
+	if !sameAccount(user.AccountID, service.AccountID) {
 		log.WithFields(log.Fields{
 			"domain":          domain,
 			"user_id":         userID,
 			"user_account":    user.AccountID,
 			"service_account": service.AccountID,
 		}).Debug("ValidateSession: user account mismatch")
-		//nolint:nilerr
-		return &proto.ValidateSessionResponse{
-			Valid:        false,
-			DeniedReason: "account_mismatch",
-		}, nil
+		return deniedSessionResponse("account_mismatch"), nil
 	}
 
-	if err := s.checkGroupAccess(service, user); err != nil {
-		log.WithFields(log.Fields{
-			"domain":  domain,
-			"user_id": userID,
-			"error":   err.Error(),
-		}).Debug("ValidateSession: access denied")
-		groupIDs, groupNames := pairGroupIDsAndNames(userGroups)
-		//nolint:nilerr
+	groupIDs, groupNames := pairGroupIDsAndNames(userGroups)
+
+	if reason := s.accountUserDeniedReason(domain, service, user); reason != "" {
 		return &proto.ValidateSessionResponse{
 			Valid:          false,
 			UserId:         user.Id,
 			UserEmail:      user.Email,
-			DeniedReason:   "not_in_group",
+			DeniedReason:   reason,
 			PeerGroupIds:   groupIDs,
 			PeerGroupNames: groupNames,
 		}, nil
@@ -1600,7 +1890,6 @@ func (s *ProxyServiceServer) ValidateSession(ctx context.Context, req *proto.Val
 		"email":   user.Email,
 	}).Debug("ValidateSession: access granted")
 
-	groupIDs, groupNames := pairGroupIDsAndNames(userGroups)
 	return &proto.ValidateSessionResponse{
 		Valid:          true,
 		UserId:         user.Id,
@@ -1610,8 +1899,90 @@ func (s *ProxyServiceServer) ValidateSession(ctx context.Context, req *proto.Val
 	}, nil
 }
 
+// deniedSessionResponse builds a denial that carries no identity, for the
+// checks that run before a user of this service's account is resolved.
+func deniedSessionResponse(reason string) *proto.ValidateSessionResponse {
+	return &proto.ValidateSessionResponse{
+		Valid:        false,
+		DeniedReason: reason,
+	}
+}
+
+// sessionTokenSubject verifies the session token against the service's session
+// key and returns the user it was minted for, or the reason it cannot be
+// trusted.
+func sessionTokenSubject(domain string, service *rpservice.Service, sessionToken string) (userID, deniedReason string) {
+	pubKeyBytes, err := base64.StdEncoding.DecodeString(service.SessionPublicKey)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"domain": domain,
+			"error":  err.Error(),
+		}).Error("ValidateSession: decode public key")
+		return "", "invalid_service_config"
+	}
+
+	userID, _, _, _, _, err = proxyauth.ValidateSessionJWT(sessionToken, domain, pubKeyBytes)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"domain": domain,
+			"error":  err.Error(),
+		}).Debug("ValidateSession: invalid session token")
+		return "", "invalid_token"
+	}
+
+	return userID, ""
+}
+
+// accountUserDeniedReason gates a user of the service's own account, returning
+// an empty string when access is granted. Account status comes before group
+// membership: a user awaiting approval or blocked has no access regardless of
+// the groups they were auto-assigned.
+func (s *ProxyServiceServer) accountUserDeniedReason(domain string, service *rpservice.Service, user *types.User) string {
+	if reason := userStatusDeniedReason(user); reason != "" {
+		log.WithFields(log.Fields{
+			"domain":  domain,
+			"user_id": user.Id,
+			"reason":  reason,
+		}).Debug("ValidateSession: user status denies access")
+		return reason
+	}
+
+	if err := s.checkGroupAccess(service, user); err != nil {
+		log.WithFields(log.Fields{
+			"domain":  domain,
+			"user_id": user.Id,
+			"error":   err.Error(),
+		}).Debug("ValidateSession: access denied")
+		return "not_in_group"
+	}
+
+	return ""
+}
+
 func (s *ProxyServiceServer) getServiceByDomain(ctx context.Context, domain string) (*rpservice.Service, error) {
-	return s.serviceManager.GetServiceByDomain(ctx, domain)
+	service, err := s.serviceManager.GetServiceByDomain(ctx, domain)
+	if err == nil {
+		return service, nil
+	}
+
+	// Fall back to the Agent Network synthesiser scoped directly to the domain's
+	// account. Synthesised services are never persisted, so they must resolve
+	// here for OIDC / session / tunnel-peer flows against agent-network
+	// endpoints. Resolving by domain synthesises only the owning account rather
+	// than every tenant on the cluster.
+	if synth := s.agentNetworkSynthesizer(); synth != nil {
+		svc, serr := synth.SynthesizeServiceForDomain(ctx, domain)
+		if serr != nil {
+			// A real synthesis failure must surface, not be masked by the
+			// original store miss — otherwise a transient DB error looks like
+			// "no such service".
+			return nil, fmt.Errorf("synthesize agent-network service for %s: %w", domain, serr)
+		}
+		if svc != nil {
+			return svc, nil
+		}
+	}
+	return nil, err
 }
 
 func (s *ProxyServiceServer) checkGroupAccess(service *rpservice.Service, user *types.User) error {
@@ -1702,21 +2073,19 @@ func (s *ProxyServiceServer) ValidateTunnelPeer(ctx context.Context, req *proto.
 	}
 
 	groupIDs, groupNames := pairGroupIDsAndNames(peerGroups)
+	owner := s.resolvePeerOwner(ctx, peer, service.AccountID)
+	principalID, displayIdentity := s.getTunnelPeerInfo(ctx, domain, service, peer, owner)
 
-	// Resolve the principal: when the peer is linked to a user, the human
-	// is the principal so multiple peers owned by the same user share a
-	// single identity. Unlinked peers (machine agents) are their own
-	// principal keyed on peer.ID. displayIdentity is what upstream gateways
-	// tag spend with — user.Email when linked, peer.Name when not.
-	principalID := peer.ID
-	displayIdentity := peer.Name
-	if peer.UserID != "" {
-		if user, uerr := s.usersManager.GetUser(ctx, peer.UserID); uerr == nil && user != nil {
-			principalID = user.Id
-			if user.Email != "" {
-				displayIdentity = user.Email
-			}
-		}
+	if reason := peerOwnerDeniedReason(peer, owner); reason != "" {
+		log.WithFields(log.Fields{"domain": domain, "peer_id": peer.ID, "user_id": peer.UserID, "reason": reason}).Debug("ValidateTunnelPeer: owner status denies access")
+		return &proto.ValidateTunnelPeerResponse{
+			Valid:          false,
+			UserId:         principalID,
+			UserEmail:      displayIdentity,
+			DeniedReason:   reason,
+			PeerGroupIds:   groupIDs,
+			PeerGroupNames: groupNames,
+		}, nil
 	}
 
 	if err := checkPeerGroupAccess(service, groupIDs); err != nil {
@@ -1737,6 +2106,8 @@ func (s *ProxyServiceServer) ValidateTunnelPeer(ctx context.Context, req *proto.
 		return nil, err
 	}
 
+	s.recordPeerSeen(ctx, service.AccountID, peer)
+
 	log.WithFields(log.Fields{
 		"domain":       domain,
 		"tunnel_ip":    tunnelIPStr,
@@ -1752,6 +2123,103 @@ func (s *ProxyServiceServer) ValidateTunnelPeer(ctx context.Context, req *proto.
 		PeerGroupIds:   groupIDs,
 		PeerGroupNames: groupNames,
 	}, nil
+}
+
+// recordPeerSeen hands the mesh request to the activity manager. The RPC must
+// not fail on it, so the error is logged and dropped here rather than returned.
+func (s *ProxyServiceServer) recordPeerSeen(ctx context.Context, accountID string, peer *peer.Peer) {
+	if s.activityManager == nil {
+		return
+	}
+
+	if err := s.activityManager.RecordPeerSeen(ctx, accountID, peer); err != nil {
+		log.WithContext(ctx).Debugf("record proxy activity for peer %s: %v", peer.ID, err)
+	}
+}
+
+// resolvePeerOwner returns the user a peer is linked to, once per request so
+// the status gate and the identity resolution below share a single lookup.
+// Unlinked peers (machine agents) have no owner. A lookup that fails returns
+// nil rather than an error: both callers treat an unresolved owner the same
+// way, and neither may trust one it could not read.
+func (s *ProxyServiceServer) resolvePeerOwner(ctx context.Context, peer *peer.Peer, accountID string) *types.User {
+	if peer.UserID == "" {
+		return nil
+	}
+
+	user, err := s.usersManager.GetUser(ctx, peer.UserID)
+	if err != nil {
+		log.WithContext(ctx).Debugf("ValidateTunnelPeer: look up owner %s of peer %s: %v", peer.UserID, peer.ID, err)
+		return nil
+	}
+
+	// The lookup is by user ID alone, so a peer row pointing outside the
+	// service's account would otherwise resolve a foreign user. Leave the owner
+	// unresolved instead: the gate denies it, and neither the response nor the
+	// minted token carries an identity from another account.
+	if !sameAccount(user.AccountID, accountID) {
+		log.WithContext(ctx).Debugf("ValidateTunnelPeer: owner %s of peer %s belongs to another account", peer.UserID, peer.ID)
+		return nil
+	}
+
+	return user
+}
+
+// peerOwnerDeniedReason gates the mesh fast-path on the account status of the
+// peer's owning user, so a user blocked after registering a peer loses
+// mesh-origin access too. Unlinked peers (machine agents) have no owner to gate
+// on and stay first-class callers. An owner the store cannot resolve denies:
+// an unavailable lookup must not grant access.
+func peerOwnerDeniedReason(peer *peer.Peer, owner *types.User) string {
+	if peer.UserID == "" {
+		return ""
+	}
+
+	if owner == nil {
+		return deniedReasonUserNotFound
+	}
+
+	return userStatusDeniedReason(owner)
+}
+
+// getTunnelPeerInfo returns the principal ID and display name for a peer, e.g. a
+// user or peer ID, and peer name or user email. owner is the already-resolved
+// user the peer is linked to, or nil.
+func (s *ProxyServiceServer) getTunnelPeerInfo(ctx context.Context, domain string, service *rpservice.Service, peer *peer.Peer, owner *types.User) (string, string) {
+	// Resolve the principal: when the peer is linked to a user, the human is the
+	// principal so multiple peers owned by the same user share a single
+	// identity. Unlinked peers (machine agents) are their own principal keyed on
+	// peer.ID. displayIdentity is what upstream gateways tag spend with —
+	// user.Email when linked, peer.Name when not.
+
+	// If the peer isn't associated with a user, return the peer info directly.
+	if peer.UserID == "" {
+		return peer.ID, peer.Name
+	}
+
+	// Otherwise, if the peer is linked to a user, the user is the principal and
+	// if an IdP is available, we gather details on the user from it.
+	principalID := peer.UserID
+	displayIdentity := peer.Name
+	// Stored column first (cheap, but often empty for OIDC-provisioned users).
+	if owner != nil {
+		principalID = owner.Id
+		if owner.Email != "" {
+			displayIdentity = owner.Email
+		}
+	}
+	// IdP enrichment wins when available — the stored email column is a
+	// best-effort cache and is frequently empty for OIDC users. Enrichment
+	// failures must never fail the RPC; we simply keep the stored/peer identity.
+	if s.idpManager != nil {
+		if ud, uerr := s.idpManager.GetUserDataByID(ctx, peer.UserID, idp.AppMetadata{WTAccountID: service.AccountID}); uerr == nil && ud != nil && ud.Email != "" {
+			displayIdentity = ud.Email
+		} else if uerr != nil {
+			log.WithFields(log.Fields{"domain": domain, "user_id": peer.UserID, "error": uerr.Error()}).Debug("ValidateTunnelPeer: IdP user enrichment failed; using stored/peer identity")
+		}
+	}
+
+	return principalID, displayIdentity
 }
 
 // checkPeerGroupAccess gates ValidateTunnelPeer by the service's required

@@ -21,7 +21,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
-	sshcommon "github.com/netbirdio/netbird/client/ssh"
+	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
@@ -91,6 +91,13 @@ type Options struct {
 	// when the embedded client must never act as a stepping stone into
 	// the host's local network (e.g. the proxy's overlay peer).
 	BlockLANAccess bool
+	// LazyConnectionEnabled is a tri-state local override for lazy connections,
+	// mirroring the NB_LAZY_CONN env var. Nil defers to the management feature
+	// flag; a set value overrides it in both directions. A short-lived client
+	// that reaches only a few known peers can set this to false, so its peers
+	// connect eagerly and the first request does not wait for the connection to
+	// be established.
+	LazyConnectionEnabled *bool
 	// WireguardPort is the port for the tunnel interface. Use 0 for a random port.
 	WireguardPort *int
 	// MTU is the MTU for the tunnel interface.
@@ -220,6 +227,15 @@ func New(opts Options) (*Client, error) {
 		config.PrivateKey = opts.PrivateKey
 	}
 
+	if opts.LazyConnectionEnabled != nil {
+		// Runtime-only override, read back through lazyconn.ParseState; a set value
+		// wins over the management feature flag in both directions.
+		config.LazyConnection = "off"
+		if *opts.LazyConnectionEnabled {
+			config.LazyConnection = "on"
+		}
+	}
+
 	if opts.Performance.PreallocatedBuffersPerPool != nil {
 		wgdevice.SetPreallocatedBuffersPerPool(*opts.Performance.PreallocatedBuffersPerPool)
 	}
@@ -279,6 +295,12 @@ func (c *Client) Start(startCtx context.Context) error {
 
 	select {
 	case <-startCtx.Done():
+		// ConnectClient.Stop now cancels its own run context and waits for the
+		// run loop to tear the engine down, so this cancel() is no longer
+		// required to break the deadlock and could be removed. It is kept as a
+		// defensive belt-and-suspenders: cancelling the parent context first
+		// guarantees the run loop is unblocked even if Stop's contract regresses.
+		cancel()
 		if stopErr := client.Stop(); stopErr != nil {
 			return fmt.Errorf("stop error after context done. Stop error: %w. Context done: %w", stopErr, startCtx.Err())
 		}
@@ -442,8 +464,8 @@ func (c *Client) Expose(ctx context.Context, req ExposeRequest) (*ExposeSession,
 
 // IdentityForIP looks up a remote peer by its tunnel IP using the
 // embedded client's status recorder. Returns the peer's WireGuard public
-// key and FQDN. ok=false means the IP isn't in this client's peer
-// roster — callers should treat that as "unknown peer".
+// key and FQDN. ok=false means the IP doesn't belong to an active peer
+// — offline roster peers are treated as unknown, same as foreign IPs.
 func (c *Client) IdentityForIP(ip netip.Addr) (pubKey, fqdn string, ok bool) {
 	if !ip.IsValid() || c.recorder == nil {
 		return "", "", false
@@ -464,7 +486,7 @@ func (c *Client) Status() (peer.FullStatus, error) {
 	if connect != nil {
 		engine := connect.Engine()
 		if engine != nil {
-			_ = engine.RunHealthProbes(false)
+			_ = engine.RunHealthProbes(context.Background(), false)
 		}
 	}
 
@@ -515,12 +537,7 @@ func (c *Client) VerifySSHHostKey(peerAddress string, key []byte) error {
 		return err
 	}
 
-	storedKey, found := engine.GetPeerSSHKey(peerAddress)
-	if !found {
-		return sshcommon.ErrPeerNotFound
-	}
-
-	return sshcommon.VerifyHostKey(storedKey, key, peerAddress)
+	return nbssh.PeerKeyLookup(engine.GetPeerSSHKey).VerifySSHHostKey(peerAddress, key)
 }
 
 // SetPerformance retunes a running Client. Only PreallocatedBuffersPerPool

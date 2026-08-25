@@ -12,12 +12,30 @@ const (
 )
 
 // PeerInfo describe information about the peers. It designed for the UI usage
+//
+// The fields below ConnStatus back the peer detail screen. Durations and times
+// are pre-formatted into strings so the UI does not have to know Go's layouts;
+// Latency is additionally exposed as LatencyMs for colour coding.
 type PeerInfo struct {
 	IP         string
 	IPv6       string
 	FQDN       string
 	ConnStatus int
 	Routes     PeerRoutes
+
+	PubKey                     string
+	Latency                    string
+	LatencyMs                  int64
+	BytesRx                    int64
+	BytesTx                    int64
+	ConnStatusUpdate           string
+	Relayed                    bool
+	RosenpassEnabled           bool
+	LastWireguardHandshake     string
+	LocalIceCandidateType      string
+	RemoteIceCandidateType     string
+	LocalIceCandidateEndpoint  string
+	RemoteIceCandidateEndpoint string
 }
 
 func (p *PeerInfo) GetPeerRoutes() *PeerRoutes {

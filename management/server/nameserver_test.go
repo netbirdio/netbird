@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang/mock/gomock"
+	"go.uber.org/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -896,11 +896,11 @@ func initTestNSAccount(t *testing.T, am *DefaultAccountManager) (*types.Account,
 		return nil, err
 	}
 
-	_, _, _, err = am.AddPeer(context.Background(), "", "", userID, peer1, false)
+	_, _, _, _, err = am.AddPeer(context.Background(), "", "", userID, peer1, false)
 	if err != nil {
 		return nil, err
 	}
-	_, _, _, err = am.AddPeer(context.Background(), "", "", userID, peer2, false)
+	_, _, _, _, err = am.AddPeer(context.Background(), "", "", userID, peer2, false)
 	if err != nil {
 		return nil, err
 	}

@@ -3,14 +3,24 @@ package proxy
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/metric/noop"
+	"google.golang.org/grpc"
 
+	"github.com/netbirdio/netbird/proxy/internal/auth"
+	proxymetrics "github.com/netbirdio/netbird/proxy/internal/metrics"
+	"github.com/netbirdio/netbird/proxy/internal/types"
+	"github.com/netbirdio/netbird/shared/hash/argon2id"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -201,4 +211,174 @@ func TestRedactMappingForLog_HandlesEmptyOrNilFields(t *testing.T) {
 	assert.Equal(t, "", redacted.AuthToken, "empty auth_token must remain empty (no placeholder)")
 	assert.Nil(t, redacted.Auth, "nil Auth must remain nil")
 	assert.Empty(t, redacted.Path, "empty Path must remain empty")
+}
+
+// headerSchemeAccepts reports whether the scheme admits value for headerName.
+func headerSchemeAccepts(t *testing.T, scheme auth.Scheme, headerName, value string) bool {
+	t.Helper()
+	hdr, ok := scheme.(auth.Header)
+	require.True(t, ok, "header auths must produce Header schemes")
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	req.Header.Set(headerName, value)
+	_, matched, _ := hdr.Verify(req)
+	return matched
+}
+
+func TestHeaderAuthSchemes_GroupsValuesByCanonicalHeaderName(t *testing.T) {
+	hashOf := func(v string) string {
+		hash, err := argon2id.Hash(v)
+		require.NoError(t, err)
+		return hash
+	}
+
+	schemes := headerAuthSchemes([]*proto.HeaderAuth{
+		{Header: "Authorization", HashedValue: hashOf("Bearer a")},
+		{Header: "authorization", HashedValue: hashOf("Bearer b")},
+		{Header: "X-Api-Key", HashedValue: hashOf("key-1")},
+	})
+
+	require.Len(t, schemes, 2, "entries differing only in header-name case must collapse into one scheme")
+
+	assert.True(t, headerSchemeAccepts(t, schemes[0], "Authorization", "Bearer a"), "first value for the header must be accepted")
+	assert.True(t, headerSchemeAccepts(t, schemes[0], "Authorization", "Bearer b"), "second value for the same header must be accepted")
+	assert.False(t, headerSchemeAccepts(t, schemes[0], "Authorization", "Bearer c"), "unconfigured value must be rejected")
+	assert.True(t, headerSchemeAccepts(t, schemes[1], "X-Api-Key", "key-1"), "a second header name keeps its own scheme")
+}
+
+// TestHeaderAuthSchemes_MissingHashFailsClosed covers a mapping that names a
+// header but carries no hash for it. Dropping the scheme would leave a service
+// whose only auth is that header wide open, so the scheme is kept and denies.
+func TestHeaderAuthSchemes_MissingHashFailsClosed(t *testing.T) {
+	schemes := headerAuthSchemes([]*proto.HeaderAuth{{Header: "X-Api-Key"}})
+
+	require.Len(t, schemes, 1, "a header without a hash must still register a scheme")
+	assert.False(t, headerSchemeAccepts(t, schemes[0], "X-Api-Key", "anything"),
+		"a header auth without a hash must reject every value")
+}
+
+// TestHeaderAuthSchemes_BlankNameFailsClosed covers a mapping row whose header
+// name is empty. Skipping it would leave a service whose only auth is that entry
+// with no schemes at all, which Protect treats as an unprotected domain, so the
+// entry is kept and the domain stays gated.
+func TestHeaderAuthSchemes_BlankNameFailsClosed(t *testing.T) {
+	schemes := headerAuthSchemes([]*proto.HeaderAuth{{Header: "", HashedValue: "$argon2id$not-a-real-hash"}})
+
+	require.Len(t, schemes, 1, "a blank header name must still register a scheme")
+	assert.False(t, headerSchemeAccepts(t, schemes[0], "X-Api-Key", "anything"),
+		"a blank header auth must not admit any request")
+}
+
+type statusUpdateOnlyClient struct {
+	proto.ProxyServiceClient
+}
+
+func (statusUpdateOnlyClient) SendStatusUpdate(context.Context, *proto.SendStatusUpdateRequest, ...grpc.CallOption) (*proto.SendStatusUpdateResponse, error) {
+	return &proto.SendStatusUpdateResponse{}, nil
+}
+
+func TestSetupTCPMappingBindsCustomListenPort(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	port := uint16(ln.Addr().(*net.TCPAddr).Port) //nolint:gosec // test port allocated by the OS
+	require.NoError(t, ln.Close())
+
+	meter, err := proxymetrics.New(context.Background(), noop.Meter{})
+	require.NoError(t, err)
+
+	srv := &Server{
+		Logger:      quietLifecycleLogger(),
+		mgmtClient:  statusUpdateOnlyClient{},
+		meter:       meter,
+		mainPort:    8443,
+		portRouters: make(map[uint16]*portRouter),
+		svcPorts:    make(map[types.ServiceID][]uint16),
+	}
+	t.Cleanup(func() {
+		srv.portMu.Lock()
+		for p, pr := range srv.portRouters {
+			pr.cancel()
+			require.NoError(t, pr.listener.Close())
+			delete(srv.portRouters, p)
+		}
+		srv.portMu.Unlock()
+		srv.portRouterWg.Wait()
+	})
+
+	mapping := &proto.ProxyMapping{
+		Type:       proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED,
+		Id:         "svc-tcp",
+		AccountId:  "acct-1",
+		Domain:     "ssh.example.com",
+		Mode:       "tcp",
+		ListenPort: int32(port),
+		Path: []*proto.PathMapping{
+			{Target: "10.0.0.5:22"},
+		},
+	}
+
+	require.NoError(t, srv.setupTCPMapping(context.Background(), mapping))
+
+	srv.portMu.RLock()
+	pr := srv.portRouters[port]
+	ports := append([]uint16(nil), srv.svcPorts[types.ServiceID("svc-tcp")]...)
+	srv.portMu.RUnlock()
+
+	require.NotNil(t, pr, "custom TCP mapping must create a per-port router")
+	assert.Equal(t, []uint16{port}, ports, "service must track the custom listen port for cleanup")
+
+	second, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	if err == nil {
+		_ = second.Close()
+	}
+	require.Error(t, err, "custom TCP listen port must be bound after setup")
+}
+
+func TestCustomTCPPortRouterOutlivesMappingBatchContext(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	port := uint16(ln.Addr().(*net.TCPAddr).Port) //nolint:gosec // test port allocated by the OS
+	require.NoError(t, ln.Close())
+
+	meter, err := proxymetrics.New(context.Background(), noop.Meter{})
+	require.NoError(t, err)
+
+	srvCtx, srvCancel := context.WithCancel(context.Background())
+	t.Cleanup(srvCancel)
+
+	srv := &Server{
+		ctx:         srvCtx,
+		Logger:      quietLifecycleLogger(),
+		meter:       meter,
+		mainPort:    8443,
+		portRouters: make(map[uint16]*portRouter),
+		svcPorts:    make(map[types.ServiceID][]uint16),
+	}
+	t.Cleanup(func() {
+		srv.portMu.Lock()
+		for p, pr := range srv.portRouters {
+			pr.cancel()
+			if err := pr.listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+				require.NoError(t, err)
+			}
+			delete(srv.portRouters, p)
+		}
+		srv.portMu.Unlock()
+		srv.portRouterWg.Wait()
+	})
+
+	batchCtx, cancelBatch := context.WithCancel(context.Background())
+	_, err = srv.getOrCreatePortRouter(batchCtx, port)
+	require.NoError(t, err)
+
+	cancelBatch()
+
+	assert.Never(t, func() bool {
+		second, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+		if err == nil {
+			_ = second.Close()
+			return true
+		}
+		return false
+	}, 200*time.Millisecond, 10*time.Millisecond, "custom TCP listener must outlive mapping-batch context cancellation")
 }

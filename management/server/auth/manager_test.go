@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/idp/dex"
 	"github.com/netbirdio/netbird/management/server/auth"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -205,6 +206,43 @@ func TestAuthManager_EnsureUserAccessByJWTGroups(t *testing.T) {
 
 		_, err = manager.EnsureUserAccessByJWTGroups(context.Background(), userAuth, token)
 		require.Error(t, err, "ensure user access is not in allowed groups")
+	})
+
+	t.Run("Local embedded-Dex user is exempt from JWT allow-groups", func(t *testing.T) {
+		account.Settings.JWTGroupsEnabled = true
+		account.Settings.JWTGroupsClaimName = "idp-groups"
+		account.Settings.JWTAllowGroups = []string{"not-a-group"}
+		err := store.SaveAccount(context.Background(), account)
+		require.NoError(t, err, "save account failed")
+
+		// Local Dex users have a "local" connector encoded in their user ID.
+		localUserAuth := nbauth.UserAuth{
+			AccountId: account.Id,
+			Domain:    domain,
+			UserId:    dex.EncodeDexUserID("local-owner", "local"),
+		}
+
+		localUserAuth, err = manager.EnsureUserAccessByJWTGroups(context.Background(), localUserAuth, token)
+		require.NoError(t, err, "local user must not be locked out by JWT allow-groups (issue #5337)")
+		require.Len(t, localUserAuth.Groups, 0, "JWT groups must not be evaluated for local users")
+	})
+
+	t.Run("Federated embedded-Dex user is still subject to JWT allow-groups", func(t *testing.T) {
+		account.Settings.JWTGroupsEnabled = true
+		account.Settings.JWTGroupsClaimName = "idp-groups"
+		account.Settings.JWTAllowGroups = []string{"not-a-group"}
+		err := store.SaveAccount(context.Background(), account)
+		require.NoError(t, err, "save account failed")
+
+		// A federated user (non-"local" connector) must remain restricted.
+		fedUserAuth := nbauth.UserAuth{
+			AccountId: account.Id,
+			Domain:    domain,
+			UserId:    dex.EncodeDexUserID("entra-user", "entra"),
+		}
+
+		_, err = manager.EnsureUserAccessByJWTGroups(context.Background(), fedUserAuth, token)
+		require.Error(t, err, "federated user must still be restricted by JWT allow-groups")
 	})
 }
 

@@ -14,6 +14,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/netsweep"
 	auth "github.com/netbirdio/netbird/shared/relay/auth/hmac"
 	"github.com/netbirdio/netbird/shared/relay/client/dialer"
 	netErr "github.com/netbirdio/netbird/shared/relay/client/dialer/net"
@@ -145,6 +146,11 @@ func (cc *connContainer) close() {
 	}
 }
 
+// transportConn is implemented by relay connections that know their transport.
+type transportConn interface {
+	Protocol() string
+}
+
 // Client is a client for the relay server. It is responsible for establishing a connection to the relay server and
 // managing connections to other peers. All exported functions are safe to call concurrently. After close the connection,
 // the client can be reused by calling Connect again. When the client is closed, all connections are closed too.
@@ -179,9 +185,25 @@ type Client struct {
 	// datagram-sized transport is avoided on subsequent connects. Shared via
 	// the manager.
 	transportFallback *transportFallback
+
+	// sweeper cuts the relay connection on network change; the read loop
+	// reports the disconnect and the guard reconnects. Shared via the manager.
+	sweeper *netsweep.Sweeper
 	// datagramFallbackTriggered guards a single fallback per connection so a
 	// burst of oversized datagrams triggers one reconnect, not many.
 	datagramFallbackTriggered atomic.Bool
+
+	// transport is the negotiated relay transport of the
+	// current connection, guarded by mu.
+	transport string
+}
+
+// Transport returns the negotiated relay transport of the current connection,
+// or an empty string when not connected.
+func (c *Client) Transport() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.transport
 }
 
 // SetTransportFallback wires the shared datagram-transport fallback tracker.
@@ -376,6 +398,12 @@ func (c *Client) Close() error {
 }
 
 func (c *Client) connect(ctx context.Context) (*RelayAddr, error) {
+	// A sweep cancels this context, so a dial started on the old network
+	// aborts instead of waiting out its handshake timeout.
+	dial := c.sweeper.StartDial(ctx)
+	defer dial.Release()
+	ctx = dial.Ctx()
+
 	mode := transportModeFromEnv()
 	dialers := c.getDialers(mode)
 
@@ -399,6 +427,16 @@ func (c *Client) connect(ctx context.Context) (*RelayAddr, error) {
 		if err != nil {
 			return nil, fmt.Errorf("dial via FQDN: %w", err)
 		}
+	}
+	// Read the transport off the concrete connection: the sweeper's wrapper
+	// embeds net.Conn only, so it does not promote Protocol().
+	if tc, ok := conn.(transportConn); ok {
+		c.transport = tc.Protocol()
+	}
+
+	conn, err := dial.WrapConn(conn)
+	if err != nil {
+		return nil, fmt.Errorf("register connection: %w", err)
 	}
 	c.relayConn = conn
 	c.datagramFallbackTriggered.Store(false)
@@ -792,6 +830,7 @@ func (c *Client) close(gracefullyExit bool) error {
 		return nil
 	}
 	c.serviceIsRunning = false
+	c.transport = ""
 
 	c.muInstanceURL.Lock()
 	c.instanceURL = nil
