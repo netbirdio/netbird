@@ -9,7 +9,6 @@ import (
 	"net"
 	"os"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -17,8 +16,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	cryptossh "golang.org/x/crypto/ssh"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/netbirdio/netbird/client/internal/daemonaddr"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
@@ -55,8 +54,8 @@ type SSHProxy struct {
 }
 
 func New(daemonAddr, targetHost string, targetPort int, stderr io.Writer, browserOpener func(string) error) (*SSHProxy, error) {
-	grpcAddr := strings.TrimPrefix(daemonAddr, "tcp://")
-	grpcConn, err := grpc.NewClient(grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	target, opts := daemonaddr.DialTarget(daemonAddr)
+	grpcConn, err := grpc.NewClient(target, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("connect to daemon: %w", err)
 	}
@@ -611,13 +610,10 @@ func (p *SSHProxy) dialBackend(ctx context.Context, addr, user, jwtToken string)
 		return nil, fmt.Errorf("connect to server: %w", err)
 	}
 
-	clientConn, chans, reqs, err := cryptossh.NewClientConn(conn, addr, config)
-	if err != nil {
-		_ = conn.Close()
-		return nil, fmt.Errorf("SSH handshake: %w", err)
-	}
+	handshakeCtx, cancel := context.WithTimeout(ctx, sshHandshakeTimeout)
+	defer cancel()
 
-	return cryptossh.NewClient(clientConn, chans, reqs), nil
+	return nbssh.Handshake(handshakeCtx, conn, addr, config)
 }
 
 func (p *SSHProxy) verifyHostKey(hostname string, remote net.Addr, key cryptossh.PublicKey) error {

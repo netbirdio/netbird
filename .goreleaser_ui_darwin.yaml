@@ -29,6 +29,8 @@ builds:
     ldflags:
       - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
     mod_timestamp: "{{ .CommitTimestamp }}"
+    tags:
+      - production
 
 universal_binaries:
   - id: netbird-ui-darwin
@@ -41,3 +43,11 @@ checksum:
   name_template: "{{ .ProjectName }}_darwin_checksums.txt"
 changelog:
   disable: true
+
+release:
+  # Uploads into the release created by the main .goreleaser.yaml run.
+  # make_latest stays false everywhere: the signing pipeline
+  # (netbirdio/sign-pipelines) marks the release latest after the Windows
+  # and macOS artifacts are signed.
+  make_latest: false
+  prerelease: auto

@@ -29,11 +29,12 @@ type ForeignRelaysStore struct {
 	peerID               string
 	mtu                  uint16
 	transportFallback    *transportFallback
+	netEvents            NetEvents
 	onDisconnect         func(string)
 	keepUnusedServerTime time.Duration
 }
 
-func NewForeignRelaysStore(ctx context.Context, tokenStore *relayAuth.TokenStore, peerID string, mtu uint16, transportFallback *transportFallback, onDisconnect func(string), keepUnusedServerTime time.Duration) *ForeignRelaysStore {
+func NewForeignRelaysStore(ctx context.Context, tokenStore *relayAuth.TokenStore, peerID string, mtu uint16, transportFallback *transportFallback, netEvents NetEvents, onDisconnect func(string), keepUnusedServerTime time.Duration) *ForeignRelaysStore {
 	return &ForeignRelaysStore{
 		clients:              make(map[string]*foreignRelay),
 		ctx:                  ctx,
@@ -41,6 +42,7 @@ func NewForeignRelaysStore(ctx context.Context, tokenStore *relayAuth.TokenStore
 		peerID:               peerID,
 		mtu:                  mtu,
 		transportFallback:    transportFallback,
+		netEvents:            netEvents,
 		onDisconnect:         onDisconnect,
 		keepUnusedServerTime: keepUnusedServerTime,
 	}
@@ -75,6 +77,7 @@ func (f *ForeignRelaysStore) acquire(remoteRelayServer RelayServer) (*foreignRel
 
 		relayClient := NewClientWithServerIP(remoteRelayServer.Addr, remoteRelayServer.IP, f.tokenStore, f.peerID, f.mtu)
 		relayClient.SetTransportFallback(f.transportFallback)
+		relayClient.netEvents = f.netEvents
 		if err := relayClient.Connect(f.ctx); err != nil {
 			return nil, err
 		}

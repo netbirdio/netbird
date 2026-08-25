@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang/mock/gomock"
+	"go.uber.org/mock/gomock"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -1092,14 +1092,14 @@ func TestToSyncResponse(t *testing.T) {
 	}
 	networkMap := &types.NetworkMap{
 		Network: &types.Network{Net: *ipnet, Serial: 1000},
-		Peers: []*nbpeer.Peer{{
+		Peers: []*types.ComponentPeer{{
 			IP:         netip.MustParseAddr("192.168.1.2"),
 			IPv6:       netip.MustParseAddr("fd00::2"),
 			Key:        "peer2-key",
 			DNSLabel:   "peer2",
 			SSHEnabled: true,
 			SSHKey:     "peer2-ssh-key"}},
-		OfflinePeers: []*nbpeer.Peer{{
+		OfflinePeers: []*types.ComponentPeer{{
 			IP:         netip.MustParseAddr("192.168.1.3"),
 			IPv6:       netip.MustParseAddr("fd00::3"),
 			Key:        "peer3-key",

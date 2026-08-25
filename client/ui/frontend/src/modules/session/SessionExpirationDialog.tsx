@@ -11,7 +11,7 @@ import { DialogHeading } from "@/components/dialog/DialogHeading";
 import { SquareIcon } from "@/components/SquareIcon";
 import { Connection, Profiles as ProfilesSvc, Session, WindowManager } from "@bindings/services";
 import { useAutoSizeWindow } from "@/hooks/useAutoSizeWindow";
-import { EVENT_BROWSER_LOGIN_CANCEL } from "@/lib/connection";
+import { EVENT_BROWSER_LOGIN_CANCEL, EVENT_TRIGGER_LOGIN } from "@/lib/connection";
 import { errorDialog, formatErrorMessage } from "@/lib/errors.ts";
 import { formatRemaining } from "@/lib/formatters";
 
@@ -73,6 +73,13 @@ export default function SessionExpirationDialog() {
 
         let offCancel: (() => void) | undefined;
 
+        // Return the dialog to its interactive state and dismiss the browser popup
+        const resetDialog = () => {
+            offCancel?.();
+            WindowManager.CloseBrowserLogin().catch(console.error);
+            setBusy(false);
+        };
+
         try {
             const start = await Session.RequestExtend({ hint: "" });
             const uri = start.verificationUriComplete || start.verificationUri;
@@ -105,25 +112,37 @@ export default function SessionExpirationDialog() {
             if (outcome.kind === "cancel") {
                 waitPromise.cancel?.();
                 waitPromise.catch(() => {});
+                resetDialog();
                 return;
             }
 
             // Another surface owns this flow; keep the dialog open to retry.
             if (outcome.result.preempted) {
+                resetDialog();
                 return;
             }
-
-            // Close before the popup so the restore can't flash this window back.
-            WindowManager.CloseSessionExpiration().catch(console.error);
+            WindowManager.CloseRenewFlow().catch(console.error);
         } catch (e) {
+            resetDialog();
             await errorDialog({
                 Title: t("sessionExpiration.extendFailedTitle"),
                 Message: formatErrorMessage(e),
             });
-        } finally {
-            offCancel?.();
-            WindowManager.CloseBrowserLogin().catch(console.error);
+        }
+    }, [busy, t]);
+
+    const authenticate = useCallback(async () => {
+        if (busy) return;
+        setBusy(true);
+        try {
+            await Events.Emit(EVENT_TRIGGER_LOGIN);
+            await WindowManager.CloseSessionExpiration();
+        } catch (e) {
             setBusy(false);
+            await errorDialog({
+                Title: t("connect.error.loginTitle"),
+                Message: formatErrorMessage(e),
+            });
         }
     }, [busy, t]);
 
@@ -139,12 +158,11 @@ export default function SessionExpirationDialog() {
             });
             WindowManager.CloseSessionExpiration().catch(console.error);
         } catch (e) {
+            setBusy(false);
             await errorDialog({
                 Title: t("sessionExpiration.logoutFailedTitle"),
                 Message: formatErrorMessage(e),
             });
-        } finally {
-            setBusy(false);
         }
     }, [busy, t]);
 
@@ -182,7 +200,7 @@ export default function SessionExpirationDialog() {
                     variant={"primary"}
                     size={"md"}
                     className={"w-full"}
-                    onClick={stay}
+                    onClick={expired ? authenticate : stay}
                     disabled={busy}
                 >
                     {expired ? t("sessionExpiration.authenticate") : t("sessionExpiration.stay")}

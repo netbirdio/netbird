@@ -27,10 +27,11 @@ import (
 const errCloseConnection = "Failed to close connection: %v"
 
 var (
-	logFileCount        uint32
-	systemInfoFlag      bool
-	uploadBundleFlag    bool
-	uploadBundleURLFlag string
+	logFileCount             uint32
+	systemInfoFlag           bool
+	uploadBundleFlag         bool
+	uploadBundleURLFlag      string
+	uploadBundleInsecureFlag bool
 )
 
 var debugCmd = &cobra.Command{
@@ -155,6 +156,11 @@ func debugConfigDump(cmd *cobra.Command, _ []string) error {
 // request. Returns an error if the RPC fails or if the daemon reports
 // an upload failure reason.
 func debugBundle(cmd *cobra.Command, _ []string) error {
+	anonymizeEnabled, anonymizeLevel, err := effectiveAnonymize()
+	if err != nil {
+		return err
+	}
+
 	conn, err := getClient(cmd)
 	if err != nil {
 		return err
@@ -167,17 +173,19 @@ func debugBundle(cmd *cobra.Command, _ []string) error {
 
 	client := proto.NewDaemonServiceClient(conn)
 	request := &proto.DebugBundleRequest{
-		Anonymize:    anonymizeFlag,
-		SystemInfo:   systemInfoFlag,
-		LogFileCount: logFileCount,
-		CliVersion:   version.NetbirdVersion(),
+		Anonymize:      anonymizeEnabled,
+		AnonymizeLevel: anonymizeLevel.String(),
+		SystemInfo:     systemInfoFlag,
+		LogFileCount:   logFileCount,
+		CliVersion:     version.NetbirdVersion(),
 	}
 	if uploadBundleFlag {
 		request.UploadURL = uploadBundleURLFlag
+		request.UploadInsecure = uploadBundleInsecureFlag
 	}
 	resp, err := client.DebugBundle(cmd.Context(), request)
 	if err != nil {
-		return fmt.Errorf("failed to bundle debug: %v", status.Convert(err).Message())
+		return daemonCallError("bundle debug", err)
 	}
 	cmd.Printf("Local file:\n%s\n", resp.GetPath())
 
@@ -225,6 +233,11 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 	duration, err := time.ParseDuration(args[0])
 	if err != nil {
 		return fmt.Errorf("invalid duration format: %v", err)
+	}
+
+	anonymizeEnabled, anonymizeLevel, err := effectiveAnonymize()
+	if err != nil {
+		return err
 	}
 
 	conn, err := getClient(cmd)
@@ -366,17 +379,19 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 	cmd.Println("Creating debug bundle...")
 
 	request := &proto.DebugBundleRequest{
-		Anonymize:    anonymizeFlag,
-		SystemInfo:   systemInfoFlag,
-		LogFileCount: logFileCount,
-		CliVersion:   version.NetbirdVersion(),
+		Anonymize:      anonymizeEnabled,
+		AnonymizeLevel: anonymizeLevel.String(),
+		SystemInfo:     systemInfoFlag,
+		LogFileCount:   logFileCount,
+		CliVersion:     version.NetbirdVersion(),
 	}
 	if uploadBundleFlag {
 		request.UploadURL = uploadBundleURLFlag
+		request.UploadInsecure = uploadBundleInsecureFlag
 	}
 	resp, err := client.DebugBundle(cmd.Context(), request)
 	if err != nil {
-		return fmt.Errorf("failed to bundle debug: %v", status.Convert(err).Message())
+		return daemonCallError("bundle debug", err)
 	}
 
 	if needsRestoreUp {
@@ -524,10 +539,12 @@ func init() {
 	debugBundleCmd.Flags().BoolVarP(&systemInfoFlag, "system-info", "S", true, "Adds system information to the debug bundle")
 	debugBundleCmd.Flags().BoolVarP(&uploadBundleFlag, "upload-bundle", "U", false, "Uploads the debug bundle to a server")
 	debugBundleCmd.Flags().StringVar(&uploadBundleURLFlag, "upload-bundle-url", types.DefaultBundleURL, "Service URL to get an URL to upload the debug bundle")
+	debugBundleCmd.Flags().BoolVar(&uploadBundleInsecureFlag, "upload-bundle-insecure", false, "Allow uploading to an http or untrusted-TLS upload server (self-hosted); requires root")
 
 	forCmd.Flags().Uint32VarP(&logFileCount, "log-file-count", "C", 1, "Number of rotated log files to include in debug bundle")
 	forCmd.Flags().BoolVarP(&systemInfoFlag, "system-info", "S", true, "Adds system information to the debug bundle")
 	forCmd.Flags().BoolVarP(&uploadBundleFlag, "upload-bundle", "U", false, "Uploads the debug bundle to a server")
 	forCmd.Flags().StringVar(&uploadBundleURLFlag, "upload-bundle-url", types.DefaultBundleURL, "Service URL to get an URL to upload the debug bundle")
+	forCmd.Flags().BoolVar(&uploadBundleInsecureFlag, "upload-bundle-insecure", false, "Allow uploading to an http or untrusted-TLS upload server (self-hosted); requires root")
 	forCmd.Flags().Bool("capture", false, "Capture packets during the debug duration and include in bundle")
 }

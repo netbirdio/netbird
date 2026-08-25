@@ -13,18 +13,18 @@ import (
 )
 
 const (
-	// Android-specific config filename (different from desktop default.json)
-	defaultConfigFilename = "netbird.cfg"
-	// Subdirectory for non-default profiles (must match Java Preferences.java)
-	profilesSubdir = "profiles"
 	// Android uses a single user context per app (non-empty username required by ServiceManager)
 	androidUsername = "android"
 )
 
 // Profile represents a profile for gomobile
 type Profile struct {
-	ID       string
-	Name     string
+	ID   string
+	Name string
+	// Email is the account this profile last logged in with, "" if it never
+	// completed an SSO login. Kept across logouts; cleared when the profile is
+	// removed. See profile_state.go.
+	Email    string
 	IsActive bool
 }
 
@@ -101,6 +101,7 @@ func (pm *ProfileManager) ListProfiles() (*ProfileArray, error) {
 		profiles = append(profiles, &Profile{
 			ID:       p.ID.String(),
 			Name:     p.Name,
+			Email:    pm.profileEmail(p.ID.String()),
 			IsActive: p.IsActive,
 		})
 	}
@@ -123,7 +124,22 @@ func (pm *ProfileManager) GetActiveProfile() (*Profile, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve active profile %q: %w", activeState.ID, err)
 	}
-	return &Profile{ID: prof.ID.String(), Name: prof.Name, IsActive: true}, nil
+	return &Profile{
+		ID:       prof.ID.String(),
+		Name:     prof.Name,
+		Email:    pm.profileEmail(prof.ID.String()),
+		IsActive: true,
+	}, nil
+}
+
+// profileEmail returns the account email recorded for a profile. Display-only, so
+// an unresolvable path degrades to "" rather than an error.
+func (pm *ProfileManager) profileEmail(id string) string {
+	configPath, err := pm.getProfileConfigPath(id)
+	if err != nil {
+		return ""
+	}
+	return readProfileEmail(configPath)
 }
 
 // SwitchProfile switches to a different profile
@@ -185,15 +201,44 @@ func (pm *ProfileManager) LogoutProfile(id string) error {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 
+	// The stored account email is kept on purpose, matching the desktop and CLI
+	// logout semantics: the next login passes it as the login_hint so the IdP
+	// preselects the account. Removing the profile is what deletes it.
 	log.Infof("logged out from profile: %s", id)
+	return nil
+}
+
+// RenameProfile changes a profile's display name. The profile ID, and therefore
+// its on-disk filename, is left untouched: only the "name" field of the config
+// is rewritten. This works for the default profile too, whose config lives in
+// netbird.cfg rather than under profiles/.
+func (pm *ProfileManager) RenameProfile(id string, newName string) error {
+	if err := pm.serviceMgr.RenameProfile(profilemanager.ID(id), androidUsername, newName); err != nil {
+		return fmt.Errorf("failed to rename profile: %w", err)
+	}
+
+	log.Infof("renamed profile %s to: %s", id, newName)
 	return nil
 }
 
 // RemoveProfile deletes a profile
 func (pm *ProfileManager) RemoveProfile(id string) error {
+	configPath, err := pm.getProfileConfigPath(id)
+	if err != nil {
+		return err
+	}
+
 	// Use ServiceManager (removes profile from profiles/ directory)
 	if err := pm.serviceMgr.RemoveProfile(profilemanager.ID(id), androidUsername); err != nil {
 		return fmt.Errorf("failed to remove profile: %w", err)
+	}
+
+	// The account file is this package's, not the ServiceManager's, so it must
+	// go here. The default profile has a fixed filename, so a recreated one
+	// would otherwise inherit the deleted profile's email as its login_hint.
+	// Not fatal: the profile itself is gone.
+	if err := removeProfileEmail(configPath); err != nil {
+		log.Warnf("failed to remove stored account email for profile %s: %v", id, err)
 	}
 
 	log.Infof("removed profile: %s", id)

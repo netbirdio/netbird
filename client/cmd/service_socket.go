@@ -26,6 +26,14 @@ func listenOnAddress(addr string) (*socketListener, error) {
 		return nil, err
 	}
 
+	if network == "npipe" {
+		listener, path, err := listenNamedPipe(address) //nolint:staticcheck
+		if err != nil {                                 //nolint:staticcheck // always errors on non-Windows builds
+			return nil, err
+		}
+		return &socketListener{Listener: listener, network: network, address: path}, nil
+	}
+
 	if network == "unix" {
 		removeStaleUnixSocket(address)
 	}
@@ -41,11 +49,11 @@ func listenOnAddress(addr string) (*socketListener, error) {
 func parseListenAddress(addr string) (string, string, error) {
 	network, address, ok := strings.Cut(addr, "://")
 	if !ok || network == "" || address == "" {
-		return "", "", fmt.Errorf("address must be in [unix|tcp]://[path|host:port] format: %q", addr)
+		return "", "", fmt.Errorf("address must be in [unix|tcp|npipe]://[path|host:port|name] format: %q", addr)
 	}
 
 	switch network {
-	case "unix", "tcp":
+	case "unix", "tcp", "npipe":
 		return network, address, nil
 	default:
 		return "", "", fmt.Errorf("unsupported daemon address protocol: %v", network)

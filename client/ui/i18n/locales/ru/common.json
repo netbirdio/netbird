@@ -551,6 +551,14 @@
     "settings.general.autostart.errorTitle": {
         "message": "Не удалось изменить автозапуск"
     },
+    "settings.general.keepConnectedOnQuit.label": {
+        "message": "Оставаться подключённым после выхода",
+        "description": "Toggle label: keep the VPN connection up after quitting the UI."
+    },
+    "settings.general.keepConnectedOnQuit.help": {
+        "message": "Соединение остаётся активным в фоне после закрытия NetBird. Оно прервётся, только когда вы отключите его сами.",
+        "description": "Helper text for the stay-connected-after-quitting toggle."
+    },
     "settings.general.language.label": {
         "message": "Язык интерфейса"
     },
@@ -756,7 +764,19 @@
         "message": "Анонимизировать конфиденциальную информацию"
     },
     "settings.troubleshooting.anonymize.help": {
-        "message": "Скрывает публичные IP-адреса и сторонние (не относящиеся к NetBird) домены в журналах."
+        "message": "Скрывает IP-адреса, домены и другие конфиденциальные значения."
+    },
+    "settings.troubleshooting.anonymize.info": {
+        "message": "Режим «По умолчанию» оставляет внутренние IPv4-адреса и имена пиров читаемыми для поддержки. Режим «Строгий» дополнительно анонимизирует частные (RFC 1918), CGNAT и link-local IP-адреса, имена пиров и публичные ключи WireGuard. Повторяющиеся значения заменяются одним и тем же заполнителем, поэтому пиры остаются различимыми. Используйте режим «Строгий», когда передаёте отладочный пакет за пределы вашей организации."
+    },
+    "settings.troubleshooting.anonymize.none": {
+        "message": "Нет"
+    },
+    "settings.troubleshooting.anonymize.default": {
+        "message": "По умолчанию"
+    },
+    "settings.troubleshooting.anonymize.strict": {
+        "message": "Строгий"
     },
     "settings.troubleshooting.systemInfo.label": {
         "message": "Включить сведения о системе"
@@ -1034,8 +1054,14 @@
     "welcome.title": {
         "message": "Найдите NetBird в системном трее"
     },
+    "welcome.titleMac": {
+        "message": "Найдите NetBird в строке меню"
+    },
     "welcome.description": {
         "message": "NetBird находится в системном трее. Нажмите на значок, чтобы подключиться, переключить профиль или открыть настройки."
+    },
+    "welcome.descriptionMac": {
+        "message": "NetBird находится в строке меню. Нажмите на значок, чтобы подключиться, переключить профиль или открыть настройки."
     },
     "welcome.continue": {
         "message": "Продолжить"
@@ -1293,10 +1319,13 @@
         "message": "Документация"
     },
     "daemon.outdated.title": {
-        "message": "Служба NetBird устарела"
+        "message": "Клиент NetBird устарел"
     },
     "daemon.outdated.description": {
-        "message": "Обновите службу NetBird, чтобы использовать это приложение."
+        "message": "Новый GUI несовместим с вашим более старым клиентом. Обновите клиент, чтобы использовать новое приложение."
+    },
+    "daemon.outdated.download": {
+        "message": "Скачать последнюю версию"
     },
     "error.jwt_clock_skew": {
         "message": "Не удалось войти: часы этого устройства рассинхронизированы с сервером. Синхронизируйте системные часы и повторите попытку."
@@ -1321,5 +1350,14 @@
     },
     "error.unknown": {
         "message": "Не удалось выполнить операцию."
+    },
+    "settings.ssh.privilege.hint": {
+        "message": "Требуются {actor}. Выполните вместо этого:"
+    },
+    "settings.ssh.privilege.oneWay": {
+        "message": "Отключить можно, но чтобы включить снова, нужны {actor}:"
+    },
+    "settings.ssh.privilege.oneWayInverted": {
+        "message": "Включить можно, но чтобы отключить снова, нужны {actor}:"
     }
 }

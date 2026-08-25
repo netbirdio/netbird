@@ -4,8 +4,10 @@ package harness
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -31,12 +33,36 @@ type Client struct {
 	container testcontainers.Container
 }
 
+// clientOptions is what the ClientOption values assemble.
+type clientOptions struct {
+	name string
+}
+
+// ClientOption adjusts how StartClient runs the agent.
+type ClientOption func(*clientOptions)
+
+// WithClientName names the agent, which sets both its network alias and its
+// container hostname. The hostname matters beyond addressing: the agent reports
+// it to management at registration, so it is the name the peer appears under in
+// the API.
+//
+// Required to run more than one agent against the same server — the default name
+// is shared, and two containers cannot hold the same alias on one network.
+func WithClientName(name string) ClientOption {
+	return func(o *clientOptions) { o.name = name }
+}
+
 // StartClient builds the client image and runs it on the combined server's
 // network, joining via the given setup key. The image entrypoint brings the
 // daemon up automatically; callers wait for connectivity with WaitConnected /
 // WaitProxyPeer.
-func StartClient(ctx context.Context, c *Combined, setupKey string) (*Client, error) {
-	root, err := repoRoot()
+func StartClient(ctx context.Context, c *Combined, setupKey string, opts ...ClientOption) (*Client, error) {
+	o := clientOptions{name: clientAlias}
+	for _, opt := range opts {
+		opt(&o)
+	}
+
+	root, err := repoRoot(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -46,9 +72,13 @@ func StartClient(ctx context.Context, c *Combined, setupKey string) (*Client, er
 	}
 
 	req := testcontainers.ContainerRequest{
-		Image:          clientImage,
+		Image: clientImage,
+		// The agent reports the container's hostname to management, so this is
+		// the name the peer is addressable by in the API as well as on the
+		// network. The entrypoint takes no hostname flag of its own.
+		Hostname:       o.name,
 		Networks:       []string{c.network.Name},
-		NetworkAliases: map[string][]string{c.network.Name: {clientAlias}},
+		NetworkAliases: map[string][]string{c.network.Name: {o.name}},
 		Env: map[string]string{
 			"NB_MANAGEMENT_URL": combinedExposedURL,
 			"NB_SETUP_KEY":      setupKey,
@@ -167,22 +197,68 @@ func (cl *Client) pollStatus(ctx context.Context, timeout time.Duration, want st
 	return fmt.Errorf("timed out waiting for %q; last status:\n%s", want, last)
 }
 
-// ResolveProxyIP resolves the agent-network endpoint to the proxy peer's
-// NetBird IP from inside the client (via magic DNS).
+const (
+	// curlExitCouldNotResolve is curl's exit code for a DNS resolution failure, distinct from connection-level failures.
+	curlExitCouldNotResolve = 6
+	// curlExitCouldNotConnect is curl's exit code for a connection that never
+	// established. The probe exists to WAKE the lazy proxy peer, so the first
+	// attempt legitimately arrives before WireGuard has brought the tunnel up
+	// and fails here — which is propagation, exactly like an early NXDOMAIN,
+	// and belongs inside the retry window rather than failing the test outright.
+	curlExitCouldNotConnect = 7
+	// endpointProbeRetryWindow bounds retries of the transient failures above: the synthesized zone and the tunnel both land a beat after management connects. Still failing after this window is a real failure.
+	endpointProbeRetryWindow   = 30 * time.Second
+	endpointProbeRetryInterval = 2 * time.Second
+)
+
+// ResolveProxyIP GETs https://<endpoint>/ from the client's netns: any HTTP status proves DNS + tunnel and wakes the lazy proxy peer; DNS and connect failures retry, within endpointProbeRetryWindow. Returns the connected IP for --resolve pinning.
 func (cl *Client) ResolveProxyIP(ctx context.Context, endpoint string) (string, error) {
-	code, reader, err := cl.container.Exec(ctx, []string{"getent", "hosts", endpoint}, tcexec.Multiplexed())
-	if err != nil {
-		return "", err
+	args := []string{
+		"run", "--rm",
+		"--network", "container:" + cl.container.GetContainerID(),
+		curlImage,
+		"-ksS", "-o", "/dev/null",
+		"--connect-timeout", "30", "--max-time", "60",
+		"-w", "%{remote_ip}",
+		"https://" + endpoint + "/",
 	}
-	out, _ := io.ReadAll(reader)
-	if code != 0 {
-		return "", fmt.Errorf("getent hosts %s exited %d", endpoint, code)
+	deadline := time.Now().Add(endpointProbeRetryWindow)
+	for {
+		cmd := exec.CommandContext(ctx, "docker", args...)
+		var stdout, stderr strings.Builder
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		err := cmd.Run()
+		if err == nil {
+			ip := strings.TrimSpace(stdout.String())
+			if ip == "" {
+				return "", fmt.Errorf("got an HTTP response from %s but no remote IP", endpoint)
+			}
+			return ip, nil
+		}
+
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) || !isTransientProbeExit(exitErr.ExitCode()) {
+			return "", fmt.Errorf("no HTTP response from %s: %w (%s)", endpoint, err, strings.TrimSpace(stderr.String()))
+		}
+		probeErr := fmt.Errorf("endpoint %s not reachable yet: %s", endpoint, strings.TrimSpace(stderr.String()))
+		if time.Until(deadline) < endpointProbeRetryInterval {
+			return "", probeErr
+		}
+		select {
+		case <-ctx.Done():
+			return "", fmt.Errorf("%w (%w)", probeErr, ctx.Err())
+		case <-time.After(endpointProbeRetryInterval):
+		}
 	}
-	fields := strings.Fields(string(out))
-	if len(fields) == 0 {
-		return "", fmt.Errorf("no address for %s", endpoint)
-	}
-	return fields[0], nil
+}
+
+// isTransientProbeExit reports whether a curl exit code describes a state the
+// endpoint is expected to pass THROUGH on its way up, rather than a settled
+// failure. Anything else — TLS refusal, a protocol error, a bad argument —
+// would still be failing after the retry window, so it fails immediately.
+func isTransientProbeExit(code int) bool {
+	return code == curlExitCouldNotResolve || code == curlExitCouldNotConnect
 }
 
 // Wire shapes for Chat.
@@ -206,16 +282,48 @@ const (
 // the wire shape: WireChat (OpenAI) or WireMessages (Anthropic). A non-empty
 // sessionID is sent as the universal x-session-id header the proxy records.
 func (cl *Client) Chat(ctx context.Context, endpoint, proxyIP, kind, model, prompt, sessionID string) (int, string, error) {
+	return cl.ChatPrefixed(ctx, endpoint, proxyIP, "", kind, model, prompt, sessionID)
+}
+
+// ChatPrefixed is Chat with a base-URL path prefix prepended to the wire
+// path, mirroring agents whose base URL carries a shape-selecting prefix that
+// rides through to the upstream — e.g. Claude Code against a Kimi provider
+// sets ANTHROPIC_BASE_URL=https://<endpoint>/anthropic so the proxy forwards
+// /anthropic/v1/messages to Moonshot's Anthropic surface while the provider's
+// upstream URL stays the bare https://api.moonshot.ai. Empty prefix is plain
+// Chat.
+func (cl *Client) ChatPrefixed(ctx context.Context, endpoint, proxyIP, pathPrefix, kind, model, prompt, sessionID string) (int, string, error) {
 	var path, body string
 	var headers []string
 	switch kind {
 	case WireMessages:
 		path = "/v1/messages"
 		headers = []string{"anthropic-version: 2023-06-01"}
-		body = fmt.Sprintf(`{"model":%q,"max_tokens":64,"messages":[{"role":"user","content":%q}]}`, model, prompt)
+		body = fmt.Sprintf(`{"model":%q,"max_tokens":2048,"messages":[{"role":"user","content":%q}]}`, model, prompt)
 	default:
 		path = "/v1/chat/completions"
 		body = fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":%q}]}`, model, prompt)
+	}
+	return cl.post(ctx, endpoint, proxyIP, pathPrefix+path, body, withSessionID(headers, sessionID))
+}
+
+// ChatStream is Chat with "stream": true in the request body, so the proxy's
+// request parser marks the call as streaming and its response parser takes the
+// SSE accumulator rather than the buffered-body path. Pair it with a provider
+// pointed at VLLM.StreamURL, which answers every request as an event stream.
+func (cl *Client) ChatStream(ctx context.Context, endpoint, proxyIP, kind, model, prompt, sessionID string) (int, string, error) {
+	var path, body string
+	var headers []string
+	switch kind {
+	case WireMessages:
+		path = "/v1/messages"
+		headers = []string{"anthropic-version: 2023-06-01"}
+		body = fmt.Sprintf(`{"model":%q,"max_tokens":2048,"stream":true,"messages":[{"role":"user","content":%q}]}`, model, prompt)
+	default:
+		path = "/v1/chat/completions"
+		// include_usage is what makes a real OpenAI stream emit its final usage
+		// frame; without it the last chunk carries no tokens at all.
+		body = fmt.Sprintf(`{"model":%q,"stream":true,"stream_options":{"include_usage":true},"messages":[{"role":"user","content":%q}]}`, model, prompt)
 	}
 	return cl.post(ctx, endpoint, proxyIP, path, body, withSessionID(headers, sessionID))
 }
@@ -227,7 +335,7 @@ func (cl *Client) Chat(ctx context.Context, endpoint, proxyIP, kind, model, prom
 // is sent as the universal x-session-id header the proxy records.
 func (cl *Client) Vertex(ctx context.Context, endpoint, proxyIP, project, region, model, prompt, sessionID string) (int, string, error) {
 	path := fmt.Sprintf("/v1/projects/%s/locations/%s/publishers/anthropic/models/%s:rawPredict", project, region, model)
-	body := fmt.Sprintf(`{"anthropic_version":"vertex-2023-10-16","max_tokens":64,"messages":[{"role":"user","content":%q}]}`, prompt)
+	body := fmt.Sprintf(`{"anthropic_version":"vertex-2023-10-16","max_tokens":2048,"messages":[{"role":"user","content":%q}]}`, prompt)
 	return cl.post(ctx, endpoint, proxyIP, path, body, withSessionID(nil, sessionID))
 }
 
@@ -238,7 +346,7 @@ func (cl *Client) Vertex(ctx context.Context, endpoint, proxyIP, project, region
 // header the proxy records.
 func (cl *Client) Bedrock(ctx context.Context, endpoint, proxyIP, model, prompt, sessionID string) (int, string, error) {
 	path := "/model/" + model + "/invoke"
-	body := fmt.Sprintf(`{"anthropic_version":"bedrock-2023-05-31","max_tokens":64,"messages":[{"role":"user","content":%q}]}`, prompt)
+	body := fmt.Sprintf(`{"anthropic_version":"bedrock-2023-05-31","max_tokens":2048,"messages":[{"role":"user","content":%q}]}`, prompt)
 	return cl.post(ctx, endpoint, proxyIP, path, body, withSessionID(nil, sessionID))
 }
 
@@ -250,10 +358,29 @@ func withSessionID(headers []string, sessionID string) []string {
 	return append(headers, "x-session-id: "+sessionID)
 }
 
-// post runs curl in a throwaway container sharing the client's network
-// namespace so the request traverses the WireGuard tunnel, pinning the endpoint
-// to the proxy IP. It returns the HTTP status and response body.
+// Get issues a GET to the agent-network endpoint over the client's tunnel.
+// Model discovery and the connection-warming probe are read-only endpoints
+// that carry no body, so they can't go through the chat helpers.
+func (cl *Client) Get(ctx context.Context, endpoint, proxyIP, path string, extraHeaders []string) (int, string, error) {
+	return cl.do(ctx, http.MethodGet, endpoint, proxyIP, path, "", extraHeaders)
+}
+
+// PostJSON issues an arbitrary JSON POST over the client's tunnel, for wire
+// shapes the typed helpers don't cover (token counting, say).
+func (cl *Client) PostJSON(ctx context.Context, endpoint, proxyIP, path, body string, extraHeaders []string) (int, string, error) {
+	return cl.do(ctx, http.MethodPost, endpoint, proxyIP, path, body, extraHeaders)
+}
+
+// post issues a JSON POST. Retained as the shorthand the chat helpers use.
 func (cl *Client) post(ctx context.Context, endpoint, proxyIP, path, body string, extraHeaders []string) (int, string, error) {
+	return cl.do(ctx, http.MethodPost, endpoint, proxyIP, path, body, extraHeaders)
+}
+
+// do runs curl in a throwaway container sharing the client's network
+// namespace so the request traverses the WireGuard tunnel, pinning the endpoint
+// to the proxy IP. It returns the HTTP status and response body. An empty body
+// sends no payload, which is what a GET needs.
+func (cl *Client) do(ctx context.Context, method, endpoint, proxyIP, path, body string, extraHeaders []string) (int, string, error) {
 	url := "https://" + endpoint + path
 	args := []string{
 		"run", "--rm",
@@ -262,13 +389,15 @@ func (cl *Client) post(ctx context.Context, endpoint, proxyIP, path, body string
 		"-sk", "--connect-timeout", "5", "--max-time", "90",
 		"--resolve", endpoint + ":443:" + proxyIP,
 		"-o", "/dev/stderr", "-w", "%{http_code}",
-		"-X", "POST", url,
+		"-X", method, url,
 		"-H", "Content-Type: application/json",
 	}
 	for _, h := range extraHeaders {
 		args = append(args, "-H", h)
 	}
-	args = append(args, "--data", body)
+	if body != "" {
+		args = append(args, "--data", body)
+	}
 	cmd := exec.CommandContext(ctx, "docker", args...)
 	// -w writes the status code to stdout; -o /dev/stderr writes the body to
 	// stderr so we can capture both separately.
@@ -297,7 +426,7 @@ func (cl *Client) Terminate(ctx context.Context) error {
 	return cl.container.Terminate(ctx)
 }
 
-// containerLogs reads up to 256 KiB of a container's logs for diagnostics.
+// containerLogs reads up to 4 MiB of a container's logs for diagnostics — enough for a whole provider-matrix run.
 func containerLogs(ctx context.Context, c testcontainers.Container) string {
 	if c == nil {
 		return ""
@@ -307,6 +436,6 @@ func containerLogs(ctx context.Context, c testcontainers.Container) string {
 		return fmt.Sprintf("<logs error: %v>", err)
 	}
 	defer r.Close()
-	b, _ := io.ReadAll(io.LimitReader(r, 256<<10))
+	b, _ := io.ReadAll(io.LimitReader(r, 4<<20))
 	return string(b)
 }

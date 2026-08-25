@@ -11,7 +11,7 @@ import (
 
 func newTestForeignStore(t *testing.T, ctx context.Context) *ForeignRelaysStore {
 	t.Helper()
-	return NewForeignRelaysStore(ctx, hmacTokenStore, "alice", 1280, newTransportFallback(), func(string) {}, keepUnusedServerTime)
+	return NewForeignRelaysStore(ctx, hmacTokenStore, "alice", 1280, newTransportFallback(), nil, func(string) {}, keepUnusedServerTime)
 }
 
 func TestForeignStore_AcquireDedupsConcurrentOpens(t *testing.T) {

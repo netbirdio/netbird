@@ -73,7 +73,7 @@ func TestHandleResult_PreferredFailsStartsOther(t *testing.T) {
 	// The fallback attempt opens against a stalling listener so startOther's
 	// goroutine blocks on Connect until raceCtx is cancelled by t.Cleanup.
 	serverAddr, _ := stallingRelayListener(t)
-	c.opener.foreignStore = NewForeignRelaysStore(c.raceCtx, hmacTokenStore, "alice", 1280, newTransportFallback(), func(string) {}, keepUnusedServerTime)
+	c.opener.foreignStore = NewForeignRelaysStore(c.raceCtx, hmacTokenStore, "alice", 1280, newTransportFallback(), nil, func(string) {}, keepUnusedServerTime)
 	c.remoteRelayServer = RelayServer{Addr: serverAddr}
 	c.preferForeign = false
 

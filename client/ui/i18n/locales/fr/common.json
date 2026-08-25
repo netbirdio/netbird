@@ -551,6 +551,14 @@
     "settings.general.autostart.errorTitle": {
         "message": "Échec de la modification du démarrage automatique"
     },
+    "settings.general.keepConnectedOnQuit.label": {
+        "message": "Rester connecté après la fermeture",
+        "description": "Toggle label: keep the VPN connection up after quitting the UI."
+    },
+    "settings.general.keepConnectedOnQuit.help": {
+        "message": "La connexion reste active en arrière-plan après la fermeture de NetBird. Elle ne s'arrête que si vous la coupez vous-même.",
+        "description": "Helper text for the stay-connected-after-quitting toggle."
+    },
     "settings.general.language.label": {
         "message": "Langue d’affichage"
     },
@@ -756,7 +764,19 @@
         "message": "Anonymiser les informations sensibles"
     },
     "settings.troubleshooting.anonymize.help": {
-        "message": "Masque les adresses IP publiques et les domaines non-NetBird dans les journaux."
+        "message": "Masque les adresses IP, les domaines et d'autres valeurs sensibles."
+    },
+    "settings.troubleshooting.anonymize.info": {
+        "message": "Le mode par défaut garde les adresses IPv4 internes et les noms des pairs lisibles pour le support. Le mode strict anonymise en plus les adresses IP privées (RFC 1918), CGNAT et de lien local, les noms des pairs et les clés publiques WireGuard. Les valeurs récurrentes reçoivent le même espace réservé, les pairs restent donc distinguables. Utilisez le mode strict lorsque vous partagez le lot de diagnostic en dehors de votre organisation."
+    },
+    "settings.troubleshooting.anonymize.none": {
+        "message": "Aucune"
+    },
+    "settings.troubleshooting.anonymize.default": {
+        "message": "Par défaut"
+    },
+    "settings.troubleshooting.anonymize.strict": {
+        "message": "Strict"
     },
     "settings.troubleshooting.systemInfo.label": {
         "message": "Inclure les informations système"
@@ -1034,8 +1054,14 @@
     "welcome.title": {
         "message": "Cherchez NetBird dans votre barre d’état système"
     },
+    "welcome.titleMac": {
+        "message": "Cherchez NetBird dans votre barre des menus"
+    },
     "welcome.description": {
         "message": "NetBird se trouve dans votre barre d’état système. Cliquez sur l’icône pour vous connecter, changer de profil ou ouvrir les paramètres."
+    },
+    "welcome.descriptionMac": {
+        "message": "NetBird se trouve dans votre barre des menus. Cliquez sur l’icône pour vous connecter, changer de profil ou ouvrir les paramètres."
     },
     "welcome.continue": {
         "message": "Continuer"
@@ -1293,10 +1319,13 @@
         "message": "Documentation"
     },
     "daemon.outdated.title": {
-        "message": "Le service NetBird est obsolète"
+        "message": "Le Client NetBird est obsolète"
     },
     "daemon.outdated.description": {
-        "message": "Mettez à jour le service NetBird pour utiliser cette application."
+        "message": "La nouvelle GUI n'est pas compatible avec votre ancien client. Mettez à jour votre client pour utiliser la nouvelle application."
+    },
+    "daemon.outdated.download": {
+        "message": "Télécharger la dernière version"
     },
     "error.jwt_clock_skew": {
         "message": "Échec de la connexion : l’horloge de cet appareil n’est pas synchronisée avec le serveur. Veuillez synchroniser l’horloge de votre système et réessayer."
@@ -1321,5 +1350,14 @@
     },
     "error.unknown": {
         "message": "L’opération a échoué."
+    },
+    "settings.ssh.privilege.hint": {
+        "message": "Nécessite {actor}. Exécutez plutôt ceci :"
+    },
+    "settings.ssh.privilege.oneWay": {
+        "message": "Vous pouvez le désactiver, mais le réactiver nécessite {actor} :"
+    },
+    "settings.ssh.privilege.oneWayInverted": {
+        "message": "Vous pouvez l’activer, mais le désactiver de nouveau nécessite {actor} :"
     }
 }

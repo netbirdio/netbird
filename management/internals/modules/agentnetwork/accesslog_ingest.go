@@ -18,21 +18,26 @@ import (
 // contract between the proxy and management; management flattens them into
 // queryable columns. Keep in sync with the proxy side.
 const (
-	metaKeyProvider           = "llm.provider"
-	metaKeyModel              = "llm.model"
-	metaKeyResolvedProviderID = "llm.resolved_provider_id"
-	metaKeySelectedPolicyID   = "llm.selected_policy_id"
-	metaKeyPolicyDecision     = "llm_policy.decision"
-	metaKeyPolicyReason       = "llm_policy.reason"
-	metaKeyInputTokens        = "llm.input_tokens"  //nolint:gosec // metadata key name, not a credential
-	metaKeyOutputTokens       = "llm.output_tokens" //nolint:gosec // metadata key name, not a credential
-	metaKeyTotalTokens        = "llm.total_tokens"  //nolint:gosec // metadata key name, not a credential
-	metaKeyCostUSDTotal       = "cost.usd_total"
-	metaKeyStream             = "llm.stream"
-	metaKeySessionID          = "llm.session_id"
-	metaKeyAuthorisingGroups  = "llm.authorising_groups"
-	metaKeyRequestPrompt      = "llm.request_prompt"
-	metaKeyResponseCompletion = "llm.response_completion"
+	metaKeyProvider            = "llm.provider"
+	metaKeyModel               = "llm.model"
+	metaKeyResolvedProviderID  = "llm.resolved_provider_id"
+	metaKeySelectedPolicyID    = "llm.selected_policy_id"
+	metaKeyPolicyDecision      = "llm_policy.decision"
+	metaKeyPolicyReason        = "llm_policy.reason"
+	metaKeyInputTokens         = "llm.input_tokens"          //nolint:gosec // metadata key name, not a credential
+	metaKeyOutputTokens        = "llm.output_tokens"         //nolint:gosec // metadata key name, not a credential
+	metaKeyTotalTokens         = "llm.total_tokens"          //nolint:gosec // metadata key name, not a credential
+	metaKeyCachedInputTokens   = "llm.cached_input_tokens"   //nolint:gosec // metadata key name, not a credential
+	metaKeyCacheCreationTokens = "llm.cache_creation_tokens" //nolint:gosec // metadata key name, not a credential
+	metaKeyCostUSDInput        = "cost.usd_input"
+	metaKeyCostUSDCachedInput  = "cost.usd_cached_input"
+	metaKeyCostUSDCacheCreate  = "cost.usd_cache_creation"
+	metaKeyCostUSDOutput       = "cost.usd_output"
+	metaKeyStream              = "llm.stream"
+	metaKeySessionID           = "llm.session_id"
+	metaKeyAuthorisingGroups   = "llm.authorising_groups"
+	metaKeyRequestPrompt       = "llm.request_prompt"
+	metaKeyResponseCompletion  = "llm.response_completion"
 )
 
 // IngestAccessLog flattens the metadata-bearing reverse-proxy access-log entry
@@ -108,20 +113,25 @@ func flattenAccessLog(e *accesslogs.AccessLogEntry) (*types.AgentNetworkAccessLo
 		BytesUpload:   e.BytesUpload,
 		BytesDownload: e.BytesDownload,
 
-		Provider:           meta[metaKeyProvider],
-		Model:              meta[metaKeyModel],
-		SessionID:          meta[metaKeySessionID],
-		ResolvedProviderID: meta[metaKeyResolvedProviderID],
-		SelectedPolicyID:   meta[metaKeySelectedPolicyID],
-		Decision:           meta[metaKeyPolicyDecision],
-		DenyReason:         meta[metaKeyPolicyReason],
-		InputTokens:        parseMetaInt(meta, metaKeyInputTokens),
-		OutputTokens:       parseMetaInt(meta, metaKeyOutputTokens),
-		TotalTokens:        parseMetaInt(meta, metaKeyTotalTokens),
-		CostUSD:            parseMetaFloat(meta, metaKeyCostUSDTotal),
-		Stream:             parseMetaBool(meta, metaKeyStream),
-		RequestPrompt:      meta[metaKeyRequestPrompt],
-		ResponseCompletion: meta[metaKeyResponseCompletion],
+		Provider:             meta[metaKeyProvider],
+		Model:                meta[metaKeyModel],
+		SessionID:            meta[metaKeySessionID],
+		ResolvedProviderID:   meta[metaKeyResolvedProviderID],
+		SelectedPolicyID:     meta[metaKeySelectedPolicyID],
+		Decision:             meta[metaKeyPolicyDecision],
+		DenyReason:           meta[metaKeyPolicyReason],
+		InputTokens:          parseMetaInt(meta, metaKeyInputTokens),
+		OutputTokens:         parseMetaInt(meta, metaKeyOutputTokens),
+		TotalTokens:          parseMetaInt(meta, metaKeyTotalTokens),
+		CachedInputTokens:    parseMetaInt(meta, metaKeyCachedInputTokens),
+		CacheCreationTokens:  parseMetaInt(meta, metaKeyCacheCreationTokens),
+		InputCostUSD:         parseMetaFloat(meta, metaKeyCostUSDInput),
+		CachedInputCostUSD:   parseMetaFloat(meta, metaKeyCostUSDCachedInput),
+		CacheCreationCostUSD: parseMetaFloat(meta, metaKeyCostUSDCacheCreate),
+		OutputCostUSD:        parseMetaFloat(meta, metaKeyCostUSDOutput),
+		Stream:               parseMetaBool(meta, metaKeyStream),
+		RequestPrompt:        meta[metaKeyRequestPrompt],
+		ResponseCompletion:   meta[metaKeyResponseCompletion],
 	}
 
 	var groups []types.AgentNetworkAccessLogGroup
@@ -140,18 +150,23 @@ func flattenAccessLog(e *accesslogs.AccessLogEntry) (*types.AgentNetworkAccessLo
 // log's ID so the two correlate.
 func usageFromFlattenedLog(e *types.AgentNetworkAccessLog, groups []types.AgentNetworkAccessLogGroup) (*types.AgentNetworkUsage, []types.AgentNetworkUsageGroup) {
 	usage := &types.AgentNetworkUsage{
-		ID:                 e.ID,
-		AccountID:          e.AccountID,
-		Timestamp:          e.Timestamp,
-		UserID:             e.UserID,
-		ResolvedProviderID: e.ResolvedProviderID,
-		Provider:           e.Provider,
-		Model:              e.Model,
-		SessionID:          e.SessionID,
-		InputTokens:        e.InputTokens,
-		OutputTokens:       e.OutputTokens,
-		TotalTokens:        e.TotalTokens,
-		CostUSD:            e.CostUSD,
+		ID:                   e.ID,
+		AccountID:            e.AccountID,
+		Timestamp:            e.Timestamp,
+		UserID:               e.UserID,
+		ResolvedProviderID:   e.ResolvedProviderID,
+		Provider:             e.Provider,
+		Model:                e.Model,
+		SessionID:            e.SessionID,
+		InputTokens:          e.InputTokens,
+		OutputTokens:         e.OutputTokens,
+		TotalTokens:          e.TotalTokens,
+		CachedInputTokens:    e.CachedInputTokens,
+		CacheCreationTokens:  e.CacheCreationTokens,
+		InputCostUSD:         e.InputCostUSD,
+		CachedInputCostUSD:   e.CachedInputCostUSD,
+		CacheCreationCostUSD: e.CacheCreationCostUSD,
+		OutputCostUSD:        e.OutputCostUSD,
 	}
 
 	usageGroups := make([]types.AgentNetworkUsageGroup, 0, len(groups))
