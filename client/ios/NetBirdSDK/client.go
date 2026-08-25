@@ -22,12 +22,9 @@ import (
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
-<<<<<<< HEAD
 	"github.com/netbirdio/netbird/client/mdm"
-=======
 	"github.com/netbirdio/netbird/client/netstate"
 	"github.com/netbirdio/netbird/client/netsweep"
->>>>>>> main
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/formatter"
 	"github.com/netbirdio/netbird/route"

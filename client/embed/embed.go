@@ -21,12 +21,8 @@ import (
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
-<<<<<<< HEAD
 	"github.com/netbirdio/netbird/client/mdm"
-	sshcommon "github.com/netbirdio/netbird/client/ssh"
-=======
 	nbssh "github.com/netbirdio/netbird/client/ssh"
->>>>>>> main
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"

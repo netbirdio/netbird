@@ -21,11 +21,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
-<<<<<<< HEAD
 	"github.com/netbirdio/netbird/client/mdm"
-	"github.com/netbirdio/netbird/client/proto"
-=======
->>>>>>> main
 	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/server"
