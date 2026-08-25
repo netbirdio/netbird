@@ -188,6 +188,7 @@ read_nb_domain() {
   read -r READ_NETBIRD_DOMAIN < /dev/tty
   if ! check_nb_domain "$READ_NETBIRD_DOMAIN"; then
     read_nb_domain
+    return
   fi
   echo "$READ_NETBIRD_DOMAIN"
   return 0
