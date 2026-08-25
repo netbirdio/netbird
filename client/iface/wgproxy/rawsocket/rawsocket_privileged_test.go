@@ -26,16 +26,22 @@ func TestSenderRawSocketsCarryNoFwmark(t *testing.T) {
 	tests := []struct {
 		name    string
 		prepare func() (net.PacketConn, error)
+		// the proxy treats the IPv6 socket as optional, so a host without IPv6
+		// is a reason to skip rather than to fail
+		optional bool
 	}{
-		{"IPv4", PrepareSenderRawSocketIPv4},
-		{"IPv6", PrepareSenderRawSocketIPv6},
+		{name: "IPv4", prepare: PrepareSenderRawSocketIPv4},
+		{name: "IPv6", prepare: PrepareSenderRawSocketIPv6, optional: true},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			conn, err := tc.prepare()
 			if err != nil {
-				t.Skipf("prepare raw socket: %v", err)
+				if tc.optional {
+					t.Skipf("prepare raw socket: %v", err)
+				}
+				t.Fatalf("prepare raw socket: %v", err)
 			}
 			defer func() {
 				if err := conn.Close(); err != nil {
