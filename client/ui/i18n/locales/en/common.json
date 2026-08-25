@@ -819,6 +819,14 @@
         "message": "Autostart Change Failed",
         "description": "Error-dialog title when changing the autostart setting fails."
     },
+    "settings.general.keepConnectedOnQuit.label": {
+        "message": "Stay Connected After Quitting",
+        "description": "Toggle label: keep the VPN connection up after quitting the UI."
+    },
+    "settings.general.keepConnectedOnQuit.help": {
+        "message": "The connection stays up in the background after you close NetBird. It only stops when you disconnect it yourself.",
+        "description": "Helper text for the stay-connected-after-quitting toggle."
+    },
     "settings.general.language.label": {
         "message": "Display Language",
         "description": "Label for the display-language picker."
@@ -1089,11 +1097,27 @@
     },
     "settings.troubleshooting.anonymize.label": {
         "message": "Anonymize Sensitive Information",
-        "description": "Toggle label: anonymize sensitive information in the bundle."
+        "description": "Label for the anonymization level dropdown (None, Default, Strict)."
     },
     "settings.troubleshooting.anonymize.help": {
-        "message": "Hides public IP addresses and non-NetBird domains from logs.",
-        "description": "Helper text for anonymizing logs (hides public IPs and non-NetBird domains)."
+        "message": "Hides IP addresses, domains, and other sensitive values.",
+        "description": "Helper text under the anonymization dropdown. The level details live in the info tooltip."
+    },
+    "settings.troubleshooting.anonymize.info": {
+        "message": "Default keeps internal IPv4 addresses and peer names readable for support. Strict additionally anonymizes private (RFC 1918), CGNAT, and link-local IP addresses, peer names, and WireGuard public keys. Recurring values map to the same placeholder, so peers stay distinguishable. Use Strict when sharing the bundle outside your organization.",
+        "description": "Info tooltip explaining the anonymization levels. 'RFC 1918', 'CGNAT', 'link-local', and 'WireGuard' are technical terms — keep them."
+    },
+    "settings.troubleshooting.anonymize.none": {
+        "message": "None",
+        "description": "Dropdown option: no anonymization."
+    },
+    "settings.troubleshooting.anonymize.default": {
+        "message": "Default",
+        "description": "Dropdown option: default anonymization level."
+    },
+    "settings.troubleshooting.anonymize.strict": {
+        "message": "Strict",
+        "description": "Dropdown option: strict anonymization level."
     },
     "settings.troubleshooting.systemInfo.label": {
         "message": "Include System Information",

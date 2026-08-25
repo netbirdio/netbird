@@ -10,6 +10,8 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/route"
 )
@@ -110,8 +112,6 @@ func (a *Account) GetPeerNetworkMapComponents(
 		return EmptyNetworkMapComponents(&NetworkMapComponents{
 			PeerID:  peerID,
 			Network: a.Network.Copy(),
-			// must include the target peer as it's required on the client
-			Peers: map[string]*ComponentPeer{peerID: peer.ToComponent()},
 		})
 	}
 
@@ -506,8 +506,8 @@ func (a *Account) getPeersGroupsPoliciesRoutes(
 func (a *Account) getPeersFromGroups(ctx context.Context, groups []string, peerID string, sourcePostureChecksIDs []string,
 	validatedPeersMap map[string]struct{}, postureFailedPeers *map[string]map[string]struct{}) ([]string, bool) {
 	peerInGroups := false
-	filteredPeerIDs := make([]string, 0, len(groups))
-	seenPeerIds := make(map[string]struct{}, len(groups))
+	var filteredPeerIDs []string
+	var seenPeerIds map[string]struct{}
 
 	for _, gid := range groups {
 		group := a.GetGroup(gid)
@@ -545,6 +545,17 @@ func (a *Account) getPeersFromGroups(ctx context.Context, groups []string, peerI
 				filteredPeerIDs = append(filteredPeerIDs, peer.ID)
 			}
 			return filteredPeerIDs, peerInGroups
+		}
+
+		if seenPeerIds == nil {
+			totalGroupPeers := 0
+			for _, g := range groups {
+				if grp := a.GetGroup(g); grp != nil {
+					totalGroupPeers += len(grp.Peers)
+				}
+			}
+			filteredPeerIDs = make([]string, 0, totalGroupPeers)
+			seenPeerIds = make(map[string]struct{}, totalGroupPeers)
 		}
 
 		for _, pid := range group.Peers {
@@ -589,19 +600,107 @@ func (a *Account) validatePostureChecksOnPeerGetFailed(ctx context.Context, sour
 	}
 
 	for _, postureChecksID := range sourcePostureChecksID {
+		if valid, cached := a.cachedPostureCheckResult(postureChecksID, peerID); cached {
+			if !valid {
+				return false, postureChecksID
+			}
+			continue
+		}
+
 		postureChecks := a.GetPostureChecks(postureChecksID)
 		if postureChecks == nil {
 			continue
 		}
 
-		for _, check := range postureChecks.GetChecks() {
-			isValid, _ := check.Check(ctx, *peer)
-			if !isValid {
-				return false, postureChecksID
-			}
+		if !peerPassesPostureChecks(ctx, postureChecks.GetChecks(), peer) {
+			return false, postureChecksID
 		}
 	}
 	return true, ""
+}
+
+// PrecomputePostureValidation evaluates every posture check referenced by an enabled
+// policy once against the peers of that policy's source groups and stores the results,
+// so the per-peer network map calculations that follow look them up instead of
+// re-evaluating checks for every peer pair. It must be called before the account is
+// shared across goroutines; lookups not covered by the precomputed results fall back
+// to direct evaluation.
+func (a *Account) PrecomputePostureValidation(ctx context.Context) {
+	if len(a.PostureChecks) == 0 {
+		a.PostureValidation = nil
+		return
+	}
+
+	checkPeerIDs := make(map[string]map[string]struct{})
+	for _, policy := range a.Policies {
+		if !policy.Enabled || len(policy.SourcePostureChecks) == 0 {
+			continue
+		}
+
+		peerIDs := a.getUniquePeerIDsFromGroupsIDs(ctx, policy.SourceGroups())
+		for _, rule := range policy.Rules {
+			if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
+				peerIDs = append(peerIDs, rule.SourceResource.ID)
+			}
+		}
+
+		for _, postureChecksID := range policy.SourcePostureChecks {
+			set := checkPeerIDs[postureChecksID]
+			if set == nil {
+				set = make(map[string]struct{}, len(peerIDs))
+				checkPeerIDs[postureChecksID] = set
+			}
+			for _, pid := range peerIDs {
+				set[pid] = struct{}{}
+			}
+		}
+	}
+
+	results := make(map[string]map[string]bool, len(checkPeerIDs))
+	for postureChecksID, peerIDs := range checkPeerIDs {
+		results[postureChecksID] = a.evaluatePostureChecksForPeers(ctx, postureChecksID, peerIDs)
+	}
+	a.PostureValidation = results
+}
+
+func (a *Account) evaluatePostureChecksForPeers(ctx context.Context, postureChecksID string, peerIDs map[string]struct{}) map[string]bool {
+	postureChecks := a.GetPostureChecks(postureChecksID)
+	if postureChecks == nil {
+		return nil
+	}
+
+	checks := postureChecks.GetChecks()
+	results := make(map[string]bool, len(peerIDs))
+	for peerID := range peerIDs {
+		peer, ok := a.Peers[peerID]
+		if !ok || peer == nil {
+			continue
+		}
+		results[peerID] = peerPassesPostureChecks(ctx, checks, peer)
+	}
+	return results
+}
+
+func (a *Account) cachedPostureCheckResult(postureChecksID, peerID string) (bool, bool) {
+	results, ok := a.PostureValidation[postureChecksID]
+	if !ok {
+		return false, false
+	}
+	if results == nil {
+		return true, true
+	}
+	valid, found := results[peerID]
+	return valid, found
+}
+
+func peerPassesPostureChecks(ctx context.Context, checks []posture.Check, peer *nbpeer.Peer) bool {
+	for _, check := range checks {
+		isValid, _ := check.Check(ctx, *peer)
+		if !isValid {
+			return false
+		}
+	}
+	return true
 }
 
 func (a *Account) getPostureValidPeersSaveFailed(inputPeers []string, postureChecksIDs []string, validatedPeersMap map[string]struct{}, postureFailedPeers *map[string]map[string]struct{}) []string {

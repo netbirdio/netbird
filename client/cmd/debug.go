@@ -27,8 +27,8 @@ import (
 const errCloseConnection = "Failed to close connection: %v"
 
 var (
-	logFileCount        uint32
-	systemInfoFlag      bool
+	logFileCount             uint32
+	systemInfoFlag           bool
 	uploadBundleFlag         bool
 	uploadBundleURLFlag      string
 	uploadBundleInsecureFlag bool
@@ -156,6 +156,11 @@ func debugConfigDump(cmd *cobra.Command, _ []string) error {
 // request. Returns an error if the RPC fails or if the daemon reports
 // an upload failure reason.
 func debugBundle(cmd *cobra.Command, _ []string) error {
+	anonymizeEnabled, anonymizeLevel, err := effectiveAnonymize()
+	if err != nil {
+		return err
+	}
+
 	conn, err := getClient(cmd)
 	if err != nil {
 		return err
@@ -168,10 +173,11 @@ func debugBundle(cmd *cobra.Command, _ []string) error {
 
 	client := proto.NewDaemonServiceClient(conn)
 	request := &proto.DebugBundleRequest{
-		Anonymize:    anonymizeFlag,
-		SystemInfo:   systemInfoFlag,
-		LogFileCount: logFileCount,
-		CliVersion:   version.NetbirdVersion(),
+		Anonymize:      anonymizeEnabled,
+		AnonymizeLevel: anonymizeLevel.String(),
+		SystemInfo:     systemInfoFlag,
+		LogFileCount:   logFileCount,
+		CliVersion:     version.NetbirdVersion(),
 	}
 	if uploadBundleFlag {
 		request.UploadURL = uploadBundleURLFlag
@@ -227,6 +233,11 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 	duration, err := time.ParseDuration(args[0])
 	if err != nil {
 		return fmt.Errorf("invalid duration format: %v", err)
+	}
+
+	anonymizeEnabled, anonymizeLevel, err := effectiveAnonymize()
+	if err != nil {
+		return err
 	}
 
 	conn, err := getClient(cmd)
@@ -368,10 +379,11 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 	cmd.Println("Creating debug bundle...")
 
 	request := &proto.DebugBundleRequest{
-		Anonymize:    anonymizeFlag,
-		SystemInfo:   systemInfoFlag,
-		LogFileCount: logFileCount,
-		CliVersion:   version.NetbirdVersion(),
+		Anonymize:      anonymizeEnabled,
+		AnonymizeLevel: anonymizeLevel.String(),
+		SystemInfo:     systemInfoFlag,
+		LogFileCount:   logFileCount,
+		CliVersion:     version.NetbirdVersion(),
 	}
 	if uploadBundleFlag {
 		request.UploadURL = uploadBundleURLFlag

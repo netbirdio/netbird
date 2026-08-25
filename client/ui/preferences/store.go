@@ -58,6 +58,10 @@ type UIPreferences struct {
 	// decision has run for this OS user. It only ever transitions to true
 	// and is never reset, so the default-on flow runs at most once, ever.
 	AutostartInitialized bool `json:"autostartInitialized"`
+	// KeepConnectedOnQuit leaves the daemon connected when the GUI quits.
+	// Its false zero value preserves the historical disconnect-on-quit
+	// behaviour for preference files written before the field existed.
+	KeepConnectedOnQuit bool `json:"keepConnectedOnQuit"`
 }
 
 // LanguageValidator rejects SetLanguage inputs with no shipped bundle.
@@ -183,6 +187,26 @@ func (s *Store) SetAutostartInitialized(done bool) error {
 	return nil
 }
 
+// SetKeepConnectedOnQuit persists the disconnect-on-quit opt-out. No-op if unchanged.
+func (s *Store) SetKeepConnectedOnQuit(keep bool) error {
+	s.mu.Lock()
+	if s.current.KeepConnectedOnQuit == keep {
+		s.mu.Unlock()
+		return nil
+	}
+	next := s.current
+	next.KeepConnectedOnQuit = keep
+	if err := s.persistLocked(next); err != nil {
+		s.mu.Unlock()
+		return fmt.Errorf("persist preferences: %w", err)
+	}
+	s.current = next
+	s.mu.Unlock()
+
+	s.broadcast(next)
+	return nil
+}
+
 // SetLanguage validates, persists, and broadcasts. No-op if unchanged.
 func (s *Store) SetLanguage(lang i18n.LanguageCode) error {
 	if lang == "" {
@@ -246,6 +270,7 @@ func (s *Store) ExistedAtLoad() bool {
 func (s *Store) load() error {
 	if _, err := os.Stat(s.path); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
+			log.Infof("no ui preferences file at %s; using defaults", s.path)
 			return nil
 		}
 		return fmt.Errorf("stat preferences: %w", err)

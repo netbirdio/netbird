@@ -614,6 +614,14 @@
     "settings.general.autostart.errorTitle": {
         "message": "Az automatikus indítás módosítása sikertelen"
     },
+    "settings.general.keepConnectedOnQuit.label": {
+        "message": "Kapcsolat megtartása kilépéskor",
+        "description": "Toggle label: keep the VPN connection up after quitting the UI."
+    },
+    "settings.general.keepConnectedOnQuit.help": {
+        "message": "A kapcsolat a háttérben megmarad, miután bezárod a NetBirdöt. Csak akkor szakad meg, ha te magad bontod.",
+        "description": "Helper text for the stay-connected-after-quitting toggle."
+    },
     "settings.general.language.label": {
         "message": "Megjelenítési nyelv"
     },
@@ -819,7 +827,19 @@
         "message": "Érzékeny információk anonimizálása"
     },
     "settings.troubleshooting.anonymize.help": {
-        "message": "Elrejti a nyilvános IP-címeket és a nem-NetBird tartományokat a naplókban."
+        "message": "Elrejti az IP-címeket, a tartományokat és más érzékeny értékeket."
+    },
+    "settings.troubleshooting.anonymize.info": {
+        "message": "Az Alapértelmezett szint a belső IPv4-címeket és a peer-neveket olvashatóan hagyja a támogatás számára. A Szigorú ezen felül anonimizálja a privát (RFC 1918), CGNAT és link-local IP-címeket, a peer-neveket és a WireGuard nyilvános kulcsokat. Az ismétlődő értékek ugyanazt a helyettesítőt kapják, így a peerek megkülönböztethetők maradnak. Használja a Szigorú szintet, ha a hibakeresési csomagot a szervezetén kívül osztja meg."
+    },
+    "settings.troubleshooting.anonymize.none": {
+        "message": "Nincs"
+    },
+    "settings.troubleshooting.anonymize.default": {
+        "message": "Alapértelmezett"
+    },
+    "settings.troubleshooting.anonymize.strict": {
+        "message": "Szigorú"
     },
     "settings.troubleshooting.systemInfo.label": {
         "message": "Rendszerinformációk beillesztése"
@@ -1393,5 +1413,14 @@
     },
     "error.unknown": {
         "message": "A művelet meghiúsult."
+    },
+    "settings.ssh.privilege.hint": {
+        "message": "{actor} szükséges hozzá. Futtassa inkább ezt:"
+    },
+    "settings.ssh.privilege.oneWay": {
+        "message": "Kikapcsolhatja, de a visszakapcsolásához {actor} szükséges:"
+    },
+    "settings.ssh.privilege.oneWayInverted": {
+        "message": "Bekapcsolhatja, de az ismételt kikapcsolásához {actor} szükséges:"
     }
 }

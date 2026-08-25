@@ -10,13 +10,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/golang/mock/gomock"
+	"go.uber.org/mock/gomock"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
+	"github.com/netbirdio/netbird/management/server/account"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -61,10 +62,23 @@ func newAgentNetworkHandlerFixture(t *testing.T) *agentNetworkHandlerFixture {
 		Return(true, context.Background(), nil).
 		AnyTimes()
 
-	manager := agentnetwork.NewManager(st, perms, nil, nil)
+	// Swallow activity events so the mutation paths (create/update/delete)
+	// are exercisable through the HTTP layer.
+	accounts := account.NewMockManager(ctrl)
+	accounts.EXPECT().
+		StoreEvent(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		AnyTimes()
+	accounts.EXPECT().
+		UpdateAccountPeers(gomock.Any(), gomock.Any(), gomock.Any()).
+		AnyTimes()
+
+	manager := agentnetwork.NewManager(st, perms, accounts, nil)
 	h := &handler{manager: manager}
 
 	router := mux.NewRouter()
+	router.HandleFunc("/agent-network/providers", h.createProvider).Methods("POST")
+	router.HandleFunc("/agent-network/providers/{providerId}", h.getProvider).Methods("GET")
+	router.HandleFunc("/agent-network/providers/{providerId}", h.updateProvider).Methods("PUT")
 	h.addPolicyEndpoints(router)
 	h.addConsumptionEndpoints(router)
 	h.addBudgetRuleEndpoints(router)
