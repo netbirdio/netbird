@@ -6,7 +6,7 @@ on:
       - "release-*"
   pull_request:
     paths:
-      - ".github/workflows/buf.yaml"
+      - ".github/workflows/buf.yml"
       - "**/buf.yaml"
       - "**/buf.lock"
       - "**/buf.gen.yaml"
