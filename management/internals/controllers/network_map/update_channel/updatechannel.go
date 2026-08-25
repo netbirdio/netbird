@@ -133,6 +133,30 @@ func (p *PeersUpdateManager) CloseChannel(ctx context.Context, peerID string) {
 	p.closeChannel(ctx, peerID)
 }
 
+// CloseSessionChannel closes the peer's updates channel only while it is still the given
+// session's channel, and reports whether that session still owned the peer's stream.
+// A registered channel other than session means a newer stream replaced the caller's:
+// the stale session must leave the peer's resources to the new owner.
+func (p *PeersUpdateManager) CloseSessionChannel(ctx context.Context, peerID string, session chan *network_map.UpdateMessage) bool {
+	start := time.Now()
+
+	p.channelsMux.Lock()
+	defer func() {
+		p.channelsMux.Unlock()
+		if p.metrics != nil {
+			p.metrics.UpdateChannelMetrics().CountCloseChannelDuration(time.Since(start))
+		}
+	}()
+
+	if channel, ok := p.peerChannels[peerID]; ok && channel != session {
+		log.WithContext(ctx).Debugf("skipped closing updates channel: peer %s reconnected with a newer session", peerID)
+		return false
+	}
+
+	p.closeChannel(ctx, peerID)
+	return true
+}
+
 // GetAllConnectedPeers returns a copy of the connected peers map
 func (p *PeersUpdateManager) GetAllConnectedPeers() map[string]struct{} {
 	start := time.Now()
