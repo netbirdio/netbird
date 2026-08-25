@@ -10,6 +10,13 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+const envSudoUser = "SUDO_USER"
+
+var (
+	geteuid    = os.Geteuid
+	lookupUser = user.Lookup
+)
+
 // InvokingUser returns the user a CLI invocation acts for. Under sudo that is
 // the user who ran sudo, not root: privileged flags force commands through
 // sudo, and resolving profiles as root would silently switch the daemon to
@@ -29,7 +36,7 @@ func InvokingUser() (*user.User, error) {
 // back to root's own (empty) state. Callers use it to refuse ambiguous
 // operations instead of silently acting on the wrong profile.
 func IsPlainRoot() bool {
-	if os.Geteuid() != 0 {
+	if geteuid() != 0 {
 		return false
 	}
 	_, ok := sudoInvokingUser()
@@ -40,19 +47,27 @@ func IsPlainRoot() bool {
 // sudo. Returns false whenever the sudo context is absent or unusable, in
 // which case callers fall back to the process user.
 func sudoInvokingUser() (*user.User, bool) {
-	if os.Geteuid() != 0 {
+	if !sudoActive() {
 		return nil, false
 	}
-	name := os.Getenv("SUDO_USER")
-	if name == "" || name == "root" {
-		return nil, false
-	}
-	u, err := user.Lookup(name)
+	name := os.Getenv(envSudoUser)
+	u, err := lookupUser(name)
 	if err != nil {
-		log.Warnf("failed to look up sudo invoking user %q, acting as root: %v", name, err)
+		log.Warnf("sudo invoking user %q lookup: %v; acting as root", name, err)
 		return nil, false
 	}
 	return u, true
+}
+
+// sudoActive reports a sudo context from the environment alone: write-skip
+// decisions key off it so a transient user lookup failure can never flip a
+// run from read-only to writing root-owned files into the user's directory.
+func sudoActive() bool {
+	if geteuid() != 0 {
+		return false
+	}
+	name := os.Getenv(envSudoUser)
+	return name != "" && name != "root"
 }
 
 // userBaseConfigDir mirrors os.UserConfigDir for a user other than the process

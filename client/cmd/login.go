@@ -234,9 +234,11 @@ func getActiveProfile(ctx context.Context, pm *profilemanager.ProfileManager, pr
 	// switch profile if provided
 
 	if profileName != "" {
-		if err := switchProfileOnDaemon(ctx, pm, profileName, username); err != nil {
+		prof, err := switchProfileOnDaemon(ctx, pm, profileName, username)
+		if err != nil {
 			return nil, fmt.Errorf("switch profile: %v", err)
 		}
+		return prof, nil
 	}
 
 	activeProf, err := pm.GetActiveProfile()
@@ -250,20 +252,20 @@ func getActiveProfile(ctx context.Context, pm *profilemanager.ProfileManager, pr
 	return activeProf, nil
 }
 
-func switchProfileOnDaemon(ctx context.Context, pm *profilemanager.ProfileManager, handle string, username string) error {
+func switchProfileOnDaemon(ctx context.Context, pm *profilemanager.ProfileManager, handle string, username string) (*profilemanager.Profile, error) {
 	resolvedID, err := switchProfile(ctx, handle, username)
 	if err != nil {
-		return fmt.Errorf("switch profile on daemon: %v", err)
+		return nil, fmt.Errorf("switch profile on daemon: %v", err)
 	}
 
 	if err := pm.SwitchProfile(resolvedID); err != nil {
-		return fmt.Errorf("switch profile: %v", err)
+		return nil, fmt.Errorf("switch profile: %v", err)
 	}
 
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
 		log.Errorf("failed to connect to service CLI interface %v", err)
-		return err
+		return nil, err
 	}
 	defer conn.Close()
 
@@ -271,17 +273,17 @@ func switchProfileOnDaemon(ctx context.Context, pm *profilemanager.ProfileManage
 
 	status, err := client.Status(ctx, &proto.StatusRequest{})
 	if err != nil {
-		return fmt.Errorf("unable to get daemon status: %v", err)
+		return nil, fmt.Errorf("unable to get daemon status: %v", err)
 	}
 
 	if status.Status == string(internal.StatusConnected) {
 		if _, err := client.Down(ctx, &proto.DownRequest{}); err != nil {
 			log.Errorf("call service down method: %v", err)
-			return err
+			return nil, err
 		}
 	}
 
-	return nil
+	return &profilemanager.Profile{ID: resolvedID}, nil
 }
 
 // switchProfile asks the daemon to switch to the profile identified by

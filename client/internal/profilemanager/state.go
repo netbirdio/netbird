@@ -69,8 +69,8 @@ func (pm *ProfileManager) SetProfileState(id ID, state *ProfileState) error {
 	// the account email for the login hint and display, so skipping the write
 	// costs at most one extra account prompt later — a root-owned file in the
 	// user's directory would cost every later update instead.
-	if u, sudo := sudoInvokingUser(); sudo {
-		log.Debugf("running under sudo: not persisting profile state for user %s", u.Username)
+	if sudoActive() {
+		log.Debugf("running under sudo: not persisting profile state for user %s", os.Getenv(envSudoUser))
 		return nil
 	}
 
@@ -103,6 +103,11 @@ func (pm *ProfileManager) SetActiveProfileState(state *ProfileState) error {
 // equivalent to clearing it; the next SSO login recreates it. A missing file
 // is not an error.
 func (pm *ProfileManager) RemoveProfileState(profileName string) error {
+	if sudoActive() {
+		log.Debugf("running under sudo: not removing profile state for user %s", os.Getenv(envSudoUser))
+		return nil
+	}
+
 	configDir, err := getConfigDir()
 	if err != nil {
 		return fmt.Errorf("get config directory: %w", err)

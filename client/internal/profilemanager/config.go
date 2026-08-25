@@ -220,7 +220,7 @@ func getConfigDir() (string, error) {
 	// Under sudo this is the invoking user's directory and strictly read-only:
 	// anything root creates in it would be root-owned and break the user's own
 	// runs. Reads of a missing directory fall through to defaults.
-	if _, sudo := sudoInvokingUser(); sudo {
+	if sudoActive() {
 		return configDir, nil
 	}
 	if err := os.MkdirAll(configDir, 0o755); err != nil {

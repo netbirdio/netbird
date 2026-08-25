@@ -126,18 +126,20 @@ func upFunc(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("get current user: %v", err)
 	}
 
+	var activeProf *profilemanager.Profile
 	var profileSwitched bool
 	// switch profile if provided
 	if profileName != "" {
-		if err := switchOrCreateProfile(cmd.Context(), pm, profileName, username.Username); err != nil {
+		activeProf, err = switchOrCreateProfile(cmd.Context(), pm, profileName, username.Username)
+		if err != nil {
 			return fmt.Errorf("switch profile: %v", err)
 		}
 		profileSwitched = true
-	}
-
-	activeProf, err := pm.GetActiveProfile()
-	if err != nil {
-		return fmt.Errorf("get active profile: %v", err)
+	} else {
+		activeProf, err = pm.GetActiveProfile()
+		if err != nil {
+			return fmt.Errorf("get active profile: %v", err)
+		}
 	}
 
 	if foregroundMode {
@@ -149,13 +151,15 @@ func upFunc(cmd *cobra.Command, args []string) error {
 // switchOrCreateProfile switches the active profile to the one identified by
 // handle, creating it first when it does not exist yet. This restores the
 // pre-0.73 behaviour where `netbird up --profile <name>` auto-creates a
-// missing profile instead of failing.
-func switchOrCreateProfile(ctx context.Context, pm *profilemanager.ProfileManager, handle, username string) error {
+// missing profile instead of failing. Returns the daemon-resolved profile so
+// callers act on it directly instead of re-reading the local state, which is
+// not updated under sudo.
+func switchOrCreateProfile(ctx context.Context, pm *profilemanager.ProfileManager, handle, username string) (*profilemanager.Profile, error) {
 	resolvedID, err := switchProfile(ctx, handle, username)
 	if err != nil {
 		st, ok := gstatus.FromError(err)
 		if !ok || st.Code() != codes.NotFound {
-			return err
+			return nil, err
 		}
 		// Don't fail immediately on a create error: a concurrent run may
 		// have created the profile between the NotFound above and this
@@ -164,16 +168,16 @@ func switchOrCreateProfile(ctx context.Context, pm *profilemanager.ProfileManage
 		_, createErr := createProfile(ctx, handle, username)
 		if resolvedID, err = switchProfile(ctx, handle, username); err != nil {
 			if createErr != nil {
-				return fmt.Errorf("create profile: %w", createErr)
+				return nil, fmt.Errorf("create profile: %w", createErr)
 			}
-			return err
+			return nil, err
 		}
 	}
 
 	if err := pm.SwitchProfile(resolvedID); err != nil {
-		return err
+		return nil, err
 	}
-	return nil
+	return &profilemanager.Profile{ID: resolvedID}, nil
 }
 
 // createProfile dials the daemon and creates a new profile with the given
@@ -294,6 +298,13 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 
 	client := proto.NewDaemonServiceClient(conn)
 
+	status, err := client.Status(ctx, &proto.StatusRequest{
+		WaitForReady: func() *bool { b := true; return &b }(),
+	})
+	if err != nil {
+		return fmt.Errorf("unable to get daemon status: %v", err)
+	}
+
 	// Plain root has no invoking user to resolve profiles for, so the local
 	// state falls back to root's own — the default profile. Acting on that
 	// while the daemon runs another user's profile would silently switch the
@@ -301,19 +312,13 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 	// default profile's peer under whichever account the IdP returns). Refuse
 	// the ambiguity instead of guessing.
 	if profilemanager.IsPlainRoot() && profileName == "" {
-		if active, err := client.GetActiveProfile(ctx, &proto.GetActiveProfileRequest{}); err == nil &&
-			active.GetId() != "" && active.GetId() != activeProf.ID.String() {
-			return fmt.Errorf(
-				"running as root: the daemon's active profile is %q (user %q), but this invocation resolves to %q; pass --profile to choose one explicitly, or run via sudo from your own user",
-				active.GetProfileName(), active.GetUsername(), activeProf.ID)
+		u, err := profilemanager.InvokingUser()
+		if err != nil {
+			return fmt.Errorf("get current user: %v", err)
 		}
-	}
-
-	status, err := client.Status(ctx, &proto.StatusRequest{
-		WaitForReady: func() *bool { b := true; return &b }(),
-	})
-	if err != nil {
-		return fmt.Errorf("unable to get daemon status: %v", err)
+		if err := checkRootProfileMatch(ctx, client, activeProf, u.Username); err != nil {
+			return err
+		}
 	}
 
 	if status.Status == string(internal.StatusConnected) {
@@ -862,4 +867,29 @@ func isValidAddrPort(input string) bool {
 	}
 	_, err := netip.ParseAddrPort(input)
 	return err == nil
+}
+
+// checkRootProfileMatch guards the plain-root, no --profile case: it denies
+// unless the daemon's active profile is exactly the one this invocation
+// resolves to, matched by both ID and owning username (an empty username means
+// the profile is not owned yet, as on a fresh install). Lookup failures deny
+// too; only a daemon predating the RPC is allowed through.
+func checkRootProfileMatch(ctx context.Context, client proto.DaemonServiceClient, activeProf *profilemanager.Profile, username string) error {
+	active, err := client.GetActiveProfile(ctx, &proto.GetActiveProfileRequest{})
+	if err != nil {
+		if st, ok := gstatus.FromError(err); ok && st.Code() == codes.Unimplemented {
+			log.Warnf("daemon does not support active profile lookup, skipping the root profile check: %v", err)
+			return nil
+		}
+		return fmt.Errorf("pass --profile to choose the profile explicitly: running as root and the daemon's active profile could not be verified: %v", err)
+	}
+	if active.GetId() == "" {
+		return fmt.Errorf("pass --profile to choose the profile explicitly: running as root and the daemon reported no active profile")
+	}
+	if active.GetId() != activeProf.ID.String() || (active.GetUsername() != "" && active.GetUsername() != username) {
+		return fmt.Errorf(
+			"pass --profile to choose the profile explicitly: running as root, the daemon's active profile is %q (user %q) but this invocation resolves to %q",
+			active.GetProfileName(), active.GetUsername(), activeProf.ID)
+	}
+	return nil
 }

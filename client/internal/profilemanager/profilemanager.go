@@ -129,7 +129,7 @@ func (pm *ProfileManager) getActiveProfileState() ID {
 	if err != nil {
 		if !os.IsNotExist(err) {
 			log.Warnf("failed to read active profile state: %v", err)
-		} else if _, sudo := sudoInvokingUser(); !sudo {
+		} else if !sudoActive() {
 			if err := pm.setActiveProfileState(defaultProfileName); err != nil {
 				log.Warnf("failed to set default profile state: %v", err)
 			}
@@ -150,8 +150,8 @@ func (pm *ProfileManager) setActiveProfileState(id ID) error {
 	// The invoking user's state is read-only under sudo — a root-owned file in
 	// the user's directory would break their own runs. The daemon still records
 	// the switch on its side; only the user-local bookkeeping is skipped.
-	if u, sudo := sudoInvokingUser(); sudo {
-		log.Infof("running under sudo: not persisting active profile %q for user %s", id, u.Username)
+	if sudoActive() {
+		log.Infof("running under sudo: not persisting active profile %q for user %s", id, os.Getenv(envSudoUser))
 		return nil
 	}
 
