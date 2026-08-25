@@ -63,9 +63,9 @@ type GrpcClient struct {
 	connStateCallbackLock sync.RWMutex
 	serverURL             string
 
-	// netEvents gates the stream retry loop on OS-reported network
+	// netMgr gates the stream retry loop on OS-reported network
 	// availability and sweeps the transport on network change.
-	netEvents *netevents.Manager
+	netMgr *netevents.Manager
 
 	// syncStreamErr holds the last Sync stream error, or nil while the stream
 	// is established and healthy. GetServerKey succeeds even when the peer
@@ -121,7 +121,7 @@ type Option func(*GrpcClient)
 
 // WithNetEvents injects the OS network event handling.
 func WithNetEvents(events *netevents.Manager) Option {
-	return func(c *GrpcClient) { c.netEvents = events }
+	return func(c *GrpcClient) { c.netMgr = events }
 }
 
 // NewClient creates a new client to Management service
@@ -142,7 +142,7 @@ func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsE
 		extraOpts = append(extraOpts, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxSize)))
 		log.Infof("management gRPC max receive message size set to %d bytes", maxSize)
 	}
-	extraOpts = append(extraOpts, nbgrpc.WithSweeper(c.netEvents))
+	extraOpts = append(extraOpts, nbgrpc.WithSweeper(c.netMgr))
 
 	var conn *grpc.ClientConn
 	operation := func() error {
@@ -223,12 +223,12 @@ func (c *GrpcClient) withMgmtStream(
 	ctx context.Context,
 	handler func(ctx context.Context, serverPubKey wgtypes.Key, backOff backoff.BackOff) error,
 ) error {
-	backOff := c.netEvents.QuickRetryBackoff(ctx, defaultBackoff(ctx))
+	backOff := c.netMgr.QuickRetryBackoff(ctx, defaultBackoff(ctx))
 	operation := func() error {
 		// suspend reconnect attempts while the OS reports no usable network.
 		// Wait only errors on a cancelled context, which means shutdown, so
 		// stop the loop without reporting a failure.
-		if waited, err := c.netEvents.Wait(ctx); err != nil {
+		if waited, err := c.netMgr.Wait(ctx); err != nil {
 			log.Debugf("management connection context has been canceled while offline, this usually indicates shutdown")
 			return nil //nolint:nilerr // a cancelled context means shutdown, not a retryable failure
 		} else if waited {
@@ -264,7 +264,7 @@ func (c *GrpcClient) withMgmtStream(
 		return handler(ctx, *serverPubKey, backOff)
 	}
 
-	err := nbgrpc.Retry(ctx, operation, backOff, c.netEvents)
+	err := nbgrpc.Retry(ctx, operation, backOff, c.netMgr)
 	if err != nil {
 		log.Warnf("exiting the Management service connection retry loop due to the unrecoverable error: %s", err)
 	}

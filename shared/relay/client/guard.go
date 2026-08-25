@@ -40,8 +40,8 @@ type Guard struct {
 	// attempts.
 	maxBackoffInterval time.Duration
 
-	// netState gates reconnect attempts on OS-reported network availability.
-	netState NetworkWatcher
+	// netWatcher gates reconnect attempts on OS-reported network availability.
+	netWatcher NetworkWatcher
 
 	// lastErr is the error from the most recent failed reconnect attempt,
 	// surfaced as the home relay status while disconnected.
@@ -50,7 +50,7 @@ type Guard struct {
 
 // NewGuard creates a new guard for the relay client. A non-positive
 // maxBackoffInterval falls back to defaultMaxBackoffInterval.
-func NewGuard(sp *ServerPicker, maxBackoffInterval time.Duration, netState NetworkWatcher) *Guard {
+func NewGuard(sp *ServerPicker, maxBackoffInterval time.Duration, netWatcher NetworkWatcher) *Guard {
 	if maxBackoffInterval <= 0 {
 		maxBackoffInterval = defaultMaxBackoffInterval
 	}
@@ -59,7 +59,7 @@ func NewGuard(sp *ServerPicker, maxBackoffInterval time.Duration, netState Netwo
 		OnReconnected:      make(chan struct{}, 1),
 		serverPicker:       sp,
 		maxBackoffInterval: maxBackoffInterval,
-		netState:           netState,
+		netWatcher:         netWatcher,
 	}
 	return g
 }
@@ -100,8 +100,8 @@ func (g *Guard) StartReconnectTrys(ctx context.Context, relayClient *Client) {
 		select {
 		case <-ticker.C:
 			// suspend reconnect attempts while the OS reports no usable network
-			if g.netState != nil {
-				if waited, err := g.netState.Wait(ctx); err != nil {
+			if g.netWatcher != nil {
+				if waited, err := g.netWatcher.Wait(ctx); err != nil {
 					return
 				} else if waited {
 					ticker.Stop()
@@ -134,16 +134,16 @@ func (g *Guard) tryToQuickReconnect(parentCtx context.Context, rc *Client) bool 
 		return false
 	}
 
-	if g.netState != nil {
-		if ok := g.netState.WaitSettled(parentCtx, quickReconnectBudget, verdictSettleWindow); !ok {
+	if g.netWatcher != nil {
+		if ok := g.netWatcher.WaitSettled(parentCtx, quickReconnectBudget, verdictSettleWindow); !ok {
 			return false
 		}
 		// Still offline after the budget: leave the retry to the ticker.
-		if !g.netState.IsOnline() {
+		if !g.netWatcher.IsOnline() {
 			return false
 		}
 	} else {
-		if cancelled := waiteBeforeRetry(parentCtx); !cancelled {
+		if cancelled := waitBeforeRetry(parentCtx); !cancelled {
 			return false
 		}
 	}
@@ -210,7 +210,7 @@ func (g *Guard) exponentTicker(ctx context.Context) *backoff.Ticker {
 	return backoff.NewTicker(bo)
 }
 
-func waiteBeforeRetry(ctx context.Context) bool {
+func waitBeforeRetry(ctx context.Context) bool {
 	timer := time.NewTimer(quickReconnectBudget)
 	defer timer.Stop()
 

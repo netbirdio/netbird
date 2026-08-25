@@ -72,9 +72,9 @@ type ConnectClient struct {
 
 	persistSyncResponse bool
 
-	// netEvents gates every reconnection loop on OS-reported network
+	// netMgr gates every reconnection loop on OS-reported network
 	// availability and sweeps connections on network change.
-	netEvents *netevents.Manager
+	netMgr *netevents.Manager
 }
 
 // ConnectClientOption configures optional ConnectClient behavior.
@@ -82,7 +82,7 @@ type ConnectClientOption func(*ConnectClient)
 
 // WithNetEvents injects the OS network event handling.
 func WithNetEvents(events *netevents.Manager) ConnectClientOption {
-	return func(c *ConnectClient) { c.netEvents = events }
+	return func(c *ConnectClient) { c.netMgr = events }
 }
 
 func NewConnectClient(
@@ -293,7 +293,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		}
 
 		// suspend connection attempts while the OS reports no usable network
-		if waited, err := c.netEvents.Wait(c.ctx); err != nil {
+		if waited, err := c.netMgr.Wait(c.ctx); err != nil {
 			return nil
 		} else if waited {
 			backOff.Reset()
@@ -311,7 +311,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 
 		log.Debugf("connecting to the Management service %s", c.config.ManagementURL.Host)
 		mgmClient, err := mgm.NewClient(engineCtx, c.config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled,
-			mgm.WithNetEvents(c.netEvents))
+			mgm.WithNetEvents(c.netMgr))
 		if err != nil {
 			// On daemon shutdown / Down() the parent context is cancelled
 			// and the dial fails with "context canceled". Wrapping that
@@ -386,7 +386,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		}()
 
 		// with the global Netbird config in hand connect (just a connection, no stream yet) Signal
-		signalClient, err := connectToSignal(engineCtx, loginResp.GetNetbirdConfig(), myPrivateKey, c.netEvents)
+		signalClient, err := connectToSignal(engineCtx, loginResp.GetNetbirdConfig(), myPrivateKey, c.netMgr)
 		if err != nil {
 			log.Error(err)
 			return wrapErr(err)
@@ -423,7 +423,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		}
 
 		relayManager := relayClient.NewManager(engineCtx, relayURLs, myPrivateKey.PublicKey().String(), engineConfig.MTU,
-			relayClient.WithNetEvents(c.netEvents))
+			relayClient.WithNetEvents(c.netMgr))
 		c.statusRecorder.SetRelayMgr(relayManager)
 		if len(relayURLs) > 0 {
 			if token != nil {
@@ -451,7 +451,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			UpdateManager:  c.updateManager,
 			ClientMetrics:  c.clientMetrics,
 			MetricsCtx:     c.ctx,
-			NetState:       c.netEvents,
+			NetMgr:         c.netMgr,
 		}, mobileDependency)
 		engine.SetSyncResponsePersistence(c.persistSyncResponse)
 		c.engine = engine
@@ -711,7 +711,7 @@ func selectMTU(localMTU uint16, peerMTU int32) uint16 {
 }
 
 // connectToSignal creates Signal Service client and established a connection
-func connectToSignal(ctx context.Context, wtConfig *mgmProto.NetbirdConfig, ourPrivateKey wgtypes.Key, netEvents *netevents.Manager) (*signal.GrpcClient, error) {
+func connectToSignal(ctx context.Context, wtConfig *mgmProto.NetbirdConfig, ourPrivateKey wgtypes.Key, netMgr *netevents.Manager) (*signal.GrpcClient, error) {
 	var sigTLSEnabled bool
 	if wtConfig.Signal.Protocol == mgmProto.HostConfig_HTTPS {
 		sigTLSEnabled = true
@@ -720,7 +720,7 @@ func connectToSignal(ctx context.Context, wtConfig *mgmProto.NetbirdConfig, ourP
 	}
 
 	signalClient, err := signal.NewClient(ctx, wtConfig.Signal.Uri, ourPrivateKey, sigTLSEnabled,
-		signal.WithNetEvents(netEvents))
+		signal.WithNetEvents(netMgr))
 	if err != nil {
 		log.Errorf("error while connecting to the Signal Exchange Service %s: %s", wtConfig.Signal.Uri, err)
 		return nil, gstatus.Errorf(codes.FailedPrecondition, "failed connecting to Signal Service : %s", err)

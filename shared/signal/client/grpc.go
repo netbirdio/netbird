@@ -66,9 +66,9 @@ type GrpcClient struct {
 	connStateCallback     ConnStateNotifier
 	connStateCallbackLock sync.RWMutex
 
-	// netEvents gates the Receive retry loop on OS-reported network
+	// netMgr gates the Receive retry loop on OS-reported network
 	// availability and sweeps the transport on network change.
-	netEvents *netevents.Manager
+	netMgr *netevents.Manager
 
 	onReconnectedListenerFn func()
 
@@ -98,7 +98,7 @@ type Option func(*GrpcClient)
 
 // WithNetEvents injects the OS network event handling.
 func WithNetEvents(events *netevents.Manager) Option {
-	return func(c *GrpcClient) { c.netEvents = events }
+	return func(c *GrpcClient) { c.netMgr = events }
 }
 
 // NewClient creates a new Signal client
@@ -116,7 +116,7 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 	}
 
 	var extraOpts []grpc.DialOption
-	extraOpts = append(extraOpts, nbgrpc.WithSweeper(c.netEvents))
+	extraOpts = append(extraOpts, nbgrpc.WithSweeper(c.netMgr))
 
 	var conn *grpc.ClientConn
 	operation := func() error {
@@ -186,13 +186,13 @@ func defaultBackoff(ctx context.Context) backoff.BackOff {
 // The connection retry logic will try to reconnect for 30 min and if wasn't successful will propagate the error to the function caller.
 func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Message) error) error {
 
-	backOff := c.netEvents.QuickRetryBackoff(ctx, defaultBackoff(ctx))
+	backOff := c.netMgr.QuickRetryBackoff(ctx, defaultBackoff(ctx))
 
 	operation := func() error {
 		// suspend reconnect attempts while the OS reports no usable network.
 		// Wait only errors on a cancelled context, which means shutdown, so
 		// stop the loop without reporting a failure.
-		if waited, err := c.netEvents.Wait(ctx); err != nil {
+		if waited, err := c.netMgr.Wait(ctx); err != nil {
 			log.Debugf("signal connection context has been canceled while offline, this usually indicates shutdown")
 			return nil
 		} else if waited {
@@ -272,7 +272,7 @@ func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Mes
 		return nil
 	}
 
-	err := nbgrpc.Retry(ctx, operation, backOff, c.netEvents)
+	err := nbgrpc.Retry(ctx, operation, backOff, c.netMgr)
 	if err != nil {
 		log.Errorf("exiting the Signal service connection retry loop due to the unrecoverable error: %v", err)
 		return err

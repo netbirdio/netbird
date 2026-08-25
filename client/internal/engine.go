@@ -182,9 +182,9 @@ type EngineServices struct {
 	UpdateManager  *updater.Manager
 	ClientMetrics  *metrics.ClientMetrics
 	MetricsCtx     context.Context
-	// NetState gates the reconnection loops on OS-reported network
+	// NetMgr gates the reconnection loops on OS-reported network
 	// availability; nil disables gating.
-	NetState *netevents.Manager
+	NetMgr *netevents.Manager
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -208,9 +208,9 @@ type Engine struct {
 	config    *EngineConfig
 	mobileDep MobileDependency
 
-	// netState gates the peer reconnection guards on OS-reported network
+	// netMgr gates the peer reconnection guards on OS-reported network
 	// availability; nil disables gating.
-	netState *netevents.Manager
+	netMgr *netevents.Manager
 
 	// STUNs is a list of STUN servers used by ICE
 	STUNs []*stun.URI
@@ -345,7 +345,7 @@ func NewEngine(
 		syncMsgMux:         &sync.Mutex{},
 		config:             config,
 		mobileDep:          mobileDep,
-		netState:           services.NetState,
+		netMgr:             services.NetMgr,
 		STUNs:              []*stun.URI{},
 		TURNs:              []*stun.URI{},
 		networkSerial:      0,
@@ -1902,8 +1902,8 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix, agentV
 			Addr:           e.getRosenpassAddr(),
 			PermissiveMode: e.config.RosenpassPermissive,
 		},
-		ICEConfig:    e.createICEConfig(),
-		NetworkState: e.netState,
+		ICEConfig: e.createICEConfig(),
+		NetMgr:    e.netMgr,
 	}
 
 	serviceDependencies := peer.ServiceDependencies{

@@ -23,8 +23,9 @@ type Recorder interface {
 
 // Manager ties the network availability state, the connection sweeper and the
 // status recorder together; it outlives engine restarts. A nil *Manager is
-// the valid no-events value: the read methods report always-online and never
-// sweep.
+// the valid no-events value for consumers: the read methods report
+// always-online and never sweep. Only the event sources hold a real Manager,
+// so the write methods do not tolerate a nil receiver.
 type Manager struct {
 	// mu serializes availability transitions: the IsOnline check and the
 	// state update must be atomic, or a racing offline flip can skip the sweep
@@ -52,6 +53,9 @@ func NewManager(recorder Recorder) *Manager {
 // redial while offline, so the stale sockets would otherwise stay silently
 // "connected" until their own timeouts and the client would keep reporting
 // Connected with no network at all.
+//
+// Panics on a nil receiver: only the mobile bindings that own a Manager
+// report availability.
 func (m *Manager) SetNetworkAvailable(available bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -67,6 +71,9 @@ func (m *Manager) SetNetworkAvailable(available bool) {
 // stale after the OS switched networks and schedules a sweep that cuts
 // whatever has not redialed on the new network by then. The engine and the
 // TUN device stay untouched.
+//
+// Panics on a nil receiver: only the mobile bindings that own a Manager
+// report network changes.
 func (m *Manager) NotifyNetworkChange() {
 	m.sweeper.MarkNetworkChange()
 	log.Infof("network change: connections marked stale")
