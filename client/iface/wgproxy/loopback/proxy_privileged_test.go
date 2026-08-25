@@ -3,6 +3,7 @@
 package loopback
 
 import (
+	"context"
 	"net"
 	"strconv"
 	"testing"
@@ -58,7 +59,7 @@ func TestProxyDemuxesByDestinationAddress(t *testing.T) {
 	readers := make([]*net.UDPConn, 0, peers)
 	for i := 0; i < peers; i++ {
 		proxySide, testSide := relayEnd(t)
-		endpoint, err := proxy.AddRelayedConn(proxySide)
+		endpoint, _, err := proxy.AddRelayedConn(proxySide)
 		if err != nil {
 			t.Fatalf("add relayed conn %d: %v", i, err)
 		}
@@ -135,7 +136,7 @@ func TestProxyDropsPacketsOutsideTheRange(t *testing.T) {
 	}()
 
 	proxySide, testSide := relayEnd(t)
-	if _, err := proxy.AddRelayedConn(proxySide); err != nil {
+	if _, _, err := proxy.AddRelayedConn(proxySide); err != nil {
 		t.Fatalf("add relayed conn: %v", err)
 	}
 
@@ -159,5 +160,37 @@ func TestProxyDropsPacketsOutsideTheRange(t *testing.T) {
 	}
 	if _, _, err := testSide.ReadFrom(buf); err == nil {
 		t.Error("packet addressed to 127.0.0.1 was forwarded to a relayed peer")
+	}
+}
+
+// A wrapper that is closed before it starts forwarding still has to give its
+// endpoint address back, otherwise the range leaks an address per attempt.
+func TestClosingBeforeWorkReleasesTheAddress(t *testing.T) {
+	proxy := NewProxy(testWGPort+2, 1280)
+	if err := proxy.Listen(); err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer func() {
+		if err := proxy.Free(); err != nil {
+			t.Errorf("free proxy: %v", err)
+		}
+	}()
+
+	proxySide, _ := relayEnd(t)
+	wrapper := NewProxyWrapper(proxy)
+	if err := wrapper.AddRelayedConn(context.Background(), nil, proxySide); err != nil {
+		t.Fatalf("add relayed conn: %v", err)
+	}
+
+	if got := len(proxy.relayedConnStore); got != 1 {
+		t.Fatalf("store holds %d entries after adding one conn, want 1", got)
+	}
+
+	if err := wrapper.CloseConn(); err != nil {
+		t.Fatalf("close conn: %v", err)
+	}
+
+	if got := len(proxy.relayedConnStore); got != 0 {
+		t.Errorf("store holds %d entries after close, want 0", got)
 	}
 }

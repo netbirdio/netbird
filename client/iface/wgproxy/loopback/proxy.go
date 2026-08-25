@@ -38,6 +38,7 @@ type Proxy struct {
 
 	conn        *net.UDPConn
 	packetConn  *ipv4.PacketConn
+	loIndex     int
 	rawConnIPv4 net.PacketConn
 	rawConnIPv6 net.PacketConn
 
@@ -72,6 +73,12 @@ func (p *Proxy) Listen() error {
 	if err != nil {
 		log.Warnf("failed to prepare IPv6 raw socket, continuing with IPv4 only: %v", err)
 	}
+
+	loopback, err := net.InterfaceByName(loopbackDevice)
+	if err != nil {
+		return fmt.Errorf("look up %s: %w", loopbackDevice, err)
+	}
+	p.loIndex = loopback.Index
 
 	if err := p.listen(); err != nil {
 		if freeErr := p.Free(); freeErr != nil {
@@ -149,11 +156,12 @@ func (p *Proxy) listenOn(proxyPort int) error {
 }
 
 // AddRelayedConn assigns an endpoint address to the relayed connection and
-// returns the address WireGuard should send to.
-func (p *Proxy) AddRelayedConn(relayedConn net.Conn) (*net.UDPAddr, error) {
+// returns the address WireGuard should send to, along with the key the
+// connection is stored under.
+func (p *Proxy) AddRelayedConn(relayedConn net.Conn) (*net.UDPAddr, netip.Addr, error) {
 	addr, err := p.storeRelayedConn(relayedConn)
 	if err != nil {
-		return nil, err
+		return nil, netip.Addr{}, err
 	}
 
 	log.Infof("relayed conn added to wg proxy store: %s, endpoint address: %s", relayedConn.RemoteAddr(), addr)
@@ -161,7 +169,7 @@ func (p *Proxy) AddRelayedConn(relayedConn net.Conn) (*net.UDPAddr, error) {
 	return &net.UDPAddr{
 		IP:   addr.AsSlice(),
 		Port: p.proxyPort,
-	}, nil
+	}, addr, nil
 }
 
 // Free releases the proxy resources. The relayed connections are left open.
@@ -197,7 +205,6 @@ func (p *Proxy) Free() error {
 	return nberrors.FormatErrorOrNil(result)
 }
 
-
 // proxyToRemote reads packets from the local WireGuard instance and forwards
 // them to the relayed connection the destination address belongs to.
 func (p *Proxy) proxyToRemote() {
@@ -220,6 +227,11 @@ func (p *Proxy) readAndForwardPacket(buf []byte) error {
 
 	if cm == nil {
 		return fmt.Errorf("no control message on packet")
+	}
+
+	if cm.IfIndex != p.loIndex {
+		log.Tracef("dropping packet received on interface %d instead of %s", cm.IfIndex, loopbackDevice)
+		return nil
 	}
 
 	dst, ok := netip.AddrFromSlice(cm.Dst.To4())
@@ -260,12 +272,17 @@ func (p *Proxy) storeRelayedConn(relayedConn net.Conn) (netip.Addr, error) {
 	return addr, nil
 }
 
-func (p *Proxy) removeRelayedConn(addr netip.Addr) {
+// removeRelayedConn releases an endpoint address. It only removes the entry
+// while it still belongs to relayedConn, so a late release cannot take an
+// address away from the peer it was handed to next.
+func (p *Proxy) removeRelayedConn(addr netip.Addr, relayedConn net.Conn) {
 	p.relayedConnMutex.Lock()
 	defer p.relayedConnMutex.Unlock()
 
-	if _, ok := p.relayedConnStore[addr]; ok {
-		log.Debugf("remove relayed conn from store by address: %s", addr)
+	if stored, ok := p.relayedConnStore[addr]; !ok || stored != relayedConn {
+		return
 	}
+
+	log.Debugf("remove relayed conn from store by address: %s", addr)
 	delete(p.relayedConnStore, addr)
 }

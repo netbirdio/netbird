@@ -528,7 +528,11 @@ const (
 // not always available, so a lookup failure is not an error here.
 func (m *Manager) cleanupNoTrackChain() error {
 	exists, err := m.ipv4Client.ChainExists(tableRaw, chainNameRaw)
-	if err != nil || !exists {
+	if err != nil {
+		log.Debugf("look up %s chain: %v", chainNameRaw, err)
+		return nil
+	}
+	if !exists {
 		return nil
 	}
 

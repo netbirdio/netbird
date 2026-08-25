@@ -124,26 +124,28 @@ func NewProxyWrapper(proxy *Proxy) *ProxyWrapper {
 }
 
 func (p *ProxyWrapper) AddRelayedConn(ctx context.Context, _ *net.UDPAddr, remoteConn net.Conn) error {
-	addr, err := p.proxy.AddRelayedConn(remoteConn)
+	addr, peerAddr, err := p.proxy.AddRelayedConn(remoteConn)
 	if err != nil {
 		return fmt.Errorf("add relayed conn: %w", err)
 	}
 
-	peerAddr, ok := netip.AddrFromSlice(addr.IP.To4())
-	if !ok {
-		return fmt.Errorf("unexpected endpoint address %s", addr.IP)
-	}
+	// the endpoint address is otherwise only released by the forwarding
+	// goroutine, which never starts when the setup below fails
+	release := func() { p.proxy.removeRelayedConn(peerAddr, remoteConn) }
 
 	headers, err := NewPacketHeaders(p.proxy.localWGListenPort, addr)
 	if err != nil {
+		release()
 		return fmt.Errorf("create packet sender: %w", err)
 	}
 
 	// Check if required raw connection is available
 	if !headers.isIPv4 && p.proxy.rawConnIPv6 == nil {
+		release()
 		return errIPv6ConnNotAvailable
 	}
 	if headers.isIPv4 && p.proxy.rawConnIPv4 == nil {
+		release()
 		return errIPv4ConnNotAvailable
 	}
 
@@ -248,6 +250,10 @@ func (p *ProxyWrapper) CloseConn() error {
 
 	p.closeListener.SetCloseListener(nil)
 
+	// releases the endpoint address for a wrapper that was never started, and
+	// is a no-op once the forwarding goroutine has released it
+	p.proxy.removeRelayedConn(p.peerAddr, p.remoteConn)
+
 	p.pausedCond.L.Lock()
 	p.paused = false
 	p.pausedCond.Signal()
@@ -260,7 +266,7 @@ func (p *ProxyWrapper) CloseConn() error {
 }
 
 func (p *ProxyWrapper) proxyToLocal(ctx context.Context) {
-	defer p.proxy.removeRelayedConn(p.peerAddr)
+	defer p.proxy.removeRelayedConn(p.peerAddr, p.remoteConn)
 
 	buf := make([]byte, p.proxy.mtu+bufsize.WGBufferOverhead)
 	for {
