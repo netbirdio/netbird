@@ -194,7 +194,13 @@ apply_docker_subnet_override() {
 # later. Host routes are not checked; NETBIRD_DOCKER_SUBNET covers those cases.
 check_docker_subnet_conflicts() {
   local expected_network="$1"
-  command -v docker &> /dev/null || return 0
+  if ! command -v docker &> /dev/null; then
+    log_error "The Docker CLI was not found in PATH."
+    echo "It is required to verify that $DOCKER_SUBNET is free before the new compose file is written."
+    echo "The old deployment is stopped at this point; restart it with:"
+    echo "  bash $BACKUP_DIR/rollback.sh"
+    exit 1
+  fi
 
   # docker's own stderr is left visible on purpose: "is the daemon running"
   # and socket permission errors are the actionable part. Only the exit status

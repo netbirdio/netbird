@@ -106,7 +106,12 @@ apply_docker_subnet_override() {
 # NETBIRD_DOCKER_SUBNET covers those cases.
 check_docker_subnet_conflicts() {
   local expected_network="$1"
-  command -v docker &> /dev/null || return 0
+  if ! command -v docker &> /dev/null; then
+    echo "ERROR: the Docker CLI was not found in PATH." > /dev/stderr
+    echo "It is required to verify that $DOCKER_SUBNET is free before this install pins it." > /dev/stderr
+    echo "Install Docker (https://docs.docker.com/engine/install/) and run this script again." > /dev/stderr
+    exit 1
+  fi
 
   # docker's own stderr is left visible on purpose: "is the daemon running"
   # and socket permission errors are the actionable part. Only the exit status
