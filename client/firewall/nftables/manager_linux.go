@@ -198,10 +198,6 @@ func (m *Manager) initFirewall() (err error) {
 		}
 	}
 
-	if err := m.cleanupNoTrackChains(); err != nil {
-		log.Debugf("cleanup notrack chains: %v", err)
-	}
-
 	return nil
 }
 
@@ -662,43 +658,6 @@ func (m *Manager) RemoveOutputDNAT(localAddr netip.Addr, protocol firewall.Proto
 		return m.router6.RemoveOutputDNAT(localAddr, protocol, originalPort, translatedPort)
 	}
 	return m.router.RemoveOutputDNAT(localAddr, protocol, originalPort, translatedPort)
-}
-
-const (
-	chainNameRawOutput     = "netbird-raw-out"
-	chainNameRawPrerouting = "netbird-raw-pre"
-)
-
-// cleanupNoTrackChains removes the chains that earlier versions used to exempt
-// the WireGuard proxy's loopback traffic from connection tracking.
-func (m *Manager) cleanupNoTrackChains() error {
-	chains, err := m.rConn.ListChainsOfTableFamily(nftables.TableFamilyIPv4)
-	if err != nil {
-		return fmt.Errorf("list chains: %w", err)
-	}
-
-	tableName := getTableName()
-	var found bool
-	for _, c := range chains {
-		if c.Table.Name != tableName {
-			continue
-		}
-		if c.Name != chainNameRawOutput && c.Name != chainNameRawPrerouting {
-			continue
-		}
-		m.rConn.DelChain(c)
-		found = true
-	}
-
-	if !found {
-		return nil
-	}
-
-	if err := m.rConn.Flush(); err != nil {
-		return fmt.Errorf("flush chain removal: %w", err)
-	}
-
-	return nil
 }
 
 func (m *Manager) createWorkTable() (*nftables.Table, error) {

@@ -120,10 +120,6 @@ func (m *Manager) Init(stateManager *statemanager.Manager) error {
 		return err
 	}
 
-	if err := m.cleanupNoTrackChain(); err != nil {
-		log.Debugf("cleanup notrack chain: %v", err)
-	}
-
 	// Trust after all fatal init steps so a later failure doesn't leave the
 	// interface in firewalld's trusted zone without a corresponding Close.
 	if err := firewalld.TrustInterface(m.wgIface.Name()); err != nil {
@@ -335,10 +331,6 @@ func (m *Manager) Close(stateManager *statemanager.Manager) error {
 
 	var merr *multierror.Error
 
-	if err := m.cleanupNoTrackChain(); err != nil {
-		merr = multierror.Append(merr, fmt.Errorf("cleanup notrack chain: %w", err))
-	}
-
 	if m.hasIPv6() {
 		if err := m.aclMgr6.Reset(); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("reset v6 acl manager: %w", err))
@@ -515,42 +507,6 @@ func (m *Manager) RemoveOutputDNAT(localAddr netip.Addr, protocol firewall.Proto
 		return m.router6.RemoveOutputDNAT(localAddr, protocol, originalPort, translatedPort)
 	}
 	return m.router.RemoveOutputDNAT(localAddr, protocol, originalPort, translatedPort)
-}
-
-const (
-	chainNameRaw = "NETBIRD-RAW"
-	chainOUTPUT  = "OUTPUT"
-	tableRaw     = "raw"
-)
-
-// cleanupNoTrackChain removes the chain that earlier versions used to exempt the
-// WireGuard proxy's loopback traffic from connection tracking. The raw table is
-// not always available, so a lookup failure is not an error here.
-func (m *Manager) cleanupNoTrackChain() error {
-	exists, err := m.ipv4Client.ChainExists(tableRaw, chainNameRaw)
-	if err != nil {
-		log.Debugf("look up %s chain: %v", chainNameRaw, err)
-		return nil
-	}
-	if !exists {
-		return nil
-	}
-
-	jumpRule := []string{"-j", chainNameRaw}
-
-	if err := m.ipv4Client.DeleteIfExists(tableRaw, chainOUTPUT, jumpRule...); err != nil {
-		return fmt.Errorf("remove output jump rule: %w", err)
-	}
-
-	if err := m.ipv4Client.DeleteIfExists(tableRaw, chainPREROUTING, jumpRule...); err != nil {
-		return fmt.Errorf("remove prerouting jump rule: %w", err)
-	}
-
-	if err := m.ipv4Client.ClearAndDeleteChain(tableRaw, chainNameRaw); err != nil {
-		return fmt.Errorf("clear and delete chain: %w", err)
-	}
-
-	return nil
 }
 
 func getConntrackEstablished() []string {
