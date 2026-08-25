@@ -49,7 +49,6 @@ type Credential struct {
 type CredentialPayload struct {
 	Type            proto.Body_Type
 	WgListenPort    int
-	FiledropPort    uint16
 	Credential      *Credential
 	RosenpassPubKey []byte
 	RosenpassAddr   string
@@ -77,7 +76,6 @@ func MarshalCredential(myKey wgtypes.Key, remoteKey string, p CredentialPayload)
 		Type:           p.Type,
 		Payload:        fmt.Sprintf("%s:%s", p.Credential.UFrag, p.Credential.Pwd),
 		WgListenPort:   uint32(p.WgListenPort),
-		FiledropPort:   uint32(p.FiledropPort),
 		NetBirdVersion: version.NetbirdVersion(),
 		RosenpassConfig: &proto.RosenpassConfig{
 			RosenpassPubKey:     p.RosenpassPubKey,

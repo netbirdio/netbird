@@ -6,7 +6,13 @@ import (
 	"time"
 )
 
-const Port uint16 = 41421
+// Port is the file drop port over the tunnel. It stays fixed whatever the
+// receiver ends up binding locally: a receiver that cannot take this port binds
+// another one and redirects this port to it, so senders never negotiate.
+const Port uint16 = 22042
+
+// EnvPort overrides the local listen port; the tunnel-side port stays Port.
+const EnvPort = "NB_FILEDROP_PORT"
 
 // HeaderReceivedBytes carries the receiver's confirmed byte count in a HEAD response.
 const HeaderReceivedBytes = "Netbird-Received-Bytes"

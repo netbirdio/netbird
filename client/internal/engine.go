@@ -1971,8 +1971,6 @@ func (e *Engine) receiveSignalEvents() error {
 					return err
 				}
 
-				e.recordFiledropPort(msg.Key, msg.GetBody().GetFiledropPort())
-
 				log.Debugf("receiveMSG: took %s to get lock for peer %s with session id %s", gotLock, msg.Key, offerAnswer.SessionID)
 
 				if msg.Body.Type == sProto.Body_OFFER {

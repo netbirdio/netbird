@@ -28,10 +28,6 @@ const (
 	EventProgress
 )
 
-// portSignalGrace bounds how long a failed attempt waits for one signal message
-// that may advertise the receiver's actual port before giving up.
-const portSignalGrace = 3 * time.Second
-
 // ErrNotConnected indicates the operation needs a running tunnel.
 var ErrNotConnected = errors.New("not connected")
 
@@ -73,7 +69,6 @@ type Manager struct {
 	sink     Sink
 
 	server     *Server
-	ports      *PortRegistry
 	dial       DialFunc
 	senderName string
 	sends      map[OfferID]*sendHandle
@@ -98,7 +93,6 @@ func NewManager(cfg ManagerConfig) (*Manager, error) {
 		events:   cfg.Events,
 		offerTTL: cfg.OfferTTL,
 		sink:     cfg.Sink,
-		ports:    NewPortRegistry(),
 		sends:    make(map[OfferID]*sendHandle),
 	}
 	return m, nil
@@ -112,12 +106,6 @@ func (m *Manager) Profile() profilemanager.ID {
 // Policy returns the receiving policy store.
 func (m *Manager) Policy() *PolicyStore {
 	return m.policy
-}
-
-// Ports returns the registry of peer-advertised listen ports; the engine feeds it
-// from incoming signal messages.
-func (m *Manager) Ports() *PortRegistry {
-	return m.ports
 }
 
 // ReceiverPort returns the port the receiver is actually bound to, 0 when stopped.
@@ -394,11 +382,13 @@ func (m *Manager) SetSenderRule(peer PeerKey, rule SenderRule) error {
 }
 
 func (m *Manager) runSend(ctx context.Context, client *Client, handle *sendHandle, transfer Transfer, payloads []Payload) {
-	addr, remoteID, decision, err := m.offerWithPortRetry(ctx, client, handle, transfer.PeerKey, payloads)
+	addr := netip.AddrPortFrom(handle.ip, Port)
+	remoteID, decision, err := client.Offer(ctx, addr, payloads)
 	if err != nil {
 		m.failSend(ctx, transfer.ID, err)
 		return
 	}
+	m.storeRemote(handle, addr, remoteID)
 
 	decision, err = client.AwaitDecision(ctx, addr, remoteID, decision)
 	if err != nil {
@@ -431,54 +421,6 @@ func (m *Manager) runSend(ctx context.Context, client *Client, handle *sendHandl
 	m.history.SetProgress(transfer.ID, transfer.TotalSize)
 	m.finishTransfer(transfer.ID, StateCompleted, "")
 	m.emit(EventCompleted, m.transferOf(transfer.ID))
-}
-
-// offerWithPortRetry places the offer on the last advertised port, falling back to
-// the default. When the attempt fails on the transport, it waits out one signal
-// message that may carry the receiver's actual port and retries there once. A port
-// learned mid-attempt aborts the attempt immediately instead of letting it hang.
-func (m *Manager) offerWithPortRetry(ctx context.Context, client *Client, handle *sendHandle, key PeerKey, payloads []Payload) (netip.AddrPort, OfferID, Decision, error) {
-	used := m.ports.Port(key)
-	addr := netip.AddrPortFrom(handle.ip, effectivePort(used))
-
-	remoteID, decision, err := m.offerWatchingPorts(ctx, client, key, used, addr, payloads)
-	if err == nil {
-		m.storeRemote(handle, addr, remoteID)
-		return addr, remoteID, decision, nil
-	}
-	if ctx.Err() != nil || !transportFailure(err) {
-		return addr, remoteID, decision, err
-	}
-
-	graceCtx, cancel := context.WithTimeout(ctx, portSignalGrace)
-	port, changed := m.ports.Await(graceCtx, key, used)
-	cancel()
-	if !changed {
-		return addr, remoteID, decision, err
-	}
-
-	addr = netip.AddrPortFrom(handle.ip, effectivePort(port))
-	remoteID, decision, err = client.Offer(ctx, addr, payloads)
-	if err != nil {
-		return addr, remoteID, decision, err
-	}
-	m.storeRemote(handle, addr, remoteID)
-	return addr, remoteID, decision, nil
-}
-
-// offerWatchingPorts runs the offer while watching for a port advertisement that
-// differs from the one in use; such an advertisement aborts the in-flight attempt.
-func (m *Manager) offerWatchingPorts(ctx context.Context, client *Client, key PeerKey, used uint16, addr netip.AddrPort, payloads []Payload) (OfferID, Decision, error) {
-	watchCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	go func() {
-		if _, changed := m.ports.Await(watchCtx, key, used); changed {
-			cancel()
-		}
-	}()
-
-	return client.Offer(watchCtx, addr, payloads)
 }
 
 func (m *Manager) storeRemote(handle *sendHandle, addr netip.AddrPort, remoteID OfferID) {
@@ -664,15 +606,8 @@ func payloadTotal(payloads []Payload) int64 {
 	return total
 }
 
-func effectivePort(advertised uint16) uint16 {
-	if advertised == 0 {
-		return Port
-	}
-	return advertised
-}
-
 // transportFailure reports whether the offer never reached the receiver; any HTTP
-// response, refusal included, proves the port right and is not retried elsewhere.
+// response, refusal included, means the receiver answered.
 func transportFailure(err error) bool {
 	var urlErr *url.Error
 	return errors.As(err, &urlErr)

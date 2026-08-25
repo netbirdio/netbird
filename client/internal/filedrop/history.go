@@ -19,7 +19,7 @@ const (
 const (
 	ReasonNone FailureReason = iota
 	// ReasonUnreachable marks a transport-level failure: nothing listens on the
-	// peer's file drop port, so the client is old or receiving is off.
+	// peer's file drop port, so the client is old or the tunnel is down.
 	ReasonUnreachable
 	// ReasonInterrupted marks a transfer that was still moving when the process
 	// stopped; nothing survived to finish or resume it.

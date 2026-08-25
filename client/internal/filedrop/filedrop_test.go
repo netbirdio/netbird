@@ -744,30 +744,9 @@ func TestServerFallsBackWhenPortBusy(t *testing.T) {
 	assert.NotEqual(t, busyPort, bound, "fallback must pick a different port")
 }
 
-func TestPortRegistryAwait(t *testing.T) {
-	reg := NewPortRegistry()
-
-	reg.Set(testPeer, 5000)
-	port, changed := reg.Await(context.Background(), testPeer, 0)
-	assert.True(t, changed, "known differing port must return immediately")
-	assert.Equal(t, uint16(5000), port)
-
-	go func() {
-		time.Sleep(50 * time.Millisecond)
-		reg.Set(testPeer, 5000)
-	}()
-	_, changed = reg.Await(context.Background(), testPeer, 5000)
-	assert.False(t, changed, "an advertisement equal to the used port must release the waiter as unchanged")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-	_, changed = reg.Await(ctx, testPeer, 5000)
-	assert.False(t, changed, "timeout without advertisement must report unchanged")
-}
-
 // senderManager builds a send-only manager whose dialer reaches the test server only
-// on realPort; other ports behave per defaultPortBehavior ("refuse" or "hang").
-func senderManager(t *testing.T, serverAddr string, realPort uint16, defaultPortBehavior string) *Manager {
+// on wantPort; any other port is refused.
+func senderManager(t *testing.T, serverAddr string, wantPort uint16) *Manager {
 	t.Helper()
 
 	mgr, err := NewManager(ManagerConfig{Profile: testProfile, DataDir: t.TempDir()})
@@ -779,13 +758,9 @@ func senderManager(t *testing.T, serverAddr string, realPort uint16, defaultPort
 	mgr.SetTunnel(func(ctx context.Context, network, addr string) (net.Conn, error) {
 		ap, err := netip.ParseAddrPort(addr)
 		require.NoError(t, err, "dialer must receive a valid addr")
-		if ap.Port() == realPort {
+		if ap.Port() == wantPort {
 			var d net.Dialer
 			return d.DialContext(ctx, network, serverAddr)
-		}
-		if defaultPortBehavior == "hang" {
-			<-ctx.Done()
-			return nil, ctx.Err()
 		}
 		return nil, &net.OpError{Op: "dial", Net: network, Err: errors.New("connection refused")}
 	}, "sender")
@@ -801,50 +776,25 @@ func waitForState(t *testing.T, mgr *Manager, id OfferID, want State) {
 	}, 10*time.Second, 20*time.Millisecond, "transfer must reach state %s", want)
 }
 
-func TestSendRetriesOnAdvertisedPort(t *testing.T) {
+func TestSendUsesTheWellKnownPort(t *testing.T) {
 	srv, _, _ := startTestServer(t, ModeAutoAccept, staticResolver{key: PeerKey("sender-key")})
 	srv.mu.RLock()
 	serverAddr := srv.listener.Addr().String()
 	srv.mu.RUnlock()
-	realPort := srv.BoundPort()
 
-	mgr := senderManager(t, serverAddr, realPort, "refuse")
+	mgr := senderManager(t, serverAddr, Port)
 
 	id, err := mgr.Send(testPeer, "receiver", netip.AddrFrom4([4]byte{100, 64, 0, 9}), []Payload{TextPayload("t", "hello")})
 	require.NoError(t, err)
-
-	time.Sleep(100 * time.Millisecond)
-	mgr.Ports().Set(testPeer, realPort)
 
 	waitForState(t, mgr, id, StateCompleted)
 }
 
-func TestSendAbortsHangingAttemptOnAdvertisedPort(t *testing.T) {
-	srv, _, _ := startTestServer(t, ModeAutoAccept, staticResolver{key: PeerKey("sender-key")})
-	srv.mu.RLock()
-	serverAddr := srv.listener.Addr().String()
-	srv.mu.RUnlock()
-	realPort := srv.BoundPort()
-
-	mgr := senderManager(t, serverAddr, realPort, "hang")
+func TestSendFailsWhenNothingListensOnTheWellKnownPort(t *testing.T) {
+	mgr := senderManager(t, "127.0.0.1:1", 1)
 
 	id, err := mgr.Send(testPeer, "receiver", netip.AddrFrom4([4]byte{100, 64, 0, 9}), []Payload{TextPayload("t", "hello")})
 	require.NoError(t, err)
-
-	time.Sleep(100 * time.Millisecond)
-	mgr.Ports().Set(testPeer, realPort)
-
-	waitForState(t, mgr, id, StateCompleted)
-}
-
-func TestSendFailsWhenSignalConfirmsUsedPort(t *testing.T) {
-	mgr := senderManager(t, "127.0.0.1:1", 1, "refuse")
-
-	id, err := mgr.Send(testPeer, "receiver", netip.AddrFrom4([4]byte{100, 64, 0, 9}), []Payload{TextPayload("t", "hello")})
-	require.NoError(t, err)
-
-	time.Sleep(100 * time.Millisecond)
-	mgr.Ports().Set(testPeer, 0)
 
 	waitForState(t, mgr, id, StateFailed)
 }

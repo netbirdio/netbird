@@ -4,9 +4,12 @@ import (
 	"context"
 	"net"
 	"net/netip"
+	"os"
+	"strconv"
 
 	log "github.com/sirupsen/logrus"
 
+	firewallManager "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/filedrop"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -36,7 +39,7 @@ func (e *Engine) startFileDrop() {
 	}
 
 	wgAddr := e.wgInterface.Address()
-	addr := netip.AddrPortFrom(wgAddr.IP, filedrop.Port)
+	addr := netip.AddrPortFrom(wgAddr.IP, fileDropListenPort())
 	resolver := filedropResolver{status: e.statusRecorder}
 
 	netstackNet := e.wgInterface.GetNet()
@@ -47,7 +50,7 @@ func (e *Engine) startFileDrop() {
 
 	bound := e.fileDrop.ReceiverPort()
 	if bound == 0 {
-		bound = filedrop.Port
+		bound = addr.Port()
 	}
 	e.fileDropPort = bound
 
@@ -65,24 +68,56 @@ func (e *Engine) startFileDrop() {
 		}
 	}
 
-	if bound != filedrop.Port {
-		e.signaler.SetFiledropPort(bound)
-	}
+	e.setupFileDropPortRedirection(bound)
 
 	e.setFileDropTunnel()
 	e.fileDropRunning = true
 }
 
-// recordFiledropPort stores the file drop port a peer advertised over signaling;
-// a value that does not fit a port is treated as the default.
-func (e *Engine) recordFiledropPort(peerKey string, port uint32) {
-	if e.fileDrop == nil {
+// setupFileDropPortRedirection keeps the tunnel-side port fixed when the receiver
+// could not bind it, so senders always reach the well-known port.
+func (e *Engine) setupFileDropPortRedirection(bound uint16) {
+	if e.firewall == nil || bound == filedrop.Port {
 		return
 	}
-	if port > 65535 {
-		port = 0
+
+	for _, addr := range e.fileDropLocalAddrs() {
+		if err := e.firewall.AddInboundDNAT(addr, firewallManager.ProtocolTCP, filedrop.Port, bound); err != nil {
+			log.Warnf("failed to add file drop port redirection on %s: %v", addr, err)
+			continue
+		}
+		log.Infof("file drop port redirection enabled: %s:%d -> %s:%d", addr, filedrop.Port, addr, bound)
 	}
-	e.fileDrop.Ports().Set(filedrop.PeerKey(peerKey), uint16(port))
+}
+
+func (e *Engine) removeFileDropPortRedirection(bound uint16) {
+	if e.firewall == nil || bound == 0 || bound == filedrop.Port {
+		return
+	}
+
+	for _, addr := range e.fileDropLocalAddrs() {
+		if err := e.firewall.RemoveInboundDNAT(addr, firewallManager.ProtocolTCP, filedrop.Port, bound); err != nil {
+			log.Warnf("failed to remove file drop port redirection on %s: %v", addr, err)
+			continue
+		}
+		log.Debugf("file drop port redirection removed: %s:%d -> %s:%d", addr, filedrop.Port, addr, bound)
+	}
+}
+
+func (e *Engine) fileDropLocalAddrs() []netip.Addr {
+	if e.wgInterface == nil {
+		return nil
+	}
+
+	wgAddr := e.wgInterface.Address()
+	var addrs []netip.Addr
+	if wgAddr.IP.IsValid() {
+		addrs = append(addrs, wgAddr.IP)
+	}
+	if wgAddr.IPv6.IsValid() {
+		addrs = append(addrs, wgAddr.IPv6)
+	}
+	return addrs
 }
 
 func (e *Engine) setFileDropTunnel() {
@@ -132,7 +167,7 @@ func (e *Engine) stopFileDrop() {
 				registrar.UnregisterNetstackService(nftypes.TCP, e.fileDropPort)
 			}
 		}
-		e.signaler.SetFiledropPort(0)
+		e.removeFileDropPortRedirection(e.fileDropPort)
 	}
 
 	if err := e.fileDrop.StopReceiver(); err != nil {
@@ -140,4 +175,20 @@ func (e *Engine) stopFileDrop() {
 	}
 	e.fileDropRunning = false
 	e.fileDropPort = 0
+}
+
+// fileDropListenPort is the port the receiver tries to bind locally; the
+// tunnel-side port stays filedrop.Port whatever this resolves to.
+func fileDropListenPort() uint16 {
+	raw := os.Getenv(filedrop.EnvPort)
+	if raw == "" {
+		return filedrop.Port
+	}
+
+	port, err := strconv.ParseUint(raw, 10, 16)
+	if err != nil {
+		log.Warnf("invalid %s value %q, using %d", filedrop.EnvPort, raw, filedrop.Port)
+		return filedrop.Port
+	}
+	return uint16(port)
 }
