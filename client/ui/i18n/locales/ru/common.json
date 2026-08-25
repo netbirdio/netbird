@@ -401,9 +401,6 @@
     "networks.bulk.label": {
         "message": "Переключить все видимые ресурсы"
     },
-    "settings.nav.label": {
-        "message": "Разделы настроек"
-    },
     "profile.switch.title": {
         "message": "Переключиться на профиль «{name}»?"
     },
@@ -496,6 +493,9 @@
     },
     "settings.error.debugBundleTitle": {
         "message": "Не удалось создать отладочный пакет"
+    },
+    "settings.nav.label": {
+        "message": "Разделы настроек"
     },
     "settings.tabs.general": {
         "message": "Общие"
@@ -1351,13 +1351,28 @@
     "error.unknown": {
         "message": "Не удалось выполнить операцию."
     },
+    "error.elevation_unavailable": {
+        "message": "NetBird не смог запросить у этой системы нужные права. Выполните вместо этого:"
+    },
+    "error.elevation_failed": {
+        "message": "Не удалось применить изменение с повышенными правами. Выполните вместо этого:"
+    },
+    "settings.ssh.privilege.actorRoot": {
+        "message": "права root"
+    },
+    "settings.ssh.privilege.actorAdministrator": {
+        "message": "права администратора"
+    },
     "settings.ssh.privilege.hint": {
         "message": "Требуются {actor}. Выполните вместо этого:"
     },
     "settings.ssh.privilege.oneWay": {
-        "message": "Отключить можно, но чтобы включить снова, нужны {actor}:"
+        "message": "Отключить можно, но чтобы включить снова, нужны {actor}."
     },
     "settings.ssh.privilege.oneWayInverted": {
-        "message": "Включить можно, но чтобы отключить снова, нужны {actor}:"
+        "message": "Включить можно, но чтобы отключить снова, нужны {actor}."
+    },
+    "settings.ssh.privilege.authorizePending": {
+        "message": "Ожидание авторизации…"
     }
 }
