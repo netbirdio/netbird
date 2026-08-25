@@ -8,6 +8,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/client/system"
 )
 
@@ -45,7 +46,16 @@ type Auth struct {
 // an earlier call is orphaned on the server. It also breaks a client that enrols and then runs from
 // the persisted config, because the identity it registered is not the one it runs with — the
 // management stream rejects it with "no peer auth method provided".
-func NewAuth(cfgPath string, mgmURL string) (*Auth, error) {
+//
+// Auth is constructed under the active MDM policy: a managed management URL
+// replaces the caller-supplied one before the config is persisted, and the
+// policy is overlaid on the resolved config so the login runs against the
+// enforced values. A nil fetcher disables MDM enforcement.
+func NewAuth(cfgPath string, mgmURL string, fetcher PolicyFetcher) (*Auth, error) {
+	policy := loaderFor(fetcher).Load()
+	if v, ok := policy.GetString(mdm.KeyManagementURL); ok {
+		mgmURL = v
+	}
 	inputCfg := profilemanager.ConfigInput{
 		ConfigPath:    cfgPath,
 		ManagementURL: mgmURL,
@@ -55,6 +65,7 @@ func NewAuth(cfgPath string, mgmURL string) (*Auth, error) {
 	if err != nil {
 		return nil, err
 	}
+	cfg.ApplyMDMPolicy(policy)
 
 	return &Auth{
 		ctx:     context.Background(),

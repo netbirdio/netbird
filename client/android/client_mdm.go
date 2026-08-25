@@ -1,18 +1,11 @@
-//go:build ios
+//go:build android
 
-package NetBirdSDK
+package android
 
 import (
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/mdm"
 )
-
-// PolicyFetcher is implemented by the native layer to return the current
-// managed configuration as a JSON-encoded object string; "" means no MDM
-// source is present.
-type PolicyFetcher interface {
-	FetchJSON() string
-}
 
 // SetMDMPolicyFetcher registers the native-provided MDM policy fetcher on
 // this Client; passing nil disables MDM enforcement.
@@ -42,11 +35,4 @@ func (c *Client) applyMDMOverlay(cfg *profilemanager.Config) {
 		return
 	}
 	cfg.ApplyMDMPolicy(c.mdmLoader.Load())
-}
-
-func loaderFor(p PolicyFetcher) *mdm.Loader {
-	if p == nil {
-		return mdm.NewJSONLoader(nil)
-	}
-	return mdm.NewJSONLoader(p.FetchJSON)
 }
