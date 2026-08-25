@@ -6,6 +6,10 @@ on:
       - "release-*"
   pull_request:
     paths:
+      - ".github/workflows/buf.yaml"
+      - "**/buf.yaml"
+      - "**/buf.lock"
+      - "**/buf.gen.yaml"
       - "**.proto"
 permissions:
   contents: read
