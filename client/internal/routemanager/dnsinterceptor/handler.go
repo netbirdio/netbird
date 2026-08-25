@@ -93,7 +93,10 @@ func (d *DnsInterceptor) RemoveRoute() error {
 				merr = multierror.Append(merr, fmt.Errorf("remove dynamic route for IP %s: %v", routePrefix, err))
 			}
 
-			// AllowedIPs should use real IPs
+			// AllowedIPs should use real IPs.
+			// RemoveAllowedIPs clears the peer key, and the manager now calls it
+			// before RemoveRoute, so this guard is what keeps the prefixes from
+			// being decremented a second time. Do not drop it as dead defence.
 			if d.currentPeerKey != "" {
 				if _, err := d.allowedIPsRefcounter.Decrement(prefix, d.currentPeerKey); err != nil {
 					merr = multierror.Append(merr, fmt.Errorf("remove allowed IP %s: %v", prefix, err))
