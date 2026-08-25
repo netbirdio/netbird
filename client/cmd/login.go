@@ -264,8 +264,7 @@ func switchProfileOnDaemon(ctx context.Context, pm *profilemanager.ProfileManage
 
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
-		log.Errorf("failed to connect to service CLI interface %v", err)
-		return nil, err
+		return nil, fmt.Errorf("connect to service CLI interface: %w", err)
 	}
 	defer conn.Close()
 
