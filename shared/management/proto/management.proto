@@ -110,6 +110,10 @@ message BundleParameters {
   int64  bundle_for_time  = 2;
   int32  log_file_count   = 3;
   bool   anonymize        = 4;
+  // anonymize_level selects how much the anonymizer redacts: "default"
+  // (or empty) keeps internal IP ranges, "strict" also anonymizes them.
+  // Unknown values are treated as "strict".
+  string anonymize_level  = 5;
 }
 
 message BundleResult {

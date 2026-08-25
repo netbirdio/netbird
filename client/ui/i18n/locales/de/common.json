@@ -551,6 +551,14 @@
     "settings.general.autostart.errorTitle": {
         "message": "Ändern des Autostarts fehlgeschlagen"
     },
+    "settings.general.keepConnectedOnQuit.label": {
+        "message": "Nach dem Beenden verbunden bleiben",
+        "description": "Toggle label: keep the VPN connection up after quitting the UI."
+    },
+    "settings.general.keepConnectedOnQuit.help": {
+        "message": "Die Verbindung bleibt im Hintergrund bestehen, nachdem Sie NetBird schließen. Sie endet erst, wenn Sie sie selbst trennen.",
+        "description": "Helper text for the stay-connected-after-quitting toggle."
+    },
     "settings.general.language.label": {
         "message": "Anzeigesprache"
     },
@@ -756,7 +764,19 @@
         "message": "Sensible Informationen anonymisieren"
     },
     "settings.troubleshooting.anonymize.help": {
-        "message": "Versteckt öffentliche IP-Adressen und nicht-NetBird-Domains in Logs."
+        "message": "Verbirgt IP-Adressen, Domains und andere sensible Werte."
+    },
+    "settings.troubleshooting.anonymize.info": {
+        "message": "Der Standardmodus lässt interne IPv4-Adressen und Peer-Namen für den Support lesbar. Der strikte Modus anonymisiert zusätzlich private (RFC 1918), CGNAT- und Link-Local-IP-Adressen, Peer-Namen und öffentliche WireGuard-Schlüssel. Wiederkehrende Werte erhalten denselben Platzhalter, sodass Peers unterscheidbar bleiben. Verwenden Sie den strikten Modus, wenn Sie das Debug-Paket außerhalb Ihrer Organisation weitergeben."
+    },
+    "settings.troubleshooting.anonymize.none": {
+        "message": "Keine"
+    },
+    "settings.troubleshooting.anonymize.default": {
+        "message": "Standard"
+    },
+    "settings.troubleshooting.anonymize.strict": {
+        "message": "Strikt"
     },
     "settings.troubleshooting.systemInfo.label": {
         "message": "Systeminformationen einschließen"
@@ -1330,5 +1350,14 @@
     },
     "error.unknown": {
         "message": "Vorgang fehlgeschlagen."
+    },
+    "settings.ssh.privilege.hint": {
+        "message": "Erfordert {actor}. Führen Sie stattdessen dies aus:"
+    },
+    "settings.ssh.privilege.oneWay": {
+        "message": "Sie können dies deaktivieren, aber zum erneuten Aktivieren sind {actor} erforderlich:"
+    },
+    "settings.ssh.privilege.oneWayInverted": {
+        "message": "Sie können dies aktivieren, aber zum erneuten Deaktivieren sind {actor} erforderlich:"
     }
 }

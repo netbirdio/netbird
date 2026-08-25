@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/netbirdio/netbird/proxy/internal/llm"
 	"github.com/netbirdio/netbird/proxy/internal/llm/pricing"
 	"github.com/netbirdio/netbird/proxy/internal/middleware"
 )
@@ -175,11 +176,26 @@ func (m *Middleware) Invoke(_ context.Context, in *middleware.Input) (*middlewar
 // Anthropic route still bills its cache buckets additively.
 func (m *Middleware) lookupCosts(md []middleware.KV, surface, model string, inTokens, outTokens, cachedTokens, cacheCreationTokens int64) (pricing.Costs, bool) {
 	if recordID := lookupKV(md, middleware.KeyLLMResolvedProviderID); recordID != "" {
-		if entry, ok := m.perRecord[recordID][model]; ok {
+		if entry, ok := perRecordEntry(m.perRecord[recordID], model); ok {
 			return pricing.EntryCosts(entry, surface, inTokens, outTokens, cachedTokens, cacheCreationTokens), true
 		}
 	}
 	return m.defaults.Costs(surface, model, inTokens, outTokens, cachedTokens, cacheCreationTokens)
+}
+
+// perRecordEntry resolves the operator's stored price for a model on one
+// provider record, falling back to the undated form of a dated Anthropic id
+// so a client that pins a release date still bills at the registered rate.
+func perRecordEntry(byModel map[string]pricing.Entry, model string) (pricing.Entry, bool) {
+	if entry, ok := byModel[model]; ok {
+		return entry, true
+	}
+	undated := llm.NormalizeAnthropicModel(model)
+	if undated == model {
+		return pricing.Entry{}, false
+	}
+	entry, ok := byModel[undated]
+	return entry, ok
 }
 
 // usd renders a cost as the fixed-precision string every cost.usd_* key

@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	neturl "net/url"
 	"sync"
 	"time"
 
@@ -19,9 +20,9 @@ import (
 // trayUpdater owns the tray UI that reacts to auto-update. Composed inside Tray.
 type trayUpdater struct {
 	app          *application.App
-	window       *application.WebviewWindow
+	showMainAt   func(url string)
 	update       *services.Update
-	notifier     *notifications.NotificationService
+	notifier     *Notifier
 	loc          *Localizer
 	onIconChange func()
 	// onMenuChange drives a full tray relayout: the update row lives in the
@@ -36,10 +37,10 @@ type trayUpdater struct {
 	progressWindowOpen bool
 }
 
-func newTrayUpdater(app *application.App, window *application.WebviewWindow, update *services.Update, notifier *notifications.NotificationService, loc *Localizer, onIconChange func(), onMenuChange func()) *trayUpdater {
+func newTrayUpdater(app *application.App, showMainAt func(url string), update *services.Update, notifier *Notifier, loc *Localizer, onIconChange func(), onMenuChange func()) *trayUpdater {
 	u := &trayUpdater{
 		app:          app,
-		window:       window,
+		showMainAt:   showMainAt,
 		update:       update,
 		notifier:     notifier,
 		loc:          loc,
@@ -185,14 +186,12 @@ func (u *trayUpdater) sendUpdateNotification(st updater.State) {
 // openProgressWindow points the main window at the /update progress page and
 // brings it forward.
 func (u *trayUpdater) openProgressWindow(version string) {
-	if u.window == nil {
+	if u.showMainAt == nil {
 		return
 	}
 	url := "/#/update"
 	if version != "" {
-		url += "?version=" + version
+		url += "?version=" + neturl.QueryEscape(version)
 	}
-	u.window.SetURL(url)
-	u.window.Show()
-	u.window.Focus()
+	u.showMainAt(url)
 }
