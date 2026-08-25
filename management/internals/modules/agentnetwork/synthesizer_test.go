@@ -534,6 +534,7 @@ func TestBuildRouterConfigJSON_AgentgatewayVendors(t *testing.T) {
 	raw, err := buildRouterConfigJSON(
 		[]*types.Provider{provider},
 		map[string][]string{provider.ID: {"grp-eng"}},
+		nil,
 	)
 	require.NoError(t, err)
 
