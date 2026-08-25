@@ -72,12 +72,6 @@ func IsDataPlaneMark(fwmark uint32) bool {
 	return fwmark >= DataPlaneMarkLower && fwmark <= DataPlaneMarkUpper
 }
 
-// FwmarkRange returns the first and last mark of the range in use, for logging
-// and for reporting the configuration back to the user.
-func FwmarkRange() (uint32, uint32) {
-	return fwmarkBase, fwmarkBase | fwmarkOffsetMask
-}
-
 func loadFwmarkBase() uint32 {
 	val := os.Getenv(envFwmarkBase)
 	if val == "" {

@@ -47,7 +47,7 @@ func TestParseFwmarkBase(t *testing.T) {
 // The marks have to stay inside the range the base defines, otherwise a host
 // that moved the range to dodge a collision would still emit the old values.
 func TestMarksStayWithinTheRange(t *testing.T) {
-	lower, upper := FwmarkRange()
+	lower, upper := fwmarkBase, fwmarkBase|fwmarkOffsetMask
 
 	marks := map[string]uint32{
 		"ControlPlaneMark":                 ControlPlaneMark,
