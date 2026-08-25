@@ -66,9 +66,7 @@ func TestProviderSkipTLSVerification(t *testing.T) {
 		}
 	}
 
-	// First create bootstraps the account cluster.
 	insecureReq := newReq("skip-tls", insecureModel, true)
-	insecureReq.BootstrapCluster = ptr(harness.AgentNetworkCluster)
 	insecureProv, err := srv.CreateProvider(ctx, insecureReq)
 	require.NoError(t, err, "create skip-tls provider")
 	t.Cleanup(func() { _ = srv.DeleteProvider(context.Background(), insecureProv.Id) })

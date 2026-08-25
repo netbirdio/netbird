@@ -551,6 +551,14 @@
     "settings.general.autostart.errorTitle": {
         "message": "更改自启动设置失败"
     },
+    "settings.general.keepConnectedOnQuit.label": {
+        "message": "退出后保持连接",
+        "description": "Toggle label: keep the VPN connection up after quitting the UI."
+    },
+    "settings.general.keepConnectedOnQuit.help": {
+        "message": "关闭 NetBird 后，连接会在后台保持。只有你自己断开时才会停止。",
+        "description": "Helper text for the stay-connected-after-quitting toggle."
+    },
     "settings.general.language.label": {
         "message": "显示语言"
     },
@@ -756,7 +764,19 @@
         "message": "匿名化敏感信息"
     },
     "settings.troubleshooting.anonymize.help": {
-        "message": "从日志中隐藏公共 IP 地址和非 NetBird 域名。"
+        "message": "隐藏 IP 地址、域名和其他敏感值。"
+    },
+    "settings.troubleshooting.anonymize.info": {
+        "message": "默认级别保留内部 IPv4 地址和对等节点名称，便于支持人员阅读。严格级别还会匿名化私有 (RFC 1918)、CGNAT 和链路本地 IP 地址、对等节点名称以及 WireGuard 公钥。相同的值会映射到相同的占位符，因此对等节点仍可区分。向组织外部分享调试包时请使用严格级别。"
+    },
+    "settings.troubleshooting.anonymize.none": {
+        "message": "无"
+    },
+    "settings.troubleshooting.anonymize.default": {
+        "message": "默认"
+    },
+    "settings.troubleshooting.anonymize.strict": {
+        "message": "严格"
     },
     "settings.troubleshooting.systemInfo.label": {
         "message": "包含系统信息"
@@ -1390,5 +1410,14 @@
     },
     "approval.action.deny": {
         "message": "拒绝"
+    },
+    "settings.privilege.hint": {
+        "message": "需要{actor}。请改为运行："
+    },
+    "settings.privilege.oneWay": {
+        "message": "您可以关闭此项，但重新开启需要{actor}："
+    },
+    "settings.privilege.oneWayInverted": {
+        "message": "您可以开启此项，但再次关闭需要{actor}："
     }
 }

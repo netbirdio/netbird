@@ -87,9 +87,10 @@ func (pm *ProfileManager) SetActiveProfileState(state *ProfileState) error {
 
 // RemoveProfileState deletes the per-profile state file (which holds the
 // account email used for the SSO login hint and the UI display). Called after
-// a successful logout so a logged-out profile no longer shows a stale account
-// email. The state file only stores the email, so deleting it is equivalent to
-// clearing it; the next SSO login recreates it. A missing file is not an error.
+// profile removal; logout keeps the file so the next login can pass the email
+// as the login_hint. The state file only stores the email, so deleting it is
+// equivalent to clearing it; the next SSO login recreates it. A missing file
+// is not an error.
 func (pm *ProfileManager) RemoveProfileState(profileName string) error {
 	configDir, err := getConfigDir()
 	if err != nil {

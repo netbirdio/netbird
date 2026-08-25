@@ -1762,8 +1762,8 @@ func (s *Server) RequestJWTAuth(
 		hint = profilemanager.GetLoginHint()
 	}
 
-	isDesktop := isUnixRunningDesktop()
-	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, isDesktop, false, hint)
+	// the daemon has no graphical session of its own, only the caller can answer this
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.GetHasGraphicalSession(), false, hint)
 	if err != nil {
 		return nil, gstatus.Errorf(codes.Internal, "failed to create OAuth flow: %v", err)
 	}
@@ -1866,8 +1866,8 @@ func (s *Server) RequestExtendAuthSession(
 		hint = profilemanager.GetLoginHint()
 	}
 
-	isDesktop := isUnixRunningDesktop()
-	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, isDesktop, false, hint)
+	// the daemon has no graphical session of its own, only the caller can answer this
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.GetHasGraphicalSession(), false, hint)
 	if err != nil {
 		return nil, gstatus.Errorf(codes.Internal, "failed to create OAuth flow: %v", err)
 	}
@@ -2062,14 +2062,6 @@ func (s *Server) RespondApproval(_ context.Context, msg *proto.RespondApprovalRe
 	}
 	return &proto.RespondApprovalResponse{}, nil
 }
-
-func isUnixRunningDesktop() bool {
-	if runtime.GOOS != "linux" && runtime.GOOS != "freebsd" {
-		return false
-	}
-	return os.Getenv("DESKTOP_SESSION") != "" || os.Getenv("XDG_CURRENT_DESKTOP") != ""
-}
-
 func (s *Server) runProbes(ctx context.Context, waitForProbeResult bool) {
 	if s.connectClient == nil {
 		return

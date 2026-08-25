@@ -599,6 +599,34 @@ func (s *SqlStore) ApproveAccountPeers(ctx context.Context, accountID string) (i
 	return int(result.RowsAffected), nil
 }
 
+// RefreshPeerLastSeen updates only peer_status_last_seen. Every other status
+// column is left untouched: peer_status_connected and
+// peer_status_session_started_at belong to the sync stream that owns the
+// session, and a blind write here would corrupt the fencing
+// MarkPeerConnectedIfNewerSession relies on.
+//
+// LastSeen comes from the database clock for the same reason it does there: a
+// Go-side timestamp is taken before the write and can land after a connect that
+// used CURRENT_TIMESTAMP, dragging the column backwards.
+//
+// staleBefore carries the caller's throttle into the same statement, so
+// concurrent requests for one peer collapse into a single write instead of
+// each racing on its own stale read. The column is nullable — Status is an
+// embedded pointer, so a peer stored without one leaves it NULL — and NULL
+// loses every comparison, hence the explicit branch for a peer never seen.
+func (s *SqlStore) RefreshPeerLastSeen(ctx context.Context, accountID, peerID string, staleBefore time.Time) (bool, error) {
+	result := s.db.WithContext(ctx).
+		Model(&nbpeer.Peer{}).
+		Where(accountAndIDQueryCondition, accountID, peerID).
+		Where("(peer_status_last_seen IS NULL OR peer_status_last_seen < ?)", staleBefore).
+		Update("peer_status_last_seen", gorm.Expr("CURRENT_TIMESTAMP"))
+	if result.Error != nil {
+		return false, status.Errorf(status.Internal, "refresh peer last seen: %v", result.Error)
+	}
+
+	return result.RowsAffected > 0, nil
+}
+
 // SaveUsers saves the given list of users to the database.
 func (s *SqlStore) SaveUsers(ctx context.Context, users []*types.User) error {
 	if len(users) == 0 {
@@ -6344,6 +6372,30 @@ func (s *SqlStore) CountProxiesByAccountID(ctx context.Context, accountID string
 		return 0, status.Errorf(status.Internal, "count proxies by account ID: %v", result.Error)
 	}
 	return count, nil
+}
+
+// HasActiveProxyAtClusterAddress reports whether any proxy — shared or
+// account-scoped — is currently active at the given cluster address, using
+// the same connected-within-threshold window as the other active-proxy
+// queries. Backs the agent-network settings delete guard: settings cannot be
+// deleted while a proxy declares the endpoint hostname as its address.
+//
+// The comparison folds case on both sides: the caller passes a normalized
+// (lowercase) hostname, but proxies declare their cluster address verbatim
+// and Connect stores it unchanged, so on case-sensitive collations a proxy
+// declaring "GW.Example.com" would otherwise slip past the guard. Hostnames
+// are case-insensitive per RFC 4343; the guard must be too.
+func (s *SqlStore) HasActiveProxyAtClusterAddress(ctx context.Context, clusterAddress string) (bool, error) {
+	var count int64
+	result := s.db.
+		Model(&proxy.Proxy{}).
+		Where("LOWER(cluster_address) = LOWER(?) AND status = ? AND last_seen > ?", clusterAddress, proxy.StatusConnected, time.Now().Add(-proxyActiveThreshold)).
+		Count(&count)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to count active proxies at cluster address: %v", result.Error)
+		return false, status.Errorf(status.Internal, "failed to count active proxies at cluster address")
+	}
+	return count > 0, nil
 }
 
 func (s *SqlStore) IsClusterAddressConflicting(ctx context.Context, clusterAddress, accountID string) (bool, error) {

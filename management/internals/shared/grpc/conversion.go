@@ -321,7 +321,7 @@ func buildJWTConfig(config *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfi
 
 	return &proto.JWTConfig{
 		Issuer:       issuer,
-		Audience:     audience,
+		Audience:     audience, //nolint:staticcheck
 		Audiences:    audiences,
 		KeysLocation: keysLocation,
 	}

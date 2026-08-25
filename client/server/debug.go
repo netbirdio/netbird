@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
+	"github.com/netbirdio/netbird/client/anonymize"
 	"github.com/netbirdio/netbird/client/internal/debug"
 	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/netbirdio/netbird/client/proto"
@@ -122,6 +123,7 @@ func (s *Server) generateDebugBundle(req *proto.DebugBundleRequest, uiOpener deb
 		},
 		debug.BundleConfig{
 			Anonymize:         req.GetAnonymize(),
+			AnonymizeLevel:    anonymize.ParseLevel(req.GetAnonymizeLevel()),
 			IncludeSystemInfo: req.GetSystemInfo(),
 			LogFileCount:      req.GetLogFileCount(),
 		},
