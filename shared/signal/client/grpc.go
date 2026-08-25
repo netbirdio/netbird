@@ -116,7 +116,9 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 	}
 
 	var extraOpts []grpc.DialOption
-	extraOpts = append(extraOpts, nbgrpc.WithSweeper(c.netMgr))
+	if c.netMgr != nil {
+		extraOpts = append(extraOpts, nbgrpc.WithSweeper(c.netMgr))
+	}
 
 	var conn *grpc.ClientConn
 	operation := func() error {

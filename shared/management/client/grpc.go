@@ -142,7 +142,9 @@ func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsE
 		extraOpts = append(extraOpts, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxSize)))
 		log.Infof("management gRPC max receive message size set to %d bytes", maxSize)
 	}
-	extraOpts = append(extraOpts, nbgrpc.WithSweeper(c.netMgr))
+	if c.netMgr != nil {
+		extraOpts = append(extraOpts, nbgrpc.WithSweeper(c.netMgr))
+	}
 
 	var conn *grpc.ClientConn
 	operation := func() error {
