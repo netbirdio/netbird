@@ -764,7 +764,19 @@
         "message": "Anonimizza informazioni sensibili"
     },
     "settings.troubleshooting.anonymize.help": {
-        "message": "Nasconde gli indirizzi IP pubblici e i domini non NetBird dai log."
+        "message": "Nasconde indirizzi IP, domini e altri valori sensibili."
+    },
+    "settings.troubleshooting.anonymize.info": {
+        "message": "La modalità predefinita mantiene leggibili gli indirizzi IPv4 interni e i nomi dei peer per il supporto. La modalità rigorosa anonimizza inoltre gli indirizzi IP privati (RFC 1918), CGNAT e link-local, i nomi dei peer e le chiavi pubbliche WireGuard. I valori ricorrenti vengono associati allo stesso segnaposto, quindi i peer restano distinguibili. Usa la modalità rigorosa quando condividi il pacchetto di debug al di fuori della tua organizzazione."
+    },
+    "settings.troubleshooting.anonymize.none": {
+        "message": "Nessuna"
+    },
+    "settings.troubleshooting.anonymize.default": {
+        "message": "Predefinito"
+    },
+    "settings.troubleshooting.anonymize.strict": {
+        "message": "Rigoroso"
     },
     "settings.troubleshooting.systemInfo.label": {
         "message": "Includi informazioni di sistema"
@@ -1338,5 +1350,14 @@
     },
     "error.unknown": {
         "message": "Operazione non riuscita."
+    },
+    "settings.ssh.privilege.hint": {
+        "message": "Richiede {actor}. Esegua invece questo:"
+    },
+    "settings.ssh.privilege.oneWay": {
+        "message": "Può disabilitarlo, ma riabilitarlo richiede {actor}:"
+    },
+    "settings.ssh.privilege.oneWayInverted": {
+        "message": "Può abilitarlo, ma disabilitarlo di nuovo richiede {actor}:"
     }
 }

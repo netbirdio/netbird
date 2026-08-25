@@ -139,13 +139,11 @@ func main() {
 		prefStore:       prefStore,
 	})
 
-	window := newMainWindow(app, prefStore)
-
-	// Settings is created eagerly (hidden) so the first gear click paints
-	// instantly and React keeps per-tab state across reopens. The other
-	// auxiliary windows stay lazy + destroy-on-close so Wails's macOS
-	// dock-reopen handler can't resurrect them.
-	windowManager := services.NewWindowManager(app, window, bundle, prefStore, iconWindow)
+	windowManager := services.NewWindowManager(app, nil, bundle, prefStore, iconWindow)
+	windowManager.SetMainFactory(func(startURL string) *application.WebviewWindow {
+		return newMainWindow(app, prefStore, windowManager, startURL)
+	})
+	registerDockReopenHook(app, windowManager)
 	// Minimal WMs (XEmbed-tray path) neither center small windows nor restore
 	// position across hide -> show, dropping them top-left. Gate Go-side
 	// re-centering on that environment; nil leaves placement to the WM on full
@@ -168,7 +166,7 @@ func main() {
 	// RegisterStatusNotifierItem hits a watcher we control.
 	startStatusNotifierWatcher()
 
-	tray = NewTray(app, window, TrayServices{
+	tray = NewTray(app, nil, TrayServices{
 		Connection:      connection,
 		Settings:        settings,
 		Profiles:        profiles,
@@ -279,10 +277,12 @@ func newApplication(onSecondInstance func()) *application.App {
 			ActivationPolicy: application.ActivationPolicyAccessory,
 		},
 		Linux: application.LinuxOptions{
-			ProgramName: "netbird",
+			ProgramName:                   "netbird",
+			DisableQuitOnLastWindowClosed: true,
 		},
 		Windows: application.WindowsOptions{
-			WndProcInterceptor: endSessionInterceptor(),
+			WndProcInterceptor:            endSessionInterceptor(),
+			DisableQuitOnLastWindowClosed: true,
 		},
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID: "io.netbird.ui",
@@ -338,9 +338,7 @@ func registerServices(app *application.App, conn *Conn, s registeredServices) {
 	app.RegisterService(application.NewService(s.compat))
 }
 
-// newMainWindow creates the hidden main window, sized to the user's last view
-// mode, and installs the hide-on-close and macOS dock-reopen hooks.
-func newMainWindow(app *application.App, prefStore *preferences.Store) *application.WebviewWindow {
+func newMainWindow(app *application.App, prefStore *preferences.Store, wm *services.WindowManager, startURL string) *application.WebviewWindow {
 	// Width matches the last view mode so Advanced-mode users don't see the
 	// window pop from 380px to 900px on launch. Height is mode-agnostic.
 	initialWidth := 380
@@ -357,7 +355,7 @@ func newMainWindow(app *application.App, prefStore *preferences.Store) *applicat
 		InitialPosition:     application.WindowCentered,
 		Hidden:              true,
 		BackgroundColour:    services.WindowBackgroundColour,
-		URL:                 "/",
+		URL:                 startURL,
 		DisableResize:       true,
 		MinimiseButtonState: application.ButtonHidden,
 		MaximiseButtonState: application.ButtonHidden,
@@ -368,29 +366,25 @@ func newMainWindow(app *application.App, prefStore *preferences.Store) *applicat
 		},
 	})
 
-	// Hide instead of quit on close; "really quit" is reached via tray -> Quit.
-	window.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
+	window.RegisterHook(events.Common.WindowClosing, func(_ *application.WindowEvent) {
 		if services.ShuttingDown() {
 			return
 		}
-		e.Cancel()
-		window.Hide()
+		wm.ForgetMain()
 	})
 
-	// On macOS, Wails' default applicationShouldHandleReopen handler Show()s
-	// every hidden window on dock-icon click, resurrecting hide-on-close
-	// surfaces like Settings. Cancel it in a hook (hooks run before listeners)
-	// and show only the main window. No-op elsewhere — the event never fires.
-	if runtime.GOOS == "darwin" {
-		app.Event.RegisterApplicationEventHook(events.Mac.ApplicationShouldHandleReopen, func(e *application.ApplicationEvent) {
-			e.Cancel()
-			if e.Context().HasVisibleWindows() {
-				return
-			}
-			window.Show()
-			window.Focus()
-		})
-	}
-
 	return window
+}
+
+func registerDockReopenHook(app *application.App, wm *services.WindowManager) {
+	if runtime.GOOS != "darwin" {
+		return
+	}
+	app.Event.RegisterApplicationEventHook(events.Mac.ApplicationShouldHandleReopen, func(e *application.ApplicationEvent) {
+		if e.Context().HasVisibleWindows() {
+			return
+		}
+		e.Cancel()
+		wm.ShowMain()
+	})
 }
