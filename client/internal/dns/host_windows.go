@@ -43,9 +43,12 @@ const (
 
 	nrptCatchAllNamespace = "."
 
-	// envDisableCatchAllNRPT turns off the catch-all NRPT rule, restoring the
-	// previous behavior where the OS is free to query other adapters' resolvers.
-	envDisableCatchAllNRPT = "NB_DISABLE_DNS_CATCHALL_NRPT"
+	// envLegacyDNSResolution restores the pre-catch-all behaviour: the adapter's
+	// NameServer alone, leaving the OS free to query other adapters' resolvers in
+	// parallel. An escape hatch for setups that depend on a resolver of theirs
+	// still being reachable while connected, at the cost of the leak and of the
+	// race the catch-all rule exists to close.
+	envLegacyDNSResolution = "NB_USE_LEGACY_DNS_RESOLUTION"
 
 	dnsPolicyConfigVersionKey           = "Version"
 	dnsPolicyConfigVersionValue         = 2
@@ -408,8 +411,8 @@ func (r *registryConfigurator) addDNSMatchPolicy(domains []string, ip netip.Addr
 }
 
 func (r *registryConfigurator) addDNSCatchAllPolicy(ip netip.Addr) error {
-	if parseBoolEnv(envDisableCatchAllNRPT) {
-		log.Infof("%s is set, not forcing all DNS queries through %s", envDisableCatchAllNRPT, ip)
+	if parseBoolEnv(envLegacyDNSResolution) {
+		log.Infof("%s is set, leaving DNS resolution shared with the other adapters' resolvers instead of forcing it through %s", envLegacyDNSResolution, ip)
 		return nil
 	}
 

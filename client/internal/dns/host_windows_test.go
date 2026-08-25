@@ -162,7 +162,7 @@ func TestNRPTCatchAllRule(t *testing.T) {
 	assert.False(t, exists, "catch-all rule should be removed on restore")
 }
 
-func TestNRPTCatchAllRuleDisabledByEnv(t *testing.T) {
+func TestNRPTCatchAllRuleLegacyEnv(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping registry integration test in short mode")
 	}
@@ -170,7 +170,7 @@ func TestNRPTCatchAllRuleDisabledByEnv(t *testing.T) {
 	defer cleanupRegistryKeys(t)
 	cleanupRegistryKeys(t)
 
-	t.Setenv(envDisableCatchAllNRPT, "true")
+	t.Setenv(envLegacyDNSResolution, "true")
 
 	testGUID := "{12345678-1234-1234-1234-123456789ABC}"
 	interfacePath := `SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\` + testGUID
@@ -191,7 +191,7 @@ func TestNRPTCatchAllRuleDisabledByEnv(t *testing.T) {
 
 	exists, err := registryKeyExists(dnsPolicyConfigCatchAllPath)
 	require.NoError(t, err)
-	assert.False(t, exists, "catch-all rule should not be installed when disabled by env")
+	assert.False(t, exists, "catch-all rule should not be installed when the legacy env var is set")
 }
 
 func registryKeyExists(path string) (bool, error) {
