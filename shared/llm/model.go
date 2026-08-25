@@ -10,9 +10,88 @@ import (
 	"strings"
 )
 
-// bedrockRegionPrefixes are the cross-region inference-profile prefixes that
-// front a Bedrock model id (e.g. "eu.anthropic.claude-...").
-var bedrockRegionPrefixes = []string{"us.", "eu.", "apac.", "global."}
+// bedrockVendorNamespaces are the vendor segments a Bedrock model id is
+// published under. They identify the geography in front of a cross-region
+// inference profile without knowing the geography: in
+// "eu.anthropic.claude-...", what makes "eu" a geography is that "anthropic"
+// follows it.
+//
+// A vendor missing from here is not fatal — bedrockGeographies covers the
+// same id from the other side — but it is one of the two ways an id can go
+// unrecognised, and the list needs a new entry whenever AWS onboards a
+// vendor. A live listing found "global.xai.grok-4.6" days after this was
+// first written.
+var bedrockVendorNamespaces = map[string]struct{}{
+	"ai21":       {},
+	"amazon":     {},
+	"anthropic":  {},
+	"cohere":     {},
+	"deepseek":   {},
+	"luma":       {},
+	"meta":       {},
+	"mistral":    {},
+	"openai":     {},
+	"qwen":       {},
+	"stability":  {},
+	"twelvelabs": {},
+	"writer":     {},
+	"xai":        {},
+}
+
+// bedrockGeographies are the geography segments AWS issues cross-region
+// inference profiles under. They recognise a profile whose vendor we have
+// never seen, which is the case bedrockVendorNamespaces alone gets wrong:
+// "global.xai.grok-4.6" is a geography and a model whether or not "xai" is
+// a name we know.
+//
+// Neither list is sufficient alone. A geography list on its own is what this
+// file started with, and it aged badly — it held us, eu, apac and global, so
+// every profile issued under jp, au, ca, sa or us-gov carried its prefix into
+// the pricing key, matched no catalog entry, and reported the model unpriced.
+// A vendor list on its own misses a new vendor under a known geography.
+// Together, an id has to be new on both axes at once to go unrecognised.
+var bedrockGeographies = map[string]struct{}{
+	"apac":   {},
+	"au":     {},
+	"ca":     {},
+	"eu":     {},
+	"global": {},
+	"jp":     {},
+	"sa":     {},
+	"us":     {},
+	"us-gov": {},
+}
+
+// stripBedrockGeography removes the cross-region inference-profile geography
+// from a Bedrock model id, leaving the "<vendor>.<model>" form the catalog and
+// the pricing table key on.
+//
+// A leading segment counts as a geography when it is one we know, or when a
+// known vendor follows it. Either alone is enough: the id has to be new on
+// both axes before its geography survives.
+//
+// The segment has to be followed by two more, so "amazon.nova-pro" stays a
+// vendor and a model rather than becoming a geography and a model — cutting
+// its first segment would strip the vendor away. Over-stripping is the
+// dangerous direction, because the result also decides which route may claim
+// a model.
+func stripBedrockGeography(modelID string) string {
+	geo, rest, found := strings.Cut(modelID, ".")
+	if !found || geo == "" {
+		return modelID
+	}
+	vendor, _, found := strings.Cut(rest, ".")
+	if !found {
+		return modelID
+	}
+	if _, ok := bedrockGeographies[geo]; ok {
+		return rest
+	}
+	if _, ok := bedrockVendorNamespaces[vendor]; ok {
+		return rest
+	}
+	return modelID
+}
 
 // bedrockVersionSuffix matches the trailing "-vN[:N]" or "-YYYYMMDD-vN[:N]"
 // version/throughput suffix of a Bedrock model id.
@@ -37,13 +116,29 @@ func NormalizeBedrockModel(modelID string) string {
 			m = m[i+1:]
 		}
 	}
-	for _, p := range bedrockRegionPrefixes {
-		if strings.HasPrefix(m, p) {
-			m = m[len(p):]
-			break
-		}
-	}
+	m = stripBedrockGeography(m)
 	return bedrockVersionSuffix.ReplaceAllString(m, "")
+}
+
+// anthropicDatedModel matches a Claude model id carrying the trailing
+// "-YYYYMMDD" release-date suffix Anthropic appends to a pinned release,
+// capturing the id without it. The "claude" anchor is load-bearing: pricing
+// looks every model up through this helper regardless of surface, and an
+// operator may register a custom id with any shape at all, so an unanchored
+// "-\d{8}$" would let "internal-llm-20250101" silently inherit the rate
+// registered for "internal-llm". The anchor also covers the vendor-prefixed
+// forms ("anthropic.claude-...", "us.anthropic.claude-...").
+var anthropicDatedModel = regexp.MustCompile(`(?i)^(.*claude.*)-\d{8}$`)
+
+// NormalizeAnthropicModel strips the trailing release-date suffix from a
+// Claude model id, e.g. "claude-sonnet-4-5-20250929" -> "claude-sonnet-4-5",
+// so a dated id a client pins matches the undated one the operator
+// registered. Ids that are not Claude-family are returned untouched.
+// Callers try the verbatim id first and fall back to this, so two dated
+// releases of the same family stay distinct wherever both are registered
+// explicitly.
+func NormalizeAnthropicModel(modelID string) string {
+	return anthropicDatedModel.ReplaceAllString(modelID, "$1")
 }
 
 // NormalizeVertexModel strips the "@version" suffix from a Vertex AI model id

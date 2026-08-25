@@ -14,6 +14,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	nbAnonymize "github.com/netbirdio/netbird/client/anonymize"
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/debug"
@@ -21,6 +22,8 @@ import (
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/netstate"
+	"github.com/netbirdio/netbird/client/netsweep"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/formatter"
 	"github.com/netbirdio/netbird/route"
@@ -28,10 +31,12 @@ import (
 	types "github.com/netbirdio/netbird/upload-server/types"
 )
 
-// ConnectionListener export internal Listener for mobile
-type ConnectionListener interface {
-	peer.Listener
-}
+// AnonymizeLevelDefault and AnonymizeLevelStrict are the accepted
+// anonymizeLevel values for DebugBundle.
+const (
+	AnonymizeLevelDefault = nbAnonymize.LevelDefaultString
+	AnonymizeLevelStrict  = nbAnonymize.LevelStrictString
+)
 
 // RouteListener export internal RouteListener for mobile
 type NetworkChangeListener interface {
@@ -79,6 +84,12 @@ type Client struct {
 	onHostDnsFn           func([]string)
 	dnsManager            dns.IosDnsManager
 	loginComplete         bool
+	// netState outlives engine restarts: it mirrors the OS connectivity, not
+	// the engine lifecycle. Run injects it into each new ConnectClient, which
+	// distributes it to every reconnection loop.
+	netState *netstate.State
+	// sweeper also outlives engine restarts; NotifyNetworkChange sweeps it.
+	sweeper *netsweep.Sweeper
 	// preloadedConfig holds config loaded from JSON (used on tvOS where file writes are blocked)
 	preloadedConfig *profilemanager.Config
 
@@ -101,6 +112,8 @@ func NewClient(cfgFile, stateFile, cacheDir, logFilePath, deviceName string, osV
 		ctxCancelLock:         &sync.Mutex{},
 		networkChangeListener: networkChangeListener,
 		dnsManager:            dnsManager,
+		netState:              netstate.New(),
+		sweeper:               netsweep.New(),
 	}
 }
 
@@ -158,25 +171,51 @@ func (c *Client) Run(fd int32, interfaceName string, envList *EnvList) error {
 	defer c.ctxCancel()
 	c.ctxCancelLock.Unlock()
 
-	auth := NewAuthWithConfig(ctx, cfg)
-	err = auth.LoginSync()
-	if err != nil {
-		return err
-	}
-
-	log.Infof("Auth successful")
+	// No login pre-flight here. The engine's own loginToManagement (connect.go) performs
+	// the authoritative Login immediately before the first Sync, so a LoginSync() call at
+	// this point only duplicated it — costing two extra Login RPCs (IsLoginRequired +
+	// Login) on every engine start, since IsLoginRequired is itself a full Login RPC.
+	//
+	// Auth failures still reach the caller through the engine path: loginToManagement
+	// returns PermissionDenied, which marks the shared status recorder
+	// (MarkManagementDisconnected) and fires ClientStop → onDisconnected, where
+	// IsLoginRequiredCached() reports login-required. The error is also returned out of Run().
+	//
+	// A pre-flight was also actively harmful when the server is unreachable: its 2-minute
+	// backoff blocked the start and then reported "login required" for what was really a
+	// timeout. The engine instead keeps retrying and recovers when the server returns.
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
 	c.onHostDnsFn = func([]string) {}
 	cfg.WgIface = interfaceName
 
-	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder)
+	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder,
+		internal.WithNetworkState(c.netState), internal.WithSweeper(c.sweeper))
 	c.setState(cfg, connectClient)
 	// Persist the latest sync response so DebugBundle can include the network
 	// map. On iOS this is backed by disk to keep it out of the constrained
 	// process memory (see the syncstore package).
 	connectClient.SetSyncResponsePersistence(true)
 	return connectClient.RunOniOS(fd, c.networkChangeListener, c.dnsManager, c.stateFile, c.cacheDir, c.logFilePath)
+}
+
+// SetNetworkAvailable feeds OS-reported network availability into the client
+// (e.g. from NWPathMonitor). While unavailable, the internal reconnect loops
+// suspend their attempts and the connection listener reports NoNetwork
+// instead of Connecting; when availability returns, the loops resume
+// immediately with a fresh backoff.
+func (c *Client) SetNetworkAvailable(available bool) {
+	c.netState.Set(available)
+	c.recorder.SetNetworkAvailable(available)
+}
+
+// NotifyNetworkChange marks the management, signal and relay connections
+// stale after the OS switched networks and schedules a sweep that cuts
+// whatever has not redialed on the new network by then. The engine and the
+// TUN device stay untouched.
+func (c *Client) NotifyNetworkChange() {
+	c.sweeper.MarkNetworkChange()
+	log.Infof("network change: connections marked stale")
 }
 
 // Stop the internal client and free the resources
@@ -194,8 +233,10 @@ func (c *Client) Stop() {
 // DebugBundle generates a debug bundle, uploads it and returns the upload key.
 // It works with or without a running engine: when the engine is up it reuses
 // the live config, sync response and client metrics; otherwise it loads the
-// config from disk (or the preloaded tvOS config).
-func (c *Client) DebugBundle(anonymize bool) (string, error) {
+// config from disk (or the preloaded tvOS config). anonymizeLevel is "default"
+// or "strict"; strict also anonymizes internal IP ranges, peer names, and
+// WireGuard public keys, and implies anonymize.
+func (c *Client) DebugBundle(anonymize bool, anonymizeLevel string) (string, error) {
 	cfg, cc := c.stateSnapshot()
 
 	// If the engine hasn't been started, load config so we can reach management.
@@ -245,6 +286,7 @@ func (c *Client) DebugBundle(anonymize bool) (string, error) {
 		deps,
 		debug.BundleConfig{
 			Anonymize:         anonymize,
+			AnonymizeLevel:    nbAnonymize.ParseLevel(anonymizeLevel),
 			IncludeSystemInfo: true,
 		},
 	)
@@ -314,7 +356,11 @@ func (c *Client) GetStatusDetails() *StatusDetails {
 
 // SetConnectionListener set the network connection listener
 func (c *Client) SetConnectionListener(listener ConnectionListener) {
-	c.recorder.SetConnectionListener(listener)
+	if listener == nil {
+		c.recorder.RemoveConnectionListener()
+		return
+	}
+	c.recorder.SetConnectionListener(connectionListenerAdapter{listener})
 }
 
 // RemoveConnectionListener remove connection listener

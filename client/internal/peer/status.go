@@ -1223,6 +1223,12 @@ func (d *Status) ClientTeardown() {
 	d.notifyStateChange()
 }
 
+// SetNetworkAvailable records the OS-reported network availability; while
+// unavailable, listeners see NoNetwork instead of Connecting.
+func (d *Status) SetNetworkAvailable(available bool) {
+	d.notifier.setNetworkAvailable(available)
+}
+
 // SetConnectionListener set a listener to the notifier
 func (d *Status) SetConnectionListener(listener Listener) {
 	d.notifier.setListener(listener)

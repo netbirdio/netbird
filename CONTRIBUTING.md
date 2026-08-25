@@ -66,11 +66,41 @@ Typical bug fixes, internal refactors, documentation updates, and tests do not
 need a design discussion, but should still be tied to an issue so the work is
 visible and nobody duplicates it.
 
+### Using AI coding agents
+
+We have no policy for or against using an AI agent to write NetBird code. That
+choice is yours, and we are not going to interrogate anyone about their tools.
+
+What we do have is a lot of incoming contributions that were plainly drafted with
+one, and enough experience reviewing them to see the same avoidable problems
+again and again: no ticket behind the change, a diff far too large to review, a
+description longer than the code it describes, an approach that was never going
+to be accepted, and an author who cannot answer questions about their own PR.
+None of that is caused by the tooling — it is what happens when a tool is pointed
+at a repository whose expectations it has never been told.
+
+So rather than a rule, there is a guide. [AGENTS.md](AGENTS.md) restates the
+expectations from this document in the form agents read automatically
+(`CLAUDE.md` points to it), so pointing your tool at the repository is usually
+enough. Among other things it tells the agent to ask you for the
+discussion or issue before drafting a PR, to keep the change small and
+single-purpose, to run the tests locally, to use this repository's PR template
+and title tags, and to write a description a reviewer can get through.
+
+The guardrails are the point, and they are the same ones we apply to everyone: an
+agreed ticket, a change you have actually run, a diff small enough to review with
+care, and an author who can explain it. Whatever wrote the diff, you are its
+author — you own every line you submit and the consequences of opening a PR with it.
+
+We may assess whether a contribution is maintainable and whether its merged code
+aligns with our security standards and design expectations.
+
 ## Contents
 
 - [Contributing to NetBird](#contributing-to-netbird)
     - [Ticket first, PR second](#ticket-first-pr-second)
         - [High-risk areas](#high-risk-areas)
+        - [Using AI coding agents](#using-ai-coding-agents)
     - [Contents](#contents)
     - [Code of conduct](#code-of-conduct)
     - [Directory structure](#directory-structure)
@@ -82,6 +112,7 @@ visible and nobody duplicates it.
         - [Test suite](#test-suite)
     - [Checklist before submitting a PR](#checklist-before-submitting-a-pr)
     - [When we close a PR](#when-we-close-a-pr)
+    - [Translations](#translations)
     - [Other project repositories](#other-project-repositories)
     - [Contributor License Agreement](#contributor-license-agreement)
 
@@ -448,7 +479,7 @@ go test -race ./client/internal/dns/...
 
 ## Checklist before submitting a PR
 
-As a critical network service and open-source project, we must enforce a few
+As a critical network service and open source project, we must enforce a few
 things before submitting a pull request. The
 [pull request template](/.github/pull_request_template.md) mirrors this list —
 fill it in rather than deleting it.
@@ -581,6 +612,17 @@ We would rather redirect early than let a PR sit. We may close one if:
 A closed PR is not a rejected idea. Take it back to the
 [discussion](https://github.com/netbirdio/netbird/discussions), settle the
 approach, and reopen the work from there.
+
+## Translations
+
+Desktop UI translations are not contributed through pull requests. Translate on
+[Crowdin](https://crowdin.com/project/netbird) instead: no ticket needed, just
+join the project and pick your language. Crowdin syncs with this repository and
+opens the service PRs itself, so hand-edited locale files would conflict with
+the next sync. Style, terminology, and review guidance live in
+[client/ui/i18n/TRANSLATING.md](client/ui/i18n/TRANSLATING.md). To request a
+language the project does not offer yet, ask on the Crowdin project page or in
+a [discussion](https://github.com/netbirdio/netbird/discussions).
 
 ## Other project repositories
 
