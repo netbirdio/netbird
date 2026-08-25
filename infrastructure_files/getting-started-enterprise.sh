@@ -162,9 +162,19 @@ check_docker_subnet_conflicts() {
         fi
       elif cidrs_overlap "$DOCKER_SUBNET" "$subnet"; then
         echo "ERROR: the existing Docker network '$name' ($subnet) overlaps $DOCKER_SUBNET, the subnet NetBird would use." > /dev/stderr
-        echo "That network is not managed by this script and is left untouched." > /dev/stderr
-        echo "Pick a free /24 for NetBird instead and run this script again:" > /dev/stderr
-        echo "  NETBIRD_DOCKER_SUBNET=10.123.45.0/24 ./getting-started-enterprise.sh" > /dev/stderr
+        # This script pins its own network to the literal name "netbird", which
+        # the branch above already handles, so a "<project>_netbird" name here is
+        # a separate NetBird install (typically the community one). A different
+        # subnet would not help: both stacks use the same container names.
+        if [[ "$name" == *_netbird ]]; then
+          echo "That network was created by another NetBird install on this host." > /dev/stderr
+          echo "Remove that install first, or run this script from its directory." > /dev/stderr
+          echo "Find it with:  docker network inspect $name" > /dev/stderr
+        else
+          echo "That network is not managed by this script and is left untouched." > /dev/stderr
+          echo "Pick a free /24 for NetBird instead and run this script again:" > /dev/stderr
+          echo "  NETBIRD_DOCKER_SUBNET=10.123.45.0/24 ./getting-started-enterprise.sh" > /dev/stderr
+        fi
         exit 1
       fi
     done
