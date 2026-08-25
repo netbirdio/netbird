@@ -20,9 +20,11 @@ import (
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
-const testWgKeyA = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq="
-const testWgKeyB = "BBCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq="
-const testWgKeyC = "CBCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq="
+const (
+	testWgKeyA = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq="
+	testWgKeyB = "BBCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq="
+	testWgKeyC = "CBCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq="
+)
 
 // canonicalize rewrites a NetworkMapComponentsFull in place into a canonical
 // form: peers reordered by wg_pub_key, with the rest of the message rewritten
@@ -367,7 +369,7 @@ func TestEncodeNetworkMapEnvelope_MalformedWgKey(t *testing.T) {
 
 	require.Len(t, full.Peers, 3)
 
-	var byLabel = map[string]*proto.PeerCompact{}
+	byLabel := map[string]*proto.PeerCompact{}
 	for _, p := range full.Peers {
 		byLabel[p.DnsLabel] = p
 	}
@@ -787,4 +789,41 @@ func emptyNetworkMapComponents() *types.NetworkMapComponents {
 			},
 		},
 	)
+}
+
+func TestEncodeNetworkMapEnvelope_EmptyComponentsMissingTargetPeer(t *testing.T) {
+	for name, peers := range map[string]map[string]*types.ComponentPeer{
+		"absent entry": {},
+		"nil entry":    {"peer-id": nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := types.EmptyNetworkMapComponents(&types.NetworkMapComponents{
+				PeerID: "peer-id",
+				Peers:  peers,
+				Network: &types.Network{
+					Identifier: "net-empty",
+					Net:        net.IPNet{IP: net.IP{100, 64, 0, 0}, Mask: net.CIDRMask(10, 32)},
+					Serial:     9,
+				},
+			})
+
+			full := EncodeNetworkMapEnvelope(ComponentsEnvelopeInput{
+				Components: c,
+				DNSDomain:  "netbird.cloud",
+			}).GetFull()
+
+			require.NotNil(t, full)
+			assert.Empty(t, full.Peers, "a missing target peer must not become a nil entry on the wire")
+			require.NotNil(t, full.Network, "the account Network floor still applies")
+			assert.Equal(t, "net-empty", full.Network.Identifier)
+			assert.Equal(t, uint64(9), full.Serial)
+			require.NotNil(t, full.AccountSettings)
+
+			wire, err := goproto.Marshal(&proto.NetworkMapEnvelope{
+				Payload: &proto.NetworkMapEnvelope_Full{Full: full},
+			})
+			require.NoError(t, err, "envelope must stay marshalable")
+			assert.NotEmpty(t, wire)
+		})
+	}
 }

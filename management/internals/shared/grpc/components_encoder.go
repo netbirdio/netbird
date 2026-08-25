@@ -58,14 +58,22 @@ func EncodeNetworkMapEnvelope(in ComponentsEnvelopeInput) *proto.NetworkMapEnvel
 		// Match legacy missing-peer minimum: a NetworkMap with only Network
 		// populated. The receiver gets enough to bootstrap (Network
 		// identifier, dns_domain, account_settings) and the peer itself.
+		//
+		// components.Peers carries the target peer unless the peer vanished
+		// from the account mid-sync, in which case there is nothing to send
+		// for it and the slice stays empty rather than holding a nil entry.
+		var peers []*proto.PeerCompact
+		if target := toPeerCompact(c.Peers[c.PeerID]); target != nil {
+			peers = []*proto.PeerCompact{target}
+		}
+
 		return &proto.NetworkMapEnvelope{
 			Payload: &proto.NetworkMapEnvelope_Full{
 				Full: &proto.NetworkMapComponentsFull{
-					Serial:     networkSerial(c.Network),
-					Network:    toAccountNetwork(c.Network),
-					PeerConfig: in.PeerConfig,
-					// components.Peers always contains the target peer
-					Peers:            []*proto.PeerCompact{toPeerCompact(c.Peers[c.PeerID])},
+					Serial:           networkSerial(c.Network),
+					Network:          toAccountNetwork(c.Network),
+					PeerConfig:       in.PeerConfig,
+					Peers:            peers,
 					DnsDomain:        in.DNSDomain,
 					DnsForwarderPort: in.DNSForwarderPort,
 					UserIdClaim:      in.UserIDClaim,
@@ -692,6 +700,9 @@ func toAccountNetwork(n *types.Network) *proto.AccountNetwork {
 }
 
 func toPeerCompact(p *types.ComponentPeer) *proto.PeerCompact {
+	if p == nil {
+		return nil
+	}
 	pc := &proto.PeerCompact{
 		WgPubKey:               decodeWgKey(p.Key),
 		SshPubKey:              []byte(p.SSHKey),
