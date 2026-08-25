@@ -1,6 +1,6 @@
 //go:build linux && !android
 
-package ebpf
+package loopback
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"sync"
 
 	"github.com/google/gopacket"
@@ -95,13 +96,14 @@ func NewPacketHeaders(localWGListenPort int, endpoint *net.UDPAddr) (*PacketHead
 
 // ProxyWrapper help to keep the remoteConn instance for net.Conn.Close function call
 type ProxyWrapper struct {
-	wgeBPFProxy *WGEBPFProxy
+	proxy *Proxy
 
 	remoteConn net.Conn
 	ctx        context.Context
 	cancel     context.CancelFunc
 
 	wgRelayedEndpointAddr *net.UDPAddr
+	peerAddr              netip.Addr
 	headers               *PacketHeaders
 	headerCurrentUsed     *PacketHeaders
 	rawConn               net.PacketConn
@@ -113,36 +115,42 @@ type ProxyWrapper struct {
 	closeListener *listener.CloseListener
 }
 
-func NewProxyWrapper(proxy *WGEBPFProxy) *ProxyWrapper {
+func NewProxyWrapper(proxy *Proxy) *ProxyWrapper {
 	return &ProxyWrapper{
-		wgeBPFProxy:   proxy,
+		proxy:         proxy,
 		pausedCond:    sync.NewCond(&sync.Mutex{}),
 		closeListener: listener.NewCloseListener(),
 	}
 }
 
 func (p *ProxyWrapper) AddRelayedConn(ctx context.Context, _ *net.UDPAddr, remoteConn net.Conn) error {
-	addr, err := p.wgeBPFProxy.AddRelayedConn(remoteConn)
+	addr, err := p.proxy.AddRelayedConn(remoteConn)
 	if err != nil {
 		return fmt.Errorf("add relayed conn: %w", err)
 	}
 
-	headers, err := NewPacketHeaders(p.wgeBPFProxy.localWGListenPort, addr)
+	peerAddr, ok := netip.AddrFromSlice(addr.IP.To4())
+	if !ok {
+		return fmt.Errorf("unexpected endpoint address %s", addr.IP)
+	}
+
+	headers, err := NewPacketHeaders(p.proxy.localWGListenPort, addr)
 	if err != nil {
 		return fmt.Errorf("create packet sender: %w", err)
 	}
 
 	// Check if required raw connection is available
-	if !headers.isIPv4 && p.wgeBPFProxy.rawConnIPv6 == nil {
+	if !headers.isIPv4 && p.proxy.rawConnIPv6 == nil {
 		return errIPv6ConnNotAvailable
 	}
-	if headers.isIPv4 && p.wgeBPFProxy.rawConnIPv4 == nil {
+	if headers.isIPv4 && p.proxy.rawConnIPv4 == nil {
 		return errIPv4ConnNotAvailable
 	}
 
 	p.remoteConn = remoteConn
 	p.ctx, p.cancel = context.WithCancel(ctx)
 	p.wgRelayedEndpointAddr = addr
+	p.peerAddr = peerAddr
 	p.headers = headers
 	p.rawConn = p.selectRawConn(headers)
 	return nil
@@ -193,18 +201,18 @@ func (p *ProxyWrapper) RedirectAs(endpoint *net.UDPAddr) {
 		return
 	}
 
-	header, err := NewPacketHeaders(p.wgeBPFProxy.localWGListenPort, endpoint)
+	header, err := NewPacketHeaders(p.proxy.localWGListenPort, endpoint)
 	if err != nil {
 		log.Errorf("failed to create packet headers: %s", err)
 		return
 	}
 
 	// Check if required raw connection is available
-	if !header.isIPv4 && p.wgeBPFProxy.rawConnIPv6 == nil {
+	if !header.isIPv4 && p.proxy.rawConnIPv6 == nil {
 		log.Error(errIPv6ConnNotAvailable)
 		return
 	}
-	if header.isIPv4 && p.wgeBPFProxy.rawConnIPv4 == nil {
+	if header.isIPv4 && p.proxy.rawConnIPv4 == nil {
 		log.Error(errIPv4ConnNotAvailable)
 		return
 	}
@@ -252,9 +260,9 @@ func (p *ProxyWrapper) CloseConn() error {
 }
 
 func (p *ProxyWrapper) proxyToLocal(ctx context.Context) {
-	defer p.wgeBPFProxy.removeRelayedConn(uint16(p.wgRelayedEndpointAddr.Port))
+	defer p.proxy.removeRelayedConn(p.peerAddr)
 
-	buf := make([]byte, p.wgeBPFProxy.mtu+bufsize.WGBufferOverhead)
+	buf := make([]byte, p.proxy.mtu+bufsize.WGBufferOverhead)
 	for {
 		n, err := p.readFromRemote(ctx, buf)
 		if err != nil {
@@ -286,7 +294,7 @@ func (p *ProxyWrapper) readFromRemote(ctx context.Context, buf []byte) (int, err
 		}
 		p.closeListener.Notify()
 		if !errors.Is(err, io.EOF) {
-			log.Errorf("failed to read from relayed conn (endpoint: :%d): %s", p.wgRelayedEndpointAddr.Port, err)
+			log.Errorf("failed to read from relayed conn (endpoint: %s): %s", p.wgRelayedEndpointAddr, err)
 		}
 		return 0, err
 	}
@@ -314,7 +322,7 @@ func (p *ProxyWrapper) sendPkg(data []byte, header *PacketHeaders) error {
 
 func (p *ProxyWrapper) selectRawConn(header *PacketHeaders) net.PacketConn {
 	if header.isIPv4 {
-		return p.wgeBPFProxy.rawConnIPv4
+		return p.proxy.rawConnIPv4
 	}
-	return p.wgeBPFProxy.rawConnIPv6
+	return p.proxy.rawConnIPv6
 }

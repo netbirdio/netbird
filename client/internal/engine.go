@@ -775,7 +775,7 @@ func (e *Engine) initFirewall() error {
 }
 
 // setupWGProxyNoTrack configures connection tracking exclusion for WireGuard proxy traffic.
-// This prevents conntrack/MASQUERADE from affecting loopback traffic between WireGuard and the eBPF proxy.
+// This prevents conntrack/MASQUERADE from affecting loopback traffic between WireGuard and the proxy.
 func (e *Engine) setupWGProxyNoTrack() {
 	if e.firewall == nil {
 		return
@@ -786,7 +786,7 @@ func (e *Engine) setupWGProxyNoTrack() {
 		return
 	}
 
-	if err := e.firewall.SetupEBPFProxyNoTrack(proxyPort, uint16(e.config.WgPort)); err != nil {
+	if err := e.firewall.SetupWGProxyNoTrack(proxyPort, uint16(e.config.WgPort)); err != nil {
 		log.Warnf("failed to setup ebpf proxy notrack: %v", err)
 	}
 }

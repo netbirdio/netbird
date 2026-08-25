@@ -751,12 +751,12 @@ func (m *Manager) resetState() {
 	}
 }
 
-// SetupEBPFProxyNoTrack creates notrack rules for eBPF proxy loopback traffic.
-func (m *Manager) SetupEBPFProxyNoTrack(proxyPort, wgPort uint16) error {
+// SetupWGProxyNoTrack creates notrack rules for WireGuard proxy loopback traffic.
+func (m *Manager) SetupWGProxyNoTrack(proxyPort, wgPort uint16) error {
 	if m.nativeFirewall == nil {
 		return nil
 	}
-	return m.nativeFirewall.SetupEBPFProxyNoTrack(proxyPort, wgPort)
+	return m.nativeFirewall.SetupWGProxyNoTrack(proxyPort, wgPort)
 }
 
 // UpdateSet updates the rule destinations associated with the given set

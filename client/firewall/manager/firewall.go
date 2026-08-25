@@ -180,9 +180,9 @@ type Manager interface {
 	// RemoveOutputDNAT removes an OUTPUT chain DNAT rule.
 	RemoveOutputDNAT(localAddr netip.Addr, protocol Protocol, originalPort, translatedPort uint16) error
 
-	// SetupEBPFProxyNoTrack creates static notrack rules for eBPF proxy loopback traffic.
+	// SetupWGProxyNoTrack creates static notrack rules for WireGuard proxy loopback traffic.
 	// This prevents conntrack from interfering with WireGuard proxy communication.
-	SetupEBPFProxyNoTrack(proxyPort, wgPort uint16) error
+	SetupWGProxyNoTrack(proxyPort, wgPort uint16) error
 }
 
 func GenKey(format string, pair RouterPair) string {

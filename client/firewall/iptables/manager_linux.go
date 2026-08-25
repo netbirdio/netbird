@@ -524,30 +524,33 @@ const (
 	tableRaw     = "raw"
 )
 
-// SetupEBPFProxyNoTrack creates notrack rules for eBPF proxy loopback traffic.
+// SetupWGProxyNoTrack creates notrack rules for WireGuard proxy loopback traffic.
 // This prevents conntrack from tracking WireGuard proxy traffic on loopback, which
 // can interfere with MASQUERADE rules (e.g., from container runtimes like Podman/netavark).
 //
+// Every relayed peer has its own loopback endpoint address, so the rules match the
+// whole 127.0.0.0/8 range.
+//
 // Traffic flows that need NOTRACK:
 //
-//  1. Egress: WireGuard -> fake endpoint (before eBPF rewrite)
-//     src=127.0.0.1:wgPort -> dst=127.0.0.1:fakePort
+//  1. Egress: WireGuard -> peer endpoint
+//     src=127.0.0.1:wgPort -> dst=127.x.x.x:proxyPort
 //     Matched by: sport=wgPort
 //
 //  2. Egress: Proxy -> WireGuard (via raw socket)
-//     src=127.0.0.1:fakePort -> dst=127.0.0.1:wgPort
+//     src=127.x.x.x:proxyPort -> dst=127.0.0.1:wgPort
 //     Matched by: dport=wgPort
 //
 //  3. Ingress: Packets to WireGuard
 //     dst=127.0.0.1:wgPort
 //     Matched by: dport=wgPort
 //
-//  4. Ingress: Packets to proxy (after eBPF rewrite)
-//     dst=127.0.0.1:proxyPort
+//  4. Ingress: Packets to the proxy
+//     dst=127.x.x.x:proxyPort
 //     Matched by: dport=proxyPort
 //
 // Rules are cleaned up when the firewall manager is closed.
-func (m *Manager) SetupEBPFProxyNoTrack(proxyPort, wgPort uint16) error {
+func (m *Manager) SetupWGProxyNoTrack(proxyPort, wgPort uint16) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -559,28 +562,28 @@ func (m *Manager) SetupEBPFProxyNoTrack(proxyPort, wgPort uint16) error {
 	proxyPortStr := fmt.Sprintf("%d", proxyPort)
 
 	// Egress rules: match outgoing loopback UDP packets
-	outputRuleSport := []string{"-o", "lo", "-s", "127.0.0.1", "-d", "127.0.0.1", "-p", "udp", "--sport", wgPortStr, "-j", "NOTRACK"}
+	outputRuleSport := []string{"-o", "lo", "-s", "127.0.0.0/8", "-d", "127.0.0.0/8", "-p", "udp", "--sport", wgPortStr, "-j", "NOTRACK"}
 	if err := m.ipv4Client.AppendUnique(tableRaw, chainNameRaw, outputRuleSport...); err != nil {
 		return fmt.Errorf("add output sport notrack rule: %w", err)
 	}
 
-	outputRuleDport := []string{"-o", "lo", "-s", "127.0.0.1", "-d", "127.0.0.1", "-p", "udp", "--dport", wgPortStr, "-j", "NOTRACK"}
+	outputRuleDport := []string{"-o", "lo", "-s", "127.0.0.0/8", "-d", "127.0.0.0/8", "-p", "udp", "--dport", wgPortStr, "-j", "NOTRACK"}
 	if err := m.ipv4Client.AppendUnique(tableRaw, chainNameRaw, outputRuleDport...); err != nil {
 		return fmt.Errorf("add output dport notrack rule: %w", err)
 	}
 
 	// Ingress rules: match incoming loopback UDP packets
-	preroutingRuleWg := []string{"-i", "lo", "-s", "127.0.0.1", "-d", "127.0.0.1", "-p", "udp", "--dport", wgPortStr, "-j", "NOTRACK"}
+	preroutingRuleWg := []string{"-i", "lo", "-s", "127.0.0.0/8", "-d", "127.0.0.0/8", "-p", "udp", "--dport", wgPortStr, "-j", "NOTRACK"}
 	if err := m.ipv4Client.AppendUnique(tableRaw, chainNameRaw, preroutingRuleWg...); err != nil {
 		return fmt.Errorf("add prerouting wg notrack rule: %w", err)
 	}
 
-	preroutingRuleProxy := []string{"-i", "lo", "-s", "127.0.0.1", "-d", "127.0.0.1", "-p", "udp", "--dport", proxyPortStr, "-j", "NOTRACK"}
+	preroutingRuleProxy := []string{"-i", "lo", "-s", "127.0.0.0/8", "-d", "127.0.0.0/8", "-p", "udp", "--dport", proxyPortStr, "-j", "NOTRACK"}
 	if err := m.ipv4Client.AppendUnique(tableRaw, chainNameRaw, preroutingRuleProxy...); err != nil {
 		return fmt.Errorf("add prerouting proxy notrack rule: %w", err)
 	}
 
-	log.Debugf("set up ebpf proxy notrack rules for ports %d,%d", proxyPort, wgPort)
+	log.Debugf("set up wg proxy notrack rules for ports %d,%d", proxyPort, wgPort)
 	return nil
 }
 
