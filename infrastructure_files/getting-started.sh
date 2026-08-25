@@ -109,12 +109,15 @@ check_nb_domain() {
     return 1
   fi
 
-  # Letters, digits, dots, and hyphens only; the domain is embedded in
-  # generated YAML and env files. This is not FQDN validation: "use-ip" and
-  # bare IP addresses are valid inputs here and both satisfy the pattern.
-  local re='^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$'
-  if [[ ! "$DOMAIN" =~ $re ]] || [[ "$DOMAIN" == *..* ]]; then
-    echo "The NETBIRD_DOMAIN may only contain letters, digits, dots, and hyphens, and cannot begin or end with a dot or hyphen." > /dev/stderr
+  # Letters, digits, dots, and hyphens only, with every dot-separated label
+  # starting and ending in a letter or digit; the domain is embedded in
+  # generated YAML and env files. The per-label form also rejects empty labels
+  # ("a..b"). This is not FQDN validation: "use-ip" and bare IP addresses are
+  # valid inputs here and both satisfy the pattern.
+  local label='[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?'
+  local re="^${label}(\.${label})*$"
+  if [[ ! "$DOMAIN" =~ $re ]]; then
+    echo "The NETBIRD_DOMAIN may only contain letters, digits, dots, and hyphens, and each dot-separated label must begin and end with a letter or digit." > /dev/stderr
     return 1
   fi
 
@@ -463,7 +466,12 @@ apply_docker_subnet_override() {
 # NETBIRD_DOCKER_SUBNET covers those cases.
 check_docker_subnet_conflicts() {
   local expected_network="$1"
-  command -v docker &> /dev/null || return 0
+  if ! command -v docker &> /dev/null; then
+    echo "ERROR: the Docker CLI was not found in PATH." > /dev/stderr
+    echo "It is required to verify that $DOCKER_SUBNET is free before the built-in Traefik setup pins it." > /dev/stderr
+    echo "Install Docker (https://docs.docker.com/engine/install/) and run this script again." > /dev/stderr
+    exit 1
+  fi
 
   # docker's own stderr is left visible on purpose: "is the daemon running"
   # and socket permission errors are the actionable part. Only the exit status
