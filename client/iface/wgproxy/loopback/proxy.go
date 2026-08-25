@@ -76,6 +76,9 @@ func (p *Proxy) Listen() error {
 
 	loopback, err := net.InterfaceByName(loopbackDevice)
 	if err != nil {
+		if freeErr := p.Free(); freeErr != nil {
+			log.Errorf("failed to free the wgproxy: %s", freeErr)
+		}
 		return fmt.Errorf("look up %s: %w", loopbackDevice, err)
 	}
 	p.loIndex = loopback.Index
