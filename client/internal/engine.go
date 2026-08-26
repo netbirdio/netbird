@@ -620,15 +620,19 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		return err
 	}
 	e.receiveManagementEvents()
+	log.Warnf("SPINPROBE: after receiveManagementEvents")
 	e.receiveJobEvents()
+	log.Warnf("SPINPROBE: after receiveJobEvents")
 
 	// starting network monitor at the very last to avoid disruptions
 	e.startNetworkMonitor()
+	log.Warnf("SPINPROBE: after startNetworkMonitor")
 
 	// monitor WireGuard interface lifecycle and restart engine on changes
 	e.wgIfaceMonitor = NewWGIfaceMonitor()
 	e.shutdownWg.Add(1)
 	wgIfaceName := e.wgInterface.Name()
+	log.Warnf("SPINPROBE: about to spawn wgIfaceMonitor, returning from Start next")
 
 	go func() {
 		defer e.shutdownWg.Done()

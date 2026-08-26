@@ -90,6 +90,12 @@ func parseClientOptions(jsOptions js.Value) (netbird.Options, error) {
 		options.DisableIPv6 = disableIPv6.Bool()
 	}
 
+	// TEMPORARY (startup-hang diagnosis): force trace logging, overriding both
+	// defaultLogLevel and whatever the dashboard passes as logLevel. The
+	// Engine.Start path is already instrumented at Info/Debug, so this is what
+	// makes it visible without adding any new log statements. Revert to drop.
+	options.LogLevel = "trace"
+
 	return options, nil
 }
 
