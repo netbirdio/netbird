@@ -156,17 +156,18 @@ func (c *Client) Run(fd int32, interfaceName string, envList *EnvList) error {
 	c.recorder.UpdateManagementAddress(cfg.ManagementURL.String())
 	c.recorder.UpdateRosenpass(cfg.RosenpassEnabled, cfg.RosenpassPermissive)
 
-	var ctx context.Context
 	//nolint
 	ctxWithValues := context.WithValue(context.Background(), system.DeviceNameCtxKey, c.deviceName)
 	//nolint
 	ctxWithValues = context.WithValue(ctxWithValues, system.OsNameCtxKey, c.osName)
 	//nolint
 	ctxWithValues = context.WithValue(ctxWithValues, system.OsVersionCtxKey, c.osVersion)
+	runCtx, runCancel := context.WithCancel(ctxWithValues)
+	defer runCancel()
 	c.ctxCancelLock.Lock()
-	ctx, c.ctxCancel = context.WithCancel(ctxWithValues)
-	defer c.ctxCancel()
+	c.ctxCancel = runCancel
 	c.ctxCancelLock.Unlock()
+	ctx := runCtx
 
 	// No login pre-flight here. The engine's own loginToManagement (connect.go) performs
 	// the authoritative Login immediately before the first Sync, so a LoginSync() call at
@@ -217,14 +218,25 @@ func (c *Client) NotifyNetworkChange() {
 
 // Stop the internal client and free the resources
 func (c *Client) Stop() {
+	c.stateMu.Lock()
+	cc := c.connectClient
+	c.connectClient = nil
+	c.config = nil
+	c.stateMu.Unlock()
+
+	if cc != nil {
+		if err := cc.Stop(); err != nil {
+			log.Errorf("Stop: failed stopping the connect client: %v", err)
+		}
+		return
+	}
+
 	c.ctxCancelLock.Lock()
 	defer c.ctxCancelLock.Unlock()
 	if c.ctxCancel == nil {
 		return
 	}
-
 	c.ctxCancel()
-	c.setState(nil, nil)
 }
 
 // DebugBundle generates a debug bundle, uploads it and returns the upload key.
@@ -376,16 +388,14 @@ func (c *Client) IsLoginRequiredCached() bool {
 }
 
 func (c *Client) IsLoginRequired() bool {
-	var ctx context.Context
 	//nolint
 	ctxWithValues := context.WithValue(context.Background(), system.DeviceNameCtxKey, c.deviceName)
 	//nolint
 	ctxWithValues = context.WithValue(ctxWithValues, system.OsNameCtxKey, c.osName)
 	//nolint
 	ctxWithValues = context.WithValue(ctxWithValues, system.OsVersionCtxKey, c.osVersion)
-	c.ctxCancelLock.Lock()
-	defer c.ctxCancelLock.Unlock()
-	ctx, c.ctxCancel = context.WithCancel(ctxWithValues)
+	ctx, cancel := context.WithCancel(ctxWithValues)
+	defer cancel()
 
 	var cfg *profilemanager.Config
 	var err error
@@ -434,16 +444,19 @@ func (c *Client) IsLoginRequired() bool {
 const loginForMobileAuthTimeout = 30 * time.Second
 
 func (c *Client) LoginForMobile() string {
-	var ctx context.Context
 	//nolint
 	ctxWithValues := context.WithValue(context.Background(), system.DeviceNameCtxKey, c.deviceName)
 	//nolint
 	ctxWithValues = context.WithValue(ctxWithValues, system.OsNameCtxKey, c.osName)
 	//nolint
 	ctxWithValues = context.WithValue(ctxWithValues, system.OsVersionCtxKey, c.osVersion)
-	c.ctxCancelLock.Lock()
-	defer c.ctxCancelLock.Unlock()
-	ctx, c.ctxCancel = context.WithCancel(ctxWithValues)
+	ctx, cancel := context.WithCancel(ctxWithValues)
+	loginDone := false
+	defer func() {
+		if !loginDone {
+			cancel()
+		}
+	}()
 
 	// Use DirectUpdateOrCreateConfig to avoid atomic file operations (temp file + rename)
 	// which are blocked by the tvOS sandbox in App Group containers
@@ -470,7 +483,9 @@ func (c *Client) LoginForMobile() string {
 	}
 
 	// This could cause a potential race condition with loading the extension which need to be handled on swift side
+	loginDone = true
 	go func() {
+		defer cancel()
 		tokenInfo, err := oAuthFlow.WaitToken(ctx, flowInfo)
 		if err != nil {
 			log.Errorf("LoginForMobile: WaitToken failed: %v", err)

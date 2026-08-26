@@ -181,16 +181,17 @@ func (c *Client) Run(platformFiles PlatformFiles, urlOpener URLOpener, isAndroid
 	c.recorder.UpdateManagementAddress(cfg.ManagementURL.String())
 	c.recorder.UpdateRosenpass(cfg.RosenpassEnabled, cfg.RosenpassPermissive)
 
-	var ctx context.Context
 	//nolint
 	ctxWithValues := context.WithValue(context.Background(), system.DeviceNameCtxKey, c.deviceName)
 	//nolint
 	ctxWithValues = context.WithValue(ctxWithValues, system.UiVersionCtxKey, c.uiVersion)
 
+	runCtx, runCancel := context.WithCancel(ctxWithValues)
+	defer runCancel()
 	c.ctxCancelLock.Lock()
-	ctx, c.ctxCancel = context.WithCancel(ctxWithValues)
-	defer c.ctxCancel()
+	c.ctxCancel = runCancel
 	c.ctxCancelLock.Unlock()
+	ctx := runCtx
 
 	auth := NewAuthWithConfig(ctx, cfg, cfgFile)
 	err = auth.login(urlOpener, isAndroidTV)
@@ -232,13 +233,14 @@ func (c *Client) RunWithoutLogin(platformFiles PlatformFiles, dns *DNSList, dnsR
 	c.recorder.UpdateManagementAddress(cfg.ManagementURL.String())
 	c.recorder.UpdateRosenpass(cfg.RosenpassEnabled, cfg.RosenpassPermissive)
 
-	var ctx context.Context
 	//nolint
 	ctxWithValues := context.WithValue(context.Background(), system.DeviceNameCtxKey, c.deviceName)
+	runCtx, runCancel := context.WithCancel(ctxWithValues)
+	defer runCancel()
 	c.ctxCancelLock.Lock()
-	ctx, c.ctxCancel = context.WithCancel(ctxWithValues)
-	defer c.ctxCancel()
+	c.ctxCancel = runCancel
 	c.ctxCancelLock.Unlock()
+	ctx := runCtx
 
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
@@ -250,12 +252,24 @@ func (c *Client) RunWithoutLogin(platformFiles PlatformFiles, dns *DNSList, dnsR
 
 // Stop the internal client and free the resources
 func (c *Client) Stop() {
+	c.stateMu.Lock()
+	cc := c.connectClient
+	c.connectClient = nil
+	c.config = nil
+	c.stateMu.Unlock()
+
+	if cc != nil {
+		if err := cc.Stop(); err != nil {
+			log.Errorf("Stop: failed stopping the connect client: %v", err)
+		}
+		return
+	}
+
 	c.ctxCancelLock.Lock()
 	defer c.ctxCancelLock.Unlock()
 	if c.ctxCancel == nil {
 		return
 	}
-
 	c.ctxCancel()
 }
 
