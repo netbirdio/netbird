@@ -110,8 +110,8 @@
 //   - Does NOT remove msi.log (kept for debugging)
 //
 // On Windows the updater copy is often still locked when the daemon it restarted
-// runs cleanup, so removing it is retried briefly and otherwise deferred to the
-// next reboot rather than reported as a failure.
+// runs cleanup, so removing it is retried briefly and otherwise left in place for
+// the next update to overwrite rather than reported as a failure.
 //
 // # Dry-Run Mode
 //

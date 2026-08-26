@@ -2,7 +2,6 @@ package installer
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"time"
 
@@ -19,9 +18,9 @@ const (
 )
 
 // removeUpdaterBinary deletes the updater copy left in the temp dir, retrying
-// while the still-exiting updater process holds its image. If it stays locked for
-// the whole window the file is scheduled for deletion on the next reboot, so a
-// locked updater is never reported as a cleanup failure.
+// while the still-exiting updater process holds its image. A binary that stays
+// locked for the whole window is left in place and reported at info level: the
+// next update overwrites it, so it is not worth failing cleanup over.
 func removeUpdaterBinary(path string) error {
 	for attempt := 0; attempt < updaterRemoveAttempts; attempt++ {
 		if attempt > 0 {
@@ -37,22 +36,10 @@ func removeUpdaterBinary(path string) error {
 		}
 	}
 
-	log.Debugf("updater binary %s is still locked, scheduling removal on next reboot", path)
-	return scheduleDeleteOnReboot(path)
+	log.Infof("updater binary %s is still locked, leaving it for the next update to overwrite", path)
+	return nil
 }
 
 func isFileLocked(err error) bool {
 	return errors.Is(err, windows.ERROR_ACCESS_DENIED) || errors.Is(err, windows.ERROR_SHARING_VIOLATION)
-}
-
-func scheduleDeleteOnReboot(path string) error {
-	from, err := windows.UTF16PtrFromString(path)
-	if err != nil {
-		return fmt.Errorf("convert path to UTF16: %w", err)
-	}
-
-	if err := windows.MoveFileEx(from, nil, windows.MOVEFILE_DELAY_UNTIL_REBOOT); err != nil {
-		return fmt.Errorf("schedule delete on reboot: %w", err)
-	}
-	return nil
 }
