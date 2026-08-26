@@ -66,7 +66,7 @@ func ToComponentSyncResponse(
 		DNSDomain:        dnsName,
 		DNSForwarderPort: dnsFwdPort,
 		UserIDClaim:      userIDClaim,
-		ProxyPatch:       toProxyPatch(proxyPatch, dnsName, includeIPv6, useSourcePrefixes),
+		ProxyPatch:       toProxyPatch(proxyPatch, dnsName, includeIPv6, useSourcePrefixes, peer.ProxyMeta.Embedded),
 	})
 
 	resp := &proto.SyncResponse{
@@ -104,7 +104,7 @@ func ToComponentSyncResponse(
 // derive them from. Components purity isn't violated: proxy data isn't
 // policy-graph-derived, it's externally injected post-Calculate, so the
 // client merges it on top of its locally-computed NetworkMap.
-func toProxyPatch(nm *types.NetworkMap, dnsName string, includeIPv6, useSourcePrefixes bool) *proto.ProxyPatch {
+func toProxyPatch(nm *types.NetworkMap, dnsName string, includeIPv6, useSourcePrefixes, localIsProxy bool) *proto.ProxyPatch {
 	if nm == nil {
 		return nil
 	}
@@ -114,8 +114,8 @@ func toProxyPatch(nm *types.NetworkMap, dnsName string, includeIPv6, useSourcePr
 	}
 
 	patch := &proto.ProxyPatch{
-		Peers:              networkmap.AppendRemotePeerConfig(nil, nm.Peers, dnsName, includeIPv6),
-		OfflinePeers:       networkmap.AppendRemotePeerConfig(nil, nm.OfflinePeers, dnsName, includeIPv6),
+		Peers:              networkmap.AppendRemotePeerConfig(nil, nm.Peers, dnsName, includeIPv6, localIsProxy),
+		OfflinePeers:       networkmap.AppendRemotePeerConfig(nil, nm.OfflinePeers, dnsName, includeIPv6, localIsProxy),
 		FirewallRules:      networkmap.ToProtocolFirewallRules(nm.FirewallRules, includeIPv6, useSourcePrefixes),
 		Routes:             networkmap.ToProtocolRoutes(nm.Routes),
 		RouteFirewallRules: networkmap.ToProtocolRoutesFirewallRules(nm.RoutesFirewallRules),

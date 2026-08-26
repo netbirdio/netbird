@@ -103,6 +103,7 @@ func (a *Account) GetPeerNetworkMapComponents(
 	routers map[string]map[string]*routerTypes.NetworkRouter,
 	groupIDToUserIDs map[string][]string,
 ) *NetworkMapComponents {
+
 	nmd := a.toNetworkMapData(accountZones, validatedPeersMap, resourcePolicies, routers, groupIDToUserIDs)
 	return nmd.GetPeerNetworkMapComponents(peerID, TwinCustomZone(peersCustomZone))
 }

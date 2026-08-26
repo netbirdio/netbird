@@ -714,8 +714,8 @@ func TestEncodeNetworkMapEnvelope_GroupIDToUserIDs(t *testing.T) {
 }
 
 func TestToProxyPatch_EmptyInputReturnsNil(t *testing.T) {
-	assert.Nil(t, toProxyPatch(nil, "netbird.cloud", false, false))
-	assert.Nil(t, toProxyPatch(&types.NetworkMap{}, "netbird.cloud", false, false),
+	assert.Nil(t, toProxyPatch(nil, "netbird.cloud", false, false, false))
+	assert.Nil(t, toProxyPatch(&types.NetworkMap{}, "netbird.cloud", false, false, false),
 		"empty NetworkMap (no peers, rules, routes etc) → nil patch so proto3 omits the field")
 }
 
@@ -730,7 +730,7 @@ func TestToProxyPatch_PopulatesAllFields(t *testing.T) {
 		}},
 	}
 
-	patch := toProxyPatch(nm, "netbird.cloud", false, false)
+	patch := toProxyPatch(nm, "netbird.cloud", false, false, false)
 
 	require.NotNil(t, patch)
 	assert.Len(t, patch.Peers, 1)

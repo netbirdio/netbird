@@ -11,6 +11,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 )
 
+//go:generate go tool mockgen -source=./repository.go -package=controller -destination=repository_mock.go
+
 type Repository interface {
 	GetAccountNetwork(ctx context.Context, accountID string) (*types.Network, error)
 	GetAccountPeers(ctx context.Context, accountID string) ([]*peer.Peer, error)

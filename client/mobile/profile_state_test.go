@@ -1,4 +1,4 @@
-package android
+package mobile
 
 import (
 	"os"
@@ -15,18 +15,18 @@ func TestProfileAccountPathFor(t *testing.T) {
 	}{
 		{
 			name:       "default profile",
-			configPath: "/data/data/io.netbird.client/files/netbird.cfg",
-			want:       filepath.FromSlash("/data/data/io.netbird.client/files/netbird.account.json"),
+			configPath: "/data/netbird/files/netbird.cfg",
+			want:       filepath.FromSlash("/data/netbird/files/netbird.account.json"),
 		},
 		{
 			name:       "id profile",
-			configPath: "/data/data/io.netbird.client/files/profiles/4c5f5c8198c3989cffb5b5394f5a7ae0.json",
-			want:       filepath.FromSlash("/data/data/io.netbird.client/files/profiles/4c5f5c8198c3989cffb5b5394f5a7ae0.account.json"),
+			configPath: "/data/netbird/files/profiles/4c5f5c8198c3989cffb5b5394f5a7ae0.json",
+			want:       filepath.FromSlash("/data/netbird/files/profiles/4c5f5c8198c3989cffb5b5394f5a7ae0.account.json"),
 		},
 		{
 			name:       "legacy name-keyed profile is handled the same way",
-			configPath: "/data/data/io.netbird.client/files/profiles/work.json",
-			want:       filepath.FromSlash("/data/data/io.netbird.client/files/profiles/work.account.json"),
+			configPath: "/data/netbird/files/profiles/work.json",
+			want:       filepath.FromSlash("/data/netbird/files/profiles/work.account.json"),
 		},
 		{
 			name:       "empty path is rejected",
@@ -55,7 +55,7 @@ func TestProfileAccountPathFor(t *testing.T) {
 }
 
 func TestProfileAccountPathForDefaultDoesNotCollide(t *testing.T) {
-	root := "/data/data/io.netbird.client/files"
+	root := "/data/netbird/files"
 
 	defaultAccount, err := profileAccountPathFor(filepath.Join(root, defaultConfigFilename))
 	if err != nil {
@@ -72,12 +72,12 @@ func TestProfileAccountPathForDefaultDoesNotCollide(t *testing.T) {
 	}
 }
 
-// The account file must never land on the engine state file: on Android both
-// resolve under files/, and the state manager rewrites the whole file from its
-// own keys, so sharing a path would have the two overwrite each other. The
+// The account file must never land on the engine state file: on mobile both
+// resolve under configDir, and the state manager rewrites the whole file from
+// its own keys, so sharing a path would have the two overwrite each other. The
 // expected names here mirror ProfileManager.GetStateFilePath.
 func TestProfileAccountPathAvoidsEngineStateFile(t *testing.T) {
-	root := "/data/data/io.netbird.client/files"
+	root := "/data/netbird/files"
 
 	cases := []struct {
 		configPath  string
@@ -110,23 +110,23 @@ func TestWriteThenReadProfileEmail(t *testing.T) {
 		t.Fatalf("prepare dir: %v", err)
 	}
 
-	if got := readProfileEmail(configPath); got != "" {
+	if got := ReadProfileEmail(configPath); got != "" {
 		t.Errorf("expected no email before a login, got %q", got)
 	}
 
 	const email = "user@example.com"
-	if err := writeProfileEmail(configPath, email); err != nil {
+	if err := WriteProfileEmail(configPath, email); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 
-	if got := readProfileEmail(configPath); got != email {
+	if got := ReadProfileEmail(configPath); got != email {
 		t.Errorf("got %q, want %q", got, email)
 	}
 
 	if err := removeProfileEmail(configPath); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
-	if got := readProfileEmail(configPath); got != "" {
+	if got := ReadProfileEmail(configPath); got != "" {
 		t.Errorf("expected no email after removal, got %q", got)
 	}
 
@@ -143,14 +143,14 @@ func TestWriteProfileEmailIgnoresEmpty(t *testing.T) {
 	}
 
 	const email = "user@example.com"
-	if err := writeProfileEmail(configPath, email); err != nil {
+	if err := WriteProfileEmail(configPath, email); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	if err := writeProfileEmail(configPath, ""); err != nil {
+	if err := WriteProfileEmail(configPath, ""); err != nil {
 		t.Fatalf("write empty: %v", err)
 	}
 
-	if got := readProfileEmail(configPath); got != email {
+	if got := ReadProfileEmail(configPath); got != email {
 		t.Errorf("empty write clobbered the stored email: got %q, want %q", got, email)
 	}
 }
