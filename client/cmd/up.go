@@ -398,26 +398,10 @@ func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServ
 	return nil
 }
 
-func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, profileName, username string) *proto.SetConfigRequest {
-	var req proto.SetConfigRequest
-	req.ProfileName = profileName
-	req.Username = username
-
-	req.ManagementUrl = managementURL
-	req.AdminURL = adminURL
-	req.NatExternalIPs = natExternalIPs
-	req.CustomDNSAddress = customDNSAddressConverted
-	req.ExtraIFaceBlacklist = extraIFaceBlackList
-	req.DnsLabels = dnsLabelsValidated.ToPunycodeList()
-	req.CleanDNSLabels = dnsLabels != nil && len(dnsLabels) == 0
-	req.CleanNATExternalIPs = natExternalIPs != nil && len(natExternalIPs) == 0
-
-	if cmd.Flag(enableRosenpassFlag).Changed {
-		req.RosenpassEnabled = &rosenpassEnabled
-	}
-	if cmd.Flag(rosenpassPermissiveFlag).Changed {
-		req.RosenpassPermissive = &rosenpassPermissive
-	}
+// setSSHSetConfigFields copies the SSH server flags the user actually
+// passed into req, leaving the rest unset so the daemon keeps the
+// persisted values.
+func setSSHSetConfigFields(req *proto.SetConfigRequest, cmd *cobra.Command) {
 	if cmd.Flag(serverSSHAllowedFlag).Changed {
 		req.ServerSSHAllowed = &serverSSHAllowed
 	}
@@ -440,6 +424,30 @@ func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, pro
 		sshJWTCacheTTL32 := int32(sshJWTCacheTTL)
 		req.SshJWTCacheTTL = &sshJWTCacheTTL32
 	}
+}
+
+func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, profileName, username string) *proto.SetConfigRequest {
+	var req proto.SetConfigRequest
+	req.ProfileName = profileName
+	req.Username = username
+
+	req.ManagementUrl = managementURL
+	req.AdminURL = adminURL
+	req.NatExternalIPs = natExternalIPs
+	req.CustomDNSAddress = customDNSAddressConverted
+	req.ExtraIFaceBlacklist = extraIFaceBlackList
+	req.DnsLabels = dnsLabelsValidated.ToPunycodeList()
+	req.CleanDNSLabels = dnsLabels != nil && len(dnsLabels) == 0
+	req.CleanNATExternalIPs = natExternalIPs != nil && len(natExternalIPs) == 0
+
+	if cmd.Flag(enableRosenpassFlag).Changed {
+		req.RosenpassEnabled = &rosenpassEnabled
+	}
+	if cmd.Flag(rosenpassPermissiveFlag).Changed {
+		req.RosenpassPermissive = &rosenpassPermissive
+	}
+	setSSHSetConfigFields(&req, cmd)
+
 	if cmd.Flag(interfaceNameFlag).Changed {
 		if err := parseInterfaceName(interfaceName); err != nil {
 			log.Errorf("parse interface name: %v", err)
