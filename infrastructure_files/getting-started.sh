@@ -98,17 +98,37 @@ get_main_ip_address() {
 }
 
 check_nb_domain() {
-  DOMAIN=$1
-  if [[ "$DOMAIN-x" == "-x" ]]; then
+  local domain="$1"
+
+  if [[ -z "$domain" ]]; then
     echo "The NETBIRD_DOMAIN variable cannot be empty." > /dev/stderr
     return 1
   fi
-
-  if [[ "$DOMAIN" == "netbird.example.com" ]]; then
+  if [[ "$domain" == "use-ip" ]]; then
+    return 0
+  fi
+  if [[ "$domain" == "netbird.example.com" ]]; then
     echo "The NETBIRD_DOMAIN cannot be netbird.example.com" > /dev/stderr
     return 1
   fi
+  if [[ "$domain" =~ ^[0-9.]+$ ]]; then
+    echo "'$domain' is an IP address. Use 'use-ip' to install on this host's IP over HTTP, or an FQDN to get a TLS certificate." > /dev/stderr
+    return 1
+  fi
+  if [[ ! "$domain" =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$ ]]; then
+    echo "'$domain' is not a valid FQDN. It needs at least one dot (e.g. netbird.my-domain.com), with no scheme, port or trailing dot." > /dev/stderr
+    return 1
+  fi
   return 0
+}
+
+check_domain_resolves() {
+  local domain="$1"
+  if command -v getent &> /dev/null && getent hosts "$domain" &> /dev/null; then return 0; fi
+  if command -v host &> /dev/null && host "$domain" &> /dev/null; then return 0; fi
+  if command -v dig &> /dev/null && [[ -n "$(dig +short "$domain" 2>/dev/null)" ]]; then return 0; fi
+  if command -v nslookup &> /dev/null && nslookup "$domain" &> /dev/null; then return 0; fi
+  return 1
 }
 
 # Non-interactive configuration
@@ -170,7 +190,22 @@ read_nb_domain() {
   read -r READ_NETBIRD_DOMAIN < /dev/tty
   if ! check_nb_domain "$READ_NETBIRD_DOMAIN"; then
     read_nb_domain
+    return
   fi
+
+  if [[ "$READ_NETBIRD_DOMAIN" != "use-ip" ]] && ! check_domain_resolves "$READ_NETBIRD_DOMAIN"; then
+    local confirm=""
+    echo "" > /dev/stderr
+    echo "Warning: '$READ_NETBIRD_DOMAIN' does not resolve via DNS from this host." > /dev/stderr
+    echo "TLS certificate issuance and client connections will fail until it does." > /dev/stderr
+    echo -n "Continue anyway? [y/N]: " > /dev/stderr
+    read -r confirm < /dev/tty
+    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+      read_nb_domain
+      return
+    fi
+  fi
+
   echo "$READ_NETBIRD_DOMAIN"
   return 0
 }
@@ -439,12 +474,28 @@ configure_domain() {
   # Domain is validated (not a free-form value), so it keeps its own guard
   # rather than going through resolve(): a valid NETBIRD_DOMAIN is used as-is,
   # otherwise we prompt, or abort when there is no terminal to prompt on.
+  local prompted="false"
   if ! check_nb_domain "$NETBIRD_DOMAIN"; then
     if ! tty_available; then
-      echo "NETBIRD_DOMAIN is required for a non-interactive install." > /dev/stderr
+      # check_nb_domain has already explained what is wrong with the value; all
+      # that is left is to say which knob to turn, since there is no prompt.
+      if [[ -n "$NETBIRD_DOMAIN" ]]; then
+        echo "NETBIRD_DOMAIN='$NETBIRD_DOMAIN' cannot be used for a non-interactive install." > /dev/stderr
+      else
+        echo "NETBIRD_DOMAIN is required for a non-interactive install." > /dev/stderr
+      fi
       exit 1
     fi
     NETBIRD_DOMAIN=$(read_nb_domain)
+    prompted="true"
+  fi
+
+  # read_nb_domain already probed DNS and asked whether to continue, so only the
+  # env-var path is left to cover. It stays a warning there: an unattended
+  # install may legitimately run before the record is published.
+  if [[ "$prompted" == "false" && "$NETBIRD_DOMAIN" != "use-ip" ]] && ! check_domain_resolves "$NETBIRD_DOMAIN"; then
+    echo "Warning: '$NETBIRD_DOMAIN' does not resolve via DNS from this host." > /dev/stderr
+    echo "TLS certificate issuance and client connections will fail until it does." > /dev/stderr
   fi
 
   if [[ "$NETBIRD_DOMAIN" == "use-ip" ]]; then
