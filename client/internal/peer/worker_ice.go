@@ -123,7 +123,7 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 			w.log.Errorf("failed to create new session ID: %s", err)
 		}
 		w.sessionID = sessionID
-		w.agent = nil
+		w.abandonNegotiation()
 	}
 
 	var preferredCandidateTypes []ice.CandidateType
@@ -200,16 +200,16 @@ func (w *WorkerICE) Close() {
 	w.muxAgent.Lock()
 	defer w.muxAgent.Unlock()
 
-	if w.agent == nil {
-		return
+	if w.agent != nil {
+		w.agentDialerCancel()
+		if err := w.agent.Close(); err != nil {
+			w.log.Warnf("failed to close ICE agent: %s", err)
+		}
 	}
-
-	w.agentDialerCancel()
-	if err := w.agent.Close(); err != nil {
-		w.log.Warnf("failed to close ICE agent: %s", err)
-	}
-
-	w.agent = nil
+	// Unconditional: a dial goroutine racing this Close skips its own cleanup
+	// (closeAgent finds a nil agent), so the flags must be dropped here too or
+	// the reconnection guard reads the stale state as Connected forever.
+	w.abandonNegotiation()
 }
 
 func (w *WorkerICE) reCreateAgent(dialerCancel context.CancelFunc, candidates []ice.CandidateType) (*icemaker.ThreadSafeAgent, error) {
@@ -321,18 +321,30 @@ func (w *WorkerICE) closeAgent(agent *icemaker.ThreadSafeAgent, cancel context.C
 	sessionChanged := w.remoteSessionChanged
 	w.remoteSessionChanged = false
 
+	// Only the owner of the current session may reset its state: a stale dial
+	// goroutine waking after a newer attempt must not clobber it.
 	if w.agent == agent {
-		// consider to remove from here and move to the OnNewOffer
 		sessionID, err := NewICESessionID()
 		if err != nil {
 			w.log.Errorf("failed to create new session ID: %s", err)
 		}
 		w.sessionID = sessionID
-		w.agent = nil
-		w.agentConnecting = false
-		w.remoteSessionID = ""
+		w.abandonNegotiation()
 	}
 	return sessionChanged
+}
+
+// abandonNegotiation drops all recorded ICE session state so the worker treats the
+// next offer as a fresh start instead of a duplicate of a dead negotiation. The
+// agent and agentConnecting flags must change together: leaving one stale wedges
+// the reconnection guard into reporting Connected forever. It neither cancels an
+// in-flight dial nor closes an agent — callers dispose of those themselves first,
+// so a stale goroutine can never cancel another session's dial through this path.
+// Caller must hold muxAgent.
+func (w *WorkerICE) abandonNegotiation() {
+	w.agent = nil
+	w.agentConnecting = false
+	w.remoteSessionID = ""
 }
 
 func (w *WorkerICE) punchRemoteWGPort(pair *ice.CandidatePair, remoteWgPort int) {
