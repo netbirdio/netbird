@@ -310,14 +310,20 @@ func (m *managerImpl) UpdateProvider(ctx context.Context, userID string, provide
 		return nil, status.Errorf(status.InvalidArgument, "api_key must be non-blank when rotating an agent network provider")
 	}
 
-	// Only the two fields the vendor would judge are worth a round-trip. This
-	// same call carries renames, model rows and price edits, and none of those
+	// Only the fields the vendor would judge are worth a round-trip. This same
+	// call carries renames, model rows and price edits, and none of those
 	// should wait on a vendor — or be refused because one is having a bad day.
+	//
+	// The catalog entry counts as one of them: it decides which vendor is
+	// asked, under which auth header, so moving a record from one to another
+	// sends an unchanged credential somewhere it has never been accepted.
 	//
 	// The comparison runs after the merge above, so an update that changes only
 	// the URL reads as unchanged on the key and is checked against the stored
 	// one, which is the only credential the operator has to offer here.
-	if provider.UpstreamURL != existing.UpstreamURL || provider.APIKey != existing.APIKey {
+	if provider.UpstreamURL != existing.UpstreamURL ||
+		provider.APIKey != existing.APIKey ||
+		provider.ProviderID != existing.ProviderID {
 		if err := m.checkProviderCredential(ctx, provider); err != nil {
 			return nil, err
 		}

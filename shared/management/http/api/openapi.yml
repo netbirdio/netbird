@@ -14146,7 +14146,7 @@ paths:
       description: |
         Connects a new Agent Network AI provider for the account.
 
-        The upstream URL and credential are checked against the vendor before the provider is stored, so a record that cannot reach its vendor is refused rather than saved. Returns 422 with a message naming whichever of the two is at fault. A catalog provider with no listing endpoint, and one whose upstream the check cannot reach from the management service, are stored without being checked.
+        The upstream URL and credential are checked against the vendor before the provider is stored, so a record that cannot reach its vendor is refused rather than saved. Returns 422 with a message naming whichever of the two is at fault — a rejected credential, an upstream that does not resolve or answer, a vendor outage, and a timeout all block the write. Only what cannot be checked at all is exempt and stored unverified: a catalog provider with no listing endpoint, one with no host to derive a listing from, and an upstream resolving to a private address the management service will not dial.
       tags: [ Agent Network ]
       security:
         - BearerAuth: [ ]
@@ -14213,7 +14213,7 @@ paths:
       description: |
         Update an existing Agent Network AI provider.
 
-        When the upstream URL or the API key changes, the pair is checked against the vendor before the change is stored, and a refusal returns 422 without replacing what was there. An update omitting the API key is checked against the stored one. Edits touching neither field are stored without a check.
+        When the upstream URL, the API key or the catalog provider changes, the record is checked against the vendor before the change is stored, and a refusal returns 422 without replacing what was there. An update omitting the API key is checked against the stored one. Edits touching none of the three — a rename, model rows, price edits — are stored without a check, as are the cases the create description lists as unverifiable.
       tags: [ Agent Network ]
       security:
         - BearerAuth: [ ]

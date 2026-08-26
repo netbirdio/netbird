@@ -290,7 +290,7 @@ func TestHostGuardRejectsNonPublicAddresses(t *testing.T) {
 
 func TestHostGuardResolvesAndRejectsLocalhost(t *testing.T) {
 	cl := &Client{}
-	err := cl.checkPublicHost("localhost")
+	err := cl.checkPublicHost(context.Background(), "localhost")
 	require.Error(t, err, "a name resolving to loopback must be refused, not just a literal address")
 	assert.Contains(t, err.Error(), "non-public")
 }

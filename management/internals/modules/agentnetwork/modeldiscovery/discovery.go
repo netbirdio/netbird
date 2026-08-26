@@ -124,24 +124,27 @@ func (c *Client) Fetch(ctx context.Context, req Request) ([]Model, error) {
 		return nil, ErrNoDiscovery
 	}
 
+	// One deadline over the whole operation. Both host lookups and the request
+	// itself run under it, so a vendor cannot be slow twice, and a caller that
+	// gives up is not left waiting on a resolver.
+	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
+	defer cancel()
+
 	// An entry with a listing host of its own answers from somewhere other
 	// than the upstream on the record — Bedrock lists from the control plane
 	// and infers on the runtime host. Reaching the listing therefore proves
 	// nothing about the host requests will actually go to, so that one is
 	// checked separately or not at all.
 	if entry.Discovery.Host != "" {
-		if err := c.checkUpstreamHost(entry, req.UpstreamURL); err != nil {
+		if err := c.checkUpstreamHost(ctx, entry, req.UpstreamURL); err != nil {
 			return nil, err
 		}
 	}
 
-	endpoint, err := c.discoveryURL(entry, req)
+	endpoint, err := c.discoveryURL(ctx, entry, req)
 	if err != nil {
 		return nil, err
 	}
-
-	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
-	defer cancel()
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
@@ -187,7 +190,7 @@ func (c *Client) Fetch(ctx context.Context, req Request) ([]Model, error) {
 // management holds credentials for every provider, and an upstream pointed at
 // an internal address would turn this endpoint into a probe of the management
 // server's own network.
-func (c *Client) discoveryURL(entry catalog.Provider, req Request) (string, error) {
+func (c *Client) discoveryURL(ctx context.Context, entry catalog.Provider, req Request) (string, error) {
 	host := entry.Discovery.Host
 	if host == "" {
 		parsed, err := url.Parse(strings.TrimSpace(req.UpstreamURL))
@@ -212,7 +215,7 @@ func (c *Client) discoveryURL(entry catalog.Provider, req Request) (string, erro
 	}
 
 	target := &url.URL{Scheme: "https", Host: host, Path: entry.Discovery.Path, RawQuery: entry.Discovery.Query}
-	if err := c.classifyHost(entry, target.Hostname()); err != nil {
+	if err := c.classifyHost(ctx, entry, target.Hostname()); err != nil {
 		return "", err
 	}
 	return target.String(), nil
@@ -225,12 +228,12 @@ func (c *Client) discoveryURL(entry catalog.Provider, req Request) (string, erro
 // privately is not: an upstream behind a proxy is a supported configuration,
 // and ErrPrivateHost carries that difference on to the caller, which treats it
 // as unverifiable rather than as a failure.
-func (c *Client) checkUpstreamHost(entry catalog.Provider, upstreamURL string) error {
+func (c *Client) checkUpstreamHost(ctx context.Context, entry catalog.Provider, upstreamURL string) error {
 	parsed, err := url.Parse(strings.TrimSpace(upstreamURL))
 	if err != nil || parsed.Hostname() == "" {
 		return fmt.Errorf("%w: provider upstream %q is not a usable URL", ErrInvalidRequest, upstreamURL)
 	}
-	return c.classifyHost(entry, parsed.Hostname())
+	return c.classifyHost(ctx, entry, parsed.Hostname())
 }
 
 // classifyHost renders a failed host check as the two outcomes the caller
@@ -238,8 +241,8 @@ func (c *Client) checkUpstreamHost(entry catalog.Provider, upstreamURL string) e
 // upstream to be wrong and has to arrive as unreachable rather than as an
 // unclassified fault. ErrPrivateHost means something else entirely — not a bad
 // host, one we decline to dial.
-func (c *Client) classifyHost(entry catalog.Provider, host string) error {
-	err := c.checkPublicHost(host)
+func (c *Client) classifyHost(ctx context.Context, entry catalog.Provider, host string) error {
+	err := c.checkPublicHost(ctx, host)
 	if err == nil || errors.Is(err, ErrPrivateHost) {
 		return err
 	}
@@ -283,7 +286,7 @@ func RegionFromUpstream(entry catalog.Provider, upstreamURL string) string {
 
 // checkPublicHost refuses hosts that resolve to an address the management
 // server should never be asked to reach on an operator's behalf.
-func (c *Client) checkPublicHost(host string) error {
+func (c *Client) checkPublicHost(ctx context.Context, host string) error {
 	if c.AllowPrivateHosts {
 		return nil
 	}
@@ -294,9 +297,6 @@ func (c *Client) checkPublicHost(host string) error {
 	if resolver == nil {
 		resolver = net.DefaultResolver
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
-	defer cancel()
-
 	addrs, err := resolver.LookupNetIP(ctx, "ip", host)
 	if err != nil {
 		return fmt.Errorf("resolve discovery host %q: %w", host, err)

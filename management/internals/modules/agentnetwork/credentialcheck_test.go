@@ -503,3 +503,30 @@ func TestDiscoverProviderModels_FallsBackToTheStoredUrl(t *testing.T) {
 
 	require.Equal(t, stored, f.vendor.only(t).UpstreamURL)
 }
+
+// TestUpdateProvider_MovingARecordToAnotherVendorIsChecked covers the edit that
+// changes neither field the vendor judges and still invalidates both. The
+// catalog entry decides which vendor is asked and under which auth header, so
+// the unchanged credential is now being offered somewhere it has never been
+// accepted.
+func TestUpdateProvider_MovingARecordToAnotherVendorIsChecked(t *testing.T) {
+	ctx := context.Background()
+	f := newBootstrapFixture(t)
+	f.expectPermission("account1", "user1", modules.AgentNetworkProviders, operations.Create, true)
+
+	created, err := f.manager.CreateProvider(ctx, "user1", newCheckedProvider("account1"))
+	require.NoError(t, err)
+	f.vendor.requests = nil
+
+	f.expectPermission("account1", "user1", modules.AgentNetworkProviders, operations.Update, true)
+	edit := newCheckedProvider("account1")
+	edit.ID = created.ID
+	edit.ProviderID = "anthropic_api"
+	edit.APIKey = ""
+
+	_, err = f.manager.UpdateProvider(ctx, "user1", edit)
+	require.NoError(t, err)
+
+	require.Equal(t, "anthropic_api", f.vendor.only(t).CatalogID,
+		"the new vendor is the one that has to accept the key")
+}
