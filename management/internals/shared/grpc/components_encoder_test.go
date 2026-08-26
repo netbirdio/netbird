@@ -308,19 +308,19 @@ func TestEncodePolicy(t *testing.T) {
 	encoder := componentEncoder{peerOrder: map[string]uint32{"peerId": uint32(1234)}, networkIdToPublicId: map[string]string{"domain": "publicDomain", "host": "publicHost", "subnet": "publicSubnet"}}
 	assert.Equal(t,
 		encoder.resourceToProto(nmdata.Resource{Type: "peer", ID: "peerId"}),
-		&proto.ResourceCompact{Type: proto.ResourceCompactType_peer, ResourceId: &proto.ResourceCompact_PeerIndex{PeerIndex: uint32(1234)}})
+		&proto.ResourceCompact{Type: "peer", PeerIndexSet: true, PeerIndex: uint32(1234)})
 	// verify invalid peer id results in nil
 	assert.Nil(t,
 		encoder.resourceToProto(nmdata.Resource{Type: "peer", ID: "boom"}))
 	assert.Equal(t,
 		encoder.resourceToProto(nmdata.Resource{Type: "domain", ID: "domain"}),
-		&proto.ResourceCompact{Type: proto.ResourceCompactType_domain, ResourceId: &proto.ResourceCompact_Id{Id: "publicDomain"}})
+		&proto.ResourceCompact{Type: "domain", Id: "publicDomain"})
 	assert.Equal(t,
 		encoder.resourceToProto(nmdata.Resource{Type: "host", ID: "host"}),
-		&proto.ResourceCompact{Type: proto.ResourceCompactType_host, ResourceId: &proto.ResourceCompact_Id{Id: "publicHost"}})
+		&proto.ResourceCompact{Type: "host", Id: "publicHost"})
 	assert.Equal(t,
 		encoder.resourceToProto(nmdata.Resource{Type: "subnet", ID: "subnet"}),
-		&proto.ResourceCompact{Type: proto.ResourceCompactType_subnet, ResourceId: &proto.ResourceCompact_Id{Id: "publicSubnet"}})
+		&proto.ResourceCompact{Type: "subnet", Id: "publicSubnet"})
 	// verify invalid resource type results in nil
 	assert.Nil(t,
 		encoder.resourceToProto(nmdata.Resource{Type: "boom", ID: "boom"}))

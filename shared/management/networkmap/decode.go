@@ -106,7 +106,7 @@ func DecodeEnvelope(ctx context.Context, env *proto.NetworkMapEnvelope) (*types.
 			for _, r := range gc.Resources {
 				res := resourceFromProto(r, peerIDByIndex)
 				if res == (nmdata.Resource{}) {
-					log.WithContext(ctx).Warnf("skipping invalid resource in group compact: %s", r.ResourceId)
+					log.WithContext(ctx).Warnf("skipping invalid resource in group compact: %s", r.String())
 					continue
 				}
 				toret = append(toret, res)
@@ -405,30 +405,18 @@ func decodePolicyCompact(pc *proto.PolicyCompact, policyID string, peerIDByIndex
 // peer reference is reconstructed from the envelope's peer index — wire
 // format ships no xid for peers, so we use the synthesized peer id.
 func resourceFromProto(r *proto.ResourceCompact, peerIDByIndex []string) nmdata.Resource {
-	if r == nil {
+	if r == nil || !types.ResourceType(r.Type).Valid() {
 		return nmdata.Resource{}
 	}
 
-	t, ok := proto.ResourceCompactType_name[int32(r.Type)]
-	if !ok || r.Type == proto.ResourceCompactType_unknown_type {
-		return nmdata.Resource{}
-	}
-
-	if r.Type == proto.ResourceCompactType_peer && int(r.GetPeerIndex()) >= len(peerIDByIndex) {
-		return nmdata.Resource{}
-	}
-
-	if r.Type == proto.ResourceCompactType_peer && int(r.GetPeerIndex()) < len(peerIDByIndex) {
-		return nmdata.Resource{
-			Type: "peer",
-			ID:   peerIDByIndex[int(r.GetPeerIndex())],
+	if r.Type == string(types.ResourceTypePeer) {
+		if !r.PeerIndexSet || int(r.PeerIndex) >= len(peerIDByIndex) {
+			return nmdata.Resource{}
 		}
+		return nmdata.Resource{Type: r.Type, ID: peerIDByIndex[int(r.PeerIndex)]}
 	}
 
-	return nmdata.Resource{
-		Type: t,
-		ID:   r.GetId(),
-	}
+	return nmdata.Resource{Type: r.Type, ID: r.Id}
 }
 
 // authorizedGroupsFromProto inverts encodeAuthorizedGroups: the wire form
