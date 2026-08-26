@@ -41,6 +41,8 @@ const (
 	AnonymizeLevelStrict  = nbAnonymize.LevelStrictString
 )
 
+const stopRunWaitTimeout = 20 * time.Second
+
 // TunAdapter export internal TunAdapter for mobile
 type TunAdapter interface {
 	device.TunAdapter
@@ -89,6 +91,8 @@ type Client struct {
 	stateMu       sync.RWMutex
 	connectClient *internal.ConnectClient
 	config        *profilemanager.Config
+	runGeneration uint64
+	runDone       chan struct{}
 	cacheDir      string
 	// Identifies the running profile for the SSO login hint; see profile_state.go.
 	cfgPath string
@@ -112,13 +116,33 @@ type Client struct {
 	extendCancel context.CancelFunc
 }
 
-func (c *Client) setState(cfg *profilemanager.Config, cacheDir string, cfgPath string, cc *internal.ConnectClient) {
+func (c *Client) beginRun(cancel context.CancelFunc) (uint64, chan struct{}) {
+	done := make(chan struct{})
+
+	c.stateMu.Lock()
+	c.runGeneration++
+	generation := c.runGeneration
+	c.runDone = done
+	c.stateMu.Unlock()
+
+	c.ctxCancelLock.Lock()
+	c.ctxCancel = cancel
+	c.ctxCancelLock.Unlock()
+
+	return generation, done
+}
+
+func (c *Client) publishState(generation uint64, cfg *profilemanager.Config, cacheDir string, cfgPath string, cc *internal.ConnectClient) bool {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
+	if c.runGeneration != generation {
+		return false
+	}
 	c.config = cfg
 	c.cacheDir = cacheDir
 	c.cfgPath = cfgPath
 	c.connectClient = cc
+	return true
 }
 
 func (c *Client) stateSnapshot() (*profilemanager.Config, string, *internal.ConnectClient) {
@@ -188,9 +212,9 @@ func (c *Client) Run(platformFiles PlatformFiles, urlOpener URLOpener, isAndroid
 
 	runCtx, runCancel := context.WithCancel(ctxWithValues)
 	defer runCancel()
-	c.ctxCancelLock.Lock()
-	c.ctxCancel = runCancel
-	c.ctxCancelLock.Unlock()
+
+	generation, done := c.beginRun(runCancel)
+	defer close(done)
 	ctx := runCtx
 
 	auth := NewAuthWithConfig(ctx, cfg, cfgFile)
@@ -203,7 +227,10 @@ func (c *Client) Run(platformFiles PlatformFiles, urlOpener URLOpener, isAndroid
 
 	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder,
 		internal.WithNetEvents(c.netMgr))
-	c.setState(cfg, cacheDir, cfgFile, connectClient)
+	if !c.publishState(generation, cfg, cacheDir, cfgFile, connectClient) {
+		log.Infof("run: superseded by a newer run, aborting startup")
+		return nil
+	}
 	// This path runs the interactive SSO flow, so reaching here means the peer
 	// is authenticated again — release the latch Status() reports from. Clear
 	// only once the fresh connect client is installed: until then Status()
@@ -237,40 +264,55 @@ func (c *Client) RunWithoutLogin(platformFiles PlatformFiles, dns *DNSList, dnsR
 	ctxWithValues := context.WithValue(context.Background(), system.DeviceNameCtxKey, c.deviceName)
 	runCtx, runCancel := context.WithCancel(ctxWithValues)
 	defer runCancel()
-	c.ctxCancelLock.Lock()
-	c.ctxCancel = runCancel
-	c.ctxCancelLock.Unlock()
+
+	generation, done := c.beginRun(runCancel)
+	defer close(done)
 	ctx := runCtx
 
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
 	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder,
 		internal.WithNetEvents(c.netMgr))
-	c.setState(cfg, cacheDir, cfgFile, connectClient)
+	if !c.publishState(generation, cfg, cacheDir, cfgFile, connectClient) {
+		log.Infof("run: superseded by a newer run, aborting startup")
+		return nil
+	}
 	return connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener, stateFile, cacheDir)
 }
 
 // Stop the internal client and free the resources
 func (c *Client) Stop() {
 	c.stateMu.Lock()
+	c.runGeneration++
 	cc := c.connectClient
+	done := c.runDone
 	c.connectClient = nil
 	c.config = nil
+	c.runDone = nil
 	c.stateMu.Unlock()
+
+	c.ctxCancelLock.Lock()
+	cancel := c.ctxCancel
+	c.ctxCancel = nil
+	c.ctxCancelLock.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
 
 	if cc != nil {
 		if err := cc.Stop(); err != nil {
 			log.Errorf("Stop: failed stopping the connect client: %v", err)
 		}
-		return
 	}
 
-	c.ctxCancelLock.Lock()
-	defer c.ctxCancelLock.Unlock()
-	if c.ctxCancel == nil {
-		return
+	if done != nil {
+		select {
+		case <-done:
+		case <-time.After(stopRunWaitTimeout):
+			log.Warnf("Stop: timed out waiting for the run loop to exit")
+		}
 	}
-	c.ctxCancel()
 }
 
 func (c *Client) RenewTun(fd int) error {

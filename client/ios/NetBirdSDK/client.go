@@ -93,6 +93,8 @@ type Client struct {
 	stateMu       sync.RWMutex
 	connectClient *internal.ConnectClient
 	config        *profilemanager.Config
+	runGeneration uint64
+	runDone       chan struct{}
 }
 
 // NewClient instantiate a new Client
@@ -164,9 +166,9 @@ func (c *Client) Run(fd int32, interfaceName string, envList *EnvList) error {
 	ctxWithValues = context.WithValue(ctxWithValues, system.OsVersionCtxKey, c.osVersion)
 	runCtx, runCancel := context.WithCancel(ctxWithValues)
 	defer runCancel()
-	c.ctxCancelLock.Lock()
-	c.ctxCancel = runCancel
-	c.ctxCancelLock.Unlock()
+
+	generation, done := c.beginRun(runCancel)
+	defer close(done)
 	ctx := runCtx
 
 	// No login pre-flight here. The engine's own loginToManagement (connect.go) performs
@@ -189,7 +191,10 @@ func (c *Client) Run(fd int32, interfaceName string, envList *EnvList) error {
 
 	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder,
 		internal.WithNetEvents(c.netMgr))
-	c.setState(cfg, connectClient)
+	if !c.publishState(generation, cfg, connectClient) {
+		log.Infof("Run: superseded by a newer run, aborting startup")
+		return nil
+	}
 	// Persist the latest sync response so DebugBundle can include the network
 	// map. On iOS this is backed by disk to keep it out of the constrained
 	// process memory (see the syncstore package).
@@ -219,24 +224,36 @@ func (c *Client) NotifyNetworkChange() {
 // Stop the internal client and free the resources
 func (c *Client) Stop() {
 	c.stateMu.Lock()
+	c.runGeneration++
 	cc := c.connectClient
+	done := c.runDone
 	c.connectClient = nil
 	c.config = nil
+	c.runDone = nil
 	c.stateMu.Unlock()
+
+	c.ctxCancelLock.Lock()
+	cancel := c.ctxCancel
+	c.ctxCancel = nil
+	c.ctxCancelLock.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
 
 	if cc != nil {
 		if err := cc.Stop(); err != nil {
 			log.Errorf("Stop: failed stopping the connect client: %v", err)
 		}
-		return
 	}
 
-	c.ctxCancelLock.Lock()
-	defer c.ctxCancelLock.Unlock()
-	if c.ctxCancel == nil {
-		return
+	if done != nil {
+		select {
+		case <-done:
+		case <-time.After(stopRunWaitTimeout):
+			log.Warnf("Stop: timed out waiting for the run loop to exit")
+		}
 	}
-	c.ctxCancel()
 }
 
 // DebugBundle generates a debug bundle, uploads it and returns the upload key.
@@ -442,6 +459,8 @@ func (c *Client) IsLoginRequired() bool {
 
 // loginForMobileAuthTimeout is the timeout for requesting auth info from the server
 const loginForMobileAuthTimeout = 30 * time.Second
+
+const stopRunWaitTimeout = 20 * time.Second
 
 func (c *Client) LoginForMobile() string {
 	//nolint
@@ -735,11 +754,31 @@ func (c *Client) DeselectRoute(id string) error {
 
 // setState stores the running engine state so DebugBundle can reuse the live
 // config and ConnectClient. It is cleared on Stop.
-func (c *Client) setState(cfg *profilemanager.Config, cc *internal.ConnectClient) {
+func (c *Client) beginRun(cancel context.CancelFunc) (uint64, chan struct{}) {
+	done := make(chan struct{})
+
+	c.stateMu.Lock()
+	c.runGeneration++
+	generation := c.runGeneration
+	c.runDone = done
+	c.stateMu.Unlock()
+
+	c.ctxCancelLock.Lock()
+	c.ctxCancel = cancel
+	c.ctxCancelLock.Unlock()
+
+	return generation, done
+}
+
+func (c *Client) publishState(generation uint64, cfg *profilemanager.Config, cc *internal.ConnectClient) bool {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
+	if c.runGeneration != generation {
+		return false
+	}
 	c.config = cfg
 	c.connectClient = cc
+	return true
 }
 
 // stateSnapshot returns the current config and ConnectClient under the lock.
