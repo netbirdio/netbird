@@ -642,6 +642,34 @@ func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configFil
 	return &ic, nil
 }
 
+// setSSHLoginFields copies the SSH server flags the user actually passed
+// into req, leaving the rest unset so the daemon keeps the persisted
+// values.
+func setSSHLoginFields(req *proto.LoginRequest, cmd *cobra.Command) {
+	if cmd.Flag(serverSSHAllowedFlag).Changed {
+		req.ServerSSHAllowed = &serverSSHAllowed
+	}
+	if cmd.Flag(enableSSHRootFlag).Changed {
+		req.EnableSSHRoot = &enableSSHRoot
+	}
+	if cmd.Flag(enableSSHSFTPFlag).Changed {
+		req.EnableSSHSFTP = &enableSSHSFTP
+	}
+	if cmd.Flag(enableSSHLocalPortForwardFlag).Changed {
+		req.EnableSSHLocalPortForwarding = &enableSSHLocalPortForward
+	}
+	if cmd.Flag(enableSSHRemotePortForwardFlag).Changed {
+		req.EnableSSHRemotePortForwarding = &enableSSHRemotePortForward
+	}
+	if cmd.Flag(disableSSHAuthFlag).Changed {
+		req.DisableSSHAuth = &disableSSHAuth
+	}
+	if cmd.Flag(sshJWTCacheTTLFlag).Changed {
+		sshJWTCacheTTL32 := int32(sshJWTCacheTTL)
+		req.SshJWTCacheTTL = &sshJWTCacheTTL32
+	}
+}
+
 func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte, cmd *cobra.Command) (*proto.LoginRequest, error) {
 	loginRequest := proto.LoginRequest{
 		SetupKey:            providedSetupKey,
@@ -668,34 +696,7 @@ func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte
 		loginRequest.RosenpassPermissive = &rosenpassPermissive
 	}
 
-	if cmd.Flag(serverSSHAllowedFlag).Changed {
-		loginRequest.ServerSSHAllowed = &serverSSHAllowed
-	}
-
-	if cmd.Flag(enableSSHRootFlag).Changed {
-		loginRequest.EnableSSHRoot = &enableSSHRoot
-	}
-
-	if cmd.Flag(enableSSHSFTPFlag).Changed {
-		loginRequest.EnableSSHSFTP = &enableSSHSFTP
-	}
-
-	if cmd.Flag(enableSSHLocalPortForwardFlag).Changed {
-		loginRequest.EnableSSHLocalPortForwarding = &enableSSHLocalPortForward
-	}
-
-	if cmd.Flag(enableSSHRemotePortForwardFlag).Changed {
-		loginRequest.EnableSSHRemotePortForwarding = &enableSSHRemotePortForward
-	}
-
-	if cmd.Flag(disableSSHAuthFlag).Changed {
-		loginRequest.DisableSSHAuth = &disableSSHAuth
-	}
-
-	if cmd.Flag(sshJWTCacheTTLFlag).Changed {
-		sshJWTCacheTTL32 := int32(sshJWTCacheTTL)
-		loginRequest.SshJWTCacheTTL = &sshJWTCacheTTL32
-	}
+	setSSHLoginFields(&loginRequest, cmd)
 
 	if cmd.Flag(disableAutoConnectFlag).Changed {
 		loginRequest.DisableAutoConnect = &autoConnectDisabled
