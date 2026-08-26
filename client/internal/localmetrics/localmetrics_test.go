@@ -95,3 +95,57 @@ func TestServe(t *testing.T) {
 	assert.Contains(t, body, `netbird_peers_connected{connection_type="relay"} 1`)
 	assert.Contains(t, body, `netbird_peer_latency_seconds{peer="peer-a.netbird.cloud"} 0.012`)
 }
+
+// A server that never came up must not be remembered, otherwise reconciling the
+// same address again is a no-op and the endpoint never recovers.
+func TestReconcileForgetsAFailedServer(t *testing.T) {
+	blocker, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err, "must find a free port")
+	t.Cleanup(func() { _ = blocker.Close() })
+	addr := blocker.Addr().String()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	m := NewManager(ctx, testStatus(), nil)
+	m.Reconcile(true, addr)
+
+	require.Eventually(t, func() bool {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		return m.srv == nil && m.addr == ""
+	}, 2*time.Second, 20*time.Millisecond, "the failed server should be dropped")
+
+	require.NoError(t, blocker.Close())
+	m.Reconcile(true, addr)
+
+	require.Eventually(t, func() bool {
+		resp, err := http.Get(fmt.Sprintf("http://%s/metrics", addr))
+		if err != nil {
+			return false
+		}
+		defer resp.Body.Close()
+		return resp.StatusCode == http.StatusOK
+	}, 2*time.Second, 50*time.Millisecond, "reconciling the same address should retry the bind")
+}
+
+func TestIsLoopback(t *testing.T) {
+	tests := map[string]bool{
+		"":                        true,
+		"127.0.0.1:9191":          true,
+		"127.9.9.9:9191":          true,
+		"[::1]:9191":              true,
+		"[::ffff:127.0.0.1]:9191": true,
+		"localhost:9191":          true,
+		"0.0.0.0:9191":            false,
+		"[::]:9191":               false,
+		"192.168.1.10:9191":       false,
+		"not-an-address":          false,
+		"example.com:9191":        false,
+	}
+
+	for addr, want := range tests {
+		t.Run(addr, func(t *testing.T) {
+			assert.Equal(t, want, IsLoopback(addr), "loopback verdict for %q", addr)
+		})
+	}
+}

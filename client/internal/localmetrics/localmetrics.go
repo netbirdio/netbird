@@ -115,8 +115,23 @@ func (m *Manager) Reconcile(enabled bool, addr string) {
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Errorf("failed to serve local metrics on %s: %v", addr, err)
+			m.clear(srv)
 		}
 	}()
+}
+
+// clear drops the reference to srv so a later Reconcile with the same
+// address restarts it. A newer server may already have replaced it, in
+// which case the reference must stay.
+func (m *Manager) clear(srv *http.Server) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.srv != srv {
+		return
+	}
+	m.srv = nil
+	m.addr = ""
 }
 
 // Stop shuts down the metrics endpoint if it is running.
@@ -225,18 +240,34 @@ func boolToFloat(b bool) float64 {
 	return 0
 }
 
+// IsLoopback reports whether addr binds the endpoint to the local host only.
+// An empty address means DefaultListenAddress. It fails closed: an address
+// that cannot be confirmed loopback, including an unparseable one, is not.
+func IsLoopback(addr string) bool {
+	if addr == "" {
+		addr = DefaultListenAddress
+	}
+
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+
+	ip, err := netip.ParseAddr(host)
+	if err != nil {
+		return false
+	}
+	return ip.Unmap().IsLoopback()
+}
+
 // warnIfNotLoopback logs a warning when the listen address cannot be
 // confirmed to be local-only, since the endpoint exposes peer and
 // connectivity details without authentication.
 func warnIfNotLoopback(addr string) {
-	host, _, err := net.SplitHostPort(addr)
-	if err != nil {
-		return
-	}
-	if host == "localhost" {
-		return
-	}
-	if ip, err := netip.ParseAddr(host); err == nil && ip.Unmap().IsLoopback() {
+	if IsLoopback(addr) {
 		return
 	}
 	log.Warnf("local metrics endpoint listens on non-loopback address %s and is reachable from the network without authentication", addr)
