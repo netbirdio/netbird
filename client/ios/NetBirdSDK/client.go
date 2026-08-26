@@ -74,8 +74,6 @@ type Client struct {
 	cacheDir              string
 	logFilePath           string
 	recorder              *peer.Status
-	ctxCancel             context.CancelFunc
-	ctxCancelLock         *sync.Mutex
 	deviceName            string
 	osName                string
 	osVersion             string
@@ -90,11 +88,16 @@ type Client struct {
 	// preloadedConfig holds config loaded from JSON (used on tvOS where file writes are blocked)
 	preloadedConfig *profilemanager.Config
 
+	// stateMu guards the run lifecycle as one unit: the generation that
+	// identifies the current run, the client and cancel it installed, and the
+	// channel it closes on exit. Splitting the cancel out under its own lock
+	// let a Stop cancel a run that started after its generation snapshot.
 	stateMu       sync.RWMutex
 	connectClient *internal.ConnectClient
 	config        *profilemanager.Config
 	runGeneration uint64
 	runDone       chan struct{}
+	ctxCancel     context.CancelFunc
 }
 
 // NewClient instantiate a new Client
@@ -109,7 +112,6 @@ func NewClient(cfgFile, stateFile, cacheDir, logFilePath, deviceName string, osV
 		osName:                osName,
 		osVersion:             osVersion,
 		recorder:              recorder,
-		ctxCancelLock:         &sync.Mutex{},
 		networkChangeListener: networkChangeListener,
 		dnsManager:            dnsManager,
 		netMgr:                netevents.NewManager(recorder),
@@ -250,15 +252,12 @@ func (c *Client) stopLocked(wait bool) chan struct{} {
 	c.runGeneration++
 	cc := c.connectClient
 	done := c.runDone
+	cancel := c.ctxCancel
 	c.connectClient = nil
 	c.config = nil
 	c.runDone = nil
-	c.stateMu.Unlock()
-
-	c.ctxCancelLock.Lock()
-	cancel := c.ctxCancel
 	c.ctxCancel = nil
-	c.ctxCancelLock.Unlock()
+	c.stateMu.Unlock()
 
 	if cancel != nil {
 		cancel()
@@ -785,11 +784,8 @@ func (c *Client) beginRun(cancel context.CancelFunc) (uint64, chan struct{}) {
 	c.runGeneration++
 	generation := c.runGeneration
 	c.runDone = done
-	c.stateMu.Unlock()
-
-	c.ctxCancelLock.Lock()
 	c.ctxCancel = cancel
-	c.ctxCancelLock.Unlock()
+	c.stateMu.Unlock()
 
 	return generation, done
 }

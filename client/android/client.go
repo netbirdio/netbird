@@ -78,8 +78,6 @@ type Client struct {
 	tunAdapter            device.TunAdapter
 	iFaceDiscover         IFaceDiscover
 	recorder              *peer.Status
-	ctxCancel             context.CancelFunc
-	ctxCancelLock         *sync.Mutex
 	deviceName            string
 	uiVersion             string
 	networkChangeListener listener.NetworkChangeListener
@@ -88,11 +86,16 @@ type Client struct {
 	// sweeper into each new ConnectClient.
 	netMgr *netevents.Manager
 
+	// stateMu guards the run lifecycle as one unit: the generation that
+	// identifies the current run, the client and cancel it installed, and the
+	// channel it closes on exit. Splitting the cancel out under its own lock
+	// let a Stop cancel a run that started after its generation snapshot.
 	stateMu       sync.RWMutex
 	connectClient *internal.ConnectClient
 	config        *profilemanager.Config
 	runGeneration uint64
 	runDone       chan struct{}
+	ctxCancel     context.CancelFunc
 	cacheDir      string
 	// Identifies the running profile for the SSO login hint; see profile_state.go.
 	cfgPath string
@@ -123,11 +126,8 @@ func (c *Client) beginRun(cancel context.CancelFunc) (uint64, chan struct{}) {
 	c.runGeneration++
 	generation := c.runGeneration
 	c.runDone = done
-	c.stateMu.Unlock()
-
-	c.ctxCancelLock.Lock()
 	c.ctxCancel = cancel
-	c.ctxCancelLock.Unlock()
+	c.stateMu.Unlock()
 
 	return generation, done
 }
@@ -180,7 +180,6 @@ func NewClient(androidSDKVersion int, deviceName string, uiVersion string, tunAd
 		tunAdapter:            tunAdapter,
 		iFaceDiscover:         iFaceDiscover,
 		recorder:              recorder,
-		ctxCancelLock:         &sync.Mutex{},
 		networkChangeListener: networkChangeListener,
 		netMgr:                netevents.NewManager(recorder),
 	}
@@ -286,15 +285,12 @@ func (c *Client) Stop() {
 	c.runGeneration++
 	cc := c.connectClient
 	done := c.runDone
+	cancel := c.ctxCancel
 	c.connectClient = nil
 	c.config = nil
 	c.runDone = nil
-	c.stateMu.Unlock()
-
-	c.ctxCancelLock.Lock()
-	cancel := c.ctxCancel
 	c.ctxCancel = nil
-	c.ctxCancelLock.Unlock()
+	c.stateMu.Unlock()
 
 	if cancel != nil {
 		cancel()
