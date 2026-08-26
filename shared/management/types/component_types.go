@@ -25,6 +25,9 @@ type ComponentPeer struct {
 	LoginExpirationEnabled bool
 	AddedWithSSOLogin      bool
 	LastLogin              time.Time
+	// ProxyEmbedded marks an ephemeral embedded proxy peer. Connections
+	// involving such a peer on either endpoint default to lazy.
+	ProxyEmbedded bool
 }
 
 // FQDN returns the peer's FQDN combined of the peer's DNS label and the system's DNS domain.

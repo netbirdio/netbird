@@ -1,23 +1,20 @@
-//go:build android
+//go:build ios
 
-package android
+package NetBirdSDK
 
 import (
 	"github.com/netbirdio/netbird/client/mobile"
 )
 
 const (
-	// Android uses a single user context per app.
-	androidUsername = "android"
+	// iOS uses a single user context per app.
+	iosUsername = "ios"
 )
 
 // Profile represents a profile for gomobile.
 type Profile struct {
-	ID   string
-	Name string
-	// Email is the account this profile last logged in with, "" if it never
-	// completed an SSO login. Kept across logouts; cleared when the profile is
-	// removed. See client/mobile/profile_state.go.
+	ID       string
+	Name     string
 	Email    string
 	IsActive bool
 }
@@ -48,10 +45,11 @@ type ProfileManager struct {
 	impl *mobile.ProfileManager
 }
 
-// NewProfileManager creates a new profile manager for Android. configDir is
-// the app's files directory.
+// NewProfileManager creates a new profile manager for iOS. configDir is the
+// App Group shared container path that both the app and the network extension
+// can reach.
 func NewProfileManager(configDir string) *ProfileManager {
-	return &ProfileManager{impl: mobile.NewProfileManager(configDir, androidUsername)}
+	return &ProfileManager{impl: mobile.NewProfileManager(configDir, iosUsername)}
 }
 
 // ListProfiles returns all available profiles, including the default profile,
@@ -85,10 +83,13 @@ func (pm *ProfileManager) SwitchProfile(id string) error {
 }
 
 // AddProfile creates a new profile with the given display name and a
-// generated ID.
-func (pm *ProfileManager) AddProfile(profileName string) error {
-	_, err := pm.impl.AddProfile(profileName)
-	return err
+// generated ID. It returns the created profile so the caller learns the ID.
+func (pm *ProfileManager) AddProfile(displayName string) (*Profile, error) {
+	p, err := pm.impl.AddProfile(displayName)
+	if err != nil {
+		return nil, err
+	}
+	return fromMobileProfile(p), nil
 }
 
 // RenameProfile changes the display name of the profile identified by id. The
@@ -109,14 +110,13 @@ func (pm *ProfileManager) RemoveProfile(id string) error {
 	return pm.impl.RemoveProfile(id)
 }
 
-// GetConfigPath returns the config file path for the given profile ID. Java
-// should call this instead of constructing paths with Preferences.configFile().
+// GetConfigPath returns the config file path for the given profile ID. Swift
+// should call this instead of constructing paths itself.
 func (pm *ProfileManager) GetConfigPath(id string) (string, error) {
 	return pm.impl.GetConfigPath(id)
 }
 
-// GetStateFilePath returns the state file path for the given profile ID. Java
-// should call this instead of constructing paths with Preferences.stateFile().
+// GetStateFilePath returns the state file path for the given profile ID.
 func (pm *ProfileManager) GetStateFilePath(id string) (string, error) {
 	return pm.impl.GetStateFilePath(id)
 }
