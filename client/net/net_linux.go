@@ -21,15 +21,6 @@ func SetSocketMark(conn syscall.Conn) error {
 	return setRawSocketMark(sysconn)
 }
 
-// SetSocketOpt sets the SO_MARK option on the given file descriptor
-func SetSocketOpt(fd int) error {
-	if !AdvancedRouting() {
-		return nil
-	}
-
-	return setSocketOptInt(fd)
-}
-
 func setRawSocketMark(conn syscall.RawConn) error {
 	var setErr error
 
