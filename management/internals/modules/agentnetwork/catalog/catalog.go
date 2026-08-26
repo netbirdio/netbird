@@ -120,8 +120,7 @@ type Provider struct {
 	// Discovery, when non-nil, describes how to ask this vendor which
 	// models the operator's own credential can actually reach, so the
 	// provider form can offer a live list instead of only the hand-curated
-	// Models above. Nil for entries with no listing endpoint (gateways
-	// vary too much) — those keep free-text entry.
+	// Models above. Nil entries keep free-text entry.
 	Discovery *Discovery
 }
 
@@ -158,10 +157,13 @@ const (
 // one from the caller is also what keeps this from being an open proxy: the
 // only hosts management will dial are the ones written here.
 type Discovery struct {
-	Host  string
-	Path  string
-	Query string
-	Shape ListingShape
+	Host            string
+	Path            string
+	Query           string
+	Shape           ListingShape
+	// ExactModelsOnly omits wildcard patterns from listings when NetBird's
+	// provider model rows cannot represent the vendor's matching semantics.
+	ExactModelsOnly bool
 	// Headers are static headers the vendor requires beyond the credential
 	// (Anthropic versions its API through one and rejects a request without
 	// it). The auth header itself comes from AuthHeaderName/Template.
@@ -651,8 +653,14 @@ var providers = []Provider{
 		BrandColor:         "#8023C3",
 		// Agentgateway accepts both OpenAI and Anthropic request shapes.
 		// Leave ParserID empty so the proxy detects the shape from the URL.
-		ParserID:      "",
-		RouterVendors: []string{"openai", "anthropic"},
+		ParserID:        "",
+		RouterVendors:   []string{"openai", "anthropic"},
+		PricingSurfaces: []string{"openai", "anthropic"},
+		Discovery: &Discovery{
+			Path:            "/v1/models",
+			Shape:           ShapeOpenAIData,
+			ExactModelsOnly: true,
+		},
 		IdentityInjection: &IdentityInjection{
 			HeaderPair: &HeaderPairInjection{
 				EndUserIDHeader: "x-netbird-user-id",

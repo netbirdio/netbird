@@ -49,7 +49,15 @@ func TestAgentgatewayCatalogEntry(t *testing.T) {
 	assert.Empty(t, entry.ParserID, "URL detection must select the OpenAI or Anthropic parser")
 	assert.Equal(t, []string{"openai", "anthropic"}, entry.RouterVendors,
 		"agentgateway must accept both parser surfaces")
+	assert.Equal(t, []string{"openai", "anthropic"}, entry.PricingSurfaces,
+		"agentgateway models can use either pricing surface")
 	assert.Empty(t, entry.Models, "an empty model list makes agentgateway a catch-all route")
+	require.NotNil(t, entry.Discovery)
+	assert.Empty(t, entry.Discovery.Host, "discovery must use the configured proxy URL")
+	assert.Equal(t, "/v1/models", entry.Discovery.Path)
+	assert.Equal(t, ShapeOpenAIData, entry.Discovery.Shape)
+	assert.True(t, entry.Discovery.ExactModelsOnly,
+		"wildcard model semantics are not supported by NetBird")
 
 	require.NotNil(t, entry.IdentityInjection)
 	require.NotNil(t, entry.IdentityInjection.HeaderPair)
