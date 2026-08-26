@@ -477,8 +477,6 @@ configure_domain() {
   local prompted="false"
   if ! check_nb_domain "$NETBIRD_DOMAIN"; then
     if ! tty_available; then
-      # check_nb_domain has already explained what is wrong with the value; all
-      # that is left is to say which knob to turn, since there is no prompt.
       if [[ -n "$NETBIRD_DOMAIN" ]]; then
         echo "NETBIRD_DOMAIN='$NETBIRD_DOMAIN' cannot be used for a non-interactive install." > /dev/stderr
       else
@@ -490,9 +488,6 @@ configure_domain() {
     prompted="true"
   fi
 
-  # read_nb_domain already probed DNS and asked whether to continue, so only the
-  # env-var path is left to cover. It stays a warning there: an unattended
-  # install may legitimately run before the record is published.
   if [[ "$prompted" == "false" && "$NETBIRD_DOMAIN" != "use-ip" ]] && ! check_domain_resolves "$NETBIRD_DOMAIN"; then
     echo "Warning: '$NETBIRD_DOMAIN' does not resolve via DNS from this host." > /dev/stderr
     echo "TLS certificate issuance and client connections will fail until it does." > /dev/stderr
