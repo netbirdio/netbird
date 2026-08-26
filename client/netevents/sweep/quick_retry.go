@@ -1,11 +1,11 @@
-package netsweep
+package sweep
 
 import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
 
-	"github.com/netbirdio/netbird/client/netstate"
+	"github.com/netbirdio/netbird/client/netevents/netstate"
 )
 
 const quickRetryDelay = 200 * time.Millisecond
