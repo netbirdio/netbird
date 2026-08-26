@@ -886,17 +886,9 @@ func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 	// offers, so a previously active peer left idle cannot reconnect until the
 	// remote's connection expires.
 	for _, p := range modified {
-		if err := e.addNewPeer(p); err != nil {
+		if err := e.addNewPeer(p, active[p.GetWgPubKey()]); err != nil {
 			return err
 		}
-		if !active[p.GetWgPubKey()] {
-			continue
-		}
-		conn, ok := e.peerStore.PeerConn(p.GetWgPubKey())
-		if !ok {
-			continue
-		}
-		e.connMgr.ActivatePeer(e.ctx, conn)
 	}
 	return nil
 }
@@ -1847,7 +1839,7 @@ func addrToString(addr netip.Addr) string {
 // addNewPeers adds peers that were not know before but arrived from the Management service with the update
 func (e *Engine) addNewPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 	for _, p := range peersUpdate {
-		err := e.addNewPeer(p)
+		err := e.addNewPeer(p, false)
 		if err != nil {
 			return err
 		}
@@ -1855,8 +1847,9 @@ func (e *Engine) addNewPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 	return nil
 }
 
-// addNewPeer add peer if connection doesn't exist
-func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
+// addNewPeer add peer if connection doesn't exist. active registers the peer with an
+// already established connection instead of an idle lazy one.
+func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig, active bool) error {
 	peerKey := peerConfig.GetWgPubKey()
 	peerIPs := make([]netip.Prefix, 0, len(peerConfig.GetAllowedIps()))
 	if _, ok := e.peerStore.PeerConn(peerKey); ok {
@@ -1890,7 +1883,7 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 		log.Warnf("error adding peer %s to status recorder, got error: %v", peerKey, err)
 	}
 
-	if exists := e.connMgr.AddPeerConn(e.ctx, peerKey, conn); exists {
+	if exists := e.connMgr.AddPeerConn(e.ctx, peerKey, conn, active); exists {
 		conn.Close(false)
 		return fmt.Errorf("peer already exists: %s", peerKey)
 	}
