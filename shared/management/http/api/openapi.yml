@@ -5345,7 +5345,7 @@ components:
         upstream_url:
           type: string
           description: |
-            The upstream being configured. Used to reach vendors that serve their listing from the same host as inference, and to read back the region for those whose host embeds one. Ignored when provider_id is supplied.
+            The upstream being configured. Used to reach vendors that serve their listing from the same host as inference, and to read back the region for those whose host embeds one. Sent alongside provider_id, it overrides the stored upstream, so an edit can be listed against the URL on the form before it is saved.
           example: "https://bedrock-runtime.eu-central-1.amazonaws.com"
         api_key:
           type: string
@@ -5353,7 +5353,7 @@ components:
           example: "sk-..."
         provider_id:
           type: string
-          description: Existing Agent Network provider record whose stored credential and upstream should be used. Lets the form refresh the list without the client holding the key.
+          description: Existing Agent Network provider record to query with. Its stored credential is used, and its upstream unless upstream_url overrides it, so the form can refresh the list without the client holding the key.
           example: "ch8i4ug6lnn4g9hqv7m0"
       required:
         - catalog_provider_id

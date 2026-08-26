@@ -204,9 +204,11 @@ func (m *managerImpl) GetProvider(ctx context.Context, accountID, userID, provid
 
 // DiscoverProviderModels asks the vendor which models a credential can reach.
 //
-// recordID, when set, names an existing provider whose stored credential and
-// upstream are used instead of the ones in req — so the dashboard can refresh
-// the list without ever holding the key.
+// recordID, when set, names an existing provider whose stored credential is
+// used instead of the one in req — so the dashboard can refresh the list
+// without ever holding the key. An upstream in req overrides the stored one,
+// which is what lets a form list against a URL the operator has typed but not
+// saved yet, using the credential they cannot retype.
 //
 // Gated on Create rather than Read: this spends the operator's credential
 // against a third party, which is not something a read-only role should be
@@ -227,8 +229,15 @@ func (m *managerImpl) DiscoverProviderModels(ctx context.Context, accountID, use
 		// name a different one would run a provider's credential against
 		// whichever vendor endpoint they picked.
 		req.CatalogID = record.ProviderID
-		req.UpstreamURL = record.UpstreamURL
 		req.APIKey = record.APIKey
+		// The upstream is the one field the caller may override, and only for
+		// entries that serve their listing from it. Those are the operator's
+		// own endpoints, reached with their own credential, so an unsaved URL
+		// is no more reachable here than a saved one — and the SSRF guard
+		// treats both alike.
+		if strings.TrimSpace(req.UpstreamURL) == "" {
+			req.UpstreamURL = record.UpstreamURL
+		}
 	}
 
 	models, err := m.modelDiscovery.Fetch(ctx, req)

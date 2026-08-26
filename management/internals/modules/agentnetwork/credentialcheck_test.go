@@ -456,3 +456,50 @@ func TestDiscoverProviderModels_SurfacesTheVendorRefusal(t *testing.T) {
 
 	require.EqualError(t, err, "the provider rejected the credential")
 }
+
+// TestDiscoverProviderModels_ListsAgainstTheUrlOnTheForm covers the edit the
+// operator cannot otherwise make: the upstream has been retyped and the
+// credential has not, because the API never returned it to be retyped. Naming
+// the record supplies the key; the request supplies the URL under test.
+func TestDiscoverProviderModels_ListsAgainstTheUrlOnTheForm(t *testing.T) {
+	ctx := context.Background()
+	f := newBootstrapFixture(t)
+	// Twice: the create, and the listing, which is gated on Create too.
+	f.expectPermission("account1", "user1", modules.AgentNetworkProviders, operations.Create, true)
+	f.expectPermission("account1", "user1", modules.AgentNetworkProviders, operations.Create, true)
+
+	created, err := f.manager.CreateProvider(ctx, "user1", newCheckedProvider("account1"))
+	require.NoError(t, err)
+	f.vendor.requests = nil
+
+	_, err = f.manager.DiscoverProviderModels(ctx, "account1", "user1", modeldiscovery.Request{
+		CatalogID:   "openai_api",
+		UpstreamURL: "https://gateway.example.com",
+	}, created.ID)
+	require.NoError(t, err)
+
+	asked := f.vendor.only(t)
+	require.Equal(t, "https://gateway.example.com", asked.UpstreamURL, "the typed url must be the one listed against")
+	require.Equal(t, "sk-good", asked.APIKey, "and the stored key must be what lists it")
+}
+
+// TestDiscoverProviderModels_FallsBackToTheStoredUrl keeps the plain refresh
+// working: a request naming only the record still reaches the saved upstream.
+func TestDiscoverProviderModels_FallsBackToTheStoredUrl(t *testing.T) {
+	ctx := context.Background()
+	f := newBootstrapFixture(t)
+	f.expectPermission("account1", "user1", modules.AgentNetworkProviders, operations.Create, true)
+	f.expectPermission("account1", "user1", modules.AgentNetworkProviders, operations.Create, true)
+
+	created, err := f.manager.CreateProvider(ctx, "user1", newCheckedProvider("account1"))
+	require.NoError(t, err)
+	stored := f.vendor.only(t).UpstreamURL
+	f.vendor.requests = nil
+
+	_, err = f.manager.DiscoverProviderModels(ctx, "account1", "user1", modeldiscovery.Request{
+		CatalogID: "openai_api",
+	}, created.ID)
+	require.NoError(t, err)
+
+	require.Equal(t, stored, f.vendor.only(t).UpstreamURL)
+}
