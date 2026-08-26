@@ -1349,6 +1349,18 @@
     "error.unknown": {
         "message": "Помилка операції."
     },
+    "error.elevation_unavailable": {
+        "message": "NetBird не зміг запросити в системи привілеї, необхідні для внесення змін. Замість цього виконайте:"
+    },
+    "error.elevation_failed": {
+        "message": "Не вдалося застосувати зміни з підвищеними привілеями. Замість цього виконайте:"
+    },
+    "settings.ssh.privilege.actorRoot": {
+        "message": "прав root"
+    },
+    "settings.ssh.privilege.actorAdministrator": {
+        "message": "прав адміністратора"
+    },
     "settings.ssh.privilege.hint": {
         "message": "Потребує {actor}. Замість цього виконайте:"
     },
@@ -1357,5 +1369,8 @@
     },
     "settings.ssh.privilege.oneWayInverted": {
         "message": "Ви можете увімкнути це, але щоб вимкнути знову, знадобиться {actor}:"
+    },
+        "settings.ssh.privilege.authorizePending": {
+        "message": "Очікування авторизації…"
     }
 }
