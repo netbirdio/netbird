@@ -150,10 +150,32 @@ func TestNRPTCatchAllRule(t *testing.T) {
 	assert.EqualValues(t, dnsPolicyConfigConfigOptionsValue, opts)
 	k.Close()
 
+	// .local is carved back out: RFC 6762 reserves it for mDNS, so the rule
+	// names the namespace and lists no servers.
+	ek, err := registry.OpenKey(registry.LOCAL_MACHINE, dnsPolicyConfigExemptLocalPath, registry.QUERY_VALUE)
+	require.NoError(t, err, "exemption rule should exist alongside the catch-all")
+
+	exemptNames, _, err := ek.GetStringsValue(dnsPolicyConfigNameKey)
+	require.NoError(t, err)
+	assert.Equal(t, []string{nrptLocalNamespace}, exemptNames)
+
+	exemptServers, _, err := ek.GetStringValue(dnsPolicyConfigGenericDNSServersKey)
+	require.NoError(t, err, "the value has to be present, empty: without it Windows drops the rule")
+	assert.Empty(t, exemptServers, "an exemption rule lists no servers")
+
+	exemptOpts, _, err := ek.GetIntegerValue(dnsPolicyConfigConfigOptionsKey)
+	require.NoError(t, err)
+	assert.EqualValues(t, dnsPolicyConfigConfigOptionsValue, exemptOpts, "same options as a normal rule; the empty server list is what makes it an exemption")
+	ek.Close()
+
 	require.NoError(t, cfg.applyDNSConfig(matchOnly, nil))
 	exists, err = registryKeyExists(dnsPolicyConfigCatchAllPath)
 	require.NoError(t, err)
 	assert.False(t, exists, "catch-all rule should be removed when RouteAll is cleared")
+
+	exists, err = registryKeyExists(dnsPolicyConfigExemptLocalPath)
+	require.NoError(t, err)
+	assert.False(t, exists, "exemption rule should go with the catch-all it belongs to")
 
 	require.NoError(t, cfg.applyDNSConfig(primary, nil))
 	require.NoError(t, cfg.restoreHostDNS())

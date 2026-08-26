@@ -41,7 +41,14 @@ const (
 	dnsPolicyConfigCatchAllPath    = `SYSTEM\CurrentControlSet\Services\Dnscache\Parameters\DnsPolicyConfig\NetBird-CatchAll`
 	gpoDnsPolicyConfigCatchAllPath = gpoDnsPolicyRoot + `\NetBird-CatchAll`
 
+	dnsPolicyConfigExemptLocalPath    = `SYSTEM\CurrentControlSet\Services\Dnscache\Parameters\DnsPolicyConfig\NetBird-ExemptLocal`
+	gpoDnsPolicyConfigExemptLocalPath = gpoDnsPolicyRoot + `\NetBird-ExemptLocal`
+
 	nrptCatchAllNamespace = "."
+	// nrptLocalNamespace is reserved for multicast DNS by RFC 6762: a unicast
+	// resolver must not answer for it. The catch-all rule would hand it to us
+	// anyway, so it gets an exemption rule of its own.
+	nrptLocalNamespace = ".local"
 
 	// envLegacyDNSResolution restores the pre-catch-all behaviour: the adapter's
 	// NameServer alone, leaving the OS free to query other adapters' resolvers in
@@ -430,9 +437,46 @@ func (r *registryConfigurator) addDNSCatchAllPolicy(ip netip.Addr) error {
 	}
 
 	log.Infof("added catch-all NRPT rule: all DNS queries now resolve exclusively through %s", ip)
+
+	return r.addDNSExemptLocalPolicy()
+}
+
+// addDNSExemptLocalPolicy carves .local back out of the catch-all. RFC 6762
+// reserves it for multicast DNS, so forwarding those names to a unicast
+// upstream answers NXDOMAIN for hosts that do exist - printers, NAS boxes, and
+// anything else announcing itself on the link - and the answer is authoritative
+// enough that Windows stops looking. A rule naming the namespace with no
+// servers hands it back to the DNS client untouched. A more specific rule still
+// wins, so a match domain under .local keeps going through us.
+func (r *registryConfigurator) addDNSExemptLocalPolicy() error {
+	var noServers netip.Addr
+
+	if err := r.configureDNSPolicy(dnsPolicyConfigExemptLocalPath, []string{nrptLocalNamespace}, noServers); err != nil {
+		return fmt.Errorf("configure exempt policy for %s: %w", nrptLocalNamespace, err)
+	}
+
+	if r.gpo {
+		if err := r.configureDNSPolicy(gpoDnsPolicyConfigExemptLocalPath, []string{nrptLocalNamespace}, noServers); err != nil {
+			return fmt.Errorf("configure gpo exempt policy for %s: %w", nrptLocalNamespace, err)
+		}
+		if err := refreshGroupPolicy(); err != nil {
+			log.Warnf("failed to refresh group policy: %v", err)
+		}
+	}
+
+	log.Infof("added NRPT exemption for %s, leaving it to the OS resolver", nrptLocalNamespace)
 	return nil
 }
 
+// configureDNSPolicy writes one NRPT rule. An invalid ip writes an exemption
+// rule: the namespace with an empty server list, which tells the DNS client to
+// resolve those names the way it would without any rule at all.
+//
+// The empty string is the whole difference, and it has to be written: dropping
+// the value and clearing ConfigOptions instead produces a rule Windows treats
+// as a no-op, keeps out of Get-DnsClientNrptPolicy -Effective, and ignores in
+// favour of the catch-all. 0x8 says the server list is the meaningful part of
+// the rule, and an empty list then means "no server, resolve normally".
 func (r *registryConfigurator) configureDNSPolicy(policyPath string, domains []string, ip netip.Addr) error {
 	if err := removeRegistryKeyFromDNSPolicyConfig(policyPath); err != nil {
 		return fmt.Errorf("remove existing dns policy: %w", err)
@@ -452,7 +496,11 @@ func (r *registryConfigurator) configureDNSPolicy(policyPath string, domains []s
 		return fmt.Errorf("set %s: %w", dnsPolicyConfigNameKey, err)
 	}
 
-	if err := regKey.SetStringValue(dnsPolicyConfigGenericDNSServersKey, ip.String()); err != nil {
+	var servers string
+	if ip.IsValid() {
+		servers = ip.String()
+	}
+	if err := regKey.SetStringValue(dnsPolicyConfigGenericDNSServersKey, servers); err != nil {
 		return fmt.Errorf("set %s: %w", dnsPolicyConfigGenericDNSServersKey, err)
 	}
 
@@ -573,6 +621,12 @@ func (r *registryConfigurator) removeDNSMatchPolicies() error {
 
 	if err := removeRegistryKeyFromDNSPolicyConfig(gpoDnsPolicyConfigMatchPath); err != nil {
 		merr = multierror.Append(merr, fmt.Errorf("remove GPO base entry: %w", err))
+	}
+
+	for _, path := range []string{dnsPolicyConfigExemptLocalPath, gpoDnsPolicyConfigExemptLocalPath} {
+		if err := removeRegistryKeyFromDNSPolicyConfig(path); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("remove exempt entry %s: %w", path, err))
+		}
 	}
 
 	if err := removeRegistryKeyFromDNSPolicyConfig(dnsPolicyConfigCatchAllPath); err != nil {
