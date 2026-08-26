@@ -222,7 +222,30 @@ func (c *Client) NotifyNetworkChange() {
 }
 
 // Stop the internal client and free the resources
+// Stop tears the client down and waits for the run loop to exit, so a caller
+// that restarts immediately cannot race the outgoing teardown.
 func (c *Client) Stop() {
+	done := c.stopLocked(true)
+	if done == nil {
+		return
+	}
+
+	select {
+	case <-done:
+	case <-time.After(stopRunWaitTimeout):
+		log.Warnf("Stop: timed out waiting for the run loop to exit")
+	}
+}
+
+// StopWithoutWait tears the client down without waiting for the run loop.
+// Use it where the caller is on a deadline the wait could overrun, such as
+// NEPacketTunnelProvider.stopTunnel, which iOS gives only a few seconds
+// before it kills the extension.
+func (c *Client) StopWithoutWait() {
+	c.stopLocked(false)
+}
+
+func (c *Client) stopLocked(wait bool) chan struct{} {
 	c.stateMu.Lock()
 	c.runGeneration++
 	cc := c.connectClient
@@ -242,18 +265,19 @@ func (c *Client) Stop() {
 	}
 
 	if cc != nil {
-		if err := cc.Stop(); err != nil {
-			log.Errorf("Stop: failed stopping the connect client: %v", err)
+		stopConnectClient := func() {
+			if err := cc.Stop(); err != nil {
+				log.Errorf("Stop: failed stopping the connect client: %v", err)
+			}
+		}
+		if wait {
+			stopConnectClient()
+		} else {
+			go stopConnectClient()
 		}
 	}
 
-	if done != nil {
-		select {
-		case <-done:
-		case <-time.After(stopRunWaitTimeout):
-			log.Warnf("Stop: timed out waiting for the run loop to exit")
-		}
-	}
+	return done
 }
 
 // DebugBundle generates a debug bundle, uploads it and returns the upload key.
