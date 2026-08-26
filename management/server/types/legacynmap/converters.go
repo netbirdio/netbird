@@ -50,6 +50,7 @@ func peerToComponent(p *nbpeer.Peer) *ComponentPeer {
 		SupportsIPv6:           p.SupportsIPv6(),
 		LoginExpirationEnabled: p.LoginExpirationEnabled,
 		AddedWithSSOLogin:      p.AddedWithSSOLogin(),
+		ProxyEmbedded:          p.ProxyMeta.Embedded,
 	}
 	if p.LastLogin != nil {
 		cp.LastLogin = *p.LastLogin

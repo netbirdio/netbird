@@ -15,6 +15,7 @@
       ],
       "sshConfig": {},
       "fqdn": "app-peer.netbird.test",
+      "lazyState": "LazyStateLazy",
       "agentVersion": "0.60.0"
     }
   ],

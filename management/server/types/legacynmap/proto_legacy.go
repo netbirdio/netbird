@@ -40,7 +40,7 @@ func ToProtocolRoute(route *nbroute.Route) *proto.Route {
 	}
 }
 
-func AppendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*ComponentPeer, dnsName string, includeIPv6 bool) []*proto.RemotePeerConfig {
+func AppendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*ComponentPeer, dnsName string, includeIPv6 bool, localIsProxy bool) []*proto.RemotePeerConfig {
 	for _, rPeer := range peers {
 		allowedIPs := []string{rPeer.IP.String() + "/32"}
 		if includeIPv6 && rPeer.IPv6.IsValid() {
@@ -52,9 +52,22 @@ func AppendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*ComponentPee
 			SshConfig:    &proto.SSHConfig{SshPubKey: []byte(rPeer.SSHKey)},
 			Fqdn:         rPeer.FQDN(dnsName),
 			AgentVersion: rPeer.AgentVersion,
+			LazyState:    lazyStateFor(localIsProxy, rPeer),
 		})
 	}
 	return dst
+}
+
+// lazyStateFor returns the per-peer lazy override for a remote peer. Connections
+// involving an ephemeral proxy peer on either endpoint default to lazy so shared
+// proxy infrastructure is not kept permanently connected to every peer. All
+// other peers follow the account-wide flag. A future admin-facing per-peer
+// setting can return LazyStateEager here to force a peer always-active.
+func lazyStateFor(localIsProxy bool, rPeer *ComponentPeer) proto.LazyState {
+	if localIsProxy || rPeer.ProxyEmbedded {
+		return proto.LazyState_LazyStateLazy
+	}
+	return proto.LazyState_LazyStateDefault
 }
 
 func buildJWTConfig(config *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfig.DeviceAuthorizationFlow) *proto.JWTConfig {
@@ -147,6 +160,7 @@ func ToProtoNetworkMap(
 ) *proto.NetworkMap {
 	includeIPv6 := peer.SupportsIPv6() && peer.IPv6.IsValid()
 	useSourcePrefixes := peer.SupportsSourcePrefixes()
+	localIsProxy := peer.ProxyMeta.Embedded
 
 	peerConfig := toPeerConfig(peer, nm.Network, dnsName, settings, httpConfig, nil, nm.EnableSSH, nm.ForceRoutingPeerDNSResolution)
 
@@ -158,11 +172,11 @@ func ToProtoNetworkMap(
 	}
 
 	remotePeers := make([]*proto.RemotePeerConfig, 0, len(nm.Peers)+len(nm.OfflinePeers))
-	remotePeers = AppendRemotePeerConfig(remotePeers, nm.Peers, dnsName, includeIPv6)
+	remotePeers = AppendRemotePeerConfig(remotePeers, nm.Peers, dnsName, includeIPv6, localIsProxy)
 	pm.RemotePeers = remotePeers
 	pm.RemotePeersIsEmpty = len(remotePeers) == 0
 
-	pm.OfflinePeers = AppendRemotePeerConfig(nil, nm.OfflinePeers, dnsName, includeIPv6)
+	pm.OfflinePeers = AppendRemotePeerConfig(nil, nm.OfflinePeers, dnsName, includeIPv6, localIsProxy)
 
 	firewallRules := networkmap.ToProtocolFirewallRules(nm.FirewallRules, includeIPv6, useSourcePrefixes)
 	pm.FirewallRules = firewallRules
