@@ -8,10 +8,30 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
+	signal "github.com/netbirdio/netbird/shared/signal/client"
+	sProto "github.com/netbirdio/netbird/shared/signal/proto"
 )
 
+// stubSignalClient satisfies signal.Client as a no-op so the candidate
+// goroutine spawned by a real GatherCandidates never dereferences a nil
+// signaler in tests.
+type stubSignalClient struct{}
+
+func (stubSignalClient) Close() error                                               { return nil }
+func (stubSignalClient) StreamConnected() bool                                      { return false }
+func (stubSignalClient) GetStatus() signal.Status                                   { return signal.StreamDisconnected }
+func (stubSignalClient) Receive(context.Context, func(*sProto.Message) error) error { return nil }
+func (stubSignalClient) Ready() bool                                                { return false }
+func (stubSignalClient) IsHealthy() bool                                            { return false }
+func (stubSignalClient) WaitStreamConnected(context.Context)                        {}
+func (stubSignalClient) SendToStream(*sProto.EncryptedMessage) error                { return nil }
+func (stubSignalClient) Send(*sProto.Message) error                                 { return nil }
+func (stubSignalClient) SetOnReconnectedListener(func())                            {}
+
+// newTestWorkerICE builds a worker with real pion plumbing and no-op signaling.
 func newTestWorkerICE(t *testing.T) *WorkerICE {
 	t.Helper()
 
@@ -20,7 +40,8 @@ func newTestWorkerICE(t *testing.T) *WorkerICE {
 	stunTurn.Store(nil)
 	config.ICEConfig.StunTurn = stunTurn
 
-	w, err := NewWorkerICE(context.Background(), log.WithField("test", t.Name()), config, nil, nil, nil, nil, false)
+	w, err := NewWorkerICE(context.Background(), log.WithField("test", t.Name()), config, nil,
+		NewSignaler(stubSignalClient{}, wgtypes.Key{}), nil, nil, false)
 	require.NoError(t, err, "worker setup must succeed")
 	return w
 }
