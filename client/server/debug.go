@@ -73,8 +73,8 @@ func (s *Server) generateDebugBundle(req *proto.DebugBundleRequest, uiOpener deb
 	}
 
 	var clientMetrics debug.MetricsExporter
-	if s.connectClient != nil {
-		if engine := s.connectClient.Engine(); engine != nil {
+	if s.runs.Current() != nil {
+		if engine := s.runs.Current().Engine(); engine != nil {
 			if cm := engine.GetClientMetrics(); cm != nil {
 				clientMetrics = cm
 			}
@@ -93,8 +93,8 @@ func (s *Server) generateDebugBundle(req *proto.DebugBundleRequest, uiOpener deb
 	defer s.cleanupBundleCapture()
 
 	var refreshStatus func()
-	if s.connectClient != nil {
-		engine := s.connectClient.Engine()
+	if s.runs.Current() != nil {
+		engine := s.runs.Current().Engine()
 		if engine != nil {
 			refreshStatus = func() {
 				log.Debug("refreshing system health status for debug bundle")
@@ -162,8 +162,8 @@ func (s *Server) SetLogLevel(_ context.Context, req *proto.SetLogLevelRequest) (
 
 	log.SetLevel(level)
 
-	if s.connectClient != nil {
-		s.connectClient.SetLogLevel(level)
+	if s.runs.Current() != nil {
+		s.runs.Current().SetLogLevel(level)
 	}
 
 	log.Infof("Log level set to %s", level.String())
@@ -217,15 +217,15 @@ func (s *Server) SetSyncResponsePersistence(_ context.Context, req *proto.SetSyn
 
 	enabled := req.GetEnabled()
 	s.persistSyncResponse = enabled
-	if s.connectClient != nil {
-		s.connectClient.SetSyncResponsePersistence(enabled)
+	if s.runs.Current() != nil {
+		s.runs.Current().SetSyncResponsePersistence(enabled)
 	}
 
 	return &proto.SetSyncResponsePersistenceResponse{}, nil
 }
 
 func (s *Server) getLatestSyncResponse() (*mgmProto.SyncResponse, error) {
-	cClient := s.connectClient
+	cClient := s.runs.Current()
 	if cClient == nil {
 		return nil, errors.New("connect client is not initialized")
 	}

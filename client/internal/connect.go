@@ -599,11 +599,25 @@ func (c *ConnectClient) Status() StatusType {
 }
 
 func (c *ConnectClient) Stop() error {
+	return c.StopWithContext(context.Background())
+}
+
+// StopWithContext cancels the run loop and waits for it to exit, giving up the
+// wait when ctx is done and returning ctx.Err(). Giving up only abandons the
+// wait: the run stays cancelled and finishes its teardown in the background, so
+// a caller that returns early must not assume the engine is already gone.
+func (c *ConnectClient) StopWithContext(ctx context.Context) error {
 	c.runCancel()
-	if c.runStarted.Load() {
-		<-c.runExited
+	if !c.runStarted.Load() {
+		return nil
 	}
-	return nil
+
+	select {
+	case <-c.runExited:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // SetSyncResponsePersistence enables or disables sync response persistence.

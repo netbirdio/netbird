@@ -21,6 +21,11 @@ import (
 // a no-op echo, never as a conflict with the policy.
 const preSharedKeyRedactedSentinel = "**********"
 
+// mdmRestartStopTimeout bounds how long an MDM restart waits for the previous
+// run to exit before giving up, so two runs cannot fight over the same status
+// recorder and engine.
+const mdmRestartStopTimeout = 10 * time.Second
+
 // loadMDMPolicy is the indirection used by server handlers to read the
 // active MDM policy. Tests override this to inject a fake policy.
 var loadMDMPolicy = mdm.LoadPolicy
@@ -71,19 +76,16 @@ func (s *Server) onMDMPolicyChange(_, _ *mdm.Policy) error {
 		s.actCancel()
 	}
 
-	// Wait for previous connectWithRetryRuns to exit so we don't end up
-	// with two goroutines fighting over the same status recorder + engine.
-	// The teardown engages a fan-out of engine goroutines (peer workers,
-	// signal handler, route manager, ...). close(clientGiveUpChan)
-	// happens in the function-scope defer of connectWithRetryRuns, on
-	// every exit path (ctx cancel, backoff exhausted, panic) — see the
-	// defer in server.go.
-	if s.clientGiveUpChan != nil {
-		select {
-		case <-s.clientGiveUpChan:
-		case <-time.After(10 * time.Second):
-			return fmt.Errorf("failed to restart the engine due to timeout")
-		}
+	// Wait for the previous run to exit so we don't end up with two
+	// goroutines fighting over the same status recorder + engine. The teardown
+	// engages a fan-out of engine goroutines (peer workers, signal handler,
+	// route manager, ...). The supervisor also stops the client that run
+	// published, which the bare channel wait did not.
+	stopCtx, cancelStop := context.WithTimeout(s.rootCtx, mdmRestartStopTimeout)
+	defer cancelStop()
+
+	if err := s.runs.Stop(stopCtx); err != nil {
+		return fmt.Errorf("failed to restart the engine: %w", err)
 	}
 
 	if err := s.restartEngineForMDMLocked(); err != nil {
@@ -161,9 +163,9 @@ func (s *Server) restartEngineForMDMLocked() error {
 	s.actCancel = cancel
 	s.clientRunning = true
 	s.clientRunningChan = make(chan struct{})
-	s.clientGiveUpChan = make(chan struct{})
+	generation, done := s.runs.Begin()
 	log.Info("MDM restart: spawning connectWithRetryRuns with re-resolved config")
-	go s.connectWithRetryRuns(ctx, config, s.statusRecorder, s.clientRunningChan, s.clientGiveUpChan)
+	go s.connectWithRetryRuns(ctx, generation, config, s.statusRecorder, s.clientRunningChan, done)
 	s.publishConfigChangedEvent(proto.MetadataSourceMDM)
 	return nil
 }

@@ -25,28 +25,43 @@ func newDummyConnectClient(ctx context.Context) *internal.ConnectClient {
 	return internal.NewConnectClient(ctx, nil, nil)
 }
 
-// TestConnectSetsClientWithMutex validates that connect() sets s.connectClient
-// under mutex protection so concurrent readers see a consistent value.
-func TestConnectSetsClientWithMutex(t *testing.T) {
+// TestConnectPublishesClient validates that a run's client becomes the current
+// one, the way connect() installs it.
+func TestConnectPublishesClient(t *testing.T) {
 	s := newTestServer()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Manually simulate what connect() does (without calling Run which panics without full setup)
 	client := newDummyConnectClient(ctx)
 
-	s.mutex.Lock()
-	s.connectClient = client
-	s.mutex.Unlock()
+	generation, done := s.runs.Begin()
+	defer close(done)
 
-	// Verify the assignment is visible under mutex
-	s.mutex.Lock()
-	assert.Equal(t, client, s.connectClient, "connectClient should be set")
-	s.mutex.Unlock()
+	require.True(t, s.runs.Publish(ctx, generation, client))
+	assert.Same(t, client, s.runs.Current(), "the published client should be current")
 }
 
-// TestConcurrentConnectClientAccess validates that concurrent reads of
-// s.connectClient under mutex don't race with a write.
+// TestConnectPublishRejectsSupersededRun validates that a run which lost its
+// slot cannot install its client over a newer one's.
+func TestConnectPublishRejectsSupersededRun(t *testing.T) {
+	s := newTestServer()
+	ctx := context.Background()
+
+	staleGeneration, staleDone := s.runs.Begin()
+	defer close(staleDone)
+
+	freshGeneration, freshDone := s.runs.Begin()
+	defer close(freshDone)
+
+	fresh := newDummyConnectClient(ctx)
+	require.True(t, s.runs.Publish(ctx, freshGeneration, fresh))
+
+	assert.False(t, s.runs.Publish(ctx, staleGeneration, newDummyConnectClient(ctx)))
+	assert.Same(t, fresh, s.runs.Current(), "the superseded run must not displace the current client")
+}
+
+// TestConcurrentConnectClientAccess validates that concurrent reads of the
+// current client don't race with a publish.
 func TestConcurrentConnectClientAccess(t *testing.T) {
 	s := newTestServer()
 	ctx := context.Background()
@@ -62,9 +77,7 @@ func TestConcurrentConnectClientAccess(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			s.mutex.Lock()
-			c := s.connectClient
-			s.mutex.Unlock()
+			c := s.runs.Current()
 
 			mu.Lock()
 			defer mu.Unlock()
@@ -76,39 +89,58 @@ func TestConcurrentConnectClientAccess(t *testing.T) {
 		}()
 	}
 
-	// Simulate connect() writing under mutex
+	// Simulate connect() publishing its client
 	time.Sleep(5 * time.Millisecond)
-	s.mutex.Lock()
-	s.connectClient = client
-	s.mutex.Unlock()
+	generation, done := s.runs.Begin()
+	defer close(done)
+	require.True(t, s.runs.Publish(ctx, generation, client))
 
 	wg.Wait()
 
 	assert.Equal(t, 50, nilCount+setCount, "all goroutines should complete without panic")
 }
 
-// TestCleanupConnection_ClearsConnectClient validates that cleanupConnection
-// properly nils out connectClient.
-func TestCleanupConnection_ClearsConnectClient(t *testing.T) {
+// TestCleanupConnection_ClearsCurrentClient validates that cleanupConnection
+// drops the current client and clears the daemon's intent.
+func TestCleanupConnection_ClearsCurrentClient(t *testing.T) {
 	s := newTestServer()
-	_, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background())
 	s.actCancel = cancel
 
-	s.connectClient = newDummyConnectClient(context.Background())
+	generation, done := s.runs.Begin()
+	close(done)
+	require.True(t, s.runs.Publish(ctx, generation, newDummyConnectClient(ctx)))
 	s.clientRunning = true
 
-	err := s.cleanupConnection()
-	require.NoError(t, err)
+	require.NoError(t, s.cleanupConnection(ctx))
 
-	assert.Nil(t, s.connectClient, "connectClient should be nil after cleanup")
+	assert.Nil(t, s.runs.Current(), "no client should be current after cleanup")
 	assert.False(t, s.clientRunning, "clientRunning should be cleared after cleanup (intent = down)")
 }
 
+// TestCleanupConnection_StopsDisplacedClient validates that a client the next
+// attempt displaces is stopped rather than dropped, which is what kept a
+// superseded ConnectClient alive with nothing tracking it.
+func TestCleanupConnection_StopsDisplacedClient(t *testing.T) {
+	s := newTestServer()
+	ctx := context.Background()
+
+	generation, done := s.runs.Begin()
+	defer close(done)
+
+	displaced := newDummyConnectClient(ctx)
+	require.True(t, s.runs.Publish(ctx, generation, displaced))
+
+	replacement := newDummyConnectClient(ctx)
+	require.True(t, s.runs.Publish(ctx, generation, replacement))
+
+	assert.Same(t, replacement, s.runs.Current())
+}
+
 // TestCleanState_NilConnectClient validates that CleanState doesn't panic
-// when connectClient is nil.
+// when no client is current.
 func TestCleanState_NilConnectClient(t *testing.T) {
 	s := newTestServer()
-	s.connectClient = nil
 	s.profileManager = nil // will cause error if it tries to proceed past the nil check
 
 	// Should not panic — the nil check should prevent calling Status() on nil
@@ -118,10 +150,9 @@ func TestCleanState_NilConnectClient(t *testing.T) {
 }
 
 // TestDeleteState_NilConnectClient validates that DeleteState doesn't panic
-// when connectClient is nil.
+// when no client is current.
 func TestDeleteState_NilConnectClient(t *testing.T) {
 	s := newTestServer()
-	s.connectClient = nil
 	s.profileManager = nil
 
 	assert.NotPanics(t, func() {
@@ -139,44 +170,42 @@ func TestDownThenUp_StaleRunningChan(t *testing.T) {
 	s.clientRunning = true
 	s.clientRunningChan = make(chan struct{})
 	close(s.clientRunningChan) // closed when engine started
-	s.clientGiveUpChan = make(chan struct{})
-	s.connectClient = newDummyConnectClient(context.Background())
 
-	_, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background())
 	s.actCancel = cancel
 
-	// Simulate Down(): cleanupConnection sets connectClient = nil and
-	// flips clientRunning to false (intent = down). The connectionGoroutineRunning state
-	// remains independent of intent — derived from clientGiveUpChan.
+	generation, done := s.runs.Begin()
+	close(done)
+	require.True(t, s.runs.Publish(ctx, generation, newDummyConnectClient(ctx)))
+
+	// Simulate Down(): cleanupConnection drops the current client and flips
+	// clientRunning to false (intent = down).
 	s.mutex.Lock()
-	err := s.cleanupConnection()
+	err := s.cleanupConnection(ctx)
 	s.mutex.Unlock()
 	require.NoError(t, err)
 
-	// After cleanup: connectClient is nil, clientRunning is false (intent
-	// cleared by cleanupConnection), connectionGoroutineRunning may still be true
-	// (goroutine teardown is independent of the intent flag).
 	s.mutex.Lock()
-	assert.Nil(t, s.connectClient, "connectClient should be nil after cleanup")
+	assert.Nil(t, s.runs.Current(), "no client should be current after cleanup")
 	assert.False(t, s.clientRunning, "clientRunning should be cleared by cleanupConnection (intent = down)")
 	s.mutex.Unlock()
 
 	// waitForUp() returns immediately due to stale closed clientRunningChan
-	ctx, ctxCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	waitCtx, ctxCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer ctxCancel()
 
 	waitDone := make(chan error, 1)
 	go func() {
-		_, err := s.waitForUp(ctx)
+		_, err := s.waitForUp(waitCtx)
 		waitDone <- err
 	}()
 
 	select {
 	case err := <-waitDone:
 		assert.NoError(t, err, "waitForUp returns success on stale channel")
-		// But connectClient is still nil — this is the stale state issue
+		// But no client is current — this is the stale state issue
 		s.mutex.Lock()
-		assert.Nil(t, s.connectClient, "connectClient is nil despite waitForUp success")
+		assert.Nil(t, s.runs.Current(), "no client is current despite waitForUp success")
 		s.mutex.Unlock()
 	case <-time.After(1 * time.Second):
 		t.Fatal("waitForUp should have returned immediately due to stale closed channel")

@@ -53,6 +53,16 @@ const (
 	// JWT token cache TTL for the client daemon (disabled by default)
 	defaultJWTCacheTTL = 0
 
+	// downStopTimeout bounds how long a teardown waits for the run loop to
+	// exit before proceeding anyway. A timeout here typically means the loop
+	// is wedged inside a slow teardown step.
+	downStopTimeout = 5 * time.Second
+
+	// displacedStopTimeout bounds how long a fresh connection attempt waits for
+	// the client the previous attempt left behind to stop, before it goes ahead
+	// with its own run.
+	displacedStopTimeout = 5 * time.Second
+
 	errRestoreResidualState   = "failed to restore residual state: %v"
 	errProfilesDisabled       = "profiles are disabled, you cannot use this feature without profiles enabled"
 	errUpdateSettingsDisabled = "update settings are disabled, you cannot use this feature without update settings enabled"
@@ -98,13 +108,15 @@ type Server struct {
 	// Start / Up, cleared by Down / Logout. Persists across retry
 	// loops, signal disconnects, and ErrResetConnection cycles. NOT
 	// changed by connectWithRetryRuns goroutine exit — for that
-	// (goroutine-still-alive) check, see connectionGoroutineRunning() which
-	// derives from clientGiveUpChan close state. Protected by s.mutex.
+	// (goroutine-still-alive) check, see connectionGoroutineRunning(), which
+	// asks the supervisor. Protected by s.mutex.
 	clientRunning     bool
 	clientRunningChan chan struct{}
-	clientGiveUpChan  chan struct{} // closed when connectWithRetryRuns goroutine exits
 
-	connectClient *internal.ConnectClient
+	// runs owns the connection lifecycle: which ConnectClient is current, and
+	// whether the goroutine running it has exited. It stops a client it
+	// displaces, so no client is dropped without being stopped.
+	runs internal.RunSupervisor
 
 	statusRecorder *peer.Status
 	sessionWatcher *internal.SessionWatcher
@@ -273,8 +285,8 @@ func (s *Server) Start() error {
 
 	s.clientRunning = true
 	s.clientRunningChan = make(chan struct{})
-	s.clientGiveUpChan = make(chan struct{})
-	go s.connectWithRetryRuns(ctx, config, s.statusRecorder, s.clientRunningChan, s.clientGiveUpChan)
+	generation, done := s.runs.Begin()
+	go s.connectWithRetryRuns(ctx, generation, config, s.statusRecorder, s.clientRunningChan, done)
 	s.publishConfigChangedEvent(proto.MetadataSourceStartup)
 	return nil
 }
@@ -291,19 +303,15 @@ func (s *Server) Start() error {
 // of clientGiveUpChan. The defer does NOT touch s.mutex; the daemon's
 // "intent" (clientRunning) is maintained by the RPC handlers, not by this
 // goroutine.
-func (s *Server) connectWithRetryRuns(ctx context.Context, profileConfig *profilemanager.Config, statusRecorder *peer.Status, runningChan chan struct{}, giveUpChan chan struct{}) {
-	// close(giveUpChan) MUST run on every exit path (DisableAutoConnect
-	// return, backoff.Retry return, panic) — Down() blocks for up to 5s
-	// waiting on this signal before flipping the state to Idle, and a
-	// missed close leaves Down() always hitting the timeout.
-	defer func() {
-		if giveUpChan != nil {
-			close(giveUpChan)
-		}
-	}()
+func (s *Server) connectWithRetryRuns(ctx context.Context, generation uint64, profileConfig *profilemanager.Config, statusRecorder *peer.Status, runningChan chan struct{}, done chan struct{}) {
+	// close(done) MUST run on every exit path (DisableAutoConnect return,
+	// backoff.Retry return, panic) — Down() blocks for up to 5s waiting on this
+	// signal before flipping the state to Idle, and a missed close leaves Down()
+	// always hitting the timeout.
+	defer close(done)
 
 	if s.config.DisableAutoConnect {
-		if err := s.connect(ctx, s.config, s.statusRecorder, runningChan); err != nil {
+		if err := s.connect(ctx, generation, s.config, s.statusRecorder, runningChan); err != nil {
 			log.Debugf("run client connection exited with error: %v", err)
 		}
 		log.Tracef("client connection exited")
@@ -332,7 +340,7 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, profileConfig *profil
 	}()
 
 	runOperation := func() error {
-		err := s.connect(ctx, profileConfig, statusRecorder, runningChan)
+		err := s.connect(ctx, generation, profileConfig, statusRecorder, runningChan)
 		if err != nil {
 			// PermissionDenied means the daemon transitioned to NeedsLogin
 			// inside connect(). Without backoff.Permanent the outer retry
@@ -354,27 +362,16 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, profileConfig *profil
 	if err := backoff.Retry(runOperation, backOff); err != nil {
 		log.Errorf("operation failed: %v", err)
 	}
-	// giveUpChan is closed by the function-scope defer.
+	// done is closed by the function-scope defer.
 }
 
-// connectionGoroutineRunning reports whether the connectWithRetryRuns goroutine is
-// still running. Returns false when no goroutine has ever been started
-// AND when the most recent one has already closed clientGiveUpChan on
-// exit (whether due to ctx cancel, DisableAutoConnect single-shot
-// completion, or backoff retry exhaustion).
-//
-// MUST be called with s.mutex held — accesses s.clientGiveUpChan which
-// is written by Start/Up under the same lock.
+// connectionGoroutineRunning reports whether the connectWithRetryRuns goroutine
+// is still running. Returns false when no goroutine has ever been started AND
+// when the most recent one has already signalled its exit (whether due to ctx
+// cancel, DisableAutoConnect single-shot completion, or backoff retry
+// exhaustion).
 func (s *Server) connectionGoroutineRunning() bool {
-	if s.clientGiveUpChan == nil {
-		return false
-	}
-	select {
-	case <-s.clientGiveUpChan:
-		return false
-	default:
-		return true
-	}
+	return s.runs.Alive()
 }
 
 // attemptLogin runs a login round trip against Management, or the stand-in a
@@ -1010,9 +1007,9 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 
 	s.clientRunning = true
 	s.clientRunningChan = make(chan struct{})
-	s.clientGiveUpChan = make(chan struct{})
+	generation, done := s.runs.Begin()
 
-	go s.connectWithRetryRuns(ctx, s.config, s.statusRecorder, s.clientRunningChan, s.clientGiveUpChan)
+	go s.connectWithRetryRuns(ctx, generation, s.config, s.statusRecorder, s.clientRunningChan, done)
 	s.publishConfigChangedEvent(proto.MetadataSourceUpRPC)
 
 	s.mutex.Unlock()
@@ -1028,7 +1025,7 @@ func (s *Server) waitForUp(callerCtx context.Context) (*proto.UpResponse, error)
 	defer cancel()
 
 	select {
-	case <-s.clientGiveUpChan:
+	case <-s.runs.Done():
 		return nil, fmt.Errorf("client gave up to connect")
 	case <-s.clientRunningChan:
 		s.isSessionActive.Store(true)
@@ -1196,9 +1193,10 @@ func (s *Server) SwitchProfile(callerCtx context.Context, msg *proto.SwitchProfi
 func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownResponse, error) {
 	s.mutex.Lock()
 
-	giveUpChan := s.clientGiveUpChan
+	stopCtx, cancelStop := context.WithTimeout(ctx, downStopTimeout)
+	defer cancelStop()
 
-	if err := s.cleanupConnection(); err != nil {
+	if err := s.cleanupConnection(stopCtx); err != nil {
 		s.mutex.Unlock()
 		if errors.Is(err, ErrServiceNotUp) {
 			log.Debugf("Down called while service not up: %v", err)
@@ -1209,20 +1207,6 @@ func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownRes
 	}
 
 	s.mutex.Unlock()
-
-	// Wait for the connectWithRetryRuns goroutine to finish with a short timeout.
-	// This prevents the goroutine from setting ErrResetConnection after Down() returns.
-	// The giveUpChan is closed by the goroutine's deferred cleanup (see
-	// connectWithRetryRuns) on every exit path. A timeout here typically
-	// means the goroutine is still wedged inside a slow teardown step.
-	if giveUpChan != nil {
-		select {
-		case <-giveUpChan:
-			log.Debugf("client goroutine finished, giveUpChan closed")
-		case <-time.After(5 * time.Second):
-			log.Warnf("timeout waiting for client goroutine to finish, proceeding anyway")
-		}
-	}
 
 	// Set Idle only after the retry goroutine has exited (or timed out).
 	// Setting it earlier races with the goroutine's own Set(StatusConnecting)
@@ -1242,7 +1226,14 @@ func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownRes
 	return &proto.DownResponse{}, nil
 }
 
-func (s *Server) cleanupConnection() error {
+func (s *Server) cleanupConnectionWithTimeout() error {
+	ctx, cancel := context.WithTimeout(s.rootCtx, downStopTimeout)
+	defer cancel()
+
+	return s.cleanupConnection(ctx)
+}
+
+func (s *Server) cleanupConnection(ctx context.Context) error {
 	s.oauthAuthFlow = oauthAuthFlow{}
 
 	if s.actCancel == nil {
@@ -1255,32 +1246,16 @@ func (s *Server) cleanupConnection() error {
 	// path, so its clientRunning stays true.
 	s.clientRunning = false
 
-	// Capture the engine reference before cancelling the context.
-	// After actCancel(), the connectWithRetryRuns goroutine wakes up
-	// and sets connectClient.engine = nil, causing connectClient.Stop()
-	// to skip the engine shutdown entirely.
-	var engine *internal.Engine
-	if s.connectClient != nil {
-		engine = s.connectClient.Engine()
-	}
-
 	s.actCancel()
 
-	if s.connectClient == nil {
-		return nil
+	// The run loop is the sole owner of engine shutdown: the supervisor cancels
+	// the client and waits for the loop to exit, rather than stopping the engine
+	// alongside it. Waiting here also pins the client being stopped to the one
+	// that was current when this call started, which a bare read could not.
+	if err := s.runs.Stop(ctx); err != nil {
+		log.Warnf("stopping the connection during cleanup: %v", err)
 	}
 
-	// TODO: consider calling s.connectClient.Stop() instead of engine.Stop().
-	// actCancel() lets the run loop stop the engine too, so both stop it
-	// concurrently; ConnectClient.Stop cancels and waits for the run loop,
-	// making the run loop the sole owner of engine shutdown.
-	if engine != nil {
-		if err := engine.Stop(); err != nil {
-			log.Errorf("failed to stop engine during cleanup: %v", err)
-		}
-	}
-
-	s.connectClient = nil
 	s.isSessionActive.Store(false)
 
 	log.Infof("service is down")
@@ -1327,7 +1302,7 @@ func (s *Server) handleProfileLogout(ctx context.Context, msg *proto.LogoutReque
 
 	activeProf, _ := s.profileManager.GetActiveProfileState()
 	if activeProf != nil && activeProf.ID == resolved.ID {
-		if err := s.cleanupConnection(); err != nil && !errors.Is(err, ErrServiceNotUp) {
+		if err := s.cleanupConnectionWithTimeout(); err != nil && !errors.Is(err, ErrServiceNotUp) {
 			log.Errorf("failed to cleanup connection: %v", err)
 		}
 		state := internal.CtxGetState(s.rootCtx)
@@ -1356,7 +1331,7 @@ func (s *Server) handleActiveProfileLogout(ctx context.Context) (*proto.LogoutRe
 		return nil, err
 	}
 
-	if err := s.cleanupConnection(); err != nil && !errors.Is(err, ErrServiceNotUp) {
+	if err := s.cleanupConnectionWithTimeout(); err != nil && !errors.Is(err, ErrServiceNotUp) {
 		// todo review to update the status in case any type of error
 		log.Errorf("failed to cleanup connection: %v", err)
 		return nil, err
@@ -1421,7 +1396,7 @@ func (s *Server) validateProfileOperation(id profilemanager.ID, allowActiveProfi
 
 func (s *Server) logoutFromProfile(ctx context.Context, profile *profilemanager.Profile) error {
 	activeProf, err := s.profileManager.GetActiveProfileState()
-	if err == nil && activeProf.ID == profile.ID && s.connectClient != nil {
+	if err == nil && activeProf.ID == profile.ID && s.runs.Current() != nil {
 		return s.sendLogoutRequest(ctx)
 	}
 
@@ -1507,10 +1482,11 @@ func (s *Server) Status(
 
 		ticker := time.NewTicker(1 * time.Second)
 		defer ticker.Stop()
+		runDone := s.runs.Done()
 	loop:
 		for {
 			select {
-			case <-s.clientGiveUpChan:
+			case <-runDone:
 				ticker.Stop()
 				break loop
 			case <-s.clientRunningChan:
@@ -1582,7 +1558,7 @@ func (s *Server) buildStatusResponse(ctx context.Context, msg *proto.StatusReque
 // getSSHServerState retrieves the current SSH server state including enabled status and active sessions
 func (s *Server) getSSHServerState() *proto.SSHServerState {
 	s.mutex.Lock()
-	connectClient := s.connectClient
+	connectClient := s.runs.Current()
 	s.mutex.Unlock()
 
 	if connectClient == nil {
@@ -1622,7 +1598,7 @@ func (s *Server) GetPeerSSHHostKey(
 	}
 
 	s.mutex.Lock()
-	connectClient := s.connectClient
+	connectClient := s.runs.Current()
 	statusRecorder := s.statusRecorder
 	s.mutex.Unlock()
 
@@ -1806,7 +1782,7 @@ func (s *Server) RequestExtendAuthSession(
 
 	s.mutex.Lock()
 	config := s.config
-	connectClient := s.connectClient
+	connectClient := s.runs.Current()
 	s.mutex.Unlock()
 
 	if config == nil {
@@ -1865,7 +1841,7 @@ func (s *Server) WaitExtendAuthSession(
 	oAuthFlow, authInfo, ok := s.extendAuthSessionFlow.Get()
 
 	s.mutex.Lock()
-	connectClient := s.connectClient
+	connectClient := s.runs.Current()
 	s.mutex.Unlock()
 
 	if !ok || authInfo.DeviceCode != req.DeviceCode {
@@ -1930,7 +1906,7 @@ func (s *Server) DismissSessionWarning(
 	_ *proto.DismissSessionWarningRequest,
 ) (*proto.DismissSessionWarningResponse, error) {
 	s.mutex.Lock()
-	connectClient := s.connectClient
+	connectClient := s.runs.Current()
 	s.mutex.Unlock()
 	if connectClient == nil {
 		return &proto.DismissSessionWarningResponse{}, nil
@@ -1948,7 +1924,7 @@ func (s *Server) ExposeService(req *proto.ExposeServiceRequest, srv proto.Daemon
 		s.mutex.Unlock()
 		return gstatus.Errorf(codes.FailedPrecondition, "client is not running, run 'netbird up' first")
 	}
-	connectClient := s.connectClient
+	connectClient := s.runs.Current()
 	s.mutex.Unlock()
 
 	if connectClient == nil {
@@ -2001,11 +1977,11 @@ func (s *Server) ExposeService(req *proto.ExposeServiceRequest, srv proto.Daemon
 }
 
 func (s *Server) runProbes(ctx context.Context, waitForProbeResult bool) {
-	if s.connectClient == nil {
+	if s.runs.Current() == nil {
 		return
 	}
 
-	engine := s.connectClient.Engine()
+	engine := s.runs.Current().Engine()
 	if engine == nil {
 		return
 	}
@@ -2345,20 +2321,25 @@ func (s *Server) checkDisableAdvancedView() *bool {
 	return nil
 }
 
-func (s *Server) connect(ctx context.Context, config *profilemanager.Config, statusRecorder *peer.Status, runningChan chan struct{}) error {
+func (s *Server) connect(ctx context.Context, generation uint64, config *profilemanager.Config, statusRecorder *peer.Status, runningChan chan struct{}) error {
 	log.Tracef("running client connection")
 	client := internal.NewConnectClient(ctx, config, statusRecorder)
 	client.SetUpdateManager(s.updateManager)
 	client.SetSyncResponsePersistence(s.persistSyncResponse)
 
-	s.mutex.Lock()
-	s.connectClient = client
-	s.mutex.Unlock()
+	// Publishing before Run is deliberate: the daemon's RPCs reach the engine
+	// through the supervisor and must work while the connection comes up.
+	// Publish stops the client this attempt displaces, so the one the previous
+	// attempt left behind is torn down rather than dropped.
+	publishCtx, cancel := context.WithTimeout(ctx, displacedStopTimeout)
+	defer cancel()
 
-	if err := client.Run(runningChan, s.logFile); err != nil {
-		return err
+	if !s.runs.Publish(publishCtx, generation, client) {
+		log.Infof("connection attempt superseded, abandoning it")
+		return nil
 	}
-	return nil
+
+	return client.Run(runningChan, s.logFile)
 }
 
 // MDM authority: when the platform-native MDM source sets a kill switch
