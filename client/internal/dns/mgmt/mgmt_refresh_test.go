@@ -260,12 +260,13 @@ func TestResolver_ConcurrentStaleHitsCollapseRefresh(t *testing.T) {
 			queryA(t, r, "mgmt.example.com.")
 		})
 	}
+
+	assert.Eventually(t, func() bool { return inflight.Load() >= 1 }, 2*time.Second, 100*time.Millisecond)
+
 	close(semaphore)
 	wg.Wait()
 
-	waitFor(t, 2*time.Second, func() bool {
-		return inflight.Load() == 0
-	})
+	assert.Eventually(t, func() bool { return inflight.Load() == 0 }, 2*time.Second, 100*time.Millisecond)
 
 	calls := chain.callCount("mgmt.example.com.", dns.TypeA)
 	assert.LessOrEqual(t, calls, 2, "singleflight must collapse concurrent refreshes (got %d)", calls)
