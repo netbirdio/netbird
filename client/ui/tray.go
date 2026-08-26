@@ -16,6 +16,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/ui/authsession"
 	"github.com/netbirdio/netbird/client/ui/i18n"
+	"github.com/netbirdio/netbird/client/ui/preferences"
 	"github.com/netbirdio/netbird/client/ui/services"
 	"github.com/netbirdio/netbird/version"
 )
@@ -50,8 +51,9 @@ type TrayServices struct {
 	WindowManager   *services.WindowManager
 	// Session is bound to authsession directly because the services wrapper
 	// only re-exposes the React subset.
-	Session   *authsession.Session
-	Localizer *Localizer
+	Session     *authsession.Session
+	Localizer   *Localizer
+	Preferences *preferences.Store
 }
 
 type Tray struct {
@@ -172,7 +174,7 @@ func NewTray(app *application.App, window *application.WebviewWindow, svc TraySe
 		// in the right locale — no English flash then re-paint.
 		loc: svc.Localizer,
 	}
-	t.updater = newTrayUpdater(app, window, svc.Update, svc.Notifier, t.loc, func() { t.applyIcon() }, func() { t.relayoutMenu() })
+	t.updater = newTrayUpdater(app, t.showMainAt, svc.Update, svc.Notifier, t.loc, func() { t.applyIcon() }, func() { t.relayoutMenu() })
 	t.tray = app.SystemTray.New()
 	// Seed panel-theme detection before the first paint so the initial icon
 	// matches the panel's light/dark scheme (Linux only).
@@ -239,9 +241,6 @@ func (t *Tray) ShowWindow() {
 		w.Focus()
 		return
 	}
-	if t.window == nil {
-		return
-	}
 	// Route through WindowManager so the main window is centered on first
 	// show — minimal WMs (fluxbox, the XEmbed tray path) otherwise drop it in
 	// the top-left corner.
@@ -249,8 +248,49 @@ func (t *Tray) ShowWindow() {
 		t.svc.WindowManager.ShowMain()
 		return
 	}
-	t.window.Show()
-	t.window.Focus()
+	if w := t.mainWindow(); w != nil {
+		w.Show()
+		w.Focus()
+	}
+}
+
+func (t *Tray) mainWindow() *application.WebviewWindow {
+	if t.svc.WindowManager == nil {
+		return t.window
+	}
+	return t.svc.WindowManager.MainWindow()
+}
+
+func (t *Tray) showMainAt(url string) {
+	if t.svc.WindowManager != nil {
+		t.svc.WindowManager.ShowMainAt(url)
+		return
+	}
+	if w := t.mainWindow(); w != nil {
+		w.SetURL(url)
+		w.Show()
+		w.Focus()
+	}
+}
+
+func (t *Tray) showMain() {
+	if t.svc.WindowManager != nil {
+		t.svc.WindowManager.ShowMain()
+		return
+	}
+	if w := t.mainWindow(); w != nil {
+		w.Show()
+		w.Focus()
+	}
+}
+
+func (t *Tray) showMainAndEmit(event string) {
+	if t.svc.WindowManager != nil {
+		t.svc.WindowManager.ShowMainAndEmit(event)
+		return
+	}
+	t.showMain()
+	t.app.Event.Emit(event)
 }
 
 // applyLanguage re-renders every translated surface in the Localizer's current
@@ -461,10 +501,12 @@ func (t *Tray) handleQuit() {
 	t.profileMu.Unlock()
 	t.svc.DaemonFeed.CancelProfileSwitch()
 
-	ctx, cancel := context.WithTimeout(context.Background(), quitDownTimeout)
-	defer cancel()
-	if err := t.svc.Connection.Down(ctx); err != nil {
-		log.Errorf("disconnect on quit: %v", err)
+	if t.svc.Preferences == nil || !t.svc.Preferences.Get().KeepConnectedOnQuit {
+		ctx, cancel := context.WithTimeout(context.Background(), quitDownTimeout)
+		defer cancel()
+		if err := t.svc.Connection.Down(ctx); err != nil {
+			log.Errorf("disconnect on quit: %v", err)
+		}
 	}
 	t.app.Quit()
 }
@@ -475,7 +517,8 @@ func (t *Tray) handleConnect(upItem *application.MenuItem) {
 	// NeedsLogin/SessionExpired/LoginFailed won't honor a plain Up RPC — they
 	// need the Login → WaitSSOLogin → Up sequence. Emit EventTriggerLogin so
 	// the React startLogin() (which owns the BrowserLogin popup) drives it;
-	// the hidden main webview is alive and subscribed, so only the popup shows.
+	// the WindowManager materialises a hidden main webview when none is live,
+	// so only the popup shows.
 	t.statusMu.Lock()
 	needsLogin := strings.EqualFold(t.lastStatus, services.StatusNeedsLogin) ||
 		strings.EqualFold(t.lastStatus, services.StatusSessionExpired) ||
