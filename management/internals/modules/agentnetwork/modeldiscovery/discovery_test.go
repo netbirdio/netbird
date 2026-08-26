@@ -597,3 +597,50 @@ func TestFetch_AProxyInThePathDoesNotSilentlyDisableTheCheck(t *testing.T) {
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// TestFetch_TheUpstreamIsCheckedWhenTheListingCannotVouchForIt covers the hole
+// a separate listing host leaves. Bedrock lists from the control plane, so a
+// record whose runtime upstream does not exist reaches a perfectly good
+// listing and saves — the requests it then serves go nowhere.
+//
+// Both halves matter. A runtime host that cannot be resolved is the record
+// being wrong, and blocks. A proxied one resolves and only leaves the region
+// underivable, which stays the unverifiable outcome it already was.
+func TestFetch_TheUpstreamIsCheckedWhenTheListingCannotVouchForIt(t *testing.T) {
+	refusing := &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			return nil, errors.New("resolver unavailable")
+		},
+	}
+	client := &Client{Resolver: refusing}
+
+	_, err := client.Fetch(context.Background(), Request{
+		CatalogID: "bedrock_api",
+		// Matches no catalog template, so nothing here reaches the control
+		// plane the listing comes from: without its own check this upstream
+		// was never contacted at all.
+		UpstreamURL: "https://bedrock.typo.example.invalid",
+		APIKey:      "aws-bearer",
+	})
+
+	require.Error(t, err)
+	var unreachable *UnreachableError
+	require.ErrorAs(t, err, &unreachable, "a runtime host that will not resolve must block the save")
+}
+
+// TestFetch_AListingHostOfItsOwnDoesNotReachThroughTheUpstream keeps the check
+// above from reading the operator's upstream as the place to list from.
+func TestFetch_AListingHostOfItsOwnDoesNotReachThroughTheUpstream(t *testing.T) {
+	cl, tr := newStubClient(http.StatusOK, bedrockListing)
+
+	_, err := cl.Fetch(context.Background(), Request{
+		CatalogID:   "bedrock_api",
+		UpstreamURL: "https://bedrock-runtime.eu-central-1.amazonaws.com",
+		APIKey:      "aws-bearer",
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, "bedrock.eu-central-1.amazonaws.com", tr.got.URL.Host,
+		"checking the runtime host must not turn it into the listing host")
+}

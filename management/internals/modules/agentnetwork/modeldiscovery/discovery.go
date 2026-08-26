@@ -124,6 +124,17 @@ func (c *Client) Fetch(ctx context.Context, req Request) ([]Model, error) {
 		return nil, ErrNoDiscovery
 	}
 
+	// An entry with a listing host of its own answers from somewhere other
+	// than the upstream on the record — Bedrock lists from the control plane
+	// and infers on the runtime host. Reaching the listing therefore proves
+	// nothing about the host requests will actually go to, so that one is
+	// checked separately or not at all.
+	if entry.Discovery.Host != "" {
+		if err := c.checkUpstreamHost(entry, req.UpstreamURL); err != nil {
+			return nil, err
+		}
+	}
+
 	endpoint, err := c.discoveryURL(entry, req)
 	if err != nil {
 		return nil, err
@@ -201,18 +212,38 @@ func (c *Client) discoveryURL(entry catalog.Provider, req Request) (string, erro
 	}
 
 	target := &url.URL{Scheme: "https", Host: host, Path: entry.Discovery.Path, RawQuery: entry.Discovery.Query}
-	if err := c.checkPublicHost(target.Hostname()); err != nil {
-		// A host that refuses to resolve fails here, before any request is
-		// built, and it is the commonest way for an upstream to be wrong. It
-		// has to reach the caller as unreachable rather than as an
-		// unclassified fault. ErrPrivateHost is the other outcome and means
-		// something else entirely — not a bad host, one we decline to dial.
-		if errors.Is(err, ErrPrivateHost) {
-			return "", err
-		}
-		return "", &UnreachableError{Provider: entry.Name, Err: err}
+	if err := c.classifyHost(entry, target.Hostname()); err != nil {
+		return "", err
 	}
 	return target.String(), nil
+}
+
+// checkUpstreamHost verifies the host the operator configured, for entries
+// whose listing lives elsewhere and so cannot vouch for it.
+//
+// A name that does not resolve is the record being wrong. One that resolves
+// privately is not: an upstream behind a proxy is a supported configuration,
+// and ErrPrivateHost carries that difference on to the caller, which treats it
+// as unverifiable rather than as a failure.
+func (c *Client) checkUpstreamHost(entry catalog.Provider, upstreamURL string) error {
+	parsed, err := url.Parse(strings.TrimSpace(upstreamURL))
+	if err != nil || parsed.Hostname() == "" {
+		return fmt.Errorf("%w: provider upstream %q is not a usable URL", ErrInvalidRequest, upstreamURL)
+	}
+	return c.classifyHost(entry, parsed.Hostname())
+}
+
+// classifyHost renders a failed host check as the two outcomes the caller
+// distinguishes. A host that refuses to resolve is the commonest way for an
+// upstream to be wrong and has to arrive as unreachable rather than as an
+// unclassified fault. ErrPrivateHost means something else entirely — not a bad
+// host, one we decline to dial.
+func (c *Client) classifyHost(entry catalog.Provider, host string) error {
+	err := c.checkPublicHost(host)
+	if err == nil || errors.Is(err, ErrPrivateHost) {
+		return err
+	}
+	return &UnreachableError{Provider: entry.Name, Err: err}
 }
 
 // RegionFromUpstream recovers the region an operator embedded in the provider
