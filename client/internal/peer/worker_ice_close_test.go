@@ -125,7 +125,6 @@ func TestWorkerICE_StaleCloseAgentKeepsCurrentSession(t *testing.T) {
 
 	w.muxAgent.Lock()
 	newAgent := w.agent
-	newRemoteSessionID := w.remoteSessionID
 	w.muxAgent.Unlock()
 
 	// The old dial goroutine finally wakes and cleans up its captured agent.
@@ -135,5 +134,7 @@ func TestWorkerICE_StaleCloseAgentKeepsCurrentSession(t *testing.T) {
 	defer w.muxAgent.Unlock()
 	assert.Same(t, newAgent, w.agent, "the current agent must be untouched by the stale cleanup")
 	assert.True(t, w.agentConnecting, "the current negotiation must stay in flight")
-	assert.Equal(t, sidB, newRemoteSessionID, "the remote session identity must be preserved")
+	// Read live under the lock: a snapshot captured before the stale cleanup
+	// would pass even if the cleanup wiped current state.
+	assert.Equal(t, sidB, w.remoteSessionID, "the remote session identity must be preserved")
 }
