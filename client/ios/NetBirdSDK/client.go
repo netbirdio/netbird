@@ -99,7 +99,8 @@ type Client struct {
 	// init). Each Run passes this loader to the resolved Config so
 	// applyMDMPolicy picks up the active overlay. Nil means "MDM
 	// enforcement off for this Client".
-	mdmLoader *mdm.Loader
+	mdmLoader   *mdm.Loader
+	mdmDetector *mdm.ChangeDetector
 
 	stateMu       sync.RWMutex
 	connectClient *internal.ConnectClient

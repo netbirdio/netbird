@@ -11,6 +11,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/client/system"
 )
 
@@ -41,8 +42,16 @@ type Auth struct {
 	cfgPath string
 }
 
-// NewAuth instantiate Auth struct and validate the management URL
-func NewAuth(cfgPath string, mgmURL string) (*Auth, error) {
+// NewAuth instantiate Auth struct and validate the management URL.
+// Auth is constructed under the active MDM policy: a managed management URL
+// replaces the caller-supplied one before the config is persisted, and the
+// policy is overlaid on the resolved config so the login runs against the
+// enforced values. A nil fetcher disables MDM enforcement.
+func NewAuth(cfgPath string, mgmURL string, fetcher PolicyFetcher) (*Auth, error) {
+	policy := loaderFor(fetcher).Load()
+	if v, ok := policy.GetString(mdm.KeyManagementURL); ok {
+		mgmURL = v
+	}
 	inputCfg := profilemanager.ConfigInput{
 		ConfigPath:    cfgPath,
 		ManagementURL: mgmURL,
@@ -66,6 +75,7 @@ func NewAuth(cfgPath string, mgmURL string) (*Auth, error) {
 	if err != nil {
 		return nil, err
 	}
+	cfg.ApplyMDMPolicy(policy)
 
 	// Use a cancellable context so Stop() can abort an in-progress interactive
 	// login. The PKCE flow's WaitToken blocks (and keeps its loopback HTTP server

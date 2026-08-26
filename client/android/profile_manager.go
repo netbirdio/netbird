@@ -3,6 +3,7 @@
 package android
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,12 +11,16 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/mdm"
 )
 
 const (
 	// Android uses a single user context per app (non-empty username required by ServiceManager)
 	androidUsername = "android"
 )
+
+// ErrProfilesDisabled marks a profile mutation rejected by MDM policy.
+var ErrProfilesDisabled = errors.New("profile management is disabled by MDM policy")
 
 // Profile represents a profile for gomobile
 type Profile struct {
@@ -64,6 +69,7 @@ func (p *ProfileArray) Get(i int) *Profile {
 type ProfileManager struct {
 	configDir  string
 	serviceMgr *profilemanager.ServiceManager
+	mdmLoader  *mdm.Loader
 }
 
 // NewProfileManager creates a new profile manager for Android
@@ -144,6 +150,9 @@ func (pm *ProfileManager) profileEmail(id string) string {
 
 // SwitchProfile switches to a different profile
 func (pm *ProfileManager) SwitchProfile(id string) error {
+	if err := pm.checkProfilesAllowed(); err != nil {
+		return err
+	}
 	// Use ServiceManager to stay consistent with ListProfiles
 	// ServiceManager uses active_profile.json
 	err := pm.serviceMgr.SetActiveProfileState(&profilemanager.ActiveProfileState{
@@ -160,6 +169,9 @@ func (pm *ProfileManager) SwitchProfile(id string) error {
 
 // AddProfile creates a new profile
 func (pm *ProfileManager) AddProfile(profileName string) error {
+	if err := pm.checkProfilesAllowed(); err != nil {
+		return err
+	}
 	// Use ServiceManager (creates profile in profiles/ directory)
 	profile, err := pm.serviceMgr.AddProfile(profileName, androidUsername)
 	if err != nil {
@@ -213,6 +225,9 @@ func (pm *ProfileManager) LogoutProfile(id string) error {
 // is rewritten. This works for the default profile too, whose config lives in
 // netbird.cfg rather than under profiles/.
 func (pm *ProfileManager) RenameProfile(id string, newName string) error {
+	if err := pm.checkProfilesAllowed(); err != nil {
+		return err
+	}
 	if err := pm.serviceMgr.RenameProfile(profilemanager.ID(id), androidUsername, newName); err != nil {
 		return fmt.Errorf("failed to rename profile: %w", err)
 	}
@@ -223,6 +238,9 @@ func (pm *ProfileManager) RenameProfile(id string, newName string) error {
 
 // RemoveProfile deletes a profile
 func (pm *ProfileManager) RemoveProfile(id string) error {
+	if err := pm.checkProfilesAllowed(); err != nil {
+		return err
+	}
 	configPath, err := pm.getProfileConfigPath(id)
 	if err != nil {
 		return err
@@ -242,6 +260,19 @@ func (pm *ProfileManager) RemoveProfile(id string) error {
 	}
 
 	log.Infof("removed profile: %s", id)
+	return nil
+}
+
+// SetMDMPolicyFetcher registers the native-provided MDM policy fetcher on
+// this ProfileManager; passing nil disables MDM enforcement.
+func (pm *ProfileManager) SetMDMPolicyFetcher(f PolicyFetcher) {
+	pm.mdmLoader = loaderFor(f)
+}
+
+func (pm *ProfileManager) checkProfilesAllowed() error {
+	if v, ok := pm.mdmLoader.Load().GetBool(mdm.KeyDisableProfiles); ok && v {
+		return ErrProfilesDisabled
+	}
 	return nil
 }
 
