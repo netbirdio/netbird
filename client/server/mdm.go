@@ -233,6 +233,24 @@ func conflictString(key, got string) conflictCheck {
 	}
 }
 
+// conflictStringPtr is conflictString for optional proto fields, where an
+// explicit empty value is still a request to change the setting. If p is
+// nil the field is treated as matching (no override requested); otherwise
+// the check returns true only when the policy contains the key and its
+// value equals *p.
+func conflictStringPtr(key string, p *string) conflictCheck {
+	return conflictCheck{
+		key: key,
+		check: func(pol *mdm.Policy) bool {
+			if p == nil {
+				return true
+			}
+			want, ok := pol.GetString(key)
+			return ok && want == *p
+		},
+	}
+}
+
 // conflictInt64 builds a conflictCheck for an integer MDM key. If p is
 // nil the field is treated as matching; otherwise the check returns
 // true only when the policy contains the key and its int value equals *p.
@@ -302,7 +320,7 @@ func mdmManagedFieldConflicts(msg *proto.SetConfigRequest, policy *mdm.Policy) [
 		conflictBool(mdm.KeyBlockInbound, msg.BlockInbound),
 		conflictInt64(mdm.KeyWireguardPort, msg.WireguardPort),
 		conflictBool(mdm.KeyEnableLocalMetrics, msg.EnableLocalMetrics),
-		conflictString(mdm.KeyLocalMetricsAddress, msg.GetLocalMetricsAddress()),
+		conflictStringPtr(mdm.KeyLocalMetricsAddress, msg.LocalMetricsAddress),
 	})
 }
 
@@ -429,7 +447,7 @@ func loginRequestMDMConflicts(msg *proto.LoginRequest, policy *mdm.Policy) []str
 		conflictBool(mdm.KeyBlockInbound, msg.BlockInbound),
 		conflictInt64(mdm.KeyWireguardPort, msg.WireguardPort),
 		conflictBool(mdm.KeyEnableLocalMetrics, msg.EnableLocalMetrics),
-		conflictString(mdm.KeyLocalMetricsAddress, msg.GetLocalMetricsAddress()),
+		conflictStringPtr(mdm.KeyLocalMetricsAddress, msg.LocalMetricsAddress),
 	})
 }
 
