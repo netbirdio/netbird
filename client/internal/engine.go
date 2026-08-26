@@ -59,6 +59,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/syncstore"
 	"github.com/netbirdio/netbird/client/internal/updater"
 	"github.com/netbirdio/netbird/client/jobexec"
+	"github.com/netbirdio/netbird/client/netevents"
 	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -181,6 +182,9 @@ type EngineServices struct {
 	UpdateManager  *updater.Manager
 	ClientMetrics  *metrics.ClientMetrics
 	MetricsCtx     context.Context
+	// NetMgr gates the reconnection loops on OS-reported network
+	// availability; nil disables gating.
+	NetMgr *netevents.Manager
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -203,6 +207,10 @@ type Engine struct {
 
 	config    *EngineConfig
 	mobileDep MobileDependency
+
+	// netMgr gates the peer reconnection guards on OS-reported network
+	// availability; nil disables gating.
+	netMgr *netevents.Manager
 
 	// STUNs is a list of STUN servers used by ICE
 	STUNs []*stun.URI
@@ -337,6 +345,7 @@ func NewEngine(
 		syncMsgMux:         &sync.Mutex{},
 		config:             config,
 		mobileDep:          mobileDep,
+		netMgr:             services.NetMgr,
 		STUNs:              []*stun.URI{},
 		TURNs:              []*stun.URI{},
 		networkSerial:      0,
@@ -863,8 +872,7 @@ func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 	}
 	// third, add the peer connections again
 	for _, p := range modified {
-		err := e.addNewPeer(p)
-		if err != nil {
+		if err := e.addNewPeer(p); err != nil {
 			return err
 		}
 	}
@@ -1486,8 +1494,12 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		return nil
 	}
 
-	if err := e.connMgr.UpdatedRemoteFeatureFlag(e.ctx, networkMap.GetPeerConfig().GetLazyConnectionEnabled()); err != nil {
-		log.Errorf("failed to update lazy connection feature flag: %v", err)
+	// Only update the flag when the sync carries a peer config; a nil peer config
+	// (e.g. a partial update) must not reset the cached flag to false.
+	if peerConfig := networkMap.GetPeerConfig(); peerConfig != nil {
+		if err := e.connMgr.UpdatedRemoteFeatureFlag(e.ctx, peerConfig.GetLazyConnectionEnabled()); err != nil {
+			log.Errorf("failed to update lazy connection feature flag: %v", err)
+		}
 	}
 
 	if e.firewall != nil {
@@ -1553,8 +1565,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 
 	// Ingress forward rules
 	done = e.phase("forward_rules")
-	forwardingRules, err := e.updateForwardRules(networkMap.GetForwardingRules())
-	if err != nil {
+	if _, err := e.updateForwardRules(networkMap.GetForwardingRules()); err != nil {
 		log.Errorf("failed to update forward rules, err: %v", err)
 	}
 	done()
@@ -1572,8 +1583,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 
 	// must set the exclude list after the peers are added. Without it the manager can not figure out the peers parameters from the store
 	done = e.phase("lazy_exclude")
-	excludedLazyPeers := e.toExcludedLazyPeers(forwardingRules, remotePeers)
-	e.connMgr.SetExcludeList(e.ctx, excludedLazyPeers)
+	e.connMgr.SetExcludeList(e.ctx, e.toExcludedLazyPeers(remotePeers))
 	done()
 
 	e.networkSerial = serial
@@ -1817,15 +1827,15 @@ func addrToString(addr netip.Addr) string {
 // addNewPeers adds peers that were not know before but arrived from the Management service with the update
 func (e *Engine) addNewPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 	for _, p := range peersUpdate {
-		err := e.addNewPeer(p)
-		if err != nil {
+		if err := e.addNewPeer(p); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// addNewPeer add peer if connection doesn't exist
+// addNewPeer add peer if connection doesn't exist. A peer that is not lazy by
+// policy gets an always-active connection instead.
 func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 	peerKey := peerConfig.GetWgPubKey()
 	peerIPs := make([]netip.Prefix, 0, len(peerConfig.GetAllowedIps()))
@@ -1860,7 +1870,8 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 		log.Warnf("error adding peer %s to status recorder, got error: %v", peerKey, err)
 	}
 
-	if exists := e.connMgr.AddPeerConn(e.ctx, peerKey, conn); exists {
+	permanent := !e.connMgr.PeerLazyDefault(peerConfig.GetLazyState())
+	if exists := e.connMgr.AddPeerConn(e.ctx, peerKey, conn, permanent); exists {
 		conn.Close(false)
 		return fmt.Errorf("peer already exists: %s", peerKey)
 	}
@@ -1894,6 +1905,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix, agentV
 			PermissiveMode: e.config.RosenpassPermissive,
 		},
 		ICEConfig: e.createICEConfig(),
+		NetMgr:    e.netMgr,
 	}
 
 	serviceDependencies := peer.ServiceDependencies{
@@ -2562,7 +2574,7 @@ func (e *Engine) SetCapture(pc device.PacketCapture) error {
 	}
 
 	afc := capture.NewAFPacketCapture(intf.Name(), sess)
-	if err := afc.Start(); err != nil {
+	if err := afc.Start(); err != nil { //nolint:staticcheck // always errors on non-Linux builds
 		return fmt.Errorf("start AF_PACKET capture on %s: %w", intf.Name(), err)
 	}
 	e.afpacketCapture = afc
@@ -2651,44 +2663,17 @@ func (e *Engine) updateForwardRules(rules []*mgmProto.ForwardingRule) ([]firewal
 	return forwardingRules, nberrors.FormatErrorOrNil(merr)
 }
 
-func (e *Engine) toExcludedLazyPeers(rules []firewallManager.ForwardRule, peers []*mgmProto.RemotePeerConfig) map[string]bool {
+// toExcludedLazyPeers returns the peers that must have an always-active
+// connection: those that are not lazy by policy (the per-peer lazy state or the
+// account flag, subject to the local override).
+func (e *Engine) toExcludedLazyPeers(peers []*mgmProto.RemotePeerConfig) map[string]bool {
 	excludedPeers := make(map[string]bool)
-
-	// Ingress forward targets: inbound forwarded traffic is initiated remotely and
-	// cannot wake a lazy connection, so the peer routing the target must stay
-	// permanently connected. AllowedIPs are already parsed on the peer conn, so
-	// reuse those typed prefixes instead of re-parsing the network map strings.
-	for _, r := range rules {
-		for _, p := range peers {
-			if e.peerRoutesAddr(p, r.TranslatedAddress) {
-				log.Infof("exclude forwarder peer from lazy connection: %s", p.GetWgPubKey())
-				excludedPeers[p.GetWgPubKey()] = true
-			}
+	for _, p := range peers {
+		if !e.connMgr.PeerLazyDefault(p.GetLazyState()) {
+			excludedPeers[p.GetWgPubKey()] = true
 		}
 	}
-
 	return excludedPeers
-}
-
-// peerRoutesAddr reports whether the peer is a router for addr, matched against
-// the peer's already-parsed AllowedIPs from the store (the same typed value the
-// lazy manager consumes) rather than re-parsing the network map strings.
-func (e *Engine) peerRoutesAddr(p *mgmProto.RemotePeerConfig, addr netip.Addr) bool {
-	prefixes, ok := e.peerStore.AllowedIPs(p.GetWgPubKey())
-	if !ok {
-		return false
-	}
-	return prefixesContain(prefixes, addr)
-}
-
-// prefixesContain reports whether addr falls within any of the prefixes.
-func prefixesContain(prefixes []netip.Prefix, addr netip.Addr) bool {
-	for _, prefix := range prefixes {
-		if prefix.Contains(addr) {
-			return true
-		}
-	}
-	return false
 }
 
 // isChecksEqual checks if two slices of checks are equal.

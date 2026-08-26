@@ -8,6 +8,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/mobile"
 	"github.com/netbirdio/netbird/client/system"
 )
 
@@ -181,7 +182,7 @@ func (a *Auth) login(urlOpener URLOpener, isAndroidTV bool) error {
 	// Stored after Login, not before: a rejected token must not leave a hint
 	// pointing at an account that cannot be used.
 	if email != "" && a.cfgPath != "" {
-		if err := writeProfileEmail(a.cfgPath, email); err != nil {
+		if err := mobile.WriteProfileEmail(a.cfgPath, email); err != nil {
 			log.Warnf("failed to store profile account email: %v", err)
 		}
 	}
@@ -189,13 +190,6 @@ func (a *Auth) login(urlOpener URLOpener, isAndroidTV bool) error {
 	go urlOpener.OnLoginSuccess()
 
 	return nil
-}
-
-// loginHintSetter is implemented by both concrete flows (PKCE and device code)
-// but absent from the OAuthFlow interface, hence the assertion below — the same
-// way internal/auth wires it in authenticateWithPKCEFlow.
-type loginHintSetter interface {
-	SetLoginHint(hint string)
 }
 
 func (a *Auth) foregroundGetTokenInfo(authClient *auth.Auth, urlOpener URLOpener, isAndroidTV bool) (*auth.TokenInfo, error) {
@@ -207,25 +201,14 @@ func (a *Auth) foregroundGetTokenInfo(authClient *auth.Auth, urlOpener URLOpener
 // it can rule out a silent authorization the IdP could answer from an unrelated
 // account. See PKCEAuthorizationFlowRequest.
 func (a *Auth) foregroundGetTokenInfoFlow(authClient *auth.Auth, urlOpener URLOpener, isAndroidTV bool, sessionExtend bool) (*auth.TokenInfo, error) {
-	oAuthFlow, err := authClient.GetOAuthFlow(a.ctx, isAndroidTV, sessionExtend)
+	hint := profileLoginHint(a.cfgPath)
+
+	oAuthFlow, err := authClient.GetOAuthFlow(a.ctx, isAndroidTV, sessionExtend, hint)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get OAuth flow: %v", err)
 	}
 
-	// An empty hint is deliberate, not a fallback: a fresh profile leaves the
-	// choice to the IdP. Switching accounts is done by switching or removing
-	// profiles, not by logging out — logout keeps the email.
-	hint := ""
-	if a.cfgPath != "" {
-		hint = readProfileEmail(a.cfgPath)
-	}
-	if hint != "" {
-		if setter, ok := oAuthFlow.(loginHintSetter); ok {
-			setter.SetLoginHint(hint)
-		}
-	}
-
-	tokenInfo, err := a.runInteractiveFlow(oAuthFlow, urlOpener)
+	tokenInfo, err := runOAuthFlow(a.ctx, oAuthFlow, urlOpener, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -244,7 +227,7 @@ func (a *Auth) foregroundGetTokenInfoFlow(authClient *auth.Auth, urlOpener URLOp
 		return tokenInfo, nil
 	}
 
-	retryToken, err := a.runInteractiveFlow(retryFlow, urlOpener)
+	retryToken, err := runOAuthFlow(a.ctx, retryFlow, urlOpener, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -255,19 +238,40 @@ func (a *Auth) foregroundGetTokenInfoFlow(authClient *auth.Auth, urlOpener URLOp
 	return retryToken, nil
 }
 
-// runInteractiveFlow requests the authorization info, hands the URL to the
-// user and blocks until the token comes back.
-func (a *Auth) runInteractiveFlow(oAuthFlow auth.OAuthFlow, urlOpener URLOpener) (*auth.TokenInfo, error) {
-	flowInfo, err := oAuthFlow.RequestAuthInfo(context.TODO())
+// profileLoginHint returns the stored account email for the profile at cfgPath.
+// An empty hint is deliberate, not a fallback: a fresh profile leaves the
+// choice to the IdP. Switching accounts is done by switching or removing
+// profiles, not by logging out — logout keeps the email.
+func profileLoginHint(cfgPath string) string {
+	if cfgPath == "" {
+		return ""
+	}
+	return mobile.ReadProfileEmail(cfgPath)
+}
+
+// runOAuthFlow drives an already acquired OAuth flow to a token: requests the
+// flow info, presents the verification URL through the opener and waits for
+// the browser round-trip. Open is called synchronously — it is what marks the
+// surface as opened on the client side, and a fast token's OnLoginSuccess is
+// a no-op until it has, so the dismissal would be dropped rather than
+// delayed. Openers must therefore not block: they post their UI work and
+// return. onWaiting, when set, runs after the URL is shown, right before the
+// blocking wait.
+func runOAuthFlow(ctx context.Context, flow auth.OAuthFlow, urlOpener URLOpener, onWaiting func()) (*auth.TokenInfo, error) {
+	flowInfo, err := flow.RequestAuthInfo(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("getting a request OAuth flow info failed: %v", err)
+		return nil, fmt.Errorf("request auth info: %w", err)
 	}
 
-	go urlOpener.Open(flowInfo.VerificationURIComplete, flowInfo.UserCode)
+	urlOpener.Open(flowInfo.VerificationURIComplete, flowInfo.UserCode)
 
-	tokenInfo, err := oAuthFlow.WaitToken(a.ctx, flowInfo)
+	if onWaiting != nil {
+		onWaiting()
+	}
+
+	tokenInfo, err := flow.WaitToken(ctx, flowInfo)
 	if err != nil {
-		return nil, fmt.Errorf("waiting for browser login failed: %v", err)
+		return nil, fmt.Errorf("wait for token: %w", err)
 	}
 
 	return &tokenInfo, nil

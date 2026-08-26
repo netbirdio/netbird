@@ -22,6 +22,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/netevents"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/formatter"
 	"github.com/netbirdio/netbird/route"
@@ -35,11 +36,6 @@ const (
 	AnonymizeLevelDefault = nbAnonymize.LevelDefaultString
 	AnonymizeLevelStrict  = nbAnonymize.LevelStrictString
 )
-
-// ConnectionListener export internal Listener for mobile
-type ConnectionListener interface {
-	peer.Listener
-}
 
 // RouteListener export internal RouteListener for mobile
 type NetworkChangeListener interface {
@@ -87,6 +83,10 @@ type Client struct {
 	onHostDnsFn           func([]string)
 	dnsManager            dns.IosDnsManager
 	loginComplete         bool
+	// netMgr outlives engine restarts: it mirrors the OS connectivity, not
+	// the engine lifecycle. Run injects its state and sweeper into each new
+	// ConnectClient.
+	netMgr *netevents.Manager
 	// preloadedConfig holds config loaded from JSON (used on tvOS where file writes are blocked)
 	preloadedConfig *profilemanager.Config
 
@@ -97,6 +97,7 @@ type Client struct {
 
 // NewClient instantiate a new Client
 func NewClient(cfgFile, stateFile, cacheDir, logFilePath, deviceName string, osVersion string, osName string, networkChangeListener NetworkChangeListener, dnsManager DnsManager) *Client {
+	recorder := peer.NewRecorder("")
 	return &Client{
 		cfgFile:               cfgFile,
 		stateFile:             stateFile,
@@ -105,10 +106,11 @@ func NewClient(cfgFile, stateFile, cacheDir, logFilePath, deviceName string, osV
 		deviceName:            deviceName,
 		osName:                osName,
 		osVersion:             osVersion,
-		recorder:              peer.NewRecorder(""),
+		recorder:              recorder,
 		ctxCancelLock:         &sync.Mutex{},
 		networkChangeListener: networkChangeListener,
 		dnsManager:            dnsManager,
+		netMgr:                netevents.NewManager(recorder),
 	}
 }
 
@@ -184,13 +186,33 @@ func (c *Client) Run(fd int32, interfaceName string, envList *EnvList) error {
 	c.onHostDnsFn = func([]string) {}
 	cfg.WgIface = interfaceName
 
-	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder)
+	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder,
+		internal.WithNetEvents(c.netMgr))
 	c.setState(cfg, connectClient)
 	// Persist the latest sync response so DebugBundle can include the network
 	// map. On iOS this is backed by disk to keep it out of the constrained
 	// process memory (see the syncstore package).
 	connectClient.SetSyncResponsePersistence(true)
 	return connectClient.RunOniOS(fd, c.networkChangeListener, c.dnsManager, c.stateFile, c.cacheDir, c.logFilePath)
+}
+
+// SetNetworkAvailable feeds OS-reported network availability into the client
+// (e.g. from NWPathMonitor). While unavailable, the internal reconnect loops
+// suspend their attempts and the connection listener reports NoNetwork
+// instead of Connecting; when availability returns, the loops resume
+// immediately with a fresh backoff. Losing the last network also sweeps the
+// registered connections, so the client does not keep reporting Connected
+// over stale sockets with no network at all.
+func (c *Client) SetNetworkAvailable(available bool) {
+	c.netMgr.SetNetworkAvailable(available)
+}
+
+// NotifyNetworkChange marks the management, signal and relay connections
+// stale after the OS switched networks and schedules a sweep that cuts
+// whatever has not redialed on the new network by then. The engine and the
+// TUN device stay untouched.
+func (c *Client) NotifyNetworkChange() {
+	c.netMgr.NotifyNetworkChange()
 }
 
 // Stop the internal client and free the resources
@@ -331,7 +353,11 @@ func (c *Client) GetStatusDetails() *StatusDetails {
 
 // SetConnectionListener set the network connection listener
 func (c *Client) SetConnectionListener(listener ConnectionListener) {
-	c.recorder.SetConnectionListener(listener)
+	if listener == nil {
+		c.recorder.RemoveConnectionListener()
+		return
+	}
+	c.recorder.SetConnectionListener(connectionListenerAdapter{listener})
 }
 
 // RemoveConnectionListener remove connection listener

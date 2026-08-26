@@ -501,6 +501,22 @@ message RemotePeerConfig {
   string fqdn = 4;
 
   string agentVersion = 5;
+
+  // lazyState is the management per-peer override for lazy (on-demand)
+  // connections to this remote peer. LazyStateDefault follows the account-wide
+  // flag; LazyStateLazy forces lazy; LazyStateEager forces an always-active
+  // connection. A local NB_LAZY_CONN/MDM override still wins over this.
+  LazyState lazyState = 6;
+}
+
+// LazyState is the management per-peer override for lazy connections.
+enum LazyState {
+  // Follow the account-wide lazy connection flag.
+  LazyStateDefault = 0;
+  // Force a lazy (on-demand) connection regardless of the account flag.
+  LazyStateLazy = 1;
+  // Force an always-active connection regardless of the account flag.
+  LazyStateEager = 2;
 }
 
 // SSHConfig represents SSH configurations of a peer.
@@ -1026,6 +1042,11 @@ message PeerCompact {
   // (port 22022) is only added when this flag is set and the peer agent
   // version supports it.
   bool server_ssh_allowed = 13;
+
+  // Mirror of types.Peer.ProxyMeta.Embedded. Connections involving an
+  // ephemeral proxy peer on either endpoint default to lazy, so this bit
+  // feeds the per-peer lazyState emitted in RemotePeerConfig.
+  bool proxy_embedded = 14;
 }
 
 // PolicyCompact is the compact form of a policy rule. Group references use

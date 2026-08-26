@@ -142,26 +142,37 @@ func (a *Auth) IsSSOSupported(ctx context.Context) (bool, error) {
 // sessionExtend marks the flow as renewing an existing peer's session rather than
 // logging one in; the server needs it to rule out a silent authorization that the
 // IdP could answer from another account. See PKCEAuthorizationFlowRequest.
-func (a *Auth) GetOAuthFlow(ctx context.Context, forceDeviceAuth bool, sessionExtend bool) (OAuthFlow, error) {
+func (a *Auth) GetOAuthFlow(ctx context.Context, forceDeviceAuth bool, sessionExtend bool, hint string) (OAuthFlow, error) {
 	var flow OAuthFlow
-	var err error
 
-	err = a.withRetry(ctx, func(client *mgm.GrpcClient) error {
+	err := a.withRetry(ctx, func(client *mgm.GrpcClient) error {
 		if forceDeviceAuth {
-			flow, err = a.getDeviceFlow(client)
-			return err
+			deviceFlow, err := a.getDeviceFlow(client)
+			if err != nil {
+				return err
+			}
+			deviceFlow.SetLoginHint(hint)
+			flow = deviceFlow
+			return nil
 		}
 
 		// Try PKCE flow first
-		flow, err = a.getPKCEFlow(client, sessionExtend)
+		pkceFlow, err := a.getPKCEFlow(client, sessionExtend)
 		if err != nil {
 			// If PKCE not supported, try Device flow
 			if s, ok := status.FromError(err); ok && (s.Code() == codes.NotFound || s.Code() == codes.Unimplemented) {
-				flow, err = a.getDeviceFlow(client)
-				return err
+				deviceFlow, err := a.getDeviceFlow(client)
+				if err != nil {
+					return err
+				}
+				deviceFlow.SetLoginHint(hint)
+				flow = deviceFlow
+				return nil
 			}
 			return err
 		}
+		pkceFlow.SetLoginHint(hint)
+		flow = pkceFlow
 		return nil
 	})
 
