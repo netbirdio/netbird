@@ -134,6 +134,14 @@ func TestLiveProviderUrlCheck(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity, apiErr.StatusCode)
 	require.Contains(t, strings.ToLower(apiErr.Message), "could not be reached",
 		"the message must name the url rather than the credential")
+
+	// An error is not the same fact as an absent record: a handler that saved
+	// first and reported afterwards would satisfy everything above.
+	all, listErr := srv.ListProviders(ctx)
+	require.NoError(t, listErr)
+	for _, p := range all {
+		require.NotEqual(t, "e2e-cred-badurl", p.Name, "a refused provider must not be stored")
+	}
 }
 
 // TestLiveProviderUpdateKeepsTheWorkingKey is the state the check exists to
@@ -164,8 +172,15 @@ func TestLiveProviderUpdateKeepsTheWorkingKey(t *testing.T) {
 	// The stored key is never returned by the API, so the proof that it
 	// survived is that an edit which reuses it still passes its check. A
 	// replaced key would fail here exactly as the rotation just did.
-	renamed := credentialProviderRequest(tc, "e2e-cred-rotate-renamed", "")
-	updated, err := srv.UpdateProvider(ctx, prov.Id, renamed)
+	//
+	// The trailing slash is what makes that an actual check: an edit touching
+	// neither the url, the key nor the catalog entry is stored without asking
+	// the vendor anything, so a rename alone would pass whatever is on the
+	// record. Only the host is read out of the upstream, so the same vendor is
+	// reached — but the string differs, and the check runs.
+	recheck := credentialProviderRequest(tc, "e2e-cred-rotate-renamed", "")
+	recheck.UpstreamUrl = tc.upstream + "/"
+	updated, err := srv.UpdateProvider(ctx, prov.Id, recheck)
 	require.NoError(t, err, "the working key must still be the stored one")
 	require.Equal(t, "e2e-cred-rotate-renamed", updated.Name)
 }

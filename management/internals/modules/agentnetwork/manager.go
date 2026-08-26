@@ -230,13 +230,20 @@ func (m *managerImpl) DiscoverProviderModels(ctx context.Context, accountID, use
 		// whichever vendor endpoint they picked.
 		req.CatalogID = record.ProviderID
 		req.APIKey = record.APIKey
-		// The upstream is the one field the caller may override, and only for
-		// entries that serve their listing from it. Those are the operator's
-		// own endpoints, reached with their own credential, so an unsaved URL
-		// is no more reachable here than a saved one — and the SSRF guard
-		// treats both alike.
+		// The upstream is the one field the caller may override, so that a URL
+		// typed into the form can be listed against before it is saved.
+		//
+		// It sends the stored credential to a host the caller named, which is
+		// a capability they already have: the same permission set updates the
+		// record's upstream, and that write runs this same check against
+		// whatever it is pointed at. What it would not otherwise be is silent,
+		// since the write leaves an activity event behind — so the override is
+		// recorded here.
 		if strings.TrimSpace(req.UpstreamURL) == "" {
 			req.UpstreamURL = record.UpstreamURL
+		} else if req.UpstreamURL != record.UpstreamURL {
+			log.WithContext(ctx).Infof("agent network provider %s listed against caller-supplied upstream %s by user %s",
+				recordID, req.UpstreamURL, userID)
 		}
 	}
 
