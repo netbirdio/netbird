@@ -298,8 +298,8 @@ func AppendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*nmdata.Peer,
 // proxy infrastructure is not kept permanently connected to every peer. All
 // other peers follow the account-wide flag. A future admin-facing per-peer
 // setting can return LazyStateEager here to force a peer always-active.
-func lazyStateFor(localIsProxy bool, rPeer *types.ComponentPeer) proto.LazyState {
-	if localIsProxy || rPeer.ProxyEmbedded {
+func lazyStateFor(localIsProxy bool, rPeer *nmdata.Peer) proto.LazyState {
+	if localIsProxy || rPeer.ProxyMeta.Embedded {
 		return proto.LazyState_LazyStateLazy
 	}
 	return proto.LazyState_LazyStateDefault

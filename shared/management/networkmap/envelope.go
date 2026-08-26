@@ -74,11 +74,11 @@ func EnvelopeToNetworkMap(ctx context.Context, env *proto.NetworkMapEnvelope, lo
 	protoNM.Routes = ToProtocolRoutes(typedNM.Routes)
 	protoNM.DNSConfig = ToProtocolDNSConfig(typedNM.DNSConfig, nil, dnsFwdPort)
 
-	remotePeers := AppendRemotePeerConfig(nil, typedNM.Peers, dnsName, includeIPv6, localPeer.ProxyEmbedded)
+	remotePeers := AppendRemotePeerConfig(nil, typedNM.Peers, dnsName, includeIPv6, localPeer.ProxyMeta.Embedded)
 	protoNM.RemotePeers = remotePeers
 	protoNM.RemotePeersIsEmpty = len(remotePeers) == 0
 
-	protoNM.OfflinePeers = AppendRemotePeerConfig(nil, typedNM.OfflinePeers, dnsName, includeIPv6, localPeer.ProxyEmbedded)
+	protoNM.OfflinePeers = AppendRemotePeerConfig(nil, typedNM.OfflinePeers, dnsName, includeIPv6, localPeer.ProxyMeta.Embedded)
 
 	firewallRules := ToProtocolFirewallRules(typedNM.FirewallRules, includeIPv6, useSourcePrefixes)
 	protoNM.FirewallRules = firewallRules
