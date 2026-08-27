@@ -51,8 +51,10 @@ func (s *ShutdownState) Cleanup() error {
 	return nil
 }
 
-// isOurProcess verifies the PID still belongs to a VNC-related process
-// by checking /proc/<pid>/cmdline (Linux) or the process name.
+// isOurProcess verifies the PID still belongs to a VNC-related process by
+// matching desc against /proc/<pid>/cmdline. A PID that no longer exists, or
+// whose cmdline cannot be read, is treated as foreign and reported false, so
+// cleanup never signals a process it cannot identify.
 func isOurProcess(pid int, desc string) bool {
 	// Check if the process exists at all.
 	if err := syscall.Kill(pid, 0); err != nil {

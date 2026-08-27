@@ -206,31 +206,31 @@ func getSystemTokenForSession(sessionID uint32) (windows.Token, error) {
 func injectEnvVar(envBlock uintptr, key, value string) []uint16 {
 	entry := key + "=" + value
 
-	// Walk the existing block to find its total length.
 	ptr := (*uint16)(unsafe.Pointer(envBlock))
+	charAt := func(i int) uint16 {
+		return *(*uint16)(unsafe.Pointer(uintptr(unsafe.Pointer(ptr)) + uintptr(i)*2))
+	}
+
+	// Walk to the block's closing null, counting each entry and its own
+	// terminator. That offset is where the new entry goes, and it is 0 for an
+	// empty block, so nothing prepends an empty entry that would read to
+	// Windows as the end of the block.
 	var totalChars int
-	for {
-		ch := *(*uint16)(unsafe.Pointer(uintptr(unsafe.Pointer(ptr)) + uintptr(totalChars)*2))
-		if ch == 0 {
-			// Check for double-null terminator.
-			next := *(*uint16)(unsafe.Pointer(uintptr(unsafe.Pointer(ptr)) + uintptr(totalChars+1)*2))
-			totalChars++
-			if next == 0 {
-				// End of block (don't count the final null yet, we'll rebuild).
-				break
-			}
-		} else {
+	for charAt(totalChars) != 0 {
+		for charAt(totalChars) != 0 {
 			totalChars++
 		}
+		totalChars++
 	}
 
 	entryUTF16, _ := windows.UTF16FromString(entry)
 	// New block: existing entries + new entry (null-terminated) + final null.
 	newLen := totalChars + len(entryUTF16) + 1
 	newBlock := make([]uint16, newLen)
-	// Copy existing entries (up to but not including the final null).
+	// Copy existing entries, each with its own null, but not the block's
+	// closing null: that is re-added below, after the new entry.
 	for i := range totalChars {
-		newBlock[i] = *(*uint16)(unsafe.Pointer(uintptr(unsafe.Pointer(ptr)) + uintptr(i)*2))
+		newBlock[i] = charAt(i)
 	}
 	copy(newBlock[totalChars:], entryUTF16)
 	newBlock[newLen-1] = 0 // final null terminator
