@@ -1,0 +1,69 @@
+{
+  "Serial": "20",
+  "peerConfig": {
+    "address": "100.64.0.9/10",
+    "sshConfig": {},
+    "fqdn": "peer-r.netbird.test",
+    "RoutingPeerDnsResolutionEnabled": true,
+    "autoUpdate": {}
+  },
+  "remotePeers": [
+    {
+      "wgPubKey": "vblMc9U8RAI6cVopcKEMTVT6lVC3D9nTTMSwot5d3L4=",
+      "allowedIps": [
+        "100.64.0.1/32"
+      ],
+      "sshConfig": {},
+      "fqdn": "peer-a.netbird.test",
+      "agentVersion": "0.60.0"
+    }
+  ],
+  "Routes": [
+    {
+      "ID": "res-host:peer-r",
+      "Network": "10.10.0.7/32",
+      "NetworkType": "1",
+      "Peer": "ImPDKs2PJxHA24/N7umWi8lfEf2B0B5W/7dYZUzNS3s=",
+      "Metric": "9999",
+      "Masquerade": true,
+      "NetID": "web-host",
+      "keepRoute": true
+    }
+  ],
+  "DNSConfig": {
+    "ServiceEnable": true,
+    "CustomZones": [
+      {
+        "Domain": "netbird.test.",
+        "Records": [
+          {
+            "Name": "peer-r.netbird.test",
+            "Type": "1",
+            "Class": "IN",
+            "TTL": "300",
+            "RData": "100.64.0.9"
+          }
+        ]
+      }
+    ],
+    "ForwarderPort": "22054"
+  },
+  "firewallRulesIsEmpty": true,
+  "routesFirewallRules": [
+    {
+      "sourceRanges": [
+        "100.64.0.1/32"
+      ],
+      "destination": "10.10.0.7/32",
+      "protocol": "TCP",
+      "portInfo": {
+        "port": 443
+      },
+      "PolicyID": "cG9sLXdlYg==",
+      "RouteID": "res-host:peer-r"
+    }
+  ],
+  "sshAuth": {
+    "UserIDClaim": "sub"
+  }
+}
