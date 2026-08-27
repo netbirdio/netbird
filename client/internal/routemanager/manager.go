@@ -437,9 +437,9 @@ func (m *DefaultManager) UpdateRoutes(
 
 		filteredClientRoutes := m.routeSelector.FilterSelectedExitNodes(clientRoutes)
 
-		// Stop obsolete watchers before applying system routes: dynamic.Route.RemoveRoute()
-		// clears the domain state that RemoveAllowedIPs() decrements from, so allowed IPs
-		// must be released first, or the outgoing peer's allowed IPs get stuck forever.
+		// Stop obsolete watchers first: RemoveRoute() clears the domain state that
+		// RemoveAllowedIPs() decrements from, so the outgoing peer's allowed IPs would
+		// otherwise stay installed forever.
 		m.stopObsoleteClients(filteredClientRoutes)
 
 		if err := m.updateSystemRoutes(filteredClientRoutes); err != nil {
@@ -577,9 +577,9 @@ func (m *DefaultManager) TriggerSelection(networks route.HAMap) {
 
 	m.notifier.OnNewRoutes(networks)
 
-	// Stop obsolete watchers before applying system routes: dynamic.Route.RemoveRoute()
-	// clears the domain state that RemoveAllowedIPs() decrements from, so allowed IPs
-	// must be released first, or the outgoing peer's allowed IPs get stuck forever.
+	// Stop obsolete watchers first: RemoveRoute() clears the domain state that
+	// RemoveAllowedIPs() decrements from, so the outgoing peer's allowed IPs would
+	// otherwise stay installed forever.
 	m.stopObsoleteClients(networks)
 
 	if err := m.updateSystemRoutes(networks); err != nil {
@@ -635,8 +635,8 @@ func (m *DefaultManager) stopObsoleteClients(networks route.HAMap) {
 	}
 }
 
-// updateClientNetworks starts or updates the client network watchers for the given routes.
-// Callers are responsible for stopping obsolete watchers (via stopObsoleteClients) beforehand.
+// updateClientNetworks starts or updates the client network watchers for the given
+// routes. Callers must stop obsolete watchers first, via stopObsoleteClients.
 func (m *DefaultManager) updateClientNetworks(updateSerial uint64, networks route.HAMap) {
 	for id, routes := range networks {
 		clientNetworkWatcher, found := m.clientNetworks[id]

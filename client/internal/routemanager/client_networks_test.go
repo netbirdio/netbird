@@ -10,12 +10,9 @@ import (
 	"github.com/netbirdio/netbird/route"
 )
 
-// TestUpdateClientNetworksDoesNotStopObsoleteClients pins down that updateClientNetworks no
-// longer stops obsolete watchers itself - that responsibility moved to the caller (UpdateRoutes),
-// which must now call stopObsoleteClients before updateSystemRoutes so a dynamic route's allowed
-// IPs are released before its handler's state is wiped. This test only checks that
-// updateClientNetworks leaves obsolete entries alone; it does NOT cover the ordering against
-// updateSystemRoutes in UpdateRoutes itself.
+// updateClientNetworks no longer stops obsolete watchers itself. That moved to the
+// caller, which must stop them before updateSystemRoutes so a dynamic route releases
+// its allowed IPs before its state is wiped. Only the move is pinned here.
 func TestUpdateClientNetworksDoesNotStopObsoleteClients(t *testing.T) {
 	id := route.HAUniqueID("net1||10.0.0.0/24")
 	watcher := client.NewWatcher(client.WatcherConfig{Context: context.Background()})

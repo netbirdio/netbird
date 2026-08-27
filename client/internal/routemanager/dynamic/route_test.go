@@ -15,10 +15,9 @@ import (
 	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
-// wgAllowedIPMock records AddAllowedIP/RemoveAllowedIP calls made through the refcounter's
-// add/remove closures. It doesn't implement iface.WGIface - Route only reads r.wgInterface from
-// route_ios.go, a path this test doesn't exercise, so the mock is wired in via the refcounter
-// closures below instead of common.HandlerParams.WgInterface.
+// wgAllowedIPMock records the AddAllowedIP/RemoveAllowedIP calls made through the
+// refcounter closures. It is not an iface.WGIface: Route reads r.wgInterface only on
+// the iOS path, which this test does not exercise.
 type wgAllowedIPMock struct {
 	mu      sync.Mutex
 	added   map[string][]netip.Prefix
@@ -57,13 +56,9 @@ func (m *wgAllowedIPMock) removedFor(peerKey string) []netip.Prefix {
 	return m.removed[peerKey]
 }
 
-// TestRemoveRouteReleasesAllowedIPs exercises RemoveRoute and RemoveAllowedIPs in the reversed
-// order - RemoveRoute first, RemoveAllowedIPs second - that the manager used before its fix and
-// that some future call site could reintroduce by mistake. It's a regression guard for
-// RemoveRoute's safety net: even in that order, the old peer's allowed IP must still be released,
-// and the allowed IPs refcounter must be left usable for a subsequent peer. The manager itself now
-// calls RemoveAllowedIPs (via stopObsoleteClients) before RemoveRoute (via updateSystemRoutes);
-// that correct order isn't what's under test here.
+// RemoveRoute must release the allowed IPs itself even when it runs before
+// RemoveAllowedIPs, the reversed order the manager used before this fix and that a
+// future call site could reintroduce. The refcounter must stay usable for the next peer.
 func TestRemoveRouteReleasesAllowedIPs(t *testing.T) {
 	wg := &wgAllowedIPMock{}
 
@@ -99,9 +94,8 @@ func TestRemoveRouteReleasesAllowedIPs(t *testing.T) {
 	require.NoError(t, r.AddAllowedIPs("peerA"))
 	assert.Equal(t, []netip.Prefix{prefix}, wg.addedFor("peerA"))
 
-	// Reversed order: RemoveRoute runs before RemoveAllowedIPs. RemoveRoute must release the
-	// allowed IPs itself since it's about to wipe dynamicDomains, the state RemoveAllowedIPs
-	// would otherwise need. The later RemoveAllowedIPs call must then be a safe no-op.
+	// Reversed order: RemoveRoute first. It must release the allowed IPs itself, since it
+	// wipes dynamicDomains, and the later RemoveAllowedIPs must then be a safe no-op.
 	require.NoError(t, r.RemoveRoute())
 	require.NoError(t, r.RemoveAllowedIPs())
 
