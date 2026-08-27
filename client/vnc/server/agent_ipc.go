@@ -294,3 +294,14 @@ func dialAgentWithRetry(ctx context.Context, addr string) (net.Conn, error) {
 	}
 	return nil, lastErr
 }
+
+// retrackConn replaces a tracked raw connection with the wrapper its handler
+// will actually hold, so shutdown and the handler's own untrackConn agree on
+// which object is registered. Service mode only: that is where an accepted
+// connection is wrapped before the handler sees it.
+func (s *Server) retrackConn(raw, wrapped net.Conn) {
+	s.sessionsMu.Lock()
+	delete(s.acceptedConns, raw)
+	s.acceptedConns[wrapped] = struct{}{}
+	s.sessionsMu.Unlock()
+}
