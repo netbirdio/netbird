@@ -780,6 +780,14 @@ func (s *Server) replaceOAuthFlow(next oauthAuthFlow) {
 	}
 }
 
+func (s *Server) expireOAuthFlow(flow auth.OAuthFlow) {
+	s.mutex.Lock()
+	if s.oauthAuthFlow.flow == flow {
+		s.oauthAuthFlow.expiresAt = time.Now()
+	}
+	s.mutex.Unlock()
+}
+
 // reuseOAuthFlow returns the cached auth info when the previous flow targets
 // the same client and still has enough life left, and otherwise cancels the
 // stale wait and returns nil so the caller requests a fresh flow.
@@ -935,6 +943,10 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 	// the same predecessor and leave one wait uncancelled. Cancelling happens
 	// after the unlock: the displaced wait takes s.mutex as it unwinds.
 	s.mutex.Lock()
+	if s.oauthAuthFlow.flow != flow {
+		s.mutex.Unlock()
+		return nil, gstatus.Errorf(codes.Canceled, "sso login was replaced by a newer login")
+	}
 	staleCancel := s.oauthAuthFlow.waitCancel
 	s.oauthAuthFlow.waitCancel = cancel
 	s.mutex.Unlock()
@@ -945,9 +957,7 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 
 	tokenInfo, err := flow.WaitToken(waitCTX, flowInfo)
 	if err != nil {
-		s.mutex.Lock()
-		s.oauthAuthFlow.expiresAt = time.Now()
-		s.mutex.Unlock()
+		s.expireOAuthFlow(flow)
 		switch {
 		case errors.Is(err, context.Canceled):
 			// External abort. If our caller cancelled (the client closed
@@ -960,7 +970,9 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 			// the new owner — don't clobber it.
 			if callerCtx.Err() != nil {
 				s.mutex.Lock()
-				s.oauthAuthFlow = oauthAuthFlow{}
+				if s.oauthAuthFlow.flow == flow {
+					s.oauthAuthFlow = oauthAuthFlow{}
+				}
 				s.mutex.Unlock()
 			}
 		case errors.Is(err, context.DeadlineExceeded):
@@ -976,9 +988,7 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 		return nil, err
 	}
 
-	s.mutex.Lock()
-	s.oauthAuthFlow.expiresAt = time.Now()
-	s.mutex.Unlock()
+	s.expireOAuthFlow(flow)
 
 	if !tokenInfo.MatchesAccount(pending.hint) {
 		if !pending.accountPrompted {
@@ -990,7 +1000,9 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 			// register the peer under the wrong account.
 			log.Warnf("login returned an account other than the one this profile is bound to; the next connect will ask the IdP to choose")
 			s.mutex.Lock()
-			s.oauthAuthFlow = oauthAuthFlow{}
+			if s.oauthAuthFlow.flow == flow {
+				s.oauthAuthFlow = oauthAuthFlow{}
+			}
 			s.forceAccountPrompt = true
 			s.mutex.Unlock()
 			state.Set(internal.StatusNeedsLogin)
