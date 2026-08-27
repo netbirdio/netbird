@@ -318,7 +318,12 @@ func (m *managerImpl) UpdateProvider(ctx context.Context, userID string, provide
 	// real key, but it must not silently overwrite a valid stored key.
 	switch trimmed := strings.TrimSpace(provider.APIKey); {
 	case provider.APIKey == "":
-		provider.APIKey = existing.APIKey
+		// Trimmed on the way through: a record stored before keys were
+		// normalised carries whitespace the proxy still sends, and an edit
+		// that preserves the key is the occasion to repair it. Doing so makes
+		// the comparison below see a change, which is correct — that key has
+		// never been tested in the form it is about to be sent in.
+		provider.APIKey = strings.TrimSpace(existing.APIKey)
 	case trimmed == "":
 		return nil, status.Errorf(status.InvalidArgument, "api_key must be non-blank when rotating an agent network provider")
 	default:
@@ -338,9 +343,15 @@ func (m *managerImpl) UpdateProvider(ctx context.Context, userID string, provide
 	// The comparison runs after the merge above, so an update that changes only
 	// the URL reads as unchanged on the key and is checked against the stored
 	// one, which is the only credential the operator has to offer here.
+	//
+	// Turning TLS verification back on is the fourth: the record was stored
+	// unchecked precisely because that flag was set, so this is the first
+	// moment it can be checked at all, and nothing else about it need change
+	// for that to be true.
 	if provider.UpstreamURL != existing.UpstreamURL ||
 		provider.APIKey != existing.APIKey ||
-		provider.ProviderID != existing.ProviderID {
+		provider.ProviderID != existing.ProviderID ||
+		(existing.SkipTLSVerification && !provider.SkipTLSVerification) {
 		if err := m.checkProviderCredential(ctx, provider); err != nil {
 			return nil, err
 		}

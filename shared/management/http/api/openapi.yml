@@ -14146,9 +14146,9 @@ paths:
       description: |
         Connects a new Agent Network AI provider for the account.
 
-        The credential is checked against the vendor's model listing before the provider is stored, so a record the vendor will not accept is refused rather than saved. Returns 422 naming what is at fault — a rejected credential, a listing endpoint that does not resolve or answer, a vendor outage, and a timeout all block the write.
+        The credential is checked against the vendor's model listing before the provider is stored, so a record the vendor will not accept is refused rather than saved. A rejected credential, a listing endpoint that does not resolve or answer, a vendor outage, and a timeout all block the write and return 422.
 
-        How much of the upstream URL that covers depends on the provider. Where the listing is served from the upstream itself, reaching it proves the URL. Where the catalog entry has a listing host of its own — Bedrock, whose listing comes from the control plane — the configured runtime host is resolved on its own account but never contacted, so a public host that does not answer is still stored.
+        What that proves about the upstream URL is narrower than the URL itself. Only its host is used: the listing is requested over HTTPS at the path the catalog entry declares, so a configured scheme or path is neither used nor validated here. Where the catalog entry has a listing host of its own — Bedrock, whose listing comes from the control plane — even the host is only resolved, never contacted, so a public host that does not answer is still stored.
 
         Only what cannot be checked at all is exempt and stored unverified: a catalog provider with no listing endpoint, one with no host to derive a listing from, an upstream resolving to a private address the management service will not dial, and a provider configured to skip TLS verification.
       tags: [ Agent Network ]

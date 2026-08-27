@@ -576,3 +576,30 @@ func TestCreateProvider_TheStoredKeyIsTheOneThatWasChecked(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "sk-good", stored.APIKey, "and that is the one the proxy will send")
 }
+
+// TestUpdateProvider_TurningTlsVerificationBackOnChecksTheRecord covers the
+// hole the skip-TLS exemption opens on its own. Such a record is stored without
+// ever being checked, so the moment verification is switched back on is the
+// first moment it can be checked at all — and none of the three fields the
+// re-check usually watches has to move for that to happen.
+func TestUpdateProvider_TurningTlsVerificationBackOnChecksTheRecord(t *testing.T) {
+	ctx := context.Background()
+	f := newBootstrapFixture(t)
+	f.expectPermission("account1", "user1", modules.AgentNetworkProviders, operations.Create, true)
+
+	unchecked := newCheckedProvider("account1")
+	unchecked.SkipTLSVerification = true
+	created, err := f.manager.CreateProvider(ctx, "user1", unchecked)
+	require.NoError(t, err)
+	require.Zero(t, f.vendor.calls(), "the create was exempt")
+
+	f.expectPermission("account1", "user1", modules.AgentNetworkProviders, operations.Update, true)
+	edit := newCheckedProvider("account1")
+	edit.ID = created.ID
+	edit.APIKey = ""
+	edit.SkipTLSVerification = false
+
+	_, err = f.manager.UpdateProvider(ctx, "user1", edit)
+	require.NoError(t, err)
+	require.Equal(t, 1, f.vendor.calls(), "switching verification on must check what was never checked")
+}
