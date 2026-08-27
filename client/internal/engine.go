@@ -620,19 +620,15 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		return err
 	}
 	e.receiveManagementEvents()
-	log.Warnf("SPINPROBE: after receiveManagementEvents")
 	e.receiveJobEvents()
-	log.Warnf("SPINPROBE: after receiveJobEvents")
 
 	// starting network monitor at the very last to avoid disruptions
 	e.startNetworkMonitor()
-	log.Warnf("SPINPROBE: after startNetworkMonitor")
 
 	// monitor WireGuard interface lifecycle and restart engine on changes
 	e.wgIfaceMonitor = NewWGIfaceMonitor()
 	e.shutdownWg.Add(1)
 	wgIfaceName := e.wgInterface.Name()
-	log.Warnf("SPINPROBE: about to spawn wgIfaceMonitor, returning from Start next")
 
 	go func() {
 		defer e.shutdownWg.Done()
@@ -1772,8 +1768,9 @@ func (e *Engine) receiveSignalEvents() error {
 				if err != nil {
 					return err
 				}
-
-				log.Debugf("receiveMSG: took %s to get lock for peer %s with session id %s", gotLock, msg.Key, offerAnswer.SessionID)
+				// TinyGo does not have panic recovery yet.
+				// offerAnswer.SessionID is nil at times and will panic in fmt package due to String method nil dereference, so call SessionIDString instead.
+				log.Debugf("receiveMSG: took %s to get lock for peer %s with session id %s", gotLock, msg.Key, offerAnswer.SessionIDString())
 
 				if msg.Body.Type == sProto.Body_OFFER {
 					conn.OnRemoteOffer(*offerAnswer)

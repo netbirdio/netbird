@@ -4,6 +4,8 @@
 // 	protoc        v6.33.1
 // source: daemon.proto
 
+//go:build !tinygo
+
 package proto
 
 import (
