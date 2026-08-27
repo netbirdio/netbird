@@ -868,7 +868,13 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 	}
 
 	s.actCancel = cancel
-	flow := s.oauthAuthFlow.flow
+	// One snapshot of the flow this wait belongs to. hint and accountPrompted
+	// are judged against the token that comes back below, and WaitToken blocks
+	// for the whole browser leg: a concurrent Login or RequestJWTAuth replaces
+	// s.oauthAuthFlow meanwhile, so re-reading them after the wait would judge
+	// this flow's token against another flow's account.
+	pending := s.oauthAuthFlow
+	flow := pending.flow
 	s.mutex.Unlock()
 
 	if flow == nil {
@@ -889,9 +895,7 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 	// the affordance instead of a Connecting that never resolves.
 	state.Set(internal.StatusNeedsLogin)
 
-	s.mutex.Lock()
-	flowInfo := s.oauthAuthFlow.info
-	s.mutex.Unlock()
+	flowInfo := pending.info
 
 	if flowInfo.UserCode != msg.UserCode {
 		state.Set(internal.StatusLoginFailed)
@@ -949,12 +953,10 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 
 	s.mutex.Lock()
 	s.oauthAuthFlow.expiresAt = time.Now()
-	hint := s.oauthAuthFlow.hint
-	accountPrompted := s.oauthAuthFlow.accountPrompted
 	s.mutex.Unlock()
 
-	if !tokenInfo.MatchesAccount(hint) {
-		if !accountPrompted {
+	if !tokenInfo.MatchesAccount(pending.hint) {
+		if !pending.accountPrompted {
 			// The IdP answered from a session belonging to another account. The
 			// browser for this flow is gone, so a new URL cannot be handed out
 			// here — arm the prompt for the user's next connect and fail this

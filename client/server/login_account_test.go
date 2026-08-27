@@ -13,7 +13,8 @@ import (
 )
 
 type stubOAuthFlow struct {
-	token auth.TokenInfo
+	token  auth.TokenInfo
+	onWait func()
 }
 
 func (f *stubOAuthFlow) RequestAuthInfo(context.Context) (auth.AuthFlowInfo, error) {
@@ -21,6 +22,9 @@ func (f *stubOAuthFlow) RequestAuthInfo(context.Context) (auth.AuthFlowInfo, err
 }
 
 func (f *stubOAuthFlow) WaitToken(context.Context, auth.AuthFlowInfo) (auth.TokenInfo, error) {
+	if f.onWait != nil {
+		f.onWait()
+	}
 	return f.token, nil
 }
 
@@ -117,6 +121,31 @@ func TestSwitchProfile_DropsAccountPromptAndPendingFlow(t *testing.T) {
 	require.True(t, extendCancelled, "the pending extend wait was not cancelled")
 	_, _, pending := s.extendAuthSessionFlow.Get()
 	require.False(t, pending, "the previous profile's extend flow leaked across a profile switch")
+}
+
+func TestWaitSSOLogin_JudgesTheFlowThatProducedTheToken(t *testing.T) {
+	s := newSSOTestServer(t, "user@example.com", false, "user@example.com")
+	attempts := 0
+	s.loginAttemptFn = func(context.Context, string, string) (internal.StatusType, error) {
+		attempts++
+		return "", nil
+	}
+
+	flow := s.oauthAuthFlow.flow.(*stubOAuthFlow)
+	flow.onWait = func() {
+		s.mutex.Lock()
+		defer s.mutex.Unlock()
+		s.oauthAuthFlow.hint = "someone-else@example.com"
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	resp, err := s.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: "code"})
+	require.NoError(t, err, "a flow replaced mid-wait must not decide this wait's verdict")
+	require.NotNil(t, resp)
+	require.Equal(t, 1, attempts)
+	require.False(t, s.forceAccountPrompt, "the prompt was armed off another flow's hint")
 }
 
 func newSSOTestServer(t *testing.T, hint string, accountPrompted bool, tokenEmail string) *Server {
