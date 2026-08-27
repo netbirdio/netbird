@@ -254,14 +254,16 @@ func (m *managerImpl) callerScopedProviders(ctx context.Context, accountID, user
 	for _, p := range authorized {
 		r := p.RedactedForViewer()
 		// The model list follows the same effective computation the setup
-		// answer and the proxy use: a caller whose policies carry a model
-		// allowlist sees only the models those guardrails permit, so the
-		// dashboard's model filter never offers a model the caller's own
-		// requests could not use. Grant holders keep the full declared
-		// lists — their usage view spans everyone's requests.
-		if allAllowed, effective := effectiveModelsForProvider(p, policiesForProvider(applicable, p.ID), guardrailsByID); !allAllowed {
-			r.Models = providerModelsByID(p, effective)
-		}
+		// answer and the proxy use: allowlist-restricted callers see only
+		// the models their guardrails permit, and an unrestricted policy
+		// on a provider without an operator declaration surfaces the
+		// catalog models, matching the setup response — so the dashboard's
+		// model filter never offers a model the caller's own requests
+		// could not use, and never comes up empty when the setup page
+		// lists models. Grant holders keep the full declared lists —
+		// their usage view spans everyone's requests.
+		_, effective := effectiveModelsForProvider(p, policiesForProvider(applicable, p.ID), guardrailsByID)
+		r.Models = providerModelsByID(p, effective)
 		out = append(out, r)
 	}
 	return out, nil

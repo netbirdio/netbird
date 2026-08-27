@@ -259,3 +259,31 @@ func TestGetAllProviders_SelfScopedAllowlistWithoutDeclaredModels(t *testing.T) 
 	require.Len(t, scoped[0].Models, 1)
 	assert.Equal(t, "gpt-5.4", scoped[0].Models[0].ID)
 }
+
+func TestGetAllProviders_SelfScopedUnrestrictedFallsBackToCatalogModels(t *testing.T) {
+	ctx := context.Background()
+	mgr, s := newSelfScopeStore(t)
+
+	// Unrestricted policy on a provider without an operator declaration:
+	// the setup answer advertises the catalog models, and the scoped
+	// provider list must match so the model filter is never emptier than
+	// the setup page.
+	granted := newSynthTestProvider()
+	granted.ID = "prov-catalog"
+	granted.Name = "Granted"
+	granted.Models = nil
+	require.NoError(t, s.SaveAgentNetworkProvider(ctx, granted))
+	policy := newSynthTestPolicy(granted.ID, "grp-eng", "")
+	policy.ID = "pol-catalog"
+	require.NoError(t, s.SaveAgentNetworkPolicy(ctx, policy))
+
+	scoped, err := mgr.GetAllProviders(ctx, testAccountID, "user-a")
+	require.NoError(t, err)
+	require.Len(t, scoped, 1)
+	require.NotEmpty(t, scoped[0].Models, "catalog models back the filter when the operator declared none")
+	ids := make([]string, 0, len(scoped[0].Models))
+	for _, m := range scoped[0].Models {
+		ids = append(ids, m.ID)
+	}
+	assert.Equal(t, declaredModelIDs(granted), ids, "the scoped list mirrors the setup answer's declared/catalog set")
+}
