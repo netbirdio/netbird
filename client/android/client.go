@@ -4,7 +4,6 @@ package android
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -42,10 +41,6 @@ const (
 	AnonymizeLevelStrict  = nbAnonymize.LevelStrictString
 )
 
-const stopRunWaitTimeout = 20 * time.Second
-
-var errClientAlreadyRunning = errors.New("client is already running")
-
 // TunAdapter export internal TunAdapter for mobile
 type TunAdapter interface {
 	device.TunAdapter
@@ -81,6 +76,8 @@ type Client struct {
 	tunAdapter            device.TunAdapter
 	iFaceDiscover         IFaceDiscover
 	recorder              *peer.Status
+	ctxCancel             context.CancelFunc
+	ctxCancelLock         *sync.Mutex
 	deviceName            string
 	uiVersion             string
 	networkChangeListener listener.NetworkChangeListener
@@ -89,16 +86,9 @@ type Client struct {
 	// sweeper into each new ConnectClient.
 	netMgr *netevents.Manager
 
-	// stateMu guards the run lifecycle as one unit: the cancel installed by
-	// the current run, the channel it closes on exit, and the state it
-	// published. One run at a time: startRun refuses a second Run while the
-	// previous one has not exited, and the platform serializes Stop before
-	// Start, so no generation tracking is needed.
 	stateMu       sync.RWMutex
 	connectClient *internal.ConnectClient
 	config        *profilemanager.Config
-	runDone       chan struct{}
-	ctxCancel     context.CancelFunc
 	cacheDir      string
 	// Identifies the running profile for the SSO login hint; see profile_state.go.
 	cfgPath string
@@ -122,40 +112,13 @@ type Client struct {
 	extendCancel context.CancelFunc
 }
 
-func (c *Client) startRun(cancel context.CancelFunc) (chan struct{}, error) {
-	c.stateMu.Lock()
-	defer c.stateMu.Unlock()
-
-	if c.runDone != nil {
-		return nil, errClientAlreadyRunning
-	}
-
-	done := make(chan struct{})
-	c.runDone = done
-	c.ctxCancel = cancel
-	return done, nil
-}
-
-func (c *Client) finishRun(done chan struct{}) {
-	c.stateMu.Lock()
-	c.connectClient = nil
-	c.config = nil
-	c.cacheDir = ""
-	c.cfgPath = ""
-	c.runDone = nil
-	c.ctxCancel = nil
-	c.stateMu.Unlock()
-
-	close(done)
-}
-
 func (c *Client) setState(cfg *profilemanager.Config, cacheDir string, cfgPath string, cc *internal.ConnectClient) {
 	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
 	c.config = cfg
 	c.cacheDir = cacheDir
 	c.cfgPath = cfgPath
 	c.connectClient = cc
-	c.stateMu.Unlock()
 }
 
 func (c *Client) stateSnapshot() (*profilemanager.Config, string, *internal.ConnectClient) {
@@ -193,6 +156,7 @@ func NewClient(androidSDKVersion int, deviceName string, uiVersion string, tunAd
 		tunAdapter:            tunAdapter,
 		iFaceDiscover:         iFaceDiscover,
 		recorder:              recorder,
+		ctxCancelLock:         &sync.Mutex{},
 		networkChangeListener: networkChangeListener,
 		netMgr:                netevents.NewManager(recorder),
 	}
@@ -217,20 +181,16 @@ func (c *Client) Run(platformFiles PlatformFiles, urlOpener URLOpener, isAndroid
 	c.recorder.UpdateManagementAddress(cfg.ManagementURL.String())
 	c.recorder.UpdateRosenpass(cfg.RosenpassEnabled, cfg.RosenpassPermissive)
 
+	var ctx context.Context
 	//nolint
 	ctxWithValues := context.WithValue(context.Background(), system.DeviceNameCtxKey, c.deviceName)
 	//nolint
 	ctxWithValues = context.WithValue(ctxWithValues, system.UiVersionCtxKey, c.uiVersion)
 
-	runCtx, runCancel := context.WithCancel(ctxWithValues)
-	defer runCancel()
-
-	done, err := c.startRun(runCancel)
-	if err != nil {
-		return err
-	}
-	defer c.finishRun(done)
-	ctx := runCtx
+	c.ctxCancelLock.Lock()
+	ctx, c.ctxCancel = context.WithCancel(ctxWithValues)
+	defer c.ctxCancel()
+	c.ctxCancelLock.Unlock()
 
 	auth := NewAuthWithConfig(ctx, cfg, cfgFile)
 	err = auth.login(urlOpener, isAndroidTV)
@@ -272,17 +232,13 @@ func (c *Client) RunWithoutLogin(platformFiles PlatformFiles, dns *DNSList, dnsR
 	c.recorder.UpdateManagementAddress(cfg.ManagementURL.String())
 	c.recorder.UpdateRosenpass(cfg.RosenpassEnabled, cfg.RosenpassPermissive)
 
+	var ctx context.Context
 	//nolint
 	ctxWithValues := context.WithValue(context.Background(), system.DeviceNameCtxKey, c.deviceName)
-	runCtx, runCancel := context.WithCancel(ctxWithValues)
-	defer runCancel()
-
-	done, err := c.startRun(runCancel)
-	if err != nil {
-		return err
-	}
-	defer c.finishRun(done)
-	ctx := runCtx
+	c.ctxCancelLock.Lock()
+	ctx, c.ctxCancel = context.WithCancel(ctxWithValues)
+	defer c.ctxCancel()
+	c.ctxCancelLock.Unlock()
 
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
@@ -292,27 +248,15 @@ func (c *Client) RunWithoutLogin(platformFiles PlatformFiles, dns *DNSList, dnsR
 	return connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener, stateFile, cacheDir)
 }
 
-// Stop cancels the running client and waits for the run loop to exit, so a
-// caller that restarts immediately cannot race the outgoing teardown.
+// Stop the internal client and free the resources
 func (c *Client) Stop() {
-	c.stateMu.RLock()
-	done := c.runDone
-	cancel := c.ctxCancel
-	c.stateMu.RUnlock()
-
-	if cancel != nil {
-		cancel()
-	}
-
-	if done == nil {
+	c.ctxCancelLock.Lock()
+	defer c.ctxCancelLock.Unlock()
+	if c.ctxCancel == nil {
 		return
 	}
 
-	select {
-	case <-done:
-	case <-time.After(stopRunWaitTimeout):
-		log.Warnf("Stop: timed out waiting for the run loop to exit")
-	}
+	c.ctxCancel()
 }
 
 func (c *Client) RenewTun(fd int) error {
