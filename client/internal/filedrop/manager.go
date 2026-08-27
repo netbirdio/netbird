@@ -147,8 +147,9 @@ func (m *Manager) SetDestinationDir(dir string) error {
 	return m.policy.SetDestinationDir(dir)
 }
 
-// StartReceiver binds the receiving server on addr.
-func (m *Manager) StartReceiver(ctx context.Context, addr netip.AddrPort, netstackNet *netstack.Net, resolver PeerResolver) error {
+// StartReceiver binds the receiving server on addr. A non-nil control is
+// applied to host listeners before bind.
+func (m *Manager) StartReceiver(ctx context.Context, addr netip.AddrPort, netstackNet *netstack.Net, resolver PeerResolver, control ListenControl) error {
 	m.mu.Lock()
 	if m.server != nil {
 		m.mu.Unlock()
@@ -169,6 +170,9 @@ func (m *Manager) StartReceiver(ctx context.Context, addr netip.AddrPort, netsta
 	}
 	if netstackNet != nil {
 		server.SetNetstackNet(netstackNet)
+	}
+	if control != nil {
+		server.SetListenControl(control)
 	}
 
 	if err := server.Start(ctx, addr); err != nil {

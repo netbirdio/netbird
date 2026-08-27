@@ -43,7 +43,7 @@ func (e *Engine) startFileDrop() {
 	resolver := filedropResolver{status: e.statusRecorder}
 
 	netstackNet := e.wgInterface.GetNet()
-	if err := e.fileDrop.StartReceiver(e.ctx, addr, netstackNet, resolver); err != nil {
+	if err := e.fileDrop.StartReceiver(e.ctx, addr, netstackNet, resolver, fileDropListenControl(e.wgInterface)); err != nil {
 		log.Errorf("failed to start file drop receiver: %v", err)
 		return
 	}

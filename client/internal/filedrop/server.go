@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/netip"
 	"sync"
+	"syscall"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -48,6 +49,10 @@ type ServerConfig struct {
 	SpoolMaxAge time.Duration
 }
 
+// ListenControl is a raw-socket hook applied to host listeners before bind,
+// mirroring net.ListenConfig.Control.
+type ListenControl func(network, address string, c syscall.RawConn) error
+
 // Server serves the receiver over HTTP on the overlay address and owns the
 // listener and janitor lifecycle; the protocol logic itself lives in receiver.
 type Server struct {
@@ -56,6 +61,7 @@ type Server struct {
 	listener       net.Listener
 	extraListeners []net.Listener
 	netstackNet    *netstack.Net
+	listenControl  ListenControl
 
 	recv      *receiver
 	boundPort uint16
@@ -88,6 +94,13 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 	}
 
 	return &Server{recv: newReceiver(cfg, spool, maxAge)}, nil
+}
+
+// SetListenControl installs a raw-socket hook applied to host listeners.
+func (s *Server) SetListenControl(control ListenControl) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.listenControl = control
 }
 
 // SetNetstackNet routes listeners through the gVisor netstack instead of host sockets.
@@ -244,7 +257,7 @@ func (s *Server) createListener(ctx context.Context, addr netip.AddrPort) (net.L
 		return ln, fmt.Sprintf("netstack %s", addr), nil
 	}
 
-	var lc net.ListenConfig
+	lc := net.ListenConfig{Control: s.listenControl}
 	ln, err := lc.Listen(ctx, "tcp", net.TCPAddrFromAddrPort(addr).String())
 	if err != nil {
 		return nil, "", fmt.Errorf("listen: %w", err)
