@@ -1427,15 +1427,15 @@
         "message": "Ожидание авторизации…"
     },
     "connect.activeSession.badge": {
-        "message": "Экран доступен",
+        "message": "Экран транслируется",
         "description": "Short label on the badge shown on the main screen while somebody is attached to this machine over VNC."
     },
     "connect.activeSession.tooltip": {
-        "message": "Этот экран просматривается по VNC ({sessionCount} сеанс(ов)). Отключение завершит его, и если вы подключены через VNC, вы потеряете доступ.",
+        "message": "Этот экран сейчас просматривают по VNC ({sessionCount} сеанс(ов)). Отключение завершит VNC-сеанс, и если вы подключены через VNC, вы потеряете доступ.",
         "description": "Tooltip on the screen-shared badge. {sessionCount} is how many VNC sessions are attached; wording covers any number since the bundle has no plural forms."
     },
     "connect.activeSession.tooltipNamed": {
-        "message": "Этот экран просматривает {who} по VNC ({sessionCount} сеанс(ов)). Отключение завершит его, и если вы подключены через VNC, вы потеряете доступ.",
+        "message": "Этот экран сейчас просматривает {who} по VNC ({sessionCount} сеанс(ов)). Отключение завершит VNC-сеанс, и если вы подключены через VNC, вы потеряете доступ.",
         "description": "As connect.activeSession.tooltip, with {who} naming the dashboard users who started the sessions."
     },
     "settings.privilege.hint": {

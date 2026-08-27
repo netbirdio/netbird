@@ -1076,7 +1076,7 @@
         "message": "Eingehende Verbindung zulassen?"
     },
     "approval.field.user": {
-        "message": "Von Benutzer"
+        "message": "Vom Benutzer"
     },
     "approval.field.keyFingerprint": {
         "message": "Schlüssel-Fingerabdruck"

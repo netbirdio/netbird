@@ -2,6 +2,7 @@ package sessionauth
 
 import (
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -399,11 +400,27 @@ func TestAuthorizer_ConcurrentAuthorization(t *testing.T) {
 		}(i)
 	}
 
+	// Reapply the same config while the reads above are in flight: Update
+	// replaces authorizedUsers, machineUsers and sessionPubKeys wholesale, so
+	// the race detector has something to catch if any of them is read unguarded.
+	const numUpdaters = 10
+	var updaters sync.WaitGroup
+	updaters.Add(numUpdaters)
+	for range numUpdaters {
+		go func() {
+			defer updaters.Done()
+			for range 50 {
+				authorizer.Update(config)
+			}
+		}()
+	}
+
 	// Wait for all goroutines to complete and collect errors
 	for i := 0; i < numGoroutines; i++ {
 		err := <-errChan
 		assert.NoError(t, err)
 	}
+	updaters.Wait()
 }
 
 func TestAuthorizer_Wildcard_AllowsAllAuthorizedUsers(t *testing.T) {
@@ -660,6 +677,31 @@ func TestAuthorizer_LookupSessionKey_UpdateClears(t *testing.T) {
 	if _, err := a.LookupSessionKey(pub); !errors.Is(err, ErrSessionKeyNotKnown) {
 		t.Fatalf("expected ErrSessionKeyNotKnown, got %v", err)
 	}
+}
+
+// A session pubkey configured twice with different user hashes cannot be
+// resolved to one identity, so Update drops the binding rather than picking a
+// winner: the key must not authenticate anybody.
+func TestAuthorizer_SessionKey_ConflictingDuplicateIsDropped(t *testing.T) {
+	pub := bytesRepeat(0x44, sessionPubKeyLen)
+	aliceHash, err := sshauth.HashUserID("alice")
+	require.NoError(t, err)
+	bobHash, err := sshauth.HashUserID("bob")
+	require.NoError(t, err)
+
+	a := NewAuthorizer()
+	a.Update(&Config{
+		AuthorizedUsers: []sshauth.UserIDHash{aliceHash, bobHash},
+		MachineUsers:    map[string][]uint32{Wildcard: {0, 1}},
+		SessionPubKeys: []SessionPubKey{
+			{PubKey: pub, UserIDHash: aliceHash, DisplayName: "Alice"},
+			{PubKey: pub, UserIDHash: bobHash, DisplayName: "Bob"},
+		},
+	})
+
+	_, err = a.LookupSessionKey(pub)
+	require.ErrorIs(t, err, ErrSessionKeyNotKnown, "a conflicting key must authenticate nobody")
+	assert.Empty(t, a.LookupSessionDisplayName(pub), "the display name goes with the dropped binding")
 }
 
 func bytesRepeat(b byte, n int) []byte {
