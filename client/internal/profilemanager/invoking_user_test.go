@@ -144,6 +144,23 @@ func TestIsPlainRoot(t *testing.T) {
 	assert.True(t, IsPlainRoot())
 }
 
+func TestMirrorIsAuthoritative(t *testing.T) {
+	t.Setenv(envSudoUser, "")
+	origEuid := geteuid
+	t.Cleanup(func() { geteuid = origEuid })
+
+	geteuid = func() int { return 1000 }
+	assert.True(t, MirrorIsAuthoritative(), "a normal user's own mirror is authoritative")
+
+	geteuid = func() int { return 0 }
+	assert.False(t, MirrorIsAuthoritative(), "plain root has no authoritative mirror")
+}
+
+func TestMirrorIsAuthoritativeFalseUnderSudo(t *testing.T) {
+	fakeSudo(t, filepath.Join("/home", "misha"))
+	assert.False(t, MirrorIsAuthoritative(), "the sudo mirror is frozen, so it is not authoritative")
+}
+
 func fakeSudo(t *testing.T, home string) {
 	t.Helper()
 	t.Setenv(envSudoUser, "misha")

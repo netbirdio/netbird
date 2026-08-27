@@ -24,48 +24,65 @@ func (f *fakeActiveProfileClient) GetActiveProfile(_ context.Context, _ *proto.G
 	return f.resp, f.err
 }
 
-func TestCheckRootProfileMatchAcceptsOwnProfile(t *testing.T) {
+func TestDaemonActiveProfileForUserReturnsOwnProfile(t *testing.T) {
 	client := &fakeActiveProfileClient{resp: &proto.GetActiveProfileResponse{Id: "default", ProfileName: "default", Username: "root"}}
-	err := checkRootProfileMatch(context.Background(), client, &profilemanager.Profile{ID: "default"}, "root")
-	assert.NoError(t, err)
+	prof, err := daemonActiveProfileForUser(context.Background(), client, "root")
+	require.NoError(t, err)
+	require.NotNil(t, prof)
+	assert.Equal(t, profilemanager.ID("default"), prof.ID)
 }
 
-func TestCheckRootProfileMatchAcceptsUnownedProfile(t *testing.T) {
+func TestDaemonActiveProfileForUserReturnsUnownedProfile(t *testing.T) {
 	client := &fakeActiveProfileClient{resp: &proto.GetActiveProfileResponse{Id: "default", ProfileName: "default", Username: ""}}
-	err := checkRootProfileMatch(context.Background(), client, &profilemanager.Profile{ID: "default"}, "root")
-	assert.NoError(t, err)
+	prof, err := daemonActiveProfileForUser(context.Background(), client, "root")
+	require.NoError(t, err)
+	require.NotNil(t, prof)
+	assert.Equal(t, profilemanager.ID("default"), prof.ID)
 }
 
-func TestCheckRootProfileMatchRejectsOtherUsersProfile(t *testing.T) {
+func TestDaemonActiveProfileForUserKeepsDaemonProfileOverStaleMirror(t *testing.T) {
 	client := &fakeActiveProfileClient{resp: &proto.GetActiveProfileResponse{Id: "ab12", ProfileName: "work", Username: "misha"}}
-	err := checkRootProfileMatch(context.Background(), client, &profilemanager.Profile{ID: "default"}, "root")
+	prof, err := daemonActiveProfileForUser(context.Background(), client, "misha")
+	require.NoError(t, err)
+	require.NotNil(t, prof)
+	assert.Equal(t, profilemanager.ID("ab12"), prof.ID)
+}
+
+func TestDaemonActiveProfileForUserRejectsOtherUsersProfile(t *testing.T) {
+	client := &fakeActiveProfileClient{resp: &proto.GetActiveProfileResponse{Id: "ab12", ProfileName: "work", Username: "misha"}}
+	prof, err := daemonActiveProfileForUser(context.Background(), client, "root")
 	require.Error(t, err)
+	assert.Nil(t, prof)
 	assert.Contains(t, err.Error(), "--profile")
 }
 
-func TestCheckRootProfileMatchRejectsOtherUsersDefaultProfile(t *testing.T) {
+func TestDaemonActiveProfileForUserRejectsOtherUsersDefaultProfile(t *testing.T) {
 	client := &fakeActiveProfileClient{resp: &proto.GetActiveProfileResponse{Id: "default", ProfileName: "default", Username: "misha"}}
-	err := checkRootProfileMatch(context.Background(), client, &profilemanager.Profile{ID: "default"}, "root")
+	prof, err := daemonActiveProfileForUser(context.Background(), client, "root")
 	require.Error(t, err)
+	assert.Nil(t, prof)
 	assert.Contains(t, err.Error(), "--profile")
 }
 
-func TestCheckRootProfileMatchRejectsLookupError(t *testing.T) {
+func TestDaemonActiveProfileForUserRejectsLookupError(t *testing.T) {
 	client := &fakeActiveProfileClient{err: gstatus.Error(codes.Internal, "boom")}
-	err := checkRootProfileMatch(context.Background(), client, &profilemanager.Profile{ID: "default"}, "root")
+	prof, err := daemonActiveProfileForUser(context.Background(), client, "root")
 	require.Error(t, err)
+	assert.Nil(t, prof)
 	assert.Contains(t, err.Error(), "--profile")
 }
 
-func TestCheckRootProfileMatchRejectsEmptyResponse(t *testing.T) {
+func TestDaemonActiveProfileForUserRejectsEmptyResponse(t *testing.T) {
 	client := &fakeActiveProfileClient{resp: &proto.GetActiveProfileResponse{}}
-	err := checkRootProfileMatch(context.Background(), client, &profilemanager.Profile{ID: "default"}, "root")
+	prof, err := daemonActiveProfileForUser(context.Background(), client, "root")
 	require.Error(t, err)
+	assert.Nil(t, prof)
 	assert.Contains(t, err.Error(), "--profile")
 }
 
-func TestCheckRootProfileMatchAllowsDaemonWithoutRPC(t *testing.T) {
+func TestDaemonActiveProfileForUserKeepsMirrorWhenDaemonWithoutRPC(t *testing.T) {
 	client := &fakeActiveProfileClient{err: gstatus.Error(codes.Unimplemented, "unknown method")}
-	err := checkRootProfileMatch(context.Background(), client, &profilemanager.Profile{ID: "default"}, "root")
-	assert.NoError(t, err)
+	prof, err := daemonActiveProfileForUser(context.Background(), client, "root")
+	require.NoError(t, err)
+	assert.Nil(t, prof)
 }

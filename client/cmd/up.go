@@ -305,19 +305,25 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 		return fmt.Errorf("unable to get daemon status: %v", err)
 	}
 
-	// Plain root has no invoking user to resolve profiles for, so the local
-	// state falls back to root's own — the default profile. Acting on that
-	// while the daemon runs another user's profile would silently switch the
-	// daemon away from it (and a later browser login would register the
-	// default profile's peer under whichever account the IdP returns). Refuse
-	// the ambiguity instead of guessing.
-	if profilemanager.IsPlainRoot() && profileName == "" {
+	// Under sudo the invoking user's local active-profile mirror is never
+	// written (the SwitchProfile write is a no-op), and plain root has no
+	// invoking user at all — so the mirror read into activeProf above is stale
+	// or defaulted and must not drive the daemon. With no --profile to make the
+	// choice explicit, take the profile the daemon already holds for this user
+	// instead: it stays on the user's current profile rather than silently
+	// switching to the mirror's default, and refuses when the daemon is on
+	// another user's profile.
+	if profileName == "" && !profilemanager.MirrorIsAuthoritative() {
 		u, err := profilemanager.InvokingUser()
 		if err != nil {
 			return fmt.Errorf("get current user: %v", err)
 		}
-		if err := checkRootProfileMatch(ctx, client, activeProf, u.Username); err != nil {
+		resolved, err := daemonActiveProfileForUser(ctx, client, u.Username)
+		if err != nil {
 			return err
+		}
+		if resolved != nil {
+			activeProf = resolved
 		}
 	}
 
@@ -869,27 +875,31 @@ func isValidAddrPort(input string) bool {
 	return err == nil
 }
 
-// checkRootProfileMatch guards the plain-root, no --profile case: it denies
-// unless the daemon's active profile is exactly the one this invocation
-// resolves to, matched by both ID and owning username (an empty username means
-// the profile is not owned yet, as on a fresh install). Lookup failures deny
-// too; only a daemon predating the RPC is allowed through.
-func checkRootProfileMatch(ctx context.Context, client proto.DaemonServiceClient, activeProf *profilemanager.Profile, username string) error {
+// daemonActiveProfileForUser returns the profile the daemon currently holds for
+// username, for the no --profile case where the local mirror is not
+// authoritative (sudo or plain root). It returns that profile when the daemon
+// owns it for this user or when the profile is unowned (empty username, as on a
+// fresh install), so the caller acts on the daemon's real state instead of the
+// stale mirror. It denies with a --profile hint when the daemon is on another
+// user's profile, when the lookup fails, or when the daemon reports no active
+// profile. A nil profile with a nil error means the daemon predates the RPC and
+// the caller should keep the mirror-derived profile.
+func daemonActiveProfileForUser(ctx context.Context, client proto.DaemonServiceClient, username string) (*profilemanager.Profile, error) {
 	active, err := client.GetActiveProfile(ctx, &proto.GetActiveProfileRequest{})
 	if err != nil {
 		if st, ok := gstatus.FromError(err); ok && st.Code() == codes.Unimplemented {
-			log.Warnf("daemon does not support active profile lookup, skipping the root profile check: %v", err)
-			return nil
+			log.Warnf("daemon does not support active profile lookup, keeping the locally resolved profile: %v", err)
+			return nil, nil
 		}
-		return fmt.Errorf("pass --profile to choose the profile explicitly: running as root and the daemon's active profile could not be verified: %v", err)
+		return nil, fmt.Errorf("pass --profile to choose the profile explicitly: the daemon's active profile could not be verified: %v", err)
 	}
 	if active.GetId() == "" {
-		return fmt.Errorf("pass --profile to choose the profile explicitly: running as root and the daemon reported no active profile")
+		return nil, fmt.Errorf("pass --profile to choose the profile explicitly: the daemon reported no active profile")
 	}
-	if active.GetId() != activeProf.ID.String() || (active.GetUsername() != "" && active.GetUsername() != username) {
-		return fmt.Errorf(
-			"pass --profile to choose the profile explicitly: running as root, the daemon's active profile is %q (user %q) but this invocation resolves to %q",
-			active.GetProfileName(), active.GetUsername(), activeProf.ID)
+	if active.GetUsername() != "" && active.GetUsername() != username {
+		return nil, fmt.Errorf(
+			"pass --profile to choose the profile explicitly: the daemon's active profile is %q (user %q) but this invocation runs for %q",
+			active.GetProfileName(), active.GetUsername(), username)
 	}
-	return nil
+	return &profilemanager.Profile{ID: profilemanager.ID(active.GetId())}, nil
 }

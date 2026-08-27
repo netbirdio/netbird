@@ -43,6 +43,15 @@ func IsPlainRoot() bool {
 	return !ok
 }
 
+// MirrorIsAuthoritative reports whether the invoking user's local
+// active-profile mirror can be trusted as the profile selector. It cannot under
+// sudo (writes to it are skipped, so it goes stale) or as plain root (there is
+// no invoking user, so it falls back to root's own default). Callers use it to
+// decide whether to read the profile from the mirror or from the daemon.
+func MirrorIsAuthoritative() bool {
+	return !sudoActive() && !IsPlainRoot()
+}
+
 // sudoInvokingUser resolves SUDO_USER when the process runs as root under
 // sudo. Returns false whenever the sudo context is absent or unusable, in
 // which case callers fall back to the process user.
