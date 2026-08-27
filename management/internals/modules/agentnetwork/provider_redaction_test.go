@@ -192,7 +192,7 @@ func TestGetAllProviders_SelfScopedModelsFollowGuardrails(t *testing.T) {
 	ctx := context.Background()
 	mgr, s := newSelfScopeProvidersFixture(t)
 
-	// Re-declare the granted provider with two models and restrict the
+	// Redeclare the granted provider with two models and restrict the
 	// caller's policy with an allowlist admitting one declared model plus
 	// one the operator never declared (unreachable — the router only
 	// claims declared models, so it must not surface).
