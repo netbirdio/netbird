@@ -46,6 +46,11 @@ type PeerUpdateHandler struct {
 	cleanupFunc    func()
 }
 
+func (pu *PeerUpdateHandler) WithMetrics(appMetrics telemetry.AppMetrics) *PeerUpdateHandler {
+	pu.appMetrics = appMetrics
+	return pu
+}
+
 //go:generate go tool mockgen -source=./peer_update_handler.go -destination=./sync_sender_mock.go -package=grpc
 type syncSender interface {
 	Send(*proto.EncryptedMessage) error

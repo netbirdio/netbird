@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	pb "github.com/golang/protobuf/proto"
+	pb "github.com/golang/protobuf/proto" //nolint
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/stretchr/testify/assert"
@@ -36,7 +36,7 @@ func TestSendPeerUpdates_FirstUpdate(t *testing.T) {
 	}
 
 	timeCh := make(chan time.Time)
-	srvCtx, _ := context.WithCancel(context.TODO())
+	srvCtx := context.TODO()
 	srvKey := mustGenerateKey(t)
 	// mock a first update, should send it right away
 	updateDebouncer.EXPECT().ProcessUpdate(gomock.Eq(&msg)).Return(true)
@@ -47,7 +47,7 @@ func TestSendPeerUpdates_FirstUpdate(t *testing.T) {
 	updateDebouncer.EXPECT().Stop()
 
 	var wg sync.WaitGroup
-	wg.Go(func() { pu.HandleUpdates(context.TODO()) })
+	wg.Go(func() { pu.HandleUpdates(context.TODO()) }) //nolint:errcheck
 	pu.updates <- &msg
 	close(pu.updates)
 	wg.Wait()
@@ -74,7 +74,7 @@ func TestSendPeerUpdates_TimerUpdate(t *testing.T) {
 	}
 
 	timeCh := make(chan time.Time)
-	srvCtx, _ := context.WithCancel(context.TODO())
+	srvCtx := context.TODO()
 	srvKey := mustGenerateKey(t)
 	updateDebouncer.EXPECT().GetPendingUpdates().Return([]*network_map.UpdateMessage{&msg})
 	updateDebouncer.EXPECT().TimerChannel().AnyTimes().Return(timeCh)
@@ -84,7 +84,7 @@ func TestSendPeerUpdates_TimerUpdate(t *testing.T) {
 	updateDebouncer.EXPECT().Stop()
 
 	var wg sync.WaitGroup
-	wg.Go(func() { pu.HandleUpdates(context.TODO()) })
+	wg.Go(func() { pu.HandleUpdates(context.TODO()) }) //nolint:errcheck
 	timeCh <- time.Now()
 	close(pu.updates)
 	wg.Wait()
@@ -113,7 +113,7 @@ func TestSendPeerUpdates_ServerContextDone(t *testing.T) {
 	updateDebouncer.EXPECT().Stop()
 
 	var wg sync.WaitGroup
-	wg.Go(func() { pu.HandleUpdates(context.TODO()) })
+	wg.Go(func() { pu.HandleUpdates(context.TODO()) }) //nolint:errcheck
 	cancel()
 	wg.Wait()
 }
