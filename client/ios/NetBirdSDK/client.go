@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -83,7 +84,7 @@ type Client struct {
 	networkChangeListener listener.NetworkChangeListener
 	onHostDnsFn           func([]string)
 	dnsManager            dns.IosDnsManager
-	loginComplete         bool
+	loginComplete         atomic.Bool
 	// netMgr outlives engine restarts: it mirrors the OS connectivity, not
 	// the engine lifecycle. Run injects its state and sweeper into each new
 	// ConnectClient.
@@ -527,18 +528,18 @@ func (c *Client) LoginForMobile() string {
 			log.Errorf("LoginForMobile: Login failed: %v", err)
 			return
 		}
-		c.loginComplete = true
+		c.loginComplete.Store(true)
 	}()
 
 	return flowInfo.VerificationURIComplete
 }
 
 func (c *Client) IsLoginComplete() bool {
-	return c.loginComplete
+	return c.loginComplete.Load()
 }
 
 func (c *Client) ClearLoginComplete() {
-	c.loginComplete = false
+	c.loginComplete.Store(false)
 }
 
 func (c *Client) GetRoutesSelectionDetails() (*RoutesSelectionDetails, error) {
