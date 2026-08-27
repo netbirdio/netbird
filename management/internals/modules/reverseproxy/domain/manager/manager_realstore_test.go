@@ -295,3 +295,29 @@ func TestValidateDomain_PermissionDeniedDoesNotValidate(t *testing.T) {
 	_, err = env.manager.DeriveClusterFromDomain(ctx, accountA, "guarded.example.com")
 	assert.Error(t, err, "the domain must still be unservable")
 }
+
+// Validation runs asynchronously, so it can finish after the domain was
+// deleted and then write a stale row back. gorm's Save falls back to an insert
+// when an update affects no rows, which would resurrect the domain as
+// validated; UpdateCustomDomain avoids that by selecting explicit columns.
+// This pins that behaviour, since dropping the Select would reintroduce it.
+func TestUpdateCustomDomain_DoesNotResurrectDeletedDomain(t *testing.T) {
+	ctx := context.Background()
+	env := setupDomainTest(t)
+
+	created, err := env.manager.CreateDomain(ctx, accountA, accountAUser, "racy.example.com", testCluster)
+	require.NoError(t, err)
+
+	stale := storedDomain(t, env.store, accountA, "racy.example.com")
+	require.NotNil(t, stale)
+
+	require.NoError(t, env.manager.DeleteDomain(ctx, accountA, accountAUser, created.ID))
+	require.Nil(t, storedDomain(t, env.store, accountA, "racy.example.com"), "the domain should be gone")
+
+	// What an in-flight validation would write once its CNAME check succeeded.
+	stale.Validated = true
+	_, _ = env.store.UpdateCustomDomain(ctx, accountA, stale)
+
+	assert.Nil(t, storedDomain(t, env.store, accountA, "racy.example.com"),
+		"a late validation write must not recreate a deleted domain")
+}
