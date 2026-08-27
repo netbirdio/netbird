@@ -28,6 +28,13 @@ func InvokingUser() (*user.User, error) {
 	if u, ok := sudoInvokingUser(); ok {
 		return u, nil
 	}
+	// Fail closed instead of falling through to root: every caller feeds this
+	// username into profile-path resolution, so a lookup failure would resolve
+	// (and create) a root-owned profile namespace and switch the daemon onto it
+	// behind the invoking user's back.
+	if sudoActive() {
+		return nil, fmt.Errorf("resolve sudo invoking user %q: refusing to fall back to root", os.Getenv(envSudoUser))
+	}
 	return user.Current()
 }
 

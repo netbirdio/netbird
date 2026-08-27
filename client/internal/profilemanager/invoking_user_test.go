@@ -56,6 +56,30 @@ func TestSudoInvokingUserResolvesInvokingUser(t *testing.T) {
 	assert.False(t, IsPlainRoot())
 }
 
+func TestInvokingUserFailsClosedWhenSudoLookupFails(t *testing.T) {
+	fakeSudo(t, filepath.Join("/home", "misha"))
+	lookupUser = func(string) (*user.User, error) { return nil, errors.New("nss unavailable") }
+
+	got, err := InvokingUser()
+	require.Error(t, err)
+	assert.Nil(t, got, "must not resolve to the root process user")
+}
+
+func TestProfileFilePathFailsClosedWhenSudoLookupFails(t *testing.T) {
+	profilesRoot := t.TempDir()
+	fakeSudo(t, filepath.Join("/home", "misha"))
+	lookupUser = func(string) (*user.User, error) { return nil, errors.New("nss unavailable") }
+
+	origDir := DefaultConfigPathDir
+	DefaultConfigPathDir = profilesRoot
+	t.Cleanup(func() { DefaultConfigPathDir = origDir })
+
+	p := &Profile{ID: "0123456789abcdef0123456789abcdef"}
+	_, err := p.FilePath()
+	require.Error(t, err)
+	assertNoEntries(t, profilesRoot)
+}
+
 func TestSudoActiveSurvivesLookupFailure(t *testing.T) {
 	fakeSudo(t, filepath.Join("/home", "misha"))
 	lookupUser = func(string) (*user.User, error) { return nil, errors.New("nss unavailable") }
