@@ -154,9 +154,12 @@ func (p *PKCEAuthorizationFlow) RequestAuthInfo(ctx context.Context) (AuthFlowIn
 		oauth2.SetAuthURLParam("code_challenge", codeChallenge),
 		oauth2.SetAuthURLParam("audience", p.providerConfig.Audience),
 	}
+	forceAccountPrompt := p.forceAccountPrompt
+	p.forceAccountPrompt = false
+
 	if !p.providerConfig.DisablePromptLogin {
 		switch {
-		case p.forceAccountPrompt:
+		case forceAccountPrompt:
 			params = append(params, oauth2.SetAuthURLParam("prompt", "login"))
 		case p.providerConfig.LoginFlag == common.LoginFlagPromptLogin:
 			params = append(params, oauth2.SetAuthURLParam("prompt", "login"))
@@ -184,6 +187,9 @@ func (p *PKCEAuthorizationFlow) SetLoginHint(hint string) {
 // ForceAccountPrompt makes the next authorization request ask the IdP to
 // re-authenticate instead of answering from the session it already holds. Used
 // to retry a login that came back for an account other than the one hinted.
+//
+// The next RequestAuthInfo consumes the flag, so a flow that outlives its retry
+// goes back to the configured behaviour instead of re-authenticating forever.
 //
 // DisablePromptLogin still wins: it is set for IdPs that break on prompt=login,
 // where retrying with it would replace a wrong-account login with one that
