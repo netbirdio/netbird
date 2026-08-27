@@ -190,6 +190,11 @@ func TestDownThenUp_StaleRunningChan(t *testing.T) {
 	assert.False(t, s.clientRunning, "clientRunning should be cleared by cleanupConnection (intent = down)")
 	s.mutex.Unlock()
 
+	// A fresh Up begins a new run before waiting; without it the previous
+	// run's kept exit signal would race the stale clientRunningChan below.
+	_, nextDone := s.runs.Begin()
+	defer close(nextDone)
+
 	// waitForUp() returns immediately due to stale closed clientRunningChan
 	waitCtx, ctxCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer ctxCancel()

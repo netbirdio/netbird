@@ -96,6 +96,23 @@ func TestRunSupervisorStopGivesUpWaitOnContext(t *testing.T) {
 	assert.ErrorIs(t, s.Stop(ctx), context.DeadlineExceeded)
 }
 
+func TestRunSupervisorDoneSurvivesStop(t *testing.T) {
+	var s RunSupervisor
+
+	_, done := s.Begin()
+	close(done)
+
+	require.NoError(t, s.Stop(context.Background()))
+
+	runDone := s.Done()
+	require.NotNil(t, runDone, "a waiter that raced Stop must still observe the run's exit")
+	select {
+	case <-runDone:
+	default:
+		t.Fatal("the last run's exit signal should remain readable after Stop")
+	}
+}
+
 func TestRunSupervisorAliveTracksRun(t *testing.T) {
 	var s RunSupervisor
 

@@ -72,8 +72,10 @@ func (s *RunSupervisor) Current() *ConnectClient {
 	return s.current
 }
 
-// Done returns the channel the current run closes when it exits, or nil when no
-// run has been started. Callers that only need a yes/no answer should use Alive.
+// Done returns the channel the most recent run closes when it exits, or nil
+// when no run has been started. It stays readable after Stop so a waiter that
+// raced a teardown still observes the run's exit instead of a nil channel.
+// Callers that only need a yes/no answer should use Alive.
 func (s *RunSupervisor) Done() <-chan struct{} {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -110,7 +112,6 @@ func (s *RunSupervisor) Stop(ctx context.Context) error {
 	cc := s.current
 	done := s.done
 	s.current = nil
-	s.done = nil
 	s.mu.Unlock()
 
 	if cc != nil {
