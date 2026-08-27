@@ -27,7 +27,9 @@ var (
 	ErrSessionKeyNotKnown    = errors.New("session pubkey not registered")
 )
 
-// Authorizer handles SSH fine-grained access control authorization
+// Authorizer handles fine-grained access control authorization for the
+// remote-access servers: SSH by hashed user identity and OS login name, VNC by
+// the session public key management issued for a temporary-access grant.
 type Authorizer struct {
 	// UserIDClaim is the JWT claim to extract the user ID from
 	userIDClaim string
@@ -53,7 +55,7 @@ type Authorizer struct {
 	mu sync.RWMutex
 }
 
-// Config contains configuration for the SSH authorizer
+// Config contains configuration for the session authorizer
 type Config struct {
 	// UserIDClaim is the JWT claim to extract the user ID from (e.g., "sub", "email")
 	UserIDClaim string
@@ -80,7 +82,7 @@ type SessionPubKey struct {
 	DisplayName string
 }
 
-// NewAuthorizer creates a new SSH authorizer with empty configuration
+// NewAuthorizer creates a new session authorizer with empty configuration
 func NewAuthorizer() *Authorizer {
 	a := &Authorizer{
 		userIDClaim:         DefaultUserIDClaim,
