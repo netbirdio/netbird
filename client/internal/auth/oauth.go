@@ -58,11 +58,12 @@ type TokenInfo struct {
 	ExpiresIn    int    `json:"expires_in"`
 	UseIDToken   bool   `json:"-"`
 	Email        string `json:"-"`
+	EmailClaim   string `json:"-"`
 }
 
 // MatchesAccount reports whether the token belongs to the account a profile is
 // bound to. A hint the IdP could not have acted on — no hint stored, or a token
-// that carried no email — is reported as a match: the check exists to catch a
+// that carried no email claim — is reported as a match: the check exists to catch a
 // login answered from the wrong account, not to block one it cannot judge.
 //
 // The comparison is case-insensitive. Local-parts are case-sensitive per RFC
@@ -70,10 +71,10 @@ type TokenInfo struct {
 // an IdP that echoes a differently-cased address would otherwise fail every
 // login.
 func (t TokenInfo) MatchesAccount(hint string) bool {
-	if hint == "" || t.Email == "" {
+	if hint == "" || t.EmailClaim == "" {
 		return true
 	}
-	return strings.EqualFold(t.Email, hint)
+	return strings.EqualFold(t.EmailClaim, hint)
 }
 
 // GetTokenToUse returns either the access or id token based on UseIDToken field

@@ -115,7 +115,7 @@ func newSSOTestServer(t *testing.T, hint string, accountPrompted bool, tokenEmai
 	t.Helper()
 	s := New(internal.CtxInitState(context.Background()), "console", "", false, false, false, false)
 	s.oauthAuthFlow = oauthAuthFlow{
-		flow:            &stubOAuthFlow{token: auth.TokenInfo{Email: tokenEmail}},
+		flow:            &stubOAuthFlow{token: auth.TokenInfo{Email: tokenEmail, EmailClaim: tokenEmail}},
 		info:            auth.AuthFlowInfo{UserCode: "code"},
 		expiresAt:       time.Now().Add(time.Minute),
 		hint:            hint,

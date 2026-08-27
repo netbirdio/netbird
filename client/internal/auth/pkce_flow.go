@@ -324,11 +324,14 @@ func (p *PKCEAuthorizationFlow) parseOAuthToken(token *oauth2.Token) (TokenInfo,
 		return TokenInfo{}, fmt.Errorf("authentication failed: invalid access token - %w", err)
 	}
 
-	email, err := parseEmailFromIDToken(tokenInfo.IDToken)
+	email, fromEmailClaim, err := parseEmailFromIDToken(tokenInfo.IDToken)
 	if err != nil {
 		log.Warnf("failed to parse email from ID token: %v", err)
 	} else {
 		tokenInfo.Email = email
+		if fromEmailClaim {
+			tokenInfo.EmailClaim = email
+		}
 	}
 
 	return tokenInfo, nil
@@ -336,32 +339,33 @@ func (p *PKCEAuthorizationFlow) parseOAuthToken(token *oauth2.Token) (TokenInfo,
 
 // parseEmailFromIDToken extracts the email (or name) claim from an ID token
 // without verifying its signature. The value is best-effort: it prefills the
-// login hint, is displayed, and is compared against the account a profile is
-// bound to (see MatchesAccount). It never grants anything — the authoritative
-// identity is established server-side from the signature-verified token.
-func parseEmailFromIDToken(token string) (string, error) {
+// login hint and is displayed. Account matching (see MatchesAccount) only uses
+// it when it came from the email claim, which fromEmailClaim reports. It never
+// grants anything — the authoritative identity is established server-side from
+// the signature-verified token.
+func parseEmailFromIDToken(token string) (value string, fromEmailClaim bool, err error) {
 	parts := strings.Split(token, ".")
 	if len(parts) < 2 {
-		return "", fmt.Errorf("invalid token format")
+		return "", false, fmt.Errorf("invalid token format")
 	}
 
 	data, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		return "", fmt.Errorf("failed to decode payload: %w", err)
+		return "", false, fmt.Errorf("failed to decode payload: %w", err)
 	}
 	var claims map[string]interface{}
 	if err := json.Unmarshal(data, &claims); err != nil {
-		return "", fmt.Errorf("json unmarshal error: %w", err)
+		return "", false, fmt.Errorf("json unmarshal error: %w", err)
 	}
 
 	if email, ok := claims["email"].(string); ok {
-		return email, nil
+		return email, true, nil
 	}
 	if name, ok := claims["name"].(string); ok {
-		return name, nil
+		return name, false, nil
 	}
 
-	return "", fmt.Errorf("email or name field not found in token payload")
+	return "", false, fmt.Errorf("email or name field not found in token payload")
 }
 
 func createCodeChallenge(codeVerifier string) string {
