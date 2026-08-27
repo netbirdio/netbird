@@ -436,8 +436,8 @@ type AgentNetworkMetrics struct {
 }
 
 const (
-	postgresDsnEnv       = "NB_STORE_ENGINE_POSTGRES_DSN"
-	postgresDsnEnvLegacy = "NETBIRD_STORE_ENGINE_POSTGRES_DSN"
+	PostgresDsnEnv       = "NB_STORE_ENGINE_POSTGRES_DSN"
+	PostgresDsnEnvLegacy = "NETBIRD_STORE_ENGINE_POSTGRES_DSN"
 	mysqlDsnEnv          = "NB_STORE_ENGINE_MYSQL_DSN"
 	mysqlDsnEnvLegacy    = "NETBIRD_STORE_ENGINE_MYSQL_DSN"
 )
@@ -781,7 +781,7 @@ func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind types.Engine) 
 }
 
 func newReusedPostgresStore(ctx context.Context, store *SqlStore, kind types.Engine) (*SqlStore, func(), error) {
-	dsn, ok := lookupDSNEnv(postgresDsnEnv, postgresDsnEnvLegacy)
+	dsn, ok := lookupDSNEnv(PostgresDsnEnv, PostgresDsnEnvLegacy)
 	if !ok || dsn == "" {
 		var err error
 		_, dsn, err = testutil.CreatePostgresTestContainer()
@@ -791,7 +791,7 @@ func newReusedPostgresStore(ctx context.Context, store *SqlStore, kind types.Eng
 	}
 
 	if dsn == "" {
-		return nil, nil, fmt.Errorf("%s is not set", postgresDsnEnv)
+		return nil, nil, fmt.Errorf("%s is not set", PostgresDsnEnv)
 	}
 
 	db, err := openDBWithRetry(dsn, kind, 5)

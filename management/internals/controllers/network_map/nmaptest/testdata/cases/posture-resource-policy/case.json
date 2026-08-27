@@ -1,0 +1,4 @@
+{
+  "description": "Posture check on a policy granting access to a network resource. peer-ok must receive the route to the resource through peer-r, while peer-bad fails the version check and must receive no route at all. The router's route firewall rule must narrow its SourceRanges to peer-ok's address only — a peer rejected by posture must not be permitted through the routing peer either, which is the enforcement that actually matters.",
+  "peers": ["peer-ok", "peer-bad", "peer-r"]
+}

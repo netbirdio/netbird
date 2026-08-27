@@ -1,0 +1,4 @@
+{
+  "description": "Routing peer group: one router record assigned to a peer group, which the store expands into one entry per member peer sharing the router's settings. peer-a must receive one route per routing peer — same NetID and destination, different route ID and peer — which is what gives the client an HA pair to choose between. Each router must receive only its own route, never its sibling's, plus its own route firewall rule.",
+  "peers": ["peer-a", "peer-r1", "peer-r2"]
+}

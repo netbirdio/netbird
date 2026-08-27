@@ -24,6 +24,7 @@ type Repository interface {
 	// services synthesised from the account's agent-network provider/policy
 	// state. Empty for accounts without agent-network providers.
 	SynthesizeAgentNetworkServices(ctx context.Context, accountID string) ([]*service.Service, error)
+	GetAccountServices(ctx context.Context, accountID string) ([]*service.Service, error)
 }
 
 type repository struct {
@@ -60,6 +61,10 @@ func (r *repository) GetPeerByID(ctx context.Context, accountID string, peerID s
 
 func (r *repository) SynthesizeAgentNetworkServices(ctx context.Context, accountID string) ([]*service.Service, error) {
 	return agentnetwork.SynthesizeServices(ctx, r.store, accountID)
+}
+
+func (r *repository) GetAccountServices(ctx context.Context, accountID string) ([]*service.Service, error) {
+	return r.store.GetAccountServices(ctx, store.LockingStrengthNone, accountID)
 }
 
 func (r *repository) GetAccountZones(ctx context.Context, accountID string) ([]*zones.Zone, error) {
