@@ -459,16 +459,6 @@ func (s *Server) trackConn(c net.Conn) {
 	s.sessionsMu.Unlock()
 }
 
-// retrackConn replaces a tracked raw connection with the wrapper its handler
-// will actually hold, so shutdown and the handler's own untrackConn agree on
-// which object is registered.
-func (s *Server) retrackConn(raw, wrapped net.Conn) {
-	s.sessionsMu.Lock()
-	delete(s.acceptedConns, raw)
-	s.acceptedConns[wrapped] = struct{}{}
-	s.sessionsMu.Unlock()
-}
-
 // untrackConn forgets a connection once its handler is returning.
 func (s *Server) untrackConn(c net.Conn) {
 	s.sessionsMu.Lock()
