@@ -233,6 +233,13 @@ func baseConfigDir() (string, error) {
 	if u, ok := sudoInvokingUser(); ok {
 		return userBaseConfigDir(u)
 	}
+	// Fail closed instead of falling through to root's own config directory:
+	// reading root's active-profile and email state for what is actually the
+	// invoking user's invocation is the very confusion this resolution exists
+	// to prevent.
+	if sudoActive() {
+		return "", fmt.Errorf("resolve sudo invoking user %q: refusing to fall back to root's config directory", os.Getenv(envSudoUser))
+	}
 	if runtime.GOOS == "darwin" {
 		if u, err := user.Current(); err == nil && u.HomeDir != "" {
 			return filepath.Join(u.HomeDir, "Library", "Application Support"), nil

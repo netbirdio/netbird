@@ -62,7 +62,7 @@ func sudoInvokingUser() (*user.User, bool) {
 	name := os.Getenv(envSudoUser)
 	u, err := lookupUser(name)
 	if err != nil {
-		log.Warnf("sudo invoking user %q lookup: %v; acting as root", name, err)
+		log.Warnf("sudo invoking user %q lookup: %v", name, err)
 		return nil, false
 	}
 	return u, true

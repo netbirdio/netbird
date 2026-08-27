@@ -84,6 +84,17 @@ func TestGetConfigDirUnderSudoIsReadOnly(t *testing.T) {
 	assert.NoDirExists(t, dir)
 }
 
+func TestBaseConfigDirFailsClosedWhenSudoLookupFails(t *testing.T) {
+	fakeSudo(t, filepath.Join("/home", "misha"))
+	lookupUser = func(string) (*user.User, error) { return nil, errors.New("nss unavailable") }
+
+	_, err := baseConfigDir()
+	require.Error(t, err)
+
+	_, err = getConfigDir()
+	require.Error(t, err)
+}
+
 func TestSwitchProfileSkipsStateWriteUnderSudo(t *testing.T) {
 	home := t.TempDir()
 	fakeSudo(t, home)
