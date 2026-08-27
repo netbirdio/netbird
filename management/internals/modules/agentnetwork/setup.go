@@ -3,7 +3,6 @@ package agentnetwork
 import (
 	"context"
 	"fmt"
-	"sort"
 
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/catalog"
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
@@ -117,22 +116,16 @@ func (m *managerImpl) authorizedProvidersForGroups(ctx context.Context, accountI
 		return nil, nil, fmt.Errorf("list account providers: %w", err)
 	}
 
-	authorized := make([]*types.Provider, 0, len(providers))
-	for _, p := range providers {
-		if p == nil || !p.Enabled {
-			continue
-		}
+	// filterEnabledProviders carries the enabled filter and the
+	// created_at/ID order shared with the router synthesizer.
+	enabled := filterEnabledProviders(providers)
+	authorized := make([]*types.Provider, 0, len(enabled))
+	for _, p := range enabled {
 		if len(policiesForProvider(applicable, p.ID)) == 0 {
 			continue
 		}
 		authorized = append(authorized, p)
 	}
-	sort.SliceStable(authorized, func(i, j int) bool {
-		if !authorized[i].CreatedAt.Equal(authorized[j].CreatedAt) {
-			return authorized[i].CreatedAt.Before(authorized[j].CreatedAt)
-		}
-		return authorized[i].ID < authorized[j].ID
-	})
 	return authorized, applicable, nil
 }
 
