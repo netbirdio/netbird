@@ -1016,9 +1016,10 @@ wait_for_license_verdict() {
 
   echo -n "Waiting for the server to validate the license"
   while [[ $counter -lt 60 ]]; do
-    logs=$($DOCKER_COMPOSE_COMMAND logs --no-color --tail=200 "$COMBINED_SERVICE" 2>/dev/null || true)
 
-    if grep -qi "license invalidated\|license key invalid" <<< "$logs"; then
+    logs=$($DOCKER_COMPOSE_COMMAND logs --no-color --tail=all "$COMBINED_SERVICE" 2>/dev/null || true)
+
+    if grep -qi "license invalidated" <<< "$logs"; then
       echo " rejected"
       LICENSE_VERDICT="rejected"
       LICENSE_LOG_LINES=$(grep -i "license" <<< "$logs" | tail -n 5)
@@ -1038,6 +1039,7 @@ wait_for_license_verdict() {
 
   echo " no verdict in 120s"
   LICENSE_VERDICT="unknown"
+  LICENSE_LOG_LINES=$(grep -iE "failed to validate license|error validating license" <<< "$logs" | tail -n 3)
   return 0
 }
 
@@ -1157,13 +1159,22 @@ apply_changes() {
     echo "     The migration itself completed: the images and any migrated data"
     echo "     are in place, and only the license was refused."
     echo ""
-    echo "     Verify that NB_LICENSE_KEY in .env matches the key you were"
-    echo "     issued, correct it if it does not, then restart:"
+    echo "     Check the reason the server gave above, verify that"
+    echo "     NB_LICENSE_KEY in .env matches the key you were issued, then"
+    echo "     restart:"
     echo ""
     echo "       $DOCKER_COMPOSE_COMMAND up -d"
   elif [[ "$LICENSE_VERDICT" == "unknown" ]]; then
     echo ""
-    echo "  ⚠  The server logged no license verdict within 120s. Check it with:"
+    echo "  ⚠  The server logged no license verdict within 120s."
+    if [[ -n "$LICENSE_LOG_LINES" ]]; then
+      echo "     It was still reporting validation errors:"
+      while IFS= read -r line; do
+        [[ -n "$line" ]] && echo "     $line"
+      done <<< "$LICENSE_LOG_LINES"
+    fi
+    echo ""
+    echo "     Check the verdict with:"
     echo ""
     echo "       $DOCKER_COMPOSE_COMMAND logs $COMBINED_SERVICE | grep -i license"
   fi
