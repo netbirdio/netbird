@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -46,6 +47,8 @@ const (
 	profileNameFlag = "profile"
 	profileNameDesc = "profile name to use for the login. If not specified, the last used profile will be used."
 )
+
+var errDaemonActiveProfileUnsupported = errors.New("daemon does not support active profile lookup")
 
 var (
 	foregroundMode     bool
@@ -319,10 +322,12 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 			return fmt.Errorf("get current user: %v", err)
 		}
 		resolved, err := daemonActiveProfileForUser(ctx, client, u.Username)
-		if err != nil {
+		switch {
+		case errors.Is(err, errDaemonActiveProfileUnsupported):
+			log.Warnf("keeping the locally resolved profile: %v", err)
+		case err != nil:
 			return err
-		}
-		if resolved != nil {
+		default:
 			activeProf = resolved
 		}
 	}
@@ -882,14 +887,13 @@ func isValidAddrPort(input string) bool {
 // fresh install), so the caller acts on the daemon's real state instead of the
 // stale mirror. It denies with a --profile hint when the daemon is on another
 // user's profile, when the lookup fails, or when the daemon reports no active
-// profile. A nil profile with a nil error means the daemon predates the RPC and
-// the caller should keep the mirror-derived profile.
+// profile. Returns errDaemonActiveProfileUnsupported when the daemon predates
+// the RPC; the caller keeps the mirror-derived profile in that case.
 func daemonActiveProfileForUser(ctx context.Context, client proto.DaemonServiceClient, username string) (*profilemanager.Profile, error) {
 	active, err := client.GetActiveProfile(ctx, &proto.GetActiveProfileRequest{})
 	if err != nil {
 		if st, ok := gstatus.FromError(err); ok && st.Code() == codes.Unimplemented {
-			log.Warnf("daemon does not support active profile lookup, keeping the locally resolved profile: %v", err)
-			return nil, nil
+			return nil, fmt.Errorf("%w: %v", errDaemonActiveProfileUnsupported, err)
 		}
 		return nil, fmt.Errorf("pass --profile to choose the profile explicitly: the daemon's active profile could not be verified: %v", err)
 	}

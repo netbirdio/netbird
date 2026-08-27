@@ -83,6 +83,6 @@ func TestDaemonActiveProfileForUserRejectsEmptyResponse(t *testing.T) {
 func TestDaemonActiveProfileForUserKeepsMirrorWhenDaemonWithoutRPC(t *testing.T) {
 	client := &fakeActiveProfileClient{err: gstatus.Error(codes.Unimplemented, "unknown method")}
 	prof, err := daemonActiveProfileForUser(context.Background(), client, "root")
-	require.NoError(t, err)
+	require.ErrorIs(t, err, errDaemonActiveProfileUnsupported)
 	assert.Nil(t, prof)
 }
