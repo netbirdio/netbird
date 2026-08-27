@@ -1286,6 +1286,12 @@ func (s *Server) SwitchProfile(callerCtx context.Context, msg *proto.SwitchProfi
 	s.oauthAuthFlow = oauthAuthFlow{}
 	s.forceAccountPrompt = false
 
+	// A pending session extend belongs to the previous profile too: its device
+	// code was issued by that profile's IdP client, and WaitExtendAuthSession
+	// would submit the resulting token against the new profile's engine.
+	s.extendAuthSessionFlow.CancelWait()
+	s.extendAuthSessionFlow.Clear()
+
 	if msg != nil && msg.ProfileName != nil {
 		s.publishProfileListChanged(*msg.ProfileName)
 	}

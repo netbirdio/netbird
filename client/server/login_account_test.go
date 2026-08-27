@@ -103,12 +103,20 @@ func TestSwitchProfile_DropsAccountPromptAndPendingFlow(t *testing.T) {
 		waitCancel: func() { cancelled = true },
 	}
 
+	extendCancelled := false
+	s.extendAuthSessionFlow.Set(&stubOAuthFlow{}, auth.AuthFlowInfo{DeviceCode: "device"})
+	s.extendAuthSessionFlow.SetWaitCancel(func() { extendCancelled = true })
+
 	_, err := s.SwitchProfile(ctx, nil)
 	require.NoError(t, err)
 	require.False(t, s.forceAccountPrompt, "the prompt flag leaked across a profile switch")
 	require.Nil(t, s.oauthAuthFlow.flow, "the previous profile's flow leaked across a profile switch")
 	require.Empty(t, s.oauthAuthFlow.hint)
 	require.True(t, cancelled, "the pending wait was not cancelled")
+
+	require.True(t, extendCancelled, "the pending extend wait was not cancelled")
+	_, _, pending := s.extendAuthSessionFlow.Get()
+	require.False(t, pending, "the previous profile's extend flow leaked across a profile switch")
 }
 
 func newSSOTestServer(t *testing.T, hint string, accountPrompted bool, tokenEmail string) *Server {
