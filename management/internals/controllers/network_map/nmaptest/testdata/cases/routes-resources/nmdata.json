@@ -1,0 +1,97 @@
+{
+  "Network": {"Serial": 7},
+  "AccountSettings": {"RoutingPeerDNSResolutionEnabled": true},
+  "Peers": {
+    "peer-a": {"IP": "100.64.0.1", "Meta": {"WtVersion": "0.60.0"}},
+    "peer-b": {"IP": "100.64.0.2", "Meta": {"WtVersion": "0.60.0"}},
+    "peer-r": {"IP": "100.64.0.9", "Meta": {"WtVersion": "0.60.0"}}
+  },
+  "Groups": {
+    "grp-dev": {"Peers": ["peer-a", "peer-b"]},
+    "grp-routers": {"Peers": ["peer-r"]}
+  },
+  "Policies": [
+    {
+      "ID": "pol-conn",
+      "PublicID": "pol-conn-pub",
+      "Enabled": true,
+      "Rules": [
+        {
+          "Enabled": true,
+          "Action": "accept",
+          "Protocol": "tcp",
+          "Bidirectional": true,
+          "Ports": ["8080"],
+          "Sources": ["grp-dev"],
+          "Destinations": ["grp-routers"]
+        }
+      ]
+    },
+    {
+      "ID": "pol-db",
+      "PublicID": "pol-db-pub",
+      "Enabled": true,
+      "Rules": [
+        {
+          "Enabled": true,
+          "Action": "accept",
+          "Protocol": "tcp",
+          "Ports": ["5432"],
+          "Sources": ["grp-dev"],
+          "DestinationResource": {"ID": "res-db", "Type": "subnet"}
+        }
+      ]
+    }
+  ],
+  "ResourcePolicies": {
+    "res-db": [
+      {
+        "ID": "pol-db",
+        "PublicID": "pol-db-pub",
+        "Enabled": true,
+        "Rules": [
+          {
+            "Enabled": true,
+            "Action": "accept",
+            "Protocol": "tcp",
+            "Ports": ["5432"],
+            "Sources": ["grp-dev"],
+            "DestinationResource": {"ID": "res-db", "Type": "subnet"}
+          }
+        ]
+      }
+    ]
+  },
+  "Routes": [
+    {
+      "ID": "rt-1",
+      "PublicID": "rt-1-pub",
+      "NetID": "office-net",
+      "Network": "10.20.0.0/24",
+      "NetworkType": 1,
+      "Peer": "peer-r",
+      "PeerID": "peer-r",
+      "Metric": 9999,
+      "Masquerade": true,
+      "Enabled": true,
+      "Groups": ["grp-dev"]
+    }
+  ],
+  "NetworkResources": [
+    {
+      "ID": "res-db",
+      "PublicID": "res-db-pub",
+      "NetworkID": "net-1",
+      "Name": "db",
+      "Type": "subnet",
+      "Prefix": "10.10.0.0/24",
+      "Enabled": true
+    }
+  ],
+  "Routers": {
+    "net-1": {
+      "peer-r": {"Masquerade": true, "Metric": 9999, "Enabled": true}
+    }
+  },
+  "NetworkXIDToPublicID": {"net-1": "net-1-pub"}
+}
