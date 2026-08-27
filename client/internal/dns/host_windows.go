@@ -64,9 +64,6 @@ const (
 	dnsPolicyConfigMatchPath    = DNSPolicyConfigRoot + `\` + nrptMatchKeyName
 	gpoDnsPolicyConfigMatchPath = GPODNSPolicyConfigRoot + `\` + nrptMatchKeyName
 
-	dnsPolicyConfigCatchAllPath    = DNSPolicyConfigRoot + `\` + NRPTKeyPrefix + `CatchAll`
-	gpoDnsPolicyConfigCatchAllPath = GPODNSPolicyConfigRoot + `\` + NRPTKeyPrefix + `CatchAll`
-
 	dnsPolicyConfigExemptLocalPath    = DNSPolicyConfigRoot + `\` + NRPTKeyPrefix + `ExemptLocal`
 	gpoDnsPolicyConfigExemptLocalPath = GPODNSPolicyConfigRoot + `\` + NRPTKeyPrefix + `ExemptLocal`
 
@@ -352,6 +349,24 @@ func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig, stateManager
 		matchDomains = append(matchDomains, "."+strings.TrimSuffix(dConf.Domain, "."))
 	}
 
+	// The root namespace is a match domain like any other: it just happens to
+	// match every name. Without it the adapter's NameServer only adds one more
+	// resolver to the set Windows queries in parallel, keeping whichever answer
+	// comes back first — which leaks every query to the local network and lets a
+	// resolver other than ours answer for a name we are authoritative for.
+	if config.RouteAll {
+		if parseBoolEnv(envLegacyDNSResolution) {
+			log.Infof("%s is set, leaving DNS resolution shared with the other adapters' resolvers instead of forcing it through %s", envLegacyDNSResolution, config.ServerIP)
+		} else {
+			matchDomains = append(matchDomains, nrptCatchAllNamespace)
+			log.Infof("routing every namespace through %s: DNS resolution is now exclusive to NetBird", config.ServerIP)
+
+			if err := r.addDNSExemptLocalPolicy(); err != nil {
+				return fmt.Errorf("add dns exempt policy: %w", err)
+			}
+		}
+	}
+
 	if len(matchDomains) != 0 {
 		if err := r.addDNSMatchPolicy(matchDomains, config.ServerIP); err != nil {
 			return fmt.Errorf("add dns match policy: %w", err)
@@ -384,12 +399,7 @@ func (r *registryConfigurator) addDNSSetupForAll(ip netip.Addr) error {
 	}
 	r.routingAll = true
 	log.Infof("configured %s:%d as main DNS forwarder for this peer", ip, DefaultPort)
-
-	// The adapter's NameServer alone does not make us the system resolver:
-	// Windows queries the resolvers of every adapter in parallel and takes the
-	// first answer back. A catch-all NRPT rule is evaluated before adapter
-	// selection and restricts every name to the servers it lists.
-	return r.addDNSCatchAllPolicy(ip)
+	return nil
 }
 
 func (r *registryConfigurator) addDNSMatchPolicy(domains []string, ip netip.Addr) error {
@@ -430,30 +440,6 @@ func (r *registryConfigurator) addDNSMatchPolicy(domains []string, ip netip.Addr
 
 	log.Infof("added %d NRPT rules for %d domains", ruleIndex, len(domains))
 	return nil
-}
-
-func (r *registryConfigurator) addDNSCatchAllPolicy(ip netip.Addr) error {
-	if parseBoolEnv(envLegacyDNSResolution) {
-		log.Infof("%s is set, leaving DNS resolution shared with the other adapters' resolvers instead of forcing it through %s", envLegacyDNSResolution, ip)
-		return nil
-	}
-
-	if err := r.configureDNSPolicy(dnsPolicyConfigCatchAllPath, []string{nrptCatchAllNamespace}, ip); err != nil {
-		return fmt.Errorf("configure catch-all DNS policy: %w", err)
-	}
-
-	if r.gpo {
-		if err := r.configureDNSPolicy(gpoDnsPolicyConfigCatchAllPath, []string{nrptCatchAllNamespace}, ip); err != nil {
-			return fmt.Errorf("configure gpo catch-all DNS policy: %w", err)
-		}
-		if err := refreshGroupPolicy(); err != nil {
-			log.Warnf("failed to refresh group policy: %v", err)
-		}
-	}
-
-	log.Infof("added catch-all NRPT rule: all DNS queries now resolve exclusively through %s", ip)
-
-	return r.addDNSExemptLocalPolicy()
 }
 
 // addDNSExemptLocalPolicy carves .local back out of the catch-all. RFC 6762

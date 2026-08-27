@@ -104,7 +104,7 @@ func TestNRPTCatchAllRule(t *testing.T) {
 
 	testIP := netip.MustParseAddr("100.64.0.1")
 	testGUID := "{12345678-1234-1234-1234-123456789ABC}"
-	interfacePath := `SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\` + testGUID
+	interfacePath := InterfaceConfigPath + `\` + testGUID
 	testKey, _, err := registry.CreateKey(registry.LOCAL_MACHINE, interfacePath, registry.SET_VALUE)
 	require.NoError(t, err, "Should create test interface registry key")
 	testKey.Close()
@@ -123,37 +123,31 @@ func TestNRPTCatchAllRule(t *testing.T) {
 		RouteAll: true,
 		Domains:  []DomainConfig{{Domain: "example.com", MatchOnly: true}},
 	}
+	firstRule := fmt.Sprintf("%s-0", dnsPolicyConfigMatchPath)
 
+	// The root namespace is not a rule of its own: it rides in the match rule,
+	// which is the point of it not being a special case.
 	require.NoError(t, cfg.applyDNSConfig(matchOnly, nil))
-	exists, err := registryKeyExists(dnsPolicyConfigCatchAllPath)
-	require.NoError(t, err)
-	assert.False(t, exists, "catch-all rule should not exist for a match-only config")
+	names := ruleNamespaces(t, firstRule)
+	assert.Contains(t, names, ".example.com")
+	assert.NotContains(t, names, nrptCatchAllNamespace, "a match-only config must not claim every namespace")
 
 	require.NoError(t, cfg.applyDNSConfig(primary, nil))
-	exists, err = registryKeyExists(dnsPolicyConfigCatchAllPath)
-	require.NoError(t, err)
-	require.True(t, exists, "catch-all rule should exist when RouteAll is set")
+	names = ruleNamespaces(t, firstRule)
+	assert.Contains(t, names, ".example.com")
+	assert.Contains(t, names, nrptCatchAllNamespace, "RouteAll should add the root namespace to the match rule")
 
-	k, err := registry.OpenKey(registry.LOCAL_MACHINE, dnsPolicyConfigCatchAllPath, registry.QUERY_VALUE)
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, firstRule, registry.QUERY_VALUE)
 	require.NoError(t, err)
-
-	names, _, err := k.GetStringsValue(dnsPolicyConfigNameKey)
-	require.NoError(t, err)
-	assert.Equal(t, []string{nrptCatchAllNamespace}, names, "catch-all rule should match the root namespace")
-
 	servers, _, err := k.GetStringValue(dnsPolicyConfigGenericDNSServersKey)
 	require.NoError(t, err)
-	assert.Equal(t, testIP.String(), servers, "catch-all rule should list only our resolver")
-
-	opts, _, err := k.GetIntegerValue(dnsPolicyConfigConfigOptionsKey)
-	require.NoError(t, err)
-	assert.EqualValues(t, dnsPolicyConfigConfigOptionsValue, opts)
+	assert.Equal(t, testIP.String(), servers, "every namespace in the rule resolves through our resolver")
 	k.Close()
 
-	// .local is carved back out: RFC 6762 reserves it for mDNS, so the rule
-	// names the namespace and lists no servers.
+	// .local is carved back out: RFC 6762 reserves it for mDNS, so it needs a
+	// rule of its own — it is the one rule with a different server list.
 	ek, err := registry.OpenKey(registry.LOCAL_MACHINE, dnsPolicyConfigExemptLocalPath, registry.QUERY_VALUE)
-	require.NoError(t, err, "exemption rule should exist alongside the catch-all")
+	require.NoError(t, err, "exemption rule should exist once the root namespace is claimed")
 
 	exemptNames, _, err := ek.GetStringsValue(dnsPolicyConfigNameKey)
 	require.NoError(t, err)
@@ -169,19 +163,30 @@ func TestNRPTCatchAllRule(t *testing.T) {
 	ek.Close()
 
 	require.NoError(t, cfg.applyDNSConfig(matchOnly, nil))
-	exists, err = registryKeyExists(dnsPolicyConfigCatchAllPath)
-	require.NoError(t, err)
-	assert.False(t, exists, "catch-all rule should be removed when RouteAll is cleared")
+	names = ruleNamespaces(t, firstRule)
+	assert.NotContains(t, names, nrptCatchAllNamespace, "clearing RouteAll should drop the root namespace")
 
-	exists, err = registryKeyExists(dnsPolicyConfigExemptLocalPath)
+	exists, err := registryKeyExists(dnsPolicyConfigExemptLocalPath)
 	require.NoError(t, err)
-	assert.False(t, exists, "exemption rule should go with the catch-all it belongs to")
+	assert.False(t, exists, "exemption rule should go with the namespace it carves out of")
 
 	require.NoError(t, cfg.applyDNSConfig(primary, nil))
 	require.NoError(t, cfg.restoreHostDNS())
-	exists, err = registryKeyExists(dnsPolicyConfigCatchAllPath)
+	exists, err = registryKeyExists(firstRule)
 	require.NoError(t, err)
-	assert.False(t, exists, "catch-all rule should be removed on restore")
+	assert.False(t, exists, "restore should leave no rule behind")
+}
+
+// ruleNamespaces returns the namespaces an NRPT rule key claims.
+func ruleNamespaces(t *testing.T, path string) []string {
+	t.Helper()
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, path, registry.QUERY_VALUE)
+	require.NoError(t, err, "rule key %s should exist", path)
+	defer k.Close()
+
+	names, _, err := k.GetStringsValue(dnsPolicyConfigNameKey)
+	require.NoError(t, err)
+	return names
 }
 
 func TestNRPTCatchAllRuleLegacyEnv(t *testing.T) {
@@ -195,7 +200,7 @@ func TestNRPTCatchAllRuleLegacyEnv(t *testing.T) {
 	t.Setenv(envLegacyDNSResolution, "true")
 
 	testGUID := "{12345678-1234-1234-1234-123456789ABC}"
-	interfacePath := `SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\` + testGUID
+	interfacePath := InterfaceConfigPath + `\` + testGUID
 	testKey, _, err := registry.CreateKey(registry.LOCAL_MACHINE, interfacePath, registry.SET_VALUE)
 	require.NoError(t, err, "Should create test interface registry key")
 	testKey.Close()
@@ -211,9 +216,14 @@ func TestNRPTCatchAllRuleLegacyEnv(t *testing.T) {
 
 	require.NoError(t, cfg.applyDNSConfig(config, nil))
 
-	exists, err := registryKeyExists(dnsPolicyConfigCatchAllPath)
+	// RouteAll with no match domains and the switch set leaves nothing to write.
+	exists, err := registryKeyExists(fmt.Sprintf("%s-0", dnsPolicyConfigMatchPath))
 	require.NoError(t, err)
-	assert.False(t, exists, "catch-all rule should not be installed when the legacy env var is set")
+	assert.False(t, exists, "no rule should be written when the legacy env var is set")
+
+	exists, err = registryKeyExists(dnsPolicyConfigExemptLocalPath)
+	require.NoError(t, err)
+	assert.False(t, exists, "no exemption without a claimed root namespace")
 }
 
 func registryKeyExists(path string) (bool, error) {
