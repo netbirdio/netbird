@@ -315,8 +315,11 @@ func TestUpdateCustomDomain_DoesNotResurrectDeletedDomain(t *testing.T) {
 	require.Nil(t, storedDomain(t, env.store, accountA, "racy.example.com"), "the domain should be gone")
 
 	// What an in-flight validation would write once its CNAME check succeeded.
+	// The write has to succeed for the assertion below to mean anything: a
+	// rejected write would leave the domain absent for the wrong reason.
 	stale.Validated = true
-	_, _ = env.store.UpdateCustomDomain(ctx, accountA, stale)
+	_, err = env.store.UpdateCustomDomain(ctx, accountA, stale)
+	require.NoError(t, err, "the update itself must succeed, so absence is not just a failed write")
 
 	assert.Nil(t, storedDomain(t, env.store, accountA, "racy.example.com"),
 		"a late validation write must not recreate a deleted domain")
