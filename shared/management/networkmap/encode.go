@@ -247,7 +247,7 @@ func ToProtocolDNSConfig(update nbdns.Config, cache DNSConfigCache, forwardPort 
 		ServiceEnable:    update.ServiceEnable,
 		CustomZones:      make([]*proto.CustomZone, 0, len(update.CustomZones)),
 		NameServerGroups: make([]*proto.NameServerGroup, 0, len(update.NameServerGroups)),
-		ForwarderPort:    forwardPort,
+		ForwarderPort:    forwardPort, //nolint:staticcheck
 	}
 
 	for _, zone := range update.CustomZones {
@@ -272,8 +272,9 @@ func ToProtocolDNSConfig(update nbdns.Config, cache DNSConfigCache, forwardPort 
 }
 
 // AppendRemotePeerConfig appends typed peers as proto.RemotePeerConfig
-// entries to dst and returns the result.
-func AppendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*types.ComponentPeer, dnsName string, includeIPv6 bool) []*proto.RemotePeerConfig {
+// entries to dst and returns the result. localIsProxy reports whether the peer
+// receiving this config is itself an embedded proxy.
+func AppendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*types.ComponentPeer, dnsName string, includeIPv6 bool, localIsProxy bool) []*proto.RemotePeerConfig {
 	for _, rPeer := range peers {
 		allowedIPs := []string{rPeer.IP.String() + "/32"}
 		if includeIPv6 && rPeer.IPv6.IsValid() {
@@ -285,9 +286,22 @@ func AppendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*types.Compon
 			SshConfig:    &proto.SSHConfig{SshPubKey: []byte(rPeer.SSHKey)},
 			Fqdn:         rPeer.FQDN(dnsName),
 			AgentVersion: rPeer.AgentVersion,
+			LazyState:    lazyStateFor(localIsProxy, rPeer),
 		})
 	}
 	return dst
+}
+
+// lazyStateFor returns the per-peer lazy override for a remote peer. Connections
+// involving an ephemeral proxy peer on either endpoint default to lazy so shared
+// proxy infrastructure is not kept permanently connected to every peer. All
+// other peers follow the account-wide flag. A future admin-facing per-peer
+// setting can return LazyStateEager here to force a peer always-active.
+func lazyStateFor(localIsProxy bool, rPeer *types.ComponentPeer) proto.LazyState {
+	if localIsProxy || rPeer.ProxyEmbedded {
+		return proto.LazyState_LazyStateLazy
+	}
+	return proto.LazyState_LazyStateDefault
 }
 
 // BuildAuthorizedUsersProto deduplicates user-IDs into a hashed list and

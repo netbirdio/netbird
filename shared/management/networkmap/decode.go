@@ -275,6 +275,7 @@ func decodePeerCompact(pc *proto.PeerCompact, peerID string) *types.ComponentPee
 		SupportsIPv6:           pc.SupportsIpv6,
 		ServerSSHAllowed:       pc.ServerSshAllowed,
 		AddedWithSSOLogin:      pc.AddedWithSsoLogin,
+		ProxyEmbedded:          pc.ProxyEmbedded,
 	}
 	if pc.LastLoginUnixNano != 0 {
 		peer.LastLogin = time.Unix(0, pc.LastLoginUnixNano)

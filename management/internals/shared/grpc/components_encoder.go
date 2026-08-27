@@ -703,6 +703,7 @@ func toPeerCompact(p *types.ComponentPeer) *proto.PeerCompact {
 		SupportsIpv6:           p.SupportsIPv6,
 		SupportsSourcePrefixes: p.SupportsSourcePrefixes,
 		ServerSshAllowed:       p.ServerSSHAllowed,
+		ProxyEmbedded:          p.ProxyEmbedded,
 	}
 	if !p.LastLogin.IsZero() {
 		pc.LastLoginUnixNano = p.LastLogin.UnixNano()
