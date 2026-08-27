@@ -122,8 +122,13 @@ func (idp *IdentityProvider) Validate() error {
 	}
 	if idp.JWKSURL != nil && *idp.JWKSURL != "" {
 		parsedURL, err := url.Parse(*idp.JWKSURL)
-		if err != nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
-			return fmt.Errorf("invalid JWKS URL: %s", *idp.JWKSURL)
+		if err != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") || parsedURL.Host == "" {
+			return fmt.Errorf("invalid JWKS URL")
+		}
+	}
+	if idp.Type == IdentityProviderTypeGoogle || idp.Type == IdentityProviderTypeMicrosoft {
+		if (idp.PKCE != nil && *idp.PKCE) || (idp.JWKSURL != nil && *idp.JWKSURL != "") {
+			return fmt.Errorf("PKCE and JWKS URL are not supported for %s", idp.Type)
 		}
 	}
 	return nil
