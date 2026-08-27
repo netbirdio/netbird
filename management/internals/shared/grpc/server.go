@@ -346,7 +346,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 
 	s.syncSem.Add(-1)
 
-	return s.handleUpdates(ctx, accountID, peerKey, peer, updates, srv, syncStart)
+	return PeerUpdateHandlerFactory(peerKey, updates, s.secretsManager, srv, func() { s.cancelPeerRoutines(ctx, accountID, peer, syncStart) }).HandleUpdates(ctx)
 }
 
 func (s *Server) handleHandshake(ctx context.Context, srv proto.ManagementService_JobServer) (wgtypes.Key, error) {
@@ -411,91 +411,6 @@ func (s *Server) sendJobsLoop(ctx context.Context, accountID string, peerKey wgt
 			return nil
 		}
 	}
-}
-
-// handleUpdates sends updates to the connected peer until the updates channel is closed.
-// It implements a backpressure mechanism that sends the first update immediately,
-// then debounces subsequent rapid updates, ensuring only the latest update is sent
-// after a quiet period.
-func (s *Server) handleUpdates(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, updates chan *network_map.UpdateMessage, srv proto.ManagementService_SyncServer, streamStartTime time.Time) error {
-	log.WithContext(ctx).Tracef("starting to handle updates for peer %s", peerKey.String())
-
-	// Create a debouncer for this peer connection
-	debouncer := NewUpdateDebouncer(1000 * time.Millisecond)
-	defer debouncer.Stop()
-
-	for {
-		select {
-		// condition when there are some updates
-		// todo set the updates channel size to 1
-		case update, open := <-updates:
-			if s.appMetrics != nil {
-				s.appMetrics.GRPCMetrics().UpdateChannelQueueLength(len(updates) + 1)
-			}
-
-			if !open {
-				log.WithContext(ctx).Debugf("updates channel for peer %s was closed", peerKey.String())
-				s.cancelPeerRoutines(ctx, accountID, peer, streamStartTime)
-				return nil
-			}
-
-			log.WithContext(ctx).Tracef("received an update for peer %s", peerKey.String())
-			if debouncer.ProcessUpdate(update) {
-				// Send immediately (first update or after quiet period)
-				if err := s.sendUpdate(ctx, accountID, peerKey, peer, update, srv, streamStartTime); err != nil {
-					log.WithContext(ctx).Debugf("error while sending an update to peer %s: %v", peerKey.String(), err)
-					return err
-				}
-			}
-
-		// Timer expired - quiet period reached, send pending updates if any
-		case <-debouncer.TimerChannel():
-			pendingUpdates := debouncer.GetPendingUpdates()
-			if len(pendingUpdates) == 0 {
-				continue
-			}
-			log.WithContext(ctx).Debugf("sending %d debounced update(s) for peer %s", len(pendingUpdates), peerKey.String())
-			for _, pendingUpdate := range pendingUpdates {
-				if err := s.sendUpdate(ctx, accountID, peerKey, peer, pendingUpdate, srv, streamStartTime); err != nil {
-					log.WithContext(ctx).Debugf("error while sending an update to peer %s: %v", peerKey.String(), err)
-					return err
-				}
-			}
-
-		// condition when client <-> server connection has been terminated
-		case <-srv.Context().Done():
-			// happens when connection drops, e.g. client disconnects
-			log.WithContext(ctx).Debugf("stream of peer %s has been closed", peerKey.String())
-			s.cancelPeerRoutines(ctx, accountID, peer, streamStartTime)
-			return srv.Context().Err()
-		}
-	}
-}
-
-// sendUpdate encrypts the update message using the peer key and the server's wireguard key,
-// then sends the encrypted message to the connected peer via the sync server.
-func (s *Server) sendUpdate(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, update *network_map.UpdateMessage, srv proto.ManagementService_SyncServer, streamStartTime time.Time) error {
-	key, err := s.secretsManager.GetWGKey()
-	if err != nil {
-		s.cancelPeerRoutines(ctx, accountID, peer, streamStartTime)
-		return status.Errorf(codes.Internal, "failed processing update message")
-	}
-
-	encryptedResp, err := encryption.EncryptMessage(peerKey, key, update.Update)
-	if err != nil {
-		s.cancelPeerRoutines(ctx, accountID, peer, streamStartTime)
-		return status.Errorf(codes.Internal, "failed processing update message")
-	}
-	err = srv.Send(&proto.EncryptedMessage{
-		WgPubKey: key.PublicKey().String(),
-		Body:     encryptedResp,
-	})
-	if err != nil {
-		s.cancelPeerRoutines(ctx, accountID, peer, streamStartTime)
-		return status.Errorf(codes.Internal, "failed sending update message")
-	}
-	log.WithContext(ctx).Tracef("sent an update to peer %s", peerKey.String())
-	return nil
 }
 
 // sendJob encrypts the update message using the peer key and the server's wireguard key,
