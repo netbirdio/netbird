@@ -57,8 +57,7 @@ func (f *FieldEncrypt) Encrypt(plaintext string) (string, error) {
 
 // Decrypt decrypts the given base64-encoded ciphertext and returns the plaintext.
 // Returns empty string for empty input.
-// If the input is not a valid base64 string or decryption fails (e.g. wrong key or unencrypted data),
-// it returns the original string to allow graceful fallback/migration.
+// If the input is not a valid base64 string, it returns the original string to allow graceful fallback/migration.
 func (f *FieldEncrypt) Decrypt(ciphertext string) (string, error) {
 	if ciphertext == "" {
 		return "", nil
@@ -77,16 +76,13 @@ func (f *FieldEncrypt) Decrypt(ciphertext string) (string, error) {
 
 	nonceSize := gcm.NonceSize()
 	if len(data) < nonceSize {
-		// Too short to be AES-GCM ciphertext, likely plain text
-		return ciphertext, nil
+		return "", fmt.Errorf("ciphertext too short")
 	}
 
 	nonce, ciphertextBytes := data[:nonceSize], data[nonceSize:]
 	plaintext, err := gcm.Open(nil, nonce, ciphertextBytes, nil)
 	if err != nil {
-		// Decryption failed, likely plain text or wrong key.
-		// We return the original string to avoid breaking systems when encryption is newly enabled.
-		return ciphertext, nil
+		return "", fmt.Errorf("decrypt: %w", err)
 	}
 
 	return string(plaintext), nil
