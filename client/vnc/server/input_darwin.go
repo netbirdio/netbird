@@ -321,6 +321,10 @@ func ensureEventSource() uintptr {
 
 // MacInputInjector injects keyboard and mouse events via Core Graphics.
 type MacInputInjector struct {
+	// pointerMu serializes the pointer state below. One injector is shared by
+	// every attach-mode session, so two clients moving the mouse at once would
+	// otherwise interleave their button transitions and click counts.
+	pointerMu   sync.Mutex
 	lastButtons uint16
 	pbcopyPath  string
 	pbpastePath string
@@ -673,6 +677,12 @@ func (m *MacInputInjector) InjectPointer(buttonMask uint16, px, py, serverW, ser
 		return
 	}
 	x, y := scalePxToLogical(px, py, serverW, serverH)
+
+	// Held across the dispatch: dispatchPointer derives each button transition
+	// from lastButtons and updates the click counters, so the read, the posted
+	// events and the write have to be one step.
+	m.pointerMu.Lock()
+	defer m.pointerMu.Unlock()
 	m.dispatchPointer(src, buttonMask, x, y)
 	m.lastButtons = buttonMask
 }

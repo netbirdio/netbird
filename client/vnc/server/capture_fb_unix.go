@@ -3,6 +3,7 @@
 package server
 
 import (
+	"errors"
 	"image"
 	"sync"
 )
@@ -18,7 +19,12 @@ type FBPoller struct {
 	capturer *FBCapturer
 	w, h     int
 	clients  int32
+	closed   bool
 }
+
+// errFBPollerClosed is what a call arriving after Close gets, instead of a
+// freshly opened framebuffer.
+var errFBPollerClosed = errors.New("framebuffer capturer closed")
 
 // NewFBPoller returns a poller that opens path on first use. Empty path
 // defaults to /dev/fb0 on Linux and /dev/ttyv0 on FreeBSD.
@@ -86,10 +92,13 @@ func (p *FBPoller) CaptureInto(dst *image.RGBA) error {
 	return p.capturer.CaptureInto(dst)
 }
 
-// Close releases all framebuffer resources.
+// Close releases all framebuffer resources. The poller stays closed: a later
+// Capture or Width must not lazily reopen the device, the way X11Poller's done
+// channel stops its own retry loop.
 func (p *FBPoller) Close() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.closed = true
 	if p.capturer != nil {
 		p.capturer.Close()
 		p.capturer = nil
@@ -99,6 +108,9 @@ func (p *FBPoller) Close() {
 func (p *FBPoller) ensureCapturerLocked() error {
 	if p.capturer != nil {
 		return nil
+	}
+	if p.closed {
+		return errFBPollerClosed
 	}
 	c, err := NewFBCapturer(p.path)
 	if err != nil {

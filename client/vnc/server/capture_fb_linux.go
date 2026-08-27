@@ -4,6 +4,7 @@ package server
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"image"
 	"sync"
@@ -49,9 +50,14 @@ type fbVarScreenInfo struct {
 }
 
 // fbFixScreenInfo mirrors fb_fix_screeninfo. We only need LineLength.
+//
+// SmemStart and MmioStart are `unsigned long` in the kernel header, so they are
+// pointer-sized: uintptr, not uint64. Spelling them uint64 would shift every
+// field after SmemStart by four bytes on a 32-bit build and make LineLength
+// read the wrong part of the ioctl's answer.
 type fbFixScreenInfo struct {
 	IDStr        [16]byte
-	SmemStart    uint64
+	SmemStart    uintptr
 	SmemLen      uint32
 	Type         uint32
 	TypeAux      uint32
@@ -61,7 +67,7 @@ type fbFixScreenInfo struct {
 	YWrapStep    uint16
 	_pad0        uint16
 	LineLength   uint32
-	MmioStart    uint64
+	MmioStart    uintptr
 	MmioLen      uint32
 	Accel        uint32
 	Capabilities uint16
@@ -117,6 +123,10 @@ func NewFBCapturer(path string) (*FBCapturer, error) {
 		unix.Close(fd)
 		return nil, fmt.Errorf("unsupported framebuffer bpp: %d", bpp)
 	}
+	if err := validateFBLayout(bpp, &vinfo); err != nil {
+		unix.Close(fd)
+		return nil, err
+	}
 
 	size := int(finfo.LineLength) * int(vinfo.Yres)
 	if size <= 0 {
@@ -150,6 +160,40 @@ func NewFBCapturer(path string) (*FBCapturer, error) {
 	return c, nil
 }
 
+// validateFBLayout refuses a pixel layout the swizzlers do not implement.
+//
+// Each swizzler is written for one layout: 32bpp reads whole channels at the
+// queried offsets, 24bpp reads packed B,G,R triplets, and 16bpp reads RGB565.
+// A device reporting anything else (RGB888 at 24bpp, BGR565, a 10-bit channel)
+// would be swizzled into wrong colours, which is worse than declining to
+// capture at all, because nothing downstream can tell that it happened.
+func validateFBLayout(bpp int, v *fbVarScreenInfo) error {
+	unsupported := func() error {
+		return fmt.Errorf("unsupported %dbpp framebuffer layout: r=%d/%d g=%d/%d b=%d/%d",
+			bpp, v.RedOffset, v.RedLen, v.GreenOffset, v.GreenLen, v.BlueOffset, v.BlueLen)
+	}
+
+	switch bpp {
+	case 32:
+		// Offsets are honoured, channel widths are not.
+		if v.RedLen != 8 || v.GreenLen != 8 || v.BlueLen != 8 {
+			return unsupported()
+		}
+	case 24:
+		if v.RedLen != 8 || v.GreenLen != 8 || v.BlueLen != 8 ||
+			v.BlueOffset != 0 || v.GreenOffset != 8 || v.RedOffset != 16 {
+			return unsupported()
+		}
+	case 16:
+		if v.RedOffset != 11 || v.RedLen != 5 ||
+			v.GreenOffset != 5 || v.GreenLen != 6 ||
+			v.BlueOffset != 0 || v.BlueLen != 5 {
+			return unsupported()
+		}
+	}
+	return nil
+}
+
 // Width returns the framebuffer width in pixels.
 func (c *FBCapturer) Width() int { return c.w }
 
@@ -170,6 +214,12 @@ func (c *FBCapturer) Capture() (*image.RGBA, error) {
 func (c *FBCapturer) CaptureInto(dst *image.RGBA) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	// Close unmaps but leaves w/h in place, so a capture arriving afterwards
+	// would pass the size check below and index into a nil mapping.
+	if c.mmap == nil {
+		return errors.New("framebuffer capturer is closed")
+	}
 
 	if dst.Rect.Dx() != c.w || dst.Rect.Dy() != c.h {
 		return fmt.Errorf("dst size mismatch: dst=%dx%d fb=%dx%d",
