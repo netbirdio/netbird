@@ -131,8 +131,7 @@ func (e *Engine) setFileDropTunnel() {
 			return netstackNet.DialContextTCPAddrPort(ctx, addrPort)
 		}
 	} else {
-		dialer := &net.Dialer{}
-		dial = dialer.DialContext
+		dial = fileDropOSDial(e.wgInterface)
 	}
 
 	e.fileDrop.SetTunnel(dial, e.statusRecorder.GetLocalPeerState().FQDN)
