@@ -237,7 +237,12 @@ func TestDeriveClusterFromDomain_FreeDomainUnaffected(t *testing.T) {
 
 // The manager pre-check exists to turn a conflict into a 409, but the unique
 // index on the column is what actually guarantees the domain is claimed once.
-func TestStore_DuplicateDomainRejectedByIndex(t *testing.T) {
+//
+// Two requests can clear the pre-check concurrently and race to the insert.
+// Inserting twice through the store reaches the same code path the loser of
+// that race takes, without the nondeterminism of driving it from goroutines,
+// and the loser must still see a conflict rather than an internal error.
+func TestStore_DuplicateDomainRejectedByIndexAsConflict(t *testing.T) {
 	ctx := context.Background()
 	env := setupDomainTest(t)
 
@@ -245,5 +250,9 @@ func TestStore_DuplicateDomainRejectedByIndex(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = env.store.CreateCustomDomain(ctx, accountB, "indexed.example.com", testCluster, false)
-	assert.Error(t, err, "the unique index must reject the same domain in a second account")
+	require.Error(t, err, "the unique index must reject the same domain in a second account")
+
+	sErr, ok := status.FromError(err)
+	require.True(t, ok, "the losing insert must return a typed status error")
+	assert.Equal(t, status.AlreadyExists, sErr.Type(), "a lost race is a 409, not a 500")
 }

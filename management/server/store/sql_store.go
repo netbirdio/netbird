@@ -5714,6 +5714,14 @@ func (s *SqlStore) CreateCustomDomain(ctx context.Context, accountID string, dom
 	}
 	result := s.db.Create(newDomain)
 	if result.Error != nil {
+		// The unique index is the last guard when two requests clear the
+		// manager's availability check at the same time. The one that loses the
+		// insert is a conflict, not an internal failure.
+		var count int64
+		if err := s.db.Model(&domain.Domain{}).Where("domain = ?", domainName).Count(&count).Error; err == nil && count > 0 {
+			return nil, status.Errorf(status.AlreadyExists, "domain %s is already registered", domainName)
+		}
+
 		log.WithContext(ctx).Errorf("failed to create reverse proxy custom domain to store: %v", result.Error)
 		return nil, status.Errorf(status.Internal, "failed to create reverse proxy custom domain to store")
 	}
