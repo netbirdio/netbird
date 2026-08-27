@@ -112,8 +112,6 @@ func (a *Account) GetPeerNetworkMapComponents(
 		return EmptyNetworkMapComponents(&NetworkMapComponents{
 			PeerID:  peerID,
 			Network: a.Network.Copy(),
-			// must include the target peer as it's required on the client
-			Peers: map[string]*ComponentPeer{peerID: peer.ToComponent()},
 		})
 	}
 

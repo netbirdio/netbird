@@ -651,6 +651,11 @@ func (c *Controller) GetValidatedPeerWithComponents(ctx context.Context, isRequi
 		return nil, nil, nil, nil, 0, err
 	}
 
+	// it's possible that the peer gets deleted between the call to "sendInitialSync()" and here, bail out in this case
+	if _, ok := account.Peers[peer.ID]; !ok {
+		return nil, nil, nil, nil, 0, fmt.Errorf("peer '%s' no longer exists", peer.ID)
+	}
+
 	c.injectAllProxyPolicies(ctx, account)
 
 	approvedPeersMap, err := c.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)

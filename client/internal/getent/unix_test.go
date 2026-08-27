@@ -1,10 +1,12 @@
 //go:build !windows
 
-package server
+package getent
 
 import (
+	"os"
 	"os/exec"
 	"os/user"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"testing"
@@ -13,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestParseGetentPasswd(t *testing.T) {
+func TestParsePasswd(t *testing.T) {
 	tests := []struct {
 		name        string
 		input       string
@@ -128,7 +130,7 @@ func TestParseGetentPasswd(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			u, shell, err := parseGetentPasswd(tt.input)
+			u, shell, err := parsePasswd(tt.input)
 			if tt.wantErr {
 				require.Error(t, err)
 				if tt.errContains != "" {
@@ -147,7 +149,120 @@ func TestParseGetentPasswd(t *testing.T) {
 	}
 }
 
-func TestValidateGetentInput(t *testing.T) {
+func TestParseGroup(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		wantGroup   *user.Group
+		wantMembers []string
+		wantErr     bool
+	}{
+		{
+			name:      "no members",
+			input:     "vma:x:1000:\n",
+			wantGroup: &user.Group{Name: "vma", Gid: "1000"},
+		},
+		{
+			name:        "one member",
+			input:       "sudo:x:27:alice",
+			wantGroup:   &user.Group{Name: "sudo", Gid: "27"},
+			wantMembers: []string{"alice"},
+		},
+		{
+			name:        "several members",
+			input:       "docker:x:998:alice,bob\n",
+			wantGroup:   &user.Group{Name: "docker", Gid: "998"},
+			wantMembers: []string{"alice", "bob"},
+		},
+		{
+			name:    "too few fields",
+			input:   "bad:x",
+			wantErr: true,
+		},
+		{
+			name:    "empty group name",
+			input:   ":x:1000:alice",
+			wantErr: true,
+		},
+		{
+			name:    "empty GID",
+			input:   "vma:x::alice",
+			wantErr: true,
+		},
+		{
+			name:    "empty input",
+			input:   "",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g, members, err := parseGroup(tt.input)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantGroup.Name, g.Name, "group name")
+			assert.Equal(t, tt.wantGroup.Gid, g.Gid, "GID")
+			assert.Equal(t, tt.wantMembers, members, "members")
+		})
+	}
+}
+
+func TestGroupMembersFromFile(t *testing.T) {
+	tests := []struct {
+		name  string
+		entry string
+		want  []string
+	}{
+		{name: "no members", entry: "vma:x:1000:"},
+		{name: "only the owner", entry: "vma:x:1000:vma", want: []string{"vma"}},
+		{name: "two members", entry: "vma:x:1000:vma,bob", want: []string{"vma", "bob"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "group")
+			body := "root:x:0:\n" + tt.entry + "\nsudo:x:27:vma\n"
+			require.NoError(t, os.WriteFile(path, []byte(body), 0o644), "write the group file")
+
+			members, err := groupMembersFromFile(path, "vma")
+			require.NoError(t, err, "entry %q", tt.entry)
+			assert.Equal(t, tt.want, members, "entry %q", tt.entry)
+		})
+	}
+}
+
+// A group the file does not describe, because it comes from LDAP or another
+// NSS source, is an error rather than an empty member list: the caller must
+// be able to tell "no members" from "no answer".
+func TestGroupMembersFromFileUnknownGroup(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "group")
+	require.NoError(t, os.WriteFile(path, []byte("root:x:0:\n"), 0o644), "write the group file")
+
+	_, err := groupMembersFromFile(path, "vma")
+	assert.Error(t, err, "a group the file does not describe")
+
+	_, err = groupMembersFromFile(filepath.Join(t.TempDir(), "absent"), "vma")
+	assert.Error(t, err, "no group file at all")
+}
+
+// GroupMembers on the root group, which every Unix has, whichever source
+// answers for it.
+func TestGroupMembers_RootGroup(t *testing.T) {
+	rootGroup := "root"
+	switch runtime.GOOS {
+	case "darwin", "dragonfly", "freebsd", "netbsd", "openbsd":
+		rootGroup = "wheel"
+	}
+
+	_, err := GroupMembers(rootGroup)
+	assert.NoError(t, err, "the %s group must be describable", rootGroup)
+}
+
+func TestValidateInput(t *testing.T) {
 	tests := []struct {
 		name  string
 		input string
@@ -180,7 +295,7 @@ func TestValidateGetentInput(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, validateGetentInput(tt.input))
+			assert.Equal(t, tt.want, validateInput(tt.input))
 		})
 	}
 }
@@ -193,12 +308,12 @@ func makeLongString(n int) string {
 	return string(b)
 }
 
-func TestRunGetent_RootUser(t *testing.T) {
+func TestPasswdLookup_RootUser(t *testing.T) {
 	if _, err := exec.LookPath("getent"); err != nil {
 		t.Skip("getent not available on this system")
 	}
 
-	u, shell, err := runGetent("root")
+	u, shell, err := passwdLookup("root")
 	require.NoError(t, err)
 	assert.Equal(t, "root", u.Username)
 	assert.Equal(t, "0", u.Uid)
@@ -206,44 +321,55 @@ func TestRunGetent_RootUser(t *testing.T) {
 	assert.NotEmpty(t, shell, "root should have a shell")
 }
 
-func TestRunGetent_ByUID(t *testing.T) {
+func TestPasswdLookup_ByUID(t *testing.T) {
 	if _, err := exec.LookPath("getent"); err != nil {
 		t.Skip("getent not available on this system")
 	}
 
-	u, _, err := runGetent("0")
+	u, _, err := passwdLookup("0")
 	require.NoError(t, err)
 	assert.Equal(t, "root", u.Username)
 	assert.Equal(t, "0", u.Uid)
 }
 
-func TestRunGetent_NonexistentUser(t *testing.T) {
+func TestPasswdLookup_NonexistentUser(t *testing.T) {
 	if _, err := exec.LookPath("getent"); err != nil {
 		t.Skip("getent not available on this system")
 	}
 
-	_, _, err := runGetent("nonexistent_user_xyzzy_12345")
+	_, _, err := passwdLookup("nonexistent_user_xyzzy_12345")
 	assert.Error(t, err)
 }
 
-func TestRunGetent_InvalidInput(t *testing.T) {
-	_, _, err := runGetent("")
+func TestPasswdLookup_InvalidInput(t *testing.T) {
+	_, _, err := passwdLookup("")
 	assert.Error(t, err)
 
-	_, _, err = runGetent("user\x00name")
+	_, _, err = passwdLookup("user\x00name")
 	assert.Error(t, err)
 }
 
-func TestRunGetent_NotAvailable(t *testing.T) {
+func TestPasswdLookup_NotAvailable(t *testing.T) {
 	if _, err := exec.LookPath("getent"); err == nil {
 		t.Skip("getent is available, can't test missing case")
 	}
 
-	_, _, err := runGetent("root")
+	_, _, err := passwdLookup("root")
 	assert.Error(t, err, "should fail when getent is not installed")
 }
 
-func TestRunIdGroups_CurrentUser(t *testing.T) {
+func TestGroupLookup_RootGroup(t *testing.T) {
+	if _, err := exec.LookPath("getent"); err != nil {
+		t.Skip("getent not available on this system")
+	}
+
+	g, _, err := groupLookup("0")
+	require.NoError(t, err)
+	assert.Equal(t, "0", g.Gid, "GID 0 resolves to the root group")
+	assert.NotEmpty(t, g.Name, "the root group has a name")
+}
+
+func TestIdGroups_CurrentUser(t *testing.T) {
 	if _, err := exec.LookPath("id"); err != nil {
 		t.Skip("id not available on this system")
 	}
@@ -251,7 +377,7 @@ func TestRunIdGroups_CurrentUser(t *testing.T) {
 	current, err := user.Current()
 	require.NoError(t, err)
 
-	groups, err := runIdGroups(current.Username)
+	groups, err := idGroups(current.Username)
 	require.NoError(t, err)
 	require.NotEmpty(t, groups, "current user should have at least one group")
 
@@ -261,20 +387,20 @@ func TestRunIdGroups_CurrentUser(t *testing.T) {
 	}
 }
 
-func TestRunIdGroups_NonexistentUser(t *testing.T) {
+func TestIdGroups_NonexistentUser(t *testing.T) {
 	if _, err := exec.LookPath("id"); err != nil {
 		t.Skip("id not available on this system")
 	}
 
-	_, err := runIdGroups("nonexistent_user_xyzzy_12345")
+	_, err := idGroups("nonexistent_user_xyzzy_12345")
 	assert.Error(t, err)
 }
 
-func TestRunIdGroups_InvalidInput(t *testing.T) {
-	_, err := runIdGroups("")
+func TestIdGroups_InvalidInput(t *testing.T) {
+	_, err := idGroups("")
 	assert.Error(t, err)
 
-	_, err = runIdGroups("user\x00name")
+	_, err = idGroups("user\x00name")
 	assert.Error(t, err)
 }
 
@@ -286,7 +412,7 @@ func TestGetentResultsMatchStdlib(t *testing.T) {
 	current, err := user.Current()
 	require.NoError(t, err)
 
-	getentUser, _, err := runGetent(current.Username)
+	getentUser, _, err := passwdLookup(current.Username)
 	require.NoError(t, err)
 
 	assert.Equal(t, current.Username, getentUser.Username, "username should match")
@@ -303,7 +429,7 @@ func TestGetentResultsMatchStdlib_ByUID(t *testing.T) {
 	current, err := user.Current()
 	require.NoError(t, err)
 
-	getentUser, _, err := runGetent(current.Uid)
+	getentUser, _, err := passwdLookup(current.Uid)
 	require.NoError(t, err)
 
 	assert.Equal(t, current.Username, getentUser.Username, "username should match when looked up by UID")
@@ -323,12 +449,12 @@ func TestIdGroupsMatchStdlib(t *testing.T) {
 		t.Skip("os/user.GroupIds() not working, likely CGO_ENABLED=0")
 	}
 
-	idGroups, err := runIdGroups(current.Username)
+	idGroupIDs, err := idGroups(current.Username)
 	require.NoError(t, err)
 
 	// Deduplicate both lists: id -G can return duplicates (e.g., root in Docker)
 	// and ElementsMatch treats duplicates as distinct.
-	assert.ElementsMatch(t, uniqueStrings(stdGroups), uniqueStrings(idGroups), "id -G should return same groups as os/user")
+	assert.ElementsMatch(t, uniqueStrings(stdGroups), uniqueStrings(idGroupIDs), "id -G should return same groups as os/user")
 }
 
 func uniqueStrings(ss []string) []string {
@@ -342,72 +468,4 @@ func uniqueStrings(ss []string) []string {
 		out = append(out, s)
 	}
 	return out
-}
-
-// TestGetShellFromPasswd_CurrentUser verifies that getShellFromPasswd correctly
-// reads the current user's shell from /etc/passwd by comparing it against what
-// getent reports (which goes through NSS).
-func TestGetShellFromPasswd_CurrentUser(t *testing.T) {
-	current, err := user.Current()
-	require.NoError(t, err)
-
-	shell := getShellFromPasswd(current.Uid)
-	if shell == "" {
-		t.Skip("current user not found in /etc/passwd (may be an NSS-only user)")
-	}
-
-	assert.True(t, shell[0] == '/', "shell should be an absolute path, got %q", shell)
-
-	if _, err := exec.LookPath("getent"); err == nil {
-		_, getentShell, getentErr := runGetent(current.Uid)
-		if getentErr == nil && getentShell != "" {
-			assert.Equal(t, getentShell, shell, "shell from /etc/passwd should match getent")
-		}
-	}
-}
-
-// TestGetShellFromPasswd_RootUser verifies that getShellFromPasswd can read
-// root's shell from /etc/passwd. Root is guaranteed to be in /etc/passwd on
-// any standard Unix system.
-func TestGetShellFromPasswd_RootUser(t *testing.T) {
-	shell := getShellFromPasswd("0")
-	require.NotEmpty(t, shell, "root (UID 0) must be in /etc/passwd")
-	assert.True(t, shell[0] == '/', "root shell should be an absolute path, got %q", shell)
-}
-
-// TestGetShellFromPasswd_NonexistentUID verifies that getShellFromPasswd
-// returns empty for a UID that doesn't exist in /etc/passwd.
-func TestGetShellFromPasswd_NonexistentUID(t *testing.T) {
-	shell := getShellFromPasswd("4294967294")
-	assert.Empty(t, shell, "nonexistent UID should return empty shell")
-}
-
-// TestGetShellFromPasswd_MatchesGetentForKnownUsers reads /etc/passwd directly
-// and cross-validates every entry against getent to ensure parseGetentPasswd
-// and getShellFromPasswd agree on shell values.
-func TestGetShellFromPasswd_MatchesGetentForKnownUsers(t *testing.T) {
-	if _, err := exec.LookPath("getent"); err != nil {
-		t.Skip("getent not available")
-	}
-
-	// Pick a few well-known system UIDs that are virtually always in /etc/passwd.
-	uids := []string{"0"} // root
-
-	current, err := user.Current()
-	require.NoError(t, err)
-	uids = append(uids, current.Uid)
-
-	for _, uid := range uids {
-		passwdShell := getShellFromPasswd(uid)
-		if passwdShell == "" {
-			continue
-		}
-
-		_, getentShell, err := runGetent(uid)
-		if err != nil {
-			continue
-		}
-
-		assert.Equal(t, getentShell, passwdShell, "shell mismatch for UID %s", uid)
-	}
 }

@@ -1,4 +1,4 @@
-package server
+package getent
 
 import (
 	"os/user"
@@ -10,38 +10,48 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestLookupWithGetent_CurrentUser(t *testing.T) {
+func TestLookupUser_CurrentUser(t *testing.T) {
 	// The current user should always be resolvable on any platform
 	current, err := user.Current()
 	require.NoError(t, err)
 
-	u, err := lookupWithGetent(current.Username)
+	u, err := LookupUser(current.Username)
 	require.NoError(t, err)
 	assert.Equal(t, current.Username, u.Username)
 	assert.Equal(t, current.Uid, u.Uid)
 	assert.Equal(t, current.Gid, u.Gid)
 }
 
-func TestLookupWithGetent_NonexistentUser(t *testing.T) {
-	_, err := lookupWithGetent("nonexistent_user_xyzzy_12345")
+func TestLookupUser_NonexistentUser(t *testing.T) {
+	_, err := LookupUser("nonexistent_user_xyzzy_12345")
 	require.Error(t, err, "should fail for nonexistent user")
 }
 
-func TestCurrentUserWithGetent(t *testing.T) {
+func TestLookupUserID_CurrentUser(t *testing.T) {
+	current, err := user.Current()
+	require.NoError(t, err)
+
+	u, err := LookupUserID(current.Uid)
+	require.NoError(t, err)
+	assert.Equal(t, current.Username, u.Username)
+	assert.Equal(t, current.Uid, u.Uid)
+}
+
+func TestCurrentUser(t *testing.T) {
 	stdUser, err := user.Current()
 	require.NoError(t, err)
 
-	u, err := currentUserWithGetent()
+	u, err := CurrentUser()
 	require.NoError(t, err)
 	assert.Equal(t, stdUser.Uid, u.Uid)
 	assert.Equal(t, stdUser.Username, u.Username)
 }
 
-func TestGroupIdsWithFallback_CurrentUser(t *testing.T) {
+func TestGroupIDs_CurrentUser(t *testing.T) {
 	current, err := user.Current()
 	require.NoError(t, err)
 
-	groups, err := groupIdsWithFallback(current)
+	groups, err := GroupIDs(current)
 	require.NoError(t, err)
 	require.NotEmpty(t, groups, "current user should have at least one group")
 
@@ -53,32 +63,30 @@ func TestGroupIdsWithFallback_CurrentUser(t *testing.T) {
 	}
 }
 
-func TestGetShellFromGetent_CurrentUser(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		// Windows stub always returns empty, which is correct
-		shell := getShellFromGetent("1000")
-		assert.Empty(t, shell, "Windows stub should return empty")
-		return
-	}
-
+func TestUserShell_CurrentUser(t *testing.T) {
 	current, err := user.Current()
 	require.NoError(t, err)
 
-	// getent may not be available on all systems (e.g., macOS without Homebrew getent)
-	shell := getShellFromGetent(current.Uid)
+	// getent may not be available on all systems (e.g., macOS without
+	// Homebrew getent), and Windows has no login shells at all.
+	shell, err := UserShell(current.Uid)
+	if err != nil {
+		t.Logf("UserShell failed, getent may not be available: %v", err)
+		return
+	}
 	if shell == "" {
-		t.Log("getShellFromGetent returned empty, getent may not be available")
+		t.Log("UserShell returned empty, the user has no shell set")
 		return
 	}
 	assert.True(t, shell[0] == '/', "shell should be an absolute path, got %q", shell)
 }
 
-func TestLookupWithGetent_RootUser(t *testing.T) {
+func TestLookupUser_RootUser(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("no root user on Windows")
 	}
 
-	u, err := lookupWithGetent("root")
+	u, err := LookupUser("root")
 	if err != nil {
 		t.Skip("root user not available on this system")
 	}
@@ -86,25 +94,25 @@ func TestLookupWithGetent_RootUser(t *testing.T) {
 }
 
 // TestIntegration_FullLookupChain exercises the complete user lookup chain
-// against the real system, testing that all wrappers (lookupWithGetent,
-// currentUserWithGetent, groupIdsWithFallback, getShellFromGetent) produce
-// consistent and correct results when composed together.
+// against the real system, testing that all wrappers (LookupUser,
+// CurrentUser, GroupIDs, UserShell) produce consistent and correct results
+// when composed together.
 func TestIntegration_FullLookupChain(t *testing.T) {
-	// Step 1: currentUserWithGetent must resolve the running user.
-	current, err := currentUserWithGetent()
-	require.NoError(t, err, "currentUserWithGetent must resolve the running user")
+	// Step 1: CurrentUser must resolve the running user.
+	current, err := CurrentUser()
+	require.NoError(t, err, "CurrentUser must resolve the running user")
 	require.NotEmpty(t, current.Uid)
 	require.NotEmpty(t, current.Username)
 
-	// Step 2: lookupWithGetent by the same username must return matching identity.
-	byName, err := lookupWithGetent(current.Username)
+	// Step 2: LookupUser by the same username must return matching identity.
+	byName, err := LookupUser(current.Username)
 	require.NoError(t, err)
 	assert.Equal(t, current.Uid, byName.Uid, "lookup by name should return same UID")
 	assert.Equal(t, current.Gid, byName.Gid, "lookup by name should return same GID")
 	assert.Equal(t, current.HomeDir, byName.HomeDir, "lookup by name should return same home")
 
-	// Step 3: groupIdsWithFallback must return at least the primary GID.
-	groups, err := groupIdsWithFallback(current)
+	// Step 3: GroupIDs must return at least the primary GID.
+	groups, err := GroupIDs(current)
 	require.NoError(t, err)
 	require.NotEmpty(t, groups, "user must have at least one group")
 
@@ -119,29 +127,20 @@ func TestIntegration_FullLookupChain(t *testing.T) {
 		}
 	}
 	assert.True(t, foundPrimary, "primary GID %s should appear in supplementary groups", current.Gid)
-
-	// Step 4: getShellFromGetent should either return a valid shell path or empty
-	// (empty is OK when getent is not available, e.g. macOS without Homebrew getent).
-	if runtime.GOOS != "windows" {
-		shell := getShellFromGetent(current.Uid)
-		if shell != "" {
-			assert.True(t, shell[0] == '/', "shell should be an absolute path, got %q", shell)
-		}
-	}
 }
 
 // TestIntegration_LookupAndGroupsConsistency verifies that a user resolved via
-// lookupWithGetent can have their groups resolved via groupIdsWithFallback,
-// testing the handoff between the two functions as used by the SSH server.
+// LookupUser can have their groups resolved via GroupIDs, testing the handoff
+// between the two functions as used by the SSH server.
 func TestIntegration_LookupAndGroupsConsistency(t *testing.T) {
 	current, err := user.Current()
 	require.NoError(t, err)
 
 	// Simulate the SSH server flow: lookup user, then get their groups.
-	resolved, err := lookupWithGetent(current.Username)
+	resolved, err := LookupUser(current.Username)
 	require.NoError(t, err)
 
-	groups, err := groupIdsWithFallback(resolved)
+	groups, err := GroupIDs(resolved)
 	require.NoError(t, err)
 	require.NotEmpty(t, groups, "resolved user must have groups")
 
@@ -153,20 +152,4 @@ func TestIntegration_LookupAndGroupsConsistency(t *testing.T) {
 			assert.NoError(t, err, "group ID %q should be numeric", gid)
 		}
 	}
-}
-
-// TestIntegration_ShellLookupChain tests the full shell resolution chain
-// (getShellFromPasswd -> getShellFromGetent -> $SHELL -> default) on Unix.
-func TestIntegration_ShellLookupChain(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Unix shell lookup not applicable on Windows")
-	}
-
-	current, err := user.Current()
-	require.NoError(t, err)
-
-	// getUserShell is the top-level function used by the SSH server.
-	shell := getUserShell(current.Uid)
-	require.NotEmpty(t, shell, "getUserShell must always return a shell")
-	assert.True(t, shell[0] == '/', "shell should be an absolute path, got %q", shell)
 }
