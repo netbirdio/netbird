@@ -599,8 +599,11 @@ func (r *registryConfigurator) getInterfaceRegistryKey() (registry.Key, error) {
 }
 
 func (r *registryConfigurator) restoreHostDNS() error {
+	// Propagated, unlike in applyDNSConfig: there we are about to write fresh
+	// rules over whatever survived, here we are leaving, and a rule left behind
+	// keeps sending every query to an address that is about to disappear.
 	if err := r.removeDNSMatchPolicies(); err != nil {
-		log.Errorf("remove dns match policies: %s", err)
+		return fmt.Errorf("remove dns match policies: %w", err)
 	}
 
 	if err := r.deleteInterfaceRegistryKeyProperty(interfaceConfigSearchListKey); err != nil {
@@ -683,9 +686,17 @@ func listNRPTRuleKeys(root string) ([]string, error) {
 
 func removeRegistryKeyFromDNSPolicyConfig(regKeyPath string) error {
 	k, err := registry.OpenKey(registry.LOCAL_MACHINE, regKeyPath, registry.QUERY_VALUE)
-	if err != nil {
-		log.Debugf("failed to open HKEY_LOCAL_MACHINE\\%s: %v", regKeyPath, err)
+	switch {
+	case errors.Is(err, registry.ErrNotExist), errors.Is(err, syscall.ERROR_PATH_NOT_FOUND):
+		// nothing to remove, which is the normal case for a rule this config
+		// never installed
+		log.Debugf("HKEY_LOCAL_MACHINE\\%s does not exist", regKeyPath)
 		return nil
+	case err != nil:
+		// anything else has to reach the caller: reporting success here would
+		// leave the rule in force while claiming it was removed, which is how a
+		// stale rule outlives the interface it points at
+		return fmt.Errorf("open HKEY_LOCAL_MACHINE\\%s: %w", regKeyPath, err)
 	}
 
 	closer(k)

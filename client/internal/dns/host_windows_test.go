@@ -94,6 +94,10 @@ func TestNRPTEntriesCleanupOnConfigChange(t *testing.T) {
 	assert.False(t, exists, "NRPT rule 2 should NOT exist after reducing to 75 domains")
 }
 
+// TestNRPTCatchAllRule verifies that RouteAll adds the root namespace to the
+// match rule instead of a rule of its own, that .local is carved back out with
+// an empty server list, and that both go away when RouteAll is cleared or the
+// host DNS is restored.
 func TestNRPTCatchAllRule(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping registry integration test in short mode")
@@ -107,9 +111,9 @@ func TestNRPTCatchAllRule(t *testing.T) {
 	interfacePath := InterfaceConfigPath + `\` + testGUID
 	testKey, _, err := registry.CreateKey(registry.LOCAL_MACHINE, interfacePath, registry.SET_VALUE)
 	require.NoError(t, err, "Should create test interface registry key")
-	testKey.Close()
+	require.NoError(t, testKey.Close(), "close test interface registry key")
 	defer func() {
-		_ = registry.DeleteKey(registry.LOCAL_MACHINE, interfacePath)
+		assert.NoError(t, registry.DeleteKey(registry.LOCAL_MACHINE, interfacePath), "delete test interface registry key")
 	}()
 
 	cfg := &registryConfigurator{guid: testGUID}
@@ -142,7 +146,7 @@ func TestNRPTCatchAllRule(t *testing.T) {
 	servers, _, err := k.GetStringValue(dnsPolicyConfigGenericDNSServersKey)
 	require.NoError(t, err)
 	assert.Equal(t, testIP.String(), servers, "every namespace in the rule resolves through our resolver")
-	k.Close()
+	require.NoError(t, k.Close(), "close match rule key")
 
 	// .local is carved back out: RFC 6762 reserves it for mDNS, so it needs a
 	// rule of its own — it is the one rule with a different server list.
@@ -151,7 +155,7 @@ func TestNRPTCatchAllRule(t *testing.T) {
 
 	exemptNames, _, err := ek.GetStringsValue(dnsPolicyConfigNameKey)
 	require.NoError(t, err)
-	assert.Equal(t, []string{nrptLocalNamespace}, exemptNames)
+	assert.Equal(t, []string{nrptLocalNamespace}, exemptNames, "the exemption should name only the mDNS namespace")
 
 	exemptServers, _, err := ek.GetStringValue(dnsPolicyConfigGenericDNSServersKey)
 	require.NoError(t, err, "the value has to be present, empty: without it Windows drops the rule")
@@ -160,7 +164,7 @@ func TestNRPTCatchAllRule(t *testing.T) {
 	exemptOpts, _, err := ek.GetIntegerValue(dnsPolicyConfigConfigOptionsKey)
 	require.NoError(t, err)
 	assert.EqualValues(t, dnsPolicyConfigConfigOptionsValue, exemptOpts, "same options as a normal rule; the empty server list is what makes it an exemption")
-	ek.Close()
+	require.NoError(t, ek.Close(), "close exemption rule key")
 
 	require.NoError(t, cfg.applyDNSConfig(matchOnly, nil))
 	names = ruleNamespaces(t, firstRule)
@@ -189,6 +193,9 @@ func ruleNamespaces(t *testing.T, path string) []string {
 	return names
 }
 
+// TestNRPTCatchAllRuleLegacyEnv verifies that NB_USE_LEGACY_DNS_RESOLUTION
+// leaves the root namespace unclaimed, so no rule is written for a RouteAll
+// config that carries no match domains.
 func TestNRPTCatchAllRuleLegacyEnv(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping registry integration test in short mode")
@@ -203,9 +210,9 @@ func TestNRPTCatchAllRuleLegacyEnv(t *testing.T) {
 	interfacePath := InterfaceConfigPath + `\` + testGUID
 	testKey, _, err := registry.CreateKey(registry.LOCAL_MACHINE, interfacePath, registry.SET_VALUE)
 	require.NoError(t, err, "Should create test interface registry key")
-	testKey.Close()
+	require.NoError(t, testKey.Close(), "close test interface registry key")
 	defer func() {
-		_ = registry.DeleteKey(registry.LOCAL_MACHINE, interfacePath)
+		assert.NoError(t, registry.DeleteKey(registry.LOCAL_MACHINE, interfacePath), "delete test interface registry key")
 	}()
 
 	cfg := &registryConfigurator{guid: testGUID}
