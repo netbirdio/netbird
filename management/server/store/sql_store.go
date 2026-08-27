@@ -5719,6 +5719,10 @@ func (s *SqlStore) CreateCustomDomain(ctx context.Context, accountID string, dom
 		// insert is a conflict, not an internal failure.
 		var count int64
 		if err := s.db.Model(&domain.Domain{}).Where("domain = ?", domainName).Count(&count).Error; err == nil && count > 0 {
+			// The insert error is logged even on this path: the name being taken
+			// is what the caller has to act on, but if the insert also failed for
+			// an unrelated reason the operator still needs to see it.
+			log.WithContext(ctx).Warnf("create reverse proxy custom domain %s rejected, name already registered: %v", domainName, result.Error)
 			return nil, status.Errorf(status.AlreadyExists, "domain %s is already registered", domainName)
 		}
 

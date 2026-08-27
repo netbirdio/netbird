@@ -21,11 +21,12 @@ import (
 )
 
 const (
-	testCluster  = "eu.proxy.test"
-	accountA     = "account-a"
-	accountAUser = "account-a-admin"
-	accountB     = "account-b"
-	accountBUser = "account-b-admin"
+	testCluster    = "eu.proxy.test"
+	accountA       = "account-a"
+	accountAUser   = "account-a-admin"
+	accountB       = "account-b"
+	accountBUser   = "account-b-admin"
+	accountAMember = "account-a-member"
 )
 
 // stubResolver answers CNAME lookups from a table the test controls, so a
@@ -69,17 +70,29 @@ func setupDomainTest(t *testing.T) *domainTestEnv {
 	t.Cleanup(cleanup)
 
 	for accountID, userID := range map[string]string{accountA: accountAUser, accountB: accountBUser} {
+		users := map[string]*types.User{
+			userID: {
+				Id:        userID,
+				AccountID: accountID,
+				Role:      types.UserRoleAdmin,
+			},
+		}
+		if accountID == accountA {
+			// A real member of the account whose role denies Services:Create, so
+			// permission denial is exercised as ok=false rather than as a lookup
+			// error for a user who is not in the account at all.
+			users[accountAMember] = &types.User{
+				Id:        accountAMember,
+				AccountID: accountID,
+				Role:      types.UserRoleUser,
+			}
+		}
+
 		require.NoError(t, testStore.SaveAccount(ctx, &types.Account{
 			Id:        accountID,
 			CreatedBy: userID,
 			Settings:  &types.Settings{},
-			Users: map[string]*types.User{
-				userID: {
-					Id:        userID,
-					AccountID: accountID,
-					Role:      types.UserRoleAdmin,
-				},
-			},
+			Users:     users,
 		}))
 	}
 
@@ -255,4 +268,30 @@ func TestStore_DuplicateDomainRejectedByIndexAsConflict(t *testing.T) {
 	sErr, ok := status.FromError(err)
 	require.True(t, ok, "the losing insert must return a typed status error")
 	assert.Equal(t, status.AlreadyExists, sErr.Type(), "a lost race is a 409, not a 500")
+}
+
+// Validation is what decides whether a domain routes traffic, so a caller
+// without permission to it must not be able to flip the flag. The check logged
+// the denial and then carried on, which was inert while nothing read Validated
+// and is not once cluster derivation gates on it.
+func TestValidateDomain_PermissionDeniedDoesNotValidate(t *testing.T) {
+	ctx := context.Background()
+	env := setupDomainTest(t)
+
+	created, err := env.manager.CreateDomain(ctx, accountA, accountAUser, "guarded.example.com", testCluster)
+	require.NoError(t, err)
+	require.False(t, created.Validated)
+
+	// The CNAME is in place, so the only thing standing between this caller and
+	// a validated domain is the permission check.
+	env.resolver.set("validation.guarded.example.com", testCluster)
+
+	env.manager.ValidateDomain(ctx, accountA, accountAMember, created.ID)
+
+	stored := storedDomain(t, env.store, accountA, "guarded.example.com")
+	require.NotNil(t, stored)
+	assert.False(t, stored.Validated, "a caller without permission must not validate the domain")
+
+	_, err = env.manager.DeriveClusterFromDomain(ctx, accountA, "guarded.example.com")
+	assert.Error(t, err, "the domain must still be unservable")
 }

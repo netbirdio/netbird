@@ -225,7 +225,9 @@ func (m Manager) ValidateDomain(ctx context.Context, accountID, userID, domainID
 		log.WithFields(log.Fields{
 			"accountID": accountID,
 			"domainID":  domainID,
-		}).WithError(err).Error("validate domain")
+			"userID":    userID,
+		}).Error("validate domain: permission denied")
+		return
 	}
 
 	log.WithFields(log.Fields{
