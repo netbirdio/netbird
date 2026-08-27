@@ -165,6 +165,29 @@ func TestReuseOAuthFlow_ForcedPromptRefusesTheCachedFlow(t *testing.T) {
 	require.Equal(t, "code", resp.UserCode)
 }
 
+func TestReplaceOAuthFlow_CancelsTheDisplacedWait(t *testing.T) {
+	s := New(internal.CtxInitState(context.Background()), "console", "", false, false, false, false)
+	cancelled := false
+	s.oauthAuthFlow = oauthAuthFlow{
+		flow:            &stubOAuthFlow{},
+		info:            auth.AuthFlowInfo{UserCode: "code"},
+		expiresAt:       time.Now().Add(time.Hour),
+		hint:            "user@example.com",
+		accountPrompted: true,
+		waitCancel:      func() { cancelled = true },
+	}
+
+	next := &stubOAuthFlow{}
+	s.replaceOAuthFlow(oauthAuthFlow{flow: next, info: auth.AuthFlowInfo{UserCode: "next"}})
+
+	require.True(t, cancelled, "the displaced wait was left without an owner")
+	require.Equal(t, next, s.oauthAuthFlow.flow)
+	require.Equal(t, "next", s.oauthAuthFlow.info.UserCode)
+	require.Empty(t, s.oauthAuthFlow.hint, "the previous flow's hint survived the replacement")
+	require.False(t, s.oauthAuthFlow.accountPrompted)
+	require.Nil(t, s.oauthAuthFlow.waitCancel, "the consumed cancel stayed on the record")
+}
+
 func newSSOTestServer(t *testing.T, hint string, accountPrompted bool, tokenEmail string) *Server {
 	t.Helper()
 	s := New(internal.CtxInitState(context.Background()), "console", "", false, false, false, false)

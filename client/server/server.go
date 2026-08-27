@@ -743,15 +743,13 @@ func (s *Server) startSSOLogin(ctx context.Context, msg *proto.LoginRequest, con
 		return nil, err
 	}
 
-	s.mutex.Lock()
-	s.oauthAuthFlow = oauthAuthFlow{
+	s.replaceOAuthFlow(oauthAuthFlow{
 		flow:            oAuthFlow,
 		info:            authInfo,
 		expiresAt:       time.Now().Add(time.Duration(authInfo.ExpiresIn) * time.Second),
 		hint:            hint,
 		accountPrompted: promptForAccount,
-	}
-	s.mutex.Unlock()
+	})
 
 	state.Set(internal.StatusNeedsLogin)
 
@@ -761,6 +759,25 @@ func (s *Server) startSSOLogin(ctx context.Context, msg *proto.LoginRequest, con
 		VerificationURIComplete: authInfo.VerificationURIComplete,
 		UserCode:                authInfo.UserCode,
 	}, nil
+}
+
+// replaceOAuthFlow installs next as the shared OAuth flow record and takes over
+// the wait it displaces, so a WaitSSOLogin still parked on the old flow is not
+// left without an owner: nothing would preempt it, and it could go on to run
+// attemptLogin or mutate the record behind the new flow.
+//
+// The displaced cancel is read in the same critical section that replaces the
+// record, so two callers racing here cannot both take the same predecessor. The
+// cancel runs after the unlock — the displaced wait takes s.mutex as it unwinds.
+func (s *Server) replaceOAuthFlow(next oauthAuthFlow) {
+	s.mutex.Lock()
+	staleCancel := s.oauthAuthFlow.waitCancel
+	s.oauthAuthFlow = next
+	s.mutex.Unlock()
+
+	if staleCancel != nil {
+		staleCancel()
+	}
 }
 
 // reuseOAuthFlow returns the cached auth info when the previous flow targets
@@ -1851,16 +1868,14 @@ func (s *Server) RequestJWTAuth(
 		return nil, gstatus.Errorf(codes.Internal, "failed to request auth info: %v", err)
 	}
 
-	// Replace the whole record: this flow carries no profile hint, and leaving
-	// the previous login's hint and accountPrompted in place would have
-	// WaitSSOLogin judge a later token against them.
-	s.mutex.Lock()
-	s.oauthAuthFlow = oauthAuthFlow{
+	// This flow carries no profile hint: leaving the previous login's hint and
+	// accountPrompted in place would have WaitSSOLogin judge a later token
+	// against them.
+	s.replaceOAuthFlow(oauthAuthFlow{
 		flow:      oAuthFlow,
 		info:      authInfo,
 		expiresAt: time.Now().Add(time.Duration(authInfo.ExpiresIn) * time.Second),
-	}
-	s.mutex.Unlock()
+	})
 
 	return &proto.RequestJWTAuthResponse{
 		VerificationURI:         authInfo.VerificationURI,
