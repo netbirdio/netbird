@@ -97,7 +97,11 @@ func TestGetProvider_RedactsForReadOnlyViewer(t *testing.T) {
 // selection the self-service setup answer derives from — while an admin
 // keeps the account-wide view with full config.
 
-func newSelfScopeProvidersFixture(t *testing.T) (*managerImpl, store.Store) {
+// newSelfScopeStore seeds the account and its users only, so each test
+// declares exactly the providers and policies it asserts on — the store
+// rejects re-saving a policy id on MySQL, so tests never overwrite each
+// other's rows.
+func newSelfScopeStore(t *testing.T) (*managerImpl, store.Store) {
 	t.Helper()
 	mgr, s := newSetupTestMgr(t)
 	mgr.permissionsManager = permissions.NewManager(s)
@@ -113,6 +117,13 @@ func newSelfScopeProvidersFixture(t *testing.T) (*managerImpl, store.Store) {
 	require.NoError(t, s.SaveUser(ctx, &nbtypes.User{
 		Id: "admin", AccountID: testAccountID, Role: nbtypes.UserRoleAdmin,
 	}))
+	return mgr, s
+}
+
+func newSelfScopeProvidersFixture(t *testing.T) (*managerImpl, store.Store) {
+	t.Helper()
+	mgr, s := newSelfScopeStore(t)
+	ctx := context.Background()
 
 	granted := newSynthTestProvider()
 	granted.ID = "prov-granted"
@@ -190,14 +201,13 @@ func TestGetProvider_SelfScopedForPlainUser(t *testing.T) {
 
 func TestGetAllProviders_SelfScopedModelsFollowGuardrails(t *testing.T) {
 	ctx := context.Background()
-	mgr, s := newSelfScopeProvidersFixture(t)
+	mgr, s := newSelfScopeStore(t)
 
-	// Redeclare the granted provider with two models and restrict the
-	// caller's policy with an allowlist admitting one declared model plus
-	// one the operator never declared (unreachable — the router only
-	// claims declared models, so it must not surface).
+	// A provider declaring two models, restricted by an allowlist admitting
+	// one declared model plus one the operator never declared (unreachable —
+	// the router only claims declared models, so it must not surface).
 	granted := newSynthTestProvider()
-	granted.ID = "prov-granted"
+	granted.ID = "prov-models"
 	granted.Name = "Granted"
 	granted.Models = []types.ProviderModel{
 		{ID: "gpt-5.4", InputPer1k: 0.004, OutputPer1k: 0.02},
@@ -206,6 +216,7 @@ func TestGetAllProviders_SelfScopedModelsFollowGuardrails(t *testing.T) {
 	require.NoError(t, s.SaveAgentNetworkProvider(ctx, granted))
 	require.NoError(t, s.SaveAgentNetworkGuardrail(ctx, newSetupTestGuardrail("guard-models", "gpt-5.4", "gpt-undeclared")))
 	policy := newSynthTestPolicy(granted.ID, "grp-eng", "guard-models")
+	policy.ID = "pol-guard-models"
 	require.NoError(t, s.SaveAgentNetworkPolicy(ctx, policy))
 
 	scoped, err := mgr.GetAllProviders(ctx, testAccountID, "user-a")
@@ -228,17 +239,19 @@ func TestGetAllProviders_SelfScopedModelsFollowGuardrails(t *testing.T) {
 
 func TestGetAllProviders_SelfScopedAllowlistWithoutDeclaredModels(t *testing.T) {
 	ctx := context.Background()
-	mgr, s := newSelfScopeProvidersFixture(t)
+	mgr, s := newSelfScopeStore(t)
 
 	// No operator declaration: the router claims every model, so the
 	// allowlist union is the effective set and comes back as bare entries.
 	granted := newSynthTestProvider()
-	granted.ID = "prov-granted"
+	granted.ID = "prov-bare"
 	granted.Name = "Granted"
 	granted.Models = nil
 	require.NoError(t, s.SaveAgentNetworkProvider(ctx, granted))
-	require.NoError(t, s.SaveAgentNetworkGuardrail(ctx, newSetupTestGuardrail("guard-models", "gpt-5.4")))
-	require.NoError(t, s.SaveAgentNetworkPolicy(ctx, newSynthTestPolicy(granted.ID, "grp-eng", "guard-models")))
+	require.NoError(t, s.SaveAgentNetworkGuardrail(ctx, newSetupTestGuardrail("guard-bare", "gpt-5.4")))
+	policy := newSynthTestPolicy(granted.ID, "grp-eng", "guard-bare")
+	policy.ID = "pol-guard-bare"
+	require.NoError(t, s.SaveAgentNetworkPolicy(ctx, policy))
 
 	scoped, err := mgr.GetAllProviders(ctx, testAccountID, "user-a")
 	require.NoError(t, err)
