@@ -888,12 +888,9 @@ func TestRouteSelector_EnableExitNodeKeepsOtherRoutes(t *testing.T) {
 	assert.True(t, rs.IsSelected("lan2"), "non-exit route must stay selected")
 }
 
-// TestRouteSelector_SelectRoutes_AllUnavailableKeepsSelection covers the destructive case: a
-// non-append selection clears the current selection before applying the requested one, so a
-// request naming only unavailable routes used to leave everything deselected while still
-// returning an error - a typo in a route ID silently dropped the user's exit node. A request
-// with at least one available route keeps applying the valid part (see "Select non-existing
-// route" above); this is only about the all-invalid case.
+// A non-append selection clears the current selection before applying the requested
+// one, so an all-unavailable request used to leave nothing selected while returning
+// an error. Requests with at least one available route are unaffected.
 func TestRouteSelector_SelectRoutes_AllUnavailableKeepsSelection(t *testing.T) {
 	allRoutes := []route.NetID{"route1", "route2", "route3"}
 
@@ -909,9 +906,8 @@ func TestRouteSelector_SelectRoutes_AllUnavailableKeepsSelection(t *testing.T) {
 	}
 }
 
-// TestRouteSelector_SelectRoutes_EmptyRequestStillDeselectsAll guards the boundary of the check
-// above: asking for no routes is the caller deselecting everything, not a failed request, so it
-// must keep working.
+// Boundary of the check above: an empty request is the caller deselecting everything,
+// not a failed lookup, so it must keep working.
 func TestRouteSelector_SelectRoutes_EmptyRequestStillDeselectsAll(t *testing.T) {
 	allRoutes := []route.NetID{"route1", "route2", "route3"}
 

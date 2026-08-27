@@ -32,10 +32,9 @@ func (rs *RouteSelector) SelectRoutes(routes []route.NetID, appendRoute bool, al
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
 
-	// Validate before mutating: a non-append selection wipes the current selection first, so
-	// a request naming only unavailable routes would deselect everything the user had and put
-	// nothing in its place. Requesting no routes at all is a different thing - that's the
-	// caller asking to deselect all - and still goes through.
+	// Validate before mutating: a non-append selection wipes the current selection
+	// first, so a request of only unavailable routes would deselect everything and
+	// put nothing back. An empty request means deselect all, so it still goes through.
 	var err *multierror.Error
 	available := make([]route.NetID, 0, len(routes))
 	for _, r := range routes {
