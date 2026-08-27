@@ -1039,6 +1039,16 @@ func (s *Server) acquireVirtualSession(conn net.Conn, header *connectionHeader, 
 		(*connLog).Warn("session rejected: no username provided")
 		return nil, nil, nil, false
 	}
+	// The requested geometry comes off the wire and is handed straight to the X
+	// server, which allocates a framebuffer for it. The cap the rest of the
+	// pipeline enforces is only checked once the capturer is up, which is too
+	// late to stop a peer asking for 65535x65535. Zero means "use the default".
+	if header.width > maxFramebufferDim || header.height > maxFramebufferDim {
+		rejectConnection(conn, codeMessage(RejectCodeBadRequest,
+			fmt.Sprintf("requested geometry out of range: %dx%d", header.width, header.height)))
+		(*connLog).Warnf("session rejected: requested %dx%d exceeds cap %d", header.width, header.height, maxFramebufferDim)
+		return nil, nil, nil, false
+	}
 	vs, err := s.vmgr.GetOrCreate(header.username, header.width, header.height)
 	if err != nil {
 		rejectConnection(conn, codeMessage(RejectCodeSessionError, fmt.Sprintf("create virtual session: %v", err)))
