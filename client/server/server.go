@@ -733,7 +733,7 @@ func (s *Server) startSSOLogin(ctx context.Context, msg *proto.LoginRequest, con
 		log.Warnf("the previous login returned a different account, but this flow cannot ask the IdP to choose one")
 	}
 
-	if resp := s.reuseOAuthFlow(ctx, oAuthFlow, state); resp != nil {
+	if resp := s.reuseOAuthFlow(ctx, oAuthFlow, state, promptForAccount); resp != nil {
 		return resp, nil
 	}
 
@@ -744,11 +744,13 @@ func (s *Server) startSSOLogin(ctx context.Context, msg *proto.LoginRequest, con
 	}
 
 	s.mutex.Lock()
-	s.oauthAuthFlow.flow = oAuthFlow
-	s.oauthAuthFlow.info = authInfo
-	s.oauthAuthFlow.expiresAt = time.Now().Add(time.Duration(authInfo.ExpiresIn) * time.Second)
-	s.oauthAuthFlow.hint = hint
-	s.oauthAuthFlow.accountPrompted = promptForAccount
+	s.oauthAuthFlow = oauthAuthFlow{
+		flow:            oAuthFlow,
+		info:            authInfo,
+		expiresAt:       time.Now().Add(time.Duration(authInfo.ExpiresIn) * time.Second),
+		hint:            hint,
+		accountPrompted: promptForAccount,
+	}
 	s.mutex.Unlock()
 
 	state.Set(internal.StatusNeedsLogin)
@@ -765,13 +767,19 @@ func (s *Server) startSSOLogin(ctx context.Context, msg *proto.LoginRequest, con
 // the same client and still has enough life left, and otherwise cancels the
 // stale wait and returns nil so the caller requests a fresh flow.
 //
+// promptForAccount rules reuse out: the cached flow was built without the
+// account prompt, so handing its URL back would repeat the silent
+// authorization that returned the wrong account — and with the flag already
+// consumed, no later round would ask either. The predecessor's wait is still
+// cancelled on the way out, so it is not orphaned on its device-code window.
+//
 // The whole decision runs off one snapshot taken under s.mutex: a concurrent
 // WaitSSOLogin replaces waitCancel and expires the flow, so reading the fields
 // one at a time could cancel a wait that no longer belongs to the flow just
 // judged stale, or answer with auth info from a flow that was already replaced.
 // The cancel itself is called after unlocking — it runs arbitrary teardown, and
 // WaitSSOLogin takes s.mutex on the way out.
-func (s *Server) reuseOAuthFlow(ctx context.Context, oAuthFlow auth.OAuthFlow, state statusSetter) *proto.LoginResponse {
+func (s *Server) reuseOAuthFlow(ctx context.Context, oAuthFlow auth.OAuthFlow, state statusSetter, promptForAccount bool) *proto.LoginResponse {
 	s.mutex.Lock()
 	current := s.oauthAuthFlow
 	s.mutex.Unlock()
@@ -780,7 +788,7 @@ func (s *Server) reuseOAuthFlow(ctx context.Context, oAuthFlow auth.OAuthFlow, s
 		return nil
 	}
 
-	if !current.expiresAt.After(time.Now().Add(90 * time.Second)) {
+	if promptForAccount || !current.expiresAt.After(time.Now().Add(90*time.Second)) {
 		log.Warnf("canceling previous waiting execution")
 		if current.waitCancel != nil {
 			current.waitCancel()
@@ -1843,10 +1851,15 @@ func (s *Server) RequestJWTAuth(
 		return nil, gstatus.Errorf(codes.Internal, "failed to request auth info: %v", err)
 	}
 
+	// Replace the whole record: this flow carries no profile hint, and leaving
+	// the previous login's hint and accountPrompted in place would have
+	// WaitSSOLogin judge a later token against them.
 	s.mutex.Lock()
-	s.oauthAuthFlow.flow = oAuthFlow
-	s.oauthAuthFlow.info = authInfo
-	s.oauthAuthFlow.expiresAt = time.Now().Add(time.Duration(authInfo.ExpiresIn) * time.Second)
+	s.oauthAuthFlow = oauthAuthFlow{
+		flow:      oAuthFlow,
+		info:      authInfo,
+		expiresAt: time.Now().Add(time.Duration(authInfo.ExpiresIn) * time.Second),
+	}
 	s.mutex.Unlock()
 
 	return &proto.RequestJWTAuthResponse{

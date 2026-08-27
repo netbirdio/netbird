@@ -148,6 +148,26 @@ func TestWaitSSOLogin_JudgesTheFlowThatProducedTheToken(t *testing.T) {
 	require.False(t, s.forceAccountPrompt, "the prompt was armed off another flow's hint")
 }
 
+func TestReuseOAuthFlow_ForcedPromptRefusesTheCachedFlow(t *testing.T) {
+	s := New(internal.CtxInitState(context.Background()), "console", "", false, false, false, false)
+	cancelled := false
+	s.oauthAuthFlow = oauthAuthFlow{
+		flow:       &stubOAuthFlow{},
+		info:       auth.AuthFlowInfo{UserCode: "code"},
+		expiresAt:  time.Now().Add(time.Hour),
+		waitCancel: func() { cancelled = true },
+	}
+
+	state := internal.CtxGetState(s.rootCtx)
+	resp := s.reuseOAuthFlow(context.Background(), &stubOAuthFlow{}, state, true)
+	require.Nil(t, resp, "a forced account prompt reused the flow that skipped it")
+	require.True(t, cancelled, "the predecessor wait was orphaned")
+
+	resp = s.reuseOAuthFlow(context.Background(), &stubOAuthFlow{}, state, false)
+	require.NotNil(t, resp, "an unforced login stopped reusing a live flow")
+	require.Equal(t, "code", resp.UserCode)
+}
+
 func newSSOTestServer(t *testing.T, hint string, accountPrompted bool, tokenEmail string) *Server {
 	t.Helper()
 	s := New(internal.CtxInitState(context.Background()), "console", "", false, false, false, false)
