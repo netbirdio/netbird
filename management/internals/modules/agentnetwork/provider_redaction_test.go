@@ -3,13 +3,17 @@ package agentnetwork
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
+	nbtypes "github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 // These tests pin the provider read surface per grant: a caller holding
@@ -84,4 +88,101 @@ func TestGetProvider_RedactsForReadOnlyViewer(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, saved.ID, p.ID)
 	assert.Empty(t, p.UpstreamURL)
+}
+
+// The self-scope tests drive the real permissions manager over the real
+// store, so role resolution is the production one: a plain user holds no
+// providers grant and must fall back to the caller-scoped list — the same
+// selection the self-service setup answer derives from — while an admin
+// keeps the account-wide view with full config.
+
+func newSelfScopeProvidersFixture(t *testing.T) (*managerImpl, store.Store) {
+	t.Helper()
+	mgr, s := newSetupTestMgr(t)
+	mgr.permissionsManager = permissions.NewManager(s)
+	ctx := context.Background()
+
+	require.NoError(t, s.SaveAccount(ctx, &nbtypes.Account{Id: testAccountID}))
+	require.NoError(t, s.SaveUser(ctx, &nbtypes.User{
+		Id: "user-a", AccountID: testAccountID, Role: nbtypes.UserRoleUser, AutoGroups: []string{"grp-eng"},
+	}))
+	require.NoError(t, s.SaveUser(ctx, &nbtypes.User{
+		Id: "user-out", AccountID: testAccountID, Role: nbtypes.UserRoleUser,
+	}))
+	require.NoError(t, s.SaveUser(ctx, &nbtypes.User{
+		Id: "admin", AccountID: testAccountID, Role: nbtypes.UserRoleAdmin,
+	}))
+
+	granted := newSynthTestProvider()
+	granted.ID = "prov-granted"
+	granted.Name = "Granted"
+	require.NoError(t, s.SaveAgentNetworkProvider(ctx, granted))
+
+	other := newSynthTestProvider()
+	other.ID = "prov-other"
+	other.Name = "Other"
+	other.CreatedAt = granted.CreatedAt.Add(time.Hour)
+	require.NoError(t, s.SaveAgentNetworkProvider(ctx, other))
+
+	disabled := newSynthTestProvider()
+	disabled.ID = "prov-disabled"
+	disabled.Name = "Disabled"
+	disabled.Enabled = false
+	require.NoError(t, s.SaveAgentNetworkProvider(ctx, disabled))
+
+	// user-a's group authorizes the granted and the disabled provider; the
+	// disabled one must still not surface (the proxy never routes it).
+	policy := newSynthTestPolicy(granted.ID, "grp-eng", "")
+	policy.DestinationProviderIDs = []string{granted.ID, disabled.ID}
+	require.NoError(t, s.SaveAgentNetworkPolicy(ctx, policy))
+
+	return mgr, s
+}
+
+func TestGetAllProviders_SelfScopedForPlainUser(t *testing.T) {
+	ctx := context.Background()
+	mgr, _ := newSelfScopeProvidersFixture(t)
+
+	scoped, err := mgr.GetAllProviders(ctx, testAccountID, "user-a")
+	require.NoError(t, err, "a caller without the read grant self-scopes instead of being denied")
+	require.Len(t, scoped, 1)
+	assert.Equal(t, "prov-granted", scoped[0].ID)
+	assert.Empty(t, scoped[0].UpstreamURL, "the caller-scoped list is the redacted display surface")
+	assert.NotEmpty(t, scoped[0].Models, "model list backs the dashboard filters")
+
+	empty, err := mgr.GetAllProviders(ctx, testAccountID, "user-out")
+	require.NoError(t, err)
+	assert.Empty(t, empty, "a caller outside every policy gets an empty list, not an error")
+
+	all, err := mgr.GetAllProviders(ctx, testAccountID, "admin")
+	require.NoError(t, err)
+	assert.Len(t, all, 3, "grant holders keep the account-wide list, disabled providers included")
+	for _, p := range all {
+		if p.ID == "prov-granted" {
+			assert.NotEmpty(t, p.UpstreamURL, "a managing caller sees the connection config")
+		}
+	}
+}
+
+func TestGetProvider_SelfScopedForPlainUser(t *testing.T) {
+	ctx := context.Background()
+	mgr, _ := newSelfScopeProvidersFixture(t)
+
+	p, err := mgr.GetProvider(ctx, testAccountID, "user-a", "prov-granted")
+	require.NoError(t, err)
+	assert.Equal(t, "prov-granted", p.ID)
+	assert.Empty(t, p.UpstreamURL)
+
+	assertNotFound := func(id string) {
+		t.Helper()
+		_, err := mgr.GetProvider(ctx, testAccountID, "user-a", id)
+		require.Error(t, err)
+		var sErr *status.Error
+		require.ErrorAs(t, err, &sErr)
+		assert.Equal(t, status.NotFound, sErr.Type(),
+			"out-of-scope and nonexistent providers must be indistinguishable")
+	}
+	assertNotFound("prov-other")
+	assertNotFound("prov-disabled")
+	assertNotFound("prov-does-not-exist")
 }

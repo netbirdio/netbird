@@ -55,18 +55,12 @@ func (m *managerImpl) effectiveSetupForGroups(ctx context.Context, accountID str
 		return notConfigured, nil
 	}
 
-	policies, err := m.store.GetAccountAgentNetworkPolicies(ctx, store.LockingStrengthNone, accountID)
+	authorized, applicable, err := m.authorizedProvidersForGroups(ctx, accountID, groupIDs)
 	if err != nil {
-		return nil, fmt.Errorf("list account policies: %w", err)
+		return nil, err
 	}
-	applicable := filterPoliciesByGroups(policies, groupIDs)
-	if len(applicable) == 0 {
+	if len(authorized) == 0 {
 		return notConfigured, nil
-	}
-
-	providers, err := m.store.GetAccountAgentNetworkProviders(ctx, store.LockingStrengthNone, accountID)
-	if err != nil {
-		return nil, fmt.Errorf("list account providers: %w", err)
 	}
 
 	var guardrailsByID map[string]*types.Guardrail
@@ -76,28 +70,6 @@ func (m *managerImpl) effectiveSetupForGroups(ctx context.Context, accountID str
 			return nil, err
 		}
 	}
-
-	authorized := make([]*types.Provider, 0, len(providers))
-	for _, p := range providers {
-		if p == nil || !p.Enabled {
-			continue
-		}
-		if len(policiesForProvider(applicable, p.ID)) == 0 {
-			continue
-		}
-		authorized = append(authorized, p)
-	}
-	if len(authorized) == 0 {
-		return notConfigured, nil
-	}
-	// created_at order, ID tiebreak — same deterministic order the router
-	// synthesizer presents.
-	sort.SliceStable(authorized, func(i, j int) bool {
-		if !authorized[i].CreatedAt.Equal(authorized[j].CreatedAt) {
-			return authorized[i].CreatedAt.Before(authorized[j].CreatedAt)
-		}
-		return authorized[i].ID < authorized[j].ID
-	})
 
 	out := &types.EffectiveSetup{
 		Configured: true,
@@ -119,6 +91,49 @@ func (m *managerImpl) effectiveSetupForGroups(ctx context.Context, accountID str
 		})
 	}
 	return out, nil
+}
+
+// authorizedProvidersForGroups returns the enabled providers referenced
+// by at least one enabled policy whose source groups intersect groupIDs —
+// the providers the caller's own policies authorize — in created_at order
+// with ID tiebreak, the same deterministic order the router synthesizer
+// presents. The applicable policies come back alongside so callers that
+// need per-provider policy context (the setup's model computation) don't
+// re-filter. Both the self-service setup answer and the caller-scoped
+// provider list are built from this selection, so what the dashboard
+// offers and what the proxy enforces never diverge.
+func (m *managerImpl) authorizedProvidersForGroups(ctx context.Context, accountID string, groupIDs []string) ([]*types.Provider, []*types.Policy, error) {
+	policies, err := m.store.GetAccountAgentNetworkPolicies(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("list account policies: %w", err)
+	}
+	applicable := filterPoliciesByGroups(policies, groupIDs)
+	if len(applicable) == 0 {
+		return nil, nil, nil
+	}
+
+	providers, err := m.store.GetAccountAgentNetworkProviders(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("list account providers: %w", err)
+	}
+
+	authorized := make([]*types.Provider, 0, len(providers))
+	for _, p := range providers {
+		if p == nil || !p.Enabled {
+			continue
+		}
+		if len(policiesForProvider(applicable, p.ID)) == 0 {
+			continue
+		}
+		authorized = append(authorized, p)
+	}
+	sort.SliceStable(authorized, func(i, j int) bool {
+		if !authorized[i].CreatedAt.Equal(authorized[j].CreatedAt) {
+			return authorized[i].CreatedAt.Before(authorized[j].CreatedAt)
+		}
+		return authorized[i].ID < authorized[j].ID
+	})
+	return authorized, applicable, nil
 }
 
 // filterPoliciesByGroups returns the enabled policies whose SourceGroups

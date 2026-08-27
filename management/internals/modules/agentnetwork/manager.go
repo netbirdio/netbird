@@ -175,9 +175,19 @@ func NewManager(
 	}
 }
 
+// GetAllProviders returns the account's providers for callers holding the
+// providers read grant (connection config redacted unless they can also
+// update). A caller without the grant self-scopes instead of being denied
+// — mirroring the usage and log endpoints: they get the providers their
+// own policies authorize, redacted to the display surface, which is what
+// feeds the dashboard's provider filter for plain users.
 func (m *managerImpl) GetAllProviders(ctx context.Context, accountID, userID string) ([]*types.Provider, error) {
-	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkProviders, operations.Read); err != nil {
-		return nil, err
+	ok, _, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.AgentNetworkProviders, operations.Read)
+	if err != nil {
+		return nil, status.NewPermissionValidationError(err)
+	}
+	if !ok {
+		return m.callerScopedProviders(ctx, accountID, userID)
 	}
 	providers, err := m.store.GetAccountAgentNetworkProviders(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
@@ -186,9 +196,26 @@ func (m *managerImpl) GetAllProviders(ctx context.Context, accountID, userID str
 	return m.redactProvidersForViewer(ctx, accountID, userID, providers)
 }
 
+// GetProvider self-scopes like GetAllProviders: a caller without the read
+// grant may fetch a provider their own policies authorize (redacted), and
+// gets the same not-found answer for any other id — an out-of-scope
+// provider must be indistinguishable from a nonexistent one.
 func (m *managerImpl) GetProvider(ctx context.Context, accountID, userID, providerID string) (*types.Provider, error) {
-	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkProviders, operations.Read); err != nil {
-		return nil, err
+	ok, _, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.AgentNetworkProviders, operations.Read)
+	if err != nil {
+		return nil, status.NewPermissionValidationError(err)
+	}
+	if !ok {
+		scoped, err := m.callerScopedProviders(ctx, accountID, userID)
+		if err != nil {
+			return nil, err
+		}
+		for _, p := range scoped {
+			if p.ID == providerID {
+				return p, nil
+			}
+		}
+		return nil, status.NewAgentNetworkProviderNotFoundError(providerID)
 	}
 	provider, err := m.store.GetAgentNetworkProviderByID(ctx, store.LockingStrengthNone, accountID, providerID)
 	if err != nil {
@@ -199,6 +226,28 @@ func (m *managerImpl) GetProvider(ctx context.Context, accountID, userID, provid
 		return nil, err
 	}
 	return redacted[0], nil
+}
+
+// callerScopedProviders returns the providers the caller's own policies
+// authorize — the same selection the self-service setup answer and the
+// proxy's routing derive from — each reduced to the display surface. No
+// role permission is needed: the answer is scoped strictly to the caller,
+// and a caller outside every policy gets an empty list, indistinguishable
+// from an account with nothing configured.
+func (m *managerImpl) callerScopedProviders(ctx context.Context, accountID, userID string) ([]*types.Provider, error) {
+	user, err := m.store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get user: %w", err)
+	}
+	authorized, _, err := m.authorizedProvidersForGroups(ctx, accountID, user.AutoGroups)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*types.Provider, 0, len(authorized))
+	for _, p := range authorized {
+		out = append(out, p.RedactedForViewer())
+	}
+	return out, nil
 }
 
 // redactProvidersForViewer strips the connection configuration from

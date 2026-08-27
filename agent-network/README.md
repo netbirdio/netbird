@@ -122,7 +122,10 @@ self-service endpoint `GET /api/agent-network/me/setup` (the endpoint, providers
 and models the caller's own policies allow — what a local AI tool needs and nothing
 more). The regular usage and access-log endpoints self-scope instead of denying:
 a caller without the account-wide grant gets their own rows back, so "my usage"
-and "my requests" are the same endpoints the admin dashboard uses. Role
+and "my requests" are the same endpoints the admin dashboard uses. The provider
+list self-scopes the same way — a caller without the providers grant gets the
+providers their own policies authorize, reduced to the display surface, which
+is what feeds the dashboard's provider filter. Role
 definitions live in
 [`management/server/permissions/roles/`](../management/server/permissions/roles).
 
