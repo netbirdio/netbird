@@ -1002,8 +1002,8 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 			s.mutex.Lock()
 			if s.oauthAuthFlow.flow == flow {
 				s.oauthAuthFlow = oauthAuthFlow{}
+				s.forceAccountPrompt = true
 			}
-			s.forceAccountPrompt = true
 			s.mutex.Unlock()
 			state.Set(internal.StatusNeedsLogin)
 			return nil, gstatus.Errorf(codes.FailedPrecondition, "the login used a different account than this profile; connect again to choose the account")
