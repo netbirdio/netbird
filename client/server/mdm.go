@@ -10,6 +10,7 @@ import (
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
+	"github.com/netbirdio/netbird/client/internal/pqkem"
 	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/client/proto"
 )
@@ -156,6 +157,9 @@ func (s *Server) restartEngineForMDMLocked() error {
 	s.config = config
 	s.statusRecorder.UpdateManagementAddress(config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(config.RosenpassEnabled, config.RosenpassPermissive)
+	// ML-KEM is env-driven today; mirror the Rosenpass update so the status stays in
+	// sync after an MDM config apply and the wiring is ready if it becomes a config field.
+	s.statusRecorder.UpdateMLKEM(pqkem.Enabled(), pqkem.Strict())
 
 	ctx, cancel := context.WithCancel(s.rootCtx)
 	s.actCancel = cancel

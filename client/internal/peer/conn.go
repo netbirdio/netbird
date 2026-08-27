@@ -1187,7 +1187,13 @@ func isRosenpassEnabled(remoteRosenpassPubKey []byte) bool {
 // the status "Quantum resistance" field: either Rosenpass (the remote advertised a
 // Rosenpass key) or the ML-KEM exchange (a PQ PSK has been derived for this peer).
 func (conn *Conn) quantumResistant(remoteRosenpassPubKey []byte, pqEstablished bool) bool {
-	return isRosenpassEnabled(remoteRosenpassPubKey) || pqEstablished
+	// Rosenpass protects the tunnel only when both sides run it: the local peer has a
+	// Rosenpass key AND the remote advertised one. Checking only the remote key would
+	// report a plain (or blocked) tunnel as quantum-resistant when the local side does
+	// not run Rosenpass — e.g. against a peer that merely advertises it in a mixed
+	// deployment. A homogeneous Rosenpass deployment (both sides on) is unaffected.
+	rosenpassActive := conn.config.RosenpassConfig.PubKey != nil && isRosenpassEnabled(remoteRosenpassPubKey)
+	return rosenpassActive || pqEstablished
 }
 
 func evalConnStatus(in connStatusInputs) guard.ConnStatus {
