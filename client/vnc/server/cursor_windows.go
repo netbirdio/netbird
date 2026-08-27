@@ -120,28 +120,15 @@ func (s *cursorSampler) sample() (*cursorSnapshot, error) {
 		// cursor and stay armed for the next handle change rather than
 		// treating this as a hard failure that would latch us off for
 		// the session.
-		if s.lastHandle == hiddenHandle {
-			s.snapshot.posX = int(ci.PtPos.X)
-			s.snapshot.posY = int(ci.PtPos.Y)
-			s.snapshot.hasPos = true
-			return s.snapshot, nil
+		if s.lastHandle == hiddenHandle && s.snapshot != nil {
+			return s.publish(*s.snapshot, ci), nil
 		}
 		s.lastHandle = hiddenHandle
 		s.serial++
-		s.snapshot = &cursorSnapshot{
-			img:    transparentCursorImage(),
-			posX:   int(ci.PtPos.X),
-			posY:   int(ci.PtPos.Y),
-			hasPos: true,
-			serial: s.serial,
-		}
-		return s.snapshot, nil
+		return s.publish(cursorSnapshot{img: transparentCursorImage(), serial: s.serial}, ci), nil
 	}
 	if ci.Cursor == s.lastHandle && s.snapshot != nil {
-		s.snapshot.posX = int(ci.PtPos.X)
-		s.snapshot.posY = int(ci.PtPos.Y)
-		s.snapshot.hasPos = true
-		return s.snapshot, nil
+		return s.publish(*s.snapshot, ci), nil
 	}
 	img, hotX, hotY, err := decodeCursor(ci.Cursor)
 	if err != nil {
@@ -149,16 +136,21 @@ func (s *cursorSampler) sample() (*cursorSnapshot, error) {
 	}
 	s.lastHandle = ci.Cursor
 	s.serial++
-	s.snapshot = &cursorSnapshot{
-		img:    img,
-		hotX:   hotX,
-		hotY:   hotY,
-		posX:   int(ci.PtPos.X),
-		posY:   int(ci.PtPos.Y),
-		hasPos: true,
-		serial: s.serial,
-	}
-	return s.snapshot, nil
+	return s.publish(cursorSnapshot{img: img, hotX: hotX, hotY: hotY, serial: s.serial}, ci), nil
+}
+
+// publish stamps the cursor's current position onto snap and stores it as the
+// sampler's latest snapshot. A fresh value every time, never an update in
+// place: the session encoder reads the snapshot the sampler last handed out,
+// and must not see a position that is halfway between two samples. The sprite
+// fields are carried over by value, so a snapshot the encoder still holds keeps
+// pointing at the same immutable image.
+func (s *cursorSampler) publish(snap cursorSnapshot, ci winCursorInfo) *cursorSnapshot {
+	snap.posX = int(ci.PtPos.X)
+	snap.posY = int(ci.PtPos.Y)
+	snap.hasPos = true
+	s.snapshot = &snap
+	return s.snapshot
 }
 
 // decodeCursor extracts the sprite at hCur as RGBA along with the hotspot.

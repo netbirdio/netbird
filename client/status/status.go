@@ -448,7 +448,7 @@ func (o *OutputOverview) YAML() (string, error) {
 }
 
 // GeneralSummary returns a general summary of the status overview.
-func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameServers bool, showSSHSessions bool) string {
+func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameServers bool, showSessions bool) string {
 	var managementConnString string
 	if o.ManagementState.Connected {
 		managementConnString = "Connected"
@@ -573,7 +573,7 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 			sshServerStatus = "Enabled"
 		}
 
-		if showSSHSessions && sessionCount > 0 {
+		if showSessions && sessionCount > 0 {
 			for _, session := range o.SSHServerState.Sessions {
 				var sessionDisplay string
 				if session.JWTUsername != "" {
@@ -611,7 +611,7 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 			vncServerStatus = "Enabled"
 		}
 
-		if showSSHSessions && vncSessionCount > 0 {
+		if showSessions && vncSessionCount > 0 {
 			for _, sess := range o.VNCServerState.Sessions {
 				vncServerStatus += "\n  " + formatVNCSessionLine(sess)
 			}

@@ -32,9 +32,11 @@ type X11InputInjector struct {
 // NewX11InputInjector connects to the X11 display and initializes XTest.
 // Empty cookieHex/authFile fall back to XAUTHORITY env lookup.
 func NewX11InputInjector(display, cookieHex, authFile string) (*X11InputInjector, error) {
-	detectX11Display()
-
+	// Only probe for a display when the caller named none: detection writes
+	// DISPLAY and XAUTHORITY into this process's environment, which has no
+	// business changing when the caller already knows which display to use.
 	if display == "" {
+		detectX11Display()
 		display = os.Getenv(envDisplay)
 	}
 	if display == "" {

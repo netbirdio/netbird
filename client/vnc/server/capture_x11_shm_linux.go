@@ -31,23 +31,25 @@ func (c *X11Capturer) initSHM() error {
 		return fmt.Errorf("shmat: %w", err)
 	}
 
-	if _, err := unix.SysvShmCtl(id, unix.IPC_RMID, nil); err != nil {
-		log.Debugf("shmctl IPC_RMID: %v", err)
-	}
-
 	seg, err := shm.NewSegId(c.conn)
 	if err != nil {
-		if detachErr := unix.SysvShmDetach(addr); detachErr != nil {
-			log.Debugf("shmdt on new-seg failure: %v", detachErr)
-		}
+		releaseShmSegment(id, addr)
 		return fmt.Errorf("new SHM seg: %w", err)
 	}
 
+	// The X server attaches before the segment is marked for deletion: since
+	// Linux 3.10 a shmat() against an IPC_RMID'd segment fails with EIDRM, so
+	// marking it first would push us onto the slow non-SHM path.
 	if err := shm.AttachChecked(c.conn, seg, uint32(id), false).Check(); err != nil {
-		if detachErr := unix.SysvShmDetach(addr); detachErr != nil {
-			log.Debugf("shmdt on attach-checked failure: %v", detachErr)
-		}
+		releaseShmSegment(id, addr)
 		return fmt.Errorf("SHM attach to X: %w", err)
+	}
+
+	// Both ends hold the segment at this point, so marking it for deletion
+	// frees it as soon as the last of them detaches, even if this process
+	// dies without cleaning up.
+	if _, err := unix.SysvShmCtl(id, unix.IPC_RMID, nil); err != nil {
+		log.Debugf("shmctl IPC_RMID: %v", err)
 	}
 
 	c.shmID = id
@@ -55,6 +57,18 @@ func (c *X11Capturer) initSHM() error {
 	c.shmSeg = uint32(seg)
 	c.useSHM = true
 	return nil
+}
+
+// releaseShmSegment gives a segment back on a setup path that failed after
+// attaching it: detach this process, then mark it for deletion so it does not
+// linger in the kernel's IPC table for the life of the host.
+func releaseShmSegment(id int, addr []byte) {
+	if err := unix.SysvShmDetach(addr); err != nil {
+		log.Debugf("shmdt on setup failure: %v", err)
+	}
+	if _, err := unix.SysvShmCtl(id, unix.IPC_RMID, nil); err != nil {
+		log.Debugf("shmctl IPC_RMID on setup failure: %v", err)
+	}
 }
 
 func (c *X11Capturer) captureSHM() (*image.RGBA, error) {

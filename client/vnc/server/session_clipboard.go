@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"time"
+	"unicode/utf8"
 )
 
 // clipboardPoll periodically checks the server-side clipboard and sends
@@ -192,14 +193,30 @@ func (s *session) handleExtClipProvide(flags uint32, payload []byte) {
 // host clipboard contents, capped to extClipMaxText.
 func (s *session) sendExtClipProvideText() error {
 	text := s.injector.GetClipboard()
-	if len(text) > extClipMaxText {
-		text = text[:extClipMaxText]
+	// One byte short of the cap: buildExtClipProvideText appends a NUL
+	// terminator, which counts against extClipMaxText.
+	if len(text) > extClipMaxText-1 {
+		text = trimPartialRune(text[:extClipMaxText-1])
 	}
 	payload, err := buildExtClipProvideText(text)
 	if err != nil {
 		return fmt.Errorf("build provide: %w", err)
 	}
 	return s.writeExtClipMessage(payload)
+}
+
+// trimPartialRune drops the trailing bytes a byte-length cut left halfway
+// through a UTF-8 rune, so the client is never handed invalid UTF-8. A real
+// U+FFFD in the text decodes as three bytes and is kept.
+func trimPartialRune(s string) string {
+	for s != "" {
+		r, size := utf8.DecodeLastRuneInString(s)
+		if r != utf8.RuneError || size > 1 {
+			return s
+		}
+		s = s[:len(s)-1]
+	}
+	return s
 }
 
 // writeExtClipMessage frames an ExtendedClipboard payload as a ServerCutText

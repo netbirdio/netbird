@@ -81,14 +81,17 @@ func writeXAuthFile(path, hostname, display string, cookie []byte, uid, gid uint
 }
 
 // ensureTraversable walks up from dir to configs.RuntimeDir (inclusive) and
-// sets mode 0711 on each component. Stops once it leaves the runtime dir so
-// it never touches /var/run or /run.
+// sets mode 0711 on each component. A dir outside the runtime dir is refused
+// before anything is chmodded, so it never touches /var/run or /run.
 func ensureTraversable(dir string) error {
 	root := filepath.Clean(configs.RuntimeDir)
 	if root == "" {
 		return nil
 	}
 	cur := filepath.Clean(dir)
+	if cur != root && !strings.HasPrefix(cur, root+string(os.PathSeparator)) {
+		return fmt.Errorf("xauth dir %s is outside the runtime dir %s", cur, root)
+	}
 	for {
 		if err := os.Chmod(cur, 0711); err != nil {
 			return fmt.Errorf("chmod %s: %w", cur, err)
@@ -97,7 +100,7 @@ func ensureTraversable(dir string) error {
 			return nil
 		}
 		parent := filepath.Dir(cur)
-		if parent == cur || !strings.HasPrefix(cur, root+string(os.PathSeparator)) {
+		if parent == cur {
 			return nil
 		}
 		cur = parent
