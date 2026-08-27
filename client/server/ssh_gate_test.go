@@ -444,3 +444,73 @@ func TestRequirePrivilegeForDeregistration(t *testing.T) {
 // directly have no transport credentials, and the privileged-change gate refuses
 // a caller it cannot identify.
 func privilegedTestCtx() context.Context { return rootCtx() }
+
+// The engine keeps SSH and VNC down while inbound connections are blocked, so
+// clearing that block on a profile with one enabled starts the server. An
+// unprivileged caller must not be able to do it by that route either.
+func TestRequirePrivilegeForConfigChange_UnblockInbound(t *testing.T) {
+	tests := []struct {
+		name       string
+		stored     *profilemanager.Config
+		change     privilegedConfigChange
+		privileged bool
+		wantDeny   bool
+	}{
+		{
+			name:     "clearing the block with the SSH server enabled",
+			stored:   &profilemanager.Config{ServerSSHAllowed: boolPtr(true), BlockInbound: true},
+			change:   privilegedConfigChange{blockInbound: boolPtr(false)},
+			wantDeny: true,
+		},
+		{
+			name: "clearing the block with only the VNC server enabled",
+			stored: &profilemanager.Config{
+				ServerSSHAllowed: boolPtr(false),
+				ServerVNCAllowed: boolPtr(true),
+				BlockInbound:     true,
+			},
+			change:   privilegedConfigChange{blockInbound: boolPtr(false)},
+			wantDeny: true,
+		},
+		{
+			name:       "an administrator may clear it",
+			stored:     &profilemanager.Config{ServerSSHAllowed: boolPtr(true), BlockInbound: true},
+			change:     privilegedConfigChange{blockInbound: boolPtr(false)},
+			privileged: true,
+		},
+		{
+			name:   "restating the stored block is not a change",
+			stored: &profilemanager.Config{ServerSSHAllowed: boolPtr(true), BlockInbound: true},
+			change: privilegedConfigChange{blockInbound: boolPtr(true)},
+		},
+		{
+			name:   "turning the block on is never privileged",
+			stored: &profilemanager.Config{ServerSSHAllowed: boolPtr(true), BlockInbound: false},
+			change: privilegedConfigChange{blockInbound: boolPtr(true)},
+		},
+		{
+			name: "with no remote-access server enabled it is the user's own business",
+			stored: &profilemanager.Config{
+				ServerSSHAllowed: boolPtr(false),
+				ServerVNCAllowed: boolPtr(false),
+				BlockInbound:     true,
+			},
+			change: privilegedConfigChange{blockInbound: boolPtr(false)},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := userCtx()
+			if tt.privileged {
+				ctx = rootCtx()
+			}
+			err := requirePrivilegeForConfigChange(ctx, tt.stored, tt.change)
+			if tt.wantDeny {
+				assertDenied(t, err)
+				return
+			}
+			assertAllowed(t, err)
+		})
+	}
+}

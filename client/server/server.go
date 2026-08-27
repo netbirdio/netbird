@@ -25,6 +25,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/expose"
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/netbirdio/netbird/client/internal/localmetrics"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	sleephandler "github.com/netbirdio/netbird/client/internal/sleep/handler"
@@ -2080,10 +2081,27 @@ func (s *Server) ExposeService(req *proto.ExposeServiceRequest, srv proto.Daemon
 // approval prompt to the engine's broker. Unknown or already-resolved
 // request_ids are silently no-op'd so a slow UI cannot deny a prompt the
 // user already handled (or that already timed out).
-func (s *Server) RespondApproval(_ context.Context, msg *proto.RespondApprovalRequest) (*proto.RespondApprovalResponse, error) {
+//
+// The answer is the whole of the consent the prompt asks for, so a caller the
+// daemon cannot name is refused: on a control channel that carries no identity
+// (loopback TCP) anything that can open a socket could accept a session on the
+// console user's behalf. An identified local caller is accepted and logged.
+// Restricting it further, to the user who owns the console, needs an
+// owner-gated IPC channel that does not exist yet, and on a multi-seat Linux
+// host there is no single such user to check against.
+func (s *Server) RespondApproval(ctx context.Context, msg *proto.RespondApprovalRequest) (*proto.RespondApprovalResponse, error) {
 	if msg.GetRequestId() == "" {
 		return nil, gstatus.Errorf(codes.InvalidArgument, "request_id is required")
 	}
+	id, ok := ipcauth.CallerIdentity(ctx)
+	if !ok {
+		log.Warnf("refusing approval response for %s: the caller's identity cannot be verified on this control channel", msg.GetRequestId())
+		return nil, gstatus.Errorf(codes.PermissionDenied,
+			"answering a connection approval requires a control channel that carries the caller's identity. "+
+				"Reinstall the service on a socket that does: %s", reinstallCommand())
+	}
+	log.Infof("approval response for %s from caller %s: accept=%t view_only=%t",
+		msg.GetRequestId(), id, msg.GetAccept(), msg.GetViewOnly())
 	s.mutex.Lock()
 	connectClient := s.connectClient
 	s.mutex.Unlock()

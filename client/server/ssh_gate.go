@@ -35,6 +35,10 @@ import (
 //     including which keys and users are accepted, to whoever controls that
 //     identity. Changing the management URL and deregistering the peer are both
 //     ways to do that.
+//   - Unblocking inbound connections while a remote-access server is enabled
+//     starts that server: the engine keeps SSH and VNC down for as long as
+//     inbound traffic is blocked, so clearing the block is another way to hand
+//     out a shell or a desktop.
 //   - Binding the local metrics endpoint to a non-loopback address publishes
 //     peer names and connectivity state to the network without authentication.
 //
@@ -53,6 +57,7 @@ type privilegedConfigChange struct {
 	disableSSHAuth      *bool
 	serverVNCAllowed    *bool
 	disableVNCApproval  *bool
+	blockInbound        *bool
 	enableLocalMetrics  *bool
 	localMetricsAddress *string
 }
@@ -65,6 +70,7 @@ func privilegedChangeFromSetConfig(msg *proto.SetConfigRequest) privilegedConfig
 		disableSSHAuth:      msg.DisableSSHAuth,
 		serverVNCAllowed:    msg.ServerVNCAllowed,
 		disableVNCApproval:  msg.DisableVNCApproval,
+		blockInbound:        msg.BlockInbound,
 		enableLocalMetrics:  msg.EnableLocalMetrics,
 		localMetricsAddress: msg.LocalMetricsAddress,
 	}
@@ -78,6 +84,7 @@ func privilegedChangeFromLogin(msg *proto.LoginRequest) privilegedConfigChange {
 		disableSSHAuth:      msg.DisableSSHAuth,
 		serverVNCAllowed:    msg.ServerVNCAllowed,
 		disableVNCApproval:  msg.DisableVNCApproval,
+		blockInbound:        msg.BlockInbound,
 		enableLocalMetrics:  msg.EnableLocalMetrics,
 		localMetricsAddress: msg.LocalMetricsAddress,
 	}
@@ -125,6 +132,15 @@ func requirePrivilegeForConfigChange(ctx context.Context, stored *profilemanager
 		return denyPrivileged(ctx,
 			fmt.Sprintf("changing the management URL while the NetBird %s server is enabled", server),
 			ipcauth.UpCommand("-m "+change.managementURL))
+	}
+
+	// The engine keeps a remote-access server down while inbound connections
+	// are blocked, so lifting the block on a profile that has one enabled
+	// starts it. That is the same privilege as enabling it in the first place.
+	if disables(storedBlockInbound(stored), change.blockInbound) {
+		return denyPrivileged(ctx,
+			fmt.Sprintf("unblocking inbound connections while the NetBird %s server is enabled", server),
+			ipcauth.UpCommand("--block-inbound=false"))
 	}
 
 	return nil
@@ -241,6 +257,26 @@ func enables(stored, requested *bool) bool {
 		return false
 	}
 	return stored == nil || !*stored
+}
+
+// disables reports whether requested turns a flag off that is currently on. The
+// mirror of enables, for a flag whose privileged direction is being cleared.
+func disables(stored, requested *bool) bool {
+	if requested == nil || *requested {
+		return false
+	}
+	return stored != nil && *stored
+}
+
+// storedBlockInbound reads the inbound-block flag from the stored config. It
+// defaults to off, which is the engine's own default, so a config written
+// before the flag existed is not read as blocking.
+func storedBlockInbound(cfg *profilemanager.Config) *bool {
+	if cfg == nil {
+		return nil
+	}
+	blocked := cfg.BlockInbound
+	return &blocked
 }
 
 // storedFlag reads a flag from the stored config, tolerating a config that does

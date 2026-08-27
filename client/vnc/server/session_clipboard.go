@@ -68,6 +68,12 @@ func (s *session) handleCutText() error {
 	if _, err := io.ReadFull(s.conn, buf); err != nil {
 		return fmt.Errorf("read CutText payload: %w", err)
 	}
+	// Writing the host clipboard changes host state, so a view-only session
+	// must not do it either. The payload is read first regardless, to leave the
+	// stream positioned at the next message.
+	if s.viewOnly {
+		return nil
+	}
 	s.injector.SetClipboard(latin1ToUTF8(buf))
 	return nil
 }
@@ -184,7 +190,7 @@ func (s *session) handleExtClipProvide(flags uint32, payload []byte) {
 		s.log.Debugf("parse ext clipboard provide: %v", err)
 		return
 	}
-	if text != "" {
+	if text != "" && !s.viewOnly {
 		s.injector.SetClipboard(text)
 	}
 }
@@ -253,6 +259,12 @@ func (s *session) handleTypeText() error {
 	buf := make([]byte, length)
 	if _, err := io.ReadFull(s.conn, buf); err != nil {
 		return fmt.Errorf("read TypeText payload: %w", err)
+	}
+	// Synthesized keystrokes are input like any other, so a view-only session
+	// must not deliver them. The payload is read first regardless, to leave the
+	// stream positioned at the next message.
+	if s.viewOnly {
+		return nil
 	}
 	s.injector.TypeText(string(buf))
 	return nil
