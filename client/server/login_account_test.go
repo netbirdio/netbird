@@ -40,7 +40,7 @@ func TestWaitSSOLogin_WrongAccountArmsPromptAndFails(t *testing.T) {
 		return "", nil
 	}
 
-	resp, err := s.WaitSSOLogin(context.Background(), &proto.WaitSSOLoginRequest{UserCode: "code"})
+	resp, err := s.WaitSSOLogin(callerCtx(t), &proto.WaitSSOLoginRequest{UserCode: "code"})
 	require.Error(t, err)
 	require.Nil(t, resp)
 	require.Equal(t, 0, attempts, "the wrong account's token reached the management login")
@@ -60,7 +60,7 @@ func TestWaitSSOLogin_WrongAccountAfterPromptProceeds(t *testing.T) {
 		return "", nil
 	}
 
-	resp, err := s.WaitSSOLogin(context.Background(), &proto.WaitSSOLoginRequest{UserCode: "code"})
+	resp, err := s.WaitSSOLogin(callerCtx(t), &proto.WaitSSOLoginRequest{UserCode: "code"})
 	require.NoError(t, err, "a prompted round must not error again on a mismatch")
 	require.NotNil(t, resp)
 	require.Equal(t, "other@example.com", resp.Email)
@@ -76,7 +76,7 @@ func TestWaitSSOLogin_MatchingAccountProceeds(t *testing.T) {
 		return "", nil
 	}
 
-	resp, err := s.WaitSSOLogin(context.Background(), &proto.WaitSSOLoginRequest{UserCode: "code"})
+	resp, err := s.WaitSSOLogin(callerCtx(t), &proto.WaitSSOLoginRequest{UserCode: "code"})
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 	require.Equal(t, 1, attempts)
@@ -91,7 +91,7 @@ func TestWaitSSOLogin_NoHintIsNotJudged(t *testing.T) {
 		return "", nil
 	}
 
-	_, err := s.WaitSSOLogin(context.Background(), &proto.WaitSSOLoginRequest{UserCode: "code"})
+	_, err := s.WaitSSOLogin(callerCtx(t), &proto.WaitSSOLoginRequest{UserCode: "code"})
 	require.NoError(t, err)
 	require.Equal(t, 1, attempts)
 	require.False(t, s.forceAccountPrompt)
@@ -138,10 +138,7 @@ func TestWaitSSOLogin_JudgesTheFlowThatProducedTheToken(t *testing.T) {
 		s.oauthAuthFlow.hint = "someone-else@example.com"
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	resp, err := s.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: "code"})
+	resp, err := s.WaitSSOLogin(callerCtx(t), &proto.WaitSSOLoginRequest{UserCode: "code"})
 	require.NoError(t, err, "a flow replaced mid-wait must not decide this wait's verdict")
 	require.NotNil(t, resp)
 	require.Equal(t, 1, attempts)
@@ -179,4 +176,13 @@ func newSSOTestServer(t *testing.T, hint string, accountPrompted bool, tokenEmai
 		accountPrompted: accountPrompted,
 	}
 	return s
+}
+
+// callerCtx is the gRPC caller's context. WaitSSOLogin parks a goroutine on it
+// for the whole browser leg, so a test that never cancels leaks one.
+func callerCtx(t *testing.T) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	return ctx
 }
