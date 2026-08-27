@@ -4,6 +4,7 @@ package NetBirdSDK
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/netip"
 	"os"
@@ -36,6 +37,8 @@ const (
 	AnonymizeLevelDefault = nbAnonymize.LevelDefaultString
 	AnonymizeLevelStrict  = nbAnonymize.LevelStrictString
 )
+
+var errClientAlreadyRunning = errors.New("client is already running")
 
 // RouteListener export internal RouteListener for mobile
 type NetworkChangeListener interface {
@@ -88,14 +91,14 @@ type Client struct {
 	// preloadedConfig holds config loaded from JSON (used on tvOS where file writes are blocked)
 	preloadedConfig *profilemanager.Config
 
-	// stateMu guards the run lifecycle as one unit: the generation that
-	// identifies the current run, the client and cancel it installed, and the
-	// channel it closes on exit. Splitting the cancel out under its own lock
-	// let a Stop cancel a run that started after its generation snapshot.
+	// stateMu guards the run lifecycle as one unit: the cancel installed by
+	// the current run, the channel it closes on exit, and the state it
+	// published. One run at a time: startRun refuses a second Run while the
+	// previous one has not exited, and the platform serializes Stop before
+	// Start, so no generation tracking is needed.
 	stateMu       sync.RWMutex
 	connectClient *internal.ConnectClient
 	config        *profilemanager.Config
-	runGeneration uint64
 	runDone       chan struct{}
 	ctxCancel     context.CancelFunc
 }
@@ -169,8 +172,11 @@ func (c *Client) Run(fd int32, interfaceName string, envList *EnvList) error {
 	runCtx, runCancel := context.WithCancel(ctxWithValues)
 	defer runCancel()
 
-	generation, done := c.beginRun(runCancel)
-	defer close(done)
+	done, err := c.startRun(runCancel)
+	if err != nil {
+		return err
+	}
+	defer c.finishRun(done)
 	ctx := runCtx
 
 	// No login pre-flight here. The engine's own loginToManagement (connect.go) performs
@@ -193,10 +199,7 @@ func (c *Client) Run(fd int32, interfaceName string, envList *EnvList) error {
 
 	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder,
 		internal.WithNetEvents(c.netMgr))
-	if !c.publishState(generation, cfg, connectClient) {
-		log.Infof("Run: superseded by a newer run, aborting startup")
-		return nil
-	}
+	c.setState(cfg, connectClient)
 	// Persist the latest sync response so DebugBundle can include the network
 	// map. On iOS this is backed by disk to keep it out of the constrained
 	// process memory (see the syncstore package).
@@ -223,11 +226,10 @@ func (c *Client) NotifyNetworkChange() {
 	c.netMgr.NotifyNetworkChange()
 }
 
-// Stop the internal client and free the resources
-// Stop tears the client down and waits for the run loop to exit, so a caller
-// that restarts immediately cannot race the outgoing teardown.
+// Stop cancels the running client and waits for the run loop to exit, so a
+// caller that restarts immediately cannot race the outgoing teardown.
 func (c *Client) Stop() {
-	done := c.stopLocked(true)
+	done := c.cancelRun()
 	if done == nil {
 		return
 	}
@@ -239,41 +241,22 @@ func (c *Client) Stop() {
 	}
 }
 
-// StopWithoutWait tears the client down without waiting for the run loop.
+// StopWithoutWait cancels the running client without waiting for the run loop.
 // Use it where the caller is on a deadline the wait could overrun, such as
 // NEPacketTunnelProvider.stopTunnel, which iOS gives only a few seconds
 // before it kills the extension.
 func (c *Client) StopWithoutWait() {
-	c.stopLocked(false)
+	c.cancelRun()
 }
 
-func (c *Client) stopLocked(wait bool) chan struct{} {
-	c.stateMu.Lock()
-	c.runGeneration++
-	cc := c.connectClient
+func (c *Client) cancelRun() chan struct{} {
+	c.stateMu.RLock()
 	done := c.runDone
 	cancel := c.ctxCancel
-	c.connectClient = nil
-	c.config = nil
-	c.runDone = nil
-	c.ctxCancel = nil
-	c.stateMu.Unlock()
+	c.stateMu.RUnlock()
 
 	if cancel != nil {
 		cancel()
-	}
-
-	if cc != nil {
-		stopConnectClient := func() {
-			if err := cc.Stop(); err != nil {
-				log.Errorf("Stop: failed stopping the connect client: %v", err)
-			}
-		}
-		if wait {
-			stopConnectClient()
-		} else {
-			go stopConnectClient()
-		}
 	}
 
 	return done
@@ -775,30 +758,36 @@ func (c *Client) DeselectRoute(id string) error {
 	return nil
 }
 
-// setState stores the running engine state so DebugBundle can reuse the live
-// config and ConnectClient. It is cleared on Stop.
-func (c *Client) beginRun(cancel context.CancelFunc) (uint64, chan struct{}) {
-	done := make(chan struct{})
-
-	c.stateMu.Lock()
-	c.runGeneration++
-	generation := c.runGeneration
-	c.runDone = done
-	c.ctxCancel = cancel
-	c.stateMu.Unlock()
-
-	return generation, done
-}
-
-func (c *Client) publishState(generation uint64, cfg *profilemanager.Config, cc *internal.ConnectClient) bool {
+func (c *Client) startRun(cancel context.CancelFunc) (chan struct{}, error) {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
-	if c.runGeneration != generation {
-		return false
+
+	if c.runDone != nil {
+		return nil, errClientAlreadyRunning
 	}
+
+	done := make(chan struct{})
+	c.runDone = done
+	c.ctxCancel = cancel
+	return done, nil
+}
+
+func (c *Client) finishRun(done chan struct{}) {
+	c.stateMu.Lock()
+	c.connectClient = nil
+	c.config = nil
+	c.runDone = nil
+	c.ctxCancel = nil
+	c.stateMu.Unlock()
+
+	close(done)
+}
+
+func (c *Client) setState(cfg *profilemanager.Config, cc *internal.ConnectClient) {
+	c.stateMu.Lock()
 	c.config = cfg
 	c.connectClient = cc
-	return true
+	c.stateMu.Unlock()
 }
 
 // stateSnapshot returns the current config and ConnectClient under the lock.

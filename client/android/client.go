@@ -4,6 +4,7 @@ package android
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -42,6 +43,8 @@ const (
 )
 
 const stopRunWaitTimeout = 20 * time.Second
+
+var errClientAlreadyRunning = errors.New("client is already running")
 
 // TunAdapter export internal TunAdapter for mobile
 type TunAdapter interface {
@@ -86,14 +89,14 @@ type Client struct {
 	// sweeper into each new ConnectClient.
 	netMgr *netevents.Manager
 
-	// stateMu guards the run lifecycle as one unit: the generation that
-	// identifies the current run, the client and cancel it installed, and the
-	// channel it closes on exit. Splitting the cancel out under its own lock
-	// let a Stop cancel a run that started after its generation snapshot.
+	// stateMu guards the run lifecycle as one unit: the cancel installed by
+	// the current run, the channel it closes on exit, and the state it
+	// published. One run at a time: startRun refuses a second Run while the
+	// previous one has not exited, and the platform serializes Stop before
+	// Start, so no generation tracking is needed.
 	stateMu       sync.RWMutex
 	connectClient *internal.ConnectClient
 	config        *profilemanager.Config
-	runGeneration uint64
 	runDone       chan struct{}
 	ctxCancel     context.CancelFunc
 	cacheDir      string
@@ -119,30 +122,40 @@ type Client struct {
 	extendCancel context.CancelFunc
 }
 
-func (c *Client) beginRun(cancel context.CancelFunc) (uint64, chan struct{}) {
-	done := make(chan struct{})
-
-	c.stateMu.Lock()
-	c.runGeneration++
-	generation := c.runGeneration
-	c.runDone = done
-	c.ctxCancel = cancel
-	c.stateMu.Unlock()
-
-	return generation, done
-}
-
-func (c *Client) publishState(generation uint64, cfg *profilemanager.Config, cacheDir string, cfgPath string, cc *internal.ConnectClient) bool {
+func (c *Client) startRun(cancel context.CancelFunc) (chan struct{}, error) {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
-	if c.runGeneration != generation {
-		return false
+
+	if c.runDone != nil {
+		return nil, errClientAlreadyRunning
 	}
+
+	done := make(chan struct{})
+	c.runDone = done
+	c.ctxCancel = cancel
+	return done, nil
+}
+
+func (c *Client) finishRun(done chan struct{}) {
+	c.stateMu.Lock()
+	c.connectClient = nil
+	c.config = nil
+	c.cacheDir = ""
+	c.cfgPath = ""
+	c.runDone = nil
+	c.ctxCancel = nil
+	c.stateMu.Unlock()
+
+	close(done)
+}
+
+func (c *Client) setState(cfg *profilemanager.Config, cacheDir string, cfgPath string, cc *internal.ConnectClient) {
+	c.stateMu.Lock()
 	c.config = cfg
 	c.cacheDir = cacheDir
 	c.cfgPath = cfgPath
 	c.connectClient = cc
-	return true
+	c.stateMu.Unlock()
 }
 
 func (c *Client) stateSnapshot() (*profilemanager.Config, string, *internal.ConnectClient) {
@@ -212,8 +225,11 @@ func (c *Client) Run(platformFiles PlatformFiles, urlOpener URLOpener, isAndroid
 	runCtx, runCancel := context.WithCancel(ctxWithValues)
 	defer runCancel()
 
-	generation, done := c.beginRun(runCancel)
-	defer close(done)
+	done, err := c.startRun(runCancel)
+	if err != nil {
+		return err
+	}
+	defer c.finishRun(done)
 	ctx := runCtx
 
 	auth := NewAuthWithConfig(ctx, cfg, cfgFile)
@@ -226,10 +242,7 @@ func (c *Client) Run(platformFiles PlatformFiles, urlOpener URLOpener, isAndroid
 
 	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder,
 		internal.WithNetEvents(c.netMgr))
-	if !c.publishState(generation, cfg, cacheDir, cfgFile, connectClient) {
-		log.Infof("run: superseded by a newer run, aborting startup")
-		return nil
-	}
+	c.setState(cfg, cacheDir, cfgFile, connectClient)
 	// This path runs the interactive SSO flow, so reaching here means the peer
 	// is authenticated again — release the latch Status() reports from. Clear
 	// only once the fresh connect client is installed: until then Status()
@@ -264,50 +277,41 @@ func (c *Client) RunWithoutLogin(platformFiles PlatformFiles, dns *DNSList, dnsR
 	runCtx, runCancel := context.WithCancel(ctxWithValues)
 	defer runCancel()
 
-	generation, done := c.beginRun(runCancel)
-	defer close(done)
+	done, err := c.startRun(runCancel)
+	if err != nil {
+		return err
+	}
+	defer c.finishRun(done)
 	ctx := runCtx
 
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
 	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder,
 		internal.WithNetEvents(c.netMgr))
-	if !c.publishState(generation, cfg, cacheDir, cfgFile, connectClient) {
-		log.Infof("run: superseded by a newer run, aborting startup")
-		return nil
-	}
+	c.setState(cfg, cacheDir, cfgFile, connectClient)
 	return connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener, stateFile, cacheDir)
 }
 
-// Stop the internal client and free the resources
+// Stop cancels the running client and waits for the run loop to exit, so a
+// caller that restarts immediately cannot race the outgoing teardown.
 func (c *Client) Stop() {
-	c.stateMu.Lock()
-	c.runGeneration++
-	cc := c.connectClient
+	c.stateMu.RLock()
 	done := c.runDone
 	cancel := c.ctxCancel
-	c.connectClient = nil
-	c.config = nil
-	c.runDone = nil
-	c.ctxCancel = nil
-	c.stateMu.Unlock()
+	c.stateMu.RUnlock()
 
 	if cancel != nil {
 		cancel()
 	}
 
-	if cc != nil {
-		if err := cc.Stop(); err != nil {
-			log.Errorf("Stop: failed stopping the connect client: %v", err)
-		}
+	if done == nil {
+		return
 	}
 
-	if done != nil {
-		select {
-		case <-done:
-		case <-time.After(stopRunWaitTimeout):
-			log.Warnf("Stop: timed out waiting for the run loop to exit")
-		}
+	select {
+	case <-done:
+	case <-time.After(stopRunWaitTimeout):
+		log.Warnf("Stop: timed out waiting for the run loop to exit")
 	}
 }
 
