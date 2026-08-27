@@ -2,7 +2,8 @@ package ebpf
 
 import (
 	"encoding/binary"
-	"net"
+	"fmt"
+	"net/netip"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -12,7 +13,7 @@ const (
 	mapKeyDNSPort uint32 = 1
 )
 
-func (tf *GeneralManager) LoadDNSFwd(ip string, dnsPort int) error {
+func (tf *GeneralManager) LoadDNSFwd(ip netip.Addr, dnsPort int) error {
 	log.Debugf("load eBPF DNS forwarder, watching addr: %s:53, redirect to port: %d", ip, dnsPort)
 	tf.lock.Lock()
 	defer tf.lock.Unlock()
@@ -22,7 +23,11 @@ func (tf *GeneralManager) LoadDNSFwd(ip string, dnsPort int) error {
 		return err
 	}
 
-	err = tf.bpfObjs.NbMapDnsIp.Put(mapKeyDNSIP, ip2int(ip))
+	if !ip.Is4() {
+		return fmt.Errorf("eBPF DNS forwarder only supports IPv4, got %s", ip)
+	}
+	ip4 := ip.As4()
+	err = tf.bpfObjs.NbMapDnsIp.Put(mapKeyDNSIP, binary.BigEndian.Uint32(ip4[:]))
 	if err != nil {
 		return err
 	}
@@ -45,7 +50,3 @@ func (tf *GeneralManager) FreeDNSFwd() error {
 	return tf.unsetFeatureFlag(featureFlagDnsForwarder)
 }
 
-func ip2int(ipString string) uint32 {
-	ip := net.ParseIP(ipString)
-	return binary.BigEndian.Uint32(ip.To4())
-}

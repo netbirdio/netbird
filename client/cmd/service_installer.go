@@ -59,8 +59,16 @@ func buildServiceArguments() []string {
 		args = append(args, "--disable-update-settings")
 	}
 
+	if captureEnabled {
+		args = append(args, "--enable-capture")
+	}
+
 	if networksDisabled {
 		args = append(args, "--disable-networks")
+	}
+
+	if enableJSONSocket {
+		args = append(args, "--enable-json-socket", "--json-socket", jsonSocket)
 	}
 
 	return args
@@ -102,6 +110,10 @@ func configurePlatformSpecificSettings(svcConfig *service.Config) error {
 
 // Create fully configured service config for install/reconfigure
 func createServiceConfigForInstall() (*service.Config, error) {
+	if err := validateJSONSocketFlags(); err != nil {
+		return nil, err
+	}
+
 	svcConfig, err := newSVCConfig()
 	if err != nil {
 		return nil, fmt.Errorf("create service config: %w", err)

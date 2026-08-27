@@ -40,6 +40,10 @@ func (noopNetworkChangeListener) SetInterfaceIP(string) {
 	// network stack, not by OS-level interface configuration.
 }
 
+func (noopNetworkChangeListener) SetInterfaceIPv6(string) {
+	// No-op: same as SetInterfaceIP, IPv6 overlay is managed by userspace stack.
+}
+
 // noopDnsReadyListener is a stub for embed.Client on Android.
 // DNS readiness notifications are not needed in netstack/embed mode
 // since system DNS is disabled and DNS resolution happens externally.

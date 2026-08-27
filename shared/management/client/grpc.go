@@ -21,9 +21,11 @@ import (
 	"google.golang.org/grpc/connectivity"
 
 	nbgrpc "github.com/netbirdio/netbird/client/grpc"
+	"github.com/netbirdio/netbird/client/netevents"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/shared/management/domain"
+	nbmgmtgrpc "github.com/netbirdio/netbird/shared/management/grpc"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/util/wsproxy"
 )
@@ -33,9 +35,14 @@ const ConnectTimeout = 10 * time.Second
 const healthCheckTimeout = 5 * time.Second
 
 const (
-	// EnvMaxRecvMsgSize overrides the default gRPC max receive message size (4 MB)
+	// EnvMaxRecvMsgSize overrides the default gRPC max receive message size
 	// for the management client connection. Value is in bytes.
 	EnvMaxRecvMsgSize = "NB_MANAGEMENT_GRPC_MAX_MSG_SIZE"
+
+	// defaultMaxRecvMsgSize is the max gRPC receive message size used for the
+	// management client connection when EnvMaxRecvMsgSize is unset or invalid.
+	// It overrides the gRPC library default of 4 MB.
+	defaultMaxRecvMsgSize = 1024 * 1024 * 16
 
 	errMsgMgmtPublicKey    = "failed getting Management Service public key: %s"
 	errMsgNoMgmtConnection = "no connection to management"
@@ -55,6 +62,18 @@ type GrpcClient struct {
 	connStateCallback     ConnStateNotifier
 	connStateCallbackLock sync.RWMutex
 	serverURL             string
+
+	// netMgr gates the stream retry loop on OS-reported network
+	// availability and sweeps the transport on network change.
+	netMgr *netevents.Manager
+
+	// syncStreamErr holds the last Sync stream error, or nil while the stream
+	// is established and healthy. GetServerKey succeeds even when the peer
+	// cannot sync (e.g. the server returns "settings not found"), so the
+	// health probe must consult this to avoid reporting a healthy management
+	// connection while the Sync stream keeps failing.
+	syncStreamMu  sync.RWMutex
+	syncStreamErr error
 }
 
 type ExposeRequest struct {
@@ -76,37 +95,58 @@ type ExposeResponse struct {
 }
 
 // MaxRecvMsgSize returns the configured max gRPC receive message size from
-// the environment, or 0 if unset (which uses the gRPC default of 4 MB).
+// the environment, or defaultMaxRecvMsgSize (16 MB) if unset or invalid.
 func MaxRecvMsgSize() int {
 	val := os.Getenv(EnvMaxRecvMsgSize)
 	if val == "" {
-		return 0
+		return defaultMaxRecvMsgSize
 	}
 
 	size, err := strconv.Atoi(val)
 	if err != nil {
 		log.Warnf("invalid %s value %q, using default: %v", EnvMaxRecvMsgSize, val, err)
-		return 0
+		return defaultMaxRecvMsgSize
 	}
 
 	if size <= 0 {
 		log.Warnf("invalid %s value %d, must be positive, using default", EnvMaxRecvMsgSize, size)
-		return 0
+		return defaultMaxRecvMsgSize
 	}
 
 	return size
 }
 
+// Option configures optional GrpcClient behavior.
+type Option func(*GrpcClient)
+
+// WithNetEvents injects the OS network event handling.
+func WithNetEvents(events *netevents.Manager) Option {
+	return func(c *GrpcClient) { c.netMgr = events }
+}
+
 // NewClient creates a new client to Management service
-func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsEnabled bool) (*GrpcClient, error) {
-	var conn *grpc.ClientConn
+func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsEnabled bool, opts ...Option) (*GrpcClient, error) {
+	// Options apply before dialing: the sweeper must wrap the first connection too.
+	c := &GrpcClient{
+		key:                   ourPrivateKey,
+		ctx:                   ctx,
+		connStateCallbackLock: sync.RWMutex{},
+		serverURL:             addr,
+	}
+	for _, opt := range opts {
+		opt(c)
+	}
 
 	var extraOpts []grpc.DialOption
 	if maxSize := MaxRecvMsgSize(); maxSize > 0 {
 		extraOpts = append(extraOpts, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxSize)))
 		log.Infof("management gRPC max receive message size set to %d bytes", maxSize)
 	}
+	if c.netMgr != nil {
+		extraOpts = append(extraOpts, nbgrpc.WithSweeper(c.netMgr))
+	}
 
+	var conn *grpc.ClientConn
 	operation := func() error {
 		var err error
 		conn, err = nbgrpc.CreateConnection(ctx, addr, tlsEnabled, wsproxy.ManagementComponent, extraOpts...)
@@ -122,16 +162,9 @@ func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsE
 		return nil, err
 	}
 
-	realClient := proto.NewManagementServiceClient(conn)
-
-	return &GrpcClient{
-		key:                   ourPrivateKey,
-		realClient:            realClient,
-		ctx:                   ctx,
-		conn:                  conn,
-		connStateCallbackLock: sync.RWMutex{},
-		serverURL:             addr,
-	}, nil
+	c.conn = conn
+	c.realClient = proto.NewManagementServiceClient(conn)
+	return c, nil
 }
 
 // GetServerURL returns the management server URL
@@ -173,16 +206,16 @@ func (c *GrpcClient) ready() bool {
 // Sync wraps the real client's Sync endpoint call and takes care of retries and encryption/decryption of messages
 // Blocking request. The result will be sent via msgHandler callback function
 func (c *GrpcClient) Sync(ctx context.Context, sysInfo *system.Info, msgHandler func(msg *proto.SyncResponse) error) error {
-	return c.withMgmtStream(ctx, func(ctx context.Context, serverPubKey wgtypes.Key) error {
-		return c.handleSyncStream(ctx, serverPubKey, sysInfo, msgHandler)
+	return c.withMgmtStream(ctx, func(ctx context.Context, serverPubKey wgtypes.Key, backOff backoff.BackOff) error {
+		return c.handleSyncStream(ctx, serverPubKey, sysInfo, msgHandler, backOff)
 	})
 }
 
 // Job wraps the real client's Job endpoint call and takes care of retries and encryption/decryption of messages
 // Blocking request. The result will be sent via msgHandler callback function
 func (c *GrpcClient) Job(ctx context.Context, msgHandler func(msg *proto.JobRequest) *proto.JobResponse) error {
-	return c.withMgmtStream(ctx, func(ctx context.Context, serverPubKey wgtypes.Key) error {
-		return c.handleJobStream(ctx, serverPubKey, msgHandler)
+	return c.withMgmtStream(ctx, func(ctx context.Context, serverPubKey wgtypes.Key, backOff backoff.BackOff) error {
+		return c.handleJobStream(ctx, serverPubKey, msgHandler, backOff)
 	})
 }
 
@@ -190,18 +223,38 @@ func (c *GrpcClient) Job(ctx context.Context, msgHandler func(msg *proto.JobRequ
 // It takes care of retries, connection readiness, and fetching server public key.
 func (c *GrpcClient) withMgmtStream(
 	ctx context.Context,
-	handler func(ctx context.Context, serverPubKey wgtypes.Key) error,
+	handler func(ctx context.Context, serverPubKey wgtypes.Key, backOff backoff.BackOff) error,
 ) error {
-	backOff := defaultBackoff(ctx)
+	backOff := c.netMgr.QuickRetryBackoff(ctx, defaultBackoff(ctx))
 	operation := func() error {
-		log.Debugf("management connection state %v", c.conn.GetState())
-		connState := c.conn.GetState()
+		// suspend reconnect attempts while the OS reports no usable network.
+		// Wait only errors on a cancelled context, which means shutdown, so
+		// stop the loop without reporting a failure.
+		if waited, err := c.netMgr.Wait(ctx); err != nil {
+			log.Debugf("management connection context has been canceled while offline, this usually indicates shutdown")
+			return nil //nolint:nilerr // a cancelled context means shutdown, not a retryable failure
+		} else if waited {
+			backOff.Reset()
+			// dials attempted while offline grew the channel's internal backoff;
+			// reset it too, or the reconnect waits out that timer first
+			c.conn.ResetConnectBackoff()
+		}
 
+		connState := c.conn.GetState()
+		log.Debugf("management connection state %v", connState)
 		if connState == connectivity.Shutdown {
 			return backoff.Permanent(fmt.Errorf("connection to management has been shut down"))
-		} else if !(connState == connectivity.Ready || connState == connectivity.Idle) {
+		}
+		if !(connState == connectivity.Ready || connState == connectivity.Idle) {
+			// A dial may already be in flight (e.g. the other stream triggered
+			// it after a network change); wait for it to settle and proceed if
+			// the channel became usable, instead of burning a backoff round on
+			// a successful dial. A failed dial errors out as before.
 			c.conn.WaitForStateChange(ctx, connState)
-			return fmt.Errorf("connection to management is not ready and in %s state", connState)
+			connState = c.conn.GetState()
+			if !(connState == connectivity.Ready || connState == connectivity.Idle) {
+				return fmt.Errorf("connection to management is not ready and in %s state", connState)
+			}
 		}
 
 		serverPubKey, err := c.getServerPublicKey()
@@ -210,10 +263,10 @@ func (c *GrpcClient) withMgmtStream(
 			return err
 		}
 
-		return handler(ctx, *serverPubKey)
+		return handler(ctx, *serverPubKey, backOff)
 	}
 
-	err := backoff.Retry(operation, backOff)
+	err := nbgrpc.Retry(ctx, operation, backOff, c.netMgr)
 	if err != nil {
 		log.Warnf("exiting the Management service connection retry loop due to the unrecoverable error: %s", err)
 	}
@@ -225,6 +278,7 @@ func (c *GrpcClient) handleJobStream(
 	ctx context.Context,
 	serverPubKey wgtypes.Key,
 	msgHandler func(msg *proto.JobRequest) *proto.JobResponse,
+	backOff backoff.BackOff,
 ) error {
 	ctx, cancelStream := context.WithCancel(ctx)
 	defer cancelStream()
@@ -242,33 +296,40 @@ func (c *GrpcClient) handleJobStream(
 
 	log.Debug("job stream handshake sent successfully")
 
+	// The stream is up, so reset the backoff. This matters for two reasons,
+	// both caused by the backoff lib not resetting its state on a successful
+	// connection:
+	//  1. Without a reset, after a connect followed by an error the next retry
+	//     starts from the accumulated (large) interval instead of retrying
+	//     promptly, delaying reconnection.
+	//  2. Worse, once the accumulated elapsed time exceeds MaxElapsedTime, the
+	//     next stream error makes NextBackOff() return Stop, so the retry loop
+	//     exits immediately. That error is then mislabeled unrecoverable and
+	//     bubbles up to trigger a full engine restart / data-plane teardown
+	//     instead of a silent reconnection.
+	backOff.Reset()
+
 	// Main loop: receive, process, respond
 	for {
 		jobReq, err := c.receiveJobRequest(ctx, stream, serverPubKey)
 		if err != nil {
+			if ctx.Err() != nil {
+				log.Debugf("job stream context has been canceled, this usually indicates shutdown")
+				return nil
+			}
 			if s, ok := gstatus.FromError(err); ok {
 				switch s.Code() {
 				case codes.PermissionDenied:
 					c.notifyDisconnected(err)
 					return backoff.Permanent(err) // unrecoverable error, propagate to the upper layer
-				case codes.Canceled:
-					log.Debugf("management connection context has been canceled, this usually indicates shutdown")
-					return err
 				case codes.Unimplemented:
 					log.Warn("Job feature is not supported by the current management server version. " +
 						"Please update the management service to use this feature.")
 					return nil
-				default:
-					c.notifyDisconnected(err)
-					log.Warnf("disconnected from the Management service but will retry silently. Reason: %v", err)
-					return err
 				}
-			} else {
-				// non-gRPC error
-				c.notifyDisconnected(err)
-				log.Warnf("disconnected from the Management service but will retry silently. Reason: %v", err)
-				return err
 			}
+			log.Warnf("job stream disconnected, will retry silently. Reason: %v", err)
+			return err
 		}
 
 		if jobReq == nil || len(jobReq.ID) == 0 {
@@ -363,13 +424,15 @@ func (c *GrpcClient) sendJobResponse(
 	return nil
 }
 
-func (c *GrpcClient) handleSyncStream(ctx context.Context, serverPubKey wgtypes.Key, sysInfo *system.Info, msgHandler func(msg *proto.SyncResponse) error) error {
+func (c *GrpcClient) handleSyncStream(ctx context.Context, serverPubKey wgtypes.Key, sysInfo *system.Info, msgHandler func(msg *proto.SyncResponse) error, backOff backoff.BackOff) error {
 	ctx, cancelStream := context.WithCancel(ctx)
 	defer cancelStream()
 
 	stream, err := c.connectToSyncStream(ctx, serverPubKey, sysInfo)
 	if err != nil {
 		log.Debugf("failed to open Management Service stream: %s", err)
+		c.notifyDisconnected(err)
+		c.setSyncStreamDisconnected(err)
 		if s, ok := gstatus.FromError(err); ok && s.Code() == codes.PermissionDenied {
 			return backoff.Permanent(err) // unrecoverable error, propagate to the upper layer
 		}
@@ -378,73 +441,38 @@ func (c *GrpcClient) handleSyncStream(ctx context.Context, serverPubKey wgtypes.
 
 	log.Infof("connected to the Management Service stream")
 	c.notifyConnected()
+	c.setSyncStreamConnected()
+
+	// The stream is up, so reset the backoff. This matters for two reasons,
+	// both caused by the backoff lib not resetting its state on a successful
+	// connection:
+	//  1. Without a reset, after a connect followed by an error the next retry
+	//     starts from the accumulated (large) interval instead of retrying
+	//     promptly, delaying reconnection.
+	//  2. Worse, once the accumulated elapsed time exceeds MaxElapsedTime, the
+	//     next stream error makes NextBackOff() return Stop, so the retry loop
+	//     exits immediately. That error is then mislabeled unrecoverable and
+	//     bubbles up to trigger a full engine restart / data-plane teardown
+	//     instead of a silent reconnection.
+	backOff.Reset()
 
 	// blocking until error
 	err = c.receiveUpdatesEvents(stream, serverPubKey, msgHandler)
 	if err != nil {
 		c.notifyDisconnected(err)
-		if s, ok := gstatus.FromError(err); ok {
-			switch s.Code() {
-			case codes.PermissionDenied:
-				return backoff.Permanent(err) // unrecoverable error, propagate to the upper layer
-			case codes.Canceled:
-				log.Debugf("management connection context has been canceled, this usually indicates shutdown")
-				return nil
-			default:
-				log.Warnf("disconnected from the Management service but will retry silently. Reason: %v", err)
-				return err
-			}
-		} else {
-			// non-gRPC error
-			log.Warnf("disconnected from the Management service but will retry silently. Reason: %v", err)
-			return err
+		c.setSyncStreamDisconnected(err)
+		if ctx.Err() != nil {
+			log.Debugf("management connection context has been canceled, this usually indicates shutdown")
+			return nil
 		}
+		if s, ok := gstatus.FromError(err); ok && s.Code() == codes.PermissionDenied {
+			return backoff.Permanent(err) // unrecoverable error, propagate to the upper layer
+		}
+		log.Warnf("disconnected from the Management service but will retry silently. Reason: %v", err)
+		return err
 	}
 
 	return nil
-}
-
-// GetNetworkMap return with the network map
-func (c *GrpcClient) GetNetworkMap(sysInfo *system.Info) (*proto.NetworkMap, error) {
-	serverPubKey, err := c.getServerPublicKey()
-	if err != nil {
-		log.Debugf("failed getting Management Service public key: %s", err)
-		return nil, err
-	}
-
-	ctx, cancelStream := context.WithCancel(c.ctx)
-	defer cancelStream()
-	stream, err := c.connectToSyncStream(ctx, *serverPubKey, sysInfo)
-	if err != nil {
-		log.Debugf("failed to open Management Service stream: %s", err)
-		return nil, err
-	}
-	defer func() {
-		_ = stream.CloseSend()
-	}()
-
-	update, err := stream.Recv()
-	if err == io.EOF {
-		log.Debugf("Management stream has been closed by server: %s", err)
-		return nil, err
-	}
-	if err != nil {
-		log.Debugf("disconnected from Management Service sync stream: %v", err)
-		return nil, err
-	}
-
-	decryptedResp := &proto.SyncResponse{}
-	err = encryption.DecryptMessage(*serverPubKey, c.key, update.Body, decryptedResp)
-	if err != nil {
-		log.Errorf("failed decrypting update message from Management Service: %s", err)
-		return nil, err
-	}
-
-	if decryptedResp.GetNetworkMap() == nil {
-		return nil, fmt.Errorf("invalid msg, required network map")
-	}
-
-	return decryptedResp.GetNetworkMap(), nil
 }
 
 func (c *GrpcClient) connectToSyncStream(ctx context.Context, serverPubKey wgtypes.Key, sysInfo *system.Info) (proto.ManagementService_SyncClient, error) {
@@ -537,12 +565,19 @@ func (c *GrpcClient) IsHealthy() bool {
 	ctx, cancel := context.WithTimeout(c.ctx, healthCheckTimeout)
 	defer cancel()
 
-	_, err := c.realClient.GetServerKey(ctx, &proto.Empty{})
+	_, err := c.realClient.IsHealthy(ctx, &proto.Empty{})
 	if err != nil {
 		c.notifyDisconnected(err)
 		log.Warnf("health check returned: %s", err)
 		return false
 	}
+
+	if syncErr := c.syncStreamError(); syncErr != nil {
+		c.notifyDisconnected(syncErr)
+		log.Warnf("management transport is up but the Sync stream is unhealthy: %s", syncErr)
+		return false
+	}
+
 	c.notifyConnected()
 	return true
 }
@@ -618,6 +653,49 @@ func (c *GrpcClient) Login(sysInfo *system.Info, pubSSHKey []byte, dnsLabels dom
 		WgPubKey:  []byte(c.key.PublicKey().String()),
 	}
 	return c.login(&proto.LoginRequest{Meta: infoToMetaData(sysInfo), PeerKeys: keys, DnsLabels: dnsLabels.ToPunycodeList()})
+}
+
+// ExtendAuthSession refreshes the peer's SSO session deadline on the management
+// server using a freshly issued JWT. The tunnel is untouched: no network map
+// sync, no peer reconnect. Returns the new absolute UTC deadline (zero time
+// when the server reports the field empty).
+func (c *GrpcClient) ExtendAuthSession(sysInfo *system.Info, jwtToken string) (*proto.ExtendAuthSessionResponse, error) {
+	if !c.ready() {
+		return nil, errors.New(errMsgNoMgmtConnection)
+	}
+
+	serverKey, err := c.getServerPublicKey()
+	if err != nil {
+		return nil, err
+	}
+
+	reqBody, err := encryption.EncryptMessage(*serverKey, c.key, &proto.ExtendAuthSessionRequest{
+		JwtToken: jwtToken,
+		Meta:     infoToMetaData(sysInfo),
+	})
+	if err != nil {
+		log.Errorf("failed to encrypt extend auth session message: %s", err)
+		return nil, err
+	}
+
+	mgmCtx, cancel := context.WithTimeout(c.ctx, ConnectTimeout)
+	defer cancel()
+
+	resp, err := c.realClient.ExtendAuthSession(mgmCtx, &proto.EncryptedMessage{
+		WgPubKey: c.key.PublicKey().String(),
+		Body:     reqBody,
+	})
+	if err != nil {
+		log.Errorf("failed to extend auth session on Management Service: %v", err)
+		return nil, err
+	}
+
+	out := &proto.ExtendAuthSessionResponse{}
+	if err := encryption.DecryptMessage(*serverKey, c.key, resp.Body, out); err != nil {
+		log.Errorf("failed to decrypt extend auth session response: %s", err)
+		return nil, err
+	}
+	return out, nil
 }
 
 // GetDeviceAuthorizationFlow returns a device authorization flow information.
@@ -727,6 +805,24 @@ func (c *GrpcClient) SyncMeta(sysInfo *system.Info) error {
 		Body:     syncMetaReq,
 	})
 	return err
+}
+
+func (c *GrpcClient) setSyncStreamConnected() {
+	c.syncStreamMu.Lock()
+	defer c.syncStreamMu.Unlock()
+	c.syncStreamErr = nil
+}
+
+func (c *GrpcClient) setSyncStreamDisconnected(err error) {
+	c.syncStreamMu.Lock()
+	defer c.syncStreamMu.Unlock()
+	c.syncStreamErr = err
+}
+
+func (c *GrpcClient) syncStreamError() error {
+	c.syncStreamMu.RLock()
+	defer c.syncStreamMu.RUnlock()
+	return c.syncStreamErr
 }
 
 func (c *GrpcClient) notifyDisconnected(err error) {
@@ -950,8 +1046,29 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 			DisableFirewall:     info.DisableFirewall,
 			BlockLANAccess:      info.BlockLANAccess,
 			BlockInbound:        info.BlockInbound,
-
-			LazyConnectionEnabled: info.LazyConnectionEnabled,
+			DisableIPv6:         info.DisableIPv6,
 		},
+
+		Capabilities: peerCapabilities(*info),
+
+		SyncMessageVersion: syncMessageVersion(*info),
 	}
+}
+
+// peerCapabilities returns the capabilities this client supports.
+func peerCapabilities(info system.Info) []proto.PeerCapability {
+	caps := []proto.PeerCapability{
+		proto.PeerCapability_PeerCapabilitySourcePrefixes,
+	}
+	if !info.DisableIPv6 {
+		caps = append(caps, proto.PeerCapability_PeerCapabilityIPv6Overlay)
+	}
+	return caps
+}
+
+func syncMessageVersion(info system.Info) int32 {
+	if info.SyncMessageVersion != nil {
+		return int32(*info.SyncMessageVersion)
+	}
+	return int32(nbmgmtgrpc.HighestSyncMessageVersion)
 }

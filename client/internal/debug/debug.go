@@ -21,6 +21,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/netbirdio/netbird/client/anonymize"
@@ -30,11 +31,11 @@ import (
 	"github.com/netbirdio/netbird/client/internal/updater/installer"
 	nbstatus "github.com/netbirdio/netbird/client/status"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/shared/netiputil"
 )
 
-const readmeContent = `Netbird debug bundle
-This debug bundle contains the following files.
-If the --anonymize flag is set, the files are anonymized to protect sensitive information.
+const readmeContent = `This debug bundle contains the following files.
+If anonymization is enabled (--anonymize / --anonymize-level), the files are anonymized to protect sensitive information.
 
 status.txt: Anonymized status information of the NetBird client.
 client.log: Most recent, anonymized client log file of the NetBird client.
@@ -43,10 +44,14 @@ netbird.out: Most recent, anonymized stdout log file of the NetBird client.
 routes.txt: Detailed system routing table in tabular format including destination, gateway, interface, metrics, and protocol information, if --system-info flag was provided.
 interfaces.txt: Anonymized network interface information, if --system-info flag was provided.
 ip_rules.txt: Detailed IP routing rules in tabular format including priority, source, destination, interfaces, table, and action information (Linux only), if --system-info flag was provided.
-iptables.txt: Anonymized iptables rules with packet counters, if --system-info flag was provided.
-nftables.txt: Anonymized nftables rules with packet counters, if --system-info flag was provided.
+iptables.txt: Anonymized iptables (IPv4) rules with packet counters, if --system-info flag was provided.
+ip6tables.txt: Anonymized ip6tables (IPv6) rules with packet counters, if --system-info flag was provided.
+ipset.txt: Anonymized ipset list output, if --system-info flag was provided.
+nftables.txt: Anonymized nftables rules with packet counters across all families (ip, ip6, inet, etc.), if --system-info flag was provided.
+sysctls.txt: Forwarding, reverse-path filter, source-validation, and conntrack accounting sysctl values that the NetBird client may read or modify, if --system-info flag was provided (Linux only).
 resolv.conf: DNS resolver configuration from /etc/resolv.conf (Unix systems only), if --system-info flag was provided.
 scutil_dns.txt: DNS configuration from scutil --dns (macOS only), if --system-info flag was provided.
+dns_windows.txt: Anonymized NRPT rules and policy table in effect, DNS client policy, and per-interface and per-adapter DNS configuration (Windows only), if --system-info flag was provided.
 resolved_domains.txt: Anonymized resolved domain IP addresses from the status recorder.
 config.txt: Anonymized configuration information of the NetBird client.
 network_map.json: Anonymized sync response containing peer configurations, routes, DNS settings, and firewall rules.
@@ -61,24 +66,38 @@ allocs.prof: Allocations profiling information.
 threadcreate.prof: Thread creation profiling information.
 cpu.prof: CPU profiling information.
 stack_trace.txt: Complete stack traces of all goroutines at the time of bundle creation.
+capture.pcap: Packet capture in pcap format. Only present when capture was running during bundle collection. Omitted from anonymized bundles because it contains raw decrypted packet data.
 
 
 Anonymization Process
-The files in this bundle have been anonymized to protect sensitive information. Here's how the anonymization was applied:
+The files in this bundle have been anonymized to protect sensitive information. The level applied to this bundle is recorded at the top of this file. Here's how the anonymization was applied:
 
 IP Addresses
 
-IPv4 addresses are replaced with addresses starting from 198.51.100.0
-IPv6 addresses are replaced with addresses starting from 100::
+Default level:
+- Public IPv4 addresses are replaced with addresses starting from 198.51.100.0
+- Public IPv6 addresses are replaced with addresses starting from 2001:db8:ffff::
+- IPv6 unique local addresses (fc00::/7) are anonymized as well: their random global ID uniquely identifies the network.
+- IP addresses from internal IPv4 ranges and well-known addresses are not anonymized (e.g. 8.8.8.8, 100.64.0.0/10, addresses starting with 192.168., 172.16., 10., 169.254., fe80::).
 
-IP addresses from non public ranges and well known addresses are not anonymized (e.g. 8.8.8.8, 100.64.0.0/10, addresses starting with 192.168., 172.16., 10., etc.).
+Strict level (--anonymize-level strict), in addition to the default level:
+- Private (RFC 1918), CGNAT (100.64.0.0/10), and link-local (169.254.0.0/16, fe80::/10) addresses are anonymized too.
+- Internal IPv4 addresses are replaced with addresses starting from 198.18.0.0 and internal IPv6 addresses with addresses starting from 2001:db8:1::, so internal addresses remain distinguishable from public ones.
+- Addresses are mapped in order of first appearance: subnet structure, allocation scheme, and gateway conventions are not preserved. Prefix lengths of networks are preserved.
+- Peer names in front of NetBird domains are replaced with numbered placeholders (e.g. peer-1.netbird.cloud), and subdomain labels of other domains with host-N placeholders.
+- WireGuard public keys are replaced with consistent placeholder keys.
+
 Reoccuring IP addresses are replaced with the same anonymized address.
 
 Note: The anonymized IP addresses in the status file do not match those in the log and routes files. However, the anonymized IP addresses are consistent within the status file and across the routes and log files.
 
+MAC Addresses
+MAC addresses are replaced at every anonymization level with consistent placeholders counting up from 02:00:00:00:00:01. Broadcast, multicast, and all-zero addresses are kept. At the default level a preserved IPv6 link-local address may still embed a MAC address (EUI-64); the strict level anonymizes those addresses.
+
 Domains
 All domain names (except for the netbird domains) are replaced with randomly generated strings ending in ".domain". Anonymized domains are consistent across all files in the bundle.
 Reoccuring domain names are replaced with the same anonymized domain.
+At the strict level, the peer name labels in front of netbird domains are anonymized as well.
 
 Sync Response
 The network_map.json file contains the following anonymized information:
@@ -162,22 +181,33 @@ The config.txt file contains anonymized configuration information of the NetBird
 Other non-sensitive configuration options are included without anonymization.
 
 Firewall Rules (Linux only)
-The bundle includes two separate firewall rule files:
+The bundle includes the following firewall-related files:
 
 iptables.txt:
-- Complete iptables ruleset with packet counters using 'iptables -v -n -L'
+- IPv4 iptables ruleset with packet counters using 'iptables-save' and 'iptables -v -n -L'
 - Includes all tables (filter, nat, mangle, raw, security)
 - Shows packet and byte counters for each rule
 - All IP addresses are anonymized
 - Chain names, table names, and other non-sensitive information remain unchanged
 
+ip6tables.txt:
+- IPv6 ip6tables ruleset with packet counters using 'ip6tables-save' and 'ip6tables -v -n -L'
+- Same table coverage and anonymization as iptables.txt
+- Omitted when ip6tables is not installed or no IPv6 rules are present
+
+ipset.txt:
+- Output of 'ipset list' (family-agnostic)
+- IP addresses are anonymized; set names and types remain unchanged
+
 nftables.txt:
-- Complete nftables ruleset obtained via 'nft -a list ruleset'
+- Complete nftables ruleset across all families (ip, ip6, inet, arp, bridge, netdev) via 'nft -a list ruleset'
 - Includes rule handle numbers and packet counters
-- All tables, chains, and rules are included
-- Shows packet and byte counters for each rule
-- All IP addresses are anonymized
-- Chain names, table names, and other non-sensitive information remain unchanged
+- All IP addresses are anonymized; chain/table names remain unchanged
+
+sysctls.txt:
+- Forwarding (IPv4 + IPv6, global and per-interface), reverse-path filter, source-validation, conntrack accounting, and TCP-related sysctls that netbird may read or modify
+- Per-interface keys are enumerated from /proc/sys/net/ipv{4,6}/conf
+- Interface names anonymized when --anonymize is set
 
 IP Rules (Linux only)
 The ip_rules.txt file contains detailed IP routing rule information:
@@ -208,12 +238,25 @@ scutil_dns.txt (macOS only):
 - Shows DNS configuration for all network interfaces
 - Includes search domains, nameservers, and DNS resolver settings
 - All IP addresses and domain names are anonymized
+
+dns_windows.txt (Windows only):
+- Lists the NRPT rules of both policy stores, the local one and the group policy one, marking the rules the client created
+- Follows them with the policy table the resolver has loaded, which differs from the rules while a change has not been picked up yet
+- Includes the DNS client group policy, the global TCP/IP and Dnscache parameters, and the DNS values of every interface that has any
+- Ends with the resolver configuration in effect per adapter, from GetAdaptersAddresses
+- All IP addresses and domain names are anonymized
 `
 
 const (
 	clientLogFile = "client.log"
 	errorLogFile  = "netbird.err"
 	stdoutLogFile = "netbird.out"
+
+	// Rotated-log glob prefixes (base log name without extension) passed to
+	// addRotatedLogFiles. The daemon's own log and the GUI log live in the same
+	// dir, so the prefixes must be disjoint to keep their rotated siblings apart.
+	clientLogPrefix = "client"
+	uiLogPrefix     = "gui-client"
 
 	darwinErrorLogPath  = "/var/log/netbird.out.log"
 	darwinStdoutLogPath = "/var/log/netbird.err.log"
@@ -224,6 +267,20 @@ type MetricsExporter interface {
 	Export(w io.Writer) error
 }
 
+// LogOpener opens a log file for inclusion in the bundle. It exists so that log
+// files whose path was supplied by an IPC caller can be opened under a check
+// the daemon defines, instead of being opened with the daemon's privileges
+// unconditionally.
+type LogOpener func(path string) (*os.File, error)
+
+func openLogFile(path string) (*os.File, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open %s: %w", path, err)
+	}
+	return f, nil
+}
+
 type BundleGenerator struct {
 	anonymizer *anonymize.Anonymizer
 
@@ -232,12 +289,19 @@ type BundleGenerator struct {
 	statusRecorder *peer.Status
 	syncResponse   *mgmProto.SyncResponse
 	logPath        string
+	uiLogPath      string
+	uiLogOpener    LogOpener
 	tempDir        string
+	statePath      string
 	cpuProfile     []byte
+	capturePath    string
 	refreshStatus  func() // Optional callback to refresh status before bundle generation
 	clientMetrics  MetricsExporter
+	daemonVersion  string
+	cliVersion     string
 
 	anonymize         bool
+	anonymizeLevel    anonymize.Level
 	includeSystemInfo bool
 	logFileCount      uint32
 
@@ -245,7 +309,10 @@ type BundleGenerator struct {
 }
 
 type BundleConfig struct {
-	Anonymize         bool
+	Anonymize bool
+	// AnonymizeLevel selects how much the anonymizer redacts.
+	// anonymize.LevelStrict implies Anonymize.
+	AnonymizeLevel    anonymize.Level
 	IncludeSystemInfo bool
 	LogFileCount      uint32
 }
@@ -255,10 +322,21 @@ type GeneratorDependencies struct {
 	StatusRecorder *peer.Status
 	SyncResponse   *mgmProto.SyncResponse
 	LogPath        string
-	TempDir        string // Directory for temporary bundle zip files. If empty, os.TempDir() is used.
-	CPUProfile     []byte
-	RefreshStatus  func() // Optional callback to refresh status before bundle generation
-	ClientMetrics  MetricsExporter
+	UILogPath      string // Absolute path to the desktop UI's gui-client.log, reported via RegisterUILog. Empty if no UI registered one.
+	// UILogOpener opens the UI log and its rotated siblings. The path comes from
+	// a local IPC caller, so the daemon must not open it with plain os.Open: the
+	// opener is where the caller's right to that file is enforced. Defaults to
+	// os.Open, which is only correct where the path is not caller-supplied
+	// (mobile).
+	UILogOpener   LogOpener
+	TempDir       string // Directory for temporary bundle zip files. If empty, os.TempDir() is used.
+	StatePath     string // Path to the state file. If empty, the ServiceManager default path is used.
+	CPUProfile    []byte
+	CapturePath   string
+	RefreshStatus func()
+	ClientMetrics MetricsExporter
+	DaemonVersion string
+	CliVersion    string
 }
 
 func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGenerator {
@@ -268,19 +346,34 @@ func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGen
 		logFileCount = 1
 	}
 
+	uiLogOpener := deps.UILogOpener
+	if uiLogOpener == nil {
+		uiLogOpener = openLogFile
+	}
+
+	anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
+	anonymizer.SetLevel(cfg.AnonymizeLevel)
+
 	return &BundleGenerator{
-		anonymizer: anonymize.NewAnonymizer(anonymize.DefaultAddresses()),
+		anonymizer: anonymizer,
 
 		internalConfig: deps.InternalConfig,
 		statusRecorder: deps.StatusRecorder,
 		syncResponse:   deps.SyncResponse,
 		logPath:        deps.LogPath,
+		uiLogPath:      deps.UILogPath,
+		uiLogOpener:    uiLogOpener,
 		tempDir:        deps.TempDir,
+		statePath:      deps.StatePath,
 		cpuProfile:     deps.CPUProfile,
+		capturePath:    deps.CapturePath,
 		refreshStatus:  deps.RefreshStatus,
 		clientMetrics:  deps.ClientMetrics,
+		daemonVersion:  deps.DaemonVersion,
+		cliVersion:     deps.CliVersion,
 
-		anonymize:         cfg.Anonymize,
+		anonymize:         cfg.Anonymize || cfg.AnonymizeLevel >= anonymize.LevelStrict,
+		anonymizeLevel:    cfg.AnonymizeLevel,
 		includeSystemInfo: cfg.IncludeSystemInfo,
 		logFileCount:      logFileCount,
 	}
@@ -346,6 +439,10 @@ func (g *BundleGenerator) createArchive() error {
 		log.Errorf("failed to add CPU profile to debug bundle: %v", err)
 	}
 
+	if err := g.addCaptureFile(); err != nil {
+		log.Errorf("failed to add capture file to debug bundle: %v", err)
+	}
+
 	if err := g.addStackTrace(); err != nil {
 		log.Errorf("failed to add stack trace to debug bundle: %v", err)
 	}
@@ -378,6 +475,10 @@ func (g *BundleGenerator) createArchive() error {
 		log.Errorf("failed to add logs to debug bundle: %v", err)
 	}
 
+	if err := g.addUILog(); err != nil {
+		log.Errorf("failed to add UI log to debug bundle: %v", err)
+	}
+
 	if err := g.addUpdateLogs(); err != nil {
 		log.Errorf("failed to add updater logs: %v", err)
 	}
@@ -402,13 +503,23 @@ func (g *BundleGenerator) addSystemInfo() {
 		log.Errorf("failed to add firewall rules to debug bundle: %v", err)
 	}
 
+	if err := g.addSysctls(); err != nil {
+		log.Errorf("failed to add sysctls to debug bundle: %v", err)
+	}
+
 	if err := g.addDNSInfo(); err != nil {
 		log.Errorf("failed to add DNS info to debug bundle: %v", err)
 	}
 }
 
 func (g *BundleGenerator) addReadme() error {
-	readmeReader := strings.NewReader(readmeContent)
+	level := "none (anonymization disabled)"
+	if g.anonymize {
+		level = g.anonymizeLevel.String()
+	}
+	header := fmt.Sprintf("Netbird debug bundle\nAnonymization level applied to this bundle: %s\n", level)
+
+	readmeReader := strings.NewReader(header + readmeContent)
 	if err := g.addFileToZip(readmeReader, "README.txt"); err != nil {
 		return fmt.Errorf("add README file to zip: %w", err)
 	}
@@ -429,11 +540,13 @@ func (g *BundleGenerator) addStatus() error {
 
 		fullStatus := g.statusRecorder.GetFullStatus()
 		protoFullStatus := nbstatus.ToProtoFullStatus(fullStatus)
-		protoFullStatus.Events = g.statusRecorder.GetEventHistory()
 		overview := nbstatus.ConvertToStatusOutputOverview(protoFullStatus, nbstatus.ConvertOptions{
-			Anonymize:   g.anonymize,
-			ProfileName: profName,
+			Anonymize:      g.anonymize,
+			AnonymizeLevel: g.anonymizeLevel,
+			ProfileName:    profName,
+			DaemonVersion:  g.daemonVersion,
 		})
+		overview.CliVersion = g.cliVersion
 		statusOutput := overview.FullDetailSummary()
 
 		statusReader := strings.NewReader(statusOutput)
@@ -478,6 +591,14 @@ func (g *BundleGenerator) addConfig() error {
 		if g.internalConfig.CustomDNSAddress != "" {
 			configContent.WriteString(fmt.Sprintf("CustomDNSAddress: %s\n", g.internalConfig.CustomDNSAddress))
 		}
+	}
+
+	// Surface the set of MDM-enforced keys so a support engineer reading
+	// the bundle can tell which field values are user-set vs MDM-overridden.
+	// Same semantics as the mDMManagedFields list returned by the
+	// GetConfig RPC consumed by `netbird debug config`.
+	if managed := g.internalConfig.Policy().ManagedKeys(); len(managed) > 0 {
+		configContent.WriteString(fmt.Sprintf("MDMManagedFields: %v\n", managed))
 	}
 
 	configReader := strings.NewReader(configContent.String())
@@ -575,6 +696,9 @@ func isSensitiveEnvVar(key string) bool {
 func (g *BundleGenerator) addCommonConfigFields(configContent *strings.Builder) {
 	configContent.WriteString("NetBird Client Configuration:\n\n")
 
+	if key, err := wgtypes.ParseKey(g.internalConfig.PrivateKey); err == nil {
+		configContent.WriteString(fmt.Sprintf("PublicKey: %s\n", g.anonymizer.AnonymizeWGKey(key.PublicKey().String())))
+	}
 	configContent.WriteString(fmt.Sprintf("WgIface: %s\n", g.internalConfig.WgIface))
 	configContent.WriteString(fmt.Sprintf("WgPort: %d\n", g.internalConfig.WgPort))
 	if g.internalConfig.NetworkMonitor != nil {
@@ -599,6 +723,12 @@ func (g *BundleGenerator) addCommonConfigFields(configContent *strings.Builder) 
 	if g.internalConfig.EnableSSHRemotePortForwarding != nil {
 		configContent.WriteString(fmt.Sprintf("EnableSSHRemotePortForwarding: %v\n", *g.internalConfig.EnableSSHRemotePortForwarding))
 	}
+	if g.internalConfig.DisableSSHAuth != nil {
+		configContent.WriteString(fmt.Sprintf("DisableSSHAuth: %v\n", *g.internalConfig.DisableSSHAuth))
+	}
+	if g.internalConfig.SSHJWTCacheTTL != nil {
+		configContent.WriteString(fmt.Sprintf("SSHJWTCacheTTL: %d\n", *g.internalConfig.SSHJWTCacheTTL))
+	}
 
 	configContent.WriteString(fmt.Sprintf("DisableClientRoutes: %v\n", g.internalConfig.DisableClientRoutes))
 	configContent.WriteString(fmt.Sprintf("DisableServerRoutes: %v\n", g.internalConfig.DisableServerRoutes))
@@ -606,6 +736,10 @@ func (g *BundleGenerator) addCommonConfigFields(configContent *strings.Builder) 
 	configContent.WriteString(fmt.Sprintf("DisableFirewall: %v\n", g.internalConfig.DisableFirewall))
 	configContent.WriteString(fmt.Sprintf("BlockLANAccess: %v\n", g.internalConfig.BlockLANAccess))
 	configContent.WriteString(fmt.Sprintf("BlockInbound: %v\n", g.internalConfig.BlockInbound))
+	configContent.WriteString(fmt.Sprintf("DisableIPv6: %v\n", g.internalConfig.DisableIPv6))
+	configContent.WriteString(fmt.Sprintf("LocalMetricsEnabled: %v\n", g.internalConfig.LocalMetricsEnabled))
+	configContent.WriteString(fmt.Sprintf("LocalMetricsAddress: %s\n", g.internalConfig.LocalMetricsAddress))
+	configContent.WriteString(fmt.Sprintf("SyncMessageVersion: %v\n", g.internalConfig.SyncMessageVersion))
 
 	if g.internalConfig.DisableNotifications != nil {
 		configContent.WriteString(fmt.Sprintf("DisableNotifications: %v\n", *g.internalConfig.DisableNotifications))
@@ -624,7 +758,8 @@ func (g *BundleGenerator) addCommonConfigFields(configContent *strings.Builder) 
 		configContent.WriteString(fmt.Sprintf("ClientCertKeyPath: %s\n", g.internalConfig.ClientCertKeyPath))
 	}
 
-	configContent.WriteString(fmt.Sprintf("LazyConnectionEnabled: %v\n", g.internalConfig.LazyConnectionEnabled))
+	configContent.WriteString(fmt.Sprintf("LazyConnection: %q\n", g.internalConfig.LazyConnection))
+	configContent.WriteString(fmt.Sprintf("MTU: %d\n", g.internalConfig.MTU))
 }
 
 func (g *BundleGenerator) addProf() (err error) {
@@ -664,6 +799,29 @@ func (g *BundleGenerator) addCPUProfile() error {
 	reader := bytes.NewReader(g.cpuProfile)
 	if err := g.addFileToZip(reader, "cpu.prof"); err != nil {
 		return fmt.Errorf("add CPU profile to zip: %w", err)
+	}
+
+	return nil
+}
+
+func (g *BundleGenerator) addCaptureFile() error {
+	if g.capturePath == "" {
+		return nil
+	}
+
+	if g.anonymize {
+		log.Info("skipping capture file in anonymized bundle (contains raw packet data)")
+		return nil
+	}
+
+	f, err := os.Open(g.capturePath)
+	if err != nil {
+		return fmt.Errorf("open capture file: %w", err)
+	}
+	defer f.Close()
+
+	if err := g.addFileToZip(f, "capture.pcap"); err != nil {
+		return fmt.Errorf("add capture file to zip: %w", err)
 	}
 
 	return nil
@@ -736,6 +894,8 @@ func (g *BundleGenerator) addSyncResponse() error {
 		AllowPartial:    true,
 	}
 
+	g.maskSecrets()
+
 	jsonBytes, err := options.Marshal(g.syncResponse)
 	if err != nil {
 		return fmt.Errorf("generate json: %w", err)
@@ -748,9 +908,33 @@ func (g *BundleGenerator) addSyncResponse() error {
 	return nil
 }
 
+func (g *BundleGenerator) maskSecrets() {
+	if g.syncResponse == nil || g.syncResponse.NetbirdConfig == nil {
+		return
+	}
+
+	if g.syncResponse.NetbirdConfig.Flow != nil {
+		g.syncResponse.NetbirdConfig.Flow.TokenPayload = maskedValue
+
+	}
+
+	if g.syncResponse.NetbirdConfig.Relay != nil {
+		g.syncResponse.NetbirdConfig.Relay.TokenPayload = maskedValue
+	}
+
+	for i := range g.syncResponse.NetbirdConfig.Turns {
+		if g.syncResponse.NetbirdConfig.Turns[i] != nil {
+			g.syncResponse.NetbirdConfig.Turns[i].Password = maskedValue
+		}
+	}
+}
+
 func (g *BundleGenerator) addStateFile() error {
-	sm := profilemanager.NewServiceManager("")
-	path := sm.GetStatePath()
+	path := g.statePath
+	if path == "" {
+		sm := profilemanager.NewServiceManager("")
+		path = sm.GetStatePath()
+	}
 	if path == "" {
 		return nil
 	}
@@ -805,6 +989,11 @@ func (g *BundleGenerator) addUpdateLogs() error {
 		}
 
 		baseName := filepath.Base(logFile)
+		data, err = g.anonymizeBytes(data)
+		if err != nil {
+			log.Warnf("skipping update log file %s: %v", baseName, err)
+			continue
+		}
 		if err := g.addFileToZip(bytes.NewReader(data), filepath.Join("update-logs", baseName)); err != nil {
 			return fmt.Errorf("add update log file %s to zip: %w", baseName, err)
 		}
@@ -832,6 +1021,13 @@ func (g *BundleGenerator) addCorruptedStateFiles() error {
 		}
 
 		fileName := filepath.Base(match)
+		// Corrupted state files usually fail structured JSON anonymization,
+		// so run them through the string anonymizer instead.
+		data, err = g.anonymizeBytes(data)
+		if err != nil {
+			log.Warnf("skipping corrupted state file %s: %v", fileName, err)
+			continue
+		}
 		if err := g.addFileToZip(bytes.NewReader(data), "corrupted_states/"+fileName); err != nil {
 			log.Warnf("Failed to add corrupted state file %s to zip: %v", fileName, err)
 			continue
@@ -841,6 +1037,27 @@ func (g *BundleGenerator) addCorruptedStateFiles() error {
 	}
 
 	return nil
+}
+
+// anonymizeBytes runs raw file content through the string anonymizer line by
+// line when anonymization is enabled. It errors instead of returning partial
+// content, so a caller never adds an unanonymized fallback to the bundle.
+func (g *BundleGenerator) anonymizeBytes(data []byte) ([]byte, error) {
+	if !g.anonymize {
+		return data, nil
+	}
+
+	var buf bytes.Buffer
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+	for scanner.Scan() {
+		buf.WriteString(g.anonymizer.AnonymizeString(scanner.Text()))
+		buf.WriteByte('\n')
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("anonymize content: %w", err)
+	}
+	return buf.Bytes(), nil
 }
 
 func (g *BundleGenerator) addMetrics() error {
@@ -875,11 +1092,11 @@ func (g *BundleGenerator) addLogfile() error {
 
 	logDir := filepath.Dir(g.logPath)
 
-	if err := g.addSingleLogfile(g.logPath, clientLogFile); err != nil {
+	if err := g.addSingleLogfile(openLogFile, g.logPath, clientLogFile); err != nil {
 		return fmt.Errorf("add client log file to zip: %w", err)
 	}
 
-	g.addRotatedLogFiles(logDir)
+	g.addRotatedLogFiles(openLogFile, logDir, clientLogPrefix)
 
 	stdErrLogPath := filepath.Join(logDir, errorLogFile)
 	stdoutLogPath := filepath.Join(logDir, stdoutLogFile)
@@ -888,20 +1105,39 @@ func (g *BundleGenerator) addLogfile() error {
 		stdoutLogPath = darwinStdoutLogPath
 	}
 
-	if err := g.addSingleLogfile(stdErrLogPath, errorLogFile); err != nil {
+	if err := g.addSingleLogfile(openLogFile, stdErrLogPath, errorLogFile); err != nil {
 		log.Warnf("Failed to add %s to zip: %v", errorLogFile, err)
 	}
 
-	if err := g.addSingleLogfile(stdoutLogPath, stdoutLogFile); err != nil {
+	if err := g.addSingleLogfile(openLogFile, stdoutLogPath, stdoutLogFile); err != nil {
 		log.Warnf("Failed to add %s to zip: %v", stdoutLogFile, err)
 	}
 
 	return nil
 }
 
+// addUILog adds the desktop UI's gui-client.log (and its rotated siblings) to
+// the bundle. The path is reported by the UI via RegisterUILog; empty when no
+// UI registered one (e.g. headless / server). Missing file is non-fatal — the
+// UI only writes it while the daemon is in debug, so it's often absent.
+func (g *BundleGenerator) addUILog() error {
+	if g.uiLogPath == "" {
+		log.Debugf("no UI log path registered, skipping in debug bundle")
+		return nil
+	}
+
+	if err := g.addSingleLogfile(g.uiLogOpener, g.uiLogPath, configs.UILogFile); err != nil {
+		return fmt.Errorf("add UI log file to zip: %w", err)
+	}
+
+	g.addRotatedLogFiles(g.uiLogOpener, filepath.Dir(g.uiLogPath), uiLogPrefix)
+
+	return nil
+}
+
 // addSingleLogfile adds a single log file to the archive
-func (g *BundleGenerator) addSingleLogfile(logPath, targetName string) error {
-	logFile, err := os.Open(logPath)
+func (g *BundleGenerator) addSingleLogfile(open LogOpener, logPath, targetName string) error {
+	logFile, err := open(logPath)
 	if err != nil {
 		return fmt.Errorf("open log file %s: %w", targetName, err)
 	}
@@ -926,8 +1162,8 @@ func (g *BundleGenerator) addSingleLogfile(logPath, targetName string) error {
 }
 
 // addSingleLogFileGz adds a single gzipped log file to the archive
-func (g *BundleGenerator) addSingleLogFileGz(logPath, targetName string) error {
-	f, err := os.Open(logPath)
+func (g *BundleGenerator) addSingleLogFileGz(open LogOpener, logPath, targetName string) error {
+	f, err := open(logPath)
 	if err != nil {
 		return fmt.Errorf("open gz log file %s: %w", targetName, err)
 	}
@@ -971,13 +1207,16 @@ func (g *BundleGenerator) addSingleLogFileGz(logPath, targetName string) error {
 	return nil
 }
 
-// addRotatedLogFiles adds rotated log files to the bundle based on logFileCount
-func (g *BundleGenerator) addRotatedLogFiles(logDir string) {
+// addRotatedLogFiles adds rotated log files to the bundle based on logFileCount.
+// prefix is the base log name without extension (e.g. "client", "gui-client");
+// the glob matches both files rotated by us and by logrotate on linux.
+func (g *BundleGenerator) addRotatedLogFiles(open LogOpener, logDir, prefix string) {
 	if g.logFileCount == 0 {
 		return
 	}
 
-	pattern := filepath.Join(logDir, "client-*.log.gz")
+	// This pattern matches both logs rotated by us and logrotate on linux
+	pattern := filepath.Join(logDir, prefix+"*.log.*")
 	files, err := filepath.Glob(pattern)
 	if err != nil {
 		log.Warnf("failed to glob rotated logs: %v", err)
@@ -1010,7 +1249,12 @@ func (g *BundleGenerator) addRotatedLogFiles(logDir string) {
 
 	for i := 0; i < maxFiles; i++ {
 		name := filepath.Base(files[i])
-		if err := g.addSingleLogFileGz(files[i], name); err != nil {
+		if strings.HasSuffix(name, ".gz") {
+			err = g.addSingleLogFileGz(open, files[i], name)
+		} else {
+			err = g.addSingleLogfile(open, files[i], name)
+		}
+		if err != nil {
 			log.Warnf("failed to add rotated log %s: %v", name, err)
 		}
 	}
@@ -1252,6 +1496,21 @@ func anonymizePeerConfig(config *mgmProto.PeerConfig, anonymizer *anonymize.Anon
 		config.Address = anonymizer.AnonymizeIP(addr).String()
 	}
 
+	if len(config.GetAddressV6()) > 0 {
+		v6Prefix, err := netiputil.DecodePrefix(config.GetAddressV6())
+		if err != nil {
+			config.AddressV6 = nil
+		} else {
+			anonV6 := anonymizer.AnonymizeIP(v6Prefix.Addr())
+			b, err := netiputil.EncodePrefix(netip.PrefixFrom(anonV6, v6Prefix.Bits()))
+			if err != nil {
+				config.AddressV6 = nil
+			} else {
+				config.AddressV6 = b
+			}
+		}
+	}
+
 	anonymizeSSHConfig(config.SshConfig)
 
 	config.Dns = anonymizer.AnonymizeString(config.Dns)
@@ -1273,6 +1532,7 @@ func anonymizeRemotePeer(peer *mgmProto.RemotePeerConfig, anonymizer *anonymize.
 	}
 
 	peer.Fqdn = anonymizer.AnonymizeDomain(peer.Fqdn)
+	peer.WgPubKey = anonymizer.AnonymizeWGKey(peer.WgPubKey)
 
 	anonymizeSSHConfig(peer.SshConfig)
 }
@@ -1354,8 +1614,20 @@ func anonymizeFirewallRule(rule *mgmProto.FirewallRule, anonymizer *anonymize.An
 		return
 	}
 
+	//nolint:staticcheck // PeerIP used for backward compatibility
 	if addr, err := netip.ParseAddr(rule.PeerIP); err == nil {
-		rule.PeerIP = anonymizer.AnonymizeIP(addr).String()
+		rule.PeerIP = anonymizer.AnonymizeIP(addr).String() //nolint:staticcheck
+	}
+
+	for i, raw := range rule.GetSourcePrefixes() {
+		p, err := netiputil.DecodePrefix(raw)
+		if err != nil {
+			continue
+		}
+		anonAddr := anonymizer.AnonymizeIP(p.Addr())
+		if b, err := netiputil.EncodePrefix(netip.PrefixFrom(anonAddr, p.Bits())); err == nil {
+			rule.SourcePrefixes[i] = b
+		}
 	}
 }
 

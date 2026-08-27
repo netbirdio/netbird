@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"slices"
 	"testing"
 	"time"
 
+	"github.com/rs/xid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -42,7 +44,7 @@ func buildScalableTestAccount(numPeers, numGroups int, withDefaultPolicy bool) (
 
 	for i := range numPeers {
 		peerID := fmt.Sprintf("peer-%d", i)
-		ip := net.IP{100, byte(64 + i/65536), byte((i / 256) % 256), byte(i % 256)}
+		ip := netip.AddrFrom4([4]byte{100, byte(64 + i/65536), byte((i / 256) % 256), byte(i % 256)})
 		wtVersion := "0.25.0"
 		if i%2 == 0 {
 			wtVersion = "0.40.0"
@@ -87,13 +89,13 @@ func buildScalableTestAccount(numPeers, numGroups int, withDefaultPolicy bool) (
 		for i := start; i < end; i++ {
 			groupPeers = append(groupPeers, fmt.Sprintf("peer-%d", i))
 		}
-		groups[groupID] = &types.Group{ID: groupID, Name: fmt.Sprintf("Group %d", g), Peers: groupPeers}
+		groups[groupID] = &types.Group{ID: groupID, PublicID: xid.New().String(), Name: fmt.Sprintf("Group %d", g), Peers: groupPeers}
 	}
 
 	policies := make([]*types.Policy, 0, numGroups+2)
 	if withDefaultPolicy {
 		policies = append(policies, &types.Policy{
-			ID: "policy-all", Name: "Default-Allow", Enabled: true,
+			ID: "policy-all", PublicID: xid.New().String(), Name: "Default-Allow", Enabled: true,
 			Rules: []*types.PolicyRule{{
 				ID: "rule-all", Name: "Allow All", Enabled: true, Action: types.PolicyTrafficActionAccept,
 				Protocol: types.PolicyRuleProtocolALL, Bidirectional: true,
@@ -106,7 +108,7 @@ func buildScalableTestAccount(numPeers, numGroups int, withDefaultPolicy bool) (
 		groupID := fmt.Sprintf("group-%d", g)
 		dstGroup := fmt.Sprintf("group-%d", (g+1)%numGroups)
 		policies = append(policies, &types.Policy{
-			ID: fmt.Sprintf("policy-%d", g), Name: fmt.Sprintf("Policy %d", g), Enabled: true,
+			ID: fmt.Sprintf("policy-%d", g), PublicID: xid.New().String(), Name: fmt.Sprintf("Policy %d", g), Enabled: true,
 			Rules: []*types.PolicyRule{{
 				ID: fmt.Sprintf("rule-%d", g), Name: fmt.Sprintf("Rule %d", g), Enabled: true,
 				Action: types.PolicyTrafficActionAccept, Protocol: types.PolicyRuleProtocolTCP,
@@ -119,7 +121,7 @@ func buildScalableTestAccount(numPeers, numGroups int, withDefaultPolicy bool) (
 
 	if numGroups >= 2 {
 		policies = append(policies, &types.Policy{
-			ID: "policy-drop", Name: "Drop DB traffic", Enabled: true,
+			ID: "policy-drop", PublicID: xid.New().String(), Name: "Drop DB traffic", Enabled: true,
 			Rules: []*types.PolicyRule{{
 				ID: "rule-drop", Name: "Drop DB", Enabled: true, Action: types.PolicyTrafficActionDrop,
 				Protocol: types.PolicyRuleProtocolTCP, Ports: []string{"5432"}, Bidirectional: true,
@@ -143,6 +145,7 @@ func buildScalableTestAccount(numPeers, numGroups int, withDefaultPolicy bool) (
 		groupID := fmt.Sprintf("group-%d", r%numGroups)
 		routes[routeID] = &route.Route{
 			ID:                  routeID,
+			PublicID:            xid.New().String(),
 			Network:             netip.MustParsePrefix(fmt.Sprintf("10.%d.0.0/16", r)),
 			Peer:                peers[routePeerID].Key,
 			PeerID:              routePeerID,
@@ -177,18 +180,18 @@ func buildScalableTestAccount(numPeers, numGroups int, withDefaultPolicy bool) (
 		}
 		routerPeerID := fmt.Sprintf("peer-%d", routerPeerIdx)
 
-		networksList = append(networksList, &networkTypes.Network{ID: netID, Name: fmt.Sprintf("Network %d", nr), AccountID: "test-account"})
+		networksList = append(networksList, &networkTypes.Network{ID: netID, PublicID: xid.New().String(), Name: fmt.Sprintf("Network %d", nr), AccountID: "test-account"})
 		networkResources = append(networkResources, &resourceTypes.NetworkResource{
-			ID: resID, NetworkID: netID, AccountID: "test-account", Enabled: true,
+			ID: resID, PublicID: xid.New().String(), NetworkID: netID, AccountID: "test-account", Enabled: true,
 			Address: fmt.Sprintf("svc-%d.netbird.cloud", nr),
 		})
 		networkRouters = append(networkRouters, &routerTypes.NetworkRouter{
-			ID: fmt.Sprintf("router-%d", nr), NetworkID: netID, Peer: routerPeerID,
+			ID: fmt.Sprintf("router-%d", nr), PublicID: xid.New().String(), NetworkID: netID, Peer: routerPeerID,
 			Enabled: true, AccountID: "test-account",
 		})
 
 		policies = append(policies, &types.Policy{
-			ID: fmt.Sprintf("policy-res-%d", nr), Name: fmt.Sprintf("Resource Policy %d", nr), Enabled: true,
+			ID: fmt.Sprintf("policy-res-%d", nr), PublicID: xid.New().String(), Name: fmt.Sprintf("Resource Policy %d", nr), Enabled: true,
 			SourcePostureChecks: []string{"posture-check-ver"},
 			Rules: []*types.PolicyRule{{
 				ID: fmt.Sprintf("rule-res-%d", nr), Name: fmt.Sprintf("Allow Resource %d", nr), Enabled: true,
@@ -214,12 +217,12 @@ func buildScalableTestAccount(numPeers, numGroups int, withDefaultPolicy bool) (
 		DNSSettings: types.DNSSettings{DisabledManagementGroups: []string{}},
 		NameServerGroups: map[string]*nbdns.NameServerGroup{
 			"ns-group-main": {
-				ID: "ns-group-main", Name: "Main NS", Enabled: true, Groups: []string{"group-all"},
+				ID: "ns-group-main", PublicID: xid.New().String(), Name: "Main NS", Enabled: true, Groups: []string{"group-all"},
 				NameServers: []nbdns.NameServer{{IP: netip.MustParseAddr("8.8.8.8"), NSType: nbdns.UDPNameServerType, Port: 53}},
 			},
 		},
 		PostureChecks: []*posture.Checks{
-			{ID: "posture-check-ver", Name: "Check version", Checks: posture.ChecksDefinition{
+			{ID: "posture-check-ver", PublicID: xid.New().String(), Name: "Check version", Checks: posture.ChecksDefinition{
 				NBVersionCheck: &posture.NBVersionCheck{MinVersion: "0.26.0"},
 			}},
 		},
@@ -385,7 +388,7 @@ func TestComponents_NetworkSerial(t *testing.T) {
 	account.Network.Serial = 42
 	nm := componentsNetworkMap(account, "peer-0", validatedPeers)
 	require.NotNil(t, nm)
-	assert.Equal(t, uint64(42), nm.Network.Serial, "network serial should match")
+	assert.Equal(t, uint64(42), nm.Network.CurrentSerial(), "network serial should match")
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -809,7 +812,7 @@ func TestComponents_AllPeersGetValidMaps(t *testing.T) {
 		}
 		nm := componentsNetworkMap(account, peerID, validatedPeers)
 		require.NotNil(t, nm, "network map should not be nil for %s", peerID)
-		assert.Equal(t, account.Network.Serial, nm.Network.Serial, "serial mismatch for %s", peerID)
+		assert.Equal(t, account.Network.Serial, nm.Network.CurrentSerial(), "serial mismatch for %s", peerID)
 		assert.NotEmpty(t, nm.Peers, "validated peer %s should see other peers", peerID)
 	}
 }
@@ -830,7 +833,7 @@ func TestComponents_LargeScaleMapGeneration(t *testing.T) {
 				require.NotNil(t, nm, "network map should not be nil for %s", peerID)
 				assert.NotEmpty(t, nm.Peers, "peer %s should see other peers at scale", peerID)
 				assert.NotEmpty(t, nm.Routes, "peer %s should have routes at scale", peerID)
-				assert.Equal(t, account.Network.Serial, nm.Network.Serial, "serial mismatch for %s", peerID)
+				assert.Equal(t, account.Network.Serial, nm.Network.CurrentSerial(), "serial mismatch for %s", peerID)
 			}
 		})
 	}
@@ -1029,6 +1032,48 @@ func TestComponents_RouteDefaultPermit(t *testing.T) {
 	assert.True(t, hasDefaultPermit, "route without ACG should have default permit rule with 0.0.0.0/0 source")
 }
 
+// TestComponents_ExitNodeDefaultPermitIPv6 verifies that a default exit node route
+// (0.0.0.0/0) without AccessControlGroups also emits an IPv6 default permit rule
+// (::/0 source and destination) for peers that support IPv6, mirroring the route
+// the client installs. Without it, IPv6 traffic is routed to the exit node but
+// dropped at the forward chain.
+func TestComponents_ExitNodeDefaultPermitIPv6(t *testing.T) {
+	account, validatedPeers := scalableTestAccount(20, 2)
+
+	routingPeerID := "peer-5"
+	routingPeer := account.Peers[routingPeerID]
+	routingPeer.IPv6 = netip.MustParseAddr("fd00::5")
+	routingPeer.Meta.Capabilities = append(routingPeer.Meta.Capabilities, nbpeer.PeerCapabilityIPv6Overlay)
+
+	account.Routes["route-exit"] = &route.Route{
+		ID: "route-exit", Network: netip.MustParsePrefix("0.0.0.0/0"),
+		PeerID: routingPeerID, Peer: routingPeer.Key,
+		Enabled: true, Groups: []string{"group-all"}, PeerGroups: []string{"group-0"},
+		AccessControlGroups: []string{},
+		AccountID:           "test-account",
+	}
+
+	nm := componentsNetworkMap(account, routingPeerID, validatedPeers)
+	require.NotNil(t, nm)
+
+	hasV4 := false
+	hasV6 := false
+	for _, rfr := range nm.RoutesFirewallRules {
+		switch rfr.Destination {
+		case "0.0.0.0/0":
+			if slices.Contains(rfr.SourceRanges, "0.0.0.0/0") {
+				hasV4 = true
+			}
+		case "::/0":
+			if slices.Contains(rfr.SourceRanges, "::/0") {
+				hasV6 = true
+			}
+		}
+	}
+	assert.True(t, hasV4, "exit node route should have an IPv4 default permit rule (0.0.0.0/0)")
+	assert.True(t, hasV6, "exit node route should have an IPv6 default permit rule (::/0)")
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // 15. MULTIPLE ROUTERS PER NETWORK
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1083,7 +1128,7 @@ func TestComponents_PeerIsNameserverExcludedFromNSGroup(t *testing.T) {
 	nsIP := account.Peers["peer-0"].IP
 	account.NameServerGroups["ns-self"] = &nbdns.NameServerGroup{
 		ID: "ns-self", Name: "Self NS", Enabled: true, Groups: []string{"group-all"},
-		NameServers: []nbdns.NameServer{{IP: netip.AddrFrom4([4]byte{nsIP[0], nsIP[1], nsIP[2], nsIP[3]}), NSType: nbdns.UDPNameServerType, Port: 53}},
+		NameServers: []nbdns.NameServer{{IP: nsIP, NSType: nbdns.UDPNameServerType, Port: 53}},
 	}
 
 	nm := componentsNetworkMap(account, "peer-0", validatedPeers)
@@ -1189,4 +1234,98 @@ func TestComponents_DisabledRuleInEnabledPolicy(t *testing.T) {
 	}
 	assert.True(t, has3000, "enabled rule should generate firewall rule for port 3000")
 	assert.False(t, has3001, "disabled rule should NOT generate firewall rule for port 3001")
+}
+
+func peerGroupIDSet(account *types.Account, peerID string) map[string]struct{} {
+	return account.GetPeerGroups(peerID)
+}
+
+func assertSSHEquivalence(t *testing.T, account *types.Account, peerID string, validatedPeers map[string]struct{}) {
+	t.Helper()
+	nm := componentsNetworkMap(account, peerID, validatedPeers)
+	require.NotNil(t, nm)
+
+	got := types.PeerSSHEnabledFromPolicies(account.Policies, peerID, peerGroupIDSet(account, peerID), account.Peers[peerID].SSHEnabled)
+	assert.Equalf(t, nm.EnableSSH, got, "PeerSSHEnabledFromPolicies mismatch for %s", peerID)
+}
+
+func TestPeerSSHEnabledFromPolicies_MatchesMap_NetbirdSSHProtocol(t *testing.T) {
+	account, validatedPeers := scalableTestAccount(20, 2)
+	account.Groups["ssh-users"] = &types.Group{ID: "ssh-users", Name: "SSH Users", Peers: []string{}}
+	account.Policies = append(account.Policies, &types.Policy{
+		ID: "policy-ssh", Name: "SSH Access", Enabled: true, AccountID: "test-account",
+		Rules: []*types.PolicyRule{{
+			ID: "rule-ssh", Name: "Allow SSH", Enabled: true,
+			Action: types.PolicyTrafficActionAccept, Protocol: types.PolicyRuleProtocolNetbirdSSH,
+			Bidirectional: false,
+			Sources:       []string{"group-0"}, Destinations: []string{"group-1"},
+			AuthorizedGroups: map[string][]string{"ssh-users": {"root"}},
+		}},
+	})
+
+	assertSSHEquivalence(t, account, "peer-10", validatedPeers)
+	assertSSHEquivalence(t, account, "peer-0", validatedPeers)
+}
+
+func TestPeerSSHEnabledFromPolicies_MatchesMap_NoSSHPolicy(t *testing.T) {
+	account, validatedPeers := scalableTestAccount(20, 2)
+	assertSSHEquivalence(t, account, "peer-0", validatedPeers)
+}
+
+func TestPeerSSHEnabledFromPolicies_MatchesMap_LegacyImpliedSSH(t *testing.T) {
+	account, validatedPeers := scalableTestAccount(20, 2)
+	account.Peers["peer-10"].SSHEnabled = true
+	assertSSHEquivalence(t, account, "peer-10", validatedPeers)
+	assertSSHEquivalence(t, account, "peer-11", validatedPeers)
+}
+
+func TestPeerSSHEnabledFromPolicies_MatchesMap_PeerAsDestinationResource(t *testing.T) {
+	account, validatedPeers := scalableTestAccountWithoutDefaultPolicy(20, 2)
+	account.Policies = append(account.Policies, &types.Policy{
+		ID: "policy-ssh-res", Name: "SSH to peer", Enabled: true, AccountID: "test-account",
+		Rules: []*types.PolicyRule{{
+			ID: "rule-ssh-res", Name: "SSH to peer-5", Enabled: true,
+			Action: types.PolicyTrafficActionAccept, Protocol: types.PolicyRuleProtocolNetbirdSSH,
+			Sources:             []string{"group-0"},
+			DestinationResource: types.Resource{ID: "peer-5", Type: types.ResourceTypePeer},
+		}},
+	})
+
+	assertSSHEquivalence(t, account, "peer-5", validatedPeers)
+	assertSSHEquivalence(t, account, "peer-6", validatedPeers)
+}
+
+func TestPeerSSHEnabledFromPolicies_MatchesMap_DisabledSSHPolicy(t *testing.T) {
+	account, validatedPeers := scalableTestAccountWithoutDefaultPolicy(20, 2)
+	account.Policies = append(account.Policies, &types.Policy{
+		ID: "policy-ssh-off", Name: "SSH disabled", Enabled: false, AccountID: "test-account",
+		Rules: []*types.PolicyRule{{
+			ID: "rule-ssh-off", Name: "Allow SSH", Enabled: true,
+			Action: types.PolicyTrafficActionAccept, Protocol: types.PolicyRuleProtocolNetbirdSSH,
+			Sources: []string{"group-0"}, Destinations: []string{"group-1"},
+		}},
+	})
+	assertSSHEquivalence(t, account, "peer-10", validatedPeers)
+}
+
+func TestPeerSSHEnabledFromPolicies_MatchesMap_Sweep(t *testing.T) {
+	account, validatedPeers := scalableTestAccount(60, 6)
+	account.Policies = append(account.Policies, &types.Policy{
+		ID: "policy-ssh-sweep", Name: "SSH sweep", Enabled: true, AccountID: "test-account",
+		Rules: []*types.PolicyRule{{
+			ID: "rule-ssh-sweep", Name: "Allow SSH", Enabled: true,
+			Action: types.PolicyTrafficActionAccept, Protocol: types.PolicyRuleProtocolNetbirdSSH,
+			Sources: []string{"group-0"}, Destinations: []string{"group-2"},
+		}},
+	})
+	for peerID := range account.Peers {
+		account.Peers[peerID].SSHEnabled = len(peerID)%2 == 0
+	}
+
+	for peerID := range account.Peers {
+		if _, ok := validatedPeers[peerID]; !ok {
+			continue
+		}
+		assertSSHEquivalence(t, account, peerID, validatedPeers)
+	}
 }

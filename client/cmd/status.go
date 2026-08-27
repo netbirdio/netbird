@@ -6,12 +6,12 @@ import (
 	"net"
 	"net/netip"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/internal"
-	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
 	nbstatus "github.com/netbirdio/netbird/client/status"
 	"github.com/netbirdio/netbird/util"
@@ -20,6 +20,7 @@ import (
 var (
 	detailFlag           bool
 	ipv4Flag             bool
+	ipv6Flag             bool
 	jsonFlag             bool
 	yamlFlag             bool
 	ipsFilter            []string
@@ -42,15 +43,16 @@ func init() {
 	ipsFilterMap = make(map[string]struct{})
 	prefixNamesFilterMap = make(map[string]struct{})
 	statusCmd.PersistentFlags().BoolVarP(&detailFlag, "detail", "d", false, "display detailed status information in human-readable format")
-	statusCmd.PersistentFlags().BoolVar(&jsonFlag, "json", false, "display detailed status information in json format")
-	statusCmd.PersistentFlags().BoolVar(&yamlFlag, "yaml", false, "display detailed status information in yaml format")
-	statusCmd.PersistentFlags().BoolVar(&ipv4Flag, "ipv4", false, "display only NetBird IPv4 of this peer, e.g., --ipv4 will output 100.64.0.33")
-	statusCmd.MarkFlagsMutuallyExclusive("detail", "json", "yaml", "ipv4")
-	statusCmd.PersistentFlags().StringSliceVar(&ipsFilter, "filter-by-ips", []string{}, "filters the detailed output by a list of one or more IPs, e.g., --filter-by-ips 100.64.0.100,100.64.0.200")
-	statusCmd.PersistentFlags().StringSliceVar(&prefixNamesFilter, "filter-by-names", []string{}, "filters the detailed output by a list of one or more peer FQDN or hostnames, e.g., --filter-by-names peer-a,peer-b.netbird.cloud")
-	statusCmd.PersistentFlags().StringVar(&statusFilter, "filter-by-status", "", "filters the detailed output by connection status(idle|connecting|connected), e.g., --filter-by-status connected")
-	statusCmd.PersistentFlags().StringVar(&connectionTypeFilter, "filter-by-connection-type", "", "filters the detailed output by connection type (P2P|Relayed), e.g., --filter-by-connection-type P2P")
-	statusCmd.PersistentFlags().StringVar(&checkFlag, "check", "", "run a health check and exit with code 0 on success, 1 on failure (live|ready|startup)")
+	statusCmd.PersistentFlags().BoolVarP(&jsonFlag, "json", "j", false, "display detailed status information in json format")
+	statusCmd.PersistentFlags().BoolVarP(&yamlFlag, "yaml", "y", false, "display detailed status information in yaml format")
+	statusCmd.PersistentFlags().BoolVarP(&ipv4Flag, "ipv4", "4", false, "display only NetBird IPv4 of this peer, e.g., --ipv4 will output 100.64.0.33")
+	statusCmd.PersistentFlags().BoolVarP(&ipv6Flag, "ipv6", "6", false, "display only NetBird IPv6 of this peer")
+	statusCmd.MarkFlagsMutuallyExclusive("detail", "json", "yaml", "ipv4", "ipv6")
+	statusCmd.PersistentFlags().StringSliceVarP(&ipsFilter, "filter-by-ips", "I", []string{}, "filters the detailed output by a list of one or more IPs (v4 or v6), e.g., --filter-by-ips 100.64.0.100,fd00::1")
+	statusCmd.PersistentFlags().StringSliceVarP(&prefixNamesFilter, "filter-by-names", "N", []string{}, "filters the detailed output by a list of one or more peer FQDN or hostnames, e.g., --filter-by-names peer-a,peer-b.netbird.cloud")
+	statusCmd.PersistentFlags().StringVarP(&statusFilter, "filter-by-status", "S", "", "filters the detailed output by connection status(idle|connecting|connected), e.g., --filter-by-status connected")
+	statusCmd.PersistentFlags().StringVarP(&connectionTypeFilter, "filter-by-connection-type", "T", "", "filters the detailed output by connection type (P2P|Relayed), e.g., --filter-by-connection-type P2P")
+	statusCmd.PersistentFlags().StringVarP(&checkFlag, "check", "C", "", "run a health check and exit with code 0 on success, 1 on failure (live|ready|startup)")
 }
 
 func statusFunc(cmd *cobra.Command, args []string) error {
@@ -101,14 +103,32 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	pm := profilemanager.NewProfileManager()
-	var profName string
-	if activeProf, err := pm.GetActiveProfile(); err == nil {
-		profName = activeProf.Name
+	if ipv6Flag {
+		ipv6 := resp.GetFullStatus().GetLocalPeerState().GetIpv6()
+		if ipv6 != "" {
+			cmd.Print(parseInterfaceIP(ipv6))
+		}
+		return nil
+	}
+
+	// Resolve the active profile's display name via the daemon, which runs
+	// as root and can read the per-user profile files. The local profile
+	// manager only knows the active profile ID, not its display name.
+	profName := getActiveProfileName(ctx)
+
+	var sessionExpiresAt time.Time
+	if ts := resp.GetSessionExpiresAt(); ts.IsValid() {
+		sessionExpiresAt = ts.AsTime().UTC()
+	}
+
+	anonymizeEnabled, anonymizeLevel, err := effectiveAnonymize()
+	if err != nil {
+		return err
 	}
 
 	var outputInformationHolder = nbstatus.ConvertToStatusOutputOverview(resp.GetFullStatus(), nbstatus.ConvertOptions{
-		Anonymize:            anonymizeFlag,
+		Anonymize:            anonymizeEnabled,
+		AnonymizeLevel:       anonymizeLevel,
 		DaemonVersion:        resp.GetDaemonVersion(),
 		DaemonStatus:         nbstatus.ParseDaemonStatus(status),
 		StatusFilter:         statusFilter,
@@ -117,6 +137,7 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 		IPsFilter:            ipsFilterMap,
 		ConnectionTypeFilter: connectionTypeFilter,
 		ProfileName:          profName,
+		SessionExpiresAt:     sessionExpiresAt,
 	})
 	var statusOutputString string
 	switch {
@@ -155,6 +176,25 @@ func getStatus(ctx context.Context, fullPeerStatus bool, shouldRunProbes bool) (
 	}
 
 	return resp, nil
+}
+
+// getActiveProfileName asks the daemon for the active profile's display
+// name. The daemon runs as root and can read the per-user profile files to
+// resolve the ID to its human-readable name. Returns an empty string on any
+// error so status output degrades gracefully.
+func getActiveProfileName(ctx context.Context) string {
+	conn, err := DialClientGRPCServer(ctx, daemonAddr)
+	if err != nil {
+		return ""
+	}
+	defer conn.Close()
+
+	resp, err := proto.NewDaemonServiceClient(conn).GetActiveProfile(ctx, &proto.GetActiveProfileRequest{})
+	if err != nil {
+		return ""
+	}
+
+	return resp.GetProfileName()
 }
 
 func parseFilters() error {

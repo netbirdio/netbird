@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -28,12 +29,12 @@ func TestManager_SetupSSHClientConfig(t *testing.T) {
 	peers := []PeerSSHInfo{
 		{
 			Hostname: "peer1",
-			IP:       "100.125.1.1",
+			IP:       netip.MustParseAddr("100.125.1.1"),
 			FQDN:     "peer1.nb.internal",
 		},
 		{
 			Hostname: "peer2",
-			IP:       "100.125.1.2",
+			IP:       netip.MustParseAddr("100.125.1.2"),
 			FQDN:     "peer2.nb.internal",
 		},
 	}
@@ -101,7 +102,7 @@ func TestManager_PeerLimit(t *testing.T) {
 	for i := 0; i < MaxPeersForSSHConfig+10; i++ {
 		peers = append(peers, PeerSSHInfo{
 			Hostname: fmt.Sprintf("peer%d", i),
-			IP:       fmt.Sprintf("100.125.1.%d", i%254+1),
+			IP:       netip.MustParseAddr(fmt.Sprintf("100.125.1.%d", i%254+1)),
 			FQDN:     fmt.Sprintf("peer%d.nb.internal", i),
 		})
 	}
@@ -127,8 +128,8 @@ func TestManager_MatchHostFormat(t *testing.T) {
 	}
 
 	peers := []PeerSSHInfo{
-		{Hostname: "peer1", IP: "100.125.1.1", FQDN: "peer1.nb.internal"},
-		{Hostname: "peer2", IP: "100.125.1.2", FQDN: "peer2.nb.internal"},
+		{Hostname: "peer1", IP: netip.MustParseAddr("100.125.1.1"), FQDN: "peer1.nb.internal"},
+		{Hostname: "peer2", IP: netip.MustParseAddr("100.125.1.2"), FQDN: "peer2.nb.internal"},
 	}
 
 	err = manager.SetupSSHClientConfig(peers)
@@ -145,6 +146,45 @@ func TestManager_MatchHostFormat(t *testing.T) {
 	assert.NotContains(t, configStr, "\nHost ", "should not use bare Host directive")
 	assert.Contains(t, configStr, "Match host \"100.125.1.1,peer1.nb.internal,peer1,100.125.1.2,peer2.nb.internal,peer2\"",
 		"should use Match host with comma-separated patterns")
+}
+
+func TestManager_HostPatternInjection(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "netbird-ssh-config-test")
+	require.NoError(t, err)
+	defer func() { assert.NoError(t, os.RemoveAll(tempDir)) }()
+
+	manager := &Manager{
+		sshConfigDir:  filepath.Join(tempDir, "ssh_config.d"),
+		sshConfigFile: "99-netbird.conf",
+	}
+
+	// A malicious peer FQDN/hostname attempts to break out of the Match host
+	// directive and inject arbitrary ssh_config (a ProxyCommand executing a
+	// command). It must be rejected, not written to the config.
+	peers := []PeerSSHInfo{
+		{
+			Hostname: "evil\"\n    ProxyCommand touch /tmp/pwned\nHost x",
+			IP:       netip.MustParseAddr("100.125.1.1"),
+			FQDN:     "evil\"\n    ProxyCommand touch /tmp/pwned\nHost x.nb.internal",
+		},
+		{Hostname: "peer2", IP: netip.MustParseAddr("100.125.1.2"), FQDN: "peer2.nb.internal"},
+	}
+
+	err = manager.SetupSSHClientConfig(peers)
+	require.NoError(t, err)
+
+	configPath := filepath.Join(manager.sshConfigDir, manager.sshConfigFile)
+	content, err := os.ReadFile(configPath)
+	require.NoError(t, err)
+	configStr := string(content)
+
+	assert.NotContains(t, configStr, "ProxyCommand touch /tmp/pwned",
+		"injected directive must not appear in generated config")
+	assert.NotContains(t, configStr, "evil",
+		"malicious pattern must be dropped entirely")
+	// The valid peer must still be present, on a single Match host line.
+	assert.Contains(t, configStr, "Match host \"100.125.1.1,100.125.1.2,peer2.nb.internal,peer2\"",
+		"valid peers must survive, injected patterns dropped")
 }
 
 func TestManager_ForcedSSHConfig(t *testing.T) {
@@ -167,7 +207,7 @@ func TestManager_ForcedSSHConfig(t *testing.T) {
 	for i := 0; i < MaxPeersForSSHConfig+10; i++ {
 		peers = append(peers, PeerSSHInfo{
 			Hostname: fmt.Sprintf("peer%d", i),
-			IP:       fmt.Sprintf("100.125.1.%d", i%254+1),
+			IP:       netip.MustParseAddr(fmt.Sprintf("100.125.1.%d", i%254+1)),
 			FQDN:     fmt.Sprintf("peer%d.nb.internal", i),
 		})
 	}

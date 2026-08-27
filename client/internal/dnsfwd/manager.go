@@ -80,6 +80,7 @@ func (m *Manager) Start(fwdEntries []*ForwarderEntry) error {
 		return err
 	}
 
+	// IPv4-only: peers reach the forwarder via its v4 overlay address.
 	localAddr := m.wgIface.Address().IP
 
 	if localAddr.IsValid() && m.firewall != nil {
@@ -100,7 +101,7 @@ func (m *Manager) Start(fwdEntries []*ForwarderEntry) error {
 	m.dnsForwarder = NewDNSForwarder(listenAddress, dnsTTL, m.firewall, m.statusRecorder, m.wgIface)
 
 	go func() {
-		if err := m.dnsForwarder.Listen(fwdEntries); err != nil {
+		if err := m.dnsForwarder.Listen(fwdEntries); err != nil { //nolint:staticcheck
 			// todo handle close error if it is exists
 			log.Errorf("failed to start DNS forwarder, err: %v", err)
 		}

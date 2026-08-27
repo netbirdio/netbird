@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"testing"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -59,7 +60,7 @@ func TestHandleMappingStream_SyncCompleteFlag(t *testing.T) {
 	}
 
 	syncDone := false
-	err := s.handleMappingStream(context.Background(), stream, &syncDone)
+	err := s.handleMappingStream(context.Background(), stream, &syncDone, time.Time{})
 	assert.NoError(t, err)
 	assert.True(t, syncDone, "initial sync should be marked done when flag is set")
 }
@@ -79,7 +80,7 @@ func TestHandleMappingStream_NoSyncFlagDoesNotMarkDone(t *testing.T) {
 	}
 
 	syncDone := false
-	err := s.handleMappingStream(context.Background(), stream, &syncDone)
+	err := s.handleMappingStream(context.Background(), stream, &syncDone, time.Time{})
 	assert.NoError(t, err)
 	assert.False(t, syncDone, "initial sync should not be marked done without flag")
 }
@@ -97,7 +98,7 @@ func TestHandleMappingStream_NilHealthChecker(t *testing.T) {
 	}
 
 	syncDone := false
-	err := s.handleMappingStream(context.Background(), stream, &syncDone)
+	err := s.handleMappingStream(context.Background(), stream, &syncDone, time.Time{})
 	assert.NoError(t, err)
 	assert.True(t, syncDone, "sync done flag should be set even without health checker")
 }

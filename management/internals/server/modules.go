@@ -20,12 +20,14 @@ import (
 	recordsManager "github.com/netbirdio/netbird/management/internals/modules/zones/records/manager"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/account"
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/networks"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
 	"github.com/netbirdio/netbird/management/server/networks/routers"
+	"github.com/netbirdio/netbird/management/server/types"
 
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
@@ -56,13 +58,7 @@ func (s *BaseServer) GeoLocationManager() geolocation.Geolocation {
 
 func (s *BaseServer) PermissionsManager() permissions.Manager {
 	return Create(s, func() permissions.Manager {
-		manager := integrations.InitPermissionsManager(s.Store(), s.Metrics().GetMeter())
-
-		s.AfterInit(func(s *BaseServer) {
-			manager.SetAccountManager(s.AccountManager())
-		})
-
-		return manager
+		return permissions.NewManager(s.Store())
 	})
 }
 
@@ -113,30 +109,46 @@ func (s *BaseServer) AccountManager() account.Manager {
 	})
 }
 
+func isMFAEnabledForAccount(accounts []*types.Account) bool {
+	if len(accounts) != 1 {
+		return false
+	}
+
+	settings := accounts[0].Settings
+	return settings != nil && settings.LocalMfaEnabled
+}
+
 func (s *BaseServer) IdpManager() idp.Manager {
 	return Create(s, func() idp.Manager {
-		var idpManager idp.Manager
-		var err error
-
 		// Use embedded IdP service if embedded Dex is configured and enabled.
 		// Legacy IdpManager won't be used anymore even if configured.
 		embeddedEnabled := s.Config.EmbeddedIdP != nil && s.Config.EmbeddedIdP.Enabled
 		if embeddedEnabled {
-			idpManager, err = idp.NewEmbeddedIdPManager(context.Background(), s.Config.EmbeddedIdP, s.Metrics())
+			embeddedMgr, err := idp.NewEmbeddedIdPManager(context.Background(), s.Config.EmbeddedIdP, s.Metrics())
 			if err != nil {
 				log.Fatalf("failed to create embedded IDP service: %v", err)
 			}
-			return idpManager
+
+			if val := isMFAEnabledForAccount(s.Store().GetAllAccounts(context.Background())); val {
+				if err := embeddedMgr.SetMFAEnabled(context.Background(), val); err != nil {
+					log.Errorf("failed to set MFA enabled on embedded IDP: %v", err)
+				}
+			}
+
+			return embeddedMgr
 		}
 
 		// Fall back to external IdP service
 		if s.Config.IdpManagerConfig != nil {
-			idpManager, err = idp.NewManager(context.Background(), *s.Config.IdpManagerConfig, s.Metrics())
+			idpManager, err := idp.NewManager(context.Background(), *s.Config.IdpManagerConfig, s.Metrics())
 			if err != nil {
 				log.Fatalf("failed to create IDP service: %v", err)
 			}
+
+			return idpManager
 		}
-		return idpManager
+
+		return nil
 	})
 }
 
@@ -183,6 +195,24 @@ func (s *BaseServer) NetworksManager() networks.Manager {
 	})
 }
 
+func (s *BaseServer) AgentNetworkManager() agentnetwork.Manager {
+	return Create(s, func() agentnetwork.Manager {
+		mgr := agentnetwork.NewManager(
+			s.Store(),
+			s.PermissionsManager(),
+			s.AccountManager(),
+			s.ServiceProxyController(),
+		)
+		// Sweep expired agent-network access logs per account retention,
+		// reusing the reverse-proxy cleanup interval config.
+		mgr.StartAccessLogCleanup(
+			context.Background(),
+			s.Config.ReverseProxy.AccessLogCleanupIntervalHours,
+		)
+		return mgr
+	})
+}
+
 func (s *BaseServer) ZonesManager() zones.Manager {
 	return Create(s, func() zones.Manager {
 		return zonesManager.NewManager(s.Store(), s.AccountManager(), s.PermissionsManager(), s.DNSDomain())
@@ -216,4 +246,8 @@ func (s *BaseServer) ReverseProxyDomainManager() *manager.Manager {
 		m := manager.NewManager(s.Store(), s.ProxyManager(), s.PermissionsManager(), s.AccountManager())
 		return &m
 	})
+}
+
+func (s *BaseServer) IsValidChildAccount(_ context.Context, _, _, _ string) bool {
+	return false
 }

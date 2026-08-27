@@ -60,6 +60,13 @@ func getMetricsInterval() time.Duration {
 	return interval
 }
 
+// isMetricsPushEnvSet returns true if NB_METRICS_PUSH_ENABLED is explicitly set (to any value).
+// When set, the env var takes full precedence over management server configuration.
+func isMetricsPushEnvSet() bool {
+	_, set := os.LookupEnv(EnvMetricsPushEnabled)
+	return set
+}
+
 func isForceSending() bool {
 	force, _ := strconv.ParseBool(os.Getenv(EnvMetricsForceSending))
 	return force

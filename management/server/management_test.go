@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang/mock/gomock"
+	"go.uber.org/mock/gomock"
 	pb "github.com/golang/protobuf/proto" //nolint
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -216,7 +216,7 @@ func startServer(
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := server.NewAccountRequestBuffer(ctx, str)
-	networkMapController := controller.NewController(ctx, str, metrics, updateManager, requestBuffer, server.MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(str, peers.NewManager(str, permissionsManager)), config)
+	networkMapController := controller.NewController(ctx, str, metrics, updateManager, requestBuffer, server.MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(str, peers.NewManager(str, permissionsManager)), config, nil)
 
 	accountManager, err := server.BuildManager(
 		context.Background(),
@@ -255,6 +255,7 @@ func startServer(
 		nil,
 		server.MockIntegratedValidator{},
 		networkMapController,
+		nil,
 		nil,
 	)
 	if err != nil {

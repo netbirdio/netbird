@@ -7,6 +7,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/permissions"
@@ -31,8 +32,14 @@ func NewManager(store store.Store, permissionsManager permissions.Manager, geo g
 	}
 }
 
-// SaveAccessLog saves an access log entry to the database after enriching it
+// SaveAccessLog saves an access log entry to the database after enriching it.
+// Agent-network entries are flattened into their own dedicated table (queryable
+// LLM columns + group child rows) instead of the shared reverse-proxy table.
 func (m *managerImpl) SaveAccessLog(ctx context.Context, logEntry *accesslogs.AccessLogEntry) error {
+	if logEntry.AgentNetwork {
+		return agentnetwork.IngestAccessLog(ctx, m.store, logEntry)
+	}
+
 	if m.geo != nil && logEntry.GeoLocation.ConnectionIP != nil {
 		location, err := m.geo.Lookup(logEntry.GeoLocation.ConnectionIP)
 		if err != nil {
@@ -63,7 +70,7 @@ func (m *managerImpl) SaveAccessLog(ctx context.Context, logEntry *accesslogs.Ac
 
 // GetAllAccessLogs retrieves access logs for an account with pagination and filtering
 func (m *managerImpl) GetAllAccessLogs(ctx context.Context, accountID, userID string, filter *accesslogs.AccessLogFilter) ([]*accesslogs.AccessLogEntry, int64, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Read)
+	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Read)
 	if err != nil {
 		return nil, 0, status.NewPermissionValidationError(err)
 	}

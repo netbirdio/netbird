@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"os/user"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal/routemanager/dynamic"
+	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/client/ssh"
 	mgm "github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/management/domain"
@@ -56,6 +58,10 @@ var DefaultInterfaceBlacklist = []string{
 	"Tailscale", "tailscale", "docker", "veth", "br-", "lo",
 }
 
+// loadMDMPolicy is the package-level indirection used by apply() to read the
+// active MDM policy. Tests override this to inject a fake policy.
+var loadMDMPolicy = mdm.LoadPolicy
+
 // ConfigInput carries configuration changes to the client
 type ConfigInput struct {
 	ManagementURL                 string
@@ -89,18 +95,25 @@ type ConfigInput struct {
 	DisableFirewall     *bool
 	BlockLANAccess      *bool
 	BlockInbound        *bool
+	DisableIPv6         *bool
+	SyncMessageVersion  *int
 
 	DisableNotifications *bool
 
 	DNSLabels domain.List
 
-	LazyConnectionEnabled *bool
-
 	MTU *uint16
+
+	LocalMetricsEnabled *bool
+	LocalMetricsAddress *string
 }
 
 // Config Configuration type
 type Config struct {
+	// Name is the human-readable profile name shown in CLI/UI listings.
+	// It is independent of the profile's on-disk filename (which is the ID).
+	Name string
+
 	// Wireguard private key of local peer
 	PrivateKey                    string
 	PreSharedKey                  string
@@ -127,10 +140,17 @@ type Config struct {
 	DisableFirewall     bool
 	BlockLANAccess      bool
 	BlockInbound        bool
+	DisableIPv6         bool
+	SyncMessageVersion  *int
 
 	DisableNotifications *bool
 
 	DNSLabels domain.List
+
+	// LocalMetricsEnabled enables the local Prometheus /metrics endpoint.
+	LocalMetricsEnabled bool
+	// LocalMetricsAddress is the listen address of the local /metrics endpoint.
+	LocalMetricsAddress string
 
 	// SSHKey is a private SSH key in a PEM format
 	SSHKey string
@@ -168,9 +188,28 @@ type Config struct {
 
 	ClientCertKeyPair *tls.Certificate `json:"-"`
 
-	LazyConnectionEnabled bool
+	// LazyConnection is the MDM-managed lazy-connection override ("on"/"off"/"").
+	// Runtime-only: re-derived from MDM policy on each load, never persisted.
+	LazyConnection string `json:"-"`
 
 	MTU uint16
+
+	// policy is the MDM policy that produced the currently-set values for
+	// any MDM-enforced fields. Set by applyMDMPolicy at the tail of apply()
+	// and reset on every apply() invocation. Never persisted to disk.
+	// Callers query enforcement state via Policy() and the mdm.Policy API
+	// (HasKey, ManagedKeys, IsEmpty).
+	policy *mdm.Policy `json:"-"`
+}
+
+// Policy returns the MDM policy applied to this Config. Returns a non-nil
+// empty Policy when MDM enforcement is inactive; callers can always invoke
+// HasKey / ManagedKeys / IsEmpty without a nil check.
+func (config *Config) Policy() *mdm.Policy {
+	if config == nil || config.policy == nil {
+		return mdm.NewPolicy(nil)
+	}
+	return config.policy
 }
 
 var ConfigDirOverride string
@@ -245,6 +284,16 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 }
 
 func (config *Config) apply(input ConfigInput) (updated bool, err error) {
+	if config.Name != "" {
+		sanitized, err := sanitizeDisplayName(config.Name)
+		if err != nil {
+			return false, fmt.Errorf("invalid profile name: %w", err)
+		}
+		if sanitized != config.Name {
+			config.Name = sanitized
+			updated = true
+		}
+	}
 	if config.ManagementURL == nil {
 		log.Infof("using default Management URL %s", DefaultManagementURL)
 		config.ManagementURL, err = parseURL("Management URL", DefaultManagementURL)
@@ -347,7 +396,19 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if input.NetworkMonitor != nil && input.NetworkMonitor != config.NetworkMonitor {
+	if input.LocalMetricsEnabled != nil && *input.LocalMetricsEnabled != config.LocalMetricsEnabled {
+		log.Infof("switching local metrics to %t", *input.LocalMetricsEnabled)
+		config.LocalMetricsEnabled = *input.LocalMetricsEnabled
+		updated = true
+	}
+
+	if input.LocalMetricsAddress != nil && *input.LocalMetricsAddress != config.LocalMetricsAddress {
+		log.Infof("switching local metrics address to %s", *input.LocalMetricsAddress)
+		config.LocalMetricsAddress = *input.LocalMetricsAddress
+		updated = true
+	}
+
+	if input.NetworkMonitor != nil && (config.NetworkMonitor == nil || *input.NetworkMonitor != *config.NetworkMonitor) {
 		log.Infof("switching Network Monitor to %t", *input.NetworkMonitor)
 		config.NetworkMonitor = input.NetworkMonitor
 		updated = true
@@ -394,7 +455,7 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if input.ServerSSHAllowed != nil && *input.ServerSSHAllowed != *config.ServerSSHAllowed {
+	if input.ServerSSHAllowed != nil && (config.ServerSSHAllowed == nil || *input.ServerSSHAllowed != *config.ServerSSHAllowed) {
 		if *input.ServerSSHAllowed {
 			log.Infof("enabling SSH server")
 		} else {
@@ -415,7 +476,7 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if input.EnableSSHRoot != nil && input.EnableSSHRoot != config.EnableSSHRoot {
+	if input.EnableSSHRoot != nil && (config.EnableSSHRoot == nil || *input.EnableSSHRoot != *config.EnableSSHRoot) {
 		if *input.EnableSSHRoot {
 			log.Infof("enabling SSH root login")
 		} else {
@@ -425,7 +486,7 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if input.EnableSSHSFTP != nil && input.EnableSSHSFTP != config.EnableSSHSFTP {
+	if input.EnableSSHSFTP != nil && (config.EnableSSHSFTP == nil || *input.EnableSSHSFTP != *config.EnableSSHSFTP) {
 		if *input.EnableSSHSFTP {
 			log.Infof("enabling SSH SFTP subsystem")
 		} else {
@@ -435,7 +496,7 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if input.EnableSSHLocalPortForwarding != nil && input.EnableSSHLocalPortForwarding != config.EnableSSHLocalPortForwarding {
+	if input.EnableSSHLocalPortForwarding != nil && (config.EnableSSHLocalPortForwarding == nil || *input.EnableSSHLocalPortForwarding != *config.EnableSSHLocalPortForwarding) {
 		if *input.EnableSSHLocalPortForwarding {
 			log.Infof("enabling SSH local port forwarding")
 		} else {
@@ -445,7 +506,7 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if input.EnableSSHRemotePortForwarding != nil && input.EnableSSHRemotePortForwarding != config.EnableSSHRemotePortForwarding {
+	if input.EnableSSHRemotePortForwarding != nil && (config.EnableSSHRemotePortForwarding == nil || *input.EnableSSHRemotePortForwarding != *config.EnableSSHRemotePortForwarding) {
 		if *input.EnableSSHRemotePortForwarding {
 			log.Infof("enabling SSH remote port forwarding")
 		} else {
@@ -455,7 +516,7 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if input.DisableSSHAuth != nil && input.DisableSSHAuth != config.DisableSSHAuth {
+	if input.DisableSSHAuth != nil && (config.DisableSSHAuth == nil || *input.DisableSSHAuth != *config.DisableSSHAuth) {
 		if *input.DisableSSHAuth {
 			log.Infof("disabling SSH authentication")
 		} else {
@@ -465,7 +526,7 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if input.SSHJWTCacheTTL != nil && input.SSHJWTCacheTTL != config.SSHJWTCacheTTL {
+	if input.SSHJWTCacheTTL != nil && (config.SSHJWTCacheTTL == nil || *input.SSHJWTCacheTTL != *config.SSHJWTCacheTTL) {
 		log.Infof("updating SSH JWT cache TTL to %d seconds", *input.SSHJWTCacheTTL)
 		config.SSHJWTCacheTTL = input.SSHJWTCacheTTL
 		updated = true
@@ -542,7 +603,19 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if input.DisableNotifications != nil && input.DisableNotifications != config.DisableNotifications {
+	if input.DisableIPv6 != nil && *input.DisableIPv6 != config.DisableIPv6 {
+		log.Infof("setting IPv6 overlay disabled=%v", *input.DisableIPv6)
+		config.DisableIPv6 = *input.DisableIPv6
+		updated = true
+	}
+
+	if input.SyncMessageVersion != nil && *input.SyncMessageVersion != *config.SyncMessageVersion {
+		log.Infof("setting SyncMessageVersion to %v", *input.SyncMessageVersion)
+		*config.SyncMessageVersion = *input.SyncMessageVersion
+		updated = true
+	}
+
+	if input.DisableNotifications != nil && (config.DisableNotifications == nil || *input.DisableNotifications != *config.DisableNotifications) {
 		if *input.DisableNotifications {
 			log.Infof("disabling notifications")
 		} else {
@@ -587,12 +660,6 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if input.LazyConnectionEnabled != nil && *input.LazyConnectionEnabled != config.LazyConnectionEnabled {
-		log.Infof("switching lazy connection to %t", *input.LazyConnectionEnabled)
-		config.LazyConnectionEnabled = *input.LazyConnectionEnabled
-		updated = true
-	}
-
 	if input.MTU != nil && *input.MTU != config.MTU {
 		log.Infof("updating MTU to %d (old value %d)", *input.MTU, config.MTU)
 		config.MTU = *input.MTU
@@ -603,10 +670,115 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
+	// MDM is the last override layer: any key present in the policy
+	// supersedes defaults, on-disk config, env vars and CLI input.
+	config.applyMDMPolicy(loadMDMPolicy())
+
 	return updated, nil
 }
 
-// parseURL parses and validates a service URL
+// applyMDMPolicy overlays MDM-supplied values on top of the resolved Config.
+// The provided Policy is also stored on the Config so callers can later query
+// which fields are enforced. Invalid values (e.g. malformed URLs) are logged
+// and skipped to avoid bricking the client; the field keeps its previous
+// resolved value but is still marked as managed (Policy.HasKey returns true
+// for the key, so per-field rejection of user writes still applies).
+func (config *Config) applyMDMPolicy(policy *mdm.Policy) {
+	config.policy = policy
+	if policy.IsEmpty() {
+		return
+	}
+
+	// Helper: log the application of a single MDM-managed key. Values for
+	// keys in mdm.SecretKeys are redacted.
+	logApplied := func(key string, displayValue any) {
+		if _, secret := mdm.SecretKeys[key]; secret {
+			log.Infof("MDM override %s = ********** (secret)", key)
+			return
+		}
+		log.Infof("MDM override %s = %v", key, displayValue)
+	}
+
+	if v, ok := policy.GetString(mdm.KeyManagementURL); ok {
+		if u, err := parseURL("Management URL", v); err != nil {
+			log.Warnf("MDM management URL %q invalid: %v; keeping previous value", v, err)
+		} else {
+			config.ManagementURL = u
+			logApplied(mdm.KeyManagementURL, u.String())
+		}
+	}
+
+	if v, ok := policy.GetString(mdm.KeyPreSharedKey); ok {
+		// Defensive: refuse the redaction mask in case it round-tripped
+		// through a manifest by mistake.
+		if !isPreSharedKeyHidden(&v) {
+			config.PreSharedKey = v
+			logApplied(mdm.KeyPreSharedKey, "")
+		}
+	}
+
+	// applyBool collapses the per-key "read + set + log" boilerplate
+	// for every plain bool MDM key into a single helper. Keeps the
+	// outer function's cognitive complexity below SonarCube's
+	// threshold; functional behaviour is identical to the inlined
+	// branches it replaces.
+	applyBool := func(key string, setter func(bool)) {
+		v, ok := policy.GetBool(key)
+		if !ok {
+			return
+		}
+		setter(v)
+		logApplied(key, v)
+	}
+
+	applyBool(mdm.KeyAllowServerSSH, func(v bool) { bv := v; config.ServerSSHAllowed = &bv })
+	applyBool(mdm.KeyDisableClientRoutes, func(v bool) { config.DisableClientRoutes = v })
+	applyBool(mdm.KeyDisableServerRoutes, func(v bool) { config.DisableServerRoutes = v })
+	applyBool(mdm.KeyBlockInbound, func(v bool) { config.BlockInbound = v })
+	applyBool(mdm.KeyDisableAutoConnect, func(v bool) { config.DisableAutoConnect = v })
+	applyBool(mdm.KeyRosenpassEnabled, func(v bool) { config.RosenpassEnabled = v })
+	applyBool(mdm.KeyRosenpassPermissive, func(v bool) { config.RosenpassPermissive = v })
+	applyBool(mdm.KeyEnableLocalMetrics, func(v bool) { config.LocalMetricsEnabled = v })
+
+	if v, ok := policy.GetString(mdm.KeyLocalMetricsAddress); ok {
+		config.LocalMetricsAddress = v
+		logApplied(mdm.KeyLocalMetricsAddress, v)
+	}
+
+	if v, ok := policy.GetInt(mdm.KeyWireguardPort); ok {
+		// REG_DWORD is 32-bit; UDP port range is 1-65535. Clamp at the
+		// upper bound and reject obviously-invalid values to avoid the
+		// engine binding to an unusable port if the admin pushes garbage.
+		if v >= 1 && v <= 65535 {
+			config.WgPort = int(v)
+			logApplied(mdm.KeyWireguardPort, v)
+		} else {
+			log.Warnf("MDM wireguard port %d out of range [1,65535]; keeping previous value", v)
+		}
+	}
+
+	if v, ok := policy.GetBool(mdm.KeyLazyConnection); ok {
+		state := "off"
+		if v {
+			state = "on"
+		}
+		config.LazyConnection = state
+		logApplied(mdm.KeyLazyConnection, state)
+	}
+}
+
+// parseURL parses and validates the URL for the named service. The URL
+// must use the http or https scheme; if no port is present, ":443" is
+// appended for https or ":80" for http. The serviceName parameter is
+// used to contextualise error messages. On success returns the parsed
+// *url.URL; on failure returns a non-nil error.
+// ParseServiceURL normalises a service URL exactly as the config layer does when
+// it stores one, so callers comparing a requested URL against a stored one do not
+// have to reimplement the scheme validation and default-port handling.
+func ParseServiceURL(serviceName, serviceURL string) (*url.URL, error) {
+	return parseURL(serviceName, serviceURL)
+}
+
 func parseURL(serviceName, serviceURL string) (*url.URL, error) {
 	parsedMgmtURL, err := url.ParseRequestURI(serviceURL)
 	if err != nil {
@@ -751,8 +923,7 @@ func UpdateOldManagementURL(ctx context.Context, config *Config, configPath stri
 		return config, nil
 	}
 
-	newURL, err := parseURL("Management URL", fmt.Sprintf("%s://%s:%d",
-		config.ManagementURL.Scheme, defaultManagementURL.Hostname(), 443))
+	newURL, err := parseURL("Management URL", fmt.Sprintf("%s://%s", config.ManagementURL.Scheme, net.JoinHostPort(defaultManagementURL.Hostname(), "443")))
 	if err != nil {
 		return nil, err
 	}

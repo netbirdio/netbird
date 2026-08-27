@@ -3,26 +3,51 @@ package grpc
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"net/url"
 	"strings"
+	"time"
 
-	log "github.com/sirupsen/logrus"
+	"github.com/hashicorp/go-version"
+	nbversion "github.com/netbirdio/netbird/version"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	integrationsConfig "github.com/netbirdio/management-integrations/integrations/config"
+
 	"github.com/netbirdio/netbird/client/ssh/auth"
 
-	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller/cache"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/types"
-	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/management/networkmap"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/netbirdio/netbird/shared/management/proto"
-	"github.com/netbirdio/netbird/shared/sshauth"
+	"github.com/netbirdio/netbird/shared/netiputil"
 )
 
-func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken *Token, extraSettings *types.ExtraSettings) *proto.NetbirdConfig {
+const (
+	// deprecatedRemotePeersVersion is the version of Netbird that introduced the NetworkMap.RemotePeers field, deprecated in favor of RemotePeers.
+	deprecatedRemotePeersVersion = "0.29.3"
+)
+
+// precomputedDeprecatedRemotePeersConstraint is the parsed ">= 0.29.3" constraint,
+// built once at init since the bound is a compile-time constant.
+var precomputedDeprecatedRemotePeersConstraint version.Constraints
+
+func init() {
+	constraint, err := version.NewConstraint(">= " + deprecatedRemotePeersVersion)
+	if err != nil {
+		panic("parse deprecated remote peers version constraint: " + err.Error())
+	}
+	precomputedDeprecatedRemotePeersConstraint = constraint
+}
+
+// toNetbirdConfig converts the server configuration to the wire representation. It returns
+// nil when no server config is set (the fan-out network-map path) because clients treat any
+// non-nil config as authoritative: a config without a relay section is interpreted as relay
+// disabled and wipes the clients' relay URLs.
+func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken *Token, extraSettings *types.ExtraSettings, settings *nmdata.AccountSettingsInfo) *proto.NetbirdConfig {
 	if config == nil {
 		return nil
 	}
@@ -85,10 +110,16 @@ func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken
 		Relay:  relayCfg,
 	}
 
+	if settings != nil {
+		nbConfig.Metrics = &proto.MetricsConfig{
+			Enabled: settings.MetricsPushEnabled,
+		}
+	}
+
 	return nbConfig
 }
 
-func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, settings *types.Settings, httpConfig *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfig.DeviceAuthorizationFlow, enableSSH bool) *proto.PeerConfig {
+func toPeerConfig(peer *nmdata.Peer, network *nmdata.Network, dnsName string, settings *nmdata.AccountSettingsInfo, httpConfig *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfig.DeviceAuthorizationFlow, enableSSH bool, forceRoutingPeerDNS bool) *proto.PeerConfig {
 	netmask, _ := network.Net.Mask.Size()
 	fqdn := peer.FQDN(dnsName)
 
@@ -100,51 +131,72 @@ func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, set
 		sshConfig.JwtConfig = buildJWTConfig(httpConfig, deviceFlowConfig)
 	}
 
-	return &proto.PeerConfig{
+	peerConfig := &proto.PeerConfig{
 		Address:                         fmt.Sprintf("%s/%d", peer.IP.String(), netmask),
 		SshConfig:                       sshConfig,
 		Fqdn:                            fqdn,
-		RoutingPeerDnsResolutionEnabled: settings.RoutingPeerDNSResolutionEnabled,
+		RoutingPeerDnsResolutionEnabled: settings.RoutingPeerDNSResolutionEnabled || peer.ProxyMeta.Embedded || forceRoutingPeerDNS,
 		LazyConnectionEnabled:           settings.LazyConnectionEnabled,
 		AutoUpdate: &proto.AutoUpdateSettings{
 			Version:      settings.AutoUpdateVersion,
 			AlwaysUpdate: settings.AutoUpdateAlways,
 		},
 	}
+
+	if peer.SupportsIPv6() && peer.IPv6.IsValid() && network.NetV6.IP != nil {
+		ones, _ := network.NetV6.Mask.Size()
+		v6Prefix := netip.PrefixFrom(peer.IPv6.Unmap(), ones)
+		if b, err := netiputil.EncodePrefix(v6Prefix); err == nil {
+			peerConfig.AddressV6 = b
+		}
+	}
+
+	return peerConfig
 }
 
-func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfig.DeviceAuthorizationFlow, peer *nbpeer.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *cache.DNSConfigCache, settings *types.Settings, extraSettings *types.ExtraSettings, peerGroups []string, dnsFwdPort int64) *proto.SyncResponse {
+func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfig.DeviceAuthorizationFlow, peer *nmdata.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *cache.DNSConfigCache, settings *nmdata.AccountSettingsInfo, extraSettings *types.ExtraSettings, peerGroups []string, dnsFwdPort int64) *proto.SyncResponse {
+	// IPv6 data in AllowedIPs and SourcePrefixes wildcard expansion depends on
+	// whether the target peer supports IPv6. Routes and firewall rules are already
+	// filtered at the source (network map builder).
+	includeIPv6 := peer.SupportsIPv6() && peer.IPv6.IsValid()
+	useSourcePrefixes := peer.SupportsSourcePrefixes()
+	localIsProxy := peer.ProxyMeta.Embedded
+
 	response := &proto.SyncResponse{
-		PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings, httpConfig, deviceFlowConfig, networkMap.EnableSSH),
+		PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings, httpConfig, deviceFlowConfig, networkMap.EnableSSH, networkMap.ForceRoutingPeerDNSResolution),
 		NetworkMap: &proto.NetworkMap{
 			Serial:     networkMap.Network.CurrentSerial(),
-			Routes:     toProtocolRoutes(networkMap.Routes),
-			DNSConfig:  toProtocolDNSConfig(networkMap.DNSConfig, dnsCache, dnsFwdPort),
-			PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings, httpConfig, deviceFlowConfig, networkMap.EnableSSH),
+			Routes:     networkmap.ToProtocolRoutes(networkMap.Routes),
+			DNSConfig:  networkmap.ToProtocolDNSConfig(networkMap.DNSConfig, dnsCache, dnsFwdPort),
+			PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings, httpConfig, deviceFlowConfig, networkMap.EnableSSH, networkMap.ForceRoutingPeerDNSResolution),
 		},
 		Checks: toProtocolChecks(ctx, checks),
 	}
 
-	nbConfig := toNetbirdConfig(config, turnCredentials, relayCredentials, extraSettings)
+	nbConfig := toNetbirdConfig(config, turnCredentials, relayCredentials, extraSettings, settings)
 	extendedConfig := integrationsConfig.ExtendNetBirdConfig(peer.ID, peerGroups, nbConfig, extraSettings)
 	response.NetbirdConfig = extendedConfig
 
 	response.NetworkMap.PeerConfig = response.PeerConfig
 
 	remotePeers := make([]*proto.RemotePeerConfig, 0, len(networkMap.Peers)+len(networkMap.OfflinePeers))
-	remotePeers = appendRemotePeerConfig(remotePeers, networkMap.Peers, dnsName)
-	response.RemotePeers = remotePeers
+	remotePeers = networkmap.AppendRemotePeerConfig(remotePeers, networkMap.Peers, dnsName, includeIPv6, localIsProxy)
+
+	if !shouldSkipSendingDeprecatedRemotePeers(peer.Meta.WtVersion) {
+		response.RemotePeers = remotePeers
+	}
+
 	response.NetworkMap.RemotePeers = remotePeers
 	response.RemotePeersIsEmpty = len(remotePeers) == 0
 	response.NetworkMap.RemotePeersIsEmpty = response.RemotePeersIsEmpty
 
-	response.NetworkMap.OfflinePeers = appendRemotePeerConfig(nil, networkMap.OfflinePeers, dnsName)
+	response.NetworkMap.OfflinePeers = networkmap.AppendRemotePeerConfig(nil, networkMap.OfflinePeers, dnsName, includeIPv6, localIsProxy)
 
-	firewallRules := toProtocolFirewallRules(networkMap.FirewallRules)
+	firewallRules := networkmap.ToProtocolFirewallRules(networkMap.FirewallRules, includeIPv6, useSourcePrefixes)
 	response.NetworkMap.FirewallRules = firewallRules
 	response.NetworkMap.FirewallRulesIsEmpty = len(firewallRules) == 0
 
-	routesFirewallRules := toProtocolRoutesFirewallRules(networkMap.RoutesFirewallRules)
+	routesFirewallRules := networkmap.ToProtocolRoutesFirewallRules(networkMap.RoutesFirewallRules)
 	response.NetworkMap.RoutesFirewallRules = routesFirewallRules
 	response.NetworkMap.RoutesFirewallRulesIsEmpty = len(routesFirewallRules) == 0
 
@@ -157,7 +209,7 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 	}
 
 	if networkMap.AuthorizedUsers != nil {
-		hashedUsers, machineUsers := buildAuthorizedUsersProto(ctx, networkMap.AuthorizedUsers)
+		hashedUsers, machineUsers := networkmap.BuildAuthorizedUsersProto(ctx, networkMap.AuthorizedUsers)
 		userIDClaim := auth.DefaultUserIDClaim
 		if httpConfig != nil && httpConfig.AuthUserIDClaim != "" {
 			userIDClaim = httpConfig.AuthUserIDClaim
@@ -165,75 +217,49 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 		response.NetworkMap.SshAuth = &proto.SSHAuth{AuthorizedUsers: hashedUsers, MachineUsers: machineUsers, UserIDClaim: userIDClaim}
 	}
 
+	// settings == nil → field stays nil → "no info in this snapshot", client
+	// preserves the deadline it already had. settings non-nil → emit either a
+	// valid deadline or the explicit-zero "disabled" sentinel via
+	// encodeSessionExpiresAt.
+	if settings != nil {
+		response.SessionExpiresAt = encodeSessionExpiresAt(
+			peer.SessionExpiresAt(settings.PeerLoginExpirationEnabled, settings.PeerLoginExpiration),
+		)
+	}
+
 	return response
 }
 
-func buildAuthorizedUsersProto(ctx context.Context, authorizedUsers map[string]map[string]struct{}) ([][]byte, map[string]*proto.MachineUserIndexes) {
-	userIDToIndex := make(map[string]uint32)
-	var hashedUsers [][]byte
-	machineUsers := make(map[string]*proto.MachineUserIndexes, len(authorizedUsers))
-
-	for machineUser, users := range authorizedUsers {
-		indexes := make([]uint32, 0, len(users))
-		for userID := range users {
-			idx, exists := userIDToIndex[userID]
-			if !exists {
-				hash, err := sshauth.HashUserID(userID)
-				if err != nil {
-					log.WithContext(ctx).Errorf("failed to hash user id %s: %v", userID, err)
-					continue
-				}
-				idx = uint32(len(hashedUsers))
-				userIDToIndex[userID] = idx
-				hashedUsers = append(hashedUsers, hash[:])
-			}
-			indexes = append(indexes, idx)
-		}
-		machineUsers[machineUser] = &proto.MachineUserIndexes{Indexes: indexes}
+// encodeSessionExpiresAt encodes a server-side deadline into the 3-state wire
+// representation used on LoginResponse, SyncResponse and
+// ExtendAuthSessionResponse. See the proto comments on those messages.
+//
+//   - deadline.IsZero() → returns &Timestamp{} (seconds=0, nanos=0): the
+//     "expiry disabled or peer is not SSO-tracked" sentinel; the client clears
+//     its anchor.
+//   - deadline non-zero → returns timestamppb.New(deadline): the new absolute
+//     UTC deadline.
+//
+// Returning nil ("no info, preserve client's anchor") is the caller's job —
+// only meaningful on Sync builds where settings were not resolved.
+func encodeSessionExpiresAt(deadline time.Time) *timestamppb.Timestamp {
+	if deadline.IsZero() {
+		return &timestamppb.Timestamp{}
 	}
-
-	return hashedUsers, machineUsers
+	return timestamppb.New(deadline)
 }
 
-func appendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*nbpeer.Peer, dnsName string) []*proto.RemotePeerConfig {
-	for _, rPeer := range peers {
-		dst = append(dst, &proto.RemotePeerConfig{
-			WgPubKey:     rPeer.Key,
-			AllowedIps:   []string{rPeer.IP.String() + "/32"},
-			SshConfig:    &proto.SSHConfig{SshPubKey: []byte(rPeer.SSHKey)},
-			Fqdn:         rPeer.FQDN(dnsName),
-			AgentVersion: rPeer.Meta.WtVersion,
-		})
-	}
-	return dst
-}
-
-// toProtocolDNSConfig converts nbdns.Config to proto.DNSConfig using the cache
-func toProtocolDNSConfig(update nbdns.Config, cache *cache.DNSConfigCache, forwardPort int64) *proto.DNSConfig {
-	protoUpdate := &proto.DNSConfig{
-		ServiceEnable:    update.ServiceEnable,
-		CustomZones:      make([]*proto.CustomZone, 0, len(update.CustomZones)),
-		NameServerGroups: make([]*proto.NameServerGroup, 0, len(update.NameServerGroups)),
-		ForwarderPort:    forwardPort,
+func shouldSkipSendingDeprecatedRemotePeers(peerVersion string) bool {
+	if nbversion.IsDevelopmentVersion(peerVersion) {
+		return true
 	}
 
-	for _, zone := range update.CustomZones {
-		protoZone := convertToProtoCustomZone(zone)
-		protoUpdate.CustomZones = append(protoUpdate.CustomZones, protoZone)
+	peerNBVersion, err := version.NewVersion(peerVersion)
+	if err != nil {
+		return false
 	}
 
-	for _, nsGroup := range update.NameServerGroups {
-		cacheKey := nsGroup.ID
-		if cachedGroup, exists := cache.GetNameServerGroup(cacheKey); exists {
-			protoUpdate.NameServerGroups = append(protoUpdate.NameServerGroups, cachedGroup)
-		} else {
-			protoGroup := convertToProtoNameServerGroup(nsGroup)
-			cache.SetNameServerGroup(cacheKey, protoGroup)
-			protoUpdate.NameServerGroups = append(protoUpdate.NameServerGroups, protoGroup)
-		}
-	}
-
-	return protoUpdate
+	return precomputedDeprecatedRemotePeersConstraint.Check(peerNBVersion)
 }
 
 func ToResponseProto(configProto nbconfig.Protocol) proto.HostConfig_Protocol {
@@ -251,163 +277,6 @@ func ToResponseProto(configProto nbconfig.Protocol) proto.HostConfig_Protocol {
 	default:
 		panic(fmt.Errorf("unexpected config protocol type %v", configProto))
 	}
-}
-
-func toProtocolRoutes(routes []*route.Route) []*proto.Route {
-	protoRoutes := make([]*proto.Route, 0, len(routes))
-	for _, r := range routes {
-		protoRoutes = append(protoRoutes, toProtocolRoute(r))
-	}
-	return protoRoutes
-}
-
-func toProtocolRoute(route *route.Route) *proto.Route {
-	return &proto.Route{
-		ID:            string(route.ID),
-		NetID:         string(route.NetID),
-		Network:       route.Network.String(),
-		Domains:       route.Domains.ToPunycodeList(),
-		NetworkType:   int64(route.NetworkType),
-		Peer:          route.Peer,
-		Metric:        int64(route.Metric),
-		Masquerade:    route.Masquerade,
-		KeepRoute:     route.KeepRoute,
-		SkipAutoApply: route.SkipAutoApply,
-	}
-}
-
-// toProtocolFirewallRules converts the firewall rules to the protocol firewall rules.
-func toProtocolFirewallRules(rules []*types.FirewallRule) []*proto.FirewallRule {
-	result := make([]*proto.FirewallRule, len(rules))
-	for i := range rules {
-		rule := rules[i]
-
-		fwRule := &proto.FirewallRule{
-			PolicyID:  []byte(rule.PolicyID),
-			PeerIP:    rule.PeerIP,
-			Direction: getProtoDirection(rule.Direction),
-			Action:    getProtoAction(rule.Action),
-			Protocol:  getProtoProtocol(rule.Protocol),
-			Port:      rule.Port,
-		}
-
-		if shouldUsePortRange(fwRule) {
-			fwRule.PortInfo = rule.PortRange.ToProto()
-		}
-
-		result[i] = fwRule
-	}
-	return result
-}
-
-// getProtoDirection converts the direction to proto.RuleDirection.
-func getProtoDirection(direction int) proto.RuleDirection {
-	if direction == types.FirewallRuleDirectionOUT {
-		return proto.RuleDirection_OUT
-	}
-	return proto.RuleDirection_IN
-}
-
-func toProtocolRoutesFirewallRules(rules []*types.RouteFirewallRule) []*proto.RouteFirewallRule {
-	result := make([]*proto.RouteFirewallRule, len(rules))
-	for i := range rules {
-		rule := rules[i]
-		result[i] = &proto.RouteFirewallRule{
-			SourceRanges: rule.SourceRanges,
-			Action:       getProtoAction(rule.Action),
-			Destination:  rule.Destination,
-			Protocol:     getProtoProtocol(rule.Protocol),
-			PortInfo:     getProtoPortInfo(rule),
-			IsDynamic:    rule.IsDynamic,
-			Domains:      rule.Domains.ToPunycodeList(),
-			PolicyID:     []byte(rule.PolicyID),
-			RouteID:      string(rule.RouteID),
-		}
-	}
-
-	return result
-}
-
-// getProtoAction converts the action to proto.RuleAction.
-func getProtoAction(action string) proto.RuleAction {
-	if action == string(types.PolicyTrafficActionDrop) {
-		return proto.RuleAction_DROP
-	}
-	return proto.RuleAction_ACCEPT
-}
-
-// getProtoProtocol converts the protocol to proto.RuleProtocol.
-func getProtoProtocol(protocol string) proto.RuleProtocol {
-	switch types.PolicyRuleProtocolType(protocol) {
-	case types.PolicyRuleProtocolALL:
-		return proto.RuleProtocol_ALL
-	case types.PolicyRuleProtocolTCP:
-		return proto.RuleProtocol_TCP
-	case types.PolicyRuleProtocolUDP:
-		return proto.RuleProtocol_UDP
-	case types.PolicyRuleProtocolICMP:
-		return proto.RuleProtocol_ICMP
-	default:
-		return proto.RuleProtocol_UNKNOWN
-	}
-}
-
-// getProtoPortInfo converts the port info to proto.PortInfo.
-func getProtoPortInfo(rule *types.RouteFirewallRule) *proto.PortInfo {
-	var portInfo proto.PortInfo
-	if rule.Port != 0 {
-		portInfo.PortSelection = &proto.PortInfo_Port{Port: uint32(rule.Port)}
-	} else if portRange := rule.PortRange; portRange.Start != 0 && portRange.End != 0 {
-		portInfo.PortSelection = &proto.PortInfo_Range_{
-			Range: &proto.PortInfo_Range{
-				Start: uint32(portRange.Start),
-				End:   uint32(portRange.End),
-			},
-		}
-	}
-	return &portInfo
-}
-
-func shouldUsePortRange(rule *proto.FirewallRule) bool {
-	return rule.Port == "" && (rule.Protocol == proto.RuleProtocol_UDP || rule.Protocol == proto.RuleProtocol_TCP)
-}
-
-// Helper function to convert nbdns.CustomZone to proto.CustomZone
-func convertToProtoCustomZone(zone nbdns.CustomZone) *proto.CustomZone {
-	protoZone := &proto.CustomZone{
-		Domain:               zone.Domain,
-		Records:              make([]*proto.SimpleRecord, 0, len(zone.Records)),
-		SearchDomainDisabled: zone.SearchDomainDisabled,
-		NonAuthoritative:     zone.NonAuthoritative,
-	}
-	for _, record := range zone.Records {
-		protoZone.Records = append(protoZone.Records, &proto.SimpleRecord{
-			Name:  record.Name,
-			Type:  int64(record.Type),
-			Class: record.Class,
-			TTL:   int64(record.TTL),
-			RData: record.RData,
-		})
-	}
-	return protoZone
-}
-
-// Helper function to convert nbdns.NameServerGroup to proto.NameServerGroup
-func convertToProtoNameServerGroup(nsGroup *nbdns.NameServerGroup) *proto.NameServerGroup {
-	protoGroup := &proto.NameServerGroup{
-		Primary:              nsGroup.Primary,
-		Domains:              nsGroup.Domains,
-		SearchDomainsEnabled: nsGroup.SearchDomainsEnabled,
-		NameServers:          make([]*proto.NameServer, 0, len(nsGroup.NameServers)),
-	}
-	for _, ns := range nsGroup.NameServers {
-		protoGroup.NameServers = append(protoGroup.NameServers, &proto.NameServer{
-			IP:     ns.IP.String(),
-			Port:   int64(ns.Port),
-			NSType: int64(ns.NSType),
-		})
-	}
-	return protoGroup
 }
 
 // buildJWTConfig constructs JWT configuration for SSH servers from management server config
@@ -443,7 +312,7 @@ func buildJWTConfig(config *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfi
 
 	return &proto.JWTConfig{
 		Issuer:       issuer,
-		Audience:     audience,
+		Audience:     audience, //nolint:staticcheck
 		Audiences:    audiences,
 		KeysLocation: keysLocation,
 	}

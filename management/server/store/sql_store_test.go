@@ -6,10 +6,10 @@ import (
 	b64 "encoding/base64"
 	"encoding/binary"
 	"fmt"
-	"math/rand"
 	"net"
 	"net/netip"
 	"os"
+	"reflect"
 	"runtime"
 	"sort"
 	"sync"
@@ -35,6 +35,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/util"
 	nbroute "github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/status"
+	"github.com/netbirdio/netbird/shared/testing_helpers"
 	"github.com/netbirdio/netbird/util/crypt"
 )
 
@@ -46,6 +47,7 @@ func runTestForAllEngines(t *testing.T, testDataFile string, f func(t *testing.T
 		}
 		t.Setenv("NETBIRD_STORE_ENGINE", string(engine))
 		store, cleanUp, err := NewTestStoreFromSQL(context.Background(), testDataFile, t.TempDir())
+		assert.NoError(t, err, "engine: ", string(engine))
 		t.Cleanup(cleanUp)
 		assert.NoError(t, err)
 		t.Run(string(engine), func(t *testing.T) {
@@ -92,13 +94,14 @@ func runLargeTest(t *testing.T, store Store) {
 	account.SetupKeys[setupKey.Key] = setupKey
 	const numPerAccount = 6000
 	for n := 0; n < numPerAccount; n++ {
-		netIP := randomIPv4()
+		netIP := sequentialIPv4(n)
 		peerID := fmt.Sprintf("%s-peer-%d", account.Id, n)
+		addr, _ := netip.AddrFromSlice(netIP)
 
 		peer := &nbpeer.Peer{
 			ID:         peerID,
 			Key:        peerID,
-			IP:         netIP,
+			IP:         addr.Unmap(),
 			Name:       peerID,
 			DNSLabel:   peerID,
 			UserID:     "testuser",
@@ -215,12 +218,12 @@ func runLargeTest(t *testing.T, store Store) {
 	}
 }
 
-func randomIPv4() net.IP {
-	rand.New(rand.NewSource(time.Now().UnixNano()))
+// sequentialIPv4 returns a unique IPv4 address for the given index, avoiding
+// the random collisions that would otherwise violate the unique (account_id, ip)
+// index when generating a large number of peers.
+func sequentialIPv4(n int) net.IP {
 	b := make([]byte, 4)
-	for i := range b {
-		b[i] = byte(rand.Intn(256))
-	}
+	binary.BigEndian.PutUint32(b, 0x0A000000+uint32(n))
 	return net.IP(b)
 }
 
@@ -235,7 +238,8 @@ func Test_SaveAccount(t *testing.T) {
 		account.SetupKeys[setupKey.Key] = setupKey
 		account.Peers["testpeer"] = &nbpeer.Peer{
 			Key:    "peerkey",
-			IP:     net.IP{127, 0, 0, 1},
+			IP:     netip.AddrFrom4([4]byte{127, 0, 0, 1}),
+			IPv6:   netip.MustParseAddr("fd00::1"),
 			Meta:   nbpeer.PeerSystemMeta{},
 			Name:   "peer name",
 			Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
@@ -249,7 +253,8 @@ func Test_SaveAccount(t *testing.T) {
 		account2.SetupKeys[setupKey.Key] = setupKey
 		account2.Peers["testpeer2"] = &nbpeer.Peer{
 			Key:    "peerkey2",
-			IP:     net.IP{127, 0, 0, 2},
+			IP:     netip.AddrFrom4([4]byte{127, 0, 0, 2}),
+			IPv6:   netip.MustParseAddr("fd00::2"),
 			Meta:   nbpeer.PeerSystemMeta{},
 			Name:   "peer name 2",
 			Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
@@ -294,6 +299,53 @@ func Test_SaveAccount(t *testing.T) {
 	})
 }
 
+func Test_AccountSettings_SaveAndRetrieve(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
+	}
+
+	populateFields := testing_helpers.NewPopulateFields().WithCustomFieldSetter(
+		reflect.PointerTo(reflect.TypeOf(types.ExtraSettings{})), func(this *testing_helpers.PopulateFields, field reflect.Value) (int, error) {
+			es := types.ExtraSettings{}
+			reflectedEs := reflect.ValueOf(&es).Elem()
+			n, err := this.PopulateAll(reflectedEs)
+			if err != nil {
+				return n, err
+			}
+			field.Set(reflectedEs.Addr())
+			return n, nil
+		}).WithCustomFieldSetter(
+		reflect.PointerTo(reflect.TypeOf(types.DashboardFeatures{})), func(this *testing_helpers.PopulateFields, field reflect.Value) (int, error) {
+			t := true
+			df := types.DashboardFeatures{AgentNetwork: &t}
+			reflectedDf := reflect.ValueOf(&df).Elem()
+			field.Set(reflectedDf.Addr())
+			return 1, nil
+		}).WithSkippedTag("gorm", "-")
+
+	runTestForAllEngines(t, "", func(t *testing.T, store Store) {
+		account := newAccountWithId(context.Background(), "account_id", "testuser", "")
+		setupKey, _ := types.GenerateDefaultSetupKey()
+		account.SetupKeys[setupKey.Key] = setupKey
+
+		settings := types.Settings{}
+		numOfExportedFields, err := populateFields.PopulateAll(reflect.ValueOf(&settings).Elem())
+		assert.NoError(t, err)
+		assert.Equal(t, 27, numOfExportedFields)
+		account.Settings = &settings
+
+		err = store.SaveAccount(context.Background(), account)
+		assert.NoError(t, err)
+
+		accountFromDb, err := store.GetAccount(context.Background(), account.Id)
+		assert.NoError(t, err)
+		assert.NotNil(t, accountFromDb)
+		assert.NotNil(t, accountFromDb.Settings)
+
+		assert.True(t, reflect.DeepEqual(&settings, accountFromDb.Settings), "created settings and settings retrieved from the db should match")
+	})
+}
+
 func TestSqlite_DeleteAccount(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
@@ -316,7 +368,8 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 	account.SetupKeys[setupKey.Key] = setupKey
 	account.Peers["testpeer"] = &nbpeer.Peer{
 		Key:    "peerkey",
-		IP:     net.IP{127, 0, 0, 1},
+		IP:     netip.AddrFrom4([4]byte{127, 0, 0, 1}),
+		IPv6:   netip.MustParseAddr("fd00::1"),
 		Meta:   nbpeer.PeerSystemMeta{},
 		Name:   "peer name",
 		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
@@ -487,53 +540,82 @@ func Test_GetAccount(t *testing.T) {
 	})
 }
 
+// TestSqlStore_GetPeerByIP_NotFound pins the not-found semantics the
+// proxy's ValidateTunnelPeer relies on: a tunnel-IP that isn't in the
+// account roster must surface as a NotFound error (not a generic
+// Internal) so callers can distinguish an expected miss from a real
+// store failure. A known IP still resolves.
+func TestSqlStore_GetPeerByIP_NotFound(t *testing.T) {
+	runTestForAllEngines(t, "../testdata/store.sql", func(t *testing.T, store Store) {
+		const accountID = "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+		peer, err := store.GetPeerByIP(context.Background(), LockingStrengthNone, accountID, net.ParseIP("192.168.0.0"))
+		require.NoError(t, err, "known tunnel IP must resolve")
+		require.NotNil(t, peer)
+
+		_, err = store.GetPeerByIP(context.Background(), LockingStrengthNone, accountID, net.ParseIP("100.65.0.99"))
+		require.Error(t, err, "unknown tunnel IP must error")
+		parsedErr, ok := status.FromError(err)
+		require.True(t, ok, "error must be a status error")
+		require.Equal(t, status.NotFound, parsedErr.Type(), "tunnel-IP miss must be NotFound, not Internal")
+	})
+}
+
 func TestSqlStore_SavePeer(t *testing.T) {
-	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
-	t.Cleanup(cleanUp)
-	assert.NoError(t, err)
+	populateFields := testing_helpers.NewPopulateFields()
 
-	account, err := store.GetAccount(context.Background(), "bf1c8084-ba50-4ce7-9439-34653001fc3b")
-	require.NoError(t, err)
+	runTestForAllEngines(t, "../testdata/store.sql", func(t *testing.T, store Store) {
+		account, err := store.GetAccount(context.Background(), "bf1c8084-ba50-4ce7-9439-34653001fc3b")
+		require.NoError(t, err)
 
-	// save status of non-existing peer
-	peer := &nbpeer.Peer{
-		Key:       "peerkey",
-		ID:        "testpeer",
-		IP:        net.IP{127, 0, 0, 1},
-		Meta:      nbpeer.PeerSystemMeta{Hostname: "testingpeer"},
-		Name:      "peer name",
-		Status:    &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
-		CreatedAt: time.Now().UTC(),
-	}
-	ctx := context.Background()
-	err = store.SavePeer(ctx, account.Id, peer)
-	assert.Error(t, err)
-	parsedErr, ok := status.FromError(err)
-	require.True(t, ok)
-	require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
+		metadata := nbpeer.PeerSystemMeta{}
+		reflectedMetadata := reflect.ValueOf(&metadata).Elem()
 
-	// save new status of existing peer
-	account.Peers[peer.ID] = peer
+		numOfFields, err := populateFields.PopulateAll(reflectedMetadata)
+		assert.NoError(t, err)
+		assert.Equal(t, 32, numOfFields)
 
-	err = store.SaveAccount(context.Background(), account)
-	require.NoError(t, err)
+		// save status of non-existing peer
+		peer := &nbpeer.Peer{
+			Key:       "peerkey",
+			ID:        "testpeer",
+			IP:        netip.AddrFrom4([4]byte{127, 0, 0, 1}),
+			IPv6:      netip.MustParseAddr("fd00::1"),
+			Meta:      metadata, //nbpeer.PeerSystemMeta{Hostname: "testingpeer"},
+			Name:      "peer name",
+			Status:    &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
+			CreatedAt: time.Now().UTC(),
+		}
+		ctx := context.Background()
+		err = store.SavePeer(ctx, account.Id, peer)
+		assert.Error(t, err)
+		parsedErr, ok := status.FromError(err)
+		require.True(t, ok)
+		require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
 
-	updatedPeer := peer.Copy()
-	updatedPeer.Status.Connected = false
-	updatedPeer.Meta.Hostname = "updatedpeer"
+		// save new status of existing peer
+		account.Peers[peer.ID] = peer
 
-	err = store.SavePeer(ctx, account.Id, updatedPeer)
-	require.NoError(t, err)
+		err = store.SaveAccount(context.Background(), account)
+		require.NoError(t, err)
 
-	account, err = store.GetAccount(context.Background(), account.Id)
-	require.NoError(t, err)
+		updatedPeer := peer.Copy()
+		updatedPeer.Status.Connected = false
+		updatedPeer.Meta.Hostname = "updatedpeer"
 
-	actual := account.Peers[peer.ID]
-	assert.Equal(t, updatedPeer.Meta, actual.Meta)
-	assert.Equal(t, updatedPeer.Status.Connected, actual.Status.Connected)
-	assert.Equal(t, updatedPeer.Status.LoginExpired, actual.Status.LoginExpired)
-	assert.Equal(t, updatedPeer.Status.RequiresApproval, actual.Status.RequiresApproval)
-	assert.WithinDurationf(t, updatedPeer.Status.LastSeen, actual.Status.LastSeen.UTC(), time.Millisecond, "LastSeen should be equal")
+		err = store.SavePeer(ctx, account.Id, updatedPeer)
+		require.NoError(t, err)
+
+		account, err = store.GetAccount(context.Background(), account.Id)
+		require.NoError(t, err)
+
+		actual := account.Peers[peer.ID]
+		assert.Equal(t, updatedPeer.Meta, actual.Meta)
+		assert.Equal(t, updatedPeer.Status.Connected, actual.Status.Connected)
+		assert.Equal(t, updatedPeer.Status.LoginExpired, actual.Status.LoginExpired)
+		assert.Equal(t, updatedPeer.Status.RequiresApproval, actual.Status.RequiresApproval)
+		assert.WithinDurationf(t, updatedPeer.Status.LastSeen, actual.Status.LastSeen.UTC(), time.Millisecond, "LastSeen should be equal")
+	})
 }
 
 func TestSqlStore_SavePeerStatus(t *testing.T) {
@@ -556,7 +638,8 @@ func TestSqlStore_SavePeerStatus(t *testing.T) {
 	account.Peers["testpeer"] = &nbpeer.Peer{
 		Key:    "peerkey",
 		ID:     "testpeer",
-		IP:     net.IP{127, 0, 0, 1},
+		IP:     netip.AddrFrom4([4]byte{127, 0, 0, 1}),
+		IPv6:   netip.MustParseAddr("fd00::1"),
 		Meta:   nbpeer.PeerSystemMeta{},
 		Name:   "peer name",
 		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
@@ -590,56 +673,6 @@ func TestSqlStore_SavePeerStatus(t *testing.T) {
 	assert.Equal(t, newStatus.LoginExpired, actual.LoginExpired)
 	assert.Equal(t, newStatus.RequiresApproval, actual.RequiresApproval)
 	assert.WithinDurationf(t, newStatus.LastSeen, actual.LastSeen.UTC(), time.Millisecond, "LastSeen should be equal")
-}
-
-func TestSqlStore_SavePeerLocation(t *testing.T) {
-	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
-	t.Cleanup(cleanUp)
-	assert.NoError(t, err)
-
-	account, err := store.GetAccount(context.Background(), "bf1c8084-ba50-4ce7-9439-34653001fc3b")
-	require.NoError(t, err)
-
-	peer := &nbpeer.Peer{
-		AccountID: account.Id,
-		ID:        "testpeer",
-		Location: nbpeer.Location{
-			ConnectionIP: net.ParseIP("0.0.0.0"),
-			CountryCode:  "YY",
-			CityName:     "City",
-			GeoNameID:    1,
-		},
-		CreatedAt: time.Now().UTC(),
-		Meta:      nbpeer.PeerSystemMeta{},
-	}
-	// error is expected as peer is not in store yet
-	err = store.SavePeerLocation(context.Background(), account.Id, peer)
-	assert.Error(t, err)
-
-	account.Peers[peer.ID] = peer
-	err = store.SaveAccount(context.Background(), account)
-	require.NoError(t, err)
-
-	peer.Location.ConnectionIP = net.ParseIP("35.1.1.1")
-	peer.Location.CountryCode = "DE"
-	peer.Location.CityName = "Berlin"
-	peer.Location.GeoNameID = 2950159
-
-	err = store.SavePeerLocation(context.Background(), account.Id, account.Peers[peer.ID])
-	assert.NoError(t, err)
-
-	account, err = store.GetAccount(context.Background(), account.Id)
-	require.NoError(t, err)
-
-	actual := account.Peers[peer.ID].Location
-	assert.Equal(t, peer.Location, actual)
-
-	peer.ID = "non-existing-peer"
-	err = store.SavePeerLocation(context.Background(), account.Id, peer)
-	assert.Error(t, err)
-	parsedErr, ok := status.FromError(err)
-	require.True(t, ok)
-	require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
 }
 
 func Test_TestGetAccountByPrivateDomain(t *testing.T) {
@@ -784,7 +817,8 @@ func newAccount(store Store, id int) error {
 	account.SetupKeys[setupKey.Key] = setupKey
 	account.Peers["p"+str] = &nbpeer.Peer{
 		Key:    "peerkey" + str,
-		IP:     net.IP{127, 0, 0, 1},
+		IP:     netip.AddrFrom4([4]byte{127, 0, 0, 1}),
+		IPv6:   netip.MustParseAddr("fd00::1"),
 		Meta:   nbpeer.PeerSystemMeta{},
 		Name:   "peer name",
 		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
@@ -823,7 +857,8 @@ func TestPostgresql_SaveAccount(t *testing.T) {
 	account.SetupKeys[setupKey.Key] = setupKey
 	account.Peers["testpeer"] = &nbpeer.Peer{
 		Key:    "peerkey",
-		IP:     net.IP{127, 0, 0, 1},
+		IP:     netip.AddrFrom4([4]byte{127, 0, 0, 1}),
+		IPv6:   netip.MustParseAddr("fd00::1"),
 		Meta:   nbpeer.PeerSystemMeta{},
 		Name:   "peer name",
 		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
@@ -837,7 +872,8 @@ func TestPostgresql_SaveAccount(t *testing.T) {
 	account2.SetupKeys[setupKey.Key] = setupKey
 	account2.Peers["testpeer2"] = &nbpeer.Peer{
 		Key:    "peerkey2",
-		IP:     net.IP{127, 0, 0, 2},
+		IP:     netip.AddrFrom4([4]byte{127, 0, 0, 2}),
+		IPv6:   netip.MustParseAddr("fd00::2"),
 		Meta:   nbpeer.PeerSystemMeta{},
 		Name:   "peer name 2",
 		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
@@ -903,7 +939,8 @@ func TestPostgresql_DeleteAccount(t *testing.T) {
 	account.SetupKeys[setupKey.Key] = setupKey
 	account.Peers["testpeer"] = &nbpeer.Peer{
 		Key:    "peerkey",
-		IP:     net.IP{127, 0, 0, 1},
+		IP:     netip.AddrFrom4([4]byte{127, 0, 0, 1}),
+		IPv6:   netip.MustParseAddr("fd00::1"),
 		Meta:   nbpeer.PeerSystemMeta{},
 		Name:   "peer name",
 		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
@@ -1010,37 +1047,39 @@ func TestSqlite_GetTakenIPs(t *testing.T) {
 
 	takenIPs, err := store.GetTakenIPs(context.Background(), LockingStrengthNone, existingAccountID)
 	require.NoError(t, err)
-	assert.Equal(t, []net.IP{}, takenIPs)
+	assert.Equal(t, []netip.Addr{}, takenIPs)
 
 	peer1 := &nbpeer.Peer{
 		ID:        "peer1",
 		AccountID: existingAccountID,
 		Key:       "key1",
 		DNSLabel:  "peer1",
-		IP:        net.IP{1, 1, 1, 1},
+		IP:        netip.AddrFrom4([4]byte{1, 1, 1, 1}),
+		IPv6:      netip.MustParseAddr("fd00::1:1:1:1"),
 	}
 	err = store.AddPeerToAccount(context.Background(), peer1)
 	require.NoError(t, err)
 
 	takenIPs, err = store.GetTakenIPs(context.Background(), LockingStrengthNone, existingAccountID)
 	require.NoError(t, err)
-	ip1 := net.IP{1, 1, 1, 1}.To16()
-	assert.Equal(t, []net.IP{ip1}, takenIPs)
+	ip1 := netip.AddrFrom4([4]byte{1, 1, 1, 1})
+	assert.Equal(t, []netip.Addr{ip1}, takenIPs)
 
 	peer2 := &nbpeer.Peer{
 		ID:        "peer1second",
 		AccountID: existingAccountID,
 		Key:       "key2",
 		DNSLabel:  "peer1-1",
-		IP:        net.IP{2, 2, 2, 2},
+		IP:        netip.AddrFrom4([4]byte{2, 2, 2, 2}),
+		IPv6:      netip.MustParseAddr("fd00::2:2:2:2"),
 	}
 	err = store.AddPeerToAccount(context.Background(), peer2)
 	require.NoError(t, err)
 
 	takenIPs, err = store.GetTakenIPs(context.Background(), LockingStrengthNone, existingAccountID)
 	require.NoError(t, err)
-	ip2 := net.IP{2, 2, 2, 2}.To16()
-	assert.Equal(t, []net.IP{ip1, ip2}, takenIPs)
+	ip2 := netip.AddrFrom4([4]byte{2, 2, 2, 2})
+	assert.Equal(t, []netip.Addr{ip1, ip2}, takenIPs)
 }
 
 func TestSqlite_GetPeerLabelsInAccount(t *testing.T) {
@@ -1060,7 +1099,8 @@ func TestSqlite_GetPeerLabelsInAccount(t *testing.T) {
 			AccountID: existingAccountID,
 			Key:       "key1",
 			DNSLabel:  "peer1",
-			IP:        net.IP{1, 1, 1, 1},
+			IP:        netip.AddrFrom4([4]byte{1, 1, 1, 1}),
+			IPv6:      netip.MustParseAddr("fd00::1:1:1:1"),
 		}
 		err = store.AddPeerToAccount(context.Background(), peer1)
 		require.NoError(t, err)
@@ -1074,7 +1114,8 @@ func TestSqlite_GetPeerLabelsInAccount(t *testing.T) {
 			AccountID: existingAccountID,
 			Key:       "key2",
 			DNSLabel:  "peer1-1",
-			IP:        net.IP{2, 2, 2, 2},
+			IP:        netip.AddrFrom4([4]byte{2, 2, 2, 2}),
+			IPv6:      netip.MustParseAddr("fd00::2:2:2:2"),
 		}
 		err = store.AddPeerToAccount(context.Background(), peer2)
 		require.NoError(t, err)
@@ -1127,7 +1168,8 @@ func Test_AddPeerWithSameIP(t *testing.T) {
 			ID:        "peer1",
 			AccountID: existingAccountID,
 			Key:       "key1",
-			IP:        net.IP{1, 1, 1, 1},
+			IP:        netip.AddrFrom4([4]byte{1, 1, 1, 1}),
+			IPv6:      netip.MustParseAddr("fd00::1:1:1:1"),
 		}
 		err = store.AddPeerToAccount(context.Background(), peer1)
 		require.NoError(t, err)
@@ -1136,7 +1178,8 @@ func Test_AddPeerWithSameIP(t *testing.T) {
 			ID:        "peer1second",
 			AccountID: existingAccountID,
 			Key:       "key2",
-			IP:        net.IP{1, 1, 1, 1},
+			IP:        netip.AddrFrom4([4]byte{1, 1, 1, 1}),
+			IPv6:      netip.MustParseAddr("fd00::2:2:2:2"),
 		}
 		err = store.AddPeerToAccount(context.Background(), peer2)
 		require.Error(t, err)
@@ -1257,6 +1300,61 @@ func TestSqlite_CreateAndGetObjectInTransaction(t *testing.T) {
 		return nil
 	})
 	assert.NoError(t, err)
+}
+
+func TestSqlStore_SaveAccountPersistsAgentNetworkOnly(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	account, err := store.GetAccount(context.Background(), accountID)
+	require.NoError(t, err)
+	require.False(t, account.Settings.AgentNetworkOnly, "setting should default to false")
+
+	account.Settings.AgentNetworkOnly = true
+	require.NoError(t, store.SaveAccount(context.Background(), account))
+
+	reloaded, err := store.GetAccount(context.Background(), accountID)
+	require.NoError(t, err)
+	require.True(t, reloaded.Settings.AgentNetworkOnly, "setting should survive a save/load round-trip")
+
+	reloaded.Settings.AgentNetworkOnly = false
+	require.NoError(t, store.SaveAccount(context.Background(), reloaded))
+
+	disabled, err := store.GetAccount(context.Background(), accountID)
+	require.NoError(t, err)
+	require.False(t, disabled.Settings.AgentNetworkOnly, "disabling should persist")
+}
+
+func TestSqlStore_SaveAccountPersistsDashboardFeatures(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	account, err := store.GetAccount(context.Background(), accountID)
+	require.NoError(t, err)
+	require.Nil(t, account.Settings.DashboardFeatures, "dashboard features should default to unset")
+
+	agentNetwork := true
+	account.Settings.DashboardFeatures = &types.DashboardFeatures{AgentNetwork: &agentNetwork}
+	require.NoError(t, store.SaveAccount(context.Background(), account))
+
+	reloaded, err := store.GetAccount(context.Background(), accountID)
+	require.NoError(t, err)
+	require.NotNil(t, reloaded.Settings.DashboardFeatures, "dashboard features should survive a save/load round-trip")
+	require.NotNil(t, reloaded.Settings.DashboardFeatures.AgentNetwork, "agent network flag should be set")
+	require.True(t, *reloaded.Settings.DashboardFeatures.AgentNetwork, "agent network flag should persist as true")
+
+	disabled := false
+	reloaded.Settings.DashboardFeatures = &types.DashboardFeatures{AgentNetwork: &disabled}
+	require.NoError(t, store.SaveAccount(context.Background(), reloaded))
+
+	reloadedDisabled, err := store.GetAccount(context.Background(), accountID)
+	require.NoError(t, err)
+	require.NotNil(t, reloadedDisabled.Settings.DashboardFeatures.AgentNetwork, "agent network flag should remain set")
+	require.False(t, *reloadedDisabled.Settings.DashboardFeatures.AgentNetwork, "explicit false should persist")
 }
 
 func TestSqlStore_GetAccountUsers(t *testing.T) {
@@ -2383,7 +2481,7 @@ func TestSqlStore_GetNetworkRouterByID(t *testing.T) {
 	}
 }
 
-func TestSqlStore_SaveNetworkRouter(t *testing.T) {
+func TestSqlStore_CreateNetworkRouter(t *testing.T) {
 	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
@@ -2394,12 +2492,45 @@ func TestSqlStore_SaveNetworkRouter(t *testing.T) {
 	netRouter, err := routerTypes.NewNetworkRouter(accountID, networkID, "", []string{"net-router-grp"}, true, 0, true)
 	require.NoError(t, err)
 
-	err = store.SaveNetworkRouter(context.Background(), netRouter)
+	err = store.CreateNetworkRouter(context.Background(), netRouter)
 	require.NoError(t, err)
 
 	savedNetRouter, err := store.GetNetworkRouterByID(context.Background(), LockingStrengthNone, accountID, netRouter.ID)
 	require.NoError(t, err)
 	require.Equal(t, netRouter, savedNetRouter)
+}
+
+func TestSqlStore_UpdateNetworkRouter(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	networkID := "ct286bi7qv930dsrrug0"
+	routerID := "ctc20ji7qv9ck2sebc80"
+
+	netRouter := &routerTypes.NetworkRouter{
+		ID:         routerID,
+		AccountID:  accountID,
+		NetworkID:  networkID,
+		Peer:       "",
+		PeerGroups: []string{"net-router-grp"},
+		Masquerade: true,
+		Metric:     42,
+		Enabled:    true,
+	}
+
+	err = store.UpdateNetworkRouter(context.Background(), netRouter)
+	require.NoError(t, err)
+
+	savedNetRouter, err := store.GetNetworkRouterByID(context.Background(), LockingStrengthNone, accountID, routerID)
+	require.NoError(t, err)
+	require.Equal(t, netRouter, savedNetRouter)
+
+	// Updating a router under a different account must not match any row.
+	netRouter.AccountID = "non-existent-account"
+	err = store.UpdateNetworkRouter(context.Background(), netRouter)
+	require.Error(t, err)
 }
 
 func TestSqlStore_DeleteNetworkRouter(t *testing.T) {
@@ -2640,7 +2771,8 @@ func TestSqlStore_AddPeerToAccount(t *testing.T) {
 		ID:        "peer1",
 		AccountID: accountID,
 		Key:       "key",
-		IP:        net.IP{1, 1, 1, 1},
+		IP:        netip.AddrFrom4([4]byte{1, 1, 1, 1}),
+		IPv6:      netip.MustParseAddr("fd00::1:1:1:1"),
 		Meta: nbpeer.PeerSystemMeta{
 			Hostname:  "hostname",
 			GoOS:      "linux",
@@ -3815,10 +3947,10 @@ func BenchmarkGetAccountPeers(b *testing.B) {
 	}
 }
 
-func intToIPv4(n uint32) net.IP {
-	ip := make(net.IP, 4)
-	binary.BigEndian.PutUint32(ip, n)
-	return ip
+func intToIPv4(n uint32) netip.Addr {
+	var b [4]byte
+	binary.BigEndian.PutUint32(b[:], n)
+	return netip.AddrFrom4(b)
 }
 
 func TestSqlStore_GetPeersByGroupIDs(t *testing.T) {
@@ -3945,7 +4077,8 @@ func TestSqlStore_GetUserIDByPeerKey(t *testing.T) {
 		Key:       peerKey,
 		AccountID: existingAccountID,
 		UserID:    userID,
-		IP:        net.IP{10, 0, 0, 1},
+		IP:        netip.AddrFrom4([4]byte{10, 0, 0, 1}),
+		IPv6:      netip.MustParseAddr("fd00::a00:1"),
 		DNSLabel:  "test-peer-1",
 	}
 
@@ -3982,7 +4115,8 @@ func TestSqlStore_GetUserIDByPeerKey_NoUserID(t *testing.T) {
 		Key:       peerKey,
 		AccountID: existingAccountID,
 		UserID:    "",
-		IP:        net.IP{10, 0, 0, 1},
+		IP:        netip.AddrFrom4([4]byte{10, 0, 0, 1}),
+		IPv6:      netip.MustParseAddr("fd00::a00:1"),
 		DNSLabel:  "test-peer-1",
 	}
 
@@ -4009,7 +4143,8 @@ func TestSqlStore_ApproveAccountPeers(t *testing.T) {
 				AccountID: accountID,
 				DNSLabel:  "peer1.netbird.cloud",
 				Key:       "peer1-key",
-				IP:        net.ParseIP("100.64.0.1"),
+				IP:        netip.MustParseAddr("100.64.0.1"),
+				IPv6:      netip.MustParseAddr("fd00::1"),
 				Status: &nbpeer.PeerStatus{
 					RequiresApproval: true,
 					LastSeen:         time.Now().UTC(),
@@ -4020,7 +4155,8 @@ func TestSqlStore_ApproveAccountPeers(t *testing.T) {
 				AccountID: accountID,
 				DNSLabel:  "peer2.netbird.cloud",
 				Key:       "peer2-key",
-				IP:        net.ParseIP("100.64.0.2"),
+				IP:        netip.MustParseAddr("100.64.0.2"),
+				IPv6:      netip.MustParseAddr("fd00::2"),
 				Status: &nbpeer.PeerStatus{
 					RequiresApproval: true,
 					LastSeen:         time.Now().UTC(),
@@ -4031,7 +4167,8 @@ func TestSqlStore_ApproveAccountPeers(t *testing.T) {
 				AccountID: accountID,
 				DNSLabel:  "peer3.netbird.cloud",
 				Key:       "peer3-key",
-				IP:        net.ParseIP("100.64.0.3"),
+				IP:        netip.MustParseAddr("100.64.0.3"),
+				IPv6:      netip.MustParseAddr("fd00::3"),
 				Status: &nbpeer.PeerStatus{
 					RequiresApproval: false,
 					LastSeen:         time.Now().UTC(),
@@ -4569,4 +4706,56 @@ func TestSqlStore_DeleteZoneDNSRecords(t *testing.T) {
 	remainingRecords, err := store.GetZoneDNSRecords(context.Background(), LockingStrengthNone, accountID, zone.ID)
 	require.NoError(t, err)
 	assert.Equal(t, 0, len(remainingRecords))
+}
+
+// TestNewSqliteStore_BusyTimeoutApplied opens a fresh SQLite store and verifies
+// that the _busy_timeout DSN parameter took effect at the driver level. Without
+// this, lock contention on the single SQLite connection waits indefinitely on
+// the Go side and can be hidden behind the 5-minute transactionTimeout.
+func TestNewSqliteStore_BusyTimeoutApplied(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewSqliteStore(context.Background(), dir, nil, true)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = store.Close(context.Background())
+	})
+
+	sqlDB, err := store.db.DB()
+	require.NoError(t, err)
+	row := sqlDB.QueryRow("PRAGMA busy_timeout")
+	var busyTimeout int
+	require.NoError(t, row.Scan(&busyTimeout))
+	assert.Equal(t, 30000, busyTimeout, "SQLite busy_timeout must be set via DSN so it survives connection recycling")
+}
+
+// TestNewSqliteStore_BusyTimeoutRespectsUserOverride confirms that an operator
+// passing _busy_timeout or its mattn alias _timeout via NB_STORE_ENGINE_SQLITE_FILE
+// wins over our 30s default. This guards the DSN merge logic in NewSqliteStore.
+func TestNewSqliteStore_BusyTimeoutRespectsUserOverride(t *testing.T) {
+	cases := []struct {
+		name     string
+		envFile  string
+		expected int
+	}{
+		{name: "explicit _busy_timeout wins", envFile: "store.db?_busy_timeout=5000", expected: 5000},
+		{name: "alias _timeout wins", envFile: "store.db?_timeout=7000", expected: 7000},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("NB_STORE_ENGINE_SQLITE_FILE", tc.envFile)
+			dir := t.TempDir()
+			store, err := NewSqliteStore(context.Background(), dir, nil, true)
+			require.NoError(t, err)
+			t.Cleanup(func() {
+				_ = store.Close(context.Background())
+			})
+
+			sqlDB, err := store.db.DB()
+			require.NoError(t, err)
+			row := sqlDB.QueryRow("PRAGMA busy_timeout")
+			var busyTimeout int
+			require.NoError(t, row.Scan(&busyTimeout))
+			assert.Equal(t, tc.expected, busyTimeout)
+		})
+	}
 }

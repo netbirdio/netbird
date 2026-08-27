@@ -86,6 +86,13 @@ server:
     issuer: "https://example.com/oauth2"
     localAuthDisabled: false
     signKeyRefreshEnabled: false
+    # MFA session settings (applies when TOTP is enabled for an account)
+    # mfaSessionMaxLifetime: "24h"  # Max duration for an MFA session from creation
+    # mfaSessionIdleTimeout: "1h"   # MFA session expires after this idle period
+    # mfaSessionRememberMe: false   # Pre-check "remember me" on login so the MFA session persists across tabs/restarts
+    # Optional AES key for encrypting embedded IdP session cookies. Can also be set via NB_IDP_SESSION_COOKIE_ENCRYPTION_KEY.
+    # Must be 16/24/32 raw bytes or base64-encoded to one of those lengths (for example: openssl rand -hex 16).
+    # sessionCookieEncryptionKey: ""
     # OAuth2 redirect URIs for dashboard
     dashboardRedirectURIs:
       - "https://app.example.com/nb-auth"
@@ -93,6 +100,9 @@ server:
     # OAuth2 redirect URIs for CLI
     cliRedirectURIs:
       - "http://localhost:53000/"
+    # OAuth2 post-logout redirect URIs for dashboard (RP-initiated logout)
+    # dashboardPostLogoutRedirectURIs:
+    #   - "https://app.example.com/"
     # Optional initial admin user
     # owner:
     #   email: "admin@example.com"
@@ -124,3 +134,16 @@ server:
   #   trustedPeers: []                 # CIDRs of trusted peer networks (e.g. ["100.64.0.0/10"])
   #   accessLogRetentionDays: 7        # Days to retain HTTP access logs. 0 (or unset) defaults to 7. Negative values disable cleanup (logs kept indefinitely).
   #   accessLogCleanupIntervalHours: 24 # How often (in hours) to run the access-log cleanup job. 0 (or unset) is treated as "not set" and defaults to 24 hours; cleanup remains enabled. To disable cleanup, set accessLogRetentionDays to a negative value.
+
+  # Agent network (LLM gateway) settings (optional)
+  # agentNetwork:
+  #   # Path to the YAML file holding the default LLM pricing table. A relative
+  #   # path is resolved against dataDir, so a bare filename like "pricing.yaml"
+  #   # lands in the data directory. When empty, {dataDir}/defaults_llm_pricing.yaml
+  #   # is probed; if no file is present the compiled-in defaults are used.
+  #   # Schema: surface ("openai"/"anthropic"/"bedrock") -> model -> rates in USD
+  #   # per 1k tokens (input_per_1k, output_per_1k, and the optional
+  #   # cached_input_per_1k / cache_read_per_1k / cache_creation_per_1k). The file
+  #   # is re-read periodically (mtime poll). An explicitly configured path that
+  #   # fails to load fails startup; runtime reload errors keep the previous table.
+  #   pricingDefaultsFile: "pricing.yaml"

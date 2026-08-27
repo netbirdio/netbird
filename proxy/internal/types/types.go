@@ -54,3 +54,23 @@ func DialTimeoutFromContext(ctx context.Context) (time.Duration, bool) {
 	d, ok := ctx.Value(dialTimeoutKey{}).(time.Duration)
 	return d, ok && d > 0
 }
+
+// overlayOriginKey is the context key set by per-account inbound
+// listeners to mark a request as originating from the WireGuard
+// overlay rather than the public-facing host listener.
+type overlayOriginKey struct{}
+
+// WithOverlayOrigin marks the context as originating from the
+// embedded NetBird overlay (tunnel-side inbound listener).
+func WithOverlayOrigin(ctx context.Context) context.Context {
+	return context.WithValue(ctx, overlayOriginKey{}, true)
+}
+
+// IsOverlayOrigin reports whether the request reached the proxy via
+// the overlay listener. Middlewares that only make sense for WAN
+// traffic (geolocation, CrowdSec IP reputation) should short-circuit
+// when this is true.
+func IsOverlayOrigin(ctx context.Context) bool {
+	v, _ := ctx.Value(overlayOriginKey{}).(bool)
+	return v
+}

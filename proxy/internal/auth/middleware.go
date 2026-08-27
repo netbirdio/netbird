@@ -36,6 +36,7 @@ type authenticator interface {
 // SessionValidator validates session tokens and checks user access permissions.
 type SessionValidator interface {
 	ValidateSession(ctx context.Context, in *proto.ValidateSessionRequest, opts ...grpc.CallOption) (*proto.ValidateSessionResponse, error)
+	ValidateTunnelPeer(ctx context.Context, in *proto.ValidateTunnelPeerRequest, opts ...grpc.CallOption) (*proto.ValidateTunnelPeerResponse, error)
 }
 
 // Scheme defines an authentication mechanism for a domain.
@@ -56,12 +57,21 @@ type DomainConfig struct {
 	AccountID         types.AccountID
 	ServiceID         types.ServiceID
 	IPRestrictions    *restrict.Filter
+	// Private routes the domain through ValidateTunnelPeer; failure → 403.
+	Private bool
 }
 
 type validationResult struct {
 	UserID       string
+	UserEmail    string
 	Valid        bool
 	DeniedReason string
+	Groups       []string
+	// GroupNames carries the human-readable display names for Groups,
+	// ordered identically (positional pairing). May be shorter than
+	// Groups for tokens minted before names were embedded; the consumer
+	// falls back to ids for missing positions.
+	GroupNames []string
 }
 
 // Middleware applies per-domain authentication and IP restriction checks.
@@ -71,6 +81,7 @@ type Middleware struct {
 	logger           *log.Logger
 	sessionValidator SessionValidator
 	geo              restrict.GeoResolver
+	tunnelCache      *tunnelValidationCache
 }
 
 // NewMiddleware creates a new authentication middleware. The sessionValidator is
@@ -84,6 +95,7 @@ func NewMiddleware(logger *log.Logger, sessionValidator SessionValidator, geo re
 		logger:           logger,
 		sessionValidator: sessionValidator,
 		geo:              geo,
+		tunnelCache:      newTunnelValidationCache(),
 	}
 }
 
@@ -111,6 +123,15 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 			return
 		}
 
+		// Private services bypass operator schemes and gate on tunnel peer.
+		if config.Private {
+			if mw.forwardWithTunnelPeer(w, r, host, config, next) {
+				return
+			}
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+
 		// Domains with no authentication schemes pass through after IP checks.
 		if len(config.Schemes) == 0 {
 			next.ServeHTTP(w, r)
@@ -125,12 +146,56 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 			return
 		}
 
-		if mw.forwardWithHeaderAuth(w, r, host, config, next) {
+		if mw.forwardWithHeaderAuth(w, r, config, next) {
+			return
+		}
+
+		if mw.forwardWithTunnelPeer(w, r, host, config, next) {
+			return
+		}
+
+		if mw.blockOIDCOnPlainHTTP(w, r, config) {
 			return
 		}
 
 		mw.authenticateWithSchemes(w, r, host, config)
 	})
+}
+
+// requestIsPlainHTTP reports whether the request arrived without TLS.
+// Used to gate cookie-on-plain warnings and the OIDC plain-HTTP block.
+func requestIsPlainHTTP(r *http.Request) bool {
+	return r.TLS == nil
+}
+
+// hasOIDCScheme reports whether any of the configured schemes requires
+// TLS to round-trip safely with an external IdP.
+func hasOIDCScheme(schemes []Scheme) bool {
+	for _, s := range schemes {
+		if s.Type() == auth.MethodOIDC {
+			return true
+		}
+	}
+	return false
+}
+
+// blockOIDCOnPlainHTTP fails fast when an OIDC-configured domain is hit
+// over plain HTTP. Most IdPs reject http:// redirect URIs, so surfacing
+// the misconfiguration here yields a clearer error than the IdP's
+// "invalid redirect_uri" round-trip.
+func (mw *Middleware) blockOIDCOnPlainHTTP(w http.ResponseWriter, r *http.Request, config DomainConfig) bool {
+	if !requestIsPlainHTTP(r) {
+		return false
+	}
+	if !hasOIDCScheme(config.Schemes) {
+		return false
+	}
+	mw.logger.WithFields(log.Fields{
+		"host":   r.Host,
+		"remote": r.RemoteAddr,
+	}).Warn("OIDC scheme reached on plain HTTP path; rejecting with 400 — use port 443")
+	http.Error(w, "OIDC requires TLS — use port 443", http.StatusBadRequest)
+	return true
 }
 
 func (mw *Middleware) getDomainConfig(host string) (DomainConfig, bool) {
@@ -162,7 +227,17 @@ func (mw *Middleware) checkIPRestrictions(w http.ResponseWriter, r *http.Request
 		return false
 	}
 
-	verdict := config.IPRestrictions.Check(clientIP, mw.geo)
+	var verdict restrict.Verdict
+	if types.IsOverlayOrigin(r.Context()) {
+		// Geo/CrowdSec checks don't apply over the WireGuard overlay:
+		// the source address is always inside the NetBird CGNAT range,
+		// which is never in a GeoIP database or a CrowdSec decision
+		// list. Enforcing them here would either no-op (best case) or
+		// fail-closed when the geo database is missing.
+		verdict = config.IPRestrictions.CheckCIDR(clientIP)
+	} else {
+		verdict = config.IPRestrictions.Check(clientIP, mw.geo)
+	}
 	if verdict == restrict.Allow {
 		return true
 	}
@@ -246,88 +321,173 @@ func (mw *Middleware) forwardWithSessionCookie(w http.ResponseWriter, r *http.Re
 	if err != nil {
 		return false
 	}
-	userID, method, err := auth.ValidateSessionJWT(cookie.Value, host, config.SessionPublicKey)
+	userID, email, method, groups, groupNames, err := auth.ValidateSessionJWT(cookie.Value, host, config.SessionPublicKey)
 	if err != nil {
 		return false
 	}
+
+	// Header auth is checked per request against the mapping's hashes and mints
+	// no session, so a header-method token can only predate that. Honouring it
+	// would keep a rotated credential working until the token expired.
+	if method == auth.MethodHeader.String() {
+		mw.logger.WithField("host", host).
+			Debug("ignoring header-auth session cookie; the header is required on every request")
+		return false
+	}
+
 	if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
 		cd.SetUserID(userID)
+		cd.SetUserEmail(email)
+		cd.SetUserGroups(groups)
+		cd.SetUserGroupNames(groupNames)
 		cd.SetAuthMethod(method)
 	}
 	next.ServeHTTP(w, r)
 	return true
 }
 
+// forwardWithTunnelPeer is the OIDC fast-path for requests originating on the
+// netbird mesh. When the source IP belongs to a private/CGNAT range the proxy
+// asks management to resolve it to a peer/user and to gate by the service's
+// distribution_groups. On success the proxy installs the freshly minted JWT
+// as a session cookie, sets UserID + Method=oidc on the captured data, and
+// forwards directly — operators see the same access-log shape as if the user
+// had completed an OIDC redirect. Any failure (private-range mismatch,
+// management unreachable, peer unknown, user not in group) returns false so
+// the caller falls back to the existing OIDC scheme dispatch.
+//
+// The fast-path is gated on TunnelLookupFromContext(r.Context()) being
+// present — that context value is attached only by the per-account
+// inbound (overlay) listener. The host listener never sets it, so a
+// public client whose source IP happens to fall inside an RFC1918 / ULA
+// / CGNAT range can't impersonate a mesh peer by colliding with a
+// tunnel-IP. Once we know the request arrived over WireGuard the
+// per-account peerstore lookup is consulted: a miss denies fast (no
+// management round-trip), a hit gates the cached ValidateTunnelPeer RPC
+// that mints the session JWT.
+func (mw *Middleware) forwardWithTunnelPeer(w http.ResponseWriter, r *http.Request, host string, config DomainConfig, next http.Handler) bool {
+	if mw.sessionValidator == nil {
+		return false
+	}
+	clientIP := mw.resolveClientIP(r)
+	if !clientIP.IsValid() {
+		return false
+	}
+
+	// Anti-spoof: only honour the tunnel-peer fast-path on requests that
+	// were stamped by an overlay listener. Without that marker an
+	// attacker could send a request from a colliding RFC1918 / CGNAT
+	// source on the public listener and bypass operator auth.
+	lookup := TunnelLookupFromContext(r.Context())
+	if lookup == nil {
+		return false
+	}
+	if !isTunnelSourceIP(clientIP) {
+		return false
+	}
+	if _, ok := lookup(clientIP); !ok {
+		mw.logger.WithFields(log.Fields{
+			"host":   host,
+			"remote": clientIP,
+		}).Debug("local peerstore: tunnel IP not in account roster; denying without RPC")
+		return false
+	}
+
+	resp, _, err := mw.tunnelCache.fetch(r.Context(), tunnelCacheKey{
+		accountID: config.AccountID,
+		tunnelIP:  clientIP,
+		domain:    host,
+	}, mw.validateTunnelPeer)
+	if err != nil {
+		mw.logger.WithError(err).Debug("ValidateTunnelPeer failed; falling back to OIDC")
+		return false
+	}
+	if !resp.GetValid() || resp.GetSessionToken() == "" {
+		return false
+	}
+
+	setSessionCookie(w, resp.GetSessionToken(), config.SessionExpiration)
+	if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
+		cd.SetOrigin(proxy.OriginAuth)
+		cd.SetUserID(resp.GetUserId())
+		cd.SetUserEmail(resp.GetUserEmail())
+		cd.SetUserGroups(resp.GetPeerGroupIds())
+		cd.SetUserGroupNames(resp.GetPeerGroupNames())
+		cd.SetAuthMethod(auth.MethodOIDC.String())
+	}
+	next.ServeHTTP(w, r)
+	return true
+}
+
+// validateTunnelPeer adapts the SessionValidator interface to the cache's
+// validateTunnelPeerFn signature.
+func (mw *Middleware) validateTunnelPeer(ctx context.Context, req *proto.ValidateTunnelPeerRequest) (*proto.ValidateTunnelPeerResponse, error) {
+	return mw.sessionValidator.ValidateTunnelPeer(ctx, req)
+}
+
+// cgnatPrefix covers RFC 6598 100.64.0.0/10, the CGNAT block NetBird
+// allocates tunnel addresses from by default. IsPrivate() doesn't include
+// it, so we check it explicitly.
+var cgnatPrefix = netip.MustParsePrefix("100.64.0.0/10")
+
+// isTunnelSourceIP reports whether ip falls within an address range typical
+// of NetBird tunnels: RFC1918 private space, IPv6 ULA, or CGNAT 100.64/10
+// (NetBird's default range). Loopback and link-local are excluded — the
+// fast-path is meant for peer-to-peer mesh traffic, not localhost.
+func isTunnelSourceIP(ip netip.Addr) bool {
+	if !ip.IsValid() || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
+		return false
+	}
+	if ip.IsPrivate() {
+		return true
+	}
+	return cgnatPrefix.Contains(ip)
+}
+
 // forwardWithHeaderAuth checks for a Header auth scheme. If the header validates,
 // the request is forwarded directly (no redirect), which is important for API clients.
-func (mw *Middleware) forwardWithHeaderAuth(w http.ResponseWriter, r *http.Request, host string, config DomainConfig, next http.Handler) bool {
+func (mw *Middleware) forwardWithHeaderAuth(w http.ResponseWriter, r *http.Request, config DomainConfig, next http.Handler) bool {
+	var presented []string
 	for _, scheme := range config.Schemes {
 		hdr, ok := scheme.(Header)
 		if !ok {
 			continue
 		}
 
-		handled := mw.tryHeaderScheme(w, r, host, config, hdr, next)
-		if handled {
+		present, matched, unusable := hdr.Verify(r)
+		if matched {
+			if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
+				cd.SetUserID(auth.HeaderUserID)
+				cd.SetAuthMethod(auth.MethodHeader.String())
+			}
+			next.ServeHTTP(w, r)
 			return true
 		}
+		if unusable != nil {
+			mw.logger.WithFields(log.Fields{
+				"host":   r.Host,
+				"header": hdr.headerName,
+			}).WithError(unusable).Error("header auth: a configured hash cannot be decoded, so this header can never authenticate; re-save the service")
+		}
+		if present {
+			presented = append(presented, hdr.headerName)
+		}
 	}
-	return false
-}
 
-func (mw *Middleware) tryHeaderScheme(w http.ResponseWriter, r *http.Request, host string, config DomainConfig, hdr Header, next http.Handler) bool {
-	token, _, err := hdr.Authenticate(r)
-	if err != nil {
-		return mw.handleHeaderAuthError(w, r, err)
-	}
-	if token == "" {
+	if len(presented) == 0 {
 		return false
 	}
 
-	result, err := mw.validateSessionToken(r.Context(), host, token, config.SessionPublicKey, auth.MethodHeader)
-	if err != nil {
-		setHeaderCapturedData(r.Context(), "")
-		status := http.StatusBadRequest
-		msg := "invalid session token"
-		if errors.Is(err, errValidationUnavailable) {
-			status = http.StatusBadGateway
-			msg = "authentication service unavailable"
-		}
-		http.Error(w, msg, status)
-		return true
-	}
-
-	if !result.Valid {
-		setHeaderCapturedData(r.Context(), result.UserID)
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return true
-	}
-
-	setSessionCookie(w, token, config.SessionExpiration)
-	if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
-		cd.SetUserID(result.UserID)
-		cd.SetAuthMethod(auth.MethodHeader.String())
-	}
-
-	next.ServeHTTP(w, r)
+	mw.logger.WithFields(log.Fields{
+		"host":    r.Host,
+		"headers": presented,
+	}).Debug("header auth rejected: no presented header matched a configured hash")
+	setHeaderCapturedData(r.Context(), "", "", nil, nil)
+	http.Error(w, "Unauthorized", http.StatusUnauthorized)
 	return true
 }
 
-func (mw *Middleware) handleHeaderAuthError(w http.ResponseWriter, r *http.Request, err error) bool {
-	if errors.Is(err, ErrHeaderAuthFailed) {
-		setHeaderCapturedData(r.Context(), "")
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return true
-	}
-	mw.logger.WithField("scheme", "header").Warnf("header auth infrastructure error: %v", err)
-	if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
-		cd.SetOrigin(proxy.OriginAuth)
-	}
-	http.Error(w, "authentication service unavailable", http.StatusBadGateway)
-	return true
-}
-
-func setHeaderCapturedData(ctx context.Context, userID string) {
+func setHeaderCapturedData(ctx context.Context, userID, userEmail string, groups, groupNames []string) {
 	cd := proxy.CapturedDataFromContext(ctx)
 	if cd == nil {
 		return
@@ -335,6 +495,9 @@ func setHeaderCapturedData(ctx context.Context, userID string) {
 	cd.SetOrigin(proxy.OriginAuth)
 	cd.SetAuthMethod(auth.MethodHeader.String())
 	cd.SetUserID(userID)
+	cd.SetUserEmail(userEmail)
+	cd.SetUserGroups(groups)
+	cd.SetUserGroupNames(groupNames)
 }
 
 // authenticateWithSchemes tries each configured auth scheme in order.
@@ -405,6 +568,9 @@ func (mw *Middleware) handleAuthenticatedToken(w http.ResponseWriter, r *http.Re
 		if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
 			cd.SetOrigin(proxy.OriginAuth)
 			cd.SetUserID(result.UserID)
+			cd.SetUserEmail(result.UserEmail)
+			cd.SetUserGroups(result.Groups)
+			cd.SetUserGroupNames(result.GroupNames)
 			cd.SetAuthMethod(scheme.Type().String())
 			requestID = cd.GetRequestID()
 		}
@@ -419,6 +585,9 @@ func (mw *Middleware) handleAuthenticatedToken(w http.ResponseWriter, r *http.Re
 	if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
 		cd.SetOrigin(proxy.OriginAuth)
 		cd.SetUserID(result.UserID)
+		cd.SetUserEmail(result.UserEmail)
+		cd.SetUserGroups(result.Groups)
+		cd.SetUserGroupNames(result.GroupNames)
 		cd.SetAuthMethod(scheme.Type().String())
 	}
 	redirectURL := stripSessionTokenParam(r.URL)
@@ -454,12 +623,9 @@ func wasCredentialSubmitted(r *http.Request, method auth.Method) bool {
 	return false
 }
 
-// AddDomain registers authentication schemes for the given domain.
-// If schemes are provided, a valid session public key is required to sign/verify
-// session JWTs. Returns an error if the key is missing or invalid.
-// Callers must not serve the domain if this returns an error, to avoid
-// exposing an unauthenticated service.
-func (mw *Middleware) AddDomain(domain string, schemes []Scheme, publicKeyB64 string, expiration time.Duration, accountID types.AccountID, serviceID types.ServiceID, ipRestrictions *restrict.Filter) error {
+// AddDomain registers authentication schemes for the given domain. With schemes a valid session public key is required.
+// private=true forces ValidateTunnelPeer enforcement (403 on failure) regardless of the schemes list.
+func (mw *Middleware) AddDomain(domain string, schemes []Scheme, publicKeyB64 string, expiration time.Duration, accountID types.AccountID, serviceID types.ServiceID, ipRestrictions *restrict.Filter, private bool) error {
 	if len(schemes) == 0 {
 		mw.domainsMux.Lock()
 		defer mw.domainsMux.Unlock()
@@ -467,6 +633,7 @@ func (mw *Middleware) AddDomain(domain string, schemes []Scheme, publicKeyB64 st
 			AccountID:      accountID,
 			ServiceID:      serviceID,
 			IPRestrictions: ipRestrictions,
+			Private:        private,
 		}
 		return nil
 	}
@@ -488,6 +655,7 @@ func (mw *Middleware) AddDomain(domain string, schemes []Scheme, publicKeyB64 st
 		AccountID:         accountID,
 		ServiceID:         serviceID,
 		IPRestrictions:    ipRestrictions,
+		Private:           private,
 	}
 	return nil
 }
@@ -518,18 +686,25 @@ func (mw *Middleware) validateSessionToken(ctx context.Context, host, token stri
 			}).Debug("Session validation denied")
 			return &validationResult{
 				UserID:       resp.UserId,
+				UserEmail:    resp.GetUserEmail(),
 				Valid:        false,
 				DeniedReason: resp.DeniedReason,
 			}, nil
 		}
-		return &validationResult{UserID: resp.UserId, Valid: true}, nil
+		return &validationResult{
+			UserID:     resp.UserId,
+			UserEmail:  resp.GetUserEmail(),
+			Valid:      true,
+			Groups:     resp.GetPeerGroupIds(),
+			GroupNames: resp.GetPeerGroupNames(),
+		}, nil
 	}
 
-	userID, _, err := auth.ValidateSessionJWT(token, host, publicKey)
+	userID, email, _, groups, groupNames, err := auth.ValidateSessionJWT(token, host, publicKey)
 	if err != nil {
 		return nil, err
 	}
-	return &validationResult{UserID: userID, Valid: true}, nil
+	return &validationResult{UserID: userID, UserEmail: email, Valid: true, Groups: groups, GroupNames: groupNames}, nil
 }
 
 // stripSessionTokenParam returns the request URI with the session_token query

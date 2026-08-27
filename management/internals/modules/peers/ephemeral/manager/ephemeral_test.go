@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang/mock/gomock"
+	"go.uber.org/mock/gomock"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 
@@ -62,7 +62,7 @@ func (a *MockAccountManager) GetDeletePeerCalls() int {
 	return a.deletePeerCalls
 }
 
-func (a *MockAccountManager) BufferUpdateAccountPeers(ctx context.Context, accountID string) {
+func (a *MockAccountManager) BufferUpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.bufferUpdateCalls == nil {
@@ -248,7 +248,7 @@ func TestCleanupSchedulingBehaviorIsBatched(t *testing.T) {
 					return err
 				}
 			}
-			mockAM.BufferUpdateAccountPeers(ctx, accountID)
+			mockAM.BufferUpdateAccountPeers(ctx, accountID, types.UpdateReason{})
 			return nil
 		}).
 		Times(1)
