@@ -221,3 +221,22 @@ func TestBuildOIDCConnectorConfig_PKCEAndJWKS(t *testing.T) {
 	assert.Equal(t, "S256", parsed["pkceChallenge"])
 	assert.Equal(t, "https://example.com/jwks", parsed["jwksURL"])
 }
+
+func TestOverlayConnectorConfig_PKCEAndJWKS(t *testing.T) {
+	oldConfig := []byte(`{"issuer": "old-issuer"}`)
+	cfg := &ConnectorConfig{
+		PKCE:    true,
+		JWKSURL: "https://example.com/jwks",
+	}
+
+	data, err := overlayConnectorConfig(oldConfig, cfg)
+	require.NoError(t, err)
+
+	var parsed map[string]interface{}
+	err = json.Unmarshal(data, &parsed)
+	require.NoError(t, err)
+
+	assert.Equal(t, "old-issuer", parsed["issuer"])
+	assert.Equal(t, "S256", parsed["pkceChallenge"])
+	assert.Equal(t, "https://example.com/jwks", parsed["jwksURL"])
+}
