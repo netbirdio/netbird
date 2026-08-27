@@ -86,10 +86,9 @@ func (r *Route) AddRoute(ctx context.Context) error {
 }
 
 // RemoveRoute will stop the dynamic resolver and remove all dynamic routes.
-// Allowed IPs should preferably be removed separately, via an explicit call to
-// RemoveAllowedIPs(), before calling this method. RemoveRoute now releases any
-// allowed IPs still held as a safety net, since it clears dynamicDomains - the
-// state RemoveAllowedIPs() relies on to know what to decrement.
+// Allowed IPs should preferably be removed separately, via RemoveAllowedIPs(),
+// before this method. RemoveRoute releases any still held as a safety net, since
+// it clears dynamicDomains, the state RemoveAllowedIPs() needs to know what to drop.
 func (r *Route) RemoveRoute() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -100,11 +99,9 @@ func (r *Route) RemoveRoute() error {
 
 	var merr *multierror.Error
 
-	// Only logged, never returned: this is a safety net that fires solely when a call site
-	// skipped RemoveAllowedIPs(), and updateSystemRoutes() discards the whole pending DNS
-	// batch on any error returned from here - including config for routes just added.
-	// Allowed IP release failures never reached that error path before (client.Watcher logs
-	// them too), so don't open the channel now.
+	// Only logged, never returned: updateSystemRoutes() drops the whole pending DNS batch
+	// on any error from here, and allowed IP release failures never reached that path
+	// before, so don't open it now.
 	if err := r.releaseAllowedIPsLocked(); err != nil {
 		log.Errorf("Failed to release allowed IPs for route [%v]: %v", r, err)
 	}
@@ -148,11 +145,9 @@ func (r *Route) RemoveAllowedIPs() error {
 	return r.releaseAllowedIPsLocked()
 }
 
-// releaseAllowedIPsLocked decrements the allowed IPs refcounter for every prefix currently
-// tracked in dynamicDomains and clears currentPeerKey. Callers must already hold r.mu - it is
-// used both from RemoveAllowedIPs (which locks itself) and from RemoveRoute (which already
-// holds the lock from its start), so this method must never lock r.mu itself.
-// If currentPeerKey is empty, allowed IPs were already released (or never taken), so it's a no-op.
+// releaseAllowedIPsLocked decrements the allowed IPs refcounter for every prefix in
+// dynamicDomains and clears currentPeerKey. The caller must hold r.mu. An empty
+// currentPeerKey means they are already released, so it is a no-op.
 func (r *Route) releaseAllowedIPsLocked() error {
 	if r.currentPeerKey == "" {
 		return nil
