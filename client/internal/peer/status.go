@@ -142,6 +142,14 @@ type RosenpassState struct {
 	Permissive bool
 }
 
+// MLKEMState contains the latest state of the ML-KEM post-quantum exchange, the
+// Rosenpass alternative. Strict is the ML-KEM counterpart of Rosenpass non-permissive:
+// it fails closed until the KEM PSK is established.
+type MLKEMState struct {
+	Enabled bool
+	Strict  bool
+}
+
 // NSGroupState represents the status of a DNS server group, including associated domains,
 // whether it's enabled, and the last error message encountered during probing.
 type NSGroupState struct {
@@ -159,6 +167,7 @@ type FullStatus struct {
 	SignalState           SignalState
 	LocalPeerState        LocalPeerState
 	RosenpassState        RosenpassState
+	MLKEMState            MLKEMState
 	Relays                []relay.ProbeResult
 	NSGroupStates         []NSGroupState
 	NumOfForwardingRules  int
@@ -209,6 +218,8 @@ type Status struct {
 	notifier            *notifier
 	rosenpassEnabled    bool
 	rosenpassPermissive bool
+	mlkemEnabled        bool
+	mlkemStrict         bool
 	// sessionExpiresAt is the absolute UTC instant at which the peer's SSO
 	// session expires. Zero when the peer is not SSO-tracked or login
 	// expiration is disabled. Populated from management LoginResponse /
@@ -952,6 +963,14 @@ func (d *Status) UpdateRosenpass(rosenpassEnabled, rosenpassPermissive bool) {
 	d.rosenpassEnabled = rosenpassEnabled
 }
 
+// UpdateMLKEM updates the ML-KEM post-quantum exchange configuration.
+func (d *Status) UpdateMLKEM(mlkemEnabled, mlkemStrict bool) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	d.mlkemEnabled = mlkemEnabled
+	d.mlkemStrict = mlkemStrict
+}
+
 func (d *Status) UpdateLazyConnection(enabled bool) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
@@ -1041,6 +1060,15 @@ func (d *Status) GetRosenpassState() RosenpassState {
 	return RosenpassState{
 		d.rosenpassEnabled,
 		d.rosenpassPermissive,
+	}
+}
+
+func (d *Status) GetMLKEMState() MLKEMState {
+	d.mux.RLock()
+	defer d.mux.RUnlock()
+	return MLKEMState{
+		d.mlkemEnabled,
+		d.mlkemStrict,
 	}
 }
 
@@ -1174,6 +1202,7 @@ func (d *Status) GetFullStatus() FullStatus {
 		SignalState:           d.GetSignalState(),
 		Relays:                d.GetRelayStates(),
 		RosenpassState:        d.GetRosenpassState(),
+		MLKEMState:            d.GetMLKEMState(),
 		NSGroupStates:         d.GetDNSStates(),
 		NumOfForwardingRules:  len(d.ForwardingRules()),
 		LazyConnectionEnabled: d.GetLazyConnection(),
@@ -1547,6 +1576,8 @@ func (fs FullStatus) ToProto() *proto.FullStatus {
 	pbFullStatus.LocalPeerState.WgPort = int32(fs.LocalPeerState.WgPort)
 	pbFullStatus.LocalPeerState.RosenpassPermissive = fs.RosenpassState.Permissive
 	pbFullStatus.LocalPeerState.RosenpassEnabled = fs.RosenpassState.Enabled
+	pbFullStatus.LocalPeerState.MlkemEnabled = fs.MLKEMState.Enabled
+	pbFullStatus.LocalPeerState.MlkemStrict = fs.MLKEMState.Strict
 	pbFullStatus.NumberOfForwardingRules = int32(fs.NumOfForwardingRules)
 	pbFullStatus.LazyConnectionEnabled = fs.LazyConnectionEnabled
 

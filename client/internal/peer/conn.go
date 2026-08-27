@@ -3,6 +3,7 @@ package peer
 import (
 	"context"
 	"fmt"
+	"math"
 	"net"
 	"net/netip"
 	"runtime"
@@ -27,6 +28,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/rosenpass"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/client/netevents"
+	"github.com/netbirdio/netbird/monotime"
 	"github.com/netbirdio/netbird/route"
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 )
@@ -75,6 +77,39 @@ type RosenpassConfig struct {
 	PermissiveMode bool
 }
 
+// PQHandshaker attaches post-quantum ML-KEM material to signalling offers/answers and
+// feeds received material back. It is implemented by the engine over the pqkem
+// manager and is nil when the PQ exchange is disabled. remoteKey is the peer's
+// WireGuard public key.
+type PQHandshaker interface {
+	// OfferPayload returns the KEM offer to embed in an outgoing offer (nil if this
+	// peer is not the KEM initiator) and the local PQ data-path port to announce.
+	OfferPayload(remoteKey string) (payload []byte, port uint16)
+	// ShouldSendBootstrapOffer reports whether, as the controller, we should reply to a
+	// received responder offer with our own KEM offer (true only when no exchange is
+	// already in flight — so we kick the KEM once and ignore further offers).
+	ShouldSendBootstrapOffer(remoteKey string) bool
+	// AnswerPayload processes a received KEM offer (nil if absent) and returns the KEM
+	// answer to embed in the outgoing answer (nil if none) and the local PQ port.
+	AnswerPayload(remoteKey string, recvOffer []byte) (payload []byte, port uint16)
+	// OnAnswer feeds a received KEM answer (nil if absent).
+	OnAnswer(remoteKey string, recvAnswer []byte)
+	// PSK returns the peer's latest derived post-quantum PSK to program at WG
+	// peer-config time (the pull path). ok is false until one has been derived.
+	PSK(remoteKey string) (wgtypes.Key, bool)
+	// SetRemoteAddr registers the peer's data-path endpoint learned from signalling:
+	// its WG overlay IP with the announced pq UDP port (port 0 means the peer omitted
+	// it and is on the default port).
+	SetRemoteAddr(remoteKey string, addr netip.AddrPort)
+	// OnDataPathRekeyed signals a fresh WireGuard handshake for the peer; it clocks the
+	// next chained PSK rotation pushed over the data path. sinceActivity is how long
+	// ago the peer last exchanged real user data, so the rotation can be skipped for
+	// idle tunnels.
+	OnDataPathRekeyed(remoteKey string, sinceActivity time.Duration)
+	// OnDataPathDown signals the peer's tunnel went down.
+	OnDataPathDown(remoteKey string)
+}
+
 // ConnConfig is a peer Connection configuration
 type ConnConfig struct {
 	// Key is a public key of a remote peer
@@ -91,6 +126,12 @@ type ConnConfig struct {
 	LocalWgPort int
 
 	RosenpassConfig RosenpassConfig
+
+	// PQ carries post-quantum ML-KEM material on offers/answers; nil when disabled.
+	PQ PQHandshaker
+	// PQStrict fails closed: block peer traffic until the ML-KEM PSK is established,
+	// instead of letting the tunnel come up classically and upgrading to PQ later.
+	PQStrict bool
 
 	// ICEConfig ICE protocol configuration
 	ICEConfig icemaker.Config
@@ -154,6 +195,11 @@ type Conn struct {
 	// pendingFirstPacket is the lazyconn-captured handshake init, replayed once the real
 	// transport is up.
 	pendingFirstPacket []byte
+
+	// pqStrictSentinelKey is a per-conn random sentinel PSK used in PQ strict mode to
+	// fail closed: it is programmed until the real ML-KEM PSK is derived, so no session
+	// can form on a non-PQ key. Per-conn random so two strict peers never match by chance.
+	pqStrictSentinelKey *wgtypes.Key
 }
 
 // injectPendingFirstPacket replays the captured handshake through the proxy if present, else
@@ -209,6 +255,16 @@ func NewConn(config ConnConfig, services ServiceDependencies) (*Conn, error) {
 		dumpState:          dumpState,
 		endpointUpdater:    NewEndpointUpdater(connLog, config.WgConfig, isController(config)),
 		metricsRecorder:    services.MetricsRecorder,
+	}
+
+	if config.PQ != nil && config.PQStrict {
+		// The sentinel is what makes strict mode fail closed; if we cannot generate it we
+		// must not fall back to a usable key, so fail creating the conn instead.
+		k, err := wgtypes.GenerateKey()
+		if err != nil {
+			return nil, fmt.Errorf("generate pqkem strict-mode sentinel key: %w", err)
+		}
+		conn.pqStrictSentinelKey = &k
 	}
 
 	return conn, nil
@@ -412,6 +468,9 @@ func (conn *Conn) ConnID() id.ConnID {
 
 // configureConnection starts proxying traffic from/to local Wireguard and sets connection status to StatusConnected
 func (conn *Conn) onICEConnectionIsReady(priority conntype.ConnPriority, iceConnInfo ICEConnInfo) {
+	// Read the PQ PSK before conn.mu to keep the lock order conn.mu -> manager.
+	pqPSK, pqOK := conn.pqPSK()
+
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
@@ -429,7 +488,7 @@ func (conn *Conn) onICEConnectionIsReady(priority conntype.ConnPriority, iceConn
 	if conn.currentConnPriority > priority {
 		conn.Log.Infof("current connection priority (%s) is higher than the new one (%s), do not upgrade connection", conn.currentConnPriority, priority)
 		conn.statusICE.SetConnected()
-		conn.updateIceState(iceConnInfo, time.Now())
+		conn.updateIceState(iceConnInfo, pqOK, time.Now())
 		return
 	}
 
@@ -472,7 +531,7 @@ func (conn *Conn) onICEConnectionIsReady(priority conntype.ConnPriority, iceConn
 	updateTime := time.Now()
 	conn.enableWgWatcherIfNeeded(updateTime)
 
-	presharedKey := conn.presharedKey(iceConnInfo.RosenpassPubKey)
+	presharedKey := conn.presharedKey(iceConnInfo.RosenpassPubKey, pqPSK)
 	if err = conn.endpointUpdater.ConfigureWGEndpoint(ep, presharedKey); err != nil {
 		conn.handleConfigurationFailure(err, wgProxy)
 		return
@@ -488,11 +547,14 @@ func (conn *Conn) onICEConnectionIsReady(priority conntype.ConnPriority, iceConn
 
 	conn.currentConnPriority = priority
 	conn.statusICE.SetConnected()
-	conn.updateIceState(iceConnInfo, updateTime)
+	conn.updateIceState(iceConnInfo, pqOK, updateTime)
 	conn.doOnConnected(iceConnInfo.RosenpassPubKey, iceConnInfo.RosenpassAddr, updateTime)
 }
 
 func (conn *Conn) onICEStateDisconnected(sessionChanged bool) {
+	// Read the PQ PSK before conn.mu to keep the lock order conn.mu -> manager.
+	pqPSK, _ := conn.pqPSK()
+
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
@@ -519,7 +581,7 @@ func (conn *Conn) onICEStateDisconnected(sessionChanged bool) {
 		// todo consider to move after the ConfigureWGEndpoint
 		conn.wgProxyRelay.Work()
 
-		presharedKey := conn.presharedKey(conn.rosenpassRemoteKey)
+		presharedKey := conn.presharedKey(conn.rosenpassRemoteKey, pqPSK)
 		if err := conn.endpointUpdater.SwitchWGEndpoint(conn.wgProxyRelay.EndpointAddr(), presharedKey); err != nil {
 			conn.Log.Errorf("failed to switch to relay conn: %v", err)
 		}
@@ -557,6 +619,9 @@ func (conn *Conn) onICEStateDisconnected(sessionChanged bool) {
 }
 
 func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
+	// Read the PQ PSK before conn.mu to keep the lock order conn.mu -> manager.
+	pqPSK, pqOK := conn.pqPSK()
+
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
@@ -585,7 +650,7 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 		conn.Log.Debugf("do not switch to relay because current priority is: %s", conn.currentConnPriority.String())
 		conn.setRelayedProxy(wgProxy)
 		conn.statusRelay.SetConnected()
-		conn.updateRelayStatus(rci.relayedConn.RemoteAddr().String(), rci.rosenpassPubKey, time.Now())
+		conn.updateRelayStatus(rci.relayedConn.RemoteAddr().String(), rci.rosenpassPubKey, pqOK, time.Now())
 		return
 	}
 
@@ -596,7 +661,7 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 	}
 	updateTime := time.Now()
 	conn.enableWgWatcherIfNeeded(updateTime)
-	if err := conn.endpointUpdater.ConfigureWGEndpoint(wgProxy.EndpointAddr(), conn.presharedKey(rci.rosenpassPubKey)); err != nil {
+	if err := conn.endpointUpdater.ConfigureWGEndpoint(wgProxy.EndpointAddr(), conn.presharedKey(rci.rosenpassPubKey, pqPSK)); err != nil {
 		if err := wgProxy.CloseConn(); err != nil {
 			conn.Log.Warnf("Failed to close relay connection: %v", err)
 		}
@@ -615,7 +680,7 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 	conn.currentConnPriority = conntype.Relay
 	conn.statusRelay.SetConnected()
 	conn.setRelayedProxy(wgProxy)
-	conn.updateRelayStatus(rci.relayedConn.RemoteAddr().String(), rci.rosenpassPubKey, updateTime)
+	conn.updateRelayStatus(rci.relayedConn.RemoteAddr().String(), rci.rosenpassPubKey, pqOK, updateTime)
 	conn.Log.Infof("start to communicate with peer via relay")
 	conn.doOnConnected(rci.rosenpassPubKey, rci.rosenpassAddr, updateTime)
 }
@@ -677,12 +742,28 @@ func (conn *Conn) onGuardEvent() {
 	}
 }
 
+// RequestReoffer sends a fresh signalling offer for the peer, re-running the
+// post-quantum bootstrap over Signal. Used to recover from a persistent data-path
+// rekey failure: a new exchange overwrites the stalled PSK on both sides. No-op if the
+// connection is not open yet.
+func (conn *Conn) RequestReoffer() {
+	conn.mu.Lock()
+	h := conn.handshaker
+	conn.mu.Unlock()
+	if h == nil {
+		return
+	}
+	if err := h.SendOffer(); err != nil {
+		conn.Log.Debugf("pqkem: recovery re-offer failed: %v", err)
+	}
+}
+
 func (conn *Conn) onWGDisconnected(watcherCtx context.Context) {
 	conn.mu.Lock()
-	defer conn.mu.Unlock()
 
 	// watcherCtx guards against a stale watcher tearing down a connection that already superseded it.
 	if conn.ctx.Err() != nil || watcherCtx.Err() != nil {
+		conn.mu.Unlock()
 		return
 	}
 
@@ -700,6 +781,15 @@ func (conn *Conn) onWGDisconnected(watcherCtx context.Context) {
 	}
 
 	conn.escalateWGTimeoutLocked()
+	pq := conn.config.PQ
+	key := conn.config.Key
+	conn.mu.Unlock()
+
+	// Signal the PQ manager outside conn.mu: it may re-enter Conn (reoffer) under
+	// conn.mu, so calling it while holding the lock would invert the lock order.
+	if pq != nil {
+		pq.OnDataPathDown(key)
+	}
 }
 
 // escalateWGTimeoutLocked resets the peer's rosenpass state after repeated
@@ -723,14 +813,14 @@ func (conn *Conn) escalateWGTimeoutLocked() {
 	conn.onDisconnected(conn.config.WgConfig.RemoteKey)
 }
 
-func (conn *Conn) updateRelayStatus(relayServerAddr string, rosenpassPubKey []byte, updateTime time.Time) {
+func (conn *Conn) updateRelayStatus(relayServerAddr string, rosenpassPubKey []byte, pqEstablished bool, updateTime time.Time) {
 	peerState := State{
 		PubKey:             conn.config.Key,
 		ConnStatusUpdate:   updateTime,
 		ConnStatus:         conn.evalStatus(),
 		Relayed:            conn.isRelayed(),
 		RelayServerAddress: relayServerAddr,
-		RosenpassEnabled:   isRosenpassEnabled(rosenpassPubKey),
+		RosenpassEnabled:   conn.quantumResistant(rosenpassPubKey, pqEstablished),
 	}
 
 	err := conn.statusRecorder.UpdatePeerRelayedState(peerState)
@@ -739,7 +829,7 @@ func (conn *Conn) updateRelayStatus(relayServerAddr string, rosenpassPubKey []by
 	}
 }
 
-func (conn *Conn) updateIceState(iceConnInfo ICEConnInfo, updateTime time.Time) {
+func (conn *Conn) updateIceState(iceConnInfo ICEConnInfo, pqEstablished bool, updateTime time.Time) {
 	peerState := State{
 		PubKey:                     conn.config.Key,
 		ConnStatusUpdate:           updateTime,
@@ -749,7 +839,7 @@ func (conn *Conn) updateIceState(iceConnInfo ICEConnInfo, updateTime time.Time) 
 		RemoteIceCandidateType:     iceConnInfo.RemoteIceCandidateType,
 		LocalIceCandidateEndpoint:  iceConnInfo.LocalIceCandidateEndpoint,
 		RemoteIceCandidateEndpoint: iceConnInfo.RemoteIceCandidateEndpoint,
-		RosenpassEnabled:           isRosenpassEnabled(iceConnInfo.RosenpassPubKey),
+		RosenpassEnabled:           conn.quantumResistant(iceConnInfo.RosenpassPubKey, pqEstablished),
 	}
 
 	err := conn.statusRecorder.UpdatePeerICEState(peerState)
@@ -952,6 +1042,35 @@ func (conn *Conn) onWGCheckSuccess() {
 	conn.mu.Lock()
 	conn.wgTimeouts = 0
 	conn.mu.Unlock()
+
+	// A fresh WireGuard handshake clocks the post-quantum PSK rotation. Pass how long
+	// ago the peer last exchanged real user data (keepalives excluded) so the pqkem
+	// manager can skip rotation on idle tunnels — rotating then would push data-path
+	// traffic that keeps the lazy connection artificially active.
+	if conn.config.PQ != nil {
+		conn.config.PQ.OnDataPathRekeyed(conn.config.Key, conn.dataActivityAge())
+	}
+}
+
+// dataActivityAge returns how long ago the peer last exchanged real user data
+// (WireGuard keepalives excluded), per the same LastActivities signal the
+// lazy-connection inactivity monitor uses. It reports a very large duration when no
+// activity has ever been recorded, so the peer is treated as idle.
+//
+// In kernel mode there is no per-peer data-activity signal (LastActivities is
+// userspace-only), so we cannot tell active from idle. We report zero — always
+// "active" — so PSK rotation is not disabled in kernel mode. Lazy back-to-idle is
+// already limited there; the eBPF WG-activity detection (future) will supply a real
+// signal that excludes handshake/pqkem traffic.
+func (conn *Conn) dataActivityAge() time.Duration {
+	if !conn.config.WgConfig.WgInterface.IsUserspaceBind() {
+		return 0
+	}
+	last, ok := conn.config.WgConfig.WgInterface.LastActivities()[conn.config.WgConfig.RemoteKey]
+	if !ok {
+		return time.Duration(math.MaxInt64)
+	}
+	return monotime.Since(last)
 }
 
 // recordConnectionMetrics records connection stage timestamps as metrics
@@ -989,7 +1108,42 @@ func (conn *Conn) AgentVersionString() string {
 	return conn.config.AgentVersion
 }
 
-func (conn *Conn) presharedKey(remoteRosenpassKey []byte) *wgtypes.Key {
+// pqPSK returns the post-quantum PSK derived for this peer, if the ML-KEM exchange has
+// produced one. It reads the manager WITHOUT conn.mu, so callers fetch it before taking
+// conn.mu: the lock order is always conn.mu -> manager, never the reverse (the manager's
+// reoffer callback re-enters Conn under conn.mu).
+func (conn *Conn) pqPSK() (*wgtypes.Key, bool) {
+	if conn.config.PQ == nil {
+		return nil, false
+	}
+	psk, ok := conn.config.PQ.PSK(conn.config.Key)
+	if !ok {
+		return nil, false
+	}
+	return &psk, true
+}
+
+// presharedKey resolves the WireGuard preshared key for the peer. pqPSK is the
+// post-quantum PSK looked up out of band via pqPSK (nil when none is derived yet), passed
+// in so the manager lock is never taken under conn.mu.
+func (conn *Conn) presharedKey(remoteRosenpassKey []byte, pqPSK *wgtypes.Key) *wgtypes.Key {
+	// Post-quantum: once the ML-KEM exchange has derived a PSK for this peer, program
+	// it here so the peer's next WireGuard handshake adopts it. Applied at peer-config
+	// time (bootstrap / reconnect); steady-state rotation is pushed separately.
+	if conn.config.PQ != nil {
+		if pqPSK != nil {
+			return pqPSK
+		}
+		if conn.config.PQStrict && conn.pqStrictSentinelKey != nil {
+			// Fail closed: program a non-matching sentinel so no session forms on a
+			// non-PQ key until the ML-KEM exchange derives the real PSK (pushed via
+			// SetPresharedKey once it converges). "pending" — turns into a "stuck"
+			// warning from the manager if the exchange keeps failing (see raiseFailure).
+			conn.Log.Debugf("pqkem: strict mode — no PQ PSK yet, blocking peer traffic until the ML-KEM exchange converges")
+			return conn.pqStrictSentinelKey
+		}
+	}
+
 	if conn.config.RosenpassConfig.PubKey == nil {
 		return conn.config.WgConfig.PreSharedKey
 	}
@@ -1027,6 +1181,19 @@ func isController(config ConnConfig) bool {
 
 func isRosenpassEnabled(remoteRosenpassPubKey []byte) bool {
 	return remoteRosenpassPubKey != nil
+}
+
+// quantumResistant reports whether the peer's tunnel is post-quantum protected, for
+// the status "Quantum resistance" field: either Rosenpass (the remote advertised a
+// Rosenpass key) or the ML-KEM exchange (a PQ PSK has been derived for this peer).
+func (conn *Conn) quantumResistant(remoteRosenpassPubKey []byte, pqEstablished bool) bool {
+	// Rosenpass protects the tunnel only when both sides run it: the local peer has a
+	// Rosenpass key AND the remote advertised one. Checking only the remote key would
+	// report a plain (or blocked) tunnel as quantum-resistant when the local side does
+	// not run Rosenpass — e.g. against a peer that merely advertises it in a mixed
+	// deployment. A homogeneous Rosenpass deployment (both sides on) is unaffected.
+	rosenpassActive := conn.config.RosenpassConfig.PubKey != nil && isRosenpassEnabled(remoteRosenpassPubKey)
+	return rosenpassActive || pqEstablished
 }
 
 func evalConnStatus(in connStatusInputs) guard.ConnStatus {

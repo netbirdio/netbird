@@ -1652,6 +1652,8 @@ type LocalPeerState struct {
 	Networks            []string               `protobuf:"bytes,7,rep,name=networks,proto3" json:"networks,omitempty"`
 	Ipv6                string                 `protobuf:"bytes,8,opt,name=ipv6,proto3" json:"ipv6,omitempty"`
 	WgPort              int32                  `protobuf:"varint,9,opt,name=wgPort,proto3" json:"wgPort,omitempty"`
+	MlkemEnabled        bool                   `protobuf:"varint,10,opt,name=mlkemEnabled,proto3" json:"mlkemEnabled,omitempty"`
+	MlkemStrict         bool                   `protobuf:"varint,11,opt,name=mlkemStrict,proto3" json:"mlkemStrict,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -1747,6 +1749,20 @@ func (x *LocalPeerState) GetWgPort() int32 {
 		return x.WgPort
 	}
 	return 0
+}
+
+func (x *LocalPeerState) GetMlkemEnabled() bool {
+	if x != nil {
+		return x.MlkemEnabled
+	}
+	return false
+}
+
+func (x *LocalPeerState) GetMlkemStrict() bool {
+	if x != nil {
+		return x.MlkemStrict
+	}
+	return false
 }
 
 // SignalState contains the latest state of a signal connection
@@ -7198,7 +7214,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\n" +
 	"sshHostKey\x18\x13 \x01(\fR\n" +
 	"sshHostKey\x12\x12\n" +
-	"\x04ipv6\x18\x14 \x01(\tR\x04ipv6\"\x9c\x02\n" +
+	"\x04ipv6\x18\x14 \x01(\tR\x04ipv6\"\xe2\x02\n" +
 	"\x0eLocalPeerState\x12\x0e\n" +
 	"\x02IP\x18\x01 \x01(\tR\x02IP\x12\x16\n" +
 	"\x06pubKey\x18\x02 \x01(\tR\x06pubKey\x12(\n" +
@@ -7208,7 +7224,10 @@ const file_daemon_proto_rawDesc = "" +
 	"\x13rosenpassPermissive\x18\x06 \x01(\bR\x13rosenpassPermissive\x12\x1a\n" +
 	"\bnetworks\x18\a \x03(\tR\bnetworks\x12\x12\n" +
 	"\x04ipv6\x18\b \x01(\tR\x04ipv6\x12\x16\n" +
-	"\x06wgPort\x18\t \x01(\x05R\x06wgPort\"S\n" +
+	"\x06wgPort\x18\t \x01(\x05R\x06wgPort\x12\"\n" +
+	"\fmlkemEnabled\x18\n" +
+	" \x01(\bR\fmlkemEnabled\x12 \n" +
+	"\vmlkemStrict\x18\v \x01(\bR\vmlkemStrict\"S\n" +
 	"\vSignalState\x12\x10\n" +
 	"\x03URL\x18\x01 \x01(\tR\x03URL\x12\x1c\n" +
 	"\tconnected\x18\x02 \x01(\bR\tconnected\x12\x14\n" +
