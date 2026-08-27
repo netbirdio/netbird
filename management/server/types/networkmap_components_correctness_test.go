@@ -388,7 +388,7 @@ func TestComponents_NetworkSerial(t *testing.T) {
 	account.Network.Serial = 42
 	nm := componentsNetworkMap(account, "peer-0", validatedPeers)
 	require.NotNil(t, nm)
-	assert.Equal(t, uint64(42), nm.Network.Serial, "network serial should match")
+	assert.Equal(t, uint64(42), nm.Network.CurrentSerial(), "network serial should match")
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -812,7 +812,7 @@ func TestComponents_AllPeersGetValidMaps(t *testing.T) {
 		}
 		nm := componentsNetworkMap(account, peerID, validatedPeers)
 		require.NotNil(t, nm, "network map should not be nil for %s", peerID)
-		assert.Equal(t, account.Network.Serial, nm.Network.Serial, "serial mismatch for %s", peerID)
+		assert.Equal(t, account.Network.Serial, nm.Network.CurrentSerial(), "serial mismatch for %s", peerID)
 		assert.NotEmpty(t, nm.Peers, "validated peer %s should see other peers", peerID)
 	}
 }
@@ -833,7 +833,7 @@ func TestComponents_LargeScaleMapGeneration(t *testing.T) {
 				require.NotNil(t, nm, "network map should not be nil for %s", peerID)
 				assert.NotEmpty(t, nm.Peers, "peer %s should see other peers at scale", peerID)
 				assert.NotEmpty(t, nm.Routes, "peer %s should have routes at scale", peerID)
-				assert.Equal(t, account.Network.Serial, nm.Network.Serial, "serial mismatch for %s", peerID)
+				assert.Equal(t, account.Network.Serial, nm.Network.CurrentSerial(), "serial mismatch for %s", peerID)
 			}
 		})
 	}

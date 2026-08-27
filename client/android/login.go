@@ -8,6 +8,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/mobile"
 	"github.com/netbirdio/netbird/client/system"
 )
 
@@ -181,7 +182,7 @@ func (a *Auth) login(urlOpener URLOpener, isAndroidTV bool) error {
 	// Stored after Login, not before: a rejected token must not leave a hint
 	// pointing at an account that cannot be used.
 	if email != "" && a.cfgPath != "" {
-		if err := writeProfileEmail(a.cfgPath, email); err != nil {
+		if err := mobile.WriteProfileEmail(a.cfgPath, email); err != nil {
 			log.Warnf("failed to store profile account email: %v", err)
 		}
 	}
@@ -208,7 +209,7 @@ func profileLoginHint(cfgPath string) string {
 	if cfgPath == "" {
 		return ""
 	}
-	return readProfileEmail(cfgPath)
+	return mobile.ReadProfileEmail(cfgPath)
 }
 
 // runOAuthFlow drives an already acquired OAuth flow to a token: requests the

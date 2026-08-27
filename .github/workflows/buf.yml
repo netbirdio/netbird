@@ -1,0 +1,33 @@
+name: protobuf checks
+on:
+  push:
+    branches:
+      - main
+      - "release-*"
+  pull_request:
+    paths:
+      - ".github/workflows/buf.yml"
+      - "**/buf.yaml"
+      - "**/buf.lock"
+      - "**/buf.gen.yaml"
+      - "**.proto"
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  buf:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: bufbuild/buf-action@8c6a16e16f12ba20b6470afa9c2ba9b5ba8c97c3 # v1.5.0
+        with:
+          push: false
+          archive: false
+          pr_comment: false
+          build: false
+          lint: false
+          format: false
+          breaking: true

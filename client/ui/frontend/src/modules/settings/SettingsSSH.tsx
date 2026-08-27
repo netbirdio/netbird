@@ -14,11 +14,12 @@ export function SettingsSSH() {
     const { config, setField } = useSettings();
     const guarded = useGuardedControl();
     const isSSHServerEnabled = config.serverSshAllowed;
-    const sshServer = guarded(config.serverSshAllowed, (p) => p.allowSshServer);
-    const sshRoot = guarded(config.enableSshRoot, (p) => p.enableSshRoot);
+
+    const sshServer = guarded("serverSshAllowed", (p) => p.allowSshServer);
+    const sshRoot = guarded("enableSshRoot", (p) => p.enableSshRoot);
     // Inverted control: the guarded direction is switching authentication off, so
     // it is the already-disabled state that is the one-way one.
-    const sshAuth = guarded(config.disableSshAuth, (p) => p.disableSshAuth, true);
+    const sshAuth = guarded("disableSshAuth", (p) => p.disableSshAuth, true);
     const jwtTtlId = useId();
     const [jwtTtlInput, setJwtTtlInput] = useState(String(config.sshJwtCacheTtl));
 
@@ -52,7 +53,7 @@ export function SettingsSSH() {
             <SectionGroup title={t("settings.ssh.section.server")}>
                 <FancyToggleSwitch
                     value={config.serverSshAllowed}
-                    onChange={(v) => setField("serverSshAllowed", v)}
+                    onChange={sshServer.apply}
                     disabled={sshServer.disabled}
                     label={t("settings.ssh.server.label")}
                     helpText={t("settings.ssh.server.help")}
@@ -66,7 +67,7 @@ export function SettingsSSH() {
             >
                 <FancyToggleSwitch
                     value={config.enableSshRoot}
-                    onChange={(v) => setField("enableSshRoot", v)}
+                    onChange={sshRoot.apply}
                     disabled={sshRoot.disabled}
                     label={t("settings.ssh.root.label")}
                     helpText={t("settings.ssh.root.help")}
@@ -98,7 +99,7 @@ export function SettingsSSH() {
             >
                 <FancyToggleSwitch
                     value={!config.disableSshAuth}
-                    onChange={(v) => setField("disableSshAuth", !v)}
+                    onChange={(v) => sshAuth.apply(!v)}
                     disabled={sshAuth.disabled}
                     label={t("settings.ssh.jwt.label")}
                     helpText={t("settings.ssh.jwt.help")}

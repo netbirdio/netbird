@@ -232,4 +232,3 @@ func toNetIDs(routes []string) []route.NetID {
 	}
 	return netIDs
 }
-

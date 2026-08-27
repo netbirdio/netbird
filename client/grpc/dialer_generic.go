@@ -16,8 +16,13 @@ import (
 	"google.golang.org/grpc"
 
 	nbnet "github.com/netbirdio/netbird/client/net"
-	"github.com/netbirdio/netbird/client/netsweep"
+	"github.com/netbirdio/netbird/client/netevents/sweep"
 )
+
+// Sweeper registers in-flight dials for the network change sweep.
+type Sweeper interface {
+	StartDial(ctx context.Context) *sweep.Dial
+}
 
 func WithCustomDialer(_ bool, _ string) grpc.DialOption {
 	return grpc.WithContextDialer(dialContext)
@@ -26,7 +31,7 @@ func WithCustomDialer(_ bool, _ string) grpc.DialOption {
 // WithSweeper dials like WithCustomDialer but registers connections and
 // dials with the sweeper. Append it after WithCustomDialer: gRPC applies
 // dial options in order, so the later context dialer wins.
-func WithSweeper(sweeper *netsweep.Sweeper) grpc.DialOption {
+func WithSweeper(sweeper Sweeper) grpc.DialOption {
 	return grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
 		dial := sweeper.StartDial(ctx)
 		defer dial.Release()

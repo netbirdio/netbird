@@ -398,26 +398,10 @@ func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServ
 	return nil
 }
 
-func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, profileName, username string) *proto.SetConfigRequest {
-	var req proto.SetConfigRequest
-	req.ProfileName = profileName
-	req.Username = username
-
-	req.ManagementUrl = managementURL
-	req.AdminURL = adminURL
-	req.NatExternalIPs = natExternalIPs
-	req.CustomDNSAddress = customDNSAddressConverted
-	req.ExtraIFaceBlacklist = extraIFaceBlackList
-	req.DnsLabels = dnsLabelsValidated.ToPunycodeList()
-	req.CleanDNSLabels = dnsLabels != nil && len(dnsLabels) == 0
-	req.CleanNATExternalIPs = natExternalIPs != nil && len(natExternalIPs) == 0
-
-	if cmd.Flag(enableRosenpassFlag).Changed {
-		req.RosenpassEnabled = &rosenpassEnabled
-	}
-	if cmd.Flag(rosenpassPermissiveFlag).Changed {
-		req.RosenpassPermissive = &rosenpassPermissive
-	}
+// setSSHSetConfigFields copies the SSH server flags the user actually
+// passed into req, leaving the rest unset so the daemon keeps the
+// persisted values.
+func setSSHSetConfigFields(req *proto.SetConfigRequest, cmd *cobra.Command) {
 	if cmd.Flag(serverSSHAllowedFlag).Changed {
 		req.ServerSSHAllowed = &serverSSHAllowed
 	}
@@ -446,6 +430,30 @@ func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, pro
 		sshJWTCacheTTL32 := int32(sshJWTCacheTTL)
 		req.SshJWTCacheTTL = &sshJWTCacheTTL32
 	}
+}
+
+func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, profileName, username string) *proto.SetConfigRequest {
+	var req proto.SetConfigRequest
+	req.ProfileName = profileName
+	req.Username = username
+
+	req.ManagementUrl = managementURL
+	req.AdminURL = adminURL
+	req.NatExternalIPs = natExternalIPs
+	req.CustomDNSAddress = customDNSAddressConverted
+	req.ExtraIFaceBlacklist = extraIFaceBlackList
+	req.DnsLabels = dnsLabelsValidated.ToPunycodeList()
+	req.CleanDNSLabels = dnsLabels != nil && len(dnsLabels) == 0
+	req.CleanNATExternalIPs = natExternalIPs != nil && len(natExternalIPs) == 0
+
+	if cmd.Flag(enableRosenpassFlag).Changed {
+		req.RosenpassEnabled = &rosenpassEnabled
+	}
+	if cmd.Flag(rosenpassPermissiveFlag).Changed {
+		req.RosenpassPermissive = &rosenpassPermissive
+	}
+	setSSHSetConfigFields(&req, cmd)
+
 	if cmd.Flag(interfaceNameFlag).Changed {
 		if err := parseInterfaceName(interfaceName); err != nil {
 			log.Errorf("parse interface name: %v", err)
@@ -503,6 +511,13 @@ func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, pro
 
 	if cmd.Flag(disableIPv6Flag).Changed {
 		req.DisableIpv6 = &disableIPv6
+	}
+
+	if cmd.Flag(enableLocalMetricsFlag).Changed {
+		req.EnableLocalMetrics = &localMetricsEnabled
+	}
+	if cmd.Flag(localMetricsAddressFlag).Changed {
+		req.LocalMetricsAddress = &localMetricsAddr
 	}
 
 	return &req
@@ -606,6 +621,14 @@ func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configFil
 		ic.DisableIPv6 = &disableIPv6
 	}
 
+	if cmd.Flag(enableLocalMetricsFlag).Changed {
+		ic.LocalMetricsEnabled = &localMetricsEnabled
+	}
+
+	if cmd.Flag(localMetricsAddressFlag).Changed {
+		ic.LocalMetricsAddress = &localMetricsAddr
+	}
+
 	return &ic, nil
 }
 
@@ -630,7 +653,19 @@ func applySSHFlagsToConfig(cmd *cobra.Command, ic *profilemanager.ConfigInput) {
 	}
 }
 
-func applySSHFlagsToLogin(cmd *cobra.Command, req *proto.LoginRequest) {
+// setSSHLoginFields copies the SSH and VNC server flags the user actually
+// passed into req, leaving the rest unset so the daemon keeps the persisted
+// values.
+func setSSHLoginFields(req *proto.LoginRequest, cmd *cobra.Command) {
+	if cmd.Flag(serverSSHAllowedFlag).Changed {
+		req.ServerSSHAllowed = &serverSSHAllowed
+	}
+	if cmd.Flag(serverVNCAllowedFlag).Changed {
+		req.ServerVNCAllowed = &serverVNCAllowed
+	}
+	if cmd.Flag(disableVNCApprovalFlag).Changed {
+		req.DisableVNCApproval = &disableVNCApproval
+	}
 	if cmd.Flag(enableSSHRootFlag).Changed {
 		req.EnableSSHRoot = &enableSSHRoot
 	}
@@ -647,8 +682,8 @@ func applySSHFlagsToLogin(cmd *cobra.Command, req *proto.LoginRequest) {
 		req.DisableSSHAuth = &disableSSHAuth
 	}
 	if cmd.Flag(sshJWTCacheTTLFlag).Changed {
-		ttl := int32(sshJWTCacheTTL)
-		req.SshJWTCacheTTL = &ttl
+		sshJWTCacheTTL32 := int32(sshJWTCacheTTL)
+		req.SshJWTCacheTTL = &sshJWTCacheTTL32
 	}
 }
 
@@ -678,20 +713,18 @@ func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte
 		loginRequest.RosenpassPermissive = &rosenpassPermissive
 	}
 
-	if cmd.Flag(serverSSHAllowedFlag).Changed {
-		loginRequest.ServerSSHAllowed = &serverSSHAllowed
-	}
-	if cmd.Flag(serverVNCAllowedFlag).Changed {
-		loginRequest.ServerVNCAllowed = &serverVNCAllowed
-	}
-	if cmd.Flag(disableVNCApprovalFlag).Changed {
-		loginRequest.DisableVNCApproval = &disableVNCApproval
-	}
-
-	applySSHFlagsToLogin(cmd, &loginRequest)
+	setSSHLoginFields(&loginRequest, cmd)
 
 	if cmd.Flag(disableAutoConnectFlag).Changed {
 		loginRequest.DisableAutoConnect = &autoConnectDisabled
+	}
+
+	if cmd.Flag(enableLocalMetricsFlag).Changed {
+		loginRequest.EnableLocalMetrics = &localMetricsEnabled
+	}
+
+	if cmd.Flag(localMetricsAddressFlag).Changed {
+		loginRequest.LocalMetricsAddress = &localMetricsAddr
 	}
 
 	if cmd.Flag(interfaceNameFlag).Changed {

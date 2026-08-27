@@ -21,10 +21,9 @@ func newProfilePrefs(configDir, profileID string) (*profilePrefs, error) {
 	if configDir == "" || profileID == "" {
 		return nil, fmt.Errorf("profile prefs require a config dir and profile ID")
 	}
-	pm := NewProfileManager(configDir)
-	prefs, err := pm.serviceMgr.ProfilePrefs(profilemanager.ID(profileID), androidUsername)
+	prefs, err := NewProfileManager(configDir).impl.ProfilePrefs(profileID)
 	if err != nil {
-		return nil, fmt.Errorf("resolve profile prefs: %w", err)
+		return nil, err
 	}
 	return &profilePrefs{prefs: prefs}, nil
 }

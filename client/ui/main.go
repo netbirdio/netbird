@@ -8,6 +8,7 @@ import (
 	"flag"
 	"io/fs"
 	"log"
+	"os"
 	"runtime"
 	"strings"
 
@@ -79,6 +80,14 @@ func init() {
 }
 
 func main() {
+	// The one-shot that applies the settings the daemon restricts to
+	// root/administrator, which this binary runs itself as under the platform's
+	// elevation prompt. Handled before anything GUI so no window, tray or
+	// single-instance lock is involved.
+	if services.IsPrivilegedSettingsRun(os.Args[1:]) {
+		os.Exit(runPrivilegedSettings(os.Args[1:]))
+	}
+
 	daemonAddr, userSetLogFile := parseFlagsAndInitLog()
 	conn := NewConn(daemonAddr)
 

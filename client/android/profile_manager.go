@@ -3,42 +3,37 @@
 package android
 
 import (
-	"fmt"
-	"os"
-	"path/filepath"
-
-	log "github.com/sirupsen/logrus"
-
-	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/mobile"
 )
 
 const (
-	// Android uses a single user context per app (non-empty username required by ServiceManager)
+	// Android uses a single user context per app.
 	androidUsername = "android"
 )
 
-// Profile represents a profile for gomobile
+// Profile represents a profile for gomobile.
 type Profile struct {
 	ID   string
 	Name string
 	// Email is the account this profile last logged in with, "" if it never
 	// completed an SSO login. Kept across logouts; cleared when the profile is
-	// removed. See profile_state.go.
+	// removed. See client/mobile/profile_state.go.
 	Email    string
 	IsActive bool
 }
 
-// ProfileArray wraps profiles for gomobile compatibility
+// ProfileArray wraps profiles for gomobile compatibility (gomobile cannot
+// bind Go slices directly).
 type ProfileArray struct {
 	items []*Profile
 }
 
-// Length returns the number of profiles
+// Length returns the number of profiles.
 func (p *ProfileArray) Length() int {
 	return len(p.items)
 }
 
-// Get returns the profile at index i
+// Get returns the profile at index i, or nil if out of range.
 func (p *ProfileArray) Get(i int) *Profile {
 	if i < 0 || i >= len(p.items) {
 		return nil
@@ -46,259 +41,98 @@ func (p *ProfileArray) Get(i int) *Profile {
 	return p.items[i]
 }
 
-/*
-
-/data/data/io.netbird.client/files/           ← configDir parameter
-├── netbird.cfg                                 ← Default profile config
-├── state.json                                  ← Default profile state
-├── active_profile.json                         ← Active profile tracker (JSON with Name + Username)
-└── profiles/                                   ← Subdirectory for non-default profiles
-    ├── work.json                              			← Legacy work profile config
-    ├── work.state.json                        			← Legacy work profile state
-    ├── 4c5f5c8198c3989cffb5b5394f5a7ae0.json  			← ID profile config
-    ├── 4c5f5c8198c3989cffb5b5394f5a7ae0.state.json ← ID profile state
-*/
-
-// ProfileManager manages profiles for Android
-// It wraps the internal profilemanager to provide Android-specific behavior
+// ProfileManager adapts the shared mobile profile manager (client/mobile) to
+// gomobile-friendly types. See that package for the on-disk layout and
+// semantics.
 type ProfileManager struct {
-	configDir  string
-	serviceMgr *profilemanager.ServiceManager
+	impl *mobile.ProfileManager
 }
 
-// NewProfileManager creates a new profile manager for Android
+// NewProfileManager creates a new profile manager for Android. configDir is
+// the app's files directory.
 func NewProfileManager(configDir string) *ProfileManager {
-	// Set the default config path for Android (stored in root configDir, not profiles/)
-	defaultConfigPath := filepath.Join(configDir, defaultConfigFilename)
-
-	// Set global paths for Android
-	profilemanager.DefaultConfigPathDir = configDir
-	profilemanager.DefaultConfigPath = defaultConfigPath
-	profilemanager.ActiveProfileStatePath = filepath.Join(configDir, "active_profile.json")
-
-	// Create ServiceManager with profiles/ subdirectory
-	// This avoids modifying the global ConfigDirOverride for profile listing
-	profilesDir := filepath.Join(configDir, profilesSubdir)
-	serviceMgr := profilemanager.NewServiceManagerWithProfilesDir(defaultConfigPath, profilesDir)
-
-	return &ProfileManager{
-		configDir:  configDir,
-		serviceMgr: serviceMgr,
-	}
+	return &ProfileManager{impl: mobile.NewProfileManager(configDir, androidUsername)}
 }
 
-// ListProfiles returns all available profiles
+// ListProfiles returns all available profiles, including the default profile,
+// with their active status set.
 func (pm *ProfileManager) ListProfiles() (*ProfileArray, error) {
-	// Use ServiceManager (looks in profiles/ directory, checks active_profile.json for IsActive)
-	internalProfiles, err := pm.serviceMgr.ListProfiles(androidUsername)
+	profiles, err := pm.impl.ListProfiles()
 	if err != nil {
-		return nil, fmt.Errorf("failed to list profiles: %w", err)
+		return nil, err
 	}
 
-	// Convert internal profiles to Android Profile type
-	var profiles []*Profile
-	for _, p := range internalProfiles {
-		profiles = append(profiles, &Profile{
-			ID:       p.ID.String(),
-			Name:     p.Name,
-			Email:    pm.profileEmail(p.ID.String()),
-			IsActive: p.IsActive,
-		})
+	items := make([]*Profile, 0, len(profiles))
+	for i := range profiles {
+		items = append(items, fromMobileProfile(&profiles[i]))
 	}
-
-	return &ProfileArray{items: profiles}, nil
+	return &ProfileArray{items: items}, nil
 }
 
-// GetActiveProfile returns the currently active profile name
+// GetActiveProfile returns the currently active profile.
 func (pm *ProfileManager) GetActiveProfile() (*Profile, error) {
-	// Use ServiceManager to stay consistent with ListProfiles
-	// ServiceManager uses active_profile.json
-	activeState, err := pm.serviceMgr.GetActiveProfileState()
+	p, err := pm.impl.GetActiveProfile()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get active profile: %w", err)
+		return nil, err
 	}
-
-	// ActiveProfileState only stores the ID (and username), not the display
-	// name. Resolve the ID to the full profile so callers get the real Name.
-	prof, err := pm.serviceMgr.ResolveProfile(activeState.ID.String(), androidUsername)
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve active profile %q: %w", activeState.ID, err)
-	}
-	return &Profile{
-		ID:       prof.ID.String(),
-		Name:     prof.Name,
-		Email:    pm.profileEmail(prof.ID.String()),
-		IsActive: true,
-	}, nil
+	return fromMobileProfile(p), nil
 }
 
-// profileEmail returns the account email recorded for a profile. Display-only, so
-// an unresolvable path degrades to "" rather than an error.
-func (pm *ProfileManager) profileEmail(id string) string {
-	configPath, err := pm.getProfileConfigPath(id)
-	if err != nil {
-		return ""
-	}
-	return readProfileEmail(configPath)
-}
-
-// SwitchProfile switches to a different profile
+// SwitchProfile records the given profile ID as the active profile. The caller
+// must stop the VPN tunnel before switching.
 func (pm *ProfileManager) SwitchProfile(id string) error {
-	// Use ServiceManager to stay consistent with ListProfiles
-	// ServiceManager uses active_profile.json
-	err := pm.serviceMgr.SetActiveProfileState(&profilemanager.ActiveProfileState{
-		ID:       profilemanager.ID(id),
-		Username: androidUsername,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to switch profile: %w", err)
-	}
-
-	log.Infof("switched to profile: %s", id)
-	return nil
+	return pm.impl.SwitchProfile(id)
 }
 
-// AddProfile creates a new profile
+// AddProfile creates a new profile with the given display name and a
+// generated ID.
 func (pm *ProfileManager) AddProfile(profileName string) error {
-	// Use ServiceManager (creates profile in profiles/ directory)
-	profile, err := pm.serviceMgr.AddProfile(profileName, androidUsername)
-	if err != nil {
-		return fmt.Errorf("failed to add profile: %w", err)
-	}
-
-	log.Infof("created new profile: %s", profile.ID)
-	return nil
+	_, err := pm.impl.AddProfile(profileName)
+	return err
 }
 
-// LogoutProfile logs out from a profile (clears authentication)
-func (pm *ProfileManager) LogoutProfile(id string) error {
-	configPath, err := pm.getProfileConfigPath(id)
-	if err != nil {
-		return err
-	}
-
-	if !profilemanager.IsValidProfileFilenameStem(profilemanager.ID(id)) {
-		return fmt.Errorf("id '%s' is not valid", id)
-	}
-
-	// Check if profile exists
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		return fmt.Errorf("profile '%s' does not exist", id)
-	}
-
-	// Read current config using internal profilemanager
-	config, err := profilemanager.ReadConfig(configPath)
-	if err != nil {
-		return fmt.Errorf("failed to read profile config: %w", err)
-	}
-
-	// Clear authentication by removing private key and SSH key
-	config.PrivateKey = ""
-	config.SSHKey = ""
-
-	// Save config using internal profilemanager
-	if err := profilemanager.WriteOutConfig(configPath, config); err != nil {
-		return fmt.Errorf("failed to save config: %w", err)
-	}
-
-	// The stored account email is kept on purpose, matching the desktop and CLI
-	// logout semantics: the next login passes it as the login_hint so the IdP
-	// preselects the account. Removing the profile is what deletes it.
-	log.Infof("logged out from profile: %s", id)
-	return nil
-}
-
-// RenameProfile changes a profile's display name. The profile ID, and therefore
-// its on-disk filename, is left untouched: only the "name" field of the config
-// is rewritten. This works for the default profile too, whose config lives in
-// netbird.cfg rather than under profiles/.
+// RenameProfile changes the display name of the profile identified by id. The
+// on-disk filename (the ID) is left unchanged.
 func (pm *ProfileManager) RenameProfile(id string, newName string) error {
-	if err := pm.serviceMgr.RenameProfile(profilemanager.ID(id), androidUsername, newName); err != nil {
-		return fmt.Errorf("failed to rename profile: %w", err)
-	}
-
-	log.Infof("renamed profile %s to: %s", id, newName)
-	return nil
+	return pm.impl.RenameProfile(id, newName)
 }
 
-// RemoveProfile deletes a profile
+// LogoutProfile clears authentication data for a profile, forcing a re-login.
+// The management URL and other settings are preserved.
+func (pm *ProfileManager) LogoutProfile(id string) error {
+	return pm.impl.LogoutProfile(id)
+}
+
+// RemoveProfile deletes a profile. The default profile and the active profile
+// cannot be removed.
 func (pm *ProfileManager) RemoveProfile(id string) error {
-	configPath, err := pm.getProfileConfigPath(id)
-	if err != nil {
-		return err
-	}
-
-	// Use ServiceManager (removes profile from profiles/ directory)
-	if err := pm.serviceMgr.RemoveProfile(profilemanager.ID(id), androidUsername); err != nil {
-		return fmt.Errorf("failed to remove profile: %w", err)
-	}
-
-	// The account file is this package's, not the ServiceManager's, so it must
-	// go here. The default profile has a fixed filename, so a recreated one
-	// would otherwise inherit the deleted profile's email as its login_hint.
-	// Not fatal: the profile itself is gone.
-	if err := removeProfileEmail(configPath); err != nil {
-		log.Warnf("failed to remove stored account email for profile %s: %v", id, err)
-	}
-
-	log.Infof("removed profile: %s", id)
-	return nil
+	return pm.impl.RemoveProfile(id)
 }
 
-// getProfileConfigPath returns the config file path for a profile
-// This is needed for Android-specific path handling (netbird.cfg for default profile)
-func (pm *ProfileManager) getProfileConfigPath(id string) (string, error) {
-	if !profilemanager.IsValidProfileFilenameStem(profilemanager.ID(id)) {
-		return "", fmt.Errorf("id %q is not valid", id)
-	}
-
-	if id == profilemanager.DefaultProfileName {
-		// Android uses netbird.cfg for default profile instead of default.json
-		// Default profile is stored in root configDir, not in profiles/
-		return filepath.Join(pm.configDir, defaultConfigFilename), nil
-	}
-
-	profilesDir := filepath.Join(pm.configDir, profilesSubdir)
-	return filepath.Join(profilesDir, id+".json"), nil
-}
-
-// GetConfigPath returns the config file path for a given profile id
-// Java should call this instead of constructing paths with Preferences.configFile()
+// GetConfigPath returns the config file path for the given profile ID. Java
+// should call this instead of constructing paths with Preferences.configFile().
 func (pm *ProfileManager) GetConfigPath(id string) (string, error) {
-	return pm.getProfileConfigPath(id)
+	return pm.impl.GetConfigPath(id)
 }
 
-// GetStateFilePath returns the state file path for a given profile
-// Java should call this instead of constructing paths with Preferences.stateFile()
+// GetStateFilePath returns the state file path for the given profile ID. Java
+// should call this instead of constructing paths with Preferences.stateFile().
 func (pm *ProfileManager) GetStateFilePath(id string) (string, error) {
-	if id == "" || id == profilemanager.DefaultProfileName {
-		return filepath.Join(pm.configDir, "state.json"), nil
-	}
-
-	if !profilemanager.IsValidProfileFilenameStem(profilemanager.ID(id)) {
-		return "", fmt.Errorf("id %q is not valid", id)
-	}
-
-	profilesDir := filepath.Join(pm.configDir, profilesSubdir)
-	return filepath.Join(profilesDir, id+".state.json"), nil
+	return pm.impl.GetStateFilePath(id)
 }
 
-// GetActiveConfigPath returns the config file path for the currently active profile
-// Java should call this instead of Preferences.getActiveProfileName() + Preferences.configFile()
+// GetActiveConfigPath returns the config file path for the currently active
+// profile.
 func (pm *ProfileManager) GetActiveConfigPath() (string, error) {
-	activeProfile, err := pm.GetActiveProfile()
-	if err != nil {
-		return "", fmt.Errorf("failed to get active profile: %w", err)
-	}
-	return pm.GetConfigPath(activeProfile.ID)
+	return pm.impl.GetActiveConfigPath()
 }
 
-// GetActiveStateFilePath returns the state file path for the currently active profile
-// Java should call this instead of Preferences.getActiveProfileName() + Preferences.stateFile()
+// GetActiveStateFilePath returns the state file path for the currently active
+// profile.
 func (pm *ProfileManager) GetActiveStateFilePath() (string, error) {
-	activeProfile, err := pm.GetActiveProfile()
-	if err != nil {
-		return "", fmt.Errorf("failed to get active profile: %w", err)
-	}
-	return pm.GetStateFilePath(activeProfile.ID)
+	return pm.impl.GetActiveStateFilePath()
+}
+
+func fromMobileProfile(p *mobile.Profile) *Profile {
+	return &Profile{ID: p.ID, Name: p.Name, Email: p.Email, IsActive: p.IsActive}
 }

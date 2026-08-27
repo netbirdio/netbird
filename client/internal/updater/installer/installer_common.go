@@ -152,8 +152,8 @@ func (u *Installer) CleanUpInstallerFiles() error {
 
 	var merr *multierror.Error
 
-	if err := os.Remove(filepath.Join(u.tempDir, updaterBinary)); err != nil && !os.IsNotExist(err) {
-		merr = multierror.Append(merr, fmt.Errorf("failed to remove updater binary: %w", err))
+	if err := removeUpdaterBinary(filepath.Join(u.tempDir, updaterBinary)); err != nil {
+		merr = multierror.Append(merr, fmt.Errorf("remove updater binary: %w", err))
 	}
 
 	entries, err := os.ReadDir(u.tempDir)
@@ -167,10 +167,16 @@ func (u *Installer) CleanUpInstallerFiles() error {
 		}
 
 		name := entry.Name()
+		// The updater copy is handled above; on Windows its name also matches the
+		// extension sweep, which would report the same file twice.
+		if strings.EqualFold(name, updaterBinary) {
+			continue
+		}
+
 		for _, ext := range binaryExtensions {
 			if strings.HasSuffix(strings.ToLower(name), strings.ToLower(ext)) {
 				if err := os.Remove(filepath.Join(u.tempDir, name)); err != nil {
-					merr = multierror.Append(merr, fmt.Errorf("failed to remove %s: %w", name, err))
+					merr = multierror.Append(merr, fmt.Errorf("remove %s: %w", name, err))
 				}
 				break
 			}

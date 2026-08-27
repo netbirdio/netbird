@@ -2,6 +2,8 @@ package types
 
 import (
 	"testing"
+
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
 
 // TestHandleVNCRule_BidirectionalDistributesPubkeyToSourcePeer covers the
@@ -13,15 +15,15 @@ import (
 // fix in handleVNCRule must distribute the pubkey to either side of a
 // bidirectional rule.
 func TestHandleVNCRule_BidirectionalDistributesPubkeyToSourcePeer(t *testing.T) {
-	rule := &PolicyRule{
-		Protocol:           PolicyRuleProtocolNetbirdVNC,
+	rule := &nmdata.PolicyRule{
+		Protocol:           string(PolicyRuleProtocolNetbirdVNC),
 		Bidirectional:      true,
 		AuthorizedUser:     "user1",
 		SessionPubKey:      "pubkey-base64",
 		SessionDisplayName: "Alice",
 	}
 	cb := RuleAuthCallbacks{
-		CollectVNCUsers: func(_ *PolicyRule, _ map[string]map[string]struct{}) {},
+		CollectVNCUsers: func(_ *nmdata.PolicyRule, _ map[string]map[string]struct{}) {},
 	}
 	state := NewPeerConnResolveState()
 
@@ -40,14 +42,14 @@ func TestHandleVNCRule_BidirectionalDistributesPubkeyToSourcePeer(t *testing.T) 
 // a strictly source-to-destination rule still must not push the
 // SessionPubKey to peers that appear only in sources.
 func TestHandleVNCRule_UnidirectionalSourceGetsNoPubkey(t *testing.T) {
-	rule := &PolicyRule{
-		Protocol:       PolicyRuleProtocolNetbirdVNC,
+	rule := &nmdata.PolicyRule{
+		Protocol:       string(PolicyRuleProtocolNetbirdVNC),
 		Bidirectional:  false,
 		AuthorizedUser: "user1",
 		SessionPubKey:  "pubkey-base64",
 	}
 	cb := RuleAuthCallbacks{
-		CollectVNCUsers: func(_ *PolicyRule, _ map[string]map[string]struct{}) {},
+		CollectVNCUsers: func(_ *nmdata.PolicyRule, _ map[string]map[string]struct{}) {},
 	}
 	state := NewPeerConnResolveState()
 
@@ -62,14 +64,14 @@ func TestHandleVNCRule_UnidirectionalSourceGetsNoPubkey(t *testing.T) {
 // destination peers must always receive the SessionPubKey since they're
 // the ones that need to authenticate the incoming Noise handshake.
 func TestHandleVNCRule_DestinationAlwaysGetsPubkey(t *testing.T) {
-	rule := &PolicyRule{
-		Protocol:       PolicyRuleProtocolNetbirdVNC,
+	rule := &nmdata.PolicyRule{
+		Protocol:       string(PolicyRuleProtocolNetbirdVNC),
 		Bidirectional:  false,
 		AuthorizedUser: "user1",
 		SessionPubKey:  "pubkey-base64",
 	}
 	cb := RuleAuthCallbacks{
-		CollectVNCUsers: func(_ *PolicyRule, _ map[string]map[string]struct{}) {},
+		CollectVNCUsers: func(_ *nmdata.PolicyRule, _ map[string]map[string]struct{}) {},
 	}
 	state := NewPeerConnResolveState()
 
@@ -89,18 +91,18 @@ func TestHandleVNCRule_DestinationAlwaysGetsPubkey(t *testing.T) {
 func TestApplyResolvedRule_BidirectionalSSHEnablesSourcePeer(t *testing.T) {
 	collected := false
 	cb := RuleAuthCallbacks{
-		CollectSSHUsers: func(_ *PolicyRule, target map[string]map[string]struct{}) {
+		CollectSSHUsers: func(_ *nmdata.PolicyRule, target map[string]map[string]struct{}) {
 			collected = true
 			target["local"] = map[string]struct{}{"user1": {}}
 		},
 	}
-	rule := &PolicyRule{
-		Protocol:      PolicyRuleProtocolNetbirdSSH,
+	rule := &nmdata.PolicyRule{
+		Protocol:      string(PolicyRuleProtocolNetbirdSSH),
 		Bidirectional: true,
 	}
 	state := NewPeerConnResolveState()
 
-	ApplyResolvedRuleToState(rule, nil, nil, true /*peerInSources*/, false /*peerInDestinations*/, false, func(*PolicyRule, []*ComponentPeer, int) {}, cb, state)
+	ApplyResolvedRuleToState(rule, nil, nil, true /*peerInSources*/, false /*peerInDestinations*/, false, func(*nmdata.PolicyRule, []*nmdata.Peer, int) {}, cb, state)
 
 	if !state.SSHEnabled {
 		t.Fatal("expected SSH enabled on source-side peer of bidirectional SSH rule")
@@ -119,17 +121,17 @@ func TestApplyResolvedRule_BidirectionalSSHEnablesSourcePeer(t *testing.T) {
 func TestApplyResolvedRule_UnidirectionalSSHSkipsSourcePeer(t *testing.T) {
 	collected := false
 	cb := RuleAuthCallbacks{
-		CollectSSHUsers: func(_ *PolicyRule, _ map[string]map[string]struct{}) {
+		CollectSSHUsers: func(_ *nmdata.PolicyRule, _ map[string]map[string]struct{}) {
 			collected = true
 		},
 	}
-	rule := &PolicyRule{
-		Protocol:      PolicyRuleProtocolNetbirdSSH,
+	rule := &nmdata.PolicyRule{
+		Protocol:      string(PolicyRuleProtocolNetbirdSSH),
 		Bidirectional: false,
 	}
 	state := NewPeerConnResolveState()
 
-	ApplyResolvedRuleToState(rule, nil, nil, true /*peerInSources*/, false /*peerInDestinations*/, false, func(*PolicyRule, []*ComponentPeer, int) {}, cb, state)
+	ApplyResolvedRuleToState(rule, nil, nil, true /*peerInSources*/, false /*peerInDestinations*/, false, func(*nmdata.PolicyRule, []*nmdata.Peer, int) {}, cb, state)
 
 	if state.SSHEnabled {
 		t.Fatal("expected SSH NOT enabled on source-only peer of unidirectional SSH rule")

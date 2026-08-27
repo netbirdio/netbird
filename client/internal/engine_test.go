@@ -279,7 +279,8 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 	}, MobileDependency{})
 
 	wgIface := &MockWGIface{
-		NameFunc: func() string { return "utun102" },
+		NameFunc:            func() string { return "utun102" },
+		IsUserspaceBindFunc: func() bool { return true },
 		RemovePeerFunc: func(peerKey string) error {
 			return nil
 		},

@@ -45,30 +45,13 @@ func (m *influxDBMetrics) RecordConnectionStages(
 	isReconnection bool,
 	timestamps ConnectionStageTimestamps,
 ) {
-	var signalingReceivedToConnection, connectionToWgHandshake, totalDuration float64
-
-	if !timestamps.SignalingReceived.IsZero() && !timestamps.ConnectionReady.IsZero() {
-		signalingReceivedToConnection = timestamps.ConnectionReady.Sub(timestamps.SignalingReceived).Seconds()
-	}
-
-	if !timestamps.ConnectionReady.IsZero() && !timestamps.WgHandshakeSuccess.IsZero() {
-		connectionToWgHandshake = timestamps.WgHandshakeSuccess.Sub(timestamps.ConnectionReady).Seconds()
-	}
-
-	if !timestamps.SignalingReceived.IsZero() && !timestamps.WgHandshakeSuccess.IsZero() {
-		totalDuration = timestamps.WgHandshakeSuccess.Sub(timestamps.SignalingReceived).Seconds()
-	}
-
-	attemptType := "initial"
-	if isReconnection {
-		attemptType = "reconnection"
-	}
+	signalingReceivedToConnection, connectionToWgHandshake, totalDuration := timestamps.Durations()
 
 	connTypeStr := connectionType.String()
 	tags := fmt.Sprintf("deployment_type=%s,connection_type=%s,attempt_type=%s,version=%s,os=%s,arch=%s,peer_id=%s,connection_pair_id=%s",
 		agentInfo.DeploymentType.String(),
 		connTypeStr,
-		attemptType,
+		attemptType(isReconnection),
 		agentInfo.Version,
 		agentInfo.OS,
 		agentInfo.Arch,
@@ -94,7 +77,7 @@ func (m *influxDBMetrics) RecordConnectionStages(
 	m.trimLocked()
 
 	log.Tracef("peer connection metrics [%s, %s, %s]: signalingReceived→connection: %.3fs, connection→wg_handshake: %.3fs, total: %.3fs",
-		agentInfo.DeploymentType.String(), connTypeStr, attemptType, signalingReceivedToConnection, connectionToWgHandshake, totalDuration)
+		agentInfo.DeploymentType.String(), connTypeStr, attemptType(isReconnection), signalingReceivedToConnection, connectionToWgHandshake, totalDuration)
 }
 
 func (m *influxDBMetrics) RecordSyncDuration(_ context.Context, agentInfo AgentInfo, duration time.Duration) {

@@ -1,0 +1,4 @@
+{
+  "description": "One posture check bundle holding two different checks. All checks in a bundle must pass, so only peer-both is admitted: peer-badgeo satisfies the version rule and peer-badversion satisfies the location rule, and each is still rejected on the other. This pins the AND semantics of a bundle rather than any-of.",
+  "peers": ["peer-srv", "peer-both", "peer-badgeo"]
+}
