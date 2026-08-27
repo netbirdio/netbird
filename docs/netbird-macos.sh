@@ -109,28 +109,40 @@ end_plist() {
 EOF
 }
 
-# emit_string appends a plist `<key>`/`<string>` entry for the given key and value to "$PLIST_PATH.tmp", XML-escaping `&`, `<`, and `>`, and logs the assignment (masking the logged value as `********** (secret)` when the key is `preSharedKey`).
+# emit_string appends a plist `<key>`/`<string>` entry for the given key and value to "$PLIST_PATH.tmp", XML-escaping `&`, `<`, and `>`, and logs the assignment (masking the logged value as `********** (secret)` for secret keys — `preSharedKey` and `debugBundleUploadURL`, which can embed credentials or a signed query token).
 emit_string() {
   local key="$1" value="$2" log_value="$2"
   # Escape XML entities in the value
   local escaped
   escaped="$(printf '%s' "$value" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')"
   printf '    <key>%s</key>\n    <string>%s</string>\n' "$key" "$escaped" >> "$PLIST_PATH.tmp"
-  if [[ "$key" == "preSharedKey" ]]; then
-    log_value='********** (secret)'
-  fi
+  case "$key" in
+    preSharedKey|debugBundleUploadURL) log_value='********** (secret)' ;;
+  esac
   log "set $key = $log_value"
 }
 
-# emit_bool writes a boolean plist entry for a given key into the temporary plist file.
-# emit_bool writes a boolean plist entry for a key when the provided value matches an accepted boolean token; logs an error and skips the key on invalid input.
+# is_bool returns success if the value is an accepted boolean token.
+is_bool() {
+  case "$1" in
+    true|True|TRUE|1|yes|false|False|FALSE|0|no) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# emit_bool writes a boolean plist entry for a key when the provided value matches
+# an accepted boolean token; logs an error and skips the key on invalid input.
+# It returns success even on invalid input (like emit_int) so a single typo in one
+# boolean does not abort the whole policy push under `set -euo pipefail`. Callers
+# that must fail closed on an invalid value (e.g. allowRemoteJobs) validate with
+# is_bool before calling and substitute a safe default themselves.
 emit_bool() {
   local key="$1" value="$2"
   local xml_bool
   case "$value" in
     true|True|TRUE|1|yes)  xml_bool='<true/>'  ; value='true'  ;;
     false|False|FALSE|0|no) xml_bool='<false/>' ; value='false' ;;
-    *) log "invalid boolean for $key: $value (must be true/false)"; return 1 ;;
+    *) log "invalid boolean for $key: $value (must be true/false); skipping"; return ;;
   esac
   printf '    <key>%s</key>\n    %s\n' "$key" "$xml_bool" >> "$PLIST_PATH.tmp"
   log "set $key = $value"
@@ -159,7 +171,12 @@ main() {
   # Fail closed: an invalid allowRemoteJobs value must not drop the key and
   # leave a conflicting local opt-in active — enforce the safe default (false).
   if is_set "$allowRemoteJobs"; then
-    emit_bool allowRemoteJobs "$allowRemoteJobs" || emit_bool allowRemoteJobs false
+    if is_bool "$allowRemoteJobs"; then
+      emit_bool allowRemoteJobs "$allowRemoteJobs"
+    else
+      log "invalid boolean for allowRemoteJobs: $allowRemoteJobs; enforcing safe default (false)"
+      emit_bool allowRemoteJobs false
+    fi
   fi
   is_set "$debugBundleUploadURL"      && emit_string  debugBundleUploadURL      "$debugBundleUploadURL"
   is_set "$blockInbound"              && emit_bool    blockInbound              "$blockInbound"

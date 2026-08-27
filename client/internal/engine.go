@@ -1442,23 +1442,13 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobR
 }
 
 // validateBundleUploadURL sanity-checks a management-supplied upload URL for a
-// remote debug bundle job. An empty value is accepted — the executor falls back
-// to the default upload service. A non-empty value must be a well-formed https
-// URL with a host; a malformed value or a plaintext scheme is rejected. This
-// deliberately does not constrain which host may receive the bundle; that
-// policy is left open pending a decision on management-directed uploads.
+// remote debug bundle job. It delegates to profilemanager.ValidateBundleUploadURL
+// so the executor and the MDM policy override share one definition of the rule
+// (empty accepted; otherwise a well-formed https URL with a host) and cannot
+// drift. The host is deliberately left unconstrained pending a decision on
+// management-directed uploads.
 func validateBundleUploadURL(raw string) error {
-	if raw == "" {
-		return nil
-	}
-	parsed, err := url.Parse(raw)
-	if err != nil {
-		return fmt.Errorf("parse upload URL: %w", err)
-	}
-	if parsed.Scheme != "https" || parsed.Host == "" {
-		return fmt.Errorf("upload URL must be an https URL with a host")
-	}
-	return nil
+	return profilemanager.ValidateBundleUploadURL(raw)
 }
 
 // receiveManagementEvents connects to the Management Service event stream to receive updates from the management service

@@ -333,6 +333,7 @@ func setConfigRequestHasConfigOverrides(msg *proto.SetConfigRequest) bool {
 		msg.Mtu != nil ||
 		msg.DisableAutoConnect != nil ||
 		msg.ServerSSHAllowed != nil ||
+		msg.RemoteJobsAllowed != nil ||
 		msg.NetworkMonitor != nil ||
 		msg.DisableClientRoutes != nil ||
 		msg.DisableServerRoutes != nil ||
@@ -371,6 +372,7 @@ func loginRequestHasConfigOverrides(msg *proto.LoginRequest) bool {
 		msg.WireguardPort != nil ||
 		msg.DisableAutoConnect != nil ||
 		msg.ServerSSHAllowed != nil ||
+		msg.RemoteJobsAllowed != nil ||
 		msg.RosenpassPermissive != nil ||
 		len(msg.ExtraIFaceBlacklist) > 0 ||
 		msg.NetworkMonitor != nil ||

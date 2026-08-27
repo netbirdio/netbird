@@ -117,6 +117,10 @@ func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPee
 		t.Fatalf("Failed to create proxy manager: %v", err)
 	}
 	proxyServiceServer := nbgrpc.NewProxyServiceServer(accessLogsManager, proxyTokenStore, pkceverifierStore, nbgrpc.ProxyOIDCConfig{}, peersManager, userManager, nil, proxyMgr, nil)
+	// NewProxyServiceServer starts cleanupStaleProxies on a context it derives
+	// from context.Background(), independent of the cancellable ctx above;
+	// Close() cancels it so the goroutine does not outlive the test.
+	t.Cleanup(proxyServiceServer.Close)
 	domainManager := manager.NewManager(store, proxyMgr, permissionsManager, am)
 	serviceProxyController, err := proxymanager.NewGRPCController(proxyServiceServer, noopMeter)
 	if err != nil {
@@ -253,6 +257,10 @@ func BuildApiBlackBoxWithDBStateAndPeerChannel(t testing_tools.TB, sqlFile strin
 		t.Fatalf("Failed to create proxy manager: %v", err)
 	}
 	proxyServiceServer := nbgrpc.NewProxyServiceServer(accessLogsManager, proxyTokenStore, pkceverifierStore, nbgrpc.ProxyOIDCConfig{}, peersManager, userManager, nil, proxyMgr, nil)
+	// NewProxyServiceServer starts cleanupStaleProxies on a context it derives
+	// from context.Background(), independent of the cancellable ctx above;
+	// Close() cancels it so the goroutine does not outlive the test.
+	t.Cleanup(proxyServiceServer.Close)
 	domainManager := manager.NewManager(store, proxyMgr, permissionsManager, am)
 	serviceProxyController, err := proxymanager.NewGRPCController(proxyServiceServer, noopMeter)
 	if err != nil {

@@ -777,6 +777,27 @@ func (config *Config) applyMDMPolicy(policy *mdm.Policy) {
 
 }
 
+// ValidateBundleUploadURL sanity-checks a debug-bundle upload URL. An empty
+// value is accepted — the executor falls back to the default upload service. A
+// non-empty value must be a well-formed https URL with a host; a malformed
+// value or a plaintext scheme is rejected. It deliberately does not constrain
+// which host may receive the bundle. This is the single source of truth for the
+// rule, shared by the remote-job executor (client/internal) and the MDM policy
+// override below so the two validation paths cannot drift.
+func ValidateBundleUploadURL(raw string) error {
+	if raw == "" {
+		return nil
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("parse upload URL: %w", err)
+	}
+	if parsed.Scheme != "https" || parsed.Host == "" {
+		return fmt.Errorf("upload URL must be an https URL with a host")
+	}
+	return nil
+}
+
 // mdmDebugBundleUploadURL resolves the MDM-enforced debug-bundle upload URL
 // override from the policy, returning the empty string when the policy does
 // not carry a valid KeyBundleUploadURL. An absent or invalid value fails
@@ -786,12 +807,12 @@ func (config *Config) applyMDMPolicy(policy *mdm.Policy) {
 // mdm.SecretKeys).
 func mdmDebugBundleUploadURL(policy *mdm.Policy) string {
 	v, ok := policy.GetString(mdm.KeyBundleUploadURL)
-	if !ok {
+	if !ok || v == "" {
 		return ""
 	}
 	// Must be a well-formed https URL with a host, matching the client's
-	// remote-job upload-URL validation.
-	if u, err := url.Parse(v); err != nil || u.Scheme != "https" || u.Host == "" {
+	// remote-job upload-URL validation (shared validator, single source of truth).
+	if err := ValidateBundleUploadURL(v); err != nil {
 		log.Warnf("MDM debug bundle upload URL is invalid (must be an https URL with a host); ignoring the override")
 		return ""
 	}

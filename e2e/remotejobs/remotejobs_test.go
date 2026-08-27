@@ -44,6 +44,7 @@ func TestRemoteJobsOptInAndBundleParams(t *testing.T) {
 	})
 	require.NoError(t, err, "mint setup key")
 	require.NotEmpty(t, sk.Key, "setup key plaintext")
+	t.Cleanup(func() { _ = srv.API().SetupKeys.Delete(context.Background(), sk.Id) })
 
 	// Start the client with a plain `netbird up` (remote jobs NOT enabled).
 	cl, err := harness.StartClient(ctx, srv, sk.Key)
@@ -51,7 +52,7 @@ func TestRemoteJobsOptInAndBundleParams(t *testing.T) {
 	t.Cleanup(func() { _ = cl.Terminate(context.Background()) })
 	require.NoError(t, cl.WaitConnected(ctx, 90*time.Second), "client must connect to management")
 
-	peerID := waitForPeer(ctx, t)
+	peerID := waitForPeer(ctx, t, cl.Hostname())
 
 	t.Run("opt-in flag defaults to false and is reported to management (#7153)", func(t *testing.T) {
 		p, err := srv.API().Peers.Get(ctx, peerID)
@@ -147,18 +148,26 @@ func bundleJob(anonymizeLevel, uploadURL string) api.JobRequest {
 	return api.JobRequest{Workload: wl}
 }
 
-// waitForPeer polls the peers API until the single registered client appears
-// and returns its ID.
-func waitForPeer(ctx context.Context, t *testing.T) string {
+// waitForPeer polls the peers API until the client that registered under the
+// given hostname appears and returns its ID. Matching by hostname rather than
+// taking the first list entry keeps the test correct if the account ever holds
+// more than one peer (a shared bootstrap account, or a second client added to
+// the package).
+func waitForPeer(ctx context.Context, t *testing.T, hostname string) string {
 	t.Helper()
 	var peerID string
 	require.Eventually(t, func() bool {
 		peers, err := srv.API().Peers.List(ctx)
-		if err != nil || len(peers) == 0 {
+		if err != nil {
 			return false
 		}
-		peerID = peers[0].Id
-		return true
+		for _, p := range peers {
+			if p.Hostname == hostname {
+				peerID = p.Id
+				return true
+			}
+		}
+		return false
 	}, 60*time.Second, 2*time.Second, "the client peer must register with management")
 	return peerID
 }
