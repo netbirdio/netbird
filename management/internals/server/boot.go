@@ -36,6 +36,7 @@ import (
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
 	nbhttp "github.com/netbirdio/netbird/management/server/http"
+	"github.com/netbirdio/netbird/management/server/http/handlers/autonoma"
 	"github.com/netbirdio/netbird/management/server/http/middleware"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -128,6 +129,28 @@ func (s *BaseServer) APIHandler() http.Handler {
 		if err != nil {
 			log.Fatalf("failed to create API handler: %v", err)
 		}
+
+		// Autonoma's test-data endpoint seeds and tears down a whole account
+		// through the same managers as the rest of the API. It mounts itself
+		// only when both Autonoma secrets are in the environment.
+		if err := autonoma.AddEndpoints(autonoma.Deps{
+			AccountManager:      s.AccountManager(),
+			IdpManager:          s.IdpManager(),
+			Store:               s.Store(),
+			NetworksManager:     s.NetworksManager(),
+			ResourcesManager:    s.ResourcesManager(),
+			RoutersManager:      s.RoutesManager(),
+			ZonesManager:        s.ZonesManager(),
+			RecordsManager:      s.RecordsManager(),
+			ServiceManager:      s.ServiceManager(),
+			DomainManager:       s.ReverseProxyDomainManager(),
+			AccessLogsManager:   s.AccessLogsManager(),
+			ProxyManager:        s.ProxyManager(),
+			AgentNetworkManager: s.AgentNetworkManager(),
+		}, s.Router()); err != nil {
+			log.Fatalf("failed to register the Autonoma test-data endpoint: %v", err)
+		}
+
 		return httpAPIHandler
 	})
 }
