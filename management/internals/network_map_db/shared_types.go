@@ -151,6 +151,8 @@ type Policy struct {
 	PortRanges          []byte         `nmap:"skip,json"`
 	AuthorizedGroups    []byte         `nmap:"skip,json"`
 	AuthorizedUser      sql.NullString `nmap:"skip"`
+	SessionPubKey       sql.NullString `nmap:"skip"`
+	SessionDisplayName  sql.NullString `nmap:"skip"`
 }
 
 // Depending on db interface LastLogin contains time in different formats:
@@ -457,6 +459,12 @@ func ConvertToNmdataPolicy(policies []Policy) ([]nmdata.Policy, map[string]map[s
 		}
 		if p.AuthorizedUser.Valid {
 			pr().AuthorizedUser = p.AuthorizedUser.String
+		}
+		if p.SessionPubKey.Valid {
+			pr().SessionPubKey = p.SessionPubKey.String
+		}
+		if p.SessionDisplayName.Valid {
+			pr().SessionDisplayName = p.SessionDisplayName.String
 		}
 
 		if policyRule != nil {

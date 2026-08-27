@@ -11,7 +11,7 @@ const (
 	GetPoliciesQuery = `
 	select p.id, p.public_id, p.enabled, p.source_posture_checks, pr.enabled as rule_enabled, pr.action, pr.protocol, pr.bidirectional, 
 	pr.sources, pr.destinations, pr.source_resource, pr.destination_resource, pr.ports, pr.port_ranges,
-	pr.authorized_groups, pr.authorized_user
+	pr.authorized_groups, pr.authorized_user, pr.session_pub_key, pr.session_display_name
 	from policies as p
 	left join policy_rules as pr on p.id = pr.policy_id 
 	where account_id=?
