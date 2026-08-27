@@ -60,18 +60,21 @@ check_docker_sock_perms() {
 }
 
 check_docker_compose() {
-  if command -v docker-compose &> /dev/null
-  then
-      echo "docker-compose"
-      return
-  fi
-  if docker compose --help &> /dev/null
-  then
-      echo "docker compose"
-      return
+  if ! command -v docker &> /dev/null && ! command -v docker-compose &> /dev/null; then
+    echo "Docker is not installed or not in PATH. Please follow the steps from the official guide: https://docs.docker.com/engine/install/" > /dev/stderr
+    exit 1
   fi
 
-  echo "docker-compose is not installed or not in PATH. Please follow the steps from the official guide: https://docs.docker.com/engine/install/" > /dev/stderr
+  if docker compose version &> /dev/null; then
+    echo "docker compose"
+    return
+  fi
+  if command -v docker-compose &> /dev/null && docker-compose version &> /dev/null; then
+    echo "docker-compose"
+    return
+  fi
+
+  echo "Docker Compose is not installed or not in PATH. Please follow the steps from the official guide: https://docs.docker.com/compose/install/" > /dev/stderr
   exit 1
 }
 

@@ -63,15 +63,21 @@ ENTERPRISE_CONFIG="no"
 NETBIRD_EULA_URL="https://netbird.io/self-hosted-EULA"
 
 check_docker_compose() {
-  if command -v docker-compose &> /dev/null; then
-    echo "docker-compose"
-    return
+  if ! command -v docker &> /dev/null && ! command -v docker-compose &> /dev/null; then
+    echo "Docker is not installed or not in PATH. Please follow the steps from the official guide: https://docs.docker.com/engine/install/" > /dev/stderr
+    exit 1
   fi
-  if docker compose --help &> /dev/null; then
+
+  if docker compose version &> /dev/null; then
     echo "docker compose"
     return
   fi
-  echo "docker-compose is not installed or not in PATH." > /dev/stderr
+  if command -v docker-compose &> /dev/null && docker-compose version &> /dev/null; then
+    echo "docker-compose"
+    return
+  fi
+
+  echo "Docker Compose is not installed or not in PATH. Please follow the steps from the official guide: https://docs.docker.com/compose/install/" > /dev/stderr
   exit 1
 }
 
