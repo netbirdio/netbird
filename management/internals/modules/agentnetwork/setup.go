@@ -14,8 +14,11 @@ import (
 // groups authorize. It deliberately performs no role permission check:
 // the result is scoped to the caller's own groups, which is strictly
 // tighter than any role gate, so every authenticated user (any role) may
-// read it. Peers and users carry the same groups, so the answer matches
-// what the proxy enforces for the caller's machines at request time.
+// read it. The group source matches enforcement: the proxy authorizes
+// each Agent Network request against the calling user's groups as well —
+// session validation resolves them from the same user record's
+// auto-groups — so this answer and the proxy's verdict are computed from
+// the same memberships.
 func (m *managerImpl) GetSetupForUser(ctx context.Context, accountID, userID string) (*types.EffectiveSetup, error) {
 	user, err := m.store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
 	if err != nil {
@@ -204,7 +207,13 @@ func effectiveModelsForProvider(provider *types.Provider, policies []*types.Poli
 	}
 	out := make([]string, 0, len(declared))
 	for _, id := range declared {
-		if _, ok := seen[normaliseModelID(id)]; ok {
+		// Compare through the canonical id the proxy's parser emits — a
+		// Bedrock declaration may carry the region/version form
+		// ("eu.anthropic.claude-...-v1:0") while the allowlist holds the
+		// stripped id the parser matches at request time, and the raw
+		// forms would never intersect. The declared id itself is what
+		// gets advertised, matching the router's route claim.
+		if _, ok := seen[normaliseModelID(normalizePricingModelID(provider.ProviderID, id))]; ok {
 			out = append(out, id)
 		}
 	}

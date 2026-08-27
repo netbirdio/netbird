@@ -11,8 +11,12 @@ import (
 // to the resources the usage filters and display columns resolve against:
 // users and groups (identity filters and name resolution), peers (agent
 // principals in the caller column), and the provider list (provider and
-// model filter options). It sees no policies and no request-level access
-// logs (which can contain captured prompts).
+// model filter options — the manager redacts connection config such as
+// upstream URLs and operator-supplied header values for callers holding
+// read without update). It sees no policies and no account-wide
+// request-level access logs (which can contain captured prompts); its own
+// requests remain readable through the self-scoped endpoints, like any
+// caller's.
 var UsageViewer = RolePermissions{
 	Role: types.UserRoleUsageViewer,
 	AutoAllowNew: map[operations.Operation]bool{

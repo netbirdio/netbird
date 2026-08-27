@@ -114,6 +114,36 @@ func TestEffectiveSetup_RealStore_AllowlistIntersectsDeclaredModels(t *testing.T
 	assert.Equal(t, []string{"gpt-5.4"}, p.Models, "allowlist ∩ declared, in declared order and casing")
 }
 
+func TestEffectiveSetup_RealStore_AllowlistMatchesBedrockDeclaredIDsCanonically(t *testing.T) {
+	mgr, s := newSetupTestMgr(t)
+	ctx := context.Background()
+
+	require.NoError(t, s.SaveAgentNetworkSettings(ctx, newSynthTestSettings()))
+	// A Bedrock operator typically declares the region/version form the
+	// vendor lists, while the allowlist holds the canonical id the proxy's
+	// parser emits at request time. The intersection must compare through
+	// the same normalization the parser applies, and the declared (raw)
+	// id is what gets advertised — it is what the router claims.
+	provider := newSynthTestProvider()
+	provider.ProviderID = "bedrock_api"
+	provider.Name = "Bedrock"
+	provider.Models = []types.ProviderModel{
+		{ID: "eu.anthropic.claude-sonnet-4-5-20250929-v1:0"},
+		{ID: "eu.amazon.nova-pro-v1:0"},
+	}
+	require.NoError(t, s.SaveAgentNetworkProvider(ctx, provider))
+	require.NoError(t, s.SaveAgentNetworkGuardrail(ctx, newSetupTestGuardrail("guard-1", "anthropic.claude-sonnet-4-5")))
+	require.NoError(t, s.SaveAgentNetworkPolicy(ctx, newSynthTestPolicy(provider.ID, "grp-eng", "guard-1")))
+
+	setup, err := mgr.effectiveSetupForGroups(ctx, testAccountID, []string{"grp-eng"})
+	require.NoError(t, err)
+	require.Len(t, setup.Providers, 1)
+	p := setup.Providers[0]
+	assert.False(t, p.AllModelsAllowed)
+	assert.Equal(t, []string{"eu.anthropic.claude-sonnet-4-5-20250929-v1:0"}, p.Models,
+		"the allowlisted canonical id must admit the declared region/version form, and only it")
+}
+
 func TestEffectiveSetup_RealStore_UnrestrictedPolicyWinsOverRestricted(t *testing.T) {
 	mgr, s := newSetupTestMgr(t)
 	ctx := context.Background()

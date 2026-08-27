@@ -179,14 +179,52 @@ func (m *managerImpl) GetAllProviders(ctx context.Context, accountID, userID str
 	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkProviders, operations.Read); err != nil {
 		return nil, err
 	}
-	return m.store.GetAccountAgentNetworkProviders(ctx, store.LockingStrengthNone, accountID)
+	providers, err := m.store.GetAccountAgentNetworkProviders(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return nil, err
+	}
+	return m.redactProvidersForViewer(ctx, accountID, userID, providers)
 }
 
 func (m *managerImpl) GetProvider(ctx context.Context, accountID, userID, providerID string) (*types.Provider, error) {
 	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkProviders, operations.Read); err != nil {
 		return nil, err
 	}
-	return m.store.GetAgentNetworkProviderByID(ctx, store.LockingStrengthNone, accountID, providerID)
+	provider, err := m.store.GetAgentNetworkProviderByID(ctx, store.LockingStrengthNone, accountID, providerID)
+	if err != nil {
+		return nil, err
+	}
+	redacted, err := m.redactProvidersForViewer(ctx, accountID, userID, []*types.Provider{provider})
+	if err != nil {
+		return nil, err
+	}
+	return redacted[0], nil
+}
+
+// redactProvidersForViewer strips the connection configuration from
+// providers handed to a caller who holds only the read grant on
+// agent_network.providers. Update is the managing signal: a role that can
+// edit a provider sees its config in the edit form anyway, while a
+// read-only role (usage_viewer) only needs the display surface the usage
+// filters resolve against — upstream URLs and operator-supplied header
+// values are not part of that. Validation errors fail closed.
+func (m *managerImpl) redactProvidersForViewer(ctx context.Context, accountID, userID string, providers []*types.Provider) ([]*types.Provider, error) {
+	canManage, _, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.AgentNetworkProviders, operations.Update)
+	if err != nil {
+		return nil, status.NewPermissionValidationError(err)
+	}
+	if canManage {
+		return providers, nil
+	}
+	out := make([]*types.Provider, 0, len(providers))
+	for _, p := range providers {
+		if p == nil {
+			out = append(out, nil)
+			continue
+		}
+		out = append(out, p.RedactedForViewer())
+	}
+	return out, nil
 }
 
 // DiscoverProviderModels asks the vendor which models a credential can reach.
