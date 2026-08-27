@@ -53,6 +53,19 @@ func TestGetPolicies(t *testing.T) {
 		 values('policy-4-rule-1','policy-4',false,null,null,null,null,'["group-two-resources-id"]',
 		        null,'{"ID":"domain-3","Type":"domain"}',null,null,null,null)`)
 
+	// VNC temporary-access rule: the session pubkey and display name are what
+	// the daemon's Noise_IK authorizer matches on, so they have to survive the
+	// components path as well as the legacy one.
+	execQuery(t, ctx,
+		`insert into policies (id, public_id, account_id, enabled, source_posture_checks)
+		 values('policy-5','policy-5-public','account-1',true,null)`)
+	execQuery(t, ctx,
+		`insert into policy_rules (id, policy_id, enabled, action, protocol, bidirectional, sources, destinations,
+		                           source_resource, destination_resource, ports, port_ranges,
+								   authorized_groups, authorized_user, session_pub_key, session_display_name)
+		 values('policy-5-rule-1','policy-5',true,'accept','netbird-vnc',true,'["group-one-resource-id"]','["group-two-resources-id"]',
+		        null,null,null,null,null,'user-9','c2Vzc2lvbi1wdWJrZXktMzItYnl0ZXMtZXhhY3RseSE=','Alice Example')`)
+
 	policies, policyToDestinationResourceIdx, policyToDestinationGroupIdx, err := conn(t, ctx).GetPolicies(ctx, "account-1")
 	assert.NoError(t, err)
 
@@ -135,9 +148,32 @@ func TestGetPolicies(t *testing.T) {
 		},
 	})
 
+	assert.Contains(t, policies, nmdata.Policy{
+		ID:                  "policy-5",
+		PublicID:            "policy-5-public",
+		Enabled:             true,
+		SourcePostureChecks: nil,
+		Rules: []*nmdata.PolicyRule{
+			{
+				ID:                 "policy-5",
+				PolicyID:           "policy-5",
+				Enabled:            true,
+				Action:             "accept",
+				Protocol:           "netbird-vnc",
+				Bidirectional:      true,
+				Sources:            []string{"group-one-resource-id"},
+				Destinations:       []string{"group-two-resources-id"},
+				AuthorizedUser:     "user-9",
+				SessionPubKey:      "c2Vzc2lvbi1wdWJrZXktMzItYnl0ZXMtZXhhY3RseSE=",
+				SessionDisplayName: "Alice Example",
+			},
+		},
+	})
+
 	assert.Equal(t, policyToDestinationGroupIdx, map[string]map[string]any{
 		"policy-1": {"group-one-resource-id": struct{}{}, "group-two-resources-id": struct{}{}},
 		"policy-2": {"group-two-resources-id": struct{}{}},
+		"policy-5": {"group-two-resources-id": struct{}{}},
 	})
 	assert.Equal(t, policyToDestinationResourceIdx, map[string]map[string]any{
 		"policy-1": {"domain-1": struct{}{}},
