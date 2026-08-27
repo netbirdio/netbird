@@ -239,13 +239,30 @@ func (m *managerImpl) callerScopedProviders(ctx context.Context, accountID, user
 	if err != nil {
 		return nil, fmt.Errorf("get user: %w", err)
 	}
-	authorized, _, err := m.authorizedProvidersForGroups(ctx, accountID, user.AutoGroups)
+	authorized, applicable, err := m.authorizedProvidersForGroups(ctx, accountID, user.AutoGroups)
 	if err != nil {
 		return nil, err
 	}
+	var guardrailsByID map[string]*types.Guardrail
+	if anyPolicyHasGuardrails(applicable) {
+		guardrailsByID, err = m.loadGuardrailsByID(ctx, accountID)
+		if err != nil {
+			return nil, err
+		}
+	}
 	out := make([]*types.Provider, 0, len(authorized))
 	for _, p := range authorized {
-		out = append(out, p.RedactedForViewer())
+		r := p.RedactedForViewer()
+		// The model list follows the same effective computation the setup
+		// answer and the proxy use: a caller whose policies carry a model
+		// allowlist sees only the models those guardrails permit, so the
+		// dashboard's model filter never offers a model the caller's own
+		// requests could not use. Grant holders keep the full declared
+		// lists — their usage view spans everyone's requests.
+		if allAllowed, effective := effectiveModelsForProvider(p, policiesForProvider(applicable, p.ID), guardrailsByID); !allAllowed {
+			r.Models = providerModelsByID(p, effective)
+		}
+		out = append(out, r)
 	}
 	return out, nil
 }

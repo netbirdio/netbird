@@ -228,6 +228,33 @@ func effectiveModelsForProvider(provider *types.Provider, policies []*types.Poli
 	return false, out
 }
 
+// providerModelsByID maps effective model ids (as effectiveModelsForProvider
+// returns them) back onto the operator's declared entries, keeping the
+// declared casing and prices. With no operator declaration the ids are the
+// allowlist union and have no declared entry to map to, so bare entries are
+// synthesized — the router claims every model in that case, so those ids are
+// reachable and belong in the answer.
+func providerModelsByID(provider *types.Provider, ids []string) []types.ProviderModel {
+	if len(provider.Models) == 0 {
+		out := make([]types.ProviderModel, 0, len(ids))
+		for _, id := range ids {
+			out = append(out, types.ProviderModel{ID: id})
+		}
+		return out
+	}
+	keep := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		keep[normaliseModelID(id)] = struct{}{}
+	}
+	out := make([]types.ProviderModel, 0, len(ids))
+	for _, m := range provider.Models {
+		if _, ok := keep[normaliseModelID(m.ID)]; ok {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
 // declaredModelIDs returns the models a provider exposes: the operator's
 // curated list when present, otherwise the catalog entry's models (an
 // empty operator list means "all catalog models"). Gateway/custom catalog

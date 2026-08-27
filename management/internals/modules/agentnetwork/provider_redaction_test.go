@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
@@ -185,4 +186,63 @@ func TestGetProvider_SelfScopedForPlainUser(t *testing.T) {
 	assertNotFound("prov-other")
 	assertNotFound("prov-disabled")
 	assertNotFound("prov-does-not-exist")
+}
+
+func TestGetAllProviders_SelfScopedModelsFollowGuardrails(t *testing.T) {
+	ctx := context.Background()
+	mgr, s := newSelfScopeProvidersFixture(t)
+
+	// Re-declare the granted provider with two models and restrict the
+	// caller's policy with an allowlist admitting one declared model plus
+	// one the operator never declared (unreachable — the router only
+	// claims declared models, so it must not surface).
+	granted := newSynthTestProvider()
+	granted.ID = "prov-granted"
+	granted.Name = "Granted"
+	granted.Models = []types.ProviderModel{
+		{ID: "gpt-5.4", InputPer1k: 0.004, OutputPer1k: 0.02},
+		{ID: "gpt-4o", InputPer1k: 0.0025, OutputPer1k: 0.01},
+	}
+	require.NoError(t, s.SaveAgentNetworkProvider(ctx, granted))
+	require.NoError(t, s.SaveAgentNetworkGuardrail(ctx, newSetupTestGuardrail("guard-models", "gpt-5.4", "gpt-undeclared")))
+	policy := newSynthTestPolicy(granted.ID, "grp-eng", "guard-models")
+	require.NoError(t, s.SaveAgentNetworkPolicy(ctx, policy))
+
+	scoped, err := mgr.GetAllProviders(ctx, testAccountID, "user-a")
+	require.NoError(t, err)
+	require.Len(t, scoped, 1)
+	require.Len(t, scoped[0].Models, 1,
+		"the self-scoped model list is the effective set: allowlist ∩ declared")
+	assert.Equal(t, "gpt-5.4", scoped[0].Models[0].ID)
+	assert.Equal(t, 0.004, scoped[0].Models[0].InputPer1k, "declared entry survives, prices included")
+
+	all, err := mgr.GetAllProviders(ctx, testAccountID, "admin")
+	require.NoError(t, err)
+	for _, p := range all {
+		if p.ID == granted.ID {
+			assert.Len(t, p.Models, 2,
+				"grant holders keep the full declared list — their usage view spans everyone's requests")
+		}
+	}
+}
+
+func TestGetAllProviders_SelfScopedAllowlistWithoutDeclaredModels(t *testing.T) {
+	ctx := context.Background()
+	mgr, s := newSelfScopeProvidersFixture(t)
+
+	// No operator declaration: the router claims every model, so the
+	// allowlist union is the effective set and comes back as bare entries.
+	granted := newSynthTestProvider()
+	granted.ID = "prov-granted"
+	granted.Name = "Granted"
+	granted.Models = nil
+	require.NoError(t, s.SaveAgentNetworkProvider(ctx, granted))
+	require.NoError(t, s.SaveAgentNetworkGuardrail(ctx, newSetupTestGuardrail("guard-models", "gpt-5.4")))
+	require.NoError(t, s.SaveAgentNetworkPolicy(ctx, newSynthTestPolicy(granted.ID, "grp-eng", "guard-models")))
+
+	scoped, err := mgr.GetAllProviders(ctx, testAccountID, "user-a")
+	require.NoError(t, err)
+	require.Len(t, scoped, 1)
+	require.Len(t, scoped[0].Models, 1)
+	assert.Equal(t, "gpt-5.4", scoped[0].Models[0].ID)
 }

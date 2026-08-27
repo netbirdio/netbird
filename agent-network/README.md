@@ -124,8 +124,11 @@ more). The regular usage and access-log endpoints self-scope instead of denying:
 a caller without the account-wide grant gets their own rows back, so "my usage"
 and "my requests" are the same endpoints the admin dashboard uses. The provider
 list self-scopes the same way — a caller without the providers grant gets the
-providers their own policies authorize, reduced to the display surface, which
-is what feeds the dashboard's provider filter. Role
+providers their own policies authorize, reduced to the display surface, with
+each provider's model list cut to what the caller's policy guardrails and the
+provider's declared models effectively permit (the same computation the setup
+answer and the proxy use). This feeds the dashboard's provider and model
+filters. Role
 definitions live in
 [`management/server/permissions/roles/`](../management/server/permissions/roles).
 
