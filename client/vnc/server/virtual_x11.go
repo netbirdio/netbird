@@ -231,13 +231,23 @@ func (vs *VirtualSession) isAlive() bool {
 	return true
 }
 
-// Capturer returns the screen capturer for this virtual session.
+// Capturer returns the screen capturer for this virtual session, or nil once
+// Stop has torn it down. Read under vs.mu, which is what Stop writes it under.
 func (vs *VirtualSession) Capturer() ScreenCapturer {
+	vs.mu.Lock()
+	defer vs.mu.Unlock()
+
+	if vs.poller == nil {
+		return nil
+	}
 	return vs.poller
 }
 
 // Injector returns the input injector for this virtual session.
 func (vs *VirtualSession) Injector() InputInjector {
+	vs.mu.Lock()
+	defer vs.mu.Unlock()
+
 	return vs.injector
 }
 

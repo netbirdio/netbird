@@ -336,19 +336,24 @@ func (s *Server) serviceAcceptLoop(ln net.Listener) {
 			continue
 		}
 
+		// Track before any early-reject path so a concurrent Stop's
+		// closeActiveSessions snapshot can never miss a just-accepted
+		// socket and let it survive shutdown.
+		s.trackConn(conn)
 		if !s.tryAcquireConnSlot() {
+			s.untrackConn(conn)
 			s.log.Warnf("rejecting VNC connection from %s: %d concurrent connections in flight", conn.RemoteAddr(), maxConcurrentVNCConns)
 			_ = conn.Close()
 			continue
 		}
 		enableTCPKeepAlive(conn, s.log)
-		conn = newMetricsConn(conn, s.sessionRecorder)
-		s.trackConn(conn)
+		metered := newMetricsConn(conn, s.sessionRecorder)
+		s.retrackConn(conn, metered)
 		go func(c net.Conn) {
 			defer s.releaseConnSlot()
 			defer s.untrackConn(c)
 			s.handleServiceConnection(c, sm)
-		}(conn)
+		}(metered)
 	}
 }
 

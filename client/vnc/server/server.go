@@ -459,6 +459,16 @@ func (s *Server) trackConn(c net.Conn) {
 	s.sessionsMu.Unlock()
 }
 
+// retrackConn replaces a tracked raw connection with the wrapper its handler
+// will actually hold, so shutdown and the handler's own untrackConn agree on
+// which object is registered.
+func (s *Server) retrackConn(raw, wrapped net.Conn) {
+	s.sessionsMu.Lock()
+	delete(s.acceptedConns, raw)
+	s.acceptedConns[wrapped] = struct{}{}
+	s.sessionsMu.Unlock()
+}
+
 // untrackConn forgets a connection once its handler is returning.
 func (s *Server) untrackConn(c net.Conn) {
 	s.sessionsMu.Lock()
@@ -1046,9 +1056,19 @@ func (s *Server) acquireVirtualSession(conn net.Conn, header *connectionHeader, 
 		return nil, nil, nil, false
 	}
 	vs.ClientConnect()
+	// GetOrCreate checks the session is alive, but nothing stops it being torn
+	// down between that check and here, and a nil capturer would only surface
+	// as a panic in the encoder.
+	capturer, injector := vs.Capturer(), vs.Injector()
+	if capturer == nil {
+		vs.ClientDisconnect()
+		rejectConnection(conn, codeMessage(RejectCodeSessionError, "virtual session stopped"))
+		(*connLog).Warnf("virtual session for %s stopped before the client attached", header.username)
+		return nil, nil, nil, false
+	}
 	*connLog = (*connLog).WithField("vnc_user", header.username)
 	(*connLog).Infof("session mode: user=%s display=%s", header.username, vs.Display())
-	return vs.Capturer(), vs.Injector(), vs.ClientDisconnect, true
+	return capturer, injector, vs.ClientDisconnect, true
 }
 
 // acquireAttachSession bumps the shared capturer's per-session refcount

@@ -538,11 +538,13 @@ func matchRFBSecurityFailure(p []byte) (string, bool) {
 	if len(p) < 5 || p[0] != 0 {
 		return "", false
 	}
-	reasonLen := int(p[1])<<24 | int(p[2])<<16 | int(p[3])<<8 | int(p[4])
-	if reasonLen <= 0 || reasonLen > 4096 || 5+reasonLen != len(p) {
+	// Kept as uint32: converting to int first would wrap to a negative value
+	// on a 32-bit build and lose the annotation to the length check below.
+	reasonLen := binary.BigEndian.Uint32(p[1:5])
+	if reasonLen == 0 || reasonLen > 4096 || 5+int(reasonLen) != len(p) {
 		return "", false
 	}
-	return string(p[5 : 5+reasonLen]), true
+	return string(p[5 : 5+int(reasonLen)]), true
 }
 
 // vncRejectCodes mirrors the RejectCode* constants in

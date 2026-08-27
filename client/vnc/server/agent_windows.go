@@ -800,17 +800,16 @@ func relogAgentOutput(pipe windows.Handle) {
 // each call site, while still capturing diagnostic info when the OS reports
 // a failure.
 func logCleanupCall(name string, proc *windows.LazyProc) {
-	r, _, err := proc.Call()
-	if r == 0 && err != nil && err != windows.NTE_OP_OK {
-		log.Tracef("%s: %v", name, err)
-	}
+	logCleanupCallArgs(name, proc)
 }
 
-// logCleanupCallArgs is logCleanupCall with one argument; common pattern for
+// logCleanupCallArgs is logCleanupCall with arguments; common pattern for
 // release-by-handle syscalls.
 func logCleanupCallArgs(name string, proc *windows.LazyProc, args ...uintptr) {
 	r, _, err := proc.Call(args...)
-	if r == 0 && err != nil && err != windows.NTE_OP_OK {
+	// LazyProc.Call always returns a non-nil error carrying the thread's last
+	// error code, so a zero code is what "the call did not fail" looks like.
+	if r == 0 && !errors.Is(err, windows.ERROR_SUCCESS) {
 		log.Tracef("%s: %v", name, err)
 	}
 }

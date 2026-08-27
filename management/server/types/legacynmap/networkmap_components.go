@@ -10,10 +10,10 @@ import (
 	"sync"
 	"time"
 
-	auth "github.com/netbirdio/netbird/shared/sessionauth"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
+	auth "github.com/netbirdio/netbird/shared/sessionauth"
 )
 
 type NetworkMapComponents struct {

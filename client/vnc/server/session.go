@@ -4,6 +4,7 @@ package server
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"image"
 	"io"
@@ -201,7 +202,9 @@ func (s *session) serve() {
 		<-encoderDone
 	}()
 
-	if err := s.messageLoop(); err != nil && err != io.EOF {
+	// messageLoop only ever returns an error, so the interesting question is
+	// which one: a clean client disconnect is io.EOF and not worth a warning.
+	if err := s.messageLoop(); !errors.Is(err, io.EOF) {
 		s.log.Warnf("client %s disconnected: %v", s.addr(), err)
 	} else {
 		s.log.Infof("client disconnected: %s", s.addr())

@@ -104,7 +104,7 @@ func (a *Authorizer) Update(config *Config) {
 		a.machineUsers = make(map[string][]uint32)
 		a.sessionPubKeys = make(map[[sessionPubKeyLen]byte]sshuserhash.UserIDHash)
 		a.sessionDisplayNames = make(map[[sessionPubKeyLen]byte]string)
-		log.Info("SSH authorization cleared")
+		log.Info("session authorization cleared")
 		return
 	}
 
@@ -139,7 +139,7 @@ func (a *Authorizer) Update(config *Config) {
 			continue
 		}
 		if existing, ok := sessionPubKeys[key]; ok && existing != e.UserIDHash {
-			log.Warnf("SSH auth: session pubkey bound to conflicting user hashes; dropping binding")
+			log.Warn("session auth: session pubkey bound to conflicting user hashes; dropping binding")
 			delete(sessionPubKeys, key)
 			delete(sessionDisplayNames, key)
 			conflicted[key] = struct{}{}
@@ -153,7 +153,7 @@ func (a *Authorizer) Update(config *Config) {
 	a.sessionPubKeys = sessionPubKeys
 	a.sessionDisplayNames = sessionDisplayNames
 
-	log.Debugf("SSH auth: updated with %d authorized users, %d machine user mappings, %d session pubkeys",
+	log.Debugf("session auth: updated with %d authorized users, %d machine user mappings, %d session pubkeys",
 		len(config.AuthorizedUsers), len(machineUsers), len(sessionPubKeys))
 }
 

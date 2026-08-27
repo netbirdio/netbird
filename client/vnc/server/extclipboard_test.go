@@ -3,6 +3,8 @@
 package server
 
 import (
+	"bytes"
+	"compress/zlib"
 	"encoding/binary"
 	"strings"
 	"testing"
@@ -93,10 +95,43 @@ func TestExtClipProvideRoundTripLarge(t *testing.T) {
 	assert.Equal(t, original, text)
 }
 
-func TestParseExtClipProvideTextRejectsOversized(t *testing.T) {
+func TestParseExtClipProvideTextRejectsMalformedStream(t *testing.T) {
 	var fakePayload [4]byte
 	// 4 bytes of zlib-compressed garbage won't decode; we want to ensure we
 	// don't panic, not that we accept it.
 	_, err := parseExtClipProvideText(extClipActionProvide|extClipFormatText, fakePayload[:])
 	assert.Error(t, err)
+}
+
+// The size caps are what keep a peer from making us allocate a record of its
+// choosing, on either side of the wire.
+func TestParseExtClipProvideTextRejectsOversizedRecord(t *testing.T) {
+	// A well-formed stream whose declared record size is past the cap: the
+	// bytes behind it are never read, so the guard is the only thing that
+	// stops the allocation.
+	var body bytes.Buffer
+	var lenBuf [4]byte
+	binary.BigEndian.PutUint32(lenBuf[:], uint32(extClipMaxText)+1)
+	body.Write(lenBuf[:])
+
+	var compressed bytes.Buffer
+	zw := zlib.NewWriter(&compressed)
+	_, err := zw.Write(body.Bytes())
+	require.NoError(t, err)
+	require.NoError(t, zw.Close())
+
+	_, err = parseExtClipProvideText(extClipActionProvide|extClipFormatText, compressed.Bytes())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "record too large")
+}
+
+func TestBuildExtClipProvideTextRejectsOversizedText(t *testing.T) {
+	// extClipMaxText itself is already one over: the builder appends a NUL
+	// terminator, and the length it writes counts it.
+	_, err := buildExtClipProvideText(strings.Repeat("a", extClipMaxText))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "exceeds extClipMaxText")
+
+	_, err = buildExtClipProvideText(strings.Repeat("a", extClipMaxText-1))
+	require.NoError(t, err, "one byte under the cap must still build")
 }
