@@ -118,13 +118,15 @@ emit_string() {
   printf '    <key>%s</key>\n    <string>%s</string>\n' "$key" "$escaped" >> "$PLIST_PATH.tmp"
   case "$key" in
     preSharedKey|debugBundleUploadURL) log_value='********** (secret)' ;;
+    *) ;;
   esac
   log "set $key = $log_value"
 }
 
 # is_bool returns success if the value is an accepted boolean token.
 is_bool() {
-  case "$1" in
+  local value="$1"
+  case "$value" in
     true|True|TRUE|1|yes|false|False|FALSE|0|no) return 0 ;;
     *) return 1 ;;
   esac
