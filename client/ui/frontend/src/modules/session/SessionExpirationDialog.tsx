@@ -18,6 +18,7 @@ import { formatRemaining } from "@/lib/formatters";
 const DEFAULT_SECONDS = 360;
 const WINDOW_WIDTH = 360;
 const SOON_THRESHOLD_SECONDS = 60 * 60;
+const RENEWAL_MARGIN_MS = 60 * 1000;
 
 export default function SessionExpirationDialog() {
     const { t } = useTranslation();
@@ -34,6 +35,7 @@ export default function SessionExpirationDialog() {
     const [busy, setBusy] = useState(false);
     const busyRef = useRef(busy);
     busyRef.current = busy;
+    const openedDeadlineRef = useRef(Date.now() + initialSeconds * 1000);
     const expired = remaining <= 0;
     const expiredRef = useRef(expired);
     expiredRef.current = expired;
@@ -45,6 +47,7 @@ export default function SessionExpirationDialog() {
 
     useEffect(() => {
         setRemaining(initialSeconds);
+        openedDeadlineRef.current = Date.now() + initialSeconds * 1000;
     }, [initialSeconds]);
 
     useEffect(() => {
@@ -54,14 +57,25 @@ export default function SessionExpirationDialog() {
         return () => globalThis.clearInterval(id);
     }, [initialSeconds]);
 
+    // Auto-close only when the session was actually renewed elsewhere (tray action, CLI,
+    // main window): the daemon keeps emitting Connected snapshots regardless of session
+    // state, so the signal is the deadline jumping past the one this dialog counts toward.
     // Don't auto-close while busy (aborts our WaitExtend) or expired (hides the state).
     useEffect(() => {
-        const off = Events.On("netbird:status", (ev: { data: { status?: string } }) => {
-            if (busyRef.current || expiredRef.current) return;
-            if (ev?.data?.status === "Connected") {
-                WindowManager.CloseSessionExpiration().catch(console.error);
-            }
-        });
+        const off = Events.On(
+            "netbird:status",
+            (ev: { data: { status?: string; sessionExpiresAt?: string } }) => {
+                if (busyRef.current || expiredRef.current) return;
+                if (ev?.data?.status !== "Connected") return;
+                const raw = ev?.data?.sessionExpiresAt;
+                if (!raw) return;
+                const renewed = Date.parse(raw);
+                if (!Number.isFinite(renewed)) return;
+                if (renewed - openedDeadlineRef.current > RENEWAL_MARGIN_MS) {
+                    WindowManager.CloseSessionExpiration().catch(console.error);
+                }
+            },
+        );
         return () => {
             off();
         };
