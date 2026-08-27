@@ -738,7 +738,7 @@ func (c *GrpcClient) GetDeviceAuthorizationFlow() (*proto.DeviceAuthorizationFlo
 	return flowInfoResp, nil
 }
 
-// GetPKCEAuthorizationFlow returns a pkce authorization flow information.
+// GetPKCEAuthorizationFlow returns the PKCE authorization flow information.
 // It also takes care of encrypting and decrypting messages.
 //
 // sessionExtend tells the server the flow will renew an existing peer's session

@@ -614,9 +614,7 @@ func Test_GetPKCEAuthorizationFlow(t *testing.T) {
 	}
 
 	flowInfo, err := client.GetPKCEAuthorizationFlow(true)
-	if err != nil {
-		t.Error("error while retrieving pkce auth flow information")
-	}
+	require.NoError(t, err)
 
 	assert.True(t, gotRequest.GetSessionExtend(), "session extend should reach the server")
 

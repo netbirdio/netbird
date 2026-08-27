@@ -80,6 +80,7 @@ func (m *MockClient) GetDeviceAuthorizationFlow() (*proto.DeviceAuthorizationFlo
 	return m.GetDeviceAuthorizationFlowFunc()
 }
 
+// GetPKCEAuthorizationFlow returns the PKCE authorization flow information.
 func (m *MockClient) GetPKCEAuthorizationFlow(sessionExtend bool) (*proto.PKCEAuthorizationFlow, error) {
 	if m.GetPKCEAuthorizationFlowFunc == nil {
 		return nil, nil

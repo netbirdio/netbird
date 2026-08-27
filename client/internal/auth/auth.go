@@ -136,8 +136,8 @@ func (a *Auth) IsSSOSupported(ctx context.Context) (bool, error) {
 	return supportsSSO, err
 }
 
-// GetOAuthFlow returns an OAuth flow (PKCE or Device) using the existing management connection
-// This avoids creating a new connection to the management server
+// GetOAuthFlow returns an OAuth flow (PKCE or Device) using the existing management connection.
+// This avoids creating a new connection to the management server.
 //
 // sessionExtend marks the flow as renewing an existing peer's session rather than
 // logging one in; the server needs it to rule out a silent authorization that the
