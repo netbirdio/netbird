@@ -58,9 +58,12 @@ export default function SessionExpirationDialog() {
         exactDeadlineRef.current = initialDeadline !== null;
     }, [initialSeconds, initialDeadline]);
 
+    // Recompute from the absolute deadline instead of decrementing per tick: webview
+    // timers get suspended for tens of seconds (App Nap / hidden-window throttling),
+    // so a tick counter drifts behind the wall clock by the suspended time.
     useEffect(() => {
         const id = globalThis.setInterval(() => {
-            setRemaining((s) => (s <= 1 ? 0 : s - 1));
+            setRemaining(Math.max(0, Math.ceil((openedDeadlineRef.current - Date.now()) / 1000)));
         }, 1000);
         return () => globalThis.clearInterval(id);
     }, [initialSeconds]);
