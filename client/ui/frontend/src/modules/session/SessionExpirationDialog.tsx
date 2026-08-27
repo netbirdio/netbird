@@ -18,7 +18,7 @@ import { formatRemaining } from "@/lib/formatters";
 const DEFAULT_SECONDS = 360;
 const WINDOW_WIDTH = 360;
 const SOON_THRESHOLD_SECONDS = 60 * 60;
-const RENEWAL_MARGIN_MS = 60 * 1000;
+const DEADLINE_TOLERANCE_MS = 5 * 1000;
 
 export default function SessionExpirationDialog() {
     const { t } = useTranslation();
@@ -30,12 +30,19 @@ export default function SessionExpirationDialog() {
         const n = Number.parseInt(raw, 10);
         return Number.isFinite(n) && n > 0 ? n : DEFAULT_SECONDS;
     }, [params]);
+    const initialDeadline = useMemo(() => {
+        const raw = params.get("deadline");
+        if (!raw) return null;
+        const n = Number.parseInt(raw, 10);
+        return Number.isFinite(n) && n > 0 ? n : null;
+    }, [params]);
 
     const [remaining, setRemaining] = useState(initialSeconds);
     const [busy, setBusy] = useState(false);
     const busyRef = useRef(busy);
     busyRef.current = busy;
-    const openedDeadlineRef = useRef(Date.now() + initialSeconds * 1000);
+    const openedDeadlineRef = useRef(initialDeadline ?? Date.now() + initialSeconds * 1000);
+    const exactDeadlineRef = useRef(initialDeadline !== null);
     const expired = remaining <= 0;
     const expiredRef = useRef(expired);
     expiredRef.current = expired;
@@ -47,8 +54,9 @@ export default function SessionExpirationDialog() {
 
     useEffect(() => {
         setRemaining(initialSeconds);
-        openedDeadlineRef.current = Date.now() + initialSeconds * 1000;
-    }, [initialSeconds]);
+        openedDeadlineRef.current = initialDeadline ?? Date.now() + initialSeconds * 1000;
+        exactDeadlineRef.current = initialDeadline !== null;
+    }, [initialSeconds, initialDeadline]);
 
     useEffect(() => {
         const id = globalThis.setInterval(() => {
@@ -59,19 +67,22 @@ export default function SessionExpirationDialog() {
 
     // Auto-close only when the session was actually renewed elsewhere (tray action, CLI,
     // main window): the daemon keeps emitting Connected snapshots regardless of session
-    // state, so the signal is the deadline jumping past the one this dialog counts toward.
+    // state, so the signal is the deadline jumping past the one this dialog was opened for.
+    // With the exact deadline from the URL any forward jump counts; the seconds-derived
+    // fallback needs a tolerance for the Go-side truncation and mount latency.
     // Don't auto-close while busy (aborts our WaitExtend) or expired (hides the state).
     useEffect(() => {
         const off = Events.On(
             "netbird:status",
-            (ev: { data: { status?: string; sessionExpiresAt?: string } }) => {
+            (ev: { data: { status?: string; sessionExpiresAt?: string | null } }) => {
                 if (busyRef.current || expiredRef.current) return;
                 if (ev?.data?.status !== "Connected") return;
                 const raw = ev?.data?.sessionExpiresAt;
                 if (!raw) return;
                 const renewed = Date.parse(raw);
                 if (!Number.isFinite(renewed)) return;
-                if (renewed - openedDeadlineRef.current > RENEWAL_MARGIN_MS) {
+                const tolerance = exactDeadlineRef.current ? 0 : DEADLINE_TOLERANCE_MS;
+                if (renewed - openedDeadlineRef.current > tolerance) {
                     WindowManager.CloseSessionExpiration().catch(console.error);
                 }
             },
