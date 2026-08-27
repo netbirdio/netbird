@@ -1441,13 +1441,14 @@ components:
           enum: [ "all", "tcp", "udp", "icmp", "netbird-ssh" ]
           example: "tcp"
         ports:
-          description: Policy rule affected ports
+          description: Policy rule affected ports. Mutually exclusive with `port_ranges`. A rule accepts either individual ports or port ranges, not both.
+          x-omit-from-example: true
           type: array
           items:
             type: string
             example: "80"
         port_ranges:
-          description: Policy rule affected ports ranges list
+          description: Policy rule affected ports ranges list. Mutually exclusive with `ports`. To mix individual ports with ranges in one rule, express each single port as a range with identical start and end values (for example, start 443, end 443).
           type: array
           items:
             $ref: '#/components/schemas/RulePortRange'
@@ -1467,7 +1468,7 @@ components:
         - action
 
     RulePortRange:
-      description: Policy rule affected ports range
+      description: Policy rule affected ports range. A range with identical start and end values represents a single port.
       type: object
       properties:
         start:
@@ -4615,7 +4616,7 @@ components:
 
     FleetDMMatchAttributes:
       type: object
-      description: Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open-source version. Premium-only attributes are marked accordingly
+      description: Attribute conditions to match when approving FleetDM hosts. Most attributes work with FleetDM's free/open source version. Premium-only attributes are marked accordingly
       additionalProperties: false
       properties:
         disk_encryption_enabled:
@@ -5342,6 +5343,84 @@ components:
         - input_per_1k
         - output_per_1k
         - context_window
+    AgentNetworkModelDiscoveryRequest:
+      type: object
+      properties:
+        catalog_provider_id:
+          type: string
+          description: Catalog provider to query (AgentNetworkCatalogProvider.id). Determines the listing endpoint, the auth header and the response shape.
+          example: "bedrock_api"
+        upstream_url:
+          type: string
+          description: |
+            The upstream being configured. Used to reach vendors that serve their listing from the same host as inference, and to read back the region for those whose host embeds one. Ignored when provider_id is supplied.
+          example: "https://bedrock-runtime.eu-central-1.amazonaws.com"
+        api_key:
+          type: string
+          description: Credential to query the vendor with, for a provider that has not been saved yet. Mutually exclusive with provider_id.
+          example: "sk-..."
+        provider_id:
+          type: string
+          description: Existing Agent Network provider record whose stored credential and upstream should be used. Lets the form refresh the list without the client holding the key.
+          example: "ch8i4ug6lnn4g9hqv7m0"
+      required:
+        - catalog_provider_id
+    AgentNetworkModelDiscoveryResponse:
+      type: object
+      properties:
+        models:
+          type: array
+          description: Models the credential can reach, in the order the vendor returned them.
+          items:
+            $ref: '#/components/schemas/AgentNetworkDiscoveredModel'
+      required:
+        - models
+    AgentNetworkDiscoveredModel:
+      type: object
+      properties:
+        id:
+          type: string
+          description: |
+            Identifier to register on the provider record, in the form the vendor issues it. For Bedrock this is the region-prefixed inference-profile id, which is the only form AWS accepts at invoke time.
+          example: "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
+        label:
+          type: string
+          description: Vendor-supplied display name, where the vendor supplies one.
+          example: "EU Anthropic Claude Haiku 4.5"
+        pricing_known:
+          type: boolean
+          description: Whether NetBird's shipped pricing table can price this model. When false the rates below are all zero and the operator must set them, or requests to this model would record a cost of zero.
+          example: true
+        input_per_1k:
+          type: number
+          format: double
+          description: Default input token price per 1k tokens, in USD, from the same table the proxy bills with. Zero when pricing_known is false.
+          example: 0.005
+        output_per_1k:
+          type: number
+          format: double
+          description: Default output token price per 1k tokens, in USD. Zero when pricing_known is false.
+          example: 0.015
+        cached_input_per_1k:
+          type: number
+          format: double
+          description: OpenAI-shape cache rate — default cost per 1k cached prompt tokens (a subset of input tokens), in USD. Absent when the model has no cached-input discount.
+          example: 0.000075
+        cache_read_per_1k:
+          type: number
+          format: double
+          description: Anthropic-shape cache rate — default cost per 1k cache-read tokens (additive to input tokens), in USD. Absent when the model has no cache-read rate.
+          example: 0.0003
+        cache_creation_per_1k:
+          type: number
+          format: double
+          description: Anthropic-shape cache rate — default cost per 1k cache-creation tokens (additive to input tokens), in USD. Absent when the model has no cache-creation rate.
+          example: 0.00375
+      required:
+        - id
+        - pricing_known
+        - input_per_1k
+        - output_per_1k
     AgentNetworkCatalogProvider:
       type: object
       properties:
@@ -14009,6 +14088,42 @@ paths:
           "$ref": "#/components/responses/requires_authentication"
         '403':
           "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/agent-network/catalog/providers/models:
+    post:
+      summary: Discover the models a provider credential can reach
+      description: |
+        Asks the vendor which models the supplied credential can actually use, so the provider form can offer a live list instead of only the static catalog. The endpoint, auth header and response shape are taken from the catalog entry, never from the request.
+
+        Supply either an api_key together with the upstream_url being configured (before the provider is saved), or a provider_id of an existing record to reuse its stored credential.
+
+        Returns 422 for a catalog provider that has no listing endpoint (most gateways); the caller should fall back to the catalog's own model list. A model whose price the shipped table does not know is returned with pricing_known false, and the operator must set rates for it.
+      tags: [ Agent Network ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentNetworkModelDiscoveryRequest'
+      responses:
+        '200':
+          description: The models the credential can reach
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentNetworkModelDiscoveryResponse'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '422':
+          "$ref": "#/components/responses/validation_failed_simple"
         '500':
           "$ref": "#/components/responses/internal_error"
   /api/agent-network/providers:
