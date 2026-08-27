@@ -53,6 +53,13 @@ func (e *UnreachableError) Reason() string {
 		if dns.IsNotFound {
 			return "no such host"
 		}
+		// Named apart from the dial timeout below. A resolver that never
+		// answered and an upstream that never answered send an operator to
+		// different places, and the generic "connection timed out" would
+		// describe a connection that was never attempted.
+		if dns.IsTimeout {
+			return "dns lookup timed out"
+		}
 		return "dns lookup failed"
 	}
 

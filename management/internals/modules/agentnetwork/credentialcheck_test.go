@@ -530,3 +530,49 @@ func TestUpdateProvider_MovingARecordToAnotherVendorIsChecked(t *testing.T) {
 	require.Equal(t, "anthropic_api", f.vendor.only(t).CatalogID,
 		"the new vendor is the one that has to accept the key")
 }
+
+// TestCreateProvider_ASkipTlsRecordIsNotCheckedAgainstItsCertificate covers the
+// lockout the check would otherwise be: the flag exists for a self-hosted
+// endpoint behind a certificate nothing public can verify, and discovery
+// verifies certificates. Refusing the save would reject the record for the one
+// reason the operator already declared they accept.
+func TestCreateProvider_ASkipTlsRecordIsNotCheckedAgainstItsCertificate(t *testing.T) {
+	ctx := context.Background()
+	f := newBootstrapFixture(t)
+	f.vendor.err = &modeldiscovery.UnreachableError{
+		Provider: "OpenAI",
+		Err:      &tls.CertificateVerificationError{},
+	}
+	f.expectPermission("account1", "user1", modules.AgentNetworkProviders, operations.Create, true)
+
+	provider := newCheckedProvider("account1")
+	provider.SkipTLSVerification = true
+
+	created, err := f.manager.CreateProvider(ctx, "user1", provider)
+	require.NoError(t, err, "a record we were told not to verify must still save")
+	require.NotEmpty(t, created.ID)
+	require.Zero(t, f.vendor.calls(), "and the vendor must not be asked at all")
+}
+
+// TestCreateProvider_TheStoredKeyIsTheOneThatWasChecked pins the two halves to
+// one value. The vendor call trims the credential before building its auth
+// header; the synthesiser substitutes the stored one verbatim. A key pasted
+// with surrounding whitespace would otherwise pass its check and then fail
+// every request the provider serves.
+func TestCreateProvider_TheStoredKeyIsTheOneThatWasChecked(t *testing.T) {
+	ctx := context.Background()
+	f := newBootstrapFixture(t)
+	f.expectPermission("account1", "user1", modules.AgentNetworkProviders, operations.Create, true)
+
+	provider := newCheckedProvider("account1")
+	provider.APIKey = "  sk-good\n"
+
+	created, err := f.manager.CreateProvider(ctx, "user1", provider)
+	require.NoError(t, err)
+
+	require.Equal(t, "sk-good", f.vendor.only(t).APIKey, "the vendor is asked about the trimmed key")
+
+	stored, err := f.store.GetAgentNetworkProviderByID(ctx, store.LockingStrengthNone, "account1", created.ID)
+	require.NoError(t, err)
+	require.Equal(t, "sk-good", stored.APIKey, "and that is the one the proxy will send")
+}

@@ -195,7 +195,11 @@ func (c *Client) discoveryURL(ctx context.Context, entry catalog.Provider, req R
 	if host == "" {
 		parsed, err := url.Parse(strings.TrimSpace(req.UpstreamURL))
 		if err != nil || parsed.Host == "" {
-			return "", fmt.Errorf("%w: provider upstream %q is not a usable URL", ErrInvalidRequest, req.UpstreamURL)
+			// The URL is left out of the message on purpose: it reaches the
+			// operator through an endpoint that does not lowercase it, but the
+			// rest of this feature's copy never echoes what they typed, and one
+			// path that does is the one that ends up quoted in a bug report.
+			return "", fmt.Errorf("%w: the provider upstream is not a usable URL", ErrInvalidRequest)
 		}
 		host = parsed.Host
 	}
@@ -231,7 +235,7 @@ func (c *Client) discoveryURL(ctx context.Context, entry catalog.Provider, req R
 func (c *Client) checkUpstreamHost(ctx context.Context, entry catalog.Provider, upstreamURL string) error {
 	parsed, err := url.Parse(strings.TrimSpace(upstreamURL))
 	if err != nil || parsed.Hostname() == "" {
-		return fmt.Errorf("%w: provider upstream %q is not a usable URL", ErrInvalidRequest, upstreamURL)
+		return fmt.Errorf("%w: the provider upstream is not a usable URL", ErrInvalidRequest)
 	}
 	return c.classifyHost(ctx, entry, parsed.Hostname())
 }

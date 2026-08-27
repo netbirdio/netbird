@@ -269,6 +269,11 @@ func (m *managerImpl) CreateProvider(ctx context.Context, userID string, provide
 	if strings.TrimSpace(provider.APIKey) == "" {
 		return nil, status.Errorf(status.InvalidArgument, "api_key is required when creating an agent network provider")
 	}
+	// Stored as it will be sent. The vendor call below trims the key before
+	// building the auth header while the synthesiser substitutes the stored
+	// value verbatim, so a key pasted with surrounding whitespace would pass
+	// its check and then fail every request the provider serves.
+	provider.APIKey = strings.TrimSpace(provider.APIKey)
 
 	// Before anything is persisted: a record whose upstream or credential does
 	// not work is rejected here rather than discovered later as a failed
@@ -311,10 +316,15 @@ func (m *managerImpl) UpdateProvider(ctx context.Context, userID string, provide
 	// Preserve the API key if the caller didn't rotate it. A
 	// whitespace-only value is treated as "not rotated" rather than a
 	// real key, but it must not silently overwrite a valid stored key.
-	if provider.APIKey == "" {
+	switch trimmed := strings.TrimSpace(provider.APIKey); {
+	case provider.APIKey == "":
 		provider.APIKey = existing.APIKey
-	} else if strings.TrimSpace(provider.APIKey) == "" {
+	case trimmed == "":
 		return nil, status.Errorf(status.InvalidArgument, "api_key must be non-blank when rotating an agent network provider")
+	default:
+		// See CreateProvider: the key is stored in the form the proxy will
+		// send, so the check below tests what the provider will actually use.
+		provider.APIKey = trimmed
 	}
 
 	// Only the fields the vendor would judge are worth a round-trip. This same

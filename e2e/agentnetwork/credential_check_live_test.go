@@ -67,6 +67,13 @@ func liveCredentialCases() []credentialCase {
 // The good-key case matters just as much as the bad one: a check that refused
 // everything would pass a test asserting only the refusal, and would make the
 // product unusable.
+//
+// The suite asserts on the vendors themselves, so it inherits their
+// availability: the check blocks on 5xx and 429 by design, and a vendor outage
+// or a rate limit during a run fails "a good credential saves" with a
+// perfectly valid key. There is no retry here on purpose — a retry loop would
+// also mask the outage classification these tests exist to prove. Re-run the
+// job.
 func TestLiveProviderCredentialCheck(t *testing.T) {
 	cases := liveCredentialCases()
 	if len(cases) == 0 {
@@ -111,6 +118,12 @@ func TestLiveProviderCredentialCheck(t *testing.T) {
 // TestLiveProviderUrlCheck points a real credential at a host that is not the
 // vendor's API. It is the half of the split a wrong key cannot exercise: the
 // operator has to be told the URL is at fault while their key is fine.
+//
+// One vendor, deliberately. The transport classification under test happens
+// before any vendor is reached, so running it per configured vendor would
+// repeat the same code path and multiply the wall-clock of a suite that
+// already creates real records. cases[0] is whichever vendor the environment
+// supplies first.
 func TestLiveProviderUrlCheck(t *testing.T) {
 	cases := liveCredentialCases()
 	if len(cases) == 0 {
@@ -147,6 +160,9 @@ func TestLiveProviderUrlCheck(t *testing.T) {
 // TestLiveProviderUpdateKeepsTheWorkingKey is the state the check exists to
 // prevent on the update path: a rejected rotation that has already replaced
 // the credential would take a working provider down.
+//
+// Also one vendor: the behaviour is in the manager's merge, not in any
+// vendor's response, and each run creates and mutates a real provider record.
 func TestLiveProviderUpdateKeepsTheWorkingKey(t *testing.T) {
 	cases := liveCredentialCases()
 	if len(cases) == 0 {

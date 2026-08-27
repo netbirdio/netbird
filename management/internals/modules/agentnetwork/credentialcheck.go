@@ -27,6 +27,17 @@ type ModelLister interface {
 // exercises the path the model picker takes: a URL answering 200 with a login
 // page fails here instead of producing an empty picker later.
 func (m *managerImpl) checkProviderCredential(ctx context.Context, provider *types.Provider) error {
+	// A record that asks the proxy to skip certificate verification is one this
+	// check cannot speak for. Discovery verifies certificates, so a self-hosted
+	// endpoint behind a self-signed one would be refused for a reason the
+	// operator already told us to ignore — a lockout of exactly the setup the
+	// flag exists for. Sending the credential over a connection management
+	// declines to verify is the other way out, and a worse one.
+	if provider.SkipTLSVerification {
+		log.WithContext(ctx).Debugf("agent network provider %s not credential-checked: tls verification is disabled for it", provider.ProviderID)
+		return nil
+	}
+
 	_, err := m.modelDiscovery.Fetch(ctx, modeldiscovery.Request{
 		CatalogID:   provider.ProviderID,
 		UpstreamURL: provider.UpstreamURL,

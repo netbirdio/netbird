@@ -573,7 +573,12 @@ func TestFetch_AHostThatWillNotResolveIsUnreachable(t *testing.T) {
 func TestFetch_AProxyInThePathDoesNotSilentlyDisableTheCheck(t *testing.T) {
 	// A transport that refuses at the socket exactly as the guard does, with a
 	// loopback address standing in for the proxy the dial went to.
-	client := &Client{HTTPClient: &http.Client{
+	// AllowPrivateHosts short-circuits the resolve-stage check only; the
+	// injected transport below is still what the request goes through. Without
+	// it this test resolves api.openai.com for real, and on a runner with no
+	// egress that lookup fails as an UnreachableError too — so it would pass
+	// while never reaching the socket guard it is named for.
+	client := &Client{AllowPrivateHosts: true, HTTPClient: &http.Client{
 		Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
 			return nil, guardDialAddress("127.0.0.1:38599")
 		}),
