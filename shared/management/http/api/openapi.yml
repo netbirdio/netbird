@@ -14217,7 +14217,7 @@ paths:
       description: |
         Update an existing Agent Network AI provider.
 
-        When the upstream URL, the API key or the catalog provider changes, the record is checked against the vendor before the change is stored, and a refusal returns 422 without replacing what was there. An update omitting the API key is checked against the stored one. Edits touching none of the three — a rename, model rows, price edits — are stored without a check, as are the cases the create description lists as unverifiable.
+        When the upstream URL, the API key or the catalog provider changes, the record is checked against the vendor before the change is stored, and a refusal returns 422 without replacing what was there. Switching TLS verification back on is the fourth trigger: a provider exempt from the check was stored unverified, so the edit that ends the exemption is the first opportunity to check it. An update omitting the API key is checked against the stored one. Edits touching none of the four — a rename, model rows, price edits — are stored without a check, as are the cases the create description lists as unverifiable.
       tags: [ Agent Network ]
       security:
         - BearerAuth: [ ]
