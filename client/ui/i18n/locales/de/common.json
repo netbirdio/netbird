@@ -401,9 +401,6 @@
     "networks.bulk.label": {
         "message": "Alle sichtbaren Ressourcen umschalten"
     },
-    "settings.nav.label": {
-        "message": "Einstellungsbereiche"
-    },
     "profile.switch.title": {
         "message": "Zu Profil \"{name}\" wechseln?"
     },
@@ -497,6 +494,9 @@
     "settings.error.debugBundleTitle": {
         "message": "Debug-Paket fehlgeschlagen"
     },
+    "settings.nav.label": {
+        "message": "Einstellungsbereiche"
+    },
     "settings.tabs.general": {
         "message": "Allgemein"
     },
@@ -511,6 +511,9 @@
     },
     "settings.tabs.ssh": {
         "message": "SSH"
+    },
+    "settings.tabs.vnc": {
+        "message": "VNC"
     },
     "settings.tabs.advanced": {
         "message": "Erweitert"
@@ -720,6 +723,24 @@
     },
     "settings.ssh.jwtTtl.suffix": {
         "message": "Sekunde(n)"
+    },
+    "settings.vnc.section.server": {
+        "message": "Server"
+    },
+    "settings.vnc.section.approval": {
+        "message": "Genehmigung"
+    },
+    "settings.vnc.server.label": {
+        "message": "VNC-Server aktivieren"
+    },
+    "settings.vnc.server.help": {
+        "message": "Den NetBird-VNC-Server auf diesem Host ausführen, damit autorisierte Peers den Bildschirm ansehen oder steuern können."
+    },
+    "settings.vnc.approval.label": {
+        "message": "Verbindungsgenehmigung erforderlich"
+    },
+    "settings.vnc.approval.help": {
+        "message": "Auf diesem Host eine Aufforderung anzeigen, die bestätigt werden muss, bevor eine eingehende VNC-Verbindung zugelassen wird."
     },
     "settings.advanced.section.interface": {
         "message": "Schnittstelle"
@@ -1042,6 +1063,45 @@
     "window.title.sessionExpiration": {
         "message": "Sitzung läuft ab"
     },
+    "window.title.approval": {
+        "message": "Verbindungsanfrage"
+    },
+    "approval.title.vnc": {
+        "message": "VNC-Verbindung zulassen?"
+    },
+    "approval.title.ssh": {
+        "message": "SSH-Verbindung zulassen?"
+    },
+    "approval.title.default": {
+        "message": "Eingehende Verbindung zulassen?"
+    },
+    "approval.field.user": {
+        "message": "Von Benutzer"
+    },
+    "approval.field.keyFingerprint": {
+        "message": "Schlüssel-Fingerabdruck"
+    },
+    "approval.field.peer": {
+        "message": "Über Peer"
+    },
+    "approval.field.sourceIp": {
+        "message": "Quell-IP"
+    },
+    "approval.field.osUser": {
+        "message": "Betriebssystem-Benutzer"
+    },
+    "approval.countdown": {
+        "message": "Automatische Ablehnung in {seconds}s"
+    },
+    "approval.action.allow": {
+        "message": "Zulassen"
+    },
+    "approval.action.allowViewOnly": {
+        "message": "Zulassen (nur ansehen)"
+    },
+    "approval.action.deny": {
+        "message": "Ablehnen"
+    },
     "window.title.updating": {
         "message": "Aktualisierung"
     },
@@ -1351,73 +1411,40 @@
     "error.unknown": {
         "message": "Vorgang fehlgeschlagen."
     },
-    "settings.tabs.vnc": {
-        "message": "VNC"
+    "error.elevation_unavailable": {
+        "message": "NetBird konnte auf diesem System nicht die nötigen Rechte anfordern. Führen Sie stattdessen dies aus:"
     },
-    "settings.vnc.section.server": {
-        "message": "Server"
+    "error.elevation_failed": {
+        "message": "Die Änderung konnte mit erhöhten Rechten nicht angewendet werden. Führen Sie stattdessen dies aus:"
     },
-    "settings.vnc.section.approval": {
-        "message": "Genehmigung"
+    "settings.privilege.actorRoot": {
+        "message": "root-Rechte"
     },
-    "settings.vnc.server.label": {
-        "message": "VNC-Server aktivieren"
+    "settings.privilege.actorAdministrator": {
+        "message": "Administratorrechte"
     },
-    "settings.vnc.server.help": {
-        "message": "Den NetBird-VNC-Server auf diesem Host ausführen, damit autorisierte Peers den Bildschirm ansehen oder steuern können."
+    "settings.privilege.authorizePending": {
+        "message": "Warten auf Autorisierung…"
     },
-    "settings.vnc.approval.label": {
-        "message": "Verbindungsgenehmigung erforderlich"
+    "connect.activeSession.badge": {
+        "message": "Bildschirm geteilt",
+        "description": "Short label on the badge shown on the main screen while somebody is attached to this machine over VNC."
     },
-    "settings.vnc.approval.help": {
-        "message": "Auf diesem Host eine Aufforderung anzeigen, die bestätigt werden muss, bevor eine eingehende VNC-Verbindung zugelassen wird."
+    "connect.activeSession.tooltip": {
+        "message": "Dieser Bildschirm wird über VNC angesehen ({sessionCount} Sitzung(en)). Beim Trennen endet sie, und wenn Sie selbst über VNC verbunden sind, verlieren Sie den Zugriff.",
+        "description": "Tooltip on the screen-shared badge. {sessionCount} is how many VNC sessions are attached; wording covers any number since the bundle has no plural forms."
     },
-    "window.title.approval": {
-        "message": "Verbindungsanfrage"
-    },
-    "approval.title.vnc": {
-        "message": "VNC-Verbindung zulassen?"
-    },
-    "approval.title.ssh": {
-        "message": "SSH-Verbindung zulassen?"
-    },
-    "approval.title.default": {
-        "message": "Eingehende Verbindung zulassen?"
-    },
-    "approval.field.user": {
-        "message": "Von Benutzer"
-    },
-    "approval.field.keyFingerprint": {
-        "message": "Schlüssel-Fingerabdruck"
-    },
-    "approval.field.peer": {
-        "message": "Über Peer"
-    },
-    "approval.field.sourceIp": {
-        "message": "Quell-IP"
-    },
-    "approval.field.osUser": {
-        "message": "Betriebssystem-Benutzer"
-    },
-    "approval.countdown": {
-        "message": "Automatische Ablehnung in {seconds}s"
-    },
-    "approval.action.allow": {
-        "message": "Zulassen"
-    },
-    "approval.action.allowViewOnly": {
-        "message": "Zulassen (nur ansehen)"
-    },
-    "approval.action.deny": {
-        "message": "Ablehnen"
+    "connect.activeSession.tooltipNamed": {
+        "message": "Dieser Bildschirm wird von {who} über VNC angesehen ({sessionCount} Sitzung(en)). Beim Trennen endet sie, und wenn Sie selbst über VNC verbunden sind, verlieren Sie den Zugriff.",
+        "description": "As connect.activeSession.tooltip, with {who} naming the dashboard users who started the sessions."
     },
     "settings.privilege.hint": {
         "message": "Erfordert {actor}. Führen Sie stattdessen dies aus:"
     },
     "settings.privilege.oneWay": {
-        "message": "Sie können dies deaktivieren, aber zum erneuten Aktivieren sind {actor} erforderlich:"
+        "message": "Sie können dies deaktivieren, zum erneuten Aktivieren sind {actor} erforderlich."
     },
     "settings.privilege.oneWayInverted": {
-        "message": "Sie können dies aktivieren, aber zum erneuten Deaktivieren sind {actor} erforderlich:"
+        "message": "Sie können dies aktivieren, zum erneuten Deaktivieren sind {actor} erforderlich."
     }
 }

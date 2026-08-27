@@ -7,23 +7,23 @@ import { useRestrictions } from "@/contexts/RestrictionsContext.tsx";
 
 export function SettingsVNC() {
     const { t } = useTranslation();
-    const { config, setField } = useSettings();
+    const { config } = useSettings();
     const { mdm } = useRestrictions();
     const guarded = useGuardedControl();
     const isVNCServerEnabled = config.serverVncAllowed;
     const vncServerManaged = mdm.allowServerVNC != null;
 
-    const vncServer = guarded(config.serverVncAllowed, (p) => p.allowVncServer);
+    const vncServer = guarded("serverVncAllowed", (p) => p.allowVncServer);
     // Inverted control: the guarded direction is switching the approval prompt
     // off, so the already-disabled state is the one-way one.
-    const vncApproval = guarded(config.disableVncApproval, (p) => p.disableVncApproval, true);
+    const vncApproval = guarded("disableVncApproval", (p) => p.disableVncApproval, true);
 
     return (
         <>
             <SectionGroup title={t("settings.vnc.section.server")}>
                 <FancyToggleSwitch
                     value={config.serverVncAllowed}
-                    onChange={(v) => setField("serverVncAllowed", v)}
+                    onChange={vncServer.apply}
                     label={t("settings.vnc.server.label")}
                     helpText={t("settings.vnc.server.help")}
                     disabled={vncServerManaged || vncServer.disabled}
@@ -38,7 +38,7 @@ export function SettingsVNC() {
                 >
                     <FancyToggleSwitch
                         value={!config.disableVncApproval}
-                        onChange={(v) => setField("disableVncApproval", !v)}
+                        onChange={(v) => vncApproval.apply(!v)}
                         label={t("settings.vnc.approval.label")}
                         helpText={t("settings.vnc.approval.help")}
                         disabled={vncApproval.disabled}

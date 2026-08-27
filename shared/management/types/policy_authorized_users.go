@@ -6,11 +6,12 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	auth "github.com/netbirdio/netbird/shared/sessionauth"
 )
 
-// vncInternalPort is the internal port the VNC server listens on (behind DNAT from 5900).
-const vncInternalPort = 25900
+// VNCInternalPort is the internal port the VNC server listens on (behind DNAT from 5900).
+const VNCInternalPort = 25900
 
 // PeerConnResolveState carries the in-progress maps mutated by per-rule
 // resolution while walking an account's policies.
@@ -47,8 +48,8 @@ type VNCSessionPubKey struct {
 // direction-and-auth logic while keeping their own context/state plumbing for
 // authorized-user collection and allowed-user lookups.
 type RuleAuthCallbacks struct {
-	CollectSSHUsers   func(*PolicyRule, map[string]map[string]struct{})
-	CollectVNCUsers   func(*PolicyRule, map[string]map[string]struct{})
+	CollectSSHUsers   func(*nmdata.PolicyRule, map[string]map[string]struct{})
+	CollectVNCUsers   func(*nmdata.PolicyRule, map[string]map[string]struct{})
 	GetAllowedUserIDs func() map[string]struct{}
 }
 
@@ -58,13 +59,13 @@ type RuleAuthCallbacks struct {
 // resolver (Account vs NetworkMapComponents), which also decide the peer
 // representation the resource generator works with.
 func ApplyResolvedRuleToState[P any](
-	rule *PolicyRule,
+	rule *nmdata.PolicyRule,
 	sourcePeers []P,
 	destPeers []P,
 	peerInSources bool,
 	peerInDestinations bool,
 	targetPeerSSHEnabled bool,
-	generateResources func(*PolicyRule, []P, int),
+	generateResources func(*nmdata.PolicyRule, []P, int),
 	cb RuleAuthCallbacks,
 	state *PeerConnResolveState,
 ) {
@@ -72,15 +73,15 @@ func ApplyResolvedRuleToState[P any](
 
 	receivingPeer := peerInDestinations || (rule.Bidirectional && peerInSources)
 	switch {
-	case rule.Protocol == PolicyRuleProtocolNetbirdSSH:
+	case rule.Protocol == string(PolicyRuleProtocolNetbirdSSH):
 		if !receivingPeer {
 			return
 		}
 		state.SSHEnabled = true
 		cb.CollectSSHUsers(rule, state.AuthorizedUsers)
-	case rule.Protocol == PolicyRuleProtocolNetbirdVNC:
+	case rule.Protocol == string(PolicyRuleProtocolNetbirdVNC):
 		cb.handleVNCRule(rule, peerInSources, peerInDestinations, state)
-	case PolicyRuleImpliesLegacySSH(rule) && targetPeerSSHEnabled:
+	case nmdata.PolicyRuleImpliesLegacySSH(rule) && targetPeerSSHEnabled:
 		if !receivingPeer {
 			return
 		}
@@ -94,7 +95,7 @@ func ApplyResolvedRuleToState[P any](
 // peer that appears in the rule's sources also needs the SessionPubKey
 // pushed (otherwise the Noise_IK handshake against that peer would fail
 // because its authorizer wouldn't know the client's static key).
-func (cb RuleAuthCallbacks) handleVNCRule(rule *PolicyRule, peerInSources, peerInDestinations bool, state *PeerConnResolveState) {
+func (cb RuleAuthCallbacks) handleVNCRule(rule *nmdata.PolicyRule, peerInSources, peerInDestinations bool, state *PeerConnResolveState) {
 	receivingPeer := peerInDestinations || (rule.Bidirectional && peerInSources)
 	if !receivingPeer {
 		return
@@ -123,12 +124,12 @@ func MergeWildcardUsers(dst map[string]map[string]struct{}, users map[string]str
 // emitRuleDirections dispatches generateResources for each direction the rule
 // applies in for the target peer.
 func emitRuleDirections[P any](
-	rule *PolicyRule,
+	rule *nmdata.PolicyRule,
 	sourcePeers []P,
 	destPeers []P,
 	peerInSources bool,
 	peerInDestinations bool,
-	generateResources func(*PolicyRule, []P, int),
+	generateResources func(*nmdata.PolicyRule, []P, int),
 ) {
 	if rule.Bidirectional {
 		if peerInSources {
@@ -191,24 +192,35 @@ func EnsureWildcardUser(target map[string]map[string]struct{}, authorizedUser st
 	target[auth.Wildcard][authorizedUser] = struct{}{}
 }
 
-// NormalizePolicyRuleProtocol maps NetBird virtual protocols (netbird-ssh,
-// netbird-vnc) to TCP for the on-the-wire firewall view. For NetbirdVNC the
-// rule is also scoped to the embedded VNC port so a VNC-only rule doesn't
-// degrade into an unscoped TCP allow when the user left Ports empty.
-// Returns the effective rule (possibly a shallow copy with Ports overridden)
-// and the resulting protocol.
-func NormalizePolicyRuleProtocol(rule *PolicyRule) (*PolicyRule, PolicyRuleProtocolType) {
-	switch rule.Protocol {
-	case PolicyRuleProtocolNetbirdSSH:
-		return rule, PolicyRuleProtocolTCP
-	case PolicyRuleProtocolNetbirdVNC:
-		if len(rule.Ports) == 0 && len(rule.PortRanges) == 0 {
-			scoped := *rule
-			scoped.Ports = []string{strconv.Itoa(vncInternalPort)}
-			return &scoped, PolicyRuleProtocolTCP
-		}
-		return rule, PolicyRuleProtocolTCP
+// WirePolicyRuleProtocol maps the NetBird virtual protocols (netbird-ssh,
+// netbird-vnc) to the protocol that goes on the wire, and leaves every other
+// protocol as it is.
+func WirePolicyRuleProtocol(protocol PolicyRuleProtocolType) PolicyRuleProtocolType {
+	switch protocol {
+	case PolicyRuleProtocolNetbirdSSH, PolicyRuleProtocolNetbirdVNC:
+		return PolicyRuleProtocolTCP
 	default:
-		return rule, rule.Protocol
+		return protocol
 	}
+}
+
+// VNCScopedPorts returns the ports a netbird-vnc rule is scoped to when it
+// declares none of its own, so a VNC-only rule doesn't degrade into an
+// unscoped TCP allow.
+func VNCScopedPorts() []string {
+	return []string{strconv.Itoa(VNCInternalPort)}
+}
+
+// NormalizePolicyRuleProtocol maps a rule's protocol with
+// WirePolicyRuleProtocol and scopes a portless netbird-vnc rule to the
+// embedded VNC port. It returns the effective rule, which is a shallow copy
+// only when the ports had to be overridden.
+func NormalizePolicyRuleProtocol(rule *nmdata.PolicyRule) (*nmdata.PolicyRule, PolicyRuleProtocolType) {
+	protocol := WirePolicyRuleProtocol(PolicyRuleProtocolType(rule.Protocol))
+	if rule.Protocol != string(PolicyRuleProtocolNetbirdVNC) || len(rule.Ports) > 0 || len(rule.PortRanges) > 0 {
+		return rule, protocol
+	}
+	scoped := *rule
+	scoped.Ports = VNCScopedPorts()
+	return &scoped, protocol
 }

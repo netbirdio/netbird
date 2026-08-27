@@ -21,6 +21,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/shared/management/domain"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -1588,7 +1589,7 @@ func affectedPeerIDsFromNetworkMap(nmap *types.NetworkMap, selfPeerID string) []
 	}
 	seen := make(map[string]struct{}, len(nmap.Peers)+len(nmap.OfflinePeers))
 	ids := make([]string, 0, len(nmap.Peers)+len(nmap.OfflinePeers))
-	add := func(peers []*types.ComponentPeer) {
+	add := func(peers []*nmdata.Peer) {
 		for _, p := range peers {
 			if p == nil || p.ID == "" || p.ID == selfPeerID {
 				continue

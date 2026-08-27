@@ -14,6 +14,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/daemonaddr"
 	"github.com/netbirdio/netbird/client/internal/ipcauth"
+	"github.com/netbirdio/netbird/client/internal/localmetrics"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/util"
@@ -34,6 +35,8 @@ import (
 //     including which keys and users are accepted, to whoever controls that
 //     identity. Changing the management URL and deregistering the peer are both
 //     ways to do that.
+//   - Binding the local metrics endpoint to a non-loopback address publishes
+//     peer names and connectivity state to the network without authentication.
 //
 // Everything else stays unauthenticated, so this is not an authorization model:
 // it only refuses the changes that would let a local user become root, or reach
@@ -44,33 +47,39 @@ import (
 // user-to-root boundary. Fields are nil or empty when the request leaves them
 // untouched.
 type privilegedConfigChange struct {
-	managementURL      string
-	serverSSHAllowed   *bool
-	enableSSHRoot      *bool
-	disableSSHAuth     *bool
-	serverVNCAllowed   *bool
-	disableVNCApproval *bool
+	managementURL       string
+	serverSSHAllowed    *bool
+	enableSSHRoot       *bool
+	disableSSHAuth      *bool
+	serverVNCAllowed    *bool
+	disableVNCApproval  *bool
+	enableLocalMetrics  *bool
+	localMetricsAddress *string
 }
 
 func privilegedChangeFromSetConfig(msg *proto.SetConfigRequest) privilegedConfigChange {
 	return privilegedConfigChange{
-		managementURL:      msg.GetManagementUrl(),
-		serverSSHAllowed:   msg.ServerSSHAllowed,
-		enableSSHRoot:      msg.EnableSSHRoot,
-		disableSSHAuth:     msg.DisableSSHAuth,
-		serverVNCAllowed:   msg.ServerVNCAllowed,
-		disableVNCApproval: msg.DisableVNCApproval,
+		managementURL:       msg.GetManagementUrl(),
+		serverSSHAllowed:    msg.ServerSSHAllowed,
+		enableSSHRoot:       msg.EnableSSHRoot,
+		disableSSHAuth:      msg.DisableSSHAuth,
+		serverVNCAllowed:    msg.ServerVNCAllowed,
+		disableVNCApproval:  msg.DisableVNCApproval,
+		enableLocalMetrics:  msg.EnableLocalMetrics,
+		localMetricsAddress: msg.LocalMetricsAddress,
 	}
 }
 
 func privilegedChangeFromLogin(msg *proto.LoginRequest) privilegedConfigChange {
 	return privilegedConfigChange{
-		managementURL:      msg.GetManagementUrl(),
-		serverSSHAllowed:   msg.ServerSSHAllowed,
-		enableSSHRoot:      msg.EnableSSHRoot,
-		disableSSHAuth:     msg.DisableSSHAuth,
-		serverVNCAllowed:   msg.ServerVNCAllowed,
-		disableVNCApproval: msg.DisableVNCApproval,
+		managementURL:       msg.GetManagementUrl(),
+		serverSSHAllowed:    msg.ServerSSHAllowed,
+		enableSSHRoot:       msg.EnableSSHRoot,
+		disableSSHAuth:      msg.DisableSSHAuth,
+		serverVNCAllowed:    msg.ServerVNCAllowed,
+		disableVNCApproval:  msg.DisableVNCApproval,
+		enableLocalMetrics:  msg.EnableLocalMetrics,
+		localMetricsAddress: msg.LocalMetricsAddress,
 	}
 }
 
@@ -96,6 +105,12 @@ func requirePrivilegeForConfigChange(ctx context.Context, stored *profilemanager
 
 	if err := requirePrivilegeForVNCChange(ctx, stored, change); err != nil {
 		return err
+	}
+
+	if addr, exposes := exposesLocalMetrics(stored, change); exposes {
+		return denyPrivileged(ctx,
+			"exposing the local metrics endpoint on a non-loopback address",
+			ipcauth.UpCommand("--enable-local-metrics --local-metrics-address "+addr))
 	}
 
 	// Only guard the management binding while a remote-access server is enabled:
@@ -261,6 +276,48 @@ func sshServerCurrentlyAllowed(cfg *profilemanager.Config) *bool {
 		return nil
 	}
 	return &enabled
+}
+
+// exposesLocalMetrics reports whether the change would leave the metrics
+// endpoint enabled on an address that is not confirmed loopback, and returns
+// that address. A request that restates the stored state is not a change, so a
+// settings form resubmitted after an administrator opened the endpoint is not
+// refused.
+func exposesLocalMetrics(stored *profilemanager.Config, change privilegedConfigChange) (string, bool) {
+	storedEnabled, storedAddr := storedLocalMetrics(stored)
+
+	enabled := storedEnabled
+	if change.enableLocalMetrics != nil {
+		enabled = *change.enableLocalMetrics
+	}
+	addr := storedAddr
+	if change.localMetricsAddress != nil {
+		addr = metricsAddrOrDefault(*change.localMetricsAddress)
+	}
+
+	if !enabled || localmetrics.IsLoopback(addr) {
+		return "", false
+	}
+	if storedEnabled && storedAddr == addr {
+		return "", false
+	}
+	return addr, true
+}
+
+// storedLocalMetrics reads the metrics settings from the stored config,
+// tolerating a config that does not exist yet.
+func storedLocalMetrics(cfg *profilemanager.Config) (bool, string) {
+	if cfg == nil {
+		return false, localmetrics.DefaultListenAddress
+	}
+	return cfg.LocalMetricsEnabled, metricsAddrOrDefault(cfg.LocalMetricsAddress)
+}
+
+func metricsAddrOrDefault(addr string) string {
+	if addr == "" {
+		return localmetrics.DefaultListenAddress
+	}
+	return addr
 }
 
 // sameManagementURL reports whether requested addresses the same management

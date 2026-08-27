@@ -251,9 +251,12 @@ message LoginRequest {
   optional int32 sshJWTCacheTTL = 39;
   optional bool disable_ipv6 = 40;
 
-  optional bool serverVNCAllowed = 41;
+  optional bool enable_local_metrics = 41;
+  optional string local_metrics_address = 42;
 
-  optional bool disableVNCApproval = 42;
+  optional bool serverVNCAllowed = 43;
+
+  optional bool disableVNCApproval = 44;
 }
 
 message LoginResponse {
@@ -374,16 +377,16 @@ message GetConfigResponse {
 
   bool disable_ipv6 = 27;
 
-  bool serverVNCAllowed = 28;
+  bool serverVNCAllowed = 29;
 
-  bool disableVNCApproval = 29;
+  bool disableVNCApproval = 30;
 
   // mDMManagedFields lists the names of configuration keys whose value is
   // currently enforced by an MDM policy. Names match mdm.Key* constants
   // (e.g. "managementURL", "disableClientRoutes"). UI/CLI clients should
   // render the corresponding inputs as read-only and display a "managed
   // by MDM" indicator.
-  repeated string mDMManagedFields = 30;
+  repeated string mDMManagedFields = 28;
 }
 
 // PeerState contains the latest state of a peer
@@ -804,9 +807,12 @@ message SetConfigRequest {
   optional int32 sshJWTCacheTTL = 34;
   optional bool disable_ipv6 = 35;
 
-  optional bool serverVNCAllowed = 36;
+  optional bool enable_local_metrics = 36;
+  optional string local_metrics_address = 37;
 
-  optional bool disableVNCApproval = 37;
+  optional bool serverVNCAllowed = 38;
+
+  optional bool disableVNCApproval = 39;
 }
 
 message SetConfigResponse{}

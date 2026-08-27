@@ -401,9 +401,6 @@
     "networks.bulk.label": {
         "message": "Összes látható erőforrás be/ki"
     },
-    "settings.nav.label": {
-        "message": "Beállítások szakaszai"
-    },
     "profile.switch.title": {
         "message": "Váltás a(z) \"{name}\" profilra?"
     },
@@ -497,6 +494,9 @@
     "settings.error.debugBundleTitle": {
         "message": "Hibakeresési csomag sikertelen"
     },
+    "settings.nav.label": {
+        "message": "Beállítások szakaszai"
+    },
     "settings.tabs.general": {
         "message": "Általános"
     },
@@ -511,6 +511,9 @@
     },
     "settings.tabs.ssh": {
         "message": "SSH"
+    },
+    "settings.tabs.vnc": {
+        "message": "VNC"
     },
     "settings.tabs.advanced": {
         "message": "Speciális"
@@ -720,6 +723,24 @@
     },
     "settings.ssh.jwtTtl.suffix": {
         "message": "másodperc"
+    },
+    "settings.vnc.section.server": {
+        "message": "Szerver"
+    },
+    "settings.vnc.section.approval": {
+        "message": "Jóváhagyás"
+    },
+    "settings.vnc.server.label": {
+        "message": "VNC szerver engedélyezése"
+    },
+    "settings.vnc.server.help": {
+        "message": "A NetBird VNC szerver futtatása ezen a gépen, hogy az arra jogosult partnerek megtekinthessék vagy vezérelhessék a képernyőjét."
+    },
+    "settings.vnc.approval.label": {
+        "message": "Kapcsolat jóváhagyásának megkövetelése"
+    },
+    "settings.vnc.approval.help": {
+        "message": "Megerősítést kérő ablak megjelenítése ezen a gépen, amelyet el kell fogadni a bejövő VNC-kapcsolat engedélyezése előtt."
     },
     "settings.advanced.section.interface": {
         "message": "Interfész"
@@ -1042,6 +1063,45 @@
     "window.title.sessionExpiration": {
         "message": "Munkamenet lejár"
     },
+    "window.title.approval": {
+        "message": "Kapcsolódási kérés"
+    },
+    "approval.title.vnc": {
+        "message": "Engedélyezi a VNC-kapcsolatot?"
+    },
+    "approval.title.ssh": {
+        "message": "Engedélyezi az SSH-kapcsolatot?"
+    },
+    "approval.title.default": {
+        "message": "Engedélyezi a bejövő kapcsolatot?"
+    },
+    "approval.field.user": {
+        "message": "Felhasználótól"
+    },
+    "approval.field.keyFingerprint": {
+        "message": "Kulcs ujjlenyomata"
+    },
+    "approval.field.peer": {
+        "message": "Partneren keresztül"
+    },
+    "approval.field.sourceIp": {
+        "message": "Forrás IP"
+    },
+    "approval.field.osUser": {
+        "message": "OS-felhasználó"
+    },
+    "approval.countdown": {
+        "message": "Automatikus elutasítás {seconds} mp múlva"
+    },
+    "approval.action.allow": {
+        "message": "Engedélyezés"
+    },
+    "approval.action.allowViewOnly": {
+        "message": "Engedélyezés (csak megtekintés)"
+    },
+    "approval.action.deny": {
+        "message": "Elutasítás"
+    },
     "window.title.updating": {
         "message": "Frissítés"
     },
@@ -1351,73 +1411,40 @@
     "error.unknown": {
         "message": "A művelet meghiúsult."
     },
-    "settings.tabs.vnc": {
-        "message": "VNC"
+    "error.elevation_unavailable": {
+        "message": "A NetBird nem tudta bekérni a rendszertől a szükséges jogosultságokat. Futtassa inkább ezt:"
     },
-    "settings.vnc.section.server": {
-        "message": "Szerver"
+    "error.elevation_failed": {
+        "message": "A módosítást emelt szintű jogosultságokkal sem sikerült alkalmazni. Futtassa inkább ezt:"
     },
-    "settings.vnc.section.approval": {
-        "message": "Jóváhagyás"
+    "settings.privilege.actorRoot": {
+        "message": "root jogosultság"
     },
-    "settings.vnc.server.label": {
-        "message": "VNC szerver engedélyezése"
+    "settings.privilege.actorAdministrator": {
+        "message": "rendszergazdai jogosultság"
     },
-    "settings.vnc.server.help": {
-        "message": "A NetBird VNC szerver futtatása ezen a gépen, hogy az arra jogosult partnerek megtekinthessék vagy vezérelhessék a képernyőjét."
+    "settings.privilege.authorizePending": {
+        "message": "Várakozás az engedélyezésre…"
     },
-    "settings.vnc.approval.label": {
-        "message": "Kapcsolat jóváhagyásának megkövetelése"
+    "connect.activeSession.badge": {
+        "message": "Képernyő megosztva",
+        "description": "Short label on the badge shown on the main screen while somebody is attached to this machine over VNC."
     },
-    "settings.vnc.approval.help": {
-        "message": "Megerősítést kérő ablak megjelenítése ezen a gépen, amelyet el kell fogadni a bejövő VNC-kapcsolat engedélyezése előtt."
+    "connect.activeSession.tooltip": {
+        "message": "Ezt a képernyőt VNC-n keresztül nézik ({sessionCount} munkamenet). A leválasztás véget vet neki, és ha Ön VNC-n keresztül kapcsolódik, elveszíti a hozzáférést.",
+        "description": "Tooltip on the screen-shared badge. {sessionCount} is how many VNC sessions are attached; wording covers any number since the bundle has no plural forms."
     },
-    "window.title.approval": {
-        "message": "Kapcsolódási kérés"
-    },
-    "approval.title.vnc": {
-        "message": "Engedélyezi a VNC-kapcsolatot?"
-    },
-    "approval.title.ssh": {
-        "message": "Engedélyezi az SSH-kapcsolatot?"
-    },
-    "approval.title.default": {
-        "message": "Engedélyezi a bejövő kapcsolatot?"
-    },
-    "approval.field.user": {
-        "message": "Felhasználótól"
-    },
-    "approval.field.keyFingerprint": {
-        "message": "Kulcs ujjlenyomata"
-    },
-    "approval.field.peer": {
-        "message": "Partneren keresztül"
-    },
-    "approval.field.sourceIp": {
-        "message": "Forrás IP"
-    },
-    "approval.field.osUser": {
-        "message": "OS-felhasználó"
-    },
-    "approval.countdown": {
-        "message": "Automatikus elutasítás {seconds} mp múlva"
-    },
-    "approval.action.allow": {
-        "message": "Engedélyezés"
-    },
-    "approval.action.allowViewOnly": {
-        "message": "Engedélyezés (csak megtekintés)"
-    },
-    "approval.action.deny": {
-        "message": "Elutasítás"
+    "connect.activeSession.tooltipNamed": {
+        "message": "Ezt a képernyőt {who} nézi VNC-n keresztül ({sessionCount} munkamenet). A leválasztás véget vet neki, és ha Ön VNC-n keresztül kapcsolódik, elveszíti a hozzáférést.",
+        "description": "As connect.activeSession.tooltip, with {who} naming the dashboard users who started the sessions."
     },
     "settings.privilege.hint": {
         "message": "{actor} szükséges hozzá. Futtassa inkább ezt:"
     },
     "settings.privilege.oneWay": {
-        "message": "Kikapcsolhatja, de a visszakapcsolásához {actor} szükséges:"
+        "message": "Kikapcsolhatja, de a visszakapcsolásához {actor} szükséges."
     },
     "settings.privilege.oneWayInverted": {
-        "message": "Bekapcsolhatja, de az ismételt kikapcsolásához {actor} szükséges:"
+        "message": "Bekapcsolhatja, de az ismételt kikapcsolásához {actor} szükséges."
     }
 }

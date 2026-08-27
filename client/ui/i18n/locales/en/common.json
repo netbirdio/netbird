@@ -1879,6 +1879,26 @@
         "message": "Operation failed.",
         "description": "Generic fallback error message used when no specific error applies."
     },
+    "error.elevation_unavailable": {
+        "message": "NetBird could not ask this system for the privileges the change needs. Run this instead:",
+        "description": "Error: this computer has no way to prompt for elevated privileges. Followed by a copyable command that applies the setting from a terminal."
+    },
+    "error.elevation_failed": {
+        "message": "The change could not be applied with elevated privileges. Run this instead:",
+        "description": "Error: the authorization succeeded but applying the setting afterwards failed. Followed by a copyable command that applies the setting from a terminal."
+    },
+    "settings.privilege.actorRoot": {
+        "message": "root",
+        "description": "Fills {actor} in the settings.privilege.* messages on Linux, macOS and BSD, where the daemon requires the root account. 'root' is an account name and stays as it is; add the word for privileges or rights around it if the sentence needs one to read naturally."
+    },
+    "settings.privilege.actorAdministrator": {
+        "message": "administrator privileges",
+        "description": "Fills {actor} in the settings.privilege.* messages on Windows, where the daemon requires an elevated administrator. The Windows term for the rights an account is asked to elevate to."
+    },
+    "settings.privilege.authorizePending": {
+        "message": "Waiting for authorization…",
+        "description": "Replaces the help text under a guarded remote-access setting while the authorization prompt is open, which can take a few seconds to appear. Keep the trailing ellipsis."
+    },
     "connect.activeSession.badge": {
         "message": "Screen shared",
         "description": "Short label on the badge shown on the main screen while somebody is attached to this machine over VNC."
@@ -1893,14 +1913,14 @@
     },
     "settings.privilege.hint": {
         "message": "Requires {actor}. Run this instead:",
-        "description": "Help text under a remote-access setting the user cannot change: it needs elevated privileges. {actor} is 'root' on Linux/macOS or 'administrator privileges' on Windows. Followed by a copyable command."
+        "description": "Help text under a remote-access setting (SSH or VNC) the user cannot change: it needs elevated privileges. {actor} is 'root' on Linux/macOS or 'administrator privileges' on Windows. Followed by a copyable command."
     },
     "settings.privilege.oneWay": {
-        "message": "You can switch this off, but switching it back on needs {actor}:",
-        "description": "Warning under a remote-access setting an unprivileged user may disable but not re-enable. {actor} is 'root' on Linux/macOS or 'administrator privileges' on Windows. Followed by a copyable command."
+        "message": "You can switch this off, but switching it back on needs {actor}.",
+        "description": "Help text under a remote-access setting (SSH or VNC) that is already on: an unprivileged user may switch it off freely, and switching it on again is what needs the privileges. No command follows, since the direction they can take is theirs to take. {actor} is 'root' on Linux/macOS or 'administrator privileges' on Windows."
     },
     "settings.privilege.oneWayInverted": {
-        "message": "You can switch this on, but switching it back off needs {actor}:",
-        "description": "Warning under a safeguard setting (SSH authentication, VNC approval) which an unprivileged user may re-enable but not disable again. {actor} is 'root' on Linux/macOS or 'administrator privileges' on Windows. Followed by a copyable command."
+        "message": "You can switch this on, but switching it back off needs {actor}.",
+        "description": "Same as settings.privilege.oneWay, for a safeguard setting (SSH authentication, VNC approval) once it has been switched off: switching it off again is what needs the privileges."
     }
 }
