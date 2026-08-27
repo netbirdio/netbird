@@ -133,21 +133,14 @@ export default function ApprovalDialog() {
                 {t("approval.countdown", { seconds: remaining })}
             </div>
 
-            <DialogActions>
-                <Button
-                    autoFocus
-                    variant={"primary"}
-                    size={"md"}
-                    className={"w-full"}
-                    onClick={() => respond(true, false)}
-                    disabled={busy}
-                >
-                    {t("approval.action.allow")}
-                </Button>
+            {/* Deny and Allow sit side by side, in the same order as the app's
+                other confirmations. The view-only variant is a wordier label than
+                either, so it gets its own row rather than squeezing all three. */}
+            <DialogActions className={"max-w-[260px] gap-2.5"}>
                 {showViewOnly && (
                     <Button
                         variant={"secondary"}
-                        size={"md"}
+                        size={"sm"}
                         className={"w-full"}
                         onClick={() => respond(true, true)}
                         disabled={busy}
@@ -155,15 +148,27 @@ export default function ApprovalDialog() {
                         {t("approval.action.allowViewOnly")}
                     </Button>
                 )}
-                <Button
-                    variant={"danger"}
-                    size={"md"}
-                    className={"w-full"}
-                    onClick={() => respond(false, false)}
-                    disabled={busy}
-                >
-                    {t("approval.action.deny")}
-                </Button>
+                <div className={"flex flex-row gap-2.5"}>
+                    <Button
+                        variant={"danger"}
+                        size={"sm"}
+                        className={"flex-1"}
+                        onClick={() => respond(false, false)}
+                        disabled={busy}
+                    >
+                        {t("approval.action.deny")}
+                    </Button>
+                    <Button
+                        autoFocus
+                        variant={"primary"}
+                        size={"sm"}
+                        className={"flex-1"}
+                        onClick={() => respond(true, false)}
+                        disabled={busy}
+                    >
+                        {t("approval.action.allow")}
+                    </Button>
+                </div>
             </DialogActions>
         </ConfirmDialog>
     );
