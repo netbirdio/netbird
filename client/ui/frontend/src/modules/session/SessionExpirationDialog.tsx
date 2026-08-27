@@ -19,6 +19,10 @@ const DEFAULT_SECONDS = 360;
 const WINDOW_WIDTH = 360;
 const SOON_THRESHOLD_SECONDS = 60 * 60;
 const DEADLINE_TOLERANCE_MS = 5 * 1000;
+// The final-warning deadline reaches the Go side as RFC3339 truncated to whole
+// seconds, while the status snapshot carries millisecond precision, so an
+// unchanged deadline can look up to 999 ms newer than the exact URL value.
+const EXACT_DEADLINE_TOLERANCE_MS = 999;
 
 export default function SessionExpirationDialog() {
     const { t } = useTranslation();
@@ -71,8 +75,9 @@ export default function SessionExpirationDialog() {
     // Auto-close only when the session was actually renewed elsewhere (tray action, CLI,
     // main window): the daemon keeps emitting Connected snapshots regardless of session
     // state, so the signal is the deadline jumping past the one this dialog was opened for.
-    // With the exact deadline from the URL any forward jump counts; the seconds-derived
-    // fallback needs a tolerance for the Go-side truncation and mount latency.
+    // With the exact deadline from the URL any jump past its sub-second precision loss
+    // counts; the seconds-derived fallback needs a wider tolerance for the Go-side
+    // truncation and mount latency.
     // Don't auto-close while busy (aborts our WaitExtend) or expired (hides the state).
     useEffect(() => {
         const off = Events.On(
@@ -84,7 +89,9 @@ export default function SessionExpirationDialog() {
                 if (!raw) return;
                 const renewed = Date.parse(raw);
                 if (!Number.isFinite(renewed)) return;
-                const tolerance = exactDeadlineRef.current ? 0 : DEADLINE_TOLERANCE_MS;
+                const tolerance = exactDeadlineRef.current
+                    ? EXACT_DEADLINE_TOLERANCE_MS
+                    : DEADLINE_TOLERANCE_MS;
                 if (renewed - openedDeadlineRef.current > tolerance) {
                     WindowManager.CloseSessionExpiration().catch(console.error);
                 }
