@@ -95,7 +95,16 @@ func run() error {
 	mgmtURL := firstNonEmpty(*mgmtFlag, os.Getenv("NB_MANAGEMENT_URL"), profilemanager.DefaultManagementURL)
 	deviceName := firstNonEmpty(*deviceFlag, os.Getenv("NB_DEVICE_NAME"), "agent-proxy")
 	setupKey := os.Getenv("NB_SETUP_KEY")
-	logLevel := firstNonEmpty(os.Getenv("NB_LOG_LEVEL"), "warn")
+	logLevel := firstNonEmpty(os.Getenv("NB_LOG_LEVEL"), "info")
+
+	// Initialize the shared NetBird logger so the embedded engine's own logs
+	// (management/signal/relay handshakes, DNS setup, peer connectivity) are
+	// formatted and level-filtered consistently and land on stderr. Set
+	// NB_LOG_LEVEL=debug (or trace) to see in-tunnel DNS resolution and per-peer
+	// connection detail.
+	if err := util.InitLog(logLevel, util.LogConsole); err != nil {
+		return fmt.Errorf("init log: %w", err)
+	}
 
 	opts := netbird.Options{
 		DeviceName:    deviceName,
@@ -134,7 +143,12 @@ func run() error {
 	if err := client.Start(startCtx); err != nil {
 		return fmt.Errorf("start netbird client: %w", err)
 	}
-	log.Printf("connected to NetBird network")
+	logConnected(client)
+
+	// Preflight: resolve and dial the upstream through the tunnel once, up
+	// front, so connectivity and in-process DNS resolution are verified (and
+	// visible in the logs) before any real request arrives.
+	preflight(client, upstream)
 
 	proxy := newAgentProxy(client, upstream)
 
@@ -177,7 +191,10 @@ func run() error {
 // client so the connection travels inside the encrypted overlay. Hostnames are
 // resolved through NetBird's magic DNS by the netstack dialer, so a private
 // name such as mirror.netbird.ai reaches the reverse proxy peer directly.
-func newAgentProxy(client *netbird.Client, upstream *url.URL) *httputil.ReverseProxy {
+//
+// The returned handler logs every request (method, path, upstream status,
+// duration) so it is obvious the proxy is receiving and forwarding traffic.
+func newAgentProxy(client *netbird.Client, upstream *url.URL) http.Handler {
 	proxy := httputil.NewSingleHostReverseProxy(upstream)
 
 	// Preserve the standard single-host director but force the outgoing Host
@@ -195,7 +212,7 @@ func newAgentProxy(client *netbird.Client, upstream *url.URL) *httputil.ReverseP
 	// client.NewHTTPClient so we keep full control of the reverse-proxy
 	// transport knobs.
 	proxy.Transport = &http.Transport{
-		DialContext:           dialWithTimeout(client.DialContext, dialTimeout),
+		DialContext:           loggingDialer(client.DialContext, dialTimeout),
 		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          100,
 		IdleConnTimeout:       90 * time.Second,
@@ -208,17 +225,101 @@ func newAgentProxy(client *netbird.Client, upstream *url.URL) *httputil.ReverseP
 		http.Error(w, "agent network upstream unreachable: "+err.Error(), http.StatusBadGateway)
 	}
 
-	return proxy
+	return accessLog(proxy)
 }
 
-// dialWithTimeout applies a bounded timeout to the connection-establishment
-// phase only, leaving the request/response body streaming unbounded.
-func dialWithTimeout(dial func(ctx context.Context, network, addr string) (net.Conn, error), d time.Duration) func(ctx context.Context, network, addr string) (net.Conn, error) {
+// accessLog wraps a handler and logs one line per request with the resulting
+// upstream status code and total duration.
+func accessLog(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		log.Printf("-> %s %s", r.Method, r.URL.Path)
+		next.ServeHTTP(rec, r)
+		log.Printf("<- %s %s %d (%s)", r.Method, r.URL.Path, rec.status, time.Since(start).Truncate(time.Millisecond))
+	})
+}
+
+// statusRecorder captures the response status code for the access log.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (s *statusRecorder) WriteHeader(code int) {
+	s.status = code
+	s.ResponseWriter.WriteHeader(code)
+}
+
+// loggingDialer wraps the embedded client's dialer. It applies a bounded
+// timeout to connection establishment (not the full request lifetime) and logs
+// each dial — including the tunnel-side local/remote addresses on success —
+// which surfaces the in-process DNS resolution and reachability of the target.
+func loggingDialer(dial func(ctx context.Context, network, addr string) (net.Conn, error), d time.Duration) func(ctx context.Context, network, addr string) (net.Conn, error) {
 	return func(ctx context.Context, network, addr string) (net.Conn, error) {
-		ctx, cancel := context.WithTimeout(ctx, d)
+		dialCtx, cancel := context.WithTimeout(ctx, d)
 		defer cancel()
-		return dial(ctx, network, addr)
+
+		start := time.Now()
+		conn, err := dial(dialCtx, network, addr)
+		if err != nil {
+			log.Printf("dial %s %s failed after %s (resolution/connection over tunnel): %v",
+				network, addr, time.Since(start).Truncate(time.Millisecond), err)
+			return nil, err
+		}
+		log.Printf("dial %s %s ok in %s (tunnel %s -> %s)",
+			network, addr, time.Since(start).Truncate(time.Millisecond),
+			conn.LocalAddr(), conn.RemoteAddr())
+		return conn, nil
 	}
+}
+
+// logConnected prints a concise summary of the tunnel state right after the
+// client reports up: the local overlay IP/FQDN, control-plane connectivity, and
+// how many peers are in the network map.
+func logConnected(client *netbird.Client) {
+	status, err := client.Status()
+	if err != nil {
+		log.Printf("connected to NetBird network (status unavailable: %v)", err)
+		return
+	}
+	log.Printf("connected to NetBird network: ip=%s fqdn=%s management=%v signal=%v peers=%d",
+		status.LocalPeerState.IP, status.LocalPeerState.FQDN,
+		status.ManagementState.Connected, status.SignalState.Connected, len(status.Peers))
+}
+
+// preflight resolves and dials the upstream endpoint once over the tunnel so
+// any DNS or connectivity problem is reported at startup rather than on the
+// first real request. It never fails the process — a proxy that starts but
+// cannot yet reach the endpoint is still useful once policy/peers converge.
+func preflight(client *netbird.Client, upstream *url.URL) {
+	addr := hostPort(upstream)
+	ctx, cancel := context.WithTimeout(context.Background(), dialTimeout)
+	defer cancel()
+
+	log.Printf("preflight: resolving and dialing %s over the tunnel ...", addr)
+	conn, err := client.DialContext(ctx, "tcp", addr)
+	if err != nil {
+		log.Printf("preflight: could not reach %s yet: %v", addr, err)
+		log.Printf("preflight: this is not fatal; check that %q resolves in your NetBird DNS "+
+			"and that a policy grants this peer access to the agent network", upstream.Host)
+		return
+	}
+	log.Printf("preflight: reached %s (tunnel %s -> %s)", addr, conn.LocalAddr(), conn.RemoteAddr())
+	_ = conn.Close()
+}
+
+// hostPort returns the upstream host with an explicit port, defaulting to the
+// scheme's well-known port when the URL omits it.
+func hostPort(u *url.URL) string {
+	if u.Port() != "" {
+		return u.Host
+	}
+	port := "443"
+	if u.Scheme == "http" {
+		port = "80"
+	}
+	return net.JoinHostPort(u.Hostname(), port)
 }
 
 // interactiveLogin drives the standard NetBird OAuth flow (PKCE where a
