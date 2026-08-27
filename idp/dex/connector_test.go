@@ -205,10 +205,12 @@ func TestUpdateConnector_AllowsSameTypeUpdate(t *testing.T) {
 }
 
 func TestBuildOIDCConnectorConfig_PKCEAndJWKS(t *testing.T) {
+	pkce := true
+	jwks := "https://example.com/jwks"
 	cfg := &ConnectorConfig{
 		Type:    "oidc",
-		PKCE:    true,
-		JWKSURL: "https://example.com/jwks",
+		PKCE:    &pkce,
+		JWKSURL: &jwks,
 	}
 
 	data, err := buildOIDCConnectorConfig(cfg, "http://localhost")
@@ -224,9 +226,11 @@ func TestBuildOIDCConnectorConfig_PKCEAndJWKS(t *testing.T) {
 
 func TestOverlayConnectorConfig_PKCEAndJWKS(t *testing.T) {
 	oldConfig := []byte(`{"issuer": "old-issuer"}`)
+	pkce := true
+	jwks := "https://example.com/jwks"
 	cfg := &ConnectorConfig{
-		PKCE:    true,
-		JWKSURL: "https://example.com/jwks",
+		PKCE:    &pkce,
+		JWKSURL: &jwks,
 	}
 
 	data, err := overlayConnectorConfig(oldConfig, cfg)

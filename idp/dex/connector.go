@@ -28,9 +28,9 @@ type ConnectorConfig struct {
 	// RedirectURI is the OAuth2 redirect URI
 	RedirectURI string
 	// PKCE enables Proof Key for Code Exchange for the upstream OIDC provider
-	PKCE bool
+	PKCE *bool
 	// JWKSURL is the URL to the JSON Web Key Set of the identity provider
-	JWKSURL string
+	JWKSURL *string
 }
 
 // CreateConnector creates a new connector in Dex storage.
@@ -148,11 +148,19 @@ func overlayConnectorConfig(oldConfig []byte, cfg *ConnectorConfig) ([]byte, err
 	if cfg.RedirectURI != "" {
 		m["redirectURI"] = cfg.RedirectURI
 	}
-	if cfg.JWKSURL != "" {
-		m["jwksURL"] = cfg.JWKSURL
+	if cfg.JWKSURL != nil {
+		if *cfg.JWKSURL != "" {
+			m["jwksURL"] = *cfg.JWKSURL
+		} else {
+			delete(m, "jwksURL")
+		}
 	}
-	if cfg.PKCE {
-		m["pkceChallenge"] = "S256"
+	if cfg.PKCE != nil {
+		if *cfg.PKCE {
+			m["pkceChallenge"] = "S256"
+		} else {
+			delete(m, "pkceChallenge")
+		}
 	}
 
 	return encodeConnectorConfig(m)
@@ -237,10 +245,13 @@ func buildOIDCConnectorConfig(cfg *ConnectorConfig, redirectURI string) ([]byte,
 		"insecureEnableGroups": true,
 		//some providers don't return email verified, so we need to skip it if not present (e.g., Entra, Okta, Duo)
 		"insecureSkipEmailVerified": true,
-		"jwksURL":                   cfg.JWKSURL,
 	}
 
-	if cfg.PKCE {
+	if cfg.JWKSURL != nil && *cfg.JWKSURL != "" {
+		oidcConfig["jwksURL"] = *cfg.JWKSURL
+	}
+
+	if cfg.PKCE != nil && *cfg.PKCE {
 		oidcConfig["pkceChallenge"] = "S256"
 	}
 
@@ -304,10 +315,17 @@ func (p *Provider) parseStorageConnector(conn storage.Connector) (*ConnectorConf
 		cfg.Issuer = v
 	}
 	if v, ok := configMap["pkceChallenge"].(string); ok {
-		cfg.PKCE = v == "S256" || v == "plain"
+		pkce := v == "S256" || v == "plain"
+		cfg.PKCE = &pkce
+	} else {
+		pkce := false
+		cfg.PKCE = &pkce
 	}
 	if v, ok := configMap["jwksURL"].(string); ok {
-		cfg.JWKSURL = v
+		cfg.JWKSURL = &v
+	} else {
+		jwks := ""
+		cfg.JWKSURL = &jwks
 	}
 
 	// Infer the original identity provider type from Dex connector type and ID

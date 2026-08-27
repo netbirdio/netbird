@@ -401,6 +401,7 @@ func TestDeleteIdentityProvider(t *testing.T) {
 
 func TestToAPIResponse(t *testing.T) {
 	pkce := true
+	jwks := "https://example.com/jwks"
 	idp := &types.IdentityProvider{
 		ID:           "test-id",
 		Name:         "Test IDP",
@@ -408,8 +409,8 @@ func TestToAPIResponse(t *testing.T) {
 		Issuer:       "https://accounts.google.com",
 		ClientID:     "client-id",
 		ClientSecret: "should-not-be-returned",
-		PKCE:         pkce,
-		JWKSURL:      "https://example.com/jwks",
+		PKCE:         &pkce,
+		JWKSURL:      &jwks,
 	}
 
 	response := toAPIResponse(idp)
@@ -444,6 +445,6 @@ func TestFromAPIRequest(t *testing.T) {
 	assert.Equal(t, "https://dev-123456.okta.com", idp.Issuer)
 	assert.Equal(t, "okta-client-id", idp.ClientID)
 	assert.Equal(t, "okta-client-secret", idp.ClientSecret)
-	assert.Equal(t, pkce, idp.PKCE)
-	assert.Equal(t, jwksURL, idp.JWKSURL)
+	assert.Equal(t, pkce, *idp.PKCE)
+	assert.Equal(t, jwksURL, *idp.JWKSURL)
 }
