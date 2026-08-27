@@ -89,6 +89,21 @@ type ConnectionStageTimestamps struct {
 	WgHandshakeSuccess time.Time
 }
 
+// Durations returns the stage durations in seconds. A duration is zero when
+// either of its timestamps is missing.
+func (c ConnectionStageTimestamps) Durations() (signalingToConnection, connectionToWgHandshake, total float64) {
+	if !c.SignalingReceived.IsZero() && !c.ConnectionReady.IsZero() {
+		signalingToConnection = c.ConnectionReady.Sub(c.SignalingReceived).Seconds()
+	}
+	if !c.ConnectionReady.IsZero() && !c.WgHandshakeSuccess.IsZero() {
+		connectionToWgHandshake = c.WgHandshakeSuccess.Sub(c.ConnectionReady).Seconds()
+	}
+	if !c.SignalingReceived.IsZero() && !c.WgHandshakeSuccess.IsZero() {
+		total = c.WgHandshakeSuccess.Sub(c.SignalingReceived).Seconds()
+	}
+	return signalingToConnection, connectionToWgHandshake, total
+}
+
 // String returns a human-readable representation of the connection stage timestamps
 func (c ConnectionStageTimestamps) String() string {
 	return fmt.Sprintf("ConnectionStageTimestamps{SignalingReceived=%v, ConnectionReady=%v, WgHandshakeSuccess=%v}",
@@ -278,4 +293,12 @@ func (c *ClientMetrics) stopPushLocked() {
 	c.pushCancel()
 	c.wg.Wait()
 	c.push.Store(nil)
+}
+
+// attemptType returns the metric label for an initial vs reconnection attempt.
+func attemptType(isReconnection bool) string {
+	if isReconnection {
+		return "reconnection"
+	}
+	return "initial"
 }
