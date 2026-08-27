@@ -479,7 +479,7 @@ go test -race ./client/internal/dns/...
 
 ## Checklist before submitting a PR
 
-As a critical network service and open-source project, we must enforce a few
+As a critical network service and open source project, we must enforce a few
 things before submitting a pull request. The
 [pull request template](/.github/pull_request_template.md) mirrors this list —
 fill it in rather than deleting it.

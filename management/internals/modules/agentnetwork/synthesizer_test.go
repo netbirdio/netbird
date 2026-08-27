@@ -6,10 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang/mock/gomock"
+	"go.uber.org/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/catalog"
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -1244,4 +1245,58 @@ func TestSynthesizeServices_EmptyAPIKey_FailsClosed(t *testing.T) {
 	_, err := SynthesizeServices(ctx, mockStore, testAccountID)
 	require.Error(t, err, "synthesis must refuse a provider with no api key")
 	assert.Contains(t, err.Error(), "no api key", "error must surface the missing credential")
+}
+
+// TestDiscoveryHost pins which providers get a separate listing host. Getting
+// this wrong in either direction is costly: a missing host leaves Bedrock
+// discovery 404ing at AWS, and a host on the wrong provider would send that
+// provider's listing — and its credential — somewhere the operator never
+// configured.
+func TestDiscoveryHost(t *testing.T) {
+	entry := func(id string) catalog.Provider {
+		p, ok := catalog.Lookup(id)
+		require.True(t, ok, "catalog entry %s must exist", id)
+		return p
+	}
+
+	for _, tc := range []struct {
+		name     string
+		entry    catalog.Provider
+		upstream string
+		want     string
+	}{
+		{
+			// ListInferenceProfiles is a control-plane operation; the runtime
+			// host answers <UnknownOperationException/> for it.
+			name:  "bedrock splits the listing off the runtime host",
+			entry: entry("bedrock_api"), upstream: "https://bedrock-runtime.eu-central-1.amazonaws.com",
+			want: "bedrock.eu-central-1.amazonaws.com",
+		},
+		{
+			name:  "bedrock in another region",
+			entry: entry("bedrock_api"), upstream: "https://bedrock-runtime.us-west-2.amazonaws.com",
+			want: "bedrock.us-west-2.amazonaws.com",
+		},
+		{
+			// A proxied Bedrock endpoint may well serve both from one place,
+			// and there is no region to read back out of it.
+			name:  "proxied bedrock upstream yields no discovery host",
+			entry: entry("bedrock_api"), upstream: "https://bedrock.internal.example.com",
+			want: "",
+		},
+		{
+			name:  "openai serves its listing from the same host",
+			entry: entry("openai_api"), upstream: "https://api.openai.com",
+			want: "",
+		},
+		{
+			name:  "vertex serves its listing from the same host",
+			entry: entry("vertex_ai_api"), upstream: "https://us-east5-aiplatform.googleapis.com",
+			want: "",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, discoveryHost(tc.entry, tc.upstream))
+		})
+	}
 }
