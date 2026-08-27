@@ -73,7 +73,7 @@ var loginCmd = &cobra.Command{
 			if providedSetupKey != "" {
 				return fmt.Errorf("--extend cannot be combined with a setup key; setup keys can only enrol new peers")
 			}
-			if err := doExtendSession(ctx, cmd); err != nil {
+			if err := doExtendSession(ctx, cmd, activeProf); err != nil {
 				return fmt.Errorf("extend session failed: %v", err)
 			}
 			return nil
@@ -175,7 +175,7 @@ func doDaemonLogin(ctx context.Context, cmd *cobra.Command, providedSetupKey str
 // (browser + verification URL) and the resulting JWT is forwarded to the
 // management server's ExtendAuthSession RPC. The tunnel stays up
 // throughout — no Down/Up, no network-map resync.
-func doExtendSession(ctx context.Context, cmd *cobra.Command) error {
+func doExtendSession(ctx context.Context, cmd *cobra.Command, activeProf *profilemanager.Profile) error {
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
 		//nolint
@@ -189,14 +189,12 @@ func doExtendSession(ctx context.Context, cmd *cobra.Command) error {
 
 	// the CLI runs in the user's session, the daemon does not: tell it what we can see
 	req := &proto.RequestExtendAuthSessionRequest{HasGraphicalSession: util.HasGraphicalSession()}
-	// Pre-fill the IdP login hint from the active profile so the user
+	// Pre-fill the IdP login hint from the resolved profile so the user
 	// doesn't have to retype their email. Best-effort: we still proceed
 	// without a hint if the lookup fails.
 	pm := profilemanager.NewProfileManager()
-	if active, perr := pm.GetActiveProfile(); perr == nil {
-		if profState, sperr := pm.GetProfileState(active.ID); sperr == nil && profState.Email != "" {
-			req.Hint = &profState.Email
-		}
+	if profState, perr := pm.GetProfileState(activeProf.ID); perr == nil && profState.Email != "" {
+		req.Hint = &profState.Email
 	}
 
 	startResp, err := client.RequestExtendAuthSession(ctx, req)
