@@ -401,9 +401,6 @@
     "networks.bulk.label": {
         "message": "Переключить все видимые ресурсы"
     },
-    "settings.nav.label": {
-        "message": "Разделы настроек"
-    },
     "profile.switch.title": {
         "message": "Переключиться на профиль «{name}»?"
     },
@@ -496,6 +493,9 @@
     },
     "settings.error.debugBundleTitle": {
         "message": "Не удалось создать отладочный пакет"
+    },
+    "settings.nav.label": {
+        "message": "Разделы настроек"
     },
     "settings.tabs.general": {
         "message": "Общие"
@@ -764,7 +764,19 @@
         "message": "Анонимизировать конфиденциальную информацию"
     },
     "settings.troubleshooting.anonymize.help": {
-        "message": "Скрывает публичные IP-адреса и сторонние (не относящиеся к NetBird) домены в журналах."
+        "message": "Скрывает IP-адреса, домены и другие конфиденциальные значения."
+    },
+    "settings.troubleshooting.anonymize.info": {
+        "message": "Режим «По умолчанию» оставляет внутренние IPv4-адреса и имена пиров читаемыми для поддержки. Режим «Строгий» дополнительно анонимизирует частные (RFC 1918), CGNAT и link-local IP-адреса, имена пиров и публичные ключи WireGuard. Повторяющиеся значения заменяются одним и тем же заполнителем, поэтому пиры остаются различимыми. Используйте режим «Строгий», когда передаёте отладочный пакет за пределы вашей организации."
+    },
+    "settings.troubleshooting.anonymize.none": {
+        "message": "Нет"
+    },
+    "settings.troubleshooting.anonymize.default": {
+        "message": "По умолчанию"
+    },
+    "settings.troubleshooting.anonymize.strict": {
+        "message": "Строгий"
     },
     "settings.troubleshooting.systemInfo.label": {
         "message": "Включить сведения о системе"
@@ -1507,5 +1519,29 @@
     },
     "notify.filedrop.always": {
         "message": "Всегда принимать"
+    },
+    "error.elevation_unavailable": {
+        "message": "NetBird не смог запросить у этой системы нужные права. Выполните вместо этого:"
+    },
+    "error.elevation_failed": {
+        "message": "Не удалось применить изменение с повышенными правами. Выполните вместо этого:"
+    },
+    "settings.ssh.privilege.actorRoot": {
+        "message": "права root"
+    },
+    "settings.ssh.privilege.actorAdministrator": {
+        "message": "права администратора"
+    },
+    "settings.ssh.privilege.hint": {
+        "message": "Требуются {actor}. Выполните вместо этого:"
+    },
+    "settings.ssh.privilege.oneWay": {
+        "message": "Отключить можно, но чтобы включить снова, нужны {actor}."
+    },
+    "settings.ssh.privilege.oneWayInverted": {
+        "message": "Включить можно, но чтобы отключить снова, нужны {actor}."
+    },
+    "settings.ssh.privilege.authorizePending": {
+        "message": "Ожидание авторизации…"
     }
 }

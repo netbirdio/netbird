@@ -401,9 +401,6 @@
     "networks.bulk.label": {
         "message": "Alle sichtbaren Ressourcen umschalten"
     },
-    "settings.nav.label": {
-        "message": "Einstellungsbereiche"
-    },
     "profile.switch.title": {
         "message": "Zu Profil \"{name}\" wechseln?"
     },
@@ -496,6 +493,9 @@
     },
     "settings.error.debugBundleTitle": {
         "message": "Debug-Paket fehlgeschlagen"
+    },
+    "settings.nav.label": {
+        "message": "Einstellungsbereiche"
     },
     "settings.tabs.general": {
         "message": "Allgemein"
@@ -764,7 +764,19 @@
         "message": "Sensible Informationen anonymisieren"
     },
     "settings.troubleshooting.anonymize.help": {
-        "message": "Versteckt öffentliche IP-Adressen und nicht-NetBird-Domains in Logs."
+        "message": "Verbirgt IP-Adressen, Domains und andere sensible Werte."
+    },
+    "settings.troubleshooting.anonymize.info": {
+        "message": "Der Standardmodus lässt interne IPv4-Adressen und Peer-Namen für den Support lesbar. Der strikte Modus anonymisiert zusätzlich private (RFC 1918), CGNAT- und Link-Local-IP-Adressen, Peer-Namen und öffentliche WireGuard-Schlüssel. Wiederkehrende Werte erhalten denselben Platzhalter, sodass Peers unterscheidbar bleiben. Verwenden Sie den strikten Modus, wenn Sie das Debug-Paket außerhalb Ihrer Organisation weitergeben."
+    },
+    "settings.troubleshooting.anonymize.none": {
+        "message": "Keine"
+    },
+    "settings.troubleshooting.anonymize.default": {
+        "message": "Standard"
+    },
+    "settings.troubleshooting.anonymize.strict": {
+        "message": "Strikt"
     },
     "settings.troubleshooting.systemInfo.label": {
         "message": "Systeminformationen einschließen"
@@ -1507,5 +1519,29 @@
     },
     "notify.filedrop.always": {
         "message": "Immer annehmen"
+    },
+    "error.elevation_unavailable": {
+        "message": "NetBird konnte auf diesem System nicht die nötigen Rechte anfordern. Führen Sie stattdessen dies aus:"
+    },
+    "error.elevation_failed": {
+        "message": "Die Änderung konnte mit erhöhten Rechten nicht angewendet werden. Führen Sie stattdessen dies aus:"
+    },
+    "settings.ssh.privilege.actorRoot": {
+        "message": "root-Rechte"
+    },
+    "settings.ssh.privilege.actorAdministrator": {
+        "message": "Administratorrechte"
+    },
+    "settings.ssh.privilege.hint": {
+        "message": "Erfordert {actor}. Führen Sie stattdessen dies aus:"
+    },
+    "settings.ssh.privilege.oneWay": {
+        "message": "Sie können dies deaktivieren, zum erneuten Aktivieren sind {actor} erforderlich."
+    },
+    "settings.ssh.privilege.oneWayInverted": {
+        "message": "Sie können dies aktivieren, zum erneuten Deaktivieren sind {actor} erforderlich."
+    },
+    "settings.ssh.privilege.authorizePending": {
+        "message": "Warten auf Autorisierung…"
     }
 }

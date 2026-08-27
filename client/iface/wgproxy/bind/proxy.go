@@ -53,15 +53,15 @@ func NewProxyBind(bind Bind, mtu uint16) *ProxyBind {
 	return p
 }
 
-// AddTurnConn adds a new connection to the bind.
+// AddRelayedConn adds a new connection to the bind.
 // endpoint is the NetBird address of the remote peer. The SetEndpoint return with the address what will be used in the
 // WireGuard configuration.
 //
 // Parameters:
 //   - ctx: Context is used for proxyToLocal to avoid unnecessary error messages
 //   - nbAddr: The NetBird UDP address of the remote peer, it required to generate fake address
-//   - remoteConn: The established TURN connection to the remote peer
-func (p *ProxyBind) AddTurnConn(ctx context.Context, nbAddr *net.UDPAddr, remoteConn net.Conn) error {
+//   - remoteConn: The established relayed connection to the remote peer
+func (p *ProxyBind) AddRelayedConn(ctx context.Context, nbAddr *net.UDPAddr, remoteConn net.Conn) error {
 	fakeNetIP, err := fakeAddress(nbAddr)
 	if err != nil {
 		return err

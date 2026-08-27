@@ -65,6 +65,11 @@ func WithMaxBackoffInterval(d time.Duration) ManagerOption {
 	return func(m *Manager) { m.maxBackoffInterval = d }
 }
 
+// WithNetEvents injects the OS network event handling.
+func WithNetEvents(events NetEvents) ManagerOption {
+	return func(m *Manager) { m.netEvents = events }
+}
+
 // Manager is a manager for the relay client instances. It establishes one persistent connection to the given relay URL
 // and automatically reconnect to them in case disconnection.
 // The manager also manage temporary relay connection. If a client wants to communicate with a client on a
@@ -92,6 +97,7 @@ type Manager struct {
 
 	mtu                uint16
 	maxBackoffInterval time.Duration
+	netEvents          NetEvents
 
 	cleanupInterval      time.Duration
 	keepUnusedServerTime time.Duration
@@ -128,8 +134,9 @@ func NewManager(ctx context.Context, serverURLs []string, peerID string, mtu uin
 	for _, opt := range opts {
 		opt(m)
 	}
+	m.serverPicker.NetEvents = m.netEvents
 	m.serverPicker.ServerURLs.Store(serverURLs)
-	m.reconnectGuard = NewGuard(m.serverPicker, m.maxBackoffInterval)
+	m.reconnectGuard = NewGuard(m.serverPicker, m.maxBackoffInterval, m.netEvents)
 	return m
 }
 
@@ -354,6 +361,7 @@ func (m *Manager) openConnVia(ctx context.Context, serverAddress, peerKey string
 
 	relayClient := NewClientWithServerIP(serverAddress, serverIP, m.tokenStore, m.peerID, m.mtu)
 	relayClient.SetTransportFallback(m.transportFallback)
+	relayClient.netEvents = m.netEvents
 	err := relayClient.Connect(m.ctx)
 	if err != nil {
 		rt.Lock()

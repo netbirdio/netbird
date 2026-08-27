@@ -39,6 +39,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/updater"
 	"github.com/netbirdio/netbird/client/internal/updater/installer"
 	nbnet "github.com/netbirdio/netbird/client/net"
+	"github.com/netbirdio/netbird/client/netevents"
 	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/ssh"
 	sshconfig "github.com/netbirdio/netbird/client/ssh/config"
@@ -72,18 +73,31 @@ type ConnectClient struct {
 	fileDropManager *filedrop.Manager
 
 	persistSyncResponse bool
+
+	// netMgr gates every reconnection loop on OS-reported network
+	// availability and sweeps connections on network change.
+	netMgr *netevents.Manager
+}
+
+// ConnectClientOption configures optional ConnectClient behavior.
+type ConnectClientOption func(*ConnectClient)
+
+// WithNetEvents injects the OS network event handling.
+func WithNetEvents(events *netevents.Manager) ConnectClientOption {
+	return func(c *ConnectClient) { c.netMgr = events }
 }
 
 func NewConnectClient(
 	ctx context.Context,
 	config *profilemanager.Config,
 	statusRecorder *peer.Status,
+	opts ...ConnectClientOption,
 ) *ConnectClient {
 	// Derive the run context here so Stop owns the cancel that unblocks the run
 	// loop. runCancel is set once at construction, so Stop can call it without
 	// racing the run loop's startup. Callers therefore need not cancel before Stop.
 	runCtx, runCancel := context.WithCancel(ctx)
-	return &ConnectClient{
+	c := &ConnectClient{
 		ctx:            runCtx,
 		runCancel:      runCancel,
 		runExited:      make(chan struct{}),
@@ -91,6 +105,10 @@ func NewConnectClient(
 		statusRecorder: statusRecorder,
 		engineMutex:    sync.Mutex{},
 	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
 }
 
 func (c *ConnectClient) SetUpdateManager(um *updater.Manager) {
@@ -282,6 +300,13 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			return nil
 		}
 
+		// suspend connection attempts while the OS reports no usable network
+		if waited, err := c.netMgr.Wait(c.ctx); err != nil {
+			return nil
+		} else if waited {
+			backOff.Reset()
+		}
+
 		state.Set(StatusConnecting)
 
 		engineCtx, cancel := context.WithCancel(c.ctx)
@@ -293,7 +318,8 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		}()
 
 		log.Debugf("connecting to the Management service %s", c.config.ManagementURL.Host)
-		mgmClient, err := mgm.NewClient(engineCtx, c.config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled)
+		mgmClient, err := mgm.NewClient(engineCtx, c.config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled,
+			mgm.WithNetEvents(c.netMgr))
 		if err != nil {
 			// On daemon shutdown / Down() the parent context is cancelled
 			// and the dial fails with "context canceled". Wrapping that
@@ -368,7 +394,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		}()
 
 		// with the global Netbird config in hand connect (just a connection, no stream yet) Signal
-		signalClient, err := connectToSignal(engineCtx, loginResp.GetNetbirdConfig(), myPrivateKey)
+		signalClient, err := connectToSignal(engineCtx, loginResp.GetNetbirdConfig(), myPrivateKey, c.netMgr)
 		if err != nil {
 			log.Error(err)
 			return wrapErr(err)
@@ -404,7 +430,8 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			engineConfig.StateDir = filepath.Dir(path)
 		}
 
-		relayManager := relayClient.NewManager(engineCtx, relayURLs, myPrivateKey.PublicKey().String(), engineConfig.MTU)
+		relayManager := relayClient.NewManager(engineCtx, relayURLs, myPrivateKey.PublicKey().String(), engineConfig.MTU,
+			relayClient.WithNetEvents(c.netMgr))
 		c.statusRecorder.SetRelayMgr(relayManager)
 		if len(relayURLs) > 0 {
 			if token != nil {
@@ -433,6 +460,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			ClientMetrics:  c.clientMetrics,
 			MetricsCtx:     c.ctx,
 			FileDrop:       c.fileDropManager,
+			NetMgr:         c.netMgr,
 		}, mobileDependency)
 		engine.SetSyncResponsePersistence(c.persistSyncResponse)
 		c.engine = engine
@@ -489,6 +517,16 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 	// status stream stuck at Connecting.
 	err = backoff.Retry(operation, backoff.WithContext(backOff, c.ctx))
 	if err != nil {
+		// Once the client context is cancelled backoff.WithContext surfaces the
+		// bare context error, and any attempt torn down mid-flight reports the
+		// same. That cancellation is the caller asking us to stop (Stop, Down or
+		// an engine restart), so exit cleanly instead of handing back a failure
+		// the caller would have to distinguish from a real one.
+		if c.ctx.Err() != nil && errors.Is(err, context.Canceled) {
+			log.Info("exiting client retry loop, context cancelled")
+			return nil
+		}
+
 		log.Debugf("exiting client retry loop due to unrecoverable error: %s", err)
 		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.PermissionDenied) {
 			state.Set(StatusNeedsLogin)
@@ -682,7 +720,7 @@ func selectMTU(localMTU uint16, peerMTU int32) uint16 {
 }
 
 // connectToSignal creates Signal Service client and established a connection
-func connectToSignal(ctx context.Context, wtConfig *mgmProto.NetbirdConfig, ourPrivateKey wgtypes.Key) (*signal.GrpcClient, error) {
+func connectToSignal(ctx context.Context, wtConfig *mgmProto.NetbirdConfig, ourPrivateKey wgtypes.Key, netMgr *netevents.Manager) (*signal.GrpcClient, error) {
 	var sigTLSEnabled bool
 	if wtConfig.Signal.Protocol == mgmProto.HostConfig_HTTPS {
 		sigTLSEnabled = true
@@ -690,7 +728,8 @@ func connectToSignal(ctx context.Context, wtConfig *mgmProto.NetbirdConfig, ourP
 		sigTLSEnabled = false
 	}
 
-	signalClient, err := signal.NewClient(ctx, wtConfig.Signal.Uri, ourPrivateKey, sigTLSEnabled)
+	signalClient, err := signal.NewClient(ctx, wtConfig.Signal.Uri, ourPrivateKey, sigTLSEnabled,
+		signal.WithNetEvents(netMgr))
 	if err != nil {
 		log.Errorf("error while connecting to the Signal Exchange Service %s: %s", wtConfig.Signal.Uri, err)
 		return nil, gstatus.Errorf(codes.FailedPrecondition, "failed connecting to Signal Service : %s", err)

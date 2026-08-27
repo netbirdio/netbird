@@ -85,12 +85,24 @@ type Options struct {
 	DisableIPv6 bool
 	// BlockInbound blocks all inbound connections from peers
 	BlockInbound bool
+	// EnableRosenpass enables the Rosenpass post-quantum key exchange.
+	EnableRosenpass bool
+	// RosenpassPermissive lets a Rosenpass-enabled peer still connect to peers
+	// that do not run Rosenpass (falling back to the plain WireGuard PSK).
+	RosenpassPermissive bool
 	// BlockLANAccess blocks the embedded peer from reaching the host's
 	// LAN (RFC 1918, link-local, loopback) when it's used as a routing
 	// peer. Mirrors profilemanager.ConfigInput.BlockLANAccess. Useful
 	// when the embedded client must never act as a stepping stone into
 	// the host's local network (e.g. the proxy's overlay peer).
 	BlockLANAccess bool
+	// LazyConnectionEnabled is a tri-state local override for lazy connections,
+	// mirroring the NB_LAZY_CONN env var. Nil defers to the management feature
+	// flag; a set value overrides it in both directions. A short-lived client
+	// that reaches only a few known peers can set this to false, so its peers
+	// connect eagerly and the first request does not wait for the connection to
+	// be established.
+	LazyConnectionEnabled *bool
 	// WireguardPort is the port for the tunnel interface. Use 0 for a random port.
 	WireguardPort *int
 	// MTU is the MTU for the tunnel interface.
@@ -203,6 +215,8 @@ func New(opts Options) (*Client, error) {
 		DisableIPv6:         &opts.DisableIPv6,
 		BlockInbound:        &opts.BlockInbound,
 		BlockLANAccess:      &opts.BlockLANAccess,
+		RosenpassEnabled:    &opts.EnableRosenpass,
+		RosenpassPermissive: &opts.RosenpassPermissive,
 		WireguardPort:       opts.WireguardPort,
 		MTU:                 opts.MTU,
 		DNSLabels:           parsedLabels,
@@ -218,6 +232,15 @@ func New(opts Options) (*Client, error) {
 
 	if opts.PrivateKey != "" {
 		config.PrivateKey = opts.PrivateKey
+	}
+
+	if opts.LazyConnectionEnabled != nil {
+		// Runtime-only override, read back through lazyconn.ParseState; a set value
+		// wins over the management feature flag in both directions.
+		config.LazyConnection = "off"
+		if *opts.LazyConnectionEnabled {
+			config.LazyConnection = "on"
+		}
 	}
 
 	if opts.Performance.PreallocatedBuffersPerPool != nil {

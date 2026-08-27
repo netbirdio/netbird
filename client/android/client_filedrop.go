@@ -8,6 +8,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/mobile"
 )
 
 // SetFileDropSink installs the platform sink incoming payloads are staged
@@ -72,7 +73,7 @@ func (c *Client) fileDropFor(configDir, profileID string) (*FileDrop, error) {
 // pair one profile's engine with another's transfers. A failure is not fatal:
 // the tunnel is worth more than the feature, so the engine runs on without it.
 func (c *Client) attachFileDrop(cc *internal.ConnectClient, cfgFile string) {
-	configDir, profileID, err := profileLocationFor(cfgFile)
+	configDir, profileID, err := mobile.ProfileLocationFor(cfgFile)
 	if err != nil {
 		log.Warnf("file drop is unavailable: %v", err)
 		return
