@@ -582,10 +582,7 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 				StatusRecorder: peer.NewRecorder("https://mgm"),
 			}, MobileDependency{})
 			engine.ctx = ctx
-			newNet, err := stdnet.NewNet(context.Background(), nil)
-			if err != nil {
-				t.Fatal(err)
-			}
+			newNet := stdnet.NewNet(context.Background(), nil)
 
 			opts := iface.WGIFaceOpts{
 				IFaceName:    wgIfaceName,
@@ -790,10 +787,7 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 			}, MobileDependency{})
 			engine.ctx = ctx
 
-			newNet, err := stdnet.NewNet(context.Background(), nil)
-			if err != nil {
-				t.Fatal(err)
-			}
+			newNet := stdnet.NewNet(context.Background(), nil)
 			opts := iface.WGIFaceOpts{
 				IFaceName:    wgIfaceName,
 				Address:      wgaddr.MustParseWGAddress(wgAddr),

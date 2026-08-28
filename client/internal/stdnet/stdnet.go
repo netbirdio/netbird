@@ -45,7 +45,7 @@ type Net struct {
 }
 
 // NewNetWithDiscover creates a new StdNet instance.
-func NewNetWithDiscover(ctx context.Context, iFaceDiscover ExternalIFaceDiscover, disallowList []string) (*Net, error) {
+func NewNetWithDiscover(ctx context.Context, iFaceDiscover ExternalIFaceDiscover, disallowList []string) *Net {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -60,20 +60,19 @@ func NewNetWithDiscover(ctx context.Context, iFaceDiscover ExternalIFaceDiscover
 	} else {
 		n.iFaceDiscover = newMobileIFaceDiscover(iFaceDiscover)
 	}
-	return n, n.UpdateInterfaces()
+	return n
 }
 
 // NewNet creates a new StdNet instance.
-func NewNet(ctx context.Context, disallowList []string) (*Net, error) {
+func NewNet(ctx context.Context, disallowList []string) *Net {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	n := &Net{
+	return &Net{
 		iFaceDiscover:   pionDiscover{},
 		interfaceFilter: InterfaceFilter(disallowList),
 		ctx:             ctx,
 	}
-	return n, n.UpdateInterfaces()
 }
 
 // resolveAddr performs DNS resolution with context support and timeout.
@@ -122,45 +121,18 @@ func (n *Net) resolveAddr(network, address string) (netip.AddrPort, error) {
 	return netip.AddrPortFrom(addrs[0], uint16(port)), nil
 }
 
-// UpdateInterfaces updates the internal list of network interfaces
-// and associated addresses filtering them by name.
-// The interfaces are discovered by an external iFaceDiscover function or by a default discoverer if the external one
-// wasn't specified.
-func (n *Net) UpdateInterfaces() (err error) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-
-	return n.updateInterfaces()
-}
-
-func (n *Net) updateInterfaces() (err error) {
-	allIfaces, err := n.iFaceDiscover.iFaces()
-	if err != nil {
-		return err
-	}
-
-	n.interfaces = n.filterInterfaces(allIfaces)
-
-	n.lastUpdate = time.Now()
-
-	return nil
-}
-
 // Interfaces returns a slice of interfaces which are available on the
 // system
 func (n *Net) Interfaces() ([]*transport.Interface, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	if time.Since(n.lastUpdate) < updateInterval {
-		return slices.Clone(n.interfaces), nil
+	iFaces, err := n.freshInterfacesLocked()
+	if err != nil {
+		return nil, err
 	}
 
-	if err := n.updateInterfaces(); err != nil {
-		return nil, fmt.Errorf("update interfaces: %w", err)
-	}
-
-	return slices.Clone(n.interfaces), nil
+	return slices.Clone(iFaces), nil
 }
 
 // InterfaceByIndex returns the interface specified by index.
@@ -171,7 +143,13 @@ func (n *Net) Interfaces() ([]*transport.Interface, error) {
 func (n *Net) InterfaceByIndex(index int) (*transport.Interface, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	for _, ifc := range n.interfaces {
+
+	iFaces, err := n.freshInterfacesLocked()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, ifc := range iFaces {
 		if ifc.Index == index {
 			return ifc, nil
 		}
@@ -184,13 +162,44 @@ func (n *Net) InterfaceByIndex(index int) (*transport.Interface, error) {
 func (n *Net) InterfaceByName(name string) (*transport.Interface, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	for _, ifc := range n.interfaces {
+
+	iFaces, err := n.freshInterfacesLocked()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, ifc := range iFaces {
 		if ifc.Name == name {
 			return ifc, nil
 		}
 	}
 
 	return nil, fmt.Errorf("%w: %s", transport.ErrInterfaceNotFound, name)
+}
+
+func (n *Net) freshInterfacesLocked() ([]*transport.Interface, error) {
+	if time.Since(n.lastUpdate) < updateInterval {
+		return n.interfaces, nil
+	}
+
+	if err := n.updateInterfacesLocked(); err != nil {
+		return nil, fmt.Errorf("update interfaces: %w", err)
+	}
+
+	return n.interfaces, nil
+}
+
+func (n *Net) updateInterfacesLocked() error {
+	allIFaces, err := n.iFaceDiscover.iFaces()
+	if err != nil {
+		return err
+	}
+
+	n.interfaces = n.filterInterfaces(allIFaces)
+
+	n.lastUpdate = time.Now()
+
+	return nil
 }
 
 func (n *Net) filterInterfaces(interfaces []*transport.Interface) []*transport.Interface {
