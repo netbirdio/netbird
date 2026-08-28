@@ -577,7 +577,7 @@ func peerPostureChecksFromData(nmData *networkmap.NetworkMapData, peerID string)
 		if policy == nil || !policy.Enabled || len(policy.SourcePostureChecks) == 0 {
 			continue
 		}
-		if !isPeerInPolicySourceGroupsFromData(nmData, peerID, policy) {
+		if !isPeerInPolicySourcesFromData(nmData, peerID, policy) {
 			continue
 		}
 		for _, checkID := range policy.SourcePostureChecks {
@@ -590,10 +590,13 @@ func peerPostureChecksFromData(nmData *networkmap.NetworkMapData, peerID string)
 	return maps.Values(peerPostureChecks)
 }
 
-func isPeerInPolicySourceGroupsFromData(nmData *networkmap.NetworkMapData, peerID string, policy *nmdata.Policy) bool {
+func isPeerInPolicySourcesFromData(nmData *networkmap.NetworkMapData, peerID string, policy *nmdata.Policy) bool {
 	for _, rule := range policy.Rules {
 		if rule == nil || !rule.Enabled {
 			continue
+		}
+		if rule.SourceResource.Type == string(types.ResourceTypePeer) && rule.SourceResource.ID == peerID {
+			return true
 		}
 		for _, groupID := range rule.Sources {
 			if group := nmData.Groups[groupID]; group != nil && slices.Contains(group.Peers, peerID) {
@@ -1314,7 +1317,7 @@ func computeForwarderPortFromVersions(wtVersions []string, requiredVersion strin
 
 // addPolicyPostureChecks adds posture checks from a policy to the peer posture checks map if the peer is in the policy's source groups.
 func addPolicyPostureChecks(account *types.Account, peerID string, policy *types.Policy, peerPostureChecks map[string]*posture.Checks) error {
-	isInGroup, err := isPeerInPolicySourceGroups(account, peerID, policy)
+	isInGroup, err := isPeerInPolicySources(account, peerID, policy)
 	if err != nil {
 		return err
 	}
@@ -1334,11 +1337,15 @@ func addPolicyPostureChecks(account *types.Account, peerID string, policy *types
 	return nil
 }
 
-// isPeerInPolicySourceGroups checks if a peer is present in any of the policy rule source groups.
-func isPeerInPolicySourceGroups(account *types.Account, peerID string, policy *types.Policy) (bool, error) {
+// isPeerInPolicySources checks if a peer is a source of the policy, directly or through a source group.
+func isPeerInPolicySources(account *types.Account, peerID string, policy *types.Policy) (bool, error) {
 	for _, rule := range policy.Rules {
 		if !rule.Enabled {
 			continue
+		}
+
+		if rule.SourceResource.Type == types.ResourceTypePeer && rule.SourceResource.ID == peerID {
+			return true, nil
 		}
 
 		for _, sourceGroup := range rule.Sources {

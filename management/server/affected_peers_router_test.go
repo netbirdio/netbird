@@ -173,6 +173,23 @@ func peerToResourcePolicyByGroup(sourceGroupID, resourceGroupID string) *types.P
 	}
 }
 
+// peerToResourcePolicyByPeer builds a policy naming the source peer directly via
+// SourceResource rather than through a group.
+func peerToResourcePolicyByPeer(sourcePeerID, resourceGroupID string) *types.Policy {
+	return &types.Policy{
+		Enabled: true,
+		Name:    "peer-to-resource-by-peer",
+		Rules: []*types.PolicyRule{
+			{
+				Enabled:        true,
+				SourceResource: types.Resource{ID: sourcePeerID, Type: types.ResourceTypePeer},
+				Destinations:   []string{resourceGroupID},
+				Action:         types.PolicyTrafficActionAccept,
+			},
+		},
+	}
+}
+
 // peerToResourcePolicyByResource builds a policy referencing the resource
 // directly via DestinationResource rather than its group.
 func peerToResourcePolicyByResource(sourceGroupID, resourceID string) *types.Policy {
