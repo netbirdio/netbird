@@ -1022,11 +1022,11 @@ wait_for_license_verdict() {
     if grep -qi "license invalidated" <<< "$logs"; then
       echo " rejected"
       LICENSE_VERDICT="rejected"
-      LICENSE_LOG_LINES=$(grep -i "license" <<< "$logs" | tail -n 5)
+      LICENSE_LOG_LINES=$(grep -i "license" <<< "$logs" | tail -n 5 || true)
       return 0
     fi
 
-    if grep -qi "successful license validation" <<< "$logs"; then
+    if grep -qi "license validated" <<< "$logs"; then
       echo " ok"
       LICENSE_VERDICT="ok"
       return 0
@@ -1039,7 +1039,7 @@ wait_for_license_verdict() {
 
   echo " no verdict in 120s"
   LICENSE_VERDICT="unknown"
-  LICENSE_LOG_LINES=$(grep -iE "failed to validate license|error validating license" <<< "$logs" | tail -n 3)
+  LICENSE_LOG_LINES=$(grep -iE "failed to validate license|error validating license" <<< "$logs" | tail -n 3 || true)
   return 0
 }
 
@@ -1150,18 +1150,33 @@ apply_changes() {
   echo "Migration complete."
 
   if [[ "$LICENSE_VERDICT" == "rejected" ]]; then
+    local unreachable="false"
+    if grep -qi "couldn't be validated with the license server" <<< "$LICENSE_LOG_LINES"; then
+      unreachable="true"
+    fi
+
     echo ""
-    echo "  ⚠  The server rejected the license key:"
+    if [[ "$unreachable" == "true" ]]; then
+      echo "  ⚠  The server could not validate the license:"
+    else
+      echo "  ⚠  The server rejected the license key:"
+    fi
     while IFS= read -r line; do
       [[ -n "$line" ]] && echo "     $line"
     done <<< "$LICENSE_LOG_LINES"
     echo ""
     echo "     The migration itself completed: the images and any migrated data"
-    echo "     are in place, and only the license was refused."
+    echo "     are in place, and only the license check did not pass."
     echo ""
-    echo "     Check the reason the server gave above, verify that"
-    echo "     NB_LICENSE_KEY in .env matches the key you were issued, then"
-    echo "     restart:"
+    if [[ "$unreachable" == "true" ]]; then
+      echo "     The license server could not be reached, so the key itself was"
+      echo "     never checked. Confirm this host has outbound access to the"
+      echo "     license server, then restart:"
+    else
+      echo "     Check the reason the server gave above, verify that"
+      echo "     NB_LICENSE_KEY in .env matches the key you were issued, then"
+      echo "     restart:"
+    fi
     echo ""
     echo "       $DOCKER_COMPOSE_COMMAND up -d"
   elif [[ "$LICENSE_VERDICT" == "unknown" ]]; then
