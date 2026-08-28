@@ -9,6 +9,7 @@ import (
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
 
@@ -180,4 +181,23 @@ func TestMetaDiffAffectsPosture_NoChecks(t *testing.T) {
 		nbpeer.Location{}, nbpeer.Location{},
 	)
 	assert.False(t, metaDiffAffectsPosture(diff, nil))
+}
+
+func TestProcessPeerPostureChecks(t *testing.T) {
+	policy := &types.Policy{
+		Enabled:             true,
+		SourcePostureChecks: []string{"pc1"},
+		Rules: []*types.PolicyRule{
+			{Enabled: false, Sources: []string{"g-disabled"}, SourceResource: types.Resource{ID: "peer-disabled", Type: types.ResourceTypePeer}},
+			{Enabled: true, Sources: []string{"g-src"}, Destinations: []string{"g-dst"}},
+			{Enabled: true, SourceResource: types.Resource{ID: "peer-direct", Type: types.ResourceTypePeer}, Destinations: []string{"g-dst"}},
+			{Enabled: true, SourceResource: types.Resource{ID: "peer-as-host", Type: types.ResourceTypeHost}, Destinations: []string{"g-dst"}},
+		},
+	}
+
+	assert.Equal(t, []string{"pc1"}, processPeerPostureChecks(policy, "peer-in-group", []string{"g-src"}), "source group member")
+	assert.Equal(t, []string{"pc1"}, processPeerPostureChecks(policy, "peer-direct", nil), "direct source peer")
+	assert.Empty(t, processPeerPostureChecks(policy, "peer-elsewhere", []string{"g-dst"}), "destination-only peer")
+	assert.Empty(t, processPeerPostureChecks(policy, "peer-disabled", []string{"g-disabled"}), "disabled rule")
+	assert.Empty(t, processPeerPostureChecks(policy, "peer-as-host", nil), "source resource of a non-peer type")
 }

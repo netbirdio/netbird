@@ -1349,7 +1349,7 @@ func getPeerLoginInfo(ctx context.Context, transaction store.Store, accountID st
 		return nil, nil, false, err
 	}
 
-	postureChecks, err := getPeerPostureChecks(ctx, transaction, accountID, peerGroupIDs, policies)
+	postureChecks, err := getPeerPostureChecks(ctx, transaction, accountID, peer.ID, peerGroupIDs, policies)
 	if err != nil {
 		return nil, nil, false, err
 	}
@@ -1371,7 +1371,7 @@ func isPeerSSHEnabled(ctx context.Context, peer *nbpeer.Peer, policies []*types.
 }
 
 // getPeerPostureChecks returns the posture checks for the peer.
-func getPeerPostureChecks(ctx context.Context, transaction store.Store, accountID string, peerGroupIDs []string, policies []*types.Policy) ([]*nmdata.PostureChecks, error) {
+func getPeerPostureChecks(ctx context.Context, transaction store.Store, accountID, peerID string, peerGroupIDs []string, policies []*types.Policy) ([]*nmdata.PostureChecks, error) {
 	if len(policies) == 0 {
 		return nil, nil
 	}
@@ -1383,7 +1383,7 @@ func getPeerPostureChecks(ctx context.Context, transaction store.Store, accountI
 			continue
 		}
 
-		postureChecksIDs := processPeerPostureChecks(policy, peerGroupIDs)
+		postureChecksIDs := processPeerPostureChecks(policy, peerID, peerGroupIDs)
 		peerPostureChecksIDs = append(peerPostureChecksIDs, postureChecksIDs...)
 	}
 
@@ -1395,11 +1395,15 @@ func getPeerPostureChecks(ctx context.Context, transaction store.Store, accountI
 	return types.TwinPostureChecksList(maps.Values(peerPostureChecks)), nil
 }
 
-// processPeerPostureChecks checks if the peer is in the source group of the policy and returns the posture checks.
-func processPeerPostureChecks(policy *types.Policy, peerGroupIDs []string) []string {
+// processPeerPostureChecks returns the policy's posture checks when the peer is a source of the policy, directly or through a source group.
+func processPeerPostureChecks(policy *types.Policy, peerID string, peerGroupIDs []string) []string {
 	for _, rule := range policy.Rules {
 		if !rule.Enabled {
 			continue
+		}
+
+		if rule.SourceResource.Type == types.ResourceTypePeer && rule.SourceResource.ID == peerID {
+			return policy.SourcePostureChecks
 		}
 
 		for _, sourceGroup := range rule.Sources {
