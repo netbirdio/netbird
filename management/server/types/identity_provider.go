@@ -131,6 +131,9 @@ func (idp *IdentityProvider) Validate() error {
 			return fmt.Errorf("PKCE and JWKS URL are not supported for %s", idp.Type)
 		}
 	}
+	if idp.PKCE != nil && !*idp.PKCE {
+		return fmt.Errorf("PKCE cannot be explicitly disabled in the underlying provider; omit the field to use auto-detection or set to true to force it")
+	}
 	return nil
 }
 
