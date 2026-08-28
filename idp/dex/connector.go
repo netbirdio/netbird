@@ -159,7 +159,7 @@ func overlayConnectorConfig(oldConfig []byte, cfg *ConnectorConfig) ([]byte, err
 		if *cfg.PKCE {
 			m["pkceChallenge"] = "S256"
 		} else {
-			delete(m, "pkceChallenge")
+			m["pkceChallenge"] = ""
 		}
 	}
 
@@ -251,8 +251,12 @@ func buildOIDCConnectorConfig(cfg *ConnectorConfig, redirectURI string) ([]byte,
 		oidcConfig["jwksURL"] = *cfg.JWKSURL
 	}
 
-	if cfg.PKCE != nil && *cfg.PKCE {
-		oidcConfig["pkceChallenge"] = "S256"
+	if cfg.PKCE != nil {
+		if *cfg.PKCE {
+			oidcConfig["pkceChallenge"] = "S256"
+		} else {
+			oidcConfig["pkceChallenge"] = ""
+		}
 	}
 
 	switch cfg.Type {
