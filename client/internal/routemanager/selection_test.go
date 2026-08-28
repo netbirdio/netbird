@@ -1,12 +1,16 @@
 package routemanager
 
 import (
+	"context"
 	"net/netip"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/routemanager/client"
+	"github.com/netbirdio/netbird/client/internal/routemanager/notifier"
 	"github.com/netbirdio/netbird/client/internal/routeselector"
 	"github.com/netbirdio/netbird/route"
 )
@@ -110,6 +114,61 @@ func TestSelectRoutes_UnknownRoute(t *testing.T) {
 
 	assert.Error(t, m.selectRoutes([]route.NetID{"missing"}, true), "selecting an unavailable route must fail")
 	assert.Error(t, m.deselectRoutes([]route.NetID{"missing"}), "deselecting an unavailable route must fail")
+}
+
+// newPartialFailureTestManager builds a manager whose TriggerSelection exercises the
+// real install/remove path (client.HandlerFromRoute plus the route refcounter) without
+// touching the system: setupRefCounters(true) swaps in the noop refcounter, and
+// clientNetworks is pre-seeded for every route so no watcher goroutine is ever started.
+func newPartialFailureTestManager() *DefaultManager {
+	ctx := context.Background()
+
+	m := &DefaultManager{
+		ctx: ctx,
+		clientRoutes: route.HAMap{
+			"lan|192.168.1.0/24": {{NetID: "lan", Network: netip.MustParsePrefix("192.168.1.0/24"), Peer: "p1"}},
+			"other|10.1.2.0/24":  {{NetID: "other", Network: netip.MustParsePrefix("10.1.2.0/24"), Peer: "p2"}},
+		},
+		routeSelector:  routeselector.NewRouteSelector(),
+		notifier:       notifier.NewNotifier(),
+		statusRecorder: peer.NewRecorder("https://mgm"),
+		activeRoutes:   make(map[route.HAUniqueID]client.RouteHandler),
+		clientNetworks: map[route.HAUniqueID]*client.Watcher{
+			"lan|192.168.1.0/24": client.NewWatcher(client.WatcherConfig{Context: ctx}),
+			"other|10.1.2.0/24":  client.NewWatcher(client.WatcherConfig{Context: ctx}),
+		},
+	}
+	m.setupRefCounters(true)
+	return m
+}
+
+// Regression for the reported symptom: a partial failure returned before
+// TriggerSelection ran, so the valid route was marked selected while never
+// reaching the routing table (activeRoutes/ip route).
+func TestSelectRoutes_PartialFailureStillInstallsValidRoute(t *testing.T) {
+	m := newPartialFailureTestManager()
+
+	err := m.SelectRoutes([]route.NetID{"missing", "lan"}, false)
+
+	assert.Error(t, err, "the unknown id must still be reported")
+	assert.Contains(t, m.activeRoutes, route.HAUniqueID("lan|192.168.1.0/24"), "the valid route must be installed despite the error")
+	assert.NotContains(t, m.activeRoutes, route.HAUniqueID("other|10.1.2.0/24"), "the deselected route must not be installed")
+}
+
+// Mirror of the case above: a partial failure must remove the valid route from
+// the routing table, not just mark it deselected in the selector.
+func TestDeselectRoutes_PartialFailureStillRemovesValidRoute(t *testing.T) {
+	m := newPartialFailureTestManager()
+
+	require.NoError(t, m.SelectRoutes([]route.NetID{"lan", "other"}, false))
+	require.Contains(t, m.activeRoutes, route.HAUniqueID("lan|192.168.1.0/24"))
+	require.Contains(t, m.activeRoutes, route.HAUniqueID("other|10.1.2.0/24"))
+
+	err := m.DeselectRoutes([]route.NetID{"missing", "other"})
+
+	assert.Error(t, err, "the unknown id must still be reported")
+	assert.NotContains(t, m.activeRoutes, route.HAUniqueID("other|10.1.2.0/24"), "the deselected route must be removed")
+	assert.Contains(t, m.activeRoutes, route.HAUniqueID("lan|192.168.1.0/24"), "the untouched route stays installed")
 }
 
 func TestExitNodeSelectionHelpers(t *testing.T) {
