@@ -60,6 +60,12 @@ func setupRouterScenario(t *testing.T, directRouterPeer bool) *routerScenario {
 	manager, updateManager, err := createManager(t)
 	require.NoError(t, err)
 
+	return buildRouterScenario(t, manager, updateManager, directRouterPeer)
+}
+
+func buildRouterScenario(t *testing.T, manager *DefaultAccountManager, updateManager *update_channel.PeersUpdateManager, directRouterPeer bool) *routerScenario {
+	t.Helper()
+
 	ctx := context.Background()
 
 	account, err := createAccount(manager, "router_scenario", userID, "")
