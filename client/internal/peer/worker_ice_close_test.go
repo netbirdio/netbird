@@ -80,14 +80,13 @@ func TestWorkerICE_CloseDuringDial_ClearsConnectingFlag(t *testing.T) {
 	// Teardown wins the race while connect() is still running.
 	w.Close()
 
-	// The goroutine has no joinable handle; its terminal effect is the flag
-	// state, so converge on it with a deadline. The goroutine observes the
-	// cancelled context within milliseconds on both fixed and unfixed code;
-	// only the resulting state differs.
+	// Close drops the flags synchronously, so the assertion below does not
+	// converge on the goroutine: the deadline only absorbs the dial goroutine
+	// waking up in the background, proving nothing re-wedges it afterwards.
 	require.Eventually(t, func() bool {
 		return !w.InProgress()
 	}, 10*time.Second, 50*time.Millisecond,
-		"the stale dial goroutine's cleanup must leave the negotiation idle")
+		"Close must leave the negotiation idle even while the dial goroutine is still winding down")
 
 	// abandonNegotiation owns these three fields together; the worker is idle
 	// only when all of them are dropped.
@@ -125,6 +124,7 @@ func TestWorkerICE_CloseClearsResidualConnectingState(t *testing.T) {
 // must survive wholesale - agent, flag and remote session identity alike.
 func TestWorkerICE_StaleCloseAgentKeepsCurrentSession(t *testing.T) {
 	w := newTestWorkerICE(t)
+	t.Cleanup(w.Close)
 
 	sidA := ICESessionID("session-a")
 	w.OnNewOffer(&OfferAnswer{

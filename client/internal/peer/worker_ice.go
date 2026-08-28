@@ -344,6 +344,10 @@ func (w *WorkerICE) connect(ctx context.Context, dialerCancel context.CancelFunc
 	w.muxAgent.Unlock()
 
 	// todo: the potential problem is a race between the onConnectionStateChange
+	// and the delivery below: after this unlock, a newer offer can replace
+	// w.agent before onICEConnectionIsReady runs, delivering this (now stale)
+	// connection. The newer negotiation overwrites it with its own delivery,
+	// so the window only ever downgrades an endpoint transiently.
 	w.conn.onICEConnectionIsReady(selectedPriority(pair), ci)
 }
 
