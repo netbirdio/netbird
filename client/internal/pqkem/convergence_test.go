@@ -73,3 +73,24 @@ func TestManager_RekeyToleratesKFailures(t *testing.T) {
 	require.NoError(t, err)
 	assert.Eventually(t, func() bool { return failedCount(wgB) == 1 }, time.Second, 5*time.Millisecond)
 }
+
+// TestManager_InitiatorRejectsOfferFromResponderRole verifies the role guard: an offer
+// reaching the peer that is the initiator (here dB) must be dropped, not adopted — else a
+// stray/injected offer would overwrite the live PSK and silently drop any in-flight
+// exchange. dA (the role-responder) crafts an offer and injects it into dB (the initiator).
+func TestManager_InitiatorRejectsOfferFromResponderRole(t *testing.T) {
+	dA, dB, _, wgB, _ := pair(t) // dB ("bbbb") is the initiator, dA ("aaaa") the responder
+	defer dA.Stop()
+	defer dB.Stop()
+
+	bootstrap(t, dA, dB)
+	psk1 := wgB.psk("aaaa")
+	require.NotEqual(t, PSK{}, psk1, "bootstrap established a PSK")
+
+	rogue, err := dA.startExchangeTest("bbbb", false, ExchangeID{})
+	require.NoError(t, err)
+	require.NoError(t, dB.OnDataPathMessage("aaaa", rogue))
+
+	assert.Equal(t, psk1, wgB.psk("aaaa"),
+		"the initiator must not adopt a PSK from an offer sent by the role-responder")
+}

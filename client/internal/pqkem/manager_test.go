@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -198,4 +199,42 @@ func TestManager_StopIsIdempotent(t *testing.T) {
 	dA.Start(&loopback{ep: epA, sw: newSwitch()})
 	dA.Stop()
 	dA.Stop() // must not panic or hang
+}
+
+// TestManager_SignalOfferRebootstrapsAfterResponderRestart verifies finding A: once a PSK
+// is derived (initiator in awaitingRekey), a fresh signalling offer must start a NEW
+// exchange, not replay the frozen one. Otherwise, if the responder restarted and lost its
+// state, it would derive a different PSK the initiator then rejects — a permanent desync.
+func TestManager_SignalOfferRebootstrapsAfterResponderRestart(t *testing.T) {
+	sw := newSwitch()
+	wgA, wgB := newFakeWG(), newFakeWG()
+	dA := NewManager("aaaa", wgA, nil)
+	dB := NewManager("bbbb", wgB, nil)
+	dA.Start(&loopback{ep: epA, sw: sw})
+	dB.Start(&loopback{ep: epB, sw: sw})
+	dA.AddPeer("bbbb", epB)
+	dB.AddPeer("aaaa", epA)
+	defer dB.Stop()
+
+	bootstrap(t, dA, dB)
+	require.Equal(t, wgB.psk("aaaa"), wgA.psk("bbbb"), "bootstrap converged")
+
+	// Responder ("aaaa") restarts: fresh manager, no state.
+	dA.Stop()
+	wgA2 := newFakeWG()
+	dA2 := NewManager("aaaa", wgA2, nil)
+	dA2.Start(&loopback{ep: epA, sw: sw})
+	dA2.AddPeer("bbbb", epB)
+	defer dA2.Stop()
+
+	offer, err := dB.SignalOffer("aaaa")
+	require.NoError(t, err)
+	require.NotNil(t, offer)
+	answer, err := dA2.SignalOnOffer("bbbb", offer)
+	require.NoError(t, err)
+	require.NotNil(t, answer)
+	require.NoError(t, dB.SignalOnAnswer("aaaa", answer))
+
+	assert.Equal(t, wgB.psk("aaaa"), wgA2.psk("bbbb"),
+		"after a responder restart both sides must converge on the same PSK")
 }
