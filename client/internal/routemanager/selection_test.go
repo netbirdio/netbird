@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/routemanager/client"
@@ -116,10 +117,9 @@ func TestSelectRoutes_UnknownRoute(t *testing.T) {
 	assert.Error(t, m.deselectRoutes([]route.NetID{"missing"}), "deselecting an unavailable route must fail")
 }
 
-// newPartialFailureTestManager builds a manager whose TriggerSelection exercises the
-// real install/remove path (client.HandlerFromRoute plus the route refcounter) without
-// touching the system: setupRefCounters(true) swaps in the noop refcounter, and
-// clientNetworks is pre-seeded for every route so no watcher goroutine is ever started.
+// newPartialFailureTestManager exercises the real install/remove path without
+// touching the system: the noop refcounter absorbs the route changes, and every
+// route already has a watcher, so none is started.
 func newPartialFailureTestManager() *DefaultManager {
 	ctx := context.Background()
 
@@ -169,6 +169,21 @@ func TestDeselectRoutes_PartialFailureStillRemovesValidRoute(t *testing.T) {
 	assert.Error(t, err, "the unknown id must still be reported")
 	assert.NotContains(t, m.activeRoutes, route.HAUniqueID("other|10.1.2.0/24"), "the deselected route must be removed")
 	assert.Contains(t, m.activeRoutes, route.HAUniqueID("lan|192.168.1.0/24"), "the untouched route stays installed")
+}
+
+// The selection now runs on every request, including one where no ID is known
+// and the selector stays untouched. Nothing may be torn down or reinstalled on
+// that path.
+func TestSelectRoutes_TotalFailureLeavesInstalledRoutesAlone(t *testing.T) {
+	m := newPartialFailureTestManager()
+
+	require.NoError(t, m.SelectRoutes([]route.NetID{"lan", "other"}, false))
+	installed := maps.Keys(m.activeRoutes)
+
+	err := m.SelectRoutes([]route.NetID{"missing"}, false)
+
+	assert.Error(t, err, "the unknown id must still be reported")
+	assert.ElementsMatch(t, installed, maps.Keys(m.activeRoutes), "a fully invalid request must not disturb the routing table")
 }
 
 func TestExitNodeSelectionHelpers(t *testing.T) {
