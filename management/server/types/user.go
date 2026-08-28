@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/netbirdio/netbird/management/server/idp"
-	"github.com/netbirdio/netbird/management/server/integration_reference"
+	"github.com/netbirdio/netbird/shared/management/integration_reference"
 	"github.com/netbirdio/netbird/util/crypt"
 )
 

@@ -11,6 +11,7 @@ import (
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
 
 // UpdateIntegratedValidator updates the integrated validator groups for a specified account.
@@ -109,7 +110,7 @@ func (am *DefaultAccountManager) GetValidatedPeers(ctx context.Context, accountI
 		return nil, nil, err
 	}
 
-	validPeers, err := am.integratedPeerValidator.GetValidatedPeers(ctx, accountID, groups, peers, settings.Extra)
+	validPeers, err := am.integratedPeerValidator.GetValidatedPeers(ctx, accountID, types.TwinGroups(groups), types.TwinPeers(peers), settings.Extra)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -138,7 +139,7 @@ func (a MockIntegratedValidator) ValidatePeer(_ context.Context, update *nbpeer.
 	return update, false, nil
 }
 
-func (a MockIntegratedValidator) GetValidatedPeers(_ context.Context, accountID string, groups []*types.Group, peers []*nbpeer.Peer, extraSettings *types.ExtraSettings) (map[string]struct{}, error) {
+func (a MockIntegratedValidator) GetValidatedPeers(_ context.Context, accountID string, groups []*nmdata.Group, peers []*nmdata.Peer, extraSettings *types.ExtraSettings) (map[string]struct{}, error) {
 	validatedPeers := make(map[string]struct{})
 	for _, peer := range peers {
 		validatedPeers[peer.ID] = struct{}{}

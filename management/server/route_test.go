@@ -1201,7 +1201,7 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 	peer1Routes, err := am.GetNetworkMap(context.Background(), peer1ID)
 	require.NoError(t, err)
 	require.Len(t, peer1Routes.Routes, 1, "we should receive one route for peer1")
-	require.True(t, expectedRoute.Equal(peer1Routes.Routes[0]), "received route should be equal")
+	require.True(t, types.TwinRoute(expectedRoute).Equal(peer1Routes.Routes[0]), "received route should be equal")
 
 	peer2Routes, err := am.GetNetworkMap(context.Background(), peer2ID)
 	require.NoError(t, err)
@@ -1299,7 +1299,7 @@ func createRouterManager(t *testing.T) (*DefaultAccountManager, *update_channel.
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, store)
-	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(store, peers.NewManager(store, permissionsManager)), &config.Config{})
+	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(store, peers.NewManager(store, permissionsManager)), &config.Config{}, nil)
 
 	am, err := BuildManager(context.Background(), nil, store, networkMapController, job.NewJobManager(nil, store, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false, cacheStore)
 	if err != nil {
