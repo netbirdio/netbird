@@ -160,12 +160,16 @@ func (s *Server) SelectNetworks(_ context.Context, req *proto.SelectNetworksRequ
 		return nil, fmt.Errorf("no route manager")
 	}
 
+	var selectErr error
 	if req.GetAll() {
 		routeManager.SelectAllRoutes()
-	} else if err := routeManager.SelectRoutes(toNetIDs(req.GetNetworkIDs()), req.GetAppend()); err != nil {
-		return nil, err
+	} else {
+		selectErr = routeManager.SelectRoutes(toNetIDs(req.GetNetworkIDs()), req.GetAppend())
 	}
 
+	// A partial failure (e.g. an unknown ID in the request) still changes the selection,
+	// so the event must be published regardless of selectErr, or the change leaves no
+	// trace in the event log/UI even though it already reached the routing table.
 	s.statusRecorder.PublishEvent(
 		proto.SystemEvent_INFO,
 		proto.SystemEvent_SYSTEM,
@@ -177,6 +181,10 @@ func (s *Server) SelectNetworks(_ context.Context, req *proto.SelectNetworksRequ
 			"all":      fmt.Sprint(req.GetAll()),
 		},
 	)
+
+	if selectErr != nil {
+		return nil, selectErr
+	}
 
 	return &proto.SelectNetworksResponse{}, nil
 }
@@ -204,12 +212,16 @@ func (s *Server) DeselectNetworks(_ context.Context, req *proto.SelectNetworksRe
 		return nil, fmt.Errorf("no route manager")
 	}
 
+	var deselectErr error
 	if req.GetAll() {
 		routeManager.DeselectAllRoutes()
-	} else if err := routeManager.DeselectRoutes(toNetIDs(req.GetNetworkIDs())); err != nil {
-		return nil, err
+	} else {
+		deselectErr = routeManager.DeselectRoutes(toNetIDs(req.GetNetworkIDs()))
 	}
 
+	// A partial failure (e.g. an unknown ID in the request) still changes the selection,
+	// so the event must be published regardless of deselectErr, or the change leaves no
+	// trace in the event log/UI even though it already reached the routing table.
 	s.statusRecorder.PublishEvent(
 		proto.SystemEvent_INFO,
 		proto.SystemEvent_SYSTEM,
@@ -221,6 +233,10 @@ func (s *Server) DeselectNetworks(_ context.Context, req *proto.SelectNetworksRe
 			"all":      fmt.Sprint(req.GetAll()),
 		},
 	)
+
+	if deselectErr != nil {
+		return nil, deselectErr
+	}
 
 	return &proto.SelectNetworksResponse{}, nil
 }
