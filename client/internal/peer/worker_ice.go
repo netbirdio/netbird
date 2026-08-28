@@ -64,6 +64,9 @@ type WorkerICE struct {
 
 	// portForwardAttempted tracks if we've already tried port forwarding this session
 	portForwardAttempted bool
+
+	// dialFunc, when non-nil, replaces agentDial in connect(). Only for tests.
+	dialFunc func(ctx context.Context, agent *icemaker.ThreadSafeAgent, remoteOfferAnswer *OfferAnswer) (net.Conn, error)
 }
 
 func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, conn *Conn, signaler *Signaler, ifaceDiscover stdnet.ExternalIFaceDiscover, statusRecorder *Status, hasRelayOnLocally bool) (*WorkerICE, error) {
@@ -258,13 +261,34 @@ func (w *WorkerICE) connect(ctx context.Context, dialerCancel context.CancelFunc
 	}
 
 	w.log.Debugf("agent dial")
-	remoteConn, err := w.agentDial(ctx, agent, remoteOfferAnswer)
+	dial := func(ctx context.Context, agent *icemaker.ThreadSafeAgent, remoteOfferAnswer *OfferAnswer) (net.Conn, error) {
+		return w.agentDial(ctx, agent, remoteOfferAnswer)
+	}
+	if w.dialFunc != nil {
+		dial = w.dialFunc
+	}
+	remoteConn, err := dial(ctx, agent, remoteOfferAnswer)
 	if err != nil {
 		w.log.Debugf("failed to dial the remote peer: %s", err)
 		w.closeAgent(agent, dialerCancel)
 		return
 	}
 	w.log.Debugf("agent dial succeeded")
+
+	// A newer negotiation may have replaced our agent while agentDial was
+	// blocked. Drop the dead connection before running pair retrieval, port
+	// punching or candidate work against a closed agent. The commit-point
+	// check below still guards a replacement arriving after this point.
+	w.muxAgent.Lock()
+	stale := w.agent != agent
+	w.muxAgent.Unlock()
+	if stale {
+		if err := remoteConn.Close(); err != nil {
+			w.log.Warnf("failed to close stale ICE connection: %s", err)
+		}
+		w.log.Warnf("discarding connection from a stale ICE negotiation")
+		return
+	}
 
 	pair, err := agent.GetSelectedCandidatePair()
 	if err != nil {
@@ -303,6 +327,18 @@ func (w *WorkerICE) connect(ctx context.Context, dialerCancel context.CancelFunc
 
 	w.log.Infof("connection succeeded with offer session: %s", remoteOfferAnswer.SessionIDString())
 	w.muxAgent.Lock()
+	// Authoritative ownership guard: a negotiation that lost w.agent to a newer
+	// one between the post-dial check and the commit must not clear agentConnecting,
+	// record lastSuccess or report the connection, so the state commit has to be
+	// atomic with the check.
+	if w.agent != agent {
+		w.muxAgent.Unlock()
+		if err := remoteConn.Close(); err != nil {
+			w.log.Warnf("failed to close stale ICE connection: %s", err)
+		}
+		w.log.Warnf("discarding connection from a stale ICE negotiation")
+		return
+	}
 	w.agentConnecting = false
 	w.lastSuccess = time.Now()
 	w.muxAgent.Unlock()

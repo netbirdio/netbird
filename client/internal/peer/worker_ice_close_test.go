@@ -2,6 +2,8 @@ package peer
 
 import (
 	"context"
+	"net"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -158,4 +160,98 @@ func TestWorkerICE_StaleCloseAgentKeepsCurrentSession(t *testing.T) {
 	// Read live under the lock: a snapshot captured before the stale cleanup
 	// would pass even if the cleanup wiped current state.
 	assert.Equal(t, sidB, w.remoteSessionID, "the remote session identity must be preserved")
+}
+
+// closeTrackConn records Close calls so a test can assert that a discarded
+// connection was actually released.
+type closeTrackConn struct {
+	net.Conn
+	closed atomic.Bool
+}
+
+func (c *closeTrackConn) Close() error {
+	c.closed.Store(true)
+	return c.Conn.Close()
+}
+
+// TestWorkerICE_StaleDialSuccessKeepsNewerNegotiation pins the ownership guard
+// in connect()'s success path: a dial that came back after a newer negotiation
+// replaced the agent must discard its connection and leave the newer session's
+// state - agent, agentConnecting, remoteSessionID, lastSuccess - intact.
+//
+// The dial hook holds session A's goroutine open until session B is installed,
+// then returns a live connection, mimicking the vendored pion dial which hands
+// out a live *ice.Conn when a pair is selected without checking afterwards
+// whether the agent was replaced meanwhile. Releasing A's dial therefore
+// exercises the stale-success commit path deterministically instead of racing
+// real ICE.
+func TestWorkerICE_StaleDialSuccessKeepsNewerNegotiation(t *testing.T) {
+	w := newTestWorkerICE(t)
+	t.Cleanup(w.Close)
+
+	dialStarted := make(chan struct{})
+	releaseDial := make(chan struct{})
+	staleConn := &closeTrackConn{}
+
+	var calls atomic.Int32
+	w.dialFunc = func(ctx context.Context, _ *icemaker.ThreadSafeAgent, _ *OfferAnswer) (net.Conn, error) {
+		if calls.Add(1) == 1 {
+			// Session A: hold the goroutine open until session B is installed,
+			// then return a live connection, mimicking the vendored pion dial
+			// which hands out a live *ice.Conn once a pair is selected without
+			// re-checking whether the agent was replaced meanwhile. Releasing
+			// the dial therefore exercises the stale-success commit path
+			// deterministically instead of racing real ICE.
+			close(dialStarted)
+			<-releaseDial
+			client, _ := net.Pipe()
+			staleConn.Conn = client
+			return staleConn, nil
+		}
+		// A newer negotiation parks on its dialer context, cancelled by the
+		// t.Cleanup Close at test end.
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+
+	sidA := ICESessionID("session-a")
+	w.OnNewOffer(&OfferAnswer{
+		IceCredentials: IceCredentials{UFrag: "ufragaaaa", Pwd: "pwdpwdpwdpwdpwdpwdpwdp1"},
+		SessionID:      &sidA,
+	})
+	require.True(t, w.InProgress(), "session A must be in flight")
+
+	// Session A's goroutine is now parked in the dial hook.
+	<-dialStarted
+
+	sidB := ICESessionID("session-b")
+	w.OnNewOffer(&OfferAnswer{
+		IceCredentials: IceCredentials{UFrag: "ufragbbbb", Pwd: "pwdpwdpwdpwdpwdpwdpwdp2"},
+		SessionID:      &sidB,
+	})
+
+	w.muxAgent.Lock()
+	agentB := w.agent
+	w.lastSuccess = time.Time{}
+	w.muxAgent.Unlock()
+	require.NotNil(t, agentB, "session B must have created an ICE agent")
+	require.True(t, w.InProgress(), "session B must be in flight")
+
+	// Release session A's dial: it must be recognized as stale and discarded.
+	close(releaseDial)
+	require.Eventually(t, func() bool {
+		return staleConn.closed.Load()
+	}, 10*time.Second, 10*time.Millisecond,
+		"the stale connection must be closed by the ownership guard")
+
+	w.muxAgent.Lock()
+	defer w.muxAgent.Unlock()
+	assert.Same(t, agentB, w.agent, "session A must not uninstall session B's agent")
+	assert.True(t, w.agentConnecting, "session A must not clear session B's connecting flag")
+	assert.Equal(t, sidB, w.remoteSessionID, "session A must not clear session B's remote session identity")
+	assert.True(t, w.lastSuccess.IsZero(), "session A must not record a success for session B")
+	// The commit block guards agentConnecting, lastSuccess and
+	// onICEConnectionIsReady together, so the state assertions above imply the
+	// callback never ran for session A; the nil conn would have panicked the
+	// stale goroutine on any invocation.
 }
