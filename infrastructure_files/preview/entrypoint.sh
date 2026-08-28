@@ -27,9 +27,10 @@
 #   NB_PREVIEW_DATA_DIR             data dir for the SQLite stores
 #                                   (/var/lib/netbird).
 #   NB_PREVIEW_LOG_LEVEL            log level for every embedded service (info).
-#   NB_PREVIEW_OWNER_EMAIL          seeded owner (admin@preview.autonoma.app).
-#   NB_PREVIEW_OWNER_PASSWORD_HASH  bcrypt hash of the owner password. Override
-#                                   together with the email.
+#   NB_PREVIEW_OWNER_EMAIL          bootstrap admin. Optional, no default, and
+#   NB_PREVIEW_OWNER_PASSWORD_HASH  its bcrypt hash. Both or neither: a suite
+#                                   signs in as the account it seeded, so a
+#                                   preview needs no bootstrap user.
 #   NB_PREVIEW_AUTH_SECRET          shared secret for relay authentication.
 #   NB_PREVIEW_STORE_ENCRYPTION_KEY base64 32-byte key. Fixed by default so a
 #                                   redeploy can still read what the previous
@@ -89,9 +90,12 @@ case "${DASHBOARD_URL}" in
   *)                  DASHBOARD_ORIGIN="https://${DASHBOARD_URL}" ;;
 esac
 
-OWNER_EMAIL="${NB_PREVIEW_OWNER_EMAIL:-admin@preview.autonoma.app}"
-# bcrypt hash of the preview password "Preview!2345". Override both together.
-OWNER_PASSWORD_HASH="${NB_PREVIEW_OWNER_PASSWORD_HASH:-\$2a\$10\$8QvbcceHoKU8Nywc55/2AegrlsWegSfNyRNyFiPpi/nbdbSqTxSrm}"
+# The bootstrap owner is optional and has no default: a credential committed
+# here would be the same one on every deployment that ever used this file. A
+# suite signs in as the account it seeded, not as this user, so leaving both
+# unset is the normal case. Supply the pair to get a bootstrap admin.
+OWNER_EMAIL="${NB_PREVIEW_OWNER_EMAIL:-}"
+OWNER_PASSWORD_HASH="${NB_PREVIEW_OWNER_PASSWORD_HASH:-}"
 
 AUTH_SECRET="${NB_PREVIEW_AUTH_SECRET:-netbird-preview-relay-secret}"
 # Fixed so a redeploy can still read data the previous boot encrypted.
@@ -149,9 +153,17 @@ server:
       - "${DASHBOARD_ORIGIN}/"
     cliRedirectURIs:
       - "http://localhost:53000/"
+YAML
+
+  if [[ -n "${OWNER_EMAIL}" && -n "${OWNER_PASSWORD_HASH}" ]]; then
+    cat <<YAML
     owner:
       email: "${OWNER_EMAIL}"
       password: "${OWNER_PASSWORD_HASH}"
+YAML
+  fi
+
+  cat <<YAML
 
   store:
     engine: "${STORE_ENGINE}"
