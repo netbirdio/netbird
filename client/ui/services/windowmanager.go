@@ -94,8 +94,8 @@ var microsoftWindowsLightTheme = &application.WindowTheme{
 }
 
 // MicrosoftWindowsAppearanceOptions is the shared Windows chrome (Mica +
-// custom title bar). System follows OS flips live; forced Light/Dark is
-// pinned at creation (Wails has no runtime re-theme API).
+// custom title bar), resolved at creation; setWindowAppearance re-themes
+// live windows on later changes.
 func MicrosoftWindowsAppearanceOptions() application.WindowsWindow {
 	theme := application.SystemDefault
 	dark, light := microsoftWindowsDarkTheme, microsoftWindowsLightTheme

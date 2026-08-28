@@ -1,4 +1,4 @@
-//go:build !darwin && !android && !ios && !freebsd && !js
+//go:build !darwin && !windows && !android && !ios && !freebsd && !js
 
 package services
 
@@ -8,6 +8,5 @@ import (
 	"github.com/netbirdio/netbird/client/ui/preferences"
 )
 
-// setWindowAppearance is macOS-only; Windows chrome is themed via
-// MicrosoftWindowsAppearanceOptions and Linux follows the GTK theme.
+// setWindowAppearance is a no-op on Linux; the chrome follows the GTK theme.
 func setWindowAppearance(unsafe.Pointer, preferences.Theme) {}

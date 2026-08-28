@@ -4,6 +4,7 @@ package services
 
 import (
 	"context"
+	"sync"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -26,6 +27,9 @@ type SystemTheme struct {
 type Theme struct {
 	app   *application.App
 	store *preferences.Store
+	// mu serializes apply: concurrent callers could otherwise enqueue a stale
+	// pref's native updates after a newer one's.
+	mu sync.Mutex
 }
 
 // NewTheme wires the store subscription and OS theme-change listener. Call
@@ -86,6 +90,9 @@ func (t *Theme) resolveDark(pref preferences.Theme) bool {
 // apply recomputes the effective appearance and re-tints every live window,
 // including the macOS NSWindow appearance so the frame matches the webview.
 func (t *Theme) apply() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
 	pref := t.store.Get().Theme
 	setThemePref(pref)
 	setEffectiveDark(t.resolveDark(pref))
