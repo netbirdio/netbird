@@ -203,18 +203,27 @@ func (h *Handshaker) handleRemoteAnswer(remoteOfferAnswer OfferAnswer) {
 // one is in flight are ignored (re-sending on every responder offer would be a runaway).
 // The re-offer reuses our stable ICE session id, so the peer dedups repeats.
 //
-// Returns true when it took ownership of the offer (the caller must not answer it).
+// Returns true ONLY when it actually sent a re-offer and thus took ownership of the peer's
+// offer (the caller must not answer it). When there is nothing to re-offer — the peer is
+// non-capable, or an exchange is already in flight (e.g. every PQ peer past its bootstrap,
+// which is the steady state under lazy connections) — it returns false so the caller keeps
+// handling the offer normally (sendAnswer + notifyListeners). Returning true unconditionally
+// would drop the ICE credentials and relay info the responder's offer carries, stalling a
+// responder-initiated reconnect.
 func (h *Handshaker) pqControllerReoffer() bool {
 	if h.config.PQ == nil || !isController(h.config) {
 		return false
 	}
-	if h.config.PQ.ShouldSendBootstrapOffer(h.config.Key) {
-		h.log.Debugf("pqkem: controller received a responder offer, replying with our KEM offer instead of an answer")
-		if err := h.sendOffer(); err != nil {
-			h.log.Errorf("failed to send KEM offer in response to peer offer: %s", err)
-		}
-	} else {
-		h.log.Debugf("pqkem: controller received a responder offer but a KEM exchange is already in flight, ignoring")
+	if !h.config.PQ.ShouldSendBootstrapOffer(h.config.Key) {
+		h.log.Debugf("pqkem: controller received a responder offer with no fresh KEM offer to send, handling it normally")
+		return false
+	}
+	h.log.Debugf("pqkem: controller received a responder offer, replying with our KEM offer instead of an answer")
+	if err := h.sendOffer(); err != nil {
+		// The re-offer did not go out; fall through to normal handling rather than
+		// silently dropping the peer's offer.
+		h.log.Errorf("failed to send KEM offer in response to peer offer, handling it normally: %s", err)
+		return false
 	}
 	return true
 }
