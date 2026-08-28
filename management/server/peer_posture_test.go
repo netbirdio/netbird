@@ -191,6 +191,7 @@ func TestProcessPeerPostureChecks(t *testing.T) {
 			{Enabled: false, Sources: []string{"g-disabled"}, SourceResource: types.Resource{ID: "peer-disabled", Type: types.ResourceTypePeer}},
 			{Enabled: true, Sources: []string{"g-src"}, Destinations: []string{"g-dst"}},
 			{Enabled: true, SourceResource: types.Resource{ID: "peer-direct", Type: types.ResourceTypePeer}, Destinations: []string{"g-dst"}},
+			{Enabled: true, SourceResource: types.Resource{ID: "peer-as-host", Type: types.ResourceTypeHost}, Destinations: []string{"g-dst"}},
 		},
 	}
 
@@ -198,4 +199,5 @@ func TestProcessPeerPostureChecks(t *testing.T) {
 	assert.Equal(t, []string{"pc1"}, processPeerPostureChecks(policy, "peer-direct", nil), "direct source peer")
 	assert.Empty(t, processPeerPostureChecks(policy, "peer-elsewhere", []string{"g-dst"}), "destination-only peer")
 	assert.Empty(t, processPeerPostureChecks(policy, "peer-disabled", []string{"g-disabled"}), "disabled rule")
+	assert.Empty(t, processPeerPostureChecks(policy, "peer-as-host", nil), "source resource of a non-peer type")
 }

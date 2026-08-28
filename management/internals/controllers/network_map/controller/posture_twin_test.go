@@ -44,6 +44,13 @@ func TestPeerPostureChecksFromData_SelectsPolicySourcePeers(t *testing.T) {
 		assert.Empty(t, peerPostureChecksFromData(nmData, "peer-elsewhere"))
 	})
 
+	t.Run("source resource of a non-peer type never matches a peer", func(t *testing.T) {
+		hostRule := &nmdata.PolicyRule{ID: "r-host", Enabled: true, SourceResource: nmdata.Resource{ID: "peer-direct", Type: string(types.ResourceTypeHost)}, Destinations: []string{"g-dst"}}
+		nmData := postureSelectionData(gatedPolicy("p1", hostRule, "pc1"))
+
+		assert.Empty(t, peerPostureChecksFromData(nmData, "peer-direct"))
+	})
+
 	t.Run("same check through two policies is returned once", func(t *testing.T) {
 		nmData := postureSelectionData(gatedPolicy("p1", groupRule, "pc1"), gatedPolicy("p2", groupRule, "pc1"))
 
