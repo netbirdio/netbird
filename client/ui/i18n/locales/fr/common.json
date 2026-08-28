@@ -575,7 +575,7 @@
         "message": "Thème"
     },
     "settings.general.theme.help": {
-        "message": "Choisissez clair, sombre ou suivez l'apparence du système."
+        "message": "Choisissez le thème clair ou sombre, ou suivez l'apparence du système."
     },
     "settings.general.theme.system": {
         "message": "Système"

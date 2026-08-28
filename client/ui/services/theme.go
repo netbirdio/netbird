@@ -32,7 +32,9 @@ type Theme struct {
 // before any window is created so creation-time colours are already themed.
 func NewTheme(app *application.App, store *preferences.Store) *Theme {
 	t := &Theme{app: app, store: store}
-	setEffectiveDark(t.resolveDark(store.Get().Theme))
+	pref := store.Get().Theme
+	setThemePref(pref)
+	setEffectiveDark(t.resolveDark(pref))
 
 	ch, _ := store.Subscribe()
 	go func() {
@@ -81,14 +83,17 @@ func (t *Theme) resolveDark(pref preferences.Theme) bool {
 	}
 }
 
-// apply recomputes the effective appearance and re-tints every live window.
+// apply recomputes the effective appearance and re-tints every live window,
+// including the macOS NSWindow appearance so the frame matches the webview.
 func (t *Theme) apply() {
-	dark := t.resolveDark(t.store.Get().Theme)
-	setEffectiveDark(dark)
+	pref := t.store.Get().Theme
+	setThemePref(pref)
+	setEffectiveDark(t.resolveDark(pref))
 	colour := CurrentWindowBackgroundColour()
 	for _, w := range t.app.Window.GetAll() {
 		if w != nil {
 			w.SetBackgroundColour(colour)
+			setWindowAppearance(w.NativeWindow(), pref)
 		}
 	}
 }

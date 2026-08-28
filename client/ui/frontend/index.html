@@ -18,13 +18,7 @@
           var dark;
           if (pref === "dark") dark = true;
           else if (pref === "light") dark = false;
-          else {
-            var mirrored = localStorage.getItem("nb-system-dark");
-            dark =
-              mirrored !== null
-                ? mirrored === "true"
-                : window.matchMedia("(prefers-color-scheme: dark)").matches;
-          }
+          else dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
           document.documentElement.classList.toggle("dark", dark);
         } catch (e) {
           /* keep the default dark class */

@@ -50,9 +50,23 @@ var (
 // windows by Theme.apply.
 var effectiveDark atomic.Bool
 
-func init() { effectiveDark.Store(true) }
+// themePref is the persisted preference (system/light/dark), maintained by
+// services.Theme; window creation reads it for the macOS appearance.
+var themePref atomic.Value // preferences.Theme
+
+func init() {
+	effectiveDark.Store(true)
+	themePref.Store(preferences.DefaultTheme)
+}
 
 func setEffectiveDark(dark bool) { effectiveDark.Store(dark) }
+
+func setThemePref(pref preferences.Theme) { themePref.Store(pref) }
+
+func currentThemePref() preferences.Theme {
+	pref, _ := themePref.Load().(preferences.Theme)
+	return pref
+}
 
 // CurrentWindowBackgroundColour returns the window background for the
 // resolved appearance; use it for every WebviewWindowOptions.BackgroundColour.
@@ -79,34 +93,47 @@ var microsoftWindowsLightTheme = &application.WindowTheme{
 	TitleTextColour: u32ptr(0x0024211F), // #1F2124
 }
 
-// MicrosoftWindowsAppearanceOptions is the shared Windows chrome (Mica + custom
-// title bar), pinned to the appearance resolved at creation time.
+// MicrosoftWindowsAppearanceOptions is the shared Windows chrome (Mica +
+// custom title bar). System follows OS flips live; forced Light/Dark is
+// pinned at creation (Wails has no runtime re-theme API).
 func MicrosoftWindowsAppearanceOptions() application.WindowsWindow {
-	theme := application.Dark
-	chrome := microsoftWindowsDarkTheme
-	if !effectiveDark.Load() {
+	theme := application.SystemDefault
+	dark, light := microsoftWindowsDarkTheme, microsoftWindowsLightTheme
+	switch currentThemePref() {
+	case preferences.ThemeDark:
+		theme = application.Dark
+		light = microsoftWindowsDarkTheme
+	case preferences.ThemeLight:
 		theme = application.Light
-		chrome = microsoftWindowsLightTheme
+		dark = microsoftWindowsLightTheme
 	}
 	return application.WindowsWindow{
 		BackdropType: application.Mica,
 		Theme:        theme,
 		CustomTheme: application.ThemeSettings{
-			DarkModeActive:    chrome,
-			DarkModeInactive:  chrome,
-			LightModeActive:   chrome,
-			LightModeInactive: chrome,
+			DarkModeActive:    dark,
+			DarkModeInactive:  dark,
+			LightModeActive:   light,
+			LightModeInactive: light,
 		},
 	}
 }
 
 // AppleMacOSAppearanceOptions is the shared macOS chrome; FullScreenNone keeps the fixed-size layout.
 func AppleMacOSAppearanceOptions() application.MacWindow {
+	appearance := application.DefaultAppearance
+	switch currentThemePref() {
+	case preferences.ThemeLight:
+		appearance = application.NSAppearanceNameAqua
+	case preferences.ThemeDark:
+		appearance = application.NSAppearanceNameDarkAqua
+	}
 	return application.MacWindow{
 		InvisibleTitleBarHeight: 38,
 		Backdrop:                application.MacBackdropNormal,
 		TitleBar:                application.MacTitleBarHiddenInset,
 		CollectionBehavior:      application.MacWindowCollectionBehaviorFullScreenNone,
+		Appearance:              appearance,
 	}
 }
 

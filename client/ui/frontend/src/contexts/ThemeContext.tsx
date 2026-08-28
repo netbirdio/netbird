@@ -4,6 +4,7 @@ import {
     useContext,
     useEffect,
     useMemo,
+    useRef,
     useState,
     type ReactNode,
 } from "react";
@@ -48,12 +49,17 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
         return "system";
     });
     const [systemDark, setSystemDark] = useState<boolean>(initialSystemDark);
+    const themeRef = useRef(theme);
+    themeRef.current = theme;
+    // Blocks the initial Preferences.Get snapshot from overwriting newer updates.
+    const supersededRef = useRef(false);
 
     useEffect(() => {
         let cancelled = false;
         Preferences.Get()
             .then((prefs) => {
-                if (!cancelled && isPreference(prefs?.theme)) setThemeState(prefs.theme);
+                if (cancelled || supersededRef.current) return;
+                if (isPreference(prefs?.theme)) setThemeState(prefs.theme);
             })
             .catch((err: unknown) => console.warn("[ThemeContext] load preferences failed", err));
         Theme.SystemDarkMode()
@@ -64,7 +70,10 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
 
         // Cross-window sync: a flip in the settings window reaches every window.
         const offPrefs = Events.On("netbird:preferences:changed", (e: { data?: UIPreferences }) => {
-            if (isPreference(e.data?.theme)) setThemeState(e.data.theme);
+            if (isPreference(e.data?.theme)) {
+                supersededRef.current = true;
+                setThemeState(e.data.theme);
+            }
         });
         const offSystem = Events.On(
             "netbird:system-theme:changed",
@@ -92,9 +101,17 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
         }
     }, [theme, systemDark, resolvedDark]);
 
+    // Optimistic; reverts on persist failure so UI matches the stored pref.
     const setTheme = useCallback(async (next: ThemePreference) => {
+        const prev = themeRef.current;
+        supersededRef.current = true;
         setThemeState(next);
-        await Preferences.SetTheme(next as ThemePref);
+        try {
+            await Preferences.SetTheme(next as ThemePref);
+        } catch (err) {
+            setThemeState(prev);
+            throw err;
+        }
     }, []);
 
     const value = useMemo<ThemeContextValue>(
