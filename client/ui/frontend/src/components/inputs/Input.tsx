@@ -274,7 +274,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
             <button
                 type={"button"}
                 onClick={() => setShowPassword((s) => !s)}
-                className={"pointer-events-auto transition-all hover:text-white"}
+                className={"pointer-events-auto transition-all hover:text-nb-gray-50"}
                 aria-label={t("common.togglePasswordVisibility")}
                 aria-pressed={showPassword}
             >
@@ -303,7 +303,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
         <button
             type={"button"}
             onClick={onCopy}
-            className={"pointer-events-auto transition-all hover:text-white"}
+            className={"pointer-events-auto transition-all hover:text-nb-gray-50"}
             aria-label={t("common.copy")}
         >
             {copied ? (

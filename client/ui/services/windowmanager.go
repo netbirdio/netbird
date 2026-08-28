@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -36,28 +37,65 @@ const paintedFallback = 2 * time.Second
 
 const headlessTeardownDelay = 2 * time.Second
 
-var WindowBackgroundColour = application.NewRGB(24, 26, 29) // bg-nb-gray-950
+// Window background per effective appearance. Both match the body background
+// (bg-nb-gray DEFAULT) in globals.css so opaque native pixels and the webview
+// paint the same surface; keep the three in sync.
+var (
+	windowBackgroundDark  = application.NewRGB(24, 26, 29)    // dark nb-gray DEFAULT
+	windowBackgroundLight = application.NewRGB(233, 236, 239) // light nb-gray DEFAULT
+)
+
+// effectiveDark is the resolved appearance (theme preference + OS state),
+// maintained by services.Theme; read at window creation, re-applied to live
+// windows by Theme.apply.
+var effectiveDark atomic.Bool
+
+func init() { effectiveDark.Store(true) }
+
+func setEffectiveDark(dark bool) { effectiveDark.Store(dark) }
+
+// CurrentWindowBackgroundColour returns the window background for the
+// resolved appearance; use it for every WebviewWindowOptions.BackgroundColour.
+func CurrentWindowBackgroundColour() application.RGBA {
+	if effectiveDark.Load() {
+		return windowBackgroundDark
+	}
+	return windowBackgroundLight
+}
 
 // WindowHeight is shared by the main and Settings windows.
 const WindowHeight = 660
 
 // Wails reads CustomTheme colours as 0x00BBGGRR (RGB byte order reversed).
-var microsoftWindowsTheme = &application.WindowTheme{
-	BorderColour:    u32ptr(0x00211E1C),
+var microsoftWindowsDarkTheme = &application.WindowTheme{
+	BorderColour:    u32ptr(0x00211E1C), // #1C1E21 nb-gray-940
 	TitleBarColour:  u32ptr(0x00211E1C),
-	TitleTextColour: u32ptr(0x00E9E7E4),
+	TitleTextColour: u32ptr(0x00E9E7E4), // #E4E7E9 nb-gray-100
 }
 
-// MicrosoftWindowsAppearanceOptions is the shared Windows chrome (Mica + dark + custom title bar).
+var microsoftWindowsLightTheme = &application.WindowTheme{
+	BorderColour:    u32ptr(0x00EFECE9), // #E9ECEF light nb-gray DEFAULT
+	TitleBarColour:  u32ptr(0x00EFECE9),
+	TitleTextColour: u32ptr(0x0024211F), // #1F2124
+}
+
+// MicrosoftWindowsAppearanceOptions is the shared Windows chrome (Mica + custom
+// title bar), pinned to the appearance resolved at creation time.
 func MicrosoftWindowsAppearanceOptions() application.WindowsWindow {
+	theme := application.Dark
+	chrome := microsoftWindowsDarkTheme
+	if !effectiveDark.Load() {
+		theme = application.Light
+		chrome = microsoftWindowsLightTheme
+	}
 	return application.WindowsWindow{
 		BackdropType: application.Mica,
-		Theme:        application.Dark,
+		Theme:        theme,
 		CustomTheme: application.ThemeSettings{
-			DarkModeActive:    microsoftWindowsTheme,
-			DarkModeInactive:  microsoftWindowsTheme,
-			LightModeActive:   microsoftWindowsTheme,
-			LightModeInactive: microsoftWindowsTheme,
+			DarkModeActive:    chrome,
+			DarkModeInactive:  chrome,
+			LightModeActive:   chrome,
+			LightModeInactive: chrome,
 		},
 	}
 }
@@ -93,7 +131,7 @@ func DialogWindowOptions(name, title, url string, linuxIcon []byte) application.
 		MinimiseButtonState: application.ButtonHidden,
 		MaximiseButtonState: application.ButtonHidden,
 		CloseButtonState:    application.ButtonEnabled,
-		BackgroundColour:    WindowBackgroundColour,
+		BackgroundColour:    CurrentWindowBackgroundColour(),
 		URL:                 url,
 		Mac:                 AppleMacOSAppearanceOptions(),
 		Windows:             MicrosoftWindowsAppearanceOptions(),
@@ -174,7 +212,7 @@ func (s *WindowManager) newSettingsWindow() *application.WebviewWindow {
 		MinimiseButtonState: application.ButtonHidden,
 		MaximiseButtonState: application.ButtonHidden,
 		CloseButtonState:    application.ButtonEnabled,
-		BackgroundColour:    WindowBackgroundColour,
+		BackgroundColour:    CurrentWindowBackgroundColour(),
 		URL:                 "/#/settings",
 		Mac:                 AppleMacOSAppearanceOptions(),
 		Windows:             MicrosoftWindowsAppearanceOptions(),

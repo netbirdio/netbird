@@ -16,6 +16,68 @@
 @tailwind components;
 @tailwind utilities;
 
+/* nb-gray channels (space-separated RGB) consumed by tailwind.config.ts.
+   :root is the inverted light ramp — high stops are surfaces (near-white),
+   low stops are text (near-black); .dark restores the original dark ramp.
+   Values mirror the dashboard's theme-aware ramp; keep them in sync. */
+:root {
+    /* DEFAULT sits well below the content-card stops (940/950) so panels
+       read as raised surfaces, mirroring the dark theme's layering. */
+    --nb-gray-DEFAULT: 233 236 239;
+    --nb-gray-50: 24 26 29;
+    --nb-gray-100: 31 33 36;
+    --nb-gray-200: 46 50 56;
+    --nb-gray-250: 54 59 64;
+    --nb-gray-300: 71 78 87;
+    --nb-gray-350: 83 93 103;
+    --nb-gray-400: 97 110 121;
+    --nb-gray-500: 124 137 148;
+    --nb-gray-600: 143 156 168;
+    --nb-gray-700: 203 210 214;
+    --nb-gray-800: 223 227 230;
+    --nb-gray-850: 231 234 236;
+    --nb-gray-900: 236 238 240;
+    --nb-gray-910: 238 240 242;
+    --nb-gray-920: 241 243 244;
+    --nb-gray-925: 243 245 246;
+    --nb-gray-930: 244 246 247;
+    --nb-gray-935: 246 248 249;
+    --nb-gray-940: 248 250 251;
+    --nb-gray-950: 251 252 252;
+    --nb-gray-960: 255 255 255;
+
+    --skeleton-base: 236 238 240;
+    --skeleton-highlight: 245 247 249;
+}
+
+.dark {
+    --nb-gray-DEFAULT: 24 26 29;
+    --nb-gray-50: 244 246 247;
+    --nb-gray-100: 228 231 233;
+    --nb-gray-200: 203 210 214;
+    --nb-gray-250: 183 192 198;
+    --nb-gray-300: 163 173 181;
+    --nb-gray-350: 143 156 168;
+    --nb-gray-400: 124 137 148;
+    --nb-gray-500: 97 110 121;
+    --nb-gray-600: 83 93 103;
+    --nb-gray-700: 71 78 87;
+    --nb-gray-800: 63 68 75;
+    --nb-gray-850: 54 59 64;
+    --nb-gray-900: 46 50 56;
+    --nb-gray-910: 43 47 51;
+    --nb-gray-920: 37 40 45;
+    --nb-gray-925: 30 33 35;
+    --nb-gray-930: 37 40 44;
+    --nb-gray-935: 31 33 36;
+    --nb-gray-940: 28 30 33;
+    --nb-gray-950: 24 26 29;
+    --nb-gray-960: 22 24 27;
+
+    --skeleton-base: 37 40 45;
+    --skeleton-highlight: 51 55 62;
+}
+
 html,
 body,
 #root {
@@ -28,8 +90,9 @@ body,
  * MacBackdropTranslucent (main.go) and TitleBarHiddenInset, which on macOS
  * lets the desktop wallpaper bleed through any non-opaque pixel. A 90%
  * body alpha meant two machines with different wallpapers saw different
- * effective backgrounds. Matching Wails' BackgroundColour (#181A1D / nb-gray
- * DEFAULT) here keeps things consistent regardless of the OS backdrop.
+ * effective backgrounds. Matching the per-theme Wails BackgroundColour
+ * (services.CurrentWindowBackgroundColour, nb-gray DEFAULT in both ramps)
+ * keeps things consistent regardless of the OS backdrop.
  */
 body {
     @apply bg-nb-gray font-sans text-nb-gray-200 antialiased;

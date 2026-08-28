@@ -108,7 +108,7 @@ export const Navigation = () => {
                             "outline-none transition-all",
                             isFirst && "rounded-tl-xl",
                             isLast && "rounded-tr-xl",
-                            "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/60",
+                            "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-nb-gray-50/60",
                             isActive ? "text-netbird" : "text-nb-gray-400 hover:text-nb-gray-300",
                             isDisabled ? "cursor-not-allowed opacity-50" : "cursor-default",
                         )}

@@ -571,6 +571,21 @@
     "settings.general.language.empty": {
         "message": "一致する言語がありません。"
     },
+    "settings.general.theme.label": {
+        "message": "テーマ"
+    },
+    "settings.general.theme.help": {
+        "message": "ライト、ダーク、またはシステムの外観に従います。"
+    },
+    "settings.general.theme.system": {
+        "message": "システム"
+    },
+    "settings.general.theme.light": {
+        "message": "ライト"
+    },
+    "settings.general.theme.dark": {
+        "message": "ダーク"
+    },
     "settings.general.management.label": {
         "message": "管理サーバー"
     },

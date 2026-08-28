@@ -223,7 +223,7 @@ export const Networks = () => {
                             "text-xs font-medium text-nb-gray-100",
                             "border border-nb-gray-900 bg-nb-gray-920 hover:border-nb-gray-850 hover:bg-nb-gray-910",
                             "wails-no-draggable cursor-pointer outline-none transition-colors",
-                            "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
+                            "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                         )}
                     >
                         {bulkLabel}
@@ -358,7 +358,7 @@ const NetworkRow = ({ network: n, index, onKeyDown, onToggle, setRowRef }: Netwo
                 onKeyDown={handleKey}
                 className={cn(
                     "absolute inset-0 cursor-pointer outline-none",
-                    "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/60",
+                    "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-nb-gray-50/60",
                 )}
             />
             <ResourceIconBadge type={resourceTypeOf(n)} />

@@ -23,7 +23,7 @@ const Overlay = forwardRef<ElementRef<typeof DialogPrimitive.Overlay>, OverlayPr
                 ref={ref}
                 className={cn(
                     "fixed inset-0 z-50 grid items-center justify-items-center overflow-y-auto px-10 py-16",
-                    "bg-black/60",
+                    "bg-black/25 dark:bg-black/60",
                     "data-[state=open]:animate-in data-[state=open]:fade-in-0",
                     exitAnimation &&
                         "data-[state=closed]:animate-out data-[state=closed]:fade-out-0",

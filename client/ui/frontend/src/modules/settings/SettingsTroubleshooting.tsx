@@ -326,7 +326,9 @@ function DoneResult({
                             <button
                                 type={"button"}
                                 onClick={onRevealPath}
-                                className={"pointer-events-auto transition-all hover:text-white"}
+                                className={
+                                    "pointer-events-auto transition-all hover:text-nb-gray-50"
+                                }
                                 aria-label={t("settings.troubleshooting.done.openFileLocation")}
                             >
                                 <FolderOpen size={16} aria-hidden={"true"} />
@@ -339,7 +341,7 @@ function DoneResult({
                     <div
                         role={"alert"}
                         className={
-                            "rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300"
+                            "rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-700 dark:text-red-300"
                         }
                     >
                         {result.uploadFailureReason

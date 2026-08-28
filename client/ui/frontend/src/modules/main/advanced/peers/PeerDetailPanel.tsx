@@ -195,7 +195,7 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
                                 "flex h-8 w-8 shrink-0 items-center justify-center rounded-md",
                                 "text-nb-gray-300 hover:bg-nb-gray-910 hover:text-nb-gray-100",
                                 "cursor-default outline-none transition-colors",
-                                "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
+                                "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                                 "wails-no-draggable",
                             )}
                         >
@@ -235,7 +235,7 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
                                     "flex h-8 w-8 shrink-0 items-center justify-center rounded-md",
                                     "text-nb-gray-300 hover:bg-nb-gray-910 hover:text-nb-gray-100",
                                     "cursor-default outline-none transition-colors",
-                                    "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
+                                    "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                                     "wails-no-draggable",
                                     "disabled:opacity-50 disabled:hover:bg-transparent",
                                 )}
@@ -468,7 +468,7 @@ const ResourcesPopover = ({ networks }: { networks: string[] }) => {
                         "border border-nb-gray-900",
                         "py-1 pl-2.5 pr-2 text-xs font-medium text-nb-gray-300",
                         "wails-no-draggable cursor-default outline-none transition-all",
-                        "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
+                        "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                     )}
                 >
                     {networks.length}
@@ -530,7 +530,7 @@ const ResourceRow = ({ value }: { value: string }) => {
                 "text-nb-gray-200 hover:bg-nb-gray-900 hover:text-nb-gray-50",
                 "cursor-default outline-none transition-colors",
                 isFocusVisible &&
-                    "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/60",
+                    "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-nb-gray-50/60",
             )}
         >
             <span className={"min-w-0 truncate font-mono text-[0.75rem]"}>{value}</span>

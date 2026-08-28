@@ -51,7 +51,7 @@ const Trigger = forwardRef<HTMLButtonElement, TriggerProps>(function VerticalTab
                 "data-[state=active]:bg-nb-gray-930",
                 "data-[state=inactive]:hover:bg-nb-gray-935",
                 isFocusVisible &&
-                    "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
+                    "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                 className,
             )}
             {...props}

@@ -215,7 +215,7 @@ const ProfileTriggerButton = forwardRef<HTMLButtonElement, ProfileTriggerButtonP
                     "data-[state=open]:bg-nb-gray-900",
                     "disabled:opacity-50 disabled:hover:bg-transparent",
                     isFocusVisible &&
-                        "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
+                        "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                     "wails-no-draggable transition-colors duration-150",
                     className,
                 )}
