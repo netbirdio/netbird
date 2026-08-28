@@ -44,6 +44,7 @@ package autonoma
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -86,6 +87,14 @@ const (
 	// scopeField names the column every seeded model hangs off, so the
 	// dashboard knows how test data is isolated.
 	scopeField = "accountId"
+
+	// maxBodyBytes caps a request before it is read. The signature covers the
+	// body, so verification cannot happen until the bytes are in memory, which
+	// leaves the read itself reachable without authentication. A recipe that
+	// seeds a whole account is a few hundred kilobytes; four megabytes leaves
+	// room to grow without letting an unauthenticated caller decide how much
+	// memory to take.
+	maxBodyBytes = 4 << 20
 )
 
 // Deps carries the managers the factories create data through. Everything here
@@ -179,8 +188,16 @@ func handle(deps Deps, c cleaner, sharedSecret, signingSecret string) http.Handl
 		// reach the caller in the response.
 		config := configFor(deps, c, sharedSecret, signingSecret, context.WithoutCancel(r.Context()))
 
-		body, err := io.ReadAll(r.Body)
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodyBytes))
 		if err != nil {
+			var tooLarge *http.MaxBytesError
+			if errors.As(err, &tooLarge) {
+				writeJSON(w, http.StatusRequestEntityTooLarge, map[string]any{
+					"error": "request body exceeds the limit",
+					"code":  "PAYLOAD_TOO_LARGE",
+				})
+				return
+			}
 			writeJSON(w, http.StatusInternalServerError, map[string]any{
 				"error": "failed to read request body",
 				"code":  "INTERNAL_ERROR",

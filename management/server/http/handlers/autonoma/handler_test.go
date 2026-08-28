@@ -179,3 +179,36 @@ func TestEveryFactoryCanTearItsRowsDown(t *testing.T) {
 		require.NotNil(t, def.InputStruct, "%s has no input struct", name)
 	}
 }
+
+// The signature covers the body, so the bytes have to be in memory before the
+// request can be rejected. That makes the read itself reachable without
+// authentication, and it has to be bounded.
+func TestAnOversizedBodyIsRejectedBeforeItIsRead(t *testing.T) {
+	router := mountedRouter(t, "shared-secret", "signing-secret")
+
+	oversized := strings.Repeat("a", maxBodyBytes+1)
+	rec := post(router, oversized, sdk.SignBody(oversized, "shared-secret"))
+
+	require.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
+}
+
+// A caller holding the shared secret must not be able to name an account it did
+// not create: teardown deletes accounts, so resolving an actor for a
+// pre-existing one would hand it a way to delete real data.
+func TestAnAccountFromOutsideTheRunHasNoActor(t *testing.T) {
+	f := &factories{ctx: context.Background()}
+
+	seeded := sdk.FactoryContext{Refs: map[string][]map[string]any{
+		"Account": {{"id": "acct-from-this-run", "ownerUserId": "owner-1"}},
+	}}
+
+	actor, err := f.actorFor(context.Background(), seeded, "acct-from-this-run")
+	require.NoError(t, err)
+	require.Equal(t, "owner-1", actor)
+
+	_, err = f.actorFor(context.Background(), seeded, "someone-elses-account")
+	require.ErrorContains(t, err, "not created in this run")
+
+	_, err = f.actorFor(context.Background(), sdk.FactoryContext{}, "")
+	require.ErrorContains(t, err, "accountId is required")
+}

@@ -13,7 +13,6 @@ import (
 	sdk "github.com/autonoma-ai/sdk/sdks/go/autonoma"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -95,10 +94,10 @@ func str(record map[string]any, key string) string {
 }
 
 // actorFor resolves the user id every manager call needs as its initiator: the
-// owner of the seeded account. It comes off the Account record created earlier
-// in the same run, and falls back to the account's creator when a recipe seeds
-// children without an Account (which the endpoint accepts but no scenario does).
-func (f *factories) actorFor(ctx context.Context, fctx sdk.FactoryContext, accountID string) (string, error) {
+// owner of the account this run seeded. It only ever reads the Account records
+// created earlier in the same run, so a recipe cannot name an account that
+// already existed and have the endpoint act on it.
+func (f *factories) actorFor(_ context.Context, fctx sdk.FactoryContext, accountID string) (string, error) {
 	if accountID == "" {
 		return "", fmt.Errorf("accountId is required")
 	}
@@ -110,11 +109,10 @@ func (f *factories) actorFor(ctx context.Context, fctx sdk.FactoryContext, accou
 		}
 	}
 
-	createdBy, err := f.deps.Store.GetAccountCreatedBy(ctx, store.LockingStrengthNone, accountID)
-	if err != nil {
-		return "", fmt.Errorf("resolve an owner for account %s: %w", accountID, err)
-	}
-	return createdBy, nil
+	// Anything not seeded by this run is out of scope on purpose. Falling back
+	// to the stored owner would let a caller holding the shared secret act on -
+	// and, through teardown, delete - an account it never created.
+	return "", fmt.Errorf("account %s was not created in this run", accountID)
 }
 
 // lookupRef reads one field off a record another factory created earlier in the
