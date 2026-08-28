@@ -76,6 +76,16 @@ func (m *Manager) startExchangeLocked(remoteID RemoteID, viaSignal bool, ackID E
 func (m *Manager) processOffer(remoteID RemoteID, o *OfferMsg) ([]byte, error) {
 	m.trace("pqkem: offer received", "peer", remoteID, "exchange", idHex(o.ExchangeID), "acks", idHex(o.AckID))
 
+	// Role guard: only the responder processes offers. The KEM is unidirectional — the
+	// initiator sends offers, the responder answers — so an offer reaching the initiator
+	// is anomalous (desync, duplicate, or an injected/spoofed packet). Processing it would
+	// derive and commit a fresh PSK, overwriting a live one and silently discarding any
+	// in-flight exchange (whose retry loop then exits without recovery). Drop it.
+	if m.IsInitiator(remoteID) {
+		m.trace("pqkem: dropping offer, we are the initiator for this peer (role violation)", "peer", remoteID, "exchange", idHex(o.ExchangeID))
+		return nil, nil
+	}
+
 	if o.AckID != (ExchangeID{}) {
 		m.ackConverged(remoteID, o.AckID)
 	}
@@ -132,6 +142,14 @@ func (m *Manager) processOffer(remoteID RemoteID, o *OfferMsg) ([]byte, error) {
 // this exchange. Only valid in stateAwaitingAnswer; advancing the state under the
 // lock makes a concurrent/duplicate answer bail.
 func (m *Manager) processAnswer(remoteID RemoteID, a *AnswerMsg) error {
+	// Role guard: only the initiator processes answers. An answer reaching the responder
+	// is anomalous (the responder sends answers, it never receives them) — drop it rather
+	// than let a stray/injected answer disturb the responder's state.
+	if !m.IsInitiator(remoteID) {
+		m.trace("pqkem: dropping answer, we are the responder for this peer (role violation)", "peer", remoteID, "answer_for", idHex(a.ExchangeID))
+		return nil
+	}
+
 	m.mu.Lock()
 	ex := m.exchanges[remoteID]
 	if ex == nil || ex.id != a.ExchangeID || ex.state != stateAwaitingAnswer {
