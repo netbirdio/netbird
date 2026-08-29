@@ -90,13 +90,15 @@ var ErrDenied = errors.New("approval denied")
 
 // EventPublisher is the subset of peer.Status used to emit prompts.
 type EventPublisher interface {
+	// PublishEvent reports whether the event reached at least one live
+	// subscriber. A prompt nobody received is one nobody can answer.
 	PublishEvent(
 		severity proto.SystemEvent_Severity,
 		category proto.SystemEvent_Category,
 		msg string,
 		userMsg string,
 		metadata map[string]string,
-	)
+	) bool
 	HasEventSubscribers() bool
 }
 
@@ -171,7 +173,14 @@ func (b *Broker) Request(ctx context.Context, p Prompt) (Decision, error) {
 	if subject == "" {
 		subject = fmt.Sprintf("%s connection requires approval", p.Kind)
 	}
-	b.pub.PublishEvent(proto.SystemEvent_INFO, proto.SystemEvent_APPROVAL, subject, subject, meta)
+	// A subscriber whose queue is full drops the event silently. Waiting out the
+	// timeout for a prompt that never appeared spends the caller's whole
+	// approval window before denying, and tells the user it timed out rather
+	// than that nothing ever asked them.
+	if !b.pub.PublishEvent(proto.SystemEvent_INFO, proto.SystemEvent_APPROVAL, subject, subject, meta) {
+		log.Warnf("approval request %s (%s) reached no subscriber; denying without waiting", id, p.Kind)
+		return zero, ErrNoSubscriber
+	}
 	log.Debugf("approval request %s (%s) emitted: %s", id, p.Kind, subject)
 
 	timer := time.NewTimer(timeout)
