@@ -15,7 +15,7 @@ func (s *Server) serviceAcceptLoop(ln net.Listener) {
 }
 
 func (s *Server) platformSessionManager() virtualSessionManager {
-	return newSessionManager(s.log)
+	return newSessionManager(s.log, s.onVirtualProcesses)
 }
 
 func (s *Server) platformShutdown() {
