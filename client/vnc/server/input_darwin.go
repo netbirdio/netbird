@@ -840,6 +840,10 @@ func (m *MacInputInjector) SetClipboard(text string) {
 // login screens, locked-down apps). ASCII printable runes only; others
 // are skipped.
 func (m *MacInputInjector) TypeText(text string) {
+	// Same permission the other injection paths need: without it the posted
+	// events are swallowed, so asking here is what makes the prompt appear
+	// instead of PasteAndType silently doing nothing.
+	m.ensureAccessibility()
 	wakeDisplay()
 	src := ensureEventSource()
 	if src == 0 {

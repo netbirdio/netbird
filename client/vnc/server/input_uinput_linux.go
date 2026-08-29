@@ -5,6 +5,7 @@ package server
 import (
 	"encoding/binary"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 	"unicode"
@@ -36,6 +37,10 @@ const (
 
 	synReport = 0
 
+	// keyMaxCode is the kernel's KEY_MAX: the largest code UI_SET_KEYBIT
+	// accepts. Anything above it would make the ioctl fail.
+	keyMaxCode = 0x2ff
+
 	absX = 0x00
 	absY = 0x01
 
@@ -46,14 +51,15 @@ const (
 	btnExtra  = 0x114 // mouse-forward (X2)
 )
 
-// inputEvent matches struct input_event for x86_64 (timeval is 16 bytes).
-// Total size 24 bytes; Go's natural alignment matches the kernel layout.
+// inputEvent matches struct input_event. The leading timeval is two C longs,
+// so the struct is 24 bytes on a 64-bit kernel and 16 on a 32-bit one; using
+// unix.Timeval rather than a fixed pair of int64 keeps the layout right on
+// both, and a wrong-sized write is rejected outright by uinput.
 type inputEvent struct {
-	TvSec  int64
-	TvUsec int64
-	Type   uint16
-	Code   uint16
-	Value  int32
+	Time  unix.Timeval
+	Type  uint16
+	Code  uint16
+	Value int32
 }
 
 // UInputInjector synthesizes keyboard and mouse events via /dev/uinput.
@@ -358,7 +364,31 @@ func buildUInputKeymap() []uint16 {
 		keyUp, keyDown, keyLeft, keyRight,
 		keyInsert, keyDelete,
 	}...)
-	return out
+
+	// The QEMU scancode path can emit anything qemuToLinuxKey maps to: the
+	// keypad, the lock keys, PrintScreen, the volume keys and Compose are all
+	// reachable that way and none of them are listed above. A code the device
+	// never advertised is dropped by the kernel without a word, so the set is
+	// closed over that map rather than maintained by hand alongside it.
+	seen := make(map[uint16]struct{}, len(out)+len(qemuToLinuxKey))
+	for _, code := range out {
+		seen[code] = struct{}{}
+	}
+	extra := make([]uint16, 0, len(qemuToLinuxKey))
+	for _, code := range qemuToLinuxKey {
+		if code <= 0 || code > keyMaxCode {
+			continue
+		}
+		if _, ok := seen[uint16(code)]; ok {
+			continue
+		}
+		seen[uint16(code)] = struct{}{}
+		extra = append(extra, uint16(code))
+	}
+	// Sorted so the device registers the same set in the same order on every
+	// run; ranging a map alone would not.
+	slices.Sort(extra)
+	return append(out, extra...)
 }
 
 // keymapByKeysym maps X11 keysyms (the values our session receives over
