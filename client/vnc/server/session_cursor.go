@@ -40,18 +40,19 @@ func (s *session) pendingCursorRect() []byte {
 	if buf == nil {
 		return nil
 	}
-	// Re-check the serial under the write lock so a concurrent update
-	// from another goroutine can't be silently overwritten with a stale
-	// value: if someone advanced it past `serial` while we were encoding,
-	// keep their value and drop this rect.
+	// Re-check under the write lock so a cursor another goroutine already
+	// sent is not sent again.
+	//
+	// Compared for equality only, never for order. A serial identifies the
+	// cursor, it does not count upwards: X11 passes through the XFixes
+	// cursor-serial, which is a property of the cursor itself, so switching
+	// back to a cursor shown earlier produces a *lower* value than the one on
+	// screen. Treating that as stale left the client stuck on whichever cursor
+	// happened to have the highest serial, typically the I-beam after a text
+	// field. macOS and Windows use their own counters, which only ever move
+	// forwards, so equality is the right test for all three.
 	s.encMu.Lock()
 	if serial == s.lastCursorSerial {
-		s.encMu.Unlock()
-		return nil
-	}
-	if uint64(serial-s.lastCursorSerial) > 1<<63 {
-		// `serial` is older than the current value (wraparound-aware
-		// comparison). Drop it.
 		s.encMu.Unlock()
 		return nil
 	}
