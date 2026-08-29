@@ -41,8 +41,10 @@ func startTestServer(t *testing.T, disableAuth bool) (net.Addr, *Server) {
 	addr := netip.MustParseAddrPort("127.0.0.1:0")
 	network := netip.MustParsePrefix("127.0.0.0/8")
 	require.NoError(t, srv.Start(t.Context(), addr, network))
-	// Override local address so source validation doesn't reject 127.0.0.1 as "own IP".
-	srv.localAddr = netip.MustParseAddr("10.99.99.1")
+	// No local-address override: isAllowedSource short-circuits on
+	// loopback-to-loopback before it reaches the own-IP check, so a 127.0.0.1
+	// client is admitted as is. Writing the field here would race the accept
+	// loop Start has already spawned.
 	t.Cleanup(func() { _ = srv.Stop() })
 
 	return srv.listener.Addr(), srv
@@ -119,16 +121,24 @@ func TestAuthDisabled_AllowsConnection(t *testing.T) {
 // server must close immediately and the client must see EOF before any RFB
 // version greeting is written.
 func TestAuth_NoUnauthBytesPastHeader(t *testing.T) {
+	// The listener has to be loopback so the test can dial it, while the
+	// overlay has to exclude 127.0.0.0/8 and the local address has to be
+	// non-loopback, or isAllowedSource short-circuits and admits the client.
+	// Start cannot express that pair, so the listener is supplied ready-made:
+	// the pre-listener path leaves localAddr and network alone, which lets them
+	// be set here, before Start spawns the accept loop that reads them.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
 	srv := New(Config{
 		Capturer:    &testCapturer{},
 		Injector:    &StubInputInjector{},
 		DisableAuth: true,
+		Listener:    ln,
 	})
-	addr := netip.MustParseAddrPort("127.0.0.1:0")
-	// Tight overlay that excludes 127.0.0.0/8 and a non-loopback local IP, so
-	// the loopback short-circuit in isAllowedSource doesn't apply.
-	require.NoError(t, srv.Start(t.Context(), addr, netip.MustParsePrefix("10.99.0.0/16")))
 	srv.localAddr = netip.MustParseAddr("10.99.99.1")
+	srv.network = netip.MustParsePrefix("10.99.0.0/16")
+	require.NoError(t, srv.Start(t.Context(), netip.AddrPort{}, netip.Prefix{}))
 	t.Cleanup(func() { _ = srv.Stop() })
 
 	conn, err := net.Dial("tcp", srv.listener.Addr().String())
@@ -270,7 +280,9 @@ func TestAgentToken_MismatchClosesConnection(t *testing.T) {
 	addr := netip.MustParseAddrPort("127.0.0.1:0")
 	network := netip.MustParsePrefix("127.0.0.0/8")
 	require.NoError(t, srv.Start(t.Context(), addr, network))
-	srv.localAddr = netip.MustParseAddr("10.99.99.1")
+	// No local-address override: isAllowedSource short-circuits on
+	// loopback-to-loopback before the own-IP check, and writing srv.localAddr
+	// here would race the accept loop Start has already spawned.
 	t.Cleanup(func() { _ = srv.Stop() })
 
 	conn, err := net.Dial("tcp", srv.listener.Addr().String())
@@ -304,7 +316,9 @@ func TestAgentToken_MatchAllowsHandshake(t *testing.T) {
 	addr := netip.MustParseAddrPort("127.0.0.1:0")
 	network := netip.MustParsePrefix("127.0.0.0/8")
 	require.NoError(t, srv.Start(t.Context(), addr, network))
-	srv.localAddr = netip.MustParseAddr("10.99.99.1")
+	// No local-address override: isAllowedSource short-circuits on
+	// loopback-to-loopback before the own-IP check, and writing srv.localAddr
+	// here would race the accept loop Start has already spawned.
 	t.Cleanup(func() { _ = srv.Stop() })
 
 	conn, err := net.Dial("tcp", srv.listener.Addr().String())
@@ -340,7 +354,6 @@ func TestSessionMode_RejectedWhenNoVMGR(t *testing.T) {
 	addr := netip.MustParseAddrPort("127.0.0.1:0")
 	network := netip.MustParsePrefix("127.0.0.0/8")
 	require.NoError(t, srv.Start(t.Context(), addr, network))
-	srv.localAddr = netip.MustParseAddr("10.99.99.1")
 	// Force vmgr to nil regardless of platform so the test is deterministic.
 	srv.vmgr = nil
 	t.Cleanup(func() { _ = srv.Stop() })

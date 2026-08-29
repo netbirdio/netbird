@@ -223,8 +223,13 @@ func (w *WindowsInputInjector) dispatch(cmd inputCmd) {
 }
 
 // InjectKey queues a key event for injection on the input desktop thread.
+//
+// Enqueued reliably, like pointer button transitions and for the same reason:
+// every key event is an edge, and a dropped release leaves that key held down
+// on the host with nothing to lift it. That covers the releases
+// releaseStickyInput sends when a client disconnects mid-keystroke.
 func (w *WindowsInputInjector) InjectKey(keysym uint32, down bool) {
-	w.tryEnqueue(inputCmd{isKey: true, keysym: keysym, down: down})
+	w.enqueueReliable(inputCmd{isKey: true, keysym: keysym, down: down})
 }
 
 // InjectKeyScancode queues a raw-scancode key event. PC AT Set 1 maps
@@ -237,7 +242,7 @@ func (w *WindowsInputInjector) InjectKeyScancode(scancode uint32, keysym uint32,
 		w.InjectKey(keysym, down)
 		return
 	}
-	w.tryEnqueue(inputCmd{isScancode: true, scancode: scancode, keysym: keysym, down: down})
+	w.enqueueReliable(inputCmd{isScancode: true, scancode: scancode, keysym: keysym, down: down})
 }
 
 // InjectPointer queues a pointer event for injection on the input desktop
