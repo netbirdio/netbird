@@ -66,6 +66,15 @@ func ParseRuleString(rule string) (PolicyRuleProtocolType, RulePortRange, error)
 	if rule == "icmp" {
 		return PolicyRuleProtocolICMP, RulePortRange{}, nil
 	}
+	// The NetBird marker protocols carry their own port, so they are written
+	// bare, the way "all" and "icmp" are. That is what the temporary-access
+	// flow sends. The protocol/port spellings below stay accepted.
+	if rule == string(PolicyRuleProtocolNetbirdSSH) {
+		return PolicyRuleProtocolNetbirdSSH, RulePortRange{Start: nativeSSHPortNumber, End: nativeSSHPortNumber}, nil
+	}
+	if rule == string(PolicyRuleProtocolNetbirdVNC) {
+		return PolicyRuleProtocolNetbirdVNC, RulePortRange{Start: VNCInternalPort, End: VNCInternalPort}, nil
+	}
 
 	split := strings.Split(rule, "/")
 	if len(split) != 2 {

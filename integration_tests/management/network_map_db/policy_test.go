@@ -54,8 +54,8 @@ func TestGetPolicies(t *testing.T) {
 		        null,'{"ID":"domain-3","Type":"domain"}',null,null,null,null)`)
 
 	// VNC temporary-access rule: the session pubkey and display name are what
-	// the daemon's Noise_IK authorizer matches on, so they have to survive the
-	// components path as well as the legacy one.
+	// the daemon's Noise_IK authorizer matches on, so the components path has
+	// to carry them out of the database rather than dropping them.
 	execQuery(t, ctx,
 		`insert into policies (id, public_id, account_id, enabled, source_posture_checks)
 		 values('policy-5','policy-5-public','account-1',true,null)`)
