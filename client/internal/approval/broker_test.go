@@ -20,6 +20,9 @@ type fakePublisher struct {
 	mu          sync.Mutex
 	subscribers bool
 	events      []*proto.SystemEvent
+	// dropped makes PublishEvent report that no subscriber received the event,
+	// standing in for a subscriber whose queue is full.
+	dropped bool
 }
 
 func (p *fakePublisher) PublishEvent(
@@ -28,7 +31,7 @@ func (p *fakePublisher) PublishEvent(
 	msg string,
 	userMsg string,
 	metadata map[string]string,
-) {
+) bool {
 	p.mu.Lock()
 	p.events = append(p.events, &proto.SystemEvent{
 		Severity:    severity,
@@ -37,7 +40,9 @@ func (p *fakePublisher) PublishEvent(
 		UserMessage: userMsg,
 		Metadata:    metadata,
 	})
+	dropped := p.dropped
 	p.mu.Unlock()
+	return !dropped
 }
 
 func (p *fakePublisher) HasEventSubscribers() bool {
@@ -58,6 +63,25 @@ func (p *fakePublisher) eventCount() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return len(p.events)
+}
+
+// A subscriber can exist and still not receive the prompt, because its event
+// queue is full and the publisher drops rather than blocks. Waiting out the
+// approval window for a dialog that never opened wastes the caller's whole
+// timeout and then reports it as one, so the broker refuses straight away.
+func TestRequestUndeliveredPromptFailsFast(t *testing.T) {
+	pub := &fakePublisher{subscribers: true, dropped: true}
+	b := New(pub)
+
+	start := time.Now()
+	_, err := b.Request(context.Background(), Prompt{Kind: KindVNC, Subject: "test"})
+	assert.ErrorIs(t, err, ErrNoSubscriber)
+	assert.Less(t, time.Since(start), time.Second, "must not wait out the approval timeout")
+
+	b.mu.Lock()
+	pending := len(b.pending)
+	b.mu.Unlock()
+	assert.Equal(t, 0, pending, "no waiter must be left behind")
 }
 
 // TestRequestNoSubscriberFailsClosed is the core fail-closed invariant:
