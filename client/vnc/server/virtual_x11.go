@@ -251,6 +251,26 @@ func (vs *VirtualSession) Injector() InputInjector {
 	return vs.injector
 }
 
+// processes returns the identities of this session's live X server and desktop
+// processes, keyed by a description Cleanup uses to sanity-check them.
+func (vs *VirtualSession) processes() map[string]sessionProcess {
+	vs.mu.Lock()
+	defer vs.mu.Unlock()
+
+	if vs.stopped {
+		return nil
+	}
+	out := make(map[string]sessionProcess, 2)
+	display := strings.TrimPrefix(vs.display, ":")
+	if vs.xvfb != nil && vs.xvfb.Process != nil {
+		out["xvfb:"+display] = describeProcess(vs.xvfb.Process.Pid)
+	}
+	if vs.desktop != nil && vs.desktop.Process != nil {
+		out["desktop:"+display] = describeProcess(vs.desktop.Process.Pid)
+	}
+	return out
+}
+
 // Display returns the X11 display string (e.g., ":99").
 func (vs *VirtualSession) Display() string {
 	return vs.display
@@ -738,15 +758,35 @@ type sessionManager struct {
 	mu       sync.Mutex
 	sessions map[string]*VirtualSession
 	log      *log.Entry
+	// onProcesses publishes the live X server and desktop processes so the
+	// daemon can persist them for crash recovery. Nil when nothing is
+	// listening.
+	onProcesses func(*ShutdownState)
 }
 
-func newSessionManager(logger *log.Entry) *sessionManager {
+func newSessionManager(logger *log.Entry, onProcesses func(*ShutdownState)) *sessionManager {
 	sm := &sessionManager{
-		sessions: make(map[string]*VirtualSession),
-		log:      logger,
+		sessions:    make(map[string]*VirtualSession),
+		log:         logger,
+		onProcesses: onProcesses,
 	}
 	sm.sweepStaleXAuth()
 	return sm
+}
+
+// publishProcesses hands the current set of session processes to the daemon.
+// Called with sm.mu held, after any change to sm.sessions.
+func (sm *sessionManager) publishProcessesLocked() {
+	if sm.onProcesses == nil {
+		return
+	}
+	state := &ShutdownState{Processes: make(map[string]sessionProcess)}
+	for _, vs := range sm.sessions {
+		for desc, proc := range vs.processes() {
+			state.Processes[desc] = proc
+		}
+	}
+	sm.onProcesses(state)
 }
 
 // sweepStaleXAuth removes Xauthority files left over from a previous daemon
@@ -790,6 +830,7 @@ func (sm *sessionManager) GetOrCreate(username string, width, height uint16) (vn
 		sm.log.Infof("replacing dead virtual session for %s", username)
 		vs.Stop()
 		delete(sm.sessions, username)
+		sm.publishProcessesLocked()
 	}
 
 	vs, err := StartVirtualSession(username, width, height, sm.log)
@@ -802,9 +843,11 @@ func (sm *sessionManager) GetOrCreate(username string, width, height uint16) (vn
 		if cur, ok := sm.sessions[username]; ok && cur == vs {
 			delete(sm.sessions, username)
 			sm.log.Infof("removed idle virtual session for %s", username)
+			sm.publishProcessesLocked()
 		}
 	}
 	sm.sessions[username] = vs
+	sm.publishProcessesLocked()
 	return vs, nil
 }
 
@@ -834,4 +877,5 @@ func (sm *sessionManager) StopAll() {
 		delete(sm.sessions, username)
 		sm.log.Infof("stopped virtual session for %s", username)
 	}
+	sm.publishProcessesLocked()
 }

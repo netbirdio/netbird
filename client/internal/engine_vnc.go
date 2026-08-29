@@ -146,6 +146,10 @@ func (e *Engine) startVNCServer() error {
 		// snapshot ourselves; otherwise the UI's session list goes stale until an
 		// unrelated peer change happens to fire one.
 		OnSessionsChanged: e.statusRecorder.NotifyStateChange,
+		// Persist the X server and desktop PIDs so a daemon that dies without
+		// running Stop still cleans them up on the next start; otherwise they
+		// keep a display and a full desktop session alive indefinitely.
+		OnVirtualProcesses: e.persistVNCProcesses,
 	})
 
 	listenAddr := netip.AddrPortFrom(netbirdIP, vnc.InternalPort)
@@ -326,4 +330,15 @@ func displayPeer(info vncserver.ApprovalInfo) string {
 		return info.PeerPubKey
 	}
 	return "unknown peer"
+}
+
+// persistVNCProcesses records the live virtual-session processes in the state
+// file. Best effort: a failure here costs crash recovery, not the session.
+func (e *Engine) persistVNCProcesses(state *vncserver.ShutdownState) {
+	if e.stateManager == nil {
+		return
+	}
+	if err := e.stateManager.UpdateState(state); err != nil {
+		log.Debugf("update VNC session state: %v", err)
+	}
 }

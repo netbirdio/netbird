@@ -183,6 +183,9 @@ type Server struct {
 	ctx            context.Context
 	cancel         context.CancelFunc
 	vmgr           virtualSessionManager
+	// onVirtualProcesses forwards live virtual-session process records to the
+	// daemon for crash recovery; nil when nothing is listening.
+	onVirtualProcesses func(*ShutdownState)
 	// serviceAgentMu guards the shared per-session agent manager below, which
 	// every service-mode accept loop resolves through; see Server.serviceAgent.
 	// Its own mutex rather than mu: Stop holds mu while tearing it down.
@@ -320,6 +323,12 @@ type Config struct {
 	// Approver brokers the per-connection prompt to the local user via the
 	// daemon→UI event channel. Nil disables the gate.
 	Approver Approver
+
+	// OnVirtualProcesses, when set, is called with the current virtual-session
+	// process records whenever one starts or stops. The daemon persists them
+	// through the state manager so a crash does not leave an orphaned X server
+	// and desktop running for the life of the host.
+	OnVirtualProcesses func(*ShutdownState)
 }
 
 // Approver decouples the VNC server from the approval broker. A non-nil
@@ -354,24 +363,25 @@ type ApprovalInfo struct {
 // auth. The protocol-level VNC password scheme is not supported.
 func New(cfg Config) *Server {
 	s := &Server{
-		capturer:          cfg.Capturer,
-		injector:          cfg.Injector,
-		identityKey:       cfg.IdentityKey,
-		serviceMode:       cfg.ServiceMode,
-		sessionRecorder:   cfg.SessionRecorder,
-		requireApproval:   cfg.RequireApproval,
-		approver:          cfg.Approver,
-		disableAuth:       cfg.DisableAuth,
-		netstackNet:       cfg.NetstackNet,
-		preListener:       cfg.Listener,
-		authorizer:        sshauth.NewAuthorizer(),
-		log:               log.WithField("component", "vnc-server"),
-		sessions:          make(map[uint64]ActiveSessionInfo),
-		sessionConns:      make(map[uint64]net.Conn),
-		onSessionsChanged: cfg.OnSessionsChanged,
-		acceptedConns:     make(map[net.Conn]struct{}),
-		connAuth:          make(map[net.Conn]connAuthInfo),
-		connSem:           make(chan struct{}, maxConcurrentVNCConns),
+		capturer:           cfg.Capturer,
+		injector:           cfg.Injector,
+		identityKey:        cfg.IdentityKey,
+		serviceMode:        cfg.ServiceMode,
+		sessionRecorder:    cfg.SessionRecorder,
+		requireApproval:    cfg.RequireApproval,
+		approver:           cfg.Approver,
+		disableAuth:        cfg.DisableAuth,
+		netstackNet:        cfg.NetstackNet,
+		preListener:        cfg.Listener,
+		authorizer:         sshauth.NewAuthorizer(),
+		log:                log.WithField("component", "vnc-server"),
+		sessions:           make(map[uint64]ActiveSessionInfo),
+		sessionConns:       make(map[uint64]net.Conn),
+		onSessionsChanged:  cfg.OnSessionsChanged,
+		onVirtualProcesses: cfg.OnVirtualProcesses,
+		acceptedConns:      make(map[net.Conn]struct{}),
+		connAuth:           make(map[net.Conn]connAuthInfo),
+		connSem:            make(chan struct{}, maxConcurrentVNCConns),
 	}
 	if len(cfg.IdentityKey) == 32 {
 		pub, err := curve25519.X25519(cfg.IdentityKey, curve25519.Basepoint)
