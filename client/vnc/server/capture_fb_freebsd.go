@@ -79,7 +79,12 @@ func NewFBCapturer(path string) (*FBCapturer, error) {
 	}
 
 	bpp := int(fbt.FbDepth)
-	stride := int(fbt.FbWidth) * (bpp / 8)
+	stride, err := freebsdFBStride(fbt)
+	if err != nil {
+		_ = unix.Munmap(mm)
+		unix.Close(fd)
+		return nil, err
+	}
 	c := &FBCapturer{
 		path:   path,
 		fd:     fd, // valid fd >= 0; we use -1 as the closed sentinel
@@ -91,6 +96,27 @@ func NewFBCapturer(path string) (*FBCapturer, error) {
 	}
 	log.Infof("framebuffer capturer ready: %s %dx%d bpp=%d (freebsd vt)", path, c.w, c.h, c.bpp)
 	return c, nil
+}
+
+// freebsdFBStride returns the framebuffer's row pitch in bytes.
+//
+// Not width*bpp/8: a KMS-backed framebuffer commonly pads each row up to an
+// alignment, and reading at the unpadded width starts every row a little
+// further off than the last, which shears the whole image. fbtype exposes no
+// stride field, so the pitch is derived from the mapping, which covers FbHeight
+// rows.
+//
+// A size that cannot even hold the unpadded geometry means the two disagree;
+// reading rows at the width the device reports would then run off the end of
+// the mapping, so that is refused rather than guessed at.
+func freebsdFBStride(fbt fbType) (int, error) {
+	unpadded := int(fbt.FbWidth) * (int(fbt.FbDepth) / 8)
+	stride := int(fbt.FbSize) / int(fbt.FbHeight)
+	if stride < unpadded {
+		return 0, fmt.Errorf("framebuffer size %d covers %d bytes per row, less than %dx%d at %d bpp needs",
+			fbt.FbSize, stride, fbt.FbWidth, fbt.FbHeight, fbt.FbDepth)
+	}
+	return stride, nil
 }
 
 // Width returns the framebuffer width.
