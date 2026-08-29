@@ -173,6 +173,14 @@ func validateFBLayout(bpp int, v *fbVarScreenInfo) error {
 			bpp, v.RedOffset, v.RedLen, v.GreenOffset, v.GreenLen, v.BlueOffset, v.BlueLen)
 	}
 
+	// msb_right marks a channel whose bits run the other way inside the pixel.
+	// Every swizzler reads them in normal order, so such a device would be
+	// decoded into mirrored channel values.
+	if v.RedMSBR != 0 || v.GreenMSBR != 0 || v.BlueMSBR != 0 {
+		return fmt.Errorf("unsupported %dbpp framebuffer layout: msb_right set (r=%d g=%d b=%d)",
+			bpp, v.RedMSBR, v.GreenMSBR, v.BlueMSBR)
+	}
+
 	switch bpp {
 	case 32:
 		// Offsets are honoured, channel widths are not.

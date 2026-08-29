@@ -2096,9 +2096,9 @@ func (s *Server) RespondApproval(ctx context.Context, msg *proto.RespondApproval
 	id, ok := ipcauth.CallerIdentity(ctx)
 	if !ok {
 		log.Warnf("refusing approval response for %s: the caller's identity cannot be verified on this control channel", msg.GetRequestId())
-		return nil, gstatus.Errorf(codes.PermissionDenied,
-			"answering a connection approval requires a control channel that carries the caller's identity. "+
-				"Reinstall the service on a socket that does: %s", reinstallCommand())
+		// Same envelope as the privileged-config refusals, so the CLI and the UI
+		// present the guidance instead of a raw gRPC error: see privilegeError.
+		return nil, privilegeError(unidentifiableCallerSummary(), reinstallCommand())
 	}
 	log.Infof("approval response for %s from caller %s: accept=%t view_only=%t",
 		msg.GetRequestId(), id, msg.GetAccept(), msg.GetViewOnly())

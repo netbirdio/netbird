@@ -233,6 +233,15 @@ func unidentifiedSummary(action string) string {
 		"Reinstall the service on a socket that carries the caller's identity.", capitalize(action), ipcauth.PrivilegedActor())
 }
 
+// unidentifiableCallerSummary covers an operation that needs to know who is
+// asking rather than a privileged caller, so unlike unidentifiedSummary it does
+// not name root: elevating would not help, only moving the daemon onto a socket
+// that carries the caller's identity.
+func unidentifiableCallerSummary() string {
+	return "Answering a connection approval requires a control channel that carries the caller's identity, " +
+		"and the daemon's current socket does not. Reinstall the service on one that does."
+}
+
 // reinstallCommand is the command that moves the daemon onto a socket whose
 // callers can be identified.
 func reinstallCommand() string {

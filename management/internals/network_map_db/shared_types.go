@@ -370,111 +370,114 @@ func ConvertToNmdataPolicy(policies []Policy) ([]nmdata.Policy, map[string]map[s
 	policyToDestinationResourceIdx := make(map[string]map[string]any) // policy id to destination resource id
 	policyToDestinationGroupIdx := make(map[string]map[string]any)    // policy id to destination group id
 	for _, p := range policies {
-		policy := nmdata.Policy{}
-		err := FromSqlTypesToSharedTypes(
-			reflect.ValueOf(&p), reflect.ValueOf(&policy))
+		policy, err := convertPolicyRow(p, policyToDestinationResourceIdx, policyToDestinationGroupIdx)
 		if err != nil {
-			return nil, nil, nil, err
+			return toret, nil, nil, err
 		}
-
-		var policyRule *nmdata.PolicyRule
-		pr := func() *nmdata.PolicyRule {
-			if policyRule != nil {
-				return policyRule
-			}
-
-			policyRule = &nmdata.PolicyRule{}
-			return policyRule
-		}
-
-		if p.RuleEnabled.Valid {
-			pr().Enabled = p.RuleEnabled.Bool
-		}
-		if p.Action.Valid {
-			pr().Action = p.Action.String
-		}
-		if p.Protocol.Valid {
-			pr().Protocol = p.Protocol.String
-		}
-		if p.Bidirectional.Valid {
-			pr().Bidirectional = p.Bidirectional.Bool
-		}
-		if len(p.Sources) > 0 {
-			err := json.Unmarshal([]byte(p.Sources), &pr().Sources)
-			if err != nil {
-				return toret, nil, nil, err
-			}
-		}
-		if len(p.Destinations) > 0 {
-			err := json.Unmarshal([]byte(p.Destinations), &pr().Destinations)
-			if err != nil {
-				return toret, nil, nil, err
-			}
-
-			if p.RuleEnabled.Valid && p.RuleEnabled.Bool {
-				for _, dst := range pr().Destinations {
-					if _, ok := policyToDestinationGroupIdx[p.ID]; !ok {
-						policyToDestinationGroupIdx[p.ID] = make(map[string]any)
-					}
-					policyToDestinationGroupIdx[p.ID][dst] = struct{}{}
-				}
-			}
-		}
-		if len(p.SourceResource) > 0 {
-			err := json.Unmarshal([]byte(p.SourceResource), &pr().SourceResource)
-			if err != nil {
-				return toret, nil, nil, err
-			}
-		}
-		if len(p.DestinationResource) > 0 {
-			err := json.Unmarshal([]byte(p.DestinationResource), &pr().DestinationResource)
-			if err != nil {
-				return toret, nil, nil, err
-			}
-
-			if p.RuleEnabled.Valid && p.RuleEnabled.Bool {
-				if _, ok := policyToDestinationResourceIdx[p.ID]; !ok {
-					policyToDestinationResourceIdx[p.ID] = make(map[string]any)
-				}
-				policyToDestinationResourceIdx[p.ID][pr().DestinationResource.ID] = struct{}{}
-			}
-		}
-		if len(p.Ports) > 0 {
-			err := json.Unmarshal([]byte(p.Ports), &pr().Ports)
-			if err != nil {
-				return toret, nil, nil, err
-			}
-		}
-		if len(p.PortRanges) > 0 {
-			err := json.Unmarshal([]byte(p.PortRanges), &pr().PortRanges)
-			if err != nil {
-				return toret, nil, nil, err
-			}
-		}
-		if len(p.AuthorizedGroups) > 0 {
-			err := json.Unmarshal([]byte(p.AuthorizedGroups), &pr().AuthorizedGroups)
-			if err != nil {
-				return toret, nil, nil, err
-			}
-		}
-		if p.AuthorizedUser.Valid {
-			pr().AuthorizedUser = p.AuthorizedUser.String
-		}
-		if p.SessionPubKey.Valid {
-			pr().SessionPubKey = p.SessionPubKey.String
-		}
-		if p.SessionDisplayName.Valid {
-			pr().SessionDisplayName = p.SessionDisplayName.String
-		}
-
-		if policyRule != nil {
-			policyRule.ID = p.ID
-			policyRule.PolicyID = p.ID
-			policy.Rules = []*nmdata.PolicyRule{policyRule}
-		}
-
 		toret = append(toret, policy)
 	}
 
 	return toret, policyToDestinationResourceIdx, policyToDestinationGroupIdx, nil
+}
+
+// convertPolicyRow turns one joined policy/rule row into an nmdata.Policy,
+// recording the row's destination groups and resource in the two indexes.
+//
+// The join produces one row per rule, and a policy with no rules still has a
+// row with every rule column NULL, so the rule is only attached when at least
+// one of those columns carried a value.
+func convertPolicyRow(p Policy, resourceIdx, groupIdx map[string]map[string]any) (nmdata.Policy, error) {
+	policy := nmdata.Policy{}
+	if err := FromSqlTypesToSharedTypes(reflect.ValueOf(&p), reflect.ValueOf(&policy)); err != nil {
+		return nmdata.Policy{}, err
+	}
+
+	var policyRule *nmdata.PolicyRule
+	pr := func() *nmdata.PolicyRule {
+		if policyRule != nil {
+			return policyRule
+		}
+
+		policyRule = &nmdata.PolicyRule{}
+		return policyRule
+	}
+
+	if err := decodePolicyRuleColumns(p, pr, resourceIdx, groupIdx); err != nil {
+		return nmdata.Policy{}, err
+	}
+
+	if policyRule != nil {
+		policyRule.ID = p.ID
+		policyRule.PolicyID = p.ID
+		policy.Rules = []*nmdata.PolicyRule{policyRule}
+	}
+	return policy, nil
+}
+
+// decodePolicyRuleColumns reads the rule columns of a joined row onto the rule
+// pr allocates on first use, and records the row's enabled destinations in the
+// two indexes.
+func decodePolicyRuleColumns(p Policy, pr func() *nmdata.PolicyRule, resourceIdx, groupIdx map[string]map[string]any) error {
+	ruleEnabled := p.RuleEnabled.Valid && p.RuleEnabled.Bool
+
+	for _, col := range []struct {
+		raw    []byte
+		target func() any
+	}{
+		{p.Sources, func() any { return &pr().Sources }},
+		{p.Destinations, func() any { return &pr().Destinations }},
+		{p.SourceResource, func() any { return &pr().SourceResource }},
+		{p.DestinationResource, func() any { return &pr().DestinationResource }},
+		{p.Ports, func() any { return &pr().Ports }},
+		{p.PortRanges, func() any { return &pr().PortRanges }},
+		{p.AuthorizedGroups, func() any { return &pr().AuthorizedGroups }},
+	} {
+		if len(col.raw) == 0 {
+			continue
+		}
+		if err := json.Unmarshal(col.raw, col.target()); err != nil {
+			return err
+		}
+	}
+
+	for _, col := range []struct {
+		raw    sql.NullString
+		target func() *string
+	}{
+		{p.Action, func() *string { return &pr().Action }},
+		{p.Protocol, func() *string { return &pr().Protocol }},
+		{p.AuthorizedUser, func() *string { return &pr().AuthorizedUser }},
+		{p.SessionPubKey, func() *string { return &pr().SessionPubKey }},
+		{p.SessionDisplayName, func() *string { return &pr().SessionDisplayName }},
+	} {
+		if col.raw.Valid {
+			*col.target() = col.raw.String
+		}
+	}
+
+	if p.RuleEnabled.Valid {
+		pr().Enabled = p.RuleEnabled.Bool
+	}
+	if p.Bidirectional.Valid {
+		pr().Bidirectional = p.Bidirectional.Bool
+	}
+
+	if !ruleEnabled {
+		return nil
+	}
+	if len(p.Destinations) > 0 {
+		for _, dst := range pr().Destinations {
+			if _, ok := groupIdx[p.ID]; !ok {
+				groupIdx[p.ID] = make(map[string]any)
+			}
+			groupIdx[p.ID][dst] = struct{}{}
+		}
+	}
+	if len(p.DestinationResource) > 0 {
+		if _, ok := resourceIdx[p.ID]; !ok {
+			resourceIdx[p.ID] = make(map[string]any)
+		}
+		resourceIdx[p.ID][pr().DestinationResource.ID] = struct{}{}
+	}
+	return nil
 }
