@@ -448,5 +448,9 @@ func TestNoise_SessionMode_OSUserCheckRunsAfterHandshake(t *testing.T) {
 
 	reason := readRFBFailure(t, conn)
 	assert.Contains(t, reason, RejectCodeAuthForbidden)
-	assert.Contains(t, reason, "authorize OS user")
+	// The key itself resolved: what refused the session is the OS-user mapping,
+	// which is the half of the check that runs after the handshake.
+	assert.Contains(t, reason, "bob")
+	assert.Contains(t, reason, "no machine user mapping")
+	assert.NotContains(t, reason, sshauth.ErrSessionKeyNotKnown.Error())
 }

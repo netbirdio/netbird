@@ -63,17 +63,16 @@ func (s *Server) authenticateSession(header *connectionHeader) (string, error) {
 		return "", fmt.Errorf("client static key missing")
 	}
 
-	userIDHash, err := s.authorizer.LookupSessionKey(header.clientStatic)
-	if err != nil {
-		return "", fmt.Errorf("lookup session pubkey: %w", err)
-	}
-
 	osUser := "*"
 	if header.mode == ModeSession {
 		osUser = header.username
 	}
-	if _, err := s.authorizer.AuthorizeOSUserBySessionKey(userIDHash, osUser); err != nil {
-		return "", fmt.Errorf("authorize OS user %q: %w", osUser, err)
+
+	// One call, so a management update that revokes the key cannot land between
+	// resolving it and authorizing the identity it named.
+	userIDHash, _, err := s.authorizer.AuthorizeSessionKey(header.clientStatic, osUser)
+	if err != nil {
+		return "", fmt.Errorf("authorize session key for OS user %q: %w", osUser, err)
 	}
 	return userIDHash.String(), nil
 }

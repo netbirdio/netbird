@@ -68,6 +68,15 @@ func (c *xfixesCursor) Cursor() (*image.RGBA, int, int, uint64, error) {
 		}
 		return nil, 0, 0, 0, fmt.Errorf("cursor has zero extent")
 	}
+	// Anything past maxCursorDim is discarded by the encoder, so decoding it
+	// would allocate and convert a sprite that can only be thrown away. Keep
+	// showing the last good cursor instead.
+	if w > maxCursorDim || h > maxCursorDim {
+		if c.lastImg != nil {
+			return c.lastImg, c.lastHotX, c.lastHotY, c.lastSerial, nil
+		}
+		return nil, 0, 0, 0, fmt.Errorf("cursor %dx%d exceeds %d", w, h, maxCursorDim)
+	}
 	if len(reply.CursorImage) < w*h {
 		if c.lastImg != nil {
 			return c.lastImg, c.lastHotX, c.lastHotY, c.lastSerial, nil
