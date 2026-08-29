@@ -1,4 +1,4 @@
-//go:build unix
+//go:build linux && !android
 
 package server
 
@@ -138,23 +138,23 @@ func isOurProcess(proc sessionProcess, desc string) bool {
 }
 
 // processStartTime reads field 22 of /proc/<pid>/stat, the process start time in
-// clock ticks since boot. Parsed from the last ')' so a comm containing spaces
-// or parentheses cannot shift the field offsets.
+// clock ticks since boot. Parsed from the last ')' so an executable name
+// containing spaces or parentheses cannot shift the field offsets.
 func processStartTime(pid int) (uint64, error) {
 	raw, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
 	if err != nil {
 		return 0, err
 	}
-	commEnd := bytes.LastIndexByte(raw, ')')
-	if commEnd < 0 {
+	closeParen := bytes.LastIndexByte(raw, ')')
+	if closeParen < 0 {
 		return 0, fmt.Errorf("malformed /proc/%d/stat", pid)
 	}
-	// Fields after comm: state is field 3, so start time (field 22) is the
-	// 20th entry of the remainder.
-	fields := strings.Fields(string(raw[commEnd+1:]))
+	// Fields after the executable name: state is field 3, so start time
+	// (field 22) is the 20th entry of the remainder.
+	fields := strings.Fields(string(raw[closeParen+1:]))
 	const startTimeOffset = 19
 	if len(fields) <= startTimeOffset {
-		return 0, fmt.Errorf("/proc/%d/stat has %d fields after comm", pid, len(fields))
+		return 0, fmt.Errorf("/proc/%d/stat has only %d fields after the executable name", pid, len(fields))
 	}
 	return strconv.ParseUint(fields[startTimeOffset], 10, 64)
 }
