@@ -362,26 +362,34 @@ func (nmd *NetworkMapData) getPeersGroupsPoliciesRoutes(
 					}
 				}
 
-				// Both marker protocols resolve authorized users the same way,
-				// so a VNC rule needs the same inputs an SSH rule does. Leaving
-				// VNC out here strips the group mapping and the allowed-user set
-				// from the components, and the rule then reaches the resolver
-				// with nobody authorized.
-				if rule.Protocol == string(types.PolicyRuleProtocolNetbirdSSH) ||
-					rule.Protocol == string(types.PolicyRuleProtocolNetbirdVNC) {
-					switch {
-					case len(rule.AuthorizedGroups) > 0:
-						for groupID := range rule.AuthorizedGroups {
-							authReqs.neededGroupIDs[groupID] = struct{}{}
-						}
-					case rule.AuthorizedUser != "":
-						// Carries its own user; no lookup inputs needed.
-					default:
-						authReqs.needAllowedUserIDs = true
+			}
+
+			// Collected for whichever side the resolver will actually authorize:
+			// a bidirectional rule grants access in both directions, so a peer
+			// that appears only in Sources is authorized too. Gating this on
+			// peerInDestinations alone leaves that peer's rule reaching the
+			// resolver with none of the inputs it needs to name a user.
+			//
+			// Both marker protocols resolve users the same way, so VNC needs
+			// exactly what SSH needs.
+			receivingPeer := peerInDestinations || (rule.Bidirectional && peerInSources)
+			if !receivingPeer {
+				continue
+			}
+			if rule.Protocol == string(types.PolicyRuleProtocolNetbirdSSH) ||
+				rule.Protocol == string(types.PolicyRuleProtocolNetbirdVNC) {
+				switch {
+				case len(rule.AuthorizedGroups) > 0:
+					for groupID := range rule.AuthorizedGroups {
+						authReqs.neededGroupIDs[groupID] = struct{}{}
 					}
-				} else if nmdata.PolicyRuleImpliesLegacySSH(rule) && peerSSHEnabled {
+				case rule.AuthorizedUser != "":
+					// Carries its own user; no lookup inputs needed.
+				default:
 					authReqs.needAllowedUserIDs = true
 				}
+			} else if nmdata.PolicyRuleImpliesLegacySSH(rule) && peerSSHEnabled {
+				authReqs.needAllowedUserIDs = true
 			}
 		}
 		if policyRelevant {

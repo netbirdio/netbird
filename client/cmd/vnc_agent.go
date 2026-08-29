@@ -21,7 +21,7 @@ var (
 
 func init() {
 	vncAgentCmd.Flags().StringVar(&vncAgentSocket, "socket", "", "Unix-domain socket path the agent listens on (required)")
-	vncAgentCmd.Flags().Uint32Var(&vncAgentTargetUID, "target-uid", 0, "uid the agent should drop privileges to before listening (darwin only; 0 = stay as current uid)")
+	vncAgentCmd.Flags().Uint32Var(&vncAgentTargetUID, "target-uid", 0, "uid the agent drops privileges to before listening (darwin only; required there, and must not be 0)")
 	rootCmd.AddCommand(vncAgentCmd)
 }
 
