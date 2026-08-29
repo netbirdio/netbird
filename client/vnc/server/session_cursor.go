@@ -30,13 +30,17 @@ func (s *session) pendingCursorRect(pf clientPixelFormat) []byte {
 	// cannot produce one, or the sprite failed to encode. Say which, once per
 	// session, so the next report of a missing cursor names its own cause.
 	if !supported || failed || composite {
-		s.logCursorSkip("no cursor rect: client_requested=%v source_failed=%v compositing=%v",
+		// The three flags form the key so a client that negotiates the encoding
+		// mid-session, or a source that starts failing, still gets a line: eight
+		// combinations at most.
+		s.logCursorSkip(fmt.Sprintf("state:%t%t%t", supported, failed, composite),
+			"no cursor rect: client_requested=%v source_failed=%v compositing=%v",
 			supported, failed, composite)
 		return nil
 	}
 	src, ok := s.capturer.(cursorSource)
 	if !ok {
-		s.logCursorSkip("no cursor rect: capturer %T reports no cursor source", s.capturer)
+		s.logCursorSkip("no-source", "no cursor rect: capturer %T reports no cursor source", s.capturer)
 		return nil
 	}
 	img, hotX, hotY, serial, err := src.Cursor()
@@ -48,7 +52,7 @@ func (s *session) pendingCursorRect(pf clientPixelFormat) []byte {
 		return nil
 	}
 	if img == nil {
-		s.logCursorSkip("no cursor rect: capturer returned no sprite")
+		s.logCursorSkip("no-sprite", "no cursor rect: capturer returned no sprite")
 		return nil
 	}
 	if serial == lastSerial {
@@ -57,7 +61,10 @@ func (s *session) pendingCursorRect(pf clientPixelFormat) []byte {
 	buf := encodeCursorPseudoRect(img, hotX, hotY, pf)
 	if buf == nil {
 		b := img.Bounds()
-		s.logCursorSkip("no cursor rect: sprite %dx%d stride=%d pix=%d could not be encoded",
+		// Fixed key, varying detail: a source returning junk dimensions must not
+		// be able to mint a new throttle entry per frame.
+		s.logCursorSkip("encode-failed",
+			"no cursor rect: sprite %dx%d stride=%d pix=%d could not be encoded",
 			b.Dx(), b.Dy(), img.Stride, len(img.Pix))
 		return nil
 	}
@@ -83,25 +90,28 @@ func (s *session) pendingCursorRect(pf clientPixelFormat) []byte {
 }
 
 // logCursorSkip reports why this update carries no cursor rect, once per
-// distinct line. pendingCursorRect runs per framebuffer update, so an
-// unthrottled log would flood; throttling once per session instead would let
-// whichever reason came first hide every later one, and the reasons do change
-// as the client negotiates encodings and the cursor source starts failing.
-func (s *session) logCursorSkip(format string, args ...any) {
-	msg := fmt.Sprintf(format, args...)
-
+// reason. pendingCursorRect runs per framebuffer update, so an unthrottled log
+// would flood; throttling once per session instead would let whichever reason
+// came first hide every later one, and the reasons do change as the client
+// negotiates encodings and the cursor source starts failing.
+//
+// reason keys the throttle and must come from a fixed set, never from the
+// message: a cursor source handing back varying junk dimensions would otherwise
+// mint a new key per frame, growing the map for the life of the session and
+// logging every one of them.
+func (s *session) logCursorSkip(reason, format string, args ...any) {
 	s.cursorSkipMu.Lock()
 	if s.cursorSkipSeen == nil {
 		s.cursorSkipSeen = make(map[string]struct{})
 	}
-	_, seen := s.cursorSkipSeen[msg]
-	s.cursorSkipSeen[msg] = struct{}{}
+	_, seen := s.cursorSkipSeen[reason]
+	s.cursorSkipSeen[reason] = struct{}{}
 	s.cursorSkipMu.Unlock()
 
 	if seen {
 		return
 	}
-	s.log.Debug(msg)
+	s.log.Debugf(format, args...)
 }
 
 // maxCursorDim caps the cursor sprite size we'll encode. Real platform

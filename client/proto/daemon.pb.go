@@ -7271,9 +7271,10 @@ func (x *RespondApprovalRequest) GetViewOnly() bool {
 type RespondApprovalResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// matched is true when request_id named a prompt that was still waiting.
-	// False means the prompt had already been answered, or had expired and the
-	// connection was denied: the click had no effect, and the UI should say so
-	// rather than reporting the outcome the user picked.
+	// False covers three cases and does not distinguish them: request_id was
+	// never known, the prompt had already been answered, or it had expired and
+	// the connection was denied. In all three this call changed nothing, so the
+	// UI must not report the outcome the user picked as having taken effect.
 	Matched       bool `protobuf:"varint,1,opt,name=matched,proto3" json:"matched,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

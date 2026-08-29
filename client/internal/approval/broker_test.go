@@ -458,3 +458,77 @@ func TestRequestViewOnly(t *testing.T) {
 		t.Fatal("view-only request did not resolve")
 	}
 }
+
+// TestGiveUpAndRespondAreMutuallyExclusive pins the claim that makes
+// RespondApprovalResponse.matched truthful: for one request, exactly one of
+// "the user answered" and "the caller gave up" wins, in either arrival order.
+// Without it a click landing as the timer fires is told it matched a live
+// prompt while the connection has already been denied.
+func TestGiveUpAndRespondAreMutuallyExclusive(t *testing.T) {
+	t.Run("caller gives up first", func(t *testing.T) {
+		b := New(&fakePublisher{subscribers: true})
+		resp := make(chan Decision, 1)
+		b.pending["req"] = &pendingRequest{resp: resp}
+
+		d, answered := b.giveUp("req", resp)
+		assert.False(t, answered, "nothing had answered yet")
+		assert.False(t, d.Accept)
+		assert.False(t, b.Respond("req", Decision{Accept: true}),
+			"a response arriving after the caller gave up must not report a match")
+	})
+
+	t.Run("user answers first", func(t *testing.T) {
+		b := New(&fakePublisher{subscribers: true})
+		resp := make(chan Decision, 1)
+		b.pending["req"] = &pendingRequest{resp: resp}
+
+		require.True(t, b.Respond("req", Decision{Accept: true, ViewOnly: true}))
+
+		d, answered := b.giveUp("req", resp)
+		require.True(t, answered, "giving up after the user answered must surface their decision")
+		assert.True(t, d.Accept)
+		assert.True(t, d.ViewOnly, "the view-only grant must survive the race")
+	})
+}
+
+// TestRespondRacingTimeoutIsConsistent aims a Respond at the deadline and
+// requires the reported match to agree with the outcome the caller saw. A
+// stress check on the invariant above rather than a reproduction: the losing
+// window is a few instructions wide, so this does not reliably fail without the
+// claim, but it does catch an outcome pair that should never occur.
+func TestRespondRacingTimeoutIsConsistent(t *testing.T) {
+	defaultTimeout(t, 20*time.Millisecond)
+	defer defaultTimeout(t, DefaultTimeout)
+
+	for i := 0; i < 50; i++ {
+		pub := &fakePublisher{subscribers: true}
+		b := New(pub)
+
+		done := make(chan error, 1)
+		go func() {
+			done <- requestErr(b, context.Background(), Prompt{Kind: KindVNC})
+		}()
+		id := waitForRequestID(t, pub)
+
+		matchedCh := make(chan bool, 1)
+		go func() {
+			// Aim at the deadline so the claim lands on either side of it.
+			time.Sleep(20 * time.Millisecond)
+			matchedCh <- b.Respond(id, Decision{Accept: true})
+		}()
+
+		var err error
+		select {
+		case err = <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatal("prompt neither resolved nor timed out")
+		}
+		matched := <-matchedCh
+
+		if matched {
+			require.NoErrorf(t, err, "iteration %d: Respond reported the prompt matched, so the accept must be honoured", i)
+			continue
+		}
+		require.ErrorIsf(t, err, ErrTimeout, "iteration %d: Respond reported no match, so the request must have timed out", i)
+	}
+}
