@@ -81,8 +81,15 @@ func writeXAuthFile(path, hostname, display string, cookie []byte, uid, gid uint
 }
 
 // ensureTraversable walks up from dir to configs.RuntimeDir (inclusive) and
-// sets mode 0711 on each component. A dir outside the runtime dir is refused
-// before anything is chmodded, so it never touches /var/run or /run.
+// makes each component traversable by the session's user, so the X server can
+// reach its Xauthority file. A dir outside the runtime dir is refused before
+// anything is changed, so it never touches /var/run or /run.
+//
+// Only the execute bits are added, never a whole mode. The runtime dir is
+// shared: the daemon advertises its socket there and unprivileged CLI and UI
+// clients list it to find one, so setting it to 0711 would take away the read
+// bit they need and break socket discovery. Execute alone grants traversal
+// without exposing a listing.
 func ensureTraversable(dir string) error {
 	root := filepath.Clean(configs.RuntimeDir)
 	if root == "" {
@@ -93,8 +100,8 @@ func ensureTraversable(dir string) error {
 		return fmt.Errorf("xauth dir %s is outside the runtime dir %s", cur, root)
 	}
 	for {
-		if err := os.Chmod(cur, 0711); err != nil {
-			return fmt.Errorf("chmod %s: %w", cur, err)
+		if err := addTraversalBits(cur); err != nil {
+			return err
 		}
 		if cur == root {
 			return nil
@@ -105,6 +112,24 @@ func ensureTraversable(dir string) error {
 		}
 		cur = parent
 	}
+}
+
+// addTraversalBits ORs group and other execute onto dir's mode, leaving every
+// other bit as it was. A directory that is already traversable is not touched.
+func addTraversalBits(dir string) error {
+	info, err := os.Stat(dir)
+	if err != nil {
+		return fmt.Errorf("stat %s: %w", dir, err)
+	}
+	const traversal = 0o011
+	mode := info.Mode().Perm()
+	if mode&traversal == traversal {
+		return nil
+	}
+	if err := os.Chmod(dir, mode|traversal); err != nil {
+		return fmt.Errorf("chmod %s: %w", dir, err)
+	}
+	return nil
 }
 
 // dialXUnixWithCookie opens an xgb connection to display over AF_UNIX,

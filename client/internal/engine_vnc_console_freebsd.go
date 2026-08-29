@@ -10,11 +10,13 @@ import (
 	vncserver "github.com/netbirdio/netbird/client/vnc/server"
 )
 
-// newConsoleVNC builds the FreeBSD console fallback: vt(4) framebuffer
-// for capture, /dev/uinput for input. The uinput device requires the
-// `uinput` kernel module (`kldload uinput`); without it, input init
-// fails and we drop to a stub injector so the user still gets a
-// view-only screen mirror.
+// newConsoleVNC builds the FreeBSD console fallback: the vt(4) framebuffer for
+// capture, and no input.
+//
+// Input injection is not implemented on FreeBSD: the uinput injector is a
+// Linux-only implementation built on UI_DEV_CREATE and friends, so this backend
+// mirrors the console read-only. It is offered anyway because a view-only
+// console is still worth more than nothing on a box with no X server.
 func newConsoleVNC() (vncserver.ScreenCapturer, vncserver.InputInjector, error) {
 	poller := vncserver.NewFBPoller("")
 	w, h := poller.Width(), poller.Height()
@@ -22,10 +24,6 @@ func newConsoleVNC() (vncserver.ScreenCapturer, vncserver.InputInjector, error) 
 		poller.Close()
 		return nil, nil, fmt.Errorf("vt framebuffer init failed (vt may not allow mmap on this driver)")
 	}
-	if inj, err := vncserver.NewUInputInjector(w, h); err == nil {
-		return poller, inj, nil
-	} else {
-		log.Infof("VNC console: uinput unavailable (%v); view-only mode. Run `kldload uinput` to enable input.", err)
-		return poller, &vncserver.StubInputInjector{}, nil
-	}
+	log.Info("VNC console: FreeBSD has no input backend, serving the console view-only")
+	return poller, &vncserver.StubInputInjector{}, nil
 }

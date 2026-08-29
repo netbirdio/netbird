@@ -761,6 +761,13 @@ func (s *Server) Stop() error {
 	if c, ok := s.capturer.(interface{ Close() }); ok {
 		c.Close()
 	}
+	// The injector owns OS resources of its own: the uinput backend holds a
+	// /dev/uinput descriptor and a registered virtual device, the X11 one an
+	// X connection. Leaving them open leaks one of each every time the VNC
+	// server is stopped and started again.
+	if i, ok := s.injector.(interface{ Close() }); ok {
+		i.Close()
+	}
 
 	if listenerErr != nil {
 		return fmt.Errorf("close VNC listener: %w", listenerErr)
