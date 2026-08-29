@@ -58,6 +58,17 @@ func (s *Server) handleServiceConnection(conn net.Conn, sa sessionAgent) {
 		return
 	}
 
+	// Service mode always attaches to the agent manager's active session.
+	// Honouring a requested session ID would mean routing to a specific
+	// desktop, which is not implemented; accepting the field anyway would
+	// silently hand the caller a different desktop from the one it asked for.
+	if header.sessionID != 0 {
+		rejectConnection(conn, codeMessage(RejectCodeBadRequest,
+			fmt.Sprintf("targeting session %d is not supported; omit the session id to attach to the active session", header.sessionID)))
+		connLog.Infof("VNC connection rejected: requested session %d, only the active session is supported", header.sessionID)
+		return
+	}
+
 	authedLog, sessionUserID, ok := s.authorizeSession(conn, header, connLog)
 	if !ok {
 		authedLog.Info("VNC connection rejected: auth failed")

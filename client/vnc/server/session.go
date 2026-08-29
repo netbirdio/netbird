@@ -123,6 +123,10 @@ type session struct {
 	// compositing falls back to a no-op (capturer cannot supply a sprite
 	// or position). One line per session is enough to point at the cause.
 	cursorWarnOnce sync.Once
+	// cursorSkipOnce does the same for the Cursor pseudo-encoding path, which
+	// has several ways to decline to send a rect and used to take all of them
+	// silently.
+	cursorSkipOnce sync.Once
 	// clientJPEGQuality and clientZlibLevel hold the 0..9 levels the client
 	// advertised via the QualityLevel / CompressLevel pseudo-encodings, or
 	// -1 when the client has not expressed a preference. Applied to the
