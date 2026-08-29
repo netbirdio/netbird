@@ -133,6 +133,16 @@ func (e *Engine) startVNCServer() error {
 		log.Info("VNC: running as system service, enabling service mode (per-session agent proxy)")
 	}
 	requireApproval := e.config.DisableVNCApproval == nil || !*e.config.DisableVNCApproval
+
+	// Left nil when there is no broker to ask, so the server's own
+	// no-approver refusal runs and the client is told which of the two it hit.
+	// Wrapping a nil broker still denies, because Broker.Request reports one as
+	// an error, but it denies as "approval denied" and hides the real reason.
+	var approver vncserver.Approver
+	if e.approvalBroker != nil {
+		approver = &vncApprover{broker: e.approvalBroker, statusRecorder: e.statusRecorder}
+	}
+
 	srv := vncserver.New(vncserver.Config{
 		Capturer:        capturer,
 		Injector:        injector,
@@ -141,7 +151,7 @@ func (e *Engine) startVNCServer() error {
 		SessionRecorder: sessionRecorder,
 		NetstackNet:     e.wgInterface.GetNet(),
 		RequireApproval: requireApproval,
-		Approver:        &vncApprover{broker: e.approvalBroker, statusRecorder: e.statusRecorder},
+		Approver:        approver,
 		// Session start/stop is invisible to the peer status recorder, so push a
 		// snapshot ourselves; otherwise the UI's session list goes stale until an
 		// unrelated peer change happens to fire one.
