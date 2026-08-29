@@ -16,6 +16,35 @@ type authRequirements struct {
 	needAllowedUserIDs bool
 }
 
+// collectFor records what rule needs to resolve its authorized users, for a
+// peer the resolver will authorize under it.
+//
+// Both marker protocols resolve users the same way, so a VNC rule needs exactly
+// what an SSH rule needs: the group-to-user mapping when the rule names groups,
+// the account's allowed-user set when it names nobody, and nothing at all when
+// it carries its own user.
+func (a *authRequirements) collectFor(rule *nmdata.PolicyRule, peerSSHEnabled bool) {
+	isMarkerRule := rule.Protocol == string(types.PolicyRuleProtocolNetbirdSSH) ||
+		rule.Protocol == string(types.PolicyRuleProtocolNetbirdVNC)
+	if !isMarkerRule {
+		if nmdata.PolicyRuleImpliesLegacySSH(rule) && peerSSHEnabled {
+			a.needAllowedUserIDs = true
+		}
+		return
+	}
+
+	switch {
+	case len(rule.AuthorizedGroups) > 0:
+		for groupID := range rule.AuthorizedGroups {
+			a.neededGroupIDs[groupID] = struct{}{}
+		}
+	case rule.AuthorizedUser != "":
+		// Carries its own user; no lookup inputs needed.
+	default:
+		a.needAllowedUserIDs = true
+	}
+}
+
 // GetPeerNetworkMapComponents computes the peer's NetworkMapComponents from the
 // slim twin store. It mirrors the former Account.GetPeerNetworkMapComponents
 // exactly, operating on nmdata twins throughout — no Account reference and no
@@ -369,27 +398,8 @@ func (nmd *NetworkMapData) getPeersGroupsPoliciesRoutes(
 			// that appears only in Sources is authorized too. Gating this on
 			// peerInDestinations alone leaves that peer's rule reaching the
 			// resolver with none of the inputs it needs to name a user.
-			//
-			// Both marker protocols resolve users the same way, so VNC needs
-			// exactly what SSH needs.
-			receivingPeer := peerInDestinations || (rule.Bidirectional && peerInSources)
-			if !receivingPeer {
-				continue
-			}
-			if rule.Protocol == string(types.PolicyRuleProtocolNetbirdSSH) ||
-				rule.Protocol == string(types.PolicyRuleProtocolNetbirdVNC) {
-				switch {
-				case len(rule.AuthorizedGroups) > 0:
-					for groupID := range rule.AuthorizedGroups {
-						authReqs.neededGroupIDs[groupID] = struct{}{}
-					}
-				case rule.AuthorizedUser != "":
-					// Carries its own user; no lookup inputs needed.
-				default:
-					authReqs.needAllowedUserIDs = true
-				}
-			} else if nmdata.PolicyRuleImpliesLegacySSH(rule) && peerSSHEnabled {
-				authReqs.needAllowedUserIDs = true
+			if peerInDestinations || (rule.Bidirectional && peerInSources) {
+				authReqs.collectFor(rule, peerSSHEnabled)
 			}
 		}
 		if policyRelevant {

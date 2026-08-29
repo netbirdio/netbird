@@ -183,6 +183,9 @@ type Server struct {
 	ctx            context.Context
 	cancel         context.CancelFunc
 	vmgr           virtualSessionManager
+	// handlers counts the in-flight connection handlers so Stop can wait for
+	// them before tearing down the capturer and injector they use.
+	handlers sync.WaitGroup
 	// onVirtualProcesses forwards live virtual-session process records to the
 	// daemon for crash recovery; nil when nothing is listening.
 	onVirtualProcesses func(*ShutdownState)
@@ -458,6 +461,26 @@ func (s *Server) closeActiveSessions() {
 	s.sessionsMu.Unlock()
 	for _, c := range conns {
 		_ = c.Close()
+	}
+}
+
+// handlerDrainTimeout bounds how long Stop waits for connection handlers. They
+// are already unblocked by the socket closes above, so this only covers one
+// wedged in a syscall; shutdown must not hang on it.
+const handlerDrainTimeout = 5 * time.Second
+
+// awaitHandlers waits for the in-flight connection handlers, giving up after
+// handlerDrainTimeout so a stuck one cannot hold shutdown open.
+func (s *Server) awaitHandlers() {
+	done := make(chan struct{})
+	go func() {
+		s.handlers.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(handlerDrainTimeout):
+		s.log.Warnf("timed out after %s waiting for VNC connection handlers to finish", handlerDrainTimeout)
 	}
 }
 
@@ -758,6 +781,13 @@ func (s *Server) Stop() error {
 		s.platformShutdown()
 	}
 
+	// Let the handlers finish before the capturer and injector go away. Their
+	// sockets are closed above, so each is on its way out, and the last thing a
+	// session does is release the modifiers and buttons the client left held:
+	// closing the injector first would drop those and leave the host with a
+	// stuck Shift or mouse button.
+	s.awaitHandlers()
+
 	if c, ok := s.capturer.(interface{ Close() }); ok {
 		c.Close()
 	}
@@ -805,7 +835,9 @@ func (s *Server) acceptLoop(ln net.Listener) {
 			continue
 		}
 		enableTCPKeepAlive(conn, s.log)
+		s.handlers.Add(1)
 		go func(c net.Conn) {
+			defer s.handlers.Done()
 			defer s.releaseConnSlot()
 			defer s.untrackConn(c)
 			s.handleConnection(c)
