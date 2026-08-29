@@ -961,10 +961,21 @@ func TestGetPeerNetworkMapComponents_SSHRequirements(t *testing.T) {
 			mutateRule: func(r *nmdata.PolicyRule) { r.Ports = []string{"443"} },
 			sshEnabled: true,
 		},
+		// A bidirectional rule grants access both ways, so the peer is
+		// authorized from the sources side too and needs the same inputs.
 		{
-			name: "netbird-ssh only counts on the destination side",
+			name: "netbird-ssh on the source side of a bidirectional rule",
 			mutateRule: func(r *nmdata.PolicyRule) {
 				r.Protocol = string(nbtypes.PolicyRuleProtocolNetbirdSSH)
+			},
+			targetInSrc: true,
+			wantAllowed: true,
+		},
+		{
+			name: "netbird-ssh on the source side of a one-way rule",
+			mutateRule: func(r *nmdata.PolicyRule) {
+				r.Protocol = string(nbtypes.PolicyRuleProtocolNetbirdSSH)
+				r.Bidirectional = false
 			},
 			targetInSrc: true,
 		},
@@ -995,9 +1006,18 @@ func TestGetPeerNetworkMapComponents_SSHRequirements(t *testing.T) {
 			},
 		},
 		{
-			name: "netbird-vnc only counts on the destination side",
+			name: "netbird-vnc on the source side of a bidirectional rule",
 			mutateRule: func(r *nmdata.PolicyRule) {
 				r.Protocol = string(nbtypes.PolicyRuleProtocolNetbirdVNC)
+			},
+			targetInSrc: true,
+			wantAllowed: true,
+		},
+		{
+			name: "netbird-vnc on the source side of a one-way rule",
+			mutateRule: func(r *nmdata.PolicyRule) {
+				r.Protocol = string(nbtypes.PolicyRuleProtocolNetbirdVNC)
+				r.Bidirectional = false
 			},
 			targetInSrc: true,
 		},

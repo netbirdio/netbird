@@ -273,15 +273,15 @@ func (x *X11InputInjector) TypeText(text string) {
 		if !ok {
 			continue
 		}
-		x.typeRuneLocked(keysym, shift)
+		x.typeRune(keysym, shift)
 	}
 }
 
-// typeRuneLocked emits one rune, framed by Shift-down/up when the keysym needs
-// it. Locked per rune rather than for the whole string: the framing has to be
-// atomic, but a long paste must not hold another session's pointer off for the
-// length of it.
-func (x *X11InputInjector) typeRuneLocked(keysym uint32, shift bool) {
+// typeRune emits one rune, framed by Shift-down/up when the keysym needs it. It
+// takes inputMu itself, per rune rather than for the whole string: the framing
+// has to be atomic, but a long paste must not hold another session's pointer
+// off for the length of it.
+func (x *X11InputInjector) typeRune(keysym uint32, shift bool) {
 	x.inputMu.Lock()
 	defer x.inputMu.Unlock()
 
