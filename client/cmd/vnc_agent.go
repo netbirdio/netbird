@@ -55,12 +55,14 @@ var vncAgentCmd = &cobra.Command{
 		// the listening socket: keeps a post-auth bug in the encoder /
 		// input / capture paths confined to the user's own privileges
 		// rather than escalating to host root, and makes the daemon's
-		// LOCAL_PEERCRED check see the right uid. No-op on Windows
-		// (both processes run as SYSTEM) and when --target-uid is 0.
-		if vncAgentTargetUID != 0 {
-			if err := dropAgentPrivileges(vncAgentTargetUID); err != nil {
-				return fmt.Errorf("drop privileges to uid %d: %w", vncAgentTargetUID, err)
-			}
+		// LOCAL_PEERCRED check see the right uid. No-op on Windows, where
+		// both processes run as SYSTEM.
+		//
+		// Called unconditionally: a missing or zero --target-uid is exactly
+		// the case the Darwin implementation refuses, and skipping the call
+		// for it would leave the agent running as root instead.
+		if err := dropAgentPrivileges(vncAgentTargetUID); err != nil {
+			return fmt.Errorf("drop privileges to uid %d: %w", vncAgentTargetUID, err)
 		}
 
 		if err := os.Remove(vncAgentSocket); err != nil && !os.IsNotExist(err) {

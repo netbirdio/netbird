@@ -198,6 +198,13 @@ func (s *session) serve() {
 	encoderDone := make(chan struct{})
 	go s.encoderLoop(encoderDone)
 	defer func() {
+		// Close the connection before waiting for the encoder. It may be parked
+		// in a write to a client that stopped reading, and the only thing that
+		// would unblock it otherwise is whatever deadline messageLoop last set
+		// on the shared conn: that leaves the session, and the connection slot
+		// it holds, alive for as long as that takes. The caller closes the
+		// connection too; a second Close is harmless.
+		s.conn.Close()
 		close(s.encodeCh)
 		<-encoderDone
 	}()

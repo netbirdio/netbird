@@ -251,12 +251,50 @@ func (a *Authorizer) LookupSessionDisplayName(pubKey []byte) string {
 	return name
 }
 
+// AuthorizeSessionKey resolves a Noise-verified static public key and authorizes
+// the identity it names for osUsername, under a single read lock.
+//
+// The two halves must not be separated: Update swaps sessionPubKeys and
+// authorizedUsers together, so a caller that looks the key up and then
+// authorizes it can have the key revoked in between and still be admitted on
+// the hash it already holds. Revocation has to close that window.
+func (a *Authorizer) AuthorizeSessionKey(pubKey []byte, osUsername string) (sshuserhash.UserIDHash, string, error) {
+	var zero sshuserhash.UserIDHash
+	if len(pubKey) != sessionPubKeyLen {
+		return zero, "", fmt.Errorf("session pubkey wrong length: %d", len(pubKey))
+	}
+	var key [sessionPubKeyLen]byte
+	copy(key[:], pubKey)
+
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	hash, ok := a.sessionPubKeys[key]
+	if !ok {
+		return zero, "", ErrSessionKeyNotKnown
+	}
+	osUser, err := a.authorizeOSUserBySessionKeyLocked(hash, osUsername)
+	if err != nil {
+		return zero, "", err
+	}
+	return hash, osUser, nil
+}
+
 // AuthorizeOSUserBySessionKey resolves the OS-user mapping for a session
 // key. Mirrors Authorize but skips the JWT-hash step since the key has
 // already been verified and the user identity hash is in hand.
+//
+// Prefer AuthorizeSessionKey where the key is also being looked up: splitting
+// the two lets a revocation land between them.
 func (a *Authorizer) AuthorizeOSUserBySessionKey(userIDHash sshuserhash.UserIDHash, osUsername string) (string, error) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
+	return a.authorizeOSUserBySessionKeyLocked(userIDHash, osUsername)
+}
+
+// authorizeOSUserBySessionKeyLocked is AuthorizeOSUserBySessionKey with a.mu
+// already held for reading.
+func (a *Authorizer) authorizeOSUserBySessionKeyLocked(userIDHash sshuserhash.UserIDHash, osUsername string) (string, error) {
 	userIndex, found := a.findUserIndex(userIDHash)
 	if !found {
 		return "", fmt.Errorf("session user (hash: %s) not in authorized list for OS user %q: %w", userIDHash, osUsername, ErrUserNotAuthorized)
