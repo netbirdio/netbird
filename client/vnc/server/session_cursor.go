@@ -23,11 +23,23 @@ func (s *session) pendingCursorRect(pf clientPixelFormat) []byte {
 	composite := s.showRemoteCursor
 	lastSerial := s.lastCursorSerial
 	s.encMu.RUnlock()
+	// Each way out of here means the client gets no cursor, and they used to be
+	// indistinguishable from the outside: "no cursor on this platform" looked
+	// the same whether the client never asked for the encoding, the capturer
+	// cannot produce one, or the sprite failed to encode. Say which, once per
+	// session, so the next report of a missing cursor names its own cause.
 	if !supported || failed || composite {
+		s.cursorSkipOnce.Do(func() {
+			s.log.Debugf("no cursor rect: client_requested=%v source_failed=%v compositing=%v",
+				supported, failed, composite)
+		})
 		return nil
 	}
 	src, ok := s.capturer.(cursorSource)
 	if !ok {
+		s.cursorSkipOnce.Do(func() {
+			s.log.Debugf("no cursor rect: capturer %T reports no cursor source", s.capturer)
+		})
 		return nil
 	}
 	img, hotX, hotY, serial, err := src.Cursor()
@@ -38,11 +50,22 @@ func (s *session) pendingCursorRect(pf clientPixelFormat) []byte {
 		s.log.Debugf("cursor source unavailable: %v", err)
 		return nil
 	}
-	if img == nil || serial == lastSerial {
+	if img == nil {
+		s.cursorSkipOnce.Do(func() {
+			s.log.Debug("no cursor rect: capturer returned no sprite")
+		})
+		return nil
+	}
+	if serial == lastSerial {
 		return nil
 	}
 	buf := encodeCursorPseudoRect(img, hotX, hotY, pf)
 	if buf == nil {
+		s.cursorSkipOnce.Do(func() {
+			b := img.Bounds()
+			s.log.Debugf("no cursor rect: sprite %dx%d stride=%d pix=%d could not be encoded",
+				b.Dx(), b.Dy(), img.Stride, len(img.Pix))
+		})
 		return nil
 	}
 	// Re-check under the write lock so a cursor another goroutine already
