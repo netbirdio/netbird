@@ -93,7 +93,7 @@ func (a *Account) toNetworkMapData(
 	}
 	for _, pc := range a.PostureChecks {
 		if pc != nil {
-			nmd.PostureChecks[pc.ID] = twinPostureChecks(pc)
+			nmd.PostureChecks[pc.ID] = TwinPostureChecks(pc)
 			nmd.PostureCheckXIDToPublicID[pc.ID] = pc.PublicID
 		}
 	}
@@ -393,7 +393,17 @@ func TwinNetwork(n *Network) *nmdata.Network {
 	}
 }
 
-func twinPostureChecks(pc *posture.Checks) *nmdata.PostureChecks {
+// TwinPostureChecksList converts posture checks to their slim nmdata twins.
+func TwinPostureChecksList(checks []*posture.Checks) []*nmdata.PostureChecks {
+	out := make([]*nmdata.PostureChecks, 0, len(checks))
+	for _, pc := range checks {
+		out = append(out, TwinPostureChecks(pc))
+	}
+	return out
+}
+
+// TwinPostureChecks converts posture checks to their slim nmdata twin.
+func TwinPostureChecks(pc *posture.Checks) *nmdata.PostureChecks {
 	if pc == nil {
 		return nil
 	}

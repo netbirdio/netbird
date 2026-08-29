@@ -6,7 +6,6 @@ import (
 	integrationsConfig "github.com/netbirdio/management-integrations/integrations/config"
 
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
-	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/types"
 	sharedgrpc "github.com/netbirdio/netbird/shared/management/grpc"
 	"github.com/netbirdio/netbird/shared/management/networkmap"
@@ -37,7 +36,7 @@ func ToComponentSyncResponse(
 	components *types.NetworkMapComponents,
 	proxyPatch *types.NetworkMap,
 	dnsName string,
-	checks []*posture.Checks,
+	checks []*nmdata.PostureChecks,
 	settings *nmdata.AccountSettingsInfo,
 	extraSettings *types.ExtraSettings,
 	peerGroups []string,
