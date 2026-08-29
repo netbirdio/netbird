@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"image"
 
-	log "github.com/sirupsen/logrus"
-
 	"github.com/kirides/go-d3d/d3d11"
 	"github.com/kirides/go-d3d/outputduplication"
 )
@@ -66,13 +64,19 @@ func newDXGICapturer() (*dxgiCapturer, error) {
 		height: h,
 	}
 
-	// Best effort: an idle desktop legitimately has no new frame to give, and
-	// waiting here for one would only delay a capturer that is otherwise ready.
-	// capture() declines to hand out img until a frame has actually arrived.
-	if err := c.dup.GetImage(c.img, firstFrameTimeoutMS); err == nil {
+	// An idle desktop legitimately has no new frame to give, and waiting here
+	// for one would only delay a capturer that is otherwise ready: capture()
+	// declines to hand out img until a frame has actually arrived. Any other
+	// failure is DXGI itself being unusable in this session, and has to reach
+	// createCapturer so it falls back to GDI instead of rebuilding a duplication
+	// that will fail the same way on every request.
+	err = c.dup.GetImage(c.img, firstFrameTimeoutMS)
+	switch {
+	case err == nil:
 		c.gotFrame = true
-	} else if !errors.Is(err, outputduplication.ErrNoImageYet) {
-		log.Debugf("first DXGI frame: %v", err)
+	case !errors.Is(err, outputduplication.ErrNoImageYet):
+		c.close()
+		return nil, fmt.Errorf("acquire first desktop frame: %w", err)
 	}
 
 	return c, nil
@@ -93,10 +97,11 @@ func (c *dxgiCapturer) capture() (*image.RGBA, error) {
 		// "No new frame" is the right answer on an idle desktop, but only once
 		// there is a frame to repeat. Before that img is all zeroes, and
 		// returning it would serve a black desktop that looks like a successful
-		// capture. Reported as an error instead: the worker retries shortly and
-		// stays on DXGI, where failing the constructor would have dropped the
-		// whole session to the much slower GDI path.
-		return nil, err
+		// capture. Reported as errFrameNotReady instead, which the worker
+		// answers without tearing the capturer down: rebuilding a D3D11 device
+		// and duplication on every request would never converge on a desktop
+		// that is idle precisely because nobody is touching it.
+		return nil, fmt.Errorf("%w: %w", errFrameNotReady, err)
 	}
 
 	// Copy into the next output buffer. The DesktopCapturer hands out the

@@ -156,9 +156,13 @@ func agentServerHandshake(conn net.Conn, token []byte) (bool, error) {
 // surfaces as a failed write (a reset or broken pipe) as often as a failed
 // read, and logging either at warning level would fill the daemon log with
 // entries for something entirely expected.
+//
+// io.ErrUnexpectedEOF is deliberately not here: that is a peer that sent part
+// of a handshake and then went away, which is an aborted or malformed
+// authentication attempt rather than a probe, and has to stay visible.
 func isProbeDisconnect(err error) bool {
 	switch {
-	case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
+	case errors.Is(err, io.EOF):
 		return true
 	case errors.Is(err, net.ErrClosed):
 		return true

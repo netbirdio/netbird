@@ -7206,7 +7206,8 @@ type RespondApprovalRequest struct {
 	// when a subsystem awaits user approval for an inbound connection.
 	RequestId string `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	// accept is true if the user approved the request, false if they
-	// denied it. A missing or unknown request_id is treated as a no-op.
+	// denied it. An unknown request_id is not an error; the response reports
+	// it as unmatched.
 	Accept bool `protobuf:"varint,2,opt,name=accept,proto3" json:"accept,omitempty"`
 	// view_only signals that the user granted the connection but withheld
 	// input control. Only meaningful when accept is true; ignored when
@@ -7268,7 +7269,12 @@ func (x *RespondApprovalRequest) GetViewOnly() bool {
 }
 
 type RespondApprovalResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// matched is true when request_id named a prompt that was still waiting.
+	// False means the prompt had already been answered, or had expired and the
+	// connection was denied: the click had no effect, and the UI should say so
+	// rather than reporting the outcome the user picked.
+	Matched       bool `protobuf:"varint,1,opt,name=matched,proto3" json:"matched,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -7301,6 +7307,13 @@ func (x *RespondApprovalResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use RespondApprovalResponse.ProtoReflect.Descriptor instead.
 func (*RespondApprovalResponse) Descriptor() ([]byte, []int) {
 	return file_daemon_proto_rawDescGZIP(), []int{110}
+}
+
+func (x *RespondApprovalResponse) GetMatched() bool {
+	if x != nil {
+		return x.Matched
+	}
+	return false
 }
 
 type PortInfo_Range struct {
@@ -7977,8 +7990,9 @@ const file_daemon_proto_rawDesc = "" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x16\n" +
 	"\x06accept\x18\x02 \x01(\bR\x06accept\x12\x1b\n" +
-	"\tview_only\x18\x03 \x01(\bR\bviewOnly\"\x19\n" +
-	"\x17RespondApprovalResponse*b\n" +
+	"\tview_only\x18\x03 \x01(\bR\bviewOnly\"3\n" +
+	"\x17RespondApprovalResponse\x12\x18\n" +
+	"\amatched\x18\x01 \x01(\bR\amatched*b\n" +
 	"\bLogLevel\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\t\n" +
 	"\x05PANIC\x10\x01\x12\t\n" +

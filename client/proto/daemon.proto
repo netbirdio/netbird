@@ -1116,7 +1116,8 @@ message RespondApprovalRequest {
   // when a subsystem awaits user approval for an inbound connection.
   string request_id = 1;
   // accept is true if the user approved the request, false if they
-  // denied it. A missing or unknown request_id is treated as a no-op.
+  // denied it. An unknown request_id is not an error; the response reports
+  // it as unmatched.
   bool accept = 2;
   // view_only signals that the user granted the connection but withheld
   // input control. Only meaningful when accept is true; ignored when
@@ -1124,4 +1125,10 @@ message RespondApprovalRequest {
   bool view_only = 3;
 }
 
-message RespondApprovalResponse {}
+message RespondApprovalResponse {
+  // matched is true when request_id named a prompt that was still waiting.
+  // False means the prompt had already been answered, or had expired and the
+  // connection was denied: the click had no effect, and the UI should say so
+  // rather than reporting the outcome the user picked.
+  bool matched = 1;
+}

@@ -2112,10 +2112,11 @@ func (s *Server) RespondApproval(ctx context.Context, msg *proto.RespondApproval
 	if engine == nil {
 		return nil, gstatus.Errorf(codes.FailedPrecondition, "engine not running")
 	}
-	if !engine.RespondApproval(msg.GetRequestId(), msg.GetAccept(), msg.GetViewOnly()) {
+	matched := engine.RespondApproval(msg.GetRequestId(), msg.GetAccept(), msg.GetViewOnly())
+	if !matched {
 		log.Debugf("approval response for unknown request_id %s", msg.GetRequestId())
 	}
-	return &proto.RespondApprovalResponse{}, nil
+	return &proto.RespondApprovalResponse{Matched: matched}, nil
 }
 func (s *Server) runProbes(ctx context.Context, waitForProbeResult bool) {
 	if s.connectClient == nil {

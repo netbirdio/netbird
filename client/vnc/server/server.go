@@ -183,18 +183,23 @@ type Server struct {
 	ctx            context.Context
 	cancel         context.CancelFunc
 	vmgr           virtualSessionManager
-	// handlers counts the in-flight connection handlers so Stop can wait for
-	// them before tearing down the capturer and injector they use.
+	// handlerCount counts the in-flight connection handlers so Stop can wait
+	// for them before tearing down the capturer and injector they use, and
+	// stopping records whether admission is closed.
 	//
-	// handlersMu guards both the counter's growth and stopping. A WaitGroup
-	// forbids an Add that starts from zero while a Wait is in flight, and the
-	// accept loops run in their own goroutines, so without a barrier a
-	// connection accepted just before the listener closed could Add after Wait
-	// had already returned. It cannot be s.mu: Stop holds that for its whole
-	// body, so an accept loop taking it would deadlock against the wait.
-	handlersMu sync.Mutex
-	handlers   sync.WaitGroup
-	stopping   bool
+	// handlersMu guards all three fields. It cannot be s.mu: Stop holds that
+	// for its whole body, so an accept loop taking it would deadlock against
+	// the wait. A plain counter rather than a sync.WaitGroup because Stop gives
+	// up after handlerDrainTimeout: a handler that outlives the drain is still
+	// counted when a later Start reopens admission, and a WaitGroup panics when
+	// an Add races the Wait it left behind.
+	handlersMu   sync.Mutex
+	handlerCount int
+	stopping     bool
+	// handlersDrained is closed once handlerCount reaches zero after admission
+	// closed. Recreated by closeAdmission and dropped by Start, so each
+	// stop/start cycle waits on its own signal rather than on a stale one.
+	handlersDrained chan struct{}
 	// onVirtualProcesses forwards live virtual-session process records to the
 	// daemon for crash recovery; nil when nothing is listening.
 	onVirtualProcesses func(*ShutdownState)
@@ -488,26 +493,58 @@ func (s *Server) beginHandler() bool {
 	if s.stopping {
 		return false
 	}
-	s.handlers.Add(1)
+	s.handlerCount++
 	return true
+}
+
+// endHandler retires one in-flight connection handler.
+func (s *Server) endHandler() {
+	s.handlersMu.Lock()
+	defer s.handlersMu.Unlock()
+
+	s.handlerCount--
+	if s.handlerCount == 0 {
+		s.signalDrainedLocked()
+	}
+}
+
+// closeAdmission refuses further handlers and returns the channel that closes
+// once the handlers already in flight have finished. Stop calls it before
+// touching anything else: a connection an accept loop returns mid-shutdown
+// would otherwise miss the closeActiveSessions snapshot and still be admitted,
+// starting a session over a capturer and injector about to be torn down.
+func (s *Server) closeAdmission() <-chan struct{} {
+	s.handlersMu.Lock()
+	defer s.handlersMu.Unlock()
+
+	s.stopping = true
+	if s.handlersDrained == nil {
+		s.handlersDrained = make(chan struct{})
+	}
+	if s.handlerCount == 0 {
+		s.signalDrainedLocked()
+	}
+	return s.handlersDrained
+}
+
+// signalDrainedLocked closes the drain channel at most once. Callers hold
+// handlersMu.
+func (s *Server) signalDrainedLocked() {
+	if s.handlersDrained == nil {
+		return
+	}
+	select {
+	case <-s.handlersDrained:
+	default:
+		close(s.handlersDrained)
+	}
 }
 
 // awaitHandlers waits for the in-flight connection handlers, giving up after
 // handlerDrainTimeout so a stuck one cannot hold shutdown open.
-func (s *Server) awaitHandlers() {
-	// Closes the door before waiting: past this point beginHandler refuses, so
-	// no Add can begin while Wait is running.
-	s.handlersMu.Lock()
-	s.stopping = true
-	s.handlersMu.Unlock()
-
-	done := make(chan struct{})
-	go func() {
-		s.handlers.Wait()
-		close(done)
-	}()
+func (s *Server) awaitHandlers(drained <-chan struct{}) {
 	select {
-	case <-done:
+	case <-drained:
 	case <-time.After(handlerDrainTimeout):
 		s.log.Warnf("timed out after %s waiting for VNC connection handlers to finish", handlerDrainTimeout)
 	}
@@ -689,9 +726,11 @@ func (s *Server) Start(ctx context.Context, addr netip.AddrPort, network netip.P
 	}
 
 	// Reopen the door a previous Stop closed, so a restarted server accepts
-	// handlers again.
+	// handlers again, and drop that Stop's drain signal so the next one waits
+	// on a fresh channel rather than on one already closed.
 	s.handlersMu.Lock()
 	s.stopping = false
+	s.handlersDrained = nil
 	s.handlersMu.Unlock()
 
 	s.ctx, s.cancel = context.WithCancel(ctx)
@@ -784,6 +823,10 @@ func (s *Server) Stop() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// Before anything is closed, so no connection is admitted into a teardown
+	// already in progress.
+	drained := s.closeAdmission()
+
 	if s.cancel != nil {
 		s.cancel()
 		s.cancel = nil
@@ -821,7 +864,7 @@ func (s *Server) Stop() error {
 	// session does is release the modifiers and buttons the client left held:
 	// closing the injector first would drop those and leave the host with a
 	// stuck Shift or mouse button.
-	s.awaitHandlers()
+	s.awaitHandlers(drained)
 
 	if c, ok := s.capturer.(interface{ Close() }); ok {
 		c.Close()
@@ -877,7 +920,7 @@ func (s *Server) acceptLoop(ln net.Listener) {
 			continue
 		}
 		go func(c net.Conn) {
-			defer s.handlers.Done()
+			defer s.endHandler()
 			defer s.releaseConnSlot()
 			defer s.untrackConn(c)
 			s.handleConnection(c)

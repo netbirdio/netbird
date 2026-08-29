@@ -3,6 +3,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"image"
 	"runtime"
@@ -435,6 +436,11 @@ type frameCapturer interface {
 	close()
 }
 
+// errFrameNotReady is the capture error that means "healthy, but nothing to
+// hand out yet". The worker answers the request with it and keeps the
+// capturer, where any other error tears the capturer down and rebuilds it.
+var errFrameNotReady = errors.New("no frame captured yet")
+
 // captureWorker owns the worker goroutine's mutable state. Extracted into a
 // struct so the request/desktop/init logic can live on small methods and the
 // outer worker() stays a thin loop.
@@ -475,6 +481,11 @@ func (w *captureWorker) serveRequest(req captureReq) {
 		return
 	}
 	img, err := fc.capture()
+	if errors.Is(err, errFrameNotReady) {
+		log.Tracef("capture: %v", err)
+		req.reply <- captureReply{err: err}
+		return
+	}
 	if err != nil {
 		log.Debugf("capture: %v", err)
 		w.closeCapturer()

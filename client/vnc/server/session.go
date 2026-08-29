@@ -123,10 +123,15 @@ type session struct {
 	// compositing falls back to a no-op (capturer cannot supply a sprite
 	// or position). One line per session is enough to point at the cause.
 	cursorWarnOnce sync.Once
-	// cursorSkipOnce does the same for the Cursor pseudo-encoding path, which
-	// has several ways to decline to send a rect and used to take all of them
-	// silently.
-	cursorSkipOnce sync.Once
+	// cursorSkipMu guards cursorSkipSeen.
+	cursorSkipMu sync.Mutex
+	// cursorSkipSeen holds the cursor-skip diagnostics already emitted, so the
+	// Cursor pseudo-encoding path says each distinct reason once instead of
+	// taking all of them silently. Keyed by the formatted line rather than
+	// throttled once per session: a client can negotiate the encoding
+	// mid-session and the cursor source can start failing later, and the reason
+	// that happens to come first must not swallow the ones that follow.
+	cursorSkipSeen map[string]struct{}
 	// clientJPEGQuality and clientZlibLevel hold the 0..9 levels the client
 	// advertised via the QualityLevel / CompressLevel pseudo-encodings, or
 	// -1 when the client has not expressed a preference. Applied to the
