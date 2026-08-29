@@ -47,13 +47,13 @@ func TestPendingCursorRect_SwitchingBackToALowerSerial(t *testing.T) {
 	s := newCursorSession(src)
 
 	// The arrow, then an I-beam the X server happens to number higher.
-	require.NotNil(t, s.pendingCursorRect(), "first cursor must be sent")
+	require.NotNil(t, s.pendingCursorRect(defaultClientPixelFormat()), "first cursor must be sent")
 	src.serial = 250
-	require.NotNil(t, s.pendingCursorRect(), "a different cursor must be sent")
+	require.NotNil(t, s.pendingCursorRect(defaultClientPixelFormat()), "a different cursor must be sent")
 
 	// Back to the arrow: a lower serial, and still a real change.
 	src.serial = 100
-	assert.NotNil(t, s.pendingCursorRect(), "returning to an earlier cursor must be sent, not dropped as stale")
+	assert.NotNil(t, s.pendingCursorRect(defaultClientPixelFormat()), "returning to an earlier cursor must be sent, not dropped as stale")
 }
 
 // An unchanged serial is still the one case that must not produce a rect,
@@ -63,6 +63,6 @@ func TestPendingCursorRect_UnchangedSerialIsSkipped(t *testing.T) {
 	src := &stubCursorSource{img: sprite, serial: 7}
 	s := newCursorSession(src)
 
-	require.NotNil(t, s.pendingCursorRect())
-	assert.Nil(t, s.pendingCursorRect(), "the same cursor must not be re-sent")
+	require.NotNil(t, s.pendingCursorRect(defaultClientPixelFormat()))
+	assert.Nil(t, s.pendingCursorRect(defaultClientPixelFormat()), "the same cursor must not be re-sent")
 }
