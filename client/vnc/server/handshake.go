@@ -223,19 +223,16 @@ func (s *Server) maybeRunNoiseHandshake(conn net.Conn, magic [4]byte, headerMode
 	return peerStatic, true, true, nil
 }
 
-// verifyAgentToken validates the agent token prefix when configured and
-// reads the trailing view-only flag byte the daemon writes alongside it.
-// Returns (ok, viewOnly). ok=false closes the connection.
+// verifyAgentToken runs the agent's half of the mutual challenge-response with
+// the daemon when a token is configured, and reports the view-only flag the
+// daemon authenticated. Returns (ok, viewOnly). ok=false closes the connection.
 func (s *Server) verifyAgentToken(conn net.Conn, connLog *log.Entry) (bool, bool) {
 	if len(s.agentToken) == 0 {
 		return true, false
 	}
 	viewOnly, err := agentServerHandshake(conn, s.agentToken)
 	if err != nil {
-		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-			// Connect-then-close probes (the daemon's own readiness check
-			// among them) hit this path on every dial; logging them would
-			// just flood the daemon log without surfacing a real failure.
+		if isProbeDisconnect(err) {
 			connLog.Tracef("agent auth: %v", err)
 		} else {
 			connLog.Warnf("agent auth: %v", err)

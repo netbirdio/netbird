@@ -185,7 +185,16 @@ type Server struct {
 	vmgr           virtualSessionManager
 	// handlers counts the in-flight connection handlers so Stop can wait for
 	// them before tearing down the capturer and injector they use.
-	handlers sync.WaitGroup
+	//
+	// handlersMu guards both the counter's growth and stopping. A WaitGroup
+	// forbids an Add that starts from zero while a Wait is in flight, and the
+	// accept loops run in their own goroutines, so without a barrier a
+	// connection accepted just before the listener closed could Add after Wait
+	// had already returned. It cannot be s.mu: Stop holds that for its whole
+	// body, so an accept loop taking it would deadlock against the wait.
+	handlersMu sync.Mutex
+	handlers   sync.WaitGroup
+	stopping   bool
 	// onVirtualProcesses forwards live virtual-session process records to the
 	// daemon for crash recovery; nil when nothing is listening.
 	onVirtualProcesses func(*ShutdownState)
@@ -469,9 +478,29 @@ func (s *Server) closeActiveSessions() {
 // wedged in a syscall; shutdown must not hang on it.
 const handlerDrainTimeout = 5 * time.Second
 
+// beginHandler registers one in-flight connection handler, reporting false when
+// the server is already stopping and the caller should drop the connection
+// instead of starting one.
+func (s *Server) beginHandler() bool {
+	s.handlersMu.Lock()
+	defer s.handlersMu.Unlock()
+
+	if s.stopping {
+		return false
+	}
+	s.handlers.Add(1)
+	return true
+}
+
 // awaitHandlers waits for the in-flight connection handlers, giving up after
 // handlerDrainTimeout so a stuck one cannot hold shutdown open.
 func (s *Server) awaitHandlers() {
+	// Closes the door before waiting: past this point beginHandler refuses, so
+	// no Add can begin while Wait is running.
+	s.handlersMu.Lock()
+	s.stopping = true
+	s.handlersMu.Unlock()
+
 	done := make(chan struct{})
 	go func() {
 		s.handlers.Wait()
@@ -659,6 +688,12 @@ func (s *Server) Start(ctx context.Context, addr netip.AddrPort, network netip.P
 		return fmt.Errorf("invalid agent token configuration")
 	}
 
+	// Reopen the door a previous Stop closed, so a restarted server accepts
+	// handlers again.
+	s.handlersMu.Lock()
+	s.stopping = false
+	s.handlersMu.Unlock()
+
 	s.ctx, s.cancel = context.WithCancel(ctx)
 	s.vmgr = s.platformSessionManager()
 
@@ -835,7 +870,12 @@ func (s *Server) acceptLoop(ln net.Listener) {
 			continue
 		}
 		enableTCPKeepAlive(conn, s.log)
-		s.handlers.Add(1)
+		if !s.beginHandler() {
+			s.releaseConnSlot()
+			s.untrackConn(conn)
+			_ = conn.Close()
+			continue
+		}
 		go func(c net.Conn) {
 			defer s.handlers.Done()
 			defer s.releaseConnSlot()

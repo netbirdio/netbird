@@ -147,13 +147,33 @@ func (c *FBCapturer) CaptureInto(dst *image.RGBA) error {
 	switch c.bpp {
 	case 32:
 		// vt(4) on KMS framebuffers is BGRA: byte 0=B, 1=G, 2=R.
-		swizzleBGRAtoRGBA(dst.Pix, c.mmap[:c.h*c.stride])
+		//
+		// Row-aware, like the 24- and 16-bit paths: a padded pitch means the
+		// bytes after each row's pixels are not pixels, and a flat swizzle over
+		// h*stride would feed them to the encoder and slide every subsequent
+		// row left by the padding.
+		swizzleFB32BGRA(dst.Pix, dst.Stride, c.mmap, c.stride, c.w, c.h)
 	case 24:
 		swizzleFB24(dst.Pix, dst.Stride, c.mmap, c.stride, c.w, c.h)
 	case 16:
 		swizzleFB16RGB565(dst.Pix, dst.Stride, c.mmap, c.stride, c.w, c.h)
 	}
 	return nil
+}
+
+// swizzleFB32BGRA converts 32bpp BGRA rows into RGBA, honouring the source
+// pitch so padding between rows is skipped rather than read as pixels.
+func swizzleFB32BGRA(dst []byte, dstStride int, src []byte, srcStride, w, h int) {
+	for y := 0; y < h; y++ {
+		srcRow := src[y*srcStride : y*srcStride+w*4]
+		dstRow := dst[y*dstStride:]
+		for x := 0; x < w; x++ {
+			dstRow[x*4+0] = srcRow[x*4+2]
+			dstRow[x*4+1] = srcRow[x*4+1]
+			dstRow[x*4+2] = srcRow[x*4+0]
+			dstRow[x*4+3] = 0xff
+		}
+	}
 }
 
 // Close releases the framebuffer mmap and file descriptor. Serialized with

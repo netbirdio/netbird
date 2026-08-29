@@ -6,7 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"image"
-	"time"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/kirides/go-d3d/d3d11"
 	"github.com/kirides/go-d3d/outputduplication"
@@ -28,6 +29,9 @@ type dxgiCapturer struct {
 	outIdx int
 	width  int
 	height int
+	// gotFrame records whether img has ever held a real desktop frame. Until it
+	// does, img is all zeroes and must not be handed out.
+	gotFrame bool
 }
 
 func newDXGICapturer() (*dxgiCapturer, error) {
@@ -62,49 +66,36 @@ func newDXGICapturer() (*dxgiCapturer, error) {
 		height: h,
 	}
 
-	if err := c.grabFirstFrame(); err != nil {
-		c.close()
-		return nil, err
+	// Best effort: an idle desktop legitimately has no new frame to give, and
+	// waiting here for one would only delay a capturer that is otherwise ready.
+	// capture() declines to hand out img until a frame has actually arrived.
+	if err := c.dup.GetImage(c.img, firstFrameTimeoutMS); err == nil {
+		c.gotFrame = true
+	} else if !errors.Is(err, outputduplication.ErrNoImageYet) {
+		log.Debugf("first DXGI frame: %v", err)
 	}
 
 	return c, nil
 }
 
-// Bounds the wait for the very first frame. Each attempt blocks for
-// firstFrameAttempt, so the deadline allows a few of them.
-const (
-	firstFrameAttemptMS = 2000
-	firstFrameDeadline  = 6 * time.Second
-)
-
-// grabFirstFrame fills c.img with a real desktop frame before the capturer is
-// handed out.
-//
-// capture() deliberately tolerates ErrNoImageYet, because on an idle desktop
-// DXGI reports "nothing new" and the right answer is the frame already in hand.
-// At construction there is no such frame: accepting the timeout there would
-// publish the all-zero buffer, and every session attaching in that window would
-// be served a black screen that looks like a successful capture. Failing
-// instead lets createCapturer fall back to GDI.
-func (c *dxgiCapturer) grabFirstFrame() error {
-	deadline := time.Now().Add(firstFrameDeadline)
-	for {
-		err := c.dup.GetImage(c.img, firstFrameAttemptMS)
-		if err == nil {
-			return nil
-		}
-		if !errors.Is(err, outputduplication.ErrNoImageYet) {
-			return fmt.Errorf("acquire first desktop frame: %w", err)
-		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("no desktop frame within %s", firstFrameDeadline)
-		}
-	}
-}
+// firstFrameTimeoutMS is how long the constructor waits for an initial frame
+// before handing back a capturer that has not produced one yet.
+const firstFrameTimeoutMS = 2000
 
 func (c *dxgiCapturer) capture() (*image.RGBA, error) {
 	err := c.dup.GetImage(c.img, 100)
-	if err != nil && !errors.Is(err, outputduplication.ErrNoImageYet) {
+	switch {
+	case err == nil:
+		c.gotFrame = true
+	case !errors.Is(err, outputduplication.ErrNoImageYet):
+		return nil, err
+	case !c.gotFrame:
+		// "No new frame" is the right answer on an idle desktop, but only once
+		// there is a frame to repeat. Before that img is all zeroes, and
+		// returning it would serve a black desktop that looks like a successful
+		// capture. Reported as an error instead: the worker retries shortly and
+		// stays on DXGI, where failing the constructor would have dropped the
+		// whole session to the much slower GDI path.
 		return nil, err
 	}
 

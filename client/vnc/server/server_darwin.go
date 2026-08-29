@@ -62,7 +62,12 @@ func (s *Server) serviceAcceptLoop(ln net.Listener) {
 		enableTCPKeepAlive(conn, s.log)
 		metered := newMetricsConn(conn, s.sessionRecorder)
 		s.retrackConn(conn, metered)
-		s.handlers.Add(1)
+		if !s.beginHandler() {
+			s.releaseConnSlot()
+			s.untrackConn(metered)
+			_ = conn.Close()
+			continue
+		}
 		go func(c net.Conn) {
 			defer s.handlers.Done()
 			defer s.releaseConnSlot()

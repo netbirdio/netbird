@@ -153,17 +153,21 @@ func generateAuthToken() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-// proxyToAgent dials the per-session agent's Unix socket, validates the
-// peer's kernel-asserted uid (so the daemon never hands its per-spawn
-// token to an impostor that won the listen race), writes the raw token
-// bytes plus a single view-only flag byte, then copies bytes both ways
-// until either side closes. The token + flag prefix must precede any RFB
-// byte so the agent's verifyAgentToken can run first. Returns nil once a
-// stream is established; the caller is responsible for sending an
-// RFB-level rejection on error so the client sees a reason instead of a
-// bare timeout. authedLog receives one audit line per dispatched
-// preamble so an operator can correlate daemon→agent traffic with the
-// remote session that triggered it.
+// proxyToAgent dials the per-session agent's Unix socket, checks the peer's
+// kernel-asserted uid, runs the mutual challenge-response that proves both ends
+// hold the per-spawn token, then copies bytes both ways until either side
+// closes.
+//
+// The handshake precedes any RFB byte, and the token stays on both ends: it is
+// only ever used as an HMAC key, so a process that squatted the socket learns
+// nothing it could replay, and the daemon stops before proxying to one that
+// cannot answer. See agent_handshake.go.
+//
+// Returns nil once a stream is established; the caller is responsible for
+// sending an RFB-level rejection on error so the client sees a reason instead
+// of a bare timeout. authedLog receives one audit line per established session
+// so an operator can correlate daemon→agent traffic with the remote session
+// that triggered it.
 func proxyToAgent(ctx context.Context, client net.Conn, socketPath, authToken string, peerUID uint32, viewOnly bool, authedLog *log.Entry) error {
 	tokenBytes, err := hex.DecodeString(authToken)
 	if err != nil || len(tokenBytes) != agentTokenLen {
@@ -185,7 +189,7 @@ func proxyToAgent(ctx context.Context, client net.Conn, socketPath, authToken st
 		return fmt.Errorf("agent handshake: %w", err)
 	}
 
-	// Audit: one line per successfully-dispatched daemon→agent preamble.
+	// Audit: one line per daemon→agent session that completed the handshake.
 	// Token printed as its first 8 hex chars (enough to correlate, not
 	// enough to use). Kept at Info so the default deployment captures it.
 	tokenFp := authToken
@@ -193,7 +197,7 @@ func proxyToAgent(ctx context.Context, client net.Conn, socketPath, authToken st
 		tokenFp = tokenFp[:8]
 	}
 	if authedLog != nil {
-		authedLog.Infof("VNC IPC: dispatched preamble to agent socket=%s peer_uid=%d view_only=%v token_fp=%s", socketPath, peerUID, viewOnly, tokenFp)
+		authedLog.Infof("VNC IPC: agent authenticated socket=%s peer_uid=%d view_only=%v token_fp=%s", socketPath, peerUID, viewOnly, tokenFp)
 	}
 
 	defer client.Close()

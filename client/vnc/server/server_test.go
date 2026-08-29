@@ -297,6 +297,10 @@ func TestAgentToken_MismatchClosesConnection(t *testing.T) {
 		// never reached the greeting.
 		_ = err
 	}
+	// The handshake clears the deadline on its way out, so re-arm it: without
+	// one, a server that neither closes nor greets would hang this test until
+	// the CI timeout instead of failing here.
+	require.NoError(t, conn.SetDeadline(time.Now().Add(10*time.Second)))
 
 	// Server must close without sending the RFB greeting.
 	var version [12]byte
@@ -329,6 +333,8 @@ func TestAgentToken_MatchAllowsHandshake(t *testing.T) {
 	require.NoError(t, conn.SetDeadline(time.Now().Add(10*time.Second)))
 
 	require.NoError(t, agentClientHandshake(conn, token, false))
+	// Re-armed because the handshake clears it on the way out.
+	require.NoError(t, conn.SetDeadline(time.Now().Add(10*time.Second)))
 
 	// Send session header so handleConnection can proceed past readConnectionHeader.
 	header := make([]byte, 11) // ModeAttach + usernameLen=0 + sessionID=0 + width=0 + height=0
