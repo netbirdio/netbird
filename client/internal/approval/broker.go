@@ -82,6 +82,13 @@ var timeoutValue = func() time.Duration { return DefaultTimeout }
 // The caller must reject the underlying connection (fail-closed).
 var ErrNoSubscriber = errors.New("no UI subscriber connected for approval")
 
+// ErrPromptNotShown indicates a UI is connected but never received the prompt,
+// because its event queue was full when the prompt was published. Distinct from
+// ErrNoSubscriber so an operator can tell "nobody was listening" from "somebody
+// was listening and we could not reach them", which have different remedies.
+// Fail-closed either way.
+var ErrPromptNotShown = errors.New("approval prompt was not delivered to the UI")
+
 // ErrTimeout indicates the user did not respond within DefaultTimeout.
 var ErrTimeout = errors.New("approval timed out")
 
@@ -179,7 +186,7 @@ func (b *Broker) Request(ctx context.Context, p Prompt) (Decision, error) {
 	// than that nothing ever asked them.
 	if !b.pub.PublishEvent(proto.SystemEvent_INFO, proto.SystemEvent_APPROVAL, subject, subject, meta) {
 		log.Warnf("approval request %s (%s) reached no subscriber; denying without waiting", id, p.Kind)
-		return zero, ErrNoSubscriber
+		return zero, ErrPromptNotShown
 	}
 	log.Debugf("approval request %s (%s) emitted: %s", id, p.Kind, subject)
 

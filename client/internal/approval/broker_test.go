@@ -75,7 +75,9 @@ func TestRequestUndeliveredPromptFailsFast(t *testing.T) {
 
 	start := time.Now()
 	_, err := b.Request(context.Background(), Prompt{Kind: KindVNC, Subject: "test"})
-	assert.ErrorIs(t, err, ErrNoSubscriber)
+	assert.ErrorIs(t, err, ErrPromptNotShown)
+	assert.NotErrorIs(t, err, ErrNoSubscriber,
+		"a UI was connected; the prompt just never reached it, which is a different problem")
 	assert.Less(t, time.Since(start), time.Second, "must not wait out the approval timeout")
 
 	b.mu.Lock()

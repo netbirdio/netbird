@@ -7,9 +7,11 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"errors"
 	"fmt"
 	"io"
 	"net"
+	"syscall"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -143,6 +145,28 @@ func agentServerHandshake(conn net.Conn, token []byte) (bool, error) {
 		return false, fmt.Errorf("send response: %w", err)
 	}
 	return flag[0] != 0, nil
+}
+
+// isProbeDisconnect reports whether err is a peer that connected and left
+// without speaking.
+//
+// The daemon's own readiness check dials the agent socket and closes it
+// immediately, and it is not alone: anything probing the socket for liveness
+// does the same. Since the agent now writes its challenge first, such a probe
+// surfaces as a failed write (a reset or broken pipe) as often as a failed
+// read, and logging either at warning level would fill the daemon log with
+// entries for something entirely expected.
+func isProbeDisconnect(err error) bool {
+	switch {
+	case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
+		return true
+	case errors.Is(err, net.ErrClosed):
+		return true
+	case errors.Is(err, syscall.EPIPE), errors.Is(err, syscall.ECONNRESET):
+		return true
+	default:
+		return false
+	}
 }
 
 // viewOnlyByte renders the flag as the single byte both tags cover.
