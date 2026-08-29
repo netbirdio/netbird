@@ -440,7 +440,11 @@ func (s *session) swapPrevCur() {
 // pseudo-rect into the same message so a shape change (e.g. hovering onto
 // a resize handle) reaches the client without waiting for a dirty frame.
 func (s *session) sendEmptyUpdate() error {
-	cursorRect := s.pendingCursorRect()
+	s.encMu.RLock()
+	pf := s.pf
+	s.encMu.RUnlock()
+
+	cursorRect := s.pendingCursorRect(pf)
 	if cursorRect == nil {
 		var buf [4]byte
 		buf[0] = serverFramebufferUpdate
@@ -464,7 +468,7 @@ func (s *session) sendFullUpdate(img *image.RGBA) error {
 	zlib := s.zlib
 	s.encMu.RUnlock()
 
-	cursorRect := s.pendingCursorRect()
+	cursorRect := s.pendingCursorRect(pf)
 	rectCount := uint16(1)
 	if cursorRect != nil {
 		rectCount++
@@ -534,7 +538,14 @@ func (s *session) writeFramed(buf []byte) error {
 // their source tiles are read from the client's pre-update framebuffer state,
 // before any subsequent rect overwrites them.
 func (s *session) sendDirtyAndMoves(img *image.RGBA, moves []copyRectMove, rects [][4]int) error {
-	cursorRect := s.pendingCursorRect()
+	// One snapshot for the whole message: every tile below and the cursor rect
+	// are packed at these shifts, so a SetPixelFormat arriving mid-update
+	// cannot leave one rectangle in a different format from its neighbours.
+	s.encMu.RLock()
+	pf := s.pf
+	s.encMu.RUnlock()
+
+	cursorRect := s.pendingCursorRect(pf)
 	if len(moves) == 0 && len(rects) == 0 && cursorRect == nil {
 		return nil
 	}
@@ -570,7 +581,7 @@ func (s *session) sendDirtyAndMoves(img *image.RGBA, moves []copyRectMove, rects
 
 	for _, r := range rects {
 		x, y, w, h := r[0], r[1], r[2], r[3]
-		rectBuf := s.encodeTile(img, x, y, w, h)
+		rectBuf := s.encodeTile(img, x, y, w, h, pf)
 		if _, err := s.conn.Write(rectBuf); err != nil {
 			return err
 		}
@@ -587,9 +598,10 @@ func (s *session) sendDirtyAndMoves(img *image.RGBA, moves []copyRectMove, rects
 //
 // Output omits the 4-byte FramebufferUpdate header; callers combine multiple
 // tiles into one message.
-func (s *session) encodeTile(img *image.RGBA, x, y, w, h int) []byte {
+// pf is the caller's snapshot, so every tile of one update packs at the same
+// shifts even if the client renegotiates the format while it is being built.
+func (s *session) encodeTile(img *image.RGBA, x, y, w, h int, pf clientPixelFormat) []byte {
 	s.encMu.RLock()
-	pf := s.pf
 	useHextile := s.useHextile
 	useTight := s.useTight
 	tight := s.tight

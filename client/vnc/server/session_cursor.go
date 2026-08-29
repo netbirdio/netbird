@@ -11,13 +11,17 @@ import (
 // when the client negotiated the encoding and the platform exposes a
 // cursor source whose serial has changed since the last emission. A nil
 // return means "do not include a cursor rect in this FramebufferUpdate".
-func (s *session) pendingCursorRect() []byte {
+// pf is the format the rest of this update is being encoded in, passed in
+// rather than read again here: a SetPixelFormat landing mid-update would
+// otherwise pack the cursor at the new shifts and the framebuffer at the old
+// ones, and the client would paint a correctly coloured desktop under a cursor
+// with its channels swapped.
+func (s *session) pendingCursorRect(pf clientPixelFormat) []byte {
 	s.encMu.RLock()
 	supported := s.clientSupportsCursor
 	failed := s.cursorSourceFailed
 	composite := s.showRemoteCursor
 	lastSerial := s.lastCursorSerial
-	pf := s.pf
 	s.encMu.RUnlock()
 	if !supported || failed || composite {
 		return nil
