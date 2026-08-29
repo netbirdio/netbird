@@ -1111,8 +1111,17 @@ func ruleHasDestination(rule *PolicyRule, peerID string, peerGroupIDs map[string
 // Important: Posture checks are applicable only to source group peers,
 // for destination group peers, call this method with an empty list of sourcePostureChecksIDs
 func (a *Account) getAllPeersFromGroups(ctx context.Context, groups []string, peerID string, sourcePostureChecksIDs []string, validatedPeersMap map[string]struct{}) ([]*nbpeer.Peer, bool) {
+	return a.filterPolicyPeers(ctx, a.getUniquePeerIDsFromGroupsIDs(ctx, groups), peerID, sourcePostureChecksIDs, validatedPeersMap)
+}
+
+// getPeerFromResource resolves a rule side that names a peer directly, admitting it
+// like a member of a group holding only that peer.
+func (a *Account) getPeerFromResource(ctx context.Context, resource Resource, peerID string, sourcePostureChecksIDs []string, validatedPeersMap map[string]struct{}) ([]*nbpeer.Peer, bool) {
+	return a.filterPolicyPeers(ctx, []string{resource.ID}, peerID, sourcePostureChecksIDs, validatedPeersMap)
+}
+
+func (a *Account) filterPolicyPeers(ctx context.Context, uniquePeerIDs []string, peerID string, sourcePostureChecksIDs []string, validatedPeersMap map[string]struct{}) ([]*nbpeer.Peer, bool) {
 	peerInGroups := false
-	uniquePeerIDs := a.getUniquePeerIDsFromGroupsIDs(ctx, groups)
 	filteredPeers := make([]*nbpeer.Peer, 0, len(uniquePeerIDs))
 	for _, p := range uniquePeerIDs {
 		peer, ok := a.Peers[p]

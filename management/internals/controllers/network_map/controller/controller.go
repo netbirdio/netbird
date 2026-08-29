@@ -566,38 +566,37 @@ func NetworkMapFromData(ctx context.Context, nmData *networkmap.NetworkMapData, 
 	return nm
 }
 
-// peerPostureChecksFromData mirrors getPeerPostureChecks on the twin store. The
-// sync response only encodes process-check file paths, so only ProcessCheck is
-// converted back to the server posture type.
-func peerPostureChecksFromData(nmData *networkmap.NetworkMapData, peerID string) []*posture.Checks {
+// peerPostureChecksFromData mirrors getPeerPostureChecks on the twin store.
+func peerPostureChecksFromData(nmData *networkmap.NetworkMapData, peerID string) []*nmdata.PostureChecks {
 	if len(nmData.PostureChecks) == 0 {
 		return nil
 	}
 
-	peerPostureChecks := make(map[string]*posture.Checks)
+	peerPostureChecks := make(map[string]*nmdata.PostureChecks)
 	for _, policy := range nmData.Policies {
 		if policy == nil || !policy.Enabled || len(policy.SourcePostureChecks) == 0 {
 			continue
 		}
-		if !isPeerInPolicySourceGroupsFromData(nmData, peerID, policy) {
+		if !isPeerInPolicySourcesFromData(nmData, peerID, policy) {
 			continue
 		}
 		for _, checkID := range policy.SourcePostureChecks {
-			twin := nmData.PostureChecks[checkID]
-			if twin == nil {
-				continue
+			if twin := nmData.PostureChecks[checkID]; twin != nil {
+				peerPostureChecks[checkID] = twin
 			}
-			peerPostureChecks[checkID] = postureChecksFromTwin(twin)
 		}
 	}
 
 	return maps.Values(peerPostureChecks)
 }
 
-func isPeerInPolicySourceGroupsFromData(nmData *networkmap.NetworkMapData, peerID string, policy *nmdata.Policy) bool {
+func isPeerInPolicySourcesFromData(nmData *networkmap.NetworkMapData, peerID string, policy *nmdata.Policy) bool {
 	for _, rule := range policy.Rules {
 		if rule == nil || !rule.Enabled {
 			continue
+		}
+		if rule.SourceResource.Type == string(types.ResourceTypePeer) && rule.SourceResource.ID == peerID {
+			return true
 		}
 		for _, groupID := range rule.Sources {
 			if group := nmData.Groups[groupID]; group != nil && slices.Contains(group.Peers, peerID) {
@@ -606,18 +605,6 @@ func isPeerInPolicySourceGroupsFromData(nmData *networkmap.NetworkMapData, peerI
 		}
 	}
 	return false
-}
-
-func postureChecksFromTwin(twin *nmdata.PostureChecks) *posture.Checks {
-	checks := &posture.Checks{ID: twin.ID}
-	if twin.Checks.ProcessCheck != nil {
-		processes := make([]posture.Process, 0, len(twin.Checks.ProcessCheck.Processes))
-		for _, p := range twin.Checks.ProcessCheck.Processes {
-			processes = append(processes, posture.Process{LinuxPath: p.LinuxPath, MacPath: p.MacPath, WindowsPath: p.WindowsPath})
-		}
-		checks.Checks.ProcessCheck = &posture.ProcessCheck{Processes: processes}
-	}
-	return checks
 }
 
 func (c *Controller) perAccountOrGlobalSupportedSyncMessageVersions(accountId string) sharedgrpc.SyncMessageVersion {
@@ -967,7 +954,7 @@ func (c *Controller) BufferUpdateAccountPeers(ctx context.Context, accountID str
 // data the legacy server folds in via NetworkMap.Merge). The gRPC layer
 // encodes both into the wire envelope. Callers must gate on capability
 // themselves before dispatching here — this method does NOT branch on it.
-func (c *Controller) GetValidatedPeerWithComponents(ctx context.Context, isRequiresApproval bool, accountID string, peer *nbpeer.Peer) (*nbpeer.Peer, *types.NetworkMapComponents, *types.NetworkMap, []*posture.Checks, int64, error) {
+func (c *Controller) GetValidatedPeerWithComponents(ctx context.Context, isRequiresApproval bool, accountID string, peer *nbpeer.Peer) (*nbpeer.Peer, *types.NetworkMapComponents, *types.NetworkMap, []*nmdata.PostureChecks, int64, error) {
 	if isRequiresApproval {
 		network, err := c.repo.GetAccountNetwork(ctx, accountID)
 		if err != nil {
@@ -1032,7 +1019,7 @@ func (c *Controller) GetValidatedPeerWithComponents(ctx context.Context, isRequi
 // getValidatedPeerWithComponentsFromData is the account-free variant of
 // GetValidatedPeerWithComponents. The proxy network map fragment is omitted
 // like on the other nmdata paths.
-func (c *Controller) getValidatedPeerWithComponentsFromData(ctx context.Context, accountID string, peer *nbpeer.Peer, nmData *networkmap.NetworkMapData) (*nbpeer.Peer, *types.NetworkMapComponents, *types.NetworkMap, []*posture.Checks, int64, error) {
+func (c *Controller) getValidatedPeerWithComponentsFromData(ctx context.Context, accountID string, peer *nbpeer.Peer, nmData *networkmap.NetworkMapData) (*nbpeer.Peer, *types.NetworkMapComponents, *types.NetworkMap, []*nmdata.PostureChecks, int64, error) {
 	postureChecks := peerPostureChecksFromData(nmData, peer.ID)
 
 	dnsDomain := c.getDNSDomainFromData(nmData.AccountSettings)
@@ -1142,7 +1129,7 @@ func (b *bufferAffectedUpdate) setTimer(d time.Duration, f func()) {
 	b.next.Reset(d)
 }
 
-func (c *Controller) GetValidatedPeerWithMap(ctx context.Context, isRequiresApproval bool, accountID string, peerID string) (*types.NetworkMap, []*posture.Checks, int64, error) {
+func (c *Controller) GetValidatedPeerWithMap(ctx context.Context, isRequiresApproval bool, accountID string, peerID string) (*types.NetworkMap, []*nmdata.PostureChecks, int64, error) {
 	if isRequiresApproval {
 		network, err := c.repo.GetAccountNetwork(ctx, accountID)
 		if err != nil {
@@ -1209,7 +1196,7 @@ func (c *Controller) GetValidatedPeerWithMap(ctx context.Context, isRequiresAppr
 // getValidatedPeerWithMapFromData is the account-free variant of
 // GetValidatedPeerWithMap. The proxy network map fragment is omitted like on
 // the other nmdata paths.
-func (c *Controller) getValidatedPeerWithMapFromData(ctx context.Context, accountID string, peerID string, nmData *networkmap.NetworkMapData) (*types.NetworkMap, []*posture.Checks, int64, error) {
+func (c *Controller) getValidatedPeerWithMapFromData(ctx context.Context, accountID string, peerID string, nmData *networkmap.NetworkMapData) (*types.NetworkMap, []*nmdata.PostureChecks, int64, error) {
 	postureChecks := peerPostureChecksFromData(nmData, peerID)
 
 	dnsDomain := c.getDNSDomainFromData(nmData.AccountSettings)
@@ -1234,7 +1221,7 @@ func (c *Controller) GetDNSDomain(settings *types.Settings) string {
 }
 
 // getPeerPostureChecks returns the posture checks applied for a given peer.
-func (c *Controller) getPeerPostureChecks(account *types.Account, peerID string) ([]*posture.Checks, error) {
+func (c *Controller) getPeerPostureChecks(account *types.Account, peerID string) ([]*nmdata.PostureChecks, error) {
 	peerPostureChecks := make(map[string]*posture.Checks)
 
 	if len(account.PostureChecks) == 0 {
@@ -1251,7 +1238,7 @@ func (c *Controller) getPeerPostureChecks(account *types.Account, peerID string)
 		}
 	}
 
-	return maps.Values(peerPostureChecks), nil
+	return types.TwinPostureChecksList(maps.Values(peerPostureChecks)), nil
 }
 
 func (c *Controller) StartWarmup(ctx context.Context) {
@@ -1330,7 +1317,7 @@ func computeForwarderPortFromVersions(wtVersions []string, requiredVersion strin
 
 // addPolicyPostureChecks adds posture checks from a policy to the peer posture checks map if the peer is in the policy's source groups.
 func addPolicyPostureChecks(account *types.Account, peerID string, policy *types.Policy, peerPostureChecks map[string]*posture.Checks) error {
-	isInGroup, err := isPeerInPolicySourceGroups(account, peerID, policy)
+	isInGroup, err := isPeerInPolicySources(account, peerID, policy)
 	if err != nil {
 		return err
 	}
@@ -1350,11 +1337,15 @@ func addPolicyPostureChecks(account *types.Account, peerID string, policy *types
 	return nil
 }
 
-// isPeerInPolicySourceGroups checks if a peer is present in any of the policy rule source groups.
-func isPeerInPolicySourceGroups(account *types.Account, peerID string, policy *types.Policy) (bool, error) {
+// isPeerInPolicySources checks if a peer is a source of the policy, directly or through a source group.
+func isPeerInPolicySources(account *types.Account, peerID string, policy *types.Policy) (bool, error) {
 	for _, rule := range policy.Rules {
 		if !rule.Enabled {
 			continue
+		}
+
+		if rule.SourceResource.Type == types.ResourceTypePeer && rule.SourceResource.ID == peerID {
+			return true, nil
 		}
 
 		for _, sourceGroup := range rule.Sources {
