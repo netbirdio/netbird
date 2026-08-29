@@ -65,14 +65,31 @@ func detectX11Display() {
 		return
 	}
 
-	// Try /proc first (Linux), then ps fallback (FreeBSD and others).
-	if detectX11FromProc() {
+	// Try /proc first (Linux), then the socket scan (FreeBSD and others).
+	switch detectX11FromProc() {
+	case x11Detected:
 		return
-	}
-	if detectX11FromSockets() {
+	case x11Ambiguous:
+		// /proc listed X servers and none of them could be shown to be the one
+		// on the console. Falling through to the socket scan would only make
+		// the same guess with less information, so stop here: no capture at all
+		// beats capturing a session that may not be the caller's.
 		return
+	case x11NotFound:
 	}
+	detectX11FromSockets()
 }
+
+// x11Detection is the outcome of one display-detection pass. Ambiguous is
+// deliberately distinct from NotFound: it means candidates existed and were
+// refused, which must not be retried by a less discriminating fallback.
+type x11Detection int
+
+const (
+	x11NotFound x11Detection = iota
+	x11Detected
+	x11Ambiguous
+)
 
 // xorgCandidate is one X server found in /proc, with the pieces that decide
 // whether it is the one a remote user should be attached to.
@@ -94,10 +111,10 @@ type xorgCandidate struct {
 // delivering the remote user's input to it. /sys/class/tty/tty0/active names the
 // session actually on the console and X records its own VT in argv, so the two
 // can be matched.
-func detectX11FromProc() bool {
+func detectX11FromProc() x11Detection {
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
-		return false
+		return x11NotFound
 	}
 
 	var candidates []xorgCandidate
@@ -117,40 +134,69 @@ func detectX11FromProc() bool {
 		candidates = append(candidates, xorgCandidate{display: display, auth: auth, vt: parseXorgVT(args)})
 	}
 
-	best, ok := pickXorgCandidate(candidates, activeVT())
-	if !ok {
-		return false
+	best, outcome := pickXorgCandidate(candidates, activeVT())
+	if outcome != x11Detected {
+		return outcome
 	}
 	setDisplayEnv(best.display, best.auth)
-	return true
+	return x11Detected
 }
 
-// pickXorgCandidate chooses which X server to attach to: the one on the active
-// VT when that is known, and otherwise the lowest display number, so the choice
-// is at least stable across runs instead of following readdir order.
-func pickXorgCandidate(candidates []xorgCandidate, activeVT int) (xorgCandidate, bool) {
+// pickXorgCandidate chooses which X server to attach to.
+//
+// The one on the active VT wins outright. Failing that the choice has to be
+// unambiguous, because guessing wrong means handing a remote user another local
+// user's screen and keyboard: a single candidate is taken, and anything else is
+// refused. The lowest display number only breaks ties among servers that all
+// record no VT, where there is no active-session signal to go on at all.
+func pickXorgCandidate(candidates []xorgCandidate, activeVT int) (xorgCandidate, x11Detection) {
 	if len(candidates) == 0 {
-		return xorgCandidate{}, false
+		return xorgCandidate{}, x11NotFound
 	}
 	if activeVT > 0 {
 		for _, c := range candidates {
 			if c.vt == activeVT {
-				return c, true
+				return c, x11Detected
 			}
 		}
 	}
+	if len(candidates) == 1 {
+		return candidates[0], x11Detected
+	}
 
-	best := candidates[0]
-	for _, c := range candidates[1:] {
+	// Several servers and no way to tell which is on the console. One that
+	// records a VT is on some seat other than the active one, so it is a
+	// session this connection has no business showing.
+	var vtless []xorgCandidate
+	for _, c := range candidates {
+		if c.vt < 0 {
+			vtless = append(vtless, c)
+		}
+	}
+	if len(vtless) == 0 {
+		log.Warnf("found %d X servers, all on virtual terminals and none of them the active one (%s); not attaching to any",
+			len(candidates), describeActiveVT(activeVT))
+		return xorgCandidate{}, x11Ambiguous
+	}
+
+	best := vtless[0]
+	for _, c := range vtless[1:] {
 		if displayNumber(c.display) < displayNumber(best.display) {
 			best = c
 		}
 	}
-	if len(candidates) > 1 {
-		log.Warnf("found %d X servers and none on the active VT (%d); attaching to DISPLAY=%s",
-			len(candidates), activeVT, best.display)
+	log.Warnf("found %d X servers and none on the active VT (%s); attaching to the lowest VT-less display %s",
+		len(candidates), describeActiveVT(activeVT), best.display)
+	return best, x11Detected
+}
+
+// describeActiveVT renders the active VT for a log line, keeping "we could not
+// read it" distinct from a VT number that simply matched nothing.
+func describeActiveVT(vt int) string {
+	if vt <= 0 {
+		return "unknown"
 	}
-	return best, true
+	return "tty" + strconv.Itoa(vt)
 }
 
 // activeVT reports the virtual terminal currently on the console, or -1 when

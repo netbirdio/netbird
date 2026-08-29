@@ -38,11 +38,12 @@ func (a *Approval) Respond(ctx context.Context, requestID string, accept, viewOn
 		return err
 	}
 	if !resp.GetMatched() {
-		// Not an error to the caller: the dialog closes either way, and the
-		// connection has already been denied by the broker's timeout. Logged so
-		// a report of "I clicked accept and it still disconnected" has a record
-		// showing the click landed after the prompt had expired.
-		log.Infof("approval %s was no longer pending; the daemon had already answered it", requestID)
+		// Not an error to the caller: the dialog closes either way. The daemon
+		// does not say which of "already answered", "expired" or "never known"
+		// applies, so neither does this line; it exists so a report of "I
+		// clicked and nothing happened" has a record that the click reached a
+		// prompt that was no longer waiting.
+		log.Infof("approval %s was no longer pending; this response changed nothing", requestID)
 	}
 	return nil
 }

@@ -128,19 +128,27 @@ type Decision struct {
 	ViewOnly bool
 }
 
+// pendingRequest is one in-flight prompt. resolved records that somebody has
+// already claimed it, so the user's decision and the caller giving up race for
+// the same entry under Broker.mu and exactly one of them wins.
+type pendingRequest struct {
+	resp     chan Decision
+	resolved bool
+}
+
 // Broker holds in-flight approval requests keyed by request ID.
 type Broker struct {
 	pub EventPublisher
 
 	mu      sync.Mutex
-	pending map[string]chan Decision
+	pending map[string]*pendingRequest
 }
 
 // New returns a broker that publishes prompts via pub.
 func New(pub EventPublisher) *Broker {
 	return &Broker{
 		pub:     pub,
-		pending: make(map[string]chan Decision),
+		pending: make(map[string]*pendingRequest),
 	}
 }
 
@@ -161,7 +169,7 @@ func (b *Broker) Request(ctx context.Context, p Prompt) (Decision, error) {
 	resp := make(chan Decision, 1)
 
 	b.mu.Lock()
-	b.pending[id] = resp
+	b.pending[id] = &pendingRequest{resp: resp}
 	b.mu.Unlock()
 
 	defer b.dropPending(id)
@@ -195,15 +203,59 @@ func (b *Broker) Request(ctx context.Context, p Prompt) (Decision, error) {
 
 	select {
 	case d := <-resp:
-		if !d.Accept {
-			return zero, ErrDenied
-		}
-		return d, nil
+		return decisionResult(d)
 	case <-timer.C:
+		if d, answered := b.giveUp(id, resp); answered {
+			return decisionResult(d)
+		}
 		return zero, ErrTimeout
 	case <-ctx.Done():
+		if d, answered := b.giveUp(id, resp); answered {
+			return decisionResult(d)
+		}
 		return zero, ctx.Err()
 	}
+}
+
+// giveUp abandons the request and reports whether the user's decision landed
+// first, in which case it is returned and must be honoured.
+//
+// Respond and this path claim the same entry under the same lock, so exactly
+// one of them wins. Without that claim, a click arriving as the timer fires
+// would be told it matched a live prompt while this caller had already denied
+// the connection: the user would see their accept confirmed and the session
+// dropped anyway.
+func (b *Broker) giveUp(id string, resp <-chan Decision) (Decision, bool) {
+	if b.claim(id) {
+		return Decision{}, false
+	}
+	// Respond claimed the entry and sent while still holding the lock, so the
+	// decision is already buffered and this receive cannot block.
+	return <-resp, true
+}
+
+// claim marks the request resolved so nothing else can take it, reporting
+// whether the caller got there first. Callers must not already hold b.mu.
+func (b *Broker) claim(id string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	p, ok := b.pending[id]
+	if !ok || p.resolved {
+		return false
+	}
+	p.resolved = true
+	delete(b.pending, id)
+	return true
+}
+
+// decisionResult maps a decision the user actually made onto the Request
+// contract: a deny is an error, an accept carries the view-only flag back.
+func decisionResult(d Decision) (Decision, error) {
+	if !d.Accept {
+		return Decision{}, ErrDenied
+	}
+	return d, nil
 }
 
 // Respond delivers the user's decision for id. Returns true when a pending
@@ -213,18 +265,18 @@ func (b *Broker) Respond(id string, d Decision) bool {
 		return false
 	}
 	b.mu.Lock()
-	ch, ok := b.pending[id]
-	if ok {
-		delete(b.pending, id)
-	}
-	b.mu.Unlock()
-	if !ok {
+	defer b.mu.Unlock()
+
+	p, ok := b.pending[id]
+	if !ok || p.resolved {
 		return false
 	}
-	select {
-	case ch <- d:
-	default:
-	}
+	p.resolved = true
+	delete(b.pending, id)
+	// The channel is buffered and claimed exactly once, so this never blocks.
+	// Sent under the lock so a Request that loses the claim race finds the
+	// decision already waiting instead of racing this send.
+	p.resp <- d
 	return true
 }
 
