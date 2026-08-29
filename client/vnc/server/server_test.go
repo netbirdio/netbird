@@ -3,6 +3,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/hex"
@@ -290,9 +291,10 @@ func TestAgentToken_MismatchClosesConnection(t *testing.T) {
 	defer conn.Close()
 	require.NoError(t, conn.SetDeadline(time.Now().Add(10*time.Second)))
 
-	// Send a wrong token of the right length (8 bytes hex-decoded).
-	if _, err := conn.Write([]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}); err != nil {
-		// Server may already have closed; either way the read below must EOF.
+	// Answer the agent's challenge with a tag derived from the wrong token.
+	if err := agentClientHandshake(conn, bytes.Repeat([]byte{0xff}, agentTokenLen), false); err != nil {
+		// Expected: the server rejects and closes. The read below confirms it
+		// never reached the greeting.
 		_ = err
 	}
 
@@ -326,8 +328,7 @@ func TestAgentToken_MatchAllowsHandshake(t *testing.T) {
 	defer conn.Close()
 	require.NoError(t, conn.SetDeadline(time.Now().Add(10*time.Second)))
 
-	_, err = conn.Write(token)
-	require.NoError(t, err)
+	require.NoError(t, agentClientHandshake(conn, token, false))
 
 	// Send session header so handleConnection can proceed past readConnectionHeader.
 	header := make([]byte, 11) // ModeAttach + usernameLen=0 + sessionID=0 + width=0 + height=0

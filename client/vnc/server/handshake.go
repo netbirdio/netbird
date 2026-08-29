@@ -4,7 +4,6 @@ package server
 
 import (
 	"bytes"
-	"crypto/subtle"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
@@ -231,33 +230,20 @@ func (s *Server) verifyAgentToken(conn net.Conn, connLog *log.Entry) (bool, bool
 	if len(s.agentToken) == 0 {
 		return true, false
 	}
-	buf := make([]byte, len(s.agentToken)+1)
-	if err := conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
-		connLog.Debugf("set agent token deadline: %v", err)
-		conn.Close()
-		return false, false
-	}
-	if _, err := io.ReadFull(conn, buf); err != nil {
+	viewOnly, err := agentServerHandshake(conn, s.agentToken)
+	if err != nil {
 		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-			// Connect-then-close probes (port liveness checks) hit this
-			// path on every dial; logging them would just flood the
-			// daemon log without surfacing a real failure.
-			connLog.Tracef("agent auth: read preamble: %v", err)
+			// Connect-then-close probes (the daemon's own readiness check
+			// among them) hit this path on every dial; logging them would
+			// just flood the daemon log without surfacing a real failure.
+			connLog.Tracef("agent auth: %v", err)
 		} else {
-			connLog.Warnf("agent auth: read preamble: %v", err)
+			connLog.Warnf("agent auth: %v", err)
 		}
 		conn.Close()
 		return false, false
 	}
-	if err := conn.SetReadDeadline(time.Time{}); err != nil {
-		connLog.Debugf("clear agent token deadline: %v", err)
-	}
-	if subtle.ConstantTimeCompare(buf[:len(s.agentToken)], s.agentToken) != 1 {
-		connLog.Warn("agent auth: invalid token, rejecting")
-		conn.Close()
-		return false, false
-	}
-	return true, buf[len(s.agentToken)] != 0
+	return true, viewOnly
 }
 
 // authorizeSession runs the Noise_IK handshake when auth is enabled.

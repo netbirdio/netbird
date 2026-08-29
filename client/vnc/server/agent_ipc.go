@@ -118,9 +118,6 @@ func (s *Server) handleServiceConnection(conn net.Conn, sa sessionAgent) {
 }
 
 const (
-	// agentTokenLen is the size of the random per-spawn token in bytes.
-	agentTokenLen = 32
-
 	// agentTokenEnvVar names the environment variable the daemon uses to
 	// hand the per-spawn token to the agent child. Out-of-band channels
 	// like this keep the secret out of the command line, where listings
@@ -172,14 +169,9 @@ func proxyToAgent(ctx context.Context, client net.Conn, socketPath, authToken st
 		return fmt.Errorf("agent peer validation failed: %w", err)
 	}
 
-	preamble := make([]byte, len(tokenBytes)+1)
-	copy(preamble, tokenBytes)
-	if viewOnly {
-		preamble[len(tokenBytes)] = 1
-	}
-	if _, err := agentConn.Write(preamble); err != nil {
+	if err := agentClientHandshake(agentConn, tokenBytes, viewOnly); err != nil {
 		_ = agentConn.Close()
-		return fmt.Errorf("send auth preamble to agent: %w", err)
+		return fmt.Errorf("agent handshake: %w", err)
 	}
 
 	// Audit: one line per successfully-dispatched daemon→agent preamble.

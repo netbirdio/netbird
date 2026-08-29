@@ -208,7 +208,24 @@ func ensureAgentSocketParent(parent string) error {
 	if st, ok := info.Sys().(*syscall.Stat_t); ok && st.Uid != 0 {
 		return fmt.Errorf("%s not owned by root (uid=%d)", parent, st.Uid)
 	}
+	if writableByOthers(info.Mode()) {
+		return fmt.Errorf("%s is writable beyond its owner (mode %#o) and not sticky", parent, info.Mode().Perm())
+	}
 	return nil
+}
+
+// writableByOthers reports whether mode lets anyone but the owner create
+// entries in a directory.
+//
+// Root ownership alone is not enough for the agent's runtime parent: a
+// root-owned directory that group or other may write to lets an unprivileged
+// process create vnc-<uid> in the window between the stale-subdir check and the
+// Mkdir that follows, and the daemon would then hand its per-spawn token to
+// whatever is listening there. The sticky bit closes that, since only an
+// entry's owner may replace it, so a /tmp-style parent stays acceptable.
+func writableByOthers(mode os.FileMode) bool {
+	const groupOtherWrite = 0o022
+	return mode.Perm()&groupOtherWrite != 0 && mode&os.ModeSticky == 0
 }
 
 // purgeStaleAgentSubdir removes a leftover subdir unless it is a real dir
