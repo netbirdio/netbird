@@ -5,6 +5,7 @@ package server
 import (
 	"fmt"
 	"image"
+	"math"
 	"os"
 	"os/exec"
 	"strconv"
@@ -73,12 +74,33 @@ func detectX11Display() {
 	}
 }
 
-// detectX11FromProc scans /proc/*/cmdline for Xorg (Linux).
+// xorgCandidate is one X server found in /proc, with the pieces that decide
+// whether it is the one a remote user should be attached to.
+type xorgCandidate struct {
+	display string
+	auth    string
+	// vt is the virtual terminal the server was started on, or -1 when it
+	// records none (Xvfb, Xwayland, a nested server).
+	vt int
+}
+
+// detectX11FromProc scans /proc/*/cmdline for X servers (Linux) and attaches to
+// the one on the active virtual terminal.
+//
+// A host can be running several at once: multi-seat, a fast-user-switch that
+// left the previous session's server up, an Xvfb next to the real one. Taking
+// whichever /proc entry readdir happened to return first would attach the VNC
+// session to an arbitrary one of those, showing that user's screen and
+// delivering the remote user's input to it. /sys/class/tty/tty0/active names the
+// session actually on the console and X records its own VT in argv, so the two
+// can be matched.
 func detectX11FromProc() bool {
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
 		return false
 	}
+
+	var candidates []xorgCandidate
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue
@@ -87,12 +109,91 @@ func detectX11FromProc() bool {
 		if err != nil {
 			continue
 		}
-		if display, auth := parseXorgArgs(splitCmdline(cmdline)); display != "" {
-			setDisplayEnv(display, auth)
-			return true
+		args := splitCmdline(cmdline)
+		display, auth := parseXorgArgs(args)
+		if display == "" {
+			continue
+		}
+		candidates = append(candidates, xorgCandidate{display: display, auth: auth, vt: parseXorgVT(args)})
+	}
+
+	best, ok := pickXorgCandidate(candidates, activeVT())
+	if !ok {
+		return false
+	}
+	setDisplayEnv(best.display, best.auth)
+	return true
+}
+
+// pickXorgCandidate chooses which X server to attach to: the one on the active
+// VT when that is known, and otherwise the lowest display number, so the choice
+// is at least stable across runs instead of following readdir order.
+func pickXorgCandidate(candidates []xorgCandidate, activeVT int) (xorgCandidate, bool) {
+	if len(candidates) == 0 {
+		return xorgCandidate{}, false
+	}
+	if activeVT > 0 {
+		for _, c := range candidates {
+			if c.vt == activeVT {
+				return c, true
+			}
 		}
 	}
-	return false
+
+	best := candidates[0]
+	for _, c := range candidates[1:] {
+		if displayNumber(c.display) < displayNumber(best.display) {
+			best = c
+		}
+	}
+	if len(candidates) > 1 {
+		log.Warnf("found %d X servers and none on the active VT (%d); attaching to DISPLAY=%s",
+			len(candidates), activeVT, best.display)
+	}
+	return best, true
+}
+
+// activeVT reports the virtual terminal currently on the console, or -1 when
+// that cannot be read (no sysfs, a seat with no VT, FreeBSD).
+func activeVT() int {
+	data, err := os.ReadFile("/sys/class/tty/tty0/active")
+	if err != nil {
+		return -1
+	}
+	n, err := strconv.Atoi(strings.TrimPrefix(strings.TrimSpace(string(data)), "tty"))
+	if err != nil {
+		return -1
+	}
+	return n
+}
+
+// parseXorgVT extracts the VT from an X server's argv, which spells it as a
+// bare "vt7" token. Returns -1 when the server records none.
+func parseXorgVT(args []string) int {
+	for _, arg := range args {
+		if !strings.HasPrefix(arg, "vt") {
+			continue
+		}
+		if n, err := strconv.Atoi(arg[len("vt"):]); err == nil {
+			return n
+		}
+	}
+	return -1
+}
+
+// displayNumber extracts the screen-less display number from a DISPLAY value
+// (":1" or ":1.0"). An unparseable value sorts last so it is only picked when
+// nothing else is on offer.
+func displayNumber(display string) int {
+	s := strings.TrimPrefix(display, ":")
+	if dot := strings.IndexByte(s, '.'); dot >= 0 {
+		s = s[:dot]
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return math.MaxInt
+	}
+	return n
 }
 
 // detectX11FromSockets checks /tmp/.X11-unix/ for X sockets and uses ps

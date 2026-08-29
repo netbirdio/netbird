@@ -577,3 +577,70 @@ func TestGateApproval_PassesPubKeyHex(t *testing.T) {
 	assert.True(t, allowed)
 	assert.Equal(t, hex.EncodeToString(pub), app.lastIn.PeerPubKey)
 }
+
+// TestCloseAdmission_RefusesAndDrains covers the shutdown barrier: once
+// admission is closed no further handler may start, and the drain signal fires
+// only after the ones already counted have finished.
+func TestCloseAdmission_RefusesAndDrains(t *testing.T) {
+	srv := &Server{log: log.WithField("test", t.Name())}
+
+	require.True(t, srv.beginHandler(), "a fresh server must admit handlers")
+	require.True(t, srv.beginHandler())
+
+	drained := srv.closeAdmission()
+	assert.False(t, srv.beginHandler(), "admission must be closed after closeAdmission")
+
+	srv.endHandler()
+	select {
+	case <-drained:
+		t.Fatal("drained before the last handler finished")
+	default:
+	}
+
+	srv.endHandler()
+	select {
+	case <-drained:
+	case <-time.After(time.Second):
+		t.Fatal("drain signal never fired")
+	}
+}
+
+// TestCloseAdmission_HandlerOutlivingDrain reproduces the restart hazard: Stop
+// gives up after handlerDrainTimeout, so a handler can still be running when a
+// later Start reopens admission. The counter must survive that (a sync.WaitGroup
+// panics on an Add racing the Wait it left behind), and the next Stop must wait
+// for both the straggler and the handlers admitted after the restart.
+func TestCloseAdmission_HandlerOutlivingDrain(t *testing.T) {
+	srv := &Server{log: log.WithField("test", t.Name())}
+
+	require.True(t, srv.beginHandler())
+	firstDrain := srv.closeAdmission()
+	select {
+	case <-firstDrain:
+		t.Fatal("drained while a handler was still in flight")
+	default:
+	}
+
+	// What Start does after a drain that timed out.
+	srv.handlersMu.Lock()
+	srv.stopping = false
+	srv.handlersDrained = nil
+	srv.handlersMu.Unlock()
+
+	require.True(t, srv.beginHandler(), "a restarted server must admit handlers again")
+
+	secondDrain := srv.closeAdmission()
+	srv.endHandler() // the straggler from before the restart
+	select {
+	case <-secondDrain:
+		t.Fatal("drained before the post-restart handler finished")
+	default:
+	}
+
+	srv.endHandler()
+	select {
+	case <-secondDrain:
+	case <-time.After(time.Second):
+		t.Fatal("drain signal never fired after restart")
+	}
+}

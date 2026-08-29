@@ -65,11 +65,13 @@ func (s *Server) serviceAcceptLoop(ln net.Listener) {
 		if !s.beginHandler() {
 			s.releaseConnSlot()
 			s.untrackConn(metered)
-			_ = conn.Close()
+			// The wrapper, not the raw conn: newMetricsConn has already
+			// started a sampling goroutine that only its own Close stops.
+			_ = metered.Close()
 			continue
 		}
 		go func(c net.Conn) {
-			defer s.handlers.Done()
+			defer s.endHandler()
 			defer s.releaseConnSlot()
 			defer s.untrackConn(c)
 			s.handleServiceConnection(c, mgr)

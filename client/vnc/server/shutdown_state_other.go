@@ -41,9 +41,3 @@ func (s *ShutdownState) Cleanup() error {
 // sessionProcess is the placeholder identity these platforms record, which is
 // to say none.
 type sessionProcess struct{}
-
-// describeProcess records nothing: without a way to tell a reused PID from the
-// original, a record would only invite an unsafe kill later.
-func describeProcess(_ int) sessionProcess {
-	return sessionProcess{}
-}

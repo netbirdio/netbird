@@ -5,6 +5,8 @@ package services
 import (
 	"context"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/client/proto"
 )
 
@@ -27,10 +29,20 @@ func (a *Approval) Respond(ctx context.Context, requestID string, accept, viewOn
 	if err != nil {
 		return err
 	}
-	_, err = cli.RespondApproval(ctx, &proto.RespondApprovalRequest{
+	resp, err := cli.RespondApproval(ctx, &proto.RespondApprovalRequest{
 		RequestId: requestID,
 		Accept:    accept,
 		ViewOnly:  viewOnly,
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	if !resp.GetMatched() {
+		// Not an error to the caller: the dialog closes either way, and the
+		// connection has already been denied by the broker's timeout. Logged so
+		// a report of "I clicked accept and it still disconnected" has a record
+		// showing the click landed after the prompt had expired.
+		log.Infof("approval %s was no longer pending; the daemon had already answered it", requestID)
+	}
+	return nil
 }
