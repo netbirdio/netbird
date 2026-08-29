@@ -37,7 +37,9 @@ func noiseTestServer(t *testing.T) (net.Addr, *Server, []byte) {
 	addr := netip.MustParseAddrPort("127.0.0.1:0")
 	network := netip.MustParsePrefix("127.0.0.0/8")
 	require.NoError(t, srv.Start(t.Context(), addr, network))
-	srv.localAddr = netip.MustParseAddr("10.99.99.1")
+	// No local-address override: isAllowedSource short-circuits on
+	// loopback-to-loopback before the own-IP check, and writing srv.localAddr
+	// here would race the accept loop Start has already spawned.
 	t.Cleanup(func() { _ = srv.Stop() })
 
 	return srv.listener.Addr(), srv, kp.Public
@@ -365,7 +367,9 @@ func TestNoise_NoIdentityKey_FailsClosed(t *testing.T) {
 	addr := netip.MustParseAddrPort("127.0.0.1:0")
 	network := netip.MustParsePrefix("127.0.0.0/8")
 	require.NoError(t, srv.Start(t.Context(), addr, network))
-	srv.localAddr = netip.MustParseAddr("10.99.99.1")
+	// No local-address override: isAllowedSource short-circuits on
+	// loopback-to-loopback before the own-IP check, and writing srv.localAddr
+	// here would race the accept loop Start has already spawned.
 	t.Cleanup(func() { _ = srv.Stop() })
 
 	clientKey, err := noise.DH25519.GenerateKeypair(nil)

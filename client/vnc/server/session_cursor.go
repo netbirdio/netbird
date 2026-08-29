@@ -17,6 +17,7 @@ func (s *session) pendingCursorRect() []byte {
 	failed := s.cursorSourceFailed
 	composite := s.showRemoteCursor
 	lastSerial := s.lastCursorSerial
+	pf := s.pf
 	s.encMu.RUnlock()
 	if !supported || failed || composite {
 		return nil
@@ -36,7 +37,7 @@ func (s *session) pendingCursorRect() []byte {
 	if img == nil || serial == lastSerial {
 		return nil
 	}
-	buf := encodeCursorPseudoRect(img, hotX, hotY)
+	buf := encodeCursorPseudoRect(img, hotX, hotY, pf)
 	if buf == nil {
 		return nil
 	}
@@ -70,11 +71,12 @@ const maxCursorDim = 256
 
 // encodeCursorPseudoRect packs the cursor sprite into a Cursor pseudo
 // rectangle (RFB 7.7.4, pseudo-encoding -239). Layout: 12-byte rect header
-// followed by w*h*4 BGRX pixel bytes and a 1-bit mask of (w+7)/8 bytes per
-// row, MSB-first, with each row independently padded. Returns nil when
+// followed by w*h*4 pixel bytes at pf's negotiated channel shifts, then a
+// 1-bit mask of (w+7)/8 bytes per row, MSB-first, with each row independently
+// padded. Returns nil when
 // the source image's dimensions are non-positive or exceed maxCursorDim;
 // callers treat nil as "skip the cursor rect this frame."
-func encodeCursorPseudoRect(img *image.RGBA, hotX, hotY int) []byte {
+func encodeCursorPseudoRect(img *image.RGBA, hotX, hotY int, pf clientPixelFormat) []byte {
 	if img == nil {
 		return nil
 	}
@@ -104,6 +106,11 @@ func encodeCursorPseudoRect(img *image.RGBA, hotX, hotY int) []byte {
 	mask := buf[12+pixelBytes:]
 	src := img.Pix
 	stride := img.Stride
+	// Packed at the negotiated shifts, the same way writePixels packs the
+	// framebuffer. Hard-coding BGRX here would leave a client that asked for
+	// another channel order with a correctly coloured desktop and a cursor
+	// with its red and blue swapped.
+	rShift, gShift, bShift := pf.rShift, pf.gShift, pf.bShift
 	for y := 0; y < h; y++ {
 		row := y * stride
 		dstRow := y * w * 4
@@ -113,11 +120,8 @@ func encodeCursorPseudoRect(img *image.RGBA, hotX, hotY int) []byte {
 			g := src[row+x*4+1]
 			b := src[row+x*4+2]
 			a := src[row+x*4+3]
-			off := dstRow + x*4
-			pix[off+0] = b
-			pix[off+1] = g
-			pix[off+2] = r
-			pix[off+3] = 0
+			pixel := (uint32(r) << rShift) | (uint32(g) << gShift) | (uint32(b) << bShift)
+			binary.LittleEndian.PutUint32(pix[dstRow+x*4:dstRow+x*4+4], pixel)
 			if a >= 0x80 {
 				mask[maskRow+x/8] |= 0x80 >> (x % 8)
 			}

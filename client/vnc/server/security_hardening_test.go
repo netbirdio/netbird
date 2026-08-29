@@ -114,18 +114,18 @@ func TestAppendTightLengthClampsInsteadOfPanicking(t *testing.T) {
 func TestEncodeCursorPseudoRectCapsDimensions(t *testing.T) {
 	t.Run("oversized_rejected", func(t *testing.T) {
 		img := image.NewRGBA(image.Rect(0, 0, maxCursorDim+1, 1))
-		if buf := encodeCursorPseudoRect(img, 0, 0); buf != nil {
+		if buf := encodeCursorPseudoRect(img, 0, 0, defaultClientPixelFormat()); buf != nil {
 			t.Fatalf("expected nil for oversized cursor, got %d bytes", len(buf))
 		}
 	})
 	t.Run("nil_rejected", func(t *testing.T) {
-		if buf := encodeCursorPseudoRect(nil, 0, 0); buf != nil {
+		if buf := encodeCursorPseudoRect(nil, 0, 0, defaultClientPixelFormat()); buf != nil {
 			t.Fatal("expected nil for nil image")
 		}
 	})
 	t.Run("zero_dims_rejected", func(t *testing.T) {
 		img := image.NewRGBA(image.Rect(0, 0, 0, 0))
-		if buf := encodeCursorPseudoRect(img, 0, 0); buf != nil {
+		if buf := encodeCursorPseudoRect(img, 0, 0, defaultClientPixelFormat()); buf != nil {
 			t.Fatal("expected nil for zero-dim image")
 		}
 	})
@@ -135,7 +135,7 @@ func TestEncodeCursorPseudoRectCapsDimensions(t *testing.T) {
 		for i := range img.Pix {
 			img.Pix[i] = 0x80
 		}
-		buf := encodeCursorPseudoRect(img, 1, 2)
+		buf := encodeCursorPseudoRect(img, 1, 2, defaultClientPixelFormat())
 		if buf == nil {
 			t.Fatal("expected encoded cursor, got nil")
 		}
@@ -151,7 +151,7 @@ func TestEncodeCursorPseudoRectCapsDimensions(t *testing.T) {
 // must allow exactly maxCursorDim×maxCursorDim through.
 func TestEncodeCursorPseudoRectAtMaxDim(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, maxCursorDim, maxCursorDim))
-	if buf := encodeCursorPseudoRect(img, 0, 0); buf == nil {
+	if buf := encodeCursorPseudoRect(img, 0, 0, defaultClientPixelFormat()); buf == nil {
 		t.Fatal("expected non-nil for max-dim cursor (boundary)")
 	}
 }
