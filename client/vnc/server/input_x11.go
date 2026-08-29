@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 
 	log "github.com/sirupsen/logrus"
 
@@ -17,6 +18,11 @@ import (
 
 // X11InputInjector injects keyboard and mouse events via the XTest extension.
 type X11InputInjector struct {
+	// inputMu serializes event emission. Attach mode shares one injector
+	// between every session, so without it two clients interleave their button
+	// transitions, and a keystroke can land between another session's
+	// Shift-down and Shift-up and come out as the wrong character.
+	inputMu           sync.Mutex
 	conn              *xgb.Conn
 	root              xproto.Window
 	screen            *xproto.ScreenInfo
@@ -82,6 +88,13 @@ func NewX11InputInjector(display, cookieHex, authFile string) (*X11InputInjector
 
 // InjectKey simulates a key press or release. keysym is an X11 KeySym.
 func (x *X11InputInjector) InjectKey(keysym uint32, down bool) {
+	x.inputMu.Lock()
+	defer x.inputMu.Unlock()
+	x.injectKeyLocked(keysym, down)
+}
+
+// injectKeyLocked is InjectKey with inputMu already held.
+func (x *X11InputInjector) injectKeyLocked(keysym uint32, down bool) {
 	keycode := x.keysymToKeycode(keysym)
 	if keycode == 0 {
 		return
@@ -96,9 +109,12 @@ func (x *X11InputInjector) InjectKey(keysym uint32, down bool) {
 // resulting character. Falls back to the keysym path when the scancode
 // has no Linux mapping.
 func (x *X11InputInjector) InjectKeyScancode(scancode, keysym uint32, down bool) {
+	x.inputMu.Lock()
+	defer x.inputMu.Unlock()
+
 	linuxKey := qemuScancodeToLinuxKey(scancode)
 	if linuxKey == 0 {
-		x.InjectKey(keysym, down)
+		x.injectKeyLocked(keysym, down)
 		return
 	}
 	x.fakeKeyEvent(byte(linuxKey+xkbKeycodeOffset), down)
@@ -126,6 +142,11 @@ func (x *X11InputInjector) InjectPointer(buttonMask uint16, px, py, serverW, ser
 	if serverW == 0 || serverH == 0 {
 		return
 	}
+
+	// Held across the whole dispatch: each transition below is derived from
+	// lastButtons and the write closes the sequence.
+	x.inputMu.Lock()
+	defer x.inputMu.Unlock()
 
 	// Scale to actual screen coordinates.
 	screenW := int(x.screen.WidthInPixels)
@@ -252,22 +273,33 @@ func (x *X11InputInjector) TypeText(text string) {
 		if !ok {
 			continue
 		}
-		keycode := x.keysymToKeycode(keysym)
-		if keycode == 0 {
-			continue
+		x.typeRuneLocked(keysym, shift)
+	}
+}
+
+// typeRuneLocked emits one rune, framed by Shift-down/up when the keysym needs
+// it. Locked per rune rather than for the whole string: the framing has to be
+// atomic, but a long paste must not hold another session's pointer off for the
+// length of it.
+func (x *X11InputInjector) typeRuneLocked(keysym uint32, shift bool) {
+	x.inputMu.Lock()
+	defer x.inputMu.Unlock()
+
+	keycode := x.keysymToKeycode(keysym)
+	if keycode == 0 {
+		return
+	}
+	var shiftCode byte
+	if shift {
+		shiftCode = x.keysymToKeycode(0xffe1) // Shift_L
+		if shiftCode != 0 {
+			xtest.FakeInput(x.conn, xproto.KeyPress, shiftCode, 0, x.root, 0, 0, 0)
 		}
-		var shiftCode byte
-		if shift {
-			shiftCode = x.keysymToKeycode(0xffe1) // Shift_L
-			if shiftCode != 0 {
-				xtest.FakeInput(x.conn, xproto.KeyPress, shiftCode, 0, x.root, 0, 0, 0)
-			}
-		}
-		xtest.FakeInput(x.conn, xproto.KeyPress, keycode, 0, x.root, 0, 0, 0)
-		xtest.FakeInput(x.conn, xproto.KeyRelease, keycode, 0, x.root, 0, 0, 0)
-		if shift && shiftCode != 0 {
-			xtest.FakeInput(x.conn, xproto.KeyRelease, shiftCode, 0, x.root, 0, 0, 0)
-		}
+	}
+	xtest.FakeInput(x.conn, xproto.KeyPress, keycode, 0, x.root, 0, 0, 0)
+	xtest.FakeInput(x.conn, xproto.KeyRelease, keycode, 0, x.root, 0, 0, 0)
+	if shift && shiftCode != 0 {
+		xtest.FakeInput(x.conn, xproto.KeyRelease, shiftCode, 0, x.root, 0, 0, 0)
 	}
 }
 

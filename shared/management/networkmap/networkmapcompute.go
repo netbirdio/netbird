@@ -7,7 +7,11 @@ import (
 	"github.com/netbirdio/netbird/shared/management/types"
 )
 
-type sshRequirements struct {
+// authRequirements records the authorization inputs a peer's policies actually
+// need, so the components carry the group-to-user mapping and the allowed-user
+// set only when some rule resolves users from them. Both the SSH and the VNC
+// marker protocols do.
+type authRequirements struct {
 	neededGroupIDs     map[string]struct{}
 	needAllowedUserIDs bool
 }
@@ -57,12 +61,12 @@ func (nmd *NetworkMapData) GetPeerNetworkMapComponents(peerID string, peersCusto
 		ForceRoutingPeerDNSResolution: forceRoutingPeerDNS,
 	}
 
-	relevantPeers, relevantGroups, relevantPolicies, relevantRoutes, sshReqs := nmd.getPeersGroupsPoliciesRoutes(peerID, peer.SSHEnabled, &components.PostureFailedPeers)
+	relevantPeers, relevantGroups, relevantPolicies, relevantRoutes, authReqs := nmd.getPeersGroupsPoliciesRoutes(peerID, peer.SSHEnabled, &components.PostureFailedPeers)
 
-	if len(sshReqs.neededGroupIDs) > 0 {
-		components.GroupIDToUserIDs = filterGroupIDToUserIDs(nmd.GroupIDToUserIDs, sshReqs.neededGroupIDs)
+	if len(authReqs.neededGroupIDs) > 0 {
+		components.GroupIDToUserIDs = filterGroupIDToUserIDs(nmd.GroupIDToUserIDs, authReqs.neededGroupIDs)
 	}
-	if sshReqs.needAllowedUserIDs {
+	if authReqs.needAllowedUserIDs {
 		components.AllowedUserIDs = nmd.getAllowedUserIDs()
 	}
 
@@ -204,12 +208,12 @@ func (nmd *NetworkMapData) getPeersGroupsPoliciesRoutes(
 	peerID string,
 	peerSSHEnabled bool,
 	postureFailedPeers *map[string]map[string]struct{},
-) (map[string]*nmdata.Peer, map[string]*nmdata.Group, []*nmdata.Policy, []*nmdata.Route, sshRequirements) {
+) (map[string]*nmdata.Peer, map[string]*nmdata.Group, []*nmdata.Policy, []*nmdata.Route, authRequirements) {
 	relevantPeerIDs := make(map[string]*nmdata.Peer, len(nmd.Peers)/4)
 	relevantGroupIDs := make(map[string]*nmdata.Group, len(nmd.Groups)/4)
 	relevantPolicies := make([]*nmdata.Policy, 0, len(nmd.Policies))
 	relevantRoutes := make([]*nmdata.Route, 0, len(nmd.Routes))
-	sshReqs := sshRequirements{neededGroupIDs: make(map[string]struct{})}
+	authReqs := authRequirements{neededGroupIDs: make(map[string]struct{})}
 
 	relevantPeerIDs[peerID] = nmd.Peers[peerID]
 
@@ -358,18 +362,25 @@ func (nmd *NetworkMapData) getPeersGroupsPoliciesRoutes(
 					}
 				}
 
-				if rule.Protocol == string(types.PolicyRuleProtocolNetbirdSSH) {
+				// Both marker protocols resolve authorized users the same way,
+				// so a VNC rule needs the same inputs an SSH rule does. Leaving
+				// VNC out here strips the group mapping and the allowed-user set
+				// from the components, and the rule then reaches the resolver
+				// with nobody authorized.
+				if rule.Protocol == string(types.PolicyRuleProtocolNetbirdSSH) ||
+					rule.Protocol == string(types.PolicyRuleProtocolNetbirdVNC) {
 					switch {
 					case len(rule.AuthorizedGroups) > 0:
 						for groupID := range rule.AuthorizedGroups {
-							sshReqs.neededGroupIDs[groupID] = struct{}{}
+							authReqs.neededGroupIDs[groupID] = struct{}{}
 						}
 					case rule.AuthorizedUser != "":
+						// Carries its own user; no lookup inputs needed.
 					default:
-						sshReqs.needAllowedUserIDs = true
+						authReqs.needAllowedUserIDs = true
 					}
 				} else if nmdata.PolicyRuleImpliesLegacySSH(rule) && peerSSHEnabled {
-					sshReqs.needAllowedUserIDs = true
+					authReqs.needAllowedUserIDs = true
 				}
 			}
 		}
@@ -378,7 +389,7 @@ func (nmd *NetworkMapData) getPeersGroupsPoliciesRoutes(
 		}
 	}
 
-	return relevantPeerIDs, relevantGroupIDs, relevantPolicies, relevantRoutes, sshReqs
+	return relevantPeerIDs, relevantGroupIDs, relevantPolicies, relevantRoutes, authReqs
 }
 
 func (nmd *NetworkMapData) getPeersFromGroups(groups []string, peerID string, sourcePostureChecksIDs []string,
