@@ -68,10 +68,18 @@ const (
 
 // DefaultTimeout is the wall-clock window the user has to accept or deny a
 // pending approval before the broker fails closed and returns ErrTimeout.
-// Kept well under typical VNC client and dashboard connection timeouts so
-// the RFB rejection actually reaches the browser instead of racing the
-// browser's own "connection timed out" message.
-const DefaultTimeout = 15 * time.Second
+//
+// The connection spends this whole window in silence: the gate runs before the
+// protocol handshake, so nothing reaches the client until the user answers. A
+// client therefore has to tolerate a quiet connection for longer than this, or
+// it gives up before the answer arrives.
+//
+// A minute is what a prompt on a phone needs: it arrives as a notification on
+// a device that is in a pocket, and answering it means noticing it, unlocking,
+// and working through the system's screen-capture dialog. A desktop dialog
+// appears on the screen the user is already looking at and rarely uses more
+// than a few seconds of it.
+const DefaultTimeout = 60 * time.Second
 
 // timeoutValue returns the active timeout. It's a var so tests in this
 // package can shorten the wait without exposing a setter on the public
