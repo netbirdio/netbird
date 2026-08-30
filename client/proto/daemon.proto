@@ -1127,9 +1127,10 @@ message RespondApprovalRequest {
 
 message RespondApprovalResponse {
   // matched is true when request_id named a prompt that was still waiting.
-  // False covers three cases and does not distinguish them: request_id was
-  // never known, the prompt had already been answered, or it had expired and
-  // the connection was denied. In all three this call changed nothing, so the
-  // UI must not report the outcome the user picked as having taken effect.
+  // False means it was not, for any reason and without saying which: never
+  // known, already answered, expired, or abandoned because the prompt never
+  // reached a UI or the daemon shut the request down. What they share is that
+  // this call changed nothing, so the UI must not report the outcome the user
+  // picked as having taken effect.
   bool matched = 1;
 }
