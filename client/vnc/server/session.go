@@ -127,10 +127,15 @@ type session struct {
 	cursorSkipMu sync.Mutex
 	// cursorSkipSeen holds the cursor-skip diagnostics already emitted, so the
 	// Cursor pseudo-encoding path says each distinct reason once instead of
-	// taking all of them silently. Keyed by the formatted line rather than
-	// throttled once per session: a client can negotiate the encoding
-	// mid-session and the cursor source can start failing later, and the reason
-	// that happens to come first must not swallow the ones that follow.
+	// taking all of them silently. Per reason rather than once per session: a
+	// client can negotiate the encoding mid-session and the cursor source can
+	// start failing later, and whichever reason comes first must not swallow the
+	// ones that follow.
+	//
+	// Keyed by the fixed reason token logCursorSkip is called with, never by the
+	// formatted line: the messages carry sprite dimensions from the capturer, so
+	// keying on them would let a source returning junk metadata mint an entry
+	// per frame and grow this map for the life of the session.
 	cursorSkipSeen map[string]struct{}
 	// clientJPEGQuality and clientZlibLevel hold the 0..9 levels the client
 	// advertised via the QualityLevel / CompressLevel pseudo-encodings, or
