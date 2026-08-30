@@ -6,6 +6,7 @@ on:
       - "v*"
     branches:
       - main
+      - "release-*"
   pull_request:
 
 env:
@@ -254,15 +255,23 @@ jobs:
         id: tag_and_push_images
         if: |
           (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
-          (github.event_name == 'push' && github.ref == 'refs/heads/main')
+          (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release-')))
         run: |
           set -euo pipefail
 
+          # $GITHUB_REF / $GITHUB_EVENT_NAME are read from the runner
+          # environment rather than substituted into this script with the
+          # workflow expression syntax: branch names may legally contain
+          # $(…), and interpolating github.ref would execute it.
           resolve_tags() {
-            if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
               echo "pr-${{ github.event.pull_request.number }}"
-            else
+            elif [[ "$GITHUB_REF" == "refs/heads/main" ]]; then
               echo "main sha-$(git rev-parse --short HEAD)"
+            else
+              # Release branches get an immutable sha-* tag only — the floating
+              # "main" tag must never move from a release branch.
+              echo "sha-$(git rev-parse --short HEAD)"
             fi
           }
 

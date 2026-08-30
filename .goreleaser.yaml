@@ -468,6 +468,13 @@ checksum:
     - glob: ./infrastructure_files/migrate-to-enterprise.sh
 
 release:
+  # The signing pipeline (netbirdio/sign-pipelines, dispatched by
+  # trigger_signer) marks the release latest once the Windows and macOS
+  # artifacts are signed. Without this override goreleaser marks it latest
+  # at publish time, while those artifacts are still unsigned.
+  make_latest: false
+  # Mark x.y.z-rc.* and other prerelease tags as prereleases on GitHub.
+  prerelease: auto
   extra_files:
     - glob: ./infrastructure_files/getting-started-with-zitadel.sh
     - glob: ./release_files/install.sh

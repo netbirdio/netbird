@@ -23,6 +23,9 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/expose"
+	"github.com/prometheus/client_golang/prometheus"
+
+	"github.com/netbirdio/netbird/client/internal/localmetrics"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	sleephandler "github.com/netbirdio/netbird/client/internal/sleep/handler"
 	"github.com/netbirdio/netbird/client/mdm"
@@ -108,6 +111,7 @@ type Server struct {
 
 	statusRecorder *peer.Status
 	sessionWatcher *internal.SessionWatcher
+	localMetrics   *localmetrics.Manager
 
 	probeThrottle       *probeThrottle
 	persistSyncResponse bool
@@ -171,7 +175,26 @@ func New(ctx context.Context, logFile string, configFile string, profilesDisable
 	s.sleepHandler = sleephandler.New(agent)
 	s.startSleepDetector()
 
+	s.localMetrics = localmetrics.NewManager(ctx, s.statusRecorder, s.clientMetricsGatherer)
+
 	return s
+}
+
+// clientMetricsGatherer returns the Prometheus gatherer of the running
+// engine's client metrics, or nil when no engine is running.
+func (s *Server) clientMetricsGatherer() prometheus.Gatherer {
+	s.mutex.Lock()
+	connectClient := s.connectClient
+	s.mutex.Unlock()
+
+	if connectClient == nil {
+		return nil
+	}
+	engine := connectClient.Engine()
+	if engine == nil {
+		return nil
+	}
+	return engine.GetClientMetrics().PrometheusGatherer()
 }
 
 func (s *Server) Start() error {
@@ -254,6 +277,7 @@ func (s *Server) Start() error {
 
 	s.statusRecorder.UpdateManagementAddress(config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(config.RosenpassEnabled, config.RosenpassPermissive)
+	s.localMetrics.Reconcile(config.LocalMetricsEnabled, config.LocalMetricsAddress)
 
 	if s.sessionWatcher == nil {
 		s.sessionWatcher = internal.NewSessionWatcher(s.rootCtx, s.statusRecorder)
@@ -477,9 +501,16 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 		return nil, err
 	}
 
-	if _, err := profilemanager.UpdateConfig(config); err != nil {
+	updatedConf, err := profilemanager.UpdateConfig(config)
+	if err != nil {
 		log.Errorf("failed to update profile config: %v", err)
 		return nil, fmt.Errorf("failed to update profile config: %w", err)
+	}
+
+	if activeProf, err := s.profileManager.GetActiveProfileState(); err == nil {
+		if activePath, err := activeProf.FilePath(); err == nil && activePath == config.ConfigPath {
+			s.localMetrics.Reconcile(updatedConf.LocalMetricsEnabled, updatedConf.LocalMetricsAddress)
+		}
 	}
 
 	return &proto.SetConfigResponse{}, nil
@@ -551,6 +582,8 @@ func (s *Server) setConfigInputFromRequest(msg *proto.SetConfigRequest) (profile
 
 	config.RosenpassEnabled = msg.RosenpassEnabled
 	config.RosenpassPermissive = msg.RosenpassPermissive
+	config.LocalMetricsEnabled = msg.EnableLocalMetrics
+	config.LocalMetricsAddress = msg.LocalMetricsAddress
 	config.DisableAutoConnect = msg.DisableAutoConnect
 	config.ServerSSHAllowed = msg.ServerSSHAllowed
 	config.NetworkMonitor = msg.NetworkMonitor
@@ -656,6 +689,8 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	s.mutex.Lock()
 	s.config = config
 	s.mutex.Unlock()
+
+	s.localMetrics.Reconcile(config.LocalMetricsEnabled, config.LocalMetricsAddress)
 
 	// A probe that errors leaves the login undecided: Management unreachable, a
 	// restart mid-request, an internal error. Those are returned for the caller
@@ -1007,6 +1042,7 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 
 	s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)
+	s.localMetrics.Reconcile(s.config.LocalMetricsEnabled, s.config.LocalMetricsAddress)
 
 	s.clientRunning = true
 	s.clientRunningChan = make(chan struct{})
@@ -1184,6 +1220,7 @@ func (s *Server) SwitchProfile(callerCtx context.Context, msg *proto.SwitchProfi
 	}
 
 	s.config = config
+	s.localMetrics.Reconcile(config.LocalMetricsEnabled, config.LocalMetricsAddress)
 
 	if msg != nil && msg.ProfileName != nil {
 		s.publishProfileListChanged(*msg.ProfileName)
@@ -1723,8 +1760,8 @@ func (s *Server) RequestJWTAuth(
 		hint = profilemanager.GetLoginHint()
 	}
 
-	isDesktop := isUnixRunningDesktop()
-	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, isDesktop, false, hint)
+	// the daemon has no graphical session of its own, only the caller can answer this
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.GetHasGraphicalSession(), false, hint)
 	if err != nil {
 		return nil, gstatus.Errorf(codes.Internal, "failed to create OAuth flow: %v", err)
 	}
@@ -1827,8 +1864,8 @@ func (s *Server) RequestExtendAuthSession(
 		hint = profilemanager.GetLoginHint()
 	}
 
-	isDesktop := isUnixRunningDesktop()
-	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, isDesktop, false, hint)
+	// the daemon has no graphical session of its own, only the caller can answer this
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.GetHasGraphicalSession(), false, hint)
 	if err != nil {
 		return nil, gstatus.Errorf(codes.Internal, "failed to create OAuth flow: %v", err)
 	}
@@ -1998,13 +2035,6 @@ func (s *Server) ExposeService(req *proto.ExposeServiceRequest, srv proto.Daemon
 		return err
 	}
 	return nil
-}
-
-func isUnixRunningDesktop() bool {
-	if runtime.GOOS != "linux" && runtime.GOOS != "freebsd" {
-		return false
-	}
-	return os.Getenv("DESKTOP_SESSION") != "" || os.Getenv("XDG_CURRENT_DESKTOP") != ""
 }
 
 func (s *Server) runProbes(ctx context.Context, waitForProbeResult bool) {

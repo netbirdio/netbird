@@ -126,15 +126,31 @@ func (c *Combined) DeleteGuardrail(ctx context.Context, id string) error {
 	return anDelete(ctx, c, "/api/agent-network/guardrails/"+id)
 }
 
-// GetSettings returns the account's agent-network settings row. It exists only
-// after the first provider create bootstraps it.
+// CreateSettings bootstraps the account's agent-network settings row,
+// assigning the immutable endpoint. Exactly one of req.ProxyAddress (labeled
+// endpoint beneath that cluster) and req.Endpoint (self-addressed dedicated
+// endpoint) must be set; a second bootstrap returns a conflict.
+func (c *Combined) CreateSettings(ctx context.Context, req api.AgentNetworkSettingsCreateRequest) (api.AgentNetworkSettings, error) {
+	return anRequest[api.AgentNetworkSettings](ctx, c, http.MethodPost, "/api/agent-network/settings", req)
+}
+
+// GetSettings returns the account's agent-network settings row. Before the
+// CreateSettings bootstrap it reads as the defaults with an empty endpoint.
 func (c *Combined) GetSettings(ctx context.Context) (api.AgentNetworkSettings, error) {
 	return anRequest[api.AgentNetworkSettings](ctx, c, http.MethodGet, "/api/agent-network/settings", nil)
 }
 
-// UpdateSettings applies the mutable collection toggles.
+// UpdateSettings applies the mutable collection toggles. The request must
+// echo the assigned endpoint and proxy address unchanged — the server rejects
+// a PUT that tries to change them.
 func (c *Combined) UpdateSettings(ctx context.Context, req api.AgentNetworkSettingsRequest) (api.AgentNetworkSettings, error) {
 	return anRequest[api.AgentNetworkSettings](ctx, c, http.MethodPut, "/api/agent-network/settings", req)
+}
+
+// DeleteSettings removes the account's settings row, releasing the endpoint.
+// Refused while providers exist or a proxy is actively serving the endpoint.
+func (c *Combined) DeleteSettings(ctx context.Context) error {
+	return anDelete(ctx, c, "/api/agent-network/settings")
 }
 
 // ListConsumption returns the account's consumption rows (possibly empty).

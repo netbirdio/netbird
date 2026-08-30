@@ -20,5 +20,9 @@ ENV NETBIRD_BIN="/usr/local/bin/netbird" \
     NB_ENABLE_CAPTURE="false" \
     NB_ENTRYPOINT_SERVICE_TIMEOUT="30"
 ENTRYPOINT [ "/usr/local/bin/netbird-entrypoint.sh" ]
-COPY client/netbird-entrypoint.sh /usr/local/bin/netbird-entrypoint.sh
+# --chmod because the build context is not always a git checkout. A suite in
+# another module builds from this module's extracted copy in the module cache,
+# where every file is 0444 — the cache drops the executable bit git records — and
+# a bare COPY then produces an entrypoint the runtime cannot exec.
+COPY --chmod=0755 client/netbird-entrypoint.sh /usr/local/bin/netbird-entrypoint.sh
 COPY --from=builder /out/netbird /usr/local/bin/netbird

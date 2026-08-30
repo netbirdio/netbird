@@ -363,6 +363,9 @@ func (p *ReverseProxy) forwardUpstream(respWriter http.ResponseWriter, r *http.R
 	if result.rewriteRedirects {
 		rp.ModifyResponse = p.rewriteLocationFunc(effectiveURL, rewriteMatchedPath, r) //nolint:bodyclose
 	}
+	if upstreamRewrite != nil && len(upstreamRewrite.DiscoveryModels) > 0 {
+		rp.ModifyResponse = modelDiscoveryFilter(upstreamRewrite.DiscoveryModels, rp.ModifyResponse) //nolint:bodyclose // the hook replaces the body and closes the original
+	}
 	rp.ServeHTTP(respWriter, r.WithContext(ctx))
 }
 
