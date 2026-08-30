@@ -102,6 +102,16 @@ const (
 	vncProxyScheme = "ws"
 	vncDialTimeout = 15 * time.Second
 
+	// idleReadDeadline bounds silence on a running session, where the server
+	// emits empty FramebufferUpdate responses several times a second.
+	idleReadDeadline = 30 * time.Second
+
+	// approvalReadDeadline bounds silence before the session has started. The
+	// host sends nothing while it waits for the user to accept the connection,
+	// so this has to outlast that prompt and still leave room for the
+	// rejection a denial sends afterwards.
+	approvalReadDeadline = 90 * time.Second
+
 	// Connection modes matching server/server.go constants.
 	modeAttach  byte = 0
 	modeSession byte = 1
@@ -542,6 +552,7 @@ func writeAll(conn net.Conn, buf []byte) error {
 
 func (p *VNCProxy) forwardConnToWS(conn *vncConnection) {
 	buf := make([]byte, 32*1024)
+	started := false
 
 	for {
 		if conn.ctx.Err() != nil {
@@ -551,7 +562,15 @@ func (p *VNCProxy) forwardConnToWS(conn *vncConnection) {
 		if !ok {
 			return
 		}
-		if err := vc.SetReadDeadline(time.Now().Add(30 * time.Second)); err != nil {
+		// Silence means something different before the server has said
+		// anything at all: the host may be sitting on an approval prompt, and
+		// nothing is sent until the user answers it. Only once the session is
+		// running does a gap mean the peer is gone.
+		deadline := approvalReadDeadline
+		if started {
+			deadline = idleReadDeadline
+		}
+		if err := vc.SetReadDeadline(time.Now().Add(deadline)); err != nil {
 			log.Debugf("set VNC read deadline: %v", err)
 		}
 		n, err := vc.Read(buf)
@@ -562,6 +581,7 @@ func (p *VNCProxy) forwardConnToWS(conn *vncConnection) {
 			continue
 		}
 		if n > 0 {
+			started = true
 			p.sendToWebSocket(conn, buf[:n])
 		}
 	}
