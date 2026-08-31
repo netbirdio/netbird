@@ -14,10 +14,16 @@ import (
 	"github.com/netbirdio/netbird/client/proto"
 )
 
+// unreachableManagementURL keeps a test that is expected to stop at a gate from
+// reaching the network if the gate ever regresses: the profiles a logout must
+// not touch point here, so a leak fails fast instead of contacting a real
+// management server.
+const unreachableManagementURL = "http://127.0.0.1:9"
+
 // enableSSHOnProfile rewrites the profile config at cfgPath with the SSH server
 // enabled. Deregistering an SSH-enabled profile is a privileged change, so an
 // unprivileged caller is refused by requirePrivilegeForDeregistration before any
-// management connection is attempted — which is what keeps these tests offline.
+// management connection is attempted, which is what keeps these tests offline.
 func enableSSHOnProfile(t *testing.T, cfgPath string) {
 	t.Helper()
 	_, err := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
@@ -61,7 +67,7 @@ func TestLogout_OtherProfileStaysGatedWhenProfilesDisabled(t *testing.T) {
 	other := "other-profile"
 	_, err := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
 		ConfigPath:    filepath.Join(profilemanager.DefaultConfigPathDir, other+".json"),
-		ManagementURL: "https://api.netbird.io:443",
+		ManagementURL: unreachableManagementURL,
 	})
 	require.NoError(t, err)
 
@@ -75,6 +81,62 @@ func TestLogout_OtherProfileStaysGatedWhenProfilesDisabled(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, codes.Unavailable, gstatus.Code(err), "want the profiles-disabled refusal, got %v", err)
 	require.Contains(t, gstatus.Convert(err).Message(), errProfilesDisabled)
+}
+
+// A legacy profile ID is a display name, so two users can hold the same ID in
+// their own profile directories. Matching on the ID alone would let one user's
+// logout pass the gate against the other user's active profile, so the username
+// is part of the comparison.
+func TestLogout_ForeignUserProfileStaysGatedWhenProfilesDisabled(t *testing.T) {
+	s, _, _, username, _ := setupServerWithProfile(t)
+	s.rootCtx = internal.CtxInitState(context.Background())
+
+	// A legacy-style profile whose ID is its filename stem, and an active state
+	// claiming that same ID for a different user.
+	shared := "shared-legacy-name"
+	_, err := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
+		ConfigPath:    filepath.Join(profilemanager.DefaultConfigPathDir, shared+".json"),
+		ManagementURL: unreachableManagementURL,
+	})
+	require.NoError(t, err)
+	require.NoError(t, s.profileManager.SetActiveProfileState(&profilemanager.ActiveProfileState{
+		ID:       profilemanager.ID(shared),
+		Username: "someone-else",
+	}))
+
+	s.profilesDisabled = true
+
+	_, err = s.Logout(userCtx(), &proto.LogoutRequest{
+		ProfileName: &shared,
+		Username:    &username,
+	})
+
+	require.Error(t, err)
+	require.Equal(t, codes.Unavailable, gstatus.Code(err),
+		"another user's profile must not pass the gate on an ID match alone: %v", err)
+}
+
+// The connection teardown follows the profile that is active when the logout
+// completes, not the one seen before it started: Login switches profiles under
+// guardedConfigMu, which the logout path does not hold, so a login that landed
+// meanwhile must keep its connection.
+func TestCleanupAfterProfileLogout_FollowsTheCurrentActiveProfile(t *testing.T) {
+	s, _, activeProfile, username, _ := setupServerWithProfile(t)
+	s.rootCtx = internal.CtxInitState(context.Background())
+
+	state := internal.CtxGetState(s.rootCtx)
+
+	s.cleanupAfterProfileLogout("some-other-profile", username)
+	status, err := state.Status()
+	require.NoError(t, err)
+	require.NotEqual(t, internal.StatusNeedsLogin, status,
+		"logging out of a profile that is not active must not ask for a new login")
+
+	s.cleanupAfterProfileLogout(profilemanager.ID(activeProfile), username)
+	status, err = state.Status()
+	require.NoError(t, err)
+	require.Equal(t, internal.StatusNeedsLogin, status,
+		"logging out of the active profile must ask for a new login")
 }
 
 // With profiles enabled the gate is out of the way on both surfaces; the active

@@ -1347,10 +1347,12 @@ func (s *Server) handleProfileLogout(ctx context.Context, msg *proto.LogoutReque
 		return nil, err
 	}
 
-	activeProf, _ := s.profileManager.GetActiveProfileState()
-	isActiveProfile := activeProf != nil && activeProf.ID == resolved.ID
+	activeProf, err := s.profileManager.GetActiveProfileState()
+	if err != nil {
+		return nil, gstatus.Errorf(codes.FailedPrecondition, "failed to get active profile state: %v", err)
+	}
 
-	if err := s.validateProfileLogout(resolved.ID, isActiveProfile); err != nil {
+	if err := s.validateProfileLogout(resolved.ID, isActiveProfile(activeProf, resolved.ID, username)); err != nil {
 		return nil, err
 	}
 
@@ -1365,15 +1367,33 @@ func (s *Server) handleProfileLogout(ctx context.Context, msg *proto.LogoutReque
 		return nil, gstatus.Errorf(codes.Internal, "logout: %v", err)
 	}
 
-	if isActiveProfile {
-		if err := s.cleanupConnection(); err != nil && !errors.Is(err, ErrServiceNotUp) {
-			log.Errorf("failed to cleanup connection: %v", err)
-		}
-		state := internal.CtxGetState(s.rootCtx)
-		state.Set(internal.StatusNeedsLogin)
-	}
+	s.cleanupAfterProfileLogout(resolved.ID, username)
 
 	return &proto.LogoutResponse{}, nil
+}
+
+// cleanupAfterProfileLogout tears the connection down and asks for a new login
+// when the profile that was just deregistered is the one the daemon is running.
+// The active profile is read again here rather than reused from the pre-flight
+// check: Login switches profiles under guardedConfigMu, which this path does not
+// hold, so a login that landed meanwhile must not have its fresh connection
+// dropped by a logout that targeted the profile it replaced.
+func (s *Server) cleanupAfterProfileLogout(id profilemanager.ID, username string) {
+	activeProf, err := s.profileManager.GetActiveProfileState()
+	if err != nil {
+		log.Errorf("failed to get active profile state after logout from profile %s: %v", id, err)
+		return
+	}
+
+	if !isActiveProfile(activeProf, id, username) {
+		return
+	}
+
+	if err := s.cleanupConnection(); err != nil && !errors.Is(err, ErrServiceNotUp) {
+		log.Errorf("failed to cleanup connection: %v", err)
+	}
+	state := internal.CtxGetState(s.rootCtx)
+	state.Set(internal.StatusNeedsLogin)
 }
 
 func (s *Server) handleActiveProfileLogout(ctx context.Context) (*proto.LogoutResponse, error) {
@@ -1428,21 +1448,15 @@ func (s *Server) getConfig(activeProf *profilemanager.ActiveProfileState) (*prof
 }
 
 // validateProfileLogout gates a profile-addressed logout. Deregistering the
-// profile the daemon is already running is not profile management: it is the
-// very operation a plain `netbird logout` performs, so the profiles-disabled
-// kill switch must not block it — otherwise a client with profiles disabled
-// can never log out from the UI, which always addresses logout by profile.
-// With profiles disabled there is a single profile anyway, so every
-// profile-addressed logout is by definition an active-profile logout.
-// Deregistering a *different* profile does count as profile management and
-// stays gated. Mirrors switchProfileIfNeeded, which likewise gates only the
-// branch that actually manages profiles.
-func (s *Server) validateProfileLogout(id profilemanager.ID, isActiveProfile bool) error {
+// profile the daemon already runs is what a plain `netbird logout` does, so the
+// profiles-disabled kill switch must not block it. Logging out of any other
+// profile is profile management and stays gated.
+func (s *Server) validateProfileLogout(id profilemanager.ID, isActive bool) error {
 	if id == "" {
 		return gstatus.Errorf(codes.InvalidArgument, "profile name must be provided")
 	}
 
-	if isActiveProfile {
+	if isActive {
 		return nil
 	}
 
@@ -1451,6 +1465,18 @@ func (s *Server) validateProfileLogout(id profilemanager.ID, isActiveProfile boo
 	}
 
 	return nil
+}
+
+// isActiveProfile reports whether id is the profile the daemon runs for
+// username. The username is part of the comparison because legacy profile IDs
+// are display names, which two users can both hold; the default profile is
+// shared by every user and carries no username.
+func isActiveProfile(activeProf *profilemanager.ActiveProfileState, id profilemanager.ID, username string) bool {
+	if activeProf == nil || activeProf.ID != id {
+		return false
+	}
+
+	return id == profilemanager.DefaultProfileName || activeProf.Username == username
 }
 
 func (s *Server) logoutFromProfile(ctx context.Context, profile *profilemanager.Profile) error {
