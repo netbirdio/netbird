@@ -246,6 +246,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	realIP := getRealIP(ctx)
 	sRealIP := realIP.String()
 	peerMeta := extractPeerMeta(ctx, syncReq.GetMeta())
+	peerMeta.Certificates = s.verifiedCertificates(ctx, peerKey, syncReq.GetMeta().GetCertificateProofs())
 
 	userID, err := s.accountManager.GetUserIDByPeerKey(ctx, peerKey.String())
 	if err != nil {
@@ -481,6 +482,7 @@ func (s *Server) sendUpdate(ctx context.Context, accountID string, peerKey wgtyp
 		return status.Errorf(codes.Internal, "failed processing update message")
 	}
 
+	stampCertificateChallenges(update.Update.GetChecks(), peerKey, key)
 	encryptedResp, err := encryption.EncryptMessage(peerKey, key, update.Update)
 	if err != nil {
 		s.cancelPeerRoutines(ctx, accountID, peer, streamStartTime)
@@ -735,6 +737,7 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 	}
 
 	peerMeta := extractPeerMeta(ctx, loginReq.GetMeta())
+	peerMeta.Certificates = s.verifiedCertificates(ctx, peerKey, loginReq.GetMeta().GetCertificateProofs())
 	metahashed := metaHash(peerMeta)
 	if !s.loginFilter.allowLogin(peerKey.String(), metahashed) {
 		if s.logBlockedPeers {
@@ -811,6 +814,7 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 		return nil, status.Errorf(codes.Internal, "failed logging in peer")
 	}
 
+	stampCertificateChallenges(loginResp.Checks, peerKey, key)
 	encryptedResp, err := encryption.EncryptMessage(peerKey, key, loginResp)
 	if err != nil {
 		log.WithContext(ctx).Warnf("failed encrypting peer %s message", peer.ID)
@@ -1062,6 +1066,7 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 		return status.Errorf(codes.Internal, "failed getting server key")
 	}
 
+	stampCertificateChallenges(plainResp.Checks, peerKey, key)
 	encryptedResp, err := encryption.EncryptMessage(peerKey, key, plainResp)
 	if err != nil {
 		return status.Errorf(codes.Internal, "error handling request")
@@ -1255,7 +1260,9 @@ func (s *Server) SyncMeta(ctx context.Context, req *proto.EncryptedMessage) (*pr
 		return nil, msg
 	}
 
-	err = s.accountManager.SyncPeerMeta(ctx, peerKey.String(), extractPeerMeta(ctx, syncMetaReq.GetMeta()), realIP)
+	peerMeta := extractPeerMeta(ctx, syncMetaReq.GetMeta())
+	peerMeta.Certificates = s.verifiedCertificates(ctx, peerKey, syncMetaReq.GetMeta().GetCertificateProofs())
+	err = s.accountManager.SyncPeerMeta(ctx, peerKey.String(), peerMeta, realIP)
 	if err != nil {
 		return nil, mapError(ctx, err)
 	}
@@ -1331,7 +1338,11 @@ func toProtocolCheck(postureCheck *nmdata.PostureChecks) *proto.Checks {
 		}
 	}
 
-	if len(protoCheck.Files) == 0 {
+	if check := postureCheck.Checks.CertificateCheck; check != nil {
+		protoCheck.CertificateChallenge = &proto.CertificateChallenge{CaCertificates: check.CACertificates}
+	}
+
+	if len(protoCheck.Files) == 0 && protoCheck.CertificateChallenge == nil {
 		return nil
 	}
 

@@ -1014,6 +1014,16 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 		})
 	}
 
+	proofs := make([]*proto.CertificateProof, 0, len(info.CertificateProofs))
+	for _, p := range info.CertificateProofs {
+		proofs = append(proofs, &proto.CertificateProof{
+			Nonce:     p.Nonce,
+			Chain:     p.Chain,
+			SigAlg:    p.SigAlg,
+			Signature: p.Signature,
+		})
+	}
+
 	return &proto.PeerSystemMeta{
 		Hostname:         info.Hostname,
 		GoOS:             info.GoOS,
@@ -1033,7 +1043,8 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 			Cloud:    info.Environment.Cloud,
 			Platform: info.Environment.Platform,
 		},
-		Files: files,
+		Files:             files,
+		CertificateProofs: proofs,
 
 		Flags: &proto.Flags{
 			RosenpassEnabled:    info.RosenpassEnabled,

@@ -194,6 +194,7 @@ func twinPeer(p *nbpeer.Peer) *nmdata.Peer {
 			KernelVersion:      p.Meta.KernelVersion,
 			NetworkAddresses:   networkAddresses,
 			Files:              files,
+			Certificates:       p.Meta.Certificates,
 			Capabilities:       p.Meta.Capabilities,
 			SyncMessageVersion: p.Meta.SyncMessageVersion,
 			Flags: nmdata.Flags{
@@ -448,6 +449,9 @@ func TwinPostureChecks(pc *posture.Checks) *nmdata.PostureChecks {
 			procs = append(procs, nmdata.Process{LinuxPath: p.LinuxPath, MacPath: p.MacPath, WindowsPath: p.WindowsPath})
 		}
 		out.Checks.ProcessCheck = &nmdata.ProcessCheck{Processes: procs}
+	}
+	if def.CertificateCheck != nil {
+		out.Checks.CertificateCheck = &nmdata.CertificateCheck{CACertificates: def.CertificateCheck.CACertificates}
 	}
 	return out
 }

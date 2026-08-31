@@ -47,6 +47,7 @@ type PeerSystemMeta struct {
 	KernelVersion      string
 	NetworkAddresses   []NetworkAddress
 	Files              []File
+	Certificates       []string
 	Capabilities       []int32
 	Flags              Flags
 	SyncMessageVersion int

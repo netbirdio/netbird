@@ -267,6 +267,7 @@ message PeerSystemMeta {
 
   repeated PeerCapability capabilities = 18;
   int32 syncMessageVersion = 19;
+  repeated CertificateProof certificateProofs = 20;
 }
 
 message LoginResponse {
@@ -696,6 +697,24 @@ message NetworkAddress {
 
 message Checks {
   repeated string Files = 1;
+  // certificateChallenge asks the peer to prove possession of a certificate chaining to caCertificates.
+  CertificateChallenge certificateChallenge = 2;
+}
+
+message CertificateChallenge {
+  // nonce is issued by management, bound to the peer and a time window; the peer signs it.
+  bytes nonce = 1;
+  // caCertificates are PEM encoded trust anchors the presented certificate must chain to.
+  repeated string caCertificates = 2;
+}
+
+// CertificateProof demonstrates possession of the private key of chain[0] by signing the challenge nonce.
+message CertificateProof {
+  bytes nonce = 1;
+  // chain is DER encoded, leaf first.
+  repeated bytes chain = 2;
+  string sigAlg = 3;
+  bytes signature = 4;
 }
 
 

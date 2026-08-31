@@ -173,6 +173,7 @@ type PeerSystemMeta struct { //nolint:revive
 	Environment        Environment `gorm:"serializer:json"`
 	Flags              Flags       `gorm:"serializer:json"`
 	Files              []File      `gorm:"serializer:json"`
+	Certificates       []string    `gorm:"serializer:json"`
 	Capabilities       []int32     `gorm:"serializer:json"`
 	SyncMessageVersion int
 }
@@ -198,7 +199,8 @@ func (p PeerSystemMeta) isEmpty() bool {
 		p.SystemManufacturer == "" &&
 		p.Environment.Cloud == "" &&
 		p.Environment.Platform == "" &&
-		len(p.Files) == 0
+		len(p.Files) == 0 &&
+		len(p.Certificates) == 0
 }
 
 // AddedWithSSOLogin indicates whether this peer has been added with an SSO login by a user.
@@ -416,6 +418,9 @@ func diffMeta(oldMeta, newMeta PeerSystemMeta, oldLocation, newLocation Location
 	}
 	if !sameMultiset(oldMeta.Files, newMeta.Files) {
 		add("files", fmt.Sprintf("%v", oldMeta.Files), fmt.Sprintf("%v", newMeta.Files))
+	}
+	if !sameMultiset(oldMeta.Certificates, newMeta.Certificates) {
+		add("certificates", len(oldMeta.Certificates), len(newMeta.Certificates))
 	}
 	if oldMeta.SyncMessageVersion != newMeta.SyncMessageVersion {
 		add("sync_meta_version", fmt.Sprintf("%d", oldMeta.SyncMessageVersion), fmt.Sprintf("%d", newMeta.SyncMessageVersion))

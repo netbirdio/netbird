@@ -11,6 +11,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/metadata"
 
+	"github.com/netbirdio/netbird/shared/management/certposture"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -61,6 +62,7 @@ type Info struct {
 	SystemManufacturer string
 	Environment        Environment
 	Files              []File // for posture checks
+	CertificateProofs  []certposture.Proof
 
 	RosenpassEnabled    bool
 	RosenpassPermissive bool

@@ -35,6 +35,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/acl"
+	"github.com/netbirdio/netbird/client/internal/certproof"
 	"github.com/netbirdio/netbird/client/internal/debug"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	dnsconfig "github.com/netbirdio/netbird/client/internal/dns/config"
@@ -1233,6 +1234,7 @@ func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 		return nil
 	}
 	e.applyInfoFlags(info)
+	e.attachCertificateProofs(info, checks)
 
 	if err := e.mgmClient.SyncMeta(info); err != nil {
 		return fmt.Errorf("could not sync meta: error %s", err)
@@ -1260,6 +1262,13 @@ func (e *Engine) applyInfoFlags(info *system.Info) {
 		e.config.EnableSSHRemotePortForwarding,
 		e.config.DisableSSHAuth,
 	)
+}
+
+// attachCertificateProofs answers the certificate challenges in checks with the
+// certificates found in the local store, signing each challenge nonce for our peer key.
+func (e *Engine) attachCertificateProofs(info *system.Info, checks []*mgmProto.Checks) {
+	peerKey := e.config.WgPrivateKey.PublicKey()
+	info.CertificateProofs = certproof.Collect(e.ctx, certproof.NewFileStore(certproof.StoreDir()), checks, peerKey[:])
 }
 
 // overlayAddresses returns our own WireGuard overlay address (v4 and v6) so it
@@ -1427,6 +1436,7 @@ func (e *Engine) receiveManagementEvents() {
 			info = system.GetInfo(e.ctx)
 		}
 		e.applyInfoFlags(info)
+		e.attachCertificateProofs(info, e.checks)
 
 		err := e.mgmClient.Sync(e.ctx, info, e.handleSync)
 		if err != nil {
@@ -2685,6 +2695,11 @@ func isChecksEqual(checks1, checks2 []*mgmProto.Checks) bool {
 			sortedFiles := slices.Clone(check.Files)
 			sort.Strings(sortedFiles)
 			normalized[i] = strings.Join(sortedFiles, "|")
+			if challenge := check.GetCertificateChallenge(); challenge != nil {
+				sortedCAs := slices.Clone(challenge.GetCaCertificates())
+				sort.Strings(sortedCAs)
+				normalized[i] += fmt.Sprintf("#%x|%s", challenge.GetNonce(), strings.Join(sortedCAs, "|"))
+			}
 		}
 
 		sort.Strings(normalized)

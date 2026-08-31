@@ -18,6 +18,7 @@ type ChecksDefinition struct {
 	GeoLocationCheck      *GeoLocationCheck
 	PeerNetworkRangeCheck *PeerNetworkRangeCheck
 	ProcessCheck          *ProcessCheck
+	CertificateCheck      *CertificateCheck
 }
 
 // Check is the slim twin of posture.Check. It is sealed: only the check types
@@ -78,6 +79,9 @@ func (pc *PostureChecks) GetChecks() []Check {
 	}
 	if pc.Checks.ProcessCheck != nil {
 		checks = append(checks, pc.Checks.ProcessCheck)
+	}
+	if pc.Checks.CertificateCheck != nil {
+		checks = append(checks, pc.Checks.CertificateCheck)
 	}
 	return checks
 }

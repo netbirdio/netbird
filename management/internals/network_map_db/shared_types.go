@@ -179,6 +179,7 @@ type Peer struct {
 	MetaKernelVersion          sql.NullString `nmap:"skip"`
 	MetaNetworkAddresses       []byte         `nmap:"skip,json"`
 	MetaFiles                  []byte         `nmap:"skip,json"`
+	MetaCertificates           []byte         `nmap:"skip,json"`
 	MetaCapabilities           []byte         `nmap:"skip,json"`
 	MetaFlags                  []byte         `nmap:"skip,json"`
 	MetaSyncMessageVersion     sql.NullInt64  `nmap:"skip"`
@@ -334,6 +335,12 @@ func ConvertToNmdataPeers(peers []Peer) ([]nmdata.Peer, map[string][]*nmdata.Pee
 		}
 		if p.MetaFiles != nil {
 			err := json.Unmarshal(p.MetaFiles, &dp.Meta.Files)
+			if err != nil {
+				return toret, nil, err
+			}
+		}
+		if p.MetaCertificates != nil {
+			err := json.Unmarshal(p.MetaCertificates, &dp.Meta.Certificates)
 			if err != nil {
 				return toret, nil, err
 			}

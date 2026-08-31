@@ -1079,6 +1079,32 @@ func Test_CheckFilesEqual(t *testing.T) {
 			},
 			expectedBool: true,
 		},
+		{
+			name: "Same files with rotated certificate challenge nonce should return false",
+			inputChecks1: []*mgmtProto.Checks{
+				{
+					Files:                []string{"testfile1"},
+					CertificateChallenge: &mgmtProto.CertificateChallenge{Nonce: []byte{1}, CaCertificates: []string{"ca-a"}},
+				},
+			},
+			inputChecks2: []*mgmtProto.Checks{
+				{
+					Files:                []string{"testfile1"},
+					CertificateChallenge: &mgmtProto.CertificateChallenge{Nonce: []byte{2}, CaCertificates: []string{"ca-a"}},
+				},
+			},
+			expectedBool: false,
+		},
+		{
+			name: "Same certificate challenge with CA certificates in different order should return true",
+			inputChecks1: []*mgmtProto.Checks{
+				{CertificateChallenge: &mgmtProto.CertificateChallenge{Nonce: []byte{1}, CaCertificates: []string{"ca-a", "ca-b"}}},
+			},
+			inputChecks2: []*mgmtProto.Checks{
+				{CertificateChallenge: &mgmtProto.CertificateChallenge{Nonce: []byte{1}, CaCertificates: []string{"ca-b", "ca-a"}}},
+			},
+			expectedBool: true,
+		},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
