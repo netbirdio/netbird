@@ -86,12 +86,12 @@ type Manager interface {
 	RecordUsage(ctx context.Context, in RecordUsageInput) error
 	SelectPolicyForRequest(ctx context.Context, in PolicySelectionInput) (*PolicySelectionResult, error)
 
-	// GetSetupForUser backs the self-service "My Agent Network" setup
-	// endpoint. Caller-scoped, so it skips the role permission gate; see
+	// GetAgentConfigForUser backs the self-service agent-config endpoint.
+	// Caller-scoped, so it skips the role permission gate; see
 	// the implementation. The caller's own usage and requests come
 	// through GetUsageOverview / ListAccessLogs, which self-scope when
 	// the account-wide grant is missing.
-	GetSetupForUser(ctx context.Context, accountID, userID string) (*types.EffectiveSetup, error)
+	GetAgentConfigForUser(ctx context.Context, accountID, userID string) (*types.AgentConfig, error)
 }
 
 // PolicySelectionInput is the per-request selection envelope. The

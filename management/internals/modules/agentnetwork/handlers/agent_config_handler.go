@@ -11,36 +11,36 @@ import (
 	"github.com/netbirdio/netbird/shared/management/http/util"
 )
 
-// addMeEndpoints registers the self-service "My Agent Network" route.
+// addAgentConfigEndpoints registers the self-service agent-config route.
 // It is available to every authenticated user regardless of role: the
-// response is scoped strictly to the caller, which is tighter than any
-// role gate could be. The caller's own usage and requests are served by
+// providers in the response are scoped strictly to the caller, which is
+// tighter than any role gate could be. The caller's own usage and requests are served by
 // the regular usage/logs endpoints, which self-scope for callers without
 // the account-wide grants.
-func (h *handler) addMeEndpoints(router *mux.Router) {
-	router.HandleFunc("/agent-network/agent-config", h.getMySetup).Methods("GET", "OPTIONS")
+func (h *handler) addAgentConfigEndpoints(router *mux.Router) {
+	router.HandleFunc("/agent-network/agent-config", h.getAgentConfig).Methods("GET", "OPTIONS")
 }
 
-func (h *handler) getMySetup(w http.ResponseWriter, r *http.Request) {
+func (h *handler) getAgentConfig(w http.ResponseWriter, r *http.Request) {
 	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	setup, err := h.manager.GetSetupForUser(r.Context(), userAuth.AccountId, userAuth.UserId)
+	setup, err := h.manager.GetAgentConfigForUser(r.Context(), userAuth.AccountId, userAuth.UserId)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	util.WriteJSONObject(r.Context(), w, setupToAPI(setup))
+	util.WriteJSONObject(r.Context(), w, agentConfigToAPI(setup))
 }
 
-func setupToAPI(setup *types.EffectiveSetup) api.AgentNetworkMeSetup {
-	providers := make([]api.AgentNetworkMeProvider, 0, len(setup.Providers))
+func agentConfigToAPI(setup *types.AgentConfig) api.AgentNetworkAgentConfig {
+	providers := make([]api.AgentNetworkAgentConfigProvider, 0, len(setup.Providers))
 	for _, p := range setup.Providers {
-		providers = append(providers, api.AgentNetworkMeProvider{
+		providers = append(providers, api.AgentNetworkAgentConfigProvider{
 			Name:             p.Name,
 			CatalogId:        p.CatalogID,
 			ApiFlavor:        p.APIFlavor,
@@ -48,7 +48,7 @@ func setupToAPI(setup *types.EffectiveSetup) api.AgentNetworkMeSetup {
 			Models:           p.Models,
 		})
 	}
-	return api.AgentNetworkMeSetup{
+	return api.AgentNetworkAgentConfig{
 		Configured: setup.Configured,
 		Endpoint:   setup.Endpoint,
 		Providers:  providers,

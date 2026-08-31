@@ -9,7 +9,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/store"
 )
 
-// GetSetupForUser returns the Agent Network setup the calling user's
+// GetAgentConfigForUser returns the Agent Network setup the calling user's
 // groups authorize. It deliberately performs no role permission check:
 // the result is scoped to the caller's own groups, which is strictly
 // tighter than any role gate, so every authenticated user (any role) may
@@ -18,15 +18,15 @@ import (
 // session validation resolves them from the same user record's
 // auto-groups — so this answer and the proxy's verdict are computed from
 // the same memberships.
-func (m *managerImpl) GetSetupForUser(ctx context.Context, accountID, userID string) (*types.EffectiveSetup, error) {
+func (m *managerImpl) GetAgentConfigForUser(ctx context.Context, accountID, userID string) (*types.AgentConfig, error) {
 	user, err := m.store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
 	if err != nil {
 		return nil, fmt.Errorf("get user: %w", err)
 	}
-	return m.effectiveSetupForGroups(ctx, accountID, user.AutoGroups)
+	return m.agentConfigForGroups(ctx, accountID, user.AutoGroups)
 }
 
-// effectiveSetupForGroups computes the effective Agent Network setup for
+// agentConfigForGroups computes the effective Agent Network setup for
 // a set of caller groups: the account endpoint plus, per authorized
 // provider, the effective model set. It mirrors what the proxy enforces
 // at request time — the policy filter matches filterApplicablePolicies,
@@ -35,12 +35,16 @@ func (m *managerImpl) GetSetupForUser(ctx context.Context, accountID, userID str
 // the router synthesizer omits them — so the answer never advertises
 // anything the proxy would refuse.
 //
-// Every "nothing available" shape returns Configured=false rather than
-// an error, and "account not set up" is indistinguishable from "caller
-// has no access" by design: the response must not leak what exists for
-// others.
-func (m *managerImpl) effectiveSetupForGroups(ctx context.Context, accountID string, groupIDs []string) (*types.EffectiveSetup, error) {
-	notConfigured := &types.EffectiveSetup{Providers: []types.EffectiveProvider{}}
+// Configured tracks the account, not the caller: once the account has an
+// endpoint every member gets it, with Providers empty for those no policy
+// covers yet. The dashboard shows each user the same connection config
+// regardless of role, and an empty provider list tells them to ask for
+// access. Only the account having no Agent Network at all reads as not
+// configured. Providers stays caller-scoped either way — the endpoint on
+// its own authorizes nothing, and the proxy still refuses every request
+// no policy permits.
+func (m *managerImpl) agentConfigForGroups(ctx context.Context, accountID string, groupIDs []string) (*types.AgentConfig, error) {
+	notConfigured := &types.AgentConfig{Providers: []types.AgentConfigProvider{}}
 
 	settings, err := m.store.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, accountID)
 	switch {
@@ -58,8 +62,14 @@ func (m *managerImpl) effectiveSetupForGroups(ctx context.Context, accountID str
 	if err != nil {
 		return nil, err
 	}
+
+	out := &types.AgentConfig{
+		Configured: true,
+		Endpoint:   "https://" + settings.Endpoint(),
+		Providers:  make([]types.AgentConfigProvider, 0, len(authorized)),
+	}
 	if len(authorized) == 0 {
-		return notConfigured, nil
+		return out, nil
 	}
 
 	var guardrailsByID map[string]*types.Guardrail
@@ -69,19 +79,13 @@ func (m *managerImpl) effectiveSetupForGroups(ctx context.Context, accountID str
 			return nil, err
 		}
 	}
-
-	out := &types.EffectiveSetup{
-		Configured: true,
-		Endpoint:   "https://" + settings.Endpoint(),
-		Providers:  make([]types.EffectiveProvider, 0, len(authorized)),
-	}
 	for _, p := range authorized {
 		allAllowed, models := effectiveModelsForProvider(p, policiesForProvider(applicable, p.ID), guardrailsByID)
 		flavor := ""
 		if entry, ok := catalog.Lookup(p.ProviderID); ok {
 			flavor = entry.ParserID
 		}
-		out.Providers = append(out.Providers, types.EffectiveProvider{
+		out.Providers = append(out.Providers, types.AgentConfigProvider{
 			Name:             p.Name,
 			CatalogID:        p.ProviderID,
 			APIFlavor:        flavor,
@@ -276,8 +280,8 @@ func declaredModelIDs(provider *types.Provider) []string {
 	return out
 }
 
-// GetSetupForUser on the mock manager reports "not configured" so tests
+// GetAgentConfigForUser on the mock manager reports "not configured" so tests
 // that don't care about setup still compile.
-func (*mockManager) GetSetupForUser(_ context.Context, _, _ string) (*types.EffectiveSetup, error) {
-	return &types.EffectiveSetup{Providers: []types.EffectiveProvider{}}, nil
+func (*mockManager) GetAgentConfigForUser(_ context.Context, _, _ string) (*types.AgentConfig, error) {
+	return &types.AgentConfig{Providers: []types.AgentConfigProvider{}}, nil
 }

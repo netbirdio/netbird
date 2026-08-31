@@ -103,7 +103,7 @@ func TestGetProvider_RedactsForReadOnlyViewer(t *testing.T) {
 // other's rows.
 func newSelfScopeStore(t *testing.T) (*managerImpl, store.Store) {
 	t.Helper()
-	mgr, s := newSetupTestMgr(t)
+	mgr, s := newAgentConfigTestMgr(t)
 	mgr.permissionsManager = permissions.NewManager(s)
 	ctx := context.Background()
 

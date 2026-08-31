@@ -23,7 +23,7 @@ import (
 // model logic matches policyPermitsModel, and orphan providers are
 // omitted like the router synthesizer omits them.
 
-func newSetupTestMgr(t *testing.T) (*managerImpl, store.Store) {
+func newAgentConfigTestMgr(t *testing.T) (*managerImpl, store.Store) {
 	t.Helper()
 	ctx := context.Background()
 	s, cleanup, err := store.NewTestStoreFromSQL(ctx, "", t.TempDir())
@@ -44,18 +44,18 @@ func newSetupTestGuardrail(id string, models ...string) *types.Guardrail {
 	}
 }
 
-func TestEffectiveSetup_RealStore_NoSettingsRow(t *testing.T) {
-	mgr, _ := newSetupTestMgr(t)
+func TestAgentConfig_RealStore_NoSettingsRow(t *testing.T) {
+	mgr, _ := newAgentConfigTestMgr(t)
 
-	setup, err := mgr.effectiveSetupForGroups(context.Background(), testAccountID, []string{"grp-eng"})
+	setup, err := mgr.agentConfigForGroups(context.Background(), testAccountID, []string{"grp-eng"})
 	require.NoError(t, err)
 	assert.False(t, setup.Configured, "account without settings must read as not configured")
 	assert.Empty(t, setup.Endpoint)
 	assert.Empty(t, setup.Providers)
 }
 
-func TestEffectiveSetup_RealStore_NoApplicablePolicy(t *testing.T) {
-	mgr, s := newSetupTestMgr(t)
+func TestAgentConfig_RealStore_NoApplicablePolicy(t *testing.T) {
+	mgr, s := newAgentConfigTestMgr(t)
 	ctx := context.Background()
 
 	require.NoError(t, s.SaveAgentNetworkSettings(ctx, newSynthTestSettings()))
@@ -63,15 +63,15 @@ func TestEffectiveSetup_RealStore_NoApplicablePolicy(t *testing.T) {
 	require.NoError(t, s.SaveAgentNetworkProvider(ctx, provider))
 	require.NoError(t, s.SaveAgentNetworkPolicy(ctx, newSynthTestPolicy(provider.ID, "grp-eng", "")))
 
-	setup, err := mgr.effectiveSetupForGroups(ctx, testAccountID, []string{"grp-other"})
+	setup, err := mgr.agentConfigForGroups(ctx, testAccountID, []string{"grp-other"})
 	require.NoError(t, err)
-	assert.False(t, setup.Configured, "caller outside every policy's source groups must read as not configured")
-	assert.Empty(t, setup.Endpoint, "no-access answer must not leak the endpoint")
-	assert.Empty(t, setup.Providers)
+	assert.True(t, setup.Configured, "the account is set up, so every member reads as configured")
+	assert.Equal(t, "https://"+testEndpoint, setup.Endpoint, "every member gets the same connection config")
+	assert.Empty(t, setup.Providers, "a caller no policy covers is authorized for nothing")
 }
 
-func TestEffectiveSetup_RealStore_UnrestrictedPolicyListsDeclaredModels(t *testing.T) {
-	mgr, s := newSetupTestMgr(t)
+func TestAgentConfig_RealStore_UnrestrictedPolicyListsDeclaredModels(t *testing.T) {
+	mgr, s := newAgentConfigTestMgr(t)
 	ctx := context.Background()
 
 	require.NoError(t, s.SaveAgentNetworkSettings(ctx, newSynthTestSettings()))
@@ -79,7 +79,7 @@ func TestEffectiveSetup_RealStore_UnrestrictedPolicyListsDeclaredModels(t *testi
 	require.NoError(t, s.SaveAgentNetworkProvider(ctx, provider))
 	require.NoError(t, s.SaveAgentNetworkPolicy(ctx, newSynthTestPolicy(provider.ID, "grp-eng", "")))
 
-	setup, err := mgr.effectiveSetupForGroups(ctx, testAccountID, []string{"grp-eng"})
+	setup, err := mgr.agentConfigForGroups(ctx, testAccountID, []string{"grp-eng"})
 	require.NoError(t, err)
 	assert.True(t, setup.Configured)
 	assert.Equal(t, "https://"+testEndpoint, setup.Endpoint)
@@ -92,8 +92,8 @@ func TestEffectiveSetup_RealStore_UnrestrictedPolicyListsDeclaredModels(t *testi
 	assert.Equal(t, []string{"gpt-5.4"}, p.Models, "declared models listed as a courtesy")
 }
 
-func TestEffectiveSetup_RealStore_AllowlistIntersectsDeclaredModels(t *testing.T) {
-	mgr, s := newSetupTestMgr(t)
+func TestAgentConfig_RealStore_AllowlistIntersectsDeclaredModels(t *testing.T) {
+	mgr, s := newAgentConfigTestMgr(t)
 	ctx := context.Background()
 
 	require.NoError(t, s.SaveAgentNetworkSettings(ctx, newSynthTestSettings()))
@@ -106,7 +106,7 @@ func TestEffectiveSetup_RealStore_AllowlistIntersectsDeclaredModels(t *testing.T
 	require.NoError(t, s.SaveAgentNetworkGuardrail(ctx, newSetupTestGuardrail("guard-1", " GPT-5.4 ", "gpt-4.1")))
 	require.NoError(t, s.SaveAgentNetworkPolicy(ctx, newSynthTestPolicy(provider.ID, "grp-eng", "guard-1")))
 
-	setup, err := mgr.effectiveSetupForGroups(ctx, testAccountID, []string{"grp-eng"})
+	setup, err := mgr.agentConfigForGroups(ctx, testAccountID, []string{"grp-eng"})
 	require.NoError(t, err)
 	require.Len(t, setup.Providers, 1)
 	p := setup.Providers[0]
@@ -114,8 +114,8 @@ func TestEffectiveSetup_RealStore_AllowlistIntersectsDeclaredModels(t *testing.T
 	assert.Equal(t, []string{"gpt-5.4"}, p.Models, "allowlist ∩ declared, in declared order and casing")
 }
 
-func TestEffectiveSetup_RealStore_AllowlistMatchesBedrockDeclaredIDsCanonically(t *testing.T) {
-	mgr, s := newSetupTestMgr(t)
+func TestAgentConfig_RealStore_AllowlistMatchesBedrockDeclaredIDsCanonically(t *testing.T) {
+	mgr, s := newAgentConfigTestMgr(t)
 	ctx := context.Background()
 
 	require.NoError(t, s.SaveAgentNetworkSettings(ctx, newSynthTestSettings()))
@@ -135,7 +135,7 @@ func TestEffectiveSetup_RealStore_AllowlistMatchesBedrockDeclaredIDsCanonically(
 	require.NoError(t, s.SaveAgentNetworkGuardrail(ctx, newSetupTestGuardrail("guard-1", "anthropic.claude-sonnet-4-5")))
 	require.NoError(t, s.SaveAgentNetworkPolicy(ctx, newSynthTestPolicy(provider.ID, "grp-eng", "guard-1")))
 
-	setup, err := mgr.effectiveSetupForGroups(ctx, testAccountID, []string{"grp-eng"})
+	setup, err := mgr.agentConfigForGroups(ctx, testAccountID, []string{"grp-eng"})
 	require.NoError(t, err)
 	require.Len(t, setup.Providers, 1)
 	p := setup.Providers[0]
@@ -144,8 +144,8 @@ func TestEffectiveSetup_RealStore_AllowlistMatchesBedrockDeclaredIDsCanonically(
 		"the allowlisted canonical id must admit the declared region/version form, and only it")
 }
 
-func TestEffectiveSetup_RealStore_UnrestrictedPolicyWinsOverRestricted(t *testing.T) {
-	mgr, s := newSetupTestMgr(t)
+func TestAgentConfig_RealStore_UnrestrictedPolicyWinsOverRestricted(t *testing.T) {
+	mgr, s := newAgentConfigTestMgr(t)
 	ctx := context.Background()
 
 	require.NoError(t, s.SaveAgentNetworkSettings(ctx, newSynthTestSettings()))
@@ -158,15 +158,15 @@ func TestEffectiveSetup_RealStore_UnrestrictedPolicyWinsOverRestricted(t *testin
 	open.ID = "pol-2"
 	require.NoError(t, s.SaveAgentNetworkPolicy(ctx, open))
 
-	setup, err := mgr.effectiveSetupForGroups(ctx, testAccountID, []string{"grp-eng"})
+	setup, err := mgr.agentConfigForGroups(ctx, testAccountID, []string{"grp-eng"})
 	require.NoError(t, err)
 	require.Len(t, setup.Providers, 1)
 	assert.True(t, setup.Providers[0].AllModelsAllowed,
 		"one applicable policy without an allowlist makes the provider unrestricted — the proxy would admit any model through it")
 }
 
-func TestEffectiveSetup_RealStore_AllowlistUnionAcrossPolicies(t *testing.T) {
-	mgr, s := newSetupTestMgr(t)
+func TestAgentConfig_RealStore_AllowlistUnionAcrossPolicies(t *testing.T) {
+	mgr, s := newAgentConfigTestMgr(t)
 	ctx := context.Background()
 
 	require.NoError(t, s.SaveAgentNetworkSettings(ctx, newSynthTestSettings()))
@@ -181,7 +181,7 @@ func TestEffectiveSetup_RealStore_AllowlistUnionAcrossPolicies(t *testing.T) {
 	p2.ID = "pol-2"
 	require.NoError(t, s.SaveAgentNetworkPolicy(ctx, p2))
 
-	setup, err := mgr.effectiveSetupForGroups(ctx, testAccountID, []string{"grp-eng"})
+	setup, err := mgr.agentConfigForGroups(ctx, testAccountID, []string{"grp-eng"})
 	require.NoError(t, err)
 	require.Len(t, setup.Providers, 1)
 	p := setup.Providers[0]
@@ -189,8 +189,8 @@ func TestEffectiveSetup_RealStore_AllowlistUnionAcrossPolicies(t *testing.T) {
 	assert.ElementsMatch(t, []string{"gpt-5.4", "gpt-4o"}, p.Models, "union of allowlists across applicable policies")
 }
 
-func TestEffectiveSetup_RealStore_OrphanAndDisabledProvidersOmitted(t *testing.T) {
-	mgr, s := newSetupTestMgr(t)
+func TestAgentConfig_RealStore_OrphanAndDisabledProvidersOmitted(t *testing.T) {
+	mgr, s := newAgentConfigTestMgr(t)
 	ctx := context.Background()
 
 	require.NoError(t, s.SaveAgentNetworkSettings(ctx, newSynthTestSettings()))
@@ -205,14 +205,14 @@ func TestEffectiveSetup_RealStore_OrphanAndDisabledProvidersOmitted(t *testing.T
 	require.NoError(t, s.SaveAgentNetworkProvider(ctx, disabled))
 	require.NoError(t, s.SaveAgentNetworkPolicy(ctx, newSynthTestPolicy(disabled.ID, "grp-eng", "")))
 
-	setup, err := mgr.effectiveSetupForGroups(ctx, testAccountID, []string{"grp-eng"})
+	setup, err := mgr.agentConfigForGroups(ctx, testAccountID, []string{"grp-eng"})
 	require.NoError(t, err)
-	assert.False(t, setup.Configured, "neither an orphan nor a disabled provider is reachable, so nothing is configured for the caller")
-	assert.Empty(t, setup.Providers)
+	assert.True(t, setup.Configured)
+	assert.Empty(t, setup.Providers, "neither an orphan nor a disabled provider is reachable for the caller")
 }
 
-func TestEffectiveSetup_RealStore_DisabledPolicyIgnored(t *testing.T) {
-	mgr, s := newSetupTestMgr(t)
+func TestAgentConfig_RealStore_DisabledPolicyIgnored(t *testing.T) {
+	mgr, s := newAgentConfigTestMgr(t)
 	ctx := context.Background()
 
 	require.NoError(t, s.SaveAgentNetworkSettings(ctx, newSynthTestSettings()))
@@ -222,13 +222,14 @@ func TestEffectiveSetup_RealStore_DisabledPolicyIgnored(t *testing.T) {
 	policy.Enabled = false
 	require.NoError(t, s.SaveAgentNetworkPolicy(ctx, policy))
 
-	setup, err := mgr.effectiveSetupForGroups(ctx, testAccountID, []string{"grp-eng"})
+	setup, err := mgr.agentConfigForGroups(ctx, testAccountID, []string{"grp-eng"})
 	require.NoError(t, err)
-	assert.False(t, setup.Configured)
+	assert.True(t, setup.Configured)
+	assert.Empty(t, setup.Providers, "a disabled policy authorizes nothing")
 }
 
-func TestEffectiveSetup_RealStore_UndeclaredModelsUseAllowlistAsIs(t *testing.T) {
-	mgr, s := newSetupTestMgr(t)
+func TestAgentConfig_RealStore_UndeclaredModelsUseAllowlistAsIs(t *testing.T) {
+	mgr, s := newAgentConfigTestMgr(t)
 	ctx := context.Background()
 
 	require.NoError(t, s.SaveAgentNetworkSettings(ctx, newSynthTestSettings()))
@@ -242,7 +243,7 @@ func TestEffectiveSetup_RealStore_UndeclaredModelsUseAllowlistAsIs(t *testing.T)
 	require.NoError(t, s.SaveAgentNetworkGuardrail(ctx, newSetupTestGuardrail("guard-1", "claude-sonnet-4-5")))
 	require.NoError(t, s.SaveAgentNetworkPolicy(ctx, newSynthTestPolicy(provider.ID, "grp-eng", "guard-1")))
 
-	setup, err := mgr.effectiveSetupForGroups(ctx, testAccountID, []string{"grp-eng"})
+	setup, err := mgr.agentConfigForGroups(ctx, testAccountID, []string{"grp-eng"})
 	require.NoError(t, err)
 	require.Len(t, setup.Providers, 1)
 	p := setup.Providers[0]
@@ -250,8 +251,8 @@ func TestEffectiveSetup_RealStore_UndeclaredModelsUseAllowlistAsIs(t *testing.T)
 	assert.Equal(t, []string{"claude-sonnet-4-5"}, p.Models)
 }
 
-func TestEffectiveSetup_RealStore_ProvidersInCreatedAtOrder(t *testing.T) {
-	mgr, s := newSetupTestMgr(t)
+func TestAgentConfig_RealStore_ProvidersInCreatedAtOrder(t *testing.T) {
+	mgr, s := newAgentConfigTestMgr(t)
 	ctx := context.Background()
 
 	require.NoError(t, s.SaveAgentNetworkSettings(ctx, newSynthTestSettings()))
@@ -270,19 +271,20 @@ func TestEffectiveSetup_RealStore_ProvidersInCreatedAtOrder(t *testing.T) {
 	policy.DestinationProviderIDs = []string{newer.ID, older.ID}
 	require.NoError(t, s.SaveAgentNetworkPolicy(ctx, policy))
 
-	setup, err := mgr.effectiveSetupForGroups(ctx, testAccountID, []string{"grp-eng"})
+	setup, err := mgr.agentConfigForGroups(ctx, testAccountID, []string{"grp-eng"})
 	require.NoError(t, err)
 	require.Len(t, setup.Providers, 2)
 	assert.Equal(t, "Older", setup.Providers[0].Name)
 	assert.Equal(t, "Newer", setup.Providers[1].Name)
 }
 
-// TestGetSetupForUser_RealStore pins the self-service entry point: the
+// TestGetAgentConfigForUser_RealStore pins the self-service entry point: the
 // user's group memberships (AutoGroups — the same groups the user's peers
-// carry) scope the answer, and users outside every policy get the
-// indistinguishable not-configured shape.
-func TestGetSetupForUser_RealStore(t *testing.T) {
-	mgr, s := newSetupTestMgr(t)
+// carry) scope the providers, while the account's endpoint reaches every
+// member — a user outside every policy gets the config with nothing
+// authorized in it.
+func TestGetAgentConfigForUser_RealStore(t *testing.T) {
+	mgr, s := newAgentConfigTestMgr(t)
 	ctx := context.Background()
 
 	require.NoError(t, s.SaveAgentNetworkSettings(ctx, newSynthTestSettings()))
@@ -300,14 +302,16 @@ func TestGetSetupForUser_RealStore(t *testing.T) {
 		Id: "user-out", AccountID: testAccountID, Role: nbtypes.UserRoleUser, AutoGroups: []string{"grp-other"},
 	}))
 
-	setupIn, err := mgr.GetSetupForUser(ctx, testAccountID, "user-in")
+	setupIn, err := mgr.GetAgentConfigForUser(ctx, testAccountID, "user-in")
 	require.NoError(t, err)
 	assert.True(t, setupIn.Configured)
 	require.Len(t, setupIn.Providers, 1)
 
-	setupOut, err := mgr.GetSetupForUser(ctx, testAccountID, "user-out")
+	setupOut, err := mgr.GetAgentConfigForUser(ctx, testAccountID, "user-out")
 	require.NoError(t, err)
-	assert.False(t, setupOut.Configured, "user outside the policy's source groups gets the not-configured answer")
+	assert.True(t, setupOut.Configured, "the account is set up, so the user reads as configured")
+	assert.Equal(t, "https://"+testEndpoint, setupOut.Endpoint)
+	assert.Empty(t, setupOut.Providers, "user outside the policy's source groups is authorized for nothing")
 }
 
 // TestGetUsageOverview_RealStore_SelfScoped pins the self-scope fallback:
@@ -316,7 +320,7 @@ func TestGetSetupForUser_RealStore(t *testing.T) {
 // filter for someone else must be overridden, not honored, and never
 // denied. A caller holding the grant keeps the account-wide view.
 func TestGetUsageOverview_RealStore_SelfScoped(t *testing.T) {
-	mgr, s := newSetupTestMgr(t)
+	mgr, s := newAgentConfigTestMgr(t)
 	mgr.permissionsManager = permissions.NewManager(s)
 	ctx := context.Background()
 

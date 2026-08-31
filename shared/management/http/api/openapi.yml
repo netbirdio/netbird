@@ -5807,27 +5807,27 @@ components:
       required:
         - name
         - checks
-    AgentNetworkMeSetup:
+    AgentNetworkAgentConfig:
       type: object
-      description: The caller-scoped Agent Network connection info backing the "My Agent Network" self-service view. Available to every authenticated user; the answer is computed from the caller's own groups and carries display metadata only.
+      description: The caller-scoped Agent Network connection config backing the self-service "Connect your agent" view. Available to every authenticated user; the providers are computed from the caller's own groups and the answer carries display metadata only.
       properties:
         configured:
           type: boolean
-          description: False when the account has no Agent Network set up or the caller's groups authorize none of it. The two cases are deliberately indistinguishable.
+          description: False only when the account has no Agent Network set up. A caller no policy covers yet still reads as configured, with an empty providers list.
         endpoint:
           type: string
-          description: The account's Agent Network base URL, reachable over the NetBird tunnel only. Empty when configured is false.
+          description: The account's Agent Network base URL, reachable over the NetBird tunnel only. Returned to every member of a configured account - it authorizes nothing on its own, since the gateway still refuses every request no policy permits. Empty when configured is false.
           example: https://calm-otter.proxy.example.com
         providers:
           type: array
-          description: The providers at least one of the caller's policies authorizes, in creation order.
+          description: The providers at least one of the caller's policies authorizes, in creation order. Empty when no policy covers the caller.
           items:
-            $ref: '#/components/schemas/AgentNetworkMeProvider'
+            $ref: '#/components/schemas/AgentNetworkAgentConfigProvider'
       required:
         - configured
         - endpoint
         - providers
-    AgentNetworkMeProvider:
+    AgentNetworkAgentConfigProvider:
       type: object
       description: One provider the caller may use, reduced to what a local tool needs for configuration.
       properties:
@@ -13854,7 +13854,7 @@ paths:
           "$ref": "#/components/responses/internal_error"
   /api/agent-network/agent-config:
     get:
-      summary: Retrieve the caller's Agent Network setup
+      summary: Retrieve the caller's Agent Network agent config
       description: Returns everything the caller needs to configure a local AI tool and nothing more - the account's Agent Network endpoint plus the providers and models the caller's own policies allow. Available to every authenticated user regardless of role; the response never contains provider credentials, policy or guardrail configuration, or providers the caller cannot reach.
       tags: [ Agent Network ]
       security:
@@ -13862,11 +13862,11 @@ paths:
         - TokenAuth: [ ]
       responses:
         '200':
-          description: The caller-scoped Agent Network connection info
+          description: The caller-scoped Agent Network agent config
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AgentNetworkMeSetup'
+                $ref: '#/components/schemas/AgentNetworkAgentConfig'
         '401':
           "$ref": "#/components/responses/requires_authentication"
         '500':
