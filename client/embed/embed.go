@@ -49,6 +49,11 @@ type PeerConnStatus = peer.ConnStatus
 
 // PeerState is the status recorder's view of one remote peer, as carried in
 // the Peers field of the value returned by Status and StatusSnapshot.
+//
+// It is a read-only snapshot. The scalar fields are copied under the
+// recorder's lock and are safe to read, but the value still shares its mutex
+// and route map with the recorder, so callers must not mutate it or call its
+// route methods.
 type PeerState = peer.State
 
 // Client manages a netbird embedded client instance.

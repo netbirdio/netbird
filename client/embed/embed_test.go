@@ -233,9 +233,16 @@ func TestClientSyncResponsePersistence(t *testing.T) {
 				}
 			})
 
+			// Start returns before the first sync response necessarily arrives, so
+			// wait for the engine to apply one. Without this the assertion below
+			// could pass on a client that simply has not synced yet.
+			require.Eventually(t, func() bool {
+				return client.StatusSnapshot().LocalPeerState.IP != ""
+			}, 30*time.Second, 200*time.Millisecond, "the initial management sync should be applied")
+
 			if !tc.persisted {
 				_, err := client.GetLatestSyncResponse()
-				require.Error(t, err, "no sync response may be retained when persistence is disabled")
+				require.ErrorContains(t, err, "persistence is disabled", "the sync response must be dropped, not merely unavailable")
 				return
 			}
 
