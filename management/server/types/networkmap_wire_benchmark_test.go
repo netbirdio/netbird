@@ -66,7 +66,7 @@ func BenchmarkNetworkMapWireEncode(b *testing.B) {
 
 		// Pre-encode once so the size metric is identical for every run inside
 		// the same scale; the b.Loop call only re-runs encode + Marshal.
-		legacyResp := mgmtgrpc.ToSyncResponse(ctx, nil, nil, nil, peer, nil, nil, networkMap, "netbird.cloud", nil, dnsCache, settings, nil, nil, 0)
+		legacyResp := mgmtgrpc.ToSyncResponse(ctx, nil, nil, nil, types.TwinPeer(peer), nil, nil, networkMap, "netbird.cloud", nil, dnsCache, types.TwinAccountSettings(settings), nil, nil, 0)
 		legacyBytes, err := goproto.Marshal(legacyResp.NetworkMap)
 		if err != nil {
 			b.Fatalf("marshal legacy networkmap: %v", err)
@@ -88,7 +88,7 @@ func BenchmarkNetworkMapWireEncode(b *testing.B) {
 			b.ReportMetric(float64(len(legacyBytes)), "bytes/msg")
 			b.ResetTimer()
 			for range b.N {
-				resp := mgmtgrpc.ToSyncResponse(ctx, nil, nil, nil, peer, nil, nil, networkMap, "netbird.cloud", nil, dnsCache, settings, nil, nil, 0)
+				resp := mgmtgrpc.ToSyncResponse(ctx, nil, nil, nil, types.TwinPeer(peer), nil, nil, networkMap, "netbird.cloud", nil, dnsCache, types.TwinAccountSettings(settings), nil, nil, 0)
 				if _, err := goproto.Marshal(resp.NetworkMap); err != nil {
 					b.Fatal(err)
 				}
@@ -135,7 +135,7 @@ func BenchmarkNetworkMapWireSize(b *testing.B) {
 		dnsCache := &cache.DNSConfigCache{}
 		settings := &types.Settings{}
 
-		legacyResp := mgmtgrpc.ToSyncResponse(ctx, nil, nil, nil, peer, nil, nil, networkMap, "netbird.cloud", nil, dnsCache, settings, nil, nil, 0)
+		legacyResp := mgmtgrpc.ToSyncResponse(ctx, nil, nil, nil, types.TwinPeer(peer), nil, nil, networkMap, "netbird.cloud", nil, dnsCache, types.TwinAccountSettings(settings), nil, nil, 0)
 		legacyBytes, err := goproto.Marshal(legacyResp.NetworkMap)
 		if err != nil {
 			b.Fatalf("marshal legacy networkmap: %v", err)
