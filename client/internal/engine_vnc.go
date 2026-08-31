@@ -321,9 +321,27 @@ func (a *vncApprover) Request(ctx context.Context, info vncserver.ApprovalInfo) 
 		Metadata: meta,
 	})
 	if err != nil {
-		return vncserver.ApprovalDecision{}, err
+		return vncserver.ApprovalDecision{}, approvalCause(err)
 	}
 	return vncserver.ApprovalDecision{ViewOnly: d.ViewOnly}, nil
+}
+
+// approvalCause restates a broker failure as the cause the VNC server
+// classifies, so the peer that dialled learns whether the user refused or
+// never answered. The broker's denial and timeout carry nothing beyond the
+// sentinel, so those are returned as the server's own; the two unavailable
+// cases differ in a way worth keeping, so they are wrapped.
+func approvalCause(err error) error {
+	switch {
+	case errors.Is(err, approval.ErrDenied):
+		return vncserver.ErrApprovalDenied
+	case errors.Is(err, approval.ErrTimeout):
+		return vncserver.ErrApprovalTimeout
+	case errors.Is(err, approval.ErrNoSubscriber), errors.Is(err, approval.ErrPromptNotShown):
+		return fmt.Errorf("%w: %w", vncserver.ErrApprovalUnavailable, err)
+	default:
+		return err
+	}
 }
 
 func displayPeer(info vncserver.ApprovalInfo) string {
