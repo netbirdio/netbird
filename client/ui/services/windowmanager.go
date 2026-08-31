@@ -94,27 +94,24 @@ var microsoftWindowsLightTheme = &application.WindowTheme{
 }
 
 // MicrosoftWindowsAppearanceOptions is the shared Windows chrome (Mica +
-// custom title bar), resolved at creation; setWindowAppearance re-themes
-// live windows on later changes.
+// custom title bar), resolved at creation; setWindowAppearance re-themes live
+// windows on later changes. Never SystemDefault: Wails gives those windows a
+// SystemThemeChanged handler that re-themes chrome from the OS appearance,
+// which outlives a switch to a forced theme and fights it on the next OS flip.
+// Both CustomTheme slots hold one colour set for the same reason.
 func MicrosoftWindowsAppearanceOptions() application.WindowsWindow {
-	theme := application.SystemDefault
-	dark, light := microsoftWindowsDarkTheme, microsoftWindowsLightTheme
-	switch currentThemePref() {
-	case preferences.ThemeDark:
-		theme = application.Dark
-		light = microsoftWindowsDarkTheme
-	case preferences.ThemeLight:
-		theme = application.Light
-		dark = microsoftWindowsLightTheme
+	theme, chrome := application.Light, microsoftWindowsLightTheme
+	if effectiveDark.Load() {
+		theme, chrome = application.Dark, microsoftWindowsDarkTheme
 	}
 	return application.WindowsWindow{
 		BackdropType: application.Mica,
 		Theme:        theme,
 		CustomTheme: application.ThemeSettings{
-			DarkModeActive:    dark,
-			DarkModeInactive:  dark,
-			LightModeActive:   light,
-			LightModeInactive: light,
+			DarkModeActive:    chrome,
+			DarkModeInactive:  chrome,
+			LightModeActive:   chrome,
+			LightModeInactive: chrome,
 		},
 	}
 }

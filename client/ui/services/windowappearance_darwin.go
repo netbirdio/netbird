@@ -7,6 +7,11 @@ package services
 #import <AppKit/AppKit.h>
 
 // forced < 0: follow the OS (appearance nil); 0: light; 1: dark.
+//
+// dispatch_async, not dispatch_sync: the main queue is serial FIFO and callers
+// enqueue under Theme.apply's mutex, so the newest theme still lands last. A
+// synchronous hop would instead block the main thread while that mutex is held,
+// which the bound Theme/Preferences methods can deadlock against.
 static void nbSetWindowAppearance(void *nsWindow, int forced) {
 	NSWindow *window = (__bridge NSWindow *)nsWindow;
 	dispatch_async(dispatch_get_main_queue(), ^{
