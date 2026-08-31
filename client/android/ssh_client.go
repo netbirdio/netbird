@@ -467,7 +467,7 @@ func (s *SSHClient) requestJWTToken(cfg *profilemanager.Config, cfgPath string) 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	flow, err := auth.NewOAuthFlow(ctx, cfg, false, true, profileLoginHint(cfgPath))
+	flow, err := auth.NewOAuthFlow(ctx, cfg, false, true, profileLoginHint(cfgPath), false)
 	if err != nil {
 		return "", fmt.Errorf("create oauth flow: %w", err)
 	}

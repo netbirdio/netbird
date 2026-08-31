@@ -193,12 +193,49 @@ func (a *Auth) login(urlOpener URLOpener, isAndroidTV bool) error {
 }
 
 func (a *Auth) foregroundGetTokenInfo(authClient *auth.Auth, urlOpener URLOpener, isAndroidTV bool) (*auth.TokenInfo, error) {
-	oAuthFlow, err := authClient.GetOAuthFlow(a.ctx, isAndroidTV, profileLoginHint(a.cfgPath))
+	return a.foregroundGetTokenInfoFlow(authClient, urlOpener, isAndroidTV, false)
+}
+
+// foregroundGetTokenInfoFlow runs the interactive flow. sessionExtend tells the
+// server the token will renew this peer's session rather than log a peer in, so
+// it can rule out a silent authorization the IdP could answer from an unrelated
+// account. See PKCEAuthorizationFlowRequest.
+func (a *Auth) foregroundGetTokenInfoFlow(authClient *auth.Auth, urlOpener URLOpener, isAndroidTV bool, sessionExtend bool) (*auth.TokenInfo, error) {
+	hint := profileLoginHint(a.cfgPath)
+
+	oAuthFlow, err := authClient.GetOAuthFlow(a.ctx, isAndroidTV, sessionExtend, hint)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get OAuth flow: %v", err)
 	}
 
-	return runOAuthFlow(a.ctx, oAuthFlow, urlOpener, nil)
+	tokenInfo, err := runOAuthFlow(a.ctx, oAuthFlow, urlOpener, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if tokenInfo.MatchesAccount(hint) {
+		return tokenInfo, nil
+	}
+
+	// The IdP answered from a session belonging to another account. Retrying is
+	// what makes this recoverable: on a peer already registered the server would
+	// reject the token, and on a fresh one it would silently register the peer
+	// under the wrong account and bind the profile to it.
+	log.Infof("login returned an account other than the one this profile is bound to, retrying with an account prompt")
+	retryFlow := auth.RetryFlowForAccount(oAuthFlow)
+	if retryFlow == nil {
+		return tokenInfo, nil
+	}
+
+	retryToken, err := runOAuthFlow(a.ctx, retryFlow, urlOpener, nil)
+	if err != nil {
+		return nil, err
+	}
+	if !retryToken.MatchesAccount(hint) {
+		log.Warnf("login still returned a different account after the prompt, continuing with it")
+	}
+
+	return retryToken, nil
 }
 
 // profileLoginHint returns the stored account email for the profile at cfgPath.

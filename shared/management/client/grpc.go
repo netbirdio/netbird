@@ -738,9 +738,13 @@ func (c *GrpcClient) GetDeviceAuthorizationFlow() (*proto.DeviceAuthorizationFlo
 	return flowInfoResp, nil
 }
 
-// GetPKCEAuthorizationFlow returns a pkce authorization flow information.
+// GetPKCEAuthorizationFlow returns the PKCE authorization flow information.
 // It also takes care of encrypting and decrypting messages.
-func (c *GrpcClient) GetPKCEAuthorizationFlow() (*proto.PKCEAuthorizationFlow, error) {
+//
+// sessionExtend tells the server the flow will renew an existing peer's session
+// rather than log one in, so it can rule out a configuration that would let the
+// IdP answer from an unrelated account. See PKCEAuthorizationFlowRequest.
+func (c *GrpcClient) GetPKCEAuthorizationFlow(sessionExtend bool) (*proto.PKCEAuthorizationFlow, error) {
 	if !c.ready() {
 		return nil, fmt.Errorf("no connection to management in order to get pkce authorization flow")
 	}
@@ -753,7 +757,7 @@ func (c *GrpcClient) GetPKCEAuthorizationFlow() (*proto.PKCEAuthorizationFlow, e
 	mgmCtx, cancel := context.WithTimeout(c.ctx, time.Second*2)
 	defer cancel()
 
-	message := &proto.PKCEAuthorizationFlowRequest{}
+	message := &proto.PKCEAuthorizationFlowRequest{SessionExtend: sessionExtend}
 	encryptedMSG, err := encryption.EncryptMessage(*serverKey, c.key, message)
 	if err != nil {
 		return nil, err

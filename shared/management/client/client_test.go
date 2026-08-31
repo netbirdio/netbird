@@ -595,7 +595,12 @@ func Test_GetPKCEAuthorizationFlow(t *testing.T) {
 		},
 	}
 
+	var gotRequest mgmtProto.PKCEAuthorizationFlowRequest
 	mgmtMockServer.GetPKCEAuthorizationFlowFunc = func(ctx context.Context, req *mgmtProto.EncryptedMessage) (*mgmtProto.EncryptedMessage, error) {
+		if err := encryption.DecryptMessage(client.key.PublicKey(), serverKey, req.Body, &gotRequest); err != nil {
+			return nil, err
+		}
+
 		encryptedResp, err := encryption.EncryptMessage(client.key.PublicKey(), serverKey, expectedFlowInfo)
 		if err != nil {
 			return nil, err
@@ -608,10 +613,10 @@ func Test_GetPKCEAuthorizationFlow(t *testing.T) {
 		}, nil
 	}
 
-	flowInfo, err := client.GetPKCEAuthorizationFlow()
-	if err != nil {
-		t.Error("error while retrieving pkce auth flow information")
-	}
+	flowInfo, err := client.GetPKCEAuthorizationFlow(true)
+	require.NoError(t, err)
+
+	assert.True(t, gotRequest.GetSessionExtend(), "session extend should reach the server")
 
 	assert.Equal(t, expectedFlowInfo.ProviderConfig.ClientID, flowInfo.ProviderConfig.ClientID, "provider configured client ID should match")
 	assert.Equal(t, expectedFlowInfo.ProviderConfig.ClientSecret, flowInfo.ProviderConfig.ClientSecret, "provider configured client secret should match") //nolint:staticcheck

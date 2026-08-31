@@ -64,6 +64,10 @@ const (
 
 var ErrServiceNotUp = errors.New("service is not up")
 
+type statusSetter interface {
+	Set(update internal.StatusType)
+}
+
 // Server for service control.
 type Server struct {
 	rootCtx   context.Context
@@ -81,6 +85,12 @@ type Server struct {
 	uiLogPath string
 
 	oauthAuthFlow oauthAuthFlow
+	// forceAccountPrompt makes the next startSSOLogin build its flow with a
+	// forced account prompt. Armed when a login came back for an account other
+	// than the hinted one: that flow's browser is gone, so the correction has to
+	// ride on the user's next connect. Guarded by mutex; deliberately not
+	// persisted — a lost flag only costs one more mismatch round.
+	forceAccountPrompt bool
 	// extendAuthSessionFlow holds the pending PKCE flow created by
 	// RequestExtendAuthSession until WaitExtendAuthSession resolves it.
 	// Kept separate from oauthAuthFlow (which is reserved for the SSH
@@ -153,6 +163,14 @@ type oauthAuthFlow struct {
 	flow       auth.OAuthFlow
 	info       auth.AuthFlowInfo
 	waitCancel context.CancelFunc
+	// hint is the account the flow was asked to sign in (login_hint). The token
+	// that comes back is compared against it; empty means nothing to compare.
+	hint string
+	// accountPrompted records that this flow already asked the IdP to re-decide
+	// the account (or could not ask — the device flow has no way to). A token
+	// for the wrong account is then let through with a warning instead of
+	// erroring again, so the flow cannot loop.
+	accountPrompted bool
 }
 
 // New server instance constructor.
@@ -710,54 +728,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	}
 
 	if msg.SetupKey == "" {
-		hint := ""
-		if msg.Hint != nil {
-			hint = *msg.Hint
-		}
-		oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.IsUnixDesktopClient, false, hint)
-		if err != nil {
-			state.Set(internal.StatusLoginFailed)
-			return nil, err
-		}
-
-		if s.oauthAuthFlow.flow != nil && s.oauthAuthFlow.flow.GetClientID(ctx) == oAuthFlow.GetClientID(ctx) {
-			if s.oauthAuthFlow.expiresAt.After(time.Now().Add(90 * time.Second)) {
-				log.Debugf("using previous oauth flow info")
-				state.Set(internal.StatusNeedsLogin)
-				return &proto.LoginResponse{
-					NeedsSSOLogin:           true,
-					VerificationURI:         s.oauthAuthFlow.info.VerificationURI,
-					VerificationURIComplete: s.oauthAuthFlow.info.VerificationURIComplete,
-					UserCode:                s.oauthAuthFlow.info.UserCode,
-				}, nil
-			} else {
-				log.Warnf("canceling previous waiting execution")
-				if s.oauthAuthFlow.waitCancel != nil {
-					s.oauthAuthFlow.waitCancel()
-				}
-			}
-		}
-
-		authInfo, err := oAuthFlow.RequestAuthInfo(ctx)
-		if err != nil {
-			log.Errorf("getting a request OAuth flow failed: %v", err)
-			return nil, err
-		}
-
-		s.mutex.Lock()
-		s.oauthAuthFlow.flow = oAuthFlow
-		s.oauthAuthFlow.info = authInfo
-		s.oauthAuthFlow.expiresAt = time.Now().Add(time.Duration(authInfo.ExpiresIn) * time.Second)
-		s.mutex.Unlock()
-
-		state.Set(internal.StatusNeedsLogin)
-
-		return &proto.LoginResponse{
-			NeedsSSOLogin:           true,
-			VerificationURI:         authInfo.VerificationURI,
-			VerificationURIComplete: authInfo.VerificationURIComplete,
-			UserCode:                authInfo.UserCode,
-		}, nil
+		return s.startSSOLogin(ctx, msg, config, state)
 	}
 
 	// Setup-key path: we are about to dial Management with the key, so the
@@ -771,6 +742,128 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	}
 
 	return &proto.LoginResponse{}, nil
+}
+
+// startSSOLogin opens the interactive leg of a login: it reuses the in-flight
+// OAuth flow when one is still valid for the same client, and otherwise
+// requests fresh auth info and parks the daemon on StatusNeedsLogin.
+func (s *Server) startSSOLogin(ctx context.Context, msg *proto.LoginRequest, config *profilemanager.Config, state statusSetter) (*proto.LoginResponse, error) {
+	hint := ""
+	if msg.Hint != nil {
+		hint = *msg.Hint
+	}
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.IsUnixDesktopClient, false, hint, false)
+	if err != nil {
+		state.Set(internal.StatusLoginFailed)
+		return nil, err
+	}
+
+	s.mutex.Lock()
+	promptForAccount := s.forceAccountPrompt
+	s.forceAccountPrompt = false
+	s.mutex.Unlock()
+	if promptForAccount && auth.RetryFlowForAccount(oAuthFlow) == nil {
+		// The device flow cannot ask; run it as-is. accountPrompted still goes
+		// true below so a second mismatch is let through instead of looping.
+		log.Warnf("the previous login returned a different account, but this flow cannot ask the IdP to choose one")
+	}
+
+	if resp := s.reuseOAuthFlow(ctx, oAuthFlow, state, promptForAccount); resp != nil {
+		return resp, nil
+	}
+
+	authInfo, err := oAuthFlow.RequestAuthInfo(ctx)
+	if err != nil {
+		log.Errorf("getting a request OAuth flow failed: %v", err)
+		return nil, err
+	}
+
+	s.replaceOAuthFlow(oauthAuthFlow{
+		flow:            oAuthFlow,
+		info:            authInfo,
+		expiresAt:       time.Now().Add(time.Duration(authInfo.ExpiresIn) * time.Second),
+		hint:            hint,
+		accountPrompted: promptForAccount,
+	})
+
+	state.Set(internal.StatusNeedsLogin)
+
+	return &proto.LoginResponse{
+		NeedsSSOLogin:           true,
+		VerificationURI:         authInfo.VerificationURI,
+		VerificationURIComplete: authInfo.VerificationURIComplete,
+		UserCode:                authInfo.UserCode,
+	}, nil
+}
+
+// replaceOAuthFlow installs next as the shared OAuth flow record and takes over
+// the wait it displaces, so a WaitSSOLogin still parked on the old flow is not
+// left without an owner: nothing would preempt it, and it could go on to run
+// attemptLogin or mutate the record behind the new flow.
+//
+// The displaced cancel is read in the same critical section that replaces the
+// record, so two callers racing here cannot both take the same predecessor. The
+// cancel runs after the unlock — the displaced wait takes s.mutex as it unwinds.
+func (s *Server) replaceOAuthFlow(next oauthAuthFlow) {
+	s.mutex.Lock()
+	staleCancel := s.oauthAuthFlow.waitCancel
+	s.oauthAuthFlow = next
+	s.mutex.Unlock()
+
+	if staleCancel != nil {
+		staleCancel()
+	}
+}
+
+func (s *Server) expireOAuthFlow(flow auth.OAuthFlow) {
+	s.mutex.Lock()
+	if s.oauthAuthFlow.flow == flow {
+		s.oauthAuthFlow.expiresAt = time.Now()
+	}
+	s.mutex.Unlock()
+}
+
+// reuseOAuthFlow returns the cached auth info when the previous flow targets
+// the same client and still has enough life left, and otherwise cancels the
+// stale wait and returns nil so the caller requests a fresh flow.
+//
+// promptForAccount rules reuse out: the cached flow was built without the
+// account prompt, so handing its URL back would repeat the silent
+// authorization that returned the wrong account — and with the flag already
+// consumed, no later round would ask either. The predecessor's wait is still
+// cancelled on the way out, so it is not orphaned on its device-code window.
+//
+// The whole decision runs off one snapshot taken under s.mutex: a concurrent
+// WaitSSOLogin replaces waitCancel and expires the flow, so reading the fields
+// one at a time could cancel a wait that no longer belongs to the flow just
+// judged stale, or answer with auth info from a flow that was already replaced.
+// The cancel itself is called after unlocking — it runs arbitrary teardown, and
+// WaitSSOLogin takes s.mutex on the way out.
+func (s *Server) reuseOAuthFlow(ctx context.Context, oAuthFlow auth.OAuthFlow, state statusSetter, promptForAccount bool) *proto.LoginResponse {
+	s.mutex.Lock()
+	current := s.oauthAuthFlow
+	s.mutex.Unlock()
+
+	if current.flow == nil || current.flow.GetClientID(ctx) != oAuthFlow.GetClientID(ctx) {
+		return nil
+	}
+
+	if promptForAccount || !current.expiresAt.After(time.Now().Add(90*time.Second)) {
+		log.Warnf("canceling previous waiting execution")
+		if current.waitCancel != nil {
+			current.waitCancel()
+		}
+		return nil
+	}
+
+	log.Debugf("using previous oauth flow info")
+	state.Set(internal.StatusNeedsLogin)
+	return &proto.LoginResponse{
+		NeedsSSOLogin:           true,
+		VerificationURI:         current.info.VerificationURI,
+		VerificationURIComplete: current.info.VerificationURIComplete,
+		UserCode:                current.info.UserCode,
+	}
 }
 
 // WaitSSOLogin validates the supplied userCode against the in-flight OAuth
@@ -843,9 +936,16 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 	}
 
 	s.actCancel = cancel
+	// One snapshot of the flow this wait belongs to. hint and accountPrompted
+	// are judged against the token that comes back below, and WaitToken blocks
+	// for the whole browser leg: a concurrent Login or RequestJWTAuth replaces
+	// s.oauthAuthFlow meanwhile, so re-reading them after the wait would judge
+	// this flow's token against another flow's account.
+	pending := s.oauthAuthFlow
+	flow := pending.flow
 	s.mutex.Unlock()
 
-	if s.oauthAuthFlow.flow == nil {
+	if flow == nil {
 		return nil, gstatus.Errorf(codes.Internal, "oauth flow is not initialized")
 	}
 
@@ -863,31 +963,36 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 	// the affordance instead of a Connecting that never resolves.
 	state.Set(internal.StatusNeedsLogin)
 
-	s.mutex.Lock()
-	flowInfo := s.oauthAuthFlow.info
-	s.mutex.Unlock()
+	flowInfo := pending.info
 
 	if flowInfo.UserCode != msg.UserCode {
 		state.Set(internal.StatusLoginFailed)
 		return nil, gstatus.Errorf(codes.InvalidArgument, "sso user code is invalid")
 	}
 
-	if s.oauthAuthFlow.waitCancel != nil {
-		s.oauthAuthFlow.waitCancel()
-	}
-
 	waitCTX, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	// Swap in this wait's cancel and take over the one it displaces in a single
+	// critical section, so two WaitSSOLogin calls racing here cannot both read
+	// the same predecessor and leave one wait uncancelled. Cancelling happens
+	// after the unlock: the displaced wait takes s.mutex as it unwinds.
 	s.mutex.Lock()
+	if s.oauthAuthFlow.flow != flow {
+		s.mutex.Unlock()
+		return nil, gstatus.Errorf(codes.Canceled, "sso login was replaced by a newer login")
+	}
+	staleCancel := s.oauthAuthFlow.waitCancel
 	s.oauthAuthFlow.waitCancel = cancel
 	s.mutex.Unlock()
 
-	tokenInfo, err := s.oauthAuthFlow.flow.WaitToken(waitCTX, flowInfo)
+	if staleCancel != nil {
+		staleCancel()
+	}
+
+	tokenInfo, err := flow.WaitToken(waitCTX, flowInfo)
 	if err != nil {
-		s.mutex.Lock()
-		s.oauthAuthFlow.expiresAt = time.Now()
-		s.mutex.Unlock()
+		s.expireOAuthFlow(flow)
 		switch {
 		case errors.Is(err, context.Canceled):
 			// External abort. If our caller cancelled (the client closed
@@ -900,7 +1005,9 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 			// the new owner — don't clobber it.
 			if callerCtx.Err() != nil {
 				s.mutex.Lock()
-				s.oauthAuthFlow = oauthAuthFlow{}
+				if s.oauthAuthFlow.flow == flow {
+					s.oauthAuthFlow = oauthAuthFlow{}
+				}
 				s.mutex.Unlock()
 			}
 		case errors.Is(err, context.DeadlineExceeded):
@@ -916,9 +1023,32 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 		return nil, err
 	}
 
-	s.mutex.Lock()
-	s.oauthAuthFlow.expiresAt = time.Now()
-	s.mutex.Unlock()
+	s.expireOAuthFlow(flow)
+
+	if !tokenInfo.MatchesAccount(pending.hint) {
+		if !pending.accountPrompted {
+			// The IdP answered from a session belonging to another account. The
+			// browser for this flow is gone, so a new URL cannot be handed out
+			// here — arm the prompt for the user's next connect and fail this
+			// round. Never log in with the token: on a registered peer the
+			// server would reject it, and on a fresh one it would silently
+			// register the peer under the wrong account.
+			log.Warnf("login returned an account other than the one this profile is bound to; the next connect will ask the IdP to choose")
+			s.mutex.Lock()
+			if s.oauthAuthFlow.flow == flow {
+				s.oauthAuthFlow = oauthAuthFlow{}
+				s.forceAccountPrompt = true
+			}
+			s.mutex.Unlock()
+			state.Set(internal.StatusNeedsLogin)
+			return nil, gstatus.Errorf(codes.FailedPrecondition, "the login used a different account than this profile; connect again to choose the account")
+		}
+		// Already asked once; the account may legitimately differ (a changed
+		// email address). Refusing again would lock the user out of the profile,
+		// and the management server still rejects a token that does not own the
+		// peer.
+		log.Warnf("login still returned a different account after the prompt, continuing with it")
+	}
 
 	if loginStatus, err := s.attemptLogin(ctx, "", tokenInfo.GetTokenToUse()); err != nil {
 		state.Set(loginStatus)
@@ -1221,6 +1351,22 @@ func (s *Server) SwitchProfile(callerCtx context.Context, msg *proto.SwitchProfi
 
 	s.config = config
 	s.localMetrics.Reconcile(config.LocalMetricsEnabled, config.LocalMetricsAddress)
+
+	// A pending login flow and the account-prompt flag describe the previous
+	// profile's login; carried across a switch they would judge the new
+	// profile's token against the old profile's account. CancelFunc is
+	// non-blocking, so calling it under the mutex is safe.
+	if cancel := s.oauthAuthFlow.waitCancel; cancel != nil {
+		cancel()
+	}
+	s.oauthAuthFlow = oauthAuthFlow{}
+	s.forceAccountPrompt = false
+
+	// A pending session extend belongs to the previous profile too: its device
+	// code was issued by that profile's IdP client, and WaitExtendAuthSession
+	// would submit the resulting token against the new profile's engine.
+	s.extendAuthSessionFlow.CancelWait()
+	s.extendAuthSessionFlow.Clear()
 
 	if msg != nil && msg.ProfileName != nil {
 		s.publishProfileListChanged(*msg.ProfileName)
@@ -1761,7 +1907,7 @@ func (s *Server) RequestJWTAuth(
 	}
 
 	// the daemon has no graphical session of its own, only the caller can answer this
-	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.GetHasGraphicalSession(), false, hint)
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.GetHasGraphicalSession(), false, hint, false)
 	if err != nil {
 		return nil, gstatus.Errorf(codes.Internal, "failed to create OAuth flow: %v", err)
 	}
@@ -1771,11 +1917,14 @@ func (s *Server) RequestJWTAuth(
 		return nil, gstatus.Errorf(codes.Internal, "failed to request auth info: %v", err)
 	}
 
-	s.mutex.Lock()
-	s.oauthAuthFlow.flow = oAuthFlow
-	s.oauthAuthFlow.info = authInfo
-	s.oauthAuthFlow.expiresAt = time.Now().Add(time.Duration(authInfo.ExpiresIn) * time.Second)
-	s.mutex.Unlock()
+	// This flow carries no profile hint: leaving the previous login's hint and
+	// accountPrompted in place would have WaitSSOLogin judge a later token
+	// against them.
+	s.replaceOAuthFlow(oauthAuthFlow{
+		flow:      oAuthFlow,
+		info:      authInfo,
+		expiresAt: time.Now().Add(time.Duration(authInfo.ExpiresIn) * time.Second),
+	})
 
 	return &proto.RequestJWTAuthResponse{
 		VerificationURI:         authInfo.VerificationURI,
@@ -1865,7 +2014,7 @@ func (s *Server) RequestExtendAuthSession(
 	}
 
 	// the daemon has no graphical session of its own, only the caller can answer this
-	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.GetHasGraphicalSession(), false, hint)
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.GetHasGraphicalSession(), false, hint, true)
 	if err != nil {
 		return nil, gstatus.Errorf(codes.Internal, "failed to create OAuth flow: %v", err)
 	}

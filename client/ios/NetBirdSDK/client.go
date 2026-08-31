@@ -494,7 +494,7 @@ func (c *Client) LoginForMobile() string {
 		return fmt.Sprintf("failed to load config: %v", err)
 	}
 
-	oAuthFlow, err := auth.NewOAuthFlow(ctx, cfg, false, false, "")
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, cfg, false, false, "", false)
 	if err != nil {
 		return err.Error()
 	}
