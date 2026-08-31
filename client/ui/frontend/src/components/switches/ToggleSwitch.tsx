@@ -18,8 +18,8 @@ const switchVariants = cva("", {
             default: [
                 "dark:data-[state=checked]:bg-netbird dark:data-[state=unchecked]:bg-nb-gray-700",
                 "dark:data-[state=checked]:hover:bg-netbird-500 dark:data-[state=unchecked]:hover:bg-nb-gray-600",
-                "data-[state=checked]:bg-netbird data-[state=unchecked]:bg-neutral-200",
-                "data-[state=checked]:hover:bg-netbird-500 data-[state=unchecked]:hover:bg-neutral-300",
+                "data-[state=checked]:bg-netbird data-[state=unchecked]:bg-nb-gray-600/70",
+                "data-[state=checked]:hover:bg-netbird-500 data-[state=unchecked]:hover:bg-nb-gray-600",
             ],
             "red-green": [
                 "dark:data-[state=checked]:bg-red-600 dark:data-[state=unchecked]:bg-nb-gray-700",

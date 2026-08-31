@@ -61,13 +61,15 @@ const Trigger = forwardRef<HTMLButtonElement, TriggerProps>(function VerticalTab
                 aria-hidden={"true"}
                 className={cn(
                     "ml-2 shrink-0 transition-colors duration-150",
-                    "text-nb-gray-400 group-data-[state=active]:text-nb-gray-100",
+                    "text-nb-gray-350 dark:text-nb-gray-400",
+                    "group-data-[state=active]:text-nb-gray-100",
                 )}
             />
             <span
                 className={cn(
                     "min-w-0 truncate text-sm font-medium transition-colors duration-150",
-                    "text-nb-gray-400 group-data-[state=active]:text-nb-gray-100",
+                    "text-nb-gray-350 dark:text-nb-gray-400",
+                    "group-data-[state=active]:text-nb-gray-100",
                 )}
             >
                 {title}
