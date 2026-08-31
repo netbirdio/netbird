@@ -567,6 +567,13 @@ func TestEngine_ModifiedPeerKeepsActivationState(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, peer.StatusIdle, state.ConnStatus, "lazy-capable peer should be managed as idle")
 
+	// No transport can come up in this test, so mark the connection established
+	// directly: only an established connection counts as active across a modify.
+	require.NoError(t, engine.statusRecorder.UpdatePeerState(peer.State{
+		PubKey:     activePeer.WgPubKey,
+		ConnStatus: peer.StatusConnected,
+	}))
+
 	// The active peer's agent version changes, as when a peer registered over the
 	// API logs in and fills in its meta; the idle peer's allowed IPs change. Both
 	// count as modified and are removed and re-added.
@@ -595,10 +602,41 @@ func TestEngine_ModifiedPeerKeepsActivationState(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, peer.StatusIdle, state.ConnStatus, "previously idle peer should stay idle after a modify")
 
+	// A woken peer that has not established a connection is re-added idle: its
+	// remote holds no state it would keep, and parking idle re-arms the activity
+	// listener so local traffic or a remote offer can wake it again.
+	wokenConn, ok := engine.peerStore.PeerConn(idlePeer.WgPubKey)
+	require.True(t, ok, "idle peer should have a connection")
+	engine.connMgr.ActivatePeer(ctx, wokenConn)
+	state, err = engine.statusRecorder.GetPeer(idlePeer.WgPubKey)
+	require.NoError(t, err)
+	require.Equal(t, peer.StatusConnecting, state.ConnStatus, "woken lazy peer should be connecting")
+
+	err = engine.updateNetworkMap(&mgmtProto.NetworkMap{
+		Serial: 3,
+		RemotePeers: []*mgmtProto.RemotePeerConfig{
+			{
+				WgPubKey:     activePeer.WgPubKey,
+				AllowedIps:   activePeer.AllowedIps,
+				AgentVersion: "development",
+			},
+			{
+				WgPubKey:     idlePeer.WgPubKey,
+				AllowedIps:   []string{"100.64.0.22/24"},
+				AgentVersion: "development",
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	state, err = engine.statusRecorder.GetPeer(idlePeer.WgPubKey)
+	require.NoError(t, err)
+	assert.Equal(t, peer.StatusIdle, state.ConnStatus, "peer mid handshake should be re-added idle after a modify")
+
 	// A missing status entry fails the modify before any connection is removed.
 	require.NoError(t, engine.statusRecorder.RemovePeer(activePeer.WgPubKey))
 	err = engine.updateNetworkMap(&mgmtProto.NetworkMap{
-		Serial: 3,
+		Serial: 4,
 		RemotePeers: []*mgmtProto.RemotePeerConfig{
 			{
 				WgPubKey:     activePeer.WgPubKey,
@@ -621,7 +659,7 @@ func TestEngine_ModifiedPeerKeepsActivationState(t *testing.T) {
 
 	idleConn, ok := engine.peerStore.PeerConn(idlePeer.WgPubKey)
 	require.True(t, ok, "the other modified peer should keep its connection")
-	assert.True(t, compareNetIPLists(idleConn.WgConfig().AllowedIps, []string{"100.64.0.21/24"}),
+	assert.True(t, compareNetIPLists(idleConn.WgConfig().AllowedIps, []string{"100.64.0.22/24"}),
 		"the other modified peer should keep its allowed IPs")
 }
 

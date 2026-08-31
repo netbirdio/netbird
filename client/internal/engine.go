@@ -872,7 +872,10 @@ func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 		if err != nil {
 			return fmt.Errorf("get status of modified peer %s: %w", peerPubKey, err)
 		}
-		active[peerPubKey] = state.ConnStatus != peer.StatusIdle
+		// only an established connection counts as active: a peer still mid
+		// handshake gains nothing from being re-added as active, while re-arming
+		// its activity listener lets it park cheaply and wake on demand again
+		active[peerPubKey] = state.ConnStatus == peer.StatusConnected
 	}
 	// then close all modified connections and remove them from the state map
 	for _, p := range modified {
