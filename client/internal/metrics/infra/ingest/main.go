@@ -23,6 +23,11 @@ const (
 	peerIDLength       = 16               // truncated SHA-256: 8 bytes = 16 hex chars
 	maxTagValueLength  = 64               // reject tag values longer than this
 	peerIDTag          = "peer_id"
+	readTimeout        = 30 * time.Second // must fit reading a compressed body up to maxBodySize
+	writeTimeout       = 60 * time.Second // must exceed the upstream client timeout below
+	idleTimeout        = 120 * time.Second
+	readHeaderTimeout  = 10 * time.Second
+	maxHeaderBytes     = 1 << 20 // 1 MB
 )
 
 type measurementSpec struct {
@@ -125,8 +130,17 @@ func main() {
 		fmt.Fprint(w, "ok") //nolint:errcheck
 	})
 
+	srv := &http.Server{
+		Addr:              listenAddr,
+		ReadTimeout:       readTimeout,
+		ReadHeaderTimeout: readHeaderTimeout,
+		WriteTimeout:      writeTimeout,
+		IdleTimeout:       idleTimeout,
+		MaxHeaderBytes:    maxHeaderBytes,
+	}
+
 	log.Printf("ingest server listening on %s, forwarding to %s", listenAddr, influxURL)
-	if err := http.ListenAndServe(listenAddr, nil); err != nil { //nolint:gosec
+	if err := srv.ListenAndServe(); err != nil {
 		log.Fatal(err)
 	}
 }
