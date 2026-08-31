@@ -22,6 +22,7 @@ const (
 	maxDurationSeconds = 86400.0          // reject any duration field > 24 hours
 	peerIDLength       = 16               // truncated SHA-256: 8 bytes = 16 hex chars
 	maxTagValueLength  = 64               // reject tag values longer than this
+	peerIDTag          = "peer_id"
 )
 
 type measurementSpec struct {
@@ -137,7 +138,8 @@ func handleIngest(client *http.Client, influxURL, influxToken string) http.Handl
 			return
 		}
 
-		if err := validatePeerIDFormat(r); err != nil {
+		peerID := r.Header.Get("X-Peer-ID")
+		if err := validatePeerIDFormat(peerID); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -152,7 +154,7 @@ func handleIngest(client *http.Client, influxURL, influxToken string) http.Handl
 			return
 		}
 
-		validated, err := validateLineProtocol(body)
+		validated, err := validateLineProtocol(body, peerID)
 		if err != nil {
 			log.Printf("WARN validation failed from %s: %v", r.RemoteAddr, err)
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -192,8 +194,7 @@ func forwardToInflux(w http.ResponseWriter, r *http.Request, client *http.Client
 // unauthenticated so that peers of self-hosted deployments, for which no shared
 // trust anchor exists, can report obfuscated telemetry. The check exists to bound
 // tag cardinality, so a malformed value is a bad request rather than an auth failure.
-func validatePeerIDFormat(r *http.Request) error {
-	peerID := r.Header.Get("X-Peer-ID")
+func validatePeerIDFormat(peerID string) error {
 	if peerID == "" {
 		return fmt.Errorf("missing X-Peer-ID header")
 	}
@@ -224,7 +225,7 @@ func readBody(r *http.Request) ([]byte, error) {
 
 // validateLineProtocol parses InfluxDB line protocol lines,
 // whitelists measurements and fields, and checks value bounds.
-func validateLineProtocol(body []byte) ([]byte, error) {
+func validateLineProtocol(body []byte, peerID string) ([]byte, error) {
 	lines := strings.Split(strings.TrimSpace(string(body)), "\n")
 	var valid []string
 
@@ -234,7 +235,7 @@ func validateLineProtocol(body []byte) ([]byte, error) {
 			continue
 		}
 
-		if err := validateLine(line); err != nil {
+		if err := validateLine(line, peerID); err != nil {
 			return nil, err
 		}
 
@@ -248,7 +249,7 @@ func validateLineProtocol(body []byte) ([]byte, error) {
 	return []byte(strings.Join(valid, "\n") + "\n"), nil
 }
 
-func validateLine(line string) error {
+func validateLine(line, peerID string) error {
 	// line protocol: measurement,tag=val,tag=val field=val,field=val timestamp
 	parts := strings.SplitN(line, " ", 3)
 	if len(parts) < 2 {
@@ -266,7 +267,7 @@ func validateLine(line string) error {
 
 	// Validate tags (everything after measurement name in parts[0])
 	for _, tagPair := range measurementAndTags[1:] {
-		if err := validateTag(tagPair, measurement, spec.allowedTags); err != nil {
+		if err := validateTag(tagPair, measurement, peerID, spec.allowedTags); err != nil {
 			return err
 		}
 	}
@@ -281,7 +282,7 @@ func validateLine(line string) error {
 	return nil
 }
 
-func validateTag(pair, measurement string, allowedTags map[string]bool) error {
+func validateTag(pair, measurement, peerID string, allowedTags map[string]bool) error {
 	kv := strings.SplitN(pair, "=", 2)
 	if len(kv) != 2 {
 		return fmt.Errorf("invalid tag: %q", pair)
@@ -294,6 +295,10 @@ func validateTag(pair, measurement string, allowedTags map[string]bool) error {
 
 	if len(kv[1]) > maxTagValueLength {
 		return fmt.Errorf("tag value too long for %q: %d > %d", tagName, len(kv[1]), maxTagValueLength)
+	}
+
+	if tagName == peerIDTag && kv[1] != peerID {
+		return fmt.Errorf("peer_id tag does not match X-Peer-ID header")
 	}
 
 	return nil
