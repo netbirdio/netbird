@@ -18,6 +18,9 @@ func newTestServer() *Server {
 	return &Server{
 		rootCtx:        context.Background(),
 		statusRecorder: peer.NewRecorder(""),
+		// cleanupConnection clears the SSH JWT cache, which New always
+		// populates; a Server assembled field by field has to do the same.
+		jwtCache: newJWTCache(),
 	}
 }
 

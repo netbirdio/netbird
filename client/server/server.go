@@ -23,6 +23,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/expose"
+	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/netbirdio/netbird/client/internal/localmetrics"
@@ -1222,6 +1223,8 @@ func (s *Server) SwitchProfile(callerCtx context.Context, msg *proto.SwitchProfi
 	s.config = config
 	s.localMetrics.Reconcile(config.LocalMetricsEnabled, config.LocalMetricsAddress)
 
+	s.jwtCache.clear()
+
 	if msg != nil && msg.ProfileName != nil {
 		s.publishProfileListChanged(*msg.ProfileName)
 	}
@@ -1281,6 +1284,8 @@ func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownRes
 
 func (s *Server) cleanupConnection() error {
 	s.oauthAuthFlow = oauthAuthFlow{}
+
+	s.jwtCache.clear()
 
 	if s.actCancel == nil {
 		return ErrServiceNotUp
@@ -1722,6 +1727,17 @@ func (s *Server) getJWTCacheTTL() time.Duration {
 	return ttl
 }
 
+// cachedJWT returns the cached SSH JWT to the identity that obtained it, and a
+// miss on a control channel that carries no caller identity.
+func (s *Server) cachedJWT(ctx context.Context) (string, bool) {
+	caller, ok := ipcauth.CallerIdentity(ctx)
+	if !ok {
+		log.Warn("not serving the cached SSH JWT: the caller's identity cannot be verified on this control channel")
+		return "", false
+	}
+	return s.jwtCache.get(caller)
+}
+
 // RequestJWTAuth initiates JWT authentication flow for SSH
 func (s *Server) RequestJWTAuth(
 	ctx context.Context,
@@ -1741,7 +1757,7 @@ func (s *Server) RequestJWTAuth(
 
 	jwtCacheTTL := s.getJWTCacheTTL()
 	if jwtCacheTTL > 0 {
-		if cachedToken, found := s.jwtCache.get(); found {
+		if cachedToken, found := s.cachedJWT(ctx); found {
 			log.Debugf("JWT token found in cache, returning cached token for SSH authentication")
 
 			return &proto.RequestJWTAuthResponse{
@@ -1813,11 +1829,14 @@ func (s *Server) WaitJWTToken(
 	token := tokenInfo.GetTokenToUse()
 
 	jwtCacheTTL := s.getJWTCacheTTL()
-	if jwtCacheTTL > 0 {
-		s.jwtCache.store(token, jwtCacheTTL)
-		log.Debugf("JWT token cached for SSH authentication, TTL: %v", jwtCacheTTL)
-	} else {
+	switch caller, ok := ipcauth.CallerIdentity(ctx); {
+	case jwtCacheTTL <= 0:
 		log.Debug("JWT caching disabled, not storing token")
+	case !ok:
+		log.Warn("not caching the SSH JWT: the caller's identity cannot be verified on this control channel")
+	default:
+		s.jwtCache.store(token, caller, jwtCacheTTL)
+		log.Debugf("JWT token cached for SSH authentication, TTL: %v", jwtCacheTTL)
 	}
 
 	s.mutex.Lock()
