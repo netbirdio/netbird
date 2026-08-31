@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/netip"
 	"sync"
+	"syscall"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -478,6 +479,23 @@ func (s *Server) closeActiveSessions() {
 	}
 }
 
+// acceptRetryPause is how long acceptLoop waits before retrying an Accept that
+// failed for a reason that can clear. Enough that a run of failures cannot
+// become a spin.
+const acceptRetryPause = 50 * time.Millisecond
+
+// sleepOrDone waits for d, reporting false when the server stopped first.
+func (s *Server) sleepOrDone(d time.Duration) bool {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return true
+	case <-s.ctx.Done():
+		return false
+	}
+}
+
 // handlerDrainTimeout bounds how long Stop waits for connection handlers. They
 // are already unblocked by the socket closes above, so this only covers one
 // wedged in a syscall; shutdown must not hang on it.
@@ -893,12 +911,21 @@ func (s *Server) acceptLoop(ln net.Listener) {
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
-			select {
-			case <-s.ctx.Done():
+			if s.ctx.Err() != nil {
 				return
-			default:
+			}
+			if errors.Is(err, net.ErrClosed) {
+				s.log.Debugf("VNC listener closed: %v", err)
+				return
+			}
+			if !acceptRetryable(err) {
+				s.log.Errorf("VNC listener %s gave up: %v", ln.Addr(), err)
+				return
 			}
 			s.log.Debugf("accept VNC connection: %v", err)
+			if !s.sleepOrDone(acceptRetryPause) {
+				return
+			}
 			continue
 		}
 
@@ -1230,4 +1257,16 @@ func modeString(m byte) string {
 	default:
 		return "unknown"
 	}
+}
+
+// acceptRetryable reports whether an Accept error can plausibly clear on its
+// own. Running out of file descriptors can, once open connections close, and an
+// aborted handshake concerns one client rather than the listener. Anything else
+// will fail the same way on every call, and retrying it is not recovery but a
+// livelock: Android has been seen returning EINVAL from accept4 for the life of
+// an otherwise healthy listening socket.
+func acceptRetryable(err error) bool {
+	return errors.Is(err, syscall.ECONNABORTED) ||
+		errors.Is(err, syscall.EMFILE) ||
+		errors.Is(err, syscall.ENFILE)
 }
