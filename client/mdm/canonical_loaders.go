@@ -27,6 +27,8 @@ var allKeys = []string{
 	KeyRosenpassEnabled,
 	KeyRosenpassPermissive,
 	KeyWireguardPort,
+	KeyEnableLocalMetrics,
+	KeyLocalMetricsAddress,
 	KeySplitTunnelMode,
 	KeySplitTunnelApps,
 	KeyLazyConnection,
