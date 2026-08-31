@@ -63,7 +63,6 @@ func ShortKeyFingerprint(hexKey string) string {
 // add a constant here so the UI can dispatch on a known string.
 const (
 	KindVNC = "vnc"
-	KindSSH = "ssh"
 )
 
 // DefaultTimeout is the wall-clock window the user has to accept or deny a
