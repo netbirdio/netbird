@@ -1347,7 +1347,10 @@ func (s *Server) handleProfileLogout(ctx context.Context, msg *proto.LogoutReque
 		return nil, err
 	}
 
-	if err := s.validateProfileOperation(resolved.ID, true); err != nil {
+	activeProf, _ := s.profileManager.GetActiveProfileState()
+	isActiveProfile := activeProf != nil && activeProf.ID == resolved.ID
+
+	if err := s.validateProfileLogout(resolved.ID, isActiveProfile); err != nil {
 		return nil, err
 	}
 
@@ -1362,8 +1365,7 @@ func (s *Server) handleProfileLogout(ctx context.Context, msg *proto.LogoutReque
 		return nil, gstatus.Errorf(codes.Internal, "logout: %v", err)
 	}
 
-	activeProf, _ := s.profileManager.GetActiveProfileState()
-	if activeProf != nil && activeProf.ID == resolved.ID {
+	if isActiveProfile {
 		if err := s.cleanupConnection(); err != nil && !errors.Is(err, ErrServiceNotUp) {
 			log.Errorf("failed to cleanup connection: %v", err)
 		}
@@ -1425,32 +1427,27 @@ func (s *Server) getConfig(activeProf *profilemanager.ActiveProfileState) (*prof
 	return config, configExisted, nil
 }
 
-func (s *Server) canRemoveProfile(id profilemanager.ID) error {
-	if id == profilemanager.DefaultProfileName {
-		return fmt.Errorf("remove profile with reserved name: %s", profilemanager.DefaultProfileName)
-	}
-
-	activeProf, err := s.profileManager.GetActiveProfileState()
-	if err == nil && activeProf.ID == id {
-		return fmt.Errorf("remove active profile: %s", id)
-	}
-
-	return nil
-}
-
-func (s *Server) validateProfileOperation(id profilemanager.ID, allowActiveProfile bool) error {
-	if s.checkProfilesDisabled() {
-		return gstatus.Errorf(codes.Unavailable, errProfilesDisabled)
-	}
-
+// validateProfileLogout gates a profile-addressed logout. Deregistering the
+// profile the daemon is already running is not profile management: it is the
+// very operation a plain `netbird logout` performs, so the profiles-disabled
+// kill switch must not block it — otherwise a client with profiles disabled
+// can never log out from the UI, which always addresses logout by profile.
+// With profiles disabled there is a single profile anyway, so every
+// profile-addressed logout is by definition an active-profile logout.
+// Deregistering a *different* profile does count as profile management and
+// stays gated. Mirrors switchProfileIfNeeded, which likewise gates only the
+// branch that actually manages profiles.
+func (s *Server) validateProfileLogout(id profilemanager.ID, isActiveProfile bool) error {
 	if id == "" {
 		return gstatus.Errorf(codes.InvalidArgument, "profile name must be provided")
 	}
 
-	if !allowActiveProfile {
-		if err := s.canRemoveProfile(id); err != nil {
-			return gstatus.Errorf(codes.InvalidArgument, "%v", err)
-		}
+	if isActiveProfile {
+		return nil
+	}
+
+	if s.checkProfilesDisabled() {
+		return gstatus.Errorf(codes.Unavailable, errProfilesDisabled)
 	}
 
 	return nil
