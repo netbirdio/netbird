@@ -6,8 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"go.uber.org/mock/gomock"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel"
+	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
@@ -29,6 +30,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
 	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
+	signalProto "github.com/netbirdio/netbird/shared/signal/proto"
+	signalServer "github.com/netbirdio/netbird/signal/server"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -165,4 +168,119 @@ func startManagement(t *testing.T, signalAddr string) string {
 	t.Cleanup(s.Stop)
 
 	return lis.Addr().String()
+}
+
+// startSignal starts a signal server that serves the SignalExchange service, so
+// an embedded client can get past WaitStreamConnected and finish Engine.Start.
+func startSignal(t *testing.T) string {
+	t.Helper()
+
+	lis, err := net.Listen("tcp", "localhost:0")
+	require.NoError(t, err)
+
+	s := grpc.NewServer()
+	srv, err := signalServer.NewServer(context.Background(), otel.Meter(""))
+	require.NoError(t, err)
+	signalProto.RegisterSignalExchangeServer(s, srv)
+
+	go func() {
+		if err := s.Serve(lis); err != nil {
+			t.Error(err)
+		}
+	}()
+	t.Cleanup(s.Stop)
+
+	return lis.Addr().String()
+}
+
+// TestClientSyncResponsePersistence checks that DisableSyncResponsePersistence
+// controls whether the engine retains the latest management sync response, which
+// is observable through GetLatestSyncResponse.
+func TestClientSyncResponsePersistence(t *testing.T) {
+	tests := []struct {
+		name      string
+		disable   bool
+		persisted bool
+	}{
+		{name: "retained by default", disable: false, persisted: true},
+		{name: "dropped when disabled", disable: true, persisted: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			signalAddr := startSignal(t)
+			mgmAddr := startManagement(t, signalAddr)
+
+			wgPort := 0
+			client, err := New(Options{
+				DeviceName:                     "embed-persistence-test",
+				SetupKey:                       testSetupKey,
+				ManagementURL:                  "http://" + mgmAddr,
+				WireguardPort:                  &wgPort,
+				DisableSyncResponsePersistence: tc.disable,
+			})
+			require.NoError(t, err, "embed client creation must succeed")
+
+			startCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+			require.NoError(t, client.Start(startCtx), "client must start")
+
+			t.Cleanup(func() {
+				stopCtx, stopCancel := context.WithTimeout(context.Background(), 15*time.Second)
+				defer stopCancel()
+				if err := client.Stop(stopCtx); err != nil {
+					t.Logf("stop client: %v", err)
+				}
+			})
+
+			if !tc.persisted {
+				_, err := client.GetLatestSyncResponse()
+				require.Error(t, err, "no sync response may be retained when persistence is disabled")
+				return
+			}
+
+			require.Eventually(t, func() bool {
+				resp, err := client.GetLatestSyncResponse()
+				return err == nil && resp.GetNetworkMap() != nil
+			}, 30*time.Second, 200*time.Millisecond, "the sync response and its network map should be retained by default")
+		})
+	}
+}
+
+// TestClientStatusSnapshot checks that StatusSnapshot reports a started client's
+// state without going through the health probes Status runs.
+func TestClientStatusSnapshot(t *testing.T) {
+	signalAddr := startSignal(t)
+	mgmAddr := startManagement(t, signalAddr)
+
+	mgmtURL := "http://" + mgmAddr
+	wgPort := 0
+	client, err := New(Options{
+		DeviceName:    "embed-status-snapshot-test",
+		SetupKey:      testSetupKey,
+		ManagementURL: mgmtURL,
+		WireguardPort: &wgPort,
+	})
+	require.NoError(t, err, "embed client creation must succeed")
+
+	// Safe before Start: the recorder exists from New, and no engine is needed.
+	require.Empty(t, client.StatusSnapshot().LocalPeerState.IP, "an unstarted client has no overlay address")
+
+	startCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	require.NoError(t, client.Start(startCtx), "client must start")
+
+	t.Cleanup(func() {
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer stopCancel()
+		if err := client.Stop(stopCtx); err != nil {
+			t.Logf("stop client: %v", err)
+		}
+	})
+
+	require.Eventually(t, func() bool {
+		return client.StatusSnapshot().LocalPeerState.IP != ""
+	}, 30*time.Second, 200*time.Millisecond, "a started client should report its overlay address")
+
+	require.Equal(t, mgmtURL, client.StatusSnapshot().ManagementState.URL, "snapshot should carry the management URL")
 }

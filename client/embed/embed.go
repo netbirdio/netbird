@@ -36,12 +36,20 @@ var (
 )
 
 const (
+	// PeerStatusIdle indicates the peer is in disconnected state.
+	PeerStatusIdle = peer.StatusIdle
+	// PeerStatusConnecting indicates the peer is in connecting state.
+	PeerStatusConnecting = peer.StatusConnecting
 	// PeerStatusConnected indicates the peer is in connected state.
 	PeerStatusConnected = peer.StatusConnected
 )
 
 // PeerConnStatus is a peer's connection status.
 type PeerConnStatus = peer.ConnStatus
+
+// PeerState is the status recorder's view of one remote peer, as carried in
+// the Peers field of the value returned by Status and StatusSnapshot.
+type PeerState = peer.State
 
 // Client manages a netbird embedded client instance.
 type Client struct {
@@ -53,6 +61,8 @@ type Client struct {
 	jwtToken   string
 	connect    *internal.ConnectClient
 	recorder   *peer.Status
+
+	disableSyncPersistence bool
 }
 
 // Options configures a new Client.
@@ -115,6 +125,12 @@ type Options struct {
 	DNSLabels []string
 	// Performance configures the tunnel's buffer pool cap and batch size.
 	Performance Performance
+	// DisableSyncResponsePersistence stops the client from retaining the latest
+	// management sync response. That response is only ever read back through
+	// GetLatestSyncResponse, and retaining it pins a decoded copy of the whole
+	// network map for the lifetime of the client. Set this when many clients
+	// share one process and none of them read the sync response back.
+	DisableSyncResponsePersistence bool
 }
 
 // Performance configures the embedded client's tunnel memory/throughput knobs.
@@ -251,11 +267,12 @@ func New(opts Options) (*Client, error) {
 	}
 
 	return &Client{
-		deviceName: opts.DeviceName,
-		setupKey:   opts.SetupKey,
-		jwtToken:   opts.JWTToken,
-		config:     config,
-		recorder:   peer.NewRecorder(config.ManagementURL.String()),
+		deviceName:             opts.DeviceName,
+		setupKey:               opts.SetupKey,
+		jwtToken:               opts.JWTToken,
+		config:                 config,
+		recorder:               peer.NewRecorder(config.ManagementURL.String()),
+		disableSyncPersistence: opts.DisableSyncResponsePersistence,
 	}, nil
 }
 
@@ -288,7 +305,7 @@ func (c *Client) Start(startCtx context.Context) error {
 		return fmt.Errorf("login: %w", err)
 	}
 	client := internal.NewConnectClient(ctx, c.config, c.recorder)
-	client.SetSyncResponsePersistence(true)
+	client.SetSyncResponsePersistence(!c.disableSyncPersistence)
 
 	// either startup error (permanent backoff err) or nil err (successful engine up)
 	// TODO: make after-startup backoff err available
@@ -498,6 +515,14 @@ func (c *Client) Status() (peer.FullStatus, error) {
 	}
 
 	return c.recorder.GetFullStatus(), nil
+}
+
+// StatusSnapshot returns the client's current status without running health
+// probes. Status probes every STUN and TURN server and takes the engine lock,
+// which is too expensive to call at high frequency or across many clients
+// sharing one process.
+func (c *Client) StatusSnapshot() peer.FullStatus {
+	return c.recorder.GetFullStatus()
 }
 
 // GetLatestSyncResponse returns the latest sync response from the management server.
