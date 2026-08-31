@@ -33,7 +33,6 @@ Clients do not talk to InfluxDB directly. An ingest server sits between clients 
 Client ──POST──▶ Ingest Server (:8087) ──▶ InfluxDB (internal)
                   │
                   ├─ Checks the X-Peer-ID header format
-                  ├─ Requires each peer_id tag to match that header
                   ├─ Validates line protocol
                   ├─ Allowlists measurements, fields, and tags
                   ├─ Rejects out-of-bound values
@@ -43,15 +42,11 @@ Client ──POST──▶ Ingest Server (:8087) ──▶ InfluxDB (internal)
 - **Intentionally unauthenticated** — the endpoint receives obfuscated telemetry from
   the peers of both cloud and self-hosted deployments. For a self-hosted peer there is
   no shared trust anchor with this server, so there is nothing to authenticate against.
-- **`X-Peer-ID` is a format-checked reference value, not a credential** — grouping is
-  done by the `peer_id` tag in the submitted line protocol, which is what reaches
-  InfluxDB. The header is checked for shape (16 hex chars) and each `peer_id` tag must
-  equal it, so the tag is constrained to the same shape. A malformed header or a
-  mismatching tag is rejected with `400 Bad Request`, not `401`. Any well-formed value
+- **`X-Peer-ID` is a correlation tag, not a credential** — it carries the obfuscated
+  peer identifier so samples from one peer can be grouped. The server only checks its
+  format (16 hex chars) to bound tag cardinality;
+  a malformed value is rejected with `400 Bad Request`, not `401`. Any well-formed value
   is accepted by design, and the header must not be relied on for access control.
-  Note this constrains the value space of the tag, not the number of distinct series:
-  a sender reusing one arbitrary well-formed value in both places still passes, so
-  series cardinality has to be bounded outside this service.
 - **The InfluxDB token stays server-side** — clients never hold a write credential.
 - **InfluxDB is not exposed** — only accessible within the docker network
 - Source: `ingest/main.go`
