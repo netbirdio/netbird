@@ -1933,7 +1933,7 @@ type AgentNetworkAccessLogsResponse struct {
 
 // AgentNetworkAgentConfig The caller-scoped Agent Network connection config backing the self-service "Connect your agent" view. Available to every authenticated user; the providers are computed from the caller's own groups and the answer carries display metadata only.
 type AgentNetworkAgentConfig struct {
-	// Configured False only when the account has no Agent Network set up. A caller no policy covers yet still reads as configured, with an empty providers list.
+	// Configured False only when the account has no Agent Network set up. A caller that no policy covers yet still reads as configured, with an empty providers list.
 	Configured bool `json:"configured"`
 
 	// Endpoint The account's Agent Network base URL, reachable over the NetBird tunnel only. Returned to every member of a configured account - it authorizes nothing on its own, since the gateway still refuses every request no policy permits. Empty when configured is false.
