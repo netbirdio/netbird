@@ -137,8 +137,8 @@ func handleIngest(client *http.Client, influxURL, influxToken string) http.Handl
 			return
 		}
 
-		if err := validateAuth(r); err != nil {
-			http.Error(w, err.Error(), http.StatusUnauthorized)
+		if err := validatePeerIDFormat(r); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
@@ -187,8 +187,12 @@ func forwardToInflux(w http.ResponseWriter, r *http.Request, client *http.Client
 	io.Copy(w, resp.Body) //nolint:errcheck
 }
 
-// validateAuth checks that the X-Peer-ID header contains a valid hashed peer ID.
-func validateAuth(r *http.Request) error {
+// validatePeerIDFormat checks the shape of the X-Peer-ID header. The header is a
+// correlation tag, not a credential: this endpoint is intentionally
+// unauthenticated so that peers of self-hosted deployments, for which no shared
+// trust anchor exists, can report obfuscated telemetry. The check exists to bound
+// tag cardinality, so a malformed value is a bad request rather than an auth failure.
+func validatePeerIDFormat(r *http.Request) error {
 	peerID := r.Header.Get("X-Peer-ID")
 	if peerID == "" {
 		return fmt.Errorf("missing X-Peer-ID header")
