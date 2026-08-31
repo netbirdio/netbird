@@ -8,20 +8,18 @@ package services
 
 // forced < 0: follow the OS (appearance nil); 0: light; 1: dark.
 //
-// dispatch_async, not dispatch_sync: the main queue is serial FIFO and callers
-// enqueue under Theme.apply's mutex, so the newest theme still lands last. A
-// synchronous hop would instead block the main thread while that mutex is held,
-// which the bound Theme/Preferences methods can deadlock against.
+// Assigns directly rather than dispatching: Theme.apply already runs this on
+// the main thread. Deferring would outlive the caller's check that the window
+// is alive, and the __bridge cast does not retain it, so the block could touch
+// a freed NSWindow.
 static void nbSetWindowAppearance(void *nsWindow, int forced) {
 	NSWindow *window = (__bridge NSWindow *)nsWindow;
-	dispatch_async(dispatch_get_main_queue(), ^{
-		if (forced < 0) {
-			window.appearance = nil;
-		} else {
-			NSAppearanceName name = forced == 1 ? NSAppearanceNameDarkAqua : NSAppearanceNameAqua;
-			window.appearance = [NSAppearance appearanceNamed:name];
-		}
-	});
+	if (forced < 0) {
+		window.appearance = nil;
+	} else {
+		NSAppearanceName name = forced == 1 ? NSAppearanceNameDarkAqua : NSAppearanceNameAqua;
+		window.appearance = [NSAppearance appearanceNamed:name];
+	}
 }
 */
 import "C"
@@ -35,8 +33,12 @@ import (
 // setWindowAppearance pins the NSWindow appearance to the forced theme, or
 // hands it back to the OS for ThemeSystem. Without this, a window created
 // under one OS appearance keeps its dark/light frame after a manual theme
-// flip, leaving a mismatched border around the webview.
-func setWindowAppearance(nsWindow unsafe.Pointer, pref preferences.Theme) {
+// flip, leaving a mismatched border around the webview. Must run on the main
+// thread, which Theme.apply guarantees.
+//
+// The resolved appearance is unused: for ThemeSystem a nil NSAppearance lets
+// AppKit track the OS itself, which cannot drift from a snapshot we took.
+func setWindowAppearance(nsWindow unsafe.Pointer, pref preferences.Theme, _ bool) {
 	if nsWindow == nil {
 		return
 	}

@@ -9,4 +9,4 @@ import (
 )
 
 // setWindowAppearance is a no-op on Linux; the chrome follows the GTK theme.
-func setWindowAppearance(unsafe.Pointer, preferences.Theme) {}
+func setWindowAppearance(unsafe.Pointer, preferences.Theme, bool) {}

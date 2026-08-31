@@ -46,9 +46,26 @@ var (
 )
 
 // effectiveDark is the resolved appearance (theme preference + OS state),
-// maintained by services.Theme; read at window creation, re-applied to live
-// windows by Theme.apply.
+// maintained by services.Theme; re-applied to live windows by Theme.apply and
+// the fallback for window creation until resolveAppearance is installed.
 var effectiveDark atomic.Bool
+
+// resolveAppearance re-resolves the effective appearance against the live OS
+// state. Theme installs it so window creation never reads a stale seed:
+// app.Env.IsDarkMode reports light until Run installs the platform layer, and
+// Wails runs every ApplicationStarted listener in its own goroutine, so a
+// startup window can be created before Theme's listener has corrected the seed.
+var resolveAppearance atomic.Value // func() bool
+
+func setAppearanceResolver(f func() bool) { resolveAppearance.Store(f) }
+
+// currentEffectiveDark is the appearance window creation must use.
+func currentEffectiveDark() bool {
+	if f, _ := resolveAppearance.Load().(func() bool); f != nil {
+		return f()
+	}
+	return effectiveDark.Load()
+}
 
 // themePref is the persisted preference (system/light/dark), maintained by
 // services.Theme; window creation reads it for the macOS appearance.
@@ -71,7 +88,12 @@ func currentThemePref() preferences.Theme {
 // CurrentWindowBackgroundColour returns the window background for the
 // resolved appearance; use it for every WebviewWindowOptions.BackgroundColour.
 func CurrentWindowBackgroundColour() application.RGBA {
-	if effectiveDark.Load() {
+	return windowBackgroundColour(currentEffectiveDark())
+}
+
+// windowBackgroundColour maps a resolved appearance to its window background.
+func windowBackgroundColour(dark bool) application.RGBA {
+	if dark {
 		return windowBackgroundDark
 	}
 	return windowBackgroundLight
@@ -101,7 +123,7 @@ var microsoftWindowsLightTheme = &application.WindowTheme{
 // Both CustomTheme slots hold one colour set for the same reason.
 func MicrosoftWindowsAppearanceOptions() application.WindowsWindow {
 	theme, chrome := application.Light, microsoftWindowsLightTheme
-	if effectiveDark.Load() {
+	if currentEffectiveDark() {
 		theme, chrome = application.Dark, microsoftWindowsDarkTheme
 	}
 	return application.WindowsWindow{
