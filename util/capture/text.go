@@ -557,6 +557,8 @@ var vncRejectCodes = [...]string{
 	"BAD_REQUEST",
 	"NO_CONSOLE_USER",
 	"APPROVAL_DENIED",
+	"APPROVAL_TIMEOUT",
+	"APPROVAL_UNAVAILABLE",
 	"NO_APPROVER",
 }
 

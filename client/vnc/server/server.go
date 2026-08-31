@@ -33,14 +33,16 @@ const (
 // stable so clients can branch on them without parsing free text.
 // Format: "CODE: human message".
 const (
-	RejectCodeAuthForbidden  = "AUTH_FORBIDDEN"
-	RejectCodeSessionError   = "SESSION_ERROR"
-	RejectCodeCapturerError  = "CAPTURER_ERROR"
-	RejectCodeUnsupportedOS  = "UNSUPPORTED"
-	RejectCodeBadRequest     = "BAD_REQUEST"
-	RejectCodeNoConsoleUser  = "NO_CONSOLE_USER"
-	RejectCodeApprovalDenied = "APPROVAL_DENIED"
-	RejectCodeNoApprover     = "NO_APPROVER"
+	RejectCodeAuthForbidden       = "AUTH_FORBIDDEN"
+	RejectCodeSessionError        = "SESSION_ERROR"
+	RejectCodeCapturerError       = "CAPTURER_ERROR"
+	RejectCodeUnsupportedOS       = "UNSUPPORTED"
+	RejectCodeBadRequest          = "BAD_REQUEST"
+	RejectCodeNoConsoleUser       = "NO_CONSOLE_USER"
+	RejectCodeApprovalDenied      = "APPROVAL_DENIED"
+	RejectCodeApprovalTimeout     = "APPROVAL_TIMEOUT"
+	RejectCodeApprovalUnavailable = "APPROVAL_UNAVAILABLE"
+	RejectCodeNoApprover          = "NO_APPROVER"
 )
 
 // EnvVNCDisableDownscale disables any platform-specific framebuffer
@@ -355,6 +357,23 @@ type Approver interface {
 	Request(ctx context.Context, info ApprovalInfo) (ApprovalDecision, error)
 }
 
+// Causes an Approver can report so the rejection names why the connection
+// was refused rather than blaming the user for every outcome. An error
+// matching none of these still rejects, reported as a denial.
+var (
+	// ErrApprovalDenied means the user answered and said no.
+	ErrApprovalDenied = errors.New("approval denied")
+	// ErrApprovalTimeout means the prompt was raised and nobody answered
+	// it in time. Distinct from a denial because the two call for
+	// different things from whoever is dialling: try again later, versus
+	// stop asking.
+	ErrApprovalTimeout = errors.New("approval timed out")
+	// ErrApprovalUnavailable means the prompt never reached a user, so
+	// there was no answer to wait for. A device with no way to display
+	// one lands here, as does a daemon with no UI attached.
+	ErrApprovalUnavailable = errors.New("no approval prompt reached the user")
+)
+
 // ApprovalDecision carries the parts of the user's response the VNC
 // server acts on. Accept is implicit (errors signal deny). ViewOnly puts
 // the session into read-only mode: the server drops input events.
@@ -618,7 +637,8 @@ func (s *Server) gateApproval(conn net.Conn, header *connectionHeader) (Approval
 	}
 	decision, err := s.approver.Request(s.ctx, info)
 	if err != nil {
-		rejectConnection(conn, codeMessage(RejectCodeApprovalDenied, "approval denied"))
+		code, message := approvalRejection(err)
+		rejectConnection(conn, codeMessage(code, message))
 		return ApprovalDecision{}, fmt.Errorf("approval: %w", err)
 	}
 	return decision, nil
@@ -1256,6 +1276,21 @@ func modeString(m byte) string {
 		return "session"
 	default:
 		return "unknown"
+	}
+}
+
+// approvalRejection maps an approver's error onto the code and message the
+// client is told. An error matching no known cause is reported as a denial:
+// the connection is refused either way, and describing a cause the server
+// could not identify would put a wrong explanation in front of the caller.
+func approvalRejection(err error) (string, string) {
+	switch {
+	case errors.Is(err, ErrApprovalTimeout):
+		return RejectCodeApprovalTimeout, "approval timed out"
+	case errors.Is(err, ErrApprovalUnavailable):
+		return RejectCodeApprovalUnavailable, "no approval prompt reached the user"
+	default:
+		return RejectCodeApprovalDenied, "approval denied"
 	}
 }
 

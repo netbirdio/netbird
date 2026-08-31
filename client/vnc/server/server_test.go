@@ -8,10 +8,12 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"image"
 	"io"
 	"net"
 	"net/netip"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -443,6 +445,37 @@ func newGateConn(t *testing.T) net.Conn {
 	return srv
 }
 
+// newGateConnWithReason is newGateConn plus the reject reason the server
+// wrote, so a test can assert on the code the client would read.
+func newGateConnWithReason(t *testing.T) (net.Conn, <-chan string) {
+	t.Helper()
+	srv, cli := net.Pipe()
+	t.Cleanup(func() { _ = srv.Close() })
+
+	reasons := make(chan string, 1)
+	go func() {
+		defer cli.Close()
+		var srvVer [12]byte
+		if _, err := io.ReadFull(cli, srvVer[:]); err != nil {
+			return
+		}
+		if _, err := cli.Write([]byte("RFB 003.008\n")); err != nil {
+			return
+		}
+		// Server sends numTypes=0, then a 4-byte reason length, then the reason.
+		var head [5]byte
+		if _, err := io.ReadFull(cli, head[:]); err != nil {
+			return
+		}
+		reason := make([]byte, binary.BigEndian.Uint32(head[1:5]))
+		if _, err := io.ReadFull(cli, reason); err != nil {
+			return
+		}
+		reasons <- string(reason)
+	}()
+	return srv, reasons
+}
+
 func gateTestServer(requireApproval bool, approver Approver) *Server {
 	return &Server{
 		log:             log.WithField("test", "gate"),
@@ -536,6 +569,48 @@ func TestGateApproval_ApproverDenies(t *testing.T) {
 			allowed := err == nil
 			assert.False(t, allowed, "approver error %v must deny", tc.err)
 			assert.Equal(t, int32(1), app.calls.Load())
+		})
+	}
+}
+
+// TestGateApproval_RejectCodeNamesCause pins the reject code the client
+// reads for each cause an approver can report. A device that cannot show a
+// prompt at all, or a user who walked away, must not be reported as a user
+// who said no: the caller acts on that difference, and a peer told "denied"
+// when nobody was ever asked has no reason to retry. Causes are wrapped in
+// the cases that carry one so the mapping cannot regress to == comparison.
+func TestGateApproval_RejectCodeNamesCause(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		code string
+	}{
+		{"denied", ErrApprovalDenied, RejectCodeApprovalDenied},
+		{"denied_wrapped", fmt.Errorf("broker: %w", ErrApprovalDenied), RejectCodeApprovalDenied},
+		{"timeout", ErrApprovalTimeout, RejectCodeApprovalTimeout},
+		{"timeout_wrapped", fmt.Errorf("broker: %w", ErrApprovalTimeout), RejectCodeApprovalTimeout},
+		{"unavailable", ErrApprovalUnavailable, RejectCodeApprovalUnavailable},
+		{"unavailable_wrapped", fmt.Errorf("no UI: %w", ErrApprovalUnavailable), RejectCodeApprovalUnavailable},
+		// An unclassified cause still rejects, reported as a denial.
+		{"ctx_canceled", context.Canceled, RejectCodeApprovalDenied},
+		{"unknown", errors.New("anything else"), RejectCodeApprovalDenied},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			app := &recordingApprover{respond: tc.err}
+			srv := gateTestServer(true, app)
+			conn, reasons := newGateConnWithReason(t)
+
+			_, err := srv.gateApproval(conn, &connectionHeader{mode: ModeAttach})
+			require.Error(t, err, "approver error %v must deny", tc.err)
+
+			select {
+			case reason := <-reasons:
+				assert.True(t, strings.HasPrefix(reason, tc.code+":"),
+					"reject reason %q must name the cause with code %s", reason, tc.code)
+			case <-time.After(2 * time.Second):
+				t.Fatal("did not observe rejection reason")
+			}
 		})
 	}
 }
