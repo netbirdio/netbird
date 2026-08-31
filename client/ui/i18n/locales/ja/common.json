@@ -1351,13 +1351,28 @@
     "error.unknown": {
         "message": "操作に失敗しました。"
     },
+    "error.elevation_unavailable": {
+        "message": "NetBird はこのシステムに必要な権限を要求できませんでした。代わりに次のコマンドを実行してください:"
+    },
+    "error.elevation_failed": {
+        "message": "昇格した権限でも変更を適用できませんでした。代わりに次のコマンドを実行してください:"
+    },
+    "settings.ssh.privilege.actorRoot": {
+        "message": "root 権限"
+    },
+    "settings.ssh.privilege.actorAdministrator": {
+        "message": "管理者権限"
+    },
     "settings.ssh.privilege.hint": {
         "message": "{actor}が必要です。代わりに次のコマンドを実行してください:"
     },
     "settings.ssh.privilege.oneWay": {
-        "message": "無効にはできますが、再度有効にするには{actor}が必要です:"
+        "message": "無効にはできますが、再度有効にするには{actor}が必要です。"
     },
     "settings.ssh.privilege.oneWayInverted": {
-        "message": "有効にはできますが、再度無効にするには{actor}が必要です:"
+        "message": "有効にはできますが、再度無効にするには{actor}が必要です。"
+    },
+    "settings.ssh.privilege.authorizePending": {
+        "message": "承認を待っています…"
     }
 }
