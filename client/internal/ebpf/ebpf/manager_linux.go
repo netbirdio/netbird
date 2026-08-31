@@ -2,21 +2,17 @@ package ebpf
 
 import (
 	_ "embed"
-	"fmt"
 	"net"
 	"sync"
 
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/rlimit"
 	log "github.com/sirupsen/logrus"
-	"golang.org/x/sys/unix"
 
 	"github.com/netbirdio/netbird/client/internal/ebpf/manager"
 )
 
 const (
-	xdpProgName = "nb_xdp_prog"
-
 	mapKeyFeatures uint32 = 0
 
 	featureFlagWGProxy      = 0b00000001
@@ -72,50 +68,21 @@ func (tf *GeneralManager) loadXdp() error {
 		return err
 	}
 
-	// lo has no native XDP, so the program runs in generic mode. Unless it
-	// declares multi-buffer support the kernel must linearize every non-linear
-	// skb before running it. Loopback packets are up to 64 KB, so that is a
-	// contiguous GFP_ATOMIC allocation per packet, and when it fails the packet
-	// is dropped before the program runs, stalling local TCP connections.
-	// Multi-buffer XDP in generic mode requires kernel 6.3, so fall back to a
-	// plain attach when the kernel rejects it.
-	err = tf.attachXdp(iFace.Index, true)
-	if err == nil {
-		return nil
-	}
-	log.Debugf("failed to attach multi-buffer xdp program, retrying without it: %s", err)
-
-	return tf.attachXdp(iFace.Index, false)
-}
-
-func (tf *GeneralManager) attachXdp(iFaceIndex int, multiBuffer bool) error {
-	spec, err := loadBpf()
+	// load pre-compiled programs into the kernel.
+	err = loadBpfObjects(&tf.bpfObjs, nil)
 	if err != nil {
-		return fmt.Errorf("load bpf spec: %w", err)
-	}
-
-	if multiBuffer {
-		prog, ok := spec.Programs[xdpProgName]
-		if !ok {
-			return fmt.Errorf("program %s not found in bpf spec", xdpProgName)
-		}
-		prog.Flags |= unix.BPF_F_XDP_HAS_FRAGS
-	}
-
-	if err := spec.LoadAndAssign(&tf.bpfObjs, nil); err != nil {
-		return fmt.Errorf("load bpf objects: %w", err)
+		return err
 	}
 
 	tf.link, err = link.AttachXDP(link.XDPOptions{
 		Program:   tf.bpfObjs.NbXdpProg,
-		Interface: iFaceIndex,
+		Interface: iFace.Index,
 	})
+
 	if err != nil {
-		if closeErr := tf.bpfObjs.Close(); closeErr != nil {
-			log.Debugf("failed to close bpf objects after xdp attach error: %s", closeErr)
-		}
+		_ = tf.bpfObjs.Close()
 		tf.link = nil
-		return fmt.Errorf("attach xdp: %w", err)
+		return err
 	}
 	return nil
 }
