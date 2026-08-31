@@ -56,7 +56,8 @@ var (
 All services (Management, Signal, Relay) are multiplexed on a single port.
 Optional STUN server runs on separate UDP ports.
 
-Configuration is loaded from a YAML file specified with --config.`,
+Configuration is loaded from a file specified with --config. Values can be
+overridden with NB_-prefixed environment variables, such as NB_SERVER_LOGLEVEL.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE:          execute,
@@ -64,7 +65,7 @@ Configuration is loaded from a YAML file specified with --config.`,
 )
 
 func init() {
-	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "path to YAML configuration file (required)")
+	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "path to configuration file (required)")
 	_ = rootCmd.MarkPersistentFlagRequired("config")
 
 	rootCmd.AddCommand(newAdminCommands())

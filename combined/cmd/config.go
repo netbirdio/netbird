@@ -5,20 +5,18 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
-	"os"
 	filePath "path/filepath"
 	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
-	"gopkg.in/yaml.v3"
 
+	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/util"
+	configloader "github.com/netbirdio/netbird/util/config"
 	"github.com/netbirdio/netbird/util/crypt"
-
-	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 )
 
 // CombinedConfig is the root configuration for the combined server.
@@ -440,26 +438,17 @@ func (c *CombinedConfig) autoConfigureClientSettings(exposedProto, exposedHost, 
 	}
 }
 
-// LoadConfig loads configuration from a YAML file
+// LoadConfig loads the combined server configuration.
 func LoadConfig(configPath string) (*CombinedConfig, error) {
-	cfg := DefaultConfig()
-
-	if configPath == "" {
-		return cfg, nil
-	}
-
-	data, err := os.ReadFile(configPath)
+	cfg, err := configloader.Load(configPath, DefaultConfig(), configloader.Options{
+		TagName:      "yaml",
+		AllowMissing: configPath == "",
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
+		return nil, err
 	}
 
-	if err := yaml.Unmarshal(data, cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse config file: %w", err)
-	}
-
-	// Populate internal configs from server settings
 	cfg.ApplySimplifiedDefaults()
-
 	return cfg, nil
 }
 

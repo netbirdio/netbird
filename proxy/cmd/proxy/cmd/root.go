@@ -15,22 +15,13 @@ import (
 
 	"github.com/netbirdio/netbird/shared/management/domain"
 
-	"github.com/netbirdio/netbird/client/embed"
 	"github.com/netbirdio/netbird/proxy"
-	nbacme "github.com/netbirdio/netbird/proxy/internal/acme"
-	"github.com/netbirdio/netbird/trustedproxy"
 	"github.com/netbirdio/netbird/util"
 )
 
-const (
-	// envPreallocatedBuffers caps the per-tunnel buffer pool. Zero (unset)
-	// keeps the upstream uncapped default.
-	envPreallocatedBuffers = "NB_PROXY_PREALLOCATED_BUFFERS"
-	// envMaxBatchSize overrides the per-tunnel batch size, which controls
-	// how many buffers each receive/TUN worker eagerly allocates. Zero
-	// (unset) keeps the platform default.
-	envMaxBatchSize = "NB_PROXY_MAX_BATCH_SIZE"
-)
+// envPreallocatedBuffers caps the per-tunnel buffer pool. Zero (unset)
+// keeps the upstream uncapped default.
+const envPreallocatedBuffers = "NB_PROXY_PREALLOCATED_BUFFERS"
 
 const DefaultManagementURL = "https://api.netbird.io:443"
 
@@ -79,6 +70,7 @@ var (
 	geoDataDir            string
 	crowdsecAPIURL        string
 	crowdsecAPIKey        string
+	configPath            string
 )
 
 var rootCmd = &cobra.Command{
@@ -91,6 +83,7 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
+	rootCmd.Flags().StringVar(&configPath, "config", "", "path to configuration file")
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", envStringOrDefault("NB_PROXY_LOG_LEVEL", "info"), "Log level: panic, fatal, error, warn, info, debug, trace")
 	rootCmd.PersistentFlags().BoolVar(&debugLogs, "debug", envBoolOrDefault("NB_PROXY_DEBUG_LOGS", false), "Enable debug logs")
 	_ = rootCmd.PersistentFlags().MarkDeprecated("debug", "use --log-level instead")
@@ -145,118 +138,68 @@ func SetVersionInfo(version, commit, buildDate, goVersion string) {
 }
 
 func runServer(cmd *cobra.Command, args []string) error {
-	proxyToken := os.Getenv(envProxyToken)
-	if proxyToken == "" {
-		return fmt.Errorf("proxy token is required: set %s environment variable", envProxyToken)
+	cfg, err := loadConfig(cmd, configPath)
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+	if cfg.ProxyToken == "" {
+		return fmt.Errorf("proxy token is required: set proxyToken or %s", envProxyToken)
 	}
 
-	level := logLevel
-	if debugLogs {
+	level := cfg.LogLevel
+	if debugLogs && (!cmd.Flags().Changed("log-level") || cmd.Flags().Changed("debug")) {
 		level = "debug"
 	}
 	logger := log.New()
-
 	_ = util.InitLogger(logger, level, util.LogConsole)
-
 	logger.Infof("configured log level: %s", level)
 
-	var wgPool, wgBatch uint64
-	var perf embed.Performance
-	if raw := os.Getenv(envPreallocatedBuffers); raw != "" {
-		n, err := strconv.ParseUint(raw, 10, 32)
-		if err != nil {
-			return fmt.Errorf("invalid %s %q: %w", envPreallocatedBuffers, raw, err)
-		}
-		wgPool = n
-		v := uint32(n)
-		perf.PreallocatedBuffersPerPool = &v
-		logger.Infof("tunnel preallocated buffers per pool: %d", n)
-	}
-	if raw := os.Getenv(envMaxBatchSize); raw != "" {
-		n, err := strconv.ParseUint(raw, 10, 32)
-		if err != nil {
-			return fmt.Errorf("invalid %s %q: %w", envMaxBatchSize, raw, err)
-		}
-		wgBatch = n
-		v := uint32(n)
-		perf.MaxBatchSize = &v
-		logger.Infof("tunnel max batch size override: %d", n)
-	}
-	if wgPool > 0 {
-		// Each bind recv goroutine (IPv4 + IPv6 + ICE relay) plus
-		// RoutineReadFromTUN eagerly reserves `batch` message buffers for
-		// the lifetime of the Device. A pool cap below that floor blocks
-		// the receive pipeline at startup.
-		batch := wgBatch
-		if batch == 0 {
-			batch = 128
-		}
-		const recvGoroutines = 4
-		floor := batch * recvGoroutines
-		if wgPool < floor {
-			logger.Warnf("%s=%d is below the eager-allocation floor (~%d for batch=%d); startup may deadlock",
-				envPreallocatedBuffers, wgPool, floor, batch)
-		}
-	}
+	proxyConfig := cfg.Config
+	proxyConfig.Logger = logger
+	proxyConfig.Version = Version
+	applyPerformanceConfig(&proxyConfig, cfg, logger)
 
-	switch forwardedProto {
+	switch proxyConfig.ForwardedProto {
 	case "auto", "http", "https":
 	default:
-		return fmt.Errorf("invalid --forwarded-proto value %q: must be auto, http, or https", forwardedProto)
+		return fmt.Errorf("invalid --forwarded-proto value %q: must be auto, http, or https", proxyConfig.ForwardedProto)
 	}
 
-	_, err := domain.ValidateDomains([]string{proxyDomain})
-	if err != nil {
-		return fmt.Errorf("invalid domain value %q: %w", proxyDomain, err)
-	}
-
-	parsedTrustedProxies, err := trustedproxy.Parse(trustedProxies)
-	if err != nil {
-		return fmt.Errorf("invalid --trusted-proxies: %w", err)
+	if _, err := domain.ValidateDomains([]string{proxyConfig.ProxyURL}); err != nil {
+		return fmt.Errorf("invalid domain value %q: %w", proxyConfig.ProxyURL, err)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
-	srv := proxy.New(ctx, proxy.Config{
-		ListenAddr:               addr,
-		Logger:                   logger,
-		Version:                  Version,
-		ManagementAddress:        mgmtAddr,
-		ProxyURL:                 proxyDomain,
-		ProxyToken:               proxyToken,
-		CertificateDirectory:     certDir,
-		CertificateFile:          certFile,
-		CertificateKeyFile:       certKeyFile,
-		GenerateACMECertificates: acmeCerts,
-		ACMEChallengeAddress:     acmeAddr,
-		ACMEDirectory:            acmeDir,
-		ACMEEABKID:               acmeEABKID,
-		ACMEEABHMACKey:           acmeEABHMACKey,
-		ACMEChallengeType:        acmeChallengeType,
-		DebugEndpointEnabled:     debugEndpoint,
-		DebugEndpointAddress:     debugEndpointAddr,
-		HealthAddr:               healthAddr,
-		ForwardedProto:           forwardedProto,
-		TrustedProxies:           parsedTrustedProxies,
-		CertLockMethod:           nbacme.CertLockMethod(certLockMethod),
-		WildcardCertDir:          wildcardCertDir,
-		WireguardPort:            wgPort,
-		Performance:              perf,
-		ProxyProtocol:            proxyProtocol,
-		PreSharedKey:             preSharedKey,
-		SupportsCustomPorts:      supportsCustomPorts,
-		RequireSubdomain:         requireSubdomain,
-		Private:                  private,
-		MaxDialTimeout:           maxDialTimeout,
-		MaxSessionIdleTimeout:    maxSessionIdleTimeout,
-		MappingBatchWatchdog:     envDurationOrDefault("NB_PROXY_MAPPING_BATCH_WATCHDOG", 0),
-		GeoDataDir:               geoDataDir,
-		CrowdSecAPIURL:           crowdsecAPIURL,
-		CrowdSecAPIKey:           crowdsecAPIKey,
-	})
+	srv := proxy.New(ctx, proxyConfig)
+	return srv.ListenAndServe(ctx, proxyConfig.ListenAddr)
+}
 
-	return srv.ListenAndServe(ctx, addr)
+func applyPerformanceConfig(proxyConfig *proxy.Config, cfg *commandConfig, logger *log.Logger) {
+	if cfg.PreallocatedBuffers != nil {
+		proxyConfig.Performance.PreallocatedBuffersPerPool = cfg.PreallocatedBuffers
+		logger.Infof("tunnel preallocated buffers per pool: %d", *cfg.PreallocatedBuffers)
+	}
+	if cfg.MaxBatchSize != nil {
+		proxyConfig.Performance.MaxBatchSize = cfg.MaxBatchSize
+		logger.Infof("tunnel max batch size override: %d", *cfg.MaxBatchSize)
+	}
+	if cfg.PreallocatedBuffers == nil || *cfg.PreallocatedBuffers == 0 {
+		return
+	}
+
+	batch := uint64(128)
+	if cfg.MaxBatchSize != nil && *cfg.MaxBatchSize > 0 {
+		batch = uint64(*cfg.MaxBatchSize)
+	}
+	const recvGoroutines = 4
+	floor := batch * recvGoroutines
+	pool := uint64(*cfg.PreallocatedBuffers)
+	if pool < floor {
+		logger.Warnf("%s=%d is below the eager-allocation floor (~%d for batch=%d); startup may deadlock",
+			envPreallocatedBuffers, pool, floor, batch)
+	}
 }
 
 func envBoolOrDefault(key string, def bool) bool {

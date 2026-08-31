@@ -19,6 +19,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"github.com/netbirdio/netbird/management/server/types"
 
@@ -60,7 +61,7 @@ var (
 			// detect whether user specified a port
 			userPort := cmd.Flag("port").Changed
 
-			config, err = LoadMgmtConfig(ctx, nbconfig.MgmtConfigPath)
+			config, err = LoadMgmtConfig(ctx, nbconfig.MgmtConfigPath, cmd.Flags())
 			if err != nil {
 				return fmt.Errorf("failed reading provided config file: %s: %v", nbconfig.MgmtConfigPath, err)
 			}
@@ -70,7 +71,7 @@ var (
 			}
 
 			var tlsEnabled bool
-			if mgmtLetsencryptDomain != "" || (config.HttpConfig.CertFile != "" && config.HttpConfig.CertKey != "") {
+			if config.HttpConfig.LetsEncryptDomain != "" || (config.HttpConfig.CertFile != "" && config.HttpConfig.CertKey != "") {
 				tlsEnabled = true
 			}
 
@@ -171,15 +172,15 @@ var (
 	}
 )
 
-func LoadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*nbconfig.Config, error) {
-	loadedConfig := &nbconfig.Config{}
-	if _, err := util.ReadJsonWithEnvSub(mgmtConfigPath, loadedConfig); err != nil {
+func LoadMgmtConfig(ctx context.Context, mgmtConfigPath string, flags *pflag.FlagSet) (*nbconfig.Config, error) {
+	loadedConfig, err := loadManagementConfig(mgmtConfigPath)
+	if err != nil {
 		return nil, err
 	}
 
-	ApplyCommandLineOverrides(loadedConfig)
+	ApplyCommandLineOverrides(loadedConfig, flags)
 
-	err := grpc.ValidateSyncMessageVersion(loadedConfig.HighestSupportedSyncMessageVersion)
+	err = grpc.ValidateSyncMessageVersion(loadedConfig.HighestSupportedSyncMessageVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -211,14 +212,18 @@ func LoadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*nbconfig.Confi
 }
 
 // ApplyCommandLineOverrides applies command-line flag overrides to the config
-func ApplyCommandLineOverrides(cfg *nbconfig.Config) {
-	if mgmtLetsencryptDomain != "" {
+func ApplyCommandLineOverrides(cfg *nbconfig.Config, flags *pflag.FlagSet) {
+	hasCertOverride := flags.Changed("cert-key") && flags.Changed("cert-file")
+	if (flags.Changed("letsencrypt-domain") || hasCertOverride) && cfg.HttpConfig == nil {
+		cfg.HttpConfig = &nbconfig.HttpServerConfig{}
+	}
+	if flags.Changed("letsencrypt-domain") {
 		cfg.HttpConfig.LetsEncryptDomain = mgmtLetsencryptDomain
 	}
-	if mgmtDataDir != "" {
+	if flags.Changed("datadir") {
 		cfg.Datadir = mgmtDataDir
 	}
-	if certKey != "" && certFile != "" {
+	if hasCertOverride {
 		cfg.HttpConfig.CertFile = certFile
 		cfg.HttpConfig.CertKey = certKey
 	}

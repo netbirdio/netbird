@@ -1,0 +1,15 @@
+# Command-line flags override environment variables, which override this file.
+# Set port to 0 to select 443 with TLS or 80 without TLS.
+port: 0
+metricsPort: 9090
+
+# Use either static certificates or Let's Encrypt.
+letsencryptDomain: ""
+letsencryptEmail: ""
+letsencryptDataDir: ""
+certFile: "/etc/netbird/tls.crt"
+certKey: "/etc/netbird/tls.key"
+
+logLevel: "info"
+logFile: "console"
+pprofAddress: ""

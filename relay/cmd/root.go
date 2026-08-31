@@ -26,33 +26,47 @@ import (
 	"github.com/netbirdio/netbird/stun"
 	"github.com/netbirdio/netbird/trustedproxy"
 	"github.com/netbirdio/netbird/util"
+	configloader "github.com/netbirdio/netbird/util/config"
 )
 
+// Config contains relay service startup configuration.
 type Config struct {
-	ListenAddress string
+	ListenAddress string `yaml:"listenAddress" env:"NB_LISTEN_ADDRESS" flag:"listen-address"`
 	// in HA every peer connect to a common domain, the instance domain has been distributed during the p2p connection
 	// it is a domain:port or ip:port
-	ExposedAddress     string
-	MetricsPort        int
-	LetsencryptEmail   string
-	LetsencryptDataDir string
-	LetsencryptDomains []string
+	ExposedAddress     string   `yaml:"exposedAddress" env:"NB_EXPOSED_ADDRESS" flag:"exposed-address"`
+	MetricsPort        int      `yaml:"metricsPort" env:"NB_METRICS_PORT" flag:"metrics-port"`
+	LetsencryptEmail   string   `yaml:"letsencryptEmail" env:"NB_LETSENCRYPT_EMAIL" flag:"letsencrypt-email"`
+	LetsencryptDataDir string   `yaml:"letsencryptDataDir" env:"NB_LETSENCRYPT_DATA_DIR" flag:"letsencrypt-data-dir"`
+	LetsencryptDomains []string `yaml:"letsencryptDomains" env:"NB_LETSENCRYPT_DOMAINS" flag:"letsencrypt-domains"`
 	// in case of using Route 53 for DNS challenge the credentials should be provided in the environment variables or
 	// in the AWS credentials file
-	LetsencryptAWSRoute53    bool
-	TlsCertFile              string
-	TlsKeyFile               string
-	AuthSecret               string
-	LogLevel                 string
-	LogFile                  string
-	HealthcheckListenAddress string
+	LetsencryptAWSRoute53    bool   `yaml:"letsencryptAWSRoute53" env:"NB_LETSENCRYPT_AWS_ROUTE53" flag:"letsencrypt-aws-route53"`
+	TlsCertFile              string `yaml:"tlsCertFile" env:"NB_TLS_CERT_FILE" flag:"tls-cert-file"`
+	TlsKeyFile               string `yaml:"tlsKeyFile" env:"NB_TLS_KEY_FILE" flag:"tls-key-file"`
+	AuthSecret               string `yaml:"authSecret" env:"NB_AUTH_SECRET" flag:"auth-secret"`
+	LogLevel                 string `yaml:"logLevel" env:"NB_LOG_LEVEL" flag:"log-level"`
+	LogFile                  string `yaml:"logFile" env:"NB_LOG_FILE" flag:"log-file"`
+	HealthcheckListenAddress string `yaml:"healthcheckListenAddress" env:"NB_HEALTH_LISTEN_ADDRESS" flag:"health-listen-address"`
 	// TrustedProxies is a comma-separated list of upstream proxy CIDRs/IPs whose
 	// X-Real-Ip/X-Real-Port headers are trusted. Empty means never trust these headers.
-	TrustedProxies string
+	TrustedProxies string `yaml:"trustedProxies" env:"NB_TRUSTED_PROXIES" flag:"trusted-proxies"`
 	// STUN server configuration
-	EnableSTUN   bool
-	STUNPorts    []int
-	STUNLogLevel string
+	EnableSTUN   bool   `yaml:"enableSTUN" env:"NB_ENABLE_STUN" flag:"enable-stun"`
+	STUNPorts    []int  `yaml:"stunPorts" env:"NB_STUN_PORTS" flag:"stun-ports"`
+	STUNLogLevel string `yaml:"stunLogLevel" env:"NB_STUN_LOG_LEVEL" flag:"stun-log-level"`
+}
+
+func defaultConfig() *Config {
+	return &Config{
+		ListenAddress:            ":443",
+		MetricsPort:              9090,
+		LogLevel:                 "info",
+		LogFile:                  "console",
+		HealthcheckListenAddress: ":9000",
+		STUNPorts:                []int{3478},
+		STUNLogLevel:             "info",
+	}
 }
 
 func (c Config) Validate() error {
@@ -93,6 +107,7 @@ func (c Config) HasLetsEncrypt() bool {
 }
 
 var (
+	configPath  string
 	cobraConfig *Config
 	rootCmd     = &cobra.Command{
 		Use:           "relay",
@@ -106,10 +121,11 @@ var (
 
 func init() {
 	_ = util.InitLog("trace", util.LogConsole)
-	cobraConfig = &Config{}
-	rootCmd.PersistentFlags().StringVarP(&cobraConfig.ListenAddress, "listen-address", "l", ":443", "listen address")
+	cobraConfig = defaultConfig()
+	rootCmd.PersistentFlags().StringVar(&configPath, "config", "", "path to configuration file")
+	rootCmd.PersistentFlags().StringVarP(&cobraConfig.ListenAddress, "listen-address", "l", cobraConfig.ListenAddress, "listen address")
 	rootCmd.PersistentFlags().StringVarP(&cobraConfig.ExposedAddress, "exposed-address", "e", "", "instance domain address (or ip) and port, it will be distributes between peers")
-	rootCmd.PersistentFlags().IntVar(&cobraConfig.MetricsPort, "metrics-port", 9090, "metrics endpoint http port. Metrics are accessible under host:metrics-port/metrics")
+	rootCmd.PersistentFlags().IntVar(&cobraConfig.MetricsPort, "metrics-port", cobraConfig.MetricsPort, "metrics endpoint http port. Metrics are accessible under host:metrics-port/metrics")
 	rootCmd.PersistentFlags().StringVarP(&cobraConfig.LetsencryptDataDir, "letsencrypt-data-dir", "d", "", "a directory to store Let's Encrypt data. Required if Let's Encrypt is enabled.")
 	rootCmd.PersistentFlags().StringSliceVarP(&cobraConfig.LetsencryptDomains, "letsencrypt-domains", "a", nil, "list of domains to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS")
 	rootCmd.PersistentFlags().StringVar(&cobraConfig.LetsencryptEmail, "letsencrypt-email", "", "email address to use for Let's Encrypt certificate registration")
@@ -117,15 +133,13 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&cobraConfig.TlsCertFile, "tls-cert-file", "c", "", "")
 	rootCmd.PersistentFlags().StringVarP(&cobraConfig.TlsKeyFile, "tls-key-file", "k", "", "")
 	rootCmd.PersistentFlags().StringVarP(&cobraConfig.AuthSecret, "auth-secret", "s", "", "auth secret")
-	rootCmd.PersistentFlags().StringVar(&cobraConfig.LogLevel, "log-level", "info", "log level")
-	rootCmd.PersistentFlags().StringVar(&cobraConfig.LogFile, "log-file", "console", "log file")
-	rootCmd.PersistentFlags().StringVarP(&cobraConfig.HealthcheckListenAddress, "health-listen-address", "H", ":9000", "listen address of healthcheck server")
+	rootCmd.PersistentFlags().StringVar(&cobraConfig.LogLevel, "log-level", cobraConfig.LogLevel, "log level")
+	rootCmd.PersistentFlags().StringVar(&cobraConfig.LogFile, "log-file", cobraConfig.LogFile, "log file")
+	rootCmd.PersistentFlags().StringVarP(&cobraConfig.HealthcheckListenAddress, "health-listen-address", "H", cobraConfig.HealthcheckListenAddress, "listen address of healthcheck server")
 	rootCmd.PersistentFlags().StringVar(&cobraConfig.TrustedProxies, "trusted-proxies", "", "comma-separated list of upstream proxy CIDRs or IPs whose X-Real-Ip/X-Real-Port headers are trusted; leave empty to always use the direct connection address")
 	rootCmd.PersistentFlags().BoolVar(&cobraConfig.EnableSTUN, "enable-stun", false, "enable embedded STUN server")
-	rootCmd.PersistentFlags().IntSliceVar(&cobraConfig.STUNPorts, "stun-ports", []int{3478}, "ports for the embedded STUN server (can be specified multiple times or comma-separated)")
-	rootCmd.PersistentFlags().StringVar(&cobraConfig.STUNLogLevel, "stun-log-level", "info", "log level for STUN server (panic, fatal, error, warn, info, debug, trace)")
-
-	setFlagsFromEnvVars(rootCmd)
+	rootCmd.PersistentFlags().IntSliceVar(&cobraConfig.STUNPorts, "stun-ports", cobraConfig.STUNPorts, "ports for the embedded STUN server (can be specified multiple times or comma-separated)")
+	rootCmd.PersistentFlags().StringVar(&cobraConfig.STUNLogLevel, "stun-log-level", cobraConfig.STUNLogLevel, "log level for STUN server (panic, fatal, error, warn, info, debug, trace)")
 }
 
 func Execute() error {
@@ -139,8 +153,14 @@ func waitForExitSignal() {
 }
 
 func execute(cmd *cobra.Command, args []string) error {
+	loadedConfig, err := loadConfig(cmd)
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+	cobraConfig = loadedConfig
+
 	wg := sync.WaitGroup{}
-	err := cobraConfig.Validate()
+	err = cobraConfig.Validate()
 	if err != nil {
 		log.Debugf("invalid config: %s", err)
 		return fmt.Errorf("invalid config: %s", err)
@@ -226,6 +246,15 @@ func execute(cmd *cobra.Command, args []string) error {
 	err = shutdownServers(ctx, metricsServer, srv, httpHealthcheck, stunServer)
 	wg.Wait()
 	return err
+}
+
+func loadConfig(cmd *cobra.Command) (*Config, error) {
+	return configloader.Load(configPath, defaultConfig(), configloader.Options{
+		TagName:      "yaml",
+		AllowMissing: configPath == "",
+		FlagSet:      cmd.Flags(),
+		Strict:       true,
+	})
 }
 
 func startServers(wg *sync.WaitGroup, metricsServer *metrics.Metrics, srv *server.Server, srvListenerCfg server.ListenerConfig, httpHealthcheck *healthcheck.Server, stunServer *stun.Server) {
