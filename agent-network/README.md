@@ -118,7 +118,7 @@ Two roles delegate Agent Network access without account-admin rights:
   through the self-scoped endpoints below.
 
 Every authenticated user, regardless of role, can read the caller-scoped
-self-service endpoint `GET /api/agent-network/me/setup` (the endpoint, providers,
+self-service endpoint `GET /api/agent-network/agent-config` (the endpoint, providers,
 and models the caller's own policies allow — what a local AI tool needs and nothing
 more). The regular usage and access-log endpoints self-scope instead of denying:
 a caller without the account-wide grant gets their own rows back, so "my usage"

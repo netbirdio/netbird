@@ -18,7 +18,7 @@ import (
 // the regular usage/logs endpoints, which self-scope for callers without
 // the account-wide grants.
 func (h *handler) addMeEndpoints(router *mux.Router) {
-	router.HandleFunc("/agent-network/me/setup", h.getMySetup).Methods("GET", "OPTIONS")
+	router.HandleFunc("/agent-network/agent-config", h.getMySetup).Methods("GET", "OPTIONS")
 }
 
 func (h *handler) getMySetup(w http.ResponseWriter, r *http.Request) {

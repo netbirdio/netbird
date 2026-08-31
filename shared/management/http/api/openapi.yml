@@ -13852,7 +13852,7 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
-  /api/agent-network/me/setup:
+  /api/agent-network/agent-config:
     get:
       summary: Retrieve the caller's Agent Network setup
       description: Returns everything the caller needs to configure a local AI tool and nothing more - the account's Agent Network endpoint plus the providers and models the caller's own policies allow. Available to every authenticated user regardless of role; the response never contains provider credentials, policy or guardrail configuration, or providers the caller cannot reach.
