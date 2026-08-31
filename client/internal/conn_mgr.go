@@ -233,7 +233,10 @@ func (e *ConnMgr) AddPeerConn(ctx context.Context, peerKey string, conn *peer.Co
 
 	if active {
 		conn.Log.Infof("peer added to lazy conn manager as active")
-		e.openConn(ctx, conn)
+		if err := conn.Open(ctx); err != nil {
+			conn.Log.Errorf("failed to open connection, falling back to activity monitoring: %v", err)
+			e.lazyConnMgr.DeactivatePeer(conn.ConnID())
+		}
 		return
 	}
 
