@@ -129,7 +129,7 @@ func (r *family) natRuleExprs(pair firewall.RouterPair) ([]expr.Any, error) {
 	exprs = append(exprs, sourceExp...)
 	exprs = append(exprs, destExp...)
 
-	var markValue uint32 = nbnet.PreroutingFwmarkMasquerade
+	markValue := nbnet.PreroutingFwmarkMasquerade
 	if pair.Inverse {
 		markValue = nbnet.PreroutingFwmarkMasqueradeReturn
 	}

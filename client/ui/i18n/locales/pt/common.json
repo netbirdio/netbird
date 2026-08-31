@@ -401,9 +401,6 @@
     "networks.bulk.label": {
         "message": "Alternar todos os recursos visíveis"
     },
-    "settings.nav.label": {
-        "message": "Seções das configurações"
-    },
     "profile.switch.title": {
         "message": "Alternar perfil para \"{name}\"?"
     },
@@ -496,6 +493,9 @@
     },
     "settings.error.debugBundleTitle": {
         "message": "Falha no pacote de depuração"
+    },
+    "settings.nav.label": {
+        "message": "Seções das configurações"
     },
     "settings.tabs.general": {
         "message": "Geral"
@@ -764,7 +764,19 @@
         "message": "Anonimizar informações sensíveis"
     },
     "settings.troubleshooting.anonymize.help": {
-        "message": "Oculta endereços IP públicos e domínios que não são do NetBird nos logs."
+        "message": "Oculta endereços IP, domínios e outros valores sensíveis."
+    },
+    "settings.troubleshooting.anonymize.info": {
+        "message": "O modo padrão mantém os endereços IPv4 internos e os nomes dos peers legíveis para o suporte. O modo estrito anonimiza também os endereços IP privados (RFC 1918), CGNAT e link-local, os nomes dos peers e as chaves públicas do WireGuard. Valores recorrentes recebem o mesmo marcador, então os peers continuam distinguíveis. Use o modo estrito ao compartilhar o pacote de depuração fora da sua organização."
+    },
+    "settings.troubleshooting.anonymize.none": {
+        "message": "Nenhum"
+    },
+    "settings.troubleshooting.anonymize.default": {
+        "message": "Padrão"
+    },
+    "settings.troubleshooting.anonymize.strict": {
+        "message": "Estrito"
     },
     "settings.troubleshooting.systemInfo.label": {
         "message": "Incluir informações do sistema"
@@ -1338,5 +1350,29 @@
     },
     "error.unknown": {
         "message": "A operação falhou."
+    },
+    "error.elevation_unavailable": {
+        "message": "O NetBird não conseguiu solicitar a este sistema os privilégios necessários. Execute isto em vez disso:"
+    },
+    "error.elevation_failed": {
+        "message": "Não foi possível aplicar a alteração com privilégios elevados. Execute isto em vez disso:"
+    },
+    "settings.ssh.privilege.actorRoot": {
+        "message": "privilégios de root"
+    },
+    "settings.ssh.privilege.actorAdministrator": {
+        "message": "privilégios de administrador"
+    },
+    "settings.ssh.privilege.hint": {
+        "message": "Requer {actor}. Execute isto em vez disso:"
+    },
+    "settings.ssh.privilege.oneWay": {
+        "message": "Você pode desativar isto, mas ativar novamente requer {actor}."
+    },
+    "settings.ssh.privilege.oneWayInverted": {
+        "message": "Você pode ativar isto, mas desativar novamente requer {actor}."
+    },
+    "settings.ssh.privilege.authorizePending": {
+        "message": "Aguardando a autorização…"
     }
 }

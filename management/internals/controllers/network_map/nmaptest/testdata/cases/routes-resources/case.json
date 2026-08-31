@@ -1,0 +1,7 @@
+{
+  "description": "Classic route distributed to grp-dev plus a network resource behind router peer-r with a resource policy; peer-a gets routes and route firewall rules, peer-r gets the routing-peer view.",
+  "peers": [
+    "peer-a",
+    "peer-r"
+  ]
+}
