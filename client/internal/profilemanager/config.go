@@ -818,7 +818,9 @@ func ValidateBundleUploadURL(raw string) error {
 	if err != nil {
 		return fmt.Errorf("parse upload URL: %w", err)
 	}
-	if parsed.Scheme != "https" || parsed.Host == "" {
+	// Hostname(), not Host: an authority like ":443" is non-empty but has no
+	// host, and would fail the actual upload.
+	if parsed.Scheme != "https" || parsed.Hostname() == "" {
 		return fmt.Errorf("upload URL must be an https URL with a host")
 	}
 	return nil
