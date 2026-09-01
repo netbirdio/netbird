@@ -190,6 +190,14 @@ func (m *Manager) trace(msg string, args ...any) {
 	m.logger.Log(context.Background(), LevelTrace, msg, args...)
 }
 
+// debug logs at LevelDebug — visible at the default field log level. Reserved for the
+// pivotal exchange events (an offer going out, a PSK converging) tagged with the four
+// dimensions that tell them apart: msg (offer/answer), role (initiator/responder), via
+// (signal/data-path), and kind (bootstrap for a new connection vs rotation for a rekey).
+func (m *Manager) debug(msg string, args ...any) {
+	m.logger.Log(context.Background(), slog.LevelDebug, msg, args...)
+}
+
 // AddPeer registers where a peer's data-path messages are sent and received: its
 // overlay endpoint (IP:port). This is pure routing and says nothing about capability —
 // PQ capability is decided solely from the peer's KEM payload (see processOffer /
@@ -344,7 +352,7 @@ func (m *Manager) SignalOnOffer(remoteID RemoteID, offer []byte) ([]byte, error)
 	if typ != MsgOffer {
 		return nil, fmt.Errorf("expected offer from %s, got type %d", remoteID, typ)
 	}
-	return m.processOffer(remoteID, msg.(*OfferMsg))
+	return m.processOffer(remoteID, msg.(*OfferMsg), viaSignalLabel)
 }
 
 // SignalOnAnswer processes a KEM answer the host extracted from an incoming answer.
@@ -357,7 +365,7 @@ func (m *Manager) SignalOnAnswer(remoteID RemoteID, answer []byte) error {
 	if typ != MsgAnswer {
 		return fmt.Errorf("expected answer from %s, got type %d", remoteID, typ)
 	}
-	return m.processAnswer(remoteID, msg.(*AnswerMsg))
+	return m.processAnswer(remoteID, msg.(*AnswerMsg), viaSignalLabel)
 }
 
 // ---- Data path ----
@@ -385,7 +393,7 @@ func (m *Manager) OnDataPathMessage(remoteID RemoteID, raw []byte) error {
 	}
 	switch typ {
 	case MsgOffer:
-		answer, err := m.processOffer(remoteID, msg.(*OfferMsg))
+		answer, err := m.processOffer(remoteID, msg.(*OfferMsg), viaDataPathLabel)
 		if err != nil {
 			return err
 		}
@@ -394,7 +402,7 @@ func (m *Manager) OnDataPathMessage(remoteID RemoteID, raw []byte) error {
 		}
 		return m.pushDataPath(remoteID, answer)
 	case MsgAnswer:
-		return m.processAnswer(remoteID, msg.(*AnswerMsg))
+		return m.processAnswer(remoteID, msg.(*AnswerMsg), viaSignalLabel)
 	default:
 		return fmt.Errorf("unhandled data-path message type %d from %s", typ, remoteID)
 	}
