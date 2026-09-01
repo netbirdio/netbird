@@ -11,6 +11,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/mobile"
 	"github.com/netbirdio/netbird/client/system"
 )
 
@@ -284,12 +285,14 @@ func (a *Auth) login(urlOpener URLOpener, forceDeviceAuth bool, deviceName strin
 	}
 
 	jwtToken := ""
+	email := ""
 	if needsLogin {
 		tokenInfo, err := a.foregroundGetTokenInfo(authClient, urlOpener, forceDeviceAuth)
 		if err != nil {
 			return fmt.Errorf("interactive sso login failed: %v", err)
 		}
 		jwtToken = tokenInfo.GetTokenToUse()
+		email = tokenInfo.Email
 	}
 
 	err, isAuthError := authClient.Login(ctx, "", jwtToken)
@@ -299,6 +302,14 @@ func (a *Auth) login(urlOpener URLOpener, forceDeviceAuth bool, deviceName strin
 			return fmt.Errorf("authentication error: %v", err)
 		}
 		return fmt.Errorf("login failed: %v", err)
+	}
+
+	// Stored after Login, not before: a rejected token must not leave a hint
+	// pointing at an account that cannot be used.
+	if email != "" && a.cfgPath != "" {
+		if err := mobile.WriteProfileEmail(a.cfgPath, email); err != nil {
+			log.Warnf("failed to store profile account email: %v", err)
+		}
 	}
 
 	// Save the config before notifying success to ensure persistence completes
@@ -320,10 +331,24 @@ func (a *Auth) login(urlOpener URLOpener, forceDeviceAuth bool, deviceName strin
 	return nil
 }
 
+// profileLoginHint returns the stored account email for the profile at cfgPath,
+// so a re-login targets the account the profile already belongs to instead of
+// whatever session the shared browser cookie jar happens to hold.
+//
+// An empty hint is deliberate, not a fallback: a fresh profile leaves the
+// choice to the IdP. Switching accounts is done by switching or removing
+// profiles, not by logging out — logout keeps the email.
+func profileLoginHint(cfgPath string) string {
+	if cfgPath == "" {
+		return ""
+	}
+	return mobile.ReadProfileEmail(cfgPath)
+}
+
 const authInfoRequestTimeout = 30 * time.Second
 
 func (a *Auth) foregroundGetTokenInfo(authClient *auth.Auth, urlOpener URLOpener, forceDeviceAuth bool) (*auth.TokenInfo, error) {
-	oAuthFlow, err := authClient.GetOAuthFlow(a.ctx, forceDeviceAuth, "")
+	oAuthFlow, err := authClient.GetOAuthFlow(a.ctx, forceDeviceAuth, profileLoginHint(a.cfgPath))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get OAuth flow: %v", err)
 	}
