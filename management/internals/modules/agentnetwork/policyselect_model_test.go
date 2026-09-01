@@ -228,7 +228,8 @@ func TestSelectPolicy_DisabledAllowlistDoesNotRestrict(t *testing.T) {
 	}
 	expectPolicies(mockStore, "acc-1", policy)
 	expectGuardrails(mockStore, "acc-1", disabled)
-	expectProviderCatalog(mockStore, "acc-1", "prov-1", "openai_api")
+	// Deliberately no provider expectation: with no enabled allowlist the
+	// gate must skip the catalog-id lookup entirely.
 	expectConsumptionBatch(mockStore, nil)
 
 	res, err := mgr.SelectPolicyForRequest(context.Background(), PolicySelectionInput{
@@ -301,7 +302,8 @@ func TestSelectPolicy_MissingGuardrailReferenceTreatedAsUnrestricted(t *testing.
 	policy := guardedPolicy("pol-A", "acc-1", []string{"grp-eng"}, "prov-1", "g-missing")
 	expectPolicies(mockStore, "acc-1", policy)
 	expectGuardrails(mockStore, "acc-1")
-	expectProviderCatalog(mockStore, "acc-1", "prov-1", "openai_api")
+	// Deliberately no provider expectation: an orphaned guardrail reference
+	// restricts nothing, so the gate must skip the catalog-id lookup.
 	expectConsumptionBatch(mockStore, nil)
 
 	res, err := mgr.SelectPolicyForRequest(context.Background(), PolicySelectionInput{

@@ -172,19 +172,25 @@ func (m *managerImpl) SelectPolicyForRequest(ctx context.Context, in PolicySelec
 		if gErr != nil {
 			return nil, gErr
 		}
-		catalogID, cErr := m.providerCatalogID(ctx, in.AccountID, in.ProviderID)
-		if cErr != nil {
-			return nil, cErr
+		// Resolve the provider's catalog id only when a candidate actually
+		// restricts models: with no enabled allowlist every candidate is
+		// unrestricted, and a provider-store failure must not fail a request
+		// the gate would have waved through.
+		if anyEnabledModelAllowlist(candidates, guardrailsByID) {
+			catalogID, cErr := m.providerCatalogID(ctx, in.AccountID, in.ProviderID)
+			if cErr != nil {
+				return nil, cErr
+			}
+			permitted := filterModelPermittedPolicies(candidates, guardrailsByID, in.Model, catalogID)
+			if len(permitted) == 0 {
+				return &PolicySelectionResult{
+					Allow:      false,
+					DenyCode:   denyCodeModelBlocked,
+					DenyReason: modelBlockedReason(in.Model),
+				}, nil
+			}
+			candidates = permitted
 		}
-		permitted := filterModelPermittedPolicies(candidates, guardrailsByID, in.Model, catalogID)
-		if len(permitted) == 0 {
-			return &PolicySelectionResult{
-				Allow:      false,
-				DenyCode:   denyCodeModelBlocked,
-				DenyReason: modelBlockedReason(in.Model),
-			}, nil
-		}
-		candidates = permitted
 	}
 
 	// Prefetch every consumption counter the ceiling + candidate policies will
@@ -284,6 +290,24 @@ func anyPolicyHasGuardrails(policies []*types.Policy) bool {
 	for _, p := range policies {
 		if p != nil && len(p.GuardrailIDs) > 0 {
 			return true
+		}
+	}
+	return false
+}
+
+// anyEnabledModelAllowlist reports whether any policy references a guardrail
+// whose model allowlist is enabled — the only case the model gate restricts
+// anything. Disabled allowlists, stale guardrail references, and guardrails
+// carrying only other checks all leave every candidate unrestricted.
+func anyEnabledModelAllowlist(policies []*types.Policy, byID map[string]*types.Guardrail) bool {
+	for _, p := range policies {
+		if p == nil {
+			continue
+		}
+		for _, gID := range p.GuardrailIDs {
+			if g, ok := byID[gID]; ok && g != nil && g.Checks.ModelAllowlist.Enabled {
+				return true
+			}
 		}
 	}
 	return false
