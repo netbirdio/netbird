@@ -5,6 +5,7 @@ package services
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -30,6 +31,9 @@ type Theme struct {
 	// mu serializes apply: concurrent callers could otherwise enqueue a stale
 	// pref's native updates after a newer one's.
 	mu sync.Mutex
+	// started gates the main-thread dispatch in apply: Run installs the platform
+	// layer InvokeAsync needs, and the store subscription can fire before that.
+	started atomic.Bool
 }
 
 // NewTheme wires the store subscription and OS theme-change listener. Call
@@ -75,6 +79,7 @@ func NewTheme(app *application.App, store *preferences.Store) *Theme {
 	// Env.IsDarkMode is a stub until the platform layer is up; re-resolve once
 	// the app has started so a "system" launch on a light OS isn't seeded dark.
 	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+		t.started.Store(true)
 		t.apply()
 	})
 
@@ -123,9 +128,9 @@ func (t *Theme) apply() {
 	setAppearance(pref, dark)
 	t.app.Event.Emit(EventSystemThemeChanged, SystemTheme{Dark: systemDark})
 
-	// Nothing live to re-tint: windows created from here read the globals set
-	// above. Also keeps us off InvokeAsync before Run installs the platform impl.
-	if len(t.app.Window.GetAll()) == 0 {
+	// Before Run there is no platform layer for InvokeAsync to dispatch to.
+	// Windows created later read the globals set above.
+	if !t.started.Load() {
 		return
 	}
 
@@ -135,6 +140,10 @@ func (t *Theme) apply() {
 	// a window closed meanwhile is either gone from GetAll or yields a nil
 	// handle -- never a freed handle the OS may already have reused.
 	application.InvokeAsync(func() {
+		// App-wide first, and unconditionally: on Linux this is the GTK theme
+		// that draws the decorations, and it must be set even with no window
+		// open because later windows inherit it instead of carrying it.
+		setAppAppearance(dark)
 		for _, w := range t.app.Window.GetAll() {
 			if w == nil {
 				continue
