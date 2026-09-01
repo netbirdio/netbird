@@ -105,8 +105,14 @@ func WriteProfileEmail(configPath string, email string) error {
 		return fmt.Errorf("resolve profile account path: %w", err)
 	}
 
+	// DirectWriteJson, not the atomic writers: those create a temp file and
+	// rename it over the target, which the tvOS App Group sandbox blocks. It is
+	// the same reason the config next to this file goes through
+	// DirectWriteOutConfig. The file is rewritten whole from one key, so losing
+	// atomicity costs nothing beyond a torn write on a crash mid-write, which
+	// reads back as "no email" and is recovered by the next login.
 	state := profilemanager.ProfileState{Email: email}
-	if err := util.WriteJsonWithRestrictedPermission(context.Background(), accountPath, state); err != nil {
+	if err := util.DirectWriteJson(context.Background(), accountPath, state); err != nil {
 		return fmt.Errorf("write profile account: %w", err)
 	}
 

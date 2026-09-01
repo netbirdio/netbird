@@ -136,6 +136,51 @@ func TestSetConfig_MDMReject_MultipleFields(t *testing.T) {
 	}, v.GetFields())
 }
 
+func TestSetConfig_MDMReject_LocalMetrics(t *testing.T) {
+	withMDMPolicy(t, mdm.NewPolicy(map[string]any{
+		mdm.KeyEnableLocalMetrics:  true,
+		mdm.KeyLocalMetricsAddress: "127.0.0.1:9191",
+	}))
+
+	s, ctx, profName, username, _ := setupServerWithProfile(t)
+
+	enabled := false
+	addr := "0.0.0.0:9999"
+	_, err := s.SetConfig(ctx, &proto.SetConfigRequest{
+		ProfileName:         profName,
+		Username:            username,
+		EnableLocalMetrics:  &enabled,
+		LocalMetricsAddress: &addr,
+	})
+
+	v := extractViolation(t, err)
+	assert.ElementsMatch(t, []string{
+		mdm.KeyEnableLocalMetrics,
+		mdm.KeyLocalMetricsAddress,
+	}, v.GetFields())
+}
+
+// An explicitly empty address still changes the effective listen address
+// (the manager falls back to the default), so presence must be honored
+// rather than collapsed to "field not set".
+func TestSetConfig_MDMReject_LocalMetricsEmptyAddress(t *testing.T) {
+	withMDMPolicy(t, mdm.NewPolicy(map[string]any{
+		mdm.KeyLocalMetricsAddress: "127.0.0.1:9999",
+	}))
+
+	s, ctx, profName, username, _ := setupServerWithProfile(t)
+
+	addr := ""
+	_, err := s.SetConfig(ctx, &proto.SetConfigRequest{
+		ProfileName:         profName,
+		Username:            username,
+		LocalMetricsAddress: &addr,
+	})
+
+	v := extractViolation(t, err)
+	assert.ElementsMatch(t, []string{mdm.KeyLocalMetricsAddress}, v.GetFields())
+}
+
 func TestSetConfig_MDMReject_AllOrNothing(t *testing.T) {
 	// MDM enforces ManagementURL only; user request touches both the
 	// enforced field AND a non-enforced field (RosenpassEnabled).
