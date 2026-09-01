@@ -2301,7 +2301,7 @@ func (s *SqlStore) getPostureChecks(ctx context.Context, accountID string) ([]*p
 // serviceSelectColumns and targetSelectColumns are the column lists the Postgres
 // pgx read path scans. They must stay in sync with the rpservice.Service and
 // rpservice.Target gorm models; TestPgxServiceColumnsMatchGorm enforces this.
-const serviceSelectColumns = `id, account_id, name, domain, enabled, auth, restrictions,
+const serviceSelectColumns = `id, account_id, name, domain, http_domain, enabled, auth, restrictions,
 	meta_created_at, meta_certificate_issued_at, meta_last_renewed_at, meta_status, proxy_cluster,
 	pass_host_header, rewrite_redirects, session_private_key, session_public_key,
 	mode, listen_port, port_auto_assigned, source, source_peer, terminated,
@@ -2400,6 +2400,7 @@ func scanService(row pgx.CollectableRow) (*rpservice.Service, error) {
 		&s.AccountID,
 		&s.Name,
 		&s.Domain,
+		&s.HTTPDomain,
 		&s.Enabled,
 		&auth,
 		&restrictions,
@@ -3212,9 +3213,9 @@ func getGormConfig() *gorm.Config {
 
 // newPostgresStore initializes a new Postgres store.
 func newPostgresStore(ctx context.Context, metrics telemetry.AppMetrics, skipMigration bool) (Store, error) {
-	dsn, ok := lookupDSNEnv(postgresDsnEnv, postgresDsnEnvLegacy)
+	dsn, ok := lookupDSNEnv(PostgresDsnEnv, PostgresDsnEnvLegacy)
 	if !ok {
-		return nil, fmt.Errorf("%s is not set", postgresDsnEnv)
+		return nil, fmt.Errorf("%s is not set", PostgresDsnEnv)
 	}
 	return NewPostgresqlStore(ctx, dsn, metrics, skipMigration)
 }

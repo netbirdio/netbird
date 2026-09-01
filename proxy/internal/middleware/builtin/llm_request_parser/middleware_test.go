@@ -45,6 +45,8 @@ func TestMiddleware_StaticSurface(t *testing.T) {
 		middleware.KeyLLMRequestPromptRaw,
 		middleware.KeyLLMCaptureTruncated,
 		middleware.KeyLLMSessionID,
+		middleware.KeyLLMAgentID,
+		middleware.KeyLLMParentAgentID,
 	}
 	assert.Equal(t, expected, keys, "metadata key allowlist must match the spec")
 }
@@ -228,6 +230,31 @@ func TestInvoke_ProviderIDConfigBypassesURLSniff(t *testing.T) {
 	model, ok := metaValue(t, out.Metadata, middleware.KeyLLMModel)
 	require.True(t, ok, "model still extracted from the body")
 	assert.Equal(t, "gpt-4o-mini", model)
+}
+
+func TestInvoke_PathSurfaceBeatsProviderIDConfig(t *testing.T) {
+	// Gateway records (LiteLLM, Portkey, OpenRouter) pin provider_id
+	// "openai", but the same record serves Claude Code on /v1/messages.
+	// Parsing that body as OpenAI reads no usage off the Anthropic
+	// response and prices the request on a surface where no claude-*
+	// model exists, so the path has to win.
+	mw, err := Factory{}.New([]byte(`{"provider_id":"openai"}`))
+	require.NoError(t, err, "factory must accept provider_id config")
+
+	out, err := mw.Invoke(context.Background(), &middleware.Input{
+		URL:  "/v1/messages",
+		Body: []byte(`{"model":"claude-sonnet-5","stream":true,"messages":[{"role":"user","content":"Hi"}]}`),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out)
+
+	provider, ok := metaValue(t, out.Metadata, middleware.KeyLLMProvider)
+	require.True(t, ok, "provider must be emitted")
+	assert.Equal(t, "anthropic", provider, "the /v1/messages path selects the Anthropic surface")
+
+	model, ok := metaValue(t, out.Metadata, middleware.KeyLLMModel)
+	require.True(t, ok, "model must be extracted")
+	assert.Equal(t, "claude-sonnet-5", model)
 }
 
 func TestInvoke_UnknownProviderIDFallsBackToURL(t *testing.T) {
@@ -415,4 +442,82 @@ func TestInvoke_NilInputAllows(t *testing.T) {
 	require.NotNil(t, out)
 	assert.Equal(t, middleware.DecisionAllow, out.Decision, "nil input still allows")
 	assert.Empty(t, out.Metadata, "nil input emits no metadata")
+}
+
+// TestParseVertexPath_CountTokensKeepsModel covers Vertex token counting,
+// where the method hangs off the model as its own path segment. Splitting
+// only on the final colon swallowed "/count-tokens" into the model id, so
+// the router saw a model no route could claim.
+func TestParseVertexPath_CountTokensKeepsModel(t *testing.T) {
+	cases := map[string]struct {
+		model  string
+		stream bool
+	}{
+		"/v1/projects/p/locations/global/publishers/anthropic/models/claude-sonnet-5:rawPredict":                       {model: "claude-sonnet-5"},
+		"/v1/projects/p/locations/global/publishers/anthropic/models/claude-sonnet-5:streamRawPredict":                 {model: "claude-sonnet-5", stream: true},
+		"/v1/projects/p/locations/global/publishers/anthropic/models/claude-sonnet-5/count-tokens:rawPredict":          {model: "claude-sonnet-5"},
+		"/v1/projects/p/locations/global/publishers/anthropic/models/claude-sonnet-5@20250929/count-tokens:rawPredict": {model: "claude-sonnet-5"},
+	}
+	for path, want := range cases {
+		vx, ok := parseVertexPath(path)
+		require.True(t, ok, "must parse %q", path)
+		assert.Equal(t, want.model, vx.model, "model for %q", path)
+		assert.Equal(t, want.stream, vx.stream, "stream flag for %q", path)
+		assert.Equal(t, "anthropic", vx.publisher, "publisher for %q", path)
+	}
+}
+
+// TestInvoke_EmitsAgentIDs covers sub-agent attribution: several agents run
+// in parallel inside one session, and without their ids every request in
+// the session attributes to the session alone.
+func TestInvoke_EmitsAgentIDs(t *testing.T) {
+	mw := newMiddleware(t)
+
+	t.Run("spawned agent", func(t *testing.T) {
+		out, err := mw.Invoke(context.Background(), &middleware.Input{
+			URL:  "/v1/messages",
+			Body: []byte(`{"model":"claude-sonnet-5","messages":[]}`),
+			Headers: []middleware.KV{
+				{Key: "X-Claude-Code-Session-Id", Value: "sess-1"},
+				{Key: "X-Claude-Code-Agent-Id", Value: "agent-7"},
+			},
+		})
+		require.NoError(t, err)
+
+		agent, ok := metaValue(t, out.Metadata, middleware.KeyLLMAgentID)
+		require.True(t, ok, "the spawned agent's id must be emitted")
+		assert.Equal(t, "agent-7", agent)
+
+		_, ok = metaValue(t, out.Metadata, middleware.KeyLLMParentAgentID)
+		assert.False(t, ok, "a top-level agent has no parent to emit")
+	})
+
+	t.Run("nested agent", func(t *testing.T) {
+		out, err := mw.Invoke(context.Background(), &middleware.Input{
+			URL:  "/v1/messages",
+			Body: []byte(`{"model":"claude-sonnet-5","messages":[]}`),
+			Headers: []middleware.KV{
+				{Key: "X-Claude-Code-Agent-Id", Value: "agent-9"},
+				{Key: "X-Claude-Code-Parent-Agent-Id", Value: "agent-7"},
+			},
+		})
+		require.NoError(t, err)
+
+		agent, _ := metaValue(t, out.Metadata, middleware.KeyLLMAgentID)
+		assert.Equal(t, "agent-9", agent)
+		parent, ok := metaValue(t, out.Metadata, middleware.KeyLLMParentAgentID)
+		require.True(t, ok, "a nested agent must carry the spawning agent's id")
+		assert.Equal(t, "agent-7", parent)
+	})
+
+	t.Run("absent on a plain request", func(t *testing.T) {
+		out, err := mw.Invoke(context.Background(), &middleware.Input{
+			URL:  "/v1/messages",
+			Body: []byte(`{"model":"claude-sonnet-5","messages":[]}`),
+		})
+		require.NoError(t, err)
+
+		_, ok := metaValue(t, out.Metadata, middleware.KeyLLMAgentID)
+		assert.False(t, ok, "no key is emitted when the client sends no agent id")
+	})
 }

@@ -47,6 +47,8 @@ const (
 	KeyRosenpassEnabled    = "rosenpassEnabled"
 	KeyRosenpassPermissive = "rosenpassPermissive"
 	KeyWireguardPort       = "wireguardPort"
+	KeyEnableLocalMetrics  = "enableLocalMetrics"
+	KeyLocalMetricsAddress = "localMetricsAddress"
 
 	// Split tunnel is modeled as a single conceptual policy with two
 	// registry/plist values. KeySplitTunnelMode is the discriminator

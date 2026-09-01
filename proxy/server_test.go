@@ -29,13 +29,14 @@ import (
 	goproto "google.golang.org/protobuf/proto"
 
 	"github.com/netbirdio/netbird/proxy/internal/acme"
-	proxyauth "github.com/netbirdio/netbird/proxy/internal/auth"
+	"github.com/netbirdio/netbird/proxy/internal/auth"
 	proxymetrics "github.com/netbirdio/netbird/proxy/internal/metrics"
 	httpproxy "github.com/netbirdio/netbird/proxy/internal/proxy"
 	"github.com/netbirdio/netbird/proxy/internal/roundtrip"
 	nbtcp "github.com/netbirdio/netbird/proxy/internal/tcp"
 	"github.com/netbirdio/netbird/proxy/internal/types"
 	udprelay "github.com/netbirdio/netbird/proxy/internal/udp"
+	"github.com/netbirdio/netbird/shared/hash/argon2id"
 	shareddomain "github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
@@ -227,6 +228,62 @@ func TestRedactMappingForLog_HandlesEmptyOrNilFields(t *testing.T) {
 	assert.Equal(t, "", redacted.AuthToken, "empty auth_token must remain empty (no placeholder)")
 	assert.Nil(t, redacted.Auth, "nil Auth must remain nil")
 	assert.Empty(t, redacted.Path, "empty Path must remain empty")
+}
+
+// headerSchemeAccepts reports whether the scheme admits value for headerName.
+func headerSchemeAccepts(t *testing.T, scheme auth.Scheme, headerName, value string) bool {
+	t.Helper()
+	hdr, ok := scheme.(auth.Header)
+	require.True(t, ok, "header auths must produce Header schemes")
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	req.Header.Set(headerName, value)
+	_, matched, _ := hdr.Verify(req)
+	return matched
+}
+
+func TestHeaderAuthSchemes_GroupsValuesByCanonicalHeaderName(t *testing.T) {
+	hashOf := func(v string) string {
+		hash, err := argon2id.Hash(v)
+		require.NoError(t, err)
+		return hash
+	}
+
+	schemes := headerAuthSchemes([]*proto.HeaderAuth{
+		{Header: "Authorization", HashedValue: hashOf("Bearer a")},
+		{Header: "authorization", HashedValue: hashOf("Bearer b")},
+		{Header: "X-Api-Key", HashedValue: hashOf("key-1")},
+	})
+
+	require.Len(t, schemes, 2, "entries differing only in header-name case must collapse into one scheme")
+
+	assert.True(t, headerSchemeAccepts(t, schemes[0], "Authorization", "Bearer a"), "first value for the header must be accepted")
+	assert.True(t, headerSchemeAccepts(t, schemes[0], "Authorization", "Bearer b"), "second value for the same header must be accepted")
+	assert.False(t, headerSchemeAccepts(t, schemes[0], "Authorization", "Bearer c"), "unconfigured value must be rejected")
+	assert.True(t, headerSchemeAccepts(t, schemes[1], "X-Api-Key", "key-1"), "a second header name keeps its own scheme")
+}
+
+// TestHeaderAuthSchemes_MissingHashFailsClosed covers a mapping that names a
+// header but carries no hash for it. Dropping the scheme would leave a service
+// whose only auth is that header wide open, so the scheme is kept and denies.
+func TestHeaderAuthSchemes_MissingHashFailsClosed(t *testing.T) {
+	schemes := headerAuthSchemes([]*proto.HeaderAuth{{Header: "X-Api-Key"}})
+
+	require.Len(t, schemes, 1, "a header without a hash must still register a scheme")
+	assert.False(t, headerSchemeAccepts(t, schemes[0], "X-Api-Key", "anything"),
+		"a header auth without a hash must reject every value")
+}
+
+// TestHeaderAuthSchemes_BlankNameFailsClosed covers a mapping row whose header
+// name is empty. Skipping it would leave a service whose only auth is that entry
+// with no schemes at all, which Protect treats as an unprotected domain, so the
+// entry is kept and the domain stays gated.
+func TestHeaderAuthSchemes_BlankNameFailsClosed(t *testing.T) {
+	schemes := headerAuthSchemes([]*proto.HeaderAuth{{Header: "", HashedValue: "$argon2id$not-a-real-hash"}})
+
+	require.Len(t, schemes, 1, "a blank header name must still register a scheme")
+	assert.False(t, headerSchemeAccepts(t, schemes[0], "X-Api-Key", "anything"),
+		"a blank header auth must not admit any request")
 }
 
 type statusUpdateOnlyClient struct {
@@ -499,7 +556,7 @@ func TestSnapshotCreateWithUnchangedHTTPRuntimePreservesHijackedConnection(t *te
 	srv := &Server{
 		Logger: logger, mgmtClient: statusUpdateOnlyClient{},
 		proxy: httpproxy.NewReverseProxy(http.DefaultTransport, "https", nil, logger),
-		auth:  proxyauth.NewMiddleware(logger, nil, nil), meter: meter,
+		auth:  auth.NewMiddleware(logger, nil, nil), meter: meter,
 		mainRouter: nbtcp.NewRouter(logger, nil, &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 8443}), mainPort: 8443,
 		portRouters: make(map[uint16]*portRouter), svcPorts: make(map[types.ServiceID][]uint16),
 		udpRelays: make(map[udpRelayKey]*udprelay.Relay), lastMappings: make(map[types.ServiceID]*proto.ProxyMapping),
@@ -737,7 +794,7 @@ func setupSharedDomainHTTPAndTLS(t *testing.T) (*Server, *proto.ProxyMapping, ht
 	}, nil, logger, meter)
 	require.NoError(t, err)
 
-	authMiddleware := proxyauth.NewMiddleware(logger, nil, nil)
+	authMiddleware := auth.NewMiddleware(logger, nil, nil)
 	require.NoError(t, authMiddleware.AddDomain(
 		host, nil, "", time.Minute, types.AccountID("account-http"), types.ServiceID("svc-http"), nil, true,
 	))
@@ -832,7 +889,7 @@ func writeTestWildcardCertificate(t *testing.T, dir, dnsName string) {
 	}), 0o600))
 }
 
-func protectedDomainStatus(middleware *proxyauth.Middleware, host string) int {
+func protectedDomainStatus(middleware *auth.Middleware, host string) int {
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "https://"+host+"/", nil)
 	request.Host = host
@@ -855,7 +912,7 @@ func TestHTTPRemovalPreservesSharedDomainL4Listener(t *testing.T) {
 		Logger:           logger,
 		mgmtClient:       statusUpdateOnlyClient{},
 		proxy:            httpproxy.NewReverseProxy(http.DefaultTransport, "https", nil, logger),
-		auth:             proxyauth.NewMiddleware(logger, nil, nil),
+		auth:             auth.NewMiddleware(logger, nil, nil),
 		meter:            meter,
 		mainRouter:       nbtcp.NewRouter(logger, nil, &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 8443}),
 		mainPort:         8443,
@@ -922,7 +979,7 @@ func TestSnapshotReplacementPreservesSharedHTTPAndRebindsTCPRangeAndUDP(t *testi
 
 	httpRuntime := httpproxy.NewReverseProxy(http.DefaultTransport, "https", nil, logger)
 	httpRuntime.AddMapping(httpproxy.Mapping{ID: "svc-http", AccountID: "acct", Host: "shared.example.test", Paths: map[string]*httpproxy.PathTarget{}})
-	authMiddleware := proxyauth.NewMiddleware(logger, nil, nil)
+	authMiddleware := auth.NewMiddleware(logger, nil, nil)
 	require.NoError(t, authMiddleware.AddDomain("shared.example.test", nil, "", 0, "acct", "svc-http", nil, true))
 
 	srv := &Server{
