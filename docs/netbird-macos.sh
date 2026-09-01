@@ -36,7 +36,9 @@
 # IDEMPOTENCY: re-running with the same values is a no-op from the
 # daemon's point of view (the 1-minute reload ticker diff returns empty).
 #
-# SECURITY: PreSharedKey is redacted in this script's log output.
+# SECURITY: PreSharedKey (and any secret-bearing debugBundleUploadURL) is
+#   redacted in this script's log output, and the installed plist is 0600
+#   root:wheel so its values are not readable by local non-root users.
 
 set -euo pipefail
 
@@ -161,9 +163,12 @@ emit_int() {
   log "set $key = $value"
 }
 
-# main builds the NetBird MDM plist from configured policy variables, validates and installs it to /Library/Managed Preferences/io.netbird.client.plist (root:wheel, 644) and optionally triggers the NetBird daemon to reload.
+# main builds the NetBird MDM plist from configured policy variables, validates and installs it to /Library/Managed Preferences/io.netbird.client.plist (root:wheel, 600 — the daemon reads it directly as root, so it need not be world-readable) and optionally triggers the NetBird daemon to reload.
 main() {
   log "applying NetBird MDM policy to $PLIST_PATH"
+  # Restrict the temp plist while it is being built: it carries the same
+  # secret-bearing values as the final file, which is installed 0600 below.
+  umask 077
   /bin/mkdir -p "$PLIST_DIR"
   start_plist
 
@@ -208,7 +213,12 @@ main() {
 
   /bin/mv -f "$PLIST_PATH.tmp" "$PLIST_PATH"
   /usr/sbin/chown root:wheel "$PLIST_PATH"
-  /bin/chmod 644 "$PLIST_PATH"
+  # 0600, not 0644: the daemon's loader (client/mdm/policy_darwin.go) opens the
+  # plist directly as root, so it does not need to be world-readable. Restricting
+  # it keeps secret-bearing values (preSharedKey, a signed debugBundleUploadURL)
+  # from any local non-root user. The loader's only mode check refuses a
+  # world-writable file, which 0600 satisfies.
+  /bin/chmod 600 "$PLIST_PATH"
 
   log "policy installed; NetBird daemon will pick it up within the next 1-minute reload tick"
 
