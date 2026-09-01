@@ -106,8 +106,11 @@ func TestSwitchProfile_ClearsJWTCache(t *testing.T) {
 	assert.False(t, found, "switching profile must drop the cached SSH JWT")
 }
 
-// Logout and Down both go through cleanupConnection.
-func TestCleanupConnection_ClearsJWTCache(t *testing.T) {
+// Down ends the connection, not the session: the peer stays enrolled and the
+// token still belongs to the same NetBird identity, so `down` followed by `up`
+// must not cost the owner a fresh device-code flow. Logout and SwitchProfile
+// clear the cache themselves, and both reach it without cleanupConnection.
+func TestCleanupConnection_KeepsJWTCache(t *testing.T) {
 	s := newTestServer()
 	_, cancel := context.WithCancel(context.Background())
 	s.actCancel = cancel
@@ -117,6 +120,7 @@ func TestCleanupConnection_ClearsJWTCache(t *testing.T) {
 
 	require.NoError(t, s.cleanupConnection())
 
-	_, found := s.jwtCache.get(owner)
-	assert.False(t, found, "ending the session must drop the cached SSH JWT, owner included")
+	got, found := s.jwtCache.get(owner)
+	require.True(t, found, "going down must not drop the cached SSH JWT")
+	assert.Equal(t, "token", got)
 }

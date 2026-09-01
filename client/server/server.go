@@ -1285,8 +1285,6 @@ func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownRes
 func (s *Server) cleanupConnection() error {
 	s.oauthAuthFlow = oauthAuthFlow{}
 
-	s.jwtCache.clear()
-
 	if s.actCancel == nil {
 		return ErrServiceNotUp
 	}
@@ -1372,6 +1370,7 @@ func (s *Server) handleProfileLogout(ctx context.Context, msg *proto.LogoutReque
 		if err := s.cleanupConnection(); err != nil && !errors.Is(err, ErrServiceNotUp) {
 			log.Errorf("failed to cleanup connection: %v", err)
 		}
+		s.jwtCache.clear()
 		state := internal.CtxGetState(s.rootCtx)
 		state.Set(internal.StatusNeedsLogin)
 	}
@@ -1403,6 +1402,7 @@ func (s *Server) handleActiveProfileLogout(ctx context.Context) (*proto.LogoutRe
 		log.Errorf("failed to cleanup connection: %v", err)
 		return nil, err
 	}
+	s.jwtCache.clear()
 
 	state := internal.CtxGetState(s.rootCtx)
 	state.Set(internal.StatusNeedsLogin)
