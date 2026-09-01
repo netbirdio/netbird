@@ -183,12 +183,6 @@ func RunCase(t *testing.T, c Case) {
 	ctx := context.Background()
 	nmData := c.Data
 	applyFixtureDefaults(nmData)
-	// Mirrors the controller: a private service's DNS half is derived from
-	// nmData.Services, so a fixture that only declares the service — all
-	// production has for a synthesised agent-network one — still yields its
-	// zone. The ACL half is injected by GetPeerNetworkMapComponents itself, so
-	// injecting here too would leave the synthesised policies in the fixture
-	// before the legacy mode inverts it back into an account.
 	nmData.BuildPrivateServiceCandidates()
 	nmData.PrecomputePostureValidation()
 
