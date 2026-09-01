@@ -55,6 +55,7 @@ func TestModelAllowlistOfDeclaredIDsServed(t *testing.T) {
 		Ephemeral:  &ephemeral,
 	})
 	require.NoError(t, err, "mint setup key")
+	t.Cleanup(func() { _ = srv.API().SetupKeys.Delete(context.Background(), sk.Id) })
 
 	// Providers declaring the raw vendor-issued model id — NOT the normalized
 	// catalog form providerRequest would register.
