@@ -170,6 +170,11 @@ main() {
   # secret-bearing values as the final file, which is installed 0600 below.
   umask 077
   /bin/mkdir -p "$PLIST_DIR"
+  # Remove any stale temp file first: start_plist writes it with a truncating
+  # redirect, which keeps an existing file's mode — so a leftover 0644 tmp from
+  # an interrupted run would not be tightened by umask. Deleting it forces a
+  # fresh 0600 create.
+  /bin/rm -f "$PLIST_PATH.tmp"
   start_plist
 
   is_set "$managementURL"             && emit_string  managementURL             "$managementURL"
