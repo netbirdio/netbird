@@ -91,7 +91,7 @@ func validateUsernameFormat(username string) error {
 func (s *Server) createExecutorCommand(logger *log.Entry, session ssh.Session, localUser *user.User, hasPty bool) (*exec.Cmd, func(), error) {
 	logger.Debugf("creating Windows executor command for user %s (Pty: %v)", localUser.Username, hasPty)
 
-	username, _ := s.parseUsername(localUser.Username)
+	username, _ := parseUsername(localUser.Username)
 	if err := validateUsername(username); err != nil {
 		return nil, nil, fmt.Errorf("invalid username %q: %w", username, err)
 	}
@@ -102,7 +102,7 @@ func (s *Server) createExecutorCommand(logger *log.Entry, session ssh.Session, l
 // createUserSwitchCommand creates a command with Windows user switching.
 // Returns the command and a cleanup function that must be called after starting the process.
 func (s *Server) createUserSwitchCommand(logger *log.Entry, session ssh.Session, localUser *user.User) (*exec.Cmd, func(), error) {
-	username, domain := s.parseUsername(localUser.Username)
+	username, domain := parseUsername(localUser.Username)
 
 	shell := getUserShell(localUser.Uid)
 
@@ -138,7 +138,7 @@ func (s *Server) createUserSwitchCommand(logger *log.Entry, session ssh.Session,
 }
 
 // parseUsername extracts username and domain from a Windows username
-func (s *Server) parseUsername(fullUsername string) (username, domain string) {
+func parseUsername(fullUsername string) (username, domain string) {
 	// Handle DOMAIN\username format
 	if idx := strings.LastIndex(fullUsername, `\`); idx != -1 {
 		domain = fullUsername[:idx]
