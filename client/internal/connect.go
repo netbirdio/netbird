@@ -242,7 +242,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 	wrapErr := state.Wrap
 	myPrivateKey, err := wgtypes.ParseKey(c.config.PrivateKey)
 	if err != nil {
-		log.Errorf("failed parsing Wireguard key %s: [%s]", c.config.PrivateKey, err.Error())
+		log.Errorf("failed parsing Wireguard key: %s", err)
 		return wrapErr(err)
 	}
 
