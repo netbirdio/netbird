@@ -95,6 +95,9 @@ func (am *DefaultAccountManager) GetIdentityProviders(ctx context.Context, accou
 	if !ok {
 		return nil, status.NewPermissionDeniedError()
 	}
+	if err := am.validateIdentityProviderManagementMode(ctx); err != nil {
+		return nil, err
+	}
 
 	embeddedManager, ok := am.idpManager.(*idp.EmbeddedIdPManager)
 	if !ok {
@@ -124,6 +127,9 @@ func (am *DefaultAccountManager) GetIdentityProvider(ctx context.Context, accoun
 	if !ok {
 		return nil, status.NewPermissionDeniedError()
 	}
+	if err := am.validateIdentityProviderManagementMode(ctx); err != nil {
+		return nil, err
+	}
 
 	embeddedManager, ok := am.idpManager.(*idp.EmbeddedIdPManager)
 	if !ok {
@@ -149,6 +155,9 @@ func (am *DefaultAccountManager) CreateIdentityProvider(ctx context.Context, acc
 	}
 	if !ok {
 		return nil, status.NewPermissionDeniedError()
+	}
+	if err := am.validateIdentityProviderManagementMode(ctx); err != nil {
+		return nil, err
 	}
 
 	if err := validateIdentityProviderConfig(ctx, idpConfig); err != nil {
@@ -187,6 +196,9 @@ func (am *DefaultAccountManager) UpdateIdentityProvider(ctx context.Context, acc
 	if !ok {
 		return nil, status.NewPermissionDeniedError()
 	}
+	if err := am.validateIdentityProviderManagementMode(ctx); err != nil {
+		return nil, err
+	}
 
 	if err := validateIdentityProviderConfig(ctx, idpConfig); err != nil {
 		return nil, err
@@ -220,6 +232,9 @@ func (am *DefaultAccountManager) DeleteIdentityProvider(ctx context.Context, acc
 	if !ok {
 		return status.NewPermissionDeniedError()
 	}
+	if err := am.validateIdentityProviderManagementMode(ctx); err != nil {
+		return err
+	}
 
 	embeddedManager, ok := am.idpManager.(*idp.EmbeddedIdPManager)
 	if !ok {
@@ -244,6 +259,25 @@ func (am *DefaultAccountManager) DeleteIdentityProvider(ctx context.Context, acc
 	}
 
 	am.StoreEvent(ctx, userID, idpID, accountID, activity.IdentityProviderDeleted, idpConfig.EventMeta())
+
+	return nil
+}
+
+func (am *DefaultAccountManager) validateIdentityProviderManagementMode(ctx context.Context) error {
+	if !IsEmbeddedIdp(am.idpManager) {
+		return nil
+	}
+	if !am.singleAccountMode {
+		return status.Errorf(status.PreconditionFailed, "identity provider management requires configured single-account mode")
+	}
+
+	accountCount, err := am.Store.GetAccountsCounter(ctx)
+	if err != nil {
+		return status.Errorf(status.Internal, "verify single account mode: %v", err)
+	}
+	if accountCount != 1 {
+		return status.Errorf(status.PreconditionFailed, "identity provider management requires exactly one account; remove additional accounts before trying again")
+	}
 
 	return nil
 }
