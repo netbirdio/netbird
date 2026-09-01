@@ -3,12 +3,9 @@ package networkmapdb
 import (
 	"testing"
 
-	"github.com/netbirdio/netbird/shared/management/networkmap"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/stretchr/testify/assert"
 )
-
-var empty []networkmap.PrivateServiceCandidate
 
 // disabled network resource shouldn't be in the resulting map
 func TestBuildResourcePolicies_DisabledNetworkResource(t *testing.T) {
