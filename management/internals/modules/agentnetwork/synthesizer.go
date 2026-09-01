@@ -211,18 +211,19 @@ func SynthesizeServices(ctx context.Context, s store.Store, accountID string) ([
 	}
 
 	groupIndex := indexProviderGroups(enabledPolicies)
+	catalogByProvider := catalogIDsByProvider(enabledProviders)
 
 	// The proxy guardrail is a per-provider fail-closed backstop; the
 	// authoritative per-policy/group decision is management's
 	// SelectPolicyForRequest. A provider lands in that map only when every
 	// authorising policy restricts models.
-	providerAllowlists := buildProviderAllowlists(enabledPolicies, guardrailsByID)
+	providerAllowlists := buildProviderAllowlists(enabledPolicies, guardrailsByID, catalogByProvider)
 
 	// Discovery gets the finer view: per policy rather than flattened per
 	// provider, so a listing can be bounded to what the calling groups may
 	// actually use instead of the union across everyone who reaches the
 	// provider.
-	modelPolicies := buildModelPolicies(enabledPolicies, guardrailsByID)
+	modelPolicies := buildModelPolicies(enabledPolicies, guardrailsByID, catalogByProvider)
 
 	routerCfgJSON, err := buildRouterConfigJSON(enabledProviders, groupIndex, modelPolicies)
 	if err != nil {
@@ -907,7 +908,9 @@ func marshalGuardrailConfig(providerAllowlists map[string][]string, capture Merg
 // buildProviderAllowlists returns the proxy's per-provider backstop: a provider
 // is included only when every authorising policy restricts models (their union);
 // if any leaves it unrestricted it is omitted, so management decides per group.
-func buildProviderAllowlists(policies []*types.Policy, byID map[string]*types.Guardrail) map[string][]string {
+// Entries carry their provider-specific canonical form alongside the verbatim
+// one, resolved through catalogByProvider.
+func buildProviderAllowlists(policies []*types.Policy, byID map[string]*types.Guardrail, catalogByProvider map[string]string) map[string][]string {
 	type providerAcc struct {
 		models          map[string]struct{}
 		anyUnrestricted bool
@@ -931,7 +934,7 @@ func buildProviderAllowlists(policies []*types.Policy, byID map[string]*types.Gu
 				acc.anyUnrestricted = true
 				continue
 			}
-			for _, m := range models {
+			for _, m := range expandModelsForProvider(models, catalogByProvider[providerID]) {
 				acc.models[m] = struct{}{}
 			}
 		}
@@ -952,16 +955,38 @@ func buildProviderAllowlists(policies []*types.Policy, byID map[string]*types.Gu
 }
 
 // policyModelAllowlist reports whether a policy restricts models (has an
-// allowlist-enabled guardrail) and the union of allowed models. Each entry
-// is emitted verbatim plus, when it differs, its path-style canonical form —
-// the id the proxy's parser emits at request time — so the proxy-side
-// compares (the guardrail backstop and the per-group router rules) admit an
-// allowlist however the operator wrote it, raw declared id or canonical. The
-// proxy factory lowercases/trims the entries at decode time.
+// allowlist-enabled guardrail) and the union of allowed models, verbatim.
+// Consumers expand the entries per destination provider with
+// expandModelsForProvider — the canonical form is provider-specific — and
+// the proxy factory lowercases/trims them at decode time.
 func policyModelAllowlist(p *types.Policy, byID map[string]*types.Guardrail) (bool, []string) {
 	restricted := false
 	var models []string
-	seen := make(map[string]struct{})
+	for _, gID := range p.GuardrailIDs {
+		g, ok := byID[gID]
+		if !ok || g == nil || !g.Checks.ModelAllowlist.Enabled {
+			continue
+		}
+		restricted = true
+		for _, m := range g.Checks.ModelAllowlist.Models {
+			if m != "" {
+				models = append(models, m)
+			}
+		}
+	}
+	return restricted, models
+}
+
+// expandModelsForProvider returns the allowlist entries for one destination
+// provider: each entry verbatim plus, when it differs, its canonical form
+// under that provider's catalog id — the id the proxy's parser emits at
+// request time — deduplicated. The proxy-side compares (guardrail backstop,
+// per-group router rules) then admit an allowlist however the operator
+// wrote it, raw declared id or canonical, while a plain provider's entries
+// stay verbatim and can never widen.
+func expandModelsForProvider(models []string, catalogProviderID string) []string {
+	out := make([]string, 0, len(models))
+	seen := make(map[string]struct{}, len(models))
 	add := func(m string) {
 		if m == "" {
 			return
@@ -970,20 +995,25 @@ func policyModelAllowlist(p *types.Policy, byID map[string]*types.Guardrail) (bo
 			return
 		}
 		seen[m] = struct{}{}
-		models = append(models, m)
+		out = append(out, m)
 	}
-	for _, gID := range p.GuardrailIDs {
-		g, ok := byID[gID]
-		if !ok || g == nil || !g.Checks.ModelAllowlist.Enabled {
-			continue
-		}
-		restricted = true
-		for _, m := range g.Checks.ModelAllowlist.Models {
-			add(m)
-			add(canonicalPathStyleModelID(normaliseModelID(m)))
+	for _, m := range models {
+		add(m)
+		add(canonicalModelKey(catalogProviderID, m))
+	}
+	return out
+}
+
+// catalogIDsByProvider indexes providers' catalog ids by provider record id,
+// the lookup the per-provider allowlist expansion keys the normalizer on.
+func catalogIDsByProvider(providers []*types.Provider) map[string]string {
+	out := make(map[string]string, len(providers))
+	for _, p := range providers {
+		if p != nil {
+			out[p.ID] = p.ProviderID
 		}
 	}
-	return restricted, models
+	return out
 }
 
 // buildAccountService composes the per-account gateway Service. The
@@ -1194,22 +1224,24 @@ type routerModelPolicy struct {
 // models — a picker full of entries the next request refuses. Keeping the
 // source groups alongside the models lets the router answer it at request time,
 // where it knows the caller's groups.
-func buildModelPolicies(policies []*types.Policy, byID map[string]*types.Guardrail) map[string][]routerModelPolicy {
+func buildModelPolicies(policies []*types.Policy, byID map[string]*types.Guardrail, catalogByProvider map[string]string) map[string][]routerModelPolicy {
 	out := make(map[string][]routerModelPolicy)
 	for _, p := range policies {
 		if p == nil || len(p.SourceGroups) == 0 {
 			continue
 		}
 		restricted, models := policyModelAllowlist(p, byID)
-		rule := routerModelPolicy{GroupIDs: append([]string(nil), p.SourceGroups...)}
-		if restricted {
-			// Never nil when restricted: an allowlist permitting nothing must
-			// stay distinguishable from no allowlist at all.
-			rule.Models = append([]string{}, models...)
-		}
 		for _, providerID := range p.DestinationProviderIDs {
 			if providerID == "" {
 				continue
+			}
+			rule := routerModelPolicy{GroupIDs: append([]string(nil), p.SourceGroups...)}
+			if restricted {
+				// Never nil when restricted: an allowlist permitting nothing
+				// must stay distinguishable from no allowlist at all. The
+				// expansion is per provider — the canonical form of an entry
+				// depends on the destination's catalog id.
+				rule.Models = append([]string{}, expandModelsForProvider(models, catalogByProvider[providerID])...)
 			}
 			out[providerID] = append(out[providerID], rule)
 		}

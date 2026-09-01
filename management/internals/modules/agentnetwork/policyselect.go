@@ -10,7 +10,6 @@ import (
 
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	"github.com/netbirdio/netbird/management/server/store"
-	sharedllm "github.com/netbirdio/netbird/shared/llm"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -173,7 +172,11 @@ func (m *managerImpl) SelectPolicyForRequest(ctx context.Context, in PolicySelec
 		if gErr != nil {
 			return nil, gErr
 		}
-		permitted := filterModelPermittedPolicies(candidates, guardrailsByID, in.Model)
+		catalogID, cErr := m.providerCatalogID(ctx, in.AccountID, in.ProviderID)
+		if cErr != nil {
+			return nil, cErr
+		}
+		permitted := filterModelPermittedPolicies(candidates, guardrailsByID, in.Model, catalogID)
 		if len(permitted) == 0 {
 			return &PolicySelectionResult{
 				Allow:      false,
@@ -302,12 +305,33 @@ func (m *managerImpl) loadGuardrailsByID(ctx context.Context, accountID string) 
 	return byID, nil
 }
 
+// providerCatalogID resolves a provider record id to its catalog provider
+// id, the key the model-id normalizers are picked by. A missing provider
+// resolves to the empty catalog id — the compare then runs verbatim-only,
+// which can never widen an allowlist — while a store failure propagates
+// rather than degrading a security decision.
+func (m *managerImpl) providerCatalogID(ctx context.Context, accountID, providerID string) (string, error) {
+	if providerID == "" {
+		return "", nil
+	}
+	provider, err := m.store.GetAgentNetworkProviderByID(ctx, store.LockingStrengthNone, accountID, providerID)
+	switch {
+	case err == nil:
+		return provider.ProviderID, nil
+	case isNotFound(err):
+		return "", nil
+	default:
+		return "", fmt.Errorf("get provider: %w", err)
+	}
+}
+
 // filterModelPermittedPolicies returns the subset of policies whose guardrails
-// permit the model. Order is preserved so downstream scoring is unaffected.
-func filterModelPermittedPolicies(policies []*types.Policy, byID map[string]*types.Guardrail, model string) []*types.Policy {
+// permit the model on the provider with the given catalog id. Order is
+// preserved so downstream scoring is unaffected.
+func filterModelPermittedPolicies(policies []*types.Policy, byID map[string]*types.Guardrail, model, catalogProviderID string) []*types.Policy {
 	out := make([]*types.Policy, 0, len(policies))
 	for _, p := range policies {
-		if policyPermitsModel(p, byID, model) {
+		if policyPermitsModel(p, byID, model, catalogProviderID) {
 			out = append(out, p)
 		}
 	}
@@ -318,10 +342,12 @@ func filterModelPermittedPolicies(policies []*types.Policy, byID map[string]*typ
 // allowlist-enabled guardrail = unrestricted (permits any, incl. empty);
 // otherwise the model must be in the union of its allowlists, so an
 // empty/undetermined model fails closed. An entry matches on its own
-// normalised form or its path-style canonical form: the parser emits the
-// canonical id for path-routed providers, while an allowlist may hold the
-// raw declared id the dashboard's picker copies from the provider.
-func policyPermitsModel(p *types.Policy, byID map[string]*types.Guardrail, model string) bool {
+// normalised form or, for a path-style provider, its canonical form: the
+// parser emits the canonical id for path-routed requests, while an
+// allowlist may hold the raw declared id the dashboard's picker copies
+// from the provider. The catalog id picks the normalizer, so a plain
+// provider's entries always compare verbatim.
+func policyPermitsModel(p *types.Policy, byID map[string]*types.Guardrail, model, catalogProviderID string) bool {
 	if p == nil {
 		return false
 	}
@@ -337,8 +363,7 @@ func policyPermitsModel(p *types.Policy, byID map[string]*types.Guardrail, model
 			continue
 		}
 		for _, allowed := range g.Checks.ModelAllowlist.Models {
-			key := normaliseModelID(allowed)
-			if key == wanted || canonicalPathStyleModelID(key) == wanted {
+			if normaliseModelID(allowed) == wanted || canonicalModelKey(catalogProviderID, allowed) == wanted {
 				return true
 			}
 		}
@@ -351,47 +376,6 @@ func policyPermitsModel(p *types.Policy, byID map[string]*types.Guardrail, model
 // normaliseModel so both layers agree on what "same model" means.
 func normaliseModelID(model string) string {
 	return strings.ToLower(strings.TrimSpace(model))
-}
-
-// canonicalPathStyleModelID strips the path-style decorations from an
-// already-normalised model id — a Vertex "@version", or a Bedrock ARN
-// wrapper, geography prefix and version suffix — yielding the canonical id
-// the proxy's parser emits for path-routed requests. Each strip is gated on
-// the id actually carrying that shape's marker, so an id without one comes
-// back unchanged: a plain provider's model that merely ends in "-vN" or
-// carries a non-version "@" must not canonicalize into a different model's
-// id and silently widen an allowlist. The gates replace provider context,
-// which callers here don't have.
-func canonicalPathStyleModelID(id string) string {
-	if at := strings.Index(id, "@"); at >= 0 {
-		// Vertex publisher-model versions are numeric or dated ("@001",
-		// "@20250929", "@2024-08-06"); any other "@" suffix is not a version
-		// tag and stays part of the id.
-		if isVersionTag(id[at+1:]) {
-			return sharedllm.NormalizeVertexModel(id)
-		}
-		return id
-	}
-	if sharedllm.IsBedrockStyleModel(id) {
-		return sharedllm.NormalizeBedrockModel(id)
-	}
-	return id
-}
-
-// isVersionTag reports whether s looks like a Vertex model version tag: at
-// least one ASCII digit, and nothing but digits and dashes.
-func isVersionTag(s string) bool {
-	digit := false
-	for _, r := range s {
-		switch {
-		case r >= '0' && r <= '9':
-			digit = true
-		case r == '-':
-		default:
-			return false
-		}
-	}
-	return digit
 }
 
 // modelBlockedReason builds the human-readable deny reason for a model-allowlist
