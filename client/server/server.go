@@ -651,7 +651,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	}
 
 	state := internal.CtxGetState(s.rootCtx)
-	status, _ := state.Status()
+	status := state.CurrentStatus()
 	if status == internal.StatusConnected {
 		return &proto.LoginResponse{}, nil
 	}
