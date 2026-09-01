@@ -57,8 +57,9 @@ func startReceiversEntered(fns []wgConn.ReceiveFunc) (*sync.WaitGroup, <-chan st
 }
 
 // closeBounded runs Close off the caller's goroutine so a regression that
-// wedges it fails the assertion under test instead of hanging teardown.
-func closeBounded(iceBind *ICEBind, timeout time.Duration) {
+// wedges it fails the test instead of hanging teardown, and reports whether it
+// returned in time.
+func closeBounded(iceBind *ICEBind, timeout time.Duration) bool {
 	done := make(chan struct{})
 	go func() {
 		_ = iceBind.Close()
@@ -66,7 +67,9 @@ func closeBounded(iceBind *ICEBind, timeout time.Duration) {
 	}()
 	select {
 	case <-done:
+		return true
 	case <-time.After(timeout):
+		return false
 	}
 }
 
@@ -135,8 +138,12 @@ func TestICEBindOpenDoesNotBlockOnParkedReceiver(t *testing.T) {
 	t.Cleanup(func() {
 		// Both bounded: a regression that wedges Close must surface as the
 		// assertion below, not as a hung teardown.
-		closeBounded(iceBind, 5*time.Second)
-		receiversStopped(wg, 5*time.Second)
+		if !closeBounded(iceBind, 5*time.Second) {
+			t.Error("Close did not return during teardown; the bind lifecycle is wedged even though the assertion above passed")
+		}
+		if !receiversStopped(wg, 5*time.Second) {
+			t.Error("receive functions were still running after teardown Close, which is what closeBindLocked blocks on")
+		}
 	})
 
 	select {
