@@ -909,13 +909,13 @@ func (a *Account) GetPeerConnectionResources(ctx context.Context, peer *nbpeer.P
 			var peerInSources, peerInDestinations bool
 
 			if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
-				sourcePeers, peerInSources = a.getPeerFromResource(rule.SourceResource, peer.ID)
+				sourcePeers, peerInSources = a.getPeerFromResource(ctx, rule.SourceResource, peer.ID, policy.SourcePostureChecks, validatedPeersMap)
 			} else {
 				sourcePeers, peerInSources = a.getAllPeersFromGroups(ctx, rule.Sources, peer.ID, policy.SourcePostureChecks, validatedPeersMap)
 			}
 
 			if rule.DestinationResource.Type == ResourceTypePeer && rule.DestinationResource.ID != "" {
-				destinationPeers, peerInDestinations = a.getPeerFromResource(rule.DestinationResource, peer.ID)
+				destinationPeers, peerInDestinations = a.getPeerFromResource(ctx, rule.DestinationResource, peer.ID, nil, validatedPeersMap)
 			} else {
 				destinationPeers, peerInDestinations = a.getAllPeersFromGroups(ctx, rule.Destinations, peer.ID, nil, validatedPeersMap)
 			}
@@ -1120,8 +1120,17 @@ func ruleHasDestination(rule *PolicyRule, peerID string, peerGroupIDs map[string
 // Important: Posture checks are applicable only to source group peers,
 // for destination group peers, call this method with an empty list of sourcePostureChecksIDs
 func (a *Account) getAllPeersFromGroups(ctx context.Context, groups []string, peerID string, sourcePostureChecksIDs []string, validatedPeersMap map[string]struct{}) ([]*nbpeer.Peer, bool) {
+	return a.filterPolicyPeers(ctx, a.getUniquePeerIDsFromGroupsIDs(ctx, groups), peerID, sourcePostureChecksIDs, validatedPeersMap)
+}
+
+// getPeerFromResource resolves a rule side that names a peer directly, admitting it
+// like a member of a group holding only that peer.
+func (a *Account) getPeerFromResource(ctx context.Context, resource Resource, peerID string, sourcePostureChecksIDs []string, validatedPeersMap map[string]struct{}) ([]*nbpeer.Peer, bool) {
+	return a.filterPolicyPeers(ctx, []string{resource.ID}, peerID, sourcePostureChecksIDs, validatedPeersMap)
+}
+
+func (a *Account) filterPolicyPeers(ctx context.Context, uniquePeerIDs []string, peerID string, sourcePostureChecksIDs []string, validatedPeersMap map[string]struct{}) ([]*nbpeer.Peer, bool) {
 	peerInGroups := false
-	uniquePeerIDs := a.getUniquePeerIDsFromGroupsIDs(ctx, groups)
 	filteredPeers := make([]*nbpeer.Peer, 0, len(uniquePeerIDs))
 	for _, p := range uniquePeerIDs {
 		peer, ok := a.Peers[p]
@@ -1148,19 +1157,6 @@ func (a *Account) getAllPeersFromGroups(ctx context.Context, groups []string, pe
 	}
 
 	return filteredPeers, peerInGroups
-}
-
-func (a *Account) getPeerFromResource(resource Resource, peerID string) ([]*nbpeer.Peer, bool) {
-	peer := a.GetPeer(resource.ID)
-	if peer == nil {
-		return []*nbpeer.Peer{}, false
-	}
-
-	if peer.ID == peerID {
-		return []*nbpeer.Peer{}, true
-	}
-
-	return []*nbpeer.Peer{peer}, false
 }
 
 // validatePostureChecksOnPeer validates the posture checks on a peer

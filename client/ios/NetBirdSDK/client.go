@@ -4,12 +4,14 @@ package NetBirdSDK
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/netip"
 	"os"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -36,6 +38,8 @@ const (
 	AnonymizeLevelDefault = nbAnonymize.LevelDefaultString
 	AnonymizeLevelStrict  = nbAnonymize.LevelStrictString
 )
+
+var errClientAlreadyRunning = errors.New("client is already running")
 
 // RouteListener export internal RouteListener for mobile
 type NetworkChangeListener interface {
@@ -74,15 +78,13 @@ type Client struct {
 	cacheDir              string
 	logFilePath           string
 	recorder              *peer.Status
-	ctxCancel             context.CancelFunc
-	ctxCancelLock         *sync.Mutex
 	deviceName            string
 	osName                string
 	osVersion             string
 	networkChangeListener listener.NetworkChangeListener
 	onHostDnsFn           func([]string)
 	dnsManager            dns.IosDnsManager
-	loginComplete         bool
+	loginComplete         atomic.Bool
 	// netMgr outlives engine restarts: it mirrors the OS connectivity, not
 	// the engine lifecycle. Run injects its state and sweeper into each new
 	// ConnectClient.
@@ -90,9 +92,16 @@ type Client struct {
 	// preloadedConfig holds config loaded from JSON (used on tvOS where file writes are blocked)
 	preloadedConfig *profilemanager.Config
 
+	// stateMu guards the run lifecycle as one unit: the cancel installed by
+	// the current run, the channel it closes on exit, and the state it
+	// published. One run at a time: startRun refuses a second Run while the
+	// previous one has not exited, and the platform serializes Stop before
+	// Start, so no generation tracking is needed.
 	stateMu       sync.RWMutex
 	connectClient *internal.ConnectClient
 	config        *profilemanager.Config
+	runDone       chan struct{}
+	ctxCancel     context.CancelFunc
 }
 
 // NewClient instantiate a new Client
@@ -107,7 +116,6 @@ func NewClient(cfgFile, stateFile, cacheDir, logFilePath, deviceName string, osV
 		osName:                osName,
 		osVersion:             osVersion,
 		recorder:              recorder,
-		ctxCancelLock:         &sync.Mutex{},
 		networkChangeListener: networkChangeListener,
 		dnsManager:            dnsManager,
 		netMgr:                netevents.NewManager(recorder),
@@ -156,17 +164,21 @@ func (c *Client) Run(fd int32, interfaceName string, envList *EnvList) error {
 	c.recorder.UpdateManagementAddress(cfg.ManagementURL.String())
 	c.recorder.UpdateRosenpass(cfg.RosenpassEnabled, cfg.RosenpassPermissive)
 
-	var ctx context.Context
 	//nolint
 	ctxWithValues := context.WithValue(context.Background(), system.DeviceNameCtxKey, c.deviceName)
 	//nolint
 	ctxWithValues = context.WithValue(ctxWithValues, system.OsNameCtxKey, c.osName)
 	//nolint
 	ctxWithValues = context.WithValue(ctxWithValues, system.OsVersionCtxKey, c.osVersion)
-	c.ctxCancelLock.Lock()
-	ctx, c.ctxCancel = context.WithCancel(ctxWithValues)
-	defer c.ctxCancel()
-	c.ctxCancelLock.Unlock()
+	runCtx, runCancel := context.WithCancel(ctxWithValues)
+	defer runCancel()
+
+	done, err := c.startRun(runCancel)
+	if err != nil {
+		return err
+	}
+	defer c.finishRun(done)
+	ctx := runCtx
 
 	// No login pre-flight here. The engine's own loginToManagement (connect.go) performs
 	// the authoritative Login immediately before the first Sync, so a LoginSync() call at
@@ -215,16 +227,40 @@ func (c *Client) NotifyNetworkChange() {
 	c.netMgr.NotifyNetworkChange()
 }
 
-// Stop the internal client and free the resources
+// Stop cancels the running client and waits for the run loop to exit, so a
+// caller that restarts immediately cannot race the outgoing teardown.
 func (c *Client) Stop() {
-	c.ctxCancelLock.Lock()
-	defer c.ctxCancelLock.Unlock()
-	if c.ctxCancel == nil {
+	done := c.cancelRun()
+	if done == nil {
 		return
 	}
 
-	c.ctxCancel()
-	c.setState(nil, nil)
+	select {
+	case <-done:
+	case <-time.After(stopRunWaitTimeout):
+		log.Warnf("Stop: timed out waiting for the run loop to exit")
+	}
+}
+
+// StopWithoutWait cancels the running client without waiting for the run loop.
+// Use it where the caller is on a deadline the wait could overrun, such as
+// NEPacketTunnelProvider.stopTunnel, which iOS gives only a few seconds
+// before it kills the extension.
+func (c *Client) StopWithoutWait() {
+	c.cancelRun()
+}
+
+func (c *Client) cancelRun() chan struct{} {
+	c.stateMu.RLock()
+	done := c.runDone
+	cancel := c.ctxCancel
+	c.stateMu.RUnlock()
+
+	if cancel != nil {
+		cancel()
+	}
+
+	return done
 }
 
 // DebugBundle generates a debug bundle, uploads it and returns the upload key.
@@ -376,16 +412,14 @@ func (c *Client) IsLoginRequiredCached() bool {
 }
 
 func (c *Client) IsLoginRequired() bool {
-	var ctx context.Context
 	//nolint
 	ctxWithValues := context.WithValue(context.Background(), system.DeviceNameCtxKey, c.deviceName)
 	//nolint
 	ctxWithValues = context.WithValue(ctxWithValues, system.OsNameCtxKey, c.osName)
 	//nolint
 	ctxWithValues = context.WithValue(ctxWithValues, system.OsVersionCtxKey, c.osVersion)
-	c.ctxCancelLock.Lock()
-	defer c.ctxCancelLock.Unlock()
-	ctx, c.ctxCancel = context.WithCancel(ctxWithValues)
+	ctx, cancel := context.WithCancel(ctxWithValues)
+	defer cancel()
 
 	var cfg *profilemanager.Config
 	var err error
@@ -433,17 +467,22 @@ func (c *Client) IsLoginRequired() bool {
 // loginForMobileAuthTimeout is the timeout for requesting auth info from the server
 const loginForMobileAuthTimeout = 30 * time.Second
 
+const stopRunWaitTimeout = 20 * time.Second
+
 func (c *Client) LoginForMobile() string {
-	var ctx context.Context
 	//nolint
 	ctxWithValues := context.WithValue(context.Background(), system.DeviceNameCtxKey, c.deviceName)
 	//nolint
 	ctxWithValues = context.WithValue(ctxWithValues, system.OsNameCtxKey, c.osName)
 	//nolint
 	ctxWithValues = context.WithValue(ctxWithValues, system.OsVersionCtxKey, c.osVersion)
-	c.ctxCancelLock.Lock()
-	defer c.ctxCancelLock.Unlock()
-	ctx, c.ctxCancel = context.WithCancel(ctxWithValues)
+	ctx, cancel := context.WithCancel(ctxWithValues)
+	loginDone := false
+	defer func() {
+		if !loginDone {
+			cancel()
+		}
+	}()
 
 	// Use DirectUpdateOrCreateConfig to avoid atomic file operations (temp file + rename)
 	// which are blocked by the tvOS sandbox in App Group containers
@@ -470,7 +509,9 @@ func (c *Client) LoginForMobile() string {
 	}
 
 	// This could cause a potential race condition with loading the extension which need to be handled on swift side
+	loginDone = true
 	go func() {
+		defer cancel()
 		tokenInfo, err := oAuthFlow.WaitToken(ctx, flowInfo)
 		if err != nil {
 			log.Errorf("LoginForMobile: WaitToken failed: %v", err)
@@ -487,18 +528,18 @@ func (c *Client) LoginForMobile() string {
 			log.Errorf("LoginForMobile: Login failed: %v", err)
 			return
 		}
-		c.loginComplete = true
+		c.loginComplete.Store(true)
 	}()
 
 	return flowInfo.VerificationURIComplete
 }
 
 func (c *Client) IsLoginComplete() bool {
-	return c.loginComplete
+	return c.loginComplete.Load()
 }
 
 func (c *Client) ClearLoginComplete() {
-	c.loginComplete = false
+	c.loginComplete.Store(false)
 }
 
 func (c *Client) GetRoutesSelectionDetails() (*RoutesSelectionDetails, error) {
@@ -718,13 +759,36 @@ func (c *Client) DeselectRoute(id string) error {
 	return nil
 }
 
-// setState stores the running engine state so DebugBundle can reuse the live
-// config and ConnectClient. It is cleared on Stop.
-func (c *Client) setState(cfg *profilemanager.Config, cc *internal.ConnectClient) {
+func (c *Client) startRun(cancel context.CancelFunc) (chan struct{}, error) {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
+
+	if c.runDone != nil {
+		return nil, errClientAlreadyRunning
+	}
+
+	done := make(chan struct{})
+	c.runDone = done
+	c.ctxCancel = cancel
+	return done, nil
+}
+
+func (c *Client) finishRun(done chan struct{}) {
+	c.stateMu.Lock()
+	c.connectClient = nil
+	c.config = nil
+	c.runDone = nil
+	c.ctxCancel = nil
+	c.stateMu.Unlock()
+
+	close(done)
+}
+
+func (c *Client) setState(cfg *profilemanager.Config, cc *internal.ConnectClient) {
+	c.stateMu.Lock()
 	c.config = cfg
 	c.connectClient = cc
+	c.stateMu.Unlock()
 }
 
 // stateSnapshot returns the current config and ConnectClient under the lock.
