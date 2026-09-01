@@ -87,14 +87,19 @@ func profileFixture(t *testing.T) string {
 func TestSwitchProfile_ClearsJWTCache(t *testing.T) {
 	defaultConfig := profileFixture(t)
 
+	// localmetrics.NewManager runs until its context is done, so the manager
+	// must not outlive the test.
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
 	s := newTestServer()
 	s.profileManager = profilemanager.NewServiceManager(defaultConfig)
-	s.localMetrics = localmetrics.NewManager(context.Background(), s.statusRecorder, nil)
+	s.localMetrics = localmetrics.NewManager(ctx, s.statusRecorder, nil)
 
 	owner := unprivilegedIdentity()
 	s.jwtCache.store("token", owner, testTTL)
 
-	_, err := s.SwitchProfile(context.Background(), nil)
+	_, err := s.SwitchProfile(ctx, nil)
 	require.NoError(t, err)
 
 	_, found := s.jwtCache.get(owner)
