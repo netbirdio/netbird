@@ -96,32 +96,41 @@ func NewICEBind(transportNet transport.Net, address wgaddr.Address, mtu uint16) 
 
 func (s *ICEBind) Open(uport uint16) ([]wgConn.ReceiveFunc, uint16, error) {
 	s.closedChanMu.Lock()
-	// Releasing the previous generation before swapping the channel matters when
-	// Open follows an Open rather than a Close: whoever is parked on the old
-	// channel would otherwise wait on something no later Close can reach.
+	defer s.closedChanMu.Unlock()
+
+	// Open the underlying bind before touching any state, so a failure leaves
+	// the current generation exactly as it was. Publishing the new generation
+	// first would strand it: StdNetBind rejects an Open while it is already
+	// open, and a Close arriving in that window would mark the bind closed
+	// while this call went on to install live sockets, after which every later
+	// Close returns early and never shuts them down.
+	fns, port, err := s.StdNetBind.Open(uport)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// Release whoever is parked on the outgoing generation before replacing it.
+	// An Open that follows an Open rather than a Close would otherwise leave
+	// them waiting on a channel no later Close can reach.
 	if !s.closed {
 		close(s.closedChan)
 	}
 	s.closed = false
 	s.closedChan = make(chan struct{})
-	s.closedChanMu.Unlock()
-	fns, port, err := s.StdNetBind.Open(uport)
-	if err != nil {
-		return nil, 0, err
-	}
+
 	fns = append(fns, s.receiveRelayed)
 	return fns, port, nil
 }
 
 func (s *ICEBind) Close() error {
 	s.closedChanMu.Lock()
+	defer s.closedChanMu.Unlock()
+
 	if s.closed {
-		s.closedChanMu.Unlock()
 		return nil
 	}
 	s.closed = true
 	close(s.closedChan)
-	s.closedChanMu.Unlock()
 
 	s.muUDPMux.Lock()
 	s.ipv4Conn = nil
