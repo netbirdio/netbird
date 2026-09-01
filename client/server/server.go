@@ -1393,19 +1393,7 @@ func (s *Server) handleProfileLogout(ctx context.Context, msg *proto.LogoutReque
 		return nil, gstatus.Errorf(codes.Internal, "logout: %v", err)
 	}
 
-<<<<<<< HEAD
-	activeProf, _ := s.profileManager.GetActiveProfileState()
-	if activeProf != nil && activeProf.ID == resolved.ID {
-		if err := s.cleanupConnection(); err != nil && !errors.Is(err, ErrServiceNotUp) {
-			log.Errorf("failed to cleanup connection: %v", err)
-		}
-		s.jwtCache.clear()
-		state := internal.CtxGetState(s.rootCtx)
-		state.Set(internal.StatusNeedsLogin)
-	}
-=======
 	s.cleanupAfterProfileLogout(resolved.ID, username)
->>>>>>> main
 
 	return &proto.LogoutResponse{}, nil
 }
@@ -1430,6 +1418,7 @@ func (s *Server) cleanupAfterProfileLogout(id profilemanager.ID, username string
 	if err := s.cleanupConnection(); err != nil && !errors.Is(err, ErrServiceNotUp) {
 		log.Errorf("failed to cleanup connection: %v", err)
 	}
+	s.jwtCache.clear()
 	state := internal.CtxGetState(s.rootCtx)
 	state.Set(internal.StatusNeedsLogin)
 }
