@@ -153,22 +153,32 @@ func TestAgentConfig_RealStore_AllowlistHoldsRawDeclaredIDs(t *testing.T) {
 		name      string
 		catalogID string
 		declared  string
+		allowlist string
 	}{
-		{"bedrock", "bedrock_api", "eu.anthropic.claude-sonnet-4-5-20250929-v1:0"},
-		{"vertex", "vertex_ai_api", "claude-sonnet-4-5@20250929"},
+		{"bedrock", "bedrock_api", "eu.anthropic.claude-sonnet-4-5-20250929-v1:0", ""},
+		{"vertex", "vertex_ai_api", "claude-sonnet-4-5@20250929", ""},
+		// The geography/version strippers anchor on a lowercase tail, so a
+		// case-variant entry must be lowercased before canonicalization or
+		// the prefix and suffix survive into the compare key.
+		{"bedrock-case-variant", "bedrock_api", "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+			" EU.Anthropic.Claude-Sonnet-4-5-20250929-V1:0 "},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			mgr, s := newAgentConfigTestMgr(t)
 			ctx := context.Background()
 
+			allowlisted := tc.allowlist
+			if allowlisted == "" {
+				allowlisted = tc.declared
+			}
 			require.NoError(t, s.SaveAgentNetworkSettings(ctx, newSynthTestSettings()))
 			provider := newSynthTestProvider()
 			provider.ProviderID = tc.catalogID
 			provider.Name = tc.name
 			provider.Models = []types.ProviderModel{{ID: tc.declared}}
 			require.NoError(t, s.SaveAgentNetworkProvider(ctx, provider))
-			require.NoError(t, s.SaveAgentNetworkGuardrail(ctx, newSetupTestGuardrail("guard-1", tc.declared)))
+			require.NoError(t, s.SaveAgentNetworkGuardrail(ctx, newSetupTestGuardrail("guard-1", allowlisted)))
 			require.NoError(t, s.SaveAgentNetworkPolicy(ctx, newSynthTestPolicy(provider.ID, "grp-eng", "guard-1")))
 
 			setup, err := mgr.agentConfigForGroups(ctx, testAccountID, []string{"grp-eng"})

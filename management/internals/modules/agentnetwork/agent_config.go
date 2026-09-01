@@ -3,7 +3,6 @@ package agentnetwork
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/catalog"
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
@@ -197,10 +196,7 @@ func effectiveModelsForProvider(provider *types.Provider, policies []*types.Poli
 			}
 			policyRestricted = true
 			for _, model := range g.Checks.ModelAllowlist.Models {
-				// Canonicalize before the whitespace-tolerant compare key:
-				// the path-style strippers anchor on the id's tail, so a
-				// trailing space would defeat them.
-				key := normaliseModelID(normalizePricingModelID(provider.ProviderID, strings.TrimSpace(model)))
+				key := canonicalModelKey(provider.ProviderID, model)
 				if key == "" {
 					continue
 				}
@@ -233,11 +229,20 @@ func effectiveModelsForProvider(provider *types.Provider, policies []*types.Poli
 		// request time, and the raw forms would never intersect. The
 		// declared id itself is what gets advertised, matching the
 		// router's route claim.
-		if _, ok := seen[normaliseModelID(normalizePricingModelID(provider.ProviderID, id))]; ok {
+		if _, ok := seen[canonicalModelKey(provider.ProviderID, id)]; ok {
 			out = append(out, id)
 		}
 	}
 	return false, out
+}
+
+// canonicalModelKey builds the compare key for a model id: lowercased,
+// trimmed, and canonicalized through the provider-aware normalization the
+// proxy's parser applies. Lowercase/trim comes FIRST — the path-style
+// strippers anchor on a lowercase id's tail, so a trailing space or a
+// case-variant geography/version would otherwise survive into the key.
+func canonicalModelKey(catalogProviderID, id string) string {
+	return normaliseModelID(normalizePricingModelID(catalogProviderID, normaliseModelID(id)))
 }
 
 // providerModelsByID maps effective model ids (as effectiveModelsForProvider
