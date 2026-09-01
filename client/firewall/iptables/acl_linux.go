@@ -107,7 +107,7 @@ func (m *aclManager) AddPeerFiltering(
 	mangleSpecs = append(mangleSpecs,
 		"-i", m.wgIface.Name(),
 		"-m", "addrtype", "--dst-type", "LOCAL",
-		"-j", "MARK", "--set-xmark", fmt.Sprintf("%#x", nbnet.PreroutingFwmarkRedirected),
+		"-j", "CONNMARK", "--set-mark", fmt.Sprintf("%#x", nbnet.PreroutingFwmarkRedirected),
 	)
 
 	specs = append(specs, "-j", actionToStr(action))
@@ -395,7 +395,8 @@ func (m *aclManager) seedInitialEntries() {
 	m.appendToEntries(mangleFwdKey, []string{
 		"-i", m.wgIface.Name(),
 		"-m", "conntrack", "--ctstate", "DNAT",
-		"-m", "mark", "!", "--mark", fmt.Sprintf("%#x", nbnet.PreroutingFwmarkRedirected),
+		"-m", "connmark", "!", "--mark", fmt.Sprintf("%#x", nbnet.PreroutingFwmarkRedirected),
+		"-m", "connmark", "!", "--mark", fmt.Sprintf("%#x", nbnet.PreroutingFwmarkMasquerade),
 		"-j", "DROP",
 	})
 }
@@ -403,7 +404,7 @@ func (m *aclManager) seedInitialEntries() {
 func (m *aclManager) seedInitialOptionalEntries() {
 	m.optionalEntries["FORWARD"] = []entry{
 		{
-			spec:     []string{"-m", "mark", "--mark", fmt.Sprintf("%#x", nbnet.PreroutingFwmarkRedirected), "-j", "ACCEPT"},
+			spec:     []string{"-m", "connmark", "--mark", fmt.Sprintf("%#x", nbnet.PreroutingFwmarkRedirected), "-j", "ACCEPT"},
 			position: 2,
 		},
 	}
