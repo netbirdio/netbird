@@ -51,7 +51,6 @@ func receiversStopped(wg *sync.WaitGroup, timeout time.Duration) bool {
 
 // TestICEBindCloseReleasesReceivers covers the contract closeBindLocked relies
 // on: once Close returns, every receive function handed out by Open must stop.
-// It passes today and is here so a fix cannot regress the ordinary path.
 func TestICEBindCloseReleasesReceivers(t *testing.T) {
 	iceBind := setupICEBind(t)
 
@@ -65,22 +64,60 @@ func TestICEBindCloseReleasesReceivers(t *testing.T) {
 		"every receive function must return once Close returns")
 }
 
-// TestICEBindConcurrentOpenClose reproduces the root cause of the interface
-// creation deadlock, and fails under -race today.
+// TestICEBindOpenDoesNotBlockOnParkedReceiver reproduces the deadlock that
+// wedges interface creation.
 //
-// Open writes s.closed and Close reads it with no synchronisation, while
-// closedChan is guarded by closedChanMu. The two can therefore disagree: if
-// Close observes closed as false and flips it to true while Open is midway
-// through installing a fresh closedChan, the bind ends up marked closed with a
-// live channel and live receive functions. Every later Close then takes its
-// early return, so neither close(closedChan) nor StdNetBind.Close ever runs and
-// the receive functions never stop.
+// receiveRelayed used to hold closedChanMu for the whole of its blocking
+// select, so a parked receiver kept the read lock indefinitely. Open takes the
+// same mutex for writing to install a fresh closedChan, so it could never
+// acquire it while a receiver was parked. wireguard-go reaches Open from
+// Device.IpcSet and Device.Up with device.net held, so the stall takes the
+// device's lock with it and every other device goroutine queues behind it.
 //
-// That is what wedges closeBindLocked on device.net.stopping.Wait() during
-// Device.IpcSet, holding device.net and stalling interface creation.
+// Failing here means Open never returned.
+func TestICEBindOpenDoesNotBlockOnParkedReceiver(t *testing.T) {
+	iceBind := setupICEBind(t)
+
+	fns, _, err := iceBind.Open(0)
+	require.NoError(t, err, "the first Open must succeed")
+
+	wg := startReceivers(fns)
+	t.Cleanup(func() {
+		_ = iceBind.Close()
+		// Bounded so a regression reports the assertion below rather than
+		// hanging the whole package until the go test timeout.
+		receiversStopped(wg, 5*time.Second)
+	})
+
+	// Let receiveRelayed reach its blocking select before reopening.
+	time.Sleep(500 * time.Millisecond)
+
+	reopened := make(chan struct{})
+	go func() {
+		// The error is irrelevant; StdNetBind rejects a second Open. What
+		// matters is that the call returns at all.
+		_, _, _ = iceBind.Open(0)
+		close(reopened)
+	}()
+
+	select {
+	case <-reopened:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Open blocked while a receive function was parked; wireguard-go makes this call with device.net held, which is what stalls interface creation")
+	}
+}
+
+// TestICEBindConcurrentOpenClose exercises Open and Close from separate
+// goroutines, the way Device.IpcSet and Device.Up reach the bind, and is meant
+// to be run under -race.
+//
+// closed and closedChan must be updated together. When they were not, Close
+// could observe a stale closed and either skip close(closedChan) and
+// StdNetBind.Close entirely, leaving the receive functions running, or race a
+// second Close and close the same channel twice.
 //
 // Receive functions are deliberately not started here: this test is about the
-// unsynchronised state, and parking them would turn a race report into a hang.
+// shared state, and parking them would turn a race report into a hang.
 func TestICEBindConcurrentOpenClose(t *testing.T) {
 	iceBind := setupICEBind(t)
 
@@ -104,14 +141,9 @@ func TestICEBindConcurrentOpenClose(t *testing.T) {
 	require.NoError(t, iceBind.Close())
 }
 
-// TestICEBindCloseReleasesReceiversUnderConcurrentClose drives the consequence
-// of that race: full Open, run receivers, Close cycles with a second Close
-// racing the first. Any iteration where the receive functions outlive Close is
-// the deadlock closeBindLocked hits.
-//
-// This one is probabilistic. It is the shape of the production failure rather
-// than a guaranteed trigger, so treat a pass as inconclusive and a failure as
-// real.
+// TestICEBindCloseReleasesReceiversUnderConcurrentClose runs full Open, receive,
+// Close cycles with a second Close racing the first. Any iteration where the
+// receive functions outlive Close is the state closeBindLocked deadlocks on.
 func TestICEBindCloseReleasesReceiversUnderConcurrentClose(t *testing.T) {
 	if testing.Short() {
 		t.Skip("stress test")
