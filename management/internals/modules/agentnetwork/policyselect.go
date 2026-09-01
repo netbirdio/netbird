@@ -10,6 +10,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	"github.com/netbirdio/netbird/management/server/store"
+	sharedllm "github.com/netbirdio/netbird/shared/llm"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -316,7 +317,10 @@ func filterModelPermittedPolicies(policies []*types.Policy, byID map[string]*typ
 // policyPermitsModel reports whether a policy permits the model. No
 // allowlist-enabled guardrail = unrestricted (permits any, incl. empty);
 // otherwise the model must be in the union of its allowlists, so an
-// empty/undetermined model fails closed.
+// empty/undetermined model fails closed. An entry matches on its own
+// normalised form or its path-style canonical form: the parser emits the
+// canonical id for path-routed providers, while an allowlist may hold the
+// raw declared id the dashboard's picker copies from the provider.
 func policyPermitsModel(p *types.Policy, byID map[string]*types.Guardrail, model string) bool {
 	if p == nil {
 		return false
@@ -333,7 +337,8 @@ func policyPermitsModel(p *types.Policy, byID map[string]*types.Guardrail, model
 			continue
 		}
 		for _, allowed := range g.Checks.ModelAllowlist.Models {
-			if normaliseModelID(allowed) == wanted {
+			key := normaliseModelID(allowed)
+			if key == wanted || canonicalPathStyleModelID(key) == wanted {
 				return true
 			}
 		}
@@ -346,6 +351,17 @@ func policyPermitsModel(p *types.Policy, byID map[string]*types.Guardrail, model
 // normaliseModel so both layers agree on what "same model" means.
 func normaliseModelID(model string) string {
 	return strings.ToLower(strings.TrimSpace(model))
+}
+
+// canonicalPathStyleModelID strips the path-style decorations from an
+// already-normalised model id — a Bedrock ARN wrapper, geography prefix and
+// version suffix, and a Vertex "@version" — yielding the canonical id the
+// proxy's parser emits for path-routed requests. Ids without those shapes
+// come back unchanged, so a compare against both the raw and canonical forms
+// accepts an entry however the operator wrote it without needing the
+// provider record to pick a normalizer.
+func canonicalPathStyleModelID(id string) string {
+	return sharedllm.NormalizeVertexModel(sharedllm.NormalizeBedrockModel(id))
 }
 
 // modelBlockedReason builds the human-readable deny reason for a model-allowlist

@@ -952,11 +952,26 @@ func buildProviderAllowlists(policies []*types.Policy, byID map[string]*types.Gu
 }
 
 // policyModelAllowlist reports whether a policy restricts models (has an
-// allowlist-enabled guardrail) and the union of allowed models. Models are
-// verbatim; the proxy factory lowercases/trims them at decode time.
+// allowlist-enabled guardrail) and the union of allowed models. Each entry
+// is emitted verbatim plus, when it differs, its path-style canonical form —
+// the id the proxy's parser emits at request time — so the proxy-side
+// compares (the guardrail backstop and the per-group router rules) admit an
+// allowlist however the operator wrote it, raw declared id or canonical. The
+// proxy factory lowercases/trims the entries at decode time.
 func policyModelAllowlist(p *types.Policy, byID map[string]*types.Guardrail) (bool, []string) {
 	restricted := false
 	var models []string
+	seen := make(map[string]struct{})
+	add := func(m string) {
+		if m == "" {
+			return
+		}
+		if _, dup := seen[m]; dup {
+			return
+		}
+		seen[m] = struct{}{}
+		models = append(models, m)
+	}
 	for _, gID := range p.GuardrailIDs {
 		g, ok := byID[gID]
 		if !ok || g == nil || !g.Checks.ModelAllowlist.Enabled {
@@ -964,9 +979,8 @@ func policyModelAllowlist(p *types.Policy, byID map[string]*types.Guardrail) (bo
 		}
 		restricted = true
 		for _, m := range g.Checks.ModelAllowlist.Models {
-			if m != "" {
-				models = append(models, m)
-			}
+			add(m)
+			add(canonicalPathStyleModelID(normaliseModelID(m)))
 		}
 	}
 	return restricted, models

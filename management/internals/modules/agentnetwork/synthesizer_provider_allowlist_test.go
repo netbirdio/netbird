@@ -166,3 +166,25 @@ func TestBuildModelPolicies(t *testing.T) {
 			"a policy with no source groups authorises nobody, so it bounds nobody's listing")
 	})
 }
+
+// TestPolicyModelAllowlist_EmitsCanonicalForms proves the synthesized
+// allowlists carry the path-style canonical form alongside a raw declared
+// entry, so the proxy-side compares (guardrail backstop, per-group router
+// rules) admit the allowlist however the operator wrote it.
+func TestPolicyModelAllowlist_EmitsCanonicalForms(t *testing.T) {
+	byID := map[string]*types.Guardrail{
+		"g-raw": allowlistGuardrail("g-raw", "acc-1",
+			"eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+			"claude-sonnet-4-5@20250929",
+			"gpt-4o"),
+	}
+	restricted, models := policyModelAllowlist(policyForProviders("p1", []string{"g-raw"}, "prov-x"), byID)
+	require.True(t, restricted)
+	assert.ElementsMatch(t, []string{
+		"eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+		"anthropic.claude-sonnet-4-5",
+		"claude-sonnet-4-5@20250929",
+		"claude-sonnet-4-5",
+		"gpt-4o",
+	}, models, "each raw entry rides with its canonical form; plain ids stay single")
+}

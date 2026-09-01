@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"go.uber.org/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -326,4 +326,64 @@ func TestSelectPolicy_PartialCandidatesPermittedAfterModelFilter(t *testing.T) {
 	assert.True(t, res.Allow)
 	assert.Equal(t, "pol-small", res.SelectedPolicyID,
 		"the model filter must exclude pol-big before cap scoring")
+}
+
+// TestSelectPolicy_RawDeclaredAllowlistPermitsCanonicalModel proves an
+// allowlist holding the raw vendor-issued id — the form the dashboard's
+// picker copies from a provider's declared models — permits the request:
+// the parser emits the path-style canonical id, so the entry must match
+// through the same canonicalization.
+func TestSelectPolicy_RawDeclaredAllowlistPermitsCanonicalModel(t *testing.T) {
+	cases := []struct {
+		name    string
+		entry   string
+		request string
+	}{
+		{"bedrock raw region/version form", "eu.anthropic.claude-sonnet-4-5-20250929-v1:0", "anthropic.claude-sonnet-4-5"},
+		{"vertex raw @version form", "claude-sonnet-4-5@20250929", "claude-sonnet-4-5"},
+		{"bedrock raw form with case and whitespace", " EU.Anthropic.Claude-Sonnet-4-5-20250929-V1:0 ", "anthropic.claude-sonnet-4-5"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mgr, mockStore := newSelectorMgr(t, ctrl)
+
+			policy := guardedPolicy("pol-A", "acc-1", []string{"grp-eng"}, "prov-1", "g-1")
+			expectPolicies(mockStore, "acc-1", policy)
+			expectGuardrails(mockStore, "acc-1", allowlistGuardrail("g-1", "acc-1", tc.entry))
+			expectConsumptionBatch(mockStore, nil)
+
+			res, err := mgr.SelectPolicyForRequest(context.Background(), PolicySelectionInput{
+				AccountID:  "acc-1",
+				UserID:     "user-1",
+				GroupIDs:   []string{"grp-eng"},
+				ProviderID: "prov-1",
+				Model:      tc.request,
+			})
+			require.NoError(t, err)
+			assert.True(t, res.Allow, "the raw declared allowlist entry must permit its canonical model")
+			assert.Equal(t, "pol-A", res.SelectedPolicyID)
+		})
+	}
+
+	// A model outside the allowlist stays denied under the same entry shape.
+	t.Run("unrelated canonical model stays denied", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		mgr, mockStore := newSelectorMgr(t, ctrl)
+
+		policy := guardedPolicy("pol-A", "acc-1", []string{"grp-eng"}, "prov-1", "g-1")
+		expectPolicies(mockStore, "acc-1", policy)
+		expectGuardrails(mockStore, "acc-1", allowlistGuardrail("g-1", "acc-1", "eu.anthropic.claude-sonnet-4-5-20250929-v1:0"))
+
+		res, err := mgr.SelectPolicyForRequest(context.Background(), PolicySelectionInput{
+			AccountID:  "acc-1",
+			UserID:     "user-1",
+			GroupIDs:   []string{"grp-eng"},
+			ProviderID: "prov-1",
+			Model:      "anthropic.claude-opus-4-8",
+		})
+		require.NoError(t, err)
+		assert.False(t, res.Allow, "a model the allowlist never names must stay denied")
+		assert.Equal(t, denyCodeModelBlocked, res.DenyCode)
+	})
 }
