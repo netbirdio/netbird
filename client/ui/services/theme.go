@@ -37,16 +37,17 @@ type Theme struct {
 func NewTheme(app *application.App, store *preferences.Store) *Theme {
 	t := &Theme{app: app, store: store}
 	pref := store.Get().Theme
-	setThemePref(pref)
-	setEffectiveDark(resolveDark(pref, app.Env.IsDarkMode()))
+	setAppearance(pref, resolveDark(pref, app.Env.IsDarkMode()))
 
 	// Window creation resolves through this rather than the seed above, which
 	// is wrong until Run installs the platform layer: Env.IsDarkMode reports
 	// light before that, so a "system" launch on a dark OS would build the
 	// first window light. The ApplicationStarted apply below cannot be relied
 	// on to land first because Wails runs each listener in its own goroutine.
-	setAppearanceResolver(func() bool {
-		return resolveDark(t.store.Get().Theme, t.app.Env.IsDarkMode())
+	// One store read backs both fields, so the snapshot is always self-consistent.
+	setAppearanceResolver(func() Appearance {
+		p := t.store.Get().Theme
+		return Appearance{Pref: p, Dark: resolveDark(p, t.app.Env.IsDarkMode())}
 	})
 
 	ch, _ := store.Subscribe()
@@ -119,8 +120,7 @@ func (t *Theme) apply() {
 	pref := t.store.Get().Theme
 	systemDark := t.app.Env.IsDarkMode()
 	dark := resolveDark(pref, systemDark)
-	setThemePref(pref)
-	setEffectiveDark(dark)
+	setAppearance(pref, dark)
 	t.app.Event.Emit(EventSystemThemeChanged, SystemTheme{Dark: systemDark})
 
 	// Nothing live to re-tint: windows created from here read the globals set

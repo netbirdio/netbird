@@ -45,50 +45,51 @@ var (
 	windowBackgroundLight = application.NewRGB(233, 236, 239) // light nb-gray DEFAULT
 )
 
-// effectiveDark is the resolved appearance (theme preference + OS state),
-// maintained by services.Theme; re-applied to live windows by Theme.apply and
-// the fallback for window creation until resolveAppearance is installed.
-var effectiveDark atomic.Bool
-
-// resolveAppearance re-resolves the effective appearance against the live OS
-// state. Theme installs it so window creation never reads a stale seed:
-// app.Env.IsDarkMode reports light until Run installs the platform layer, and
-// Wails runs every ApplicationStarted listener in its own goroutine, so a
-// startup window can be created before Theme's listener has corrected the seed.
-var resolveAppearance atomic.Value // func() bool
-
-func setAppearanceResolver(f func() bool) { resolveAppearance.Store(f) }
-
-// currentEffectiveDark is the appearance window creation must use.
-func currentEffectiveDark() bool {
-	if f, _ := resolveAppearance.Load().(func() bool); f != nil {
-		return f()
-	}
-	return effectiveDark.Load()
+// Appearance is one view of the theme state: the preference and the appearance
+// it resolves to. Take it once per window with CurrentAppearance and pass the
+// same value to every option builder -- Pref drives the macOS frame while Dark
+// drives the background and the Windows chrome, so reading them separately can
+// build a window with a new background behind the previous native frame.
+type Appearance struct {
+	Pref preferences.Theme
+	Dark bool
 }
 
-// themePref is the persisted preference (system/light/dark), maintained by
-// services.Theme; window creation reads it for the macOS appearance.
-var themePref atomic.Value // preferences.Theme
+// storedAppearance is the snapshot maintained by services.Theme, published as
+// one value so the pair can never tear. It is the fallback for window creation
+// until resolveAppearance is installed.
+var storedAppearance atomic.Value // Appearance
+
+// resolveAppearance re-resolves against the live OS state. Theme installs it so
+// window creation never reads a stale seed: app.Env.IsDarkMode reports light
+// until Run installs the platform layer, and Wails runs every
+// ApplicationStarted listener in its own goroutine, so a startup window can be
+// created before Theme's listener has corrected the seed.
+var resolveAppearance atomic.Value // func() Appearance
 
 func init() {
-	effectiveDark.Store(true)
-	themePref.Store(preferences.DefaultTheme)
+	storedAppearance.Store(Appearance{Pref: preferences.DefaultTheme, Dark: true})
 }
 
-func setEffectiveDark(dark bool) { effectiveDark.Store(dark) }
-
-func setThemePref(pref preferences.Theme) { themePref.Store(pref) }
-
-func currentThemePref() preferences.Theme {
-	pref, _ := themePref.Load().(preferences.Theme)
-	return pref
+func setAppearance(pref preferences.Theme, dark bool) {
+	storedAppearance.Store(Appearance{Pref: pref, Dark: dark})
 }
 
-// CurrentWindowBackgroundColour returns the window background for the
-// resolved appearance; use it for every WebviewWindowOptions.BackgroundColour.
-func CurrentWindowBackgroundColour() application.RGBA {
-	return windowBackgroundColour(currentEffectiveDark())
+func setAppearanceResolver(f func() Appearance) { resolveAppearance.Store(f) }
+
+// CurrentAppearance returns the snapshot every window creation must build from.
+func CurrentAppearance() Appearance {
+	if f, _ := resolveAppearance.Load().(func() Appearance); f != nil {
+		return f()
+	}
+	a, _ := storedAppearance.Load().(Appearance)
+	return a
+}
+
+// WindowBackgroundColour returns the background for a snapshot; use it for
+// every WebviewWindowOptions.BackgroundColour.
+func WindowBackgroundColour(a Appearance) application.RGBA {
+	return windowBackgroundColour(a.Dark)
 }
 
 // windowBackgroundColour maps a resolved appearance to its window background.
@@ -121,9 +122,9 @@ var microsoftWindowsLightTheme = &application.WindowTheme{
 // SystemThemeChanged handler that re-themes chrome from the OS appearance,
 // which outlives a switch to a forced theme and fights it on the next OS flip.
 // Both CustomTheme slots hold one colour set for the same reason.
-func MicrosoftWindowsAppearanceOptions() application.WindowsWindow {
+func MicrosoftWindowsAppearanceOptions(a Appearance) application.WindowsWindow {
 	theme, chrome := application.Light, microsoftWindowsLightTheme
-	if currentEffectiveDark() {
+	if a.Dark {
 		theme, chrome = application.Dark, microsoftWindowsDarkTheme
 	}
 	return application.WindowsWindow{
@@ -139,9 +140,9 @@ func MicrosoftWindowsAppearanceOptions() application.WindowsWindow {
 }
 
 // AppleMacOSAppearanceOptions is the shared macOS chrome; FullScreenNone keeps the fixed-size layout.
-func AppleMacOSAppearanceOptions() application.MacWindow {
+func AppleMacOSAppearanceOptions(a Appearance) application.MacWindow {
 	appearance := application.DefaultAppearance
-	switch currentThemePref() {
+	switch a.Pref {
 	case preferences.ThemeLight:
 		appearance = application.NSAppearanceNameAqua
 	case preferences.ThemeDark:
@@ -166,6 +167,7 @@ func LinuxAppearanceOptions(icon []byte) application.LinuxWindow {
 
 // DialogWindowOptions is the baseline for every auxiliary dialog window; callers override per-dialog.
 func DialogWindowOptions(name, title, url string, linuxIcon []byte) application.WebviewWindowOptions {
+	a := CurrentAppearance()
 	return application.WebviewWindowOptions{
 		Name:                name,
 		Title:               title,
@@ -177,10 +179,10 @@ func DialogWindowOptions(name, title, url string, linuxIcon []byte) application.
 		MinimiseButtonState: application.ButtonHidden,
 		MaximiseButtonState: application.ButtonHidden,
 		CloseButtonState:    application.ButtonEnabled,
-		BackgroundColour:    CurrentWindowBackgroundColour(),
+		BackgroundColour:    WindowBackgroundColour(a),
 		URL:                 url,
-		Mac:                 AppleMacOSAppearanceOptions(),
-		Windows:             MicrosoftWindowsAppearanceOptions(),
+		Mac:                 AppleMacOSAppearanceOptions(a),
+		Windows:             MicrosoftWindowsAppearanceOptions(a),
 		Linux:               LinuxAppearanceOptions(linuxIcon),
 	}
 }
@@ -248,6 +250,7 @@ func NewWindowManager(app *application.App, mainWindow *application.WebviewWindo
 }
 
 func (s *WindowManager) newSettingsWindow() *application.WebviewWindow {
+	a := CurrentAppearance()
 	w := s.app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:                "settings",
 		Title:               s.title("window.title.settings"),
@@ -258,10 +261,10 @@ func (s *WindowManager) newSettingsWindow() *application.WebviewWindow {
 		MinimiseButtonState: application.ButtonHidden,
 		MaximiseButtonState: application.ButtonHidden,
 		CloseButtonState:    application.ButtonEnabled,
-		BackgroundColour:    CurrentWindowBackgroundColour(),
+		BackgroundColour:    WindowBackgroundColour(a),
 		URL:                 "/#/settings",
-		Mac:                 AppleMacOSAppearanceOptions(),
-		Windows:             MicrosoftWindowsAppearanceOptions(),
+		Mac:                 AppleMacOSAppearanceOptions(a),
+		Windows:             MicrosoftWindowsAppearanceOptions(a),
 		Linux:               LinuxAppearanceOptions(s.linuxIcon),
 	})
 	w.RegisterHook(events.Common.WindowClosing, func(_ *application.WindowEvent) {

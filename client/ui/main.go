@@ -358,6 +358,7 @@ func newMainWindow(app *application.App, prefStore *preferences.Store, wm *servi
 	if prefStore.Get().ViewMode == preferences.ViewModeAdvanced {
 		initialWidth = 900
 	}
+	appearance := services.CurrentAppearance()
 	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:   "main",
 		Title:  "NetBird",
@@ -367,13 +368,13 @@ func newMainWindow(app *application.App, prefStore *preferences.Store, wm *servi
 		// drop new windows top-left unless asked.
 		InitialPosition:     application.WindowCentered,
 		Hidden:              true,
-		BackgroundColour:    services.CurrentWindowBackgroundColour(),
+		BackgroundColour:    services.WindowBackgroundColour(appearance),
 		URL:                 startURL,
 		DisableResize:       true,
 		MinimiseButtonState: application.ButtonHidden,
 		MaximiseButtonState: application.ButtonHidden,
-		Mac:                 services.AppleMacOSAppearanceOptions(),
-		Windows:             services.MicrosoftWindowsAppearanceOptions(),
+		Mac:                 services.AppleMacOSAppearanceOptions(appearance),
+		Windows:             services.MicrosoftWindowsAppearanceOptions(appearance),
 		Linux: application.LinuxWindow{
 			Icon: iconWindow,
 		},
