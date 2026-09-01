@@ -1732,7 +1732,10 @@ func (s *Server) getJWTCacheTTL() time.Duration {
 func (s *Server) cachedJWT(ctx context.Context) (string, bool) {
 	caller, ok := ipcauth.CallerIdentity(ctx)
 	if !ok {
-		log.Warn("not serving the cached SSH JWT: the caller's identity cannot be verified on this control channel")
+		// Expected and handled on a control channel with no peer identity: the
+		// caller re-authenticates. daemonServerOptions warns about it once at
+		// startup, so this stays out of the per-request log.
+		log.Debug("not serving the cached SSH JWT: the caller's identity cannot be verified on this control channel")
 		return "", false
 	}
 	return s.jwtCache.get(caller)
@@ -1833,7 +1836,7 @@ func (s *Server) WaitJWTToken(
 	case jwtCacheTTL <= 0:
 		log.Debug("JWT caching disabled, not storing token")
 	case !ok:
-		log.Warn("not caching the SSH JWT: the caller's identity cannot be verified on this control channel")
+		log.Debug("not caching the SSH JWT: the caller's identity cannot be verified on this control channel")
 	default:
 		s.jwtCache.store(token, caller, jwtCacheTTL)
 		log.Debugf("JWT token cached for SSH authentication, TTL: %v", jwtCacheTTL)
