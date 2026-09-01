@@ -154,6 +154,14 @@ components:
           type: boolean
           description: Whether sensitive data should be anonymized in the bundle.
           example: false
+        anonymize_level:
+          type: string
+          description: How much the anonymizer redacts. "default" (or empty) keeps internal IP ranges, "strict" also anonymizes them.
+          example: strict
+        upload_url:
+          type: string
+          description: Service URL the client requests an upload URL from before uploading the bundle. Empty selects the default upload server.
+          example: https://upload.debug.netbird.io
       required:
         - bundle_for
         - bundle_for_time
