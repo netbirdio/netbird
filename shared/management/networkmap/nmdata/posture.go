@@ -45,6 +45,22 @@ func PassesChecks(checks []Check, peer *Peer) bool {
 	return true
 }
 
+// PostureVerdictChanged reports whether any check in the bundles gives a different
+// verdict for newPeer than for oldPeer. Checks are replayed one by one, so a change
+// that moves a field but stays on the same side of a threshold does not count. An
+// evaluation error is a deny, like in PassesChecks.
+func PostureVerdictChanged(checks []*PostureChecks, oldPeer, newPeer *Peer) bool {
+	for _, pc := range checks {
+		for _, c := range pc.GetChecks() {
+			single := []Check{c}
+			if PassesChecks(single, oldPeer) != PassesChecks(single, newPeer) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // GetChecks returns the initialized checks in the same order as posture.Checks.GetChecks.
 func (pc *PostureChecks) GetChecks() []Check {
 	var checks []Check
