@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 
 	"github.com/netbirdio/netbird/shared/management/http/api"
 )
@@ -74,6 +75,13 @@ func (c *Combined) DeleteProvider(ctx context.Context, id string) error {
 	return anDelete(ctx, c, "/api/agent-network/providers/"+id)
 }
 
+// UpdateProvider replaces a provider by id (PUT). The API key may be omitted on
+// the request to keep the stored one; Models replaces the enumerated list, so
+// this is the path a test uses to change a model's price mid-run.
+func (c *Combined) UpdateProvider(ctx context.Context, id string, req api.AgentNetworkProviderRequest) (api.AgentNetworkProvider, error) {
+	return anRequest[api.AgentNetworkProvider](ctx, c, http.MethodPut, "/api/agent-network/providers/"+id, req)
+}
+
 // SetProviderEnabled toggles a provider's enabled flag, preserving its other
 // fields (the API key is omitted, which keeps the stored one). Used to run one
 // provider at a time so model→provider routing is unambiguous.
@@ -118,15 +126,31 @@ func (c *Combined) DeleteGuardrail(ctx context.Context, id string) error {
 	return anDelete(ctx, c, "/api/agent-network/guardrails/"+id)
 }
 
-// GetSettings returns the account's agent-network settings row. It exists only
-// after the first provider create bootstraps it.
+// CreateSettings bootstraps the account's agent-network settings row,
+// assigning the immutable endpoint. Exactly one of req.ProxyAddress (labeled
+// endpoint beneath that cluster) and req.Endpoint (self-addressed dedicated
+// endpoint) must be set; a second bootstrap returns a conflict.
+func (c *Combined) CreateSettings(ctx context.Context, req api.AgentNetworkSettingsCreateRequest) (api.AgentNetworkSettings, error) {
+	return anRequest[api.AgentNetworkSettings](ctx, c, http.MethodPost, "/api/agent-network/settings", req)
+}
+
+// GetSettings returns the account's agent-network settings row. Before the
+// CreateSettings bootstrap it reads as the defaults with an empty endpoint.
 func (c *Combined) GetSettings(ctx context.Context) (api.AgentNetworkSettings, error) {
 	return anRequest[api.AgentNetworkSettings](ctx, c, http.MethodGet, "/api/agent-network/settings", nil)
 }
 
-// UpdateSettings applies the mutable collection toggles.
+// UpdateSettings applies the mutable collection toggles. The request must
+// echo the assigned endpoint and proxy address unchanged — the server rejects
+// a PUT that tries to change them.
 func (c *Combined) UpdateSettings(ctx context.Context, req api.AgentNetworkSettingsRequest) (api.AgentNetworkSettings, error) {
 	return anRequest[api.AgentNetworkSettings](ctx, c, http.MethodPut, "/api/agent-network/settings", req)
+}
+
+// DeleteSettings removes the account's settings row, releasing the endpoint.
+// Refused while providers exist or a proxy is actively serving the endpoint.
+func (c *Combined) DeleteSettings(ctx context.Context) error {
+	return anDelete(ctx, c, "/api/agent-network/settings")
 }
 
 // ListConsumption returns the account's consumption rows (possibly empty).
@@ -138,4 +162,17 @@ func (c *Combined) ListConsumption(ctx context.Context) ([]api.AgentNetworkConsu
 // flattened per-request rows the proxy ships and management ingests).
 func (c *Combined) ListAccessLogs(ctx context.Context) (api.AgentNetworkAccessLogsResponse, error) {
 	return anRequest[api.AgentNetworkAccessLogsResponse](ctx, c, http.MethodGet, "/api/agent-network/access-logs", nil)
+}
+
+// ListAccessLogsFiltered returns the access-log page narrowed by the given
+// query parameters (e.g. model=..., session_id=..., provider_id=...). This
+// exercises management's server-side filtering rather than filtering client
+// side, so a row that is ingested but not indexed under the filtered column
+// surfaces as an empty page.
+func (c *Combined) ListAccessLogsFiltered(ctx context.Context, query url.Values) (api.AgentNetworkAccessLogsResponse, error) {
+	path := "/api/agent-network/access-logs"
+	if encoded := query.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+	return anRequest[api.AgentNetworkAccessLogsResponse](ctx, c, http.MethodGet, path, nil)
 }

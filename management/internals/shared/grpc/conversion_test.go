@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"fmt"
+	"net"
 	"net/netip"
 	"reflect"
 	"testing"
@@ -14,6 +15,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller/cache"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/networkmap"
 )
@@ -276,7 +278,7 @@ func TestToNetbirdConfig_RelayInvariant(t *testing.T) {
 	settings := &types.Settings{MetricsPushEnabled: true}
 
 	t.Run("nil server config returns nil config", func(t *testing.T) {
-		nbCfg := toNetbirdConfig(nil, nil, nil, nil, settings)
+		nbCfg := toNetbirdConfig(nil, nil, nil, nil, types.TwinAccountSettings(settings))
 		assert.Nil(t, nbCfg, "fan-out updates must not carry a partial NetbirdConfig even when settings are present")
 	})
 
@@ -291,7 +293,7 @@ func TestToNetbirdConfig_RelayInvariant(t *testing.T) {
 		}
 		relayToken := &Token{Payload: "token-payload", Signature: "token-signature"}
 
-		nbCfg := toNetbirdConfig(cfg, nil, relayToken, nil, settings)
+		nbCfg := toNetbirdConfig(cfg, nil, relayToken, nil, types.TwinAccountSettings(settings))
 		require.NotNil(t, nbCfg)
 		require.NotNil(t, nbCfg.Relay, "non-nil NetbirdConfig must include the relay section")
 		assert.Equal(t, cfg.Relay.Addresses, nbCfg.Relay.Urls, "relay URLs should match the server config")
@@ -300,4 +302,36 @@ func TestToNetbirdConfig_RelayInvariant(t *testing.T) {
 		require.NotNil(t, nbCfg.Metrics)
 		assert.True(t, nbCfg.Metrics.Enabled, "metrics flag should carry the settings value")
 	})
+}
+
+func TestToPeerConfig_RoutingPeerDNSResolution(t *testing.T) {
+	network := &types.Network{Net: net.IPNet{IP: net.IPv4(100, 0, 0, 0), Mask: net.CIDRMask(8, 32)}}
+
+	newPeer := func(embedded bool) *nbpeer.Peer {
+		p := &nbpeer.Peer{IP: netip.MustParseAddr("100.0.0.1")}
+		p.ProxyMeta.Embedded = embedded
+		return p
+	}
+
+	tests := []struct {
+		name        string
+		globalFlag  bool
+		embedded    bool
+		forceParam  bool
+		wantEnabled bool
+	}{
+		{name: "global off, regular peer, no force", wantEnabled: false},
+		{name: "global on wins", globalFlag: true, wantEnabled: true},
+		{name: "embedded proxy peer forced", embedded: true, wantEnabled: true},
+		{name: "routing peer forced via param", forceParam: true, wantEnabled: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			settings := &types.Settings{RoutingPeerDNSResolutionEnabled: tt.globalFlag}
+			cfg := toPeerConfig(types.TwinPeer(newPeer(tt.embedded)), types.TwinNetwork(network), "netbird.selfhosted", types.TwinAccountSettings(settings), nil, nil, false, tt.forceParam)
+			assert.Equal(t, tt.wantEnabled, cfg.RoutingPeerDnsResolutionEnabled,
+				"RoutingPeerDnsResolutionEnabled should reflect global || embedded || forced")
+		})
+	}
 }

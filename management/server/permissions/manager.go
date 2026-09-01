@@ -1,6 +1,6 @@
 package permissions
 
-//go:generate go run github.com/golang/mock/mockgen -package permissions -destination=manager_mock.go -source=./manager.go -build_flags=-mod=mod
+//go:generate go tool mockgen -package permissions -destination=manager_mock.go -source=./manager.go -build_flags=-mod=mod
 
 import (
 	"context"
@@ -82,6 +82,9 @@ func (m *managerImpl) ValidateUserPermissions(
 	return m.ValidateRoleModuleAccess(ctx, accountID, role, module, operation), ctxEnriched, nil
 }
 
+// ValidateRoleModuleAccess resolves an operation against the role's explicit
+// grant for the module, then the grant for its parent module when the module
+// is a dotted submodule, and finally the role's AutoAllowNew default.
 func (m *managerImpl) ValidateRoleModuleAccess(
 	ctx context.Context,
 	accountID string,
@@ -89,7 +92,7 @@ func (m *managerImpl) ValidateRoleModuleAccess(
 	module modules.Module,
 	operation operations.Operation,
 ) bool {
-	if permissions, ok := role.Permissions[module]; ok {
+	if permissions, ok := lookupModulePermissions(role, module); ok {
 		if allowed, exists := permissions[operation]; exists {
 			return allowed
 		}
@@ -98,6 +101,21 @@ func (m *managerImpl) ValidateRoleModuleAccess(
 	}
 
 	return role.AutoAllowNew[operation]
+}
+
+// lookupModulePermissions returns the role's explicit permission set for the
+// module, falling back to the parent module's set for dotted submodules. The
+// second return reports whether any explicit set was found.
+func lookupModulePermissions(role roles.RolePermissions, module modules.Module) (map[operations.Operation]bool, bool) {
+	if permissions, ok := role.Permissions[module]; ok {
+		return permissions, true
+	}
+	if parent, hasParent := module.Parent(); hasParent {
+		if permissions, ok := role.Permissions[parent]; ok {
+			return permissions, true
+		}
+	}
+	return nil, false
 }
 
 func (m *managerImpl) ValidateAccountAccess(ctx context.Context, accountID string, user *types.User, allowOwnerAndAdmin bool) (context.Context, error) {
@@ -119,7 +137,7 @@ func (m *managerImpl) GetPermissionsByRole(ctx context.Context, role types.UserR
 	permissions := roles.Permissions{}
 
 	for k := range modules.All {
-		if rolePermissions, ok := roleMap.Permissions[k]; ok {
+		if rolePermissions, ok := lookupModulePermissions(roleMap, k); ok {
 			permissions[k] = rolePermissions
 			continue
 		}

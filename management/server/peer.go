@@ -21,8 +21,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/shared/management/domain"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 
-	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 
@@ -740,7 +740,7 @@ func (am *DefaultAccountManager) handleSetupKeyAddedPeer(ctx context.Context, en
 // to it. We also add the User ID to the peer metadata to identify registrant. If no userID provided, then fail with status.PermissionDenied
 // Each new Peer will be assigned a new next net.IP from the Account.Network and Account.Network.LastIP will be updated (IP's are not reused).
 // The peer property is just a placeholder for the Peer properties to pass further
-func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKey, userID string, peer *nbpeer.Peer, temporary bool) (*nbpeer.Peer, *types.Network, []*posture.Checks, bool, error) {
+func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKey, userID string, peer *nbpeer.Peer, temporary bool) (*nbpeer.Peer, *types.Network, []*nmdata.PostureChecks, bool, error) {
 	if setupKey == "" && userID == "" && !peer.ProxyMeta.Embedded {
 		// no auth method provided => reject access
 		return nil, nil, nil, false, status.ErrNoAuthMethodProvided
@@ -1000,7 +1000,7 @@ func getPeerIPDNSLabel(ip netip.Addr, peerHostName string) (string, error) {
 }
 
 // SyncPeer checks whether peer is eligible for receiving NetworkMap (authenticated) and returns its NetworkMap if eligible
-func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSync, accountID string) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, int64, error) {
+func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSync, accountID string) (*nbpeer.Peer, *types.NetworkMap, []*nmdata.PostureChecks, int64, error) {
 	var peer *nbpeer.Peer
 	var ipv6CapabilityChanged bool
 	var metaDiff nbpeer.MetaDiff
@@ -1064,7 +1064,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 		return nil, nil, nil, 0, err
 	}
 
-	metaDiffAffectsPosture := posture.AffectsPosture(ctx, &metaDiff, resPostureChecks)
+	metaDiffAffectsPosture := metaDiffAffectsPosture(&metaDiff, resPostureChecks)
 	if requiresPeerUpdate(ctx, isStatusChanged, sync.UpdateAccountPeers, ipv6CapabilityChanged, metaDiffAffectsPosture, metaDiff.VersionChanged(), metaDiff.HostnameChanged()) {
 		changedPeerIDs := []string{peer.ID}
 		affectedPeerIDs := am.syncPeerAffectedPeers(ctx, accountID, peer.ID, nmap, peerNotValid, metaDiffAffectsPosture)
@@ -1074,6 +1074,14 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 	}
 
 	return peer, nmap, resPostureChecks, dnsFwdPort, nil
+}
+
+// metaDiffAffectsPosture reports whether the meta change flips the verdict of any of
+// the peer's posture checks, replaying them against the old and new state.
+func metaDiffAffectsPosture(diff *nbpeer.MetaDiff, checks []*nmdata.PostureChecks) bool {
+	oldPeer := types.TwinPeer(&nbpeer.Peer{Meta: diff.OldMeta, Location: diff.OldLocation})
+	newPeer := types.TwinPeer(&nbpeer.Peer{Meta: diff.NewMeta, Location: diff.NewLocation})
+	return nmdata.PostureVerdictChanged(checks, oldPeer, newPeer)
 }
 
 func requiresPeerUpdate(ctx context.Context, isStatusChanged, updateAccountPeers, ipv6CapabilityChanged, metaDiffAffectsPosture, versionChanged, hostname bool) bool {
@@ -1127,7 +1135,7 @@ func (am *DefaultAccountManager) markConnectedAffectedPeers(ctx context.Context,
 	return affectedPeerIDsFromNetworkMap(nmap, peerID)
 }
 
-func (am *DefaultAccountManager) handlePeerLoginNotFound(ctx context.Context, login types.PeerLogin, err error) (*nbpeer.Peer, *types.Network, []*posture.Checks, bool, error) {
+func (am *DefaultAccountManager) handlePeerLoginNotFound(ctx context.Context, login types.PeerLogin, err error) (*nbpeer.Peer, *types.Network, []*nmdata.PostureChecks, bool, error) {
 	if errStatus, ok := status.FromError(err); ok && errStatus.Type() == status.NotFound {
 		// we couldn't find this peer by its public key which can mean that peer hasn't been registered yet.
 		// Try registering it.
@@ -1148,7 +1156,7 @@ func (am *DefaultAccountManager) handlePeerLoginNotFound(ctx context.Context, lo
 
 // LoginPeer logs in or registers a peer.
 // If peer doesn't exist the function checks whether a setup key or a user is present and registers a new peer if so.
-func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.PeerLogin) (*nbpeer.Peer, *types.Network, []*posture.Checks, bool, error) {
+func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.PeerLogin) (*nbpeer.Peer, *types.Network, []*nmdata.PostureChecks, bool, error) {
 	accountID, err := am.Store.GetAccountIDByPeerPubKey(ctx, login.WireGuardPubKey)
 	if err != nil {
 		return am.handlePeerLoginNotFound(ctx, login, err)
@@ -1321,7 +1329,7 @@ func (am *DefaultAccountManager) ExtendPeerSession(ctx context.Context, peerPubK
 
 // getPeerLoginInfo computes the login/register response data (network, posture
 // checks, SSH) from the store without building the peer's full network map.
-func getPeerLoginInfo(ctx context.Context, transaction store.Store, accountID string, peer *nbpeer.Peer, isValid bool) (*types.Network, []*posture.Checks, bool, error) {
+func getPeerLoginInfo(ctx context.Context, transaction store.Store, accountID string, peer *nbpeer.Peer, isValid bool) (*types.Network, []*nmdata.PostureChecks, bool, error) {
 	network, err := transaction.GetAccountNetwork(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, nil, false, fmt.Errorf("get account network: %w", err)
@@ -1341,7 +1349,7 @@ func getPeerLoginInfo(ctx context.Context, transaction store.Store, accountID st
 		return nil, nil, false, err
 	}
 
-	postureChecks, err := getPeerPostureChecks(ctx, transaction, accountID, peerGroupIDs, policies)
+	postureChecks, err := getPeerPostureChecks(ctx, transaction, accountID, peer.ID, peerGroupIDs, policies)
 	if err != nil {
 		return nil, nil, false, err
 	}
@@ -1363,7 +1371,7 @@ func isPeerSSHEnabled(ctx context.Context, peer *nbpeer.Peer, policies []*types.
 }
 
 // getPeerPostureChecks returns the posture checks for the peer.
-func getPeerPostureChecks(ctx context.Context, transaction store.Store, accountID string, peerGroupIDs []string, policies []*types.Policy) ([]*posture.Checks, error) {
+func getPeerPostureChecks(ctx context.Context, transaction store.Store, accountID, peerID string, peerGroupIDs []string, policies []*types.Policy) ([]*nmdata.PostureChecks, error) {
 	if len(policies) == 0 {
 		return nil, nil
 	}
@@ -1375,7 +1383,7 @@ func getPeerPostureChecks(ctx context.Context, transaction store.Store, accountI
 			continue
 		}
 
-		postureChecksIDs := processPeerPostureChecks(policy, peerGroupIDs)
+		postureChecksIDs := processPeerPostureChecks(policy, peerID, peerGroupIDs)
 		peerPostureChecksIDs = append(peerPostureChecksIDs, postureChecksIDs...)
 	}
 
@@ -1384,14 +1392,18 @@ func getPeerPostureChecks(ctx context.Context, transaction store.Store, accountI
 		return nil, err
 	}
 
-	return maps.Values(peerPostureChecks), nil
+	return types.TwinPostureChecksList(maps.Values(peerPostureChecks)), nil
 }
 
-// processPeerPostureChecks checks if the peer is in the source group of the policy and returns the posture checks.
-func processPeerPostureChecks(policy *types.Policy, peerGroupIDs []string) []string {
+// processPeerPostureChecks returns the policy's posture checks when the peer is a source of the policy, directly or through a source group.
+func processPeerPostureChecks(policy *types.Policy, peerID string, peerGroupIDs []string) []string {
 	for _, rule := range policy.Rules {
 		if !rule.Enabled {
 			continue
+		}
+
+		if rule.SourceResource.Type == types.ResourceTypePeer && rule.SourceResource.ID == peerID {
+			return policy.SourcePostureChecks
 		}
 
 		for _, sourceGroup := range rule.Sources {
@@ -1588,7 +1600,7 @@ func affectedPeerIDsFromNetworkMap(nmap *types.NetworkMap, selfPeerID string) []
 	}
 	seen := make(map[string]struct{}, len(nmap.Peers)+len(nmap.OfflinePeers))
 	ids := make([]string, 0, len(nmap.Peers)+len(nmap.OfflinePeers))
-	add := func(peers []*types.ComponentPeer) {
+	add := func(peers []*nmdata.Peer) {
 		for _, p := range peers {
 			if p == nil || p.ID == "" || p.ID == selfPeerID {
 				continue

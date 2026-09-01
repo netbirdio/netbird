@@ -33,6 +33,7 @@ import (
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/affectedpeers"
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/geolocation"
@@ -51,6 +52,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/route"
 	nbdomain "github.com/netbirdio/netbird/shared/management/domain"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -1626,6 +1628,8 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 	var removeOldGroups []string
 	var hasChanges bool
 	var user *types.User
+	var change affectedpeers.Change
+	var snap *affectedpeers.Snapshot
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		user, err = transaction.GetUserByUserID(ctx, store.LockingStrengthNone, userAuth.UserId)
 		if err != nil {
@@ -1664,14 +1668,25 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 			return fmt.Errorf("error saving user: %w", err)
 		}
 
+		allGroupChanges := slices.Concat(addNewGroups, removeOldGroups)
+		// The user's auto-groups changed, so the SSH rules authorizing them ship a new
+		// group -> user mapping even when no peer moves between groups.
+		change.UserGroupIDs = allGroupChanges
+
+		// The user's peers are the changed entity in every scenario the sync can
+		// produce — group membership, IPv6 assignment, SSH mappings — so they refresh
+		// together with every peer they can connect to, like on a regular peer update.
+		userPeers, err := transaction.GetUserPeers(ctx, store.LockingStrengthNone, userAuth.AccountId, userAuth.UserId)
+		if err != nil {
+			return fmt.Errorf("error getting user peers: %w", err)
+		}
+		for _, peer := range userPeers {
+			change.ChangedPeerIDs = append(change.ChangedPeerIDs, peer.ID)
+		}
+
 		// Propagate changes to peers if group propagation is enabled
 		if settings.GroupsPropagationEnabled {
-			peers, err := transaction.GetUserPeers(ctx, store.LockingStrengthNone, userAuth.AccountId, userAuth.UserId)
-			if err != nil {
-				return fmt.Errorf("error getting user peers: %w", err)
-			}
-
-			for _, peer := range peers {
+			for _, peer := range userPeers {
 				for _, g := range addNewGroups {
 					if err := transaction.AddPeerToGroup(ctx, userAuth.AccountId, peer.ID, g); err != nil {
 						return fmt.Errorf("error adding peer %s to group %s: %w", peer.ID, g, err)
@@ -1684,7 +1699,8 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 				}
 			}
 
-			allGroupChanges := slices.Concat(addNewGroups, removeOldGroups)
+			change.LinkGroups = allGroupChanges
+
 			if err = am.reconcileIPv6ForGroupChanges(ctx, transaction, userAuth.AccountId, allGroupChanges); err != nil {
 				return fmt.Errorf("reconcile IPv6 for group changes: %w", err)
 			}
@@ -1692,6 +1708,10 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 			if err = transaction.IncrementNetworkSerial(ctx, userAuth.AccountId); err != nil {
 				return fmt.Errorf("error incrementing network serial: %w", err)
 			}
+		}
+
+		if snap, err = affectedpeers.Load(ctx, transaction, userAuth.AccountId, change); err != nil {
+			return err
 		}
 
 		return nil
@@ -1730,20 +1750,17 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 		}
 	}
 
-	removedGroupAffectsPeers, err := areGroupChangesAffectPeers(ctx, am.Store, userAuth.AccountId, removeOldGroups)
-	if err != nil {
-		return err
-	}
-
-	newGroupsAffectsPeers, err := areGroupChangesAffectPeers(ctx, am.Store, userAuth.AccountId, addNewGroups)
-	if err != nil {
-		return err
-	}
-
-	if removedGroupAffectsPeers || newGroupsAffectsPeers {
-		log.WithContext(ctx).Tracef("user %s: JWT group membership changed, updating account peers", userAuth.UserId)
-		am.BufferUpdateAccountPeers(ctx, userAuth.AccountId, types.UpdateReason{Resource: types.UpdateResourceUser, Operation: types.UpdateOperationUpdate})
-	}
+	log.WithContext(ctx).Tracef("user %s: JWT group membership changed, updating affected peers", userAuth.UserId)
+	bgCtx := context.WithoutCancel(ctx)
+	go func() {
+		affectedPeerIDs := snap.Expand(bgCtx, userAuth.AccountId, change)
+		if len(affectedPeerIDs) == 0 {
+			return
+		}
+		if err := am.networkMapController.BufferUpdateAffectedPeers(bgCtx, userAuth.AccountId, affectedPeerIDs, types.UpdateReason{Resource: types.UpdateResourceUser, Operation: types.UpdateOperationUpdate}); err != nil {
+			log.WithContext(bgCtx).Errorf("failed to update affected peers after JWT group sync for account %s: %v", userAuth.AccountId, err)
+		}
+	}()
 
 	return nil
 }
@@ -1904,7 +1921,7 @@ func domainIsUpToDate(domain string, domainCategory string, userAuth auth.UserAu
 // derived from syncTime (the moment the gRPC stream opened). Any
 // concurrent stream that started earlier loses the optimistic-lock race
 // in MarkPeerConnected and bails without writing.
-func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP, syncTime time.Time) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, int64, error) {
+func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP, syncTime time.Time) (*nbpeer.Peer, *types.NetworkMap, []*nmdata.PostureChecks, int64, error) {
 	peer, netMap, postureChecks, dnsfwdPort, err := am.SyncPeer(ctx, types.PeerSync{WireGuardPubKey: peerPubKey, Meta: meta, RealIP: realIP}, accountID)
 	if err != nil {
 		return nil, nil, nil, 0, fmt.Errorf("error syncing peer: %w", err)
@@ -2426,28 +2443,22 @@ func (am *DefaultAccountManager) reconcileIPv6ForGroupChanges(ctx context.Contex
 		return fmt.Errorf("get account settings: %w", err)
 	}
 
-	if len(settings.IPv6EnabledGroups) == 0 {
-		return nil
-	}
-
-	enabledSet := make(map[string]struct{}, len(settings.IPv6EnabledGroups))
-	for _, gid := range settings.IPv6EnabledGroups {
-		enabledSet[gid] = struct{}{}
-	}
-
-	affected := false
-	for _, gid := range groupIDs {
-		if _, ok := enabledSet[gid]; ok {
-			affected = true
-			break
-		}
-	}
-
-	if !affected {
+	if !ipv6ReconcileNeeded(settings, groupIDs) {
 		return nil
 	}
 
 	return am.updatePeerIPv6Addresses(ctx, transaction, accountID, settings)
+}
+
+// ipv6ReconcileNeeded reports whether changes to the given groups trigger an IPv6
+// reconciliation.
+func ipv6ReconcileNeeded(settings *types.Settings, groupIDs []string) bool {
+	for _, groupID := range groupIDs {
+		if slices.Contains(settings.IPv6EnabledGroups, groupID) {
+			return true
+		}
+	}
+	return false
 }
 
 func (am *DefaultAccountManager) ensureIPv6Subnet(ctx context.Context, transaction store.Store, accountID string, settings *types.Settings, network *types.Network) error {

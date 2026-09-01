@@ -33,7 +33,7 @@ import (
 	"github.com/netbirdio/netbird/idp/dex"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/idp"
-	"github.com/netbirdio/netbird/management/server/integration_reference"
+	"github.com/netbirdio/netbird/shared/management/integration_reference"
 )
 
 const (
@@ -799,6 +799,52 @@ func TestUser_DeleteUser_SelfDelete(t *testing.T) {
 	err = am.DeleteUser(context.Background(), mockAccountID, mockUserID, mockUserID)
 	if err == nil {
 		t.Fatalf("failed to prevent self deletion")
+	}
+}
+
+func TestUser_DeleteUser_OtherAccount(t *testing.T) {
+	testStore, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+	if err != nil {
+		t.Fatalf("Error when creating store: %s", err)
+	}
+	t.Cleanup(cleanup)
+
+	account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
+	if err = testStore.SaveAccount(context.Background(), account); err != nil {
+		t.Fatalf("Error when saving account: %s", err)
+	}
+
+	otherAccount := newAccountWithId(context.Background(), "otherAccount", "otherOwner", "", "", "", false)
+	otherAccount.Users["otherRegularUser"] = &types.User{
+		Id:        "otherRegularUser",
+		AccountID: "otherAccount",
+		Role:      types.UserRoleUser,
+	}
+	otherAccount.Users["otherServiceUser"] = &types.User{
+		Id:              "otherServiceUser",
+		AccountID:       "otherAccount",
+		Role:            types.UserRoleUser,
+		IsServiceUser:   true,
+		ServiceUserName: "otherServiceUser",
+	}
+	if err = testStore.SaveAccount(context.Background(), otherAccount); err != nil {
+		t.Fatalf("Error when saving other account: %s", err)
+	}
+
+	am := DefaultAccountManager{
+		Store:              testStore,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissions.NewManager(testStore),
+	}
+
+	for _, targetUserID := range []string{"otherRegularUser", "otherServiceUser"} {
+		t.Run(targetUserID, func(t *testing.T) {
+			err := am.DeleteUser(context.Background(), mockAccountID, mockUserID, targetUserID)
+			assert.Equal(t, status.NewUserNotFoundError(targetUserID), err)
+
+			_, err = testStore.GetUserByUserID(context.Background(), store.LockingStrengthNone, targetUserID)
+			assert.NoError(t, err, "user of another account must not be deleted")
+		})
 	}
 }
 

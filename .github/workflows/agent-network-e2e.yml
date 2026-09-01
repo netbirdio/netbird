@@ -5,6 +5,20 @@ on:
   schedule:
     - cron: "0 3 * * *"
   workflow_dispatch:
+    inputs:
+      bedrock_model:
+        description: >-
+          Bedrock inference-profile id to drive the matrix with, exactly as
+          AWS issues it. Leave empty for the Sonnet 4.6 default.
+        required: false
+        default: ""
+      test_pattern:
+        description: >-
+          Package pattern to run. Defaults to the whole suite; narrow it to one
+          package (e.g. ./e2e/agentnetwork/...) when a run only needs that
+          package's answer and not the sixteen minutes the container suite costs.
+        required: false
+        default: "./e2e/..."
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -62,10 +76,16 @@ jobs:
           CLOUDFLARE_TOKEN: ${{ secrets.E2E_CLOUDFLARE_TOKEN }}
           AWS_BEARER_TOKEN_BEDROCK: ${{ secrets.E2E_AWS_BEARER_TOKEN_BEDROCK }}
           AWS_REGION: ${{ secrets.E2E_AWS_REGION }}
+          # Bedrock model override: dispatch input wins, then the repo variable, else the test default.
+          AWS_BEDROCK_MODEL: ${{ inputs.bedrock_model || vars.E2E_AWS_BEDROCK_MODEL }}
           # Vertex (Anthropic-on-Vertex): SA + project required; region defaults
           # to "global", model to a pinned claude snapshot.
           GOOGLE_VERTEX_SA_BASE64: ${{ secrets.E2E_GOOGLE_VERTEX_SA_BASE64 }}
           GOOGLE_VERTEX_PROJECT: ${{ secrets.E2E_GOOGLE_VERTEX_PROJECT }}
           GOOGLE_VERTEX_REGION: ${{ secrets.E2E_GOOGLE_VERTEX_REGION }}
           GOOGLE_VERTEX_MODEL: ${{ secrets.E2E_GOOGLE_VERTEX_MODEL }}
-        run: go test -tags e2e -timeout 40m -v ./e2e/...
+          # Read through an env var rather than interpolated into the run
+          # script: a dispatch input reaching a shell command directly is a
+          # script-injection seam, however trusted the dispatcher.
+          TEST_PATTERN: ${{ inputs.test_pattern || './e2e/...' }}
+        run: go test -tags e2e -timeout 40m -v "$TEST_PATTERN"

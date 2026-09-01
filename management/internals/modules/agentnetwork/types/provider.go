@@ -14,10 +14,24 @@ import (
 // ProviderModel is one row in the provider's models list. The operator
 // pins the per-1k input/output price for cost tracking; ID is the
 // model identifier the upstream provider expects on the wire.
+//
+// The three cache rates are pointers because absence is meaningful: nil
+// means "inherit NetBird's default rate for this model" (folded in at
+// synthesis time), while an explicit 0 means "no discount — bill this
+// cache bucket at the input rate".
 type ProviderModel struct {
 	ID          string  `json:"id"`
 	InputPer1k  float64 `json:"input_per_1k"`
 	OutputPer1k float64 `json:"output_per_1k"`
+	// CachedInputPer1k is the OpenAI-shape rate for cached prompt tokens
+	// (a subset of input tokens).
+	CachedInputPer1k *float64 `json:"cached_input_per_1k,omitempty"`
+	// CacheReadPer1k is the Anthropic-shape rate for cache-read tokens
+	// (additive to input tokens).
+	CacheReadPer1k *float64 `json:"cache_read_per_1k,omitempty"`
+	// CacheCreationPer1k is the Anthropic-shape rate for cache-creation
+	// tokens (additive to input tokens).
+	CacheCreationPer1k *float64 `json:"cache_creation_per_1k,omitempty"`
 }
 
 // Provider is an Agent Network AI provider record persisted per account.
@@ -128,9 +142,12 @@ func (p *Provider) FromAPIRequest(req *api.AgentNetworkProviderRequest) {
 	if req.Models != nil {
 		for _, m := range *req.Models {
 			p.Models = append(p.Models, ProviderModel{
-				ID:          m.Id,
-				InputPer1k:  m.InputPer1k,
-				OutputPer1k: m.OutputPer1k,
+				ID:                 m.Id,
+				InputPer1k:         m.InputPer1k,
+				OutputPer1k:        m.OutputPer1k,
+				CachedInputPer1k:   copyFloatPtr(m.CachedInputPer1k),
+				CacheReadPer1k:     copyFloatPtr(m.CacheReadPer1k),
+				CacheCreationPer1k: copyFloatPtr(m.CacheCreationPer1k),
 			})
 		}
 	}
@@ -147,9 +164,7 @@ func (p *Provider) FromAPIRequest(req *api.AgentNetworkProviderRequest) {
 		p.MetadataDisabled = *req.MetadataDisabled
 	}
 	// Identity-header overrides for catalogs flagged Customizable.
-	// nil pointer = "field omitted on the wire" → leave the stored
-	// value untouched (per the openapi description). Empty string is
-	// an explicit clear that disables stamping for this dimension.
+	// Empty or omitted disables stamping for this dimension.
 	if req.IdentityHeaderUserId != nil {
 		p.IdentityHeaderUserID = strings.TrimSpace(*req.IdentityHeaderUserId)
 	}
@@ -160,28 +175,55 @@ func (p *Provider) FromAPIRequest(req *api.AgentNetworkProviderRequest) {
 
 // ToAPIResponse renders the provider as the API representation. The API
 // key is intentionally never surfaced.
+// RedactedForViewer returns a copy with the connection configuration
+// blanked: upstream URL, operator-typed extra header values, identity
+// header names, the TLS-verification override, and (defence in depth —
+// they never reach the wire anyway) the sealed credentials. Read-only
+// viewers such as usage_viewer only need the display surface — id,
+// catalog id, name, enabled state, and the model list the usage filters
+// resolve against — so their responses carry nothing about how the
+// operator connects to the vendor.
+func (p *Provider) RedactedForViewer() *Provider {
+	c := *p
+	c.UpstreamURL = ""
+	c.APIKey = ""
+	c.ExtraValues = nil
+	c.IdentityHeaderUserID = ""
+	c.IdentityHeaderGroups = ""
+	c.SkipTLSVerification = false
+	c.SessionPrivateKey = ""
+	return &c
+}
+
 func (p *Provider) ToAPIResponse() *api.AgentNetworkProvider {
 	models := make([]api.AgentNetworkProviderModel, 0, len(p.Models))
 	for _, m := range p.Models {
 		models = append(models, api.AgentNetworkProviderModel{
-			Id:          m.ID,
-			InputPer1k:  m.InputPer1k,
-			OutputPer1k: m.OutputPer1k,
+			Id:                 m.ID,
+			InputPer1k:         m.InputPer1k,
+			OutputPer1k:        m.OutputPer1k,
+			CachedInputPer1k:   copyFloatPtr(m.CachedInputPer1k),
+			CacheReadPer1k:     copyFloatPtr(m.CacheReadPer1k),
+			CacheCreationPer1k: copyFloatPtr(m.CacheCreationPer1k),
 		})
 	}
 	created := p.CreatedAt
 	updated := p.UpdatedAt
 	resp := &api.AgentNetworkProvider{
-		Id:                  p.ID,
-		ProviderId:          p.ProviderID,
-		Name:                p.Name,
-		UpstreamUrl:         p.UpstreamURL,
-		Models:              models,
-		Enabled:             p.Enabled,
-		SkipTlsVerification: p.SkipTLSVerification,
-		MetadataDisabled:    p.MetadataDisabled,
-		CreatedAt:           &created,
-		UpdatedAt:           &updated,
+		Id:          p.ID,
+		ProviderId:  p.ProviderID,
+		Name:        p.Name,
+		UpstreamUrl: p.UpstreamURL,
+		Models:      models,
+		// Always present on the wire so an explicitly cleared header
+		// round-trips as "" instead of vanishing from the response.
+		IdentityHeaderUserId: p.IdentityHeaderUserID,
+		IdentityHeaderGroups: p.IdentityHeaderGroups,
+		Enabled:              p.Enabled,
+		SkipTlsVerification:  p.SkipTLSVerification,
+		MetadataDisabled:     p.MetadataDisabled,
+		CreatedAt:            &created,
+		UpdatedAt:            &updated,
 	}
 	if len(p.ExtraValues) > 0 {
 		out := make(map[string]string, len(p.ExtraValues))
@@ -190,22 +232,30 @@ func (p *Provider) ToAPIResponse() *api.AgentNetworkProvider {
 		}
 		resp.ExtraValues = &out
 	}
-	if p.IdentityHeaderUserID != "" {
-		v := p.IdentityHeaderUserID
-		resp.IdentityHeaderUserId = &v
-	}
-	if p.IdentityHeaderGroups != "" {
-		v := p.IdentityHeaderGroups
-		resp.IdentityHeaderGroups = &v
-	}
 	return resp
+}
+
+// copyFloatPtr returns a fresh pointer to the same value, or nil. Keeps
+// stored models and API payloads from aliasing each other's rate fields.
+func copyFloatPtr(v *float64) *float64 {
+	if v == nil {
+		return nil
+	}
+	out := *v
+	return &out
 }
 
 // Copy returns a deep copy of the provider.
 func (p *Provider) Copy() *Provider {
 	clone := *p
 	if p.Models != nil {
-		clone.Models = append([]ProviderModel(nil), p.Models...)
+		clone.Models = make([]ProviderModel, len(p.Models))
+		for i, m := range p.Models {
+			m.CachedInputPer1k = copyFloatPtr(m.CachedInputPer1k)
+			m.CacheReadPer1k = copyFloatPtr(m.CacheReadPer1k)
+			m.CacheCreationPer1k = copyFloatPtr(m.CacheCreationPer1k)
+			clone.Models[i] = m
+		}
 	}
 	if p.ExtraValues != nil {
 		clone.ExtraValues = make(map[string]string, len(p.ExtraValues))

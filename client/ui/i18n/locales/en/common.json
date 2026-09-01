@@ -735,6 +735,14 @@
         "message": "Autostart Change Failed",
         "description": "Error-dialog title when changing the autostart setting fails."
     },
+    "settings.general.keepConnectedOnQuit.label": {
+        "message": "Stay Connected After Quitting",
+        "description": "Toggle label: keep the VPN connection up after quitting the UI."
+    },
+    "settings.general.keepConnectedOnQuit.help": {
+        "message": "The connection stays up in the background after you close NetBird. It only stops when you disconnect it yourself.",
+        "description": "Helper text for the stay-connected-after-quitting toggle."
+    },
     "settings.general.language.label": {
         "message": "Display Language",
         "description": "Label for the display-language picker."
@@ -1005,11 +1013,27 @@
     },
     "settings.troubleshooting.anonymize.label": {
         "message": "Anonymize Sensitive Information",
-        "description": "Toggle label: anonymize sensitive information in the bundle."
+        "description": "Label for the anonymization level dropdown (None, Default, Strict)."
     },
     "settings.troubleshooting.anonymize.help": {
-        "message": "Hides public IP addresses and non-NetBird domains from logs.",
-        "description": "Helper text for anonymizing logs (hides public IPs and non-NetBird domains)."
+        "message": "Hides IP addresses, domains, and other sensitive values.",
+        "description": "Helper text under the anonymization dropdown. The level details live in the info tooltip."
+    },
+    "settings.troubleshooting.anonymize.info": {
+        "message": "Default keeps internal IPv4 addresses and peer names readable for support. Strict additionally anonymizes private (RFC 1918), CGNAT, and link-local IP addresses, peer names, and WireGuard public keys. Recurring values map to the same placeholder, so peers stay distinguishable. Use Strict when sharing the bundle outside your organization.",
+        "description": "Info tooltip explaining the anonymization levels. 'RFC 1918', 'CGNAT', 'link-local', and 'WireGuard' are technical terms — keep them."
+    },
+    "settings.troubleshooting.anonymize.none": {
+        "message": "None",
+        "description": "Dropdown option: no anonymization."
+    },
+    "settings.troubleshooting.anonymize.default": {
+        "message": "Default",
+        "description": "Dropdown option: default anonymization level."
+    },
+    "settings.troubleshooting.anonymize.strict": {
+        "message": "Strict",
+        "description": "Dropdown option: strict anonymization level."
     },
     "settings.troubleshooting.systemInfo.label": {
         "message": "Include System Information",
@@ -1774,5 +1798,37 @@
     "error.unknown": {
         "message": "Operation failed.",
         "description": "Generic fallback error message used when no specific error applies."
+    },
+    "error.elevation_unavailable": {
+        "message": "NetBird could not ask this system for the privileges the change needs. Run this instead:",
+        "description": "Error: this computer has no way to prompt for elevated privileges. Followed by a copyable command that applies the setting from a terminal."
+    },
+    "error.elevation_failed": {
+        "message": "The change could not be applied with elevated privileges. Run this instead:",
+        "description": "Error: the authorization succeeded but applying the setting afterwards failed. Followed by a copyable command that applies the setting from a terminal."
+    },
+    "settings.ssh.privilege.actorRoot": {
+        "message": "root",
+        "description": "Fills {actor} in the settings.ssh.privilege.* messages on Linux, macOS and BSD, where the daemon requires the root account. 'root' is an account name and stays as it is; add the word for privileges or rights around it if the sentence needs one to read naturally."
+    },
+    "settings.ssh.privilege.actorAdministrator": {
+        "message": "administrator privileges",
+        "description": "Fills {actor} in the settings.ssh.privilege.* messages on Windows, where the daemon requires an elevated administrator. The Windows term for the rights an account is asked to elevate to."
+    },
+    "settings.ssh.privilege.hint": {
+        "message": "Requires {actor}. Run this instead:",
+        "description": "Help text under an SSH setting the user cannot change: it needs elevated privileges. {actor} is 'root' on Linux/macOS or 'administrator privileges' on Windows. Followed by a copyable command."
+    },
+    "settings.ssh.privilege.oneWay": {
+        "message": "You can switch this off, but switching it back on needs {actor}.",
+        "description": "Help text under an SSH setting that is already on: an unprivileged user may switch it off freely, and switching it on again is what needs the privileges. No command follows, since the direction they can take is theirs to take. {actor} is 'root' on Linux/macOS or 'administrator privileges' on Windows."
+    },
+    "settings.ssh.privilege.oneWayInverted": {
+        "message": "You can switch this on, but switching it back off needs {actor}.",
+        "description": "Same as settings.ssh.privilege.oneWay, for the SSH authentication setting once it has been switched off: switching it off again is what needs the privileges."
+    },
+    "settings.ssh.privilege.authorizePending": {
+        "message": "Waiting for authorization…",
+        "description": "Replaces the help text under a guarded SSH setting while the authorization prompt is open, which can take a few seconds to appear. Keep the trailing ellipsis."
     }
 }
