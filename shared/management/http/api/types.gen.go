@@ -4363,6 +4363,9 @@ type PeerLocalFlags struct {
 	// LazyConnectionEnabled Indicates whether lazy connection is enabled on this peer
 	LazyConnectionEnabled *bool `json:"lazy_connection_enabled,omitempty"`
 
+	// RemoteJobsAllowed Indicates whether the peer has opted into management-requested remote jobs (e.g. debug bundles)
+	RemoteJobsAllowed *bool `json:"remote_jobs_allowed,omitempty"`
+
 	// RosenpassEnabled Indicates whether Rosenpass is enabled on this peer
 	RosenpassEnabled *bool `json:"rosenpass_enabled,omitempty"`
 

@@ -20,6 +20,7 @@ func TestValidateBundleUploadURL(t *testing.T) {
 		{name: "https self-hosted host", raw: "https://upload.example.com"},
 		{name: "plaintext rejected", raw: "http://upload.example.com", wantErr: true},
 		{name: "missing host rejected", raw: "https:///upload", wantErr: true},
+		{name: "port-only authority rejected", raw: "https://:443", wantErr: true},
 		{name: "non-url scheme rejected", raw: "ftp://upload.example.com", wantErr: true},
 		{name: "garbage rejected", raw: "://not a url", wantErr: true},
 	} {

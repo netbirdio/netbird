@@ -234,6 +234,11 @@ message Flags {
   bool disableSSHAuth = 15;
 
   bool disableIPv6 = 16;
+
+  // remoteJobsAllowed mirrors the peer's local opt-in for management-requested
+  // remote jobs (e.g. debug bundles). Reported so the dashboard can surface
+  // peers that have opted out.
+  bool remoteJobsAllowed = 17;
 }
 
 // PeerCapability represents a feature the client binary supports.

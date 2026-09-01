@@ -984,6 +984,10 @@ components:
           description: Indicates whether SSH access this peer is allowed or not
           type: boolean
           example: true
+        remote_jobs_allowed:
+          description: Indicates whether the peer has opted into management-requested remote jobs (e.g. debug bundles)
+          type: boolean
+          example: true
         disable_client_routes:
           description: Indicates whether client routes are disabled on this peer or not
           type: boolean
