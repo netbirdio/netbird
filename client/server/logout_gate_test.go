@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -18,7 +19,7 @@ import (
 // reaching the network if the gate ever regresses: the profiles a logout must
 // not touch point here, so a leak fails fast instead of contacting a real
 // management server.
-const unreachableManagementURL = "http://127.0.0.1:9"
+const unreachableManagementURL = "https://127.0.0.1:9"
 
 // enableSSHOnProfile rewrites the profile config at cfgPath with the SSH server
 // enabled. Deregistering an SSH-enabled profile is a privileged change, so an
@@ -114,6 +115,49 @@ func TestLogout_ForeignUserProfileStaysGatedWhenProfilesDisabled(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, codes.Unavailable, gstatus.Code(err),
 		"another user's profile must not pass the gate on an ID match alone: %v", err)
+}
+
+// Deregistering a namesake profile must not go out with the running config.
+// logoutFromProfile reuses the connected client's config when the target is the
+// active profile, and on an ID-only match a shared legacy ID made it reuse it
+// for another user's profile, deregistering the active peer instead.
+func TestLogout_ForeignUserProfileDoesNotUseTheRunningConfig(t *testing.T) {
+	s, _, _, username, cfgPath := setupServerWithProfile(t)
+	s.rootCtx = internal.CtxInitState(context.Background())
+
+	// The running config has the SSH server enabled, so reusing it would be
+	// refused with PermissionDenied. The namesake profile does not, so the
+	// correct path gets as far as dialing its own unreachable management URL.
+	enableSSHOnProfile(t, cfgPath)
+	running, err := profilemanager.GetConfig(cfgPath)
+	require.NoError(t, err)
+	s.config = running
+	s.connectClient = newDummyConnectClient(context.Background())
+
+	shared := "shared-legacy-name"
+	_, err = profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
+		ConfigPath:    filepath.Join(profilemanager.DefaultConfigPathDir, shared+".json"),
+		ManagementURL: unreachableManagementURL,
+	})
+	require.NoError(t, err)
+	require.NoError(t, s.profileManager.SetActiveProfileState(&profilemanager.ActiveProfileState{
+		ID:       profilemanager.ID(shared),
+		Username: "someone-else",
+	}))
+
+	// Bounded so the deregistration the fixed path attempts fails on the dial
+	// rather than sitting in gRPC backoff for the whole test timeout.
+	ctx, cancel := context.WithTimeout(userCtx(), 2*time.Second)
+	t.Cleanup(cancel)
+
+	_, err = s.Logout(ctx, &proto.LogoutRequest{
+		ProfileName: &shared,
+		Username:    &username,
+	})
+
+	require.Error(t, err)
+	require.NotEqual(t, codes.PermissionDenied, gstatus.Code(err),
+		"the namesake profile was deregistered with the running config: %v", err)
 }
 
 // The connection teardown follows the profile that is active when the logout
