@@ -33,11 +33,11 @@ func (s *Server) ListNetworks(context.Context, *proto.ListNetworksRequest) (*pro
 		return nil, gstatus.Errorf(codes.Unavailable, errNetworksDisabled)
 	}
 
-	if s.connectClient == nil {
+	if s.runs.Current() == nil {
 		return nil, fmt.Errorf("not connected")
 	}
 
-	engine := s.connectClient.Engine()
+	engine := s.runs.Current().Engine()
 	if engine == nil {
 		return nil, fmt.Errorf("not connected")
 	}
@@ -146,11 +146,11 @@ func (s *Server) SelectNetworks(_ context.Context, req *proto.SelectNetworksRequ
 		return nil, gstatus.Errorf(codes.Unavailable, errNetworksDisabled)
 	}
 
-	if s.connectClient == nil {
+	if s.runs.Current() == nil {
 		return nil, fmt.Errorf("not connected")
 	}
 
-	engine := s.connectClient.Engine()
+	engine := s.runs.Current().Engine()
 	if engine == nil {
 		return nil, fmt.Errorf("not connected")
 	}
@@ -190,11 +190,11 @@ func (s *Server) DeselectNetworks(_ context.Context, req *proto.SelectNetworksRe
 		return nil, gstatus.Errorf(codes.Unavailable, errNetworksDisabled)
 	}
 
-	if s.connectClient == nil {
+	if s.runs.Current() == nil {
 		return nil, fmt.Errorf("not connected")
 	}
 
-	engine := s.connectClient.Engine()
+	engine := s.runs.Current().Engine()
 	if engine == nil {
 		return nil, fmt.Errorf("not connected")
 	}

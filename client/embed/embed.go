@@ -338,23 +338,14 @@ func (c *Client) Stop(ctx context.Context) error {
 		c.cancel = nil
 	}
 
-	done := make(chan error, 1)
 	connect := c.connect
-	go func() {
-		done <- connect.Stop()
-	}()
+	c.connect = nil
 
-	select {
-	case <-ctx.Done():
-		c.connect = nil
-		return ctx.Err()
-	case err := <-done:
-		c.connect = nil
-		if err != nil {
-			return fmt.Errorf("stop: %w", err)
-		}
-		return nil
+	if err := connect.StopWithContext(ctx); err != nil {
+		return fmt.Errorf("stop: %w", err)
 	}
+
+	return nil
 }
 
 // GetConfig returns a copy of the internal client config.
