@@ -136,6 +136,8 @@ func TestIsBedrockStyleModel(t *testing.T) {
 		{"claude-3-5-sonnet-v2", false},
 		{"gpt-4.1-v2", false},
 		{"openai/gpt-4o", false},
+		// Only the bedrock service's ARNs count; other ARN-shaped ids stay verbatim.
+		{"arn:aws:s3:::some-bucket/some-model-v1", false},
 	}
 	for _, tc := range cases {
 		if got := IsBedrockStyleModel(tc.id); got != tc.want {

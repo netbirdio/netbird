@@ -358,18 +358,40 @@ func normaliseModelID(model string) string {
 // wrapper, geography prefix and version suffix — yielding the canonical id
 // the proxy's parser emits for path-routed requests. Each strip is gated on
 // the id actually carrying that shape's marker, so an id without one comes
-// back unchanged: a plain provider's model that merely ends in "-vN" must
-// not canonicalize into a different model's id and silently widen an
-// allowlist. The gate replaces provider context, which callers here don't
-// have.
+// back unchanged: a plain provider's model that merely ends in "-vN" or
+// carries a non-version "@" must not canonicalize into a different model's
+// id and silently widen an allowlist. The gates replace provider context,
+// which callers here don't have.
 func canonicalPathStyleModelID(id string) string {
-	if strings.Contains(id, "@") {
-		return sharedllm.NormalizeVertexModel(id)
+	if at := strings.Index(id, "@"); at >= 0 {
+		// Vertex publisher-model versions are numeric or dated ("@001",
+		// "@20250929", "@2024-08-06"); any other "@" suffix is not a version
+		// tag and stays part of the id.
+		if isVersionTag(id[at+1:]) {
+			return sharedllm.NormalizeVertexModel(id)
+		}
+		return id
 	}
 	if sharedllm.IsBedrockStyleModel(id) {
 		return sharedllm.NormalizeBedrockModel(id)
 	}
 	return id
+}
+
+// isVersionTag reports whether s looks like a Vertex model version tag: at
+// least one ASCII digit, and nothing but digits and dashes.
+func isVersionTag(s string) bool {
+	digit := false
+	for _, r := range s {
+		switch {
+		case r >= '0' && r <= '9':
+			digit = true
+		case r == '-':
+		default:
+			return false
+		}
+	}
+	return digit
 }
 
 // modelBlockedReason builds the human-readable deny reason for a model-allowlist

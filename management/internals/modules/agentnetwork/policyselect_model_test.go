@@ -341,6 +341,7 @@ func TestSelectPolicy_RawDeclaredAllowlistPermitsCanonicalModel(t *testing.T) {
 	}{
 		{"bedrock raw region/version form", "eu.anthropic.claude-sonnet-4-5-20250929-v1:0", "anthropic.claude-sonnet-4-5"},
 		{"vertex raw @version form", "claude-sonnet-4-5@20250929", "claude-sonnet-4-5"},
+		{"vertex raw dated @version form", "gpt-4o@2024-08-06", "gpt-4o"},
 		{"bedrock raw form with case and whitespace", " EU.Anthropic.Claude-Sonnet-4-5-20250929-V1:0 ", "anthropic.claude-sonnet-4-5"},
 	}
 	for _, tc := range cases {
@@ -409,5 +410,28 @@ func TestSelectPolicy_PlainSuffixedEntryDoesNotWiden(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.False(t, res.Allow, "an allowlist naming only the -v2 model must not admit the base model")
+	assert.Equal(t, denyCodeModelBlocked, res.DenyCode)
+}
+
+// TestSelectPolicy_NonVersionAtSuffixDoesNotWiden proves a non-numeric "@"
+// suffix is not treated as a Vertex version tag: the entry stays verbatim
+// and must not also admit its prefix as a separate model.
+func TestSelectPolicy_NonVersionAtSuffixDoesNotWiden(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mgr, mockStore := newSelectorMgr(t, ctrl)
+
+	policy := guardedPolicy("pol-A", "acc-1", []string{"grp-eng"}, "prov-1", "g-1")
+	expectPolicies(mockStore, "acc-1", policy)
+	expectGuardrails(mockStore, "acc-1", allowlistGuardrail("g-1", "acc-1", "custom-model@team"))
+
+	res, err := mgr.SelectPolicyForRequest(context.Background(), PolicySelectionInput{
+		AccountID:  "acc-1",
+		UserID:     "user-1",
+		GroupIDs:   []string{"grp-eng"},
+		ProviderID: "prov-1",
+		Model:      "custom-model",
+	})
+	require.NoError(t, err)
+	assert.False(t, res.Allow, "a non-version @ suffix must not widen the allowlist to the bare id")
 	assert.Equal(t, denyCodeModelBlocked, res.DenyCode)
 }
