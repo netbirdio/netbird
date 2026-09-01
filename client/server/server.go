@@ -651,6 +651,11 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	}
 
 	state := internal.CtxGetState(s.rootCtx)
+	status, _ := state.Status()
+	if status == internal.StatusConnected {
+		return &proto.LoginResponse{}, nil
+	}
+
 	defer func() {
 		status, err := state.Status()
 		if err != nil || (status != internal.StatusNeedsLogin && status != internal.StatusLoginFailed) {
