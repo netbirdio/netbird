@@ -18,6 +18,10 @@ type WGTunDevice interface {
 	MTU() uint16
 	DeviceName() string
 	Close() error
+	// CloseKeepInterface releases process-owned resources like Close, but leaves
+	// the OS-level interface in place. Android has no persistent kernel WireGuard
+	// object to preserve, so implementations just call Close.
+	CloseKeepInterface() error
 	FilteredDevice() *device.FilteredDevice
 	Device() *wgdevice.Device
 	GetNet() *netstack.Net

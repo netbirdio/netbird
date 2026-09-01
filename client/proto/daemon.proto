@@ -296,7 +296,13 @@ message StatusResponse{
   google.protobuf.Timestamp sessionExpiresAt = 4;
 }
 
-message DownRequest {}
+message DownRequest {
+  // keepInterface, when set, tells the daemon to leave the OS-level WireGuard
+  // interface in place instead of destroying it on shutdown. Set only by the
+  // service-stop path ahead of an in-place binary upgrade; regular `netbird
+  // down` calls leave this unset.
+  bool keepInterface = 1;
+}
 
 message DownResponse {}
 

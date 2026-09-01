@@ -136,6 +136,10 @@ func (m *MockWGIface) Close() error {
 	return m.CloseFunc()
 }
 
+func (m *MockWGIface) CloseKeepInterface() error {
+	return m.CloseFunc()
+}
+
 func (m *MockWGIface) SetFilter(filter device.PacketFilter) error {
 	return m.SetFilterFunc(filter)
 }
