@@ -711,54 +711,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	}
 
 	if msg.SetupKey == "" {
-		hint := ""
-		if msg.Hint != nil {
-			hint = *msg.Hint
-		}
-		oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.IsUnixDesktopClient, false, hint)
-		if err != nil {
-			state.Set(internal.StatusLoginFailed)
-			return nil, err
-		}
-
-		if s.oauthAuthFlow.flow != nil && s.oauthAuthFlow.flow.GetClientID(ctx) == oAuthFlow.GetClientID(ctx) {
-			if s.oauthAuthFlow.expiresAt.After(time.Now().Add(90 * time.Second)) {
-				log.Debugf("using previous oauth flow info")
-				state.Set(internal.StatusNeedsLogin)
-				return &proto.LoginResponse{
-					NeedsSSOLogin:           true,
-					VerificationURI:         s.oauthAuthFlow.info.VerificationURI,
-					VerificationURIComplete: s.oauthAuthFlow.info.VerificationURIComplete,
-					UserCode:                s.oauthAuthFlow.info.UserCode,
-				}, nil
-			} else {
-				log.Warnf("canceling previous waiting execution")
-				if s.oauthAuthFlow.waitCancel != nil {
-					s.oauthAuthFlow.waitCancel()
-				}
-			}
-		}
-
-		authInfo, err := oAuthFlow.RequestAuthInfo(ctx)
-		if err != nil {
-			log.Errorf("getting a request OAuth flow failed: %v", err)
-			return nil, err
-		}
-
-		s.mutex.Lock()
-		s.oauthAuthFlow.flow = oAuthFlow
-		s.oauthAuthFlow.info = authInfo
-		s.oauthAuthFlow.expiresAt = time.Now().Add(time.Duration(authInfo.ExpiresIn) * time.Second)
-		s.mutex.Unlock()
-
-		state.Set(internal.StatusNeedsLogin)
-
-		return &proto.LoginResponse{
-			NeedsSSOLogin:           true,
-			VerificationURI:         authInfo.VerificationURI,
-			VerificationURIComplete: authInfo.VerificationURIComplete,
-			UserCode:                authInfo.UserCode,
-		}, nil
+		return s.beginSSOLogin(ctx, config, msg)
 	}
 
 	// Setup-key path: we are about to dial Management with the key, so the
@@ -772,6 +725,76 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	}
 
 	return &proto.LoginResponse{}, nil
+}
+
+// beginSSOLogin starts the browser leg of a login that carries no setup key and
+// returns the response that parks the caller on it.
+func (s *Server) beginSSOLogin(ctx context.Context, config *profilemanager.Config, msg *proto.LoginRequest) (*proto.LoginResponse, error) {
+	state := internal.CtxGetState(s.rootCtx)
+
+	hint := ""
+	if msg.Hint != nil {
+		hint = *msg.Hint
+	}
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.IsUnixDesktopClient, false, hint)
+	if err != nil {
+		state.Set(internal.StatusLoginFailed)
+		return nil, err
+	}
+
+	if resp := s.pendingOAuthFlowResponse(ctx, oAuthFlow); resp != nil {
+		state.Set(internal.StatusNeedsLogin)
+		return resp, nil
+	}
+
+	authInfo, err := oAuthFlow.RequestAuthInfo(ctx)
+	if err != nil {
+		log.Errorf("getting a request OAuth flow failed: %v", err)
+		return nil, err
+	}
+
+	s.mutex.Lock()
+	s.oauthAuthFlow.flow = oAuthFlow
+	s.oauthAuthFlow.info = authInfo
+	s.oauthAuthFlow.expiresAt = time.Now().Add(time.Duration(authInfo.ExpiresIn) * time.Second)
+	s.mutex.Unlock()
+
+	state.Set(internal.StatusNeedsLogin)
+
+	return &proto.LoginResponse{
+		NeedsSSOLogin:           true,
+		VerificationURI:         authInfo.VerificationURI,
+		VerificationURIComplete: authInfo.VerificationURIComplete,
+		UserCode:                authInfo.UserCode,
+	}, nil
+}
+
+// pendingOAuthFlowResponse returns the in-flight flow's response when it
+// targets the same IdP client and has enough time left for the user to finish
+// the browser leg, so a second login joins the pending flow instead of opening
+// a competing one. A flow too close to expiry has its waiter cancelled and nil
+// returned, leaving the caller to start a fresh flow.
+func (s *Server) pendingOAuthFlowResponse(ctx context.Context, oAuthFlow auth.OAuthFlow) *proto.LoginResponse {
+	if s.oauthAuthFlow.flow == nil || s.oauthAuthFlow.flow.GetClientID(ctx) != oAuthFlow.GetClientID(ctx) {
+		return nil
+	}
+
+	if s.oauthAuthFlow.expiresAt.After(time.Now().Add(90 * time.Second)) {
+		log.Debugf("using previous oauth flow info")
+		return &proto.LoginResponse{
+			NeedsSSOLogin:           true,
+			VerificationURI:         s.oauthAuthFlow.info.VerificationURI,
+			VerificationURIComplete: s.oauthAuthFlow.info.VerificationURIComplete,
+			UserCode:                s.oauthAuthFlow.info.UserCode,
+		}
+	}
+
+	log.Warnf("canceling previous waiting execution")
+	if s.oauthAuthFlow.waitCancel != nil {
+		s.oauthAuthFlow.waitCancel()
+	}
+
+	return nil
 }
 
 // WaitSSOLogin validates the supplied userCode against the in-flight OAuth
@@ -1350,11 +1373,16 @@ func (s *Server) handleProfileLogout(ctx context.Context, msg *proto.LogoutReque
 		return nil, err
 	}
 
-	if err := s.validateProfileOperation(resolved.ID, true); err != nil {
+	activeProf, err := s.profileManager.GetActiveProfileState()
+	if err != nil {
+		return nil, gstatus.Errorf(codes.FailedPrecondition, "failed to get active profile state: %v", err)
+	}
+
+	if err := s.validateProfileLogout(resolved.ID, isActiveProfile(activeProf, resolved.ID, username)); err != nil {
 		return nil, err
 	}
 
-	if err := s.logoutFromProfile(ctx, resolved); err != nil {
+	if err := s.logoutFromProfile(ctx, resolved, username); err != nil {
 		log.Errorf("failed to logout from profile %s: %v", resolved.ID, err)
 		// A refused deregistration is already a status error carrying the reason
 		// and the command to run; rewrapping it as Internal would flatten both
@@ -1365,6 +1393,7 @@ func (s *Server) handleProfileLogout(ctx context.Context, msg *proto.LogoutReque
 		return nil, gstatus.Errorf(codes.Internal, "logout: %v", err)
 	}
 
+<<<<<<< HEAD
 	activeProf, _ := s.profileManager.GetActiveProfileState()
 	if activeProf != nil && activeProf.ID == resolved.ID {
 		if err := s.cleanupConnection(); err != nil && !errors.Is(err, ErrServiceNotUp) {
@@ -1374,8 +1403,35 @@ func (s *Server) handleProfileLogout(ctx context.Context, msg *proto.LogoutReque
 		state := internal.CtxGetState(s.rootCtx)
 		state.Set(internal.StatusNeedsLogin)
 	}
+=======
+	s.cleanupAfterProfileLogout(resolved.ID, username)
+>>>>>>> main
 
 	return &proto.LogoutResponse{}, nil
+}
+
+// cleanupAfterProfileLogout tears the connection down and asks for a new login
+// when the profile that was just deregistered is the one the daemon is running.
+// The active profile is read again here rather than reused from the pre-flight
+// check: Login switches profiles under guardedConfigMu, which this path does not
+// hold, so a login that landed meanwhile must not have its fresh connection
+// dropped by a logout that targeted the profile it replaced.
+func (s *Server) cleanupAfterProfileLogout(id profilemanager.ID, username string) {
+	activeProf, err := s.profileManager.GetActiveProfileState()
+	if err != nil {
+		log.Errorf("failed to get active profile state after logout from profile %s: %v", id, err)
+		return
+	}
+
+	if !isActiveProfile(activeProf, id, username) {
+		return
+	}
+
+	if err := s.cleanupConnection(); err != nil && !errors.Is(err, ErrServiceNotUp) {
+		log.Errorf("failed to cleanup connection: %v", err)
+	}
+	state := internal.CtxGetState(s.rootCtx)
+	state.Set(internal.StatusNeedsLogin)
 }
 
 func (s *Server) handleActiveProfileLogout(ctx context.Context) (*proto.LogoutResponse, error) {
@@ -1430,40 +1486,47 @@ func (s *Server) getConfig(activeProf *profilemanager.ActiveProfileState) (*prof
 	return config, configExisted, nil
 }
 
-func (s *Server) canRemoveProfile(id profilemanager.ID) error {
-	if id == profilemanager.DefaultProfileName {
-		return fmt.Errorf("remove profile with reserved name: %s", profilemanager.DefaultProfileName)
-	}
-
-	activeProf, err := s.profileManager.GetActiveProfileState()
-	if err == nil && activeProf.ID == id {
-		return fmt.Errorf("remove active profile: %s", id)
-	}
-
-	return nil
-}
-
-func (s *Server) validateProfileOperation(id profilemanager.ID, allowActiveProfile bool) error {
-	if s.checkProfilesDisabled() {
-		return gstatus.Errorf(codes.Unavailable, errProfilesDisabled)
-	}
-
+// validateProfileLogout gates a profile-addressed logout. Deregistering the
+// profile the daemon already runs is what a plain `netbird logout` does, so the
+// profiles-disabled kill switch must not block it. Logging out of any other
+// profile is profile management and stays gated.
+func (s *Server) validateProfileLogout(id profilemanager.ID, isActive bool) error {
 	if id == "" {
 		return gstatus.Errorf(codes.InvalidArgument, "profile name must be provided")
 	}
 
-	if !allowActiveProfile {
-		if err := s.canRemoveProfile(id); err != nil {
-			return gstatus.Errorf(codes.InvalidArgument, "%v", err)
-		}
+	if isActive {
+		return nil
+	}
+
+	if s.checkProfilesDisabled() {
+		return gstatus.Errorf(codes.Unavailable, errProfilesDisabled)
 	}
 
 	return nil
 }
 
-func (s *Server) logoutFromProfile(ctx context.Context, profile *profilemanager.Profile) error {
+// isActiveProfile reports whether id is the profile the daemon runs for
+// username. The username is part of the comparison because legacy profile IDs
+// are display names, which two users can both hold; the default profile is
+// shared by every user and carries no username.
+func isActiveProfile(activeProf *profilemanager.ActiveProfileState, id profilemanager.ID, username string) bool {
+	if activeProf == nil || activeProf.ID != id {
+		return false
+	}
+
+	return id == profilemanager.DefaultProfileName || activeProf.Username == username
+}
+
+// logoutFromProfile deregisters profile, reusing the running config when
+// profile is the one the daemon is connected with. The username takes part in
+// that decision for the same reason it does in the logout gate: a legacy
+// profile ID is a display name two users can share, and sending the running
+// config for a namesake would deregister the active peer instead of the
+// requested one.
+func (s *Server) logoutFromProfile(ctx context.Context, profile *profilemanager.Profile, username string) error {
 	activeProf, err := s.profileManager.GetActiveProfileState()
-	if err == nil && activeProf.ID == profile.ID && s.connectClient != nil {
+	if err == nil && isActiveProfile(activeProf, profile.ID, username) && s.connectClient != nil {
 		return s.sendLogoutRequest(ctx)
 	}
 
@@ -2249,7 +2312,7 @@ func (s *Server) RemoveProfile(ctx context.Context, msg *proto.RemoveProfileRequ
 		return nil, err
 	}
 
-	if err := s.logoutFromProfile(ctx, resolved); err != nil {
+	if err := s.logoutFromProfile(ctx, resolved, msg.Username); err != nil {
 		// Deregistration is best-effort here: the local profile is removed
 		// either way, so an unprivileged caller leaves the peer registered on
 		// the management server rather than being blocked from removing it.

@@ -114,6 +114,9 @@ message BundleParameters {
   // (or empty) keeps internal IP ranges, "strict" also anonymizes them.
   // Unknown values are treated as "strict".
   string anonymize_level  = 5;
+  // upload_url is the service URL the client requests an upload URL from
+  // before uploading the bundle. Empty selects the default upload server.
+  string upload_url       = 6;
 }
 
 message BundleResult {

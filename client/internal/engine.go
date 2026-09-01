@@ -1373,7 +1373,17 @@ func (e *Engine) receiveJobEvents() {
 }
 
 func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobResponse_Bundle, error) {
-	log.Infof("handle remote debug bundle request: %s", params.String())
+	// The upload URL can carry a host, credentials, or query tokens, so it is
+	// kept out of the info-level line; the full parameters stay available at
+	// debug level for troubleshooting.
+	log.Infof("handle remote debug bundle request: anonymize=%v anonymize_level=%q log_file_count=%d bundle_for=%v bundle_for_time=%d",
+		params.GetAnonymize(), params.GetAnonymizeLevel(), params.GetLogFileCount(), params.GetBundleFor(), params.GetBundleForTime())
+	log.Debugf("remote debug bundle request parameters: %s", params.String())
+
+	if err := validateBundleUploadURL(params.GetUploadUrl()); err != nil {
+		return nil, err
+	}
+
 	syncResponse, err := e.GetLatestSyncResponse()
 	if err != nil {
 		log.Warnf("get latest sync response: %v", err)
@@ -1401,7 +1411,7 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobR
 
 	waitFor := time.Duration(params.BundleForTime) * time.Minute
 
-	uploadKey, err := e.jobExecutor.BundleJob(e.ctx, bundleDeps, bundleJobParams, waitFor, e.config.ProfileConfig.ManagementURL.String())
+	uploadKey, err := e.jobExecutor.BundleJob(e.ctx, bundleDeps, bundleJobParams, waitFor, e.config.ProfileConfig.ManagementURL.String(), params.GetUploadUrl())
 	if err != nil {
 		return nil, err
 	}
@@ -1412,6 +1422,26 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobR
 		},
 	}
 	return response, nil
+}
+
+// validateBundleUploadURL sanity-checks a management-supplied upload URL for a
+// remote debug bundle job. An empty value is accepted — the executor falls back
+// to the default upload service. A non-empty value must be a well-formed https
+// URL with a host; a malformed value or a plaintext scheme is rejected. This
+// deliberately does not constrain which host may receive the bundle; that
+// policy is left open pending a decision on management-directed uploads.
+func validateBundleUploadURL(raw string) error {
+	if raw == "" {
+		return nil
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("parse upload URL: %w", err)
+	}
+	if parsed.Scheme != "https" || parsed.Host == "" {
+		return fmt.Errorf("upload URL must be an https URL with a host")
+	}
+	return nil
 }
 
 // receiveManagementEvents connects to the Management Service event stream to receive updates from the management service
