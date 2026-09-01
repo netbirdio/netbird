@@ -2,10 +2,15 @@ package server
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/client/internal/localmetrics"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 )
 
 // These cover the RPC side of the cache: the cache itself is exercised in
@@ -44,6 +49,56 @@ func TestCachedJWT_WithoutCallerIdentity(t *testing.T) {
 
 	assert.False(t, found)
 	assert.Empty(t, got)
+}
+
+// profileFixture points the profile globals at a temp dir holding a single
+// default profile, which is the one ActiveProfileState.FilePath resolves
+// without consulting the current OS user.
+func profileFixture(t *testing.T) string {
+	t.Helper()
+
+	dir := t.TempDir()
+	defaultConfig := filepath.Join(dir, "default.json")
+	require.NoError(t, os.WriteFile(defaultConfig, []byte("{}"), 0o600))
+
+	origDir := profilemanager.DefaultConfigPathDir
+	origDefault := profilemanager.DefaultConfigPath
+	origState := profilemanager.ActiveProfileStatePath
+	origOverride := profilemanager.ConfigDirOverride
+
+	profilemanager.DefaultConfigPathDir = dir
+	profilemanager.DefaultConfigPath = defaultConfig
+	profilemanager.ActiveProfileStatePath = filepath.Join(dir, "active_profile.json")
+	profilemanager.ConfigDirOverride = dir
+
+	t.Cleanup(func() {
+		profilemanager.DefaultConfigPathDir = origDir
+		profilemanager.DefaultConfigPath = origDefault
+		profilemanager.ActiveProfileStatePath = origState
+		profilemanager.ConfigDirOverride = origOverride
+	})
+
+	return defaultConfig
+}
+
+// A profile carries its own NetBird account, so a token obtained under the
+// previous one must not survive the switch even for the local user who
+// obtained it.
+func TestSwitchProfile_ClearsJWTCache(t *testing.T) {
+	defaultConfig := profileFixture(t)
+
+	s := newTestServer()
+	s.profileManager = profilemanager.NewServiceManager(defaultConfig)
+	s.localMetrics = localmetrics.NewManager(context.Background(), s.statusRecorder, nil)
+
+	owner := unprivilegedIdentity()
+	s.jwtCache.store("token", owner, testTTL)
+
+	_, err := s.SwitchProfile(context.Background(), nil)
+	require.NoError(t, err)
+
+	_, found := s.jwtCache.get(owner)
+	assert.False(t, found, "switching profile must drop the cached SSH JWT")
 }
 
 // Logout and Down both go through cleanupConnection.
