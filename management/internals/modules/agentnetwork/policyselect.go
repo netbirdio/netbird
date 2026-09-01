@@ -164,33 +164,12 @@ func (m *managerImpl) SelectPolicyForRequest(ctx context.Context, in PolicySelec
 	}
 	candidates := filterApplicablePolicies(policies, in)
 
-	// Model-allowlist gate scoped to the matched policies: keep candidates whose
-	// guardrails permit the model (none enabled = unrestricted), deny when
-	// policies apply but none permits it. Skip the load when none has a guardrail.
-	if len(candidates) > 0 && anyPolicyHasGuardrails(candidates) {
-		guardrailsByID, gErr := m.loadGuardrailsByID(ctx, in.AccountID)
-		if gErr != nil {
-			return nil, gErr
-		}
-		// Resolve the provider's catalog id only when a candidate actually
-		// restricts models: with no enabled allowlist every candidate is
-		// unrestricted, and a provider-store failure must not fail a request
-		// the gate would have waved through.
-		if anyEnabledModelAllowlist(candidates, guardrailsByID) {
-			catalogID, cErr := m.providerCatalogID(ctx, in.AccountID, in.ProviderID)
-			if cErr != nil {
-				return nil, cErr
-			}
-			permitted := filterModelPermittedPolicies(candidates, guardrailsByID, in.Model, catalogID)
-			if len(permitted) == 0 {
-				return &PolicySelectionResult{
-					Allow:      false,
-					DenyCode:   denyCodeModelBlocked,
-					DenyReason: modelBlockedReason(in.Model),
-				}, nil
-			}
-			candidates = permitted
-		}
+	candidates, denied, err := m.applyModelGate(ctx, in, candidates)
+	if err != nil {
+		return nil, err
+	}
+	if denied != nil {
+		return denied, nil
 	}
 
 	// Prefetch every consumption counter the ceiling + candidate policies will
@@ -293,6 +272,41 @@ func anyPolicyHasGuardrails(policies []*types.Policy) bool {
 		}
 	}
 	return false
+}
+
+// applyModelGate is the model-allowlist gate scoped to the matched policies:
+// it keeps the candidates whose guardrails permit the model (none enabled =
+// unrestricted) and returns a deny result when policies apply but none
+// permits it. The guardrail load is skipped when no candidate references a
+// guardrail, and the provider's catalog id — which picks the model-id
+// normalizer — is resolved only when a candidate actually restricts models:
+// with no enabled allowlist every candidate is unrestricted, and a
+// provider-store failure must not fail a request the gate would have waved
+// through.
+func (m *managerImpl) applyModelGate(ctx context.Context, in PolicySelectionInput, candidates []*types.Policy) ([]*types.Policy, *PolicySelectionResult, error) {
+	if len(candidates) == 0 || !anyPolicyHasGuardrails(candidates) {
+		return candidates, nil, nil
+	}
+	guardrailsByID, err := m.loadGuardrailsByID(ctx, in.AccountID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !anyEnabledModelAllowlist(candidates, guardrailsByID) {
+		return candidates, nil, nil
+	}
+	catalogID, err := m.providerCatalogID(ctx, in.AccountID, in.ProviderID)
+	if err != nil {
+		return nil, nil, err
+	}
+	permitted := filterModelPermittedPolicies(candidates, guardrailsByID, in.Model, catalogID)
+	if len(permitted) == 0 {
+		return nil, &PolicySelectionResult{
+			Allow:      false,
+			DenyCode:   denyCodeModelBlocked,
+			DenyReason: modelBlockedReason(in.Model),
+		}, nil
+	}
+	return permitted, nil, nil
 }
 
 // anyEnabledModelAllowlist reports whether any policy references a guardrail
