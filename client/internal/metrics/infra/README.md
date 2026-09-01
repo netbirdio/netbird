@@ -43,10 +43,12 @@ Client ──POST──▶ Ingest Server (:8087) ──▶ InfluxDB (internal)
   the peers of both cloud and self-hosted deployments. For a self-hosted peer there is
   no shared trust anchor with this server, so there is nothing to authenticate against.
 - **`X-Peer-ID` is a correlation tag, not a credential** — it carries the obfuscated
-  peer identifier so samples from one peer can be grouped. The server only checks its
-  format (16 hex chars) to bound tag cardinality;
-  a malformed value is rejected with `400 Bad Request`, not `401`. Any well-formed value
-  is accepted by design, and the header must not be relied on for access control.
+  peer identifier so samples from one peer can be grouped. The server only checks that
+  the header is well-formed (16 hex chars); a malformed value is rejected with
+  `400 Bad Request`, not `401`. Any well-formed value is accepted by design, and the
+  header must not be relied on for access control. The header itself is not forwarded
+  to InfluxDB — the stored `peer_id` tag comes from the request body and is constrained
+  only by the tag allowlist and the maximum tag value length.
 - **The InfluxDB token stays server-side** — clients never hold a write credential.
 - **InfluxDB is not exposed** — only accessible within the docker network
 - Source: `ingest/main.go`

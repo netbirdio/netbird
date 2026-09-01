@@ -204,8 +204,9 @@ func forwardToInflux(w http.ResponseWriter, r *http.Request, client *http.Client
 // validatePeerIDFormat checks the shape of the X-Peer-ID header. The header is a
 // correlation tag, not a credential: this endpoint is intentionally
 // unauthenticated so that peers of self-hosted deployments, for which no shared
-// trust anchor exists, can report obfuscated telemetry. The check exists to bound
-// tag cardinality, so a malformed value is a bad request rather than an auth failure.
+// trust anchor exists, can report obfuscated telemetry. The header is not forwarded
+// to InfluxDB, so this check does not bound the stored peer_id tag; it only rejects
+// a malformed header as a bad request rather than an auth failure.
 func validatePeerIDFormat(r *http.Request) error {
 	peerID := r.Header.Get("X-Peer-ID")
 	if peerID == "" {
