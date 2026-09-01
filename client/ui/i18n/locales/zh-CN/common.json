@@ -1435,6 +1435,30 @@
     "files.action.delete": {
         "message": "删除"
     },
+    "files.delete.title": {
+        "message": "从历史记录中移除？"
+    },
+    "files.delete.message": {
+        "message": "此条目将从传输历史记录中移除。\n已接收的文件会保留在磁盘上。"
+    },
+    "files.send.search": {
+        "message": "搜索对等节点"
+    },
+    "files.send.empty": {
+        "message": "没有匹配的对等节点"
+    },
+    "files.send.noPeers": {
+        "message": "没有可用的对等节点"
+    },
+    "files.send.trigger": {
+        "message": "发送…"
+    },
+    "files.send.back": {
+        "message": "返回"
+    },
+    "files.send.clipboardPreview": {
+        "message": "剪贴板预览"
+    },
     "peers.dropToSend": {
         "message": "放开即发送"
     },

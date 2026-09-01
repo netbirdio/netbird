@@ -43,3 +43,16 @@ body {
 .wails-no-draggable {
     --wails-draggable: no-drag;
 }
+
+/*
+ * Radix wraps ScrollArea.Viewport children in a div with
+ * `min-width:100%; display:table`. A table box is shrink-to-fit, so it grows
+ * to the widest row's intrinsic width instead of stopping at 100%, which
+ * defeats `truncate` on a long file name and pushes the row out sideways.
+ * The window is a fixed width and cannot be resized, so the content box is
+ * capped here and the rows truncate as intended.
+ */
+.nb-scroll-clamp [data-radix-scroll-area-viewport] > div {
+    display: block !important;
+    max-width: 100%;
+}

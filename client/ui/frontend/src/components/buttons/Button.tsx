@@ -91,6 +91,11 @@ const buttonVariants = cva(
                 danger: [
                     "dark:bg-red-600 dark:text-red-100 dark:hover:border-red-800/50 hover:dark:bg-red-700 dark:focus:bg-red-700 dark:focus:ring-red-700/20",
                 ],
+                yellow: [
+                    "enabled:bg-yellow-300 enabled:text-yellow-900 enabled:hover:bg-yellow-200 enabled:focus:ring-yellow-300/50",
+                    "dark:ring-offset-neutral-950/50 dark:focus:ring-yellow-300/40",
+                    "enabled:dark:bg-yellow-300 enabled:dark:text-yellow-900 enabled:dark:hover:bg-yellow-200 disabled:dark:bg-nb-gray-900",
+                ],
             },
             size: {
                 xs: "px-3.5 py-2.5 text-xs",

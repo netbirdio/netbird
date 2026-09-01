@@ -1435,6 +1435,30 @@
     "files.action.delete": {
         "message": "削除"
     },
+    "files.delete.title": {
+        "message": "履歴から削除しますか？"
+    },
+    "files.delete.message": {
+        "message": "この項目は転送履歴から削除されます。\n受信済みのファイルはディスクに残ります。"
+    },
+    "files.send.search": {
+        "message": "ピアを検索"
+    },
+    "files.send.empty": {
+        "message": "一致するピアがありません"
+    },
+    "files.send.noPeers": {
+        "message": "利用可能なピアがありません"
+    },
+    "files.send.trigger": {
+        "message": "送信…"
+    },
+    "files.send.back": {
+        "message": "戻る"
+    },
+    "files.send.clipboardPreview": {
+        "message": "クリップボードのプレビュー"
+    },
     "peers.dropToSend": {
         "message": "ドロップして送信"
     },

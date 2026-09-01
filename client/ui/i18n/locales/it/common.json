@@ -1435,6 +1435,30 @@
     "files.action.delete": {
         "message": "Elimina"
     },
+    "files.delete.title": {
+        "message": "Rimuovere dalla cronologia?"
+    },
+    "files.delete.message": {
+        "message": "Questa voce viene rimossa dalla cronologia dei trasferimenti.\nI file già ricevuti vengono conservati su disco."
+    },
+    "files.send.search": {
+        "message": "Cerca peer"
+    },
+    "files.send.empty": {
+        "message": "Nessun peer corrispondente"
+    },
+    "files.send.noPeers": {
+        "message": "Nessun peer disponibile"
+    },
+    "files.send.trigger": {
+        "message": "Invia…"
+    },
+    "files.send.back": {
+        "message": "Indietro"
+    },
+    "files.send.clipboardPreview": {
+        "message": "Anteprima degli appunti"
+    },
     "peers.dropToSend": {
         "message": "Rilascia per inviare"
     },

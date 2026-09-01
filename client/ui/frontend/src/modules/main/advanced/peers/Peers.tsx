@@ -31,7 +31,7 @@ import { PeerFilters, type StatusFilter } from "./PeerFilters";
 
 const isOnline = (connStatus: string) => connStatus === "Connected";
 
-const dotClass = (connStatus: string): string => {
+export const dotClass = (connStatus: string): string => {
     switch (connStatus) {
         case "Connected":
             return "bg-green-400";

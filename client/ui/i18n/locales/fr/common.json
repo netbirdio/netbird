@@ -1435,6 +1435,30 @@
     "files.action.delete": {
         "message": "Supprimer"
     },
+    "files.delete.title": {
+        "message": "Retirer de l’historique ?"
+    },
+    "files.delete.message": {
+        "message": "Cette entrée est retirée de l’historique des transferts.\nLes fichiers déjà reçus sont conservés sur le disque."
+    },
+    "files.send.search": {
+        "message": "Rechercher des pairs"
+    },
+    "files.send.empty": {
+        "message": "Aucun pair correspondant"
+    },
+    "files.send.noPeers": {
+        "message": "Aucun pair disponible"
+    },
+    "files.send.trigger": {
+        "message": "Envoyer…"
+    },
+    "files.send.back": {
+        "message": "Retour"
+    },
+    "files.send.clipboardPreview": {
+        "message": "Aperçu du presse-papiers"
+    },
     "peers.dropToSend": {
         "message": "Déposer pour envoyer"
     },

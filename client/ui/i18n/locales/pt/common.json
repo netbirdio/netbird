@@ -1435,6 +1435,30 @@
     "files.action.delete": {
         "message": "Excluir"
     },
+    "files.delete.title": {
+        "message": "Remover do histórico?"
+    },
+    "files.delete.message": {
+        "message": "Esta entrada é removida do histórico de transferências.\nOs ficheiros já recebidos são mantidos no disco."
+    },
+    "files.send.search": {
+        "message": "Pesquisar peers"
+    },
+    "files.send.empty": {
+        "message": "Nenhum peer correspondente"
+    },
+    "files.send.noPeers": {
+        "message": "Nenhum peer disponível"
+    },
+    "files.send.trigger": {
+        "message": "Enviar…"
+    },
+    "files.send.back": {
+        "message": "Voltar"
+    },
+    "files.send.clipboardPreview": {
+        "message": "Pré-visualização da área de transferência"
+    },
     "peers.dropToSend": {
         "message": "Solte para enviar"
     },

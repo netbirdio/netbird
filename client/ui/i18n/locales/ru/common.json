@@ -1435,6 +1435,30 @@
     "files.action.delete": {
         "message": "Удалить"
     },
+    "files.delete.title": {
+        "message": "Удалить из истории?"
+    },
+    "files.delete.message": {
+        "message": "Запись будет удалена из истории передач.\nУже полученные файлы останутся на диске."
+    },
+    "files.send.search": {
+        "message": "Поиск узлов"
+    },
+    "files.send.empty": {
+        "message": "Нет подходящих узлов"
+    },
+    "files.send.noPeers": {
+        "message": "Нет доступных узлов"
+    },
+    "files.send.trigger": {
+        "message": "Отправить…"
+    },
+    "files.send.back": {
+        "message": "Назад"
+    },
+    "files.send.clipboardPreview": {
+        "message": "Предпросмотр буфера обмена"
+    },
     "peers.dropToSend": {
         "message": "Отпустите для отправки"
     },

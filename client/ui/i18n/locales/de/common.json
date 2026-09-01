@@ -1435,6 +1435,30 @@
     "files.action.delete": {
         "message": "Löschen"
     },
+    "files.delete.title": {
+        "message": "Aus dem Verlauf entfernen?"
+    },
+    "files.delete.message": {
+        "message": "Dieser Eintrag wird aus dem Übertragungsverlauf entfernt.\nBereits empfangene Dateien bleiben auf der Festplatte."
+    },
+    "files.send.search": {
+        "message": "Peers suchen"
+    },
+    "files.send.empty": {
+        "message": "Kein passender Peer"
+    },
+    "files.send.noPeers": {
+        "message": "Keine Peers verfügbar"
+    },
+    "files.send.trigger": {
+        "message": "Senden…"
+    },
+    "files.send.back": {
+        "message": "Zurück"
+    },
+    "files.send.clipboardPreview": {
+        "message": "Vorschau der Zwischenablage"
+    },
     "peers.dropToSend": {
         "message": "Zum Senden ablegen"
     },

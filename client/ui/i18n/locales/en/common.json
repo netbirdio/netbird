@@ -1943,6 +1943,38 @@
         "message": "Delete",
         "description": "Remove the entry from the history."
     },
+    "files.delete.title": {
+        "message": "Remove from history?",
+        "description": "Confirmation-dialog title for removing a transfer from the file history."
+    },
+    "files.delete.message": {
+        "message": "This entry is removed from the transfer history.\nAlready received files are kept on disk.",
+        "description": "Confirmation body for removing a history entry; states that received files stay on disk. Contains a line break (\\n) — keep it."
+    },
+    "files.send.search": {
+        "message": "Search peers",
+        "description": "Placeholder of the peer-picker search field."
+    },
+    "files.send.empty": {
+        "message": "No matching peer",
+        "description": "Shown when the peer-picker search matches nothing."
+    },
+    "files.send.noPeers": {
+        "message": "No peers available",
+        "description": "Shown in the peer picker when the peer list is empty."
+    },
+    "files.send.trigger": {
+        "message": "Send…",
+        "description": "Label of the single send button in the Files header. Keep short."
+    },
+    "files.send.back": {
+        "message": "Back",
+        "description": "Returns from the what-to-send step to the peer list. Keep short."
+    },
+    "files.send.clipboardPreview": {
+        "message": "Clipboard preview",
+        "description": "Accessible label of the clipboard-text preview shown before sending."
+    },
     "peers.dropToSend": {
         "message": "Drop to send",
         "description": "Overlay shown while dragging files over a peer row."

@@ -7,16 +7,18 @@ import {
     ArrowUpIcon,
     BanIcon,
     CheckIcon,
+    ChevronDownIcon,
     CopyIcon,
     FolderDownIcon,
     FolderOpenIcon,
     MoreVerticalIcon,
+    SendIcon,
     ShieldCheckIcon,
     Trash2Icon,
     XIcon,
 } from "lucide-react";
 import { FileDrop } from "@bindings/services";
-import type { FileDropTransfer } from "@bindings/services/models.js";
+import type { FileDropTransfer, PeerStatus } from "@bindings/services/models.js";
 import { cn } from "@/lib/cn";
 import { formatBytes } from "@/lib/formatters";
 import {
@@ -31,6 +33,9 @@ import { EmptyState } from "@/components/empty-state/EmptyState";
 import { NoResults } from "@/components/empty-state/NoResults";
 import { Button } from "@/components/buttons/Button";
 import { Tooltip } from "@/components/Tooltip";
+import { TruncatedText } from "@/components/TruncatedText";
+import { useConfirm } from "@/contexts/DialogContext";
+import { SendPeerPicker } from "@/modules/main/advanced/files/SendPeerPicker";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -133,15 +138,7 @@ export const Files = () => {
         });
     }, [rest, t]);
 
-    if (transfers !== null && transfers.length === 0) {
-        return (
-            <EmptyState
-                icon={FolderDownIcon}
-                title={t("files.empty.title")}
-                description={t("files.empty.description")}
-            />
-        );
-    }
+    const isEmpty = transfers !== null && transfers.length === 0;
 
     return (
         <div className={"flex h-full min-h-0 w-full flex-col"}>
@@ -154,11 +151,21 @@ export const Files = () => {
                         onChange={(e) => setSearch(e.target.value)}
                     />
                 </div>
+                <SendActions onSent={refresh} />
             </div>
-            {filtered.length === 0 ? (
+            {isEmpty ? (
+                <EmptyState
+                    icon={FolderDownIcon}
+                    title={t("files.empty.title")}
+                    description={t("files.empty.description")}
+                />
+            ) : filtered.length === 0 ? (
                 <NoResults />
             ) : (
-                <ScrollArea.Root type={"auto"} className={"min-h-0 flex-1 overflow-hidden"}>
+                <ScrollArea.Root
+                    type={"auto"}
+                    className={"nb-scroll-clamp min-h-0 flex-1 overflow-hidden"}
+                >
                     <ScrollArea.Viewport className={"h-full w-full"}>
                         <div className={"flex flex-col pb-4 pt-2"}>
                             {pending.map((tr) => (
@@ -200,6 +207,64 @@ export const Files = () => {
     );
 };
 
+const SendActions = ({ onSent }: { onSent: () => void }) => {
+    const { t } = useTranslation();
+    const [error, setError] = useState<string | null>(null);
+
+    const sendFiles = async (peer: PeerStatus) => {
+        setError(null);
+        try {
+            const paths = await FileDrop.PickFiles();
+            if (!paths || paths.length === 0) return;
+            await FileDrop.Send(peer.pubKey, paths, "");
+            onSent();
+        } catch (e) {
+            setError(String(e));
+        }
+    };
+
+    // Sends the text the picker previewed, not a fresh read: the clipboard may
+    // have changed between showing it and confirming the recipient.
+    const sendClipboard = async (peer: PeerStatus, text: string) => {
+        setError(null);
+        if (!text) {
+            setError(t("peers.details.sendClipboard.empty"));
+            return;
+        }
+        try {
+            await FileDrop.Send(peer.pubKey, [], text);
+            onSent();
+        } catch (e) {
+            setError(String(e));
+        }
+    };
+
+    return (
+        <div className={"relative flex shrink-0 items-center"}>
+            <SendPeerPicker
+                onPick={(peer, mode, clipboard) =>
+                    void (mode === "files" ? sendFiles(peer) : sendClipboard(peer, clipboard))
+                }
+            >
+                <Button variant={"primary"} size={"xs"}>
+                    <SendIcon size={12} aria-hidden={"true"} />
+                    {t("files.send.trigger")}
+                    <ChevronDownIcon size={12} aria-hidden={"true"} />
+                </Button>
+            </SendPeerPicker>
+            {error && (
+                <div
+                    className={
+                        "absolute right-0 top-full z-10 mt-1 max-w-xs truncate text-xs text-red-400"
+                    }
+                >
+                    {error}
+                </div>
+            )}
+        </div>
+    );
+};
+
 type RowProps = {
     transfer: FileDropTransfer;
     onChanged: () => void;
@@ -232,15 +297,18 @@ const PendingOfferRow = ({ transfer, onChanged }: RowProps) => {
             )}
         >
             <div className={"flex min-w-0 items-center gap-2.5"}>
-                <ArrowDownIcon
-                    size={16}
-                    className={"shrink-0 text-netbird"}
-                    aria-hidden={"true"}
-                />
+                <ArrowDownIcon size={16} className={"shrink-0 text-netbird"} aria-hidden={"true"} />
                 <div className={"flex min-w-0 flex-1 flex-col leading-tight"}>
-                    <span className={"truncate text-[0.81rem] font-medium text-nb-gray-100"}>
-                        {transferTitle(transfer)}
-                        <span className={"font-normal text-nb-gray-400"}>
+                    <span
+                        className={
+                            "flex min-w-0 items-baseline text-[0.81rem] font-medium text-nb-gray-100"
+                        }
+                    >
+                        <TruncatedText
+                            text={transferTitle(transfer)}
+                            className={"block min-w-0 truncate"}
+                        />
+                        <span className={"shrink-0 font-normal text-nb-gray-400"}>
                             {" · "}
                             {formatBytes(transfer.totalSize)}
                         </span>
@@ -286,14 +354,9 @@ const TransferRow = ({ transfer, onChanged }: RowProps) => {
             ? Math.min(100, Math.floor((transfer.transferred / transfer.totalSize) * 100))
             : null;
 
-    // The subtitle carries who and how big; the outcome sits on the right next
-    // to the time, so a glance down that column reads the results.
-    const subtitleParts = [
-        transfer.outgoing
-            ? t("files.row.to", { peer: transfer.peerName })
-            : t("files.row.from", { peer: transfer.peerName }),
-    ];
-    if (!isText) subtitleParts.push(formatBytes(transfer.totalSize));
+    const peerLabel = transfer.outgoing
+        ? t("files.row.to", { peer: transfer.peerName })
+        : t("files.row.from", { peer: transfer.peerName });
 
     let stateLabel: string;
     if (progress !== null) {
@@ -335,39 +398,47 @@ const TransferRow = ({ transfer, onChanged }: RowProps) => {
                     aria-hidden={"true"}
                 />
             )}
-            <div className={"flex min-w-0 flex-1 flex-col leading-tight"}>
-                <span
+            <div className={"flex min-w-0 flex-1 flex-col gap-0.5 leading-tight"}>
+                <TruncatedText
+                    text={transferTitle(transfer)}
                     className={cn(
-                        "truncate text-[0.81rem] font-medium text-nb-gray-100",
+                        "block truncate text-[0.81rem] font-medium text-nb-gray-100",
                         isText && "italic",
                     )}
-                >
-                    {transferTitle(transfer)}
-                </span>
-                <span className={"truncate text-xs text-nb-gray-400"}>
-                    {subtitleParts.join(" · ")}
+                />
+                <TruncatedText
+                    text={peerLabel}
+                    className={"block truncate text-xs text-nb-gray-400"}
+                />
+                <span className={"flex min-w-0 items-baseline text-xs text-nb-gray-500"}>
+                    <span className={"shrink-0 tabular-nums"}>{time}</span>
+                    {!isText && (
+                        <span className={"shrink-0"}>
+                            {" · "}
+                            {formatBytes(transfer.totalSize)}
+                        </span>
+                    )}
                 </span>
             </div>
-            {/* Time over outcome, capped: the window is a fixed 900px and some
-                translations of the state labels are long enough to eat the file
-                name if they share one line with the timestamp. */}
+            {/* Own column, capped: the window is a fixed 900px and some
+                translations of the state labels are long enough to eat the
+                file name if they are given free rein. */}
             <span
                 className={cn(
-                    "flex max-w-[8.5rem] shrink-0 flex-col items-end leading-tight",
-                    "pl-2 text-xs text-nb-gray-500",
+                    "max-w-[8.5rem] shrink-0 truncate pl-2 text-xs",
+                    stateClass,
                     "transition-opacity group-hover:opacity-0",
                 )}
             >
-                <span className={"tabular-nums"}>{time}</span>
-                <span className={cn("max-w-full truncate", stateClass)}>{stateLabel}</span>
+                {stateLabel}
             </span>
             {/* The window is a fixed 900px wide and cannot be resized, so the
-                row actions overlay the outcome column on hover instead of
+                row actions overlay the status column on hover instead of
                 reserving width that the file name would otherwise lose. */}
             <div
                 className={cn(
-                    "absolute right-4 flex items-center gap-1",
-                    // Fades the covered outcome text out rather than sitting on
+                    "absolute right-4 top-1/2 flex -translate-y-1/2 items-center gap-1",
+                    // Fades the covered status text out rather than sitting on
                     // a flat block, which would not match the row's hover tint.
                     "bg-gradient-to-l from-nb-gray-940 via-nb-gray-940 to-transparent pl-8",
                     "opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100",
@@ -435,14 +506,29 @@ const RowIconButton = ({
 
 const TransferMenu = ({ transfer, delivered, onChanged }: RowProps & { delivered: boolean }) => {
     const { t } = useTranslation();
+    const confirm = useConfirm();
 
     const setRule = async (rule: PeerRule) => {
         await FileDrop.SetPeerRule(transfer.peerKey, rule);
         onChanged();
     };
 
+    const remove = async () => {
+        const ok = await confirm({
+            title: t("files.delete.title"),
+            description: t("files.delete.message"),
+            confirmLabel: t("common.delete"),
+            danger: true,
+        });
+        if (!ok) return;
+        await FileDrop.Delete(transfer.id);
+        onChanged();
+    };
+
     return (
-        <DropdownMenu>
+        // modal={false}: the item handler opens a confirm dialog, and a modal
+        // dropdown would keep the focus trap that the dialog then fights over.
+        <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild>
                 <button
                     type={"button"}
@@ -478,13 +564,7 @@ const TransferMenu = ({ transfer, delivered, onChanged }: RowProps & { delivered
                         </DropdownMenuItem>
                     </>
                 )}
-                <DropdownMenuItem
-                    variant={"danger"}
-                    onClick={async () => {
-                        await FileDrop.Delete(transfer.id);
-                        onChanged();
-                    }}
-                >
+                <DropdownMenuItem variant={"danger"} onClick={() => void remove()}>
                     <Trash2Icon size={14} className={"mr-2"} />
                     {t("files.action.delete")}
                 </DropdownMenuItem>

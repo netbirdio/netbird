@@ -1435,6 +1435,30 @@
     "files.action.delete": {
         "message": "Törlés"
     },
+    "files.delete.title": {
+        "message": "Eltávolítás az előzményekből?"
+    },
+    "files.delete.message": {
+        "message": "A bejegyzés törlődik az átviteli előzményekből.\nA már fogadott fájlok a lemezen maradnak."
+    },
+    "files.send.search": {
+        "message": "Gépek keresése"
+    },
+    "files.send.empty": {
+        "message": "Nincs találat"
+    },
+    "files.send.noPeers": {
+        "message": "Nincs elérhető gép"
+    },
+    "files.send.trigger": {
+        "message": "Küldés…"
+    },
+    "files.send.back": {
+        "message": "Vissza"
+    },
+    "files.send.clipboardPreview": {
+        "message": "Vágólap előnézete"
+    },
     "peers.dropToSend": {
         "message": "Engedd el a küldéshez"
     },
