@@ -15,7 +15,12 @@ import (
 	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
-const refusedReason = "remote jobs are not enabled on this peer"
+const (
+	refusedReason = "remote jobs are not enabled on this peer"
+	// testUploadURL is the debug-bundle upload URL the job subtests pass; it only
+	// needs to be a well-formed https URL with a host (see ValidateBundleUploadURL).
+	testUploadURL = "https://uploads.example.com/bundle"
+)
 
 // TestRemoteJobsOptInAndBundleParams exercises the two PRs end-to-end against a
 // live management server and a real client:
@@ -64,14 +69,14 @@ func TestRemoteJobsOptInAndBundleParams(t *testing.T) {
 
 	t.Run("anonymize_level is validated and normalized (#7147)", func(t *testing.T) {
 		// Unknown level is rejected at job creation.
-		_, err := srv.API().Peers.Jobs(peerID).Create(ctx, bundleJob("bogus", "https://uploads.example.com/bundle"))
+		_, err := srv.API().Peers.Jobs(peerID).Create(ctx, bundleJob("bogus", testUploadURL))
 		require.Error(t, err, "an unknown anonymize_level must be rejected")
 		assert.Contains(t, strings.ToLower(err.Error()), "anonymize_level",
 			"the rejection must name the offending field")
 
 		// A messy but valid level is normalized (trimmed + lowercased) in the
 		// stored job the API echoes back.
-		job, err := srv.API().Peers.Jobs(peerID).Create(ctx, bundleJob("  Strict  ", "https://uploads.example.com/bundle"))
+		job, err := srv.API().Peers.Jobs(peerID).Create(ctx, bundleJob("  Strict  ", testUploadURL))
 		require.NoError(t, err, "a valid anonymize_level must be accepted")
 		bw, err := job.Workload.AsBundleWorkloadResponse()
 		require.NoError(t, err, "job workload must be a bundle")
@@ -82,7 +87,7 @@ func TestRemoteJobsOptInAndBundleParams(t *testing.T) {
 	})
 
 	t.Run("a job is refused while the peer has not opted in (#7153 enforcement)", func(t *testing.T) {
-		job, err := srv.API().Peers.Jobs(peerID).Create(ctx, bundleJob("default", "https://uploads.example.com/bundle"))
+		job, err := srv.API().Peers.Jobs(peerID).Create(ctx, bundleJob("default", testUploadURL))
 		require.NoError(t, err, "job creation itself is allowed; enforcement is on the client")
 		final := waitForJobTerminal(ctx, t, peerID, job.Id)
 		assert.Equal(t, api.JobResponseStatusFailed, final.Status, "the client must refuse the job")
@@ -107,7 +112,7 @@ func TestRemoteJobsOptInAndBundleParams(t *testing.T) {
 
 		// The same job that was refused before must now be accepted for
 		// execution: whatever its outcome, it must NOT be the opt-out refusal.
-		job, err := srv.API().Peers.Jobs(peerID).Create(ctx, bundleJob("default", "https://uploads.example.com/bundle"))
+		job, err := srv.API().Peers.Jobs(peerID).Create(ctx, bundleJob("default", testUploadURL))
 		require.NoError(t, err)
 		final := waitForJobTerminal(ctx, t, peerID, job.Id)
 		if final.Status == api.JobResponseStatusFailed && final.FailedReason != nil {
