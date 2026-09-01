@@ -1,17 +1,29 @@
 package android
 
-// Split tunnelling modes, stored as strings so an unknown value written by a
-// newer build degrades to "off" rather than to some other mode's behaviour.
+// SplitTunnelMode is which of the two selections, if either, the tunnel applies.
+// Its values land in the profile's stored preferences, so the constants below
+// are append-only and must never be reordered.
+type SplitTunnelMode int
+
 const (
-	SplitTunnelModeOff     = "off"
-	SplitTunnelModeExclude = "exclude"
-	SplitTunnelModeInclude = "include"
+	modeOff SplitTunnelMode = iota
+	modeExclude
+	modeInclude
+)
+
+// The same modes as basic ints. gomobile drops a constant whose type is not a
+// basic one, so these are what reaches the generated Java bindings, and they
+// keep the Android side tied to the values above instead of repeating 0, 1, 2.
+const (
+	SplitTunnelModeOff     = int(modeOff)
+	SplitTunnelModeExclude = int(modeExclude)
+	SplitTunnelModeInclude = int(modeInclude)
 )
 
 type splitTunnelSection struct {
-	Mode     string   `json:"mode"`
-	Excluded []string `json:"excluded"`
-	Included []string `json:"included"`
+	Mode     SplitTunnelMode `json:"mode"`
+	Excluded []string        `json:"excluded"`
+	Included []string        `json:"included"`
 }
 
 // PackageList wraps []string for gomobile compatibility.
@@ -49,8 +61,12 @@ func (l *PackageList) Get(i int) string {
 // carries. The two selections are kept apart because the platform applies one
 // or the other and never both, and so that switching mode does not throw away
 // the picks made in the other one.
+//
+// Mode is an int rather than a SplitTunnelMode because gomobile carries only
+// basic types across the binding. It holds one of the SplitTunnelMode*
+// constants.
 type SplitTunnelSettings struct {
-	Mode     string
+	Mode     int
 	Excluded *PackageList
 	Included *PackageList
 }
@@ -73,18 +89,21 @@ func packagesOf(list *PackageList) []string {
 	return out
 }
 
-func normalizeSplitTunnelMode(mode string) string {
+// normalizeSplitTunnelMode maps anything outside the known set to off, so a mode
+// written by a newer build degrades to carrying every application rather than to
+// some other mode's behaviour.
+func normalizeSplitTunnelMode(mode SplitTunnelMode) SplitTunnelMode {
 	switch mode {
-	case SplitTunnelModeExclude, SplitTunnelModeInclude:
+	case modeExclude, modeInclude:
 		return mode
 	default:
-		return SplitTunnelModeOff
+		return modeOff
 	}
 }
 
 func settingsFromSection(section splitTunnelSection) *SplitTunnelSettings {
 	out := NewSplitTunnelSettings()
-	out.Mode = normalizeSplitTunnelMode(section.Mode)
+	out.Mode = int(normalizeSplitTunnelMode(section.Mode))
 	for _, pkg := range section.Excluded {
 		out.Excluded.Add(pkg)
 	}
@@ -99,7 +118,7 @@ func sectionFromSettings(settings *SplitTunnelSettings) splitTunnelSection {
 		settings = NewSplitTunnelSettings()
 	}
 	return splitTunnelSection{
-		Mode:     normalizeSplitTunnelMode(settings.Mode),
+		Mode:     normalizeSplitTunnelMode(SplitTunnelMode(settings.Mode)),
 		Excluded: packagesOf(settings.Excluded),
 		Included: packagesOf(settings.Included),
 	}
