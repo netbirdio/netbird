@@ -11,6 +11,22 @@ import (
 // idHex renders an exchange ID for logs.
 func idHex(id ExchangeID) string { return hex.EncodeToString(id[:]) }
 
+// exchangeKind labels an exchange for logs by whether it acknowledges a prior one: a
+// zero AckID is a bootstrap (a new connection's first exchange, or a re-bootstrap after
+// a reconnect), a non-zero AckID is a rotation (a rekey chained off the previous PSK).
+func exchangeKind(ackID ExchangeID) string {
+	if ackID == (ExchangeID{}) {
+		return "bootstrap"
+	}
+	return "rotation"
+}
+
+// viaSignal maps the transport a message arrived on / goes out on to a log label.
+const (
+	viaSignalLabel   = "signal"
+	viaDataPathLabel = "data-path"
+)
+
 // pskFingerprint is a short, non-secret digest of a derived PSK: identical on both
 // peers iff they derived the same key. Logged instead of the raw PSK so debug logs
 // never carry the actual WireGuard preshared key.
@@ -61,11 +77,11 @@ func (m *Manager) startExchangeLocked(remoteID RemoteID, viaSignal bool, ackID E
 	m.wait.Add(1)
 	go m.initiatorLoop(ctx, remoteID, id)
 
-	via := "data-path"
+	via := viaDataPathLabel
 	if viaSignal {
-		via = "signal"
+		via = viaSignalLabel
 	}
-	m.trace("pqkem: offer sent", "peer", remoteID, "exchange", idHex(id), "acks", idHex(ackID), "via", via)
+	m.debug("pqkem: sending offer", "peer", remoteID, "exchange", idHex(id), "role", "initiator", "via", via, "kind", exchangeKind(ackID), "acks", idHex(ackID))
 	return raw, nil
 }
 
@@ -73,8 +89,9 @@ func (m *Manager) startExchangeLocked(remoteID RemoteID, viaSignal bool, ackID E
 // (that offer riding the data path under the freshly adopted key proves it worked),
 // then derives the PSK for the new offer, commits it optimistically, and returns the
 // framed answer. A duplicate offer returns the cached answer without re-deriving.
-func (m *Manager) processOffer(remoteID RemoteID, o *OfferMsg) ([]byte, error) {
-	m.trace("pqkem: offer received", "peer", remoteID, "exchange", idHex(o.ExchangeID), "acks", idHex(o.AckID))
+func (m *Manager) processOffer(remoteID RemoteID, o *OfferMsg, via string) ([]byte, error) {
+	kind := exchangeKind(o.AckID)
+	m.debug("pqkem: offer received", "peer", remoteID, "exchange", idHex(o.ExchangeID), "role", "responder", "via", via, "kind", kind, "acks", idHex(o.AckID))
 
 	// Role guard: only the responder processes offers. The KEM is unidirectional — the
 	// initiator sends offers, the responder answers — so an offer reaching the initiator
@@ -82,7 +99,7 @@ func (m *Manager) processOffer(remoteID RemoteID, o *OfferMsg) ([]byte, error) {
 	// derive and commit a fresh PSK, overwriting a live one and silently discarding any
 	// in-flight exchange (whose retry loop then exits without recovery). Drop it.
 	if m.IsInitiator(remoteID) {
-		m.trace("pqkem: dropping offer, we are the initiator for this peer (role violation)", "peer", remoteID, "exchange", idHex(o.ExchangeID))
+		m.debug("pqkem: dropping offer, we are the initiator for this peer (role violation)", "peer", remoteID, "exchange", idHex(o.ExchangeID), "via", via, "kind", kind)
 		return nil, nil
 	}
 
@@ -127,7 +144,7 @@ func (m *Manager) processOffer(remoteID RemoteID, o *OfferMsg) ([]byte, error) {
 	m.capable[remoteID] = true // a real KEM offer proves the peer runs the exchange
 	m.mu.Unlock()
 
-	m.trace("pqkem: new PSK derived", "peer", remoteID, "exchange", idHex(o.ExchangeID), "role", "responder", "psk_fp", pskFingerprint(psk))
+	m.debug("pqkem: PSK derived", "peer", remoteID, "exchange", idHex(o.ExchangeID), "role", "responder", "via", via, "kind", kind, "psk_fp", pskFingerprint(psk))
 
 	// Commit optimistically so our data path can rekey to the new PSK.
 	if err := m.cbHandler.OnNewPSKReady(remoteID, psk); err != nil {
@@ -141,12 +158,12 @@ func (m *Manager) processOffer(remoteID RemoteID, o *OfferMsg) ([]byte, error) {
 // stateAwaitingRekey; the next offer (chained from OnDataPathRekeyed) will acknowledge
 // this exchange. Only valid in stateAwaitingAnswer; advancing the state under the
 // lock makes a concurrent/duplicate answer bail.
-func (m *Manager) processAnswer(remoteID RemoteID, a *AnswerMsg) error {
+func (m *Manager) processAnswer(remoteID RemoteID, a *AnswerMsg, via string) error {
 	// Role guard: only the initiator processes answers. An answer reaching the responder
 	// is anomalous (the responder sends answers, it never receives them) — drop it rather
 	// than let a stray/injected answer disturb the responder's state.
 	if !m.IsInitiator(remoteID) {
-		m.trace("pqkem: dropping answer, we are the responder for this peer (role violation)", "peer", remoteID, "answer_for", idHex(a.ExchangeID))
+		m.debug("pqkem: dropping answer, we are the responder for this peer (role violation)", "peer", remoteID, "answer_for", idHex(a.ExchangeID), "via", via)
 		return nil
 	}
 
@@ -158,15 +175,21 @@ func (m *Manager) processAnswer(remoteID RemoteID, a *AnswerMsg) error {
 			haveID = idHex(ex.id)
 		}
 		m.mu.Unlock()
-		m.trace("pqkem: unexpected answer dropped (inconsistency)", "peer", remoteID, "answer_for", idHex(a.ExchangeID), "have_exchange", haveID)
+		m.trace("pqkem: unexpected answer dropped (inconsistency)", "peer", remoteID, "answer_for", idHex(a.ExchangeID), "have_exchange", haveID, "via", via)
 		return nil
+	}
+	// The initiator's exchange kind: a signalling exchange is a bootstrap/re-bootstrap, a
+	// data-path one is a rotation chained off the previous PSK.
+	kind := "rotation"
+	if ex.viaSignal {
+		kind = "bootstrap"
 	}
 	ex.state = stateAwaitingRekey
 	init := ex.initiator
 	ex.initiator = nil
 	m.mu.Unlock()
 
-	m.trace("pqkem: answer received", "peer", remoteID, "exchange", idHex(a.ExchangeID))
+	m.trace("pqkem: answer received", "peer", remoteID, "exchange", idHex(a.ExchangeID), "via", via, "kind", kind)
 
 	psk, err := init.Finish(a.KEMAnswer, m.binding(remoteID))
 	if err != nil {
@@ -193,7 +216,7 @@ func (m *Manager) processAnswer(remoteID RemoteID, a *AnswerMsg) error {
 	m.capable[remoteID] = true // a real KEM answer proves the peer runs the exchange
 	m.mu.Unlock()
 
-	m.trace("pqkem: new PSK derived", "peer", remoteID, "exchange", idHex(a.ExchangeID), "role", "initiator", "psk_fp", pskFingerprint(psk))
+	m.debug("pqkem: PSK derived", "peer", remoteID, "exchange", idHex(a.ExchangeID), "role", "initiator", "via", via, "kind", kind, "psk_fp", pskFingerprint(psk))
 
 	return m.cbHandler.OnNewPSKReady(remoteID, psk)
 }
