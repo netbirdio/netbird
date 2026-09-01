@@ -97,6 +97,35 @@ func stripBedrockGeography(modelID string) string {
 // version/throughput suffix of a Bedrock model id.
 var bedrockVersionSuffix = regexp.MustCompile(`-(\d{8}-)?v\d+(:\d+)?$`)
 
+// IsBedrockStyleModel reports whether a model id carries a positive Bedrock
+// marker: an ARN wrapper, a known geography or vendor namespace as its first
+// dotted segment, or a known vendor namespace as the segment a geography
+// would precede. Callers without provider context gate the Bedrock
+// normalization on it — the bare version-suffix strip must never fire on an
+// id that is not recognizably Bedrock, or a plain provider's "-vN"-suffixed
+// model would canonicalize into a different model's id.
+func IsBedrockStyleModel(modelID string) bool {
+	if strings.HasPrefix(modelID, "arn:") {
+		return true
+	}
+	first, rest, found := strings.Cut(modelID, ".")
+	if !found || first == "" || rest == "" {
+		return false
+	}
+	if _, ok := bedrockGeographies[first]; ok {
+		return true
+	}
+	if _, ok := bedrockVendorNamespaces[first]; ok {
+		return true
+	}
+	second, _, found := strings.Cut(rest, ".")
+	if !found {
+		return false
+	}
+	_, ok := bedrockVendorNamespaces[second]
+	return ok
+}
+
 // NormalizeBedrockModel strips an ARN wrapper, a cross-region inference-profile
 // prefix, and the version/throughput suffix from a Bedrock model id so it
 // matches the catalog/pricing key, e.g.

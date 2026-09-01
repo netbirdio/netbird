@@ -387,3 +387,27 @@ func TestSelectPolicy_RawDeclaredAllowlistPermitsCanonicalModel(t *testing.T) {
 		assert.Equal(t, denyCodeModelBlocked, res.DenyCode)
 	})
 }
+
+// TestSelectPolicy_PlainSuffixedEntryDoesNotWiden proves the canonical-form
+// compare never relaxes an allowlist on a plain provider: an entry that
+// merely ends in "-vN" carries no path-style marker, so it must NOT also
+// admit the suffix-stripped id — that is a different model.
+func TestSelectPolicy_PlainSuffixedEntryDoesNotWiden(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mgr, mockStore := newSelectorMgr(t, ctrl)
+
+	policy := guardedPolicy("pol-A", "acc-1", []string{"grp-eng"}, "prov-1", "g-1")
+	expectPolicies(mockStore, "acc-1", policy)
+	expectGuardrails(mockStore, "acc-1", allowlistGuardrail("g-1", "acc-1", "claude-3-5-sonnet-v2"))
+
+	res, err := mgr.SelectPolicyForRequest(context.Background(), PolicySelectionInput{
+		AccountID:  "acc-1",
+		UserID:     "user-1",
+		GroupIDs:   []string{"grp-eng"},
+		ProviderID: "prov-1",
+		Model:      "claude-3-5-sonnet",
+	})
+	require.NoError(t, err)
+	assert.False(t, res.Allow, "an allowlist naming only the -v2 model must not admit the base model")
+	assert.Equal(t, denyCodeModelBlocked, res.DenyCode)
+}

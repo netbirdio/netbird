@@ -354,14 +354,22 @@ func normaliseModelID(model string) string {
 }
 
 // canonicalPathStyleModelID strips the path-style decorations from an
-// already-normalised model id — a Bedrock ARN wrapper, geography prefix and
-// version suffix, and a Vertex "@version" — yielding the canonical id the
-// proxy's parser emits for path-routed requests. Ids without those shapes
-// come back unchanged, so a compare against both the raw and canonical forms
-// accepts an entry however the operator wrote it without needing the
-// provider record to pick a normalizer.
+// already-normalised model id — a Vertex "@version", or a Bedrock ARN
+// wrapper, geography prefix and version suffix — yielding the canonical id
+// the proxy's parser emits for path-routed requests. Each strip is gated on
+// the id actually carrying that shape's marker, so an id without one comes
+// back unchanged: a plain provider's model that merely ends in "-vN" must
+// not canonicalize into a different model's id and silently widen an
+// allowlist. The gate replaces provider context, which callers here don't
+// have.
 func canonicalPathStyleModelID(id string) string {
-	return sharedllm.NormalizeVertexModel(sharedllm.NormalizeBedrockModel(id))
+	if strings.Contains(id, "@") {
+		return sharedllm.NormalizeVertexModel(id)
+	}
+	if sharedllm.IsBedrockStyleModel(id) {
+		return sharedllm.NormalizeBedrockModel(id)
+	}
+	return id
 }
 
 // modelBlockedReason builds the human-readable deny reason for a model-allowlist

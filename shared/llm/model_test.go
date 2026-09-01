@@ -118,3 +118,28 @@ func TestNormalizeBedrockModel_RecognisesAnIdNewOnOneAxis(t *testing.T) {
 		})
 	}
 }
+
+func TestIsBedrockStyleModel(t *testing.T) {
+	cases := []struct {
+		id   string
+		want bool
+	}{
+		{"arn:aws:bedrock:eu-central-1::foundation-model/anthropic.claude-v2", true},
+		{"eu.anthropic.claude-sonnet-4-5-20250929-v1:0", true},
+		{"anthropic.claude-3-haiku-20240307-v1:0", true},
+		{"amazon.nova-pro-v1:0", true},
+		{"jp.newvendor.some-model-v1:0", true},
+		{"foo.newvendor.some-model-v1:0", false},
+		// A plain provider's id that merely ends in "-vN" carries no Bedrock
+		// marker and must not be treated as Bedrock-shaped — stripping its
+		// suffix would turn it into a different model's id.
+		{"claude-3-5-sonnet-v2", false},
+		{"gpt-4.1-v2", false},
+		{"openai/gpt-4o", false},
+	}
+	for _, tc := range cases {
+		if got := IsBedrockStyleModel(tc.id); got != tc.want {
+			t.Errorf("IsBedrockStyleModel(%q) = %v, want %v", tc.id, got, tc.want)
+		}
+	}
+}
