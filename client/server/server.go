@@ -57,8 +57,8 @@ const (
 	// JWT token cache TTL for the client daemon (disabled by default)
 	defaultJWTCacheTTL = 0
 
-	errRestoreResidualState   = "failed to restore residual state: %v"
-	errProfilesDisabled       = "profiles are disabled, you cannot use this feature without profiles enabled"
+	errRestoreResidualState = "failed to restore residual state: %v"
+	errProfilesDisabled     = "profiles are disabled, you cannot use this feature without profiles enabled"
 	// errUpdateSettingsDisabled is returned with codes.FailedPrecondition, not
 	// codes.Unavailable: the daemon answered, and it refused. Unavailable means
 	// "the daemon cannot serve this", which is why the CLI downgrades it to a
