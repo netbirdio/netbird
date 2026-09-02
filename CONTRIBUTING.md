@@ -112,6 +112,7 @@ aligns with our security standards and design expectations.
         - [Test suite](#test-suite)
     - [Checklist before submitting a PR](#checklist-before-submitting-a-pr)
     - [When we close a PR](#when-we-close-a-pr)
+    - [Translations](#translations)
     - [Other project repositories](#other-project-repositories)
     - [Contributor License Agreement](#contributor-license-agreement)
 
@@ -191,7 +192,7 @@ dependencies are installed. Here is a short guide on how that can be done.
 
 ### Requirements
 
-#### Go 1.25
+#### Go 1.26
 
 Follow the installation guide from https://go.dev/
 
@@ -199,7 +200,7 @@ Follow the installation guide from https://go.dev/
 
 The desktop UI client (`client/ui`) is built with [Wails v3](https://v3.wails.io/) and a React frontend rendered in a WebView. To build it you need:
 
-- Go ≥ 1.25
+- Go ≥ 1.26
 - Node ≥ 20 and **pnpm** (`corepack enable && corepack prepare pnpm@latest --activate`)
 - The `wails3` CLI: `go install github.com/wailsapp/wails/v3/cmd/wails3@latest`
 - The `task` runner: `go install github.com/go-task/task/v3/cmd/task@latest`
@@ -478,7 +479,7 @@ go test -race ./client/internal/dns/...
 
 ## Checklist before submitting a PR
 
-As a critical network service and open-source project, we must enforce a few
+As a critical network service and open source project, we must enforce a few
 things before submitting a pull request. The
 [pull request template](/.github/pull_request_template.md) mirrors this list —
 fill it in rather than deleting it.
@@ -611,6 +612,17 @@ We would rather redirect early than let a PR sit. We may close one if:
 A closed PR is not a rejected idea. Take it back to the
 [discussion](https://github.com/netbirdio/netbird/discussions), settle the
 approach, and reopen the work from there.
+
+## Translations
+
+Desktop UI translations are not contributed through pull requests. Translate on
+[Crowdin](https://crowdin.com/project/netbird) instead: no ticket needed, just
+join the project and pick your language. Crowdin syncs with this repository and
+opens the service PRs itself, so hand-edited locale files would conflict with
+the next sync. Style, terminology, and review guidance live in
+[client/ui/i18n/TRANSLATING.md](client/ui/i18n/TRANSLATING.md). To request a
+language the project does not offer yet, ask on the Crowdin project page or in
+a [discussion](https://github.com/netbirdio/netbird/discussions).
 
 ## Other project repositories
 

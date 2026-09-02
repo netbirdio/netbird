@@ -61,6 +61,8 @@ func noIdentityCtx() context.Context { return context.Background() }
 
 func boolPtr(v bool) *bool { return &v }
 
+func strPtr(v string) *string { return &v }
+
 func mustURL(t *testing.T, raw string) *url.URL {
 	t.Helper()
 	u, err := url.Parse(raw)
@@ -172,9 +174,133 @@ func TestRequirePrivilegeForConfigChange_SSHFlags(t *testing.T) {
 			change: privilegedConfigChange{disableSSHAuth: boolPtr(false)},
 		},
 		{
+			name:     "enabling remote jobs unprivileged is refused",
+			stored:   &profilemanager.Config{RemoteJobsAllowed: boolPtr(false)},
+			change:   privilegedConfigChange{remoteJobsAllowed: boolPtr(true)},
+			wantDeny: true,
+		},
+		{
+			name:       "enabling remote jobs as root is allowed",
+			stored:     &profilemanager.Config{RemoteJobsAllowed: boolPtr(false)},
+			change:     privilegedConfigChange{remoteJobsAllowed: boolPtr(true)},
+			privileged: true,
+		},
+		{
+			name:     "a profile with no config yet counts as off, so enabling remote jobs is refused",
+			stored:   nil,
+			change:   privilegedConfigChange{remoteJobsAllowed: boolPtr(true)},
+			wantDeny: true,
+		},
+		{
+			name:   "restating already-enabled remote jobs is not a change",
+			stored: &profilemanager.Config{RemoteJobsAllowed: boolPtr(true)},
+			change: privilegedConfigChange{remoteJobsAllowed: boolPtr(true)},
+		},
+		{
+			name:   "turning remote jobs off is not guarded",
+			stored: &profilemanager.Config{RemoteJobsAllowed: boolPtr(true)},
+			change: privilegedConfigChange{remoteJobsAllowed: boolPtr(false)},
+		},
+		{
 			name:   "a request that touches none of the guarded fields is allowed",
 			stored: &profilemanager.Config{ServerSSHAllowed: boolPtr(false)},
 			change: privilegedConfigChange{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := userCtx()
+			if tt.privileged {
+				ctx = rootCtx()
+			}
+			err := requirePrivilegeForConfigChange(ctx, tt.stored, tt.change)
+			if tt.wantDeny {
+				assertDenied(t, err)
+				return
+			}
+			assertAllowed(t, err)
+		})
+	}
+}
+
+func TestRequirePrivilegeForConfigChange_LocalMetrics(t *testing.T) {
+	exposed := &profilemanager.Config{LocalMetricsEnabled: true, LocalMetricsAddress: "0.0.0.0:9191"}
+
+	tests := []struct {
+		name       string
+		stored     *profilemanager.Config
+		change     privilegedConfigChange
+		privileged bool
+		wantDeny   bool
+	}{
+		{
+			name:     "binding a non-loopback address unprivileged is refused",
+			stored:   &profilemanager.Config{},
+			change:   privilegedConfigChange{enableLocalMetrics: boolPtr(true), localMetricsAddress: strPtr("0.0.0.0:9191")},
+			wantDeny: true,
+		},
+		{
+			name:       "binding a non-loopback address as root is allowed",
+			stored:     &profilemanager.Config{},
+			change:     privilegedConfigChange{enableLocalMetrics: boolPtr(true), localMetricsAddress: strPtr("0.0.0.0:9191")},
+			privileged: true,
+		},
+		{
+			name:   "enabling on the default loopback address is not guarded",
+			stored: &profilemanager.Config{},
+			change: privilegedConfigChange{enableLocalMetrics: boolPtr(true)},
+		},
+		{
+			name:   "enabling on an explicit loopback address is not guarded",
+			stored: &profilemanager.Config{},
+			change: privilegedConfigChange{enableLocalMetrics: boolPtr(true), localMetricsAddress: strPtr("127.0.0.1:9999")},
+		},
+		{
+			name:   "enabling on the IPv6 loopback address is not guarded",
+			stored: &profilemanager.Config{},
+			change: privilegedConfigChange{enableLocalMetrics: boolPtr(true), localMetricsAddress: strPtr("[::1]:9191")},
+		},
+		{
+			// The address alone does nothing while the endpoint stays off.
+			name:   "a non-loopback address without enabling is not guarded",
+			stored: &profilemanager.Config{},
+			change: privilegedConfigChange{localMetricsAddress: strPtr("0.0.0.0:9191")},
+		},
+		{
+			name:     "widening an already enabled loopback endpoint is refused",
+			stored:   &profilemanager.Config{LocalMetricsEnabled: true, LocalMetricsAddress: "127.0.0.1:9191"},
+			change:   privilegedConfigChange{localMetricsAddress: strPtr("0.0.0.0:9191")},
+			wantDeny: true,
+		},
+		{
+			name:   "restating an already exposed endpoint is not a change",
+			stored: exposed,
+			change: privilegedConfigChange{enableLocalMetrics: boolPtr(true), localMetricsAddress: strPtr("0.0.0.0:9191")},
+		},
+		{
+			name:   "turning an exposed endpoint off is not guarded",
+			stored: exposed,
+			change: privilegedConfigChange{enableLocalMetrics: boolPtr(false)},
+		},
+		{
+			name:     "re-enabling an exposed endpoint that was turned off is refused",
+			stored:   &profilemanager.Config{LocalMetricsEnabled: false, LocalMetricsAddress: "0.0.0.0:9191"},
+			change:   privilegedConfigChange{enableLocalMetrics: boolPtr(true)},
+			wantDeny: true,
+		},
+		{
+			// Fail closed: an address that cannot be parsed is not confirmed loopback.
+			name:     "an unparseable address is refused",
+			stored:   &profilemanager.Config{},
+			change:   privilegedConfigChange{enableLocalMetrics: boolPtr(true), localMetricsAddress: strPtr("not-an-address")},
+			wantDeny: true,
+		},
+		{
+			name:     "a profile with no config yet counts as off, so exposing is refused",
+			stored:   nil,
+			change:   privilegedConfigChange{enableLocalMetrics: boolPtr(true), localMetricsAddress: strPtr("0.0.0.0:9191")},
+			wantDeny: true,
 		},
 	}
 

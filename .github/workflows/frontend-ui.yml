@@ -10,6 +10,7 @@ on:
   push:
     branches:
       - main
+      - "release-*"
     paths:
       - "client/ui/frontend/**"
       - "client/ui/i18n/**"

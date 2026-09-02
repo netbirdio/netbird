@@ -30,10 +30,7 @@ const (
 // handleSessionExpired notifies and brings the window forward so the user can reconnect.
 func (t *Tray) handleSessionExpired() {
 	t.notify(t.loc.T("notify.sessionExpired.title"), t.loc.T("notify.sessionExpired.body"), notifyIDSessionExpired)
-	if t.window != nil {
-		t.window.Show()
-		t.window.Focus()
-	}
+	t.showMain()
 }
 
 // applySessionExpiry refreshes the cached SSO deadline and reports whether it changed.
@@ -287,12 +284,23 @@ func (t *Tray) dismissSessionWarning() {
 }
 
 // openSessionExpiration fires the fallback dialog when the earlier warning notification wasn't dismissed.
-// Idempotent on the WindowManager side.
-func (t *Tray) openSessionExpiration() {
+// deadline is the absolute expiry from the warning event's metadata; when zero (older daemon,
+// malformed metadata) the cached status-snapshot deadline fills in. Idempotent on the
+// WindowManager side.
+func (t *Tray) openSessionExpiration(deadline time.Time) {
 	if t.svc.WindowManager == nil {
 		return
 	}
-	t.svc.WindowManager.OpenSessionExpiration(finalWarningCountdownSeconds)
+	if deadline.IsZero() {
+		t.sessionMu.Lock()
+		deadline = t.sessionExpiresAt
+		t.sessionMu.Unlock()
+	}
+	var deadlineMs int64
+	if !deadline.IsZero() {
+		deadlineMs = deadline.UnixMilli()
+	}
+	t.svc.WindowManager.OpenSessionExpiration(finalWarningCountdownSeconds, deadlineMs)
 }
 
 // openSessionExtendFlow opens the SessionExpiration window seeded with the cached deadline's remaining time,
@@ -307,11 +315,11 @@ func (t *Tray) openSessionExtendFlow() {
 	}
 	seconds := int(time.Until(deadline).Seconds())
 	if seconds <= 0 {
-		t.app.Event.Emit(services.EventTriggerLogin)
+		t.showMainAndEmit(services.EventTriggerLogin)
 		return
 	}
 	if t.svc.WindowManager == nil {
 		return
 	}
-	t.svc.WindowManager.OpenSessionExpiration(seconds)
+	t.svc.WindowManager.OpenSessionExpiration(seconds, deadline.UnixMilli())
 }

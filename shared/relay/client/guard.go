@@ -9,7 +9,25 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const defaultMaxBackoffInterval = 60 * time.Second
+const (
+	defaultMaxBackoffInterval = 60 * time.Second
+
+	// quickReconnectBudget bounds how long a quick reconnect waits for the
+	// network before handing the retry over to the ticker.
+	quickReconnectBudget = 1500 * time.Millisecond
+
+	// verdictSettleWindow is how long an online verdict must hold before it
+	// is trusted: the disconnect often precedes the OS offline flag by a few
+	// milliseconds.
+	verdictSettleWindow = 200 * time.Millisecond
+)
+
+// NetworkWatcher is the availability view the guard gates reconnects on.
+type NetworkWatcher interface {
+	Wait(ctx context.Context) (bool, error)
+	IsOnline() bool
+	WaitSettled(ctx context.Context, budget, settleWindow time.Duration) bool
+}
 
 // Guard manage the reconnection tries to the Relay server in case of disconnection event.
 type Guard struct {
@@ -22,6 +40,9 @@ type Guard struct {
 	// attempts.
 	maxBackoffInterval time.Duration
 
+	// netWatcher gates reconnect attempts on OS-reported network availability.
+	netWatcher NetworkWatcher
+
 	// lastErr is the error from the most recent failed reconnect attempt,
 	// surfaced as the home relay status while disconnected.
 	lastErr atomic.Pointer[error]
@@ -29,7 +50,7 @@ type Guard struct {
 
 // NewGuard creates a new guard for the relay client. A non-positive
 // maxBackoffInterval falls back to defaultMaxBackoffInterval.
-func NewGuard(sp *ServerPicker, maxBackoffInterval time.Duration) *Guard {
+func NewGuard(sp *ServerPicker, maxBackoffInterval time.Duration, netWatcher NetworkWatcher) *Guard {
 	if maxBackoffInterval <= 0 {
 		maxBackoffInterval = defaultMaxBackoffInterval
 	}
@@ -38,6 +59,7 @@ func NewGuard(sp *ServerPicker, maxBackoffInterval time.Duration) *Guard {
 		OnReconnected:      make(chan struct{}, 1),
 		serverPicker:       sp,
 		maxBackoffInterval: maxBackoffInterval,
+		netWatcher:         netWatcher,
 	}
 	return g
 }
@@ -70,11 +92,23 @@ func (g *Guard) StartReconnectTrys(ctx context.Context, relayClient *Client) {
 
 	// start a ticker to pick a new server
 	ticker := g.exponentTicker(ctx)
-	defer ticker.Stop()
+	defer func() {
+		ticker.Stop()
+	}()
 
 	for {
 		select {
 		case <-ticker.C:
+			// suspend reconnect attempts while the OS reports no usable network
+			if g.netWatcher != nil {
+				if waited, err := g.netWatcher.Wait(ctx); err != nil {
+					return
+				} else if waited {
+					ticker.Stop()
+					ticker = g.exponentTicker(ctx)
+					continue
+				}
+			}
 			if err := g.retry(ctx); err != nil {
 				log.Errorf("failed to pick new Relay server: %s", err)
 				g.setLastError(err)
@@ -100,8 +134,18 @@ func (g *Guard) tryToQuickReconnect(parentCtx context.Context, rc *Client) bool 
 		return false
 	}
 
-	if cancelled := waiteBeforeRetry(parentCtx); !cancelled {
-		return false
+	if g.netWatcher != nil {
+		if ok := g.netWatcher.WaitSettled(parentCtx, quickReconnectBudget, verdictSettleWindow); !ok {
+			return false
+		}
+		// Still offline after the budget: leave the retry to the ticker.
+		if !g.netWatcher.IsOnline() {
+			return false
+		}
+	} else {
+		if cancelled := waitBeforeRetry(parentCtx); !cancelled {
+			return false
+		}
 	}
 
 	log.Infof("try to reconnect to Relay server: %s", rc.connectionURL)
@@ -166,8 +210,8 @@ func (g *Guard) exponentTicker(ctx context.Context) *backoff.Ticker {
 	return backoff.NewTicker(bo)
 }
 
-func waiteBeforeRetry(ctx context.Context) bool {
-	timer := time.NewTimer(1500 * time.Millisecond)
+func waitBeforeRetry(ctx context.Context) bool {
+	timer := time.NewTimer(quickReconnectBudget)
 	defer timer.Stop()
 
 	select {
