@@ -306,15 +306,51 @@ func newConfigSkeleton() *Config {
 	}
 }
 
-// createNewConfig creates a new config generating a new Wireguard key and saving to file
+// createNewConfig creates a new config in memory, generating the keys that
+// identify the peer. Writing it out is the caller's job.
 func createNewConfig(input ConfigInput) (*Config, error) {
 	config := newConfigSkeleton()
+
+	if _, err := config.EnsureIdentity(); err != nil {
+		return nil, err
+	}
 
 	if _, err := config.apply(input); err != nil {
 		return nil, err
 	}
 
 	return config, nil
+}
+
+// EnsureIdentity generates the keys that identify this peer if the config does
+// not carry them yet, reporting whether it had to generate any.
+//
+// It is deliberately not part of apply(). Everything apply() fills in is a
+// default it can recompute on the next read, but a generated key is not: it
+// has to be persisted, or the peer comes back with a different WireGuard
+// identity and re-registers. Having apply() generate keys is what forced every
+// read of a config to write it back — so identity provisioning is its own step
+// now, and the callers that perform it write the result out explicitly.
+func (config *Config) EnsureIdentity() (bool, error) {
+	generated := false
+
+	if config.PrivateKey == "" {
+		log.Infof("generated new Wireguard key")
+		config.PrivateKey = generateKey()
+		generated = true
+	}
+
+	if config.SSHKey == "" {
+		log.Infof("generated new SSH key")
+		pem, err := ssh.GeneratePrivateKey(ssh.ED25519)
+		if err != nil {
+			return generated, err
+		}
+		config.SSHKey = string(pem)
+		generated = true
+	}
+
+	return generated, nil
 }
 
 func (config *Config) apply(input ConfigInput) (updated bool, err error) {
@@ -372,22 +408,6 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 			config.AdminURL = newURL
 			updated = true
 		}
-	}
-
-	if config.PrivateKey == "" {
-		log.Infof("generated new Wireguard key")
-		config.PrivateKey = generateKey()
-		updated = true
-	}
-
-	if config.SSHKey == "" {
-		log.Infof("generated new SSH key")
-		pem, err := ssh.GeneratePrivateKey(ssh.ED25519)
-		if err != nil {
-			return false, err
-		}
-		config.SSHKey = string(pem)
-		updated = true
 	}
 
 	if input.WireguardPort != nil && *input.WireguardPort != config.WgPort {
@@ -960,11 +980,6 @@ func generateKey() string {
 	return key.String()
 }
 
-// dryRunKeyPlaceholder stands in for the WireGuard and SSH keys of a config
-// that is only ever compared against, never persisted or used to connect. It
-// keeps apply() from generating real keys for a throwaway baseline.
-const dryRunKeyPlaceholder = "dry-run"
-
 // don't overwrite pre-shared key if we receive asterisks from UI
 func isPreSharedKeyHidden(preSharedKey *string) bool {
 	if preSharedKey != nil && *preSharedKey == "**********" {
@@ -1004,19 +1019,11 @@ func (config *Config) WouldChange(input ConfigInput) (bool, error) {
 }
 
 // newDryRunBaseline builds the config a brand-new profile would start from, for
-// a dry run to compare an input against.
-//
-// It is createNewConfig with the key generation skipped: apply() generates a
-// WireGuard and an SSH key whenever it finds those fields empty, and this
-// config exists only to be compared against and thrown away. Generating a
-// keypair per evaluation is waste on its own, and it logs "generated new
-// Wireguard key" once per attempt — in the CLI's login backoff loop that reads
-// like the client rotating its peer key. No ConfigInput field maps to either
-// key, so a placeholder cannot affect the comparison.
+// a dry run to compare an input against. It is createNewConfig without the
+// identity: this config exists only to be compared against and thrown away, and
+// no ConfigInput field maps to either key.
 func newDryRunBaseline(configPath string) (*Config, error) {
 	baseline := newConfigSkeleton()
-	baseline.PrivateKey = dryRunKeyPlaceholder
-	baseline.SSHKey = dryRunKeyPlaceholder
 
 	if _, err := baseline.apply(ConfigInput{ConfigPath: configPath}); err != nil {
 		return nil, err
@@ -1101,12 +1108,20 @@ func update(input ConfigInput) (*Config, error) {
 		return nil, err
 	}
 
+	// A write path is a provisioning point: a stored profile can legitimately
+	// carry no identity (a mobile logout clears the keys in place), and the
+	// next config write is what has to mint a new one. Reads leave that alone.
+	identityGenerated, err := config.EnsureIdentity()
+	if err != nil {
+		return nil, err
+	}
+
 	updated, err := config.apply(input)
 	if err != nil {
 		return nil, err
 	}
 
-	if updated {
+	if updated || identityGenerated {
 		if err := util.WriteJson(context.Background(), input.ConfigPath, config); err != nil {
 			return nil, err
 		}
@@ -1117,7 +1132,7 @@ func update(input ConfigInput) (*Config, error) {
 
 // GetConfig read config file and return with Config and if it was created. Errors out if it does not exist
 func GetConfig(configPath string) (*Config, error) {
-	return readConfig(configPath, false, true)
+	return readConfig(configPath, false)
 }
 
 // UpdateOldManagementURL checks whether client can switch to the new Management URL with port 443 and the management domain.
@@ -1204,26 +1219,24 @@ func CreateInMemoryConfig(input ConfigInput) (*Config, error) {
 	return createNewConfig(input)
 }
 
-// ReadConfig read config file and return with Config. If it is not exists create a new with default values
+// ReadConfig reads the profile config at configPath, resolving a default config
+// in memory when the file does not exist.
+//
+// It never writes. A caller that wants what it got back to be on disk calls
+// WriteOutConfig itself, and one that resolved a config for a peer to run with
+// calls EnsureIdentity first — see Server.getConfig for that pair.
 func ReadConfig(configPath string) (*Config, error) {
-	return readConfig(configPath, true, true)
+	return readConfig(configPath, true)
 }
 
-// PeekConfig reads an existing profile config without writing anything back.
-// GetConfig persists the normalization whenever apply() fills in a default,
-// which a caller that only inspects the stored settings must not do: the
-// daemon's update-settings gate reads the config to decide whether to refuse a
-// request, and a refused request has to leave the profile file exactly as it
-// found it. Errors out when the config does not exist.
-func PeekConfig(configPath string) (*Config, error) {
-	return readConfig(configPath, false, false)
-}
-
-// readConfig reads the profile config at configPath. createIfMissing generates
-// a default config (and writes it out) when the file is absent, rather than
-// erroring. persistNormalization writes the config back when apply() had to
-// fill in defaults the file was missing; a read-only caller passes false.
-func readConfig(configPath string, createIfMissing, persistNormalization bool) (*Config, error) {
+// readConfig reads the profile config at configPath. createIfMissing resolves a
+// default config in memory when the file is absent, rather than erroring.
+//
+// Reads are pure. This used to write the config back whenever apply() had to
+// fill in a default the file was missing, which quietly made every reader a
+// writer: a gate deciding whether to refuse a request, a UI listing profiles,
+// a mobile getter reading a single preference.
+func readConfig(configPath string, createIfMissing bool) (*Config, error) {
 	configExists, err := fileExists(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check if config file exists: %w", err)
@@ -1240,12 +1253,8 @@ func readConfig(configPath string, createIfMissing, persistNormalization bool) (
 			return nil, err
 		}
 		// initialize through apply() without changes
-		if changed, err := config.apply(ConfigInput{}); err != nil {
+		if _, err := config.apply(ConfigInput{}); err != nil {
 			return nil, err
-		} else if changed && persistNormalization {
-			if err = WriteOutConfig(configPath, config); err != nil {
-				return nil, err
-			}
 		}
 
 		return config, nil
@@ -1253,13 +1262,7 @@ func readConfig(configPath string, createIfMissing, persistNormalization bool) (
 		return nil, fmt.Errorf("config file %s does not exist", configPath)
 	}
 
-	cfg, err := createNewConfig(ConfigInput{ConfigPath: configPath})
-	if err != nil {
-		return nil, err
-	}
-
-	err = WriteOutConfig(configPath, cfg)
-	return cfg, err
+	return createNewConfig(ConfigInput{ConfigPath: configPath})
 }
 
 // WriteOutConfig write put the prepared config to the given path
@@ -1309,12 +1312,18 @@ func directUpdate(input ConfigInput) (*Config, error) {
 		return nil, err
 	}
 
+	// Same provisioning point as update(); see the note there.
+	identityGenerated, err := config.EnsureIdentity()
+	if err != nil {
+		return nil, err
+	}
+
 	updated, err := config.apply(input)
 	if err != nil {
 		return nil, err
 	}
 
-	if updated {
+	if updated || identityGenerated {
 		if err := util.DirectWriteJson(context.Background(), input.ConfigPath, config); err != nil {
 			return nil, err
 		}

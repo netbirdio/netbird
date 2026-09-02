@@ -102,36 +102,60 @@ func TestWouldChangeReportsAnInvalidInput(t *testing.T) {
 	require.Error(t, err)
 }
 
-// GetConfig persists the normalization it performs; PeekConfig must not, so a
-// caller that only inspects the stored settings leaves the file alone.
-func TestPeekConfigDoesNotWriteBack(t *testing.T) {
-	// A config file missing a field apply() fills in (MTU) is what makes the
-	// normalization write fire.
+// Reads must not write. A config file missing a field apply() fills in (MTU,
+// here) is what used to trigger the write-back.
+func TestReadsDoNotWriteTheConfigBack(t *testing.T) {
 	denormalized := []byte(`{"WgIface":"wt0"}`)
 
-	peekPath := filepath.Join(t.TempDir(), "peek.json")
-	require.NoError(t, os.WriteFile(peekPath, denormalized, 0o600))
-	before, err := os.ReadFile(peekPath)
-	require.NoError(t, err)
+	for name, read := range map[string]func(string) (*Config, error){
+		"GetConfig":  GetConfig,
+		"ReadConfig": ReadConfig,
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "profile.json")
+			require.NoError(t, os.WriteFile(path, denormalized, 0o600))
 
-	cfg, err := PeekConfig(peekPath)
-	require.NoError(t, err)
-	require.Equal(t, uint16(iface.DefaultMTU), cfg.MTU, "the returned config is still normalized in memory")
+			cfg, err := read(path)
+			require.NoError(t, err)
+			require.Equal(t, uint16(iface.DefaultMTU), cfg.MTU, "the returned config is still normalized in memory")
+			require.Empty(t, cfg.PrivateKey, "a read must not mint an identity either")
 
-	after, err := os.ReadFile(peekPath)
-	require.NoError(t, err)
-	require.Equal(t, string(before), string(after), "PeekConfig rewrote the config file")
+			after, err := os.ReadFile(path)
+			require.NoError(t, err)
+			require.Equal(t, string(denormalized), string(after), "%s rewrote the config file", name)
+		})
+	}
+}
 
-	// Same file through GetConfig, which is expected to persist it.
-	getPath := filepath.Join(t.TempDir(), "get.json")
-	require.NoError(t, os.WriteFile(getPath, denormalized, 0o600))
+// ReadConfig resolves a default config for a profile that has no file yet, and
+// that must not create the file either.
+func TestReadConfigDoesNotCreateTheFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "absent.json")
 
-	_, err = GetConfig(getPath)
+	cfg, err := ReadConfig(path)
 	require.NoError(t, err)
+	require.Equal(t, DefaultManagementURL, cfg.ManagementURL.String())
 
-	persisted, err := os.ReadFile(getPath)
+	_, err = os.Stat(path)
+	require.True(t, os.IsNotExist(err), "ReadConfig created the config file")
+}
+
+// The identity is the one thing a read cannot recompute, so it is provisioned
+// on request and its caller persists it.
+func TestEnsureIdentity(t *testing.T) {
+	cfg := newConfigSkeleton()
+
+	generated, err := cfg.EnsureIdentity()
 	require.NoError(t, err)
-	require.NotEqual(t, string(denormalized), string(persisted), "GetConfig is the variant that normalizes on disk")
+	require.True(t, generated)
+	require.NotEmpty(t, cfg.PrivateKey)
+	require.NotEmpty(t, cfg.SSHKey)
+
+	key := cfg.PrivateKey
+	generated, err = cfg.EnsureIdentity()
+	require.NoError(t, err)
+	require.False(t, generated, "a config that already has an identity keeps it")
+	require.Equal(t, key, cfg.PrivateKey)
 }
 
 // One endpoint written several ways is one endpoint. A gate that compared
@@ -201,11 +225,39 @@ func TestDryRunBaselineDoesNotGenerateKeys(t *testing.T) {
 	baseline, err := newDryRunBaseline(filepath.Join(t.TempDir(), "absent.json"))
 	require.NoError(t, err)
 
-	require.Equal(t, dryRunKeyPlaceholder, baseline.PrivateKey, "generated a WireGuard key for a throwaway config")
-	require.Equal(t, dryRunKeyPlaceholder, baseline.SSHKey, "generated an SSH key for a throwaway config")
+	require.Empty(t, baseline.PrivateKey, "generated a WireGuard key for a throwaway config")
+	require.Empty(t, baseline.SSHKey, "generated an SSH key for a throwaway config")
 
 	// Everything the comparison actually looks at is still the default config.
 	require.Equal(t, DefaultManagementURL, baseline.ManagementURL.String())
 	require.Equal(t, uint16(iface.DefaultMTU), baseline.MTU)
 	require.Equal(t, iface.DefaultWgPort, baseline.WgPort)
+}
+
+// A stored profile can carry no identity — a mobile logout clears the keys in
+// place — so the next config write has to mint one, which is what keeps the
+// following login from dialing management with an empty key.
+func TestUpdateConfigProvisionsAMissingIdentity(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "logged-out.json")
+	_, err := UpdateOrCreateConfig(ConfigInput{
+		ConfigPath:    path,
+		ManagementURL: "https://api.netbird.io:443",
+	})
+	require.NoError(t, err)
+
+	// Stand in for the logout, which zeroes the keys and writes the config out.
+	loggedOut, err := GetConfig(path)
+	require.NoError(t, err)
+	loggedOut.PrivateKey = ""
+	loggedOut.SSHKey = ""
+	require.NoError(t, WriteOutConfig(path, loggedOut))
+
+	cfg, err := UpdateOrCreateConfig(ConfigInput{ConfigPath: path})
+	require.NoError(t, err)
+	require.NotEmpty(t, cfg.PrivateKey, "the write path did not provision an identity")
+	require.NotEmpty(t, cfg.SSHKey)
+
+	persisted, err := GetConfig(path)
+	require.NoError(t, err)
+	require.Equal(t, cfg.PrivateKey, persisted.PrivateKey, "the provisioned identity was not persisted")
 }

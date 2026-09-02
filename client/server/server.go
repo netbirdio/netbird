@@ -1162,10 +1162,9 @@ func (s *Server) storedLoginConfig(activeProf *profilemanager.ActiveProfileState
 // storedConfigAtPath reads a profile config file, yielding nil when it does not
 // exist yet.
 //
-// It peeks rather than reads: every caller here feeds a gate that may refuse
-// the request, and profilemanager.GetConfig writes the config back whenever it
-// has to fill in a default the file was missing. A refused request must leave
-// the profile file exactly as it found it.
+// Reading it has no side effect: profilemanager.GetConfig does not write, so a
+// request that the gates go on to refuse leaves the profile file as it found
+// it.
 func (s *Server) storedConfigAtPath(path string) (*profilemanager.Config, error) {
 	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
@@ -1174,7 +1173,7 @@ func (s *Server) storedConfigAtPath(path string) (*profilemanager.Config, error)
 		return nil, fmt.Errorf("stat profile config: %w", err)
 	}
 
-	cfg, err := profilemanager.PeekConfig(path)
+	cfg, err := profilemanager.GetConfig(path)
 	if err != nil {
 		return nil, fmt.Errorf("read profile config: %w", err)
 	}
@@ -1488,6 +1487,22 @@ func (s *Server) getConfig(activeProf *profilemanager.ActiveProfileState) (*prof
 	config, err := profilemanager.ReadConfig(cfgPath)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to get config: %w", err)
+	}
+
+	// This is the daemon's provisioning point: the config resolved here is the
+	// one the peer runs with, so it needs the keys that identify it, and those
+	// have to reach disk — a key that stays in memory would come back different
+	// on the next start and re-register the peer. Reads themselves are pure, so
+	// the write is here, in the open, instead of hiding inside ReadConfig.
+	generated, err := config.EnsureIdentity()
+	if err != nil {
+		return nil, false, fmt.Errorf("ensure profile identity: %w", err)
+	}
+
+	if generated || !configExisted {
+		if err := profilemanager.WriteOutConfig(cfgPath, config); err != nil {
+			return nil, false, fmt.Errorf("write out profile config: %w", err)
+		}
 	}
 
 	return config, configExisted, nil

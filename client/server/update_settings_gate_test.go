@@ -336,7 +336,7 @@ func TestLogin_ChangeThatAppearsMidRequestIsRefused(t *testing.T) {
 	require.Equal(t, codes.Unavailable, gstatus.Code(err), "want the update-settings refusal, got %v", err)
 	require.False(t, cancelled, "the refused login cancelled the login already in progress")
 
-	stored, err := profilemanager.PeekConfig(targetPath)
+	stored, err := profilemanager.GetConfig(targetPath)
 	require.NoError(t, err)
 	require.Equal(t, "https://mgmt.elsewhere.example:443", stored.ManagementURL.String(),
 		"the refused login wrote the management URL it was asked for")

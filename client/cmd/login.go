@@ -331,6 +331,18 @@ func doForegroundLogin(ctx context.Context, cmd *cobra.Command, setupKey string,
 		return fmt.Errorf("read config file %s: %v", configFilePath, err)
 	}
 
+	// Reading a config does not provision one: this login is about to dial
+	// management with the profile's identity, so mint the keys if the profile
+	// has none yet and put them on disk — a key that stayed in memory would
+	// come back different on the next run and register a second peer.
+	if generated, err := config.EnsureIdentity(); err != nil {
+		return fmt.Errorf("ensure profile identity: %v", err)
+	} else if generated {
+		if err := profilemanager.WriteOutConfig(configFilePath, config); err != nil {
+			return fmt.Errorf("write out config file %s: %v", configFilePath, err)
+		}
+	}
+
 	// Mirror runInForegroundMode: recover residual state (DNS, firewall,
 	// ssh config, legacy routing) from a previous unclean shutdown and
 	// enable advanced routing before dialing management.
