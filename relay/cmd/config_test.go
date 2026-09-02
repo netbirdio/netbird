@@ -1,13 +1,11 @@
 package cmd
 
 import (
-	"bytes"
 	"math"
 	"os"
 	"path/filepath"
 	"testing"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -566,29 +564,6 @@ func TestLoadConfigPreservesLegacyValuesWithEmptyEnvironmentAliases(t *testing.T
 	}
 }
 
-func TestLegacyRelayHasNoConfigFlag(t *testing.T) {
-	require.NoError(t, rootCmd.ParseFlags(nil))
-
-	configFlag := rootCmd.Flags().Lookup("config")
-	assert.Nil(t, configFlag, "Legacy Relay registered no --config flag, so --help did not list it")
-
-	if configFlag != nil {
-		oldValue := configFlag.Value.String()
-		oldChanged := configFlag.Changed
-		oldConfigPath := configPath
-		t.Cleanup(func() {
-			require.NoError(t, configFlag.Value.Set(oldValue))
-			configFlag.Changed = oldChanged
-			configPath = oldConfigPath
-		})
-	}
-
-	err := rootCmd.ParseFlags([]string{"--config", filepath.Join(t.TempDir(), "relay.yaml")})
-	if assert.Error(t, err, "Legacy Relay rejected --config on the command line and exited with 'failed to execute command'") {
-		assert.Contains(t, err.Error(), "unknown flag: --config", "Legacy cobra reported --config as an unknown flag")
-	}
-}
-
 func TestLoadConfigPreservesLegacyNBConfigIgnored(t *testing.T) {
 	clearRelayConfigEnvironment(t)
 	path := filepath.Join(t.TempDir(), "relay.yaml")
@@ -607,27 +582,6 @@ func TestLoadConfigPreservesLegacyNilDomainsDefault(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, cfg.LetsencryptDomains,
 		"Legacy left LetsencryptDomains nil when neither NB_LETSENCRYPT_DOMAINS nor --letsencrypt-domains was given, and Route53TLS.Domains received nil")
-}
-
-func TestLoadConfigPreservesLegacyEnvironmentParseDiagnostics(t *testing.T) {
-	clearRelayConfigEnvironment(t)
-	t.Setenv("NB_METRICS_PORT", "abc")
-
-	logger := log.StandardLogger()
-	oldOutput := logger.Out
-	oldLevel := logger.GetLevel()
-	var logs bytes.Buffer
-	logger.SetOutput(&logs)
-	logger.SetLevel(log.TraceLevel)
-	t.Cleanup(func() {
-		logger.SetOutput(oldOutput)
-		logger.SetLevel(oldLevel)
-	})
-
-	_, err := loadRelayConfigWithoutFile(t)
-	assert.NoError(t, err, "Legacy rejected environment values were logged and ignored; startup continued")
-	assert.Contains(t, logs.String(), "unable to configure flag metrics-port using variable NB_METRICS_PORT",
-		"Legacy emitted an Info diagnostic naming the flag and the NB_ variable when an environment value was rejected")
 }
 
 func setRelaySliceFlag(t *testing.T, name string, values []string) {

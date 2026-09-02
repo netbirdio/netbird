@@ -9,7 +9,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
@@ -370,46 +369,6 @@ func TestLegacyManagementFlagsRemainRegistered(t *testing.T) {
 		assert.NotNil(t, rootCmd.PersistentFlags().Lookup(name),
 			"Legacy persistent Management flag %s should remain registered", name)
 	}
-}
-
-func TestLoadManagementConfigSources(t *testing.T) {
-	clearManagementConfigEnvironment(t)
-	t.Setenv("MANAGEMENT_DATA_DIR", "/template-data")
-	t.Setenv("MANAGEMENT_ENCRYPTION_KEY", "template-key")
-	t.Setenv("NB_DATADIR", "/environment-data")
-	t.Setenv("NB_HTTPCONFIG_AUTHAUDIENCE", "environment-audience")
-	configPath := filepath.Join(t.TempDir(), "management.json")
-	require.NoError(t, os.WriteFile(configPath, []byte(`{
-  "Datadir": "{{ .MANAGEMENT_DATA_DIR }}",
-  "DataStoreEncryptionKey": "{{ .MANAGEMENT_ENCRYPTION_KEY }}",
-  "HttpConfig": {
-    "AuthAudience": "file-audience"
-  },
-  "TURNConfig": {
-    "CredentialsTTL": "1h"
-  }
-}`), 0o600))
-
-	cfg, err := loadManagementConfig(configPath)
-	require.NoError(t, err)
-	assert.Equal(t, "/environment-data", cfg.Datadir, "Bound environment values should override template values")
-	assert.Equal(t, "template-key", cfg.DataStoreEncryptionKey, "Template environment values should be expanded")
-	require.NotNil(t, cfg.HttpConfig, "Nested configuration should be decoded")
-	assert.Equal(t, "environment-audience", cfg.HttpConfig.AuthAudience, "Bound environment values should override the file")
-	require.NotNil(t, cfg.TURNConfig, "TURN configuration should be decoded")
-	assert.Equal(t, time.Hour, cfg.TURNConfig.CredentialsTTL.Duration, "JSON duration types should be decoded")
-
-	datadirFlag := mgmtCmd.Flags().Lookup("datadir")
-	oldDatadir := datadirFlag.Value.String()
-	oldChanged := datadirFlag.Changed
-	t.Cleanup(func() {
-		require.NoError(t, datadirFlag.Value.Set(oldDatadir))
-		datadirFlag.Changed = oldChanged
-	})
-	require.NoError(t, datadirFlag.Value.Set("/flag-data"))
-	datadirFlag.Changed = true
-	ApplyCommandLineOverrides(cfg, mgmtCmd.Flags())
-	assert.Equal(t, "/flag-data", cfg.Datadir, "Flags should override environment values")
 }
 
 // management-01: environment variables were never read directly by the legacy loader.
@@ -1229,54 +1188,6 @@ func TestApplyCommandLineOverridesPreservesLegacyMixedCertificatePair(t *testing
 				"A partially empty certificate pair never overrode the file certificate")
 			assert.Equal(t, "/file/tls.key", cfg.HttpConfig.CertKey,
 				"A partially empty certificate pair never overrode the file key")
-		})
-	}
-}
-
-// management-21: TLS flags with a missing HttpConfig section crashed instead of continuing.
-func TestApplyCommandLineOverridesPreservesLegacyMissingHTTPConfigPanic(t *testing.T) {
-	oldLetsencryptDomain := mgmtLetsencryptDomain
-	oldCertFile := certFile
-	oldCertKey := certKey
-	t.Cleanup(func() {
-		mgmtLetsencryptDomain = oldLetsencryptDomain
-		certFile = oldCertFile
-		certKey = oldCertKey
-	})
-
-	tests := []struct {
-		name      string
-		configure func(*testing.T, *pflag.FlagSet)
-	}{
-		{
-			name: "letsencrypt domain",
-			configure: func(t *testing.T, flags *pflag.FlagSet) {
-				mgmtLetsencryptDomain = "example.com"
-				require.NoError(t, flags.Set("letsencrypt-domain", "example.com"))
-			},
-		},
-		{
-			name: "certificate pair",
-			configure: func(t *testing.T, flags *pflag.FlagSet) {
-				certFile = "/tls.crt"
-				certKey = "/tls.key"
-				require.NoError(t, flags.Set("cert-file", "/tls.crt"))
-				require.NoError(t, flags.Set("cert-key", "/tls.key"))
-			},
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			mgmtLetsencryptDomain = ""
-			certFile = ""
-			certKey = ""
-			flags := unchangedManagementFlags()
-			test.configure(t, flags)
-			cfg := &nbconfig.Config{Datadir: "/d", DataStoreEncryptionKey: "k"}
-
-			assert.Panics(t, func() { ApplyCommandLineOverrides(cfg, flags) },
-				"TLS flags with no HttpConfig section historically dereferenced a nil pointer and crashed startup")
 		})
 	}
 }

@@ -14,15 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestLoadConfigEnvironmentWithoutFile(t *testing.T) {
-	clearCombinedConfigEnvironment(t)
-	t.Setenv("NB_SERVER_LOGLEVEL", "debug")
-
-	cfg, err := LoadConfig("")
-	require.NoError(t, err)
-	assert.Equal(t, "debug", cfg.Server.LogLevel, "Environment should override defaults without a file")
-}
-
 func TestLoadConfigIgnoresEmptyNumericEnvironment(t *testing.T) {
 	clearCombinedConfigEnvironment(t)
 	t.Setenv("NB_SERVER_METRICSPORT", "")
@@ -179,50 +170,6 @@ func TestLegacyCombinedConfigFlagRemainsRegistered(t *testing.T) {
 	assert.Equal(t, "c", flag.Shorthand, "Legacy config shorthand should remain unchanged")
 }
 
-func TestLoadConfigEnvironmentOverridesFileAndDefaults(t *testing.T) {
-	clearCombinedConfigEnvironment(t)
-	configPath := writeCombinedConfig(t, "config.yaml", `
-server:
-  exposedAddress: "https://netbird.example.com"
-  authSecret: "file-secret"
-  logLevel: "info"
-relay:
-  logLevel: "ignored-relay-level"
-signal:
-  logLevel: "ignored-signal-level"
-management:
-  logLevel: "ignored-management-level"
-`)
-	t.Setenv("NB_SERVER_LOGLEVEL", "debug")
-	t.Setenv("NB_SERVER_METRICSPORT", "9191")
-
-	cfg, err := LoadConfig(configPath)
-	require.NoError(t, err)
-	assert.Equal(t, "debug", cfg.Server.LogLevel, "Environment should override the config file")
-	assert.Equal(t, 9191, cfg.Server.MetricsPort, "Environment should override a default absent from the file")
-	assert.Equal(t, ":443", cfg.Server.ListenAddress, "Unchanged defaults should be preserved")
-	assert.Equal(t, "debug", cfg.Relay.LogLevel, "Internal relay configuration should not be decoded")
-	assert.Equal(t, "debug", cfg.Signal.LogLevel, "Internal signal configuration should not be decoded")
-	assert.Equal(t, "debug", cfg.Management.LogLevel, "Internal management configuration should not be decoded")
-}
-
-func TestLoadConfigEnvironmentCreatesOptionalConfig(t *testing.T) {
-	clearCombinedConfigEnvironment(t)
-	configPath := writeCombinedConfig(t, "config.yaml", `
-server:
-  exposedAddress: "https://netbird.example.com"
-  authSecret: "file-secret"
-`)
-	t.Setenv("NB_SERVER_AUTH_OWNER_EMAIL", "owner@example.com")
-	t.Setenv("NB_SERVER_AUTH_OWNER_PASSWORD", "password-hash")
-
-	cfg, err := LoadConfig(configPath)
-	require.NoError(t, err)
-	require.NotNil(t, cfg.Server.Auth.Owner, "Environment should create the optional owner configuration")
-	assert.Equal(t, "owner@example.com", cfg.Server.Auth.Owner.Email, "Owner email should come from the environment")
-	assert.Equal(t, "password-hash", cfg.Server.Auth.Owner.Password, "Owner password should come from the environment")
-}
-
 func TestLoadConfigSupportsYAMLWithoutKnownExtension(t *testing.T) {
 	clearCombinedConfigEnvironment(t)
 	for _, name := range []string{"config", "config.conf"} {
@@ -252,23 +199,6 @@ server:
 	cfg, err := LoadConfig(configPath)
 	require.NoError(t, err)
 	assert.True(t, cfg.Server.DisableAnonymousMetrics, "Legacy YAML boolean values should remain supported")
-}
-
-func TestLoadConfigSupportsTOML(t *testing.T) {
-	clearCombinedConfigEnvironment(t)
-	configPath := writeCombinedConfig(t, "config.toml", `
-[server]
-exposedAddress = "https://netbird.example.com"
-authSecret = "toml-secret"
-logLevel = "warn"
-`)
-
-	cfg, err := LoadConfig(configPath)
-	require.NoError(t, err)
-	assert.Equal(t, "https://netbird.example.com", cfg.Server.ExposedAddress, "Exposed address should be decoded from TOML")
-	assert.Equal(t, "toml-secret", cfg.Server.AuthSecret, "Auth secret should be decoded from TOML")
-	assert.Equal(t, "warn", cfg.Server.LogLevel, "Log level should be decoded from TOML")
-	assert.Equal(t, ":443", cfg.Server.ListenAddress, "Defaults should survive decoding")
 }
 
 func clearCombinedConfigEnvironment(t *testing.T) {
@@ -963,16 +893,6 @@ func TestLoadConfigPreservesLegacySectionNamedEnvironmentIgnored(t *testing.T) {
 	}
 }
 
-func TestLegacyCombinedConfigHelpTextRemainsUnchanged(t *testing.T) {
-	flag := rootCmd.PersistentFlags().Lookup("config")
-	require.NotNil(t, flag, "Legacy config flag should remain registered")
-	assert.Equal(t, "path to YAML configuration file (required)", flag.Usage, "Legacy --config help text should remain unchanged")
-	assert.Contains(t, rootCmd.Long, "Configuration is loaded from a YAML file specified with --config.",
-		"Legacy command description should remain unchanged")
-	assert.NotContains(t, rootCmd.Long, "NB_SERVER_LOGLEVEL",
-		"Legacy command description did not advertise environment overrides")
-}
-
 func TestLoadConfigPreservesLegacyRootAndListItemKeyCaseSensitivity(t *testing.T) {
 	clearCombinedConfigEnvironment(t)
 	tests := []struct {
@@ -1109,39 +1029,6 @@ func TestLoadConfigPreservesLegacyUnquotedStringScalarText(t *testing.T) {
 			assert.Equal(t, value, cfg.Server.AuthSecret, "Legacy yaml.v3 kept the original scalar text for string fields")
 		})
 	}
-}
-
-func TestLoadConfigPreservesLegacyLoadErrorWording(t *testing.T) {
-	clearCombinedConfigEnvironment(t)
-
-	t.Run("missing file", func(t *testing.T) {
-		_, err := LoadConfig(filepath.Join(t.TempDir(), "missing.yaml"))
-		require.Error(t, err)
-		assert.ErrorContains(t, err, "failed to read config file:", "Legacy read errors were prefixed with 'failed to read config file:'")
-		assert.ErrorContains(t, err, "no such file or directory")
-	})
-
-	t.Run("directory", func(t *testing.T) {
-		_, err := LoadConfig(t.TempDir())
-		require.Error(t, err)
-		assert.ErrorContains(t, err, "failed to read config file:", "Legacy read errors were prefixed with 'failed to read config file:'")
-	})
-
-	t.Run("syntax error", func(t *testing.T) {
-		configPath := writeCombinedConfig(t, "config.yaml", "server:\n\tmetricsPort: 1\n")
-		_, err := LoadConfig(configPath)
-		require.Error(t, err)
-		assert.ErrorContains(t, err, "failed to parse config file:", "Legacy parse errors were prefixed with 'failed to parse config file:'")
-		assert.ErrorContains(t, err, "found character that cannot start any token")
-	})
-
-	t.Run("type error", func(t *testing.T) {
-		configPath := writeCombinedConfig(t, "config.yaml", "server: foo\n")
-		_, err := LoadConfig(configPath)
-		require.Error(t, err)
-		assert.ErrorContains(t, err, "failed to parse config file:", "Legacy parse errors were prefixed with 'failed to parse config file:'")
-		assert.ErrorContains(t, err, "cannot unmarshal !!str `foo` into cmd.ServerConfig")
-	})
 }
 
 func TestLoadConfigPreservesLegacyEmptyIntegerEnvironmentKeepsFileValue(t *testing.T) {

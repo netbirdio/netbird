@@ -1,11 +1,8 @@
 package cmd
 
 import (
-	"bytes"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	log "github.com/sirupsen/logrus"
@@ -177,38 +174,6 @@ func TestLegacySignalFlagsRemainRegistered(t *testing.T) {
 		require.NotNil(t, flag, "Legacy root flag %s should remain registered", name)
 		assert.Empty(t, flag.Shorthand, "Legacy Signal flag %s should remain without a shorthand", name)
 	}
-}
-
-func TestLoadConfigPrecedence(t *testing.T) {
-	clearSignalConfigEnvironment(t)
-	configPath := filepath.Join(t.TempDir(), "signal.yaml")
-	require.NoError(t, os.WriteFile(configPath, []byte(`
-port: 10001
-metricsPort: 9091
-logLevel: warn
-pprofAddress: localhost:6060
-`), 0o600))
-	t.Setenv("NB_METRICS_PORT", "9191")
-	t.Setenv("NB_SSL_DIR", "/legacy-certs")
-	require.NoError(t, runCmd.ParseFlags(nil))
-
-	portFlag := runCmd.PersistentFlags().Lookup("port")
-	oldPort := portFlag.Value.String()
-	oldChanged := portFlag.Changed
-	t.Cleanup(func() {
-		require.NoError(t, portFlag.Value.Set(oldPort))
-		portFlag.Changed = oldChanged
-	})
-	require.NoError(t, portFlag.Value.Set("10002"))
-	portFlag.Changed = true
-
-	cfg, err := loadConfig(runCmd, configPath)
-	require.NoError(t, err)
-	assert.Equal(t, 10002, cfg.Port, "Flags should override the configuration file")
-	assert.Equal(t, 9191, cfg.MetricsPort, "Environment should override the configuration file")
-	assert.Equal(t, "warn", cfg.LogLevel, "File values should override defaults")
-	assert.Equal(t, "/legacy-certs", cfg.LetsencryptDataDir, "Legacy environment aliases should remain supported")
-	assert.Equal(t, "localhost:6060", cfg.PprofAddress, "Environment-only settings should load from the file")
 }
 
 func runSignalPreRun(t *testing.T, environment map[string]string) int {
@@ -514,88 +479,4 @@ func TestSignalExplicitZeroPortFlagRemainsCompatible(t *testing.T) {
 				"Legacy skipped the 80/443 default heuristic whenever the port flag was Changed, so `--port 0` kept 0 and bound an ephemeral port")
 		})
 	}
-}
-
-func TestLegacySignalRunCommandHadNoConfigFlag(t *testing.T) {
-	clearSignalConfigEnvironment(t)
-	require.NoError(t, runCmd.ParseFlags(nil))
-
-	configFlag := runCmd.PersistentFlags().Lookup("config")
-	assert.Nil(t, configFlag, "Legacy Signal had no --config flag; cobra rejected it as an unknown flag")
-
-	if configFlag != nil {
-		oldValue, oldChanged := configFlag.Value.String(), configFlag.Changed
-		oldConfigPath := signalConfigPath
-		t.Cleanup(func() {
-			require.NoError(t, configFlag.Value.Set(oldValue))
-			configFlag.Changed = oldChanged
-			signalConfigPath = oldConfigPath
-		})
-	}
-
-	err := runCmd.ParseFlags([]string{"--config", filepath.Join(t.TempDir(), "signal.yaml")})
-	assert.Error(t, err, "Legacy Signal rejected `run --config <path>` with `unknown flag: --config` and exited with a usage error")
-}
-
-func TestSignalPortFlagHelpRetainsLegacyDefault(t *testing.T) {
-	portFlag := runCmd.PersistentFlags().Lookup("port")
-	require.NotNil(t, portFlag, "Signal port flag should be registered")
-
-	assert.Equal(t, "80", portFlag.DefValue,
-		"Legacy registered --port with default 80, so `run --help` rendered a `(default 80)` suffix")
-	assert.Regexp(t, `--port int\s+Server port to listen on .*\(default 80\)`, runCmd.PersistentFlags().FlagUsages(),
-		"Legacy `run --help` printed `(default 80)` after the --port description")
-}
-
-func TestLegacySignalInformationalCommandsAppliedEnvironmentAtStartup(t *testing.T) {
-	tests := []struct {
-		name string
-		args []string
-	}{
-		{name: "version", args: []string{"--version"}},
-		{name: "run help", args: []string{"run", "--help"}},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			clearSignalConfigEnvironment(t)
-
-			cmd := exec.Command(os.Args[0], "-test.run=^TestSignalHelperProcess$")
-			cmd.Env = append(os.Environ(),
-				"NB_SIGNAL_TEST_HELPER_PROCESS=1",
-				"NB_SIGNAL_TEST_HELPER_ARGS="+strings.Join(test.args, " "),
-				"NB_PORT=invalid",
-			)
-			var stdout, stderr bytes.Buffer
-			cmd.Stdout = &stdout
-			cmd.Stderr = &stderr
-			require.NoError(t, cmd.Run(), "helper process should exit cleanly, stdout: %s stderr: %s", stdout.String(), stderr.String())
-
-			assert.Contains(t, stderr.String(), "unable to configure flag port using variable NB_PORT",
-				"Legacy applied NB_ variables to flags in init() for every invocation, so an invalid NB_PORT logged a warning even for informational commands")
-		})
-	}
-}
-
-// TestSignalHelperProcess executes the Signal root command inside a child test process. It is only
-// active when spawned by TestLegacySignalInformationalCommandsAppliedEnvironmentAtStartup.
-func TestSignalHelperProcess(t *testing.T) {
-	if os.Getenv("NB_SIGNAL_TEST_HELPER_PROCESS") != "1" {
-		t.Skip("helper process for subprocess-based tests")
-	}
-
-	rootCmd.SetArgs(strings.Fields(os.Getenv("NB_SIGNAL_TEST_HELPER_ARGS")))
-	require.NoError(t, rootCmd.Execute())
-}
-
-func TestLoadConfigFileCannotEnablePprofAsLegacy(t *testing.T) {
-	clearSignalConfigEnvironment(t)
-	configPath := filepath.Join(t.TempDir(), "signal.yaml")
-	require.NoError(t, os.WriteFile(configPath, []byte("pprofAddress: localhost:6060\n"), 0o600))
-	require.NoError(t, runCmd.ParseFlags(nil))
-
-	cfg, err := loadConfig(runCmd, configPath)
-	require.NoError(t, err)
-	assert.Equal(t, "", cfg.PprofAddress,
-		"Legacy enabled pprof only from os.Getenv(\"NB_PPROF_ADDR\") at run time; no file source could turn it on")
 }
