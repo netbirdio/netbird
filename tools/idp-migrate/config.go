@@ -121,6 +121,10 @@ func applyOverrides(cfg *migrationConfig, domain string) {
 		cfg.idpSeedInfo = val
 	}
 
+	if val, ok := os.LookupEnv("NETBIRD_SINGLE_ACCOUNT_MODE_DOMAIN"); ok {
+		cfg.singleAccountDomain = val
+	}
+
 	// Enforce dry run if any value is provided
 	if sval, ok := os.LookupEnv("NETBIRD_DRY_RUN"); ok {
 		if val, err := strconv.ParseBool(sval); err == nil {
@@ -171,6 +175,10 @@ func validateConfig(cfg *migrationConfig) error {
 
 	if cfg.dashboardURL == "" {
 		return fmt.Errorf("--dashboard-domain is required")
+	}
+
+	if _, err := migration.NormalizeSingleAccountDomain(cfg.singleAccountDomain); err != nil {
+		return err
 	}
 
 	return nil

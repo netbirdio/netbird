@@ -71,6 +71,10 @@ func run(cfg *migrationConfig) error {
 		return err
 	}
 
+	if err := requireSingleAccount(mgmtConfig, cfg.dataDir); err != nil {
+		return err
+	}
+
 	if !cfg.skipPopulateUserInfo {
 		err := populateUserInfoFromIDP(cfg, mgmtConfig)
 		if err != nil {
@@ -100,6 +104,17 @@ func run(cfg *migrationConfig) error {
 	}
 
 	return generateConfig(cfg, connectorConfig)
+}
+
+func requireSingleAccount(mgmtConfig *nbconfig.Config, dataDir string) error {
+	ctx := context.Background()
+	migStore, migEventStore, cleanup, err := openStores(ctx, mgmtConfig, dataDir)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	return migration.RequireSingleAccount(&migrationServer{store: migStore, eventStore: migEventStore})
 }
 
 // validateSchema opens the store and checks that all required tables and columns
@@ -225,10 +240,6 @@ func migrateDB(cfg *migrationConfig, mgmtConfig *nbconfig.Config, connectorConfi
 	defer cleanup()
 
 	srv := &migrationServer{store: migStore, eventStore: migEventStore}
-
-	if err := migration.RequireSingleAccount(srv); err != nil {
-		return err
-	}
 
 	pending, err := previewUsers(ctx, migStore)
 	if err != nil {

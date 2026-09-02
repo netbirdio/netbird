@@ -250,13 +250,32 @@ func RequireSingleAccount(s Server) error {
 	}
 
 	if accountsCounter > 1 {
-		return fmt.Errorf("this instance has %d accounts and the embedded IdP supports a single account only. "+
-			"Identity provider connectors are stored without an account scope, so every account would share "+
-			"and be able to manage the same connectors. Consolidate this instance to a single account, or keep "+
-			"using an external IdP, before migrating", accountsCounter)
+		return errMultipleAccounts(accountsCounter)
 	}
 
 	return nil
+}
+
+func errMultipleAccounts(accountsCounter int64) error {
+	return fmt.Errorf("this instance has %d accounts and the embedded IdP supports a single account only. "+
+		"Identity provider connectors are stored without an account scope, so every account would share "+
+		"and be able to manage the same connectors. Consolidate this instance to a single account, or keep "+
+		"using an external IdP, before migrating", accountsCounter)
+}
+
+func NormalizeSingleAccountDomain(singleAccountDomain string) (string, error) {
+	if singleAccountDomain == "" {
+		singleAccountDomain = DefaultSingleAccountDomain
+	}
+
+	singleAccountDomain = strings.ToLower(singleAccountDomain)
+	if !resolvableDomainRegexp.MatchString(singleAccountDomain) {
+		return "", fmt.Errorf("single account mode domain %q is not usable: it must contain at least one dot "+
+			"and only lowercase letters, digits and hyphens, otherwise users cannot join the existing account",
+			singleAccountDomain)
+	}
+
+	return singleAccountDomain, nil
 }
 
 // EnsureSingleAccountDomain gives the remaining account the domain attributes single account mode
@@ -264,23 +283,23 @@ func RequireSingleAccount(s Server) error {
 func EnsureSingleAccountDomain(s Server, singleAccountDomain string) error {
 	ctx := context.Background()
 
-	if singleAccountDomain == "" {
-		singleAccountDomain = DefaultSingleAccountDomain
-	}
-	singleAccountDomain = strings.ToLower(singleAccountDomain)
-	if !resolvableDomainRegexp.MatchString(singleAccountDomain) {
-		return fmt.Errorf("single account mode domain %q is not usable: it must contain at least one dot "+
-			"and only lowercase letters, digits and hyphens, otherwise users cannot join the existing account",
-			singleAccountDomain)
+	singleAccountDomain, err := NormalizeSingleAccountDomain(singleAccountDomain)
+	if err != nil {
+		return err
 	}
 
 	accountsCounter, err := s.Store().GetAccountsCounter(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to count accounts: %w", err)
 	}
-	if accountsCounter == 0 {
+	// The count is checked again here: it is read long after RequireSingleAccount, and marking an
+	// arbitrary account as the primary one for the domain would be wrong.
+	switch {
+	case accountsCounter == 0:
 		log.Info("no accounts yet, nothing to prepare for single account mode")
 		return nil
+	case accountsCounter > 1:
+		return errMultipleAccounts(accountsCounter)
 	}
 
 	accountID, err := s.Store().GetAnyAccountID(ctx)

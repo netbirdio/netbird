@@ -994,6 +994,21 @@ func TestEnsureSingleAccountDomainRejectsUnresolvableDomains(t *testing.T) {
 		assert.Empty(t, store.domainAttrCalls)
 	})
 
+	t.Run("account appearing after the preflight is rejected", func(t *testing.T) {
+		store := &testStore{
+			accountsCounter: 2,
+			accounts: map[string]*types.Account{
+				"account-1": {Id: "account-1"},
+				"account-2": {Id: "account-2"},
+			},
+		}
+
+		err := EnsureSingleAccountDomain(&testServer{store: store}, "")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "supports a single account only")
+		assert.Empty(t, store.domainAttrCalls, "No account may be marked primary when several exist")
+	})
+
 	t.Run("fresh install with no accounts is a no-op", func(t *testing.T) {
 		store := &testStore{accountsCounter: 0, accounts: map[string]*types.Account{}}
 
