@@ -129,6 +129,28 @@ func TestStatus_PeerStateByIP_RemovedPeer(t *testing.T) {
 	req.False(ok, "removed peer must not resolve by IPv6 tunnel address")
 }
 
+// TestStatus_GetPeerStates_IncludesOfflinePeers keeps the snapshot in line with
+// GetFullStatus: offline peers are known peers, so a consumer counting peers
+// must see the same total the status command reports.
+func TestStatus_GetPeerStates_IncludesOfflinePeers(t *testing.T) {
+	status := NewRecorder("https://mgm")
+	req := require.New(t)
+
+	req.NoError(status.AddPeer("pk-online", "online.netbird", "100.64.0.10", "fd00::1"))
+	status.ReplaceOfflinePeers([]State{
+		{PubKey: "pk-offline", FQDN: "offline.netbird", IP: "100.64.0.20", ConnStatus: StatusIdle},
+	})
+
+	states := status.GetPeerStates()
+	req.Len(states, 2, "snapshot must carry both the online and the offline peer")
+
+	keys := make([]string, 0, len(states))
+	for _, s := range states {
+		keys = append(keys, s.PubKey)
+	}
+	req.ElementsMatch([]string{"pk-online", "pk-offline"}, keys, "snapshot must carry both peers")
+}
+
 func TestStatus_UpdatePeerFQDN(t *testing.T) {
 	key := "abc"
 	fqdn := "peer-a.netbird.local"

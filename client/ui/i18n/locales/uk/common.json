@@ -1,0 +1,1376 @@
+{
+    "tray.tooltip": {
+        "message": "NetBird"
+    },
+    "tray.status.disconnected": {
+        "message": "Відключено"
+    },
+    "tray.status.daemonUnavailable": {
+        "message": "Не запущено"
+    },
+    "tray.status.error": {
+        "message": "Помилка"
+    },
+    "tray.status.connected": {
+        "message": "Підключено"
+    },
+    "tray.status.connecting": {
+        "message": "Підключення"
+    },
+    "tray.status.needsLogin": {
+        "message": "Потрібно ввійти"
+    },
+    "tray.status.loginFailed": {
+        "message": "Помилка входу"
+    },
+    "tray.status.sessionExpired": {
+        "message": "Сеанс закінчився"
+    },
+    "tray.session.expiresIn": {
+        "message": "До завершення сеансу: {remaining}"
+    },
+    "tray.session.unit.lessThanMinute": {
+        "message": "менше хвилини"
+    },
+    "tray.session.unit.minute": {
+        "message": "1 хв."
+    },
+    "tray.session.unit.minutes": {
+        "message": "{count} хв."
+    },
+    "tray.session.unit.hour": {
+        "message": "1 год."
+    },
+    "tray.session.unit.hours": {
+        "message": "{count} год."
+    },
+    "tray.session.unit.day": {
+        "message": "1 дн."
+    },
+    "tray.session.unit.days": {
+        "message": "{count} дн."
+    },
+    "tray.menu.open": {
+        "message": "Відкрити NetBird"
+    },
+    "tray.menu.connect": {
+        "message": "Підключитися"
+    },
+    "tray.menu.disconnect": {
+        "message": "Відключитися"
+    },
+    "tray.menu.exitNode": {
+        "message": "Вихідний вузол"
+    },
+    "tray.menu.networks": {
+        "message": "Ресурси"
+    },
+    "tray.menu.profiles": {
+        "message": "Профілі"
+    },
+    "tray.menu.manageProfiles": {
+        "message": "Керування профілями"
+    },
+    "tray.menu.settings": {
+        "message": "Налаштування…"
+    },
+    "tray.menu.debugBundle": {
+        "message": "Створити архів діагностики"
+    },
+    "tray.menu.about": {
+        "message": "Допомога та підтримка"
+    },
+    "tray.menu.github": {
+        "message": "GitHub"
+    },
+    "tray.menu.documentation": {
+        "message": "Документація"
+    },
+    "tray.menu.troubleshoot": {
+        "message": "Діагностика"
+    },
+    "tray.menu.downloadLatest": {
+        "message": "Завантажити останню версію"
+    },
+    "tray.menu.installVersion": {
+        "message": "Встановити версію {version}"
+    },
+    "tray.menu.guiVersion": {
+        "message": "Графічний інтерфейс: {version}"
+    },
+    "tray.menu.daemonVersion": {
+        "message": "Служба: {version}"
+    },
+    "tray.menu.versionUnknown": {
+        "message": "—"
+    },
+    "tray.menu.quit": {
+        "message": "Вийти з NetBird"
+    },
+    "notify.daemonOutdated.title": {
+        "message": "Служба NetBird застаріла"
+    },
+    "notify.daemonOutdated.body": {
+        "message": "Оновіть службу NetBird, щоб користуватися застосунком."
+    },
+    "notify.update.title": {
+        "message": "Доступне оновлення NetBird"
+    },
+    "notify.update.body": {
+        "message": "Доступна версія NetBird {version}."
+    },
+    "notify.update.enforcedSuffix": {
+        "message": " Ваш адміністратор вимагає встановити це оновлення."
+    },
+    "notify.error.title": {
+        "message": "Помилка"
+    },
+    "notify.error.connect": {
+        "message": "Не вдалося підключитися"
+    },
+    "notify.error.disconnect": {
+        "message": "Не вдалося відключитися"
+    },
+    "notify.error.switchProfile": {
+        "message": "Не вдалося перемкнутися на {profile}"
+    },
+    "notify.error.exitNode": {
+        "message": "Не вдалося оновити вихідний вузол {name}"
+    },
+    "notify.sessionExpired.title": {
+        "message": "Сеанс NetBird закінчився"
+    },
+    "notify.sessionExpired.body": {
+        "message": "Ваш сеанс NetBird закінчився. Будь ласка, увійдіть знову."
+    },
+    "notify.sessionWarning.title": {
+        "message": "Сеанс невдовзі закінчиться"
+    },
+    "notify.sessionWarning.body": {
+        "message": "Ваш сеанс NetBird закінчиться через {remaining}. Натисніть «Продовжити зараз», щоб оновити його."
+    },
+    "notify.sessionWarning.bodyGeneric": {
+        "message": "Ваш сеанс NetBird невдовзі закінчиться. Натисніть «Продовжити зараз», щоб оновити його."
+    },
+    "notify.sessionWarning.extend": {
+        "message": "Продовжити зараз"
+    },
+    "notify.sessionWarning.dismiss": {
+        "message": "Закрити"
+    },
+    "notify.sessionWarning.failed": {
+        "message": "Не вдалося продовжити сеанс NetBird"
+    },
+    "notify.sessionWarning.successTitle": {
+        "message": "Сеанс NetBird продовжено"
+    },
+    "notify.sessionWarning.successBody": {
+        "message": "Ваш сеанс успішно продовжено."
+    },
+    "notify.sessionDeadlineRejected.title": {
+        "message": "Недійсний термін дії сеансу"
+    },
+    "notify.sessionDeadlineRejected.body": {
+        "message": "Сервер надіслав недійсний термін дії сеансу. Будь ласка, увійдіть знову."
+    },
+    "notify.mdm.policyApplied.title": {
+        "message": "Налаштування NetBird оновлено"
+    },
+    "notify.mdm.policyApplied.body": {
+        "message": "Конфігурацію NetBird оновлено відповідно до політики вашої організації."
+    },
+    "common.cancel": {
+        "message": "Скасувати"
+    },
+    "common.save": {
+        "message": "Зберегти"
+    },
+    "common.saveChanges": {
+        "message": "Зберегти зміни"
+    },
+    "common.saving": {
+        "message": "Збереження…"
+    },
+    "common.close": {
+        "message": "Закрити"
+    },
+    "common.copy": {
+        "message": "Копіювати"
+    },
+    "common.togglePasswordVisibility": {
+        "message": "Показати/сховати пароль"
+    },
+    "common.increase": {
+        "message": "Збільшити"
+    },
+    "common.decrease": {
+        "message": "Зменшити"
+    },
+    "common.delete": {
+        "message": "Видалити"
+    },
+    "common.create": {
+        "message": "Створити"
+    },
+    "common.add": {
+        "message": "Додати"
+    },
+    "common.remove": {
+        "message": "Вилучити"
+    },
+    "common.refresh": {
+        "message": "Оновити"
+    },
+    "common.loading": {
+        "message": "Завантаження…"
+    },
+    "common.netbird": {
+        "message": "NetBird"
+    },
+    "common.noResults.title": {
+        "message": "Результатів не знайдено"
+    },
+    "common.noResults.description": {
+        "message": "Ми не змогли нічого знайти. Спробуйте змінити пошуковий запит або налаштування фільтрів."
+    },
+    "notConnected.title": {
+        "message": "Відключено"
+    },
+    "notConnected.description": {
+        "message": "Спочатку підключіться до NetBird, щоб переглянути детальну інформацію про піри, мережеві ресурси та вихідні вузли."
+    },
+    "connect.status.disconnected": {
+        "message": "Відключено"
+    },
+    "connect.status.connecting": {
+        "message": "Підключення…"
+    },
+    "connect.status.connected": {
+        "message": "Підключено"
+    },
+    "connect.status.disconnecting": {
+        "message": "Відключення…"
+    },
+    "connect.status.daemonUnavailable": {
+        "message": "Служба недоступна"
+    },
+    "connect.status.loginRequired": {
+        "message": "Потрібно ввійти"
+    },
+    "connect.error.loginTitle": {
+        "message": "Помилка входу"
+    },
+    "connect.error.connectTitle": {
+        "message": "Помилка підключення"
+    },
+    "connect.error.disconnectTitle": {
+        "message": "Помилка відключення"
+    },
+    "nav.peers.title": {
+        "message": "Піри"
+    },
+    "nav.peers.description": {
+        "message": "Підключено {connected} з {total}"
+    },
+    "nav.resources.title": {
+        "message": "Ресурси"
+    },
+    "nav.resources.description": {
+        "message": "Активно {active} з {total}"
+    },
+    "nav.exitNode.title": {
+        "message": "Вихідні вузли"
+    },
+    "nav.exitNode.none": {
+        "message": "Неактивний"
+    },
+    "nav.exitNode.using": {
+        "message": "Через {name}"
+    },
+    "header.openSettings": {
+        "message": "Відкрити налаштування"
+    },
+    "header.togglePanel": {
+        "message": "Показати/сховати бічну панель"
+    },
+    "profile.selector.loading": {
+        "message": "Завантаження…"
+    },
+    "profile.selector.noProfile": {
+        "message": "Немає профілю"
+    },
+    "profile.selector.searchPlaceholder": {
+        "message": "Пошук профілю за назвою…"
+    },
+    "profile.selector.emptyTitle": {
+        "message": "Профілів не знайдено"
+    },
+    "profile.selector.emptyDescription": {
+        "message": "Спробуйте змінити пошуковий запит або створіть новий профіль."
+    },
+    "profile.selector.newProfile": {
+        "message": "Новий профіль"
+    },
+    "profile.selector.moreOptions": {
+        "message": "Додаткові параметри"
+    },
+    "profile.selector.deregister": {
+        "message": "Вийти з профілю"
+    },
+    "profile.selector.delete": {
+        "message": "Видалити"
+    },
+    "profile.selector.switchTo": {
+        "message": "Перемкнутися на цей профіль"
+    },
+    "profile.selector.edit": {
+        "message": "Редагувати"
+    },
+    "profile.edit.title": {
+        "message": "Редагувати профіль"
+    },
+    "profile.edit.submit": {
+        "message": "Зберегти зміни"
+    },
+    "profile.dialog.title": {
+        "message": "Введіть назву профілю"
+    },
+    "profile.dialog.nameLabel": {
+        "message": "Назва профілю"
+    },
+    "profile.dialog.description": {
+        "message": "Вкажіть зрозумілу назву для вашого профілю."
+    },
+    "profile.dialog.placeholder": {
+        "message": "наприклад, Робота"
+    },
+    "profile.dialog.submit": {
+        "message": "Додати профіль"
+    },
+    "profile.dialog.required": {
+        "message": "Будь ласка, введіть назву профілю, наприклад, «Робота» або «Дім»."
+    },
+    "profile.dialog.managementHelp": {
+        "message": "Використовуйте NetBird Cloud або власний сервер."
+    },
+    "profile.dialog.urlUnreachable": {
+        "message": "Не вдалося підключитися до цього сервера. Перевірте URL-адресу або додайте профіль, якщо ви впевнені, що вона правильна."
+    },
+    "header.menu.settings": {
+        "message": "Налаштування…"
+    },
+    "header.menu.defaultView": {
+        "message": "Стандартний вигляд"
+    },
+    "header.menu.advancedView": {
+        "message": "Розширений вигляд"
+    },
+    "header.menu.updateAvailable": {
+        "message": "Доступне оновлення"
+    },
+    "header.menu.open": {
+        "message": "Відкрити меню"
+    },
+    "header.profile.switch": {
+        "message": "Змінити профіль"
+    },
+    "connect.toggle.label": {
+        "message": "Перемкнути підключення NetBird"
+    },
+    "connect.localIp.label": {
+        "message": "Локальні IP-адреси"
+    },
+    "common.search": {
+        "message": "Пошук"
+    },
+    "common.filter": {
+        "message": "Фільтр"
+    },
+    "exitNodes.dropdown.trigger": {
+        "message": "Вибрати вихідний вузол"
+    },
+    "peers.row.label": {
+        "message": "Відкрити деталі для {name}, {status}"
+    },
+    "peers.dialog.title": {
+        "message": "Деталі піра"
+    },
+    "networks.row.toggle": {
+        "message": "Перемкнути {name}"
+    },
+    "networks.bulk.label": {
+        "message": "Перемкнути всі видимі ресурси"
+    },
+    "profile.switch.title": {
+        "message": "Перемкнутися на профіль «{name}»?"
+    },
+    "profile.switch.message": {
+        "message": "Ви впевнені, що хочете змінити профіль?\nВаш поточний профіль буде відключено."
+    },
+    "profile.switch.confirm": {
+        "message": "Підтвердити"
+    },
+    "profile.deregister.title": {
+        "message": "Вийти з профілю «{name}»?"
+    },
+    "profile.deregister.message": {
+        "message": "Ви впевнені, що хочете вийти з цього профілю?\nВам доведеться увійти знову, щоб використовувати його."
+    },
+    "profile.deregister.confirm": {
+        "message": "Вийти"
+    },
+    "profile.delete.title": {
+        "message": "Видалити профіль «{name}»?"
+    },
+    "profile.delete.message": {
+        "message": "Ви впевнені, що хочете видалити цей профіль?\nЦю дію неможливо скасувати."
+    },
+    "profile.delete.disabledActive": {
+        "message": "Активні профілі не можна видаляти. Перемкніться на інший профіль перед видаленням цього."
+    },
+    "profile.delete.disabledDefault": {
+        "message": "Профіль за замовчуванням не можна видалити."
+    },
+    "profile.error.switchTitle": {
+        "message": "Помилка зміни профілю"
+    },
+    "profile.error.deregisterTitle": {
+        "message": "Помилка виходу з профілю"
+    },
+    "profile.error.deleteTitle": {
+        "message": "Помилка видалення профілю"
+    },
+    "profile.error.createTitle": {
+        "message": "Помилка створення профілю"
+    },
+    "profile.error.editTitle": {
+        "message": "Помилка редагування профілю"
+    },
+    "profile.error.loadTitle": {
+        "message": "Помилка завантаження профілів"
+    },
+    "profile.dropdown.activeProfile": {
+        "message": "Активний профіль"
+    },
+    "profile.dropdown.switchProfile": {
+        "message": "Змінити профіль"
+    },
+    "profile.dropdown.noEmail": {
+        "message": "Інше"
+    },
+    "profile.dropdown.addProfile": {
+        "message": "Додати профіль"
+    },
+    "profile.dropdown.manageProfiles": {
+        "message": "Керування профілями"
+    },
+    "profile.dropdown.settings": {
+        "message": "Налаштування"
+    },
+    "settings.profiles.section.profiles": {
+        "message": "Профілі"
+    },
+    "settings.profiles.intro": {
+        "message": "Використовуйте кілька профілів NetBird одночасно, наприклад, робочий та особистий облікові записи або різні сервери керування. Додавайте профілі, виходьте з них або видаляйте їх нижче."
+    },
+    "settings.profiles.addProfile": {
+        "message": "Додати профіль"
+    },
+    "settings.profiles.active": {
+        "message": "Активний"
+    },
+    "settings.profiles.emptyTitle": {
+        "message": "Немає профілів"
+    },
+    "settings.profiles.emptyDescription": {
+        "message": "Створіть профіль, щоб підключитися до сервера керування NetBird."
+    },
+    "settings.error.loadTitle": {
+        "message": "Помилка завантаження налаштувань"
+    },
+    "settings.error.saveTitle": {
+        "message": "Помилка збереження налаштувань"
+    },
+    "settings.error.debugBundleTitle": {
+        "message": "Помилка створення архіву діагностики"
+    },
+    "settings.nav.label": {
+        "message": "Розділи налаштувань"
+    },
+    "settings.tabs.general": {
+        "message": "Загальні"
+    },
+    "settings.tabs.network": {
+        "message": "Мережа"
+    },
+    "settings.tabs.security": {
+        "message": "Безпека"
+    },
+    "settings.tabs.profiles": {
+        "message": "Профілі"
+    },
+    "settings.tabs.ssh": {
+        "message": "SSH"
+    },
+    "settings.tabs.advanced": {
+        "message": "Розширені"
+    },
+    "settings.tabs.troubleshooting": {
+        "message": "Діагностика"
+    },
+    "settings.tabs.about": {
+        "message": "Про програму"
+    },
+    "settings.tabs.updateAvailable": {
+        "message": "Доступне оновлення"
+    },
+    "settings.general.section.general": {
+        "message": "Загальні"
+    },
+    "settings.general.section.connection": {
+        "message": "Підключення"
+    },
+    "settings.general.connectOnStartup.label": {
+        "message": "Підключитися під час запуску"
+    },
+    "settings.general.connectOnStartup.help": {
+        "message": "Автоматично встановлювати підключення під час запуску служби."
+    },
+    "settings.general.notifications.label": {
+        "message": "Сповіщення на робочому столі"
+    },
+    "settings.general.notifications.help": {
+        "message": "Показувати сповіщення на робочому столі про нові оновлення та події підключення."
+    },
+    "settings.general.autostart.label": {
+        "message": "Запускати інтерфейс NetBird під час входу"
+    },
+    "settings.general.autostart.help": {
+        "message": "Автоматично запускати інтерфейс NetBird під час входу в систему. Це стосується лише графічного інтерфейсу, а не фонової служби."
+    },
+    "settings.general.autostart.errorTitle": {
+        "message": "Помилка зміни автозапуску"
+    },
+    "settings.general.keepConnectedOnQuit.label": {
+        "message": "Залишатися підключеним після виходу"
+    },
+    "settings.general.keepConnectedOnQuit.help": {
+        "message": "Підключення залишатиметься активним у фоновому режимі після закриття NetBird. Воно буде розірвано лише тоді, коли ви відключите його самостійно."
+    },
+    "settings.general.language.label": {
+        "message": "Мова інтерфейсу"
+    },
+    "settings.general.language.help": {
+        "message": "Виберіть мову для інтерфейсу NetBird."
+    },
+    "settings.general.language.search": {
+        "message": "Пошук мови…"
+    },
+    "settings.general.language.empty": {
+        "message": "Не знайдено жодної мови."
+    },
+    "settings.general.management.label": {
+        "message": "Сервер керування"
+    },
+    "settings.general.management.help": {
+        "message": "Підключайтеся до NetBird Cloud або власного сервера керування. Зміни призведуть до перепідключення клієнта."
+    },
+    "settings.general.management.cloud": {
+        "message": "Cloud"
+    },
+    "settings.general.management.selfHosted": {
+        "message": "Власний сервер"
+    },
+    "settings.general.management.urlPlaceholder": {
+        "message": "https://netbird.selfhosted.com:443"
+    },
+    "settings.general.management.urlError": {
+        "message": "Будь ласка, введіть дійсну URL-адресу, наприклад: https://netbird.selfhosted.com:443"
+    },
+    "settings.general.management.urlUnreachable": {
+        "message": "Не вдалося підключитися до цього сервера. Перевірте URL-адресу або все одно збережіть зміни, якщо ви впевнені, що вона правильна."
+    },
+    "settings.general.management.switchCloudTitle": {
+        "message": "Перемкнутися на NetBird Cloud?"
+    },
+    "settings.general.management.switchCloudMessage": {
+        "message": "Це відключить вас від власного сервера.\nВам може знадобитися увійти знову."
+    },
+    "settings.general.management.switchCloudConfirm": {
+        "message": "Перемкнутися на Cloud"
+    },
+    "settings.network.section.connectivity": {
+        "message": "Підключення"
+    },
+    "settings.network.section.routingDns": {
+        "message": "Маршрутизація та DNS"
+    },
+    "settings.network.monitor.label": {
+        "message": "Перепідключатися при зміні мережі"
+    },
+    "settings.network.monitor.help": {
+        "message": "Відстежувати мережу й автоматично перепідключатися у разі таких змін, як перемикання Wi-Fi, зміна Ethernet-підключення або вихід із режиму сну."
+    },
+    "settings.network.dns.label": {
+        "message": "Увімкнути DNS"
+    },
+    "settings.network.dns.help": {
+        "message": "Застосовувати налаштування DNS, якими керує NetBird, до локального DNS-розв’язувача хоста."
+    },
+    "settings.network.clientRoutes.label": {
+        "message": "Увімкнути клієнтські маршрути"
+    },
+    "settings.network.clientRoutes.help": {
+        "message": "Приймати маршрути від інших пірів для доступу до їхніх мереж."
+    },
+    "settings.network.serverRoutes.label": {
+        "message": "Увімкнути серверні маршрути"
+    },
+    "settings.network.serverRoutes.help": {
+        "message": "Анонсувати локальні маршрути цього хоста іншим пірам."
+    },
+    "settings.network.ipv6.label": {
+        "message": "Увімкнути IPv6"
+    },
+    "settings.network.ipv6.help": {
+        "message": "Використовувати адресацію IPv6 для оверлейної мережі NetBird."
+    },
+    "settings.security.section.firewall": {
+        "message": "Брандмауер"
+    },
+    "settings.security.section.encryption": {
+        "message": "Шифрування"
+    },
+    "settings.security.blockInbound.label": {
+        "message": "Блокувати вхідний трафік"
+    },
+    "settings.security.blockInbound.help": {
+        "message": "Відхиляти небажані підключення від пірів до цього пристрою та будь-яких мереж, які він маршрутизує. Вихідний трафік не обмежується."
+    },
+    "settings.security.blockLan.label": {
+        "message": "Блокувати доступ до LAN"
+    },
+    "settings.security.blockLan.help": {
+        "message": "Заборонити пірам отримувати доступ до вашої локальної мережі або її пристроїв, коли цей пристрій маршрутизує їхній трафік."
+    },
+    "settings.security.rosenpass.label": {
+        "message": "Увімкнути постквантову стійкість"
+    },
+    "settings.security.rosenpass.help": {
+        "message": "Додати постквантовий обмін ключами через Rosenpass поверх WireGuard®."
+    },
+    "settings.security.rosenpassPermissive.label": {
+        "message": "Увімкнути дозвільний режим"
+    },
+    "settings.security.rosenpassPermissive.help": {
+        "message": "Дозволити підключення до пірів без підтримки постквантової стійкості."
+    },
+    "settings.ssh.section.server": {
+        "message": "Сервер"
+    },
+    "settings.ssh.section.capabilities": {
+        "message": "Можливості"
+    },
+    "settings.ssh.section.authentication": {
+        "message": "Автентифікація"
+    },
+    "settings.ssh.server.label": {
+        "message": "Увімкнути SSH-сервер"
+    },
+    "settings.ssh.server.help": {
+        "message": "Запустити SSH-сервер NetBird на цьому хості, щоб інші піри могли підключатися до нього."
+    },
+    "settings.ssh.root.label": {
+        "message": "Дозволити вхід як root"
+    },
+    "settings.ssh.root.help": {
+        "message": "Дозволити пірам входити як користувач root. Вимкніть, щоб вимагати непривілейований обліковий запис."
+    },
+    "settings.ssh.sftp.label": {
+        "message": "Дозволити SFTP"
+    },
+    "settings.ssh.sftp.help": {
+        "message": "Безпечно передавати файли за допомогою нативних клієнтів SFTP або SCP."
+    },
+    "settings.ssh.localForward.label": {
+        "message": "Локальне переспрямування портів"
+    },
+    "settings.ssh.localForward.help": {
+        "message": "Дозволити пірам, що підключаються, переспрямовувати локальні порти до сервісів, доступних із цього хоста."
+    },
+    "settings.ssh.remoteForward.label": {
+        "message": "Віддалене переспрямування портів"
+    },
+    "settings.ssh.remoteForward.help": {
+        "message": "Дозволити підключеним пірам відкривати порти на цьому хості з переспрямуванням на свої машини."
+    },
+    "settings.ssh.jwt.label": {
+        "message": "Увімкнути JWT-автентифікацію"
+    },
+    "settings.ssh.jwt.help": {
+        "message": "Перевіряти кожен сеанс SSH через ваш IdP для ідентифікації користувачів та аудиту. Вимкніть, щоб покладатися лише на політики мережевих ACL, що корисно, коли IdP недоступний."
+    },
+    "settings.ssh.jwtTtl.label": {
+        "message": "Час кешування JWT (TTL)"
+    },
+    "settings.ssh.jwtTtl.help": {
+        "message": "Як довго цей клієнт кешує JWT перед повторним запитом для вихідних SSH-з’єднань. Встановіть 0, щоб вимкнути кешування та проходити автентифікацію при кожному підключенні."
+    },
+    "settings.ssh.jwtTtl.suffix": {
+        "message": "сек."
+    },
+    "settings.advanced.section.interface": {
+        "message": "Інтерфейс"
+    },
+    "settings.advanced.section.security": {
+        "message": "Безпека"
+    },
+    "settings.advanced.interfaceName.label": {
+        "message": "Назва"
+    },
+    "settings.advanced.interfaceName.error": {
+        "message": "Використовуйте 1-15 літер, цифр, крапок, дефісів або підкреслень."
+    },
+    "settings.advanced.interfaceName.errorMac": {
+        "message": "Повинно починатися з «utun», після якого має йти число (наприклад, utun100)."
+    },
+    "settings.advanced.port.label": {
+        "message": "Порт"
+    },
+    "settings.advanced.port.error": {
+        "message": "Введіть порт між {min} та {max}."
+    },
+    "settings.advanced.port.help": {
+        "message": "Якщо встановлено 0, буде використано випадковий вільний порт."
+    },
+    "settings.advanced.mtu.label": {
+        "message": "MTU"
+    },
+    "settings.advanced.mtu.error": {
+        "message": "Введіть значення MTU між {min} та {max}."
+    },
+    "settings.advanced.psk.label": {
+        "message": "Попередньо узгоджений ключ"
+    },
+    "settings.advanced.psk.help": {
+        "message": "Додатковий PSK WireGuard для симетричного шифрування. Це не те саме, що NetBird Setup Key. Ви зможете обмінюватися даними лише з тими пірами, які використовують такий самий попередньо узгоджений ключ."
+    },
+    "settings.troubleshooting.section.title": {
+        "message": "Архів діагностики"
+    },
+    "settings.troubleshooting.anonymize.label": {
+        "message": "Анонімізувати чутливу інформацію"
+    },
+    "settings.troubleshooting.anonymize.help": {
+        "message": "Приховує IP-адреси, домени та інші конфіденційні дані."
+    },
+        "settings.troubleshooting.anonymize.info": {
+        "message": "«Стандартний» залишає внутрішні адреси IPv4 та імена пірів читабельними для служби підтримки. «Суворий» додатково анонімізує приватні (RFC 1918), CGNAT- та link-local-адреси, імена пірів і публічні ключі WireGuard. Однакові значення замінюються тим самим псевдонімом, тож піри залишаються розрізнюваними. Використовуйте «Суворий», якщо ділитеся архівом за межами організації."
+    },
+    "settings.troubleshooting.anonymize.none": {
+        "message": "Вимкнено"
+    },
+    "settings.troubleshooting.anonymize.default": {
+        "message": "Стандартний"
+    },
+    "settings.troubleshooting.anonymize.strict": {
+        "message": "Суворий"
+    },
+    "settings.troubleshooting.systemInfo.label": {
+        "message": "Додати інформацію про систему"
+    },
+    "settings.troubleshooting.systemInfo.help": {
+        "message": "Додати дані про ОС, ядро, мережеві інтерфейси та таблиці маршрутизації."
+    },
+    "settings.troubleshooting.upload.label": {
+        "message": "Завантажити архів на сервери NetBird"
+    },
+    "settings.troubleshooting.upload.help": {
+        "message": "Створює ключ завантаження, який можна передати службі підтримки NetBird."
+    },
+    "settings.troubleshooting.trace.label": {
+        "message": "Увімкнути журнали рівня TRACE"
+    },
+    "settings.troubleshooting.trace.help": {
+        "message": "Підвищує рівень журналювання до TRACE на час створення архіву та відновлює його після завершення."
+    },
+    "settings.troubleshooting.capture.label": {
+        "message": "Запис сеансу"
+    },
+    "settings.troubleshooting.capture.help": {
+        "message": "Перепідключає NetBird і чекає, щоб ви могли відтворити проблему."
+    },
+    "settings.troubleshooting.packets.label": {
+        "message": "Захоплювати мережеві пакети"
+    },
+    "settings.troubleshooting.packets.help": {
+        "message": "Зберігає файл .pcap із мережевим трафіком протягом сеансу захоплення."
+    },
+    "settings.troubleshooting.duration.label": {
+        "message": "Тривалість захоплення"
+    },
+    "settings.troubleshooting.duration.help": {
+        "message": "Скільки часу триває сеанс захоплення."
+    },
+    "settings.troubleshooting.duration.suffix": {
+        "message": "хв."
+    },
+    "settings.troubleshooting.create": {
+        "message": "Створити архів"
+    },
+    "settings.troubleshooting.progress.description": {
+        "message": "Збір журналів, даних про систему та інформації про стан підключення. Зазвичай це займає хвилину. Ви можете продовжувати використовувати NetBird або закрити вікно налаштувань, поки процес триває."
+    },
+    "settings.troubleshooting.cancelling": {
+        "message": "Скасування…"
+    },
+    "settings.troubleshooting.done.uploadedTitle": {
+        "message": "Архів діагностики успішно завантажено!"
+    },
+    "settings.troubleshooting.done.savedTitle": {
+        "message": "Архів збережено"
+    },
+    "settings.troubleshooting.done.uploadedDescription": {
+        "message": "Поділіться ключем завантаження нижче зі <docs>службою підтримки NetBird</docs>. Локальну копію також збережено на вашому пристрої."
+    },
+    "settings.troubleshooting.done.savedDescription": {
+        "message": "Ваш архів діагностики збережено локально."
+    },
+    "settings.troubleshooting.done.copyKey": {
+        "message": "Копіювати ключ"
+    },
+    "settings.troubleshooting.done.openFolder": {
+        "message": "Відкрити папку"
+    },
+    "settings.troubleshooting.done.openFileLocation": {
+        "message": "Відкрити розташування файлу"
+    },
+    "settings.troubleshooting.uploadFailedWithReason": {
+        "message": "Помилка завантаження: {reason} Архів все одно збережено локально"
+    },
+    "settings.troubleshooting.uploadFailed": {
+        "message": "Помилка завантаження. Архів все одно збережено локально."
+    },
+    "settings.troubleshooting.stage.reconnecting": {
+        "message": "Перепідключення NetBird…"
+    },
+    "settings.troubleshooting.stage.capturing": {
+        "message": "Запис журналів діагностики"
+    },
+    "settings.troubleshooting.stage.bundling": {
+        "message": "Створення архіву діагностики…"
+    },
+    "settings.troubleshooting.stage.uploading": {
+        "message": "Завантаження на сервери NetBird…"
+    },
+    "settings.troubleshooting.stage.cancelling": {
+        "message": "Скасування…"
+    },
+    "settings.about.client": {
+        "message": "NetBird Client v{version}"
+    },
+    "settings.about.clientName": {
+        "message": "NetBird Client"
+    },
+    "settings.about.development": {
+        "message": "[Розробка]"
+    },
+    "settings.about.gui": {
+        "message": "Графічний інтерфейс v{version}"
+    },
+    "settings.about.guiName": {
+        "message": "Графічний інтерфейс"
+    },
+    "settings.about.copyright": {
+        "message": "© {year} NetBird. Усі права захищено."
+    },
+    "settings.about.links.imprint": {
+        "message": "Реквізити"
+    },
+    "settings.about.links.privacy": {
+        "message": "Конфіденційність"
+    },
+    "settings.about.links.cla": {
+        "message": "CLA"
+    },
+    "settings.about.links.terms": {
+        "message": "Умови використання"
+    },
+    "settings.about.community.github": {
+        "message": "GitHub"
+    },
+    "settings.about.community.slack": {
+        "message": "Slack"
+    },
+    "settings.about.community.forum": {
+        "message": "Форум"
+    },
+    "settings.about.community.documentation": {
+        "message": "Документація"
+    },
+    "settings.about.community.feedback": {
+        "message": "Зворотний зв’язок"
+    },
+    "update.banner.message": {
+        "message": "NetBird {version} готовий до встановлення."
+    },
+    "update.banner.later": {
+        "message": "Пізніше"
+    },
+    "update.banner.installNow": {
+        "message": "Встановити зараз"
+    },
+    "update.card.versionAvailableDownload": {
+        "message": "Версія {version} доступна для завантаження."
+    },
+    "update.card.versionAvailableInstall": {
+        "message": "Версія {version} доступна для встановлення."
+    },
+    "update.card.whatsNew": {
+        "message": "Що нового?"
+    },
+    "update.card.installNow": {
+        "message": "Встановити зараз"
+    },
+    "update.card.getInstaller": {
+        "message": "Завантажити"
+    },
+    "update.card.autoCheckInterval": {
+        "message": "NetBird перевіряє наявність оновлень у фоновому режимі."
+    },
+    "update.card.changelog": {
+        "message": "Список змін"
+    },
+    "update.card.onLatestVersion": {
+        "message": "Ви використовуєте останню версію"
+    },
+    "update.header.tooltip": {
+        "message": "Доступне оновлення"
+    },
+    "update.overlay.updatingVersion": {
+        "message": "Оновлення NetBird до v{version}"
+    },
+    "update.overlay.updating": {
+        "message": "Оновлення NetBird"
+    },
+    "update.overlay.description": {
+        "message": "Доступна новіша версія, яка зараз встановлюється. NetBird автоматично перезапуститься після завершення оновлення."
+    },
+    "update.overlay.error.timeoutTitle": {
+        "message": "Оновлення триває занадто довго"
+    },
+    "update.overlay.error.timeoutDescription": {
+        "message": "Встановлення {target} тривало занадто довго і не завершилося."
+    },
+    "update.overlay.error.canceledTitle": {
+        "message": "Оновлення зупинено"
+    },
+    "update.overlay.error.canceledDescription": {
+        "message": "Оновлення до {target} було скасовано до його завершення."
+    },
+    "update.overlay.error.failTitle": {
+        "message": "Не вдалося встановити оновлення"
+    },
+    "update.overlay.error.failDescription": {
+        "message": "Не вдалося встановити оновлення до {target}."
+    },
+    "update.overlay.error.unknownMessage": {
+        "message": "Невідома помилка"
+    },
+    "update.overlay.error.targetVersion": {
+        "message": "v{version}"
+    },
+    "update.overlay.error.targetFallback": {
+        "message": "нової версії"
+    },
+    "update.error.loadStateTitle": {
+        "message": "Помилка завантаження стану оновлення"
+    },
+    "update.error.triggerTitle": {
+        "message": "Помилка запуску оновлення"
+    },
+    "update.page.versionLine": {
+        "message": "Оновлення клієнта до версії {version}."
+    },
+    "update.page.versionLineGeneric": {
+        "message": "Оновлення клієнта."
+    },
+    "update.page.outdated": {
+        "message": "Ваша версія клієнта старіша за версію для автооновлення, задану в Management."
+    },
+    "update.page.status.running": {
+        "message": "Оновлення"
+    },
+    "update.page.status.timeout": {
+        "message": "Час очікування оновлення минув. Будь ласка, спробуйте ще раз."
+    },
+    "update.page.status.canceled": {
+        "message": "Оновлення скасовано."
+    },
+    "update.page.status.failed": {
+        "message": "Помилка оновлення: {message}"
+    },
+    "update.page.status.unknownError": {
+        "message": "невідома помилка оновлення"
+    },
+    "update.page.failedTitle": {
+        "message": "Помилка оновлення"
+    },
+    "update.page.timeoutMessage": {
+        "message": "Час очікування оновлення минув."
+    },
+    "update.page.dontClose": {
+        "message": "Будь ласка, не закривайте це вікно."
+    },
+    "update.page.updating": {
+        "message": "Оновлення…"
+    },
+    "update.page.complete": {
+        "message": "Оновлення завершено"
+    },
+    "update.page.failed": {
+        "message": "Помилка оновлення"
+    },
+    "window.title.settings": {
+        "message": "Налаштування"
+    },
+    "window.title.signIn": {
+        "message": "Вхід"
+    },
+    "window.title.sessionExpiration": {
+        "message": "Термін дії сеансу закінчується"
+    },
+    "window.title.updating": {
+        "message": "Оновлення"
+    },
+    "window.title.welcome": {
+        "message": "Ласкаво просимо до NetBird"
+    },
+    "window.title.error": {
+        "message": "Помилка"
+    },
+    "welcome.title": {
+        "message": "Знайдіть NetBird в області сповіщень"
+    },
+    "welcome.titleMac": {
+        "message": "Знайдіть NetBird у рядку меню"
+    },
+    "welcome.description": {
+        "message": "NetBird працює в області сповіщень. Натисніть на іконку, щоб підключитися, змінити профіль або відкрити налаштування."
+    },
+    "welcome.descriptionMac": {
+        "message": "NetBird працює в рядку меню. Натисніть на іконку, щоб підключитися, змінити профіль або відкрити налаштування."
+    },
+    "welcome.continue": {
+        "message": "Продовжити"
+    },
+    "welcome.back": {
+        "message": "Назад"
+    },
+    "welcome.management.title": {
+        "message": "Налаштування NetBird"
+    },
+    "welcome.management.description": {
+        "message": "Натисніть «Продовжити», щоб розпочати, або виберіть Власний сервер, якщо у вас є власний сервер NetBird."
+    },
+    "welcome.management.cloud.title": {
+        "message": "NetBird Cloud"
+    },
+    "welcome.management.cloud.description": {
+        "message": "Використовуйте наш хмарний сервіс. Налаштування не потрібне."
+    },
+    "welcome.management.selfHosted.title": {
+        "message": "Власний сервер"
+    },
+    "welcome.management.selfHosted.description": {
+        "message": "Підключіться до власного сервера керування."
+    },
+    "welcome.management.urlLabel": {
+        "message": "URL-адреса сервера керування"
+    },
+    "welcome.management.urlPlaceholder": {
+        "message": "https://netbird.selfhosted.com:443"
+    },
+    "welcome.management.urlInvalid": {
+        "message": "Будь ласка, введіть дійсну URL-адресу, наприклад: https://netbird.selfhosted.com:443"
+    },
+    "welcome.management.urlUnreachable": {
+        "message": "Не вдалося підключитися до цього сервера. Перевірте URL-адресу або вашу мережу, а потім продовжуйте, якщо ви впевнені, що вона правильна."
+    },
+    "welcome.management.checking": {
+        "message": "Перевірка…"
+    },
+    "browserLogin.title": {
+        "message": "Завершіть вхід у браузері"
+    },
+    "browserLogin.notSeeing": {
+        "message": "Ми відкрили вкладку браузера, щоб ви могли завершити вхід. Не бачите її?"
+    },
+    "browserLogin.tryAgain": {
+        "message": "Спробувати ще раз"
+    },
+    "browserLogin.openFailedTitle": {
+        "message": "Помилка відкриття браузера"
+    },
+    "sessionExpiration.title": {
+        "message": "Термін дії сеансу невдовзі закінчиться"
+    },
+    "sessionExpiration.titleLater": {
+        "message": "Термін дії вашого сеансу закінчиться"
+    },
+    "sessionExpiration.description": {
+        "message": "Цей пристрій невдовзі буде відключено. Поновіть сеанс, увійшовши через браузер."
+    },
+    "sessionExpiration.descriptionLater": {
+        "message": "Вхід через браузер підтримує підключення цього пристрою до вашої мережі."
+    },
+    "sessionExpiration.stay": {
+        "message": "Продовжити сеанс"
+    },
+    "sessionExpiration.authenticate": {
+        "message": "Увійти"
+    },
+    "sessionExpiration.logout": {
+        "message": "Вийти"
+    },
+    "sessionExpiration.expired": {
+        "message": "Термін дії сеансу закінчився"
+    },
+    "sessionExpiration.expiredDescription": {
+        "message": "Пристрій відключено. Пройдіть автентифікацію у браузері, щоб перепідключитися."
+    },
+    "sessionExpiration.close": {
+        "message": "Закрити"
+    },
+    "sessionExpiration.extendFailedTitle": {
+        "message": "Помилка продовження сеансу"
+    },
+    "sessionExpiration.logoutFailedTitle": {
+        "message": "Помилка виходу"
+    },
+    "peers.search.placeholder": {
+        "message": "Пошук за ім’ям або IP"
+    },
+    "peers.filter.all": {
+        "message": "Усі"
+    },
+    "peers.filter.online": {
+        "message": "Онлайн"
+    },
+    "peers.filter.offline": {
+        "message": "Офлайн"
+    },
+    "peers.empty.title": {
+        "message": "Немає доступних пірів"
+    },
+    "peers.empty.description": {
+        "message": "У вас немає доступних пірів або доступу до жодного з них."
+    },
+    "peers.details.domain": {
+        "message": "Домен"
+    },
+    "peers.details.netbirdIp": {
+        "message": "NetBird IP"
+    },
+    "peers.details.netbirdIpv6": {
+        "message": "NetBird IPv6"
+    },
+    "peers.details.publicKey": {
+        "message": "Публічний ключ"
+    },
+    "peers.details.connection": {
+        "message": "Підключення"
+    },
+    "peers.details.latency": {
+        "message": "Затримка"
+    },
+    "peers.details.lastHandshake": {
+        "message": "Останнє рукостискання"
+    },
+    "peers.details.statusSince": {
+        "message": "Останнє оновлення підключення"
+    },
+    "peers.details.bytes": {
+        "message": "Байти"
+    },
+    "peers.details.bytesSent": {
+        "message": "Надіслано"
+    },
+    "peers.details.bytesReceived": {
+        "message": "Отримано"
+    },
+    "peers.details.localIce": {
+        "message": "Локальний ICE"
+    },
+    "peers.details.remoteIce": {
+        "message": "Віддалений ICE"
+    },
+    "peers.details.never": {
+        "message": "Ніколи"
+    },
+    "peers.details.justNow": {
+        "message": "Щойно"
+    },
+    "peers.details.refresh": {
+        "message": "Оновити"
+    },
+    "peers.status.connected": {
+        "message": "Підключено"
+    },
+    "peers.status.connecting": {
+        "message": "Підключення"
+    },
+    "peers.status.disconnected": {
+        "message": "Відключено"
+    },
+    "peers.details.relayAddress": {
+        "message": "Ретранслятор"
+    },
+    "peers.details.networks": {
+        "message": "Ресурси"
+    },
+    "peers.details.relayed": {
+        "message": "Через ретранслятор"
+    },
+    "peers.details.p2p": {
+        "message": "P2P"
+    },
+    "peers.details.rosenpass": {
+        "message": "Rosenpass увімкнено"
+    },
+    "networks.search.placeholder": {
+        "message": "Пошук за мережею або доменом"
+    },
+    "networks.filter.all": {
+        "message": "Усі"
+    },
+    "networks.filter.active": {
+        "message": "Активні"
+    },
+    "networks.filter.overlapping": {
+        "message": "Перетинаються"
+    },
+    "networks.empty.title": {
+        "message": "Немає доступних ресурсів"
+    },
+    "networks.empty.description": {
+        "message": "У вас немає доступних мережевих ресурсів або доступу до жодного з них."
+    },
+    "networks.selected": {
+        "message": "Вибрано"
+    },
+    "networks.unselected": {
+        "message": "Не вибрано"
+    },
+    "networks.ips.heading": {
+        "message": "Визначені IP-адреси"
+    },
+    "networks.bulk.selectionCount": {
+        "message": "Активні: {selected} з {total}"
+    },
+    "networks.bulk.enableAll": {
+        "message": "Увімкнути всі"
+    },
+    "networks.bulk.disableAll": {
+        "message": "Вимкнути всі"
+    },
+    "exitNodes.search.placeholder": {
+        "message": "Пошук вихідних вузлів"
+    },
+    "exitNodes.none": {
+        "message": "Немає"
+    },
+    "exitNodes.empty.title": {
+        "message": "Немає доступних вихідних вузлів"
+    },
+    "exitNodes.empty.description": {
+        "message": "Цьому піру не надано жодного вихідного вузла."
+    },
+    "exitNodes.card.title": {
+        "message": "Вихідний вузол"
+    },
+    "exitNodes.card.statusActive": {
+        "message": "Активний"
+    },
+    "exitNodes.card.statusInactive": {
+        "message": "Неактивний"
+    },
+    "exitNodes.dropdown.noneTitle": {
+        "message": "Немає"
+    },
+    "exitNodes.dropdown.noneDescription": {
+        "message": "Пряме підключення без вихідного вузла"
+    },
+    "quickActions.connect": {
+        "message": "Підключитися"
+    },
+    "quickActions.disconnect": {
+        "message": "Відключитися"
+    },
+    "daemon.unavailable.title": {
+        "message": "Служба NetBird не запущена"
+    },
+    "daemon.unavailable.description": {
+        "message": "Програма перепідключиться автоматично, щойно служба запрацює."
+    },
+    "daemon.unavailable.docsLink": {
+        "message": "Документація"
+    },
+    "daemon.outdated.title": {
+        "message": "Клієнт NetBird застарів"
+    },
+    "daemon.outdated.description": {
+        "message": "Новий графічний інтерфейс несумісний зі старою версією клієнта NetBird. Оновіть клієнт, щоб використовувати нову програму."
+    },
+    "daemon.outdated.download": {
+        "message": "Завантажити останню версію"
+    },
+    "error.jwt_clock_skew": {
+        "message": "Помилка входу: годинник цього пристрою не синхронізовано із сервером. Будь ласка, синхронізуйте системний годинник і спробуйте знову."
+    },
+    "error.jwt_expired": {
+        "message": "Термін дії вашого токена входу закінчився. Будь ласка, увійдіть знову."
+    },
+    "error.jwt_signature_invalid": {
+        "message": "Помилка входу: недійсний підпис токена. Будь ласка, зверніться до адміністратора."
+    },
+    "error.session_expired": {
+        "message": "Термін дії вашого сеансу закінчився. Будь ласка, увійдіть знову."
+    },
+    "error.invalid_setup_key": {
+        "message": "Setup Key відсутній або недійсний."
+    },
+    "error.permission_denied": {
+        "message": "Вхід відхилено сервером."
+    },
+    "error.daemon_unreachable": {
+        "message": "Служба NetBird не відповідає. Будь ласка, перевірте, чи запущена служба."
+    },
+    "error.unknown": {
+        "message": "Помилка операції."
+    },
+    "error.elevation_unavailable": {
+        "message": "NetBird не зміг запросити в системи привілеї, необхідні для внесення змін. Замість цього виконайте:"
+    },
+    "error.elevation_failed": {
+        "message": "Не вдалося застосувати зміни з підвищеними привілеями. Замість цього виконайте:"
+    },
+    "settings.ssh.privilege.actorRoot": {
+        "message": "прав root"
+    },
+    "settings.ssh.privilege.actorAdministrator": {
+        "message": "прав адміністратора"
+    },
+    "settings.ssh.privilege.hint": {
+        "message": "Потребує {actor}. Замість цього виконайте:"
+    },
+    "settings.ssh.privilege.oneWay": {
+        "message": "Ви можете вимкнути це, але щоб увімкнути знову, знадобиться {actor}:"
+    },
+    "settings.ssh.privilege.oneWayInverted": {
+        "message": "Ви можете увімкнути це, але щоб вимкнути знову, знадобиться {actor}:"
+    },
+        "settings.ssh.privilege.authorizePending": {
+        "message": "Очікування авторизації…"
+    }
+}

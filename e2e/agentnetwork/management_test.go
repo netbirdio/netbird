@@ -21,11 +21,10 @@ func ptr[T any](v T) *T { return &v }
 func newProvider(t *testing.T, ctx context.Context, name string) api.AgentNetworkProvider {
 	t.Helper()
 	prov, err := srv.CreateProvider(ctx, api.AgentNetworkProviderRequest{
-		Name:             name,
-		ProviderId:       "openai_api",
-		UpstreamUrl:      "https://api.openai.com",
-		ApiKey:           ptr("sk-dummy-e2e-key"),
-		BootstrapCluster: ptr("eu.proxy.netbird.test"),
+		Name:        name,
+		ProviderId:  "openai_api",
+		UpstreamUrl: "https://api.openai.com",
+		ApiKey:      ptr("sk-dummy-e2e-key"),
 	})
 	require.NoError(t, err, "create provider %q", name)
 	t.Cleanup(func() { _ = srv.DeleteProvider(context.Background(), prov.Id) })
@@ -57,17 +56,11 @@ func TestProviderLifecycle(t *testing.T) {
 		}}
 	}
 
-	for i, pc := range cases {
-		i, pc := i, pc
+	for _, pc := range cases {
+		pc := pc
 		t.Run(pc.name, func(t *testing.T) {
 			req := providerRequest(pc)
 			req.Name = "lc-" + pc.name
-			// Bootstrap the cluster on the first create in case the matrix has
-			// not run (e.g. no provider keys → settings not yet bootstrapped).
-			if i == 0 {
-				req.BootstrapCluster = ptr(harness.AgentNetworkCluster)
-			}
-
 			prov, err := srv.CreateProvider(ctx, req)
 			require.NoError(t, err, "create %s provider", pc.name)
 			t.Cleanup(func() { _ = srv.DeleteProvider(context.Background(), prov.Id) })
@@ -137,34 +130,65 @@ func TestProviderValidation(t *testing.T) {
 	requireClientError(t, err)
 }
 
-// TestSettingsRoundTrip flips the collection toggles and confirms cluster /
-// subdomain stay immutable, then restores the original state.
+// TestSettingsRoundTrip flips the collection toggles and confirms the
+// endpoint and proxy address stay immutable, then restores the original
+// state. A second bootstrap attempt must be rejected as a conflict.
 func TestSettingsRoundTrip(t *testing.T) {
 	ctx := context.Background()
 
-	// Settings are bootstrapped on first provider create.
-	newProvider(t, ctx, "Settings Bootstrap")
-
+	// The package's TestMain bootstrapped the shared account's endpoint.
 	before, err := srv.GetSettings(ctx)
 	require.NoError(t, err, "get settings")
-	require.NotEmpty(t, before.Cluster, "settings must carry an assigned cluster")
+	require.NotEmpty(t, before.Endpoint, "settings must carry the bootstrapped endpoint")
+	require.NotEmpty(t, before.ProxyAddress, "settings must carry the bootstrapped proxy address")
+
+	require.NotNil(t, before.AccessLogRetentionDays, "bootstrapped settings must carry a retention")
+	beforeRetention := *before.AccessLogRetentionDays
 
 	flipped, err := srv.UpdateSettings(ctx, api.AgentNetworkSettingsRequest{
+		Endpoint:               before.Endpoint,
+		ProxyAddress:           before.ProxyAddress,
 		EnableLogCollection:    !before.EnableLogCollection,
 		EnablePromptCollection: !before.EnablePromptCollection,
 		RedactPii:              !before.RedactPii,
+		AccessLogRetentionDays: beforeRetention,
 	})
 	require.NoError(t, err, "update settings")
 	assert.Equal(t, !before.EnableLogCollection, flipped.EnableLogCollection, "log collection toggle must flip")
 	assert.Equal(t, !before.EnablePromptCollection, flipped.EnablePromptCollection, "prompt collection toggle must flip")
-	assert.Equal(t, before.Cluster, flipped.Cluster, "cluster must be immutable across updates")
-	assert.Equal(t, before.Subdomain, flipped.Subdomain, "subdomain must be immutable across updates")
+	require.NotNil(t, flipped.AccessLogRetentionDays)
+	assert.Equal(t, beforeRetention, *flipped.AccessLogRetentionDays,
+		"retention sent unchanged must round-trip, not reset to the zero value")
+	assert.Equal(t, before.Endpoint, flipped.Endpoint, "endpoint must be immutable across updates")
+	assert.Equal(t, before.ProxyAddress, flipped.ProxyAddress, "proxy address must be immutable across updates")
 
-	// Restore the original toggles.
+	// The account is already bootstrapped: a second bootstrap is a conflict,
+	// whatever shape it asks for.
+	_, err = srv.CreateSettings(ctx, api.AgentNetworkSettingsCreateRequest{
+		Endpoint: ptr("attacker.cluster.invalid"),
+	})
+	requireClientError(t, err)
+
+	// The identity fields ride along on the PUT as a required echo: a request
+	// carrying a different endpoint is rejected without applying anything.
 	_, err = srv.UpdateSettings(ctx, api.AgentNetworkSettingsRequest{
+		Endpoint:               "other.cluster.invalid",
+		ProxyAddress:           before.ProxyAddress,
 		EnableLogCollection:    before.EnableLogCollection,
 		EnablePromptCollection: before.EnablePromptCollection,
 		RedactPii:              before.RedactPii,
+		AccessLogRetentionDays: beforeRetention,
+	})
+	requireClientError(t, err)
+
+	// Restore the original toggles.
+	_, err = srv.UpdateSettings(ctx, api.AgentNetworkSettingsRequest{
+		Endpoint:               before.Endpoint,
+		ProxyAddress:           before.ProxyAddress,
+		EnableLogCollection:    before.EnableLogCollection,
+		EnablePromptCollection: before.EnablePromptCollection,
+		RedactPii:              before.RedactPii,
+		AccessLogRetentionDays: beforeRetention,
 	})
 	require.NoError(t, err, "restore settings")
 }
