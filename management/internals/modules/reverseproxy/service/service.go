@@ -1021,7 +1021,8 @@ func validateDirectUpstreamHost(idx int, target *Target) error {
 	if _, _, err := net.SplitHostPort(host); err == nil {
 		return fmt.Errorf("target %d: host %q must not include a port (set target.port instead)", idx, host)
 	}
-	maybeip := net.ParseIP(host)
+	noBrackets := strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
+	maybeip := net.ParseIP(noBrackets)
 	if maybeip == nil { // not an ip address
 		return nil
 	}
