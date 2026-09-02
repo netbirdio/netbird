@@ -24,6 +24,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	"github.com/netbirdio/netbird/management/server/account"
+	"github.com/netbirdio/netbird/management/server/http/middleware/bypass"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/networks"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
@@ -104,6 +105,12 @@ func mountedRouter(t *testing.T, shared, signing string) *mux.Router {
 
 	router := mux.NewRouter().PathPrefix("/api").Subrouter()
 	require.NoError(t, AddEndpoints(testDeps(), router))
+
+	// AddEndpoints registers the route in the bypass package's process-wide
+	// list and nothing takes it out again, so without this every later test in
+	// the package would run with this path exempt from the auth middleware.
+	t.Cleanup(func() { bypass.RemovePath("/api" + EndpointPath) })
+
 	return router
 }
 
