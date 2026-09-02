@@ -60,7 +60,12 @@ type DNSForwarder struct {
 	mutex sync.RWMutex
 	// closed records that Close has run, so a Listen still in flight does not
 	// go on to serve sockets nobody will shut down.
-	closed     bool
+	closed bool
+	// The sockets are kept alongside the servers because closing them is the
+	// only stop that always works: a server whose ActivateAndServe has not run
+	// yet refuses to shut down, and would otherwise start serving afterwards.
+	udpConn    net.PacketConn
+	tcpLn      net.Listener
 	dnsServer  *dns.Server
 	tcpServer  *dns.Server
 	fwdEntries []*ForwarderEntry
@@ -122,13 +127,8 @@ func (f *DNSForwarder) Listen(entries []*ForwarderEntry) error {
 		Handler:  tcpMux,
 	}
 
-	// Listen runs on its own goroutine, so a Close can already have happened by
-	// the time it reaches here. Publishing the servers under the lock Close
-	// takes is what lets it find them, and giving up once closed keeps these
-	// sockets from outliving the interface they were bound on.
-	f.mutex.Lock()
-	if f.closed {
-		f.mutex.Unlock()
+	if !f.publish(udpLn, tcpLn, dnsServer, tcpServer) {
+		log.Infof("DNS forwarder on %s was closed before it started serving", addrDesc)
 		if err := udpLn.Close(); err != nil {
 			log.Debugf("close UDP listener of a closed forwarder: %v", err)
 		}
@@ -137,9 +137,6 @@ func (f *DNSForwarder) Listen(entries []*ForwarderEntry) error {
 		}
 		return nil
 	}
-	f.dnsServer = dnsServer
-	f.tcpServer = tcpServer
-	f.mutex.Unlock()
 
 	f.UpdateDomains(entries)
 
@@ -171,6 +168,25 @@ func (f *DNSForwarder) createTCPListener(netstackNet *netstack.Net) (net.Listene
 	}
 
 	return net.ListenTCP("tcp", net.TCPAddrFromAddrPort(f.listenAddress))
+}
+
+// publish hands the sockets and servers to the forwarder so Close can reach
+// them, and reports whether serving may begin. Listen runs on its own
+// goroutine, so a Close can arrive before it gets this far; false means the
+// caller must close what it created instead of serving on it.
+func (f *DNSForwarder) publish(udpConn net.PacketConn, tcpLn net.Listener, dnsServer, tcpServer *dns.Server) bool {
+	f.mutex.Lock()
+	defer f.mutex.Unlock()
+
+	if f.closed {
+		return false
+	}
+
+	f.udpConn = udpConn
+	f.tcpLn = tcpLn
+	f.dnsServer = dnsServer
+	f.tcpServer = tcpServer
+	return true
 }
 
 // Domains returns the entries currently being served. The slice is replaced
@@ -226,18 +242,36 @@ func (f *DNSForwarder) Close(ctx context.Context) error {
 	f.mutex.Lock()
 	f.closed = true
 	dnsServer, tcpServer := f.dnsServer, f.tcpServer
+	udpConn, tcpLn := f.udpConn, f.tcpLn
 	f.mutex.Unlock()
 
 	var result *multierror.Error
 
 	if dnsServer != nil {
-		if err := dnsServer.ShutdownContext(ctx); err != nil {
+		if err := shutdownServer(ctx, dnsServer); err != nil {
 			result = multierror.Append(result, fmt.Errorf("UDP shutdown: %w", err))
 		}
 	}
 	if tcpServer != nil {
-		if err := tcpServer.ShutdownContext(ctx); err != nil {
+		if err := shutdownServer(ctx, tcpServer); err != nil {
 			result = multierror.Append(result, fmt.Errorf("TCP shutdown: %w", err))
+		}
+	}
+
+	// The sockets are closed even when the shutdowns above reported nothing to
+	// do. A server that has been published but has not reached
+	// ActivateAndServe refuses to shut down, and closing what it was about to
+	// serve on is what stops it: the alternative is a listener still answering
+	// on an interface that has gone away. A shutdown that did run has already
+	// closed these, so the second close is expected to fail.
+	if udpConn != nil {
+		if err := udpConn.Close(); err != nil {
+			log.Debugf("close UDP socket of the DNS forwarder: %v", err)
+		}
+	}
+	if tcpLn != nil {
+		if err := tcpLn.Close(); err != nil {
+			log.Debugf("close TCP socket of the DNS forwarder: %v", err)
 		}
 	}
 
@@ -552,4 +586,17 @@ func attachEDE(resp *dns.Msg, code uint16, text string) {
 		opt = resp.IsEdns0()
 	}
 	opt.Option = append(opt.Option, &dns.EDNS0_EDE{InfoCode: code, ExtraText: text})
+}
+
+// shutdownServer shuts a server down gracefully, treating "never started" as
+// success. A server that was published but has not reached ActivateAndServe
+// has nothing to wind down, and the caller closes its socket regardless, which
+// is what actually stops it. dns exports no sentinel for this, so the message
+// is all there is to match on.
+func shutdownServer(ctx context.Context, server *dns.Server) error {
+	err := server.ShutdownContext(ctx)
+	if err == nil || strings.Contains(err.Error(), "server not started") {
+		return nil
+	}
+	return err
 }
