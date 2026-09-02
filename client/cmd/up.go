@@ -353,7 +353,10 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 	req := setupSetConfigReq(customDNSAddressConverted, cmd, activeProf.ID.String(), username.Username)
 	if _, err := client.SetConfig(ctx, req); err != nil {
 		if st, ok := gstatus.FromError(err); ok && st.Code() == codes.Unavailable {
-			log.Warnf("setConfig method is not available in the daemon: %s", st.Message())
+			// The daemon refused the settings update, it did not lack the
+			// method: reporting the latter sent people looking for a version
+			// mismatch that was not there.
+			log.Warnf("the daemon refused the settings update: %s", st.Message())
 		} else {
 			return daemonCallError("call service setConfig method", err)
 		}

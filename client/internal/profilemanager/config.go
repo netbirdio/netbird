@@ -328,20 +328,20 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 			return false, err
 		}
 	}
-	if input.ManagementURL != "" && input.ManagementURL != config.ManagementURL.String() {
-		log.Infof("new Management URL provided, updated to %#v (old value %#v)",
-			input.ManagementURL, config.ManagementURL.String())
+	// The comparison is between parsed URLs, not raw strings: the same
+	// endpoint can be written differently (an implicit :443, say), and
+	// treating an equivalent URL as new would rewrite the config and report a
+	// settings change where the configuration does not actually change.
+	if input.ManagementURL != "" {
 		URL, err := parseURL("Management URL", input.ManagementURL)
 		if err != nil {
 			return false, err
 		}
-		config.ManagementURL = URL
-		updated = true
-	} else if config.ManagementURL == nil {
-		log.Infof("using default Management URL %s", DefaultManagementURL)
-		config.ManagementURL, err = parseURL("Management URL", DefaultManagementURL)
-		if err != nil {
-			return false, err
+		if URL.String() != config.ManagementURL.String() {
+			log.Infof("new Management URL provided, updated to %#v (old value %#v)",
+				URL.String(), config.ManagementURL.String())
+			config.ManagementURL = URL
+			updated = true
 		}
 	}
 
@@ -352,15 +352,18 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 			return false, err
 		}
 	}
-	if input.AdminURL != "" && input.AdminURL != config.AdminURL.String() {
-		log.Infof("new Admin Panel URL provided, updated to %#v (old value %#v)",
-			input.AdminURL, config.AdminURL.String())
+	// Same parsed-form comparison as the Management URL above.
+	if input.AdminURL != "" {
 		newURL, err := parseURL("Admin Panel URL", input.AdminURL)
 		if err != nil {
 			return updated, err
 		}
-		config.AdminURL = newURL
-		updated = true
+		if newURL.String() != config.AdminURL.String() {
+			log.Infof("new Admin Panel URL provided, updated to %#v (old value %#v)",
+				newURL.String(), config.AdminURL.String())
+			config.AdminURL = newURL
+			updated = true
+		}
 	}
 
 	if config.PrivateKey == "" {
@@ -920,6 +923,58 @@ func isPreSharedKeyHidden(preSharedKey *string) bool {
 	return false
 }
 
+// WouldChange reports whether applying input would modify any field the
+// config persists, leaving the receiver untouched. It is the dry-run half of
+// UpdateConfig and reuses the very same diff logic (Config.apply), so a
+// caller asking "is this a settings change?" cannot drift from what an
+// actual update would do, nor go stale when a new field is added.
+//
+// A redacted pre-shared key is collapsed to "unset" exactly as
+// UpdateOrCreateConfig does, so a UI that round-trips the mask is not read as
+// a request for a new key.
+//
+// A nil receiver means the profile holds no config yet, so the baseline is the
+// config the daemon would create for it: input values matching those defaults
+// change nothing, anything else does.
+func (config *Config) WouldChange(input ConfigInput) (bool, error) {
+	probe := config.clone()
+	if probe == nil {
+		baseline, err := createNewConfig(ConfigInput{ConfigPath: input.ConfigPath})
+		if err != nil {
+			return true, fmt.Errorf("build default config baseline: %w", err)
+		}
+		probe = baseline
+	}
+
+	if isPreSharedKeyHidden(input.PreSharedKey) {
+		input.PreSharedKey = nil
+	}
+
+	return probe.apply(input)
+}
+
+// clone returns a copy of the config that apply can be run against without
+// the original observing the writes, or nil for a nil receiver. Only what
+// apply mutates in place needs detaching: the slices it replaces or appends
+// to, and SyncMessageVersion, which it writes through the pointer. The
+// remaining pointer fields are reassigned, not written through, and
+// ClientCertKeyPair is only overwritten.
+func (config *Config) clone() *Config {
+	if config == nil {
+		return nil
+	}
+
+	probe := *config
+	probe.IFaceBlackList = slices.Clone(config.IFaceBlackList)
+	probe.NATExternalIPs = slices.Clone(config.NATExternalIPs)
+	probe.DNSLabels = slices.Clone(config.DNSLabels)
+	if config.SyncMessageVersion != nil {
+		version := *config.SyncMessageVersion
+		probe.SyncMessageVersion = &version
+	}
+	return &probe
+}
+
 // UpdateConfig update existing configuration according to input configuration and return with the configuration
 func UpdateConfig(input ConfigInput) (*Config, error) {
 	configExists, err := fileExists(input.ConfigPath)
@@ -928,6 +983,14 @@ func UpdateConfig(input ConfigInput) (*Config, error) {
 	}
 	if !configExists {
 		return nil, fmt.Errorf("config file %s does not exist", input.ConfigPath)
+	}
+
+	// A UI that round-trips the mask GetConfig hands it back is asking to keep
+	// the stored key, not to set the mask as the new one. UpdateOrCreateConfig
+	// and DirectUpdateConfig already collapse it; this one did not, so the
+	// same round-trip through SetConfig replaced the key with asterisks.
+	if isPreSharedKeyHidden(input.PreSharedKey) {
+		input.PreSharedKey = nil
 	}
 
 	return update(input)
