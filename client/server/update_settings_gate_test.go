@@ -295,6 +295,11 @@ func TestLogin_RestatingTheStoredConfigPassesTheGate(t *testing.T) {
 	s.updateSettingsDisabled = true
 	s.rootCtx = internal.CtxInitState(context.Background())
 
+	// Stand in for the management round trip the handler makes once the gate
+	// lets it through, so this test exercises the gate and not the network:
+	// without it the profile's management URL is dialed for real.
+	s.isLoginRequiredFn = func(context.Context) (bool, error) { return false, nil }
+
 	_, err := s.Login(userCtx(), &proto.LoginRequest{
 		Username:      &username,
 		ManagementUrl: storedManagementURL,
