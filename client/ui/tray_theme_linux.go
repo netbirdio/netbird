@@ -17,6 +17,13 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+// The two KDE files that decide the panel's appearance. Both live in the user
+// config dir, so one directory watch covers them (see watchKdeConfig).
+const (
+	kdeglobalsFile = "kdeglobals"
+	plasmarcFile   = "plasmarc"
+)
+
 // startTrayTheme seeds t.panelDark and repaints on colour-scheme flips. Must
 // run before the first applyIcon so the initial paint uses the right silhouette.
 func (t *Tray) startTrayTheme() {
@@ -35,50 +42,90 @@ func isKDE() bool {
 	return false
 }
 
-// kdeglobalsPath returns the user kdeglobals path. We read only this file, not
-// the full XDG_CONFIG_DIRS cascade: Plasma writes the active scheme here, and a
-// missing Complementary group falls back to the portal.
-func kdeglobalsPath() string {
+// kdeConfigPath locates one of KDE's user config files. We read only the user
+// file, not the full XDG_CONFIG_DIRS cascade: Plasma writes the active scheme
+// and style there, and anything missing falls back to the portal.
+func kdeConfigPath(name string) string {
 	if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
-		return filepath.Join(dir, "kdeglobals")
+		return filepath.Join(dir, name)
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".config", "kdeglobals")
+	return filepath.Join(home, ".config", name)
 }
 
-// kdePanelIsDark reports whether the KDE Plasma panel is dark by the luma of
-// its "Complementary" background (the colour Plasma paints the tray with). ok
-// is false when this isn't KDE or the colour can't be read, so the caller falls
-// through to the portal/GTK path.
+func kdeglobalsPath() string { return kdeConfigPath(kdeglobalsFile) }
+func plasmarcPath() string   { return kdeConfigPath(plasmarcFile) }
+
+// kdePanelIsDark reports whether the KDE Plasma panel the tray icon sits on is
+// dark. ok is false when this isn't KDE or neither source was conclusive, so the
+// caller falls through to the portal/GTK path.
 func kdePanelIsDark() (dark, ok bool) {
 	if !isKDE() {
 		return false, false
 	}
-	path := kdeglobalsPath()
-	if path == "" {
-		return false, false
+	// A pinned Plasma style paints the panel itself, so it outranks the
+	// application colour scheme: breeze-dark under a Light scheme is still a
+	// dark panel and still needs the white silhouette.
+	if dark, ok := plasmaStyleIsDark(); ok {
+		return dark, true
 	}
-	rgb, ok := readKdeComplementaryBackground(path)
+	// The default style follows the colour scheme, so decide by the luma of the
+	// window background Plasma derives the panel from. Deliberately not
+	// Complementary: that group is dark under Breeze *and* BreezeLight
+	// (42,46,50 measured on Plasma 6.7.4), so reading it kept the white icon on
+	// a light panel, where it is all but invisible.
+	rgb, ok := readKdeColour(kdeglobalsPath(), "[Colors:Window]")
 	if !ok {
 		return false, false
 	}
 	return isDarkRGB(rgb[0], rgb[1], rgb[2]), true
 }
 
-// readKdeComplementaryBackground parses kdeglobals for
-// [Colors:Complementary] BackgroundNormal and returns its R,G,B (0-255).
-func readKdeComplementaryBackground(path string) (rgb [3]uint8, ok bool) {
+// plasmaStyleIsDark reports the appearance a pinned Plasma style fixes the panel
+// to, read from plasmarc's [Theme] name. ok is false when no style is pinned
+// (the default, where plasmarc is usually absent altogether) and for any style
+// whose name says nothing about its appearance; both follow the colour scheme.
+func plasmaStyleIsDark() (dark, ok bool) {
+	name, found := readIniValue(plasmarcPath(), "[Theme]", "name")
+	if !found {
+		return false, false
+	}
+	name = strings.ToLower(name)
+	switch {
+	case strings.Contains(name, "dark"):
+		return true, true
+	case strings.Contains(name, "light"):
+		return false, true
+	default:
+		return false, false
+	}
+}
+
+// readKdeColour reads group's BackgroundNormal as an R,G,B triple.
+func readKdeColour(path, group string) (rgb [3]uint8, ok bool) {
+	val, found := readIniValue(path, group, "BackgroundNormal")
+	if !found {
+		return rgb, false
+	}
+	return parseRGB(val)
+}
+
+// readIniValue returns key's value inside group from a KDE-style INI file.
+// group carries its own brackets, e.g. "[Colors:Window]".
+func readIniValue(path, group, key string) (value string, ok bool) {
+	if path == "" {
+		return "", false
+	}
 	f, err := os.Open(path)
 	if err != nil {
-		log.Debugf("tray theme: kdeglobals open failed, using portal: %v", err)
-		return rgb, false
+		log.Debugf("tray theme: %s open failed, using portal: %v", filepath.Base(path), err)
+		return "", false
 	}
 	defer func() { _ = f.Close() }()
 
-	const group = "[Colors:Complementary]"
 	inGroup := false
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
@@ -90,13 +137,13 @@ func readKdeComplementaryBackground(path string) (rgb [3]uint8, ok bool) {
 		if !inGroup {
 			continue
 		}
-		key, val, found := strings.Cut(line, "=")
-		if !found || strings.TrimSpace(key) != "BackgroundNormal" {
+		k, v, found := strings.Cut(line, "=")
+		if !found || strings.TrimSpace(k) != key {
 			continue
 		}
-		return parseRGB(strings.TrimSpace(val))
+		return strings.TrimSpace(v), true
 	}
-	return rgb, false
+	return "", false
 }
 
 // parseRGB parses KDE's "r,g,b" colour triple into bytes.
