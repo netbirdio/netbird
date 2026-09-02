@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -409,13 +410,15 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 			return false, err
 		}
 	}
-	// Same endpoint comparison as the Management URL above.
+	// The admin panel is opened, not dialed, so unlike the Management URL its
+	// path is part of what identifies it: a panel served under /netbird is not
+	// the one served at the root.
 	if input.AdminURL != "" {
 		newURL, err := parseURL("Admin Panel URL", input.AdminURL)
 		if err != nil {
 			return updated, err
 		}
-		if !SameServiceURL(newURL, config.AdminURL) {
+		if !SameServiceURLIncludingPath(newURL, config.AdminURL) {
 			log.Infof("new Admin Panel URL provided, updated to %#v (old value %#v)",
 				newURL.String(), config.AdminURL.String())
 			config.AdminURL = newURL
@@ -947,20 +950,49 @@ func SameServiceURL(a, b *url.URL) bool {
 }
 
 // ServiceURLPort returns the port a service URL addresses, resolving an absent
-// one to the default of its scheme.
+// one to the default of its scheme. The port is normalized numerically, so a
+// zero-padded ":0443" is the same port as ":443".
 func ServiceURLPort(u *url.URL) string {
-	if port := u.Port(); port != "" {
-		return port
+	port := u.Port()
+	if port == "" {
+		switch u.Scheme {
+		case "https":
+			return "443"
+		case "http":
+			return "80"
+		default:
+			return ""
+		}
 	}
 
-	switch u.Scheme {
-	case "https":
-		return "443"
-	case "http":
-		return "80"
-	default:
-		return ""
+	if n, err := strconv.Atoi(port); err == nil {
+		return strconv.Itoa(n)
 	}
+	return port
+}
+
+// SameServiceURLIncludingPath is SameServiceURL plus everything a URL carries
+// past its endpoint: path, query, fragment and userinfo.
+//
+// Use it for a URL that gets opened rather than dialed. The admin panel can
+// live under a path, so two URLs with the same endpoint and different paths are
+// two different panels — where for a URL the client dials over gRPC only the
+// endpoint is ever used. Equivalent spellings still compare equal: a missing
+// path and "/" are the same root, and so is a trailing slash on any path.
+func SameServiceURLIncludingPath(a, b *url.URL) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+
+	return SameServiceURL(a, b) &&
+		normalizedURLPath(a) == normalizedURLPath(b) &&
+		a.RawQuery == b.RawQuery &&
+		a.Fragment == b.Fragment &&
+		a.User.String() == b.User.String()
+}
+
+func normalizedURLPath(u *url.URL) string {
+	return strings.TrimSuffix(u.Path, "/")
 }
 
 func parseURL(serviceName, serviceURL string) (*url.URL, error) {

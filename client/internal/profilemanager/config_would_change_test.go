@@ -329,3 +329,50 @@ func TestCreateInMemoryConfigCarriesAnIdentity(t *testing.T) {
 	require.NotEmpty(t, cfg.PrivateKey)
 	require.NotEmpty(t, cfg.SSHKey)
 }
+
+// The admin panel is opened, not dialed, so its path identifies it. Comparing
+// it as a bare endpoint left a custom panel URL unable to change.
+func TestAdminURLPathIsPartOfTheIdentity(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "panel.json")
+	_, err := UpdateOrCreateConfig(ConfigInput{
+		ConfigPath: path,
+		AdminURL:   "https://app.example.com/netbird",
+	})
+	require.NoError(t, err)
+
+	cfg, err := GetExistingConfig(path)
+	require.NoError(t, err)
+	require.Equal(t, "https://app.example.com:443/netbird", cfg.AdminURL.String())
+
+	// Equivalent spellings of the same panel are still not a change.
+	for _, same := range []string{
+		"https://app.example.com/netbird",
+		"https://app.example.com:443/netbird",
+		"https://app.example.com/netbird/",
+		"https://APP.example.com/netbird",
+	} {
+		changed, err := cfg.WouldChange(ConfigInput{AdminURL: same})
+		require.NoError(t, err)
+		require.False(t, changed, "%q is the stored panel written differently", same)
+	}
+
+	// A different path is a different panel, and it must be persisted.
+	changed, err := cfg.WouldChange(ConfigInput{AdminURL: "https://app.example.com/other"})
+	require.NoError(t, err)
+	require.True(t, changed, "a different panel path is a change")
+
+	updated, err := UpdateConfig(ConfigInput{ConfigPath: path, AdminURL: "https://app.example.com/other"})
+	require.NoError(t, err)
+	require.Equal(t, "https://app.example.com:443/other", updated.AdminURL.String(), "the new panel path was not persisted")
+}
+
+// A zero-padded port addresses the same port.
+func TestServiceURLPortIsNormalizedNumerically(t *testing.T) {
+	padded, err := ParseServiceURL("padded", "https://mgmt.example.com:0443")
+	require.NoError(t, err)
+	plain, err := ParseServiceURL("plain", "https://mgmt.example.com:443")
+	require.NoError(t, err)
+
+	require.Equal(t, "443", ServiceURLPort(padded))
+	require.True(t, SameServiceURL(padded, plain))
+}
