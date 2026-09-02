@@ -231,6 +231,24 @@ func (e *Engine) cleanupSSHConfig() {
 	}
 }
 
+// restartSSHListeners rebuilds the SSH server so it listens on new sockets, on
+// the same terms it was started with. No-op when it is not running. See
+// Engine.rebindOverlayListeners for why this is needed.
+func (e *Engine) restartSSHListeners() error {
+	if e.sshServer == nil {
+		return nil
+	}
+	// Captured before the stop clears it.
+	jwtConfig := e.sshJWTConfig
+	if err := e.stopSSHServer(); err != nil {
+		return fmt.Errorf("rebind SSH listeners: %w", err)
+	}
+	if err := e.startSSHServer(jwtConfig); err != nil {
+		return fmt.Errorf("rebind SSH listeners: %w", err)
+	}
+	return nil
+}
+
 // startSSHServer initializes and starts the SSH server with proper configuration.
 func (e *Engine) startSSHServer(jwtConfig *sshserver.JWTConfig) error {
 	if e.wgInterface == nil {
@@ -258,6 +276,7 @@ func (e *Engine) startSSHServer(jwtConfig *sshserver.JWTConfig) error {
 	if err := server.Start(e.ctx, listenAddr); err != nil {
 		return fmt.Errorf("start SSH server: %w", err)
 	}
+	e.sshJWTConfig = jwtConfig
 
 	if v6 := wgAddr.IPv6; v6.IsValid() {
 		v6Addr := netip.AddrPortFrom(v6, sshserver.InternalSSHPort)
@@ -364,6 +383,7 @@ func (e *Engine) stopSSHServer() error {
 	log.Info("stopping SSH server")
 	err := e.sshServer.Stop()
 	e.sshServer = nil
+	e.sshJWTConfig = nil
 	if err != nil {
 		return fmt.Errorf("stop: %w", err)
 	}
