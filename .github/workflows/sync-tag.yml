@@ -37,3 +37,16 @@ jobs:
           repo: netbirdio/ios-client
           token: ${{ secrets.NC_GITHUB_TOKEN }}
           inputs: '{ "tag": "${{ github.ref_name }}" }'
+
+  trigger_dashboard_bump:
+    runs-on: ubuntu-latest
+    if: github.event.created && !github.event.deleted && startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
+    steps:
+      - name: Trigger dashboard wasm client bump
+        uses: benc-uk/workflow-dispatch@31e2b3319479a63f0ab15bf800eff9e913504e26 # v1.3.2
+        with:
+          workflow: bump-netbird.yml
+          ref: main
+          repo: netbirdio/dashboard
+          token: ${{ secrets.NC_GITHUB_TOKEN }}
+          inputs: '{ "tag": "${{ github.ref_name }}" }'

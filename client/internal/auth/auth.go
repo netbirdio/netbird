@@ -361,6 +361,7 @@ func (a *Auth) setSystemInfoFlags(info *system.Info) {
 		a.config.EnableSSHLocalPortForwarding,
 		a.config.EnableSSHRemotePortForwarding,
 		a.config.DisableSSHAuth,
+		a.config.RemoteJobsAllowed,
 	)
 }
 
