@@ -197,6 +197,12 @@ type Config struct {
 
 	// HostKey is the SSH server host key in PEM format
 	HostKeyPEM []byte
+
+	// Auth is the fine-grained authorization to open with. Nil starts with an
+	// empty authorizer, which authorizes nobody until UpdateSSHAuth is called.
+	// Setting it here rather than afterwards means the server never accepts a
+	// login before it knows who is allowed.
+	Auth *sshauth.Config
 }
 
 // SessionInfo contains information about an active SSH session
@@ -220,7 +226,11 @@ func New(config *Config) *Server {
 		connections:            make(map[connKey]*connState),
 		jwtEnabled:             config.JWT != nil,
 		jwtConfig:              config.JWT,
-		authorizer:             sshauth.NewAuthorizer(), // Initialize with empty config
+		authorizer:             sshauth.NewAuthorizer(),
+	}
+
+	if config.Auth != nil {
+		s.authorizer.Update(config.Auth)
 	}
 
 	return s

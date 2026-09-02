@@ -267,12 +267,9 @@ func (e *Engine) startSSHServer(jwtConfig *sshserver.JWTConfig, authConfig *ssha
 	serverConfig := &sshserver.Config{
 		HostKeyPEM: e.config.SSHKey,
 		JWT:        jwtConfig,
+		Auth:       authConfig,
 	}
 	server := sshserver.New(serverConfig)
-
-	if authConfig != nil {
-		server.UpdateSSHAuth(authConfig)
-	}
 
 	wgAddr := e.wgInterface.Address()
 	server.SetNetworkValidation(wgAddr)
