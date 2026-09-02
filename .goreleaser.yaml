@@ -447,9 +447,12 @@ brews:
       return unless daemon_running?
 
       ohai "Restarting the NetBird service"
-      # `sudo -n` first, so a still-cached credential means no prompt at all.
-      return if restart_daemon(sudo_args: ["-n"], err: File::NULL)
-      return if $stdin.tty? && restart_daemon
+      # `sudo -n` only: brew resets the sudo timestamp at startup, so this
+      # succeeds just for NOPASSWD setups -- and an interactive prompt cannot
+      # be offered here, because the post-install sandbox runs this code in a
+      # pseudoterminal, where $stdin.tty? is true even for a headless
+      # `brew upgrade` and a prompt would stall it until sudo times out.
+      return if restart_daemon
 
       opoo <<~EOS
         The NetBird service is still running the previous version. Restart it with:
@@ -459,17 +462,20 @@ brews:
       # The daemon runs as root, so the process table is the only place its
       # state can be read from without asking for a password ("netbird service
       # status" and launchctl both report a root daemon as stopped when asked
-      # by a plain user). The leading slash keeps shell command lines that
-      # merely mention "netbird service run" from matching.
+      # by a plain user). The daemon's command line starts with the stable
+      # brew-linked binary path ("netbird service install" records the path
+      # `which netbird` resolved to), so anchoring the pattern to it keeps
+      # command lines that merely mention "netbird service run" from matching.
       def daemon_running?
-        Kernel.system("pgrep", "-f", "/netbird service run", out: File::NULL, err: File::NULL)
+        Kernel.system("pgrep", "-f", "^#{HOMEBREW_PREFIX}/bin/netbird service run",
+                      out: File::NULL, err: File::NULL)
       end
 
-      # Not `Formula#system`: that one sends the child's output to a log file,
-      # which would swallow the sudo password prompt, and raises on a non-zero
-      # exit.
-      def restart_daemon(sudo_args: [], **options)
-        Kernel.system("sudo", *sudo_args, "#{opt_bin}/netbird", "service", "restart", **options)
+      # Not `Formula#system`: that one raises on a non-zero exit, and a failed
+      # restart attempt must fall through to the printed instructions instead.
+      def restart_daemon
+        Kernel.system("sudo", "-n", "#{opt_bin}/netbird", "service", "restart",
+                      out: File::NULL, err: File::NULL)
       end
 
 uploads:
