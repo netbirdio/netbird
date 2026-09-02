@@ -55,3 +55,30 @@ func TestRefusedSettingsUpdate(t *testing.T) {
 		})
 	}
 }
+
+// Both `netbird up` and `netbird login` drive Login through the backoff cycle,
+// and a final answer has to stop it: retrying a refusal only replaces the
+// daemon's reason with "login backoff cycle failed" thirty seconds later.
+func TestTerminalLoginError(t *testing.T) {
+	tests := []struct {
+		name         string
+		err          error
+		wantTerminal bool
+	}{
+		{name: "settings refused by the kill switch", err: gstatus.Errorf(codes.FailedPrecondition, "update settings are disabled"), wantTerminal: true},
+		{name: "field managed by MDM", err: gstatus.Errorf(codes.FailedPrecondition, "fields managed by MDM policy: managementURL"), wantTerminal: true},
+		{name: "caller not allowed", err: gstatus.Errorf(codes.PermissionDenied, "nope"), wantTerminal: true},
+		{name: "malformed request", err: gstatus.Errorf(codes.InvalidArgument, "nope"), wantTerminal: true},
+		{name: "profile not found", err: gstatus.Errorf(codes.NotFound, "nope"), wantTerminal: true},
+		{name: "method missing on an older daemon", err: gstatus.Errorf(codes.Unimplemented, "nope"), wantTerminal: true},
+		{name: "daemon unreachable, worth retrying", err: gstatus.Errorf(codes.Unavailable, "connection refused"), wantTerminal: false},
+		{name: "transient internal failure", err: gstatus.Errorf(codes.Internal, "boom"), wantTerminal: false},
+		{name: "not a status error", err: errors.New("boom"), wantTerminal: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.wantTerminal, terminalLoginError(tt.err))
+		})
+	}
+}

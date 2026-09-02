@@ -20,6 +20,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	gstatus "google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/anonymize"
 	daddr "github.com/netbirdio/netbird/client/internal/daemonaddr"
@@ -283,6 +285,35 @@ func DialClientGRPCServer(ctx context.Context, addr string) (*grpc.ClientConn, e
 	opts = append(opts, grpc.WithBlock())
 
 	return grpc.DialContext(ctx, target, opts...)
+}
+
+// terminalLoginError reports whether a Login failure is final, so the backoff
+// cycle stops and the caller is told what the daemon said instead of "login
+// backoff cycle failed" thirty seconds later. Retrying cannot change any of
+// these answers: the request is malformed, the caller is not allowed, the
+// target does not exist, a precondition on the daemon refuses it (the
+// update-settings kill switch, an MDM-managed field), or the method is not
+// implemented.
+//
+// Both `netbird up` and `netbird login` run Login through the backoff, and
+// they each carried their own copy of this list — which is how one of them
+// ended up retrying a refusal the other treated as final.
+func terminalLoginError(err error) bool {
+	s, ok := gstatus.FromError(err)
+	if !ok {
+		return false
+	}
+
+	switch s.Code() {
+	case codes.InvalidArgument,
+		codes.PermissionDenied,
+		codes.NotFound,
+		codes.FailedPrecondition,
+		codes.Unimplemented:
+		return true
+	default:
+		return false
+	}
 }
 
 // WithBackOff execute function in backoff cycle.
