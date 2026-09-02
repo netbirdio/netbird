@@ -2634,6 +2634,15 @@ func (s *Server) authorizeAndPrepareLogin(callerCtx context.Context, msg *proto.
 		return nil, nil, err
 	}
 
+	// The update-settings decision is re-taken here for the same reason as the
+	// privilege one: Login's earlier check ran outside this lock, so the stored
+	// config it compared against could have moved since. This one is the
+	// authoritative check, and it is the last read before persistLoginOverrides
+	// writes.
+	if s.checkUpdateSettingsDisabled() && configChangeRequested(stored, loginOverridesInput(msg)) {
+		return nil, nil, gstatus.Errorf(codes.Unavailable, errUpdateSettingsDisabled)
+	}
+
 	s.mutex.Lock()
 	if s.actCancel != nil {
 		s.actCancel()

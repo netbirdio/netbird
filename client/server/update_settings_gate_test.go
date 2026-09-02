@@ -292,3 +292,52 @@ func TestLogin_RestatingTheStoredConfigPassesTheGate(t *testing.T) {
 			"the gate refused a login that changes nothing: %v", err)
 	}
 }
+
+// The value-aware decision has the same synchronization problem as the
+// privileged-change one: Login's first check runs outside guardedConfigMu, so
+// the stored config it compared against can move before the write. A login that
+// was a no-op when it was checked must not be written once it has become a
+// change.
+func TestLogin_ChangeThatAppearsMidRequestIsRefused(t *testing.T) {
+	s, _, _, username, _ := setupServerWithProfile(t)
+	s.updateSettingsDisabled = true
+	s.rootCtx = internal.CtxInitState(context.Background())
+
+	target := "moved-under-us"
+	targetPath := filepath.Join(profilemanager.DefaultConfigPathDir, target+".json")
+	_, err := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
+		ConfigPath:    targetPath,
+		ManagementURL: storedManagementURL,
+	})
+	require.NoError(t, err)
+
+	cancelled := false
+	s.actCancel = func() { cancelled = true }
+
+	// Stand in for a concurrent writer that repoints the profile between the two
+	// checks, which is the interleaving the lock has to make safe. The login
+	// restates the URL the profile held when it was checked, so the first check
+	// sees a no-op and lets it through.
+	afterLoginPreCheck = func() {
+		_, err := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
+			ConfigPath:    targetPath,
+			ManagementURL: "https://mgmt.elsewhere.example:443",
+		})
+		require.NoError(t, err)
+	}
+	t.Cleanup(func() { afterLoginPreCheck = nil })
+
+	_, err = s.Login(userCtx(), &proto.LoginRequest{
+		ProfileName:   &target,
+		Username:      &username,
+		ManagementUrl: storedManagementURL,
+	})
+	require.Error(t, err, "the login became a settings change before it was written")
+	require.Equal(t, codes.Unavailable, gstatus.Code(err), "want the update-settings refusal, got %v", err)
+	require.False(t, cancelled, "the refused login cancelled the login already in progress")
+
+	stored, err := profilemanager.PeekConfig(targetPath)
+	require.NoError(t, err)
+	require.Equal(t, "https://mgmt.elsewhere.example:443", stored.ManagementURL.String(),
+		"the refused login wrote the management URL it was asked for")
+}
