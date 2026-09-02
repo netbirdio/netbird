@@ -55,7 +55,7 @@ const (
 	SourceEphemeral = "ephemeral"
 )
 
-var ErrUnsupportedIpAddressUpstreamHost = errors.New("unsupported ip address for a direct upstream host")
+var ErrUnsupportedIPAddressUpstreamHost = errors.New("unsupported ip address for a direct upstream host")
 
 type TargetOptions struct {
 	SkipTLSVerify      bool              `json:"skip_tls_verify"`
@@ -1004,7 +1004,7 @@ func validateSubnetTarget(idx int, target *Target) error {
 		return nil
 	}
 	if maybeip.IsLoopback() || maybeip.IsMulticast() || maybeip.IsLinkLocalUnicast() {
-		return fmt.Errorf("invalid direct upstream host ip %s %w", maybeip.String(), ErrUnsupportedIpAddressUpstreamHost)
+		return fmt.Errorf("invalid direct upstream host ip %s %w", maybeip.String(), ErrUnsupportedIPAddressUpstreamHost)
 	}
 	return nil
 }
@@ -1049,7 +1049,7 @@ func validateDirectUpstreamHost(idx int, target *Target) error {
 		return nil
 	}
 	if maybeip.IsLoopback() || maybeip.IsMulticast() || maybeip.IsLinkLocalUnicast() {
-		return fmt.Errorf("invalid direct upstream host ip %s %w", maybeip.String(), ErrUnsupportedIpAddressUpstreamHost)
+		return fmt.Errorf("invalid direct upstream host ip %s %w", maybeip.String(), ErrUnsupportedIPAddressUpstreamHost)
 	}
 
 	return nil
