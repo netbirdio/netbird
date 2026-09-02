@@ -60,18 +60,21 @@ check_docker_sock_perms() {
 }
 
 check_docker_compose() {
-  if command -v docker-compose &> /dev/null
-  then
-      echo "docker-compose"
-      return
-  fi
-  if docker compose --help &> /dev/null
-  then
-      echo "docker compose"
-      return
+  if ! command -v docker &> /dev/null && ! command -v docker-compose &> /dev/null; then
+    echo "Docker is not installed or not in PATH. Please follow the steps from the official guide: https://docs.docker.com/engine/install/" > /dev/stderr
+    exit 1
   fi
 
-  echo "docker-compose is not installed or not in PATH. Please follow the steps from the official guide: https://docs.docker.com/engine/install/" > /dev/stderr
+  if docker compose version &> /dev/null; then
+    echo "docker compose"
+    return
+  fi
+  if command -v docker-compose &> /dev/null && docker-compose version &> /dev/null; then
+    echo "docker-compose"
+    return
+  fi
+
+  echo "Docker Compose is not installed or not in PATH. Please follow the steps from the official guide: https://docs.docker.com/compose/install/" > /dev/stderr
   exit 1
 }
 
@@ -98,15 +101,88 @@ get_main_ip_address() {
 }
 
 check_nb_domain() {
-  DOMAIN=$1
-  if [[ "$DOMAIN-x" == "-x" ]]; then
+  local domain="$1"
+
+  if [[ -z "$domain" ]]; then
     echo "The NETBIRD_DOMAIN variable cannot be empty." > /dev/stderr
     return 1
   fi
-
-  if [[ "$DOMAIN" == "netbird.example.com" ]]; then
+  if [[ "$domain" == "use-ip" ]]; then
+    return 0
+  fi
+  if [[ "$domain" == "netbird.example.com" ]]; then
     echo "The NETBIRD_DOMAIN cannot be netbird.example.com" > /dev/stderr
     return 1
+  fi
+  if [[ "$domain" =~ ^[0-9.]+$ ]]; then
+    echo "'$domain' is an IP address. Use 'use-ip' to install on this host's IP over HTTP, or an FQDN to get a TLS certificate." > /dev/stderr
+    return 1
+  fi
+  if [[ ! "$domain" =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$ ]]; then
+    echo "'$domain' is not a valid FQDN. It needs at least one dot (e.g. netbird.my-domain.com), with no scheme, port or trailing dot." > /dev/stderr
+    return 1
+  fi
+  return 0
+}
+
+check_domain_resolves() {
+  local domain="$1"
+  if command -v getent &> /dev/null && getent hosts "$domain" &> /dev/null; then return 0; fi
+  if command -v host &> /dev/null && host "$domain" &> /dev/null; then return 0; fi
+  if command -v dig &> /dev/null && [[ -n "$(dig +short "$domain" 2>/dev/null)" ]]; then return 0; fi
+  if command -v nslookup &> /dev/null && nslookup "$domain" &> /dev/null; then return 0; fi
+  return 1
+}
+
+# Non-interactive configuration
+# ------------------------------
+# Every prompt below can be pre-answered with an environment variable, so the
+# script runs unattended (cloud-init, CI, Terraform, curl | bash). resolve()
+# is the single place that decides env var vs prompt vs default; the read_*
+# helpers stay pure prompts.
+#
+# Supported env vars:
+#   NETBIRD_DOMAIN                    domain/FQDN (required)
+#   NETBIRD_LETSENCRYPT_EMAIL         ACME email (required for built-in Traefik)
+#   NETBIRD_AGENT_NETWORK             true enables the agent-network preset
+#   NETBIRD_REVERSE_PROXY_TYPE        0-5 (default 0 = built-in Traefik)
+#   NETBIRD_ENABLE_PROXY              true/false (default false)
+#   NETBIRD_ENABLE_CROWDSEC           true/false (default false)
+#   NETBIRD_TRAEFIK_EXTERNAL_NETWORK  external-Traefik network (type 1)
+#   NETBIRD_TRAEFIK_ENTRYPOINT        external-Traefik entrypoint (type 1, default websecure)
+#   NETBIRD_TRAEFIK_CERTRESOLVER      external-Traefik cert resolver (type 1)
+#   NETBIRD_BIND_LOCALHOST_ONLY       true/false (default true, types 2-5)
+#   NETBIRD_EXTERNAL_PROXY_NETWORK    docker network to join (types 2-4)
+#   NETBIRD_NON_INTERACTIVE           true forces unattended mode even with a TTY
+
+# tty_available succeeds only when we may prompt: never when the operator has
+# set NETBIRD_NON_INTERACTIVE=true, otherwise only when /dev/tty can actually
+# be opened. A PTY can be attached in automation (CI runners, some
+# provisioners), so the env override is the authoritative signal and the
+# /dev/tty probe is the fallback. /dev/tty is a world-rw device node even with
+# no terminal, so a permission test ([ -r ]) is not enough - we must open it.
+tty_available() {
+  [[ "${NETBIRD_NON_INTERACTIVE:-}" == "true" ]] && return 1
+  { true < /dev/tty; } 2>/dev/null
+}
+
+# resolve ENV_VAR_NAME DEFAULT PROMPT_FN [prompt args...]
+#   env var set and non-empty -> its value
+#   interactive               -> PROMPT_FN "$@" (prompt behavior unchanged)
+#   otherwise                 -> DEFAULT, or abort when DEFAULT is "required"
+resolve() {
+  local env_name="$1" default="$2" prompt_fn="$3"
+  shift 3
+  local env_value="${!env_name:-}"
+  if [[ -n "$env_value" ]]; then
+    echo "$env_value"
+  elif tty_available; then
+    "$prompt_fn" "$@"
+  elif [[ "$default" == "required" ]]; then
+    echo "$env_name is required for a non-interactive install." > /dev/stderr
+    exit 1
+  else
+    echo "$default"
   fi
   return 0
 }
@@ -117,7 +193,22 @@ read_nb_domain() {
   read -r READ_NETBIRD_DOMAIN < /dev/tty
   if ! check_nb_domain "$READ_NETBIRD_DOMAIN"; then
     read_nb_domain
+    return
   fi
+
+  if [[ "$READ_NETBIRD_DOMAIN" != "use-ip" ]] && ! check_domain_resolves "$READ_NETBIRD_DOMAIN"; then
+    local confirm=""
+    echo "" > /dev/stderr
+    echo "Warning: '$READ_NETBIRD_DOMAIN' does not resolve via DNS from this host." > /dev/stderr
+    echo "TLS certificate issuance and client connections will fail until it does." > /dev/stderr
+    echo -n "Continue anyway? [y/N]: " > /dev/stderr
+    read -r confirm < /dev/tty
+    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+      read_nb_domain
+      return
+    fi
+  fi
+
   echo "$READ_NETBIRD_DOMAIN"
   return 0
 }
@@ -348,6 +439,7 @@ initialize_default_values() {
   NETBIRD_RELAY_AUTH_SECRET=$(openssl rand -base64 32 | sed "$SED_STRIP_PADDING")
   # Note: DataStoreEncryptionKey must keep base64 padding (=) for Go's base64.StdEncoding
   DATASTORE_ENCRYPTION_KEY=$(openssl rand -base64 32)
+  SESSION_COOKIE_ENCRYPTION_KEY=$(openssl rand -base64 32)
   NETBIRD_STUN_PORT=3478
 
   # Docker images
@@ -382,8 +474,26 @@ initialize_default_values() {
 }
 
 configure_domain() {
+  # Domain is validated (not a free-form value), so it keeps its own guard
+  # rather than going through resolve(): a valid NETBIRD_DOMAIN is used as-is,
+  # otherwise we prompt, or abort when there is no terminal to prompt on.
+  local prompted="false"
   if ! check_nb_domain "$NETBIRD_DOMAIN"; then
+    if ! tty_available; then
+      if [[ -n "$NETBIRD_DOMAIN" ]]; then
+        echo "NETBIRD_DOMAIN='$NETBIRD_DOMAIN' cannot be used for a non-interactive install." > /dev/stderr
+      else
+        echo "NETBIRD_DOMAIN is required for a non-interactive install." > /dev/stderr
+      fi
+      exit 1
+    fi
     NETBIRD_DOMAIN=$(read_nb_domain)
+    prompted="true"
+  fi
+
+  if [[ "$prompted" == "false" && "$NETBIRD_DOMAIN" != "use-ip" ]] && ! check_domain_resolves "$NETBIRD_DOMAIN"; then
+    echo "Warning: '$NETBIRD_DOMAIN' does not resolve via DNS from this host." > /dev/stderr
+    echo "TLS certificate issuance and client connections will fail until it does." > /dev/stderr
   fi
 
   if [[ "$NETBIRD_DOMAIN" == "use-ip" ]]; then
@@ -410,11 +520,7 @@ apply_agent_network_preset() {
   ENABLE_PROXY="true"
   ENABLE_CROWDSEC="false"
 
-  if [[ -n "${NETBIRD_LETSENCRYPT_EMAIL}" ]]; then
-    TRAEFIK_ACME_EMAIL="${NETBIRD_LETSENCRYPT_EMAIL}"
-  else
-    TRAEFIK_ACME_EMAIL=$(read_traefik_acme_email)
-  fi
+  TRAEFIK_ACME_EMAIL=$(resolve NETBIRD_LETSENCRYPT_EMAIL required read_traefik_acme_email)
 
   echo "" > /dev/stderr
   echo "Agent-network preset enabled (NETBIRD_AGENT_NETWORK=true):" > /dev/stderr
@@ -436,35 +542,35 @@ configure_reverse_proxy() {
     return 0
   fi
 
-  # Prompt for reverse proxy type
-  REVERSE_PROXY_TYPE=$(read_reverse_proxy_type)
+  # Reverse proxy type (env NETBIRD_REVERSE_PROXY_TYPE, else prompt, else 0)
+  REVERSE_PROXY_TYPE=$(resolve NETBIRD_REVERSE_PROXY_TYPE 0 read_reverse_proxy_type)
 
   # Handle built-in Traefik prompts (option 0)
   if [[ "$REVERSE_PROXY_TYPE" == "0" ]]; then
-    TRAEFIK_ACME_EMAIL=$(read_traefik_acme_email)
-    ENABLE_PROXY=$(read_enable_proxy)
+    TRAEFIK_ACME_EMAIL=$(resolve NETBIRD_LETSENCRYPT_EMAIL required read_traefik_acme_email)
+    ENABLE_PROXY=$(resolve NETBIRD_ENABLE_PROXY false read_enable_proxy)
     if [[ "$ENABLE_PROXY" == "true" ]]; then
-      ENABLE_CROWDSEC=$(read_enable_crowdsec)
+      ENABLE_CROWDSEC=$(resolve NETBIRD_ENABLE_CROWDSEC false read_enable_crowdsec)
     fi
   fi
 
   # Handle external Traefik-specific prompts (option 1)
   if [[ "$REVERSE_PROXY_TYPE" == "1" ]]; then
-    TRAEFIK_EXTERNAL_NETWORK=$(read_traefik_network)
-    TRAEFIK_ENTRYPOINT=$(read_traefik_entrypoint)
-    TRAEFIK_CERTRESOLVER=$(read_traefik_certresolver)
+    TRAEFIK_EXTERNAL_NETWORK=$(resolve NETBIRD_TRAEFIK_EXTERNAL_NETWORK "" read_traefik_network)
+    TRAEFIK_ENTRYPOINT=$(resolve NETBIRD_TRAEFIK_ENTRYPOINT websecure read_traefik_entrypoint)
+    TRAEFIK_CERTRESOLVER=$(resolve NETBIRD_TRAEFIK_CERTRESOLVER "" read_traefik_certresolver)
   fi
 
   # Handle port binding for external proxy options (2-5)
   if [[ "$REVERSE_PROXY_TYPE" -ge 2 ]]; then
-    BIND_LOCALHOST_ONLY=$(read_port_binding_preference)
+    BIND_LOCALHOST_ONLY=$(resolve NETBIRD_BIND_LOCALHOST_ONLY true read_port_binding_preference)
   fi
 
   # Handle Docker network prompts for external proxies (options 2-4)
   case "$REVERSE_PROXY_TYPE" in
-    2) EXTERNAL_PROXY_NETWORK=$(read_proxy_docker_network "Nginx") ;;
-    3) EXTERNAL_PROXY_NETWORK=$(read_proxy_docker_network "Nginx Proxy Manager") ;;
-    4) EXTERNAL_PROXY_NETWORK=$(read_proxy_docker_network "Caddy") ;;
+    2) EXTERNAL_PROXY_NETWORK=$(resolve NETBIRD_EXTERNAL_PROXY_NETWORK "" read_proxy_docker_network "Nginx") ;;
+    3) EXTERNAL_PROXY_NETWORK=$(resolve NETBIRD_EXTERNAL_PROXY_NETWORK "" read_proxy_docker_network "Nginx Proxy Manager") ;;
+    4) EXTERNAL_PROXY_NETWORK=$(resolve NETBIRD_EXTERNAL_PROXY_NETWORK "" read_proxy_docker_network "Caddy") ;;
     *) ;; # No network prompt for other options
   esac
   return 0
@@ -527,7 +633,8 @@ generate_configuration_files() {
 
   # Common files for all configurations
   render_dashboard_env > dashboard.env
-  render_combined_yaml > config.yaml
+  install -m 600 /dev/null config.yaml
+  render_combined_yaml >> config.yaml
   return 0
 }
 
@@ -641,8 +748,13 @@ start_services_and_show_instructions() {
     print_post_setup_instructions
 
     echo ""
-    echo -n "Press Enter when your reverse proxy is configured (or Ctrl+C to exit)... "
-    read -r < /dev/tty
+    if tty_available; then
+      echo -n "Press Enter when your reverse proxy is configured (or Ctrl+C to exit)... "
+      read -r < /dev/tty
+    else
+      echo "Non-interactive mode: starting NetBird containers now. Finish configuring"
+      echo "your reverse proxy using the instructions above so it can reach them."
+    fi
 
     echo -e "$MSG_STARTING_SERVICES"
     $DOCKER_COMPOSE_COMMAND up -d
@@ -911,6 +1023,7 @@ server:
   auth:
     issuer: "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/oauth2"
     signKeyRefreshEnabled: true
+    sessionCookieEncryptionKey: "$SESSION_COOKIE_ENCRYPTION_KEY"
     dashboardRedirectURIs:
       - "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/nb-auth"
       - "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/nb-silent-auth"

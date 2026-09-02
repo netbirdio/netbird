@@ -92,8 +92,16 @@ nfpms:
         dst: /usr/share/applications/org.wails.netbird.desktop
       - src: client/ui/build/appicon.png
         dst: /usr/share/pixmaps/netbird.png
+      # Names the polkit action for the elevation prompt the app raises when an
+      # unprivileged user changes a privileged setting; without it the dialog
+      # shows a raw command line.
+      - src: client/ui/build/linux/polkit/io.netbird.settings.policy
+        dst: /usr/share/polkit-1/actions/io.netbird.settings.policy
     dependencies:
-      - netbird
+      - netbird (>= 0.75.0)
+      - libgtk-4-1 (>= 4.14)
+      - libwebkitgtk-6.0-4
+      - xdg-utils
 
   - maintainer: Netbird <dev@netbird.io>
     description: Netbird client UI.
@@ -113,8 +121,16 @@ nfpms:
         dst: /usr/share/applications/org.wails.netbird.desktop
       - src: client/ui/build/appicon.png
         dst: /usr/share/pixmaps/netbird.png
+      # Names the polkit action for the elevation prompt the app raises when an
+      # unprivileged user changes a privileged setting; without it the dialog
+      # shows a raw command line.
+      - src: client/ui/build/linux/polkit/io.netbird.settings.policy
+        dst: /usr/share/polkit-1/actions/io.netbird.settings.policy
     dependencies:
-      - netbird
+      - netbird >= 0.75.0
+      - (gtk4 >= 4.14 or libgtk-4-1 >= 4.14)
+      - (webkitgtk6.0 or libwebkitgtk-6_0-4)
+      - xdg-utils
 
     rpm:
       signature:
@@ -138,3 +154,11 @@ uploads:
     target: https://pkgs.wiretrustee.com/yum/{{ .Arch }}{{ if .Arm }}{{ .Arm }}{{ end }}
     username: dev@wiretrustee.com
     method: PUT
+
+release:
+  # Uploads into the release created by the main .goreleaser.yaml run.
+  # make_latest stays false everywhere: the signing pipeline
+  # (netbirdio/sign-pipelines) marks the release latest after the Windows
+  # and macOS artifacts are signed.
+  make_latest: false
+  prerelease: auto

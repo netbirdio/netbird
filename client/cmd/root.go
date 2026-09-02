@@ -21,7 +21,9 @@ import (
 	"github.com/spf13/pflag"
 	"google.golang.org/grpc"
 
+	"github.com/netbirdio/netbird/client/anonymize"
 	daddr "github.com/netbirdio/netbird/client/internal/daemonaddr"
+	"github.com/netbirdio/netbird/client/internal/localmetrics"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 )
 
@@ -30,6 +32,8 @@ const (
 	dnsResolverAddress       = "dns-resolver-address"
 	enableRosenpassFlag      = "enable-rosenpass"
 	rosenpassPermissiveFlag  = "rosenpass-permissive"
+	enableLocalMetricsFlag   = "enable-local-metrics"
+	localMetricsAddressFlag  = "local-metrics-address"
 	preSharedKeyFlag         = "preshared-key"
 	interfaceNameFlag        = "interface-name"
 	wireguardPortFlag        = "wireguard-port"
@@ -69,6 +73,7 @@ var (
 	autoConnectDisabled     bool
 	extraIFaceBlackList     []string
 	anonymizeFlag           bool
+	anonymizeLevelFlag      string
 	dnsRouteInterval        time.Duration
 	// lazyConnEnabled is the parse target for the deprecated --enable-lazy-connection
 	// flag. The flag is inert; the value is no longer read (use NB_LAZY_CONN instead).
@@ -78,6 +83,8 @@ var (
 	updateSettingsDisabled bool
 	captureEnabled         bool
 	networksDisabled       bool
+	localMetricsEnabled    bool
+	localMetricsAddr       string
 
 	rootCmd = &cobra.Command{
 		Use:          "netbird",
@@ -156,7 +163,8 @@ func init() {
 	rootCmd.MarkFlagsMutuallyExclusive("setup-key", "setup-key-file")
 	rootCmd.PersistentFlags().StringVar(&preSharedKey, preSharedKeyFlag, "", "Sets WireGuard PreSharedKey property. If set, then only peers that have the same key can communicate.")
 	rootCmd.PersistentFlags().StringVarP(&hostName, "hostname", "n", "", "Sets a custom hostname for the device")
-	rootCmd.PersistentFlags().BoolVarP(&anonymizeFlag, "anonymize", "A", false, "anonymize IP addresses and non-netbird.io domains in logs and status output")
+	rootCmd.PersistentFlags().BoolVarP(&anonymizeFlag, "anonymize", "A", false, "anonymize public IP addresses, MAC addresses, and non-netbird.io domains in logs and status output; private, CGNAT, and link-local IP ranges are kept (see --anonymize-level strict)")
+	rootCmd.PersistentFlags().StringVar(&anonymizeLevelFlag, "anonymize-level", "", "anonymization level: \"default\" or \"strict\"; strict also anonymizes private, CGNAT, and link-local IP ranges, peer names, and WireGuard public keys. Setting this flag implies --anonymize")
 	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", profilemanager.DefaultConfigPath, "Overrides the default profile file location")
 
 	rootCmd.AddCommand(upCmd)
@@ -212,6 +220,8 @@ func init() {
 	upCmd.PersistentFlags().BoolVar(&rosenpassEnabled, enableRosenpassFlag, false, "[Experimental] Enable Rosenpass feature. If enabled, the connection will be post-quantum secured via Rosenpass.")
 	upCmd.PersistentFlags().BoolVar(&rosenpassPermissive, rosenpassPermissiveFlag, false, "[Experimental] Enable Rosenpass in permissive mode to allow this peer to accept WireGuard connections without requiring Rosenpass functionality from peers that do not have Rosenpass enabled.")
 	upCmd.PersistentFlags().BoolVar(&autoConnectDisabled, disableAutoConnectFlag, false, "Disables auto-connect feature. If enabled, then the client won't connect automatically when the service starts.")
+	upCmd.PersistentFlags().BoolVar(&localMetricsEnabled, enableLocalMetricsFlag, false, "Enables a local Prometheus /metrics endpoint exposing connection state (peers, latency, P2P vs relay).")
+	upCmd.PersistentFlags().StringVar(&localMetricsAddr, localMetricsAddressFlag, localmetrics.DefaultListenAddress, "Listen address of the local Prometheus /metrics endpoint.")
 	upCmd.PersistentFlags().BoolVar(&lazyConnEnabled, enableLazyConnectionFlag, false, "Deprecated: no longer used. Lazy connections are controlled by the server and the NB_LAZY_CONN environment variable.")
 	_ = upCmd.PersistentFlags().MarkDeprecated(enableLazyConnectionFlag, "no longer used; lazy connections are controlled by the server and the NB_LAZY_CONN environment variable")
 
@@ -291,6 +301,19 @@ var CLIBackOffSettings = &backoff.ExponentialBackOff{
 	MaxElapsedTime:      30 * time.Second,
 	Stop:                backoff.Stop,
 	Clock:               backoff.SystemClock,
+}
+
+// effectiveAnonymize resolves the --anonymize and --anonymize-level flags:
+// setting a level implies anonymization, and an invalid level is rejected.
+func effectiveAnonymize() (bool, anonymize.Level, error) {
+	if anonymizeLevelFlag == "" {
+		return anonymizeFlag, anonymize.LevelDefault, nil
+	}
+	level := anonymize.ParseLevel(anonymizeLevelFlag)
+	if !strings.EqualFold(anonymizeLevelFlag, level.String()) {
+		return false, anonymize.LevelDefault, fmt.Errorf("invalid anonymize level %q: use %q or %q", anonymizeLevelFlag, anonymize.LevelDefault.String(), anonymize.LevelStrict.String())
+	}
+	return true, level, nil
 }
 
 func getSetupKey() (string, error) {

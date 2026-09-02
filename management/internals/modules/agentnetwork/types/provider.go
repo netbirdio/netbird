@@ -164,9 +164,7 @@ func (p *Provider) FromAPIRequest(req *api.AgentNetworkProviderRequest) {
 		p.MetadataDisabled = *req.MetadataDisabled
 	}
 	// Identity-header overrides for catalogs flagged Customizable.
-	// nil pointer = "field omitted on the wire" → leave the stored
-	// value untouched (per the openapi description). Empty string is
-	// an explicit clear that disables stamping for this dimension.
+	// Empty or omitted disables stamping for this dimension.
 	if req.IdentityHeaderUserId != nil {
 		p.IdentityHeaderUserID = strings.TrimSpace(*req.IdentityHeaderUserId)
 	}
@@ -177,6 +175,26 @@ func (p *Provider) FromAPIRequest(req *api.AgentNetworkProviderRequest) {
 
 // ToAPIResponse renders the provider as the API representation. The API
 // key is intentionally never surfaced.
+// RedactedForViewer returns a copy with the connection configuration
+// blanked: upstream URL, operator-typed extra header values, identity
+// header names, the TLS-verification override, and (defence in depth —
+// they never reach the wire anyway) the sealed credentials. Read-only
+// viewers such as usage_viewer only need the display surface — id,
+// catalog id, name, enabled state, and the model list the usage filters
+// resolve against — so their responses carry nothing about how the
+// operator connects to the vendor.
+func (p *Provider) RedactedForViewer() *Provider {
+	c := *p
+	c.UpstreamURL = ""
+	c.APIKey = ""
+	c.ExtraValues = nil
+	c.IdentityHeaderUserID = ""
+	c.IdentityHeaderGroups = ""
+	c.SkipTLSVerification = false
+	c.SessionPrivateKey = ""
+	return &c
+}
+
 func (p *Provider) ToAPIResponse() *api.AgentNetworkProvider {
 	models := make([]api.AgentNetworkProviderModel, 0, len(p.Models))
 	for _, m := range p.Models {
@@ -192,16 +210,20 @@ func (p *Provider) ToAPIResponse() *api.AgentNetworkProvider {
 	created := p.CreatedAt
 	updated := p.UpdatedAt
 	resp := &api.AgentNetworkProvider{
-		Id:                  p.ID,
-		ProviderId:          p.ProviderID,
-		Name:                p.Name,
-		UpstreamUrl:         p.UpstreamURL,
-		Models:              models,
-		Enabled:             p.Enabled,
-		SkipTlsVerification: p.SkipTLSVerification,
-		MetadataDisabled:    p.MetadataDisabled,
-		CreatedAt:           &created,
-		UpdatedAt:           &updated,
+		Id:          p.ID,
+		ProviderId:  p.ProviderID,
+		Name:        p.Name,
+		UpstreamUrl: p.UpstreamURL,
+		Models:      models,
+		// Always present on the wire so an explicitly cleared header
+		// round-trips as "" instead of vanishing from the response.
+		IdentityHeaderUserId: p.IdentityHeaderUserID,
+		IdentityHeaderGroups: p.IdentityHeaderGroups,
+		Enabled:              p.Enabled,
+		SkipTlsVerification:  p.SkipTLSVerification,
+		MetadataDisabled:     p.MetadataDisabled,
+		CreatedAt:            &created,
+		UpdatedAt:            &updated,
 	}
 	if len(p.ExtraValues) > 0 {
 		out := make(map[string]string, len(p.ExtraValues))
@@ -209,14 +231,6 @@ func (p *Provider) ToAPIResponse() *api.AgentNetworkProvider {
 			out[k] = v
 		}
 		resp.ExtraValues = &out
-	}
-	if p.IdentityHeaderUserID != "" {
-		v := p.IdentityHeaderUserID
-		resp.IdentityHeaderUserId = &v
-	}
-	if p.IdentityHeaderGroups != "" {
-		v := p.IdentityHeaderGroups
-		resp.IdentityHeaderGroups = &v
 	}
 	return resp
 }

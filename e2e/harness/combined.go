@@ -61,11 +61,68 @@ type Combined struct {
 	workDir string
 }
 
+// combinedOptions is what the CombinedOption values assemble.
+type combinedOptions struct {
+	geolocation bool
+	env         map[string]string
+}
+
+// CombinedOption adjusts how StartCombined boots the server. The defaults suit a
+// suite that only drives the API; the options exist for the ones that need more
+// of the product than that.
+type CombinedOption func(*combinedOptions)
+
+// WithGeolocation leaves the GeoLite database download enabled. It is off by
+// default because the download adds startup latency that most suites get nothing
+// for. A suite asserting on location-based posture checks needs it: management
+// evaluates those rules against the database, and without it the rule fails
+// instead of passing without having been checked.
+func WithGeolocation() CombinedOption {
+	return func(o *combinedOptions) { o.geolocation = true }
+}
+
+// WithServerEnv adds environment variables to the combined container, overriding
+// the defaults on a key collision. For settings this harness does not model
+// directly, so a suite needing one does not have to fork the harness to get it.
+func WithServerEnv(env map[string]string) CombinedOption {
+	return func(o *combinedOptions) {
+		if o.env == nil {
+			o.env = map[string]string{}
+		}
+		for k, v := range env {
+			o.env[k] = v
+		}
+	}
+}
+
+// combinedEnv is the combined container's environment: setup-PAT enabled so the
+// caller can mint an admin token through /api/setup, geolocation off unless the
+// suite asked for it, and whatever the suite added on top.
+func combinedEnv(o combinedOptions) map[string]string {
+	env := map[string]string{
+		"NB_SETUP_PAT_ENABLED": "true",
+	}
+	if !o.geolocation {
+		// Skip the GeoLite DB download — it blocks startup and agent-network
+		// ingest doesn't use geolocation.
+		env["NB_DISABLE_GEOLOCATION"] = "true"
+	}
+	for k, v := range o.env {
+		env[k] = v
+	}
+	return env
+}
+
 // StartCombined builds the combined server from its multistage Dockerfile and
 // boots it with setup-PAT enabled on a fresh shared network, returning once the
 // API is serving. The caller still owns minting the admin PAT via Bootstrap.
-func StartCombined(ctx context.Context) (*Combined, error) {
-	root, err := repoRoot()
+func StartCombined(ctx context.Context, opts ...CombinedOption) (*Combined, error) {
+	var o combinedOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+
+	root, err := repoRoot(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +145,7 @@ func StartCombined(ctx context.Context) (*Combined, error) {
 		return nil, fmt.Errorf("create work dir: %w", err)
 	}
 
-	cfg := fmt.Sprintf(combinedConfigYAML, combinedExposedURL, containerIssuer)
+	cfg := fmt.Sprintf(combinedConfigYAML, combinedExposedURL, !o.geolocation, containerIssuer)
 	if err := os.WriteFile(filepath.Join(workDir, "config.yaml"), []byte(cfg), 0o644); err != nil { //nolint:gosec // non-secret config, bind-mounted and read by the container
 		_ = net.Remove(ctx)
 		return nil, fmt.Errorf("write combined config: %w", err)
@@ -112,13 +169,8 @@ func StartCombined(ctx context.Context) (*Combined, error) {
 		ExposedPorts:   []string{combinedHTTPPort},
 		Networks:       []string{net.Name},
 		NetworkAliases: map[string][]string{net.Name: {combinedAlias}},
-		Env: map[string]string{
-			"NB_SETUP_PAT_ENABLED": "true",
-			// Skip the GeoLite DB download — it blocks startup and agent-network
-			// ingest doesn't use geolocation.
-			"NB_DISABLE_GEOLOCATION": "true",
-		},
-		Cmd: []string{"--config", "/nb/config.yaml"},
+		Env:            combinedEnv(o),
+		Cmd:            []string{"--config", "/nb/config.yaml"},
 		HostConfigModifier: func(hc *container.HostConfig) {
 			hc.Binds = append(hc.Binds, workDir+":/nb")
 		},

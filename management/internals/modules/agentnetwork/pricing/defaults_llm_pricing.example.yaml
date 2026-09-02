@@ -82,6 +82,11 @@ anthropic:
     output_per_1k: 0.015
     cache_read_per_1k: 0.0003
     cache_creation_per_1k: 0.00375
+  claude-sonnet-5:
+    input_per_1k: 0.003
+    output_per_1k: 0.015
+    cache_read_per_1k: 0.0003
+    cache_creation_per_1k: 0.00375
   kimi-k3:
     input_per_1k: 0.003
     output_per_1k: 0.015
@@ -141,6 +146,11 @@ bedrock:
     cache_read_per_1k: 0.0003
     cache_creation_per_1k: 0.00375
   anthropic.claude-sonnet-4-6:
+    input_per_1k: 0.003
+    output_per_1k: 0.015
+    cache_read_per_1k: 0.0003
+    cache_creation_per_1k: 0.00375
+  anthropic.claude-sonnet-5:
     input_per_1k: 0.003
     output_per_1k: 0.015
     cache_read_per_1k: 0.0003

@@ -11,6 +11,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/mobile"
 	"github.com/netbirdio/netbird/client/system"
 )
 
@@ -222,17 +223,36 @@ func (a *Auth) Login(resultListener ErrListener, urlOpener URLOpener, forceDevic
 // LoginWithDeviceName performs interactive login with device authentication support
 // The deviceName parameter allows specifying a custom device name (required for tvOS)
 func (a *Auth) LoginWithDeviceName(resultListener ErrListener, urlOpener URLOpener, forceDeviceAuth bool, deviceName string) {
+	a.startLogin(resultListener, urlOpener, forceDeviceAuth, deviceName, false)
+}
+
+// LoginInteractive performs the same interactive login as LoginWithDeviceName but skips the
+// IsLoginRequired() pre-flight and goes straight to the browser / device-code flow.
+//
+// IsLoginRequired() is itself a full Login RPC against the management server, so when the
+// caller has ALREADY established that login is required it is a pure duplicate. On iOS the
+// main app decides to show the browser based on its own isLoginRequired() check and then
+// calls straight into this method, so re-asking the server would add another Login RPC to
+// every interactive login.
+//
+// Use LoginWithDeviceName when the auth state is unknown and a silent (browser-less) login
+// must still be possible; use this when the browser is going to be shown regardless.
+func (a *Auth) LoginInteractive(resultListener ErrListener, urlOpener URLOpener, forceDeviceAuth bool, deviceName string) {
+	a.startLogin(resultListener, urlOpener, forceDeviceAuth, deviceName, true)
+}
+
+func (a *Auth) startLogin(resultListener ErrListener, urlOpener URLOpener, forceDeviceAuth bool, deviceName string, skipLoginCheck bool) {
 	if resultListener == nil {
-		log.Errorf("LoginWithDeviceName: resultListener is nil")
+		log.Errorf("startLogin: resultListener is nil")
 		return
 	}
 	if urlOpener == nil {
-		log.Errorf("LoginWithDeviceName: urlOpener is nil")
+		log.Errorf("startLogin: urlOpener is nil")
 		resultListener.OnError(fmt.Errorf("urlOpener is nil"))
 		return
 	}
 	go func() {
-		err := a.login(urlOpener, forceDeviceAuth, deviceName)
+		err := a.login(urlOpener, forceDeviceAuth, deviceName, skipLoginCheck)
 		if err != nil {
 			resultListener.OnError(err)
 		} else {
@@ -241,7 +261,7 @@ func (a *Auth) LoginWithDeviceName(resultListener ErrListener, urlOpener URLOpen
 	}()
 }
 
-func (a *Auth) login(urlOpener URLOpener, forceDeviceAuth bool, deviceName string) error {
+func (a *Auth) login(urlOpener URLOpener, forceDeviceAuth bool, deviceName string, skipLoginCheck bool) error {
 	// Create context with device name if provided
 	ctx := a.ctx
 	if deviceName != "" {
@@ -255,19 +275,24 @@ func (a *Auth) login(urlOpener URLOpener, forceDeviceAuth bool, deviceName strin
 	}
 	defer authClient.Close()
 
-	// check if we need to generate JWT token
-	needsLogin, err := authClient.IsLoginRequired(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to check login requirement: %v", err)
+	// check if we need to generate JWT token (skipped when the caller already knows)
+	needsLogin := true
+	if !skipLoginCheck {
+		needsLogin, err = authClient.IsLoginRequired(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to check login requirement: %v", err)
+		}
 	}
 
 	jwtToken := ""
+	email := ""
 	if needsLogin {
 		tokenInfo, err := a.foregroundGetTokenInfo(authClient, urlOpener, forceDeviceAuth)
 		if err != nil {
 			return fmt.Errorf("interactive sso login failed: %v", err)
 		}
 		jwtToken = tokenInfo.GetTokenToUse()
+		email = tokenInfo.Email
 	}
 
 	err, isAuthError := authClient.Login(ctx, "", jwtToken)
@@ -277,6 +302,14 @@ func (a *Auth) login(urlOpener URLOpener, forceDeviceAuth bool, deviceName strin
 			return fmt.Errorf("authentication error: %v", err)
 		}
 		return fmt.Errorf("login failed: %v", err)
+	}
+
+	// Stored after Login, not before: a rejected token must not leave a hint
+	// pointing at an account that cannot be used.
+	if email != "" && a.cfgPath != "" {
+		if err := mobile.WriteProfileEmail(a.cfgPath, email); err != nil {
+			log.Warnf("failed to store profile account email: %v", err)
+		}
 	}
 
 	// Save the config before notifying success to ensure persistence completes
@@ -298,10 +331,24 @@ func (a *Auth) login(urlOpener URLOpener, forceDeviceAuth bool, deviceName strin
 	return nil
 }
 
+// profileLoginHint returns the stored account email for the profile at cfgPath,
+// so a re-login targets the account the profile already belongs to instead of
+// whatever session the shared browser cookie jar happens to hold.
+//
+// An empty hint is deliberate, not a fallback: a fresh profile leaves the
+// choice to the IdP. Switching accounts is done by switching or removing
+// profiles, not by logging out — logout keeps the email.
+func profileLoginHint(cfgPath string) string {
+	if cfgPath == "" {
+		return ""
+	}
+	return mobile.ReadProfileEmail(cfgPath)
+}
+
 const authInfoRequestTimeout = 30 * time.Second
 
 func (a *Auth) foregroundGetTokenInfo(authClient *auth.Auth, urlOpener URLOpener, forceDeviceAuth bool) (*auth.TokenInfo, error) {
-	oAuthFlow, err := authClient.GetOAuthFlow(a.ctx, forceDeviceAuth)
+	oAuthFlow, err := authClient.GetOAuthFlow(a.ctx, forceDeviceAuth, profileLoginHint(a.cfgPath))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get OAuth flow: %v", err)
 	}

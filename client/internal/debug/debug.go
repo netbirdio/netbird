@@ -34,9 +34,8 @@ import (
 	"github.com/netbirdio/netbird/shared/netiputil"
 )
 
-const readmeContent = `Netbird debug bundle
-This debug bundle contains the following files.
-If the --anonymize flag is set, the files are anonymized to protect sensitive information.
+const readmeContent = `This debug bundle contains the following files.
+If anonymization is enabled (--anonymize / --anonymize-level), the files are anonymized to protect sensitive information.
 
 status.txt: Anonymized status information of the NetBird client.
 client.log: Most recent, anonymized client log file of the NetBird client.
@@ -52,6 +51,7 @@ nftables.txt: Anonymized nftables rules with packet counters across all families
 sysctls.txt: Forwarding, reverse-path filter, source-validation, and conntrack accounting sysctl values that the NetBird client may read or modify, if --system-info flag was provided (Linux only).
 resolv.conf: DNS resolver configuration from /etc/resolv.conf (Unix systems only), if --system-info flag was provided.
 scutil_dns.txt: DNS configuration from scutil --dns (macOS only), if --system-info flag was provided.
+dns_windows.txt: Anonymized NRPT rules and policy table in effect, DNS client policy, and per-interface and per-adapter DNS configuration (Windows only), if --system-info flag was provided.
 resolved_domains.txt: Anonymized resolved domain IP addresses from the status recorder.
 config.txt: Anonymized configuration information of the NetBird client.
 network_map.json: Anonymized sync response containing peer configurations, routes, DNS settings, and firewall rules.
@@ -70,21 +70,34 @@ capture.pcap: Packet capture in pcap format. Only present when capture was runni
 
 
 Anonymization Process
-The files in this bundle have been anonymized to protect sensitive information. Here's how the anonymization was applied:
+The files in this bundle have been anonymized to protect sensitive information. The level applied to this bundle is recorded at the top of this file. Here's how the anonymization was applied:
 
 IP Addresses
 
-IPv4 addresses are replaced with addresses starting from 198.51.100.0
-IPv6 addresses are replaced with addresses starting from 100::
+Default level:
+- Public IPv4 addresses are replaced with addresses starting from 198.51.100.0
+- Public IPv6 addresses are replaced with addresses starting from 2001:db8:ffff::
+- IPv6 unique local addresses (fc00::/7) are anonymized as well: their random global ID uniquely identifies the network.
+- IP addresses from internal IPv4 ranges and well-known addresses are not anonymized (e.g. 8.8.8.8, 100.64.0.0/10, addresses starting with 192.168., 172.16., 10., 169.254., fe80::).
 
-IP addresses from non public ranges and well known addresses are not anonymized (e.g. 8.8.8.8, 100.64.0.0/10, addresses starting with 192.168., 172.16., 10., etc.).
+Strict level (--anonymize-level strict), in addition to the default level:
+- Private (RFC 1918), CGNAT (100.64.0.0/10), and link-local (169.254.0.0/16, fe80::/10) addresses are anonymized too.
+- Internal IPv4 addresses are replaced with addresses starting from 198.18.0.0 and internal IPv6 addresses with addresses starting from 2001:db8:1::, so internal addresses remain distinguishable from public ones.
+- Addresses are mapped in order of first appearance: subnet structure, allocation scheme, and gateway conventions are not preserved. Prefix lengths of networks are preserved.
+- Peer names in front of NetBird domains are replaced with numbered placeholders (e.g. peer-1.netbird.cloud), and subdomain labels of other domains with host-N placeholders.
+- WireGuard public keys are replaced with consistent placeholder keys.
+
 Reoccuring IP addresses are replaced with the same anonymized address.
 
 Note: The anonymized IP addresses in the status file do not match those in the log and routes files. However, the anonymized IP addresses are consistent within the status file and across the routes and log files.
 
+MAC Addresses
+MAC addresses are replaced at every anonymization level with consistent placeholders counting up from 02:00:00:00:00:01. Broadcast, multicast, and all-zero addresses are kept. At the default level a preserved IPv6 link-local address may still embed a MAC address (EUI-64); the strict level anonymizes those addresses.
+
 Domains
 All domain names (except for the netbird domains) are replaced with randomly generated strings ending in ".domain". Anonymized domains are consistent across all files in the bundle.
 Reoccuring domain names are replaced with the same anonymized domain.
+At the strict level, the peer name labels in front of netbird domains are anonymized as well.
 
 Sync Response
 The network_map.json file contains the following anonymized information:
@@ -225,6 +238,13 @@ scutil_dns.txt (macOS only):
 - Shows DNS configuration for all network interfaces
 - Includes search domains, nameservers, and DNS resolver settings
 - All IP addresses and domain names are anonymized
+
+dns_windows.txt (Windows only):
+- Lists the NRPT rules of both policy stores, the local one and the group policy one, marking the rules the client created
+- Follows them with the policy table the resolver has loaded, which differs from the rules while a change has not been picked up yet
+- Includes the DNS client group policy, the global TCP/IP and Dnscache parameters, and the DNS values of every interface that has any
+- Ends with the resolver configuration in effect per adapter, from GetAdaptersAddresses
+- All IP addresses and domain names are anonymized
 `
 
 const (
@@ -281,6 +301,7 @@ type BundleGenerator struct {
 	cliVersion     string
 
 	anonymize         bool
+	anonymizeLevel    anonymize.Level
 	includeSystemInfo bool
 	logFileCount      uint32
 
@@ -288,7 +309,10 @@ type BundleGenerator struct {
 }
 
 type BundleConfig struct {
-	Anonymize         bool
+	Anonymize bool
+	// AnonymizeLevel selects how much the anonymizer redacts.
+	// anonymize.LevelStrict implies Anonymize.
+	AnonymizeLevel    anonymize.Level
 	IncludeSystemInfo bool
 	LogFileCount      uint32
 }
@@ -327,8 +351,11 @@ func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGen
 		uiLogOpener = openLogFile
 	}
 
+	anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
+	anonymizer.SetLevel(cfg.AnonymizeLevel)
+
 	return &BundleGenerator{
-		anonymizer: anonymize.NewAnonymizer(anonymize.DefaultAddresses()),
+		anonymizer: anonymizer,
 
 		internalConfig: deps.InternalConfig,
 		statusRecorder: deps.StatusRecorder,
@@ -345,7 +372,8 @@ func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGen
 		daemonVersion:  deps.DaemonVersion,
 		cliVersion:     deps.CliVersion,
 
-		anonymize:         cfg.Anonymize,
+		anonymize:         cfg.Anonymize || cfg.AnonymizeLevel >= anonymize.LevelStrict,
+		anonymizeLevel:    cfg.AnonymizeLevel,
 		includeSystemInfo: cfg.IncludeSystemInfo,
 		logFileCount:      logFileCount,
 	}
@@ -485,7 +513,13 @@ func (g *BundleGenerator) addSystemInfo() {
 }
 
 func (g *BundleGenerator) addReadme() error {
-	readmeReader := strings.NewReader(readmeContent)
+	level := "none (anonymization disabled)"
+	if g.anonymize {
+		level = g.anonymizeLevel.String()
+	}
+	header := fmt.Sprintf("Netbird debug bundle\nAnonymization level applied to this bundle: %s\n", level)
+
+	readmeReader := strings.NewReader(header + readmeContent)
 	if err := g.addFileToZip(readmeReader, "README.txt"); err != nil {
 		return fmt.Errorf("add README file to zip: %w", err)
 	}
@@ -507,9 +541,10 @@ func (g *BundleGenerator) addStatus() error {
 		fullStatus := g.statusRecorder.GetFullStatus()
 		protoFullStatus := nbstatus.ToProtoFullStatus(fullStatus)
 		overview := nbstatus.ConvertToStatusOutputOverview(protoFullStatus, nbstatus.ConvertOptions{
-			Anonymize:     g.anonymize,
-			ProfileName:   profName,
-			DaemonVersion: g.daemonVersion,
+			Anonymize:      g.anonymize,
+			AnonymizeLevel: g.anonymizeLevel,
+			ProfileName:    profName,
+			DaemonVersion:  g.daemonVersion,
 		})
 		overview.CliVersion = g.cliVersion
 		statusOutput := overview.FullDetailSummary()
@@ -662,7 +697,7 @@ func (g *BundleGenerator) addCommonConfigFields(configContent *strings.Builder) 
 	configContent.WriteString("NetBird Client Configuration:\n\n")
 
 	if key, err := wgtypes.ParseKey(g.internalConfig.PrivateKey); err == nil {
-		configContent.WriteString(fmt.Sprintf("PublicKey: %s\n", key.PublicKey().String()))
+		configContent.WriteString(fmt.Sprintf("PublicKey: %s\n", g.anonymizer.AnonymizeWGKey(key.PublicKey().String())))
 	}
 	configContent.WriteString(fmt.Sprintf("WgIface: %s\n", g.internalConfig.WgIface))
 	configContent.WriteString(fmt.Sprintf("WgPort: %d\n", g.internalConfig.WgPort))
@@ -675,6 +710,9 @@ func (g *BundleGenerator) addCommonConfigFields(configContent *strings.Builder) 
 	configContent.WriteString(fmt.Sprintf("RosenpassPermissive: %v\n", g.internalConfig.RosenpassPermissive))
 	if g.internalConfig.ServerSSHAllowed != nil {
 		configContent.WriteString(fmt.Sprintf("ServerSSHAllowed: %v\n", *g.internalConfig.ServerSSHAllowed))
+	}
+	if g.internalConfig.RemoteJobsAllowed != nil {
+		configContent.WriteString(fmt.Sprintf("RemoteJobsAllowed: %v\n", *g.internalConfig.RemoteJobsAllowed))
 	}
 	if g.internalConfig.EnableSSHRoot != nil {
 		configContent.WriteString(fmt.Sprintf("EnableSSHRoot: %v\n", *g.internalConfig.EnableSSHRoot))
@@ -702,6 +740,8 @@ func (g *BundleGenerator) addCommonConfigFields(configContent *strings.Builder) 
 	configContent.WriteString(fmt.Sprintf("BlockLANAccess: %v\n", g.internalConfig.BlockLANAccess))
 	configContent.WriteString(fmt.Sprintf("BlockInbound: %v\n", g.internalConfig.BlockInbound))
 	configContent.WriteString(fmt.Sprintf("DisableIPv6: %v\n", g.internalConfig.DisableIPv6))
+	configContent.WriteString(fmt.Sprintf("LocalMetricsEnabled: %v\n", g.internalConfig.LocalMetricsEnabled))
+	configContent.WriteString(fmt.Sprintf("LocalMetricsAddress: %s\n", g.internalConfig.LocalMetricsAddress))
 	configContent.WriteString(fmt.Sprintf("SyncMessageVersion: %v\n", g.internalConfig.SyncMessageVersion))
 
 	if g.internalConfig.DisableNotifications != nil {
@@ -952,6 +992,11 @@ func (g *BundleGenerator) addUpdateLogs() error {
 		}
 
 		baseName := filepath.Base(logFile)
+		data, err = g.anonymizeBytes(data)
+		if err != nil {
+			log.Warnf("skipping update log file %s: %v", baseName, err)
+			continue
+		}
 		if err := g.addFileToZip(bytes.NewReader(data), filepath.Join("update-logs", baseName)); err != nil {
 			return fmt.Errorf("add update log file %s to zip: %w", baseName, err)
 		}
@@ -979,6 +1024,13 @@ func (g *BundleGenerator) addCorruptedStateFiles() error {
 		}
 
 		fileName := filepath.Base(match)
+		// Corrupted state files usually fail structured JSON anonymization,
+		// so run them through the string anonymizer instead.
+		data, err = g.anonymizeBytes(data)
+		if err != nil {
+			log.Warnf("skipping corrupted state file %s: %v", fileName, err)
+			continue
+		}
 		if err := g.addFileToZip(bytes.NewReader(data), "corrupted_states/"+fileName); err != nil {
 			log.Warnf("Failed to add corrupted state file %s to zip: %v", fileName, err)
 			continue
@@ -988,6 +1040,27 @@ func (g *BundleGenerator) addCorruptedStateFiles() error {
 	}
 
 	return nil
+}
+
+// anonymizeBytes runs raw file content through the string anonymizer line by
+// line when anonymization is enabled. It errors instead of returning partial
+// content, so a caller never adds an unanonymized fallback to the bundle.
+func (g *BundleGenerator) anonymizeBytes(data []byte) ([]byte, error) {
+	if !g.anonymize {
+		return data, nil
+	}
+
+	var buf bytes.Buffer
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+	for scanner.Scan() {
+		buf.WriteString(g.anonymizer.AnonymizeString(scanner.Text()))
+		buf.WriteByte('\n')
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("anonymize content: %w", err)
+	}
+	return buf.Bytes(), nil
 }
 
 func (g *BundleGenerator) addMetrics() error {
@@ -1462,6 +1535,7 @@ func anonymizeRemotePeer(peer *mgmProto.RemotePeerConfig, anonymizer *anonymize.
 	}
 
 	peer.Fqdn = anonymizer.AnonymizeDomain(peer.Fqdn)
+	peer.WgPubKey = anonymizer.AnonymizeWGKey(peer.WgPubKey)
 
 	anonymizeSSHConfig(peer.SshConfig)
 }
