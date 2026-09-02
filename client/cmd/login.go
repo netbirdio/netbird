@@ -91,7 +91,7 @@ var loginCmd = &cobra.Command{
 			return fmt.Errorf("daemon login failed: %v", err)
 		}
 
-		cmd.Println("Logging successfully")
+		cmd.Println("Login successful")
 
 		return nil
 	},
@@ -343,7 +343,7 @@ func doForegroundLogin(ctx context.Context, cmd *cobra.Command, setupKey string,
 	if err != nil {
 		return fmt.Errorf("foreground login failed: %v", err)
 	}
-	cmd.Println("Logging successfully")
+	cmd.Println("Login successful")
 	return nil
 }
 

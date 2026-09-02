@@ -652,6 +652,7 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 		RosenpassEnabled:              config.RosenpassEnabled,
 		RosenpassPermissive:           config.RosenpassPermissive,
 		ServerSSHAllowed:              util.ReturnBoolWithDefaultTrue(config.ServerSSHAllowed),
+		RemoteJobsAllowed:             util.ReturnBoolWithDefaultFalse(config.RemoteJobsAllowed),
 		EnableSSHRoot:                 config.EnableSSHRoot,
 		EnableSSHSFTP:                 config.EnableSSHSFTP,
 		EnableSSHLocalPortForwarding:  config.EnableSSHLocalPortForwarding,
@@ -749,6 +750,7 @@ func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte,
 		config.EnableSSHLocalPortForwarding,
 		config.EnableSSHRemotePortForwarding,
 		config.DisableSSHAuth,
+		config.RemoteJobsAllowed,
 	)
 	return client.Login(sysInfo, pubSSHKey, config.DNSLabels)
 }
