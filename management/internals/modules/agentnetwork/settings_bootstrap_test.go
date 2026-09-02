@@ -66,17 +66,27 @@ func (f *bootstrapFixture) createSettings(ctx context.Context, accountID, userID
 	return f.manager.CreateSettings(ctx, userID, types.DefaultSettings(accountID), proxyAddress, endpoint)
 }
 
-// seedProxy registers a connected proxy in clusterAddr so the labeled
-// bootstrap path has a real cluster to validate against. accountID empty
-// makes it a shared (NetBird-operated) cluster; private mirrors the
-// capability an embedded `netbird proxy` reports, nil an unreported one.
+func ptrTo[T any](v T) *T { return &v }
+
+// seedProxy registers a proxy in clusterAddr, heartbeating now, so the labeled
+// bootstrap path has a real cluster to validate against. accountID empty makes
+// it a shared (NetBird-operated) cluster; private mirrors the capability an
+// embedded `netbird proxy` reports, nil an unreported one.
 func (f *bootstrapFixture) seedProxy(t *testing.T, proxyID, accountID, clusterAddr string, private *bool) {
+	t.Helper()
+	f.seedProxyAt(t, proxyID, accountID, clusterAddr, private, time.Now().UTC())
+}
+
+// seedProxyAt is seedProxy with an explicit last-seen, for cases that need a
+// proxy whose heartbeat has aged past the active window while its row (and so
+// its cluster) is still on record.
+func (f *bootstrapFixture) seedProxyAt(t *testing.T, proxyID, accountID, clusterAddr string, private *bool, lastSeen time.Time) {
 	t.Helper()
 	p := &proxy.Proxy{
 		ID:             proxyID,
 		ClusterAddress: clusterAddr,
 		Status:         proxy.StatusConnected,
-		LastSeen:       time.Now().UTC(),
+		LastSeen:       lastSeen,
 		Capabilities:   proxy.Capabilities{Private: private},
 	}
 	if accountID != "" {
@@ -89,8 +99,7 @@ func (f *bootstrapFixture) seedProxy(t *testing.T, proxyID, accountID, clusterAd
 // embedded proxy, which is what the labeled bootstrap requires.
 func (f *bootstrapFixture) seedEmbeddedCluster(t *testing.T, clusterAddr string) {
 	t.Helper()
-	private := true
-	f.seedProxy(t, "proxy-"+clusterAddr, "", clusterAddr, &private)
+	f.seedProxy(t, "proxy-"+clusterAddr, "", clusterAddr, ptrTo(true))
 }
 
 // TestCreateSettingsRequiresPermission pins the gate: bootstrap assigns the
@@ -255,36 +264,54 @@ func TestCreateProviderHasNoSettingsSideEffects(t *testing.T) {
 	assert.Error(t, err, "provider create must not conjure a settings row")
 }
 
-// TestCreateSettingsAllowsUnjudgeableCluster pins the address-first carve-out:
-// a cluster nothing is connected to yet cannot be judged, so the pin is
-// allowed — the same order the dedicated path documents (claim the address,
-// connect the proxy after). A stale cluster whose proxies have aged out of
-// the active window reads the same way.
-func TestCreateSettingsAllowsUnjudgeableCluster(t *testing.T) {
+// TestCreateSettingsAllowsUnknownCluster pins the one opening left: a cluster
+// management holds no proxy row for cannot be judged, so the pin is allowed —
+// the same order the dedicated path documents (claim the address, connect the
+// proxy after).
+func TestCreateSettingsAllowsUnknownCluster(t *testing.T) {
 	ctx := context.Background()
-	private := true
+	f := newBootstrapFixture(t)
+	f.expectPermission("account1", "user1", modules.AgentNetworkSettings, operations.Create, true)
 
-	cases := map[string]func(f *bootstrapFixture, t *testing.T){
-		"no proxy at all": func(*bootstrapFixture, *testing.T) {},
-		"heartbeat aged out": func(f *bootstrapFixture, t *testing.T) {
-			require.NoError(t, f.store.SaveProxy(ctx, &proxy.Proxy{
-				ID:             "proxy-stale",
-				ClusterAddress: "future.example.com",
-				Status:         proxy.StatusConnected,
-				LastSeen:       time.Now().UTC().Add(-time.Hour),
-				Capabilities:   proxy.Capabilities{Private: &private},
-			}), "seeding a stale proxy must succeed")
-		},
+	created, err := f.createSettings(ctx, "account1", "user1", "future.example.com", "")
+	require.NoError(t, err, "a cluster no proxy has ever declared must stay pinnable")
+	assert.Equal(t, "future.example.com", created.ProxyAddress)
+}
+
+// TestCreateSettingsRejectsOfflineCluster is the guard against deciding on
+// heartbeat freshness. A centralised cluster is refused while its proxies are
+// live; the same cluster must stay refused once they stop heartbeating, which
+// takes only a couple of minutes (proxyActiveThreshold). Judging on liveness
+// would turn "wait for the proxy to go quiet" into a way to pin the account's
+// immutable endpoint to a cluster that can never serve it.
+func TestCreateSettingsRejectsOfflineCluster(t *testing.T) {
+	ctx := context.Background()
+	notPrivate := false
+
+	cases := map[string]*bool{
+		"centralised proxy gone quiet": &notPrivate,
+		// A cluster that could serve the gateway still has to have something
+		// live in it to prove so at bootstrap: refusing is the safe direction
+		// (reconnect the proxy and retry) where accepting is permanent.
+		"embedded proxy gone quiet": ptrTo(true),
 	}
-	for name, seed := range cases {
+	for name, private := range cases {
 		t.Run(name, func(t *testing.T) {
 			f := newBootstrapFixture(t)
-			seed(f, t)
+			f.seedProxyAt(t, "proxy1", "", "offline.example.com", private,
+				time.Now().UTC().Add(-time.Hour))
 			f.expectPermission("account1", "user1", modules.AgentNetworkSettings, operations.Create, true)
 
-			created, err := f.createSettings(ctx, "account1", "user1", "future.example.com", "")
-			require.NoError(t, err, "a cluster with nothing live in it must stay pinnable")
-			assert.Equal(t, "future.example.com", created.ProxyAddress)
+			_, err := f.createSettings(ctx, "account1", "user1", "offline.example.com", "")
+			require.Error(t, err, "a known cluster with nothing live in it must be rejected")
+			var sErr *status.Error
+			require.ErrorAs(t, err, &sErr)
+			assert.Equal(t, status.InvalidArgument, sErr.Type(), "rejection must be a validation error")
+			assert.Contains(t, err.Error(), "connected embedded proxy",
+				"the error must say a live embedded proxy is what is missing")
+
+			_, err = f.store.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, "account1")
+			assert.Error(t, err, "no row may be left behind by a rejected bootstrap")
 		})
 	}
 }
@@ -312,21 +339,32 @@ func TestCreateSettingsRequiresPrivateCluster(t *testing.T) {
 }
 
 // TestCreateSettingsRejectsForeignCluster pins tenant isolation on the pin: an
-// account-owned (BYOP) cluster belongs to the account that runs it, and is not
-// a cluster another account may hang its gateway beneath — even though it is
-// private-capable.
+// account-owned (BYOP) cluster belongs to the account that runs it and is not
+// one another account may hang its gateway beneath, even though it is
+// private-capable. Ownership does not lapse with the heartbeat either, so the
+// refusal holds while the foreign cluster is offline.
 func TestCreateSettingsRejectsForeignCluster(t *testing.T) {
 	ctx := context.Background()
-	f := newBootstrapFixture(t)
-	private := true
-	f.seedProxy(t, "proxy1", "account2", "byop.account2.example.com", &private)
-	f.expectPermission("account1", "user1", modules.AgentNetworkSettings, operations.Create, true)
 
-	_, err := f.createSettings(ctx, "account1", "user1", "byop.account2.example.com", "")
-	require.Error(t, err, "another account's BYOP cluster must be rejected")
-	var sErr *status.Error
-	require.ErrorAs(t, err, &sErr)
-	assert.Equal(t, status.InvalidArgument, sErr.Type(), "rejection must be a validation error")
+	cases := map[string]time.Time{
+		"live":    time.Now().UTC(),
+		"offline": time.Now().UTC().Add(-time.Hour),
+	}
+	for name, lastSeen := range cases {
+		t.Run(name, func(t *testing.T) {
+			f := newBootstrapFixture(t)
+			f.seedProxyAt(t, "proxy1", "account2", "byop.account2.example.com", ptrTo(true), lastSeen)
+			f.expectPermission("account1", "user1", modules.AgentNetworkSettings, operations.Create, true)
+
+			_, err := f.createSettings(ctx, "account1", "user1", "byop.account2.example.com", "")
+			require.Error(t, err, "another account's BYOP cluster must be rejected")
+			var sErr *status.Error
+			require.ErrorAs(t, err, &sErr)
+			assert.Equal(t, status.InvalidArgument, sErr.Type(), "rejection must be a validation error")
+			assert.Contains(t, err.Error(), "not available to this account",
+				"the error must say the cluster is not the account's to use")
+		})
+	}
 }
 
 // TestCreateSettingsAcceptsOwnPrivateCluster pins the BYOP happy path: the
@@ -334,8 +372,7 @@ func TestCreateSettingsRejectsForeignCluster(t *testing.T) {
 func TestCreateSettingsAcceptsOwnPrivateCluster(t *testing.T) {
 	ctx := context.Background()
 	f := newBootstrapFixture(t)
-	private := true
-	f.seedProxy(t, "proxy1", "account1", "byop.account1.example.com", &private)
+	f.seedProxy(t, "proxy1", "account1", "byop.account1.example.com", ptrTo(true))
 	f.expectPermission("account1", "user1", modules.AgentNetworkSettings, operations.Create, true)
 
 	created, err := f.createSettings(ctx, "account1", "user1", "byop.account1.example.com", "")

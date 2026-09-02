@@ -878,33 +878,45 @@ func (m *managerImpl) bootstrapSelfAddressed(ctx context.Context, settings *type
 // proxy — and the endpoint it allocates is immutable, so the account is left
 // with a dead gateway that only a DeleteSettings/re-bootstrap can undo.
 //
-// Only a cluster management can actually judge is rejected: one whose live
-// proxies have reported their capabilities. A cluster nothing is connected to
-// is left alone, because pinning ahead of the proxy's first connection is a
-// legitimate order (the dedicated path claims an address the same way, before
-// any proxy declares it).
+// Whether management knows the cluster is decided on the proxy rows
+// themselves, never on how fresh their heartbeats are: a cluster's rows
+// outlive its proxies' liveness (only the stale-proxy reaper removes them), so
+// a cluster that exists stays judged as one. Judging on liveness instead would
+// make the same centralised cluster pass or fail depending on whether its
+// proxies happened to have heartbeated in the last couple of minutes.
+//
+// The single opening left is a cluster management holds no proxy row for at
+// all: pinning ahead of a proxy's first connection is a legitimate order — the
+// dedicated path claims an address the same way, before any proxy declares it.
 func (m *managerImpl) validateGatewayCluster(ctx context.Context, accountID, clusterAddr string) error {
-	private := m.store.GetClusterSupportsPrivate(ctx, clusterAddr)
-	if private == nil {
-		// No live proxy in the cluster reported its capabilities: either
-		// nothing is connected there yet, or the proxies predate capability
-		// reporting. Nothing to judge — let the pin through.
-		return nil
-	}
-
-	available, err := m.accountClusterAddresses(ctx, accountID)
+	known, err := m.accountKnowsCluster(ctx, accountID, clusterAddr)
 	if err != nil {
 		return err
 	}
-	if !slices.Contains(available, clusterAddr) {
-		// Live, but not a cluster this account may route through: another
-		// account's BYOP cluster. Its proxies filter foreign mappings out on
-		// delivery, so the pin would be dead on arrival.
-		return status.Errorf(status.InvalidArgument,
-			"proxy cluster %s is not available to this account", clusterAddr)
+
+	if !known {
+		// Not in the account's view. A shared cluster would have been in it,
+		// so a proxy row elsewhere for this address can only be another
+		// account's BYOP cluster: its proxies filter foreign mappings out on
+		// delivery, making the pin dead on arrival.
+		foreign, err := m.store.IsClusterAddressConflicting(ctx, clusterAddr, accountID)
+		if err != nil {
+			return fmt.Errorf("check proxy cluster ownership: %w", err)
+		}
+		if foreign {
+			return status.Errorf(status.InvalidArgument,
+				"proxy cluster %s is not available to this account", clusterAddr)
+		}
+		// No proxy has ever declared this address: an address-first pin.
+		return nil
 	}
 
-	if !*private {
+	// A cluster management knows has to prove it can serve the gateway, and
+	// only a live embedded proxy proves that. Both an explicit false and an
+	// unreported capability (nothing live in the cluster, or proxies predating
+	// capability reporting) fail here: unusable and unproven are the same
+	// answer for a decision that cannot be revisited later.
+	if private := m.store.GetClusterSupportsPrivate(ctx, clusterAddr); private == nil || !*private {
 		return status.Errorf(status.InvalidArgument,
 			"proxy cluster %s cannot serve the agent network gateway: the gateway is reachable only from connected peers, "+
 				"which needs at least one connected embedded proxy (netbird proxy) in the cluster", clusterAddr)
@@ -912,34 +924,31 @@ func (m *managerImpl) validateGatewayCluster(ctx context.Context, accountID, clu
 	return nil
 }
 
-// accountClusterAddresses lists the active proxy cluster addresses the account
-// may pin its gateway to: its own (BYOP) clusters plus the shared ones. This
-// mirrors the free-domain allow list the dashboard offers as cluster choices,
-// so the API accepts exactly what the UI can present. Addresses are stored as
-// the proxy declared them; they are normalised here so the comparison against
-// a normalised proxy_address is not defeated by case.
-func (m *managerImpl) accountClusterAddresses(ctx context.Context, accountID string) ([]string, error) {
-	byop, err := m.store.GetActiveProxyClusterAddressesForAccount(ctx, accountID)
+// accountKnowsCluster reports whether clusterAddr is a proxy cluster in the
+// account's view — one of its own (BYOP) clusters or a shared one. The cluster
+// listing is not gated on heartbeats, so this answer does not change while a
+// cluster's proxies are merely offline. Addresses are stored as the proxy
+// declared them, so both sides are normalised: hostnames are case-insensitive
+// and the pin must not be sidesteppable by casing.
+func (m *managerImpl) accountKnowsCluster(ctx context.Context, accountID, clusterAddr string) (bool, error) {
+	clusters, err := m.store.GetProxyClusters(ctx, accountID)
 	if err != nil {
-		return nil, fmt.Errorf("list account proxy clusters: %w", err)
-	}
-	shared, err := m.store.GetActiveProxyClusterAddresses(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list shared proxy clusters: %w", err)
+		return false, fmt.Errorf("list proxy clusters: %w", err)
 	}
 
-	addresses := make([]string, 0, len(byop)+len(shared))
-	for _, addr := range slices.Concat(byop, shared) {
-		normalized, err := types.NormalizeHostname(addr)
+	for _, cluster := range clusters {
+		normalized, err := types.NormalizeHostname(cluster.Address)
 		if err != nil {
-			// A cluster address the proxy declared in a shape we cannot
-			// normalise is not one an endpoint can be allocated beneath.
-			log.WithContext(ctx).Debugf("skipping unusable proxy cluster address %q: %s", addr, err)
+			// An address declared in a shape we cannot normalise is not one an
+			// endpoint can be allocated beneath.
+			log.WithContext(ctx).Debugf("skipping unusable proxy cluster address %q: %s", cluster.Address, err)
 			continue
 		}
-		addresses = append(addresses, normalized)
+		if normalized == clusterAddr {
+			return true, nil
+		}
 	}
-	return addresses, nil
+	return false, nil
 }
 
 // bootstrapLabeled allocates a labeled endpoint one label beneath the given
