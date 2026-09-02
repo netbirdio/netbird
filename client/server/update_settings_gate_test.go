@@ -360,3 +360,21 @@ func TestLogin_ChangeThatAppearsMidRequestIsRefused(t *testing.T) {
 	require.Equal(t, "https://mgmt.elsewhere.example:443", stored.ManagementURL.String(),
 		"the refused login wrote the management URL it was asked for")
 }
+
+// Logging out a profile that was already logged out must not fail: the logout
+// clears the keys in place, so the second attempt finds a profile with no
+// identity, which was never registered and has nothing to deregister.
+func TestLogout_ProfileWithoutAnIdentityIsANoOp(t *testing.T) {
+	s, _, _, _, cfgPath := setupServerWithProfile(t)
+
+	loggedOut, err := profilemanager.GetExistingConfig(cfgPath)
+	require.NoError(t, err)
+	loggedOut.PrivateKey = ""
+	loggedOut.SSHKey = ""
+	require.NoError(t, profilemanager.WriteOutConfig(cfgPath, loggedOut))
+
+	stored, err := profilemanager.GetExistingConfig(cfgPath)
+	require.NoError(t, err)
+	require.NoError(t, s.sendLogoutRequestWithConfig(privilegedTestCtx(), stored),
+		"logging out an identity-less profile must not fail")
+}

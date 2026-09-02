@@ -1577,6 +1577,16 @@ func (s *Server) sendLogoutRequestWithConfig(ctx context.Context, config *profil
 		return err
 	}
 
+	// A profile with no identity was never registered — a logout clears the
+	// keys in place, so logging the same profile out twice lands here — and
+	// there is nothing to deregister. Reads no longer mint a key on the way
+	// past, so this is where that case surfaces instead of dialing management
+	// with a key it has never seen.
+	if config.PrivateKey == "" {
+		log.Infof("profile carries no identity, nothing to deregister")
+		return nil
+	}
+
 	key, err := wgtypes.ParseKey(config.PrivateKey)
 	if err != nil {
 		return fmt.Errorf("parse private key: %w", err)

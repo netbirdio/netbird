@@ -174,7 +174,10 @@ func (pm *ProfileManager) LogoutProfile(id string) error {
 		return fmt.Errorf("profile %q does not exist", id)
 	}
 
-	config, err := profilemanager.ReadOrGenerateConfig(configPath)
+	// The existing-file reader, not the generating one: the check above is not
+	// atomic with this read, so a profile removed in between would otherwise be
+	// resolved from the defaults here and recreated by the write below.
+	config, err := profilemanager.GetExistingConfig(configPath)
 	if err != nil {
 		return fmt.Errorf("read profile config: %w", err)
 	}
