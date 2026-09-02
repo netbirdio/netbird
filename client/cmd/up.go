@@ -428,6 +428,17 @@ func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServ
 	return nil
 }
 
+// setBoolPtrIfChanged points dst at a copy of val when the named bool flag was
+// explicitly set on cmd. It collapses the repeated
+// "if cmd.Flag(x).Changed { field = &val }" pattern in the request builders into
+// a single call, keeping their cognitive complexity within bounds.
+func setBoolPtrIfChanged(cmd *cobra.Command, name string, dst **bool, val bool) {
+	if cmd.Flag(name).Changed {
+		dst2 := val
+		*dst = &dst2
+	}
+}
+
 // setSSHSetConfigFields copies the SSH server flags the user actually
 // passed into req, leaving the rest unset so the daemon keeps the
 // persisted values.
@@ -477,6 +488,7 @@ func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, pro
 		req.RosenpassPermissive = &rosenpassPermissive
 	}
 	setSSHSetConfigFields(&req, cmd)
+	setBoolPtrIfChanged(cmd, remoteJobsAllowedFlag, &req.RemoteJobsAllowed, remoteJobsAllowed)
 
 	if cmd.Flag(interfaceNameFlag).Changed {
 		if err := parseInterfaceName(interfaceName); err != nil {
@@ -568,6 +580,7 @@ func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configFil
 	if cmd.Flag(serverSSHAllowedFlag).Changed {
 		ic.ServerSSHAllowed = &serverSSHAllowed
 	}
+	setBoolPtrIfChanged(cmd, remoteJobsAllowedFlag, &ic.RemoteJobsAllowed, remoteJobsAllowed)
 
 	if cmd.Flag(enableSSHRootFlag).Changed {
 		ic.EnableSSHRoot = &enableSSHRoot
@@ -727,6 +740,7 @@ func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte
 	}
 
 	setSSHLoginFields(&loginRequest, cmd)
+	setBoolPtrIfChanged(cmd, remoteJobsAllowedFlag, &loginRequest.RemoteJobsAllowed, remoteJobsAllowed)
 
 	if cmd.Flag(disableAutoConnectFlag).Changed {
 		loginRequest.DisableAutoConnect = &autoConnectDisabled
