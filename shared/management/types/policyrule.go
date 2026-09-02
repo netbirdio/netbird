@@ -1,13 +1,13 @@
 package types
 
 import (
-	"slices"
+	"errors"
+	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
-
-// PolicyUpdateOperationType operation type
-type PolicyUpdateOperationType int
 
 // PolicyTrafficActionType action type for the firewall
 type PolicyTrafficActionType string
@@ -15,8 +15,25 @@ type PolicyTrafficActionType string
 // PolicyRuleProtocolType type of traffic
 type PolicyRuleProtocolType string
 
-// PolicyRuleDirection direction of traffic
-type PolicyRuleDirection string
+const (
+	// PolicyTrafficActionAccept indicates that the traffic is accepted
+	PolicyTrafficActionAccept = PolicyTrafficActionType("accept")
+	// PolicyTrafficActionDrop indicates that the traffic is dropped
+	PolicyTrafficActionDrop = PolicyTrafficActionType("drop")
+)
+
+const (
+	// PolicyRuleProtocolALL type of traffic
+	PolicyRuleProtocolALL = PolicyRuleProtocolType("all")
+	// PolicyRuleProtocolTCP type of traffic
+	PolicyRuleProtocolTCP = PolicyRuleProtocolType("tcp")
+	// PolicyRuleProtocolUDP type of traffic
+	PolicyRuleProtocolUDP = PolicyRuleProtocolType("udp")
+	// PolicyRuleProtocolICMP type of traffic
+	PolicyRuleProtocolICMP = PolicyRuleProtocolType("icmp")
+	// PolicyRuleProtocolNetbirdSSH type of traffic
+	PolicyRuleProtocolNetbirdSSH = PolicyRuleProtocolType("netbird-ssh")
+)
 
 // RulePortRange represents a range of ports for a firewall rule.
 type RulePortRange struct {
@@ -39,187 +56,84 @@ func (r *RulePortRange) Equal(other *RulePortRange) bool {
 	return r.Start == other.Start && r.End == other.End
 }
 
-// PolicyRule is the metadata of the policy
-type PolicyRule struct {
-	// ID of the policy rule
-	ID string `gorm:"primaryKey"`
+func ParseRuleString(rule string) (PolicyRuleProtocolType, RulePortRange, error) {
+	rule = strings.TrimSpace(strings.ToLower(rule))
+	if rule == "all" {
+		return PolicyRuleProtocolALL, RulePortRange{}, nil
+	}
+	if rule == "icmp" {
+		return PolicyRuleProtocolICMP, RulePortRange{}, nil
+	}
 
-	// PolicyID is a reference to Policy that this object belongs
-	PolicyID string `json:"-" gorm:"index"`
+	split := strings.Split(rule, "/")
+	if len(split) != 2 {
+		return "", RulePortRange{}, errors.New("invalid rule format: expected protocol/port or protocol/port-range")
+	}
 
-	// Name of the rule visible in the UI
-	Name string
+	protoStr := strings.TrimSpace(split[0])
+	portStr := strings.TrimSpace(split[1])
 
-	// Description of the rule visible in the UI
-	Description string
+	var protocol PolicyRuleProtocolType
+	switch protoStr {
+	case "tcp":
+		protocol = PolicyRuleProtocolTCP
+	case "udp":
+		protocol = PolicyRuleProtocolUDP
+	case "icmp":
+		return "", RulePortRange{}, errors.New("icmp does not accept ports; use 'icmp' without '/…'")
+	case "netbird-ssh":
+		return PolicyRuleProtocolNetbirdSSH, RulePortRange{Start: nativeSSHPortNumber, End: nativeSSHPortNumber}, nil
+	default:
+		return "", RulePortRange{}, fmt.Errorf("invalid protocol: %q", protoStr)
+	}
 
-	// Enabled status of rule in the system
-	Enabled bool
+	portRange, err := parsePortRange(portStr)
+	if err != nil {
+		return "", RulePortRange{}, err
+	}
 
-	// Action policy accept or drops packets
-	Action PolicyTrafficActionType
-
-	// Destinations policy destination groups
-	Destinations []string `gorm:"serializer:json"`
-
-	// DestinationResource policy destination resource that the rule is applied to
-	DestinationResource Resource `gorm:"serializer:json"`
-
-	// Sources policy source groups
-	Sources []string `gorm:"serializer:json"`
-
-	// SourceResource policy source resource that the rule is applied to
-	SourceResource Resource `gorm:"serializer:json"`
-
-	// Bidirectional define if the rule is applicable in both directions, sources, and destinations
-	Bidirectional bool
-
-	// Protocol type of the traffic
-	Protocol PolicyRuleProtocolType
-
-	// Ports or it ranges list
-	Ports []string `gorm:"serializer:json"`
-
-	// PortRanges a list of port ranges.
-	PortRanges []RulePortRange `gorm:"serializer:json"`
-
-	// AuthorizedGroups is a map of groupIDs and their respective access to local users via ssh
-	AuthorizedGroups map[string][]string `gorm:"serializer:json"`
-
-	// AuthorizedUser is a list of userIDs that are authorized to access local resources via ssh
-	AuthorizedUser string
+	return protocol, portRange, nil
 }
 
-// Copy returns a copy of a policy rule
-func (pm *PolicyRule) Copy() *PolicyRule {
-	rule := &PolicyRule{
-		ID:                  pm.ID,
-		PolicyID:            pm.PolicyID,
-		Name:                pm.Name,
-		Description:         pm.Description,
-		Enabled:             pm.Enabled,
-		Action:              pm.Action,
-		Destinations:        make([]string, len(pm.Destinations)),
-		DestinationResource: pm.DestinationResource,
-		Sources:             make([]string, len(pm.Sources)),
-		SourceResource:      pm.SourceResource,
-		Bidirectional:       pm.Bidirectional,
-		Protocol:            pm.Protocol,
-		Ports:               make([]string, len(pm.Ports)),
-		PortRanges:          make([]RulePortRange, len(pm.PortRanges)),
-		AuthorizedGroups:    make(map[string][]string, len(pm.AuthorizedGroups)),
-		AuthorizedUser:      pm.AuthorizedUser,
-	}
-	copy(rule.Destinations, pm.Destinations)
-	copy(rule.Sources, pm.Sources)
-	copy(rule.Ports, pm.Ports)
-	copy(rule.PortRanges, pm.PortRanges)
-	for k, v := range pm.AuthorizedGroups {
-		rule.AuthorizedGroups[k] = make([]string, len(v))
-		copy(rule.AuthorizedGroups[k], v)
-	}
-	return rule
-}
-
-func (pm *PolicyRule) Equal(other *PolicyRule) bool {
-	if pm == nil || other == nil {
-		return pm == other
-	}
-
-	if pm.ID != other.ID ||
-		pm.PolicyID != other.PolicyID ||
-		pm.Name != other.Name ||
-		pm.Description != other.Description ||
-		pm.Enabled != other.Enabled ||
-		pm.Action != other.Action ||
-		pm.Bidirectional != other.Bidirectional ||
-		pm.Protocol != other.Protocol ||
-		pm.SourceResource != other.SourceResource ||
-		pm.DestinationResource != other.DestinationResource ||
-		pm.AuthorizedUser != other.AuthorizedUser {
-		return false
-	}
-
-	if !stringSlicesEqualUnordered(pm.Sources, other.Sources) {
-		return false
-	}
-	if !stringSlicesEqualUnordered(pm.Destinations, other.Destinations) {
-		return false
-	}
-	if !stringSlicesEqualUnordered(pm.Ports, other.Ports) {
-		return false
-	}
-	if !portRangeSlicesEqualUnordered(pm.PortRanges, other.PortRanges) {
-		return false
-	}
-	if !authorizedGroupsEqual(pm.AuthorizedGroups, other.AuthorizedGroups) {
-		return false
-	}
-
-	return true
-}
-
-func stringSlicesEqualUnordered(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	if len(a) == 0 {
-		return true
-	}
-	sorted1 := make([]string, len(a))
-	sorted2 := make([]string, len(b))
-	copy(sorted1, a)
-	copy(sorted2, b)
-	slices.Sort(sorted1)
-	slices.Sort(sorted2)
-	return slices.Equal(sorted1, sorted2)
-}
-
-func portRangeSlicesEqualUnordered(a, b []RulePortRange) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	if len(a) == 0 {
-		return true
-	}
-	cmp := func(x, y RulePortRange) int {
-		if x.Start != y.Start {
-			if x.Start < y.Start {
-				return -1
-			}
-			return 1
+func parsePortRange(portStr string) (RulePortRange, error) {
+	if strings.Contains(portStr, "-") {
+		rangeParts := strings.Split(portStr, "-")
+		if len(rangeParts) != 2 {
+			return RulePortRange{}, fmt.Errorf("invalid port range %q", portStr)
 		}
-		if x.End != y.End {
-			if x.End < y.End {
-				return -1
-			}
-			return 1
+		start, err := parsePort(strings.TrimSpace(rangeParts[0]))
+		if err != nil {
+			return RulePortRange{}, err
 		}
-		return 0
+		end, err := parsePort(strings.TrimSpace(rangeParts[1]))
+		if err != nil {
+			return RulePortRange{}, err
+		}
+		if start > end {
+			return RulePortRange{}, fmt.Errorf("invalid port range: start %d > end %d", start, end)
+		}
+		return RulePortRange{Start: uint16(start), End: uint16(end)}, nil
 	}
-	sorted1 := make([]RulePortRange, len(a))
-	sorted2 := make([]RulePortRange, len(b))
-	copy(sorted1, a)
-	copy(sorted2, b)
-	slices.SortFunc(sorted1, cmp)
-	slices.SortFunc(sorted2, cmp)
-	return slices.EqualFunc(sorted1, sorted2, func(x, y RulePortRange) bool {
-		return x.Start == y.Start && x.End == y.End
-	})
+
+	p, err := parsePort(portStr)
+	if err != nil {
+		return RulePortRange{}, err
+	}
+
+	return RulePortRange{Start: uint16(p), End: uint16(p)}, nil
 }
 
-func authorizedGroupsEqual(a, b map[string][]string) bool {
-	if len(a) != len(b) {
-		return false
+func parsePort(portStr string) (int, error) {
+
+	if portStr == "" {
+		return 0, errors.New("empty port")
 	}
-	for k, va := range a {
-		vb, ok := b[k]
-		if !ok {
-			return false
-		}
-		if !stringSlicesEqualUnordered(va, vb) {
-			return false
-		}
+	p, err := strconv.Atoi(portStr)
+	if err != nil {
+		return 0, fmt.Errorf("invalid port %q: %w", portStr, err)
 	}
-	return true
+	if p < 1 || p > 65535 {
+		return 0, fmt.Errorf("port out of range (1–65535): %d", p)
+	}
+	return p, nil
 }
