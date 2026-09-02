@@ -197,18 +197,33 @@ func (f *factories) budgetRuleFactory() sdk.FactoryDefinition {
 			rule.Enabled = !in.Disabled
 			rule.TargetGroups = strSlice(in.TargetGroups)
 			rule.TargetUsers = strSlice(in.TargetUsers)
-			rule.Limits = agentTypes.PolicyLimits{
-				TokenLimit: agentTypes.PolicyTokenLimit{
-					Enabled:       in.TokenCap > 0,
-					GroupCap:      in.TokenCap,
-					WindowSeconds: window,
-				},
-				BudgetLimit: agentTypes.PolicyBudgetLimit{
-					Enabled:       in.BudgetCapUsd > 0,
-					GroupCapUsd:   in.BudgetCapUsd,
-					WindowSeconds: window,
-				},
+
+			// A cap of zero means uncapped, so the cap has to land on the
+			// dimension the rule actually targets: a user-targeted rule with
+			// only a group cap set reads as "no limit" and silently lets every
+			// request through. A rule that names neither is account-wide and
+			// has to cap both, because a caller in no group would otherwise
+			// escape it.
+			capGroups := len(rule.TargetGroups) > 0 || len(rule.TargetUsers) == 0
+			capUsers := len(rule.TargetUsers) > 0 || len(rule.TargetGroups) == 0
+
+			tokens := agentTypes.PolicyTokenLimit{
+				Enabled:       in.TokenCap > 0,
+				WindowSeconds: window,
 			}
+			budget := agentTypes.PolicyBudgetLimit{
+				Enabled:       in.BudgetCapUsd > 0,
+				WindowSeconds: window,
+			}
+			if capGroups {
+				tokens.GroupCap = in.TokenCap
+				budget.GroupCapUsd = in.BudgetCapUsd
+			}
+			if capUsers {
+				tokens.UserCap = in.TokenCap
+				budget.UserCapUsd = in.BudgetCapUsd
+			}
+			rule.Limits = agentTypes.PolicyLimits{TokenLimit: tokens, BudgetLimit: budget}
 
 			created, err := f.deps.AgentNetworkManager.CreateBudgetRule(ctx, actor, rule)
 			if err != nil {

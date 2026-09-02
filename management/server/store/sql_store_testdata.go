@@ -90,3 +90,48 @@ func (s *SqlStore) DeleteProxyForTestData(ctx context.Context, proxyID, sessionI
 	}
 	return nil
 }
+
+// DeleteTestDataForAccount removes every row the tables above hold for one
+// account, whatever created it.
+//
+// The per-id deletes are what each factory's own teardown calls, and they only
+// know the rows a recipe named. A test that drives the product - queues a job
+// from the UI, sends a request through the gateway, registers a proxy - creates
+// rows in these same tables with ids Autonoma never saw. Deleting the account
+// does not reach them either, because none of these tables is associated with
+// it. Without this sweep those rows outlive the account they belong to and
+// accumulate on the deployment run after run.
+//
+// It runs from the Account factory's teardown, which the SDK calls last, so by
+// then every per-id delete has already had its turn and this only picks up what
+// they could not know about.
+func (s *SqlStore) DeleteTestDataForAccount(ctx context.Context, accountID string) error {
+	err := s.transaction(func(tx *gorm.DB) error {
+		tx = tx.WithContext(ctx)
+
+		// Children before parents: the group rows hang off a usage or access
+		// log row and carry no association back to it.
+		for _, model := range []any{
+			&agentNetworkTypes.AgentNetworkUsageGroup{},
+			&agentNetworkTypes.AgentNetworkAccessLogGroup{},
+			&agentNetworkTypes.AgentNetworkUsage{},
+			&agentNetworkTypes.AgentNetworkAccessLog{},
+			&agentNetworkTypes.Consumption{},
+			&accesslogs.AccessLogEntry{},
+			&types.ProxyAccessToken{},
+			&types.Job{},
+		} {
+			if err := tx.Delete(model, "account_id = ?", accountID).Error; err != nil {
+				return err
+			}
+		}
+
+		// A proxy's account is nullable, so an unclaimed registration has none
+		// and is left alone.
+		return tx.Delete(&proxy.Proxy{}, "account_id = ?", accountID).Error
+	})
+	if err != nil {
+		return status.Errorf(status.Internal, "delete test data for account: %v", err)
+	}
+	return nil
+}

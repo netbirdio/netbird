@@ -16,8 +16,19 @@ import (
 
 	sdk "github.com/autonoma-ai/sdk/sdks/go/autonoma"
 
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
+	domainmanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain/manager"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
+	"github.com/netbirdio/netbird/management/internals/modules/zones"
+	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	"github.com/netbirdio/netbird/management/server/account"
+	"github.com/netbirdio/netbird/management/server/idp"
+	"github.com/netbirdio/netbird/management/server/networks"
+	"github.com/netbirdio/netbird/management/server/networks/resources"
+	"github.com/netbirdio/netbird/management/server/networks/routers"
 	"github.com/netbirdio/netbird/management/server/store"
 )
 
@@ -47,14 +58,43 @@ func (teardownCapableStore) DeleteProxyForTestData(context.Context, string, stri
 func (teardownCapableStore) DeleteAgentNetworkConsumptionForTestData(context.Context, string, agentNetworkTypes.ConsumptionDimension, string, int64, time.Time) error {
 	return nil
 }
+func (teardownCapableStore) DeleteTestDataForAccount(context.Context, string) error { return nil }
 
 // plainStore is a store without the scoped deletes teardown needs.
 type plainStore struct{ store.Store }
 
+// Every manager below is an embedded interface with no implementation: the
+// requests in this file are rejected before a factory runs, or are a discover,
+// so none of them is ever called. They exist because AddEndpoints refuses a
+// Deps with a nil in it.
 type stubAccountManager struct{ account.Manager }
+type stubIdpManager struct{ idp.Manager }
+type stubNetworksManager struct{ networks.Manager }
+type stubResourcesManager struct{ resources.Manager }
+type stubRoutersManager struct{ routers.Manager }
+type stubZonesManager struct{ zones.Manager }
+type stubRecordsManager struct{ records.Manager }
+type stubServiceManager struct{ service.Manager }
+type stubAccessLogsManager struct{ accesslogs.Manager }
+type stubProxyManager struct{ proxy.Manager }
+type stubAgentNetworkManager struct{ agentnetwork.Manager }
 
 func testDeps() Deps {
-	return Deps{AccountManager: stubAccountManager{}, Store: teardownCapableStore{}}
+	return Deps{
+		AccountManager:      stubAccountManager{},
+		IdpManager:          stubIdpManager{},
+		Store:               teardownCapableStore{},
+		NetworksManager:     stubNetworksManager{},
+		ResourcesManager:    stubResourcesManager{},
+		RoutersManager:      stubRoutersManager{},
+		ZonesManager:        stubZonesManager{},
+		RecordsManager:      stubRecordsManager{},
+		ServiceManager:      stubServiceManager{},
+		DomainManager:       &domainmanager.Manager{},
+		AccessLogsManager:   stubAccessLogsManager{},
+		ProxyManager:        stubProxyManager{},
+		AgentNetworkManager: stubAgentNetworkManager{},
+	}
 }
 
 // mountedRouter registers the endpoint the way boot.go does, under /api.
@@ -228,4 +268,32 @@ func TestAnAccountFromOutsideTheRunHasNoActor(t *testing.T) {
 
 	_, err = f.actorFor(context.Background(), sdk.FactoryContext{}, "")
 	require.ErrorContains(t, err, "accountId is required")
+}
+
+// A factory reaches for one of these managers on every model it seeds, so a nil
+// would surface as a panic part-way through a signed `up`, with rows already
+// written and no teardown token to remove them. It has to fail at startup.
+func TestTheEndpointRefusesADepsWithAHoleInIt(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		blank func(*Deps)
+		want  string
+	}{
+		{"no account manager", func(d *Deps) { d.AccountManager = nil }, "account manager is required"},
+		{"no idp manager", func(d *Deps) { d.IdpManager = nil }, "idp manager is required"},
+		{"no networks manager", func(d *Deps) { d.NetworksManager = nil }, "networks manager is required"},
+		{"no service manager", func(d *Deps) { d.ServiceManager = nil }, "service manager is required"},
+		{"no agent network manager", func(d *Deps) { d.AgentNetworkManager = nil }, "agent network manager is required"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(sharedSecretEnv, "shared-secret")
+			t.Setenv(signingSecretEnv, "signing-secret")
+
+			deps := testDeps()
+			tc.blank(&deps)
+
+			err := AddEndpoints(deps, mux.NewRouter().PathPrefix("/api").Subrouter())
+			require.ErrorContains(t, err, tc.want)
+		})
+	}
 }

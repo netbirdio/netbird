@@ -74,7 +74,17 @@ func (f *factories) accountFactory() sdk.FactoryDefinition {
 			// groups, policies, routes, nameservers, posture checks, networks,
 			// services and domains - test-created rows the recipe never named
 			// included.
-			return f.deps.AccountManager.DeleteAccount(ctx, str(record, "id"), str(record, "ownerUserId"))
+			accountID := str(record, "id")
+			if err := f.deps.AccountManager.DeleteAccount(ctx, accountID, str(record, "ownerUserId")); err != nil {
+				return err
+			}
+
+			// A handful of tables carry an account id without an association to
+			// the account, so nothing cascades into them and the per-id deletes
+			// each factory runs only cover the rows a recipe named. Anything a
+			// test created by driving the product would otherwise outlive the
+			// account it belonged to.
+			return f.cleaner.DeleteTestDataForAccount(ctx, accountID)
 		},
 	)
 }

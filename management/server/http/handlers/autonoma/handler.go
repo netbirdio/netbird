@@ -115,6 +115,38 @@ type Deps struct {
 	AgentNetworkManager agentnetwork.Manager
 }
 
+// validate refuses a Deps with a hole in it. Every factory reaches for one of
+// these managers, so a nil here surfaces as a panic part-way through a signed
+// `up` - after some rows exist and with no teardown token to remove them. This
+// turns that into a startup error naming the manager that is missing. The
+// server this endpoint ships with never produces a nil, but AddEndpoints is
+// exported and the managers arrive from an assembly that can be extended.
+func (d Deps) validate() error {
+	for _, dep := range []struct {
+		name    string
+		missing bool
+	}{
+		{"account manager", d.AccountManager == nil},
+		{"idp manager", d.IdpManager == nil},
+		{"store", d.Store == nil},
+		{"networks manager", d.NetworksManager == nil},
+		{"resources manager", d.ResourcesManager == nil},
+		{"routers manager", d.RoutersManager == nil},
+		{"zones manager", d.ZonesManager == nil},
+		{"records manager", d.RecordsManager == nil},
+		{"service manager", d.ServiceManager == nil},
+		{"domain manager", d.DomainManager == nil},
+		{"access logs manager", d.AccessLogsManager == nil},
+		{"proxy manager", d.ProxyManager == nil},
+		{"agent network manager", d.AgentNetworkManager == nil},
+	} {
+		if dep.missing {
+			return fmt.Errorf("%s is required", dep.name)
+		}
+	}
+	return nil
+}
+
 // cleaner is the narrow set of scoped deletes the teardown needs for tables an
 // account delete does not cascade into. Implemented by *store.SqlStore.
 type cleaner interface {
@@ -123,6 +155,7 @@ type cleaner interface {
 	DeleteAccessLogForTestData(ctx context.Context, accountID, logID string) error
 	DeleteProxyForTestData(ctx context.Context, proxyID, sessionID string) error
 	DeleteAgentNetworkConsumptionForTestData(ctx context.Context, accountID string, kind agentNetworkTypes.ConsumptionDimension, dimID string, windowSeconds int64, windowStart time.Time) error
+	DeleteTestDataForAccount(ctx context.Context, accountID string) error
 }
 
 // AddEndpoints mounts the Environment Factory endpoint when both Autonoma
@@ -141,8 +174,8 @@ func AddEndpoints(deps Deps, router *mux.Router) error {
 	if sharedSecret == signingSecret {
 		return fmt.Errorf("autonoma: %s and %s must be different values", sharedSecretEnv, signingSecretEnv)
 	}
-	if deps.AccountManager == nil {
-		return fmt.Errorf("autonoma: account manager is required")
+	if err := deps.validate(); err != nil {
+		return fmt.Errorf("autonoma: %w", err)
 	}
 
 	c, ok := deps.Store.(cleaner)
