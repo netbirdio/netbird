@@ -708,12 +708,15 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if input.ClientCertKeyPath != "" {
+	// Compared, not just assigned: restating the path a config already holds
+	// changes nothing, and reporting it as an update makes a caller that
+	// re-sends its own configuration look like one asking to change it.
+	if input.ClientCertKeyPath != "" && input.ClientCertKeyPath != config.ClientCertKeyPath {
 		config.ClientCertKeyPath = input.ClientCertKeyPath
 		updated = true
 	}
 
-	if input.ClientCertPath != "" {
+	if input.ClientCertPath != "" && input.ClientCertPath != config.ClientCertPath {
 		config.ClientCertPath = input.ClientCertPath
 		updated = true
 	}

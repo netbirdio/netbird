@@ -275,3 +275,30 @@ func TestWouldChangeWithoutAStoredSyncMessageVersion(t *testing.T) {
 	require.True(t, changed)
 	require.Nil(t, cfg.SyncMessageVersion, "the dry run set the version on the stored config")
 }
+
+// Restating the certificate paths a config already holds is not a change, for
+// the same reason restating any other value is not.
+func TestWouldChangeIgnoresRestatedCertificatePaths(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mtls.json")
+	_, err := UpdateOrCreateConfig(ConfigInput{
+		ConfigPath:        path,
+		ManagementURL:     "https://api.netbird.io:443",
+		ClientCertPath:    "/etc/netbird/client.crt",
+		ClientCertKeyPath: "/etc/netbird/client.key",
+	})
+	require.NoError(t, err)
+
+	cfg, err := GetExistingConfig(path)
+	require.NoError(t, err)
+
+	changed, err := cfg.WouldChange(ConfigInput{
+		ClientCertPath:    "/etc/netbird/client.crt",
+		ClientCertKeyPath: "/etc/netbird/client.key",
+	})
+	require.NoError(t, err)
+	require.False(t, changed, "the stored certificate paths were restated")
+
+	changed, err = cfg.WouldChange(ConfigInput{ClientCertPath: "/etc/netbird/other.crt"})
+	require.NoError(t, err)
+	require.True(t, changed, "a different certificate path is a change")
+}
