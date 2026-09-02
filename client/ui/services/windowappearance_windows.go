@@ -31,8 +31,9 @@ func setWindowAppearance(hwnd unsafe.Pointer, _ preferences.Theme, dark bool) {
 	// process-level ShouldAppsUseDarkMode and rewrites the per-window opt-in
 	// with that gated value, so forcing Dark on a light OS would lose it --
 	// and builds below 18985 need the opt-in for the pre-20H1 dark frame. The
-	// gated menu theme name is left alone on purpose: popup-menu text follows
-	// the process policy, so forcing it dark gives dark text on dark.
+	// gated menu theme name is left alone on purpose: these windows carry no
+	// native menu, and popup-menu text follows the process policy, so forcing
+	// it dark gives dark text on dark.
 	if w32.AllowDarkModeForWindow != nil {
 		w32.AllowDarkModeForWindow(h, dark)
 	}

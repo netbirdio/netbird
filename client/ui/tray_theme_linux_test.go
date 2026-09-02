@@ -241,14 +241,29 @@ func TestPlasmaStyleIsDarkInconclusive(t *testing.T) {
 			t.Fatal("expected not-ok when the style is not installed")
 		}
 	})
-	// The name indexes a directory and comes from a config file.
-	t.Run("path traversal is rejected", func(t *testing.T) {
-		kdeConfig(t, kdeglobalsLight, "[Theme]\nname=../../../../etc\n")
-		plasmaStyle(t, "unused", kdeglobalsDark)
-		if _, ok := plasmaStyleIsDark(); ok {
-			t.Fatal("expected not-ok for a traversing style name")
-		}
-	})
+	// The name indexes a directory and comes from a config file. "." and ".."
+	// and "/" pass through filepath.Base(filepath.Clean(name)) unchanged, so
+	// they need rejecting by name.
+	for _, bad := range []string{"../../../../etc", "..", ".", "/", "//", "/etc", "a/b"} {
+		t.Run("rejects "+bad, func(t *testing.T) {
+			kdeConfig(t, kdeglobalsLight, "[Theme]\nname="+bad+"\n")
+			plasmaStyle(t, "unused", kdeglobalsDark)
+			if _, ok := plasmaStyleIsDark(); ok {
+				t.Fatalf("expected not-ok for style name %q", bad)
+			}
+		})
+	}
+	// ... but a leading dot in an ordinary name is fine.
+	for _, good := range []string{".hidden", "..."} {
+		t.Run("accepts "+good, func(t *testing.T) {
+			kdeConfig(t, kdeglobalsLight, "[Theme]\nname="+good+"\n")
+			plasmaStyle(t, good, kdeglobalsDark)
+			dark, ok := plasmaStyleIsDark()
+			if !ok || !dark {
+				t.Fatalf("plasmaStyleIsDark() = (%v, %v) for %q, want (true, true)", dark, ok, good)
+			}
+		})
+	}
 }
 
 // A local style of the same name shadows the system one, as in Plasma.

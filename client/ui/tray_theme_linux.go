@@ -101,7 +101,10 @@ func plasmaStyleIsDark() (dark, ok bool) {
 	}
 	// The name indexes a directory, so keep it a single harmless path element:
 	// it comes from a config file, and "../" in it would point the read anywhere.
-	if name != filepath.Base(filepath.Clean(name)) {
+	// "." and ".." and "/" survive Base(Clean(name)) unchanged, so reject them
+	// by name -- ".." alone would read the colours a level above desktoptheme.
+	if name == "." || name == ".." || filepath.IsAbs(name) ||
+		name != filepath.Base(filepath.Clean(name)) {
 		log.Debugf("tray theme: ignoring plasma style name %q, not a bare directory name", name)
 		return false, false
 	}
