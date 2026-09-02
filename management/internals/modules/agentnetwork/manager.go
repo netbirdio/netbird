@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/rand"
 	"slices"
 	"strings"
 	"sync"
@@ -146,11 +145,6 @@ type managerImpl struct {
 	// of serving proxy can be diffed without re-deriving it.
 	reconcileMu    sync.Mutex
 	reconcileCache map[string]map[string]syntheticMapping
-
-	// labelRngMu guards labelRng. PickUnique consumes math/rand.Source
-	// state; concurrent provider creates would otherwise race.
-	labelRngMu sync.Mutex
-	labelRng   *rand.Rand
 }
 
 // NewManager constructs the persistent Agent Network manager. The
@@ -171,7 +165,6 @@ func NewManager(
 		proxyController:    proxyController,
 		modelDiscovery:     &modeldiscovery.Client{},
 		reconcileCache:     make(map[string]map[string]syntheticMapping),
-		labelRng:           rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 }
 
@@ -986,9 +979,7 @@ func (m *managerImpl) bootstrapLabeled(ctx context.Context, settings *types.Sett
 	}
 
 	for attempt := 1; attempt <= maxDomainAllocationAttempts; attempt++ {
-		m.labelRngMu.Lock()
-		label := labelgen.PickTuple(m.labelRng)
-		m.labelRngMu.Unlock()
+		label := labelgen.PickTuple()
 		if label == "" {
 			// Only reachable if either word pool were emptied. An empty label
 			// would produce a broken endpoint like ".example.com", so fail
