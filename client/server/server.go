@@ -1166,9 +1166,9 @@ func (s *Server) storedLoginConfig(activeProf *profilemanager.ActiveProfileState
 // storedConfigAtPath reads a profile config file, yielding nil when it does not
 // exist yet.
 //
-// Reading it has no side effect: profilemanager.GetConfig does not write, so a
-// request that the gates go on to refuse leaves the profile file as it found
-// it.
+// Reading it has no side effect: profilemanager.GetExistingConfig does not
+// write, so a request that the gates go on to refuse leaves the profile file as
+// it found it.
 func (s *Server) storedConfigAtPath(path string) (*profilemanager.Config, error) {
 	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
