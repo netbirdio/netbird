@@ -621,7 +621,6 @@ func (s *Server) setConfigInputFromRequest(msg *proto.SetConfigRequest) (profile
 func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*proto.LoginResponse, error) {
 	activeProf, err := s.profileManager.GetActiveProfileState()
 	if err != nil {
-		log.Errorf("failed to get active profile state: %v", err)
 		return nil, fmt.Errorf("failed to get active profile state: %w", err)
 	}
 

@@ -107,9 +107,12 @@ func TestSetConfig_ChangeAllowedWhenTheSwitchIsOff(t *testing.T) {
 // way: a login that would move a protected setting is refused before it can
 // touch daemon state.
 func TestLogin_ChangingTheManagementURLIsRefused(t *testing.T) {
-	s, _, _, username, _ := setupServerWithProfile(t)
+	s, _, profName, username, cfgPath := setupServerWithProfile(t)
 	s.updateSettingsDisabled = true
 	s.rootCtx = internal.CtxInitState(context.Background())
+
+	cancelled := false
+	s.actCancel = func() { cancelled = true }
 
 	_, err := s.Login(userCtx(), &proto.LoginRequest{
 		Username:      &username,
@@ -117,6 +120,17 @@ func TestLogin_ChangingTheManagementURLIsRefused(t *testing.T) {
 	})
 	require.Error(t, err, "moving the management URL through Login is a settings change")
 	require.Equal(t, codes.Unavailable, gstatus.Code(err), "want the update-settings refusal, got %v", err)
+
+	// "Refused before it can touch daemon state" is the contract, so check the
+	// state as well as the error.
+	cfg, err := profilemanager.GetExistingConfig(cfgPath)
+	require.NoError(t, err)
+	require.Equal(t, storedManagementURL, cfg.ManagementURL.String(), "the refused login moved the management URL")
+	require.False(t, cancelled, "the refused login cancelled the login already in progress")
+
+	active, err := s.profileManager.GetActiveProfileState()
+	require.NoError(t, err)
+	require.Equal(t, profilemanager.ID(profName), active.ID, "the refused login switched the active profile")
 }
 
 // seedProfileConfig writes a profile config carrying the given management URL
