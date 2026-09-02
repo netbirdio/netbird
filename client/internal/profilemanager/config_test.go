@@ -14,6 +14,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal/routemanager/dynamic"
+	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -269,6 +270,83 @@ func TestUpdateConfigServerSSHAllowedNotSet(t *testing.T) {
 			assert.Equal(t, tt.want, *config.ServerSSHAllowed)
 		})
 	}
+}
+
+func TestUpdateConfigRemoteJobsAllowed(t *testing.T) {
+	// Unlike SSH (which defaults on for legacy configs), remote jobs are an
+	// explicit opt-in: a pre-existing config with no value materializes to off.
+	t.Run("legacy config defaults off", func(t *testing.T) {
+		configPath := filepath.Join(t.TempDir(), "config.json")
+		require.NoError(t, os.WriteFile(configPath, []byte("{}"), 0600))
+
+		config, err := UpdateConfig(ConfigInput{ConfigPath: configPath})
+		require.NoError(t, err)
+		require.NotNil(t, config.RemoteJobsAllowed, "RemoteJobsAllowed should be materialized")
+		assert.False(t, *config.RemoteJobsAllowed, "remote jobs must default off")
+	})
+
+	for _, tt := range []struct {
+		name  string
+		input *bool
+		want  bool
+	}{
+		{"enable", util.True(), true},
+		{"disable", util.False(), false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			configPath := filepath.Join(t.TempDir(), "config.json")
+			require.NoError(t, os.WriteFile(configPath, []byte("{}"), 0600))
+
+			config, err := UpdateConfig(ConfigInput{ConfigPath: configPath, RemoteJobsAllowed: tt.input})
+			require.NoError(t, err)
+			require.NotNil(t, config.RemoteJobsAllowed)
+			assert.Equal(t, tt.want, *config.RemoteJobsAllowed)
+		})
+	}
+}
+
+func TestApplyMDMPolicyRemoteJobs(t *testing.T) {
+	t.Run("enables remote jobs and sets the upload URL override", func(t *testing.T) {
+		cfg := &Config{}
+		cfg.applyMDMPolicy(mdm.NewPolicy(map[string]any{
+			mdm.KeyRemoteJobsAllowed: true,
+			mdm.KeyBundleUploadURL:   "https://upload.example.com",
+		}))
+		require.NotNil(t, cfg.RemoteJobsAllowed)
+		assert.True(t, *cfg.RemoteJobsAllowed, "MDM allowRemoteJobs must enable the flag")
+		assert.Equal(t, "https://upload.example.com", cfg.DebugBundleUploadURL, "MDM upload URL override must be applied")
+	})
+
+	t.Run("a non-https upload URL is rejected", func(t *testing.T) {
+		cfg := &Config{}
+		cfg.applyMDMPolicy(mdm.NewPolicy(map[string]any{
+			mdm.KeyBundleUploadURL: "http://insecure.example.com",
+		}))
+		assert.Empty(t, cfg.DebugBundleUploadURL, "a non-https upload URL must be skipped")
+	})
+
+	t.Run("dropping the key clears a previously-applied override", func(t *testing.T) {
+		cfg := &Config{DebugBundleUploadURL: "https://old.example.com"}
+		// A replacement policy that no longer carries the key must not leave
+		// the old upload target directing bundles.
+		cfg.applyMDMPolicy(mdm.NewPolicy(map[string]any{mdm.KeyRemoteJobsAllowed: true}))
+		assert.Empty(t, cfg.DebugBundleUploadURL, "the stale upload URL override must be cleared")
+	})
+
+	t.Run("an empty replacement policy clears a previously-applied override", func(t *testing.T) {
+		cfg := &Config{DebugBundleUploadURL: "https://old.example.com"}
+		// A policy that becomes empty entirely hits the IsEmpty early return;
+		// the override must still be cleared rather than surviving on the
+		// reused Config instance.
+		cfg.applyMDMPolicy(mdm.NewPolicy(map[string]any{}))
+		assert.Empty(t, cfg.DebugBundleUploadURL, "the stale upload URL override must be cleared when the policy empties")
+	})
+
+	t.Run("an invalid upload URL clears a previously-applied override (fail closed)", func(t *testing.T) {
+		cfg := &Config{DebugBundleUploadURL: "https://old.example.com"}
+		cfg.applyMDMPolicy(mdm.NewPolicy(map[string]any{mdm.KeyBundleUploadURL: "not-a-url"}))
+		assert.Empty(t, cfg.DebugBundleUploadURL, "an invalid override must fail closed, not keep the stale target")
+	})
 }
 
 func TestUpdateOldManagementURL(t *testing.T) {
