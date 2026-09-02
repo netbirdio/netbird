@@ -76,14 +76,53 @@ func NewTheme(app *application.App, store *preferences.Store) *Theme {
 		t.apply()
 	})
 
-	// Env.IsDarkMode is a stub until the platform layer is up; re-resolve once
-	// the app has started so a "system" launch on a light OS isn't seeded dark.
-	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+	// Startup is split in two because Wails runs every application-event
+	// listener in its own goroutine, so a listener cannot be ordered against the
+	// one that opens the first-launch window. Hooks can: they run sequentially,
+	// in registration order, and all of them before any listener is spawned.
+	//
+	// The app-wide GTK theme goes in the hook because it is the part a window
+	// must not be created without. On Linux it draws the decorations and
+	// application.LinuxWindow carries no theme of its own, so a window built
+	// before it lands shows OS-coloured decorations until it does. It is applied
+	// synchronously for the same reason -- returning from the hook has to mean
+	// the theme is live. This relies on the listener below existing: Wails skips
+	// an event's hooks entirely when it has no listeners.
+	app.Event.RegisterApplicationEventHook(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
 		t.started.Store(true)
+		t.syncAppAppearance()
+	})
+
+	// The rest of the startup apply. Env.IsDarkMode is a stub until the platform
+	// layer is up, so re-resolve once the app has started or a "system" launch on
+	// a light OS stays seeded dark.
+	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
 		t.apply()
 	})
 
 	return t
+}
+
+// syncAppAppearance applies the app-wide appearance and waits for the UI thread
+// to have done it. Use it where a window is about to be created and must not be
+// built against the OS appearance: apply dispatches its own native work
+// asynchronously, so on Linux the GTK theme behind the decorations can otherwise
+// land after the window exists.
+//
+// No-op before the app has started, where InvokeSync has no platform layer to
+// dispatch to. Reads the appearance under mu like apply, so the two cannot
+// interleave into a torn update.
+func (t *Theme) syncAppAppearance() {
+	if !t.started.Load() {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	pref := t.store.Get().Theme
+	dark := resolveDark(pref, t.app.Env.IsDarkMode())
+	setAppearance(pref, dark)
+	application.InvokeSync(func() { setAppAppearance(dark) })
 }
 
 // SystemDarkMode reports the OS appearance; bound so the frontend can resolve

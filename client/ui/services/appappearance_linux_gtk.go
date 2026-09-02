@@ -1,9 +1,14 @@
-//go:build linux && cgo && gtk3 && !android && !ios
+//go:build linux && cgo && !android && !ios
 
 package services
 
 /*
-#cgo pkg-config: gtk+-3.0
+// The GTK major version is the only difference between the two Linux builds, so
+// it is selected by these two directives rather than by keeping a second copy of
+// this file per version: the C below and the Go wrappers under it are identical
+// for GTK3 and GTK4, and both resolve <gtk/gtk.h> through pkg-config.
+#cgo gtk3 pkg-config: gtk+-3.0
+#cgo !gtk3 pkg-config: gtk4
 #include <stdlib.h>
 #include <gtk/gtk.h>
 

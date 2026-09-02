@@ -214,7 +214,9 @@ func (w *themeWatcher) watchKdeConfig() {
 				default:
 					continue
 				}
-				if event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Rename) == 0 {
+				// Remove counts: deleting plasmarc unpins the Plasma style, which
+				// hands the decision back to the colour scheme and can flip it.
+				if event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Rename|fsnotify.Remove) == 0 {
 					continue
 				}
 				w.update()

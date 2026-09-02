@@ -67,8 +67,8 @@ func kdePanelIsDark() (dark, ok bool) {
 		return false, false
 	}
 	// A pinned Plasma style paints the panel itself, so it outranks the
-	// application colour scheme: breeze-dark under a Light scheme is still a
-	// dark panel and still needs the white silhouette.
+	// application colour scheme: a style with dark colours under a Light scheme
+	// is still a dark panel and still needs the white silhouette.
 	if dark, ok := plasmaStyleIsDark(); ok {
 		return dark, true
 	}
@@ -84,24 +84,66 @@ func kdePanelIsDark() (dark, ok bool) {
 	return isDarkRGB(rgb[0], rgb[1], rgb[2]), true
 }
 
-// plasmaStyleIsDark reports the appearance a pinned Plasma style fixes the panel
-// to, read from plasmarc's [Theme] name. ok is false when no style is pinned
-// (the default, where plasmarc is usually absent altogether) and for any style
-// whose name says nothing about its appearance; both follow the colour scheme.
+// plasmaStyleIsDark reports the appearance the pinned Plasma style paints the
+// panel with, decided by the style's own colours rather than by its name. A
+// style that ships a colours file overrides the colour scheme for the shell, and
+// nothing requires the name to admit it: breeze-dark happens to, but a style
+// named neutrally can carry dark colours just as well (measured on Plasma 6.7.4:
+// panel luma 38 while kdeglobals and the portal both reported light).
+//
+// ok is false when no style is pinned, when the pinned style ships no colours --
+// the "default" style, which is exactly the case that follows the colour scheme
+// -- and when its colours cannot be read; all three fall through to kdeglobals.
 func plasmaStyleIsDark() (dark, ok bool) {
 	name, found := readIniValue(plasmarcPath(), "[Theme]", "name")
-	if !found {
+	if !found || name == "" {
 		return false, false
 	}
-	name = strings.ToLower(name)
-	switch {
-	case strings.Contains(name, "dark"):
-		return true, true
-	case strings.Contains(name, "light"):
-		return false, true
-	default:
+	// The name indexes a directory, so keep it a single harmless path element:
+	// it comes from a config file, and "../" in it would point the read anywhere.
+	if name != filepath.Base(filepath.Clean(name)) {
+		log.Debugf("tray theme: ignoring plasma style name %q, not a bare directory name", name)
 		return false, false
 	}
+	for _, dir := range plasmaStyleDirs(name) {
+		rgb, found := readKdeColour(filepath.Join(dir, "colors"), "[Colors:Window]")
+		if !found {
+			continue
+		}
+		return isDarkRGB(rgb[0], rgb[1], rgb[2]), true
+	}
+	return false, false
+}
+
+// plasmaStyleDirs lists where a Plasma style of that name may live, in the order
+// Plasma itself resolves them: the user data dir first, so a local style shadows
+// a system one of the same name.
+func plasmaStyleDirs(name string) []string {
+	var dirs []string
+	for _, base := range xdgDataDirs() {
+		dirs = append(dirs, filepath.Join(base, "plasma", "desktoptheme", name))
+	}
+	return dirs
+}
+
+// xdgDataDirs returns XDG_DATA_HOME (or its default) followed by XDG_DATA_DIRS.
+func xdgDataDirs() []string {
+	var dirs []string
+	if home := os.Getenv("XDG_DATA_HOME"); home != "" {
+		dirs = append(dirs, home)
+	} else if h, err := os.UserHomeDir(); err == nil {
+		dirs = append(dirs, filepath.Join(h, ".local", "share"))
+	}
+	system := os.Getenv("XDG_DATA_DIRS")
+	if system == "" {
+		system = "/usr/local/share:/usr/share"
+	}
+	for _, dir := range strings.Split(system, ":") {
+		if dir != "" {
+			dirs = append(dirs, dir)
+		}
+	}
+	return dirs
 }
 
 // readKdeColour reads group's BackgroundNormal as an R,G,B triple.
