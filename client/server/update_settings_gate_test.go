@@ -62,7 +62,7 @@ func TestSetConfig_ChangingASettingIsRefused(t *testing.T) {
 		ManagementUrl: "https://mgmt.elsewhere.example:443",
 	})
 	require.Error(t, err, "moving the management URL is a settings change")
-	require.Equal(t, codes.Unavailable, gstatus.Code(err), "want the update-settings refusal, got %v", err)
+	require.Equal(t, codes.FailedPrecondition, gstatus.Code(err), "want the update-settings refusal, got %v", err)
 
 	cfg, err := profilemanager.GetExistingConfig(cfgPath)
 	require.NoError(t, err)
@@ -83,7 +83,7 @@ func TestSetConfig_SingleDivergingFieldIsRefused(t *testing.T) {
 		RosenpassEnabled: &rosenpass,
 	})
 	require.Error(t, err, "enabling Rosenpass is a settings change")
-	require.Equal(t, codes.Unavailable, gstatus.Code(err), "want the update-settings refusal, got %v", err)
+	require.Equal(t, codes.FailedPrecondition, gstatus.Code(err), "want the update-settings refusal, got %v", err)
 }
 
 // With the switch off, the same diverging request goes through: the gate must
@@ -119,7 +119,7 @@ func TestLogin_ChangingTheManagementURLIsRefused(t *testing.T) {
 		ManagementUrl: "https://mgmt.elsewhere.example:443",
 	})
 	require.Error(t, err, "moving the management URL through Login is a settings change")
-	require.Equal(t, codes.Unavailable, gstatus.Code(err), "want the update-settings refusal, got %v", err)
+	require.Equal(t, codes.FailedPrecondition, gstatus.Code(err), "want the update-settings refusal, got %v", err)
 
 	// "Refused before it can touch daemon state" is the contract, so check the
 	// state as well as the error.
@@ -252,7 +252,7 @@ func TestSetConfig_RefusedRequestLeavesTheConfigFileUntouched(t *testing.T) {
 		ManagementUrl: "https://mgmt.elsewhere.example:443",
 	})
 	require.Error(t, err)
-	require.Equal(t, codes.Unavailable, gstatus.Code(err), "want the update-settings refusal, got %v", err)
+	require.Equal(t, codes.FailedPrecondition, gstatus.Code(err), "want the update-settings refusal, got %v", err)
 
 	after, err := os.ReadFile(cfgPath)
 	require.NoError(t, err)
@@ -305,7 +305,7 @@ func TestLogin_RestatingTheStoredConfigPassesTheGate(t *testing.T) {
 		ManagementUrl: storedManagementURL,
 	})
 	if err != nil {
-		require.NotEqual(t, codes.Unavailable, gstatus.Code(err),
+		require.NotEqual(t, codes.FailedPrecondition, gstatus.Code(err),
 			"the gate refused a login that changes nothing: %v", err)
 		require.NotContains(t, err.Error(), "update settings are disabled",
 			"the gate refused a login that changes nothing: %v", err)
@@ -352,7 +352,7 @@ func TestLogin_ChangeThatAppearsMidRequestIsRefused(t *testing.T) {
 		ManagementUrl: storedManagementURL,
 	})
 	require.Error(t, err, "the login became a settings change before it was written")
-	require.Equal(t, codes.Unavailable, gstatus.Code(err), "want the update-settings refusal, got %v", err)
+	require.Equal(t, codes.FailedPrecondition, gstatus.Code(err), "want the update-settings refusal, got %v", err)
 	require.False(t, cancelled, "the refused login cancelled the login already in progress")
 
 	stored, err := profilemanager.GetExistingConfig(targetPath)

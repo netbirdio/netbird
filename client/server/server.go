@@ -59,6 +59,11 @@ const (
 
 	errRestoreResidualState   = "failed to restore residual state: %v"
 	errProfilesDisabled       = "profiles are disabled, you cannot use this feature without profiles enabled"
+	// errUpdateSettingsDisabled is returned with codes.FailedPrecondition, not
+	// codes.Unavailable: the daemon answered, and it refused. Unavailable means
+	// "the daemon cannot serve this", which is why the CLI downgrades it to a
+	// warning and the GUI reads it as an unreachable daemon — both wrong for a
+	// refusal the caller has to act on.
 	errUpdateSettingsDisabled = "update settings are disabled, you cannot use this feature without update settings enabled"
 	errNetworksDisabled       = "network selection is disabled by the administrator"
 )
@@ -488,7 +493,7 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 	// their login too, which left a client configured by environment
 	// (NB_MANAGEMENT_URL and friends) unable to come up at all.
 	if s.checkUpdateSettingsDisabled() && configChangeRequested(stored, config) {
-		return nil, gstatus.Errorf(codes.Unavailable, errUpdateSettingsDisabled)
+		return nil, gstatus.Errorf(codes.FailedPrecondition, errUpdateSettingsDisabled)
 	}
 
 	// MDM gate: refuse the whole request if any of its fields is enforced
@@ -648,7 +653,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	// that is what keeps a re-login, or a container restart carrying
 	// NB_MANAGEMENT_URL, working with the kill switch on.
 	if s.checkUpdateSettingsDisabled() && configChangeRequested(stored, loginOverridesInput(msg)) {
-		return nil, gstatus.Errorf(codes.Unavailable, errUpdateSettingsDisabled)
+		return nil, gstatus.Errorf(codes.FailedPrecondition, errUpdateSettingsDisabled)
 	}
 
 	policy := loadMDMPolicy()
@@ -2663,7 +2668,7 @@ func (s *Server) authorizeAndPrepareLogin(callerCtx context.Context, msg *proto.
 	// authoritative check, and it is the last read before persistLoginOverrides
 	// writes.
 	if s.checkUpdateSettingsDisabled() && configChangeRequested(stored, loginOverridesInput(msg)) {
-		return nil, nil, gstatus.Errorf(codes.Unavailable, errUpdateSettingsDisabled)
+		return nil, nil, gstatus.Errorf(codes.FailedPrecondition, errUpdateSettingsDisabled)
 	}
 
 	s.mutex.Lock()
