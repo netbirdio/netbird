@@ -282,14 +282,12 @@ func (f *factories) consumptionFactory() sdk.FactoryDefinition {
 
 			// The row's identity is its composite key, so the id echoes it back
 			// for teardown rather than inventing a surrogate.
-			windowStart := agentTypes.WindowStart(nowUTC(), window)
 			return map[string]any{
-				"id":             fmt.Sprintf("%s/%s/%s/%d", in.AccountID, kind, in.DimensionID, window),
-				"accountId":      in.AccountID,
-				"dimensionKind":  string(kind),
-				"dimensionId":    in.DimensionID,
-				"windowSeconds":  window,
-				"windowStartUtc": windowStart.Format(timeLayout),
+				"id":            fmt.Sprintf("%s/%s/%s/%d", in.AccountID, kind, in.DimensionID, window),
+				"accountId":     in.AccountID,
+				"dimensionKind": string(kind),
+				"dimensionId":   in.DimensionID,
+				"windowSeconds": window,
 			}, nil
 		},
 		func(ctx context.Context, record map[string]any) error {
@@ -299,13 +297,9 @@ func (f *factories) consumptionFactory() sdk.FactoryDefinition {
 					window = float64(raw)
 				}
 			}
-			windowStart, err := parseTime(str(record, "windowStartUtc"))
-			if err != nil {
-				return err
-			}
 			return f.cleaner.DeleteAgentNetworkConsumptionForTestData(ctx, str(record, "accountId"),
 				agentTypes.ConsumptionDimension(str(record, "dimensionKind")), str(record, "dimensionId"),
-				int64(window), windowStart)
+				int64(window))
 		},
 	)
 }

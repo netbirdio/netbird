@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"reflect"
 	"strings"
+
+	"gorm.io/gorm"
 	"time"
 
 	sdk "github.com/autonoma-ai/sdk/sdks/go/autonoma"
@@ -71,6 +73,11 @@ func define[I any](
 // ignoreNotFound makes teardown idempotent. A row may already be gone because
 // deleting the account cascaded into it, and the SDK tears down in reverse
 // creation order regardless.
+//
+// Only the two typed not-found errors count. Matching the message instead would
+// swallow any failure whose text happens to contain "not found" - an internal
+// error naming a missing catalog entry, say - and report a teardown that left
+// rows behind as a success.
 func ignoreNotFound(err error) error {
 	if err == nil {
 		return nil
@@ -79,7 +86,7 @@ func ignoreNotFound(err error) error {
 	if errors.As(err, &sErr) && sErr.Type() == status.NotFound {
 		return nil
 	}
-	if strings.Contains(strings.ToLower(err.Error()), "not found") {
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil
 	}
 	return err
@@ -159,19 +166,7 @@ func orDefaultStr(value, fallback string) string {
 	return value
 }
 
-// timeLayout round-trips a timestamp through the refs the SDK signs into the
-// teardown token, which carries JSON rather than Go values.
-const timeLayout = time.RFC3339Nano
-
 func nowUTC() time.Time { return time.Now().UTC() }
-
-func parseTime(value string) (time.Time, error) {
-	parsed, err := time.Parse(timeLayout, value)
-	if err != nil {
-		return time.Time{}, fmt.Errorf("stored timestamp %q is unreadable: %w", value, err)
-	}
-	return parsed, nil
-}
 
 func strSlice(values []string) []string {
 	if values == nil {

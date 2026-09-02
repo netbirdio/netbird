@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"time"
 
 	"gorm.io/gorm"
 
@@ -71,11 +70,19 @@ func (s *SqlStore) DeleteAccessLogForTestData(ctx context.Context, accountID, lo
 	return nil
 }
 
-// DeleteAgentNetworkConsumptionForTestData removes one consumption counter.
-func (s *SqlStore) DeleteAgentNetworkConsumptionForTestData(ctx context.Context, accountID string, kind agentNetworkTypes.ConsumptionDimension, dimID string, windowSeconds int64, windowStart time.Time) error {
+// DeleteAgentNetworkConsumptionForTestData removes an account's consumption
+// counters for one dimension and window size.
+//
+// The window start is deliberately not part of the condition. RecordConsumption
+// buckets the row on its own clock, so a caller that recomputes the bucket
+// afterwards can land on the next one and delete a row that was never written,
+// leaving the real one behind. Every bucket for the dimension belongs to the
+// same seeded account, so removing them all is both correct and immune to where
+// the boundary fell.
+func (s *SqlStore) DeleteAgentNetworkConsumptionForTestData(ctx context.Context, accountID string, kind agentNetworkTypes.ConsumptionDimension, dimID string, windowSeconds int64) error {
 	result := s.db.WithContext(ctx).Delete(&agentNetworkTypes.Consumption{},
-		"account_id = ? and dim_kind = ? and dim_id = ? and window_seconds = ? and window_start_utc = ?",
-		accountID, kind, dimID, windowSeconds, windowStart)
+		"account_id = ? and dim_kind = ? and dim_id = ? and window_seconds = ?",
+		accountID, kind, dimID, windowSeconds)
 	if result.Error != nil {
 		return status.Errorf(status.Internal, "delete agent network consumption: %v", result.Error)
 	}

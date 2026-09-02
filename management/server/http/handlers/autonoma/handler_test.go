@@ -9,7 +9,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/require"
@@ -55,7 +54,7 @@ func (teardownCapableStore) DeleteAccessLogForTestData(context.Context, string, 
 func (teardownCapableStore) DeleteProxyForTestData(context.Context, string, string) error {
 	return nil
 }
-func (teardownCapableStore) DeleteAgentNetworkConsumptionForTestData(context.Context, string, agentNetworkTypes.ConsumptionDimension, string, int64, time.Time) error {
+func (teardownCapableStore) DeleteAgentNetworkConsumptionForTestData(context.Context, string, agentNetworkTypes.ConsumptionDimension, string, int64) error {
 	return nil
 }
 func (teardownCapableStore) DeleteTestDataForAccount(context.Context, string) error { return nil }

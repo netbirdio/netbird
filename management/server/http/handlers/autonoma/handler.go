@@ -50,7 +50,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
@@ -154,7 +153,7 @@ type cleaner interface {
 	DeleteProxyAccessTokenForTestData(ctx context.Context, accountID, tokenID string) error
 	DeleteAccessLogForTestData(ctx context.Context, accountID, logID string) error
 	DeleteProxyForTestData(ctx context.Context, proxyID, sessionID string) error
-	DeleteAgentNetworkConsumptionForTestData(ctx context.Context, accountID string, kind agentNetworkTypes.ConsumptionDimension, dimID string, windowSeconds int64, windowStart time.Time) error
+	DeleteAgentNetworkConsumptionForTestData(ctx context.Context, accountID string, kind agentNetworkTypes.ConsumptionDimension, dimID string, windowSeconds int64) error
 	DeleteTestDataForAccount(ctx context.Context, accountID string) error
 }
 
