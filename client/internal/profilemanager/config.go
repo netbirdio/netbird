@@ -682,9 +682,12 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if input.SyncMessageVersion != nil && *input.SyncMessageVersion != *config.SyncMessageVersion {
+	// Assigning the pointer, not writing through it: a config that carries no
+	// version yet would otherwise be a nil dereference, and a panic inside a
+	// request handler is not a way to fail.
+	if input.SyncMessageVersion != nil && (config.SyncMessageVersion == nil || *input.SyncMessageVersion != *config.SyncMessageVersion) {
 		log.Infof("setting SyncMessageVersion to %v", *input.SyncMessageVersion)
-		*config.SyncMessageVersion = *input.SyncMessageVersion
+		config.SyncMessageVersion = input.SyncMessageVersion
 		updated = true
 	}
 
@@ -1032,12 +1035,11 @@ func newDryRunBaseline(configPath string) (*Config, error) {
 	return baseline, nil
 }
 
-// clone returns a copy of the config that apply can be run against without
-// the original observing the writes, or nil for a nil receiver. Only what
-// apply mutates in place needs detaching: the slices it replaces or appends
-// to, and SyncMessageVersion, which it writes through the pointer. The
-// remaining pointer fields are reassigned, not written through, and
-// ClientCertKeyPair is only overwritten.
+// clone returns a copy of the config that apply can be run against without the
+// original observing the writes, or nil for a nil receiver. Only what apply
+// mutates in place needs detaching, which is the slices it replaces or appends
+// to: every pointer field it touches is reassigned rather than written through,
+// and ClientCertKeyPair is only overwritten.
 func (config *Config) clone() *Config {
 	if config == nil {
 		return nil
@@ -1047,10 +1049,6 @@ func (config *Config) clone() *Config {
 	probe.IFaceBlackList = slices.Clone(config.IFaceBlackList)
 	probe.NATExternalIPs = slices.Clone(config.NATExternalIPs)
 	probe.DNSLabels = slices.Clone(config.DNSLabels)
-	if config.SyncMessageVersion != nil {
-		version := *config.SyncMessageVersion
-		probe.SyncMessageVersion = &version
-	}
 	return &probe
 }
 

@@ -108,7 +108,7 @@ func TestReadsDoNotWriteTheConfigBack(t *testing.T) {
 	denormalized := []byte(`{"WgIface":"wt0"}`)
 
 	for name, read := range map[string]func(string) (*Config, error){
-		"GetExistingConfig":   GetExistingConfig,
+		"GetExistingConfig":    GetExistingConfig,
 		"ReadOrGenerateConfig": ReadOrGenerateConfig,
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -260,4 +260,18 @@ func TestUpdateConfigProvisionsAMissingIdentity(t *testing.T) {
 	persisted, err := GetExistingConfig(path)
 	require.NoError(t, err)
 	require.Equal(t, cfg.PrivateKey, persisted.PrivateKey, "the provisioned identity was not persisted")
+}
+
+// A config that carries no sync message version must not make the dry run
+// panic: the gate runs inside a request handler, where failing closed is the
+// worst acceptable outcome.
+func TestWouldChangeWithoutAStoredSyncMessageVersion(t *testing.T) {
+	cfg := seededConfig(t)
+	require.Nil(t, cfg.SyncMessageVersion, "the fixture is only useful while the field starts out unset")
+
+	version := 2
+	changed, err := cfg.WouldChange(ConfigInput{SyncMessageVersion: &version})
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Nil(t, cfg.SyncMessageVersion, "the dry run set the version on the stored config")
 }
