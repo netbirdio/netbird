@@ -27,11 +27,13 @@ import (
 // to a cluster that cannot serve it has to be refused up front rather than
 // leaving the account with a dead gateway.
 //
-// One combined server, two proxies in the same cluster: the centralised one
-// makes the cluster live-but-unusable, the embedded one added afterwards
-// makes it usable (the capability is any-true across the cluster's live
-// proxies), so both the refusal and the acceptance are exercised against the
-// same account and the same cluster address.
+// One combined server and one cluster address, walked through three states:
+// a live centralised proxy (refused), that proxy stopped so nothing in the
+// cluster is live any more (still refused — the record of what the cluster is
+// outlives its heartbeats), and finally an embedded proxy (accepted, the
+// capability being any-true across the cluster's live proxies). Same account,
+// same address, so nothing but the cluster's state accounts for the different
+// answers.
 func TestSettingsBootstrapValidatesProxyCluster(t *testing.T) {
 	ctx := context.Background()
 
@@ -49,6 +51,7 @@ func TestSettingsBootstrapValidatesProxyCluster(t *testing.T) {
 		"NB_PROXY_PRIVATE": "false",
 	})
 	require.NoError(t, err, "start centralised proxy")
+	// Terminated mid-test; the cleanup only covers an early failure.
 	t.Cleanup(func() { _ = central.Terminate(context.Background()) })
 
 	waitClusterPrivate(ctx, t, fresh, cluster, false)
@@ -65,6 +68,21 @@ func TestSettingsBootstrapValidatesProxyCluster(t *testing.T) {
 	require.NoError(t, err, "settings must still read after a refused bootstrap")
 	assert.Empty(t, after.Endpoint, "a refused bootstrap must not assign an endpoint")
 	assert.Empty(t, after.ProxyAddress, "a refused bootstrap must not pin a cluster")
+
+	// Stopping the centralised proxy must not turn the refusal into an
+	// acceptance: the cluster's proxy rows outlive their heartbeats (only the
+	// hourly stale reaper removes them), so the cluster is still on record as
+	// one that cannot serve the gateway. Judging on liveness instead would
+	// make "wait for the proxy to go quiet" a way to pin the account's
+	// immutable endpoint to a cluster that can never serve it.
+	require.NoError(t, central.Terminate(ctx), "stop the centralised proxy")
+	waitClusterAbsent(ctx, t, fresh, cluster)
+
+	_, err = fresh.CreateSettings(ctx, api.AgentNetworkSettingsCreateRequest{
+		ProxyAddress: ptr(cluster),
+	})
+	require.Error(t, err, "an offline cluster with no embedded proxy on record must stay refused")
+	requireClientError(t, err)
 
 	// Add an embedded proxy to the same cluster: now it can serve a private
 	// service, and the very same request must go through.
@@ -119,4 +137,37 @@ func waitClusterPrivate(ctx context.Context, t *testing.T, c *harness.Combined, 
 		}
 	}
 	t.Fatalf("cluster %s never reported supports_private=%v: %s", clusterAddr, want, last)
+}
+
+// waitClusterAbsent polls the domains endpoint until clusterAddr is no longer
+// offered, i.e. management sees no live proxy in it. The free-domain list is
+// built from the active clusters, so this is how a proxy going away becomes
+// observable — while the cluster's rows, and so its capability record, remain.
+func waitClusterAbsent(ctx context.Context, t *testing.T, c *harness.Combined, clusterAddr string) {
+	t.Helper()
+
+	deadline := time.Now().Add(90 * time.Second)
+	var last string
+	for time.Now().Before(deadline) {
+		domains, err := c.API().ReverseProxyDomains.List(ctx)
+		if err != nil {
+			last = "list domains: " + err.Error()
+		} else {
+			listed := false
+			for _, d := range domains {
+				if d.Domain == clusterAddr {
+					listed = true
+					break
+				}
+			}
+			if !listed {
+				return
+			}
+			last = "cluster still listed as active"
+		}
+		if !waitBeforeRetry(ctx, 2*time.Second) {
+			break
+		}
+	}
+	t.Fatalf("cluster %s never dropped out of the active list: %s", clusterAddr, last)
 }
