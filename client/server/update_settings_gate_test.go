@@ -268,3 +268,27 @@ func TestSetConfig_ManagementURLSpellingsPassTheGate(t *testing.T) {
 		})
 	}
 }
+
+// The RPC the whole fix hangs on. Login is retried by the CLI in a backoff
+// loop, so a login that restates the stored configuration — which is what a
+// container configured by environment sends on every start — must get past the
+// gate, or the client never comes up at all.
+//
+// Past the gate the handler goes on to do real work this test does not stand
+// up, so the assertion is only that the refusal did not happen.
+func TestLogin_RestatingTheStoredConfigPassesTheGate(t *testing.T) {
+	s, _, _, username, _ := setupServerWithProfile(t)
+	s.updateSettingsDisabled = true
+	s.rootCtx = internal.CtxInitState(context.Background())
+
+	_, err := s.Login(userCtx(), &proto.LoginRequest{
+		Username:      &username,
+		ManagementUrl: storedManagementURL,
+	})
+	if err != nil {
+		require.NotEqual(t, codes.Unavailable, gstatus.Code(err),
+			"the gate refused a login that changes nothing: %v", err)
+		require.NotContains(t, err.Error(), "update settings are disabled",
+			"the gate refused a login that changes nothing: %v", err)
+	}
+}
