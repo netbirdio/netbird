@@ -1,11 +1,13 @@
 package profilemanager
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
@@ -98,4 +100,36 @@ func TestWouldChangeReportsAnInvalidInput(t *testing.T) {
 
 	_, err := cfg.WouldChange(ConfigInput{ManagementURL: "not-a-url"})
 	require.Error(t, err)
+}
+
+// GetConfig persists the normalization it performs; PeekConfig must not, so a
+// caller that only inspects the stored settings leaves the file alone.
+func TestPeekConfigDoesNotWriteBack(t *testing.T) {
+	// A config file missing a field apply() fills in (MTU) is what makes the
+	// normalization write fire.
+	denormalized := []byte(`{"WgIface":"wt0"}`)
+
+	peekPath := filepath.Join(t.TempDir(), "peek.json")
+	require.NoError(t, os.WriteFile(peekPath, denormalized, 0o600))
+	before, err := os.ReadFile(peekPath)
+	require.NoError(t, err)
+
+	cfg, err := PeekConfig(peekPath)
+	require.NoError(t, err)
+	require.Equal(t, uint16(iface.DefaultMTU), cfg.MTU, "the returned config is still normalized in memory")
+
+	after, err := os.ReadFile(peekPath)
+	require.NoError(t, err)
+	require.Equal(t, string(before), string(after), "PeekConfig rewrote the config file")
+
+	// Same file through GetConfig, which is expected to persist it.
+	getPath := filepath.Join(t.TempDir(), "get.json")
+	require.NoError(t, os.WriteFile(getPath, denormalized, 0o600))
+
+	_, err = GetConfig(getPath)
+	require.NoError(t, err)
+
+	persisted, err := os.ReadFile(getPath)
+	require.NoError(t, err)
+	require.NotEqual(t, string(denormalized), string(persisted), "GetConfig is the variant that normalizes on disk")
 }

@@ -1045,7 +1045,7 @@ func update(input ConfigInput) (*Config, error) {
 
 // GetConfig read config file and return with Config and if it was created. Errors out if it does not exist
 func GetConfig(configPath string) (*Config, error) {
-	return readConfig(configPath, false)
+	return readConfig(configPath, false, true)
 }
 
 // UpdateOldManagementURL checks whether client can switch to the new Management URL with port 443 and the management domain.
@@ -1134,11 +1134,24 @@ func CreateInMemoryConfig(input ConfigInput) (*Config, error) {
 
 // ReadConfig read config file and return with Config. If it is not exists create a new with default values
 func ReadConfig(configPath string) (*Config, error) {
-	return readConfig(configPath, true)
+	return readConfig(configPath, true, true)
 }
 
-// ReadConfig read config file and return with Config. If it is not exists create a new with default values
-func readConfig(configPath string, createIfMissing bool) (*Config, error) {
+// PeekConfig reads an existing profile config without writing anything back.
+// GetConfig persists the normalization whenever apply() fills in a default,
+// which a caller that only inspects the stored settings must not do: the
+// daemon's update-settings gate reads the config to decide whether to refuse a
+// request, and a refused request has to leave the profile file exactly as it
+// found it. Errors out when the config does not exist.
+func PeekConfig(configPath string) (*Config, error) {
+	return readConfig(configPath, false, false)
+}
+
+// readConfig reads the profile config at configPath. createIfMissing generates
+// a default config (and writes it out) when the file is absent, rather than
+// erroring. persistNormalization writes the config back when apply() had to
+// fill in defaults the file was missing; a read-only caller passes false.
+func readConfig(configPath string, createIfMissing, persistNormalization bool) (*Config, error) {
 	configExists, err := fileExists(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check if config file exists: %w", err)
@@ -1157,7 +1170,7 @@ func readConfig(configPath string, createIfMissing bool) (*Config, error) {
 		// initialize through apply() without changes
 		if changed, err := config.apply(ConfigInput{}); err != nil {
 			return nil, err
-		} else if changed {
+		} else if changed && persistNormalization {
 			if err = WriteOutConfig(configPath, config); err != nil {
 				return nil, err
 			}

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -217,4 +218,29 @@ func TestGateDecisionWithoutStoredConfig(t *testing.T) {
 func TestGateDecisionFailsClosedOnAnInvalidRequest(t *testing.T) {
 	require.True(t, configChangeRequested(nil, profilemanager.ConfigInput{ManagementURL: "not-a-url"}),
 		"an unevaluable request must count as a change")
+}
+
+// The gate reads the stored config to decide, and reading it must not write it:
+// a refused request has to leave the profile file byte-for-byte as it was.
+// A config file missing a field the config layer fills in (MTU, here) is what
+// makes the normalization write fire.
+func TestSetConfig_RefusedRequestLeavesTheConfigFileUntouched(t *testing.T) {
+	s, ctx, profName, username, cfgPath := setupServerWithProfile(t)
+	s.updateSettingsDisabled = true
+
+	require.NoError(t, os.WriteFile(cfgPath, []byte(`{"WgIface":"wt0"}`), 0o600))
+	before, err := os.ReadFile(cfgPath)
+	require.NoError(t, err)
+
+	_, err = s.SetConfig(ctx, &proto.SetConfigRequest{
+		ProfileName:   profName,
+		Username:      username,
+		ManagementUrl: "https://mgmt.elsewhere.example:443",
+	})
+	require.Error(t, err)
+	require.Equal(t, codes.Unavailable, gstatus.Code(err), "want the update-settings refusal, got %v", err)
+
+	after, err := os.ReadFile(cfgPath)
+	require.NoError(t, err)
+	require.Equal(t, string(before), string(after), "the refused request rewrote the profile config")
 }
