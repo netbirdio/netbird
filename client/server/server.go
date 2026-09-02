@@ -2602,8 +2602,6 @@ func sendTerminalNotification() error {
 	return wallCmd.Wait()
 }
 
-// persistLoginOverrides writes management URL and pre-shared key from a LoginRequest to the
-// active profile config so that subsequent reads pick them up. Empty/nil values are ignored.
 // afterLoginPreCheck is a seam for tests to run a concurrent config change
 // between Login's first privilege check and the authoritative one.
 var afterLoginPreCheck func()

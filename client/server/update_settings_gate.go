@@ -43,10 +43,6 @@ func configChangeRequested(stored *profilemanager.Config, input profilemanager.C
 // through this builder, so the gate can neither refuse a field the write
 // ignores nor miss one it applies.
 func loginOverridesInput(msg *proto.LoginRequest) profilemanager.ConfigInput {
-	if msg == nil {
-		return profilemanager.ConfigInput{}
-	}
-
 	preSharedKey := msg.OptionalPreSharedKey
 	if preSharedKey != nil && *preSharedKey == "" {
 		preSharedKey = nil

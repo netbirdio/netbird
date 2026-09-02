@@ -1059,8 +1059,8 @@ func UpdateConfig(input ConfigInput) (*Config, error) {
 
 	// A UI that round-trips the mask GetConfig hands it back is asking to keep
 	// the stored key, not to set the mask as the new one. UpdateOrCreateConfig
-	// and DirectUpdateConfig already collapse it; this one did not, so the
-	// same round-trip through SetConfig replaced the key with asterisks.
+	// and DirectUpdateOrCreateConfig already collapse it; this one did not, so
+	// the same round-trip through SetConfig replaced the key with asterisks.
 	if isPreSharedKeyHidden(input.PreSharedKey) {
 		input.PreSharedKey = nil
 	}
