@@ -321,6 +321,10 @@ type localIpUpdater interface {
 	UpdateLocalIPs() error
 }
 
+// overlayRebind rebuilds one subsystem's sockets on the current interface. The
+// error it returns names its own subsystem, since the caller can only log it.
+type overlayRebind func() error
+
 // NewEngine creates a new Connection Engine with probes attached
 func NewEngine(
 	clientCtx context.Context,
@@ -2504,10 +2508,6 @@ func (e *Engine) RenewTun(fd int) error {
 	e.rebindOverlayListeners()
 	return nil
 }
-
-// overlayRebind rebuilds one subsystem's sockets on the current interface. The
-// error it returns names its own subsystem, since the caller can only log it.
-type overlayRebind func() error
 
 // rebindOverlayListeners gives the servers that listen on an overlay address
 // sockets on the interface as it is now.
