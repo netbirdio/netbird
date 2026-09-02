@@ -154,10 +154,11 @@ type oauthAuthFlow struct {
 	flow      auth.OAuthFlow
 	info      auth.AuthFlowInfo
 
-	// cacheGeneration is the SSH JWT cache's generation when this flow was
-	// created. The flow outlives a profile switch, so reading the generation
-	// when the token finally arrives would read the new session's one and cache
-	// a token the old session obtained.
+	// cacheGeneration is the SSH JWT cache's generation as of the start of the
+	// request that created this flow. The flow outlives a profile switch, so
+	// reading the generation any later — when the IdP has answered, or when the
+	// token finally arrives — would read the new session's one and let the old
+	// session's token into the new session's cache.
 	cacheGeneration uint64
 
 	waitCancel context.CancelFunc
@@ -1809,8 +1810,14 @@ func (s *Server) RequestJWTAuth(
 		return nil, ctx.Err()
 	}
 
+	// The generation is read here, with the config and under the same lock, not
+	// where the flow is stored below: RequestAuthInfo talks to the IdP in
+	// between, and a switch or a logout during that call would otherwise be
+	// read as the generation this flow belongs to. SwitchProfile holds
+	// s.mutex across its own clear(), so the pair cannot be torn.
 	s.mutex.Lock()
 	config := s.config
+	cacheGeneration := s.jwtCache.currentGeneration()
 	s.mutex.Unlock()
 
 	if config == nil {
@@ -1853,7 +1860,7 @@ func (s *Server) RequestJWTAuth(
 	s.oauthAuthFlow.flow = oAuthFlow
 	s.oauthAuthFlow.info = authInfo
 	s.oauthAuthFlow.expiresAt = time.Now().Add(time.Duration(authInfo.ExpiresIn) * time.Second)
-	s.oauthAuthFlow.cacheGeneration = s.jwtCache.currentGeneration()
+	s.oauthAuthFlow.cacheGeneration = cacheGeneration
 	s.mutex.Unlock()
 
 	return &proto.RequestJWTAuthResponse{
