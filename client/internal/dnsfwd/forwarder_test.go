@@ -1239,11 +1239,12 @@ func TestDNSForwarder_EmptyQuery(t *testing.T) {
 	assert.Nil(t, mockWriter.GetLastResponse(), "Should not write response for empty query")
 }
 
-// TestDNSForwarder_ClosedBeforeItServes covers a Close that arrives while
-// Listen is still setting up. Listen runs on its own goroutine, so it can
-// reach the point of serving after the forwarder has been shut down, and a
-// socket it starts serving then is one nothing will ever close: on Android it
-// keeps answering on an interface that has been replaced.
+// TestDNSForwarder_ClosedBeforeItServes covers Listen reaching the point of
+// serving after the forwarder has already been closed. Listen runs on its own
+// goroutine, so it can get there late, and a socket it starts serving then is
+// one nothing will ever close: on Android it keeps answering on an interface
+// that has been replaced. The close is sequenced first here rather than raced,
+// which pins the same state deterministically.
 func TestDNSForwarder_ClosedBeforeItServes(t *testing.T) {
 	f := NewDNSForwarder(netip.MustParseAddrPort("127.0.0.1:0"), 60, nil, nil, nil)
 
@@ -1274,7 +1275,7 @@ func TestDNSForwarder_CloseStopsUnactivatedServers(t *testing.T) {
 
 	// Published but deliberately never activated, which is the state Listen is
 	// in for the moment before it starts serving.
-	require.True(t, f.publish(udpConn, tcpLn, &dns.Server{PacketConn: udpConn}, &dns.Server{Listener: tcpLn}),
+	require.True(t, f.publish(udpConn, tcpLn, &dns.Server{PacketConn: udpConn}, &dns.Server{Listener: tcpLn}, nil),
 		"publishing to an open forwarder")
 
 	tcpAddr := tcpLn.Addr().String()

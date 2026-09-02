@@ -79,7 +79,7 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 
 	if e.config.DisableSSHAuth != nil && *e.config.DisableSSHAuth {
 		log.Info("starting SSH server without JWT authentication (authentication disabled by config)")
-		return e.startSSHServer(nil)
+		return e.startSSHServer(nil, nil)
 	}
 
 	if protoJWT := sshConf.GetJwtConfig(); protoJWT != nil {
@@ -97,7 +97,7 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 			MaxTokenAge:  protoJWT.GetMaxTokenAge(),
 		}
 
-		return e.startSSHServer(jwtConfig)
+		return e.startSSHServer(jwtConfig, nil)
 	}
 
 	return errors.New("SSH server requires valid JWT configuration")
@@ -248,17 +248,18 @@ func (e *Engine) restartSSHListeners() error {
 	if err := e.stopSSHServer(); err != nil {
 		return fmt.Errorf("rebind SSH listeners: %w", err)
 	}
-	if err := e.startSSHServer(jwtConfig); err != nil {
+	if err := e.startSSHServer(jwtConfig, authConfig); err != nil {
 		return fmt.Errorf("rebind SSH listeners: %w", err)
-	}
-	if authConfig != nil {
-		e.sshServer.UpdateSSHAuth(authConfig)
 	}
 	return nil
 }
 
-// startSSHServer initializes and starts the SSH server with proper configuration.
-func (e *Engine) startSSHServer(jwtConfig *sshserver.JWTConfig) error {
+// startSSHServer initializes and starts the SSH server with proper
+// configuration. authConfig is the fine-grained authorization to open with, and
+// is applied before the server accepts anything: a server that starts listening
+// with an empty authorizer refuses the logins that arrive in the meantime.
+// Nil leaves it as management has not sent one yet.
+func (e *Engine) startSSHServer(jwtConfig *sshserver.JWTConfig, authConfig *sshauth.Config) error {
 	if e.wgInterface == nil {
 		return errors.New("wg interface not initialized")
 	}
@@ -268,6 +269,10 @@ func (e *Engine) startSSHServer(jwtConfig *sshserver.JWTConfig) error {
 		JWT:        jwtConfig,
 	}
 	server := sshserver.New(serverConfig)
+
+	if authConfig != nil {
+		server.UpdateSSHAuth(authConfig)
+	}
 
 	wgAddr := e.wgInterface.Address()
 	server.SetNetworkValidation(wgAddr)

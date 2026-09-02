@@ -127,7 +127,7 @@ func (f *DNSForwarder) Listen(entries []*ForwarderEntry) error {
 		Handler:  tcpMux,
 	}
 
-	if !f.publish(udpLn, tcpLn, dnsServer, tcpServer) {
+	if !f.publish(udpLn, tcpLn, dnsServer, tcpServer, entries) {
 		log.Infof("DNS forwarder on %s was closed before it started serving", addrDesc)
 		if err := udpLn.Close(); err != nil {
 			log.Debugf("close UDP listener of a closed forwarder: %v", err)
@@ -137,8 +137,7 @@ func (f *DNSForwarder) Listen(entries []*ForwarderEntry) error {
 		}
 		return nil
 	}
-
-	f.UpdateDomains(entries)
+	log.Debugf("DNS forwarder serving %d domains", len(entries))
 
 	errCh := make(chan error, 2)
 
@@ -170,11 +169,22 @@ func (f *DNSForwarder) createTCPListener(netstackNet *netstack.Net) (net.Listene
 	return net.ListenTCP("tcp", net.TCPAddrFromAddrPort(f.listenAddress))
 }
 
-// publish hands the sockets and servers to the forwarder so Close can reach
-// them, and reports whether serving may begin. Listen runs on its own
-// goroutine, so a Close can arrive before it gets this far; false means the
-// caller must close what it created instead of serving on it.
-func (f *DNSForwarder) publish(udpConn net.PacketConn, tcpLn net.Listener, dnsServer, tcpServer *dns.Server) bool {
+// publish hands the sockets, servers and entries to the forwarder so Close can
+// reach them and Domains can report them, and says whether serving may begin.
+// Listen runs on its own goroutine, so a Close can arrive before it gets this
+// far; false means the caller must close what it created instead of serving on
+// it.
+//
+// The entries go in under the same lock rather than afterwards. Anything that
+// reads them in between would otherwise see a forwarder that is listening and
+// serves no domain, which for a caller rebuilding one means it comes back
+// refusing every routed query.
+func (f *DNSForwarder) publish(
+	udpConn net.PacketConn,
+	tcpLn net.Listener,
+	dnsServer, tcpServer *dns.Server,
+	entries []*ForwarderEntry,
+) bool {
 	f.mutex.Lock()
 	defer f.mutex.Unlock()
 
@@ -186,6 +196,7 @@ func (f *DNSForwarder) publish(udpConn net.PacketConn, tcpLn net.Listener, dnsSe
 	f.tcpLn = tcpLn
 	f.dnsServer = dnsServer
 	f.tcpServer = tcpServer
+	f.fwdEntries = entries
 	return true
 }
 
