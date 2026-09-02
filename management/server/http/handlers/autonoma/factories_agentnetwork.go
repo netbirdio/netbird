@@ -267,6 +267,13 @@ func (f *factories) consumptionFactory() sdk.FactoryDefinition {
 				window = 86400
 			}
 			kind := agentTypes.ConsumptionDimension(orDefaultStr(in.DimensionKind, string(agentTypes.DimensionUser)))
+			// The column is part of the row's primary key and the readers switch
+			// on it, so a value outside the two the product knows is a row
+			// nothing can interpret.
+			if kind != agentTypes.DimensionUser && kind != agentTypes.DimensionGroup {
+				return nil, fmt.Errorf("dimensionKind must be %q or %q, got %q",
+					agentTypes.DimensionUser, agentTypes.DimensionGroup, kind)
+			}
 
 			if err := f.deps.AgentNetworkManager.RecordConsumption(ctx, in.AccountID, kind, in.DimensionID,
 				window, in.TokensInput, in.TokensOutput, in.CostUSD); err != nil {

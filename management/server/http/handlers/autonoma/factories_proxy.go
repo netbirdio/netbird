@@ -244,6 +244,13 @@ func (f *factories) serviceFactory() sdk.FactoryDefinition {
 				svc.Auth.BearerAuth = &service.BearerAuthConfig{Enabled: true, DistributionGroups: in.SSOGroups}
 			}
 
+			// The REST handler validates before it reaches the manager, and
+			// CreateService assumes that has happened. Seeding enters from the
+			// side, so it has to do the same check itself.
+			if err := svc.Validate(); err != nil {
+				return nil, fmt.Errorf("service %q is not valid: %w", in.Name, err)
+			}
+
 			created, err := f.deps.ServiceManager.CreateService(ctx, in.AccountID, actor, svc)
 			if err != nil {
 				return nil, fmt.Errorf("publish service %q on %q: %w", in.Name, domainName, err)
@@ -295,9 +302,16 @@ func (f *factories) proxyAccessTokenFactory() sdk.FactoryDefinition {
 				createdBy = owner
 			}
 
+			if in.ExpiresInHours < 0 {
+				return nil, fmt.Errorf("proxy access token %q: expiresInHours cannot be negative", in.Name)
+			}
+			// Zero is the documented way to ask for a token that never
+			// expires, so it has to reach the constructor as a zero duration
+			// rather than being defaulted away.
+			expiresIn := time.Duration(in.ExpiresInHours) * time.Hour
+
 			accountID := in.AccountID
-			generated, err := types.CreateNewProxyAccessToken(in.Name,
-				time.Duration(orDefaultInt(in.ExpiresInHours, 24*30))*time.Hour, &accountID, createdBy)
+			generated, err := types.CreateNewProxyAccessToken(in.Name, expiresIn, &accountID, createdBy)
 			if err != nil {
 				return nil, fmt.Errorf("mint the proxy access token %q: %w", in.Name, err)
 			}

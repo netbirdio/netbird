@@ -670,14 +670,35 @@ func (f *factories) jobFactory() sdk.FactoryDefinition {
 				return nil, fmt.Errorf("build the bundle workload: %w", err)
 			}
 
+			// Writing through the store skips CreatePeerJob's own check that the
+			// peer belongs to the account, which is the one guarantee the
+			// manager offers that has nothing to do with the live stream this
+			// factory deliberately does without. A mistyped peer id would
+			// otherwise leave an orphan, or attach a job to another account's
+			// peer.
+			if _, err := f.deps.Store.GetPeerByID(ctx, store.LockingStrengthNone, in.AccountID, in.PeerID); err != nil {
+				return nil, fmt.Errorf("peer %s does not belong to account %s: %w", in.PeerID, in.AccountID, err)
+			}
+
 			job, err := types.NewJob(triggeredBy, in.AccountID, in.PeerID, &api.JobRequest{Workload: workload})
 			if err != nil {
 				return nil, fmt.Errorf("build peer job: %w", err)
 			}
 
+			status := types.JobStatus(orDefaultStr(in.Status, string(types.JobStatusPending)))
+			// The status decides whether the job counts as finished, and the
+			// API renders it verbatim, so a value outside the three the product
+			// defines produces a job no reader can make sense of.
+			switch status {
+			case types.JobStatusPending, types.JobStatusSucceeded, types.JobStatusFailed:
+			default:
+				return nil, fmt.Errorf("job status must be %q, %q or %q, got %q",
+					types.JobStatusPending, types.JobStatusSucceeded, types.JobStatusFailed, status)
+			}
+
 			createdAt := minutesAgo(in.CreatedMinutesAgo)
 			job.CreatedAt = createdAt
-			job.Status = types.JobStatus(orDefaultStr(in.Status, string(types.JobStatusPending)))
+			job.Status = status
 			job.FailedReason = in.FailedReason
 			if job.Status != types.JobStatusPending {
 				completedAt := createdAt.Add(time.Minute)
