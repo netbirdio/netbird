@@ -1876,6 +1876,12 @@ func (s *Server) WaitJWTToken(
 		return nil, gstatus.Errorf(codes.InvalidArgument, "invalid device code or no active auth flow")
 	}
 
+	// Taken before the wait below, which runs unlocked for as long as the IdP
+	// takes: a logout or a profile switch in the meantime advances the cache's
+	// generation, and the token this flow returns must not land in the cache
+	// the new session is using.
+	generation := s.jwtCache.currentGeneration()
+
 	tokenInfo, err := oAuthFlow.WaitToken(ctx, authInfo)
 	if err != nil {
 		return nil, gstatus.Errorf(codes.Internal, "failed to get token: %v", err)
@@ -1890,8 +1896,11 @@ func (s *Server) WaitJWTToken(
 	case !ok:
 		log.Debug("not caching the SSH JWT: the caller's identity cannot be verified on this control channel")
 	default:
-		s.jwtCache.store(token, caller, jwtCacheTTL)
-		log.Debugf("JWT token cached for SSH authentication, TTL: %v", jwtCacheTTL)
+		if s.jwtCache.store(token, caller, jwtCacheTTL, generation) {
+			log.Debugf("JWT token cached for SSH authentication, TTL: %v", jwtCacheTTL)
+		} else {
+			log.Debug("not caching the SSH JWT: the session it was obtained under ended while the IdP was polled")
+		}
 	}
 
 	s.mutex.Lock()

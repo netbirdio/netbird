@@ -23,7 +23,7 @@ func windowsCaller(sid string) ipcauth.Identity {
 func TestJWTCache_ServesTheOwner(t *testing.T) {
 	c := newJWTCache()
 	owner := unixCaller(1000)
-	c.store("token-for-1000", owner, testTTL)
+	c.store("token-for-1000", owner, testTTL, c.currentGeneration())
 
 	got, found := c.get(owner)
 
@@ -49,7 +49,7 @@ func TestJWTCache_RefusesAnotherLocalUser(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := newJWTCache()
-			c.store("victim-token", tt.owner, testTTL)
+			c.store("victim-token", tt.owner, testTTL, c.currentGeneration())
 
 			got, found := c.get(tt.caller)
 
@@ -74,7 +74,7 @@ func TestJWTCache_EmptyCacheMatchesNobody(t *testing.T) {
 // that exists and then drops its owner.
 func TestJWTCache_UnownedEntryMatchesNobody(t *testing.T) {
 	c := newJWTCache()
-	c.store("token", unixCaller(1000), testTTL)
+	c.store("token", unixCaller(1000), testTTL, c.currentGeneration())
 	c.owner = nil
 
 	got, found := c.get(unixCaller(0))
@@ -90,7 +90,7 @@ func TestJWTCache_ElevationDoesNotChangeTheOwner(t *testing.T) {
 	sid := "S-1-5-21-1-2-3-1001"
 	owner := windowsCaller(sid)
 	owner.Elevated = true
-	c.store("token", owner, testTTL)
+	c.store("token", owner, testTTL, c.currentGeneration())
 
 	got, found := c.get(windowsCaller(sid))
 
@@ -101,7 +101,7 @@ func TestJWTCache_ElevationDoesNotChangeTheOwner(t *testing.T) {
 func TestJWTCache_Expiry(t *testing.T) {
 	c := newJWTCache()
 	owner := unixCaller(1000)
-	c.store("token", owner, testTTL)
+	c.store("token", owner, testTTL, c.currentGeneration())
 	c.expiresAt = time.Now().Add(-time.Second)
 
 	_, found := c.get(owner)
@@ -114,7 +114,7 @@ func TestJWTCache_Expiry(t *testing.T) {
 func TestJWTCache_ClearDropsTheEntry(t *testing.T) {
 	c := newJWTCache()
 	owner := unixCaller(1000)
-	c.store("token", owner, testTTL)
+	c.store("token", owner, testTTL, c.currentGeneration())
 
 	c.clear()
 
@@ -124,13 +124,48 @@ func TestJWTCache_ClearDropsTheEntry(t *testing.T) {
 	assert.Nil(t, c.timer, "clear must stop the expiry timer")
 }
 
+// WaitJWTToken polls the IdP unlocked, so a logout or a profile switch can
+// clear the cache while a flow is still in the air. The token that flow returns
+// belongs to the session that ended, so it must not land in the cache the new
+// session is using.
+func TestJWTCache_StoreFromAnEndedSessionIsDropped(t *testing.T) {
+	c := newJWTCache()
+	owner := unixCaller(1000)
+
+	// The generation a caller takes when its authentication starts.
+	generation := c.currentGeneration()
+
+	c.clear() // logout or profile switch, while the IdP is still being polled
+
+	stored := c.store("stale-token", owner, testTTL, generation)
+
+	assert.False(t, stored, "a token from an ended session must not be cached")
+	_, found := c.get(owner)
+	assert.False(t, found, "the cache must stay empty after the session ended")
+}
+
+// The same caller must still be able to store once it re-reads the generation, so
+// the guard does not wedge the cache after any invalidation.
+func TestJWTCache_StoreWorksAgainAfterClear(t *testing.T) {
+	c := newJWTCache()
+	owner := unixCaller(1000)
+
+	c.clear()
+
+	require.True(t, c.store("token", owner, testTTL, c.currentGeneration()))
+
+	got, found := c.get(owner)
+	require.True(t, found)
+	assert.Equal(t, "token", got)
+}
+
 func TestJWTCache_StoreReplacesThePreviousOwner(t *testing.T) {
 	c := newJWTCache()
 	first := unixCaller(1000)
 	second := unixCaller(1001)
 
-	c.store("first-token", first, testTTL)
-	c.store("second-token", second, testTTL)
+	c.store("first-token", first, testTTL, c.currentGeneration())
+	c.store("second-token", second, testTTL, c.currentGeneration())
 
 	_, found := c.get(first)
 	assert.False(t, found, "the previous owner must not reach the new token")

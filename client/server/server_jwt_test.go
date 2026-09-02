@@ -20,7 +20,7 @@ import (
 func TestCachedJWT_ServesTheOwner(t *testing.T) {
 	s := newTestServer()
 	owner := unprivilegedIdentity()
-	s.jwtCache.store("token", owner, testTTL)
+	s.jwtCache.store("token", owner, testTTL, s.jwtCache.currentGeneration())
 
 	got, found := s.cachedJWT(ctxWithIdentity(owner))
 
@@ -30,7 +30,7 @@ func TestCachedJWT_ServesTheOwner(t *testing.T) {
 
 func TestCachedJWT_RefusesAnotherCaller(t *testing.T) {
 	s := newTestServer()
-	s.jwtCache.store("token", unprivilegedIdentity(), testTTL)
+	s.jwtCache.store("token", unprivilegedIdentity(), testTTL, s.jwtCache.currentGeneration())
 
 	got, found := s.cachedJWT(ctxWithIdentity(privilegedIdentity()))
 
@@ -43,7 +43,7 @@ func TestCachedJWT_RefusesAnotherCaller(t *testing.T) {
 // another, so cachedJWT must fail closed there.
 func TestCachedJWT_WithoutCallerIdentity(t *testing.T) {
 	s := newTestServer()
-	s.jwtCache.store("token", unprivilegedIdentity(), testTTL)
+	s.jwtCache.store("token", unprivilegedIdentity(), testTTL, s.jwtCache.currentGeneration())
 
 	got, found := s.cachedJWT(context.Background())
 
@@ -97,7 +97,7 @@ func TestSwitchProfile_ClearsJWTCache(t *testing.T) {
 	s.localMetrics = localmetrics.NewManager(ctx, s.statusRecorder, nil)
 
 	owner := unprivilegedIdentity()
-	s.jwtCache.store("token", owner, testTTL)
+	s.jwtCache.store("token", owner, testTTL, s.jwtCache.currentGeneration())
 
 	_, err := s.SwitchProfile(ctx, nil)
 	require.NoError(t, err)
@@ -116,7 +116,7 @@ func TestCleanupConnection_KeepsJWTCache(t *testing.T) {
 	s.actCancel = cancel
 
 	owner := unprivilegedIdentity()
-	s.jwtCache.store("token", owner, testTTL)
+	s.jwtCache.store("token", owner, testTTL, s.jwtCache.currentGeneration())
 
 	require.NoError(t, s.cleanupConnection())
 
