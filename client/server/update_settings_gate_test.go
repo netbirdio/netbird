@@ -377,4 +377,13 @@ func TestLogout_ProfileWithoutAnIdentityIsANoOp(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, s.sendLogoutRequestWithConfig(privilegedTestCtx(), stored),
 		"logging out an identity-less profile must not fail")
+
+	// And for an unprivileged caller too: the deregistration privilege gate
+	// guards the handover of a registered key, so with no key there is nothing
+	// to guard. An unset SSH setting is what arms that gate — sshServerEnabled
+	// reads an absent value as enabled — so this stands in for every legacy
+	// profile, where behind the gate the caller would be refused.
+	stored.ServerSSHAllowed = nil
+	require.NoError(t, s.sendLogoutRequestWithConfig(userCtx(), stored),
+		"an unprivileged caller could not log out a profile with nothing to deregister")
 }

@@ -1578,18 +1578,21 @@ func (s *Server) sendLogoutRequestWithConfig(ctx context.Context, config *profil
 	// Privilege gate: deregistering frees this machine's key to be registered
 	// against another management server, which is only restricted while the SSH
 	// server makes that a privilege handover.
-	if err := requirePrivilegeForDeregistration(ctx, config); err != nil {
-		return err
-	}
-
-	// A profile with no identity was never registered — a logout clears the
-	// keys in place, so logging the same profile out twice lands here — and
-	// there is nothing to deregister. Reads no longer mint a key on the way
-	// past, so this is where that case surfaces instead of dialing management
-	// with a key it has never seen.
+	// Ahead of the privilege gate on purpose. A profile with no identity was
+	// never registered — a logout clears the keys in place, so logging the same
+	// profile out twice lands here — so there is nothing to deregister and
+	// nothing for the gate to protect: what it guards against is handing this
+	// machine's registered key to another management server. Behind the gate,
+	// an unprivileged caller would be refused instead, and for a profile whose
+	// ServerSSHAllowed is unset that is every caller, since an absent value
+	// counts as SSH enabled.
 	if config.PrivateKey == "" {
 		log.Infof("profile carries no identity, nothing to deregister")
 		return nil
+	}
+
+	if err := requirePrivilegeForDeregistration(ctx, config); err != nil {
+		return err
 	}
 
 	key, err := wgtypes.ParseKey(config.PrivateKey)
