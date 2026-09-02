@@ -6,16 +6,18 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/netbirdio/netbird/management/server/idp/migration"
 	"github.com/netbirdio/netbird/util"
 )
 
 type migrationConfig struct {
 	// Data
-	dashboardURL string
-	apiURL       string
-	configPath   string
-	dataDir      string
-	idpSeedInfo  string
+	dashboardURL        string
+	apiURL              string
+	configPath          string
+	dataDir             string
+	idpSeedInfo         string
+	singleAccountDomain string
 
 	// Options
 	dryRun               bool
@@ -51,6 +53,7 @@ func configFromArgs(args []string) (*migrationConfig, error) {
 	fs.StringVar(&cfg.configPath, "config", "", "path to management.json (required)")
 	fs.StringVar(&cfg.dataDir, "datadir", "", "override data directory from config")
 	fs.StringVar(&cfg.idpSeedInfo, "idp-seed-info", "", "base64-encoded connector JSON (overrides auto-detection)")
+	fs.StringVar(&cfg.singleAccountDomain, "single-account-mode-domain", migration.DefaultSingleAccountDomain, "domain single account mode groups users under, applied when the account has no usable domain")
 	fs.BoolVar(&cfg.dryRun, "dry-run", false, "preview changes without writing")
 	fs.BoolVar(&cfg.force, "force", false, "skip confirmation prompt")
 	fs.BoolVar(&cfg.skipConfig, "skip-config", false, "skip config generation (DB migration only)")

@@ -10,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 
@@ -25,8 +27,10 @@ type Server interface {
 	EventStore() EventStore // may return nil
 }
 
-const idpSeedInfoKey = "IDP_SEED_INFO"
-const dryRunEnvKey = "NB_IDP_MIGRATION_DRY_RUN"
+const (
+	idpSeedInfoKey = "IDP_SEED_INFO"
+	dryRunEnvKey   = "NB_IDP_MIGRATION_DRY_RUN"
+)
 
 func isDryRun() bool {
 	return os.Getenv(dryRunEnvKey) == "true"
@@ -231,5 +235,80 @@ func PopulateUserInfo(s Server, idpManager idp.Manager, dryRun bool) error {
 		log.Infof("user info population complete: %d updated, %d skipped, %d not found in IDP", updatedCount, skippedCount, notFoundCount)
 	}
 
+	return nil
+}
+
+const DefaultSingleAccountDomain = "netbird.selfhosted"
+
+var resolvableDomainRegexp = regexp.MustCompile(`^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$`)
+
+// RequireSingleAccount refuses to migrate an instance that holds more than one account.
+func RequireSingleAccount(s Server) error {
+	accountsCounter, err := s.Store().GetAccountsCounter(context.Background())
+	if err != nil {
+		return fmt.Errorf("failed to count accounts: %w", err)
+	}
+
+	if accountsCounter > 1 {
+		return fmt.Errorf("this instance has %d accounts and the embedded IdP supports a single account only. "+
+			"Identity provider connectors are stored without an account scope, so every account would share "+
+			"and be able to manage the same connectors. Consolidate this instance to a single account, or keep "+
+			"using an external IdP, before migrating", accountsCounter)
+	}
+
+	return nil
+}
+
+// EnsureSingleAccountDomain gives the remaining account the domain attributes single account mode
+// resolves against, so users can still join it after the migration.
+func EnsureSingleAccountDomain(s Server, singleAccountDomain string) error {
+	ctx := context.Background()
+
+	if singleAccountDomain == "" {
+		singleAccountDomain = DefaultSingleAccountDomain
+	}
+	singleAccountDomain = strings.ToLower(singleAccountDomain)
+	if !resolvableDomainRegexp.MatchString(singleAccountDomain) {
+		return fmt.Errorf("single account mode domain %q is not usable: it must contain at least one dot "+
+			"and only lowercase letters, digits and hyphens, otherwise users cannot join the existing account",
+			singleAccountDomain)
+	}
+
+	accountsCounter, err := s.Store().GetAccountsCounter(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to count accounts: %w", err)
+	}
+	if accountsCounter == 0 {
+		log.Info("no accounts yet, nothing to prepare for single account mode")
+		return nil
+	}
+
+	accountID, err := s.Store().GetAnyAccountID(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get the existing account: %w", err)
+	}
+
+	isPrimary, accountDomain, err := s.Store().IsPrimaryAccount(ctx, accountID)
+	if err != nil {
+		return fmt.Errorf("failed to read domain attributes of account %s: %w", accountID, err)
+	}
+
+	// Keep the account's own domain only when it can be resolved.
+	domain := strings.ToLower(accountDomain)
+	if !resolvableDomainRegexp.MatchString(domain) {
+		domain = singleAccountDomain
+	}
+
+	if isDryRun() {
+		log.Infof("[DRY RUN] would set account %s domain to %q, category to %q and mark it as the primary domain account "+
+			"(currently domain=%q primary=%v)", accountID, domain, types.PrivateCategory, accountDomain, isPrimary)
+		return nil
+	}
+
+	if err := s.Store().UpdateAccountDomainAttributes(ctx, accountID, domain, types.PrivateCategory, true); err != nil {
+		return fmt.Errorf("failed to update domain attributes of account %s: %w", accountID, err)
+	}
+
+	log.Infof("account %s now resolves in single account mode with domain %q", accountID, domain)
 	return nil
 }

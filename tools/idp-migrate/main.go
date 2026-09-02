@@ -224,6 +224,12 @@ func migrateDB(cfg *migrationConfig, mgmtConfig *nbconfig.Config, connectorConfi
 	}
 	defer cleanup()
 
+	srv := &migrationServer{store: migStore, eventStore: migEventStore}
+
+	if err := migration.RequireSingleAccount(srv); err != nil {
+		return err
+	}
+
 	pending, err := previewUsers(ctx, migStore)
 	if err != nil {
 		return err
@@ -243,9 +249,12 @@ func migrateDB(cfg *migrationConfig, mgmtConfig *nbconfig.Config, connectorConfi
 		}
 	}
 
-	srv := &migrationServer{store: migStore, eventStore: migEventStore}
 	if err := migration.MigrateUsersToStaticConnectors(srv, connectorConfig); err != nil {
 		return fmt.Errorf("migrate users: %w", err)
+	}
+
+	if err := migration.EnsureSingleAccountDomain(srv, cfg.singleAccountDomain); err != nil {
+		return fmt.Errorf("prepare single account mode: %w", err)
 	}
 
 	if !cfg.dryRun {
