@@ -292,9 +292,11 @@ func fileExists(path string) (bool, error) {
 	return false, err
 }
 
-// createNewConfig creates a new config generating a new Wireguard key and saving to file
-func createNewConfig(input ConfigInput) (*Config, error) {
-	config := &Config{
+// newConfigSkeleton returns the field values a brand-new profile config starts
+// from, before apply() fills in the rest. Shared with the dry-run baseline so
+// the two cannot disagree about what "a new config" means.
+func newConfigSkeleton() *Config {
+	return &Config{
 		// defaults to false only for new (post 0.26) configurations
 		ServerSSHAllowed: util.False(),
 		// Remote jobs are an explicit opt-in and default off, including for
@@ -302,6 +304,11 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 		RemoteJobsAllowed: util.False(),
 		WgPort:            iface.DefaultWgPort,
 	}
+}
+
+// createNewConfig creates a new config generating a new Wireguard key and saving to file
+func createNewConfig(input ConfigInput) (*Config, error) {
+	config := newConfigSkeleton()
 
 	if _, err := config.apply(input); err != nil {
 		return nil, err
@@ -953,6 +960,11 @@ func generateKey() string {
 	return key.String()
 }
 
+// dryRunKeyPlaceholder stands in for the WireGuard and SSH keys of a config
+// that is only ever compared against, never persisted or used to connect. It
+// keeps apply() from generating real keys for a throwaway baseline.
+const dryRunKeyPlaceholder = "dry-run"
+
 // don't overwrite pre-shared key if we receive asterisks from UI
 func isPreSharedKeyHidden(preSharedKey *string) bool {
 	if preSharedKey != nil && *preSharedKey == "**********" {
@@ -977,7 +989,7 @@ func isPreSharedKeyHidden(preSharedKey *string) bool {
 func (config *Config) WouldChange(input ConfigInput) (bool, error) {
 	probe := config.clone()
 	if probe == nil {
-		baseline, err := createNewConfig(ConfigInput{ConfigPath: input.ConfigPath})
+		baseline, err := newDryRunBaseline(input.ConfigPath)
 		if err != nil {
 			return true, fmt.Errorf("build default config baseline: %w", err)
 		}
@@ -989,6 +1001,28 @@ func (config *Config) WouldChange(input ConfigInput) (bool, error) {
 	}
 
 	return probe.apply(input)
+}
+
+// newDryRunBaseline builds the config a brand-new profile would start from, for
+// a dry run to compare an input against.
+//
+// It is createNewConfig with the key generation skipped: apply() generates a
+// WireGuard and an SSH key whenever it finds those fields empty, and this
+// config exists only to be compared against and thrown away. Generating a
+// keypair per evaluation is waste on its own, and it logs "generated new
+// Wireguard key" once per attempt — in the CLI's login backoff loop that reads
+// like the client rotating its peer key. No ConfigInput field maps to either
+// key, so a placeholder cannot affect the comparison.
+func newDryRunBaseline(configPath string) (*Config, error) {
+	baseline := newConfigSkeleton()
+	baseline.PrivateKey = dryRunKeyPlaceholder
+	baseline.SSHKey = dryRunKeyPlaceholder
+
+	if _, err := baseline.apply(ConfigInput{ConfigPath: configPath}); err != nil {
+		return nil, err
+	}
+
+	return baseline, nil
 }
 
 // clone returns a copy of the config that apply can be run against without

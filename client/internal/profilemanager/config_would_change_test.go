@@ -193,3 +193,19 @@ func TestWouldChangeIgnoresURLSpelling(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, changed, "a different port is a different endpoint")
 }
+
+// The dry-run baseline exists to be compared against and discarded, so it must
+// not mint keys — the CLI's login backoff loop would otherwise log a fresh
+// "generated new Wireguard key" on every attempt.
+func TestDryRunBaselineDoesNotGenerateKeys(t *testing.T) {
+	baseline, err := newDryRunBaseline(filepath.Join(t.TempDir(), "absent.json"))
+	require.NoError(t, err)
+
+	require.Equal(t, dryRunKeyPlaceholder, baseline.PrivateKey, "generated a WireGuard key for a throwaway config")
+	require.Equal(t, dryRunKeyPlaceholder, baseline.SSHKey, "generated an SSH key for a throwaway config")
+
+	// Everything the comparison actually looks at is still the default config.
+	require.Equal(t, DefaultManagementURL, baseline.ManagementURL.String())
+	require.Equal(t, uint16(iface.DefaultMTU), baseline.MTU)
+	require.Equal(t, iface.DefaultWgPort, baseline.WgPort)
+}
