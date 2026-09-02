@@ -896,25 +896,19 @@ func TestRequireSingleAccount(t *testing.T) {
 
 func TestEnsureSingleAccountDomain(t *testing.T) {
 	tests := []struct {
-		name             string
-		account          *types.Account
-		expectUpdate     bool
-		expectedDomain   string
-		expectedCategory string
+		name           string
+		account        *types.Account
+		expectedDomain string
 	}{
 		{
-			name:             "account migrated from an IdP without domain claims",
-			account:          &types.Account{Id: "account-1"},
-			expectUpdate:     true,
-			expectedDomain:   DefaultSingleAccountDomain,
-			expectedCategory: types.PrivateCategory,
+			name:           "account migrated from an IdP without domain claims",
+			account:        &types.Account{Id: "account-1"},
+			expectedDomain: DefaultSingleAccountDomain,
 		},
 		{
-			name:             "account keeps its own domain",
-			account:          &types.Account{Id: "account-1", Domain: "acme.com"},
-			expectUpdate:     true,
-			expectedDomain:   "acme.com",
-			expectedCategory: types.PrivateCategory,
+			name:           "account keeps its own domain",
+			account:        &types.Account{Id: "account-1", Domain: "acme.com"},
+			expectedDomain: "acme.com",
 		},
 		{
 			name: "already resolvable account is rewritten with the same values",
@@ -924,9 +918,7 @@ func TestEnsureSingleAccountDomain(t *testing.T) {
 				DomainCategory:         types.PrivateCategory,
 				IsDomainPrimaryAccount: true,
 			},
-			expectUpdate:     true,
-			expectedDomain:   "acme.com",
-			expectedCategory: types.PrivateCategory,
+			expectedDomain: "acme.com",
 		},
 	}
 
@@ -939,16 +931,11 @@ func TestEnsureSingleAccountDomain(t *testing.T) {
 
 			require.NoError(t, EnsureSingleAccountDomain(&testServer{store: store}, ""))
 
-			if !tt.expectUpdate {
-				assert.Empty(t, store.domainAttrCalls, "A resolvable account must not be written to")
-				return
-			}
-
 			require.Len(t, store.domainAttrCalls, 1)
 			assert.Equal(t, domainAttrCall{
 				AccountID: tt.account.Id,
 				Domain:    tt.expectedDomain,
-				Category:  tt.expectedCategory,
+				Category:  types.PrivateCategory,
 				IsPrimary: true,
 			}, store.domainAttrCalls[0])
 		})
