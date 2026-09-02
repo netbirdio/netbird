@@ -94,6 +94,13 @@ const (
 	// exec, os.Stat); without this bound a single stuck call freezes handleSync, and
 	// thus syncMsgMux, for as long as the call hangs (observed multi-minute freezes).
 	systemInfoTimeout = 15 * time.Second
+
+	// dnsForwarderStopTimeout bounds how long stopping the DNS forwarder waits
+	// for the queries still in flight. One waiting on an unresponsive upstream
+	// would otherwise hold the stop for the whole upstream timeout, and the
+	// stop runs with syncMsgMux held. The sockets are closed either way, so
+	// giving up costs a query that was already failing.
+	dnsForwarderStopTimeout = 2 * time.Second
 )
 
 var ErrResetConnection = fmt.Errorf("reset connection")
@@ -2612,7 +2619,14 @@ func (e *Engine) stopDNSForwarder() {
 		return
 	}
 
-	if err := e.dnsForwardMgr.Stop(context.Background()); err != nil {
+	// Bounded because the shutdown waits for queries still in flight, and one
+	// waiting on an unresponsive upstream holds it for as long as that lookup
+	// is allowed to take. This runs with syncMsgMux held, so that wait is one
+	// the whole engine spends.
+	ctx, cancel := context.WithTimeout(context.Background(), dnsForwarderStopTimeout)
+	defer cancel()
+
+	if err := e.dnsForwardMgr.Stop(ctx); err != nil {
 		log.Errorf("failed to stop DNS forward: %v", err)
 	}
 
