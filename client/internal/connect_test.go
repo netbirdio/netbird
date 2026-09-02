@@ -6,6 +6,27 @@ import (
 )
 
 func Test_freePort(t *testing.T) {
+	// Ports are obtained from the OS instead of hardcoded: a fixed number can
+	// fall inside the ephemeral range and be occupied by an unrelated process
+	// on the test runner, making the test flaky.
+	busy, err := net.ListenUDP("udp", &net.UDPAddr{Port: 0})
+	if err != nil {
+		t.Fatalf("failed to bind busy port: %v", err)
+	}
+	defer func() {
+		_ = busy.Close()
+	}()
+	busyPort := busy.LocalAddr().(*net.UDPAddr).Port
+
+	free, err := net.ListenUDP("udp", &net.UDPAddr{Port: 0})
+	if err != nil {
+		t.Fatalf("failed to bind free port: %v", err)
+	}
+	freePortNum := free.LocalAddr().(*net.UDPAddr).Port
+	if err := free.Close(); err != nil {
+		t.Fatalf("failed to close free port: %v", err)
+	}
+
 	tests := []struct {
 		name        string
 		port        int
@@ -20,32 +41,17 @@ func Test_freePort(t *testing.T) {
 		},
 		{
 			name:        "provided and available",
-			port:        51821,
-			want:        51821,
+			port:        freePortNum,
+			want:        freePortNum,
 			shouldMatch: true,
 		},
 		{
 			name:        "provided and not available",
-			port:        51830,
-			want:        51830,
+			port:        busyPort,
+			want:        busyPort,
 			shouldMatch: false,
 		},
 	}
-	c1, err := net.ListenUDP("udp", &net.UDPAddr{Port: 0})
-	if err != nil {
-		t.Errorf("freePort error = %v", err)
-	}
-	defer func(c1 *net.UDPConn) {
-		_ = c1.Close()
-	}(c1)
-
-	if tests[1].port == c1.LocalAddr().(*net.UDPAddr).Port {
-		tests[1].port++
-		tests[1].want++
-	}
-
-	tests[2].port = c1.LocalAddr().(*net.UDPAddr).Port
-	tests[2].want = c1.LocalAddr().(*net.UDPAddr).Port
 
 	for _, tt := range tests {
 
