@@ -109,8 +109,8 @@ func TestJWTCache_Expiry(t *testing.T) {
 	assert.False(t, found)
 }
 
-// Logout, Down and SwitchProfile call clear: the NetBird session the token
-// speaks for is over, so not even its owner may have it back.
+// Logout and SwitchProfile call clear — Down deliberately does not: the NetBird
+// session the token speaks for is over, so not even its owner may have it back.
 func TestJWTCache_ClearDropsTheEntry(t *testing.T) {
 	c := newJWTCache()
 	owner := unixCaller(1000)
