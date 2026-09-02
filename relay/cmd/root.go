@@ -250,10 +250,11 @@ func execute(cmd *cobra.Command, args []string) error {
 
 func loadConfig(cmd *cobra.Command) (*Config, error) {
 	return configloader.Load(configPath, defaultConfig(), configloader.Options{
-		TagName:      "yaml",
-		AllowMissing: configPath == "",
-		FlagSet:      cmd.Flags(),
-		Strict:       true,
+		TagName:            "yaml",
+		AllowMissing:       configPath == "",
+		FlagSet:            cmd.Flags(),
+		Strict:             true,
+		InvalidEnvironment: configloader.InvalidEnvironmentUsePartial,
 	})
 }
 

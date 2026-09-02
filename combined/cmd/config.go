@@ -441,8 +441,9 @@ func (c *CombinedConfig) autoConfigureClientSettings(exposedProto, exposedHost, 
 // LoadConfig loads the combined server configuration.
 func LoadConfig(configPath string) (*CombinedConfig, error) {
 	cfg, err := configloader.Load(configPath, DefaultConfig(), configloader.Options{
-		TagName:      "yaml",
-		AllowMissing: configPath == "",
+		TagName:           "yaml",
+		AllowMissing:      configPath == "",
+		DecodeErrorPrefix: "failed to parse config file",
 	})
 	if err != nil {
 		return nil, err

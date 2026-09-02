@@ -114,7 +114,7 @@ func withAdminConfig(cmd *cobra.Command, applyIDPDefaults bool, fn func(ctx cont
 }
 
 func loadAdminMgmtConfig(ctx context.Context, applyIDPDefaults bool) (*nbconfig.Config, string, error) {
-	config, err := loadManagementConfig(nbconfig.MgmtConfigPath)
+	config, err := decodeManagementConfig(nbconfig.MgmtConfigPath, &nbconfig.Config{})
 	if err != nil {
 		return nil, "", err
 	}

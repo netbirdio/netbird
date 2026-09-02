@@ -19,9 +19,12 @@ import (
 	"github.com/netbirdio/netbird/util"
 )
 
-// envPreallocatedBuffers caps the per-tunnel buffer pool. Zero (unset)
-// keeps the upstream uncapped default.
-const envPreallocatedBuffers = "NB_PROXY_PREALLOCATED_BUFFERS"
+const (
+	// envPreallocatedBuffers caps the per-tunnel buffer pool. Zero (unset)
+	// keeps the upstream uncapped default.
+	envPreallocatedBuffers = "NB_PROXY_PREALLOCATED_BUFFERS"
+	envMaxBatchSize        = "NB_PROXY_MAX_BATCH_SIZE"
+)
 
 const DefaultManagementURL = "https://api.netbird.io:443"
 
@@ -138,16 +141,19 @@ func SetVersionInfo(version, commit, buildDate, goVersion string) {
 }
 
 func runServer(cmd *cobra.Command, args []string) error {
+	proxyToken := os.Getenv(envProxyToken)
+	if proxyToken == "" {
+		return fmt.Errorf("proxy token is required: set %s environment variable", envProxyToken)
+	}
+
 	cfg, err := loadConfig(cmd, configPath)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
-	if cfg.ProxyToken == "" {
-		return fmt.Errorf("proxy token is required: set proxyToken or %s", envProxyToken)
-	}
+	cfg.ProxyToken = proxyToken
 
 	level := cfg.LogLevel
-	if debugLogs && (!cmd.Flags().Changed("log-level") || cmd.Flags().Changed("debug")) {
+	if debugLogs {
 		level = "debug"
 	}
 	logger := log.New()

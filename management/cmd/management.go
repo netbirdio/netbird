@@ -71,7 +71,7 @@ var (
 			}
 
 			var tlsEnabled bool
-			if config.HttpConfig.LetsEncryptDomain != "" || (config.HttpConfig.CertFile != "" && config.HttpConfig.CertKey != "") {
+			if mgmtLetsencryptDomain != "" || (config.HttpConfig.CertFile != "" && config.HttpConfig.CertKey != "") {
 				tlsEnabled = true
 			}
 
@@ -212,15 +212,15 @@ func LoadMgmtConfig(ctx context.Context, mgmtConfigPath string, flags *pflag.Fla
 }
 
 // ApplyCommandLineOverrides applies command-line flag overrides to the config
-func ApplyCommandLineOverrides(cfg *nbconfig.Config, flags *pflag.FlagSet) {
-	hasCertOverride := flags.Changed("cert-key") && flags.Changed("cert-file")
-	if (flags.Changed("letsencrypt-domain") || hasCertOverride) && cfg.HttpConfig == nil {
+func ApplyCommandLineOverrides(cfg *nbconfig.Config, _ *pflag.FlagSet) {
+	hasCertOverride := certKey != "" && certFile != ""
+	if (mgmtLetsencryptDomain != "" || hasCertOverride) && cfg.HttpConfig == nil {
 		cfg.HttpConfig = &nbconfig.HttpServerConfig{}
 	}
-	if flags.Changed("letsencrypt-domain") {
+	if mgmtLetsencryptDomain != "" {
 		cfg.HttpConfig.LetsEncryptDomain = mgmtLetsencryptDomain
 	}
-	if flags.Changed("datadir") {
+	if mgmtDataDir != "" {
 		cfg.Datadir = mgmtDataDir
 	}
 	if hasCertOverride {
@@ -378,11 +378,17 @@ func EnsureEncryptionKey(ctx context.Context, configPath string, cfg *nbconfig.C
 	if err != nil {
 		return fmt.Errorf("failed to generate datastore encryption key: %v", err)
 	}
-	cfg.DataStoreEncryptionKey = key
 
-	if err := util.DirectWriteJson(ctx, configPath, cfg); err != nil {
+	fileConfig, err := decodeManagementConfig(configPath, &nbconfig.Config{})
+	if err != nil {
+		return fmt.Errorf("reload config before saving encryption key: %w", err)
+	}
+	fileConfig.DataStoreEncryptionKey = key
+	if err := util.DirectWriteJson(ctx, configPath, fileConfig); err != nil {
 		return fmt.Errorf("failed to save config with new encryption key: %v", err)
 	}
+
+	cfg.DataStoreEncryptionKey = key
 	log.WithContext(ctx).Infof("DataStoreEncryptionKey generated and saved to config")
 	return nil
 }

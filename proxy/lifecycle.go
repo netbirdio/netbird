@@ -24,7 +24,7 @@ type Config struct {
 	// ID identifies this proxy instance to management. Empty values are
 	// replaced with a timestamped default at Server.Start time (see
 	// initDefaults), not in New.
-	ID string `yaml:"id" env:"NB_PROXY_ID"`
+	ID string `yaml:"id" env:"-"`
 	// Logger is the logrus logger used everywhere. Empty values fall
 	// back to log.StandardLogger() at Server.Start time (see
 	// initDefaults), not in New.

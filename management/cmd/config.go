@@ -7,10 +7,7 @@ import (
 )
 
 func loadManagementConfig(configPath string) (*nbconfig.Config, error) {
-	cfg, err := configloader.Load(configPath, &nbconfig.Config{Datadir: defaultMgmtDataDir}, configloader.Options{
-		TagName:   "json",
-		Transform: envtemplate.Expand,
-	})
+	cfg, err := decodeManagementConfig(configPath, &nbconfig.Config{Datadir: defaultMgmtDataDir})
 	if err != nil {
 		return nil, err
 	}
@@ -18,4 +15,11 @@ func loadManagementConfig(configPath string) (*nbconfig.Config, error) {
 		cfg.Datadir = defaultMgmtDataDir
 	}
 	return cfg, nil
+}
+
+func decodeManagementConfig(configPath string, defaults *nbconfig.Config) (*nbconfig.Config, error) {
+	return configloader.Load(configPath, defaults, configloader.Options{
+		TagName:   "json",
+		Transform: envtemplate.Expand,
+	})
 }

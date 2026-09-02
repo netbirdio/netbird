@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
+	"strconv"
 	// nolint:gosec
 	_ "net/http/pprof"
 	"time"
@@ -65,13 +67,14 @@ var (
 		Short:        "start NetBird Signal Server daemon",
 		SilenceUsage: true,
 		PreRunE: func(cmd *cobra.Command, args []string) error {
+			userPort := signalPortConfigured(cmd)
 			cfg, err := loadConfig(cmd, signalConfigPath)
 			if err != nil {
 				return fmt.Errorf("load config: %w", err)
 			}
 			applyConfig(cfg)
 
-			if signalPort == 0 {
+			if !userPort && signalPort == 0 {
 				if signalLetsencryptDomain != "" || (signalCertFile != "" && signalCertKey != "") {
 					signalPort = 443
 				} else {
@@ -321,6 +324,17 @@ func loadTLSConfig(certFile string, certKey string) (*tls.Config, error) {
 	}
 
 	return config, nil
+}
+func signalPortConfigured(cmd *cobra.Command) bool {
+	if cmd.Flag("port").Changed {
+		return true
+	}
+	raw, present := os.LookupEnv("NB_PORT")
+	if !present {
+		return false
+	}
+	_, err := strconv.ParseInt(raw, 0, 64)
+	return err == nil
 }
 
 func init() {
