@@ -52,9 +52,8 @@ const (
 )
 
 // ErrNoDiscovery is returned for a catalog entry that declares no listing
-// endpoint. Gateways vary too much to have one, and the caller should fall
-// back to the catalog list plus free-text entry rather than treating this as
-// a failure.
+// endpoint. The caller should fall back to the catalog list plus free-text
+// entry rather than treating this as a failure.
 var ErrNoDiscovery = errors.New("provider has no model-discovery endpoint")
 
 // ErrInvalidRequest marks a discovery failure caused by the caller's own input
@@ -397,6 +396,9 @@ func decorate(entry catalog.Provider, ids []listedModel) []Model {
 	seen := make(map[string]struct{}, len(ids))
 	for _, listed := range ids {
 		if listed.id == "" {
+			continue
+		}
+		if entry.Discovery.ExactModelsOnly && strings.Contains(listed.id, "*") {
 			continue
 		}
 		if _, dup := seen[listed.id]; dup {

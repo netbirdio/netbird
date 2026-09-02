@@ -61,6 +61,13 @@ const openAIListing = `{"object":"list","data":[
   {"id":"gpt-4o","object":"model","created":1715367049,"owned_by":"system"}
 ]}`
 
+const agentgatewayListing = `{"object":"list","data":[
+  {"id":"gpt-4o-mini","object":"model","created":1785166485,"owned_by":"openai"},
+  {"id":"claude-haiku-4-5","object":"model","created":1785166485,"owned_by":"anthropic"},
+  {"id":"openai/*","object":"model","created":1785166485,"owned_by":"openai"},
+  {"id":"*-latest","object":"model","created":1785166485,"owned_by":"openai"}
+]}`
+
 const anthropicListing = `{"data":[
   {"type":"model","id":"claude-haiku-4-5-20251001","display_name":"Claude Haiku 4.5"},
   {"type":"model","id":"claude-sonnet-4-6","display_name":"Claude Sonnet 4.6"}
@@ -96,6 +103,26 @@ func TestFetchOpenAIListing(t *testing.T) {
 	assert.Equal(t, []string{"gpt-4o-mini", "gpt-4o"}, ids(models))
 	for _, m := range models {
 		assert.True(t, m.PricingKnown, "both models are in the shipped catalog: %s", m.ID)
+	}
+}
+
+func TestFetchAgentgatewayListing(t *testing.T) {
+	cl, tr := newStubClient(http.StatusOK, agentgatewayListing)
+
+	models, err := cl.Fetch(context.Background(), Request{
+		CatalogID:   "agentgateway",
+		UpstreamURL: "https://gateway.example.com",
+		APIKey:      "virtual-key",
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, "https://gateway.example.com/v1/models", tr.got.URL.String())
+	assert.Equal(t, "Bearer virtual-key", tr.got.Header.Get("Authorization"),
+		"agentgateway model discovery must use the configured virtual key")
+	assert.Equal(t, []string{"gpt-4o-mini", "claude-haiku-4-5"}, ids(models),
+		"model patterns must not be offered as exact NetBird authorization rows")
+	for _, m := range models {
+		assert.True(t, m.PricingKnown, "known upstream model must use NetBird catalog pricing: %s", m.ID)
 	}
 }
 

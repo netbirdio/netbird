@@ -233,6 +233,24 @@ func conflictString(key, got string) conflictCheck {
 	}
 }
 
+// conflictStringPtr is conflictString for optional proto fields, where an
+// explicit empty value is still a request to change the setting. If p is
+// nil the field is treated as matching (no override requested); otherwise
+// the check returns true only when the policy contains the key and its
+// value equals *p.
+func conflictStringPtr(key string, p *string) conflictCheck {
+	return conflictCheck{
+		key: key,
+		check: func(pol *mdm.Policy) bool {
+			if p == nil {
+				return true
+			}
+			want, ok := pol.GetString(key)
+			return ok && want == *p
+		},
+	}
+}
+
 // conflictInt64 builds a conflictCheck for an integer MDM key. If p is
 // nil the field is treated as matching; otherwise the check returns
 // true only when the policy contains the key and its int value equals *p.
@@ -297,10 +315,13 @@ func mdmManagedFieldConflicts(msg *proto.SetConfigRequest, policy *mdm.Policy) [
 		conflictBool(mdm.KeyRosenpassPermissive, msg.RosenpassPermissive),
 		conflictBool(mdm.KeyDisableAutoConnect, msg.DisableAutoConnect),
 		conflictBool(mdm.KeyAllowServerSSH, msg.ServerSSHAllowed),
+		conflictBool(mdm.KeyRemoteJobsAllowed, msg.RemoteJobsAllowed),
 		conflictBool(mdm.KeyDisableClientRoutes, msg.DisableClientRoutes),
 		conflictBool(mdm.KeyDisableServerRoutes, msg.DisableServerRoutes),
 		conflictBool(mdm.KeyBlockInbound, msg.BlockInbound),
 		conflictInt64(mdm.KeyWireguardPort, msg.WireguardPort),
+		conflictBool(mdm.KeyEnableLocalMetrics, msg.EnableLocalMetrics),
+		conflictStringPtr(mdm.KeyLocalMetricsAddress, msg.LocalMetricsAddress),
 	})
 }
 
@@ -332,6 +353,7 @@ func setConfigRequestHasConfigOverrides(msg *proto.SetConfigRequest) bool {
 		msg.Mtu != nil ||
 		msg.DisableAutoConnect != nil ||
 		msg.ServerSSHAllowed != nil ||
+		msg.RemoteJobsAllowed != nil ||
 		msg.NetworkMonitor != nil ||
 		msg.DisableClientRoutes != nil ||
 		msg.DisableServerRoutes != nil ||
@@ -346,7 +368,9 @@ func setConfigRequestHasConfigOverrides(msg *proto.SetConfigRequest) bool {
 		msg.EnableSSHLocalPortForwarding != nil ||
 		msg.EnableSSHRemotePortForwarding != nil ||
 		msg.DisableSSHAuth != nil ||
-		msg.SshJWTCacheTTL != nil
+		msg.SshJWTCacheTTL != nil ||
+		msg.EnableLocalMetrics != nil ||
+		msg.LocalMetricsAddress != nil
 }
 
 // loginRequestHasConfigOverrides reports whether the LoginRequest
@@ -370,6 +394,7 @@ func loginRequestHasConfigOverrides(msg *proto.LoginRequest) bool {
 		msg.WireguardPort != nil ||
 		msg.DisableAutoConnect != nil ||
 		msg.ServerSSHAllowed != nil ||
+		msg.RemoteJobsAllowed != nil ||
 		msg.RosenpassPermissive != nil ||
 		len(msg.ExtraIFaceBlacklist) > 0 ||
 		msg.NetworkMonitor != nil ||
@@ -381,7 +406,9 @@ func loginRequestHasConfigOverrides(msg *proto.LoginRequest) bool {
 		msg.BlockLanAccess != nil ||
 		msg.DisableNotifications != nil ||
 		len(msg.DnsLabels) > 0 || msg.CleanDNSLabels ||
-		msg.BlockInbound != nil
+		msg.BlockInbound != nil ||
+		msg.EnableLocalMetrics != nil ||
+		msg.LocalMetricsAddress != nil
 }
 
 // loginRequestMDMConflicts mirrors mdmManagedFieldConflicts but for the
@@ -418,10 +445,13 @@ func loginRequestMDMConflicts(msg *proto.LoginRequest, policy *mdm.Policy) []str
 		conflictBool(mdm.KeyRosenpassPermissive, msg.RosenpassPermissive),
 		conflictBool(mdm.KeyDisableAutoConnect, msg.DisableAutoConnect),
 		conflictBool(mdm.KeyAllowServerSSH, msg.ServerSSHAllowed),
+		conflictBool(mdm.KeyRemoteJobsAllowed, msg.RemoteJobsAllowed),
 		conflictBool(mdm.KeyDisableClientRoutes, msg.DisableClientRoutes),
 		conflictBool(mdm.KeyDisableServerRoutes, msg.DisableServerRoutes),
 		conflictBool(mdm.KeyBlockInbound, msg.BlockInbound),
 		conflictInt64(mdm.KeyWireguardPort, msg.WireguardPort),
+		conflictBool(mdm.KeyEnableLocalMetrics, msg.EnableLocalMetrics),
+		conflictStringPtr(mdm.KeyLocalMetricsAddress, msg.LocalMetricsAddress),
 	})
 }
 

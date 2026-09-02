@@ -137,6 +137,7 @@ type EngineConfig struct {
 	RosenpassPermissive bool
 
 	ServerSSHAllowed              bool
+	RemoteJobsAllowed             bool
 	EnableSSHRoot                 *bool
 	EnableSSHSFTP                 *bool
 	EnableSSHLocalPortForwarding  *bool
@@ -1259,6 +1260,7 @@ func (e *Engine) applyInfoFlags(info *system.Info) {
 		e.config.EnableSSHLocalPortForwarding,
 		e.config.EnableSSHRemotePortForwarding,
 		e.config.DisableSSHAuth,
+		&e.config.RemoteJobsAllowed,
 	)
 }
 
@@ -1344,6 +1346,13 @@ func (e *Engine) receiveJobEvents() {
 				ID:     msg.ID,
 				Status: mgmProto.JobStatus_failed,
 			}
+			// Remote jobs are an explicit opt-in. When not enabled on this
+			// peer, every job is refused before any work is done.
+			if !e.config.RemoteJobsAllowed {
+				log.Warnf("refusing remote job: remote jobs are not enabled on this peer (enable with --allow-remote-jobs)")
+				resp.Reason = []byte("remote jobs are not enabled on this peer")
+				return &resp
+			}
 			switch params := msg.WorkloadParameters.(type) {
 			case *mgmProto.JobRequest_Bundle:
 				bundleResult, err := e.handleBundle(params.Bundle)
@@ -1373,7 +1382,25 @@ func (e *Engine) receiveJobEvents() {
 }
 
 func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobResponse_Bundle, error) {
-	log.Infof("handle remote debug bundle request: %s", params.String())
+	// The upload URL can carry a host, credentials, or query tokens, so it is
+	// kept out of the info-level line; the full parameters stay available at
+	// debug level for troubleshooting.
+	log.Infof("handle remote debug bundle request: anonymize=%v anonymize_level=%q log_file_count=%d bundle_for=%v bundle_for_time=%d",
+		params.GetAnonymize(), params.GetAnonymizeLevel(), params.GetLogFileCount(), params.GetBundleFor(), params.GetBundleForTime())
+	log.Debugf("remote debug bundle request parameters: %s", params.String())
+
+	// Resolve the upload destination: an MDM override, when set, takes
+	// precedence over the management-supplied URL. Both are validated the same
+	// way; an empty result falls back to the default upload server downstream.
+	uploadURL := params.GetUploadUrl()
+	if override := e.config.ProfileConfig.DebugBundleUploadURL; override != "" {
+		log.Infof("using MDM debug bundle upload URL override instead of the management-supplied value")
+		uploadURL = override
+	}
+	if err := validateBundleUploadURL(uploadURL); err != nil {
+		return nil, err
+	}
+
 	syncResponse, err := e.GetLatestSyncResponse()
 	if err != nil {
 		log.Warnf("get latest sync response: %v", err)
@@ -1401,7 +1428,7 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobR
 
 	waitFor := time.Duration(params.BundleForTime) * time.Minute
 
-	uploadKey, err := e.jobExecutor.BundleJob(e.ctx, bundleDeps, bundleJobParams, waitFor, e.config.ProfileConfig.ManagementURL.String())
+	uploadKey, err := e.jobExecutor.BundleJob(e.ctx, bundleDeps, bundleJobParams, waitFor, e.config.ProfileConfig.ManagementURL.String(), uploadURL)
 	if err != nil {
 		return nil, err
 	}
@@ -1412,6 +1439,16 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobR
 		},
 	}
 	return response, nil
+}
+
+// validateBundleUploadURL sanity-checks a management-supplied upload URL for a
+// remote debug bundle job. It delegates to profilemanager.ValidateBundleUploadURL
+// so the executor and the MDM policy override share one definition of the rule
+// (empty accepted; otherwise a well-formed https URL with a host) and cannot
+// drift. The host is deliberately left unconstrained pending a decision on
+// management-directed uploads.
+func validateBundleUploadURL(raw string) error {
+	return profilemanager.ValidateBundleUploadURL(raw)
 }
 
 // receiveManagementEvents connects to the Management Service event stream to receive updates from the management service
