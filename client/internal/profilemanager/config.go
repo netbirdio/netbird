@@ -306,16 +306,29 @@ func newConfigSkeleton() *Config {
 	}
 }
 
-// createNewConfig creates a new config in memory, generating the keys that
-// identify the peer. Writing it out is the caller's job.
+// createNewConfig resolves a new config in memory, with no identity: whoever
+// needs the peer's keys calls EnsureIdentity and persists the result, so a read
+// that lands on a missing file cannot hand back a config carrying keys that
+// nothing will ever write down.
 func createNewConfig(input ConfigInput) (*Config, error) {
 	config := newConfigSkeleton()
 
-	if _, err := config.EnsureIdentity(); err != nil {
+	if _, err := config.apply(input); err != nil {
 		return nil, err
 	}
 
-	if _, err := config.apply(input); err != nil {
+	return config, nil
+}
+
+// createProvisionedConfig is createNewConfig plus the peer's identity, for the
+// callers that go on to persist the config or to connect with it.
+func createProvisionedConfig(input ConfigInput) (*Config, error) {
+	config, err := createNewConfig(input)
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := config.EnsureIdentity(); err != nil {
 		return nil, err
 	}
 
@@ -1084,7 +1097,7 @@ func UpdateOrCreateConfig(input ConfigInput) (*Config, error) {
 	}
 	if !configExists {
 		log.Infof("generating new config %s", input.ConfigPath)
-		cfg, err := createNewConfig(input)
+		cfg, err := createProvisionedConfig(input)
 		if err != nil {
 			return nil, err
 		}
@@ -1215,9 +1228,10 @@ func UpdateOldManagementURL(ctx context.Context, config *Config, configPath stri
 	return newConfig, nil
 }
 
-// CreateInMemoryConfig generate a new config but do not write out it to the store
+// CreateInMemoryConfig generate a new config but do not write out it to the store.
+// It carries an identity: callers connect with what they get back.
 func CreateInMemoryConfig(input ConfigInput) (*Config, error) {
-	return createNewConfig(input)
+	return createProvisionedConfig(input)
 }
 
 // ReadOrGenerateConfig reads the profile config at configPath if it exists, or
@@ -1282,7 +1296,7 @@ func DirectUpdateOrCreateConfig(input ConfigInput) (*Config, error) {
 	}
 	if !configExists {
 		log.Infof("generating new config %s", input.ConfigPath)
-		cfg, err := createNewConfig(input)
+		cfg, err := createProvisionedConfig(input)
 		if err != nil {
 			return nil, err
 		}

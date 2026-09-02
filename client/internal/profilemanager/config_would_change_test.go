@@ -302,3 +302,30 @@ func TestWouldChangeIgnoresRestatedCertificatePaths(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, changed, "a different certificate path is a change")
 }
+
+// A read that lands on a missing file must not hand back keys: nothing would
+// write them down, so the caller would connect with an identity that changes on
+// the next run and registers a second peer.
+func TestReadOrGenerateConfigCarriesNoIdentity(t *testing.T) {
+	cfg, err := ReadOrGenerateConfig(filepath.Join(t.TempDir(), "absent.json"))
+	require.NoError(t, err)
+
+	require.Empty(t, cfg.PrivateKey, "a read minted a WireGuard key")
+	require.Empty(t, cfg.SSHKey, "a read minted an SSH key")
+
+	// So the caller's own EnsureIdentity is the one that reports the work, and
+	// therefore the one that triggers the write.
+	generated, err := cfg.EnsureIdentity()
+	require.NoError(t, err)
+	require.True(t, generated, "the provisioning caller could not tell it had to persist the identity")
+}
+
+// CreateInMemoryConfig is the opposite contract: its callers connect with what
+// they get back, so it does carry an identity.
+func TestCreateInMemoryConfigCarriesAnIdentity(t *testing.T) {
+	cfg, err := CreateInMemoryConfig(ConfigInput{ManagementURL: "https://api.netbird.io:443"})
+	require.NoError(t, err)
+
+	require.NotEmpty(t, cfg.PrivateKey)
+	require.NotEmpty(t, cfg.SSHKey)
+}
