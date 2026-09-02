@@ -36,7 +36,7 @@ ColorScheme=BreezeDark
 // plasmaStyle installs a Plasma style of that name under XDG_DATA_HOME. An
 // empty colours body installs the style without a colours file, which is what
 // the stock "default" style looks like.
-func plasmaStyle(t *testing.T, name, colours string) {
+func plasmaStyle(t *testing.T, name, colours string) string {
 	t.Helper()
 	data := t.TempDir()
 	dir := filepath.Join(data, "plasma", "desktoptheme", name)
@@ -51,6 +51,7 @@ func plasmaStyle(t *testing.T, name, colours string) {
 	t.Setenv("XDG_DATA_HOME", data)
 	// Keep the system dirs out of it so an installed breeze-dark cannot answer.
 	t.Setenv("XDG_DATA_DIRS", filepath.Join(data, "empty"))
+	return data
 }
 
 // kdeConfig points the KDE readers at a temp dir holding the given files, and
@@ -241,18 +242,6 @@ func TestPlasmaStyleIsDarkInconclusive(t *testing.T) {
 			t.Fatal("expected not-ok when the style is not installed")
 		}
 	})
-	// The name indexes a directory and comes from a config file. "." and ".."
-	// and "/" pass through filepath.Base(filepath.Clean(name)) unchanged, so
-	// they need rejecting by name.
-	for _, bad := range []string{"../../../../etc", "..", ".", "/", "//", "/etc", "a/b"} {
-		t.Run("rejects "+bad, func(t *testing.T) {
-			kdeConfig(t, kdeglobalsLight, "[Theme]\nname="+bad+"\n")
-			plasmaStyle(t, "unused", kdeglobalsDark)
-			if _, ok := plasmaStyleIsDark(); ok {
-				t.Fatalf("expected not-ok for style name %q", bad)
-			}
-		})
-	}
 	// ... but a leading dot in an ordinary name is fine.
 	for _, good := range []string{".hidden", "..."} {
 		t.Run("accepts "+good, func(t *testing.T) {
@@ -263,6 +252,58 @@ func TestPlasmaStyleIsDarkInconclusive(t *testing.T) {
 				t.Fatalf("plasmaStyleIsDark() = (%v, %v) for %q, want (true, true)", dark, ok, good)
 			}
 		})
+	}
+}
+
+// A traversing name must be rejected outright, not merely fail to find a file.
+// Each case plants colours at exactly the path the unguarded lookup would read,
+// so removing the name check makes plasmaStyleIsDark answer from the planted
+// file and these fail. Without the planted file the test would pass either way.
+func TestPlasmaStyleIsDarkRejectsPlantedEscape(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		// where filepath.Join(data, "plasma", "desktoptheme", name) lands
+		escaped []string
+	}{
+		{"..", []string{"plasma"}},
+		{".", []string{"plasma", "desktoptheme"}},
+		{"/", []string{"plasma", "desktoptheme"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			kdeConfig(t, kdeglobalsLight, "[Theme]\nname="+tc.name+"\n")
+			data := plasmaStyle(t, "unused", kdeglobalsLight)
+
+			target := filepath.Join(append([]string{data}, tc.escaped...)...)
+			// Guard the fixture itself: if Join ever stops landing here the
+			// test would go quietly vacuous again.
+			want := filepath.Clean(filepath.Join(data, "plasma", "desktoptheme", tc.name))
+			if target != want {
+				t.Fatalf("fixture targets %q but the lookup resolves %q", target, want)
+			}
+			if err := os.WriteFile(filepath.Join(target, "colors"), []byte(kdeglobalsDark), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			if dark, ok := plasmaStyleIsDark(); ok {
+				t.Fatalf("plasmaStyleIsDark() = (%v, true) for %q: the name must be rejected, "+
+					"not resolved against %s", dark, tc.name, target)
+			}
+		})
+	}
+}
+
+// The rejection condition on its own, so every case is checked whether or not a
+// file happens to exist at the path it would resolve to.
+func TestIsBareStyleName(t *testing.T) {
+	for _, bad := range []string{"", ".", "..", "/", "//", "/etc", "../../../../etc", "a/b", "a/", "./x", "../x"} {
+		if isBareStyleName(bad) {
+			t.Errorf("isBareStyleName(%q) = true, want false", bad)
+		}
+	}
+	for _, good := range []string{"breeze-dark", "default", ".hidden", "...", "Breeze Dark", "a.b"} {
+		if !isBareStyleName(good) {
+			t.Errorf("isBareStyleName(%q) = false, want true", good)
+		}
 	}
 }
 
