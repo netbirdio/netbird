@@ -130,6 +130,8 @@ func (i *Info) SetFlags(
 	if disableSSHAuth != nil {
 		i.DisableSSHAuth = *disableSSHAuth
 	}
+
+	applySpoofFlags(i)
 }
 
 // removeAddresses drops network addresses whose IP matches any of the given
