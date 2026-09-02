@@ -55,6 +55,8 @@ const (
 	SourceEphemeral = "ephemeral"
 )
 
+var ErrUnsupportedIpAddressUpstreamHost = errors.New("unsupported ip address for a direct upstream host")
+
 type TargetOptions struct {
 	SkipTLSVerify      bool              `json:"skip_tls_verify"`
 	RequestTimeout     time.Duration     `json:"request_timeout,omitempty"`
@@ -1019,6 +1021,14 @@ func validateDirectUpstreamHost(idx int, target *Target) error {
 	if _, _, err := net.SplitHostPort(host); err == nil {
 		return fmt.Errorf("target %d: host %q must not include a port (set target.port instead)", idx, host)
 	}
+	maybeip := net.ParseIP(host)
+	if maybeip == nil { // not an ip address
+		return nil
+	}
+	if maybeip.IsLoopback() || maybeip.IsMulticast() || maybeip.IsLinkLocalUnicast() {
+		return fmt.Errorf("invalid direct upstream host ip %s %w", maybeip.String(), ErrUnsupportedIpAddressUpstreamHost)
+	}
+
 	return nil
 }
 
