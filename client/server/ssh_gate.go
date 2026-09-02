@@ -331,21 +331,5 @@ func sameManagementURL(stored *url.URL, requested string) bool {
 		return false
 	}
 
-	return stored.Scheme == parsed.Scheme &&
-		stored.Hostname() == parsed.Hostname() &&
-		effectivePort(stored) == effectivePort(parsed)
-}
-
-func effectivePort(u *url.URL) string {
-	if port := u.Port(); port != "" {
-		return port
-	}
-	switch u.Scheme {
-	case "https":
-		return "443"
-	case "http":
-		return "80"
-	default:
-		return ""
-	}
+	return profilemanager.SameServiceURL(stored, parsed)
 }

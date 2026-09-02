@@ -133,3 +133,63 @@ func TestPeekConfigDoesNotWriteBack(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, string(denormalized), string(persisted), "GetConfig is the variant that normalizes on disk")
 }
+
+// One endpoint written several ways is one endpoint. A gate that compared
+// spellings refused a client restating its own management URL with a trailing
+// slash, which is a normal way to write it.
+func TestSameServiceURL(t *testing.T) {
+	tests := []struct {
+		a, b string
+		want bool
+	}{
+		{a: "https://mgmt.example.com", b: "https://mgmt.example.com:443", want: true},
+		{a: "https://mgmt.example.com", b: "https://mgmt.example.com/", want: true},
+		{a: "https://mgmt.example.com/", b: "https://mgmt.example.com:443/", want: true},
+		{a: "https://MGMT.example.com", b: "https://mgmt.example.com", want: true},
+		{a: "http://mgmt.example.com", b: "http://mgmt.example.com:80", want: true},
+		{a: "https://mgmt.example.com", b: "http://mgmt.example.com", want: false},
+		{a: "https://mgmt.example.com", b: "https://mgmt.example.com:8443", want: false},
+		{a: "https://mgmt.example.com", b: "https://other.example.com", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.a+" vs "+tt.b, func(t *testing.T) {
+			a, err := ParseServiceURL("a", tt.a)
+			require.NoError(t, err)
+			b, err := ParseServiceURL("b", tt.b)
+			require.NoError(t, err)
+
+			require.Equal(t, tt.want, SameServiceURL(a, b))
+			require.Equal(t, tt.want, SameServiceURL(b, a), "the comparison must be symmetric")
+		})
+	}
+}
+
+// The same spellings, through the dry run the update-settings gate uses.
+func TestWouldChangeIgnoresURLSpelling(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "seeded.json")
+	_, err := UpdateOrCreateConfig(ConfigInput{
+		ConfigPath:    path,
+		ManagementURL: "https://mgmt.example.com",
+	})
+	require.NoError(t, err)
+
+	cfg, err := GetConfig(path)
+	require.NoError(t, err)
+
+	for _, spelling := range []string{
+		"https://mgmt.example.com",
+		"https://mgmt.example.com/",
+		"https://mgmt.example.com:443",
+		"https://mgmt.example.com:443/",
+		"https://MGMT.example.com",
+	} {
+		changed, err := cfg.WouldChange(ConfigInput{ManagementURL: spelling})
+		require.NoError(t, err)
+		require.False(t, changed, "%q is the stored endpoint written differently", spelling)
+	}
+
+	changed, err := cfg.WouldChange(ConfigInput{ManagementURL: "https://mgmt.example.com:8443"})
+	require.NoError(t, err)
+	require.True(t, changed, "a different port is a different endpoint")
+}

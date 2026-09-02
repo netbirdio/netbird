@@ -244,3 +244,27 @@ func TestSetConfig_RefusedRequestLeavesTheConfigFileUntouched(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, string(before), string(after), "the refused request rewrote the profile config")
 }
+
+// The container case that the string comparison still broke: the management URL
+// supplied through the environment is the stored one, written with a trailing
+// slash.
+func TestSetConfig_ManagementURLSpellingsPassTheGate(t *testing.T) {
+	for _, spelling := range []string{
+		"https://api.netbird.io",
+		"https://api.netbird.io/",
+		"https://api.netbird.io:443/",
+		"https://API.netbird.io:443",
+	} {
+		t.Run(spelling, func(t *testing.T) {
+			s, ctx, profName, username, _ := setupServerWithProfile(t)
+			s.updateSettingsDisabled = true
+
+			_, err := s.SetConfig(ctx, &proto.SetConfigRequest{
+				ProfileName:   profName,
+				Username:      username,
+				ManagementUrl: spelling,
+			})
+			require.NoError(t, err, "%q is the stored management URL written differently", spelling)
+		})
+	}
+}

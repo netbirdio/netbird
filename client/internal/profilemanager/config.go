@@ -328,16 +328,17 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 			return false, err
 		}
 	}
-	// The comparison is between parsed URLs, not raw strings: the same
-	// endpoint can be written differently (an implicit :443, say), and
-	// treating an equivalent URL as new would rewrite the config and report a
-	// settings change where the configuration does not actually change.
+	// The comparison is on the endpoint the URL addresses, not on its
+	// spelling: the same endpoint can be written several ways (an implicit
+	// :443, a trailing slash, a different host case), and treating an
+	// equivalent URL as new would rewrite the config and report a settings
+	// change where the configuration does not actually change.
 	if input.ManagementURL != "" {
 		URL, err := parseURL("Management URL", input.ManagementURL)
 		if err != nil {
 			return false, err
 		}
-		if URL.String() != config.ManagementURL.String() {
+		if !SameServiceURL(URL, config.ManagementURL) {
 			log.Infof("new Management URL provided, updated to %#v (old value %#v)",
 				URL.String(), config.ManagementURL.String())
 			config.ManagementURL = URL
@@ -352,13 +353,13 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 			return false, err
 		}
 	}
-	// Same parsed-form comparison as the Management URL above.
+	// Same endpoint comparison as the Management URL above.
 	if input.AdminURL != "" {
 		newURL, err := parseURL("Admin Panel URL", input.AdminURL)
 		if err != nil {
 			return updated, err
 		}
-		if newURL.String() != config.AdminURL.String() {
+		if !SameServiceURL(newURL, config.AdminURL) {
 			log.Infof("new Admin Panel URL provided, updated to %#v (old value %#v)",
 				newURL.String(), config.AdminURL.String())
 			config.AdminURL = newURL
@@ -877,6 +878,43 @@ func mdmDebugBundleUploadURL(policy *mdm.Policy) string {
 // have to reimplement the scheme validation and default-port handling.
 func ParseServiceURL(serviceName, serviceURL string) (*url.URL, error) {
 	return parseURL(serviceName, serviceURL)
+}
+
+// SameServiceURL reports whether two service URLs address the same endpoint:
+// same scheme, same host compared case-insensitively as DNS names are, and
+// same effective port, where an absent port means the scheme's default.
+//
+// This is the one comparison every caller deciding "did this URL change?" must
+// use. A string comparison answers a different question: "https://host",
+// "https://host/" and "https://HOST:443" are one endpoint written three ways,
+// and reading them as three values makes a client that restates its own
+// management URL look like a client asking to be repointed. A nil operand
+// matches only another nil one.
+func SameServiceURL(a, b *url.URL) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+
+	return a.Scheme == b.Scheme &&
+		strings.EqualFold(a.Hostname(), b.Hostname()) &&
+		ServiceURLPort(a) == ServiceURLPort(b)
+}
+
+// ServiceURLPort returns the port a service URL addresses, resolving an absent
+// one to the default of its scheme.
+func ServiceURLPort(u *url.URL) string {
+	if port := u.Port(); port != "" {
+		return port
+	}
+
+	switch u.Scheme {
+	case "https":
+		return "443"
+	case "http":
+		return "80"
+	default:
+		return ""
+	}
 }
 
 func parseURL(serviceName, serviceURL string) (*url.URL, error) {

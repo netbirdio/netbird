@@ -3,13 +3,13 @@ package server
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/client/proto"
 )
@@ -185,24 +185,11 @@ func conflictBool(key string, p *bool) conflictCheck {
 	}
 }
 
-func canonicalURL(s string) string {
-	u, err := url.ParseRequestURI(s)
-	if err != nil {
-		return s
-	}
-	if u.Port() == "" {
-		switch u.Scheme {
-		case "https":
-			u.Host += ":443"
-		case "http":
-			u.Host += ":80"
-		}
-	}
-	return u.String()
-}
-
-// conflictURL is conflictString for URL-typed keys: both sides are
-// normalized via canonicalURL before comparison.
+// conflictURL is conflictString for URL-typed keys: both sides are compared as
+// endpoints (profilemanager.SameServiceURL), so an implicit default port, a
+// trailing slash or a different host case is not read as a divergence from the
+// policy. A value that does not parse as a URL falls back to string equality,
+// which is the strictest thing left to do with it.
 func conflictURL(key, got string) conflictCheck {
 	return conflictCheck{
 		key: key,
@@ -211,7 +198,15 @@ func conflictURL(key, got string) conflictCheck {
 				return true
 			}
 			want, ok := pol.GetString(key)
-			return ok && canonicalURL(want) == canonicalURL(got)
+			if !ok {
+				return false
+			}
+			wantURL, wantErr := profilemanager.ParseServiceURL(key, want)
+			gotURL, gotErr := profilemanager.ParseServiceURL(key, got)
+			if wantErr != nil || gotErr != nil {
+				return want == got
+			}
+			return profilemanager.SameServiceURL(wantURL, gotURL)
 		},
 	}
 }
