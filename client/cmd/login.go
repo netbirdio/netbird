@@ -326,7 +326,7 @@ func doForegroundLogin(ctx context.Context, cmd *cobra.Command, setupKey string,
 
 	}
 
-	config, err := profilemanager.ReadConfig(configFilePath)
+	config, err := profilemanager.ReadOrGenerateConfig(configFilePath)
 	if err != nil {
 		return fmt.Errorf("read config file %s: %v", configFilePath, err)
 	}

@@ -174,7 +174,7 @@ func (pm *ProfileManager) LogoutProfile(id string) error {
 		return fmt.Errorf("profile %q does not exist", id)
 	}
 
-	config, err := profilemanager.ReadConfig(configPath)
+	config, err := profilemanager.ReadOrGenerateConfig(configPath)
 	if err != nil {
 		return fmt.Errorf("read profile config: %w", err)
 	}

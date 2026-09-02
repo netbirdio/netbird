@@ -87,7 +87,7 @@ func TestPersistLoginOverrides(t *testing.T) {
 			})
 			require.NoError(t, err, "persistLoginOverrides")
 
-			cfg, err := profilemanager.ReadConfig(profilemanager.DefaultConfigPath)
+			cfg, err := profilemanager.ReadOrGenerateConfig(profilemanager.DefaultConfigPath)
 			require.NoError(t, err, "read back config")
 
 			require.Equal(t, tt.wantMgmtURL, cfg.ManagementURL.String(), "management URL")

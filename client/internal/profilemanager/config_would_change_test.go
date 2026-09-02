@@ -108,8 +108,8 @@ func TestReadsDoNotWriteTheConfigBack(t *testing.T) {
 	denormalized := []byte(`{"WgIface":"wt0"}`)
 
 	for name, read := range map[string]func(string) (*Config, error){
-		"GetConfig":  GetConfig,
-		"ReadConfig": ReadConfig,
+		"GetExistingConfig":   GetExistingConfig,
+		"ReadOrGenerateConfig": ReadOrGenerateConfig,
 	} {
 		t.Run(name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "profile.json")
@@ -132,7 +132,7 @@ func TestReadsDoNotWriteTheConfigBack(t *testing.T) {
 func TestReadConfigDoesNotCreateTheFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "absent.json")
 
-	cfg, err := ReadConfig(path)
+	cfg, err := ReadOrGenerateConfig(path)
 	require.NoError(t, err)
 	require.Equal(t, DefaultManagementURL, cfg.ManagementURL.String())
 
@@ -198,7 +198,7 @@ func TestWouldChangeIgnoresURLSpelling(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	cfg, err := GetConfig(path)
+	cfg, err := GetExistingConfig(path)
 	require.NoError(t, err)
 
 	for _, spelling := range []string{
@@ -246,7 +246,7 @@ func TestUpdateConfigProvisionsAMissingIdentity(t *testing.T) {
 	require.NoError(t, err)
 
 	// Stand in for the logout, which zeroes the keys and writes the config out.
-	loggedOut, err := GetConfig(path)
+	loggedOut, err := GetExistingConfig(path)
 	require.NoError(t, err)
 	loggedOut.PrivateKey = ""
 	loggedOut.SSHKey = ""
@@ -257,7 +257,7 @@ func TestUpdateConfigProvisionsAMissingIdentity(t *testing.T) {
 	require.NotEmpty(t, cfg.PrivateKey, "the write path did not provision an identity")
 	require.NotEmpty(t, cfg.SSHKey)
 
-	persisted, err := GetConfig(path)
+	persisted, err := GetExistingConfig(path)
 	require.NoError(t, err)
 	require.Equal(t, cfg.PrivateKey, persisted.PrivateKey, "the provisioned identity was not persisted")
 }

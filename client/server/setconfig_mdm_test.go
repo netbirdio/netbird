@@ -205,7 +205,7 @@ func TestSetConfig_MDMReject_AllOrNothing(t *testing.T) {
 
 	// Confirm RosenpassEnabled was NOT applied even though it was not
 	// in the conflict list: the request was rejected as a whole.
-	reloaded, err := profilemanager.GetConfig(cfgPath)
+	reloaded, err := profilemanager.GetExistingConfig(cfgPath)
 	require.NoError(t, err)
 	assert.False(t, reloaded.RosenpassEnabled, "non-conflicting field must not be applied when request is rejected")
 }

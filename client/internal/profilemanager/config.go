@@ -1130,8 +1130,8 @@ func update(input ConfigInput) (*Config, error) {
 	return config, nil
 }
 
-// GetConfig read config file and return with Config and if it was created. Errors out if it does not exist
-func GetConfig(configPath string) (*Config, error) {
+// GetExistingConfig reads and returns the config if it exists on disk. Fails otherwise.
+func GetExistingConfig(configPath string) (*Config, error) {
 	return readConfig(configPath, false)
 }
 
@@ -1219,13 +1219,9 @@ func CreateInMemoryConfig(input ConfigInput) (*Config, error) {
 	return createNewConfig(input)
 }
 
-// ReadConfig reads the profile config at configPath, resolving a default config
-// in memory when the file does not exist.
-//
-// It never writes. A caller that wants what it got back to be on disk calls
-// WriteOutConfig itself, and one that resolved a config for a peer to run with
-// calls EnsureIdentity first — see Server.getConfig for that pair.
-func ReadConfig(configPath string) (*Config, error) {
+// ReadOrGenerateConfig reads the profile config at configPath if it exists, or
+// generates one in memory from the defaults.
+func ReadOrGenerateConfig(configPath string) (*Config, error) {
 	return readConfig(configPath, true)
 }
 

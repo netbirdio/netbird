@@ -1173,7 +1173,7 @@ func (s *Server) storedConfigAtPath(path string) (*profilemanager.Config, error)
 		return nil, fmt.Errorf("stat profile config: %w", err)
 	}
 
-	cfg, err := profilemanager.GetConfig(path)
+	cfg, err := profilemanager.GetExistingConfig(path)
 	if err != nil {
 		return nil, fmt.Errorf("read profile config: %w", err)
 	}
@@ -1472,7 +1472,8 @@ func (s *Server) handleActiveProfileLogout(ctx context.Context) (*proto.LogoutRe
 	return &proto.LogoutResponse{}, nil
 }
 
-// getConfig reads config file and returns Config and whether the config file already existed. Errors out if it does not exist
+// getConfig resolves the active profile's config, provisions its identity and
+// reports whether the config file already existed.
 func (s *Server) getConfig(activeProf *profilemanager.ActiveProfileState) (*profilemanager.Config, bool, error) {
 	cfgPath, err := activeProf.FilePath()
 	if err != nil {
@@ -1484,7 +1485,7 @@ func (s *Server) getConfig(activeProf *profilemanager.ActiveProfileState) (*prof
 
 	log.Infof("active profile config existed: %t, err %v", configExisted, err)
 
-	config, err := profilemanager.ReadConfig(cfgPath)
+	config, err := profilemanager.ReadOrGenerateConfig(cfgPath)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to get config: %w", err)
 	}
@@ -1557,7 +1558,7 @@ func (s *Server) logoutFromProfile(ctx context.Context, profile *profilemanager.
 		cfgPath = profilemanager.DefaultConfigPath
 	}
 
-	config, err := profilemanager.GetConfig(cfgPath)
+	config, err := profilemanager.GetExistingConfig(cfgPath)
 	if err != nil {
 		return fmt.Errorf("profile '%s' not found", profile.ID)
 	}
@@ -2159,7 +2160,7 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 		cfgPath = profilemanager.DefaultConfigPath
 	}
 
-	cfg, err := profilemanager.GetConfig(cfgPath)
+	cfg, err := profilemanager.GetExistingConfig(cfgPath)
 	if err != nil {
 		log.Errorf("failed to get active profile config: %v", err)
 		return nil, fmt.Errorf("failed to get active profile config: %w", err)

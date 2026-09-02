@@ -64,7 +64,7 @@ func TestSetConfig_ChangingASettingIsRefused(t *testing.T) {
 	require.Error(t, err, "moving the management URL is a settings change")
 	require.Equal(t, codes.Unavailable, gstatus.Code(err), "want the update-settings refusal, got %v", err)
 
-	cfg, err := profilemanager.GetConfig(cfgPath)
+	cfg, err := profilemanager.GetExistingConfig(cfgPath)
 	require.NoError(t, err)
 	require.Equal(t, storedManagementURL, cfg.ManagementURL.String(), "the refused request changed the config anyway")
 }
@@ -98,7 +98,7 @@ func TestSetConfig_ChangeAllowedWhenTheSwitchIsOff(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	cfg, err := profilemanager.GetConfig(cfgPath)
+	cfg, err := profilemanager.GetExistingConfig(cfgPath)
 	require.NoError(t, err)
 	require.Equal(t, "https://mgmt.elsewhere.example:443", cfg.ManagementURL.String())
 }
@@ -139,7 +139,7 @@ func seedProfileConfig(t *testing.T, managementURL, preSharedKey string) string 
 // keeps a re-login, or a container restart carrying NB_MANAGEMENT_URL, working
 // with the kill switch on.
 func TestLoginGateDecision(t *testing.T) {
-	stored, err := profilemanager.GetConfig(seedProfileConfig(t, storedManagementURL, "stored-key"))
+	stored, err := profilemanager.GetExistingConfig(seedProfileConfig(t, storedManagementURL, "stored-key"))
 	require.NoError(t, err)
 
 	redacted := preSharedKeyRedactedSentinel
@@ -336,7 +336,7 @@ func TestLogin_ChangeThatAppearsMidRequestIsRefused(t *testing.T) {
 	require.Equal(t, codes.Unavailable, gstatus.Code(err), "want the update-settings refusal, got %v", err)
 	require.False(t, cancelled, "the refused login cancelled the login already in progress")
 
-	stored, err := profilemanager.GetConfig(targetPath)
+	stored, err := profilemanager.GetExistingConfig(targetPath)
 	require.NoError(t, err)
 	require.Equal(t, "https://mgmt.elsewhere.example:443", stored.ManagementURL.String(),
 		"the refused login wrote the management URL it was asked for")

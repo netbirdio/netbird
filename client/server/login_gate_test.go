@@ -93,7 +93,7 @@ func TestLogin_ChangeThatBecomesPrivilegedMidRequestHasNoSideEffects(t *testing.
 	require.NoError(t, err)
 	require.Equal(t, profilemanager.ID(activeProfile), active.ID, "the refused login switched the active profile anyway")
 
-	stored, err := profilemanager.ReadConfig(targetPath)
+	stored, err := profilemanager.ReadOrGenerateConfig(targetPath)
 	require.NoError(t, err)
 	require.Equal(t, "https://api.netbird.io:443", stored.ManagementURL.String(), "the refused login moved the management URL")
 }
