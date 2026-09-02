@@ -1,8 +1,10 @@
 package autonoma
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -183,13 +185,28 @@ func TestEveryFactoryCanTearItsRowsDown(t *testing.T) {
 // The signature covers the body, so the bytes have to be in memory before the
 // request can be rejected. That makes the read itself reachable without
 // authentication, and it has to be bounded.
+//
+// This one goes through a real server rather than a recorder on purpose:
+// http.MaxBytesReader only trips its limit when the ResponseWriter implements
+// the interface net/http's own writer does, so a recorder would pass without
+// exercising the path at all. The captured error log also proves the handler's
+// own 413 is the only one written - the stdlib flags the connection but does
+// not answer for us.
 func TestAnOversizedBodyIsRejectedBeforeItIsRead(t *testing.T) {
-	router := mountedRouter(t, "shared-secret", "signing-secret")
+	var serverLog bytes.Buffer
+	srv := httptest.NewUnstartedServer(mountedRouter(t, "shared-secret", "signing-secret"))
+	srv.Config.ErrorLog = log.New(&serverLog, "", 0)
+	srv.Start()
+	defer srv.Close()
 
 	oversized := strings.Repeat("a", maxBodyBytes+1)
-	rec := post(router, oversized, sdk.SignBody(oversized, "shared-secret"))
+	resp, err := http.Post(srv.URL+"/api"+EndpointPath, "application/json", strings.NewReader(oversized))
+	require.NoError(t, err)
+	defer resp.Body.Close()
 
-	require.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
+	require.Equal(t, http.StatusRequestEntityTooLarge, resp.StatusCode)
+	require.Equal(t, "application/json", resp.Header.Get("Content-Type"))
+	require.NotContains(t, serverLog.String(), "superfluous")
 }
 
 // A caller holding the shared secret must not be able to name an account it did

@@ -37,10 +37,10 @@
 #                                   boot encrypted.
 #   NB_PREVIEW_COOKIE_ENCRYPTION_KEY base64 32-byte key for Dex session cookies.
 #
-# The owner credentials and the two encryption keys have fixed defaults on
-# purpose, so an automated suite can log in without being told a secret. They
-# belong to throwaway preview environments only - never point them at anything a
-# real user or real data can reach.
+# The two encryption keys have fixed defaults on purpose, so a redeploy can
+# still read what the previous boot wrote. They belong to throwaway preview
+# environments only - never point them at anything a real user or real data can
+# reach. The owner credentials have no default at all.
 #
 set -euo pipefail
 
@@ -96,6 +96,10 @@ esac
 # unset is the normal case. Supply the pair to get a bootstrap admin.
 OWNER_EMAIL="${NB_PREVIEW_OWNER_EMAIL:-}"
 OWNER_PASSWORD_HASH="${NB_PREVIEW_OWNER_PASSWORD_HASH:-}"
+if [[ -n "${OWNER_EMAIL}${OWNER_PASSWORD_HASH}" && ( -z "${OWNER_EMAIL}" || -z "${OWNER_PASSWORD_HASH}" ) ]]; then
+  echo "netbird-preview: NB_PREVIEW_OWNER_EMAIL and NB_PREVIEW_OWNER_PASSWORD_HASH must be set together" >&2
+  exit 1
+fi
 
 AUTH_SECRET="${NB_PREVIEW_AUTH_SECRET:-netbird-preview-relay-secret}"
 # Fixed so a redeploy can still read data the previous boot encrypted.

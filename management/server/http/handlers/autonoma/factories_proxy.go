@@ -196,8 +196,10 @@ func (f *factories) serviceFactory() sdk.FactoryDefinition {
 			targets := make([]*service.Target, 0, len(in.Targets))
 			for _, target := range in.Targets {
 				// Narrowing an out-of-range int wraps silently: -1 would be
-				// stored as 65535.
-				if target.Port < 1 || target.Port > 65535 {
+				// stored as 65535. Zero is left alone - an HTTP service reads
+				// it as "the protocol's default port", the same way the REST
+				// API lets a target omit one.
+				if target.Port < 0 || target.Port > 65535 {
 					return nil, fmt.Errorf("service %q has a target port out of range: %d", in.Name, target.Port)
 				}
 				t := &service.Target{
