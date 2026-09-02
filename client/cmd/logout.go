@@ -3,11 +3,11 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os/user"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
 )
 
@@ -37,7 +37,7 @@ var logoutCmd = &cobra.Command{
 		if profileName != "" {
 			req.ProfileName = &profileName
 
-			currUser, err := user.Current()
+			currUser, err := profilemanager.InvokingUser()
 			if err != nil {
 				return fmt.Errorf("get current user: %v", err)
 			}

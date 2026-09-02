@@ -315,6 +315,7 @@ func mdmManagedFieldConflicts(msg *proto.SetConfigRequest, policy *mdm.Policy) [
 		conflictBool(mdm.KeyRosenpassPermissive, msg.RosenpassPermissive),
 		conflictBool(mdm.KeyDisableAutoConnect, msg.DisableAutoConnect),
 		conflictBool(mdm.KeyAllowServerSSH, msg.ServerSSHAllowed),
+		conflictBool(mdm.KeyRemoteJobsAllowed, msg.RemoteJobsAllowed),
 		conflictBool(mdm.KeyAllowServerVNC, msg.ServerVNCAllowed),
 		conflictBool(mdm.KeyDisableVNCApproval, msg.DisableVNCApproval),
 		conflictBool(mdm.KeyDisableClientRoutes, msg.DisableClientRoutes),
@@ -354,6 +355,7 @@ func setConfigRequestHasConfigOverrides(msg *proto.SetConfigRequest) bool {
 		msg.Mtu != nil ||
 		msg.DisableAutoConnect != nil ||
 		msg.ServerSSHAllowed != nil ||
+		msg.RemoteJobsAllowed != nil ||
 		msg.ServerVNCAllowed != nil ||
 		msg.DisableVNCApproval != nil ||
 		msg.NetworkMonitor != nil ||
@@ -396,6 +398,7 @@ func loginRequestHasConfigOverrides(msg *proto.LoginRequest) bool {
 		msg.WireguardPort != nil ||
 		msg.DisableAutoConnect != nil ||
 		msg.ServerSSHAllowed != nil ||
+		msg.RemoteJobsAllowed != nil ||
 		msg.ServerVNCAllowed != nil ||
 		msg.DisableVNCApproval != nil ||
 		msg.RosenpassPermissive != nil ||
@@ -448,6 +451,7 @@ func loginRequestMDMConflicts(msg *proto.LoginRequest, policy *mdm.Policy) []str
 		conflictBool(mdm.KeyRosenpassPermissive, msg.RosenpassPermissive),
 		conflictBool(mdm.KeyDisableAutoConnect, msg.DisableAutoConnect),
 		conflictBool(mdm.KeyAllowServerSSH, msg.ServerSSHAllowed),
+		conflictBool(mdm.KeyRemoteJobsAllowed, msg.RemoteJobsAllowed),
 		conflictBool(mdm.KeyAllowServerVNC, msg.ServerVNCAllowed),
 		conflictBool(mdm.KeyDisableVNCApproval, msg.DisableVNCApproval),
 		conflictBool(mdm.KeyDisableClientRoutes, msg.DisableClientRoutes),

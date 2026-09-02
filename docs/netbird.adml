@@ -43,6 +43,12 @@
       <string id="DisableVNCApproval_Name">Disable VNC connection approval</string>
       <string id="DisableVNCApproval_Help">When enabled, incoming VNC sessions are accepted without prompting the local user for approval.</string>
 
+      <string id="AllowRemoteJobs_Name">Allow remote jobs</string>
+      <string id="AllowRemoteJobs_Help">When enabled, this client accepts management-requested remote jobs (e.g. debug bundles). Off by default. Equivalent to --allow-remote-jobs.</string>
+
+      <string id="DebugBundleUploadURL_Name">Debug bundle upload URL</string>
+      <string id="DebugBundleUploadURL_Help">Overrides the upload service used for debug bundles produced by remote jobs, taking precedence over the value requested by management. Must be an https URL with a host.</string>
+
       <string id="RosenpassEnabled_Name">Enable Rosenpass</string>
       <string id="RosenpassEnabled_Help">Enables Rosenpass post-quantum key exchange on WireGuard tunnels. Both peers must support it.</string>
 
@@ -80,6 +86,12 @@
         <textBox refId="ManagementURL_Text">
           <label>Management URL:</label>
           <defaultValue>https://api.netbird.io:443</defaultValue>
+        </textBox>
+      </presentation>
+
+      <presentation id="DebugBundleUploadURL_Pres">
+        <textBox refId="DebugBundleUploadURL_Text">
+          <label>Debug bundle upload URL:</label>
         </textBox>
       </presentation>
 

@@ -304,6 +304,7 @@ func ConvertToNmdataPeers(peers []Peer) ([]nmdata.Peer, map[string][]*nmdata.Pee
 		}
 		dp.ProxyMeta.Cluster = p.ProxyMetaCluster.String
 		// This is only used to build private service candidates, not connected peers are skipped
+		dp.Connected = p.PeerStatusConnected.Bool
 		if dp.ProxyMeta.Embedded && p.PeerStatusConnected.Bool {
 			clusterToPeerIdx[p.ProxyMetaCluster.String] = append(clusterToPeerIdx[p.ProxyMetaCluster.String], &dp)
 		}
@@ -480,4 +481,17 @@ func decodePolicyRuleColumns(p Policy, pr func() *nmdata.PolicyRule, resourceIdx
 		resourceIdx[p.ID][pr().DestinationResource.ID] = struct{}{}
 	}
 	return nil
+}
+
+// TwinProxyDomains converts registered reverse-proxy domain rows to their slim
+// twins, so private-service zone apex resolution runs on the twin.
+func TwinProxyDomains(domains []Domain) []nmdata.ProxyDomain {
+	if len(domains) == 0 {
+		return nil
+	}
+	out := make([]nmdata.ProxyDomain, 0, len(domains))
+	for _, d := range domains {
+		out = append(out, nmdata.ProxyDomain{Domain: d.Domain.String, TargetCluster: d.TargetCluster.String})
+	}
+	return out
 }

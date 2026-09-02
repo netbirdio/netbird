@@ -2,6 +2,8 @@ package middleware
 
 import "strings"
 
+const trustedIdentityMiddlewareID = "llm_identity_inject"
+
 var denyHeaders = []string{
 	"Authorization",
 	"Connection",
@@ -78,22 +80,34 @@ func isHeaderFieldName(name string) bool {
 // header names so the dispatcher can increment the blocked-header
 // metric.
 func FilterHeaderMutations(m *Mutations) (filteredAdd []KV, filteredRemove []string, blocked []string) {
+	return filterHeaderMutations(m, "")
+}
+
+func filterHeaderMutations(m *Mutations, middlewareID string) (filteredAdd []KV, filteredRemove []string, blocked []string) {
 	if m == nil {
 		return nil, nil, nil
 	}
 	for _, kv := range m.HeadersAdd {
-		if IsHeaderMutable(kv.Key) {
+		if IsHeaderMutable(kv.Key) || isTrustedIdentityHeader(middlewareID, kv.Key) {
 			filteredAdd = append(filteredAdd, kv)
 			continue
 		}
 		blocked = append(blocked, kv.Key)
 	}
 	for _, name := range m.HeadersRemove {
-		if IsHeaderMutable(name) {
+		if IsHeaderMutable(name) || isTrustedIdentityHeader(middlewareID, name) {
 			filteredRemove = append(filteredRemove, name)
 			continue
 		}
 		blocked = append(blocked, name)
 	}
 	return filteredAdd, filteredRemove, blocked
+}
+
+func isTrustedIdentityHeader(middlewareID, name string) bool {
+	if middlewareID != trustedIdentityMiddlewareID {
+		return false
+	}
+	return strings.EqualFold(name, "x-netbird-user-id") ||
+		strings.EqualFold(name, "x-netbird-groups")
 }

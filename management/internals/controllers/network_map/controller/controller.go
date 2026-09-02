@@ -511,6 +511,7 @@ func (c *Controller) fetchNetworkMapData(ctx context.Context, accountID string) 
 	}
 
 	nmData.Services = c.proxyServicesFromRepo(ctx, accountID)
+	nmData.BuildPrivateServiceCandidates()
 	nmData.InjectProxyPolicies()
 	nmData.PrecomputePostureValidation()
 

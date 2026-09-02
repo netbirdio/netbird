@@ -253,10 +253,13 @@ message LoginRequest {
 
   optional bool enable_local_metrics = 41;
   optional string local_metrics_address = 42;
+  // remoteJobsAllowed opts the peer into management-requested remote jobs
+  // (e.g. debug bundles). Absent leaves the stored value unchanged.
+  optional bool remoteJobsAllowed = 43;
 
-  optional bool serverVNCAllowed = 43;
+  optional bool serverVNCAllowed = 44;
 
-  optional bool disableVNCApproval = 44;
+  optional bool disableVNCApproval = 45;
 }
 
 message LoginResponse {
@@ -377,9 +380,11 @@ message GetConfigResponse {
 
   bool disable_ipv6 = 27;
 
-  bool serverVNCAllowed = 29;
+  bool remoteJobsAllowed = 29;
 
-  bool disableVNCApproval = 30;
+  bool serverVNCAllowed = 30;
+
+  bool disableVNCApproval = 31;
 
   // mDMManagedFields lists the names of configuration keys whose value is
   // currently enforced by an MDM policy. Names match mdm.Key* constants
@@ -809,10 +814,13 @@ message SetConfigRequest {
 
   optional bool enable_local_metrics = 36;
   optional string local_metrics_address = 37;
+  // remoteJobsAllowed opts the peer into management-requested remote jobs
+  // (e.g. debug bundles). Absent leaves the stored value unchanged.
+  optional bool remoteJobsAllowed = 38;
 
-  optional bool serverVNCAllowed = 38;
+  optional bool serverVNCAllowed = 39;
 
-  optional bool disableVNCApproval = 39;
+  optional bool disableVNCApproval = 40;
 }
 
 message SetConfigResponse{}

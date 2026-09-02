@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/user"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
@@ -53,7 +52,7 @@ var loginCmd = &cobra.Command{
 			// nolint
 			ctx = context.WithValue(ctx, system.DeviceNameCtxKey, hostName)
 		}
-		username, err := user.Current()
+		username, err := profilemanager.InvokingUser()
 		if err != nil {
 			return fmt.Errorf("get current user: %v", err)
 		}
@@ -74,7 +73,7 @@ var loginCmd = &cobra.Command{
 			if providedSetupKey != "" {
 				return fmt.Errorf("--extend cannot be combined with a setup key; setup keys can only enrol new peers")
 			}
-			if err := doExtendSession(ctx, cmd); err != nil {
+			if err := doExtendSession(ctx, cmd, activeProf); err != nil {
 				return fmt.Errorf("extend session failed: %v", err)
 			}
 			return nil
@@ -92,7 +91,7 @@ var loginCmd = &cobra.Command{
 			return fmt.Errorf("daemon login failed: %v", err)
 		}
 
-		cmd.Println("Logging successfully")
+		cmd.Println("Login successful")
 
 		return nil
 	},
@@ -176,7 +175,7 @@ func doDaemonLogin(ctx context.Context, cmd *cobra.Command, providedSetupKey str
 // (browser + verification URL) and the resulting JWT is forwarded to the
 // management server's ExtendAuthSession RPC. The tunnel stays up
 // throughout — no Down/Up, no network-map resync.
-func doExtendSession(ctx context.Context, cmd *cobra.Command) error {
+func doExtendSession(ctx context.Context, cmd *cobra.Command, activeProf *profilemanager.Profile) error {
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
 		//nolint
@@ -190,14 +189,12 @@ func doExtendSession(ctx context.Context, cmd *cobra.Command) error {
 
 	// the CLI runs in the user's session, the daemon does not: tell it what we can see
 	req := &proto.RequestExtendAuthSessionRequest{HasGraphicalSession: util.HasGraphicalSession()}
-	// Pre-fill the IdP login hint from the active profile so the user
+	// Pre-fill the IdP login hint from the resolved profile so the user
 	// doesn't have to retype their email. Best-effort: we still proceed
 	// without a hint if the lookup fails.
 	pm := profilemanager.NewProfileManager()
-	if active, perr := pm.GetActiveProfile(); perr == nil {
-		if profState, sperr := pm.GetProfileState(active.ID); sperr == nil && profState.Email != "" {
-			req.Hint = &profState.Email
-		}
+	if profState, perr := pm.GetProfileState(activeProf.ID); perr == nil && profState.Email != "" {
+		req.Hint = &profState.Email
 	}
 
 	startResp, err := client.RequestExtendAuthSession(ctx, req)
@@ -235,9 +232,11 @@ func getActiveProfile(ctx context.Context, pm *profilemanager.ProfileManager, pr
 	// switch profile if provided
 
 	if profileName != "" {
-		if err := switchProfileOnDaemon(ctx, pm, profileName, username); err != nil {
+		prof, err := switchProfileOnDaemon(ctx, pm, profileName, username)
+		if err != nil {
 			return nil, fmt.Errorf("switch profile: %v", err)
 		}
+		return prof, nil
 	}
 
 	activeProf, err := pm.GetActiveProfile()
@@ -251,20 +250,19 @@ func getActiveProfile(ctx context.Context, pm *profilemanager.ProfileManager, pr
 	return activeProf, nil
 }
 
-func switchProfileOnDaemon(ctx context.Context, pm *profilemanager.ProfileManager, handle string, username string) error {
+func switchProfileOnDaemon(ctx context.Context, pm *profilemanager.ProfileManager, handle string, username string) (*profilemanager.Profile, error) {
 	resolvedID, err := switchProfile(ctx, handle, username)
 	if err != nil {
-		return fmt.Errorf("switch profile on daemon: %v", err)
+		return nil, fmt.Errorf("switch profile on daemon: %v", err)
 	}
 
 	if err := pm.SwitchProfile(resolvedID); err != nil {
-		return fmt.Errorf("switch profile: %v", err)
+		return nil, fmt.Errorf("switch profile: %v", err)
 	}
 
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
-		log.Errorf("failed to connect to service CLI interface %v", err)
-		return err
+		return nil, fmt.Errorf("connect to service CLI interface: %w", err)
 	}
 	defer conn.Close()
 
@@ -272,17 +270,17 @@ func switchProfileOnDaemon(ctx context.Context, pm *profilemanager.ProfileManage
 
 	status, err := client.Status(ctx, &proto.StatusRequest{})
 	if err != nil {
-		return fmt.Errorf("unable to get daemon status: %v", err)
+		return nil, fmt.Errorf("unable to get daemon status: %v", err)
 	}
 
 	if status.Status == string(internal.StatusConnected) {
 		if _, err := client.Down(ctx, &proto.DownRequest{}); err != nil {
 			log.Errorf("call service down method: %v", err)
-			return err
+			return nil, err
 		}
 	}
 
-	return nil
+	return &profilemanager.Profile{ID: resolvedID}, nil
 }
 
 // switchProfile asks the daemon to switch to the profile identified by
@@ -345,7 +343,7 @@ func doForegroundLogin(ctx context.Context, cmd *cobra.Command, setupKey string,
 	if err != nil {
 		return fmt.Errorf("foreground login failed: %v", err)
 	}
-	cmd.Println("Logging successfully")
+	cmd.Println("Login successful")
 	return nil
 }
 
