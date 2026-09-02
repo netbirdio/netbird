@@ -61,7 +61,6 @@ import (
 	"github.com/netbirdio/netbird/client/jobexec"
 	"github.com/netbirdio/netbird/client/netevents"
 	cProto "github.com/netbirdio/netbird/client/proto"
-	sshserver "github.com/netbirdio/netbird/client/ssh/server"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/route"
@@ -245,19 +244,13 @@ type Engine struct {
 	networkMonitor *networkmonitor.NetworkMonitor
 
 	sshServer sshServer
-	// sshJWTConfig is what the running SSH server was started with, kept so
-	// restartSSHListeners can rebuild it on the same terms.
-	sshJWTConfig *sshserver.JWTConfig
 
 	statusRecorder *peer.Status
 
-	firewall      firewallManager.Manager
-	routeManager  routemanager.Manager
-	acl           acl.Manager
-	dnsForwardMgr *dnsfwd.Manager
-	// dnsForwardEntries are the domains the running forwarder was started
-	// with, kept so restartDNSForwarder can rebuild it serving the same set.
-	dnsForwardEntries []*dnsfwd.ForwarderEntry
+	firewall          firewallManager.Manager
+	routeManager      routemanager.Manager
+	acl               acl.Manager
+	dnsForwardMgr     *dnsfwd.Manager
 	ingressGatewayMgr *ingressgw.Manager
 
 	dnsServer dns.Server
@@ -2562,8 +2555,9 @@ func (e *Engine) restartDNSForwarder() error {
 	if e.dnsForwardMgr == nil {
 		return nil
 	}
-	// Captured before the stop clears it.
-	entries := e.dnsForwardEntries
+	// Read from the forwarder before it goes away, so the replacement serves
+	// the domains in force now rather than a copy kept somewhere else.
+	entries := e.dnsForwardMgr.Domains()
 	e.stopDNSForwarder()
 	// Both halves log their own failures, so the only thing left to report is
 	// the outcome: a start that failed left the manager nil, and the forwarder
@@ -2609,7 +2603,6 @@ func (e *Engine) startDNSForwarder(fwdEntries []*dnsfwd.ForwarderEntry) {
 		e.dnsForwardMgr = nil
 		return
 	}
-	e.dnsForwardEntries = fwdEntries
 
 	log.Infof("started domain router service with %d entries", len(fwdEntries))
 }
@@ -2624,7 +2617,6 @@ func (e *Engine) stopDNSForwarder() {
 	}
 
 	e.dnsForwardMgr = nil
-	e.dnsForwardEntries = nil
 }
 
 func (e *Engine) GetNet() (*netstack.Net, error) {

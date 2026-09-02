@@ -461,6 +461,27 @@ func (s *Server) UpdateSSHAuth(config *sshauth.Config) {
 	s.authorizer.Update(config)
 }
 
+// JWTConfig returns the JWT authentication this server was built with, or nil
+// when JWT authentication is disabled.
+func (s *Server) JWTConfig() *JWTConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.jwtConfig
+}
+
+// AuthConfig returns the fine-grained authorization currently in force, or nil
+// when the server has no authorizer.
+func (s *Server) AuthConfig() *sshauth.Config {
+	s.mu.RLock()
+	authorizer := s.authorizer
+	s.mu.RUnlock()
+
+	if authorizer == nil {
+		return nil
+	}
+	return authorizer.Config()
+}
+
 // ensureJWTValidator initializes the JWT validator and extractor if not already initialized
 func (s *Server) ensureJWTValidator() error {
 	s.mu.RLock()

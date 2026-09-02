@@ -24,6 +24,8 @@ type sshServer interface {
 	Stop() error
 	GetStatus() (bool, []sshserver.SessionInfo)
 	UpdateSSHAuth(config *sshauth.Config)
+	JWTConfig() *sshserver.JWTConfig
+	AuthConfig() *sshauth.Config
 }
 
 func (e *Engine) setupSSHPortRedirection() error {
@@ -238,13 +240,19 @@ func (e *Engine) restartSSHListeners() error {
 	if e.sshServer == nil {
 		return nil
 	}
-	// Captured before the stop clears it.
-	jwtConfig := e.sshJWTConfig
+	// Read from the server before it goes away. A rebuilt one starts with an
+	// empty authorizer, which fails closed, so without carrying the
+	// authorization over every JWT login is refused until the next network map
+	// happens to bring one.
+	jwtConfig, authConfig := e.sshServer.JWTConfig(), e.sshServer.AuthConfig()
 	if err := e.stopSSHServer(); err != nil {
 		return fmt.Errorf("rebind SSH listeners: %w", err)
 	}
 	if err := e.startSSHServer(jwtConfig); err != nil {
 		return fmt.Errorf("rebind SSH listeners: %w", err)
+	}
+	if authConfig != nil {
+		e.sshServer.UpdateSSHAuth(authConfig)
 	}
 	return nil
 }
@@ -276,7 +284,6 @@ func (e *Engine) startSSHServer(jwtConfig *sshserver.JWTConfig) error {
 	if err := server.Start(e.ctx, listenAddr); err != nil {
 		return fmt.Errorf("start SSH server: %w", err)
 	}
-	e.sshJWTConfig = jwtConfig
 
 	if v6 := wgAddr.IPv6; v6.IsValid() {
 		v6Addr := netip.AddrPortFrom(v6, sshserver.InternalSSHPort)
@@ -383,7 +390,6 @@ func (e *Engine) stopSSHServer() error {
 	log.Info("stopping SSH server")
 	err := e.sshServer.Stop()
 	e.sshServer = nil
-	e.sshJWTConfig = nil
 	if err != nil {
 		return fmt.Errorf("stop: %w", err)
 	}

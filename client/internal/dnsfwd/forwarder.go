@@ -54,12 +54,15 @@ type DNSForwarder struct {
 	ttl            uint32
 	statusRecorder *peer.Status
 
-	dnsServer *dns.Server
-	mux       *dns.ServeMux
-	tcpServer *dns.Server
-	tcpMux    *dns.ServeMux
+	mux    *dns.ServeMux
+	tcpMux *dns.ServeMux
 
-	mutex      sync.RWMutex
+	mutex sync.RWMutex
+	// closed records that Close has run, so a Listen still in flight does not
+	// go on to serve sockets nobody will shut down.
+	closed     bool
+	dnsServer  *dns.Server
+	tcpServer  *dns.Server
 	fwdEntries []*ForwarderEntry
 	firewall   firewaller
 	resolver   resolver
@@ -106,7 +109,7 @@ func (f *DNSForwarder) Listen(entries []*ForwarderEntry) error {
 	mux := dns.NewServeMux()
 	f.mux = mux
 	mux.HandleFunc(".", f.handleDNSQueryUDP)
-	f.dnsServer = &dns.Server{
+	dnsServer := &dns.Server{
 		PacketConn: udpLn,
 		Handler:    mux,
 	}
@@ -114,10 +117,29 @@ func (f *DNSForwarder) Listen(entries []*ForwarderEntry) error {
 	tcpMux := dns.NewServeMux()
 	f.tcpMux = tcpMux
 	tcpMux.HandleFunc(".", f.handleDNSQueryTCP)
-	f.tcpServer = &dns.Server{
+	tcpServer := &dns.Server{
 		Listener: tcpLn,
 		Handler:  tcpMux,
 	}
+
+	// Listen runs on its own goroutine, so a Close can already have happened by
+	// the time it reaches here. Publishing the servers under the lock Close
+	// takes is what lets it find them, and giving up once closed keeps these
+	// sockets from outliving the interface they were bound on.
+	f.mutex.Lock()
+	if f.closed {
+		f.mutex.Unlock()
+		if err := udpLn.Close(); err != nil {
+			log.Debugf("close UDP listener of a closed forwarder: %v", err)
+		}
+		if err := tcpLn.Close(); err != nil {
+			log.Debugf("close TCP listener of a closed forwarder: %v", err)
+		}
+		return nil
+	}
+	f.dnsServer = dnsServer
+	f.tcpServer = tcpServer
+	f.mutex.Unlock()
 
 	f.UpdateDomains(entries)
 
@@ -125,11 +147,11 @@ func (f *DNSForwarder) Listen(entries []*ForwarderEntry) error {
 
 	go func() {
 		log.Infof("DNS UDP listener running on %s", addrDesc)
-		errCh <- f.dnsServer.ActivateAndServe()
+		errCh <- dnsServer.ActivateAndServe()
 	}()
 	go func() {
 		log.Infof("DNS TCP listener running on %s", addrDesc)
-		errCh <- f.tcpServer.ActivateAndServe()
+		errCh <- tcpServer.ActivateAndServe()
 	}()
 
 	return <-errCh
@@ -149,6 +171,15 @@ func (f *DNSForwarder) createTCPListener(netstackNet *netstack.Net) (net.Listene
 	}
 
 	return net.ListenTCP("tcp", net.TCPAddrFromAddrPort(f.listenAddress))
+}
+
+// Domains returns the entries currently being served. The slice is replaced
+// wholesale by UpdateDomains rather than mutated, so the caller may read it but
+// must not write to it.
+func (f *DNSForwarder) Domains() []*ForwarderEntry {
+	f.mutex.RLock()
+	defer f.mutex.RUnlock()
+	return f.fwdEntries
 }
 
 func (f *DNSForwarder) UpdateDomains(entries []*ForwarderEntry) {
@@ -189,15 +220,23 @@ func (f *DNSForwarder) removeStaleCacheEntries(oldEntries, newEntries []*Forward
 }
 
 func (f *DNSForwarder) Close(ctx context.Context) error {
+	// Marked closed under the lock so a Listen that has not published its
+	// servers yet gives up instead of racing this shutdown. The shutdowns
+	// themselves block, so they run outside it.
+	f.mutex.Lock()
+	f.closed = true
+	dnsServer, tcpServer := f.dnsServer, f.tcpServer
+	f.mutex.Unlock()
+
 	var result *multierror.Error
 
-	if f.dnsServer != nil {
-		if err := f.dnsServer.ShutdownContext(ctx); err != nil {
+	if dnsServer != nil {
+		if err := dnsServer.ShutdownContext(ctx); err != nil {
 			result = multierror.Append(result, fmt.Errorf("UDP shutdown: %w", err))
 		}
 	}
-	if f.tcpServer != nil {
-		if err := f.tcpServer.ShutdownContext(ctx); err != nil {
+	if tcpServer != nil {
+		if err := tcpServer.ShutdownContext(ctx); err != nil {
 			result = multierror.Append(result, fmt.Errorf("TCP shutdown: %w", err))
 		}
 	}
