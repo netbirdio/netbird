@@ -154,6 +154,14 @@ components:
           type: boolean
           description: Whether sensitive data should be anonymized in the bundle.
           example: false
+        anonymize_level:
+          type: string
+          description: How much the anonymizer redacts. "default" (or empty) keeps internal IP ranges, "strict" also anonymizes them.
+          example: strict
+        upload_url:
+          type: string
+          description: Service URL the client requests an upload URL from before uploading the bundle. Empty selects the default upload server.
+          example: https://upload.debug.netbird.io
       required:
         - bundle_for
         - bundle_for_time
@@ -974,6 +982,10 @@ components:
           example: false
         server_ssh_allowed:
           description: Indicates whether SSH access this peer is allowed or not
+          type: boolean
+          example: true
+        remote_jobs_allowed:
+          description: Indicates whether the peer has opted into management-requested remote jobs (e.g. debug bundles)
           type: boolean
           example: true
         server_vnc_allowed:
@@ -5820,6 +5832,57 @@ components:
       required:
         - name
         - checks
+    AgentNetworkAgentConfig:
+      type: object
+      description: The caller-scoped Agent Network connection config backing the self-service "Connect your agent" view. Available to every authenticated user; the providers are computed from the caller's own groups and the answer carries display metadata only.
+      properties:
+        configured:
+          type: boolean
+          description: False only when the account has no Agent Network set up. A caller that no policy covers yet still reads as configured, with an empty providers list.
+        endpoint:
+          type: string
+          description: The account's Agent Network base URL, reachable over the NetBird tunnel only. Returned to every member of a configured account - it authorizes nothing on its own, since the gateway still refuses every request no policy permits. Empty when configured is false.
+          example: https://calm-otter.proxy.example.com
+        providers:
+          type: array
+          description: The providers at least one of the caller's policies authorizes, in creation order. Empty when no policy covers the caller.
+          items:
+            $ref: '#/components/schemas/AgentNetworkAgentConfigProvider'
+      required:
+        - configured
+        - endpoint
+        - providers
+    AgentNetworkAgentConfigProvider:
+      type: object
+      description: One provider the caller may use, reduced to what a local tool needs for configuration.
+      properties:
+        name:
+          type: string
+          description: Operator-assigned provider label.
+          example: Bedrock prod
+        catalog_id:
+          type: string
+          description: Catalog entry id naming the provider type.
+          example: bedrock_api
+        api_flavor:
+          type: string
+          description: Request-body shape the provider speaks ("anthropic", "openai"). Empty when the gateway dispatches it by URL path instead.
+          example: anthropic
+        all_models_allowed:
+          type: boolean
+          description: True when no model allowlist restricts this provider for the caller; models then lists the declared or catalog models as a courtesy.
+        models:
+          type: array
+          description: The effective model allowlist for the caller (or the declared/catalog models when all_models_allowed is true).
+          items:
+            type: string
+          example: [ "anthropic.claude-sonnet-4-5" ]
+      required:
+        - name
+        - catalog_id
+        - api_flavor
+        - all_models_allowed
+        - models
     AgentNetworkConsumption:
       type: object
       description: One per-(dimension, window) consumption counter row. The proxy ticks one row per dimension on every served LLM request; the dashboard reads this listing to surface live counter growth.
@@ -13484,7 +13547,7 @@ paths:
   /api/agent-network/access-logs:
     get:
       summary: List Agent Network access logs
-      description: Returns a paginated, server-side-filtered list of agent-network (LLM) access log entries. Available only when the account has log collection enabled; otherwise entries are not retained.
+      description: Returns a paginated, server-side-filtered list of agent-network (LLM) access log entries. Available only when the account has log collection enabled; otherwise entries are not retained. Callers without the account-wide grant are not denied - the response is scoped to their own requests (any user_id or group_id filter is overridden).
       tags: [ Agent Network ]
       security:
         - BearerAuth: [ ]
@@ -13599,7 +13662,7 @@ paths:
   /api/agent-network/access-log-sessions:
     get:
       summary: List Agent Network access logs grouped by session
-      description: Returns a paginated, server-side-filtered list of agent-network (LLM) access logs grouped by session. The page unit is a session (total_records counts sessions); each session carries an aggregate summary and its ordered entries. Requests the client sent no session id for each form their own singleton group. Accepts the same filters as the flat access-logs endpoint. Available only when the account has log collection enabled.
+      description: Returns a paginated, server-side-filtered list of agent-network (LLM) access logs grouped by session. The page unit is a session (total_records counts sessions); each session carries an aggregate summary and its ordered entries. Requests the client sent no session id for each form their own singleton group. Accepts the same filters as the flat access-logs endpoint. Available only when the account has log collection enabled. Callers without the account-wide grant are not denied - the response is scoped to their own requests (any user_id or group_id filter is overridden).
       tags: [ Agent Network ]
       security:
         - BearerAuth: [ ]
@@ -13714,7 +13777,7 @@ paths:
   /api/agent-network/usage/overview:
     get:
       summary: Agent Network usage overview
-      description: Returns agent-network token and cost usage aggregated into time buckets, server-side filtered. Usage is always collected (independent of log collection).
+      description: Returns agent-network token and cost usage aggregated into time buckets, server-side filtered. Usage is always collected (independent of log collection). Callers without the account-wide grant are not denied - the response is scoped to their own usage (any user_id or group_id filter is overridden).
       tags: [ Agent Network ]
       security:
         - BearerAuth: [ ]
@@ -13812,6 +13875,25 @@ paths:
           "$ref": "#/components/responses/requires_authentication"
         '403':
           "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/agent-network/agent-config:
+    get:
+      summary: Retrieve the caller's Agent Network agent config
+      description: Returns everything the caller needs to configure a local AI tool and nothing more - the account's Agent Network endpoint plus the providers and models the caller's own policies allow. Available to every authenticated user regardless of role; the response never contains provider credentials, policy or guardrail configuration, or providers the caller cannot reach.
+      tags: [ Agent Network ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: The caller-scoped Agent Network agent config
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentNetworkAgentConfig'
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
         '500':
           "$ref": "#/components/responses/internal_error"
   /api/agent-network/settings:

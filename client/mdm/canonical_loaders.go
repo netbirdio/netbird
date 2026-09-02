@@ -34,6 +34,8 @@ var allKeys = []string{
 	KeySplitTunnelMode,
 	KeySplitTunnelApps,
 	KeyLazyConnection,
+	KeyRemoteJobsAllowed,
+	KeyBundleUploadURL,
 }
 
 // canonicalKey maps the lowercase form of a managed-config value name to
