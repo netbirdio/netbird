@@ -42,10 +42,10 @@ import (
 	"github.com/netbirdio/netbird/management/server/auth"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	internalStatus "github.com/netbirdio/netbird/shared/management/status"
 )
@@ -676,6 +676,7 @@ func extractPeerMeta(ctx context.Context, meta *proto.PeerSystemMeta) nbpeer.Pee
 			RosenpassEnabled:      meta.GetFlags().GetRosenpassEnabled(),
 			RosenpassPermissive:   meta.GetFlags().GetRosenpassPermissive(),
 			ServerSSHAllowed:      meta.GetFlags().GetServerSSHAllowed(),
+			RemoteJobsAllowed:     meta.GetFlags().GetRemoteJobsAllowed(),
 			DisableClientRoutes:   meta.GetFlags().GetDisableClientRoutes(),
 			DisableServerRoutes:   meta.GetFlags().GetDisableServerRoutes(),
 			DisableDNS:            meta.GetFlags().GetDisableDNS(),
@@ -902,7 +903,7 @@ func (s *Server) ExtendAuthSession(ctx context.Context, req *proto.EncryptedMess
 	}, nil
 }
 
-func (s *Server) prepareLoginResponse(ctx context.Context, peer *nbpeer.Peer, network *types.Network, postureChecks []*posture.Checks, enableSSH bool) (*proto.LoginResponse, error) {
+func (s *Server) prepareLoginResponse(ctx context.Context, peer *nbpeer.Peer, network *types.Network, postureChecks []*nmdata.PostureChecks, enableSSH bool) (*proto.LoginResponse, error) {
 	var relayToken *Token
 	var err error
 	if s.config.Relay != nil && len(s.config.Relay.Addresses) > 0 {
@@ -990,7 +991,7 @@ func (s *Server) IsHealthy(ctx context.Context, req *proto.Empty) (*proto.Empty,
 }
 
 // sendInitialSync sends initial proto.SyncResponse to the peer requesting synchronization
-func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer *nbpeer.Peer, networkMap *types.NetworkMap, postureChecks []*posture.Checks, srv proto.ManagementService_SyncServer, dnsFwdPort int64) error {
+func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer *nbpeer.Peer, networkMap *types.NetworkMap, postureChecks []*nmdata.PostureChecks, srv proto.ManagementService_SyncServer, dnsFwdPort int64) error {
 	var err error
 	var turnToken *Token
 
@@ -1301,7 +1302,7 @@ func (s *Server) Logout(ctx context.Context, req *proto.EncryptedMessage) (*prot
 }
 
 // toProtocolChecks converts posture checks to protocol checks.
-func toProtocolChecks(ctx context.Context, postureChecks []*posture.Checks) []*proto.Checks {
+func toProtocolChecks(ctx context.Context, postureChecks []*nmdata.PostureChecks) []*proto.Checks {
 	protoChecks := make([]*proto.Checks, 0, len(postureChecks))
 	for _, postureCheck := range postureChecks {
 		check := toProtocolCheck(postureCheck)
@@ -1313,8 +1314,8 @@ func toProtocolChecks(ctx context.Context, postureChecks []*posture.Checks) []*p
 	return protoChecks
 }
 
-// toProtocolCheck converts a posture.Checks to a proto.Checks.
-func toProtocolCheck(postureCheck *posture.Checks) *proto.Checks {
+// toProtocolCheck converts posture checks to a proto.Checks.
+func toProtocolCheck(postureCheck *nmdata.PostureChecks) *proto.Checks {
 	protoCheck := &proto.Checks{}
 
 	if check := postureCheck.Checks.ProcessCheck; check != nil {
