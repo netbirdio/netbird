@@ -11,6 +11,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/localmetrics"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/proto"
 )
 
 // These cover the RPC side of the cache: the cache itself is exercised in
@@ -96,11 +97,26 @@ func TestSwitchProfile_ClearsJWTCache(t *testing.T) {
 	s.profileManager = profilemanager.NewServiceManager(defaultConfig)
 	s.localMetrics = localmetrics.NewManager(ctx, s.statusRecorder, nil)
 
+	// A second profile to move to, so the request goes through
+	// switchProfileIfNeeded rather than the no-op path a nil request takes.
+	const target = "second"
+	username := "tester"
+	_, err := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
+		ConfigPath:    filepath.Join(profilemanager.DefaultConfigPathDir, target+".json"),
+		ManagementURL: "https://api.netbird.io:443",
+	})
+	require.NoError(t, err)
+
 	owner := unprivilegedIdentity()
 	s.jwtCache.store("token", owner, testTTL, s.jwtCache.currentGeneration())
 
-	_, err := s.SwitchProfile(ctx, nil)
+	name := target
+	_, err = s.SwitchProfile(ctx, &proto.SwitchProfileRequest{ProfileName: &name, Username: &username})
 	require.NoError(t, err)
+
+	active, err := s.profileManager.GetActiveProfileState()
+	require.NoError(t, err)
+	require.Equal(t, profilemanager.ID(target), active.ID, "the profile must actually have changed")
 
 	_, found := s.jwtCache.get(owner)
 	assert.False(t, found, "switching profile must drop the cached SSH JWT")
@@ -108,8 +124,11 @@ func TestSwitchProfile_ClearsJWTCache(t *testing.T) {
 
 // Down ends the connection, not the session: the peer stays enrolled and the
 // token still belongs to the same NetBird identity, so `down` followed by `up`
-// must not cost the owner a fresh device-code flow. Logout and SwitchProfile
-// clear the cache themselves, and both reach it without cleanupConnection.
+// must not cost the owner a fresh device-code flow.
+//
+// The logout handlers do call cleanupConnection, and SwitchProfile does not;
+// what they have in common is that each clears the cache itself, right after,
+// so tearing the connection down is no longer what decides the token's fate.
 func TestCleanupConnection_KeepsJWTCache(t *testing.T) {
 	s := newTestServer()
 	_, cancel := context.WithCancel(context.Background())
