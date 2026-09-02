@@ -299,6 +299,14 @@ func DialClientGRPCServer(ctx context.Context, addr string) (*grpc.ClientConn, e
 // they each carried their own copy of this list — which is how one of them
 // ended up retrying a refusal the other treated as final.
 func terminalLoginError(err error) bool {
+	// A successful Login reaches here with a nil error, and that is not a
+	// terminal failure. Handled explicitly rather than left to
+	// gstatus.FromError, which answers (nil, true) for a nil error and leans on
+	// Status.Code tolerating a nil receiver to come back as codes.OK.
+	if err == nil {
+		return false
+	}
+
 	s, ok := gstatus.FromError(err)
 	if !ok {
 		return false

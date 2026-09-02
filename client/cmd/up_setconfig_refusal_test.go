@@ -74,6 +74,7 @@ func TestTerminalLoginError(t *testing.T) {
 		{name: "daemon unreachable, worth retrying", err: gstatus.Errorf(codes.Unavailable, "connection refused"), wantTerminal: false},
 		{name: "transient internal failure", err: gstatus.Errorf(codes.Internal, "boom"), wantTerminal: false},
 		{name: "not a status error", err: errors.New("boom"), wantTerminal: false},
+		{name: "no error at all, the login succeeded", err: nil, wantTerminal: false},
 	}
 
 	for _, tt := range tests {
