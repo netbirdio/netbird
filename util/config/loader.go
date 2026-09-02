@@ -34,31 +34,43 @@ package config
 import (
 	"bytes"
 	"encoding"
+	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"reflect"
-	"slices"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
+	"gopkg.in/yaml.v3"
 )
-
-const envPrefix = "NB"
 
 var (
 	textUnmarshalerType = reflect.TypeFor[encoding.TextUnmarshaler]()
 	jsonUnmarshalerType = reflect.TypeFor[json.Unmarshaler]()
 )
 
+// InvalidEnvironmentAction controls how invalid environment values are handled.
+type InvalidEnvironmentAction uint8
+
+const (
+	// InvalidEnvironmentFatal returns the parsing error.
+	InvalidEnvironmentFatal InvalidEnvironmentAction = iota
+	// InvalidEnvironmentIgnore keeps the file or default value.
+	InvalidEnvironmentIgnore
+	// InvalidEnvironmentUsePartial keeps scalar values returned with parsing errors.
+	InvalidEnvironmentUsePartial
+)
+
 // Options controls how Load resolves files and fields.
 type Options struct {
-	// TagName selects the struct tag used for configuration keys.
+	// TagName selects the struct tag and decoder used for configuration keys.
 	TagName string
 	// AllowMissing permits an empty path or a file that does not exist.
 	AllowMissing bool
@@ -68,10 +80,14 @@ type Options struct {
 	Transform func([]byte) ([]byte, error)
 	// Strict rejects configuration keys that are not represented by the target type.
 	Strict bool
+	// InvalidEnvironment controls how parsing failures affect the loaded value.
+	InvalidEnvironment InvalidEnvironmentAction
+	// DecodeErrorPrefix preserves service-specific context for file decoding errors.
+	DecodeErrorPrefix string
 }
 
-// Load reads configuration into a default-initialized value. Environment values
-// override file values, and file values override defaults.
+// Load reads configuration into a default-initialized value. Explicitly tagged
+// environment values and changed flags override file values.
 func Load[T any](configPath string, cfg *T, options Options) (*T, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("default config is nil")
@@ -95,29 +111,23 @@ func Load[T any](configPath string, cfg *T, options Options) (*T, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	configFormat := ""
 	if configData != nil {
-		configFormat, err = resolveConfigType(configPath, tagName)
-		if err != nil {
-			return nil, err
-		}
 		if options.Transform != nil {
 			configData, err = options.Transform(configData)
 			if err != nil {
 				return nil, fmt.Errorf("transform config: %w", err)
 			}
 		}
+		if err := decodeConfigFile(configData, cfg, tagName, options.Strict); err != nil {
+			if options.DecodeErrorPrefix != "" {
+				return nil, fmt.Errorf("%s: %w", options.DecodeErrorPrefix, err)
+			}
+			return nil, err
+		}
 	}
 
 	v := viper.New()
-	if configFormat != "" {
-		v.SetConfigType(configFormat)
-	}
-	v.SetEnvPrefix(envPrefix)
-	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
 	v.AllowEmptyEnv(true)
-	v.AutomaticEnv()
 
 	if err := bindConfigSources(
 		v,
@@ -125,6 +135,7 @@ func Load[T any](configPath string, cfg *T, options Options) (*T, error) {
 		"",
 		tagName,
 		options.FlagSet,
+		options.InvalidEnvironment,
 		true,
 		true,
 		make(map[reflect.Type]bool),
@@ -132,20 +143,8 @@ func Load[T any](configPath string, cfg *T, options Options) (*T, error) {
 		return nil, fmt.Errorf("bind config sources: %w", err)
 	}
 
-	if configData != nil {
-		if err := v.ReadConfig(bytes.NewReader(configData)); err != nil {
-			return nil, fmt.Errorf("read config: %w", err)
-		}
-	}
-
-	var unmarshalErr error
-	if options.Strict {
-		unmarshalErr = v.UnmarshalExact(cfg, decoderConfig(tagName))
-	} else {
-		unmarshalErr = v.Unmarshal(cfg, decoderConfig(tagName))
-	}
-	if unmarshalErr != nil {
-		return nil, fmt.Errorf("unmarshal config: %w", unmarshalErr)
+	if err := v.Unmarshal(cfg, decoderConfig(tagName)); err != nil {
+		return nil, fmt.Errorf("unmarshal config overlay: %w", err)
 	}
 	return cfg, nil
 }
@@ -164,32 +163,33 @@ func readConfigFile(configPath string, allowMissing bool) ([]byte, error) {
 	}
 	return nil, fmt.Errorf("read config file: %w", err)
 }
-
-func resolveConfigType(configPath, fallbackType string) (string, error) {
-	extension := strings.TrimPrefix(strings.ToLower(filepath.Ext(configPath)), ".")
-	if slices.Contains(viper.SupportedExts, extension) {
-		return extension, nil
-	}
-
-	fallbackType = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(fallbackType)), ".")
-	if fallbackType != "" {
-		if !slices.Contains(viper.SupportedExts, fallbackType) {
-			return "", fmt.Errorf("unsupported default config type %q", fallbackType)
+func decodeConfigFile(data []byte, cfg any, tagName string, strict bool) error {
+	switch tagName {
+	case "json":
+		decoder := json.NewDecoder(bytes.NewReader(data))
+		if strict {
+			decoder.DisallowUnknownFields()
 		}
-		return fallbackType, nil
+		if err := decoder.Decode(cfg); err != nil {
+			return err
+		}
+		return nil
+	case "yaml":
+		decoder := yaml.NewDecoder(bytes.NewReader(data))
+		decoder.KnownFields(strict)
+		if err := decoder.Decode(cfg); err != nil {
+			return err
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported config decoder %q", tagName)
 	}
-
-	if extension == "" {
-		return "", errors.New("config file extension is required")
-	}
-	return "", fmt.Errorf("unsupported config file extension %q", extension)
 }
-
 func decoderConfig(tagName string) viper.DecoderConfigOption {
 	return func(config *mapstructure.DecoderConfig) {
 		config.TagName = tagName
+		config.Squash = true
 		config.DecodeHook = mapstructure.ComposeDecodeHookFunc(
-			decodeLegacyBoolean,
 			mapstructure.TextUnmarshallerHookFunc(),
 			jsonUnmarshallerHook,
 			config.DecodeHook,
@@ -203,6 +203,7 @@ func bindConfigSources(
 	prefix string,
 	tagName string,
 	flagSet *pflag.FlagSet,
+	invalidEnvironment InvalidEnvironmentAction,
 	bindEnvironment bool,
 	bindFlags bool,
 	visiting map[reflect.Type]bool,
@@ -220,6 +221,7 @@ func bindConfigSources(
 			prefix,
 			tagName,
 			flagSet,
+			invalidEnvironment,
 			bindEnvironment,
 			bindFlags,
 			visiting,
@@ -236,6 +238,7 @@ func bindConfigField(
 	prefix string,
 	tagName string,
 	flagSet *pflag.FlagSet,
+	invalidEnvironment InvalidEnvironmentAction,
 	bindEnvironment bool,
 	bindFlags bool,
 	visiting map[reflect.Type]bool,
@@ -273,6 +276,7 @@ func bindConfigField(
 			key,
 			tagName,
 			flagSet,
+			invalidEnvironment,
 			bindEnvironment,
 			bindFlags,
 			visiting,
@@ -286,6 +290,7 @@ func bindConfigField(
 		fieldEnvironment,
 		fieldFlags,
 		flagSet,
+		invalidEnvironment,
 		bindEnvironment,
 		bindFlags,
 	)
@@ -295,30 +300,58 @@ func bindScalarSources(
 	v *viper.Viper,
 	field reflect.StructField,
 	key string,
-	environmentName string,
+	environmentNames string,
 	flagNames string,
 	flagSet *pflag.FlagSet,
+	invalidEnvironment InvalidEnvironmentAction,
 	bindEnvironment bool,
 	bindFlags bool,
 ) error {
 	if key == "" {
 		return fmt.Errorf("empty config key for field %s", field.Name)
 	}
-	if bindEnvironment {
-		if err := bindEnvironmentVariable(v, key, environmentName); err != nil {
-			return err
+
+	var environmentValue any
+	environmentSet := false
+	if bindEnvironment && environmentNames != "" {
+		value, set, err := environmentValueForField(
+			v,
+			key,
+			environmentNames,
+			field.Type,
+			invalidEnvironment,
+		)
+		if err != nil {
+			return fmt.Errorf("environment for %s: %w", key, err)
 		}
-	}
-	if !bindFlags || flagSet == nil || flagNames == "" {
-		return nil
+		environmentValue = value
+		environmentSet = set
 	}
 
-	flagName, flag, err := selectFlag(flagSet, flagNames)
-	if err != nil {
-		return fmt.Errorf("config field %s: %w", field.Name, err)
+	var flag *pflag.Flag
+	if bindFlags && flagSet != nil && flagNames != "" {
+		flagName, selected, err := selectFlag(flagSet, flagNames)
+		if err != nil {
+			return fmt.Errorf("config field %s: %w", field.Name, err)
+		}
+		flag = selected
+		if flag != nil {
+			if err := v.BindPFlag(key, flag); err != nil {
+				return fmt.Errorf("bind flag %s: %w", flagName, err)
+			}
+		}
 	}
-	if err := v.BindPFlag(key, flag); err != nil {
-		return fmt.Errorf("bind flag %s: %w", flagName, err)
+
+	switch {
+	case environmentSet && flag != nil && indirectKind(field.Type) == reflect.Slice:
+		flagValue, err := parsedFlagValue(field.Type, flag)
+		if err != nil {
+			return fmt.Errorf("parse flag %s: %w", flag.Name, err)
+		}
+		combined := reflect.AppendSlice(reflect.ValueOf(environmentValue), reflect.ValueOf(flagValue))
+		v.Set(key, combined.Interface())
+	case environmentSet && flag == nil:
+		v.Set(key, environmentValue)
 	}
 	return nil
 }
@@ -342,37 +375,155 @@ func configFieldKey(field reflect.StructField, tagName string) (key string, inli
 }
 
 func selectFlag(flagSet *pflag.FlagSet, names string) (string, *pflag.Flag, error) {
-	var selected *pflag.Flag
-	selectedName := ""
 	for _, name := range strings.Split(names, ",") {
 		flag := flagSet.Lookup(name)
 		if flag == nil {
 			return "", nil, fmt.Errorf("references unknown flag %q", name)
 		}
-		if selected == nil || flag.Changed {
-			selected = flag
-			selectedName = name
-		}
 		if flag.Changed {
-			break
+			return name, flag, nil
 		}
 	}
-	return selectedName, selected, nil
+	return "", nil, nil
 }
 
-func bindEnvironmentVariable(v *viper.Viper, key, environmentName string) error {
-	var err error
-	if environmentName == "" {
-		err = v.BindEnv(key)
-	} else {
-		names := strings.Split(environmentName, ",")
-		arguments := append([]string{key}, names...)
-		err = v.BindEnv(arguments...)
+func environmentValueForField(
+	v *viper.Viper,
+	key string,
+	environmentNames string,
+	fieldType reflect.Type,
+	action InvalidEnvironmentAction,
+) (any, bool, error) {
+	for _, name := range strings.Split(environmentNames, ",") {
+		value, present := os.LookupEnv(name)
+		if !present {
+			continue
+		}
+		if value == "" && indirectKind(fieldType) != reflect.String {
+			return nil, false, nil
+		}
+
+		parsed, partial, err := parseScalarValue(fieldType, value)
+		if err == nil {
+			if err := v.BindEnv(key, name); err != nil {
+				return nil, false, fmt.Errorf("bind %s: %w", name, err)
+			}
+			return parsed, true, nil
+		}
+		switch action {
+		case InvalidEnvironmentIgnore:
+			return nil, false, nil
+		case InvalidEnvironmentUsePartial:
+			if !partial {
+				return nil, false, nil
+			}
+			if err := v.BindEnv(key, name); err != nil {
+				return nil, false, fmt.Errorf("bind %s: %w", name, err)
+			}
+			return parsed, true, nil
+		default:
+			return nil, false, fmt.Errorf("parse %s=%q: %w", name, value, err)
+		}
 	}
-	if err != nil {
-		return fmt.Errorf("bind environment for %s: %w", key, err)
+	return nil, false, nil
+}
+
+func parsedFlagValue(fieldType reflect.Type, flag *pflag.Flag) (any, error) {
+	if indirectKind(fieldType) != reflect.Slice {
+		value, _, err := parseScalarValue(fieldType, flag.Value.String())
+		return value, err
 	}
-	return nil
+
+	sliceValue, ok := flag.Value.(pflag.SliceValue)
+	if !ok {
+		return nil, fmt.Errorf("flag is not a slice")
+	}
+	rawValues := sliceValue.GetSlice()
+	result := reflect.MakeSlice(indirectType(fieldType), 0, len(rawValues))
+	for _, rawValue := range rawValues {
+		value, _, err := parseScalarValue(indirectType(fieldType).Elem(), rawValue)
+		if err != nil {
+			return nil, err
+		}
+		result = reflect.Append(result, reflect.ValueOf(value).Convert(result.Type().Elem()))
+	}
+	return result.Interface(), nil
+}
+
+func parseScalarValue(fieldType reflect.Type, value string) (any, bool, error) {
+	targetType := indirectType(fieldType)
+	if implements(targetType, textUnmarshalerType) {
+		target := reflect.New(targetType)
+		unmarshaler := target.Interface().(encoding.TextUnmarshaler)
+		if err := unmarshaler.UnmarshalText([]byte(value)); err != nil {
+			return target.Interface(), false, err
+		}
+		if fieldType.Kind() == reflect.Pointer {
+			return target.Interface(), true, nil
+		}
+		return target.Elem().Interface(), true, nil
+	}
+	if targetType == reflect.TypeFor[time.Duration]() {
+		parsed, err := time.ParseDuration(value)
+		return parsed, true, err
+	}
+
+	switch targetType.Kind() {
+	case reflect.String:
+		return reflect.ValueOf(value).Convert(targetType).Interface(), true, nil
+	case reflect.Bool:
+		parsed, err := strconv.ParseBool(value)
+		return parsed, true, err
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		parsed, err := strconv.ParseInt(value, 0, targetType.Bits())
+		return reflect.ValueOf(parsed).Convert(targetType).Interface(), true, err
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		parsed, err := strconv.ParseUint(value, 10, targetType.Bits())
+		return reflect.ValueOf(parsed).Convert(targetType).Interface(), true, err
+	case reflect.Slice:
+		return parseSliceValue(targetType, value)
+	default:
+		return value, true, nil
+	}
+}
+
+func parseSliceValue(sliceType reflect.Type, value string) (any, bool, error) {
+	switch sliceType.Elem().Kind() {
+	case reflect.String:
+		values, err := csv.NewReader(strings.NewReader(value)).Read()
+		if err != nil {
+			return nil, false, err
+		}
+		result := reflect.MakeSlice(sliceType, len(values), len(values))
+		for i, item := range values {
+			result.Index(i).Set(reflect.ValueOf(item).Convert(sliceType.Elem()))
+		}
+		return result.Interface(), true, nil
+	case reflect.Int:
+		rawValues := strings.Split(value, ",")
+		result := reflect.MakeSlice(sliceType, len(rawValues), len(rawValues))
+		for i, rawValue := range rawValues {
+			parsed, err := strconv.Atoi(rawValue)
+			if err != nil {
+				return nil, false, err
+			}
+			result.Index(i).SetInt(int64(parsed))
+		}
+		return result.Interface(), true, nil
+	default:
+		return nil, false, fmt.Errorf("unsupported environment slice type %s", sliceType)
+	}
+}
+
+func indirectType(configType reflect.Type) reflect.Type {
+	for configType.Kind() == reflect.Pointer {
+		configType = configType.Elem()
+	}
+	return configType
+}
+
+func indirectKind(configType reflect.Type) reflect.Kind {
+	return indirectType(configType).Kind()
 }
 
 func isScalarUnmarshaler(configType reflect.Type) bool {
@@ -411,19 +562,4 @@ func jsonUnmarshallerHook(from, to reflect.Type, data any) (any, error) {
 		return target.Interface(), nil
 	}
 	return target.Elem().Interface(), nil
-}
-
-func decodeLegacyBoolean(from, to reflect.Kind, data any) (any, error) {
-	if from != reflect.String || to != reflect.Bool {
-		return data, nil
-	}
-
-	switch strings.ToLower(data.(string)) {
-	case "y", "yes", "on":
-		return true, nil
-	case "n", "no", "off":
-		return false, nil
-	default:
-		return data, nil
-	}
 }

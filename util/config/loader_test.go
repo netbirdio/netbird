@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 
 	"github.com/netbirdio/netbird/util/envtemplate"
 )
@@ -23,9 +24,9 @@ type testConfig struct {
 type testServerConfig struct {
 	Address           string           `yaml:"address" env:"APP_SERVER_ADDRESS" flag:"address,legacy-address"`
 	BindAddress       netip.Addr       `yaml:"bindAddress"`
-	AdvertisedAddress netip.Addr       `yaml:"advertisedAddress"`
+	AdvertisedAddress netip.Addr       `yaml:"advertisedAddress" env:"NB_SERVER_ADVERTISEDADDRESS"`
 	Enabled           bool             `yaml:"enabled"`
-	LogLevel          string           `yaml:"logLevel"`
+	LogLevel          string           `yaml:"logLevel" env:"NB_SERVER_LOGLEVEL"`
 	Timeout           time.Duration    `yaml:"timeout"`
 	Ports             []int            `yaml:"ports"`
 	Owner             *testOwnerConfig `yaml:"owner,omitempty"`
@@ -34,7 +35,7 @@ type testServerConfig struct {
 }
 
 type testOwnerConfig struct {
-	Email string `yaml:"email"`
+	Email string `yaml:"email" env:"NB_SERVER_OWNER_EMAIL"`
 }
 
 type testTLSConfig struct {
@@ -47,6 +48,10 @@ type testJSONValue struct {
 
 func (v *testJSONValue) UnmarshalJSON(data []byte) error {
 	return json.Unmarshal(data, &v.Value)
+}
+
+func (v *testJSONValue) UnmarshalYAML(node *yaml.Node) error {
+	return node.Decode(&v.Value)
 }
 
 type recursiveConfig struct {
@@ -146,17 +151,17 @@ server:
 	assert.Equal(t, ":8443", cfg.Server.Address, "The transform should run before decoding")
 }
 
-func TestLoadUsesRecognizedFileType(t *testing.T) {
+func TestLoadUsesConfiguredDecoderRegardlessOfExtension(t *testing.T) {
 	configPath := writeConfigFile(t, "config.toml", `
-[server]
-address = ":8443"
-enabled = true
+server:
+  address: ":8443"
+  enabled: true
 `)
 
 	cfg, err := Load(configPath, defaultTestConfig(), Options{TagName: "yaml"})
 	require.NoError(t, err)
-	assert.Equal(t, ":8443", cfg.Server.Address, "The file extension should select the decoder")
-	assert.True(t, cfg.Server.Enabled, "TOML booleans should be decoded")
+	assert.Equal(t, ":8443", cfg.Server.Address, "The configured decoder should ignore the file extension")
+	assert.True(t, cfg.Server.Enabled, "YAML booleans should be decoded")
 }
 
 func TestLoadAllowsMissingFile(t *testing.T) {
@@ -212,7 +217,7 @@ func TestLoadStrictRejectsUnknownKeys(t *testing.T) {
 		Strict:  true,
 	})
 	require.Error(t, err)
-	assert.ErrorContains(t, err, "invalid keys")
+	assert.ErrorContains(t, err, "field unknown not found")
 }
 
 func TestLoadUsesTagAsDefaultFileType(t *testing.T) {
