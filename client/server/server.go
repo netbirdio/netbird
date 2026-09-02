@@ -150,9 +150,16 @@ type Server struct {
 }
 
 type oauthAuthFlow struct {
-	expiresAt  time.Time
-	flow       auth.OAuthFlow
-	info       auth.AuthFlowInfo
+	expiresAt time.Time
+	flow      auth.OAuthFlow
+	info      auth.AuthFlowInfo
+
+	// cacheGeneration is the SSH JWT cache's generation when this flow was
+	// created. The flow outlives a profile switch, so reading the generation
+	// when the token finally arrives would read the new session's one and cache
+	// a token the old session obtained.
+	cacheGeneration uint64
+
 	waitCancel context.CancelFunc
 }
 
@@ -1846,6 +1853,7 @@ func (s *Server) RequestJWTAuth(
 	s.oauthAuthFlow.flow = oAuthFlow
 	s.oauthAuthFlow.info = authInfo
 	s.oauthAuthFlow.expiresAt = time.Now().Add(time.Duration(authInfo.ExpiresIn) * time.Second)
+	s.oauthAuthFlow.cacheGeneration = s.jwtCache.currentGeneration()
 	s.mutex.Unlock()
 
 	return &proto.RequestJWTAuthResponse{
@@ -1870,17 +1878,15 @@ func (s *Server) WaitJWTToken(
 	s.mutex.Lock()
 	oAuthFlow := s.oauthAuthFlow.flow
 	authInfo := s.oauthAuthFlow.info
+	// Recorded when the flow was created, not read here: the flow survives a
+	// profile switch, and everything from RequestJWTAuth to the IdP answering
+	// has to count as the same session for the cache.
+	generation := s.oauthAuthFlow.cacheGeneration
 	s.mutex.Unlock()
 
 	if oAuthFlow == nil || authInfo.DeviceCode != req.DeviceCode {
 		return nil, gstatus.Errorf(codes.InvalidArgument, "invalid device code or no active auth flow")
 	}
-
-	// Taken before the wait below, which runs unlocked for as long as the IdP
-	// takes: a logout or a profile switch in the meantime advances the cache's
-	// generation, and the token this flow returns must not land in the cache
-	// the new session is using.
-	generation := s.jwtCache.currentGeneration()
 
 	tokenInfo, err := oAuthFlow.WaitToken(ctx, authInfo)
 	if err != nil {

@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/localmetrics"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
@@ -142,4 +143,46 @@ func TestCleanupConnection_KeepsJWTCache(t *testing.T) {
 	got, found := s.jwtCache.get(owner)
 	require.True(t, found, "going down must not drop the cached SSH JWT")
 	assert.Equal(t, "token", got)
+}
+
+// fakeOAuthFlow stands in for the IdP round trip so a test can drive
+// WaitJWTToken without a real device-code flow.
+type fakeOAuthFlow struct {
+	token string
+}
+
+func (f *fakeOAuthFlow) RequestAuthInfo(context.Context) (auth.AuthFlowInfo, error) {
+	return auth.AuthFlowInfo{DeviceCode: "device-code"}, nil
+}
+
+func (f *fakeOAuthFlow) WaitToken(context.Context, auth.AuthFlowInfo) (auth.TokenInfo, error) {
+	return auth.TokenInfo{AccessToken: f.token}, nil
+}
+
+func (f *fakeOAuthFlow) GetClientID(context.Context) string { return "client-id" }
+
+// The flow outlives a profile switch, because SwitchProfile does not reset
+// s.oauthAuthFlow. A switch between RequestJWTAuth and the IdP answering must
+// still keep the token out of the cache the new profile uses, and the
+// generation the flow carries is what decides it: reading the cache's own
+// generation at store time would already be the new one.
+func TestWaitJWTToken_DropsTokenFromASessionThatEndedBeforeTheWait(t *testing.T) {
+	s := newTestServer()
+	owner := unprivilegedIdentity()
+	ttl := int(testTTL.Seconds())
+	s.config = &profilemanager.Config{SSHJWTCacheTTL: &ttl}
+
+	// RequestJWTAuth ran under the previous session and recorded its generation.
+	s.oauthAuthFlow.flow = &fakeOAuthFlow{token: "token-from-the-old-session"}
+	s.oauthAuthFlow.info = auth.AuthFlowInfo{DeviceCode: "device-code"}
+	s.oauthAuthFlow.cacheGeneration = s.jwtCache.currentGeneration()
+
+	// A profile switch or a logout lands before the caller reaches WaitJWTToken.
+	s.jwtCache.clear()
+
+	_, err := s.WaitJWTToken(ctxWithIdentity(owner), &proto.WaitJWTTokenRequest{DeviceCode: "device-code"})
+	require.NoError(t, err)
+
+	_, found := s.jwtCache.get(owner)
+	assert.False(t, found, "a token whose flow started under the previous session must not be cached")
 }
