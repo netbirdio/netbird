@@ -963,8 +963,8 @@ func (s *Service) validateHTTPTargets() error {
 				return err
 			}
 		case TargetTypeSubnet:
-			if target.Host == "" {
-				return fmt.Errorf("target %d has empty host but target_type is %q", i, target.TargetType)
+			if err := validateSubnetTarget(i, target); err != nil {
+				return err
 			}
 		case TargetTypeCluster:
 			if err := validateClusterTarget(i, target); err != nil {
@@ -984,6 +984,28 @@ func (s *Service) validateHTTPTargets() error {
 		}
 	}
 
+	return nil
+}
+
+func validateSubnetTarget(idx int, target *Target) error {
+	host := strings.TrimSpace(target.Host)
+	if host == "" {
+		return fmt.Errorf("target %d has empty host but target_type is %q", idx, target.TargetType)
+	}
+	if strings.ContainsAny(host, " \t/") {
+		return fmt.Errorf("target %d: host %q contains invalid characters", idx, host)
+	}
+	if !target.Options.DirectUpstream {
+		return nil
+	}
+	noBrackets := strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
+	maybeip := net.ParseIP(noBrackets)
+	if maybeip == nil { // not an ip address
+		return nil
+	}
+	if maybeip.IsLoopback() || maybeip.IsMulticast() || maybeip.IsLinkLocalUnicast() {
+		return fmt.Errorf("invalid direct upstream host ip %s %w", maybeip.String(), ErrUnsupportedIpAddressUpstreamHost)
+	}
 	return nil
 }
 
