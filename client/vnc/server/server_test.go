@@ -15,6 +15,7 @@ import (
 	"net/netip"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -717,5 +718,34 @@ func TestCloseAdmission_HandlerOutlivingDrain(t *testing.T) {
 	case <-secondDrain:
 	case <-time.After(time.Second):
 		t.Fatal("drain signal never fired after restart")
+	}
+}
+
+func TestAcceptRetryable(t *testing.T) {
+	tests := []struct {
+		name      string
+		err       error
+		retryable bool
+	}{
+		{"aborted handshake", syscall.ECONNABORTED, true},
+		{"reset pending connection", syscall.ECONNRESET, true},
+		{"timed out pending connection", syscall.ETIMEDOUT, true},
+		{"process fd limit", syscall.EMFILE, true},
+		{"system fd limit", syscall.ENFILE, true},
+		{"no socket buffers", syscall.ENOBUFS, true},
+		{"out of kernel memory", syscall.ENOMEM, true},
+		// A retryable errno reached through the layers Accept actually wraps it in.
+		{"wrapped in OpError", &net.OpError{Op: "accept", Err: syscall.ECONNABORTED}, true},
+		// EINVAL persists for the life of a socket whose interface is gone, so
+		// retrying it livelocks. net.Error.Temporary would call it temporary.
+		{"invalid listening socket", syscall.EINVAL, false},
+		{"listener closed", net.ErrClosed, false},
+		{"unrelated error", errors.New("boom"), false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.retryable, acceptRetryable(tt.err))
+		})
 	}
 }
