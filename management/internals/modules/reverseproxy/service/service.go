@@ -1001,7 +1001,7 @@ func validateSubnetTarget(idx int, target *Target) error {
 	noBrackets := strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
 	maybeip, err := netip.ParseAddr(noBrackets)
 	if err != nil { // not an ip
-		return nil
+		return nil //nolint:nilerr
 	}
 	if maybeip.Zone() != "" {
 		return fmt.Errorf("invalid direct upstream host ip %s %w", maybeip.String(), ErrUnsupportedIPAddressUpstreamHost)
@@ -1052,7 +1052,7 @@ func validateDirectUpstreamHost(idx int, target *Target) error {
 	noBrackets := strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
 	maybeip, err := netip.ParseAddr(noBrackets)
 	if err != nil { // not an ip
-		return nil
+		return nil //nolint:nilerr
 	}
 	if maybeip.Zone() != "" || maybeip.IsLoopback() || maybeip.IsMulticast() || maybeip.IsLinkLocalUnicast() {
 		return fmt.Errorf("invalid direct upstream host ip %s %w", maybeip.String(), ErrUnsupportedIPAddressUpstreamHost)
