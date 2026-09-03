@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -19,11 +20,18 @@ import (
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/server"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
-	"github.com/netbirdio/netbird/upload-server/types"
 	"github.com/netbirdio/netbird/version"
 )
 
 const errCloseConnection = "Failed to close connection: %v"
+
+// uploadBundleURLUsage documents that an empty flag is not "no upload" but
+// "wherever this deployment says": the daemon takes the destination from the
+// management server, and only falls back to the service NetBird runs for a peer
+// enrolled with NetBird's cloud. Naming another one requires root, since the
+// daemon fetches the URL and PUTs its own logs and state to whatever it returns.
+const uploadBundleURLUsage = "Upload service URL to get an upload URL from. " +
+	"Defaults to the one the management server publishes; requires root when set explicitly"
 
 var (
 	logFileCount             uint32
@@ -179,6 +187,7 @@ func debugBundle(cmd *cobra.Command, _ []string) error {
 		CliVersion:     version.NetbirdVersion(),
 	}
 	if uploadBundleFlag {
+		request.Upload = true
 		request.UploadURL = uploadBundleURLFlag
 		request.UploadInsecure = uploadBundleInsecureFlag
 	}
@@ -192,8 +201,8 @@ func debugBundle(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("upload failed: %s", resp.GetUploadFailureReason())
 	}
 
-	if uploadBundleFlag {
-		cmd.Printf("Upload file key:\n%s\n", resp.GetUploadedKey())
+	if err := printUploadKey(cmd, resp); err != nil {
+		return err
 	}
 
 	return nil
@@ -385,6 +394,7 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 		CliVersion:     version.NetbirdVersion(),
 	}
 	if uploadBundleFlag {
+		request.Upload = true
 		request.UploadURL = uploadBundleURLFlag
 		request.UploadInsecure = uploadBundleInsecureFlag
 	}
@@ -423,8 +433,8 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("upload failed: %s", resp.GetUploadFailureReason())
 	}
 
-	if uploadBundleFlag {
-		cmd.Printf("Upload file key:\n%s\n", resp.GetUploadedKey())
+	if err := printUploadKey(cmd, resp); err != nil {
+		return err
 	}
 
 	return nil
@@ -533,17 +543,32 @@ func generateDebugBundle(config *profilemanager.Config, recorder *peer.Status, c
 	log.Infof("Generated debug bundle from SIGUSR1 at: %s", path)
 }
 
+// printUploadKey reports the upload key, or why there is none. A daemon that
+// predates the destination-from-management change ignores an empty upload URL
+// and returns neither a key nor a failure reason, which would otherwise print
+// as an empty key.
+func printUploadKey(cmd *cobra.Command, resp *proto.DebugBundleResponse) error {
+	if !uploadBundleFlag {
+		return nil
+	}
+	if resp.GetUploadedKey() == "" {
+		return errors.New("the daemon did not upload the bundle; pass --upload-bundle-url explicitly or update the daemon")
+	}
+	cmd.Printf("Upload file key:\n%s\n", resp.GetUploadedKey())
+	return nil
+}
+
 func init() {
 	debugBundleCmd.Flags().Uint32VarP(&logFileCount, "log-file-count", "C", 1, "Number of rotated log files to include in debug bundle")
 	debugBundleCmd.Flags().BoolVarP(&systemInfoFlag, "system-info", "S", true, "Adds system information to the debug bundle")
 	debugBundleCmd.Flags().BoolVarP(&uploadBundleFlag, "upload-bundle", "U", false, "Uploads the debug bundle to a server")
-	debugBundleCmd.Flags().StringVar(&uploadBundleURLFlag, "upload-bundle-url", types.DefaultBundleURL, "Service URL to get an URL to upload the debug bundle")
+	debugBundleCmd.Flags().StringVar(&uploadBundleURLFlag, "upload-bundle-url", "", uploadBundleURLUsage)
 	debugBundleCmd.Flags().BoolVar(&uploadBundleInsecureFlag, "upload-bundle-insecure", false, "Allow uploading to an http or untrusted-TLS upload server (self-hosted); requires root")
 
 	forCmd.Flags().Uint32VarP(&logFileCount, "log-file-count", "C", 1, "Number of rotated log files to include in debug bundle")
 	forCmd.Flags().BoolVarP(&systemInfoFlag, "system-info", "S", true, "Adds system information to the debug bundle")
 	forCmd.Flags().BoolVarP(&uploadBundleFlag, "upload-bundle", "U", false, "Uploads the debug bundle to a server")
-	forCmd.Flags().StringVar(&uploadBundleURLFlag, "upload-bundle-url", types.DefaultBundleURL, "Service URL to get an URL to upload the debug bundle")
+	forCmd.Flags().StringVar(&uploadBundleURLFlag, "upload-bundle-url", "", uploadBundleURLUsage)
 	forCmd.Flags().BoolVar(&uploadBundleInsecureFlag, "upload-bundle-insecure", false, "Allow uploading to an http or untrusted-TLS upload server (self-hosted); requires root")
 	forCmd.Flags().Bool("capture", false, "Capture packets during the debug duration and include in bundle")
 }

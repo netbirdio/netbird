@@ -32,7 +32,6 @@ import (
 	"github.com/netbirdio/netbird/formatter"
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
-	types "github.com/netbirdio/netbird/upload-server/types"
 )
 
 // AnonymizeLevelDefault and AnonymizeLevelStrict are the accepted
@@ -349,6 +348,11 @@ func (c *Client) DebugBundle(platformFiles PlatformFiles, anonymize bool, anonym
 		StatePath:      platformFiles.StateFilePath(),
 	}
 
+	// Empty unless an engine is running and has synced: a bundle generated with
+	// the client stopped has no management-published destination, so it uploads
+	// only when the peer is enrolled with NetBird's cloud.
+	var publishedUploadURL string
+
 	if cc != nil {
 		resp, err := cc.GetLatestSyncResponse()
 		if err != nil {
@@ -357,6 +361,7 @@ func (c *Client) DebugBundle(platformFiles PlatformFiles, anonymize bool, anonym
 		deps.SyncResponse = resp
 
 		if e := cc.Engine(); e != nil {
+			publishedUploadURL = e.DebugUploadURL()
 			deps.RefreshStatus = func() {
 				e.RunHealthProbes(context.Background(), true)
 			}
@@ -375,6 +380,16 @@ func (c *Client) DebugBundle(platformFiles PlatformFiles, anonymize bool, anonym
 		},
 	)
 
+	// Resolved before the bundle is generated: with no destination there is
+	// nothing to hand back to the app, and generating (then deleting) a bundle
+	// nobody can collect is wasted work on the device. An MDM override wins;
+	// otherwise the destination this deployment publishes is used, and only a
+	// peer enrolled with NetBird's cloud falls back to the service NetBird runs.
+	uploadURL, err := debug.ResolveUploadURL(cfg.DebugBundleUploadURL, publishedUploadURL, cfg.ManagementURL.String())
+	if err != nil {
+		return "", err
+	}
+
 	path, err := bundleGenerator.Generate()
 	if err != nil {
 		return "", fmt.Errorf("generate debug bundle: %w", err)
@@ -388,7 +403,7 @@ func (c *Client) DebugBundle(platformFiles PlatformFiles, anonymize bool, anonym
 	uploadCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	key, err := debug.UploadDebugBundle(uploadCtx, types.DefaultBundleURL, cfg.ManagementURL.String(), path, false)
+	key, err := debug.UploadDebugBundle(uploadCtx, uploadURL, cfg.ManagementURL.String(), path, false)
 	if err != nil {
 		return "", fmt.Errorf("upload debug bundle: %w", err)
 	}

@@ -15,4 +15,5 @@ type AccountSettingsInfo struct {
 	AutoUpdateVersion               string
 	AutoUpdateAlways                bool
 	MetricsPushEnabled              bool
+	DebugBundleUploadURL            string
 }

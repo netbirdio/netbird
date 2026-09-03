@@ -1652,7 +1652,8 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 			settings_jwt_groups_enabled, settings_jwt_groups_claim_name, settings_jwt_allow_groups,
 			settings_routing_peer_dns_resolution_enabled, settings_dns_domain, settings_network_range,
 			settings_network_range_v6, settings_ipv6_enabled_groups, settings_lazy_connection_enabled,
-			settings_local_mfa_enabled, settings_metrics_push_enabled, settings_agent_network_only,
+			settings_local_mfa_enabled, settings_metrics_push_enabled, settings_debug_bundle_upload_url,
+			settings_agent_network_only,
 			settings_dashboard_features, settings_auto_update_version, settings_auto_update_always,
 			settings_peer_expose_enabled, settings_peer_expose_groups,
 			-- Embedded ExtraSettings
@@ -1678,6 +1679,7 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		sLazyConnectionEnabled           sql.NullBool
 		sLocalMFAEnabled                 sql.NullBool
 		sMetricsPushEnabled              sql.NullBool
+		sDebugBundleUploadURL            sql.NullString
 		sAgentNetworkOnly                sql.NullBool
 		sDashboardFeatures               sql.NullString
 		autoUpdateVersion                sql.NullString
@@ -1706,7 +1708,7 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		&sJWTGroupsEnabled, &sJWTGroupsClaimName, &sJWTAllowGroups,
 		&sRoutingPeerDNSResolutionEnabled, &sDNSDomain, &sNetworkRange,
 		&sNetworkRangeV6, &sIPv6EnabledGroups, &sLazyConnectionEnabled,
-		&sLocalMFAEnabled, &sMetricsPushEnabled, &sAgentNetworkOnly,
+		&sLocalMFAEnabled, &sMetricsPushEnabled, &sDebugBundleUploadURL, &sAgentNetworkOnly,
 		&sDashboardFeatures, &autoUpdateVersion, &autoUpdateAlways,
 		&peerExposeEnabled, &peerExposeGroups,
 		&sExtraPeerApprovalEnabled, &sExtraUserApprovalRequired,
@@ -1776,6 +1778,9 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 	}
 	if sMetricsPushEnabled.Valid {
 		account.Settings.MetricsPushEnabled = sMetricsPushEnabled.Bool
+	}
+	if sDebugBundleUploadURL.Valid {
+		account.Settings.DebugBundleUploadURL = sDebugBundleUploadURL.String
 	}
 	if sAgentNetworkOnly.Valid {
 		account.Settings.AgentNetworkOnly = sAgentNetworkOnly.Bool

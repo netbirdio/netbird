@@ -184,6 +184,10 @@ func LoadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*nbconfig.Confi
 		return nil, err
 	}
 
+	if err := loadedConfig.DebugUpload.Validate(); err != nil {
+		return nil, err
+	}
+
 	for account, version := range loadedConfig.PerAccountHighestSupportedSyncMessageVersion {
 		err := grpc.ValidateSyncMessageVersion(&version)
 		if err != nil {

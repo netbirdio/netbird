@@ -383,6 +383,14 @@ components:
           description: Enables or disables client metrics push for all peers in the account
           type: boolean
           example: false
+        debug_bundle_upload_url:
+          description: |
+            Upload service the peers of this account send debug bundles to. A bundle carries peer logs, routes, DNS and
+            firewall state, so setting this keeps that data inside infrastructure the account controls instead of the
+            upload service NetBird runs. Must be an https URL with a host. Empty falls back to the deployment-wide value
+            configured on the management server; with neither, only peers enrolled with NetBird's cloud upload at all.
+          type: string
+          example: "https://upload.example.com/upload-url"
         agent_network_only:
           description: Limits the dashboard to the Agent Network surface for this account. Set for accounts created via netbird.ai signups and can be disabled later. Enabling this requires dashboard_features.agent_network to be true in the same request.
           type: boolean

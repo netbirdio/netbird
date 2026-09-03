@@ -35,13 +35,23 @@ func (s *Server) DebugBundle(callerCtx context.Context, req *proto.DebugBundleRe
 	// socket that carries no identity, which skips the UI log.
 	callerID, callerIdentified := ipcauth.CallerIdentity(callerCtx)
 
-	path, managementURL, err := s.generateDebugBundle(req, uiLogOpener(callerID, callerIdentified))
+	path, managementURL, publishedUploadURL, err := s.generateDebugBundle(req, uiLogOpener(callerID, callerIdentified))
 	if err != nil {
 		return nil, err
 	}
 
-	if req.GetUploadURL() == "" {
+	if !req.GetUpload() && req.GetUploadURL() == "" {
 		return &proto.DebugBundleResponse{Path: path}, nil
+	}
+
+	// The destination the management server publishes needs no privilege check:
+	// it is the operator of this deployment naming their own upload service, and
+	// the peer already trusts that server for its whole configuration. Only a
+	// URL the local caller named goes through requirePrivilegeForUploadURL above.
+	uploadURL, err := debug.ResolveUploadURL(req.GetUploadURL(), publishedUploadURL, managementURL)
+	if err != nil {
+		log.Errorf("cannot upload debug bundle: %v", err)
+		return &proto.DebugBundleResponse{Path: path, UploadFailureReason: err.Error()}, nil
 	}
 
 	// The upload runs without s.mutex held: it does network I/O to a possibly
@@ -49,21 +59,22 @@ func (s *Server) DebugBundle(callerCtx context.Context, req *proto.DebugBundleRe
 	// bounded context is a backstop against a hung connection.
 	uploadCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	key, err := debug.UploadDebugBundle(uploadCtx, req.GetUploadURL(), managementURL, path, req.GetUploadInsecure())
+	key, err := debug.UploadDebugBundle(uploadCtx, uploadURL, managementURL, path, req.GetUploadInsecure())
 	if err != nil {
-		log.Errorf("failed to upload debug bundle to %s: %v", req.GetUploadURL(), err)
+		log.Errorf("failed to upload debug bundle to %s: %v", uploadURL, err)
 		return &proto.DebugBundleResponse{Path: path, UploadFailureReason: err.Error()}, nil
 	}
 
-	log.Infof("debug bundle uploaded to %s with key %s", req.GetUploadURL(), key)
+	log.Infof("debug bundle uploaded to %s with key %s", uploadURL, key)
 
 	return &proto.DebugBundleResponse{Path: path, UploadedKey: key}, nil
 }
 
 // generateDebugBundle builds the bundle under s.mutex and returns its path plus
-// the management URL captured under the lock, so the caller can run the upload
-// without holding the lock.
-func (s *Server) generateDebugBundle(req *proto.DebugBundleRequest, uiOpener debug.LogOpener) (path string, managementURL string, err error) {
+// the management URL and the upload service the management server publishes,
+// both captured under the lock, so the caller can run the upload without
+// holding the lock.
+func (s *Server) generateDebugBundle(req *proto.DebugBundleRequest, uiOpener debug.LogOpener) (path string, managementURL string, publishedUploadURL string, err error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -78,6 +89,7 @@ func (s *Server) generateDebugBundle(req *proto.DebugBundleRequest, uiOpener deb
 			if cm := engine.GetClientMetrics(); cm != nil {
 				clientMetrics = cm
 			}
+			publishedUploadURL = engine.DebugUploadURL()
 		}
 	}
 
@@ -131,14 +143,14 @@ func (s *Server) generateDebugBundle(req *proto.DebugBundleRequest, uiOpener deb
 
 	path, err = bundleGenerator.Generate()
 	if err != nil {
-		return "", "", fmt.Errorf("generate debug bundle: %w", err)
+		return "", "", "", fmt.Errorf("generate debug bundle: %w", err)
 	}
 
 	if s.config != nil && s.config.ManagementURL != nil {
 		managementURL = s.config.ManagementURL.String()
 	}
 
-	return path, managementURL, nil
+	return path, managementURL, publishedUploadURL, nil
 }
 
 // GetLogLevel gets the current logging level for the server.

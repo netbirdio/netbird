@@ -148,7 +148,7 @@ Debug.RevealFile(path: string): Promise<void>          // OS file-manager focus
 
 **Log level case sensitivity bug:** `proto.LogLevel_value` is keyed on uppercase enum names (`"TRACE"`, `"DEBUG"`, `"INFO"`, `"WARN"`, `"ERROR"`, `"PANIC"`, `"FATAL"`, `"UNKNOWN"`). `Debug.SetLogLevel` calls `proto.LogLevel_value[lvl.Level]` and falls back to `INFO` on miss. `useDebugBundle` currently passes `"trace"` (lowercase), which silently maps to `INFO` — the trace-capture flow doesn't actually raise the log level today. To raise to trace, pass `{ level: "TRACE" }`. Fix on the cleanup list.
 
-`Debug.Bundle` uploads when `uploadUrl != ""`. Result fields: `path` (local copy), `uploadedKey` (set on success), `uploadFailureReason` (set on upload failure — the local copy is still saved).
+`Debug.Bundle` uploads when `upload` is true; the daemon picks the destination from what the management server publishes, so the UI never names one. Result fields: `path` (local copy), `uploadedKey` (set on success), `uploadFailureReason` (set on upload failure, including a deployment that publishes no upload service — the local copy is still saved).
 
 ## `Update`
 
@@ -283,7 +283,7 @@ The tray also reads a tray-only synthetic `"Error"` for icon purposes; the front
 
 `UpParams` / `LogoutParams` / `ProfileRef` / `ConfigParams` / `ActiveProfile`: all `{ profileName, username: string }` (different names but same shape — kept distinct by Wails for clarity).
 
-`DebugBundleParams`: `{ anonymize, systemInfo: boolean; uploadUrl: string; logFileCount: number }`.
+`DebugBundleParams`: `{ anonymize, systemInfo, upload: boolean; logFileCount: number }`.
 
 `DebugBundleResult`: `{ path, uploadedKey, uploadFailureReason: string }`.
 

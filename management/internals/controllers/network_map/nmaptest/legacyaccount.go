@@ -199,6 +199,7 @@ func accountSettings(s *nmdata.AccountSettingsInfo) *types.Settings {
 		AutoUpdateVersion:               s.AutoUpdateVersion,
 		AutoUpdateAlways:                s.AutoUpdateAlways,
 		MetricsPushEnabled:              s.MetricsPushEnabled,
+		DebugBundleUploadURL:            s.DebugBundleUploadURL,
 	}
 }
 

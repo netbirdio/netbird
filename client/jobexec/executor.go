@@ -10,7 +10,6 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal/debug"
-	"github.com/netbirdio/netbird/upload-server/types"
 )
 
 const (
@@ -28,9 +27,14 @@ func NewExecutor() *Executor {
 	return &Executor{}
 }
 
+// BundleJob generates a debug bundle for a remote job and uploads it to
+// uploadURL, returning the key the management server hands back to whoever asked.
+// The caller resolves uploadURL (see debug.ResolveUploadURL): a job whose
+// deployment names no upload service never reaches here, so there is no
+// fallback destination to pick locally.
 func (e *Executor) BundleJob(ctx context.Context, debugBundleDependencies debug.GeneratorDependencies, params debug.BundleConfig, waitForDuration time.Duration, mgmURL, uploadURL string) (string, error) {
 	if uploadURL == "" {
-		uploadURL = types.DefaultBundleURL
+		return "", debug.ErrNoUploadDestination
 	}
 
 	if waitForDuration > MaxBundleWaitTime {

@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
@@ -225,6 +226,14 @@ type Engine struct {
 	// TURNs is a list of STUN servers used by ICE
 	TURNs    []*stun.URI
 	stunTurn icemaker.StunTurn
+
+	// debugUploadURL is the debug-bundle upload service the management server
+	// publishes for this deployment, refreshed on every NetbirdConfig update.
+	// Atomic because the bundle paths (remote job, daemon RPC, mobile SDK) read
+	// it off the engine loop. Empty when the deployment publishes none, which is
+	// what makes a self-hosted peer keep its bundle local instead of shipping it
+	// to the upload service NetBird runs.
+	debugUploadURL atomic.Pointer[string]
 
 	clientCtx    context.Context
 	clientCancel context.CancelFunc
@@ -1144,6 +1153,8 @@ func (e *Engine) updateNetbirdConfig(wCfg *mgmProto.NetbirdConfig) error {
 
 	e.handleMetricsUpdate(wCfg.GetMetrics())
 
+	e.handleDebugUploadUpdate(wCfg.GetDebug())
+
 	if err := e.PopulateNetbirdConfig(wCfg, nil); err != nil {
 		log.Warnf("Failed to update DNS server config: %v", err)
 	}
@@ -1219,6 +1230,26 @@ func (e *Engine) handleMetricsUpdate(config *mgmProto.MetricsConfig) {
 	}
 	log.Infof("received metrics configuration from management: enabled=%v", config.GetEnabled())
 	e.clientMetrics.UpdatePushFromMgm(e.metricsCtx, config.GetEnabled())
+}
+
+// handleDebugUploadUpdate records the debug-bundle destination the management
+// server published. A nil DebugConfig clears it: a management server that stops
+// publishing a destination must take it away from the peer, not leave the peer
+// uploading to a host the operator has since removed.
+func (e *Engine) handleDebugUploadUpdate(config *mgmProto.DebugConfig) {
+	url := config.GetUploadUrl()
+	e.debugUploadURL.Store(&url)
+}
+
+// DebugUploadURL returns the debug-bundle upload service the management server
+// published, or empty when it published none or the engine never synced. The
+// callers treat empty as "no destination from this deployment" and fail closed
+// unless the peer is enrolled with NetBird's cloud; see debug.ResolveUploadURL.
+func (e *Engine) DebugUploadURL() string {
+	if url := e.debugUploadURL.Load(); url != nil {
+		return *url
+	}
+	return ""
 }
 
 func toFlowLoggerConfig(config *mgmProto.FlowConfig) (*nftypes.FlowConfig, error) {
@@ -1428,9 +1459,17 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobR
 		params.GetAnonymize(), params.GetAnonymizeLevel(), params.GetLogFileCount(), params.GetBundleFor(), params.GetBundleForTime())
 	log.Debugf("remote debug bundle request parameters: %s", params.String())
 
+	syncResponse, err := e.GetLatestSyncResponse()
+	if err != nil {
+		log.Warnf("get latest sync response: %v", err)
+	}
+
 	// Resolve the upload destination: an MDM override, when set, takes
-	// precedence over the management-supplied URL. Both are validated the same
-	// way; an empty result falls back to the default upload server downstream.
+	// precedence over the job's URL. Both are validated the same way. With
+	// neither, the destination this deployment publishes is used, and only a
+	// peer enrolled with NetBird's cloud falls back to the service NetBird runs
+	// — a self-hosted deployment that named no upload service gets no upload
+	// rather than one that leaves the operator's control sphere.
 	uploadURL := params.GetUploadUrl()
 	if override := e.config.ProfileConfig.DebugBundleUploadURL; override != "" {
 		log.Infof("using MDM debug bundle upload URL override instead of the management-supplied value")
@@ -1440,9 +1479,9 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobR
 		return nil, err
 	}
 
-	syncResponse, err := e.GetLatestSyncResponse()
+	uploadURL, err = debug.ResolveUploadURL(uploadURL, e.DebugUploadURL(), e.config.ProfileConfig.ManagementURL.String())
 	if err != nil {
-		log.Warnf("get latest sync response: %v", err)
+		return nil, err
 	}
 
 	bundleDeps := debug.GeneratorDependencies{

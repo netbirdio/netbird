@@ -15,6 +15,7 @@ import (
 
 	goversion "github.com/hashicorp/go-version"
 
+	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/account"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/settings"
@@ -286,6 +287,14 @@ func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJS
 	if req.Settings.MetricsPushEnabled != nil {
 		returnSettings.MetricsPushEnabled = *req.Settings.MetricsPushEnabled
 	}
+	if req.Settings.DebugBundleUploadUrl != nil {
+		// Same rule the management server config and the peers apply, so a
+		// destination accepted here cannot be one the peers then refuse.
+		if err := (nbconfig.DebugUpload{URL: *req.Settings.DebugBundleUploadUrl}).Validate(); err != nil {
+			return nil, status.Errorf(status.InvalidArgument, "invalid debug bundle upload URL: %v", err)
+		}
+		returnSettings.DebugBundleUploadURL = *req.Settings.DebugBundleUploadUrl
+	}
 	if req.Settings.AgentNetworkOnly != nil {
 		returnSettings.AgentNetworkOnly = *req.Settings.AgentNetworkOnly
 	}
@@ -432,6 +441,7 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 		AutoUpdateAlways:                &settings.AutoUpdateAlways,
 		Ipv6EnabledGroups:               &settings.IPv6EnabledGroups,
 		MetricsPushEnabled:              &settings.MetricsPushEnabled,
+		DebugBundleUploadUrl:            &settings.DebugBundleUploadURL,
 		AgentNetworkOnly:                &settings.AgentNetworkOnly,
 		EmbeddedIdpEnabled:              &settings.EmbeddedIdpEnabled,
 		LocalAuthDisabled:               &settings.LocalAuthDisabled,

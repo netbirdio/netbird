@@ -337,6 +337,8 @@ message NetbirdConfig {
   FlowConfig flow = 5;
 
   MetricsConfig metrics = 6;
+
+  DebugConfig debug = 7;
 }
 
 // HostConfig describes connection properties of some server (e.g. STUN, Signal, Management)
@@ -377,6 +379,19 @@ message FlowConfig {
 
 message MetricsConfig {
   bool enabled = 1;
+}
+
+// DebugConfig carries the deployment-wide debug settings the operator of this
+// management server publishes to its peers.
+message DebugConfig {
+  // upload_url is the debug-bundle upload service this peer's account uses,
+  // taken from the account settings or, failing that, from the management
+  // server config. Publishing it keeps a self-hosted deployment's bundles inside
+  // its own control sphere instead of falling back to the upload service NetBird
+  // runs. An empty value means no destination is published: the peer then
+  // uploads only when it is enrolled with NetBird's cloud, and otherwise keeps
+  // the bundle local.
+  string upload_url = 1;
 }
 
 // JWTConfig represents JWT authentication configuration for validating tokens.
