@@ -9,7 +9,6 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
-	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
 type action string
@@ -20,35 +19,20 @@ const (
 	firewallRuleName        = "Netbird"
 )
 
-// Close cleans up the firewall manager by removing all rules and closing trackers
-func (m *Manager) Close(*statemanager.Manager) error {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-
-	m.resetState()
-
-	if !isWindowsFirewallReachable() {
-		return nil
-	}
-
-	var merr *multierror.Error
-	if isFirewallRuleActive(firewallRuleName) {
-		if err := manageFirewallRule(firewallRuleName, deleteRule); err != nil {
-			merr = multierror.Append(merr, fmt.Errorf("remove windows firewall rule: %w", err))
-		}
-	}
-
-	if isFirewallRuleActive(firewallRuleName + "-v6") {
-		if err := manageFirewallRule(firewallRuleName+"-v6", deleteRule); err != nil {
-			merr = multierror.Append(merr, fmt.Errorf("remove windows v6 firewall rule: %w", err))
-		}
-	}
-
-	return nberrors.FormatErrorOrNil(merr)
+// WindowsInterfaceAllower opens the NetBird interface in the Windows firewall
+// via netsh advfirewall rules. It implements InterfaceAllower for the userspace
+// firewall on Windows.
+type WindowsInterfaceAllower struct {
+	iface Iface
 }
 
-// AllowNetbird allows netbird interface traffic
-func (m *Manager) AllowNetbird() error {
+// NewWindowsInterfaceAllower builds the Windows netsh-based interface allower.
+func NewWindowsInterfaceAllower(iface Iface) *WindowsInterfaceAllower {
+	return &WindowsInterfaceAllower{iface: iface}
+}
+
+// Apply adds inbound-allow netsh rules for the interface's addresses.
+func (a *WindowsInterfaceAllower) Apply() error {
 	if !isWindowsFirewallReachable() {
 		return nil
 	}
@@ -60,13 +44,13 @@ func (m *Manager) AllowNetbird() error {
 			"enable=yes",
 			"action=allow",
 			"profile=any",
-			"localip="+m.wgIface.Address().IP.String(),
+			"localip="+a.iface.Address().IP.String(),
 		); err != nil {
 			return err
 		}
 	}
 
-	if v6 := m.wgIface.Address().IPv6; v6.IsValid() && !isFirewallRuleActive(firewallRuleName+"-v6") {
+	if v6 := a.iface.Address().IPv6; v6.IsValid() && !isFirewallRuleActive(firewallRuleName+"-v6") {
 		if err := manageFirewallRule(firewallRuleName+"-v6",
 			addRule,
 			"dir=in",
@@ -82,8 +66,27 @@ func (m *Manager) AllowNetbird() error {
 	return nil
 }
 
-func manageFirewallRule(ruleName string, action action, extraArgs ...string) error {
+// Close removes the netsh rules added by Apply.
+func (a *WindowsInterfaceAllower) Close() error {
+	if !isWindowsFirewallReachable() {
+		return nil
+	}
 
+	var merr *multierror.Error
+	if isFirewallRuleActive(firewallRuleName) {
+		if err := manageFirewallRule(firewallRuleName, deleteRule); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("remove windows firewall rule: %w", err))
+		}
+	}
+	if isFirewallRuleActive(firewallRuleName + "-v6") {
+		if err := manageFirewallRule(firewallRuleName+"-v6", deleteRule); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("remove windows v6 firewall rule: %w", err))
+		}
+	}
+	return nberrors.FormatErrorOrNil(merr)
+}
+
+func manageFirewallRule(ruleName string, action action, extraArgs ...string) error {
 	args := []string{"advfirewall", "firewall", string(action), "rule", "name=" + ruleName}
 	if action == addRule {
 		args = append(args, extraArgs...)

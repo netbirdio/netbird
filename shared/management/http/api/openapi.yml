@@ -5357,7 +5357,7 @@ components:
         upstream_url:
           type: string
           description: |
-            The upstream being configured. Used to reach vendors that serve their listing from the same host as inference, and to read back the region for those whose host embeds one. Ignored when provider_id is supplied.
+            The upstream being configured. Used to reach vendors that serve their listing from the same host as inference, and to read back the region for those whose host embeds one. Sent alongside provider_id, it overrides the stored upstream, so an edit can be listed against the URL on the form before it is saved.
           example: "https://bedrock-runtime.eu-central-1.amazonaws.com"
         api_key:
           type: string
@@ -5365,7 +5365,7 @@ components:
           example: "sk-..."
         provider_id:
           type: string
-          description: Existing Agent Network provider record whose stored credential and upstream should be used. Lets the form refresh the list without the client holding the key.
+          description: Existing Agent Network provider record to query with. Its stored credential is used, and its upstream unless upstream_url overrides it, so the form can refresh the list without the client holding the key.
           example: "ch8i4ug6lnn4g9hqv7m0"
       required:
         - catalog_provider_id
@@ -14225,7 +14225,14 @@ paths:
           "$ref": "#/components/responses/internal_error"
     post:
       summary: Create an Agent Network Provider
-      description: Connects a new Agent Network AI provider for the account.
+      description: |
+        Connects a new Agent Network AI provider for the account.
+
+        The credential is checked against the vendor's model listing before the provider is stored, so a record the vendor will not accept is refused rather than saved. A rejected credential, a listing endpoint that does not resolve or answer, a vendor outage, and a timeout all block the write and return 422.
+
+        What that proves about the upstream URL is narrower than the URL itself. Only its host is used: the listing is requested over HTTPS at the path the catalog entry declares, so a configured scheme or path is neither used nor validated here. Where the catalog entry has a listing host of its own — Bedrock, whose listing comes from the control plane — even the host is only resolved, never contacted, so a public host that does not answer is still stored.
+
+        Only what cannot be checked at all is exempt and stored unverified: a catalog provider with no listing endpoint, one with no host to derive a listing from, an upstream resolving to a private address the management service will not dial, and a provider configured to skip TLS verification.
       tags: [ Agent Network ]
       security:
         - BearerAuth: [ ]
@@ -14251,6 +14258,8 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '409':
           "$ref": "#/components/responses/conflict"
+        '422':
+          "$ref": "#/components/responses/validation_failed_simple"
         '500':
           "$ref": "#/components/responses/internal_error"
   /api/agent-network/providers/{providerId}:
@@ -14287,7 +14296,10 @@ paths:
           "$ref": "#/components/responses/internal_error"
     put:
       summary: Update an Agent Network Provider
-      description: Update an existing Agent Network AI provider.
+      description: |
+        Update an existing Agent Network AI provider.
+
+        When the upstream URL, the API key or the catalog provider changes, the record is checked against the vendor before the change is stored, and a refusal returns 422 without replacing what was there. Switching TLS verification back on is the fourth trigger: a provider exempt from the check was stored unverified, so the edit that ends the exemption is the first opportunity to check it. Where one of the four does fire, an update that omits the API key is checked against the stored one. Edits touching none of them — a rename, model rows, price edits — are stored without a check, as are the cases the create description lists as unverifiable.
       tags: [ Agent Network ]
       security:
         - BearerAuth: [ ]
@@ -14322,6 +14334,8 @@ paths:
           "$ref": "#/components/responses/not_found"
         '409':
           "$ref": "#/components/responses/conflict"
+        '422':
+          "$ref": "#/components/responses/validation_failed_simple"
         '500':
           "$ref": "#/components/responses/internal_error"
     delete:

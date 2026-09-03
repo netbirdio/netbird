@@ -115,3 +115,20 @@ func TestRouter_BedrockNamespacedInferenceProfilesStripsPrefix(t *testing.T) {
 	assert.Equal(t, "/bedrock", out.Mutations.RewriteUpstream.StripPathPrefix,
 		"the namespace prefix must not reach the real Bedrock endpoint")
 }
+
+// TestRouteClaimsModel_VertexNormalizesCandidate is the Vertex counterpart of
+// the Bedrock case above: the parser strips the "@version" suffix from the
+// path model, so a provider registered with the versioned form must still
+// match the normalized request model.
+func TestRouteClaimsModel_VertexNormalizesCandidate(t *testing.T) {
+	route := ProviderRoute{Vertex: true, Models: []string{"claude-sonnet-4-5@20250929"}}
+	assert.True(t, routeClaimsModel(route, "claude-sonnet-4-5"),
+		"raw @version Vertex model must match the normalized request model")
+	assert.False(t, routeClaimsModel(route, "claude-opus-4-8"),
+		"a model outside the provider's list must not match")
+
+	// Non-Vertex routes keep exact matching (no @version stripping).
+	openai := ProviderRoute{Models: []string{"gpt-4o@2024"}}
+	assert.False(t, routeClaimsModel(openai, "gpt-4o"),
+		"non-Vertex routes must not strip an @version suffix")
+}
