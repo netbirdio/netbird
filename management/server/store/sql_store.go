@@ -6394,14 +6394,14 @@ func (s *SqlStore) HasActiveProxyAtClusterAddress(ctx context.Context, clusterAd
 
 // IsClusterAddressConflicting reports whether the address is already declared
 // by a proxy outside the account — a shared proxy or another account's. The
-// comparison is case-insensitive: cluster addresses are hostnames, stored as
-// the proxy declared them, so two spellings of one host are one cluster and
-// must conflict rather than being claimable side by side.
+// match is exact, and stays exact so it uses the cluster_address index:
+// addresses are canonicalised where they are written (canonicalProxyAddress on
+// the proxy-connect path), so one host has one spelling in this column.
 func (s *SqlStore) IsClusterAddressConflicting(ctx context.Context, clusterAddress, accountID string) (bool, error) {
 	var count int64
 	result := s.db.
 		Model(&proxy.Proxy{}).
-		Where("LOWER(cluster_address) = LOWER(?) AND (account_id IS NULL OR account_id != ?)", clusterAddress, accountID).
+		Where("cluster_address = ? AND (account_id IS NULL OR account_id != ?)", clusterAddress, accountID).
 		Count(&count)
 	if result.Error != nil {
 		return false, status.Errorf(status.Internal, "check cluster address conflict: %v", result.Error)

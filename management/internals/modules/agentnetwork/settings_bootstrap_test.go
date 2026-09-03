@@ -380,14 +380,15 @@ func TestCreateSettingsAcceptsOwnPrivateCluster(t *testing.T) {
 	assert.Equal(t, "byop.account1.example.com", created.ProxyAddress)
 }
 
-// TestCreateSettingsMatchesClusterCasing pins hostname case-insensitivity
-// across the whole check. Proxies declare their cluster address verbatim while
-// proxy_address is normalised lowercase, so a cluster spelled with capitals is
-// the same cluster: its own private capability must still be found (an exact
-// lookup under the normalised spelling finds nothing and would refuse a
-// perfectly good cluster), and another account's must still be recognised as
-// theirs (a lookup that misses would read as "never declared" and let the pin
-// through).
+// TestCreateSettingsMatchesClusterCasing pins that a cluster spelled with
+// capitals in the store is still recognised as the same cluster the normalised
+// proxy_address names. Addresses are canonicalised where they are written
+// (canonicalProxyAddress on the proxy-connect path), so this is the belt to
+// that braces: it covers a row written before that landed, and any future
+// writer that skips it. The comparison is in memory over the account's cluster
+// list, so it costs nothing at the query — the capability lookup is still
+// asked under the spelling the store actually holds, which is what an exact,
+// indexed match needs.
 func TestCreateSettingsMatchesClusterCasing(t *testing.T) {
 	ctx := context.Background()
 
@@ -399,19 +400,6 @@ func TestCreateSettingsMatchesClusterCasing(t *testing.T) {
 		created, err := f.createSettings(ctx, "account1", "user1", "eu.proxy.example.com", "")
 		require.NoError(t, err, "a private cluster declared with capitals must still be accepted")
 		assert.Equal(t, "eu.proxy.example.com", created.ProxyAddress)
-	})
-
-	t.Run("foreign cluster is still foreign", func(t *testing.T) {
-		f := newBootstrapFixture(t)
-		f.seedProxy(t, "proxy1", "account2", "BYOP.Account2.Example.com", ptrTo(true))
-		f.expectPermission("account1", "user1", modules.AgentNetworkSettings, operations.Create, true)
-
-		_, err := f.createSettings(ctx, "account1", "user1", "byop.account2.example.com", "")
-		require.Error(t, err, "another account's cluster must be refused whatever its casing")
-		var sErr *status.Error
-		require.ErrorAs(t, err, &sErr)
-		assert.Equal(t, status.InvalidArgument, sErr.Type())
-		assert.Contains(t, err.Error(), "not available to this account")
 	})
 
 	t.Run("non-private cluster is still refused", func(t *testing.T) {

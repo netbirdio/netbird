@@ -937,13 +937,16 @@ func (m *managerImpl) validateGatewayCluster(ctx context.Context, accountID, clu
 // host as clusterAddr. Empty means management holds no proxy row for that host
 // in this account's view.
 //
-// Addresses are stored as the proxy declared them and hostnames are
-// case-insensitive, so identity is compared on the normalised form while the
-// stored spellings are what comes back: the capability lookups match
-// cluster_address exactly, and handing one a normalised address it never
-// stored would silently find nothing. The cluster listing is not gated on
-// heartbeats, so this answer does not change while a cluster's proxies are
-// merely offline.
+// Addresses are canonicalised where they are written (canonicalProxyAddress on
+// the proxy-connect path), so a stored spelling normally is the normalised
+// form. Identity is still compared on the normalised form rather than
+// byte-equal, which costs nothing here — this is an in-memory pass over the
+// account's clusters, not a query — and covers a row written before that
+// landed. What comes back is the stored spelling either way, because the
+// capability lookup matches cluster_address exactly and would silently find
+// nothing under a spelling the store never held. The cluster listing is not
+// gated on heartbeats, so this answer does not change while a cluster's
+// proxies are merely offline.
 func (m *managerImpl) accountClusterSpellings(ctx context.Context, accountID, clusterAddr string) ([]string, error) {
 	clusters, err := m.store.GetProxyClusters(ctx, accountID)
 	if err != nil {
