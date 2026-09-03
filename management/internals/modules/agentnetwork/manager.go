@@ -889,12 +889,12 @@ func (m *managerImpl) bootstrapSelfAddressed(ctx context.Context, settings *type
 // all: pinning ahead of a proxy's first connection is a legitimate order — the
 // dedicated path claims an address the same way, before any proxy declares it.
 func (m *managerImpl) validateGatewayCluster(ctx context.Context, accountID, clusterAddr string) error {
-	known, err := m.accountKnowsCluster(ctx, accountID, clusterAddr)
+	declared, err := m.accountClusterSpellings(ctx, accountID, clusterAddr)
 	if err != nil {
 		return err
 	}
 
-	if !known {
+	if len(declared) == 0 {
 		// Not in the account's view. A shared cluster would have been in it,
 		// so a proxy row elsewhere for this address can only be another
 		// account's BYOP cluster: its proxies filter foreign mappings out on
@@ -916,26 +916,41 @@ func (m *managerImpl) validateGatewayCluster(ctx context.Context, accountID, clu
 	// unreported capability (nothing live in the cluster, or proxies predating
 	// capability reporting) fail here: unusable and unproven are the same
 	// answer for a decision that cannot be revisited later.
-	if private := m.store.GetClusterSupportsPrivate(ctx, clusterAddr); private == nil || !*private {
-		return status.Errorf(status.InvalidArgument,
-			"proxy cluster %s cannot serve the agent network gateway: the gateway is reachable only from connected peers, "+
-				"which needs at least one connected embedded proxy (netbird proxy) in the cluster", clusterAddr)
+	//
+	// The capability is read per declared spelling and taken as any-true, the
+	// same way it aggregates over a cluster's proxies: the store matches
+	// cluster_address exactly, so a host two proxies spelled differently must
+	// not come back unproven just because it was asked about under one of them.
+	for _, address := range declared {
+		if private := m.store.GetClusterSupportsPrivate(ctx, address); private != nil && *private {
+			return nil
+		}
 	}
-	return nil
+
+	return status.Errorf(status.InvalidArgument,
+		"proxy cluster %s cannot serve the agent network gateway: the gateway is reachable only from connected peers, "+
+			"which needs at least one connected embedded proxy (netbird proxy) in the cluster", clusterAddr)
 }
 
-// accountKnowsCluster reports whether clusterAddr is a proxy cluster in the
-// account's view — one of its own (BYOP) clusters or a shared one. The cluster
-// listing is not gated on heartbeats, so this answer does not change while a
-// cluster's proxies are merely offline. Addresses are stored as the proxy
-// declared them, so both sides are normalised: hostnames are case-insensitive
-// and the pin must not be sidesteppable by casing.
-func (m *managerImpl) accountKnowsCluster(ctx context.Context, accountID, clusterAddr string) (bool, error) {
+// accountClusterSpellings returns every proxy cluster address in the account's
+// view — its own (BYOP) clusters plus the shared ones — that names the same
+// host as clusterAddr. Empty means management holds no proxy row for that host
+// in this account's view.
+//
+// Addresses are stored as the proxy declared them and hostnames are
+// case-insensitive, so identity is compared on the normalised form while the
+// stored spellings are what comes back: the capability lookups match
+// cluster_address exactly, and handing one a normalised address it never
+// stored would silently find nothing. The cluster listing is not gated on
+// heartbeats, so this answer does not change while a cluster's proxies are
+// merely offline.
+func (m *managerImpl) accountClusterSpellings(ctx context.Context, accountID, clusterAddr string) ([]string, error) {
 	clusters, err := m.store.GetProxyClusters(ctx, accountID)
 	if err != nil {
-		return false, fmt.Errorf("list proxy clusters: %w", err)
+		return nil, fmt.Errorf("list proxy clusters: %w", err)
 	}
 
+	var spellings []string
 	for _, cluster := range clusters {
 		normalized, err := types.NormalizeHostname(cluster.Address)
 		if err != nil {
@@ -945,10 +960,10 @@ func (m *managerImpl) accountKnowsCluster(ctx context.Context, accountID, cluste
 			continue
 		}
 		if normalized == clusterAddr {
-			return true, nil
+			spellings = append(spellings, cluster.Address)
 		}
 	}
-	return false, nil
+	return spellings, nil
 }
 
 // bootstrapLabeled allocates a labeled endpoint one label beneath the given

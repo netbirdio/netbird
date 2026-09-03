@@ -143,10 +143,16 @@ func waitClusterPrivate(ctx context.Context, t *testing.T, c *harness.Combined, 
 // offered, i.e. management sees no live proxy in it. The free-domain list is
 // built from the active clusters, so this is how a proxy going away becomes
 // observable — while the cluster's rows, and so its capability record, remain.
+//
+// The budget has to clear the active window, not just the disconnect: a proxy
+// that closes its stream cleanly is marked disconnected at once, but one that
+// dies without that is only dropped when its last heartbeat ages past
+// proxyActiveThreshold (2 minutes), so a 90s deadline could fail the test on
+// the slow path alone.
 func waitClusterAbsent(ctx context.Context, t *testing.T, c *harness.Combined, clusterAddr string) {
 	t.Helper()
 
-	deadline := time.Now().Add(90 * time.Second)
+	deadline := time.Now().Add(3 * time.Minute)
 	var last string
 	for time.Now().Before(deadline) {
 		domains, err := c.API().ReverseProxyDomains.List(ctx)
