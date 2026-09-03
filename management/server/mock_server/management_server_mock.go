@@ -30,7 +30,8 @@ func (m ManagementServiceServerMock) Login(ctx context.Context, req *proto.Encry
 
 func (m ManagementServiceServerMock) Sync(msg *proto.EncryptedMessage, sync proto.ManagementService_SyncServer) error {
 	if m.SyncFunc != nil {
-		return m.Sync(msg, sync)
+		m.SyncFunc(msg, sync)
+		return nil
 	}
 	return status.Errorf(codes.Unimplemented, "method Sync not implemented")
 }

@@ -2,9 +2,11 @@ package client
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"os"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -305,7 +307,7 @@ func TestClient_Sync(t *testing.T) {
 	defer cancel()
 
 	go func() {
-		err = client.Sync(ctx, info, func(msg *mgmtProto.SyncResponse) error {
+		err = client.Sync(ctx, func(context.Context) *system.Info { return info }, func(msg *mgmtProto.SyncResponse) error {
 			ch <- msg
 			return nil
 		})
@@ -395,6 +397,56 @@ func wgKeyFromBytes(raw []byte) string {
 	}
 	copy(k[:], raw)
 	return k.String()
+}
+
+func TestClient_SyncGathersInfoOnEveryConnect(t *testing.T) {
+	s, lis, mgmtMockServer, serverKey := startMockManagement(t)
+	defer s.GracefulStop()
+
+	testKey, err := wgtypes.GenerateKey()
+	require.NoError(t, err)
+
+	hostnames := make(chan string, 2)
+	mgmtMockServer.SyncFunc = func(msg *mgmtProto.EncryptedMessage, _ mgmtProto.ManagementService_SyncServer) {
+		peerKey, err := wgtypes.ParseKey(msg.GetWgPubKey())
+		if err != nil {
+			t.Errorf("invalid peer key: %v", err)
+			return
+		}
+		syncReq := &mgmtProto.SyncRequest{}
+		if err := encryption.DecryptMessage(peerKey, serverKey, msg.Body, syncReq); err != nil {
+			t.Errorf("decrypt sync request: %v", err)
+			return
+		}
+		select {
+		case hostnames <- syncReq.GetMeta().GetHostname():
+		default:
+		}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	client, err := NewClient(ctx, lis.Addr().String(), testKey, false)
+	require.NoError(t, err)
+
+	var gathers atomic.Int32
+	go func() {
+		_ = client.Sync(ctx, func(ctx context.Context) *system.Info {
+			info := system.GetInfo(ctx)
+			info.Hostname = fmt.Sprintf("host-%d", gathers.Add(1))
+			return info
+		}, func(*mgmtProto.SyncResponse) error { return nil })
+	}()
+
+	for _, want := range []string{"host-1", "host-2"} {
+		select {
+		case got := <-hostnames:
+			assert.Equal(t, want, got)
+		case <-time.After(10 * time.Second):
+			t.Fatalf("timeout waiting for the sync request carrying %s", want)
+		}
+	}
 }
 
 func Test_SystemMetaDataFromClient(t *testing.T) {

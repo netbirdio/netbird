@@ -265,6 +265,8 @@ type Engine struct {
 	// checks are the client-applied posture checks that need to be evaluated on the client
 	checks []*mgmProto.Checks
 
+	infoSource system.InfoSource
+
 	relayManager       *relayClient.Manager
 	stateManager       *statemanager.Manager
 	portForwardManager *portforward.Manager
@@ -1243,7 +1245,7 @@ func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 	}
 	e.checks = checks
 
-	info, ok := system.GetInfoWithChecksTimeout(e.ctx, systemInfoTimeout, checks, e.overlayAddresses()...)
+	info, ok := e.infoSource.Refresh(e.ctx, systemInfoTimeout, checks, e.overlayAddresses()...)
 	if !ok {
 		// Gathering timed out; skip the meta sync this cycle rather than blocking the
 		// sync loop (and syncMsgMux) on a stuck system call. A later sync will retry.
@@ -1278,6 +1280,12 @@ func (e *Engine) applyInfoFlags(info *system.Info) {
 		e.config.DisableSSHAuth,
 		&e.config.RemoteJobsAllowed,
 	)
+}
+
+func (e *Engine) currentSystemInfo(ctx context.Context) *system.Info {
+	info := e.infoSource.Current(ctx, e.overlayAddresses()...)
+	e.applyInfoFlags(info)
+	return info
 }
 
 // overlayAddresses returns our own WireGuard overlay address (v4 and v6) so it
@@ -1473,15 +1481,7 @@ func (e *Engine) receiveManagementEvents() {
 	e.shutdownWg.Add(1)
 	go func() {
 		defer e.shutdownWg.Done()
-		info, ok := system.GetInfoWithChecksTimeout(e.ctx, systemInfoTimeout, e.checks, e.overlayAddresses()...)
-		if !ok {
-			// Gathering timed out; connect the stream with base info so management
-			// connectivity still comes up rather than blocking here.
-			info = system.GetInfo(e.ctx)
-		}
-		e.applyInfoFlags(info)
-
-		err := e.mgmClient.Sync(e.ctx, info, e.handleSync)
+		err := e.mgmClient.Sync(e.ctx, e.currentSystemInfo, e.handleSync)
 		if err != nil {
 			// happens if management is unavailable for a long time.
 			// We want to cancel the operation of the whole client
