@@ -32,7 +32,7 @@ const EventSettingsOpen = "netbird:settings:open"
 
 const EventWindowPainted = "netbird:window-painted"
 
-const paintedFallback = 2 * time.Second
+const paintedFallback = 3 * time.Second
 
 const headlessTeardownDelay = 2 * time.Second
 
@@ -123,6 +123,7 @@ type WindowManager struct {
 	pendingTab     map[uint]string
 	pendingEmits   map[uint][]string
 	fallbackTimers map[uint]*time.Timer
+	afterShow      map[uint]func()
 	headlessMain   bool
 	headlessTimer  *time.Timer
 	// recenterOnShow is set only on the minimal-WM/XEmbed path, where the WM neither centers nor
@@ -142,6 +143,7 @@ func NewWindowManager(app *application.App, mainWindow *application.WebviewWindo
 		pendingTab:     map[uint]string{},
 		pendingEmits:   map[uint][]string{},
 		fallbackTimers: map[uint]*time.Timer{},
+		afterShow:      map[uint]func(){},
 	}
 	s.watchPainted()
 	s.watchTriggerLogin()
@@ -215,7 +217,6 @@ func (s *WindowManager) OpenSettings(tab string) {
 // OpenBrowserLogin shows the SSO popup, creating it on first use.
 func (s *WindowManager) OpenBrowserLogin(uri string) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.browserLogin == nil {
 		startURL := "/#/dialog/browser-login"
 		if uri != "" {
@@ -228,8 +229,8 @@ func (s *WindowManager) OpenBrowserLogin(uri string) {
 		opts.InitialPosition = application.WindowCentered
 		// Open on the active (where users cursor is) display, like the session-expiration dialog.
 		opts.Screen = s.getScreenBasedOnCursorPosition()
-		s.browserLogin = s.app.Window.NewWithOptions(opts)
-		bl := s.browserLogin
+		bl := s.app.Window.NewWithOptions(opts)
+		s.browserLogin = bl
 		bl.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
 			s.mu.Lock()
 			// Only a live user red-X still has this registered; programmatic closers
@@ -240,26 +241,36 @@ func (s *WindowManager) OpenBrowserLogin(uri string) {
 				s.browserLogin = nil
 				s.restoreHiddenWindowsLocked()
 			}
+			s.forgetWindowLocked(bl)
 			s.mu.Unlock()
 			if userClosed {
 				s.app.Event.Emit(EventBrowserLoginCancel)
 			}
 		})
+		s.mu.Unlock()
+		s.armReady(bl)
 		s.centerOnCursorScreen(bl)
-		bl.Show()
-		bl.Focus()
-		log.Debugf("browser-login popup created and shown")
-		s.openBrowser(uri)
+		log.Debugf("browser-login popup created")
+		s.showThenOpenBrowser(bl, uri)
 		return
 	}
+	bl := s.browserLogin
+	s.mu.Unlock()
 	if uri != "" {
-		s.browserLogin.SetURL("/#/dialog/browser-login?uri=" + url.QueryEscape(uri))
+		bl.SetURL("/#/dialog/browser-login?uri=" + url.QueryEscape(uri))
 	}
-	s.centerOnCursorScreen(s.browserLogin)
-	s.browserLogin.Show()
-	s.browserLogin.Focus()
+	s.centerOnCursorScreen(bl)
 	log.Debugf("browser-login popup reused")
-	s.openBrowser(uri)
+	s.showThenOpenBrowser(bl, uri)
+}
+
+func (s *WindowManager) showThenOpenBrowser(w *application.WebviewWindow, uri string) {
+	if uri != "" {
+		s.mu.Lock()
+		s.afterShow[w.ID()] = func() { s.openBrowser(uri) }
+		s.mu.Unlock()
+	}
+	s.showWhenReady(w)
 }
 
 func (s *WindowManager) openBrowser(uri string) {
@@ -313,29 +324,36 @@ func (s *WindowManager) CloseBrowserLogin() {
 // the countdown and deadlineUnixMilli (0 when unknown) is the absolute deadline the dialog
 // compares renewal snapshots against. Singleton, destroyed on close.
 func (s *WindowManager) OpenSessionExpiration(seconds int, deadlineUnixMilli int64) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	startURL := "/#/dialog/session-expiration?seconds=" + strconv.Itoa(seconds)
 	if deadlineUnixMilli > 0 {
 		startURL += "&deadline=" + strconv.FormatInt(deadlineUnixMilli, 10)
 	}
+	s.mu.Lock()
 	if s.sessionExpiration == nil {
 		opts := DialogWindowOptions("session-expiration", s.title("window.title.sessionExpiration"), startURL, s.linuxIcon)
 		opts.Screen = s.getScreenBasedOnCursorPosition()
 		opts.InitialPosition = application.WindowCentered
-		s.sessionExpiration = s.app.Window.NewWithOptions(opts)
-		s.sessionExpiration.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
+		w := s.app.Window.NewWithOptions(opts)
+		s.sessionExpiration = w
+		w.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
 			s.mu.Lock()
-			s.sessionExpiration = nil
+			if s.sessionExpiration == w {
+				s.sessionExpiration = nil
+			}
+			s.forgetWindowLocked(w)
 			s.mu.Unlock()
 		})
-		s.centerOnCursorScreen(s.sessionExpiration)
+		s.mu.Unlock()
+		s.armReady(w)
+		s.centerOnCursorScreen(w)
+		s.showWhenReady(w)
 		return
 	}
-	s.sessionExpiration.SetURL(startURL)
-	s.centerOnCursorScreen(s.sessionExpiration)
-	s.sessionExpiration.Show()
-	s.sessionExpiration.Focus()
+	w := s.sessionExpiration
+	s.mu.Unlock()
+	w.SetURL(startURL)
+	s.centerOnCursorScreen(w)
+	s.showWhenReady(w)
 }
 
 func (s *WindowManager) CloseSessionExpiration() {
@@ -380,30 +398,35 @@ func (s *WindowManager) CloseRenewFlow() {
 // OpenInstallProgress shows the install-progress window and hides the rest for the duration
 // (restored on close). It owns its own result polling since the daemon restarts mid-install.
 func (s *WindowManager) OpenInstallProgress(version string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	startURL := "/#/dialog/install-progress"
 	if version != "" {
 		startURL = "/#/dialog/install-progress?version=" + url.QueryEscape(version)
 	}
+	s.mu.Lock()
 	if s.installProgress == nil {
 		s.hideOtherWindowsLocked("install-progress")
-		s.installProgress = s.app.Window.NewWithOptions(
+		w := s.app.Window.NewWithOptions(
 			DialogWindowOptions("install-progress", s.title("window.title.updating"), startURL, s.linuxIcon),
 		)
-		s.installProgress.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
+		s.installProgress = w
+		w.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
 			s.mu.Lock()
-			s.installProgress = nil
+			if s.installProgress == w {
+				s.installProgress = nil
+			}
 			s.restoreHiddenWindowsLocked()
+			s.forgetWindowLocked(w)
 			s.mu.Unlock()
 		})
-		s.centerWhenReady(s.installProgress)
+		s.mu.Unlock()
+		s.armReady(w)
+		s.showWhenReady(w)
 		return
 	}
-	s.installProgress.SetURL(startURL)
-	s.installProgress.Show()
-	s.installProgress.Focus()
-	s.centerWhenReady(s.installProgress)
+	w := s.installProgress
+	s.mu.Unlock()
+	w.SetURL(startURL)
+	s.showWhenReady(w)
 }
 
 func (s *WindowManager) CloseInstallProgress() {
@@ -419,24 +442,28 @@ func (s *WindowManager) CloseInstallProgress() {
 // OpenWelcome shows the first-launch onboarding window. Singleton, destroyed on close.
 func (s *WindowManager) OpenWelcome() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.welcome == nil {
 		opts := DialogWindowOptions("welcome", s.title("window.title.welcome"), "/#/dialog/welcome", s.linuxIcon)
 		opts.Width = 420
 		opts.InitialPosition = application.WindowCentered
-		s.welcome = s.app.Window.NewWithOptions(opts)
-		w := s.welcome
+		w := s.app.Window.NewWithOptions(opts)
+		s.welcome = w
 		w.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
 			s.mu.Lock()
-			s.welcome = nil
+			if s.welcome == w {
+				s.welcome = nil
+			}
+			s.forgetWindowLocked(w)
 			s.mu.Unlock()
 		})
-		s.centerWhenReady(s.welcome)
+		s.mu.Unlock()
+		s.armReady(w)
+		s.showWhenReady(w)
 		return
 	}
-	s.welcome.Show()
-	s.welcome.Focus()
-	s.centerWhenReady(s.welcome)
+	w := s.welcome
+	s.mu.Unlock()
+	s.showWhenReady(w)
 }
 
 func (s *WindowManager) CloseWelcome() {
@@ -457,25 +484,30 @@ func (s *WindowManager) OpenError(title, message, command string) {
 	if ShuttingDown() {
 		return
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	startURL := errorDialogURL(title, message, command)
+	s.mu.Lock()
 	if s.errorDialog == nil {
-		s.errorDialog = s.app.Window.NewWithOptions(
+		w := s.app.Window.NewWithOptions(
 			DialogWindowOptions("error", s.title("window.title.error"), startURL, s.linuxIcon),
 		)
-		s.errorDialog.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
+		s.errorDialog = w
+		w.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
 			s.mu.Lock()
-			s.errorDialog = nil
+			if s.errorDialog == w {
+				s.errorDialog = nil
+			}
+			s.forgetWindowLocked(w)
 			s.mu.Unlock()
 		})
-		s.centerWhenReady(s.errorDialog)
+		s.mu.Unlock()
+		s.armReady(w)
+		s.showWhenReady(w)
 		return
 	}
-	s.errorDialog.SetURL(startURL)
-	s.errorDialog.Show()
-	s.errorDialog.Focus()
-	s.centerWhenReady(s.errorDialog)
+	w := s.errorDialog
+	s.mu.Unlock()
+	w.SetURL(startURL)
+	s.showWhenReady(w)
 }
 
 func (s *WindowManager) CloseError() {
@@ -561,15 +593,24 @@ func (s *WindowManager) armReady(w *application.WebviewWindow) {
 	if w == nil {
 		return
 	}
-	w.RegisterHook(events.Common.WindowRuntimeReady, func(_ *application.WindowEvent) {
-		timer := time.AfterFunc(paintedFallback, func() {
-			log.Warnf("window %q never reported a first render, showing it anyway", w.Name())
-			s.markReady(w)
-		})
+	id := w.ID()
+	timer := time.AfterFunc(paintedFallback, func() {
 		s.mu.Lock()
-		s.fallbackTimers[w.ID()] = timer
+		ready := s.ready[id]
 		s.mu.Unlock()
+		if ready {
+			return
+		}
+		log.Warnf("window %q never reported a first render, showing it anyway", w.Name())
+		s.markReady(w)
 	})
+	s.mu.Lock()
+	if s.ready[id] {
+		timer.Stop()
+	} else {
+		s.fallbackTimers[id] = timer
+	}
+	s.mu.Unlock()
 }
 
 func (s *WindowManager) watchPainted() {
@@ -668,6 +709,7 @@ func (s *WindowManager) forgetWindowLocked(w *application.WebviewWindow) {
 	delete(s.showPending, id)
 	delete(s.pendingTab, id)
 	delete(s.pendingEmits, id)
+	delete(s.afterShow, id)
 
 	kept := s.hiddenForLogin[:0]
 	for _, hidden := range s.hiddenForLogin {
@@ -686,6 +728,16 @@ func (s *WindowManager) windowByName(name string) *application.WebviewWindow {
 		return s.mainWindow
 	case "settings":
 		return s.settings
+	case "browser-login":
+		return s.browserLogin
+	case "session-expiration":
+		return s.sessionExpiration
+	case "install-progress":
+		return s.installProgress
+	case "welcome":
+		return s.welcome
+	case "error":
+		return s.errorDialog
 	default:
 		return nil
 	}
@@ -744,6 +796,7 @@ func (s *WindowManager) showWhenReady(w *application.WebviewWindow) {
 }
 
 func (s *WindowManager) showNow(w *application.WebviewWindow) {
+	id := w.ID()
 	s.mu.Lock()
 	if w == s.mainWindow {
 		s.headlessMain = false
@@ -752,10 +805,15 @@ func (s *WindowManager) showNow(w *application.WebviewWindow) {
 			s.headlessTimer = nil
 		}
 	}
+	after := s.afterShow[id]
+	delete(s.afterShow, id)
 	s.mu.Unlock()
 	w.Show()
 	w.Focus()
 	s.centerWhenReady(w)
+	if after != nil {
+		after()
+	}
 }
 
 func (s *WindowManager) ShowMainAt(url string) {

@@ -20,7 +20,7 @@ export default function LoginWaitingForBrowserDialog() {
     const { t } = useTranslation();
     const [params] = useSearchParams();
     const uri = params.get("uri") ?? "";
-    const contentRef = useAutoSizeWindow<HTMLDivElement>(WINDOW_WIDTH, true, false);
+    const contentRef = useAutoSizeWindow<HTMLDivElement>(WINDOW_WIDTH);
 
     const reportOpenFailure = useCallback(
         (e: unknown) => {

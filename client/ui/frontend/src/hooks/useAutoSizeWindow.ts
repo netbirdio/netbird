@@ -1,27 +1,24 @@
 import { useLayoutEffect, useRef } from "react";
-import { Window } from "@wailsio/runtime";
+import { Events, Window } from "@wailsio/runtime";
 import i18next from "@/lib/i18n";
 import { isLinux } from "@/lib/platform";
 
+const EVENT_WINDOW_PAINTED = "netbird:window-painted";
+
 // Sizes the current Wails window to the measured content height (keeping `width`),
-// then shows it. Re-applies on content resize and language change.
-export function useAutoSizeWindow<T extends HTMLElement>(
-    width: number,
-    ready: boolean = true,
-    showWhenSized: boolean = true,
-) {
+// then reports it as painted so Go shows it. Re-applies on content resize and language change.
+export function useAutoSizeWindow<T extends HTMLElement>(width: number, ready: boolean = true) {
     const ref = useRef<T | null>(null);
     useLayoutEffect(() => {
         const el = ref.current;
         if (!el) return;
-        let shown = false;
+        let painted = false;
         let raf1 = 0;
         let raf2 = 0;
-        const showOnce = () => {
-            if (shown) return;
-            shown = true;
-            Window.Show().catch(() => {});
-            Window.Focus().catch(() => {});
+        const paintedOnce = () => {
+            if (painted) return;
+            painted = true;
+            Events.Emit(EVENT_WINDOW_PAINTED).catch(() => {});
         };
         const apply = async () => {
             if (!ready) return;
@@ -37,7 +34,7 @@ export function useAutoSizeWindow<T extends HTMLElement>(
                     await Window.SetMaxSize(width, targetH);
                 }
                 await Window.SetSize(width, targetH);
-                if (showWhenSized) showOnce();
+                paintedOnce();
             } catch {
                 // window gone / not ready — ignore
             }
@@ -59,6 +56,6 @@ export function useAutoSizeWindow<T extends HTMLElement>(
             cancelAnimationFrame(raf2);
             i18next.off("languageChanged", scheduleApply);
         };
-    }, [width, ready, showWhenSized]);
+    }, [width, ready]);
     return ref;
 }
