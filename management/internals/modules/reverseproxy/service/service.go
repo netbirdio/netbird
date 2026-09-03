@@ -999,11 +999,11 @@ func validateSubnetTarget(idx int, target *Target) error {
 		return nil
 	}
 	noBrackets := strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
-	maybeip := net.ParseIP(noBrackets)
-	if maybeip == nil { // not an ip address
+	maybeip, err := netip.ParseAddr(noBrackets)
+	if err != nil { // not an ip
 		return nil
 	}
-	if maybeip.IsLoopback() || maybeip.IsMulticast() || maybeip.IsLinkLocalUnicast() {
+	if maybeip.Zone() != "" || maybeip.IsLoopback() || maybeip.IsMulticast() || maybeip.IsLinkLocalUnicast() {
 		return fmt.Errorf("invalid direct upstream host ip %s %w", maybeip.String(), ErrUnsupportedIPAddressUpstreamHost)
 	}
 	return nil
@@ -1044,11 +1044,11 @@ func validateDirectUpstreamHost(idx int, target *Target) error {
 		return fmt.Errorf("target %d: host %q must not include a port (set target.port instead)", idx, host)
 	}
 	noBrackets := strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
-	maybeip := net.ParseIP(noBrackets)
-	if maybeip == nil { // not an ip address
+	maybeip, err := netip.ParseAddr(noBrackets)
+	if err != nil { // not an ip
 		return nil
 	}
-	if maybeip.IsLoopback() || maybeip.IsMulticast() || maybeip.IsLinkLocalUnicast() {
+	if maybeip.Zone() != "" || maybeip.IsLoopback() || maybeip.IsMulticast() || maybeip.IsLinkLocalUnicast() {
 		return fmt.Errorf("invalid direct upstream host ip %s %w", maybeip.String(), ErrUnsupportedIPAddressUpstreamHost)
 	}
 
