@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -298,6 +299,50 @@ func TestEngine_FirstSyncInfoCarriesLoginChecks(t *testing.T) {
 		t.Fatal("timeout waiting for the first sync info")
 	}
 	engine.shutdownWg.Wait()
+}
+
+func TestEngine_UpdateChecksIfNewRetriesAfterFailedSyncMeta(t *testing.T) {
+	key, err := wgtypes.GeneratePrivateKey()
+	require.NoError(t, err)
+
+	exe, err := os.Executable()
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(CtxInitState(context.Background()))
+	defer cancel()
+
+	syncMetaCalls := 0
+	mgmClient := &mgmt.MockClient{
+		SyncMetaFunc: func(*system.Info) error {
+			syncMetaCalls++
+			if syncMetaCalls == 1 {
+				return errors.New("management unavailable")
+			}
+			return nil
+		},
+	}
+
+	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
+	engine := NewEngine(ctx, cancel, &EngineConfig{
+		WgIfaceName:  "utun105",
+		WgAddr:       wgaddr.MustParseWGAddress("100.64.0.1/24"),
+		WgPrivateKey: key,
+		WgPort:       33100,
+		MTU:          iface.DefaultMTU,
+	}, EngineServices{
+		SignalClient:   &signal.MockClient{},
+		MgmClient:      mgmClient,
+		RelayManager:   relayMgr,
+		StatusRecorder: peer.NewRecorder("https://mgm"),
+	}, MobileDependency{})
+
+	checks := []*mgmtProto.Checks{{Files: []string{exe}}}
+
+	require.Error(t, engine.updateChecksIfNew(checks))
+	require.NoError(t, engine.updateChecksIfNew(checks))
+	require.NoError(t, engine.updateChecksIfNew(checks))
+
+	assert.Equal(t, 2, syncMetaCalls)
 }
 
 func TestEngine_UpdateNetworkMap(t *testing.T) {

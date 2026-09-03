@@ -1243,8 +1243,6 @@ func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 	if isChecksEqual(e.checks, checks) {
 		return nil
 	}
-	e.checks = checks
-
 	info, ok := e.infoSource.Refresh(e.ctx, systemInfoTimeout, checks, e.overlayAddresses()...)
 	if !ok {
 		// Gathering timed out; skip the meta sync this cycle rather than blocking the
@@ -1256,6 +1254,7 @@ func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 	if err := e.mgmClient.SyncMeta(info); err != nil {
 		return fmt.Errorf("could not sync meta: error %s", err)
 	}
+	e.checks = checks
 	return nil
 }
 
