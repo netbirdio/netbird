@@ -9,6 +9,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/netbirdio/netbird/proxy/auth"
+	"github.com/netbirdio/netbird/proxy/internal/netutil"
 	"github.com/netbirdio/netbird/proxy/internal/types"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
@@ -49,7 +50,7 @@ func (o OIDC) Authenticate(r *http.Request) (string, string, error) {
 
 	redirectURL := &url.URL{
 		Scheme: auth.ResolveProto(o.forwardedProto, r.TLS),
-		Host:   r.Host,
+		Host:   netutil.NormalizeAuthority(r.Host),
 		Path:   r.URL.Path,
 	}
 

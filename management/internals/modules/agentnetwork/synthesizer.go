@@ -121,12 +121,15 @@ func SynthesizeServicesForCluster(ctx context.Context, s store.Store, clusterAdd
 // then synthesis of just that account. Returns nil (no error) when no account
 // owns the domain.
 func SynthesizeServiceForDomain(ctx context.Context, s store.Store, domain string) (*rpservice.Service, error) {
-	domain = strings.ToLower(strings.TrimSpace(domain))
-	if domain == "" {
+	canonical, err := rpservice.CanonicalDomain(domain)
+	if err != nil {
+		return nil, fmt.Errorf("canonicalize agent network service domain: %w", err)
+	}
+	if canonical == "" {
 		return nil, nil //nolint:nilnil // optional lookup: no account owns the domain
 	}
 
-	settings, err := s.GetAgentNetworkSettingsByDomain(ctx, store.LockingStrengthNone, domain)
+	settings, err := s.GetAgentNetworkSettingsByDomain(ctx, store.LockingStrengthNone, canonical)
 	if err != nil {
 		if isNotFound(err) {
 			return nil, nil //nolint:nilnil // optional lookup: no account owns the domain
@@ -139,7 +142,11 @@ func SynthesizeServiceForDomain(ctx context.Context, s store.Store, domain strin
 		return nil, err
 	}
 	for _, svc := range services {
-		if svc != nil && svc.Domain == domain {
+		if svc == nil {
+			continue
+		}
+		svcDomain, err := rpservice.CanonicalDomain(svc.Domain)
+		if err == nil && svcDomain == canonical {
 			return svc, nil
 		}
 	}
