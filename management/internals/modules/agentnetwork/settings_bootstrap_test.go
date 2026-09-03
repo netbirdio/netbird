@@ -26,6 +26,10 @@ type bootstrapFixture struct {
 	manager Manager
 	store   store.Store
 	perms   *permissions.MockManager
+	// vendor stands in for the provider credential check's vendor call, which
+	// runs on every provider write. Without it these tests would reach a real
+	// vendor to save a record.
+	vendor *stubLister
 }
 
 func newBootstrapFixture(t *testing.T) *bootstrapFixture {
@@ -47,10 +51,12 @@ func newBootstrapFixture(t *testing.T) *bootstrapFixture {
 	accounts.EXPECT().UpdateAccountPeers(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 	accounts.EXPECT().BufferUpdateAccountPeers(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
+	vendor := &stubLister{}
 	return &bootstrapFixture{
-		manager: NewManager(st, perms, accounts, nil),
+		manager: NewManager(st, perms, accounts, nil, WithModelLister(vendor)),
 		store:   st,
 		perms:   perms,
+		vendor:  vendor,
 	}
 }
 
@@ -211,6 +217,7 @@ func TestCreateProviderHasNoSettingsSideEffects(t *testing.T) {
 	f.expectPermission("account1", "user1", modules.AgentNetworkProviders, operations.Create, true)
 
 	provider := types.NewProvider("account1")
+	provider.ProviderID = "openai_api"
 	provider.Name = "openai"
 	provider.UpstreamURL = "https://api.openai.com"
 	provider.APIKey = "sk-test"
