@@ -128,6 +128,27 @@ func (p *Preferences) SetDisableIPv6(disable bool) {
 	p.configInput.DisableIPv6 = &disable
 }
 
+// GetRemoteJobsAllowed reads the remote jobs opt-in from config file
+func (p *Preferences) GetRemoteJobsAllowed() (bool, error) {
+	if p.configInput.RemoteJobsAllowed != nil {
+		return *p.configInput.RemoteJobsAllowed, nil
+	}
+
+	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
+	if err != nil {
+		return false, err
+	}
+	if cfg.RemoteJobsAllowed == nil {
+		return false, nil
+	}
+	return *cfg.RemoteJobsAllowed, err
+}
+
+// SetRemoteJobsAllowed stores the given value and waits for commit
+func (p *Preferences) SetRemoteJobsAllowed(allowed bool) {
+	p.configInput.RemoteJobsAllowed = &allowed
+}
+
 // Commit write out the changes into config file
 func (p *Preferences) Commit() error {
 	// Use DirectUpdateOrCreateConfig to avoid atomic file operations (temp file + rename)
