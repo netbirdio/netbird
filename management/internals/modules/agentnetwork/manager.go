@@ -899,7 +899,7 @@ func (m *managerImpl) validateGatewayCluster(ctx context.Context, accountID, clu
 		// so a proxy row elsewhere for this address can only be another
 		// account's BYOP cluster: its proxies filter foreign mappings out on
 		// delivery, making the pin dead on arrival.
-		foreign, err := m.store.IsClusterAddressConflicting(ctx, clusterAddr, accountID)
+		foreign, err := m.store.HasProxyOutsideAccountAtHost(ctx, clusterAddr, accountID)
 		if err != nil {
 			return fmt.Errorf("check proxy cluster ownership: %w", err)
 		}

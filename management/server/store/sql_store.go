@@ -6374,11 +6374,13 @@ func (s *SqlStore) CountProxiesByAccountID(ctx context.Context, accountID string
 // queries. Backs the agent-network settings delete guard: settings cannot be
 // deleted while a proxy declares the endpoint hostname as its address.
 //
-// The comparison folds case on both sides: the caller passes a normalized
-// (lowercase) hostname, but proxies declare their cluster address verbatim
-// and Connect stores it unchanged, so on case-sensitive collations a proxy
-// declaring "GW.Example.com" would otherwise slip past the guard. Hostnames
-// are case-insensitive per RFC 4343; the guard must be too.
+// The comparison folds case on both sides. Addresses are canonicalized where
+// they are written now (canonicalProxyAddress on the proxy-connect path), so
+// this mostly matters for a row written before that: hostnames are
+// case-insensitive per RFC 4343, and on a case-sensitive collation a proxy
+// stored as "GW.Example.com" would otherwise slip past the guard. This runs
+// only on the settings delete path, so folding costs nothing worth indexing
+// around.
 func (s *SqlStore) HasActiveProxyAtClusterAddress(ctx context.Context, clusterAddress string) (bool, error) {
 	var count int64
 	result := s.db.
@@ -6397,6 +6399,29 @@ func (s *SqlStore) HasActiveProxyAtClusterAddress(ctx context.Context, clusterAd
 // match is exact, and stays exact so it uses the cluster_address index:
 // addresses are canonicalised where they are written (canonicalProxyAddress on
 // the proxy-connect path), so one host has one spelling in this column.
+// HasProxyOutsideAccountAtHost reports the same thing as
+// IsClusterAddressConflicting, folding case on both sides.
+//
+// The two exist separately because their callers differ in cost and in what
+// they can assume. IsClusterAddressConflicting runs on every account-scoped
+// proxy connect, where both sides are canonical and the match must stay exact
+// to use the cluster_address index. This one runs once per account, when an
+// agent network bootstraps, and is the only thing standing between that
+// account and pinning its immutable endpoint to a cluster somebody else runs
+// — so it also has to see a row written before addresses were canonicalized,
+// which is worth a scan on a path taken once.
+func (s *SqlStore) HasProxyOutsideAccountAtHost(ctx context.Context, host, accountID string) (bool, error) {
+	var count int64
+	result := s.db.
+		Model(&proxy.Proxy{}).
+		Where("LOWER(cluster_address) = LOWER(?) AND (account_id IS NULL OR account_id != ?)", host, accountID).
+		Count(&count)
+	if result.Error != nil {
+		return false, status.Errorf(status.Internal, "check proxy host ownership: %v", result.Error)
+	}
+	return count > 0, nil
+}
+
 func (s *SqlStore) IsClusterAddressConflicting(ctx context.Context, clusterAddress, accountID string) (bool, error) {
 	var count int64
 	result := s.db.

@@ -402,6 +402,19 @@ func TestCreateSettingsMatchesClusterCasing(t *testing.T) {
 		assert.Equal(t, "eu.proxy.example.com", created.ProxyAddress)
 	})
 
+	t.Run("foreign cluster is still foreign", func(t *testing.T) {
+		f := newBootstrapFixture(t)
+		f.seedProxy(t, "proxy1", "account2", "BYOP.Account2.Example.com", ptrTo(true))
+		f.expectPermission("account1", "user1", modules.AgentNetworkSettings, operations.Create, true)
+
+		_, err := f.createSettings(ctx, "account1", "user1", "byop.account2.example.com", "")
+		require.Error(t, err, "another account's cluster must be refused whatever its casing")
+		var sErr *status.Error
+		require.ErrorAs(t, err, &sErr)
+		assert.Equal(t, status.InvalidArgument, sErr.Type())
+		assert.Contains(t, err.Error(), "not available to this account")
+	})
+
 	t.Run("non-private cluster is still refused", func(t *testing.T) {
 		f := newBootstrapFixture(t)
 		f.seedProxy(t, "proxy1", "", "Central.Example.com", ptrTo(false))

@@ -51,6 +51,10 @@ func TestCanonicalProxyAddress(t *testing.T) {
 		{name: "mixed case ipv6 canonicalised", addr: "2001:DB8::1", canonical: "2001:db8::1", ok: true},
 		{name: "empty string rejected", addr: "", ok: false},
 		{name: "space rejected", addr: "eu proxy.example.com", ok: false},
+		// Scoped to one host's interface, so it cannot name a cluster others
+		// reach; net.ParseIP rejected these and netip must not accept them.
+		{name: "zoned ipv6 rejected", addr: "fe80::1%eth0", ok: false},
+		{name: "unzoned link-local ipv6 accepted", addr: "fe80::1", canonical: "fe80::1", ok: true},
 	}
 
 	for _, tt := range tests {

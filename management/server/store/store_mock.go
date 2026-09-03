@@ -3020,6 +3020,21 @@ func (mr *MockStoreMockRecorder) HasActiveProxyAtClusterAddress(ctx, clusterAddr
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasActiveProxyAtClusterAddress", reflect.TypeOf((*MockStore)(nil).HasActiveProxyAtClusterAddress), ctx, clusterAddress)
 }
 
+// HasProxyOutsideAccountAtHost mocks base method.
+func (m *MockStore) HasProxyOutsideAccountAtHost(ctx context.Context, host, accountID string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HasProxyOutsideAccountAtHost", ctx, host, accountID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// HasProxyOutsideAccountAtHost indicates an expected call of HasProxyOutsideAccountAtHost.
+func (mr *MockStoreMockRecorder) HasProxyOutsideAccountAtHost(ctx, host, accountID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasProxyOutsideAccountAtHost", reflect.TypeOf((*MockStore)(nil).HasProxyOutsideAccountAtHost), ctx, host, accountID)
+}
+
 // IncrementAgentNetworkConsumption mocks base method.
 func (m *MockStore) IncrementAgentNetworkConsumption(ctx context.Context, accountID string, kind types.ConsumptionDimension, dimID string, windowSeconds int64, windowStart time.Time, tokensIn, tokensOut int64, costUSD float64) error {
 	m.ctrl.T.Helper()

@@ -888,7 +888,13 @@ func canonicalProxyAddress(addr string) (string, bool) {
 	if addr == "" {
 		return "", false
 	}
+	// A zoned literal like "fe80::1%eth0" is scoped to one host's interface,
+	// so it cannot identify a cluster others reach; net.ParseIP rejected it
+	// before and netip must not start accepting it.
 	if ip, err := netip.ParseAddr(addr); err == nil {
+		if ip.Zone() != "" {
+			return "", false
+		}
 		return ip.String(), true
 	}
 	// Folded before punycode conversion, not just after: idna maps the ASCII
