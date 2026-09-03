@@ -1,0 +1,48 @@
+{
+  "Network": {"Serial": 38},
+  "AccountSettings": {"RoutingPeerDNSResolutionEnabled": true},
+  "Peers": {
+    "peer-ok": {"IP": "100.64.0.1", "Meta": {"WtVersion": "1.0.0"}},
+    "peer-bad": {"IP": "100.64.0.2", "Meta": {"WtVersion": "0.30.0"}},
+    "peer-r": {"IP": "100.64.0.9", "Meta": {"WtVersion": "1.0.0"}}
+  },
+  "Groups": {
+    "grp-dev": {"Peers": ["peer-ok", "peer-bad"]}
+  },
+  "PostureChecks": {
+    "chk-version": {"Checks": {"NBVersionCheck": {"MinVersion": "0.45.0"}}}
+  },
+  "Policies": [
+    {
+      "ID": "pol-res",
+      "Enabled": true,
+      "SourcePostureChecks": ["chk-version"],
+      "Rules": [
+        {
+          "Enabled": true,
+          "Action": "accept",
+          "Protocol": "tcp",
+          "Ports": ["5432"],
+          "Sources": ["grp-dev"],
+          "DestinationResource": {"ID": "res-db", "Type": "subnet"}
+        }
+      ]
+    }
+  ],
+  "ResourcePolicies": {"res-db": [{"ID": "pol-res"}]},
+  "NetworkResources": [
+    {
+      "ID": "res-db",
+      "NetworkID": "net-1",
+      "Name": "db-subnet",
+      "Type": "subnet",
+      "Prefix": "10.80.0.0/24",
+      "Enabled": true
+    }
+  ],
+  "Routers": {
+    "net-1": {
+      "peer-r": {"PublicID": "router-direct", "Masquerade": true, "Metric": 9999, "Enabled": true}
+    }
+  }
+}

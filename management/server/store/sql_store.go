@@ -3166,9 +3166,9 @@ func getGormConfig() *gorm.Config {
 
 // newPostgresStore initializes a new Postgres store.
 func newPostgresStore(ctx context.Context, metrics telemetry.AppMetrics, skipMigration bool) (Store, error) {
-	dsn, ok := lookupDSNEnv(postgresDsnEnv, postgresDsnEnvLegacy)
+	dsn, ok := lookupDSNEnv(PostgresDsnEnv, PostgresDsnEnvLegacy)
 	if !ok {
-		return nil, fmt.Errorf("%s is not set", postgresDsnEnv)
+		return nil, fmt.Errorf("%s is not set", PostgresDsnEnv)
 	}
 	return NewPostgresqlStore(ctx, dsn, metrics, skipMigration)
 }

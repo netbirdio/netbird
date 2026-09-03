@@ -401,9 +401,6 @@
     "networks.bulk.label": {
         "message": "Attiva/disattiva tutte le risorse visibili"
     },
-    "settings.nav.label": {
-        "message": "Sezioni delle impostazioni"
-    },
     "profile.switch.title": {
         "message": "Passare al profilo «{name}»?"
     },
@@ -496,6 +493,9 @@
     },
     "settings.error.debugBundleTitle": {
         "message": "Pacchetto di debug non riuscito"
+    },
+    "settings.nav.label": {
+        "message": "Sezioni delle impostazioni"
     },
     "settings.tabs.general": {
         "message": "Generale"
@@ -1351,13 +1351,28 @@
     "error.unknown": {
         "message": "Operazione non riuscita."
     },
+    "error.elevation_unavailable": {
+        "message": "NetBird non ha potuto richiedere a questo sistema i privilegi necessari. Esegua invece questo:"
+    },
+    "error.elevation_failed": {
+        "message": "Non è stato possibile applicare la modifica con privilegi elevati. Esegua invece questo:"
+    },
+    "settings.ssh.privilege.actorRoot": {
+        "message": "i privilegi di root"
+    },
+    "settings.ssh.privilege.actorAdministrator": {
+        "message": "i privilegi di amministratore"
+    },
     "settings.ssh.privilege.hint": {
         "message": "Richiede {actor}. Esegua invece questo:"
     },
     "settings.ssh.privilege.oneWay": {
-        "message": "Può disabilitarlo, ma riabilitarlo richiede {actor}:"
+        "message": "Può disabilitarlo, ma riabilitarlo richiede {actor}."
     },
     "settings.ssh.privilege.oneWayInverted": {
-        "message": "Può abilitarlo, ma disabilitarlo di nuovo richiede {actor}:"
+        "message": "Può abilitarlo, ma disabilitarlo di nuovo richiede {actor}."
+    },
+    "settings.ssh.privilege.authorizePending": {
+        "message": "In attesa dell'autorizzazione…"
     }
 }

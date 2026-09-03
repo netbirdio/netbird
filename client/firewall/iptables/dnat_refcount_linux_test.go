@@ -80,7 +80,7 @@ func iptDnatV6(port uint16) fw.ForwardRule {
 // and a single DisableRouting drops both back to zero.
 func TestIptablesRouting_RepeatedEnableSingleReference(t *testing.T) {
 	m := newIptRefcountManager(t, true)
-	state := m.router.ipFwdState
+	state := m.family4.ipFwdState
 
 	require.NoError(t, m.EnableRouting(), "first enable")
 	require.NoError(t, m.EnableRouting(), "second enable")
@@ -99,7 +99,7 @@ func TestIptablesRouting_RepeatedEnableSingleReference(t *testing.T) {
 // DisableRouting does not release references held by active DNAT rules.
 func TestIptablesRouting_DisableKeepsDNATReference(t *testing.T) {
 	m := newIptRefcountManager(t, true)
-	state := m.router.ipFwdState
+	state := m.family4.ipFwdState
 
 	r1, err := m.AddDNATRule(iptDnatV6(9095))
 	require.NoError(t, err, "add v6 dnat")
@@ -116,7 +116,7 @@ func TestIptablesRouting_DisableKeepsDNATReference(t *testing.T) {
 // TestIptablesDNAT_RefcountBalancedV4 covers a Balanced Add/Delete pair on v4.
 func TestIptablesDNAT_RefcountBalancedV4(t *testing.T) {
 	m := newIptRefcountManager(t, false)
-	state := m.router.ipFwdState
+	state := m.family4.ipFwdState
 
 	r1, err := m.AddDNATRule(iptDnatV4(7081))
 	require.NoError(t, err, "add v4 dnat 1")
@@ -145,9 +145,9 @@ func TestIptablesDNAT_RefcountBalancedV4(t *testing.T) {
 // decrements back to zero.
 func TestIptablesDNAT_RefcountBalancedV6(t *testing.T) {
 	m := newIptRefcountManager(t, true)
-	require.NotNil(t, m.router6, "v6 router")
-	require.Same(t, m.router.ipFwdState, m.router6.ipFwdState, "shared state")
-	state := m.router.ipFwdState
+	require.NotNil(t, m.family6, "v6 family")
+	require.Same(t, m.family4.ipFwdState, m.family6.ipFwdState, "shared state")
+	state := m.family4.ipFwdState
 
 	r1, err := m.AddDNATRule(iptDnatV6(9081))
 	require.NoError(t, err, "add v6 dnat 1")
@@ -176,7 +176,7 @@ func TestIptablesDNAT_RefcountBalancedV6(t *testing.T) {
 // without bumping the refcount.
 func TestIptablesDNAT_DuplicateAddNoLeak(t *testing.T) {
 	m := newIptRefcountManager(t, true)
-	state := m.router.ipFwdState
+	state := m.family4.ipFwdState
 
 	rule := iptDnatV4(7083)
 	r1, err := m.AddDNATRule(rule)
@@ -198,7 +198,7 @@ func TestIptablesDNAT_DuplicateAddNoLeak(t *testing.T) {
 // neither errors nor releases the refcount.
 func TestIptablesDNAT_DeleteMissingNoUnderflow(t *testing.T) {
 	m := newIptRefcountManager(t, true)
-	state := m.router.ipFwdState
+	state := m.family4.ipFwdState
 
 	phantom := iptDnatV4(7099)
 	require.NoError(t, m.DeleteDNATRule(&phantom), "delete missing v4")
@@ -223,7 +223,7 @@ func TestIptablesDNAT_DeleteMissingNoUnderflow(t *testing.T) {
 // rule is a no-op.
 func TestIptablesDNAT_DoubleDeleteNoUnderflow(t *testing.T) {
 	m := newIptRefcountManager(t, true)
-	state := m.router.ipFwdState
+	state := m.family4.ipFwdState
 
 	r1, err := m.AddDNATRule(iptDnatV6(9083))
 	require.NoError(t, err)
