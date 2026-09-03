@@ -59,6 +59,17 @@ func (addr Address) IPv6Prefix() netip.Prefix {
 	return netip.PrefixFrom(addr.IPv6, addr.IPv6Net.Bits())
 }
 
+func (addr Address) HostPrefix() netip.Prefix {
+	return netip.PrefixFrom(addr.IP, addr.IP.BitLen())
+}
+
+func (addr Address) IPv6HostPrefix() netip.Prefix {
+	if !addr.HasIPv6() {
+		return netip.Prefix{}
+	}
+	return netip.PrefixFrom(addr.IPv6, addr.IPv6.BitLen())
+}
+
 // SetIPv6FromCompact decodes a compact prefix (5 or 17 bytes) and sets the IPv6 fields.
 // Returns an error if the bytes are invalid. A nil or empty input is a no-op.
 //

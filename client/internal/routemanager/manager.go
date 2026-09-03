@@ -472,23 +472,9 @@ func (m *DefaultManager) CurrentRouteRange() []string {
 	m.mux.Lock()
 	defer m.mux.Unlock()
 
-	if m.disableClientRoutes {
-		return nil
-	}
-
-	filtered := m.routeSelector.FilterSelectedExitNodes(m.clientRoutes)
-	var nets []string
-	for _, routes := range filtered {
-		for _, r := range routes {
-			if r.IsDynamic() {
-				continue
-			}
-			nets = append(nets, r.NetString())
-		}
-	}
-
-	if m.fakeIPManager != nil {
-		nets = append(nets, m.fakeIPManager.GetFakeIPBlock().String(), m.fakeIPManager.GetFakeIPv6Block().String())
+	nets := m.overlayNetworks()
+	if !m.disableClientRoutes {
+		nets = append(nets, m.clientRouteRange()...)
 	}
 
 	sort.Strings(nets)
@@ -854,6 +840,41 @@ func (m *DefaultManager) enforceSingleExitNode(preferred route.NetID, allIDs []r
 func (m *DefaultManager) logExitNodeUpdate(info exitNodeInfo, preferred route.NetID) {
 	log.Debugf("Exit node selection: %d available, preferred=%q (%d user-selected, %d user-deselected, %d management-selected)",
 		len(info.allIDs), preferred, len(info.userSelected), len(info.userDeselected), len(info.selectedByManagement))
+}
+
+func (m *DefaultManager) overlayNetworks() []string {
+	if m.wgInterface == nil {
+		return nil
+	}
+
+	addr := m.wgInterface.Address()
+	if !addr.Network.IsValid() {
+		return nil
+	}
+
+	nets := []string{addr.Network.String()}
+	if addr.HasIPv6() {
+		nets = append(nets, addr.IPv6Net.String())
+	}
+	return nets
+}
+
+func (m *DefaultManager) clientRouteRange() []string {
+	filtered := m.routeSelector.FilterSelectedExitNodes(m.clientRoutes)
+	var nets []string
+	for _, routes := range filtered {
+		for _, r := range routes {
+			if r.IsDynamic() {
+				continue
+			}
+			nets = append(nets, r.NetString())
+		}
+	}
+
+	if m.fakeIPManager != nil {
+		nets = append(nets, m.fakeIPManager.GetFakeIPBlock().String(), m.fakeIPManager.GetFakeIPv6Block().String())
+	}
+	return nets
 }
 
 // minNetID returns the lexicographically smallest NetID, for a deterministic
