@@ -242,6 +242,12 @@ message LoginRequest {
   optional bool disableSSHAuth = 38;
   optional int32 sshJWTCacheTTL = 39;
   optional bool disable_ipv6 = 40;
+
+  optional bool enable_local_metrics = 41;
+  optional string local_metrics_address = 42;
+  // remoteJobsAllowed opts the peer into management-requested remote jobs
+  // (e.g. debug bundles). Absent leaves the stored value unchanged.
+  optional bool remoteJobsAllowed = 43;
 }
 
 message LoginResponse {
@@ -361,6 +367,8 @@ message GetConfigResponse {
   int32 sshJWTCacheTTL = 26;
 
   bool disable_ipv6 = 27;
+
+  bool remoteJobsAllowed = 29;
 
   // mDMManagedFields lists the names of configuration keys whose value is
   // currently enforced by an MDM policy. Names match mdm.Key* constants
@@ -540,6 +548,11 @@ message DebugBundleRequest {
   // untrusted TLS certificate. Restricted to privileged callers; for
   // self-hosted upload servers.
   bool uploadInsecure = 7;
+  // anonymizeLevel selects how much the anonymizer redacts: "default"
+  // (or empty) keeps internal IP ranges, "strict" also anonymizes them.
+  // Unknown values are treated as "strict". Only meaningful with anonymize;
+  // "strict" implies it.
+  string anonymizeLevel = 8;
 }
 
 message DebugBundleResponse {
@@ -761,6 +774,12 @@ message SetConfigRequest {
   optional bool disableSSHAuth = 33;
   optional int32 sshJWTCacheTTL = 34;
   optional bool disable_ipv6 = 35;
+
+  optional bool enable_local_metrics = 36;
+  optional string local_metrics_address = 37;
+  // remoteJobsAllowed opts the peer into management-requested remote jobs
+  // (e.g. debug bundles). Absent leaves the stored value unchanged.
+  optional bool remoteJobsAllowed = 38;
 }
 
 message SetConfigResponse{}
@@ -889,6 +908,10 @@ message GetPeerSSHHostKeyResponse {
 message RequestJWTAuthRequest {
   // hint for OIDC login_hint parameter (typically email address)
   optional string hint = 1;
+  // hasGraphicalSession tells the daemon that the caller has a graphical session,
+  // which decides whether PKCE or the device code flow is preferred. The daemon
+  // cannot detect this itself: it does not inherit the session environment.
+  bool hasGraphicalSession = 2;
 }
 
 // RequestJWTAuthResponse contains authentication flow information
@@ -932,6 +955,10 @@ message RequestExtendAuthSessionRequest {
   // Optional OIDC login_hint (typically the user's email) to pre-fill the
   // IdP login form.
   optional string hint = 1;
+  // hasGraphicalSession tells the daemon that the caller has a graphical session,
+  // which decides whether PKCE or the device code flow is preferred. The daemon
+  // cannot detect this itself: it does not inherit the session environment.
+  bool hasGraphicalSession = 2;
 }
 
 // RequestExtendAuthSessionResponse carries the verification URI the UI

@@ -44,12 +44,19 @@ type Restrictions struct {
 }
 
 // Privilege tells the frontend whether this process may perform the changes the
-// daemon restricts to root/administrator, and carries the command for each so a
-// disabled control can show the way to do it.
+// daemon restricts to root/administrator, whether it can ask the operating
+// system for the privileges instead, and the command for each so a control that
+// can do neither can still show the way.
 type Privilege struct {
 	Privileged bool `json:"privileged"`
-	// Actor names what the operation requires ("root", "administrator privileges").
-	Actor string `json:"actor"`
+	// ActorKey identifies the principal the operation requires without wording it,
+	// so the frontend can name it in the user's language: see
+	// ipcauth.PrivilegedActorKey. The words are not sent, because English ones
+	// cannot be dropped into a translated sentence.
+	ActorKey string `json:"actorKey"`
+	// CanElevate reports whether a guarded control can offer to authorize the
+	// change through the platform's own prompt: see SetGuardedSettings.
+	CanElevate bool `json:"canElevate"`
 	// Commands equivalent to the settings the daemon guards, ready to copy.
 	AllowSSHServer string `json:"allowSshServer"`
 	EnableSSHRoot  string `json:"enableSshRoot"`
@@ -128,6 +135,9 @@ type Settings struct {
 	// daemonAddr is where the daemon listens, used to tell whether it runs as
 	// this user and would therefore authorize us: see Privilege.
 	daemonAddr string
+	// elevator raises the platform's privilege prompt when a change needs more
+	// rights than this process has.
+	elevator elevator
 }
 
 func NewSettings(conn DaemonConn, translator ErrorTranslator, prefs LanguagePreference, daemonAddr string) *Settings {
@@ -135,6 +145,7 @@ func NewSettings(conn DaemonConn, translator ErrorTranslator, prefs LanguagePref
 		conn:       conn,
 		classifier: errorClassifier{translator: translator, prefs: prefs},
 		daemonAddr: daemonAddr,
+		elevator:   osElevator{},
 	}
 }
 
@@ -180,10 +191,10 @@ func (s *Settings) GetConfig(ctx context.Context, p ConfigParams) (Config, error
 	}, nil
 }
 
-func (s *Settings) SetConfig(ctx context.Context, p SetConfigParams) error {
+func (s *Settings) SetConfig(ctx context.Context, p SetConfigParams) (SaveOutcome, error) {
 	cli, err := s.conn.Client()
 	if err != nil {
-		return err
+		return SaveOutcome{}, err
 	}
 	req := &proto.SetConfigRequest{
 		ProfileName:                   p.ProfileName,
@@ -215,19 +226,92 @@ func (s *Settings) SetConfig(ctx context.Context, p SetConfigParams) error {
 		SshJWTCacheTTL:                p.SSHJWTCacheTTL,
 	}
 	if _, err := cli.SetConfig(ctx, req); err != nil {
+		if _, refused := privilegeErrorInfo(err); refused {
+			return s.setConfigElevated(ctx, p, req, err)
+		}
 		// Classified so the frontend gets the daemon's guidance instead of the
-		// gRPC envelope, which is what a refused privileged change looks like.
-		return s.classifier.classify(err)
+		// gRPC envelope.
+		return SaveOutcome{}, s.classifier.classify(err)
 	}
-	return nil
+	return SaveOutcome{}, nil
+}
+
+// setConfigElevated answers a request the daemon refused for want of privileges by
+// asking the user to authorize it, and sending it again if they do. It is the same
+// offer the SSH settings make up front, for the changes a control cannot know are
+// guarded until it is told: repointing a profile at another management server is
+// only privileged while that host runs the SSH server.
+//
+// Two steps, because the elevated one-shot deliberately understands only the
+// settings the daemon guards: it applies those, and the original request then goes
+// through as this user, its privileged parts now asking for nothing that is not
+// already stored. Nothing was applied by the refused attempt — the daemon decides
+// before it writes — so there is no half-applied state to undo either way.
+func (s *Settings) setConfigElevated(ctx context.Context, p SetConfigParams, req *proto.SetConfigRequest, refusal error) (SaveOutcome, error) {
+	if !s.canElevate() {
+		return SaveOutcome{}, s.classifier.classify(refusal)
+	}
+
+	guarded, err := s.guardedChanges(ctx, p)
+	if err != nil {
+		log.Warnf("cannot tell which guarded settings this request changes: %v", err)
+		return SaveOutcome{}, s.classifier.classify(refusal)
+	}
+	if len(guardedSettings(guarded)) == 0 {
+		// Refused over something no prompt can settle, such as a control channel
+		// that carries no caller identity. Report the daemon's own guidance.
+		return SaveOutcome{}, s.classifier.classify(refusal)
+	}
+
+	outcome, err := s.SetGuardedSettings(ctx, guarded)
+	if err != nil || outcome.Declined {
+		return outcome, err
+	}
+
+	cli, err := s.conn.Client()
+	if err != nil {
+		return SaveOutcome{}, err
+	}
+	if _, err := cli.SetConfig(ctx, req); err != nil {
+		return SaveOutcome{}, s.classifier.classify(err)
+	}
+	return SaveOutcome{}, nil
+}
+
+// guardedChanges is the guarded part of a request, reduced to what it actually
+// changes.
+//
+// A settings form submits every field it holds, so a request restates values the
+// daemon already has. Carrying those into the elevated run would spend one
+// authorization on more than the user asked for, and a value that has gone stale
+// since the form was loaded would spend it on something they never asked about.
+func (s *Settings) guardedChanges(ctx context.Context, p SetConfigParams) (GuardedSettings, error) {
+	stored, err := s.GetConfig(ctx, ConfigParams{ProfileName: p.ProfileName, Username: p.Username})
+	if err != nil {
+		return GuardedSettings{}, fmt.Errorf("read the stored config: %w", err)
+	}
+
+	guarded := GuardedSettings{
+		ProfileName:      p.ProfileName,
+		Username:         p.Username,
+		ServerSSHAllowed: changedFlag(p.ServerSSHAllowed, stored.ServerSSHAllowed),
+		EnableSSHRoot:    changedFlag(p.EnableSSHRoot, stored.EnableSSHRoot),
+		DisableSSHAuth:   changedFlag(p.DisableSSHAuth, stored.DisableSSHAuth),
+	}
+	// An empty URL leaves the setting alone, which is the daemon's rule too.
+	if p.ManagementURL != "" && p.ManagementURL != stored.ManagementURL {
+		guarded.ManagementURL = p.ManagementURL
+	}
+	return guarded, nil
 }
 
 // Privilege reports whether this UI process could carry out the changes the
-// daemon restricts to root/administrator, and the command that performs the one
-// users hit in the SSH settings. It applies the daemon's own rule to what it can
-// see locally, so the frontend can present those controls as unavailable up front
-// instead of letting a save fail. No daemon round-trip, so it also works while the
-// daemon is down.
+// daemon restricts to root/administrator, whether it can instead ask the
+// operating system for the privileges when the user wants one of them, and the
+// command that performs the ones users hit in the SSH settings. It applies the
+// daemon's own rule to what it can see locally, so the frontend can decide up
+// front how to present those controls instead of letting a save fail. No daemon
+// round-trip, so it also works while the daemon is down.
 //
 // Being root or an elevated administrator is one way. The other is running as the
 // daemon's own user while the daemon is unprivileged, which the daemon accepts
@@ -237,24 +321,38 @@ func (s *Settings) SetConfig(ctx context.Context, p SetConfigParams) error {
 func (s *Settings) Privilege() Privilege {
 	id, err := ipcauth.CurrentProcessIdentity()
 	if err != nil {
-		// Fail closed: report unprivileged, which only ever disables controls.
+		// Fail closed: report unprivileged, which only ever asks for more.
 		log.Warnf("cannot read this process's identity, treating it as unprivileged: %v", err)
-		return newPrivilege(false)
+		return s.newPrivilege(false)
 	}
 	if id.IsPrivileged() {
-		return newPrivilege(true)
+		return s.newPrivilege(true)
 	}
-	return newPrivilege(daemonaddr.DaemonRunsAsSelf(s.daemonAddr))
+	return s.newPrivilege(daemonaddr.DaemonRunsAsSelf(s.daemonAddr))
 }
 
-func newPrivilege(privileged bool) Privilege {
+func (s *Settings) newPrivilege(privileged bool) Privilege {
 	return Privilege{
 		Privileged:     privileged,
-		Actor:          ipcauth.PrivilegedActor(),
+		ActorKey:       ipcauth.PrivilegedActorKey(),
+		CanElevate:     s.canElevate(),
 		AllowSSHServer: ipcauth.UpCommand("--allow-server-ssh"),
 		EnableSSHRoot:  ipcauth.UpCommand("--enable-ssh-root"),
 		DisableSSHAuth: ipcauth.UpCommand("--disable-ssh-auth"),
 	}
+}
+
+// canElevate reports whether offering the platform's elevation prompt would get
+// the user anywhere. It needs a mechanism to raise the prompt with and a control
+// channel that tells the daemon who is calling: on loopback TCP the daemon
+// refuses these changes to everybody, root included, so a prompt there would
+// only waste the user's password.
+func (s *Settings) canElevate() bool {
+	if !daemonaddr.CarriesIdentity(s.daemonAddr) {
+		log.Debugf("not offering elevation: the daemon address %s carries no caller identity", s.daemonAddr)
+		return false
+	}
+	return s.elevator.Available()
 }
 
 func (s *Settings) GetRestrictions(ctx context.Context) (Restrictions, error) {
@@ -287,6 +385,15 @@ func (s *Settings) GetRestrictions(ctx context.Context) (Restrictions, error) {
 	applyMDMRestrictions(&r.MDM, cfgResp)
 	r.MDM.DisableAdvancedView = featResp.GetDisableAdvancedView()
 	return r, nil
+}
+
+// changedFlag returns requested only when it differs from what is stored, so a
+// setting the request merely restates is left out of the elevated run.
+func changedFlag(requested *bool, stored bool) *bool {
+	if requested == nil || *requested == stored {
+		return nil
+	}
+	return requested
 }
 
 func applyMDMRestrictions(mdm *MDMFields, cfgResp *proto.GetConfigResponse) {

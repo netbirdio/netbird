@@ -32,6 +32,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/activity"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/sessionkey"
@@ -59,6 +60,17 @@ type ProxyOIDCConfig struct {
 // ProxyTokenChecker checks whether a proxy access token is still valid.
 type ProxyTokenChecker interface {
 	IsProxyAccessTokenValid(ctx context.Context, tokenID string) (bool, error)
+}
+
+// ProxyConnectAuthorizer authorizes a proxy's claim to the cluster address it
+// declares at connect time. Implementations are supplied by integrations; none
+// is installed by default, so every well-formed claim is authorized — the
+// declared address is otherwise only checked for availability. token is nil
+// when the connection carries no proxy access token. A returned status error
+// is sent to the proxy unchanged; any other error is wrapped as
+// PermissionDenied.
+type ProxyConnectAuthorizer interface {
+	AuthorizeProxyConnect(ctx context.Context, token *types.ProxyAccessToken, proxyID, address string) error
 }
 
 // ProxyServiceServer implements the ProxyService gRPC server
@@ -99,6 +111,9 @@ type ProxyServiceServer struct {
 	// and the post-flight consumption write (RecordLLMUsage). Optional — when
 	// nil both RPCs return Unimplemented.
 	agentNetworkLimits AgentNetworkLimitsService
+	// connectAuthorizer authorizes address claims at proxy connect time.
+	// Optional — when nil every well-formed claim is authorized.
+	connectAuthorizer ProxyConnectAuthorizer
 	// ProxyController for service updates and cluster management
 	proxyController proxy.Controller
 
@@ -113,6 +128,9 @@ type ProxyServiceServer struct {
 
 	// Manager for IdP-enriched user data (may be nil when no IdP is configured)
 	idpManager idp.Manager
+
+	// Manager that records reverse proxy usage for activity accounting
+	activityManager activity.Manager
 
 	// Store for one-time authentication tokens
 	tokenStore *OneTimeTokenStore
@@ -236,6 +254,13 @@ func (s *ProxyServiceServer) SetServiceManager(manager rpservice.Manager) {
 	s.serviceManager = manager
 }
 
+// SetActivityManager wires the manager that records reverse proxy usage.
+func (s *ProxyServiceServer) SetActivityManager(manager activity.Manager) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.activityManager = manager
+}
+
 // SetAgentNetworkSynthesizer wires the agent-network service synthesiser.
 // Optional — when nil the snapshot path skips agent-network synthesis. The
 // modules layer injects this after both the proxy server and the agent-network
@@ -260,6 +285,23 @@ func (s *ProxyServiceServer) agentNetworkSynthesizer() AgentNetworkSynthesizer {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.agentNetworkSynth
+}
+
+// SetProxyConnectAuthorizer wires the connect-time address-claim authorizer.
+// Optional — when nil (the default) every well-formed claim is authorized,
+// which is the behavior without the hook. The modules layer injects this
+// after the proxy server is constructed, like the other setters.
+func (s *ProxyServiceServer) SetProxyConnectAuthorizer(authorizer ProxyConnectAuthorizer) {
+	s.mu.Lock()
+	s.connectAuthorizer = authorizer
+	s.mu.Unlock()
+}
+
+// proxyConnectAuthorizer returns the connect authorizer under read lock.
+func (s *ProxyServiceServer) proxyConnectAuthorizer() ProxyConnectAuthorizer {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.connectAuthorizer
 }
 
 // CheckLLMPolicyLimits is the pre-flight policy gate the proxy calls before
@@ -446,8 +488,9 @@ func recvSyncInit(stream proto.ProxyService_SyncMappingsServer) (*proto.SyncMapp
 	return init, nil
 }
 
-// validateProxyConnect validates the proxy ID and address, and checks cluster
-// address availability for account-scoped tokens.
+// validateProxyConnect validates the proxy ID and address, checks cluster
+// address availability for account-scoped tokens, and finally consults the
+// connect authorizer (when installed) on the address claim.
 func (s *ProxyServiceServer) validateProxyConnect(proxyID, address string, ctx context.Context) (proxyConnectParams, error) {
 	if proxyID == "" {
 		return proxyConnectParams{}, status.Errorf(codes.InvalidArgument, "proxy_id is required")
@@ -464,6 +507,19 @@ func (s *ProxyServiceServer) validateProxyConnect(proxyID, address string, ctx c
 		}
 		if !available {
 			return proxyConnectParams{}, status.Errorf(codes.AlreadyExists, "cluster address %s is already in use", address)
+		}
+	}
+
+	// The authorizer runs last, outside the account-scoped branch, so it also
+	// sees management-wide and token-less connects. PermissionDenied keeps an
+	// authorization rejection distinguishable from the AlreadyExists address
+	// conflict above in proxy logs.
+	if authorizer := s.proxyConnectAuthorizer(); authorizer != nil {
+		if err := authorizer.AuthorizeProxyConnect(ctx, token, proxyID, address); err != nil {
+			if _, ok := status.FromError(err); ok {
+				return proxyConnectParams{}, err
+			}
+			return proxyConnectParams{}, status.Errorf(codes.PermissionDenied, "proxy connect not authorized: %v", err)
 		}
 	}
 
@@ -1255,7 +1311,7 @@ func (s *ProxyServiceServer) authenticateHeader(ctx context.Context, serviceID s
 			lastErr = err
 			continue
 		}
-		return true, "header-user", proxyauth.MethodHeader
+		return true, proxyauth.HeaderUserID, proxyauth.MethodHeader
 	}
 
 	if lastErr != nil {
@@ -1672,7 +1728,7 @@ func (s *ProxyServiceServer) GenerateSessionToken(ctx context.Context, domain, u
 
 	groupIDs, groupNames := pairGroupIDsAndNames(userGroups)
 
-	return sessionkey.SignToken(
+	token, err := sessionkey.SignToken(
 		service.SessionPrivateKey,
 		userID,
 		user.Email,
@@ -1682,6 +1738,25 @@ func (s *ProxyServiceServer) GenerateSessionToken(ctx context.Context, domain, u
 		groupNames,
 		proxyauth.DefaultSessionExpiry,
 	)
+	if err != nil {
+		return "", err
+	}
+
+	s.recordUserLogin(ctx, service.AccountID, user)
+
+	return token, nil
+}
+
+// recordUserLogin hands the sign-in to the activity manager. The RPC must not
+// fail on it, so the error is logged and dropped here rather than returned.
+func (s *ProxyServiceServer) recordUserLogin(ctx context.Context, accountID string, user *types.User) {
+	if s.activityManager == nil {
+		return
+	}
+
+	if err := s.activityManager.RecordUserLogin(ctx, accountID, user); err != nil {
+		log.WithContext(ctx).Debugf("record proxy login for user %s: %v", user.Id, err)
+	}
 }
 
 // ValidateUserGroupAccess checks if a user has access to a service.
@@ -2031,6 +2106,8 @@ func (s *ProxyServiceServer) ValidateTunnelPeer(ctx context.Context, req *proto.
 		return nil, err
 	}
 
+	s.recordPeerSeen(ctx, service.AccountID, peer)
+
 	log.WithFields(log.Fields{
 		"domain":       domain,
 		"tunnel_ip":    tunnelIPStr,
@@ -2046,6 +2123,18 @@ func (s *ProxyServiceServer) ValidateTunnelPeer(ctx context.Context, req *proto.
 		PeerGroupIds:   groupIDs,
 		PeerGroupNames: groupNames,
 	}, nil
+}
+
+// recordPeerSeen hands the mesh request to the activity manager. The RPC must
+// not fail on it, so the error is logged and dropped here rather than returned.
+func (s *ProxyServiceServer) recordPeerSeen(ctx context.Context, accountID string, peer *peer.Peer) {
+	if s.activityManager == nil {
+		return
+	}
+
+	if err := s.activityManager.RecordPeerSeen(ctx, accountID, peer); err != nil {
+		log.WithContext(ctx).Debugf("record proxy activity for peer %s: %v", peer.ID, err)
+	}
 }
 
 // resolvePeerOwner returns the user a peer is linked to, once per request so

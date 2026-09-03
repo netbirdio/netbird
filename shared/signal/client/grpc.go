@@ -19,6 +19,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	nbgrpc "github.com/netbirdio/netbird/client/grpc"
+	"github.com/netbirdio/netbird/client/netevents"
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/signal/proto"
@@ -65,6 +66,10 @@ type GrpcClient struct {
 	connStateCallback     ConnStateNotifier
 	connStateCallbackLock sync.RWMutex
 
+	// netMgr gates the Receive retry loop on OS-reported network
+	// availability and sweeps the transport on network change.
+	netMgr *netevents.Manager
+
 	onReconnectedListenerFn func()
 
 	decryptionWorker       *Worker
@@ -88,13 +93,37 @@ type GrpcClient struct {
 	watchdogWg            sync.WaitGroup
 }
 
-// NewClient creates a new Signal client
-func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled bool) (*GrpcClient, error) {
-	var conn *grpc.ClientConn
+// Option configures optional GrpcClient behavior.
+type Option func(*GrpcClient)
 
+// WithNetEvents injects the OS network event handling.
+func WithNetEvents(events *netevents.Manager) Option {
+	return func(c *GrpcClient) { c.netMgr = events }
+}
+
+// NewClient creates a new Signal client
+func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled bool, opts ...Option) (*GrpcClient, error) {
+	// Options apply before dialing: the sweeper must wrap the first connection too.
+	c := &GrpcClient{
+		ctx:                   ctx,
+		key:                   key,
+		mux:                   sync.Mutex{},
+		status:                StreamDisconnected,
+		connStateCallbackLock: sync.RWMutex{},
+	}
+	for _, opt := range opts {
+		opt(c)
+	}
+
+	var extraOpts []grpc.DialOption
+	if c.netMgr != nil {
+		extraOpts = append(extraOpts, nbgrpc.WithSweeper(c.netMgr))
+	}
+
+	var conn *grpc.ClientConn
 	operation := func() error {
 		var err error
-		conn, err = nbgrpc.CreateConnection(ctx, addr, tlsEnabled, wsproxy.SignalComponent)
+		conn, err = nbgrpc.CreateConnection(ctx, addr, tlsEnabled, wsproxy.SignalComponent, extraOpts...)
 		if err != nil {
 			return fmt.Errorf("create connection: %w", err)
 		}
@@ -109,15 +138,9 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 
 	log.Debugf("connected to Signal Service: %v", conn.Target())
 
-	return &GrpcClient{
-		realClient:            proto.NewSignalExchangeClient(conn),
-		ctx:                   ctx,
-		signalConn:            conn,
-		key:                   key,
-		mux:                   sync.Mutex{},
-		status:                StreamDisconnected,
-		connStateCallbackLock: sync.RWMutex{},
-	}, nil
+	c.signalConn = conn
+	c.realClient = proto.NewSignalExchangeClient(conn)
+	return c, nil
 }
 
 func (c *GrpcClient) StreamConnected() bool {
@@ -165,19 +188,39 @@ func defaultBackoff(ctx context.Context) backoff.BackOff {
 // The connection retry logic will try to reconnect for 30 min and if wasn't successful will propagate the error to the function caller.
 func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Message) error) error {
 
-	var backOff = defaultBackoff(ctx)
+	backOff := c.netMgr.QuickRetryBackoff(ctx, defaultBackoff(ctx))
 
 	operation := func() error {
+		// suspend reconnect attempts while the OS reports no usable network.
+		// Wait only errors on a cancelled context, which means shutdown, so
+		// stop the loop without reporting a failure.
+		if waited, err := c.netMgr.Wait(ctx); err != nil {
+			log.Debugf("signal connection context has been canceled while offline, this usually indicates shutdown")
+			return nil
+		} else if waited {
+			backOff.Reset()
+			// dials attempted while offline grew the channel's internal backoff;
+			// reset it too, or the reconnect waits out that timer first
+			c.signalConn.ResetConnectBackoff()
+		}
 
 		c.notifyStreamDisconnected()
 
-		log.Debugf("signal connection state %v", c.signalConn.GetState())
 		connState := c.signalConn.GetState()
+		log.Debugf("signal connection state %v", connState)
 		if connState == connectivity.Shutdown {
 			return backoff.Permanent(fmt.Errorf("connection to signal has been shut down"))
-		} else if !(connState == connectivity.Ready || connState == connectivity.Idle) {
+		}
+		if !(connState == connectivity.Ready || connState == connectivity.Idle) {
+			// A dial may already be in flight (e.g. triggered by another RPC
+			// after a network change); wait for it to settle and proceed if
+			// the channel became usable, instead of burning a backoff round on
+			// a successful dial. A failed dial errors out as before.
 			c.signalConn.WaitForStateChange(ctx, connState)
-			return fmt.Errorf("connection to signal is not ready and in %s state", connState)
+			connState = c.signalConn.GetState()
+			if !(connState == connectivity.Ready || connState == connectivity.Idle) {
+				return fmt.Errorf("connection to signal is not ready and in %s state", connState)
+			}
 		}
 
 		// connect to Signal stream identifying ourselves with a public WireGuard key
@@ -231,7 +274,7 @@ func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Mes
 		return nil
 	}
 
-	err := backoff.Retry(operation, backOff)
+	err := nbgrpc.Retry(ctx, operation, backOff, c.netMgr)
 	if err != nil {
 		log.Errorf("exiting the Signal service connection retry loop due to the unrecoverable error: %v", err)
 		return err
