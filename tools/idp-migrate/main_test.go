@@ -515,7 +515,7 @@ func TestValidateConfigRejectsUnusableSingleAccountDomain(t *testing.T) {
 		cfg.singleAccountDomain = "corp"
 		err := validateConfig(&cfg)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "is not usable")
+		assert.ErrorIs(t, err, migration.ErrUnusableDomain)
 	})
 }
 
@@ -556,6 +556,6 @@ func TestApplyOverrides_SingleAccountDomainFromEnv(t *testing.T) {
 			"--domain", "example.com",
 		})
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "is not usable")
+		assert.ErrorIs(t, err, migration.ErrUnusableDomain)
 	})
 }

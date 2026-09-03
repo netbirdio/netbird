@@ -53,7 +53,7 @@ func configFromArgs(args []string) (*migrationConfig, error) {
 	fs.StringVar(&cfg.configPath, "config", "", "path to management.json (required)")
 	fs.StringVar(&cfg.dataDir, "datadir", "", "override data directory from config")
 	fs.StringVar(&cfg.idpSeedInfo, "idp-seed-info", "", "base64-encoded connector JSON (overrides auto-detection)")
-	fs.StringVar(&cfg.singleAccountDomain, "single-account-mode-domain", migration.DefaultSingleAccountDomain, "domain single account mode groups users under, applied when the account has no usable domain")
+	fs.StringVar(&cfg.singleAccountDomain, "single-account-mode-domain", "", "domain single account mode groups users under, used only when the account has no domain of its own (default "+migration.DefaultSingleAccountDomain+")")
 	fs.BoolVar(&cfg.dryRun, "dry-run", false, "preview changes without writing")
 	fs.BoolVar(&cfg.force, "force", false, "skip confirmation prompt")
 	fs.BoolVar(&cfg.skipConfig, "skip-config", false, "skip config generation (DB migration only)")

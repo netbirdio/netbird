@@ -889,16 +889,17 @@ func TestRequireSingleAccount(t *testing.T) {
 			}
 
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), "supports a single account only")
+			assert.ErrorIs(t, err, ErrMultipleAccounts)
 		})
 	}
 }
 
 func TestEnsureSingleAccountDomain(t *testing.T) {
 	tests := []struct {
-		name           string
-		account        *types.Account
-		expectedDomain string
+		name            string
+		account         *types.Account
+		requestedDomain string
+		expectedDomain  string
 	}{
 		{
 			name:           "account migrated from an IdP without domain claims",
@@ -909,6 +910,12 @@ func TestEnsureSingleAccountDomain(t *testing.T) {
 			name:           "account keeps its own domain",
 			account:        &types.Account{Id: "account-1", Domain: "acme.com"},
 			expectedDomain: "acme.com",
+		},
+		{
+			name:            "requesting the domain the account already has is not a conflict",
+			account:         &types.Account{Id: "account-1", Domain: "acme.com"},
+			requestedDomain: "acme.com",
+			expectedDomain:  "acme.com",
 		},
 		{
 			name: "already resolvable account is rewritten with the same values",
@@ -929,7 +936,7 @@ func TestEnsureSingleAccountDomain(t *testing.T) {
 				accounts:        map[string]*types.Account{tt.account.Id: tt.account},
 			}
 
-			require.NoError(t, EnsureSingleAccountDomain(&testServer{store: store}, ""))
+			require.NoError(t, EnsureSingleAccountDomain(&testServer{store: store}, tt.requestedDomain))
 
 			require.Len(t, store.domainAttrCalls, 1)
 			assert.Equal(t, domainAttrCall{
@@ -955,18 +962,30 @@ func TestEnsureSingleAccountDomainDryRun(t *testing.T) {
 }
 
 func TestEnsureSingleAccountDomainRejectsUnresolvableDomains(t *testing.T) {
-	t.Run("account domain that cannot resolve is replaced", func(t *testing.T) {
+	t.Run("account domain that cannot resolve is reported", func(t *testing.T) {
 		account := &types.Account{Id: "account-1", Domain: "corp"}
 		store := &testStore{
 			accountsCounter: 1,
 			accounts:        map[string]*types.Account{account.Id: account},
 		}
 
-		require.NoError(t, EnsureSingleAccountDomain(&testServer{store: store}, ""))
+		err := EnsureSingleAccountDomain(&testServer{store: store}, "")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrUnusableDomain)
+		assert.Empty(t, store.domainAttrCalls, "A broken account domain must not be replaced silently")
+	})
 
-		require.Len(t, store.domainAttrCalls, 1)
-		assert.Equal(t, DefaultSingleAccountDomain, store.domainAttrCalls[0].Domain,
-			"A single label domain is invisible to the private domain lookup and must be replaced")
+	t.Run("requested domain conflicting with the account domain is reported", func(t *testing.T) {
+		account := &types.Account{Id: "account-1", Domain: "acme.com"}
+		store := &testStore{
+			accountsCounter: 1,
+			accounts:        map[string]*types.Account{account.Id: account},
+		}
+
+		err := EnsureSingleAccountDomain(&testServer{store: store}, "corp.example.com")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrDomainConflict)
+		assert.Empty(t, store.domainAttrCalls, "A conflict must not overwrite the account domain")
 	})
 
 	t.Run("configured domain that cannot resolve is rejected", func(t *testing.T) {
@@ -977,7 +996,7 @@ func TestEnsureSingleAccountDomainRejectsUnresolvableDomains(t *testing.T) {
 
 		err := EnsureSingleAccountDomain(&testServer{store: store}, "corp")
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "is not usable")
+		assert.ErrorIs(t, err, ErrUnusableDomain)
 		assert.Empty(t, store.domainAttrCalls)
 	})
 
@@ -992,7 +1011,7 @@ func TestEnsureSingleAccountDomainRejectsUnresolvableDomains(t *testing.T) {
 
 		err := EnsureSingleAccountDomain(&testServer{store: store}, "")
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "supports a single account only")
+		assert.ErrorIs(t, err, ErrMultipleAccounts)
 		assert.Empty(t, store.domainAttrCalls, "No account may be marked primary when several exist")
 	})
 

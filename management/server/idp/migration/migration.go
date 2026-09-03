@@ -240,6 +240,12 @@ func PopulateUserInfo(s Server, idpManager idp.Manager, dryRun bool) error {
 
 const DefaultSingleAccountDomain = "netbird.selfhosted"
 
+var (
+	ErrMultipleAccounts = errors.New("the embedded IdP supports a single account only")
+	ErrUnusableDomain   = errors.New("domain cannot be resolved in single account mode")
+	ErrDomainConflict   = errors.New("requested domain conflicts with the account domain")
+)
+
 var resolvableDomainRegexp = regexp.MustCompile(`^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$`)
 
 // RequireSingleAccount refuses to migrate an instance that holds more than one account.
@@ -257,10 +263,10 @@ func RequireSingleAccount(s Server) error {
 }
 
 func errMultipleAccounts(accountsCounter int64) error {
-	return fmt.Errorf("this instance has %d accounts and the embedded IdP supports a single account only. "+
-		"Identity provider connectors are stored without an account scope, so every account would share "+
-		"and be able to manage the same connectors. Consolidate this instance to a single account, or keep "+
-		"using an external IdP, before migrating", accountsCounter)
+	return fmt.Errorf("%w: this instance has %d accounts. Identity provider connectors are stored without "+
+		"an account scope, so every account would share and be able to manage the same connectors. "+
+		"Consolidate this instance to a single account, or keep using an external IdP, before migrating",
+		ErrMultipleAccounts, accountsCounter)
 }
 
 func NormalizeSingleAccountDomain(singleAccountDomain string) (string, error) {
@@ -270,18 +276,44 @@ func NormalizeSingleAccountDomain(singleAccountDomain string) (string, error) {
 
 	singleAccountDomain = strings.ToLower(singleAccountDomain)
 	if !resolvableDomainRegexp.MatchString(singleAccountDomain) {
-		return "", fmt.Errorf("single account mode domain %q is not usable: it must contain at least one dot "+
-			"and only lowercase letters, digits and hyphens, otherwise users cannot join the existing account",
-			singleAccountDomain)
+		return "", fmt.Errorf("%w: %q must contain at least one dot and only lowercase letters, digits and "+
+			"hyphens, otherwise users cannot join the existing account", ErrUnusableDomain, singleAccountDomain)
 	}
 
 	return singleAccountDomain, nil
+}
+
+// resolveAccountDomain picks the domain the account should end up with. The account keeps a usable
+// domain of its own, the configured one only fills a blank. Anything else is a conflict to report.
+func resolveAccountDomain(accountID, accountDomain, singleAccountDomain string, requested bool) (string, error) {
+	accountDomain = strings.ToLower(accountDomain)
+
+	if accountDomain == "" {
+		return singleAccountDomain, nil
+	}
+
+	if !resolvableDomainRegexp.MatchString(accountDomain) {
+		return "", fmt.Errorf("%w: account %s has domain %q, which must contain at least one dot and only "+
+			"lowercase letters, digits and hyphens. Correct the account domain before migrating",
+			ErrUnusableDomain, accountID, accountDomain)
+	}
+
+	if requested && accountDomain != singleAccountDomain {
+		return "", fmt.Errorf("%w: account %s already uses domain %q but %q was requested. Re-run without "+
+			"--single-account-mode-domain to keep %q, or correct the account domain first",
+			ErrDomainConflict, accountID, accountDomain, singleAccountDomain, accountDomain)
+	}
+
+	return accountDomain, nil
 }
 
 // EnsureSingleAccountDomain gives the remaining account the domain attributes single account mode
 // resolves against, so users can still join it after the migration.
 func EnsureSingleAccountDomain(s Server, singleAccountDomain string) error {
 	ctx := context.Background()
+
+	// An empty value means the operator did not pick a domain, so the default is only a fallback.
+	requested := singleAccountDomain != ""
 
 	singleAccountDomain, err := NormalizeSingleAccountDomain(singleAccountDomain)
 	if err != nil {
@@ -312,10 +344,9 @@ func EnsureSingleAccountDomain(s Server, singleAccountDomain string) error {
 		return fmt.Errorf("failed to read domain attributes of account %s: %w", accountID, err)
 	}
 
-	// Keep the account's own domain only when it can be resolved.
-	domain := strings.ToLower(accountDomain)
-	if !resolvableDomainRegexp.MatchString(domain) {
-		domain = singleAccountDomain
+	domain, err := resolveAccountDomain(accountID, accountDomain, singleAccountDomain, requested)
+	if err != nil {
+		return err
 	}
 
 	if isDryRun() {
