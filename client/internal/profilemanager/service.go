@@ -54,6 +54,7 @@ type profileMeta struct {
 	Name string
 }
 
+// nolint:unused
 type ownerMeta struct {
 	Owner string
 }
@@ -576,6 +577,7 @@ func readProfileName(path string) string {
 	return meta.Name
 }
 
+// nolint: unused,unusedfunc
 func readProfileOwner(path string) string {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -588,6 +590,7 @@ func readProfileOwner(path string) string {
 	return meta.Owner
 }
 
+// nolint: unused,unusedfunc
 func stampOwner(path string, owner ipcauth.Identity) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
