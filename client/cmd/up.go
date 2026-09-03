@@ -2,10 +2,10 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
-	"os/user"
 	"runtime"
 	"strings"
 	"time"
@@ -47,6 +47,8 @@ const (
 	profileNameFlag = "profile"
 	profileNameDesc = "profile name to use for the login. If not specified, the last used profile will be used."
 )
+
+var errDaemonActiveProfileUnsupported = errors.New("daemon does not support active profile lookup")
 
 var (
 	foregroundMode     bool
@@ -122,23 +124,25 @@ func upFunc(cmd *cobra.Command, args []string) error {
 
 	pm := profilemanager.NewProfileManager()
 
-	username, err := user.Current()
+	username, err := profilemanager.InvokingUser()
 	if err != nil {
 		return fmt.Errorf("get current user: %v", err)
 	}
 
+	var activeProf *profilemanager.Profile
 	var profileSwitched bool
 	// switch profile if provided
 	if profileName != "" {
-		if err := switchOrCreateProfile(cmd.Context(), pm, profileName, username.Username); err != nil {
+		activeProf, err = switchOrCreateProfile(cmd.Context(), pm, profileName, username.Username)
+		if err != nil {
 			return fmt.Errorf("switch profile: %v", err)
 		}
 		profileSwitched = true
-	}
-
-	activeProf, err := pm.GetActiveProfile()
-	if err != nil {
-		return fmt.Errorf("get active profile: %v", err)
+	} else {
+		activeProf, err = pm.GetActiveProfile()
+		if err != nil {
+			return fmt.Errorf("get active profile: %v", err)
+		}
 	}
 
 	if foregroundMode {
@@ -150,13 +154,15 @@ func upFunc(cmd *cobra.Command, args []string) error {
 // switchOrCreateProfile switches the active profile to the one identified by
 // handle, creating it first when it does not exist yet. This restores the
 // pre-0.73 behaviour where `netbird up --profile <name>` auto-creates a
-// missing profile instead of failing.
-func switchOrCreateProfile(ctx context.Context, pm *profilemanager.ProfileManager, handle, username string) error {
+// missing profile instead of failing. Returns the daemon-resolved profile so
+// callers act on it directly instead of re-reading the local state, which is
+// not updated under sudo.
+func switchOrCreateProfile(ctx context.Context, pm *profilemanager.ProfileManager, handle, username string) (*profilemanager.Profile, error) {
 	resolvedID, err := switchProfile(ctx, handle, username)
 	if err != nil {
 		st, ok := gstatus.FromError(err)
 		if !ok || st.Code() != codes.NotFound {
-			return err
+			return nil, err
 		}
 		// Don't fail immediately on a create error: a concurrent run may
 		// have created the profile between the NotFound above and this
@@ -165,16 +171,16 @@ func switchOrCreateProfile(ctx context.Context, pm *profilemanager.ProfileManage
 		_, createErr := createProfile(ctx, handle, username)
 		if resolvedID, err = switchProfile(ctx, handle, username); err != nil {
 			if createErr != nil {
-				return fmt.Errorf("create profile: %w", createErr)
+				return nil, fmt.Errorf("create profile: %w", createErr)
 			}
-			return err
+			return nil, err
 		}
 	}
 
 	if err := pm.SwitchProfile(resolvedID); err != nil {
-		return err
+		return nil, err
 	}
-	return nil
+	return &profilemanager.Profile{ID: resolvedID}, nil
 }
 
 // createProfile dials the daemon and creates a new profile with the given
@@ -302,6 +308,30 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 		return fmt.Errorf("unable to get daemon status: %v", err)
 	}
 
+	// Under sudo the invoking user's local active-profile mirror is never
+	// written (the SwitchProfile write is a no-op), and plain root has no
+	// invoking user at all — so the mirror read into activeProf above is stale
+	// or defaulted and must not drive the daemon. With no --profile to make the
+	// choice explicit, take the profile the daemon already holds for this user
+	// instead: it stays on the user's current profile rather than silently
+	// switching to the mirror's default, and refuses when the daemon is on
+	// another user's profile.
+	if profileName == "" && !profilemanager.MirrorIsAuthoritative() {
+		u, err := profilemanager.InvokingUser()
+		if err != nil {
+			return fmt.Errorf("get current user: %v", err)
+		}
+		resolved, err := daemonActiveProfileForUser(ctx, client, u.Username)
+		switch {
+		case errors.Is(err, errDaemonActiveProfileUnsupported):
+			log.Warnf("keeping the locally resolved profile: %v", err)
+		case err != nil:
+			return err
+		default:
+			activeProf = resolved
+		}
+	}
+
 	if status.Status == string(internal.StatusConnected) {
 		if !profileSwitched {
 			cmd.Println("Already connected")
@@ -314,7 +344,7 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 		}
 	}
 
-	username, err := user.Current()
+	username, err := profilemanager.InvokingUser()
 	if err != nil {
 		return fmt.Errorf("get current user: %v", err)
 	}
@@ -398,26 +428,21 @@ func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServ
 	return nil
 }
 
-func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, profileName, username string) *proto.SetConfigRequest {
-	var req proto.SetConfigRequest
-	req.ProfileName = profileName
-	req.Username = username
-
-	req.ManagementUrl = managementURL
-	req.AdminURL = adminURL
-	req.NatExternalIPs = natExternalIPs
-	req.CustomDNSAddress = customDNSAddressConverted
-	req.ExtraIFaceBlacklist = extraIFaceBlackList
-	req.DnsLabels = dnsLabelsValidated.ToPunycodeList()
-	req.CleanDNSLabels = dnsLabels != nil && len(dnsLabels) == 0
-	req.CleanNATExternalIPs = natExternalIPs != nil && len(natExternalIPs) == 0
-
-	if cmd.Flag(enableRosenpassFlag).Changed {
-		req.RosenpassEnabled = &rosenpassEnabled
+// setBoolPtrIfChanged points dst at a copy of val when the named bool flag was
+// explicitly set on cmd. It collapses the repeated
+// "if cmd.Flag(x).Changed { field = &val }" pattern in the request builders into
+// a single call, keeping their cognitive complexity within bounds.
+func setBoolPtrIfChanged(cmd *cobra.Command, name string, dst **bool, val bool) {
+	if cmd.Flag(name).Changed {
+		dst2 := val
+		*dst = &dst2
 	}
-	if cmd.Flag(rosenpassPermissiveFlag).Changed {
-		req.RosenpassPermissive = &rosenpassPermissive
-	}
+}
+
+// setSSHSetConfigFields copies the SSH server flags the user actually
+// passed into req, leaving the rest unset so the daemon keeps the
+// persisted values.
+func setSSHSetConfigFields(req *proto.SetConfigRequest, cmd *cobra.Command) {
 	if cmd.Flag(serverSSHAllowedFlag).Changed {
 		req.ServerSSHAllowed = &serverSSHAllowed
 	}
@@ -440,6 +465,31 @@ func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, pro
 		sshJWTCacheTTL32 := int32(sshJWTCacheTTL)
 		req.SshJWTCacheTTL = &sshJWTCacheTTL32
 	}
+}
+
+func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, profileName, username string) *proto.SetConfigRequest {
+	var req proto.SetConfigRequest
+	req.ProfileName = profileName
+	req.Username = username
+
+	req.ManagementUrl = managementURL
+	req.AdminURL = adminURL
+	req.NatExternalIPs = natExternalIPs
+	req.CustomDNSAddress = customDNSAddressConverted
+	req.ExtraIFaceBlacklist = extraIFaceBlackList
+	req.DnsLabels = dnsLabelsValidated.ToPunycodeList()
+	req.CleanDNSLabels = dnsLabels != nil && len(dnsLabels) == 0
+	req.CleanNATExternalIPs = natExternalIPs != nil && len(natExternalIPs) == 0
+
+	if cmd.Flag(enableRosenpassFlag).Changed {
+		req.RosenpassEnabled = &rosenpassEnabled
+	}
+	if cmd.Flag(rosenpassPermissiveFlag).Changed {
+		req.RosenpassPermissive = &rosenpassPermissive
+	}
+	setSSHSetConfigFields(&req, cmd)
+	setBoolPtrIfChanged(cmd, remoteJobsAllowedFlag, &req.RemoteJobsAllowed, remoteJobsAllowed)
+
 	if cmd.Flag(interfaceNameFlag).Changed {
 		if err := parseInterfaceName(interfaceName); err != nil {
 			log.Errorf("parse interface name: %v", err)
@@ -499,6 +549,13 @@ func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, pro
 		req.DisableIpv6 = &disableIPv6
 	}
 
+	if cmd.Flag(enableLocalMetricsFlag).Changed {
+		req.EnableLocalMetrics = &localMetricsEnabled
+	}
+	if cmd.Flag(localMetricsAddressFlag).Changed {
+		req.LocalMetricsAddress = &localMetricsAddr
+	}
+
 	return &req
 }
 
@@ -523,6 +580,7 @@ func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configFil
 	if cmd.Flag(serverSSHAllowedFlag).Changed {
 		ic.ServerSSHAllowed = &serverSSHAllowed
 	}
+	setBoolPtrIfChanged(cmd, remoteJobsAllowedFlag, &ic.RemoteJobsAllowed, remoteJobsAllowed)
 
 	if cmd.Flag(enableSSHRootFlag).Changed {
 		ic.EnableSSHRoot = &enableSSHRoot
@@ -616,7 +674,43 @@ func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configFil
 		ic.DisableIPv6 = &disableIPv6
 	}
 
+	if cmd.Flag(enableLocalMetricsFlag).Changed {
+		ic.LocalMetricsEnabled = &localMetricsEnabled
+	}
+
+	if cmd.Flag(localMetricsAddressFlag).Changed {
+		ic.LocalMetricsAddress = &localMetricsAddr
+	}
+
 	return &ic, nil
+}
+
+// setSSHLoginFields copies the SSH server flags the user actually passed
+// into req, leaving the rest unset so the daemon keeps the persisted
+// values.
+func setSSHLoginFields(req *proto.LoginRequest, cmd *cobra.Command) {
+	if cmd.Flag(serverSSHAllowedFlag).Changed {
+		req.ServerSSHAllowed = &serverSSHAllowed
+	}
+	if cmd.Flag(enableSSHRootFlag).Changed {
+		req.EnableSSHRoot = &enableSSHRoot
+	}
+	if cmd.Flag(enableSSHSFTPFlag).Changed {
+		req.EnableSSHSFTP = &enableSSHSFTP
+	}
+	if cmd.Flag(enableSSHLocalPortForwardFlag).Changed {
+		req.EnableSSHLocalPortForwarding = &enableSSHLocalPortForward
+	}
+	if cmd.Flag(enableSSHRemotePortForwardFlag).Changed {
+		req.EnableSSHRemotePortForwarding = &enableSSHRemotePortForward
+	}
+	if cmd.Flag(disableSSHAuthFlag).Changed {
+		req.DisableSSHAuth = &disableSSHAuth
+	}
+	if cmd.Flag(sshJWTCacheTTLFlag).Changed {
+		sshJWTCacheTTL32 := int32(sshJWTCacheTTL)
+		req.SshJWTCacheTTL = &sshJWTCacheTTL32
+	}
 }
 
 func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte, cmd *cobra.Command) (*proto.LoginRequest, error) {
@@ -645,37 +739,19 @@ func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte
 		loginRequest.RosenpassPermissive = &rosenpassPermissive
 	}
 
-	if cmd.Flag(serverSSHAllowedFlag).Changed {
-		loginRequest.ServerSSHAllowed = &serverSSHAllowed
-	}
-
-	if cmd.Flag(enableSSHRootFlag).Changed {
-		loginRequest.EnableSSHRoot = &enableSSHRoot
-	}
-
-	if cmd.Flag(enableSSHSFTPFlag).Changed {
-		loginRequest.EnableSSHSFTP = &enableSSHSFTP
-	}
-
-	if cmd.Flag(enableSSHLocalPortForwardFlag).Changed {
-		loginRequest.EnableSSHLocalPortForwarding = &enableSSHLocalPortForward
-	}
-
-	if cmd.Flag(enableSSHRemotePortForwardFlag).Changed {
-		loginRequest.EnableSSHRemotePortForwarding = &enableSSHRemotePortForward
-	}
-
-	if cmd.Flag(disableSSHAuthFlag).Changed {
-		loginRequest.DisableSSHAuth = &disableSSHAuth
-	}
-
-	if cmd.Flag(sshJWTCacheTTLFlag).Changed {
-		sshJWTCacheTTL32 := int32(sshJWTCacheTTL)
-		loginRequest.SshJWTCacheTTL = &sshJWTCacheTTL32
-	}
+	setSSHLoginFields(&loginRequest, cmd)
+	setBoolPtrIfChanged(cmd, remoteJobsAllowedFlag, &loginRequest.RemoteJobsAllowed, remoteJobsAllowed)
 
 	if cmd.Flag(disableAutoConnectFlag).Changed {
 		loginRequest.DisableAutoConnect = &autoConnectDisabled
+	}
+
+	if cmd.Flag(enableLocalMetricsFlag).Changed {
+		loginRequest.EnableLocalMetrics = &localMetricsEnabled
+	}
+
+	if cmd.Flag(localMetricsAddressFlag).Changed {
+		loginRequest.LocalMetricsAddress = &localMetricsAddr
 	}
 
 	if cmd.Flag(interfaceNameFlag).Changed {
@@ -848,4 +924,32 @@ func isValidAddrPort(input string) bool {
 	}
 	_, err := netip.ParseAddrPort(input)
 	return err == nil
+}
+
+// daemonActiveProfileForUser returns the profile the daemon currently holds for
+// username, for the no --profile case where the local mirror is not
+// authoritative (sudo or plain root). It returns that profile when the daemon
+// owns it for this user or when the profile is unowned (empty username, as on a
+// fresh install), so the caller acts on the daemon's real state instead of the
+// stale mirror. It denies with a --profile hint when the daemon is on another
+// user's profile, when the lookup fails, or when the daemon reports no active
+// profile. Returns errDaemonActiveProfileUnsupported when the daemon predates
+// the RPC; the caller keeps the mirror-derived profile in that case.
+func daemonActiveProfileForUser(ctx context.Context, client proto.DaemonServiceClient, username string) (*profilemanager.Profile, error) {
+	active, err := client.GetActiveProfile(ctx, &proto.GetActiveProfileRequest{})
+	if err != nil {
+		if st, ok := gstatus.FromError(err); ok && st.Code() == codes.Unimplemented {
+			return nil, fmt.Errorf("%w: %v", errDaemonActiveProfileUnsupported, err)
+		}
+		return nil, fmt.Errorf("pass --profile to choose the profile explicitly: the daemon's active profile could not be verified: %v", err)
+	}
+	if active.GetId() == "" {
+		return nil, fmt.Errorf("pass --profile to choose the profile explicitly: the daemon reported no active profile")
+	}
+	if active.GetUsername() != "" && active.GetUsername() != username {
+		return nil, fmt.Errorf(
+			"pass --profile to choose the profile explicitly: the daemon's active profile is %q (user %q) but this invocation runs for %q",
+			active.GetProfileName(), active.GetUsername(), username)
+	}
+	return &profilemanager.Profile{ID: profilemanager.ID(active.GetId())}, nil
 }
