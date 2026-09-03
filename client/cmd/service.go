@@ -46,7 +46,7 @@ type program struct {
 	jsonServMu       sync.Mutex
 	serverInstance   *server.Server
 	serverInstanceMu sync.Mutex
-	policyGate       *ipcauth.PolicyGate
+	ruleGate         *ipcauth.RuleGate
 }
 
 func init() {
