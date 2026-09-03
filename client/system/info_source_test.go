@@ -42,10 +42,17 @@ func TestInfoSource_CurrentExcludesAddresses(t *testing.T) {
 		t.Skip("no network addresses on this host")
 	}
 	excluded := addrs[0].NetIP.Addr()
+	matching := 0
+	for _, addr := range addrs {
+		if addr.NetIP.Addr() == excluded {
+			matching++
+		}
+	}
 
 	var src InfoSource
 	info := src.Current(context.Background(), excluded)
 
+	assert.Len(t, info.NetworkAddresses, len(addrs)-matching)
 	for _, addr := range info.NetworkAddresses {
 		assert.NotEqual(t, excluded, addr.NetIP.Addr())
 	}

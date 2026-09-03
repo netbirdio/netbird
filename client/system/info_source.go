@@ -3,6 +3,7 @@ package system
 import (
 	"context"
 	"net/netip"
+	"slices"
 	"sync/atomic"
 	"time"
 
@@ -21,7 +22,7 @@ func (s *InfoSource) Refresh(ctx context.Context, timeout time.Duration, checks 
 	if !ok {
 		return nil, false
 	}
-	files := info.Files
+	files := slices.Clone(info.Files)
 	s.files.Store(&files)
 	return info, true
 }
