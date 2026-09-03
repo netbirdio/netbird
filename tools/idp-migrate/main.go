@@ -71,7 +71,7 @@ func run(cfg *migrationConfig) error {
 		return err
 	}
 
-	if err := requireSingleAccount(mgmtConfig, cfg.dataDir); err != nil {
+	if err := preflightAccounts(cfg, mgmtConfig); err != nil {
 		return err
 	}
 
@@ -106,15 +106,20 @@ func run(cfg *migrationConfig) error {
 	return generateConfig(cfg, connectorConfig)
 }
 
-func requireSingleAccount(mgmtConfig *nbconfig.Config, dataDir string) error {
+func preflightAccounts(cfg *migrationConfig, mgmtConfig *nbconfig.Config) error {
 	ctx := context.Background()
-	migStore, migEventStore, cleanup, err := openStores(ctx, mgmtConfig, dataDir)
+	migStore, migEventStore, cleanup, err := openStores(ctx, mgmtConfig, cfg.dataDir)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
 
-	return migration.RequireSingleAccount(&migrationServer{store: migStore, eventStore: migEventStore})
+	srv := &migrationServer{store: migStore, eventStore: migEventStore}
+	if err := migration.RequireSingleAccount(srv); err != nil {
+		return err
+	}
+
+	return migration.CheckSingleAccountDomain(srv, cfg.singleAccountDomain)
 }
 
 // validateSchema opens the store and checks that all required tables and columns

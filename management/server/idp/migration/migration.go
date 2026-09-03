@@ -310,6 +310,47 @@ func resolveAccountDomain(accountID, accountDomain, singleAccountDomain string, 
 // EnsureSingleAccountDomain gives the remaining account the domain attributes single account mode
 // resolves against, so users can still join it after the migration.
 func EnsureSingleAccountDomain(s Server, singleAccountDomain string) error {
+	plan, err := planSingleAccountDomain(s, singleAccountDomain)
+	if err != nil {
+		return err
+	}
+	if plan.skip {
+		return nil
+	}
+
+	if isDryRun() {
+		log.Infof("[DRY RUN] would set account %s domain to %q, category to %q and mark it as the primary domain account "+
+			"(currently domain=%q primary=%v)", plan.accountID, plan.domain, types.PrivateCategory,
+			plan.currentDomain, plan.isPrimary)
+		return nil
+	}
+
+	if err := s.Store().UpdateAccountDomainAttributes(context.Background(), plan.accountID, plan.domain,
+		types.PrivateCategory, true); err != nil {
+		return fmt.Errorf("failed to update domain attributes of account %s: %w", plan.accountID, err)
+	}
+
+	log.Infof("account %s now resolves in single account mode with domain %q", plan.accountID, plan.domain)
+	return nil
+}
+
+// CheckSingleAccountDomain reports whether EnsureSingleAccountDomain would succeed, without writing.
+func CheckSingleAccountDomain(s Server, singleAccountDomain string) error {
+	_, err := planSingleAccountDomain(s, singleAccountDomain)
+	return err
+}
+
+type singleAccountDomainPlan struct {
+	accountID     string
+	domain        string
+	currentDomain string
+	isPrimary     bool
+	skip          bool
+}
+
+// planSingleAccountDomain decides what the account's domain attributes should become. It reads
+// only, so it can run both as a preflight and as the first half of the update.
+func planSingleAccountDomain(s Server, singleAccountDomain string) (singleAccountDomainPlan, error) {
 	ctx := context.Background()
 
 	// An empty value means the operator did not pick a domain, so the default is only a fallback.
@@ -317,48 +358,42 @@ func EnsureSingleAccountDomain(s Server, singleAccountDomain string) error {
 
 	singleAccountDomain, err := NormalizeSingleAccountDomain(singleAccountDomain)
 	if err != nil {
-		return err
+		return singleAccountDomainPlan{}, err
 	}
 
 	accountsCounter, err := s.Store().GetAccountsCounter(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to count accounts: %w", err)
+		return singleAccountDomainPlan{}, fmt.Errorf("failed to count accounts: %w", err)
 	}
 	// The count is checked again here: it is read long after RequireSingleAccount, and marking an
 	// arbitrary account as the primary one for the domain would be wrong.
 	switch {
 	case accountsCounter == 0:
 		log.Info("no accounts yet, nothing to prepare for single account mode")
-		return nil
+		return singleAccountDomainPlan{skip: true}, nil
 	case accountsCounter > 1:
-		return errMultipleAccounts(accountsCounter)
+		return singleAccountDomainPlan{}, errMultipleAccounts(accountsCounter)
 	}
 
 	accountID, err := s.Store().GetAnyAccountID(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get the existing account: %w", err)
+		return singleAccountDomainPlan{}, fmt.Errorf("failed to get the existing account: %w", err)
 	}
 
 	isPrimary, accountDomain, err := s.Store().IsPrimaryAccount(ctx, accountID)
 	if err != nil {
-		return fmt.Errorf("failed to read domain attributes of account %s: %w", accountID, err)
+		return singleAccountDomainPlan{}, fmt.Errorf("failed to read domain attributes of account %s: %w", accountID, err)
 	}
 
 	domain, err := resolveAccountDomain(accountID, accountDomain, singleAccountDomain, requested)
 	if err != nil {
-		return err
+		return singleAccountDomainPlan{}, err
 	}
 
-	if isDryRun() {
-		log.Infof("[DRY RUN] would set account %s domain to %q, category to %q and mark it as the primary domain account "+
-			"(currently domain=%q primary=%v)", accountID, domain, types.PrivateCategory, accountDomain, isPrimary)
-		return nil
-	}
-
-	if err := s.Store().UpdateAccountDomainAttributes(ctx, accountID, domain, types.PrivateCategory, true); err != nil {
-		return fmt.Errorf("failed to update domain attributes of account %s: %w", accountID, err)
-	}
-
-	log.Infof("account %s now resolves in single account mode with domain %q", accountID, domain)
-	return nil
+	return singleAccountDomainPlan{
+		accountID:     accountID,
+		domain:        domain,
+		currentDomain: accountDomain,
+		isPrimary:     isPrimary,
+	}, nil
 }

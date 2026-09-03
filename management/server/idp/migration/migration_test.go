@@ -907,6 +907,12 @@ func TestEnsureSingleAccountDomain(t *testing.T) {
 			expectedDomain: DefaultSingleAccountDomain,
 		},
 		{
+			name:            "requested domain is applied to an account without one",
+			account:         &types.Account{Id: "account-1"},
+			requestedDomain: "corp.example.com",
+			expectedDomain:  "corp.example.com",
+		},
+		{
 			name:           "account keeps its own domain",
 			account:        &types.Account{Id: "account-1", Domain: "acme.com"},
 			expectedDomain: "acme.com",
@@ -1021,4 +1027,51 @@ func TestEnsureSingleAccountDomainRejectsUnresolvableDomains(t *testing.T) {
 		require.NoError(t, EnsureSingleAccountDomain(&testServer{store: store}, ""))
 		assert.Empty(t, store.domainAttrCalls)
 	})
+}
+
+func TestCheckSingleAccountDomain(t *testing.T) {
+	tests := []struct {
+		name      string
+		account   *types.Account
+		requested string
+		expectErr error
+	}{
+		{
+			name:    "usable account domain passes",
+			account: &types.Account{Id: "account-1", Domain: "acme.com"},
+		},
+		{
+			name:    "empty account domain passes",
+			account: &types.Account{Id: "account-1"},
+		},
+		{
+			name:      "unresolvable account domain fails",
+			account:   &types.Account{Id: "account-1", Domain: "corp"},
+			expectErr: ErrUnusableDomain,
+		},
+		{
+			name:      "conflicting request fails",
+			account:   &types.Account{Id: "account-1", Domain: "acme.com"},
+			requested: "corp.example.com",
+			expectErr: ErrDomainConflict,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &testStore{
+				accountsCounter: 1,
+				accounts:        map[string]*types.Account{tt.account.Id: tt.account},
+			}
+
+			err := CheckSingleAccountDomain(&testServer{store: store}, tt.requested)
+			if tt.expectErr == nil {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, tt.expectErr)
+			}
+
+			assert.Empty(t, store.domainAttrCalls, "The preflight must not write anything")
+		})
+	}
 }
