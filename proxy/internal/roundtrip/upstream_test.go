@@ -347,12 +347,27 @@ func (s *brokenHTTP2Server) handle(conn net.Conn) {
 // refuseHTTP2 completes just enough of the h2 handshake for the client
 // to accept the connection, then sends the GOAWAY an upstream uses to
 // say the request belongs on HTTP/1.1.
+//
+// The client is still writing its preface and request while the GOAWAY
+// goes out, so the connection is drained before the caller closes it.
+// Closing a socket with unread bytes still in its receive buffer makes
+// the kernel answer with RST, which reaches the client as a write error
+// rather than the GOAWAY — no h2 error, so no downgrade, and the test
+// fails on the error the client saw first.
 func (s *brokenHTTP2Server) refuseHTTP2(conn net.Conn) {
 	framer := http2.NewFramer(conn, conn)
 	if err := framer.WriteSettings(); err != nil {
 		return
 	}
-	_ = framer.WriteGoAway(0, http2.ErrCodeHTTP11Required, nil)
+	if err := framer.WriteGoAway(0, http2.ErrCodeHTTP11Required, nil); err != nil {
+		return
+	}
+
+	// The client closes its side once it has read the GOAWAY, which ends
+	// the drain; the deadline is only a backstop against a client that
+	// never does.
+	_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	_, _ = io.Copy(io.Discard, conn)
 }
 
 // serveHTTP1 answers a single request with the protocol the upstream
