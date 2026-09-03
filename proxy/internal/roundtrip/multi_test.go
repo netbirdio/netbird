@@ -76,13 +76,13 @@ func TestMultiTransport_AppliesEnvOverridesToDirect(t *testing.T) {
 
 	mt := NewMultiTransport(&stubRoundTripper{body: "embedded"}, nil)
 
-	assert.Equal(t, 42, mt.direct.MaxIdleConns,
+	assert.Equal(t, 42, mt.direct.primary.MaxIdleConns,
 		"NB_PROXY_MAX_IDLE_CONNS must propagate to the direct transport")
-	assert.Equal(t, 11*time.Second, mt.direct.IdleConnTimeout,
+	assert.Equal(t, 11*time.Second, mt.direct.primary.IdleConnTimeout,
 		"NB_PROXY_IDLE_CONN_TIMEOUT must propagate to the direct transport")
-	assert.Equal(t, 7*time.Second, mt.direct.TLSHandshakeTimeout,
+	assert.Equal(t, 7*time.Second, mt.direct.primary.TLSHandshakeTimeout,
 		"NB_PROXY_TLS_HANDSHAKE_TIMEOUT must propagate to the direct transport")
-	assert.Equal(t, 42, mt.insecure.MaxIdleConns,
+	assert.Equal(t, 42, mt.insecure.primary.MaxIdleConns,
 		"env tuning must also apply to the insecure-skip-verify direct transport")
 }
 

@@ -34,13 +34,19 @@ const (
 type upstreamHTTPVersion string
 
 const (
-	// upstreamHTTPAuto leaves the choice to the proxy's own default.
-	// This is the only value whose meaning tracks that default.
+	// upstreamHTTPAuto leaves the choice to the upstream: h2 is offered
+	// alongside http/1.1 in the TLS handshake and the upstream picks.
+	// An upstream that picks h2 and then fails to serve it is moved to
+	// HTTP/1.1 on its own (see upstreamTransport), which is the part
+	// ALPN cannot express. This is the only value whose meaning tracks
+	// the proxy's default.
 	upstreamHTTPAuto upstreamHTTPVersion = "auto"
 	// upstreamHTTP11 never offers h2, so the upstream sees HTTP/1.1.
 	upstreamHTTP11 upstreamHTTPVersion = "1.1"
-	// upstreamHTTP2 offers h2 in the TLS handshake. Cleartext upstreams
-	// stay on HTTP/1.1 regardless: the proxy speaks no h2c.
+	// upstreamHTTP2 offers h2 in the TLS handshake and keeps it there:
+	// an upstream that negotiates h2 and then breaks is never moved to
+	// HTTP/1.1. Cleartext upstreams stay on HTTP/1.1 regardless: the
+	// proxy speaks no h2c.
 	upstreamHTTP2 upstreamHTTPVersion = "2"
 )
 
@@ -59,8 +65,9 @@ type transportConfig struct {
 	// maxInflight limits per-backend concurrent requests. 0 means unlimited.
 	maxInflight int
 	// upstreamHTTPVersion selects the HTTP version used towards HTTPS
-	// upstreams, for backends whose h2 support is advertised but
-	// unusable.
+	// upstreams. The default negotiates it with each upstream; the
+	// explicit values are for backends whose advertised h2 support is
+	// unusable and whose failure mode the negotiation cannot see.
 	upstreamHTTPVersion upstreamHTTPVersion
 }
 
@@ -134,10 +141,12 @@ func loadTransportConfig(logger *log.Logger) transportConfig {
 	return cfg
 }
 
-// applyUpstreamHTTPVersion configures t for the requested HTTP version.
-// It is the single place that decides what "auto" means, so changing the
-// proxy's default only touches this function and leaves every explicit
-// operator setting intact.
+// applyUpstreamHTTPVersion configures t's ALPN offer for the requested
+// HTTP version. It is the single place that decides which protocols a
+// transport offers, so changing the proxy's default only touches this
+// function and leaves every explicit operator setting intact. What
+// happens when a negotiated h2 upstream then fails belongs to
+// upstreamTransport, which owns the runtime half of "auto".
 //
 // HTTP/1.1 is pinned by clearing ForceAttemptHTTP2 and installing an
 // empty TLSNextProto, which disables h2 regardless of how the transport
@@ -148,9 +157,41 @@ func applyUpstreamHTTPVersion(t *http.Transport, version upstreamHTTPVersion) {
 	if version == upstreamHTTP11 {
 		t.ForceAttemptHTTP2 = false
 		t.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{}
+		t.TLSClientConfig = withoutHTTP2ALPN(t.TLSClientConfig)
 		return
 	}
 	t.ForceAttemptHTTP2 = true
+}
+
+// withoutHTTP2ALPN drops h2 from the ALPN offer. Configuring h2 makes
+// net/http append h2 to the transport's TLSClientConfig, so a transport
+// cloned from one that already served a request carries that offer with
+// it. Left in place, the upstream would select a protocol this
+// transport then refuses to speak, and the response would come back as
+// h2 frames parsed as an HTTP/1.1 message.
+func withoutHTTP2ALPN(cfg *tls.Config) *tls.Config {
+	// A nil config offers no ALPN at all, which is already HTTP/1.1.
+	if cfg == nil || len(cfg.NextProtos) == 0 {
+		return cfg
+	}
+
+	protos := make([]string, 0, len(cfg.NextProtos))
+	for _, proto := range cfg.NextProtos {
+		if proto == "h2" {
+			continue
+		}
+		protos = append(protos, proto)
+	}
+	if len(protos) == len(cfg.NextProtos) {
+		return cfg
+	}
+
+	// Clone rather than edit in place: the caller may share this config
+	// with the transport it was cloned from.
+	stripped := cfg.Clone()
+	stripped.NextProtos = protos
+
+	return stripped
 }
 
 // envUpstreamHTTPVersion reads an upstream HTTP version from the
