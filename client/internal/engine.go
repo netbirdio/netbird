@@ -94,6 +94,13 @@ const (
 	// exec, os.Stat); without this bound a single stuck call freezes handleSync, and
 	// thus syncMsgMux, for as long as the call hangs (observed multi-minute freezes).
 	systemInfoTimeout = 15 * time.Second
+
+	// dnsForwarderStopTimeout bounds how long stopping the DNS forwarder waits
+	// for the queries still in flight. One waiting on an unresponsive upstream
+	// would otherwise hold the stop for the whole upstream timeout, and the
+	// stop runs with syncMsgMux held. The sockets are closed either way, so
+	// giving up costs a query that was already failing.
+	dnsForwarderStopTimeout = 2 * time.Second
 )
 
 var ErrResetConnection = fmt.Errorf("reset connection")
@@ -320,6 +327,10 @@ type Peer struct {
 type localIpUpdater interface {
 	UpdateLocalIPs() error
 }
+
+// overlayRebind rebuilds one subsystem's sockets on the current interface. The
+// error it returns names its own subsystem, since the caller can only log it.
+type overlayRebind func() error
 
 // NewEngine creates a new Connection Engine with probes attached
 func NewEngine(
@@ -745,6 +756,11 @@ func (e *Engine) initFirewall() error {
 		return fmt.Errorf("set firewall: %w", err)
 	}
 
+	// TODO: the firewall backends dedup filter rules by content, so a
+	// management route ACL with identical content would collapse onto the
+	// untracked drop rules installed here, and a later management delete
+	// could remove them. Needs backend refcounting or per-consumer key
+	// namespacing.
 	if e.config.BlockLANAccess {
 		e.blockLanAccess()
 	}
@@ -757,14 +773,14 @@ func (e *Engine) initFirewall() error {
 	port := firewallManager.Port{Values: []uint16{uint16(rosenpassPort)}}
 
 	// IPv4-only: rosenpass peers connect via AllowedIps[0] which is always v4.
-	if _, err := e.firewall.AddPeerFiltering(
+	if _, err := e.firewall.AddFilterRule(
 		nil,
-		net.IP{0, 0, 0, 0},
+		[]netip.Prefix{netip.PrefixFrom(netip.IPv4Unspecified(), 0)},
+		firewallManager.Network{},
 		firewallManager.ProtocolUDP,
 		nil,
 		&port,
 		firewallManager.ActionAccept,
-		"",
 	); err != nil {
 		log.Errorf("failed to allow rosenpass interface traffic: %v", err)
 		return nil
@@ -814,7 +830,7 @@ func (e *Engine) blockLanAccess() {
 		if network.Addr().Is6() {
 			source = v6
 		}
-		if _, err := e.firewall.AddRouteFiltering(
+		if _, err := e.firewall.AddFilterRule(
 			nil,
 			[]netip.Prefix{source},
 			firewallManager.Network{Prefix: network},
@@ -2497,7 +2513,72 @@ func (e *Engine) RenewTun(fd int) error {
 		return fmt.Errorf("wireguard interface not initialized")
 	}
 
-	return wgInterface.RenewTun(fd)
+	if err := wgInterface.RenewTun(fd); err != nil {
+		return err
+	}
+
+	e.rebindOverlayListeners()
+	return nil
+}
+
+// rebindOverlayListeners gives the servers that listen on an overlay address
+// sockets on the interface as it is now.
+//
+// A socket belongs to the interface generation it was created on. Renewing the
+// TUN builds a new interface and moves the overlay addresses to it, which
+// leaves the old sockets in LISTEN with the uspfilter still logging packets
+// arriving for them, while every accept fails with EINVAL for the life of the
+// socket: from the outside the server looks alive and answers nothing. On
+// Android this happens during a normal startup, where the first TUN is
+// established before the routes are known and replaced once they arrive.
+//
+// Rebinding costs whatever those sockets were carrying, which the renewal has
+// already broken. Errors are logged rather than returned: the renewal itself
+// succeeded, and failing it would hand the caller a working interface and an
+// error.
+func (e *Engine) rebindOverlayListeners() {
+	e.syncMsgMux.Lock()
+	defer e.syncMsgMux.Unlock()
+
+	for _, rebind := range e.overlayRebinds() {
+		if err := rebind(); err != nil {
+			log.Errorf("after TUN renewal: %v", err)
+		}
+	}
+}
+
+// overlayRebinds is every subsystem of this engine that holds sockets bound to
+// an overlay address, and how to rebuild each one's.
+//
+// A subsystem that starts listening on an overlay address belongs in this list.
+// Leaving it out costs nothing that review would notice and produces a listener
+// that stays in LISTEN, is logged as receiving packets, and refuses every
+// connection for the life of the process.
+func (e *Engine) overlayRebinds() []overlayRebind {
+	return []overlayRebind{
+		e.restartSSHListeners,
+		e.restartDNSForwarder,
+	}
+}
+
+// restartDNSForwarder rebuilds the DNS forwarder serving the same domains.
+// No-op when it is not running. See Engine.rebindOverlayListeners.
+func (e *Engine) restartDNSForwarder() error {
+	if e.dnsForwardMgr == nil {
+		return nil
+	}
+	// Read from the forwarder before it goes away, so the replacement serves
+	// the domains in force now rather than a copy kept somewhere else.
+	entries := e.dnsForwardMgr.Domains()
+	e.stopDNSForwarder()
+	// Both halves log their own failures, so the only thing left to report is
+	// the outcome: a start that failed left the manager nil, and the forwarder
+	// is now down rather than merely rebound.
+	e.startDNSForwarder(entries)
+	if e.dnsForwardMgr == nil {
+		return errors.New("rebind DNS forwarder: it did not come back up")
+	}
+	return nil
 }
 
 // updateDNSForwarder start or stop the DNS forwarder based on the domains and the feature flag
@@ -2543,7 +2624,14 @@ func (e *Engine) stopDNSForwarder() {
 		return
 	}
 
-	if err := e.dnsForwardMgr.Stop(context.Background()); err != nil {
+	// Bounded because the shutdown waits for queries still in flight, and one
+	// waiting on an unresponsive upstream holds it for as long as that lookup
+	// is allowed to take. This runs with syncMsgMux held, so that wait is one
+	// the whole engine spends.
+	ctx, cancel := context.WithTimeout(context.Background(), dnsForwarderStopTimeout)
+	defer cancel()
+
+	if err := e.dnsForwardMgr.Stop(ctx); err != nil {
 		log.Errorf("failed to stop DNS forward: %v", err)
 	}
 
@@ -2658,7 +2746,7 @@ func (e *Engine) updateForwardRules(rules []*mgmProto.ForwardingRule) ([]firewal
 	var merr *multierror.Error
 	forwardingRules := make([]firewallManager.ForwardRule, 0, len(rules))
 	for _, rule := range rules {
-		proto, err := convertToFirewallProtocol(rule.GetProtocol())
+		proto, err := acl.ConvertToFirewallProtocol(rule.GetProtocol())
 		if err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("failed to convert protocol '%s': %w", rule.GetProtocol(), err))
 			continue
