@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"slices"
 	"sync"
 	"syscall"
 	"time"
@@ -1295,13 +1296,26 @@ func approvalRejection(err error) (string, string) {
 }
 
 // acceptRetryable reports whether an Accept error can plausibly clear on its
-// own. Running out of file descriptors can, once open connections close, and an
-// aborted handshake concerns one client rather than the listener. Anything else
-// will fail the same way on every call, and retrying it is not recovery but a
-// livelock: Android has been seen returning EINVAL from accept4 for the life of
-// an otherwise healthy listening socket.
+// own: a pending connection that died before it could be handed over, or a
+// resource shortage that eases as open connections close and memory frees.
+// Both concern one attempt rather than the listening socket.
+//
+// The set is an allowlist rather than a denylist of fatal errors, and it
+// deliberately does not use net.Error.Temporary: an error that recurs on every
+// call, such as EINVAL from a listening socket whose interface went away, is
+// reported as temporary there and would turn the loop into a livelock instead
+// of a recovery.
 func acceptRetryable(err error) bool {
-	return errors.Is(err, syscall.ECONNABORTED) ||
-		errors.Is(err, syscall.EMFILE) ||
-		errors.Is(err, syscall.ENFILE)
+	retryable := []syscall.Errno{
+		syscall.ECONNABORTED, // the pending connection was reset during the handshake
+		syscall.ECONNRESET,   // same, reported differently by some stacks
+		syscall.ETIMEDOUT,    // the pending connection timed out before being handed over
+		syscall.EMFILE,       // per-process descriptor limit
+		syscall.ENFILE,       // system-wide descriptor limit
+		syscall.ENOBUFS,      // socket buffer memory exhausted
+		syscall.ENOMEM,       // kernel memory exhausted
+	}
+	return slices.ContainsFunc(retryable, func(errno syscall.Errno) bool {
+		return errors.Is(err, errno)
+	})
 }
