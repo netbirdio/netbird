@@ -21,6 +21,7 @@ const (
 	EnvReadBufferSize        = "NB_PROXY_READ_BUFFER_SIZE"
 	EnvDisableCompression    = "NB_PROXY_DISABLE_COMPRESSION"
 	EnvMaxInflight           = "NB_PROXY_MAX_INFLIGHT"
+	EnvForceAttemptHTTP2     = "NB_PROXY_FORCE_ATTEMPT_HTTP2"
 )
 
 // transportConfig holds tunable parameters for the per-account HTTP transport.
@@ -37,6 +38,13 @@ type transportConfig struct {
 	disableCompression    bool
 	// maxInflight limits per-backend concurrent requests. 0 means unlimited.
 	maxInflight int
+	// forceAttemptHTTP2 sets http.Transport.ForceAttemptHTTP2. Both proxy
+	// transports dial through a custom DialContext, which makes net/http
+	// disable HTTP/2 unless it is forced, so this defaults to true.
+	// Setting it to false restores that conservative default, leaving
+	// HTTPS upstreams on HTTP/1.1 for backends whose h2 support is
+	// advertised but unusable.
+	forceAttemptHTTP2 bool
 }
 
 func defaultTransportConfig() transportConfig {
@@ -47,6 +55,7 @@ func defaultTransportConfig() transportConfig {
 		idleConnTimeout:       90 * time.Second,
 		tlsHandshakeTimeout:   10 * time.Second,
 		expectContinueTimeout: 1 * time.Second,
+		forceAttemptHTTP2:     true,
 	}
 }
 
@@ -86,6 +95,9 @@ func loadTransportConfig(logger *log.Logger) transportConfig {
 	if v, ok := envInt(EnvMaxInflight, logger); ok {
 		cfg.maxInflight = v
 	}
+	if v, ok := envBool(EnvForceAttemptHTTP2, logger); ok {
+		cfg.forceAttemptHTTP2 = v
+	}
 
 	logger.WithFields(log.Fields{
 		"max_idle_conns":          cfg.maxIdleConns,
@@ -99,6 +111,7 @@ func loadTransportConfig(logger *log.Logger) transportConfig {
 		"read_buffer_size":        cfg.readBufferSize,
 		"disable_compression":     cfg.disableCompression,
 		"max_inflight":            cfg.maxInflight,
+		"force_attempt_http2":     cfg.forceAttemptHTTP2,
 	}).Debug("backend transport configuration")
 
 	return cfg

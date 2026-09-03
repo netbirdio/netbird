@@ -85,6 +85,56 @@ func TestMultiTransport_AppliesEnvOverridesToDirect(t *testing.T) {
 		"env tuning must also apply to the insecure-skip-verify direct transport")
 }
 
+// TestMultiTransport_ForceAttemptHTTP2 pins the protocol actually
+// negotiated with an HTTPS upstream that offers both h2 and http/1.1.
+// The direct transports dial through a custom DialContext, so net/http
+// only reaches for h2 while ForceAttemptHTTP2 is set; clearing it via
+// NB_PROXY_FORCE_ATTEMPT_HTTP2 must leave the request on HTTP/1.1.
+func TestMultiTransport_ForceAttemptHTTP2(t *testing.T) {
+	tests := []struct {
+		name      string
+		env       string
+		wantProto string
+	}{
+		{name: "default negotiates h2", env: "", wantProto: "HTTP/2.0"},
+		{name: "opt-out stays on http/1.1", env: "false", wantProto: "HTTP/1.1"},
+		{name: "explicit opt-in negotiates h2", env: "true", wantProto: "HTTP/2.0"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.env != "" {
+				t.Setenv(EnvForceAttemptHTTP2, tc.env)
+			}
+
+			// The test server's certificate isn't in any root pool, so the
+			// request rides the insecure branch via WithSkipTLSVerify.
+			srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = io.WriteString(w, r.Proto)
+			}))
+			srv.EnableHTTP2 = true
+			srv.StartTLS()
+			defer srv.Close()
+
+			mt := NewDirectOnly(nil)
+			ctx := WithSkipTLSVerify(WithDirectUpstream(context.Background()))
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, nil)
+			require.NoError(t, err)
+
+			resp, err := mt.RoundTrip(req)
+			require.NoError(t, err)
+			body, err := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			require.NoError(t, err)
+
+			assert.Equal(t, tc.wantProto, resp.Proto,
+				"client-side protocol must follow %s=%q", EnvForceAttemptHTTP2, tc.env)
+			assert.Equal(t, tc.wantProto, string(body),
+				"the upstream must see the same protocol the client negotiated")
+		})
+	}
+}
+
 // TestMultiTransport_NilEmbeddedErrorsWhenWGPathRequested guards
 // against the previous silent fallback: a MultiTransport constructed
 // without an embedded transport must reject requests that don't

@@ -53,7 +53,7 @@ func NewMultiTransport(embedded http.RoundTripper, logger *log.Logger) *MultiTra
 	}
 	direct := &http.Transport{
 		DialContext:           dialWithTimeout(dialer.DialContext),
-		ForceAttemptHTTP2:     true,
+		ForceAttemptHTTP2:     cfg.forceAttemptHTTP2,
 		MaxIdleConns:          cfg.maxIdleConns,
 		MaxIdleConnsPerHost:   cfg.maxIdleConnsPerHost,
 		MaxConnsPerHost:       cfg.maxConnsPerHost,
