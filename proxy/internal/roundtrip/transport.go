@@ -1,8 +1,11 @@
 package roundtrip
 
 import (
+	"crypto/tls"
+	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -21,7 +24,24 @@ const (
 	EnvReadBufferSize        = "NB_PROXY_READ_BUFFER_SIZE"
 	EnvDisableCompression    = "NB_PROXY_DISABLE_COMPRESSION"
 	EnvMaxInflight           = "NB_PROXY_MAX_INFLIGHT"
-	EnvForceAttemptHTTP2     = "NB_PROXY_FORCE_ATTEMPT_HTTP2"
+	EnvUpstreamHTTPVersion   = "NB_PROXY_UPSTREAM_HTTP_VERSION"
+)
+
+// upstreamHTTPVersion selects the HTTP version the proxy uses towards an
+// upstream. The explicit values are absolute: they mean the same thing
+// however the transports are dialled and whatever the default becomes,
+// so operator configuration survives a change of default.
+type upstreamHTTPVersion string
+
+const (
+	// upstreamHTTPAuto leaves the choice to the proxy's own default.
+	// This is the only value whose meaning tracks that default.
+	upstreamHTTPAuto upstreamHTTPVersion = "auto"
+	// upstreamHTTP11 never offers h2, so the upstream sees HTTP/1.1.
+	upstreamHTTP11 upstreamHTTPVersion = "1.1"
+	// upstreamHTTP2 offers h2 in the TLS handshake. Cleartext upstreams
+	// stay on HTTP/1.1 regardless: the proxy speaks no h2c.
+	upstreamHTTP2 upstreamHTTPVersion = "2"
 )
 
 // transportConfig holds tunable parameters for the per-account HTTP transport.
@@ -38,13 +58,10 @@ type transportConfig struct {
 	disableCompression    bool
 	// maxInflight limits per-backend concurrent requests. 0 means unlimited.
 	maxInflight int
-	// forceAttemptHTTP2 sets http.Transport.ForceAttemptHTTP2. Both proxy
-	// transports dial through a custom DialContext, which makes net/http
-	// disable HTTP/2 unless it is forced, so this defaults to true.
-	// Setting it to false restores that conservative default, leaving
-	// HTTPS upstreams on HTTP/1.1 for backends whose h2 support is
-	// advertised but unusable.
-	forceAttemptHTTP2 bool
+	// upstreamHTTPVersion selects the HTTP version used towards HTTPS
+	// upstreams, for backends whose h2 support is advertised but
+	// unusable.
+	upstreamHTTPVersion upstreamHTTPVersion
 }
 
 func defaultTransportConfig() transportConfig {
@@ -55,7 +72,7 @@ func defaultTransportConfig() transportConfig {
 		idleConnTimeout:       90 * time.Second,
 		tlsHandshakeTimeout:   10 * time.Second,
 		expectContinueTimeout: 1 * time.Second,
-		forceAttemptHTTP2:     true,
+		upstreamHTTPVersion:   upstreamHTTPAuto,
 	}
 }
 
@@ -95,8 +112,8 @@ func loadTransportConfig(logger *log.Logger) transportConfig {
 	if v, ok := envInt(EnvMaxInflight, logger); ok {
 		cfg.maxInflight = v
 	}
-	if v, ok := envBool(EnvForceAttemptHTTP2, logger); ok {
-		cfg.forceAttemptHTTP2 = v
+	if v, ok := envUpstreamHTTPVersion(EnvUpstreamHTTPVersion, logger); ok {
+		cfg.upstreamHTTPVersion = v
 	}
 
 	logger.WithFields(log.Fields{
@@ -111,10 +128,47 @@ func loadTransportConfig(logger *log.Logger) transportConfig {
 		"read_buffer_size":        cfg.readBufferSize,
 		"disable_compression":     cfg.disableCompression,
 		"max_inflight":            cfg.maxInflight,
-		"force_attempt_http2":     cfg.forceAttemptHTTP2,
+		"upstream_http_version":   cfg.upstreamHTTPVersion,
 	}).Debug("backend transport configuration")
 
 	return cfg
+}
+
+// applyUpstreamHTTPVersion configures t for the requested HTTP version.
+// It is the single place that decides what "auto" means, so changing the
+// proxy's default only touches this function and leaves every explicit
+// operator setting intact.
+//
+// HTTP/1.1 is pinned by clearing ForceAttemptHTTP2 and installing an
+// empty TLSNextProto, which disables h2 regardless of how the transport
+// is dialled. Relying on net/http's conservative default (h2 off
+// whenever a custom dialer is set) would silently start negotiating h2
+// again the day a transport switches to DialTLSContext.
+func applyUpstreamHTTPVersion(t *http.Transport, version upstreamHTTPVersion) {
+	if version == upstreamHTTP11 {
+		t.ForceAttemptHTTP2 = false
+		t.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{}
+		return
+	}
+	t.ForceAttemptHTTP2 = true
+}
+
+// envUpstreamHTTPVersion reads an upstream HTTP version from the
+// environment. An unrecognised value warns and leaves the default in
+// place rather than guessing at the operator's intent.
+func envUpstreamHTTPVersion(key string, logger *log.Logger) (upstreamHTTPVersion, bool) {
+	s := strings.TrimSpace(os.Getenv(key))
+	if s == "" {
+		return "", false
+	}
+	switch v := upstreamHTTPVersion(strings.ToLower(s)); v {
+	case upstreamHTTPAuto, upstreamHTTP11, upstreamHTTP2:
+		return v, true
+	default:
+		logger.Warnf("ignoring unsupported %s=%q, expected one of %q, %q, %q",
+			key, s, upstreamHTTPAuto, upstreamHTTP11, upstreamHTTP2)
+		return "", false
+	}
 }
 
 func envInt(key string, logger *log.Logger) (int, bool) {

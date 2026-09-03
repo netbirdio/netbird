@@ -53,7 +53,6 @@ func NewMultiTransport(embedded http.RoundTripper, logger *log.Logger) *MultiTra
 	}
 	direct := &http.Transport{
 		DialContext:           dialWithTimeout(dialer.DialContext),
-		ForceAttemptHTTP2:     cfg.forceAttemptHTTP2,
 		MaxIdleConns:          cfg.maxIdleConns,
 		MaxIdleConnsPerHost:   cfg.maxIdleConnsPerHost,
 		MaxConnsPerHost:       cfg.maxConnsPerHost,
@@ -65,6 +64,8 @@ func NewMultiTransport(embedded http.RoundTripper, logger *log.Logger) *MultiTra
 		ReadBufferSize:        cfg.readBufferSize,
 		DisableCompression:    cfg.disableCompression,
 	}
+	applyUpstreamHTTPVersion(direct, cfg.upstreamHTTPVersion)
+
 	insecure := direct.Clone()
 	insecure.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // matches the embedded NetBird transport's per-target opt-in
 

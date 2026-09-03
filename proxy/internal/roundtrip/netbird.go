@@ -414,7 +414,6 @@ func (n *NetBird) createClientEntry(ctx context.Context, accountID types.Account
 	// not work with reverse proxied requests.
 	transport := &http.Transport{
 		DialContext:           dialWithTimeout(client.DialContext),
-		ForceAttemptHTTP2:     n.transportCfg.forceAttemptHTTP2,
 		MaxIdleConns:          n.transportCfg.maxIdleConns,
 		MaxIdleConnsPerHost:   n.transportCfg.maxIdleConnsPerHost,
 		MaxConnsPerHost:       n.transportCfg.maxConnsPerHost,
@@ -426,6 +425,7 @@ func (n *NetBird) createClientEntry(ctx context.Context, accountID types.Account
 		ReadBufferSize:        n.transportCfg.readBufferSize,
 		DisableCompression:    n.transportCfg.disableCompression,
 	}
+	applyUpstreamHTTPVersion(transport, n.transportCfg.upstreamHTTPVersion)
 
 	insecureTransport := transport.Clone()
 	insecureTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec
