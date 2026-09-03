@@ -150,7 +150,7 @@ type Server struct {
 
 	isLoginRequiredFn func(ctx context.Context) (bool, error)
 
-	sessionHolder ipcauth.Identity
+	sessionHolder *ipcauth.Identity
 }
 
 type oauthAuthFlow struct {
@@ -1093,7 +1093,7 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	}
 
 	log.Infof("setting session holder: %d", id.UID)
-	s.sessionHolder = id
+	s.sessionHolder = &id
 	s.clientRunning = true
 	s.clientRunningChan = make(chan struct{})
 	s.clientGiveUpChan = make(chan struct{})
@@ -1343,7 +1343,7 @@ func (s *Server) cleanupConnection() error {
 	// explicitly asked for it. MDM restart does NOT go through this
 	// path, so its clientRunning stays true.
 	s.clientRunning = false
-	s.sessionHolder = ipcauth.Identity{}
+	s.sessionHolder = nil
 
 	// Capture the engine reference before cancelling the context.
 	// After actCancel(), the connectWithRetryRuns goroutine wakes up
@@ -2714,10 +2714,10 @@ func (s *Server) authorizeAndPrepareLogin(callerCtx context.Context, msg *proto.
 func (s *Server) SessionHolder() (ipcauth.Identity, bool) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
-	if !s.clientRunning {
+	if !s.clientRunning || s.sessionHolder == nil {
 		return ipcauth.Identity{}, false
 	}
-	return s.sessionHolder, true
+	return *s.sessionHolder, true
 }
 
 func persistLoginOverrides(activeProf *profilemanager.ActiveProfileState, managementURL string, preSharedKey *string) error {
