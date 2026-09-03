@@ -301,7 +301,7 @@ func (s *ServiceManager) DefaultProfilePath() string {
 // The returned Profile carries the freshly-generated ID so callers can
 // show it to the user (and so the gRPC AddProfileResponse can include
 // it).
-func (s *ServiceManager) AddProfile(displayName string, username string, callerId ipcauth.Identity) (*Profile, error) {
+func (s *ServiceManager) AddProfile(displayName string, username string, callerId *ipcauth.Identity) (*Profile, error) {
 	configDir, err := s.getConfigDir(username)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get config directory: %w", err)
@@ -318,7 +318,7 @@ func (s *ServiceManager) AddProfile(displayName string, username string, callerI
 	}
 
 	profPath := filepath.Join(configDir, id.String()+".json")
-	cfg, err := createNewConfig(ConfigInput{ConfigPath: profPath, Owner: &callerId})
+	cfg, err := createNewConfig(ConfigInput{ConfigPath: profPath, Owner: callerId})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create new config: %w", err)
 	}
