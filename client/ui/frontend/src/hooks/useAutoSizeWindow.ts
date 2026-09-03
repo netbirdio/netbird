@@ -5,7 +5,11 @@ import { isLinux } from "@/lib/platform";
 
 // Sizes the current Wails window to the measured content height (keeping `width`),
 // then shows it. Re-applies on content resize and language change.
-export function useAutoSizeWindow<T extends HTMLElement>(width: number, ready: boolean = true) {
+export function useAutoSizeWindow<T extends HTMLElement>(
+    width: number,
+    ready: boolean = true,
+    showWhenSized: boolean = true,
+) {
     const ref = useRef<T | null>(null);
     useLayoutEffect(() => {
         const el = ref.current;
@@ -33,7 +37,7 @@ export function useAutoSizeWindow<T extends HTMLElement>(width: number, ready: b
                     await Window.SetMaxSize(width, targetH);
                 }
                 await Window.SetSize(width, targetH);
-                showOnce();
+                if (showWhenSized) showOnce();
             } catch {
                 // window gone / not ready — ignore
             }
@@ -55,6 +59,6 @@ export function useAutoSizeWindow<T extends HTMLElement>(width: number, ready: b
             cancelAnimationFrame(raf2);
             i18next.off("languageChanged", scheduleApply);
         };
-    }, [width, ready]);
+    }, [width, ready, showWhenSized]);
     return ref;
 }

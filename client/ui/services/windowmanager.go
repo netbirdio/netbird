@@ -245,7 +245,11 @@ func (s *WindowManager) OpenBrowserLogin(uri string) {
 				s.app.Event.Emit(EventBrowserLoginCancel)
 			}
 		})
-		s.centerOnCursorScreen(s.browserLogin)
+		s.centerOnCursorScreen(bl)
+		bl.Show()
+		bl.Focus()
+		log.Debugf("browser-login popup created and shown")
+		s.openBrowser(uri)
 		return
 	}
 	if uri != "" {
@@ -254,6 +258,20 @@ func (s *WindowManager) OpenBrowserLogin(uri string) {
 	s.centerOnCursorScreen(s.browserLogin)
 	s.browserLogin.Show()
 	s.browserLogin.Focus()
+	log.Debugf("browser-login popup reused")
+	s.openBrowser(uri)
+}
+
+func (s *WindowManager) openBrowser(uri string) {
+	if uri == "" {
+		return
+	}
+	go func() {
+		if err := openURL(uri); err != nil {
+			log.Errorf("open browser for SSO login: %v", err)
+			s.OpenError(s.title("browserLogin.openFailedTitle"), err.Error(), "")
+		}
+	}()
 }
 
 // BrowserLoginWindow returns the live SSO popup, or nil. While non-nil it is the
