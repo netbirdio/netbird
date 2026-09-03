@@ -198,6 +198,12 @@ type Config struct {
 	// HostKey is the SSH server host key in PEM format
 	HostKeyPEM []byte
 
+	// Auth is the fine-grained authorization to open with. Nil starts with an
+	// empty authorizer, which authorizes nobody until UpdateSSHAuth is called.
+	// Setting it here rather than afterwards means the server never accepts a
+	// login before it knows who is allowed.
+	Auth *sshauth.Config
+
 	// NetstackNet, when non-nil, makes the SSH server listen via the
 	// supplied userspace network stack instead of an OS socket.
 	NetstackNet *netstack.Net
@@ -231,7 +237,11 @@ func New(config *Config) *Server {
 		connections:            make(map[connKey]*connState),
 		jwtEnabled:             config.JWT != nil,
 		jwtConfig:              config.JWT,
-		authorizer:             sshauth.NewAuthorizer(), // Initialize with empty config
+		authorizer:             sshauth.NewAuthorizer(),
+	}
+
+	if config.Auth != nil {
+		s.authorizer.Update(config.Auth)
 	}
 
 	return s
@@ -456,6 +466,27 @@ func (s *Server) UpdateSSHAuth(config *sshauth.Config) {
 	s.jwtExtractor = nil
 
 	s.authorizer.Update(config)
+}
+
+// JWTConfig returns the JWT authentication this server was built with, or nil
+// when JWT authentication is disabled.
+func (s *Server) JWTConfig() *JWTConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.jwtConfig
+}
+
+// AuthConfig returns the fine-grained authorization currently in force, or nil
+// when the server has no authorizer.
+func (s *Server) AuthConfig() *sshauth.Config {
+	s.mu.RLock()
+	authorizer := s.authorizer
+	s.mu.RUnlock()
+
+	if authorizer == nil {
+		return nil
+	}
+	return authorizer.Config()
 }
 
 // ensureJWTValidator initializes the JWT validator and extractor if not already initialized
