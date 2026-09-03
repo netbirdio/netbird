@@ -995,15 +995,21 @@ func validateSubnetTarget(idx int, target *Target) error {
 	if strings.ContainsAny(host, " \t/") {
 		return fmt.Errorf("target %d: host %q contains invalid characters", idx, host)
 	}
-	if !target.Options.DirectUpstream {
-		return nil
+	if _, _, err := net.SplitHostPort(host); err == nil {
+		return fmt.Errorf("target %d: host %q must not include a port (set target.port instead)", idx, host)
 	}
 	noBrackets := strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
 	maybeip, err := netip.ParseAddr(noBrackets)
 	if err != nil { // not an ip
 		return nil
 	}
-	if maybeip.Zone() != "" || maybeip.IsLoopback() || maybeip.IsMulticast() || maybeip.IsLinkLocalUnicast() {
+	if maybeip.Zone() != "" {
+		return fmt.Errorf("invalid direct upstream host ip %s %w", maybeip.String(), ErrUnsupportedIPAddressUpstreamHost)
+	}
+	if !target.Options.DirectUpstream {
+		return nil
+	}
+	if maybeip.IsLoopback() || maybeip.IsMulticast() || maybeip.IsLinkLocalUnicast() {
 		return fmt.Errorf("invalid direct upstream host ip %s %w", maybeip.String(), ErrUnsupportedIPAddressUpstreamHost)
 	}
 	return nil
