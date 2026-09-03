@@ -82,6 +82,7 @@ type CapabilityProvider interface {
 	ClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool
 	ClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
 	ClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
+	ClusterSupportsAppSec(ctx context.Context, clusterAddr string) *bool
 	ClusterSupportsPrivate(ctx context.Context, clusterAddr string) *bool
 }
 
@@ -137,6 +138,7 @@ func (m *Manager) GetClusters(ctx context.Context, accountID, userID string) ([]
 		clusters[i].SupportsCustomPorts = m.capabilities.ClusterSupportsCustomPorts(ctx, clusters[i].Address)
 		clusters[i].RequireSubdomain = m.capabilities.ClusterRequireSubdomain(ctx, clusters[i].Address)
 		clusters[i].SupportsCrowdSec = m.capabilities.ClusterSupportsCrowdSec(ctx, clusters[i].Address)
+		clusters[i].SupportsAppSec = m.capabilities.ClusterSupportsAppSec(ctx, clusters[i].Address)
 		clusters[i].Private = m.capabilities.ClusterSupportsPrivate(ctx, clusters[i].Address)
 	}
 

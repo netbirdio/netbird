@@ -46,6 +46,10 @@ func (m *mockProxyManager) ClusterSupportsCrowdSec(_ context.Context, _ string) 
 	return nil
 }
 
+func (m *mockProxyManager) ClusterSupportsAppSec(_ context.Context, _ string) *bool {
+	return nil
+}
+
 func (m *mockProxyManager) ClusterSupportsPrivate(_ context.Context, _ string) *bool {
 	return nil
 }

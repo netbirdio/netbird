@@ -70,6 +70,20 @@ func (mr *MockManagerMockRecorder) ClusterRequireSubdomain(ctx, clusterAddr any)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClusterRequireSubdomain", reflect.TypeOf((*MockManager)(nil).ClusterRequireSubdomain), ctx, clusterAddr)
 }
 
+// ClusterSupportsAppSec mocks base method.
+func (m *MockManager) ClusterSupportsAppSec(ctx context.Context, clusterAddr string) *bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClusterSupportsAppSec", ctx, clusterAddr)
+	ret0, _ := ret[0].(*bool)
+	return ret0
+}
+
+// ClusterSupportsAppSec indicates an expected call of ClusterSupportsAppSec.
+func (mr *MockManagerMockRecorder) ClusterSupportsAppSec(ctx, clusterAddr any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClusterSupportsAppSec", reflect.TypeOf((*MockManager)(nil).ClusterSupportsAppSec), ctx, clusterAddr)
+}
+
 // ClusterSupportsCrowdSec mocks base method.
 func (m *MockManager) ClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool {
 	m.ctrl.T.Helper()

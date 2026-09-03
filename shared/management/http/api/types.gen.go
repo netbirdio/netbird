@@ -17,6 +17,45 @@ const (
 	TokenAuthScopes  tokenAuthContextKey  = "TokenAuth.Scopes"
 )
 
+// Defines values for AccessRestrictionsAllowMatch.
+const (
+	AccessRestrictionsAllowMatchAll AccessRestrictionsAllowMatch = "all"
+	AccessRestrictionsAllowMatchAny AccessRestrictionsAllowMatch = "any"
+)
+
+// Valid indicates whether the value is a known member of the AccessRestrictionsAllowMatch enum.
+func (e AccessRestrictionsAllowMatch) Valid() bool {
+	switch e {
+	case AccessRestrictionsAllowMatchAll:
+		return true
+	case AccessRestrictionsAllowMatchAny:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AccessRestrictionsAppsecMode.
+const (
+	AccessRestrictionsAppsecModeEnforce AccessRestrictionsAppsecMode = "enforce"
+	AccessRestrictionsAppsecModeObserve AccessRestrictionsAppsecMode = "observe"
+	AccessRestrictionsAppsecModeOff     AccessRestrictionsAppsecMode = "off"
+)
+
+// Valid indicates whether the value is a known member of the AccessRestrictionsAppsecMode enum.
+func (e AccessRestrictionsAppsecMode) Valid() bool {
+	switch e {
+	case AccessRestrictionsAppsecModeEnforce:
+		return true
+	case AccessRestrictionsAppsecModeObserve:
+		return true
+	case AccessRestrictionsAppsecModeOff:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AccessRestrictionsCrowdsecMode.
 const (
 	AccessRestrictionsCrowdsecModeEnforce AccessRestrictionsCrowdsecMode = "enforce"
@@ -1534,11 +1573,17 @@ func (e PutApiIntegrationsMspTenantsIdInviteJSONBodyValue) Valid() bool {
 
 // AccessRestrictions Connection-level access restrictions based on IP address or geography. Applies to both HTTP and L4 services.
 type AccessRestrictions struct {
+	// AllowMatch How the allowlists (allowed_cidrs, allowed_countries) combine. "all" (default) requires a connection to match every configured allowlist (AND); "any" requires it to match at least one (OR), e.g. an allowed country OR an allowed CIDR. Blocklists always reject on match regardless of this setting.
+	AllowMatch *AccessRestrictionsAllowMatch `json:"allow_match,omitempty"`
+
 	// AllowedCidrs CIDR allowlist. If non-empty, only IPs matching these CIDRs are allowed.
 	AllowedCidrs *[]string `json:"allowed_cidrs,omitempty"`
 
 	// AllowedCountries ISO 3166-1 alpha-2 country codes to allow. If non-empty, only these countries are permitted.
 	AllowedCountries *[]string `json:"allowed_countries,omitempty"`
+
+	// AppsecMode CrowdSec AppSec (WAF) request inspection mode. Only available when the proxy cluster supports AppSec, and only applied to HTTP services. "enforce" blocks requests the WAF flags; "observe" records the verdict in the access log without blocking.
+	AppsecMode *AccessRestrictionsAppsecMode `json:"appsec_mode,omitempty"`
 
 	// BlockedCidrs CIDR blocklist. Connections from these CIDRs are rejected. Evaluated after allowed_cidrs.
 	BlockedCidrs *[]string `json:"blocked_cidrs,omitempty"`
@@ -1549,6 +1594,12 @@ type AccessRestrictions struct {
 	// CrowdsecMode CrowdSec IP reputation mode. Only available when the proxy cluster supports CrowdSec.
 	CrowdsecMode *AccessRestrictionsCrowdsecMode `json:"crowdsec_mode,omitempty"`
 }
+
+// AccessRestrictionsAllowMatch How the allowlists (allowed_cidrs, allowed_countries) combine. "all" (default) requires a connection to match every configured allowlist (AND); "any" requires it to match at least one (OR), e.g. an allowed country OR an allowed CIDR. Blocklists always reject on match regardless of this setting.
+type AccessRestrictionsAllowMatch string
+
+// AccessRestrictionsAppsecMode CrowdSec AppSec (WAF) request inspection mode. Only available when the proxy cluster supports AppSec, and only applied to HTTP services. "enforce" blocks requests the WAF flags; "observe" records the verdict in the access log without blocking.
+type AccessRestrictionsAppsecMode string
 
 // AccessRestrictionsCrowdsecMode CrowdSec IP reputation mode. Only available when the proxy cluster supports CrowdSec.
 type AccessRestrictionsCrowdsecMode string
@@ -4860,6 +4911,9 @@ type ProxyCluster struct {
 	// RequireSubdomain Whether services on this cluster must include a subdomain label
 	RequireSubdomain *bool `json:"require_subdomain,omitempty"`
 
+	// SupportsAppsec Whether all active proxies in the cluster have a CrowdSec AppSec (WAF) endpoint configured
+	SupportsAppsec *bool `json:"supports_appsec,omitempty"`
+
 	// SupportsCrowdsec Whether all active proxies in the cluster have CrowdSec configured
 	SupportsCrowdsec *bool `json:"supports_crowdsec,omitempty"`
 
@@ -4927,6 +4981,9 @@ type ReverseProxyDomain struct {
 
 	// RequireSubdomain Whether a subdomain label is required in front of this domain. When true, the domain cannot be used bare.
 	RequireSubdomain *bool `json:"require_subdomain,omitempty"`
+
+	// SupportsAppsec Whether the proxy cluster has a CrowdSec AppSec (WAF) endpoint configured
+	SupportsAppsec *bool `json:"supports_appsec,omitempty"`
 
 	// SupportsCrowdsec Whether the proxy cluster has CrowdSec configured
 	SupportsCrowdsec *bool `json:"supports_crowdsec,omitempty"`

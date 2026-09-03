@@ -20,6 +20,9 @@ type Capabilities struct {
 	RequireSubdomain *bool
 	// SupportsCrowdsec indicates whether this proxy has CrowdSec configured.
 	SupportsCrowdsec *bool
+	// SupportsAppsec indicates whether this proxy has a CrowdSec AppSec (WAF)
+	// endpoint configured.
+	SupportsAppsec *bool
 	// Private indicates whether this proxy supports inbound access via Wireguard
 	// tunnel and netbird-only authentication policies
 	Private *bool
@@ -74,5 +77,6 @@ type Cluster struct {
 	SupportsCustomPorts *bool
 	RequireSubdomain    *bool
 	SupportsCrowdSec    *bool
+	SupportsAppSec      *bool
 	Private             *bool
 }
