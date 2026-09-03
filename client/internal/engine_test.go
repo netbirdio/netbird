@@ -31,6 +31,7 @@ import (
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
+	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/monotime"
 	"github.com/netbirdio/netbird/route"
@@ -251,6 +252,52 @@ func TestEngine_SSHServerConsistency(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Nil(t, engine.sshServer)
 	})
+}
+
+func TestEngine_FirstSyncInfoCarriesLoginChecks(t *testing.T) {
+	key, err := wgtypes.GeneratePrivateKey()
+	require.NoError(t, err)
+
+	exe, err := os.Executable()
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(CtxInitState(context.Background()))
+	defer cancel()
+
+	infos := make(chan *system.Info, 1)
+	mgmClient := &mgmt.MockClient{
+		SyncFunc: func(ctx context.Context, getInfo func(context.Context) *system.Info, _ func(*mgmtProto.SyncResponse) error) error {
+			infos <- getInfo(ctx)
+			return nil
+		},
+	}
+
+	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
+	engine := NewEngine(ctx, cancel, &EngineConfig{
+		WgIfaceName:  "utun104",
+		WgAddr:       wgaddr.MustParseWGAddress("100.64.0.1/24"),
+		WgPrivateKey: key,
+		WgPort:       33100,
+		MTU:          iface.DefaultMTU,
+	}, EngineServices{
+		SignalClient:   &signal.MockClient{},
+		MgmClient:      mgmClient,
+		RelayManager:   relayMgr,
+		StatusRecorder: peer.NewRecorder("https://mgm"),
+		Checks:         []*mgmtProto.Checks{{Files: []string{exe}}},
+	}, MobileDependency{})
+
+	engine.receiveManagementEvents()
+
+	select {
+	case info := <-infos:
+		require.Len(t, info.Files, 1)
+		assert.Equal(t, exe, info.Files[0].Path)
+		assert.True(t, info.Files[0].Exist)
+	case <-time.After(20 * time.Second):
+		t.Fatal("timeout waiting for the first sync info")
+	}
+	engine.shutdownWg.Wait()
 }
 
 func TestEngine_UpdateNetworkMap(t *testing.T) {
