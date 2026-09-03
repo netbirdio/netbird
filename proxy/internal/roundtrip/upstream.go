@@ -10,10 +10,32 @@ import (
 )
 
 // upstreamDowngradeTTL is how long an upstream stays pinned to HTTP/1.1
-// after it proved it cannot serve the h2 it advertised. Bounded rather
-// than permanent so a fixed or replaced backend returns to h2 without
-// restarting the proxy.
+// after an h2 failure that only implied it cannot serve h2. Bounded so a
+// fixed or replaced backend returns to h2 without restarting the proxy.
+// A pin the upstream asked for itself does not expire — see downgrade.
 const upstreamDowngradeTTL = 10 * time.Minute
+
+// downgrade is an upstream's HTTP/1.1 pin.
+type downgrade struct {
+	// expiry is when the pin lapses and the upstream is offered h2
+	// again. The zero time means it never does: the upstream answered
+	// HTTP_1_1_REQUIRED, which is a statement about how it is
+	// configured, not a fault that may clear on its own. Re-probing
+	// that every upstreamDowngradeTTL would buy nothing but a failed
+	// request per interval, so the pin holds until the transport goes
+	// away with the proxy or the account's client.
+	expiry time.Time
+}
+
+// permanent reports whether the upstream asked for this pin itself.
+func (d downgrade) permanent() bool {
+	return d.expiry.IsZero()
+}
+
+// active reports whether the pin still stands at now.
+func (d downgrade) active(now time.Time) bool {
+	return d.permanent() || now.Before(d.expiry)
+}
 
 // upstreamTransport carries requests to a single upstream family (one
 // TLS configuration) and implements what upstreamHTTPAuto means.
@@ -44,9 +66,8 @@ type upstreamTransport struct {
 	fallback   *http.Transport
 
 	mu sync.RWMutex
-	// downgraded maps an upstream host to the time its HTTP/1.1 pin
-	// expires.
-	downgraded map[string]time.Time
+	// downgraded maps an upstream host to its HTTP/1.1 pin.
+	downgraded map[string]downgrade
 }
 
 // newUpstreamTransport wraps base for the requested HTTP version. base
@@ -62,7 +83,7 @@ func newUpstreamTransport(base *http.Transport, version upstreamHTTPVersion, log
 		primary:    base,
 		version:    version,
 		logger:     logger,
-		downgraded: make(map[string]time.Time),
+		downgraded: make(map[string]downgrade),
 	}
 }
 
@@ -82,7 +103,11 @@ func (t *upstreamTransport) RoundTrip(req *http.Request) (*http.Response, error)
 		return resp, err
 	}
 
-	t.markDowngraded(host)
+	// HTTP_1_1_REQUIRED is the upstream saying it will not serve this
+	// request over h2 however often it is asked — IIS answers it for
+	// Windows Authentication and for client-certificate sites, where
+	// the cause is site configuration rather than a passing fault.
+	t.markDowngraded(host, isHTTP11Required(err))
 
 	retry, ok := replayable(req)
 	if !ok {
@@ -111,21 +136,23 @@ func (t *upstreamTransport) mayDowngrade(req *http.Request) bool {
 }
 
 func (t *upstreamTransport) isDowngraded(host string) bool {
+	now := time.Now()
+
 	t.mu.RLock()
-	expiry, ok := t.downgraded[host]
+	pin, ok := t.downgraded[host]
 	t.mu.RUnlock()
 
 	if !ok {
 		return false
 	}
-	if time.Now().Before(expiry) {
+	if pin.active(now) {
 		return true
 	}
 
 	t.mu.Lock()
 	// Re-check under the write lock: a concurrent request may have
 	// re-pinned the host after the read above.
-	if expiry, ok := t.downgraded[host]; ok && !time.Now().Before(expiry) {
+	if pin, ok := t.downgraded[host]; ok && !pin.active(time.Now()) {
 		delete(t.downgraded, host)
 	}
 	t.mu.Unlock()
@@ -133,24 +160,41 @@ func (t *upstreamTransport) isDowngraded(host string) bool {
 	return false
 }
 
-func (t *upstreamTransport) markDowngraded(host string) {
+// markDowngraded pins host to HTTP/1.1. permanent marks a pin the
+// upstream asked for; anything else lapses after upstreamDowngradeTTL so
+// a repaired backend is offered h2 again.
+func (t *upstreamTransport) markDowngraded(host string, permanent bool) {
 	now := time.Now()
+	pin := downgrade{expiry: now.Add(upstreamDowngradeTTL)}
+	if permanent {
+		pin = downgrade{}
+	}
 
 	t.mu.Lock()
-	_, pinned := t.downgraded[host]
-	t.downgraded[host] = now.Add(upstreamDowngradeTTL)
-	for h, expiry := range t.downgraded {
-		if !now.Before(expiry) {
+	previous, pinned := t.downgraded[host]
+	// A permanent pin is never weakened back into an expiring one: the
+	// upstream has already said h2 is not on offer.
+	if !pinned || !previous.permanent() {
+		t.downgraded[host] = pin
+	}
+	for h, existing := range t.downgraded {
+		if !existing.active(now) {
 			delete(t.downgraded, h)
 		}
 	}
 	t.mu.Unlock()
 
-	if !pinned {
-		t.logger.WithField("upstream", host).
-			Warnf("upstream negotiated HTTP/2 but failed to serve it, using HTTP/1.1 for the next %s (set %s=1.1 to pin it)",
-				upstreamDowngradeTTL, EnvUpstreamHTTPVersion)
+	if pinned {
+		return
 	}
+
+	entry := t.logger.WithField("upstream", host)
+	if permanent {
+		entry.Warnf("upstream answered HTTP_1_1_REQUIRED, using HTTP/1.1 for it from now on")
+		return
+	}
+	entry.Warnf("upstream negotiated HTTP/2 but failed to serve it, using HTTP/1.1 for the next %s (set %s=1.1 to pin it)",
+		upstreamDowngradeTTL, EnvUpstreamHTTPVersion)
 }
 
 // http1 returns the HTTP/1.1-only clone, creating it on first use.
@@ -216,9 +260,20 @@ var http2ErrorMarkers = []string{
 	"stream error: stream ID",
 	// http2.ConnectionError, e.g. "connection error: PROTOCOL_ERROR".
 	"connection error: ",
-	// The GOAWAY code an upstream sends to say the request must be
-	// retried over HTTP/1.1.
-	"HTTP_1_1_REQUIRED",
+	// The code an upstream sends to say the request must be retried
+	// over HTTP/1.1, as a GOAWAY or on the stream.
+	http11RequiredMarker,
+}
+
+// http11RequiredMarker is the error code an upstream sends to say the
+// request belongs on HTTP/1.1. Unlike the other markers it is not a
+// fault: the upstream is describing its own configuration.
+const http11RequiredMarker = "HTTP_1_1_REQUIRED"
+
+// isHTTP11Required reports whether the upstream itself asked for
+// HTTP/1.1, rather than merely failing at h2.
+func isHTTP11Required(err error) bool {
+	return err != nil && strings.Contains(err.Error(), http11RequiredMarker)
 }
 
 // isHTTP2ProtocolError reports whether err says the upstream cannot

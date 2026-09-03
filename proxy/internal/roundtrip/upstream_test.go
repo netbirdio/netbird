@@ -47,6 +47,11 @@ func TestUpstreamTransport_AutoFallsBackOnBrokenHTTP2(t *testing.T) {
 
 	assert.True(t, mt.insecure.isDowngraded(srv.addr),
 		"the upstream must stay pinned to HTTP/1.1 after proving it cannot serve h2")
+	mt.insecure.mu.RLock()
+	pin := mt.insecure.downgraded[srv.addr]
+	mt.insecure.mu.RUnlock()
+	assert.True(t, pin.permanent(),
+		"an upstream answering HTTP_1_1_REQUIRED must not be re-probed for h2")
 
 	// The second request must not repeat the h2 attempt: the server
 	// counts h2 handshakes, so a repeat would show up here.
@@ -110,11 +115,11 @@ func TestUpstreamTransport_MayDowngrade(t *testing.T) {
 
 func TestUpstreamTransport_DowngradeExpires(t *testing.T) {
 	transport := newUpstreamTransport(&http.Transport{}, upstreamHTTPAuto, nil)
-	transport.markDowngraded("backend.invalid:443")
+	transport.markDowngraded("backend.invalid:443", false)
 	require.True(t, transport.isDowngraded("backend.invalid:443"))
 
 	transport.mu.Lock()
-	transport.downgraded["backend.invalid:443"] = time.Now().Add(-time.Second)
+	transport.downgraded["backend.invalid:443"] = downgrade{expiry: time.Now().Add(-time.Second)}
 	transport.mu.Unlock()
 
 	assert.False(t, transport.isDowngraded("backend.invalid:443"),
@@ -127,11 +132,73 @@ func TestUpstreamTransport_DowngradeExpires(t *testing.T) {
 
 func TestUpstreamTransport_DowngradeIsPerUpstream(t *testing.T) {
 	transport := newUpstreamTransport(&http.Transport{}, upstreamHTTPAuto, nil)
-	transport.markDowngraded("broken.invalid:443")
+	transport.markDowngraded("broken.invalid:443", false)
 
 	assert.True(t, transport.isDowngraded("broken.invalid:443"))
 	assert.False(t, transport.isDowngraded("healthy.invalid:443"),
 		"one broken upstream must not drop the others to HTTP/1.1")
+}
+
+// TestUpstreamTransport_HTTP11RequiredPinIsPermanent covers the IIS
+// case: HTTP_1_1_REQUIRED describes how the upstream is configured
+// (Windows Authentication, client certificates), so re-probing it every
+// upstreamDowngradeTTL would only buy a failed request per interval.
+func TestUpstreamTransport_HTTP11RequiredPinIsPermanent(t *testing.T) {
+	transport := newUpstreamTransport(&http.Transport{}, upstreamHTTPAuto, nil)
+	transport.markDowngraded("iis.invalid:443", true)
+
+	transport.mu.RLock()
+	pin := transport.downgraded["iis.invalid:443"]
+	transport.mu.RUnlock()
+
+	assert.True(t, pin.permanent(), "an upstream that asked for HTTP/1.1 must not be re-probed")
+	assert.True(t, pin.active(time.Now().Add(100*upstreamDowngradeTTL)),
+		"a permanent pin must outlive any TTL")
+}
+
+func TestUpstreamTransport_PermanentPinSurvivesLaterFailures(t *testing.T) {
+	transport := newUpstreamTransport(&http.Transport{}, upstreamHTTPAuto, nil)
+	transport.markDowngraded("iis.invalid:443", true)
+	// A later ambiguous failure for the same upstream must not turn the
+	// permanent pin into an expiring one.
+	transport.markDowngraded("iis.invalid:443", false)
+
+	transport.mu.RLock()
+	pin := transport.downgraded["iis.invalid:443"]
+	transport.mu.RUnlock()
+
+	assert.True(t, pin.permanent(), "a permanent pin must never be weakened")
+}
+
+func TestIsHTTP11Required(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "goaway",
+			err:  errors.New(`http2: server sent GOAWAY and closed the connection; LastStreamID=0, ErrCode=HTTP_1_1_REQUIRED, debug=""`),
+			want: true,
+		},
+		{
+			name: "stream error",
+			err:  http2.StreamError{StreamID: 1, Code: http2.ErrCodeHTTP11Required},
+			want: true,
+		},
+		{
+			name: "other h2 failure",
+			err:  http2.StreamError{StreamID: 1, Code: http2.ErrCodeProtocol},
+			want: false,
+		},
+		{name: "nil", err: nil, want: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, isHTTP11Required(tc.err))
+		})
+	}
 }
 
 func TestIsHTTP2ProtocolError(t *testing.T) {
