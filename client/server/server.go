@@ -2289,7 +2289,7 @@ func (s *Server) AddProfile(ctx context.Context, msg *proto.AddProfileRequest) (
 	if !ok {
 		return nil, fmt.Errorf("failed to get identity from context")
 	}
-	created, err := s.profileManager.AddProfile(msg.ProfileName, msg.Username, callerId)
+	created, err := s.profileManager.AddProfile(msg.ProfileName, msg.Username, &callerId)
 	if err != nil {
 		log.Errorf("failed to create profile: %v", err)
 		return nil, fmt.Errorf("failed to create profile: %w", err)

@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -33,7 +32,7 @@ func withTestSM(t *testing.T, fn func(sm *ServiceManager, username string)) {
 
 func TestServiceProfile_ExactID(t *testing.T) {
 	withTestSM(t, func(sm *ServiceManager, username string) {
-		created, err := sm.AddProfile("work", username, ipcauth.Identity{})
+		created, err := sm.AddProfile("work", username, nil)
 		require.NoError(t, err)
 
 		got, err := sm.ResolveProfile(created.ID.String(), username)
@@ -45,7 +44,7 @@ func TestServiceProfile_ExactID(t *testing.T) {
 
 func TestServiceProfile_IDPrefix(t *testing.T) {
 	withTestSM(t, func(sm *ServiceManager, username string) {
-		created, err := sm.AddProfile("work", username, ipcauth.Identity{})
+		created, err := sm.AddProfile("work", username, nil)
 		require.NoError(t, err)
 
 		prefix := created.ID[:4]
@@ -76,7 +75,7 @@ func TestServiceProfile_AmbiguousPrefix(t *testing.T) {
 
 func TestServiceProfile_ExactNameUnique(t *testing.T) {
 	withTestSM(t, func(sm *ServiceManager, username string) {
-		_, err := sm.AddProfile("work", username, ipcauth.Identity{})
+		_, err := sm.AddProfile("work", username, nil)
 		require.NoError(t, err)
 
 		got, err := sm.ResolveProfile("work", username)
@@ -87,9 +86,9 @@ func TestServiceProfile_ExactNameUnique(t *testing.T) {
 
 func TestServiceProfile_AmbiguousName(t *testing.T) {
 	withTestSM(t, func(sm *ServiceManager, username string) {
-		_, err := sm.AddProfile("work", username, ipcauth.Identity{})
+		_, err := sm.AddProfile("work", username, nil)
 		require.NoError(t, err)
-		_, err = sm.AddProfile("work", username, ipcauth.Identity{})
+		_, err = sm.AddProfile("work", username, nil)
 		require.NoError(t, err)
 
 		_, err = sm.ResolveProfile("work", username)
@@ -134,10 +133,10 @@ func TestServiceProfile_LegacyFilenameCoexists(t *testing.T) {
 
 func TestAddProfile_AllowsDuplicateWithFlag(t *testing.T) {
 	withTestSM(t, func(sm *ServiceManager, username string) {
-		first, err := sm.AddProfile("work", username, ipcauth.Identity{})
+		first, err := sm.AddProfile("work", username, nil)
 		require.NoError(t, err)
 
-		second, err := sm.AddProfile("work", username, ipcauth.Identity{})
+		second, err := sm.AddProfile("work", username, nil)
 		require.NoError(t, err)
 		assert.NotEqual(t, first.ID, second.ID)
 		assert.Equal(t, "work", second.Name)
@@ -152,7 +151,7 @@ func TestAddProfile_RejectsInvalidNames(t *testing.T) {
 			strings.Repeat("a", maxProfileNameLen+1), // too long
 		}
 		for _, name := range cases {
-			_, err := sm.AddProfile(name, username, ipcauth.Identity{})
+			_, err := sm.AddProfile(name, username, nil)
 			assert.Error(t, err, "expected error for %q", name)
 		}
 	})
@@ -216,7 +215,7 @@ func TestIsValidProfileFilenameStem(t *testing.T) {
 
 func TestRemoveProfile_DeletesStateFile(t *testing.T) {
 	withTestSM(t, func(sm *ServiceManager, username string) {
-		created, err := sm.AddProfile("work", username, ipcauth.Identity{})
+		created, err := sm.AddProfile("work", username, nil)
 		require.NoError(t, err)
 
 		configDir, err := sm.getConfigDir(username)

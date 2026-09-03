@@ -141,7 +141,7 @@ func (pm *ProfileManager) SwitchProfile(id string) error {
 // AddProfile creates a new profile with the given display name and a
 // generated ID. It returns the created profile so the caller learns the ID.
 func (pm *ProfileManager) AddProfile(displayName string) (*Profile, error) {
-	profile, err := pm.serviceMgr.AddProfile(displayName, pm.username)
+	profile, err := pm.serviceMgr.AddProfile(displayName, pm.username, nil)
 	if err != nil {
 		return nil, fmt.Errorf("add profile: %w", err)
 	}
