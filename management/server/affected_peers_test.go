@@ -99,7 +99,7 @@ func TestCollectGroupChange_PolicyLinked(t *testing.T) {
 	manager, s, accountID, peerIDs, groupIDs := setupAffectedPeersTest(t)
 	ctx := context.Background()
 
-	_, err := manager.SavePolicy(ctx, accountID, userID, &types.Policy{
+	policy := &types.Policy{
 		Enabled: true,
 		Rules: []*types.PolicyRule{
 			{
@@ -130,8 +130,14 @@ func TestCollectGroupChange_PolicyLinked(t *testing.T) {
 				Action:              types.PolicyTrafficActionAccept,
 			},
 		},
-	}, true)
-	require.NoError(t, err)
+	}
+	for _, rule := range policy.Rules {
+		_, err := manager.SavePolicy(ctx, accountID, userID, &types.Policy{
+			Enabled: true,
+			Rules:   []*types.PolicyRule{rule},
+		}, true)
+		require.NoError(t, err)
+	}
 
 	groups, directPeers := collectGroupChangeAffectedGroups(ctx, s, accountID, []string{groupIDs[0]})
 	assert.ElementsMatch(t, groups, []string{groupIDs[0], groupIDs[1]})
@@ -150,7 +156,7 @@ func TestCollectGroupChange_PolicyWithDirectPeerResource(t *testing.T) {
 	manager, s, accountID, peerIDs, groupIDs := setupAffectedPeersTest(t)
 	ctx := context.Background()
 
-	_, err := manager.SavePolicy(ctx, accountID, userID, &types.Policy{
+	policy := &types.Policy{
 		Enabled: true,
 		Rules: []*types.PolicyRule{
 			{
@@ -178,8 +184,14 @@ func TestCollectGroupChange_PolicyWithDirectPeerResource(t *testing.T) {
 				Action:              types.PolicyTrafficActionAccept,
 			},
 		},
-	}, true)
-	require.NoError(t, err)
+	}
+	for _, rule := range policy.Rules {
+		_, err := manager.SavePolicy(ctx, accountID, userID, &types.Policy{
+			Enabled: true,
+			Rules:   []*types.PolicyRule{rule},
+		}, true)
+		require.NoError(t, err)
+	}
 
 	groups, directPeers := collectGroupChangeAffectedGroups(ctx, s, accountID, []string{groupIDs[0]})
 	assert.ElementsMatch(t, groups, []string{groupIDs[0], groupIDs[1]})
