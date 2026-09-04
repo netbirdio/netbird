@@ -2294,15 +2294,16 @@ type Performance struct {
 }
 
 // SetPerformance applies the given tuning to this engine's live Device.
+//
+// It deliberately does not take syncMsgMux. Raising the buffer pool cap is the
+// recovery path for a device whose pool is exhausted, and an exhausted pool
+// blocks peer removal inside handleSync, which holds syncMsgMux for as long as
+// it stays blocked. Taking the lock here would make the retune unreachable in
+// the one situation that needs it.
 func (e *Engine) SetPerformance(t Performance) error {
-	e.syncMsgMux.Lock()
-	defer e.syncMsgMux.Unlock()
-	if e.wgInterface == nil {
-		return fmt.Errorf("wg interface not initialized")
-	}
-	dev := e.wgInterface.GetWGDevice()
+	dev := e.wgDevice.Load()
 	if dev == nil {
-		return fmt.Errorf("wg device not initialized")
+		return errors.New("wg device not initialized")
 	}
 	if t.PreallocatedBuffersPerPool != nil {
 		dev.SetPreallocatedBuffersPerPool(*t.PreallocatedBuffersPerPool)
