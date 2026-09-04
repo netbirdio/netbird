@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -377,11 +378,23 @@ func TestValidateOIDCIssuer_DoesNotFollowRedirects(t *testing.T) {
 func TestValidateOIDCIssuer_BoundsResponseSize(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write(make([]byte, maxDiscoveryDocumentSize+(1<<20)))
+		_, _ = w.Write([]byte(`{"issuer":"` + strings.Repeat("a", maxDiscoveryDocumentSize) + `"}`))
 	}))
 	t.Cleanup(srv.Close)
 
 	err := validateOIDCIssuer(context.Background(), srv.URL)
-	require.Error(t, err)
-	assert.Less(t, len(err.Error()), 4096, "The error stays a fixed size")
+	require.ErrorIs(t, err, types.ErrIdentityProviderIssuerUnreachable)
+	assert.NotErrorIs(t, err, types.ErrIdentityProviderIssuerMismatch)
+}
+
+func TestValidateOIDCIssuer_RejectsTrailingContent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"issuer":"http://` + r.Host + `"} {"issuer":"second"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	err := validateOIDCIssuer(context.Background(), srv.URL)
+	require.ErrorIs(t, err, types.ErrIdentityProviderIssuerUnreachable,
+		"Content after the first object is not a valid discovery document")
 }

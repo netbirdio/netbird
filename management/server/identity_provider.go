@@ -59,8 +59,13 @@ func validateOIDCIssuer(ctx context.Context, issuer string) error {
 		return fmt.Errorf("%w: %s", types.ErrIdentityProviderIssuerUnreachable, resp.Status)
 	}
 
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxDiscoveryDocumentSize+1))
+	if err != nil || len(body) > maxDiscoveryDocumentSize {
+		return fmt.Errorf("%w: failed to decode provider discovery object", types.ErrIdentityProviderIssuerUnreachable)
+	}
+
 	var p oidcProviderJSON
-	if err := json.NewDecoder(io.LimitReader(resp.Body, maxDiscoveryDocumentSize)).Decode(&p); err != nil {
+	if err := json.Unmarshal(body, &p); err != nil {
 		return fmt.Errorf("%w: failed to decode provider discovery object", types.ErrIdentityProviderIssuerUnreachable)
 	}
 

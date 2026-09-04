@@ -171,3 +171,17 @@ func TestIdentityProvider_ValidateAcceptsOriginAndPath(t *testing.T) {
 		})
 	}
 }
+
+func TestIdentityProviderValidateRejectsBareDelimiters(t *testing.T) {
+	for _, issuer := range []string{"https://idp.example.com/realms/nb?", "https://idp.example.com/realms/nb#"} {
+		t.Run(issuer, func(t *testing.T) {
+			idp := &IdentityProvider{
+				Name:     "test",
+				Type:     IdentityProviderTypeOIDC,
+				Issuer:   issuer,
+				ClientID: "client-id",
+			}
+			assert.ErrorIs(t, idp.Validate(), ErrIdentityProviderIssuerInvalid)
+		})
+	}
+}
