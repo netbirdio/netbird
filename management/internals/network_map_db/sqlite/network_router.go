@@ -11,9 +11,11 @@ import (
 )
 
 const (
+	// Outer join: a groupless router must survive.
 	GetNetworkRouterQuery = `
 	select public_id, peer, network_id, masquerade, metric, enabled, peer_groups, group_peers.peer_id
-	from network_routers, json_each(peer_groups)
+	from network_routers
+	left join json_each(network_routers.peer_groups) on true
 	left join group_peers on group_peers.account_id=? and group_peers.group_id=json_each.value
 	where network_routers.account_id=?
 	`
