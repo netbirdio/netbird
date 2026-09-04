@@ -180,6 +180,9 @@ func (pm *ProfileManager) RenameProfile(id string, newName string) error {
 // private key and SSH key from the config, forcing a re-login. The management
 // URL and other settings are preserved.
 func (pm *ProfileManager) LogoutProfile(id string) error {
+	if err := pm.checkProfileLogoutAllowed(id); err != nil {
+		return err
+	}
 	configPath, err := pm.getProfileConfigPath(id)
 	if err != nil {
 		return err
@@ -298,6 +301,14 @@ func (pm *ProfileManager) checkProfilesAllowed() error {
 		return ErrProfilesDisabled
 	}
 	return nil
+}
+
+func (pm *ProfileManager) checkProfileLogoutAllowed(id string) error {
+	active, err := pm.serviceMgr.GetActiveProfileState()
+	if err == nil && active.ID.String() == id {
+		return nil
+	}
+	return pm.checkProfilesAllowed()
 }
 
 func (pm *ProfileManager) profileEmail(id string) string {
