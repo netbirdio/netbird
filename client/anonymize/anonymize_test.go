@@ -313,6 +313,122 @@ func TestAnonymizeDomain_StrictLevel(t *testing.T) {
 	})
 }
 
+// TestAnonymizeDomain_WildcardSharesBase covers both orders because the base
+// mapping is created by whichever form is seen first.
+func TestAnonymizeDomain_WildcardSharesBase(t *testing.T) {
+	for _, level := range []anonymize.Level{anonymize.LevelDefault, anonymize.LevelStrict} {
+		t.Run(level.String(), func(t *testing.T) {
+			t.Run("wildcard first", func(t *testing.T) {
+				anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
+				anonymizer.SetLevel(level)
+
+				wildcard := anonymizer.AnonymizeDomain("*.example.org")
+				bare := anonymizer.AnonymizeDomain("example.org")
+				assert.Equal(t, "*."+bare, wildcard, "the wildcard form should be the bare anon domain behind a kept *.")
+				assert.NotContains(t, wildcard, "example", "the original base should not survive")
+			})
+
+			t.Run("bare first", func(t *testing.T) {
+				anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
+				anonymizer.SetLevel(level)
+
+				bare := anonymizer.AnonymizeDomain("example.org")
+				wildcard := anonymizer.AnonymizeDomain("*.example.org")
+				assert.Equal(t, "*."+bare, wildcard, "the wildcard form should be the bare anon domain behind a kept *.")
+			})
+
+			t.Run("in a log line", func(t *testing.T) {
+				anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
+				anonymizer.SetLevel(level)
+
+				bare := anonymizer.AnonymizeDomain("example.org")
+				line := `{"Domains": ["*.example.org", "example.org"]}`
+				result := anonymizer.AnonymizeString(line)
+				assert.Equal(t, `{"Domains": ["*.`+bare+`", "`+bare+`"]}`, result,
+					"both forms in a log line should share one anon base and keep the wildcard prefix")
+			})
+		})
+	}
+}
+
+// TestAnonymizeDomain_SingleLabelZone covers a custom zone whose name is a
+// single label, as a bundle's DNS config can carry. Such a name has no
+// two-label base to key on, so it used to pass through in the clear.
+func TestAnonymizeDomain_SingleLabelZone(t *testing.T) {
+	for _, level := range []anonymize.Level{anonymize.LevelDefault, anonymize.LevelStrict} {
+		t.Run(level.String(), func(t *testing.T) {
+			t.Run("zone name is anonymized", func(t *testing.T) {
+				anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
+				anonymizer.SetLevel(level)
+
+				zone := anonymizer.AnonymizeDomainName("corp.")
+				assert.Regexp(t, `^anon-[a-zA-Z0-9]+\.domain\.$`, zone, "a single-label zone should be anonymized and keep its trailing dot")
+			})
+
+			t.Run("names under the zone share its base", func(t *testing.T) {
+				anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
+				anonymizer.SetLevel(level)
+
+				// The bundle generator anonymizes the zone before its records.
+				zone := anonymizer.AnonymizeDomainName("corp")
+				record := anonymizer.AnonymizeDomainName("host.corp")
+				assert.True(t, strings.HasSuffix(record, "."+zone), "a record under the zone should keep the zone's anon base, got %q for zone %q", record, zone)
+				assert.NotContains(t, record, "corp", "the original zone name should not survive")
+			})
+
+			t.Run("consistent regardless of order", func(t *testing.T) {
+				anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
+				anonymizer.SetLevel(level)
+
+				first := anonymizer.AnonymizeDomainName("corp")
+				second := anonymizer.AnonymizeDomainName("corp")
+				assert.Equal(t, first, second, "the same zone should map consistently")
+			})
+		})
+	}
+}
+
+// TestAnonymizeString_KnownZoneInLogLine covers the bundle order: the DNS
+// config establishes the zone, then log lines naming it are anonymized through
+// the domain= key even though the name carries no dot of its own.
+func TestAnonymizeString_KnownZoneInLogLine(t *testing.T) {
+	anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
+
+	zone := anonymizer.AnonymizeDomainName("corp.")
+	line := "adding handler pattern: domain=corp. original: domain=corp. priority=75"
+
+	result := anonymizer.AnonymizeString(line)
+	assert.Equal(t, "adding handler pattern: domain="+zone+" original: domain="+zone+" priority=75", result,
+		"a log line naming a known zone should carry the zone's anon domain")
+	assert.NotContains(t, result, "corp", "the original zone name should not survive")
+}
+
+// TestAnonymizeDomain_UnknownSingleLabelUntouched pins that free text reaching
+// AnonymizeDomain is left alone. Values that are not domains at all (an address,
+// an internal placeholder) arrive here, so a bare label is only anonymized once
+// something that knows it is a DNS name has established it as a zone.
+func TestAnonymizeDomain_UnknownSingleLabelUntouched(t *testing.T) {
+	anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
+
+	assert.Equal(t, "corp", anonymizer.AnonymizeDomain("corp"), "an unknown bare label should pass through")
+	assert.Equal(t, "localhost", anonymizer.AnonymizeDomainName("localhost"), "localhost identifies nothing and should pass through")
+	assert.Equal(t, "2001:db8:ffff::", anonymizer.AnonymizeDomain("2001:db8:ffff::"), "an address form should pass through")
+}
+
+// TestAnonymizeString_SingleLabelNotSubstringReplaced pins that a single-label
+// mapping is never applied as a bare substring: it has no dot to anchor it, so
+// doing so would corrupt any longer word containing it.
+func TestAnonymizeString_SingleLabelNotSubstringReplaced(t *testing.T) {
+	anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
+
+	anonymizer.AnonymizeDomainName("corp")
+	anonBase := anonymizer.AnonymizeDomainName("corpsite.example")
+
+	result := anonymizer.AnonymizeString("reaching corpsite.example over corporation")
+	assert.Equal(t, "reaching "+anonBase+" over corporation", result,
+		"the single-label mapping should not rewrite longer words that contain it")
+}
+
 func TestAnonymizeDomain_DefaultLevelKeepsPeerNames(t *testing.T) {
 	anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
 
