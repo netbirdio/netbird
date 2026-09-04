@@ -1302,6 +1302,65 @@ func TestValidate_Private_AcceptsClusterTargetWithAccessGroups(t *testing.T) {
 	require.NoError(t, rp.Validate())
 }
 
+func TestRestrictions_AllowMatch_RoundTrip(t *testing.T) {
+	anyMatch := api.AccessRestrictionsAllowMatchAny
+	apiIn := &api.AccessRestrictions{
+		AllowedCidrs:     &[]string{"203.0.113.0/24"},
+		AllowedCountries: &[]string{"US"},
+		AllowMatch:       &anyMatch,
+	}
+
+	model, err := restrictionsFromAPI(apiIn)
+	require.NoError(t, err)
+	assert.Equal(t, "any", model.AllowMatch)
+
+	apiOut := restrictionsToAPI(model)
+	require.NotNil(t, apiOut.AllowMatch)
+	assert.Equal(t, api.AccessRestrictionsAllowMatchAny, *apiOut.AllowMatch)
+
+	protoOut := restrictionsToProto(model)
+	require.NotNil(t, protoOut)
+	assert.Equal(t, "any", protoOut.AllowMatch)
+}
+
+func TestRestrictions_AllowMatch_EmptyDefaultsToAll(t *testing.T) {
+	// A stored record with no allow_match (existing services) stays empty and
+	// must not surface a value on the API, preserving AND behavior downstream.
+	model, err := restrictionsFromAPI(&api.AccessRestrictions{
+		AllowedCidrs: &[]string{"203.0.113.0/24"},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, model.AllowMatch, "unset allow_match stays empty")
+
+	apiOut := restrictionsToAPI(model)
+	require.NotNil(t, apiOut)
+	assert.Nil(t, apiOut.AllowMatch, "empty allow_match is omitted from the API response")
+}
+
+func TestRestrictions_AllowMatchOnly_Preserved(t *testing.T) {
+	// allow_match set without any list must not be dropped by the emptiness
+	// guards, so it round-trips through both the API and proto conversions.
+	model := AccessRestrictions{AllowMatch: "any"}
+
+	apiOut := restrictionsToAPI(model)
+	require.NotNil(t, apiOut, "allow-match-only restriction must not be omitted from the API response")
+	require.NotNil(t, apiOut.AllowMatch)
+	assert.Equal(t, api.AccessRestrictionsAllowMatchAny, *apiOut.AllowMatch)
+
+	protoOut := restrictionsToProto(model)
+	require.NotNil(t, protoOut, "allow-match-only restriction must not be omitted from the proto output")
+	assert.Equal(t, "any", protoOut.AllowMatch)
+}
+
+func TestValidate_RejectsInvalidAllowMatch(t *testing.T) {
+	rp := validProxy()
+	rp.Restrictions = AccessRestrictions{
+		AllowedCIDRs: []string{"203.0.113.0/24"},
+		AllowMatch:   "sometimes",
+	}
+	assert.ErrorContains(t, rp.Validate(), "allow_match")
+}
+
 func TestValidate_Private_RejectsNonHTTPMode(t *testing.T) {
 	rp := validProxy()
 	rp.Private = true
