@@ -288,8 +288,6 @@ func (pm *ProfileManager) GetActiveStateFilePath() (string, error) {
 	return pm.GetStateFilePath(activeProfile.ID)
 }
 
-// profileEmail returns the account email recorded for a profile. Display-only,
-// so an unresolvable path degrades to "" rather than an error.
 // SetMDMLoader registers the MDM policy source consulted before profile
 // mutations; a nil loader disables enforcement.
 func (pm *ProfileManager) SetMDMLoader(loader *mdm.Loader) {
@@ -311,6 +309,8 @@ func (pm *ProfileManager) checkProfileLogoutAllowed(id string) error {
 	return pm.checkProfilesAllowed()
 }
 
+// profileEmail returns the account email recorded for a profile. Display-only,
+// so an unresolvable path degrades to "" rather than an error.
 func (pm *ProfileManager) profileEmail(id string) string {
 	configPath, err := pm.getProfileConfigPath(id)
 	if err != nil {

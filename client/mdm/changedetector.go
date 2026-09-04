@@ -38,10 +38,3 @@ func (d *ChangeDetector) Changed() bool {
 	d.prev = curr
 	return true
 }
-
-// Current returns the last observed policy snapshot.
-func (d *ChangeDetector) Current() *Policy {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return d.prev
-}

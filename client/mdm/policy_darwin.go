@@ -53,7 +53,7 @@ func (l *Loader) loadPlatform() (map[string]any, error) {
 		if errors.Is(err, fs.ErrNotExist) {
 			// Not enrolled for NetBird. Caller treats nil as
 			// "no MDM source present".
-			//nolint:nilnil // (nil, nil) is the documented platform-absent sentinel; see LoadPolicy.
+			//nolint:nilnil // (nil, nil) is the documented platform-absent sentinel; see Loader.Load.
 			return nil, nil
 		}
 		return nil, fmt.Errorf("open %s: %w", policyPlistPath, err)
