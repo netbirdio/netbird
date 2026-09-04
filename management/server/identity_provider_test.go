@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -121,7 +122,7 @@ func createManagerWithEmbeddedIdPModeAndSetup(
 }
 
 func TestDefaultAccountManager_CreateIdentityProvider_Validation(t *testing.T) {
-	manager, _, err := createManager(t)
+	manager, _, err := createManagerWithEmbeddedIdP(t)
 	require.NoError(t, err)
 
 	userID := "testingUser"
@@ -233,7 +234,7 @@ func TestUpdateUserAuthWithSingleModeKeepsConfiguredDomain(t *testing.T) {
 }
 
 func TestDefaultAccountManager_UpdateIdentityProvider_Validation(t *testing.T) {
-	manager, _, err := createManager(t)
+	manager, _, err := createManagerWithEmbeddedIdP(t)
 	require.NoError(t, err)
 
 	userID := "testingUser"
@@ -354,4 +355,46 @@ func TestValidateOIDCIssuer_TrailingSlash(t *testing.T) {
 	// This should fail because the issuer returned doesn't have trailing slash
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, types.ErrIdentityProviderIssuerMismatch))
+}
+
+func TestValidateOIDCIssuer_DoesNotFollowRedirects(t *testing.T) {
+	var reached bool
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		reached = true
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	t.Cleanup(target.Close)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL+"/redirect-target", http.StatusFound)
+	}))
+	t.Cleanup(srv.Close)
+
+	err := validateOIDCIssuer(context.Background(), srv.URL)
+	require.Error(t, err)
+	assert.False(t, reached, "Redirects are not followed")
+}
+
+func TestValidateOIDCIssuer_BoundsResponseSize(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"issuer":"` + strings.Repeat("a", maxDiscoveryDocumentSize) + `"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	err := validateOIDCIssuer(context.Background(), srv.URL)
+	require.ErrorIs(t, err, types.ErrIdentityProviderIssuerUnreachable)
+	assert.NotErrorIs(t, err, types.ErrIdentityProviderIssuerMismatch)
+}
+
+func TestValidateOIDCIssuer_RejectsTrailingContent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"issuer":"http://` + r.Host + `"} {"issuer":"second"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	err := validateOIDCIssuer(context.Background(), srv.URL)
+	require.ErrorIs(t, err, types.ErrIdentityProviderIssuerUnreachable,
+		"Content after the first object is not a valid discovery document")
 }
