@@ -1287,6 +1287,22 @@ func (e *Engine) currentSystemInfo(ctx context.Context) *system.Info {
 	return info
 }
 
+// syncInfoFunc returns the info callback for the management sync stream. The
+// first connect sends the info refreshed right before it instead of gathering
+// again; every reconnect gathers a fresh one. The stream retry loop calls the
+// callback sequentially, so the handoff needs no synchronization.
+func (e *Engine) syncInfoFunc(refreshed *system.Info) func(ctx context.Context) *system.Info {
+	return func(ctx context.Context) *system.Info {
+		if refreshed == nil {
+			return e.currentSystemInfo(ctx)
+		}
+		info := refreshed
+		refreshed = nil
+		e.applyInfoFlags(info)
+		return info
+	}
+}
+
 // overlayAddresses returns our own WireGuard overlay address (v4 and v6) so it
 // can be excluded from the reported network addresses; the interface coming and
 // going otherwise churns the peer meta on the management server.
@@ -1480,10 +1496,11 @@ func (e *Engine) receiveManagementEvents() {
 	e.shutdownWg.Add(1)
 	go func() {
 		defer e.shutdownWg.Done()
-		if _, ok := e.infoSource.Refresh(e.ctx, systemInfoTimeout, e.checks, e.overlayAddresses()...); !ok {
+		info, ok := e.infoSource.Refresh(e.ctx, systemInfoTimeout, e.checks, e.overlayAddresses()...)
+		if !ok {
 			log.Warnf("posture checks not refreshed before the sync connect, sending the previous results")
 		}
-		err := e.mgmClient.Sync(e.ctx, e.currentSystemInfo, e.handleSync)
+		err := e.mgmClient.Sync(e.ctx, e.syncInfoFunc(info), e.handleSync)
 		if err != nil {
 			// happens if management is unavailable for a long time.
 			// We want to cancel the operation of the whole client

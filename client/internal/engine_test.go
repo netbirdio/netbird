@@ -301,6 +301,28 @@ func TestEngine_FirstSyncInfoCarriesLoginChecks(t *testing.T) {
 	engine.shutdownWg.Wait()
 }
 
+func TestEngine_SyncInfoFuncReusesRefreshedInfoOnce(t *testing.T) {
+	engine := &Engine{config: &EngineConfig{}}
+
+	refreshed := &system.Info{Hostname: "from-refresh"}
+	getInfo := engine.syncInfoFunc(refreshed)
+
+	first := getInfo(context.Background())
+	assert.Same(t, refreshed, first, "the first connect should send the refreshed info instead of gathering again")
+
+	second := getInfo(context.Background())
+	assert.NotSame(t, refreshed, second, "the reconnect should gather a fresh info")
+	assert.NotEqual(t, "from-refresh", second.Hostname, "the fresh info should not carry the refreshed hostname")
+}
+
+func TestEngine_SyncInfoFuncGathersWhenRefreshFailed(t *testing.T) {
+	engine := &Engine{config: &EngineConfig{}}
+
+	info := engine.syncInfoFunc(nil)(context.Background())
+	require.NotNil(t, info, "a failed refresh should fall back to gathering the info")
+	assert.NotEmpty(t, info.Hostname, "the gathered info should carry the hostname")
+}
+
 func TestEngine_UpdateChecksIfNewRetriesAfterFailedSyncMeta(t *testing.T) {
 	key, err := wgtypes.GeneratePrivateKey()
 	require.NoError(t, err)
