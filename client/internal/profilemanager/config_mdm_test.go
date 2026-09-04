@@ -241,4 +241,42 @@ func TestMDMConflicts_PreSharedKey(t *testing.T) {
 	}
 }
 
+func TestMDMConflicts_RemoteJobsAndLocalMetrics(t *testing.T) {
+	policy := mdm.NewPolicy(map[string]any{
+		mdm.KeyRemoteJobsAllowed:   false,
+		mdm.KeyEnableLocalMetrics:  true,
+		mdm.KeyLocalMetricsAddress: "127.0.0.1:9999",
+	})
+	sameAddr := "127.0.0.1:9999"
+	otherAddr := "0.0.0.0:9999"
+	emptyAddr := ""
+
+	tests := []struct {
+		name  string
+		input ConfigInput
+		want  []string
+	}{
+		{name: "unset", input: ConfigInput{}, want: nil},
+		{name: "echo", input: ConfigInput{
+			RemoteJobsAllowed:   boolPtr(false),
+			LocalMetricsEnabled: boolPtr(true),
+			LocalMetricsAddress: &sameAddr,
+		}, want: nil},
+		{name: "remote jobs divergent", input: ConfigInput{RemoteJobsAllowed: boolPtr(true)}, want: []string{mdm.KeyRemoteJobsAllowed}},
+		{name: "metrics disabled", input: ConfigInput{LocalMetricsEnabled: boolPtr(false)}, want: []string{mdm.KeyEnableLocalMetrics}},
+		{name: "metrics address divergent", input: ConfigInput{LocalMetricsAddress: &otherAddr}, want: []string{mdm.KeyLocalMetricsAddress}},
+		{name: "metrics address explicit empty", input: ConfigInput{LocalMetricsAddress: &emptyAddr}, want: []string{mdm.KeyLocalMetricsAddress}},
+		{name: "all divergent", input: ConfigInput{
+			RemoteJobsAllowed:   boolPtr(true),
+			LocalMetricsEnabled: boolPtr(false),
+			LocalMetricsAddress: &otherAddr,
+		}, want: []string{mdm.KeyRemoteJobsAllowed, mdm.KeyEnableLocalMetrics, mdm.KeyLocalMetricsAddress}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, MDMConflicts(tc.input, policy))
+		})
+	}
+}
+
 func boolPtr(b bool) *bool { return &b }

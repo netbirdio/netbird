@@ -31,10 +31,13 @@ func MDMConflicts(input ConfigInput, policy *mdm.Policy) []string {
 		mdm.ConflictBool(mdm.KeyRosenpassPermissive, input.RosenpassPermissive),
 		mdm.ConflictBool(mdm.KeyDisableAutoConnect, input.DisableAutoConnect),
 		mdm.ConflictBool(mdm.KeyAllowServerSSH, input.ServerSSHAllowed),
+		mdm.ConflictBool(mdm.KeyRemoteJobsAllowed, input.RemoteJobsAllowed),
 		mdm.ConflictBool(mdm.KeyDisableClientRoutes, input.DisableClientRoutes),
 		mdm.ConflictBool(mdm.KeyDisableServerRoutes, input.DisableServerRoutes),
 		mdm.ConflictBool(mdm.KeyBlockInbound, input.BlockInbound),
 		mdm.ConflictInt64(mdm.KeyWireguardPort, port),
+		mdm.ConflictBool(mdm.KeyEnableLocalMetrics, input.LocalMetricsEnabled),
+		mdm.ConflictStringPtr(mdm.KeyLocalMetricsAddress, input.LocalMetricsAddress),
 	})
 }
 
