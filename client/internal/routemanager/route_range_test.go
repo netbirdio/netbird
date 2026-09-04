@@ -75,3 +75,21 @@ func TestCurrentRouteRange_IPv6AddressWithoutNetwork(t *testing.T) {
 
 	assert.Equal(t, []string{"100.91.0.0/16"}, m.CurrentRouteRange(), "a v6 address without a network must not produce a route entry")
 }
+
+func TestCurrentRouteRange_DeduplicatesPrefixes(t *testing.T) {
+	// Two HA peers serve the same prefix, and a client route announces the overlay network itself.
+	haA := &route.Route{ID: "ha-a", NetID: "lan", Peer: "peer-a", Network: netip.MustParsePrefix("192.168.50.0/24"), NetworkType: route.IPv4Network}
+	haB := &route.Route{ID: "ha-b", NetID: "lan", Peer: "peer-b", Network: netip.MustParsePrefix("192.168.50.0/24"), NetworkType: route.IPv4Network}
+	overlay := &route.Route{ID: "overlay", NetID: "overlay", Network: netip.MustParsePrefix("100.91.0.0/16"), NetworkType: route.IPv4Network}
+
+	m := &DefaultManager{
+		wgInterface:   &reconcileWGMock{addr: wgaddr.MustParseWGAddress("100.91.96.107/16")},
+		routeSelector: routeselector.NewRouteSelector(),
+		clientRoutes: route.HAMap{
+			haA.GetHAUniqueID():     {haA, haB},
+			overlay.GetHAUniqueID(): {overlay},
+		},
+	}
+
+	assert.Equal(t, []string{"100.91.0.0/16", "192.168.50.0/24"}, m.CurrentRouteRange(), "every prefix must be listed once regardless of how many routes carry it")
+}

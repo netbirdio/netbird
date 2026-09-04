@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"net/url"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -478,7 +479,7 @@ func (m *DefaultManager) CurrentRouteRange() []string {
 	}
 
 	sort.Strings(nets)
-	return nets
+	return slices.Compact(nets)
 }
 
 // GetRouteSelector returns the route selector
