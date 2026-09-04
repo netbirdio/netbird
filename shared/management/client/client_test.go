@@ -407,21 +407,23 @@ func TestClient_SyncGathersInfoOnEveryConnect(t *testing.T) {
 	require.NoError(t, err)
 
 	hostnames := make(chan string, 2)
-	mgmtMockServer.SyncFunc = func(msg *mgmtProto.EncryptedMessage, _ mgmtProto.ManagementService_SyncServer) {
+	mgmtMockServer.SyncFunc = func(msg *mgmtProto.EncryptedMessage, _ mgmtProto.ManagementService_SyncServer) error {
 		peerKey, err := wgtypes.ParseKey(msg.GetWgPubKey())
 		if err != nil {
 			t.Errorf("invalid peer key: %v", err)
-			return
+			return status.Error(codes.InvalidArgument, err.Error())
 		}
 		syncReq := &mgmtProto.SyncRequest{}
 		if err := encryption.DecryptMessage(peerKey, serverKey, msg.Body, syncReq); err != nil {
 			t.Errorf("decrypt sync request: %v", err)
-			return
+			return status.Error(codes.InvalidArgument, err.Error())
 		}
 		select {
 		case hostnames <- syncReq.GetMeta().GetHostname():
 		default:
 		}
+		// Returning closes the stream, so the client reconnects and gathers again.
+		return nil
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -431,7 +433,9 @@ func TestClient_SyncGathersInfoOnEveryConnect(t *testing.T) {
 	require.NoError(t, err)
 
 	var gathers atomic.Int32
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		_ = client.Sync(ctx, func(ctx context.Context) *system.Info {
 			info := system.GetInfo(ctx)
 			info.Hostname = fmt.Sprintf("host-%d", gathers.Add(1))
@@ -439,13 +443,28 @@ func TestClient_SyncGathersInfoOnEveryConnect(t *testing.T) {
 		}, func(*mgmtProto.SyncResponse) error { return nil })
 	}()
 
-	for _, want := range []string{"host-1", "host-2"} {
+	// A connect attempt can fail before it reaches the server, so the sequence
+	// numbers seen here may skip. What matters is that the reconnect carries a
+	// newly gathered info instead of the one sent on the previous stream.
+	var seen []int
+	for len(seen) < 2 {
 		select {
 		case got := <-hostnames:
-			assert.Equal(t, want, got)
+			var n int
+			_, err := fmt.Sscanf(got, "host-%d", &n)
+			require.NoError(t, err, "hostname should carry the gather sequence number")
+			seen = append(seen, n)
 		case <-time.After(10 * time.Second):
-			t.Fatalf("timeout waiting for the sync request carrying %s", want)
+			t.Fatalf("timeout waiting for the second sync request, got %v", seen)
 		}
+	}
+	assert.Greater(t, seen[1], seen[0], "the reconnect should carry a newly gathered info")
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("timeout waiting for Sync to return after cancel")
 	}
 }
 

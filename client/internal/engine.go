@@ -1480,7 +1480,9 @@ func (e *Engine) receiveManagementEvents() {
 	e.shutdownWg.Add(1)
 	go func() {
 		defer e.shutdownWg.Done()
-		e.infoSource.Refresh(e.ctx, systemInfoTimeout, e.checks, e.overlayAddresses()...)
+		if _, ok := e.infoSource.Refresh(e.ctx, systemInfoTimeout, e.checks, e.overlayAddresses()...); !ok {
+			log.Warnf("posture checks not refreshed before the sync connect, sending the previous results")
+		}
 		err := e.mgmClient.Sync(e.ctx, e.currentSystemInfo, e.handleSync)
 		if err != nil {
 			// happens if management is unavailable for a long time.
