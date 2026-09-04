@@ -78,15 +78,15 @@ func TestCurrentRouteRange_IPv6AddressWithoutNetwork(t *testing.T) {
 
 func TestCurrentRouteRange_DeduplicatesPrefixes(t *testing.T) {
 	// Two HA peers serve the same prefix, and a client route announces the overlay network itself.
-	haA := &route.Route{ID: "ha-a", NetID: "lan", Peer: "peer-a", Network: netip.MustParsePrefix("192.168.50.0/24"), NetworkType: route.IPv4Network}
-	haB := &route.Route{ID: "ha-b", NetID: "lan", Peer: "peer-b", Network: netip.MustParsePrefix("192.168.50.0/24"), NetworkType: route.IPv4Network}
+	haPeerA := &route.Route{ID: "ha-a", NetID: "lan", Peer: "peer-a", Network: netip.MustParsePrefix("192.168.50.0/24"), NetworkType: route.IPv4Network}
+	haPeerB := &route.Route{ID: "ha-b", NetID: "lan", Peer: "peer-b", Network: netip.MustParsePrefix("192.168.50.0/24"), NetworkType: route.IPv4Network}
 	overlay := &route.Route{ID: "overlay", NetID: "overlay", Network: netip.MustParsePrefix("100.91.0.0/16"), NetworkType: route.IPv4Network}
 
 	m := &DefaultManager{
 		wgInterface:   &reconcileWGMock{addr: wgaddr.MustParseWGAddress("100.91.96.107/16")},
 		routeSelector: routeselector.NewRouteSelector(),
 		clientRoutes: route.HAMap{
-			haA.GetHAUniqueID():     {haA, haB},
+			haPeerA.GetHAUniqueID(): {haPeerA, haPeerB},
 			overlay.GetHAUniqueID(): {overlay},
 		},
 	}
