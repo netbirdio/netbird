@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"go.uber.org/mock/gomock"
 	"github.com/gorilla/mux"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
+	rpproxy "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	"github.com/netbirdio/netbird/management/server/account"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/permissions"
@@ -29,6 +31,9 @@ import (
 const (
 	testAccountID = "acc-1"
 	testUserID    = "user-bob"
+	// testClusterAddress is the shared proxy cluster the settings tests pin
+	// their gateway to; the fixture seeds a connected embedded proxy for it.
+	testClusterAddress = "eu.proxy.netbird.io"
 )
 
 // agentNetworkHandlerFixture builds a real agentnetwork.Manager with
@@ -74,6 +79,12 @@ func newAgentNetworkHandlerFixture(t *testing.T) *agentNetworkHandlerFixture {
 
 	manager := agentnetwork.NewManager(st, perms, accounts, nil)
 	h := &handler{manager: manager}
+
+	// The labeled bootstrap validates its proxy_address against the live
+	// clusters, so seed the shared cluster these tests pin to as a real,
+	// private-capable one — the wire-shape assertions then run through the
+	// validated path rather than the "nothing connected yet" carve-out.
+	seedSharedEmbeddedCluster(t, st, testClusterAddress)
 
 	router := mux.NewRouter()
 	router.HandleFunc("/agent-network/providers", h.createProvider).Methods("POST")
@@ -267,4 +278,22 @@ func TestConsumptionHandler_PopulatedAccountListsRows(t *testing.T) {
 	// together), so window_start_utc must match across them.
 	assert.Equal(t, groupRow.WindowStartUtc, userRow.WindowStartUtc,
 		"rows recorded in the same window must share the aligned window_start_utc")
+}
+
+// seedSharedEmbeddedCluster registers a connected, NetBird-operated proxy
+// running embedded in a netbird client (the `private` capability) so
+// clusterAddr is a cluster any account may pin its agent-network gateway to.
+func seedSharedEmbeddedCluster(t *testing.T, st store.Store, clusterAddr string) {
+	t.Helper()
+	private := true
+	now := time.Now().UTC()
+	require.NoError(t, st.SaveProxy(context.Background(), &rpproxy.Proxy{
+		ID:             "shared-proxy-" + clusterAddr,
+		SessionID:      "shared-session",
+		ClusterAddress: clusterAddr,
+		LastSeen:       now,
+		ConnectedAt:    &now,
+		Status:         rpproxy.StatusConnected,
+		Capabilities:   rpproxy.Capabilities{Private: &private},
+	}), "seeding the shared proxy cluster must succeed")
 }

@@ -27,3 +27,41 @@ func TestIsProxyAddressValid(t *testing.T) {
 		})
 	}
 }
+
+// TestCanonicalProxyAddress pins the canonical form the store keeps. Every
+// capability, ownership and routing lookup matches cluster_address exactly, so
+// one host must have exactly one spelling in that column — which is what lets
+// those queries stay exact (and keep using the index) instead of folding case
+// per query.
+func TestCanonicalProxyAddress(t *testing.T) {
+	tests := []struct {
+		name      string
+		addr      string
+		canonical string
+		ok        bool
+	}{
+		{name: "lowercase domain unchanged", addr: "eu.proxy.netbird.io", canonical: "eu.proxy.netbird.io", ok: true},
+		{name: "mixed case domain folded", addr: "EU.Proxy.NetBird.io", canonical: "eu.proxy.netbird.io", ok: true},
+		{name: "uppercase domain folded", addr: "BYOP.PROXY.EXAMPLE.COM", canonical: "byop.proxy.example.com", ok: true},
+		{name: "unicode domain punycoded", addr: "pröxy.example.com", canonical: "xn--prxy-6qa.example.com", ok: true},
+		// Same host, and idna alone would encode the two cases to different
+		// labels, so this is the one that proves the fold happens first.
+		{name: "mixed case unicode folds to the same label", addr: "PRÖXY.example.com", canonical: "xn--prxy-6qa.example.com", ok: true},
+		{name: "ipv4 unchanged", addr: "203.0.113.10", canonical: "203.0.113.10", ok: true},
+		{name: "mixed case ipv6 canonicalised", addr: "2001:DB8::1", canonical: "2001:db8::1", ok: true},
+		{name: "empty string rejected", addr: "", ok: false},
+		{name: "space rejected", addr: "eu proxy.example.com", ok: false},
+		// Scoped to one host's interface, so it cannot name a cluster others
+		// reach; net.ParseIP rejected these and netip must not accept them.
+		{name: "zoned ipv6 rejected", addr: "fe80::1%eth0", ok: false},
+		{name: "unzoned link-local ipv6 accepted", addr: "fe80::1", canonical: "fe80::1", ok: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			canonical, ok := canonicalProxyAddress(tt.addr)
+			assert.Equal(t, tt.ok, ok)
+			assert.Equal(t, tt.canonical, canonical)
+		})
+	}
+}

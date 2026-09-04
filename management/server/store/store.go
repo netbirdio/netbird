@@ -337,6 +337,7 @@ type Store interface {
 	CountProxiesByAccountID(ctx context.Context, accountID string) (int64, error)
 	IsClusterAddressConflicting(ctx context.Context, clusterAddress, accountID string) (bool, error)
 	HasActiveProxyAtClusterAddress(ctx context.Context, clusterAddress string) (bool, error)
+	HasProxyOutsideAccountAtHost(ctx context.Context, host, accountID string) (bool, error)
 	DeleteAccountCluster(ctx context.Context, clusterAddress, accountID string) error
 
 	GetCustomDomainsCounts(ctx context.Context) (total int64, validated int64, err error)

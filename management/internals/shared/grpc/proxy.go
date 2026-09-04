@@ -13,6 +13,7 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"strconv"
@@ -495,7 +496,8 @@ func (s *ProxyServiceServer) validateProxyConnect(proxyID, address string, ctx c
 	if proxyID == "" {
 		return proxyConnectParams{}, status.Errorf(codes.InvalidArgument, "proxy_id is required")
 	}
-	if !isProxyAddressValid(address) {
+	address, ok := canonicalProxyAddress(address)
+	if !ok {
 		return proxyConnectParams{}, status.Errorf(codes.InvalidArgument, "proxy address is invalid")
 	}
 
@@ -872,16 +874,44 @@ func (s *ProxyServiceServer) snapshotServiceMappings(ctx context.Context, conn *
 	return mappings, nil
 }
 
+// canonicalProxyAddress validates a proxy address (domain name or IP address)
+// and returns the form the store keeps.
+//
+// cluster_address is the key every capability, ownership and routing lookup
+// matches on, and this is the only path that writes it, so the address is
+// canonicalised once here rather than pushing case-insensitivity into each of
+// those queries: hostnames are case-insensitive and may be unicode, so they
+// fold to lowercase punycode (what domain.ValidateDomains already computes and
+// this used to throw away), and an IP literal goes through netip so a mixed
+// case IPv6 address does not become a second key for the same host.
+func canonicalProxyAddress(addr string) (string, bool) {
+	if addr == "" {
+		return "", false
+	}
+	// A zoned literal like "fe80::1%eth0" is scoped to one host's interface,
+	// so it cannot identify a cluster others reach; net.ParseIP rejected it
+	// before and netip must not start accepting it.
+	if ip, err := netip.ParseAddr(addr); err == nil {
+		if ip.Zone() != "" {
+			return "", false
+		}
+		return ip.String(), true
+	}
+	// Folded before punycode conversion, not just after: idna maps the ASCII
+	// output to lowercase but does not case-fold the unicode input, so
+	// "PRÖXY.example.com" and "pröxy.example.com" would otherwise encode to
+	// two different labels for one host.
+	canonical, err := domain.ValidateDomains([]string{strings.ToLower(addr)})
+	if err != nil || len(canonical) != 1 {
+		return "", false
+	}
+	return string(canonical[0]), true
+}
+
 // isProxyAddressValid validates a proxy address (domain name or IP address)
 func isProxyAddressValid(addr string) bool {
-	if addr == "" {
-		return false
-	}
-	if net.ParseIP(addr) != nil {
-		return true
-	}
-	_, err := domain.ValidateDomains([]string{addr})
-	return err == nil
+	_, ok := canonicalProxyAddress(addr)
+	return ok
 }
 
 // isStreamClosed returns true for errors that indicate normal stream
