@@ -169,8 +169,8 @@ func (c *Client) Run(fd int32, interfaceName string, envList *EnvList) error {
 		if err != nil {
 			return err
 		}
-		c.applyMDMOverlay(cfg)
 	}
+	c.applyMDMOverlay(cfg)
 	c.recorder.UpdateManagementAddress(cfg.ManagementURL.String())
 	c.recorder.UpdateRosenpass(cfg.RosenpassEnabled, cfg.RosenpassPermissive)
 
