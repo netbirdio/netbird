@@ -446,7 +446,8 @@ brews:
     # Runs on reinstall as well as upgrade -- intended: either way the binary
     # under the daemon was just replaced, so a running daemon is equally stale.
     post_install: |
-      return unless daemon_running?
+      running = daemon_pids
+      return if running.empty?
 
       ohai "Restarting the NetBird service"
       # `sudo -n` only: brew resets the sudo timestamp at startup, so this
@@ -454,7 +455,14 @@ brews:
       # offered here, because the post-install sandbox runs this code in a
       # pseudoterminal, where $stdin.tty? is true even for a headless
       # `brew upgrade` and a prompt would stall it until sudo times out.
-      return if default_service? && restart_daemon
+      #
+      # Success is judged by outcome, not by reconfigure's exit status: the
+      # daemon seen above must actually be gone afterwards. Reconfigure only
+      # manages the default service name, and a daemon installed under a custom
+      # name (-s) is indistinguishable by its command line -- if a stale default
+      # definition let reconfigure "succeed" against the wrong service, the old
+      # process would still be running and the instructions still print.
+      return if default_service? && restart_daemon && !daemon_pids.intersect?(running)
 
       opoo <<~EOS
         The NetBird service is still running the previous version. Restart it with:
@@ -469,16 +477,17 @@ brews:
       # versioned Cellar path on Linux (/proc/self/exe resolves symlinks), so the
       # anchored pattern accepts the stable, opt, and Cellar spellings. A plain
       # group instead of "(?:" because pgrep matches POSIX ERE.
-      def daemon_running?
-        Kernel.system("pgrep", "-f",
-                      "^#{Regexp.escape(HOMEBREW_PREFIX)}/(opt/netbird/|Cellar/netbird/[^/]+/)?bin/netbird service run",
-                      out: File::NULL, err: File::NULL)
+      def daemon_pids
+        pattern = "^#{Regexp.escape(HOMEBREW_PREFIX)}/(opt/netbird/|Cellar/netbird/[^/]+/)?bin/netbird service run"
+        IO.popen(["pgrep", "-f", pattern], err: File::NULL, &:read).split
+      rescue Errno::ENOENT
+        []
       end
 
-      # `netbird service reconfigure` only manages the default service name, and a
-      # daemon installed under a custom name (-s) cannot be told apart by its
-      # command line, so only a service whose default definition exists is
-      # reconfigured; anything else gets the printed instructions.
+      # Reconfigure needs the default service definition: it only manages the
+      # default service name, and against a missing definition it fails before
+      # touching anything. Skipping the doomed sudo attempt keeps a stale stopped
+      # default service from being rewritten as a side effect.
       def default_service?
         File.exist?(OS.mac? ? "/Library/LaunchDaemons/netbird.plist" : "/etc/systemd/system/netbird.service")
       end
