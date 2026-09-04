@@ -121,7 +121,7 @@ func createManagerWithEmbeddedIdPModeAndSetup(
 }
 
 func TestDefaultAccountManager_CreateIdentityProvider_Validation(t *testing.T) {
-	manager, _, err := createManager(t)
+	manager, _, err := createManagerWithEmbeddedIdP(t)
 	require.NoError(t, err)
 
 	userID := "testingUser"
@@ -233,7 +233,7 @@ func TestUpdateUserAuthWithSingleModeKeepsConfiguredDomain(t *testing.T) {
 }
 
 func TestDefaultAccountManager_UpdateIdentityProvider_Validation(t *testing.T) {
-	manager, _, err := createManager(t)
+	manager, _, err := createManagerWithEmbeddedIdP(t)
 	require.NoError(t, err)
 
 	userID := "testingUser"
@@ -354,4 +354,34 @@ func TestValidateOIDCIssuer_TrailingSlash(t *testing.T) {
 	// This should fail because the issuer returned doesn't have trailing slash
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, types.ErrIdentityProviderIssuerMismatch))
+}
+
+func TestValidateOIDCIssuer_DoesNotFollowRedirects(t *testing.T) {
+	var reached bool
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		reached = true
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	t.Cleanup(target.Close)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL+"/redirect-target", http.StatusFound)
+	}))
+	t.Cleanup(srv.Close)
+
+	err := validateOIDCIssuer(context.Background(), srv.URL)
+	require.Error(t, err)
+	assert.False(t, reached, "Redirects are not followed")
+}
+
+func TestValidateOIDCIssuer_BoundsResponseSize(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(make([]byte, maxDiscoveryDocumentSize+(1<<20)))
+	}))
+	t.Cleanup(srv.Close)
+
+	err := validateOIDCIssuer(context.Background(), srv.URL)
+	require.Error(t, err)
+	assert.Less(t, len(err.Error()), 4096, "The error stays a fixed size")
 }
