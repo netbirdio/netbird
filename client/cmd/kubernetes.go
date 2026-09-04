@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -119,7 +120,20 @@ type kubernetesCluster struct {
 	version string
 }
 
+type addressResolver interface {
+	LookupAddr(ctx context.Context, addr string) ([]string, error)
+}
+
 func getKubernetesClusters(ctx context.Context, peers []*proto.PeerState, nameFilter string) ([]kubernetesCluster, error) {
+	resolver := &net.Resolver{
+		// Required so both DNS records are returned.
+		// https://github.com/golang/go/issues/17093
+		PreferGo: true,
+	}
+	return getKubernetesClustersWithResolver(ctx, peers, nameFilter, resolver)
+}
+
+func getKubernetesClustersWithResolver(ctx context.Context, peers []*proto.PeerState, nameFilter string, resolver addressResolver) ([]kubernetesCluster, error) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = &tls.Config{
 		InsecureSkipVerify: true,
@@ -127,18 +141,13 @@ func getKubernetesClusters(ctx context.Context, peers []*proto.PeerState, nameFi
 	httpClient := &http.Client{
 		Transport: transport,
 	}
-	resolver := net.Resolver{
-		// Required so both DNS records are returned.
-		// https://github.com/golang/go/issues/17093
-		PreferGo: true,
-	}
 
 	kcs := []kubernetesCluster{}
 	attempted := map[string]struct{}{}
 	for _, peer := range peers {
-		fqdns, err := resolver.LookupAddr(ctx, peer.IP)
-		if err != nil {
-			return nil, err
+		fqdns := lookupPeerFQDNs(ctx, resolver, peer)
+		if len(fqdns) == 0 {
+			continue
 		}
 		for _, fqdn := range fqdns {
 			if _, ok := attempted[fqdn]; ok {
@@ -172,6 +181,20 @@ func getKubernetesClusters(ctx context.Context, peers []*proto.PeerState, nameFi
 		}
 	}
 	return kcs, nil
+}
+
+func lookupPeerFQDNs(ctx context.Context, resolver addressResolver, peer *proto.PeerState) []string {
+	peerAddr, err := netip.ParseAddr(peer.IP)
+	if err != nil {
+		log.Debugf("could not parse peer IP %s: %v", peer.IP, err)
+		return nil
+	}
+	fqdns, err := resolver.LookupAddr(ctx, peerAddr.Unmap().String())
+	if err != nil {
+		log.Debugf("could not resolve peer %s: %v", peer.IP, err)
+		return nil
+	}
+	return fqdns
 }
 
 func fingerprintClusters(ctx context.Context, httpClient *http.Client, fqdn string) (*url.URL, string, error) {
