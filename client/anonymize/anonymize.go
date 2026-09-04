@@ -349,12 +349,21 @@ func (a *Anonymizer) anonymizeDomain(domain string, newZone bool) string {
 		a.mapDomain(baseForLookup, anonymized)
 	}
 
-	result := strings.Replace(baseDomain, baseForLookup, anonymized, 1)
-	if a.level >= LevelStrict && baseDomain != baseForLookup {
-		prefix := strings.TrimSuffix(baseDomain, "."+baseForLookup)
-		result = a.anonymizeLabels(prefix, "host") + "." + anonymized
-		// The full mapping feeds AnonymizeString so seeded FQDNs are caught
-		// in log lines as a whole, labels included.
+	// baseForLookup is the tail of baseDomain up to case, so cut by length: a
+	// substring match would rewrite an earlier occurrence and leave the real
+	// zone in place, as with a name whose own label repeats the zone.
+	prefix := baseDomain[:len(baseDomain)-len(baseForLookup)]
+
+	result := prefix + anonymized
+	if a.level >= LevelStrict && prefix != "" {
+		result = a.anonymizeLabels(strings.TrimSuffix(prefix, "."), "host") + "." + anonymized
+	}
+
+	// A dotless zone is held out of the substring pass, so a name under it
+	// needs its own mapping to be replaced where a log line mentions it as
+	// free text rather than as a DNS name. Strict level records every name
+	// anyway, labels included.
+	if prefix != "" && (a.level >= LevelStrict || !strings.Contains(baseForLookup, ".")) {
 		a.mapDomain(baseDomain, result)
 	}
 	return withTrailingDot(result, hasDot)
@@ -368,7 +377,9 @@ func (a *Anonymizer) mapDomain(key, anonymized string) {
 }
 
 // baseForLookup returns the key under which baseDomain's anonymized base is
-// stored, or empty to leave baseDomain alone.
+// stored, or empty to leave baseDomain alone. The key is lower case, since DNS
+// labels compare case-insensitively, and is always the tail of baseDomain so a
+// caller can cut it off by length.
 //
 // The key is normally the last two labels, so every name under a domain shares
 // one anonymized base. A single-label zone is its own key: names under it then
@@ -377,7 +388,7 @@ func (a *Anonymizer) mapDomain(key, anonymized string) {
 // needs newZone to become one, since free text and address forms also reach
 // here and must not be rewritten on a guess.
 func (a *Anonymizer) baseForLookup(baseDomain string, newZone bool) string {
-	parts := strings.Split(baseDomain, ".")
+	parts := strings.Split(strings.ToLower(baseDomain), ".")
 	last := parts[len(parts)-1]
 
 	if _, known := a.domainAnonymizer[last]; known {
@@ -387,7 +398,7 @@ func (a *Anonymizer) baseForLookup(baseDomain string, newZone bool) string {
 		return parts[len(parts)-2] + "." + last
 	}
 
-	if !newZone || last == "" || strings.EqualFold(last, "localhost") {
+	if !newZone || last == "" || last == "localhost" {
 		return ""
 	}
 	return last

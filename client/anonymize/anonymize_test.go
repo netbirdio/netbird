@@ -388,6 +388,57 @@ func TestAnonymizeDomain_SingleLabelZone(t *testing.T) {
 	}
 }
 
+// TestAnonymizeDomainName_ZoneLabelRepeated covers a name whose own label
+// repeats its zone. Cutting the key by a substring match would rewrite the
+// leading occurrence and leave the real zone in the output.
+func TestAnonymizeDomainName_ZoneLabelRepeated(t *testing.T) {
+	for _, level := range []anonymize.Level{anonymize.LevelDefault, anonymize.LevelStrict} {
+		t.Run(level.String(), func(t *testing.T) {
+			anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
+			anonymizer.SetLevel(level)
+
+			zone := anonymizer.AnonymizeDomainName("corp.")
+			record := anonymizer.AnonymizeDomainName("corp.corp.")
+
+			// The zone is the tail, so it is the tail that must be replaced.
+			// The leading label is a host label, which the default level
+			// preserves like any other and strict level renumbers.
+			assert.True(t, strings.HasSuffix(record, "."+zone), "the record should sit under the anonymized zone, got %q for zone %q", record, zone)
+			assert.NotContains(t, strings.TrimSuffix(record, "."+zone), ".", "only the host label should remain in front of the zone, got %q", record)
+			if level >= anonymize.LevelStrict {
+				assert.NotContains(t, record, "corp", "strict level should also replace the host label")
+			}
+		})
+	}
+}
+
+// TestAnonymizeDomainName_ZoneCaseInsensitive covers a zone and a record that
+// disagree on case. DNS labels compare case-insensitively, so both must resolve
+// to one anonymized base.
+func TestAnonymizeDomainName_ZoneCaseInsensitive(t *testing.T) {
+	anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
+
+	zone := anonymizer.AnonymizeDomainName("Corp.")
+	record := anonymizer.AnonymizeDomainName("host.corp.")
+
+	assert.True(t, strings.HasSuffix(record, "."+zone), "a differently cased record should share the zone's base, got %q for zone %q", record, zone)
+	assert.NotContains(t, strings.ToLower(record), "corp", "the original zone name should not survive")
+}
+
+// TestAnonymizeString_NameUnderSingleLabelZoneInLogText covers a name under a
+// dotless zone appearing as free text. The zone itself is held out of the
+// substring pass, so the name needs its own mapping to be replaced.
+func TestAnonymizeString_NameUnderSingleLabelZoneInLogText(t *testing.T) {
+	anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
+
+	anonymizer.AnonymizeDomainName("corp")
+	record := anonymizer.AnonymizeDomainName("host.corp")
+
+	result := anonymizer.AnonymizeString("registering handler for [host.corp]")
+	assert.Equal(t, "registering handler for ["+record+"]", result,
+		"a name under a dotless zone should be replaced in free log text")
+}
+
 // TestAnonymizeString_KnownZoneInLogLine covers the bundle order: the DNS
 // config establishes the zone, then log lines naming it are anonymized through
 // the domain= key even though the name carries no dot of its own.
