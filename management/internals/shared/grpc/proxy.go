@@ -189,10 +189,14 @@ type proxyConnection struct {
 	stream       proto.ProxyService_GetMappingUpdateServer
 	// syncStream is set when the proxy connected via SyncMappings.
 	// When non-nil, the sender goroutine uses this instead of stream.
-	syncStream proto.ProxyService_SyncMappingsServer
-	sendChan   chan *proto.GetMappingUpdateResponse
-	ctx        context.Context
-	cancel     context.CancelFunc
+	syncStream      proto.ProxyService_SyncMappingsServer
+	syncSendMu      sync.Mutex
+	sendChan        chan *proto.GetMappingUpdateResponse
+	pendingMu       sync.Mutex
+	pending         map[string]*playgroundPending
+	playgroundReady bool
+	ctx             context.Context
+	cancel          context.CancelFunc
 }
 
 func enforceAccountScope(ctx context.Context, requestAccountID string) error {
@@ -467,10 +471,13 @@ func (s *ProxyServiceServer) SyncMappings(stream proto.ProxyService_SyncMappings
 		s.cleanupFailedSnapshot(stream.Context(), conn)
 		return fmt.Errorf("send snapshot to proxy %s: %w", params.proxyID, err)
 	}
+	conn.pendingMu.Lock()
+	conn.playgroundReady = true
+	conn.pendingMu.Unlock()
 
 	errChan := make(chan error, 2)
 	go s.sender(conn, errChan)
-	go s.drainRecv(stream, errChan)
+	go s.drainRecv(conn, stream, errChan)
 
 	return s.serveProxyConnection(conn, proxyRecord, errChan, true)
 }
@@ -553,6 +560,7 @@ func (s *ProxyServiceServer) registerProxyConnection(ctx context.Context, params
 	connSeed.tokenID = tokenID
 	connSeed.capabilities = params.capabilities
 	connSeed.sendChan = make(chan *proto.GetMappingUpdateResponse, 100)
+	connSeed.pending = make(map[string]*playgroundPending)
 	connSeed.ctx = connCtx
 	connSeed.cancel = cancel
 
@@ -611,14 +619,27 @@ func (s *ProxyServiceServer) cleanupFailedSnapshot(ctx context.Context, conn *pr
 	}
 }
 
-// drainRecv consumes and discards messages from a bidirectional stream.
-// The proxy sends an ack for every incremental update; we don't need them
-// after the snapshot phase. Recv errors are forwarded to errChan.
-func (s *ProxyServiceServer) drainRecv(stream proto.ProxyService_SyncMappingsServer, errChan chan<- error) {
+// drainRecv routes Agent Network playground response frames after the initial
+// snapshot. Mapping acknowledgements for incremental updates need no handling.
+func (s *ProxyServiceServer) drainRecv(
+	conn *proxyConnection,
+	stream proto.ProxyService_SyncMappingsServer,
+	errChan chan<- error,
+) {
 	for {
-		if _, err := stream.Recv(); err != nil {
+		message, err := stream.Recv()
+		if err != nil {
 			errChan <- err
 			return
+		}
+		if response := message.GetPlaygroundResponse(); response != nil {
+			if !conn.dispatchPlaygroundResponse(response) {
+				log.WithContext(conn.ctx).Debugf(
+					"discard unmatched playground response %s from proxy %s",
+					response.GetRequestId(),
+					conn.proxyID,
+				)
+			}
 		}
 	}
 }
@@ -700,7 +721,7 @@ func (s *ProxyServiceServer) sendSnapshotSync(ctx context.Context, conn *proxyCo
 			}
 			m.AuthToken = token
 		}
-		if err := stream.Send(&proto.SyncMappingsResponse{
+		if err := conn.sendSyncResponse(&proto.SyncMappingsResponse{
 			Mapping:             mappings[i:end],
 			InitialSyncComplete: end == len(mappings),
 		}); err != nil {
@@ -713,7 +734,7 @@ func (s *ProxyServiceServer) sendSnapshotSync(ctx context.Context, conn *proxyCo
 	}
 
 	if len(mappings) == 0 {
-		if err := stream.Send(&proto.SyncMappingsResponse{
+		if err := conn.sendSyncResponse(&proto.SyncMappingsResponse{
 			InitialSyncComplete: true,
 		}); err != nil {
 			return fmt.Errorf("send snapshot completion: %w", err)
@@ -918,7 +939,7 @@ func (s *ProxyServiceServer) sender(conn *proxyConnection, errChan chan<- error)
 // sendResponse sends a mapping update on whichever stream the proxy connected with.
 func (conn *proxyConnection) sendResponse(resp *proto.GetMappingUpdateResponse) error {
 	if conn.syncStream != nil {
-		return conn.syncStream.Send(&proto.SyncMappingsResponse{
+		return conn.sendSyncResponse(&proto.SyncMappingsResponse{
 			Mapping:             resp.Mapping,
 			InitialSyncComplete: resp.InitialSyncComplete,
 		})

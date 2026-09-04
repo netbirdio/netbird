@@ -73,6 +73,8 @@ message ProxyCapabilities {
   optional bool private = 4;
   // Whether the proxy enforces ProxyMapping.private (fails closed on ValidateTunnelPeer failure). Management MUST NOT stream private mappings to proxies that don't claim this.
   optional bool supports_private_service = 5;
+  // Whether the proxy can execute Agent Network playground requests.
+  optional bool supports_agent_network_playground = 6;
 }
 
 // GetMappingUpdateRequest is sent to initialise a mapping stream.
@@ -420,12 +422,13 @@ message ValidateTunnelPeerResponse {
 }
 
 // SyncMappingsRequest is sent by the proxy on the bidirectional SyncMappings
-// stream. The first message MUST be an init; all subsequent messages MUST be
-// acks.
+// stream. The first message MUST be an init; subsequent messages are mapping
+// acknowledgements or Agent Network playground response frames.
 message SyncMappingsRequest {
   oneof msg {
     SyncMappingsInit init = 1;
     SyncMappingsAck ack = 2;
+    AgentNetworkPlaygroundResponse playground_response = 3;
   }
 }
 
@@ -443,12 +446,67 @@ message SyncMappingsInit {
 // Management waits for this before sending the next batch.
 message SyncMappingsAck {}
 
-// SyncMappingsResponse is a batch of mappings sent by management.
-// Identical semantics to GetMappingUpdateResponse.
+// SyncMappingsResponse carries mapping batches and out-of-band Agent Network
+// playground commands from management.
 message SyncMappingsResponse {
   repeated ProxyMapping mapping = 1;
   // initial_sync_complete is set on the last message of the initial snapshot.
   bool initial_sync_complete = 2;
+  AgentNetworkPlaygroundRequest playground_request = 3;
+  AgentNetworkPlaygroundCancel playground_cancel = 4;
+}
+
+// AgentNetworkPlaygroundHeader preserves repeated provider-native header values.
+message AgentNetworkPlaygroundHeader {
+  string name = 1;
+  repeated string values = 2;
+}
+
+// AgentNetworkPlaygroundRequest executes one request through the live proxy path.
+message AgentNetworkPlaygroundRequest {
+  string request_id = 1;
+  string account_id = 2;
+  string principal_kind = 3;
+  string principal_id = 4;
+  string domain = 5;
+  string user_id = 6;
+  string user_email = 7;
+  repeated string group_ids = 8;
+  repeated string group_names = 9;
+  string method = 10;
+  string path = 11;
+  repeated AgentNetworkPlaygroundHeader headers = 12;
+  bytes body = 13;
+}
+
+// AgentNetworkPlaygroundCancel cancels one in-flight playground request.
+message AgentNetworkPlaygroundCancel {
+  string request_id = 1;
+  string account_id = 2;
+}
+
+// AgentNetworkPlaygroundResponse is one frame of a bounded playground response.
+message AgentNetworkPlaygroundResponse {
+  string request_id = 1;
+  string account_id = 2;
+  int32 status_code = 3;
+  repeated AgentNetworkPlaygroundHeader headers = 4;
+  bytes body_chunk = 5;
+  bool complete = 6;
+  bool body_truncated = 7;
+  string error = 8;
+  string user_id = 9;
+  string user_email = 10;
+  repeated string group_ids = 11;
+  repeated string group_names = 12;
+  string policy_decision = 13;
+  string policy_reason = 14;
+  string provider_surface = 15;
+  string model = 16;
+  string resolved_provider_id = 17;
+  repeated string authorising_group_ids = 18;
+  string selected_policy_id = 19;
+  string attribution_group_id = 20;
 }
 
 // CheckLLMPolicyLimitsRequest carries the resolved caller identity and the

@@ -271,6 +271,14 @@ func (c *testProxyController) SendServiceUpdateToCluster(_ context.Context, _ st
 	// noop
 }
 
+func (c *testProxyController) ExecuteAgentNetworkPlayground(
+	context.Context,
+	string,
+	nbproxy.AgentNetworkPlaygroundRequest,
+) (*nbproxy.AgentNetworkPlaygroundResponse, error) {
+	return nil, errors.New("playground is not configured")
+}
+
 func (c *testProxyController) GetOIDCValidationConfig() nbproxy.OIDCValidationConfig {
 	return nbproxy.OIDCValidationConfig{}
 }

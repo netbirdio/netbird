@@ -41,6 +41,14 @@ func newTestProxyController() *testProxyController {
 func (c *testProxyController) SendServiceUpdateToCluster(_ context.Context, _ string, _ *proto.ProxyMapping, _ string) {
 }
 
+func (c *testProxyController) ExecuteAgentNetworkPlayground(
+	context.Context,
+	string,
+	proxy.AgentNetworkPlaygroundRequest,
+) (*proxy.AgentNetworkPlaygroundResponse, error) {
+	return nil, grpcstatus.Error(codes.Unimplemented, "playground is not configured")
+}
+
 func (c *testProxyController) GetOIDCValidationConfig() proxy.OIDCValidationConfig {
 	return proxy.OIDCValidationConfig{}
 }

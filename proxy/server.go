@@ -142,13 +142,15 @@ type Server struct {
 	// Lifecycle state — populated by Start, consumed by Stop. The fields
 	// stay zero on a fresh Server until Start runs so direct struct
 	// construction (`&Server{...}`) used by tests still works.
-	runCancel context.CancelFunc
-	mgmtConn  *grpc.ClientConn
-	runErr    error
-	runErrCh  chan struct{}
-	startMu   sync.Mutex
-	started   bool
-	stopOnce  sync.Once
+	runCancel         context.CancelFunc
+	mgmtConn          *grpc.ClientConn
+	runErr            error
+	runErrCh          chan struct{}
+	startMu           sync.Mutex
+	started           bool
+	stopOnce          sync.Once
+	playgroundMu      sync.Mutex
+	playgroundCancels map[string]context.CancelFunc
 
 	// Mostly used for debugging on management.
 	startTime time.Time
@@ -478,6 +480,7 @@ func (s *Server) Stop(ctx context.Context) error {
 			if s.runCancel != nil {
 				s.runCancel()
 			}
+			s.cancelAllAgentNetworkPlaygroundExecutions()
 			if s.mgmtConn != nil {
 				if err := s.mgmtConn.Close(); err != nil {
 					s.Logger.Debugf("management connection close: %v", err)
@@ -1274,12 +1277,14 @@ func (s *Server) proxyCapabilities() *proto.ProxyCapabilities {
 	privateCapability := s.Private
 	// Always true: this build enforces ProxyMapping.private via the auth middleware.
 	supportsPrivateService := true
+	supportsPlayground := true
 	return &proto.ProxyCapabilities{
-		SupportsCustomPorts:    &s.SupportsCustomPorts,
-		RequireSubdomain:       &s.RequireSubdomain,
-		SupportsCrowdsec:       &supportsCrowdSec,
-		Private:                &privateCapability,
-		SupportsPrivateService: &supportsPrivateService,
+		SupportsCustomPorts:            &s.SupportsCustomPorts,
+		RequireSubdomain:               &s.RequireSubdomain,
+		SupportsCrowdsec:               &supportsCrowdSec,
+		Private:                        &privateCapability,
+		SupportsPrivateService:         &supportsPrivateService,
+		SupportsAgentNetworkPlayground: &supportsPlayground,
 	}
 }
 
@@ -1347,13 +1352,21 @@ func isSyncUnimplemented(err error) bool {
 // stream, sending an ack after each batch is fully processed. Management waits
 // for the ack before sending the next batch, providing application-level
 // back-pressure.
-func (s *Server) handleSyncMappingsStream(ctx context.Context, stream proto.ProxyService_SyncMappingsClient, initialSyncDone *bool, connectTime time.Time) error {
+func (s *Server) handleSyncMappingsStream(
+	ctx context.Context,
+	stream proto.ProxyService_SyncMappingsClient,
+	initialSyncDone *bool,
+	connectTime time.Time,
+) error {
 	select {
 	case <-s.routerReady:
 	case <-ctx.Done():
 		return ctx.Err()
 	}
 
+	streamCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	sender := &syncMappingsSender{stream: stream}
 	tracker := s.newSnapshotTracker(initialSyncDone, connectTime)
 
 	for {
@@ -1369,6 +1382,15 @@ func (s *Server) handleSyncMappingsStream(ctx context.Context, stream proto.Prox
 				return fmt.Errorf("receive msg: %w", err)
 			}
 
+			if request := msg.GetPlaygroundRequest(); request != nil {
+				s.startAgentNetworkPlaygroundExecution(streamCtx, sender, request)
+				continue
+			}
+			if request := msg.GetPlaygroundCancel(); request != nil {
+				s.cancelAgentNetworkPlaygroundExecution(request.GetRequestId())
+				continue
+			}
+
 			batchStart := time.Now()
 			s.Logger.Debug("Received mapping update, starting processing")
 			if err := s.processMappingsGuarded(ctx, msg.GetMapping()); err != nil {
@@ -1377,7 +1399,7 @@ func (s *Server) handleSyncMappingsStream(ctx context.Context, stream proto.Prox
 			s.Logger.Debug("Processing mapping update completed")
 			tracker.recordBatch(ctx, s, msg.GetMapping(), msg.GetInitialSyncComplete(), batchStart)
 
-			if err := stream.Send(&proto.SyncMappingsRequest{
+			if err := sender.Send(&proto.SyncMappingsRequest{
 				Msg: &proto.SyncMappingsRequest_Ack{Ack: &proto.SyncMappingsAck{}},
 			}); err != nil {
 				return fmt.Errorf("send ack: %w", err)

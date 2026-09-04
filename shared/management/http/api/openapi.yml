@@ -5127,6 +5127,135 @@ components:
           type: string
           description: A human-readable error message.
           example: "couldn't parse JSON request"
+    AgentNetworkPlaygroundPrincipal:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum: [ peer, group ]
+          description: Whether to emulate a current peer identity or one synthetic group.
+        id:
+          type: string
+          description: Account-scoped peer or group ID.
+      required:
+        - kind
+        - id
+    AgentNetworkPlaygroundHeader:
+      type: object
+      properties:
+        name:
+          type: string
+        values:
+          type: array
+          items:
+            type: string
+      required:
+        - name
+        - values
+    AgentNetworkPlaygroundRequest:
+      type: object
+      description: A provider-native request executed through the live Agent Network proxy path.
+      properties:
+        principal:
+          $ref: '#/components/schemas/AgentNetworkPlaygroundPrincipal'
+        method:
+          type: string
+          enum: [ GET, POST ]
+        path:
+          type: string
+          description: Origin-form provider path, including any query string.
+          example: "/v1/chat/completions"
+        headers:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentNetworkPlaygroundHeader'
+        body:
+          type: string
+          description: Provider-native request body.
+      required:
+        - principal
+        - method
+        - path
+        - headers
+        - body
+    AgentNetworkPlaygroundIdentity:
+      type: object
+      properties:
+        user_id:
+          type: string
+        user_email:
+          type: string
+        group_ids:
+          type: array
+          items:
+            type: string
+        group_names:
+          type: array
+          items:
+            type: string
+      required:
+        - user_id
+        - user_email
+        - group_ids
+        - group_names
+    AgentNetworkPlaygroundPolicy:
+      type: object
+      properties:
+        decision:
+          type: string
+        reason:
+          type: string
+        provider_surface:
+          type: string
+        model:
+          type: string
+        resolved_provider_id:
+          type: string
+        authorising_group_ids:
+          type: array
+          items:
+            type: string
+        selected_policy_id:
+          type: string
+        attribution_group_id:
+          type: string
+      required:
+        - decision
+        - reason
+        - provider_surface
+        - model
+        - resolved_provider_id
+        - authorising_group_ids
+        - selected_policy_id
+        - attribution_group_id
+    AgentNetworkPlaygroundResponse:
+      type: object
+      properties:
+        status_code:
+          type: integer
+        headers:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentNetworkPlaygroundHeader'
+        body:
+          type: string
+        body_encoding:
+          type: string
+          enum: [ utf8, base64 ]
+        body_truncated:
+          type: boolean
+        identity:
+          $ref: '#/components/schemas/AgentNetworkPlaygroundIdentity'
+        policy:
+          $ref: '#/components/schemas/AgentNetworkPlaygroundPolicy'
+      required:
+        - status_code
+        - headers
+        - body
+        - body_encoding
+        - body_truncated
+        - identity
+        - policy
     AgentNetworkProvider:
       type: object
       properties:
@@ -13531,6 +13660,47 @@ paths:
           "$ref": "#/components/responses/not_found"
         '500':
           "$ref": "#/components/responses/internal_error"
+  /api/agent-network/playground:
+    post:
+      summary: Execute an Agent Network playground request
+      description: |
+        Executes one provider-native request through a connected Agent Network
+        proxy while emulating the selected peer or group. The response contains
+        the upstream result plus the identity and policy decision observed by
+        the live proxy path.
+      tags: [ Agent Network ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentNetworkPlaygroundRequest'
+      responses:
+        '200':
+          description: The bounded upstream response and proxy decision.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentNetworkPlaygroundResponse'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '412':
+          description: Agent Network settings or the proxy are not ready.
+        '500':
+          "$ref": "#/components/responses/internal_error"
+        '502':
+          description: The selected proxy returned an invalid playground response.
+        '503':
+          description: No connected playground-capable proxy is available.
+        '504':
+          description: The playground request timed out.
   /api/agent-network/access-logs:
     get:
       summary: List Agent Network access logs

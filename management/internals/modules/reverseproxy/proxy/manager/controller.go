@@ -39,6 +39,19 @@ func (c *GRPCController) SendServiceUpdateToCluster(ctx context.Context, account
 	c.metrics.IncrementServiceUpdateSendCount()
 }
 
+// ExecuteAgentNetworkPlayground dispatches a live request to one proxy in the cluster.
+func (c *GRPCController) ExecuteAgentNetworkPlayground(
+	ctx context.Context,
+	clusterAddr string,
+	request proxy.AgentNetworkPlaygroundRequest,
+) (*proxy.AgentNetworkPlaygroundResponse, error) {
+	return c.proxyGRPCServer.ExecuteAgentNetworkPlayground(
+		ctx,
+		c.GetProxiesForCluster(clusterAddr),
+		request,
+	)
+}
+
 // GetOIDCValidationConfig returns the OIDC validation configuration from the gRPC server.
 func (c *GRPCController) GetOIDCValidationConfig() proxy.OIDCValidationConfig {
 	return c.proxyGRPCServer.GetOIDCValidationConfig()

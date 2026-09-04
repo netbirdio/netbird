@@ -38,6 +38,7 @@ type OIDCValidationConfig struct {
 // Controller is responsible for managing proxy clusters and routing service updates.
 type Controller interface {
 	SendServiceUpdateToCluster(ctx context.Context, accountID string, update *proto.ProxyMapping, clusterAddr string)
+	ExecuteAgentNetworkPlayground(ctx context.Context, clusterAddr string, request AgentNetworkPlaygroundRequest) (*AgentNetworkPlaygroundResponse, error)
 	GetOIDCValidationConfig() OIDCValidationConfig
 	RegisterProxyToCluster(ctx context.Context, clusterAddr, proxyID string) error
 	UnregisterProxyFromCluster(ctx context.Context, clusterAddr, proxyID string) error
