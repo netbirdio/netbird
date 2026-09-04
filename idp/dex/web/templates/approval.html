@@ -32,7 +32,7 @@
     <form method="post">
         <input type="hidden" name="req" value="{{ .AuthReqID }}"/>
         <input type="hidden" name="approval" value="rejected"/>
-        <button type="submit" class="nb-btn-connector" style="margin-bottom:0">
+        <button type="submit" class="{{ if .DeviceUserCode }}nb-btn-deny{{ else }}nb-btn-connector{{ end }}" style="margin-bottom:0">
             {{ if .DeviceUserCode }}
             Deny
             {{ else }}
