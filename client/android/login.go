@@ -8,7 +8,6 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
-	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/client/mobile"
 	"github.com/netbirdio/netbird/client/system"
 )
@@ -48,15 +47,12 @@ type Auth struct {
 // the persisted config, because the identity it registered is not the one it runs with — the
 // management stream rejects it with "no peer auth method provided".
 //
-// Auth is constructed under the active MDM policy: a managed management URL
-// replaces the caller-supplied one before the config is persisted, and the
-// policy is overlaid on the resolved config so the login runs against the
-// enforced values. A nil fetcher disables MDM enforcement.
+// Auth is constructed under the active MDM policy: the policy is overlaid on
+// the resolved config so the login runs against the enforced values, while
+// the persisted config keeps the caller-supplied ones. A nil fetcher disables
+// MDM enforcement.
 func NewAuth(cfgPath string, mgmURL string, fetcher PolicyFetcher) (*Auth, error) {
 	policy := loaderFor(fetcher).Load()
-	if v, ok := policy.GetString(mdm.KeyManagementURL); ok {
-		mgmURL = v
-	}
 	inputCfg := profilemanager.ConfigInput{
 		ConfigPath:    cfgPath,
 		ManagementURL: mgmURL,

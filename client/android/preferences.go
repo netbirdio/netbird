@@ -37,10 +37,8 @@ func (p *Preferences) policy() *mdm.Policy {
 
 // GetManagementURL reads URL from config file
 func (p *Preferences) GetManagementURL() (string, error) {
-	if v, ok := p.policy().GetString(mdm.KeyManagementURL); ok {
-		return mdm.CanonicalURL(v), nil
-	}
-	if p.configInput.ManagementURL != "" {
+	policy := p.policy()
+	if !policy.HasKey(mdm.KeyManagementURL) && p.configInput.ManagementURL != "" {
 		return p.configInput.ManagementURL, nil
 	}
 
@@ -48,7 +46,8 @@ func (p *Preferences) GetManagementURL() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return cfg.ManagementURL.String(), err
+	cfg.ApplyMDMPolicy(policy)
+	return cfg.ManagementURL.String(), nil
 }
 
 // SetManagementURL stores the given URL and waits for commit
