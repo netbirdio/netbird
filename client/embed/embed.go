@@ -300,13 +300,18 @@ func (c *Client) Start(startCtx context.Context) error {
 	// nolint:staticcheck
 	ctx = context.WithValue(ctx, system.DeviceNameCtxKey, c.deviceName)
 
-	authClient, err := auth.NewAuth(ctx, c.config.PrivateKey, c.config.ManagementURL, c.config)
+	// Authentication runs on startCtx, not the client's own context. Both
+	// calls retry, and a management endpoint that accepts connections but
+	// never completes a stream leaves them retrying with no deadline of their
+	// own, so a caller's start timeout has to reach them. Neither outlives
+	// startup: authClient is closed below.
+	authClient, err := auth.NewAuth(startCtx, c.config.PrivateKey, c.config.ManagementURL, c.config)
 	if err != nil {
 		return fmt.Errorf("create auth client: %w", err)
 	}
 	defer authClient.Close()
 
-	if err, _ := authClient.Login(ctx, c.setupKey, c.jwtToken); err != nil {
+	if err, _ := authClient.Login(startCtx, c.setupKey, c.jwtToken); err != nil {
 		return fmt.Errorf("login: %w", err)
 	}
 	client := internal.NewConnectClient(ctx, c.config, c.recorder)
