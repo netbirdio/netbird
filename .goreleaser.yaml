@@ -443,6 +443,8 @@ brews:
     # old process alive after the binary swap, so NetBird would silently keep
     # serving the previous version. Restart only when the daemon is already
     # running, so an upgrade never starts a deliberately stopped daemon.
+    # Runs on reinstall as well as upgrade -- intended: either way the binary
+    # under the daemon was just replaced, so a running daemon is equally stale.
     post_install: |
       return unless daemon_running?
 
