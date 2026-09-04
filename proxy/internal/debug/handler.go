@@ -716,15 +716,7 @@ func (h *Handler) handlePerf(w http.ResponseWriter, r *http.Request) {
 	}
 
 	capN := uint32(n)
-	applied := 0
-	failed := map[string]string{}
-	for accountID, client := range h.provider.ListClientsForStartup() {
-		if err := client.SetPerformance(nbembed.Performance{PreallocatedBuffersPerPool: &capN}); err != nil {
-			failed[string(accountID)] = err.Error()
-			continue
-		}
-		applied++
-	}
+	applied, failed := h.applyBufferCap(capN)
 
 	resp := map[string]any{
 		"success": true,
@@ -735,6 +727,21 @@ func (h *Handler) handlePerf(w http.ResponseWriter, r *http.Request) {
 		resp["failed"] = failed
 	}
 	h.writeJSON(w, resp)
+}
+
+// applyBufferCap sets the WireGuard buffer pool cap on every registered client
+// and reports how many took it, plus a per-account error for those that did not.
+func (h *Handler) applyBufferCap(capN uint32) (int, map[string]string) {
+	applied := 0
+	failed := map[string]string{}
+	for accountID, client := range h.provider.ListClientsForStartup() {
+		if err := client.SetPerformance(nbembed.Performance{PreallocatedBuffersPerPool: &capN}); err != nil {
+			failed[string(accountID)] = err.Error()
+			continue
+		}
+		applied++
+	}
+	return applied, failed
 }
 
 // handleRuntime returns cheap runtime and process stats. Safe to hit on a
