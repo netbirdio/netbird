@@ -95,6 +95,13 @@ const (
 	// exec, os.Stat); without this bound a single stuck call freezes handleSync, and
 	// thus syncMsgMux, for as long as the call hangs (observed multi-minute freezes).
 	systemInfoTimeout = 15 * time.Second
+
+	// dnsForwarderStopTimeout bounds how long stopping the DNS forwarder waits
+	// for the queries still in flight. One waiting on an unresponsive upstream
+	// would otherwise hold the stop for the whole upstream timeout, and the
+	// stop runs with syncMsgMux held. The sockets are closed either way, so
+	// giving up costs a query that was already failing.
+	dnsForwarderStopTimeout = 2 * time.Second
 )
 
 var ErrResetConnection = fmt.Errorf("reset connection")
@@ -138,6 +145,7 @@ type EngineConfig struct {
 	RosenpassPermissive bool
 
 	ServerSSHAllowed              bool
+	RemoteJobsAllowed             bool
 	EnableSSHRoot                 *bool
 	EnableSSHSFTP                 *bool
 	EnableSSHLocalPortForwarding  *bool
@@ -258,6 +266,8 @@ type Engine struct {
 	// checks are the client-applied posture checks that need to be evaluated on the client
 	checks []*mgmProto.Checks
 
+	infoSource system.InfoSource
+
 	relayManager       *relayClient.Manager
 	stateManager       *statemanager.Manager
 	portForwardManager *portforward.Manager
@@ -320,6 +330,10 @@ type Peer struct {
 type localIpUpdater interface {
 	UpdateLocalIPs() error
 }
+
+// overlayRebind rebuilds one subsystem's sockets on the current interface. The
+// error it returns names its own subsystem, since the caller can only log it.
+type overlayRebind func() error
 
 // NewEngine creates a new Connection Engine with probes attached
 func NewEngine(
@@ -745,6 +759,11 @@ func (e *Engine) initFirewall() error {
 		return fmt.Errorf("set firewall: %w", err)
 	}
 
+	// TODO: the firewall backends dedup filter rules by content, so a
+	// management route ACL with identical content would collapse onto the
+	// untracked drop rules installed here, and a later management delete
+	// could remove them. Needs backend refcounting or per-consumer key
+	// namespacing.
 	if e.config.BlockLANAccess {
 		e.blockLanAccess()
 	}
@@ -757,14 +776,14 @@ func (e *Engine) initFirewall() error {
 	port := firewallManager.Port{Values: []uint16{uint16(rosenpassPort)}}
 
 	// IPv4-only: rosenpass peers connect via AllowedIps[0] which is always v4.
-	if _, err := e.firewall.AddPeerFiltering(
+	if _, err := e.firewall.AddFilterRule(
 		nil,
-		net.IP{0, 0, 0, 0},
+		[]netip.Prefix{netip.PrefixFrom(netip.IPv4Unspecified(), 0)},
+		firewallManager.Network{},
 		firewallManager.ProtocolUDP,
 		nil,
 		&port,
 		firewallManager.ActionAccept,
-		"",
 	); err != nil {
 		log.Errorf("failed to allow rosenpass interface traffic: %v", err)
 		return nil
@@ -814,7 +833,7 @@ func (e *Engine) blockLanAccess() {
 		if network.Addr().Is6() {
 			source = v6
 		}
-		if _, err := e.firewall.AddRouteFiltering(
+		if _, err := e.firewall.AddFilterRule(
 			nil,
 			[]netip.Prefix{source},
 			firewallManager.Network{Prefix: network},
@@ -1225,9 +1244,7 @@ func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 	if isChecksEqual(e.checks, checks) {
 		return nil
 	}
-	e.checks = checks
-
-	info, ok := system.GetInfoWithChecksTimeout(e.ctx, systemInfoTimeout, checks, e.overlayAddresses()...)
+	info, ok := e.infoSource.Refresh(e.ctx, systemInfoTimeout, checks, e.overlayAddresses()...)
 	if !ok {
 		// Gathering timed out; skip the meta sync this cycle rather than blocking the
 		// sync loop (and syncMsgMux) on a stuck system call. A later sync will retry.
@@ -1239,6 +1256,7 @@ func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 	if err := e.mgmClient.SyncMeta(info); err != nil {
 		return fmt.Errorf("could not sync meta: error %s", err)
 	}
+	e.checks = checks
 	return nil
 }
 
@@ -1261,6 +1279,7 @@ func (e *Engine) applyInfoFlags(info *system.Info) {
 		e.config.EnableSSHLocalPortForwarding,
 		e.config.EnableSSHRemotePortForwarding,
 		e.config.DisableSSHAuth,
+		&e.config.RemoteJobsAllowed,
 	)
 }
 
@@ -1269,6 +1288,30 @@ func (e *Engine) applyInfoFlags(info *system.Info) {
 func (e *Engine) attachCertificateProofs(info *system.Info, checks []*mgmProto.Checks) {
 	peerKey := e.config.WgPrivateKey.PublicKey()
 	info.CertificateProofs = certproof.Collect(e.ctx, certproof.NewFileStore(certproof.StoreDir()), checks, peerKey[:])
+}
+
+func (e *Engine) currentSystemInfo(ctx context.Context) *system.Info {
+	info := e.infoSource.Current(ctx, e.overlayAddresses()...)
+	e.applyInfoFlags(info)
+	e.attachCertificateProofs(info, e.checks)
+	return info
+}
+
+// syncInfoFunc returns the info callback for the management sync stream. The
+// first connect sends the info refreshed right before it instead of gathering
+// again; every reconnect gathers a fresh one. The stream retry loop calls the
+// callback sequentially, so the handoff needs no synchronization.
+func (e *Engine) syncInfoFunc(refreshed *system.Info) func(ctx context.Context) *system.Info {
+	return func(ctx context.Context) *system.Info {
+		if refreshed == nil {
+			return e.currentSystemInfo(ctx)
+		}
+		info := refreshed
+		refreshed = nil
+		e.applyInfoFlags(info)
+		e.attachCertificateProofs(info, e.checks)
+		return info
+	}
 }
 
 // overlayAddresses returns our own WireGuard overlay address (v4 and v6) so it
@@ -1353,6 +1396,13 @@ func (e *Engine) receiveJobEvents() {
 				ID:     msg.ID,
 				Status: mgmProto.JobStatus_failed,
 			}
+			// Remote jobs are an explicit opt-in. When not enabled on this
+			// peer, every job is refused before any work is done.
+			if !e.config.RemoteJobsAllowed {
+				log.Warnf("refusing remote job: remote jobs are not enabled on this peer (enable with --allow-remote-jobs)")
+				resp.Reason = []byte("remote jobs are not enabled on this peer")
+				return &resp
+			}
 			switch params := msg.WorkloadParameters.(type) {
 			case *mgmProto.JobRequest_Bundle:
 				bundleResult, err := e.handleBundle(params.Bundle)
@@ -1382,7 +1432,25 @@ func (e *Engine) receiveJobEvents() {
 }
 
 func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobResponse_Bundle, error) {
-	log.Infof("handle remote debug bundle request: %s", params.String())
+	// The upload URL can carry a host, credentials, or query tokens, so it is
+	// kept out of the info-level line; the full parameters stay available at
+	// debug level for troubleshooting.
+	log.Infof("handle remote debug bundle request: anonymize=%v anonymize_level=%q log_file_count=%d bundle_for=%v bundle_for_time=%d",
+		params.GetAnonymize(), params.GetAnonymizeLevel(), params.GetLogFileCount(), params.GetBundleFor(), params.GetBundleForTime())
+	log.Debugf("remote debug bundle request parameters: %s", params.String())
+
+	// Resolve the upload destination: an MDM override, when set, takes
+	// precedence over the management-supplied URL. Both are validated the same
+	// way; an empty result falls back to the default upload server downstream.
+	uploadURL := params.GetUploadUrl()
+	if override := e.config.ProfileConfig.DebugBundleUploadURL; override != "" {
+		log.Infof("using MDM debug bundle upload URL override instead of the management-supplied value")
+		uploadURL = override
+	}
+	if err := validateBundleUploadURL(uploadURL); err != nil {
+		return nil, err
+	}
+
 	syncResponse, err := e.GetLatestSyncResponse()
 	if err != nil {
 		log.Warnf("get latest sync response: %v", err)
@@ -1410,7 +1478,7 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobR
 
 	waitFor := time.Duration(params.BundleForTime) * time.Minute
 
-	uploadKey, err := e.jobExecutor.BundleJob(e.ctx, bundleDeps, bundleJobParams, waitFor, e.config.ProfileConfig.ManagementURL.String())
+	uploadKey, err := e.jobExecutor.BundleJob(e.ctx, bundleDeps, bundleJobParams, waitFor, e.config.ProfileConfig.ManagementURL.String(), uploadURL)
 	if err != nil {
 		return nil, err
 	}
@@ -1423,22 +1491,27 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobR
 	return response, nil
 }
 
+// validateBundleUploadURL sanity-checks a management-supplied upload URL for a
+// remote debug bundle job. It delegates to profilemanager.ValidateBundleUploadURL
+// so the executor and the MDM policy override share one definition of the rule
+// (empty accepted; otherwise a well-formed https URL with a host) and cannot
+// drift. The host is deliberately left unconstrained pending a decision on
+// management-directed uploads.
+func validateBundleUploadURL(raw string) error {
+	return profilemanager.ValidateBundleUploadURL(raw)
+}
+
 // receiveManagementEvents connects to the Management Service event stream to receive updates from the management service
 // E.g. when a new peer has been registered and we are allowed to connect to it.
 func (e *Engine) receiveManagementEvents() {
 	e.shutdownWg.Add(1)
 	go func() {
 		defer e.shutdownWg.Done()
-		info, ok := system.GetInfoWithChecksTimeout(e.ctx, systemInfoTimeout, e.checks, e.overlayAddresses()...)
+		info, ok := e.infoSource.Refresh(e.ctx, systemInfoTimeout, e.checks, e.overlayAddresses()...)
 		if !ok {
-			// Gathering timed out; connect the stream with base info so management
-			// connectivity still comes up rather than blocking here.
-			info = system.GetInfo(e.ctx)
+			log.Warnf("posture checks not refreshed before the sync connect, sending the previous results")
 		}
-		e.applyInfoFlags(info)
-		e.attachCertificateProofs(info, e.checks)
-
-		err := e.mgmClient.Sync(e.ctx, info, e.handleSync)
+		err := e.mgmClient.Sync(e.ctx, e.syncInfoFunc(info), e.handleSync)
 		if err != nil {
 			// happens if management is unavailable for a long time.
 			// We want to cancel the operation of the whole client
@@ -2470,7 +2543,72 @@ func (e *Engine) RenewTun(fd int) error {
 		return fmt.Errorf("wireguard interface not initialized")
 	}
 
-	return wgInterface.RenewTun(fd)
+	if err := wgInterface.RenewTun(fd); err != nil {
+		return err
+	}
+
+	e.rebindOverlayListeners()
+	return nil
+}
+
+// rebindOverlayListeners gives the servers that listen on an overlay address
+// sockets on the interface as it is now.
+//
+// A socket belongs to the interface generation it was created on. Renewing the
+// TUN builds a new interface and moves the overlay addresses to it, which
+// leaves the old sockets in LISTEN with the uspfilter still logging packets
+// arriving for them, while every accept fails with EINVAL for the life of the
+// socket: from the outside the server looks alive and answers nothing. On
+// Android this happens during a normal startup, where the first TUN is
+// established before the routes are known and replaced once they arrive.
+//
+// Rebinding costs whatever those sockets were carrying, which the renewal has
+// already broken. Errors are logged rather than returned: the renewal itself
+// succeeded, and failing it would hand the caller a working interface and an
+// error.
+func (e *Engine) rebindOverlayListeners() {
+	e.syncMsgMux.Lock()
+	defer e.syncMsgMux.Unlock()
+
+	for _, rebind := range e.overlayRebinds() {
+		if err := rebind(); err != nil {
+			log.Errorf("after TUN renewal: %v", err)
+		}
+	}
+}
+
+// overlayRebinds is every subsystem of this engine that holds sockets bound to
+// an overlay address, and how to rebuild each one's.
+//
+// A subsystem that starts listening on an overlay address belongs in this list.
+// Leaving it out costs nothing that review would notice and produces a listener
+// that stays in LISTEN, is logged as receiving packets, and refuses every
+// connection for the life of the process.
+func (e *Engine) overlayRebinds() []overlayRebind {
+	return []overlayRebind{
+		e.restartSSHListeners,
+		e.restartDNSForwarder,
+	}
+}
+
+// restartDNSForwarder rebuilds the DNS forwarder serving the same domains.
+// No-op when it is not running. See Engine.rebindOverlayListeners.
+func (e *Engine) restartDNSForwarder() error {
+	if e.dnsForwardMgr == nil {
+		return nil
+	}
+	// Read from the forwarder before it goes away, so the replacement serves
+	// the domains in force now rather than a copy kept somewhere else.
+	entries := e.dnsForwardMgr.Domains()
+	e.stopDNSForwarder()
+	// Both halves log their own failures, so the only thing left to report is
+	// the outcome: a start that failed left the manager nil, and the forwarder
+	// is now down rather than merely rebound.
+	e.startDNSForwarder(entries)
+	if e.dnsForwardMgr == nil {
+		return errors.New("rebind DNS forwarder: it did not come back up")
+	}
+	return nil
 }
 
 // updateDNSForwarder start or stop the DNS forwarder based on the domains and the feature flag
@@ -2516,7 +2654,14 @@ func (e *Engine) stopDNSForwarder() {
 		return
 	}
 
-	if err := e.dnsForwardMgr.Stop(context.Background()); err != nil {
+	// Bounded because the shutdown waits for queries still in flight, and one
+	// waiting on an unresponsive upstream holds it for as long as that lookup
+	// is allowed to take. This runs with syncMsgMux held, so that wait is one
+	// the whole engine spends.
+	ctx, cancel := context.WithTimeout(context.Background(), dnsForwarderStopTimeout)
+	defer cancel()
+
+	if err := e.dnsForwardMgr.Stop(ctx); err != nil {
 		log.Errorf("failed to stop DNS forward: %v", err)
 	}
 
@@ -2631,7 +2776,7 @@ func (e *Engine) updateForwardRules(rules []*mgmProto.ForwardingRule) ([]firewal
 	var merr *multierror.Error
 	forwardingRules := make([]firewallManager.ForwardRule, 0, len(rules))
 	for _, rule := range rules {
-		proto, err := convertToFirewallProtocol(rule.GetProtocol())
+		proto, err := acl.ConvertToFirewallProtocol(rule.GetProtocol())
 		if err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("failed to convert protocol '%s': %w", rule.GetProtocol(), err))
 			continue

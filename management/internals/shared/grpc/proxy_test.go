@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	cachestore "github.com/eko/gocache/lib/v4/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -21,7 +20,7 @@ import (
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
-func testCacheStore(t *testing.T) cachestore.StoreInterface {
+func testCacheStore(t *testing.T) nbcache.Store {
 	t.Helper()
 	s, err := nbcache.NewStore(context.Background(), 30*time.Minute, 10*time.Minute, 100)
 	require.NoError(t, err)

@@ -1,6 +1,7 @@
 package android
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 )
@@ -8,34 +9,48 @@ import (
 func TestNormalizeSplitTunnelMode(t *testing.T) {
 	tests := []struct {
 		name string
-		mode string
-		want string
+		mode SplitTunnelMode
+		want SplitTunnelMode
 	}{
-		{name: "exclude is kept", mode: SplitTunnelModeExclude, want: SplitTunnelModeExclude},
-		{name: "include is kept", mode: SplitTunnelModeInclude, want: SplitTunnelModeInclude},
-		{name: "off is kept", mode: SplitTunnelModeOff, want: SplitTunnelModeOff},
-		{name: "empty falls back to off", mode: "", want: SplitTunnelModeOff},
-		{name: "a mode from a newer build falls back to off", mode: "only-work-apps", want: SplitTunnelModeOff},
+		{name: "exclude is kept", mode: modeExclude, want: modeExclude},
+		{name: "include is kept", mode: modeInclude, want: modeInclude},
+		{name: "off is kept", mode: modeOff, want: modeOff},
+		{name: "a mode from a newer build falls back to off", mode: SplitTunnelMode(7), want: modeOff},
+		{name: "a negative mode falls back to off", mode: SplitTunnelMode(-1), want: modeOff},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := normalizeSplitTunnelMode(tt.mode); got != tt.want {
-				t.Errorf("normalizeSplitTunnelMode(%q) = %q, want %q", tt.mode, got, tt.want)
+				t.Errorf("normalizeSplitTunnelMode(%d) = %d, want %d", tt.mode, got, tt.want)
 			}
 		})
 	}
 }
 
+// The constants the Android side reads must stay the values the store writes:
+// gomobile carries the ints below, not the typed constants they mirror.
+func TestSplitTunnelModeConstantsMirrorTheTypedOnes(t *testing.T) {
+	if SplitTunnelModeOff != int(modeOff) {
+		t.Errorf("off = %d, want %d", SplitTunnelModeOff, modeOff)
+	}
+	if SplitTunnelModeExclude != int(modeExclude) {
+		t.Errorf("exclude = %d, want %d", SplitTunnelModeExclude, modeExclude)
+	}
+	if SplitTunnelModeInclude != int(modeInclude) {
+		t.Errorf("include = %d, want %d", SplitTunnelModeInclude, modeInclude)
+	}
+}
+
 func TestSettingsFromSection(t *testing.T) {
 	got := settingsFromSection(splitTunnelSection{
-		Mode:     SplitTunnelModeExclude,
+		Mode:     modeExclude,
 		Excluded: []string{"com.example.a", "com.example.b"},
 		Included: []string{"com.example.c"},
 	})
 
 	if got.Mode != SplitTunnelModeExclude {
-		t.Errorf("mode = %q, want %q", got.Mode, SplitTunnelModeExclude)
+		t.Errorf("mode = %d, want %d", got.Mode, SplitTunnelModeExclude)
 	}
 	if got.Excluded.Size() != 2 || got.Excluded.Get(0) != "com.example.a" {
 		t.Errorf("excluded = %v, want the two stored packages", packagesOf(got.Excluded))
@@ -52,13 +67,30 @@ func TestSettingsFromEmptySectionCarriesEverything(t *testing.T) {
 	got := settingsFromSection(splitTunnelSection{})
 
 	if got.Mode != SplitTunnelModeOff {
-		t.Errorf("mode = %q, want %q", got.Mode, SplitTunnelModeOff)
+		t.Errorf("mode = %d, want %d", got.Mode, SplitTunnelModeOff)
 	}
 	if got.Excluded == nil || got.Included == nil {
 		t.Fatal("both selections must be usable lists, not nil")
 	}
 	if got.Excluded.Size() != 0 || got.Included.Size() != 0 {
 		t.Errorf("selections = %v/%v, want both empty", packagesOf(got.Excluded), packagesOf(got.Included))
+	}
+}
+
+// The section is what the profile's preference file holds, so the mode has to
+// survive a JSON round trip as the number the constants name.
+func TestSectionEncodesTheModeAsItsNumber(t *testing.T) {
+	raw, err := json.Marshal(sectionFromSettings(&SplitTunnelSettings{Mode: SplitTunnelModeInclude}))
+	if err != nil {
+		t.Fatalf("marshal section: %v", err)
+	}
+
+	var back splitTunnelSection
+	if err := json.Unmarshal(raw, &back); err != nil {
+		t.Fatalf("unmarshal section: %v", err)
+	}
+	if back.Mode != modeInclude {
+		t.Errorf("mode = %d, want %d, from %s", back.Mode, modeInclude, raw)
 	}
 }
 
@@ -72,7 +104,7 @@ func TestSectionFromSettingsRoundTrip(t *testing.T) {
 	back := settingsFromSection(section)
 
 	if back.Mode != SplitTunnelModeInclude {
-		t.Errorf("mode = %q, want %q", back.Mode, SplitTunnelModeInclude)
+		t.Errorf("mode = %d, want %d", back.Mode, SplitTunnelModeInclude)
 	}
 	if !reflect.DeepEqual(packagesOf(back.Included), []string{"com.example.a"}) {
 		t.Errorf("included = %v, want [com.example.a]", packagesOf(back.Included))
@@ -84,11 +116,21 @@ func TestSectionFromSettingsRoundTrip(t *testing.T) {
 	}
 }
 
+// A mode the Java side never sets, such as one left by a newer build, must not
+// reach the stored section either.
+func TestSectionFromSettingsNormalizesAnUnknownMode(t *testing.T) {
+	section := sectionFromSettings(&SplitTunnelSettings{Mode: 7})
+
+	if section.Mode != modeOff {
+		t.Errorf("mode = %d, want %d", section.Mode, modeOff)
+	}
+}
+
 func TestSectionFromNilSettings(t *testing.T) {
 	section := sectionFromSettings(nil)
 
-	if section.Mode != SplitTunnelModeOff {
-		t.Errorf("mode = %q, want %q", section.Mode, SplitTunnelModeOff)
+	if section.Mode != modeOff {
+		t.Errorf("mode = %d, want %d", section.Mode, modeOff)
 	}
 	if len(section.Excluded) != 0 || len(section.Included) != 0 {
 		t.Errorf("selections = %v/%v, want both empty", section.Excluded, section.Included)

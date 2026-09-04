@@ -248,17 +248,8 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	peerMeta := extractPeerMeta(ctx, syncReq.GetMeta())
 	peerMeta.Certificates = s.verifiedCertificates(ctx, peerKey, syncReq.GetMeta().GetCertificateProofs())
 
-	userID, err := s.accountManager.GetUserIDByPeerKey(ctx, peerKey.String())
-	if err != nil {
-		s.syncSem.Add(-1)
-		if errStatus, ok := internalStatus.FromError(err); ok && errStatus.Type() == internalStatus.NotFound {
-			return status.Errorf(codes.PermissionDenied, "peer is not registered")
-		}
-		return mapError(ctx, err)
-	}
-
 	metahashed := metaHash(peerMeta)
-	if userID == "" && !s.loginFilter.allowLogin(peerKey.String(), metahashed) {
+	if !s.loginFilter.allowLogin(peerKey.String(), metahashed) {
 		if s.appMetrics != nil {
 			s.appMetrics.GRPCMetrics().CountSyncRequestBlocked()
 		}
@@ -678,6 +669,7 @@ func extractPeerMeta(ctx context.Context, meta *proto.PeerSystemMeta) nbpeer.Pee
 			RosenpassEnabled:      meta.GetFlags().GetRosenpassEnabled(),
 			RosenpassPermissive:   meta.GetFlags().GetRosenpassPermissive(),
 			ServerSSHAllowed:      meta.GetFlags().GetServerSSHAllowed(),
+			RemoteJobsAllowed:     meta.GetFlags().GetRemoteJobsAllowed(),
 			DisableClientRoutes:   meta.GetFlags().GetDisableClientRoutes(),
 			DisableServerRoutes:   meta.GetFlags().GetDisableServerRoutes(),
 			DisableDNS:            meta.GetFlags().GetDisableDNS(),
