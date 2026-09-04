@@ -428,11 +428,7 @@ func (c *GrpcClient) handleSyncStream(ctx context.Context, serverPubKey wgtypes.
 	ctx, cancelStream := context.WithCancel(ctx)
 	defer cancelStream()
 
-	var sysInfo *system.Info
-	if getInfo != nil {
-		sysInfo = getInfo(ctx)
-	}
-	stream, err := c.connectToSyncStream(ctx, serverPubKey, sysInfo)
+	stream, err := c.connectToSyncStream(ctx, serverPubKey, getInfo(ctx))
 	if err != nil {
 		log.Debugf("failed to open Management Service stream: %s", err)
 		c.notifyDisconnected(err)
