@@ -14,12 +14,14 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/pion/ice/v4"
 	"github.com/pion/stun/v3"
 	log "github.com/sirupsen/logrus"
+	wgdevice "golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun/netstack"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
@@ -235,6 +237,12 @@ type Engine struct {
 	started bool
 
 	wgInterface WGIface
+
+	// wgDevice is a lock-free handle on the WireGuard device behind
+	// wgInterface. Reaching the device through wgInterface requires
+	// syncMsgMux, which handleSync holds while it adds and removes peers;
+	// SetPerformance must stay reachable exactly when that work is stuck.
+	wgDevice atomic.Pointer[wgdevice.Device]
 
 	udpMux *udpmux.UniversalUDPMuxDefault
 
@@ -649,6 +657,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		log.Errorf("failed to pull up wgInterface [%s]: %s", e.wgInterface.Name(), err.Error())
 		return fmt.Errorf("up wg interface: %w", err)
 	}
+	e.wgDevice.Store(e.wgInterface.GetWGDevice())
 
 	// Set up notrack rules immediately after proxy is listening to prevent
 	// conntrack entries from being created before the rules are in place
@@ -2129,6 +2138,7 @@ func (e *Engine) close() {
 			log.Errorf("failed closing Netbird interface %s %v", e.config.WgIfaceName, err)
 		}
 		e.wgInterface = nil
+		e.wgDevice.Store(nil)
 		e.statusRecorder.SetWgIface(nil)
 	}
 
