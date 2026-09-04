@@ -75,8 +75,8 @@ var (
 type Anonymizer struct {
 	ipAnonymizer     map[netip.Addr]netip.Addr
 	domainAnonymizer map[string]string
-	// domainOrder caches the keys of domainAnonymizer sorted longest-first
-	// for AnonymizeString; it is rebuilt when the map gains entries.
+	// domainOrder caches the keys of domainAnonymizer that AnonymizeString
+	// replaces, sorted longest-first. mapDomain drops it on every write.
 	domainOrder     []string
 	labelAnonymizer map[string]string
 	labelAnonymized map[string]struct{}
@@ -294,7 +294,27 @@ func (a *Anonymizer) AnonymizeIPString(ip string) string {
 	return a.AnonymizeIP(addr).String()
 }
 
+// AnonymizeDomain replaces the base of domain with a stable anonymized one,
+// keeping the labels in front of it (default level) or numbering them (strict
+// level). It accepts free text that may not be a domain at all, so a name with
+// no dot is anonymized only once AnonymizeDomainName has established it as a
+// zone; otherwise it is returned unchanged.
 func (a *Anonymizer) AnonymizeDomain(domain string) string {
+	return a.anonymizeDomain(domain, false)
+}
+
+// AnonymizeDomainName anonymizes a value the caller knows to be a DNS name,
+// such as a configured zone, match domain, or record name. A single-label name,
+// which a custom zone can legitimately be, is anonymized and remembered as a
+// zone, so names under it share its anonymized base and later mentions of it
+// are anonymized as well.
+func (a *Anonymizer) AnonymizeDomainName(domain string) string {
+	return a.anonymizeDomain(domain, true)
+}
+
+// anonymizeDomain implements both entry points. newZone reports whether the
+// caller may establish a single-label name as a zone.
+func (a *Anonymizer) anonymizeDomain(domain string, newZone bool) string {
 	baseDomain := domain
 	hasDot := strings.HasSuffix(domain, ".")
 	if hasDot {
@@ -318,29 +338,70 @@ func (a *Anonymizer) AnonymizeDomain(domain string) string {
 		return withTrailingDot(a.anonymizePeerName(baseDomain, suffix), hasDot)
 	}
 
-	parts := strings.Split(baseDomain, ".")
-	if len(parts) < 2 {
+	baseForLookup := a.baseForLookup(baseDomain, newZone)
+	if baseForLookup == "" {
 		return domain
 	}
 
-	baseForLookup := parts[len(parts)-2] + "." + parts[len(parts)-1]
-
-	anonymized, ok := a.domainAnonymizer[baseForLookup]
-	if !ok {
-		anonymizedBase := "anon-" + generateRandomString(5) + anonTLD
-		a.domainAnonymizer[baseForLookup] = anonymizedBase
-		anonymized = anonymizedBase
+	anonymized, mapped := a.domainAnonymizer[baseForLookup]
+	if !mapped {
+		anonymized = "anon-" + generateRandomString(5) + anonTLD
+		a.mapDomain(baseForLookup, anonymized)
 	}
 
-	result := strings.Replace(baseDomain, baseForLookup, anonymized, 1)
-	if a.level >= LevelStrict && len(parts) > 2 {
-		prefix := strings.TrimSuffix(baseDomain, "."+baseForLookup)
-		result = a.anonymizeLabels(prefix, "host") + "." + anonymized
-		// The full mapping feeds AnonymizeString so seeded FQDNs are caught
-		// in log lines as a whole, labels included.
-		a.domainAnonymizer[baseDomain] = result
+	// baseForLookup is the tail of baseDomain up to case, so cut by length: a
+	// substring match would rewrite an earlier occurrence and leave the real
+	// zone in place, as with a name whose own label repeats the zone.
+	prefix := baseDomain[:len(baseDomain)-len(baseForLookup)]
+
+	result := prefix + anonymized
+	if a.level >= LevelStrict && prefix != "" {
+		result = a.anonymizeLabels(strings.TrimSuffix(prefix, "."), "host") + "." + anonymized
+	}
+
+	// A dotless zone is held out of the substring pass, so a name under it
+	// needs its own mapping to be replaced where a log line mentions it as
+	// free text rather than as a DNS name. Strict level records every name
+	// anyway, labels included.
+	if prefix != "" && (a.level >= LevelStrict || !strings.Contains(baseForLookup, ".")) {
+		a.mapDomain(baseDomain, result)
 	}
 	return withTrailingDot(result, hasDot)
+}
+
+// mapDomain records an anonymized form for a domain key and invalidates the
+// replacement order AnonymizeString caches.
+func (a *Anonymizer) mapDomain(key, anonymized string) {
+	a.domainAnonymizer[key] = anonymized
+	a.domainOrder = nil
+}
+
+// baseForLookup returns the key under which baseDomain's anonymized base is
+// stored, or empty to leave baseDomain alone. The key is lower case, since DNS
+// labels compare case-insensitively, and is always the tail of baseDomain so a
+// caller can cut it off by length.
+//
+// The key is normally the last two labels, so every name under a domain shares
+// one anonymized base. A single-label zone is its own key: names under it then
+// key on the zone rather than on their own last two labels, which keeps the
+// zone relationship visible. A single-label name that is not yet a known zone
+// needs newZone to become one, since free text and address forms also reach
+// here and must not be rewritten on a guess.
+func (a *Anonymizer) baseForLookup(baseDomain string, newZone bool) string {
+	parts := strings.Split(strings.ToLower(baseDomain), ".")
+	last := parts[len(parts)-1]
+
+	if _, known := a.domainAnonymizer[last]; known {
+		return last
+	}
+	if len(parts) > 1 {
+		return parts[len(parts)-2] + "." + last
+	}
+
+	if !newZone || last == "" || last == "localhost" {
+		return ""
+	}
+	return last
 }
 
 // anonymizePeerName replaces the labels in front of a protected suffix with
@@ -351,7 +412,7 @@ func (a *Anonymizer) anonymizePeerName(baseDomain, suffix string) string {
 	prefix := strings.TrimSuffix(baseDomain, "."+suffix)
 	result := a.anonymizeLabels(prefix, "peer") + "." + suffix
 	if result != baseDomain {
-		a.domainAnonymizer[baseDomain] = result
+		a.mapDomain(baseDomain, result)
 	}
 	return result
 }
@@ -438,25 +499,32 @@ func (a *Anonymizer) AnonymizeString(str string) string {
 	return restoreZones(str)
 }
 
-// sortedDomains returns the domain mappings longest-first, so a full-FQDN
-// mapping (strict level) is applied before the base-domain mapping it
-// contains. The order is rebuilt only when domainAnonymizer has grown.
+// sortedDomains returns the domain mappings eligible for plain substring
+// replacement, longest-first, so a full-FQDN mapping (strict level) is applied
+// before the base-domain mapping it contains. A single-label name is held out:
+// it carries no dot to anchor it, so replacing it by substring would also
+// rewrite any longer word that happens to contain it. Such a name still gets
+// anonymized wherever it is handled as a domain rather than as free text.
+// The order is rebuilt only after mapDomain has added an entry.
 func (a *Anonymizer) sortedDomains() []string {
-	if len(a.domainOrder) == len(a.domainAnonymizer) {
+	if a.domainOrder != nil {
 		return a.domainOrder
 	}
 
-	a.domainOrder = a.domainOrder[:0]
+	order := make([]string, 0, len(a.domainAnonymizer))
 	for domain := range a.domainAnonymizer {
-		a.domainOrder = append(a.domainOrder, domain)
+		if strings.Contains(domain, ".") {
+			order = append(order, domain)
+		}
 	}
-	slices.SortFunc(a.domainOrder, func(x, y string) int {
+	slices.SortFunc(order, func(x, y string) int {
 		if d := len(y) - len(x); d != 0 {
 			return d
 		}
 		return strings.Compare(x, y)
 	})
-	return a.domainOrder
+	a.domainOrder = order
+	return order
 }
 
 // anonymizeMACsInString replaces MAC addresses matched by re, skipping

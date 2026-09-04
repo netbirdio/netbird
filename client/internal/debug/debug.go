@@ -1551,7 +1551,7 @@ func anonymizeRoute(route *mgmProto.Route, anonymizer *anonymize.Anonymizer) {
 	}
 
 	for i, domain := range route.Domains {
-		route.Domains[i] = anonymizer.AnonymizeDomain(domain)
+		route.Domains[i] = anonymizer.AnonymizeDomainName(domain)
 	}
 
 	route.NetID = anonymizer.AnonymizeString(route.NetID)
@@ -1583,20 +1583,21 @@ func anonymizeBundleGenerators(servers []*mgmProto.NameServer, anonymizer *anony
 
 func anonymizeDomains(domains []string, anonymizer *anonymize.Anonymizer) {
 	for i, domain := range domains {
-		domains[i] = anonymizer.AnonymizeDomain(domain)
+		domains[i] = anonymizer.AnonymizeDomainName(domain)
 	}
 }
 
 func anonymizeCustomZones(zones []*mgmProto.CustomZone, anonymizer *anonymize.Anonymizer) {
 	for _, zone := range zones {
-		zone.Domain = anonymizer.AnonymizeDomain(zone.Domain)
+		// The zone goes first: its records are then keyed on it.
+		zone.Domain = anonymizer.AnonymizeDomainName(zone.Domain)
 		anonymizeRecords(zone.Records, anonymizer)
 	}
 }
 
 func anonymizeRecords(records []*mgmProto.SimpleRecord, anonymizer *anonymize.Anonymizer) {
 	for _, record := range records {
-		record.Name = anonymizer.AnonymizeDomain(record.Name)
+		record.Name = anonymizer.AnonymizeDomainName(record.Name)
 		anonymizeRData(record, anonymizer)
 	}
 }
