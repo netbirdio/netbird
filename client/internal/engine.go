@@ -2577,6 +2577,7 @@ func (e *Engine) rebindOverlayListeners() {
 func (e *Engine) overlayRebinds() []overlayRebind {
 	return []overlayRebind{
 		e.restartSSHListeners,
+		e.restartVNCListeners,
 		e.restartDNSForwarder,
 	}
 }

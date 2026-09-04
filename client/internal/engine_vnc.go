@@ -100,6 +100,22 @@ func (e *Engine) updateVNC() error {
 	return e.startVNCServer()
 }
 
+// restartVNCListeners rebuilds the VNC server so it listens on new sockets.
+// No-op when it is not running. See Engine.rebindOverlayListeners for why this
+// is needed.
+func (e *Engine) restartVNCListeners() error {
+	if e.vncSrv == nil {
+		return nil
+	}
+	if err := e.stopVNCServer(); err != nil {
+		return fmt.Errorf("rebind VNC listeners: %w", err)
+	}
+	if err := e.startVNCServer(); err != nil {
+		return fmt.Errorf("rebind VNC listeners: %w", err)
+	}
+	return nil
+}
+
 func (e *Engine) startVNCServer() error {
 	if e.wgInterface == nil {
 		return errors.New("wg interface not initialized")
