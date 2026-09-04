@@ -411,10 +411,13 @@ func (s *WindowManager) OpenInstallProgress(version string) {
 		s.installProgress = w
 		w.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
 			s.mu.Lock()
+			// Only a live user close still has this registered; CloseInstallProgress
+			// nils s.installProgress first and restores itself. Guarding here stops a
+			// stale close event from re-showing windows a replacement popup hides.
 			if s.installProgress == w {
 				s.installProgress = nil
+				s.restoreHiddenWindowsLocked()
 			}
-			s.restoreHiddenWindowsLocked()
 			s.forgetWindowLocked(w)
 			s.mu.Unlock()
 		})
@@ -433,6 +436,12 @@ func (s *WindowManager) CloseInstallProgress() {
 	s.mu.Lock()
 	w := s.installProgress
 	s.installProgress = nil
+	// The guarded WindowClosing handler no-ops on a programmatic close, so restore
+	// here — but only if a popup was actually open, since hiddenForLogin is shared
+	// with OpenBrowserLogin.
+	if w != nil {
+		s.restoreHiddenWindowsLocked()
+	}
 	s.mu.Unlock()
 	if w != nil {
 		w.Close()
