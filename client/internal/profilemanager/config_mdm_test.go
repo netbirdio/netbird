@@ -153,21 +153,18 @@ func TestApply_MDMLocalMetrics(t *testing.T) {
 	tmp := filepath.Join(t.TempDir(), "config.json")
 
 	// Seed without MDM.
-	withMDMPolicy(t, mdm.NewPolicy(nil))
-	_, err := UpdateOrCreateConfig(ConfigInput{
+	configWithMDM(t, ConfigInput{
 		ConfigPath:          tmp,
 		LocalMetricsEnabled: boolPtr(false),
-	})
-	require.NoError(t, err)
+	}, mdm.NewPolicy(nil))
 
-	withMDMPolicy(t, mdm.NewPolicy(map[string]any{
+	// Now enable MDM enforcement for these keys.
+	cfg := configWithMDM(t, ConfigInput{
+		ConfigPath: tmp,
+	}, mdm.NewPolicy(map[string]any{
 		mdm.KeyEnableLocalMetrics:  true,
 		mdm.KeyLocalMetricsAddress: "127.0.0.1:9292",
 	}))
-
-	cfg, err := UpdateOrCreateConfig(ConfigInput{ConfigPath: tmp})
-	require.NoError(t, err)
-	require.NotNil(t, cfg)
 
 	assert.True(t, cfg.LocalMetricsEnabled, "MDM override should flip on-disk false to true")
 	assert.Equal(t, "127.0.0.1:9292", cfg.LocalMetricsAddress)

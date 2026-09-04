@@ -161,12 +161,11 @@ func TestSetConfig_MDMReject_MultipleFields(t *testing.T) {
 }
 
 func TestSetConfig_MDMReject_LocalMetrics(t *testing.T) {
-	withMDMPolicy(t, mdm.NewPolicy(map[string]any{
+	s, ctx, profName, username, _ := setupServerWithProfile(t)
+	withMDMPolicy(t, s, mdm.NewPolicy(map[string]any{
 		mdm.KeyEnableLocalMetrics:  true,
 		mdm.KeyLocalMetricsAddress: "127.0.0.1:9191",
 	}))
-
-	s, ctx, profName, username, _ := setupServerWithProfile(t)
 
 	enabled := false
 	addr := "0.0.0.0:9999"
@@ -188,11 +187,10 @@ func TestSetConfig_MDMReject_LocalMetrics(t *testing.T) {
 // (the manager falls back to the default), so presence must be honored
 // rather than collapsed to "field not set".
 func TestSetConfig_MDMReject_LocalMetricsEmptyAddress(t *testing.T) {
-	withMDMPolicy(t, mdm.NewPolicy(map[string]any{
+	s, ctx, profName, username, _ := setupServerWithProfile(t)
+	withMDMPolicy(t, s, mdm.NewPolicy(map[string]any{
 		mdm.KeyLocalMetricsAddress: "127.0.0.1:9999",
 	}))
-
-	s, ctx, profName, username, _ := setupServerWithProfile(t)
 
 	addr := ""
 	_, err := s.SetConfig(ctx, &proto.SetConfigRequest{

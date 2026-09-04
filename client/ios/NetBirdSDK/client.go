@@ -93,7 +93,6 @@ type Client struct {
 	// preloadedConfig holds config loaded from JSON (used on tvOS where file writes are blocked)
 	preloadedConfig *profilemanager.Config
 
-<<<<<<< HEAD
 	// mdmLoader holds the per-Client MDM policy source. Set by
 	// SetMDMPolicyFetcher (called from the Swift side at extension
 	// init). Each Run passes this loader to the resolved Config so
@@ -102,13 +101,11 @@ type Client struct {
 	mdmLoader   *mdm.Loader
 	mdmDetector *mdm.ChangeDetector
 
-=======
 	// stateMu guards the run lifecycle as one unit: the cancel installed by
 	// the current run, the channel it closes on exit, and the state it
 	// published. One run at a time: startRun refuses a second Run while the
 	// previous one has not exited, and the platform serializes Stop before
 	// Start, so no generation tracking is needed.
->>>>>>> main
 	stateMu       sync.RWMutex
 	connectClient *internal.ConnectClient
 	config        *profilemanager.Config

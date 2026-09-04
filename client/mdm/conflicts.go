@@ -42,6 +42,22 @@ func ConflictString(key, got string) ConflictCheck {
 	}
 }
 
+// ConflictStringPtr is ConflictString for optional proto fields, where an
+// explicit empty value is still a request to change the setting. A nil p means
+// "field not set" (no override requested).
+func ConflictStringPtr(key string, p *string) ConflictCheck {
+	return ConflictCheck{
+		Key: key,
+		Check: func(pol *Policy) bool {
+			if p == nil {
+				return true
+			}
+			want, ok := pol.GetString(key)
+			return ok && want == *p
+		},
+	}
+}
+
 // ConflictURL builds a ConflictCheck for a URL-typed MDM key; both sides are
 // normalized via CanonicalURL before comparison.
 func ConflictURL(key, got string) ConflictCheck {

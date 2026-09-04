@@ -11,11 +11,8 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
-<<<<<<< HEAD
 	"github.com/netbirdio/netbird/client/mdm"
-=======
 	"github.com/netbirdio/netbird/client/mobile"
->>>>>>> main
 	"github.com/netbirdio/netbird/client/system"
 )
 
