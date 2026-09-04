@@ -256,9 +256,9 @@ func TestLoginRequestMDMConflicts_PreSharedKey(t *testing.T) {
 		{name: "optional sentinel echo", msg: &proto.LoginRequest{OptionalPreSharedKey: &sentinel}, want: nil},
 		{name: "optional same value", msg: &proto.LoginRequest{OptionalPreSharedKey: &same}, want: nil},
 		{name: "optional divergent", msg: &proto.LoginRequest{OptionalPreSharedKey: &other}, want: []string{mdm.KeyPreSharedKey}},
-		{name: "legacy empty is unset", msg: &proto.LoginRequest{PreSharedKey: ""}, want: nil},
-		{name: "legacy sentinel echo", msg: &proto.LoginRequest{PreSharedKey: sentinel}, want: nil},
-		{name: "legacy divergent", msg: &proto.LoginRequest{PreSharedKey: other}, want: []string{mdm.KeyPreSharedKey}},
+		{name: "legacy empty is unset", msg: &proto.LoginRequest{PreSharedKey: ""}, want: nil},                         //nolint:staticcheck // SA1019: legacy proto field still accepted by Login
+		{name: "legacy sentinel echo", msg: &proto.LoginRequest{PreSharedKey: sentinel}, want: nil},                    //nolint:staticcheck // SA1019: legacy proto field still accepted by Login
+		{name: "legacy divergent", msg: &proto.LoginRequest{PreSharedKey: other}, want: []string{mdm.KeyPreSharedKey}}, //nolint:staticcheck // SA1019: legacy proto field still accepted by Login
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
