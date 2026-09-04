@@ -162,7 +162,8 @@ func (p *Preferences) SetDisableIPv6(disable bool) {
 
 // GetRemoteJobsAllowed reads the remote jobs opt-in from config file
 func (p *Preferences) GetRemoteJobsAllowed() (bool, error) {
-	if p.configInput.RemoteJobsAllowed != nil {
+	policy := p.policy()
+	if !policy.HasKey(mdm.KeyRemoteJobsAllowed) && p.configInput.RemoteJobsAllowed != nil {
 		return *p.configInput.RemoteJobsAllowed, nil
 	}
 
@@ -170,10 +171,11 @@ func (p *Preferences) GetRemoteJobsAllowed() (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	cfg.ApplyMDMPolicy(policy)
 	if cfg.RemoteJobsAllowed == nil {
 		return false, nil
 	}
-	return *cfg.RemoteJobsAllowed, err
+	return *cfg.RemoteJobsAllowed, nil
 }
 
 // SetRemoteJobsAllowed stores the given value and waits for commit
