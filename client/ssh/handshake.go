@@ -27,7 +27,7 @@ func Handshake(ctx context.Context, conn net.Conn, addr string, config *ssh.Clie
 	sshConn, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
 	if err != nil {
 		closeHandshake(conn, "conn after handshake error")
-		return nil, fmt.Errorf("ssh handshake: %w", err)
+		return nil, handshakeError(ctx, err)
 	}
 
 	if err := conn.SetDeadline(time.Time{}); err != nil {
@@ -42,4 +42,14 @@ func closeHandshake(c io.Closer, label string) {
 	if err := c.Close(); err != nil {
 		log.Debugf("ssh: close %s: %v", label, err)
 	}
+}
+
+func handshakeError(ctx context.Context, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return fmt.Errorf("ssh handshake: %w: %w", ctxErr, err)
+	}
+	if deadline, ok := ctx.Deadline(); ok && !time.Now().Before(deadline) {
+		return fmt.Errorf("ssh handshake: %w: %w", context.DeadlineExceeded, err)
+	}
+	return fmt.Errorf("ssh handshake: %w", err)
 }
