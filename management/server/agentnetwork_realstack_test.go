@@ -101,10 +101,14 @@ func TestAgentNetwork_ProviderCRUD_FansOutToProxyAndClientPeers(t *testing.T) {
 	drain(proxyCh)
 
 	provider, err := agentMgr.CreateProvider(ctx, adminUserID, &agenttypes.Provider{
-		AccountID:   accountID,
-		ProviderID:  "openai_api",
-		Name:        "openai-test",
-		UpstreamURL: "https://api.openai.com",
+		AccountID:  accountID,
+		ProviderID: "openai_api",
+		Name:       "openai-test",
+		// A private address: the save-time credential check leaves it
+		// unchecked rather than spending a dummy key against the real
+		// api.openai.com, which the vendor refuses and which would make
+		// this test depend on the runner having egress.
+		UpstreamURL: "https://10.255.255.1",
 		APIKey:      "sk-test-key",
 		Enabled:     true,
 		Models:      []agenttypes.ProviderModel{{ID: "gpt-5.4"}},

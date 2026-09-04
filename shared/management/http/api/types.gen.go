@@ -2232,10 +2232,10 @@ type AgentNetworkModelDiscoveryRequest struct {
 	// CatalogProviderId Catalog provider to query (AgentNetworkCatalogProvider.id). Determines the listing endpoint, the auth header and the response shape.
 	CatalogProviderId string `json:"catalog_provider_id"`
 
-	// ProviderId Existing Agent Network provider record whose stored credential and upstream should be used. Lets the form refresh the list without the client holding the key.
+	// ProviderId Existing Agent Network provider record to query with. Its stored credential is used, and its upstream unless upstream_url overrides it, so the form can refresh the list without the client holding the key.
 	ProviderId *string `json:"provider_id,omitempty"`
 
-	// UpstreamUrl The upstream being configured. Used to reach vendors that serve their listing from the same host as inference, and to read back the region for those whose host embeds one. Ignored when provider_id is supplied.
+	// UpstreamUrl The upstream being configured. Used to reach vendors that serve their listing from the same host as inference, and to read back the region for those whose host embeds one. Sent alongside provider_id, it overrides the stored upstream, so an edit can be listed against the URL on the form before it is saved.
 	UpstreamUrl *string `json:"upstream_url,omitempty"`
 }
 

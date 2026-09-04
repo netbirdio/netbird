@@ -23,6 +23,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/expose"
+	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/netbirdio/netbird/client/internal/localmetrics"
@@ -153,9 +154,17 @@ type Server struct {
 }
 
 type oauthAuthFlow struct {
-	expiresAt  time.Time
-	flow       auth.OAuthFlow
-	info       auth.AuthFlowInfo
+	expiresAt time.Time
+	flow      auth.OAuthFlow
+	info      auth.AuthFlowInfo
+
+	// cacheGeneration is the SSH JWT cache's generation as of the start of the
+	// request that created this flow. The flow outlives a profile switch, so
+	// reading the generation any later — when the IdP has answered, or when the
+	// token finally arrives — would read the new session's one and let the old
+	// session's token into the new session's cache.
+	cacheGeneration uint64
+
 	waitCancel context.CancelFunc
 }
 
@@ -656,6 +665,11 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	}
 
 	state := internal.CtxGetState(s.rootCtx)
+	status := state.CurrentStatus()
+	if status == internal.StatusConnected {
+		return &proto.LoginResponse{}, nil
+	}
+
 	defer func() {
 		status, err := state.Status()
 		if err != nil || (status != internal.StatusNeedsLogin && status != internal.StatusLoginFailed) {
@@ -1250,6 +1264,8 @@ func (s *Server) SwitchProfile(callerCtx context.Context, msg *proto.SwitchProfi
 	s.config = config
 	s.localMetrics.Reconcile(config.LocalMetricsEnabled, config.LocalMetricsAddress)
 
+	s.jwtCache.clear()
+
 	if msg != nil && msg.ProfileName != nil {
 		s.publishProfileListChanged(*msg.ProfileName)
 	}
@@ -1420,6 +1436,7 @@ func (s *Server) cleanupAfterProfileLogout(id profilemanager.ID, username string
 	if err := s.cleanupConnection(); err != nil && !errors.Is(err, ErrServiceNotUp) {
 		log.Errorf("failed to cleanup connection: %v", err)
 	}
+	s.jwtCache.clear()
 	state := internal.CtxGetState(s.rootCtx)
 	state.Set(internal.StatusNeedsLogin)
 }
@@ -1448,6 +1465,7 @@ func (s *Server) handleActiveProfileLogout(ctx context.Context) (*proto.LogoutRe
 		log.Errorf("failed to cleanup connection: %v", err)
 		return nil, err
 	}
+	s.jwtCache.clear()
 
 	state := internal.CtxGetState(s.rootCtx)
 	state.Set(internal.StatusNeedsLogin)
@@ -1779,6 +1797,20 @@ func (s *Server) getJWTCacheTTL() time.Duration {
 	return ttl
 }
 
+// cachedJWT returns the cached SSH JWT to the identity that obtained it, and a
+// miss on a control channel that carries no caller identity.
+func (s *Server) cachedJWT(ctx context.Context) (string, bool) {
+	caller, ok := ipcauth.CallerIdentity(ctx)
+	if !ok {
+		// Expected and handled on a control channel with no peer identity: the
+		// caller re-authenticates. daemonServerOptions warns about it once at
+		// startup, so this stays out of the per-request log.
+		log.Debug("not serving the cached SSH JWT: the caller's identity cannot be verified on this control channel")
+		return "", false
+	}
+	return s.jwtCache.get(caller)
+}
+
 // RequestJWTAuth initiates JWT authentication flow for SSH
 func (s *Server) RequestJWTAuth(
 	ctx context.Context,
@@ -1788,8 +1820,14 @@ func (s *Server) RequestJWTAuth(
 		return nil, ctx.Err()
 	}
 
+	// The generation is read here, with the config and under the same lock, not
+	// where the flow is stored below: RequestAuthInfo talks to the IdP in
+	// between, and a switch or a logout during that call would otherwise be
+	// read as the generation this flow belongs to. SwitchProfile holds
+	// s.mutex across its own clear(), so the pair cannot be torn.
 	s.mutex.Lock()
 	config := s.config
+	cacheGeneration := s.jwtCache.currentGeneration()
 	s.mutex.Unlock()
 
 	if config == nil {
@@ -1798,7 +1836,7 @@ func (s *Server) RequestJWTAuth(
 
 	jwtCacheTTL := s.getJWTCacheTTL()
 	if jwtCacheTTL > 0 {
-		if cachedToken, found := s.jwtCache.get(); found {
+		if cachedToken, found := s.cachedJWT(ctx); found {
 			log.Debugf("JWT token found in cache, returning cached token for SSH authentication")
 
 			return &proto.RequestJWTAuthResponse{
@@ -1832,6 +1870,7 @@ func (s *Server) RequestJWTAuth(
 	s.oauthAuthFlow.flow = oAuthFlow
 	s.oauthAuthFlow.info = authInfo
 	s.oauthAuthFlow.expiresAt = time.Now().Add(time.Duration(authInfo.ExpiresIn) * time.Second)
+	s.oauthAuthFlow.cacheGeneration = cacheGeneration
 	s.mutex.Unlock()
 
 	return &proto.RequestJWTAuthResponse{
@@ -1856,6 +1895,10 @@ func (s *Server) WaitJWTToken(
 	s.mutex.Lock()
 	oAuthFlow := s.oauthAuthFlow.flow
 	authInfo := s.oauthAuthFlow.info
+	// Recorded when the flow was created, not read here: the flow survives a
+	// profile switch, and everything from RequestJWTAuth to the IdP answering
+	// has to count as the same session for the cache.
+	generation := s.oauthAuthFlow.cacheGeneration
 	s.mutex.Unlock()
 
 	if oAuthFlow == nil || authInfo.DeviceCode != req.DeviceCode {
@@ -1870,11 +1913,17 @@ func (s *Server) WaitJWTToken(
 	token := tokenInfo.GetTokenToUse()
 
 	jwtCacheTTL := s.getJWTCacheTTL()
-	if jwtCacheTTL > 0 {
-		s.jwtCache.store(token, jwtCacheTTL)
-		log.Debugf("JWT token cached for SSH authentication, TTL: %v", jwtCacheTTL)
-	} else {
+	switch caller, ok := ipcauth.CallerIdentity(ctx); {
+	case jwtCacheTTL <= 0:
 		log.Debug("JWT caching disabled, not storing token")
+	case !ok:
+		log.Debug("not caching the SSH JWT: the caller's identity cannot be verified on this control channel")
+	default:
+		if s.jwtCache.store(token, caller, jwtCacheTTL, generation) {
+			log.Debugf("JWT token cached for SSH authentication, TTL: %v", jwtCacheTTL)
+		} else {
+			log.Debug("not caching the SSH JWT: the session it was obtained under ended while the IdP was polled")
+		}
 	}
 
 	s.mutex.Lock()

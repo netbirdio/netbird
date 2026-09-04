@@ -141,16 +141,15 @@ func (e *Engine) setFileDropTunnel() {
 // device. The listeners are bound to the overlay address of the interface being
 // swapped out and do not survive it: Android renews the tun on every route
 // change, which leaves the IPv4 listener dead with accept4: invalid argument.
-func (e *Engine) restartFileDrop() {
-	e.syncMsgMux.Lock()
-	defer e.syncMsgMux.Unlock()
-
+// No-op when it is not running. See Engine.rebindOverlayListeners.
+func (e *Engine) restartFileDrop() error {
 	if e.fileDrop == nil || !e.fileDropRunning || e.wgInterface == nil {
-		return
+		return nil
 	}
 
 	e.stopFileDrop()
 	e.startFileDrop()
+	return nil
 }
 
 func (e *Engine) stopFileDrop() {
