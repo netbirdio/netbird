@@ -59,10 +59,12 @@ func (addr Address) IPv6Prefix() netip.Prefix {
 	return netip.PrefixFrom(addr.IPv6, addr.IPv6Net.Bits())
 }
 
+// HostPrefix returns the v4 address as a single-host prefix.
 func (addr Address) HostPrefix() netip.Prefix {
 	return netip.PrefixFrom(addr.IP, addr.IP.BitLen())
 }
 
+// IPv6HostPrefix returns the v6 address as a single-host prefix, or an invalid prefix when no v6 overlay address is assigned.
 func (addr Address) IPv6HostPrefix() netip.Prefix {
 	if !addr.HasIPv6() {
 		return netip.Prefix{}

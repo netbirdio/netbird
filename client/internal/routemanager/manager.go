@@ -842,6 +842,7 @@ func (m *DefaultManager) logExitNodeUpdate(info exitNodeInfo, preferred route.Ne
 		len(info.allIDs), preferred, len(info.userSelected), len(info.userDeselected), len(info.selectedByManagement))
 }
 
+// overlayNetworks returns the v4 and v6 overlay networks of the WireGuard interface, each only when it is set.
 func (m *DefaultManager) overlayNetworks() []string {
 	if m.wgInterface == nil {
 		return nil
@@ -858,6 +859,7 @@ func (m *DefaultManager) overlayNetworks() []string {
 	return nets
 }
 
+// clientRouteRange returns the static client route networks of the selected exit nodes together with the fake IP blocks.
 func (m *DefaultManager) clientRouteRange() []string {
 	filtered := m.routeSelector.FilterSelectedExitNodes(m.clientRoutes)
 	var nets []string

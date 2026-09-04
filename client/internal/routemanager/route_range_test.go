@@ -3,36 +3,19 @@
 package routemanager
 
 import (
-	"net"
 	"net/netip"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"golang.zx2c4.com/wireguard/tun/netstack"
 
-	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/routeselector"
 	"github.com/netbirdio/netbird/route"
 )
 
-type routeRangeWGMock struct {
-	addr wgaddr.Address
-}
-
-func (m *routeRangeWGMock) AddAllowedIP(string, netip.Prefix) error    { return nil }
-func (m *routeRangeWGMock) RemoveAllowedIP(string, netip.Prefix) error { return nil }
-func (m *routeRangeWGMock) Name() string                               { return "utun-test" }
-func (m *routeRangeWGMock) Address() wgaddr.Address                    { return m.addr }
-func (m *routeRangeWGMock) ToInterface() *net.Interface                { return nil }
-func (m *routeRangeWGMock) IsUserspaceBind() bool                      { return false }
-func (m *routeRangeWGMock) GetFilter() device.PacketFilter             { return nil }
-func (m *routeRangeWGMock) GetDevice() *device.FilteredDevice          { return nil }
-func (m *routeRangeWGMock) GetNet() *netstack.Net                      { return nil }
-
 func TestCurrentRouteRange_OverlayNetworkWithClientRoutesDisabled(t *testing.T) {
 	m := &DefaultManager{
-		wgInterface:         &routeRangeWGMock{addr: wgaddr.MustParseWGAddress("100.91.96.107/16")},
+		wgInterface:         &reconcileWGMock{addr: wgaddr.MustParseWGAddress("100.91.96.107/16")},
 		disableClientRoutes: true,
 	}
 
@@ -48,7 +31,7 @@ func TestCurrentRouteRange_OverlayNetworksAndClientRoutes(t *testing.T) {
 	dynamic := &route.Route{ID: "dynamic", NetID: "dyn", NetworkType: route.DomainNetwork}
 
 	m := &DefaultManager{
-		wgInterface:   &routeRangeWGMock{addr: addr},
+		wgInterface:   &reconcileWGMock{addr: addr},
 		routeSelector: routeselector.NewRouteSelector(),
 		clientRoutes: route.HAMap{
 			static.GetHAUniqueID():  {static},
@@ -61,7 +44,7 @@ func TestCurrentRouteRange_OverlayNetworksAndClientRoutes(t *testing.T) {
 
 func TestCurrentRouteRange_NoInterfaceAddress(t *testing.T) {
 	m := &DefaultManager{
-		wgInterface:         &routeRangeWGMock{},
+		wgInterface:         &reconcileWGMock{},
 		disableClientRoutes: true,
 	}
 
@@ -74,7 +57,7 @@ func TestCurrentRouteRange_IPv6WithoutIPv4Network(t *testing.T) {
 		IPv6Net: netip.MustParsePrefix("fd00:1234::/64"),
 	}
 	m := &DefaultManager{
-		wgInterface:         &routeRangeWGMock{addr: addr},
+		wgInterface:         &reconcileWGMock{addr: addr},
 		disableClientRoutes: true,
 	}
 
@@ -86,7 +69,7 @@ func TestCurrentRouteRange_IPv6AddressWithoutNetwork(t *testing.T) {
 	addr.IPv6 = netip.MustParseAddr("fd00:1234::1")
 
 	m := &DefaultManager{
-		wgInterface:         &routeRangeWGMock{addr: addr},
+		wgInterface:         &reconcileWGMock{addr: addr},
 		disableClientRoutes: true,
 	}
 
