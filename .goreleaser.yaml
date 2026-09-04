@@ -454,7 +454,7 @@ brews:
       # offered here, because the post-install sandbox runs this code in a
       # pseudoterminal, where $stdin.tty? is true even for a headless
       # `brew upgrade` and a prompt would stall it until sudo times out.
-      return if restart_daemon
+      return if default_service? && restart_daemon
 
       opoo <<~EOS
         The NetBird service is still running the previous version. Restart it with:
@@ -475,12 +475,24 @@ brews:
                       out: File::NULL, err: File::NULL)
       end
 
+      # `netbird service reconfigure` only manages the default service name, and a
+      # daemon installed under a custom name (-s) cannot be told apart by its
+      # command line, so only a service whose default definition exists is
+      # reconfigured; anything else gets the printed instructions.
+      def default_service?
+        File.exist?(OS.mac? ? "/Library/LaunchDaemons/netbird.plist" : "/etc/systemd/system/netbird.service")
+      end
+
       # `netbird service reconfigure` rewrites the service definition with the
       # just-upgraded binary before starting it again -- a plain restart re-execs
       # the path recorded at install time, which on Linux is the previous
-      # version's Cellar directory. Reconfigure also re-checks the running state
-      # itself and only starts the service again when it found it running, so a
-      # daemon stopped in the meantime stays stopped.
+      # version's Cellar directory. Reconfigure re-checks the running state itself
+      # and only starts the service again when it found it running. That re-check
+      # is not atomic with its final start, but closing the remaining
+      # milliseconds-wide window needs the atomic service-manager verbs
+      # (systemctl try-restart, launchctl kill), which re-exec the recorded --
+      # on Linux stale -- executable path instead of the new binary; upstream
+      # semantics win here.
       def restart_daemon
         Kernel.system("sudo", "-n", "#{opt_bin}/netbird", "service", "reconfigure",
                       out: File::NULL, err: File::NULL)
