@@ -21,3 +21,5 @@ func (e *Engine) updateVNCServerAuth(auth *mgmProto.VNCAuth) {
 }
 
 func (e *Engine) stopVNCServer() error { return nil }
+
+func (e *Engine) restartVNCListeners() error { return nil }
