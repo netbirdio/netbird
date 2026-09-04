@@ -456,7 +456,7 @@ brews:
 
       opoo <<~EOS
         The NetBird service is still running the previous version. Restart it with:
-          sudo netbird service restart
+          sudo #{opt_bin}/netbird service restart
       EOS
     custom_block: |
       # The daemon runs as root, so the process table is the only place its
@@ -467,15 +467,23 @@ brews:
       # `which netbird` resolved to), so anchoring the pattern to it keeps
       # command lines that merely mention "netbird service run" from matching.
       def daemon_running?
-        Kernel.system("pgrep", "-f", "^#{HOMEBREW_PREFIX}/bin/netbird service run",
+        Kernel.system("pgrep", "-f", "^#{Regexp.escape(HOMEBREW_PREFIX)}/bin/netbird service run",
                       out: File::NULL, err: File::NULL)
       end
 
-      # Not `Formula#system`: that one raises on a non-zero exit, and a failed
-      # restart attempt must fall through to the printed instructions instead.
+      # Signals the service manager directly instead of running `netbird service
+      # restart`: netbird implements restart as stop-then-start, which would START
+      # the daemon if it were stopped in the instant after the check above.
+      # `launchctl kill` only signals a live service (KeepAlive then relaunches it
+      # with the new binary) and `systemctl try-restart` is a no-op for a stopped
+      # unit, so neither can ever start a deliberately stopped daemon.
       def restart_daemon
-        Kernel.system("sudo", "-n", "#{opt_bin}/netbird", "service", "restart",
-                      out: File::NULL, err: File::NULL)
+        restart = if OS.mac?
+          ["launchctl", "kill", "SIGTERM", "system/netbird"]
+        else
+          ["systemctl", "try-restart", "netbird"]
+        end
+        Kernel.system("sudo", "-n", *restart, out: File::NULL, err: File::NULL)
       end
 
 uploads:
