@@ -1,7 +1,10 @@
 package roundtrip
 
 import (
+	"errors"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -93,7 +96,7 @@ func (t *upstreamTransport) RoundTrip(req *http.Request) (*http.Response, error)
 		return t.primary.RoundTrip(req)
 	}
 
-	host := req.URL.Host
+	host := upstreamKey(req.URL)
 	if t.isDowngraded(host) {
 		return t.http1().RoundTrip(req)
 	}
@@ -109,11 +112,22 @@ func (t *upstreamTransport) RoundTrip(req *http.Request) (*http.Response, error)
 	// the cause is site configuration rather than a passing fault.
 	t.markDowngraded(host, isHTTP11Required(err))
 
+	if !safeToRetry(req, err) {
+		// The upstream may have carried out the request before failing
+		// to answer over h2, and repeating it could duplicate whatever
+		// it did. The host is pinned either way, so the next request
+		// goes out over HTTP/1.1.
+		t.logger.WithFields(log.Fields{
+			"upstream": host,
+			"method":   req.Method,
+		}).Debug("not retrying over HTTP/1.1: the upstream may already have applied this request")
+		return nil, err
+	}
+
 	retry, ok := replayable(req)
 	if !ok {
 		// The body is already consumed and cannot be regenerated, so
-		// this request fails. The host is pinned either way, so the
-		// next one goes out over HTTP/1.1.
+		// this request fails, and the pin carries the next one.
 		return nil, err
 	}
 	return t.http1().RoundTrip(retry)
@@ -136,8 +150,6 @@ func (t *upstreamTransport) mayDowngrade(req *http.Request) bool {
 }
 
 func (t *upstreamTransport) isDowngraded(host string) bool {
-	now := time.Now()
-
 	t.mu.RLock()
 	pin, ok := t.downgraded[host]
 	t.mu.RUnlock()
@@ -145,17 +157,25 @@ func (t *upstreamTransport) isDowngraded(host string) bool {
 	if !ok {
 		return false
 	}
-	if pin.active(now) {
+	if pin.active(time.Now()) {
 		return true
 	}
 
 	t.mu.Lock()
-	// Re-check under the write lock: a concurrent request may have
-	// re-pinned the host after the read above.
-	if pin, ok := t.downgraded[host]; ok && !pin.active(time.Now()) {
-		delete(t.downgraded, host)
+	defer t.mu.Unlock()
+
+	// Re-read under the write lock rather than trusting the expired pin
+	// from above: a concurrent request may have re-pinned the host since,
+	// and that pin decides this request too. Reporting the stale read
+	// would send one request back to h2 against a live pin.
+	pin, ok = t.downgraded[host]
+	if !ok {
+		return false
 	}
-	t.mu.Unlock()
+	if pin.active(time.Now()) {
+		return true
+	}
+	delete(t.downgraded, host)
 
 	return false
 }
@@ -174,6 +194,7 @@ func (t *upstreamTransport) markDowngraded(host string, permanent bool) {
 	previous, pinned := t.downgraded[host]
 	// A permanent pin is never weakened back into an expiring one: the
 	// upstream has already said h2 is not on offer.
+	promoted := pinned && !previous.permanent() && permanent
 	if !pinned || !previous.permanent() {
 		t.downgraded[host] = pin
 	}
@@ -184,7 +205,10 @@ func (t *upstreamTransport) markDowngraded(host string, permanent bool) {
 	}
 	t.mu.Unlock()
 
-	if pinned {
+	// Log a new pin, and a pin the upstream has since asked to make
+	// permanent — otherwise an operator would only ever see the "for the
+	// next 10m" line and never learn the upstream settled the question.
+	if pinned && !promoted {
 		return
 	}
 
@@ -219,6 +243,71 @@ func (t *upstreamTransport) existingHTTP1() *http.Transport {
 	defer t.fallbackMu.Unlock()
 
 	return t.fallback
+}
+
+// upstreamKey normalizes an authority for use as a pin key, so one
+// upstream cannot end up with two independent pins. DNS labels compare
+// case-insensitively, and the default HTTPS port is implied — every
+// downgrade path is TLS-only, so a bare host and the same host on :443
+// are the same upstream.
+func upstreamKey(u *url.URL) string {
+	host := strings.ToLower(u.Hostname())
+
+	port := u.Port()
+	if port == "" || port == "443" {
+		return host
+	}
+
+	// JoinHostPort rather than concatenation: an IPv6 literal needs its
+	// brackets back after Hostname stripped them.
+	return net.JoinHostPort(host, port)
+}
+
+// safeToRetry reports whether req may be sent a second time over
+// HTTP/1.1 after err ended its h2 attempt.
+//
+// A failure at the h2 layer does not say whether the upstream already
+// carried out the request, so replaying one that changes state could
+// duplicate it. Two cases are safe: a request whose repetition is
+// harmless by definition, and an upstream that told us it processed
+// nothing on the connection. The second is what makes the IIS case work
+// for every method — a site requiring HTTP/1.1 refuses at stream 0,
+// before the request is looked at.
+func safeToRetry(req *http.Request, err error) bool {
+	return idempotent(req) || upstreamProcessedNothing(err)
+}
+
+// idempotent reports whether repeating req is defined to be harmless.
+// It mirrors net/http's own retry rule (Request.isReplayable): a method
+// with no side effects, or a caller that promised the upstream
+// deduplicates by key.
+func idempotent(req *http.Request) bool {
+	if req.Header.Get("Idempotency-Key") != "" || req.Header.Get("X-Idempotency-Key") != "" {
+		return true
+	}
+
+	switch req.Method {
+	// An empty method means GET, as in net/http.
+	case "", http.MethodGet, http.MethodHead, http.MethodOptions, http.MethodTrace:
+		return true
+	}
+
+	return false
+}
+
+// upstreamProcessedNothing reports whether err describes a GOAWAY that
+// named this request's stream as one the upstream had not received, so
+// it cannot have acted on it. A stream error says the opposite: the
+// stream was open, so the request had been delivered.
+func upstreamProcessedNothing(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := transportError(err).Error()
+
+	return strings.Contains(msg, goAwayStreamNotReceivedMarker) ||
+		strings.Contains(msg, goAwayNothingProcessedMarker)
 }
 
 // replayable returns a request that can be sent a second time, or
@@ -265,15 +354,41 @@ var http2ErrorMarkers = []string{
 	http11RequiredMarker,
 }
 
-// http11RequiredMarker is the error code an upstream sends to say the
-// request belongs on HTTP/1.1. Unlike the other markers it is not a
-// fault: the upstream is describing its own configuration.
-const http11RequiredMarker = "HTTP_1_1_REQUIRED"
+const (
+	// http11RequiredMarker is the error code an upstream sends to say the
+	// request belongs on HTTP/1.1. Unlike the other markers it is not a
+	// fault: the upstream is describing its own configuration.
+	http11RequiredMarker = "HTTP_1_1_REQUIRED"
+
+	// A GOAWAY carrying NO_ERROR closes a connection without complaint:
+	// a server draining before shutdown, recycling an application pool,
+	// capping requests per connection. The upstream speaks h2 perfectly
+	// well, so this must never pin it. The two spellings are the two
+	// formats the bundled transport prints the code in.
+	goAwayNoErrorEqualsMarker = "ErrCode=NO_ERROR"
+	goAwayNoErrorColonMarker  = "ErrCode:NO_ERROR"
+	// gracefulGoAwayMarker is errClientConnGotGoAway, which the bundled
+	// transport raises for a stream the server never received on a
+	// connection it is shutting down gracefully. It normally retries
+	// those itself on a new connection and this never surfaces.
+	gracefulGoAwayMarker = "Transport received Server's graceful shutdown GOAWAY"
+
+	// goAwayStreamNotReceivedMarker is the bundled transport's abort for
+	// the first stream on a connection whose GOAWAY carried a real error
+	// code — the IIS case. It sits in the same "streamID > LastStreamID"
+	// branch as the graceful abort, so the server had not received the
+	// stream (see net/http's h2_bundle.go).
+	goAwayStreamNotReceivedMarker = "Transport received GOAWAY from server ErrCode:"
+	// goAwayNothingProcessedMarker is a GoAwayError naming stream 0 as
+	// the last one received, which says the same thing. The trailing
+	// comma keeps it from matching LastStreamID=10 and the rest.
+	goAwayNothingProcessedMarker = "LastStreamID=0,"
+)
 
 // isHTTP11Required reports whether the upstream itself asked for
 // HTTP/1.1, rather than merely failing at h2.
 func isHTTP11Required(err error) bool {
-	return err != nil && strings.Contains(err.Error(), http11RequiredMarker)
+	return err != nil && strings.Contains(transportError(err).Error(), http11RequiredMarker)
 }
 
 // isHTTP2ProtocolError reports whether err says the upstream cannot
@@ -283,7 +398,14 @@ func isHTTP2ProtocolError(err error) bool {
 		return false
 	}
 
-	msg := err.Error()
+	msg := transportError(err).Error()
+
+	// A graceful GOAWAY is routine connection management, not an
+	// upstream that cannot serve h2.
+	if isGracefulGoAway(msg) {
+		return false
+	}
+
 	for _, marker := range http2ErrorMarkers {
 		if strings.Contains(msg, marker) {
 			return true
@@ -291,4 +413,25 @@ func isHTTP2ProtocolError(err error) bool {
 	}
 
 	return false
+}
+
+// isGracefulGoAway reports whether msg describes a GOAWAY sent to close
+// a healthy connection rather than to report an inability to serve h2.
+func isGracefulGoAway(msg string) bool {
+	return strings.Contains(msg, goAwayNoErrorEqualsMarker) ||
+		strings.Contains(msg, goAwayNoErrorColonMarker) ||
+		strings.Contains(msg, gracefulGoAwayMarker)
+}
+
+// transportError strips a *url.Error wrapper, which prefixes the request
+// URL to the message. Markers are matched as substrings, so a URL left
+// in place could classify an ordinary dial or TLS failure as an h2 one
+// on the strength of the path alone.
+func transportError(err error) error {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) && urlErr.Err != nil {
+		return urlErr.Err
+	}
+
+	return err
 }
