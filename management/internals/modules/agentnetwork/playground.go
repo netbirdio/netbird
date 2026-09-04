@@ -49,23 +49,8 @@ func (m *managerImpl) ExecutePlayground(
 		return nil, err
 	}
 
-	switch req.Principal.Kind {
-	case proxy.PlaygroundPrincipalPeer:
-		if err := m.requirePermission(ctx, accountID, operatorUserID, modules.Peers, operations.Read); err != nil {
-			return nil, err
-		}
-		if err := m.requirePermission(ctx, accountID, operatorUserID, modules.Users, operations.Read); err != nil {
-			return nil, err
-		}
-	case proxy.PlaygroundPrincipalGroup:
-		if err := m.requirePermission(ctx, accountID, operatorUserID, modules.Groups, operations.Read); err != nil {
-			return nil, err
-		}
-	default:
-		return nil, status.Errorf(status.InvalidArgument, "principal kind must be peer or group")
-	}
-	if strings.TrimSpace(req.Principal.ID) == "" {
-		return nil, status.Errorf(status.InvalidArgument, "principal id is required")
+	if err := m.authorizePlaygroundPrincipal(ctx, accountID, operatorUserID, req.Principal); err != nil {
+		return nil, err
 	}
 
 	headers := make(http.Header, len(req.Headers))
@@ -98,57 +83,112 @@ func (m *managerImpl) ExecutePlayground(
 		Headers:       clonePlaygroundHeaders(req.Headers),
 		Body:          append([]byte(nil), req.Body...),
 	}
-	switch req.Principal.Kind {
-	case proxy.PlaygroundPrincipalPeer:
-		peer, err := m.store.GetPeerByID(
-			ctx,
-			store.LockingStrengthNone,
-			accountID,
-			req.Principal.ID,
-		)
-		if err != nil {
-			return nil, err
-		}
-		groups, err := m.store.GetPeerGroups(
-			ctx,
-			store.LockingStrengthNone,
-			accountID,
-			peer.ID,
-		)
-		if err != nil {
-			return nil, err
-		}
-		command.UserID = peer.ID
-		command.UserEmail = peer.Name
-		if peer.UserID != "" {
-			user, err := m.store.GetUserByUserID(ctx, store.LockingStrengthNone, peer.UserID)
-			if err != nil {
-				return nil, err
-			}
-			if user.AccountID != accountID {
-				return nil, status.Errorf(status.PermissionDenied, "peer owner is outside the account")
-			}
-			command.UserID = user.Id
-			if user.Email != "" {
-				command.UserEmail = user.Email
-			}
-		}
-		command.GroupIDs = make([]string, 0, len(groups))
-		command.GroupNames = make([]string, 0, len(groups))
-		for _, group := range groups {
-			command.GroupIDs = append(command.GroupIDs, group.ID)
-			command.GroupNames = append(command.GroupNames, group.Name)
-		}
-	case proxy.PlaygroundPrincipalGroup:
-		group, err := m.store.GetGroupByID(ctx, store.LockingStrengthNone, accountID, req.Principal.ID)
-		if err != nil {
-			return nil, err
-		}
-		command.GroupIDs = []string{group.ID}
-		command.GroupNames = []string{group.Name}
+	if err := m.populatePlaygroundPrincipal(ctx, accountID, &command); err != nil {
+		return nil, err
 	}
 
 	return m.proxyController.ExecuteAgentNetworkPlayground(ctx, settings.ProxyAddress, command)
+}
+
+func (m *managerImpl) authorizePlaygroundPrincipal(
+	ctx context.Context,
+	accountID, operatorUserID string,
+	principal PlaygroundPrincipal,
+) error {
+	switch principal.Kind {
+	case proxy.PlaygroundPrincipalPeer:
+		if err := m.requirePermission(ctx, accountID, operatorUserID, modules.Peers, operations.Read); err != nil {
+			return err
+		}
+		if err := m.requirePermission(ctx, accountID, operatorUserID, modules.Users, operations.Read); err != nil {
+			return err
+		}
+	case proxy.PlaygroundPrincipalGroup:
+		if err := m.requirePermission(ctx, accountID, operatorUserID, modules.Groups, operations.Read); err != nil {
+			return err
+		}
+	default:
+		return status.Errorf(status.InvalidArgument, "principal kind must be peer or group")
+	}
+	if strings.TrimSpace(principal.ID) == "" {
+		return status.Errorf(status.InvalidArgument, "principal id is required")
+	}
+	return nil
+}
+
+func (m *managerImpl) populatePlaygroundPrincipal(
+	ctx context.Context,
+	accountID string,
+	command *proxy.AgentNetworkPlaygroundRequest,
+) error {
+	switch command.PrincipalKind {
+	case proxy.PlaygroundPrincipalPeer:
+		return m.populatePlaygroundPeer(ctx, accountID, command)
+	case proxy.PlaygroundPrincipalGroup:
+		group, err := m.store.GetGroupByID(
+			ctx,
+			store.LockingStrengthNone,
+			accountID,
+			command.PrincipalID,
+		)
+		if err != nil {
+			return err
+		}
+		command.GroupIDs = []string{group.ID}
+		command.GroupNames = []string{group.Name}
+		return nil
+	default:
+		return status.Errorf(status.InvalidArgument, "principal kind must be peer or group")
+	}
+}
+
+func (m *managerImpl) populatePlaygroundPeer(
+	ctx context.Context,
+	accountID string,
+	command *proxy.AgentNetworkPlaygroundRequest,
+) error {
+	peer, err := m.store.GetPeerByID(
+		ctx,
+		store.LockingStrengthNone,
+		accountID,
+		command.PrincipalID,
+	)
+	if err != nil {
+		return err
+	}
+	groups, err := m.store.GetPeerGroups(
+		ctx,
+		store.LockingStrengthNone,
+		accountID,
+		peer.ID,
+	)
+	if err != nil {
+		return err
+	}
+
+	command.UserID = peer.ID
+	command.UserEmail = peer.Name
+	if peer.UserID != "" {
+		user, err := m.store.GetUserByUserID(ctx, store.LockingStrengthNone, peer.UserID)
+		if err != nil {
+			return err
+		}
+		if user.AccountID != accountID {
+			return status.Errorf(status.PermissionDenied, "peer owner is outside the account")
+		}
+		command.UserID = user.Id
+		if user.Email != "" {
+			command.UserEmail = user.Email
+		}
+	}
+
+	command.GroupIDs = make([]string, 0, len(groups))
+	command.GroupNames = make([]string, 0, len(groups))
+	for _, group := range groups {
+		command.GroupIDs = append(command.GroupIDs, group.ID)
+		command.GroupNames = append(command.GroupNames, group.Name)
+	}
+	return nil
 }
 
 func clonePlaygroundHeaders(headers []proxy.AgentNetworkPlaygroundHeader) []proxy.AgentNetworkPlaygroundHeader {
