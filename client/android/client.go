@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/exp/maps"
@@ -25,7 +26,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
-	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/client/netevents"
 	"github.com/netbirdio/netbird/client/system"
@@ -92,13 +92,12 @@ type Client struct {
 	config        *profilemanager.Config
 	cacheDir      string
 
-	// mdmLoader holds the per-Client MDM policy source. Set by
-	// SetMDMPolicyFetcher (called from the Kotlin side). Each Run
-	// passes this loader to the resolved Config so applyMDMPolicy
-	// picks up the active overlay. Nil means "MDM enforcement off
-	// for this Client".
-	mdmLoader   *mdm.Loader
-	mdmDetector *mdm.ChangeDetector
+	// mdmSource holds the per-Client MDM policy source and its change
+	// detector as one unit. Set by SetMDMPolicyFetcher (called from the
+	// Kotlin side). Each Run passes the loader to the resolved Config so
+	// applyMDMPolicy picks up the active overlay. Nil means "MDM
+	// enforcement off for this Client".
+	mdmSource atomic.Pointer[mdmSource]
 
 	// Identifies the running profile for the SSO login hint; see profile_state.go.
 	cfgPath string

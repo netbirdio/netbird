@@ -24,7 +24,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
-	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/client/netevents"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/formatter"
@@ -93,13 +92,12 @@ type Client struct {
 	// preloadedConfig holds config loaded from JSON (used on tvOS where file writes are blocked)
 	preloadedConfig *profilemanager.Config
 
-	// mdmLoader holds the per-Client MDM policy source. Set by
-	// SetMDMPolicyFetcher (called from the Swift side at extension
-	// init). Each Run passes this loader to the resolved Config so
-	// applyMDMPolicy picks up the active overlay. Nil means "MDM
-	// enforcement off for this Client".
-	mdmLoader   *mdm.Loader
-	mdmDetector *mdm.ChangeDetector
+	// mdmSource holds the per-Client MDM policy source and its change
+	// detector as one unit. Set by SetMDMPolicyFetcher (called from the
+	// Swift side at extension init). Each Run passes the loader to the
+	// resolved Config so applyMDMPolicy picks up the active overlay. Nil
+	// means "MDM enforcement off for this Client".
+	mdmSource atomic.Pointer[mdmSource]
 
 	// stateMu guards the run lifecycle as one unit: the cancel installed by
 	// the current run, the channel it closes on exit, and the state it

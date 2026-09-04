@@ -3,6 +3,8 @@
 package NetBirdSDK
 
 import (
+	"sync/atomic"
+
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/mdm"
 )
@@ -10,7 +12,7 @@ import (
 // Preferences export a subset of the internal config for gomobile
 type Preferences struct {
 	configInput profilemanager.ConfigInput
-	mdmLoader   *mdm.Loader
+	mdmLoader   atomic.Pointer[mdm.Loader]
 }
 
 // NewPreferences create new Preferences instance
@@ -25,7 +27,7 @@ func NewPreferences(configPath string, stateFilePath string) *Preferences {
 // SetMDMPolicyFetcher registers the native-provided MDM policy fetcher on
 // this Preferences instance; passing nil disables MDM enforcement.
 func (p *Preferences) SetMDMPolicyFetcher(f PolicyFetcher) {
-	p.mdmLoader = loaderFor(f)
+	p.mdmLoader.Store(loaderFor(f))
 }
 
 // GetRestrictionsJSON returns the UI enforcement snapshot derived from the
@@ -35,7 +37,7 @@ func (p *Preferences) GetRestrictionsJSON() (string, error) {
 }
 
 func (p *Preferences) policy() *mdm.Policy {
-	return p.mdmLoader.Load()
+	return p.mdmLoader.Load().Load()
 }
 
 // GetManagementURL read url from config file
