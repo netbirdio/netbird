@@ -268,6 +268,21 @@ func (m *MockController) EXPECT() *MockControllerMockRecorder {
 	return m.recorder
 }
 
+// ExecuteAgentNetworkPlayground mocks base method.
+func (m *MockController) ExecuteAgentNetworkPlayground(ctx context.Context, clusterAddr string, request AgentNetworkPlaygroundRequest) (*AgentNetworkPlaygroundResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ExecuteAgentNetworkPlayground", ctx, clusterAddr, request)
+	ret0, _ := ret[0].(*AgentNetworkPlaygroundResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ExecuteAgentNetworkPlayground indicates an expected call of ExecuteAgentNetworkPlayground.
+func (mr *MockControllerMockRecorder) ExecuteAgentNetworkPlayground(ctx, clusterAddr, request any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExecuteAgentNetworkPlayground", reflect.TypeOf((*MockController)(nil).ExecuteAgentNetworkPlayground), ctx, clusterAddr, request)
+}
+
 // GetOIDCValidationConfig mocks base method.
 func (m *MockController) GetOIDCValidationConfig() OIDCValidationConfig {
 	m.ctrl.T.Helper()

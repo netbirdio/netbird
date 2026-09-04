@@ -162,6 +162,21 @@ func (c *Combined) DeleteSettings(ctx context.Context) error {
 	return anDelete(ctx, c, "/api/agent-network/settings")
 }
 
+// ExecutePlayground executes one provider-native request through the live
+// Agent Network proxy path.
+func (c *Combined) ExecutePlayground(
+	ctx context.Context,
+	req api.AgentNetworkPlaygroundRequest,
+) (api.AgentNetworkPlaygroundResponse, error) {
+	return anRequest[api.AgentNetworkPlaygroundResponse](
+		ctx,
+		c,
+		http.MethodPost,
+		"/api/agent-network/playground",
+		req,
+	)
+}
+
 // ListConsumption returns the account's consumption rows (possibly empty).
 func (c *Combined) ListConsumption(ctx context.Context) ([]api.AgentNetworkConsumption, error) {
 	return anRequest[[]api.AgentNetworkConsumption](ctx, c, http.MethodGet, "/api/agent-network/consumption", nil)

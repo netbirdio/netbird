@@ -14,10 +14,11 @@ import (
 type Method string
 
 const (
-	MethodPassword Method = "password"
-	MethodPIN      Method = "pin"
-	MethodOIDC     Method = "oidc"
-	MethodHeader   Method = "header"
+	MethodPassword   Method = "password"
+	MethodPIN        Method = "pin"
+	MethodOIDC       Method = "oidc"
+	MethodHeader     Method = "header"
+	MethodPlayground Method = "playground"
 )
 
 func (m Method) String() string {

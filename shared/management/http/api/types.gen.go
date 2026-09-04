@@ -77,6 +77,60 @@ func (e AgentNetworkConsumptionDimensionKind) Valid() bool {
 	}
 }
 
+// Defines values for AgentNetworkPlaygroundPrincipalKind.
+const (
+	AgentNetworkPlaygroundPrincipalKindGroup AgentNetworkPlaygroundPrincipalKind = "group"
+	AgentNetworkPlaygroundPrincipalKindPeer  AgentNetworkPlaygroundPrincipalKind = "peer"
+)
+
+// Valid indicates whether the value is a known member of the AgentNetworkPlaygroundPrincipalKind enum.
+func (e AgentNetworkPlaygroundPrincipalKind) Valid() bool {
+	switch e {
+	case AgentNetworkPlaygroundPrincipalKindGroup:
+		return true
+	case AgentNetworkPlaygroundPrincipalKindPeer:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AgentNetworkPlaygroundRequestMethod.
+const (
+	AgentNetworkPlaygroundRequestMethodGET  AgentNetworkPlaygroundRequestMethod = "GET"
+	AgentNetworkPlaygroundRequestMethodPOST AgentNetworkPlaygroundRequestMethod = "POST"
+)
+
+// Valid indicates whether the value is a known member of the AgentNetworkPlaygroundRequestMethod enum.
+func (e AgentNetworkPlaygroundRequestMethod) Valid() bool {
+	switch e {
+	case AgentNetworkPlaygroundRequestMethodGET:
+		return true
+	case AgentNetworkPlaygroundRequestMethodPOST:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AgentNetworkPlaygroundResponseBodyEncoding.
+const (
+	AgentNetworkPlaygroundResponseBodyEncodingBase64 AgentNetworkPlaygroundResponseBodyEncoding = "base64"
+	AgentNetworkPlaygroundResponseBodyEncodingUtf8   AgentNetworkPlaygroundResponseBodyEncoding = "utf8"
+)
+
+// Valid indicates whether the value is a known member of the AgentNetworkPlaygroundResponseBodyEncoding enum.
+func (e AgentNetworkPlaygroundResponseBodyEncoding) Valid() bool {
+	switch e {
+	case AgentNetworkPlaygroundResponseBodyEncodingBase64:
+		return true
+	case AgentNetworkPlaygroundResponseBodyEncodingUtf8:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CreateAzureIntegrationRequestHost.
 const (
 	CreateAzureIntegrationRequestHostMicrosoftCom CreateAzureIntegrationRequestHost = "microsoft.com"
@@ -2244,6 +2298,73 @@ type AgentNetworkModelDiscoveryResponse struct {
 	// Models Models the credential can reach, in the order the vendor returned them.
 	Models []AgentNetworkDiscoveredModel `json:"models"`
 }
+
+// AgentNetworkPlaygroundHeader defines model for AgentNetworkPlaygroundHeader.
+type AgentNetworkPlaygroundHeader struct {
+	Name   string   `json:"name"`
+	Values []string `json:"values"`
+}
+
+// AgentNetworkPlaygroundIdentity defines model for AgentNetworkPlaygroundIdentity.
+type AgentNetworkPlaygroundIdentity struct {
+	GroupIds   []string `json:"group_ids"`
+	GroupNames []string `json:"group_names"`
+	UserEmail  string   `json:"user_email"`
+	UserId     string   `json:"user_id"`
+}
+
+// AgentNetworkPlaygroundPolicy defines model for AgentNetworkPlaygroundPolicy.
+type AgentNetworkPlaygroundPolicy struct {
+	AttributionGroupId  string   `json:"attribution_group_id"`
+	AuthorisingGroupIds []string `json:"authorising_group_ids"`
+	Decision            string   `json:"decision"`
+	Model               string   `json:"model"`
+	ProviderSurface     string   `json:"provider_surface"`
+	Reason              string   `json:"reason"`
+	ResolvedProviderId  string   `json:"resolved_provider_id"`
+	SelectedPolicyId    string   `json:"selected_policy_id"`
+}
+
+// AgentNetworkPlaygroundPrincipal defines model for AgentNetworkPlaygroundPrincipal.
+type AgentNetworkPlaygroundPrincipal struct {
+	// Id Account-scoped peer or group ID.
+	Id string `json:"id"`
+
+	// Kind Whether to emulate a current peer identity or one synthetic group.
+	Kind AgentNetworkPlaygroundPrincipalKind `json:"kind"`
+}
+
+// AgentNetworkPlaygroundPrincipalKind Whether to emulate a current peer identity or one synthetic group.
+type AgentNetworkPlaygroundPrincipalKind string
+
+// AgentNetworkPlaygroundRequest A provider-native request executed through the live Agent Network proxy path.
+type AgentNetworkPlaygroundRequest struct {
+	// Body Provider-native request body.
+	Body    string                              `json:"body"`
+	Headers []AgentNetworkPlaygroundHeader      `json:"headers"`
+	Method  AgentNetworkPlaygroundRequestMethod `json:"method"`
+
+	// Path Origin-form provider path, including any query string.
+	Path      string                          `json:"path"`
+	Principal AgentNetworkPlaygroundPrincipal `json:"principal"`
+}
+
+// AgentNetworkPlaygroundRequestMethod defines model for AgentNetworkPlaygroundRequest.Method.
+type AgentNetworkPlaygroundRequestMethod string
+
+// AgentNetworkPlaygroundResponse defines model for AgentNetworkPlaygroundResponse.
+type AgentNetworkPlaygroundResponse struct {
+	Body          string                                     `json:"body"`
+	BodyEncoding  AgentNetworkPlaygroundResponseBodyEncoding `json:"body_encoding"`
+	BodyTruncated bool                                       `json:"body_truncated"`
+	Headers       []AgentNetworkPlaygroundHeader             `json:"headers"`
+	Identity      AgentNetworkPlaygroundIdentity             `json:"identity"`
+	Policy        AgentNetworkPlaygroundPolicy               `json:"policy"`
+	StatusCode    int                                        `json:"status_code"`
+}
+
+// AgentNetworkPlaygroundResponseBodyEncoding defines model for AgentNetworkPlaygroundResponse.BodyEncoding.
+type AgentNetworkPlaygroundResponseBodyEncoding string
 
 // AgentNetworkPolicy defines model for AgentNetworkPolicy.
 type AgentNetworkPolicy struct {
@@ -6274,6 +6395,9 @@ type PostApiAgentNetworkGuardrailsJSONRequestBody = AgentNetworkGuardrailRequest
 
 // PutApiAgentNetworkGuardrailsGuardrailIdJSONRequestBody defines body for PutApiAgentNetworkGuardrailsGuardrailId for application/json ContentType.
 type PutApiAgentNetworkGuardrailsGuardrailIdJSONRequestBody = AgentNetworkGuardrailRequest
+
+// PostApiAgentNetworkPlaygroundJSONRequestBody defines body for PostApiAgentNetworkPlayground for application/json ContentType.
+type PostApiAgentNetworkPlaygroundJSONRequestBody = AgentNetworkPlaygroundRequest
 
 // PostApiAgentNetworkPoliciesJSONRequestBody defines body for PostApiAgentNetworkPolicies for application/json ContentType.
 type PostApiAgentNetworkPoliciesJSONRequestBody = AgentNetworkPolicyRequest

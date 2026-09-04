@@ -52,6 +52,8 @@ type Manager interface {
 	DeleteProvider(ctx context.Context, accountID, userID, providerID string) error
 	DiscoverProviderModels(ctx context.Context, accountID, userID string, req modeldiscovery.Request, recordID string) ([]modeldiscovery.Model, error)
 
+	ExecutePlayground(ctx context.Context, accountID, userID string, req PlaygroundRequest) (*PlaygroundResponse, error)
+
 	GetAllPolicies(ctx context.Context, accountID, userID string) ([]*types.Policy, error)
 	GetPolicy(ctx context.Context, accountID, userID, policyID string) (*types.Policy, error)
 	CreatePolicy(ctx context.Context, userID string, policy *types.Policy) (*types.Policy, error)
