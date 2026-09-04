@@ -47,6 +47,8 @@ const (
 	KeyRosenpassEnabled    = "rosenpassEnabled"
 	KeyRosenpassPermissive = "rosenpassPermissive"
 	KeyWireguardPort       = "wireguardPort"
+	KeyEnableLocalMetrics  = "enableLocalMetrics"
+	KeyLocalMetricsAddress = "localMetricsAddress"
 
 	// Split tunnel is modeled as a single conceptual policy with two
 	// registry/plist values. KeySplitTunnelMode is the discriminator
@@ -60,6 +62,17 @@ const (
 	// the management feature flag. Read as a bool (native bool, or on/off,
 	// true/false, 1/0, yes/no); absent = defer to management.
 	KeyLazyConnection = "lazyConnection"
+
+	// KeyRemoteJobsAllowed opts the peer into management-requested remote jobs
+	// (e.g. debug bundles). Read as a bool; absent = defer to the local config
+	// (which defaults to disabled). Stored on Config as RemoteJobsAllowed.
+	KeyRemoteJobsAllowed = "allowRemoteJobs"
+
+	// KeyBundleUploadURL overrides the debug-bundle upload service URL for
+	// remote jobs, taking precedence over the management-supplied value. Read
+	// as a string; must be an https URL with a host. Absent = defer to the
+	// management-supplied URL (or the default upload server).
+	KeyBundleUploadURL = "debugBundleUploadURL"
 )
 
 // Split-tunnel mode literals (KeySplitTunnelMode values).
@@ -71,6 +84,8 @@ const (
 // SecretKeys lists keys whose values must be redacted in logs.
 var SecretKeys = map[string]struct{}{
 	KeyPreSharedKey: {},
+	// The upload URL can embed credentials or signed query tokens.
+	KeyBundleUploadURL: {},
 }
 
 // boolStringLiterals enumerates the textual boolean encodings the

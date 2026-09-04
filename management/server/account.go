@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/rand"
 	"net"
 	"net/netip"
 	"os"
@@ -14,10 +13,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
-	"github.com/netbirdio/netbird/management/server/job"
-	"github.com/netbirdio/netbird/shared/auth"
 
 	cacheStore "github.com/eko/gocache/lib/v4/store"
 	"github.com/eko/gocache/store/redis/v4"
@@ -30,6 +25,7 @@ import (
 	"github.com/netbirdio/netbird/formatter/hook"
 	"github.com/netbirdio/netbird/idp/dex"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -40,6 +36,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/server/job"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
@@ -51,7 +48,9 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/auth"
 	nbdomain "github.com/netbirdio/netbird/shared/management/domain"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -64,7 +63,7 @@ const (
 type userLoggedInOnce bool
 
 func cacheEntryExpiration() time.Duration {
-	r := rand.Intn(int(nbcache.DefaultIDPCacheExpirationMax.Milliseconds()-nbcache.DefaultIDPCacheExpirationMin.Milliseconds())) + int(nbcache.DefaultIDPCacheExpirationMin.Milliseconds())
+	r := util.RandIntn(int(nbcache.DefaultIDPCacheExpirationMax.Milliseconds()-nbcache.DefaultIDPCacheExpirationMin.Milliseconds())) + int(nbcache.DefaultIDPCacheExpirationMin.Milliseconds())
 	return time.Duration(r) * time.Millisecond
 }
 
@@ -236,6 +235,10 @@ func BuildManager(
 	accountsCounter, err := store.GetAccountsCounter(ctx)
 	if err != nil {
 		log.WithContext(ctx).Error(err)
+	}
+
+	if IsEmbeddedIdp(idpManager) && accountsCounter > 1 {
+		log.WithContext(ctx).Warnf("embedded IdP requires a single account, found %d", accountsCounter)
 	}
 
 	// enable single account mode only if configured by user and number of existing accounts is not grater than 1
@@ -1592,7 +1595,10 @@ func (am *DefaultAccountManager) updateUserAuthWithSingleMode(ctx context.Contex
 	if err != nil {
 		return err
 	}
-	userAuth.Domain = domain
+	// Keep the configured single account domain when the existing account has none
+	if domain != "" {
+		userAuth.Domain = domain
+	}
 
 	log.WithContext(ctx).Debugf("overriding JWT Domain and DomainCategory claims since single account mode is enabled")
 	return nil
@@ -1837,6 +1843,7 @@ func (am *DefaultAccountManager) getAccountIDWithAuthorizationClaims(ctx context
 
 	return am.addNewPrivateAccount(ctx, domainAccountID, userAuth)
 }
+
 func (am *DefaultAccountManager) getPrivateDomainWithGlobalLock(ctx context.Context, domain string) (string, context.CancelFunc, error) {
 	domainAccountID, err := am.Store.GetAccountIDByPrivateDomain(ctx, store.LockingStrengthNone, domain)
 	if handleNotFound(err) != nil {
@@ -1920,7 +1927,7 @@ func domainIsUpToDate(domain string, domainCategory string, userAuth auth.UserAu
 // derived from syncTime (the moment the gRPC stream opened). Any
 // concurrent stream that started earlier loses the optimistic-lock race
 // in MarkPeerConnected and bails without writing.
-func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP, syncTime time.Time) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, int64, error) {
+func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP, syncTime time.Time) (*nbpeer.Peer, *types.NetworkMap, []*nmdata.PostureChecks, int64, error) {
 	peer, netMap, postureChecks, dnsfwdPort, err := am.SyncPeer(ctx, types.PeerSync{WireGuardPubKey: peerPubKey, Meta: meta, RealIP: realIP}, accountID)
 	if err != nil {
 		return nil, nil, nil, 0, fmt.Errorf("error syncing peer: %w", err)
@@ -2469,8 +2476,7 @@ func (am *DefaultAccountManager) ensureIPv6Subnet(ctx context.Context, transacti
 		return transaction.UpdateAccountNetworkV6(ctx, accountID, network.NetV6)
 	}
 	if network.NetV6.IP == nil {
-		r := rand.New(rand.NewSource(time.Now().UnixNano()))
-		network.NetV6 = types.AllocateIPv6Subnet(r)
+		network.NetV6 = types.AllocateIPv6Subnet()
 
 		// Sync settings to match the allocated subnet so SaveAccountSettings persists it.
 		ones, _ := network.NetV6.Mask.Size()

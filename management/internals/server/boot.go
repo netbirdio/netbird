@@ -5,6 +5,7 @@ package server
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"net/http"
 	"net/netip"
 	"slices"
@@ -20,8 +21,6 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 
-	cachestore "github.com/eko/gocache/lib/v4/store"
-
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/formatter/hook"
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
@@ -30,6 +29,8 @@ import (
 	proxyactivity "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/activity"
 	proxyactivitymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/activity/manager"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
+	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
+	networkmapdbfactory "github.com/netbirdio/netbird/management/internals/network_map_db/factory"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/activity"
 	activitystore "github.com/netbirdio/netbird/management/server/activity/store"
@@ -72,8 +73,8 @@ func (s *BaseServer) Metrics() telemetry.AppMetrics {
 
 // CacheStore returns a shared cache store backed by Redis or in-memory depending on the environment.
 // All consumers should reuse this store to avoid creating multiple Redis connections.
-func (s *BaseServer) CacheStore() cachestore.StoreInterface {
-	return Create(s, func() cachestore.StoreInterface {
+func (s *BaseServer) CacheStore() nbcache.Store {
+	return Create(s, func() nbcache.Store {
 		cs, err := nbcache.NewStore(context.Background(), nbcache.DefaultStoreMaxTimeout, nbcache.DefaultStoreCleanupInterval, nbcache.DefaultStoreMaxConn)
 		if err != nil {
 			log.Fatalf("failed to create shared cache store: %v", err)
@@ -97,6 +98,26 @@ func (s *BaseServer) Store() store.Store {
 			store.SetFieldEncrypt(fieldEncrypt)
 		}
 
+		return store
+	})
+}
+
+// TODO dmitri: move all validation checks (e.g. config+env vars) from runtime to base server creation
+// this way we don't need to spread defensive checks throughout the codebase
+func (s *BaseServer) NetworkMapStore() *networkmapdb.NetworkMapDBStoreImpl {
+	return Create(s, func() *networkmapdb.NetworkMapDBStoreImpl {
+		store, err := networkmapdbfactory.NewNetworkMapDBStore(
+			context.Background(),
+			s.Config.StoreConfig.Engine,
+			s.Config.Datadir,
+			s.IntegratedValidator(),
+			s.SettingsManager())
+		// networkmap db store supports postgres and sqlite backends only
+		// for other backends a fallback is used, so NotSupportedStoreEngineError
+		// is not a fatal error
+		if err != nil && !errors.Is(err, networkmapdbfactory.ErrNotSupportedStoreEngine) {
+			log.Fatalf("failed to create network map store: %v", err)
+		}
 		return store
 	})
 }

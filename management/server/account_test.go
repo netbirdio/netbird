@@ -10,16 +10,17 @@ import (
 	"os"
 	"reflect"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"go.uber.org/mock/gomock"
 	"github.com/prometheus/client_golang/prometheus/push"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/metric/noop"
+	"go.uber.org/mock/gomock"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
@@ -37,6 +38,8 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	reverseproxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
+	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
+	networkmapdbfactory "github.com/netbirdio/netbird/management/internals/network_map_db/factory"
 	"github.com/netbirdio/netbird/management/internals/server/config"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	nbAccount "github.com/netbirdio/netbird/management/server/account"
@@ -3293,12 +3296,32 @@ func createManager(t testing.TB) (*DefaultAccountManager, *update_channel.PeersU
 	if err != nil {
 		return nil, nil, err
 	}
-	eventStore := &activity.InMemoryEventStore{}
+	return buildTestManager(t, store, nil)
+}
 
-	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
-	if err != nil {
-		return nil, nil, err
+// createManagerWithNetworkMapStore builds a manager whose network map controller
+// reads the twin (nmdata) store, the production path on sqlite and postgres.
+func createManagerWithNetworkMapStore(t testing.TB) (*DefaultAccountManager, *update_channel.PeersUpdateManager) {
+	t.Helper()
+
+	if engine := os.Getenv("NETBIRD_STORE_ENGINE"); engine != "" && !strings.EqualFold(engine, string(types.SqliteStoreEngine)) {
+		t.Skipf("network map store test needs the sqlite engine, got %s", engine)
 	}
+
+	dataDir := t.TempDir()
+	store, err := createStoreAt(t, dataDir)
+	require.NoError(t, err)
+
+	nmdataStore, err := networkmapdbfactory.NewNetworkMapDBStore(context.Background(), types.SqliteStoreEngine, dataDir, MockIntegratedValidator{}, newSettingsMockManager(t))
+	require.NoError(t, err)
+
+	manager, updateManager, err := buildTestManager(t, store, nmdataStore)
+	require.NoError(t, err)
+	return manager, updateManager
+}
+
+func newSettingsMockManager(t testing.TB) *settings.MockManager {
+	t.Helper()
 
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
@@ -3312,6 +3335,23 @@ func createManager(t testing.TB) (*DefaultAccountManager, *update_channel.PeersU
 		UpdateExtraSettings(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(false, nil).
 		AnyTimes()
+	return settingsMockManager
+}
+
+func buildTestManager(t testing.TB, store store.Store, nmdataStore *networkmapdb.NetworkMapDBStoreImpl) (*DefaultAccountManager, *update_channel.PeersUpdateManager, error) {
+	t.Helper()
+
+	eventStore := &activity.InMemoryEventStore{}
+
+	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
+	if err != nil {
+		return nil, nil, err
+	}
+
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+
+	settingsMockManager := newSettingsMockManager(t)
 
 	permissionsManager := permissions.NewManager(store)
 	peersManager := peers.NewManager(store, permissionsManager)
@@ -3331,7 +3371,7 @@ func createManager(t testing.TB) (*DefaultAccountManager, *update_channel.PeersU
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, store)
-	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(store, peers.NewManager(store, permissionsManager)), &config.Config{})
+	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(store, peers.NewManager(store, permissionsManager)), &config.Config{}, nmdataStore)
 	manager, err := BuildManager(ctx, &config.Config{}, store, networkMapController, job.NewJobManager(nil, store, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false, cacheStore)
 	if err != nil {
 		return nil, nil, err
@@ -3349,7 +3389,11 @@ func createManager(t testing.TB) (*DefaultAccountManager, *update_channel.PeersU
 
 func createStore(t testing.TB) (store.Store, error) {
 	t.Helper()
-	dataDir := t.TempDir()
+	return createStoreAt(t, t.TempDir())
+}
+
+func createStoreAt(t testing.TB, dataDir string) (store.Store, error) {
+	t.Helper()
 	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "", dataDir)
 	if err != nil {
 		return nil, err

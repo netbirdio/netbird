@@ -1,0 +1,42 @@
+{
+  "Network": {"Serial": 35},
+  "Peers": {
+    "peer-both": {"IP": "100.64.0.1", "Meta": {"WtVersion": "1.0.0"}, "Location": {"CountryCode": "DE", "CityName": "Berlin"}},
+    "peer-badgeo": {"IP": "100.64.0.2", "Meta": {"WtVersion": "1.0.0"}, "Location": {"CountryCode": "FR", "CityName": "Paris"}},
+    "peer-badversion": {"IP": "100.64.0.3", "Meta": {"WtVersion": "0.30.0"}, "Location": {"CountryCode": "DE", "CityName": "Berlin"}},
+    "peer-srv": {"IP": "100.64.0.10", "Meta": {"WtVersion": "1.0.0"}}
+  },
+  "Groups": {
+    "grp-clients": {"Peers": ["peer-both", "peer-badgeo", "peer-badversion"]},
+    "grp-srv": {"Peers": ["peer-srv"]}
+  },
+  "PostureChecks": {
+    "chk-combo": {
+      "Checks": {
+        "NBVersionCheck": {"MinVersion": "0.45.0"},
+        "GeoLocationCheck": {
+          "Action": "allow",
+          "Locations": [{"CountryCode": "DE"}]
+        }
+      }
+    }
+  },
+  "Policies": [
+    {
+      "ID": "pol-combo",
+      "Enabled": true,
+      "SourcePostureChecks": ["chk-combo"],
+      "Rules": [
+        {
+          "Enabled": true,
+          "Action": "accept",
+          "Protocol": "tcp",
+          "Ports": ["443"],
+          "Bidirectional": true,
+          "Sources": ["grp-clients"],
+          "Destinations": ["grp-srv"]
+        }
+      ]
+    }
+  ]
+}

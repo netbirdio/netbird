@@ -233,7 +233,7 @@ jobs:
             -e GOCACHE=${CONTAINER_GOCACHE} \
             -e GOMODCACHE=${CONTAINER_GOMODCACHE} \
             -e CONTAINER=${CONTAINER} \
-            golang:1.25-alpine \
+            golang:1.26.7-alpine \
             sh -c ' \
               apk update; apk add --no-cache \
                 ca-certificates iptables ip6tables dbus dbus-dev libpcap-dev build-base; \
@@ -730,6 +730,11 @@ jobs:
       - name: Install modules
         run: go mod tidy
 
+      - name: Run Mage
+        uses: magefile/mage-action@a662bd8c29d8106879588cfff83b2faf6e6f59db # v4.0.0
+        with:
+          install-only: true
+
       - name: check git status
         run: git --no-pager diff --exit-code
 
@@ -738,9 +743,7 @@ jobs:
           CGO_ENABLED=1 GOARCH=${{ matrix.arch }} \
           NETBIRD_STORE_ENGINE=${{ matrix.store }} \
           CI=true \
-          go test -tags=integration -coverprofile=coverage.txt \
-          -exec 'sudo --preserve-env=CI,NETBIRD_STORE_ENGINE' \
-          -timeout 20m ./management/server/http/...
+          mage integrationtest:all -gotestflags="-coverprofile=coverage.txt"
 
       - name: Upload coverage reports to Codecov
         if: matrix.arch == 'amd64'

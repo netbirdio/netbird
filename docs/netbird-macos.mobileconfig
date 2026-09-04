@@ -121,6 +121,19 @@
                                 <false/>
                                 -->
 
+                                <!-- ===== Remote jobs (debug bundles) =====
+                                     allowRemoteJobs      : opt into management-requested
+                                                            remote jobs. Off by default.
+                                     debugBundleUploadURL : override the debug-bundle upload
+                                                            service (https URL with a host);
+                                                            precedence over the management value. -->
+                                <!--
+                                <key>allowRemoteJobs</key>
+                                <true/>
+                                <key>debugBundleUploadURL</key>
+                                <string>https://upload.example.com</string>
+                                -->
+
                                 <!-- ===== WireGuard UDP port (int) =====
                                      Range 1-65535. Omit to keep the default. -->
                                 <!--

@@ -39,11 +39,10 @@ const (
 // The only exception is ActivatePeer, which is safe for concurrent use so the
 // DNS warm-up path can call it without contending on the engine mutex.
 type ConnMgr struct {
-	peerStore        *peerstore.Store
-	statusRecorder   *peer.Status
-	iface            lazyconn.WGIface
-	force            lazyForce
-	rosenpassEnabled bool
+	peerStore      *peerstore.Store
+	statusRecorder *peer.Status
+	iface          lazyconn.WGIface
+	force          lazyForce
 	// remoteLazyEnabled caches the account-wide lazy feature flag from management.
 	// It is the default for peers that do not carry a per-peer lazy hint.
 	remoteLazyEnabled bool
@@ -75,11 +74,10 @@ func (e *ConnMgr) SetRoutedIPsReconciler(fn func(peerKey string) error) {
 
 func NewConnMgr(engineConfig *EngineConfig, statusRecorder *peer.Status, peerStore *peerstore.Store, iface lazyconn.WGIface) *ConnMgr {
 	e := &ConnMgr{
-		peerStore:        peerStore,
-		statusRecorder:   statusRecorder,
-		iface:            iface,
-		force:            resolveLazyForce(engineConfig.LazyConnection),
-		rosenpassEnabled: engineConfig.RosenpassEnabled,
+		peerStore:      peerStore,
+		statusRecorder: statusRecorder,
+		iface:          iface,
+		force:          resolveLazyForce(engineConfig.LazyConnection),
 	}
 	return e
 }
@@ -87,16 +85,11 @@ func NewConnMgr(engineConfig *EngineConfig, statusRecorder *peer.Status, peerSto
 // Start initializes the connection manager. The lazy connection manager always runs so that
 // per-peer lazy defaults (e.g. proxy peers) work even when the account flag is off; the
 // account flag and the local override decide the default lazy state per peer (see
-// PeerLazyDefault). Rosenpass is the only condition that disables it.
+// PeerLazyDefault). Rosenpass peers stay lazy-capable too: their connections just never idle
+// on their own, since rosenpass rekey traffic keeps them active.
 func (e *ConnMgr) Start(ctx context.Context) {
 	if e.lazyConnMgr != nil {
 		log.Errorf("lazy connection manager is already started")
-		return
-	}
-
-	if e.rosenpassEnabled {
-		log.Warnf("rosenpass is enabled, lazy connection manager will not be started")
-		e.statusRecorder.UpdateLazyConnection(false)
 		return
 	}
 
