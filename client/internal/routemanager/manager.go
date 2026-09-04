@@ -848,12 +848,11 @@ func (m *DefaultManager) overlayNetworks() []string {
 	}
 
 	addr := m.wgInterface.Address()
-	if !addr.Network.IsValid() {
-		return nil
+	var nets []string
+	if addr.Network.IsValid() {
+		nets = append(nets, addr.Network.String())
 	}
-
-	nets := []string{addr.Network.String()}
-	if addr.HasIPv6() {
+	if addr.IPv6Net.IsValid() {
 		nets = append(nets, addr.IPv6Net.String())
 	}
 	return nets

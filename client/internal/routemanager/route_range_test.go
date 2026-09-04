@@ -67,3 +67,28 @@ func TestCurrentRouteRange_NoInterfaceAddress(t *testing.T) {
 
 	assert.Empty(t, m.CurrentRouteRange(), "an unset interface address must not produce a route entry")
 }
+
+func TestCurrentRouteRange_IPv6WithoutIPv4Network(t *testing.T) {
+	addr := wgaddr.Address{
+		IPv6:    netip.MustParseAddr("fd00:1234::1"),
+		IPv6Net: netip.MustParsePrefix("fd00:1234::/64"),
+	}
+	m := &DefaultManager{
+		wgInterface:         &routeRangeWGMock{addr: addr},
+		disableClientRoutes: true,
+	}
+
+	assert.Equal(t, []string{"fd00:1234::/64"}, m.CurrentRouteRange(), "a v6 overlay network must not depend on a v4 network being set")
+}
+
+func TestCurrentRouteRange_IPv6AddressWithoutNetwork(t *testing.T) {
+	addr := wgaddr.MustParseWGAddress("100.91.96.107/16")
+	addr.IPv6 = netip.MustParseAddr("fd00:1234::1")
+
+	m := &DefaultManager{
+		wgInterface:         &routeRangeWGMock{addr: addr},
+		disableClientRoutes: true,
+	}
+
+	assert.Equal(t, []string{"100.91.0.0/16"}, m.CurrentRouteRange(), "a v6 address without a network must not produce a route entry")
+}
