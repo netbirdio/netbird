@@ -28,23 +28,9 @@ func ConflictBool(key string, p *bool) ConflictCheck {
 	}
 }
 
-// ConflictString builds a ConflictCheck for a string MDM key.
-func ConflictString(key, got string) ConflictCheck {
-	return ConflictCheck{
-		Key: key,
-		Check: func(pol *Policy) bool {
-			if got == "" {
-				return true
-			}
-			want, ok := pol.GetString(key)
-			return ok && want == got
-		},
-	}
-}
-
-// ConflictStringPtr is ConflictString for optional proto fields, where an
-// explicit empty value is still a request to change the setting. A nil p means
-// "field not set" (no override requested).
+// ConflictStringPtr builds a ConflictCheck for an optional string MDM key,
+// where an explicit empty value is still a request to change the setting. A
+// nil p means "field not set" (no override requested).
 func ConflictStringPtr(key string, p *string) ConflictCheck {
 	return ConflictCheck{
 		Key: key,

@@ -15,9 +15,9 @@ var ErrMDMManagedFields = errors.New("fields managed by MDM cannot be modified")
 // the ConfigInput differs from the policy-enforced value; a field set to the
 // enforced value is a no-op echo, not a conflict.
 func MDMConflicts(input ConfigInput, policy *mdm.Policy) []string {
-	pskGot := ""
-	if input.PreSharedKey != nil && !isPreSharedKeyHidden(input.PreSharedKey) {
-		pskGot = *input.PreSharedKey
+	pskGot := input.PreSharedKey
+	if isPreSharedKeyHidden(pskGot) {
+		pskGot = nil
 	}
 	var port *int64
 	if input.WireguardPort != nil {
@@ -26,7 +26,7 @@ func MDMConflicts(input ConfigInput, policy *mdm.Policy) []string {
 	}
 	return mdm.ResolveConflicts(policy, []mdm.ConflictCheck{
 		mdm.ConflictURL(mdm.KeyManagementURL, input.ManagementURL),
-		mdm.ConflictString(mdm.KeyPreSharedKey, pskGot),
+		mdm.ConflictStringPtr(mdm.KeyPreSharedKey, pskGot),
 		mdm.ConflictBool(mdm.KeyRosenpassEnabled, input.RosenpassEnabled),
 		mdm.ConflictBool(mdm.KeyRosenpassPermissive, input.RosenpassPermissive),
 		mdm.ConflictBool(mdm.KeyDisableAutoConnect, input.DisableAutoConnect),

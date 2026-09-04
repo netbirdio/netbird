@@ -214,4 +214,31 @@ func TestApply_MDMPreSharedKeyRedactionSentinelRejected(t *testing.T) {
 	assert.True(t, cfg.Policy().HasKey(mdm.KeyPreSharedKey))
 }
 
+func TestMDMConflicts_PreSharedKey(t *testing.T) {
+	policy := mdm.NewPolicy(map[string]any{
+		mdm.KeyPreSharedKey: "mdm-enforced-psk",
+	})
+	empty := ""
+	sentinel := "**********"
+	same := "mdm-enforced-psk"
+	other := "user-psk"
+
+	tests := []struct {
+		name string
+		psk  *string
+		want []string
+	}{
+		{name: "unset", psk: nil, want: nil},
+		{name: "explicit empty", psk: &empty, want: []string{mdm.KeyPreSharedKey}},
+		{name: "sentinel echo", psk: &sentinel, want: nil},
+		{name: "same value", psk: &same, want: nil},
+		{name: "divergent", psk: &other, want: []string{mdm.KeyPreSharedKey}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, MDMConflicts(ConfigInput{PreSharedKey: tc.psk}, policy))
+		})
+	}
+}
+
 func boolPtr(b bool) *bool { return &b }

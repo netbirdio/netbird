@@ -203,6 +203,70 @@ func TestSetConfig_MDMReject_LocalMetricsEmptyAddress(t *testing.T) {
 	assert.ElementsMatch(t, []string{mdm.KeyLocalMetricsAddress}, v.GetFields())
 }
 
+func TestSetConfig_MDMReject_EmptyPreSharedKey(t *testing.T) {
+	s, ctx, profName, username, _ := setupServerWithProfile(t)
+	withMDMPolicy(t, s, mdm.NewPolicy(map[string]any{
+		mdm.KeyPreSharedKey: "mdm-enforced-psk",
+	}))
+
+	psk := ""
+	_, err := s.SetConfig(ctx, &proto.SetConfigRequest{
+		ProfileName:          profName,
+		Username:             username,
+		OptionalPreSharedKey: &psk,
+	})
+
+	v := extractViolation(t, err)
+	assert.ElementsMatch(t, []string{mdm.KeyPreSharedKey}, v.GetFields())
+}
+
+func TestSetConfig_MDMAllow_PreSharedKeySentinelEcho(t *testing.T) {
+	s, ctx, profName, username, _ := setupServerWithProfile(t)
+	withMDMPolicy(t, s, mdm.NewPolicy(map[string]any{
+		mdm.KeyPreSharedKey: "mdm-enforced-psk",
+	}))
+
+	psk := mdm.PreSharedKeyRedactedSentinel
+	resp, err := s.SetConfig(ctx, &proto.SetConfigRequest{
+		ProfileName:          profName,
+		Username:             username,
+		OptionalPreSharedKey: &psk,
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+}
+
+func TestLoginRequestMDMConflicts_PreSharedKey(t *testing.T) {
+	policy := mdm.NewPolicy(map[string]any{
+		mdm.KeyPreSharedKey: "mdm-enforced-psk",
+	})
+	empty := ""
+	sentinel := mdm.PreSharedKeyRedactedSentinel
+	same := "mdm-enforced-psk"
+	other := "user-psk"
+
+	tests := []struct {
+		name string
+		msg  *proto.LoginRequest
+		want []string
+	}{
+		{name: "unset", msg: &proto.LoginRequest{}, want: nil},
+		{name: "optional empty", msg: &proto.LoginRequest{OptionalPreSharedKey: &empty}, want: []string{mdm.KeyPreSharedKey}},
+		{name: "optional sentinel echo", msg: &proto.LoginRequest{OptionalPreSharedKey: &sentinel}, want: nil},
+		{name: "optional same value", msg: &proto.LoginRequest{OptionalPreSharedKey: &same}, want: nil},
+		{name: "optional divergent", msg: &proto.LoginRequest{OptionalPreSharedKey: &other}, want: []string{mdm.KeyPreSharedKey}},
+		{name: "legacy empty is unset", msg: &proto.LoginRequest{PreSharedKey: ""}, want: nil},
+		{name: "legacy sentinel echo", msg: &proto.LoginRequest{PreSharedKey: sentinel}, want: nil},
+		{name: "legacy divergent", msg: &proto.LoginRequest{PreSharedKey: other}, want: []string{mdm.KeyPreSharedKey}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, loginRequestMDMConflicts(tc.msg, policy))
+		})
+	}
+}
+
 func TestSetConfig_MDMReject_AllOrNothing(t *testing.T) {
 	// MDM enforces ManagementURL only; user request touches both the
 	// enforced field AND a non-enforced field (RosenpassEnabled).

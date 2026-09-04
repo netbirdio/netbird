@@ -158,16 +158,14 @@ func mdmManagedFieldConflicts(msg *proto.SetConfigRequest, policy *mdm.Policy) [
 		return nil
 	}
 
-	// PSK round-trip echo: collapse the sentinel to empty so the
-	// shared check treats it as "field not set".
-	pskGot := ""
-	if msg.OptionalPreSharedKey != nil && *msg.OptionalPreSharedKey != mdm.PreSharedKeyRedactedSentinel {
-		pskGot = *msg.OptionalPreSharedKey
+	pskGot := msg.OptionalPreSharedKey
+	if pskGot != nil && *pskGot == mdm.PreSharedKeyRedactedSentinel {
+		pskGot = nil
 	}
 
 	return mdm.ResolveConflicts(policy, []mdm.ConflictCheck{
 		mdm.ConflictURL(mdm.KeyManagementURL, msg.ManagementUrl),
-		mdm.ConflictString(mdm.KeyPreSharedKey, pskGot),
+		mdm.ConflictStringPtr(mdm.KeyPreSharedKey, pskGot),
 		mdm.ConflictBool(mdm.KeyRosenpassEnabled, msg.RosenpassEnabled),
 		mdm.ConflictBool(mdm.KeyRosenpassPermissive, msg.RosenpassPermissive),
 		mdm.ConflictBool(mdm.KeyDisableAutoConnect, msg.DisableAutoConnect),
@@ -281,23 +279,17 @@ func loginRequestMDMConflicts(msg *proto.LoginRequest, policy *mdm.Policy) []str
 		return nil
 	}
 
-	// Collapse the two PSK fields + the redaction sentinel down to a
-	// single "got" string the shared check can compare against the
-	// policy: OptionalPreSharedKey wins if set; PreSharedKey (deprecated)
-	// is the fallback; sentinel echo is treated as "field not set".
-	pskGot := ""
-	if msg.OptionalPreSharedKey != nil {
-		pskGot = *msg.OptionalPreSharedKey
-	} else if msg.PreSharedKey != "" { //nolint:staticcheck // SA1019: legacy proto field still accepted by Login
-		pskGot = msg.PreSharedKey //nolint:staticcheck // SA1019
+	pskGot := msg.OptionalPreSharedKey
+	if pskGot == nil && msg.PreSharedKey != "" { //nolint:staticcheck // SA1019: legacy proto field still accepted by Login
+		pskGot = &msg.PreSharedKey //nolint:staticcheck // SA1019
 	}
-	if pskGot == mdm.PreSharedKeyRedactedSentinel {
-		pskGot = ""
+	if pskGot != nil && *pskGot == mdm.PreSharedKeyRedactedSentinel {
+		pskGot = nil
 	}
 
 	return mdm.ResolveConflicts(policy, []mdm.ConflictCheck{
 		mdm.ConflictURL(mdm.KeyManagementURL, msg.ManagementUrl),
-		mdm.ConflictString(mdm.KeyPreSharedKey, pskGot),
+		mdm.ConflictStringPtr(mdm.KeyPreSharedKey, pskGot),
 		mdm.ConflictBool(mdm.KeyRosenpassEnabled, msg.RosenpassEnabled),
 		mdm.ConflictBool(mdm.KeyRosenpassPermissive, msg.RosenpassPermissive),
 		mdm.ConflictBool(mdm.KeyDisableAutoConnect, msg.DisableAutoConnect),
