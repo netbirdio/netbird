@@ -456,13 +456,17 @@ brews:
       # pseudoterminal, where $stdin.tty? is true even for a headless
       # `brew upgrade` and a prompt would stall it until sudo times out.
       #
-      # Success is judged by outcome, not by reconfigure's exit status: the
-      # daemon seen above must actually be gone afterwards. Reconfigure only
-      # manages the default service name, and a daemon installed under a custom
-      # name (-s) is indistinguishable by its command line -- if a stale default
-      # definition let reconfigure "succeed" against the wrong service, the old
-      # process would still be running and the instructions still print.
-      return if default_service? && restart_daemon && !daemon_pids.intersect?(running)
+      # Success is judged by outcome, not by reconfigure's exit status: a fresh
+      # daemon process must be running afterwards and the one seen above must be
+      # gone. Reconfigure only manages the default service name, and a daemon
+      # installed under a custom name (-s) is indistinguishable by its command
+      # line -- if a stale default definition let reconfigure "succeed" against
+      # the wrong service, the old process would still be running; if the new
+      # daemon died on startup, none would be. Both print the instructions.
+      if default_service? && restart_daemon
+        replacement = daemon_pids
+        return if !replacement.empty? && !replacement.intersect?(running)
+      end
 
       opoo <<~EOS
         The NetBird service is still running the previous version. Restart it with:
@@ -481,6 +485,8 @@ brews:
         pattern = "^#{Regexp.escape(HOMEBREW_PREFIX)}/(opt/netbird/|Cellar/netbird/[^/]+/)?bin/netbird service run"
         IO.popen(["pgrep", "-f", pattern], err: File::NULL, &:read).split
       rescue Errno::ENOENT
+        # No pgrep, no way to know whether a daemon is running: stay silent
+        # rather than warn every system whose daemon is simply stopped.
         []
       end
 
