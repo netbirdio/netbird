@@ -14,6 +14,7 @@ import "C"
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 	"unsafe"
@@ -66,9 +67,18 @@ type xembedHost struct {
 	stopCh chan struct{}
 }
 
-// newXembedHost creates an XEmbed tray icon for the given SNI item.
-// Errors when no XEmbed tray manager is available, so callers can fall back.
+// newXembedHost creates an XEmbed tray icon for the given SNI item. Errors when
+// the item has no icon to paint or no XEmbed tray manager is available, so
+// callers can fall back.
 func newXembedHost(conn *dbus.Conn, busName string, objPath dbus.ObjectPath) (*xembedHost, error) {
+	// Resolve the icon before docking: a window docked with nothing to paint
+	// renders as a solid black square in the panel, which is worse for the user
+	// than the item having no tray icon at all.
+	icon, err := fetchIconPixmap(conn, busName, objPath)
+	if err != nil {
+		return nil, err
+	}
+
 	dpy := C.XOpenDisplay(nil)
 	if dpy == nil {
 		return nil, errors.New("cannot open X display")
@@ -107,42 +117,71 @@ func newXembedHost(conn *dbus.Conn, busName string, objPath dbus.ObjectPath) (*x
 		trayMgr:  trayMgr,
 		iconWin:  iconWin,
 		iconSize: iconSize,
+		iconData: icon.Pix,
+		iconW:    int(icon.W),
+		iconH:    int(icon.H),
 		stopCh:   make(chan struct{}),
 	}
 
-	h.fetchAndDrawIcon()
+	h.drawIcon()
 	return h, nil
 }
 
-func (h *xembedHost) fetchAndDrawIcon() {
-	obj := h.conn.Object(h.busName, h.objPath)
-	variant, err := obj.GetProperty("org.kde.StatusNotifierItem.IconPixmap")
+// maxIconPixmapDim bounds the dimensions an item may claim. Tray icons are
+// tiny, and any bound keeps the pixel-buffer size check below free of integer
+// overflow, which would otherwise let a malformed frame through to the C
+// renderer and overread the buffer.
+const maxIconPixmapDim = 1024
+
+// iconPixmap is one frame of org.kde.StatusNotifierItem.IconPixmap, whose D-Bus
+// signature is a(iiay): width, height, and ARGB32 pixels.
+type iconPixmap struct {
+	W   int32
+	H   int32
+	Pix []byte
+}
+
+// fetchIconPixmap reads the item's first icon frame. Items that publish only
+// IconName carry an empty IconPixmap and are reported as an error, since this
+// host has no icon-theme lookup to fall back on.
+func fetchIconPixmap(conn *dbus.Conn, busName string, objPath dbus.ObjectPath) (iconPixmap, error) {
+	variant, err := conn.Object(busName, objPath).GetProperty("org.kde.StatusNotifierItem.IconPixmap")
 	if err != nil {
-		log.Debugf("xembed: failed to get IconPixmap: %v", err)
-		return
+		return iconPixmap{}, fmt.Errorf("get IconPixmap of %s %s: %w", busName, objPath, err)
 	}
 
-	// IconPixmap has D-Bus signature a(iiay).
-	type px struct {
-		W   int32
-		H   int32
-		Pix []byte
-	}
-
-	var icons []px
+	var icons []iconPixmap
 	if err := variant.Store(&icons); err != nil {
-		log.Debugf("xembed: failed to decode IconPixmap: %v", err)
-		return
+		return iconPixmap{}, fmt.Errorf("decode IconPixmap of %s %s: %w", busName, objPath, err)
 	}
-
 	if len(icons) == 0 {
-		log.Debug("xembed: IconPixmap is empty")
-		return
+		return iconPixmap{}, fmt.Errorf("IconPixmap of %s %s is empty", busName, objPath)
 	}
 
 	icon := icons[0]
-	if icon.W <= 0 || icon.H <= 0 || len(icon.Pix) < int(icon.W*icon.H*4) {
-		log.Debug("xembed: invalid IconPixmap data")
+	if err := icon.validate(); err != nil {
+		return iconPixmap{}, fmt.Errorf("IconPixmap of %s %s: %w", busName, objPath, err)
+	}
+	return icon, nil
+}
+
+// validate rejects a frame whose pixel buffer is shorter than the size it
+// claims. The frame comes from another process on the session bus and its
+// dimensions are handed to the C renderer, which reads W*H*4 bytes.
+func (i iconPixmap) validate() error {
+	if i.W <= 0 || i.H <= 0 || i.W > maxIconPixmapDim || i.H > maxIconPixmapDim {
+		return fmt.Errorf("out-of-range size %dx%d", i.W, i.H)
+	}
+	if len(i.Pix) < int(i.W)*int(i.H)*4 {
+		return fmt.Errorf("%d bytes, short of %dx%d ARGB", len(i.Pix), i.W, i.H)
+	}
+	return nil
+}
+
+func (h *xembedHost) fetchAndDrawIcon() {
+	icon, err := fetchIconPixmap(h.conn, h.busName, h.objPath)
+	if err != nil {
+		log.Debugf("xembed: %v", err)
 		return
 	}
 
