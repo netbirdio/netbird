@@ -5,8 +5,12 @@ import (
 	"os"
 	"testing"
 
-	"github.com/netbirdio/netbird/shared/management/grpc"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/server/idp"
+	"github.com/netbirdio/netbird/shared/management/grpc"
 )
 
 const (
@@ -58,6 +62,22 @@ func Test_LoadMgmtConfig_Empty(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Nil(t, cfg.HighestSupportedSyncMessageVersion)
 	assert.Nil(t, cfg.PerAccountHighestSupportedSyncMessageVersion)
+}
+
+func TestApplyEmbeddedIdPConfigRequiresSingleAccountDomain(t *testing.T) {
+	previousDomain := mgmtSingleAccModeDomain
+	previousDisabled := disableSingleAccMode
+	t.Cleanup(func() {
+		mgmtSingleAccModeDomain = previousDomain
+		disableSingleAccMode = previousDisabled
+	})
+
+	mgmtSingleAccModeDomain = ""
+	disableSingleAccMode = false
+	cfg := &nbconfig.Config{
+		EmbeddedIdP: &idp.EmbeddedIdPConfig{Enabled: true},
+	}
+	require.ErrorContains(t, ApplyEmbeddedIdPConfig(context.Background(), cfg), "embedded IdP requires single account mode")
 }
 
 func createConfig(config string) (string, error) {
