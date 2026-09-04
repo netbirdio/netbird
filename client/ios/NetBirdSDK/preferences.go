@@ -3,12 +3,16 @@
 package NetBirdSDK
 
 import (
+	"sync/atomic"
+
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/mdm"
 )
 
 // Preferences export a subset of the internal config for gomobile
 type Preferences struct {
 	configInput profilemanager.ConfigInput
+	mdmLoader   atomic.Pointer[mdm.Loader]
 }
 
 // NewPreferences create new Preferences instance
@@ -17,12 +21,29 @@ func NewPreferences(configPath string, stateFilePath string) *Preferences {
 		ConfigPath:    configPath,
 		StateFilePath: stateFilePath,
 	}
-	return &Preferences{ci}
+	return &Preferences{configInput: ci}
+}
+
+// SetMDMPolicyFetcher registers the native-provided MDM policy fetcher on
+// this Preferences instance; passing nil disables MDM enforcement.
+func (p *Preferences) SetMDMPolicyFetcher(f PolicyFetcher) {
+	p.mdmLoader.Store(loaderFor(f))
+}
+
+// GetRestrictionsJSON returns the UI enforcement snapshot derived from the
+// active MDM policy, in the JSON shape shared with the desktop frontend.
+func (p *Preferences) GetRestrictionsJSON() (string, error) {
+	return mdm.BuildRestrictions(p.policy()).JSON()
+}
+
+func (p *Preferences) policy() *mdm.Policy {
+	return p.mdmLoader.Load().Load()
 }
 
 // GetManagementURL read url from config file
 func (p *Preferences) GetManagementURL() (string, error) {
-	if p.configInput.ManagementURL != "" {
+	policy := p.policy()
+	if !policy.HasKey(mdm.KeyManagementURL) && p.configInput.ManagementURL != "" {
 		return p.configInput.ManagementURL, nil
 	}
 
@@ -30,7 +51,8 @@ func (p *Preferences) GetManagementURL() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return cfg.ManagementURL.String(), err
+	cfg.ApplyMDMPolicy(policy)
+	return cfg.ManagementURL.String(), nil
 }
 
 // SetManagementURL store the given url and wait for commit
@@ -56,17 +78,21 @@ func (p *Preferences) SetAdminURL(url string) {
 	p.configInput.AdminURL = url
 }
 
-// GetPreSharedKey read preshared key from config file
-func (p *Preferences) GetPreSharedKey() (string, error) {
+// HasPreSharedKey reports whether a pre-shared key is staged, persisted, or
+// enforced by MDM; the key itself is never handed to the native layer.
+func (p *Preferences) HasPreSharedKey() (bool, error) {
+	if _, ok := p.policy().GetString(mdm.KeyPreSharedKey); ok {
+		return true, nil
+	}
 	if p.configInput.PreSharedKey != nil {
-		return *p.configInput.PreSharedKey, nil
+		return *p.configInput.PreSharedKey != "", nil
 	}
 
 	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
 	if err != nil {
-		return "", err
+		return false, err
 	}
-	return cfg.PreSharedKey, err
+	return cfg.PreSharedKey != "", nil
 }
 
 // SetPreSharedKey store the given key and wait for commit
@@ -81,6 +107,9 @@ func (p *Preferences) SetRosenpassEnabled(enabled bool) {
 
 // GetRosenpassEnabled read rosenpass enabled from config file
 func (p *Preferences) GetRosenpassEnabled() (bool, error) {
+	if v, ok := p.policy().GetBool(mdm.KeyRosenpassEnabled); ok {
+		return v, nil
+	}
 	if p.configInput.RosenpassEnabled != nil {
 		return *p.configInput.RosenpassEnabled, nil
 	}
@@ -99,6 +128,9 @@ func (p *Preferences) SetRosenpassPermissive(permissive bool) {
 
 // GetRosenpassPermissive read rosenpass permissive from config file
 func (p *Preferences) GetRosenpassPermissive() (bool, error) {
+	if v, ok := p.policy().GetBool(mdm.KeyRosenpassPermissive); ok {
+		return v, nil
+	}
 	if p.configInput.RosenpassPermissive != nil {
 		return *p.configInput.RosenpassPermissive, nil
 	}
@@ -130,7 +162,8 @@ func (p *Preferences) SetDisableIPv6(disable bool) {
 
 // GetRemoteJobsAllowed reads the remote jobs opt-in from config file
 func (p *Preferences) GetRemoteJobsAllowed() (bool, error) {
-	if p.configInput.RemoteJobsAllowed != nil {
+	policy := p.policy()
+	if !policy.HasKey(mdm.KeyRemoteJobsAllowed) && p.configInput.RemoteJobsAllowed != nil {
 		return *p.configInput.RemoteJobsAllowed, nil
 	}
 
@@ -138,10 +171,11 @@ func (p *Preferences) GetRemoteJobsAllowed() (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	cfg.ApplyMDMPolicy(policy)
 	if cfg.RemoteJobsAllowed == nil {
 		return false, nil
 	}
-	return *cfg.RemoteJobsAllowed, err
+	return *cfg.RemoteJobsAllowed, nil
 }
 
 // SetRemoteJobsAllowed stores the given value and waits for commit
@@ -151,6 +185,9 @@ func (p *Preferences) SetRemoteJobsAllowed(allowed bool) {
 
 // Commit write out the changes into config file
 func (p *Preferences) Commit() error {
+	if err := profilemanager.CheckMDMConflicts(p.configInput, p.policy()); err != nil {
+		return err
+	}
 	// Use DirectUpdateOrCreateConfig to avoid atomic file operations (temp file + rename)
 	// which are blocked by the tvOS sandbox in App Group containers
 	_, err := profilemanager.DirectUpdateOrCreateConfig(p.configInput)

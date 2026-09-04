@@ -42,8 +42,13 @@ type Auth struct {
 	cfgPath string
 }
 
-// NewAuth instantiate Auth struct and validate the management URL
-func NewAuth(cfgPath string, mgmURL string) (*Auth, error) {
+// NewAuth instantiate Auth struct and validate the management URL.
+// Auth is constructed under the active MDM policy: the policy is overlaid on
+// the resolved config so the login runs against the enforced values, while
+// the persisted config keeps the caller-supplied ones. A nil fetcher disables
+// MDM enforcement.
+func NewAuth(cfgPath string, mgmURL string, fetcher PolicyFetcher) (*Auth, error) {
+	policy := loaderFor(fetcher).Load()
 	inputCfg := profilemanager.ConfigInput{
 		ConfigPath:    cfgPath,
 		ManagementURL: mgmURL,
@@ -67,6 +72,7 @@ func NewAuth(cfgPath string, mgmURL string) (*Auth, error) {
 	if err != nil {
 		return nil, err
 	}
+	cfg.ApplyMDMPolicy(policy)
 
 	// Use a cancellable context so Stop() can abort an in-progress interactive
 	// login. The PKCE flow's WaitToken blocks (and keeps its loopback HTTP server

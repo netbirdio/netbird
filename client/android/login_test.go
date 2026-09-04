@@ -16,7 +16,7 @@ import (
 func TestNewAuth_ReusesPersistedIdentity(t *testing.T) {
 	cfgPath := filepath.Join(t.TempDir(), "config.json")
 
-	first, err := NewAuth(cfgPath, "https://api.example.com:443")
+	first, err := NewAuth(cfgPath, "https://api.example.com:443", nil)
 	if err != nil {
 		t.Fatalf("first NewAuth: %v", err)
 	}
@@ -24,7 +24,7 @@ func TestNewAuth_ReusesPersistedIdentity(t *testing.T) {
 		t.Fatal("first NewAuth produced no private key")
 	}
 
-	second, err := NewAuth(cfgPath, "https://api.example.com:443")
+	second, err := NewAuth(cfgPath, "https://api.example.com:443", nil)
 	if err != nil {
 		t.Fatalf("second NewAuth: %v", err)
 	}
@@ -38,7 +38,7 @@ func TestNewAuth_ReusesPersistedIdentity(t *testing.T) {
 func TestNewAuth_CreatesConfigWhenAbsent(t *testing.T) {
 	cfgPath := filepath.Join(t.TempDir(), "config.json")
 
-	auth, err := NewAuth(cfgPath, "https://api.example.com:443")
+	auth, err := NewAuth(cfgPath, "https://api.example.com:443", nil)
 	if err != nil {
 		t.Fatalf("NewAuth: %v", err)
 	}

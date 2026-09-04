@@ -13,28 +13,40 @@ import (
 // testReloadInterval for speeding up the ticker cadence under `go test`
 const testReloadInterval = 1 * time.Second
 
-// withPolicyLoader overrides the package-level policyLoader for the duration
-// of the test so the ticker observes a scripted policy instead of the real
-// OS-native store. The original loader is restored on cleanup.
-func withPolicyLoader(t *testing.T, fn func() *Policy) {
-	t.Helper()
-	prev := policyLoader
-	policyLoader = fn
-	t.Cleanup(func() { policyLoader = prev })
+// fakePolicyFetcher implements PolicyFetcher returning a scripted
+// policy map. Goroutine-safe so the test can mutate the script while
+// the ticker is observing it.
+type fakePolicyFetcher struct {
+	mu     sync.Mutex
+	values map[string]any
+}
+
+func (f *fakePolicyFetcher) Fetch() map[string]any {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.values == nil {
+		return nil
+	}
+	out := make(map[string]any, len(f.values))
+	for k, v := range f.values {
+		out[k] = v
+	}
+	return out
+}
+
+func (f *fakePolicyFetcher) set(values map[string]any) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.values = values
 }
 
 func TestTicker_FiresOnChangeWithDelta(t *testing.T) {
-	var mu sync.Mutex
-	current := NewPolicy(nil) // initial observation: empty (no enforcement)
-	withPolicyLoader(t, func() *Policy {
-		mu.Lock()
-		defer mu.Unlock()
-		return current
-	})
+	fetcher := &fakePolicyFetcher{} // initial observation: empty (no enforcement)
+	loader := NewLoader(fetcher)
 
 	type change struct{ prev, curr *Policy }
 	changes := make(chan change, 1)
-	tk := NewTicker(testReloadInterval)
+	tk := NewTicker(testReloadInterval, loader)
 	require.Equal(t, testReloadInterval, tk.interval)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -49,15 +61,13 @@ func TestTicker_FiresOnChangeWithDelta(t *testing.T) {
 		})
 		close(done)
 	}()
-	// Stop Run and wait for it to exit before returning, so the policyLoader
-	// restore in t.Cleanup can't race the ticker goroutine still reading it.
+	// Stop Run and wait for it to exit before returning, so the test
+	// goroutine doesn't race the still-running ticker.
 	defer func() { cancel(); <-done }()
 
-	// Flip the OS-observed policy from empty to one managed key. The next
-	// tick must detect the diff and invoke onChange.
-	mu.Lock()
-	current = NewPolicy(map[string]any{KeyManagementURL: "https://mdm.example.com:443"})
-	mu.Unlock()
+	// Flip the OS-observed policy from empty to one managed key. The
+	// next tick must detect the diff and invoke onChange.
+	fetcher.set(map[string]any{KeyManagementURL: "https://mdm.example.com:443"})
 
 	select {
 	case c := <-changes:
@@ -69,12 +79,11 @@ func TestTicker_FiresOnChangeWithDelta(t *testing.T) {
 }
 
 func TestTicker_NoCallbackWhenPolicyUnchanged(t *testing.T) {
-	withPolicyLoader(t, func() *Policy {
-		return NewPolicy(map[string]any{KeyBlockInbound: true})
-	})
+	fetcher := &fakePolicyFetcher{values: map[string]any{KeyBlockInbound: true}}
+	loader := NewLoader(fetcher)
 
 	fired := make(chan struct{}, 1)
-	tk := NewTicker(testReloadInterval)
+	tk := NewTicker(testReloadInterval, loader)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -90,8 +99,8 @@ func TestTicker_NoCallbackWhenPolicyUnchanged(t *testing.T) {
 	}()
 	defer func() { cancel(); <-done }()
 
-	// Over ~2 ticks at the 1s test cadence the policy never changes, so the
-	// diff guard must suppress the callback entirely.
+	// Over ~2 ticks at the 1s test cadence the policy never changes,
+	// so the diff guard must suppress the callback entirely.
 	select {
 	case <-fired:
 		t.Fatal("onChange fired despite an unchanged policy")
