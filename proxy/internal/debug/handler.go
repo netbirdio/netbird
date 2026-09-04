@@ -729,17 +729,54 @@ func (h *Handler) handlePerf(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, resp)
 }
 
+// perfApplyTimeout bounds the whole apply, however many clients are registered.
+const perfApplyTimeout = 5 * time.Second
+
+type perfResult struct {
+	accountID types.AccountID
+	err       error
+}
+
 // applyBufferCap sets the WireGuard buffer pool cap on every registered client
 // and reports how many took it, plus a per-account error for those that did not.
+//
+// Clients are handled concurrently and the wait is bounded: SetPerformance goes
+// through the embedded client's lock, which Start holds for the whole of a slow
+// startup, and this endpoint is the recovery path for a fleet where some clients
+// are wedged. One stuck account must not keep the cap from reaching the others.
+// Goroutines left waiting on a stuck client finish on their own; the buffered
+// channel means they do not leak.
 func (h *Handler) applyBufferCap(capN uint32) (int, map[string]string) {
+	clients := h.provider.ListClientsForStartup()
+	results := make(chan perfResult, len(clients))
+	for accountID, client := range clients {
+		go func() {
+			results <- perfResult{
+				accountID: accountID,
+				err:       client.SetPerformance(nbembed.Performance{PreallocatedBuffersPerPool: &capN}),
+			}
+		}()
+	}
+
+	pending := maps.Clone(clients)
 	applied := 0
 	failed := map[string]string{}
-	for accountID, client := range h.provider.ListClientsForStartup() {
-		if err := client.SetPerformance(nbembed.Performance{PreallocatedBuffersPerPool: &capN}); err != nil {
-			failed[string(accountID)] = err.Error()
-			continue
+	deadline := time.After(perfApplyTimeout)
+	for range clients {
+		select {
+		case res := <-results:
+			delete(pending, res.accountID)
+			if res.err != nil {
+				failed[string(res.accountID)] = res.err.Error()
+				continue
+			}
+			applied++
+		case <-deadline:
+			for accountID := range pending {
+				failed[string(accountID)] = fmt.Sprintf("timed out after %s waiting for the client", perfApplyTimeout)
+			}
+			return applied, failed
 		}
-		applied++
 	}
 	return applied, failed
 }
