@@ -89,8 +89,8 @@ func TestServiceViaListener_TCPAndUDP(t *testing.T) {
 }
 
 type dnatCall struct {
-	protocol firewall.Protocol
-	added    bool
+	rule  dnatRule
+	added bool
 }
 
 // fakeFirewall records DNAT calls and fails the ones named in addErrs/removeErrs.
@@ -100,19 +100,19 @@ type fakeFirewall struct {
 	removeErrs map[firewall.Protocol]error
 }
 
-func (f *fakeFirewall) AddOutputDNAT(_ netip.Addr, protocol firewall.Protocol, _, _ uint16) error {
+func (f *fakeFirewall) AddOutputDNAT(ip netip.Addr, protocol firewall.Protocol, _, translatedPort uint16) error {
 	if err := f.addErrs[protocol]; err != nil {
 		return err
 	}
-	f.calls = append(f.calls, dnatCall{protocol: protocol, added: true})
+	f.calls = append(f.calls, dnatCall{rule: dnatRule{protocol: protocol, ip: ip, port: translatedPort}, added: true})
 	return nil
 }
 
-func (f *fakeFirewall) RemoveOutputDNAT(_ netip.Addr, protocol firewall.Protocol, _, _ uint16) error {
+func (f *fakeFirewall) RemoveOutputDNAT(ip netip.Addr, protocol firewall.Protocol, _, translatedPort uint16) error {
 	if err := f.removeErrs[protocol]; err != nil {
 		return err
 	}
-	f.calls = append(f.calls, dnatCall{protocol: protocol})
+	f.calls = append(f.calls, dnatCall{rule: dnatRule{protocol: protocol, ip: ip, port: translatedPort}})
 	return nil
 }
 
@@ -129,7 +129,7 @@ func TestSetupDNAT_BothProtocols(t *testing.T) {
 
 	svc.setupDNAT()
 
-	assert.Equal(t, dnatProtocols, svc.dnatRedirected)
+	assert.Len(t, svc.dnatRules, len(dnatProtocols))
 	assert.Equal(t, DefaultPort, svc.RuntimePort(), "port 53 is advertised once both redirects are installed")
 }
 
@@ -139,12 +139,13 @@ func TestSetupDNAT_RollsBackPartialRedirect(t *testing.T) {
 
 	svc.setupDNAT()
 
-	assert.Empty(t, svc.dnatRedirected, "the UDP redirect installed before the failure must be rolled back")
+	assert.Empty(t, svc.dnatRules, "the UDP redirect installed before the failure must be rolled back")
 	assert.Equal(t, int(svc.listenPort), svc.RuntimePort(), "an incomplete redirect must not advertise port 53")
-	assert.Contains(t, fw.calls, dnatCall{protocol: firewall.ProtocolUDP}, "UDP removal should have been attempted")
+	udp := dnatRule{protocol: firewall.ProtocolUDP, ip: svc.listenIP, port: svc.listenPort}
+	assert.Contains(t, fw.calls, dnatCall{rule: udp}, "UDP removal should have been attempted")
 }
 
-// A rollback that fails must keep the protocol recorded, so port 53 is not left
+// A rollback that fails must keep the rule recorded, so port 53 is not left
 // redirected to a resolver that no longer listens.
 func TestStop_RetriesFailedDNATRemoval(t *testing.T) {
 	fw := &fakeFirewall{
@@ -154,13 +155,40 @@ func TestStop_RetriesFailedDNATRemoval(t *testing.T) {
 	svc := newDNATTestService(fw)
 
 	svc.setupDNAT()
-	require.Equal(t, []firewall.Protocol{firewall.ProtocolUDP}, svc.dnatRedirected,
-		"a failed rollback keeps the redirect for a later retry")
+	udp := dnatRule{protocol: firewall.ProtocolUDP, ip: svc.listenIP, port: svc.listenPort}
+	require.Equal(t, []dnatRule{udp}, svc.dnatRules, "a failed rollback keeps the rule for a later retry")
 
 	require.Error(t, svc.Stop(), "the failing removal should be reported")
-	require.Equal(t, []firewall.Protocol{firewall.ProtocolUDP}, svc.dnatRedirected)
+	require.Equal(t, []dnatRule{udp}, svc.dnatRules)
 
 	delete(fw.removeErrs, firewall.ProtocolUDP)
 	require.NoError(t, svc.Stop(), "a later stop retries the removal")
-	assert.Empty(t, svc.dnatRedirected)
+	assert.Empty(t, svc.dnatRules)
+}
+
+// A rule left behind by a failed removal must be removed with the address and
+// port it was installed with, even when the listener has since moved to another
+// port, and it must not count towards the redirect the new listener advertises.
+func TestSetupDNAT_ClearsStaleRuleAfterPortChange(t *testing.T) {
+	fw := &fakeFirewall{removeErrs: map[firewall.Protocol]error{firewall.ProtocolUDP: errors.New("nftables busy")}}
+	svc := newDNATTestService(fw)
+	stalePort := svc.listenPort
+
+	svc.setupDNAT()
+	require.Error(t, svc.Stop())
+	staleUDP := dnatRule{protocol: firewall.ProtocolUDP, ip: svc.listenIP, port: stalePort}
+	require.Equal(t, []dnatRule{staleUDP}, svc.dnatRules)
+
+	delete(fw.removeErrs, firewall.ProtocolUDP)
+	svc.listenPort = stalePort + 1
+	fw.calls = nil
+
+	svc.setupDNAT()
+
+	assert.Contains(t, fw.calls, dnatCall{rule: staleUDP}, "the stale rule must be removed with its original port")
+	assert.Len(t, svc.dnatRules, len(dnatProtocols))
+	assert.Equal(t, DefaultPort, svc.RuntimePort(), "the new listener is fully redirected")
+	for _, rule := range svc.dnatRules {
+		assert.Equal(t, svc.listenPort, rule.port, "only rules for the current listener remain")
+	}
 }

@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"runtime"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -44,9 +45,19 @@ type serviceViaListener struct {
 	listenerIsRunning bool
 	listenerFlagLock  sync.Mutex
 	firewall          Firewall
-	// dnatRedirected holds the protocols whose port 53 redirect is installed
-	// and not yet removed, so a removal that fails can be retried.
-	dnatRedirected []firewall.Protocol
+	// dnatRules holds the port 53 redirects that are installed and not yet
+	// removed, so a removal that fails can be retried.
+	dnatRules []dnatRule
+}
+
+// dnatRule is a port 53 redirect as it was installed. The target is kept with
+// the rule because the listener can come back on a different address or port,
+// and a retried removal has to name the address and port the rule was added
+// with, not the ones in use now.
+type dnatRule struct {
+	protocol firewall.Protocol
+	ip       netip.Addr
+	port     uint16
 }
 
 func newServiceViaListener(wgIface WGIface, customAddr *netip.AddrPort, fw Firewall) *serviceViaListener {
@@ -134,6 +145,12 @@ func (s *serviceViaListener) setupDNAT() {
 		return
 	}
 
+	// Clear whatever an earlier removal left behind first: those rules can point
+	// at an address or port this listener no longer uses.
+	if err := s.removeDNAT(); err != nil {
+		log.Warnf("failed to remove stale DNS DNAT rules, retrying on stop: %v", err)
+	}
+
 	for _, proto := range dnatProtocols {
 		if err := s.firewall.AddOutputDNAT(s.listenIP, proto, DefaultPort, s.listenPort); err != nil {
 			log.Errorf("failed to add DNS %s DNAT rule, DNS on port %d will not work: %v",
@@ -143,14 +160,14 @@ func (s *serviceViaListener) setupDNAT() {
 			}
 			return
 		}
-		s.dnatRedirected = append(s.dnatRedirected, proto)
+		s.dnatRules = append(s.dnatRules, dnatRule{protocol: proto, ip: s.listenIP, port: s.listenPort})
 	}
 
 	log.Infof("added DNS DNAT rules: %s:%d -> %s:%d (UDP + TCP)", s.listenIP, DefaultPort, s.listenIP, s.listenPort)
 }
 
-// removeDNAT removes the port 53 redirects installed so far. A protocol whose
-// removal fails stays recorded so a later Stop retries it, rather than leaving
+// removeDNAT removes every installed port 53 redirect. A rule whose removal
+// fails stays recorded so a later setup or Stop retries it, rather than leaving
 // port 53 pointing at a resolver that is no longer listening.
 func (s *serviceViaListener) removeDNAT() error {
 	if s.firewall == nil {
@@ -158,14 +175,15 @@ func (s *serviceViaListener) removeDNAT() error {
 	}
 
 	var merr *multierror.Error
-	var remaining []firewall.Protocol
-	for _, proto := range s.dnatRedirected {
-		if err := s.firewall.RemoveOutputDNAT(s.listenIP, proto, DefaultPort, s.listenPort); err != nil {
-			merr = multierror.Append(merr, fmt.Errorf("remove DNS %s DNAT rule: %w", proto, err))
-			remaining = append(remaining, proto)
+	var remaining []dnatRule
+	for _, rule := range s.dnatRules {
+		if err := s.firewall.RemoveOutputDNAT(rule.ip, rule.protocol, DefaultPort, rule.port); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("remove DNS %s DNAT rule for %s:%d: %w",
+				rule.protocol, rule.ip, rule.port, err))
+			remaining = append(remaining, rule)
 		}
 	}
-	s.dnatRedirected = remaining
+	s.dnatRules = remaining
 
 	return nberrors.FormatErrorOrNil(merr)
 }
@@ -215,10 +233,23 @@ func (s *serviceViaListener) RuntimePort() int {
 	s.listenerFlagLock.Lock()
 	defer s.listenerFlagLock.Unlock()
 
-	if len(s.dnatRedirected) == len(dnatProtocols) {
+	if s.redirectInstalled() {
 		return DefaultPort
 	}
 	return int(s.listenPort)
+}
+
+// redirectInstalled reports whether every protocol is redirected from port 53
+// to the address and port the listener currently serves. Rules left over from
+// an earlier listener do not count.
+func (s *serviceViaListener) redirectInstalled() bool {
+	for _, proto := range dnatProtocols {
+		current := dnatRule{protocol: proto, ip: s.listenIP, port: s.listenPort}
+		if !slices.Contains(s.dnatRules, current) {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *serviceViaListener) RuntimeIP() netip.Addr {
