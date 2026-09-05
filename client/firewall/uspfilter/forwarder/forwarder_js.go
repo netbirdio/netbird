@@ -6,10 +6,19 @@ import (
 	"errors"
 	"net/netip"
 
-	"github.com/netbirdio/netbird/client/firewall/uspfilter/common"
+	wgdevice "golang.zx2c4.com/wireguard/device"
+
 	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 )
+
+// IFace provides the WireGuard device and overlay addresses the forwarder needs.
+// Mirrors the interface declared in forwarder.go for the non-js build.
+type IFace interface {
+	GetWGDevice() *wgdevice.Device
+	Address() wgaddr.Address
+}
 
 // PacketCapture captures raw packets for debugging. Implementations must be
 // safe for concurrent use and must not block.
@@ -24,7 +33,7 @@ type Forwarder struct{}
 
 // New always fails under wasm so the firewall cleanly disables forwarding
 // (see filter.go: a New error sets routingEnabled=false and leaves forwarder nil).
-func New(iface common.IFaceMapper, logger *nblog.Logger, flowLogger nftypes.FlowLogger, netstack bool, mtu uint16) (*Forwarder, error) {
+func New(iface IFace, logger *nblog.Logger, flowLogger nftypes.FlowLogger, netstack bool, mtu uint16) (*Forwarder, error) {
 	return nil, errors.New("packet forwarding not supported under wasm")
 }
 

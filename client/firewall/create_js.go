@@ -3,7 +3,6 @@
 package firewall
 
 import (
-	"net"
 	"net/netip"
 
 	log "github.com/sirupsen/logrus"
@@ -27,20 +26,14 @@ func NewFirewall(iface IFaceMapper, _ *statemanager.Manager, _ nftypes.FlowLogge
 type noopFirewall struct{}
 
 func (noopFirewall) Init(*statemanager.Manager) error { return nil }
-func (noopFirewall) AllowNetbird() error              { return nil }
 
-func (noopFirewall) AddPeerFiltering(_ []byte, _ net.IP, _ firewall.Protocol, _ *firewall.Port, _ *firewall.Port, _ firewall.Action, _ string) ([]firewall.Rule, error) {
+func (noopFirewall) AddFilterRule(_ []byte, _ []netip.Prefix, _ firewall.Network, _ firewall.Protocol, _, _ *firewall.Port, _ firewall.Action) (firewall.Rule, error) {
 	return nil, nil
 }
-func (noopFirewall) DeletePeerRule(firewall.Rule) error { return nil }
-func (noopFirewall) IsServerRouteSupported() bool       { return false }
-func (noopFirewall) IsStateful() bool                   { return false }
-
-func (noopFirewall) AddRouteFiltering(_ []byte, _ []netip.Prefix, _ firewall.Network, _ firewall.Protocol, _, _ *firewall.Port, _ firewall.Action) (firewall.Rule, error) {
-	return nil, nil
-}
-func (noopFirewall) DeleteRouteRule(firewall.Rule) error        { return nil }
-func (noopFirewall) AddNatRule(firewall.RouterPair) error       { return nil }
+func (noopFirewall) DeleteFilterRule(firewall.Rule) error { return nil }
+func (noopFirewall) IsServerRouteSupported() bool         { return false }
+func (noopFirewall) IsStateful() bool                     { return false }
+func (noopFirewall) AddNatRule(firewall.RouterPair) error { return nil }
 func (noopFirewall) RemoveNatRule(firewall.RouterPair) error    { return nil }
 func (noopFirewall) SetLegacyManagement(bool) error             { return nil }
 func (noopFirewall) Close(*statemanager.Manager) error          { return nil }
