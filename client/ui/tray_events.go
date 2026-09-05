@@ -54,10 +54,15 @@ func (t *Tray) onSystemEvent(ev *application.CustomEvent) {
 	}
 
 	critical := strings.EqualFold(se.Severity, services.SeverityCritical)
+	// A file drop offer is a consent request that expires, not a report of
+	// something that already happened: unseen, it takes the transfer with it.
+	// It passes the gate like a critical event, while the file drop events that
+	// only inform (completed, failed, withdrawn) stay behind it.
+	isFileDropOffer := se.Metadata[proto.MetadataKindKey] == proto.MetadataKindFileDropOffer
 	t.profileMu.Lock()
 	enabled := t.notificationsEnabled
 	t.profileMu.Unlock()
-	if !enabled && !critical {
+	if !enabled && !critical && !isFileDropOffer {
 		return
 	}
 
@@ -65,7 +70,7 @@ func (t *Tray) onSystemEvent(ev *application.CustomEvent) {
 	// category/severity so a daemon-side reword still lands here. Final warning
 	// auto-opens the SessionExpiration dialog with no notification (the dialog is
 	// the last-chance reminder; doubling up would be noise).
-	if se.Metadata[proto.MetadataKindKey] == proto.MetadataKindFileDropOffer {
+	if isFileDropOffer {
 		t.notifyFileDropOffer(se)
 		return
 	}
