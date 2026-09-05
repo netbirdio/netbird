@@ -216,7 +216,207 @@ func TestRewriteFunc_SessionCookieStripping(t *testing.T) {
 
 		rewrite(pr)
 
-		assert.Empty(t, pr.Out.Header.Get("Cookie"))
+		assert.NotContains(t, pr.Out.Header, "Cookie",
+			"no Cookie header should be created when the request has none")
+	})
+
+	t.Run("preserves cookie values containing escaped semicolons and removes nb_session", func(t *testing.T) {
+		pr := newProxyRequest(t, "http://example.com/", "1.2.3.4:5000")
+		// A quoted cookie value with a semicolon escaped as \073 (as Starlette
+		// emits) round-trips fine in a browser but is dropped by Go's cookie
+		// parser, so stripSessionCookie must not parse-and-re-emit.
+		pr.In.Header.Set("Cookie",
+			`__Host-app_session="provider=self-hosted\073state=xyz\073verifier=abc"; `+auth.SessionCookieName+"=jwt-token")
+
+		rewrite(pr)
+
+		raw := pr.Out.Header.Get("Cookie")
+		assert.Equal(t,
+			`__Host-app_session="provider=self-hosted\073state=xyz\073verifier=abc"`,
+			raw,
+			"only nb_session should be removed from the raw Cookie header")
+	})
+
+	t.Run("removes nb_session from the middle and keeps exact formatting", func(t *testing.T) {
+		pr := newProxyRequest(t, "http://example.com/", "1.2.3.4:5000")
+		pr.In.Header.Set("Cookie",
+			"app=one; "+auth.SessionCookieName+"=jwt; tracking=two")
+
+		rewrite(pr)
+
+		assert.Equal(t, "app=one; tracking=two", pr.Out.Header.Get("Cookie"),
+			"nb_session in the middle is removed with its surrounding delimiters")
+	})
+
+	t.Run("removes nb_session from the end", func(t *testing.T) {
+		pr := newProxyRequest(t, "http://example.com/", "1.2.3.4:5000")
+		pr.In.Header.Set("Cookie", "app=one; "+auth.SessionCookieName+"=jwt")
+
+		rewrite(pr)
+
+		assert.Equal(t, "app=one", pr.Out.Header.Get("Cookie"),
+			"trailing nb_session is removed without a dangling ';'")
+	})
+
+	t.Run("removes nb_session even with an empty value", func(t *testing.T) {
+		pr := newProxyRequest(t, "http://example.com/", "1.2.3.4:5000")
+		pr.In.Header.Set("Cookie", "app=one; "+auth.SessionCookieName+"; tracking=two")
+
+		rewrite(pr)
+
+		assert.Equal(t, "app=one; tracking=two", pr.Out.Header.Get("Cookie"),
+			"nb_session with an empty value is still stripped")
+	})
+
+	t.Run("treats cookie names as case-sensitive", func(t *testing.T) {
+		pr := newProxyRequest(t, "http://example.com/", "1.2.3.4:5000")
+		const raw = "app=one; NB_SESSION=jwt; tracking=two"
+		pr.In.Header.Set("Cookie", raw)
+
+		rewrite(pr)
+
+		assert.Equal(t, raw, pr.Out.Header.Get("Cookie"),
+			"a differently-cased cookie name is a distinct cookie and must not be stripped")
+	})
+
+	t.Run("does not match a cookie whose name merely contains nb_session", func(t *testing.T) {
+		pr := newProxyRequest(t, "http://example.com/", "1.2.3.4:5000")
+		pr.In.Header.Set("Cookie", "mynb_session=x; "+auth.SessionCookieName+"=jwt")
+
+		rewrite(pr)
+
+		assert.Equal(t, "mynb_session=x", pr.Out.Header.Get("Cookie"),
+			"only an exact nb_session pair is removed, not tokens containing it")
+	})
+
+	t.Run("strips nb_session across multiple Cookie headers", func(t *testing.T) {
+		pr := newProxyRequest(t, "http://example.com/", "1.2.3.4:5000")
+		pr.In.Header.Add("Cookie", "app=one")
+		pr.In.Header.Add("Cookie", auth.SessionCookieName+"=jwt")
+		pr.In.Header.Add("Cookie", "tracking=two")
+
+		rewrite(pr)
+
+		assert.Equal(t, "app=one; tracking=two", pr.Out.Header.Get("Cookie"),
+			"nb_session is removed across multiple Cookie header fields")
+	})
+
+	t.Run("preserves a semicolon inside a quoted value", func(t *testing.T) {
+		pr := newProxyRequest(t, "http://example.com/", "1.2.3.4:5000")
+		pr.In.Header.Set("Cookie",
+			`app="a;b"; `+auth.SessionCookieName+"=jwt; c=3")
+
+		rewrite(pr)
+
+		assert.Equal(t, `app="a;b"; c=3`, pr.Out.Header.Get("Cookie"),
+			"a literal semicolon inside a quoted value is not treated as a pair separator")
+	})
+
+	t.Run("forwards header verbatim when no session cookie is present", func(t *testing.T) {
+		pr := newProxyRequest(t, "http://example.com/", "1.2.3.4:5000")
+		const raw = `__Host-app_session="provider=self-hosted\073state=xyz\073verifier=abc"`
+		pr.In.Header.Set("Cookie", raw)
+
+		rewrite(pr)
+
+		assert.Equal(t, raw, pr.Out.Header.Get("Cookie"),
+			"a Cookie header without nb_session must be forwarded byte-for-byte")
+	})
+
+	t.Run("deletes the header when only nb_session is present", func(t *testing.T) {
+		pr := newProxyRequest(t, "http://example.com/", "1.2.3.4:5000")
+		pr.In.Header.Set("Cookie", auth.SessionCookieName+"=jwt")
+
+		rewrite(pr)
+
+		assert.NotContains(t, pr.Out.Header, "Cookie",
+			"when only nb_session is present the Cookie header key is removed")
+	})
+
+	t.Run("preserves trailing whitespace of a surviving cookie after a middle removal", func(t *testing.T) {
+		pr := newProxyRequest(t, "http://example.com/", "1.2.3.4:5000")
+		pr.In.Header.Set("Cookie", "app=one; "+auth.SessionCookieName+"=jwt; tracking=two ")
+
+		rewrite(pr)
+
+		assert.Equal(t, "app=one; tracking=two ", pr.Out.Header.Get("Cookie"),
+			"removing a middle pair must not strip whitespace from surviving cookies")
+	})
+
+	t.Run("ignores a lookalike nb_session inside a quoted value", func(t *testing.T) {
+		pr := newProxyRequest(t, "http://example.com/", "1.2.3.4:5000")
+		const raw = `app="a; ` + auth.SessionCookieName + `=fake"; tracking=two`
+		pr.In.Header.Set("Cookie", raw)
+
+		rewrite(pr)
+
+		assert.Equal(t, raw, pr.Out.Header.Get("Cookie"),
+			"a semicolon inside a quoted value is not a pair separator, so a lookalike pair inside it must not be touched")
+	})
+
+	t.Run("strips nb_session after a quoted value and keeps the quoted value intact", func(t *testing.T) {
+		pr := newProxyRequest(t, "http://example.com/", "1.2.3.4:5000")
+		const raw = `app="a; ` + auth.SessionCookieName + `=fake"; ` + auth.SessionCookieName + "=jwt; tracking=two"
+		pr.In.Header.Set("Cookie", raw)
+
+		rewrite(pr)
+
+		assert.Equal(t, `app="a; `+auth.SessionCookieName+`=fake"; tracking=two`, pr.Out.Header.Get("Cookie"),
+			"the quoted value must survive and the real nb_session pair must be removed")
+	})
+
+	t.Run("treats an unterminated quote as an ordinary byte", func(t *testing.T) {
+		pr := newProxyRequest(t, "http://example.com/", "1.2.3.4:5000")
+		const raw = `app="unclosed; ` + auth.SessionCookieName + `=x; c=3`
+		pr.In.Header.Set("Cookie", raw)
+
+		rewrite(pr)
+
+		assert.Equal(t, `app="unclosed; c=3`, pr.Out.Header.Get("Cookie"),
+			"an unterminated quote is an ordinary cookie-octet per RFC 6265, so nb_session is still a real pair")
+	})
+
+	t.Run("does not treat a single quote as a quote", func(t *testing.T) {
+		pr := newProxyRequest(t, "http://example.com/", "1.2.3.4:5000")
+		const raw = `app='a; ` + auth.SessionCookieName + `=REAL; c=3`
+		pr.In.Header.Set("Cookie", raw)
+
+		rewrite(pr)
+
+		assert.Equal(t, `app='a; c=3`, pr.Out.Header.Get("Cookie"),
+			"a single quote is not a cookie quote, so nb_session is still a real pair")
+	})
+
+	t.Run("does not treat a value that starts with the name as a cookie", func(t *testing.T) {
+		pr := newProxyRequest(t, "http://example.com/", "1.2.3.4:5000")
+		const raw = "tracking=" + auth.SessionCookieName + "=bar; c=3"
+		pr.In.Header.Set("Cookie", raw)
+
+		rewrite(pr)
+
+		assert.Equal(t, raw, pr.Out.Header.Get("Cookie"),
+			"only a real cookie-name token is matched, never a value that merely starts with the name")
+	})
+
+	t.Run("does not let an embedded quote in a session value delete survivors", func(t *testing.T) {
+		pr := newProxyRequest(t, "http://example.com/", "1.2.3.4:5000")
+		pr.In.Header.Set("Cookie", auth.SessionCookieName+`=abc"def; x=1`)
+
+		rewrite(pr)
+
+		assert.Equal(t, "x=1", pr.Out.Header.Get("Cookie"),
+			"an embedded quote in the session value must not swallow the following cookies")
+	})
+
+	t.Run("does not let an embedded quote in a session value pair with a later quoted value", func(t *testing.T) {
+		pr := newProxyRequest(t, "http://example.com/", "1.2.3.4:5000")
+		const raw = auth.SessionCookieName + `=abc"def; app="ok"; tracking=two`
+		pr.In.Header.Set("Cookie", raw)
+
+		rewrite(pr)
+
+		assert.Equal(t, `app="ok"; tracking=two`, pr.Out.Header.Get("Cookie"),
+			"an embedded quote must not pair with a later value's quote and delete the pair between them")
 	})
 }
 
