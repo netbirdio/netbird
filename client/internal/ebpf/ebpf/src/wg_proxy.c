@@ -50,5 +50,11 @@ int xdp_wg_proxy(struct iphdr  *ip, struct udphdr *udp) {
     __be16 new_dst_port = htons(proxy_port);
     udp->dest = new_dst_port;
     udp->source = new_src_port;
+
+    // The ports are covered by the UDP checksum. This is an IPv4 loopback hop
+    // and the payload is already integrity-protected, so clear the checksum (a
+    // zero UDP checksum means "not computed" for IPv4) rather than leave a
+    // stale value the kernel would drop as UDP_CSUM.
+    udp->check = 0;
 	return XDP_PASS;
 }

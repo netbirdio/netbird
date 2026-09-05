@@ -143,6 +143,34 @@ func TestAllocatePeerIPVariousCIDRs(t *testing.T) {
 	}
 }
 
+func TestAllocateIPv4InvalidPrefixes(t *testing.T) {
+	prefixes := []netip.Prefix{
+		{},
+		netip.MustParsePrefix("0.0.0.0/0"),
+		netip.MustParsePrefix("192.168.1.0/31"),
+		netip.MustParsePrefix("192.168.1.1/32"),
+		netip.MustParsePrefix("fd12:3456:7890:abcd::/64"),
+	}
+
+	for _, prefix := range prefixes {
+		t.Run(prefix.String(), func(t *testing.T) {
+			_, err := AllocatePeerIP(prefix, nil)
+			assert.Error(t, err)
+
+			_, err = AllocateRandomPeerIP(prefix)
+			assert.Error(t, err)
+		})
+	}
+}
+
+func TestAllocatePeerIPIgnoresNonIPv4TakenIPs(t *testing.T) {
+	prefix := netip.MustParsePrefix("192.168.1.0/29")
+
+	ip, err := AllocatePeerIP(prefix, []netip.Addr{netip.MustParseAddr("fd12:3456:7890:abcd::1")})
+	require.NoError(t, err)
+	assert.True(t, prefix.Contains(ip))
+}
+
 func TestGenerateIPs(t *testing.T) {
 	ipNet := net.IPNet{IP: net.ParseIP("100.64.0.0"), Mask: net.IPMask{255, 255, 255, 0}}
 	ips, ipsLen := generateIPs(&ipNet, map[string]struct{}{"100.64.0.0": {}})

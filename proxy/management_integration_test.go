@@ -571,6 +571,7 @@ func TestIntegration_ProxyConnection_ReconnectDoesNotDuplicateState(t *testing.T
 					proxytypes.ServiceID(mapping.GetId()),
 					nil,
 					mapping.GetPrivate(),
+					mapping.GetAuth().GetAllowedGroupIds(),
 				)
 				require.NoError(t, err)
 

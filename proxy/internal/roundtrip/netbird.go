@@ -8,6 +8,8 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,6 +29,12 @@ import (
 )
 
 const deviceNamePrefix = "ingress-proxy-"
+
+// envProxyRosenpass toggles Rosenpass (permissive) on the embedded proxy client. Defaults to on.
+const envProxyRosenpass = "NB_PROXY_ROSENPASS" //nolint:gosec // env var name, not a credential
+
+// envProxyClientLogLevel sets the embedded NetBird client's log level.
+const envProxyClientLogLevel = "NB_PROXY_CLIENT_LOG_LEVEL"
 
 const clientStopTimeout = 30 * time.Second
 
@@ -347,21 +355,44 @@ func (n *NetBird) createClientEntry(ctx context.Context, accountID types.Account
 		"public_key": publicKey.String(),
 	}).Info("proxy peer authenticated successfully with management")
 
+	// Embedded client log level: warn by default (quiet in production); set
+	// NB_PROXY_CLIENT_LOG_LEVEL (e.g. "trace") to surface the embedded NetBird
+	// client's relay / signal / handshake detail for local debugging.
+	clientLogLevel := log.WarnLevel.String()
+	if v := strings.TrimSpace(os.Getenv(envProxyClientLogLevel)); v != "" {
+		if lvl, err := log.ParseLevel(v); err == nil {
+			clientLogLevel = lvl.String()
+		} else {
+			n.logger.Warnf("invalid %s %q, using %q: %v", envProxyClientLogLevel, v, clientLogLevel, err)
+		}
+	}
+
 	n.initLogOnce.Do(func() {
-		if err := util.InitLog(log.WarnLevel.String(), util.LogConsole); err != nil {
+		if err := util.InitLog(clientLogLevel, util.LogConsole); err != nil {
 			n.logger.WithField("account_id", accountID).Warnf("failed to initialize embedded client logging: %v", err)
 		}
 	})
 
+	// Rosenpass runs in permissive mode by default so the embedded proxy can
+	// establish connections with Rosenpass-enabled peers (which otherwise fail
+	// on a PSK mismatch) while still falling back to plain WireGuard for peers
+	// that do not run Rosenpass. Set NB_PROXY_ROSENPASS=false to disable it.
+	rosenpassEnabled := true
+	if v, ok := envBool(envProxyRosenpass, n.logger); ok {
+		rosenpassEnabled = v
+	}
+
 	// Create embedded NetBird client with the generated private key.
 	// The peer has already been created via CreateProxyPeer RPC with the public key.
 	wgPort := int(n.clientCfg.WGPort)
-	client, err := embed.New(embed.Options{
-		DeviceName:    deviceNamePrefix + n.proxyID,
-		ManagementURL: n.clientCfg.MgmtAddr,
-		PrivateKey:    privateKey.String(),
-		LogLevel:      log.WarnLevel.String(),
-		BlockInbound:  n.clientCfg.BlockInbound,
+	embedOpts := embed.Options{
+		DeviceName:          deviceNamePrefix + n.proxyID,
+		ManagementURL:       n.clientCfg.MgmtAddr,
+		PrivateKey:          privateKey.String(),
+		LogLevel:            clientLogLevel,
+		BlockInbound:        n.clientCfg.BlockInbound,
+		EnableRosenpass:     rosenpassEnabled,
+		RosenpassPermissive: rosenpassEnabled,
 		// The embedded proxy peer must never be a stepping stone into
 		// the proxy host's LAN: it only exists to reach NetBird mesh
 		// targets or, when direct_upstream is set, the host network
@@ -371,7 +402,9 @@ func (n *NetBird) createClientEntry(ctx context.Context, accountID types.Account
 		WireguardPort:  &wgPort,
 		PreSharedKey:   n.clientCfg.PreSharedKey,
 		Performance:    n.clientCfg.Performance,
-	})
+	}
+	logEmbedOptions(n.logger, accountID, serviceID, publicKey.String(), embedOpts)
+	client, err := embed.New(embedOpts)
 	if err != nil {
 		return nil, fmt.Errorf("create netbird client: %w", err)
 	}
@@ -846,4 +879,56 @@ func WithDirectUpstream(ctx context.Context) context.Context {
 func DirectUpstreamFromContext(ctx context.Context) bool {
 	v, _ := ctx.Value(directUpstreamContextKey{}).(bool)
 	return v
+}
+
+// logEmbedOptions emits a single structured INFO line summarising every
+// operationally meaningful flag handed to embed.New for this per-account
+// client. Secrets (PrivateKey, PreSharedKey) are reduced to a "present"
+// boolean — never logged verbatim. Use this when an embedded peer
+// silently misbehaves: most failure modes (inbound drops, wrong
+// management URL, v6 unexpectedly on, userspace flipped, port clash)
+// are obvious from these flags before any traffic flows.
+func logEmbedOptions(logger *log.Logger, accountID types.AccountID, serviceID types.ServiceID, publicKey string, opts embed.Options) {
+	wgPort := 0
+	if opts.WireguardPort != nil {
+		wgPort = *opts.WireguardPort
+	}
+	mtu := uint16(0)
+	if opts.MTU != nil {
+		mtu = *opts.MTU
+	}
+	perfBuffers := uint32(0)
+	if opts.Performance.PreallocatedBuffersPerPool != nil {
+		perfBuffers = *opts.Performance.PreallocatedBuffersPerPool
+	}
+	perfBatch := uint32(0)
+	if opts.Performance.MaxBatchSize != nil {
+		perfBatch = *opts.Performance.MaxBatchSize
+	}
+	logger.WithFields(log.Fields{
+		"account_id":            accountID,
+		"service_id":            serviceID,
+		"public_key":            publicKey,
+		"device_name":           opts.DeviceName,
+		"management_url":        opts.ManagementURL,
+		"log_level":             opts.LogLevel,
+		"wg_port":               wgPort,
+		"mtu":                   mtu,
+		"block_inbound":         opts.BlockInbound,
+		"block_lan_access":      opts.BlockLANAccess,
+		"rosenpass_enabled":     opts.EnableRosenpass,
+		"rosenpass_permissive":  opts.RosenpassPermissive,
+		"disable_ipv6":          opts.DisableIPv6,
+		"disable_client_routes": opts.DisableClientRoutes,
+		"no_userspace":          opts.NoUserspace,
+		"config_path_set":       opts.ConfigPath != "",
+		"state_path_set":        opts.StatePath != "",
+		"private_key_present":   opts.PrivateKey != "",
+		"presharedkey_present":  opts.PreSharedKey != "",
+		"setup_key_present":     opts.SetupKey != "",
+		"jwt_token_present":     opts.JWTToken != "",
+		"dns_labels":            opts.DNSLabels,
+		"perf_buffers_per_pool": perfBuffers,
+		"perf_max_batch_size":   perfBatch,
+	}).Info("starting embedded netbird client for account")
 }

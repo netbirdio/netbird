@@ -8,7 +8,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	nbdns "github.com/netbirdio/netbird/dns"
+	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 )
 
 func TestCreatePTRRecord_IPv4(t *testing.T) {
@@ -135,4 +137,89 @@ func TestAddReverseZone_IPv6(t *testing.T) {
 	assert.Equal(t, "8.7.6.5.4.3.2.1.0.0.d.f.ip6.arpa.", reverseZone.Domain)
 	assert.Len(t, reverseZone.Records, 1)
 	assert.Equal(t, int(dns.TypePTR), reverseZone.Records[0].Type)
+}
+
+// TestToDNSConfig_ZoneFlagsPreserved pins the per-zone NonAuthoritative flag
+// through the legacy DNSConfig path. A non-authoritative zone is match-only:
+// the local resolver falls through to the upstream for an in-zone name it does
+// not define. The built-in peer zone is the authoritative one and must stay
+// that way, so the flag has to travel per zone rather than be derived.
+func TestToDNSConfig_ZoneFlagsPreserved(t *testing.T) {
+	config := toDNSConfig(&mgmProto.DNSConfig{
+		ServiceEnable: true,
+		CustomZones: []*mgmProto.CustomZone{
+			{
+				Domain: "netbird.cloud.",
+				Records: []*mgmProto.SimpleRecord{
+					{Name: "peer1.netbird.cloud.", Type: int64(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "100.64.0.1"},
+				},
+			},
+			{
+				Domain:               "corp.internal.",
+				NonAuthoritative:     true,
+				SearchDomainDisabled: true,
+				Records: []*mgmProto.SimpleRecord{
+					{Name: "db.corp.internal.", Type: int64(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.10.0.5"},
+				},
+			},
+		},
+	}, wgaddr.Address{
+		IP:      netip.MustParseAddr("100.64.0.1"),
+		Network: netip.MustParsePrefix("100.64.0.0/16"),
+	})
+
+	zones := make(map[string]nbdns.CustomZone, len(config.CustomZones))
+	for _, zone := range config.CustomZones {
+		zones[zone.Domain] = zone
+	}
+
+	peerZone, ok := zones["netbird.cloud."]
+	require.True(t, ok, "peer zone must survive")
+	assert.False(t, peerZone.NonAuthoritative, "the built-in peer zone owns the account domain and stays authoritative")
+
+	accountZone, ok := zones["corp.internal."]
+	require.True(t, ok, "account zone must survive")
+	assert.True(t, accountZone.NonAuthoritative, "an account zone stays match-only, else undefined in-zone names get black-holed")
+	assert.True(t, accountZone.SearchDomainDisabled)
+}
+
+// TestToDNSConfig_SingleZoneForcedAuthoritative pins the compatibility clause
+// in toDNSConfig: a config carrying exactly one zone is treated as
+// authoritative no matter what the server said, because servers that predate
+// the NonAuthoritative field send only the peer FQDN zone.
+//
+// The clause can only ever downgrade an explicit true to false, so a server
+// that legitimately sends a single non-authoritative zone — an account whose
+// only zone is a custom one, with no peer records to build the built-in zone
+// from — gets that zone's whole apex black-holed on the client. Real accounts
+// always carry the peer zone alongside, which is why this is latent. Narrowing
+// it needs a way to tell "unset" from "false" on the wire, or the account
+// domain passed down here; until then this test states the contract so a
+// change to it is deliberate.
+func TestToDNSConfig_SingleZoneForcedAuthoritative(t *testing.T) {
+	config := toDNSConfig(&mgmProto.DNSConfig{
+		ServiceEnable: true,
+		CustomZones: []*mgmProto.CustomZone{
+			{
+				Domain:           "corp.internal.",
+				NonAuthoritative: true,
+				Records: []*mgmProto.SimpleRecord{
+					{Name: "db.corp.internal.", Type: int64(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.10.0.5"},
+				},
+			},
+		},
+	}, wgaddr.Address{
+		IP:      netip.MustParseAddr("100.64.0.1"),
+		Network: netip.MustParsePrefix("100.64.0.0/16"),
+	})
+
+	require.NotEmpty(t, config.CustomZones)
+	assert.Equal(t, "corp.internal.", config.CustomZones[0].Domain)
+	assert.False(t, config.CustomZones[0].NonAuthoritative,
+		"a lone zone is forced authoritative for pre-NonAuthoritative servers")
+
+	// The reverse zone the config gains afterwards must not feed back into the
+	// decision: the compat gate counts the zones the server sent.
+	require.Len(t, config.CustomZones, 2, "a reverse zone is appended for the overlay prefix")
+	assert.Equal(t, "64.100.in-addr.arpa.", config.CustomZones[1].Domain)
 }

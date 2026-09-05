@@ -859,3 +859,98 @@ func TestRouteSelector_ComplexScenarios(t *testing.T) {
 		})
 	}
 }
+
+// TestRouteSelector_EnableExitNodeKeepsOtherRoutes is a regression test for the
+// tray exit-node toggle disabling every non-exit routed network. The tray used
+// to Select an exit node with append=false, which the RouteSelector treats as
+// "drop the whole current selection" (default-on semantics) — so enabling an
+// exit node also turned off every LAN/route the user had on. The fix sends
+// append=true and lets the daemon's SelectNetworks handler deselect only the
+// sibling exit nodes. This test models that handler sequence against the
+// selector: SelectRoutes(exit, append=true) followed by DeselectRoutes(other
+// exit nodes) must leave non-exit routes untouched.
+func TestRouteSelector_EnableExitNodeKeepsOtherRoutes(t *testing.T) {
+	rs := routeselector.NewRouteSelector()
+	all := []route.NetID{"exitA", "exitB", "lan1", "lan2"}
+
+	// User has two LAN routes on (default-on: nothing deselected => all selected).
+	require.True(t, rs.IsSelected("lan1"))
+	require.True(t, rs.IsSelected("lan2"))
+
+	// Tray enables exitA: SelectNetworks handler does SelectRoutes(append=true)
+	// then deselects sibling exit nodes (exitB), never the LAN routes.
+	require.NoError(t, rs.SelectRoutes([]route.NetID{"exitA"}, true, all))
+	require.NoError(t, rs.DeselectRoutes([]route.NetID{"exitB"}, all))
+
+	assert.True(t, rs.IsSelected("exitA"), "selected exit node stays on")
+	assert.False(t, rs.IsSelected("exitB"), "sibling exit node is deselected")
+	assert.True(t, rs.IsSelected("lan1"), "non-exit route must stay selected")
+	assert.True(t, rs.IsSelected("lan2"), "non-exit route must stay selected")
+}
+
+// A non-append selection clears the current selection before applying the requested
+// one, so an all-unavailable request used to leave nothing selected while returning
+// an error. Requests with at least one available route are unaffected.
+func TestRouteSelector_SelectRoutes_AllUnavailableKeepsSelection(t *testing.T) {
+	allRoutes := []route.NetID{"route1", "route2", "route3"}
+
+	rs := routeselector.NewRouteSelector()
+	require.NoError(t, rs.SelectRoutes([]route.NetID{"route1"}, false, allRoutes))
+
+	err := rs.SelectRoutes([]route.NetID{"Route1", "route4"}, false, allRoutes)
+
+	assert.Error(t, err, "an unavailable route ID must still be reported")
+	assert.True(t, rs.IsSelected("route1"), "the previous selection must survive a fully invalid request")
+	for _, id := range []route.NetID{"route2", "route3"} {
+		assert.False(t, rs.IsSelected(id), "no other route may become selected")
+	}
+}
+
+// Boundary of the check above: an empty request is the caller deselecting everything,
+// not a failed lookup, so it must keep working.
+func TestRouteSelector_SelectRoutes_EmptyRequestStillDeselectsAll(t *testing.T) {
+	allRoutes := []route.NetID{"route1", "route2", "route3"}
+
+	rs := routeselector.NewRouteSelector()
+	require.NoError(t, rs.SelectRoutes([]route.NetID{"route1"}, false, allRoutes))
+
+	require.NoError(t, rs.SelectRoutes(nil, false, allRoutes))
+
+	for _, id := range allRoutes {
+		assert.False(t, rs.IsSelected(id), "an empty selection request must deselect everything")
+	}
+}
+
+// Mobile clients always call SelectRoutes with append=true. On that path an
+// all-unavailable request was never destructive to begin with (append skips the
+// wipe regardless of the guard above), but the behavior has no coverage yet.
+func TestRouteSelector_SelectRoutes_AppendAllUnavailableKeepsSelection(t *testing.T) {
+	allRoutes := []route.NetID{"route1", "route2", "route3"}
+
+	rs := routeselector.NewRouteSelector()
+	require.NoError(t, rs.SelectRoutes([]route.NetID{"route1"}, false, allRoutes))
+
+	err := rs.SelectRoutes([]route.NetID{"missing"}, true, allRoutes)
+
+	assert.Error(t, err, "an unavailable route ID must still be reported")
+	assert.True(t, rs.IsSelected("route1"), "the previous selection must survive a fully invalid request")
+	for _, id := range []route.NetID{"route2", "route3"} {
+		assert.False(t, rs.IsSelected(id), "no other route may become selected")
+	}
+}
+
+// The early return for an all-unavailable request must not clear deselectAll,
+// or a typo'd network ID would silently drop the "nothing selected, including
+// future networks" policy.
+func TestRouteSelector_SelectRoutes_AllUnavailableAfterDeselectAllKeepsPolicy(t *testing.T) {
+	allRoutes := []route.NetID{"route1", "route2"}
+
+	rs := routeselector.NewRouteSelector()
+	rs.DeselectAllRoutes()
+
+	err := rs.SelectRoutes([]route.NetID{"missing"}, false, allRoutes)
+
+	assert.Error(t, err, "an unavailable route ID must still be reported")
+	assert.True(t, rs.IsDeselectAll(), "deselect-all policy must survive a fully invalid request")
+	assert.False(t, rs.IsSelected("route3"), "deselect-all must still cover networks not present in allRoutes yet")
+}

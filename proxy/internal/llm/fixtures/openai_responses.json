@@ -1,0 +1,24 @@
+{
+  "id": "resp_abc",
+  "object": "response",
+  "created_at": 1700000000,
+  "model": "gpt-5.4",
+  "output": [
+    {
+      "type": "message",
+      "role": "assistant",
+      "content": [{"type": "output_text", "text": "ok"}]
+    }
+  ],
+  "usage": {
+    "input_tokens": 15,
+    "input_tokens_details": {
+      "cached_tokens": 0
+    },
+    "output_tokens": 414,
+    "output_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "total_tokens": 429
+  }
+}

@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+
+<!--
+  Names the action behind the elevation prompt the desktop app raises for an SSH
+  setting the daemon restricts to root; without it pkexec's generic dialog offers
+  the raw command line instead. The argv1 annotation keeps this wording to the
+  one-shot mode that applies those settings.
+
+  auth_admin rather than auth_admin_keep: each of these settings is its own grant
+  of shell access, so a credential cache would let a second, unasked-for change
+  ride along on the authorization given the first.
+
+  exec.path takes no wildcard and the binary's location depends on the package,
+  hence one action per path.
+-->
+<policyconfig>
+  <vendor>NetBird</vendor>
+  <vendor_url>https://netbird.io</vendor_url>
+
+  <action id="io.netbird.settings.apply-privileged">
+    <description>Change privileged NetBird settings</description>
+    <message>Authentication is required to change NetBird settings that grant SSH access to this computer.</message>
+    <icon_name>netbird</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/netbird-ui</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">--apply-privileged-settings</annotate>
+  </action>
+
+  <action id="io.netbird.settings.apply-privileged-local">
+    <description>Change privileged NetBird settings</description>
+    <message>Authentication is required to change NetBird settings that grant SSH access to this computer.</message>
+    <icon_name>netbird</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/bin/netbird-ui</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">--apply-privileged-settings</annotate>
+  </action>
+</policyconfig>

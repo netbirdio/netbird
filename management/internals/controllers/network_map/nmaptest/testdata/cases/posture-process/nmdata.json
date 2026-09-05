@@ -1,0 +1,70 @@
+{
+  "Network": {"Serial": 34},
+  "Peers": {
+    "peer-lin-running": {
+      "IP": "100.64.0.1",
+      "Meta": {
+        "WtVersion": "0.60.0",
+        "GoOS": "linux",
+        "Files": [{"Path": "/usr/bin/agent", "ProcessIsRunning": true}]
+      }
+    },
+    "peer-lin-stopped": {
+      "IP": "100.64.0.2",
+      "Meta": {
+        "WtVersion": "0.60.0",
+        "GoOS": "linux",
+        "Files": [{"Path": "/usr/bin/agent"}]
+      }
+    },
+    "peer-mac-running": {
+      "IP": "100.64.0.3",
+      "Meta": {
+        "WtVersion": "0.60.0",
+        "GoOS": "darwin",
+        "Files": [{"Path": "/Applications/Agent.app", "ProcessIsRunning": true}]
+      }
+    },
+    "peer-bsd": {
+      "IP": "100.64.0.4",
+      "Meta": {
+        "WtVersion": "0.60.0",
+        "GoOS": "freebsd",
+        "Files": [{"Path": "/usr/bin/agent", "ProcessIsRunning": true}]
+      }
+    },
+    "peer-srv": {"IP": "100.64.0.10", "Meta": {"WtVersion": "0.60.0", "GoOS": "linux"}}
+  },
+  "Groups": {
+    "grp-clients": {"Peers": ["peer-lin-running", "peer-lin-stopped", "peer-mac-running", "peer-bsd"]},
+    "grp-srv": {"Peers": ["peer-srv"]}
+  },
+  "PostureChecks": {
+    "chk-proc": {
+      "Checks": {
+        "ProcessCheck": {
+          "Processes": [
+            {"LinuxPath": "/usr/bin/agent", "MacPath": "/Applications/Agent.app"}
+          ]
+        }
+      }
+    }
+  },
+  "Policies": [
+    {
+      "ID": "pol-proc",
+      "Enabled": true,
+      "SourcePostureChecks": ["chk-proc"],
+      "Rules": [
+        {
+          "Enabled": true,
+          "Action": "accept",
+          "Protocol": "all",
+          "Bidirectional": true,
+          "Sources": ["grp-clients"],
+          "Destinations": ["grp-srv"]
+        }
+      ]
+    }
+  ]
+}

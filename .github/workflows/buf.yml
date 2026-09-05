@@ -1,0 +1,48 @@
+name: protobuf checks
+on:
+  push:
+    branches:
+      - main
+      - "release-*"
+  pull_request:
+    paths:
+      - ".github/workflows/buf.yml"
+      - "**/buf.yaml"
+      - "**/buf.lock"
+      - "**/buf.gen.yaml"
+      - "**.proto"
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  buf:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: bufbuild/buf-action@8c6a16e16f12ba20b6470afa9c2ba9b5ba8c97c3 # v1.5.0
+        with:
+          push: false
+          archive: false
+          pr_comment: false
+          lint: false
+          format: false
+          # A push that creates a branch carries no `before` commit, so the
+          # action's default baseline is the all-zero SHA and `buf breaking`
+          # dies cloning it. Skipping costs nothing: every commit on a freshly
+          # cut release branch should have already passed this check on main.
+          breaking: ${{ !github.event.created }}
+          # The alternative is to compare against the default branch instead of
+          # skipping. Not used: buf clones the baseline when the job runs, so a
+          # main that has moved on since the branch was cut reads as protos
+          # deleted on the release branch. Resolving to an empty string on every
+          # other event is what keeps the action's own default in place, which
+          # stacked pull requests need.
+          # breaking_against: >-
+          #   ${{ github.event.created
+          #     && format('{0}#format=git,branch={1}',
+          #               github.event.repository.clone_url,
+          #               github.event.repository.default_branch)
+          #     || '' }}

@@ -95,6 +95,7 @@ type Route struct {
 	ID ID `gorm:"primaryKey"`
 	// AccountID is a reference to Account that this object belongs
 	AccountID string `gorm:"index"`
+	PublicID  string `json:"-"`
 	// Network and Domains are mutually exclusive
 	Network             netip.Prefix `gorm:"serializer:json"`
 	Domains             domain.List  `gorm:"serializer:json"`
@@ -128,6 +129,7 @@ func (r *Route) Copy() *Route {
 	route := &Route{
 		ID:                  r.ID,
 		AccountID:           r.AccountID,
+		PublicID:            r.PublicID,
 		Description:         r.Description,
 		NetID:               r.NetID,
 		Network:             r.Network,

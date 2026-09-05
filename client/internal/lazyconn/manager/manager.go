@@ -29,6 +29,11 @@ type managedPeer struct {
 
 type Config struct {
 	InactivityThreshold *time.Duration
+	// ReconcileAllowedIPs re-applies a peer's routed allowed IPs after its wake endpoint is
+	// armed. The activity listener creates the wake peer with the overlay /32 only; without the
+	// routed prefixes WireGuard would not steer subnet-bound traffic to the wake endpoint, so an
+	// idle routing peer could never be woken by that traffic. Optional; nil disables the reconcile.
+	ReconcileAllowedIPs func(peerKey string) error
 }
 
 // Manager manages lazy connections
@@ -56,6 +61,9 @@ type Manager struct {
 	peerToHAGroups map[string][]route.HAUniqueID // peer ID -> HA groups they belong to
 	haGroupToPeers map[route.HAUniqueID][]string // HA group -> peer IDs in the group
 	routesMu       sync.RWMutex
+
+	// reconcileAllowedIPs re-applies a peer's routed allowed IPs after its wake endpoint is armed.
+	reconcileAllowedIPs func(peerKey string) error
 }
 
 // NewManager creates a new lazy connection manager
@@ -73,6 +81,7 @@ func NewManager(config Config, engineCtx context.Context, peerStore *peerstore.S
 		activityManager:      activity.NewManager(wgIface),
 		peerToHAGroups:       make(map[string][]route.HAUniqueID),
 		haGroupToPeers:       make(map[route.HAUniqueID][]string),
+		reconcileAllowedIPs:  config.ReconcileAllowedIPs,
 	}
 
 	if wgIface.IsUserspaceBind() {
@@ -130,8 +139,8 @@ func (m *Manager) Start(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case peerConnID := <-m.activityManager.OnActivityChan:
-			m.onPeerActivity(peerConnID)
+		case ev := <-m.activityManager.OnActivityChan:
+			m.onPeerActivity(ev)
 		case peerIDs := <-m.inactivityManager.InactivePeersChan():
 			m.onPeerInactivityTimedOut(peerIDs)
 		}
@@ -201,7 +210,7 @@ func (m *Manager) AddPeer(peerCfg lazyconn.PeerConfig) (bool, error) {
 		return false, nil
 	}
 
-	if err := m.activityManager.MonitorPeerActivity(peerCfg); err != nil {
+	if err := m.armActivityListener(peerCfg); err != nil {
 		return false, err
 	}
 
@@ -288,7 +297,7 @@ func (m *Manager) DeactivatePeer(peerID peerid.ConnID) {
 
 	m.inactivityManager.RemovePeer(mp.peerCfg.PublicKey)
 
-	if err := m.activityManager.MonitorPeerActivity(*mp.peerCfg); err != nil {
+	if err := m.armActivityListener(*mp.peerCfg); err != nil {
 		mp.peerCfg.Log.Errorf("failed to create activity monitor: %v", err)
 		return
 	}
@@ -465,6 +474,31 @@ func (m *Manager) close() {
 }
 
 // shouldDeferIdleForHA checks if peer should stay connected due to HA group requirements
+// armRoutedAllowedIPs re-applies the peer's routed allowed IPs onto its freshly armed wake
+// endpoint. The activity listener creates the wake peer with the overlay /32 only, so without
+// this the routed prefixes would be missing and traffic to a routed subnet could not wake the
+// idle routing peer. It is a no-op when no reconciler is configured.
+// armActivityListener (re)arms the peer's wake endpoint via the activity manager and then
+// re-applies its routed allowed IPs, so traffic to a routed subnet can wake an idle routing
+// peer. The routed prefixes must be re-applied after the wake endpoint exists because the
+// listener creates it with the overlay /32 only.
+func (m *Manager) armActivityListener(peerCfg lazyconn.PeerConfig) error {
+	if err := m.activityManager.MonitorPeerActivity(peerCfg); err != nil {
+		return err
+	}
+	m.armRoutedAllowedIPs(&peerCfg)
+	return nil
+}
+
+func (m *Manager) armRoutedAllowedIPs(peerCfg *lazyconn.PeerConfig) {
+	if m.reconcileAllowedIPs == nil {
+		return
+	}
+	if err := m.reconcileAllowedIPs(peerCfg.PublicKey); err != nil {
+		peerCfg.Log.Errorf("failed to reconcile routed allowed IPs on wake endpoint: %v", err)
+	}
+}
+
 func (m *Manager) shouldDeferIdleForHA(inactivePeers map[string]struct{}, peerID string) bool {
 	m.routesMu.RLock()
 	defer m.routesMu.RUnlock()
@@ -513,13 +547,13 @@ func (m *Manager) checkHaGroupActivity(haGroup route.HAUniqueID, peerID string, 
 	return false
 }
 
-func (m *Manager) onPeerActivity(peerConnID peerid.ConnID) {
+func (m *Manager) onPeerActivity(ev activity.Event) {
 	m.managedPeersMu.Lock()
 	defer m.managedPeersMu.Unlock()
 
-	mp, ok := m.managedPeersByConnID[peerConnID]
+	mp, ok := m.managedPeersByConnID[ev.PeerConnID]
 	if !ok {
-		log.Errorf("peer not found by conn id: %v", peerConnID)
+		log.Errorf("peer not found by conn id: %v", ev.PeerConnID)
 		return
 	}
 
@@ -536,7 +570,7 @@ func (m *Manager) onPeerActivity(peerConnID peerid.ConnID) {
 
 	m.activateHAGroupPeers(mp.peerCfg)
 
-	m.peerStore.PeerConnOpen(m.engineCtx, mp.peerCfg.PublicKey)
+	m.peerStore.PeerConnOpenWithFirstPacket(m.engineCtx, mp.peerCfg.PublicKey, ev.FirstPacket)
 }
 
 func (m *Manager) onPeerInactivityTimedOut(peerIDs map[string]struct{}) {
@@ -577,7 +611,7 @@ func (m *Manager) onPeerInactivityTimedOut(peerIDs map[string]struct{}) {
 
 		mp.peerCfg.Log.Infof("start activity monitor")
 
-		if err := m.activityManager.MonitorPeerActivity(*mp.peerCfg); err != nil {
+		if err := m.armActivityListener(*mp.peerCfg); err != nil {
 			mp.peerCfg.Log.Errorf("failed to create activity monitor: %v", err)
 			continue
 		}

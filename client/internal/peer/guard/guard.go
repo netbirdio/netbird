@@ -22,6 +22,12 @@ const (
 
 type connStatusFunc func() ConnStatus
 
+// NetworkWatcher is the availability view the guard gates reconnects on.
+type NetworkWatcher interface {
+	IsOnline() bool
+	Changed() <-chan struct{}
+}
+
 // Guard is responsible for the reconnection logic.
 // It will trigger to send an offer to the peer then has connection issues.
 // Watch these events:
@@ -31,20 +37,26 @@ type connStatusFunc func() ConnStatus
 // - Relayed connection disconnected
 // - ICE candidate changes
 type Guard struct {
-	log                     *log.Entry
-	isConnectedOnAllWay     connStatusFunc
-	timeout                 time.Duration
-	srWatcher               *SRWatcher
+	log                 *log.Entry
+	isConnectedOnAllWay connStatusFunc
+	timeout             time.Duration
+	srWatcher           *SRWatcher
+	// netWatcher gates reconnect attempts on OS-reported network availability;
+	// nil disables gating.
+	netWatcher              NetworkWatcher
 	relayedConnDisconnected chan struct{}
 	iCEConnDisconnected     chan struct{}
 }
 
-func NewGuard(log *log.Entry, isConnectedFn connStatusFunc, timeout time.Duration, srWatcher *SRWatcher) *Guard {
+// NewGuard creates a reconnection guard for a peer connection. A nil netWatcher
+// disables network availability gating.
+func NewGuard(log *log.Entry, isConnectedFn connStatusFunc, timeout time.Duration, srWatcher *SRWatcher, netWatcher NetworkWatcher) *Guard {
 	return &Guard{
 		log:                     log,
 		isConnectedOnAllWay:     isConnectedFn,
 		timeout:                 timeout,
 		srWatcher:               srWatcher,
+		netWatcher:              netWatcher,
 		relayedConnDisconnected: make(chan struct{}, 1),
 		iCEConnDisconnected:     make(chan struct{}, 1),
 	}
@@ -85,16 +97,30 @@ func (g *Guard) reconnectLoopWithRetry(ctx context.Context, callback func()) {
 	defer g.srWatcher.RemoveListener(srReconnectedChan)
 
 	ticker := g.initialTicker(ctx)
-	defer ticker.Stop()
+	defer func() {
+		// If backoff.Ticker.send is blocked, context.Done will not close the Ticker goroutine.
+		// We have to explicitly call Stop, even if we use backoff.WithContext.
+		ticker.Stop()
+	}()
 
 	tickerChannel := ticker.C
 
 	iceState := &iceRetryState{log: g.log}
 	defer iceState.reset()
 
+	var netChanged <-chan struct{}
+	if g.netWatcher != nil {
+		netChanged = g.netWatcher.Changed()
+	}
+
 	for {
 		select {
 		case <-tickerChannel:
+			// skip attempts while the OS reports no usable network; the
+			// netChanged case below resumes the loop once it returns
+			if g.netWatcher != nil && !g.netWatcher.IsOnline() {
+				continue
+			}
 			switch g.isConnectedOnAllWay() {
 			case ConnStatusConnected:
 				// all good, nothing to do
@@ -126,6 +152,23 @@ func (g *Guard) reconnectLoopWithRetry(ctx context.Context, callback func()) {
 
 		case <-srReconnectedChan:
 			g.log.Debugf("has network changes, reset reconnection ticker")
+			ticker.Stop()
+			ticker = g.newReconnectTicker(ctx)
+			tickerChannel = ticker.C
+			iceState.reset()
+
+		case <-netChanged:
+			// Re-arm for the next transition before acting on this one.
+			netChanged = g.netWatcher.Changed()
+			if !g.netWatcher.IsOnline() {
+				continue
+			}
+			// Ticks skipped while offline drove the backoff towards its
+			// maximum without ever attempting, and left the ICE budget
+			// frozen — possibly in hourly mode. Recover on our own so the
+			// peer does not depend on a signal or relay event that never
+			// comes when both stayed up across the outage.
+			g.log.Debugf("network is back, reset reconnection ticker")
 			ticker.Stop()
 			ticker = g.newReconnectTicker(ctx)
 			tickerChannel = ticker.C

@@ -308,7 +308,7 @@ func (s *Storage) OpenStorage(logger *slog.Logger) (storage.Storage, error) {
 		if file == "" {
 			return nil, fmt.Errorf("sqlite3 storage requires 'file' config")
 		}
-		return (&sql.SQLite3{File: file}).Open(logger)
+		return newSQLite3(file).Open(logger)
 	case "postgres":
 		dsn, _ := s.Config["dsn"].(string)
 		if dsn == "" {
@@ -611,6 +611,10 @@ func (c *YAMLConfig) ToServerConfig(stor storage.Storage, logger *slog.Logger) s
 
 	if len(c.OAuth2.ResponseTypes) > 0 {
 		cfg.SupportedResponseTypes = c.OAuth2.ResponseTypes
+	}
+
+	if len(c.OAuth2.GrantTypes) > 0 {
+		cfg.AllowedGrantTypes = c.OAuth2.GrantTypes
 	}
 
 	// Apply expiry settings

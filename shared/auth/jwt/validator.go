@@ -289,36 +289,64 @@ func getPublicKey(token *jwt.Token, jwks *Jwks) (interface{}, error) {
 	return nil, errKeyNotFound
 }
 
-func getPublicKeyFromECDSA(jwk JSONWebKey) (publicKey *ecdsa.PublicKey, err error) {
+func curveFromName(crv string) (elliptic.Curve, error) {
+	switch crv {
+	case p256:
+		return elliptic.P256(), nil
+	case p384:
+		return elliptic.P384(), nil
+	case p521:
+		return elliptic.P521(), nil
+	default:
+		return nil, fmt.Errorf("unsupported elliptic curve %q", crv)
+	}
+}
+
+func getPublicKeyFromECDSA(jwk JSONWebKey) (*ecdsa.PublicKey, error) {
 	if jwk.X == "" || jwk.Y == "" || jwk.Crv == "" {
 		return nil, fmt.Errorf("ecdsa key incomplete")
 	}
 
-	var xCoordinate []byte
-	if xCoordinate, err = base64.RawURLEncoding.DecodeString(jwk.X); err != nil {
+	curve, err := curveFromName(jwk.Crv)
+	if err != nil {
 		return nil, err
 	}
 
-	var yCoordinate []byte
-	if yCoordinate, err = base64.RawURLEncoding.DecodeString(jwk.Y); err != nil {
-		return nil, err
+	xCoordinate, err := base64.RawURLEncoding.DecodeString(jwk.X)
+	if err != nil {
+		return nil, fmt.Errorf("decode ecdsa x coordinate: %w", err)
 	}
 
-	publicKey = &ecdsa.PublicKey{}
-
-	var curve elliptic.Curve
-	switch jwk.Crv {
-	case p256:
-		curve = elliptic.P256()
-	case p384:
-		curve = elliptic.P384()
-	case p521:
-		curve = elliptic.P521()
+	yCoordinate, err := base64.RawURLEncoding.DecodeString(jwk.Y)
+	if err != nil {
+		return nil, fmt.Errorf("decode ecdsa y coordinate: %w", err)
 	}
 
-	publicKey.Curve = curve
-	publicKey.X = big.NewInt(0).SetBytes(xCoordinate)
-	publicKey.Y = big.NewInt(0).SetBytes(yCoordinate)
+	var x, y big.Int
+	x.SetBytes(xCoordinate)
+	y.SetBytes(yCoordinate)
+
+	bits := curve.Params().BitSize
+	if x.BitLen() > bits {
+		return nil, fmt.Errorf("ecdsa x coordinate is %d bits, exceeds curve %s field size of %d bits", x.BitLen(), jwk.Crv, bits)
+	}
+	if y.BitLen() > bits {
+		return nil, fmt.Errorf("ecdsa y coordinate is %d bits, exceeds curve %s field size of %d bits", y.BitLen(), jwk.Crv, bits)
+	}
+
+	// Round up: P-521's field is 521 bits, so a coordinate needs 66 bytes, not 65.
+	size := (bits + 7) / 8
+
+	// Assemble the SEC 1 uncompressed point (0x04 || X || Y)
+	point := make([]byte, 1+2*size)
+	point[0] = 4
+	x.FillBytes(point[1 : 1+size])
+	y.FillBytes(point[1+size:])
+
+	publicKey, err := ecdsa.ParseUncompressedPublicKey(curve, point)
+	if err != nil {
+		return nil, fmt.Errorf("parse ecdsa public key: %w", err)
+	}
 
 	return publicKey, nil
 }

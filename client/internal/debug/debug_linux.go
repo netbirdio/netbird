@@ -844,6 +844,10 @@ func collectSysctls() string {
 		[]string{"net.ipv4.conf.all.src_valid_mark", "net.ipv4.conf.default.src_valid_mark"},
 		listInterfaceSysctls("ipv4", "src_valid_mark")...,
 	))
+	writeSysctlGroup(&builder, "accept_ra", append(
+		[]string{"net.ipv6.conf.all.accept_ra", "net.ipv6.conf.default.accept_ra"},
+		listInterfaceSysctls("ipv6", "accept_ra")...,
+	))
 	writeSysctlGroup(&builder, "conntrack", []string{
 		"net.netfilter.nf_conntrack_acct",
 		"net.netfilter.nf_conntrack_tcp_loose",

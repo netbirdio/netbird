@@ -16,6 +16,8 @@ import (
 
 	"github.com/gliderlabs/ssh"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/internal/getent"
 )
 
 // POSIX portable filename character set regex: [a-zA-Z0-9._-]
@@ -160,7 +162,7 @@ func (s *Server) parseUserCredentials(localUser *user.User) (uint32, uint32, []u
 // getSupplementaryGroups retrieves supplementary group IDs for a user.
 // Uses id/getent fallback for NSS users in CGO_ENABLED=0 builds.
 func (s *Server) getSupplementaryGroups(u *user.User) ([]uint32, error) {
-	groupIDStrings, err := groupIdsWithFallback(u)
+	groupIDStrings, err := getent.GroupIDs(u)
 	if err != nil {
 		return nil, fmt.Errorf("get group IDs for user %s: %w", u.Username, err)
 	}

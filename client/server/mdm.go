@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -99,7 +100,10 @@ func (s *Server) onMDMPolicyChange(_, _ *mdm.Policy) error {
 		proto.SystemEvent_SYSTEM,
 		"MDM policy applied",
 		"NetBird configuration was updated by your IT policy.",
-		map[string]string{"source": "mdm", "type": "policy_applied"},
+		map[string]string{
+			proto.MetadataSourceKey: proto.MetadataSourceMDM,
+			proto.MetadataTypeKey:   proto.MetadataTypePolicyApplied,
+		},
 	)
 	return nil
 }
@@ -124,8 +128,8 @@ func (s *Server) publishConfigChangedEvent(source string) {
 		fmt.Sprintf("daemon config changed (source=%s)", source),
 		"",
 		map[string]string{
-			"source": source,
-			"type":   "config_changed",
+			proto.MetadataSourceKey: source,
+			proto.MetadataTypeKey:   proto.MetadataTypeConfigChanged,
 		},
 	)
 }
@@ -152,7 +156,6 @@ func (s *Server) restartEngineForMDMLocked() error {
 	s.config = config
 	s.statusRecorder.UpdateManagementAddress(config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(config.RosenpassEnabled, config.RosenpassPermissive)
-	s.statusRecorder.UpdateLazyConnection(config.LazyConnectionEnabled)
 
 	ctx, cancel := context.WithCancel(s.rootCtx)
 	s.actCancel = cancel
@@ -161,7 +164,7 @@ func (s *Server) restartEngineForMDMLocked() error {
 	s.clientGiveUpChan = make(chan struct{})
 	log.Info("MDM restart: spawning connectWithRetryRuns with re-resolved config")
 	go s.connectWithRetryRuns(ctx, config, s.statusRecorder, s.clientRunningChan, s.clientGiveUpChan)
-	s.publishConfigChangedEvent("mdm")
+	s.publishConfigChangedEvent(proto.MetadataSourceMDM)
 	return nil
 }
 
@@ -182,6 +185,37 @@ func conflictBool(key string, p *bool) conflictCheck {
 	}
 }
 
+func canonicalURL(s string) string {
+	u, err := url.ParseRequestURI(s)
+	if err != nil {
+		return s
+	}
+	if u.Port() == "" {
+		switch u.Scheme {
+		case "https":
+			u.Host += ":443"
+		case "http":
+			u.Host += ":80"
+		}
+	}
+	return u.String()
+}
+
+// conflictURL is conflictString for URL-typed keys: both sides are
+// normalized via canonicalURL before comparison.
+func conflictURL(key, got string) conflictCheck {
+	return conflictCheck{
+		key: key,
+		check: func(pol *mdm.Policy) bool {
+			if got == "" {
+				return true
+			}
+			want, ok := pol.GetString(key)
+			return ok && canonicalURL(want) == canonicalURL(got)
+		},
+	}
+}
+
 // conflictString builds a conflictCheck for a string MDM key. An empty
 // `got` is treated as "field not set" (no override requested); otherwise
 // the check returns true only when the policy contains the key and its
@@ -195,6 +229,24 @@ func conflictString(key, got string) conflictCheck {
 			}
 			want, ok := pol.GetString(key)
 			return ok && want == got
+		},
+	}
+}
+
+// conflictStringPtr is conflictString for optional proto fields, where an
+// explicit empty value is still a request to change the setting. If p is
+// nil the field is treated as matching (no override requested); otherwise
+// the check returns true only when the policy contains the key and its
+// value equals *p.
+func conflictStringPtr(key string, p *string) conflictCheck {
+	return conflictCheck{
+		key: key,
+		check: func(pol *mdm.Policy) bool {
+			if p == nil {
+				return true
+			}
+			want, ok := pol.GetString(key)
+			return ok && want == *p
 		},
 	}
 }
@@ -257,16 +309,19 @@ func mdmManagedFieldConflicts(msg *proto.SetConfigRequest, policy *mdm.Policy) [
 	}
 
 	return resolveConflicts(policy, []conflictCheck{
-		conflictString(mdm.KeyManagementURL, msg.ManagementUrl),
+		conflictURL(mdm.KeyManagementURL, msg.ManagementUrl),
 		conflictString(mdm.KeyPreSharedKey, pskGot),
 		conflictBool(mdm.KeyRosenpassEnabled, msg.RosenpassEnabled),
 		conflictBool(mdm.KeyRosenpassPermissive, msg.RosenpassPermissive),
 		conflictBool(mdm.KeyDisableAutoConnect, msg.DisableAutoConnect),
 		conflictBool(mdm.KeyAllowServerSSH, msg.ServerSSHAllowed),
+		conflictBool(mdm.KeyRemoteJobsAllowed, msg.RemoteJobsAllowed),
 		conflictBool(mdm.KeyDisableClientRoutes, msg.DisableClientRoutes),
 		conflictBool(mdm.KeyDisableServerRoutes, msg.DisableServerRoutes),
 		conflictBool(mdm.KeyBlockInbound, msg.BlockInbound),
 		conflictInt64(mdm.KeyWireguardPort, msg.WireguardPort),
+		conflictBool(mdm.KeyEnableLocalMetrics, msg.EnableLocalMetrics),
+		conflictStringPtr(mdm.KeyLocalMetricsAddress, msg.LocalMetricsAddress),
 	})
 }
 
@@ -298,6 +353,7 @@ func setConfigRequestHasConfigOverrides(msg *proto.SetConfigRequest) bool {
 		msg.Mtu != nil ||
 		msg.DisableAutoConnect != nil ||
 		msg.ServerSSHAllowed != nil ||
+		msg.RemoteJobsAllowed != nil ||
 		msg.NetworkMonitor != nil ||
 		msg.DisableClientRoutes != nil ||
 		msg.DisableServerRoutes != nil ||
@@ -305,7 +361,6 @@ func setConfigRequestHasConfigOverrides(msg *proto.SetConfigRequest) bool {
 		msg.DisableFirewall != nil ||
 		msg.BlockLanAccess != nil ||
 		msg.DisableNotifications != nil ||
-		msg.LazyConnectionEnabled != nil ||
 		msg.BlockInbound != nil ||
 		msg.DisableIpv6 != nil ||
 		msg.EnableSSHRoot != nil ||
@@ -313,7 +368,9 @@ func setConfigRequestHasConfigOverrides(msg *proto.SetConfigRequest) bool {
 		msg.EnableSSHLocalPortForwarding != nil ||
 		msg.EnableSSHRemotePortForwarding != nil ||
 		msg.DisableSSHAuth != nil ||
-		msg.SshJWTCacheTTL != nil
+		msg.SshJWTCacheTTL != nil ||
+		msg.EnableLocalMetrics != nil ||
+		msg.LocalMetricsAddress != nil
 }
 
 // loginRequestHasConfigOverrides reports whether the LoginRequest
@@ -337,6 +394,7 @@ func loginRequestHasConfigOverrides(msg *proto.LoginRequest) bool {
 		msg.WireguardPort != nil ||
 		msg.DisableAutoConnect != nil ||
 		msg.ServerSSHAllowed != nil ||
+		msg.RemoteJobsAllowed != nil ||
 		msg.RosenpassPermissive != nil ||
 		len(msg.ExtraIFaceBlacklist) > 0 ||
 		msg.NetworkMonitor != nil ||
@@ -348,8 +406,9 @@ func loginRequestHasConfigOverrides(msg *proto.LoginRequest) bool {
 		msg.BlockLanAccess != nil ||
 		msg.DisableNotifications != nil ||
 		len(msg.DnsLabels) > 0 || msg.CleanDNSLabels ||
-		msg.LazyConnectionEnabled != nil ||
-		msg.BlockInbound != nil
+		msg.BlockInbound != nil ||
+		msg.EnableLocalMetrics != nil ||
+		msg.LocalMetricsAddress != nil
 }
 
 // loginRequestMDMConflicts mirrors mdmManagedFieldConflicts but for the
@@ -380,16 +439,19 @@ func loginRequestMDMConflicts(msg *proto.LoginRequest, policy *mdm.Policy) []str
 	}
 
 	return resolveConflicts(policy, []conflictCheck{
-		conflictString(mdm.KeyManagementURL, msg.ManagementUrl),
+		conflictURL(mdm.KeyManagementURL, msg.ManagementUrl),
 		conflictString(mdm.KeyPreSharedKey, pskGot),
 		conflictBool(mdm.KeyRosenpassEnabled, msg.RosenpassEnabled),
 		conflictBool(mdm.KeyRosenpassPermissive, msg.RosenpassPermissive),
 		conflictBool(mdm.KeyDisableAutoConnect, msg.DisableAutoConnect),
 		conflictBool(mdm.KeyAllowServerSSH, msg.ServerSSHAllowed),
+		conflictBool(mdm.KeyRemoteJobsAllowed, msg.RemoteJobsAllowed),
 		conflictBool(mdm.KeyDisableClientRoutes, msg.DisableClientRoutes),
 		conflictBool(mdm.KeyDisableServerRoutes, msg.DisableServerRoutes),
 		conflictBool(mdm.KeyBlockInbound, msg.BlockInbound),
 		conflictInt64(mdm.KeyWireguardPort, msg.WireguardPort),
+		conflictBool(mdm.KeyEnableLocalMetrics, msg.EnableLocalMetrics),
+		conflictStringPtr(mdm.KeyLocalMetricsAddress, msg.LocalMetricsAddress),
 	})
 }
 

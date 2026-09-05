@@ -5,6 +5,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"runtime"
 	"strings"
 	"sync"
@@ -22,15 +23,26 @@ var serviceCmd = &cobra.Command{
 	Short: "Manage the NetBird daemon service",
 }
 
+const defaultJSONSocket = "unix:///var/run/netbird-http.sock"
+
 var (
-	serviceName    string
-	serviceEnvVars []string
+	serviceName      string
+	serviceEnvVars   []string
+	jsonSocket       string
+	enableJSONSocket bool
 )
 
 type program struct {
-	ctx              context.Context
-	cancel           context.CancelFunc
-	serv             *grpc.Server
+	ctx      context.Context
+	cancel   context.CancelFunc
+	serv     *grpc.Server
+	jsonServ *http.Server
+	// jsonClient is the gateway's own connection to the daemon. It is held so
+	// shutting the gateway down also closes it: nothing else references it once
+	// the handlers are registered, so its transport goroutines would otherwise
+	// outlive the server.
+	jsonClient       *grpc.ClientConn
+	jsonServMu       sync.Mutex
 	serverInstance   *server.Server
 	serverInstanceMu sync.Mutex
 }
@@ -46,6 +58,8 @@ func init() {
 	serviceCmd.PersistentFlags().BoolVar(&updateSettingsDisabled, "disable-update-settings", false, "Disables update settings feature. If enabled, the client will not be able to change or edit any settings. To persist this setting, use: netbird service install --disable-update-settings")
 	serviceCmd.PersistentFlags().BoolVar(&captureEnabled, "enable-capture", false, "Enables packet capture via 'netbird debug capture'. To persist, use: netbird service install --enable-capture")
 	serviceCmd.PersistentFlags().BoolVar(&networksDisabled, "disable-networks", false, "Disables network selection. If enabled, the client will not allow listing, selecting, or deselecting networks. To persist, use: netbird service install --disable-networks")
+	serviceCmd.PersistentFlags().BoolVar(&enableJSONSocket, "enable-json-socket", false, "Enables the HTTP/JSON API socket served by grpc-gateway. To persist, use: netbird service install --enable-json-socket")
+	serviceCmd.PersistentFlags().StringVar(&jsonSocket, "json-socket", defaultJSONSocket, "HTTP/JSON API socket address [unix|tcp]://[path|host:port]. Requires --enable-json-socket to serve. To persist, use: netbird service install --enable-json-socket --json-socket")
 
 	rootCmd.PersistentFlags().StringVarP(&serviceName, "service", "s", defaultServiceName, "Netbird system service name")
 	serviceEnvDesc := `Sets extra environment variables for the service. ` +

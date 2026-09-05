@@ -1,0 +1,34 @@
+{
+  "Serial": "39",
+  "peerConfig": {
+    "address": "100.64.0.9/10",
+    "sshConfig": {},
+    "fqdn": "peer-r.netbird.test",
+    "RoutingPeerDnsResolutionEnabled": true,
+    "autoUpdate": {}
+  },
+  "remotePeersIsEmpty": true,
+  "DNSConfig": {
+    "ServiceEnable": true,
+    "CustomZones": [
+      {
+        "Domain": "netbird.test.",
+        "Records": [
+          {
+            "Name": "peer-r.netbird.test",
+            "Type": "1",
+            "Class": "IN",
+            "TTL": "300",
+            "RData": "100.64.0.9"
+          }
+        ]
+      }
+    ],
+    "ForwarderPort": "22054"
+  },
+  "firewallRulesIsEmpty": true,
+  "routesFirewallRulesIsEmpty": true,
+  "sshAuth": {
+    "UserIDClaim": "sub"
+  }
+}
