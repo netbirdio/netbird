@@ -1,4 +1,4 @@
-// libbpf 1.3 removed struct bpf_map_def, but the programs here keep the legacy
+// libbpf 1.0 removed struct bpf_map_def, but the programs here keep the legacy
 // map definitions: they load on kernels built without BTF, which BTF-style
 // (SEC(".maps")) definitions do not. Define the struct ourselves so the
 // programs compile against current libbpf headers.

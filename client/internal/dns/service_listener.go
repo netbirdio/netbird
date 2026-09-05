@@ -21,11 +21,16 @@ import (
 
 const (
 	customPort = 5053
+	// randomPortAttempts bounds the search for a port free on both protocols.
+	randomPortAttempts = 5
 )
 
 var (
 	defaultIP = netip.MustParseAddr("127.0.0.1")
 	customIP  = netip.MustParseAddr("127.0.0.153")
+
+	// dnatProtocols are the protocols the port 53 redirect covers.
+	dnatProtocols = []firewall.Protocol{firewall.ProtocolUDP, firewall.ProtocolTCP}
 )
 
 type serviceViaListener struct {
@@ -39,7 +44,9 @@ type serviceViaListener struct {
 	listenerIsRunning bool
 	listenerFlagLock  sync.Mutex
 	firewall          Firewall
-	dnatConfigured    bool
+	// dnatRedirected holds the protocols whose port 53 redirect is installed
+	// and not yet removed, so a removal that fails can be retried.
+	dnatRedirected []firewall.Protocol
 }
 
 func newServiceViaListener(wgIface WGIface, customAddr *netip.AddrPort, fw Firewall) *serviceViaListener {
@@ -117,9 +124,9 @@ func (s *serviceViaListener) Listen() error {
 }
 
 // setupDNAT redirects port 53 to the port the DNS server actually listens on.
-// Both protocols must be redirected or none: RuntimePort reports port 53 while
-// the redirect is in place, so a half-configured redirect would advertise a
-// resolver that only answers over one protocol.
+// Both protocols must be redirected or none: RuntimePort reports port 53 only
+// while the full redirect is in place, so a half-configured redirect would
+// advertise a resolver that answers over one protocol.
 func (s *serviceViaListener) setupDNAT() {
 	if s.firewall == nil {
 		log.Errorf("no firewall manager available to redirect DNS port %d to %d, "+
@@ -127,29 +134,39 @@ func (s *serviceViaListener) setupDNAT() {
 		return
 	}
 
-	protocols := []firewall.Protocol{firewall.ProtocolUDP, firewall.ProtocolTCP}
-	for i, proto := range protocols {
+	for _, proto := range dnatProtocols {
 		if err := s.firewall.AddOutputDNAT(s.listenIP, proto, DefaultPort, s.listenPort); err != nil {
 			log.Errorf("failed to add DNS %s DNAT rule, DNS on port %d will not work: %v",
 				proto, DefaultPort, err)
-			if err := s.removeDNAT(protocols[:i]); err != nil {
-				log.Warnf("failed to roll back DNS DNAT rules: %v", err)
+			if err := s.removeDNAT(); err != nil {
+				log.Warnf("failed to roll back DNS DNAT rules, retrying on stop: %v", err)
 			}
 			return
 		}
+		s.dnatRedirected = append(s.dnatRedirected, proto)
 	}
 
-	s.dnatConfigured = true
 	log.Infof("added DNS DNAT rules: %s:%d -> %s:%d (UDP + TCP)", s.listenIP, DefaultPort, s.listenIP, s.listenPort)
 }
 
-func (s *serviceViaListener) removeDNAT(protocols []firewall.Protocol) error {
+// removeDNAT removes the port 53 redirects installed so far. A protocol whose
+// removal fails stays recorded so a later Stop retries it, rather than leaving
+// port 53 pointing at a resolver that is no longer listening.
+func (s *serviceViaListener) removeDNAT() error {
+	if s.firewall == nil {
+		return nil
+	}
+
 	var merr *multierror.Error
-	for _, proto := range protocols {
+	var remaining []firewall.Protocol
+	for _, proto := range s.dnatRedirected {
 		if err := s.firewall.RemoveOutputDNAT(s.listenIP, proto, DefaultPort, s.listenPort); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("remove DNS %s DNAT rule: %w", proto, err))
+			remaining = append(remaining, proto)
 		}
 	}
+	s.dnatRedirected = remaining
+
 	return nberrors.FormatErrorOrNil(merr)
 }
 
@@ -157,15 +174,22 @@ func (s *serviceViaListener) Stop() error {
 	s.listenerFlagLock.Lock()
 	defer s.listenerFlagLock.Unlock()
 
+	var merr *multierror.Error
+
+	// Redirects are removed even when the listener is already stopped, so that
+	// a removal which failed earlier is retried instead of leaving port 53
+	// pointing at a resolver that no longer listens.
+	if err := s.removeDNAT(); err != nil {
+		merr = multierror.Append(merr, err)
+	}
+
 	if !s.listenerIsRunning {
-		return nil
+		return nberrors.FormatErrorOrNil(merr)
 	}
 	s.listenerIsRunning = false
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-
-	var merr *multierror.Error
 
 	if err := s.server.ShutdownContext(ctx); err != nil {
 		merr = multierror.Append(merr, fmt.Errorf("stop DNS UDP server: %w", err))
@@ -173,13 +197,6 @@ func (s *serviceViaListener) Stop() error {
 
 	if err := s.tcpServer.ShutdownContext(ctx); err != nil {
 		merr = multierror.Append(merr, fmt.Errorf("stop DNS TCP server: %w", err))
-	}
-
-	if s.dnatConfigured {
-		if err := s.removeDNAT([]firewall.Protocol{firewall.ProtocolUDP, firewall.ProtocolTCP}); err != nil {
-			merr = multierror.Append(merr, err)
-		}
-		s.dnatConfigured = false
 	}
 
 	return nberrors.FormatErrorOrNil(merr)
@@ -198,7 +215,7 @@ func (s *serviceViaListener) RuntimePort() int {
 	s.listenerFlagLock.Lock()
 	defer s.listenerFlagLock.Unlock()
 
-	if s.dnatConfigured {
+	if len(s.dnatRedirected) == len(dnatProtocols) {
 		return DefaultPort
 	}
 	return int(s.listenPort)
@@ -226,12 +243,13 @@ func (s *serviceViaListener) evalListenAddress() (netip.Addr, uint16, error) {
 		return ip, customPort, nil
 	}
 
-	port, err := randomFreePort()
+	ip := s.wgInterface.Address().IP
+	port, err := s.randomFreePort(ip)
 	if err != nil {
 		return netip.Addr{}, 0, fmt.Errorf("find a free port for DNS server: %w", err)
 	}
 
-	return s.wgInterface.Address().IP, port, nil
+	return ip, port, nil
 }
 
 func (s *serviceViaListener) testFreePort(port int) (netip.Addr, bool) {
@@ -278,19 +296,25 @@ func (s *serviceViaListener) tryToBind(ip netip.Addr, port int) bool {
 	return true
 }
 
-// randomFreePort returns a port the kernel reports as free. The probe listener
-// is closed again, so the port is only likely, not guaranteed, to still be free
-// when the DNS server binds it.
-func randomFreePort() (uint16, error) {
-	probeListener, err := net.ListenUDP("udp4", &net.UDPAddr{})
-	if err != nil {
-		return 0, fmt.Errorf("bind random port: %w", err)
+// randomFreePort returns a port that is free on ip for both UDP and TCP, since
+// the DNS server binds both. The probe listeners are closed again, so the port
+// is only likely, not guaranteed, to still be free when the server binds it.
+func (s *serviceViaListener) randomFreePort(ip netip.Addr) (uint16, error) {
+	for range randomPortAttempts {
+		probeListener, err := net.ListenUDP("udp4", &net.UDPAddr{})
+		if err != nil {
+			return 0, fmt.Errorf("bind random port: %w", err)
+		}
+
+		port := uint16(probeListener.LocalAddr().(*net.UDPAddr).Port)
+		if err := probeListener.Close(); err != nil {
+			return 0, fmt.Errorf("free up probed port: %w", err)
+		}
+
+		if s.tryToBind(ip, int(port)) {
+			return port, nil
+		}
 	}
 
-	port := uint16(probeListener.LocalAddr().(*net.UDPAddr).Port)
-	if err := probeListener.Close(); err != nil {
-		return 0, fmt.Errorf("free up probed port: %w", err)
-	}
-
-	return port, nil
+	return 0, fmt.Errorf("no port free for UDP and TCP on %s after %d attempts", ip, randomPortAttempts)
 }

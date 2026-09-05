@@ -1,6 +1,7 @@
 package dns
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -10,6 +11,8 @@ import (
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 )
 
 func TestServiceViaListener_TCPAndUDP(t *testing.T) {
@@ -83,4 +86,81 @@ func TestServiceViaListener_TCPAndUDP(t *testing.T) {
 	require.NotNil(t, tcpResp)
 	require.NotEmpty(t, tcpResp.Answer)
 	assert.Contains(t, tcpResp.Answer[0].String(), "192.0.2.1", "TCP response should contain expected IP")
+}
+
+type dnatCall struct {
+	protocol firewall.Protocol
+	added    bool
+}
+
+// fakeFirewall records DNAT calls and fails the ones named in addErrs/removeErrs.
+type fakeFirewall struct {
+	calls      []dnatCall
+	addErrs    map[firewall.Protocol]error
+	removeErrs map[firewall.Protocol]error
+}
+
+func (f *fakeFirewall) AddOutputDNAT(_ netip.Addr, protocol firewall.Protocol, _, _ uint16) error {
+	if err := f.addErrs[protocol]; err != nil {
+		return err
+	}
+	f.calls = append(f.calls, dnatCall{protocol: protocol, added: true})
+	return nil
+}
+
+func (f *fakeFirewall) RemoveOutputDNAT(_ netip.Addr, protocol firewall.Protocol, _, _ uint16) error {
+	if err := f.removeErrs[protocol]; err != nil {
+		return err
+	}
+	f.calls = append(f.calls, dnatCall{protocol: protocol})
+	return nil
+}
+
+func newDNATTestService(fw Firewall) *serviceViaListener {
+	return &serviceViaListener{
+		listenIP:   netip.MustParseAddr("100.64.0.1"),
+		listenPort: customPort,
+		firewall:   fw,
+	}
+}
+
+func TestSetupDNAT_BothProtocols(t *testing.T) {
+	svc := newDNATTestService(&fakeFirewall{})
+
+	svc.setupDNAT()
+
+	assert.Equal(t, dnatProtocols, svc.dnatRedirected)
+	assert.Equal(t, DefaultPort, svc.RuntimePort(), "port 53 is advertised once both redirects are installed")
+}
+
+func TestSetupDNAT_RollsBackPartialRedirect(t *testing.T) {
+	fw := &fakeFirewall{addErrs: map[firewall.Protocol]error{firewall.ProtocolTCP: errors.New("nftables busy")}}
+	svc := newDNATTestService(fw)
+
+	svc.setupDNAT()
+
+	assert.Empty(t, svc.dnatRedirected, "the UDP redirect installed before the failure must be rolled back")
+	assert.Equal(t, int(svc.listenPort), svc.RuntimePort(), "an incomplete redirect must not advertise port 53")
+	assert.Contains(t, fw.calls, dnatCall{protocol: firewall.ProtocolUDP}, "UDP removal should have been attempted")
+}
+
+// A rollback that fails must keep the protocol recorded, so port 53 is not left
+// redirected to a resolver that no longer listens.
+func TestStop_RetriesFailedDNATRemoval(t *testing.T) {
+	fw := &fakeFirewall{
+		addErrs:    map[firewall.Protocol]error{firewall.ProtocolTCP: errors.New("nftables busy")},
+		removeErrs: map[firewall.Protocol]error{firewall.ProtocolUDP: errors.New("nftables busy")},
+	}
+	svc := newDNATTestService(fw)
+
+	svc.setupDNAT()
+	require.Equal(t, []firewall.Protocol{firewall.ProtocolUDP}, svc.dnatRedirected,
+		"a failed rollback keeps the redirect for a later retry")
+
+	require.Error(t, svc.Stop(), "the failing removal should be reported")
+	require.Equal(t, []firewall.Protocol{firewall.ProtocolUDP}, svc.dnatRedirected)
+
+	delete(fw.removeErrs, firewall.ProtocolUDP)
+	require.NoError(t, svc.Stop(), "a later stop retries the removal")
+	assert.Empty(t, svc.dnatRedirected)
 }

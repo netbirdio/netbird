@@ -7,7 +7,7 @@ port instead, and swaps the peer endpoint port into the source so the proxy can 
 peers apart.
 
 Maps use the legacy `struct bpf_map_def` form, defined in `bpf_map_def.h` because libbpf
-1.3 dropped it. They load on kernels built without BTF, which BTF-style (`SEC(".maps")`)
+1.0 removed it. They load on kernels built without BTF, which BTF-style (`SEC(".maps")`)
 definitions do not.
 
 Regenerate the objects with `go generate ./client/internal/ebpf/ebpf/`; it needs
