@@ -128,8 +128,12 @@ type Server struct {
 	captureEnabled         bool
 	bundleCapture          *bundleCapture
 	// activeCapture is the session currently installed on the engine; guarded by s.mutex.
-	activeCapture    *capture.Session
-	networksDisabled bool
+	activeCapture *capture.Session
+	// activeCaptureCancel tears down the streaming pipe/cancel for the
+	// active streaming capture so eviction unblocks the StartCapture RPC
+	// handler. Nil for bundle captures (they own their own context).
+	activeCaptureCancel func()
+	networksDisabled    bool
 
 	sleepHandler *sleephandler.SleepHandler
 
@@ -597,6 +601,8 @@ func (s *Server) setConfigInputFromRequest(msg *proto.SetConfigRequest) (profile
 	config.DisableAutoConnect = msg.DisableAutoConnect
 	config.ServerSSHAllowed = msg.ServerSSHAllowed
 	config.RemoteJobsAllowed = msg.RemoteJobsAllowed
+	config.ServerVNCAllowed = msg.ServerVNCAllowed
+	config.DisableVNCApproval = msg.DisableVNCApproval
 	config.NetworkMonitor = msg.NetworkMonitor
 	config.DisableClientRoutes = msg.DisableClientRoutes
 	config.DisableServerRoutes = msg.DisableServerRoutes
@@ -1681,6 +1687,7 @@ func (s *Server) buildStatusResponse(ctx context.Context, msg *proto.StatusReque
 		pbFullStatus := fullStatus.ToProto()
 		pbFullStatus.Events = s.statusRecorder.GetEventHistory()
 		pbFullStatus.SshServerState = s.getSSHServerState()
+		pbFullStatus.VncServerState = s.getVNCServerState()
 		pbFullStatus.NetworksRevision = s.statusRecorder.GetNetworksRevision()
 		statusResponse.FullStatus = pbFullStatus
 	}
@@ -1719,6 +1726,38 @@ func (s *Server) getSSHServerState() *proto.SSHServerState {
 	}
 
 	return sshServerState
+}
+
+// getVNCServerState retrieves the current VNC server state.
+func (s *Server) getVNCServerState() *proto.VNCServerState {
+	s.mutex.Lock()
+	connectClient := s.connectClient
+	s.mutex.Unlock()
+
+	if connectClient == nil {
+		return nil
+	}
+
+	engine := connectClient.Engine()
+	if engine == nil {
+		return nil
+	}
+
+	enabled, sessions := engine.GetVNCServerStatus()
+	pbSessions := make([]*proto.VNCSessionInfo, 0, len(sessions))
+	for _, sess := range sessions {
+		pbSessions = append(pbSessions, &proto.VNCSessionInfo{
+			RemoteAddress: sess.RemoteAddress,
+			Mode:          sess.Mode,
+			Username:      sess.Username,
+			UserID:        sess.UserID,
+			Initiator:     sess.Initiator,
+		})
+	}
+	return &proto.VNCServerState{
+		Enabled:  enabled,
+		Sessions: pbSessions,
+	}
 }
 
 // GetPeerSSHHostKey retrieves SSH host key for a specific peer
@@ -2140,6 +2179,47 @@ func (s *Server) ExposeService(req *proto.ExposeServiceRequest, srv proto.Daemon
 	return nil
 }
 
+// RespondApproval relays the user's accept/deny decision for a pending
+// approval prompt to the engine's broker. Unknown or already-resolved
+// request_ids are silently no-op'd so a slow UI cannot deny a prompt the
+// user already handled (or that already timed out).
+//
+// The answer is the whole of the consent the prompt asks for, so a caller the
+// daemon cannot name is refused: on a control channel that carries no identity
+// (loopback TCP) anything that can open a socket could accept a session on the
+// console user's behalf. An identified local caller is accepted and logged.
+// Restricting it further, to the user who owns the console, needs an
+// owner-gated IPC channel that does not exist yet, and on a multi-seat Linux
+// host there is no single such user to check against.
+func (s *Server) RespondApproval(ctx context.Context, msg *proto.RespondApprovalRequest) (*proto.RespondApprovalResponse, error) {
+	if msg.GetRequestId() == "" {
+		return nil, gstatus.Errorf(codes.InvalidArgument, "request_id is required")
+	}
+	id, ok := ipcauth.CallerIdentity(ctx)
+	if !ok {
+		log.Warnf("refusing approval response for %s: the caller's identity cannot be verified on this control channel", msg.GetRequestId())
+		// Same envelope as the privileged-config refusals, so the CLI and the UI
+		// present the guidance instead of a raw gRPC error: see privilegeError.
+		return nil, privilegeError(unidentifiableCallerSummary(), reinstallCommand())
+	}
+	log.Infof("approval response for %s from caller %s: accept=%t view_only=%t",
+		msg.GetRequestId(), id, msg.GetAccept(), msg.GetViewOnly())
+	s.mutex.Lock()
+	connectClient := s.connectClient
+	s.mutex.Unlock()
+	if connectClient == nil {
+		return nil, gstatus.Errorf(codes.FailedPrecondition, "client not initialized")
+	}
+	engine := connectClient.Engine()
+	if engine == nil {
+		return nil, gstatus.Errorf(codes.FailedPrecondition, "engine not running")
+	}
+	matched := engine.RespondApproval(msg.GetRequestId(), msg.GetAccept(), msg.GetViewOnly())
+	if !matched {
+		log.Debugf("approval response for unknown request_id %s", msg.GetRequestId())
+	}
+	return &proto.RespondApprovalResponse{Matched: matched}, nil
+}
 func (s *Server) runProbes(ctx context.Context, waitForProbeResult bool) {
 	if s.connectClient == nil {
 		return
@@ -2241,6 +2321,8 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 		DisableAutoConnect:            cfg.DisableAutoConnect,
 		ServerSSHAllowed:              *cfg.ServerSSHAllowed,
 		RemoteJobsAllowed:             util.ReturnBoolWithDefaultFalse(cfg.RemoteJobsAllowed),
+		ServerVNCAllowed:              cfg.ServerVNCAllowed != nil && *cfg.ServerVNCAllowed,
+		DisableVNCApproval:            cfg.DisableVNCApproval != nil && *cfg.DisableVNCApproval,
 		RosenpassEnabled:              cfg.RosenpassEnabled,
 		RosenpassPermissive:           cfg.RosenpassPermissive,
 		BlockInbound:                  cfg.BlockInbound,

@@ -316,6 +316,8 @@ func mdmManagedFieldConflicts(msg *proto.SetConfigRequest, policy *mdm.Policy) [
 		conflictBool(mdm.KeyDisableAutoConnect, msg.DisableAutoConnect),
 		conflictBool(mdm.KeyAllowServerSSH, msg.ServerSSHAllowed),
 		conflictBool(mdm.KeyRemoteJobsAllowed, msg.RemoteJobsAllowed),
+		conflictBool(mdm.KeyAllowServerVNC, msg.ServerVNCAllowed),
+		conflictBool(mdm.KeyDisableVNCApproval, msg.DisableVNCApproval),
 		conflictBool(mdm.KeyDisableClientRoutes, msg.DisableClientRoutes),
 		conflictBool(mdm.KeyDisableServerRoutes, msg.DisableServerRoutes),
 		conflictBool(mdm.KeyBlockInbound, msg.BlockInbound),
@@ -354,6 +356,8 @@ func setConfigRequestHasConfigOverrides(msg *proto.SetConfigRequest) bool {
 		msg.DisableAutoConnect != nil ||
 		msg.ServerSSHAllowed != nil ||
 		msg.RemoteJobsAllowed != nil ||
+		msg.ServerVNCAllowed != nil ||
+		msg.DisableVNCApproval != nil ||
 		msg.NetworkMonitor != nil ||
 		msg.DisableClientRoutes != nil ||
 		msg.DisableServerRoutes != nil ||
@@ -395,6 +399,8 @@ func loginRequestHasConfigOverrides(msg *proto.LoginRequest) bool {
 		msg.DisableAutoConnect != nil ||
 		msg.ServerSSHAllowed != nil ||
 		msg.RemoteJobsAllowed != nil ||
+		msg.ServerVNCAllowed != nil ||
+		msg.DisableVNCApproval != nil ||
 		msg.RosenpassPermissive != nil ||
 		len(msg.ExtraIFaceBlacklist) > 0 ||
 		msg.NetworkMonitor != nil ||
@@ -446,6 +452,8 @@ func loginRequestMDMConflicts(msg *proto.LoginRequest, policy *mdm.Policy) []str
 		conflictBool(mdm.KeyDisableAutoConnect, msg.DisableAutoConnect),
 		conflictBool(mdm.KeyAllowServerSSH, msg.ServerSSHAllowed),
 		conflictBool(mdm.KeyRemoteJobsAllowed, msg.RemoteJobsAllowed),
+		conflictBool(mdm.KeyAllowServerVNC, msg.ServerVNCAllowed),
+		conflictBool(mdm.KeyDisableVNCApproval, msg.DisableVNCApproval),
 		conflictBool(mdm.KeyDisableClientRoutes, msg.DisableClientRoutes),
 		conflictBool(mdm.KeyDisableServerRoutes, msg.DisableServerRoutes),
 		conflictBool(mdm.KeyBlockInbound, msg.BlockInbound),

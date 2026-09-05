@@ -152,6 +152,14 @@ service DaemonService {
   // ExposeService exposes a local port via the NetBird reverse proxy
   rpc ExposeService(ExposeServiceRequest) returns (stream ExposeServiceEvent) {}
 
+  // RespondApproval delivers the user's accept/deny decision for a
+  // pending user-approval prompt. The daemon pushes the prompt as a
+  // SystemEvent with category APPROVAL and metadata key "request_id";
+  // the UI calls this RPC with the same request_id to unblock whichever
+  // subsystem (VNC, SSH, ...) is waiting. The "kind" metadata key tells
+  // the UI which subsystem the prompt belongs to.
+  rpc RespondApproval(RespondApprovalRequest) returns (RespondApprovalResponse) {}
+
   // WailsUIReady is a no-op probe the Wails UI calls once at startup. The UI
   // only cares whether the daemon implements it: an Unimplemented response
   // means the daemon predates this UI and is too old to drive it.
@@ -248,6 +256,10 @@ message LoginRequest {
   // remoteJobsAllowed opts the peer into management-requested remote jobs
   // (e.g. debug bundles). Absent leaves the stored value unchanged.
   optional bool remoteJobsAllowed = 43;
+
+  optional bool serverVNCAllowed = 44;
+
+  optional bool disableVNCApproval = 45;
 }
 
 message LoginResponse {
@@ -370,6 +382,10 @@ message GetConfigResponse {
 
   bool remoteJobsAllowed = 29;
 
+  bool serverVNCAllowed = 30;
+
+  bool disableVNCApproval = 31;
+
   // mDMManagedFields lists the names of configuration keys whose value is
   // currently enforced by an MDM policy. Names match mdm.Key* constants
   // (e.g. "managementURL", "disableClientRoutes"). UI/CLI clients should
@@ -460,6 +476,25 @@ message SSHServerState {
   repeated SSHSessionInfo sessions = 2;
 }
 
+// VNCSessionInfo contains information about an active VNC session
+message VNCSessionInfo {
+  string remoteAddress = 1;
+  string mode = 2;
+  string username = 3;
+  // userID is the Noise-verified session identity (hashed user ID from
+  // the ACL session-key entry), empty when auth is disabled.
+  string userID = 4;
+  // initiator is the human-readable display name of the dashboard user
+  // who minted the SessionPubKey, when known.
+  string initiator = 5;
+}
+
+// VNCServerState contains the latest state of the VNC server
+message VNCServerState {
+  bool enabled = 1;
+  repeated VNCSessionInfo sessions = 2;
+}
+
 // FullStatus contains the full state held by the Status instance
 message FullStatus {
   ManagementState managementState = 1;
@@ -480,6 +515,7 @@ message FullStatus {
   // on it to know when to re-fetch ListNetworks via the push stream, instead
   // of polling on every status snapshot.
   uint64 networksRevision = 11;
+  VNCServerState vncServerState = 12;
 }
 
 // Networks
@@ -684,6 +720,7 @@ message SystemEvent {
     AUTHENTICATION = 2;
     CONNECTIVITY = 3;
     SYSTEM = 4;
+    APPROVAL = 5;
   }
 
   string id = 1;
@@ -780,6 +817,10 @@ message SetConfigRequest {
   // remoteJobsAllowed opts the peer into management-requested remote jobs
   // (e.g. debug bundles). Absent leaves the stored value unchanged.
   optional bool remoteJobsAllowed = 38;
+
+  optional bool serverVNCAllowed = 39;
+
+  optional bool disableVNCApproval = 40;
 }
 
 message SetConfigResponse{}
@@ -1077,3 +1118,27 @@ message StartBundleCaptureRequest {
 message StartBundleCaptureResponse {}
 message StopBundleCaptureRequest {}
 message StopBundleCaptureResponse {}
+
+message RespondApprovalRequest {
+  // request_id matches the SystemEvent metadata key emitted by the daemon
+  // when a subsystem awaits user approval for an inbound connection.
+  string request_id = 1;
+  // accept is true if the user approved the request, false if they
+  // denied it. An unknown request_id is not an error; the response reports
+  // it as unmatched.
+  bool accept = 2;
+  // view_only signals that the user granted the connection but withheld
+  // input control. Only meaningful when accept is true; ignored when
+  // accept is false.
+  bool view_only = 3;
+}
+
+message RespondApprovalResponse {
+  // matched is true when request_id named a prompt that was still waiting.
+  // False means it was not, for any reason and without saying which: never
+  // known, already answered, expired, or abandoned because the prompt never
+  // reached a UI or the daemon shut the request down. What they share is that
+  // this call changed nothing, so the UI must not report the outcome the user
+  // picked as having taken effect.
+  bool matched = 1;
+}

@@ -12,10 +12,10 @@ import (
 	firewallManager "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface/netstack"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
-	sshauth "github.com/netbirdio/netbird/client/ssh/auth"
 	sshconfig "github.com/netbirdio/netbird/client/ssh/config"
 	sshserver "github.com/netbirdio/netbird/client/ssh/server"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
+	sshauth "github.com/netbirdio/netbird/shared/sessionauth"
 	sshuserhash "github.com/netbirdio/netbird/shared/sshauth"
 )
 
@@ -264,22 +264,18 @@ func (e *Engine) startSSHServer(jwtConfig *sshserver.JWTConfig, authConfig *ssha
 		return errors.New("wg interface not initialized")
 	}
 
+	wgAddr := e.wgInterface.Address()
 	serverConfig := &sshserver.Config{
-		HostKeyPEM: e.config.SSHKey,
-		JWT:        jwtConfig,
-		Auth:       authConfig,
+		HostKeyPEM:        e.config.SSHKey,
+		JWT:               jwtConfig,
+		Auth:              authConfig,
+		NetstackNet:       e.wgInterface.GetNet(),
+		NetworkValidation: wgAddr,
 	}
 	server := sshserver.New(serverConfig)
 
-	wgAddr := e.wgInterface.Address()
-	server.SetNetworkValidation(wgAddr)
-
 	netbirdIP := wgAddr.IP
 	listenAddr := netip.AddrPortFrom(netbirdIP, sshserver.InternalSSHPort)
-
-	if netstackNet := e.wgInterface.GetNet(); netstackNet != nil {
-		server.SetNetstackNet(netstackNet)
-	}
 
 	e.configureSSHServer(server)
 

@@ -14,7 +14,7 @@ import (
 
 	integrationsConfig "github.com/netbirdio/management-integrations/integrations/config"
 
-	"github.com/netbirdio/netbird/client/ssh/auth"
+	auth "github.com/netbirdio/netbird/shared/sessionauth"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller/cache"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
@@ -124,10 +124,7 @@ func toPeerConfig(peer *nmdata.Peer, network *nmdata.Network, dnsName string, se
 
 	sshConfig := &proto.SSHConfig{
 		SshEnabled: peer.SSHEnabled || enableSSH,
-	}
-
-	if sshConfig.SshEnabled {
-		sshConfig.JwtConfig = buildJWTConfig(httpConfig, deviceFlowConfig)
+		JwtConfig:  buildJWTConfig(httpConfig, deviceFlowConfig),
 	}
 
 	peerConfig := &proto.PeerConfig{
@@ -161,13 +158,14 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 	useSourcePrefixes := peer.SupportsSourcePrefixes()
 	localIsProxy := peer.ProxyMeta.Embedded
 
+	peerConfig := toPeerConfig(peer, networkMap.Network, dnsName, settings, httpConfig, deviceFlowConfig, networkMap.EnableSSH, networkMap.ForceRoutingPeerDNSResolution)
 	response := &proto.SyncResponse{
-		PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings, httpConfig, deviceFlowConfig, networkMap.EnableSSH, networkMap.ForceRoutingPeerDNSResolution),
+		PeerConfig: peerConfig,
 		NetworkMap: &proto.NetworkMap{
 			Serial:     networkMap.Network.CurrentSerial(),
 			Routes:     networkmap.ToProtocolRoutes(networkMap.Routes),
 			DNSConfig:  networkmap.ToProtocolDNSConfig(networkMap.DNSConfig, dnsCache, dnsFwdPort),
-			PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings, httpConfig, deviceFlowConfig, networkMap.EnableSSH, networkMap.ForceRoutingPeerDNSResolution),
+			PeerConfig: peerConfig,
 		},
 		Checks: toProtocolChecks(ctx, checks),
 	}
@@ -175,8 +173,6 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 	nbConfig := toNetbirdConfig(config, turnCredentials, relayCredentials, extraSettings, settings)
 	extendedConfig := integrationsConfig.ExtendNetBirdConfig(peer.ID, peerGroups, nbConfig, extraSettings)
 	response.NetbirdConfig = extendedConfig
-
-	response.NetworkMap.PeerConfig = response.PeerConfig
 
 	remotePeers := make([]*proto.RemotePeerConfig, 0, len(networkMap.Peers)+len(networkMap.OfflinePeers))
 	remotePeers = networkmap.AppendRemotePeerConfig(remotePeers, networkMap.Peers, dnsName, includeIPv6, localIsProxy)
@@ -207,13 +203,27 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 		response.NetworkMap.ForwardingRules = forwardingRules
 	}
 
+	userIDClaim := auth.DefaultUserIDClaim
+	if httpConfig != nil && httpConfig.AuthUserIDClaim != "" {
+		userIDClaim = httpConfig.AuthUserIDClaim
+	}
+
 	if networkMap.AuthorizedUsers != nil {
 		hashedUsers, machineUsers := networkmap.BuildAuthorizedUsersProto(ctx, networkMap.AuthorizedUsers)
-		userIDClaim := auth.DefaultUserIDClaim
-		if httpConfig != nil && httpConfig.AuthUserIDClaim != "" {
-			userIDClaim = httpConfig.AuthUserIDClaim
-		}
 		response.NetworkMap.SshAuth = &proto.SSHAuth{AuthorizedUsers: hashedUsers, MachineUsers: machineUsers, UserIDClaim: userIDClaim}
+	}
+
+	if len(networkMap.VNCAuthorizedUsers) > 0 || len(networkMap.VNCSessionPubKeys) > 0 {
+		var hashedUsers [][]byte
+		var machineUsers map[string]*proto.MachineUserIndexes
+		if len(networkMap.VNCAuthorizedUsers) > 0 {
+			hashedUsers, machineUsers = networkmap.BuildAuthorizedUsersProto(ctx, networkMap.VNCAuthorizedUsers)
+		}
+		response.NetworkMap.VncAuth = &proto.VNCAuth{
+			AuthorizedUsers: hashedUsers,
+			MachineUsers:    machineUsers,
+			SessionPubKeys:  networkmap.BuildSessionPubKeysProto(ctx, networkMap.VNCSessionPubKeys),
+		}
 	}
 
 	// settings == nil → field stays nil → "no info in this snapshot", client

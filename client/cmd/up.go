@@ -467,6 +467,16 @@ func setSSHSetConfigFields(req *proto.SetConfigRequest, cmd *cobra.Command) {
 	}
 }
 
+// setVNCSetConfigFields is setSSHSetConfigFields for the VNC server flags.
+func setVNCSetConfigFields(req *proto.SetConfigRequest, cmd *cobra.Command) {
+	if cmd.Flag(serverVNCAllowedFlag).Changed {
+		req.ServerVNCAllowed = &serverVNCAllowed
+	}
+	if cmd.Flag(disableVNCApprovalFlag).Changed {
+		req.DisableVNCApproval = &disableVNCApproval
+	}
+}
+
 func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, profileName, username string) *proto.SetConfigRequest {
 	var req proto.SetConfigRequest
 	req.ProfileName = profileName
@@ -489,6 +499,7 @@ func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, pro
 	}
 	setSSHSetConfigFields(&req, cmd)
 	setBoolPtrIfChanged(cmd, remoteJobsAllowedFlag, &req.RemoteJobsAllowed, remoteJobsAllowed)
+	setVNCSetConfigFields(&req, cmd)
 
 	if cmd.Flag(interfaceNameFlag).Changed {
 		if err := parseInterfaceName(interfaceName); err != nil {
@@ -517,46 +528,50 @@ func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, pro
 		req.DisableAutoConnect = &autoConnectDisabled
 	}
 
+	setNetworkSetConfigFields(&req, cmd)
+	setLocalMetricsSetConfigFields(&req, cmd)
+
+	return &req
+}
+
+// setNetworkSetConfigFields copies the routing, DNS and firewall toggles the
+// user actually passed into req.
+func setNetworkSetConfigFields(req *proto.SetConfigRequest, cmd *cobra.Command) {
 	if cmd.Flag(dnsRouteIntervalFlag).Changed {
 		req.DnsRouteInterval = durationpb.New(dnsRouteInterval)
 	}
-
 	if cmd.Flag(disableClientRoutesFlag).Changed {
 		req.DisableClientRoutes = &disableClientRoutes
 	}
-
 	if cmd.Flag(disableServerRoutesFlag).Changed {
 		req.DisableServerRoutes = &disableServerRoutes
 	}
-
 	if cmd.Flag(disableDNSFlag).Changed {
 		req.DisableDns = &disableDNS
 	}
-
 	if cmd.Flag(disableFirewallFlag).Changed {
 		req.DisableFirewall = &disableFirewall
 	}
-
 	if cmd.Flag(blockLANAccessFlag).Changed {
 		req.BlockLanAccess = &blockLANAccess
 	}
-
 	if cmd.Flag(blockInboundFlag).Changed {
 		req.BlockInbound = &blockInbound
 	}
-
 	if cmd.Flag(disableIPv6Flag).Changed {
 		req.DisableIpv6 = &disableIPv6
 	}
+}
 
+// setLocalMetricsSetConfigFields copies the local metrics endpoint flags the
+// user actually passed into req.
+func setLocalMetricsSetConfigFields(req *proto.SetConfigRequest, cmd *cobra.Command) {
 	if cmd.Flag(enableLocalMetricsFlag).Changed {
 		req.EnableLocalMetrics = &localMetricsEnabled
 	}
 	if cmd.Flag(localMetricsAddressFlag).Changed {
 		req.LocalMetricsAddress = &localMetricsAddr
 	}
-
-	return &req
 }
 
 func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configFilePath string) (*profilemanager.ConfigInput, error) {
@@ -582,29 +597,14 @@ func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configFil
 	}
 	setBoolPtrIfChanged(cmd, remoteJobsAllowedFlag, &ic.RemoteJobsAllowed, remoteJobsAllowed)
 
-	if cmd.Flag(enableSSHRootFlag).Changed {
-		ic.EnableSSHRoot = &enableSSHRoot
+	if cmd.Flag(serverVNCAllowedFlag).Changed {
+		ic.ServerVNCAllowed = &serverVNCAllowed
+	}
+	if cmd.Flag(disableVNCApprovalFlag).Changed {
+		ic.DisableVNCApproval = &disableVNCApproval
 	}
 
-	if cmd.Flag(enableSSHSFTPFlag).Changed {
-		ic.EnableSSHSFTP = &enableSSHSFTP
-	}
-
-	if cmd.Flag(enableSSHLocalPortForwardFlag).Changed {
-		ic.EnableSSHLocalPortForwarding = &enableSSHLocalPortForward
-	}
-
-	if cmd.Flag(enableSSHRemotePortForwardFlag).Changed {
-		ic.EnableSSHRemotePortForwarding = &enableSSHRemotePortForward
-	}
-
-	if cmd.Flag(disableSSHAuthFlag).Changed {
-		ic.DisableSSHAuth = &disableSSHAuth
-	}
-
-	if cmd.Flag(sshJWTCacheTTLFlag).Changed {
-		ic.SSHJWTCacheTTL = &sshJWTCacheTTL
-	}
+	applySSHFlagsToConfig(cmd, &ic)
 
 	if cmd.Flag(interfaceNameFlag).Changed {
 		if err := parseInterfaceName(interfaceName); err != nil {
@@ -685,6 +685,27 @@ func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configFil
 	return &ic, nil
 }
 
+func applySSHFlagsToConfig(cmd *cobra.Command, ic *profilemanager.ConfigInput) {
+	if cmd.Flag(enableSSHRootFlag).Changed {
+		ic.EnableSSHRoot = &enableSSHRoot
+	}
+	if cmd.Flag(enableSSHSFTPFlag).Changed {
+		ic.EnableSSHSFTP = &enableSSHSFTP
+	}
+	if cmd.Flag(enableSSHLocalPortForwardFlag).Changed {
+		ic.EnableSSHLocalPortForwarding = &enableSSHLocalPortForward
+	}
+	if cmd.Flag(enableSSHRemotePortForwardFlag).Changed {
+		ic.EnableSSHRemotePortForwarding = &enableSSHRemotePortForward
+	}
+	if cmd.Flag(disableSSHAuthFlag).Changed {
+		ic.DisableSSHAuth = &disableSSHAuth
+	}
+	if cmd.Flag(sshJWTCacheTTLFlag).Changed {
+		ic.SSHJWTCacheTTL = &sshJWTCacheTTL
+	}
+}
+
 // setSSHLoginFields copies the SSH server flags the user actually passed
 // into req, leaving the rest unset so the daemon keeps the persisted
 // values.
@@ -710,6 +731,16 @@ func setSSHLoginFields(req *proto.LoginRequest, cmd *cobra.Command) {
 	if cmd.Flag(sshJWTCacheTTLFlag).Changed {
 		sshJWTCacheTTL32 := int32(sshJWTCacheTTL)
 		req.SshJWTCacheTTL = &sshJWTCacheTTL32
+	}
+}
+
+// setVNCLoginFields is setSSHLoginFields for the VNC server flags.
+func setVNCLoginFields(req *proto.LoginRequest, cmd *cobra.Command) {
+	if cmd.Flag(serverVNCAllowedFlag).Changed {
+		req.ServerVNCAllowed = &serverVNCAllowed
+	}
+	if cmd.Flag(disableVNCApprovalFlag).Changed {
+		req.DisableVNCApproval = &disableVNCApproval
 	}
 }
 
@@ -741,6 +772,7 @@ func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte
 
 	setSSHLoginFields(&loginRequest, cmd)
 	setBoolPtrIfChanged(cmd, remoteJobsAllowedFlag, &loginRequest.RemoteJobsAllowed, remoteJobsAllowed)
+	setVNCLoginFields(&loginRequest, cmd)
 
 	if cmd.Flag(disableAutoConnectFlag).Changed {
 		loginRequest.DisableAutoConnect = &autoConnectDisabled

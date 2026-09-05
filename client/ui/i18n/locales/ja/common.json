@@ -512,6 +512,10 @@
     "settings.tabs.ssh": {
         "message": "SSH"
     },
+    "settings.tabs.vnc": {
+        "message": "VNC",
+        "description": "Settings tab label: VNC. Acronym — keep as-is."
+    },
     "settings.tabs.advanced": {
         "message": "詳細設定"
     },
@@ -720,6 +724,30 @@
     },
     "settings.ssh.jwtTtl.suffix": {
         "message": "秒"
+    },
+    "settings.vnc.section.server": {
+        "message": "サーバー",
+        "description": "Section heading: Server (VNC settings)."
+    },
+    "settings.vnc.section.approval": {
+        "message": "承認",
+        "description": "Section heading: Approval (VNC connection approval settings)."
+    },
+    "settings.vnc.server.label": {
+        "message": "VNC サーバーを有効にする",
+        "description": "Toggle label: enable the embedded VNC server."
+    },
+    "settings.vnc.server.help": {
+        "message": "このホストで NetBird VNC サーバーを実行し、許可されたピアが画面を表示または操作できるようにします。",
+        "description": "Helper text for the VNC server toggle."
+    },
+    "settings.vnc.approval.label": {
+        "message": "接続の承認を必須にする",
+        "description": "Toggle label: prompt for approval before each inbound VNC connection."
+    },
+    "settings.vnc.approval.help": {
+        "message": "受信した VNC 接続を許可する前に、このホスト上で承認を求めるダイアログを表示します。",
+        "description": "Helper text for the VNC connection-approval toggle."
     },
     "settings.advanced.section.interface": {
         "message": "インターフェース"
@@ -1042,6 +1070,58 @@
     "window.title.sessionExpiration": {
         "message": "セッションの期限切れ"
     },
+    "window.title.approval": {
+        "message": "接続リクエスト",
+        "description": "OS window-chrome title for the inbound-connection approval window."
+    },
+    "approval.title.vnc": {
+        "message": "VNC 接続を許可しますか?",
+        "description": "Approval dialog heading for an inbound VNC connection."
+    },
+    "approval.title.ssh": {
+        "message": "SSH 接続を許可しますか?",
+        "description": "Approval dialog heading for an inbound SSH connection."
+    },
+    "approval.title.default": {
+        "message": "受信接続を許可しますか?",
+        "description": "Approval dialog heading for an inbound connection of unknown kind."
+    },
+    "approval.field.user": {
+        "message": "ユーザー",
+        "description": "Approval dialog row label: the initiating user's display name."
+    },
+    "approval.field.keyFingerprint": {
+        "message": "鍵のフィンガープリント",
+        "description": "Approval dialog row label: the connecting peer's cryptographic key fingerprint."
+    },
+    "approval.field.peer": {
+        "message": "経由ピア",
+        "description": "Approval dialog row label: the peer the connection arrives through."
+    },
+    "approval.field.sourceIp": {
+        "message": "送信元 IP",
+        "description": "Approval dialog row label: the source IP address of the connection."
+    },
+    "approval.field.osUser": {
+        "message": "OS ユーザー",
+        "description": "Approval dialog row label: the target operating-system user."
+    },
+    "approval.countdown": {
+        "message": "{seconds} 秒後に自動拒否",
+        "description": "Approval dialog countdown; {seconds} is the remaining whole seconds before the daemon auto-denies."
+    },
+    "approval.action.allow": {
+        "message": "許可",
+        "description": "Approval dialog button: allow the connection."
+    },
+    "approval.action.allowViewOnly": {
+        "message": "許可（表示のみ）",
+        "description": "Approval dialog button: allow the connection in view-only mode."
+    },
+    "approval.action.deny": {
+        "message": "拒否",
+        "description": "Approval dialog button: deny the connection."
+    },
     "window.title.updating": {
         "message": "更新中"
     },
@@ -1357,22 +1437,34 @@
     "error.elevation_failed": {
         "message": "昇格した権限でも変更を適用できませんでした。代わりに次のコマンドを実行してください:"
     },
-    "settings.ssh.privilege.actorRoot": {
+    "settings.privilege.actorRoot": {
         "message": "root 権限"
     },
-    "settings.ssh.privilege.actorAdministrator": {
+    "settings.privilege.actorAdministrator": {
         "message": "管理者権限"
     },
-    "settings.ssh.privilege.hint": {
+    "settings.privilege.authorizePending": {
+        "message": "承認を待っています…"
+    },
+    "connect.activeSession.badge": {
+        "message": "画面を共有中",
+        "description": "Short label on the badge shown on the main screen while somebody is attached to this machine over VNC."
+    },
+    "connect.activeSession.tooltip": {
+        "message": "この画面は VNC 経由で表示されています（{sessionCount} 個のセッション）。切断するとセッションは終了し、ご自身が VNC で接続している場合はアクセスを失います。",
+        "description": "Tooltip on the screen-shared badge. {sessionCount} is how many VNC sessions are attached; wording covers any number since the bundle has no plural forms."
+    },
+    "connect.activeSession.tooltipNamed": {
+        "message": "この画面は {who} が VNC 経由で表示しています（{sessionCount} 個のセッション）。切断するとセッションは終了し、ご自身が VNC で接続している場合はアクセスを失います。",
+        "description": "As connect.activeSession.tooltip, with {who} naming the dashboard users who started the sessions."
+    },
+    "settings.privilege.hint": {
         "message": "{actor}が必要です。代わりに次のコマンドを実行してください:"
     },
-    "settings.ssh.privilege.oneWay": {
+    "settings.privilege.oneWay": {
         "message": "無効にはできますが、再度有効にするには{actor}が必要です。"
     },
-    "settings.ssh.privilege.oneWayInverted": {
+    "settings.privilege.oneWayInverted": {
         "message": "有効にはできますが、再度無効にするには{actor}が必要です。"
-    },
-    "settings.ssh.privilege.authorizePending": {
-        "message": "承認を待っています…"
     }
 }

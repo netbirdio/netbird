@@ -5,13 +5,13 @@ import (
 
 	integrationsConfig "github.com/netbirdio/management-integrations/integrations/config"
 
-	"github.com/netbirdio/netbird/client/ssh/auth"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/types"
 	sharedgrpc "github.com/netbirdio/netbird/shared/management/grpc"
 	"github.com/netbirdio/netbird/shared/management/networkmap"
 	nmdata "github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/netbirdio/netbird/shared/management/proto"
+	auth "github.com/netbirdio/netbird/shared/sessionauth"
 )
 
 // ToComponentSyncResponse builds a SyncResponse carrying the compact

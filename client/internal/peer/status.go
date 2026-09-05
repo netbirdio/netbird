@@ -1306,7 +1306,7 @@ func (d *Status) PublishEvent(
 	msg string,
 	userMsg string,
 	metadata map[string]string,
-) {
+) bool {
 	event := &proto.SystemEvent{
 		Id:          uuid.New().String(),
 		Severity:    severity,
@@ -1322,15 +1322,18 @@ func (d *Status) PublishEvent(
 
 	d.eventQueue.Add(event)
 
+	delivered := false
 	for _, stream := range d.eventStreams {
 		select {
 		case stream <- event:
+			delivered = true
 		default:
 			log.Debugf("event stream buffer full, skipping event: %v", event)
 		}
 	}
 
 	log.Debugf("event published: %v", event)
+	return delivered
 }
 
 // SubscribeToEvents returns a new event subscription
@@ -1346,6 +1349,15 @@ func (d *Status) SubscribeToEvents() *EventSubscription {
 		id:     id,
 		events: stream,
 	}
+}
+
+// HasEventSubscribers reports whether any client is currently subscribed
+// to the daemon's SystemEvent stream. Used by the VNC approval broker to
+// fail closed when no UI is connected to prompt the user.
+func (d *Status) HasEventSubscribers() bool {
+	d.eventMux.Lock()
+	defer d.eventMux.Unlock()
+	return len(d.eventStreams) > 0
 }
 
 // UnsubscribeFromEvents removes an event subscription

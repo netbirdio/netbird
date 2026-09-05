@@ -101,6 +101,27 @@ func EnvelopeToNetworkMap(ctx context.Context, env *proto.NetworkMapEnvelope, lo
 		}
 	}
 
+	// Mirrors the server-side VncAuth build in the legacy path: the daemon's VNC
+	// authorizer reads only this field, so a components-path peer without it
+	// refuses every VNC connection.
+	//
+	// Emitted only when there is something to authorize. The resolve state always
+	// allocates VNCAuthorizedUsers, so testing it for nil would attach an empty
+	// VncAuth to every sync of every peer. Either spelling denies: a missing
+	// VncAuth becomes an empty config in updateVNCServerAuth.
+	if len(typedNM.VNCAuthorizedUsers) > 0 || len(typedNM.VNCSessionPubKeys) > 0 {
+		var hashedUsers [][]byte
+		var machineUsers map[string]*proto.MachineUserIndexes
+		if len(typedNM.VNCAuthorizedUsers) > 0 {
+			hashedUsers, machineUsers = BuildAuthorizedUsersProto(ctx, typedNM.VNCAuthorizedUsers)
+		}
+		protoNM.VncAuth = &proto.VNCAuth{
+			AuthorizedUsers: hashedUsers,
+			MachineUsers:    machineUsers,
+			SessionPubKeys:  BuildSessionPubKeysProto(ctx, typedNM.VNCSessionPubKeys),
+		}
+	}
+
 	if typedNM.ForwardingRules != nil {
 		forwardingRules := make([]*proto.ForwardingRule, 0, len(typedNM.ForwardingRules))
 		for _, rule := range typedNM.ForwardingRules {

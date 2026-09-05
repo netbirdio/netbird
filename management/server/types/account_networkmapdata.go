@@ -292,6 +292,8 @@ func twinRule(r *PolicyRule) *nmdata.PolicyRule {
 		PortRanges:          portRanges,
 		AuthorizedGroups:    r.AuthorizedGroups,
 		AuthorizedUser:      r.AuthorizedUser,
+		SessionPubKey:       r.SessionPubKey,
+		SessionDisplayName:  r.SessionDisplayName,
 	}
 }
 

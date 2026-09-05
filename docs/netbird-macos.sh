@@ -60,6 +60,8 @@ preSharedKey="$NULL"                       # secret; redacted in log
 allowServerSSH='true'
 allowRemoteJobs="$NULL"
 debugBundleUploadURL="$NULL"                # HTTPS URL with a host; overrides management
+allowServerVNC="$NULL"
+disableVNCApproval="$NULL"
 blockInbound="$NULL"
 disableAutoConnect="$NULL"
 disableAutostart="$NULL"
@@ -192,6 +194,8 @@ main() {
     fi
   fi
   is_set "$debugBundleUploadURL"      && emit_string  debugBundleUploadURL      "$debugBundleUploadURL"
+  is_set "$allowServerVNC"            && emit_bool    allowServerVNC            "$allowServerVNC"
+  is_set "$disableVNCApproval"        && emit_bool    disableVNCApproval        "$disableVNCApproval"
   is_set "$blockInbound"              && emit_bool    blockInbound              "$blockInbound"
   is_set "$disableAutoConnect"        && emit_bool    disableAutoConnect        "$disableAutoConnect"
   is_set "$disableAutostart"          && emit_bool    disableAutostart          "$disableAutostart"

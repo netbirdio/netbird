@@ -1,6 +1,8 @@
-package auth
+package sessionauth
 
 import (
+	"errors"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -398,11 +400,27 @@ func TestAuthorizer_ConcurrentAuthorization(t *testing.T) {
 		}(i)
 	}
 
+	// Reapply the same config while the reads above are in flight: Update
+	// replaces authorizedUsers, machineUsers and sessionPubKeys wholesale, so
+	// the race detector has something to catch if any of them is read unguarded.
+	const numUpdaters = 10
+	var updaters sync.WaitGroup
+	updaters.Add(numUpdaters)
+	for range numUpdaters {
+		go func() {
+			defer updaters.Done()
+			for range 50 {
+				authorizer.Update(config)
+			}
+		}()
+	}
+
 	// Wait for all goroutines to complete and collect errors
 	for i := 0; i < numGoroutines; i++ {
 		err := <-errChan
 		assert.NoError(t, err)
 	}
+	updaters.Wait()
 }
 
 func TestAuthorizer_Wildcard_AllowsAllAuthorizedUsers(t *testing.T) {
@@ -609,4 +627,133 @@ func TestAuthorizer_Wildcard_WithPartialIndexes_AllowsAllUsers(t *testing.T) {
 	_, err = authorizer.Authorize("user3", "root")
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, ErrUserNotAuthorized, "unauthorized user should be denied")
+}
+
+func TestAuthorizer_LookupSessionKey_Valid(t *testing.T) {
+	pub := bytesRepeat(0x11, sessionPubKeyLen)
+	userHash, err := sshauth.HashUserID("alice")
+	require.NoError(t, err)
+
+	a := NewAuthorizer()
+	a.Update(&Config{
+		AuthorizedUsers: []sshauth.UserIDHash{userHash},
+		MachineUsers:    map[string][]uint32{Wildcard: {0}},
+		SessionPubKeys:  []SessionPubKey{{PubKey: pub, UserIDHash: userHash}},
+	})
+
+	got, err := a.LookupSessionKey(pub)
+	require.NoError(t, err)
+	assert.Equal(t, userHash, got)
+
+	if _, err := a.AuthorizeOSUserBySessionKey(got, "alice"); err != nil {
+		t.Fatalf("AuthorizeOSUserBySessionKey: %v", err)
+	}
+}
+
+func TestAuthorizer_LookupSessionKey_UnknownPub(t *testing.T) {
+	a := NewAuthorizer()
+	a.Update(&Config{})
+	_, err := a.LookupSessionKey(bytesRepeat(0x22, sessionPubKeyLen))
+	require.ErrorIs(t, err, ErrSessionKeyNotKnown)
+}
+
+func TestAuthorizer_LookupSessionKey_WrongLength(t *testing.T) {
+	a := NewAuthorizer()
+	_, err := a.LookupSessionKey([]byte("short"))
+	require.Error(t, err)
+}
+
+func TestAuthorizer_LookupSessionKey_UpdateClears(t *testing.T) {
+	pub := bytesRepeat(0x33, sessionPubKeyLen)
+	userHash, err := sshauth.HashUserID("alice")
+	require.NoError(t, err)
+
+	a := NewAuthorizer()
+	a.Update(&Config{SessionPubKeys: []SessionPubKey{{PubKey: pub, UserIDHash: userHash}}})
+	if _, err := a.LookupSessionKey(pub); err != nil {
+		t.Fatalf("setup lookup: %v", err)
+	}
+	a.Update(&Config{})
+	if _, err := a.LookupSessionKey(pub); !errors.Is(err, ErrSessionKeyNotKnown) {
+		t.Fatalf("expected ErrSessionKeyNotKnown, got %v", err)
+	}
+}
+
+// A session pubkey configured twice with different user hashes cannot be
+// resolved to one identity, so Update drops the binding rather than picking a
+// winner: the key must not authenticate anybody.
+func TestAuthorizer_SessionKey_ConflictingDuplicateIsDropped(t *testing.T) {
+	pub := bytesRepeat(0x44, sessionPubKeyLen)
+	aliceHash, err := sshauth.HashUserID("alice")
+	require.NoError(t, err)
+	bobHash, err := sshauth.HashUserID("bob")
+	require.NoError(t, err)
+
+	a := NewAuthorizer()
+	a.Update(&Config{
+		AuthorizedUsers: []sshauth.UserIDHash{aliceHash, bobHash},
+		MachineUsers:    map[string][]uint32{Wildcard: {0, 1}},
+		SessionPubKeys: []SessionPubKey{
+			{PubKey: pub, UserIDHash: aliceHash, DisplayName: "Alice"},
+			{PubKey: pub, UserIDHash: bobHash, DisplayName: "Bob"},
+		},
+	})
+
+	_, err = a.LookupSessionKey(pub)
+	require.ErrorIs(t, err, ErrSessionKeyNotKnown, "a conflicting key must authenticate nobody")
+	assert.Empty(t, a.LookupSessionDisplayName(pub), "the display name goes with the dropped binding")
+}
+
+func bytesRepeat(b byte, n int) []byte {
+	out := make([]byte, n)
+	for i := range out {
+		out[i] = b
+	}
+	return out
+}
+
+// AuthorizeSessionKey resolves the key and authorizes the identity it names
+// under one lock. Splitting those steps let an Update that revoked the key land
+// in between, after which the caller still held a hash that authorized fine.
+func TestAuthorizer_AuthorizeSessionKey_RevocationIsAtomic(t *testing.T) {
+	pub := bytesRepeat(0x55, sessionPubKeyLen)
+	userHash, err := sshauth.HashUserID("alice")
+	require.NoError(t, err)
+
+	granted := &Config{
+		AuthorizedUsers: []sshauth.UserIDHash{userHash},
+		MachineUsers:    map[string][]uint32{Wildcard: {0}},
+		SessionPubKeys:  []SessionPubKey{{PubKey: pub, UserIDHash: userHash}},
+	}
+	// The user stays authorized; only the session key is withdrawn. That is the
+	// shape that used to slip through, because the second step never looked at
+	// the key again.
+	revoked := &Config{
+		AuthorizedUsers: []sshauth.UserIDHash{userHash},
+		MachineUsers:    map[string][]uint32{Wildcard: {0}},
+	}
+
+	a := NewAuthorizer()
+	a.Update(granted)
+	gotHash, _, err := a.AuthorizeSessionKey(pub, "alice")
+	require.NoError(t, err)
+	assert.Equal(t, userHash, gotHash)
+
+	a.Update(revoked)
+	_, _, err = a.AuthorizeSessionKey(pub, "alice")
+	require.ErrorIs(t, err, ErrSessionKeyNotKnown, "a revoked key must not authorize, even for a still-authorized user")
+}
+
+// A key that resolves but whose user is not authorized is refused by the second
+// half of the same call.
+func TestAuthorizer_AuthorizeSessionKey_UnauthorizedUser(t *testing.T) {
+	pub := bytesRepeat(0x66, sessionPubKeyLen)
+	userHash, err := sshauth.HashUserID("alice")
+	require.NoError(t, err)
+
+	a := NewAuthorizer()
+	a.Update(&Config{SessionPubKeys: []SessionPubKey{{PubKey: pub, UserIDHash: userHash}}})
+
+	_, _, err = a.AuthorizeSessionKey(pub, "alice")
+	require.ErrorIs(t, err, ErrUserNotAuthorized)
 }

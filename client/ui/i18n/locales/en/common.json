@@ -683,6 +683,10 @@
         "message": "SSH",
         "description": "Settings tab label: SSH. Acronym — keep as-is."
     },
+    "settings.tabs.vnc": {
+        "message": "VNC",
+        "description": "Settings tab label: VNC. Acronym — keep as-is."
+    },
     "settings.tabs.advanced": {
         "message": "Advanced",
         "description": "Settings tab label: Advanced. Keep short."
@@ -958,6 +962,30 @@
     "settings.ssh.jwtTtl.suffix": {
         "message": "Second(s)",
         "description": "Unit suffix shown after the JWT TTL number field. The '(s)' marks an optional plural."
+    },
+    "settings.vnc.section.server": {
+        "message": "Server",
+        "description": "Section heading: Server (VNC settings)."
+    },
+    "settings.vnc.section.approval": {
+        "message": "Approval",
+        "description": "Section heading: Approval (VNC connection approval settings)."
+    },
+    "settings.vnc.server.label": {
+        "message": "Enable VNC Server",
+        "description": "Toggle label: enable the embedded VNC server."
+    },
+    "settings.vnc.server.help": {
+        "message": "Run the NetBird VNC server on this host so authorized peers can view or control its screen.",
+        "description": "Helper text for the VNC server toggle."
+    },
+    "settings.vnc.approval.label": {
+        "message": "Require Connection Approval",
+        "description": "Toggle label: prompt for approval before each inbound VNC connection."
+    },
+    "settings.vnc.approval.help": {
+        "message": "Show a prompt on this host that must be accepted before an incoming VNC connection is allowed.",
+        "description": "Helper text for the VNC connection-approval toggle."
     },
     "settings.advanced.section.interface": {
         "message": "Interface",
@@ -1387,6 +1415,58 @@
         "message": "Session Expiring",
         "description": "OS window-chrome title for the session-expiration window."
     },
+    "window.title.approval": {
+        "message": "Connection Request",
+        "description": "OS window-chrome title for the inbound-connection approval window."
+    },
+    "approval.title.vnc": {
+        "message": "Allow VNC Connection?",
+        "description": "Approval dialog heading for an inbound VNC connection."
+    },
+    "approval.title.ssh": {
+        "message": "Allow SSH Connection?",
+        "description": "Approval dialog heading for an inbound SSH connection."
+    },
+    "approval.title.default": {
+        "message": "Allow Incoming Connection?",
+        "description": "Approval dialog heading for an inbound connection of unknown kind."
+    },
+    "approval.field.user": {
+        "message": "From user",
+        "description": "Approval dialog row label: the initiating user's display name."
+    },
+    "approval.field.keyFingerprint": {
+        "message": "Key fingerprint",
+        "description": "Approval dialog row label: the connecting peer's cryptographic key fingerprint."
+    },
+    "approval.field.peer": {
+        "message": "Via peer",
+        "description": "Approval dialog row label: the peer the connection arrives through."
+    },
+    "approval.field.sourceIp": {
+        "message": "Source IP",
+        "description": "Approval dialog row label: the source IP address of the connection."
+    },
+    "approval.field.osUser": {
+        "message": "OS user",
+        "description": "Approval dialog row label: the target operating-system user."
+    },
+    "approval.countdown": {
+        "message": "Auto-deny in {seconds}s",
+        "description": "Approval dialog countdown; {seconds} is the remaining whole seconds before the daemon auto-denies."
+    },
+    "approval.action.allow": {
+        "message": "Allow",
+        "description": "Approval dialog button: allow the connection."
+    },
+    "approval.action.allowViewOnly": {
+        "message": "Allow (view only)",
+        "description": "Approval dialog button: allow the connection in view-only mode."
+    },
+    "approval.action.deny": {
+        "message": "Deny",
+        "description": "Approval dialog button: deny the connection."
+    },
     "window.title.updating": {
         "message": "Updating",
         "description": "OS window-chrome title for the update / install window."
@@ -1807,28 +1887,40 @@
         "message": "The change could not be applied with elevated privileges. Run this instead:",
         "description": "Error: the authorization succeeded but applying the setting afterwards failed. Followed by a copyable command that applies the setting from a terminal."
     },
-    "settings.ssh.privilege.actorRoot": {
+    "settings.privilege.actorRoot": {
         "message": "root",
-        "description": "Fills {actor} in the settings.ssh.privilege.* messages on Linux, macOS and BSD, where the daemon requires the root account. 'root' is an account name and stays as it is; add the word for privileges or rights around it if the sentence needs one to read naturally."
+        "description": "Fills {actor} in the settings.privilege.* messages on Linux, macOS and BSD, where the daemon requires the root account. 'root' is an account name and stays as it is; add the word for privileges or rights around it if the sentence needs one to read naturally."
     },
-    "settings.ssh.privilege.actorAdministrator": {
+    "settings.privilege.actorAdministrator": {
         "message": "administrator privileges",
-        "description": "Fills {actor} in the settings.ssh.privilege.* messages on Windows, where the daemon requires an elevated administrator. The Windows term for the rights an account is asked to elevate to."
+        "description": "Fills {actor} in the settings.privilege.* messages on Windows, where the daemon requires an elevated administrator. The Windows term for the rights an account is asked to elevate to."
     },
-    "settings.ssh.privilege.hint": {
-        "message": "Requires {actor}. Run this instead:",
-        "description": "Help text under an SSH setting the user cannot change: it needs elevated privileges. {actor} is 'root' on Linux/macOS or 'administrator privileges' on Windows. Followed by a copyable command."
-    },
-    "settings.ssh.privilege.oneWay": {
-        "message": "You can switch this off, but switching it back on needs {actor}.",
-        "description": "Help text under an SSH setting that is already on: an unprivileged user may switch it off freely, and switching it on again is what needs the privileges. No command follows, since the direction they can take is theirs to take. {actor} is 'root' on Linux/macOS or 'administrator privileges' on Windows."
-    },
-    "settings.ssh.privilege.oneWayInverted": {
-        "message": "You can switch this on, but switching it back off needs {actor}.",
-        "description": "Same as settings.ssh.privilege.oneWay, for the SSH authentication setting once it has been switched off: switching it off again is what needs the privileges."
-    },
-    "settings.ssh.privilege.authorizePending": {
+    "settings.privilege.authorizePending": {
         "message": "Waiting for authorization…",
-        "description": "Replaces the help text under a guarded SSH setting while the authorization prompt is open, which can take a few seconds to appear. Keep the trailing ellipsis."
+        "description": "Replaces the help text under a guarded remote-access setting while the authorization prompt is open, which can take a few seconds to appear. Keep the trailing ellipsis."
+    },
+    "connect.activeSession.badge": {
+        "message": "Screen shared",
+        "description": "Short label on the badge shown on the main screen while somebody is attached to this machine over VNC."
+    },
+    "connect.activeSession.tooltip": {
+        "message": "This screen is being viewed over VNC ({sessionCount} session(s)). Disconnecting ends it, and if you are connected through VNC you will lose access.",
+        "description": "Tooltip on the screen-shared badge. {sessionCount} is how many VNC sessions are attached; wording covers any number since the bundle has no plural forms."
+    },
+    "connect.activeSession.tooltipNamed": {
+        "message": "This screen is being viewed over VNC by {who} ({sessionCount} session(s)). Disconnecting ends it, and if you are connected through VNC you will lose access.",
+        "description": "As connect.activeSession.tooltip, with {who} naming the dashboard users who started the sessions."
+    },
+    "settings.privilege.hint": {
+        "message": "Requires {actor}. Run this instead:",
+        "description": "Help text under a remote-access setting (SSH or VNC) the user cannot change: it needs elevated privileges. {actor} is 'root' on Linux/macOS or 'administrator privileges' on Windows. Followed by a copyable command."
+    },
+    "settings.privilege.oneWay": {
+        "message": "You can switch this off, but switching it back on needs {actor}.",
+        "description": "Help text under a remote-access setting (SSH or VNC) that is already on: an unprivileged user may switch it off freely, and switching it on again is what needs the privileges. No command follows, since the direction they can take is theirs to take. {actor} is 'root' on Linux/macOS or 'administrator privileges' on Windows."
+    },
+    "settings.privilege.oneWayInverted": {
+        "message": "You can switch this on, but switching it back off needs {actor}.",
+        "description": "Same as settings.privilege.oneWay, for a safeguard setting (SSH authentication, VNC approval) once it has been switched off: switching it off again is what needs the privileges."
     }
 }
