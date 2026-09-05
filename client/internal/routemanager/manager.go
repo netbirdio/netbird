@@ -438,6 +438,11 @@ func (m *DefaultManager) UpdateRoutes(
 
 		filteredClientRoutes := m.routeSelector.FilterSelectedExitNodes(clientRoutes)
 
+		// Stop obsolete watchers first: RemoveRoute() clears the domain state that
+		// RemoveAllowedIPs() decrements from, so the outgoing peer's allowed IPs would
+		// otherwise stay installed forever.
+		m.stopObsoleteClients(filteredClientRoutes)
+
 		if err := m.updateSystemRoutes(filteredClientRoutes); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("update system routes: %w", err))
 		}
@@ -559,11 +564,14 @@ func (m *DefaultManager) TriggerSelection(networks route.HAMap) {
 
 	m.notifier.OnNewRoutes(networks)
 
+	// Stop obsolete watchers first: RemoveRoute() clears the domain state that
+	// RemoveAllowedIPs() decrements from, so the outgoing peer's allowed IPs would
+	// otherwise stay installed forever.
+	m.stopObsoleteClients(networks)
+
 	if err := m.updateSystemRoutes(networks); err != nil {
 		log.Errorf("failed to update system routes during selection: %v", err)
 	}
-
-	m.stopObsoleteClients(networks)
 
 	for id, routes := range networks {
 		if _, found := m.clientNetworks[id]; found {
@@ -614,10 +622,9 @@ func (m *DefaultManager) stopObsoleteClients(networks route.HAMap) {
 	}
 }
 
+// updateClientNetworks starts or updates the client network watchers for the given
+// routes. Callers must stop obsolete watchers first, via stopObsoleteClients.
 func (m *DefaultManager) updateClientNetworks(updateSerial uint64, networks route.HAMap) {
-	// removing routes that do not exist as per the update from the Management service.
-	m.stopObsoleteClients(networks)
-
 	for id, routes := range networks {
 		clientNetworkWatcher, found := m.clientNetworks[id]
 		if !found {
