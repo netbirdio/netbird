@@ -882,16 +882,33 @@ func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 		}
 	}
 
-	// second, close all modified connections and remove them from the state map
+	// second, look up the activation state of all modified peers before removing
+	// any of them, so an unavailable state leaves the current connections intact
+	active := make(map[string]bool, len(modified))
 	for _, p := range modified {
-		err := e.removePeer(p.GetWgPubKey())
+		peerPubKey := p.GetWgPubKey()
+		state, err := e.statusRecorder.GetPeer(peerPubKey)
 		if err != nil {
+			return fmt.Errorf("get status of modified peer %s: %w", peerPubKey, err)
+		}
+		// only an established connection counts as active: a peer still mid
+		// handshake gains nothing from being re-added as active, while re-arming
+		// its activity listener lets it park cheaply and wake on demand again
+		active[peerPubKey] = state.ConnStatus == peer.StatusConnected
+	}
+	// then close all modified connections and remove them from the state map
+	for _, p := range modified {
+		if err := e.removePeer(p.GetWgPubKey()); err != nil {
 			return err
 		}
 	}
-	// third, add the peer connections again
+	// third, add the peer connections again, restoring each peer's activation
+	// state: under lazy connections a re-added peer starts idle, but the remote
+	// side of an established connection keeps its state and sends no further
+	// offers, so a previously active peer left idle cannot reconnect until the
+	// remote's connection expires.
 	for _, p := range modified {
-		if err := e.addNewPeer(p); err != nil {
+		if err := e.addNewPeer(p, active[p.GetWgPubKey()]); err != nil {
 			return err
 		}
 	}
@@ -1899,7 +1916,7 @@ func addrToString(addr netip.Addr) string {
 // addNewPeers adds peers that were not know before but arrived from the Management service with the update
 func (e *Engine) addNewPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 	for _, p := range peersUpdate {
-		if err := e.addNewPeer(p); err != nil {
+		if err := e.addNewPeer(p, false); err != nil {
 			return err
 		}
 	}
@@ -1907,8 +1924,9 @@ func (e *Engine) addNewPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 }
 
 // addNewPeer add peer if connection doesn't exist. A peer that is not lazy by
-// policy gets an always-active connection instead.
-func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
+// policy gets an always-active connection instead. active registers the peer with
+// an already established connection instead of an idle lazy one.
+func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig, active bool) error {
 	peerKey := peerConfig.GetWgPubKey()
 	peerIPs := make([]netip.Prefix, 0, len(peerConfig.GetAllowedIps()))
 	if _, ok := e.peerStore.PeerConn(peerKey); ok {
@@ -1943,7 +1961,7 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 	}
 
 	permanent := !e.connMgr.PeerLazyDefault(peerConfig.GetLazyState())
-	if exists := e.connMgr.AddPeerConn(e.ctx, peerKey, conn, permanent); exists {
+	if exists := e.connMgr.AddPeerConn(e.ctx, peerKey, conn, permanent, active); exists {
 		conn.Close(false)
 		return fmt.Errorf("peer already exists: %s", peerKey)
 	}
