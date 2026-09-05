@@ -257,6 +257,7 @@ type Engine struct {
 	fileDrop        *filedrop.Manager
 	fileDropRunning bool
 	fileDropPort    uint16
+	overlayWait     overlayWaiter
 
 	statusRecorder *peer.Status
 

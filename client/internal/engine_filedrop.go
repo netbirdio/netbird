@@ -15,6 +15,8 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 )
 
+const fileDropWatchName = "the file drop receiver"
+
 type filedropResolver struct {
 	status *peer.Status
 }
@@ -45,6 +47,12 @@ func (e *Engine) startFileDrop() {
 	}
 
 	wgAddr := e.wgInterface.Address()
+	if !e.overlayAddrReady(wgAddr.IP) {
+		log.Infof("file drop receiver waits for the overlay address %s", wgAddr.IP)
+		e.armOverlayWatch(fileDropWatchName, e.restartFileDrop)
+		return
+	}
+
 	addr := netip.AddrPortFrom(wgAddr.IP, fileDropListenPort())
 	resolver := filedropResolver{status: e.statusRecorder}
 
@@ -63,6 +71,7 @@ func (e *Engine) startFileDrop() {
 	if v6 := wgAddr.IPv6; v6.IsValid() {
 		if err := e.fileDrop.AddReceiverListener(e.ctx, netip.AddrPortFrom(v6, bound)); err != nil {
 			log.Warnf("failed to add IPv6 file drop listener: %v", err)
+			e.armOverlayWatch(fileDropWatchName, e.restartFileDrop)
 		}
 	}
 
@@ -142,13 +151,19 @@ func (e *Engine) setFileDropTunnel() {
 	e.fileDrop.SetTunnel(dial, e.statusRecorder.GetLocalPeerState().FQDN)
 }
 
-// restartFileDrop rebinds the receiver after the platform replaced the tunnel
-// device. The listeners are bound to the overlay address of the interface being
-// swapped out and do not survive it: Android renews the tun on every route
-// change, which leaves the IPv4 listener dead with accept4: invalid argument.
-// No-op when it is not running. See Engine.rebindOverlayListeners.
+// restartFileDrop gives the receiver listeners on the interface as it is now.
+// The listeners are bound to the overlay address of the interface being swapped
+// out and do not survive it: Android renews the tun on every route change, which
+// leaves the IPv4 listener dead with accept4: invalid argument. A receiver that
+// is not running is started rather than skipped, since the reason it is down may
+// be the very bind this rebind can now make. See Engine.rebindOverlayListeners.
 func (e *Engine) restartFileDrop() error {
-	if e.fileDrop == nil || !e.fileDropRunning || e.wgInterface == nil {
+	if e.fileDrop == nil || e.wgInterface == nil {
+		return nil
+	}
+
+	if !e.fileDropRunning {
+		e.startFileDrop()
 		return nil
 	}
 
