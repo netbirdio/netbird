@@ -1,0 +1,63 @@
+name: issue-resolution-triage
+
+on:
+  push:
+    branches: [github-issue-resolver]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "If true, do not close issues"
+        required: false
+        default: "true"
+      max_issues:
+        description: "How many issues to process"
+        required: false
+        default: "100"
+  schedule:
+    - cron: "17 2 * * *"
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+  models: read
+
+#  todo: remove hardcoded values
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PROJECT_PAT: ${{ secrets.PROJECT_PAT }}
+      DRY_RUN: "true"
+      MAX_ISSUES: "100"
+      REPO: ${{ github.repository }}
+      PROJECT_ID: "PVT_kwDOBfz4Jc4BVeWR"
+      PROJECT_STATUS_FIELD_ID: "PVTSSF_lADOBfz4Jc4BVeWRzhQ56sU"
+      PROJECT_STATUS_OPTION_NEEDS_REVIEW_ID: "a55a2be9"
+      PROJECT_CONFIDENCE_FIELD_ID: "PVTF_lADOBfz4Jc4BVeWRzhQ57x4"
+      PROJECT_REASON_FIELD_ID: "PVTF_lADOBfz4Jc4BVeWRzhQ5-Lg"
+      PROJECT_EVIDENCE_FIELD_ID: "PVTF_lADOBfz4Jc4BVeWRzhQ5-Pw"
+
+    defaults:
+      run:
+        working-directory: .github/issue-resolution
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - run: node scripts/fetch-candidates.mjs
+      - run: node scripts/classify-candidates.mjs
+      - run: node scripts/apply-decisions.mjs
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: triage-results
+          path: |
+            .github/issue-resolution/candidates.json
+            .github/issue-resolution/decisions.json
