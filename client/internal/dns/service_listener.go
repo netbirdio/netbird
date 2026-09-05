@@ -145,10 +145,15 @@ func (s *serviceViaListener) setupDNAT() {
 		return
 	}
 
-	// Clear whatever an earlier removal left behind first: those rules can point
-	// at an address or port this listener no longer uses.
+	// Clear whatever an earlier removal left behind first. Those rules can point
+	// at an address or port this listener no longer uses, and they are matched
+	// before anything added now, so adding a redirect on top of one would keep
+	// sending port 53 traffic to the previous listener while reporting the
+	// redirect as complete. The rules stay recorded for a later attempt.
 	if err := s.removeDNAT(); err != nil {
-		log.Warnf("failed to remove stale DNS DNAT rules, retrying on stop: %v", err)
+		log.Errorf("failed to remove stale DNS DNAT rules, leaving port %d redirected to the previous listener: %v",
+			DefaultPort, err)
+		return
 	}
 
 	for _, proto := range dnatProtocols {

@@ -166,6 +166,31 @@ func TestStop_RetriesFailedDNATRemoval(t *testing.T) {
 	assert.Empty(t, svc.dnatRules)
 }
 
+// A stale rule that cannot be removed is matched before anything added now, so
+// no new redirect may be installed on top of it and port 53 must not be
+// advertised as reaching this listener.
+func TestSetupDNAT_AbortsWhileStaleRuleRemains(t *testing.T) {
+	fw := &fakeFirewall{removeErrs: map[firewall.Protocol]error{firewall.ProtocolUDP: errors.New("nftables busy")}}
+	svc := newDNATTestService(fw)
+	stalePort := svc.listenPort
+
+	svc.setupDNAT()
+	require.Error(t, svc.Stop())
+	staleUDP := dnatRule{protocol: firewall.ProtocolUDP, ip: svc.listenIP, port: stalePort}
+	require.Equal(t, []dnatRule{staleUDP}, svc.dnatRules)
+
+	svc.listenPort = stalePort + 1
+	fw.calls = nil
+
+	svc.setupDNAT()
+
+	assert.Equal(t, []dnatRule{staleUDP}, svc.dnatRules, "the stale rule stays recorded for a later attempt")
+	for _, call := range fw.calls {
+		assert.False(t, call.added, "no redirect may be installed while a stale one is still in place")
+	}
+	assert.Equal(t, int(svc.listenPort), svc.RuntimePort(), "port 53 must not be advertised")
+}
+
 // A rule left behind by a failed removal must be removed with the address and
 // port it was installed with, even when the listener has since moved to another
 // port, and it must not count towards the redirect the new listener advertises.
