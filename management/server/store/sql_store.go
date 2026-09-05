@@ -1962,6 +1962,9 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			}
 			if peerStatusConnected.Valid {
 				p.Status.Connected = peerStatusConnected.Bool
+				if peerStatusLastSeen.Valid {
+					p.Status.Connected = p.Status.Connected && peerStatusLastSeen.Time.After(time.Now().Add(-5*time.Minute))
+				}
 			}
 			if peerStatusLoginExpired.Valid {
 				p.Status.LoginExpired = peerStatusLoginExpired.Bool
