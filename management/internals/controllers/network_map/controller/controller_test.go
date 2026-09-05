@@ -1,10 +1,15 @@
 package controller
 
 import (
+	"context"
 	"testing"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
+	"github.com/netbirdio/netbird/management/server/account"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/stretchr/testify/assert"
+	"go.uber.org/mock/gomock"
 )
 
 func TestComputeForwarderPort(t *testing.T) {
@@ -106,4 +111,23 @@ func TestComputeForwarderPort(t *testing.T) {
 	if result != int64(network_map.OldForwarderPort) {
 		t.Errorf("Expected %d for peers with unknown version, got %d", network_map.OldForwarderPort, result)
 	}
+}
+
+func TestGetValidatedPeerWithComponents_DeletedPeer(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockrequestBuffer := account.NewMockRequestBuffer(ctrl)
+
+	c := Controller{
+		requestBuffer: mockrequestBuffer,
+	}
+
+	mockrequestBuffer.EXPECT().GetAccountWithBackpressure(gomock.Any(), gomock.Any()).Return(&types.Account{}, nil)
+	peer, components, netmap, posturechecks, dnsforwardPort, err := c.GetValidatedPeerWithComponents(context.TODO(), false, "test-account-id", &nbpeer.Peer{ID: "test-peer-id"})
+
+	assert.Nil(t, peer)
+	assert.Nil(t, components)
+	assert.Nil(t, netmap)
+	assert.Nil(t, posturechecks)
+	assert.Equal(t, int64(0), dnsforwardPort)
+	assert.NotNil(t, err)
 }

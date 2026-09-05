@@ -648,6 +648,53 @@ func TestTimeAgo(t *testing.T) {
 	}
 }
 
+func TestHumaniseDuration(t *testing.T) {
+	cases := []struct {
+		in   time.Duration
+		want string
+	}{
+		{0, "1s"},
+		{500 * time.Millisecond, "1s"},
+		{8 * time.Second, "8s"},
+		{59 * time.Second, "59s"},
+		{time.Minute, "1m"},
+		{47*time.Minute + 12*time.Second, "47m"},
+		{time.Hour, "1h"},
+		{2*time.Hour + 15*time.Minute, "2h 15m"},
+		{2 * time.Hour, "2h"},
+		{24 * time.Hour, "1d"},
+		{2*24*time.Hour + 3*time.Hour, "2d 3h"},
+	}
+	for _, tc := range cases {
+		got := HumaniseDuration(tc.in)
+		assert.Equal(t, tc.want, got, "input %s", tc.in)
+	}
+}
+
+func TestFormatRemainingDuration_Expired(t *testing.T) {
+	assert.Equal(t, "expired 3m ago", FormatRemainingDuration(-3*time.Minute))
+	assert.Equal(t, "expired 1s ago", FormatRemainingDuration(-500*time.Millisecond))
+}
+
+func TestSessionExpiresLineRendered(t *testing.T) {
+	in := overview // copy of the package-level fixture
+	deadline := time.Now().Add(2*time.Hour + 30*time.Minute).UTC()
+	in.SessionExpiresAt = &deadline
+
+	out := in.GeneralSummary(false, false, false, false)
+	assert.Contains(t, out, "Session expires: ")
+	assert.Contains(t, out, deadline.Format(time.RFC3339))
+	// 2h 30m drifts to "2h 29m" within 60s — match the family prefix.
+	assert.Contains(t, out, "(in 2h ")
+}
+
+func TestSessionExpiresLineOmittedWhenNil(t *testing.T) {
+	in := overview
+	in.SessionExpiresAt = nil
+	out := in.GeneralSummary(false, false, false, false)
+	assert.NotContains(t, out, "Session expires")
+}
+
 func TestMapRelaysTransport(t *testing.T) {
 	out := mapRelays([]*proto.RelayState{
 		{URI: "rels://relay.example:443", Available: true, Transport: "quic"},

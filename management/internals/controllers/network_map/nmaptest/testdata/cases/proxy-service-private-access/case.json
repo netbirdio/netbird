@@ -1,0 +1,7 @@
+{
+  "description": "A private reverse-proxy service. The private-access ACL is synthesised from Services, never loaded from the policies table, and is what lets the service's AccessGroups reach the cluster's embedded proxy peer on TCP 80 and 443: user-peer gets OUT rules on both ports and proxy-peer the matching IN rules. Without the synthesis both maps are empty of each other.",
+  "peers": [
+    "user-peer",
+    "proxy-peer"
+  ]
+}

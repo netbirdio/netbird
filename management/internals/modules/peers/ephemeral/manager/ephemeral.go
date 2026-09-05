@@ -215,7 +215,7 @@ func (e *EphemeralManager) cleanup(ctx context.Context) {
 	}
 
 	for accountID, peerIDs := range peerIDsPerAccount {
-		log.WithContext(ctx).Tracef("cleanup: deleting %d ephemeral peers for account %s", len(peerIDs), accountID)
+		log.WithContext(ctx).Debugf("cleanup: deleting %d ephemeral peers for account %s: %s", len(peerIDs), accountID, peerIDs)
 		err := e.peersManager.DeletePeers(ctx, accountID, peerIDs, activity.SystemInitiator, true)
 		if err != nil {
 			log.WithContext(ctx).Errorf("failed to delete ephemeral peers: %s", err)

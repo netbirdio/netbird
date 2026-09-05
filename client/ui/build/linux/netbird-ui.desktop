@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=netbird-ui
+Exec=env WEBKIT_DISABLE_DMABUF_RENDERER=1 netbird-ui
+Icon=netbird-ui
+Categories=Development;
+Terminal=false
+Keywords=wails
+Version=1.0
+StartupNotify=false

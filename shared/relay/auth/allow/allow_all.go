@@ -8,7 +8,3 @@ type Auth struct {
 func (a *Auth) Validate(any) error {
 	return nil
 }
-
-func (a *Auth) ValidateHelloMsgType(any) error {
-	return nil
-}

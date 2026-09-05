@@ -15,14 +15,17 @@ import (
 	"github.com/netbirdio/netbird/relay/server/listener/quic"
 	"github.com/netbirdio/netbird/relay/server/listener/ws"
 	quictls "github.com/netbirdio/netbird/shared/relay/tls"
+	"github.com/netbirdio/netbird/trustedproxy"
 )
 
 // ListenerConfig is the configuration for the listener.
 // Address: the address to bind the listener to. It could be an address behind a reverse proxy.
 // TLSConfig: the TLS configuration for the listener.
+// TrustedProxies: upstream proxy prefixes whose forwarding headers (X-Real-Ip/X-Real-Port) are trusted.
 type ListenerConfig struct {
-	Address   string
-	TLSConfig *tls.Config
+	Address        string
+	TLSConfig      *tls.Config
+	TrustedProxies *trustedproxy.List
 }
 
 // Server is the main entry point for the relay server.
@@ -62,8 +65,9 @@ func NewServer(config Config) (*Server, error) {
 // Listen starts the relay server.
 func (r *Server) Listen(cfg ListenerConfig) error {
 	wSListener := &ws.Listener{
-		Address:   cfg.Address,
-		TLSConfig: cfg.TLSConfig,
+		Address:        cfg.Address,
+		TLSConfig:      cfg.TLSConfig,
+		TrustedProxies: cfg.TrustedProxies,
 	}
 
 	r.listenerMux.Lock()

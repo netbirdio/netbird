@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"runtime"
 
-	log "github.com/sirupsen/logrus"
-
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
@@ -21,13 +19,11 @@ func NewFirewall(iface IFaceMapper, _ *statemanager.Manager, flowLogger nftypes.
 	}
 
 	// use userspace packet filtering firewall
-	fm, err := uspfilter.Create(iface, disableServerRoutes, flowLogger, mtu)
-	if err != nil {
-		return nil, err
-	}
-	err = fm.AllowNetbird()
-	if err != nil {
-		log.Warnf("failed to allow netbird interface traffic: %v", err)
-	}
-	return fm, nil
+	return uspfilter.Create(uspfilter.Config{
+		IFace:               iface,
+		DisableServerRoutes: disableServerRoutes,
+		FlowLogger:          flowLogger,
+		MTU:                 mtu,
+		InterfaceAllower:    interfaceAllower(iface, mtu),
+	})
 }

@@ -16,6 +16,8 @@ jobs:
             const allowedTags = [
               'management',
               'client',
+              'android',
+              'ios',
               'signal',
               'proxy',
               'relay',

@@ -167,7 +167,10 @@ func getRcodeForNotFound(ctx context.Context, r resolver, domain string, origina
 	case dns.TypeA:
 		alternativeNetwork = "ip6"
 	default:
-		return dns.RcodeNameError
+		// Non-address types reach LookupIP only unexpectedly; without an
+		// address pair to probe we cannot prove the name is absent, so answer
+		// NODATA rather than a poisoning NXDOMAIN.
+		return dns.RcodeSuccess
 	}
 
 	if _, err := r.LookupNetIP(ctx, alternativeNetwork, domain); err != nil {

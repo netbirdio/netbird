@@ -30,6 +30,12 @@ const (
 	SessionJWTIssuer     = "netbird-management"
 )
 
+// HeaderUserID is the synthetic user id recorded for header-authenticated
+// requests. Header auth validates a per-service secret and resolves no user
+// record, so proxy access logs and management-minted session tokens both
+// attribute the request to this id.
+const HeaderUserID = "header-user"
+
 // ResolveProto determines the protocol scheme based on the forwarded proto
 // configuration. When set to "http" or "https" the value is used directly.
 // Otherwise TLS state is used: if conn is non-nil "https" is returned, else "http".

@@ -7,11 +7,14 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"os"
 	"runtime"
+	"strconv"
 	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	wgdevice "golang.zx2c4.com/wireguard/device"
 	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
@@ -22,9 +25,9 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/transport/tcp"
 	"gvisor.dev/gvisor/pkg/tcpip/transport/udp"
 
-	"github.com/netbirdio/netbird/client/firewall/uspfilter/common"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/conntrack"
 	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 )
 
@@ -33,7 +36,18 @@ const (
 	defaultMaxInFlight   = 1024
 	iosReceiveWindow     = 16384
 	iosMaxInFlight       = 256
+
+	// envForceTCPRACK overrides the platform default for gVisor's RACK loss
+	// detection. Set to a truthy value to force RACK on, or a falsy value to
+	// force it off, on any platform.
+	envForceTCPRACK = "NB_FORCE_TCP_RACK"
 )
+
+// IFace provides the WireGuard device and overlay addresses the forwarder needs.
+type IFace interface {
+	GetWGDevice() *wgdevice.Device
+	Address() wgaddr.Address
+}
 
 type Forwarder struct {
 	logger     *nblog.Logger
@@ -53,7 +67,7 @@ type Forwarder struct {
 	pingSemaphore      chan struct{}
 }
 
-func New(iface common.IFaceMapper, logger *nblog.Logger, flowLogger nftypes.FlowLogger, netstack bool, mtu uint16) (*Forwarder, error) {
+func New(iface IFace, logger *nblog.Logger, flowLogger nftypes.FlowLogger, netstack bool, mtu uint16) (*Forwarder, error) {
 	s := stack.New(stack.Options{
 		NetworkProtocols: []stack.NetworkProtocolFactory{
 			ipv4.NewProtocol,
@@ -153,6 +167,8 @@ func New(iface common.IFaceMapper, logger *nblog.Logger, flowLogger nftypes.Flow
 		receiveWindow = iosReceiveWindow
 		maxInFlight = iosMaxInFlight
 	}
+
+	configureTCPRecovery(s)
 
 	tcpForwarder := tcp.NewForwarder(s, receiveWindow, maxInFlight, f.handleTCP)
 	s.SetTransportProtocolHandler(tcp.ProtocolNumber, tcpForwarder.HandlePacket)
@@ -467,4 +483,32 @@ func probeRawICMP(network, addr string, logger *nblog.Logger) bool {
 
 	logger.Debug1("forwarder: raw %s socket access available", network)
 	return true
+}
+
+// configureTCPRecovery disables gVisor's RACK loss detection on Windows, where
+// it interacts poorly with the host and collapses throughput on routed TCP
+// connections (gVisor issue #9778). Other platforms keep the default. The
+// EnvForceTCPRACK environment variable overrides the platform default.
+func configureTCPRecovery(s *stack.Stack) {
+	disableRACK := runtime.GOOS == "windows"
+
+	if val := os.Getenv(envForceTCPRACK); val != "" {
+		force, err := strconv.ParseBool(val)
+		if err != nil {
+			log.Warnf("parse %s: %v", envForceTCPRACK, err)
+		} else {
+			disableRACK = !force
+		}
+	}
+
+	if !disableRACK {
+		return
+	}
+
+	opt := tcpip.TCPRecovery(0)
+	if err := s.SetTransportProtocolOption(tcp.ProtocolNumber, &opt); err != nil {
+		log.Warnf("disable TCP RACK loss detection: %v", err)
+		return
+	}
+	log.Info("forwarder: TCP RACK loss detection disabled")
 }

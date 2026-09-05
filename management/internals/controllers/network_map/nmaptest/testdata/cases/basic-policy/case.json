@@ -1,0 +1,7 @@
+{
+  "description": "Two groups joined by one allow-all policy; peer-c has SSH enabled so the legacy-SSH path fills SshAuth from AllowedUserIDs.",
+  "peers": [
+    "peer-a",
+    "peer-c"
+  ]
+}

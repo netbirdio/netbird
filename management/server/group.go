@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"slices"
 
+	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 
@@ -93,6 +95,8 @@ func (am *DefaultAccountManager) CreateGroup(ctx context.Context, accountID, use
 		events := am.prepareGroupEvents(ctx, transaction, accountID, userID, newGroup)
 		eventsToStore = append(eventsToStore, events...)
 
+		newGroup.PublicID = xid.New().String()
+
 		if err := transaction.CreateGroup(ctx, newGroup); err != nil {
 			return status.Errorf(status.Internal, "failed to create group: %v", err)
 		}
@@ -157,6 +161,8 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 		if err = syncGroupMembership(ctx, transaction, accountID, newGroup.ID, peersToAdd, peersToRemove); err != nil {
 			return err
 		}
+
+		newGroup.PublicID = oldGroup.PublicID
 
 		if err = transaction.UpdateGroup(ctx, newGroup); err != nil {
 			return err
@@ -235,6 +241,7 @@ func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, us
 			}
 
 			newGroup.AccountID = accountID
+			newGroup.PublicID = xid.New().String()
 
 			if err = transaction.CreateGroup(ctx, newGroup); err != nil {
 				return err
@@ -327,6 +334,12 @@ func (am *DefaultAccountManager) updateSingleGroup(ctx context.Context, accountI
 
 		newGroup.AccountID = accountID
 
+		oldGroup, err := transaction.GetGroupByID(ctx, store.LockingStrengthNone, accountID, newGroup.ID)
+		if err != nil {
+			return err
+		}
+		newGroup.PublicID = oldGroup.PublicID
+
 		if err := transaction.UpdateGroup(ctx, newGroup); err != nil {
 			return err
 		}
@@ -341,7 +354,6 @@ func (am *DefaultAccountManager) updateSingleGroup(ctx context.Context, accountI
 
 		events = am.prepareGroupEvents(ctx, transaction, accountID, userID, newGroup)
 
-		var err error
 		snap, err = affectedpeers.Load(ctx, transaction, accountID, change)
 		return err
 	})
@@ -520,7 +532,12 @@ func collectDeletableGroups(ctx context.Context, transaction store.Store, accoun
 // GroupAddPeer appends peer to the group
 func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, groupID, peerID string) error {
 	var snap *affectedpeers.Snapshot
-	change := affectedpeers.Change{ChangedGroupIDs: []string{groupID}}
+	// A membership change affects only the peer itself and the opposite side of THIS
+	// group's policies — not the group's other members, and not the peer's other
+	// groups. LinkGroups walks only this group (matched, not expanded); OutputPeerIDs
+	// refreshes the peer without seeding its other group memberships. For an
+	// intra-group policy the opposite side is the group, so its members still refresh.
+	change := affectedpeers.Change{OutputPeerIDs: []string{peerID}, LinkGroups: []string{groupID}}
 
 	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		if err := transaction.AddPeerToGroup(ctx, accountID, peerID, groupID); err != nil {
@@ -586,10 +603,11 @@ func (am *DefaultAccountManager) GroupAddResource(ctx context.Context, accountID
 // GroupDeletePeer removes peer from the group
 func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID, groupID, peerID string) error {
 	var snap *affectedpeers.Snapshot
-	change := affectedpeers.Change{
-		ChangedGroupIDs:     []string{groupID},
-		RemovedPeersByGroup: map[string][]string{groupID: {peerID}},
-	}
+	// Same as GroupAddPeer: the removed peer and the opposite side of THIS group's
+	// policies refresh, not the group's other members or the peer's other groups. The
+	// peer is no longer in the group's index, but LinkGroups still drives the
+	// opposite-side walk, and OutputPeerIDs refreshes the removed peer itself.
+	change := affectedpeers.Change{OutputPeerIDs: []string{peerID}, LinkGroups: []string{groupID}}
 
 	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		if err := transaction.RemovePeerFromGroup(ctx, peerID, groupID); err != nil {
@@ -600,8 +618,6 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 			return err
 		}
 
-		// The removed peer is carried in change.RemovedPeersByGroup and folded in
-		// only when the group is linked, so loading post-removal is correct.
 		var err error
 		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
 			return err
@@ -730,6 +746,14 @@ func validateDeleteGroup(ctx context.Context, transaction store.Store, group *ty
 		return &GroupLinkError{"network router", linkedRouter.ID}
 	}
 
+	if isLinked, linkedService := isGroupLinkedToReverseProxyService(ctx, transaction, group.AccountID, group.ID); isLinked {
+		return &GroupLinkError{"reverse proxy service", linkedService.Domain}
+	}
+
+	if isLinked, linkedPolicy := isGroupLinkedToAgentNetworkPolicy(ctx, transaction, group.AccountID, group.ID); isLinked {
+		return &GroupLinkError{"agent network policy", linkedPolicy.Name}
+	}
+
 	return checkGroupLinkedToSettings(ctx, transaction, group)
 }
 
@@ -856,6 +880,46 @@ func isGroupLinkedToNetworkRouter(ctx context.Context, transaction store.Store, 
 	for _, router := range routers {
 		if slices.Contains(router.PeerGroups, groupID) {
 			return true, router
+		}
+	}
+	return false, nil
+}
+
+// isGroupLinkedToReverseProxyService checks if a group is used as an access group
+// of a private reverse proxy service or as a bearer-auth distribution group.
+func isGroupLinkedToReverseProxyService(ctx context.Context, transaction store.Store, accountID string, groupID string) (bool, *service.Service) {
+	services, err := transaction.GetAccountServices(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("error retrieving reverse proxy services while checking group linkage: %v", err)
+		return false, nil
+	}
+
+	for _, svc := range services {
+		if svc.Private && slices.Contains(svc.AccessGroups, groupID) {
+			return true, svc
+		}
+		if svc.Auth.BearerAuth != nil && svc.Auth.BearerAuth.Enabled && slices.Contains(svc.Auth.BearerAuth.DistributionGroups, groupID) {
+			return true, svc
+		}
+	}
+	return false, nil
+}
+
+// isGroupLinkedToAgentNetworkPolicy checks if a group is used as a source group by any
+// agent network policy in the account.
+func isGroupLinkedToAgentNetworkPolicy(ctx context.Context, transaction store.Store, accountID string, groupID string) (bool, *agentNetworkTypes.Policy) {
+	policies, err := transaction.GetAccountAgentNetworkPolicies(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("error retrieving agent network policies while checking group linkage: %v", err)
+		return false, nil
+	}
+
+	for _, policy := range policies {
+		if policy == nil {
+			continue
+		}
+		if slices.Contains(policy.SourceGroups, groupID) {
+			return true, policy
 		}
 	}
 	return false, nil

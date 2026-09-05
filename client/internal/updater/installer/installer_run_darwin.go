@@ -98,45 +98,42 @@ func (u *Installer) startDaemon(daemonFolder string) error {
 func (u *Installer) startUIAsUser() error {
 	log.Infof("starting netbird-ui: %s", uiBinary)
 
-	// Get the current console user
-	cmd := exec.Command("stat", "-f", "%Su", "/dev/console")
-	output, err := cmd.Output()
+	username, err := consoleUser()
 	if err != nil {
-		return fmt.Errorf("failed to get console user: %w", err)
+		return err
 	}
 
-	username := strings.TrimSpace(string(output))
-	if username == "" || username == "root" {
-		return fmt.Errorf("no active user session found")
-	}
-
-	log.Infof("starting UI for user: %s", username)
-
-	// Get user's UID
 	userInfo, err := user.Lookup(username)
 	if err != nil {
-		return fmt.Errorf("failed to lookup user %s: %w", username, err)
+		return fmt.Errorf("lookup user %s: %w", username, err)
 	}
 
-	// Start the UI process as the console user using launchctl
-	// This ensures the app runs in the user's context with proper GUI access
-	launchCmd := exec.Command("launchctl", "asuser", userInfo.Uid, "open", "-a", uiBinary)
+	log.Infof("starting UI for user: %s (uid %s)", username, userInfo.Uid)
+
+	launchCmd := exec.Command("launchctl", "asuser", userInfo.Uid, "sudo", "-u", username, "-H", "open", "-a", uiBinary)
 	log.Infof("launchCmd: %s", launchCmd.String())
-	// Set the user's home directory for proper macOS app behavior
-	launchCmd.Env = append(os.Environ(), "HOME="+userInfo.HomeDir)
-	log.Infof("set HOME environment variable: %s", userInfo.HomeDir)
 
-	if err := launchCmd.Start(); err != nil {
-		return fmt.Errorf("failed to start UI process: %w", err)
-	}
-
-	// Release the process so it can run independently
-	if err := launchCmd.Process.Release(); err != nil {
-		log.Warnf("failed to release UI process: %v", err)
+	if err := launchCmd.Run(); err != nil {
+		return fmt.Errorf("run UI launch: %w", err)
 	}
 
 	log.Infof("netbird-ui started successfully for user %s", username)
 	return nil
+}
+
+func consoleUser() (string, error) {
+	output, err := exec.Command("stat", "-f", "%Su", "/dev/console").Output()
+	if err != nil {
+		return "", fmt.Errorf("get console user: %w", err)
+	}
+
+	username := strings.TrimSpace(string(output))
+	switch username {
+	case "", "root", "loginwindow", "_mbsetupuser":
+		return "", fmt.Errorf("no active GUI user session, console user: %q", username)
+	}
+
+	return username, nil
 }
 
 func (u *Installer) installPkgFile(ctx context.Context, path string) error {

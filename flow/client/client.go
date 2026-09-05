@@ -109,7 +109,7 @@ func (c *GRPCClient) Close() error {
 func (c *GRPCClient) Send(event *proto.FlowEvent) error {
 	c.mu.Lock()
 	stream := c.stream
-	c.mu.Unlock()
+	defer c.mu.Unlock() // stream.Send() is not safe to call concurrently from multiple goroutines
 
 	if stream == nil {
 		return errors.New("stream not initialized")
@@ -146,11 +146,14 @@ func (c *GRPCClient) Receive(ctx context.Context, interval time.Duration, msgHan
 
 		streamStart := time.Now()
 
-		if err := c.receive(stream, msgHandler); err != nil {
+		// receive always returns a non-nil error once the stream breaks;
+		// handleRetryableError decides between reconnecting and exiting
+		// permanently on local context cancellation
+		err = c.receive(stream, msgHandler)
+		if !isContextDone(err) {
 			log.Errorf("receive failed: %v", err)
-			return c.handleRetryableError(err, streamStart, backOff)
 		}
-		return nil
+		return c.handleRetryableError(err, streamStart, backOff)
 	}
 
 	if err := backoff.Retry(operation, backOff); err != nil {

@@ -3,7 +3,6 @@ package profilemanager
 import (
 	"fmt"
 	"os"
-	"os/user"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -54,7 +53,7 @@ func (p *Profile) FilePath() (string, error) {
 		return "", fmt.Errorf("invalid profile ID: %q", id)
 	}
 
-	username, err := user.Current()
+	username, err := InvokingUser()
 	if err != nil {
 		return "", fmt.Errorf("failed to get current user: %w", err)
 	}
@@ -130,7 +129,7 @@ func (pm *ProfileManager) getActiveProfileState() ID {
 	if err != nil {
 		if !os.IsNotExist(err) {
 			log.Warnf("failed to read active profile state: %v", err)
-		} else {
+		} else if !sudoActive() {
 			if err := pm.setActiveProfileState(defaultProfileName); err != nil {
 				log.Warnf("failed to set default profile state: %v", err)
 			}
@@ -148,6 +147,13 @@ func (pm *ProfileManager) getActiveProfileState() ID {
 }
 
 func (pm *ProfileManager) setActiveProfileState(id ID) error {
+	// The invoking user's state is read-only under sudo — a root-owned file in
+	// the user's directory would break their own runs. The daemon still records
+	// the switch on its side; only the user-local bookkeeping is skipped.
+	if sudoActive() {
+		log.Infof("running under sudo: not persisting active profile %q for user %s", id, os.Getenv(envSudoUser))
+		return nil
+	}
 
 	configDir, err := getConfigDir()
 	if err != nil {

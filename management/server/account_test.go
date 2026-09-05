@@ -10,16 +10,17 @@ import (
 	"os"
 	"reflect"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/golang/mock/gomock"
 	"github.com/prometheus/client_golang/prometheus/push"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/metric/noop"
+	"go.uber.org/mock/gomock"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
@@ -37,6 +38,8 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	reverseproxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
+	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
+	networkmapdbfactory "github.com/netbirdio/netbird/management/internals/network_map_db/factory"
 	"github.com/netbirdio/netbird/management/internals/server/config"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	nbAccount "github.com/netbirdio/netbird/management/server/account"
@@ -1757,6 +1760,7 @@ func TestAccount_Copy(t *testing.T) {
 				AccountID: "account1",
 			},
 		},
+		PostureValidation: map[string]map[string]bool{"1": {"1": true}},
 	}
 	err := hasNilField(account)
 	if err != nil {
@@ -1913,6 +1917,117 @@ func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.
 	failed := waitTimeout(wg, time.Second)
 	if failed {
 		t.Fatal("timeout while waiting for test to finish")
+	}
+}
+
+func TestDefaultAccountManager_MarkPeerDisconnected_SchedulesInactivityExpiration(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
+	require.NoError(t, err, "unable to create an account")
+
+	key, err := wgtypes.GenerateKey()
+	require.NoError(t, err, "unable to generate WireGuard key")
+	peerPubKey := key.PublicKey().String()
+
+	_, _, _, _, err = manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
+		Key:                         peerPubKey,
+		Meta:                        nbpeer.PeerSystemMeta{Hostname: "test-peer"},
+		InactivityExpirationEnabled: true,
+	}, false)
+	require.NoError(t, err, "unable to add peer")
+
+	_, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &types.Settings{
+		PeerLoginExpiration:             time.Hour,
+		PeerLoginExpirationEnabled:      true,
+		PeerInactivityExpiration:        time.Hour,
+		PeerInactivityExpirationEnabled: true,
+		Extra:                           &types.ExtraSettings{},
+	})
+	require.NoError(t, err, "expecting to update account settings successfully but got error")
+
+	// Establish a session so the matching-token disconnect is actually applied.
+	streamStartTime := time.Now().UTC()
+	err = manager.MarkPeerConnected(context.Background(), peerPubKey, accountID, streamStartTime.UnixNano(), nil)
+	require.NoError(t, err, "unable to mark peer connected")
+
+	// Install the mock only now, so the assertion observes the disconnect, not
+	// the earlier connect.
+	scheduled := make(chan struct{}, 1)
+	manager.peerInactivityExpiry = &MockScheduler{
+		CancelFunc: func(ctx context.Context, IDs []string) {},
+		ScheduleFunc: func(ctx context.Context, in time.Duration, ID string, job func() (nextRunIn time.Duration, reschedule bool)) {
+			select {
+			case scheduled <- struct{}{}:
+			default:
+			}
+		},
+	}
+
+	err = manager.MarkPeerDisconnected(context.Background(), peerPubKey, accountID, streamStartTime.UnixNano())
+	require.NoError(t, err, "unable to mark peer disconnected")
+
+	select {
+	case <-scheduled:
+		// expected: disconnect re-armed the inactivity expiry timer
+	case <-time.After(time.Second):
+		t.Fatal("expected inactivity expiration to be rescheduled when an eligible peer disconnects")
+	}
+}
+
+func TestDefaultAccountManager_MarkPeerDisconnected_SkipsInactivityExpirationWhenDisabled(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
+	require.NoError(t, err, "unable to create an account")
+
+	key, err := wgtypes.GenerateKey()
+	require.NoError(t, err, "unable to generate WireGuard key")
+	peerPubKey := key.PublicKey().String()
+
+	_, _, _, _, err = manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
+		Key:                         peerPubKey,
+		Meta:                        nbpeer.PeerSystemMeta{Hostname: "test-peer"},
+		InactivityExpirationEnabled: true,
+	}, false)
+	require.NoError(t, err, "unable to add peer")
+
+	// Peer is eligible (SSO + inactivity enabled) but the account-level setting
+	// stays disabled, so disconnect must not schedule anything.
+	_, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &types.Settings{
+		PeerLoginExpiration:             time.Hour,
+		PeerLoginExpirationEnabled:      true,
+		PeerInactivityExpiration:        time.Hour,
+		PeerInactivityExpirationEnabled: false,
+		Extra:                           &types.ExtraSettings{},
+	})
+	require.NoError(t, err, "expecting to update account settings successfully but got error")
+
+	streamStartTime := time.Now().UTC()
+	err = manager.MarkPeerConnected(context.Background(), peerPubKey, accountID, streamStartTime.UnixNano(), nil)
+	require.NoError(t, err, "unable to mark peer connected")
+
+	scheduled := make(chan struct{}, 1)
+	manager.peerInactivityExpiry = &MockScheduler{
+		CancelFunc: func(ctx context.Context, IDs []string) {},
+		ScheduleFunc: func(ctx context.Context, in time.Duration, ID string, job func() (nextRunIn time.Duration, reschedule bool)) {
+			select {
+			case scheduled <- struct{}{}:
+			default:
+			}
+		},
+	}
+
+	err = manager.MarkPeerDisconnected(context.Background(), peerPubKey, accountID, streamStartTime.UnixNano())
+	require.NoError(t, err, "unable to mark peer disconnected")
+
+	select {
+	case <-scheduled:
+		t.Fatal("inactivity expiration must not be scheduled while the account-level setting is disabled")
+	case <-time.After(200 * time.Millisecond):
+		// expected: nothing scheduled
 	}
 }
 
@@ -3059,6 +3174,16 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthNone, "user2")
 		assert.NoError(t, err, "unable to get user")
 		assert.Len(t, user.AutoGroups, 1, "new group should be added")
+
+		var newJWTGroup *types.Group
+		for _, g := range groups {
+			if g.Name == "group3" {
+				newJWTGroup = g
+				break
+			}
+		}
+		require.NotNil(t, newJWTGroup, "JIT-created JWT group not found")
+		assert.NotEqual(t, "", newJWTGroup.PublicID, "JIT-created JWT group must have a non-empty PublicID")
 	})
 
 	t.Run("remove all JWT groups when list is empty", func(t *testing.T) {
@@ -3171,12 +3296,32 @@ func createManager(t testing.TB) (*DefaultAccountManager, *update_channel.PeersU
 	if err != nil {
 		return nil, nil, err
 	}
-	eventStore := &activity.InMemoryEventStore{}
+	return buildTestManager(t, store, nil)
+}
 
-	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
-	if err != nil {
-		return nil, nil, err
+// createManagerWithNetworkMapStore builds a manager whose network map controller
+// reads the twin (nmdata) store, the production path on sqlite and postgres.
+func createManagerWithNetworkMapStore(t testing.TB) (*DefaultAccountManager, *update_channel.PeersUpdateManager) {
+	t.Helper()
+
+	if engine := os.Getenv("NETBIRD_STORE_ENGINE"); engine != "" && !strings.EqualFold(engine, string(types.SqliteStoreEngine)) {
+		t.Skipf("network map store test needs the sqlite engine, got %s", engine)
 	}
+
+	dataDir := t.TempDir()
+	store, err := createStoreAt(t, dataDir)
+	require.NoError(t, err)
+
+	nmdataStore, err := networkmapdbfactory.NewNetworkMapDBStore(context.Background(), types.SqliteStoreEngine, dataDir, MockIntegratedValidator{}, newSettingsMockManager(t))
+	require.NoError(t, err)
+
+	manager, updateManager, err := buildTestManager(t, store, nmdataStore)
+	require.NoError(t, err)
+	return manager, updateManager
+}
+
+func newSettingsMockManager(t testing.TB) *settings.MockManager {
+	t.Helper()
 
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
@@ -3190,6 +3335,23 @@ func createManager(t testing.TB) (*DefaultAccountManager, *update_channel.PeersU
 		UpdateExtraSettings(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(false, nil).
 		AnyTimes()
+	return settingsMockManager
+}
+
+func buildTestManager(t testing.TB, store store.Store, nmdataStore *networkmapdb.NetworkMapDBStoreImpl) (*DefaultAccountManager, *update_channel.PeersUpdateManager, error) {
+	t.Helper()
+
+	eventStore := &activity.InMemoryEventStore{}
+
+	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
+	if err != nil {
+		return nil, nil, err
+	}
+
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+
+	settingsMockManager := newSettingsMockManager(t)
 
 	permissionsManager := permissions.NewManager(store)
 	peersManager := peers.NewManager(store, permissionsManager)
@@ -3209,7 +3371,7 @@ func createManager(t testing.TB) (*DefaultAccountManager, *update_channel.PeersU
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, store)
-	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(store, peers.NewManager(store, permissionsManager)), &config.Config{})
+	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(store, peers.NewManager(store, permissionsManager)), &config.Config{}, nmdataStore)
 	manager, err := BuildManager(ctx, &config.Config{}, store, networkMapController, job.NewJobManager(nil, store, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false, cacheStore)
 	if err != nil {
 		return nil, nil, err
@@ -3227,7 +3389,11 @@ func createManager(t testing.TB) (*DefaultAccountManager, *update_channel.PeersU
 
 func createStore(t testing.TB) (store.Store, error) {
 	t.Helper()
-	dataDir := t.TempDir()
+	return createStoreAt(t, t.TempDir())
+}
+
+func createStoreAt(t testing.TB, dataDir string) (store.Store, error) {
+	t.Helper()
 	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "", dataDir)
 	if err != nil {
 		return nil, err
@@ -4158,7 +4324,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_NetworkRangePreserved(t *te
 	}
 
 	// Sanity: an actually different range still triggers reallocation.
-	newRange := netip.MustParsePrefix("100.99.0.0/16")
+	newRange := netip.MustParsePrefix("100.60.0.0/16")
 	_, err = manager.UpdateAccountSettings(ctx, account.Id, userID, &types.Settings{
 		PeerLoginExpirationEnabled: true,
 		PeerLoginExpiration:        types.DefaultPeerLoginExpiration,
