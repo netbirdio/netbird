@@ -352,9 +352,17 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 	// set the new config
 	req := setupSetConfigReq(customDNSAddressConverted, cmd, activeProf.ID.String(), username.Username)
 	if _, err := client.SetConfig(ctx, req); err != nil {
-		if st, ok := gstatus.FromError(err); ok && st.Code() == codes.Unavailable {
-			log.Warnf("setConfig method is not available in the daemon: %s", st.Message())
-		} else {
+		switch reason, refused := refusedSettingsUpdate(err); {
+		case refused:
+			// Failing here is the point: carrying on would connect while
+			// silently dropping the settings the caller asked for, since
+			// nothing further down the line applies them.
+			return fmt.Errorf("the daemon refused the settings update: %s", reason)
+		case gstatus.Code(err) == codes.Unavailable:
+			// The daemon cannot serve the method at all, which is what this
+			// code means; an older daemon without it lands here.
+			log.Warnf("the daemon did not apply the settings update: %s", gstatus.Convert(err).Message())
+		default:
 			return daemonCallError("call service setConfig method", err)
 		}
 	}
@@ -395,10 +403,7 @@ func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServ
 	err = WithBackOff(func() error {
 		var backOffErr error
 		loginResp, backOffErr = client.Login(ctx, loginRequest)
-		if s, ok := gstatus.FromError(backOffErr); ok && (s.Code() == codes.InvalidArgument ||
-			s.Code() == codes.PermissionDenied ||
-			s.Code() == codes.NotFound ||
-			s.Code() == codes.Unimplemented) {
+		if terminalLoginError(backOffErr) {
 			loginErr = backOffErr
 			return nil
 		}
@@ -465,6 +470,22 @@ func setSSHSetConfigFields(req *proto.SetConfigRequest, cmd *cobra.Command) {
 		sshJWTCacheTTL32 := int32(sshJWTCacheTTL)
 		req.SshJWTCacheTTL = &sshJWTCacheTTL32
 	}
+}
+
+// refusedSettingsUpdate reports whether err is the daemon refusing the settings
+// a request carried — the update-settings kill switch, or a field an MDM policy
+// manages — and returns the reason it gave.
+//
+// The distinction that matters is against codes.Unavailable, which means the
+// daemon cannot serve the call: that one is worth a warning, because an older
+// daemon without the method lands there and the rest of `netbird up` still
+// works. A refusal is not, because the settings would be silently dropped.
+func refusedSettingsUpdate(err error) (string, bool) {
+	st, ok := gstatus.FromError(err)
+	if !ok || st.Code() != codes.FailedPrecondition {
+		return "", false
+	}
+	return st.Message(), true
 }
 
 func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, profileName, username string) *proto.SetConfigRequest {

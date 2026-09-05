@@ -3,13 +3,13 @@ package server
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/client/proto"
 )
@@ -185,24 +185,11 @@ func conflictBool(key string, p *bool) conflictCheck {
 	}
 }
 
-func canonicalURL(s string) string {
-	u, err := url.ParseRequestURI(s)
-	if err != nil {
-		return s
-	}
-	if u.Port() == "" {
-		switch u.Scheme {
-		case "https":
-			u.Host += ":443"
-		case "http":
-			u.Host += ":80"
-		}
-	}
-	return u.String()
-}
-
-// conflictURL is conflictString for URL-typed keys: both sides are
-// normalized via canonicalURL before comparison.
+// conflictURL is conflictString for URL-typed keys: both sides are compared as
+// endpoints (profilemanager.SameServiceURL), so an implicit default port, a
+// trailing slash or a different host case is not read as a divergence from the
+// policy. A value that does not parse as a URL falls back to string equality,
+// which is the strictest thing left to do with it.
 func conflictURL(key, got string) conflictCheck {
 	return conflictCheck{
 		key: key,
@@ -211,7 +198,15 @@ func conflictURL(key, got string) conflictCheck {
 				return true
 			}
 			want, ok := pol.GetString(key)
-			return ok && canonicalURL(want) == canonicalURL(got)
+			if !ok {
+				return false
+			}
+			wantURL, wantErr := profilemanager.ParseServiceURL(key, want)
+			gotURL, gotErr := profilemanager.ParseServiceURL(key, got)
+			if wantErr != nil || gotErr != nil {
+				return want == got
+			}
+			return profilemanager.SameServiceURL(wantURL, gotURL)
 		},
 	}
 }
@@ -323,92 +318,6 @@ func mdmManagedFieldConflicts(msg *proto.SetConfigRequest, policy *mdm.Policy) [
 		conflictBool(mdm.KeyEnableLocalMetrics, msg.EnableLocalMetrics),
 		conflictStringPtr(mdm.KeyLocalMetricsAddress, msg.LocalMetricsAddress),
 	})
-}
-
-// setConfigRequestHasConfigOverrides reports whether the SetConfigRequest
-// carries ANY field that would actually mutate the persisted config.
-// The CLI builds a SetConfigRequest unconditionally on every
-// `netbird up` (see setupSetConfigReq in cmd/up.go) — a plain
-// `netbird up` produces a request with every field at its zero value;
-// the gate must skip such no-op invocations or it would always fire
-// even when the user did not pass any --flag. Returns false on a nil
-// msg; true when any management/admin URL, PSK, DNS/NAT list+clean
-// flag, interface/port/MTU, or any optional bool/duration field is set.
-func setConfigRequestHasConfigOverrides(msg *proto.SetConfigRequest) bool {
-	if msg == nil {
-		return false
-	}
-	return msg.ManagementUrl != "" ||
-		msg.AdminURL != "" ||
-		msg.OptionalPreSharedKey != nil ||
-		len(msg.CustomDNSAddress) > 0 ||
-		len(msg.NatExternalIPs) > 0 || msg.CleanNATExternalIPs ||
-		len(msg.ExtraIFaceBlacklist) > 0 ||
-		len(msg.DnsLabels) > 0 || msg.CleanDNSLabels ||
-		msg.DnsRouteInterval != nil ||
-		msg.RosenpassEnabled != nil ||
-		msg.RosenpassPermissive != nil ||
-		msg.InterfaceName != nil ||
-		msg.WireguardPort != nil ||
-		msg.Mtu != nil ||
-		msg.DisableAutoConnect != nil ||
-		msg.ServerSSHAllowed != nil ||
-		msg.RemoteJobsAllowed != nil ||
-		msg.NetworkMonitor != nil ||
-		msg.DisableClientRoutes != nil ||
-		msg.DisableServerRoutes != nil ||
-		msg.DisableDns != nil ||
-		msg.DisableFirewall != nil ||
-		msg.BlockLanAccess != nil ||
-		msg.DisableNotifications != nil ||
-		msg.BlockInbound != nil ||
-		msg.DisableIpv6 != nil ||
-		msg.EnableSSHRoot != nil ||
-		msg.EnableSSHSFTP != nil ||
-		msg.EnableSSHLocalPortForwarding != nil ||
-		msg.EnableSSHRemotePortForwarding != nil ||
-		msg.DisableSSHAuth != nil ||
-		msg.SshJWTCacheTTL != nil ||
-		msg.EnableLocalMetrics != nil ||
-		msg.LocalMetricsAddress != nil
-}
-
-// loginRequestHasConfigOverrides reports whether the LoginRequest
-// carries ANY field that would mutate persisted daemon configuration
-// (as opposed to pure-auth fields like setupKey, hostname, hint,
-// profileName, username). Used by the Login handler to decide whether
-// the `--disable-update-settings` / MDM gates must run: a re-auth that
-// changes nothing about the configuration is always allowed.
-func loginRequestHasConfigOverrides(msg *proto.LoginRequest) bool {
-	if msg == nil {
-		return false
-	}
-	return msg.ManagementUrl != "" ||
-		msg.AdminURL != "" ||
-		msg.PreSharedKey != "" || //nolint:staticcheck // SA1019: legacy proto field still accepted by Login
-		msg.OptionalPreSharedKey != nil ||
-		len(msg.CustomDNSAddress) > 0 ||
-		len(msg.NatExternalIPs) > 0 || msg.CleanNATExternalIPs ||
-		msg.RosenpassEnabled != nil ||
-		msg.InterfaceName != nil ||
-		msg.WireguardPort != nil ||
-		msg.DisableAutoConnect != nil ||
-		msg.ServerSSHAllowed != nil ||
-		msg.RemoteJobsAllowed != nil ||
-		msg.RosenpassPermissive != nil ||
-		len(msg.ExtraIFaceBlacklist) > 0 ||
-		msg.NetworkMonitor != nil ||
-		msg.DnsRouteInterval != nil ||
-		msg.DisableClientRoutes != nil ||
-		msg.DisableServerRoutes != nil ||
-		msg.DisableDns != nil ||
-		msg.DisableFirewall != nil ||
-		msg.BlockLanAccess != nil ||
-		msg.DisableNotifications != nil ||
-		len(msg.DnsLabels) > 0 || msg.CleanDNSLabels ||
-		msg.BlockInbound != nil ||
-		msg.EnableLocalMetrics != nil ||
-		msg.LocalMetricsAddress != nil
 }
 
 // loginRequestMDMConflicts mirrors mdmManagedFieldConflicts but for the

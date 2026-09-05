@@ -58,8 +58,13 @@ const (
 	// JWT token cache TTL for the client daemon (disabled by default)
 	defaultJWTCacheTTL = 0
 
-	errRestoreResidualState   = "failed to restore residual state: %v"
-	errProfilesDisabled       = "profiles are disabled, you cannot use this feature without profiles enabled"
+	errRestoreResidualState = "failed to restore residual state: %v"
+	errProfilesDisabled     = "profiles are disabled, you cannot use this feature without profiles enabled"
+	// errUpdateSettingsDisabled is returned with codes.FailedPrecondition, not
+	// codes.Unavailable: the daemon answered, and it refused. Unavailable means
+	// "the daemon cannot serve this", which is why the CLI downgrades it to a
+	// warning and the GUI reads it as an unreachable daemon — both wrong for a
+	// refusal the caller has to act on.
 	errUpdateSettingsDisabled = "update settings are disabled, you cannot use this feature without update settings enabled"
 	errNetworksDisabled       = "network selection is disabled by the administrator"
 )
@@ -477,16 +482,27 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	// Skip the update-settings gate when the request carries no actual
-	// overrides: the CLI builds a SetConfigRequest unconditionally on
-	// every `netbird up` (setupSetConfigReq in cmd/up.go), so a plain
-	// `netbird up` would otherwise always trip the gate and surface a
-	// misleading "setConfig method is not available" warning, even when
-	// the user did not pass any config flag.
-	if setConfigRequestHasConfigOverrides(msg) {
-		if s.checkUpdateSettingsDisabled() {
-			return nil, gstatus.Errorf(codes.Unavailable, errUpdateSettingsDisabled)
-		}
+	stored, err := s.storedProfileConfig(msg.ProfileName, msg.Username)
+	if err != nil {
+		return nil, err
+	}
+
+	config, err := s.setConfigInputFromRequest(msg)
+	if err != nil {
+		return nil, err
+	}
+
+	// Update-settings gate: refuse the request only when it would actually
+	// change a persisted setting. The CLI builds a SetConfigRequest
+	// unconditionally on every `netbird up` (setupSetConfigReq in
+	// cmd/up.go) and fills it from its flags and environment, so a service
+	// or container that restates the configuration it already runs with
+	// must pass the gate. Deciding this on field presence alone refused
+	// those callers, and — through the identical gate in Login — refused
+	// their login too, which left a client configured by environment
+	// (NB_MANAGEMENT_URL and friends) unable to come up at all.
+	if s.checkUpdateSettingsDisabled() && configChangeRequested(stored, config) {
+		return nil, gstatus.Errorf(codes.FailedPrecondition, errUpdateSettingsDisabled)
 	}
 
 	// MDM gate: refuse the whole request if any of its fields is enforced
@@ -498,16 +514,7 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 		return nil, err
 	}
 
-	stored, err := s.storedProfileConfig(msg.ProfileName, msg.Username)
-	if err != nil {
-		return nil, err
-	}
 	if err := requirePrivilegeForConfigChange(callerCtx, stored, privilegedChangeFromSetConfig(msg)); err != nil {
-		return nil, err
-	}
-
-	config, err := s.setConfigInputFromRequest(msg)
-	if err != nil {
 		return nil, err
 	}
 
@@ -626,37 +633,45 @@ func (s *Server) setConfigInputFromRequest(msg *proto.SetConfigRequest) (profile
 
 // Login uses setup key to prepare configuration for the daemon.
 func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*proto.LoginResponse, error) {
+	activeProf, err := s.profileManager.GetActiveProfileState()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get active profile state: %w", err)
+	}
+
+	// The stored config of the profile this request targets backs all three
+	// gates below. It is read before anything changes daemon state, so a
+	// refused login neither switches the profile nor cancels a login already
+	// in progress, and it is the profile the switch further down would
+	// activate.
+	stored, err := s.storedLoginConfig(activeProf, msg)
+	if err != nil {
+		return nil, err
+	}
+
 	// Config-override gates. LoginRequest carries the same surface as
 	// SetConfigRequest (managementUrl, PSK, ssh/rosenpass/port toggles,
 	// ...), so the same protections must apply. Without these the CLI
 	// command `netbird up --management-url=X` (which falls through to
 	// Login when SetConfig is rejected — see cmd/up.go) would silently
 	// bypass `--disable-update-settings` and any MDM policy.
-	if loginRequestHasConfigOverrides(msg) {
-		if s.checkUpdateSettingsDisabled() {
-			return nil, gstatus.Errorf(codes.Unavailable, errUpdateSettingsDisabled)
-		}
-		policy := loadMDMPolicy()
-		if err := rejectMDMManagedFieldConflicts(loginRequestMDMConflicts(msg, policy)); err != nil {
-			return nil, err
-		}
+	//
+	// The update-settings gate is value-aware, as in SetConfig: it looks at
+	// what a login would actually persist (loginOverridesInput) and refuses
+	// only a real divergence from the stored config. A login that restates
+	// the values already on disk changes nothing, so it must go through —
+	// that is what keeps a re-login, or a container restart carrying
+	// NB_MANAGEMENT_URL, working with the kill switch on.
+	if s.checkUpdateSettingsDisabled() && configChangeRequested(stored, loginOverridesInput(msg)) {
+		return nil, gstatus.Errorf(codes.FailedPrecondition, errUpdateSettingsDisabled)
 	}
 
-	activeProf, err := s.profileManager.GetActiveProfileState()
-	if err != nil {
-		log.Errorf("failed to get active profile state: %v", err)
-		return nil, fmt.Errorf("failed to get active profile state: %w", err)
+	policy := loadMDMPolicy()
+	if err := rejectMDMManagedFieldConflicts(loginRequestMDMConflicts(msg, policy)); err != nil {
+		return nil, err
 	}
 
 	// Privilege gate: same restrictions as SetConfig, since LoginRequest can carry
-	// the same fields. It runs before anything here changes daemon state, so a
-	// refused login neither switches the profile nor cancels a login already in
-	// progress, and it reads the profile the request targets, which is the one the
-	// switch below would activate.
-	stored, err := s.storedLoginConfig(activeProf, msg)
-	if err != nil {
-		return nil, err
-	}
+	// the same fields.
 	if err := requirePrivilegeForConfigChange(callerCtx, stored, privilegedChangeFromLogin(msg)); err != nil {
 		return nil, err
 	}
@@ -1159,6 +1174,10 @@ func (s *Server) storedLoginConfig(activeProf *profilemanager.ActiveProfileState
 
 // storedConfigAtPath reads a profile config file, yielding nil when it does not
 // exist yet.
+//
+// Reading it has no side effect: profilemanager.GetExistingConfig does not
+// write, so a request that the gates go on to refuse leaves the profile file as
+// it found it.
 func (s *Server) storedConfigAtPath(path string) (*profilemanager.Config, error) {
 	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
@@ -1167,7 +1186,7 @@ func (s *Server) storedConfigAtPath(path string) (*profilemanager.Config, error)
 		return nil, fmt.Errorf("stat profile config: %w", err)
 	}
 
-	cfg, err := profilemanager.GetConfig(path)
+	cfg, err := profilemanager.GetExistingConfig(path)
 	if err != nil {
 		return nil, fmt.Errorf("read profile config: %w", err)
 	}
@@ -1470,7 +1489,8 @@ func (s *Server) handleActiveProfileLogout(ctx context.Context) (*proto.LogoutRe
 	return &proto.LogoutResponse{}, nil
 }
 
-// getConfig reads config file and returns Config and whether the config file already existed. Errors out if it does not exist
+// getConfig resolves the active profile's config, provisions its identity and
+// reports whether the config file already existed.
 func (s *Server) getConfig(activeProf *profilemanager.ActiveProfileState) (*profilemanager.Config, bool, error) {
 	cfgPath, err := activeProf.FilePath()
 	if err != nil {
@@ -1482,9 +1502,25 @@ func (s *Server) getConfig(activeProf *profilemanager.ActiveProfileState) (*prof
 
 	log.Infof("active profile config existed: %t, err %v", configExisted, err)
 
-	config, err := profilemanager.ReadConfig(cfgPath)
+	config, err := profilemanager.ReadOrGenerateConfig(cfgPath)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to get config: %w", err)
+	}
+
+	// This is the daemon's provisioning point: the config resolved here is the
+	// one the peer runs with, so it needs the keys that identify it, and those
+	// have to reach disk — a key that stays in memory would come back different
+	// on the next start and re-register the peer. Reads themselves are pure, so
+	// the write is here, in the open, instead of hiding inside ReadConfig.
+	generated, err := config.EnsureIdentity()
+	if err != nil {
+		return nil, false, fmt.Errorf("ensure profile identity: %w", err)
+	}
+
+	if generated || !configExisted {
+		if err := profilemanager.WriteOutConfig(cfgPath, config); err != nil {
+			return nil, false, fmt.Errorf("write out profile config: %w", err)
+		}
 	}
 
 	return config, configExisted, nil
@@ -1539,7 +1575,7 @@ func (s *Server) logoutFromProfile(ctx context.Context, profile *profilemanager.
 		cfgPath = profilemanager.DefaultConfigPath
 	}
 
-	config, err := profilemanager.GetConfig(cfgPath)
+	config, err := profilemanager.GetExistingConfig(cfgPath)
 	if err != nil {
 		return fmt.Errorf("profile '%s' not found", profile.ID)
 	}
@@ -1555,6 +1591,19 @@ func (s *Server) sendLogoutRequestWithConfig(ctx context.Context, config *profil
 	// Privilege gate: deregistering frees this machine's key to be registered
 	// against another management server, which is only restricted while the SSH
 	// server makes that a privilege handover.
+	// Ahead of the privilege gate on purpose. A profile with no identity was
+	// never registered — a logout clears the keys in place, so logging the same
+	// profile out twice lands here — so there is nothing to deregister and
+	// nothing for the gate to protect: what it guards against is handing this
+	// machine's registered key to another management server. Behind the gate,
+	// an unprivileged caller would be refused instead, and for a profile whose
+	// ServerSSHAllowed is unset that is every caller, since an absent value
+	// counts as SSH enabled.
+	if config.PrivateKey == "" {
+		log.Infof("profile carries no identity, nothing to deregister")
+		return nil
+	}
+
 	if err := requirePrivilegeForDeregistration(ctx, config); err != nil {
 		return err
 	}
@@ -2172,7 +2221,7 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 		cfgPath = profilemanager.DefaultConfigPath
 	}
 
-	cfg, err := profilemanager.GetConfig(cfgPath)
+	cfg, err := profilemanager.GetExistingConfig(cfgPath)
 	if err != nil {
 		log.Errorf("failed to get active profile config: %v", err)
 		return nil, fmt.Errorf("failed to get active profile config: %w", err)
@@ -2630,8 +2679,6 @@ func sendTerminalNotification() error {
 	return wallCmd.Wait()
 }
 
-// persistLoginOverrides writes management URL and pre-shared key from a LoginRequest to the
-// active profile config so that subsequent reads pick them up. Empty/nil values are ignored.
 // afterLoginPreCheck is a seam for tests to run a concurrent config change
 // between Login's first privilege check and the authoritative one.
 var afterLoginPreCheck func()
@@ -2662,6 +2709,15 @@ func (s *Server) authorizeAndPrepareLogin(callerCtx context.Context, msg *proto.
 		return nil, nil, err
 	}
 
+	// The update-settings decision is re-taken here for the same reason as the
+	// privilege one: Login's earlier check ran outside this lock, so the stored
+	// config it compared against could have moved since. This one is the
+	// authoritative check, and it is the last read before persistLoginOverrides
+	// writes.
+	if s.checkUpdateSettingsDisabled() && configChangeRequested(stored, loginOverridesInput(msg)) {
+		return nil, nil, gstatus.Errorf(codes.FailedPrecondition, errUpdateSettingsDisabled)
+	}
+
 	s.mutex.Lock()
 	if s.actCancel != nil {
 		s.actCancel()
@@ -2688,18 +2744,19 @@ func (s *Server) authorizeAndPrepareLogin(callerCtx context.Context, msg *proto.
 		return nil, nil, fmt.Errorf("active profile state: %w", err)
 	}
 
-	if err := persistLoginOverrides(activeProf, msg.ManagementUrl, msg.OptionalPreSharedKey); err != nil {
+	if err := persistLoginOverrides(activeProf, msg); err != nil {
 		return nil, nil, fmt.Errorf("persist login overrides: %w", err)
 	}
 
 	return ctx, activeProf, nil
 }
 
-func persistLoginOverrides(activeProf *profilemanager.ActiveProfileState, managementURL string, preSharedKey *string) error {
-	if preSharedKey != nil && *preSharedKey == "" {
-		preSharedKey = nil
-	}
-	if managementURL == "" && preSharedKey == nil {
+// persistLoginOverrides writes the config fields a login request is allowed to
+// carry into the active profile. It shares its input builder with the
+// update-settings gate, so the gate judges exactly the fields this writes.
+func persistLoginOverrides(activeProf *profilemanager.ActiveProfileState, msg *proto.LoginRequest) error {
+	input := loginOverridesInput(msg)
+	if input.ManagementURL == "" && input.PreSharedKey == nil {
 		return nil
 	}
 
@@ -2708,11 +2765,7 @@ func persistLoginOverrides(activeProf *profilemanager.ActiveProfileState, manage
 		return fmt.Errorf("active profile file path: %w", err)
 	}
 
-	input := profilemanager.ConfigInput{
-		ConfigPath:    cfgPath,
-		ManagementURL: managementURL,
-		PreSharedKey:  preSharedKey,
-	}
+	input.ConfigPath = cfgPath
 	if _, err := profilemanager.UpdateOrCreateConfig(input); err != nil {
 		return fmt.Errorf("update config: %w", err)
 	}

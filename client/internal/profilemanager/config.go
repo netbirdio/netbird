@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -292,9 +293,11 @@ func fileExists(path string) (bool, error) {
 	return false, err
 }
 
-// createNewConfig creates a new config generating a new Wireguard key and saving to file
-func createNewConfig(input ConfigInput) (*Config, error) {
-	config := &Config{
+// newConfigSkeleton returns the field values a brand-new profile config starts
+// from, before apply() fills in the rest. Shared with the dry-run baseline so
+// the two cannot disagree about what "a new config" means.
+func newConfigSkeleton() *Config {
+	return &Config{
 		// defaults to false only for new (post 0.26) configurations
 		ServerSSHAllowed: util.False(),
 		// Remote jobs are an explicit opt-in and default off, including for
@@ -302,12 +305,66 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 		RemoteJobsAllowed: util.False(),
 		WgPort:            iface.DefaultWgPort,
 	}
+}
+
+// createNewConfig resolves a new config in memory, with no identity: whoever
+// needs the peer's keys calls EnsureIdentity and persists the result, so a read
+// that lands on a missing file cannot hand back a config carrying keys that
+// nothing will ever write down.
+func createNewConfig(input ConfigInput) (*Config, error) {
+	config := newConfigSkeleton()
 
 	if _, err := config.apply(input); err != nil {
 		return nil, err
 	}
 
 	return config, nil
+}
+
+// createProvisionedConfig is createNewConfig plus the peer's identity, for the
+// callers that go on to persist the config or to connect with it.
+func createProvisionedConfig(input ConfigInput) (*Config, error) {
+	config, err := createNewConfig(input)
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := config.EnsureIdentity(); err != nil {
+		return nil, err
+	}
+
+	return config, nil
+}
+
+// EnsureIdentity generates the keys that identify this peer if the config does
+// not carry them yet, reporting whether it had to generate any.
+//
+// It is deliberately not part of apply(). Everything apply() fills in is a
+// default it can recompute on the next read, but a generated key is not: it
+// has to be persisted, or the peer comes back with a different WireGuard
+// identity and re-registers. Having apply() generate keys is what forced every
+// read of a config to write it back — so identity provisioning is its own step
+// now, and the callers that perform it write the result out explicitly.
+func (config *Config) EnsureIdentity() (bool, error) {
+	generated := false
+
+	if config.PrivateKey == "" {
+		log.Infof("generated new Wireguard key")
+		config.PrivateKey = generateKey()
+		generated = true
+	}
+
+	if config.SSHKey == "" {
+		log.Infof("generated new SSH key")
+		pem, err := ssh.GeneratePrivateKey(ssh.ED25519)
+		if err != nil {
+			return generated, err
+		}
+		config.SSHKey = string(pem)
+		generated = true
+	}
+
+	return generated, nil
 }
 
 func (config *Config) apply(input ConfigInput) (updated bool, err error) {
@@ -328,20 +385,21 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 			return false, err
 		}
 	}
-	if input.ManagementURL != "" && input.ManagementURL != config.ManagementURL.String() {
-		log.Infof("new Management URL provided, updated to %#v (old value %#v)",
-			input.ManagementURL, config.ManagementURL.String())
+	// The comparison is on the endpoint the URL addresses, not on its
+	// spelling: the same endpoint can be written several ways (an implicit
+	// :443, a trailing slash, a different host case), and treating an
+	// equivalent URL as new would rewrite the config and report a settings
+	// change where the configuration does not actually change.
+	if input.ManagementURL != "" {
 		URL, err := parseURL("Management URL", input.ManagementURL)
 		if err != nil {
 			return false, err
 		}
-		config.ManagementURL = URL
-		updated = true
-	} else if config.ManagementURL == nil {
-		log.Infof("using default Management URL %s", DefaultManagementURL)
-		config.ManagementURL, err = parseURL("Management URL", DefaultManagementURL)
-		if err != nil {
-			return false, err
+		if !SameServiceURL(URL, config.ManagementURL) {
+			log.Infof("new Management URL provided, updated to %#v (old value %#v)",
+				URL.String(), config.ManagementURL.String())
+			config.ManagementURL = URL
+			updated = true
 		}
 	}
 
@@ -352,31 +410,20 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 			return false, err
 		}
 	}
-	if input.AdminURL != "" && input.AdminURL != config.AdminURL.String() {
-		log.Infof("new Admin Panel URL provided, updated to %#v (old value %#v)",
-			input.AdminURL, config.AdminURL.String())
+	// The admin panel is opened, not dialed, so unlike the Management URL its
+	// path is part of what identifies it: a panel served under /netbird is not
+	// the one served at the root.
+	if input.AdminURL != "" {
 		newURL, err := parseURL("Admin Panel URL", input.AdminURL)
 		if err != nil {
 			return updated, err
 		}
-		config.AdminURL = newURL
-		updated = true
-	}
-
-	if config.PrivateKey == "" {
-		log.Infof("generated new Wireguard key")
-		config.PrivateKey = generateKey()
-		updated = true
-	}
-
-	if config.SSHKey == "" {
-		log.Infof("generated new SSH key")
-		pem, err := ssh.GeneratePrivateKey(ssh.ED25519)
-		if err != nil {
-			return false, err
+		if !SameServiceURLIncludingPath(newURL, config.AdminURL) {
+			log.Infof("new Admin Panel URL provided, updated to %#v (old value %#v)",
+				newURL.String(), config.AdminURL.String())
+			config.AdminURL = newURL
+			updated = true
 		}
-		config.SSHKey = string(pem)
-		updated = true
 	}
 
 	if input.WireguardPort != nil && *input.WireguardPort != config.WgPort {
@@ -651,9 +698,12 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if input.SyncMessageVersion != nil && *input.SyncMessageVersion != *config.SyncMessageVersion {
+	// Assigning the pointer, not writing through it: a config that carries no
+	// version yet would otherwise be a nil dereference, and a panic inside a
+	// request handler is not a way to fail.
+	if input.SyncMessageVersion != nil && (config.SyncMessageVersion == nil || *input.SyncMessageVersion != *config.SyncMessageVersion) {
 		log.Infof("setting SyncMessageVersion to %v", *input.SyncMessageVersion)
-		*config.SyncMessageVersion = *input.SyncMessageVersion
+		config.SyncMessageVersion = input.SyncMessageVersion
 		updated = true
 	}
 
@@ -674,12 +724,15 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if input.ClientCertKeyPath != "" {
+	// Compared, not just assigned: restating the path a config already holds
+	// changes nothing, and reporting it as an update makes a caller that
+	// re-sends its own configuration look like one asking to change it.
+	if input.ClientCertKeyPath != "" && input.ClientCertKeyPath != config.ClientCertKeyPath {
 		config.ClientCertKeyPath = input.ClientCertKeyPath
 		updated = true
 	}
 
-	if input.ClientCertPath != "" {
+	if input.ClientCertPath != "" && input.ClientCertPath != config.ClientCertPath {
 		config.ClientCertPath = input.ClientCertPath
 		updated = true
 	}
@@ -876,6 +929,72 @@ func ParseServiceURL(serviceName, serviceURL string) (*url.URL, error) {
 	return parseURL(serviceName, serviceURL)
 }
 
+// SameServiceURL reports whether two service URLs address the same endpoint:
+// same scheme, same host compared case-insensitively as DNS names are, and
+// same effective port, where an absent port means the scheme's default.
+//
+// This is the one comparison every caller deciding "did this URL change?" must
+// use. A string comparison answers a different question: "https://host",
+// "https://host/" and "https://HOST:443" are one endpoint written three ways,
+// and reading them as three values makes a client that restates its own
+// management URL look like a client asking to be repointed. A nil operand
+// matches only another nil one.
+func SameServiceURL(a, b *url.URL) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+
+	return a.Scheme == b.Scheme &&
+		strings.EqualFold(a.Hostname(), b.Hostname()) &&
+		ServiceURLPort(a) == ServiceURLPort(b)
+}
+
+// ServiceURLPort returns the port a service URL addresses, resolving an absent
+// one to the default of its scheme. The port is normalized numerically, so a
+// zero-padded ":0443" is the same port as ":443".
+func ServiceURLPort(u *url.URL) string {
+	port := u.Port()
+	if port == "" {
+		switch u.Scheme {
+		case "https":
+			return "443"
+		case "http":
+			return "80"
+		default:
+			return ""
+		}
+	}
+
+	if n, err := strconv.Atoi(port); err == nil {
+		return strconv.Itoa(n)
+	}
+	return port
+}
+
+// SameServiceURLIncludingPath is SameServiceURL plus everything a URL carries
+// past its endpoint: path, query, fragment and userinfo.
+//
+// Use it for a URL that gets opened rather than dialed. The admin panel can
+// live under a path, so two URLs with the same endpoint and different paths are
+// two different panels — where for a URL the client dials over gRPC only the
+// endpoint is ever used. Equivalent spellings still compare equal: a missing
+// path and "/" are the same root, and so is a trailing slash on any path.
+func SameServiceURLIncludingPath(a, b *url.URL) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+
+	return SameServiceURL(a, b) &&
+		normalizedURLPath(a) == normalizedURLPath(b) &&
+		a.RawQuery == b.RawQuery &&
+		a.Fragment == b.Fragment &&
+		a.User.String() == b.User.String()
+}
+
+func normalizedURLPath(u *url.URL) string {
+	return strings.TrimSuffix(u.Path, "/")
+}
+
 func parseURL(serviceName, serviceURL string) (*url.URL, error) {
 	parsedMgmtURL, err := url.ParseRequestURI(serviceURL)
 	if err != nil {
@@ -920,6 +1039,67 @@ func isPreSharedKeyHidden(preSharedKey *string) bool {
 	return false
 }
 
+// WouldChange reports whether applying input would modify any field the
+// config persists, leaving the receiver untouched. It is the dry-run half of
+// UpdateConfig and reuses the very same diff logic (Config.apply), so a
+// caller asking "is this a settings change?" cannot drift from what an
+// actual update would do, nor go stale when a new field is added.
+//
+// A redacted pre-shared key is collapsed to "unset" exactly as
+// UpdateOrCreateConfig does, so a UI that round-trips the mask is not read as
+// a request for a new key.
+//
+// A nil receiver means the profile holds no config yet, so the baseline is the
+// config the daemon would create for it: input values matching those defaults
+// change nothing, anything else does.
+func (config *Config) WouldChange(input ConfigInput) (bool, error) {
+	probe := config.clone()
+	if probe == nil {
+		baseline, err := newDryRunBaseline(input.ConfigPath)
+		if err != nil {
+			return true, fmt.Errorf("build default config baseline: %w", err)
+		}
+		probe = baseline
+	}
+
+	if isPreSharedKeyHidden(input.PreSharedKey) {
+		input.PreSharedKey = nil
+	}
+
+	return probe.apply(input)
+}
+
+// newDryRunBaseline builds the config a brand-new profile would start from, for
+// a dry run to compare an input against. It is createNewConfig without the
+// identity: this config exists only to be compared against and thrown away, and
+// no ConfigInput field maps to either key.
+func newDryRunBaseline(configPath string) (*Config, error) {
+	baseline := newConfigSkeleton()
+
+	if _, err := baseline.apply(ConfigInput{ConfigPath: configPath}); err != nil {
+		return nil, err
+	}
+
+	return baseline, nil
+}
+
+// clone returns a copy of the config that apply can be run against without the
+// original observing the writes, or nil for a nil receiver. Only what apply
+// mutates in place needs detaching, which is the slices it replaces or appends
+// to: every pointer field it touches is reassigned rather than written through,
+// and ClientCertKeyPair is only overwritten.
+func (config *Config) clone() *Config {
+	if config == nil {
+		return nil
+	}
+
+	probe := *config
+	probe.IFaceBlackList = slices.Clone(config.IFaceBlackList)
+	probe.NATExternalIPs = slices.Clone(config.NATExternalIPs)
+	probe.DNSLabels = slices.Clone(config.DNSLabels)
+	return &probe
+}
+
 // UpdateConfig update existing configuration according to input configuration and return with the configuration
 func UpdateConfig(input ConfigInput) (*Config, error) {
 	configExists, err := fileExists(input.ConfigPath)
@@ -928,6 +1108,14 @@ func UpdateConfig(input ConfigInput) (*Config, error) {
 	}
 	if !configExists {
 		return nil, fmt.Errorf("config file %s does not exist", input.ConfigPath)
+	}
+
+	// A UI that round-trips the mask GetConfig hands it back is asking to keep
+	// the stored key, not to set the mask as the new one. UpdateOrCreateConfig
+	// and DirectUpdateOrCreateConfig already collapse it; this one did not, so
+	// the same round-trip through SetConfig replaced the key with asterisks.
+	if isPreSharedKeyHidden(input.PreSharedKey) {
+		input.PreSharedKey = nil
 	}
 
 	return update(input)
@@ -941,7 +1129,7 @@ func UpdateOrCreateConfig(input ConfigInput) (*Config, error) {
 	}
 	if !configExists {
 		log.Infof("generating new config %s", input.ConfigPath)
-		cfg, err := createNewConfig(input)
+		cfg, err := createProvisionedConfig(input)
 		if err != nil {
 			return nil, err
 		}
@@ -966,12 +1154,20 @@ func update(input ConfigInput) (*Config, error) {
 		return nil, err
 	}
 
+	// A write path is a provisioning point: a stored profile can legitimately
+	// carry no identity (a mobile logout clears the keys in place), and the
+	// next config write is what has to mint a new one. Reads leave that alone.
+	identityGenerated, err := config.EnsureIdentity()
+	if err != nil {
+		return nil, err
+	}
+
 	updated, err := config.apply(input)
 	if err != nil {
 		return nil, err
 	}
 
-	if updated {
+	if updated || identityGenerated {
 		if err := util.WriteJson(context.Background(), input.ConfigPath, config); err != nil {
 			return nil, err
 		}
@@ -980,8 +1176,8 @@ func update(input ConfigInput) (*Config, error) {
 	return config, nil
 }
 
-// GetConfig read config file and return with Config and if it was created. Errors out if it does not exist
-func GetConfig(configPath string) (*Config, error) {
+// GetExistingConfig reads and returns the config if it exists on disk. Fails otherwise.
+func GetExistingConfig(configPath string) (*Config, error) {
 	return readConfig(configPath, false)
 }
 
@@ -1064,17 +1260,25 @@ func UpdateOldManagementURL(ctx context.Context, config *Config, configPath stri
 	return newConfig, nil
 }
 
-// CreateInMemoryConfig generate a new config but do not write out it to the store
+// CreateInMemoryConfig generate a new config but do not write out it to the store.
+// It carries an identity: callers connect with what they get back.
 func CreateInMemoryConfig(input ConfigInput) (*Config, error) {
-	return createNewConfig(input)
+	return createProvisionedConfig(input)
 }
 
-// ReadConfig read config file and return with Config. If it is not exists create a new with default values
-func ReadConfig(configPath string) (*Config, error) {
+// ReadOrGenerateConfig reads the profile config at configPath if it exists, or
+// generates one in memory from the defaults.
+func ReadOrGenerateConfig(configPath string) (*Config, error) {
 	return readConfig(configPath, true)
 }
 
-// ReadConfig read config file and return with Config. If it is not exists create a new with default values
+// readConfig reads the profile config at configPath. createIfMissing resolves a
+// default config in memory when the file is absent, rather than erroring.
+//
+// Reads are pure. This used to write the config back whenever apply() had to
+// fill in a default the file was missing, which quietly made every reader a
+// writer: a gate deciding whether to refuse a request, a UI listing profiles,
+// a mobile getter reading a single preference.
 func readConfig(configPath string, createIfMissing bool) (*Config, error) {
 	configExists, err := fileExists(configPath)
 	if err != nil {
@@ -1092,12 +1296,8 @@ func readConfig(configPath string, createIfMissing bool) (*Config, error) {
 			return nil, err
 		}
 		// initialize through apply() without changes
-		if changed, err := config.apply(ConfigInput{}); err != nil {
+		if _, err := config.apply(ConfigInput{}); err != nil {
 			return nil, err
-		} else if changed {
-			if err = WriteOutConfig(configPath, config); err != nil {
-				return nil, err
-			}
 		}
 
 		return config, nil
@@ -1105,13 +1305,7 @@ func readConfig(configPath string, createIfMissing bool) (*Config, error) {
 		return nil, fmt.Errorf("config file %s does not exist", configPath)
 	}
 
-	cfg, err := createNewConfig(ConfigInput{ConfigPath: configPath})
-	if err != nil {
-		return nil, err
-	}
-
-	err = WriteOutConfig(configPath, cfg)
-	return cfg, err
+	return createNewConfig(ConfigInput{ConfigPath: configPath})
 }
 
 // WriteOutConfig write put the prepared config to the given path
@@ -1134,7 +1328,7 @@ func DirectUpdateOrCreateConfig(input ConfigInput) (*Config, error) {
 	}
 	if !configExists {
 		log.Infof("generating new config %s", input.ConfigPath)
-		cfg, err := createNewConfig(input)
+		cfg, err := createProvisionedConfig(input)
 		if err != nil {
 			return nil, err
 		}
@@ -1161,12 +1355,18 @@ func directUpdate(input ConfigInput) (*Config, error) {
 		return nil, err
 	}
 
+	// Same provisioning point as update(); see the note there.
+	identityGenerated, err := config.EnsureIdentity()
+	if err != nil {
+		return nil, err
+	}
+
 	updated, err := config.apply(input)
 	if err != nil {
 		return nil, err
 	}
 
-	if updated {
+	if updated || identityGenerated {
 		if err := util.DirectWriteJson(context.Background(), input.ConfigPath, config); err != nil {
 			return nil, err
 		}
