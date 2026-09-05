@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"strconv"
 
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -20,7 +21,7 @@ import (
 	"github.com/netbirdio/netbird/client/proto"
 )
 
-func (s *Server) fileDropManager() (*filedrop.Manager, error) {
+func (s *Server) fileDropManager(ctx context.Context) (*filedrop.Manager, error) {
 	activeProf, err := s.profileManager.GetActiveProfileState()
 	if err != nil {
 		return nil, fmt.Errorf("get active profile: %w", err)
@@ -33,6 +34,7 @@ func (s *Server) fileDropManager() (*filedrop.Manager, error) {
 	if s.fileDrop != nil && s.fileDrop.Profile() == activeProf.ID {
 		mgr := s.fileDrop
 		s.mutex.Unlock()
+		seedFileDropDestination(ctx, mgr, activeProf.Username)
 		return mgr, nil
 	}
 	old := s.fileDrop
@@ -60,13 +62,14 @@ func (s *Server) fileDropManager() (*filedrop.Manager, error) {
 		return nil, fmt.Errorf("create file drop manager: %w", err)
 	}
 
-	seedFileDropDestination(mgr, activeProf.Username)
+	seedFileDropDestination(ctx, mgr, activeProf.Username)
 
 	s.mutex.Lock()
 	if s.fileDrop != nil && s.fileDrop.Profile() == activeProf.ID {
 		winner := s.fileDrop
 		s.mutex.Unlock()
 		_ = mgr.Close()
+		seedFileDropDestination(ctx, winner, activeProf.Username)
 		return winner, nil
 	}
 	s.fileDrop = mgr
@@ -118,7 +121,7 @@ func (s *Server) publishFileDropEvent(kind filedrop.EventKind, transfer filedrop
 
 // FileDropSend starts an asynchronous transfer to a peer.
 func (s *Server) FileDropSend(ctx context.Context, req *proto.FileDropSendRequest) (*proto.FileDropSendResponse, error) {
-	mgr, err := s.fileDropManager()
+	mgr, err := s.fileDropManager(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -182,8 +185,8 @@ func (s *Server) buildFileDropPayloads(ctx context.Context, req *proto.FileDropS
 }
 
 // FileDropDecide accepts or declines a pending incoming offer.
-func (s *Server) FileDropDecide(_ context.Context, req *proto.FileDropDecideRequest) (*proto.FileDropDecideResponse, error) {
-	mgr, err := s.fileDropManager()
+func (s *Server) FileDropDecide(ctx context.Context, req *proto.FileDropDecideRequest) (*proto.FileDropDecideResponse, error) {
+	mgr, err := s.fileDropManager(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -201,8 +204,8 @@ func (s *Server) FileDropDecide(_ context.Context, req *proto.FileDropDecideRequ
 }
 
 // FileDropCancel aborts a transfer in either direction.
-func (s *Server) FileDropCancel(_ context.Context, req *proto.FileDropCancelRequest) (*proto.FileDropCancelResponse, error) {
-	mgr, err := s.fileDropManager()
+func (s *Server) FileDropCancel(ctx context.Context, req *proto.FileDropCancelRequest) (*proto.FileDropCancelResponse, error) {
+	mgr, err := s.fileDropManager(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -211,8 +214,8 @@ func (s *Server) FileDropCancel(_ context.Context, req *proto.FileDropCancelRequ
 }
 
 // FileDropListTransfers returns the transfer history, newest first.
-func (s *Server) FileDropListTransfers(context.Context, *proto.FileDropListTransfersRequest) (*proto.FileDropListTransfersResponse, error) {
-	mgr, err := s.fileDropManager()
+func (s *Server) FileDropListTransfers(ctx context.Context, _ *proto.FileDropListTransfersRequest) (*proto.FileDropListTransfersResponse, error) {
+	mgr, err := s.fileDropManager(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -228,8 +231,8 @@ func (s *Server) FileDropListTransfers(context.Context, *proto.FileDropListTrans
 }
 
 // FileDropDeleteTransfer removes one entry from the transfer history.
-func (s *Server) FileDropDeleteTransfer(_ context.Context, req *proto.FileDropDeleteTransferRequest) (*proto.FileDropDeleteTransferResponse, error) {
-	mgr, err := s.fileDropManager()
+func (s *Server) FileDropDeleteTransfer(ctx context.Context, req *proto.FileDropDeleteTransferRequest) (*proto.FileDropDeleteTransferResponse, error) {
+	mgr, err := s.fileDropManager(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -238,8 +241,8 @@ func (s *Server) FileDropDeleteTransfer(_ context.Context, req *proto.FileDropDe
 }
 
 // FileDropGetSettings returns the active profile's receiving policy.
-func (s *Server) FileDropGetSettings(context.Context, *proto.FileDropGetSettingsRequest) (*proto.FileDropGetSettingsResponse, error) {
-	mgr, err := s.fileDropManager()
+func (s *Server) FileDropGetSettings(ctx context.Context, _ *proto.FileDropGetSettingsRequest) (*proto.FileDropGetSettingsResponse, error) {
+	mgr, err := s.fileDropManager(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -259,7 +262,7 @@ func (s *Server) FileDropGetSettings(context.Context, *proto.FileDropGetSettings
 
 // FileDropSetSettings updates the active profile's receiving policy.
 func (s *Server) FileDropSetSettings(ctx context.Context, req *proto.FileDropSetSettingsRequest) (*proto.FileDropSetSettingsResponse, error) {
-	mgr, err := s.fileDropManager()
+	mgr, err := s.fileDropManager(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -305,8 +308,8 @@ func (s *Server) validateFileDropDestination(ctx context.Context, dir string) er
 }
 
 // FileDropSetPeerRule sets or clears a per-sender exception.
-func (s *Server) FileDropSetPeerRule(_ context.Context, req *proto.FileDropSetPeerRuleRequest) (*proto.FileDropSetPeerRuleResponse, error) {
-	mgr, err := s.fileDropManager()
+func (s *Server) FileDropSetPeerRule(ctx context.Context, req *proto.FileDropSetPeerRuleRequest) (*proto.FileDropSetPeerRuleResponse, error) {
+	mgr, err := s.fileDropManager(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -390,18 +393,17 @@ func fileDropPayload(caller ipcauth.Identity, path string) (filedrop.Payload, er
 // a received file always has somewhere to land. Resolved from the profile's own
 // user rather than the process: the daemon runs as root, whose home is not where
 // the user would look for their downloads.
-func seedFileDropDestination(mgr *filedrop.Manager, username string) {
+func seedFileDropDestination(ctx context.Context, mgr *filedrop.Manager, username string) {
 	if mgr.DestinationDir() != "" {
 		return
 	}
 
-	u, err := user.Lookup(username)
-	if err != nil {
-		log.Warnf("cannot resolve home of %s for the file drop destination: %v", username, err)
+	u, ok := fileDropDestinationUser(ctx, username)
+	if !ok {
 		return
 	}
 	if u.HomeDir == "" {
-		log.Warnf("user %s has no home directory for the file drop destination", username)
+		log.Warnf("user %s has no home directory for the file drop destination", u.Username)
 		return
 	}
 
@@ -409,4 +411,30 @@ func seedFileDropDestination(mgr *filedrop.Manager, username string) {
 	if err := mgr.SetDestinationDir(dir); err != nil {
 		log.Warnf("failed to set the default file drop destination: %v", err)
 	}
+}
+
+func fileDropDestinationUser(ctx context.Context, username string) (*user.User, bool) {
+	if username != "" {
+		u, err := user.Lookup(username)
+		if err != nil {
+			log.Warnf("cannot resolve home of %s for the file drop destination: %v", username, err)
+			return nil, false
+		}
+		return u, true
+	}
+
+	caller, ok := ipcauth.CallerIdentity(ctx)
+	if !ok || caller.IsPrivileged() {
+		return nil, false
+	}
+	id := caller.SID
+	if !caller.IsWindows() {
+		id = strconv.FormatUint(uint64(caller.UID), 10)
+	}
+	u, err := user.LookupId(id)
+	if err != nil {
+		log.Warnf("cannot resolve home of caller %s for the file drop destination: %v", id, err)
+		return nil, false
+	}
+	return u, true
 }

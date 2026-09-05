@@ -242,7 +242,8 @@ const PeerStep = ({
                                 className={itemClass}
                             >
                                 <span
-                                    aria-hidden={"true"}
+                                    role={"img"}
+                                    aria-label={t(peerStatusLabelKey(peer.connStatus))}
                                     className={cn(
                                         "h-1.5 w-1.5 shrink-0 rounded-full",
                                         dotClass(peer.connStatus),
@@ -250,9 +251,6 @@ const PeerStep = ({
                                 />
                                 <span className={"min-w-0 flex-1 truncate font-medium"}>
                                     {shortenDns(peer.fqdn) || peer.ip}
-                                </span>
-                                <span className={"shrink-0 text-nb-gray-400"}>
-                                    {t(peerStatusLabelKey(peer.connStatus))}
                                 </span>
                             </Command.Item>
                         ))}

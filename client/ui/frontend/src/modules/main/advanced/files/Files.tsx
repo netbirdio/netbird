@@ -3,15 +3,16 @@ import { useTranslation } from "react-i18next";
 import { Events } from "@wailsio/runtime";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import {
-    ArrowDownIcon,
-    ArrowUpIcon,
     BanIcon,
     CheckIcon,
     ChevronDownIcon,
     CopyIcon,
+    FileDownIcon,
+    FileUpIcon,
     FolderDownIcon,
     FolderOpenIcon,
     MoreVerticalIcon,
+    QuoteIcon,
     SendIcon,
     ShieldCheckIcon,
     Trash2Icon,
@@ -57,15 +58,21 @@ const transferTitle = (transfer: FileDropTransfer): string => {
 const isTextTransfer = (transfer: FileDropTransfer): boolean =>
     (transfer.files ?? []).length === 1 && transfer.files[0].isText;
 
+const kindIcon = (transfer: FileDropTransfer) => {
+    if (isTextTransfer(transfer)) return QuoteIcon;
+    return transfer.outgoing ? FileUpIcon : FileDownIcon;
+};
+
 const timeLabel = (iso: string): string => {
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return "";
     return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 };
 
-// Colours only what the eye should catch scanning the outcome column: a refusal
-// or failure in red, a completed send in green. Everything else, a received file
-// included, stays neutral so the exceptions stand out.
+// The outcome column has its own legend, separate from the icon's: green is a
+// transfer that arrived, either way round, red is one the far side refused or
+// that broke, grey is everything else. A transfer in flight is grey too, the
+// progress bar already says it is moving.
 const outcomeClass = (transfer: FileDropTransfer, inProgress: boolean): string => {
     if (inProgress) return "text-nb-gray-500";
     switch (transfer.state) {
@@ -73,7 +80,7 @@ const outcomeClass = (transfer: FileDropTransfer, inProgress: boolean): string =
         case TransferState.Failed:
             return "text-red-400";
         case TransferState.Completed:
-            return transfer.outgoing ? "text-green-400" : "text-nb-gray-500";
+            return "text-green-400";
         default:
             return "text-nb-gray-500";
     }
@@ -273,6 +280,7 @@ type RowProps = {
 const PendingOfferRow = ({ transfer, onChanged }: RowProps) => {
     const { t } = useTranslation();
     const [busy, setBusy] = useState(false);
+    const OfferIcon = kindIcon(transfer);
 
     const decide = async (accept: boolean) => {
         if (busy) return;
@@ -297,7 +305,7 @@ const PendingOfferRow = ({ transfer, onChanged }: RowProps) => {
             )}
         >
             <div className={"flex min-w-0 items-center gap-2.5"}>
-                <ArrowDownIcon size={16} className={"shrink-0 text-netbird"} aria-hidden={"true"} />
+                <OfferIcon size={16} className={"shrink-0 text-netbird"} aria-hidden={"true"} />
                 <div className={"flex min-w-0 flex-1 flex-col leading-tight"}>
                     <span
                         className={
@@ -344,6 +352,7 @@ const TransferRow = ({ transfer, onChanged }: RowProps) => {
     const { t } = useTranslation();
     const [copied, setCopied] = useState(false);
     const isText = isTextTransfer(transfer);
+    const RowKindIcon = kindIcon(transfer);
     const live = !isTerminalState(transfer.state);
     const delivered =
         !transfer.outgoing &&
@@ -389,15 +398,11 @@ const TransferRow = ({ transfer, onChanged }: RowProps) => {
                 "wails-no-draggable",
             )}
         >
-            {transfer.outgoing ? (
-                <ArrowUpIcon size={15} className={"shrink-0 text-netbird"} aria-hidden={"true"} />
-            ) : (
-                <ArrowDownIcon
-                    size={15}
-                    className={"shrink-0 text-green-400"}
-                    aria-hidden={"true"}
-                />
-            )}
+            <RowKindIcon
+                size={15}
+                className={cn("shrink-0", transfer.outgoing ? "text-netbird" : "text-green-400")}
+                aria-hidden={"true"}
+            />
             <div className={"flex min-w-0 flex-1 flex-col gap-0.5 leading-tight"}>
                 <TruncatedText
                     text={transferTitle(transfer)}

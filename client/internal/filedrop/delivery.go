@@ -11,6 +11,19 @@ import (
 )
 
 func deliver(spool *Spool, offer Offer, destDir string) ([]string, error) {
+	files := false
+	for _, f := range offer.Files {
+		if f.Kind != KindText {
+			files = true
+			break
+		}
+	}
+
+	if !files {
+		spool.Remove(offer.ID)
+		return nil, nil
+	}
+
 	if destDir == "" {
 		return nil, fmt.Errorf("no destination directory configured")
 	}

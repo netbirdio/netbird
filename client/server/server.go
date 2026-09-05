@@ -2495,7 +2495,7 @@ func (s *Server) connect(ctx context.Context, config *profilemanager.Config, sta
 	client.SetUpdateManager(s.updateManager)
 	client.SetSyncResponsePersistence(s.persistSyncResponse)
 
-	if mgr, err := s.fileDropManager(); err != nil {
+	if mgr, err := s.fileDropManager(ctx); err != nil {
 		log.Warnf("file drop is unavailable: %v", err)
 	} else {
 		client.SetFileDropManager(mgr)
