@@ -2364,7 +2364,7 @@ func (s *Server) publishProfileListChanged(profileName string) {
 		proto.SystemEvent_INFO,
 		proto.SystemEvent_SYSTEM,
 		"Profile list changed",
-		"",
+		nil,
 		map[string]string{proto.MetadataKindKey: proto.MetadataKindProfileListChanged, proto.MetadataProfileKey: profileName},
 	)
 }
@@ -2383,7 +2383,7 @@ func (s *Server) publishLogLevelChanged(level string) {
 		proto.SystemEvent_INFO,
 		proto.SystemEvent_SYSTEM,
 		"Log level changed",
-		"",
+		nil,
 		map[string]string{proto.MetadataKindKey: proto.MetadataKindLogLevelChanged, proto.MetadataLevelKey: level},
 	)
 }

@@ -94,12 +94,12 @@ func (s *Server) onMDMPolicyChange(_, _ *mdm.Policy) error {
 	// publishConfigChangedEvent has already fired inside
 	// restartEngineForMDMLocked with source="mdm". Emit an MDM-specific
 	// user-visible toast so the operator knows their IT policy was
-	// applied (UserMessage != "" triggers the GUI notifier).
+	// applied; the message and title keys let the GUI localise it.
 	s.statusRecorder.PublishEvent(
 		proto.SystemEvent_INFO,
 		proto.SystemEvent_SYSTEM,
 		"MDM policy applied",
-		"NetBird configuration was updated by your IT policy.",
+		proto.NewUserMessage(proto.UserMsgMDMPolicyApplied).WithTitle(proto.TitleMDMPolicyApplied),
 		map[string]string{
 			proto.MetadataSourceKey: proto.MetadataSourceMDM,
 			proto.MetadataTypeKey:   proto.MetadataTypePolicyApplied,
@@ -126,7 +126,7 @@ func (s *Server) publishConfigChangedEvent(source string) {
 		proto.SystemEvent_INFO,
 		proto.SystemEvent_SYSTEM,
 		fmt.Sprintf("daemon config changed (source=%s)", source),
-		"",
+		nil,
 		map[string]string{
 			proto.MetadataSourceKey: source,
 			proto.MetadataTypeKey:   proto.MetadataTypeConfigChanged,
