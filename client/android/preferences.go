@@ -307,6 +307,24 @@ func (p *Preferences) SetBlockInbound(block bool) {
 	p.configInput.BlockInbound = &block
 }
 
+// GetLazyConnectionEnabled reads the lazy-connection setting from the config file
+func (p *Preferences) GetLazyConnectionEnabled() (bool, error) {
+	if p.configInput.LazyConnectionEnabled != nil {
+		return *p.configInput.LazyConnectionEnabled, nil
+	}
+
+	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
+	if err != nil {
+		return false, err
+	}
+	return cfg.LazyConnectionEnabled, err
+}
+
+// SetLazyConnectionEnabled stores the given value and waits for commit
+func (p *Preferences) SetLazyConnectionEnabled(enabled bool) {
+	p.configInput.LazyConnectionEnabled = &enabled
+}
+
 // GetDisableIPv6 reads disable IPv6 setting from config file
 func (p *Preferences) GetDisableIPv6() (bool, error) {
 	if p.configInput.DisableIPv6 != nil {
