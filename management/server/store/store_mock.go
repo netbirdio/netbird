@@ -2121,6 +2121,21 @@ func (mr *MockStoreMockRecorder) GetNetworkResourceByID(ctx, lockStrength, accou
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNetworkResourceByID", reflect.TypeOf((*MockStore)(nil).GetNetworkResourceByID), ctx, lockStrength, accountID, resourceID)
 }
 
+// GetNetworkResourceByIDOrPublicID mocks base method.
+func (m *MockStore) GetNetworkResourceByIDOrPublicID(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) (*types0.NetworkResource, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetNetworkResourceByIDOrPublicID", ctx, lockStrength, accountID, resourceID)
+	ret0, _ := ret[0].(*types0.NetworkResource)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetNetworkResourceByIDOrPublicID indicates an expected call of GetNetworkResourceByIDOrPublicID.
+func (mr *MockStoreMockRecorder) GetNetworkResourceByIDOrPublicID(ctx, lockStrength, accountID, resourceID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNetworkResourceByIDOrPublicID", reflect.TypeOf((*MockStore)(nil).GetNetworkResourceByIDOrPublicID), ctx, lockStrength, accountID, resourceID)
+}
+
 // GetNetworkResourceByName mocks base method.
 func (m *MockStore) GetNetworkResourceByName(ctx context.Context, lockStrength LockingStrength, accountID, resourceName string) (*types0.NetworkResource, error) {
 	m.ctrl.T.Helper()
@@ -2451,6 +2466,21 @@ func (mr *MockStoreMockRecorder) GetPolicyByID(ctx, lockStrength, accountID, pol
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPolicyByID", reflect.TypeOf((*MockStore)(nil).GetPolicyByID), ctx, lockStrength, accountID, policyID)
 }
 
+// GetPolicyByIDOrPublicID mocks base method.
+func (m *MockStore) GetPolicyByIDOrPublicID(ctx context.Context, lockStrength LockingStrength, accountID, policyID string) (*types3.Policy, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPolicyByIDOrPublicID", ctx, lockStrength, accountID, policyID)
+	ret0, _ := ret[0].(*types3.Policy)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPolicyByIDOrPublicID indicates an expected call of GetPolicyByIDOrPublicID.
+func (mr *MockStoreMockRecorder) GetPolicyByIDOrPublicID(ctx, lockStrength, accountID, policyID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPolicyByIDOrPublicID", reflect.TypeOf((*MockStore)(nil).GetPolicyByIDOrPublicID), ctx, lockStrength, accountID, policyID)
+}
+
 // GetPolicyRulesByResourceID mocks base method.
 func (m *MockStore) GetPolicyRulesByResourceID(ctx context.Context, lockStrength LockingStrength, accountID, peerID string) ([]*types3.PolicyRule, error) {
 	m.ctrl.T.Helper()
@@ -2629,6 +2659,21 @@ func (m *MockStore) GetRouteByID(ctx context.Context, lockStrength LockingStreng
 func (mr *MockStoreMockRecorder) GetRouteByID(ctx, lockStrength, accountID, routeID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRouteByID", reflect.TypeOf((*MockStore)(nil).GetRouteByID), ctx, lockStrength, accountID, routeID)
+}
+
+// GetRouteByIDOrPublicID mocks base method.
+func (m *MockStore) GetRouteByIDOrPublicID(ctx context.Context, lockStrength LockingStrength, accountID, routeID string) (*route.Route, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetRouteByIDOrPublicID", ctx, lockStrength, accountID, routeID)
+	ret0, _ := ret[0].(*route.Route)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetRouteByIDOrPublicID indicates an expected call of GetRouteByIDOrPublicID.
+func (mr *MockStoreMockRecorder) GetRouteByIDOrPublicID(ctx, lockStrength, accountID, routeID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRouteByIDOrPublicID", reflect.TypeOf((*MockStore)(nil).GetRouteByIDOrPublicID), ctx, lockStrength, accountID, routeID)
 }
 
 // GetRoutingPeerNetworks mocks base method.
