@@ -3,6 +3,7 @@
 package conntrack
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"net/netip"
@@ -37,14 +38,18 @@ type ConnTrack struct {
 	flowLogger nftypes.FlowLogger
 	iface      nftypes.IFaceMapper
 
-	conn listener
-	mux  sync.Mutex
+	mux sync.Mutex
+	run *conntrackRun
 
 	dial           func() (listener, error)
 	instanceID     uuid.UUID
-	started        bool
-	done           chan struct{}
 	sysctlModified bool
+}
+
+type conntrackRun struct {
+	ctx    context.Context
+	cancel context.CancelFunc
+	conn   listener
 }
 
 // DialFunc is a constructor for netlink conntrack connections.
@@ -71,7 +76,6 @@ func New(flowLogger nftypes.FlowLogger, iface nftypes.IFaceMapper, opts ...Optio
 		iface:      iface,
 		instanceID: uuid.New(),
 		dial:       defaultDial,
-		done:       make(chan struct{}, 1),
 	}
 	for _, opt := range opts {
 		opt(ct)
@@ -84,7 +88,7 @@ func (c *ConnTrack) Start(enableCounters bool) error {
 	c.mux.Lock()
 	defer c.mux.Unlock()
 
-	if c.started {
+	if c.run != nil {
 		return nil
 	}
 
@@ -99,8 +103,6 @@ func (c *ConnTrack) Start(enableCounters bool) error {
 		c.RestoreAccounting()
 		return fmt.Errorf("dial conntrack: %w", err)
 	}
-	c.conn = conn
-
 	events := make(chan nfct.Event, defaultChannelSize)
 	errChan, err := conn.Listen(events, 1, []netfilter.NetlinkGroup{
 		netfilter.GroupCTNew,
@@ -108,37 +110,42 @@ func (c *ConnTrack) Start(enableCounters bool) error {
 	})
 
 	if err != nil {
-		if err := c.conn.Close(); err != nil {
+		if err := conn.Close(); err != nil {
 			log.Errorf("Error closing conntrack connection: %v", err)
 		}
-		c.conn = nil
 		c.RestoreAccounting()
 		return fmt.Errorf("start conntrack listener: %w", err)
 	}
 
-	// Drain any stale stop signal from a previous cycle.
-	select {
-	case <-c.done:
-	default:
+	ctx, cancel := context.WithCancel(context.Background())
+	run := &conntrackRun{
+		ctx:    ctx,
+		cancel: cancel,
+		conn:   conn,
 	}
+	c.run = run
 
-	c.started = true
-
-	go c.receiverRoutine(events, errChan)
+	go c.receiverRoutine(run, events, errChan)
 
 	return nil
 }
 
-func (c *ConnTrack) receiverRoutine(events chan nfct.Event, errChan chan error) {
+func (c *ConnTrack) receiverRoutine(run *conntrackRun, events chan nfct.Event, errChan chan error) {
 	for {
 		select {
 		case event := <-events:
-			c.handleEvent(event)
-		case err := <-errChan:
-			if events, errChan = c.handleListenerError(err); events == nil {
+			if run.ctx.Err() != nil {
 				return
 			}
-		case <-c.done:
+			c.handleEvent(event)
+		case err := <-errChan:
+			if run.ctx.Err() != nil {
+				return
+			}
+			if events, errChan = c.handleListenerError(run, err); events == nil {
+				return
+			}
+		case <-run.ctx.Done():
 			return
 		}
 	}
@@ -146,27 +153,35 @@ func (c *ConnTrack) receiverRoutine(events chan nfct.Event, errChan chan error) 
 
 // handleListenerError closes the failed connection and attempts to reconnect.
 // Returns new channels on success, or nil if shutdown was requested.
-func (c *ConnTrack) handleListenerError(err error) (chan nfct.Event, chan error) {
+func (c *ConnTrack) handleListenerError(run *conntrackRun, err error) (chan nfct.Event, chan error) {
 	log.Warnf("conntrack event listener failed: %v", err)
-	c.closeConn()
-	return c.reconnect()
+	if !c.closeRunConn(run) {
+		return nil, nil
+	}
+	return c.reconnect(run)
 }
 
-func (c *ConnTrack) closeConn() {
+func (c *ConnTrack) closeRunConn(run *conntrackRun) bool {
 	c.mux.Lock()
-	defer c.mux.Unlock()
+	if c.run != run {
+		c.mux.Unlock()
+		return false
+	}
+	conn := run.conn
+	run.conn = nil
+	c.mux.Unlock()
 
-	if c.conn != nil {
-		if err := c.conn.Close(); err != nil {
+	if conn != nil {
+		if err := conn.Close(); err != nil {
 			log.Debugf("close conntrack connection: %v", err)
 		}
-		c.conn = nil
 	}
+	return true
 }
 
 // reconnect attempts to re-establish the conntrack netlink listener with exponential backoff.
 // Returns new channels on success, or nil if shutdown was requested.
-func (c *ConnTrack) reconnect() (chan nfct.Event, chan error) {
+func (c *ConnTrack) reconnect(run *conntrackRun) (chan nfct.Event, chan error) {
 	bo := &backoff.ExponentialBackOff{
 		InitialInterval:     reconnectInitInterval,
 		RandomizationFactor: reconnectRandomization,
@@ -181,19 +196,24 @@ func (c *ConnTrack) reconnect() (chan nfct.Event, chan error) {
 		delay := bo.NextBackOff()
 		log.Infof("reconnecting conntrack listener in %s", delay)
 
+		timer := time.NewTimer(delay)
 		select {
-		case <-c.done:
-			c.mux.Lock()
-			c.started = false
-			c.mux.Unlock()
+		case <-run.ctx.Done():
+			timer.Stop()
 			return nil, nil
-		case <-time.After(delay):
+		case <-timer.C:
 		}
 
 		conn, err := c.dial()
 		if err != nil {
 			log.Warnf("reconnect conntrack dial: %v", err)
 			continue
+		}
+		if run.ctx.Err() != nil {
+			if closeErr := conn.Close(); closeErr != nil {
+				log.Debugf("close conntrack connection: %v", closeErr)
+			}
+			return nil, nil
 		}
 
 		events := make(chan nfct.Event, defaultChannelSize)
@@ -210,15 +230,14 @@ func (c *ConnTrack) reconnect() (chan nfct.Event, chan error) {
 		}
 
 		c.mux.Lock()
-		if !c.started {
-			// Stop() ran while we were reconnecting.
+		if c.run != run || run.ctx.Err() != nil {
 			c.mux.Unlock()
 			if closeErr := conn.Close(); closeErr != nil {
 				log.Debugf("close conntrack connection: %v", closeErr)
 			}
 			return nil, nil
 		}
-		c.conn = conn
+		run.conn = conn
 		c.mux.Unlock()
 
 		log.Infof("conntrack listener reconnected successfully")
@@ -229,61 +248,47 @@ func (c *ConnTrack) reconnect() (chan nfct.Event, chan error) {
 
 // Stop stops the connection tracking. This method is idempotent.
 func (c *ConnTrack) Stop() {
-	c.mux.Lock()
-	defer c.mux.Unlock()
-
-	if !c.started {
+	conn := c.stopRun()
+	if conn == nil {
 		return
 	}
 
 	log.Info("Stopping conntrack event listening")
-
-	select {
-	case c.done <- struct{}{}:
-	default:
+	if err := conn.Close(); err != nil {
+		log.Errorf("Error closing conntrack connection: %v", err)
 	}
-
-	if c.conn != nil {
-		if err := c.conn.Close(); err != nil {
-			log.Errorf("Error closing conntrack connection: %v", err)
-		}
-		c.conn = nil
-	}
-
-	c.started = false
-
-	c.RestoreAccounting()
 }
 
 // Close stops listening for events and cleans up resources
 func (c *ConnTrack) Close() error {
-	c.mux.Lock()
-	defer c.mux.Unlock()
-
-	if !c.started {
+	conn := c.stopRun()
+	if conn == nil {
 		return nil
 	}
 
-	select {
-	case c.done <- struct{}{}:
-	default:
-	}
-
-	c.started = false
-
-	var closeErr error
-	if c.conn != nil {
-		closeErr = c.conn.Close()
-		c.conn = nil
-	}
-
-	c.RestoreAccounting()
-
-	if closeErr != nil {
-		return fmt.Errorf("close conntrack: %w", closeErr)
+	if err := conn.Close(); err != nil {
+		return fmt.Errorf("close conntrack: %w", err)
 	}
 
 	return nil
+}
+
+func (c *ConnTrack) stopRun() listener {
+	c.mux.Lock()
+	defer c.mux.Unlock()
+
+	if c.run == nil {
+		return nil
+	}
+
+	run := c.run
+	c.run = nil
+	run.cancel()
+	conn := run.conn
+	run.conn = nil
+
+	c.RestoreAccounting()
+	return conn
 }
 
 // handleEvent processes incoming conntrack events
