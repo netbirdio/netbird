@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/netbirdio/netbird/shared/management/http/api"
 )
@@ -336,25 +338,35 @@ func (a *AgentNetworkAPI) DeleteBudgetRule(ctx context.Context, ruleID string) e
 // to an APIError matchable via IsNotFound rather than fabricating defaults
 // the server never stated.
 func (a *AgentNetworkAPI) GetSettings(ctx context.Context) (*api.AgentNetworkSettings, error) {
+	settings, _, err := a.GetSettingsWithETag(ctx)
+	return settings, err
+}
+
+// GetSettingsWithETag is GetSettings, additionally returning the entity-tag
+// the server derived for the settings it returned. Hand that validator to
+// UpdateSettingsIfMatch or DeleteSettingsIfMatch to make the write conditional
+// on nothing having changed in between — the read-modify-write cycle that
+// otherwise silently reverts a concurrent change.
+func (a *AgentNetworkAPI) GetSettingsWithETag(ctx context.Context) (*api.AgentNetworkSettings, string, error) {
 	resp, err := a.c.NewRequest(ctx, "GET", "/api/agent-network/settings", nil, nil)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if resp.Body != nil {
 		defer resp.Body.Close()
 	}
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if trimmed := bytes.TrimSpace(body); len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
-		return nil, &APIError{StatusCode: http.StatusNotFound, Message: "agent network settings not found"}
+		return nil, "", &APIError{StatusCode: http.StatusNotFound, Message: "agent network settings not found"}
 	}
 	var ret api.AgentNetworkSettings
 	if err := json.Unmarshal(body, &ret); err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return &ret, nil
+	return &ret, etagFrom(resp), nil
 }
 
 // CreateSettings bootstraps the account's Agent Network settings row,
@@ -363,19 +375,30 @@ func (a *AgentNetworkAPI) GetSettings(ctx context.Context) (*api.AgentNetworkSet
 // request.Endpoint (self-addressed dedicated endpoint, claimed verbatim) must
 // be set. Returns a conflict when the account already has a settings row.
 func (a *AgentNetworkAPI) CreateSettings(ctx context.Context, request api.PostApiAgentNetworkSettingsJSONRequestBody) (*api.AgentNetworkSettings, error) {
+	settings, _, err := a.CreateSettingsWithETag(ctx, request)
+	return settings, err
+}
+
+// CreateSettingsWithETag is CreateSettings, additionally returning the
+// entity-tag of the row it bootstrapped, so a client can follow the bootstrap
+// with a conditional write without an intervening read.
+func (a *AgentNetworkAPI) CreateSettingsWithETag(ctx context.Context, request api.PostApiAgentNetworkSettingsJSONRequestBody) (*api.AgentNetworkSettings, string, error) {
 	requestBytes, err := json.Marshal(request)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	resp, err := a.c.NewRequest(ctx, "POST", "/api/agent-network/settings", bytes.NewReader(requestBytes), nil)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if resp.Body != nil {
 		defer resp.Body.Close()
 	}
 	ret, err := parseResponse[api.AgentNetworkSettings](resp)
-	return &ret, err
+	if err != nil {
+		return nil, "", err
+	}
+	return &ret, etagFrom(resp), nil
 }
 
 // UpdateSettings updates the account's Agent Network settings; the request
@@ -385,19 +408,35 @@ func (a *AgentNetworkAPI) CreateSettings(ctx context.Context, request api.PostAp
 // a request carrying different values is rejected. Returns not-found until
 // the account is bootstrapped.
 func (a *AgentNetworkAPI) UpdateSettings(ctx context.Context, request api.PutApiAgentNetworkSettingsJSONRequestBody) (*api.AgentNetworkSettings, error) {
+	settings, _, err := a.UpdateSettingsIfMatch(ctx, request, "")
+	return settings, err
+}
+
+// UpdateSettingsIfMatch is UpdateSettings made conditional on etag — the
+// validator from an earlier read — still being current, and returns the
+// validator of the row it wrote. This is what closes the read-modify-write
+// window: a settings change made between the read and this write makes the
+// request fail with a precondition-failed APIError instead of reverting it.
+//
+// An empty etag sends no precondition and updates unconditionally, which is
+// what UpdateSettings does.
+func (a *AgentNetworkAPI) UpdateSettingsIfMatch(ctx context.Context, request api.PutApiAgentNetworkSettingsJSONRequestBody, etag string) (*api.AgentNetworkSettings, string, error) {
 	requestBytes, err := json.Marshal(request)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	resp, err := a.c.NewRequest(ctx, "PUT", "/api/agent-network/settings", bytes.NewReader(requestBytes), nil)
+	resp, err := a.c.newRequest(ctx, "PUT", "/api/agent-network/settings", bytes.NewReader(requestBytes), nil, ifMatchHeader(etag))
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if resp.Body != nil {
 		defer resp.Body.Close()
 	}
 	ret, err := parseResponse[api.AgentNetworkSettings](resp)
-	return &ret, err
+	if err != nil {
+		return nil, "", err
+	}
+	return &ret, etagFrom(resp), nil
 }
 
 // DeleteSettings deletes the account's Agent Network settings row, releasing
@@ -405,7 +444,20 @@ func (a *AgentNetworkAPI) UpdateSettings(ctx context.Context, request api.PutApi
 // exists for the account or while a proxy is actively serving the endpoint.
 // Bootstrapping again afterwards allocates a new endpoint.
 func (a *AgentNetworkAPI) DeleteSettings(ctx context.Context) error {
-	resp, err := a.c.NewRequest(ctx, "DELETE", "/api/agent-network/settings", nil, nil)
+	return a.DeleteSettingsIfMatch(ctx, "")
+}
+
+// DeleteSettingsIfMatch is DeleteSettings made conditional on etag — the
+// validator from an earlier read — still being current. Sending it matters
+// more here than on update: the server's other two refusals are about state
+// (no providers, no serving proxy), so this is the only thing that stops a
+// client working from an old read of one row from releasing the endpoint of
+// the row that replaced it.
+//
+// An empty etag sends no precondition and deletes unconditionally, which is
+// what DeleteSettings does.
+func (a *AgentNetworkAPI) DeleteSettingsIfMatch(ctx context.Context, etag string) error {
+	resp, err := a.c.newRequest(ctx, "DELETE", "/api/agent-network/settings", nil, nil, ifMatchHeader(etag))
 	if err != nil {
 		return err
 	}
@@ -414,4 +466,21 @@ func (a *AgentNetworkAPI) DeleteSettings(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// etagFrom returns the bare validator from a response, with the transport's
+// quoting stripped so a caller can hand it straight back to an If-Match
+// parameter without knowing the wire syntax.
+func etagFrom(resp *http.Response) string {
+	return strings.Trim(resp.Header.Get("ETag"), `"`)
+}
+
+// ifMatchHeader renders the precondition headers for a bare validator,
+// re-applying the quoting etagFrom stripped. An empty validator yields no
+// headers at all — an unconditional request.
+func ifMatchHeader(etag string) map[string]string {
+	if etag == "" {
+		return nil
+	}
+	return map[string]string{"If-Match": strconv.Quote(etag)}
 }
