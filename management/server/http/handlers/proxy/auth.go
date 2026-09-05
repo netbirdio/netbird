@@ -160,15 +160,22 @@ func extractUserIDFromToken(ctx context.Context, provider *oidc.Provider, config
 		return ""
 	}
 
-	var claims struct {
-		Subject string `json:"sub"`
+	claimName := config.UserIDClaim
+	if claimName == "" {
+		claimName = "sub"
 	}
+
+	var claims map[string]interface{}
 	if err := idToken.Claims(&claims); err != nil {
 		log.WithError(err).Warn("Failed to extract claims from ID token")
 		return ""
 	}
 
-	return claims.Subject
+	userID, _ := claims[claimName].(string)
+	if userID == "" {
+		log.WithField("claim", claimName).Warn("User ID claim missing or empty in ID token")
+	}
+	return userID
 }
 
 // resolveClientIP extracts the real client IP from the request.
