@@ -17,8 +17,6 @@ import (
 	nberrors "github.com/netbirdio/netbird/client/errors"
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
-	"github.com/netbirdio/netbird/client/internal/ebpf"
-	ebpfMgr "github.com/netbirdio/netbird/client/internal/ebpf/manager"
 )
 
 const (
@@ -40,9 +38,8 @@ type serviceViaListener struct {
 	listenPort        uint16
 	listenerIsRunning bool
 	listenerFlagLock  sync.Mutex
-	ebpfService       ebpfMgr.Manager
 	firewall          Firewall
-	tcpDNATConfigured bool
+	dnatConfigured    bool
 }
 
 func newServiceViaListener(wgIface WGIface, customAddr *netip.AddrPort, fw Firewall) *serviceViaListener {
@@ -112,18 +109,48 @@ func (s *serviceViaListener) Listen() error {
 		}
 	}()
 
-	// When eBPF redirects UDP port 53 to our listen port, TCP still needs
-	// a DNAT rule because eBPF only handles UDP.
-	if s.ebpfService != nil && s.firewall != nil && s.listenPort != DefaultPort {
-		if err := s.firewall.AddOutputDNAT(s.listenIP, firewall.ProtocolTCP, DefaultPort, s.listenPort); err != nil {
-			log.Warnf("failed to add DNS TCP DNAT rule, TCP DNS on port 53 will not work: %v", err)
-		} else {
-			s.tcpDNATConfigured = true
-			log.Infof("added DNS TCP DNAT rule: %s:%d -> %s:%d", s.listenIP, DefaultPort, s.listenIP, s.listenPort)
-		}
+	if s.listenPort != DefaultPort {
+		s.setupDNAT()
 	}
 
 	return nil
+}
+
+// setupDNAT redirects port 53 to the port the DNS server actually listens on.
+// Both protocols must be redirected or none: RuntimePort reports port 53 while
+// the redirect is in place, so a half-configured redirect would advertise a
+// resolver that only answers over one protocol.
+func (s *serviceViaListener) setupDNAT() {
+	if s.firewall == nil {
+		log.Errorf("no firewall manager available to redirect DNS port %d to %d, "+
+			"clients pointed at %s will not reach the resolver", DefaultPort, s.listenPort, s.listenIP)
+		return
+	}
+
+	protocols := []firewall.Protocol{firewall.ProtocolUDP, firewall.ProtocolTCP}
+	for i, proto := range protocols {
+		if err := s.firewall.AddOutputDNAT(s.listenIP, proto, DefaultPort, s.listenPort); err != nil {
+			log.Errorf("failed to add DNS %s DNAT rule, DNS on port %d will not work: %v",
+				proto, DefaultPort, err)
+			if err := s.removeDNAT(protocols[:i]); err != nil {
+				log.Warnf("failed to roll back DNS DNAT rules: %v", err)
+			}
+			return
+		}
+	}
+
+	s.dnatConfigured = true
+	log.Infof("added DNS DNAT rules: %s:%d -> %s:%d (UDP + TCP)", s.listenIP, DefaultPort, s.listenIP, s.listenPort)
+}
+
+func (s *serviceViaListener) removeDNAT(protocols []firewall.Protocol) error {
+	var merr *multierror.Error
+	for _, proto := range protocols {
+		if err := s.firewall.RemoveOutputDNAT(s.listenIP, proto, DefaultPort, s.listenPort); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("remove DNS %s DNAT rule: %w", proto, err))
+		}
+	}
+	return nberrors.FormatErrorOrNil(merr)
 }
 
 func (s *serviceViaListener) Stop() error {
@@ -148,17 +175,11 @@ func (s *serviceViaListener) Stop() error {
 		merr = multierror.Append(merr, fmt.Errorf("stop DNS TCP server: %w", err))
 	}
 
-	if s.tcpDNATConfigured && s.firewall != nil {
-		if err := s.firewall.RemoveOutputDNAT(s.listenIP, firewall.ProtocolTCP, DefaultPort, s.listenPort); err != nil {
-			merr = multierror.Append(merr, fmt.Errorf("remove DNS TCP DNAT rule: %w", err))
+	if s.dnatConfigured {
+		if err := s.removeDNAT([]firewall.Protocol{firewall.ProtocolUDP, firewall.ProtocolTCP}); err != nil {
+			merr = multierror.Append(merr, err)
 		}
-		s.tcpDNATConfigured = false
-	}
-
-	if s.ebpfService != nil {
-		if err := s.ebpfService.FreeDNSFwd(); err != nil {
-			merr = multierror.Append(merr, fmt.Errorf("stop traffic forwarder: %w", err))
-		}
+		s.dnatConfigured = false
 	}
 
 	return nberrors.FormatErrorOrNil(merr)
@@ -177,11 +198,10 @@ func (s *serviceViaListener) RuntimePort() int {
 	s.listenerFlagLock.Lock()
 	defer s.listenerFlagLock.Unlock()
 
-	if s.ebpfService != nil {
+	if s.dnatConfigured {
 		return DefaultPort
-	} else {
-		return int(s.listenPort)
 	}
+	return int(s.listenPort)
 }
 
 func (s *serviceViaListener) RuntimeIP() netip.Addr {
@@ -190,30 +210,28 @@ func (s *serviceViaListener) RuntimeIP() netip.Addr {
 
 // evalListenAddress figures out the listen address for the DNS server.
 // IPv4-only: all peers have a v4 overlay address, and DNS config points to v4.
-// First checks port 53 on WG interface or lo, then tries eBPF on a random port,
-// then falls back to port 5053.
+// Prefers port 53 on the overlay interface or lo, so no redirect is needed at
+// all; when it is taken it falls back to port 5053 and then to a random free
+// port, both of which need the port 53 redirect set up by setupDNAT.
 func (s *serviceViaListener) evalListenAddress() (netip.Addr, uint16, error) {
 	if s.customAddr != nil {
 		return s.customAddr.Addr(), s.customAddr.Port(), nil
 	}
 
-	ip, ok := s.testFreePort(DefaultPort)
-	if ok {
+	if ip, ok := s.testFreePort(DefaultPort); ok {
 		return ip, DefaultPort, nil
 	}
 
-	ebpfSrv, port, ok := s.tryToUseeBPF()
-	if ok {
-		s.ebpfService = ebpfSrv
-		return s.wgInterface.Address().IP, port, nil
-	}
-
-	ip, ok = s.testFreePort(customPort)
-	if ok {
+	if ip, ok := s.testFreePort(customPort); ok {
 		return ip, customPort, nil
 	}
 
-	return netip.Addr{}, 0, fmt.Errorf("failed to find a free port for DNS server")
+	port, err := randomFreePort()
+	if err != nil {
+		return netip.Addr{}, 0, fmt.Errorf("find a free port for DNS server: %w", err)
+	}
+
+	return s.wgInterface.Address().IP, port, nil
 }
 
 func (s *serviceViaListener) testFreePort(port int) (netip.Addr, bool) {
@@ -260,48 +278,19 @@ func (s *serviceViaListener) tryToBind(ip netip.Addr, port int) bool {
 	return true
 }
 
-// tryToUseeBPF decides whether to apply eBPF program to capture DNS traffic on port 53.
-// This is needed because on some operating systems if we start a DNS server not on a default port 53,
-// the domain name  resolution won't work. So, in case we are running on Linux and picked a free
-// port we should fall back to the eBPF solution that will capture traffic on port 53 and forward
-// it to a local DNS server running on the chosen port.
-func (s *serviceViaListener) tryToUseeBPF() (ebpfMgr.Manager, uint16, bool) {
-	if runtime.GOOS != "linux" {
-		return nil, 0, false
-	}
-
-	port, err := s.generateFreePort() //nolint:staticcheck,unused
-	if err != nil {
-		log.Warnf("failed to generate a free port for eBPF DNS forwarder server: %s", err)
-		return nil, 0, false
-	}
-
-	ebpfSrv := ebpf.GetEbpfManagerInstance()
-	err = ebpfSrv.LoadDNSFwd(s.wgInterface.Address().IP, int(port))
-	if err != nil {
-		log.Warnf("failed to load DNS forwarder eBPF program, error: %s", err)
-		return nil, 0, false
-	}
-
-	return ebpfSrv, port, true
-}
-
-func (s *serviceViaListener) generateFreePort() (uint16, error) {
-	ok := s.tryToBind(s.wgInterface.Address().IP, customPort)
-	if ok {
-		return customPort, nil
-	}
-
+// randomFreePort returns a port the kernel reports as free. The probe listener
+// is closed again, so the port is only likely, not guaranteed, to still be free
+// when the DNS server binds it.
+func randomFreePort() (uint16, error) {
 	probeListener, err := net.ListenUDP("udp4", &net.UDPAddr{})
 	if err != nil {
-		log.Debugf("failed to bind random port for DNS: %s", err)
-		return 0, err
+		return 0, fmt.Errorf("bind random port: %w", err)
 	}
 
 	port := uint16(probeListener.LocalAddr().(*net.UDPAddr).Port)
-	if err = probeListener.Close(); err != nil {
-		log.Debugf("failed to free up DNS port: %s", err)
-		return 0, err
+	if err := probeListener.Close(); err != nil {
+		return 0, fmt.Errorf("free up probed port: %w", err)
 	}
+
 	return port, nil
 }
