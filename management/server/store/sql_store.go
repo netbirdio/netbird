@@ -5686,6 +5686,23 @@ func (s *SqlStore) ListCustomDomains(ctx context.Context, accountID string) ([]*
 	return domains, nil
 }
 
+// GetCustomDomainByName returns the custom domain row holding the given name,
+// regardless of which account owns it.
+func (s *SqlStore) GetCustomDomainByName(ctx context.Context, domainName string) (*domain.Domain, error) {
+	customDomain := &domain.Domain{}
+	result := s.db.Take(customDomain, "domain = ?", domainName)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "custom domain %s not found", domainName)
+		}
+
+		log.WithContext(ctx).Errorf("failed to get custom domain by name from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get custom domain from store")
+	}
+
+	return customDomain, nil
+}
+
 func (s *SqlStore) CreateCustomDomain(ctx context.Context, accountID string, domainName string, targetCluster string, validated bool) (*domain.Domain, error) {
 	newDomain := &domain.Domain{
 		ID:            xid.New().String(), // Generate our own ID because gorm doesn't always configure the database to handle this for us.
@@ -5697,6 +5714,18 @@ func (s *SqlStore) CreateCustomDomain(ctx context.Context, accountID string, dom
 	}
 	result := s.db.Create(newDomain)
 	if result.Error != nil {
+		// The unique index is the last guard when two requests clear the
+		// manager's availability check at the same time. The one that loses the
+		// insert is a conflict, not an internal failure.
+		var count int64
+		if err := s.db.Model(&domain.Domain{}).Where("domain = ?", domainName).Count(&count).Error; err == nil && count > 0 {
+			// The insert error is logged even on this path: the name being taken
+			// is what the caller has to act on, but if the insert also failed for
+			// an unrelated reason the operator still needs to see it.
+			log.WithContext(ctx).Warnf("create reverse proxy custom domain %s rejected, name already registered: %v", domainName, result.Error)
+			return nil, status.Errorf(status.AlreadyExists, "domain %s is already registered", domainName)
+		}
+
 		log.WithContext(ctx).Errorf("failed to create reverse proxy custom domain to store: %v", result.Error)
 		return nil, status.Errorf(status.Internal, "failed to create reverse proxy custom domain to store")
 	}

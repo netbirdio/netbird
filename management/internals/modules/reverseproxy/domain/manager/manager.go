@@ -26,6 +26,7 @@ type store interface {
 	GetAgentNetworkSettings(ctx context.Context, lockStrength nbstore.LockingStrength, accountID string) (*agentnetworkTypes.Settings, error)
 
 	GetCustomDomain(ctx context.Context, accountID string, domainID string) (*domain.Domain, error)
+	GetCustomDomainByName(ctx context.Context, domainName string) (*domain.Domain, error)
 	ListFreeDomains(ctx context.Context, accountID string) ([]string, error)
 	ListCustomDomains(ctx context.Context, accountID string) ([]*domain.Domain, error)
 	CreateCustomDomain(ctx context.Context, accountID string, domainName string, targetCluster string, validated bool) (*domain.Domain, error)
@@ -150,6 +151,10 @@ func (m Manager) CreateDomain(ctx context.Context, accountID, userID, domainName
 		return nil, fmt.Errorf("target cluster %s is not available", targetCluster)
 	}
 
+	if err := m.checkDomainAvailable(ctx, domainName); err != nil {
+		return nil, err
+	}
+
 	// Attempt an initial validation against the specified cluster only
 	var validated bool
 	if m.validator.IsValid(ctx, domainName, []string{targetCluster}) {
@@ -164,6 +169,23 @@ func (m Manager) CreateDomain(ctx context.Context, accountID, userID, domainName
 	m.accountManager.StoreEvent(ctx, userID, d.ID, accountID, activity.DomainAdded, d.EventMeta())
 
 	return d, nil
+}
+
+// checkDomainAvailable reports whether the domain is free to claim. The unique
+// index on the column is the real guard; this turns the violation into a
+// conflict the caller can act on instead of a database error, and says nothing
+// about which account holds the domain.
+func (m Manager) checkDomainAvailable(ctx context.Context, domainName string) error {
+	_, err := m.store.GetCustomDomainByName(ctx, domainName)
+	if err == nil {
+		return status.Errorf(status.AlreadyExists, "domain %s is already registered", domainName)
+	}
+
+	if sErr, ok := status.FromError(err); ok && sErr.Type() == status.NotFound {
+		return nil
+	}
+
+	return fmt.Errorf("look up domain: %w", err)
 }
 
 func (m Manager) DeleteDomain(ctx context.Context, accountID, userID, domainID string) error {
@@ -203,7 +225,9 @@ func (m Manager) ValidateDomain(ctx context.Context, accountID, userID, domainID
 		log.WithFields(log.Fields{
 			"accountID": accountID,
 			"domainID":  domainID,
-		}).WithError(err).Error("validate domain")
+			"userID":    userID,
+		}).Error("validate domain: permission denied")
+		return
 	}
 
 	log.WithFields(log.Fields{
@@ -298,9 +322,12 @@ func (m Manager) DeriveClusterFromDomain(ctx context.Context, accountID, domain 
 		return "", fmt.Errorf("list custom domains: %w", err)
 	}
 
-	targetCluster, valid := extractClusterFromCustomDomains(domain, customDomains)
-	if valid {
+	targetCluster, match := extractClusterFromCustomDomains(domain, customDomains)
+	switch match {
+	case customDomainValidated:
 		return targetCluster, nil
+	case customDomainUnvalidated:
+		return "", status.Errorf(status.PreconditionFailed, "domain %s is not validated", domain)
 	}
 
 	return "", fmt.Errorf("domain %s does not match any available proxy cluster", domain)
@@ -363,11 +390,30 @@ func (m Manager) reservedGatewayAddress(ctx context.Context, accountID string) (
 	return settings.ProxyAddress, nil
 }
 
-func extractClusterFromCustomDomains(serviceDomain string, customDomains []*domain.Domain) (string, bool) {
+// customDomainMatch describes how a service domain relates to the account's
+// custom domain rows.
+type customDomainMatch int
+
+const (
+	customDomainNoMatch customDomainMatch = iota
+	customDomainUnvalidated
+	customDomainValidated
+)
+
+// extractClusterFromCustomDomains finds the longest custom domain covering the
+// service domain and reports its target cluster. Only a validated row yields a
+// cluster: until the CNAME check has passed the account has not shown it
+// controls the name, so no traffic may be routed for it.
+func extractClusterFromCustomDomains(serviceDomain string, customDomains []*domain.Domain) (string, customDomainMatch) {
 	bestCluster := ""
 	bestLen := -1
+	matched := false
 	for _, cd := range customDomains {
 		if serviceDomain != cd.Domain && !strings.HasSuffix(serviceDomain, "."+cd.Domain) {
+			continue
+		}
+		matched = true
+		if !cd.Validated {
 			continue
 		}
 		if l := len(cd.Domain); l > bestLen {
@@ -375,7 +421,15 @@ func extractClusterFromCustomDomains(serviceDomain string, customDomains []*doma
 			bestCluster = cd.TargetCluster
 		}
 	}
-	return bestCluster, bestLen >= 0
+
+	switch {
+	case bestLen >= 0:
+		return bestCluster, customDomainValidated
+	case matched:
+		return "", customDomainUnvalidated
+	default:
+		return "", customDomainNoMatch
+	}
 }
 
 // ExtractClusterFromFreeDomain extracts the cluster address from a free domain.

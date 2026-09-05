@@ -184,6 +184,10 @@ func (s *stubStore) GetCustomDomain(context.Context, string, string) (*domain.Do
 	panic("not used in allow-list tests")
 }
 
+func (s *stubStore) GetCustomDomainByName(context.Context, string) (*domain.Domain, error) {
+	panic("not used in allow-list tests")
+}
+
 func (s *stubStore) ListFreeDomains(context.Context, string) ([]string, error) {
 	panic("not used in allow-list tests")
 }
