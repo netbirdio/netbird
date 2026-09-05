@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/netip"
 	"slices"
@@ -11,6 +12,7 @@ import (
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
+	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
@@ -160,23 +162,20 @@ func (s *Server) SelectNetworks(_ context.Context, req *proto.SelectNetworksRequ
 		return nil, fmt.Errorf("no route manager")
 	}
 
+	var err error
 	if req.GetAll() {
 		routeManager.SelectAllRoutes()
-	} else if err := routeManager.SelectRoutes(toNetIDs(req.GetNetworkIDs()), req.GetAppend()); err != nil {
-		return nil, err
+	} else {
+		err = routeManager.SelectRoutes(toNetIDs(req.GetNetworkIDs()), req.GetAppend())
 	}
 
-	s.statusRecorder.PublishEvent(
-		proto.SystemEvent_INFO,
-		proto.SystemEvent_SYSTEM,
-		"Network selection changed",
-		"",
-		map[string]string{
-			"networks": strings.Join(req.GetNetworkIDs(), ", "),
-			"append":   fmt.Sprint(req.GetAppend()),
-			"all":      fmt.Sprint(req.GetAll()),
-		},
-	)
+	if selectionApplied(err) {
+		s.publishSelectionEvent("Network selection changed", req)
+	}
+
+	if err != nil {
+		return nil, err
+	}
 
 	return &proto.SelectNetworksResponse{}, nil
 }
@@ -204,16 +203,39 @@ func (s *Server) DeselectNetworks(_ context.Context, req *proto.SelectNetworksRe
 		return nil, fmt.Errorf("no route manager")
 	}
 
+	var err error
 	if req.GetAll() {
 		routeManager.DeselectAllRoutes()
-	} else if err := routeManager.DeselectRoutes(toNetIDs(req.GetNetworkIDs())); err != nil {
+	} else {
+		err = routeManager.DeselectRoutes(toNetIDs(req.GetNetworkIDs()))
+	}
+
+	if selectionApplied(err) {
+		s.publishSelectionEvent("Network deselection changed", req)
+	}
+
+	if err != nil {
 		return nil, err
 	}
 
+	return &proto.SelectNetworksResponse{}, nil
+}
+
+// selectionApplied reports whether a select/deselect request changed the
+// selection. A partial failure (an unknown ID mixed with valid ones) still
+// applies the valid IDs, so it counts as applied; only ErrNoRoutesApplied
+// means the request left the selection untouched.
+func selectionApplied(err error) bool {
+	return !errors.Is(err, routemanager.ErrNoRoutesApplied)
+}
+
+// publishSelectionEvent reports a network selection or deselection change,
+// with the request's networks, append flag, and all flag as metadata.
+func (s *Server) publishSelectionEvent(title string, req *proto.SelectNetworksRequest) {
 	s.statusRecorder.PublishEvent(
 		proto.SystemEvent_INFO,
 		proto.SystemEvent_SYSTEM,
-		"Network deselection changed",
+		title,
 		"",
 		map[string]string{
 			"networks": strings.Join(req.GetNetworkIDs(), ", "),
@@ -221,8 +243,6 @@ func (s *Server) DeselectNetworks(_ context.Context, req *proto.SelectNetworksRe
 			"all":      fmt.Sprint(req.GetAll()),
 		},
 	)
-
-	return &proto.SelectNetworksResponse{}, nil
 }
 
 func toNetIDs(routes []string) []route.NetID {
