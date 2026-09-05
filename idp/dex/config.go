@@ -275,6 +275,8 @@ func applyOIDCDefaults(connType string, config map[string]interface{}) map[strin
 	setDefault(augmented, "insecureSkipEmailVerified", true)
 
 	switch connType {
+	case "oidc":
+		augmented["scopes"] = []string{"openid", "profile", "email", "groups"}
 	case "zitadel":
 		setDefault(augmented, "getUserInfo", true)
 	case "entra":
