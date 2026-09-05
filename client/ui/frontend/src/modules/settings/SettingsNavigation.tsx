@@ -6,10 +6,10 @@ import { useClientVersion } from "@/contexts/ClientVersionContext.tsx";
 import { useRestrictions } from "@/contexts/RestrictionsContext.tsx";
 import {
     BoltIcon,
-    FolderDownIcon,
     InfoIcon,
     LifeBuoyIcon,
     NetworkIcon,
+    Share2Icon,
     ShieldIcon,
     SlidersHorizontalIcon,
     SquareTerminalIcon,
@@ -52,7 +52,7 @@ export const SettingsNavigation = () => {
                 )}
                 <VerticalTabs.Trigger
                     value={"fileSharing"}
-                    icon={FolderDownIcon}
+                    icon={Share2Icon}
                     title={t("settings.tabs.fileSharing")}
                 />
                 {!features.disableProfiles && (

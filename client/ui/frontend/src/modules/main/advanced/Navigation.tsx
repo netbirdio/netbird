@@ -1,6 +1,6 @@
 import { type ComponentType, type KeyboardEvent, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { FolderDownIcon, Layers3Icon, type LucideProps, MonitorSmartphoneIcon } from "lucide-react";
+import { FolderIcon, Layers3Icon, type LucideProps, MonitorSmartphoneIcon } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useNavSection, type NavSection } from "@/contexts/NavSectionContext";
 import { useStatus } from "@/contexts/StatusContext";
@@ -43,7 +43,7 @@ export const Navigation = () => {
     tabs.push({
         value: "files",
         label: t("nav.files.title"),
-        icon: FolderDownIcon,
+        icon: FolderIcon,
     });
 
     const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
