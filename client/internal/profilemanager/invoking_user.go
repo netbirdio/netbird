@@ -6,6 +6,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"runtime"
+	"strconv"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -13,17 +14,21 @@ import (
 const envSudoUser = "SUDO_USER"
 
 var (
-	geteuid    = os.Geteuid
-	lookupUser = user.Lookup
+	currentUser = user.Current
+	getegid     = os.Getegid
+	geteuid     = os.Geteuid
+	lookupUser  = user.Lookup
 )
 
 // InvokingUser returns the user a CLI invocation acts for. Under sudo that is
 // the user who ran sudo, not root: privileged flags force commands through
 // sudo, and resolving profiles as root would silently switch the daemon to
-// root's (default) profile instead of the invoking user's. Privilege decisions
-// are not made here — those stay on the kernel credentials of the daemon
-// connection, which SUDO_USER (a plain environment variable) can never
-// influence; a forged value only selects a profile root could select anyway.
+// root's (default) profile instead of the invoking user's. An unmapped positive
+// process UID uses its numeric kernel identity; root, sudo lookup failures, and
+// unavailable platform identities still fail closed. Privilege decisions stay
+// on the kernel credentials of the daemon connection, which SUDO_USER (a plain
+// environment variable) can never influence; a forged value only selects a
+// profile root could select anyway.
 func InvokingUser() (*user.User, error) {
 	if u, ok := sudoInvokingUser(); ok {
 		return u, nil
@@ -35,7 +40,24 @@ func InvokingUser() (*user.User, error) {
 	if sudoActive() {
 		return nil, fmt.Errorf("resolve sudo invoking user %q: refusing to fall back to root", os.Getenv(envSudoUser))
 	}
-	return user.Current()
+	u, err := currentUser()
+	if err == nil {
+		return u, nil
+	}
+
+	uid := geteuid()
+	if uid <= 0 {
+		return nil, err
+	}
+
+	log.Debugf("current user lookup for UID %d: %v; using numeric UID", uid, err)
+	uidString := strconv.Itoa(uid)
+	return &user.User{
+		Username: uidString,
+		Uid:      uidString,
+		Gid:      strconv.Itoa(getegid()),
+		HomeDir:  os.Getenv("HOME"),
+	}, nil
 }
 
 // IsPlainRoot reports that the process runs as root with no usable sudo
