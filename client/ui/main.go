@@ -199,6 +199,13 @@ func main() {
 	// nil-deref (fatal panic on the dispatch goroutine, observed on Linux
 	// Mint). ApplicationStarted fires after the startup loop, so the bus is up.
 	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+		// SystemTray.Run publishes its implementation before the queued native
+		// NIM_ADD call has completed. Status updates invoke SetIcon/SetMenu, so
+		// starting the feed immediately here can race that registration on
+		// Windows and lose the first tray repaint. A main-thread barrier runs
+		// after the tray's already-queued startup work; unlike a timer it is
+		// deterministic and does not delay a ready application.
+		application.InvokeSync(func() {})
 		daemonFeed.Watch(context.Background())
 		// Probe daemon compatibility once the notifier bus is up; an outdated
 		// daemon may keep the main window from showing, so the OS toast is the
