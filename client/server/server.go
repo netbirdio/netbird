@@ -751,13 +751,13 @@ func (s *Server) beginSSOLogin(ctx context.Context, config *profilemanager.Confi
 	if msg.Hint != nil {
 		hint = *msg.Hint
 	}
-	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.IsUnixDesktopClient, false, hint)
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.IsUnixDesktopClient, msg.GetUseDeviceAuth(), hint)
 	if err != nil {
 		state.Set(internal.StatusLoginFailed)
 		return nil, err
 	}
 
-	if resp := s.pendingOAuthFlowResponse(ctx, oAuthFlow); resp != nil {
+	if resp := s.pendingOAuthFlowResponse(ctx, oAuthFlow, msg.GetUseDeviceAuth()); resp != nil {
 		state.Set(internal.StatusNeedsLogin)
 		return resp, nil
 	}
@@ -789,8 +789,13 @@ func (s *Server) beginSSOLogin(ctx context.Context, config *profilemanager.Confi
 // the browser leg, so a second login joins the pending flow instead of opening
 // a competing one. A flow too close to expiry has its waiter cancelled and nil
 // returned, leaving the caller to start a fresh flow.
-func (s *Server) pendingOAuthFlowResponse(ctx context.Context, oAuthFlow auth.OAuthFlow) *proto.LoginResponse {
+func (s *Server) pendingOAuthFlowResponse(ctx context.Context, oAuthFlow auth.OAuthFlow, useDeviceAuth bool) *proto.LoginResponse {
 	if s.oauthAuthFlow.flow == nil || s.oauthAuthFlow.flow.GetClientID(ctx) != oAuthFlow.GetClientID(ctx) {
+		return nil
+	}
+
+	_, cachedIsDevice := s.oauthAuthFlow.flow.(*auth.DeviceAuthorizationFlow)
+	if cachedIsDevice != useDeviceAuth {
 		return nil
 	}
 
