@@ -2182,10 +2182,7 @@ func (e *Engine) close() {
 }
 
 func (e *Engine) newWgIface() (*iface.WGIface, error) {
-	transportNet, err := e.newStdNet()
-	if err != nil {
-		log.Errorf("failed to create pion's stdnet: %s", err)
-	}
+	transportNet := e.newStdNet()
 
 	opts := iface.WGIFaceOpts{
 		IFaceName:    e.config.WgIfaceName,
