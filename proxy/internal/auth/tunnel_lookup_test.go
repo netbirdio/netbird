@@ -44,7 +44,7 @@ func (s *stubSessionValidator) ValidateTunnelPeer(_ context.Context, in *proto.V
 func newTunnelMiddleware(t *testing.T, validator SessionValidator) *Middleware {
 	t.Helper()
 	mw := NewMiddleware(log.New(), validator, nil)
-	require.NoError(t, mw.AddDomain("svc.example", nil, "", 0, "acct-1", "svc-1", nil, false))
+	require.NoError(t, mw.AddDomain("svc.example", nil, "", 0, "acct-1", "svc-1", nil, false, nil))
 	return mw
 }
 
@@ -235,8 +235,8 @@ func TestForwardWithTunnelPeer_RoutesAccountIDIntoCacheKey(t *testing.T) {
 	}
 	mw := NewMiddleware(log.New(), validator, nil)
 
-	require.NoError(t, mw.AddDomain("svc-a.example", nil, "", 0, "acct-a", "svc-a", nil, false))
-	require.NoError(t, mw.AddDomain("svc-b.example", nil, "", 0, "acct-b", "svc-b", nil, false))
+	require.NoError(t, mw.AddDomain("svc-a.example", nil, "", 0, "acct-a", "svc-a", nil, false, nil))
+	require.NoError(t, mw.AddDomain("svc-b.example", nil, "", 0, "acct-b", "svc-b", nil, false, nil))
 
 	// The fast-path requires the inbound-listener marker on the context.
 	// The peerstore lookup itself is account-agnostic at this level
@@ -299,7 +299,7 @@ func TestForwardWithTunnelPeer_LocalLookupShortCircuitDoesNotPopulateCache(t *te
 
 func TestPrivateService_FailsClosedOnTunnelPeerFailure(t *testing.T) {
 	mw := NewMiddleware(log.New(), nil, nil)
-	require.NoError(t, mw.AddDomain("private.svc", nil, "", 0, "acct-1", "svc-1", nil, true))
+	require.NoError(t, mw.AddDomain("private.svc", nil, "", 0, "acct-1", "svc-1", nil, true, nil))
 
 	called := false
 	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -328,7 +328,7 @@ func TestPrivateService_ForwardsOnTunnelPeerSuccess(t *testing.T) {
 		},
 	}
 	mw := NewMiddleware(log.New(), validator, nil)
-	require.NoError(t, mw.AddDomain("private.svc", nil, "", 0, "acct-1", "svc-1", nil, true))
+	require.NoError(t, mw.AddDomain("private.svc", nil, "", 0, "acct-1", "svc-1", nil, true, nil))
 
 	called := false
 	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

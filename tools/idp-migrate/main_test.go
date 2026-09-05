@@ -485,3 +485,77 @@ func TestGenerateConfig(t *testing.T) {
 		assert.True(t, os.IsNotExist(err))
 	})
 }
+
+func TestValidateConfigRejectsUnusableSingleAccountDomain(t *testing.T) {
+	base := func() migrationConfig {
+		return migrationConfig{
+			configPath:          "/tmp/management.json",
+			dataDir:             "/tmp/datadir",
+			idpSeedInfo:         "seed",
+			apiURL:              "https://api.example.com",
+			dashboardURL:        "https://app.example.com",
+			singleAccountDomain: migration.DefaultSingleAccountDomain,
+		}
+	}
+
+	t.Run("usable domain is accepted", func(t *testing.T) {
+		cfg := base()
+		require.NoError(t, validateConfig(&cfg))
+	})
+
+	t.Run("empty falls back to the default", func(t *testing.T) {
+		cfg := base()
+		cfg.singleAccountDomain = ""
+		require.NoError(t, validateConfig(&cfg))
+	})
+
+	// Rejected up front so the migration cannot fail after it has rewritten user IDs.
+	t.Run("single label domain is rejected", func(t *testing.T) {
+		cfg := base()
+		cfg.singleAccountDomain = "corp"
+		err := validateConfig(&cfg)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, migration.ErrUnusableDomain)
+	})
+}
+
+func TestApplyOverrides_SingleAccountDomainFromEnv(t *testing.T) {
+	t.Run("env var overrides the flag", func(t *testing.T) {
+		t.Setenv("NETBIRD_SINGLE_ACCOUNT_MODE_DOMAIN", "corp.example.com")
+
+		cfg, err := configFromArgs([]string{
+			"--config", "/tmp/management.json",
+			"--datadir", "/tmp/datadir",
+			"--idp-seed-info", "seed",
+			"--domain", "example.com",
+			"--single-account-mode-domain", "flag.example.com",
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "corp.example.com", cfg.singleAccountDomain)
+	})
+
+	t.Run("unset leaves the flag value", func(t *testing.T) {
+		cfg, err := configFromArgs([]string{
+			"--config", "/tmp/management.json",
+			"--datadir", "/tmp/datadir",
+			"--idp-seed-info", "seed",
+			"--domain", "example.com",
+			"--single-account-mode-domain", "flag.example.com",
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "flag.example.com", cfg.singleAccountDomain)
+	})
+
+	t.Run("unusable env value is rejected", func(t *testing.T) {
+		t.Setenv("NETBIRD_SINGLE_ACCOUNT_MODE_DOMAIN", "corp")
+
+		_, err := configFromArgs([]string{
+			"--config", "/tmp/management.json",
+			"--datadir", "/tmp/datadir",
+			"--idp-seed-info", "seed",
+			"--domain", "example.com",
+		})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, migration.ErrUnusableDomain)
+	})
+}
