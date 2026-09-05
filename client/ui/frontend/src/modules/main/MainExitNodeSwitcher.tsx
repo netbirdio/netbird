@@ -160,7 +160,7 @@ const ExitNodeTriggerCard = forwardRef<HTMLButtonElement, TriggerProps>(
                     "transition-colors duration-150",
                     "wails-no-draggable",
                     isFocusVisible &&
-                        "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
+                        "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                     disabled
                         ? "cursor-not-allowed opacity-60"
                         : "cursor-default hover:border-nb-gray-900 hover:bg-nb-gray-935 data-[state=open]:border-nb-gray-900 data-[state=open]:bg-nb-gray-935",

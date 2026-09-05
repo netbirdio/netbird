@@ -13,6 +13,7 @@ import { SkeletonTheme } from "react-loading-skeleton";
 import "react-loading-skeleton/dist/skeleton.css";
 import { welcome } from "@/lib/welcome";
 import LoginWaitingForBrowserDialog from "@/modules/login/LoginWaitingForBrowserDialog.tsx";
+import { ThemeProvider } from "@/contexts/ThemeContext.tsx";
 import { initI18n } from "@/lib/i18n";
 import { initPlatform } from "@/lib/platform";
 import { initLogForwarding } from "@/lib/logs";
@@ -35,30 +36,38 @@ Promise.all([
 ]).finally(() => {
     ReactDOM.createRoot(document.getElementById("root")!).render(
         <React.StrictMode>
-            <SkeletonTheme baseColor={"#25282d"} highlightColor={"#33373e"}>
-                <HashRouter>
-                    <Routes>
-                        <Route path={"dialog"}>
-                            <Route
-                                path={"browser-login"}
-                                element={<LoginWaitingForBrowserDialog />}
-                            />
-                            <Route path={"install-progress"} element={<UpdateInProgressDialog />} />
-                            <Route
-                                path={"session-expiration"}
-                                element={<SessionExpirationDialog />}
-                            />
-                            <Route path={"welcome"} element={<WelcomeDialog />} />
-                            <Route path={"error"} element={<ErrorDialog />} />
-                        </Route>
-                        <Route element={<AppLayout />}>
-                            <Route index element={<MainPage />} />
-                            <Route path={"settings"} element={<SettingsPage />} />
-                            <Route path={"*"} element={<Navigate to={"/"} replace />} />
-                        </Route>
-                    </Routes>
-                </HashRouter>
-            </SkeletonTheme>
+            <ThemeProvider>
+                <SkeletonTheme
+                    baseColor={"rgb(var(--skeleton-base))"}
+                    highlightColor={"rgb(var(--skeleton-highlight))"}
+                >
+                    <HashRouter>
+                        <Routes>
+                            <Route path={"dialog"}>
+                                <Route
+                                    path={"browser-login"}
+                                    element={<LoginWaitingForBrowserDialog />}
+                                />
+                                <Route
+                                    path={"install-progress"}
+                                    element={<UpdateInProgressDialog />}
+                                />
+                                <Route
+                                    path={"session-expiration"}
+                                    element={<SessionExpirationDialog />}
+                                />
+                                <Route path={"welcome"} element={<WelcomeDialog />} />
+                                <Route path={"error"} element={<ErrorDialog />} />
+                            </Route>
+                            <Route element={<AppLayout />}>
+                                <Route index element={<MainPage />} />
+                                <Route path={"settings"} element={<SettingsPage />} />
+                                <Route path={"*"} element={<Navigate to={"/"} replace />} />
+                            </Route>
+                        </Routes>
+                    </HashRouter>
+                </SkeletonTheme>
+            </ThemeProvider>
         </React.StrictMode>,
     );
 });

@@ -5,7 +5,7 @@ import { cn } from "@/lib/cn";
 export type SquareIconVariant = "default" | "info" | "warning" | "danger";
 
 const variantClass: Record<SquareIconVariant, string> = {
-    default: "text-white",
+    default: "text-nb-gray-50",
     info: "text-sky-400",
     warning: "text-netbird",
     danger: "text-red-500",

@@ -99,7 +99,7 @@ export function LanguagePicker() {
                                 "cursor-default text-xs font-semibold text-nb-gray-100 outline-none",
                                 "hover:border-nb-gray-600 data-[state=open]:border-nb-gray-600",
                                 isFocusVisible &&
-                                    "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
+                                    "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                                 "disabled:opacity-50",
                             )}
                         >

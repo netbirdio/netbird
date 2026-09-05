@@ -16,7 +16,7 @@ export const SectionGroup = ({
         {...(disabled ? { inert: "" } : {})}
         className={cn(
             "mb-8 rounded-md px-1 outline-none last:mb-1",
-            "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
+            "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
             disabled && "pointer-events-none opacity-30",
         )}
     >

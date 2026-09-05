@@ -24,7 +24,7 @@ export const IconButton = forwardRef<HTMLButtonElement, Props>(function IconButt
                 "flex h-10 w-10 cursor-default items-center justify-center rounded-lg outline-none",
                 "text-nb-gray-400 hover:bg-nb-gray-900 hover:text-nb-gray-300",
                 isFocusVisible &&
-                    "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
+                    "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                 "wails-no-draggable transition-colors duration-150",
                 className,
             )}

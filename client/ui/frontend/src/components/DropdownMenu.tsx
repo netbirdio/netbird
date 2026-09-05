@@ -16,7 +16,7 @@ const menuItemVariants = cva("", {
         variant: {
             default:
                 "text-nb-gray-200 hover:bg-nb-gray-900 hover:text-nb-gray-50 focus-visible:bg-nb-gray-900 focus-visible:text-nb-gray-50 data-[state=open]:bg-nb-gray-900 data-[state=open]:text-nb-gray-50",
-            danger: "text-red-500 hover:bg-red-900/20 hover:text-red-500 focus-visible:bg-red-900/20 focus-visible:text-red-500",
+            danger: "text-red-500 hover:bg-red-500/10 hover:text-red-500 focus-visible:bg-red-500/10 focus-visible:text-red-500 dark:hover:bg-red-900/20 dark:focus-visible:bg-red-900/20",
         },
     },
     defaultVariants: { variant: "default" },

@@ -571,6 +571,21 @@
     "settings.general.language.empty": {
         "message": "没有匹配的语言。"
     },
+    "settings.general.theme.label": {
+        "message": "主题"
+    },
+    "settings.general.theme.help": {
+        "message": "选择浅色、深色或跟随系统外观。"
+    },
+    "settings.general.theme.system": {
+        "message": "跟随系统"
+    },
+    "settings.general.theme.light": {
+        "message": "浅色"
+    },
+    "settings.general.theme.dark": {
+        "message": "深色"
+    },
     "settings.general.management.label": {
         "message": "管理服务器"
     },

@@ -287,7 +287,7 @@ const PeerRow = ({ peer, index, onKeyDown, onSelect, setRowRef }: PeerRowProps) 
                 onKeyDown={handleKey}
                 className={cn(
                     "absolute inset-0 cursor-default outline-none",
-                    "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/60",
+                    "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-nb-gray-50/60",
                 )}
             />
             <Tooltip content={statusLabel} side={"left"}>

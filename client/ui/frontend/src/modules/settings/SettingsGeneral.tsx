@@ -10,6 +10,7 @@ import { useAutostartSetting, useSettings } from "@/contexts/SettingsContext.tsx
 import { ManagementServerSwitch } from "@/components/ManagementServerSwitch.tsx";
 import { ManagementMode, useManagementUrl } from "@/hooks/useManagementUrl.ts";
 import { LanguagePicker } from "@/components/LanguagePicker.tsx";
+import { ThemePicker } from "@/components/ThemePicker.tsx";
 import { useRestrictions } from "@/contexts/RestrictionsContext.tsx";
 import { useKeepConnectedOnQuit } from "@/hooks/useKeepConnectedOnQuit.ts";
 
@@ -36,6 +37,7 @@ export function SettingsGeneral() {
         <>
             <SectionGroup title={t("settings.general.section.general")}>
                 <LanguagePicker />
+                <ThemePicker />
                 <FancyToggleSwitch
                     value={!config.disableNotifications}
                     onChange={(v) => setField("disableNotifications", !v)}

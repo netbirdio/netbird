@@ -6,7 +6,25 @@
     <title>NetBird</title>
     <style>
       html, body { background: #181A1D; }
+      html:not(.dark), html:not(.dark) body { background: #E9ECEF; }
     </style>
+    <script>
+      // Pre-paint theme guard: apply the last-known theme before first render
+      // to avoid a flash of the wrong theme. ThemeContext keeps the mirror
+      // fresh from the persisted preference and the Go-reported OS appearance.
+      (function () {
+        try {
+          var pref = localStorage.getItem("nb-theme-pref") || "system";
+          var dark;
+          if (pref === "dark") dark = true;
+          else if (pref === "light") dark = false;
+          else dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+          document.documentElement.classList.toggle("dark", dark);
+        } catch (e) {
+          /* keep the default dark class */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
