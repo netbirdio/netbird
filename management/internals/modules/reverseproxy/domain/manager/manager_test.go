@@ -15,6 +15,200 @@ import (
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
+func TestExtractClusterFromCustomDomains_MatchingRules(t *testing.T) {
+	tests := map[string]struct {
+		host          string
+		customDomains []*domain.Domain
+		wantCluster   string
+		wantOK        bool
+	}{
+		"exact non-wildcard match": {
+			host: "example.com",
+			customDomains: []*domain.Domain{
+				{Domain: "example.com", TargetCluster: "cluster-a"},
+			},
+			wantCluster: "cluster-a",
+			wantOK:      true,
+		},
+		"wildcard matches subdomain": {
+			host: "app.example.com",
+			customDomains: []*domain.Domain{
+				{Domain: "*.example.com", TargetCluster: "cluster-a"},
+			},
+			wantCluster: "cluster-a",
+			wantOK:      true,
+		},
+		"wildcard matches apex": {
+			host: "example.com",
+			customDomains: []*domain.Domain{
+				{Domain: "*.example.com", TargetCluster: "cluster-a"},
+			},
+			wantCluster: "cluster-a",
+			wantOK:      true,
+		},
+		"non-wildcard matches subdomain": {
+			host: "app.example.com",
+			customDomains: []*domain.Domain{
+				{Domain: "example.com", TargetCluster: "cluster-a"},
+			},
+			wantCluster: "cluster-a",
+			wantOK:      true,
+		},
+		"exact non-wildcard beats wildcard": {
+			host: "example.com",
+			customDomains: []*domain.Domain{
+				{Domain: "*.example.com", TargetCluster: "cluster-wild"},
+				{Domain: "example.com", TargetCluster: "cluster-exact"},
+			},
+			wantCluster: "cluster-exact",
+			wantOK:      true,
+		},
+		"longest wildcard suffix wins": {
+			host: "app.sub.example.com",
+			customDomains: []*domain.Domain{
+				{Domain: "*.example.com", TargetCluster: "cluster-short"},
+				{Domain: "*.sub.example.com", TargetCluster: "cluster-long"},
+			},
+			wantCluster: "cluster-long",
+			wantOK:      true,
+		},
+		"longest non-wildcard suffix wins": {
+			host: "app.sub.example.com",
+			customDomains: []*domain.Domain{
+				{Domain: "example.com", TargetCluster: "cluster-short"},
+				{Domain: "sub.example.com", TargetCluster: "cluster-long"},
+			},
+			wantCluster: "cluster-long",
+			wantOK:      true,
+		},
+		"trailing dot on host is normalized": {
+			host: "example.com.",
+			customDomains: []*domain.Domain{
+				{Domain: "example.com", TargetCluster: "cluster-a"},
+			},
+			wantCluster: "cluster-a",
+			wantOK:      true,
+		},
+		"trailing dot on custom domain is normalized": {
+			host: "example.com",
+			customDomains: []*domain.Domain{
+				{Domain: "example.com.", TargetCluster: "cluster-a"},
+			},
+			wantCluster: "cluster-a",
+			wantOK:      true,
+		},
+		"case insensitive match": {
+			host: "APP.Example.COM",
+			customDomains: []*domain.Domain{
+				{Domain: "*.example.com", TargetCluster: "cluster-a"},
+			},
+			wantCluster: "cluster-a",
+			wantOK:      true,
+		},
+		"no match returns false": {
+			host: "other.com",
+			customDomains: []*domain.Domain{
+				{Domain: "example.com", TargetCluster: "cluster-a"},
+				{Domain: "*.example.com", TargetCluster: "cluster-b"},
+			},
+			wantCluster: "",
+			wantOK:      false,
+		},
+		"empty custom domains returns false": {
+			host:          "example.com",
+			customDomains: nil,
+			wantCluster:   "",
+			wantOK:        false,
+		},
+		"partial suffix does not match": {
+			host: "notexample.com",
+			customDomains: []*domain.Domain{
+				{Domain: "example.com", TargetCluster: "cluster-a"},
+			},
+			wantCluster: "",
+			wantOK:      false,
+		},
+		"wildcard does not match partial suffix": {
+			host: "notexample.com",
+			customDomains: []*domain.Domain{
+				{Domain: "*.example.com", TargetCluster: "cluster-a"},
+			},
+			wantCluster: "",
+			wantOK:      false,
+		},
+		"equal suffix non-wildcard beats wildcard": {
+			host: "app.example.com",
+			customDomains: []*domain.Domain{
+				{Domain: "*.example.com", TargetCluster: "cluster-wild"},
+				{Domain: "example.com", TargetCluster: "cluster-exact"},
+			},
+			wantCluster: "cluster-exact",
+			wantOK:      true,
+		},
+		"equal suffix non-wildcard beats wildcard regardless of order": {
+			host: "app.example.com",
+			customDomains: []*domain.Domain{
+				{Domain: "example.com", TargetCluster: "cluster-exact"},
+				{Domain: "*.example.com", TargetCluster: "cluster-wild"},
+			},
+			wantCluster: "cluster-exact",
+			wantOK:      true,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			cluster, ok := extractClusterFromCustomDomains(tc.host, tc.customDomains)
+			if ok != tc.wantOK {
+				t.Errorf("ok: got %v, want %v", ok, tc.wantOK)
+			}
+			if cluster != tc.wantCluster {
+				t.Errorf("cluster: got %q, want %q", cluster, tc.wantCluster)
+			}
+		})
+	}
+}
+
+func TestExtractClusterFromCustomDomains_EqualSuffixPermutationStable(t *testing.T) {
+	host := "app.example.com"
+	permutations := [][]*domain.Domain{
+		{
+			{Domain: "*.example.com", TargetCluster: "cluster-wild"},
+			{Domain: "example.com", TargetCluster: "cluster-exact"},
+		},
+		{
+			{Domain: "example.com", TargetCluster: "cluster-exact"},
+			{Domain: "*.example.com", TargetCluster: "cluster-wild"},
+		},
+	}
+
+	for i, customDomains := range permutations {
+		cluster, ok := extractClusterFromCustomDomains(host, customDomains)
+		assert.True(t, ok, "permutation %d: expected match", i)
+		assert.Equal(t, "cluster-exact", cluster, "permutation %d", i)
+	}
+}
+
+func TestExtractClusterFromCustomDomains_CanonicalDuplicateStable(t *testing.T) {
+	host := "example.com"
+	permutations := [][]*domain.Domain{
+		{
+			{Domain: "Example.com", TargetCluster: "cluster-b"},
+			{Domain: "example.com.", TargetCluster: "cluster-a"},
+		},
+		{
+			{Domain: "example.com.", TargetCluster: "cluster-a"},
+			{Domain: "Example.com", TargetCluster: "cluster-b"},
+		},
+	}
+
+	for i, customDomains := range permutations {
+		cluster, ok := extractClusterFromCustomDomains(host, customDomains)
+		assert.True(t, ok, "permutation %d: expected match", i)
+		assert.Equal(t, "cluster-a", cluster, "permutation %d: lexicographic tie-break", i)
+	}
+}
+
 type mockProxyManager struct {
 	getActiveClusterAddressesFunc           func(ctx context.Context) ([]string, error)
 	getActiveClusterAddressesForAccountFunc func(ctx context.Context, accountID string) ([]string, error)
