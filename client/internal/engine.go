@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
@@ -195,6 +196,10 @@ type EngineServices struct {
 	NetMgr *netevents.Manager
 }
 
+type routeManagerPublication struct {
+	manager routemanager.Manager
+}
+
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
 type Engine struct {
 	// signal is a Signal Service client
@@ -256,6 +261,7 @@ type Engine struct {
 
 	firewall          firewallManager.Manager
 	routeManager      routemanager.Manager
+	publishedRouteMgr atomic.Pointer[routeManagerPublication]
 	acl               acl.Manager
 	dnsForwardMgr     *dnsfwd.Manager
 	ingressGatewayMgr *ingressgw.Manager
@@ -424,6 +430,8 @@ func (e *Engine) Stop() error {
 // step is nil-guarded. It does not wait on shutdownWg — the caller does that
 // after releasing the lock, since the goroutines also take syncMsgMux.
 func (e *Engine) stopLocked() {
+	e.unpublishRouteManager()
+
 	if e.connMgr != nil {
 		e.connMgr.Close()
 	}
@@ -726,6 +734,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		}
 	}()
 
+	e.publishRouteManager()
 	return nil
 }
 
@@ -2269,9 +2278,21 @@ func (e *Engine) newDnsServer() (dns.Server, error) {
 	}
 }
 
-// GetRouteManager returns the route manager
+func (e *Engine) publishRouteManager() {
+	e.publishedRouteMgr.Store(&routeManagerPublication{manager: e.routeManager})
+}
+
+func (e *Engine) unpublishRouteManager() {
+	e.publishedRouteMgr.Store(nil)
+}
+
+// GetRouteManager returns the route manager after the engine has started successfully.
 func (e *Engine) GetRouteManager() routemanager.Manager {
-	return e.routeManager
+	published := e.publishedRouteMgr.Load()
+	if published == nil {
+		return nil
+	}
+	return published.manager
 }
 
 // GetFirewallManager returns the firewall manager.
