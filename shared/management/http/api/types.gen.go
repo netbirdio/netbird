@@ -3420,6 +3420,12 @@ type IdentityProvider struct {
 
 	// Type Type of identity provider
 	Type IdentityProviderType `json:"type"`
+
+	// Pkce Enables Proof Key for Code Exchange for the upstream OIDC provider
+	Pkce *bool `json:"pkce,omitempty"`
+
+	// JwksUrl URL to the JSON Web Key Set of the identity provider
+	JwksUrl *string `json:"jwks_url,omitempty"`
 }
 
 // IdentityProviderRequest defines model for IdentityProviderRequest.
@@ -3438,6 +3444,12 @@ type IdentityProviderRequest struct {
 
 	// Type Type of identity provider
 	Type IdentityProviderType `json:"type"`
+
+	// Pkce Enables Proof Key for Code Exchange for the upstream OIDC provider
+	Pkce *bool `json:"pkce,omitempty"`
+
+	// JwksUrl URL to the JSON Web Key Set of the identity provider
+	JwksUrl *string `json:"jwks_url,omitempty"`
 }
 
 // IdentityProviderType Type of identity provider

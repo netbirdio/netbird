@@ -2,6 +2,7 @@ package types
 
 import (
 	"errors"
+	"fmt"
 	"net/url"
 )
 
@@ -59,6 +60,10 @@ type IdentityProvider struct {
 	ClientID string
 	// ClientSecret is the OAuth2 client secret
 	ClientSecret string
+	// PKCE enables Proof Key for Code Exchange for the upstream OIDC provider
+	PKCE *bool
+	// JWKSURL is the URL to the JSON Web Key Set of the identity provider
+	JWKSURL *string
 }
 
 // Copy returns a copy of the IdentityProvider
@@ -71,16 +76,25 @@ func (idp *IdentityProvider) Copy() *IdentityProvider {
 		Issuer:       idp.Issuer,
 		ClientID:     idp.ClientID,
 		ClientSecret: idp.ClientSecret,
+		PKCE:         idp.PKCE,
+		JWKSURL:      idp.JWKSURL,
 	}
 }
 
 // EventMeta returns a map of metadata for activity events
 func (idp *IdentityProvider) EventMeta() map[string]any {
-	return map[string]any{
+	meta := map[string]any{
 		"name":   idp.Name,
 		"type":   string(idp.Type),
 		"issuer": idp.Issuer,
 	}
+	if idp.PKCE != nil {
+		meta["pkce"] = *idp.PKCE
+	}
+	if idp.JWKSURL != nil {
+		meta["jwks_url"] = *idp.JWKSURL
+	}
+	return meta
 }
 
 // Validate validates the identity provider configuration
@@ -105,6 +119,20 @@ func (idp *IdentityProvider) Validate() error {
 	}
 	if idp.ClientID == "" {
 		return ErrIdentityProviderClientIDRequired
+	}
+	if idp.JWKSURL != nil && *idp.JWKSURL != "" {
+		parsedURL, err := url.Parse(*idp.JWKSURL)
+		if err != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") || parsedURL.Host == "" {
+			return fmt.Errorf("invalid JWKS URL")
+		}
+	}
+	if idp.Type == IdentityProviderTypeGoogle || idp.Type == IdentityProviderTypeMicrosoft {
+		if (idp.PKCE != nil && *idp.PKCE) || (idp.JWKSURL != nil && *idp.JWKSURL != "") {
+			return fmt.Errorf("PKCE and JWKS URL are not supported for %s", idp.Type)
+		}
+	}
+	if idp.PKCE != nil && !*idp.PKCE {
+		return fmt.Errorf("PKCE cannot be explicitly disabled in the underlying provider; omit the field to use auto-detection or set to true to force it")
 	}
 	return nil
 }
