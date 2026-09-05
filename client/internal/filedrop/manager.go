@@ -197,18 +197,61 @@ func (m *Manager) AddReceiverListener(ctx context.Context, addr netip.AddrPort) 
 	return server.AddListener(ctx, addr)
 }
 
-// StopReceiver shuts the receiving server down and drops the tunnel dialer.
+// StopReceiver shuts the receiving server down, releasing its listeners and
+// offer store. The spool is left alone: an interrupted transfer resumes from
+// what is already staged once the receiver comes back.
 func (m *Manager) StopReceiver() error {
 	m.mu.Lock()
 	server := m.server
 	m.server = nil
-	m.dial = nil
 	m.mu.Unlock()
 
 	if server == nil {
 		return nil
 	}
 	return server.Stop()
+}
+
+// DisableReceiving stops the receiver because the profile turned receiving off.
+// Unlike StopReceiver it discards what was in flight: nothing is coming back to
+// claim the staged bytes, so the spool is emptied and every unfinished incoming
+// transfer is settled as cancelled.
+func (m *Manager) DisableReceiving() error {
+	err := m.StopReceiver()
+
+	spool, serr := NewSpool(filepath.Join(m.dataDir, "spool"))
+	if serr != nil {
+		log.Warnf("failed to open file drop spool for cleanup: %v", serr)
+	} else {
+		spool.Purge()
+	}
+
+	for _, t := range m.history.List() {
+		if t.Direction != DirectionReceived || t.terminal() {
+			continue
+		}
+		m.finishTransfer(t.ID, StateCancelled, "")
+	}
+	return err
+}
+
+// ReceivingEnabled reports whether the profile accepts incoming offers.
+func (m *Manager) ReceivingEnabled() bool {
+	return m.policy.Receiving()
+}
+
+// SetReceivingChangeHandler registers a handler invoked when receiving is
+// turned on or off, so the owner of the receiver can bind or unbind it.
+func (m *Manager) SetReceivingChangeHandler(h func()) {
+	m.policy.SetChangeHandler(h)
+}
+
+// ClearTunnel drops the tunnel dialer, leaving the manager unable to send.
+func (m *Manager) ClearTunnel() {
+	m.mu.Lock()
+	m.dial = nil
+	m.senderName = ""
+	m.mu.Unlock()
 }
 
 // SetTunnel gives the manager the tunnel dialer and the local sender name.
@@ -222,6 +265,7 @@ func (m *Manager) SetTunnel(dial DialFunc, senderName string) {
 // Close stops the receiver and aborts every outgoing transfer.
 func (m *Manager) Close() error {
 	err := m.StopReceiver()
+	m.ClearTunnel()
 
 	m.mu.Lock()
 	for _, h := range m.sends {
@@ -389,18 +433,18 @@ func (m *Manager) runSend(ctx context.Context, client *Client, handle *sendHandl
 	addr := netip.AddrPortFrom(handle.ip, Port)
 	remoteID, decision, err := client.Offer(ctx, addr, payloads)
 	if err != nil {
-		m.failSend(ctx, transfer.ID, err)
+		m.failSend(ctx, transfer.ID, "offer", err)
 		return
 	}
 	m.storeRemote(handle, addr, remoteID)
 
 	decision, err = client.AwaitDecision(ctx, addr, remoteID, decision)
 	if err != nil {
-		m.failSend(ctx, transfer.ID, err)
+		m.failSend(ctx, transfer.ID, "await decision", err)
 		return
 	}
 	if err := decisionError(decision); err != nil {
-		m.failSend(ctx, transfer.ID, err)
+		m.failSend(ctx, transfer.ID, "decision", err)
 		return
 	}
 
@@ -418,7 +462,7 @@ func (m *Manager) runSend(ctx context.Context, client *Client, handle *sendHandl
 	}
 
 	if err := client.Upload(ctx, addr, remoteID, payloads, progress); err != nil {
-		m.failSend(ctx, transfer.ID, err)
+		m.failSend(ctx, transfer.ID, "upload", err)
 		return
 	}
 
@@ -434,8 +478,14 @@ func (m *Manager) storeRemote(handle *sendHandle, addr netip.AddrPort, remoteID 
 	handle.remoteID = remoteID
 }
 
-func (m *Manager) failSend(ctx context.Context, id OfferID, err error) {
+// failSend settles an outgoing transfer that did not complete. The step that
+// broke is logged here, with the peer, so a failure can be read from the client
+// log alone rather than only from the event the UI shows.
+func (m *Manager) failSend(ctx context.Context, id OfferID, step string, err error) {
+	transfer := m.transferOf(id)
+
 	if ctx.Err() != nil {
+		log.Debugf("file drop send %s to %s cancelled during %s", id, transfer.PeerName, step)
 		m.finishTransfer(id, StateCancelled, "")
 		return
 	}
@@ -459,6 +509,21 @@ func (m *Manager) failSend(ctx context.Context, id OfferID, err error) {
 			reason = ReasonUnreachable
 		}
 	}
+
+	switch state {
+	case StateFailed:
+		if reason == ReasonUnreachable {
+			log.Warnf("file drop send %s to %s (%s): peer unreachable during %s: %v",
+				id, transfer.PeerName, transfer.PeerKey, step, err)
+		} else {
+			log.Warnf("file drop send %s to %s (%s) failed during %s: %v",
+				id, transfer.PeerName, transfer.PeerKey, step, err)
+		}
+	default:
+		log.Debugf("file drop send %s to %s ended as %s during %s: %v",
+			id, transfer.PeerName, state, step, err)
+	}
+
 	m.finishTransferReason(id, state, message, reason)
 	m.emit(EventFailed, m.transferOf(id))
 }
@@ -554,10 +619,13 @@ func (m *Manager) OnCompleted(offer Offer) {
 // OnFailed implements Notifier.
 func (m *Manager) OnFailed(offer Offer, err error) {
 	if errors.Is(err, ErrExpired) {
+		log.Debugf("file drop offer %s from %s expired unanswered", offer.ID, offer.SenderName)
 		m.finishTransfer(offer.ID, StateExpired, "")
 		m.emit(EventWithdrawn, m.transferOf(offer.ID))
 		return
 	}
+	log.Warnf("file drop receive %s from %s (%s) failed: %v",
+		offer.ID, offer.SenderName, offer.Sender, err)
 	m.finishTransfer(offer.ID, StateFailed, err.Error())
 	m.emit(EventFailed, m.transferOf(offer.ID))
 }

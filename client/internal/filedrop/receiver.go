@@ -176,7 +176,8 @@ func (r *receiver) upload(sender senderIdentity, id OfferID, index int, offset i
 	if err != nil {
 		r.offers.SetState(id, StateFailed)
 		r.notifyFailed(offer, err)
-		log.Debugf("stage payload for offer %s file %d: %v", id, index, err)
+		log.Warnf("file drop receive %s from %s: stage payload %d (%s): %v",
+			id, offer.SenderName, index, offer.Files[index].Name, err)
 		return fmt.Errorf("%w: stage payload", ErrStorage)
 	}
 

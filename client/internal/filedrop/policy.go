@@ -28,10 +28,11 @@ type Policy struct {
 
 // PolicyStore holds the receiving policy of one profile and evaluates it per sender.
 type PolicyStore struct {
-	mu      sync.RWMutex
-	profile profilemanager.ID
-	policy  Policy
-	store   Store
+	mu       sync.RWMutex
+	profile  profilemanager.ID
+	policy   Policy
+	store    Store
+	onChange func()
 }
 
 // NewPolicyStore returns an in-memory store seeded with the default policy.
@@ -107,6 +108,22 @@ func (s *PolicyStore) Profile() profilemanager.ID {
 	return s.profile
 }
 
+// SetChangeHandler registers a handler invoked when the base mode changes, so
+// the owner of the receiver can bind or unbind it. It runs on the goroutine
+// that made the change, with no store lock held.
+func (s *PolicyStore) SetChangeHandler(h func()) {
+	s.mu.Lock()
+	s.onChange = h
+	s.mu.Unlock()
+}
+
+// Receiving reports whether the profile accepts incoming offers at all.
+func (s *PolicyStore) Receiving() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.policy.Mode != ModeOff
+}
+
 // Get returns a copy of the current policy.
 func (s *PolicyStore) Get() Policy {
 	s.mu.RLock()
@@ -121,11 +138,16 @@ func (s *PolicyStore) Set(p Policy) error {
 	}
 
 	s.mu.Lock()
+	was := s.policy.Mode
 	s.policy = p.normalized()
-	store, stored := s.store, s.policy.clone()
+	store, stored, changed, notify := s.store, s.policy.clone(), was != s.policy.Mode, s.onChange
 	s.mu.Unlock()
 
-	return saveSection(store, namespacePolicy, stored)
+	err := saveSection(store, namespacePolicy, stored)
+	if changed && notify != nil {
+		notify()
+	}
+	return err
 }
 
 // SetMode changes the base mode, leaving per-sender rules untouched.
@@ -135,11 +157,16 @@ func (s *PolicyStore) SetMode(m Mode) error {
 	}
 
 	s.mu.Lock()
+	changed := s.policy.Mode != m
 	s.policy.Mode = m
-	store, stored := s.store, s.policy.clone()
+	store, stored, notify := s.store, s.policy.clone(), s.onChange
 	s.mu.Unlock()
 
-	return saveSection(store, namespacePolicy, stored)
+	err := saveSection(store, namespacePolicy, stored)
+	if changed && notify != nil {
+		notify()
+	}
+	return err
 }
 
 // SetSenderRule sets or clears the override for a single sender.

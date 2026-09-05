@@ -32,9 +32,15 @@ func (e *Engine) startFileDrop() {
 	if e.fileDrop == nil || e.fileDropRunning || e.wgInterface == nil {
 		return
 	}
+	e.setFileDropTunnel()
+	e.fileDrop.SetReceivingChangeHandler(e.onFileDropPolicyChange)
+
 	if e.config.BlockInbound {
 		log.Info("file drop receiver is disabled because inbound connections are blocked")
-		e.setFileDropTunnel()
+		return
+	}
+	if !e.fileDrop.ReceivingEnabled() {
+		log.Info("file drop receiver is not started because receiving is turned off")
 		return
 	}
 
@@ -70,7 +76,6 @@ func (e *Engine) startFileDrop() {
 
 	e.setupFileDropPortRedirection(bound)
 
-	e.setFileDropTunnel()
 	e.fileDropRunning = true
 }
 
@@ -152,20 +157,62 @@ func (e *Engine) restartFileDrop() error {
 	return nil
 }
 
+// onFileDropPolicyChange binds or unbinds the receiver after the profile turned
+// receiving on or off. The work is handed to a goroutine because it needs
+// syncMsgMux, which the caller (a settings RPC) must not wait on and which the
+// engine may itself hold while calling into the manager.
+func (e *Engine) onFileDropPolicyChange() {
+	if e.ctx.Err() != nil {
+		return
+	}
+
+	e.shutdownWg.Add(1)
+	go func() {
+		defer e.shutdownWg.Done()
+
+		e.syncMsgMux.Lock()
+		defer e.syncMsgMux.Unlock()
+
+		if e.fileDrop == nil || e.ctx.Err() != nil {
+			return
+		}
+		if e.fileDrop.ReceivingEnabled() {
+			e.startFileDrop()
+			return
+		}
+		if e.fileDropRunning {
+			e.unbindFileDropReceiver()
+			if err := e.fileDrop.DisableReceiving(); err != nil {
+				log.Warnf("failed to stop file drop receiver: %v", err)
+			}
+			e.fileDropRunning = false
+			e.fileDropPort = 0
+		}
+	}()
+}
+
+// unbindFileDropReceiver releases what the bind claimed outside the receiver
+// itself. The caller must hold syncMsgMux.
+func (e *Engine) unbindFileDropReceiver() {
+	if netstackNet := e.wgInterface.GetNet(); netstackNet != nil {
+		if registrar, ok := e.firewall.(interface {
+			UnregisterNetstackService(protocol nftypes.Protocol, port uint16)
+		}); ok {
+			registrar.UnregisterNetstackService(nftypes.TCP, e.fileDropPort)
+		}
+	}
+	e.removeFileDropPortRedirection(e.fileDropPort)
+}
+
 func (e *Engine) stopFileDrop() {
 	if e.fileDrop == nil {
 		return
 	}
+	e.fileDrop.SetReceivingChangeHandler(nil)
+	e.fileDrop.ClearTunnel()
 
 	if e.fileDropRunning {
-		if netstackNet := e.wgInterface.GetNet(); netstackNet != nil {
-			if registrar, ok := e.firewall.(interface {
-				UnregisterNetstackService(protocol nftypes.Protocol, port uint16)
-			}); ok {
-				registrar.UnregisterNetstackService(nftypes.TCP, e.fileDropPort)
-			}
-		}
-		e.removeFileDropPortRedirection(e.fileDropPort)
+		e.unbindFileDropReceiver()
 	}
 
 	if err := e.fileDrop.StopReceiver(); err != nil {

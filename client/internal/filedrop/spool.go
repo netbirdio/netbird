@@ -112,6 +112,20 @@ func (s *Spool) Remove(id OfferID) {
 	}
 }
 
+// Purge removes every staged payload.
+func (s *Spool) Purge() {
+	entries, err := os.ReadDir(s.root)
+	if err != nil {
+		log.Debugf("read spool root: %v", err)
+		return
+	}
+	for _, entry := range entries {
+		if err := os.RemoveAll(filepath.Join(s.root, entry.Name())); err != nil {
+			log.Debugf("remove spool entry: %v", err)
+		}
+	}
+}
+
 // Cleanup removes offer directories older than maxAge.
 func (s *Spool) Cleanup(maxAge time.Duration, now time.Time) {
 	entries, err := os.ReadDir(s.root)
