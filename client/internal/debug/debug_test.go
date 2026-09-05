@@ -846,6 +846,7 @@ func TestAddConfig_AllFieldsCovered(t *testing.T) {
 		"Name":                 "non-config: profile name is not needed for debug purposes",
 		"policy":               "non-config: in-memory MDM policy snapshot, surfaced via Config.Policy() / GetConfigResponse.MDMManagedFields",
 		"DebugBundleUploadURL": "sensitive: MDM-provided upload URL may carry credentials or query tokens; kept out of the shared bundle",
+		"Owner":                "non-config: owner information is not needed for debug purposes",
 	}
 
 	mURL, _ := url.Parse("https://api.example.com:443")

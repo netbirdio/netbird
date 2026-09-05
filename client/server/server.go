@@ -148,6 +148,8 @@ type Server struct {
 	loginAttemptFn func(ctx context.Context, setupKey, jwtToken string) (internal.StatusType, error)
 
 	isLoginRequiredFn func(ctx context.Context) (bool, error)
+
+	sessionHolder *ipcauth.Identity
 }
 
 type oauthAuthFlow struct {
@@ -1083,6 +1085,14 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)
 	s.localMetrics.Reconcile(s.config.LocalMetricsEnabled, s.config.LocalMetricsAddress)
 
+	id, ok := ipcauth.CallerIdentity(callerCtx)
+	if !ok {
+		s.mutex.Unlock()
+		return nil, fmt.Errorf("failed to get identity")
+	}
+
+	log.Infof("setting session holder: %d", id.UID)
+	s.sessionHolder = &id
 	s.clientRunning = true
 	s.clientRunningChan = make(chan struct{})
 	s.clientGiveUpChan = make(chan struct{})
@@ -1332,6 +1342,7 @@ func (s *Server) cleanupConnection() error {
 	// explicitly asked for it. MDM restart does NOT go through this
 	// path, so its clientRunning stays true.
 	s.clientRunning = false
+	s.sessionHolder = nil
 
 	// Capture the engine reference before cancelling the context.
 	// After actCancel(), the connectWithRetryRuns goroutine wakes up
@@ -2274,7 +2285,11 @@ func (s *Server) AddProfile(ctx context.Context, msg *proto.AddProfileRequest) (
 		return nil, gstatus.Errorf(codes.InvalidArgument, "profile name and username must be provided")
 	}
 
-	created, err := s.profileManager.AddProfile(msg.ProfileName, msg.Username)
+	callerId, ok := ipcauth.CallerIdentity(ctx)
+	if !ok {
+		return nil, fmt.Errorf("failed to get identity from context")
+	}
+	created, err := s.profileManager.AddProfile(msg.ProfileName, msg.Username, &callerId)
 	if err != nil {
 		log.Errorf("failed to create profile: %v", err)
 		return nil, fmt.Errorf("failed to create profile: %w", err)
@@ -2693,6 +2708,15 @@ func (s *Server) authorizeAndPrepareLogin(callerCtx context.Context, msg *proto.
 	}
 
 	return ctx, activeProf, nil
+}
+
+func (s *Server) SessionHolder() (ipcauth.Identity, bool) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	if !s.clientRunning || s.sessionHolder == nil {
+		return ipcauth.Identity{}, false
+	}
+	return *s.sessionHolder, true
 }
 
 func persistLoginOverrides(activeProf *profilemanager.ActiveProfileState, managementURL string, preSharedKey *string) error {

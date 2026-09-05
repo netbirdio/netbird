@@ -17,7 +17,7 @@ type testPrefsSection struct {
 
 func TestProfilePrefs_RoundTrip(t *testing.T) {
 	withTestSM(t, func(sm *ServiceManager, username string) {
-		created, err := sm.AddProfile("work", username)
+		created, err := sm.AddProfile("work", username, nil)
 		require.NoError(t, err)
 
 		prefs, err := sm.ProfilePrefs(created.ID, username)
@@ -42,7 +42,7 @@ func TestProfilePrefs_RoundTrip(t *testing.T) {
 
 func TestProfilePrefs_GetMissingNamespace(t *testing.T) {
 	withTestSM(t, func(sm *ServiceManager, username string) {
-		created, err := sm.AddProfile("work", username)
+		created, err := sm.AddProfile("work", username, nil)
 		require.NoError(t, err)
 
 		prefs, err := sm.ProfilePrefs(created.ID, username)
@@ -57,7 +57,7 @@ func TestProfilePrefs_GetMissingNamespace(t *testing.T) {
 
 func TestProfilePrefs_RemoveNamespace(t *testing.T) {
 	withTestSM(t, func(sm *ServiceManager, username string) {
-		created, err := sm.AddProfile("work", username)
+		created, err := sm.AddProfile("work", username, nil)
 		require.NoError(t, err)
 
 		prefs, err := sm.ProfilePrefs(created.ID, username)
@@ -90,7 +90,7 @@ func TestProfilePrefs_RejectsInvalidID(t *testing.T) {
 
 func TestProfilePrefs_RejectsEmptyNamespace(t *testing.T) {
 	withTestSM(t, func(sm *ServiceManager, username string) {
-		created, err := sm.AddProfile("work", username)
+		created, err := sm.AddProfile("work", username, nil)
 		require.NoError(t, err)
 
 		prefs, err := sm.ProfilePrefs(created.ID, username)
@@ -118,7 +118,7 @@ func TestProfilePrefs_DefaultProfile(t *testing.T) {
 
 func TestRemoveProfile_DeletesPrefsFile(t *testing.T) {
 	withTestSM(t, func(sm *ServiceManager, username string) {
-		created, err := sm.AddProfile("work", username)
+		created, err := sm.AddProfile("work", username, nil)
 		require.NoError(t, err)
 
 		prefs, err := sm.ProfilePrefs(created.ID, username)
