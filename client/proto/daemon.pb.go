@@ -143,6 +143,215 @@ func (ExposeProtocol) EnumDescriptor() ([]byte, []int) {
 	return file_daemon_proto_rawDescGZIP(), []int{1}
 }
 
+// FileDropMode is the device-local policy for incoming file offers.
+type FileDropMode int32
+
+const (
+	FileDropMode_FILE_DROP_MODE_OFF  FileDropMode = 0
+	FileDropMode_FILE_DROP_MODE_ASK  FileDropMode = 1
+	FileDropMode_FILE_DROP_MODE_AUTO FileDropMode = 2
+)
+
+// Enum value maps for FileDropMode.
+var (
+	FileDropMode_name = map[int32]string{
+		0: "FILE_DROP_MODE_OFF",
+		1: "FILE_DROP_MODE_ASK",
+		2: "FILE_DROP_MODE_AUTO",
+	}
+	FileDropMode_value = map[string]int32{
+		"FILE_DROP_MODE_OFF":  0,
+		"FILE_DROP_MODE_ASK":  1,
+		"FILE_DROP_MODE_AUTO": 2,
+	}
+)
+
+func (x FileDropMode) Enum() *FileDropMode {
+	p := new(FileDropMode)
+	*p = x
+	return p
+}
+
+func (x FileDropMode) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (FileDropMode) Descriptor() protoreflect.EnumDescriptor {
+	return file_daemon_proto_enumTypes[2].Descriptor()
+}
+
+func (FileDropMode) Type() protoreflect.EnumType {
+	return &file_daemon_proto_enumTypes[2]
+}
+
+func (x FileDropMode) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use FileDropMode.Descriptor instead.
+func (FileDropMode) EnumDescriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{2}
+}
+
+// FileDropRule is a per-sender exception on top of the base mode.
+type FileDropRule int32
+
+const (
+	FileDropRule_FILE_DROP_RULE_DEFAULT FileDropRule = 0
+	FileDropRule_FILE_DROP_RULE_ALWAYS  FileDropRule = 1
+	FileDropRule_FILE_DROP_RULE_BLOCK   FileDropRule = 2
+)
+
+// Enum value maps for FileDropRule.
+var (
+	FileDropRule_name = map[int32]string{
+		0: "FILE_DROP_RULE_DEFAULT",
+		1: "FILE_DROP_RULE_ALWAYS",
+		2: "FILE_DROP_RULE_BLOCK",
+	}
+	FileDropRule_value = map[string]int32{
+		"FILE_DROP_RULE_DEFAULT": 0,
+		"FILE_DROP_RULE_ALWAYS":  1,
+		"FILE_DROP_RULE_BLOCK":   2,
+	}
+)
+
+func (x FileDropRule) Enum() *FileDropRule {
+	p := new(FileDropRule)
+	*p = x
+	return p
+}
+
+func (x FileDropRule) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (FileDropRule) Descriptor() protoreflect.EnumDescriptor {
+	return file_daemon_proto_enumTypes[3].Descriptor()
+}
+
+func (FileDropRule) Type() protoreflect.EnumType {
+	return &file_daemon_proto_enumTypes[3]
+}
+
+func (x FileDropRule) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use FileDropRule.Descriptor instead.
+func (FileDropRule) EnumDescriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{3}
+}
+
+// FileDropReason classifies why a transfer failed, when it is known.
+type FileDropReason int32
+
+const (
+	FileDropReason_FILE_DROP_REASON_NONE        FileDropReason = 0
+	FileDropReason_FILE_DROP_REASON_UNREACHABLE FileDropReason = 1
+)
+
+// Enum value maps for FileDropReason.
+var (
+	FileDropReason_name = map[int32]string{
+		0: "FILE_DROP_REASON_NONE",
+		1: "FILE_DROP_REASON_UNREACHABLE",
+	}
+	FileDropReason_value = map[string]int32{
+		"FILE_DROP_REASON_NONE":        0,
+		"FILE_DROP_REASON_UNREACHABLE": 1,
+	}
+)
+
+func (x FileDropReason) Enum() *FileDropReason {
+	p := new(FileDropReason)
+	*p = x
+	return p
+}
+
+func (x FileDropReason) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (FileDropReason) Descriptor() protoreflect.EnumDescriptor {
+	return file_daemon_proto_enumTypes[4].Descriptor()
+}
+
+func (FileDropReason) Type() protoreflect.EnumType {
+	return &file_daemon_proto_enumTypes[4]
+}
+
+func (x FileDropReason) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use FileDropReason.Descriptor instead.
+func (FileDropReason) EnumDescriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{4}
+}
+
+// FileDropState is the lifecycle state of a transfer.
+type FileDropState int32
+
+const (
+	FileDropState_FILE_DROP_STATE_PENDING      FileDropState = 0
+	FileDropState_FILE_DROP_STATE_TRANSFERRING FileDropState = 1
+	FileDropState_FILE_DROP_STATE_COMPLETED    FileDropState = 2
+	FileDropState_FILE_DROP_STATE_DECLINED     FileDropState = 3
+	FileDropState_FILE_DROP_STATE_EXPIRED      FileDropState = 4
+	FileDropState_FILE_DROP_STATE_CANCELLED    FileDropState = 5
+	FileDropState_FILE_DROP_STATE_FAILED       FileDropState = 6
+)
+
+// Enum value maps for FileDropState.
+var (
+	FileDropState_name = map[int32]string{
+		0: "FILE_DROP_STATE_PENDING",
+		1: "FILE_DROP_STATE_TRANSFERRING",
+		2: "FILE_DROP_STATE_COMPLETED",
+		3: "FILE_DROP_STATE_DECLINED",
+		4: "FILE_DROP_STATE_EXPIRED",
+		5: "FILE_DROP_STATE_CANCELLED",
+		6: "FILE_DROP_STATE_FAILED",
+	}
+	FileDropState_value = map[string]int32{
+		"FILE_DROP_STATE_PENDING":      0,
+		"FILE_DROP_STATE_TRANSFERRING": 1,
+		"FILE_DROP_STATE_COMPLETED":    2,
+		"FILE_DROP_STATE_DECLINED":     3,
+		"FILE_DROP_STATE_EXPIRED":      4,
+		"FILE_DROP_STATE_CANCELLED":    5,
+		"FILE_DROP_STATE_FAILED":       6,
+	}
+)
+
+func (x FileDropState) Enum() *FileDropState {
+	p := new(FileDropState)
+	*p = x
+	return p
+}
+
+func (x FileDropState) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (FileDropState) Descriptor() protoreflect.EnumDescriptor {
+	return file_daemon_proto_enumTypes[5].Descriptor()
+}
+
+func (FileDropState) Type() protoreflect.EnumType {
+	return &file_daemon_proto_enumTypes[5]
+}
+
+func (x FileDropState) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use FileDropState.Descriptor instead.
+func (FileDropState) EnumDescriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{5}
+}
+
 type SystemEvent_Severity int32
 
 const (
@@ -179,11 +388,11 @@ func (x SystemEvent_Severity) String() string {
 }
 
 func (SystemEvent_Severity) Descriptor() protoreflect.EnumDescriptor {
-	return file_daemon_proto_enumTypes[2].Descriptor()
+	return file_daemon_proto_enumTypes[6].Descriptor()
 }
 
 func (SystemEvent_Severity) Type() protoreflect.EnumType {
-	return &file_daemon_proto_enumTypes[2]
+	return &file_daemon_proto_enumTypes[6]
 }
 
 func (x SystemEvent_Severity) Number() protoreflect.EnumNumber {
@@ -234,11 +443,11 @@ func (x SystemEvent_Category) String() string {
 }
 
 func (SystemEvent_Category) Descriptor() protoreflect.EnumDescriptor {
-	return file_daemon_proto_enumTypes[3].Descriptor()
+	return file_daemon_proto_enumTypes[7].Descriptor()
 }
 
 func (SystemEvent_Category) Type() protoreflect.EnumType {
-	return &file_daemon_proto_enumTypes[3]
+	return &file_daemon_proto_enumTypes[7]
 }
 
 func (x SystemEvent_Category) Number() protoreflect.EnumNumber {
@@ -7035,6 +7244,930 @@ func (*StopBundleCaptureResponse) Descriptor() ([]byte, []int) {
 	return file_daemon_proto_rawDescGZIP(), []int{106}
 }
 
+type FileDropFile struct {
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Name        string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Size        int64                  `protobuf:"varint,2,opt,name=size,proto3" json:"size,omitempty"`
+	ContentType string                 `protobuf:"bytes,3,opt,name=contentType,proto3" json:"contentType,omitempty"`
+	IsText      bool                   `protobuf:"varint,4,opt,name=isText,proto3" json:"isText,omitempty"`
+	// text carries an inline snippet; it never becomes a file on disk.
+	Text          string `protobuf:"bytes,5,opt,name=text,proto3" json:"text,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FileDropFile) Reset() {
+	*x = FileDropFile{}
+	mi := &file_daemon_proto_msgTypes[107]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FileDropFile) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FileDropFile) ProtoMessage() {}
+
+func (x *FileDropFile) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[107]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FileDropFile.ProtoReflect.Descriptor instead.
+func (*FileDropFile) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{107}
+}
+
+func (x *FileDropFile) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *FileDropFile) GetSize() int64 {
+	if x != nil {
+		return x.Size
+	}
+	return 0
+}
+
+func (x *FileDropFile) GetContentType() string {
+	if x != nil {
+		return x.ContentType
+	}
+	return ""
+}
+
+func (x *FileDropFile) GetIsText() bool {
+	if x != nil {
+		return x.IsText
+	}
+	return false
+}
+
+func (x *FileDropFile) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+type FileDropTransfer struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Id             string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Outgoing       bool                   `protobuf:"varint,2,opt,name=outgoing,proto3" json:"outgoing,omitempty"`
+	PeerKey        string                 `protobuf:"bytes,3,opt,name=peerKey,proto3" json:"peerKey,omitempty"`
+	PeerName       string                 `protobuf:"bytes,4,opt,name=peerName,proto3" json:"peerName,omitempty"`
+	Files          []*FileDropFile        `protobuf:"bytes,5,rep,name=files,proto3" json:"files,omitempty"`
+	State          FileDropState          `protobuf:"varint,6,opt,name=state,proto3,enum=daemon.FileDropState" json:"state,omitempty"`
+	Transferred    int64                  `protobuf:"varint,7,opt,name=transferred,proto3" json:"transferred,omitempty"`
+	TotalSize      int64                  `protobuf:"varint,8,opt,name=totalSize,proto3" json:"totalSize,omitempty"`
+	CreatedAt      *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=createdAt,proto3" json:"createdAt,omitempty"`
+	UpdatedAt      *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=updatedAt,proto3" json:"updatedAt,omitempty"`
+	DeliveredPaths []string               `protobuf:"bytes,11,rep,name=deliveredPaths,proto3" json:"deliveredPaths,omitempty"`
+	Error          string                 `protobuf:"bytes,12,opt,name=error,proto3" json:"error,omitempty"`
+	Reason         FileDropReason         `protobuf:"varint,13,opt,name=reason,proto3,enum=daemon.FileDropReason" json:"reason,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *FileDropTransfer) Reset() {
+	*x = FileDropTransfer{}
+	mi := &file_daemon_proto_msgTypes[108]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FileDropTransfer) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FileDropTransfer) ProtoMessage() {}
+
+func (x *FileDropTransfer) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[108]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FileDropTransfer.ProtoReflect.Descriptor instead.
+func (*FileDropTransfer) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{108}
+}
+
+func (x *FileDropTransfer) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *FileDropTransfer) GetOutgoing() bool {
+	if x != nil {
+		return x.Outgoing
+	}
+	return false
+}
+
+func (x *FileDropTransfer) GetPeerKey() string {
+	if x != nil {
+		return x.PeerKey
+	}
+	return ""
+}
+
+func (x *FileDropTransfer) GetPeerName() string {
+	if x != nil {
+		return x.PeerName
+	}
+	return ""
+}
+
+func (x *FileDropTransfer) GetFiles() []*FileDropFile {
+	if x != nil {
+		return x.Files
+	}
+	return nil
+}
+
+func (x *FileDropTransfer) GetState() FileDropState {
+	if x != nil {
+		return x.State
+	}
+	return FileDropState_FILE_DROP_STATE_PENDING
+}
+
+func (x *FileDropTransfer) GetTransferred() int64 {
+	if x != nil {
+		return x.Transferred
+	}
+	return 0
+}
+
+func (x *FileDropTransfer) GetTotalSize() int64 {
+	if x != nil {
+		return x.TotalSize
+	}
+	return 0
+}
+
+func (x *FileDropTransfer) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
+func (x *FileDropTransfer) GetUpdatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return nil
+}
+
+func (x *FileDropTransfer) GetDeliveredPaths() []string {
+	if x != nil {
+		return x.DeliveredPaths
+	}
+	return nil
+}
+
+func (x *FileDropTransfer) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+func (x *FileDropTransfer) GetReason() FileDropReason {
+	if x != nil {
+		return x.Reason
+	}
+	return FileDropReason_FILE_DROP_REASON_NONE
+}
+
+type FileDropSendRequest struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	PeerKey string                 `protobuf:"bytes,1,opt,name=peerKey,proto3" json:"peerKey,omitempty"`
+	// paths are local files to send; the daemon opens them as the caller.
+	Paths []string `protobuf:"bytes,2,rep,name=paths,proto3" json:"paths,omitempty"`
+	// text is an inline snippet payload, sent instead of or alongside files.
+	Text          string `protobuf:"bytes,3,opt,name=text,proto3" json:"text,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FileDropSendRequest) Reset() {
+	*x = FileDropSendRequest{}
+	mi := &file_daemon_proto_msgTypes[109]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FileDropSendRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FileDropSendRequest) ProtoMessage() {}
+
+func (x *FileDropSendRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[109]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FileDropSendRequest.ProtoReflect.Descriptor instead.
+func (*FileDropSendRequest) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{109}
+}
+
+func (x *FileDropSendRequest) GetPeerKey() string {
+	if x != nil {
+		return x.PeerKey
+	}
+	return ""
+}
+
+func (x *FileDropSendRequest) GetPaths() []string {
+	if x != nil {
+		return x.Paths
+	}
+	return nil
+}
+
+func (x *FileDropSendRequest) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+type FileDropSendResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TransferId    string                 `protobuf:"bytes,1,opt,name=transferId,proto3" json:"transferId,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FileDropSendResponse) Reset() {
+	*x = FileDropSendResponse{}
+	mi := &file_daemon_proto_msgTypes[110]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FileDropSendResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FileDropSendResponse) ProtoMessage() {}
+
+func (x *FileDropSendResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[110]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FileDropSendResponse.ProtoReflect.Descriptor instead.
+func (*FileDropSendResponse) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{110}
+}
+
+func (x *FileDropSendResponse) GetTransferId() string {
+	if x != nil {
+		return x.TransferId
+	}
+	return ""
+}
+
+type FileDropDecideRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TransferId    string                 `protobuf:"bytes,1,opt,name=transferId,proto3" json:"transferId,omitempty"`
+	Accept        bool                   `protobuf:"varint,2,opt,name=accept,proto3" json:"accept,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FileDropDecideRequest) Reset() {
+	*x = FileDropDecideRequest{}
+	mi := &file_daemon_proto_msgTypes[111]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FileDropDecideRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FileDropDecideRequest) ProtoMessage() {}
+
+func (x *FileDropDecideRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[111]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FileDropDecideRequest.ProtoReflect.Descriptor instead.
+func (*FileDropDecideRequest) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{111}
+}
+
+func (x *FileDropDecideRequest) GetTransferId() string {
+	if x != nil {
+		return x.TransferId
+	}
+	return ""
+}
+
+func (x *FileDropDecideRequest) GetAccept() bool {
+	if x != nil {
+		return x.Accept
+	}
+	return false
+}
+
+type FileDropDecideResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FileDropDecideResponse) Reset() {
+	*x = FileDropDecideResponse{}
+	mi := &file_daemon_proto_msgTypes[112]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FileDropDecideResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FileDropDecideResponse) ProtoMessage() {}
+
+func (x *FileDropDecideResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[112]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FileDropDecideResponse.ProtoReflect.Descriptor instead.
+func (*FileDropDecideResponse) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{112}
+}
+
+type FileDropCancelRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TransferId    string                 `protobuf:"bytes,1,opt,name=transferId,proto3" json:"transferId,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FileDropCancelRequest) Reset() {
+	*x = FileDropCancelRequest{}
+	mi := &file_daemon_proto_msgTypes[113]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FileDropCancelRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FileDropCancelRequest) ProtoMessage() {}
+
+func (x *FileDropCancelRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[113]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FileDropCancelRequest.ProtoReflect.Descriptor instead.
+func (*FileDropCancelRequest) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{113}
+}
+
+func (x *FileDropCancelRequest) GetTransferId() string {
+	if x != nil {
+		return x.TransferId
+	}
+	return ""
+}
+
+type FileDropCancelResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FileDropCancelResponse) Reset() {
+	*x = FileDropCancelResponse{}
+	mi := &file_daemon_proto_msgTypes[114]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FileDropCancelResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FileDropCancelResponse) ProtoMessage() {}
+
+func (x *FileDropCancelResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[114]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FileDropCancelResponse.ProtoReflect.Descriptor instead.
+func (*FileDropCancelResponse) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{114}
+}
+
+type FileDropListTransfersRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FileDropListTransfersRequest) Reset() {
+	*x = FileDropListTransfersRequest{}
+	mi := &file_daemon_proto_msgTypes[115]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FileDropListTransfersRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FileDropListTransfersRequest) ProtoMessage() {}
+
+func (x *FileDropListTransfersRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[115]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FileDropListTransfersRequest.ProtoReflect.Descriptor instead.
+func (*FileDropListTransfersRequest) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{115}
+}
+
+type FileDropListTransfersResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Transfers     []*FileDropTransfer    `protobuf:"bytes,1,rep,name=transfers,proto3" json:"transfers,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FileDropListTransfersResponse) Reset() {
+	*x = FileDropListTransfersResponse{}
+	mi := &file_daemon_proto_msgTypes[116]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FileDropListTransfersResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FileDropListTransfersResponse) ProtoMessage() {}
+
+func (x *FileDropListTransfersResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[116]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FileDropListTransfersResponse.ProtoReflect.Descriptor instead.
+func (*FileDropListTransfersResponse) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{116}
+}
+
+func (x *FileDropListTransfersResponse) GetTransfers() []*FileDropTransfer {
+	if x != nil {
+		return x.Transfers
+	}
+	return nil
+}
+
+type FileDropDeleteTransferRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TransferId    string                 `protobuf:"bytes,1,opt,name=transferId,proto3" json:"transferId,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FileDropDeleteTransferRequest) Reset() {
+	*x = FileDropDeleteTransferRequest{}
+	mi := &file_daemon_proto_msgTypes[117]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FileDropDeleteTransferRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FileDropDeleteTransferRequest) ProtoMessage() {}
+
+func (x *FileDropDeleteTransferRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[117]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FileDropDeleteTransferRequest.ProtoReflect.Descriptor instead.
+func (*FileDropDeleteTransferRequest) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{117}
+}
+
+func (x *FileDropDeleteTransferRequest) GetTransferId() string {
+	if x != nil {
+		return x.TransferId
+	}
+	return ""
+}
+
+type FileDropDeleteTransferResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FileDropDeleteTransferResponse) Reset() {
+	*x = FileDropDeleteTransferResponse{}
+	mi := &file_daemon_proto_msgTypes[118]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FileDropDeleteTransferResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FileDropDeleteTransferResponse) ProtoMessage() {}
+
+func (x *FileDropDeleteTransferResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[118]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FileDropDeleteTransferResponse.ProtoReflect.Descriptor instead.
+func (*FileDropDeleteTransferResponse) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{118}
+}
+
+type FileDropGetSettingsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FileDropGetSettingsRequest) Reset() {
+	*x = FileDropGetSettingsRequest{}
+	mi := &file_daemon_proto_msgTypes[119]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FileDropGetSettingsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FileDropGetSettingsRequest) ProtoMessage() {}
+
+func (x *FileDropGetSettingsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[119]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FileDropGetSettingsRequest.ProtoReflect.Descriptor instead.
+func (*FileDropGetSettingsRequest) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{119}
+}
+
+type FileDropGetSettingsResponse struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Mode           FileDropMode           `protobuf:"varint,1,opt,name=mode,proto3,enum=daemon.FileDropMode" json:"mode,omitempty"`
+	DestinationDir string                 `protobuf:"bytes,2,opt,name=destinationDir,proto3" json:"destinationDir,omitempty"`
+	// peerRules is keyed by the peer's public key.
+	PeerRules     map[string]FileDropRule `protobuf:"bytes,3,rep,name=peerRules,proto3" json:"peerRules,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value,enum=daemon.FileDropRule"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FileDropGetSettingsResponse) Reset() {
+	*x = FileDropGetSettingsResponse{}
+	mi := &file_daemon_proto_msgTypes[120]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FileDropGetSettingsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FileDropGetSettingsResponse) ProtoMessage() {}
+
+func (x *FileDropGetSettingsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[120]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FileDropGetSettingsResponse.ProtoReflect.Descriptor instead.
+func (*FileDropGetSettingsResponse) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{120}
+}
+
+func (x *FileDropGetSettingsResponse) GetMode() FileDropMode {
+	if x != nil {
+		return x.Mode
+	}
+	return FileDropMode_FILE_DROP_MODE_OFF
+}
+
+func (x *FileDropGetSettingsResponse) GetDestinationDir() string {
+	if x != nil {
+		return x.DestinationDir
+	}
+	return ""
+}
+
+func (x *FileDropGetSettingsResponse) GetPeerRules() map[string]FileDropRule {
+	if x != nil {
+		return x.PeerRules
+	}
+	return nil
+}
+
+type FileDropSetSettingsRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Mode           FileDropMode           `protobuf:"varint,1,opt,name=mode,proto3,enum=daemon.FileDropMode" json:"mode,omitempty"`
+	DestinationDir string                 `protobuf:"bytes,2,opt,name=destinationDir,proto3" json:"destinationDir,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *FileDropSetSettingsRequest) Reset() {
+	*x = FileDropSetSettingsRequest{}
+	mi := &file_daemon_proto_msgTypes[121]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FileDropSetSettingsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FileDropSetSettingsRequest) ProtoMessage() {}
+
+func (x *FileDropSetSettingsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[121]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FileDropSetSettingsRequest.ProtoReflect.Descriptor instead.
+func (*FileDropSetSettingsRequest) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{121}
+}
+
+func (x *FileDropSetSettingsRequest) GetMode() FileDropMode {
+	if x != nil {
+		return x.Mode
+	}
+	return FileDropMode_FILE_DROP_MODE_OFF
+}
+
+func (x *FileDropSetSettingsRequest) GetDestinationDir() string {
+	if x != nil {
+		return x.DestinationDir
+	}
+	return ""
+}
+
+type FileDropSetSettingsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FileDropSetSettingsResponse) Reset() {
+	*x = FileDropSetSettingsResponse{}
+	mi := &file_daemon_proto_msgTypes[122]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FileDropSetSettingsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FileDropSetSettingsResponse) ProtoMessage() {}
+
+func (x *FileDropSetSettingsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[122]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FileDropSetSettingsResponse.ProtoReflect.Descriptor instead.
+func (*FileDropSetSettingsResponse) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{122}
+}
+
+type FileDropSetPeerRuleRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PeerKey       string                 `protobuf:"bytes,1,opt,name=peerKey,proto3" json:"peerKey,omitempty"`
+	Rule          FileDropRule           `protobuf:"varint,2,opt,name=rule,proto3,enum=daemon.FileDropRule" json:"rule,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FileDropSetPeerRuleRequest) Reset() {
+	*x = FileDropSetPeerRuleRequest{}
+	mi := &file_daemon_proto_msgTypes[123]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FileDropSetPeerRuleRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FileDropSetPeerRuleRequest) ProtoMessage() {}
+
+func (x *FileDropSetPeerRuleRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[123]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FileDropSetPeerRuleRequest.ProtoReflect.Descriptor instead.
+func (*FileDropSetPeerRuleRequest) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{123}
+}
+
+func (x *FileDropSetPeerRuleRequest) GetPeerKey() string {
+	if x != nil {
+		return x.PeerKey
+	}
+	return ""
+}
+
+func (x *FileDropSetPeerRuleRequest) GetRule() FileDropRule {
+	if x != nil {
+		return x.Rule
+	}
+	return FileDropRule_FILE_DROP_RULE_DEFAULT
+}
+
+type FileDropSetPeerRuleResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FileDropSetPeerRuleResponse) Reset() {
+	*x = FileDropSetPeerRuleResponse{}
+	mi := &file_daemon_proto_msgTypes[124]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FileDropSetPeerRuleResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FileDropSetPeerRuleResponse) ProtoMessage() {}
+
+func (x *FileDropSetPeerRuleResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[124]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FileDropSetPeerRuleResponse.ProtoReflect.Descriptor instead.
+func (*FileDropSetPeerRuleResponse) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{124}
+}
+
 type PortInfo_Range struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Start         uint32                 `protobuf:"varint,1,opt,name=start,proto3" json:"start,omitempty"`
@@ -7045,7 +8178,7 @@ type PortInfo_Range struct {
 
 func (x *PortInfo_Range) Reset() {
 	*x = PortInfo_Range{}
-	mi := &file_daemon_proto_msgTypes[108]
+	mi := &file_daemon_proto_msgTypes[126]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7057,7 +8190,7 @@ func (x *PortInfo_Range) String() string {
 func (*PortInfo_Range) ProtoMessage() {}
 
 func (x *PortInfo_Range) ProtoReflect() protoreflect.Message {
-	mi := &file_daemon_proto_msgTypes[108]
+	mi := &file_daemon_proto_msgTypes[126]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7687,7 +8820,71 @@ const file_daemon_proto_rawDesc = "" +
 	"\atimeout\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\atimeout\"\x1c\n" +
 	"\x1aStartBundleCaptureResponse\"\x1a\n" +
 	"\x18StopBundleCaptureRequest\"\x1b\n" +
-	"\x19StopBundleCaptureResponse*b\n" +
+	"\x19StopBundleCaptureResponse\"\x84\x01\n" +
+	"\fFileDropFile\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
+	"\x04size\x18\x02 \x01(\x03R\x04size\x12 \n" +
+	"\vcontentType\x18\x03 \x01(\tR\vcontentType\x12\x16\n" +
+	"\x06isText\x18\x04 \x01(\bR\x06isText\x12\x12\n" +
+	"\x04text\x18\x05 \x01(\tR\x04text\"\xef\x03\n" +
+	"\x10FileDropTransfer\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
+	"\boutgoing\x18\x02 \x01(\bR\boutgoing\x12\x18\n" +
+	"\apeerKey\x18\x03 \x01(\tR\apeerKey\x12\x1a\n" +
+	"\bpeerName\x18\x04 \x01(\tR\bpeerName\x12*\n" +
+	"\x05files\x18\x05 \x03(\v2\x14.daemon.FileDropFileR\x05files\x12+\n" +
+	"\x05state\x18\x06 \x01(\x0e2\x15.daemon.FileDropStateR\x05state\x12 \n" +
+	"\vtransferred\x18\a \x01(\x03R\vtransferred\x12\x1c\n" +
+	"\ttotalSize\x18\b \x01(\x03R\ttotalSize\x128\n" +
+	"\tcreatedAt\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x128\n" +
+	"\tupdatedAt\x18\n" +
+	" \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12&\n" +
+	"\x0edeliveredPaths\x18\v \x03(\tR\x0edeliveredPaths\x12\x14\n" +
+	"\x05error\x18\f \x01(\tR\x05error\x12.\n" +
+	"\x06reason\x18\r \x01(\x0e2\x16.daemon.FileDropReasonR\x06reason\"Y\n" +
+	"\x13FileDropSendRequest\x12\x18\n" +
+	"\apeerKey\x18\x01 \x01(\tR\apeerKey\x12\x14\n" +
+	"\x05paths\x18\x02 \x03(\tR\x05paths\x12\x12\n" +
+	"\x04text\x18\x03 \x01(\tR\x04text\"6\n" +
+	"\x14FileDropSendResponse\x12\x1e\n" +
+	"\n" +
+	"transferId\x18\x01 \x01(\tR\n" +
+	"transferId\"O\n" +
+	"\x15FileDropDecideRequest\x12\x1e\n" +
+	"\n" +
+	"transferId\x18\x01 \x01(\tR\n" +
+	"transferId\x12\x16\n" +
+	"\x06accept\x18\x02 \x01(\bR\x06accept\"\x18\n" +
+	"\x16FileDropDecideResponse\"7\n" +
+	"\x15FileDropCancelRequest\x12\x1e\n" +
+	"\n" +
+	"transferId\x18\x01 \x01(\tR\n" +
+	"transferId\"\x18\n" +
+	"\x16FileDropCancelResponse\"\x1e\n" +
+	"\x1cFileDropListTransfersRequest\"W\n" +
+	"\x1dFileDropListTransfersResponse\x126\n" +
+	"\ttransfers\x18\x01 \x03(\v2\x18.daemon.FileDropTransferR\ttransfers\"?\n" +
+	"\x1dFileDropDeleteTransferRequest\x12\x1e\n" +
+	"\n" +
+	"transferId\x18\x01 \x01(\tR\n" +
+	"transferId\" \n" +
+	"\x1eFileDropDeleteTransferResponse\"\x1c\n" +
+	"\x1aFileDropGetSettingsRequest\"\x95\x02\n" +
+	"\x1bFileDropGetSettingsResponse\x12(\n" +
+	"\x04mode\x18\x01 \x01(\x0e2\x14.daemon.FileDropModeR\x04mode\x12&\n" +
+	"\x0edestinationDir\x18\x02 \x01(\tR\x0edestinationDir\x12P\n" +
+	"\tpeerRules\x18\x03 \x03(\v22.daemon.FileDropGetSettingsResponse.PeerRulesEntryR\tpeerRules\x1aR\n" +
+	"\x0ePeerRulesEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12*\n" +
+	"\x05value\x18\x02 \x01(\x0e2\x14.daemon.FileDropRuleR\x05value:\x028\x01\"n\n" +
+	"\x1aFileDropSetSettingsRequest\x12(\n" +
+	"\x04mode\x18\x01 \x01(\x0e2\x14.daemon.FileDropModeR\x04mode\x12&\n" +
+	"\x0edestinationDir\x18\x02 \x01(\tR\x0edestinationDir\"\x1d\n" +
+	"\x1bFileDropSetSettingsResponse\"`\n" +
+	"\x1aFileDropSetPeerRuleRequest\x12\x18\n" +
+	"\apeerKey\x18\x01 \x01(\tR\apeerKey\x12(\n" +
+	"\x04rule\x18\x02 \x01(\x0e2\x14.daemon.FileDropRuleR\x04rule\"\x1d\n" +
+	"\x1bFileDropSetPeerRuleResponse*b\n" +
 	"\bLogLevel\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\t\n" +
 	"\x05PANIC\x10\x01\x12\t\n" +
@@ -7705,7 +8902,26 @@ const file_daemon_proto_rawDesc = "" +
 	"\n" +
 	"EXPOSE_UDP\x10\x03\x12\x0e\n" +
 	"\n" +
-	"EXPOSE_TLS\x10\x042\xa3\x1c\n" +
+	"EXPOSE_TLS\x10\x04*W\n" +
+	"\fFileDropMode\x12\x16\n" +
+	"\x12FILE_DROP_MODE_OFF\x10\x00\x12\x16\n" +
+	"\x12FILE_DROP_MODE_ASK\x10\x01\x12\x17\n" +
+	"\x13FILE_DROP_MODE_AUTO\x10\x02*_\n" +
+	"\fFileDropRule\x12\x1a\n" +
+	"\x16FILE_DROP_RULE_DEFAULT\x10\x00\x12\x19\n" +
+	"\x15FILE_DROP_RULE_ALWAYS\x10\x01\x12\x18\n" +
+	"\x14FILE_DROP_RULE_BLOCK\x10\x02*M\n" +
+	"\x0eFileDropReason\x12\x19\n" +
+	"\x15FILE_DROP_REASON_NONE\x10\x00\x12 \n" +
+	"\x1cFILE_DROP_REASON_UNREACHABLE\x10\x01*\xe3\x01\n" +
+	"\rFileDropState\x12\x1b\n" +
+	"\x17FILE_DROP_STATE_PENDING\x10\x00\x12 \n" +
+	"\x1cFILE_DROP_STATE_TRANSFERRING\x10\x01\x12\x1d\n" +
+	"\x19FILE_DROP_STATE_COMPLETED\x10\x02\x12\x1c\n" +
+	"\x18FILE_DROP_STATE_DECLINED\x10\x03\x12\x1b\n" +
+	"\x17FILE_DROP_STATE_EXPIRED\x10\x04\x12\x1d\n" +
+	"\x19FILE_DROP_STATE_CANCELLED\x10\x05\x12\x1a\n" +
+	"\x16FILE_DROP_STATE_FAILED\x10\x062\x8f\"\n" +
 	"\rDaemonService\x126\n" +
 	"\x05Login\x12\x14.daemon.LoginRequest\x1a\x15.daemon.LoginResponse\"\x00\x12K\n" +
 	"\fWaitSSOLogin\x12\x1b.daemon.WaitSSOLoginRequest\x1a\x1c.daemon.WaitSSOLoginResponse\"\x00\x12-\n" +
@@ -7755,7 +8971,15 @@ const file_daemon_proto_rawDesc = "" +
 	"\x0eStopCPUProfile\x12\x1d.daemon.StopCPUProfileRequest\x1a\x1e.daemon.StopCPUProfileResponse\"\x00\x12W\n" +
 	"\x12GetInstallerResult\x12\x1e.daemon.InstallerResultRequest\x1a\x1f.daemon.InstallerResultResponse\"\x00\x12M\n" +
 	"\rExposeService\x12\x1c.daemon.ExposeServiceRequest\x1a\x1a.daemon.ExposeServiceEvent\"\x000\x01\x12K\n" +
-	"\fWailsUIReady\x12\x1b.daemon.WailsUIReadyRequest\x1a\x1c.daemon.WailsUIReadyResponse\"\x00B\bZ\x06/protob\x06proto3"
+	"\fWailsUIReady\x12\x1b.daemon.WailsUIReadyRequest\x1a\x1c.daemon.WailsUIReadyResponse\"\x00\x12K\n" +
+	"\fFileDropSend\x12\x1b.daemon.FileDropSendRequest\x1a\x1c.daemon.FileDropSendResponse\"\x00\x12Q\n" +
+	"\x0eFileDropDecide\x12\x1d.daemon.FileDropDecideRequest\x1a\x1e.daemon.FileDropDecideResponse\"\x00\x12Q\n" +
+	"\x0eFileDropCancel\x12\x1d.daemon.FileDropCancelRequest\x1a\x1e.daemon.FileDropCancelResponse\"\x00\x12f\n" +
+	"\x15FileDropListTransfers\x12$.daemon.FileDropListTransfersRequest\x1a%.daemon.FileDropListTransfersResponse\"\x00\x12i\n" +
+	"\x16FileDropDeleteTransfer\x12%.daemon.FileDropDeleteTransferRequest\x1a&.daemon.FileDropDeleteTransferResponse\"\x00\x12`\n" +
+	"\x13FileDropGetSettings\x12\".daemon.FileDropGetSettingsRequest\x1a#.daemon.FileDropGetSettingsResponse\"\x00\x12`\n" +
+	"\x13FileDropSetSettings\x12\".daemon.FileDropSetSettingsRequest\x1a#.daemon.FileDropSetSettingsResponse\"\x00\x12`\n" +
+	"\x13FileDropSetPeerRule\x12\".daemon.FileDropSetPeerRuleRequest\x1a#.daemon.FileDropSetPeerRuleResponse\"\x00B\bZ\x06/protob\x06proto3"
 
 var (
 	file_daemon_proto_rawDescOnce sync.Once
@@ -7769,263 +8993,313 @@ func file_daemon_proto_rawDescGZIP() []byte {
 	return file_daemon_proto_rawDescData
 }
 
-var file_daemon_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_daemon_proto_msgTypes = make([]protoimpl.MessageInfo, 110)
+var file_daemon_proto_enumTypes = make([]protoimpl.EnumInfo, 8)
+var file_daemon_proto_msgTypes = make([]protoimpl.MessageInfo, 129)
 var file_daemon_proto_goTypes = []any{
 	(LogLevel)(0),                              // 0: daemon.LogLevel
 	(ExposeProtocol)(0),                        // 1: daemon.ExposeProtocol
-	(SystemEvent_Severity)(0),                  // 2: daemon.SystemEvent.Severity
-	(SystemEvent_Category)(0),                  // 3: daemon.SystemEvent.Category
-	(*EmptyRequest)(nil),                       // 4: daemon.EmptyRequest
-	(*LoginRequest)(nil),                       // 5: daemon.LoginRequest
-	(*LoginResponse)(nil),                      // 6: daemon.LoginResponse
-	(*WaitSSOLoginRequest)(nil),                // 7: daemon.WaitSSOLoginRequest
-	(*WaitSSOLoginResponse)(nil),               // 8: daemon.WaitSSOLoginResponse
-	(*UpRequest)(nil),                          // 9: daemon.UpRequest
-	(*UpResponse)(nil),                         // 10: daemon.UpResponse
-	(*StatusRequest)(nil),                      // 11: daemon.StatusRequest
-	(*StatusResponse)(nil),                     // 12: daemon.StatusResponse
-	(*DownRequest)(nil),                        // 13: daemon.DownRequest
-	(*DownResponse)(nil),                       // 14: daemon.DownResponse
-	(*GetConfigRequest)(nil),                   // 15: daemon.GetConfigRequest
-	(*GetConfigResponse)(nil),                  // 16: daemon.GetConfigResponse
-	(*PeerState)(nil),                          // 17: daemon.PeerState
-	(*LocalPeerState)(nil),                     // 18: daemon.LocalPeerState
-	(*SignalState)(nil),                        // 19: daemon.SignalState
-	(*ManagementState)(nil),                    // 20: daemon.ManagementState
-	(*RelayState)(nil),                         // 21: daemon.RelayState
-	(*NSGroupState)(nil),                       // 22: daemon.NSGroupState
-	(*SSHSessionInfo)(nil),                     // 23: daemon.SSHSessionInfo
-	(*SSHServerState)(nil),                     // 24: daemon.SSHServerState
-	(*FullStatus)(nil),                         // 25: daemon.FullStatus
-	(*ListNetworksRequest)(nil),                // 26: daemon.ListNetworksRequest
-	(*ListNetworksResponse)(nil),               // 27: daemon.ListNetworksResponse
-	(*SelectNetworksRequest)(nil),              // 28: daemon.SelectNetworksRequest
-	(*SelectNetworksResponse)(nil),             // 29: daemon.SelectNetworksResponse
-	(*IPList)(nil),                             // 30: daemon.IPList
-	(*Network)(nil),                            // 31: daemon.Network
-	(*PortInfo)(nil),                           // 32: daemon.PortInfo
-	(*ForwardingRule)(nil),                     // 33: daemon.ForwardingRule
-	(*ForwardingRulesResponse)(nil),            // 34: daemon.ForwardingRulesResponse
-	(*DebugBundleRequest)(nil),                 // 35: daemon.DebugBundleRequest
-	(*DebugBundleResponse)(nil),                // 36: daemon.DebugBundleResponse
-	(*GetLogLevelRequest)(nil),                 // 37: daemon.GetLogLevelRequest
-	(*GetLogLevelResponse)(nil),                // 38: daemon.GetLogLevelResponse
-	(*SetLogLevelRequest)(nil),                 // 39: daemon.SetLogLevelRequest
-	(*SetLogLevelResponse)(nil),                // 40: daemon.SetLogLevelResponse
-	(*RegisterUILogRequest)(nil),               // 41: daemon.RegisterUILogRequest
-	(*RegisterUILogResponse)(nil),              // 42: daemon.RegisterUILogResponse
-	(*State)(nil),                              // 43: daemon.State
-	(*ListStatesRequest)(nil),                  // 44: daemon.ListStatesRequest
-	(*ListStatesResponse)(nil),                 // 45: daemon.ListStatesResponse
-	(*CleanStateRequest)(nil),                  // 46: daemon.CleanStateRequest
-	(*CleanStateResponse)(nil),                 // 47: daemon.CleanStateResponse
-	(*DeleteStateRequest)(nil),                 // 48: daemon.DeleteStateRequest
-	(*DeleteStateResponse)(nil),                // 49: daemon.DeleteStateResponse
-	(*SetSyncResponsePersistenceRequest)(nil),  // 50: daemon.SetSyncResponsePersistenceRequest
-	(*SetSyncResponsePersistenceResponse)(nil), // 51: daemon.SetSyncResponsePersistenceResponse
-	(*TCPFlags)(nil),                           // 52: daemon.TCPFlags
-	(*TracePacketRequest)(nil),                 // 53: daemon.TracePacketRequest
-	(*TraceStage)(nil),                         // 54: daemon.TraceStage
-	(*TracePacketResponse)(nil),                // 55: daemon.TracePacketResponse
-	(*SubscribeRequest)(nil),                   // 56: daemon.SubscribeRequest
-	(*SystemEvent)(nil),                        // 57: daemon.SystemEvent
-	(*GetEventsRequest)(nil),                   // 58: daemon.GetEventsRequest
-	(*GetEventsResponse)(nil),                  // 59: daemon.GetEventsResponse
-	(*SwitchProfileRequest)(nil),               // 60: daemon.SwitchProfileRequest
-	(*SwitchProfileResponse)(nil),              // 61: daemon.SwitchProfileResponse
-	(*SetConfigRequest)(nil),                   // 62: daemon.SetConfigRequest
-	(*SetConfigResponse)(nil),                  // 63: daemon.SetConfigResponse
-	(*AddProfileRequest)(nil),                  // 64: daemon.AddProfileRequest
-	(*AddProfileResponse)(nil),                 // 65: daemon.AddProfileResponse
-	(*RenameProfileRequest)(nil),               // 66: daemon.RenameProfileRequest
-	(*RenameProfileResponse)(nil),              // 67: daemon.RenameProfileResponse
-	(*RemoveProfileRequest)(nil),               // 68: daemon.RemoveProfileRequest
-	(*RemoveProfileResponse)(nil),              // 69: daemon.RemoveProfileResponse
-	(*ListProfilesRequest)(nil),                // 70: daemon.ListProfilesRequest
-	(*ListProfilesResponse)(nil),               // 71: daemon.ListProfilesResponse
-	(*Profile)(nil),                            // 72: daemon.Profile
-	(*GetActiveProfileRequest)(nil),            // 73: daemon.GetActiveProfileRequest
-	(*GetActiveProfileResponse)(nil),           // 74: daemon.GetActiveProfileResponse
-	(*LogoutRequest)(nil),                      // 75: daemon.LogoutRequest
-	(*LogoutResponse)(nil),                     // 76: daemon.LogoutResponse
-	(*WailsUIReadyRequest)(nil),                // 77: daemon.WailsUIReadyRequest
-	(*WailsUIReadyResponse)(nil),               // 78: daemon.WailsUIReadyResponse
-	(*GetFeaturesRequest)(nil),                 // 79: daemon.GetFeaturesRequest
-	(*GetFeaturesResponse)(nil),                // 80: daemon.GetFeaturesResponse
-	(*MDMManagedFieldsViolation)(nil),          // 81: daemon.MDMManagedFieldsViolation
-	(*TriggerUpdateRequest)(nil),               // 82: daemon.TriggerUpdateRequest
-	(*TriggerUpdateResponse)(nil),              // 83: daemon.TriggerUpdateResponse
-	(*GetPeerSSHHostKeyRequest)(nil),           // 84: daemon.GetPeerSSHHostKeyRequest
-	(*GetPeerSSHHostKeyResponse)(nil),          // 85: daemon.GetPeerSSHHostKeyResponse
-	(*RequestJWTAuthRequest)(nil),              // 86: daemon.RequestJWTAuthRequest
-	(*RequestJWTAuthResponse)(nil),             // 87: daemon.RequestJWTAuthResponse
-	(*WaitJWTTokenRequest)(nil),                // 88: daemon.WaitJWTTokenRequest
-	(*WaitJWTTokenResponse)(nil),               // 89: daemon.WaitJWTTokenResponse
-	(*RequestExtendAuthSessionRequest)(nil),    // 90: daemon.RequestExtendAuthSessionRequest
-	(*RequestExtendAuthSessionResponse)(nil),   // 91: daemon.RequestExtendAuthSessionResponse
-	(*WaitExtendAuthSessionRequest)(nil),       // 92: daemon.WaitExtendAuthSessionRequest
-	(*WaitExtendAuthSessionResponse)(nil),      // 93: daemon.WaitExtendAuthSessionResponse
-	(*DismissSessionWarningRequest)(nil),       // 94: daemon.DismissSessionWarningRequest
-	(*DismissSessionWarningResponse)(nil),      // 95: daemon.DismissSessionWarningResponse
-	(*StartCPUProfileRequest)(nil),             // 96: daemon.StartCPUProfileRequest
-	(*StartCPUProfileResponse)(nil),            // 97: daemon.StartCPUProfileResponse
-	(*StopCPUProfileRequest)(nil),              // 98: daemon.StopCPUProfileRequest
-	(*StopCPUProfileResponse)(nil),             // 99: daemon.StopCPUProfileResponse
-	(*InstallerResultRequest)(nil),             // 100: daemon.InstallerResultRequest
-	(*InstallerResultResponse)(nil),            // 101: daemon.InstallerResultResponse
-	(*ExposeServiceRequest)(nil),               // 102: daemon.ExposeServiceRequest
-	(*ExposeServiceEvent)(nil),                 // 103: daemon.ExposeServiceEvent
-	(*ExposeServiceReady)(nil),                 // 104: daemon.ExposeServiceReady
-	(*StartCaptureRequest)(nil),                // 105: daemon.StartCaptureRequest
-	(*CapturePacket)(nil),                      // 106: daemon.CapturePacket
-	(*StartBundleCaptureRequest)(nil),          // 107: daemon.StartBundleCaptureRequest
-	(*StartBundleCaptureResponse)(nil),         // 108: daemon.StartBundleCaptureResponse
-	(*StopBundleCaptureRequest)(nil),           // 109: daemon.StopBundleCaptureRequest
-	(*StopBundleCaptureResponse)(nil),          // 110: daemon.StopBundleCaptureResponse
-	nil,                                        // 111: daemon.Network.ResolvedIPsEntry
-	(*PortInfo_Range)(nil),                     // 112: daemon.PortInfo.Range
-	nil,                                        // 113: daemon.SystemEvent.MetadataEntry
-	(*durationpb.Duration)(nil),                // 114: google.protobuf.Duration
-	(*timestamppb.Timestamp)(nil),              // 115: google.protobuf.Timestamp
+	(FileDropMode)(0),                          // 2: daemon.FileDropMode
+	(FileDropRule)(0),                          // 3: daemon.FileDropRule
+	(FileDropReason)(0),                        // 4: daemon.FileDropReason
+	(FileDropState)(0),                         // 5: daemon.FileDropState
+	(SystemEvent_Severity)(0),                  // 6: daemon.SystemEvent.Severity
+	(SystemEvent_Category)(0),                  // 7: daemon.SystemEvent.Category
+	(*EmptyRequest)(nil),                       // 8: daemon.EmptyRequest
+	(*LoginRequest)(nil),                       // 9: daemon.LoginRequest
+	(*LoginResponse)(nil),                      // 10: daemon.LoginResponse
+	(*WaitSSOLoginRequest)(nil),                // 11: daemon.WaitSSOLoginRequest
+	(*WaitSSOLoginResponse)(nil),               // 12: daemon.WaitSSOLoginResponse
+	(*UpRequest)(nil),                          // 13: daemon.UpRequest
+	(*UpResponse)(nil),                         // 14: daemon.UpResponse
+	(*StatusRequest)(nil),                      // 15: daemon.StatusRequest
+	(*StatusResponse)(nil),                     // 16: daemon.StatusResponse
+	(*DownRequest)(nil),                        // 17: daemon.DownRequest
+	(*DownResponse)(nil),                       // 18: daemon.DownResponse
+	(*GetConfigRequest)(nil),                   // 19: daemon.GetConfigRequest
+	(*GetConfigResponse)(nil),                  // 20: daemon.GetConfigResponse
+	(*PeerState)(nil),                          // 21: daemon.PeerState
+	(*LocalPeerState)(nil),                     // 22: daemon.LocalPeerState
+	(*SignalState)(nil),                        // 23: daemon.SignalState
+	(*ManagementState)(nil),                    // 24: daemon.ManagementState
+	(*RelayState)(nil),                         // 25: daemon.RelayState
+	(*NSGroupState)(nil),                       // 26: daemon.NSGroupState
+	(*SSHSessionInfo)(nil),                     // 27: daemon.SSHSessionInfo
+	(*SSHServerState)(nil),                     // 28: daemon.SSHServerState
+	(*FullStatus)(nil),                         // 29: daemon.FullStatus
+	(*ListNetworksRequest)(nil),                // 30: daemon.ListNetworksRequest
+	(*ListNetworksResponse)(nil),               // 31: daemon.ListNetworksResponse
+	(*SelectNetworksRequest)(nil),              // 32: daemon.SelectNetworksRequest
+	(*SelectNetworksResponse)(nil),             // 33: daemon.SelectNetworksResponse
+	(*IPList)(nil),                             // 34: daemon.IPList
+	(*Network)(nil),                            // 35: daemon.Network
+	(*PortInfo)(nil),                           // 36: daemon.PortInfo
+	(*ForwardingRule)(nil),                     // 37: daemon.ForwardingRule
+	(*ForwardingRulesResponse)(nil),            // 38: daemon.ForwardingRulesResponse
+	(*DebugBundleRequest)(nil),                 // 39: daemon.DebugBundleRequest
+	(*DebugBundleResponse)(nil),                // 40: daemon.DebugBundleResponse
+	(*GetLogLevelRequest)(nil),                 // 41: daemon.GetLogLevelRequest
+	(*GetLogLevelResponse)(nil),                // 42: daemon.GetLogLevelResponse
+	(*SetLogLevelRequest)(nil),                 // 43: daemon.SetLogLevelRequest
+	(*SetLogLevelResponse)(nil),                // 44: daemon.SetLogLevelResponse
+	(*RegisterUILogRequest)(nil),               // 45: daemon.RegisterUILogRequest
+	(*RegisterUILogResponse)(nil),              // 46: daemon.RegisterUILogResponse
+	(*State)(nil),                              // 47: daemon.State
+	(*ListStatesRequest)(nil),                  // 48: daemon.ListStatesRequest
+	(*ListStatesResponse)(nil),                 // 49: daemon.ListStatesResponse
+	(*CleanStateRequest)(nil),                  // 50: daemon.CleanStateRequest
+	(*CleanStateResponse)(nil),                 // 51: daemon.CleanStateResponse
+	(*DeleteStateRequest)(nil),                 // 52: daemon.DeleteStateRequest
+	(*DeleteStateResponse)(nil),                // 53: daemon.DeleteStateResponse
+	(*SetSyncResponsePersistenceRequest)(nil),  // 54: daemon.SetSyncResponsePersistenceRequest
+	(*SetSyncResponsePersistenceResponse)(nil), // 55: daemon.SetSyncResponsePersistenceResponse
+	(*TCPFlags)(nil),                           // 56: daemon.TCPFlags
+	(*TracePacketRequest)(nil),                 // 57: daemon.TracePacketRequest
+	(*TraceStage)(nil),                         // 58: daemon.TraceStage
+	(*TracePacketResponse)(nil),                // 59: daemon.TracePacketResponse
+	(*SubscribeRequest)(nil),                   // 60: daemon.SubscribeRequest
+	(*SystemEvent)(nil),                        // 61: daemon.SystemEvent
+	(*GetEventsRequest)(nil),                   // 62: daemon.GetEventsRequest
+	(*GetEventsResponse)(nil),                  // 63: daemon.GetEventsResponse
+	(*SwitchProfileRequest)(nil),               // 64: daemon.SwitchProfileRequest
+	(*SwitchProfileResponse)(nil),              // 65: daemon.SwitchProfileResponse
+	(*SetConfigRequest)(nil),                   // 66: daemon.SetConfigRequest
+	(*SetConfigResponse)(nil),                  // 67: daemon.SetConfigResponse
+	(*AddProfileRequest)(nil),                  // 68: daemon.AddProfileRequest
+	(*AddProfileResponse)(nil),                 // 69: daemon.AddProfileResponse
+	(*RenameProfileRequest)(nil),               // 70: daemon.RenameProfileRequest
+	(*RenameProfileResponse)(nil),              // 71: daemon.RenameProfileResponse
+	(*RemoveProfileRequest)(nil),               // 72: daemon.RemoveProfileRequest
+	(*RemoveProfileResponse)(nil),              // 73: daemon.RemoveProfileResponse
+	(*ListProfilesRequest)(nil),                // 74: daemon.ListProfilesRequest
+	(*ListProfilesResponse)(nil),               // 75: daemon.ListProfilesResponse
+	(*Profile)(nil),                            // 76: daemon.Profile
+	(*GetActiveProfileRequest)(nil),            // 77: daemon.GetActiveProfileRequest
+	(*GetActiveProfileResponse)(nil),           // 78: daemon.GetActiveProfileResponse
+	(*LogoutRequest)(nil),                      // 79: daemon.LogoutRequest
+	(*LogoutResponse)(nil),                     // 80: daemon.LogoutResponse
+	(*WailsUIReadyRequest)(nil),                // 81: daemon.WailsUIReadyRequest
+	(*WailsUIReadyResponse)(nil),               // 82: daemon.WailsUIReadyResponse
+	(*GetFeaturesRequest)(nil),                 // 83: daemon.GetFeaturesRequest
+	(*GetFeaturesResponse)(nil),                // 84: daemon.GetFeaturesResponse
+	(*MDMManagedFieldsViolation)(nil),          // 85: daemon.MDMManagedFieldsViolation
+	(*TriggerUpdateRequest)(nil),               // 86: daemon.TriggerUpdateRequest
+	(*TriggerUpdateResponse)(nil),              // 87: daemon.TriggerUpdateResponse
+	(*GetPeerSSHHostKeyRequest)(nil),           // 88: daemon.GetPeerSSHHostKeyRequest
+	(*GetPeerSSHHostKeyResponse)(nil),          // 89: daemon.GetPeerSSHHostKeyResponse
+	(*RequestJWTAuthRequest)(nil),              // 90: daemon.RequestJWTAuthRequest
+	(*RequestJWTAuthResponse)(nil),             // 91: daemon.RequestJWTAuthResponse
+	(*WaitJWTTokenRequest)(nil),                // 92: daemon.WaitJWTTokenRequest
+	(*WaitJWTTokenResponse)(nil),               // 93: daemon.WaitJWTTokenResponse
+	(*RequestExtendAuthSessionRequest)(nil),    // 94: daemon.RequestExtendAuthSessionRequest
+	(*RequestExtendAuthSessionResponse)(nil),   // 95: daemon.RequestExtendAuthSessionResponse
+	(*WaitExtendAuthSessionRequest)(nil),       // 96: daemon.WaitExtendAuthSessionRequest
+	(*WaitExtendAuthSessionResponse)(nil),      // 97: daemon.WaitExtendAuthSessionResponse
+	(*DismissSessionWarningRequest)(nil),       // 98: daemon.DismissSessionWarningRequest
+	(*DismissSessionWarningResponse)(nil),      // 99: daemon.DismissSessionWarningResponse
+	(*StartCPUProfileRequest)(nil),             // 100: daemon.StartCPUProfileRequest
+	(*StartCPUProfileResponse)(nil),            // 101: daemon.StartCPUProfileResponse
+	(*StopCPUProfileRequest)(nil),              // 102: daemon.StopCPUProfileRequest
+	(*StopCPUProfileResponse)(nil),             // 103: daemon.StopCPUProfileResponse
+	(*InstallerResultRequest)(nil),             // 104: daemon.InstallerResultRequest
+	(*InstallerResultResponse)(nil),            // 105: daemon.InstallerResultResponse
+	(*ExposeServiceRequest)(nil),               // 106: daemon.ExposeServiceRequest
+	(*ExposeServiceEvent)(nil),                 // 107: daemon.ExposeServiceEvent
+	(*ExposeServiceReady)(nil),                 // 108: daemon.ExposeServiceReady
+	(*StartCaptureRequest)(nil),                // 109: daemon.StartCaptureRequest
+	(*CapturePacket)(nil),                      // 110: daemon.CapturePacket
+	(*StartBundleCaptureRequest)(nil),          // 111: daemon.StartBundleCaptureRequest
+	(*StartBundleCaptureResponse)(nil),         // 112: daemon.StartBundleCaptureResponse
+	(*StopBundleCaptureRequest)(nil),           // 113: daemon.StopBundleCaptureRequest
+	(*StopBundleCaptureResponse)(nil),          // 114: daemon.StopBundleCaptureResponse
+	(*FileDropFile)(nil),                       // 115: daemon.FileDropFile
+	(*FileDropTransfer)(nil),                   // 116: daemon.FileDropTransfer
+	(*FileDropSendRequest)(nil),                // 117: daemon.FileDropSendRequest
+	(*FileDropSendResponse)(nil),               // 118: daemon.FileDropSendResponse
+	(*FileDropDecideRequest)(nil),              // 119: daemon.FileDropDecideRequest
+	(*FileDropDecideResponse)(nil),             // 120: daemon.FileDropDecideResponse
+	(*FileDropCancelRequest)(nil),              // 121: daemon.FileDropCancelRequest
+	(*FileDropCancelResponse)(nil),             // 122: daemon.FileDropCancelResponse
+	(*FileDropListTransfersRequest)(nil),       // 123: daemon.FileDropListTransfersRequest
+	(*FileDropListTransfersResponse)(nil),      // 124: daemon.FileDropListTransfersResponse
+	(*FileDropDeleteTransferRequest)(nil),      // 125: daemon.FileDropDeleteTransferRequest
+	(*FileDropDeleteTransferResponse)(nil),     // 126: daemon.FileDropDeleteTransferResponse
+	(*FileDropGetSettingsRequest)(nil),         // 127: daemon.FileDropGetSettingsRequest
+	(*FileDropGetSettingsResponse)(nil),        // 128: daemon.FileDropGetSettingsResponse
+	(*FileDropSetSettingsRequest)(nil),         // 129: daemon.FileDropSetSettingsRequest
+	(*FileDropSetSettingsResponse)(nil),        // 130: daemon.FileDropSetSettingsResponse
+	(*FileDropSetPeerRuleRequest)(nil),         // 131: daemon.FileDropSetPeerRuleRequest
+	(*FileDropSetPeerRuleResponse)(nil),        // 132: daemon.FileDropSetPeerRuleResponse
+	nil,                                        // 133: daemon.Network.ResolvedIPsEntry
+	(*PortInfo_Range)(nil),                     // 134: daemon.PortInfo.Range
+	nil,                                        // 135: daemon.SystemEvent.MetadataEntry
+	nil,                                        // 136: daemon.FileDropGetSettingsResponse.PeerRulesEntry
+	(*durationpb.Duration)(nil),                // 137: google.protobuf.Duration
+	(*timestamppb.Timestamp)(nil),              // 138: google.protobuf.Timestamp
 }
 var file_daemon_proto_depIdxs = []int32{
-	114, // 0: daemon.LoginRequest.dnsRouteInterval:type_name -> google.protobuf.Duration
-	25,  // 1: daemon.StatusResponse.fullStatus:type_name -> daemon.FullStatus
-	115, // 2: daemon.StatusResponse.sessionExpiresAt:type_name -> google.protobuf.Timestamp
-	115, // 3: daemon.PeerState.connStatusUpdate:type_name -> google.protobuf.Timestamp
-	115, // 4: daemon.PeerState.lastWireguardHandshake:type_name -> google.protobuf.Timestamp
-	114, // 5: daemon.PeerState.latency:type_name -> google.protobuf.Duration
-	23,  // 6: daemon.SSHServerState.sessions:type_name -> daemon.SSHSessionInfo
-	20,  // 7: daemon.FullStatus.managementState:type_name -> daemon.ManagementState
-	19,  // 8: daemon.FullStatus.signalState:type_name -> daemon.SignalState
-	18,  // 9: daemon.FullStatus.localPeerState:type_name -> daemon.LocalPeerState
-	17,  // 10: daemon.FullStatus.peers:type_name -> daemon.PeerState
-	21,  // 11: daemon.FullStatus.relays:type_name -> daemon.RelayState
-	22,  // 12: daemon.FullStatus.dns_servers:type_name -> daemon.NSGroupState
-	57,  // 13: daemon.FullStatus.events:type_name -> daemon.SystemEvent
-	24,  // 14: daemon.FullStatus.sshServerState:type_name -> daemon.SSHServerState
-	31,  // 15: daemon.ListNetworksResponse.routes:type_name -> daemon.Network
-	111, // 16: daemon.Network.resolvedIPs:type_name -> daemon.Network.ResolvedIPsEntry
-	112, // 17: daemon.PortInfo.range:type_name -> daemon.PortInfo.Range
-	32,  // 18: daemon.ForwardingRule.destinationPort:type_name -> daemon.PortInfo
-	32,  // 19: daemon.ForwardingRule.translatedPort:type_name -> daemon.PortInfo
-	33,  // 20: daemon.ForwardingRulesResponse.rules:type_name -> daemon.ForwardingRule
+	137, // 0: daemon.LoginRequest.dnsRouteInterval:type_name -> google.protobuf.Duration
+	29,  // 1: daemon.StatusResponse.fullStatus:type_name -> daemon.FullStatus
+	138, // 2: daemon.StatusResponse.sessionExpiresAt:type_name -> google.protobuf.Timestamp
+	138, // 3: daemon.PeerState.connStatusUpdate:type_name -> google.protobuf.Timestamp
+	138, // 4: daemon.PeerState.lastWireguardHandshake:type_name -> google.protobuf.Timestamp
+	137, // 5: daemon.PeerState.latency:type_name -> google.protobuf.Duration
+	27,  // 6: daemon.SSHServerState.sessions:type_name -> daemon.SSHSessionInfo
+	24,  // 7: daemon.FullStatus.managementState:type_name -> daemon.ManagementState
+	23,  // 8: daemon.FullStatus.signalState:type_name -> daemon.SignalState
+	22,  // 9: daemon.FullStatus.localPeerState:type_name -> daemon.LocalPeerState
+	21,  // 10: daemon.FullStatus.peers:type_name -> daemon.PeerState
+	25,  // 11: daemon.FullStatus.relays:type_name -> daemon.RelayState
+	26,  // 12: daemon.FullStatus.dns_servers:type_name -> daemon.NSGroupState
+	61,  // 13: daemon.FullStatus.events:type_name -> daemon.SystemEvent
+	28,  // 14: daemon.FullStatus.sshServerState:type_name -> daemon.SSHServerState
+	35,  // 15: daemon.ListNetworksResponse.routes:type_name -> daemon.Network
+	133, // 16: daemon.Network.resolvedIPs:type_name -> daemon.Network.ResolvedIPsEntry
+	134, // 17: daemon.PortInfo.range:type_name -> daemon.PortInfo.Range
+	36,  // 18: daemon.ForwardingRule.destinationPort:type_name -> daemon.PortInfo
+	36,  // 19: daemon.ForwardingRule.translatedPort:type_name -> daemon.PortInfo
+	37,  // 20: daemon.ForwardingRulesResponse.rules:type_name -> daemon.ForwardingRule
 	0,   // 21: daemon.GetLogLevelResponse.level:type_name -> daemon.LogLevel
 	0,   // 22: daemon.SetLogLevelRequest.level:type_name -> daemon.LogLevel
-	43,  // 23: daemon.ListStatesResponse.states:type_name -> daemon.State
-	52,  // 24: daemon.TracePacketRequest.tcp_flags:type_name -> daemon.TCPFlags
-	54,  // 25: daemon.TracePacketResponse.stages:type_name -> daemon.TraceStage
-	2,   // 26: daemon.SystemEvent.severity:type_name -> daemon.SystemEvent.Severity
-	3,   // 27: daemon.SystemEvent.category:type_name -> daemon.SystemEvent.Category
-	115, // 28: daemon.SystemEvent.timestamp:type_name -> google.protobuf.Timestamp
-	113, // 29: daemon.SystemEvent.metadata:type_name -> daemon.SystemEvent.MetadataEntry
-	57,  // 30: daemon.GetEventsResponse.events:type_name -> daemon.SystemEvent
-	114, // 31: daemon.SetConfigRequest.dnsRouteInterval:type_name -> google.protobuf.Duration
-	72,  // 32: daemon.ListProfilesResponse.profiles:type_name -> daemon.Profile
-	115, // 33: daemon.WaitExtendAuthSessionResponse.sessionExpiresAt:type_name -> google.protobuf.Timestamp
+	47,  // 23: daemon.ListStatesResponse.states:type_name -> daemon.State
+	56,  // 24: daemon.TracePacketRequest.tcp_flags:type_name -> daemon.TCPFlags
+	58,  // 25: daemon.TracePacketResponse.stages:type_name -> daemon.TraceStage
+	6,   // 26: daemon.SystemEvent.severity:type_name -> daemon.SystemEvent.Severity
+	7,   // 27: daemon.SystemEvent.category:type_name -> daemon.SystemEvent.Category
+	138, // 28: daemon.SystemEvent.timestamp:type_name -> google.protobuf.Timestamp
+	135, // 29: daemon.SystemEvent.metadata:type_name -> daemon.SystemEvent.MetadataEntry
+	61,  // 30: daemon.GetEventsResponse.events:type_name -> daemon.SystemEvent
+	137, // 31: daemon.SetConfigRequest.dnsRouteInterval:type_name -> google.protobuf.Duration
+	76,  // 32: daemon.ListProfilesResponse.profiles:type_name -> daemon.Profile
+	138, // 33: daemon.WaitExtendAuthSessionResponse.sessionExpiresAt:type_name -> google.protobuf.Timestamp
 	1,   // 34: daemon.ExposeServiceRequest.protocol:type_name -> daemon.ExposeProtocol
-	104, // 35: daemon.ExposeServiceEvent.ready:type_name -> daemon.ExposeServiceReady
-	114, // 36: daemon.StartCaptureRequest.duration:type_name -> google.protobuf.Duration
-	114, // 37: daemon.StartBundleCaptureRequest.timeout:type_name -> google.protobuf.Duration
-	30,  // 38: daemon.Network.ResolvedIPsEntry.value:type_name -> daemon.IPList
-	5,   // 39: daemon.DaemonService.Login:input_type -> daemon.LoginRequest
-	7,   // 40: daemon.DaemonService.WaitSSOLogin:input_type -> daemon.WaitSSOLoginRequest
-	9,   // 41: daemon.DaemonService.Up:input_type -> daemon.UpRequest
-	11,  // 42: daemon.DaemonService.Status:input_type -> daemon.StatusRequest
-	11,  // 43: daemon.DaemonService.SubscribeStatus:input_type -> daemon.StatusRequest
-	13,  // 44: daemon.DaemonService.Down:input_type -> daemon.DownRequest
-	15,  // 45: daemon.DaemonService.GetConfig:input_type -> daemon.GetConfigRequest
-	26,  // 46: daemon.DaemonService.ListNetworks:input_type -> daemon.ListNetworksRequest
-	28,  // 47: daemon.DaemonService.SelectNetworks:input_type -> daemon.SelectNetworksRequest
-	28,  // 48: daemon.DaemonService.DeselectNetworks:input_type -> daemon.SelectNetworksRequest
-	4,   // 49: daemon.DaemonService.ForwardingRules:input_type -> daemon.EmptyRequest
-	35,  // 50: daemon.DaemonService.DebugBundle:input_type -> daemon.DebugBundleRequest
-	37,  // 51: daemon.DaemonService.GetLogLevel:input_type -> daemon.GetLogLevelRequest
-	39,  // 52: daemon.DaemonService.SetLogLevel:input_type -> daemon.SetLogLevelRequest
-	44,  // 53: daemon.DaemonService.ListStates:input_type -> daemon.ListStatesRequest
-	46,  // 54: daemon.DaemonService.CleanState:input_type -> daemon.CleanStateRequest
-	48,  // 55: daemon.DaemonService.DeleteState:input_type -> daemon.DeleteStateRequest
-	50,  // 56: daemon.DaemonService.SetSyncResponsePersistence:input_type -> daemon.SetSyncResponsePersistenceRequest
-	53,  // 57: daemon.DaemonService.TracePacket:input_type -> daemon.TracePacketRequest
-	105, // 58: daemon.DaemonService.StartCapture:input_type -> daemon.StartCaptureRequest
-	107, // 59: daemon.DaemonService.StartBundleCapture:input_type -> daemon.StartBundleCaptureRequest
-	109, // 60: daemon.DaemonService.StopBundleCapture:input_type -> daemon.StopBundleCaptureRequest
-	56,  // 61: daemon.DaemonService.SubscribeEvents:input_type -> daemon.SubscribeRequest
-	58,  // 62: daemon.DaemonService.GetEvents:input_type -> daemon.GetEventsRequest
-	41,  // 63: daemon.DaemonService.RegisterUILog:input_type -> daemon.RegisterUILogRequest
-	60,  // 64: daemon.DaemonService.SwitchProfile:input_type -> daemon.SwitchProfileRequest
-	62,  // 65: daemon.DaemonService.SetConfig:input_type -> daemon.SetConfigRequest
-	64,  // 66: daemon.DaemonService.AddProfile:input_type -> daemon.AddProfileRequest
-	66,  // 67: daemon.DaemonService.RenameProfile:input_type -> daemon.RenameProfileRequest
-	68,  // 68: daemon.DaemonService.RemoveProfile:input_type -> daemon.RemoveProfileRequest
-	70,  // 69: daemon.DaemonService.ListProfiles:input_type -> daemon.ListProfilesRequest
-	73,  // 70: daemon.DaemonService.GetActiveProfile:input_type -> daemon.GetActiveProfileRequest
-	75,  // 71: daemon.DaemonService.Logout:input_type -> daemon.LogoutRequest
-	79,  // 72: daemon.DaemonService.GetFeatures:input_type -> daemon.GetFeaturesRequest
-	82,  // 73: daemon.DaemonService.TriggerUpdate:input_type -> daemon.TriggerUpdateRequest
-	84,  // 74: daemon.DaemonService.GetPeerSSHHostKey:input_type -> daemon.GetPeerSSHHostKeyRequest
-	86,  // 75: daemon.DaemonService.RequestJWTAuth:input_type -> daemon.RequestJWTAuthRequest
-	88,  // 76: daemon.DaemonService.WaitJWTToken:input_type -> daemon.WaitJWTTokenRequest
-	90,  // 77: daemon.DaemonService.RequestExtendAuthSession:input_type -> daemon.RequestExtendAuthSessionRequest
-	92,  // 78: daemon.DaemonService.WaitExtendAuthSession:input_type -> daemon.WaitExtendAuthSessionRequest
-	94,  // 79: daemon.DaemonService.DismissSessionWarning:input_type -> daemon.DismissSessionWarningRequest
-	96,  // 80: daemon.DaemonService.StartCPUProfile:input_type -> daemon.StartCPUProfileRequest
-	98,  // 81: daemon.DaemonService.StopCPUProfile:input_type -> daemon.StopCPUProfileRequest
-	100, // 82: daemon.DaemonService.GetInstallerResult:input_type -> daemon.InstallerResultRequest
-	102, // 83: daemon.DaemonService.ExposeService:input_type -> daemon.ExposeServiceRequest
-	77,  // 84: daemon.DaemonService.WailsUIReady:input_type -> daemon.WailsUIReadyRequest
-	6,   // 85: daemon.DaemonService.Login:output_type -> daemon.LoginResponse
-	8,   // 86: daemon.DaemonService.WaitSSOLogin:output_type -> daemon.WaitSSOLoginResponse
-	10,  // 87: daemon.DaemonService.Up:output_type -> daemon.UpResponse
-	12,  // 88: daemon.DaemonService.Status:output_type -> daemon.StatusResponse
-	12,  // 89: daemon.DaemonService.SubscribeStatus:output_type -> daemon.StatusResponse
-	14,  // 90: daemon.DaemonService.Down:output_type -> daemon.DownResponse
-	16,  // 91: daemon.DaemonService.GetConfig:output_type -> daemon.GetConfigResponse
-	27,  // 92: daemon.DaemonService.ListNetworks:output_type -> daemon.ListNetworksResponse
-	29,  // 93: daemon.DaemonService.SelectNetworks:output_type -> daemon.SelectNetworksResponse
-	29,  // 94: daemon.DaemonService.DeselectNetworks:output_type -> daemon.SelectNetworksResponse
-	34,  // 95: daemon.DaemonService.ForwardingRules:output_type -> daemon.ForwardingRulesResponse
-	36,  // 96: daemon.DaemonService.DebugBundle:output_type -> daemon.DebugBundleResponse
-	38,  // 97: daemon.DaemonService.GetLogLevel:output_type -> daemon.GetLogLevelResponse
-	40,  // 98: daemon.DaemonService.SetLogLevel:output_type -> daemon.SetLogLevelResponse
-	45,  // 99: daemon.DaemonService.ListStates:output_type -> daemon.ListStatesResponse
-	47,  // 100: daemon.DaemonService.CleanState:output_type -> daemon.CleanStateResponse
-	49,  // 101: daemon.DaemonService.DeleteState:output_type -> daemon.DeleteStateResponse
-	51,  // 102: daemon.DaemonService.SetSyncResponsePersistence:output_type -> daemon.SetSyncResponsePersistenceResponse
-	55,  // 103: daemon.DaemonService.TracePacket:output_type -> daemon.TracePacketResponse
-	106, // 104: daemon.DaemonService.StartCapture:output_type -> daemon.CapturePacket
-	108, // 105: daemon.DaemonService.StartBundleCapture:output_type -> daemon.StartBundleCaptureResponse
-	110, // 106: daemon.DaemonService.StopBundleCapture:output_type -> daemon.StopBundleCaptureResponse
-	57,  // 107: daemon.DaemonService.SubscribeEvents:output_type -> daemon.SystemEvent
-	59,  // 108: daemon.DaemonService.GetEvents:output_type -> daemon.GetEventsResponse
-	42,  // 109: daemon.DaemonService.RegisterUILog:output_type -> daemon.RegisterUILogResponse
-	61,  // 110: daemon.DaemonService.SwitchProfile:output_type -> daemon.SwitchProfileResponse
-	63,  // 111: daemon.DaemonService.SetConfig:output_type -> daemon.SetConfigResponse
-	65,  // 112: daemon.DaemonService.AddProfile:output_type -> daemon.AddProfileResponse
-	67,  // 113: daemon.DaemonService.RenameProfile:output_type -> daemon.RenameProfileResponse
-	69,  // 114: daemon.DaemonService.RemoveProfile:output_type -> daemon.RemoveProfileResponse
-	71,  // 115: daemon.DaemonService.ListProfiles:output_type -> daemon.ListProfilesResponse
-	74,  // 116: daemon.DaemonService.GetActiveProfile:output_type -> daemon.GetActiveProfileResponse
-	76,  // 117: daemon.DaemonService.Logout:output_type -> daemon.LogoutResponse
-	80,  // 118: daemon.DaemonService.GetFeatures:output_type -> daemon.GetFeaturesResponse
-	83,  // 119: daemon.DaemonService.TriggerUpdate:output_type -> daemon.TriggerUpdateResponse
-	85,  // 120: daemon.DaemonService.GetPeerSSHHostKey:output_type -> daemon.GetPeerSSHHostKeyResponse
-	87,  // 121: daemon.DaemonService.RequestJWTAuth:output_type -> daemon.RequestJWTAuthResponse
-	89,  // 122: daemon.DaemonService.WaitJWTToken:output_type -> daemon.WaitJWTTokenResponse
-	91,  // 123: daemon.DaemonService.RequestExtendAuthSession:output_type -> daemon.RequestExtendAuthSessionResponse
-	93,  // 124: daemon.DaemonService.WaitExtendAuthSession:output_type -> daemon.WaitExtendAuthSessionResponse
-	95,  // 125: daemon.DaemonService.DismissSessionWarning:output_type -> daemon.DismissSessionWarningResponse
-	97,  // 126: daemon.DaemonService.StartCPUProfile:output_type -> daemon.StartCPUProfileResponse
-	99,  // 127: daemon.DaemonService.StopCPUProfile:output_type -> daemon.StopCPUProfileResponse
-	101, // 128: daemon.DaemonService.GetInstallerResult:output_type -> daemon.InstallerResultResponse
-	103, // 129: daemon.DaemonService.ExposeService:output_type -> daemon.ExposeServiceEvent
-	78,  // 130: daemon.DaemonService.WailsUIReady:output_type -> daemon.WailsUIReadyResponse
-	85,  // [85:131] is the sub-list for method output_type
-	39,  // [39:85] is the sub-list for method input_type
-	39,  // [39:39] is the sub-list for extension type_name
-	39,  // [39:39] is the sub-list for extension extendee
-	0,   // [0:39] is the sub-list for field type_name
+	108, // 35: daemon.ExposeServiceEvent.ready:type_name -> daemon.ExposeServiceReady
+	137, // 36: daemon.StartCaptureRequest.duration:type_name -> google.protobuf.Duration
+	137, // 37: daemon.StartBundleCaptureRequest.timeout:type_name -> google.protobuf.Duration
+	115, // 38: daemon.FileDropTransfer.files:type_name -> daemon.FileDropFile
+	5,   // 39: daemon.FileDropTransfer.state:type_name -> daemon.FileDropState
+	138, // 40: daemon.FileDropTransfer.createdAt:type_name -> google.protobuf.Timestamp
+	138, // 41: daemon.FileDropTransfer.updatedAt:type_name -> google.protobuf.Timestamp
+	4,   // 42: daemon.FileDropTransfer.reason:type_name -> daemon.FileDropReason
+	116, // 43: daemon.FileDropListTransfersResponse.transfers:type_name -> daemon.FileDropTransfer
+	2,   // 44: daemon.FileDropGetSettingsResponse.mode:type_name -> daemon.FileDropMode
+	136, // 45: daemon.FileDropGetSettingsResponse.peerRules:type_name -> daemon.FileDropGetSettingsResponse.PeerRulesEntry
+	2,   // 46: daemon.FileDropSetSettingsRequest.mode:type_name -> daemon.FileDropMode
+	3,   // 47: daemon.FileDropSetPeerRuleRequest.rule:type_name -> daemon.FileDropRule
+	34,  // 48: daemon.Network.ResolvedIPsEntry.value:type_name -> daemon.IPList
+	3,   // 49: daemon.FileDropGetSettingsResponse.PeerRulesEntry.value:type_name -> daemon.FileDropRule
+	9,   // 50: daemon.DaemonService.Login:input_type -> daemon.LoginRequest
+	11,  // 51: daemon.DaemonService.WaitSSOLogin:input_type -> daemon.WaitSSOLoginRequest
+	13,  // 52: daemon.DaemonService.Up:input_type -> daemon.UpRequest
+	15,  // 53: daemon.DaemonService.Status:input_type -> daemon.StatusRequest
+	15,  // 54: daemon.DaemonService.SubscribeStatus:input_type -> daemon.StatusRequest
+	17,  // 55: daemon.DaemonService.Down:input_type -> daemon.DownRequest
+	19,  // 56: daemon.DaemonService.GetConfig:input_type -> daemon.GetConfigRequest
+	30,  // 57: daemon.DaemonService.ListNetworks:input_type -> daemon.ListNetworksRequest
+	32,  // 58: daemon.DaemonService.SelectNetworks:input_type -> daemon.SelectNetworksRequest
+	32,  // 59: daemon.DaemonService.DeselectNetworks:input_type -> daemon.SelectNetworksRequest
+	8,   // 60: daemon.DaemonService.ForwardingRules:input_type -> daemon.EmptyRequest
+	39,  // 61: daemon.DaemonService.DebugBundle:input_type -> daemon.DebugBundleRequest
+	41,  // 62: daemon.DaemonService.GetLogLevel:input_type -> daemon.GetLogLevelRequest
+	43,  // 63: daemon.DaemonService.SetLogLevel:input_type -> daemon.SetLogLevelRequest
+	48,  // 64: daemon.DaemonService.ListStates:input_type -> daemon.ListStatesRequest
+	50,  // 65: daemon.DaemonService.CleanState:input_type -> daemon.CleanStateRequest
+	52,  // 66: daemon.DaemonService.DeleteState:input_type -> daemon.DeleteStateRequest
+	54,  // 67: daemon.DaemonService.SetSyncResponsePersistence:input_type -> daemon.SetSyncResponsePersistenceRequest
+	57,  // 68: daemon.DaemonService.TracePacket:input_type -> daemon.TracePacketRequest
+	109, // 69: daemon.DaemonService.StartCapture:input_type -> daemon.StartCaptureRequest
+	111, // 70: daemon.DaemonService.StartBundleCapture:input_type -> daemon.StartBundleCaptureRequest
+	113, // 71: daemon.DaemonService.StopBundleCapture:input_type -> daemon.StopBundleCaptureRequest
+	60,  // 72: daemon.DaemonService.SubscribeEvents:input_type -> daemon.SubscribeRequest
+	62,  // 73: daemon.DaemonService.GetEvents:input_type -> daemon.GetEventsRequest
+	45,  // 74: daemon.DaemonService.RegisterUILog:input_type -> daemon.RegisterUILogRequest
+	64,  // 75: daemon.DaemonService.SwitchProfile:input_type -> daemon.SwitchProfileRequest
+	66,  // 76: daemon.DaemonService.SetConfig:input_type -> daemon.SetConfigRequest
+	68,  // 77: daemon.DaemonService.AddProfile:input_type -> daemon.AddProfileRequest
+	70,  // 78: daemon.DaemonService.RenameProfile:input_type -> daemon.RenameProfileRequest
+	72,  // 79: daemon.DaemonService.RemoveProfile:input_type -> daemon.RemoveProfileRequest
+	74,  // 80: daemon.DaemonService.ListProfiles:input_type -> daemon.ListProfilesRequest
+	77,  // 81: daemon.DaemonService.GetActiveProfile:input_type -> daemon.GetActiveProfileRequest
+	79,  // 82: daemon.DaemonService.Logout:input_type -> daemon.LogoutRequest
+	83,  // 83: daemon.DaemonService.GetFeatures:input_type -> daemon.GetFeaturesRequest
+	86,  // 84: daemon.DaemonService.TriggerUpdate:input_type -> daemon.TriggerUpdateRequest
+	88,  // 85: daemon.DaemonService.GetPeerSSHHostKey:input_type -> daemon.GetPeerSSHHostKeyRequest
+	90,  // 86: daemon.DaemonService.RequestJWTAuth:input_type -> daemon.RequestJWTAuthRequest
+	92,  // 87: daemon.DaemonService.WaitJWTToken:input_type -> daemon.WaitJWTTokenRequest
+	94,  // 88: daemon.DaemonService.RequestExtendAuthSession:input_type -> daemon.RequestExtendAuthSessionRequest
+	96,  // 89: daemon.DaemonService.WaitExtendAuthSession:input_type -> daemon.WaitExtendAuthSessionRequest
+	98,  // 90: daemon.DaemonService.DismissSessionWarning:input_type -> daemon.DismissSessionWarningRequest
+	100, // 91: daemon.DaemonService.StartCPUProfile:input_type -> daemon.StartCPUProfileRequest
+	102, // 92: daemon.DaemonService.StopCPUProfile:input_type -> daemon.StopCPUProfileRequest
+	104, // 93: daemon.DaemonService.GetInstallerResult:input_type -> daemon.InstallerResultRequest
+	106, // 94: daemon.DaemonService.ExposeService:input_type -> daemon.ExposeServiceRequest
+	81,  // 95: daemon.DaemonService.WailsUIReady:input_type -> daemon.WailsUIReadyRequest
+	117, // 96: daemon.DaemonService.FileDropSend:input_type -> daemon.FileDropSendRequest
+	119, // 97: daemon.DaemonService.FileDropDecide:input_type -> daemon.FileDropDecideRequest
+	121, // 98: daemon.DaemonService.FileDropCancel:input_type -> daemon.FileDropCancelRequest
+	123, // 99: daemon.DaemonService.FileDropListTransfers:input_type -> daemon.FileDropListTransfersRequest
+	125, // 100: daemon.DaemonService.FileDropDeleteTransfer:input_type -> daemon.FileDropDeleteTransferRequest
+	127, // 101: daemon.DaemonService.FileDropGetSettings:input_type -> daemon.FileDropGetSettingsRequest
+	129, // 102: daemon.DaemonService.FileDropSetSettings:input_type -> daemon.FileDropSetSettingsRequest
+	131, // 103: daemon.DaemonService.FileDropSetPeerRule:input_type -> daemon.FileDropSetPeerRuleRequest
+	10,  // 104: daemon.DaemonService.Login:output_type -> daemon.LoginResponse
+	12,  // 105: daemon.DaemonService.WaitSSOLogin:output_type -> daemon.WaitSSOLoginResponse
+	14,  // 106: daemon.DaemonService.Up:output_type -> daemon.UpResponse
+	16,  // 107: daemon.DaemonService.Status:output_type -> daemon.StatusResponse
+	16,  // 108: daemon.DaemonService.SubscribeStatus:output_type -> daemon.StatusResponse
+	18,  // 109: daemon.DaemonService.Down:output_type -> daemon.DownResponse
+	20,  // 110: daemon.DaemonService.GetConfig:output_type -> daemon.GetConfigResponse
+	31,  // 111: daemon.DaemonService.ListNetworks:output_type -> daemon.ListNetworksResponse
+	33,  // 112: daemon.DaemonService.SelectNetworks:output_type -> daemon.SelectNetworksResponse
+	33,  // 113: daemon.DaemonService.DeselectNetworks:output_type -> daemon.SelectNetworksResponse
+	38,  // 114: daemon.DaemonService.ForwardingRules:output_type -> daemon.ForwardingRulesResponse
+	40,  // 115: daemon.DaemonService.DebugBundle:output_type -> daemon.DebugBundleResponse
+	42,  // 116: daemon.DaemonService.GetLogLevel:output_type -> daemon.GetLogLevelResponse
+	44,  // 117: daemon.DaemonService.SetLogLevel:output_type -> daemon.SetLogLevelResponse
+	49,  // 118: daemon.DaemonService.ListStates:output_type -> daemon.ListStatesResponse
+	51,  // 119: daemon.DaemonService.CleanState:output_type -> daemon.CleanStateResponse
+	53,  // 120: daemon.DaemonService.DeleteState:output_type -> daemon.DeleteStateResponse
+	55,  // 121: daemon.DaemonService.SetSyncResponsePersistence:output_type -> daemon.SetSyncResponsePersistenceResponse
+	59,  // 122: daemon.DaemonService.TracePacket:output_type -> daemon.TracePacketResponse
+	110, // 123: daemon.DaemonService.StartCapture:output_type -> daemon.CapturePacket
+	112, // 124: daemon.DaemonService.StartBundleCapture:output_type -> daemon.StartBundleCaptureResponse
+	114, // 125: daemon.DaemonService.StopBundleCapture:output_type -> daemon.StopBundleCaptureResponse
+	61,  // 126: daemon.DaemonService.SubscribeEvents:output_type -> daemon.SystemEvent
+	63,  // 127: daemon.DaemonService.GetEvents:output_type -> daemon.GetEventsResponse
+	46,  // 128: daemon.DaemonService.RegisterUILog:output_type -> daemon.RegisterUILogResponse
+	65,  // 129: daemon.DaemonService.SwitchProfile:output_type -> daemon.SwitchProfileResponse
+	67,  // 130: daemon.DaemonService.SetConfig:output_type -> daemon.SetConfigResponse
+	69,  // 131: daemon.DaemonService.AddProfile:output_type -> daemon.AddProfileResponse
+	71,  // 132: daemon.DaemonService.RenameProfile:output_type -> daemon.RenameProfileResponse
+	73,  // 133: daemon.DaemonService.RemoveProfile:output_type -> daemon.RemoveProfileResponse
+	75,  // 134: daemon.DaemonService.ListProfiles:output_type -> daemon.ListProfilesResponse
+	78,  // 135: daemon.DaemonService.GetActiveProfile:output_type -> daemon.GetActiveProfileResponse
+	80,  // 136: daemon.DaemonService.Logout:output_type -> daemon.LogoutResponse
+	84,  // 137: daemon.DaemonService.GetFeatures:output_type -> daemon.GetFeaturesResponse
+	87,  // 138: daemon.DaemonService.TriggerUpdate:output_type -> daemon.TriggerUpdateResponse
+	89,  // 139: daemon.DaemonService.GetPeerSSHHostKey:output_type -> daemon.GetPeerSSHHostKeyResponse
+	91,  // 140: daemon.DaemonService.RequestJWTAuth:output_type -> daemon.RequestJWTAuthResponse
+	93,  // 141: daemon.DaemonService.WaitJWTToken:output_type -> daemon.WaitJWTTokenResponse
+	95,  // 142: daemon.DaemonService.RequestExtendAuthSession:output_type -> daemon.RequestExtendAuthSessionResponse
+	97,  // 143: daemon.DaemonService.WaitExtendAuthSession:output_type -> daemon.WaitExtendAuthSessionResponse
+	99,  // 144: daemon.DaemonService.DismissSessionWarning:output_type -> daemon.DismissSessionWarningResponse
+	101, // 145: daemon.DaemonService.StartCPUProfile:output_type -> daemon.StartCPUProfileResponse
+	103, // 146: daemon.DaemonService.StopCPUProfile:output_type -> daemon.StopCPUProfileResponse
+	105, // 147: daemon.DaemonService.GetInstallerResult:output_type -> daemon.InstallerResultResponse
+	107, // 148: daemon.DaemonService.ExposeService:output_type -> daemon.ExposeServiceEvent
+	82,  // 149: daemon.DaemonService.WailsUIReady:output_type -> daemon.WailsUIReadyResponse
+	118, // 150: daemon.DaemonService.FileDropSend:output_type -> daemon.FileDropSendResponse
+	120, // 151: daemon.DaemonService.FileDropDecide:output_type -> daemon.FileDropDecideResponse
+	122, // 152: daemon.DaemonService.FileDropCancel:output_type -> daemon.FileDropCancelResponse
+	124, // 153: daemon.DaemonService.FileDropListTransfers:output_type -> daemon.FileDropListTransfersResponse
+	126, // 154: daemon.DaemonService.FileDropDeleteTransfer:output_type -> daemon.FileDropDeleteTransferResponse
+	128, // 155: daemon.DaemonService.FileDropGetSettings:output_type -> daemon.FileDropGetSettingsResponse
+	130, // 156: daemon.DaemonService.FileDropSetSettings:output_type -> daemon.FileDropSetSettingsResponse
+	132, // 157: daemon.DaemonService.FileDropSetPeerRule:output_type -> daemon.FileDropSetPeerRuleResponse
+	104, // [104:158] is the sub-list for method output_type
+	50,  // [50:104] is the sub-list for method input_type
+	50,  // [50:50] is the sub-list for extension type_name
+	50,  // [50:50] is the sub-list for extension extendee
+	0,   // [0:50] is the sub-list for field type_name
 }
 
 func init() { file_daemon_proto_init() }
@@ -8056,8 +9330,8 @@ func file_daemon_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_daemon_proto_rawDesc), len(file_daemon_proto_rawDesc)),
-			NumEnums:      4,
-			NumMessages:   110,
+			NumEnums:      8,
+			NumMessages:   129,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

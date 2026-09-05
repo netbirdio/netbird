@@ -35,6 +35,7 @@ import (
 	"github.com/netbirdio/netbird/shared/management/domain"
 
 	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/internal/filedrop"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"github.com/netbirdio/netbird/client/internal/updater"
@@ -114,6 +115,8 @@ type Server struct {
 	statusRecorder *peer.Status
 	sessionWatcher *internal.SessionWatcher
 	localMetrics   *localmetrics.Manager
+
+	fileDrop *filedrop.Manager
 
 	probeThrottle       *probeThrottle
 	persistSyncResponse bool
@@ -2491,6 +2494,12 @@ func (s *Server) connect(ctx context.Context, config *profilemanager.Config, sta
 	client := internal.NewConnectClient(ctx, config, statusRecorder)
 	client.SetUpdateManager(s.updateManager)
 	client.SetSyncResponsePersistence(s.persistSyncResponse)
+
+	if mgr, err := s.fileDropManager(ctx); err != nil {
+		log.Warnf("file drop is unavailable: %v", err)
+	} else {
+		client.SetFileDropManager(mgr)
+	}
 
 	s.mutex.Lock()
 	s.connectClient = client

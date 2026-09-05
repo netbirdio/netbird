@@ -40,6 +40,7 @@ import (
 	dnsconfig "github.com/netbirdio/netbird/client/internal/dns/config"
 	"github.com/netbirdio/netbird/client/internal/dnsfwd"
 	"github.com/netbirdio/netbird/client/internal/expose"
+	"github.com/netbirdio/netbird/client/internal/filedrop"
 	"github.com/netbirdio/netbird/client/internal/ingressgw"
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
 	"github.com/netbirdio/netbird/client/internal/metrics"
@@ -190,6 +191,7 @@ type EngineServices struct {
 	UpdateManager  *updater.Manager
 	ClientMetrics  *metrics.ClientMetrics
 	MetricsCtx     context.Context
+	FileDrop       *filedrop.Manager
 	// NetMgr gates the reconnection loops on OS-reported network
 	// availability; nil disables gating.
 	NetMgr *netevents.Manager
@@ -251,6 +253,11 @@ type Engine struct {
 	networkMonitor *networkmonitor.NetworkMonitor
 
 	sshServer sshServer
+
+	fileDrop        *filedrop.Manager
+	fileDropRunning bool
+	fileDropPort    uint16
+	overlayWait     overlayWaiter
 
 	statusRecorder *peer.Status
 
@@ -373,6 +380,7 @@ func NewEngine(
 		metricsCtx:         services.MetricsCtx,
 		updateManager:      services.UpdateManager,
 		syncStoreDir:       config.StateDir,
+		fileDrop:           services.FileDrop,
 	}
 	// sessionWatcher keeps the SubscribeStatus consumers in sync with the
 	// session expiry deadline. Deadline-change ticks come for free via
@@ -437,6 +445,8 @@ func (e *Engine) stopLocked() {
 	if err := e.stopSSHServer(); err != nil {
 		log.Warnf("failed to stop SSH server: %v", err)
 	}
+
+	e.stopFileDrop()
 
 	e.cleanupSSHConfig()
 
@@ -1341,6 +1351,8 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 			log.Warnf("failed handling SSH server setup: %v", err)
 		}
 	}
+
+	e.startFileDrop()
 
 	state := e.statusRecorder.GetLocalPeerState()
 	state.IP = e.wgInterface.Address().String()
@@ -2523,6 +2535,8 @@ func (e *Engine) GetWgV6Addr() netip.Addr {
 	return e.wgInterface.Address().IPv6
 }
 
+// RenewTun swaps the tunnel device for the one behind fd, which the platform
+// hands over whenever it re-establishes the interface.
 func (e *Engine) RenewTun(fd int) error {
 	e.syncMsgMux.Lock()
 	wgInterface := e.wgInterface
@@ -2577,6 +2591,7 @@ func (e *Engine) overlayRebinds() []overlayRebind {
 	return []overlayRebind{
 		e.restartSSHListeners,
 		e.restartDNSForwarder,
+		e.restartFileDrop,
 	}
 }
 

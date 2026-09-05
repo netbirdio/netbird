@@ -1,0 +1,686 @@
+package filedrop
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/netip"
+	"net/url"
+	"os"
+	"path/filepath"
+	"sync"
+	"time"
+
+	"github.com/google/uuid"
+	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/tun/netstack"
+
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
+)
+
+// The event kinds. Progress is one of them, thinned to a few reports a second
+// by the reader that raises it; see progressInterval.
+const (
+	EventOffer EventKind = iota
+	EventCompleted
+	EventFailed
+	EventWithdrawn
+	EventProgress
+)
+
+// ErrNotConnected indicates the operation needs a running tunnel.
+var ErrNotConnected = errors.New("not connected")
+
+// EventKind classifies the events the manager surfaces to the platform layer.
+type EventKind uint8
+
+// EventSink receives transfer events. Calls may come from server goroutines.
+type EventSink func(kind EventKind, transfer Transfer)
+
+// ManagerConfig configures a per-profile file drop manager. Policy and history
+// live in Store; DataDir only holds the spool of partially received files,
+// which is disposable and never outlives an offer's TTL.
+type ManagerConfig struct {
+	Profile  profilemanager.ID
+	DataDir  string
+	Store    Store
+	Events   EventSink
+	OfferTTL time.Duration
+	Sink     Sink
+}
+
+type sendHandle struct {
+	cancel   context.CancelFunc
+	ip       netip.Addr
+	addr     netip.AddrPort
+	remoteID OfferID
+}
+
+// Manager owns one profile's file drop state.
+type Manager struct {
+	mu       sync.Mutex
+	profile  profilemanager.ID
+	dataDir  string
+	store    Store
+	policy   *PolicyStore
+	history  *History
+	events   EventSink
+	offerTTL time.Duration
+	sink     Sink
+
+	server     *Server
+	dial       DialFunc
+	senderName string
+	sends      map[OfferID]*sendHandle
+	sendWg     sync.WaitGroup
+}
+
+// NewManager loads or initializes the file drop state for one profile.
+func NewManager(cfg ManagerConfig) (*Manager, error) {
+	if cfg.DataDir == "" {
+		return nil, errors.New("data dir is required")
+	}
+	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
+		return nil, fmt.Errorf("create file drop dir: %w", err)
+	}
+
+	m := &Manager{
+		profile:  cfg.Profile,
+		dataDir:  cfg.DataDir,
+		store:    cfg.Store,
+		policy:   LoadPolicyStore(cfg.Profile, cfg.Store),
+		history:  LoadHistory(cfg.Store),
+		events:   cfg.Events,
+		offerTTL: cfg.OfferTTL,
+		sink:     cfg.Sink,
+		sends:    make(map[OfferID]*sendHandle),
+	}
+	return m, nil
+}
+
+// Profile returns the profile this manager belongs to.
+func (m *Manager) Profile() profilemanager.ID {
+	return m.profile
+}
+
+// Policy returns the receiving policy store.
+func (m *Manager) Policy() *PolicyStore {
+	return m.policy
+}
+
+// ReceiverPort returns the port the receiver is actually bound to, 0 when stopped.
+func (m *Manager) ReceiverPort() uint16 {
+	m.mu.Lock()
+	server := m.server
+	m.mu.Unlock()
+	if server == nil {
+		return 0
+	}
+	return server.BoundPort()
+}
+
+// Transfers returns the history entries, newest first, with pending offers included.
+func (m *Manager) Transfers() []Transfer {
+	return m.history.List()
+}
+
+// DeleteTransfer removes a history entry. A live transfer is cancelled first.
+func (m *Manager) DeleteTransfer(id OfferID) {
+	if t, ok := m.history.Get(id); ok && !t.terminal() {
+		m.Cancel(id)
+	}
+	m.history.Delete(id)
+}
+
+// DestinationDir returns where received files are delivered: the platform
+// sink's own name for it when one stages payloads, otherwise the configured
+// directory.
+func (m *Manager) DestinationDir() string {
+	if labeller, ok := m.sink.(interface{ DestinationLabel() string }); ok {
+		return labeller.DestinationLabel()
+	}
+	return m.policy.DestinationDir()
+}
+
+// SetDestinationDir persists the delivery directory.
+func (m *Manager) SetDestinationDir(dir string) error {
+	return m.policy.SetDestinationDir(dir)
+}
+
+// StartReceiver binds the receiving server on addr. A non-nil control is
+// applied to host listeners before bind.
+func (m *Manager) StartReceiver(ctx context.Context, addr netip.AddrPort, netstackNet *netstack.Net, resolver PeerResolver, control ListenControl) error {
+	m.mu.Lock()
+	if m.server != nil {
+		m.mu.Unlock()
+		return errors.New("receiver is already running")
+	}
+	m.mu.Unlock()
+
+	server, err := NewServer(ServerConfig{
+		SpoolDir: filepath.Join(m.dataDir, "spool"),
+		Sink:     m.sink,
+		Policy:   m.policy,
+		Resolver: resolver,
+		Notifier: m,
+		OfferTTL: m.offerTTL,
+	})
+	if err != nil {
+		return fmt.Errorf("create receiver: %w", err)
+	}
+	if netstackNet != nil {
+		server.SetNetstackNet(netstackNet)
+	}
+	if control != nil {
+		server.SetListenControl(control)
+	}
+
+	if err := server.Start(ctx, addr); err != nil {
+		return fmt.Errorf("start receiver: %w", err)
+	}
+
+	m.mu.Lock()
+	m.server = server
+	m.mu.Unlock()
+	return nil
+}
+
+// AddReceiverListener serves the receiver on an additional address, such as IPv6.
+func (m *Manager) AddReceiverListener(ctx context.Context, addr netip.AddrPort) error {
+	m.mu.Lock()
+	server := m.server
+	m.mu.Unlock()
+
+	if server == nil {
+		return errors.New("receiver is not running")
+	}
+	return server.AddListener(ctx, addr)
+}
+
+// StopReceiver shuts the receiving server down, releasing its listeners and
+// offer store. The spool is left alone: an interrupted transfer resumes from
+// what is already staged once the receiver comes back.
+func (m *Manager) StopReceiver() error {
+	m.mu.Lock()
+	server := m.server
+	m.server = nil
+	m.mu.Unlock()
+
+	if server == nil {
+		return nil
+	}
+	return server.Stop()
+}
+
+// DisableReceiving stops the receiver because the profile turned receiving off.
+// Unlike StopReceiver it discards what was in flight: nothing is coming back to
+// claim the staged bytes, so the spool is emptied and every unfinished incoming
+// transfer is settled as cancelled.
+func (m *Manager) DisableReceiving() error {
+	err := m.StopReceiver()
+
+	spool, serr := NewSpool(filepath.Join(m.dataDir, "spool"))
+	if serr != nil {
+		log.Warnf("failed to open file drop spool for cleanup: %v", serr)
+	} else {
+		spool.Purge()
+	}
+
+	for _, t := range m.history.List() {
+		if t.Direction != DirectionReceived || t.terminal() {
+			continue
+		}
+		m.finishTransfer(t.ID, StateCancelled, "")
+	}
+	return err
+}
+
+// ReceivingEnabled reports whether the profile accepts incoming offers.
+func (m *Manager) ReceivingEnabled() bool {
+	return m.policy.Receiving()
+}
+
+// SetReceivingChangeHandler registers a handler invoked when receiving is
+// turned on or off, so the owner of the receiver can bind or unbind it.
+func (m *Manager) SetReceivingChangeHandler(h func()) {
+	m.policy.SetChangeHandler(h)
+}
+
+// ClearTunnel drops the tunnel dialer, leaving the manager unable to send.
+func (m *Manager) ClearTunnel() {
+	m.mu.Lock()
+	m.dial = nil
+	m.senderName = ""
+	m.mu.Unlock()
+}
+
+// SetTunnel gives the manager the tunnel dialer and the local sender name.
+func (m *Manager) SetTunnel(dial DialFunc, senderName string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.dial = dial
+	m.senderName = senderName
+}
+
+// Close stops the receiver and aborts every outgoing transfer.
+func (m *Manager) Close() error {
+	err := m.StopReceiver()
+	m.ClearTunnel()
+
+	m.mu.Lock()
+	for _, h := range m.sends {
+		h.cancel()
+	}
+	m.mu.Unlock()
+
+	m.sendWg.Wait()
+	return err
+}
+
+// Send starts an asynchronous transfer and returns its local transfer ID.
+func (m *Manager) Send(peer PeerKey, peerName string, addr netip.Addr, payloads []Payload) (OfferID, error) {
+	if len(payloads) == 0 {
+		return "", fmt.Errorf("%w: no payloads", ErrInvalidOffer)
+	}
+
+	m.mu.Lock()
+	dial, senderName := m.dial, m.senderName
+	m.mu.Unlock()
+	if dial == nil {
+		return "", ErrNotConnected
+	}
+
+	client, err := NewClient(ClientConfig{Dial: dial, SenderName: senderName, OfferTimeout: m.offerTTL})
+	if err != nil {
+		return "", err
+	}
+
+	id := OfferID(uuid.NewString())
+	ctx, cancel := context.WithCancel(context.Background())
+	handle := &sendHandle{cancel: cancel, ip: addr}
+
+	m.mu.Lock()
+	m.sends[id] = handle
+	m.mu.Unlock()
+
+	transfer := Transfer{
+		ID:        id,
+		Direction: DirectionSent,
+		PeerKey:   peer,
+		PeerName:  peerName,
+		Files:     payloadMetas(payloads),
+		State:     StatePending,
+		TotalSize: payloadTotal(payloads),
+		CreatedAt: time.Now(),
+	}
+	m.history.Upsert(transfer)
+
+	m.sendWg.Add(1)
+	go func() {
+		defer m.sendWg.Done()
+		defer cancel()
+		m.runSend(ctx, client, handle, transfer, payloads)
+
+		m.mu.Lock()
+		delete(m.sends, id)
+		m.mu.Unlock()
+	}()
+
+	return id, nil
+}
+
+// Cancel aborts a transfer in either direction.
+func (m *Manager) Cancel(id OfferID) {
+	m.mu.Lock()
+	handle := m.sends[id]
+	server := m.server
+	var remoteAddr netip.AddrPort
+	var remoteID OfferID
+	if handle != nil {
+		remoteAddr, remoteID = handle.addr, handle.remoteID
+	}
+	m.mu.Unlock()
+
+	if handle != nil {
+		handle.cancel()
+		if remoteID != "" && remoteAddr.IsValid() {
+			m.withdrawRemote(remoteAddr, remoteID)
+		}
+		m.finishTransfer(id, StateCancelled, "")
+		return
+	}
+
+	if server != nil {
+		if offer, ok := server.Offers().Revoke(id); ok {
+			server.Spool().Remove(offer.ID)
+		}
+	}
+	m.finishTransfer(id, StateCancelled, "")
+}
+
+// Accept releases a pending incoming offer for upload.
+func (m *Manager) Accept(id OfferID) error {
+	m.mu.Lock()
+	server := m.server
+	m.mu.Unlock()
+	if server == nil {
+		return ErrNotConnected
+	}
+
+	offer, ok := server.Offers().Decide(id, DecisionAccepted)
+	if !ok {
+		return ErrOfferNotFound
+	}
+
+	if offer.State == StateCompleted {
+		m.OnCompleted(offer)
+		return nil
+	}
+
+	m.history.SetProgress(id, 0)
+	return nil
+}
+
+// Decline refuses a pending incoming offer.
+func (m *Manager) Decline(id OfferID) error {
+	m.mu.Lock()
+	server := m.server
+	m.mu.Unlock()
+	if server == nil {
+		return ErrNotConnected
+	}
+
+	offer, ok := server.Offers().Decide(id, DecisionDeclined)
+	if !ok {
+		return ErrOfferNotFound
+	}
+
+	server.Spool().Remove(offer.ID)
+	m.finishTransfer(id, StateDeclined, "")
+	return nil
+}
+
+// SetSenderRule records a per-sender exception.
+func (m *Manager) SetSenderRule(peer PeerKey, rule SenderRule) error {
+	if err := m.policy.SetSenderRule(peer, rule); err != nil {
+		return err
+	}
+	if rule != SenderRuleBlock {
+		return nil
+	}
+
+	m.mu.Lock()
+	server := m.server
+	m.mu.Unlock()
+	if server == nil {
+		return nil
+	}
+
+	for _, offer := range server.Offers().List() {
+		if offer.Sender != peer || offer.Decision != DecisionPending {
+			continue
+		}
+		if declined, ok := server.Offers().Decide(offer.ID, DecisionDeclined); ok {
+			server.Spool().Remove(declined.ID)
+			m.finishTransfer(declined.ID, StateDeclined, "")
+			m.emit(EventWithdrawn, m.transferOf(declined.ID))
+		}
+	}
+	return nil
+}
+
+func (m *Manager) runSend(ctx context.Context, client *Client, handle *sendHandle, transfer Transfer, payloads []Payload) {
+	addr := netip.AddrPortFrom(handle.ip, Port)
+	remoteID, decision, err := client.Offer(ctx, addr, payloads)
+	if err != nil {
+		m.failSend(ctx, transfer.ID, "offer", err)
+		return
+	}
+	m.storeRemote(handle, addr, remoteID)
+
+	decision, err = client.AwaitDecision(ctx, addr, remoteID, decision)
+	if err != nil {
+		m.failSend(ctx, transfer.ID, "await decision", err)
+		return
+	}
+	if err := decisionError(decision); err != nil {
+		m.failSend(ctx, transfer.ID, "decision", err)
+		return
+	}
+
+	m.history.SetProgress(transfer.ID, 0)
+
+	completed := make([]int64, len(payloads))
+	progress := func(index int, sent, _ int64) {
+		completed[index] = sent
+		var total int64
+		for _, n := range completed {
+			total += n
+		}
+		m.history.SetProgress(transfer.ID, total)
+		m.emit(EventProgress, m.transferOf(transfer.ID))
+	}
+
+	if err := client.Upload(ctx, addr, remoteID, payloads, progress); err != nil {
+		m.failSend(ctx, transfer.ID, "upload", err)
+		return
+	}
+
+	m.history.SetProgress(transfer.ID, transfer.TotalSize)
+	m.finishTransfer(transfer.ID, StateCompleted, "")
+	m.emit(EventCompleted, m.transferOf(transfer.ID))
+}
+
+func (m *Manager) storeRemote(handle *sendHandle, addr netip.AddrPort, remoteID OfferID) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	handle.addr = addr
+	handle.remoteID = remoteID
+}
+
+// failSend settles an outgoing transfer that did not complete. The step that
+// broke is logged here, with the peer, so a failure can be read from the client
+// log alone rather than only from the event the UI shows.
+func (m *Manager) failSend(ctx context.Context, id OfferID, step string, err error) {
+	transfer := m.transferOf(id)
+
+	if ctx.Err() != nil {
+		log.Debugf("file drop send %s to %s cancelled during %s", id, transfer.PeerName, step)
+		m.finishTransfer(id, StateCancelled, "")
+		return
+	}
+
+	state := StateFailed
+	switch {
+	// Withdrawn mid-transfer reads the same way as refused up front: the
+	// receiver said no, which is an answer rather than a failure.
+	case errors.Is(err, ErrDeclined), errors.Is(err, ErrNotAccepted),
+		errors.Is(err, ErrOfferNotFound):
+		state = StateDeclined
+	case errors.Is(err, ErrExpired):
+		state = StateExpired
+	}
+
+	message := ""
+	reason := ReasonNone
+	if state == StateFailed {
+		message = err.Error()
+		if transportFailure(err) {
+			reason = ReasonUnreachable
+		}
+	}
+
+	switch state {
+	case StateFailed:
+		if reason == ReasonUnreachable {
+			log.Warnf("file drop send %s to %s (%s): peer unreachable during %s: %v",
+				id, transfer.PeerName, transfer.PeerKey, step, err)
+		} else {
+			log.Warnf("file drop send %s to %s (%s) failed during %s: %v",
+				id, transfer.PeerName, transfer.PeerKey, step, err)
+		}
+	default:
+		log.Debugf("file drop send %s to %s ended as %s during %s: %v",
+			id, transfer.PeerName, state, step, err)
+	}
+
+	m.finishTransferReason(id, state, message, reason)
+	m.emit(EventFailed, m.transferOf(id))
+}
+
+func (m *Manager) withdrawRemote(addr netip.AddrPort, remoteID OfferID) {
+	m.mu.Lock()
+	dial, senderName := m.dial, m.senderName
+	m.mu.Unlock()
+	if dial == nil {
+		return
+	}
+
+	client, err := NewClient(ClientConfig{Dial: dial, SenderName: senderName})
+	if err != nil {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := client.Cancel(ctx, addr, remoteID); err != nil {
+		log.Debugf("failed to withdraw file drop offer: %v", err)
+	}
+}
+
+// OnOffer implements Notifier for the receiver server.
+func (m *Manager) OnOffer(offer Offer) {
+	transfer := Transfer{
+		ID:        offer.ID,
+		Direction: DirectionReceived,
+		PeerKey:   offer.Sender,
+		PeerName:  offer.SenderName,
+		Files:     offer.Files,
+		State:     offer.State,
+		TotalSize: offer.TotalSize(),
+		CreatedAt: offer.CreatedAt,
+	}
+	m.history.Upsert(transfer)
+
+	if offer.Decision == DecisionPending {
+		m.emit(EventOffer, transfer)
+	}
+	if offer.Decision == DecisionAccepted && offer.State == StateCompleted {
+		m.OnCompleted(offer)
+	}
+}
+
+// OnProgress implements Notifier.
+func (m *Manager) OnProgress(offer Offer, index int, received int64) {
+	var total int64
+	for i, n := range offer.Progress {
+		if i == index {
+			n = received
+		}
+		total += n
+	}
+	m.history.SetProgress(offer.ID, total)
+	m.emit(EventProgress, m.transferOf(offer.ID))
+}
+
+// OnCompleted implements Notifier.
+func (m *Manager) OnCompleted(offer Offer) {
+	m.mu.Lock()
+	server := m.server
+	m.mu.Unlock()
+	if server == nil {
+		return
+	}
+
+	transfer, ok := m.history.Get(offer.ID)
+	if !ok || transfer.State == StateCompleted {
+		return
+	}
+
+	delivered, err := server.Spool().Deliver(offer, m.policy.DestinationDir())
+	if err != nil {
+		log.Errorf("failed to deliver file drop payloads: %v", err)
+		// Nothing will ask for these payloads again, and a sink that cannot
+		// address them by path has no sweep of its own to fall back on.
+		server.Spool().Remove(offer.ID)
+		m.finishTransfer(offer.ID, StateFailed, err.Error())
+		m.emit(EventFailed, m.transferOf(offer.ID))
+		return
+	}
+
+	transfer.State = StateCompleted
+	transfer.Transferred = transfer.TotalSize
+	transfer.DeliveredPaths = delivered
+	transfer.Error = ""
+	m.history.Upsert(transfer)
+	m.emit(EventCompleted, transfer)
+}
+
+// OnFailed implements Notifier.
+func (m *Manager) OnFailed(offer Offer, err error) {
+	if errors.Is(err, ErrExpired) {
+		log.Debugf("file drop offer %s from %s expired unanswered", offer.ID, offer.SenderName)
+		m.finishTransfer(offer.ID, StateExpired, "")
+		m.emit(EventWithdrawn, m.transferOf(offer.ID))
+		return
+	}
+	log.Warnf("file drop receive %s from %s (%s) failed: %v",
+		offer.ID, offer.SenderName, offer.Sender, err)
+	m.finishTransfer(offer.ID, StateFailed, err.Error())
+	m.emit(EventFailed, m.transferOf(offer.ID))
+}
+
+// OnWithdrawn implements Notifier: the sender cancelled, so the consent prompt goes away.
+func (m *Manager) OnWithdrawn(offer Offer) {
+	m.finishTransfer(offer.ID, StateCancelled, "")
+	m.emit(EventWithdrawn, m.transferOf(offer.ID))
+}
+
+func (m *Manager) finishTransfer(id OfferID, state State, message string) {
+	m.finishTransferReason(id, state, message, ReasonNone)
+}
+
+func (m *Manager) finishTransferReason(id OfferID, state State, message string, reason FailureReason) {
+	transfer, ok := m.history.Get(id)
+	if !ok || transfer.terminal() {
+		return
+	}
+	transfer.State = state
+	transfer.Error = message
+	transfer.Reason = reason
+	m.history.Upsert(transfer)
+}
+
+func (m *Manager) transferOf(id OfferID) Transfer {
+	t, _ := m.history.Get(id)
+	return t
+}
+
+func (m *Manager) emit(kind EventKind, transfer Transfer) {
+	if m.events != nil && transfer.ID != "" {
+		m.events(kind, transfer)
+	}
+}
+
+func payloadMetas(payloads []Payload) []FileMeta {
+	metas := make([]FileMeta, len(payloads))
+	for i, p := range payloads {
+		metas[i] = p.Meta
+	}
+	return metas
+}
+
+func payloadTotal(payloads []Payload) int64 {
+	var total int64
+	for _, p := range payloads {
+		total += p.Meta.Size
+	}
+	return total
+}
+
+// transportFailure reports whether the offer never reached the receiver; any HTTP
+// response, refusal included, means the receiver answered.
+func transportFailure(err error) bool {
+	var urlErr *url.Error
+	return errors.As(err, &urlErr)
+}

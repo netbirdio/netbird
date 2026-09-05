@@ -102,6 +102,9 @@ type Client struct {
 	config        *profilemanager.Config
 	runDone       chan struct{}
 	ctxCancel     context.CancelFunc
+
+	fileDropMu sync.Mutex
+	fileDrop   *FileDrop
 }
 
 // NewClient instantiate a new Client
@@ -201,6 +204,7 @@ func (c *Client) Run(fd int32, interfaceName string, envList *EnvList) error {
 	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder,
 		internal.WithNetEvents(c.netMgr))
 	c.setState(cfg, connectClient)
+	c.attachFileDrop(connectClient, c.cfgFile)
 	// Persist the latest sync response so DebugBundle can include the network
 	// map. On iOS this is backed by disk to keep it out of the constrained
 	// process memory (see the syncstore package).

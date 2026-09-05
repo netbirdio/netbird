@@ -20,6 +20,7 @@ import {
     Check as CheckIcon,
     ChevronDownIcon,
     ChevronsLeftRightEllipsisIcon,
+    ClipboardIcon,
     ClockIcon,
     Copy as CopyIcon,
     GaugeIcon,
@@ -31,9 +32,14 @@ import {
     MonitorIcon,
     Radio,
     RefreshCwIcon,
+    SendIcon,
     WaypointsIcon,
 } from "lucide-react";
+import { FileDrop } from "@bindings/services";
 import type { PeerStatus } from "@bindings/services/models.js";
+import { Button } from "@/components/buttons/Button";
+import { ClipboardPreview } from "@/components/ClipboardPreview";
+import { useNavSection } from "@/contexts/NavSectionContext";
 import { cn } from "@/lib/cn";
 import { CopyToClipboard } from "@/components/CopyToClipboard";
 import { Tooltip } from "@/components/Tooltip";
@@ -250,6 +256,10 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
                     </div>
                     <ScrollArea.Root type={"auto"} className={"min-h-0 flex-1 overflow-hidden"}>
                         <ScrollArea.Viewport className={"h-full w-full"}>
+                            {/* Keyed on the peer so a staged clipboard
+                                confirmation cannot carry over to a different
+                                recipient when the selection changes. */}
+                            <PeerSendActions key={selected.pubKey} peer={selected} />
                             <PeerDetails peer={selected} now={now} />
                         </ScrollArea.Viewport>
                         <ScrollArea.Scrollbar
@@ -269,6 +279,118 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
                 </motion.div>
             )}
         </AnimatePresence>
+    );
+};
+
+const PeerSendActions = ({ peer }: { peer: PeerStatus }) => {
+    const { t } = useTranslation();
+    const { setSection } = useNavSection();
+    const { setSelected } = usePeerDetail();
+    const [error, setError] = useState<string | null>(null);
+    const [pendingText, setPendingText] = useState<string | null>(null);
+    // Deliberately not gated on connStatus: an idle peer is the normal resting
+    // state under lazy connections, and the outgoing packets of the transfer are
+    // exactly what wakes it. Only a peer without an overlay address has nothing
+    // to dial.
+    const canSend = peer.ip !== "";
+
+    const finishSend = () => {
+        setSelected(null);
+        setSection("files");
+    };
+
+    const sendFiles = async () => {
+        setError(null);
+        try {
+            const paths = await FileDrop.PickFiles();
+            if (!paths || paths.length === 0) return;
+            await FileDrop.Send(peer.pubKey, paths, "");
+            finishSend();
+        } catch (e) {
+            setError(String(e));
+        }
+    };
+
+    // Clipboard text is shown for confirmation first: sending it blind gave no
+    // way to tell what was about to leave the machine.
+    const stageClipboard = async () => {
+        setError(null);
+        try {
+            const text = await FileDrop.ClipboardText();
+            if (!text) {
+                setError(t("peers.details.sendClipboard.empty"));
+                return;
+            }
+            setPendingText(text);
+        } catch (e) {
+            setError(String(e));
+        }
+    };
+
+    // Sends the staged text rather than re-reading, so what was confirmed is
+    // what goes out.
+    const confirmClipboard = async () => {
+        if (pendingText === null) return;
+        setError(null);
+        try {
+            await FileDrop.Send(peer.pubKey, [], pendingText);
+            setPendingText(null);
+            finishSend();
+        } catch (e) {
+            setError(String(e));
+        }
+    };
+
+    return (
+        <div className={"border-b border-nb-gray-920 px-5 py-3"}>
+            {pendingText === null ? (
+                <div className={"flex items-center gap-2"}>
+                    <Button
+                        variant={"secondary"}
+                        size={"xs"}
+                        disabled={!canSend}
+                        onClick={() => void sendFiles()}
+                    >
+                        <SendIcon size={12} aria-hidden={"true"} />
+                        {t("peers.details.sendFile")}
+                    </Button>
+                    <Button
+                        variant={"secondary"}
+                        size={"xs"}
+                        disabled={!canSend}
+                        onClick={() => void stageClipboard()}
+                    >
+                        <ClipboardIcon size={12} aria-hidden={"true"} />
+                        {t("peers.details.sendClipboard")}
+                    </Button>
+                </div>
+            ) : (
+                <div className={"flex flex-col gap-2"}>
+                    <ClipboardPreview text={pendingText} />
+                    <div className={"flex items-center gap-2"}>
+                        <Button
+                            variant={"primary"}
+                            size={"xs"}
+                            onClick={() => void confirmClipboard()}
+                        >
+                            <ClipboardIcon size={12} aria-hidden={"true"} />
+                            {t("peers.details.sendClipboard")}
+                        </Button>
+                        <Button
+                            variant={"secondary"}
+                            size={"xs"}
+                            onClick={() => {
+                                setPendingText(null);
+                                setError(null);
+                            }}
+                        >
+                            {t("common.cancel")}
+                        </Button>
+                    </div>
+                </div>
+            )}
+            {error && <div className={"mt-2 text-xs text-red-400"}>{error}</div>}
+        </div>
     );
 };
 

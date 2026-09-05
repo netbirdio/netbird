@@ -156,6 +156,32 @@ service DaemonService {
   // only cares whether the daemon implements it: an Unimplemented response
   // means the daemon predates this UI and is too old to drive it.
   rpc WailsUIReady(WailsUIReadyRequest) returns (WailsUIReadyResponse) {}
+
+  // FileDropSend starts an asynchronous file transfer to a peer. Progress is
+  // polled via FileDropListTransfers; the outcome also arrives as a SystemEvent.
+  rpc FileDropSend(FileDropSendRequest) returns (FileDropSendResponse) {}
+
+  // FileDropDecide accepts or declines a pending incoming offer.
+  rpc FileDropDecide(FileDropDecideRequest) returns (FileDropDecideResponse) {}
+
+  // FileDropCancel aborts a transfer in either direction.
+  rpc FileDropCancel(FileDropCancelRequest) returns (FileDropCancelResponse) {}
+
+  // FileDropListTransfers returns the transfer history, newest first, with live
+  // progress for running transfers.
+  rpc FileDropListTransfers(FileDropListTransfersRequest) returns (FileDropListTransfersResponse) {}
+
+  // FileDropDeleteTransfer removes one entry from the transfer history.
+  rpc FileDropDeleteTransfer(FileDropDeleteTransferRequest) returns (FileDropDeleteTransferResponse) {}
+
+  // FileDropGetSettings returns the active profile's receiving policy.
+  rpc FileDropGetSettings(FileDropGetSettingsRequest) returns (FileDropGetSettingsResponse) {}
+
+  // FileDropSetSettings updates the active profile's receiving policy.
+  rpc FileDropSetSettings(FileDropSetSettingsRequest) returns (FileDropSetSettingsResponse) {}
+
+  // FileDropSetPeerRule sets or clears a per-sender exception.
+  rpc FileDropSetPeerRule(FileDropSetPeerRuleRequest) returns (FileDropSetPeerRuleResponse) {}
 }
 
 
@@ -1077,3 +1103,119 @@ message StartBundleCaptureRequest {
 message StartBundleCaptureResponse {}
 message StopBundleCaptureRequest {}
 message StopBundleCaptureResponse {}
+
+// FileDropMode is the device-local policy for incoming file offers.
+enum FileDropMode {
+  FILE_DROP_MODE_OFF = 0;
+  FILE_DROP_MODE_ASK = 1;
+  FILE_DROP_MODE_AUTO = 2;
+}
+
+// FileDropRule is a per-sender exception on top of the base mode.
+enum FileDropRule {
+  FILE_DROP_RULE_DEFAULT = 0;
+  FILE_DROP_RULE_ALWAYS = 1;
+  FILE_DROP_RULE_BLOCK = 2;
+}
+
+// FileDropReason classifies why a transfer failed, when it is known.
+enum FileDropReason {
+  FILE_DROP_REASON_NONE = 0;
+  FILE_DROP_REASON_UNREACHABLE = 1;
+}
+
+// FileDropState is the lifecycle state of a transfer.
+enum FileDropState {
+  FILE_DROP_STATE_PENDING = 0;
+  FILE_DROP_STATE_TRANSFERRING = 1;
+  FILE_DROP_STATE_COMPLETED = 2;
+  FILE_DROP_STATE_DECLINED = 3;
+  FILE_DROP_STATE_EXPIRED = 4;
+  FILE_DROP_STATE_CANCELLED = 5;
+  FILE_DROP_STATE_FAILED = 6;
+}
+
+message FileDropFile {
+  string name = 1;
+  int64 size = 2;
+  string contentType = 3;
+  bool isText = 4;
+  // text carries an inline snippet; it never becomes a file on disk.
+  string text = 5;
+}
+
+message FileDropTransfer {
+  string id = 1;
+  bool outgoing = 2;
+  string peerKey = 3;
+  string peerName = 4;
+  repeated FileDropFile files = 5;
+  FileDropState state = 6;
+  int64 transferred = 7;
+  int64 totalSize = 8;
+  google.protobuf.Timestamp createdAt = 9;
+  google.protobuf.Timestamp updatedAt = 10;
+  repeated string deliveredPaths = 11;
+  string error = 12;
+  FileDropReason reason = 13;
+}
+
+message FileDropSendRequest {
+  string peerKey = 1;
+  // paths are local files to send; the daemon opens them as the caller.
+  repeated string paths = 2;
+  // text is an inline snippet payload, sent instead of or alongside files.
+  string text = 3;
+}
+
+message FileDropSendResponse {
+  string transferId = 1;
+}
+
+message FileDropDecideRequest {
+  string transferId = 1;
+  bool accept = 2;
+}
+
+message FileDropDecideResponse {}
+
+message FileDropCancelRequest {
+  string transferId = 1;
+}
+
+message FileDropCancelResponse {}
+
+message FileDropListTransfersRequest {}
+
+message FileDropListTransfersResponse {
+  repeated FileDropTransfer transfers = 1;
+}
+
+message FileDropDeleteTransferRequest {
+  string transferId = 1;
+}
+
+message FileDropDeleteTransferResponse {}
+
+message FileDropGetSettingsRequest {}
+
+message FileDropGetSettingsResponse {
+  FileDropMode mode = 1;
+  string destinationDir = 2;
+  // peerRules is keyed by the peer's public key.
+  map<string, FileDropRule> peerRules = 3;
+}
+
+message FileDropSetSettingsRequest {
+  FileDropMode mode = 1;
+  string destinationDir = 2;
+}
+
+message FileDropSetSettingsResponse {}
+
+message FileDropSetPeerRuleRequest {
+  string peerKey = 1;
+  FileDropRule rule = 2;
+}
+
+message FileDropSetPeerRuleResponse {}

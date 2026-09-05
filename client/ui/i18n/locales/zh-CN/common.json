@@ -1351,6 +1351,199 @@
     "error.unknown": {
         "message": "操作失败。"
     },
+    "nav.files.title": {
+        "message": "文件"
+    },
+    "files.search.placeholder": {
+        "message": "按文件或对等设备搜索传输"
+    },
+    "files.empty.title": {
+        "message": "暂无传输"
+    },
+    "files.empty.description": {
+        "message": "您发送或接收的文件将显示在这里。"
+    },
+    "files.group.today": {
+        "message": "今天"
+    },
+    "files.group.yesterday": {
+        "message": "昨天"
+    },
+    "files.offer.subtitle": {
+        "message": "{peer} 想要发送"
+    },
+    "files.offer.accept": {
+        "message": "接受"
+    },
+    "files.offer.decline": {
+        "message": "拒绝"
+    },
+    "files.row.to": {
+        "message": "发送至 {peer}"
+    },
+    "files.row.from": {
+        "message": "来自 {peer}"
+    },
+    "files.state.pending": {
+        "message": "等待中"
+    },
+    "files.state.transferring": {
+        "message": "传输中"
+    },
+    "files.state.progress": {
+        "message": "{percent}%"
+    },
+    "files.state.received": {
+        "message": "已接收"
+    },
+    "files.state.sent": {
+        "message": "已发送"
+    },
+    "files.state.declined": {
+        "message": "已拒绝"
+    },
+    "files.state.expired": {
+        "message": "无响应"
+    },
+    "files.state.cancelled": {
+        "message": "已取消"
+    },
+    "files.state.failed": {
+        "message": "失败"
+    },
+    "files.action.copy": {
+        "message": "复制"
+    },
+    "files.action.reveal": {
+        "message": "在文件夹中显示"
+    },
+    "files.action.cancel": {
+        "message": "取消"
+    },
+    "files.action.more": {
+        "message": "更多"
+    },
+    "files.action.open": {
+        "message": "打开"
+    },
+    "files.action.alwaysAccept": {
+        "message": "始终接受此对等设备"
+    },
+    "files.action.block": {
+        "message": "屏蔽此对等设备"
+    },
+    "files.action.delete": {
+        "message": "删除"
+    },
+    "files.delete.title": {
+        "message": "从历史记录中移除？"
+    },
+    "files.delete.message": {
+        "message": "此条目将从传输历史记录中移除。\n已接收的文件会保留在磁盘上。"
+    },
+    "files.send.search": {
+        "message": "搜索对等节点"
+    },
+    "files.send.empty": {
+        "message": "没有匹配的对等节点"
+    },
+    "files.send.noPeers": {
+        "message": "没有可用的对等节点"
+    },
+    "files.send.trigger": {
+        "message": "发送…"
+    },
+    "files.send.back": {
+        "message": "返回"
+    },
+    "files.send.clipboardPreview": {
+        "message": "剪贴板预览"
+    },
+    "peers.dropToSend": {
+        "message": "放开即发送"
+    },
+    "peers.details.sendFile": {
+        "message": "发送文件…"
+    },
+    "peers.details.sendClipboard": {
+        "message": "发送剪贴板"
+    },
+    "peers.details.sendClipboard.empty": {
+        "message": "剪贴板为空"
+    },
+    "settings.tabs.fileSharing": {
+        "message": "文件共享"
+    },
+    "settings.fileSharing.section": {
+        "message": "文件接收"
+    },
+    "settings.fileSharing.loading": {
+        "message": "加载中…"
+    },
+    "settings.fileSharing.mode.label": {
+        "message": "接收对等设备的文件"
+    },
+    "settings.fileSharing.mode.help": {
+        "message": "此设备如何处理传入的文件提议。"
+    },
+    "settings.fileSharing.mode.off": {
+        "message": "关闭"
+    },
+    "settings.fileSharing.mode.off.help": {
+        "message": "此设备不接受文件。"
+    },
+    "settings.fileSharing.mode.ask": {
+        "message": "每次询问"
+    },
+    "settings.fileSharing.mode.ask.help": {
+        "message": "每个提议都会先征求您的同意。"
+    },
+    "settings.fileSharing.mode.auto": {
+        "message": "自动接受"
+    },
+    "settings.fileSharing.mode.auto.help": {
+        "message": "文件无需交互即可到达。"
+    },
+    "settings.fileSharing.destination.label": {
+        "message": "接收文件保存至"
+    },
+    "settings.fileSharing.destination.help": {
+        "message": "接收的文件将存放到此文件夹。"
+    },
+    "settings.fileSharing.destination.unset": {
+        "message": "未设置"
+    },
+    "settings.fileSharing.destination.change": {
+        "message": "更改…"
+    },
+    "settings.fileSharing.exceptions.label": {
+        "message": "按对等设备的例外"
+    },
+    "settings.fileSharing.exceptions.help": {
+        "message": "覆盖接收模式的规则。"
+    },
+    "settings.fileSharing.exceptions.empty": {
+        "message": "无例外。"
+    },
+    "settings.fileSharing.exceptions.blocked": {
+        "message": "已屏蔽"
+    },
+    "settings.fileSharing.exceptions.always": {
+        "message": "始终接受"
+    },
+    "settings.fileSharing.exceptions.remove": {
+        "message": "移除例外"
+    },
+    "files.state.unreachable": {
+        "message": "已拒绝",
+        "description": "Failed-transfer reason: the peer's file drop port refused the offer."
+    },
+    "notify.filedrop.offer.title": {
+        "message": "传入文件"
+    },
+    "notify.filedrop.always": {
+        "message": "始终接受"
+    },
     "error.elevation_unavailable": {
         "message": "NetBird 无法向此系统请求所需的权限。请改为运行："
     },

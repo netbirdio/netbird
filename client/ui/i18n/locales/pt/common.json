@@ -1351,6 +1351,199 @@
     "error.unknown": {
         "message": "A operação falhou."
     },
+    "nav.files.title": {
+        "message": "Arquivos"
+    },
+    "files.search.placeholder": {
+        "message": "Buscar transferências por arquivo ou peer"
+    },
+    "files.empty.title": {
+        "message": "Nenhuma transferência ainda"
+    },
+    "files.empty.description": {
+        "message": "Os arquivos enviados ou recebidos aparecerão aqui."
+    },
+    "files.group.today": {
+        "message": "Hoje"
+    },
+    "files.group.yesterday": {
+        "message": "Ontem"
+    },
+    "files.offer.subtitle": {
+        "message": "{peer} quer enviar"
+    },
+    "files.offer.accept": {
+        "message": "Aceitar"
+    },
+    "files.offer.decline": {
+        "message": "Recusar"
+    },
+    "files.row.to": {
+        "message": "para {peer}"
+    },
+    "files.row.from": {
+        "message": "de {peer}"
+    },
+    "files.state.pending": {
+        "message": "Aguardando"
+    },
+    "files.state.transferring": {
+        "message": "Transferindo"
+    },
+    "files.state.progress": {
+        "message": "{percent}%"
+    },
+    "files.state.received": {
+        "message": "Recebido"
+    },
+    "files.state.sent": {
+        "message": "Enviado"
+    },
+    "files.state.declined": {
+        "message": "Recusado"
+    },
+    "files.state.expired": {
+        "message": "Sem resposta"
+    },
+    "files.state.cancelled": {
+        "message": "Cancelado"
+    },
+    "files.state.failed": {
+        "message": "Falhou"
+    },
+    "files.action.copy": {
+        "message": "Copiar"
+    },
+    "files.action.reveal": {
+        "message": "Mostrar na pasta"
+    },
+    "files.action.cancel": {
+        "message": "Cancelar"
+    },
+    "files.action.more": {
+        "message": "Mais"
+    },
+    "files.action.open": {
+        "message": "Abrir"
+    },
+    "files.action.alwaysAccept": {
+        "message": "Sempre aceitar deste peer"
+    },
+    "files.action.block": {
+        "message": "Bloquear este peer"
+    },
+    "files.action.delete": {
+        "message": "Excluir"
+    },
+    "files.delete.title": {
+        "message": "Remover do histórico?"
+    },
+    "files.delete.message": {
+        "message": "Esta entrada é removida do histórico de transferências.\nOs ficheiros já recebidos são mantidos no disco."
+    },
+    "files.send.search": {
+        "message": "Pesquisar peers"
+    },
+    "files.send.empty": {
+        "message": "Nenhum peer correspondente"
+    },
+    "files.send.noPeers": {
+        "message": "Nenhum peer disponível"
+    },
+    "files.send.trigger": {
+        "message": "Enviar…"
+    },
+    "files.send.back": {
+        "message": "Voltar"
+    },
+    "files.send.clipboardPreview": {
+        "message": "Pré-visualização da área de transferência"
+    },
+    "peers.dropToSend": {
+        "message": "Solte para enviar"
+    },
+    "peers.details.sendFile": {
+        "message": "Enviar arquivo…"
+    },
+    "peers.details.sendClipboard": {
+        "message": "Enviar área de transferência"
+    },
+    "peers.details.sendClipboard.empty": {
+        "message": "A área de transferência está vazia"
+    },
+    "settings.tabs.fileSharing": {
+        "message": "Compartilhamento de arquivos"
+    },
+    "settings.fileSharing.section": {
+        "message": "Recebimento de arquivos"
+    },
+    "settings.fileSharing.loading": {
+        "message": "Carregando…"
+    },
+    "settings.fileSharing.mode.label": {
+        "message": "Receber arquivos de peers"
+    },
+    "settings.fileSharing.mode.help": {
+        "message": "Como este dispositivo trata ofertas de arquivos recebidas."
+    },
+    "settings.fileSharing.mode.off": {
+        "message": "Desativado"
+    },
+    "settings.fileSharing.mode.off.help": {
+        "message": "Este dispositivo não aceita arquivos."
+    },
+    "settings.fileSharing.mode.ask": {
+        "message": "Perguntar sempre"
+    },
+    "settings.fileSharing.mode.ask.help": {
+        "message": "Cada oferta pede primeiro o seu consentimento."
+    },
+    "settings.fileSharing.mode.auto": {
+        "message": "Aceitar automaticamente"
+    },
+    "settings.fileSharing.mode.auto.help": {
+        "message": "Os arquivos chegam sem interação."
+    },
+    "settings.fileSharing.destination.label": {
+        "message": "Salvar arquivos recebidos em"
+    },
+    "settings.fileSharing.destination.help": {
+        "message": "Os arquivos recebidos são entregues nesta pasta."
+    },
+    "settings.fileSharing.destination.unset": {
+        "message": "Não definido"
+    },
+    "settings.fileSharing.destination.change": {
+        "message": "Alterar…"
+    },
+    "settings.fileSharing.exceptions.label": {
+        "message": "Exceções por peer"
+    },
+    "settings.fileSharing.exceptions.help": {
+        "message": "Substituições sobre o modo de recebimento."
+    },
+    "settings.fileSharing.exceptions.empty": {
+        "message": "Sem exceções."
+    },
+    "settings.fileSharing.exceptions.blocked": {
+        "message": "Bloqueado"
+    },
+    "settings.fileSharing.exceptions.always": {
+        "message": "Sempre aceito"
+    },
+    "settings.fileSharing.exceptions.remove": {
+        "message": "Remover exceção"
+    },
+    "files.state.unreachable": {
+        "message": "Recusado",
+        "description": "Failed-transfer reason: the peer's file drop port refused the offer."
+    },
+    "notify.filedrop.offer.title": {
+        "message": "Arquivo recebido"
+    },
+    "notify.filedrop.always": {
+        "message": "Sempre aceitar"
+    },
     "error.elevation_unavailable": {
         "message": "O NetBird não conseguiu solicitar a este sistema os privilégios necessários. Execute isto em vez disso:"
     },

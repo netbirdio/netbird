@@ -1351,6 +1351,199 @@
     "error.unknown": {
         "message": "操作に失敗しました。"
     },
+    "nav.files.title": {
+        "message": "ファイル"
+    },
+    "files.search.placeholder": {
+        "message": "ファイルまたはピアで転送を検索"
+    },
+    "files.empty.title": {
+        "message": "転送はまだありません"
+    },
+    "files.empty.description": {
+        "message": "送受信したファイルがここに表示されます。"
+    },
+    "files.group.today": {
+        "message": "今日"
+    },
+    "files.group.yesterday": {
+        "message": "昨日"
+    },
+    "files.offer.subtitle": {
+        "message": "{peer} が送信を希望しています"
+    },
+    "files.offer.accept": {
+        "message": "承認"
+    },
+    "files.offer.decline": {
+        "message": "拒否"
+    },
+    "files.row.to": {
+        "message": "{peer} へ"
+    },
+    "files.row.from": {
+        "message": "{peer} から"
+    },
+    "files.state.pending": {
+        "message": "待機中"
+    },
+    "files.state.transferring": {
+        "message": "転送中"
+    },
+    "files.state.progress": {
+        "message": "{percent}%"
+    },
+    "files.state.received": {
+        "message": "受信済み"
+    },
+    "files.state.sent": {
+        "message": "送信済み"
+    },
+    "files.state.declined": {
+        "message": "拒否されました"
+    },
+    "files.state.expired": {
+        "message": "応答なし"
+    },
+    "files.state.cancelled": {
+        "message": "キャンセル済み"
+    },
+    "files.state.failed": {
+        "message": "失敗"
+    },
+    "files.action.copy": {
+        "message": "コピー"
+    },
+    "files.action.reveal": {
+        "message": "フォルダーで表示"
+    },
+    "files.action.cancel": {
+        "message": "キャンセル"
+    },
+    "files.action.more": {
+        "message": "その他"
+    },
+    "files.action.open": {
+        "message": "開く"
+    },
+    "files.action.alwaysAccept": {
+        "message": "このピアからは常に承認"
+    },
+    "files.action.block": {
+        "message": "このピアをブロック"
+    },
+    "files.action.delete": {
+        "message": "削除"
+    },
+    "files.delete.title": {
+        "message": "履歴から削除しますか？"
+    },
+    "files.delete.message": {
+        "message": "この項目は転送履歴から削除されます。\n受信済みのファイルはディスクに残ります。"
+    },
+    "files.send.search": {
+        "message": "ピアを検索"
+    },
+    "files.send.empty": {
+        "message": "一致するピアがありません"
+    },
+    "files.send.noPeers": {
+        "message": "利用可能なピアがありません"
+    },
+    "files.send.trigger": {
+        "message": "送信…"
+    },
+    "files.send.back": {
+        "message": "戻る"
+    },
+    "files.send.clipboardPreview": {
+        "message": "クリップボードのプレビュー"
+    },
+    "peers.dropToSend": {
+        "message": "ドロップして送信"
+    },
+    "peers.details.sendFile": {
+        "message": "ファイルを送信…"
+    },
+    "peers.details.sendClipboard": {
+        "message": "クリップボードを送信"
+    },
+    "peers.details.sendClipboard.empty": {
+        "message": "クリップボードは空です"
+    },
+    "settings.tabs.fileSharing": {
+        "message": "ファイル共有"
+    },
+    "settings.fileSharing.section": {
+        "message": "ファイル受信"
+    },
+    "settings.fileSharing.loading": {
+        "message": "読み込み中…"
+    },
+    "settings.fileSharing.mode.label": {
+        "message": "ピアからファイルを受信"
+    },
+    "settings.fileSharing.mode.help": {
+        "message": "このデバイスが受信ファイルの提案を処理する方法。"
+    },
+    "settings.fileSharing.mode.off": {
+        "message": "オフ"
+    },
+    "settings.fileSharing.mode.off.help": {
+        "message": "このデバイスはファイルを受け付けません。"
+    },
+    "settings.fileSharing.mode.ask": {
+        "message": "毎回確認"
+    },
+    "settings.fileSharing.mode.ask.help": {
+        "message": "各提案はまず同意を求めます。"
+    },
+    "settings.fileSharing.mode.auto": {
+        "message": "自動承認"
+    },
+    "settings.fileSharing.mode.auto.help": {
+        "message": "ファイルは操作なしで届きます。"
+    },
+    "settings.fileSharing.destination.label": {
+        "message": "受信ファイルの保存先"
+    },
+    "settings.fileSharing.destination.help": {
+        "message": "受信したファイルはこのフォルダーに保存されます。"
+    },
+    "settings.fileSharing.destination.unset": {
+        "message": "未設定"
+    },
+    "settings.fileSharing.destination.change": {
+        "message": "変更…"
+    },
+    "settings.fileSharing.exceptions.label": {
+        "message": "ピアごとの例外"
+    },
+    "settings.fileSharing.exceptions.help": {
+        "message": "受信モードを上書きする設定。"
+    },
+    "settings.fileSharing.exceptions.empty": {
+        "message": "例外はありません。"
+    },
+    "settings.fileSharing.exceptions.blocked": {
+        "message": "ブロック済み"
+    },
+    "settings.fileSharing.exceptions.always": {
+        "message": "常に承認"
+    },
+    "settings.fileSharing.exceptions.remove": {
+        "message": "例外を削除"
+    },
+    "files.state.unreachable": {
+        "message": "拒否されました",
+        "description": "Failed-transfer reason: the peer's file drop port refused the offer."
+    },
+    "notify.filedrop.offer.title": {
+        "message": "受信ファイル"
+    },
+    "notify.filedrop.always": {
+        "message": "常に承認"
+    },
     "error.elevation_unavailable": {
         "message": "NetBird はこのシステムに必要な権限を要求できませんでした。代わりに次のコマンドを実行してください:"
     },

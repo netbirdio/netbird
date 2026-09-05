@@ -57,6 +57,7 @@ func (s *stringList) Set(v string) error {
 
 type registeredServices struct {
 	connection      *services.Connection
+	fileDrop        *services.FileDrop
 	authSession     *authsession.Session
 	settings        *services.Settings
 	networks        *services.Networks
@@ -132,9 +133,11 @@ func main() {
 	// the React frontend calls, keeping the generated TS surface minimal.
 	authSession := authsession.NewSession(conn)
 	networks := services.NewNetworks(conn)
+	fileDrop := services.NewFileDrop(conn)
 
 	registerServices(app, conn, registeredServices{
 		connection:      connection,
+		fileDrop:        fileDrop,
 		authSession:     authSession,
 		settings:        settings,
 		networks:        networks,
@@ -177,6 +180,7 @@ func main() {
 
 	tray = NewTray(app, nil, TrayServices{
 		Connection:      connection,
+		FileDrop:        fileDrop,
 		Settings:        settings,
 		Profiles:        profiles,
 		Networks:        networks,
@@ -335,6 +339,7 @@ func registerServices(app *application.App, conn *Conn, s registeredServices) {
 	app.RegisterService(application.NewService(services.NewForwarding(conn)))
 	app.RegisterService(application.NewService(s.profiles))
 	app.RegisterService(application.NewService(services.NewDebug(conn)))
+	app.RegisterService(application.NewService(s.fileDrop))
 	app.RegisterService(application.NewService(s.update))
 	app.RegisterService(application.NewService(s.daemonFeed))
 	app.RegisterService(application.NewService(s.notifier))
@@ -366,6 +371,7 @@ func newMainWindow(app *application.App, prefStore *preferences.Store, wm *servi
 		BackgroundColour:    services.WindowBackgroundColour,
 		URL:                 startURL,
 		DisableResize:       true,
+		EnableFileDrop:      true,
 		MinimiseButtonState: application.ButtonHidden,
 		MaximiseButtonState: application.ButtonHidden,
 		Mac:                 services.AppleMacOSAppearanceOptions(),
@@ -375,6 +381,11 @@ func newMainWindow(app *application.App, prefStore *preferences.Store, wm *servi
 		},
 	})
 
+	window.RegisterHook(events.Common.WindowFilesDropped, func(e *application.WindowEvent) {
+		app.Event.Emit(services.EventFilesDropped, e.Context().DroppedFiles())
+	})
+
+	// Hide instead of quit on close; "really quit" is reached via tray -> Quit.
 	window.RegisterHook(events.Common.WindowClosing, func(_ *application.WindowEvent) {
 		if services.ShuttingDown() {
 			return

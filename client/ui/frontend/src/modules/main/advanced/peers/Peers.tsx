@@ -1,9 +1,21 @@
-import { type KeyboardEvent, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+    type DragEvent,
+    type KeyboardEvent,
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+    type ReactNode,
+} from "react";
 import { useTranslation } from "react-i18next";
+import { Events } from "@wailsio/runtime";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
-import { ChevronRightIcon, MonitorSmartphoneIcon } from "lucide-react";
+import { ChevronRightIcon, MonitorSmartphoneIcon, SendIcon } from "lucide-react";
+import { FileDrop } from "@bindings/services";
 import type { PeerStatus } from "@bindings/services/models.js";
+import { useNavSection } from "@/contexts/NavSectionContext";
 import { cn } from "@/lib/cn";
 import { reconcileOrder } from "@/lib/sorting";
 import { CopyToClipboard } from "@/components/CopyToClipboard";
@@ -19,7 +31,7 @@ import { PeerFilters, type StatusFilter } from "./PeerFilters";
 
 const isOnline = (connStatus: string) => connStatus === "Connected";
 
-const dotClass = (connStatus: string): string => {
+export const dotClass = (connStatus: string): string => {
     switch (connStatus) {
         case "Connected":
             return "bg-green-400";
@@ -41,13 +53,36 @@ export const peerStatusLabelKey = (connStatus: string): string => {
     }
 };
 
+const EVENT_FILES_DROPPED = "netbird:files:dropped";
+
 export const Peers = () => {
     const { t } = useTranslation();
     const { status } = useStatus();
+    const { setSection } = useNavSection();
     const [search, setSearch] = useState("");
     const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
     const [scrollParent, setScrollParent] = useState<HTMLDivElement | null>(null);
     const searchRef = useRef<HTMLInputElement>(null);
+    const [dropTarget, setDropTarget] = useState<string | null>(null);
+    const dropTargetRef = useRef<string | null>(null);
+
+    const setDropTargetBoth = useCallback((pubKey: string | null) => {
+        dropTargetRef.current = pubKey;
+        setDropTarget(pubKey);
+    }, []);
+
+    useEffect(() => {
+        const off = Events.On(EVENT_FILES_DROPPED, (ev: { data: string[] | string[][] }) => {
+            const target = dropTargetRef.current;
+            setDropTargetBoth(null);
+            if (!target) return;
+            const raw = ev.data;
+            const paths = (Array.isArray(raw[0]) ? raw[0] : raw) as string[];
+            if (paths.length === 0) return;
+            void FileDrop.Send(target, paths, "").then(() => setSection("files"));
+        });
+        return off;
+    }, [setDropTargetBoth, setSection]);
 
     useEffect(() => {
         searchRef.current?.focus();
@@ -135,9 +170,26 @@ export const Peers = () => {
             {filtered.length === 0 ? (
                 <NoResults />
             ) : (
-                <ScrollArea.Root type={"auto"} className={"min-h-0 flex-1 overflow-hidden"}>
+                <ScrollArea.Root
+                    type={"auto"}
+                    className={"min-h-0 flex-1 overflow-hidden"}
+                    onDragLeave={(e: DragEvent) => {
+                        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+                            setDropTargetBoth(null);
+                        }
+                    }}
+                    onDragOver={(e: DragEvent) => e.preventDefault()}
+                    onDrop={(e: DragEvent) => e.preventDefault()}
+                >
                     <ScrollArea.Viewport ref={setScrollParent} className={"h-full w-full"}>
-                        {scrollParent && <PeersList data={filtered} scrollParent={scrollParent} />}
+                        {scrollParent && (
+                            <PeersList
+                                data={filtered}
+                                scrollParent={scrollParent}
+                                dropTarget={dropTarget}
+                                onDropTarget={setDropTargetBoth}
+                            />
+                        )}
                     </ScrollArea.Viewport>
                     <ScrollArea.Scrollbar
                         orientation={"vertical"}
@@ -163,9 +215,11 @@ const ListTopSpacer = () => <div className={"h-2"} />;
 type PeersListProps = {
     data: PeerStatus[];
     scrollParent: HTMLElement;
+    dropTarget: string | null;
+    onDropTarget: (pubKey: string | null) => void;
 };
 
-const PeersList = ({ data, scrollParent }: PeersListProps) => {
+const PeersList = ({ data, scrollParent, dropTarget, onDropTarget }: PeersListProps) => {
     const { setSelected } = usePeerDetail();
     const virtuosoRef = useRef<VirtuosoHandle>(null);
     const rowRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
@@ -221,9 +275,15 @@ const PeersList = ({ data, scrollParent }: PeersListProps) => {
     };
 
     const ctx = useMemo<PeerRowContext>(
-        () => ({ onKeyDown: handleRowKeyDown, onSelect: setSelected, setRowRef }),
+        () => ({
+            onKeyDown: handleRowKeyDown,
+            onSelect: setSelected,
+            setRowRef,
+            dropTarget,
+            onDropTarget,
+        }),
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [data, setSelected],
+        [data, setSelected, dropTarget, onDropTarget],
     );
 
     return (
@@ -244,6 +304,8 @@ type PeerRowContext = {
     onKeyDown: (e: KeyboardEvent<Element>, index: number) => void;
     onSelect: (peer: PeerStatus) => void;
     setRowRef: (pubKey: string, el: HTMLButtonElement | null) => void;
+    dropTarget: string | null;
+    onDropTarget: (pubKey: string | null) => void;
 };
 
 const renderPeerRow = (index: number, peer: PeerStatus, ctx: PeerRowContext): ReactNode => (
@@ -253,6 +315,8 @@ const renderPeerRow = (index: number, peer: PeerStatus, ctx: PeerRowContext): Re
         onKeyDown={ctx.onKeyDown}
         onSelect={ctx.onSelect}
         setRowRef={ctx.setRowRef}
+        isDropTarget={ctx.dropTarget === peer.pubKey}
+        onDropTarget={ctx.onDropTarget}
     />
 );
 
@@ -262,9 +326,19 @@ type PeerRowProps = {
     onKeyDown: (e: KeyboardEvent<Element>, index: number) => void;
     onSelect: (peer: PeerStatus) => void;
     setRowRef: (pubKey: string, el: HTMLButtonElement | null) => void;
+    isDropTarget: boolean;
+    onDropTarget: (pubKey: string | null) => void;
 };
 
-const PeerRow = ({ peer, index, onKeyDown, onSelect, setRowRef }: PeerRowProps) => {
+const PeerRow = ({
+    peer,
+    index,
+    onKeyDown,
+    onSelect,
+    setRowRef,
+    isDropTarget,
+    onDropTarget,
+}: PeerRowProps) => {
     const { t } = useTranslation();
     const isConnected = peer.connStatus === "Connected";
     const peerName = shortenDns(peer.fqdn) || peer.ip;
@@ -272,12 +346,29 @@ const PeerRow = ({ peer, index, onKeyDown, onSelect, setRowRef }: PeerRowProps) 
     const handleKey = (e: KeyboardEvent<Element>) => onKeyDown(e, index);
     return (
         <div
+            onDragOver={(e: DragEvent) => {
+                if (!isConnected) return;
+                e.preventDefault();
+                onDropTarget(peer.pubKey);
+            }}
             className={cn(
                 "group relative flex min-w-0 items-start gap-2.5 py-3 pl-6 pr-4",
                 "transition-colors hover:bg-nb-gray-900/40",
                 "wails-no-draggable",
             )}
         >
+            {isDropTarget && (
+                <div
+                    className={cn(
+                        "pointer-events-none absolute inset-x-2 inset-y-0.5 z-10",
+                        "flex items-center justify-center gap-2 rounded-lg",
+                        "border border-netbird bg-nb-gray-940/90 text-netbird",
+                    )}
+                >
+                    <SendIcon size={14} aria-hidden={"true"} />
+                    <span className={"text-sm"}>{t("peers.dropToSend")}</span>
+                </div>
+            )}
             <button
                 type={"button"}
                 tabIndex={0}
