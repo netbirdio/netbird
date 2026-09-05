@@ -2,6 +2,7 @@ package profilemanager
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"os/user"
@@ -13,15 +14,82 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestInvokingUserFallsBackToProcessUser(t *testing.T) {
+func TestInvokingUserReturnsResolvedCurrentUser(t *testing.T) {
 	t.Setenv(envSudoUser, "")
+
+	want := &user.User{
+		Username: "misha",
+		Uid:      "1234",
+		Gid:      "1234",
+		HomeDir:  filepath.Join("/home", "misha"),
+	}
+	origCurrentUser := currentUser
+	currentUser = func() (*user.User, error) { return want, nil }
+	t.Cleanup(func() { currentUser = origCurrentUser })
 
 	got, err := InvokingUser()
 	require.NoError(t, err)
+	assert.Same(t, want, got, "resolved process user should be returned unchanged")
+}
 
-	current, err := user.Current()
+func TestInvokingUserUsesNumericIdentityForUnmappedNonRoot(t *testing.T) {
+	t.Setenv(envSudoUser, "")
+	t.Setenv("HOME", "/var/lib/netbird")
+	fakeUnmappedUser(t, 1001230000, 0, errors.New("user: unknown userid 1001230000"))
+
+	got, err := InvokingUser()
 	require.NoError(t, err)
-	assert.Equal(t, current.Username, got.Username)
+	assert.Equal(t, &user.User{
+		Username: "1001230000",
+		Uid:      "1001230000",
+		Gid:      "0",
+		HomeDir:  "/var/lib/netbird",
+	}, got, "unmapped non-root identity should use kernel credentials")
+}
+
+func TestInvokingUserFailsClosedWithoutPositiveUID(t *testing.T) {
+	for _, uid := range []int{0, -1} {
+		t.Run(fmt.Sprintf("UID%d", uid), func(t *testing.T) {
+			t.Setenv(envSudoUser, "")
+			lookupErr := errors.New("current user unavailable")
+			fakeUnmappedUser(t, uid, 0, lookupErr)
+
+			got, err := InvokingUser()
+			require.ErrorIs(t, err, lookupErr)
+			assert.Nil(t, got, "root or unavailable UID must not become a synthetic identity")
+		})
+	}
+}
+
+func TestProfileFilePathUsesNumericIdentityForUnmappedNonRoot(t *testing.T) {
+	t.Setenv(envSudoUser, "")
+	t.Setenv("HOME", "/var/lib/netbird")
+	fakeUnmappedUser(t, 1001230000, 0, errors.New("user: unknown userid 1001230000"))
+
+	profilesRoot := t.TempDir()
+	origDir := DefaultConfigPathDir
+	origOverride := ConfigDirOverride
+	DefaultConfigPathDir = profilesRoot
+	ConfigDirOverride = ""
+	t.Cleanup(func() {
+		DefaultConfigPathDir = origDir
+		ConfigDirOverride = origOverride
+	})
+
+	profileID := ID("0123456789abcdef0123456789abcdef")
+	got, err := (&Profile{ID: profileID}).FilePath()
+	require.NoError(t, err)
+	assert.Equal(t,
+		filepath.Join(profilesRoot, "1001230000", profileID.String()+".json"),
+		got,
+		"profile path should use the numeric UID namespace",
+	)
+
+	entries, err := os.ReadDir(profilesRoot)
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "only the numeric UID directory should be created")
+	assert.Equal(t, "1001230000", entries[0].Name(), "profile namespace should be numeric")
+	assert.True(t, entries[0].IsDir(), "profile namespace should be a directory")
 }
 
 func TestSudoInvokingUserInactiveWithoutSudoContext(t *testing.T) {
@@ -59,6 +127,13 @@ func TestSudoInvokingUserResolvesInvokingUser(t *testing.T) {
 func TestInvokingUserFailsClosedWhenSudoLookupFails(t *testing.T) {
 	fakeSudo(t, filepath.Join("/home", "misha"))
 	lookupUser = func(string) (*user.User, error) { return nil, errors.New("nss unavailable") }
+
+	origCurrentUser := currentUser
+	currentUser = func() (*user.User, error) {
+		t.Fatal("currentUser must not be called after a sudo lookup failure")
+		return nil, errors.New("currentUser called unexpectedly")
+	}
+	t.Cleanup(func() { currentUser = origCurrentUser })
 
 	got, err := InvokingUser()
 	require.Error(t, err)
@@ -212,6 +287,22 @@ func fakeSudo(t *testing.T, home string) {
 		geteuid = origEuid
 		lookupUser = origLookup
 		ConfigDirOverride = origOverride
+	})
+}
+
+func fakeUnmappedUser(t *testing.T, uid, gid int, lookupErr error) {
+	t.Helper()
+
+	origCurrentUser := currentUser
+	origEuid := geteuid
+	origEgid := getegid
+	currentUser = func() (*user.User, error) { return nil, lookupErr }
+	geteuid = func() int { return uid }
+	getegid = func() int { return gid }
+	t.Cleanup(func() {
+		currentUser = origCurrentUser
+		geteuid = origEuid
+		getegid = origEgid
 	})
 }
 
