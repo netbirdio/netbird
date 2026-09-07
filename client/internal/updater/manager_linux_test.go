@@ -16,7 +16,7 @@ import (
 )
 
 // On Linux, only Mode 1 (downloadOnly) is supported.
-// SetVersion is a no-op because auto-update installation is not supported.
+// SetVersion falls back to download-only because auto-update installation is not supported.
 
 func Test_LatestVersion_Linux(t *testing.T) {
 	testMatrix := []struct {
@@ -89,9 +89,8 @@ func Test_LatestVersion_Linux(t *testing.T) {
 	}
 }
 
-func Test_SetVersion_NoOp_Linux(t *testing.T) {
-	// On Linux, SetVersion should be a no-op — no events fired
-	tmpFile := path.Join(t.TempDir(), "update-test-noop.json")
+func Test_SetVersion_FallsBackToDownloadOnly_Linux(t *testing.T) {
+	tmpFile := path.Join(t.TempDir(), "update-test-fallback.json")
 	recorder := peer.NewRecorder("")
 	sub := recorder.SubscribeToEvents()
 	defer recorder.UnsubscribeFromEvents(sub)
@@ -102,9 +101,12 @@ func Test_SetVersion_NoOp_Linux(t *testing.T) {
 	m.Start(context.Background())
 	m.SetVersion("1.0.1", false)
 
-	ver, _ := waitForUpdateEvent(sub, 500*time.Millisecond)
-	if ver != "" {
-		t.Errorf("SetVersion should be a no-op on Linux, but got event with version %s", ver)
+	ver, enforced := waitForUpdateEvent(sub, 500*time.Millisecond)
+	if ver != "1.0.1" {
+		t.Fatalf("expected download-only event for 1.0.1, got %q", ver)
+	}
+	if enforced {
+		t.Error("Linux fallback must never have enforced metadata")
 	}
 
 	m.Stop()

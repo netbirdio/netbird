@@ -274,6 +274,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 	stateManager.RegisterState(&sshconfig.ShutdownState{})
 
 	if c.updateManager != nil {
+		c.updateManager.ResetMode()
 		c.updateManager.CheckUpdateSuccess(c.ctx)
 	}
 

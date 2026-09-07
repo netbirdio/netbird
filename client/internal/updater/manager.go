@@ -21,7 +21,15 @@ const (
 	latestVersion = "latest"
 )
 
+const (
+	modeUndecided updateMode = iota
+	modeDownloadOnly
+	modeManaged
+)
+
 var errNoUpdateState = errors.New("no update state found")
+
+type updateMode int
 
 type UpdateState struct {
 	PreUpdateVersion string
@@ -36,8 +44,8 @@ type Manager struct {
 	statusRecorder *peer.Status
 	stateManager   *statemanager.Manager
 
-	downloadOnly bool // true when no enforcement from management; notifies UI to download latest
-	forceUpdate  bool // true when management sets AlwaysUpdate; skips UI interaction and installs directly
+	mode        updateMode
+	forceUpdate bool // true when management sets AlwaysUpdate; skips UI interaction and installs directly
 
 	lastTrigger    time.Time
 	mgmUpdateChan  chan struct{}
@@ -54,7 +62,7 @@ type Manager struct {
 	pendingVersion *v.Version
 
 	// updateMutex protects update, expectedVersion, updateToLatestVersion,
-	// downloadOnly, forceUpdate, pendingVersion, and lastTrigger fields
+	// mode, forceUpdate, pendingVersion, and lastTrigger fields
 	updateMutex sync.Mutex
 
 	// installMutex and installing guard against concurrent installation attempts
@@ -76,7 +84,6 @@ func NewManager(statusRecorder *peer.Status, stateManager *statemanager.Manager)
 		updateChannel:       make(chan struct{}, 1),
 		currentVersion:      version.NetbirdVersion(),
 		update:              version.NewUpdate("nb/client"),
-		downloadOnly:        true,
 		autoUpdateSupported: isAutoUpdateSupported,
 	}
 
@@ -151,7 +158,7 @@ func (m *Manager) Start(ctx context.Context) {
 
 func (m *Manager) SetDownloadOnly() {
 	m.updateMutex.Lock()
-	m.downloadOnly = true
+	m.mode = modeDownloadOnly
 	m.forceUpdate = false
 	m.expectedVersion = nil
 	m.updateToLatestVersion = false
@@ -169,6 +176,7 @@ func (m *Manager) SetVersion(expectedVersion string, forceUpdate bool) {
 
 	if !m.autoUpdateSupported() {
 		log.Warnf("auto-update not supported on this platform")
+		m.SetDownloadOnly()
 		return
 	}
 
@@ -179,7 +187,7 @@ func (m *Manager) SetVersion(expectedVersion string, forceUpdate bool) {
 		log.Errorf("empty expected version provided")
 		m.expectedVersion = nil
 		m.updateToLatestVersion = false
-		m.downloadOnly = true
+		m.mode = modeDownloadOnly
 		return
 	}
 
@@ -200,13 +208,25 @@ func (m *Manager) SetVersion(expectedVersion string, forceUpdate bool) {
 	}
 
 	m.lastTrigger = time.Time{}
-	m.downloadOnly = false
+	m.mode = modeManaged
 	m.forceUpdate = forceUpdate
 
 	select {
 	case m.mgmUpdateChan <- struct{}{}:
 	default:
 	}
+}
+
+func (m *Manager) ResetMode() {
+	m.updateMutex.Lock()
+	defer m.updateMutex.Unlock()
+
+	m.mode = modeUndecided
+	m.forceUpdate = false
+	m.expectedVersion = nil
+	m.updateToLatestVersion = false
+	m.pendingVersion = nil
+	m.lastTrigger = time.Time{}
 }
 
 // Install triggers the installation of the pending version. It is called when the user clicks the install button in the UI.
@@ -255,12 +275,16 @@ func (m *Manager) NotifyUI() {
 		m.updateMutex.Unlock()
 		return
 	}
-	downloadOnly := m.downloadOnly
+	mode := m.mode
 	pendingVersion := m.pendingVersion
 	latestVersion := m.update.LatestVersion()
 	m.updateMutex.Unlock()
 
-	if downloadOnly {
+	if mode == modeUndecided {
+		return
+	}
+
+	if mode == modeDownloadOnly {
 		if latestVersion == nil {
 			return
 		}
@@ -343,13 +367,17 @@ func (m *Manager) handleUpdate(ctx context.Context) {
 		return
 	}
 
-	downloadOnly := m.downloadOnly
+	mode := m.mode
 	forceUpdate := m.forceUpdate
 	curLatestVersion := m.update.LatestVersion()
 
 	switch {
+	case mode == modeUndecided:
+		log.Tracef("auto-update mode not decided yet")
+		m.updateMutex.Unlock()
+		return
 	// Download-only mode or resolve "latest" to actual version
-	case downloadOnly, m.updateToLatestVersion:
+	case mode == modeDownloadOnly, m.updateToLatestVersion:
 		if curLatestVersion == nil {
 			log.Tracef("latest version not fetched yet")
 			m.updateMutex.Unlock()
@@ -374,12 +402,12 @@ func (m *Manager) handleUpdate(ctx context.Context) {
 	m.lastTrigger = time.Now()
 	log.Infof("new version available: %s", updateVersion)
 
-	if !downloadOnly && !forceUpdate {
+	if mode == modeManaged && !forceUpdate {
 		m.pendingVersion = updateVersion
 	}
 	m.updateMutex.Unlock()
 
-	if downloadOnly {
+	if mode == modeDownloadOnly {
 		m.statusRecorder.PublishEvent(
 			cProto.SystemEvent_INFO,
 			cProto.SystemEvent_SYSTEM,

@@ -455,10 +455,6 @@ func (e *Engine) stopLocked() {
 		e.sessionWatcher.Close()
 	}
 
-	if e.updateManager != nil {
-		e.updateManager.SetDownloadOnly()
-	}
-
 	log.Info("cleaning up status recorder states")
 	e.statusRecorder.ReplaceOfflinePeers([]peer.State{})
 	e.statusRecorder.UpdateDNSStates([]peer.NSGroupState{})
@@ -971,11 +967,7 @@ func (e *Engine) handleAutoUpdateVersion(autoUpdateSettings *mgmProto.AutoUpdate
 		return
 	}
 
-	if autoUpdateSettings == nil {
-		return
-	}
-
-	if autoUpdateSettings.Version == disableAutoUpdate {
+	if autoUpdateSettings == nil || autoUpdateSettings.Version == disableAutoUpdate {
 		log.Infof("auto-update is disabled")
 		e.updateManager.SetDownloadOnly()
 		return
