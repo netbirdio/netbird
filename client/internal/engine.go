@@ -2134,11 +2134,14 @@ func (e *Engine) close() {
 	log.Debugf("removing Netbird interface %s", e.config.WgIfaceName)
 
 	if e.wgInterface != nil {
+		// Drop the handle before the close starts: a retune that loads it
+		// afterwards would touch a device on its way out and report success
+		// for an engine that is already gone.
+		e.wgDevice.Store(nil)
 		if err := e.wgInterface.Close(); err != nil {
 			log.Errorf("failed closing Netbird interface %s %v", e.config.WgIfaceName, err)
 		}
 		e.wgInterface = nil
-		e.wgDevice.Store(nil)
 		e.statusRecorder.SetWgIface(nil)
 	}
 
