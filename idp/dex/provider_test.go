@@ -766,7 +766,7 @@ func TestNewProvider_SetsGrantTypes(t *testing.T) {
 		DataDir: t.TempDir(),
 	})
 	require.NoError(t, err)
-	defer func() { _ = provider.Stop(ctx) }()
+	defer func() { _ = provider.storage.Close() }()
 
 	req := httptest.NewRequest(http.MethodGet, "/oauth2/.well-known/openid-configuration", nil)
 	rec := httptest.NewRecorder()
