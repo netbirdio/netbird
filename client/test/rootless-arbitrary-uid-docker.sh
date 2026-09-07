@@ -16,6 +16,10 @@ if ! command -v "${RUNTIME}" >/dev/null 2>&1; then
   echo "container runtime not found: ${RUNTIME}" >&2
   exit 127
 fi
+if ! command -v go >/dev/null 2>&1; then
+  echo "go is required" >&2
+  exit 127
+fi
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 IMAGE="${IMAGE:-netbird-rootless-arbitrary-uid-test:local}"
@@ -101,6 +105,10 @@ assert_arbitrary_uid_contract() {
     test "$(id -u)" = 1001230000
     test "$(id -g)" = 0
     test "${HOME}" = /var/lib/netbird
+    test -r /usr/local/bin/netbird-entrypoint.sh
+    test -x /usr/local/bin/netbird-entrypoint.sh
+    test "$(head -n 1 /usr/local/bin/netbird-entrypoint.sh)" = "#!/usr/bin/env bash"
+    bash -n /usr/local/bin/netbird-entrypoint.sh
     touch /var/lib/netbird/.uid-smoke
     rm /var/lib/netbird/.uid-smoke
     test -S /var/lib/netbird/netbird.sock
