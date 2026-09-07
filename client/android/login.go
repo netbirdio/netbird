@@ -82,9 +82,7 @@ func NewAuthWithConfig(ctx context.Context, config *profilemanager.Config, cfgPa
 	}
 }
 
-// SaveConfigIfSSOSupported test the connectivity with the management server by retrieving the server device flow info.
-// If it returns a flow info than save the configuration and return true. If it gets a codes.NotFound, it means that SSO
-// is not supported and returns false without saving the configuration. For other errors return false.
+// SaveConfigIfSSOSupported reports whether the management server supports SSO; the config is already persisted by NewAuth.
 func (a *Auth) SaveConfigIfSSOSupported(listener SSOListener) {
 	go func() {
 		sso, err := a.saveConfigIfSSOSupported()
@@ -108,15 +106,10 @@ func (a *Auth) saveConfigIfSSOSupported() (bool, error) {
 		return false, fmt.Errorf("failed to check SSO support: %v", err)
 	}
 
-	if !supportsSSO {
-		return false, nil
-	}
-
-	err = profilemanager.WriteOutConfig(a.cfgPath, a.config)
-	return true, err
+	return supportsSSO, nil
 }
 
-// LoginWithSetupKeyAndSaveConfig test the connectivity with the management server with the setup key.
+// LoginWithSetupKeyAndSaveConfig registers the peer with the setup key; the config is already persisted by NewAuth.
 func (a *Auth) LoginWithSetupKeyAndSaveConfig(resultListener ErrListener, setupKey string, deviceName string) {
 	go func() {
 		err := a.loginWithSetupKeyAndSaveConfig(setupKey, deviceName)
@@ -141,8 +134,7 @@ func (a *Auth) loginWithSetupKeyAndSaveConfig(setupKey string, deviceName string
 	if err != nil {
 		return fmt.Errorf("login failed: %v", err)
 	}
-
-	return profilemanager.WriteOutConfig(a.cfgPath, a.config)
+	return nil
 }
 
 // Login try register the client on the server

@@ -112,9 +112,7 @@ func (a *Auth) Stop() {
 	}
 }
 
-// SaveConfigIfSSOSupported test the connectivity with the management server by retrieving the server device flow info.
-// If it returns a flow info than save the configuration and return true. If it gets a codes.NotFound, it means that SSO
-// is not supported and returns false without saving the configuration. For other errors return false.
+// SaveConfigIfSSOSupported reports whether the management server supports SSO; the config is already persisted by NewAuth.
 func (a *Auth) SaveConfigIfSSOSupported(listener SSOListener) {
 	if listener == nil {
 		log.Errorf("SaveConfigIfSSOSupported: listener is nil")
@@ -142,17 +140,10 @@ func (a *Auth) saveConfigIfSSOSupported() (bool, error) {
 		return false, fmt.Errorf("failed to check SSO support: %v", err)
 	}
 
-	if !supportsSSO {
-		return false, nil
-	}
-
-	// Use DirectWriteOutConfig to avoid atomic file operations (temp file + rename)
-	// which are blocked by the tvOS sandbox in App Group containers
-	err = profilemanager.DirectWriteOutConfig(a.cfgPath, a.config)
-	return true, err
+	return supportsSSO, nil
 }
 
-// LoginWithSetupKeyAndSaveConfig test the connectivity with the management server with the setup key.
+// LoginWithSetupKeyAndSaveConfig registers the peer with the setup key; the config is already persisted by NewAuth.
 func (a *Auth) LoginWithSetupKeyAndSaveConfig(resultListener ErrListener, setupKey string, deviceName string) {
 	if resultListener == nil {
 		log.Errorf("LoginWithSetupKeyAndSaveConfig: resultListener is nil")
@@ -181,10 +172,7 @@ func (a *Auth) loginWithSetupKeyAndSaveConfig(setupKey string, deviceName string
 	if err != nil {
 		return fmt.Errorf("login failed: %v", err)
 	}
-
-	// Use DirectWriteOutConfig to avoid atomic file operations (temp file + rename)
-	// which are blocked by the tvOS sandbox in App Group containers
-	return profilemanager.DirectWriteOutConfig(a.cfgPath, a.config)
+	return nil
 }
 
 // LoginSync performs a synchronous login check without UI interaction
@@ -315,19 +303,6 @@ func (a *Auth) login(urlOpener URLOpener, forceDeviceAuth bool, deviceName strin
 	if email != "" && a.cfgPath != "" {
 		if err := mobile.WriteProfileEmail(a.cfgPath, email); err != nil {
 			log.Warnf("failed to store profile account email: %v", err)
-		}
-	}
-
-	// Save the config before notifying success to ensure persistence completes
-	// before the callback potentially triggers teardown on the Swift side.
-	// Note: This differs from Android which doesn't save config after login.
-	// On iOS/tvOS, we save here because:
-	// 1. The config may have been modified during login (e.g., new tokens)
-	// 2. On tvOS, the Network Extension context may be the only place with
-	//    write permissions to the App Group container
-	if a.cfgPath != "" {
-		if err := profilemanager.DirectWriteOutConfig(a.cfgPath, a.config); err != nil {
-			log.Warnf("failed to save config after login: %v", err)
 		}
 	}
 
