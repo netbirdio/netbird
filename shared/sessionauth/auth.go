@@ -217,8 +217,10 @@ func (a *Authorizer) GetUserIDClaim() string {
 	return a.userIDClaim
 }
 
-// Config returns the authorization currently in force. The user list and the
-// machine-user map are copies; the originals stay in use here.
+// Config returns the authorization currently in force, in a form that can be
+// fed back to Update to reproduce it. The user list, the machine-user map and
+// the session-key entries are copies; the originals stay in use here. The
+// session-key entries come out in unspecified order.
 func (a *Authorizer) Config() *Config {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -228,10 +230,20 @@ func (a *Authorizer) Config() *Config {
 		machineUsers[osUser] = slices.Clone(indexes)
 	}
 
+	sessionPubKeys := make([]SessionPubKey, 0, len(a.sessionPubKeys))
+	for key, userIDHash := range a.sessionPubKeys {
+		sessionPubKeys = append(sessionPubKeys, SessionPubKey{
+			PubKey:      slices.Clone(key[:]),
+			UserIDHash:  userIDHash,
+			DisplayName: a.sessionDisplayNames[key],
+		})
+	}
+
 	return &Config{
 		UserIDClaim:     a.userIDClaim,
 		AuthorizedUsers: slices.Clone(a.authorizedUsers),
 		MachineUsers:    machineUsers,
+		SessionPubKeys:  sessionPubKeys,
 	}
 }
 

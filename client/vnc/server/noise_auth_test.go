@@ -458,3 +458,44 @@ func TestNoise_SessionMode_OSUserCheckRunsAfterHandshake(t *testing.T) {
 	assert.Contains(t, reason, "no machine user mapping")
 	assert.NotContains(t, reason, sshauth.ErrSessionKeyNotKnown.Error())
 }
+
+// TestNoise_ConfigAuth_InForceBeforeAccept covers the listener rebind: the
+// engine reads the running server's authorization and hands it to the
+// replacement through Config.Auth, so a session key enrolled before the
+// rebind must still authenticate immediately after it, with no
+// UpdateVNCAuth call in between.
+func TestNoise_ConfigAuth_InForceBeforeAccept(t *testing.T) {
+	kp, err := noise.DH25519.GenerateKeypair(nil)
+	require.NoError(t, err)
+
+	// The server the rebind replaces. Never started: only its authorization
+	// is of interest here.
+	previous := New(Config{
+		Capturer:    &testCapturer{},
+		Injector:    &StubInputInjector{},
+		IdentityKey: kp.Private,
+	})
+	clientKey := registerSessionKey(t, previous, "alice@example")
+
+	carried := previous.VNCAuth()
+	require.NotNil(t, carried)
+
+	rebuilt := New(Config{
+		Capturer:    &testCapturer{},
+		Injector:    &StubInputInjector{},
+		IdentityKey: kp.Private,
+		Auth:        carried,
+	})
+	require.NoError(t, rebuilt.Start(t.Context(), netip.MustParseAddrPort("127.0.0.1:0"), netip.MustParsePrefix("127.0.0.0/8")))
+	t.Cleanup(func() { _ = rebuilt.Stop() })
+
+	conn, err := net.Dial("tcp", rebuilt.listener.Addr().String())
+	require.NoError(t, err)
+	defer conn.Close()
+
+	writeHeaderPrefix(t, conn, ModeAttach)
+	performInitiator(t, conn, clientKey, kp.Public)
+	writeHeaderTail(t, conn)
+
+	readRFBGreetingNoFailure(t, conn)
+}

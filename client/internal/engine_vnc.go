@@ -27,6 +27,8 @@ type vncServer interface {
 	AddListener(ctx context.Context, addr netip.AddrPort, network netip.Prefix) error
 	Stop() error
 	ActiveSessions() []vncserver.ActiveSessionInfo
+	UpdateVNCAuth(config *sshauth.Config)
+	VNCAuth() *sshauth.Config
 }
 
 func (e *Engine) setupVNCPortRedirection() error {
@@ -97,26 +99,36 @@ func (e *Engine) updateVNC() error {
 		return nil
 	}
 
-	return e.startVNCServer()
+	return e.startVNCServer(nil)
 }
 
-// restartVNCListeners rebuilds the VNC server so it listens on new sockets.
-// No-op when it is not running. See Engine.rebindOverlayListeners for why this
-// is needed.
+// restartVNCListeners rebuilds the VNC server so it listens on new sockets, on
+// the same terms it was started with. No-op when it is not running. See
+// Engine.rebindOverlayListeners for why this is needed.
 func (e *Engine) restartVNCListeners() error {
 	if e.vncSrv == nil {
 		return nil
 	}
+	// Read from the server before it goes away. A rebuilt one starts with an
+	// empty authorizer, which fails closed, so without carrying the
+	// authorization over every authorized peer is refused until the next
+	// network map happens to bring one.
+	authConfig := e.vncSrv.VNCAuth()
 	if err := e.stopVNCServer(); err != nil {
 		return fmt.Errorf("rebind VNC listeners: %w", err)
 	}
-	if err := e.startVNCServer(); err != nil {
+	if err := e.startVNCServer(authConfig); err != nil {
 		return fmt.Errorf("rebind VNC listeners: %w", err)
 	}
 	return nil
 }
 
-func (e *Engine) startVNCServer() error {
+// startVNCServer builds and starts the VNC server. authConfig is the
+// fine-grained authorization to open with, and is applied before the server
+// accepts anything: a server that starts listening with an empty authorizer
+// refuses the connections that arrive in the meantime. Nil leaves it as
+// management has not sent one yet.
+func (e *Engine) startVNCServer(authConfig *sshauth.Config) error {
 	if e.wgInterface == nil {
 		return errors.New("wg interface not initialized")
 	}
@@ -166,6 +178,7 @@ func (e *Engine) startVNCServer() error {
 		ServiceMode:     serviceMode,
 		SessionRecorder: sessionRecorder,
 		NetstackNet:     e.wgInterface.GetNet(),
+		Auth:            authConfig,
 		RequireApproval: requireApproval,
 		Approver:        approver,
 		// Session start/stop is invisible to the peer status recorder, so push a
@@ -218,13 +231,8 @@ func (e *Engine) updateVNCServerAuth(vncAuth *mgmProto.VNCAuth) {
 		return
 	}
 
-	vncSrv, ok := e.vncSrv.(*vncserver.Server)
-	if !ok {
-		return
-	}
-
 	if vncAuth == nil {
-		vncSrv.UpdateVNCAuth(&sshauth.Config{})
+		e.vncSrv.UpdateVNCAuth(&sshauth.Config{})
 		return
 	}
 
@@ -262,7 +270,7 @@ func (e *Engine) updateVNCServerAuth(vncAuth *mgmProto.VNCAuth) {
 		})
 	}
 
-	vncSrv.UpdateVNCAuth(&sshauth.Config{
+	e.vncSrv.UpdateVNCAuth(&sshauth.Config{
 		AuthorizedUsers: authorizedUsers,
 		MachineUsers:    machineUsers,
 		SessionPubKeys:  sessionPubKeys,

@@ -757,3 +757,61 @@ func TestAuthorizer_AuthorizeSessionKey_UnauthorizedUser(t *testing.T) {
 	_, _, err = a.AuthorizeSessionKey(pub, "alice")
 	require.ErrorIs(t, err, ErrUserNotAuthorized)
 }
+
+// Config must round-trip through Update: the VNC listener rebind reads the
+// running server's authorization and hands it to the replacement, so a session
+// key dropped here is an authorized peer refused until the next network map.
+func TestAuthorizer_Config_RoundTripsSessionPubKeys(t *testing.T) {
+	pub := bytesRepeat(0x77, sessionPubKeyLen)
+	userHash, err := sshauth.HashUserID("alice")
+	require.NoError(t, err)
+
+	original := NewAuthorizer()
+	original.Update(&Config{
+		UserIDClaim:     "email",
+		AuthorizedUsers: []sshauth.UserIDHash{userHash},
+		MachineUsers:    map[string][]uint32{Wildcard: {0}},
+		SessionPubKeys: []SessionPubKey{
+			{PubKey: pub, UserIDHash: userHash, DisplayName: "Alice"},
+		},
+	})
+
+	carried := original.Config()
+	require.NotNil(t, carried)
+	assert.Equal(t, "email", carried.UserIDClaim)
+	assert.Equal(t, []sshauth.UserIDHash{userHash}, carried.AuthorizedUsers)
+	assert.Equal(t, map[string][]uint32{Wildcard: {0}}, carried.MachineUsers)
+	require.Len(t, carried.SessionPubKeys, 1)
+	assert.Equal(t, pub, carried.SessionPubKeys[0].PubKey)
+	assert.Equal(t, userHash, carried.SessionPubKeys[0].UserIDHash)
+	assert.Equal(t, "Alice", carried.SessionPubKeys[0].DisplayName)
+
+	rebuilt := NewAuthorizer()
+	rebuilt.Update(carried)
+	gotHash, _, err := rebuilt.AuthorizeSessionKey(pub, "alice")
+	require.NoError(t, err)
+	assert.Equal(t, userHash, gotHash)
+	assert.Equal(t, "Alice", rebuilt.LookupSessionDisplayName(pub))
+}
+
+// The copies Config hands out must not alias the authorizer's own state, or a
+// caller mutating what it read changes the policy in force.
+func TestAuthorizer_Config_CopiesAreIndependent(t *testing.T) {
+	pub := bytesRepeat(0x78, sessionPubKeyLen)
+	userHash, err := sshauth.HashUserID("alice")
+	require.NoError(t, err)
+
+	a := NewAuthorizer()
+	a.Update(&Config{
+		AuthorizedUsers: []sshauth.UserIDHash{userHash},
+		MachineUsers:    map[string][]uint32{Wildcard: {0}},
+		SessionPubKeys:  []SessionPubKey{{PubKey: pub, UserIDHash: userHash}},
+	})
+
+	carried := a.Config()
+	carried.MachineUsers[Wildcard][0] = 42
+	carried.SessionPubKeys[0].PubKey[0] ^= 0xFF
+
+	_, _, err = a.AuthorizeSessionKey(pub, "alice")
+	require.NoError(t, err, "mutating the returned config must not affect the authorizer")
+}

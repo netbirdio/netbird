@@ -326,6 +326,11 @@ type Config struct {
 	DisableAuth     bool
 	AgentTokenHex   string
 	NetstackNet     *netstack.Net
+	// Auth is the fine-grained authorization to open with, applied before the
+	// server accepts anything: a server that starts listening with an empty
+	// authorizer refuses the connections that arrive in the meantime. Nil
+	// leaves it as management has not sent one yet.
+	Auth *sshauth.Config
 	// Listener, when set, is used instead of Start opening a TCP listener;
 	// addr/network args to Start are then ignored. The agent uses this to
 	// listen on a Unix socket.
@@ -436,6 +441,9 @@ func New(cfg Config) *Server {
 			s.invalidAgentToken = true
 			s.log.Warnf("invalid agent token: %v", err)
 		}
+	}
+	if cfg.Auth != nil {
+		s.authorizer.Update(cfg.Auth)
 	}
 	return s
 }
@@ -747,6 +755,16 @@ func (s *Server) revokeUnauthorizedSessions() {
 func (s *Server) UpdateVNCAuth(config *sshauth.Config) {
 	s.authorizer.Update(config)
 	s.revokeUnauthorizedSessions()
+}
+
+// VNCAuth returns the authorization currently in force, in a form that can be
+// handed to Config.Auth or UpdateVNCAuth to reproduce it. Nil when the server
+// has no authorizer.
+func (s *Server) VNCAuth() *sshauth.Config {
+	if s.authorizer == nil {
+		return nil
+	}
+	return s.authorizer.Config()
 }
 
 // Start begins listening for VNC connections on the given address.
