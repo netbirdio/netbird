@@ -53,6 +53,15 @@ func uiLogOpener(id ipcauth.Identity, identified bool) debug.LogOpener {
 // refused for an unprivileged caller regardless of the host.
 func requirePrivilegeForUploadURL(ctx context.Context, rawURL string, insecure bool) error {
 	if rawURL == "" {
+		// An empty URL is not "no upload": the daemon then resolves the
+		// destination the management server published. Relaxing TLS on the way
+		// there exposes the bundle exactly as naming the host outright would, so
+		// it needs the same privilege.
+		if insecure {
+			return denyPrivileged(ctx,
+				"uploading a debug bundle without transport security (--upload-bundle-insecure)",
+				ipcauth.ElevatedCommand("netbird debug bundle -U --upload-bundle-insecure"))
+		}
 		return nil
 	}
 

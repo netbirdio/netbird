@@ -116,6 +116,9 @@ func TestRequirePrivilegeForUploadURL(t *testing.T) {
 		rootAlso bool
 	}{
 		{name: "no upload", url: "", unprivOK: true},
+		// An empty URL resolves to the destination management published, so
+		// relaxing TLS towards it needs the same privilege as naming a host.
+		{name: "insecure with no URL", url: "", insecure: true, rootAlso: true},
 		{name: "default service", url: types.DefaultBundleURL, unprivOK: true},
 		{name: "default service, other path", url: "https://upload.debug.netbird.io/other", unprivOK: true},
 		{name: "loopback exfiltration endpoint", url: "https://127.0.0.1:8080/upload-url", rootAlso: true},
