@@ -782,6 +782,22 @@ func (h *Handler) applyBufferCap(capN uint32) (int, map[string]string) {
 			}
 			applied++
 		case <-deadline:
+			// select picks at random among ready cases, so results already
+			// buffered when the deadline fires would otherwise be reported as
+			// timeouts. Take them first.
+			for drained := true; drained; {
+				select {
+				case res := <-results:
+					delete(pending, res.accountID)
+					if res.err != nil {
+						failed[string(res.accountID)] = res.err.Error()
+						continue
+					}
+					applied++
+				default:
+					drained = false
+				}
+			}
 			for accountID := range pending {
 				failed[string(accountID)] = fmt.Sprintf("timed out after %s waiting for the client", perfApplyTimeout)
 			}
