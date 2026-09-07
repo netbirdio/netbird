@@ -240,7 +240,10 @@ func initializeStorage(ctx context.Context, stor storage.Storage, cfg *YAMLConfi
 	if err := ensureStaticClients(ctx, stor, cfg.StaticClients); err != nil {
 		return err
 	}
-	return ensureStaticConnectors(ctx, stor, cfg.StaticConnectors)
+	if err := ensureStaticConnectors(ctx, stor, cfg.StaticConnectors); err != nil {
+		return err
+	}
+	return ensureConnectorGrantTypes(ctx, stor)
 }
 
 // ensureStaticPasswords creates or updates static passwords in storage

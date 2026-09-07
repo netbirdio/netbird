@@ -6,10 +6,19 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/dexidp/dex/storage"
 )
+
+// DefaultGrantTypes is the minimal set of OAuth2 grants in use. Dex enables every
+// grant it supports when the list is empty.
+var DefaultGrantTypes = []string{
+	"authorization_code", // dashboard login
+	"refresh_token",      // session renewal
+	"urn:ietf:params:oauth:grant-type:device_code", // CLI login
+}
 
 // ConnectorConfig represents the configuration for an identity provider connector
 type ConnectorConfig struct {
@@ -111,10 +120,11 @@ func (p *Provider) UpdateConnector(ctx context.Context, cfg *ConnectorConfig) er
 		}
 
 		return storage.Connector{
-			ID:     cfg.ID,
-			Type:   old.Type,
-			Name:   name,
-			Config: configData,
+			ID:         cfg.ID,
+			Type:       old.Type,
+			Name:       name,
+			Config:     configData,
+			GrantTypes: old.GrantTypes,
 		}, nil
 	}); err != nil {
 		return fmt.Errorf("failed to update connector: %w", err)
@@ -200,7 +210,13 @@ func (p *Provider) buildStorageConnector(cfg *ConnectorConfig) (storage.Connecto
 		return storage.Connector{}, err
 	}
 
-	return storage.Connector{ID: cfg.ID, Type: dexType, Name: cfg.Name, Config: configData}, nil
+	return storage.Connector{
+		ID:         cfg.ID,
+		Type:       dexType,
+		Name:       cfg.Name,
+		Config:     configData,
+		GrantTypes: slices.Clone(DefaultGrantTypes),
+	}, nil
 }
 
 // resolveRedirectURI returns the redirect URI, using a default if not provided
@@ -423,10 +439,36 @@ func ensureStaticConnectors(ctx context.Context, stor storage.Storage, connector
 		if err := stor.UpdateConnector(ctx, conn.ID, func(old storage.Connector) (storage.Connector, error) {
 			old.Name = storConn.Name
 			old.Config = storConn.Config
+			old.GrantTypes = storConn.GrantTypes
 			return old, nil
 		}); err != nil {
 			return fmt.Errorf("failed to update connector %s: %w", conn.ID, err)
 		}
 	}
+	return nil
+}
+
+// ensureConnectorGrantTypes backfills DefaultGrantTypes onto stored connectors
+// that have no grants set. An explicit allowlist is left untouched.
+func ensureConnectorGrantTypes(ctx context.Context, stor storage.Storage) error {
+	connectors, err := stor.ListConnectors(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to list connectors: %w", err)
+	}
+
+	for _, conn := range connectors {
+		if len(conn.GrantTypes) > 0 {
+			continue
+		}
+		if err := stor.UpdateConnector(ctx, conn.ID, func(old storage.Connector) (storage.Connector, error) {
+			if len(old.GrantTypes) == 0 {
+				old.GrantTypes = slices.Clone(DefaultGrantTypes)
+			}
+			return old, nil
+		}); err != nil {
+			return fmt.Errorf("failed to set grant types on connector %s: %w", conn.ID, err)
+		}
+	}
+
 	return nil
 }
