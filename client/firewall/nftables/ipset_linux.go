@@ -27,6 +27,9 @@ func (r *family) getIpSet(set firewall.Set, prefixes []netip.Prefix, isSource bo
 	return r.getIpSetExprs(ref, isSource)
 }
 
+// createIpSet creates a named interval set for the given prefixes and
+// returns the kernel set handle. It commits on sConn, the dedicated set
+// connection, and rolls the set back if a later element batch fails.
 func (r *family) createIpSet(setName string, input setInput) (*nftables.Set, error) {
 	// overlapping prefixes will result in an error, so we need to merge them
 	prefixes := firewall.MergeIPRanges(input.prefixes)
@@ -147,6 +150,8 @@ func uint32ToBytes(ip uint32) [4]byte {
 	return b
 }
 
+// deleteIpSet removes a named set from the kernel via sConn, the dedicated
+// set connection.
 func (r *family) deleteIpSet(setName string, nfset *nftables.Set) error {
 	r.sConn.DelSet(nfset)
 	if err := r.sConn.Flush(); err != nil {
@@ -157,6 +162,8 @@ func (r *family) deleteIpSet(setName string, nfset *nftables.Set) error {
 	return nil
 }
 
+// UpdateSet adds prefixes to an existing named set, batching large updates
+// into multiple commits on sConn, the dedicated set connection.
 func (r *family) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
 	nfset, err := r.sConn.GetSetByName(r.workTable, set.HashedName())
 	if err != nil {

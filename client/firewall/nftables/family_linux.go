@@ -75,7 +75,7 @@ type setInput struct {
 // for v6. The name predates the peer-ACL absorption; it's effectively
 // the per-family backend now.
 type family struct {
-	conn        *nftables.Conn
+	conn *nftables.Conn
 	// sConn is a dedicated connection used for named ipset (re)creation
 	// and element updates. Keeping it separate from the
 	// rule connection avoids overloading a single netlink batch with a
@@ -112,6 +112,10 @@ type family struct {
 	mtu              uint16
 }
 
+// newFamily creates the per-family nftables backend with two connections:
+// conn for rule and chain transactions, and sConn dedicated to named ipset
+// operations. Keeping them separate prevents large set-element batches from
+// overloading a rule commit's netlink batch.
 func newFamily(workTable *nftables.Table, wgIface iFaceMapper, mtu uint16) *family {
 	r := &family{
 		conn:               &nftables.Conn{},
