@@ -22,16 +22,26 @@ func TestHandshake_ContextDeadlineWrapped(t *testing.T) {
 	require.True(t, errors.Is(err, context.DeadlineExceeded), "expected context.DeadlineExceeded, got: %v", err)
 }
 
-func TestHandshake_ContextCanceledWrapped(t *testing.T) {
+func TestHandshake_ContextCancelUnblocks(t *testing.T) {
 	conn := dialSilentServer(t)
-	require.NoError(t, conn.Close())
 
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
+	defer cancel()
+	time.AfterFunc(50*time.Millisecond, cancel)
 
-	_, err := Handshake(ctx, conn, conn.RemoteAddr().String(), testClientConfig())
-	require.Error(t, err)
-	require.True(t, errors.Is(err, context.Canceled), "expected context.Canceled, got: %v", err)
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := Handshake(ctx, conn, conn.RemoteAddr().String(), testClientConfig())
+		errCh <- err
+	}()
+
+	select {
+	case err := <-errCh:
+		require.Error(t, err)
+		require.True(t, errors.Is(err, context.Canceled), "expected context.Canceled, got: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("handshake did not return after context cancellation")
+	}
 }
 
 func TestHandshake_NonContextErrorNotWrapped(t *testing.T) {
@@ -52,7 +62,7 @@ func testClientConfig() *ssh.ClientConfig {
 }
 
 // dialSilentServer returns a client conn to a server that accepts and never
-// sends anything, so the SSH handshake blocks until the deadline hits.
+// sends anything, so the SSH handshake blocks until the context is done.
 func dialSilentServer(t *testing.T) net.Conn {
 	t.Helper()
 

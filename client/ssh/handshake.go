@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
@@ -13,26 +12,23 @@ import (
 
 // Handshake runs the SSH client handshake on an already dialed conn and
 // returns the resulting client. Dialing bounds only the TCP establishment;
-// without a deadline on the socket a peer that accepts and then goes silent
-// blocks the handshake forever, so the context deadline is applied to conn
-// for the duration of the handshake. conn is closed on any error.
+// a peer that accepts and then goes silent would block the handshake forever,
+// so conn is closed as soon as ctx is done, which unblocks the handshake and
+// surfaces the context error. conn is closed on any error.
 func Handshake(ctx context.Context, conn net.Conn, addr string, config *ssh.ClientConfig) (*ssh.Client, error) {
-	if deadline, ok := ctx.Deadline(); ok {
-		if err := conn.SetDeadline(deadline); err != nil {
-			closeHandshake(conn, "conn after deadline error")
-			return nil, fmt.Errorf("set handshake deadline: %w", err)
-		}
-	}
+	stop := context.AfterFunc(ctx, func() { closeHandshake(conn, "conn on context done") })
 
 	sshConn, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
 	if err != nil {
-		closeHandshake(conn, "conn after handshake error")
+		if stop() {
+			closeHandshake(conn, "conn after handshake error")
+		}
 		return nil, handshakeError(ctx, err)
 	}
 
-	if err := conn.SetDeadline(time.Time{}); err != nil {
-		closeHandshake(sshConn, "ssh conn after deadline clear error")
-		return nil, fmt.Errorf("clear handshake deadline: %w", err)
+	if !stop() {
+		closeHandshake(sshConn, "ssh conn after context done")
+		return nil, fmt.Errorf("ssh handshake: %w", ctx.Err())
 	}
 
 	return ssh.NewClient(sshConn, chans, reqs), nil
@@ -47,9 +43,6 @@ func closeHandshake(c io.Closer, label string) {
 func handshakeError(ctx context.Context, err error) error {
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return fmt.Errorf("ssh handshake: %w: %w", ctxErr, err)
-	}
-	if deadline, ok := ctx.Deadline(); ok && !time.Now().Before(deadline) {
-		return fmt.Errorf("ssh handshake: %w: %w", context.DeadlineExceeded, err)
 	}
 	return fmt.Errorf("ssh handshake: %w", err)
 }
