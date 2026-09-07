@@ -578,16 +578,28 @@ func readProfileName(path string) string {
 }
 
 // nolint: unused,unusedfunc
-func readProfileOwner(path string) []string {
+func readProfileOwner(path string) (ipcauth.Identity, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return []string{}
+		return ipcauth.Identity{}, err
 	}
 	var meta ownerMeta
 	if err := json.Unmarshal(data, &meta); err != nil {
-		return []string{}
+		return ipcauth.Identity{}, err
 	}
-	return meta.Owners
+	if len(meta.Owners) < 1 {
+		return ipcauth.Identity{}, nil
+	}
+	owner := meta.Owners[0]
+	principal, ok := ipcauth.ParsePrincipal(owner)
+	if !ok {
+		return ipcauth.Identity{}, fmt.Errorf("unexpected owner principal: %s", owner)
+	}
+	id, err := ipcauth.IdentityFromPrincipal(principal)
+	if err != nil {
+		return id, fmt.Errorf("parsing identity from principal failed: %w", err)
+	}
+	return id, nil
 }
 
 // nolint: unused,unusedfunc
