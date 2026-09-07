@@ -1482,7 +1482,6 @@ location ~ ^/(signalexchange\.SignalExchange|management\.ManagementService)/ {
     # Overwrite rather than pass through: without this the client's own
     # x-forwarded-for metadata reaches NetBird as the connection IP.
     grpc_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-    grpc_set_header X-Real-IP \$remote_addr;
     grpc_read_timeout 1d;
     grpc_send_timeout 1d;
     grpc_socket_keepalive on;
