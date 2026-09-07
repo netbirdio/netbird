@@ -76,6 +76,16 @@ type setInput struct {
 // the per-family backend now.
 type family struct {
 	conn        *nftables.Conn
+	// sConn is a dedicated connection used for named ipset (re)creation
+	// and element updates. Keeping it separate from the
+	// rule connection avoids overloading a single netlink batch with a
+	// large number of set-element messages, which can desync the kernel
+	// ack stream and surface as spurious `conn.Receive: netlink receive:
+	// no such file or directory` when the rule referencing the set is
+	// installed (see google/nftables#170). Anonymous port sets stay on
+	// `conn` because they must commit atomically with the rule that
+	// binds them.
+	sConn       *nftables.Conn
 	workTable   *nftables.Table
 	filterTable *nftables.Table
 	chains      map[string]*nftables.Chain
@@ -105,6 +115,7 @@ type family struct {
 func newFamily(workTable *nftables.Table, wgIface iFaceMapper, mtu uint16) *family {
 	r := &family{
 		conn:               &nftables.Conn{},
+		sConn:              &nftables.Conn{},
 		workTable:          workTable,
 		chains:             make(map[string]*nftables.Chain),
 		filters:            make(map[firewall.RuleID]*Rule),

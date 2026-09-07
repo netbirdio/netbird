@@ -46,10 +46,10 @@ func (r *family) createIpSet(setName string, input setInput) (*nftables.Set, err
 	maxElements := maxPrefixesSet * 2
 	initialElements := elements[:min(maxElements, nElements)]
 
-	if err := r.conn.AddSet(nfset, initialElements); err != nil {
+	if err := r.sConn.AddSet(nfset, initialElements); err != nil {
 		return nil, fmt.Errorf("error adding set %s: %w", setName, err)
 	}
-	if err := r.conn.Flush(); err != nil {
+	if err := r.sConn.Flush(); err != nil {
 		return nil, fmt.Errorf("flush error: %w", err)
 	}
 	log.Debugf("Created new ipset: %s with %d initial prefixes (total prefixes %d)", setName, len(initialElements)/2, len(prefixes))
@@ -78,10 +78,10 @@ func (r *family) addRemainingElements(nfset *nftables.Set, elements []nftables.S
 		subElement := elements[subStart:subEnd]
 		nSubPrefixes := len(subElement) / 2
 		log.Tracef("Adding new prefixes (%d) in ipset: %s", nSubPrefixes, nfset.Name)
-		if err := r.conn.SetAddElements(nfset, subElement); err != nil {
+		if err := r.sConn.SetAddElements(nfset, subElement); err != nil {
 			return fmt.Errorf("error adding prefixes (%d) to set %s: %w", nSubPrefixes, nfset.Name, err)
 		}
-		if err := r.conn.Flush(); err != nil {
+		if err := r.sConn.Flush(); err != nil {
 			return fmt.Errorf("flush error: %w", err)
 		}
 		log.Debugf("Added new prefixes (%d) in ipset: %s", nSubPrefixes, nfset.Name)
@@ -148,8 +148,8 @@ func uint32ToBytes(ip uint32) [4]byte {
 }
 
 func (r *family) deleteIpSet(setName string, nfset *nftables.Set) error {
-	r.conn.DelSet(nfset)
-	if err := r.conn.Flush(); err != nil {
+	r.sConn.DelSet(nfset)
+	if err := r.sConn.Flush(); err != nil {
 		return fmt.Errorf(flushError, err)
 	}
 
@@ -158,7 +158,7 @@ func (r *family) deleteIpSet(setName string, nfset *nftables.Set) error {
 }
 
 func (r *family) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
-	nfset, err := r.conn.GetSetByName(r.workTable, set.HashedName())
+	nfset, err := r.sConn.GetSetByName(r.workTable, set.HashedName())
 	if err != nil {
 		return fmt.Errorf("get set %s: %w", set.HashedName(), err)
 	}
@@ -173,10 +173,10 @@ func (r *family) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
 	maxElements := maxPrefixesSet * 2
 	for start := 0; start < len(elements); start += maxElements {
 		end := min(start+maxElements, len(elements))
-		if err := r.conn.SetAddElements(nfset, elements[start:end]); err != nil {
+		if err := r.sConn.SetAddElements(nfset, elements[start:end]); err != nil {
 			return fmt.Errorf("add elements to set %s: %w", set.HashedName(), err)
 		}
-		if err := r.conn.Flush(); err != nil {
+		if err := r.sConn.Flush(); err != nil {
 			return fmt.Errorf(flushError, err)
 		}
 	}
