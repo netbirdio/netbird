@@ -131,6 +131,7 @@ type WindowManager struct {
 	newMain        func(startURL string) *application.WebviewWindow
 	creating       map[string]bool
 	pendingOps     map[string][]windowOp
+	restoreGen     uint64
 	ready          map[uint]bool
 	showPending    map[uint]bool
 	pendingTab     map[uint]string
@@ -567,6 +568,11 @@ func (s *WindowManager) ensureMain(startURL string, op windowOp) {
 
 func (s *WindowManager) withWindow(name string, slot **application.WebviewWindow, factory func() *application.WebviewWindow, op windowOp) {
 	s.mu.Lock()
+	if s.creating[name] {
+		s.pendingOps[name] = append(s.pendingOps[name], op)
+		s.mu.Unlock()
+		return
+	}
 	if w := *slot; w != nil {
 		s.mu.Unlock()
 		op(w, false)
@@ -576,29 +582,66 @@ func (s *WindowManager) withWindow(name string, slot **application.WebviewWindow
 		s.mu.Unlock()
 		return
 	}
-	if s.creating[name] {
-		s.pendingOps[name] = append(s.pendingOps[name], op)
-		s.mu.Unlock()
-		return
-	}
 	s.creating[name] = true
 	s.mu.Unlock()
 
-	w := factory()
-
-	s.mu.Lock()
-	*slot = w
-	delete(s.creating, name)
-	queued := s.pendingOps[name]
-	delete(s.pendingOps, name)
-	s.mu.Unlock()
-
+	w := s.createWindow(name, slot, factory)
 	if w == nil {
 		return
 	}
+	s.finishCreation(name, w, op)
+}
+
+func (s *WindowManager) createWindow(name string, slot **application.WebviewWindow, factory func() *application.WebviewWindow) *application.WebviewWindow {
+	created := false
+	defer func() {
+		if created {
+			return
+		}
+		s.mu.Lock()
+		delete(s.creating, name)
+		delete(s.pendingOps, name)
+		s.mu.Unlock()
+	}()
+
+	w := factory()
+	if w == nil {
+		return nil
+	}
+	s.mu.Lock()
+	*slot = w
+	s.mu.Unlock()
+	created = true
+	return w
+}
+
+func (s *WindowManager) finishCreation(name string, w *application.WebviewWindow, op windowOp) {
+	finished := false
+	defer func() {
+		if finished {
+			return
+		}
+		s.mu.Lock()
+		delete(s.creating, name)
+		delete(s.pendingOps, name)
+		s.mu.Unlock()
+	}()
+
 	op(w, true)
-	for _, queuedOp := range queued {
-		queuedOp(w, false)
+	for {
+		s.mu.Lock()
+		queued := s.pendingOps[name]
+		delete(s.pendingOps, name)
+		if len(queued) == 0 {
+			delete(s.creating, name)
+			finished = true
+			s.mu.Unlock()
+			return
+		}
+		s.mu.Unlock()
+		for _, queuedOp := range queued {
+			queuedOp(w, false)
+		}
 	}
 }
 
@@ -927,6 +970,10 @@ func (s *WindowManager) retitleAll() {
 }
 
 func (s *WindowManager) hideOtherWindows(keepName string) {
+	s.mu.Lock()
+	gen := s.restoreGen
+	s.mu.Unlock()
+
 	var hidden []application.Window
 	for _, w := range s.app.Window.GetAll() {
 		if w == nil || w.Name() == keepName || !w.IsVisible() {
@@ -938,9 +985,19 @@ func (s *WindowManager) hideOtherWindows(keepName string) {
 	if len(hidden) == 0 {
 		return
 	}
+
 	s.mu.Lock()
-	s.hiddenForLogin = append(s.hiddenForLogin, hidden...)
+	restored := s.restoreGen != gen
+	if !restored {
+		s.hiddenForLogin = append(s.hiddenForLogin, hidden...)
+	}
 	s.mu.Unlock()
+	if !restored {
+		return
+	}
+	for _, w := range hidden {
+		w.Show()
+	}
 }
 
 // restoreHiddenWindows re-shows windows hidden by hideOtherWindows. If the main
@@ -951,6 +1008,7 @@ func (s *WindowManager) restoreHiddenWindows() {
 	s.mu.Lock()
 	hidden := s.hiddenForLogin
 	s.hiddenForLogin = nil
+	s.restoreGen++
 	mainWindow := s.mainWindow
 	s.mu.Unlock()
 

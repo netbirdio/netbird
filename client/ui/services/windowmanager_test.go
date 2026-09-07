@@ -125,3 +125,73 @@ func TestWithWindowConcurrentCallersShareOneCreation(t *testing.T) {
 	require.Equal(t, int32(2), opCalls.Load())
 	require.NotNil(t, slot)
 }
+
+func TestWithWindowOpsQueuedDuringCreationRunInArrivalOrder(t *testing.T) {
+	s := newTestWindowManager()
+	var slot *application.WebviewWindow
+	var order []string
+	record := func(label string) windowOp {
+		return func(_ *application.WebviewWindow, created bool) {
+			order = append(order, fmt.Sprintf("%s:%v", label, created))
+		}
+	}
+	var factory func() *application.WebviewWindow
+	factory = func() *application.WebviewWindow {
+		s.withWindow(windowMain, &slot, factory, func(w *application.WebviewWindow, created bool) {
+			record("a")(w, created)
+			// Arrives while the creator is still draining the queue: it must not
+			// jump ahead of "b" through the existing-window fast path.
+			s.withWindow(windowMain, &slot, factory, record("c"))
+		})
+		s.withWindow(windowMain, &slot, factory, record("b"))
+		return &application.WebviewWindow{}
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.withWindow(windowMain, &slot, factory, record("outer"))
+	}()
+	waitDone(t, done, "withWindow deadlocked while draining queued operations")
+
+	require.Equal(t, []string{"outer:true", "a:false", "b:false", "c:false"}, order)
+	require.Empty(t, s.creating)
+	require.Empty(t, s.pendingOps)
+}
+
+func TestWithWindowFactoryPanicReleasesCreation(t *testing.T) {
+	s := newTestWindowManager()
+	var slot *application.WebviewWindow
+	func() {
+		defer func() { require.NotNil(t, recover()) }()
+		s.withWindow(windowMain, &slot, func() *application.WebviewWindow {
+			panic("factory failed")
+		}, func(*application.WebviewWindow, bool) {})
+	}()
+	require.Empty(t, s.creating)
+	require.Empty(t, s.pendingOps)
+	require.Nil(t, slot)
+
+	created := false
+	s.withWindow(windowMain, &slot, func() *application.WebviewWindow {
+		return &application.WebviewWindow{}
+	}, func(_ *application.WebviewWindow, c bool) {
+		created = c
+	})
+	require.True(t, created)
+	require.NotNil(t, slot)
+}
+
+func TestWithWindowNilFromFactoryReleasesCreation(t *testing.T) {
+	s := newTestWindowManager()
+	var slot *application.WebviewWindow
+	opCalls := 0
+	s.withWindow(windowMain, &slot, func() *application.WebviewWindow {
+		return nil
+	}, func(*application.WebviewWindow, bool) {
+		opCalls++
+	})
+	require.Equal(t, 0, opCalls)
+	require.Empty(t, s.creating)
+	require.Nil(t, slot)
+}
