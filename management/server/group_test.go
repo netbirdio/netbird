@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"go.uber.org/mock/gomock"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 	"golang.org/x/exp/maps"
 
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -133,6 +133,11 @@ func TestDefaultAccountManager_DeleteGroup(t *testing.T) {
 			"agent network policy",
 		},
 		{
+			"agent network budget rule",
+			"grp-for-agent-network-budget-rule",
+			"agent network budget rule",
+		},
+		{
 			"reverse proxy private service access group",
 			"grp-for-rp-private",
 			"reverse proxy service",
@@ -239,6 +244,11 @@ func TestDefaultAccountManager_DeleteGroups(t *testing.T) {
 			name:            "agent network policy",
 			groupIDs:        []string{"grp-for-agent-network-policy"},
 			expectedReasons: []string{"agent network policy"},
+		},
+		{
+			name:            "agent network budget rule",
+			groupIDs:        []string{"grp-for-agent-network-budget-rule"},
+			expectedReasons: []string{"agent network budget rule"},
 		},
 		{
 			name:               "reverse proxy services",
@@ -501,6 +511,14 @@ func initTestGroupAccount(am *DefaultAccountManager) (*DefaultAccountManager, *t
 		Peers:     make([]string, 0),
 	}
 
+	groupForAgentNetworkBudgetRule := &types.Group{
+		ID:        "grp-for-agent-network-budget-rule",
+		AccountID: "account-id",
+		Name:      "Group for agent network budget rules",
+		Issued:    types.GroupIssuedAPI,
+		Peers:     make([]string, 0),
+	}
+
 	groupForRPPrivate := &types.Group{
 		ID:        "grp-for-rp-private",
 		AccountID: "account-id",
@@ -573,6 +591,7 @@ func initTestGroupAccount(am *DefaultAccountManager) (*DefaultAccountManager, *t
 	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForUsers)
 	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForIntegration)
 	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForAgentNetworkPolicy)
+	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForAgentNetworkBudgetRule)
 	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForRPPrivate)
 	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForRPBearer)
 
@@ -584,6 +603,20 @@ func initTestGroupAccount(am *DefaultAccountManager) (*DefaultAccountManager, *t
 		SourceGroups: []string{groupForAgentNetworkPolicy.ID},
 	}
 	if err := am.Store.SaveAgentNetworkPolicy(context.Background(), agentNetworkPolicy); err != nil {
+		return nil, nil, err
+	}
+
+	budgetRuleDecoy := agentNetworkTypes.NewAccountBudgetRule(accountID)
+	budgetRuleDecoy.Name = "Unrelated agent network budget rule"
+	budgetRuleDecoy.TargetGroups = []string{"unrelated-group"}
+	if err := am.Store.SaveAgentNetworkBudgetRule(context.Background(), budgetRuleDecoy); err != nil {
+		return nil, nil, err
+	}
+
+	budgetRule := agentNetworkTypes.NewAccountBudgetRule(accountID)
+	budgetRule.Name = "Example agent network budget rule"
+	budgetRule.TargetGroups = []string{groupForAgentNetworkBudgetRule.ID}
+	if err := am.Store.SaveAgentNetworkBudgetRule(context.Background(), budgetRule); err != nil {
 		return nil, nil, err
 	}
 

@@ -754,6 +754,10 @@ func validateDeleteGroup(ctx context.Context, transaction store.Store, group *ty
 		return &GroupLinkError{"agent network policy", linkedPolicy.Name}
 	}
 
+	if isLinked, linkedRule := isGroupLinkedToAgentNetworkBudgetRule(ctx, transaction, group.AccountID, group.ID); isLinked {
+		return &GroupLinkError{"agent network budget rule", linkedRule.Name}
+	}
+
 	return checkGroupLinkedToSettings(ctx, transaction, group)
 }
 
@@ -920,6 +924,26 @@ func isGroupLinkedToAgentNetworkPolicy(ctx context.Context, transaction store.St
 		}
 		if slices.Contains(policy.SourceGroups, groupID) {
 			return true, policy
+		}
+	}
+	return false, nil
+}
+
+// isGroupLinkedToAgentNetworkBudgetRule checks if a group is a target of any
+// account-level agent network budget rule.
+func isGroupLinkedToAgentNetworkBudgetRule(ctx context.Context, transaction store.Store, accountID string, groupID string) (bool, *agentNetworkTypes.AccountBudgetRule) {
+	rules, err := transaction.GetAccountAgentNetworkBudgetRules(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("error retrieving agent network budget rules while checking group linkage: %v", err)
+		return false, nil
+	}
+
+	for _, rule := range rules {
+		if rule == nil {
+			continue
+		}
+		if slices.Contains(rule.TargetGroups, groupID) {
+			return true, rule
 		}
 	}
 	return false, nil
