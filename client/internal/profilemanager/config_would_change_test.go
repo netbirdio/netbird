@@ -1,8 +1,10 @@
 package profilemanager
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -25,6 +27,8 @@ func seededConfig(t *testing.T) *Config {
 }
 
 func strPointer(s string) *string { return &s }
+
+func intPtr(i int) *int { return &i }
 
 func TestWouldChange(t *testing.T) {
 	tests := []struct {
@@ -364,6 +368,84 @@ func TestAdminURLPathIsPartOfTheIdentity(t *testing.T) {
 	updated, err := UpdateConfig(ConfigInput{ConfigPath: path, AdminURL: "https://app.example.com/other"})
 	require.NoError(t, err)
 	require.Equal(t, "https://app.example.com:443/other", updated.AdminURL.String(), "the new panel path was not persisted")
+}
+
+// unsetOnDisk rewrites the stored config so the named fields carry a JSON null,
+// which is how a profile that was never asked about them looks on disk.
+func unsetOnDisk(t *testing.T, path string, fields ...string) {
+	t.Helper()
+
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	var stored map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(raw, &stored))
+
+	for _, field := range fields {
+		_, present := stored[field]
+		require.True(t, present, "%s is not a field of the stored config", field)
+		stored[field] = json.RawMessage("null")
+	}
+
+	rewritten, err := json.Marshal(stored)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path, rewritten, 0600))
+}
+
+// Seven fields mean "the effective default" when they hold no value, and the
+// config a plain login writes leaves every one of them unset. Restating that
+// default is asking for no change — and the CLI restates it on every `netbird
+// up`, because a flag set through an environment variable is a flag pflag
+// reports as Changed. Judging those restatements as changes made the
+// update-settings gate refuse `netbird up` outright for a client configured
+// through the environment, which is the shape of a Kubernetes deployment.
+func TestWouldChangeIgnoresRestatedDefaultsOfUnsetFields(t *testing.T) {
+	networkMonitorDefault := runtime.GOOS == "windows" || runtime.GOOS == "darwin"
+
+	tests := []struct {
+		field       string
+		theDefault  ConfigInput
+		theOtherWay ConfigInput
+	}{
+		{"EnableSSHRoot",
+			ConfigInput{EnableSSHRoot: boolPtr(false)}, ConfigInput{EnableSSHRoot: boolPtr(true)}},
+		{"EnableSSHSFTP",
+			ConfigInput{EnableSSHSFTP: boolPtr(false)}, ConfigInput{EnableSSHSFTP: boolPtr(true)}},
+		{"EnableSSHLocalPortForwarding",
+			ConfigInput{EnableSSHLocalPortForwarding: boolPtr(false)}, ConfigInput{EnableSSHLocalPortForwarding: boolPtr(true)}},
+		{"EnableSSHRemotePortForwarding",
+			ConfigInput{EnableSSHRemotePortForwarding: boolPtr(false)}, ConfigInput{EnableSSHRemotePortForwarding: boolPtr(true)}},
+		{"DisableSSHAuth",
+			ConfigInput{DisableSSHAuth: boolPtr(false)}, ConfigInput{DisableSSHAuth: boolPtr(true)}},
+		{"SSHJWTCacheTTL",
+			ConfigInput{SSHJWTCacheTTL: intPtr(0)}, ConfigInput{SSHJWTCacheTTL: intPtr(300)}},
+		{"NetworkMonitor",
+			ConfigInput{NetworkMonitor: boolPtr(networkMonitorDefault)}, ConfigInput{NetworkMonitor: boolPtr(!networkMonitorDefault)}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.field, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "unset.json")
+			_, err := UpdateOrCreateConfig(ConfigInput{
+				ConfigPath:    path,
+				ManagementURL: "https://api.netbird.io:443",
+			})
+			require.NoError(t, err)
+			unsetOnDisk(t, path, tt.field)
+
+			cfg, err := GetExistingConfig(path)
+			require.NoError(t, err)
+
+			changed, err := cfg.WouldChange(tt.theDefault)
+			require.NoError(t, err)
+			require.False(t, changed, "restating the default of an unset %s was judged a change", tt.field)
+
+			// The gate still has to refuse a request that does ask for something.
+			changed, err = cfg.WouldChange(tt.theOtherWay)
+			require.NoError(t, err)
+			require.True(t, changed, "asking for a non-default %s is a change", tt.field)
+		})
+	}
 }
 
 // A zero-padded port addresses the same port.

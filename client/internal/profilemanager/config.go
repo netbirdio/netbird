@@ -378,6 +378,43 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 			updated = true
 		}
 	}
+
+	// Fields whose nil means "the effective default" rather than "no opinion":
+	// every consumer already reads a nil as the value resolved here — the SSH
+	// toggles in engine_ssh.go, the network monitor in createEngineConfig — so
+	// naming it changes nothing about what runs.
+	//
+	// Resolving them up front is what lets the comparisons below diff values
+	// instead of presence. While they stayed nil, an input restating the
+	// default read as a change, and since the CLI sends every flag set through
+	// an environment variable on each `netbird up`, a client configured with
+	// NB_ENABLE_SSH_ROOT=false restated it every time and the update-settings
+	// gate refused the restatement.
+	for _, field := range []**bool{
+		&config.EnableSSHRoot,
+		&config.EnableSSHSFTP,
+		&config.EnableSSHLocalPortForwarding,
+		&config.EnableSSHRemotePortForwarding,
+		&config.DisableSSHAuth,
+	} {
+		if *field == nil {
+			*field = util.False()
+			updated = true
+		}
+	}
+
+	if config.SSHJWTCacheTTL == nil {
+		// A zero TTL disables the JWT cache, which is what no value meant.
+		config.SSHJWTCacheTTL = new(int)
+		updated = true
+	}
+
+	if config.NetworkMonitor == nil {
+		// network monitoring is on by default on windows and darwin clients
+		enabled := runtime.GOOS == "windows" || runtime.GOOS == "darwin"
+		config.NetworkMonitor = &enabled
+		updated = true
+	}
 	if config.ManagementURL == nil {
 		log.Infof("using default Management URL %s", DefaultManagementURL)
 		config.ManagementURL, err = parseURL("Management URL", DefaultManagementURL)
@@ -482,19 +519,10 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if input.NetworkMonitor != nil && (config.NetworkMonitor == nil || *input.NetworkMonitor != *config.NetworkMonitor) {
+	if input.NetworkMonitor != nil && *input.NetworkMonitor != *config.NetworkMonitor {
 		log.Infof("switching Network Monitor to %t", *input.NetworkMonitor)
 		config.NetworkMonitor = input.NetworkMonitor
 		updated = true
-	}
-
-	if config.NetworkMonitor == nil {
-		// enable network monitoring by default on windows and darwin clients
-		if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
-			enabled := true
-			config.NetworkMonitor = &enabled
-			updated = true
-		}
 	}
 
 	if input.CustomDNSAddress != nil && string(input.CustomDNSAddress) != config.CustomDNSAddress {
@@ -565,7 +593,7 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if input.EnableSSHRoot != nil && (config.EnableSSHRoot == nil || *input.EnableSSHRoot != *config.EnableSSHRoot) {
+	if input.EnableSSHRoot != nil && *input.EnableSSHRoot != *config.EnableSSHRoot {
 		if *input.EnableSSHRoot {
 			log.Infof("enabling SSH root login")
 		} else {
@@ -575,7 +603,7 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if input.EnableSSHSFTP != nil && (config.EnableSSHSFTP == nil || *input.EnableSSHSFTP != *config.EnableSSHSFTP) {
+	if input.EnableSSHSFTP != nil && *input.EnableSSHSFTP != *config.EnableSSHSFTP {
 		if *input.EnableSSHSFTP {
 			log.Infof("enabling SSH SFTP subsystem")
 		} else {
@@ -585,7 +613,7 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if input.EnableSSHLocalPortForwarding != nil && (config.EnableSSHLocalPortForwarding == nil || *input.EnableSSHLocalPortForwarding != *config.EnableSSHLocalPortForwarding) {
+	if input.EnableSSHLocalPortForwarding != nil && *input.EnableSSHLocalPortForwarding != *config.EnableSSHLocalPortForwarding {
 		if *input.EnableSSHLocalPortForwarding {
 			log.Infof("enabling SSH local port forwarding")
 		} else {
@@ -595,7 +623,7 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if input.EnableSSHRemotePortForwarding != nil && (config.EnableSSHRemotePortForwarding == nil || *input.EnableSSHRemotePortForwarding != *config.EnableSSHRemotePortForwarding) {
+	if input.EnableSSHRemotePortForwarding != nil && *input.EnableSSHRemotePortForwarding != *config.EnableSSHRemotePortForwarding {
 		if *input.EnableSSHRemotePortForwarding {
 			log.Infof("enabling SSH remote port forwarding")
 		} else {
@@ -605,7 +633,7 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if input.DisableSSHAuth != nil && (config.DisableSSHAuth == nil || *input.DisableSSHAuth != *config.DisableSSHAuth) {
+	if input.DisableSSHAuth != nil && *input.DisableSSHAuth != *config.DisableSSHAuth {
 		if *input.DisableSSHAuth {
 			log.Infof("disabling SSH authentication")
 		} else {
@@ -615,7 +643,7 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if input.SSHJWTCacheTTL != nil && (config.SSHJWTCacheTTL == nil || *input.SSHJWTCacheTTL != *config.SSHJWTCacheTTL) {
+	if input.SSHJWTCacheTTL != nil && *input.SSHJWTCacheTTL != *config.SSHJWTCacheTTL {
 		log.Infof("updating SSH JWT cache TTL to %d seconds", *input.SSHJWTCacheTTL)
 		config.SSHJWTCacheTTL = input.SSHJWTCacheTTL
 		updated = true
