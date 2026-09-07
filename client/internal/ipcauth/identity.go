@@ -186,3 +186,18 @@ func OwnerPrincipalForIdentity(id Identity) string {
 	}
 	return UIDPrincipal(id.UID)
 }
+
+func IdentityFromPrincipal(p Principal) (Identity, error) {
+	switch p.Kind {
+	case KindUID:
+		uid, err := strconv.ParseUint(p.Value, 10, 32)
+		if err != nil {
+			return Identity{}, err
+		}
+		return Identity{UID: uint32(uid)}, nil
+	case KindSID:
+		return Identity{SID: p.Value}, nil
+	default:
+		return Identity{}, nil
+	}
+}
