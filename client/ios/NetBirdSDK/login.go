@@ -11,6 +11,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/client/mobile"
 	"github.com/netbirdio/netbird/client/system"
 )
@@ -39,6 +40,8 @@ type Auth struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 	config  *profilemanager.Config
+	base    *profilemanager.Config
+	policy  *mdm.Policy
 	cfgPath string
 }
 
@@ -72,7 +75,10 @@ func NewAuth(cfgPath string, mgmURL string, fetcher PolicyFetcher) (*Auth, error
 	if err != nil {
 		return nil, err
 	}
-	cfg.ApplyMDMPolicy(policy)
+	a := &Auth{policy: policy, cfgPath: cfgPath}
+	if err := a.setBaseConfig(cfg); err != nil {
+		return nil, err
+	}
 
 	// Use a cancellable context so Stop() can abort an in-progress interactive
 	// login. The PKCE flow's WaitToken blocks (and keeps its loopback HTTP server
@@ -82,14 +88,8 @@ func NewAuth(cfgPath string, mgmURL string, fetcher PolicyFetcher) (*Auth, error
 	// process (decoupled from the network extension), so without this the server
 	// lingers after the user dismisses the browser and the next connect stalls
 	// trying to bind the same port.
-	ctx, cancel := context.WithCancel(context.Background())
-
-	return &Auth{
-		ctx:     ctx,
-		cancel:  cancel,
-		config:  cfg,
-		cfgPath: cfgPath,
-	}, nil
+	a.ctx, a.cancel = context.WithCancel(context.Background())
+	return a, nil
 }
 
 // NewAuthWithConfig instantiate Auth based on existing config
@@ -356,23 +356,44 @@ func (a *Auth) foregroundGetTokenInfo(authClient *auth.Auth, urlOpener URLOpener
 	return &tokenInfo, nil
 }
 
-// GetConfigJSON returns the current config as a JSON string.
-// This can be used by the caller to persist the config via alternative storage
-// mechanisms (e.g., UserDefaults on tvOS where file writes are blocked).
+// GetConfigJSON returns the config without the MDM overlay as JSON, for persisting it outside the config file (tvOS).
 func (a *Auth) GetConfigJSON() (string, error) {
-	if a.config == nil {
+	cfg := a.base
+	if cfg == nil {
+		cfg = a.config
+	}
+	if cfg == nil {
 		return "", fmt.Errorf("no config available")
 	}
-	return profilemanager.ConfigToJSON(a.config)
+	return profilemanager.ConfigToJSON(cfg)
 }
 
-// SetConfigFromJSON loads config from a JSON string.
-// This can be used to restore config from alternative storage mechanisms.
+// SetConfigFromJSON replaces the config from JSON; the MDM overlay is applied on top for the login.
 func (a *Auth) SetConfigFromJSON(jsonStr string) error {
 	cfg, err := profilemanager.ConfigFromJSON(jsonStr)
 	if err != nil {
 		return err
 	}
-	a.config = cfg
+	return a.setBaseConfig(cfg)
+}
+
+func (a *Auth) setBaseConfig(base *profilemanager.Config) error {
+	overlaid, err := copyConfig(base)
+	if err != nil {
+		return err
+	}
+	if a.policy != nil {
+		overlaid.ApplyMDMPolicy(a.policy)
+	}
+	a.base = base
+	a.config = overlaid
 	return nil
+}
+
+func copyConfig(cfg *profilemanager.Config) (*profilemanager.Config, error) {
+	raw, err := profilemanager.ConfigToJSON(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return profilemanager.ConfigFromJSON(raw)
 }
