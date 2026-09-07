@@ -748,7 +748,8 @@ func (h *Handler) handlePerf(w http.ResponseWriter, r *http.Request) {
 }
 
 // perfApplyTimeout bounds the whole apply, however many clients are registered.
-const perfApplyTimeout = 5 * time.Second
+// A var, not a const, so tests can shorten the wait.
+var perfApplyTimeout = 5 * time.Second
 
 type perfResult struct {
 	accountID types.AccountID
