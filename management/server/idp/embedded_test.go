@@ -748,7 +748,7 @@ func TestEmbeddedIdPManager_TokenExchangeGrantDisabledByDefault(t *testing.T) {
 
 	manager, err := NewEmbeddedIdPManager(ctx, &EmbeddedIdPConfig{
 		Enabled: true,
-		Issuer:  "http://localhost:5556/oauth2",
+		Issuer:  "https://example.com/oauth2",
 		Storage: EmbeddedStorageConfig{
 			Type: "sqlite3",
 			Config: EmbeddedStorageTypeConfig{
