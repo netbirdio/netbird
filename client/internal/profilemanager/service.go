@@ -578,7 +578,7 @@ func readProfileName(path string) string {
 }
 
 // nolint: unused,unusedfunc
-func readProfileOwner(path string) (ipcauth.Identity, error) {
+func ReadProfileOwner(path string) (ipcauth.Identity, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return ipcauth.Identity{}, err
@@ -603,7 +603,7 @@ func readProfileOwner(path string) (ipcauth.Identity, error) {
 }
 
 // nolint: unused,unusedfunc
-func stampOwner(path string, owner ipcauth.Identity) error {
+func StampOwner(path string, owner ipcauth.Identity) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
