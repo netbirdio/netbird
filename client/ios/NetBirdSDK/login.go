@@ -48,13 +48,14 @@ type Auth struct {
 // NewAuth instantiate Auth struct and validate the management URL.
 // Auth is constructed under the active MDM policy: the policy is overlaid on
 // the resolved config so the login runs against the enforced values, while
-// the persisted config keeps the caller-supplied ones. A nil fetcher disables
-// MDM enforcement.
+// the persisted config keeps the caller-supplied ones; a caller-supplied
+// management URL is ignored while MDM manages that key. A nil fetcher
+// disables MDM enforcement.
 func NewAuth(cfgPath string, mgmURL string, fetcher PolicyFetcher) (*Auth, error) {
 	policy := loaderFor(fetcher).Load()
-	inputCfg := profilemanager.ConfigInput{
-		ConfigPath:    cfgPath,
-		ManagementURL: mgmURL,
+	inputCfg := profilemanager.ConfigInput{ConfigPath: cfgPath}
+	if _, managed := policy.GetString(mdm.KeyManagementURL); !managed {
+		inputCfg.ManagementURL = mgmURL
 	}
 
 	// Load the existing config when a config file is already present so an

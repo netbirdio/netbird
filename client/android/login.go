@@ -8,6 +8,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/client/mobile"
 	"github.com/netbirdio/netbird/client/system"
 )
@@ -49,13 +50,14 @@ type Auth struct {
 //
 // Auth is constructed under the active MDM policy: the policy is overlaid on
 // the resolved config so the login runs against the enforced values, while
-// the persisted config keeps the caller-supplied ones. A nil fetcher disables
-// MDM enforcement.
+// the persisted config keeps the caller-supplied ones; a caller-supplied
+// management URL is ignored while MDM manages that key. A nil fetcher
+// disables MDM enforcement.
 func NewAuth(cfgPath string, mgmURL string, fetcher PolicyFetcher) (*Auth, error) {
 	policy := loaderFor(fetcher).Load()
-	inputCfg := profilemanager.ConfigInput{
-		ConfigPath:    cfgPath,
-		ManagementURL: mgmURL,
+	inputCfg := profilemanager.ConfigInput{ConfigPath: cfgPath}
+	if _, managed := policy.GetString(mdm.KeyManagementURL); !managed {
+		inputCfg.ManagementURL = mgmURL
 	}
 
 	cfg, err := profilemanager.UpdateOrCreateConfig(inputCfg)
