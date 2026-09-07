@@ -1090,6 +1090,22 @@ func (config *Config) WouldChange(input ConfigInput) (bool, error) {
 		probe = baseline
 	}
 
+	// Normalize before measuring. apply() reports two different things through
+	// one bool: an input that changed a value, and a field it had to fill in
+	// because the config carried none. Only the first is a settings change, so
+	// the filling-in gets a pass of its own whose verdict is discarded, and the
+	// pass that answers the caller runs against a config with nothing left to
+	// fill in.
+	//
+	// Readers already hand out normalized configs — readConfig applies an empty
+	// input for this very reason — so this is normally a no-op. But a gate that
+	// refuses a request must not depend on where its caller got the config
+	// from, and it must not start reading "this profile predates a field" as
+	// "the caller asked for a change" the day someone adds one.
+	if _, err := probe.apply(ConfigInput{ConfigPath: input.ConfigPath}); err != nil {
+		return true, fmt.Errorf("normalize the config to diff against: %w", err)
+	}
+
 	if isPreSharedKeyHidden(input.PreSharedKey) {
 		input.PreSharedKey = nil
 	}

@@ -448,6 +448,35 @@ func TestWouldChangeIgnoresRestatedDefaultsOfUnsetFields(t *testing.T) {
 	}
 }
 
+// The verdict must not depend on where the caller got the config from. Readers
+// normalize what they hand out, but apply() signals "I filled in a default"
+// through the same bool as "the input changed something", so a config that
+// never passed through a read would otherwise report a change for an input
+// that asks for nothing.
+func TestWouldChangeNormalizesBeforeMeasuring(t *testing.T) {
+	rawConfig := func(t *testing.T) *Config {
+		t.Helper()
+
+		cfg := &Config{WgIface: iface.WgInterfaceDefault}
+		require.Nil(t, cfg.ServerSSHAllowed, "the fixture is only useful while the config is not normalized")
+		require.Nil(t, cfg.EnableSSHRoot)
+		require.Empty(t, cfg.IFaceBlackList)
+		return cfg
+	}
+
+	changed, err := rawConfig(t).WouldChange(ConfigInput{})
+	require.NoError(t, err)
+	require.False(t, changed, "an input carrying nothing cannot change anything")
+
+	changed, err = rawConfig(t).WouldChange(ConfigInput{EnableSSHRoot: boolPtr(false)})
+	require.NoError(t, err)
+	require.False(t, changed, "the default of a field the config never held is not a change")
+
+	changed, err = rawConfig(t).WouldChange(ConfigInput{EnableSSHRoot: boolPtr(true)})
+	require.NoError(t, err)
+	require.True(t, changed, "a non-default value is still a change")
+}
+
 // A zero-padded port addresses the same port.
 func TestServiceURLPortIsNormalizedNumerically(t *testing.T) {
 	padded, err := ParseServiceURL("padded", "https://mgmt.example.com:0443")
