@@ -138,11 +138,12 @@ func TestIdentityProvider_Validate(t *testing.T) {
 
 func TestIdentityProvider_ValidateRejectsNonOriginIssuers(t *testing.T) {
 	issuers := []string{
-		"http://idp.example.com/realms/nb?foo=bar",
-		"http://idp.example.com/realms/nb#section",
-		"http://user:pass@idp.example.com",
+		"https://idp.example.com/realms/nb?foo=bar",
+		"https://idp.example.com/realms/nb#section",
+		"https://user:pass@idp.example.com",
 		"ftp://idp.example.com",
 		"ldap://idp.example.com",
+		"http://idp.example.com",
 	}
 
 	for _, issuer := range issuers {
@@ -159,7 +160,7 @@ func TestIdentityProvider_ValidateRejectsNonOriginIssuers(t *testing.T) {
 }
 
 func TestIdentityProvider_ValidateAcceptsOriginAndPath(t *testing.T) {
-	for _, issuer := range []string{"https://idp.example.com", "https://idp.example.com/realms/nb", "http://127.0.0.1:5556/dex"} {
+	for _, issuer := range []string{"https://idp.example.com", "https://idp.example.com/realms/nb", "https://127.0.0.1:5556/dex"} {
 		t.Run(issuer, func(t *testing.T) {
 			idp := &IdentityProvider{
 				Name:     "test",

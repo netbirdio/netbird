@@ -103,10 +103,13 @@ func (idp *IdentityProvider) Validate() error {
 		if err != nil || parsedURL.Host == "" {
 			return ErrIdentityProviderIssuerInvalid
 		}
-		if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+		if parsedURL.Scheme != "https" {
 			return ErrIdentityProviderIssuerInvalid
 		}
-		if parsedURL.User != nil || strings.ContainsAny(idp.Issuer, "?#") {
+		if parsedURL.User != nil {
+			return ErrIdentityProviderIssuerInvalid
+		}
+		if strings.ContainsAny(idp.Issuer, "?#") {
 			return ErrIdentityProviderIssuerInvalid
 		}
 	}
