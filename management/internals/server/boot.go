@@ -296,6 +296,7 @@ func (s *BaseServer) proxyOIDCConfig() nbgrpc.ProxyOIDCConfig {
 			HMACKey:      []byte(s.Config.DataStoreEncryptionKey), // Use the datastore encryption key for OIDC state HMACs, this should ensure all management instances are using the same key.
 			Audience:     s.Config.HttpConfig.AuthAudience,
 			KeysLocation: s.Config.HttpConfig.AuthKeysLocation,
+			UserIDClaim:  s.Config.HttpConfig.AuthUserIDClaim,
 		}
 	})
 }
