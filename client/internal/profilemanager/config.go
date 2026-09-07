@@ -207,7 +207,7 @@ type Config struct {
 	// IsEmpty).
 	policy *mdm.Policy `json:"-"`
 
-	Owner string
+	Owners []string
 }
 
 // ApplyMDMPolicy overlays the supplied MDM Policy on top of the current
@@ -726,7 +726,7 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 
 	if input.Owner != nil {
 		ownerString := ipcauth.OwnerPrincipalForIdentity(*input.Owner)
-		config.Owner = ownerString
+		config.Owners = append([]string{}, ownerString)
 		log.Infof("setting '%s' as owner for profile %s", ownerString, config.Name)
 		updated = true
 	}

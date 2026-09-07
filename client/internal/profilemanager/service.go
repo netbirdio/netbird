@@ -56,7 +56,7 @@ type profileMeta struct {
 
 // nolint:unused
 type ownerMeta struct {
-	Owner string
+	Owners []string
 }
 
 func (e *ErrAmbiguousHandle) Error() string {
@@ -578,16 +578,16 @@ func readProfileName(path string) string {
 }
 
 // nolint: unused,unusedfunc
-func readProfileOwner(path string) string {
+func readProfileOwner(path string) []string {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return ""
+		return []string{}
 	}
 	var meta ownerMeta
 	if err := json.Unmarshal(data, &meta); err != nil {
-		return ""
+		return []string{}
 	}
-	return meta.Owner
+	return meta.Owners
 }
 
 // nolint: unused,unusedfunc
@@ -600,7 +600,7 @@ func stampOwner(path string, owner ipcauth.Identity) error {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return err
 	}
-	cfg.Owner = ipcauth.OwnerPrincipalForIdentity(owner)
+	cfg.Owners = append([]string{}, ipcauth.OwnerPrincipalForIdentity(owner))
 
 	if err := util.WriteJson(context.Background(), path, cfg); err != nil {
 		return fmt.Errorf("failed to write profile owner: %w", err)
