@@ -3,8 +3,8 @@ package mdm
 import "encoding/json"
 
 // Fields carries the per-key MDM enforcement state for a UI: value-typed
-// fields hold the enforced value, boolean fields report that the key is
-// managed.
+// fields hold the enforced value (nil pointer = not managed), boolean
+// fields report that the key is managed.
 type Fields struct {
 	ManagementURL            string `json:"managementURL"`
 	PreSharedKey             bool   `json:"preSharedKey"`
@@ -20,7 +20,7 @@ type Fields struct {
 	DisableMetricsCollection bool   `json:"disableMetricsCollection"`
 	SplitTunnelMode          bool   `json:"splitTunnelMode"`
 	SplitTunnelApps          bool   `json:"splitTunnelApps"`
-	DisableAdvancedView      bool   `json:"disableAdvancedView"`
+	DisableAdvancedView      *bool  `json:"disableAdvancedView"`
 }
 
 // Features carries the feature gates a UI must honor.
@@ -64,7 +64,7 @@ func BuildRestrictions(policy *Policy) Restrictions {
 		r.MDM.AllowServerSSH = &v
 	}
 	if v, ok := policy.GetBool(KeyDisableAdvancedView); ok {
-		r.MDM.DisableAdvancedView = v
+		r.MDM.DisableAdvancedView = &v
 	}
 
 	if v, ok := policy.GetBool(KeyDisableProfiles); ok {

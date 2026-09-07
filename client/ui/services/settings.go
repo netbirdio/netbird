@@ -364,7 +364,7 @@ func (s *Settings) GetRestrictions(ctx context.Context) (Restrictions, error) {
 		},
 	}
 	applyMDMRestrictions(&r.MDM, cfgResp)
-	r.MDM.DisableAdvancedView = featResp.GetDisableAdvancedView()
+	r.MDM.DisableAdvancedView = featResp.DisableAdvancedView
 	return r, nil
 }
 
@@ -390,9 +390,6 @@ func applyMDMRestrictions(mdm *MDMFields, cfgResp *proto.GetConfigResponse) {
 	t := v.Type()
 	for i := 0; i < t.NumField(); i++ {
 		if v.Field(i).Kind() != reflect.Bool {
-			continue
-		}
-		if t.Field(i).Name == "DisableAdvancedView" {
 			continue
 		}
 		if _, ok := set[t.Field(i).Tag.Get("json")]; ok {

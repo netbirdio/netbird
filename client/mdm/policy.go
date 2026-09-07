@@ -119,13 +119,12 @@ func NewPolicy(values map[string]any) *Policy {
 	return &Policy{values: values}
 }
 
-// PolicyFetcher is implemented by mobile platforms (Android / iOS) that
-// push the OS-managed configuration into the Go runtime instead of
-// having Go read an on-disk source directly. Desktop platforms ignore
-// this interface — Loader.loadPlatform on windows/darwin reads the
-// registry / plist on its own. A Loader constructed with a non-nil
-// fetcher delegates to it on mobile; passing nil disables MDM
-// enforcement (loadPlatform returns nil values).
+// PolicyFetcher supplies the managed configuration to a Loader. Mobile
+// platforms (Android / iOS) implement it to push the OS-managed values
+// into the Go runtime. On every platform a non-nil fetcher takes
+// precedence over the native source, which is the test seam for the
+// registry / plist loaders; a nil fetcher leaves the native source in
+// charge, or disables MDM enforcement where there is none.
 type PolicyFetcher interface {
 	Fetch() map[string]any
 }
@@ -140,10 +139,9 @@ type Loader struct {
 	fetcher PolicyFetcher
 }
 
-// NewLoader constructs a Loader. The fetcher is consulted only on
-// mobile builds (ios || android); on desktop it is unused but accepted
-// to keep a single constructor signature across platforms — pass nil
-// on desktop.
+// NewLoader constructs a Loader. A non-nil fetcher takes precedence over
+// the platform-native source; production desktop callers pass nil so the
+// registry / plist stays authoritative.
 func NewLoader(f PolicyFetcher) *Loader {
 	return &Loader{fetcher: f}
 }

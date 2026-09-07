@@ -26,9 +26,8 @@ import (
 const policyPlistPath = "/Library/Managed Preferences/io.netbird.client.plist"
 
 // loadPlatform reads the MDM-managed configuration from the macOS
-// managed-preferences plist at policyPlistPath. The Loader's fetcher
-// field is unused on this platform — the plist is the authoritative
-// source. Returns:
+// managed-preferences plist at policyPlistPath, unless a fetcher was
+// injected, in which case its values are returned instead. Returns:
 //   - (nil, nil)  when the plist is absent (device not MDM-enrolled for
 //     NetBird, or admin has not yet pushed a payload)
 //   - (map, nil)  with N entries when N managed values are present

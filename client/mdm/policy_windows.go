@@ -62,9 +62,8 @@ func readRegistryValue(k registry.Key, name, canonical string, out map[string]an
 }
 
 // loadPlatform reads the MDM-managed configuration from the Windows
-// registry under HKLM\Software\Policies\NetBird. The Loader's fetcher
-// field is unused on this platform — the registry is the
-// authoritative source. Returns:
+// registry under HKLM\Software\Policies\NetBird, unless a fetcher was
+// injected, in which case its values are returned instead. Returns:
 //   - (nil, nil)  when the key is absent (device not MDM-enrolled for NetBird)
 //   - (map, nil)  with N entries when N managed values are set (N may be 0)
 //   - (nil, err)  on open / enumerate registry errors
