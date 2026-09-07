@@ -356,17 +356,17 @@ func (s *ServiceManager) RenameProfile(id ID, username string, newName string) e
 		return ErrProfileNotFound
 	}
 
-	data, err := os.ReadFile(target.Path)
+	// Through the reader, not a bare Unmarshal: this was the one write that
+	// skipped apply(), so it copied back whatever the file held — including an
+	// optional field left unset, which every other write resolves to its
+	// default. Renaming a profile is a poor place to leave that behind.
+	cfg, err := GetExistingConfig(target.Path)
 	if err != nil {
-		return err
-	}
-	var cfg Config
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return err
+		return fmt.Errorf("read profile config: %w", err)
 	}
 	cfg.Name = displayName
 
-	if err := util.WriteJson(context.Background(), target.Path, cfg); err != nil {
+	if err := WriteOutConfig(target.Path, cfg); err != nil {
 		return fmt.Errorf("failed to write profile name: %w", err)
 	}
 	return nil
