@@ -105,6 +105,10 @@ type Handler struct {
 	startTime  time.Time
 	templates  *template.Template
 	templateMu sync.RWMutex
+
+	// setPerformance applies a buffer cap to one client. Held as a field so
+	// tests can drive applyBufferCap without a live embedded client.
+	setPerformance func(*nbembed.Client, uint32) error
 }
 
 // NewHandler creates a new debug handler.
@@ -113,10 +117,11 @@ func NewHandler(provider clientProvider, healthChecker healthChecker, logger *lo
 		logger = log.StandardLogger()
 	}
 	h := &Handler{
-		provider:  provider,
-		health:    healthChecker,
-		logger:    logger,
-		startTime: time.Now(),
+		provider:       provider,
+		health:         healthChecker,
+		logger:         logger,
+		startTime:      time.Now(),
+		setPerformance: setClientPerformance,
 	}
 	if err := h.loadTemplates(); err != nil {
 		logger.Errorf("failed to load embedded templates: %v", err)
@@ -737,6 +742,11 @@ type perfResult struct {
 	err       error
 }
 
+// setClientPerformance is the production implementation behind Handler.setPerformance.
+func setClientPerformance(client *nbembed.Client, capN uint32) error {
+	return client.SetPerformance(nbembed.Performance{PreallocatedBuffersPerPool: &capN})
+}
+
 // applyBufferCap sets the WireGuard buffer pool cap on every registered client
 // and reports how many took it, plus a per-account error for those that did not.
 //
@@ -753,7 +763,7 @@ func (h *Handler) applyBufferCap(capN uint32) (int, map[string]string) {
 		go func() {
 			results <- perfResult{
 				accountID: accountID,
-				err:       client.SetPerformance(nbembed.Performance{PreallocatedBuffersPerPool: &capN}),
+				err:       h.setPerformance(client, capN),
 			}
 		}()
 	}
