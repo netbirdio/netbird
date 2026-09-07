@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"io"
 	"net"
 	"net/netip"
 	"testing"
@@ -18,16 +19,31 @@ import (
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 )
 
-const realIPProbeMethod = "/netbird.test.RealIPProbe/Probe"
+const (
+	realIPProbeMethod       = "/netbird.test.RealIPProbe/Probe"
+	realIPProbeStreamMethod = "/netbird.test.RealIPProbe/ProbeStream"
+)
 
 // realIPProbe records the real IP the middleware derived for each call.
 type realIPProbe struct {
 	got chan string
 }
 
-func (p *realIPProbe) probe(ctx context.Context) {
+func (p *realIPProbe) record(ctx context.Context) {
 	addr, _ := realip.FromContext(ctx)
 	p.got <- addr.String()
+}
+
+func (p *realIPProbe) wait(t *testing.T) string {
+	t.Helper()
+
+	select {
+	case got := <-p.got:
+		return got
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for probe")
+		return ""
+	}
 }
 
 func startProbeServer(t *testing.T, cfg nbconfig.ReverseProxy) (*grpc.ClientConn, *realIPProbe) {
@@ -37,7 +53,11 @@ func startProbeServer(t *testing.T, cfg nbconfig.ReverseProxy) (*grpc.ClientConn
 	require.NoError(t, err)
 
 	probe := &realIPProbe{got: make(chan string, 1)}
-	srv := grpc.NewServer(grpc.ChainUnaryInterceptor(realip.UnaryServerInterceptorOpts(realIPOptions(cfg)...)))
+	opts := realIPOptions(cfg)
+	srv := grpc.NewServer(
+		grpc.ChainUnaryInterceptor(realip.UnaryServerInterceptorOpts(opts...)),
+		grpc.ChainStreamInterceptor(realip.StreamServerInterceptorOpts(opts...)),
+	)
 	srv.RegisterService(&grpc.ServiceDesc{
 		ServiceName: "netbird.test.RealIPProbe",
 		HandlerType: (*any)(nil),
@@ -49,13 +69,21 @@ func startProbeServer(t *testing.T, cfg nbconfig.ReverseProxy) (*grpc.ClientConn
 					return nil, err
 				}
 				handler := func(ctx context.Context, _ any) (any, error) {
-					probe.probe(ctx)
+					probe.record(ctx)
 					return &emptypb.Empty{}, nil
 				}
 				if interceptor == nil {
 					return handler(ctx, req)
 				}
 				return interceptor(ctx, req, &grpc.UnaryServerInfo{FullMethod: realIPProbeMethod}, handler)
+			},
+		}},
+		Streams: []grpc.StreamDesc{{
+			StreamName:    "ProbeStream",
+			ServerStreams: true,
+			Handler: func(_ any, stream grpc.ServerStream) error {
+				probe.record(stream.Context())
+				return nil
 			},
 		}},
 	}, probe)
@@ -70,7 +98,7 @@ func startProbeServer(t *testing.T, cfg nbconfig.ReverseProxy) (*grpc.ClientConn
 	return conn, probe
 }
 
-func callWithMetadata(t *testing.T, conn *grpc.ClientConn, probe *realIPProbe, kv ...string) string {
+func callUnary(t *testing.T, conn *grpc.ClientConn, probe *realIPProbe, kv ...string) string {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -78,55 +106,66 @@ func callWithMetadata(t *testing.T, conn *grpc.ClientConn, probe *realIPProbe, k
 	ctx = metadata.AppendToOutgoingContext(ctx, kv...)
 	require.NoError(t, conn.Invoke(ctx, realIPProbeMethod, &emptypb.Empty{}, &emptypb.Empty{}))
 
-	select {
-	case got := <-probe.got:
-		return got
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for probe")
-		return ""
-	}
+	return probe.wait(t)
+}
+
+func callStream(t *testing.T, conn *grpc.ClientConn, probe *realIPProbe, kv ...string) string {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ctx = metadata.AppendToOutgoingContext(ctx, kv...)
+	desc := &grpc.StreamDesc{StreamName: "ProbeStream", ServerStreams: true}
+	stream, err := conn.NewStream(ctx, desc, realIPProbeStreamMethod)
+	require.NoError(t, err)
+	require.NoError(t, stream.CloseSend())
+	require.ErrorIs(t, stream.RecvMsg(&emptypb.Empty{}), io.EOF)
+
+	return probe.wait(t)
+}
+
+func assertRealIP(t *testing.T, cfg nbconfig.ReverseProxy, want string, kv ...string) {
+	t.Helper()
+
+	conn, probe := startProbeServer(t, cfg)
+	t.Run("unary", func(t *testing.T) {
+		assert.Equal(t, want, callUnary(t, conn, probe, kv...))
+	})
+	t.Run("stream", func(t *testing.T) {
+		assert.Equal(t, want, callStream(t, conn, probe, kv...))
+	})
 }
 
 func TestRealIPDefaultIgnoresClientForwardedHeaders(t *testing.T) {
-	conn, probe := startProbeServer(t, nbconfig.ReverseProxy{})
-
-	got := callWithMetadata(t, conn, probe,
+	assertRealIP(t, nbconfig.ReverseProxy{}, "127.0.0.1",
 		realip.XForwardedFor, "203.0.113.44",
 		realip.XRealIp, "203.0.113.44",
 	)
-	assert.Equal(t, "127.0.0.1", got, "empty TrustedPeers must fall back to the transport peer address")
 }
 
 func TestRealIPUntrustedPeerIgnoresForwardedHeaders(t *testing.T) {
-	conn, probe := startProbeServer(t, nbconfig.ReverseProxy{
-		TrustedPeers: []netip.Prefix{netip.MustParsePrefix("10.9.8.7/32")},
-	})
+	cfg := nbconfig.ReverseProxy{TrustedPeers: []netip.Prefix{netip.MustParsePrefix("10.9.8.7/32")}}
 
-	got := callWithMetadata(t, conn, probe,
+	assertRealIP(t, cfg, "127.0.0.1",
 		realip.XForwardedFor, "203.0.113.44",
 		realip.XRealIp, "203.0.113.44",
 	)
-	assert.Equal(t, "127.0.0.1", got, "forwarded headers must be ignored for peers outside TrustedPeers")
 }
 
 func TestRealIPTrustedPeerHonoursForwardedHeaders(t *testing.T) {
-	conn, probe := startProbeServer(t, nbconfig.ReverseProxy{
-		TrustedPeers: []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")},
-	})
+	cfg := nbconfig.ReverseProxy{TrustedPeers: []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}}
 
-	got := callWithMetadata(t, conn, probe,
+	assertRealIP(t, cfg, "203.0.113.44",
 		realip.XForwardedFor, "203.0.113.44",
 		realip.XRealIp, "203.0.113.44",
 	)
-	assert.Equal(t, "203.0.113.44", got, "a trusted proxy must be able to forward the real client IP")
 }
 
 func TestRealIPIgnoresXRealIPWhenProxyCountIsSet(t *testing.T) {
-	conn, probe := startProbeServer(t, nbconfig.ReverseProxy{
+	cfg := nbconfig.ReverseProxy{
 		TrustedPeers:            []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")},
 		TrustedHTTPProxiesCount: 1,
-	})
+	}
 
-	got := callWithMetadata(t, conn, probe, realip.XRealIp, "203.0.113.44")
-	assert.Equal(t, "127.0.0.1", got, "X-Real-IP must never be trusted, fall back to the transport peer")
+	assertRealIP(t, cfg, "127.0.0.1", realip.XRealIp, "203.0.113.44")
 }
