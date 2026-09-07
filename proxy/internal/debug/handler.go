@@ -761,6 +761,27 @@ func setClientPerformance(client *nbembed.Client, capN uint32) error {
 	return client.SetPerformance(nbembed.Performance{PreallocatedBuffersPerPool: &capN})
 }
 
+// collectBuffered takes every result already sitting in the channel, removing
+// those accounts from pending, and returns how many of them succeeded. It is
+// called when the deadline fires: select picks at random among ready cases, so
+// a result that landed in time would otherwise be reported as a timeout.
+func collectBuffered(results <-chan perfResult, pending map[types.AccountID]struct{}, failed map[string]string) int {
+	applied := 0
+	for {
+		select {
+		case res := <-results:
+			delete(pending, res.accountID)
+			if res.err != nil {
+				failed[string(res.accountID)] = res.err.Error()
+				continue
+			}
+			applied++
+		default:
+			return applied
+		}
+	}
+}
+
 // startPerfWorker returns the in-flight retune for the account, starting one if
 // there is none. The bool reports whether this call started it.
 //
@@ -846,22 +867,7 @@ func (h *Handler) applyBufferCap(capN uint32) (int, map[string]string, []string)
 			}
 			applied++
 		case <-deadline:
-			// select picks at random among ready cases, so results already
-			// buffered when the deadline fires would otherwise be reported as
-			// timeouts. Take them first.
-			for drained := true; drained; {
-				select {
-				case res := <-results:
-					delete(pending, res.accountID)
-					if res.err != nil {
-						failed[string(res.accountID)] = res.err.Error()
-						continue
-					}
-					applied++
-				default:
-					drained = false
-				}
-			}
+			applied += collectBuffered(results, pending, failed)
 			for accountID := range pending {
 				failed[string(accountID)] = fmt.Sprintf("timed out after %s waiting for the client", perfApplyTimeout)
 			}
