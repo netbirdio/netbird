@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -123,7 +124,7 @@ func NewProvider(ctx context.Context, config *Config) (*Provider, error) {
 		Storage:                    stor,
 		SkipApprovalScreen:         true,
 		SupportedResponseTypes:     []string{"code"},
-		AllowedGrantTypes:          DefaultGrantTypes,
+		AllowedGrantTypes:          slices.Clone(DefaultGrantTypes),
 		ContinueOnConnectorFailure: true,
 		Logger:                     logger,
 		PrometheusRegistry:         prometheus.NewRegistry(),

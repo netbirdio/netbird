@@ -252,6 +252,28 @@ func TestConnectorGrantTypes(t *testing.T) {
 			"an empty list would re-enable token exchange for this connector")
 	})
 
+	t.Run("updating a connector stored without an allowlist sets the default", func(t *testing.T) {
+		p, cleanup := newTestProvider(t)
+		defer cleanup()
+
+		// Mimic a connector written by an older release.
+		require.NoError(t, p.storage.CreateConnector(ctx, storage.Connector{
+			ID:     "legacy-oidc",
+			Type:   "oidc",
+			Name:   "Legacy",
+			Config: []byte(`{"issuer":"https://accounts.example.com","clientID":"client-id"}`),
+		}))
+
+		require.NoError(t, p.UpdateConnector(ctx, &ConnectorConfig{
+			ID:           "legacy-oidc",
+			ClientSecret: "new-secret",
+		}))
+
+		conn, err := p.storage.GetConnector(ctx, "legacy-oidc")
+		require.NoError(t, err)
+		assert.Equal(t, DefaultGrantTypes, conn.GrantTypes)
+	})
+
 	t.Run("backfills connectors stored without an allowlist", func(t *testing.T) {
 		p, cleanup := newTestProvider(t)
 		defer cleanup()

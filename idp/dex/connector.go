@@ -119,12 +119,17 @@ func (p *Provider) UpdateConnector(ctx context.Context, cfg *ConnectorConfig) er
 			name = old.Name
 		}
 
+		grantTypes := old.GrantTypes
+		if len(grantTypes) == 0 {
+			grantTypes = slices.Clone(DefaultGrantTypes)
+		}
+
 		return storage.Connector{
 			ID:         cfg.ID,
 			Type:       old.Type,
 			Name:       name,
 			Config:     configData,
-			GrantTypes: old.GrantTypes,
+			GrantTypes: grantTypes,
 		}, nil
 	}); err != nil {
 		return fmt.Errorf("failed to update connector: %w", err)

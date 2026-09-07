@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"slices"
 	"strings"
 
 	"github.com/dexidp/dex/storage"
@@ -173,7 +174,7 @@ func (c *EmbeddedIdPConfig) ToYAMLConfig() (*dex.YAMLConfig, error) {
 	// the minimal set instead. Operators can still opt in to more by setting it.
 	grantTypes := c.GrantTypes
 	if len(grantTypes) == 0 {
-		grantTypes = dex.DefaultGrantTypes
+		grantTypes = slices.Clone(dex.DefaultGrantTypes)
 	}
 
 	cfg := &dex.YAMLConfig{
