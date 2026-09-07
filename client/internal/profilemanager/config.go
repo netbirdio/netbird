@@ -206,12 +206,11 @@ type Config struct {
 	policy *mdm.Policy `json:"-"`
 }
 
-// ApplyMDMPolicy overlays the supplied MDM Policy on top of the
-// currently resolved Config values. Idempotent — pass an empty Policy
-// to clear any prior overlay. The lifecycle owner (Server.getConfig
-// on desktop, the Client.Run path on mobile) calls this with
-// loader.Load() once the per-process Loader is known; the Config
-// itself holds no reference to the Loader.
+// ApplyMDMPolicy overlays the supplied MDM Policy on top of the current
+// Config values and records it as Policy(). The overlay is not reversible:
+// an empty Policy only clears the enforcement metadata, so resolve the base
+// Config again (from disk or JSON) before applying a changed policy, the way
+// the lifecycle owners do on every load.
 func (config *Config) ApplyMDMPolicy(policy *mdm.Policy) {
 	if config == nil {
 		return
