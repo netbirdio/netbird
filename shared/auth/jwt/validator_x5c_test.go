@@ -167,13 +167,16 @@ func TestGetPublicKey_X5c(t *testing.T) {
 		assert.ErrorContains(t, err, "RSA public key")
 	})
 
-	// F: a kty the non-x5c path does not support stays unsupported with x5c too.
+	// F: a kty neither RSA nor EC stays unsupported, and reports why rather than
+	// looking like a missing key (which would trigger a pointless JWKS refresh).
 	t.Run("unsupported kty stays unsupported", func(t *testing.T) {
 		key, err := getPublicKey(tokenWithKid(), &Jwks{Keys: []JSONWebKey{{
 			Kty: "OKP", Kid: kid, X5c: []string{ecCert},
 		}}})
-		require.ErrorIs(t, err, errKeyNotFound)
+		require.Error(t, err)
 		assert.Nil(t, key)
+		assert.NotErrorIs(t, err, errKeyNotFound)
+		assert.ErrorContains(t, err, "unsupported JWK key type")
 	})
 
 	// G: the certificate's curve must match the curve the JWK declares.

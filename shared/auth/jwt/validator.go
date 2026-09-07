@@ -325,7 +325,7 @@ func publicKeyFromX5c(jwk JSONWebKey) (interface{}, error) {
 		}
 		return key, nil
 	default:
-		return nil, errKeyNotFound
+		return nil, fmt.Errorf("unsupported JWK key type %q for x5c certificate", jwk.Kty)
 	}
 }
 
