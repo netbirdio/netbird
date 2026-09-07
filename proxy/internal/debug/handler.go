@@ -109,6 +109,16 @@ type Handler struct {
 	// setPerformance applies a buffer cap to one client. Held as a field so
 	// tests can drive applyBufferCap without a live embedded client.
 	setPerformance func(*nbembed.Client, uint32) error
+
+	perfMu       sync.Mutex
+	perfInflight map[types.AccountID]*perfWorker
+}
+
+// perfWorker is the single in-flight retune for one account. err is valid once
+// done is closed.
+type perfWorker struct {
+	done chan struct{}
+	err  error
 }
 
 // NewHandler creates a new debug handler.
@@ -721,7 +731,7 @@ func (h *Handler) handlePerf(w http.ResponseWriter, r *http.Request) {
 	}
 
 	capN := uint32(n)
-	applied, failed := h.applyBufferCap(capN)
+	applied, failed, inFlight := h.applyBufferCap(capN)
 
 	resp := map[string]any{
 		"success": true,
@@ -730,6 +740,9 @@ func (h *Handler) handlePerf(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(failed) > 0 {
 		resp["failed"] = failed
+	}
+	if len(inFlight) > 0 {
+		resp["in_flight"] = inFlight
 	}
 	h.writeJSON(w, resp)
 }
@@ -747,32 +760,82 @@ func setClientPerformance(client *nbembed.Client, capN uint32) error {
 	return client.SetPerformance(nbembed.Performance{PreallocatedBuffersPerPool: &capN})
 }
 
-// applyBufferCap sets the WireGuard buffer pool cap on every registered client
-// and reports how many took it, plus a per-account error for those that did not.
+// startPerfWorker returns the in-flight retune for the account, starting one if
+// there is none. The bool reports whether this call started it.
 //
-// Clients are handled concurrently and the wait is bounded: SetPerformance goes
-// through the embedded client's lock, which Start holds for the whole of a slow
-// startup, and this endpoint is the recovery path for a fleet where some clients
-// are wedged. One stuck account must not keep the cap from reaching the others.
-// Goroutines left waiting on a stuck client finish on their own; the buffered
-// channel means they do not leak.
-func (h *Handler) applyBufferCap(capN uint32) (int, map[string]string) {
-	clients := h.provider.ListClientsForStartup()
-	results := make(chan perfResult, len(clients))
-	for accountID, client := range clients {
-		go func() {
-			results <- perfResult{
-				accountID: accountID,
-				err:       h.setPerformance(client, capN),
-			}
-		}()
+// At most one retune runs per account at a time. A client wedged inside its own
+// lock never returns, so without this a caller could add one permanently blocked
+// goroutine per request just by retrying the endpoint.
+func (h *Handler) startPerfWorker(accountID types.AccountID, client *nbembed.Client, capN uint32, results chan<- perfResult) (*perfWorker, bool) {
+	h.perfMu.Lock()
+	defer h.perfMu.Unlock()
+
+	if w, ok := h.perfInflight[accountID]; ok {
+		return w, false
 	}
 
-	pending := maps.Clone(clients)
+	w := &perfWorker{done: make(chan struct{})}
+	if h.perfInflight == nil {
+		h.perfInflight = make(map[types.AccountID]*perfWorker)
+	}
+	h.perfInflight[accountID] = w
+
+	go func() {
+		err := h.setPerformance(client, capN)
+		w.err = err
+		close(w.done)
+
+		h.perfMu.Lock()
+		delete(h.perfInflight, accountID)
+		h.perfMu.Unlock()
+
+		results <- perfResult{accountID: accountID, err: err}
+	}()
+
+	return w, true
+}
+
+// applyBufferCap sets the WireGuard buffer pool cap on every registered client
+// and reports how many took it, a per-account error for those that did not, and
+// the accounts whose earlier retune has not come back yet.
+//
+// Clients are handled concurrently and the wait is bounded: SetPerformance goes
+// through the embedded client's lock, which Start and Stop hold for as long as
+// they take - and on a wedged client Stop never returns. This endpoint is the
+// recovery path for exactly that fleet, so one stuck account must neither delay
+// the others nor accumulate goroutines across retries.
+func (h *Handler) applyBufferCap(capN uint32) (int, map[string]string, []string) {
+	clients := h.provider.ListClientsForStartup()
+	results := make(chan perfResult, len(clients))
+
 	applied := 0
 	failed := map[string]string{}
+	var inFlight []string
+	pending := make(map[types.AccountID]struct{}, len(clients))
+
+	for accountID, client := range clients {
+		w, started := h.startPerfWorker(accountID, client, capN, results)
+		if started {
+			pending[accountID] = struct{}{}
+			continue
+		}
+		// Another request owns this account's retune. Take its result if it
+		// has already landed, otherwise report it as still running instead of
+		// waiting on it again.
+		select {
+		case <-w.done:
+			if w.err != nil {
+				failed[string(accountID)] = w.err.Error()
+				continue
+			}
+			applied++
+		default:
+			inFlight = append(inFlight, string(accountID))
+		}
+	}
+
 	deadline := time.After(perfApplyTimeout)
-	for range clients {
+	for range len(pending) {
 		select {
 		case res := <-results:
 			delete(pending, res.accountID)
@@ -801,10 +864,10 @@ func (h *Handler) applyBufferCap(capN uint32) (int, map[string]string) {
 			for accountID := range pending {
 				failed[string(accountID)] = fmt.Sprintf("timed out after %s waiting for the client", perfApplyTimeout)
 			}
-			return applied, failed
+			return applied, failed, inFlight
 		}
 	}
-	return applied, failed
+	return applied, failed, inFlight
 }
 
 // handleRuntime returns cheap runtime and process stats. Safe to hit on a
