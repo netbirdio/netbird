@@ -317,6 +317,12 @@ func publicKeyFromX5c(jwk JSONWebKey) (interface{}, error) {
 		if !ok {
 			return nil, errors.New("x5c certificate does not contain an ECDSA public key")
 		}
+		if _, err := curveFromName(jwk.Crv); err != nil {
+			return nil, err
+		}
+		if key.Curve.Params().Name != jwk.Crv {
+			return nil, fmt.Errorf("x5c certificate curve %q does not match JWK curve %q", key.Curve.Params().Name, jwk.Crv)
+		}
 		return key, nil
 	default:
 		return nil, errKeyNotFound

@@ -98,10 +98,14 @@ func TestGetPublicKey_X5c(t *testing.T) {
 	ecPriv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
 
+	ec384Priv, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
+	require.NoError(t, err)
+
 	rsaPriv, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
 
 	ecCert := x5cCertificate(t, &ecPriv.PublicKey, ecPriv)
+	ec384Cert := x5cCertificate(t, &ec384Priv.PublicKey, ec384Priv)
 	rsaCert := x5cCertificate(t, &rsaPriv.PublicKey, rsaPriv)
 
 	tokenWithKid := func() *jwt.Token {
@@ -110,10 +114,10 @@ func TestGetPublicKey_X5c(t *testing.T) {
 		return tok
 	}
 
-	// A: EC kty with an EC certificate yields the ECDSA key.
+	// A: EC kty with a matching-curve EC certificate yields the ECDSA key.
 	t.Run("ec kty with ec certificate", func(t *testing.T) {
 		key, err := getPublicKey(tokenWithKid(), &Jwks{Keys: []JSONWebKey{{
-			Kty: "EC", Kid: kid, X5c: []string{ecCert},
+			Kty: "EC", Kid: kid, Crv: p256, X5c: []string{ecCert},
 		}}})
 		require.NoError(t, err)
 
@@ -170,5 +174,15 @@ func TestGetPublicKey_X5c(t *testing.T) {
 		}}})
 		require.ErrorIs(t, err, errKeyNotFound)
 		assert.Nil(t, key)
+	})
+
+	// G: the certificate's curve must match the curve the JWK declares.
+	t.Run("ec certificate curve must match jwk crv", func(t *testing.T) {
+		key, err := getPublicKey(tokenWithKid(), &Jwks{Keys: []JSONWebKey{{
+			Kty: "EC", Kid: kid, Crv: p256, X5c: []string{ec384Cert},
+		}}})
+		require.Error(t, err)
+		assert.Nil(t, key)
+		assert.ErrorContains(t, err, "does not match JWK curve")
 	})
 }
