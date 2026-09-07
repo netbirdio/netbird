@@ -153,6 +153,7 @@ check_domain_resolves() {
 #   NETBIRD_TRAEFIK_CERTRESOLVER      external-Traefik cert resolver (type 1)
 #   NETBIRD_BIND_LOCALHOST_ONLY       true/false (default true, types 2-5)
 #   NETBIRD_EXTERNAL_PROXY_NETWORK    docker network to join (types 2-4)
+#   NETBIRD_TRUSTED_PEERS             reverse proxy address management sees (default: built-in Traefik's IP, empty for types 1-5)
 #   NETBIRD_NON_INTERACTIVE           true forces unattended mode even with a TTY
 
 # tty_available succeeds only when we may prompt: never when the operator has
@@ -459,6 +460,8 @@ initialize_default_values() {
   MANAGEMENT_HOST_PORT="8081"  # Combined server port (management + signal + relay)
   BIND_LOCALHOST_ONLY="true"
   EXTERNAL_PROXY_NETWORK=""
+  TRUSTED_PEERS=""             # Address the reverse proxy connects to management from
+
 
   # Traefik static IP within the internal bridge network
   TRAEFIK_IP="172.30.0.10"
@@ -519,6 +522,7 @@ apply_agent_network_preset() {
   REVERSE_PROXY_TYPE="0"
   ENABLE_PROXY="true"
   ENABLE_CROWDSEC="false"
+  TRUSTED_PEERS="${NETBIRD_TRUSTED_PEERS:-$TRAEFIK_IP/32}"
 
   TRAEFIK_ACME_EMAIL=$(resolve NETBIRD_LETSENCRYPT_EMAIL required read_traefik_acme_email)
 
@@ -573,6 +577,21 @@ configure_reverse_proxy() {
     4) EXTERNAL_PROXY_NETWORK=$(resolve NETBIRD_EXTERNAL_PROXY_NETWORK "" read_proxy_docker_network "Caddy") ;;
     *) ;; # No network prompt for other options
   esac
+
+  # Only the bundled Traefik has an address we know at render time. External proxies
+  # must supply the address their proxy reaches management from.
+  if [[ "$REVERSE_PROXY_TYPE" == "0" ]]; then
+    TRUSTED_PEERS="${NETBIRD_TRUSTED_PEERS:-$TRAEFIK_IP/32}"
+  else
+    TRUSTED_PEERS="${NETBIRD_TRUSTED_PEERS:-}"
+    if [[ -z "$TRUSTED_PEERS" ]]; then
+      echo "" > /dev/stderr
+      echo "Note: reverseProxy.trustedPeers is unset, so NetBird will use the address your" > /dev/stderr
+      echo "proxy connects from as each peer's connection IP. To record real client IPs," > /dev/stderr
+      echo "set NETBIRD_TRUSTED_PEERS to your proxy's address (e.g. 172.20.0.5/32) and re-run." > /dev/stderr
+      echo "" > /dev/stderr
+    fi
+  fi
   return 0
 }
 
@@ -1033,12 +1052,19 @@ server:
   reverseProxy:
     trustedHTTPProxies:
       - "$TRAEFIK_IP/32"
+$(render_trusted_peers)
 
   store:
     engine: "sqlite"
     encryptionKey: "$DATASTORE_ENCRYPTION_KEY"
 EOF
   return 0
+}
+
+render_trusted_peers() {
+  if [[ -n "$TRUSTED_PEERS" ]]; then
+    printf '    trustedPeers:\n      - "%s"' "$TRUSTED_PEERS"
+  fi
 }
 
 render_dashboard_env() {
@@ -1453,6 +1479,10 @@ location ~ ^/(relay|ws-proxy/) {
 # Native gRPC (signal + management)
 location ~ ^/(signalexchange\.SignalExchange|management\.ManagementService)/ {
     grpc_pass grpc://${server_addr};
+    # Overwrite rather than pass through: without this the client's own
+    # x-forwarded-for metadata reaches NetBird as the connection IP.
+    grpc_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    grpc_set_header X-Real-IP \$remote_addr;
     grpc_read_timeout 1d;
     grpc_send_timeout 1d;
     grpc_socket_keepalive on;
