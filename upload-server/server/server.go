@@ -16,10 +16,21 @@ import (
 const (
 	putURLPath = "/upload"
 	bucketVar  = "BUCKET"
+
+	// certFileVar and keyFileVar enable TLS. A client refuses a plaintext
+	// upload service — it asks this server for an upload URL and then PUTs the
+	// bundle to whatever comes back, so a plaintext hop is a place to intercept
+	// both — which leaves an operator running this server needing TLS. Without
+	// these the server stays plaintext, for a deployment that terminates TLS in
+	// front of it.
+	certFileVar = "SERVER_CERT_FILE"
+	keyFileVar  = "SERVER_KEY_FILE"
 )
 
 type Server struct {
-	srv *http.Server
+	srv      *http.Server
+	certFile string
+	keyFile  string
 }
 
 func NewServer() *Server {
@@ -37,12 +48,25 @@ func NewServer() *Server {
 		http.Error(w, "not found", http.StatusNotFound)
 	})
 
+	certFile := os.Getenv(certFileVar)
+	keyFile := os.Getenv(keyFileVar)
+	if (certFile == "") != (keyFile == "") {
+		log.Fatalf("%s and %s must be set together", certFileVar, keyFileVar)
+	}
+
 	return &Server{
-		srv: &http.Server{Addr: address, Handler: mux},
+		srv:      &http.Server{Addr: address, Handler: mux},
+		certFile: certFile,
+		keyFile:  keyFile,
 	}
 }
 
 func (s *Server) Start() error {
+	if s.certFile != "" {
+		log.Infof("Starting upload server on %s with TLS", s.srv.Addr)
+		return s.srv.ListenAndServeTLS(s.certFile, s.keyFile)
+	}
+
 	log.Infof("Starting upload server on %s", s.srv.Addr)
 	return s.srv.ListenAndServe()
 }
