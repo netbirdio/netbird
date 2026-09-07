@@ -3,8 +3,13 @@ package idp
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -694,5 +699,97 @@ func TestEmbeddedIdPManager_LocalAuthDisabled(t *testing.T) {
 		_, err = manager2.CreateUserWithPassword(ctx, "newuser@example.com", "SecurePass123!", "New User")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "local user creation is disabled")
+	})
+}
+
+func TestEmbeddedIdPConfig_ToYAMLConfig_GrantTypes(t *testing.T) {
+	newConfig := func(grantTypes []string) *EmbeddedIdPConfig {
+		return &EmbeddedIdPConfig{
+			Enabled:    true,
+			Issuer:     "https://example.com/oauth2",
+			GrantTypes: grantTypes,
+			Storage: EmbeddedStorageConfig{
+				Type: "sqlite3",
+				Config: EmbeddedStorageTypeConfig{
+					File: filepath.Join(t.TempDir(), "dex.db"),
+				},
+			},
+		}
+	}
+
+	t.Run("defaults to the minimal allowlist without token exchange", func(t *testing.T) {
+		yamlConfig, err := newConfig(nil).ToYAMLConfig()
+		require.NoError(t, err)
+
+		assert.Equal(t, []string{
+			"authorization_code",
+			"refresh_token",
+			"urn:ietf:params:oauth:grant-type:device_code",
+		}, yamlConfig.OAuth2.GrantTypes)
+		assert.NotContains(t, yamlConfig.OAuth2.GrantTypes, "urn:ietf:params:oauth:grant-type:token-exchange")
+	})
+
+	t.Run("empty slice also falls back to the default", func(t *testing.T) {
+		yamlConfig, err := newConfig([]string{}).ToYAMLConfig()
+		require.NoError(t, err)
+		assert.Equal(t, dex.DefaultGrantTypes, yamlConfig.OAuth2.GrantTypes)
+	})
+
+	t.Run("explicit operator allowlist is preserved", func(t *testing.T) {
+		grantTypes := []string{"authorization_code", "refresh_token"}
+		yamlConfig, err := newConfig(grantTypes).ToYAMLConfig()
+		require.NoError(t, err)
+		assert.Equal(t, grantTypes, yamlConfig.OAuth2.GrantTypes)
+	})
+}
+
+func TestEmbeddedIdPManager_TokenExchangeGrantDisabledByDefault(t *testing.T) {
+	ctx := context.Background()
+
+	manager, err := NewEmbeddedIdPManager(ctx, &EmbeddedIdPConfig{
+		Enabled: true,
+		Issuer:  "http://localhost:5556/oauth2",
+		Storage: EmbeddedStorageConfig{
+			Type: "sqlite3",
+			Config: EmbeddedStorageTypeConfig{
+				File: filepath.Join(t.TempDir(), "dex.db"),
+			},
+		},
+	}, nil)
+	require.NoError(t, err)
+	defer func() { _ = manager.Stop(ctx) }()
+
+	t.Run("token endpoint rejects the token-exchange grant", func(t *testing.T) {
+		form := url.Values{
+			"grant_type":           {"urn:ietf:params:oauth:grant-type:token-exchange"},
+			"client_id":            {StaticClientDashboard},
+			"connector_id":         {"external-oidc"},
+			"scope":                {"openid profile email"},
+			"subject_token":        {"not-a-real-token"},
+			"subject_token_type":   {"urn:ietf:params:oauth:token-type:id_token"},
+			"requested_token_type": {"urn:ietf:params:oauth:token-type:id_token"},
+		}
+		req := httptest.NewRequest(http.MethodPost, "/oauth2/token", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		rec := httptest.NewRecorder()
+		manager.Handler().ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Contains(t, rec.Body.String(), "unsupported_grant_type")
+	})
+
+	t.Run("discovery does not advertise the token-exchange grant", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/oauth2/.well-known/openid-configuration", nil)
+		rec := httptest.NewRecorder()
+		manager.Handler().ServeHTTP(rec, req)
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var discovery struct {
+			GrantTypes []string `json:"grant_types_supported"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &discovery))
+
+		assert.NotContains(t, discovery.GrantTypes, "urn:ietf:params:oauth:grant-type:token-exchange")
+		assert.ElementsMatch(t, dex.DefaultGrantTypes, discovery.GrantTypes)
 	})
 }
