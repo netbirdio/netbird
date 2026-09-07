@@ -1,0 +1,23 @@
+FROM registry.access.redhat.com/ubi9/ubi-minimal@sha256:7fbeae18dc9476399f565e68255f602a3374ea8614ba3d14843565131a13ff93
+
+ARG TARGETPLATFORM
+ARG VERSION=dev
+ARG RELEASE=1
+
+LABEL name="netbird-relay" \
+      maintainer="NetBird <dev@netbird.io>" \
+      vendor="NetBird GmbH" \
+      version="${VERSION}" \
+      release="${RELEASE}" \
+      summary="NetBird Relay server" \
+      description="NetBird Relay carries traffic when a direct peer connection is unavailable."
+
+COPY --chmod=0555 ${TARGETPLATFORM}/netbird-relay /go/bin/netbird-relay
+COPY licenses/AGPL-3.0.txt licenses/BSD-3-Clause.txt licenses/Go-LICENSE licenses/Go-PATENTS /licenses/
+COPY licenses/third_party/ /licenses/third_party/
+RUN chmod -R a+rX /licenses
+
+USER 65532
+STOPSIGNAL SIGTERM
+ENTRYPOINT [ "/go/bin/netbird-relay" ]
+ENV NB_LOG_FILE=console
