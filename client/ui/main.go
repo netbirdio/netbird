@@ -100,7 +100,7 @@ func main() {
 	var tray *Tray
 	app := newApplication(func() {
 		if tray != nil {
-			tray.ShowWindow()
+			go tray.ShowWindow()
 		}
 	})
 
