@@ -1,6 +1,7 @@
 package mdm
 
 import (
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -160,6 +161,9 @@ func TestLoader_NilFetcherReturnsEmpty(t *testing.T) {
 	// gracefully and never return nil; on linux loadPlatform is a stub
 	// returning (nil, nil), and Load is expected to translate that
 	// into a non-nil empty Policy.
+	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+		t.Skip("a nil fetcher reads the OS-managed policy on this platform")
+	}
 	p := NewLoader(nil).Load()
 	require.NotNil(t, p)
 	assert.True(t, p.IsEmpty())

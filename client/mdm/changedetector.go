@@ -1,10 +1,6 @@
 package mdm
 
-import (
-	"sync"
-
-	log "github.com/sirupsen/logrus"
-)
+import "sync"
 
 // ChangeDetector tracks the last observed policy of a Loader so an
 // OS-notification-driven caller can ask whether the managed configuration
@@ -30,11 +26,9 @@ func (d *ChangeDetector) Changed() bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	curr := d.loader.Load()
-	if policiesEqual(d.prev, curr) {
+	if !policyChanged(d.prev, curr) {
 		return false
 	}
-	added, removed, changed := diffPolicies(d.prev, curr)
-	log.Infof("MDM policy changed: added=%v removed=%v changed=%v", added, removed, changed)
 	d.prev = curr
 	return true
 }

@@ -29,11 +29,11 @@ func loaderFor(policy *mdm.Policy) *mdm.Loader {
 			values[k] = v
 			continue
 		}
-		if v, ok := policy.GetBool(k); ok {
+		if v, ok := policy.GetInt(k); ok {
 			values[k] = v
 			continue
 		}
-		if v, ok := policy.GetInt(k); ok {
+		if v, ok := policy.GetBool(k); ok {
 			values[k] = v
 			continue
 		}
@@ -200,7 +200,7 @@ func TestApply_MDMLazyConnection(t *testing.T) {
 }
 
 func TestApply_MDMPreSharedKeyRedactionSentinelRejected(t *testing.T) {
-	const maskSentinel = "**********"
+	const maskSentinel = mdm.PreSharedKeyRedactedSentinel
 
 	cfg := configWithMDM(t, ConfigInput{
 		ConfigPath: filepath.Join(t.TempDir(), "config.json"),
@@ -219,7 +219,7 @@ func TestMDMConflicts_PreSharedKey(t *testing.T) {
 		mdm.KeyPreSharedKey: "mdm-enforced-psk",
 	})
 	empty := ""
-	sentinel := "**********"
+	sentinel := mdm.PreSharedKeyRedactedSentinel
 	same := "mdm-enforced-psk"
 	other := "user-psk"
 

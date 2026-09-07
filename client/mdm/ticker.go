@@ -59,12 +59,9 @@ func (t *Ticker) Run(ctx context.Context, onChange func(prev, curr *Policy) erro
 			return
 		case <-tk.C:
 			curr := t.loader.Load()
-			if policiesEqual(t.prev, curr) {
+			if !policyChanged(t.prev, curr) {
 				continue
 			}
-			added, removed, changed := diffPolicies(t.prev, curr)
-			log.Infof("MDM policy changed: added=%v removed=%v changed=%v",
-				added, removed, changed)
 			prev := t.prev
 			if err := onChange(prev, curr); err != nil {
 				log.Errorf("MDM policy change handler failed (retrying in 1 minute): %v", err)
@@ -126,4 +123,13 @@ func mapOf(p *Policy) map[string]any {
 		out[k] = v
 	}
 	return out
+}
+
+func policyChanged(prev, curr *Policy) bool {
+	if policiesEqual(prev, curr) {
+		return false
+	}
+	added, removed, changed := diffPolicies(prev, curr)
+	log.Infof("MDM policy changed: added=%v removed=%v changed=%v", added, removed, changed)
+	return true
 }

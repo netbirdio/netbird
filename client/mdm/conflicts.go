@@ -74,7 +74,8 @@ func ConflictInt64(key string, p *int64) ConflictCheck {
 }
 
 // ResolveConflicts returns the names of keys whose requested value diverges
-// from the policy-enforced value; keys the policy does not manage are skipped.
+// from the policy-enforced value; keys the policy does not manage are skipped,
+// a managed key without a Check counts as a conflict.
 func ResolveConflicts(policy *Policy, checks []ConflictCheck) []string {
 	if policy.IsEmpty() {
 		return nil
@@ -84,7 +85,7 @@ func ResolveConflicts(policy *Policy, checks []ConflictCheck) []string {
 		if !policy.HasKey(c.Key) {
 			continue
 		}
-		if !c.Check(policy) {
+		if c.Check == nil || !c.Check(policy) {
 			conflicts = append(conflicts, c.Key)
 		}
 	}
