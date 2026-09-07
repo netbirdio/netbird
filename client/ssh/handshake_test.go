@@ -60,12 +60,16 @@ func dialSilentServer(t *testing.T) net.Conn {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = listener.Close() })
 
+	done := make(chan struct{})
+	t.Cleanup(func() { close(done) })
+
 	go func() {
 		c, err := listener.Accept()
 		if err != nil {
 			return
 		}
-		t.Cleanup(func() { _ = c.Close() })
+		defer func() { _ = c.Close() }()
+		<-done
 	}()
 
 	conn, err := net.Dial("tcp", listener.Addr().String())
