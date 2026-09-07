@@ -756,3 +756,30 @@ connectors:
 		assert.Equal(t, DefaultGrantTypes, conn.GrantTypes, "connector %s", conn.ID)
 	}
 }
+
+func TestNewProvider_SetsGrantTypes(t *testing.T) {
+	ctx := context.Background()
+
+	provider, err := NewProvider(ctx, &Config{
+		Issuer:  "https://example.com/oauth2",
+		Port:    5556,
+		DataDir: t.TempDir(),
+	})
+	require.NoError(t, err)
+	defer func() { _ = provider.Stop(ctx) }()
+
+	req := httptest.NewRequest(http.MethodGet, "/oauth2/.well-known/openid-configuration", nil)
+	rec := httptest.NewRecorder()
+	provider.Handler().ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var discovery struct {
+		GrantTypes []string `json:"grant_types_supported"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &discovery))
+	assert.ElementsMatch(t, DefaultGrantTypes, discovery.GrantTypes)
+
+	local, err := provider.storage.GetConnector(ctx, "local")
+	require.NoError(t, err)
+	assert.Equal(t, DefaultGrantTypes, local.GrantTypes)
+}

@@ -90,6 +90,11 @@ func NewProvider(ctx context.Context, config *Config) (*Provider, error) {
 		return nil, fmt.Errorf("failed to ensure local connector: %w", err)
 	}
 
+	if err := ensureConnectorGrantTypes(ctx, stor); err != nil {
+		stor.Close()
+		return nil, fmt.Errorf("failed to ensure connector grant types: %w", err)
+	}
+
 	// Ensure issuer ends with /oauth2 for proper path mounting
 	issuer := strings.TrimSuffix(config.Issuer, "/")
 	if !strings.HasSuffix(issuer, "/oauth2") {
@@ -118,6 +123,7 @@ func NewProvider(ctx context.Context, config *Config) (*Provider, error) {
 		Storage:                    stor,
 		SkipApprovalScreen:         true,
 		SupportedResponseTypes:     []string{"code"},
+		AllowedGrantTypes:          DefaultGrantTypes,
 		ContinueOnConnectorFailure: true,
 		Logger:                     logger,
 		PrometheusRegistry:         prometheus.NewRegistry(),
