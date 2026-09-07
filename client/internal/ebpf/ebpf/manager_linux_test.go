@@ -4,9 +4,13 @@ import (
 	"testing"
 )
 
+// featureFlagTest stands in for a second feature flag, so the set and unset
+// paths can be exercised with more than the one flag the manager defines.
+const featureFlagTest = 0b00000001
+
 func TestManager_setFeatureFlag(t *testing.T) {
 	mgr := GeneralManager{}
-	mgr.setFeatureFlag(featureFlagWGProxy)
+	mgr.setFeatureFlag(featureFlagTest)
 	if mgr.featureFlags != 1 {
 		t.Errorf("invalid feature state")
 	}
@@ -19,10 +23,10 @@ func TestManager_setFeatureFlag(t *testing.T) {
 
 func TestManager_unsetFeatureFlag(t *testing.T) {
 	mgr := GeneralManager{}
-	mgr.setFeatureFlag(featureFlagWGProxy)
+	mgr.setFeatureFlag(featureFlagTest)
 	mgr.setFeatureFlag(featureFlagDnsForwarder)
 
-	err := mgr.unsetFeatureFlag(featureFlagWGProxy)
+	err := mgr.unsetFeatureFlag(featureFlagTest)
 	if err != nil {
 		t.Errorf("unexpected error: %s", err)
 	}

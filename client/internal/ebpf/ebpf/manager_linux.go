@@ -15,7 +15,6 @@ import (
 const (
 	mapKeyFeatures uint32 = 0
 
-	featureFlagWGProxy      = 0b00000001
 	featureFlagDnsForwarder = 0b00000010
 )
 
