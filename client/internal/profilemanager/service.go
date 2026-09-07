@@ -505,6 +505,8 @@ func (s *ServiceManager) loadAllProfiles(username string) ([]Profile, error) {
 		Name:     defaultName,
 		Path:     DefaultConfigPath,
 		IsActive: activeIsDefault,
+		// TODO: determine how to seed default owners
+		Owners: []ipcauth.Identity{},
 	}}
 
 	configDir, err := s.getConfigDir(username)
@@ -545,11 +547,17 @@ func (s *ServiceManager) loadAllProfiles(username string) ([]Profile, error) {
 		if name == "" {
 			name = stem.String()
 		}
+
+		owners, err := readProfileOwners(path)
+		if err != nil {
+			return nil, err
+		}
 		fileProfiles = append(fileProfiles, Profile{
 			ID:       stem,
 			Name:     name,
 			Path:     path,
 			IsActive: stem == ID(activeID),
+			Owners:   owners,
 		})
 	}
 
@@ -577,29 +585,28 @@ func readProfileName(path string) string {
 	return meta.Name
 }
 
-// nolint: unused,unusedfunc
-func ReadProfileOwner(path string) (ipcauth.Identity, error) {
+func readProfileOwners(path string) ([]ipcauth.Identity, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return ipcauth.Identity{}, err
+		return []ipcauth.Identity{}, err
 	}
 	var meta ownerMeta
 	if err := json.Unmarshal(data, &meta); err != nil {
-		return ipcauth.Identity{}, err
+		return []ipcauth.Identity{}, err
 	}
 	if len(meta.Owners) < 1 {
-		return ipcauth.Identity{}, nil
+		return []ipcauth.Identity{}, nil
 	}
 	owner := meta.Owners[0]
 	principal, ok := ipcauth.ParsePrincipal(owner)
 	if !ok {
-		return ipcauth.Identity{}, fmt.Errorf("unexpected owner principal: %s", owner)
+		return []ipcauth.Identity{}, fmt.Errorf("unexpected owner principal: %s", owner)
 	}
 	id, err := ipcauth.IdentityFromPrincipal(principal)
 	if err != nil {
-		return id, fmt.Errorf("parsing identity from principal failed: %w", err)
+		return []ipcauth.Identity{id}, fmt.Errorf("parsing identity from principal failed: %w", err)
 	}
-	return id, nil
+	return []ipcauth.Identity{id}, nil
 }
 
 // nolint: unused,unusedfunc
@@ -612,7 +619,7 @@ func StampOwner(path string, owner ipcauth.Identity) error {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return err
 	}
-	cfg.Owners = append([]string{}, ipcauth.OwnerPrincipalForIdentity(owner))
+	cfg.Owners = []string{ipcauth.OwnerPrincipalForIdentity(owner)}
 
 	if err := util.WriteJson(context.Background(), path, cfg); err != nil {
 		return fmt.Errorf("failed to write profile owner: %w", err)

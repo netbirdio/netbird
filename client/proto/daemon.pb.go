@@ -5008,6 +5008,7 @@ type Profile struct {
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	IsActive      bool                   `protobuf:"varint,2,opt,name=is_active,json=isActive,proto3" json:"is_active,omitempty"`
 	Id            string                 `protobuf:"bytes,3,opt,name=id,proto3" json:"id,omitempty"`
+	Owners        []string               `protobuf:"bytes,4,rep,name=owners,proto3" json:"owners,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -5061,6 +5062,13 @@ func (x *Profile) GetId() string {
 		return x.Id
 	}
 	return ""
+}
+
+func (x *Profile) GetOwners() []string {
+	if x != nil {
+		return x.Owners
+	}
+	return nil
 }
 
 type GetActiveProfileRequest struct {
@@ -7559,11 +7567,12 @@ const file_daemon_proto_rawDesc = "" +
 	"\x13ListProfilesRequest\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\"C\n" +
 	"\x14ListProfilesResponse\x12+\n" +
-	"\bprofiles\x18\x01 \x03(\v2\x0f.daemon.ProfileR\bprofiles\"J\n" +
+	"\bprofiles\x18\x01 \x03(\v2\x0f.daemon.ProfileR\bprofiles\"b\n" +
 	"\aProfile\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1b\n" +
 	"\tis_active\x18\x02 \x01(\bR\bisActive\x12\x0e\n" +
-	"\x02id\x18\x03 \x01(\tR\x02id\"\x19\n" +
+	"\x02id\x18\x03 \x01(\tR\x02id\x12\x16\n" +
+	"\x06owners\x18\x04 \x03(\tR\x06owners\"\x19\n" +
 	"\x17GetActiveProfileRequest\"h\n" +
 	"\x18GetActiveProfileResponse\x12 \n" +
 	"\vprofileName\x18\x01 \x01(\tR\vprofileName\x12\x1a\n" +
