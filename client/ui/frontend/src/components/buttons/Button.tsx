@@ -24,7 +24,7 @@ const buttonVariants = cva(
         variants: {
             variant: {
                 default: [
-                    "border-gray-200 bg-white text-gray-900 hover:bg-gray-100 hover:text-black focus:ring-zinc-200/50",
+                    "border-neutral-200 bg-white text-neutral-900 hover:bg-neutral-100 hover:text-black focus:ring-neutral-200/50",
                     "dark:border-gray-700/30 dark:bg-nb-gray dark:text-gray-400 dark:hover:bg-zinc-800/50 dark:hover:text-nb-gray-50 dark:focus:ring-zinc-800/50",
                 ],
                 primary: [
@@ -32,45 +32,45 @@ const buttonVariants = cva(
                     "enabled:bg-netbird enabled:text-white enabled:hover:bg-netbird-500 enabled:focus:ring-netbird-400/50 disabled:bg-nb-gray-700",
                 ],
                 secondary: [
-                    "border-gray-200 bg-white text-gray-900 hover:border-nb-gray-700 hover:bg-nb-gray-950 hover:text-black focus:ring-nb-gray-500/50 focus:ring-offset-0",
+                    "border-neutral-200 bg-white text-neutral-900 hover:border-nb-gray-700 hover:bg-nb-gray-950 hover:text-black focus:ring-nb-gray-500/50 focus:ring-offset-0",
                     "dark:ring-offset-neutral-950/50 dark:focus:ring-neutral-500/20 dark:focus:ring-offset-1",
                     "dark:border-gray-700/40 dark:bg-nb-gray-920 dark:text-gray-400 dark:hover:border-gray-700/40 dark:hover:bg-nb-gray-910 dark:hover:text-nb-gray-50",
                 ],
                 secondaryLighter: [
-                    "border-gray-200 bg-white text-gray-900 hover:bg-gray-100 hover:text-black focus:ring-zinc-200/50",
+                    "border-neutral-200 bg-white text-neutral-900 hover:bg-neutral-100 hover:text-black focus:ring-neutral-200/50",
                     "dark:ring-offset-neutral-950/50 dark:focus:ring-neutral-500/20",
                     "dark:border-gray-700/70 dark:bg-nb-gray-900/70 dark:text-gray-400 dark:hover:bg-nb-gray-800/60 dark:hover:text-nb-gray-50",
                 ],
                 subtle: [
-                    "border-gray-200 bg-gray-50 text-gray-900 hover:bg-gray-100 focus:ring-gray-200/60",
+                    "border-neutral-200 bg-neutral-50 text-neutral-900 hover:bg-neutral-100 focus:ring-neutral-200/60",
                     "dark:ring-offset-neutral-950/50 dark:focus:ring-nb-gray-200/40",
                     "dark:border-nb-gray-200 dark:bg-nb-gray-50 dark:text-nb-gray-900 dark:hover:bg-nb-gray-100 dark:hover:text-nb-gray-950",
                 ],
                 input: [
-                    "border-neutral-200 bg-white text-gray-900 hover:bg-gray-100 hover:text-black focus:ring-zinc-200/50",
+                    "border-neutral-200 bg-white text-neutral-900 hover:bg-neutral-100 hover:text-black focus:ring-neutral-200/50",
                     "dark:ring-offset-neutral-950/50 dark:focus:ring-neutral-500/20",
                     "dark:border-nb-gray-700 dark:bg-nb-gray-900 dark:text-gray-400 dark:hover:bg-nb-gray-900/80",
                 ],
                 dropdown: [
-                    "border-neutral-200 bg-white text-gray-900 hover:bg-gray-100 hover:text-black focus:ring-zinc-200/50",
+                    "border-neutral-200 bg-white text-neutral-900 hover:bg-neutral-100 hover:text-black focus:ring-neutral-200/50",
                     "dark:ring-offset-neutral-950/50 dark:focus:ring-neutral-500/20",
                     "dark:border-nb-gray-900 dark:bg-nb-gray-900/40 dark:text-gray-400 dark:hover:bg-nb-gray-900/50",
                 ],
                 dotted: [
-                    "border-dashed border-gray-200 bg-white text-gray-900 hover:bg-gray-100 hover:text-black focus:ring-zinc-200/50",
+                    "border-dashed border-neutral-200 bg-white text-neutral-900 hover:bg-neutral-100 hover:text-black focus:ring-neutral-200/50",
                     "dark:ring-offset-neutral-950/50 dark:focus:ring-neutral-500/20",
                     "dark:border-gray-500/40 dark:bg-nb-gray-900/30 dark:text-gray-400 dark:hover:bg-nb-gray-900/50 dark:hover:text-nb-gray-50",
                 ],
                 tertiary: [
-                    "border-gray-200 bg-white text-gray-900 hover:bg-gray-100 hover:text-black focus:ring-zinc-200/50",
+                    "border-neutral-200 bg-white text-neutral-900 hover:bg-neutral-100 hover:text-black focus:ring-neutral-200/50",
                     "dark:border-gray-700/40 dark:bg-white dark:text-gray-800 dark:hover:bg-neutral-200 dark:focus:ring-zinc-800/50 disabled:dark:bg-nb-gray-920 disabled:dark:text-nb-gray-300",
                 ],
                 white: [
-                    "border-white bg-white text-gray-800 outline-none hover:bg-neutral-200 focus:ring-white/50 disabled:dark:bg-nb-gray-920 disabled:dark:text-nb-gray-300",
+                    "border-white bg-white text-neutral-800 outline-none hover:bg-neutral-200 focus:ring-white/50 dark:text-gray-800 disabled:dark:bg-nb-gray-920 disabled:dark:text-nb-gray-300",
                     "disabled:dark:border-nb-gray-900 disabled:dark:bg-nb-gray-900 disabled:dark:text-nb-gray-300",
                 ],
                 outline: [
-                    "border-gray-200 bg-white text-gray-900 hover:bg-gray-100 hover:text-black focus:ring-zinc-200/50",
+                    "border-neutral-200 bg-white text-neutral-900 hover:bg-neutral-100 hover:text-black focus:ring-neutral-200/50",
                     "dark:border-netbird dark:bg-transparent dark:text-netbird dark:hover:bg-nb-gray-900/30 dark:focus:ring-zinc-800/50",
                 ],
                 "danger-outline": [

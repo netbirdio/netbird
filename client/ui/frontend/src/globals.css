@@ -21,31 +21,31 @@
    low stops are text (near-black); .dark restores the original dark ramp.
    Surfaces stay darker than content cards to preserve their separation. */
 :root {
-    --nb-gray-DEFAULT: 241 243 244;
-    --nb-gray-50: 24 26 29;
-    --nb-gray-100: 31 33 36;
-    --nb-gray-200: 46 50 56;
-    --nb-gray-250: 54 59 64;
-    --nb-gray-300: 71 78 87;
-    --nb-gray-350: 83 93 103;
-    --nb-gray-400: 97 110 121;
-    --nb-gray-500: 124 137 148;
-    --nb-gray-600: 143 156 168;
-    --nb-gray-700: 203 210 214;
-    --nb-gray-800: 223 227 230;
-    --nb-gray-850: 231 234 236;
-    --nb-gray-900: 236 238 240;
-    --nb-gray-910: 238 240 242;
-    --nb-gray-920: 241 243 244;
-    --nb-gray-925: 243 245 246;
-    --nb-gray-930: 244 246 247;
-    --nb-gray-935: 246 248 249;
-    --nb-gray-940: 248 250 251;
-    --nb-gray-950: 251 252 252;
+    --nb-gray-DEFAULT: 243 243 243;
+    --nb-gray-50: 26 26 26;
+    --nb-gray-100: 33 33 33;
+    --nb-gray-200: 50 50 50;
+    --nb-gray-250: 58 58 58;
+    --nb-gray-300: 77 77 77;
+    --nb-gray-350: 92 92 92;
+    --nb-gray-400: 108 108 108;
+    --nb-gray-500: 135 135 135;
+    --nb-gray-600: 154 154 154;
+    --nb-gray-700: 209 209 209;
+    --nb-gray-800: 226 226 226;
+    --nb-gray-850: 234 234 234;
+    --nb-gray-900: 238 238 238;
+    --nb-gray-910: 240 240 240;
+    --nb-gray-920: 243 243 243;
+    --nb-gray-925: 245 245 245;
+    --nb-gray-930: 246 246 246;
+    --nb-gray-935: 248 248 248;
+    --nb-gray-940: 250 250 250;
+    --nb-gray-950: 252 252 252;
     --nb-gray-960: 255 255 255;
 
-    --skeleton-base: 236 238 240;
-    --skeleton-highlight: 245 247 249;
+    --skeleton-base: 238 238 238;
+    --skeleton-highlight: 247 247 247;
 }
 
 .dark {

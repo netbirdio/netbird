@@ -42,7 +42,7 @@ const headlessTeardownDelay = 2 * time.Second
 // paint the same surface; keep the three in sync.
 var (
 	windowBackgroundDark  = application.NewRGB(24, 26, 29)    // dark nb-gray DEFAULT
-	windowBackgroundLight = application.NewRGB(241, 243, 244) // light nb-gray DEFAULT
+	windowBackgroundLight = application.NewRGB(243, 243, 243) // light nb-gray DEFAULT
 )
 
 // Appearance is one view of the theme state: the preference and the appearance
@@ -111,9 +111,9 @@ var microsoftWindowsDarkTheme = &application.WindowTheme{
 }
 
 var microsoftWindowsLightTheme = &application.WindowTheme{
-	BorderColour:    u32ptr(0x00F4F3F1), // #F1F3F4 light nb-gray DEFAULT
-	TitleBarColour:  u32ptr(0x00F4F3F1),
-	TitleTextColour: u32ptr(0x0024211F), // #1F2124
+	BorderColour:    u32ptr(0x00F3F3F3), // #F3F3F3 light nb-gray DEFAULT
+	TitleBarColour:  u32ptr(0x00F3F3F3),
+	TitleTextColour: u32ptr(0x00212121), // #212121 light nb-gray-100
 }
 
 // MicrosoftWindowsAppearanceOptions is the shared Windows chrome (Mica +
