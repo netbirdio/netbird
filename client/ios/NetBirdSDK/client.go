@@ -128,7 +128,10 @@ func NewClient(cfgFile, stateFile, cacheDir, logFilePath, deviceName string, osV
 func (c *Client) SetConfigFromJSON(jsonStr string) error {
 	cfg, err := profilemanager.ConfigFromJSON(jsonStr)
 	if err != nil {
-		log.Errorf("SetConfigFromJSON: failed to parse config JSON: %v", err)
+		// Not only a parse error any more: a document with no peer identity is
+		// refused, because Run() would otherwise connect as a peer whose key
+		// this SDK has no way to hand back to the caller's store.
+		log.Errorf("SetConfigFromJSON: failed to load config JSON: %v", err)
 		return err
 	}
 	c.preloadedConfig = cfg

@@ -1432,7 +1432,18 @@ func ConfigToJSON(config *Config) (string, error) {
 
 // ConfigFromJSON deserializes a JSON string to a Config struct.
 // This is useful for restoring config from alternative storage mechanisms.
-// After unmarshaling, defaults are applied to ensure the config is fully initialized.
+// After unmarshaling, defaults are applied to ensure the config is fully
+// initialized. The peer identity is not one of those defaults: a document
+// carrying none is refused with ErrConfigWithoutIdentity.
+//
+// Provisioning one here would be worse than refusing. Both callers connect
+// with what they get back — the iOS SDK's Client.SetConfigFromJSON keeps it as
+// the preloaded config Run() uses, and Auth.SetConfigFromJSON as the config it
+// authenticates with — and neither can hand a generated key back to the store
+// the document came from, since Client exports no config at all. The peer
+// would connect under an identity nothing persists and re-register on every
+// launch. A document with no identity means nobody has logged in yet, and
+// that is what the caller has to be told.
 func ConfigFromJSON(jsonStr string) (*Config, error) {
 	config := &Config{}
 	err := json.Unmarshal([]byte(jsonStr), config)
@@ -1444,6 +1455,13 @@ func ConfigFromJSON(jsonStr string) (*Config, error) {
 	// This mirrors what readConfig does after loading from file.
 	if _, err := config.apply(ConfigInput{}); err != nil {
 		return nil, fmt.Errorf("failed to apply defaults to config: %w", err)
+	}
+
+	// Both keys, because both are dead ends when missing: an empty WireGuard
+	// key fails the management login on its size, and an empty SSH key fails
+	// ssh.GeneratePublicKey in ConnectClient before the engine starts.
+	if config.PrivateKey == "" || config.SSHKey == "" {
+		return nil, ErrConfigWithoutIdentity
 	}
 
 	return config, nil
