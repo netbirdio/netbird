@@ -57,7 +57,11 @@ func TestCollectBufferedCountsResultsReadyAtTheDeadline(t *testing.T) {
 	results <- perfResult{accountID: "ok"}
 	results <- perfResult{accountID: "broken", err: errors.New("boom")}
 
-	pending := map[types.AccountID]struct{}{"ok": {}, "broken": {}, "wedged": {}}
+	pending := map[types.AccountID]*perfWorker{
+		"ok":     {done: make(chan struct{})},
+		"broken": {done: make(chan struct{})},
+		"wedged": {done: make(chan struct{})},
+	}
 	failed := map[string]string{}
 
 	applied := collectBuffered(results, pending, failed)

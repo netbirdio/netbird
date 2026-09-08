@@ -765,7 +765,7 @@ func setClientPerformance(client *nbembed.Client, capN uint32) error {
 // those accounts from pending, and returns how many of them succeeded. It is
 // called when the deadline fires: select picks at random among ready cases, so
 // a result that landed in time would otherwise be reported as a timeout.
-func collectBuffered(results <-chan perfResult, pending map[types.AccountID]struct{}, failed map[string]string) int {
+func collectBuffered(results <-chan perfResult, pending map[types.AccountID]*perfWorker, failed map[string]string) int {
 	applied := 0
 	for {
 		select {
@@ -833,12 +833,12 @@ func (h *Handler) applyBufferCap(capN uint32) (int, map[string]string, []string)
 	applied := 0
 	failed := map[string]string{}
 	var inFlight []string
-	pending := make(map[types.AccountID]struct{}, len(clients))
+	pending := make(map[types.AccountID]*perfWorker, len(clients))
 
 	for accountID, client := range clients {
 		w, started := h.startPerfWorker(accountID, client, capN, results)
 		if started {
-			pending[accountID] = struct{}{}
+			pending[accountID] = w
 			continue
 		}
 		// Another request owns this account's retune. Take its result if it
