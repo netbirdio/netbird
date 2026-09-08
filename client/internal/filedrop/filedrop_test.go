@@ -711,7 +711,57 @@ func TestValidateOffer(t *testing.T) {
 		Name: "x", Kind: KindText, Text: strings.Repeat("a", MaxInlineTextSize+1),
 	}}), "oversized inline text is invalid")
 
+	assert.Error(t, validateOffer([]FileMeta{{Name: "x", Size: MaxFileSize + 1}}),
+		"a file over the per-file limit is invalid")
+
+	overAggregate := make([]FileMeta, 4)
+	for i := range overAggregate {
+		overAggregate[i] = FileMeta{Name: "x", Size: MaxOfferSize / 3}
+	}
+	assert.Error(t, validateOffer(overAggregate), "an offer over the aggregate limit is invalid")
+
+	// 512 x 2^60 sums back through zero in an int64, so a plain accumulation
+	// would wave this through as a nil-byte offer.
+	wrapping := make([]FileMeta, MaxOfferFiles)
+	for i := range wrapping {
+		wrapping[i] = FileMeta{Name: "x", Size: 1 << 60}
+	}
+	assert.Error(t, validateOffer(wrapping), "sizes that overflow int64 must not wrap past the limit")
+
 	assert.NoError(t, validateOffer([]FileMeta{{Name: "x", Size: 10}}))
+	assert.NoError(t, validateOffer([]FileMeta{{Name: "x", Size: MaxFileSize}}),
+		"a file exactly at the limit is allowed")
+}
+
+func TestOfferStoreBoundsOffersPerSender(t *testing.T) {
+	policy := NewPolicyStore(testProfile)
+	require.NoError(t, policy.Set(Policy{Mode: ModeAsk}))
+
+	spool, err := NewSpool(t.TempDir())
+	require.NoError(t, err)
+
+	r := &receiver{offers: NewOfferStore(time.Minute), policy: policy, spool: spool}
+	req := OfferRequest{Files: []FileMeta{{Name: "a.bin", Size: 10}}}
+
+	for i := range MaxSenderOffers {
+		_, err := r.submitOffer(senderIdentity{key: testPeer}, req)
+		require.NoErrorf(t, err, "offer %d must be accepted", i)
+	}
+
+	_, err = r.submitOffer(senderIdentity{key: testPeer}, req)
+	require.ErrorIs(t, err, ErrRefused, "the sender must be capped once its offers are open")
+
+	_, err = r.submitOffer(senderIdentity{key: PeerKey("other-peer")}, req)
+	require.NoError(t, err, "the cap must be per sender, not global")
+
+	// Settling one frees a slot: the cap counts open offers, not lifetime ones.
+	open := r.offers.List()
+	require.NotEmpty(t, open)
+	_, ok := r.offers.Decide(open[0].ID, DecisionDeclined)
+	require.True(t, ok)
+
+	_, err = r.submitOffer(senderIdentity{key: testPeer}, req)
+	require.NoError(t, err, "a settled offer must release its slot")
 }
 
 func TestStopIsIdempotent(t *testing.T) {

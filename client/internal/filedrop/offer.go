@@ -89,6 +89,21 @@ func (s *OfferStore) Get(sender PeerKey, id OfferID) (Offer, bool) {
 	return entry.offer.clone(), true
 }
 
+// LiveCount reports how many of one sender's offers are still open, so a
+// sender cannot keep adding to the ones already awaiting a decision.
+func (s *OfferStore) LiveCount(sender PeerKey) int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	n := 0
+	for _, entry := range s.offers {
+		if entry.offer.Sender == sender && !entry.offer.State.terminal() {
+			n++
+		}
+	}
+	return n
+}
+
 // List returns snapshots of every tracked offer.
 func (s *OfferStore) List() []Offer {
 	s.mu.RLock()

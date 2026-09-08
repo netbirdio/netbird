@@ -26,6 +26,18 @@ const MaxOfferFiles = 512
 // MaxInlineTextSize bounds an inline text snippet, which is held in memory.
 const MaxInlineTextSize = 64 * 1024
 
+// MaxFileSize bounds one announced payload, and MaxOfferSize the whole offer.
+// Every announced byte is staged in the spool before it is delivered, so
+// without these one peer decides how much of the receiver's disk to consume.
+const (
+	MaxFileSize  int64 = 100 << 30
+	MaxOfferSize int64 = 200 << 30
+)
+
+// MaxSenderOffers bounds how many offers one sender may have outstanding, so a
+// peer cannot flood the offer store or the consent prompts behind it.
+const MaxSenderOffers = 16
+
 const maxOfferBodySize = 1 << 20
 
 const (

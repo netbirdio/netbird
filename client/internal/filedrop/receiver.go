@@ -61,6 +61,10 @@ func (r *receiver) submitOffer(sender senderIdentity, req OfferRequest) (Offer, 
 		return Offer{}, ErrRefused
 	}
 
+	if r.offers.LiveCount(sender.key) >= MaxSenderOffers {
+		return Offer{}, fmt.Errorf("%w: %d offers already open", ErrRefused, MaxSenderOffers)
+	}
+
 	senderName := sender.name
 	if senderName == "" {
 		senderName = req.SenderName
@@ -266,6 +270,7 @@ func validateOffer(files []FileMeta) error {
 		return fmt.Errorf("offer announces more than %d files", MaxOfferFiles)
 	}
 
+	var total int64
 	for _, f := range files {
 		if !f.Kind.valid() {
 			return fmt.Errorf("unknown payload kind %s", f.Kind)
@@ -279,6 +284,16 @@ func validateOffer(files []FileMeta) error {
 		if f.Size < 0 {
 			return fmt.Errorf("negative file size")
 		}
+		if f.Size > MaxFileSize {
+			return fmt.Errorf("file %d bytes exceeds the %d byte limit", f.Size, MaxFileSize)
+		}
+		// Accumulated against the remaining headroom rather than summed first:
+		// 512 files of 2^60 wrap an int64 back through zero, so a plain sum
+		// would report a small total for an enormous offer.
+		if total > MaxOfferSize-f.Size {
+			return fmt.Errorf("offer exceeds the %d byte limit", MaxOfferSize)
+		}
+		total += f.Size
 	}
 	return nil
 }
