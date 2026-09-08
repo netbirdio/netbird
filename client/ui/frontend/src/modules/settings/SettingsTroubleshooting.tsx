@@ -277,7 +277,10 @@ function DoneResult({
     };
     return (
         <CenteredPanel>
-            <SquareIcon icon={CircleCheckBig} className={"[&_svg]:text-green-500"} />
+            <SquareIcon
+                icon={CircleCheckBig}
+                className={"bg-white dark:bg-nb-gray-920 [&_svg]:text-green-500"}
+            />
 
             <div className={"flex max-w-sm flex-col items-center gap-2"}>
                 <DialogHeading className={"text-balance"}>

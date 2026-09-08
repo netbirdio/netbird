@@ -396,7 +396,8 @@ const ResourceIconBadge = ({ type }: { type: ResourceType }) => {
             aria-hidden={"true"}
             className={cn(
                 "mt-[0.25rem] flex h-9 w-9 shrink-0 items-center justify-center rounded-md",
-                "border border-nb-gray-900 bg-nb-gray-920 text-nb-gray-300",
+                "border border-nb-gray-800 bg-white text-nb-gray-300 transition-colors group-hover:border-nb-gray-700",
+                "dark:border-nb-gray-900 dark:bg-nb-gray-920 dark:group-hover:border-nb-gray-900",
             )}
         >
             <Icon size={14} />
@@ -461,7 +462,7 @@ const DomainSubtitle = ({ domain, ips, onKeyDown }: DomainSubtitleProps) => {
                         keepOpenOnClick
                         contentClassName={cn(
                             "max-h-72 max-w-[18rem] overflow-auto",
-                            "rounded-lg border border-nb-gray-900 bg-nb-gray-935",
+                            "rounded-lg border border-nb-gray-800 bg-white dark:border-nb-gray-900 dark:bg-nb-gray-935",
                             "p-2 pr-4",
                         )}
                     >

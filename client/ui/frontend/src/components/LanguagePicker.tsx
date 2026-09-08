@@ -157,7 +157,7 @@ export function LanguagePicker() {
                                             placeholder={t("settings.general.language.search")}
                                             aria-label={t("settings.general.language.search")}
                                             className={cn(
-                                                "w-full bg-transparent text-xs text-nb-gray-100 placeholder:text-nb-gray-300",
+                                                "w-full bg-transparent text-xs text-nb-gray-100 placeholder:text-nb-gray-600 dark:placeholder:text-nb-gray-300",
                                                 "border-none outline-none",
                                             )}
                                         />

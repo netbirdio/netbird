@@ -54,9 +54,9 @@ const DASH = "-";
 const dotClass = (connStatus: string): string => {
     switch (connStatus) {
         case "Connected":
-            return "bg-green-400";
+            return "bg-green-500 dark:bg-green-400";
         case "Connecting":
-            return "bg-yellow-300 animate-pulse-slow";
+            return "bg-yellow-500 animate-pulse-slow dark:bg-yellow-300";
         default:
             return "bg-nb-gray-500";
     }
