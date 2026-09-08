@@ -2699,29 +2699,28 @@ func (s *Server) authorizeAndPrepareLogin(callerCtx context.Context, msg *proto.
 	return ctx, activeProf, nil
 }
 
-// SessionHolder returns the Identity that owns the active and connected
-// profile. The boolean indicates if the session is connected and an owner
-// is defined in the config.
-func (s *Server) SessionHolder() (ipcauth.Identity, bool) {
+// SessionHolder returns the principal that owns the active profile while it is
+// connected. The owner is a config value, so it stays a principal and is never
+// turned into an identity.
+//
+// Only the first owner is read. The field is a list on disk so multiple owners
+// can be added later without a format change, but multiple owners are not
+// supported yet.
+func (s *Server) SessionHolder() (ipcauth.Principal, bool) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
-	activeOwners := s.config.Owners
 
-	if !s.clientRunning || len(activeOwners) < 1 {
-		return ipcauth.Identity{}, false
+	if !s.clientRunning || len(s.config.Owners) == 0 {
+		return ipcauth.Principal{}, false
 	}
 
-	principal, ok := ipcauth.ParsePrincipal(activeOwners[0])
+	// The zero Principal matches nobody, so an unparseable owner locks the
+	// session rather than opening it.
+	principal, ok := ipcauth.ParsePrincipal(s.config.Owners[0])
 	if !ok {
-		return ipcauth.Identity{}, false
+		log.Warnf("active profile has an unparseable owner %q", s.config.Owners[0])
 	}
-
-	id, err := ipcauth.IdentityFromPrincipal(principal)
-	if err != nil {
-		return ipcauth.Identity{}, false
-	}
-
-	return id, true
+	return principal, true
 }
 
 func persistLoginOverrides(activeProf *profilemanager.ActiveProfileState, managementURL string, preSharedKey *string) error {

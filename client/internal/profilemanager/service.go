@@ -506,7 +506,7 @@ func (s *ServiceManager) loadAllProfiles(username string) ([]Profile, error) {
 		Path:     DefaultConfigPath,
 		IsActive: activeIsDefault,
 		// TODO: determine how to seed default owners
-		Owners: []ipcauth.Identity{},
+		Owners: []ipcauth.Principal{},
 	}}
 
 	configDir, err := s.getConfigDir(username)
@@ -585,28 +585,32 @@ func readProfileName(path string) string {
 	return meta.Name
 }
 
-func readProfileOwners(path string) ([]ipcauth.Identity, error) {
+// readProfileOwners parses the owner principals from a profile JSON. Owners stay
+// principals so they are never mistaken for a kernel-attested caller.
+//
+// Only the first entry is read. The field is a list on disk so multiple owners
+// can be added later without a format change, but multiple owners are not
+// supported yet.
+func readProfileOwners(path string) ([]ipcauth.Principal, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return []ipcauth.Identity{}, err
+		return nil, err
 	}
 	var meta ownerMeta
 	if err := json.Unmarshal(data, &meta); err != nil {
-		return []ipcauth.Identity{}, err
+		return nil, err
 	}
-	if len(meta.Owners) < 1 {
-		return []ipcauth.Identity{}, nil
+	if len(meta.Owners) == 0 {
+		return nil, nil
 	}
-	owner := meta.Owners[0]
-	principal, ok := ipcauth.ParsePrincipal(owner)
+
+	principal, ok := ipcauth.ParsePrincipal(meta.Owners[0])
 	if !ok {
-		return []ipcauth.Identity{}, fmt.Errorf("unexpected owner principal: %s", owner)
+		// A malformed entry is ignored rather than trusted.
+		log.Warnf("ignoring unparseable owner %q in %s", meta.Owners[0], path)
+		return nil, nil
 	}
-	id, err := ipcauth.IdentityFromPrincipal(principal)
-	if err != nil {
-		return []ipcauth.Identity{id}, fmt.Errorf("parsing identity from principal failed: %w", err)
-	}
-	return []ipcauth.Identity{id}, nil
+	return []ipcauth.Principal{principal}, nil
 }
 
 // nolint: unused,unusedfunc
