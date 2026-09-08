@@ -267,19 +267,22 @@ func (s *Server) FileDropSetSettings(ctx context.Context, req *proto.FileDropSet
 		return nil, err
 	}
 
+	// Both halves are settled before either is applied, and then applied in one
+	// write: committing the mode first left a refused destination behind a
+	// profile already switched to auto-accept, with the receiver bound, while
+	// the caller was told the whole request had failed.
 	policy := mgr.Policy().Get()
 	policy.Mode = filedrop.Mode(req.GetMode())
-	if err := mgr.Policy().Set(policy); err != nil {
-		return nil, err
-	}
 
 	if dir := req.GetDestinationDir(); dir != mgr.DestinationDir() {
 		if err := s.validateFileDropDestination(ctx, dir); err != nil {
 			return nil, err
 		}
-		if err := mgr.SetDestinationDir(dir); err != nil {
-			return nil, err
-		}
+		policy.DestinationDir = dir
+	}
+
+	if err := mgr.Policy().Set(policy); err != nil {
+		return nil, err
 	}
 	return &proto.FileDropSetSettingsResponse{}, nil
 }
