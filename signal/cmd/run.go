@@ -100,7 +100,7 @@ var (
 				return err
 			}
 
-			metricsServer, err := metrics.NewServer(metricsPort, "")
+			metricsServer, err := metrics.NewServer(fmt.Sprintf(":%d", metricsPort), "")
 			if err != nil {
 				return fmt.Errorf("setup metrics: %v", err)
 			}
