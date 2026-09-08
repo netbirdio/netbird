@@ -371,7 +371,8 @@ func TestAdminURLPathIsPartOfTheIdentity(t *testing.T) {
 }
 
 // unsetOnDisk rewrites the stored config so the named fields carry a JSON null,
-// which is how a profile that was never asked about them looks on disk.
+// which is how a profile written before apply() resolved them looks on disk.
+// It synthesizes that state: no write produces it any more.
 func unsetOnDisk(t *testing.T, path string, fields ...string) {
 	t.Helper()
 
@@ -392,13 +393,16 @@ func unsetOnDisk(t *testing.T, path string, fields ...string) {
 	require.NoError(t, os.WriteFile(path, rewritten, 0600))
 }
 
-// Seven fields mean "the effective default" when they hold no value, and the
-// config a plain login writes leaves every one of them unset. Restating that
-// default is asking for no change — and the CLI restates it on every `netbird
-// up`, because a flag set through an environment variable is a flag pflag
-// reports as Changed. Judging those restatements as changes made the
+// Seven fields mean "the effective default" when they hold no value, and every
+// profile written before apply() resolved them holds them as null. Restating
+// that default is asking for no change — and the CLI restates it on every
+// `netbird up`, because a flag set through an environment variable is a flag
+// pflag reports as Changed. Judging those restatements as changes made the
 // update-settings gate refuse `netbird up` outright for a client configured
 // through the environment, which is the shape of a Kubernetes deployment.
+//
+// A login now writes those fields set, so the fixture puts the null state back
+// on disk with unsetOnDisk instead of getting it from a login.
 func TestWouldChangeIgnoresRestatedDefaultsOfUnsetFields(t *testing.T) {
 	networkMonitorDefault := runtime.GOOS == "windows" || runtime.GOOS == "darwin"
 
