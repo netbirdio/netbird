@@ -44,15 +44,17 @@ func (g *AuthzGate) state() DaemonState {
 	return g.st
 }
 
-// RequireHolderForFullStatus is a Rule that enforces the right AuthzLevel if
-// "full status" or "should run probes" are requested in a StatusRequest.
+// RequireHolderForFullStatus escalates a StatusRequest that asks for peer detail
+// or for probes to be run.
 func RequireHolderForFullStatus(r Request) error {
-	full, ok := r.Msg.(interface{ GetGetFullPeerStatus() bool })
-	if !ok || !full.GetGetFullPeerStatus() {
+	statusReq, ok := r.Msg.(interface {
+		GetGetFullPeerStatus() bool
+		GetShouldRunProbes() bool
+	})
+	if !ok {
 		return nil
 	}
-	probes, ok := r.Msg.(interface{ ShouldRunProbes() bool })
-	if !ok || !probes.ShouldRunProbes() {
+	if !statusReq.GetGetFullPeerStatus() && !statusReq.GetShouldRunProbes() {
 		return nil
 	}
 	return RequireLevel(AuthzLevelSessionHolder)(r)
@@ -85,83 +87,69 @@ func denyLevel(r Request, want AuthzLevel) error {
 // target-scoped.
 func (g *AuthzGate) StreamPolicyInterceptor() grpc.StreamServerInterceptor {
 	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-		authCtx, authErr := g.authorize(ss.Context(), info.FullMethod, nil)
+		authErr := g.authorize(ss.Context(), info.FullMethod, nil)
 		if authErr != nil {
 			return authErr
 		}
-		return handler(srv, &authorizedStream{ServerStream: ss, ctx: authCtx})
+		return handler(srv, ss)
 	}
 }
 
 // UnaryPolicyInterceptor authorizes each unary RPC before the handler runs.
 func (g *AuthzGate) UnaryPolicyInterceptor() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
-		authCtx, authErr := g.authorize(ctx, info.FullMethod, req)
+		authErr := g.authorize(ctx, info.FullMethod, req)
 		if authErr != nil {
 			return nil, authErr
 		}
-		return handler(authCtx, req)
+		return handler(ctx, req)
 	}
 }
 
-func (g *AuthzGate) authorize(ctx context.Context, method string, msg any) (context.Context, error) {
+func (g *AuthzGate) authorize(ctx context.Context, method string, msg any) error {
 	id, ok := CallerIdentity(ctx)
 	if !ok {
 		log.Warnf("ipc authz: DENY %s, caller identity unavailable", method)
-		return nil, status.Error(codes.PermissionDenied,
+		return status.Error(codes.PermissionDenied,
 			"caller identity could not be verified on the daemon control channel")
 	}
 	st := g.state()
 	if st == nil {
 		log.Warnf("ipc authz: DENY %s for %s, daemon state not attached", method, id)
-		return nil, status.Error(codes.Unavailable, "daemon not initialized")
+		return status.Error(codes.Unavailable, "daemon not initialized")
 	}
-	target, named := targetProfile(msg)
 	policy := methodPolicyFor(method)
-	if policy.TargetsProfile && !named {
-		return nil, status.Errorf(codes.Internal, "%s is declared target-scoped but names no profile", method)
+
+	// Only a target-scoped method reads a profile off the request.
+	var target string
+	if policy.TargetsProfile {
+		named, ok := targetProfile(msg)
+		if !ok {
+			return status.Errorf(codes.Internal, "%s is declared target-scoped but names no profile", method)
+		}
+		target = named
 	}
-	auth := Authorization{
+
+	req := Request{
 		Identity: id,
 		Level:    resolveLevel(id, target, st),
 		Target:   target,
 		Method:   method,
+		State:    st,
+		Msg:      msg,
 	}
-	req := Request{Authorization: auth, State: st, Msg: msg}
 	if req.Level < policy.Level {
 		log.Warnf("ipc authz: DENY %s for %s (%s), requires %s", method, id, req.Level, policy.Level)
-		return nil, denyLevel(req, policy.Level)
+		return denyLevel(req, policy.Level)
 	}
 	for _, rule := range policy.Rules {
 		if err := rule(req); err != nil {
 			log.Warnf("ipc authz: DENY %s for %s (%s): %v", method, id, req.Level, err)
-			return nil, err
+			return err
 		}
 	}
 	if policy.Audit {
 		log.Infof("ipc authz: allow %s for %s (%s)", method, id, req.Level)
 	}
-	return withAuthorization(ctx, auth), nil
-}
-
-// authorizedStream carries the authorized context into a streaming handler,
-// which would otherwise see the one the stream was created with.
-type authorizedStream struct {
-	grpc.ServerStream
-	ctx context.Context
-}
-
-type authorizationKey struct{}
-
-func withAuthorization(ctx context.Context, a Authorization) context.Context {
-	return context.WithValue(ctx, authorizationKey{}, a)
-}
-
-// Authorized returns the decision the interceptor made for this RPC.
-//
-// Read it to decide what a caller sees or who an action is attributed to. Do not
-// read it to decide whether a call is allowed, which is the method table's job.
-func Authorized(ctx context.Context) Authorization {
-	a, _ := ctx.Value(authorizationKey{}).(Authorization)
-	return a
+	return nil
 }
