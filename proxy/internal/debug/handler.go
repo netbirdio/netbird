@@ -807,11 +807,14 @@ func (h *Handler) startPerfWorker(accountID types.AccountID, client *nbembed.Cli
 		w.err = err
 		close(w.done)
 
+		// Publish before touching the registry: perfMu is taken once per
+		// account by every caller walking the fleet, so a finishing worker
+		// can queue behind a long apply and miss its own deadline.
+		results <- perfResult{accountID: accountID, err: err}
+
 		h.perfMu.Lock()
 		delete(h.perfInflight, accountID)
 		h.perfMu.Unlock()
-
-		results <- perfResult{accountID: accountID, err: err}
 	}()
 
 	return w, true
