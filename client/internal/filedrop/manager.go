@@ -606,7 +606,16 @@ func (m *Manager) OnCompleted(offer Offer) {
 		// Nothing will ask for these payloads again, and a sink that cannot
 		// address them by path has no sweep of its own to fall back on.
 		server.Spool().Remove(offer.ID)
-		m.finishTransfer(offer.ID, StateFailed, err.Error())
+		// Whatever did land is kept on the entry: those files are in the
+		// destination whether the rest arrived or not, and a failure with no
+		// paths would leave the user unable to find them. A transfer already
+		// settled elsewhere keeps the outcome it has, as finishTransfer would.
+		if !transfer.terminal() {
+			transfer.State = StateFailed
+			transfer.Error = err.Error()
+			transfer.DeliveredPaths = delivered
+			m.history.Upsert(transfer)
+		}
 		m.emit(EventFailed, m.transferOf(offer.ID))
 		return
 	}

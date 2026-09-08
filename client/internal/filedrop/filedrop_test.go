@@ -14,6 +14,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -780,6 +781,82 @@ func TestSpoolCleanupDropsStalePartials(t *testing.T) {
 
 	_, err = os.Stat(spool.OfferDir(fresh))
 	assert.NoError(t, err, "a recent offer dir must survive")
+}
+
+func TestSanitizeFileNameStripsRenderingControls(t *testing.T) {
+	// U+202E makes a file manager render the rest of the name reversed, so
+	// "gpj.exe" reads as though it ended in ".jpg".
+	got := sanitizeFileName("\u202egpj.exe", 0)
+	assert.Equal(t, "gpj.exe", got, "a bidi override must not survive into the delivered name")
+	assert.NotContains(t, got, "\u202e")
+
+	assert.Equal(t, "report.pdf", sanitizeFileName("re\u200eport.pdf", 0),
+		"a bidi mark must be dropped without eating the rest of the name")
+	assert.Equal(t, "notes.txt", sanitizeFileName("no\x00tes.txt", 0),
+		"a NUL must be dropped rather than refused by the filesystem")
+
+	assert.Equal(t, "file-3", sanitizeFileName("\u202e\u2066", 3),
+		"a name that is nothing but controls falls back to the index")
+}
+
+func TestSanitizeFileNameBoundsTheNameLength(t *testing.T) {
+	long := strings.Repeat("a", 400) + ".txt"
+	got := sanitizeFileName(long, 0)
+
+	assert.LessOrEqual(t, len(got), maxDeliveredNameBytes, "the name must fit a filesystem entry")
+	assert.True(t, strings.HasSuffix(got, ".txt"), "the extension must survive truncation")
+
+	// A multibyte stem must not be cut through a rune.
+	multi := strings.Repeat("é", 300) + ".txt"
+	got = sanitizeFileName(multi, 0)
+	assert.LessOrEqual(t, len(got), maxDeliveredNameBytes)
+	assert.True(t, utf8.ValidString(got), "truncation must leave valid UTF-8")
+
+	assert.Equal(t, "short.txt", sanitizeFileName("short.txt", 0), "a normal name is untouched")
+}
+
+func TestDeliverReportsWhatLandedWhenOneItemFails(t *testing.T) {
+	spool, err := NewSpool(t.TempDir())
+	require.NoError(t, err)
+	destDir := t.TempDir()
+
+	store := NewOfferStore(time.Minute)
+	files := []FileMeta{
+		{Name: "first.txt", Size: 4},
+		{Name: "second.txt", Size: 4},
+		{Name: "third.txt", Size: 4},
+	}
+	offer := store.Add(testPeer, "sender", files, DecisionAccepted)
+	require.NoError(t, spool.Prepare(offer.ID))
+
+	// Stage every item but the middle one, which is the state a failed write
+	// leaves behind.
+	for _, i := range []int{0, 2} {
+		_, err = spool.Write(offer.ID, i, "", 0, strings.NewReader("data"), 4)
+		require.NoError(t, err)
+	}
+
+	full, ok := store.Get(testPeer, offer.ID)
+	require.True(t, ok)
+
+	delivered, derr := spool.Deliver(full, destDir)
+	require.Error(t, derr, "the missing item must be reported")
+	assert.Contains(t, derr.Error(), "second.txt", "the error must name what failed")
+
+	require.Len(t, delivered, 2, "the items that landed must be reported, not discarded")
+	for _, p := range delivered {
+		_, serr := os.Stat(p)
+		require.NoErrorf(t, serr, "a reported path must exist: %s", p)
+	}
+
+	names := map[string]bool{}
+	entries, err := os.ReadDir(destDir)
+	require.NoError(t, err)
+	for _, e := range entries {
+		names[e.Name()] = true
+	}
+	assert.True(t, names["first.txt"], "the item before the failure must be delivered")
+	assert.True(t, names["third.txt"], "the item after the failure must still be attempted")
 }
 
 func TestParseOfferPath(t *testing.T) {
