@@ -669,7 +669,6 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	// command `netbird up --management-url=X` (which falls through to
 	// Login when SetConfig is rejected — see cmd/up.go) would silently
 	// bypass `--disable-update-settings` and any MDM policy.
-<<<<<<< HEAD
 	//
 	// The update-settings gate is value-aware, as in SetConfig: it looks at
 	// what a login would actually persist (loginOverridesInput) and refuses
@@ -679,19 +678,9 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	// NB_MANAGEMENT_URL, working with the kill switch on.
 	if s.checkUpdateSettingsDisabled() && configChangeRequested(stored, loginOverridesInput(msg)) {
 		return nil, gstatus.Errorf(codes.FailedPrecondition, errUpdateSettingsDisabled)
-=======
-	if loginRequestHasConfigOverrides(msg) {
-		if s.checkUpdateSettingsDisabled() {
-			return nil, gstatus.Errorf(codes.Unavailable, errUpdateSettingsDisabled)
-		}
-		policy := s.mdmLoader.Load()
-		if err := rejectMDMManagedFieldConflicts(loginRequestMDMConflicts(msg, policy)); err != nil {
-			return nil, err
-		}
->>>>>>> origin/main
 	}
 
-	policy := loadMDMPolicy()
+	policy := s.mdmLoader.Load()
 	if err := rejectMDMManagedFieldConflicts(loginRequestMDMConflicts(msg, policy)); err != nil {
 		return nil, err
 	}
@@ -1533,7 +1522,6 @@ func (s *Server) getConfig(activeProf *profilemanager.ActiveProfileState) (*prof
 		return nil, false, fmt.Errorf("failed to get config: %w", err)
 	}
 
-<<<<<<< HEAD
 	// This is the daemon's provisioning point: the config resolved here is the
 	// one the peer runs with, so it needs the keys that identify it, and those
 	// have to reach disk — a key that stays in memory would come back different
@@ -1549,13 +1537,13 @@ func (s *Server) getConfig(activeProf *profilemanager.ActiveProfileState) (*prof
 			return nil, false, fmt.Errorf("write out profile config: %w", err)
 		}
 	}
-=======
-	// Apply the daemon-owned MDM policy on top of the just-resolved
-	// Config. profilemanager's apply() initialises the policy to
-	// empty — the Loader lives outside Config, so this overlay step
-	// is driven externally here.
+
+	// Apply the daemon-owned MDM policy on top of the just-resolved Config.
+	// profilemanager's apply() initialises the policy to empty — the Loader
+	// lives outside Config, so this overlay step is driven externally here.
+	// After the write above, on purpose: the overlay is runtime-only and
+	// re-derived on every load, so the file keeps the profile's own values.
 	config.ApplyMDMPolicy(s.mdmLoader.Load())
->>>>>>> origin/main
 
 	return config, configExisted, nil
 }

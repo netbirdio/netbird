@@ -12,6 +12,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/client/proto"
 )
 
@@ -156,7 +157,7 @@ func TestLoginGateDecision(t *testing.T) {
 	stored, err := profilemanager.GetExistingConfig(seedProfileConfig(t, storedManagementURL, "stored-key"))
 	require.NoError(t, err)
 
-	redacted := preSharedKeyRedactedSentinel
+	redacted := mdm.PreSharedKeyRedactedSentinel
 	empty := ""
 	sameKey := "stored-key"
 	otherKey := "other-key"

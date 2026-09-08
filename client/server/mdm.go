@@ -9,7 +9,6 @@ import (
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
-	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/client/proto"
 )
@@ -146,124 +145,6 @@ func (s *Server) restartEngineForMDMLocked() error {
 	return nil
 }
 
-<<<<<<< HEAD
-// conflictBool builds a conflictCheck for a boolean MDM key. If p is nil
-// the field is treated as matching (no override requested); otherwise the
-// check returns true only when the policy contains the key and its
-// boolean value equals *p.
-func conflictBool(key string, p *bool) conflictCheck {
-	return conflictCheck{
-		key: key,
-		check: func(pol *mdm.Policy) bool {
-			if p == nil {
-				return true // absent → match by definition
-			}
-			want, ok := pol.GetBool(key)
-			return ok && want == *p
-		},
-	}
-}
-
-// conflictURL is conflictString for URL-typed keys: both sides are compared as
-// endpoints (profilemanager.SameServiceURL), so an implicit default port, a
-// trailing slash or a different host case is not read as a divergence from the
-// policy. A value that does not parse as a URL falls back to string equality,
-// which is the strictest thing left to do with it.
-func conflictURL(key, got string) conflictCheck {
-	return conflictCheck{
-		key: key,
-		check: func(pol *mdm.Policy) bool {
-			if got == "" {
-				return true
-			}
-			want, ok := pol.GetString(key)
-			if !ok {
-				return false
-			}
-			wantURL, wantErr := profilemanager.ParseServiceURL(key, want)
-			gotURL, gotErr := profilemanager.ParseServiceURL(key, got)
-			if wantErr != nil || gotErr != nil {
-				return want == got
-			}
-			return profilemanager.SameServiceURL(wantURL, gotURL)
-		},
-	}
-}
-
-// conflictString builds a conflictCheck for a string MDM key. An empty
-// `got` is treated as "field not set" (no override requested); otherwise
-// the check returns true only when the policy contains the key and its
-// value equals got.
-func conflictString(key, got string) conflictCheck {
-	return conflictCheck{
-		key: key,
-		check: func(pol *mdm.Policy) bool {
-			if got == "" {
-				return true
-			}
-			want, ok := pol.GetString(key)
-			return ok && want == got
-		},
-	}
-}
-
-// conflictStringPtr is conflictString for optional proto fields, where an
-// explicit empty value is still a request to change the setting. If p is
-// nil the field is treated as matching (no override requested); otherwise
-// the check returns true only when the policy contains the key and its
-// value equals *p.
-func conflictStringPtr(key string, p *string) conflictCheck {
-	return conflictCheck{
-		key: key,
-		check: func(pol *mdm.Policy) bool {
-			if p == nil {
-				return true
-			}
-			want, ok := pol.GetString(key)
-			return ok && want == *p
-		},
-	}
-}
-
-// conflictInt64 builds a conflictCheck for an integer MDM key. If p is
-// nil the field is treated as matching; otherwise the check returns
-// true only when the policy contains the key and its int value equals *p.
-func conflictInt64(key string, p *int64) conflictCheck {
-	return conflictCheck{
-		key: key,
-		check: func(pol *mdm.Policy) bool {
-			if p == nil {
-				return true
-			}
-			want, ok := pol.GetInt(key)
-			return ok && want == *p
-		},
-	}
-}
-
-// resolveConflicts walks the per-field checks against the active MDM
-// policy and returns the names of keys whose requested value diverges
-// from the policy-enforced value. Keys not present in the policy are
-// skipped silently (the gate fires only for keys the admin has
-// actually pushed). Returns nil for an empty policy.
-func resolveConflicts(policy *mdm.Policy, checks []conflictCheck) []string {
-	if policy.IsEmpty() {
-		return nil
-	}
-	var conflicts []string
-	for _, c := range checks {
-		if !policy.HasKey(c.key) {
-			continue
-		}
-		if !c.check(policy) {
-			conflicts = append(conflicts, c.key)
-		}
-	}
-	return conflicts
-}
-
-=======
->>>>>>> origin/main
 // mdmManagedFieldConflicts returns the names of MDM-managed keys whose
 // requested value in the SetConfigRequest differs from the MDM-enforced
 // value. A field set to the same value the policy already enforces is
