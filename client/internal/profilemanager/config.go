@@ -307,6 +307,83 @@ func newConfigSkeleton() *Config {
 	}
 }
 
+// resolveUnsetDefaults is the single place where an optional field that carries
+// no value gets one, and the only place that states what each of those defaults
+// is. apply() runs it before it compares anything, and that ordering is the
+// point: with the values named, every comparison below it diffs values instead
+// of presence.
+//
+// Presence-based comparison is what broke `netbird up` for a client configured
+// through the environment. These fields mean "the effective default" when they
+// hold nothing — every consumer already reads a nil as the value resolved here,
+// the SSH toggles in engine_ssh.go and the network monitor in
+// createEngineConfig — so naming them changes nothing about what runs. But
+// while they stayed nil, an input restating the default read as a change, and
+// since the CLI sends every flag whose value came from an environment variable
+// on each `netbird up`, a client with NB_ENABLE_SSH_ROOT=false restated it
+// every time and the update-settings gate refused it.
+//
+// Filling a field in is not a settings change, so a caller measuring change
+// must not read the returned bool as one: see WouldChange, which runs a pass
+// for this and discards its verdict.
+//
+// ServerSSHAllowed is the one field whose default depends on the config's age.
+// A brand-new profile gets false from newConfigSkeleton, which runs before
+// this, so what is resolved here is only the legacy case: a config written by a
+// version that had no such field keeps SSH on, for backwards compatibility.
+func (config *Config) resolveUnsetDefaults() (updated bool) {
+	// Fields that default to false on every platform.
+	for _, field := range []**bool{
+		&config.EnableSSHRoot,
+		&config.EnableSSHSFTP,
+		&config.EnableSSHLocalPortForwarding,
+		&config.EnableSSHRemotePortForwarding,
+		&config.DisableSSHAuth,
+		// Remote jobs are an explicit opt-in: unlike SSH, a pre-existing config
+		// with no value defaults to disabled rather than being turned on.
+		&config.RemoteJobsAllowed,
+	} {
+		if *field == nil {
+			*field = util.False()
+			updated = true
+		}
+	}
+
+	if config.DisableNotifications == nil {
+		log.Infof("setting notifications to disabled by default")
+		config.DisableNotifications = util.True()
+		updated = true
+	}
+
+	if config.SSHJWTCacheTTL == nil {
+		// A zero TTL disables the JWT cache, which is what no value meant.
+		config.SSHJWTCacheTTL = new(int)
+		updated = true
+	}
+
+	if config.NetworkMonitor == nil {
+		// network monitoring is on by default on windows and darwin clients
+		enabled := runtime.GOOS == "windows" || runtime.GOOS == "darwin"
+		config.NetworkMonitor = &enabled
+		updated = true
+	}
+
+	if config.ServerSSHAllowed == nil {
+		if runtime.GOOS == "android" {
+			// default to disabled SSH on Android for security
+			log.Infof("setting SSH server to false by default on Android")
+			config.ServerSSHAllowed = util.False()
+		} else {
+			// enables SSH for configs from old versions to preserve backwards compatibility
+			log.Infof("falling back to enabled SSH server for pre-existing configuration")
+			config.ServerSSHAllowed = util.True()
+		}
+		updated = true
+	}
+
+	return updated
+}
+
 // createNewConfig resolves a new config in memory, with no identity: whoever
 // needs the peer's keys calls EnsureIdentity and persists the result, so a read
 // that lands on a missing file cannot hand back a config carrying keys that
@@ -379,42 +456,12 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		}
 	}
 
-	// Fields whose nil means "the effective default" rather than "no opinion":
-	// every consumer already reads a nil as the value resolved here — the SSH
-	// toggles in engine_ssh.go, the network monitor in createEngineConfig — so
-	// naming it changes nothing about what runs.
-	//
-	// Resolving them up front is what lets the comparisons below diff values
-	// instead of presence. While they stayed nil, an input restating the
-	// default read as a change, and since the CLI sends every flag set through
-	// an environment variable on each `netbird up`, a client configured with
-	// NB_ENABLE_SSH_ROOT=false restated it every time and the update-settings
-	// gate refused the restatement.
-	for _, field := range []**bool{
-		&config.EnableSSHRoot,
-		&config.EnableSSHSFTP,
-		&config.EnableSSHLocalPortForwarding,
-		&config.EnableSSHRemotePortForwarding,
-		&config.DisableSSHAuth,
-	} {
-		if *field == nil {
-			*field = util.False()
-			updated = true
-		}
-	}
-
-	if config.SSHJWTCacheTTL == nil {
-		// A zero TTL disables the JWT cache, which is what no value meant.
-		config.SSHJWTCacheTTL = new(int)
+	// Every optional field gets its value here, before anything below compares
+	// one. See resolveUnsetDefaults for why that ordering is the point.
+	if config.resolveUnsetDefaults() {
 		updated = true
 	}
 
-	if config.NetworkMonitor == nil {
-		// network monitoring is on by default on windows and darwin clients
-		enabled := runtime.GOOS == "windows" || runtime.GOOS == "darwin"
-		config.NetworkMonitor = &enabled
-		updated = true
-	}
 	if config.ManagementURL == nil {
 		log.Infof("using default Management URL %s", DefaultManagementURL)
 		config.ManagementURL, err = parseURL("Management URL", DefaultManagementURL)
@@ -557,7 +604,7 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if input.ServerSSHAllowed != nil && (config.ServerSSHAllowed == nil || *input.ServerSSHAllowed != *config.ServerSSHAllowed) {
+	if input.ServerSSHAllowed != nil && *input.ServerSSHAllowed != *config.ServerSSHAllowed {
 		if *input.ServerSSHAllowed {
 			log.Infof("enabling SSH server")
 		} else {
@@ -565,31 +612,15 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		}
 		config.ServerSSHAllowed = input.ServerSSHAllowed
 		updated = true
-	} else if config.ServerSSHAllowed == nil {
-		if runtime.GOOS == "android" {
-			// default to disabled SSH on Android for security
-			log.Infof("setting SSH server to false by default on Android")
-			config.ServerSSHAllowed = util.False()
-		} else {
-			// enables SSH for configs from old versions to preserve backwards compatibility
-			log.Infof("falling back to enabled SSH server for pre-existing configuration")
-			config.ServerSSHAllowed = util.True()
-		}
-		updated = true
 	}
 
-	if input.RemoteJobsAllowed != nil && (config.RemoteJobsAllowed == nil || *input.RemoteJobsAllowed != *config.RemoteJobsAllowed) {
+	if input.RemoteJobsAllowed != nil && *input.RemoteJobsAllowed != *config.RemoteJobsAllowed {
 		if *input.RemoteJobsAllowed {
 			log.Infof("enabling remote jobs")
 		} else {
 			log.Infof("disabling remote jobs")
 		}
 		config.RemoteJobsAllowed = input.RemoteJobsAllowed
-		updated = true
-	} else if config.RemoteJobsAllowed == nil {
-		// Remote jobs are an explicit opt-in: unlike SSH, a pre-existing config
-		// with no value defaults to disabled rather than being turned on.
-		config.RemoteJobsAllowed = util.False()
 		updated = true
 	}
 
@@ -735,20 +766,13 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if input.DisableNotifications != nil && (config.DisableNotifications == nil || *input.DisableNotifications != *config.DisableNotifications) {
+	if input.DisableNotifications != nil && *input.DisableNotifications != *config.DisableNotifications {
 		if *input.DisableNotifications {
 			log.Infof("disabling notifications")
 		} else {
 			log.Infof("enabling notifications")
 		}
 		config.DisableNotifications = input.DisableNotifications
-		updated = true
-	}
-
-	if config.DisableNotifications == nil {
-		disabled := true
-		config.DisableNotifications = &disabled
-		log.Infof("setting notifications to disabled by default")
 		updated = true
 	}
 
