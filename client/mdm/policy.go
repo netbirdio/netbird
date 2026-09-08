@@ -68,6 +68,20 @@ const (
 	// (which defaults to disabled). Stored on Config as RemoteJobsAllowed.
 	KeyRemoteJobsAllowed = "allowRemoteJobs"
 
+	// KeyAllowGroups restricts the daemon control socket and the JSON socket
+	// to the listed principals, overriding the install-time --allow-group in
+	// both directions: a managed host can be restricted without a reinstall,
+	// and an empty value lifts a restriction the install set. Absent = defer to
+	// the install-time flag.
+	//
+	// Read as a list of principals in kind:value form, "gid:1001" on Unix and
+	// "sid:S-1-5-21-..." on Windows, either as a real list or comma-separated.
+	// Resolved principals rather than group names because this is read on the
+	// daemon's boot path, where resolving a name can block on an unreachable
+	// LDAP or Active Directory backend. A name is still accepted, and still
+	// resolved, for a host where that is not a concern.
+	KeyAllowGroups = "allowGroups"
+
 	// KeyBundleUploadURL overrides the debug-bundle upload service URL for
 	// remote jobs, taking precedence over the management-supplied value. Read
 	// as a string; must be an https URL with a host. Absent = defer to the
