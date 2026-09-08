@@ -80,12 +80,12 @@ func (p *program) Start(svc service.Service) error {
 		return fmt.Errorf("parse daemon address: %w", err)
 	}
 
-	p.ruleGate = ipcauth.NewRuleGate()
+	p.authzGate = ipcauth.NewAuthzGate()
 
 	// in any case, even if configuration does not exists we run daemon to serve CLI gRPC API.
 	opts := append(daemonServerOptions(network),
-		grpc.ChainUnaryInterceptor(p.ruleGate.UnaryPolicyInterceptor()),
-		grpc.ChainStreamInterceptor(p.ruleGate.StreamPolicyInterceptor()),
+		grpc.ChainUnaryInterceptor(p.authzGate.UnaryPolicyInterceptor()),
+		grpc.ChainStreamInterceptor(p.authzGate.StreamPolicyInterceptor()),
 	)
 	p.serv = grpc.NewServer(opts...)
 
@@ -151,7 +151,7 @@ func (p *program) serve(daemonListener, jsonListener *socketListener) error {
 	}
 
 	serverInstance := server.New(p.ctx, util.FindFirstLogPath(logFiles), configPath, profilesDisabled, updateSettingsDisabled, captureEnabled, networksDisabled)
-	p.ruleGate.SetState(serverInstance)
+	p.authzGate.SetState(serverInstance)
 	if err := serverInstance.Start(); err != nil {
 		return fmt.Errorf("start daemon: %w", err)
 	}
