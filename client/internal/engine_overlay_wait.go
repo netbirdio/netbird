@@ -8,7 +8,7 @@ import "net/netip"
 // overlay address in the same call chain that creates the interface, or hands
 // the engine an interface that already carries it, so a listener bound right
 // after has nothing to wait for. See the iOS variant for what the wait is.
-type overlayWaiter struct{}
+type overlayWaiter struct{} //nolint:unused // the iOS variant carries the state
 
 // overlayAddrReady reports whether ip can be bound. Always true here.
 func (e *Engine) overlayAddrReady(netip.Addr) bool {

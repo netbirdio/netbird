@@ -257,7 +257,7 @@ type Engine struct {
 	fileDrop        *filedrop.Manager
 	fileDropRunning bool
 	fileDropPort    uint16
-	overlayWait     overlayWaiter
+	overlayWait     overlayWaiter //nolint:unused // only read by the iOS overlay wait
 
 	statusRecorder *peer.Status
 

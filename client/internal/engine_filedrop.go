@@ -15,7 +15,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 )
 
-const fileDropWatchName = "the file drop receiver"
+const fileDropReceiverLabel = "the file drop receiver"
 
 type filedropResolver struct {
 	status *peer.Status
@@ -49,7 +49,7 @@ func (e *Engine) startFileDrop() {
 	wgAddr := e.wgInterface.Address()
 	if !e.overlayAddrReady(wgAddr.IP) {
 		log.Infof("file drop receiver waits for the overlay address %s", wgAddr.IP)
-		e.armOverlayWatch(fileDropWatchName, e.restartFileDrop)
+		e.armOverlayWatch(fileDropReceiverLabel, e.restartFileDrop)
 		return
 	}
 
@@ -71,7 +71,7 @@ func (e *Engine) startFileDrop() {
 	if v6 := wgAddr.IPv6; v6.IsValid() {
 		if err := e.fileDrop.AddReceiverListener(e.ctx, netip.AddrPortFrom(v6, bound)); err != nil {
 			log.Warnf("failed to add IPv6 file drop listener: %v", err)
-			e.armOverlayWatch(fileDropWatchName, e.restartFileDrop)
+			e.armOverlayWatch(fileDropReceiverLabel, e.restartFileDrop)
 		}
 	}
 
