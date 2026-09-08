@@ -99,7 +99,7 @@ export function SettingsTroubleshooting() {
                                     "rounded-md border bg-white dark:bg-nb-gray-900",
                                     "border-neutral-200 dark:border-nb-gray-700",
                                     "cursor-default text-xs font-semibold text-nb-gray-100 outline-none",
-                                    "hover:border-nb-gray-600 data-[state=open]:border-nb-gray-600",
+                                    "hover:border-nb-gray-700 data-[state=open]:border-nb-gray-700 dark:hover:border-nb-gray-600 dark:data-[state=open]:border-nb-gray-600",
                                 )}
                             >
                                 {t(`settings.troubleshooting.anonymize.${anonymizeLevel}`)}

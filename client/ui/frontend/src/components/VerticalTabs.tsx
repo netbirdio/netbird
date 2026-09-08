@@ -48,8 +48,8 @@ const Trigger = forwardRef<HTMLButtonElement, TriggerProps>(function VerticalTab
             className={cn(
                 "group flex w-full cursor-default items-center gap-3 rounded-lg px-2 py-2.5 text-left outline-none",
                 "transition-colors duration-150",
-                "data-[state=active]:bg-nb-gray-930",
-                "data-[state=inactive]:hover:bg-nb-gray-935",
+                "data-[state=active]:bg-netbird-100 dark:data-[state=active]:bg-nb-gray-930",
+                "data-[state=inactive]:hover:bg-nb-gray-850 dark:data-[state=inactive]:hover:bg-nb-gray-935",
                 isFocusVisible &&
                     "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                 className,
@@ -62,14 +62,14 @@ const Trigger = forwardRef<HTMLButtonElement, TriggerProps>(function VerticalTab
                 className={cn(
                     "ml-2 shrink-0 transition-colors duration-150",
                     "text-nb-gray-350 dark:text-nb-gray-400",
-                    "group-data-[state=active]:text-nb-gray-100",
+                    "group-data-[state=active]:text-netbird-700 dark:group-data-[state=active]:text-nb-gray-100",
                 )}
             />
             <span
                 className={cn(
                     "min-w-0 truncate text-sm font-medium transition-colors duration-150",
                     "text-nb-gray-350 dark:text-nb-gray-400",
-                    "group-data-[state=active]:text-nb-gray-100",
+                    "group-data-[state=active]:text-netbird-700 dark:group-data-[state=active]:text-nb-gray-100",
                 )}
             >
                 {title}

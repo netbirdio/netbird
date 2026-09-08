@@ -29,7 +29,7 @@ const buttonVariants = cva(
                 ],
                 primary: [
                     "dark:text-gray-100 dark:ring-offset-neutral-950/50 dark:focus:ring-netbird-600/50 enabled:dark:bg-netbird enabled:dark:hover:bg-netbird-500/80 enabled:dark:hover:text-nb-gray-50 disabled:dark:bg-nb-gray-900",
-                    "enabled:bg-netbird enabled:text-white enabled:hover:bg-netbird-500 enabled:focus:ring-netbird-400/50",
+                    "enabled:bg-netbird enabled:text-white enabled:hover:bg-netbird-500 enabled:focus:ring-netbird-400/50 disabled:bg-nb-gray-700",
                 ],
                 secondary: [
                     "border-gray-200 bg-white text-gray-900 hover:bg-gray-100 hover:text-black focus:ring-zinc-200/50",
