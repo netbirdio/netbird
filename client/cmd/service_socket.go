@@ -20,15 +20,20 @@ type socketListener struct {
 	address string
 }
 
-func listenOnAddress(addr string) (*socketListener, error) {
+// listenOnAddress opens the daemon listener for addr. allowed holds the
+// resolved principals from --allow-group, empty when the socket is left open to
+// every local account; on Windows they go into the pipe's security descriptor,
+// on Unix they are applied to the socket file by applySocketAccess once the
+// listener exists.
+func listenOnAddress(addr string, allowed []string) (*socketListener, error) {
 	network, address, err := parseListenAddress(addr)
 	if err != nil {
 		return nil, err
 	}
 
 	if network == "npipe" {
-		listener, path, err := listenNamedPipe(address) //nolint:staticcheck
-		if err != nil {                                 //nolint:staticcheck // always errors on non-Windows builds
+		listener, path, err := listenNamedPipe(address, allowed) //nolint:staticcheck
+		if err != nil {                                          //nolint:staticcheck // always errors on non-Windows builds
 			return nil, err
 		}
 		return &socketListener{Listener: listener, network: network, address: path}, nil
@@ -107,13 +112,17 @@ func removeStaleUnixSocketForAddress(addr string) {
 	removeStaleUnixSocket(address)
 }
 
-func (l *socketListener) chmodUnixSocket(description string) error {
+// restrict sets the access the socket file grants, from the principals resolved
+// out of --allow-group. It is a no-op for a nil listener, and for anything that
+// is not a Unix socket: a named pipe carries its access rules in the security
+// descriptor it was created with.
+func (l *socketListener) restrict(description string, allowed []string) error {
 	if l == nil || l.network != "unix" {
 		return nil
 	}
 
-	if err := os.Chmod(l.address, 0666); err != nil {
-		return fmt.Errorf("failed setting %s permissions for %s: %w", description, l.address, err)
+	if err := applySocketAccess(l.address, allowed); err != nil {
+		return fmt.Errorf("restrict %s socket %s: %w", description, l.address, err)
 	}
 	return nil
 }

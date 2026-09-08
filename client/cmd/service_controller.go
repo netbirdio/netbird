@@ -89,7 +89,15 @@ func (p *program) Start(svc service.Service) error {
 	)
 	p.serv = grpc.NewServer(opts...)
 
-	daemonListener, jsonListener, err := listenDaemonSockets()
+	allowed, err := resolveAllowGroups(allowGroups)
+	if err != nil {
+		return err
+	}
+	if len(allowed) > 0 {
+		log.Infof("daemon sockets are restricted to %v", allowed)
+	}
+
+	daemonListener, jsonListener, err := listenDaemonSockets(allowed)
 	if err != nil {
 		return err
 	}
@@ -97,7 +105,7 @@ func (p *program) Start(svc service.Service) error {
 	go func() {
 		// Fatal here rather than inside serve, so serve's deferred listener
 		// closes run before the process exits.
-		if err := p.serve(daemonListener, jsonListener); err != nil {
+		if err := p.serve(daemonListener, jsonListener, allowed); err != nil {
 			log.Fatalf("failed to %v", err)
 		}
 	}()
@@ -107,9 +115,10 @@ func (p *program) Start(svc service.Service) error {
 // listenDaemonSockets opens the daemon control socket and, when it is enabled, the
 // JSON gateway socket. The control socket is closed again if the second one fails,
 // so a failed start leaves nothing listening. The returned JSON listener is nil
-// when the socket is disabled.
-func listenDaemonSockets() (*socketListener, *socketListener, error) {
-	daemonListener, err := listenOnAddress(daemonAddr)
+// when the socket is disabled. allowed holds the resolved --allow-group
+// principals, empty when both sockets are left open to every local account.
+func listenDaemonSockets(allowed []string) (*socketListener, *socketListener, error) {
+	daemonListener, err := listenOnAddress(daemonAddr, allowed)
 	if err != nil {
 		return nil, nil, fmt.Errorf("listen daemon interface: %w", err)
 	}
@@ -119,7 +128,7 @@ func listenDaemonSockets() (*socketListener, *socketListener, error) {
 		return daemonListener, nil, nil
 	}
 
-	jsonListener, err := listenOnAddress(jsonSocket)
+	jsonListener, err := listenOnAddress(jsonSocket, allowed)
 	if err != nil {
 		if cerr := daemonListener.Close(); cerr != nil {
 			log.Debugf("close daemon listener: %v", cerr)
@@ -134,18 +143,18 @@ func listenDaemonSockets() (*socketListener, *socketListener, error) {
 // until it stops. jsonListener is nil when the JSON socket is disabled. A returned
 // error means the daemon cannot run at all and the caller is expected to exit; the
 // failures it recovers from on its own are logged here.
-func (p *program) serve(daemonListener, jsonListener *socketListener) error {
+func (p *program) serve(daemonListener, jsonListener *socketListener, allowed []string) error {
 	defer daemonListener.Close()
 	if jsonListener != nil {
 		defer jsonListener.Close()
 	}
 
-	// chmodUnixSocket is a no-op for a nil listener and for a non-unix one.
-	if err := daemonListener.chmodUnixSocket("daemon"); err != nil {
+	// restrict is a no-op for a nil listener and for a non-unix one.
+	if err := daemonListener.restrict("daemon", allowed); err != nil {
 		log.Error(err)
 		return nil
 	}
-	if err := jsonListener.chmodUnixSocket("daemon JSON"); err != nil {
+	if err := jsonListener.restrict("daemon JSON", allowed); err != nil {
 		log.Error(err)
 		return nil
 	}
