@@ -3,9 +3,6 @@
 Both toolchain instructives emit `netbird.wasm` and `wasm_exec.js` into `client/wasm/`. The `wasm_exec.js`  glue must
 come from the toolchain that built the binary; Go's and TinyGo's are not interchangeable.
 
-Prerequisite: `go.mod` replaces `github.com/soypat/lneto` and `golang.zx2c4.com/wireguard`
-with `../lneto` and `../wireguard-go-netbird`, so clone both as siblings of this repo.
-
 ## Go
 
 ```sh

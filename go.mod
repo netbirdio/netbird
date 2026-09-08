@@ -109,7 +109,7 @@ require (
 	github.com/shirou/gopsutil/v4 v4.25.8
 	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966
 	github.com/songgao/water v0.0.0-20200317203138-2b4b6d7c09d8
-	github.com/soypat/lneto v0.1.0
+	github.com/soypat/lneto v0.3.3-0.20260908095637-37e9d1628ba6
 	github.com/stretchr/testify v1.12.1
 	github.com/testcontainers/testcontainers-go v0.37.0
 	github.com/testcontainers/testcontainers-go/modules/mysql v0.37.0
@@ -333,8 +333,7 @@ replace github.com/kardianos/service => github.com/netbirdio/service v0.0.0-2024
 
 replace github.com/getlantern/systray => github.com/netbirdio/systray v0.0.0-20231030152038-ef1ed2a27949
 
-
-replace golang.zx2c4.com/wireguard => ../wireguard-go-netbird // github.com/netbirdio/wireguard-go v0.0.0-20260523085312-4b4a4e36017f
+replace golang.zx2c4.com/wireguard => github.com/soypat/wireguard-go-netbird v0.0.0-20260908100025-a2c77e1f4fa4 // netbirdio/wireguard-go#16
 
 replace github.com/cloudflare/circl => codeberg.org/cunicu/circl v0.0.0-20230801113412-fec58fc7b5f6
 
