@@ -137,7 +137,10 @@ func (wm *DefaultScheduler) Schedule(ctx context.Context, in time.Duration, ID s
 				if !reschedule {
 					wm.mu.Lock()
 					defer wm.mu.Unlock()
-					delete(wm.jobs, ID)
+					// A Cancel during job() may have registered a replacement under this ID.
+					if current, ok := wm.jobs[ID]; ok && current == cancel {
+						delete(wm.jobs, ID)
+					}
 					log.WithContext(ctx).Debugf("job %s is not scheduled to run again", ID)
 					ticker.Stop()
 					return

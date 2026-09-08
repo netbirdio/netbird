@@ -1187,14 +1187,14 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 	}()
 	for _, candidate := range peers {
 		// nolint:staticcheck
-		ctx = context.WithValue(ctx, nbcontext.PeerIDKey, candidate.Key)
+		peerCtx := context.WithValue(ctx, nbcontext.PeerIDKey, candidate.Key)
 
 		if candidate.UserID == "" {
 			// we do not want to expire peers that are added via setup key
 			continue
 		}
 
-		peer, err := am.expirePeerIfStillDue(ctx, accountID, candidate.ID, settings, reason)
+		peer, err := am.expirePeerIfStillDue(peerCtx, accountID, candidate.ID, settings, reason)
 		if err != nil {
 			return err
 		}
@@ -1205,7 +1205,7 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 		meta := peer.EventMeta(dnsDomain)
 		meta["reason"] = string(reason)
 		am.StoreEvent(
-			ctx,
+			peerCtx,
 			peer.UserID, peer.ID, accountID,
 			activity.PeerLoginExpired, meta,
 		)
