@@ -14,28 +14,6 @@ import (
 	"github.com/netbirdio/netbird/client/proto"
 )
 
-// preSharedKeyRedactedSentinel is the value GetConfig returns in place
-// of an actual PSK, so a UI that round-trips the field back to the
-// daemon (via SetConfig / Login) can be distinguished from a deliberate
-// override. Any incoming PSK that equals this sentinel is treated as
-// a no-op echo, never as a conflict with the policy.
-const preSharedKeyRedactedSentinel = "**********"
-
-// loadMDMPolicy is the indirection used by server handlers to read the
-// active MDM policy. Tests override this to inject a fake policy.
-var loadMDMPolicy = mdm.LoadPolicy
-
-// conflictCheck is a value-aware comparison between a single field in
-// the incoming request and the corresponding MDM-enforced value. It
-// runs only when the field was actually set in the request (presence
-// already filtered upstream); ok=true reports the policy value, ok=false
-// means the policy is silent on the key — both are treated as conflicts
-// to be safe (an MDM key declared as managed must hold a value).
-type conflictCheck struct {
-	key   string
-	check func(*mdm.Policy) (match bool)
-}
-
 // onMDMPolicyChange is invoked by the MDM reload ticker every time the
 // OS-native managed-config store reports a diff vs the last observation.
 //
@@ -168,6 +146,7 @@ func (s *Server) restartEngineForMDMLocked() error {
 	return nil
 }
 
+<<<<<<< HEAD
 // conflictBool builds a conflictCheck for a boolean MDM key. If p is nil
 // the field is treated as matching (no override requested); otherwise the
 // check returns true only when the policy contains the key and its
@@ -283,6 +262,8 @@ func resolveConflicts(policy *mdm.Policy, checks []conflictCheck) []string {
 	return conflicts
 }
 
+=======
+>>>>>>> origin/main
 // mdmManagedFieldConflicts returns the names of MDM-managed keys whose
 // requested value in the SetConfigRequest differs from the MDM-enforced
 // value. A field set to the same value the policy already enforces is
@@ -296,27 +277,25 @@ func mdmManagedFieldConflicts(msg *proto.SetConfigRequest, policy *mdm.Policy) [
 		return nil
 	}
 
-	// PSK round-trip echo: collapse the sentinel to empty so the
-	// shared check treats it as "field not set".
-	pskGot := ""
-	if msg.OptionalPreSharedKey != nil && *msg.OptionalPreSharedKey != preSharedKeyRedactedSentinel {
-		pskGot = *msg.OptionalPreSharedKey
+	pskGot := msg.OptionalPreSharedKey
+	if pskGot != nil && *pskGot == mdm.PreSharedKeyRedactedSentinel {
+		pskGot = nil
 	}
 
-	return resolveConflicts(policy, []conflictCheck{
-		conflictURL(mdm.KeyManagementURL, msg.ManagementUrl),
-		conflictString(mdm.KeyPreSharedKey, pskGot),
-		conflictBool(mdm.KeyRosenpassEnabled, msg.RosenpassEnabled),
-		conflictBool(mdm.KeyRosenpassPermissive, msg.RosenpassPermissive),
-		conflictBool(mdm.KeyDisableAutoConnect, msg.DisableAutoConnect),
-		conflictBool(mdm.KeyAllowServerSSH, msg.ServerSSHAllowed),
-		conflictBool(mdm.KeyRemoteJobsAllowed, msg.RemoteJobsAllowed),
-		conflictBool(mdm.KeyDisableClientRoutes, msg.DisableClientRoutes),
-		conflictBool(mdm.KeyDisableServerRoutes, msg.DisableServerRoutes),
-		conflictBool(mdm.KeyBlockInbound, msg.BlockInbound),
-		conflictInt64(mdm.KeyWireguardPort, msg.WireguardPort),
-		conflictBool(mdm.KeyEnableLocalMetrics, msg.EnableLocalMetrics),
-		conflictStringPtr(mdm.KeyLocalMetricsAddress, msg.LocalMetricsAddress),
+	return mdm.ResolveConflicts(policy, []mdm.ConflictCheck{
+		mdm.ConflictURL(mdm.KeyManagementURL, msg.ManagementUrl),
+		mdm.ConflictStringPtr(mdm.KeyPreSharedKey, pskGot),
+		mdm.ConflictBool(mdm.KeyRosenpassEnabled, msg.RosenpassEnabled),
+		mdm.ConflictBool(mdm.KeyRosenpassPermissive, msg.RosenpassPermissive),
+		mdm.ConflictBool(mdm.KeyDisableAutoConnect, msg.DisableAutoConnect),
+		mdm.ConflictBool(mdm.KeyAllowServerSSH, msg.ServerSSHAllowed),
+		mdm.ConflictBool(mdm.KeyRemoteJobsAllowed, msg.RemoteJobsAllowed),
+		mdm.ConflictBool(mdm.KeyDisableClientRoutes, msg.DisableClientRoutes),
+		mdm.ConflictBool(mdm.KeyDisableServerRoutes, msg.DisableServerRoutes),
+		mdm.ConflictBool(mdm.KeyBlockInbound, msg.BlockInbound),
+		mdm.ConflictInt64(mdm.KeyWireguardPort, msg.WireguardPort),
+		mdm.ConflictBool(mdm.KeyEnableLocalMetrics, msg.EnableLocalMetrics),
+		mdm.ConflictStringPtr(mdm.KeyLocalMetricsAddress, msg.LocalMetricsAddress),
 	})
 }
 
@@ -333,34 +312,28 @@ func loginRequestMDMConflicts(msg *proto.LoginRequest, policy *mdm.Policy) []str
 		return nil
 	}
 
-	// Collapse the two PSK fields + the redaction sentinel down to a
-	// single "got" string the shared check can compare against the
-	// policy: OptionalPreSharedKey wins if set; PreSharedKey (deprecated)
-	// is the fallback; sentinel echo is treated as "field not set".
-	pskGot := ""
-	if msg.OptionalPreSharedKey != nil {
-		pskGot = *msg.OptionalPreSharedKey
-	} else if msg.PreSharedKey != "" { //nolint:staticcheck // SA1019: legacy proto field still accepted by Login
-		pskGot = msg.PreSharedKey //nolint:staticcheck // SA1019
+	pskGot := msg.OptionalPreSharedKey
+	if pskGot == nil && msg.PreSharedKey != "" { //nolint:staticcheck // SA1019: legacy proto field still accepted by Login
+		pskGot = &msg.PreSharedKey //nolint:staticcheck // SA1019
 	}
-	if pskGot == preSharedKeyRedactedSentinel {
-		pskGot = ""
+	if pskGot != nil && *pskGot == mdm.PreSharedKeyRedactedSentinel {
+		pskGot = nil
 	}
 
-	return resolveConflicts(policy, []conflictCheck{
-		conflictURL(mdm.KeyManagementURL, msg.ManagementUrl),
-		conflictString(mdm.KeyPreSharedKey, pskGot),
-		conflictBool(mdm.KeyRosenpassEnabled, msg.RosenpassEnabled),
-		conflictBool(mdm.KeyRosenpassPermissive, msg.RosenpassPermissive),
-		conflictBool(mdm.KeyDisableAutoConnect, msg.DisableAutoConnect),
-		conflictBool(mdm.KeyAllowServerSSH, msg.ServerSSHAllowed),
-		conflictBool(mdm.KeyRemoteJobsAllowed, msg.RemoteJobsAllowed),
-		conflictBool(mdm.KeyDisableClientRoutes, msg.DisableClientRoutes),
-		conflictBool(mdm.KeyDisableServerRoutes, msg.DisableServerRoutes),
-		conflictBool(mdm.KeyBlockInbound, msg.BlockInbound),
-		conflictInt64(mdm.KeyWireguardPort, msg.WireguardPort),
-		conflictBool(mdm.KeyEnableLocalMetrics, msg.EnableLocalMetrics),
-		conflictStringPtr(mdm.KeyLocalMetricsAddress, msg.LocalMetricsAddress),
+	return mdm.ResolveConflicts(policy, []mdm.ConflictCheck{
+		mdm.ConflictURL(mdm.KeyManagementURL, msg.ManagementUrl),
+		mdm.ConflictStringPtr(mdm.KeyPreSharedKey, pskGot),
+		mdm.ConflictBool(mdm.KeyRosenpassEnabled, msg.RosenpassEnabled),
+		mdm.ConflictBool(mdm.KeyRosenpassPermissive, msg.RosenpassPermissive),
+		mdm.ConflictBool(mdm.KeyDisableAutoConnect, msg.DisableAutoConnect),
+		mdm.ConflictBool(mdm.KeyAllowServerSSH, msg.ServerSSHAllowed),
+		mdm.ConflictBool(mdm.KeyRemoteJobsAllowed, msg.RemoteJobsAllowed),
+		mdm.ConflictBool(mdm.KeyDisableClientRoutes, msg.DisableClientRoutes),
+		mdm.ConflictBool(mdm.KeyDisableServerRoutes, msg.DisableServerRoutes),
+		mdm.ConflictBool(mdm.KeyBlockInbound, msg.BlockInbound),
+		mdm.ConflictInt64(mdm.KeyWireguardPort, msg.WireguardPort),
+		mdm.ConflictBool(mdm.KeyEnableLocalMetrics, msg.EnableLocalMetrics),
+		mdm.ConflictStringPtr(mdm.KeyLocalMetricsAddress, msg.LocalMetricsAddress),
 	})
 }
 
