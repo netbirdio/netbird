@@ -2,22 +2,15 @@ package ipcauth
 
 const servicePath = "/daemon.DaemonService/"
 
-// Authorization is the decision the interceptor reached for one RPC. It is what
-// handlers read.
-type Authorization struct {
-	Identity Identity
-	Level    AuthzLevel
-	Target   string
-	Method   string
-}
-
 // Request is what a rule decides on: the authorization plus the state and the
 // message, which only the gate needs.
 type Request struct {
-	Authorization
-	State  DaemonState
-	Method string
-	Msg    any
+	Identity Identity
+	State    DaemonState
+	Level    AuthzLevel
+	Target   string
+	Method   string
+	Msg      any
 }
 
 // Rule is an additional constraint beyond the method's level. Every rule on a
