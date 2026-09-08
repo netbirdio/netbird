@@ -122,6 +122,7 @@ func (s *BaseServer) AfterInit(fn func(s *BaseServer)) {
 
 // Start begins listening for HTTP requests on the configured address
 func (s *BaseServer) Start(ctx context.Context) error {
+	log.WithContext(ctx).Infof("starting Management Service Base Server")
 	srvCtx, cancel := context.WithCancel(ctx)
 	s.cancel = cancel
 	s.errCh = make(chan error, 4)
