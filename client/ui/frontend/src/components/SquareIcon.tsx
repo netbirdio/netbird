@@ -27,7 +27,7 @@ export const SquareIcon = ({
     <div
         aria-hidden={"true"}
         className={cn(
-            "flex h-11 w-11 items-center justify-center rounded-lg border border-nb-gray-900 bg-nb-gray-920",
+            "flex h-11 w-11 items-center justify-center rounded-lg border border-nb-gray-800 bg-nb-gray-920 dark:border-nb-gray-900",
             variantClass[variant],
             className,
         )}

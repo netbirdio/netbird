@@ -19,7 +19,7 @@ export const AppRightPanel = ({ children, overlay, overlayOpen = false, classNam
         <div
             className={cn(
                 "wails-no-draggable relative m-5",
-                "border border-nb-gray-920 bg-nb-gray-940",
+                "border border-nb-gray-800 bg-nb-gray-940 dark:border-nb-gray-920",
                 "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl rounded-br-2xl",
                 className,
             )}

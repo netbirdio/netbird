@@ -42,7 +42,7 @@ const headlessTeardownDelay = 2 * time.Second
 // paint the same surface; keep the three in sync.
 var (
 	windowBackgroundDark  = application.NewRGB(24, 26, 29)    // dark nb-gray DEFAULT
-	windowBackgroundLight = application.NewRGB(233, 236, 239) // light nb-gray DEFAULT
+	windowBackgroundLight = application.NewRGB(241, 243, 244) // light nb-gray DEFAULT
 )
 
 // Appearance is one view of the theme state: the preference and the appearance
@@ -111,8 +111,8 @@ var microsoftWindowsDarkTheme = &application.WindowTheme{
 }
 
 var microsoftWindowsLightTheme = &application.WindowTheme{
-	BorderColour:    u32ptr(0x00EFECE9), // #E9ECEF light nb-gray DEFAULT
-	TitleBarColour:  u32ptr(0x00EFECE9),
+	BorderColour:    u32ptr(0x00F4F3F1), // #F1F3F4 light nb-gray DEFAULT
+	TitleBarColour:  u32ptr(0x00F4F3F1),
 	TitleTextColour: u32ptr(0x0024211F), // #1F2124
 }
 

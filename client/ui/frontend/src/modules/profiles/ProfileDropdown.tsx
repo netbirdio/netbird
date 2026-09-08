@@ -92,7 +92,7 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
                         listRef.current?.focus();
                     }}
                     className={cn(
-                        "wails-no-draggable z-50 min-w-64 select-none overflow-hidden rounded-lg border border-nb-gray-900 bg-nb-gray-935 p-1 text-nb-gray-200 shadow-lg",
+                        "wails-no-draggable z-50 min-w-64 select-none overflow-hidden rounded-lg border border-nb-gray-800 bg-nb-gray-950 p-1 text-nb-gray-200 shadow-lg dark:border-nb-gray-900 dark:bg-nb-gray-935",
                         "data-[state=open]:animate-in data-[state=closed]:animate-out",
                         "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
                         "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
@@ -211,9 +211,9 @@ const ProfileTriggerButton = forwardRef<HTMLButtonElement, ProfileTriggerButtonP
                 aria-haspopup={"listbox"}
                 className={cn(
                     "wails-no-draggable flex h-10 cursor-default select-none items-center gap-2 rounded-lg px-3 outline-none",
-                    "text-nb-gray-200 hover:bg-nb-gray-900",
-                    "data-[state=open]:bg-nb-gray-900",
-                    "disabled:opacity-50 disabled:hover:bg-transparent",
+                    "text-nb-gray-200 hover:bg-nb-gray-800 dark:hover:bg-nb-gray-900",
+                    "data-[state=open]:bg-nb-gray-800 dark:data-[state=open]:bg-nb-gray-900",
+                    "disabled:opacity-50 disabled:hover:bg-transparent dark:disabled:hover:bg-transparent",
                     isFocusVisible &&
                         "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                     "wails-no-draggable transition-colors duration-150",

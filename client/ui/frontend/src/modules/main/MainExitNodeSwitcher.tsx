@@ -156,14 +156,14 @@ const ExitNodeTriggerCard = forwardRef<HTMLButtonElement, TriggerProps>(
                 disabled={disabled}
                 className={cn(
                     "flex w-full items-center gap-3 rounded-xl p-2.5 pr-5 text-left outline-none",
-                    "border border-nb-gray-920 bg-nb-gray-940",
+                    "border border-nb-gray-800 bg-nb-gray-940 dark:border-nb-gray-920",
                     "transition-colors duration-150",
                     "wails-no-draggable",
                     isFocusVisible &&
                         "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                     disabled
                         ? "cursor-not-allowed opacity-60"
-                        : "cursor-default hover:border-nb-gray-900 hover:bg-nb-gray-935 data-[state=open]:border-nb-gray-900 data-[state=open]:bg-nb-gray-935",
+                        : "cursor-default hover:border-nb-gray-700 hover:bg-nb-gray-935 data-[state=open]:border-nb-gray-700 data-[state=open]:bg-nb-gray-935 dark:hover:border-nb-gray-900 dark:data-[state=open]:border-nb-gray-900",
                     className,
                 )}
                 {...props}
