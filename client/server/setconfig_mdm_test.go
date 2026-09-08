@@ -36,11 +36,11 @@ func withMDMPolicy(t *testing.T, s *Server, policy *mdm.Policy) {
 				values[k] = v
 				continue
 			}
-			if v, ok := policy.GetBool(k); ok {
+			if v, ok := policy.GetInt(k); ok {
 				values[k] = v
 				continue
 			}
-			if v, ok := policy.GetInt(k); ok {
+			if v, ok := policy.GetBool(k); ok {
 				values[k] = v
 				continue
 			}
