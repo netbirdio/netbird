@@ -67,7 +67,7 @@ export const Content = forwardRef<ElementRef<typeof DialogPrimitive.Content>, Co
                         className={cn(
                             "relative z-[52] mx-auto w-full outline-none ring-0",
                             "focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0",
-                            "rounded-lg border border-nb-gray-900 bg-nb-gray py-7 shadow-2xl",
+                            "rounded-lg border border-nb-gray-800 bg-nb-gray-940 py-7 shadow-2xl dark:border-nb-gray-900 dark:bg-nb-gray",
                             "data-[state=open]:animate-in data-[state=open]:fade-in-0",
                             "data-[state=open]:zoom-in-95 data-[state=open]:slide-in-from-left-1",
                             exitAnimation &&

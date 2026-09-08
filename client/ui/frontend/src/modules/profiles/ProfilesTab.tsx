@@ -177,7 +177,7 @@ export function ProfilesTab() {
 
                 <div
                     className={cn(
-                        "overflow-hidden rounded-xl border border-nb-gray-900 bg-nb-gray-930/60",
+                        "overflow-hidden rounded-xl border border-nb-gray-800 bg-nb-gray-930/60 dark:border-nb-gray-900",
                     )}
                 >
                     <ProfilesTable

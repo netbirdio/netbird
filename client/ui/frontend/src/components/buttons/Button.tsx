@@ -32,9 +32,9 @@ const buttonVariants = cva(
                     "enabled:bg-netbird enabled:text-white enabled:hover:bg-netbird-500 enabled:focus:ring-netbird-400/50 disabled:bg-nb-gray-700",
                 ],
                 secondary: [
-                    "border-gray-200 bg-white text-gray-900 hover:bg-gray-100 hover:text-black focus:ring-zinc-200/50",
-                    "dark:ring-offset-neutral-950/50 dark:focus:ring-neutral-500/20",
-                    "dark:border-gray-700/40 dark:bg-nb-gray-920 dark:text-gray-400 dark:hover:bg-nb-gray-910 dark:hover:text-nb-gray-50",
+                    "border-gray-200 bg-white text-gray-900 hover:border-nb-gray-700 hover:bg-nb-gray-950 hover:text-black focus:ring-nb-gray-500/50 focus:ring-offset-0",
+                    "dark:ring-offset-neutral-950/50 dark:focus:ring-neutral-500/20 dark:focus:ring-offset-1",
+                    "dark:border-gray-700/40 dark:bg-nb-gray-920 dark:text-gray-400 dark:hover:border-gray-700/40 dark:hover:bg-nb-gray-910 dark:hover:text-nb-gray-50",
                 ],
                 secondaryLighter: [
                     "border-gray-200 bg-white text-gray-900 hover:bg-gray-100 hover:text-black focus:ring-zinc-200/50",
