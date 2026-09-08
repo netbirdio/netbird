@@ -782,6 +782,28 @@ func collectBuffered(results <-chan perfResult, pending map[types.AccountID]*per
 	}
 }
 
+// resolvePending closes out the accounts still pending when the deadline fires.
+// A worker whose done channel is closed has finished, whatever the results
+// channel has managed to deliver, so its own error is the truth; the rest are
+// genuinely still running and are reported as timed out. Returns how many of
+// them had in fact succeeded.
+func resolvePending(pending map[types.AccountID]*perfWorker, failed map[string]string) int {
+	applied := 0
+	for accountID, w := range pending {
+		select {
+		case <-w.done:
+			if w.err != nil {
+				failed[string(accountID)] = w.err.Error()
+				continue
+			}
+			applied++
+		default:
+			failed[string(accountID)] = fmt.Sprintf("timed out after %s waiting for the client", perfApplyTimeout)
+		}
+	}
+	return applied
+}
+
 // startPerfWorker returns the in-flight retune for the account, starting one if
 // there is none. The bool reports whether this call started it.
 //
@@ -871,9 +893,7 @@ func (h *Handler) applyBufferCap(capN uint32) (int, map[string]string, []string)
 			applied++
 		case <-deadline:
 			applied += collectBuffered(results, pending, failed)
-			for accountID := range pending {
-				failed[string(accountID)] = fmt.Sprintf("timed out after %s waiting for the client", perfApplyTimeout)
-			}
+			applied += resolvePending(pending, failed)
 			return applied, failed, inFlight
 		}
 	}
