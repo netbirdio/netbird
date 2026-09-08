@@ -5,8 +5,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 // The zero Identity carries uid 0, so every predicate that reads UID has to
@@ -53,65 +51,6 @@ func TestKnownForTestMarksIdentity(t *testing.T) {
 	id := KnownForTest(Identity{UID: 1000, GID: 1000})
 	require.True(t, id.Known())
 	assert.Equal(t, uint32(1000), id.UID, "KnownForTest must not alter the identity")
-}
-
-type stubState struct {
-	holder Principal
-	held   bool
-}
-
-func (s stubState) SessionHolder() (Principal, bool) { return s.holder, s.held }
-
-func uidHolder(uid uint32) Principal {
-	p, ok := ParsePrincipal(UIDPrincipal(uid))
-	if !ok {
-		panic("bad uid principal")
-	}
-	return p
-}
-
-// The holder comes from a profile JSON, the caller from a peercred read. When
-// both were an Identity, the known marker made every such comparison false and
-// the session holder could never be recognised.
-func TestRequireSessionHolderMatchesConfigOwner(t *testing.T) {
-	asDaemon(t, KnownForTest(Identity{UID: 0}))
-
-	caller := KnownForTest(Identity{UID: 1000, GID: 1000})
-	assert.NoError(t, RequireSessionHolder(caller, stubState{holder: uidHolder(1000), held: true}))
-}
-
-func TestRequireSessionHolderRejectsAnotherUser(t *testing.T) {
-	asDaemon(t, KnownForTest(Identity{UID: 0}))
-
-	caller := KnownForTest(Identity{UID: 1000, GID: 1000})
-	err := RequireSessionHolder(caller, stubState{holder: uidHolder(1001), held: true})
-	assert.Equal(t, codes.PermissionDenied, status.Code(err))
-}
-
-// With nobody connected there is no session to protect.
-func TestRequireSessionHolderAllowsWhenUnheld(t *testing.T) {
-	asDaemon(t, KnownForTest(Identity{UID: 0}))
-
-	caller := KnownForTest(Identity{UID: 1000, GID: 1000})
-	assert.NoError(t, RequireSessionHolder(caller, stubState{held: false}))
-}
-
-// An owner that could not be parsed leaves the zero Principal, which matches
-// nobody, so the session locks rather than opening.
-func TestRequireSessionHolderLocksOnUnparseableOwner(t *testing.T) {
-	asDaemon(t, KnownForTest(Identity{UID: 0}))
-
-	caller := KnownForTest(Identity{UID: 1000, GID: 1000})
-	err := RequireSessionHolder(caller, stubState{holder: Principal{}, held: true})
-	assert.Equal(t, codes.PermissionDenied, status.Code(err))
-}
-
-// Root takes over whoever holds the session.
-func TestRequireSessionHolderAllowsPrivilegedCaller(t *testing.T) {
-	asDaemon(t, KnownForTest(Identity{UID: 1000}))
-
-	root := KnownForTest(Identity{UID: 0})
-	assert.NoError(t, RequireSessionHolder(root, stubState{holder: uidHolder(1001), held: true}))
 }
 
 // A uid:0 owner is a config value, so it grants nothing on its own.

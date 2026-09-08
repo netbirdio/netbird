@@ -2723,6 +2723,11 @@ func (s *Server) SessionHolder() (ipcauth.Principal, bool) {
 	return principal, true
 }
 
+func (s *Server) OwnsProfile(id ipcauth.Identity, handle string) bool {
+	// TODO
+	return false
+}
+
 func persistLoginOverrides(activeProf *profilemanager.ActiveProfileState, managementURL string, preSharedKey *string) error {
 	if preSharedKey != nil && *preSharedKey == "" {
 		preSharedKey = nil
