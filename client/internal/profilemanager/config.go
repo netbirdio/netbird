@@ -13,7 +13,6 @@ import (
 	"reflect"
 	"runtime"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -1001,6 +1000,10 @@ func ParseServiceURL(serviceName, serviceURL string) (*url.URL, error) {
 // and reading them as three values makes a client that restates its own
 // management URL look like a client asking to be repointed. A nil operand
 // matches only another nil one.
+//
+// The path plays no part: a management URL is dialed, and only its host and
+// port are. util.SameServiceURL is this comparison plus the path, which is
+// what SameServiceURLIncludingPath needs and delegates to.
 func SameServiceURL(a, b *url.URL) bool {
 	if a == nil || b == nil {
 		return a == b
@@ -1008,29 +1011,7 @@ func SameServiceURL(a, b *url.URL) bool {
 
 	return a.Scheme == b.Scheme &&
 		strings.EqualFold(a.Hostname(), b.Hostname()) &&
-		ServiceURLPort(a) == ServiceURLPort(b)
-}
-
-// ServiceURLPort returns the port a service URL addresses, resolving an absent
-// one to the default of its scheme. The port is normalized numerically, so a
-// zero-padded ":0443" is the same port as ":443".
-func ServiceURLPort(u *url.URL) string {
-	port := u.Port()
-	if port == "" {
-		switch u.Scheme {
-		case "https":
-			return "443"
-		case "http":
-			return "80"
-		default:
-			return ""
-		}
-	}
-
-	if n, err := strconv.Atoi(port); err == nil {
-		return strconv.Itoa(n)
-	}
-	return port
+		util.ServiceURLPort(a) == util.ServiceURLPort(b)
 }
 
 // SameServiceURLIncludingPath is SameServiceURL plus everything a URL carries
@@ -1046,15 +1027,10 @@ func SameServiceURLIncludingPath(a, b *url.URL) bool {
 		return a == b
 	}
 
-	return SameServiceURL(a, b) &&
-		normalizedURLPath(a) == normalizedURLPath(b) &&
+	return util.SameServiceURL(a, b) &&
 		a.RawQuery == b.RawQuery &&
 		a.Fragment == b.Fragment &&
 		a.User.String() == b.User.String()
-}
-
-func normalizedURLPath(u *url.URL) string {
-	return strings.TrimSuffix(u.Path, "/")
 }
 
 func parseURL(serviceName, serviceURL string) (*url.URL, error) {

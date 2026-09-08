@@ -481,13 +481,14 @@ func TestWouldChangeNormalizesBeforeMeasuring(t *testing.T) {
 	require.True(t, changed, "a non-default value is still a change")
 }
 
-// A zero-padded port addresses the same port.
+// A zero-padded port addresses the same port. The normalization itself belongs
+// to util.ServiceURLPort and is tested there; this asserts that the comparison
+// this package hands its callers inherits it.
 func TestServiceURLPortIsNormalizedNumerically(t *testing.T) {
 	padded, err := ParseServiceURL("padded", "https://mgmt.example.com:0443")
 	require.NoError(t, err)
 	plain, err := ParseServiceURL("plain", "https://mgmt.example.com:443")
 	require.NoError(t, err)
 
-	require.Equal(t, "443", ServiceURLPort(padded))
 	require.True(t, SameServiceURL(padded, plain))
 }
