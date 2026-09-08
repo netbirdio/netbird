@@ -150,3 +150,40 @@ func TestScheduler_Schedule(t *testing.T) {
 	scheduler.cancel(context.Background(), jobID)
 
 }
+
+func TestScheduler_Schedule_ResetsTickerAfterReturningInitialInterval(t *testing.T) {
+	jobID := "test-scheduler-job-2"
+	scheduler := NewDefaultScheduler()
+	defer scheduler.Cancel(context.Background(), []string{jobID})
+
+	initial := 30 * time.Millisecond
+	stretched := 400 * time.Millisecond
+	runs := make(chan time.Time, 3)
+	count := 0
+	// The first run stretches the period; the second returns the initial interval again,
+	// which must shrink the period back instead of keeping the stretched one.
+	job := func() (nextRunIn time.Duration, reschedule bool) {
+		count++
+		runs <- time.Now()
+		switch count {
+		case 1:
+			return stretched, true
+		case 2:
+			return initial, true
+		default:
+			return 0, false
+		}
+	}
+	scheduler.Schedule(context.Background(), initial, jobID, job)
+
+	var stamps []time.Time
+	for len(stamps) < 3 {
+		select {
+		case ts := <-runs:
+			stamps = append(stamps, ts)
+		case <-time.After(2 * time.Second):
+			t.Fatalf("timed out after %d runs", len(stamps))
+		}
+	}
+	assert.Less(t, stamps[2].Sub(stamps[1]), stretched/2, "returning the initial interval must reset the stretched ticker")
+}

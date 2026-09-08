@@ -117,6 +117,7 @@ func (wm *DefaultScheduler) Schedule(ctx context.Context, in time.Duration, ID s
 	}
 
 	ticker := time.NewTicker(in)
+	period := in
 
 	wm.jobs[ID] = cancel
 	log.WithContext(ctx).Debugf("scheduled a job %s to run in %s. There are %d total jobs scheduled.", ID, in.String(), len(wm.jobs))
@@ -142,8 +143,9 @@ func (wm *DefaultScheduler) Schedule(ctx context.Context, in time.Duration, ID s
 					return
 				}
 				// we need this comparison to avoid resetting the ticker with the same duration and missing the current elapsesed time
-				if runIn != in {
+				if runIn != period {
 					ticker.Reset(runIn)
+					period = runIn
 				}
 			case <-cancel:
 				log.WithContext(ctx).Debugf("job %s was canceled, stopping timer", ID)
