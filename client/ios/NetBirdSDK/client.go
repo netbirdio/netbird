@@ -88,9 +88,15 @@ type Client struct {
 	// netMgr outlives engine restarts: it mirrors the OS connectivity, not
 	// the engine lifecycle. Run injects its state and sweeper into each new
 	// ConnectClient.
-	netMgr *netevents.Manager
-	// preloadedConfig holds config loaded from JSON (used on tvOS where file writes are blocked)
-	preloadedConfig *profilemanager.Config
+	netMgr              *netevents.Manager
+	preloadedConfigJSON atomic.Pointer[string]
+
+	// mdmSource holds the per-Client MDM policy source and its change
+	// detector as one unit. Set by SetMDMPolicyFetcher (called from the
+	// Swift side at extension init). Each Run passes the loader to the
+	// resolved Config so applyMDMPolicy picks up the active overlay. Nil
+	// means "MDM enforcement off for this Client".
+	mdmSource atomic.Pointer[mdmSource]
 
 	// stateMu guards the run lifecycle as one unit: the cancel installed by
 	// the current run, the channel it closes on exit, and the state it
@@ -125,18 +131,30 @@ func NewClient(cfgFile, stateFile, cacheDir, logFilePath, deviceName string, osV
 	}
 }
 
-// SetConfigFromJSON loads config from a JSON string into memory.
-// This is used on tvOS where file writes to App Group containers are blocked.
-// When set, IsLoginRequired() and Run() will use this preloaded config instead of reading from file.
+// SetConfigFromJSON stores the JSON config that later loads resolve instead of the config file (tvOS).
 func (c *Client) SetConfigFromJSON(jsonStr string) error {
-	cfg, err := profilemanager.ConfigFromJSON(jsonStr)
-	if err != nil {
+	if _, err := profilemanager.ConfigFromJSON(jsonStr); err != nil {
 		log.Errorf("SetConfigFromJSON: failed to parse config JSON: %v", err)
 		return err
 	}
-	c.preloadedConfig = cfg
+	c.preloadedConfigJSON.Store(&jsonStr)
 	log.Infof("SetConfigFromJSON: config loaded successfully from JSON")
 	return nil
+}
+
+func (c *Client) loadConfig(input profilemanager.ConfigInput) (*profilemanager.Config, error) {
+	var cfg *profilemanager.Config
+	var err error
+	if preloaded := c.preloadedConfigJSON.Load(); preloaded != nil {
+		cfg, err = profilemanager.ConfigFromJSON(*preloaded)
+	} else {
+		cfg, err = profilemanager.DirectUpdateOrCreateConfig(input)
+	}
+	if err != nil {
+		return nil, err
+	}
+	c.applyMDMOverlay(cfg)
+	return cfg, nil
 }
 
 // Run start the internal client. It is a blocker function
@@ -145,24 +163,12 @@ func (c *Client) Run(fd int32, interfaceName string, envList *EnvList) error {
 	log.Infof("Starting NetBird client")
 	log.Debugf("Tunnel uses interface: %s", interfaceName)
 
-	var cfg *profilemanager.Config
-	var err error
-
-	// Use preloaded config if available (tvOS where file writes are blocked)
-	if c.preloadedConfig != nil {
-		log.Infof("Run: using preloaded config from memory")
-		cfg = c.preloadedConfig
-	} else {
-		log.Infof("Run: loading config from file")
-		// Use DirectUpdateOrCreateConfig to avoid atomic file operations (temp file + rename)
-		// which are blocked by the tvOS sandbox in App Group containers
-		cfg, err = profilemanager.DirectUpdateOrCreateConfig(profilemanager.ConfigInput{
-			ConfigPath:    c.cfgFile,
-			StateFilePath: c.stateFile,
-		})
-		if err != nil {
-			return err
-		}
+	cfg, err := c.loadConfig(profilemanager.ConfigInput{
+		ConfigPath:    c.cfgFile,
+		StateFilePath: c.stateFile,
+	})
+	if err != nil {
+		return err
 	}
 	c.recorder.UpdateManagementAddress(cfg.ManagementURL.String())
 	c.recorder.UpdateRosenpass(cfg.RosenpassEnabled, cfg.RosenpassPermissive)
@@ -278,19 +284,13 @@ func (c *Client) DebugBundle(anonymize bool, anonymizeLevel string) (string, err
 
 	// If the engine hasn't been started, load config so we can reach management.
 	if cfg == nil {
-		if c.preloadedConfig != nil {
-			cfg = c.preloadedConfig
-		} else {
-			var err error
-			// Use DirectUpdateOrCreateConfig to avoid atomic file operations
-			// (temp file + rename) blocked by the tvOS sandbox.
-			cfg, err = profilemanager.DirectUpdateOrCreateConfig(profilemanager.ConfigInput{
-				ConfigPath:    c.cfgFile,
-				StateFilePath: c.stateFile,
-			})
-			if err != nil {
-				return "", fmt.Errorf("load config: %w", err)
-			}
+		var err error
+		cfg, err = c.loadConfig(profilemanager.ConfigInput{
+			ConfigPath:    c.cfgFile,
+			StateFilePath: c.stateFile,
+		})
+		if err != nil {
+			return "", fmt.Errorf("load config: %w", err)
 		}
 	}
 
@@ -425,29 +425,9 @@ func (c *Client) IsLoginRequired() bool {
 	ctx, cancel := context.WithCancel(ctxWithValues)
 	defer cancel()
 
-	var cfg *profilemanager.Config
-	var err error
-
-	// Use preloaded config if available (tvOS where file writes are blocked)
-	if c.preloadedConfig != nil {
-		log.Infof("IsLoginRequired: using preloaded config from memory")
-		cfg = c.preloadedConfig
-	} else {
-		log.Infof("IsLoginRequired: loading config from file")
-		// Use DirectUpdateOrCreateConfig to avoid atomic file operations (temp file + rename)
-		// which are blocked by the tvOS sandbox in App Group containers
-		cfg, err = profilemanager.DirectUpdateOrCreateConfig(profilemanager.ConfigInput{
-			ConfigPath: c.cfgFile,
-		})
-		if err != nil {
-			log.Errorf("IsLoginRequired: failed to load config: %v", err)
-			// If we can't load config, assume login is required
-			return true
-		}
-	}
-
-	if cfg == nil {
-		log.Errorf("IsLoginRequired: config is nil")
+	cfg, err := c.loadConfig(profilemanager.ConfigInput{ConfigPath: c.cfgFile})
+	if err != nil {
+		log.Errorf("IsLoginRequired: failed to load config: %v", err)
 		return true
 	}
 
@@ -497,6 +477,7 @@ func (c *Client) LoginForMobile() string {
 		log.Errorf("LoginForMobile: failed to load config: %v", err)
 		return fmt.Sprintf("failed to load config: %v", err)
 	}
+	c.applyMDMOverlay(cfg)
 
 	oAuthFlow, err := auth.NewOAuthFlow(ctx, cfg, false, false, "")
 	if err != nil {
