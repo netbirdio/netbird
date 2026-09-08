@@ -120,3 +120,39 @@ func TestApplyBufferCapSingleFlightPerAccount(t *testing.T) {
 		t.Fatalf("setPerformance called %d times, want 1: each retry started another blocked worker", got)
 	}
 }
+
+// TestResolvePendingTrustsFinishedWorkers covers the reporting race cubic
+// flagged on PR #7452: a retune that finished just before the deadline must be
+// reported by its outcome, not as a timeout, whatever the results channel has
+// delivered so far.
+func TestResolvePendingTrustsFinishedWorkers(t *testing.T) {
+	ok := &perfWorker{done: make(chan struct{})}
+	close(ok.done)
+
+	broken := &perfWorker{done: make(chan struct{}), err: errors.New("boom")}
+	close(broken.done)
+
+	stillRunning := &perfWorker{done: make(chan struct{})}
+
+	pending := map[types.AccountID]*perfWorker{
+		"ok":      ok,
+		"broken":  broken,
+		"running": stillRunning,
+	}
+	failed := map[string]string{}
+
+	applied := resolvePending(pending, failed)
+
+	if applied != 1 {
+		t.Fatalf("applied = %d, want 1", applied)
+	}
+	if failed["broken"] != "boom" {
+		t.Fatalf("failed[broken] = %q, want the worker's own error", failed["broken"])
+	}
+	if _, ok := failed["ok"]; ok {
+		t.Fatalf("failed = %v, want no entry for the account that succeeded", failed)
+	}
+	if got := failed["running"]; got == "" || got == "boom" {
+		t.Fatalf("failed[running] = %q, want the timeout message", got)
+	}
+}
