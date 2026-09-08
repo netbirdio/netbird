@@ -44,18 +44,18 @@ func userCtx() context.Context { return ctxWithIdentity(unprivilegedIdentity()) 
 func privilegedIdentity() ipcauth.Identity {
 	if runtime.GOOS == "windows" {
 		// LocalSystem, which is what the Windows service account is.
-		return ipcauth.Identity{SID: "S-1-5-18"}
+		return ipcauth.KnownForTest(ipcauth.Identity{SID: "S-1-5-18"})
 	}
-	return ipcauth.Identity{UID: 0}
+	return ipcauth.KnownForTest(ipcauth.Identity{UID: 0})
 }
 
 func unprivilegedIdentity() ipcauth.Identity {
 	if runtime.GOOS == "windows" {
 		// A plain user SID: no groups, so no BUILTIN\Administrators, and not
 		// elevated.
-		return ipcauth.Identity{SID: "S-1-5-21-1-2-3-1001"}
+		return ipcauth.KnownForTest(ipcauth.Identity{SID: "S-1-5-21-1-2-3-1001"})
 	}
-	return ipcauth.Identity{UID: unprivUID, GID: unprivUID}
+	return ipcauth.KnownForTest(ipcauth.Identity{UID: unprivUID, GID: unprivUID})
 }
 func noIdentityCtx() context.Context { return context.Background() }
 

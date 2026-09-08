@@ -11,7 +11,11 @@ import (
 )
 
 type DaemonState interface {
-	SessionHolder() (Identity, bool)
+	// SessionHolder returns the principal entitled to the live connection and
+	// whether one is held. A held session whose owner cannot be parsed returns
+	// the zero Principal with true, which matches nobody, so a corrupt owner
+	// field locks the session instead of opening it.
+	SessionHolder() (Principal, bool)
 }
 
 type Rule func(id Identity, st DaemonState) error
@@ -44,12 +48,14 @@ func (g *RuleGate) state() DaemonState {
 	return g.st
 }
 
+// RequireSessionHolder allows the caller to act on the live connection. With no
+// session held there is nothing to protect, and root can always take over.
 func RequireSessionHolder(id Identity, st DaemonState) error {
 	holder, running := st.SessionHolder()
-	log.Debugf("id : %v, session holder: %v", id, holder)
-	if !running || holder.SameUser(id) || holder.IsPrivileged() {
+	if !running || IsPrivilegedCaller(id) || holder.Matches(id) {
 		return nil
 	}
+	log.Debugf("caller %v is not the session holder %v", id, holder)
 	return status.Errorf(codes.PermissionDenied, "session is held by another user (%v)", holder)
 }
 

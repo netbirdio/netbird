@@ -56,7 +56,14 @@ type Identity struct {
 	// process dialling itself, which is what the JSON gateway does, and is never
 	// used to grant anything.
 	PID int32
+
+	// known marks if an identity was provided by the kernel. Without it, an
+	// empty Identity struct would resolve as root.
+	known bool
 }
+
+// Known reports whether this identity came from a kernel credential read.
+func (i Identity) Known() bool { return i.known }
 
 // IsWindows reports whether this identity is a Windows principal (SID-based)
 // rather than a Unix uid/gid principal.
@@ -77,6 +84,9 @@ func (i Identity) IsWindows() bool {
 // (Domain Admins and friends) are deliberately not consulted: they say
 // nothing about what this token may do on this machine.
 func (i Identity) IsPrivileged() bool {
+	if !i.known {
+		return false
+	}
 	if !i.IsWindows() {
 		return i.UID == 0
 	}
@@ -100,6 +110,9 @@ func (i Identity) IsPrivileged() bool {
 // happen to leave at zero. The zero Identity carries uid 0, so callers must
 // establish that both identities are real before the answer means anything.
 func (i Identity) SameUser(other Identity) bool {
+	if !i.known || !other.known {
+		return false
+	}
 	if i.SID != "" || other.SID != "" {
 		return i.SID == other.SID
 	}
@@ -108,6 +121,11 @@ func (i Identity) SameUser(other Identity) bool {
 
 // String renders the identity for audit logs and denial messages.
 func (i Identity) String() string {
+	// An unknown identity has a zero UID, which would print as "uid=0" and read
+	// as root in an audit trail.
+	if !i.known {
+		return "unidentified"
+	}
 	if i.IsWindows() {
 		return fmt.Sprintf("sid=%s elevated=%t", i.SID, i.Elevated)
 	}
@@ -187,17 +205,32 @@ func OwnerPrincipalForIdentity(id Identity) string {
 	return UIDPrincipal(id.UID)
 }
 
-func IdentityFromPrincipal(p Principal) (Identity, error) {
+// Matches reports whether a kernel-attested caller satisfies this stored owner
+// principal.
+//
+// A principal is a config value, not a caller, so it is never converted into an
+// Identity.
+func (p Principal) Matches(id Identity) bool {
+	if !id.Known() {
+		return false
+	}
 	switch p.Kind {
 	case KindUID:
-		uid, err := strconv.ParseUint(p.Value, 10, 32)
-		if err != nil {
-			return Identity{}, err
+		if id.IsWindows() {
+			return false
 		}
-		return Identity{UID: uint32(uid)}, nil
+		uid, err := strconv.ParseUint(p.Value, 10, 32)
+		return err == nil && uint32(uid) == id.UID
 	case KindSID:
-		return Identity{SID: p.Value}, nil
+		if !id.IsWindows() {
+			return false
+		}
+		// Only the user SID. Group ownership is not supported yet.
+		return id.SID == p.Value
 	default:
-		return Identity{}, nil
+		return false
 	}
 }
+
+// String renders the principal as the kind:value form it is stored in.
+func (p Principal) String() string { return string(p.Kind) + ":" + p.Value }
