@@ -28,10 +28,15 @@ PLATFORM="${PLATFORM:-linux/${TARGETARCH}}"
 WAIT_TIMEOUT="${WAIT_TIMEOUT:-30}"
 TMP_DIR="$(mktemp -d)"
 CONTAINER="netbird-rootless-uid-${RANDOM}-$$"
+VOLUME=""
 
 cleanup() {
   local status=$?
   "${RUNTIME}" rm -f "${CONTAINER}" >/dev/null 2>&1 || true
+  if [[ -n "${VOLUME}" ]] && ! "${RUNTIME}" volume rm "${VOLUME}" >/dev/null; then
+    echo "failed to remove test volume ${VOLUME}" >&2
+    status=1
+  fi
   rm -rf "${TMP_DIR}"
   exit "${status}"
 }
@@ -66,9 +71,10 @@ build_image() {
 
 start_container() {
   echo "==> Starting ${CONTAINER} as unmapped UID 1001230000"
-  "${RUNTIME}" run --rm -d \
+  "${RUNTIME}" run -d \
     --name "${CONTAINER}" \
     --user 1001230000:0 \
+    --volume "${VOLUME}:/var/lib/netbird" \
     --cap-drop=ALL \
     --security-opt=no-new-privileges \
     --entrypoint /usr/local/bin/netbird \
@@ -112,14 +118,55 @@ assert_arbitrary_uid_contract() {
     touch /var/lib/netbird/.uid-smoke
     rm /var/lib/netbird/.uid-smoke
     test -S /var/lib/netbird/netbird.sock
+    test "$(stat -c %a /var/lib/netbird/config.json)" = 600
+    test "$(stat -c %a /var/lib/netbird/active_profile.json)" = 600
   '
   "${RUNTIME}" exec "${CONTAINER}" \
     /usr/local/bin/netbird profile list >/dev/null
 }
 
+assert_same_uid_restart() {
+  echo "==> Verifying persistent profiles with the same runtime UID"
+  local profile_name="rootless-restart" profiles_before profiles_after
+
+  "${RUNTIME}" exec "${CONTAINER}" \
+    /usr/local/bin/netbird profile add "${profile_name}" >/dev/null
+  profiles_before="$("${RUNTIME}" exec "${CONTAINER}" \
+    /usr/local/bin/netbird profile list --show-id)"
+  if [[ "${profiles_before}" != *"${profile_name}"* ]]; then
+    echo "created profile is missing before restart" >&2
+    return 1
+  fi
+
+  "${RUNTIME}" stop "${CONTAINER}" >/dev/null
+  "${RUNTIME}" rm "${CONTAINER}" >/dev/null
+  start_container
+  wait_until_live
+  assert_arbitrary_uid_contract
+
+  profiles_after="$("${RUNTIME}" exec "${CONTAINER}" \
+    /usr/local/bin/netbird profile list --show-id)"
+  if [[ "${profiles_after}" != "${profiles_before}" ]]; then
+    echo "profiles changed after recreating the container with the same volume and UID" >&2
+    container_logs
+    return 1
+  fi
+
+  "${RUNTIME}" exec "${CONTAINER}" \
+    /usr/local/bin/netbird profile rename "${profile_name}" "${profile_name}-renamed" >/dev/null
+  profiles_after="$("${RUNTIME}" exec "${CONTAINER}" \
+    /usr/local/bin/netbird profile list --show-id)"
+  if [[ "${profiles_after}" != *"${profile_name}-renamed"* ]]; then
+    echo "persisted profile could not be updated after restart" >&2
+    return 1
+  fi
+}
+
 build_image
+VOLUME="$("${RUNTIME}" volume create "${CONTAINER}-state")"
 start_container
 wait_until_live
 assert_arbitrary_uid_contract
+assert_same_uid_restart
 
-echo "==> Rootless arbitrary UID validation passed"
+echo "==> Rootless arbitrary UID and same-UID persistence validation passed"

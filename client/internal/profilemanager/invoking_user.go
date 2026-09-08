@@ -56,7 +56,6 @@ func InvokingUser() (*user.User, error) {
 		Username: uidString,
 		Uid:      uidString,
 		Gid:      strconv.Itoa(getegid()),
-		HomeDir:  os.Getenv("HOME"),
 	}, nil
 }
 

@@ -3,6 +3,11 @@
 #   CGO_ENABLED=0 go build -o netbird ./client
 #   podman build -t localhost/netbird:latest -f client/Dockerfile-rootless --ignorefile .dockerignore-client .
 #   podman run --rm -it --user 1001230000:0 --cap-drop=ALL --security-opt=no-new-privileges localhost/netbird:latest
+#
+# Reuse /var/lib/netbird volumes with the same runtime UID.
+# Config/profile files start at 0600; Kubernetes fsGroup may widen their modes.
+# Where supported, pod securityContext.fsGroupChangePolicy: OnRootMismatch
+# preserves modes when the volume root's ownership and permissions match.
 
 FROM alpine:3.24
 

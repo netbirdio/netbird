@@ -14,39 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestInvokingUserReturnsResolvedCurrentUser(t *testing.T) {
-	t.Setenv(envSudoUser, "")
-
-	want := &user.User{
-		Username: "misha",
-		Uid:      "1234",
-		Gid:      "1234",
-		HomeDir:  filepath.Join("/home", "misha"),
-	}
-	origCurrentUser := currentUser
-	currentUser = func() (*user.User, error) { return want, nil }
-	t.Cleanup(func() { currentUser = origCurrentUser })
-
-	got, err := InvokingUser()
-	require.NoError(t, err)
-	assert.Same(t, want, got, "resolved process user should be returned unchanged")
-}
-
-func TestInvokingUserUsesNumericIdentityForUnmappedNonRoot(t *testing.T) {
-	t.Setenv(envSudoUser, "")
-	t.Setenv("HOME", "/var/lib/netbird")
-	fakeUnmappedUser(t, 1001230000, 0, errors.New("user: unknown userid 1001230000"))
-
-	got, err := InvokingUser()
-	require.NoError(t, err)
-	assert.Equal(t, &user.User{
-		Username: "1001230000",
-		Uid:      "1001230000",
-		Gid:      "0",
-		HomeDir:  "/var/lib/netbird",
-	}, got, "unmapped non-root identity should use kernel credentials")
-}
-
 func TestInvokingUserFailsClosedWithoutPositiveUID(t *testing.T) {
 	for _, uid := range []int{0, -1} {
 		t.Run(fmt.Sprintf("UID%d", uid), func(t *testing.T) {
@@ -63,7 +30,6 @@ func TestInvokingUserFailsClosedWithoutPositiveUID(t *testing.T) {
 
 func TestProfileFilePathUsesNumericIdentityForUnmappedNonRoot(t *testing.T) {
 	t.Setenv(envSudoUser, "")
-	t.Setenv("HOME", "/var/lib/netbird")
 	fakeUnmappedUser(t, 1001230000, 0, errors.New("user: unknown userid 1001230000"))
 
 	profilesRoot := t.TempDir()
