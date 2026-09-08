@@ -20,14 +20,15 @@ Needs `wasm-opt` (binaryen >= 102) on PATH — its `--asyncify` pass is how Tiny
 goroutines, so without it nothing that blocks works. Takes ~15 min.
 
 ```sh
-go generate ./flow/proto/... ./shared/management/proto/... ./shared/signal/proto/... ./client/proto/...
+go generate -run=embedpb ./...
 cd client/wasm/cmd
 tinygo build -target wasm -interp-timeout=15m -o ../netbird.wasm .
 cp "$(tinygo env TINYGOROOT)/targets/wasm_exec.js" ../
 ```
 
 `go generate` writes the reflection-free protobuf TinyGo needs (its `reflect` has no
-`MethodByName`). `-interp-timeout` raises TinyGo's 180s default, which the package
+`MethodByName`); `-run=embedpb` selects just those four proto packages, leaving the mockgen
+and bpf2go directives alone. `-interp-timeout` raises TinyGo's 180s default, which the package
 initializers of `grpc/credentials` alone exceed. Also useful: `-no-debug` (-35 MB),
 `-opt=0` when wasm-opt OOMs, `-gc=leaking` to rule out the collector.
 
