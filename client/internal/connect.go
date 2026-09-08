@@ -27,7 +27,6 @@ import (
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/internal/dns"
-	"github.com/netbirdio/netbird/client/internal/filedrop"
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/metrics"
@@ -70,7 +69,7 @@ type ConnectClient struct {
 	engineMutex     sync.Mutex
 	clientMetrics   *metrics.ClientMetrics
 	updateManager   *updater.Manager
-	fileDropManager *filedrop.Manager
+	fileDropManager fileDropManager
 
 	persistSyncResponse bool
 
@@ -117,7 +116,7 @@ func (c *ConnectClient) SetUpdateManager(um *updater.Manager) {
 
 // SetFileDropManager hands the engine the active profile's file drop manager, so
 // the transfer receiver starts and stops with the tunnel. Must be set before Run.
-func (c *ConnectClient) SetFileDropManager(m *filedrop.Manager) {
+func (c *ConnectClient) SetFileDropManager(m fileDropManager) {
 	c.fileDropManager = m
 }
 

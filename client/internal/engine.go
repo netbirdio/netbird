@@ -40,7 +40,6 @@ import (
 	dnsconfig "github.com/netbirdio/netbird/client/internal/dns/config"
 	"github.com/netbirdio/netbird/client/internal/dnsfwd"
 	"github.com/netbirdio/netbird/client/internal/expose"
-	"github.com/netbirdio/netbird/client/internal/filedrop"
 	"github.com/netbirdio/netbird/client/internal/ingressgw"
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
 	"github.com/netbirdio/netbird/client/internal/metrics"
@@ -191,7 +190,7 @@ type EngineServices struct {
 	UpdateManager  *updater.Manager
 	ClientMetrics  *metrics.ClientMetrics
 	MetricsCtx     context.Context
-	FileDrop       *filedrop.Manager
+	FileDrop       fileDropManager
 	// NetMgr gates the reconnection loops on OS-reported network
 	// availability; nil disables gating.
 	NetMgr *netevents.Manager
@@ -254,7 +253,7 @@ type Engine struct {
 
 	sshServer sshServer
 
-	fileDrop        *filedrop.Manager
+	fileDrop        fileDropManager
 	fileDropRunning bool
 	fileDropPort    uint16
 	overlayWait     overlayWaiter //nolint:unused // only read by the iOS overlay wait
