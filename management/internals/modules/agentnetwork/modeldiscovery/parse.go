@@ -43,7 +43,7 @@ func parseOpenAIData(body []byte) ([]listedModel, error) {
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(body, &doc); err != nil {
-		return nil, fmt.Errorf("decode model listing: %w", err)
+		return nil, fmt.Errorf("%w: decode model listing: %w", ErrUnparseableListing, err)
 	}
 	out := make([]listedModel, 0, len(doc.Data))
 	for _, entry := range doc.Data {
@@ -71,7 +71,7 @@ func parseBedrockInferenceProfiles(body []byte) ([]listedModel, error) {
 		} `json:"inferenceProfileSummaries"`
 	}
 	if err := json.Unmarshal(body, &doc); err != nil {
-		return nil, fmt.Errorf("decode inference-profile listing: %w", err)
+		return nil, fmt.Errorf("%w: decode inference-profile listing: %w", ErrUnparseableListing, err)
 	}
 	out := make([]listedModel, 0, len(doc.Summaries))
 	for _, entry := range doc.Summaries {
@@ -98,7 +98,7 @@ func parseVertexPublisherModels(body []byte) ([]listedModel, error) {
 		} `json:"publisherModels"`
 	}
 	if err := json.Unmarshal(body, &doc); err != nil {
-		return nil, fmt.Errorf("decode publisher-model listing: %w", err)
+		return nil, fmt.Errorf("%w: decode publisher-model listing: %w", ErrUnparseableListing, err)
 	}
 	out := make([]listedModel, 0, len(doc.Models))
 	for _, entry := range doc.Models {

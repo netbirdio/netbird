@@ -63,7 +63,12 @@ func (t *WGTunDevice) Create(routes []string, dns string, searchDomains []string
 		searchDomainsToString = ""
 	}
 
-	fd, err := t.tunAdapter.ConfigureInterface(t.address.String(), t.address.IPv6String(), int(t.mtu), dns, searchDomainsToString, routesString)
+	ipv6Host := ""
+	if t.address.HasIPv6() {
+		ipv6Host = t.address.IPv6HostPrefix().String()
+	}
+
+	fd, err := t.tunAdapter.ConfigureInterface(t.address.HostPrefix().String(), ipv6Host, int(t.mtu), dns, searchDomainsToString, routesString)
 	if err != nil {
 		log.Errorf("failed to create Android interface: %s", err)
 		return nil, err

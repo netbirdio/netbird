@@ -77,6 +77,27 @@ func (e AgentNetworkConsumptionDimensionKind) Valid() bool {
 	}
 }
 
+// Defines values for AgentNetworkManagedProxyState.
+const (
+	AgentNetworkManagedProxyStateFailed       AgentNetworkManagedProxyState = "failed"
+	AgentNetworkManagedProxyStateProvisioning AgentNetworkManagedProxyState = "provisioning"
+	AgentNetworkManagedProxyStateReady        AgentNetworkManagedProxyState = "ready"
+)
+
+// Valid indicates whether the value is a known member of the AgentNetworkManagedProxyState enum.
+func (e AgentNetworkManagedProxyState) Valid() bool {
+	switch e {
+	case AgentNetworkManagedProxyStateFailed:
+		return true
+	case AgentNetworkManagedProxyStateProvisioning:
+		return true
+	case AgentNetworkManagedProxyStateReady:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CreateAzureIntegrationRequestHost.
 const (
 	CreateAzureIntegrationRequestHostMicrosoftCom CreateAzureIntegrationRequestHost = "microsoft.com"
@@ -2224,6 +2245,33 @@ type AgentNetworkGuardrailRequest struct {
 	Name string `json:"name"`
 }
 
+// AgentNetworkManagedProxy A NetBird-managed Agent Network gateway deployment.
+type AgentNetworkManagedProxy struct {
+	// Endpoint The account's gateway hostname.
+	Endpoint string `json:"endpoint"`
+
+	// Id Managed proxy deployment ID.
+	Id string `json:"id"`
+
+	// Message Failure detail reported by the rollout. Only set when state is `failed`.
+	Message *string `json:"message,omitempty"`
+
+	// Region Region of the cluster hosting the deployment.
+	Region *string `json:"region,omitempty"`
+
+	// State Derived deployment state. `provisioning` until the gateway is rolled out and connected, `ready` while the gateway actively serves the endpoint, `failed` when the rollout reported a failure.
+	State AgentNetworkManagedProxyState `json:"state"`
+}
+
+// AgentNetworkManagedProxyState Derived deployment state. `provisioning` until the gateway is rolled out and connected, `ready` while the gateway actively serves the endpoint, `failed` when the rollout reported a failure.
+type AgentNetworkManagedProxyState string
+
+// AgentNetworkManagedProxyConflict Conflict body returned when the account already has an Agent Network endpoint that managed provisioning does not own, naming that endpoint.
+type AgentNetworkManagedProxyConflict struct {
+	// Endpoint The Agent Network endpoint already assigned to the account.
+	Endpoint string `json:"endpoint"`
+}
+
 // AgentNetworkModelDiscoveryRequest defines model for AgentNetworkModelDiscoveryRequest.
 type AgentNetworkModelDiscoveryRequest struct {
 	// ApiKey Credential to query the vendor with, for a provider that has not been saved yet. Mutually exclusive with provider_id.
@@ -2232,10 +2280,10 @@ type AgentNetworkModelDiscoveryRequest struct {
 	// CatalogProviderId Catalog provider to query (AgentNetworkCatalogProvider.id). Determines the listing endpoint, the auth header and the response shape.
 	CatalogProviderId string `json:"catalog_provider_id"`
 
-	// ProviderId Existing Agent Network provider record whose stored credential and upstream should be used. Lets the form refresh the list without the client holding the key.
+	// ProviderId Existing Agent Network provider record to query with. Its stored credential is used, and its upstream unless upstream_url overrides it, so the form can refresh the list without the client holding the key.
 	ProviderId *string `json:"provider_id,omitempty"`
 
-	// UpstreamUrl The upstream being configured. Used to reach vendors that serve their listing from the same host as inference, and to read back the region for those whose host embeds one. Ignored when provider_id is supplied.
+	// UpstreamUrl The upstream being configured. Used to reach vendors that serve their listing from the same host as inference, and to read back the region for those whose host embeds one. Sent alongside provider_id, it overrides the stored upstream, so an edit can be listed against the URL on the form before it is saved.
 	UpstreamUrl *string `json:"upstream_url,omitempty"`
 }
 

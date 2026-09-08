@@ -365,7 +365,6 @@ func setupServerHooks(servers *serverInstances, cfg *CombinedConfig) {
 			})
 		}
 	}
-
 }
 
 func startServers(wg *sync.WaitGroup, srv *relayServer.Server, httpHealthcheck *healthcheck.Server, stunServer *stun.Server, metricsServer *sharedMetrics.Metrics) {
@@ -539,7 +538,7 @@ func createManagementServer(cfg *CombinedConfig, mgmtConfig *nbconfig.Config) (m
 		&mgmtServer.Config{
 			NbConfig:                mgmtConfig,
 			DNSDomain:               "",
-			MgmtSingleAccModeDomain: "",
+			MgmtSingleAccModeDomain: mgmtServer.DefaultSelfHostedDomain,
 			AutoResolveDomains:      true,
 			MgmtPort:                mgmtPort,
 			MgmtMetricsPort:         cfg.Server.MetricsPort,
@@ -554,7 +553,7 @@ func createManagementServer(cfg *CombinedConfig, mgmtConfig *nbconfig.Config) (m
 }
 
 // createCombinedHandler creates an HTTP handler that multiplexes Management, Signal (via wsproxy), and Relay WebSocket traffic
-func createCombinedHandler(grpcServer *grpc.Server, httpHandler http.Handler, idpHandler http.Handler, relaySrv *relayServer.Server, meter metric.Meter, cfg *CombinedConfig) http.Handler {
+func createCombinedHandler(grpcServer *grpc.Server, httpHandler, idpHandler http.Handler, relaySrv *relayServer.Server, meter metric.Meter, cfg *CombinedConfig) http.Handler {
 	wsProxy := wsproxyserver.New(grpcServer, wsproxyserver.WithOTelMeter(meter))
 
 	var relayAcceptFn func(conn listener.Conn)
