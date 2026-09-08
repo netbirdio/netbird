@@ -235,6 +235,8 @@ func (p *Policy) GetBool(key string) (bool, bool) {
 		return t != 0, true
 	case int64:
 		return t != 0, true
+	case float64:
+		return t != 0, true
 	}
 	return false, false
 }
