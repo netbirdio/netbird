@@ -528,7 +528,11 @@ func (m *DefaultManager) GetActiveClientRoutes() route.HAMap {
 			if st.ConnStatus != peer.StatusConnected {
 				continue
 			}
-			if _, hasRoute := st.GetRoutes()[r.Network.String()]; !hasRoute {
+			// The recorder keys peer routes by handler.String(): the
+			// domain list for dynamic routes, the prefix for static
+			// ones. NetString() returns that; r.Network is a domain
+			// route placeholder and would never match.
+			if _, hasRoute := st.GetRoutes()[r.NetString()]; !hasRoute {
 				continue
 			}
 			out[id] = routes
