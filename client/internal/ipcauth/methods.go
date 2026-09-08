@@ -13,8 +13,8 @@ type Request struct {
 	Msg      any
 }
 
-// Rule is an additional constraint beyond the method's level. Every rule on a
-// method must pass.
+// Rule is an additional constraint beyond the method's level, for example
+// checking permissions on a field of a message. Every rule on a method must pass.
 type Rule func(Request) error
 
 // The generated getters the profile RPCs expose.
