@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net"
 	"runtime"
+	"slices"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/windows"
@@ -36,6 +38,48 @@ var (
 // daemon itself when started from such a session.
 func DefaultPipeSDDL() string {
 	return "D:P(A;;GA;;;SY)(A;;GA;;;WD)"
+}
+
+// RestrictedPipeSDDL returns the security descriptor for a daemon control pipe
+// that only the named principals may open, replacing DefaultPipeSDDL's ACE for
+// Everyone. Each SID is a user or group SID in string form; the caller is
+// expected to have resolved and validated them already. An empty list yields
+// the default descriptor, so a missing configuration cannot silently produce a
+// pipe nobody can reach.
+//
+// Three ACEs are always present besides the configured ones:
+//
+//	SY  LocalSystem, the account the daemon runs as when installed as a service
+//	BA  BUILTIN\Administrators, so an elevated caller is never locked out
+//	the daemon's own user SID, so a daemon an ordinary user runs themselves can
+//	still dial itself, which is what the JSON gateway does
+//
+// BUILTIN\Administrators carries no access for a UAC-filtered administrator,
+// whose token has that group deny-only, which matches the authorization model:
+// such a caller is not privileged either.
+func RestrictedPipeSDDL(sids []string) string {
+	if len(sids) == 0 {
+		return DefaultPipeSDDL()
+	}
+
+	allowed := []string{"SY", "BA"}
+	if selfIdentity.Known() && selfIdentity.SID != "" {
+		allowed = append(allowed, selfIdentity.SID)
+	}
+	for _, sid := range sids {
+		if !slices.Contains(allowed, sid) {
+			allowed = append(allowed, sid)
+		}
+	}
+
+	var b strings.Builder
+	b.WriteString("D:P")
+	for _, sid := range allowed {
+		b.WriteString("(A;;GA;;;")
+		b.WriteString(sid)
+		b.WriteString(")")
+	}
+	return b.String()
 }
 
 // NewTransportCredentials returns gRPC transport credentials that derive the
