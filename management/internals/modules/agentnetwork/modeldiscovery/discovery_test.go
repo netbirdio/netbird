@@ -2,7 +2,9 @@ package modeldiscovery
 
 import (
 	"context"
+	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -315,7 +317,7 @@ func TestHostGuardRejectsNonPublicAddresses(t *testing.T) {
 
 func TestHostGuardResolvesAndRejectsLocalhost(t *testing.T) {
 	cl := &Client{}
-	err := cl.checkPublicHost("localhost")
+	err := cl.checkPublicHost(context.Background(), "localhost")
 	require.Error(t, err, "a name resolving to loopback must be refused, not just a literal address")
 	assert.Contains(t, err.Error(), "non-public")
 }
@@ -556,4 +558,121 @@ func TestBedrockProfilesFromAnyGeographyArrivePriced(t *testing.T) {
 	// The wire id is preserved whatever the pricing key reduced to: it is the
 	// only form that works at invoke time.
 	assert.Equal(t, "jp.anthropic.claude-sonnet-5-20260514-v1:0", models[0].ID)
+}
+
+// TestFetch_AHostThatWillNotResolveIsUnreachable closes a gap the live suite
+// found. The SSRF guard resolves the host before any request is built, so a
+// name that does not resolve fails there rather than at the transport — and
+// that error used to reach the caller unclassified. A wrong hostname is the
+// commonest way for an upstream to be wrong, so it has to arrive as
+// "unreachable" and not as an unrecognised fault.
+func TestFetch_AHostThatWillNotResolveIsUnreachable(t *testing.T) {
+	// A resolver whose dial always fails, so the lookup errors without the
+	// test depending on real DNS.
+	refusing := &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			return nil, errors.New("resolver unavailable")
+		},
+	}
+	client := &Client{Resolver: refusing}
+
+	_, err := client.Fetch(context.Background(), Request{
+		CatalogID:   "openai_api",
+		UpstreamURL: "https://not-a-real-vendor-host.example.invalid",
+		APIKey:      "sk-test",
+	})
+
+	require.Error(t, err)
+	var unreachable *UnreachableError
+	require.ErrorAs(t, err, &unreachable, "a host that will not resolve must classify as unreachable")
+	require.NotErrorIs(t, err, ErrPrivateHost, "it is not a host we declined to dial")
+}
+
+// TestFetch_AProxyInThePathDoesNotSilentlyDisableTheCheck pins a fail-open the
+// dial-time guard can produce. checkPublicHost clears the target before
+// anything is dialled, so a private address refused at the socket is never the
+// operator's upstream — it is a rebinding attempt, or an HTTP proxy the
+// management server egresses through. Reporting either as ErrPrivateHost would
+// read as "this provider cannot be checked" and let every save through
+// unchecked, which is how a proxied deployment would install this feature and
+// have it quietly do nothing.
+func TestFetch_AProxyInThePathDoesNotSilentlyDisableTheCheck(t *testing.T) {
+	// A transport that refuses at the socket exactly as the guard does, with a
+	// loopback address standing in for the proxy the dial went to.
+	// AllowPrivateHosts short-circuits the resolve-stage check only; the
+	// injected transport below is still what the request goes through. Without
+	// it this test resolves api.openai.com for real, and on a runner with no
+	// egress that lookup fails as an UnreachableError too — so it would pass
+	// while never reaching the socket guard it is named for.
+	client := &Client{AllowPrivateHosts: true, HTTPClient: &http.Client{
+		Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return nil, guardDialAddress("127.0.0.1:38599")
+		}),
+		CheckRedirect: refuseRedirect,
+	}}
+
+	_, err := client.Fetch(context.Background(), Request{
+		CatalogID:   "openai_api",
+		UpstreamURL: "https://api.openai.com",
+		APIKey:      "sk-test",
+	})
+
+	require.Error(t, err)
+	require.NotErrorIs(t, err, ErrPrivateHost,
+		"a refusal at the socket must not read as an upstream we cannot check")
+	var unreachable *UnreachableError
+	require.ErrorAs(t, err, &unreachable, "it is the vendor we failed to reach")
+}
+
+// roundTripFunc adapts a function to http.RoundTripper.
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// TestFetch_TheUpstreamIsCheckedWhenTheListingCannotVouchForIt covers the hole
+// a separate listing host leaves. Bedrock lists from the control plane, so a
+// record whose runtime upstream does not exist reaches a perfectly good
+// listing and saves — the requests it then serves go nowhere.
+//
+// Both halves matter. A runtime host that cannot be resolved is the record
+// being wrong, and blocks. A proxied one resolves and only leaves the region
+// underivable, which stays the unverifiable outcome it already was.
+func TestFetch_TheUpstreamIsCheckedWhenTheListingCannotVouchForIt(t *testing.T) {
+	refusing := &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			return nil, errors.New("resolver unavailable")
+		},
+	}
+	client := &Client{Resolver: refusing}
+
+	_, err := client.Fetch(context.Background(), Request{
+		CatalogID: "bedrock_api",
+		// Matches no catalog template, so nothing here reaches the control
+		// plane the listing comes from: without its own check this upstream
+		// was never contacted at all.
+		UpstreamURL: "https://bedrock.typo.example.invalid",
+		APIKey:      "aws-bearer",
+	})
+
+	require.Error(t, err)
+	var unreachable *UnreachableError
+	require.ErrorAs(t, err, &unreachable, "a runtime host that will not resolve must block the save")
+}
+
+// TestFetch_AListingHostOfItsOwnDoesNotReachThroughTheUpstream keeps the check
+// above from reading the operator's upstream as the place to list from.
+func TestFetch_AListingHostOfItsOwnDoesNotReachThroughTheUpstream(t *testing.T) {
+	cl, tr := newStubClient(http.StatusOK, bedrockListing)
+
+	_, err := cl.Fetch(context.Background(), Request{
+		CatalogID:   "bedrock_api",
+		UpstreamURL: "https://bedrock-runtime.eu-central-1.amazonaws.com",
+		APIKey:      "aws-bearer",
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, "bedrock.eu-central-1.amazonaws.com", tr.got.URL.Host,
+		"checking the runtime host must not turn it into the listing host")
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/rand"
 	"slices"
 	"strings"
 	"sync"
@@ -133,24 +132,34 @@ type managerImpl struct {
 	proxyController    proxy.Controller
 
 	// modelDiscovery queries vendors for the models a credential can reach.
-	// A field rather than a package call so tests can drive it without
-	// reaching the network.
+	// An interface rather than the concrete client because it is now on a
+	// write path: the credential check runs inside CreateProvider and
+	// UpdateProvider, so every test that saves a provider would otherwise
+	// reach a vendor over the network to do it.
 	//
 	// One instance serves every request for the process's lifetime, so its
 	// fields must stay read-only after construction: lazy initialisation
 	// inside Fetch or httpClient would race across request goroutines.
-	modelDiscovery *modeldiscovery.Client
+	modelDiscovery ModelLister
 
 	// reconcileCache holds the last set of synthesised proxy mappings
 	// per account, each paired with the proxy that served it, so a change
 	// of serving proxy can be diffed without re-deriving it.
 	reconcileMu    sync.Mutex
 	reconcileCache map[string]map[string]syntheticMapping
+}
 
-	// labelRngMu guards labelRng. PickUnique consumes math/rand.Source
-	// state; concurrent provider creates would otherwise race.
-	labelRngMu sync.Mutex
-	labelRng   *rand.Rand
+// ManagerOption replaces a manager dependency at construction. Production
+// passes none; each option exists for something a test cannot let run for
+// real.
+type ManagerOption func(*managerImpl)
+
+// WithModelLister replaces the vendor call behind the provider credential
+// check. A test that saves a provider needs this — the check runs inside
+// CreateProvider and UpdateProvider, so the write path reaches a vendor
+// without it.
+func WithModelLister(lister ModelLister) ManagerOption {
+	return func(m *managerImpl) { m.modelDiscovery = lister }
 }
 
 // NewManager constructs the persistent Agent Network manager. The
@@ -163,16 +172,20 @@ func NewManager(
 	permissionsManager permissions.Manager,
 	accountManager account.Manager,
 	proxyController proxy.Controller,
+	opts ...ManagerOption,
 ) Manager {
-	return &managerImpl{
+	m := &managerImpl{
 		store:              store,
 		accountManager:     accountManager,
 		permissionsManager: permissionsManager,
 		proxyController:    proxyController,
 		modelDiscovery:     &modeldiscovery.Client{},
 		reconcileCache:     make(map[string]map[string]syntheticMapping),
-		labelRng:           rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
 }
 
 // GetAllProviders returns the account's providers for callers holding the
@@ -297,9 +310,11 @@ func (m *managerImpl) redactProvidersForViewer(ctx context.Context, accountID, u
 
 // DiscoverProviderModels asks the vendor which models a credential can reach.
 //
-// recordID, when set, names an existing provider whose stored credential and
-// upstream are used instead of the ones in req — so the dashboard can refresh
-// the list without ever holding the key.
+// recordID, when set, names an existing provider whose stored credential is
+// used instead of the one in req — so the dashboard can refresh the list
+// without ever holding the key. An upstream in req overrides the stored one,
+// which is what lets a form list against a URL the operator has typed but not
+// saved yet, using the credential they cannot retype.
 //
 // Gated on Create rather than Read: this spends the operator's credential
 // against a third party, which is not something a read-only role should be
@@ -320,11 +335,29 @@ func (m *managerImpl) DiscoverProviderModels(ctx context.Context, accountID, use
 		// name a different one would run a provider's credential against
 		// whichever vendor endpoint they picked.
 		req.CatalogID = record.ProviderID
-		req.UpstreamURL = record.UpstreamURL
 		req.APIKey = record.APIKey
+		// The upstream is the one field the caller may override, so that a URL
+		// typed into the form can be listed against before it is saved.
+		//
+		// It sends the stored credential to a host the caller named, which is
+		// a capability they already have: the same permission set updates the
+		// record's upstream, and that write runs this same check against
+		// whatever it is pointed at. What it would not otherwise be is silent,
+		// since the write leaves an activity event behind — so the override is
+		// recorded here.
+		if strings.TrimSpace(req.UpstreamURL) == "" {
+			req.UpstreamURL = record.UpstreamURL
+		} else if req.UpstreamURL != record.UpstreamURL {
+			log.WithContext(ctx).Infof("agent network provider %s listed against caller-supplied upstream %s by user %s",
+				recordID, req.UpstreamURL, userID)
+		}
 	}
 
-	return m.modelDiscovery.Fetch(ctx, req)
+	models, err := m.modelDiscovery.Fetch(ctx, req)
+	if err != nil {
+		return nil, discoveryFailure(ctx, req.CatalogID, err)
+	}
+	return models, nil
 }
 
 // CreateProvider persists a new provider for the account. Providers have no
@@ -341,6 +374,18 @@ func (m *managerImpl) CreateProvider(ctx context.Context, userID string, provide
 	// at create time instead.
 	if strings.TrimSpace(provider.APIKey) == "" {
 		return nil, status.Errorf(status.InvalidArgument, "api_key is required when creating an agent network provider")
+	}
+	// Stored as it will be sent. The vendor call below trims the key before
+	// building the auth header while the synthesiser substitutes the stored
+	// value verbatim, so a key pasted with surrounding whitespace would pass
+	// its check and then fail every request the provider serves.
+	provider.APIKey = strings.TrimSpace(provider.APIKey)
+
+	// Before anything is persisted: a record whose upstream or credential does
+	// not work is rejected here rather than discovered later as a failed
+	// request with nothing pointing back at it.
+	if err := m.checkProviderCredential(ctx, provider); err != nil {
+		return nil, err
 	}
 
 	if provider.ID == "" {
@@ -377,11 +422,47 @@ func (m *managerImpl) UpdateProvider(ctx context.Context, userID string, provide
 	// Preserve the API key if the caller didn't rotate it. A
 	// whitespace-only value is treated as "not rotated" rather than a
 	// real key, but it must not silently overwrite a valid stored key.
-	if provider.APIKey == "" {
-		provider.APIKey = existing.APIKey
-	} else if strings.TrimSpace(provider.APIKey) == "" {
+	switch trimmed := strings.TrimSpace(provider.APIKey); {
+	case provider.APIKey == "":
+		// Trimmed on the way through: a record stored before keys were
+		// normalised carries whitespace the proxy still sends, and an edit
+		// that preserves the key is the occasion to repair it. Doing so makes
+		// the comparison below see a change, which is correct — that key has
+		// never been tested in the form it is about to be sent in.
+		provider.APIKey = strings.TrimSpace(existing.APIKey)
+	case trimmed == "":
 		return nil, status.Errorf(status.InvalidArgument, "api_key must be non-blank when rotating an agent network provider")
+	default:
+		// See CreateProvider: the key is stored in the form the proxy will
+		// send, so the check below tests what the provider will actually use.
+		provider.APIKey = trimmed
 	}
+
+	// Only the fields the vendor would judge are worth a round-trip. This same
+	// call carries renames, model rows and price edits, and none of those
+	// should wait on a vendor — or be refused because one is having a bad day.
+	//
+	// The catalog entry counts as one of them: it decides which vendor is
+	// asked, under which auth header, so moving a record from one to another
+	// sends an unchanged credential somewhere it has never been accepted.
+	//
+	// The comparison runs after the merge above, so an update that changes only
+	// the URL reads as unchanged on the key and is checked against the stored
+	// one, which is the only credential the operator has to offer here.
+	//
+	// Turning TLS verification back on is the fourth: the record was stored
+	// unchecked precisely because that flag was set, so this is the first
+	// moment it can be checked at all, and nothing else about it need change
+	// for that to be true.
+	if provider.UpstreamURL != existing.UpstreamURL ||
+		provider.APIKey != existing.APIKey ||
+		provider.ProviderID != existing.ProviderID ||
+		(existing.SkipTLSVerification && !provider.SkipTLSVerification) {
+		if err := m.checkProviderCredential(ctx, provider); err != nil {
+			return nil, err
+		}
+	}
+
 	// Always preserve the session keypair across updates so existing
 	// session cookies stay valid. The keys are server-managed and
 	// never surfaced through the API.
@@ -986,9 +1067,7 @@ func (m *managerImpl) bootstrapLabeled(ctx context.Context, settings *types.Sett
 	}
 
 	for attempt := 1; attempt <= maxDomainAllocationAttempts; attempt++ {
-		m.labelRngMu.Lock()
-		label := labelgen.PickTuple(m.labelRng)
-		m.labelRngMu.Unlock()
+		label := labelgen.PickTuple()
 		if label == "" {
 			// Only reachable if either word pool were emptied. An empty label
 			// would produce a broken endpoint like ".example.com", so fail
