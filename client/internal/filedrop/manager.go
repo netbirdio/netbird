@@ -416,14 +416,17 @@ func (m *Manager) SetSenderRule(peer PeerKey, rule SenderRule) error {
 		return nil
 	}
 
+	// Revoke rather than Decide: Decide only moves an offer out of Pending, so
+	// on its own it would leave a transfer the sender already had accepted
+	// streaming into the spool after the user blocked them.
 	for _, offer := range server.Offers().List() {
-		if offer.Sender != peer || offer.Decision != DecisionPending {
+		if offer.Sender != peer || offer.State.terminal() {
 			continue
 		}
-		if declined, ok := server.Offers().Decide(offer.ID, DecisionDeclined); ok {
-			server.Spool().Remove(declined.ID)
-			m.finishTransfer(declined.ID, StateDeclined, "")
-			m.emit(EventWithdrawn, m.transferOf(declined.ID))
+		if revoked, ok := server.Offers().Revoke(offer.ID); ok {
+			server.Spool().Remove(revoked.ID)
+			m.finishTransfer(revoked.ID, StateDeclined, "")
+			m.emit(EventWithdrawn, m.transferOf(revoked.ID))
 		}
 	}
 	return nil

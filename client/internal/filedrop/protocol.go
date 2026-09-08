@@ -201,3 +201,12 @@ func (s State) String() string {
 		return fmt.Sprintf("unknown(%d)", uint8(s))
 	}
 }
+
+func (s State) terminal() bool {
+	switch s {
+	case StateCompleted, StateDeclined, StateExpired, StateCancelled, StateFailed:
+		return true
+	default:
+		return false
+	}
+}

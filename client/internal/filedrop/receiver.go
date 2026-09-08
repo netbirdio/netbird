@@ -140,10 +140,15 @@ func (r *receiver) upload(sender senderIdentity, id OfferID, index int, offset i
 
 	// The decision is read once, at the top, but a whole file goes into this
 	// one request: a receiver that declines halfway through would otherwise be
-	// streamed the rest of it, into a spool it has already thrown away.
+	// streamed the rest of it, into a spool it has already thrown away. The
+	// policy is re-read alongside it, so blocking the sender mid-transfer stops
+	// the bytes too rather than only refusing its next offer.
 	watched := &acceptedReader{
 		r: body,
 		accepted: func() bool {
+			if r.policy.Evaluate(sender.key) == ModeOff {
+				return false
+			}
 			current, ok := r.offers.Get(sender.key, id)
 			return ok && current.Decision == DecisionAccepted
 		},

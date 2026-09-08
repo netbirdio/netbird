@@ -87,12 +87,7 @@ func LoadHistory(store Store) *History {
 }
 
 func (t Transfer) terminal() bool {
-	switch t.State {
-	case StateCompleted, StateDeclined, StateExpired, StateCancelled, StateFailed:
-		return true
-	default:
-		return false
-	}
+	return t.State.terminal()
 }
 
 func (t Transfer) clone() Transfer {

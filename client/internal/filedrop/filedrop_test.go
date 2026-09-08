@@ -399,6 +399,62 @@ func TestOfferIsScopedToItsSender(t *testing.T) {
 	assert.ErrorIs(t, err, ErrOfferNotFound, "another peer must not poll the offer")
 }
 
+func TestBlockingASenderStopsAnAcceptedUpload(t *testing.T) {
+	policy := NewPolicyStore(testProfile)
+	require.NoError(t, policy.Set(Policy{Mode: ModeAutoAccept}))
+
+	spool, err := NewSpool(t.TempDir())
+	require.NoError(t, err)
+
+	store := NewOfferStore(time.Minute)
+	r := &receiver{offers: store, policy: policy, spool: spool}
+
+	content := strings.Repeat("x", 512<<10)
+	offer := store.Add(testPeer, "sender", []FileMeta{{Name: "a.bin", Size: int64(len(content))}}, DecisionAccepted)
+	require.NoError(t, spool.Prepare(offer.ID))
+
+	require.NoError(t, policy.SetSenderRule(testPeer, SenderRuleBlock))
+
+	err = r.upload(senderIdentity{key: testPeer}, offer.ID, 0, 0, strings.NewReader(content))
+	require.ErrorIs(t, err, ErrNotAccepted, "a blocked sender must not keep uploading")
+
+	staged, serr := spool.Received(offer.ID, 0)
+	require.NoError(t, serr)
+	assert.Less(t, staged, int64(len(content)), "the copy must stop short of the announced size")
+}
+
+func TestBlockingASenderRevokesAnAcceptedOffer(t *testing.T) {
+	mgr, err := NewManager(ManagerConfig{Profile: testProfile, DataDir: t.TempDir()})
+	require.NoError(t, err)
+	require.NoError(t, mgr.Policy().Set(Policy{Mode: ModeAutoAccept}))
+
+	srv, err := NewServer(ServerConfig{
+		SpoolDir: t.TempDir(),
+		Policy:   mgr.Policy(),
+		Resolver: staticResolver{key: testPeer},
+		Notifier: mgr,
+	})
+	require.NoError(t, err)
+
+	mgr.mu.Lock()
+	mgr.server = srv
+	mgr.mu.Unlock()
+
+	offer := srv.Offers().Add(testPeer, "sender", []FileMeta{{Name: "a.bin", Size: 10}}, DecisionAccepted)
+	require.NoError(t, srv.Spool().Prepare(offer.ID))
+	mgr.OnOffer(offer)
+
+	require.NoError(t, mgr.SetSenderRule(testPeer, SenderRuleBlock))
+
+	current, ok := srv.Offers().Get(testPeer, offer.ID)
+	require.True(t, ok)
+	assert.NotEqual(t, DecisionAccepted, current.Decision, "an accepted offer must lose its consent")
+
+	transfer, ok := mgr.history.Get(offer.ID)
+	require.True(t, ok)
+	assert.True(t, transfer.terminal(), "the transfer must be settled, not left running")
+}
+
 func TestPolicyEvaluation(t *testing.T) {
 	store := NewPolicyStore(testProfile)
 	require.NoError(t, store.Set(Policy{Mode: ModeAsk}))
