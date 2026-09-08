@@ -20,7 +20,7 @@ func deliver(spool *Spool, offer Offer, destDir string) ([]string, error) {
 	}
 
 	if !files {
-		spool.Remove(offer.ID)
+		spool.removeLocked(offer.ID)
 		return nil, nil
 	}
 
@@ -47,7 +47,7 @@ func deliver(spool *Spool, offer Offer, destDir string) ([]string, error) {
 		delivered = append(delivered, dest)
 	}
 
-	spool.Remove(offer.ID)
+	spool.removeLocked(offer.ID)
 	return delivered, nil
 }
 

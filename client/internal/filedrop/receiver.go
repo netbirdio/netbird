@@ -102,6 +102,13 @@ func (r *receiver) withdraw(sender senderIdentity, id OfferID) error {
 		return ErrOfferNotFound
 	}
 
+	// A completed offer has already been handed to delivery, which copies out
+	// of the spool: discarding it here would pull the staged bytes out from
+	// under that copy and lose a payload the sender was told had arrived.
+	if offer.State == StateCompleted {
+		return fmt.Errorf("%w: offer already completed", ErrNotAccepted)
+	}
+
 	r.offers.SetState(id, StateCancelled)
 	r.offers.Remove(id)
 	r.spool.Remove(id)

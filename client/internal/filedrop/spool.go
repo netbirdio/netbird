@@ -13,6 +13,7 @@ import (
 
 // Spool stages incoming payloads in an app-private directory.
 type Spool struct {
+	offerLocks
 	root string
 }
 
@@ -97,6 +98,8 @@ func (s *Spool) Write(id OfferID, index int, _ string, offset int64, r io.Reader
 // Deliver moves an offer's staged payloads into destDir under their announced
 // names and returns where each one landed.
 func (s *Spool) Deliver(offer Offer, destDir string) ([]string, error) {
+	defer s.lock(offer.ID)()
+
 	return deliver(s, offer, destDir)
 }
 
@@ -107,6 +110,15 @@ func (s *Spool) Path(id OfferID, index int) string {
 
 // Remove deletes an offer's staged payloads.
 func (s *Spool) Remove(id OfferID) {
+	defer s.lock(id)()
+
+	s.removeLocked(id)
+}
+
+// removeLocked discards one offer's payloads without taking its lock, for a
+// caller that already holds it. Deliver removes the spool as its last step and
+// would otherwise block on itself.
+func (s *Spool) removeLocked(id OfferID) {
 	if err := os.RemoveAll(s.OfferDir(id)); err != nil {
 		log.Debugf("remove spool dir: %v", err)
 	}

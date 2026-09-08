@@ -307,6 +307,117 @@ func TestUploadIsBoundedByAnnouncedSize(t *testing.T) {
 	assert.Len(t, staged, int(announced), "staged size must be capped at the announced size")
 }
 
+func TestWithdrawIsRefusedOnceTheOfferCompleted(t *testing.T) {
+	spool, err := NewSpool(t.TempDir())
+	require.NoError(t, err)
+
+	store := NewOfferStore(time.Minute)
+	notifier := &recordingNotifier{}
+	r := &receiver{offers: store, policy: NewPolicyStore(testProfile), spool: spool, notifier: notifier}
+
+	content := "payload"
+	offer := store.Add(testPeer, "sender", []FileMeta{{Name: "a.txt", Size: int64(len(content))}}, DecisionAccepted)
+	require.NoError(t, spool.Prepare(offer.ID))
+	_, err = spool.Write(offer.ID, 0, "", 0, strings.NewReader(content), int64(len(content)))
+	require.NoError(t, err)
+	store.SetProgress(offer.ID, 0, int64(len(content)))
+
+	_, ok := store.Complete(offer.ID)
+	require.True(t, ok, "the offer completes once fully staged")
+
+	err = r.withdraw(senderIdentity{key: testPeer}, offer.ID)
+	require.ErrorIs(t, err, ErrNotAccepted, "a completed offer must not be withdrawn")
+
+	staged, serr := spool.Received(offer.ID, 0)
+	require.NoError(t, serr)
+	assert.Equal(t, int64(len(content)), staged, "the staged payload must survive the withdrawal")
+}
+
+func TestOfferLockSerialisesTheSameOfferOnly(t *testing.T) {
+	var locks offerLocks
+
+	release := locks.lock(OfferID("a"))
+
+	// A different offer must not be held up by it.
+	other := make(chan struct{})
+	go func() {
+		locks.lock(OfferID("b"))()
+		close(other)
+	}()
+	select {
+	case <-other:
+	case <-time.After(2 * time.Second):
+		t.Fatal("a second offer must not block on another offer's lock")
+	}
+
+	// The same offer must wait until the holder releases.
+	same := make(chan struct{})
+	go func() {
+		locks.lock(OfferID("a"))()
+		close(same)
+	}()
+	select {
+	case <-same:
+		t.Fatal("the same offer must not be entered while it is held")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	release()
+	select {
+	case <-same:
+	case <-time.After(2 * time.Second):
+		t.Fatal("releasing must let the waiter through")
+	}
+
+	locks.mu.Lock()
+	held := len(locks.locks)
+	locks.mu.Unlock()
+	assert.Zero(t, held, "released offers must not be retained in the lock map")
+}
+
+func TestDeliverHoldsTheOfferLockAgainstRemove(t *testing.T) {
+	spool, err := NewSpool(t.TempDir())
+	require.NoError(t, err)
+
+	store := NewOfferStore(time.Minute)
+	content := strings.Repeat("Z", 8<<10)
+	offer := store.Add(testPeer, "sender", []FileMeta{{Name: "a.bin", Size: int64(len(content))}}, DecisionAccepted)
+	require.NoError(t, spool.Prepare(offer.ID))
+	_, err = spool.Write(offer.ID, 0, "", 0, strings.NewReader(content), int64(len(content)))
+	require.NoError(t, err)
+
+	full, ok := store.Get(testPeer, offer.ID)
+	require.True(t, ok)
+
+	// Hold the offer's lock the way a running Deliver does, then let a
+	// withdrawal's Remove race it: the removal must wait rather than pull the
+	// staged bytes out from under the copy.
+	release := spool.lock(offer.ID)
+
+	removed := make(chan struct{})
+	go func() {
+		spool.Remove(offer.ID)
+		close(removed)
+	}()
+
+	select {
+	case <-removed:
+		t.Fatal("Remove must block while the offer lock is held")
+	case <-time.After(100 * time.Millisecond):
+	}
+	release()
+
+	delivered, derr := spool.Deliver(full, t.TempDir())
+	require.NoError(t, derr)
+	require.Len(t, delivered, 1)
+
+	info, serr := os.Stat(delivered[0])
+	require.NoError(t, serr)
+	assert.Equal(t, int64(len(content)), info.Size(), "the delivered payload must be whole")
+
+	<-removed
+}
+
 func TestCancelWithdrawsPendingOffer(t *testing.T) {
 	srv, client, notifier := startTestServer(t, ModeAsk, staticResolver{key: testPeer})
 
