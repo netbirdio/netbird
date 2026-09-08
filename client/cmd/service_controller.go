@@ -16,6 +16,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/daemonaddr"
 	"github.com/netbirdio/netbird/client/internal/ipcauth"
+	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/server"
 	"github.com/netbirdio/netbird/client/system"
@@ -89,12 +90,17 @@ func (p *program) Start(svc service.Service) error {
 	)
 	p.serv = grpc.NewServer(opts...)
 
-	allowed, err := resolveAllowGroups(allowGroups)
+	allowed, source, err := daemonSocketPrincipals(mdm.LoadPolicy())
 	if err != nil {
+		// Logged as well as returned: the service manager is the only other
+		// place this surfaces, and it reports a service that will not start
+		// without saying why. Refusing to serve on a host whose lockdown
+		// cannot be applied is deliberate, so the reason has to be findable.
+		log.Errorf("failed to apply the daemon socket restriction, not serving: %v", err)
 		return err
 	}
 	if len(allowed) > 0 {
-		log.Infof("daemon sockets are restricted to %v", allowed)
+		log.Infof("daemon sockets are restricted to %v by %s", allowed, source)
 	}
 
 	daemonListener, jsonListener, err := listenDaemonSockets(allowed)
