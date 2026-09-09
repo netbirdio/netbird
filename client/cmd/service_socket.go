@@ -50,6 +50,18 @@ func listenOnAddress(addr string, allowed []string) (*socketListener, error) {
 
 	if network == "unix" {
 		removeStaleUnixSocket(address)
+
+		// A Unix socket accepts connections the moment it is bound, and the
+		// kernel checks its mode at connect() rather than at accept(). Creating
+		// it owner-only closes the window between the bind and applySocketAccess:
+		// without this, a permissive umask leaves the socket open to everybody
+		// for that interval, and a caller that got in stays connected after the
+		// mode is narrowed.
+		listener, err := listenUnixPrivate(address)
+		if err != nil {
+			return nil, err
+		}
+		return &socketListener{Listener: listener, network: network, address: address}, nil
 	}
 
 	listener, err := net.Listen(network, address)

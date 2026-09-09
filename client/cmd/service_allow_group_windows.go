@@ -4,6 +4,7 @@ package cmd
 
 import (
 	"fmt"
+	"net"
 
 	"golang.org/x/sys/windows"
 
@@ -46,6 +47,14 @@ func checkAllowGroupSet([]string) error { return nil }
 // security descriptor the pipe is created with rather than by a mode set on it
 // afterwards. See allowedPipeSDDL.
 func applySocketAccess(string, []string) error { return nil }
+
+// listenUnixPrivate binds a Unix socket. Windows has no umask, and a Unix
+// socket there carries no mode the daemon could narrow, so there is nothing to
+// do beyond binding it. A restriction on this transport is refused before it
+// gets here: see listenOnAddress.
+func listenUnixPrivate(address string) (net.Listener, error) {
+	return net.Listen("unix", address)
+}
 
 // allowedPipeSDDL renders the security descriptor for the daemon control pipe.
 // An empty principal list yields the descriptor that lets any local caller

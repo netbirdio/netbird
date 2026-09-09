@@ -157,6 +157,32 @@ func TestApplySocketAccess(t *testing.T) {
 	})
 }
 
+// The kernel checks a Unix socket's mode at connect(), not at accept(), so a
+// socket that is briefly world-writable can be connected to before the daemon
+// narrows it, and the caller stays connected afterwards. Binding under a
+// restrictive umask closes that window whatever umask the service manager used.
+func TestListenUnixPrivate_IgnoresAPermissiveUmask(t *testing.T) {
+	previous := syscall.Umask(0)
+	t.Cleanup(func() { syscall.Umask(previous) })
+
+	dir, err := os.MkdirTemp("", "nb-sock")
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, os.RemoveAll(dir)) })
+
+	path := filepath.Join(dir, "d.sock")
+	listener, err := listenUnixPrivate(path)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, listener.Close()) })
+
+	assert.Equal(t, os.FileMode(0600), socketMode(t, path),
+		"the socket must be owner-only as bound, before any restriction is applied")
+
+	// And the process umask is left as it was found.
+	restored := syscall.Umask(0)
+	syscall.Umask(restored)
+	assert.Equal(t, 0, restored, "listenUnixPrivate must restore the umask it changed")
+}
+
 func listenTestSocket(t *testing.T) string {
 	t.Helper()
 
