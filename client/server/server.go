@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"runtime"
 	"strconv"
 	"sync"
@@ -23,6 +24,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/expose"
+	"github.com/netbirdio/netbird/client/internal/getent"
 	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -2752,9 +2754,34 @@ func (s *Server) SessionHolder() (ipcauth.Principal, bool) {
 	return principal, true
 }
 
+// OwnsProfile check if the Identity mathces the owner in the profile resolved
+// from the handle.
+//
+// Note: username is resolved locally and through LDAP/AD so lookup might fail
+// or be delayed.
 func (s *Server) OwnsProfile(id ipcauth.Identity, handle string) bool {
-	// TODO
-	return false
+	var username *user.User
+	var lookupErr error
+	if id.IsWindows() {
+		username, lookupErr = getent.LookupUserID(id.SID)
+	} else {
+		username, lookupErr = getent.LookupUserID(strconv.FormatUint(uint64(id.UID), 10))
+	}
+	if lookupErr != nil {
+		log.Errorf("failed to lookup user by Identity %v: %v", id, lookupErr)
+		return false
+	}
+	resolved, err := s.resolveProfileHandle(handle, username.Name)
+	if err != nil {
+		log.Errorf("failed to resolve profile %q: %v", handle, err)
+		return false
+	}
+	if len(resolved.Owners) < 1 {
+		// TODO: define unowned behavior
+		return true
+	}
+	owner := resolved.Owners[0]
+	return owner.Matches(id)
 }
 
 func persistLoginOverrides(activeProf *profilemanager.ActiveProfileState, managementURL string, preSharedKey *string) error {
