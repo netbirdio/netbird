@@ -56,9 +56,10 @@ func (p *Proxy) Handler() http.Handler {
 }
 
 type proxyHandler struct {
-	metrics MetricsRecorder
-	handler http.Handler
-	conn    *wsConnAdapter
+	metrics            MetricsRecorder
+	handler            http.Handler
+	conn               *wsConnAdapter
+	headersReadTimeout time.Duration
 }
 
 func (ph *proxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -78,12 +79,13 @@ func (ph *proxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		log.Errorf("WebSocket upgrade failed from %s: %v", r.RemoteAddr, err)
 		return
 	}
-	serverConn := &wsConnAdapter{
+	serverConn := (&wsConnAdapter{
 		ctx:        ctx,
 		conn:       wsConn,
 		metrics:    ph.metrics,
 		clientAddr: r.RemoteAddr,
-	}
+	}).WithFrameSnooper(ph.headersReadTimeout)
+
 	defer func() {
 		_ = serverConn.Close()
 	}()
@@ -94,16 +96,13 @@ func (ph *proxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	(&http2.Server{
 		// MaxConcurrentStreams: 20,
-		// IdleTimeout: 3 * time.Second,
+		// IdleTimeout: 60 * time.Second,
 	}).ServeConn(serverConn, &http2.ServeConnOpts{
-		Context: ctx,
-		Handler: ph.handler,
+		Context:    ctx,
+		Handler:    ph.handler,
 		BaseConfig: &http.Server{
-			// 	// this is disabled in http2/server.go in "processHeaders"
-			// 	// after headers have been read
-			ReadHeaderTimeout: 2 * time.Second,
-			ReadTimeout:       5 * time.Second,
-			// 	// IdleTimeout: 10 * time.Second,
+			// we don't set read/write timeouts here,
+			// as they interfere with streaming grpc calls
 		},
 	})
 

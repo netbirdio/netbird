@@ -21,17 +21,15 @@ import (
 	"golang.org/x/net/http2/hpack"
 )
 
-func TestXxx(t *testing.T) {
+func TestAdapterHandlingConnectionClosures(t *testing.T) {
 	var cases = []struct {
-		description      string
-		casenum          int
-		frameHandlerFunc func(b []byte) (n int, err error)
+		description string
+		casenum     int
 	}{
-		// {"client-side ws connection is closed", 0, nil},
-		// {"server-side ws connection is closed", 1, nil},
-		// {"client-side context is cancelled", 2, nil},
-		// {"server-side context is cancelled", 3, nil},
-		{"client slow to start a stream", 4, func(b []byte) (n int, err error) { return len(b), nil }},
+		{"client-side ws connection is closed", 0},
+		{"server-side ws connection is closed", 1},
+		{"client-side context is cancelled", 2},
+		{"server-side context is cancelled", 3},
 	}
 
 	for _, c := range cases {
@@ -55,11 +53,7 @@ func TestXxx(t *testing.T) {
 			protocols.SetHTTP1(true)
 			protocols.SetUnencryptedHTTP2(true)
 			httpServer := http.Server{
-				Handler:     handler,
-				IdleTimeout: 3 * time.Second,
-				// Handler: h2c.NewHandler(handler, &http2.Server{
-				// 	IdleTimeout: 500 * time.Millisecond,
-				// }),
+				Handler: handler,
 			}
 			go httpServer.Serve(l)
 
@@ -76,11 +70,11 @@ func TestXxx(t *testing.T) {
 				Transport: &http2.Transport{
 					AllowHTTP: true,
 					DialTLSContext: func(_ context.Context, _, _ string, _ *tls.Config) (net.Conn, error) {
-						return &h2ConnectionSnooper{wrappedConn: &wsConnAdapter{
+						return &wsConnAdapter{
 							prefix: "test-client",
 							ctx:    clientCtx,
 							conn:   clientconn,
-						}, frameHandlerFunc: c.frameHandlerFunc}, nil
+						}, nil
 					},
 				}}
 
@@ -106,14 +100,83 @@ func TestXxx(t *testing.T) {
 
 			assert.EventuallyWithT(t, func(c *assert.CollectT) {
 				assert.True(c, handler.conn.IsClosed())
-			}, 5*time.Second, 100*time.Millisecond)
+			}, 3*time.Second, 100*time.Millisecond)
+		})
+	}
+}
+
+func TestAdapterHandlingBuggyHttpConnection(t *testing.T) {
+	var cases = []struct {
+		description              string
+		shouldDropFrameCondition func(f http2.FrameType) bool
+		responseError            string
+	}{
+		{"client slow to start a stream (nothing past settings frame)",
+			func(f http2.FrameType) bool { return f == http2.FrameData || f == http2.FrameHeaders },
+			"failed to get reader"},
+		{"client slow to start a stream (only headers received)", func(f http2.FrameType) bool { return f == http2.FrameData },
+			"failed to get reader"},
+	}
+
+	for _, c := range cases {
+		t.Run(c.description, func(t *testing.T) {
+			serversock := filepath.Join("/tmp", "http-server-"+strconv.FormatInt(rand.Int64(), 10)+".sock")
+			defer os.Remove(serversock)
+
+			l, err := net.Listen("unix", serversock)
+			assert.NoError(t, err)
+
+			proxy := New(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				buf, _ := io.ReadAll(r.Body)
+				defer r.Body.Close()
+				w.Write([]byte("echo: " + string(buf)))
+			}))
+
+			handler, ok := proxy.Handler().(*proxyHandler)
+			assert.True(t, ok)
+			handler.headersReadTimeout = 1 * time.Second
+
+			protocols := new(http.Protocols)
+			protocols.SetHTTP1(true)
+			protocols.SetUnencryptedHTTP2(true)
+			httpServer := http.Server{
+				Handler: handler,
+			}
+			go httpServer.Serve(l)
+
+			clientconn, _, err := websocket.Dial(context.Background(), "http://whatever", &websocket.DialOptions{HTTPClient: &http.Client{
+				Transport: &http.Transport{
+					DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
+						return net.Dial("unix", serversock)
+					},
+				}}})
+			assert.NoError(t, err)
+
+			h2client := &http.Client{
+				Transport: &http2.Transport{
+					AllowHTTP: true,
+					DialTLSContext: func(_ context.Context, _, _ string, _ *tls.Config) (net.Conn, error) {
+						return &h2ConnectionSnooper{wrappedConn: &wsConnAdapter{
+							prefix: "test-client",
+							ctx:    context.Background(),
+							conn:   clientconn,
+						}, shouldDropFrame: c.shouldDropFrameCondition}, nil
+					},
+				}}
+
+			_, err = h2client.Post("http://whatever", "text/html", strings.NewReader("g'day"))
+			assert.ErrorContains(t, err, c.responseError)
+
+			assert.EventuallyWithT(t, func(c *assert.CollectT) {
+				assert.True(c, handler.conn.IsClosed())
+			}, 3*time.Second, 100*time.Millisecond)
 		})
 	}
 }
 
 type h2ConnectionSnooper struct {
-	wrappedConn      net.Conn
-	frameHandlerFunc func(b []byte) (n int, err error)
+	wrappedConn     net.Conn
+	shouldDropFrame func(f http2.FrameType) bool
 }
 
 func (hs *h2ConnectionSnooper) Read(b []byte) (n int, err error) {
@@ -128,8 +191,8 @@ func (hs *h2ConnectionSnooper) Write(b []byte) (n int, err error) {
 		return hs.wrappedConn.Write(b)
 	}
 
-	if (f.Header().Type == http2.FrameData || f.Header().Type == http2.FrameHeaders) && hs.frameHandlerFunc != nil {
-		return hs.frameHandlerFunc(b)
+	if hs.shouldDropFrame != nil && hs.shouldDropFrame(f.Header().Type) {
+		return len(b), nil
 	}
 
 	return hs.wrappedConn.Write(b)
