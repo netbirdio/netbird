@@ -68,11 +68,11 @@ func NewFirewall(iface IFaceMapper, stateManager *statemanager.Manager, flowLogg
 	case err == nil && !iface.IsUserspaceBind():
 		// Nothing to do, fall through
 	case err == nil && iface.IsUserspaceBind():
-		// Native firewall handles packet filtering, but the userspace WireGuard bind
+		// Native firewall handles packet filtering, but the userspace bind
 		// needs a device filter for DNS interception hooks. Install a minimal
 		// hooks-only filter that passes all traffic through to the kernel firewall.
-		if err := iface.SetFilter(&uspfilter.HooksFilter{}); err != nil {
-			log.Warnf("failed to set hooks filter, DNS via memory hooks will not work: %v", err)
+		if err := InstallDNSHooksFilter(iface); err != nil {
+			log.Errorf("failed to set hooks filter, DNS via memory hooks will not work: %v", err)
 		}
 	case err != nil && !iface.IsUserspaceBind():
 		// Kernel cannot fall back to anything else, need to return error
