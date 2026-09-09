@@ -25,10 +25,19 @@ type socketListener struct {
 // every local account; on Windows they go into the pipe's security descriptor,
 // on Unix they are applied to the socket file by applySocketAccess once the
 // listener exists.
+//
+// A TCP address cannot express either, so a restriction configured against one
+// is refused here, before anything is bound. Serving it anyway would leave the
+// daemon reachable by anything that can open a socket to the port, on a host
+// configured to be locked down.
 func listenOnAddress(addr string, allowed []string) (*socketListener, error) {
 	network, address, err := parseListenAddress(addr)
 	if err != nil {
 		return nil, err
+	}
+
+	if network == "tcp" && len(allowed) > 0 {
+		return nil, fmt.Errorf("cannot restrict %s to %v: a tcp listener carries no local access control, use a unix socket or npipe://", addr, allowed)
 	}
 
 	if network == "npipe" {
@@ -113,11 +122,23 @@ func removeStaleUnixSocketForAddress(addr string) {
 }
 
 // restrict sets the access the socket file grants, from the principals resolved
-// out of --allow-group. It is a no-op for a nil listener, and for anything that
-// is not a Unix socket: a named pipe carries its access rules in the security
-// descriptor it was created with.
+// out of --allow-group. It is a no-op for a nil listener, which is what a
+// disabled JSON socket is, and for a named pipe, which carries its access rules
+// in the security descriptor it was created with.
+//
+// Any other transport that cannot express the restriction is an error rather
+// than a socket served without one. listenOnAddress refuses the same
+// combination before binding; this is the backstop that keeps a transport added
+// later from silently inheriting the unrestricted path.
 func (l *socketListener) restrict(description string, allowed []string) error {
-	if l == nil || l.network != "unix" {
+	if l == nil || l.network == "npipe" {
+		return nil
+	}
+
+	if l.network != "unix" {
+		if len(allowed) > 0 {
+			return fmt.Errorf("cannot restrict the %s %s listener to %v", description, l.network, allowed)
+		}
 		return nil
 	}
 

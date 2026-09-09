@@ -155,14 +155,17 @@ func (p *program) serve(daemonListener, jsonListener *socketListener, allowed []
 		defer jsonListener.Close()
 	}
 
-	// restrict is a no-op for a nil listener and for a non-unix one.
+	// Returned rather than logged: a socket whose access could not be set is
+	// either open to accounts that must not reach the daemon, or unreachable by
+	// the ones that must. Both are worse than the caller's fatal exit, and
+	// swallowing this would leave a service the manager still reports as running
+	// with no usable socket. restrict is a no-op for a nil listener, which is
+	// what a disabled JSON socket is.
 	if err := daemonListener.restrict("daemon", allowed); err != nil {
-		log.Error(err)
-		return nil
+		return err
 	}
 	if err := jsonListener.restrict("daemon JSON", allowed); err != nil {
-		log.Error(err)
-		return nil
+		return err
 	}
 
 	serverInstance := server.New(p.ctx, util.FindFirstLogPath(logFiles), configPath, profilesDisabled, updateSettingsDisabled, captureEnabled, networksDisabled)
