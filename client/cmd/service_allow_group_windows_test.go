@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/windows"
+
+	"github.com/netbirdio/netbird/client/internal/ipcauth"
 )
 
 // accountName returns the name the local system knows a SID by.
@@ -39,7 +41,8 @@ func TestResolveAllowGroup_SID(t *testing.T) {
 		t.Run(value, func(t *testing.T) {
 			principal, err := resolveAllowGroup(value)
 			require.NoError(t, err)
-			assert.Equal(t, "sid:"+sidAdministrators, principal)
+			assert.Equal(t, ipcauth.KindSID, principal.Kind)
+			assert.Equal(t, "sid:"+sidAdministrators, principal.String())
 		})
 	}
 }
@@ -52,7 +55,7 @@ func TestResolveAllowGroup_ByName(t *testing.T) {
 
 	principal, err := resolveAllowGroup(name)
 	require.NoError(t, err)
-	assert.Equal(t, "sid:"+sidAdministrators, principal)
+	assert.Equal(t, "sid:"+sidAdministrators, principal.String())
 }
 
 func TestResolveAllowGroup_Rejects(t *testing.T) {
