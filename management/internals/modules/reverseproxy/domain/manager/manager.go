@@ -18,6 +18,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	nbstore "github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
+	nbdomain "github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -132,6 +133,22 @@ func (m Manager) CreateDomain(ctx context.Context, accountID, userID, domainName
 	}
 	if !ok {
 		return nil, status.NewPermissionDeniedError()
+	}
+
+	// Validate the domain name (allows wildcard and non-wildcard)
+	domainName = normalizeCustomDomainName(domainName)
+	if !nbdomain.IsValidDomain(domainName) {
+		return nil, status.Errorf(status.InvalidArgument, "invalid domain name: %s", domainName)
+	}
+
+	existing, err := m.store.ListCustomDomains(ctx, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("list custom domains: %w", err)
+	}
+	for _, d := range existing {
+		if normalizeCustomDomainName(d.Domain) == domainName {
+			return nil, status.Errorf(status.AlreadyExists, "domain %s already exists", domainName)
+		}
 	}
 
 	// Verify the target cluster is in the available clusters for this account
@@ -363,19 +380,76 @@ func (m Manager) reservedGatewayAddress(ctx context.Context, accountID string) (
 	return settings.ProxyAddress, nil
 }
 
-func extractClusterFromCustomDomains(serviceDomain string, customDomains []*domain.Domain) (string, bool) {
-	bestCluster := ""
-	bestLen := -1
+// normalizeCustomDomainName returns the canonical form used for storage and matching.
+func normalizeCustomDomainName(name string) string {
+	return strings.ToLower(strings.TrimSuffix(strings.TrimSpace(name), "."))
+}
+
+// extractClusterFromCustomDomains extracts the cluster address from a custom domain.
+// Supports both non-wildcard and wildcard custom domains.
+// An exact non-wildcard match always takes priority. Among other matches
+// (wildcard or subdomain of non-wildcard), the longest matching suffix wins.
+// When suffix lengths tie, a non-wildcard match beats a wildcard match.
+// Equal-quality ties break lexicographically on TargetCluster so legacy rows
+// that differ only by case or a trailing dot resolve deterministically.
+func extractClusterFromCustomDomains(host string, customDomains []*domain.Domain) (string, bool) {
+	normalizedHost := normalizeCustomDomainName(host)
+
+	// Exact non-wildcard match always wins — check first.
+	var exactCluster string
+	foundExact := false
 	for _, cd := range customDomains {
-		if serviceDomain != cd.Domain && !strings.HasSuffix(serviceDomain, "."+cd.Domain) {
-			continue
+		normalizedCD := normalizeCustomDomainName(cd.Domain)
+		if !strings.HasPrefix(normalizedCD, "*.") && normalizedHost == normalizedCD {
+			if !foundExact || cd.TargetCluster < exactCluster {
+				exactCluster = cd.TargetCluster
+				foundExact = true
+			}
 		}
-		if l := len(cd.Domain); l > bestLen {
-			bestLen = l
-			bestCluster = cd.TargetCluster
+	}
+	if foundExact {
+		return exactCluster, true
+	}
+
+	// Fall back to the longest wildcard or non-wildcard subdomain match.
+	var bestCluster string
+	bestLen := -1
+	bestIsWildcard := false
+
+	for _, cd := range customDomains {
+		normalizedCD := normalizeCustomDomainName(cd.Domain)
+
+		if strings.HasPrefix(normalizedCD, "*.") {
+			suffix := normalizedCD[2:]
+			if normalizedHost == suffix || strings.HasSuffix(normalizedHost, "."+suffix) {
+				if isBetterCustomDomainMatch(len(suffix), true, cd.TargetCluster, bestLen, bestIsWildcard, bestCluster) {
+					bestCluster = cd.TargetCluster
+					bestLen = len(suffix)
+					bestIsWildcard = true
+				}
+			}
+		} else if strings.HasSuffix(normalizedHost, "."+normalizedCD) {
+			if isBetterCustomDomainMatch(len(normalizedCD), false, cd.TargetCluster, bestLen, bestIsWildcard, bestCluster) {
+				bestCluster = cd.TargetCluster
+				bestLen = len(normalizedCD)
+				bestIsWildcard = false
+			}
 		}
 	}
 	return bestCluster, bestLen >= 0
+}
+
+// isBetterCustomDomainMatch reports whether candidate should replace the current best match.
+// Longer suffixes win; equal-length ties prefer non-wildcard over wildcard; further
+// ties break lexicographically on TargetCluster.
+func isBetterCustomDomainMatch(suffixLen int, isWildcard bool, candidateCluster string, bestLen int, bestIsWildcard bool, bestCluster string) bool {
+	if suffixLen != bestLen {
+		return suffixLen > bestLen
+	}
+	if bestIsWildcard != isWildcard {
+		return bestIsWildcard && !isWildcard
+	}
+	return candidateCluster < bestCluster
 }
 
 // ExtractClusterFromFreeDomain extracts the cluster address from a free domain.
