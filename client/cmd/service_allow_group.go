@@ -7,16 +7,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/netbirdio/netbird/client/mdm"
-)
-
-// Principal kinds an --allow-group value resolves to. The kind:value form is
-// the same one profile owners use, so a value in service.json or in a service
-// unit says which namespace it belongs to instead of being a bare number that
-// means one thing on Unix and another on Windows.
-const (
-	allowGroupKindGID = "gid"
-	allowGroupKindSID = "sid"
 )
 
 // resolveAllowGroups turns configured group values into the typed principals
@@ -43,8 +35,8 @@ func resolveAllowGroups(values []string) ([]string, error) {
 			if err != nil {
 				return nil, fmt.Errorf("resolve allowed group %q: %w", entry, err)
 			}
-			if !slices.Contains(resolved, principal) {
-				resolved = append(resolved, principal)
+			if value := principal.String(); !slices.Contains(resolved, value) {
+				resolved = append(resolved, value)
 			}
 		}
 	}
@@ -89,24 +81,32 @@ func daemonSocketPrincipals(policy *mdm.Policy) ([]string, string, error) {
 	return resolved, source, nil
 }
 
-// cutKind splits a value on the kind separator. ok is false when the value
-// carries no kind, which is the case for a plain group or account name: neither
-// a Unix group name nor a Windows account name may contain a colon, so the
-// separator is unambiguous.
-func cutKind(value string) (kind, rest string, ok bool) {
-	kind, rest, ok = strings.Cut(value, ":")
-	if !ok || rest == "" {
-		return "", value, false
+// typedPrincipal parses a value that carries an explicit kind, as
+// ipcauth.Principal renders it. ok is false when the value carries no kind at
+// all, which is the case for a plain group or account name: neither a Unix
+// group name nor a Windows account name may contain a colon, so the separator
+// is unambiguous. A value that has a kind the shared type does not know is an
+// error rather than a name to look up.
+func typedPrincipal(value string, want ipcauth.PrincipalKind) (ipcauth.Principal, bool, error) {
+	if !strings.Contains(value, ":") {
+		return ipcauth.Principal{}, false, nil
 	}
-	return kind, rest, true
+
+	principal, ok := ipcauth.ParsePrincipal(value)
+	if !ok {
+		return ipcauth.Principal{}, false, fmt.Errorf("not a principal, use a name or %s:<value>", want)
+	}
+	if principal.Kind != want {
+		return ipcauth.Principal{}, false, fmt.Errorf("unsupported principal kind %q on this platform, use a name or %s:<value>", principal.Kind, want)
+	}
+	return principal, true, nil
 }
 
-// principalValue returns the value part of a kind:value principal of the
-// expected kind.
-func principalValue(principal, kind string) (string, bool) {
-	got, value, ok := strings.Cut(principal, ":")
-	if !ok || got != kind || value == "" {
-		return "", false
+// principalOfKind parses a stored principal that must be of the given kind.
+func principalOfKind(value string, want ipcauth.PrincipalKind) (ipcauth.Principal, error) {
+	principal, ok := ipcauth.ParsePrincipal(value)
+	if !ok || principal.Kind != want {
+		return ipcauth.Principal{}, fmt.Errorf("not a %s principal: %q", want, value)
 	}
-	return value, true
+	return principal, nil
 }

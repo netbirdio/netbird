@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/client/internal/getent"
+	"github.com/netbirdio/netbird/client/internal/ipcauth"
 )
 
 // testAllowGroupPrincipal is a principal that resolves on any Unix host.
@@ -24,7 +25,8 @@ func TestResolveAllowGroup_NumericGID(t *testing.T) {
 		t.Run(value, func(t *testing.T) {
 			principal, err := resolveAllowGroup(value)
 			require.NoError(t, err)
-			assert.Equal(t, "gid:0", principal)
+			assert.Equal(t, ipcauth.KindGID, principal.Kind)
+			assert.Equal(t, "gid:0", principal.String())
 		})
 	}
 }
@@ -40,7 +42,7 @@ func TestResolveAllowGroup_ByName(t *testing.T) {
 
 	principal, err := resolveAllowGroup(group.Name)
 	require.NoError(t, err)
-	assert.Equal(t, "gid:"+gid, principal)
+	assert.Equal(t, "gid:"+gid, principal.String())
 }
 
 // Spellings of the same GID must collapse to one principal, otherwise

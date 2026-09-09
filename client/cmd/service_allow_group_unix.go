@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/netbirdio/netbird/client/internal/getent"
+	"github.com/netbirdio/netbird/client/internal/ipcauth"
 )
 
 // Socket modes. openSocketMode is the historical one: any local account may
@@ -47,12 +48,13 @@ func listenUnixPrivate(address string) (net.Listener, error) {
 // principal. A numeric value, with or without the prefix, is the GID itself;
 // anything else is a group name resolved through NSS, so groups that only
 // LDAP, SSSD or winbind know about work as well as ones in /etc/group.
-func resolveAllowGroup(value string) (string, error) {
-	if kind, rest, ok := cutKind(value); ok {
-		if kind != allowGroupKindGID {
-			return "", fmt.Errorf("unsupported principal kind %q, use a group name or %s:<id>", kind, allowGroupKindGID)
-		}
-		return gidPrincipal(rest)
+func resolveAllowGroup(value string) (ipcauth.Principal, error) {
+	principal, typed, err := typedPrincipal(value, ipcauth.KindGID)
+	if err != nil {
+		return ipcauth.Principal{}, err
+	}
+	if typed {
+		return gidPrincipal(principal.Value)
 	}
 
 	if _, err := parseGID(value); err == nil {
@@ -61,7 +63,7 @@ func resolveAllowGroup(value string) (string, error) {
 
 	group, err := getent.LookupGroupName(value)
 	if err != nil {
-		return "", fmt.Errorf("look up group: %w", err)
+		return ipcauth.Principal{}, fmt.Errorf("look up group: %w", err)
 	}
 	return gidPrincipal(group.Gid)
 }
@@ -99,11 +101,11 @@ func applySocketAccess(path string, principals []string) error {
 		return nil
 	}
 
-	value, ok := principalValue(principals[0], allowGroupKindGID)
-	if !ok {
-		return fmt.Errorf("not a %s principal: %q", allowGroupKindGID, principals[0])
+	principal, err := principalOfKind(principals[0], ipcauth.KindGID)
+	if err != nil {
+		return err
 	}
-	gid, err := parseGID(value)
+	gid, err := parseGID(principal.Value)
 	if err != nil {
 		return err
 	}
@@ -169,12 +171,16 @@ func requireTrustedSocketDir(dir string) error {
 // gidPrincipal renders a GID as a principal in its canonical decimal form, so
 // that spellings of the same group ("gid:01" and "gid:1") produce one principal
 // rather than two that later look like a request to use two groups.
-func gidPrincipal(gid string) (string, error) {
+func gidPrincipal(gid string) (ipcauth.Principal, error) {
 	parsed, err := parseGID(gid)
 	if err != nil {
-		return "", err
+		return ipcauth.Principal{}, err
 	}
-	return allowGroupKindGID + ":" + strconv.Itoa(parsed), nil
+	principal, ok := ipcauth.ParsePrincipal(ipcauth.GIDPrincipal(uint32(parsed)))
+	if !ok {
+		return ipcauth.Principal{}, fmt.Errorf("build gid principal for %d", parsed)
+	}
+	return principal, nil
 }
 
 // unchangedGID is the value chown reads as "leave the group alone". A
