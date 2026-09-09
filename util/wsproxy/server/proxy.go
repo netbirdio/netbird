@@ -2,6 +2,7 @@ package server
 
 import (
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -59,7 +60,7 @@ func (p *Proxy) Handler() http.Handler {
 type proxyHandler struct {
 	metrics            MetricsRecorder
 	handler            http.Handler
-	conn               *wsConnAdapter
+	conn               atomic.Pointer[wsConnAdapter]
 	headersReadTimeout time.Duration
 }
 
@@ -91,7 +92,7 @@ func (ph *proxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = serverConn.Close()
 	}()
 
-	ph.conn = serverConn // used in tests only
+	ph.conn.Store(serverConn) // used in tests only
 
 	log.Debugf("WebSocket proxy established: %s -> gRPC handler", r.RemoteAddr)
 

@@ -90,7 +90,7 @@ func TestAdapterHandlingConnectionClosures(t *testing.T) {
 			case 0:
 				clientconn.Close(websocket.StatusNormalClosure, "")
 			case 1:
-				handler.conn.Close()
+				handler.conn.Load().Close()
 			case 2:
 				cancel()
 			case 3:
@@ -99,7 +99,7 @@ func TestAdapterHandlingConnectionClosures(t *testing.T) {
 			}
 
 			assert.EventuallyWithT(t, func(c *assert.CollectT) {
-				assert.True(c, handler.conn.IsClosed())
+				assert.True(c, handler.conn.Load().IsClosed())
 			}, 3*time.Second, 100*time.Millisecond)
 		})
 	}
@@ -154,7 +154,7 @@ func TestAdapterHandlingHttpConnection_NoHeadersSent(t *testing.T) {
 	assert.Error(t, err)
 
 	assert.EventuallyWithT(t, func(c *assert.CollectT) {
-		assert.True(c, handler.conn.IsClosed())
+		assert.True(c, handler.conn.Load().IsClosed())
 	}, 3*time.Second, 100*time.Millisecond)
 }
 
