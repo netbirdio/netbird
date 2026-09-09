@@ -85,11 +85,15 @@ func TestCheckAllowGroupSet_SingleGroupOnly(t *testing.T) {
 }
 
 func TestApplySocketAccess(t *testing.T) {
-	t.Run("no principals leaves the socket open", func(t *testing.T) {
+	// With nothing configured the socket already carries its final mode from
+	// the bind, so this must not touch the path at all: a chmod here is the one
+	// that could follow a symlink another account planted.
+	t.Run("no principals leaves the socket alone", func(t *testing.T) {
 		path := listenTestSocket(t)
+		before := socketMode(t, path)
 
 		require.NoError(t, applySocketAccess(path, nil))
-		assert.Equal(t, os.FileMode(0666), socketMode(t, path))
+		assert.Equal(t, before, socketMode(t, path))
 	})
 
 	t.Run("a principal hands the socket to that group", func(t *testing.T) {
@@ -129,9 +133,9 @@ func TestApplySocketAccess(t *testing.T) {
 
 		gid := strconv.Itoa(os.Getgid())
 		require.Error(t, applySocketAccess(link, []string{"gid:" + gid}))
-		require.Error(t, applySocketAccess(link, nil), "the open path must not follow it either")
+		require.NoError(t, applySocketAccess(link, nil), "with nothing configured there is nothing to apply")
 
-		// The substituted target keeps the mode it was created with.
+		// Either way the substituted target keeps the mode it was created with.
 		info, err := os.Stat(target)
 		require.NoError(t, err)
 		assert.Equal(t, os.FileMode(0600), info.Mode().Perm())
@@ -160,24 +164,37 @@ func TestApplySocketAccess(t *testing.T) {
 }
 
 // The kernel checks a Unix socket's mode at connect(), not at accept(), so a
-// socket that is briefly world-writable can be connected to before the daemon
-// narrows it, and the caller stays connected afterwards. Binding under a
-// restrictive umask closes that window whatever umask the service manager used.
-func TestListenUnixPrivate_IgnoresAPermissiveUmask(t *testing.T) {
+// socket that is briefly wider than intended can be connected to before the
+// daemon narrows it, and that caller stays connected afterwards. The bind must
+// therefore land on the final mode, whatever umask the service manager used.
+func TestListenUnixPrivate_BindsAtTheFinalMode(t *testing.T) {
 	previous := syscall.Umask(0)
 	t.Cleanup(func() { syscall.Umask(previous) })
 
-	dir, err := os.MkdirTemp("", "nb-sock")
-	require.NoError(t, err)
-	t.Cleanup(func() { assert.NoError(t, os.RemoveAll(dir)) })
+	tests := map[string]struct {
+		allowed []string
+		want    os.FileMode
+	}{
+		"unrestricted binds open, so nothing has to widen it later": {want: 0666},
+		"restricted binds owner-only, for applySocketAccess to hand to the group": {
+			allowed: []string{"gid:0"}, want: 0600,
+		},
+	}
 
-	path := filepath.Join(dir, "d.sock")
-	listener, err := listenUnixPrivate(path)
-	require.NoError(t, err)
-	t.Cleanup(func() { assert.NoError(t, listener.Close()) })
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			dir, err := os.MkdirTemp("", "nb-sock")
+			require.NoError(t, err)
+			t.Cleanup(func() { assert.NoError(t, os.RemoveAll(dir)) })
 
-	assert.Equal(t, os.FileMode(0600), socketMode(t, path),
-		"the socket must be owner-only as bound, before any restriction is applied")
+			path := filepath.Join(dir, "d.sock")
+			listener, err := listenUnixPrivate(path, tc.allowed)
+			require.NoError(t, err)
+			t.Cleanup(func() { assert.NoError(t, listener.Close()) })
+
+			assert.Equal(t, tc.want, socketMode(t, path))
+		})
+	}
 
 	// And the process umask is left as it was found.
 	restored := syscall.Umask(0)
