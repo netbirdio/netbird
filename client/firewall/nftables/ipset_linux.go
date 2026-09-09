@@ -11,8 +11,10 @@ import (
 
 	"github.com/google/nftables"
 	"github.com/google/nftables/expr"
+	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 
+	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 )
@@ -68,17 +70,25 @@ func (r *family) createIpSet(setName string, input setInput) (*nftables.Set, err
 }
 
 // commitPendingSetElements writes overflow chunks that did not fit in the
-// rule batch. The named set must already exist in the kernel.
+// rule batch. The named set must already exist in the kernel. Entries are
+// removed only after their batches succeed so a later retry still has them.
 func (r *family) commitPendingSetElements() error {
-	pending := r.pendingSetElements
-	r.pendingSetElements = make(map[string]pendingSetUpdate)
+	if len(r.pendingSetElements) == 0 {
+		return nil
+	}
+
 	maxElements := maxPrefixesSet * 2
-	for setName, p := range pending {
+	remaining := make(map[string]pendingSetUpdate)
+	var merr *multierror.Error
+	for setName, p := range r.pendingSetElements {
 		if err := r.addElementBatches(p.set, p.elements, maxElements); err != nil {
-			return fmt.Errorf("add remaining elements to set %s: %w", setName, err)
+			remaining[setName] = p
+			merr = multierror.Append(merr, fmt.Errorf("add remaining elements to set %s: %w", setName, err))
+			continue
 		}
 	}
-	return nil
+	r.pendingSetElements = remaining
+	return nberrors.FormatErrorOrNil(merr)
 }
 
 func (r *family) discardPendingSetElements() {

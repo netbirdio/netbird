@@ -53,7 +53,7 @@ func (r *family) AddFilterRule(
 		exprs, err = r.buildPeerFilterExprs(srcExprs, proto, sPort, dPort)
 	}
 	if err != nil {
-		r.dropNetworkMatch(srcExprs)
+		r.rollbackQueuedNetwork(srcExprs)
 		return nil, err
 	}
 
@@ -110,6 +110,17 @@ func (r *family) AddFilterRule(
 	log.Debugf("added filter rule: sources=%v, destination=%v, proto=%v, sPort=%v, dPort=%v, action=%v",
 		sources, destination, proto, sPort, dPort, action)
 	return rule, nil
+}
+
+// rollbackQueuedNetwork commits any named sets already queued on conn so
+// they can be deleted, then drops their refcounts. google/nftables cannot
+// unqueue AddSet; deleting through sConn before that flush misses them.
+func (r *family) rollbackQueuedNetwork(exprs []expr.Any) {
+	r.discardPendingSetElements()
+	if err := r.conn.Flush(); err != nil {
+		log.Debugf("flush queued sets for rollback: %v", err)
+	}
+	r.dropNetworkMatch(exprs)
 }
 
 // flushPreroutingPair installs the prerouting mangle counterpart after

@@ -65,8 +65,13 @@ func (r *family) AddNatRule(pair firewall.RouterPair) error {
 	}
 
 	if err := r.conn.Flush(); err != nil {
+		r.discardPendingSetElements()
 		r.rollbackRules(pair)
 		return fmt.Errorf("insert rules for %s: %w", pair.Destination, err)
+	}
+	if err := r.commitPendingSetElements(); err != nil {
+		r.rollbackRules(pair)
+		return fmt.Errorf("commit set elements for %s: %w", pair.Destination, err)
 	}
 
 	return nil

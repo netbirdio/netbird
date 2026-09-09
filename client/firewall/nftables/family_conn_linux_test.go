@@ -1,3 +1,5 @@
+//go:build !android && privileged
+
 package nftables
 
 import (
