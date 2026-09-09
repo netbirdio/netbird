@@ -1,29 +1,23 @@
 package server
 
 import (
-	"bytes"
 	"context"
-	"io"
 	"net"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
 	log "github.com/sirupsen/logrus"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/hpack"
 )
 
 type wsConnAdapter struct {
-	prefix                  string
-	ctx                     context.Context
-	conn                    *websocket.Conn
-	metrics                 MetricsRecorder
-	clientAddr              string
-	closed                  bool
-	bufferedRead            []byte
-	frameBuffer             *bytes.Buffer
-	framer                  *http2.Framer
-	headerReadDeadlineTimer *time.Timer
+	prefix       string
+	ctx          context.Context
+	conn         *websocket.Conn
+	metrics      MetricsRecorder
+	clientAddr   string
+	closed       atomic.Bool
+	bufferedRead []byte
 }
 
 var _ net.Conn = &wsConnAdapter{}
@@ -32,18 +26,6 @@ type wsAddr struct{ prefix string }
 
 func (wa wsAddr) Network() string { return wa.prefix + "ws-proxy" }
 func (wa wsAddr) String() string  { return wa.prefix + "ws-proxy" }
-
-func (ws *wsConnAdapter) WithFrameSnooper(d time.Duration) *wsConnAdapter {
-	if d == 0 {
-		return ws
-	}
-
-	ws.frameBuffer = bytes.NewBuffer(make([]byte, 0, 512))
-	ws.framer = http2.NewFramer(nil, ws.frameBuffer)
-	ws.framer.ReadMetaHeaders = hpack.NewDecoder(0, nil)
-	ws.headerReadDeadlineTimer = time.AfterFunc(d, ws.onReadTimeout)
-	return ws
-}
 
 func (ws *wsConnAdapter) Read(b []byte) (int, error) {
 	if len(ws.bufferedRead) > 0 {
@@ -75,16 +57,6 @@ func (ws *wsConnAdapter) Read(b []byte) (int, error) {
 func (ws *wsConnAdapter) readFromBuffer(b []byte) (int, error) {
 	n := copy(b, ws.bufferedRead)
 
-	// check if we started receiving data, stop the header read timeout timer
-	if ws.isFramerActive() {
-		_, _ = ws.frameBuffer.Write(b) // we don't care about the number of bytes copied and no errors are returned from Write
-		if frame, err := ws.framer.ReadFrame(); err != nil && frame != nil && frame.Header().Type == http2.FrameData {
-			ws.headerReadDeadlineTimer.Stop()
-			ws.cleanupFramer()
-		}
-	}
-
-	io.Pipe()
 	ws.recordBytesTransferred(ws.ctx, "ws_to_grpc", n)
 	if n == len(ws.bufferedRead) {
 		ws.bufferedRead = nil
@@ -116,7 +88,7 @@ func (ws *wsConnAdapter) Write(b []byte) (int, error) {
 }
 
 func (ws *wsConnAdapter) Close() error {
-	ws.closed = true
+	ws.closed.Store(true)
 	return ws.conn.Close(websocket.StatusNormalClosure, "")
 }
 
@@ -150,19 +122,5 @@ func (ws *wsConnAdapter) recordBytesTransferred(ctx context.Context, direction s
 }
 
 func (ws *wsConnAdapter) IsClosed() bool {
-	return ws.closed
-}
-
-func (ws *wsConnAdapter) onReadTimeout() {
-	ws.Close()
-}
-
-func (ws *wsConnAdapter) isFramerActive() bool {
-	return ws.framer != nil && ws.headerReadDeadlineTimer != nil
-}
-
-func (ws *wsConnAdapter) cleanupFramer() {
-	ws.frameBuffer = nil
-	ws.framer = nil
-	ws.headerReadDeadlineTimer = nil
+	return ws.closed.Load()
 }

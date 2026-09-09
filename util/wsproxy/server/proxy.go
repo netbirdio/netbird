@@ -51,17 +51,15 @@ func New(handler http.Handler, opts ...Option) *Proxy {
 // Handler returns an http.Handler that proxies WebSocket connections to the local gRPC server.
 func (p *Proxy) Handler() http.Handler {
 	return &proxyHandler{
-		metrics:            p.config.MetricsRecorder,
-		handler:            p.config.Handler,
-		headersReadTimeout: 10 * time.Second,
+		metrics: p.config.MetricsRecorder,
+		handler: p.config.Handler,
 	}
 }
 
 type proxyHandler struct {
-	metrics            MetricsRecorder
-	handler            http.Handler
-	conn               atomic.Pointer[wsConnAdapter]
-	headersReadTimeout time.Duration
+	metrics MetricsRecorder
+	handler http.Handler
+	conn    atomic.Pointer[wsConnAdapter]
 }
 
 func (ph *proxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -86,7 +84,7 @@ func (ph *proxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		conn:       wsConn,
 		metrics:    ph.metrics,
 		clientAddr: r.RemoteAddr,
-	}).WithFrameSnooper(ph.headersReadTimeout)
+	})
 
 	defer func() {
 		_ = serverConn.Close()
@@ -100,7 +98,7 @@ func (ph *proxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// TODO (dmitri) we should limit the number of concurrent streams per connection (peer)
 		// and idle timeouts
 		// MaxConcurrentStreams: 20,
-		// IdleTimeout: 60 * time.Second,
+		// IdleTimeout: 10 * time.Second,
 	}).ServeConn(serverConn, &http2.ServeConnOpts{
 		Context:    ctx,
 		Handler:    ph.handler,
