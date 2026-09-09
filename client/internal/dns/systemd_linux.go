@@ -4,6 +4,7 @@ package dns
 
 import (
 	"context"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"net"
@@ -39,6 +40,11 @@ const (
 	systemdDbusResolvConfModeForeign       = "foreign"
 
 	dbusErrorUnknownObject = "org.freedesktop.DBus.Error.UnknownObject"
+	dbusIntrospectMethod   = "org.freedesktop.DBus.Introspectable.Introspect"
+
+	// dbusCallTimeout bounds a single method call, so an unresponsive resolved
+	// cannot stall the caller.
+	dbusCallTimeout = 5 * time.Second
 
 	dnsSecDisabled = "no"
 )
@@ -257,8 +263,8 @@ func (s *systemdDbusConfigurator) supportCustomPort() bool {
 }
 
 // hasDNSExMethod reports whether resolved exposes SetDNSEx on the link
-// interface. It was added in systemd 240; before that, resolved has no way to
-// accept a resolver port.
+// interface. Older versions carry only SetDNS, which has no way to accept a
+// resolver port.
 func (s *systemdDbusConfigurator) hasDNSExMethod() bool {
 	obj, closeConn, err := getDbusObject(systemdResolvedDest, s.dbusLinkObject)
 	if err != nil {
@@ -267,9 +273,18 @@ func (s *systemdDbusConfigurator) hasDNSExMethod() bool {
 	}
 	defer closeConn()
 
-	node, err := introspect.Call(obj)
-	if err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), dbusCallTimeout)
+	defer cancel()
+
+	var data string
+	if err := obj.CallWithContext(ctx, dbusIntrospectMethod, dbusDefaultFlag).Store(&data); err != nil {
 		log.Debugf("failed to introspect systemd-resolved link: %v", err)
+		return false
+	}
+
+	var node introspect.Node
+	if err := xml.Unmarshal([]byte(data), &node); err != nil {
+		log.Debugf("failed to parse systemd-resolved link introspection: %v", err)
 		return false
 	}
 
@@ -442,7 +457,7 @@ func (s *systemdDbusConfigurator) callLinkMethod(method string, value any) error
 	}
 	defer closeConn()
 
-	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.TODO(), dbusCallTimeout)
 	defer cancel()
 
 	if value != nil {
