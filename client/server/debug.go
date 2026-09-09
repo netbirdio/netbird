@@ -48,11 +48,7 @@ func (s *Server) DebugBundle(callerCtx context.Context, req *proto.DebugBundleRe
 	// it is the operator of this deployment naming their own upload service, and
 	// the peer already trusts that server for its whole configuration. Only a
 	// URL the local caller named goes through requirePrivilegeForUploadURL above.
-	uploadURL, err := debug.ResolveUploadURL(req.GetUploadURL(), publishedUploadURL, managementURL)
-	if err != nil {
-		log.Errorf("cannot upload debug bundle: %v", err)
-		return &proto.DebugBundleResponse{Path: path, UploadFailureReason: err.Error()}, nil
-	}
+	uploadURL := debug.ResolveUploadURL(req.GetUploadURL(), publishedUploadURL)
 
 	// The upload runs without s.mutex held: it does network I/O to a possibly
 	// slow destination and must not block the other RPCs that take the lock. The

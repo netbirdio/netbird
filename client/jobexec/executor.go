@@ -29,12 +29,11 @@ func NewExecutor() *Executor {
 
 // BundleJob generates a debug bundle for a remote job and uploads it to
 // uploadURL, returning the key the management server hands back to whoever asked.
-// The caller resolves uploadURL (see debug.ResolveUploadURL): a job whose
-// deployment names no upload service never reaches here, so there is no
-// fallback destination to pick locally.
+// The caller resolves uploadURL (see debug.ResolveUploadURL), which never yields
+// an empty one, so there is no fallback destination to pick locally.
 func (e *Executor) BundleJob(ctx context.Context, debugBundleDependencies debug.GeneratorDependencies, params debug.BundleConfig, waitForDuration time.Duration, mgmURL, uploadURL string) (string, error) {
 	if uploadURL == "" {
-		return "", debug.ErrNoUploadDestination
+		return "", errors.New("no debug bundle upload destination resolved")
 	}
 
 	if waitForDuration > MaxBundleWaitTime {

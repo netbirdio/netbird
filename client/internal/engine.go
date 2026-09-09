@@ -230,9 +230,8 @@ type Engine struct {
 	// debugUploadURL is the debug-bundle upload service the management server
 	// publishes for this deployment, refreshed on every NetbirdConfig update.
 	// Atomic because the bundle paths (remote job, daemon RPC, mobile SDK) read
-	// it off the engine loop. Empty when the deployment publishes none, which is
-	// what makes a self-hosted peer keep its bundle local instead of shipping it
-	// to the upload service NetBird runs.
+	// it off the engine loop. Empty when the deployment publishes none, in which
+	// case the callers fall back to the service NetBird runs.
 	debugUploadURL atomic.Pointer[string]
 
 	clientCtx    context.Context
@@ -1243,8 +1242,8 @@ func (e *Engine) handleDebugUploadUpdate(config *mgmProto.DebugConfig) {
 
 // DebugUploadURL returns the debug-bundle upload service the management server
 // published, or empty when it published none or the engine never synced. The
-// callers treat empty as "no destination from this deployment" and fail closed
-// unless the peer is enrolled with NetBird's cloud; see debug.ResolveUploadURL.
+// callers treat empty as "this deployment names no destination" and fall back to
+// the service NetBird runs; see debug.ResolveUploadURL.
 func (e *Engine) DebugUploadURL() string {
 	if url := e.debugUploadURL.Load(); url != nil {
 		return *url
@@ -1466,10 +1465,8 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobR
 
 	// Resolve the upload destination: an MDM override, when set, takes
 	// precedence over the job's URL. Both are validated the same way. With
-	// neither, the destination this deployment publishes is used, and only a
-	// peer enrolled with NetBird's cloud falls back to the service NetBird runs
-	// — a self-hosted deployment that named no upload service gets no upload
-	// rather than one that leaves the operator's control sphere.
+	// neither, the destination this deployment publishes is used, and failing
+	// that the service NetBird runs.
 	uploadURL := params.GetUploadUrl()
 	if override := e.config.ProfileConfig.DebugBundleUploadURL; override != "" {
 		log.Infof("using MDM debug bundle upload URL override instead of the management-supplied value")
@@ -1479,10 +1476,7 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobR
 		return nil, err
 	}
 
-	uploadURL, err = debug.ResolveUploadURL(uploadURL, e.DebugUploadURL(), e.config.ProfileConfig.ManagementURL.String())
-	if err != nil {
-		return nil, err
-	}
+	uploadURL = debug.ResolveUploadURL(uploadURL, e.DebugUploadURL())
 
 	bundleDeps := debug.GeneratorDependencies{
 		InternalConfig: e.config.ProfileConfig,

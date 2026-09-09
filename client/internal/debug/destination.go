@@ -1,41 +1,29 @@
 package debug
 
 import (
-	"errors"
-
-	"github.com/netbirdio/netbird/client/internal/metrics"
 	"github.com/netbirdio/netbird/upload-server/types"
 )
 
-// ErrNoUploadDestination reports that a bundle has nowhere to go: the
-// management server of this deployment publishes no upload service, and the
-// peer is not enrolled with NetBird's cloud either. A debug bundle carries the
-// peer's logs, routes, DNS and firewall state, so the default is to keep it
-// inside the operator's control sphere rather than fall back to the service
-// NetBird runs.
-var ErrNoUploadDestination = errors.New("this deployment publishes no debug bundle upload service; set it on the account settings or in the management server config, or pass an explicit upload URL")
-
-// ResolveUploadURL decides where a debug bundle may be uploaded.
+// ResolveUploadURL decides where a debug bundle is uploaded.
 //
-// requested is a destination a caller named explicitly (a CLI flag, the daemon
-// request); it always wins, and the callers that accept one gate it separately.
-// published is what the management server of this deployment advertises, which
-// the engine holds (Engine.DebugUploadURL). With neither, only a peer enrolled
-// with NetBird's cloud falls back to the service NetBird runs — for anyone else
-// that would carry the bundle out of the deployment the operator controls, so it
-// fails closed with ErrNoUploadDestination.
-func ResolveUploadURL(requested, published, managementURL string) (string, error) {
+// requested is a destination a caller named explicitly — an MDM override, the
+// CLI's --upload-bundle-url, a remote job's upload_url; it always wins, and the
+// callers that accept one gate it separately (see requirePrivilegeForUploadURL:
+// any host other than the default needs a privileged caller). published is what
+// the management server of this deployment advertises, which the engine holds
+// (Engine.DebugUploadURL). With neither, the upload service NetBird runs is the
+// default, for a self-hosted deployment as much as for a cloud one: an operator
+// who needs the bundles to stay inside their own infrastructure points either
+// knob at their own upload service, and until they do the everyday
+// "collect a bundle and send it to support" flow keeps working.
+func ResolveUploadURL(requested, published string) string {
 	if requested != "" {
-		return requested, nil
+		return requested
 	}
 
 	if published != "" {
-		return published, nil
+		return published
 	}
 
-	if metrics.DetermineDeploymentType(managementURL) == metrics.DeploymentTypeCloud {
-		return types.DefaultBundleURL, nil
-	}
-
-	return "", ErrNoUploadDestination
+	return types.DefaultBundleURL
 }

@@ -115,9 +115,10 @@ func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken
 		}
 	}
 
-	// The account setting wins, the server config is the deployment-wide default
-	// a self-hosted install can set once so a fresh account is not left with the
-	// vendor fallback. Both are https-validated where they are written.
+	// The account setting wins, the server config is the deployment-wide value a
+	// self-hosted install can set once for every account. Both are
+	// https-validated where they are written. Neither set publishes nothing, and
+	// the peers fall back to the service NetBird runs.
 	debugUploadURL := config.DebugUpload.URL
 	if settings != nil && settings.DebugBundleUploadURL != "" {
 		debugUploadURL = settings.DebugBundleUploadURL

@@ -298,8 +298,8 @@ func (c *Client) DebugBundle(anonymize bool, anonymizeLevel string) (string, err
 	}
 
 	// Empty unless an engine is running and has synced: a bundle generated with
-	// the client stopped has no management-published destination, so it uploads
-	// only when the peer is enrolled with NetBird's cloud.
+	// the client stopped has no management-published destination and goes to the
+	// service NetBird runs.
 	var publishedUploadURL string
 
 	if cc != nil {
@@ -329,15 +329,9 @@ func (c *Client) DebugBundle(anonymize bool, anonymizeLevel string) (string, err
 		},
 	)
 
-	// Resolved before the bundle is generated: with no destination there is
-	// nothing to hand back to the app, and generating (then deleting) a bundle
-	// nobody can collect is wasted work on the device. An MDM override wins;
-	// otherwise the destination this deployment publishes is used, and only a
-	// peer enrolled with NetBird's cloud falls back to the service NetBird runs.
-	uploadURL, err := debug.ResolveUploadURL(cfg.DebugBundleUploadURL, publishedUploadURL, cfg.ManagementURL.String())
-	if err != nil {
-		return "", err
-	}
+	// An MDM override wins; otherwise the destination this deployment publishes
+	// is used, and failing that the service NetBird runs.
+	uploadURL := debug.ResolveUploadURL(cfg.DebugBundleUploadURL, publishedUploadURL)
 
 	path, err := bundleGenerator.Generate()
 	if err != nil {

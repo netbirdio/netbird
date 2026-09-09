@@ -2403,11 +2403,10 @@ type DebugConfig struct {
 
 	// upload_url is the debug-bundle upload service this peer's account uses,
 	// taken from the account settings or, failing that, from the management
-	// server config. Publishing it keeps a self-hosted deployment's bundles inside
-	// its own control sphere instead of falling back to the upload service NetBird
-	// runs. An empty value means no destination is published: the peer then
-	// uploads only when it is enrolled with NetBird's cloud, and otherwise keeps
-	// the bundle local.
+	// server config. Setting it keeps a deployment's bundles — which carry peer
+	// logs, routes, DNS and firewall state — inside infrastructure the operator
+	// controls. An empty value means no destination is published, and the peer
+	// uploads to the service NetBird runs.
 	UploadUrl string `protobuf:"bytes,1,opt,name=upload_url,json=uploadUrl,proto3" json:"upload_url,omitempty"`
 }
 

@@ -2822,10 +2822,8 @@ type DebugBundleRequest struct {
 	AnonymizeLevel string `protobuf:"bytes,8,opt,name=anonymizeLevel,proto3" json:"anonymizeLevel,omitempty"`
 	// upload asks the daemon to upload the bundle. When uploadURL is empty the
 	// daemon resolves the destination itself: the one the management server
-	// publishes, or the service NetBird runs when the peer is enrolled with
-	// NetBird's cloud. A self-hosted deployment that publishes no destination
-	// gets no upload, so a bundle never leaves the operator's control sphere by
-	// default. uploadURL still overrides it, for a privileged caller.
+	// publishes, or else the service NetBird runs. uploadURL still overrides it,
+	// and a host other than the default one requires a privileged caller.
 	Upload        bool `protobuf:"varint,9,opt,name=upload,proto3" json:"upload,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

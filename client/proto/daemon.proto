@@ -555,10 +555,8 @@ message DebugBundleRequest {
   string anonymizeLevel = 8;
   // upload asks the daemon to upload the bundle. When uploadURL is empty the
   // daemon resolves the destination itself: the one the management server
-  // publishes, or the service NetBird runs when the peer is enrolled with
-  // NetBird's cloud. A self-hosted deployment that publishes no destination
-  // gets no upload, so a bundle never leaves the operator's control sphere by
-  // default. uploadURL still overrides it, for a privileged caller.
+  // publishes, or else the service NetBird runs. uploadURL still overrides it,
+  // and a host other than the default one requires a privileged caller.
   bool upload = 9;
 }
 

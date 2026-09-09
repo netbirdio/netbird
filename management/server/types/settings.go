@@ -79,10 +79,9 @@ type Settings struct {
 	// DebugBundleUploadURL is the debug-bundle upload service the peers of this
 	// account send their bundles to. A bundle carries peer logs, routes, DNS and
 	// firewall state, so the destination decides whose infrastructure that data
-	// lands on; setting it keeps a self-hosted account's bundles inside its own
-	// control sphere. Empty falls back to the deployment-wide DebugUpload.URL
-	// from the management server config, and with neither only a peer enrolled
-	// with NetBird's cloud uploads at all. Must be an https URL with a host.
+	// lands on. Empty falls back to the deployment-wide DebugUpload.URL from the
+	// management server config, and with neither to the service NetBird runs.
+	// Must be an https URL with a host.
 	DebugBundleUploadURL string
 
 	// AgentNetworkOnly limits the dashboard to the Agent Network surface for this account.

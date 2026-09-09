@@ -218,12 +218,11 @@ type AgentNetwork struct {
 //
 // The client paths that upload without a human picking a destination — the
 // remote debug-bundle job, the mobile clients and the desktop UI — take the
-// destination from here. It exists so a self-hosted deployment keeps its
-// bundles, which carry peer logs, routes, DNS and firewall state, inside the
-// operator's own control sphere instead of reaching the upload service NetBird
-// runs. Leaving it unset publishes no destination: a peer enrolled with
-// NetBird's cloud still uses NetBird's service, a self-hosted peer keeps the
-// bundle local.
+// destination from here. It exists so an operator who needs the bundles, which
+// carry peer logs, routes, DNS and firewall state, to stay inside their own
+// infrastructure can say so once. Leaving it unset publishes no destination and
+// the peers upload to the service NetBird runs, which keeps the everyday
+// "collect a bundle and send it to support" flow working out of the box.
 //
 // Set URL to the upload service's get-URL endpoint, e.g.
 // https://upload.example.com/upload-url (see the upload-server component).
