@@ -144,8 +144,12 @@ type VNCProxy struct {
 }
 
 type vncDestination struct {
-	address     string
-	network     string
+	address string
+	network string
+	// external marks a destination that speaks plain RFB rather than
+	// NetBird's session protocol, so the connection header is not written
+	// and the stream is piped from the first byte the server sends.
+	external    bool
 	mode        byte
 	username    string
 	sessionPriv []byte
@@ -205,6 +209,12 @@ type ProxyRequest struct {
 	// 4, 6, or 0 for automatic selection. Mirrors the SSH proxy so the
 	// dashboard can resolve a peer label to a specific family.
 	IPVersion int
+	// External addresses a third-party VNC server on the peer instead of
+	// NetBird's embedded one. The proxy then carries plain RFB and performs
+	// no NetBird authentication, so the server's own security type decides
+	// who gets in, and Mode, Username, SessionID, Width, Height,
+	// PeerPublicKey and KeySessionID have no meaning.
+	External bool
 }
 
 // CreateProxy creates a new proxy endpoint for the given VNC destination.
@@ -225,11 +235,25 @@ func (p *VNCProxy) CreateProxy(req ProxyRequest) js.Value {
 	dest := vncDestination{
 		address:   address,
 		network:   netutil.TCPNetwork(req.IPVersion),
+		external:  req.External,
 		mode:      m,
 		username:  username,
 		sessionID: sessionID,
 		width:     width,
 		height:    height,
+	}
+	if req.External {
+		// Refusing rather than ignoring these: a caller that supplied a session
+		// key expects the connection to be authenticated, and one that asked
+		// for a virtual session expects a second desktop. Carrying on would
+		// hand them a plain attach session that looks like what they asked for.
+		if req.KeySessionID != "" {
+			return rejectedPromise("external VNC destination cannot use a NetBird session key")
+		}
+		if mode == "session" {
+			return rejectedPromise("external VNC destination cannot start a virtual session")
+		}
+		return p.newProxyPromise(address, mode, username, dest)
 	}
 	if req.KeySessionID != "" {
 		kp, ok := lookupSessionKey(req.KeySessionID)
@@ -434,14 +458,17 @@ func (p *VNCProxy) connectToVNC(conn *vncConnection) {
 	conn.vncConn = vncConn
 	conn.mu.Unlock()
 
-	// Send the NetBird VNC session header before the RFB handshake.
-	if err := p.sendSessionHeader(vncConn, conn.destination); err != nil {
-		log.Errorf("send VNC session header: %v", err)
-		if conn.wsHandlers.Get("close").Truthy() {
-			conn.wsHandlers.Call("close", wsCodeSessionSetup, fmt.Sprintf("send session header: %v", err))
+	// An external server speaks RFB from its first byte, so anything written
+	// ahead of the version exchange would corrupt it.
+	if !conn.destination.external {
+		if err := p.sendSessionHeader(vncConn, conn.destination); err != nil {
+			log.Errorf("send VNC session header: %v", err)
+			if conn.wsHandlers.Get("close").Truthy() {
+				conn.wsHandlers.Call("close", wsCodeSessionSetup, fmt.Sprintf("send session header: %v", err))
+			}
+			p.cleanupConnection(conn)
+			return
 		}
-		p.cleanupConnection(conn)
-		return
 	}
 
 	// WS→TCP payloads are enqueued in arrival order by the onGoMessage handler

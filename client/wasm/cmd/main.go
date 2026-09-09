@@ -438,7 +438,7 @@ func createGenerateVNCSessionKeyMethod() js.Func {
 }
 
 // createVNCProxyMethod creates the VNC proxy method for raw TCP-over-WebSocket bridging.
-// JS signature: createVNCProxy(hostname, port, mode?, username?, keySessionID?, sessionID?, width?, height?, peerPublicKey?, ipVersion?)
+// JS signature: createVNCProxy(hostname, port, mode?, username?, keySessionID?, sessionID?, width?, height?, peerPublicKey?, ipVersion?, external?)
 //
 //	mode:           "attach" (default) or "session"
 //	username:       required when mode is "session"
@@ -447,6 +447,9 @@ func createGenerateVNCSessionKeyMethod() js.Func {
 //	width/height:   requested viewport size for session mode (0 = server default)
 //	peerPublicKey:  base64 X25519 static pubkey of the destination peer (required for auth)
 //	ipVersion:      address family to dial: 4, 6, or 0/omitted for automatic
+//	external:       true to carry plain RFB to a third-party VNC server on the
+//	                peer, which performs no NetBird authentication and ignores
+//	                every parameter above except port and ipVersion
 func createVNCProxyMethod(client *netbird.Client) js.Func {
 	return js.FuncOf(func(_ js.Value, args []js.Value) any {
 		params, err := parseVNCProxyArgs(args)
@@ -470,6 +473,7 @@ func createVNCProxyMethod(client *netbird.Client) js.Func {
 			PeerPublicKey: params.peerPublicKey,
 			KeySessionID:  params.keySessionID,
 			IPVersion:     params.ipVersion,
+			External:      params.external,
 		})
 	})
 }
@@ -485,6 +489,7 @@ type vncProxyParams struct {
 	height           uint16
 	peerPublicKey    string
 	ipVersion        int
+	external         bool
 	rejectViaPromise bool
 }
 
@@ -503,7 +508,14 @@ func parseVNCProxyArgs(args []js.Value) (vncProxyParams, error) {
 	if err := parseVNCProxyOptionalNumbers(args, &p); err != nil {
 		return p, err
 	}
+	parseVNCProxyOptionalFlags(args, &p)
 	return p, nil
+}
+
+func parseVNCProxyOptionalFlags(args []js.Value, p *vncProxyParams) {
+	if len(args) > 10 && args[10].Type() == js.TypeBoolean {
+		p.external = args[10].Bool()
+	}
 }
 
 func parseVNCProxyRequiredArgs(args []js.Value, p *vncProxyParams) error {
