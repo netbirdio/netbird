@@ -95,6 +95,8 @@ func (ph *proxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	log.Debugf("WebSocket proxy established: %s -> gRPC handler", r.RemoteAddr)
 
 	(&http2.Server{
+		// TODO (dmitri) we should limit the number of concurrent streams per connection (peer)
+		// and idle timeouts
 		// MaxConcurrentStreams: 20,
 		// IdleTimeout: 60 * time.Second,
 	}).ServeConn(serverConn, &http2.ServeConnOpts{
@@ -107,16 +109,4 @@ func (ph *proxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	})
 
 	log.Debugf("WebSocket proxy closing: %s -> gRPC handler", r.RemoteAddr)
-
-	// p.proxyData(ctx, wsConn, clientConn, r.RemoteAddr)
-}
-
-type timeoutResettingHandler struct {
-	wrappedHandler http.Handler
-}
-
-func (th *timeoutResettingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// ctrl := http.NewResponseController(w)
-	// ctrl.SetReadDeadline(time.Time{})
-	th.wrappedHandler.ServeHTTP(w, r)
 }

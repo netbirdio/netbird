@@ -74,6 +74,7 @@ func (ws *wsConnAdapter) Read(b []byte) (int, error) {
 func (ws *wsConnAdapter) readFromBuffer(b []byte) (int, error) {
 	n := copy(b, ws.bufferedRead)
 
+	// check if we started receiving data, stop the header read timeout timer
 	if ws.isFramerActive() {
 		_, _ = ws.frameBuffer.Write(b) // we don't care about the number of bytes copied and no errors are returned from Write
 		if frame, err := ws.framer.ReadFrame(); err != nil && frame != nil && frame.Header().Type == http2.FrameData {
