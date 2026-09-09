@@ -9,6 +9,7 @@
 package mdm
 
 import (
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -142,20 +143,41 @@ func NewPolicy(values map[string]any) *Policy {
 //   - source present, zero keys:             info "MDM enrolled (no managed keys)"
 //   - source present, N keys:                info "MDM enrolled with N managed keys: [...]"
 func LoadPolicy() *Policy {
-	values, err := loadPlatformPolicy()
+	policy, err := LoadPolicyWithError()
 	if err != nil {
 		log.Tracef("MDM policy load: %v", err)
 		return &Policy{values: map[string]any{}}
 	}
+	return policy
+}
+
+// LoadPolicyWithError reads the platform-native MDM configuration and reports a
+// source that is present but could not be read, which LoadPolicy hides behind an
+// empty Policy.
+//
+// A caller that enforces a managed security setting must use this and fail
+// closed: an unreadable source is not the same as an absent one, and treating
+// it as absent silently drops whatever the administrator configured. A caller
+// that only decides a default, such as the UI's autostart checkbox, is better
+// served by LoadPolicy.
+//
+// An absent source is not an error. The platform loaders return the
+// documented (nil, nil) sentinel for "not enrolled", so only a real read
+// failure surfaces here.
+func LoadPolicyWithError() (*Policy, error) {
+	values, err := loadPlatformPolicy()
+	if err != nil {
+		return nil, fmt.Errorf("read MDM policy source: %w", err)
+	}
 	if values == nil {
-		return &Policy{values: map[string]any{}}
+		return &Policy{values: map[string]any{}}, nil
 	}
 	if len(values) == 0 {
 		log.Info("MDM enrolled (no managed keys)")
 	} else {
 		log.Infof("MDM enrolled with %d managed key(s): %v", len(values), sortedKeys(values))
 	}
-	return &Policy{values: values}
+	return &Policy{values: values}, nil
 }
 
 // IsEmpty reports whether the Policy has no managed keys.

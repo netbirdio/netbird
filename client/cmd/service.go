@@ -72,11 +72,12 @@ func init() {
 	serviceCmd.PersistentFlags().StringVar(&jsonSocket, "json-socket", defaultJSONSocket, "HTTP/JSON API socket address [unix|tcp]://[path|host:port]. Requires --enable-json-socket to serve. To persist, use: netbird service install --enable-json-socket --json-socket")
 
 	allowGroupDesc := `Restricts the daemon control socket and the JSON socket to the given group. ` +
-		`Local accounts outside it cannot connect at all, so nothing the daemon exposes is reachable from them. ` +
+		`Accounts outside it cannot connect at all, so nothing the daemon exposes is reachable from them. ` +
+		`On Windows the daemon's own account, LocalSystem and elevated administrators keep access regardless. ` +
 		`Takes a group name, or a numeric GID on Unix and a SID on Windows; ` +
 		`Unix accepts a single group, Windows a comma-separated list of groups or accounts. ` +
 		`Names are resolved when the service is installed, LDAP, SSSD and Active Directory groups included. ` +
-		`To persist, use: netbird service install --allow-group`
+		`To persist, use: netbird service install --allow-group <group>`
 	serviceCmd.PersistentFlags().StringSliceVar(&allowGroups, "allow-group", nil, allowGroupDesc)
 
 	rootCmd.PersistentFlags().StringVarP(&serviceName, "service", "s", defaultServiceName, "Netbird system service name")

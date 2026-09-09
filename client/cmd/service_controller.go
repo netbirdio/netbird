@@ -90,7 +90,7 @@ func (p *program) Start(svc service.Service) error {
 	)
 	p.serv = grpc.NewServer(opts...)
 
-	allowed, source, err := daemonSocketPrincipals(mdm.LoadPolicy())
+	daemonListener, jsonListener, err := p.listenRestricted()
 	if err != nil {
 		// Logged as well as returned: the service manager is the only other
 		// place this surfaces, and it reports a service that will not start
@@ -99,23 +99,72 @@ func (p *program) Start(svc service.Service) error {
 		log.Errorf("failed to apply the daemon socket restriction, not serving: %v", err)
 		return err
 	}
+
+	go func() {
+		// Fatal here rather than inside serve, so serve's deferred listener
+		// closes run before the process exits.
+		if err := p.serve(daemonListener, jsonListener); err != nil {
+			log.Fatalf("failed to %v", err)
+		}
+	}()
+	return nil
+}
+
+// listenRestricted opens the daemon sockets and applies the configured access
+// restriction to them before returning, so no caller can reach a socket that is
+// still open to everybody. Both listeners are closed again if the restriction
+// cannot be applied, and the error is returned rather than handled later, so the
+// service manager sees a start that failed instead of one that succeeded and
+// then died.
+//
+// An unreadable MDM source is an error here for the same reason a bad value is:
+// on a managed host it may be carrying the restriction, and treating it as
+// absent would serve every local account instead.
+func (p *program) listenRestricted() (*socketListener, *socketListener, error) {
+	policy, err := mdm.LoadPolicyWithError()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	allowed, source, err := daemonSocketPrincipals(policy)
+	if err != nil {
+		return nil, nil, err
+	}
 	if len(allowed) > 0 {
 		log.Infof("daemon sockets are restricted to %v by %s", allowed, source)
 	}
 
 	daemonListener, jsonListener, err := listenDaemonSockets(allowed)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
-	go func() {
-		// Fatal here rather than inside serve, so serve's deferred listener
-		// closes run before the process exits.
-		if err := p.serve(daemonListener, jsonListener, allowed); err != nil {
-			log.Fatalf("failed to %v", err)
+	if err := restrictListeners(daemonListener, jsonListener, allowed); err != nil {
+		closeListeners(daemonListener, jsonListener)
+		return nil, nil, err
+	}
+
+	return daemonListener, jsonListener, nil
+}
+
+// restrictListeners applies the access restriction to both sockets. restrict is
+// a no-op for a nil listener, which is what a disabled JSON socket is.
+func restrictListeners(daemonListener, jsonListener *socketListener, allowed []string) error {
+	if err := daemonListener.restrict("daemon", allowed); err != nil {
+		return err
+	}
+	return jsonListener.restrict("daemon JSON", allowed)
+}
+
+func closeListeners(listeners ...*socketListener) {
+	for _, l := range listeners {
+		if l == nil {
+			continue
 		}
-	}()
-	return nil
+		if err := l.Close(); err != nil {
+			log.Debugf("close daemon listener: %v", err)
+		}
+	}
 }
 
 // listenDaemonSockets opens the daemon control socket and, when it is enabled, the
@@ -145,27 +194,15 @@ func listenDaemonSockets(allowed []string) (*socketListener, *socketListener, er
 	return daemonListener, jsonListener, nil
 }
 
-// serve brings up the daemon server on an already-open control socket and blocks
-// until it stops. jsonListener is nil when the JSON socket is disabled. A returned
-// error means the daemon cannot run at all and the caller is expected to exit; the
-// failures it recovers from on its own are logged here.
-func (p *program) serve(daemonListener, jsonListener *socketListener, allowed []string) error {
+// serve brings up the daemon server on listeners that are already open and
+// already restricted, and blocks until it stops. jsonListener is nil when the
+// JSON socket is disabled. A returned error means the daemon cannot run at all
+// and the caller is expected to exit; the failures it recovers from on its own
+// are logged here.
+func (p *program) serve(daemonListener, jsonListener *socketListener) error {
 	defer daemonListener.Close()
 	if jsonListener != nil {
 		defer jsonListener.Close()
-	}
-
-	// Returned rather than logged: a socket whose access could not be set is
-	// either open to accounts that must not reach the daemon, or unreachable by
-	// the ones that must. Both are worse than the caller's fatal exit, and
-	// swallowing this would leave a service the manager still reports as running
-	// with no usable socket. restrict is a no-op for a nil listener, which is
-	// what a disabled JSON socket is.
-	if err := daemonListener.restrict("daemon", allowed); err != nil {
-		return err
-	}
-	if err := jsonListener.restrict("daemon JSON", allowed); err != nil {
-		return err
 	}
 
 	serverInstance := server.New(p.ctx, util.FindFirstLogPath(logFiles), configPath, profilesDisabled, updateSettingsDisabled, captureEnabled, networksDisabled)

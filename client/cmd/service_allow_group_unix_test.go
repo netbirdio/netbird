@@ -43,6 +43,14 @@ func TestResolveAllowGroup_ByName(t *testing.T) {
 	assert.Equal(t, "gid:"+gid, principal)
 }
 
+// Spellings of the same GID must collapse to one principal, otherwise
+// checkAllowGroupSet reads them as a request for two groups and refuses.
+func TestResolveAllowGroups_CanonicalisesGIDs(t *testing.T) {
+	resolved, err := resolveAllowGroups([]string{"gid:01", "gid:1", "1"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"gid:1"}, resolved)
+}
+
 func TestResolveAllowGroup_Rejects(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -53,6 +61,9 @@ func TestResolveAllowGroup_Rejects(t *testing.T) {
 		{name: "non-numeric gid", value: "gid:wheel"},
 		{name: "negative gid", value: "gid:-1"},
 		{name: "unknown group", value: "no-such-group-08b1f0c4"},
+		// chown reads this as "leave the group alone", so applying it would
+		// leave the socket on whatever group it already had.
+		{name: "the unchanged-gid sentinel", value: "gid:4294967295"},
 	}
 
 	for _, tc := range tests {
@@ -100,6 +111,49 @@ func TestApplySocketAccess(t *testing.T) {
 		path := listenTestSocket(t)
 
 		require.Error(t, applySocketAccess(path, []string{"gid:wheel"}))
+	})
+
+	// A symlink standing where the listener put its socket is something another
+	// account substituted, and chowning it as root would hand its target away.
+	t.Run("a path that is not a socket is refused", func(t *testing.T) {
+		dir, err := os.MkdirTemp("", "nb-sock")
+		require.NoError(t, err)
+		t.Cleanup(func() { assert.NoError(t, os.RemoveAll(dir)) })
+
+		target := filepath.Join(dir, "target")
+		require.NoError(t, os.WriteFile(target, []byte("not a socket"), 0600))
+		link := filepath.Join(dir, "d.sock")
+		require.NoError(t, os.Symlink(target, link))
+
+		gid := strconv.Itoa(os.Getgid())
+		require.Error(t, applySocketAccess(link, []string{"gid:" + gid}))
+		require.Error(t, applySocketAccess(link, nil), "the open path must not follow it either")
+
+		// The substituted target keeps the mode it was created with.
+		info, err := os.Stat(target)
+		require.NoError(t, err)
+		assert.Equal(t, os.FileMode(0600), info.Mode().Perm())
+	})
+
+	// Restricting a socket in a directory other accounts can write to is
+	// refused: they can replace the entry between the check and the change.
+	t.Run("an untrusted socket directory is refused", func(t *testing.T) {
+		dir, err := os.MkdirTemp("", "nb-sock")
+		require.NoError(t, err)
+		t.Cleanup(func() { assert.NoError(t, os.RemoveAll(dir)) })
+		require.NoError(t, os.Chmod(dir, 0777))
+
+		path := filepath.Join(dir, "d.sock")
+		listener, err := net.Listen("unix", path)
+		require.NoError(t, err)
+		t.Cleanup(func() { assert.NoError(t, listener.Close()) })
+
+		gid := strconv.Itoa(os.Getgid())
+		require.Error(t, applySocketAccess(path, []string{"gid:" + gid}))
+
+		// Leaving it unrestricted is still allowed: that is the historical
+		// behaviour and grants nothing the mode did not already grant.
+		assert.NoError(t, applySocketAccess(path, nil))
 	})
 }
 
