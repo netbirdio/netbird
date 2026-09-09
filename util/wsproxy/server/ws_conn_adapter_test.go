@@ -35,7 +35,7 @@ func TestAdapterHandlingConnectionClosures(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.description, func(t *testing.T) {
 			serversock := filepath.Join("/tmp", "http-server-"+strconv.FormatInt(rand.Int64(), 10)+".sock")
-			defer os.Remove(serversock)
+			t.Cleanup(func() { os.Remove(serversock) })
 
 			l, err := net.Listen("unix", serversock)
 			assert.NoError(t, err)
@@ -56,6 +56,7 @@ func TestAdapterHandlingConnectionClosures(t *testing.T) {
 				Handler: handler,
 			}
 			go httpServer.Serve(l)
+			t.Cleanup(func() { httpServer.Close() })
 
 			clientconn, _, err := websocket.Dial(context.Background(), "http://whatever", &websocket.DialOptions{HTTPClient: &http.Client{
 				Transport: &http.Transport{
