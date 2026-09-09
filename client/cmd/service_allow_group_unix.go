@@ -4,6 +4,7 @@ package cmd
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -20,6 +21,27 @@ const (
 	openSocketMode       os.FileMode = 0666
 	restrictedSocketMode os.FileMode = 0660
 )
+
+// umaskOwnerOnly masks every permission bit except the owner's, so a file
+// created under it is 0600 whatever the process umask happens to be.
+const umaskOwnerOnly = 0o177
+
+// listenUnixPrivate binds a Unix socket that only its owner can connect to,
+// whatever umask the service manager started the daemon with. applySocketAccess
+// widens it afterwards to exactly what the configuration asks for.
+//
+// The umask is process-wide, so it is restored before returning and the window
+// is kept to the bind itself. Nothing else creates files during daemon startup:
+// this runs before the server and its goroutines exist.
+func listenUnixPrivate(address string) (net.Listener, error) {
+	previous := syscall.Umask(umaskOwnerOnly)
+	listener, err := net.Listen("unix", address)
+	syscall.Umask(previous)
+	if err != nil {
+		return nil, err
+	}
+	return listener, nil
+}
 
 // resolveAllowGroup resolves one --allow-group value to a "gid:<id>"
 // principal. A numeric value, with or without the prefix, is the GID itself;
