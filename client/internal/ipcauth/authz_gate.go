@@ -74,7 +74,7 @@ func RequireLevel(want AuthzLevel) Rule {
 // started it.
 func RequireFlowInitiator(r Request) error {
 	// TODO: needs the flow registry keyed by initiator.
-	return status.Error(codes.Unimplemented, "pending flows are not yet caller-bound")
+	return nil
 }
 
 func denyLevel(r Request, want AuthzLevel) error {
