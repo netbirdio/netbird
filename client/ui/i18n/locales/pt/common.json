@@ -1471,6 +1471,15 @@
     "peers.details.sendClipboard.empty": {
         "message": "A área de transferência está vazia"
     },
+    "peers.details.send": {
+        "message": "Enviar"
+    },
+    "peers.details.sendMenu.file": {
+        "message": "Arquivo…"
+    },
+    "peers.details.sendMenu.clipboard": {
+        "message": "Área de transferência"
+    },
     "settings.tabs.fileSharing": {
         "message": "Compartilhamento de arquivos"
     },

@@ -1471,6 +1471,15 @@
     "peers.details.sendClipboard.empty": {
         "message": "剪贴板为空"
     },
+    "peers.details.send": {
+        "message": "发送"
+    },
+    "peers.details.sendMenu.file": {
+        "message": "文件…"
+    },
+    "peers.details.sendMenu.clipboard": {
+        "message": "剪贴板"
+    },
     "settings.tabs.fileSharing": {
         "message": "文件共享"
     },

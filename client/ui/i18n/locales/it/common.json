@@ -1471,6 +1471,15 @@
     "peers.details.sendClipboard.empty": {
         "message": "Gli appunti sono vuoti"
     },
+    "peers.details.send": {
+        "message": "Invia"
+    },
+    "peers.details.sendMenu.file": {
+        "message": "File…"
+    },
+    "peers.details.sendMenu.clipboard": {
+        "message": "Appunti"
+    },
     "settings.tabs.fileSharing": {
         "message": "Condivisione file"
     },

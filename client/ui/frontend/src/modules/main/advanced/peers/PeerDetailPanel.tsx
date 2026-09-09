@@ -23,6 +23,7 @@ import {
     ClipboardIcon,
     ClockIcon,
     Copy as CopyIcon,
+    FileIcon,
     GaugeIcon,
     HandshakeIcon,
     KeyRoundIcon,
@@ -32,13 +33,19 @@ import {
     MonitorIcon,
     Radio,
     RefreshCwIcon,
-    SendIcon,
+    UploadIcon,
     WaypointsIcon,
 } from "lucide-react";
 import { FileDrop } from "@bindings/services";
 import type { PeerStatus } from "@bindings/services/models.js";
 import { Button } from "@/components/buttons/Button";
 import { ClipboardPreview } from "@/components/ClipboardPreview";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "@/components/DropdownMenu";
 import { useNavSection } from "@/contexts/NavSectionContext";
 import { cn } from "@/lib/cn";
 import { CopyToClipboard } from "@/components/CopyToClipboard";
@@ -256,10 +263,6 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
                     </div>
                     <ScrollArea.Root type={"auto"} className={"min-h-0 flex-1 overflow-hidden"}>
                         <ScrollArea.Viewport className={"h-full w-full"}>
-                            {/* Keyed on the peer so a staged clipboard
-                                confirmation cannot carry over to a different
-                                recipient when the selection changes. */}
-                            <PeerSendActions key={selected.pubKey} peer={selected} />
                             <PeerDetails peer={selected} now={now} />
                         </ScrollArea.Viewport>
                         <ScrollArea.Scrollbar
@@ -276,6 +279,10 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
                             />
                         </ScrollArea.Scrollbar>
                     </ScrollArea.Root>
+                    {/* Keyed on the peer so a staged clipboard confirmation
+                        cannot carry over to a different recipient when the
+                        selection changes. */}
+                    <PeerSendActions key={selected.pubKey} peer={selected} />
                 </motion.div>
             )}
         </AnimatePresence>
@@ -286,6 +293,8 @@ const PeerSendActions = ({ peer }: { peer: PeerStatus }) => {
     const { t } = useTranslation();
     const { setSection } = useNavSection();
     const { setSelected } = usePeerDetail();
+    const [menuOpen, setMenuOpen] = useState(false);
+    const [clipboard, setClipboard] = useState("");
     const [error, setError] = useState<string | null>(null);
     const [pendingText, setPendingText] = useState<string | null>(null);
     // Deliberately not gated on connStatus: an idle peer is the normal resting
@@ -294,12 +303,28 @@ const PeerSendActions = ({ peer }: { peer: PeerStatus }) => {
     // to dial.
     const canSend = peer.ip !== "";
 
+    useEffect(() => {
+        if (!menuOpen) return;
+        let cancelled = false;
+        FileDrop.ClipboardText()
+            .then((text) => {
+                if (!cancelled) setClipboard(text ?? "");
+            })
+            .catch(() => {
+                if (!cancelled) setClipboard("");
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [menuOpen]);
+
     const finishSend = () => {
         setSelected(null);
         setSection("files");
     };
 
     const sendFiles = async () => {
+        setMenuOpen(false);
         setError(null);
         try {
             const paths = await FileDrop.PickFiles();
@@ -313,18 +338,14 @@ const PeerSendActions = ({ peer }: { peer: PeerStatus }) => {
 
     // Clipboard text is shown for confirmation first: sending it blind gave no
     // way to tell what was about to leave the machine.
-    const stageClipboard = async () => {
+    const stageClipboard = () => {
+        setMenuOpen(false);
         setError(null);
-        try {
-            const text = await FileDrop.ClipboardText();
-            if (!text) {
-                setError(t("peers.details.sendClipboard.empty"));
-                return;
-            }
-            setPendingText(text);
-        } catch (e) {
-            setError(String(e));
+        if (!clipboard) {
+            setError(t("peers.details.sendClipboard.empty"));
+            return;
         }
+        setPendingText(clipboard);
     };
 
     // Sends the staged text rather than re-reading, so what was confirmed is
@@ -342,40 +363,65 @@ const PeerSendActions = ({ peer }: { peer: PeerStatus }) => {
     };
 
     return (
-        <div className={"border-b border-nb-gray-920 px-5 py-3"}>
+        <div className={cn("shrink-0 px-6 py-3.5", "border-t border-nb-gray-910")}>
             {pendingText === null ? (
-                <div className={"flex items-center gap-2"}>
-                    <Button
-                        variant={"secondary"}
-                        size={"xs"}
-                        disabled={!canSend}
-                        onClick={() => void sendFiles()}
-                    >
-                        <SendIcon size={12} aria-hidden={"true"} />
-                        {t("peers.details.sendFile")}
-                    </Button>
-                    <Button
-                        variant={"secondary"}
-                        size={"xs"}
-                        disabled={!canSend}
-                        onClick={() => void stageClipboard()}
-                    >
-                        <ClipboardIcon size={12} aria-hidden={"true"} />
-                        {t("peers.details.sendClipboard")}
-                    </Button>
+                <div className={"flex items-center justify-end"}>
+                    <DropdownMenu modal={false} open={menuOpen} onOpenChange={setMenuOpen}>
+                        <DropdownMenuTrigger asChild className={"wails-no-draggable"}>
+                            <Button
+                                variant={"primary"}
+                                size={"xs"}
+                                disabled={!canSend}
+                                aria-haspopup={"menu"}
+                                aria-expanded={menuOpen}
+                            >
+                                <UploadIcon size={12} aria-hidden={"true"} />
+                                {t("peers.details.send")}
+                                <ChevronDownIcon
+                                    size={12}
+                                    aria-hidden={"true"}
+                                    className={cn(
+                                        "transition-transform duration-150",
+                                        menuOpen && "rotate-180",
+                                    )}
+                                />
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent
+                            side={"top"}
+                            align={"end"}
+                            sideOffset={6}
+                            className={"min-w-44 select-none"}
+                            onEscapeKeyDown={(e) => e.stopPropagation()}
+                        >
+                            <DropdownMenuItem onClick={() => void sendFiles()}>
+                                <div className={"flex w-full items-center gap-2"}>
+                                    <FileIcon size={14} aria-hidden={"true"} />
+                                    <span className={"flex-1"}>
+                                        {t("peers.details.sendMenu.file")}
+                                    </span>
+                                </div>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem disabled={!clipboard} onClick={stageClipboard}>
+                                <div className={"flex w-full items-center gap-2"}>
+                                    <ClipboardIcon size={14} aria-hidden={"true"} />
+                                    <span className={"flex-1"}>
+                                        {t("peers.details.sendMenu.clipboard")}
+                                    </span>
+                                    {!clipboard && (
+                                        <span className={"text-[0.65rem] text-nb-gray-400"}>
+                                            {t("peers.details.sendClipboard.empty")}
+                                        </span>
+                                    )}
+                                </div>
+                            </DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
                 </div>
             ) : (
                 <div className={"flex flex-col gap-2"}>
                     <ClipboardPreview text={pendingText} />
-                    <div className={"flex items-center gap-2"}>
-                        <Button
-                            variant={"primary"}
-                            size={"xs"}
-                            onClick={() => void confirmClipboard()}
-                        >
-                            <ClipboardIcon size={12} aria-hidden={"true"} />
-                            {t("peers.details.sendClipboard")}
-                        </Button>
+                    <div className={"flex items-center justify-end gap-2"}>
                         <Button
                             variant={"secondary"}
                             size={"xs"}
@@ -385,6 +431,14 @@ const PeerSendActions = ({ peer }: { peer: PeerStatus }) => {
                             }}
                         >
                             {t("common.cancel")}
+                        </Button>
+                        <Button
+                            variant={"primary"}
+                            size={"xs"}
+                            onClick={() => void confirmClipboard()}
+                        >
+                            <ClipboardIcon size={12} aria-hidden={"true"} />
+                            {t("peers.details.sendClipboard")}
                         </Button>
                     </div>
                 </div>

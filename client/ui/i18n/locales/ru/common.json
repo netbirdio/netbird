@@ -1471,6 +1471,15 @@
     "peers.details.sendClipboard.empty": {
         "message": "Буфер обмена пуст"
     },
+    "peers.details.send": {
+        "message": "Отправить"
+    },
+    "peers.details.sendMenu.file": {
+        "message": "Файл…"
+    },
+    "peers.details.sendMenu.clipboard": {
+        "message": "Буфер обмена"
+    },
     "settings.tabs.fileSharing": {
         "message": "Обмен файлами"
     },

@@ -1471,6 +1471,15 @@
     "peers.details.sendClipboard.empty": {
         "message": "クリップボードは空です"
     },
+    "peers.details.send": {
+        "message": "送信"
+    },
+    "peers.details.sendMenu.file": {
+        "message": "ファイル…"
+    },
+    "peers.details.sendMenu.clipboard": {
+        "message": "クリップボード"
+    },
     "settings.tabs.fileSharing": {
         "message": "ファイル共有"
     },

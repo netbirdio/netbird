@@ -1471,6 +1471,15 @@
     "peers.details.sendClipboard.empty": {
         "message": "A vágólap üres"
     },
+    "peers.details.send": {
+        "message": "Küldés"
+    },
+    "peers.details.sendMenu.file": {
+        "message": "Fájl…"
+    },
+    "peers.details.sendMenu.clipboard": {
+        "message": "Vágólap"
+    },
     "settings.tabs.fileSharing": {
         "message": "Fájlmegosztás"
     },

@@ -1471,6 +1471,15 @@
     "peers.details.sendClipboard.empty": {
         "message": "El portapapeles está vacío"
     },
+    "peers.details.send": {
+        "message": "Enviar"
+    },
+    "peers.details.sendMenu.file": {
+        "message": "Archivo…"
+    },
+    "peers.details.sendMenu.clipboard": {
+        "message": "Portapapeles"
+    },
     "settings.tabs.fileSharing": {
         "message": "Compartir archivos"
     },

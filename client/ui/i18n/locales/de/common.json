@@ -1471,6 +1471,15 @@
     "peers.details.sendClipboard.empty": {
         "message": "Zwischenablage ist leer"
     },
+    "peers.details.send": {
+        "message": "Senden"
+    },
+    "peers.details.sendMenu.file": {
+        "message": "Datei…"
+    },
+    "peers.details.sendMenu.clipboard": {
+        "message": "Zwischenablage"
+    },
     "settings.tabs.fileSharing": {
         "message": "Dateifreigabe"
     },

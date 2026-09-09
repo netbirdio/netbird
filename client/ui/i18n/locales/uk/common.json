@@ -1493,6 +1493,15 @@
     "peers.details.sendClipboard.empty": {
         "message": "Буфер обміну порожній"
     },
+    "peers.details.send": {
+        "message": "Надіслати"
+    },
+    "peers.details.sendMenu.file": {
+        "message": "Файл…"
+    },
+    "peers.details.sendMenu.clipboard": {
+        "message": "Буфер обміну"
+    },
     "settings.tabs.fileSharing": {
         "message": "Обмін файлами"
     },

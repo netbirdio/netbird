@@ -1991,6 +1991,18 @@
         "message": "Clipboard is empty",
         "description": "Error when the clipboard has no text."
     },
+    "peers.details.send": {
+        "message": "Send",
+        "description": "Label of the single send button at the bottom of the peer details panel; opens the what-to-send menu. Keep short."
+    },
+    "peers.details.sendMenu.file": {
+        "message": "File…",
+        "description": "Send menu entry opening the file picker. Keep short."
+    },
+    "peers.details.sendMenu.clipboard": {
+        "message": "Clipboard",
+        "description": "Send menu entry sending the clipboard text. Keep short."
+    },
     "settings.tabs.fileSharing": {
         "message": "File sharing",
         "description": "Settings tab for file transfer policy."

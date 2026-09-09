@@ -1471,6 +1471,15 @@
     "peers.details.sendClipboard.empty": {
         "message": "Le presse-papiers est vide"
     },
+    "peers.details.send": {
+        "message": "Envoyer"
+    },
+    "peers.details.sendMenu.file": {
+        "message": "Fichier…"
+    },
+    "peers.details.sendMenu.clipboard": {
+        "message": "Presse-papiers"
+    },
     "settings.tabs.fileSharing": {
         "message": "Partage de fichiers"
     },
