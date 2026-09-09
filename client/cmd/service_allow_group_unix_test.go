@@ -168,21 +168,26 @@ func TestApplySocketAccess(t *testing.T) {
 // daemon narrows it, and that caller stays connected afterwards. The bind must
 // therefore land on the final mode, whatever umask the service manager used.
 func TestListenUnixPrivate_BindsAtTheFinalMode(t *testing.T) {
-	previous := syscall.Umask(0)
-	t.Cleanup(func() { syscall.Umask(previous) })
+	// A umask the daemon might have inherited from its service manager. Nonzero
+	// and not one of the masks under test, so it proves both that the bind mode
+	// does not depend on it and that it is put back afterwards.
+	const callerUmask = 0o027
 
-	tests := map[string]struct {
+	tests := []struct {
+		name    string
 		allowed []string
 		want    os.FileMode
 	}{
-		"unrestricted binds open, so nothing has to widen it later": {want: 0666},
-		"restricted binds owner-only, for applySocketAccess to hand to the group": {
-			allowed: []string{"gid:0"}, want: 0600,
-		},
+		{name: "unrestricted binds open, so nothing has to widen it later", want: 0666},
+		{name: "restricted binds owner-only, for applySocketAccess to hand to the group",
+			allowed: []string{"gid:0"}, want: 0600},
 	}
 
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			previous := syscall.Umask(callerUmask)
+			t.Cleanup(func() { syscall.Umask(previous) })
+
 			dir, err := os.MkdirTemp("", "nb-sock")
 			require.NoError(t, err)
 			t.Cleanup(func() { assert.NoError(t, os.RemoveAll(dir)) })
@@ -192,14 +197,13 @@ func TestListenUnixPrivate_BindsAtTheFinalMode(t *testing.T) {
 			require.NoError(t, err)
 			t.Cleanup(func() { assert.NoError(t, listener.Close()) })
 
+			// Immediately after the bind, so nothing else can have moved it.
+			restored := syscall.Umask(callerUmask)
+			assert.Equal(t, callerUmask, restored, "listenUnixPrivate must restore the umask it changed")
+
 			assert.Equal(t, tc.want, socketMode(t, path))
 		})
 	}
-
-	// And the process umask is left as it was found.
-	restored := syscall.Umask(0)
-	syscall.Umask(restored)
-	assert.Equal(t, 0, restored, "listenUnixPrivate must restore the umask it changed")
 }
 
 func listenTestSocket(t *testing.T) string {
