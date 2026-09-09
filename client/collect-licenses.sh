@@ -8,12 +8,11 @@ fi
 
 repo_root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 output_name=$(basename "$1")
-case "$output_name" in
-	"" | . | .. | /)
-		printf '%s\n' "OUTPUT_DIRECTORY must name a directory" >&2
-		exit 2
-		;;
-esac
+if [ -z "$output_name" ] || [ "$output_name" = "." ] ||
+	[ "$output_name" = ".." ] || [ "$output_name" = "/" ]; then
+	printf '%s\n' "OUTPUT_DIRECTORY must name a directory" >&2
+	exit 2
+fi
 output_parent=$(CDPATH= cd -- "$(dirname "$1")" && pwd)
 output="$output_parent/$output_name"
 shift
