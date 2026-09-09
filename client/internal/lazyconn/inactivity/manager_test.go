@@ -2,6 +2,8 @@ package inactivity
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -112,3 +114,55 @@ func (f *fakeTickerMock) C() <-chan time.Time {
 }
 
 func (f *fakeTickerMock) Stop() {}
+
+func TestConcurrentPeerAccess(t *testing.T) {
+	wgMock := &mockWgInterface{lastActivities: map[string]monotime.Time{}}
+	mgr := NewManager(wgMock, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var wg sync.WaitGroup
+
+	// stands in for the ticker goroutine started by Start
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				if _, err := mgr.checkStats(); err != nil {
+					t.Errorf("checkStats: %v", err)
+					return
+				}
+			}
+		}
+	}()
+
+	// stands in for the engine and the inactivity callbacks
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func(worker int) {
+			defer wg.Done()
+			for j := 0; j < 500; j++ {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
+				key := fmt.Sprintf("peer-%d-%d", worker, j%16)
+				mgr.AddPeer(&lazyconn.PeerConfig{
+					PublicKey: key,
+					Log:       log.WithField("peer", key),
+				})
+				mgr.RemovePeer(key)
+			}
+		}(i)
+	}
+
+	time.Sleep(200 * time.Millisecond)
+	cancel()
+	wg.Wait()
+}

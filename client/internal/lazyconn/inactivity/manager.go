@@ -3,6 +3,7 @@ package inactivity
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -26,8 +27,10 @@ type Manager struct {
 	inactivePeersChan chan map[string]struct{}
 
 	iface               WgInterface
-	interestedPeers     map[string]*lazyconn.PeerConfig
 	inactivityThreshold time.Duration
+
+	mu              sync.RWMutex
+	interestedPeers map[string]*lazyconn.PeerConfig
 }
 
 func NewManager(iface WgInterface, configuredThreshold *time.Duration) *Manager {
@@ -60,6 +63,9 @@ func (m *Manager) AddPeer(peerCfg *lazyconn.PeerConfig) {
 		return
 	}
 
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if _, exists := m.interestedPeers[peerCfg.PublicKey]; exists {
 		return
 	}
@@ -72,6 +78,9 @@ func (m *Manager) RemovePeer(peer string) {
 	if m == nil {
 		return
 	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	pi, ok := m.interestedPeers[peer]
 	if !ok {
@@ -126,7 +135,7 @@ func (m *Manager) checkStats() (map[string]struct{}, error) {
 	idlePeers := make(map[string]struct{})
 
 	checkTime := time.Now()
-	for peerID, peerCfg := range m.interestedPeers {
+	for peerID, peerCfg := range m.snapshotInterestedPeers() {
 		lastActive, ok := lastActivities[peerID]
 		if !ok {
 			// when peer is in connecting state
@@ -142,6 +151,19 @@ func (m *Manager) checkStats() (map[string]struct{}, error) {
 	}
 
 	return idlePeers, nil
+}
+
+// snapshotInterestedPeers copies the peer map so the caller can walk it without
+// holding the lock while logging.
+func (m *Manager) snapshotInterestedPeers() map[string]*lazyconn.PeerConfig {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	peers := make(map[string]*lazyconn.PeerConfig, len(m.interestedPeers))
+	for k, v := range m.interestedPeers {
+		peers[k] = v
+	}
+	return peers
 }
 
 func validateInactivityThreshold(configuredThreshold *time.Duration) (time.Duration, error) {
