@@ -3473,7 +3473,7 @@ func (s *SqlStore) GetPeerGroups(ctx context.Context, lockStrength LockingStreng
 	var groups []*types.Group
 	query := tx.
 		Joins("JOIN group_peers ON group_peers.group_id = groups.id").
-		Where("group_peers.peer_id = ?", peerId).
+		Where("groups.account_id = ? AND group_peers.peer_id = ?", accountId, peerId).
 		Preload(clause.Associations).
 		Find(&groups)
 
@@ -5053,7 +5053,7 @@ func (s *SqlStore) GetPeersByGroupIDs(ctx context.Context, accountID string, gro
 		Select("DISTINCT peer_id").
 		Where("account_id = ? AND group_id IN ?", accountID, groupIDs)
 
-	result := s.db.Where("id IN (?)", peerIDsSubquery).Find(&peers)
+	result := s.db.Where("account_id = ? AND id IN (?)", accountID, peerIDsSubquery).Find(&peers)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to get peers by group IDs: %s", result.Error)
 		return nil, status.Errorf(status.Internal, "failed to get peers by group IDs")
