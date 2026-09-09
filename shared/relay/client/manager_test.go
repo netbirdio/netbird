@@ -483,3 +483,85 @@ func TestNotifierDoubleAdd(t *testing.T) {
 func toURL(address server.ListenerConfig) []string {
 	return []string{"rel://" + address.Address}
 }
+type testCloseReceiver struct {
+	name   string
+	target chan<- string
+}
+
+func newTestCloseReceiver(name string, target chan<- string) *testCloseReceiver {
+	return &testCloseReceiver{name: name, target: target}
+}
+
+func (r *testCloseReceiver) onDisconnected() {
+	r.target <- r.name
+}
+
+func TestCloseListenerPerReceiver(t *testing.T) {
+	ctx := context.Background()
+
+	srvCfg := server.ListenerConfig{Address: "localhost:52601"}
+	srv, err := server.NewServer(newManagerTestServerConfig(srvCfg.Address))
+	if err != nil {
+		t.Fatalf("failed to create server: %s", err)
+	}
+	errChan := make(chan error, 1)
+	go func() {
+		if err := srv.Listen(srvCfg); err != nil {
+			errChan <- err
+		}
+	}()
+	defer func() {
+		if err := srv.Shutdown(ctx); err != nil {
+			t.Errorf("failed to close server: %s", err)
+		}
+	}()
+
+	if err := waitForServerToStart(errChan); err != nil {
+		t.Fatalf("failed to start server: %s", err)
+	}
+
+	mCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	mgr := NewManager(mCtx, toURL(srvCfg), "alice", iface.DefaultMTU)
+	if err := mgr.Serve(); err != nil {
+		t.Fatalf("failed to serve manager: %s", err)
+	}
+
+	ra, _, err := mgr.RelayInstanceAddress()
+	if err != nil {
+		t.Fatalf("failed to get relay address: %s", err)
+	}
+
+	fired := make(chan string, 8)
+	receivers := []*testCloseReceiver{
+		newTestCloseReceiver("peer-a", fired),
+		newTestCloseReceiver("peer-b", fired),
+		newTestCloseReceiver("peer-c", fired),
+	}
+
+	for _, r := range receivers {
+		if err := mgr.AddCloseListener(ra, r.onDisconnected); err != nil {
+			t.Fatalf("failed to add close listener for %s: %s", r.name, err)
+		}
+	}
+
+	_ = mgr.relayClient.relayConn.Close()
+
+	got := make(map[string]int)
+	deadline := time.After(15 * time.Second)
+	for len(got) < len(receivers) {
+		select {
+		case name := <-fired:
+			got[name]++
+		case <-deadline:
+			t.Fatalf("not every listener was notified, got: %v", got)
+		}
+	}
+
+	for _, r := range receivers {
+		if got[r.name] != 1 {
+			t.Errorf("listener %s fired %d times, want 1", r.name, got[r.name])
+		}
+	}
+}
