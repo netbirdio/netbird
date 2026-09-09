@@ -43,7 +43,7 @@ func TestAdapterHandlingConnectionClosures(t *testing.T) {
 			proxy := New(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				buf, _ := io.ReadAll(r.Body)
 				defer r.Body.Close()
-				w.Write([]byte("echo: " + string(buf)))
+				w.Write([]byte("echo: " + string(buf))) //nolint:errcheck
 			}))
 
 			handler, ok := proxy.Handler().(*proxyHandler)
@@ -55,7 +55,7 @@ func TestAdapterHandlingConnectionClosures(t *testing.T) {
 			httpServer := http.Server{
 				Handler: handler,
 			}
-			go httpServer.Serve(l)
+			go httpServer.Serve(l) //nolint:errcheck
 			t.Cleanup(func() { httpServer.Close() })
 
 			clientconn, _, err := websocket.Dial(context.Background(), "http://whatever", &websocket.DialOptions{HTTPClient: &http.Client{
@@ -66,7 +66,7 @@ func TestAdapterHandlingConnectionClosures(t *testing.T) {
 				}}})
 			assert.NoError(t, err)
 
-			clientCtx, cancel := context.WithCancel(context.Background())
+			clientCtx, cancel := context.WithCancel(context.Background()) //nolint:govet
 			h2client := &http.Client{
 				Transport: &http2.Transport{
 					AllowHTTP: true,
@@ -83,6 +83,7 @@ func TestAdapterHandlingConnectionClosures(t *testing.T) {
 			assert.NoError(t, err)
 
 			body, err := io.ReadAll(resp.Body)
+			t.Cleanup(func() { resp.Body.Close() })
 
 			assert.NoError(t, err)
 			assert.Equal(t, "echo: g'day", string(body))
@@ -102,7 +103,7 @@ func TestAdapterHandlingConnectionClosures(t *testing.T) {
 			assert.EventuallyWithT(t, func(c *assert.CollectT) {
 				assert.True(c, handler.conn.Load().IsClosed())
 			}, 3*time.Second, 100*time.Millisecond)
-		})
+		}) //nolint:govet
 	}
 }
 
@@ -117,7 +118,7 @@ func TestAdapterHandlingHttpConnection_NoHeadersSent(t *testing.T) {
 
 	proxy := New(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		buf, _ := io.ReadAll(r.Body)
-		defer r.Body.Close()
+		defer r.Body.Close() //nolint:errcheck
 		w.Write([]byte("echo: " + string(buf)))
 	}))
 
@@ -130,7 +131,7 @@ func TestAdapterHandlingHttpConnection_NoHeadersSent(t *testing.T) {
 	httpServer := http.Server{
 		Handler: handler,
 	}
-	go httpServer.Serve(l)
+	go httpServer.Serve(l) //nolint:errcheck
 
 	clientconn, _, err := websocket.Dial(context.Background(), "http://whatever", &websocket.DialOptions{HTTPClient: &http.Client{
 		Transport: &http.Transport{
