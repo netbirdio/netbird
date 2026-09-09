@@ -30,6 +30,12 @@ const (
 
 var (
 	ErrConnAlreadyExists = fmt.Errorf("connection already exists")
+	// ErrServerDisconnected is the cancellation cause of a relayed Conn when the
+	// client lost the connection to the relay server.
+	ErrServerDisconnected = fmt.Errorf("relay server disconnected")
+	// ErrPeerDisconnected is the cancellation cause of a relayed Conn when the
+	// remote peer went offline.
+	ErrPeerDisconnected = fmt.Errorf("remote peer disconnected")
 )
 
 type internalStopFlag struct {
@@ -74,16 +80,17 @@ type connContainer struct {
 	msgChanLock sync.Mutex
 	closed      bool // flag to check if channel is closed
 	ctx         context.Context
-	cancel      context.CancelFunc
+	cancel      context.CancelCauseFunc
 }
 
 func newConnContainer(log *log.Entry, c *Client, peerID messages.PeerID, instanceURL *RelayAddr) *connContainer {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancelCause(context.Background())
 	msgChan := make(chan Msg, connChannelSize)
 	cn := &Conn{
 		dstID:       peerID,
 		messageChan: msgChan,
 		instanceURL: instanceURL,
+		ctx:         ctx,
 	}
 	cc := &connContainer{
 		log:      log,
@@ -128,8 +135,8 @@ func (cc *connContainer) writeMsg(msg Msg) {
 	}
 }
 
-func (cc *connContainer) close() {
-	cc.cancel()
+func (cc *connContainer) close(cause error) {
+	cc.cancel(cause)
 
 	cc.msgChanLock.Lock()
 	defer cc.msgChanLock.Unlock()
@@ -298,7 +305,7 @@ func (c *Client) Connect(ctx context.Context) error {
 // it will return immediately.
 // It block until the server confirm the peer is online.
 // todo: what should happen if call with the same peerID with multiple times?
-func (c *Client) OpenConn(ctx context.Context, dstPeerID string) (net.Conn, error) {
+func (c *Client) OpenConn(ctx context.Context, dstPeerID string) (*Conn, error) {
 	peerID := messages.HashID(dstPeerID)
 
 	c.mu.Lock()
@@ -335,7 +342,7 @@ func (c *Client) OpenConn(ctx context.Context, dstPeerID string) (net.Conn, erro
 			delete(c.conns, peerID)
 		}
 		c.mu.Unlock()
-		container.close()
+		container.close(err)
 		return nil, err
 	}
 
@@ -345,7 +352,7 @@ func (c *Client) OpenConn(ctx context.Context, dstPeerID string) (net.Conn, erro
 			delete(c.conns, peerID)
 		}
 		c.mu.Unlock()
-		container.close()
+		container.close(ErrServerDisconnected)
 		return nil, fmt.Errorf("relay connection is not established")
 	}
 	c.mu.Unlock()
@@ -779,7 +786,7 @@ func (c *Client) listenForStopEvents(ctx context.Context, hc *healthcheck.Receiv
 
 func (c *Client) closeAllConns() {
 	for _, container := range c.conns {
-		container.close()
+		container.close(ErrServerDisconnected)
 	}
 	c.conns = make(map[messages.PeerID]*connContainer)
 
@@ -799,7 +806,7 @@ func (c *Client) closeConnsByPeerID(peerIDs []messages.PeerID) {
 		}
 
 		container.log.Infof("remote peer has been disconnected, free up connection: %s", peerID)
-		container.close()
+		container.close(ErrPeerDisconnected)
 		delete(c.conns, peerID)
 	}
 
@@ -827,7 +834,7 @@ func (c *Client) closeConn(containerRef *connContainer, id messages.PeerID) erro
 
 	c.log.Infof("free up connection to peer: %s", id)
 	delete(c.conns, id)
-	current.close()
+	current.close(net.ErrClosed)
 
 	return nil
 }

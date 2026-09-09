@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"net"
 	"time"
 
@@ -12,9 +13,18 @@ type Conn struct {
 	dstID       messages.PeerID
 	messageChan chan Msg
 	instanceURL *RelayAddr
+	ctx         context.Context
 	writeFn     func(messages.PeerID, []byte) (int, error)
 	closeFn     func(messages.PeerID) error
 	localAddrFn func() net.Addr
+}
+
+// Context returns a context that is cancelled when the connection is torn down,
+// either by Close or by the relay client losing the server connection. The
+// cancellation cause carries the reason, see ErrServerDisconnected and
+// ErrPeerDisconnected.
+func (c *Conn) Context() context.Context {
+	return c.ctx
 }
 
 func (c *Conn) Write(p []byte) (n int, err error) {
