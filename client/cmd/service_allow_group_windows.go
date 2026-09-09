@@ -20,12 +20,13 @@ import (
 // Both a group and a user account are accepted. The DACL grants a SID without
 // caring which it is, and an administrator restricting the daemon to a single
 // service account should not have to create a group for it.
-func resolveAllowGroup(value string) (string, error) {
-	if kind, rest, ok := cutKind(value); ok {
-		if kind != allowGroupKindSID {
-			return "", fmt.Errorf("unsupported principal kind %q, use an account name or %s:<SID>", kind, allowGroupKindSID)
-		}
-		return sidPrincipal(rest)
+func resolveAllowGroup(value string) (ipcauth.Principal, error) {
+	principal, typed, err := typedPrincipal(value, ipcauth.KindSID)
+	if err != nil {
+		return ipcauth.Principal{}, err
+	}
+	if typed {
+		return sidPrincipal(principal.Value)
 	}
 
 	if _, err := windows.StringToSid(value); err == nil {
@@ -34,9 +35,9 @@ func resolveAllowGroup(value string) (string, error) {
 
 	sid, _, _, err := windows.LookupSID("", value)
 	if err != nil {
-		return "", fmt.Errorf("look up account: %w", err)
+		return ipcauth.Principal{}, fmt.Errorf("look up account: %w", err)
 	}
-	return allowGroupKindSID + ":" + sid.String(), nil
+	return sidPrincipal(sid.String())
 }
 
 // checkAllowGroupSet accepts any number of principals: a pipe descriptor holds
@@ -70,20 +71,26 @@ func listenUnixPrivate(address string) (net.Listener, error) {
 // connect.
 func allowedPipeSDDL(principals []string) (string, error) {
 	sids := make([]string, 0, len(principals))
-	for _, principal := range principals {
-		sid, ok := principalValue(principal, allowGroupKindSID)
-		if !ok {
-			return "", fmt.Errorf("not a %s principal: %q", allowGroupKindSID, principal)
+	for _, value := range principals {
+		principal, err := principalOfKind(value, ipcauth.KindSID)
+		if err != nil {
+			return "", err
 		}
-		sids = append(sids, sid)
+		sids = append(sids, principal.Value)
 	}
 	return ipcauth.RestrictedPipeSDDL(sids), nil
 }
 
-func sidPrincipal(value string) (string, error) {
+// sidPrincipal validates a SID and renders it in its canonical form, so that
+// two spellings of the same SID produce one principal.
+func sidPrincipal(value string) (ipcauth.Principal, error) {
 	sid, err := windows.StringToSid(value)
 	if err != nil {
-		return "", fmt.Errorf("parse SID %q: %w", value, err)
+		return ipcauth.Principal{}, fmt.Errorf("parse SID %q: %w", value, err)
 	}
-	return allowGroupKindSID + ":" + sid.String(), nil
+	principal, ok := ipcauth.ParsePrincipal(ipcauth.SIDPrincipal(sid.String()))
+	if !ok {
+		return ipcauth.Principal{}, fmt.Errorf("build sid principal for %q", sid.String())
+	}
+	return principal, nil
 }

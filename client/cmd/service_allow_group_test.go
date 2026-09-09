@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/netbirdio/netbird/client/mdm"
 )
 
@@ -151,44 +152,47 @@ func TestTCPListenerRefusesARestriction(t *testing.T) {
 	})
 }
 
-func TestCutKind(t *testing.T) {
-	tests := []struct {
-		value string
-		kind  string
-		rest  string
-		ok    bool
-	}{
-		{value: "gid:1000", kind: "gid", rest: "1000", ok: true},
-		{value: "sid:S-1-5-32-544", kind: "sid", rest: "S-1-5-32-544", ok: true},
-		{value: "netbird-users", rest: "netbird-users"},
-		{value: "S-1-5-32-544", rest: "S-1-5-32-544"},
-		{value: `NETBIRD\Users`, rest: `NETBIRD\Users`},
-		// A kind with no value is not a kind: it must not be mistaken for one
-		// and accepted as an empty principal.
-		{value: "gid:", rest: "gid:"},
-	}
+func TestTypedPrincipal(t *testing.T) {
+	t.Run("a value with no kind is a name to look up", func(t *testing.T) {
+		for _, value := range []string{"netbird-users", `NETBIRD\Users`, "1000"} {
+			_, typed, err := typedPrincipal(value, ipcauth.KindGID)
+			require.NoError(t, err, value)
+			assert.False(t, typed, "%q carries no kind", value)
+		}
+	})
 
-	for _, tc := range tests {
-		t.Run(tc.value, func(t *testing.T) {
-			kind, rest, ok := cutKind(tc.value)
-			assert.Equal(t, tc.ok, ok)
-			assert.Equal(t, tc.kind, kind)
-			assert.Equal(t, tc.rest, rest)
-		})
-	}
+	t.Run("a value of the wanted kind is parsed", func(t *testing.T) {
+		principal, typed, err := typedPrincipal("gid:1000", ipcauth.KindGID)
+		require.NoError(t, err)
+		assert.True(t, typed)
+		assert.Equal(t, ipcauth.KindGID, principal.Kind)
+		assert.Equal(t, "1000", principal.Value)
+	})
+
+	t.Run("a kind for another platform is an error, not a name", func(t *testing.T) {
+		_, _, err := typedPrincipal("sid:S-1-5-32-544", ipcauth.KindGID)
+		require.Error(t, err)
+	})
+
+	t.Run("an unknown kind is an error, not a name", func(t *testing.T) {
+		for _, value := range []string{"user:alice", "gid:"} {
+			_, _, err := typedPrincipal(value, ipcauth.KindGID)
+			require.Error(t, err, value)
+		}
+	})
 }
 
-func TestPrincipalValue(t *testing.T) {
-	value, ok := principalValue("gid:1000", allowGroupKindGID)
-	assert.True(t, ok)
-	assert.Equal(t, "1000", value)
+func TestPrincipalOfKind(t *testing.T) {
+	principal, err := principalOfKind("gid:1000", ipcauth.KindGID)
+	require.NoError(t, err)
+	assert.Equal(t, "1000", principal.Value)
 
-	_, ok = principalValue("sid:S-1-5-32-544", allowGroupKindGID)
-	assert.False(t, ok, "a principal of another kind must not be read as this one")
+	_, err = principalOfKind("sid:S-1-5-32-544", ipcauth.KindGID)
+	assert.Error(t, err, "a principal of another kind must not be read as this one")
 
-	_, ok = principalValue("1000", allowGroupKindGID)
-	assert.False(t, ok, "an untyped value is not a principal")
+	_, err = principalOfKind("1000", ipcauth.KindGID)
+	assert.Error(t, err, "an untyped value is not a principal")
 
-	_, ok = principalValue("gid:", allowGroupKindGID)
-	assert.False(t, ok, "an empty value is not a principal")
+	_, err = principalOfKind("gid:", ipcauth.KindGID)
+	assert.Error(t, err, "an empty value is not a principal")
 }

@@ -164,6 +164,7 @@ type PrincipalKind string
 
 const (
 	KindUID PrincipalKind = "uid" // Unix user ID
+	KindGID PrincipalKind = "gid" // Unix group ID
 	KindSID PrincipalKind = "sid" // Windows user or group SID
 )
 
@@ -181,7 +182,7 @@ func ParsePrincipal(s string) (Principal, bool) {
 		return Principal{}, false
 	}
 	switch PrincipalKind(kind) {
-	case KindUID, KindSID:
+	case KindUID, KindGID, KindSID:
 		return Principal{Kind: PrincipalKind(kind), Value: value}, true
 	default:
 		return Principal{}, false
@@ -191,6 +192,11 @@ func ParsePrincipal(s string) (Principal, bool) {
 // UIDPrincipal builds the owner string for a Unix user ID.
 func UIDPrincipal(uid uint32) string {
 	return string(KindUID) + ":" + strconv.FormatUint(uint64(uid), 10)
+}
+
+// GIDPrincipal builds the principal string for a Unix group ID.
+func GIDPrincipal(gid uint32) string {
+	return string(KindGID) + ":" + strconv.FormatUint(uint64(gid), 10)
 }
 
 // SIDPrincipal builds the owner string for a Windows SID.
@@ -227,6 +233,15 @@ func (p Principal) Matches(id Identity) bool {
 		}
 		// Only the user SID. Group ownership is not supported yet.
 		return id.SID == p.Value
+	case KindGID:
+		// A group principal never confers ownership. It exists for the daemon
+		// socket restriction, which the kernel enforces at connect() from the
+		// caller's full group set; the identity here carries only the primary
+		// GID, so matching on it would grant ownership to members of a group
+		// and deny it to others in the same group, depending on which one
+		// happens to be primary. Deciding this properly is the group-ownership
+		// work that is still ahead.
+		return false
 	default:
 		return false
 	}
