@@ -560,7 +560,7 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 	change := affectedpeers.Change{OutputPeerIDs: []string{peerID}, LinkGroups: []string{groupID}}
 
 	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		if err := transaction.AddPeerToGroup(ctx, accountID, peerID, groupID); err != nil {
+		if err := syncGroupMembership(ctx, transaction, accountID, groupID, []string{peerID}, nil); err != nil {
 			return err
 		}
 

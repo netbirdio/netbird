@@ -1302,4 +1302,16 @@ func TestDefaultAccountManager_GroupPeersMustBelongToAccount(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, []string{peer1.ID}, stored.Peers, "dangling member should be removed once omitted")
 	})
+
+	t.Run("direct add rejects foreign and unknown peers", func(t *testing.T) {
+		group := &types.Group{ID: "direct", Name: "direct", Issued: types.GroupIssuedAPI, Peers: []string{peer1.ID}}
+		require.NoError(t, manager.CreateGroup(context.Background(), account.Id, userID, group))
+
+		assertRejected(t, manager.GroupAddPeer(context.Background(), account.Id, group.ID, foreignPeer.ID))
+		assertRejected(t, manager.GroupAddPeer(context.Background(), account.Id, group.ID, "does-not-exist"))
+
+		stored, err := manager.Store.GetGroupByID(context.Background(), store.LockingStrengthNone, account.Id, group.ID)
+		require.NoError(t, err)
+		assert.Equal(t, []string{peer1.ID}, stored.Peers, "rejected direct adds must not change membership")
+	})
 }
