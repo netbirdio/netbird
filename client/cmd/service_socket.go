@@ -52,12 +52,11 @@ func listenOnAddress(addr string, allowed []string) (*socketListener, error) {
 		removeStaleUnixSocket(address)
 
 		// A Unix socket accepts connections the moment it is bound, and the
-		// kernel checks its mode at connect() rather than at accept(). Creating
-		// it owner-only closes the window between the bind and applySocketAccess:
-		// without this, a permissive umask leaves the socket open to everybody
-		// for that interval, and a caller that got in stays connected after the
-		// mode is narrowed.
-		listener, err := listenUnixPrivate(address)
+		// kernel checks its mode at connect() rather than at accept(), so the
+		// socket is bound at the narrowest mode the configuration allows rather
+		// than bound wide and narrowed after: a caller that gets in during such
+		// a window stays connected once the mode changes.
+		listener, err := listenUnixPrivate(address, allowed)
 		if err != nil {
 			return nil, err
 		}

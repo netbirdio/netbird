@@ -21,21 +21,31 @@ import (
 const (
 	openSocketMode       os.FileMode = 0666
 	restrictedSocketMode os.FileMode = 0660
+	ownerOnlySocketMode  os.FileMode = 0600
 )
 
-// umaskOwnerOnly masks every permission bit except the owner's, so a file
-// created under it is 0600 whatever the process umask happens to be.
-const umaskOwnerOnly = 0o177
-
-// listenUnixPrivate binds a Unix socket that only its owner can connect to,
-// whatever umask the service manager started the daemon with. applySocketAccess
-// widens it afterwards to exactly what the configuration asks for.
+// listenUnixPrivate binds a Unix socket at the narrowest mode the configuration
+// allows, so it is never briefly more open than it should be. A Unix socket's
+// mode is checked at connect() rather than at accept(), so a socket that is
+// momentarily world-writable can be connected to before the daemon narrows it,
+// and that caller stays connected afterwards.
 //
-// The umask is process-wide, so it is restored before returning and the window
-// is kept to the bind itself. Nothing else creates files during daemon startup:
-// this runs before the server and its goroutines exist.
-func listenUnixPrivate(address string) (net.Listener, error) {
-	previous := syscall.Umask(umaskOwnerOnly)
+// Where no group is configured the final mode is reached at the bind itself and
+// nothing touches the path afterwards, which is what keeps the historical
+// unrestricted socket free of a chmod that could follow a symlink another
+// account planted. A restricted socket binds owner-only and applySocketAccess
+// hands it to the group, under the checks that step carries.
+//
+// The umask is process-wide, so it is restored immediately and the window is
+// the bind alone. Nothing else creates files at this point in startup: the
+// server and its goroutines do not exist yet.
+func listenUnixPrivate(address string, allowed []string) (net.Listener, error) {
+	mode := openSocketMode
+	if len(allowed) > 0 {
+		mode = ownerOnlySocketMode
+	}
+
+	previous := syscall.Umask(int(^mode & 0o777))
 	listener, err := net.Listen("unix", address)
 	syscall.Umask(previous)
 	if err != nil {
@@ -78,27 +88,25 @@ func checkAllowGroupSet(principals []string) error {
 	return nil
 }
 
-// applySocketAccess sets the access the socket grants to other accounts: the
-// allowed group at 0660, or every local account at 0666 when no group is
-// configured.
+// applySocketAccess hands a socket to the configured group at 0660. It does
+// nothing when no group is configured: listenUnixPrivate already bound such a
+// socket at its final mode, and touching the path again would only add a chmod
+// that could follow something another account put there.
 //
 // The owner is left untouched so a daemon running as an ordinary user, as in a
 // rootless container, keeps access to the socket it created. The group is set
 // before the mode is widened, so the window between the two is one where the
 // group has no access rather than one where it has access it should not.
 func applySocketAccess(path string, principals []string) error {
+	if len(principals) == 0 {
+		return nil
+	}
+
 	// The listener just bound this path, so anything else standing there now is
 	// something another account substituted. Checked before either call below,
 	// neither of which should ever act on a name the daemon did not create.
 	if err := requireSocketFile(path); err != nil {
 		return err
-	}
-
-	if len(principals) == 0 {
-		if err := os.Chmod(path, openSocketMode); err != nil {
-			return fmt.Errorf("set mode %#o: %w", openSocketMode, err)
-		}
-		return nil
 	}
 
 	principal, err := principalOfKind(principals[0], ipcauth.KindGID)

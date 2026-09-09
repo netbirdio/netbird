@@ -62,7 +62,7 @@ func applySocketAccess(path string, principals []string) error {
 // listenUnixPrivate binds a Unix socket. Windows has no umask and no mode on
 // these sockets, so binding is all there is to do; a configured restriction is
 // refused by applySocketAccess before the daemon serves.
-func listenUnixPrivate(address string) (net.Listener, error) {
+func listenUnixPrivate(address string, _ []string) (net.Listener, error) {
 	return net.Listen("unix", address)
 }
 
