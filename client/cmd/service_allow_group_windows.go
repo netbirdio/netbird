@@ -43,15 +43,24 @@ func resolveAllowGroup(value string) (string, error) {
 // one ACE per principal.
 func checkAllowGroupSet([]string) error { return nil }
 
-// applySocketAccess is a no-op on Windows, where access is decided by the
-// security descriptor the pipe is created with rather than by a mode set on it
-// afterwards. See allowedPipeSDDL.
-func applySocketAccess(string, []string) error { return nil }
+// applySocketAccess applies the restriction to a Unix socket, which on Windows
+// it cannot: AF_UNIX sockets there carry no mode, and the daemon has no way to
+// keep another local process off one. Serving it unrestricted would be the
+// fail-open this flag exists to prevent, so a configured restriction is an
+// error instead.
+//
+// The pipe transport is unaffected: its access lives in the security descriptor
+// it is created with, and restrict never routes a named pipe here.
+func applySocketAccess(path string, principals []string) error {
+	if len(principals) == 0 {
+		return nil
+	}
+	return fmt.Errorf("cannot restrict the unix socket %s on windows: it carries no access mode, serve the daemon on npipe:// instead", path)
+}
 
-// listenUnixPrivate binds a Unix socket. Windows has no umask, and a Unix
-// socket there carries no mode the daemon could narrow, so there is nothing to
-// do beyond binding it. A restriction on this transport is refused before it
-// gets here: see listenOnAddress.
+// listenUnixPrivate binds a Unix socket. Windows has no umask and no mode on
+// these sockets, so binding is all there is to do; a configured restriction is
+// refused by applySocketAccess before the daemon serves.
 func listenUnixPrivate(address string) (net.Listener, error) {
 	return net.Listen("unix", address)
 }
