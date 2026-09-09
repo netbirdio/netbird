@@ -265,6 +265,8 @@ type Engine struct {
 	// checks are the client-applied posture checks that need to be evaluated on the client
 	checks []*mgmProto.Checks
 
+	infoSource system.InfoSource
+
 	relayManager       *relayClient.Manager
 	stateManager       *statemanager.Manager
 	portForwardManager *portforward.Manager
@@ -1241,9 +1243,7 @@ func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 	if isChecksEqual(e.checks, checks) {
 		return nil
 	}
-	e.checks = checks
-
-	info, ok := system.GetInfoWithChecksTimeout(e.ctx, systemInfoTimeout, checks, e.overlayAddresses()...)
+	info, ok := e.infoSource.Refresh(e.ctx, systemInfoTimeout, checks, e.overlayAddresses()...)
 	if !ok {
 		// Gathering timed out; skip the meta sync this cycle rather than blocking the
 		// sync loop (and syncMsgMux) on a stuck system call. A later sync will retry.
@@ -1254,6 +1254,7 @@ func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 	if err := e.mgmClient.SyncMeta(info); err != nil {
 		return fmt.Errorf("could not sync meta: error %s", err)
 	}
+	e.checks = checks
 	return nil
 }
 
@@ -1278,6 +1279,28 @@ func (e *Engine) applyInfoFlags(info *system.Info) {
 		e.config.DisableSSHAuth,
 		&e.config.RemoteJobsAllowed,
 	)
+}
+
+func (e *Engine) currentSystemInfo(ctx context.Context) *system.Info {
+	info := e.infoSource.Current(ctx, e.overlayAddresses()...)
+	e.applyInfoFlags(info)
+	return info
+}
+
+// syncInfoFunc returns the info callback for the management sync stream. The
+// first connect sends the info refreshed right before it instead of gathering
+// again; every reconnect gathers a fresh one. The stream retry loop calls the
+// callback sequentially, so the handoff needs no synchronization.
+func (e *Engine) syncInfoFunc(refreshed *system.Info) func(ctx context.Context) *system.Info {
+	return func(ctx context.Context) *system.Info {
+		if refreshed == nil {
+			return e.currentSystemInfo(ctx)
+		}
+		info := refreshed
+		refreshed = nil
+		e.applyInfoFlags(info)
+		return info
+	}
 }
 
 // overlayAddresses returns our own WireGuard overlay address (v4 and v6) so it
@@ -1473,15 +1496,11 @@ func (e *Engine) receiveManagementEvents() {
 	e.shutdownWg.Add(1)
 	go func() {
 		defer e.shutdownWg.Done()
-		info, ok := system.GetInfoWithChecksTimeout(e.ctx, systemInfoTimeout, e.checks, e.overlayAddresses()...)
+		info, ok := e.infoSource.Refresh(e.ctx, systemInfoTimeout, e.checks, e.overlayAddresses()...)
 		if !ok {
-			// Gathering timed out; connect the stream with base info so management
-			// connectivity still comes up rather than blocking here.
-			info = system.GetInfo(e.ctx)
+			log.Warnf("posture checks not refreshed before the sync connect, sending the previous results")
 		}
-		e.applyInfoFlags(info)
-
-		err := e.mgmClient.Sync(e.ctx, info, e.handleSync)
+		err := e.mgmClient.Sync(e.ctx, e.syncInfoFunc(info), e.handleSync)
 		if err != nil {
 			// happens if management is unavailable for a long time.
 			// We want to cancel the operation of the whole client
