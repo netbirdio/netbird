@@ -80,6 +80,18 @@ func TestCheckAllowGroupSet_AcceptsAny(t *testing.T) {
 	assert.NoError(t, checkAllowGroupSet([]string{"sid:" + sidAdministrators, "sid:S-1-5-18"}))
 }
 
+// A Unix socket on Windows carries no mode, so a restriction configured
+// against one cannot be applied and must stop the daemon rather than leave the
+// socket open to every local process.
+func TestApplySocketAccess_UnixSocketCannotBeRestricted(t *testing.T) {
+	assert.NoError(t, applySocketAccess(`C:\ProgramData\Netbird\netbird.sock`, nil),
+		"an unrestricted unix socket is the historical behaviour and stays allowed")
+
+	err := applySocketAccess(`C:\ProgramData\Netbird\netbird.sock`, []string{testAllowGroupPrincipal})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "npipe://", "the error should name the transport that can carry the restriction")
+}
+
 func TestAllowedPipeSDDL(t *testing.T) {
 	t.Run("no principals leaves the pipe open", func(t *testing.T) {
 		sddl, err := allowedPipeSDDL(nil)
