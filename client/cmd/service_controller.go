@@ -65,9 +65,6 @@ func (p *program) Start(svc service.Service) error {
 		return err
 	}
 
-	// Collect static system and platform information
-	system.UpdateStaticInfoAsync()
-
 	// A daemon installed before named-pipe support has the loopback TCP address
 	// persisted. Move it to the named pipe so an upgraded daemon can identify
 	// its callers instead of silently serving an unauthenticated socket.
@@ -99,6 +96,12 @@ func (p *program) Start(svc service.Service) error {
 		log.Errorf("failed to apply the daemon socket restriction, not serving: %v", err)
 		return err
 	}
+
+	// Started only once the sockets exist. Binding them adjusts the process
+	// umask for the length of the bind, and a goroutine creating a file in that
+	// window would inherit it, so nothing asynchronous may be in flight before
+	// this point. Keep any future background work below the listeners too.
+	system.UpdateStaticInfoAsync()
 
 	go func() {
 		// Fatal here rather than inside serve, so serve's deferred listener
