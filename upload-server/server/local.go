@@ -92,7 +92,7 @@ func (l *local) getUploadURL(objectKey string) (string, error) {
 	return newURL.String(), nil
 }
 
-const maxUploadSize = 150 << 20
+const maxUploadSize = 50 << 20
 
 func (l *local) handlePutRequest(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPut {
