@@ -4,8 +4,10 @@ package nftables
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"net/netip"
+	"syscall"
 
 	"github.com/google/nftables"
 	"github.com/google/nftables/expr"
@@ -27,9 +29,10 @@ func (r *family) getIpSet(set firewall.Set, prefixes []netip.Prefix, isSource bo
 	return r.getIpSetExprs(ref, isSource)
 }
 
-// createIpSet creates a named interval set for the given prefixes and
-// returns the kernel set handle. It commits on sConn, the dedicated set
-// connection, and rolls the set back if a later element batch fails.
+// createIpSet queues a named interval set on conn. The caller must flush
+// conn together with the rule that looks the set up: NFTA_LOOKUP_SET_ID is
+// valid only in that transaction. Overflow elements are stored for
+// commitPendingSetElements after that flush.
 func (r *family) createIpSet(setName string, input setInput) (*nftables.Set, error) {
 	// overlapping prefixes will result in an error, so we need to merge them
 	prefixes := firewall.MergeIPRanges(input.prefixes)
@@ -49,34 +52,43 @@ func (r *family) createIpSet(setName string, input setInput) (*nftables.Set, err
 	maxElements := maxPrefixesSet * 2
 	initialElements := elements[:min(maxElements, nElements)]
 
-	if err := r.sConn.AddSet(nfset, initialElements); err != nil {
+	if err := r.conn.AddSet(nfset, initialElements); err != nil {
 		return nil, fmt.Errorf("error adding set %s: %w", setName, err)
 	}
-	if err := r.sConn.Flush(); err != nil {
-		return nil, fmt.Errorf("flush error: %w", err)
-	}
-	log.Debugf("Created new ipset: %s with %d initial prefixes (total prefixes %d)", setName, len(initialElements)/2, len(prefixes))
-
-	// The set is committed now. If a later batch fails, destroy it: the
-	// refcounter records nothing on a create-callback error, so it would
-	// otherwise leak, and a partial source set fails-open for deny rules.
-	if err := r.addRemainingElements(nfset, elements, maxElements); err != nil {
-		if derr := r.deleteIpSet(setName, nfset); derr != nil {
-			log.Warnf("rollback ipset %s after add failure: %v", setName, derr)
+	if nElements > maxElements {
+		r.pendingSetElements[setName] = pendingSetUpdate{
+			set:      nfset,
+			elements: elements[maxElements:],
 		}
-		return nil, err
 	}
 
+	log.Debugf("Queued new ipset: %s with %d initial prefixes (total prefixes %d)", setName, len(initialElements)/2, len(prefixes))
 	log.Infof("Created new ipset: %s with %d prefixes", setName, len(prefixes))
 	return nfset, nil
 }
 
-// addRemainingElements adds element batches beyond the initial one in
-// maxElements-sized chunks, flushing each. Called after the set has been
-// created with its first batch.
-func (r *family) addRemainingElements(nfset *nftables.Set, elements []nftables.SetElement, maxElements int) error {
+// commitPendingSetElements writes overflow chunks that did not fit in the
+// rule batch. The named set must already exist in the kernel.
+func (r *family) commitPendingSetElements() error {
+	pending := r.pendingSetElements
+	r.pendingSetElements = make(map[string]pendingSetUpdate)
+	maxElements := maxPrefixesSet * 2
+	for setName, p := range pending {
+		if err := r.addElementBatches(p.set, p.elements, maxElements); err != nil {
+			return fmt.Errorf("add remaining elements to set %s: %w", setName, err)
+		}
+	}
+	return nil
+}
+
+func (r *family) discardPendingSetElements() {
+	r.pendingSetElements = make(map[string]pendingSetUpdate)
+}
+
+// addElementBatches adds elements in maxElements-sized chunks on sConn.
+func (r *family) addElementBatches(nfset *nftables.Set, elements []nftables.SetElement, maxElements int) error {
 	nElements := len(elements)
-	for subStart := maxElements; subStart < nElements; subStart += maxElements {
+	for subStart := 0; subStart < nElements; subStart += maxElements {
 		subEnd := min(subStart+maxElements, nElements)
 		subElement := elements[subStart:subEnd]
 		nSubPrefixes := len(subElement) / 2
@@ -85,7 +97,7 @@ func (r *family) addRemainingElements(nfset *nftables.Set, elements []nftables.S
 			return fmt.Errorf("error adding prefixes (%d) to set %s: %w", nSubPrefixes, nfset.Name, err)
 		}
 		if err := r.sConn.Flush(); err != nil {
-			return fmt.Errorf("flush error: %w", err)
+			return fmt.Errorf(flushError, err)
 		}
 		log.Debugf("Added new prefixes (%d) in ipset: %s", nSubPrefixes, nfset.Name)
 	}
@@ -155,6 +167,9 @@ func uint32ToBytes(ip uint32) [4]byte {
 func (r *family) deleteIpSet(setName string, nfset *nftables.Set) error {
 	r.sConn.DelSet(nfset)
 	if err := r.sConn.Flush(); err != nil {
+		if errors.Is(err, syscall.ENOENT) {
+			return nil
+		}
 		return fmt.Errorf(flushError, err)
 	}
 

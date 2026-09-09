@@ -69,6 +69,11 @@ type setInput struct {
 	prefixes []netip.Prefix
 }
 
+type pendingSetUpdate struct {
+	set      *nftables.Set
+	elements []nftables.SetElement
+}
+
 // family holds the per-address-family nftables state. One instance
 // handles route ACLs, peer ACLs, NAT, DNAT, and MSS clamping for a
 // single family; the top-level Manager owns one for v4 and another
@@ -76,19 +81,20 @@ type setInput struct {
 // the per-family backend now.
 type family struct {
 	conn *nftables.Conn
-	// sConn is a dedicated connection used for named ipset (re)creation
-	// and element updates. Keeping it separate from the
-	// rule connection avoids overloading a single netlink batch with a
-	// large number of set-element messages, which can desync the kernel
-	// ack stream and surface as spurious `conn.Receive: netlink receive:
-	// no such file or directory` when the rule referencing the set is
-	// installed (see google/nftables#170). Anonymous port sets stay on
-	// `conn` because they must commit atomically with the rule that
-	// binds them.
-	sConn       *nftables.Conn
-	workTable   *nftables.Table
-	filterTable *nftables.Table
-	chains      map[string]*nftables.Chain
+	// sConn is used for element updates and deletes of named sets that
+	// already exist in the kernel. Creating a named set that a rule will
+	// look up must be queued on conn and flushed with that rule: the
+	// lookup's SetID is valid only in the creating transaction, and a
+	// later rule batch that names a set created on another (or prior)
+	// transaction is rejected with ENOENT on some kernels.
+	sConn *nftables.Conn
+	// pendingSetElements holds overflow chunks from createIpSet that
+	// cannot join the rule batch. They are committed on sConn after the
+	// rule flush has created the set.
+	pendingSetElements map[string]pendingSetUpdate
+	workTable          *nftables.Table
+	filterTable        *nftables.Table
+	chains             map[string]*nftables.Chain
 
 	// filters holds peer + route filter rules keyed by content hash.
 	// AddFilterRule writes here; DeleteFilterRule looks up by id.
@@ -113,13 +119,13 @@ type family struct {
 }
 
 // newFamily creates the per-family nftables backend with two connections:
-// conn for rule and chain transactions, and sConn dedicated to named ipset
-// operations. Keeping them separate prevents large set-element batches from
-// overloading a rule commit's netlink batch.
+// conn for rules, chains, and the NEWSET that a rule looks up in the same
+// flush, and sConn for later element updates and deletes of those sets.
 func newFamily(workTable *nftables.Table, wgIface iFaceMapper, mtu uint16) *family {
 	r := &family{
 		conn:               &nftables.Conn{},
 		sConn:              &nftables.Conn{},
+		pendingSetElements: make(map[string]pendingSetUpdate),
 		workTable:          workTable,
 		chains:             make(map[string]*nftables.Chain),
 		filters:            make(map[firewall.RuleID]*Rule),
@@ -185,6 +191,8 @@ func (r *family) Reset() error {
 	if err := r.removeNatPreroutingRules(); err != nil {
 		merr = multierror.Append(merr, fmt.Errorf("remove filter prerouting rules: %w", err))
 	}
+
+	r.discardPendingSetElements()
 
 	return nberrors.FormatErrorOrNil(merr)
 }

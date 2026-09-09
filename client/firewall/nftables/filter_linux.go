@@ -100,8 +100,12 @@ func (r *family) AddFilterRule(
 		nftRule = r.conn.AddRule(nftRule)
 	}
 	if err := r.conn.Flush(); err != nil {
+		r.discardPendingSetElements()
 		r.dropNetworkMatch(exprs)
 		return nil, fmt.Errorf(flushError, err)
+	}
+	if err := r.commitPendingSetElements(); err != nil {
+		log.Errorf("add remaining ipset elements after rule flush: %v", err)
 	}
 
 	rule := &Rule{

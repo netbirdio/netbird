@@ -25,24 +25,11 @@ func (connTestIface) Address() wgaddr.Address {
 	}
 }
 
-// TestFamilySetConnectionSeparateFromRuleConnection guards the fix for
-// https://github.com/netbirdio/netbird/discussions/7446. Named ipset
-// (re)creation and element updates must go through their own dedicated
-// connection (sConn) instead of sharing the rule connection (conn).
-//
-// Sharing a single netlink stream for both large set-element batches and
-// rule installation can overload the batch and desync the kernel ack
-// stream (google/nftables#170). The failure then surfaces as a spurious
-// `conn.Receive: netlink receive: no such file or directory` when the rule
-// that references the just-created source-IP set is flushed, so the inbound
-// peer ACL never lands. Keeping the set connection separate (as the
-// pre-#6322 implementation did) restores that separation while #6322's
-// atomic install of a peer filter rule and its paired mangle rule is
-// preserved: both still commit on conn in a single flush.
-//
-// The family instances are built through newFamily rather than struct
-// literals so the test fails if the constructor ever collapses sConn and
-// conn into a single connection.
+// TestFamilySetConnectionSeparateFromRuleConnection records that later
+// element updates still use a dedicated connection. Named-set creation
+// itself is queued on conn with the rule that looks it up; splitting only
+// the add/delete path does not fix ENOENT on that lookup (see
+// https://github.com/netbirdio/netbird/discussions/7446).
 func TestFamilySetConnectionSeparateFromRuleConnection(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
@@ -61,8 +48,9 @@ func TestFamilySetConnectionSeparateFromRuleConnection(t *testing.T) {
 				t,
 				r.conn,
 				r.sConn,
-				"set operations must use a connection distinct from the rule connection",
+				"later set-element updates must use a connection distinct from the rule connection",
 			)
+			require.NotNil(t, r.pendingSetElements, "pending set-element map must be initialized")
 		})
 	}
 }

@@ -30,6 +30,12 @@ const (
 	NFTABLES
 )
 
+func commitQueuedIpSet(t *testing.T, r *family) {
+	t.Helper()
+	require.NoError(t, r.conn.Flush(), "flush queued ipset")
+	require.NoError(t, r.commitPendingSetElements(), "commit overflow ipset elements")
+}
+
 func TestNftablesManager_AddNatRule(t *testing.T) {
 	if check() != NFTABLES {
 		t.Skip("nftables not supported on this OS")
@@ -450,6 +456,7 @@ func TestNftablesCreateIpSet(t *testing.T) {
 				require.NoError(t, err, "Failed to create IP set")
 			}
 			require.NotNil(t, set, "Created set is nil")
+			commitQueuedIpSet(t, r)
 
 			// Verify set properties
 			assert.Equal(t, setName, set.Name, "Set name mismatch")
@@ -533,6 +540,7 @@ func TestNftablesUpdateSetMergesOverlapping(t *testing.T) {
 	created, err := r.createIpSet(set.HashedName(), setInput{prefixes: initial})
 	require.NoError(t, err, "create ip set")
 	require.NotNil(t, created)
+	commitQueuedIpSet(t, r)
 
 	overlapping := []netip.Prefix{
 		netip.MustParsePrefix("192.168.1.0/24"),
@@ -618,6 +626,7 @@ func TestNftablesCreateIpSet_IPv6(t *testing.T) {
 			set, err := r.createIpSet(setName, setInput{prefixes: tt.sources})
 			require.NoError(t, err, "Failed to create IPv6 set")
 			require.NotNil(t, set)
+			commitQueuedIpSet(t, r)
 
 			assert.Equal(t, setName, set.Name)
 			assert.True(t, set.Interval)
