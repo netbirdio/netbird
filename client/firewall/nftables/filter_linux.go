@@ -38,6 +38,9 @@ func (r *family) AddFilterRule(
 
 	ruleID := nbid.GenerateRuleID(sources, destination, proto, sPort, dPort, action)
 	if existing, ok := r.filters[ruleID]; ok {
+		if err := r.commitPendingSetElements(); err != nil {
+			log.Errorf("add remaining ipset elements for existing rule: %v", err)
+		}
 		return existing, nil
 	}
 
@@ -53,7 +56,11 @@ func (r *family) AddFilterRule(
 		exprs, err = r.buildPeerFilterExprs(srcExprs, proto, sPort, dPort)
 	}
 	if err != nil {
-		r.rollbackQueuedNetwork(srcExprs)
+		if len(exprs) == 0 {
+			r.rollbackQueuedNetwork(srcExprs)
+		} else {
+			r.rollbackQueuedNetwork(exprs)
+		}
 		return nil, err
 	}
 
@@ -208,8 +215,7 @@ func (r *family) buildRouteFilterExprs(
 	if proto != firewall.ProtocolALL {
 		protoNum, err := r.af.protoNum(proto)
 		if err != nil {
-			r.dropNetworkMatch(destExprs)
-			return nil, fmt.Errorf("convert protocol to number: %w", err)
+			return exprs, fmt.Errorf("convert protocol to number: %w", err)
 		}
 		exprs = append(exprs,
 			&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
@@ -218,8 +224,7 @@ func (r *family) buildRouteFilterExprs(
 
 		portExprs, err := r.applyPorts(sPort, dPort)
 		if err != nil {
-			r.dropNetworkMatch(destExprs)
-			return nil, err
+			return exprs, err
 		}
 		exprs = append(exprs, portExprs...)
 	}

@@ -81,8 +81,9 @@ func (r *family) commitPendingSetElements() error {
 	remaining := make(map[string]pendingSetUpdate)
 	var merr *multierror.Error
 	for setName, p := range r.pendingSetElements {
-		if err := r.addElementBatches(p.set, p.elements, maxElements); err != nil {
-			remaining[setName] = p
+		left, err := r.addElementBatches(p.set, p.elements, maxElements)
+		if err != nil {
+			remaining[setName] = pendingSetUpdate{set: p.set, elements: left}
 			merr = multierror.Append(merr, fmt.Errorf("add remaining elements to set %s: %w", setName, err))
 			continue
 		}
@@ -96,7 +97,9 @@ func (r *family) discardPendingSetElements() {
 }
 
 // addElementBatches adds elements in maxElements-sized chunks on sConn.
-func (r *family) addElementBatches(nfset *nftables.Set, elements []nftables.SetElement, maxElements int) error {
+// On error it returns the uncommitted suffix so a retry does not replay
+// batches that already landed.
+func (r *family) addElementBatches(nfset *nftables.Set, elements []nftables.SetElement, maxElements int) ([]nftables.SetElement, error) {
 	nElements := len(elements)
 	for subStart := 0; subStart < nElements; subStart += maxElements {
 		subEnd := min(subStart+maxElements, nElements)
@@ -104,14 +107,14 @@ func (r *family) addElementBatches(nfset *nftables.Set, elements []nftables.SetE
 		nSubPrefixes := len(subElement) / 2
 		log.Tracef("Adding new prefixes (%d) in ipset: %s", nSubPrefixes, nfset.Name)
 		if err := r.sConn.SetAddElements(nfset, subElement); err != nil {
-			return fmt.Errorf("error adding prefixes (%d) to set %s: %w", nSubPrefixes, nfset.Name, err)
+			return elements[subStart:], fmt.Errorf("error adding prefixes (%d) to set %s: %w", nSubPrefixes, nfset.Name, err)
 		}
 		if err := r.sConn.Flush(); err != nil {
-			return fmt.Errorf(flushError, err)
+			return elements[subStart:], fmt.Errorf(flushError, err)
 		}
 		log.Debugf("Added new prefixes (%d) in ipset: %s", nSubPrefixes, nfset.Name)
 	}
-	return nil
+	return nil, nil
 }
 
 func (r *family) convertPrefixesToSet(prefixes []netip.Prefix) []nftables.SetElement {
