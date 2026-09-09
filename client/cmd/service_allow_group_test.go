@@ -100,6 +100,36 @@ func TestDaemonSocketPrincipals(t *testing.T) {
 	})
 }
 
+// A TCP listener can express neither a socket mode nor a security descriptor,
+// so a restriction configured against one must stop the daemon rather than be
+// dropped while it goes on serving every caller that can reach the port.
+func TestTCPListenerRefusesARestriction(t *testing.T) {
+	t.Run("listenOnAddress refuses before binding", func(t *testing.T) {
+		listener, err := listenOnAddress("tcp://127.0.0.1:0", []string{testAllowGroupPrincipal})
+		require.Error(t, err)
+		require.Nil(t, listener)
+		assert.Contains(t, err.Error(), "tcp")
+	})
+
+	t.Run("listenOnAddress still serves tcp when nothing is configured", func(t *testing.T) {
+		listener, err := listenOnAddress("tcp://127.0.0.1:0", nil)
+		require.NoError(t, err)
+		t.Cleanup(func() { assert.NoError(t, listener.Close()) })
+		assert.NoError(t, listener.restrict("daemon", nil))
+	})
+
+	t.Run("restrict refuses a listener that cannot carry the restriction", func(t *testing.T) {
+		listener := &socketListener{network: "tcp", address: "127.0.0.1:41731"}
+		require.Error(t, listener.restrict("daemon", []string{testAllowGroupPrincipal}))
+		assert.NoError(t, listener.restrict("daemon", nil))
+	})
+
+	t.Run("a disabled json socket is not an error", func(t *testing.T) {
+		var listener *socketListener
+		assert.NoError(t, listener.restrict("daemon JSON", []string{testAllowGroupPrincipal}))
+	})
+}
+
 func TestCutKind(t *testing.T) {
 	tests := []struct {
 		value string
