@@ -73,8 +73,8 @@ func TestReverseProxy_AgentNetworkRequest_FullChain(t *testing.T) {
 		testAdminUser = "user-admin-1"
 		adminGroupID  = "grp-admins"
 		providerID    = "prov-openai-test"
-		cluster       = "test.proxy.local"
-		subdomain     = "fullchain"
+		domain        = "fullchain.test.proxy.local"
+		proxyAddress  = "test.proxy.local"
 	)
 	testLogger := log.New()
 	testLogger.SetLevel(log.PanicLevel) // keep test output clean
@@ -127,8 +127,8 @@ func TestReverseProxy_AgentNetworkRequest_FullChain(t *testing.T) {
 	// increments on the response leg.
 	require.NoError(t, st.SaveAgentNetworkSettings(ctx, &agentNetworkTypes.Settings{
 		AccountID:              testAccountID,
-		Cluster:                cluster,
-		Subdomain:              subdomain,
+		Domain:                 domain,
+		ProxyAddress:           proxyAddress,
 		EnablePromptCollection: true,
 		EnableLogCollection:    true,
 		RedactPii:              true,

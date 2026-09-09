@@ -71,9 +71,11 @@ type BundleOptions = {
     hasWindow: boolean;
     totalSec: number;
     uploadUrl: string;
-    anonymize: boolean;
+    anonymizeLevel: AnonymizeLevel;
     systemInfo: boolean;
 };
+
+export type AnonymizeLevel = "none" | "default" | "strict";
 
 const startCaptureBestEffort = async (totalSec: number, pcap: CaptureState) => {
     try {
@@ -187,7 +189,10 @@ const runBundleFlow = async (
 
     if (opts.uploadUrl) setStage({ kind: "uploading" });
     const result = await DebugSvc.Bundle({
-        anonymize: opts.anonymize,
+        anonymize: opts.anonymizeLevel !== "none",
+        // The daemon only knows "default" and "strict"; "none" is expressed
+        // through the anonymize flag being off.
+        anonymizeLevel: opts.anonymizeLevel === "strict" ? "strict" : "default",
         systemInfo: opts.systemInfo,
         uploadUrl: opts.uploadUrl,
         logFileCount,
@@ -198,7 +203,7 @@ const runBundleFlow = async (
 };
 
 const useDebugBundle = () => {
-    const [anonymize, setAnonymize] = useState(false);
+    const [anonymizeLevel, setAnonymizeLevel] = useState<AnonymizeLevel>("none");
     const [systemInfo, setSystemInfo] = useState(true);
     const [upload, setUpload] = useState(true);
     const [trace, setTrace] = useState(true);
@@ -240,7 +245,7 @@ const useDebugBundle = () => {
             hasWindow: capture && totalSec > 0,
             totalSec,
             uploadUrl: upload ? NETBIRD_UPLOAD_URL : "",
-            anonymize,
+            anonymizeLevel,
             systemInfo,
         };
 
@@ -272,8 +277,8 @@ const useDebugBundle = () => {
     };
 
     return {
-        anonymize,
-        setAnonymize,
+        anonymizeLevel,
+        setAnonymizeLevel,
         systemInfo,
         setSystemInfo,
         upload,

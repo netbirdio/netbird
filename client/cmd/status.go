@@ -121,8 +121,14 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 		sessionExpiresAt = ts.AsTime().UTC()
 	}
 
+	anonymizeEnabled, anonymizeLevel, err := effectiveAnonymize()
+	if err != nil {
+		return err
+	}
+
 	var outputInformationHolder = nbstatus.ConvertToStatusOutputOverview(resp.GetFullStatus(), nbstatus.ConvertOptions{
-		Anonymize:            anonymizeFlag,
+		Anonymize:            anonymizeEnabled,
+		AnonymizeLevel:       anonymizeLevel,
 		DaemonVersion:        resp.GetDaemonVersion(),
 		DaemonStatus:         nbstatus.ParseDaemonStatus(status),
 		StatusFilter:         statusFilter,

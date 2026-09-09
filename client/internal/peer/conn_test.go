@@ -13,11 +13,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/internal/metrics"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	"github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/peer/metricsstages"
 	"github.com/netbirdio/netbird/client/internal/peer/signaling"
 	"github.com/netbirdio/netbird/client/internal/peer/status"
+	"github.com/netbirdio/netbird/client/internal/peer/worker"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/util"
 )
@@ -353,4 +355,34 @@ func TestConn_onWGDisconnected_NoEscalationWithoutRosenpass(t *testing.T) {
 		conn.handleWGTimeout()
 	}
 	assert.Empty(t, disconnected, "escalation must be limited to rosenpass connections")
+}
+
+func TestMetricsConnType(t *testing.T) {
+	tests := []struct {
+		name     string
+		priority worker.ConnPriority
+		expected metrics.ConnectionType
+	}{
+		{"relay", worker.Relay, metrics.ConnectionTypeRelay},
+		{"ice over turn is relayed, not p2p", worker.ICETurn, metrics.ConnectionTypeICETurn},
+		{"direct p2p", worker.ICEP2P, metrics.ConnectionTypeICEP2P},
+		{"unset priority is unknown, not p2p", worker.None, metrics.ConnectionTypeUnknown},
+		{"unrecognised priority is unknown", worker.ConnPriority(99), metrics.ConnectionTypeUnknown},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, metricsConnType(tc.priority))
+		})
+	}
+}
+
+func TestMetricsConnType_RelayedMatchesIsRelayed(t *testing.T) {
+	for _, priority := range []worker.ConnPriority{worker.None, worker.Relay, worker.ICETurn, worker.ICEP2P} {
+		conn := &Conn{currentConnPriority: priority}
+		tag := metricsConnType(priority)
+		relayedTag := tag == metrics.ConnectionTypeRelay || tag == metrics.ConnectionTypeICETurn
+		assert.Equal(t, conn.isRelayed(), relayedTag,
+			"priority %s: isRelayed and the %q metric tag must agree", priority, tag)
+	}
 }

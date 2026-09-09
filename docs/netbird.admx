@@ -124,6 +124,31 @@
       <disabledValue><decimal value="0" /></disabledValue>
     </policy>
 
+    <policy name="AllowRemoteJobs"
+            class="Machine"
+            displayName="$(string.AllowRemoteJobs_Name)"
+            explainText="$(string.AllowRemoteJobs_Help)"
+            key="Software\Policies\NetBird"
+            valueName="AllowRemoteJobs">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <policy name="DebugBundleUploadURL"
+            class="Machine"
+            displayName="$(string.DebugBundleUploadURL_Name)"
+            explainText="$(string.DebugBundleUploadURL_Help)"
+            key="Software\Policies\NetBird"
+            presentation="$(presentation.DebugBundleUploadURL_Pres)">
+      <parentCategory ref="NetBird" />
+      <supportedOn ref="SUPPORTED_NetBird_All" />
+      <elements>
+        <text id="DebugBundleUploadURL_Text" valueName="DebugBundleUploadURL" required="false" />
+      </elements>
+    </policy>
+
     <policy name="RosenpassEnabled"
             class="Machine"
             displayName="$(string.RosenpassEnabled_Name)"

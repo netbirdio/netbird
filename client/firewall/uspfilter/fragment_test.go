@@ -39,7 +39,7 @@ func newFragmentTestManager(tb testing.TB) *Manager {
 		},
 	}
 
-	m, err := Create(ifaceMock, false, flowLogger, nbiface.DefaultMTU)
+	m, err := Create(Config{IFace: ifaceMock, FlowLogger: flowLogger, MTU: nbiface.DefaultMTU})
 	require.NoError(tb, err)
 	require.NoError(tb, m.UpdateLocalIPs())
 	tb.Cleanup(func() { require.NoError(tb, m.Close(nil)) })
@@ -175,8 +175,8 @@ func normalUDPPacket(tb testing.TB, dstPort uint16, payloadLen int) []byte {
 
 func allowUDP(tb testing.TB, m *Manager, dstPort uint16) {
 	tb.Helper()
-	_, err := m.AddPeerFiltering(nil, net.ParseIP(fragTestSrc), fw.ProtocolUDP, nil,
-		&fw.Port{Values: []uint16{dstPort}}, fw.ActionAccept, "")
+	_, err := m.AddFilterRule(nil, pfx(net.ParseIP(fragTestSrc)), fw.Network{}, fw.ProtocolUDP, nil,
+		&fw.Port{Values: []uint16{dstPort}}, fw.ActionAccept)
 	require.NoError(tb, err)
 }
 
@@ -228,8 +228,8 @@ func TestFragment_DeniedFirstDropsTrailing(t *testing.T) {
 // the overlap lands on real header bytes (the flags at byte 13).
 func TestFragment_OverlappingHeaderDropped(t *testing.T) {
 	m := newFragmentTestManager(t)
-	_, err := m.AddPeerFiltering(nil, net.ParseIP(fragTestSrc), fw.ProtocolTCP, nil,
-		&fw.Port{Values: []uint16{8080}}, fw.ActionAccept, "")
+	_, err := m.AddFilterRule(nil, pfx(net.ParseIP(fragTestSrc)), fw.Network{}, fw.ProtocolTCP, nil,
+		&fw.Port{Values: []uint16{8080}}, fw.ActionAccept)
 	require.NoError(t, err)
 
 	// First fragment: TCP header (20) + 12 data = 32 bytes -> headerEnd = 4 octets.
@@ -290,8 +290,8 @@ func TestFragment_TinyFirstDropped(t *testing.T) {
 // trailing fragments inherit the verdict.
 func TestFragment_TCPFirstFragment(t *testing.T) {
 	m := newFragmentTestManager(t)
-	_, err := m.AddPeerFiltering(nil, net.ParseIP(fragTestSrc), fw.ProtocolTCP, nil,
-		&fw.Port{Values: []uint16{8080}}, fw.ActionAccept, "")
+	_, err := m.AddFilterRule(nil, pfx(net.ParseIP(fragTestSrc)), fw.Network{}, fw.ProtocolTCP, nil,
+		&fw.Port{Values: []uint16{8080}}, fw.ActionAccept)
 	require.NoError(t, err)
 
 	// TCP header (20) + 12 data = 32 bytes -> headerEnd = 4 octets.
@@ -308,8 +308,8 @@ func TestFragment_TCPFirstFragment(t *testing.T) {
 // bytes would satisfy a UDP header but falls short of the 20-byte TCP header.
 func TestFragment_TCPTinyFirstDropped(t *testing.T) {
 	m := newFragmentTestManager(t)
-	_, err := m.AddPeerFiltering(nil, net.ParseIP(fragTestSrc), fw.ProtocolTCP, nil,
-		&fw.Port{Values: []uint16{8080}}, fw.ActionAccept, "")
+	_, err := m.AddFilterRule(nil, pfx(net.ParseIP(fragTestSrc)), fw.Network{}, fw.ProtocolTCP, nil,
+		&fw.Port{Values: []uint16{8080}}, fw.ActionAccept)
 	require.NoError(t, err)
 
 	tiny := trailingFragmentTo(t, fragTestDst, layers.IPProtocolTCP, 0x7777, 0, true, 12)
@@ -353,7 +353,7 @@ func TestFragment_RouteACL(t *testing.T) {
 	m.routingEnabled.Store(true)
 	m.nativeRouter.Store(false)
 
-	_, err := m.AddRouteFiltering(
+	_, err := m.AddFilterRule(
 		[]byte("rt-1"),
 		[]netip.Prefix{netip.MustParsePrefix("100.10.0.0/16")},
 		fw.Network{Prefix: netip.MustParsePrefix("198.51.100.0/24")},
@@ -511,8 +511,8 @@ func TestFragmentV6_TrailingWithoutFirstDropped(t *testing.T) {
 // through.
 func TestFragmentV6_AllowedFirstPassesTrailing(t *testing.T) {
 	m := newFragmentTestManager(t)
-	_, err := m.AddPeerFiltering(nil, net.ParseIP(fragTestSrcV6), fw.ProtocolUDP, nil,
-		&fw.Port{Values: []uint16{8080}}, fw.ActionAccept, "")
+	_, err := m.AddFilterRule(nil, pfx(net.ParseIP(fragTestSrcV6)), fw.Network{}, fw.ProtocolUDP, nil,
+		&fw.Port{Values: []uint16{8080}}, fw.ActionAccept)
 	require.NoError(t, err)
 
 	// First fragment: UDP header (8) + 32 data = 40 octets -> headerEnd = 5.
@@ -531,8 +531,8 @@ func TestFragmentV6_AllowedFirstPassesTrailing(t *testing.T) {
 // exhaust the verdict table.
 func TestFragmentV6_AtomicNotCached(t *testing.T) {
 	m := newFragmentTestManager(t)
-	_, err := m.AddPeerFiltering(nil, net.ParseIP(fragTestSrcV6), fw.ProtocolUDP, nil,
-		&fw.Port{Values: []uint16{8080}}, fw.ActionAccept, "")
+	_, err := m.AddFilterRule(nil, pfx(net.ParseIP(fragTestSrcV6)), fw.Network{}, fw.ProtocolUDP, nil,
+		&fw.Port{Values: []uint16{8080}}, fw.ActionAccept)
 	require.NoError(t, err)
 
 	atomic := fragmentUDPv6(t, 0xA70301C, 8080, 16, false)

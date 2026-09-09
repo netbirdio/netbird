@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 
@@ -28,6 +29,12 @@ const EventBrowserLoginCancel = "browser-login:cancel"
 
 // EventSettingsOpen tells the mounted settings window which tab to show.
 const EventSettingsOpen = "netbird:settings:open"
+
+const EventWindowPainted = "netbird:window-painted"
+
+const paintedFallback = 2 * time.Second
+
+const headlessTeardownDelay = 2 * time.Second
 
 var WindowBackgroundColour = application.NewRGB(24, 26, 29) // bg-nb-gray-950
 
@@ -94,9 +101,6 @@ func DialogWindowOptions(name, title, url string, linuxIcon []byte) application.
 	}
 }
 
-// WindowManager owns the auxiliary windows (main is created in main.go). Settings is created
-// eagerly and hidden on close to keep React state; the rest are created on open, destroyed on
-// close, so the macOS dock-reopen handler finds no hidden window to resurrect.
 type WindowManager struct {
 	app               *application.App
 	mainWindow        *application.WebviewWindow
@@ -112,15 +116,35 @@ type WindowManager struct {
 	// hiddenForLogin holds windows hidden while the BrowserLogin popup is open, restored on close.
 	hiddenForLogin []application.Window
 	mu             sync.Mutex
+	createMu       sync.Mutex
+	newMain        func(startURL string) *application.WebviewWindow
+	ready          map[uint]bool
+	showPending    map[uint]bool
+	pendingTab     map[uint]string
+	pendingEmits   map[uint][]string
+	fallbackTimers map[uint]*time.Timer
+	headlessMain   bool
+	headlessTimer  *time.Timer
 	// recenterOnShow is set only on the minimal-WM/XEmbed path, where the WM neither centers nor
 	// restores position; nil on full desktops so re-centering can't fight a user-moved window.
 	recenterOnShow func() bool
 }
 
-// NewWindowManager wires the manager to the main app; translator/prefs may be nil (tests). The
-// Settings window is created here (hidden) so the first OpenSettings is instant.
 func NewWindowManager(app *application.App, mainWindow *application.WebviewWindow, translator ErrorTranslator, prefs LanguagePreference, linuxIcon []byte) *WindowManager {
-	s := &WindowManager{app: app, mainWindow: mainWindow, translator: translator, prefs: prefs, linuxIcon: linuxIcon}
+	s := &WindowManager{
+		app:            app,
+		mainWindow:     mainWindow,
+		translator:     translator,
+		prefs:          prefs,
+		linuxIcon:      linuxIcon,
+		ready:          map[uint]bool{},
+		showPending:    map[uint]bool{},
+		pendingTab:     map[uint]string{},
+		pendingEmits:   map[uint][]string{},
+		fallbackTimers: map[uint]*time.Timer{},
+	}
+	s.watchPainted()
+	s.watchTriggerLogin()
 	// Re-title live windows on language flip. Wired internally so the binding generator
 	// doesn't try to expose the interface param.
 	if sub, ok := prefs.(LanguageSubscriber); ok && sub != nil {
@@ -136,7 +160,11 @@ func NewWindowManager(app *application.App, mainWindow *application.WebviewWindo
 			}
 		}()
 	}
-	s.settings = app.Window.NewWithOptions(application.WebviewWindowOptions{
+	return s
+}
+
+func (s *WindowManager) newSettingsWindow() *application.WebviewWindow {
+	w := s.app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:                "settings",
 		Title:               s.title("window.title.settings"),
 		Width:               900,
@@ -150,18 +178,15 @@ func NewWindowManager(app *application.App, mainWindow *application.WebviewWindo
 		URL:                 "/#/settings",
 		Mac:                 AppleMacOSAppearanceOptions(),
 		Windows:             MicrosoftWindowsAppearanceOptions(),
-		Linux:               LinuxAppearanceOptions(linuxIcon),
+		Linux:               LinuxAppearanceOptions(s.linuxIcon),
 	})
-	// Hide (not destroy) on close to keep React state; reset to General for a flash-free reopen.
-	s.settings.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
-		if ShuttingDown() {
-			return
-		}
-		e.Cancel()
-		s.app.Event.Emit(EventSettingsOpen, "general")
-		s.settings.Hide()
+	w.RegisterHook(events.Common.WindowClosing, func(_ *application.WindowEvent) {
+		s.mu.Lock()
+		s.settings = nil
+		s.forgetWindowLocked(w)
+		s.mu.Unlock()
 	})
-	return s
+	return w
 }
 
 // OpenSettings shows the settings window on tab (empty → General), switching tab via
@@ -171,11 +196,20 @@ func (s *WindowManager) OpenSettings(tab string) {
 	if target == "" {
 		target = "general"
 	}
-	s.app.Event.Emit(EventSettingsOpen, target)
-	s.settings.Show()
-	s.settings.Focus()
-	// Re-center (minimal-WM only; see centerWhenReady).
-	s.centerWhenReady(s.settings)
+
+	w, _ := s.ensureWindow(&s.settings, s.newSettingsWindow)
+
+	s.mu.Lock()
+	ready := s.ready[w.ID()]
+	if !ready {
+		s.pendingTab[w.ID()] = target
+	}
+	s.mu.Unlock()
+
+	if ready {
+		s.app.Event.Emit(EventSettingsOpen, target)
+	}
+	s.showWhenReady(w)
 }
 
 // OpenBrowserLogin shows the SSO popup, creating it on first use.
@@ -258,11 +292,15 @@ func (s *WindowManager) CloseBrowserLogin() {
 }
 
 // OpenSessionExpiration shows the countdown warning on the cursor's display; seconds seeds
-// the countdown. Singleton, destroyed on close.
-func (s *WindowManager) OpenSessionExpiration(seconds int) {
+// the countdown and deadlineUnixMilli (0 when unknown) is the absolute deadline the dialog
+// compares renewal snapshots against. Singleton, destroyed on close.
+func (s *WindowManager) OpenSessionExpiration(seconds int, deadlineUnixMilli int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	startURL := "/#/dialog/session-expiration?seconds=" + strconv.Itoa(seconds)
+	if deadlineUnixMilli > 0 {
+		startURL += "&deadline=" + strconv.FormatInt(deadlineUnixMilli, 10)
+	}
 	if s.sessionExpiration == nil {
 		opts := DialogWindowOptions("session-expiration", s.title("window.title.sessionExpiration"), startURL, s.linuxIcon)
 		opts.Screen = s.getScreenBasedOnCursorPosition()
@@ -440,13 +478,295 @@ func (s *WindowManager) OpenMain() {
 // ShowMain brings the main window forward (re-centering on minimal WMs). The single entry
 // point every surface (tray, SIGUSR1, welcome) should use so centering applies uniformly.
 func (s *WindowManager) ShowMain() {
-	if s.mainWindow == nil {
+	s.showWhenReady(s.MainWindow())
+}
+
+// ShowMainAndEmit brings the main window forward and emits event once its frontend is ready.
+func (s *WindowManager) ShowMainAndEmit(event string) {
+	w := s.MainWindow()
+	if w == nil {
 		return
 	}
-	s.mainWindow.Show()
-	s.mainWindow.Focus()
-	// Re-center (minimal-WM only; see centerWhenReady).
-	s.centerWhenReady(s.mainWindow)
+
+	id := w.ID()
+	s.mu.Lock()
+	ready := s.ready[id]
+	if !ready {
+		s.pendingEmits[id] = append(s.pendingEmits[id], event)
+	}
+	s.mu.Unlock()
+
+	s.showWhenReady(w)
+	if ready {
+		s.app.Event.Emit(event)
+	}
+}
+
+func (s *WindowManager) MainWindow() *application.WebviewWindow {
+	w, _ := s.ensureMain("/")
+	return w
+}
+
+func (s *WindowManager) ensureMain(startURL string) (*application.WebviewWindow, bool) {
+	s.mu.Lock()
+	factory := s.newMain
+	s.mu.Unlock()
+	if factory == nil {
+		return s.ensureWindow(&s.mainWindow, nil)
+	}
+	return s.ensureWindow(&s.mainWindow, func() *application.WebviewWindow {
+		return factory(startURL)
+	})
+}
+
+func (s *WindowManager) ensureWindow(slot **application.WebviewWindow, factory func() *application.WebviewWindow) (*application.WebviewWindow, bool) {
+	s.createMu.Lock()
+	defer s.createMu.Unlock()
+
+	s.mu.Lock()
+	w := *slot
+	s.mu.Unlock()
+	if w != nil || factory == nil {
+		return w, false
+	}
+
+	w = factory()
+	s.armReady(w)
+
+	s.mu.Lock()
+	*slot = w
+	s.mu.Unlock()
+	return w, true
+}
+
+func (s *WindowManager) armReady(w *application.WebviewWindow) {
+	if w == nil {
+		return
+	}
+	w.RegisterHook(events.Common.WindowRuntimeReady, func(_ *application.WindowEvent) {
+		timer := time.AfterFunc(paintedFallback, func() {
+			log.Warnf("window %q never reported a first render, showing it anyway", w.Name())
+			s.markReady(w)
+		})
+		s.mu.Lock()
+		s.fallbackTimers[w.ID()] = timer
+		s.mu.Unlock()
+	})
+}
+
+func (s *WindowManager) watchPainted() {
+	s.app.Event.On(EventWindowPainted, func(e *application.CustomEvent) {
+		if w := s.windowByName(e.Sender); w != nil {
+			s.markReady(w)
+		}
+	})
+}
+
+func (s *WindowManager) watchTriggerLogin() {
+	s.app.Event.On(EventTriggerLogin, func(_ *application.CustomEvent) {
+		s.mu.Lock()
+		if s.headlessTimer != nil {
+			s.headlessTimer.Stop()
+			s.headlessTimer = nil
+		}
+		w := s.mainWindow
+		ready := w != nil && s.ready[w.ID()]
+		s.mu.Unlock()
+		if ready {
+			return
+		}
+
+		w, created := s.ensureMain("/")
+		if w == nil {
+			return
+		}
+
+		s.mu.Lock()
+		if created {
+			s.headlessMain = true
+		}
+		pending := !s.ready[w.ID()]
+		if pending {
+			s.pendingEmits[w.ID()] = append(s.pendingEmits[w.ID()], EventTriggerLogin)
+		}
+		s.mu.Unlock()
+
+		if !pending {
+			s.app.Event.Emit(EventTriggerLogin)
+		}
+	})
+
+	s.app.Event.On(EventBrowserLoginCancel, func(_ *application.CustomEvent) {
+		s.scheduleHeadlessTeardown()
+	})
+
+	s.app.Event.On(EventStatusSnapshot, func(e *application.CustomEvent) {
+		st, ok := e.Data.(Status)
+		if !ok {
+			return
+		}
+		switch st.Status {
+		case StatusConnected, StatusLoginFailed, StatusDaemonUnavailable:
+			s.scheduleHeadlessTeardown()
+		}
+	})
+}
+
+func (s *WindowManager) scheduleHeadlessTeardown() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.headlessMain || s.mainWindow == nil {
+		return
+	}
+	if s.headlessTimer != nil {
+		s.headlessTimer.Stop()
+	}
+	s.headlessTimer = time.AfterFunc(headlessTeardownDelay, s.closeHeadlessMain)
+}
+
+func (s *WindowManager) closeHeadlessMain() {
+	s.mu.Lock()
+	w := s.mainWindow
+	headless := s.headlessMain
+	s.headlessTimer = nil
+	s.mu.Unlock()
+	if !headless || w == nil {
+		return
+	}
+	w.Close()
+}
+
+func (s *WindowManager) forgetWindowLocked(w *application.WebviewWindow) {
+	if w == nil {
+		return
+	}
+
+	id := w.ID()
+	if timer := s.fallbackTimers[id]; timer != nil {
+		timer.Stop()
+	}
+	delete(s.fallbackTimers, id)
+	delete(s.ready, id)
+	delete(s.showPending, id)
+	delete(s.pendingTab, id)
+	delete(s.pendingEmits, id)
+
+	kept := s.hiddenForLogin[:0]
+	for _, hidden := range s.hiddenForLogin {
+		if hidden != application.Window(w) {
+			kept = append(kept, hidden)
+		}
+	}
+	s.hiddenForLogin = kept
+}
+
+func (s *WindowManager) windowByName(name string) *application.WebviewWindow {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	switch name {
+	case "main":
+		return s.mainWindow
+	case "settings":
+		return s.settings
+	default:
+		return nil
+	}
+}
+
+func (s *WindowManager) markReady(w *application.WebviewWindow) {
+	id := w.ID()
+	s.mu.Lock()
+	already := s.ready[id]
+	s.ready[id] = true
+	wanted := s.showPending[id]
+	tab, hasTab := s.pendingTab[id]
+	emits := s.pendingEmits[id]
+	if timer := s.fallbackTimers[id]; timer != nil {
+		timer.Stop()
+		delete(s.fallbackTimers, id)
+	}
+	delete(s.showPending, id)
+	delete(s.pendingTab, id)
+	delete(s.pendingEmits, id)
+	s.mu.Unlock()
+
+	if already {
+		return
+	}
+
+	if hasTab {
+		s.app.Event.Emit(EventSettingsOpen, tab)
+	}
+
+	if wanted {
+		s.showNow(w)
+	}
+
+	for _, event := range emits {
+		s.app.Event.Emit(event)
+	}
+}
+
+func (s *WindowManager) showWhenReady(w *application.WebviewWindow) {
+	if w == nil {
+		return
+	}
+
+	id := w.ID()
+	s.mu.Lock()
+	ready := s.ready[id]
+	if !ready {
+		s.showPending[id] = true
+	}
+	s.mu.Unlock()
+
+	if ready {
+		s.showNow(w)
+	}
+}
+
+func (s *WindowManager) showNow(w *application.WebviewWindow) {
+	s.mu.Lock()
+	if w == s.mainWindow {
+		s.headlessMain = false
+		if s.headlessTimer != nil {
+			s.headlessTimer.Stop()
+			s.headlessTimer = nil
+		}
+	}
+	s.mu.Unlock()
+	w.Show()
+	w.Focus()
+	s.centerWhenReady(w)
+}
+
+func (s *WindowManager) ShowMainAt(url string) {
+	w, created := s.ensureMain(url)
+	if w == nil {
+		return
+	}
+	if !created {
+		w.SetURL(url)
+	}
+	s.showWhenReady(w)
+}
+
+func (s *WindowManager) SetMainFactory(f func(startURL string) *application.WebviewWindow) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.newMain = f
+}
+
+func (s *WindowManager) ForgetMain() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.forgetWindowLocked(s.mainWindow)
+	s.mainWindow = nil
+	s.headlessMain = false
+	if s.headlessTimer != nil {
+		s.headlessTimer.Stop()
+		s.headlessTimer = nil
+	}
 }
 
 // SetRecenterOnShow installs the recenterOnShow predicate (see the field).

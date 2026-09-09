@@ -736,3 +736,125 @@ func TestFoldCostAggregatesIntoBuckets_SkipsAlreadyMigrated(t *testing.T) {
 	assert.InDelta(t, 0.004, row.OutputCostUSD, 1e-9)
 	assert.InDelta(t, 0.01, row.TotalCostUSD(), 1e-9, "derived total sums the four buckets")
 }
+
+// legacyAgentNetworkSettings is the pre-reshape schema: identity carried as
+// (cluster, subdomain) instead of (domain, proxy_address).
+type legacyAgentNetworkSettings struct {
+	AccountID           string `gorm:"primaryKey"`
+	Cluster             string
+	Subdomain           string
+	EnableLogCollection bool
+}
+
+func (legacyAgentNetworkSettings) TableName() string { return "agent_network_settings" }
+
+// TestMigrateAgentNetworkSettingsToDomain_BackfillsAndDropsLegacyColumns pins
+// the reshape: domain becomes `<subdomain>.<cluster>`, proxy_address becomes
+// the cluster, the legacy columns are dropped, and non-identity fields ride
+// through untouched.
+func TestMigrateAgentNetworkSettingsToDomain_BackfillsAndDropsLegacyColumns(t *testing.T) {
+	ctx := context.Background()
+	db := setupDatabase(t)
+	require.NoError(t, db.Migrator().DropTable(&legacyAgentNetworkSettings{}))
+	require.NoError(t, db.AutoMigrate(&legacyAgentNetworkSettings{}))
+	require.NoError(t, db.Create(&legacyAgentNetworkSettings{
+		AccountID: "acct-1", Cluster: "eu.proxy.netbird.io", Subdomain: "violet", EnableLogCollection: true,
+	}).Error)
+	require.NoError(t, db.Create(&legacyAgentNetworkSettings{
+		AccountID: "acct-2", Cluster: "us.proxy.netbird.io", Subdomain: "violet",
+	}).Error)
+
+	require.NoError(t, migration.MigrateAgentNetworkSettingsToDomain(ctx, db))
+	require.NoError(t, db.AutoMigrate(&agentNetworkTypes.Settings{}),
+		"AutoMigrate must create the domain unique index over the backfilled values")
+
+	var one, two agentNetworkTypes.Settings
+	require.NoError(t, db.First(&one, "account_id = ?", "acct-1").Error)
+	assert.Equal(t, "violet.eu.proxy.netbird.io", one.Domain, "domain must combine subdomain and cluster")
+	assert.Equal(t, "eu.proxy.netbird.io", one.ProxyAddress, "proxy address must carry the cluster")
+	assert.True(t, one.EnableLogCollection, "non-identity fields must ride through")
+	require.NoError(t, db.First(&two, "account_id = ?", "acct-2").Error)
+	assert.Equal(t, "violet.us.proxy.netbird.io", two.Domain,
+		"duplicate labels on different clusters are distinct hostnames and must both survive")
+
+	migrator := db.Migrator()
+	assert.False(t, migrator.HasColumn(&legacyAgentNetworkSettings{}, "cluster"), "legacy cluster column must be dropped")
+	assert.False(t, migrator.HasColumn(&legacyAgentNetworkSettings{}, "subdomain"), "legacy subdomain column must be dropped")
+}
+
+// TestMigrateAgentNetworkSettingsToDomain_SkipsAlreadyMigrated proves the
+// migration is safe to re-run: with no legacy column present it is a no-op.
+func TestMigrateAgentNetworkSettingsToDomain_SkipsAlreadyMigrated(t *testing.T) {
+	ctx := context.Background()
+	db := setupDatabase(t)
+	require.NoError(t, db.Migrator().DropTable(&agentNetworkTypes.Settings{}))
+	require.NoError(t, db.AutoMigrate(&agentNetworkTypes.Settings{}))
+	require.NoError(t, db.Create(&agentNetworkTypes.Settings{
+		AccountID: "acct-1", Domain: "gw.example.com", ProxyAddress: "gw.example.com",
+	}).Error)
+
+	require.NoError(t, migration.MigrateAgentNetworkSettingsToDomain(ctx, db),
+		"running against an already-migrated table must be a no-op, not an error")
+
+	var row agentNetworkTypes.Settings
+	require.NoError(t, db.First(&row, "account_id = ?", "acct-1").Error)
+	assert.Equal(t, "gw.example.com", row.Domain, "migrated rows must be untouched")
+}
+
+// TestMigrateAgentNetworkSettingsToDomain_FailsOnUnmigratableRow pins the
+// loud-failure contract: a legacy row missing its identity halves cannot be
+// given an endpoint, and silently leaving an empty domain would collide with
+// the unique index confusingly later.
+func TestMigrateAgentNetworkSettingsToDomain_FailsOnUnmigratableRow(t *testing.T) {
+	ctx := context.Background()
+	db := setupDatabase(t)
+	require.NoError(t, db.Migrator().DropTable(&legacyAgentNetworkSettings{}))
+	require.NoError(t, db.AutoMigrate(&legacyAgentNetworkSettings{}))
+	require.NoError(t, db.Create(&legacyAgentNetworkSettings{
+		AccountID: "acct-broken", Cluster: "", Subdomain: "",
+	}).Error)
+
+	err := migration.MigrateAgentNetworkSettingsToDomain(ctx, db)
+	require.Error(t, err, "a row with no identity to derive an endpoint from must fail the migration")
+	assert.Contains(t, err.Error(), "resolve them manually", "the error must tell the operator what to do")
+}
+
+// partialAgentNetworkSettings models the one non-atomic state a MySQL run can
+// be interrupted in: DDL auto-commits there, so a crash between the two legacy
+// column drops leaves subdomain behind while cluster (and the completed
+// backfill) are already committed.
+type partialAgentNetworkSettings struct {
+	AccountID    string `gorm:"primaryKey"`
+	Subdomain    string
+	Domain       string `gorm:"type:varchar(255)"`
+	ProxyAddress string `gorm:"type:varchar(255)"`
+}
+
+func (partialAgentNetworkSettings) TableName() string { return "agent_network_settings" }
+
+// TestMigrateAgentNetworkSettingsToDomain_ResumesAfterPartialDrop pins MySQL
+// resumability: a rerun over the interrupted state must remove the leftover
+// subdomain column without re-running the backfill (the cluster column that
+// feeds it is gone) and without touching the migrated values.
+func TestMigrateAgentNetworkSettingsToDomain_ResumesAfterPartialDrop(t *testing.T) {
+	ctx := context.Background()
+	db := setupDatabase(t)
+	require.NoError(t, db.Migrator().DropTable(&partialAgentNetworkSettings{}))
+	require.NoError(t, db.AutoMigrate(&partialAgentNetworkSettings{}))
+	require.NoError(t, db.Create(&partialAgentNetworkSettings{
+		AccountID: "acct-1", Subdomain: "violet",
+		Domain: "violet.eu.proxy.netbird.io", ProxyAddress: "eu.proxy.netbird.io",
+	}).Error)
+
+	require.NoError(t, migration.MigrateAgentNetworkSettingsToDomain(ctx, db),
+		"a rerun over a partially-dropped schema must resume, not error")
+
+	migrator := db.Migrator()
+	assert.False(t, migrator.HasColumn(&partialAgentNetworkSettings{}, "subdomain"),
+		"the leftover legacy column must be dropped on resume")
+
+	var row agentNetworkTypes.Settings
+	require.NoError(t, db.First(&row, "account_id = ?", "acct-1").Error)
+	assert.Equal(t, "violet.eu.proxy.netbird.io", row.Domain, "migrated values must be untouched")
+	assert.Equal(t, "eu.proxy.netbird.io", row.ProxyAddress, "migrated values must be untouched")
+}

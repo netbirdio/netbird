@@ -136,7 +136,10 @@ func Test_SetupKeys_Create(t *testing.T) {
 			},
 		},
 		{
-			name:        "Create Setup Key as on-off with more than one usage",
+			// The key used to be created anyway, with its usage limit quietly
+			// reduced to 1, so the caller was told a key they had not asked for
+			// was what they asked for.
+			name:        "Create Setup Key as one-off with more than one usage",
 			requestType: http.MethodPost,
 			requestPath: "/api/setup-keys",
 			requestBody: &api.CreateSetupKeyRequest{
@@ -146,23 +149,7 @@ func Test_SetupKeys_Create(t *testing.T) {
 				Type:       "one-off",
 				UsageLimit: 3,
 			},
-			expectedStatus: http.StatusOK,
-			expectedResponse: &api.SetupKey{
-				AutoGroups: []string{},
-				Ephemeral:  false,
-				Expires:    time.Time{},
-				Id:         "",
-				Key:        "",
-				LastUsed:   time.Time{},
-				Name:       testing_tools.NewKeyName,
-				Revoked:    false,
-				State:      "valid",
-				Type:       "one-off",
-				UpdatedAt:  time.Now(),
-				UsageLimit: 1,
-				UsedTimes:  0,
-				Valid:      true,
-			},
+			expectedStatus: http.StatusUnprocessableEntity,
 		},
 		{
 			name:        "Create Setup Key with expiration in the past",

@@ -15,6 +15,11 @@ package harness
 // server is required to load it — a broken path or malformed file fails startup
 // rather than silently falling back to the compiled-in rates, and TestMain then
 // fails with the container logs.
+//
+// disableGeoliteUpdate is a parameter rather than a fixed true because a suite
+// that exercises geolocation needs the database: management can only evaluate a
+// location rule with GeoLite loaded, and a rule it cannot evaluate fails rather
+// than passing vacuously. See WithGeolocation.
 const combinedConfigYAML = `server:
   listenAddress: ":8080"
   exposedAddress: "%s"
@@ -25,7 +30,7 @@ const combinedConfigYAML = `server:
   authSecret: "e2e-relay-secret"
   dataDir: "/nb/data"
   disableAnonymousMetrics: true
-  disableGeoliteUpdate: true
+  disableGeoliteUpdate: %t
   auth:
     issuer: "%s"
   store:

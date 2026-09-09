@@ -593,7 +593,8 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 		return nil, err
 	}
 
-	var updateAccountPeers bool
+	var snaps []*affectedpeers.Snapshot
+	var changes []affectedpeers.Change
 	var peersToExpire []*nbpeer.Peer
 	var addUserEvents []func()
 	var usersToSave = make([]*types.User, 0, len(updates))
@@ -629,20 +630,25 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 		}
 
 		err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-			_, updatedUser, userPeersToExpire, userEvents, err := am.processUserUpdate(
+			change, updatedUser, userPeersToExpire, userEvents, err := am.processUserUpdate(
 				ctx, transaction, groupsMap, accountID, initiatorUserID, initiatorUser, update, addIfNotExists, settings,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to process update for user %s: %w", update.Id, err)
 			}
 
-			updateAccountPeers = true
-
 			err = transaction.SaveUser(ctx, updatedUser)
 			if err != nil {
 				return fmt.Errorf("failed to save updated user %s: %w", update.Id, err)
 			}
 
+			snap, err := affectedpeers.Load(ctx, transaction, accountID, change)
+			if err != nil {
+				return err
+			}
+
+			snaps = append(snaps, snap)
+			changes = append(changes, change)
 			usersToSave = append(usersToSave, updatedUser)
 			addUserEvents = append(addUserEvents, userEvents...)
 			peersToExpire = append(peersToExpire, userPeersToExpire...)
@@ -683,11 +689,11 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 			log.WithContext(ctx).Errorf("failed update expired peers: %s", err)
 			return nil, err
 		}
-	} else if updateAccountPeers {
+	} else if len(usersToSave) > 0 {
 		if err = am.Store.IncrementNetworkSerial(ctx, accountID); err != nil {
 			return nil, fmt.Errorf("failed to increment network serial: %w", err)
 		}
-		am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceUser, Operation: types.UpdateOperationUpdate})
+		go am.dispatchAffected(ctx, accountID, snaps, changes)
 	}
 
 	return updatedUsersInfo, globalErr
@@ -759,19 +765,21 @@ func (am *DefaultAccountManager) prepareUserUpdateEvents(ctx context.Context, ac
 }
 
 func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transaction store.Store, groupsMap map[string]*types.Group,
-	accountID, initiatorUserId string, initiatorUser, update *types.User, addIfNotExists bool, settings *types.Settings) (bool, *types.User, []*nbpeer.Peer, []func(), error) {
+	accountID, initiatorUserId string, initiatorUser, update *types.User, addIfNotExists bool, settings *types.Settings) (affectedpeers.Change, *types.User, []*nbpeer.Peer, []func(), error) {
+
+	var change affectedpeers.Change
 
 	if update == nil {
-		return false, nil, nil, nil, status.Errorf(status.InvalidArgument, "provided user update is nil")
+		return change, nil, nil, nil, status.Errorf(status.InvalidArgument, "provided user update is nil")
 	}
 
 	oldUser, isNewUser, err := getUserOrCreateIfNotExists(ctx, transaction, accountID, update, addIfNotExists)
 	if err != nil {
-		return false, nil, nil, nil, err
+		return change, nil, nil, nil, err
 	}
 
 	if err := validateUserUpdate(groupsMap, initiatorUser, oldUser, update); err != nil {
-		return false, nil, nil, nil, err
+		return change, nil, nil, nil, err
 	}
 
 	// only auto groups, revoked status, and integration reference can be updated for now
@@ -792,19 +800,45 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 	var transferredOwnerRole bool
 	result, err := handleOwnerRoleTransfer(ctx, transaction, initiatorUser, update)
 	if err != nil {
-		return false, nil, nil, nil, err
+		return change, nil, nil, nil, err
 	}
 	transferredOwnerRole = result
 
 	userPeers, err := transaction.GetUserPeers(ctx, store.LockingStrengthNone, updatedUser.AccountID, update.Id)
 	if err != nil {
-		return false, nil, nil, nil, err
+		return change, nil, nil, nil, err
 	}
 
 	var peersToExpire []*nbpeer.Peer
 
 	if !oldUser.IsBlocked() && update.IsBlocked() {
 		peersToExpire = userPeers
+	}
+
+	// A user reaches a peer's network map only through the SSH rules: as part of a
+	// group -> user mapping, and as part of the account's allowed-user set. Creating,
+	// blocking or unblocking a user adds it to or removes it from both, so every group
+	// it maps into changes — including the All group that holds every active user.
+	// Otherwise only the auto-groups it joined or left do.
+	if isNewUser || oldUser.IsBlocked() != updatedUser.IsBlocked() {
+		change.AllowedUsersChanged = true
+		change.UserGroupIDs = slices.Concat(oldUser.AutoGroups, updatedUser.AutoGroups, allGroupIDs(groupsMap))
+	} else {
+		change.UserGroupIDs = slices.Concat(
+			util.Difference(oldUser.AutoGroups, updatedUser.AutoGroups),
+			util.Difference(updatedUser.AutoGroups, oldUser.AutoGroups),
+		)
+	}
+
+	// The user's peers are the changed entity in every scenario the update can
+	// produce — group membership, IPv6 assignment, SSH mappings — so they refresh
+	// together with every peer they can connect to, like on a regular peer update.
+	// An update that changes neither the auto-groups nor the active-user set has no
+	// peer-visible effect and refreshes nobody.
+	if len(change.UserGroupIDs) > 0 || change.AllowedUsersChanged {
+		for _, peer := range userPeers {
+			change.ChangedPeerIDs = append(change.ChangedPeerIDs, peer.ID)
+		}
 	}
 
 	var removedGroups, addedGroups []string
@@ -814,26 +848,38 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 		for _, peer := range userPeers {
 			for _, groupID := range removedGroups {
 				if err := transaction.RemovePeerFromGroup(ctx, peer.ID, groupID); err != nil {
-					return false, nil, nil, nil, fmt.Errorf("failed to remove peer %s from group %s: %w", peer.ID, groupID, err)
+					return change, nil, nil, nil, fmt.Errorf("failed to remove peer %s from group %s: %w", peer.ID, groupID, err)
 				}
 			}
 			for _, groupID := range addedGroups {
 				if err := transaction.AddPeerToGroup(ctx, accountID, peer.ID, groupID); err != nil {
-					return false, nil, nil, nil, fmt.Errorf("failed to add peer %s to group %s: %w", peer.ID, groupID, err)
+					return change, nil, nil, nil, fmt.Errorf("failed to add peer %s to group %s: %w", peer.ID, groupID, err)
 				}
 			}
 		}
 
 		allGroupChanges := slices.Concat(removedGroups, addedGroups)
+		change.LinkGroups = allGroupChanges
+
 		if err := am.reconcileIPv6ForGroupChanges(ctx, transaction, accountID, allGroupChanges); err != nil {
-			return false, nil, nil, nil, fmt.Errorf("reconcile IPv6 for group changes: %w", err)
+			return change, nil, nil, nil, fmt.Errorf("reconcile IPv6 for group changes: %w", err)
 		}
 	}
 
-	updateAccountPeers := len(userPeers) > 0
 	userEventsToAdd := am.prepareUserUpdateEvents(ctx, updatedUser.AccountID, initiatorUserId, oldUser, updatedUser, transferredOwnerRole, isNewUser, removedGroups, addedGroups, transaction)
 
-	return updateAccountPeers, updatedUser, peersToExpire, userEventsToAdd, nil
+	return change, updatedUser, peersToExpire, userEventsToAdd, nil
+}
+
+// allGroupIDs returns the ID of the account's All group, which every active user maps
+// into, as a slice so callers can concatenate it.
+func allGroupIDs(groupsMap map[string]*types.Group) []string {
+	for _, group := range groupsMap {
+		if group.IsGroupAll() {
+			return []string{group.ID}
+		}
+	}
+	return nil
 }
 
 // getUserOrCreateIfNotExists retrieves the existing user or creates a new one if it doesn't exist.
@@ -1131,28 +1177,35 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 	dnsDomain := am.networkMapController.GetDNSDomain(settings)
 
 	var peerIDs []string
-	for _, peer := range peers {
+	defer func() {
+		if len(peerIDs) == 0 {
+			return
+		}
+		// this will trigger peer disconnect from the management service
+		log.Debugf("Expiring %d peers for account %s", len(peerIDs), accountID)
+		am.networkMapController.DisconnectPeers(ctx, accountID, peerIDs)
+	}()
+	for _, candidate := range peers {
 		// nolint:staticcheck
-		ctx = context.WithValue(ctx, nbcontext.PeerIDKey, peer.Key)
+		peerCtx := context.WithValue(ctx, nbcontext.PeerIDKey, candidate.Key)
 
-		if peer.UserID == "" {
+		if candidate.UserID == "" {
 			// we do not want to expire peers that are added via setup key
 			continue
 		}
 
-		if peer.Status.LoginExpired {
+		peer, err := am.expirePeerIfStillDue(peerCtx, accountID, candidate.ID, settings, reason)
+		if err != nil {
+			return err
+		}
+		if peer == nil {
 			continue
 		}
 		peerIDs = append(peerIDs, peer.ID)
-		peer.MarkLoginExpired(true)
-
-		if err := am.Store.SavePeerStatus(ctx, accountID, peer.ID, *peer.Status); err != nil {
-			return err
-		}
 		meta := peer.EventMeta(dnsDomain)
 		meta["reason"] = string(reason)
 		am.StoreEvent(
-			ctx,
+			peerCtx,
 			peer.UserID, peer.ID, accountID,
 			activity.PeerLoginExpired, meta,
 		)
@@ -1169,13 +1222,51 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 	if err != nil {
 		return fmt.Errorf("notify network map controller of peer update: %w", err)
 	}
-
-	if len(peerIDs) != 0 {
-		// this will trigger peer disconnect from the management service
-		log.Debugf("Expiring %d peers for account %s", len(peerIDs), accountID)
-		am.networkMapController.DisconnectPeers(ctx, accountID, peerIDs)
-	}
 	return nil
+}
+
+// expirePeerIfStillDue flags the peer as login-expired and returns its fresh copy, or nil
+// when it no longer qualifies. The candidate list is read without a lock, so a login that
+// landed in between would otherwise be overwritten with a stale expired status.
+func (am *DefaultAccountManager) expirePeerIfStillDue(ctx context.Context, accountID, peerID string, settings *types.Settings, reason peerExpirationReason) (*nbpeer.Peer, error) {
+	var expired *nbpeer.Peer
+	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		peer, err := transaction.GetPeerByID(ctx, store.LockingStrengthUpdate, accountID, peerID)
+		if err != nil {
+			if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
+				return nil
+			}
+			return err
+		}
+		if peer.Status.LoginExpired || !peerExpirationDue(peer, settings, reason) {
+			return nil
+		}
+		peer.MarkLoginExpired(true)
+		if err := transaction.SavePeerStatus(ctx, accountID, peer.ID, *peer.Status); err != nil {
+			return err
+		}
+		expired = peer
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return expired, nil
+}
+
+// peerExpirationDue re-evaluates a time-based expiry against the peer's current state.
+// Administrative reasons expire the peer unconditionally.
+func peerExpirationDue(peer *nbpeer.Peer, settings *types.Settings, reason peerExpirationReason) bool {
+	switch reason {
+	case peerExpirationSessionExpired:
+		expired, _ := peer.LoginExpired(settings.PeerLoginExpiration)
+		return settings.PeerLoginExpirationEnabled && expired
+	case peerExpirationInactivity:
+		expired, _ := peer.SessionExpired(settings.PeerInactivityExpiration)
+		return settings.PeerInactivityExpirationEnabled && expired
+	default:
+		return true
+	}
 }
 
 func (am *DefaultAccountManager) deleteUserFromIDP(ctx context.Context, targetUserID, accountID string) error {
@@ -1289,6 +1380,10 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 		targetUser, err = transaction.GetUserByUserID(ctx, store.LockingStrengthUpdate, targetUserInfo.ID)
 		if err != nil {
 			return fmt.Errorf("failed to get user to delete: %w", err)
+		}
+
+		if targetUser.Role == types.UserRoleOwner && targetUser.Id != initiatorUserID {
+			return status.NewOwnerDeletePermissionError()
 		}
 
 		settings, err = transaction.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)

@@ -313,21 +313,23 @@ func Dial(ctx context.Context, addr, user string, opts DialOptions) (*Client, er
 
 // dialSSH establishes an SSH connection without JWT authentication
 func dialSSH(ctx context.Context, network, addr string, config *ssh.ClientConfig) (*Client, error) {
+	if config.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, config.Timeout)
+		defer cancel()
+	}
+
 	dialer := &net.Dialer{}
 	conn, err := dialer.DialContext(ctx, network, addr)
 	if err != nil {
 		return nil, fmt.Errorf("dial %s: %w", addr, err)
 	}
 
-	clientConn, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
+	client, err := nbssh.Handshake(ctx, conn, addr, config)
 	if err != nil {
-		if closeErr := conn.Close(); closeErr != nil {
-			log.Debugf("connection close after handshake failure: %v", closeErr)
-		}
-		return nil, fmt.Errorf("ssh handshake: %w", err)
+		return nil, err
 	}
 
-	client := ssh.NewClient(clientConn, chans, reqs)
 	return &Client{
 		client: client,
 	}, nil

@@ -1,0 +1,74 @@
+{
+  "Network": {"Serial": 14},
+  "Peers": {
+    "peer-a": {"IP": "100.64.0.1", "Meta": {"WtVersion": "0.60.0"}},
+    "peer-srv": {"IP": "100.64.0.10", "Meta": {"WtVersion": "0.60.0"}}
+  },
+  "Groups": {
+    "grp-dev": {"Peers": ["peer-a"]},
+    "grp-svc": {"Peers": ["peer-srv"]}
+  },
+  "Policies": [
+    {
+      "ID": "pol-syslog",
+      "PublicID": "pol-syslog-pub",
+      "Enabled": true,
+      "Rules": [
+        {
+          "Enabled": true,
+          "Action": "accept",
+          "Protocol": "udp",
+          "Ports": ["514"],
+          "Sources": ["grp-dev"],
+          "Destinations": ["grp-svc"]
+        }
+      ]
+    },
+    {
+      "ID": "pol-range",
+      "PublicID": "pol-range-pub",
+      "Enabled": true,
+      "Rules": [
+        {
+          "Enabled": true,
+          "Action": "accept",
+          "Protocol": "tcp",
+          "PortRanges": [{"Start": 1000, "End": 2000}],
+          "Bidirectional": true,
+          "Sources": ["grp-dev"],
+          "Destinations": ["grp-svc"]
+        }
+      ]
+    },
+    {
+      "ID": "pol-off",
+      "PublicID": "pol-off-pub",
+      "Rules": [
+        {
+          "Enabled": true,
+          "Action": "accept",
+          "Protocol": "tcp",
+          "Ports": ["9999"],
+          "Bidirectional": true,
+          "Sources": ["grp-dev"],
+          "Destinations": ["grp-svc"]
+        }
+      ]
+    },
+    {
+      "ID": "pol-rule-off",
+      "PublicID": "pol-rule-off-pub",
+      "Enabled": true,
+      "Rules": [
+        {
+          "Action": "accept",
+          "Protocol": "udp",
+          "Ports": ["1111"],
+          "Bidirectional": true,
+          "Sources": ["grp-dev"],
+          "Destinations": ["grp-svc"]
+        }
+      ]
+    }
+  ]
+}

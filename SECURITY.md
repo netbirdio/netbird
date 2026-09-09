@@ -14,7 +14,7 @@ Report security issues one of these two ways:
   on this repository. This is the preferred route: it keeps the discussion, the draft advisory, and the credit in one place.
 - **Email** — `security@netbird.io`.
 
-If the finding affects NetBird Cloud or our hosted infrastructure rather than the open-source code, email us rather than
+If the finding affects NetBird Cloud or our hosted infrastructure rather than the open source code, email us rather than
 filing a repository report.
 
 ### What to include

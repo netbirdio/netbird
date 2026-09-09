@@ -121,10 +121,10 @@ func NewProxyWrapper(proxy *WGEBPFProxy) *ProxyWrapper {
 	}
 }
 
-func (p *ProxyWrapper) AddTurnConn(ctx context.Context, _ *net.UDPAddr, remoteConn net.Conn) error {
-	addr, err := p.wgeBPFProxy.AddTurnConn(remoteConn)
+func (p *ProxyWrapper) AddRelayedConn(ctx context.Context, _ *net.UDPAddr, remoteConn net.Conn) error {
+	addr, err := p.wgeBPFProxy.AddRelayedConn(remoteConn)
 	if err != nil {
-		return fmt.Errorf("add turn conn: %w", err)
+		return fmt.Errorf("add relayed conn: %w", err)
 	}
 
 	headers, err := NewPacketHeaders(p.wgeBPFProxy.localWGListenPort, addr)
@@ -252,7 +252,7 @@ func (p *ProxyWrapper) CloseConn() error {
 }
 
 func (p *ProxyWrapper) proxyToLocal(ctx context.Context) {
-	defer p.wgeBPFProxy.removeTurnConn(uint16(p.wgRelayedEndpointAddr.Port))
+	defer p.wgeBPFProxy.removeRelayedConn(uint16(p.wgRelayedEndpointAddr.Port))
 
 	buf := make([]byte, p.wgeBPFProxy.mtu+bufsize.WGBufferOverhead)
 	for {
@@ -273,7 +273,7 @@ func (p *ProxyWrapper) proxyToLocal(ctx context.Context) {
 			if ctx.Err() != nil {
 				return
 			}
-			log.Errorf("failed to write out turn pkg to local conn: %v", err)
+			log.Errorf("failed to write out relayed pkg to local conn: %v", err)
 		}
 	}
 }
@@ -286,7 +286,7 @@ func (p *ProxyWrapper) readFromRemote(ctx context.Context, buf []byte) (int, err
 		}
 		p.closeListener.Notify()
 		if !errors.Is(err, io.EOF) {
-			log.Errorf("failed to read from turn conn (endpoint: :%d): %s", p.wgRelayedEndpointAddr.Port, err)
+			log.Errorf("failed to read from relayed conn (endpoint: :%d): %s", p.wgRelayedEndpointAddr.Port, err)
 		}
 		return 0, err
 	}

@@ -991,6 +991,18 @@ func (d *Recorder) GetResolvedDomainsStates() map[domain.Domain]ResolvedDomainIn
 	return maps.Clone(d.resolvedDomainsStates)
 }
 
+// GetPeerStates returns a snapshot of all known peer states, including offline peers.
+func (d *Recorder) GetPeerStates() []State {
+	d.mux.RLock()
+	defer d.mux.RUnlock()
+
+	states := make([]State, 0, d.numOfPeers())
+	for _, state := range d.peers {
+		states = append(states, state)
+	}
+	return append(states, d.offlinePeers...)
+}
+
 // GetFullStatus gets full status
 func (d *Recorder) GetFullStatus() FullStatus {
 	fullStatus := FullStatus{
@@ -1033,6 +1045,12 @@ func (d *Recorder) ClientStop() {
 func (d *Recorder) ClientTeardown() {
 	d.notifier.clientTearDown()
 	d.notifyStateChange()
+}
+
+// SetNetworkAvailable records the OS-reported network availability; while
+// unavailable, listeners see NoNetwork instead of Connecting.
+func (d *Recorder) SetNetworkAvailable(available bool) {
+	d.notifier.setNetworkAvailable(available)
 }
 
 // SetConnectionListener set a listener to the notifier

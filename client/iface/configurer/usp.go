@@ -502,7 +502,7 @@ func toBytes(s string) (int64, error) {
 
 func getFwmark() int {
 	if nbnet.AdvancedRouting() && runtime.GOOS == "linux" {
-		return nbnet.ControlPlaneMark
+		return int(nbnet.ControlPlaneMark)
 	}
 	return 0
 }

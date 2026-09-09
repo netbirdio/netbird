@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -31,6 +32,7 @@ import (
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
+	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/monotime"
 	"github.com/netbirdio/netbird/route"
@@ -253,6 +255,118 @@ func TestEngine_SSHServerConsistency(t *testing.T) {
 	})
 }
 
+func TestEngine_FirstSyncInfoCarriesLoginChecks(t *testing.T) {
+	key, err := wgtypes.GeneratePrivateKey()
+	require.NoError(t, err)
+
+	exe, err := os.Executable()
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(CtxInitState(context.Background()))
+	defer cancel()
+
+	infos := make(chan *system.Info, 1)
+	mgmClient := &mgmt.MockClient{
+		SyncFunc: func(ctx context.Context, getInfo func(context.Context) *system.Info, _ func(*mgmtProto.SyncResponse) error) error {
+			infos <- getInfo(ctx)
+			return nil
+		},
+	}
+
+	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
+	engine := NewEngine(ctx, cancel, &EngineConfig{
+		WgIfaceName:  "utun104",
+		WgAddr:       wgaddr.MustParseWGAddress("100.64.0.1/24"),
+		WgPrivateKey: key,
+		WgPort:       33100,
+		MTU:          iface.DefaultMTU,
+	}, EngineServices{
+		SignalClient:   &signal.MockClient{},
+		MgmClient:      mgmClient,
+		RelayManager:   relayMgr,
+		StatusRecorder: peer.NewRecorder("https://mgm"),
+		Checks:         []*mgmtProto.Checks{{Files: []string{exe}}},
+	}, MobileDependency{})
+
+	engine.receiveManagementEvents()
+
+	select {
+	case info := <-infos:
+		require.Len(t, info.Files, 1)
+		assert.Equal(t, exe, info.Files[0].Path)
+		assert.True(t, info.Files[0].Exist)
+	case <-time.After(20 * time.Second):
+		t.Fatal("timeout waiting for the first sync info")
+	}
+	engine.shutdownWg.Wait()
+}
+
+func TestEngine_SyncInfoFuncReusesRefreshedInfoOnce(t *testing.T) {
+	engine := &Engine{config: &EngineConfig{}}
+
+	refreshed := &system.Info{Hostname: "from-refresh"}
+	getInfo := engine.syncInfoFunc(refreshed)
+
+	first := getInfo(context.Background())
+	assert.Same(t, refreshed, first, "the first connect should send the refreshed info instead of gathering again")
+
+	second := getInfo(context.Background())
+	assert.NotSame(t, refreshed, second, "the reconnect should gather a fresh info")
+	assert.NotEqual(t, "from-refresh", second.Hostname, "the fresh info should not carry the refreshed hostname")
+}
+
+func TestEngine_SyncInfoFuncGathersWhenRefreshFailed(t *testing.T) {
+	engine := &Engine{config: &EngineConfig{}}
+
+	info := engine.syncInfoFunc(nil)(context.Background())
+	require.NotNil(t, info, "a failed refresh should fall back to gathering the info")
+	assert.NotEmpty(t, info.Hostname, "the gathered info should carry the hostname")
+}
+
+func TestEngine_UpdateChecksIfNewRetriesAfterFailedSyncMeta(t *testing.T) {
+	key, err := wgtypes.GeneratePrivateKey()
+	require.NoError(t, err)
+
+	exe, err := os.Executable()
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(CtxInitState(context.Background()))
+	defer cancel()
+
+	syncMetaCalls := 0
+	mgmClient := &mgmt.MockClient{
+		SyncMetaFunc: func(*system.Info) error {
+			syncMetaCalls++
+			if syncMetaCalls == 1 {
+				return errors.New("management unavailable")
+			}
+			return nil
+		},
+	}
+
+	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
+	engine := NewEngine(ctx, cancel, &EngineConfig{
+		WgIfaceName:  "utun105",
+		WgAddr:       wgaddr.MustParseWGAddress("100.64.0.1/24"),
+		WgPrivateKey: key,
+		WgPort:       33100,
+		MTU:          iface.DefaultMTU,
+	}, EngineServices{
+		SignalClient:   &signal.MockClient{},
+		MgmClient:      mgmClient,
+		RelayManager:   relayMgr,
+		StatusRecorder: peer.NewRecorder("https://mgm"),
+	}, MobileDependency{})
+
+	checks := []*mgmtProto.Checks{{Files: []string{exe}}}
+
+	require.Error(t, engine.updateChecksIfNew(checks))
+	require.NoError(t, engine.updateChecksIfNew(checks))
+	require.NoError(t, engine.updateChecksIfNew(checks))
+
+	assert.Equal(t, 2, syncMetaCalls)
+}
+
 func TestEngine_UpdateNetworkMap(t *testing.T) {
 	// test setup
 	key, err := wgtypes.GeneratePrivateKey()
@@ -279,7 +393,8 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 	}, MobileDependency{})
 
 	wgIface := &MockWGIface{
-		NameFunc: func() string { return "utun102" },
+		NameFunc:            func() string { return "utun102" },
+		IsUserspaceBindFunc: func() bool { return true },
 		RemovePeerFunc: func(peerKey string) error {
 			return nil
 		},

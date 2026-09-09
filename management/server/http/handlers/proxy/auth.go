@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"net/netip"
@@ -99,16 +100,17 @@ func (h *AuthCallbackHandler) handleCallback(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Group validation is performed by the proxy via ValidateSession gRPC call.
-	// This allows the proxy to show 403 pages directly without redirect dance.
-
+	// GenerateSessionToken applies the service's group and account-status gates,
+	// so a user without access never receives a token. The proxy re-checks the
+	// installed cookie against the service's allowed groups, and renders the
+	// denial page from the error carried back in the redirect.
 	sessionToken, err := h.proxyService.GenerateSessionToken(r.Context(), redirectURL.Hostname(), userID, auth.MethodOIDC)
 	if err != nil {
 		log.WithError(err).Error("Failed to create session token")
 		redirectURL.Scheme = "https"
 		query := redirectURL.Query()
 		query.Set("error", "access_denied")
-		query.Set("error_description", "Service configuration error")
+		query.Set("error_description", sessionTokenErrorDescription(err))
 		redirectURL.RawQuery = query.Encode()
 		http.Redirect(w, r, redirectURL.String(), http.StatusFound)
 		return
@@ -122,6 +124,23 @@ func (h *AuthCallbackHandler) handleCallback(w http.ResponseWriter, r *http.Requ
 
 	log.WithField("redirect", redirectURL.Host).Debug("OAuth callback: redirecting user with session token")
 	http.Redirect(w, r, redirectURL.String(), http.StatusFound)
+}
+
+// sessionTokenErrorDescription maps a session token failure to the text the
+// proxy renders on its access denied page. Account status denials get a message
+// the user can act on, while everything else stays generic so a lookup or
+// signing failure does not describe management internals to the browser.
+func sessionTokenErrorDescription(err error) string {
+	if errors.Is(err, nbgrpc.ErrUserPendingApproval) {
+		return "Your account is pending approval by an administrator"
+	}
+	if errors.Is(err, nbgrpc.ErrUserBlocked) {
+		return "Your account is blocked"
+	}
+	if errors.Is(err, nbgrpc.ErrUserNotInGroup) {
+		return "You are not authorized to access this service"
+	}
+	return "Service configuration error"
 }
 
 func extractUserIDFromToken(ctx context.Context, provider *oidc.Provider, config nbgrpc.ProxyOIDCConfig, token *oauth2.Token) string {

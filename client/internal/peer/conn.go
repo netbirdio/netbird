@@ -30,6 +30,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/portforward"
 	"github.com/netbirdio/netbird/client/internal/rosenpass"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
+	"github.com/netbirdio/netbird/client/netevents"
 	"github.com/netbirdio/netbird/route"
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 )
@@ -104,6 +105,10 @@ type ConnConfig struct {
 
 	// ICEConfig ICE protocol configuration
 	ICEConfig icemaker.Config
+
+	// NetMgr gates the reconnection guard on OS-reported network
+	// availability; nil disables gating.
+	NetMgr *netevents.Manager
 }
 
 func (c ConnConfig) IsController() bool {
@@ -265,7 +270,7 @@ func (conn *Conn) open(engineCtx context.Context, firstPacket []byte) error {
 		RosenpassAddr:   conn.config.RosenpassConfig.Addr,
 	}, conn.signaler, iceWorker, conn.relayManager)
 
-	conn.guard = guard.NewGuard(conn.Log, conn.isConnectedOnAllWay, conn.config.Timeout, conn.srWatcher)
+	conn.guard = guard.NewGuard(conn.Log, conn.isConnectedOnAllWay, conn.config.Timeout, conn.srWatcher, conn.config.NetMgr)
 
 	conn.relayDialInFlight = false
 	conn.pendingRelayOffer = nil
@@ -481,6 +486,7 @@ func (conn *Conn) teardown(mb *mailbox, leftover []event, signalToRemote bool, d
 
 	if conn.wgWatcherCancel != nil {
 		conn.wgWatcherCancel()
+		conn.wgWatcher = nil
 		conn.wgWatcherCancel = nil
 	}
 	conn.workerRelay.CloseConn()
@@ -650,7 +656,7 @@ func (conn *Conn) handleICEReady(priority worker.ConnPriority, iceConnInfo worke
 		conn.dumpState.NewLocalProxy()
 		wgProxy, err = conn.newProxy(iceConnInfo.RemoteConn)
 		if err != nil {
-			conn.Log.Errorf("failed to add turn net.Conn to local proxy: %v", err)
+			conn.Log.Errorf("failed to add relayed net.Conn to local proxy: %v", err)
 			return
 		}
 		ep = wgProxy.EndpointAddr()
@@ -1142,9 +1148,8 @@ func (conn *Conn) newProxy(remoteConn net.Conn) (wgproxy.Proxy, error) {
 	}
 
 	wgProxy := conn.config.WgConfig.WgInterface.GetProxy()
-	if err := wgProxy.AddTurnConn(conn.ctx, udpAddr, remoteConn); err != nil {
-		conn.Log.Errorf("failed to add turn net.Conn to local proxy: %v", err)
-		return nil, err
+	if err := wgProxy.AddRelayedConn(conn.ctx, udpAddr, remoteConn); err != nil {
+		return nil, fmt.Errorf("add relayed conn to proxy: %w", err)
 	}
 	return wgProxy, nil
 }
@@ -1205,12 +1210,9 @@ func (conn *Conn) recordConnectionMetrics() {
 		return
 	}
 
-	var connType metrics.ConnectionType
-	switch conn.currentConnPriority {
-	case worker.Relay:
-		connType = metrics.ConnectionTypeRelay
-	default:
-		connType = metrics.ConnectionTypeICE
+	connType := metricsConnType(conn.currentConnPriority)
+	if connType == metrics.ConnectionTypeUnknown {
+		return
 	}
 
 	// Record metrics with timestamps - duration calculation happens in metrics package
@@ -1297,4 +1299,17 @@ func boolToConnStatus(connected bool) guard.ConnStatus {
 		return guard.ConnStatusConnected
 	}
 	return guard.ConnStatusDisconnected
+}
+
+func metricsConnType(priority worker.ConnPriority) metrics.ConnectionType {
+	switch priority {
+	case worker.Relay:
+		return metrics.ConnectionTypeRelay
+	case worker.ICETurn:
+		return metrics.ConnectionTypeICETurn
+	case worker.ICEP2P:
+		return metrics.ConnectionTypeICEP2P
+	default:
+		return metrics.ConnectionTypeUnknown
+	}
 }

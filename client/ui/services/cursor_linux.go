@@ -49,5 +49,11 @@ func getCursorPosition(app *application.App) (application.Point, bool) {
 	if app == nil || app.Screen == nil {
 		return p, true
 	}
+	// The wails GTK3 backend caches screens from the active window; a tray app
+	// has none at startup, so the cache is empty and PhysicalToDipPoint would
+	// dereference a nil nearest screen. Raw pixels are correct there anyway.
+	if app.Screen.ScreenNearestPhysicalPoint(p) == nil {
+		return p, true
+	}
 	return app.Screen.PhysicalToDipPoint(p), true
 }

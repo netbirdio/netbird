@@ -573,7 +573,7 @@ func TestSqlStore_SavePeer(t *testing.T) {
 
 		numOfFields, err := populateFields.PopulateAll(reflectedMetadata)
 		assert.NoError(t, err)
-		assert.Equal(t, 32, numOfFields)
+		assert.Equal(t, 33, numOfFields)
 
 		// save status of non-existing peer
 		peer := &nbpeer.Peer{

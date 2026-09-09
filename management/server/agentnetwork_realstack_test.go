@@ -92,15 +92,27 @@ func TestAgentNetwork_ProviderCRUD_FansOutToProxyAndClientPeers(t *testing.T) {
 	// UpdateAccountPeers, which is the path under test.
 	agentMgr := agentnetwork.NewManager(am.Store, permissions.NewManager(am.Store), am, nil)
 
+	_, err = agentMgr.CreateSettings(ctx, adminUserID, agenttypes.DefaultSettings(accountID), clusterAddr, "")
+	require.NoError(t, err, "CreateSettings must bootstrap the endpoint")
+	// The bootstrap itself reconciles and queues updates on both channels;
+	// drain them so the fan-out assertions below can only be satisfied by the
+	// operation under test, not by this leftover.
+	drain(clientCh)
+	drain(proxyCh)
+
 	provider, err := agentMgr.CreateProvider(ctx, adminUserID, &agenttypes.Provider{
-		AccountID:   accountID,
-		ProviderID:  "openai_api",
-		Name:        "openai-test",
-		UpstreamURL: "https://api.openai.com",
+		AccountID:  accountID,
+		ProviderID: "openai_api",
+		Name:       "openai-test",
+		// A private address: the save-time credential check leaves it
+		// unchecked rather than spending a dummy key against the real
+		// api.openai.com, which the vendor refuses and which would make
+		// this test depend on the runner having egress.
+		UpstreamURL: "https://10.255.255.1",
 		APIKey:      "sk-test-key",
 		Enabled:     true,
 		Models:      []agenttypes.ProviderModel{{ID: "gpt-5.4"}},
-	}, clusterAddr)
+	})
 	require.NoError(t, err, "CreateProvider must succeed")
 
 	policy, err := agentMgr.CreatePolicy(ctx, adminUserID, &agenttypes.Policy{

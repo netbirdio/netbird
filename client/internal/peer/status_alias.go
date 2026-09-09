@@ -6,6 +6,7 @@ import "github.com/netbirdio/netbird/client/internal/peer/status"
 // package. Callers are being migrated to reference the status package
 // directly; these aliases will be removed once the migration completes.
 type (
+	ClientState              = status.ClientState
 	Status                   = status.Recorder
 	State                    = status.State
 	ConnStatus               = status.ConnStatus
@@ -26,6 +27,12 @@ type (
 )
 
 const (
+	ClientStateDisconnected  = status.ClientStateDisconnected
+	ClientStateConnected     = status.ClientStateConnected
+	ClientStateConnecting    = status.ClientStateConnecting
+	ClientStateDisconnecting = status.ClientStateDisconnecting
+	ClientStateNoNetwork     = status.ClientStateNoNetwork
+
 	StatusIdle       = status.StatusIdle
 	StatusConnecting = status.StatusConnecting
 	StatusConnected  = status.StatusConnected

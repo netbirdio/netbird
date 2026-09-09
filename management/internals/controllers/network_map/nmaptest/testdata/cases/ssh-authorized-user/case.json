@@ -1,0 +1,4 @@
+{
+  "description": "netbird-ssh with a single AuthorizedUser: peer-srv's SshAuth maps the wildcard machine user to exactly user-solo.",
+  "peers": ["peer-srv"]
+}

@@ -2,24 +2,28 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
 
+	agentnetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
+	nbstore "github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 type store interface {
 	GetAccount(ctx context.Context, accountID string) (*types.Account, error)
+	GetAgentNetworkSettings(ctx context.Context, lockStrength nbstore.LockingStrength, accountID string) (*agentnetworkTypes.Settings, error)
 
 	GetCustomDomain(ctx context.Context, accountID string, domainID string) (*domain.Domain, error)
 	ListFreeDomains(ctx context.Context, accountID string) ([]string, error)
@@ -311,23 +315,52 @@ func (m Manager) getClusterAllowList(ctx context.Context, accountID string) ([]s
 	if err != nil {
 		return nil, fmt.Errorf("get public cluster addresses: %w", err)
 	}
+	reserved, err := m.reservedGatewayAddress(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
 	seen := make(map[string]struct{}, len(byopAddresses)+len(publicAddresses))
 	merged := make([]string, 0, len(byopAddresses)+len(publicAddresses))
 	for _, addr := range byopAddresses {
-		if _, ok := seen[addr]; ok {
+		if _, ok := seen[addr]; ok || addr == reserved {
 			continue
 		}
 		seen[addr] = struct{}{}
 		merged = append(merged, addr)
 	}
 	for _, addr := range publicAddresses {
-		if _, ok := seen[addr]; ok {
+		if _, ok := seen[addr]; ok || addr == reserved {
 			continue
 		}
 		seen[addr] = struct{}{}
 		merged = append(merged, addr)
 	}
 	return merged, nil
+}
+
+// reservedGatewayAddress returns the account's agent-network gateway address
+// when its settings pin is self-addressed — a proxy dedicated to serving
+// exactly the gateway. Dropping that address from the cluster allow list keeps
+// it from being offered as a cluster for ordinary services, and because the
+// free-domain suffix match is depth-independent, dropping the address rejects
+// every name beneath it as well as the bare one. Only the account's own
+// gateway address can ever appear in its allow list (another tenant's gateway
+// proxy is account-scoped to them), so this single-address exclusion is
+// sufficient. Returns "" when the account has no settings row or a labeled
+// (shared-cluster) pin.
+func (m Manager) reservedGatewayAddress(ctx context.Context, accountID string) (string, error) {
+	settings, err := m.store.GetAgentNetworkSettings(ctx, nbstore.LockingStrengthNone, accountID)
+	if err != nil {
+		var sErr *status.Error
+		if errors.As(err, &sErr) && sErr.Type() == status.NotFound {
+			return "", nil
+		}
+		return "", fmt.Errorf("get agent network settings: %w", err)
+	}
+	if settings == nil || !settings.Dedicated() {
+		return "", nil
+	}
+	return settings.ProxyAddress, nil
 }
 
 func extractClusterFromCustomDomains(serviceDomain string, customDomains []*domain.Domain) (string, bool) {

@@ -61,6 +61,7 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 	rosenpassEnabled := true
 	rosenpassPermissive := true
 	serverSSHAllowed := true
+	remoteJobsAllowed := true
 	interfaceName := "utun100"
 	wireguardPort := int64(51820)
 	preSharedKey := "test-psk"
@@ -76,6 +77,8 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 	disableIPv6 := true
 	mtu := int64(1280)
 	sshJWTCacheTTL := int32(300)
+	enableLocalMetrics := true
+	localMetricsAddress := "127.0.0.1:9292"
 
 	req := &proto.SetConfigRequest{
 		ProfileName:          profName,
@@ -85,6 +88,7 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 		RosenpassEnabled:     &rosenpassEnabled,
 		RosenpassPermissive:  &rosenpassPermissive,
 		ServerSSHAllowed:     &serverSSHAllowed,
+		RemoteJobsAllowed:    &remoteJobsAllowed,
 		InterfaceName:        &interfaceName,
 		WireguardPort:        &wireguardPort,
 		OptionalPreSharedKey: &preSharedKey,
@@ -107,6 +111,8 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 		DnsRouteInterval:     durationpb.New(2 * time.Minute),
 		Mtu:                  &mtu,
 		SshJWTCacheTTL:       &sshJWTCacheTTL,
+		EnableLocalMetrics:   &enableLocalMetrics,
+		LocalMetricsAddress:  &localMetricsAddress,
 	}
 
 	_, err = s.SetConfig(ctx, req)
@@ -128,6 +134,8 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 	require.Equal(t, rosenpassPermissive, cfg.RosenpassPermissive)
 	require.NotNil(t, cfg.ServerSSHAllowed)
 	require.Equal(t, serverSSHAllowed, *cfg.ServerSSHAllowed)
+	require.NotNil(t, cfg.RemoteJobsAllowed)
+	require.Equal(t, remoteJobsAllowed, *cfg.RemoteJobsAllowed)
 	require.Equal(t, interfaceName, cfg.WgIface)
 	require.Equal(t, int(wireguardPort), cfg.WgPort)
 	require.Equal(t, preSharedKey, cfg.PreSharedKey)
@@ -153,6 +161,8 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 	require.Equal(t, uint16(mtu), cfg.MTU)
 	require.NotNil(t, cfg.SSHJWTCacheTTL)
 	require.Equal(t, int(sshJWTCacheTTL), *cfg.SSHJWTCacheTTL)
+	require.Equal(t, enableLocalMetrics, cfg.LocalMetricsEnabled)
+	require.Equal(t, localMetricsAddress, cfg.LocalMetricsAddress)
 
 	verifyAllFieldsCovered(t, req)
 }
@@ -180,6 +190,7 @@ func verifyAllFieldsCovered(t *testing.T, req *proto.SetConfigRequest) {
 		"RosenpassEnabled":              true,
 		"RosenpassPermissive":           true,
 		"ServerSSHAllowed":              true,
+		"RemoteJobsAllowed":             true,
 		"InterfaceName":                 true,
 		"WireguardPort":                 true,
 		"OptionalPreSharedKey":          true,
@@ -205,6 +216,8 @@ func verifyAllFieldsCovered(t *testing.T, req *proto.SetConfigRequest) {
 		"EnableSSHRemotePortForwarding": true,
 		"DisableSSHAuth":                true,
 		"SshJWTCacheTTL":                true,
+		"EnableLocalMetrics":            true,
+		"LocalMetricsAddress":           true,
 	}
 
 	val := reflect.ValueOf(req).Elem()
@@ -240,6 +253,7 @@ func TestCLIFlags_MappedToSetConfig(t *testing.T) {
 		"enable-rosenpass":                  "RosenpassEnabled",
 		"rosenpass-permissive":              "RosenpassPermissive",
 		"allow-server-ssh":                  "ServerSSHAllowed",
+		"allow-remote-jobs":                 "RemoteJobsAllowed",
 		"interface-name":                    "InterfaceName",
 		"wireguard-port":                    "WireguardPort",
 		"preshared-key":                     "OptionalPreSharedKey",
@@ -264,6 +278,8 @@ func TestCLIFlags_MappedToSetConfig(t *testing.T) {
 		"enable-ssh-remote-port-forwarding": "EnableSSHRemotePortForwarding",
 		"disable-ssh-auth":                  "DisableSSHAuth",
 		"ssh-jwt-cache-ttl":                 "SshJWTCacheTTL",
+		"enable-local-metrics":              "EnableLocalMetrics",
+		"local-metrics-address":             "LocalMetricsAddress",
 	}
 
 	// SetConfigRequest fields that don't have CLI flags (settable only via UI or other means).

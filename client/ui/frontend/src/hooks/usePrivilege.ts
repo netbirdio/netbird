@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Settings as SettingsSvc } from "@bindings/services";
-import { Privilege } from "@bindings/services/models.js";
+import { type Privilege } from "@bindings/services/models.js";
 
 // usePrivilege reports whether this UI process may perform the changes the daemon
 // restricts to root/administrator. It is answered in-process from our own token

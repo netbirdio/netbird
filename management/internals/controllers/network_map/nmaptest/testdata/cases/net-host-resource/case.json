@@ -1,0 +1,4 @@
+{
+  "description": "Host network resource (single /32) behind one directly-assigned router. peer-a is in the resource policy's source group and must receive one route to 10.10.0.7/32 via peer-r with KeepRoute set and NetID taken from the resource name; peer-r as the router must receive the same route plus a route firewall rule whose SourceRanges are the policy's source peers. A client never gets route firewall rules.",
+  "peers": ["peer-a", "peer-r"]
+}
