@@ -36,9 +36,11 @@ const (
 // account planted. A restricted socket binds owner-only and applySocketAccess
 // hands it to the group, under the checks that step carries.
 //
-// The umask is process-wide, so it is restored immediately and the window is
-// the bind alone. Nothing else creates files at this point in startup: the
-// server and its goroutines do not exist yet.
+// The umask is process-wide, so a file another goroutine creates during the
+// bind would inherit it. That is why Start defers every asynchronous step until
+// the listeners exist: at this point the daemon is still single-threaded, and
+// the window is the bind call alone. A background task introduced above the
+// listeners in Start would reopen this, which is what the note there is for.
 func listenUnixPrivate(address string, allowed []string) (net.Listener, error) {
 	mode := openSocketMode
 	if len(allowed) > 0 {
