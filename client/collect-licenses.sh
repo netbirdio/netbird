@@ -1,8 +1,8 @@
 #!/bin/sh
 set -eu
 
-if [ "$#" -ne 1 ]; then
-	printf '%s\n' "usage: $0 OUTPUT_DIRECTORY" >&2
+if [ "$#" -lt 2 ]; then
+	printf '%s\n' "usage: $0 OUTPUT_DIRECTORY GOARCH..." >&2
 	exit 2
 fi
 
@@ -16,6 +16,7 @@ case "$output_name" in
 esac
 output_parent=$(CDPATH= cd -- "$(dirname "$1")" && pwd)
 output="$output_parent/$output_name"
+shift
 modules=$(mktemp "${TMPDIR:-/tmp}/netbird-client-licenses.modules.XXXXXX")
 sorted_modules=$(mktemp "${TMPDIR:-/tmp}/netbird-client-licenses.sorted.XXXXXX")
 trap 'rm -f "$modules" "$sorted_modules"' EXIT HUP INT TERM
@@ -30,8 +31,10 @@ mkdir "$output/third_party"
 cp "$repo_root/LICENSE" "$output/BSD-3-Clause.txt"
 
 cd "$repo_root"
-GOOS=${GOOS:-linux} GOARCH=${GOARCH:-amd64} CGO_ENABLED=${CGO_ENABLED:-0} \
-	go list -deps -f '{{with .Module}}{{if .Replace}}{{.Replace.Path}}{{"\t"}}{{.Replace.Version}}{{"\t"}}{{.Replace.Dir}}{{else}}{{.Path}}{{"\t"}}{{.Version}}{{"\t"}}{{.Dir}}{{end}}{{end}}' -tags load_wgnt_from_rsrc ./client >"$modules"
+for arch in "$@"; do
+	GOOS=${GOOS:-linux} GOARCH="$arch" CGO_ENABLED=${CGO_ENABLED:-0} \
+		go list -deps -f '{{with .Module}}{{if .Replace}}{{.Replace.Path}}{{"\t"}}{{.Replace.Version}}{{"\t"}}{{.Replace.Dir}}{{else}}{{.Path}}{{"\t"}}{{.Version}}{{"\t"}}{{.Dir}}{{end}}{{end}}' -tags load_wgnt_from_rsrc ./client >>"$modules"
+done
 LC_ALL=C sort -u "$modules" >"$sorted_modules"
 
 goroot=$(go env GOROOT)

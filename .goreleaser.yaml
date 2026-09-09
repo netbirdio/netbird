@@ -304,15 +304,15 @@ dockers_v2:
        - client/netbird-entrypoint.sh
      platforms:
        - linux/amd64
+       - linux/arm64
      build_args:
        VERSION: "{{ .Version }}"
        RELEASE: "{{ .Timestamp }}"
      hooks:
        pre:
-         - cmd: 'sh client/collect-licenses.sh "{{ .ContextDir }}/licenses"'
+         - cmd: 'sh client/collect-licenses.sh "{{ .ContextDir }}/licenses" amd64 arm64'
            env:
              - GOOS=linux
-             - GOARCH=amd64
              - CGO_ENABLED=0
      labels:
        "org.opencontainers.image.created": "{{.Date}}"
