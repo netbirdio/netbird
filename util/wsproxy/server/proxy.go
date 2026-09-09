@@ -50,8 +50,9 @@ func New(handler http.Handler, opts ...Option) *Proxy {
 // Handler returns an http.Handler that proxies WebSocket connections to the local gRPC server.
 func (p *Proxy) Handler() http.Handler {
 	return &proxyHandler{
-		metrics: p.config.MetricsRecorder,
-		handler: p.config.Handler,
+		metrics:            p.config.MetricsRecorder,
+		handler:            p.config.Handler,
+		headersReadTimeout: 10 * time.Second,
 	}
 }
 
