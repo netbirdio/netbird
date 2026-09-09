@@ -5,7 +5,7 @@
     <p class="nb-subheading">{{ .Client }} wants to access your account</p>
 
     <form method="post">
-        <input type="hidden" name="req" value="{{ .ReqID }}"/>
+        <input type="hidden" name="req" value="{{ .AuthReqID }}"/>
         <input type="hidden" name="approval" value="approve"/>
         <button type="submit" class="nb-btn">
             Allow Access
@@ -15,7 +15,7 @@
     <div class="nb-divider"></div>
 
     <form method="post">
-        <input type="hidden" name="req" value="{{ .ReqID }}"/>
+        <input type="hidden" name="req" value="{{ .AuthReqID }}"/>
         <input type="hidden" name="approval" value="rejected"/>
         <button type="submit" class="nb-btn-connector" style="margin-bottom:0">
             Deny Access
