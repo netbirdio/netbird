@@ -11,39 +11,18 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/daemonaddr"
 	"github.com/netbirdio/netbird/client/internal/ipcauth"
+	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/client/proto"
 )
 
-type MDMFields struct {
-	ManagementURL            string `json:"managementURL"`
-	PreSharedKey             bool   `json:"preSharedKey"`
-	WireguardPort            bool   `json:"wireguardPort"`
-	RosenpassEnabled         bool   `json:"rosenpassEnabled"`
-	RosenpassPermissive      bool   `json:"rosenpassPermissive"`
-	DisableClientRoutes      bool   `json:"disableClientRoutes"`
-	DisableServerRoutes      bool   `json:"disableServerRoutes"`
-	AllowServerSSH           *bool  `json:"allowServerSSH"`
-	AllowServerVNC           *bool  `json:"allowServerVNC"`
-	DisableVNCApproval       bool   `json:"disableVNCApproval"`
-	DisableAutoConnect       bool   `json:"disableAutoConnect"`
-	DisableAutostart         bool   `json:"disableAutostart"`
-	BlockInbound             bool   `json:"blockInbound"`
-	DisableMetricsCollection bool   `json:"disableMetricsCollection"`
-	SplitTunnelMode          bool   `json:"splitTunnelMode"`
-	SplitTunnelApps          bool   `json:"splitTunnelApps"`
-	DisableAdvancedView      bool   `json:"disableAdvancedView"`
-}
+// MDMFields is the shared per-key MDM enforcement snapshot; see mdm.Fields.
+type MDMFields = mdm.Fields
 
-type Features struct {
-	DisableProfiles       bool `json:"disableProfiles"`
-	DisableNetworks       bool `json:"disableNetworks"`
-	DisableUpdateSettings bool `json:"disableUpdateSettings"`
-}
+// Features is the shared feature-gate snapshot; see mdm.Features.
+type Features = mdm.Features
 
-type Restrictions struct {
-	MDM      MDMFields `json:"mdm"`
-	Features Features  `json:"features"`
-}
+// Restrictions is the shared UI enforcement snapshot; see mdm.Restrictions.
+type Restrictions = mdm.Restrictions
 
 // Privilege tells the frontend whether this process may perform the changes the
 // daemon restricts to root/administrator, whether it can ask the operating
@@ -399,7 +378,7 @@ func (s *Settings) GetRestrictions(ctx context.Context) (Restrictions, error) {
 		},
 	}
 	applyMDMRestrictions(&r.MDM, cfgResp)
-	r.MDM.DisableAdvancedView = featResp.GetDisableAdvancedView()
+	r.MDM.DisableAdvancedView = featResp.DisableAdvancedView
 	return r, nil
 }
 
@@ -425,9 +404,6 @@ func applyMDMRestrictions(mdm *MDMFields, cfgResp *proto.GetConfigResponse) {
 	t := v.Type()
 	for i := 0; i < t.NumField(); i++ {
 		if v.Field(i).Kind() != reflect.Bool {
-			continue
-		}
-		if t.Field(i).Name == "DisableAdvancedView" {
 			continue
 		}
 		if _, ok := set[t.Field(i).Tag.Get("json")]; ok {

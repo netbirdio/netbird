@@ -121,16 +121,46 @@ func NewPolicy(values map[string]any) *Policy {
 	return &Policy{values: values}
 }
 
-// LoadPolicy reads the platform-native MDM configuration. Returns an
-// empty (but non-nil) Policy when no source is present, the source is
-// empty, or the platform is unsupported.
+// PolicyFetcher supplies the managed configuration to a Loader. Mobile
+// platforms (Android / iOS) implement it to push the OS-managed values
+// into the Go runtime. On every platform a non-nil fetcher takes
+// precedence over the native source, which is the test seam for the
+// registry / plist loaders; a nil fetcher leaves the native source in
+// charge, or disables MDM enforcement where there is none.
+type PolicyFetcher interface {
+	Fetch() map[string]any
+}
+
+// Loader is the DI-friendly entry point for reading the active MDM
+// policy. Construct one at the daemon's lifecycle owner (Server on
+// desktop, gomobile-exposed bridge on mobile) and pass it to anything
+// that needs to read MDM state (the reload ticker, profilemanager's
+// Config). Each callsite has the Loader handed in instead of looking
+// up package-level state.
+type Loader struct {
+	fetcher PolicyFetcher
+}
+
+// NewLoader constructs a Loader. A non-nil fetcher takes precedence over
+// the platform-native source; production desktop callers pass nil so the
+// registry / plist stays authoritative.
+func NewLoader(f PolicyFetcher) *Loader {
+	return &Loader{fetcher: f}
+}
+
+// Load reads the platform-native MDM configuration and returns a
+// Policy. Returns an empty (but non-nil) Policy when no source is
+// present, the source is empty, or the platform is unsupported.
 //
 // Diagnostic logging differentiates the three states:
 //   - source absent / unsupported platform: trace log only
 //   - source present, zero keys:             info "MDM enrolled (no managed keys)"
 //   - source present, N keys:                info "MDM enrolled with N managed keys: [...]"
-func LoadPolicy() *Policy {
-	values, err := loadPlatformPolicy()
+func (l *Loader) Load() *Policy {
+	if l == nil {
+		return &Policy{values: map[string]any{}}
+	}
+	values, err := l.loadPlatform()
 	if err != nil {
 		log.Tracef("MDM policy load: %v", err)
 		return &Policy{values: map[string]any{}}
@@ -207,6 +237,8 @@ func (p *Policy) GetBool(key string) (bool, bool) {
 		return t != 0, true
 	case int64:
 		return t != 0, true
+	case float64:
+		return t != 0, true
 	}
 	return false, false
 }
@@ -272,7 +304,7 @@ func (p *Policy) GetStringSlice(key string) ([]string, bool) {
 }
 
 // sortedKeys returns the keys of m as a deterministic, lexicographically
-// sorted slice. Used internally by Policy.ManagedKeys and LoadPolicy's
+// sorted slice. Used internally by Policy.ManagedKeys and Loader.Load's
 // diagnostic log line so callers see a stable key order across runs
 // regardless of Go's randomised map iteration.
 func sortedKeys(m map[string]any) []string {
