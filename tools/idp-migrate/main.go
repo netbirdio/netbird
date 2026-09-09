@@ -71,6 +71,10 @@ func run(cfg *migrationConfig) error {
 		return err
 	}
 
+	if err := preflightAccounts(cfg, mgmtConfig); err != nil {
+		return err
+	}
+
 	if !cfg.skipPopulateUserInfo {
 		err := populateUserInfoFromIDP(cfg, mgmtConfig)
 		if err != nil {
@@ -100,6 +104,22 @@ func run(cfg *migrationConfig) error {
 	}
 
 	return generateConfig(cfg, connectorConfig)
+}
+
+func preflightAccounts(cfg *migrationConfig, mgmtConfig *nbconfig.Config) error {
+	ctx := context.Background()
+	migStore, migEventStore, cleanup, err := openStores(ctx, mgmtConfig, cfg.dataDir)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	srv := &migrationServer{store: migStore, eventStore: migEventStore}
+	if err := migration.RequireSingleAccount(srv); err != nil {
+		return err
+	}
+
+	return migration.CheckSingleAccountDomain(srv, cfg.singleAccountDomain)
 }
 
 // validateSchema opens the store and checks that all required tables and columns
@@ -224,6 +244,8 @@ func migrateDB(cfg *migrationConfig, mgmtConfig *nbconfig.Config, connectorConfi
 	}
 	defer cleanup()
 
+	srv := &migrationServer{store: migStore, eventStore: migEventStore}
+
 	pending, err := previewUsers(ctx, migStore)
 	if err != nil {
 		return err
@@ -243,9 +265,12 @@ func migrateDB(cfg *migrationConfig, mgmtConfig *nbconfig.Config, connectorConfi
 		}
 	}
 
-	srv := &migrationServer{store: migStore, eventStore: migEventStore}
 	if err := migration.MigrateUsersToStaticConnectors(srv, connectorConfig); err != nil {
 		return fmt.Errorf("migrate users: %w", err)
+	}
+
+	if err := migration.EnsureSingleAccountDomain(srv, cfg.singleAccountDomain); err != nil {
+		return fmt.Errorf("prepare single account mode: %w", err)
 	}
 
 	if !cfg.dryRun {

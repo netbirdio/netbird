@@ -1337,6 +1337,10 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 			return fmt.Errorf("failed to get user to delete: %w", err)
 		}
 
+		if targetUser.Role == types.UserRoleOwner && targetUser.Id != initiatorUserID {
+			return status.NewOwnerDeletePermissionError()
+		}
+
 		settings, err = transaction.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 		if err != nil {
 			return fmt.Errorf("failed to get account settings: %w", err)
