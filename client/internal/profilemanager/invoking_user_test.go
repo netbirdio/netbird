@@ -14,6 +14,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestInvokingUserFallsBackToProcessUser(t *testing.T) {
+	t.Setenv(envSudoUser, "")
+
+	got, err := InvokingUser()
+	require.NoError(t, err)
+
+	current, err := user.Current()
+	require.NoError(t, err)
+	assert.Equal(t, current.Username, got.Username, "invoking user should match the process user without sudo")
+}
+
 func TestInvokingUserFailsClosedWithoutPositiveUID(t *testing.T) {
 	for _, uid := range []int{0, -1} {
 		t.Run(fmt.Sprintf("UID%d", uid), func(t *testing.T) {
