@@ -103,9 +103,11 @@ func TestAllowedPipeSDDL(t *testing.T) {
 	})
 }
 
-// TestListenNamedPipe_RestrictedDescriptor covers the descriptor reaching the
-// listener, which is the only part of the restriction that cannot be asserted
-// from allowedPipeSDDL alone.
+// TestListenNamedPipe_RestrictedDescriptor covers only that a restricted
+// descriptor is accepted by ListenPipe and the pipe is created. Whether the
+// descriptor actually denies an outside principal is not asserted here: that
+// needs a second account and a connect attempt, so it is covered by the
+// allowedPipeSDDL assertions above plus manual testing.
 func TestListenNamedPipe_RestrictedDescriptor(t *testing.T) {
 	listener, path, err := listenNamedPipe("netbird-test-"+t.Name(), []string{"sid:" + sidAdministrators})
 	require.NoError(t, err)

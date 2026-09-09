@@ -98,6 +98,27 @@ func TestDaemonSocketPrincipals(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), mdm.KeyAllowGroups)
 	})
+
+	// A managed key holding something that is not a list of principals must not
+	// read as "no policy set" and quietly hand the decision back to the
+	// install-time value.
+	t.Run("a malformed MDM value is an error, not a fallback", func(t *testing.T) {
+		allowGroups = []string{testAllowGroupPrincipal}
+
+		for name, value := range map[string]any{
+			"number": 42,
+			"bool":   true,
+			"map":    map[string]any{"group": "x"},
+		} {
+			t.Run(name, func(t *testing.T) {
+				policy := mdm.NewPolicy(map[string]any{mdm.KeyAllowGroups: value})
+
+				_, source, err := daemonSocketPrincipals(policy)
+				require.Error(t, err)
+				assert.Contains(t, source, mdm.KeyAllowGroups, "the managed key must be named as the source that failed")
+			})
+		}
+	})
 }
 
 // A TCP listener can express neither a socket mode nor a security descriptor,

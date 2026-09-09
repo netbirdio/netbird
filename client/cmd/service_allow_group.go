@@ -68,8 +68,18 @@ func resolveAllowGroups(values []string) ([]string, error) {
 // meant to be locked down.
 func daemonSocketPrincipals(policy *mdm.Policy) ([]string, string, error) {
 	values, source := allowGroups, "--allow-group"
-	if managed, ok := policy.GetStringSlice(mdm.KeyAllowGroups); ok {
-		values, source = managed, "MDM policy "+mdm.KeyAllowGroups
+
+	if policy.HasKey(mdm.KeyAllowGroups) {
+		source = "MDM policy " + mdm.KeyAllowGroups
+		managed, ok := policy.GetStringSlice(mdm.KeyAllowGroups)
+		if !ok {
+			// The key is managed but holds something that is not a list of
+			// strings. Falling back to the install-time value, or to no
+			// restriction at all, would apply an access rule the administrator
+			// did not write.
+			return nil, source, fmt.Errorf("%s: managed value is not a list of principals", source)
+		}
+		values = managed
 	}
 
 	resolved, err := resolveAllowGroups(values)
