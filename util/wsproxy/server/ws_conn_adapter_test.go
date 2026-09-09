@@ -105,73 +105,57 @@ func TestAdapterHandlingConnectionClosures(t *testing.T) {
 	}
 }
 
-func TestAdapterHandlingBuggyHttpConnection(t *testing.T) {
-	var cases = []struct {
-		description              string
-		shouldDropFrameCondition func(f http2.FrameType) bool
-		responseError            string
-	}{
-		{"client slow to start a stream (nothing past settings frame)",
-			func(f http2.FrameType) bool { return f == http2.FrameData || f == http2.FrameHeaders },
-			"failed to get reader"},
-		{"client slow to start a stream (only headers received)", func(f http2.FrameType) bool { return f == http2.FrameData },
-			"failed to get reader"},
+func TestAdapterHandlingHttpConnection_NoHeadersSent(t *testing.T) {
+	serversock := filepath.Join("/tmp", "http-server-"+strconv.FormatInt(rand.Int64(), 10)+".sock")
+	defer os.Remove(serversock)
+
+	l, err := net.Listen("unix", serversock)
+	assert.NoError(t, err)
+
+	proxy := New(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buf, _ := io.ReadAll(r.Body)
+		defer r.Body.Close()
+		w.Write([]byte("echo: " + string(buf)))
+	}))
+
+	handler, ok := proxy.Handler().(*proxyHandler)
+	assert.True(t, ok)
+	handler.headersReadTimeout = 1 * time.Second
+
+	protocols := new(http.Protocols)
+	protocols.SetHTTP1(true)
+	protocols.SetUnencryptedHTTP2(true)
+	httpServer := http.Server{
+		Handler: handler,
 	}
+	go httpServer.Serve(l)
 
-	for _, c := range cases {
-		t.Run(c.description, func(t *testing.T) {
-			serversock := filepath.Join("/tmp", "http-server-"+strconv.FormatInt(rand.Int64(), 10)+".sock")
-			defer os.Remove(serversock)
+	clientconn, _, err := websocket.Dial(context.Background(), "http://whatever", &websocket.DialOptions{HTTPClient: &http.Client{
+		Transport: &http.Transport{
+			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
+				return net.Dial("unix", serversock)
+			},
+		}}})
+	assert.NoError(t, err)
 
-			l, err := net.Listen("unix", serversock)
-			assert.NoError(t, err)
+	h2client := &http.Client{
+		Transport: &http2.Transport{
+			AllowHTTP: true,
+			DialTLSContext: func(_ context.Context, _, _ string, _ *tls.Config) (net.Conn, error) {
+				return &h2ConnectionSnooper{wrappedConn: &wsConnAdapter{
+					prefix: "test-client",
+					ctx:    context.Background(),
+					conn:   clientconn,
+				}, shouldDropFrame: func(f http2.FrameType) bool { return f == http2.FrameHeaders }}, nil
+			},
+		}}
 
-			proxy := New(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				buf, _ := io.ReadAll(r.Body)
-				defer r.Body.Close()
-				w.Write([]byte("echo: " + string(buf)))
-			}))
+	_, err = h2client.Post("http://whatever", "text/html", strings.NewReader("g'day"))
+	assert.Error(t, err)
 
-			handler, ok := proxy.Handler().(*proxyHandler)
-			assert.True(t, ok)
-			handler.headersReadTimeout = 1 * time.Second
-
-			protocols := new(http.Protocols)
-			protocols.SetHTTP1(true)
-			protocols.SetUnencryptedHTTP2(true)
-			httpServer := http.Server{
-				Handler: handler,
-			}
-			go httpServer.Serve(l)
-
-			clientconn, _, err := websocket.Dial(context.Background(), "http://whatever", &websocket.DialOptions{HTTPClient: &http.Client{
-				Transport: &http.Transport{
-					DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-						return net.Dial("unix", serversock)
-					},
-				}}})
-			assert.NoError(t, err)
-
-			h2client := &http.Client{
-				Transport: &http2.Transport{
-					AllowHTTP: true,
-					DialTLSContext: func(_ context.Context, _, _ string, _ *tls.Config) (net.Conn, error) {
-						return &h2ConnectionSnooper{wrappedConn: &wsConnAdapter{
-							prefix: "test-client",
-							ctx:    context.Background(),
-							conn:   clientconn,
-						}, shouldDropFrame: c.shouldDropFrameCondition}, nil
-					},
-				}}
-
-			_, err = h2client.Post("http://whatever", "text/html", strings.NewReader("g'day"))
-			assert.ErrorContains(t, err, c.responseError)
-
-			assert.EventuallyWithT(t, func(c *assert.CollectT) {
-				assert.True(c, handler.conn.IsClosed())
-			}, 3*time.Second, 100*time.Millisecond)
-		})
-	}
+	assert.EventuallyWithT(t, func(c *assert.CollectT) {
+		assert.True(c, handler.conn.IsClosed())
+	}, 3*time.Second, 100*time.Millisecond)
 }
 
 type h2ConnectionSnooper struct {

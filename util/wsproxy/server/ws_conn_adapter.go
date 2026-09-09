@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"io"
 	"net"
 	"time"
 
@@ -83,6 +84,7 @@ func (ws *wsConnAdapter) readFromBuffer(b []byte) (int, error) {
 		}
 	}
 
+	io.Pipe()
 	ws.recordBytesTransferred(ws.ctx, "ws_to_grpc", n)
 	if n == len(ws.bufferedRead) {
 		ws.bufferedRead = nil
