@@ -14,10 +14,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
-	"github.com/netbirdio/netbird/management/server/job"
-	"github.com/netbirdio/netbird/shared/auth"
-
 	cacheStore "github.com/eko/gocache/lib/v4/store"
 	"github.com/eko/gocache/store/redis/v4"
 	"github.com/rs/xid"
@@ -29,6 +25,7 @@ import (
 	"github.com/netbirdio/netbird/formatter/hook"
 	"github.com/netbirdio/netbird/idp/dex"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -39,6 +36,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/server/job"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
@@ -50,6 +48,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/auth"
 	nbdomain "github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -236,6 +235,10 @@ func BuildManager(
 	accountsCounter, err := store.GetAccountsCounter(ctx)
 	if err != nil {
 		log.WithContext(ctx).Error(err)
+	}
+
+	if IsEmbeddedIdp(idpManager) && accountsCounter > 1 {
+		log.WithContext(ctx).Warnf("embedded IdP requires a single account, found %d", accountsCounter)
 	}
 
 	// enable single account mode only if configured by user and number of existing accounts is not grater than 1
@@ -716,8 +719,10 @@ func (am *DefaultAccountManager) schedulePeerLoginExpiration(ctx context.Context
 		log.WithContext(ctx).Tracef("peer login expiration job for account %s is already scheduled", accountID)
 		return
 	}
+	// The job outlives the request that arms it, so it must not inherit the request's cancellation.
+	jobCtx := context.WithoutCancel(ctx)
 	if nextRun, ok := am.getNextPeerExpiration(ctx, accountID); ok {
-		go am.peerLoginExpiry.Schedule(ctx, nextRun, accountID, am.peerLoginExpirationJob(ctx, accountID))
+		go am.peerLoginExpiry.Schedule(jobCtx, nextRun, accountID, am.peerLoginExpirationJob(jobCtx, accountID))
 	}
 }
 
@@ -749,8 +754,9 @@ func (am *DefaultAccountManager) peerInactivityExpirationJob(ctx context.Context
 // checkAndSchedulePeerInactivityExpiration periodically checks for inactive peers to end their sessions
 func (am *DefaultAccountManager) checkAndSchedulePeerInactivityExpiration(ctx context.Context, accountID string) {
 	am.peerInactivityExpiry.Cancel(ctx, []string{accountID})
+	jobCtx := context.WithoutCancel(ctx)
 	if nextRun, ok := am.getNextInactivePeerExpiration(ctx, accountID); ok {
-		go am.peerInactivityExpiry.Schedule(ctx, nextRun, accountID, am.peerInactivityExpirationJob(ctx, accountID))
+		go am.peerInactivityExpiry.Schedule(jobCtx, nextRun, accountID, am.peerInactivityExpirationJob(jobCtx, accountID))
 	}
 }
 
@@ -1592,7 +1598,10 @@ func (am *DefaultAccountManager) updateUserAuthWithSingleMode(ctx context.Contex
 	if err != nil {
 		return err
 	}
-	userAuth.Domain = domain
+	// Keep the configured single account domain when the existing account has none
+	if domain != "" {
+		userAuth.Domain = domain
+	}
 
 	log.WithContext(ctx).Debugf("overriding JWT Domain and DomainCategory claims since single account mode is enabled")
 	return nil
@@ -1837,6 +1846,7 @@ func (am *DefaultAccountManager) getAccountIDWithAuthorizationClaims(ctx context
 
 	return am.addNewPrivateAccount(ctx, domainAccountID, userAuth)
 }
+
 func (am *DefaultAccountManager) getPrivateDomainWithGlobalLock(ctx context.Context, domain string) (string, context.CancelFunc, error) {
 	domainAccountID, err := am.Store.GetAccountIDByPrivateDomain(ctx, store.LockingStrengthNone, domain)
 	if handleNotFound(err) != nil {

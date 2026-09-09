@@ -1651,6 +1651,10 @@ var (
 	// ErrUserBlocked reports a blocked user, who may not hold a proxy session.
 	ErrUserBlocked = errors.New("user blocked")
 
+	// ErrUserNotInGroup reports a user outside the service's distribution
+	// groups, who may not hold a proxy session for it.
+	ErrUserNotInGroup = errors.New("user not in allowed groups")
+
 	errUserUnresolved = errors.New("user could not be resolved")
 )
 
@@ -1689,8 +1693,10 @@ func sameAccount(userAccountID, serviceAccountID string) bool {
 // GenerateSessionToken creates a signed session JWT for the given domain and
 // user. The user's group memberships are embedded in the token so policy-aware
 // middlewares on the proxy can authorise without an extra management round-trip.
-// A user the store cannot resolve, or whose account is pending approval or
-// blocked, gets no token at all, so the browser never receives a session cookie.
+// A user the store cannot resolve, whose account is pending approval or blocked,
+// or who is outside the service's distribution groups, gets no token at all: the
+// token is a bearer credential for the service, so authorisation has to run
+// before it is signed rather than only when the proxy presents it back.
 func (s *ProxyServiceServer) GenerateSessionToken(ctx context.Context, domain, userID string, method proxyauth.Method) (string, error) {
 	service, err := s.getServiceByDomain(ctx, domain)
 	if err != nil {
@@ -1724,6 +1730,14 @@ func (s *ProxyServiceServer) GenerateSessionToken(ctx context.Context, domain, u
 
 	if _, err := checkUserStatus(user); err != nil {
 		return "", fmt.Errorf("session token for user %s: %w", userID, err)
+	}
+
+	if err := s.checkGroupAccess(service, user); err != nil {
+		log.WithContext(ctx).WithFields(log.Fields{
+			"domain":  domain,
+			"user_id": userID,
+		}).Debug("GenerateSessionToken: user not in the service's distribution groups")
+		return "", fmt.Errorf("session token for user %s: %w", userID, ErrUserNotInGroup)
 	}
 
 	groupIDs, groupNames := pairGroupIDsAndNames(userGroups)
