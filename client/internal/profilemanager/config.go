@@ -59,10 +59,6 @@ var DefaultInterfaceBlacklist = []string{
 	"Tailscale", "tailscale", "docker", "veth", "br-", "lo",
 }
 
-// loadMDMPolicy is the package-level indirection used by apply() to read the
-// active MDM policy. Tests override this to inject a fake policy.
-var loadMDMPolicy = mdm.LoadPolicy
-
 // ConfigInput carries configuration changes to the client
 type ConfigInput struct {
 	ManagementURL                 string
@@ -204,14 +200,26 @@ type Config struct {
 
 	MTU uint16
 
-	// policy is the MDM policy that produced the currently-set values for
-	// any MDM-enforced fields. Set by applyMDMPolicy at the tail of apply()
-	// and reset on every apply() invocation. Never persisted to disk.
-	// Callers query enforcement state via Policy() and the mdm.Policy API
-	// (HasKey, ManagedKeys, IsEmpty).
+	// policy is the MDM policy that produced the currently-set values
+	// for any MDM-enforced fields. Set by ApplyMDMPolicy on every
+	// invocation. Never persisted to disk. Callers query enforcement
+	// state via Policy() and the mdm.Policy API (HasKey, ManagedKeys,
+	// IsEmpty).
 	policy *mdm.Policy `json:"-"`
 
 	Owners []string
+}
+
+// ApplyMDMPolicy overlays the supplied MDM Policy on top of the current
+// Config values and records it as Policy(). The overlay is not reversible:
+// an empty Policy only clears the enforcement metadata, so resolve the base
+// Config again (from disk or JSON) before applying a changed policy, the way
+// the lifecycle owners do on every load.
+func (config *Config) ApplyMDMPolicy(policy *mdm.Policy) {
+	if config == nil {
+		return
+	}
+	config.applyMDMPolicy(policy)
 }
 
 // Policy returns the MDM policy applied to this Config. Returns a non-nil
@@ -723,9 +731,11 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	// MDM is the last override layer: any key present in the policy
-	// supersedes defaults, on-disk config, env vars and CLI input.
-	config.applyMDMPolicy(loadMDMPolicy())
+	// Initialise the MDM overlay to "no enforcement" so Config.Policy()
+	// never returns a stale or nil policy on a freshly applied Config.
+	// Lifecycle owners that want to enforce a real MDM policy invoke
+	// Config.ApplyMDMPolicy(loader.Load()) after this returns.
+	config.applyMDMPolicy(mdm.NewPolicy(nil))
 
 	return updated, nil
 }

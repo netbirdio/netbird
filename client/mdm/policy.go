@@ -134,16 +134,43 @@ func NewPolicy(values map[string]any) *Policy {
 	return &Policy{values: values}
 }
 
-// LoadPolicy reads the platform-native MDM configuration. Returns an
-// empty (but non-nil) Policy when no source is present, the source is
-// empty, or the platform is unsupported.
+// PolicyFetcher supplies the managed configuration to a Loader. Mobile
+// platforms (Android / iOS) implement it to push the OS-managed values
+// into the Go runtime. On every platform a non-nil fetcher takes
+// precedence over the native source, which is the test seam for the
+// registry / plist loaders; a nil fetcher leaves the native source in
+// charge, or disables MDM enforcement where there is none.
+type PolicyFetcher interface {
+	Fetch() map[string]any
+}
+
+// Loader is the DI-friendly entry point for reading the active MDM
+// policy. Construct one at the daemon's lifecycle owner (Server on
+// desktop, gomobile-exposed bridge on mobile) and pass it to anything
+// that needs to read MDM state (the reload ticker, profilemanager's
+// Config). Each callsite has the Loader handed in instead of looking
+// up package-level state.
+type Loader struct {
+	fetcher PolicyFetcher
+}
+
+// NewLoader constructs a Loader. A non-nil fetcher takes precedence over
+// the platform-native source; production desktop callers pass nil so the
+// registry / plist stays authoritative.
+func NewLoader(f PolicyFetcher) *Loader {
+	return &Loader{fetcher: f}
+}
+
+// Load reads the platform-native MDM configuration and returns a
+// Policy. Returns an empty (but non-nil) Policy when no source is
+// present, the source is empty, or the platform is unsupported.
 //
 // Diagnostic logging differentiates the three states:
 //   - source absent / unsupported platform: trace log only
 //   - source present, zero keys:             info "MDM enrolled (no managed keys)"
 //   - source present, N keys:                info "MDM enrolled with N managed keys: [...]"
-func LoadPolicy() *Policy {
-	policy, err := LoadPolicyWithError()
+func (l *Loader) Load() *Policy {
+	policy, err := l.LoadWithError()
 	if err != nil {
 		log.Tracef("MDM policy load: %v", err)
 		return &Policy{values: map[string]any{}}
@@ -151,21 +178,25 @@ func LoadPolicy() *Policy {
 	return policy
 }
 
-// LoadPolicyWithError reads the platform-native MDM configuration and reports a
-// source that is present but could not be read, which LoadPolicy hides behind an
+// LoadWithError reads the platform-native MDM configuration and reports a
+// source that is present but could not be read, which Load hides behind an
 // empty Policy.
 //
 // A caller that enforces a managed security setting must use this and fail
 // closed: an unreadable source is not the same as an absent one, and treating
 // it as absent silently drops whatever the administrator configured. A caller
 // that only decides a default, such as the UI's autostart checkbox, is better
-// served by LoadPolicy.
+// served by Load.
 //
 // An absent source is not an error. The platform loaders return the
 // documented (nil, nil) sentinel for "not enrolled", so only a real read
 // failure surfaces here.
-func LoadPolicyWithError() (*Policy, error) {
-	values, err := loadPlatformPolicy()
+func (l *Loader) LoadWithError() (*Policy, error) {
+	if l == nil {
+		return &Policy{values: map[string]any{}}, nil
+	}
+
+	values, err := l.loadPlatform()
 	if err != nil {
 		return nil, fmt.Errorf("read MDM policy source: %w", err)
 	}
@@ -241,6 +272,8 @@ func (p *Policy) GetBool(key string) (bool, bool) {
 		return t != 0, true
 	case int64:
 		return t != 0, true
+	case float64:
+		return t != 0, true
 	}
 	return false, false
 }
@@ -306,7 +339,7 @@ func (p *Policy) GetStringSlice(key string) ([]string, bool) {
 }
 
 // sortedKeys returns the keys of m as a deterministic, lexicographically
-// sorted slice. Used internally by Policy.ManagedKeys and LoadPolicy's
+// sorted slice. Used internally by Policy.ManagedKeys and Loader.Load's
 // diagnostic log line so callers see a stable key order across runs
 // regardless of Go's randomised map iteration.
 func sortedKeys(m map[string]any) []string {

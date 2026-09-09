@@ -121,7 +121,10 @@ func (p *program) Start(svc service.Service) error {
 // on a managed host it may be carrying the restriction, and treating it as
 // absent would serve every local account instead.
 func (p *program) listenRestricted() (*socketListener, *socketListener, error) {
-	policy, err := mdm.LoadPolicyWithError()
+	// A nil fetcher leaves the platform-native source authoritative, which is
+	// what a desktop daemon wants. This runs before the Server exists, so it
+	// cannot borrow the Loader the Server owns.
+	policy, err := mdm.NewLoader(nil).LoadWithError()
 	if err != nil {
 		return nil, nil, err
 	}
