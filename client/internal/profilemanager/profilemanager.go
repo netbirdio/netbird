@@ -34,6 +34,22 @@ type Profile struct {
 	Owners   []ipcauth.Principal
 }
 
+// AccessibleBy reports whether a kernel-attested caller may address this
+// profile.
+func (p *Profile) AccessibleBy(id ipcauth.Identity) bool {
+	if !id.Known() {
+		return false
+	}
+	if ipcauth.IsPrivilegedCaller(id) {
+		return true
+	}
+	// TODO: decide on unowned behavior
+	if len(p.Owners) == 0 {
+		return false
+	}
+	return p.Owners[0].Matches(id)
+}
+
 func (p *Profile) FilePath() (string, error) {
 	if p.Path != "" {
 		return p.Path, nil
@@ -60,7 +76,7 @@ func (p *Profile) FilePath() (string, error) {
 		return "", fmt.Errorf("failed to get current user: %w", err)
 	}
 
-	configDir, err := getConfigDirForUser(username.Username)
+	configDir, err := getConfigDirForUserLegacy(username.Username)
 	if err != nil {
 		return "", fmt.Errorf("failed to get config directory for user %s: %w", username.Username, err)
 	}
