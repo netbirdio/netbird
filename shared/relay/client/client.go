@@ -279,7 +279,7 @@ func (c *Client) Connect(ctx context.Context) error {
 	c.stateSubscription = NewPeersStateSubscription(c.log, c.relayConn, c.closeConnsByPeerID)
 
 	c.log = c.log.WithField("relay", instanceURL.String())
-	c.log.Infof("relay connection established")
+	c.log.Infof("relay connection established, server IP: %s", connectedIP(c.relayConn))
 
 	c.serviceIsRunning = true
 
