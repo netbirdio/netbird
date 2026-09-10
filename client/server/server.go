@@ -2836,6 +2836,13 @@ func (s *Server) SessionHolder() (ipcauth.Principal, bool) {
 // decision wait on a resolver that can be slow, or absent, and would deny
 // every caller whenever it times out.
 func (s *Server) OwnsProfile(id ipcauth.Identity, handle string) bool {
+	if handle == "" {
+		act, err := s.profileManager.GetActiveProfileState()
+		if err != nil {
+			log.Warnf("failed to get active profile: %v", err)
+		}
+		handle = act.ID.String()
+	}
 	resolved, err := s.resolveProfileHandle(handle, id)
 	if err != nil {
 		log.Errorf("failed to resolve profile %q: %v", handle, err)
