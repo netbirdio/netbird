@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -10,7 +12,33 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/client/proto"
 )
+
+type reverseResolverFunc func(context.Context, string) ([]string, error)
+
+func (f reverseResolverFunc) LookupAddr(ctx context.Context, ip string) ([]string, error) {
+	return f(ctx, ip)
+}
+
+func TestGetKubernetesClustersSkipsReverseLookupFailures(t *testing.T) {
+	peers := []*proto.PeerState{
+		{IP: "100.64.0.10"},
+		{IP: "100.64.0.11"},
+	}
+	resolver := reverseResolverFunc(func(_ context.Context, ip string) ([]string, error) {
+		if ip == peers[0].IP {
+			return nil, errors.New("no PTR record")
+		}
+		return []string{"unrelated.example.com."}, nil
+	})
+
+	clusters, err := getKubernetesClustersWithResolver(
+		t.Context(), peers, "", resolver, http.DefaultClient)
+	require.NoError(t, err)
+	require.Empty(t, clusters, "an unrelated peer lookup failure must not abort discovery")
+}
 
 func TestFingerprintClusters(t *testing.T) {
 	t.Parallel()

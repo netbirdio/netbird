@@ -119,6 +119,10 @@ type kubernetesCluster struct {
 	version string
 }
 
+type reverseResolver interface {
+	LookupAddr(context.Context, string) ([]string, error)
+}
+
 func getKubernetesClusters(ctx context.Context, peers []*proto.PeerState, nameFilter string) ([]kubernetesCluster, error) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = &tls.Config{
@@ -132,13 +136,23 @@ func getKubernetesClusters(ctx context.Context, peers []*proto.PeerState, nameFi
 		// https://github.com/golang/go/issues/17093
 		PreferGo: true,
 	}
+	return getKubernetesClustersWithResolver(ctx, peers, nameFilter, &resolver, httpClient)
+}
 
+func getKubernetesClustersWithResolver(
+	ctx context.Context,
+	peers []*proto.PeerState,
+	nameFilter string,
+	resolver reverseResolver,
+	httpClient *http.Client,
+) ([]kubernetesCluster, error) {
 	kcs := []kubernetesCluster{}
 	attempted := map[string]struct{}{}
 	for _, peer := range peers {
 		fqdns, err := resolver.LookupAddr(ctx, peer.IP)
 		if err != nil {
-			return nil, err
+			log.Debugf("could not reverse-resolve peer %s: %v", peer.IP, err)
+			continue
 		}
 		for _, fqdn := range fqdns {
 			if _, ok := attempted[fqdn]; ok {
