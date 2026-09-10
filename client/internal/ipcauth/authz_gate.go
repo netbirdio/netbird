@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 
+	"github.com/netbirdio/netbird/client/proto"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -47,14 +48,17 @@ func (g *AuthzGate) state() DaemonState {
 // RequireHolderForFullStatus escalates a StatusRequest that asks for peer detail
 // or for probes to be run.
 func RequireHolderForFullStatus(r Request) error {
-	statusReq, ok := r.Msg.(interface {
-		GetGetFullPeerStatus() bool
-		GetShouldRunProbes() bool
-	})
+	statusReq, ok := r.Msg.(*proto.StatusRequest)
 	if !ok {
 		return nil
 	}
-	if !statusReq.GetGetFullPeerStatus() && !statusReq.GetShouldRunProbes() {
+	if r.Level < AuthzLevelSessionHolder {
+		if statusReq.GetFullPeerStatus {
+			statusReq.GetFullPeerStatus = false
+		}
+		if statusReq.ShouldRunProbes {
+			statusReq.ShouldRunProbes = false
+		}
 		return nil
 	}
 	return RequireLevel(AuthzLevelSessionHolder)(r)

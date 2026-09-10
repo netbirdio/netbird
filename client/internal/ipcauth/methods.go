@@ -48,6 +48,7 @@ var methodPolicies = map[string]MethodPolicy{
 	// Any identified caller.
 	servicePath + "Status":           {Level: AuthzLevelIdentified, Rules: []Rule{RequireHolderForFullStatus}},
 	servicePath + "AddProfile":       {Level: AuthzLevelIdentified, Audit: true},
+	servicePath + "ListProfiles":     {Level: AuthzLevelIdentified},
 	servicePath + "GetActiveProfile": {Level: AuthzLevelIdentified},
 	servicePath + "GetFeatures":      {Level: AuthzLevelIdentified},
 	servicePath + "WailsUIReady":     {Level: AuthzLevelIdentified},
@@ -67,7 +68,6 @@ var methodPolicies = map[string]MethodPolicy{
 	servicePath + "SwitchProfile": {Level: AuthzLevelSessionHolder, TargetsProfile: true, Audit: true},
 
 	// Owner of some profile
-	servicePath + "ListProfiles":       {Level: AuthzLevelProfileOwner},
 	servicePath + "GetLogLevel":        {Level: AuthzLevelProfileOwner},
 	servicePath + "ListStates":         {Level: AuthzLevelProfileOwner},
 	servicePath + "GetInstallerResult": {Level: AuthzLevelProfileOwner},
