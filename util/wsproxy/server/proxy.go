@@ -3,18 +3,12 @@ package server
 import (
 	"net/http"
 	"sync/atomic"
-	"time"
 
 	"github.com/coder/websocket"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/http2"
 
 	"github.com/netbirdio/netbird/util/wsproxy"
-)
-
-const (
-	bufferSize = 32 * 1024
-	ioTimeout  = 5 * time.Second
 )
 
 // Config contains the configuration for the WebSocket proxy.
