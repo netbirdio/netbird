@@ -1920,6 +1920,154 @@ func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.
 	}
 }
 
+func TestDefaultAccountManager_SchedulePeerLoginExpiration_IncludesOfflinePeers(t *testing.T) {
+	manager, updateManager, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
+	require.NoError(t, err, "unable to create an account")
+
+	connectedKey, offlineKey := addExpiringPeers(t, manager)
+	_, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &types.Settings{
+		PeerLoginExpiration:        time.Hour,
+		PeerLoginExpirationEnabled: true,
+		Extra:                      &types.ExtraSettings{},
+	})
+	require.NoError(t, err, "expecting to update account settings successfully but got error")
+	manager.peerLoginExpiry.CancelAll(context.Background())
+
+	// The connected peer logged in just now, so a job computed from connected peers alone
+	// would be armed for an hour. The offline peer's login expires in two seconds; a
+	// reconnect of that peer must not have to wait for the connected peer's tick.
+	now := time.Now().UTC()
+	setPeerLogin(t, manager, accountID, connectedKey, true, now)
+	setPeerLogin(t, manager, accountID, offlineKey, false, now.Add(-time.Hour+2*time.Second))
+
+	offlinePeer, err := manager.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, offlineKey)
+	require.NoError(t, err)
+	updateManager.CreateChannel(context.Background(), offlinePeer.ID)
+
+	manager.peerLoginExpiry = NewDefaultScheduler()
+	t.Cleanup(func() { manager.peerLoginExpiry.CancelAll(context.Background()) })
+	manager.schedulePeerLoginExpiration(context.Background(), accountID)
+
+	// The flag is committed per peer before the disconnect fans out, so wait for both.
+	require.Eventually(t, func() bool {
+		peer, err := manager.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, offlineKey)
+		return err == nil && peer.Status.LoginExpired && !updateManager.HasChannel(offlinePeer.ID)
+	}, 10*time.Second, 100*time.Millisecond, "offline peer should be expired and disconnected at its own deadline")
+
+	connectedPeer, err := manager.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, connectedKey)
+	require.NoError(t, err)
+	assert.False(t, connectedPeer.Status.LoginExpired, "connected peer with a fresh login must not expire")
+}
+
+func TestDefaultAccountManager_SchedulePeerLoginExpiration_DetachesRequestContext(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
+	require.NoError(t, err, "unable to create an account")
+	connectedKey, _ := addExpiringPeers(t, manager)
+	setPeerLogin(t, manager, accountID, connectedKey, true, time.Now().UTC())
+
+	scheduled := make(chan context.Context, 1)
+	manager.peerLoginExpiry = &MockScheduler{
+		IsSchedulerRunningFunc: func(string) bool { return false },
+		ScheduleFunc: func(ctx context.Context, _ time.Duration, _ string, _ func() (time.Duration, bool)) {
+			scheduled <- ctx
+		},
+	}
+
+	requestCtx, cancel := context.WithCancel(context.Background())
+	manager.schedulePeerLoginExpiration(requestCtx, accountID)
+	cancel()
+
+	select {
+	case jobCtx := <-scheduled:
+		assert.NoError(t, jobCtx.Err(), "the expiration job must outlive the request that armed it")
+	case <-time.After(time.Second):
+		t.Fatal("timeout while waiting for the job to be scheduled")
+	}
+}
+
+func TestDefaultAccountManager_ExpireAndUpdatePeers_SkipsPeerThatLoggedInAgain(t *testing.T) {
+	manager, updateManager, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
+	require.NoError(t, err, "unable to create an account")
+
+	reloggedKey, staleKey := addExpiringPeers(t, manager)
+	_, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &types.Settings{
+		PeerLoginExpiration:        time.Hour,
+		PeerLoginExpirationEnabled: true,
+		Extra:                      &types.ExtraSettings{},
+	})
+	require.NoError(t, err, "expecting to update account settings successfully but got error")
+	manager.peerLoginExpiry.CancelAll(context.Background())
+
+	expiredLogin := time.Now().UTC().Add(-2 * time.Hour)
+	setPeerLogin(t, manager, accountID, reloggedKey, true, expiredLogin)
+	setPeerLogin(t, manager, accountID, staleKey, true, expiredLogin)
+
+	expiredPeers, err := manager.getExpiredPeers(context.Background(), accountID)
+	require.NoError(t, err)
+	require.Len(t, expiredPeers, 2, "both peers should be due for expiration")
+
+	// The job holds the candidate list while one peer completes a fresh login, which
+	// moves its deadline into the future and must win over the stale candidate entry.
+	setPeerLogin(t, manager, accountID, reloggedKey, true, time.Now().UTC())
+
+	reloggedPeer, err := manager.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, reloggedKey)
+	require.NoError(t, err)
+	stalePeer, err := manager.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, staleKey)
+	require.NoError(t, err)
+	updateManager.CreateChannel(context.Background(), reloggedPeer.ID)
+	updateManager.CreateChannel(context.Background(), stalePeer.ID)
+
+	err = manager.expireAndUpdatePeers(context.Background(), accountID, expiredPeers, peerExpirationSessionExpired)
+	require.NoError(t, err)
+
+	reloggedPeer, err = manager.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, reloggedKey)
+	require.NoError(t, err)
+	assert.False(t, reloggedPeer.Status.LoginExpired, "a peer that logged in again must not be flagged from the stale candidate list")
+	assert.True(t, reloggedPeer.Status.Connected, "the re-logged peer must keep its connected status")
+	assert.True(t, updateManager.HasChannel(reloggedPeer.ID), "the re-logged peer's update channel must stay open")
+
+	stalePeer, err = manager.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, staleKey)
+	require.NoError(t, err)
+	assert.True(t, stalePeer.Status.LoginExpired, "a peer that is still due must be flagged")
+	assert.False(t, updateManager.HasChannel(stalePeer.ID), "the expired peer's update channel must be closed")
+}
+
+// addExpiringPeers registers two SSO peers with login expiration enabled and returns their public keys.
+func addExpiringPeers(t *testing.T, manager *DefaultAccountManager) (string, string) {
+	t.Helper()
+	keys := make([]string, 0, 2)
+	for _, hostname := range []string{"connected-peer", "offline-peer"} {
+		key, err := wgtypes.GenerateKey()
+		require.NoError(t, err, "unable to generate WireGuard key")
+		_, _, _, _, err = manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
+			Key:                    key.PublicKey().String(),
+			Meta:                   nbpeer.PeerSystemMeta{Hostname: hostname},
+			LoginExpirationEnabled: true,
+		}, false)
+		require.NoError(t, err, "unable to add peer")
+		keys = append(keys, key.PublicKey().String())
+	}
+	return keys[0], keys[1]
+}
+
+func setPeerLogin(t *testing.T, manager *DefaultAccountManager, accountID, peerKey string, connected bool, lastLogin time.Time) {
+	t.Helper()
+	peer, err := manager.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, peerKey)
+	require.NoError(t, err)
+	peer.Status.Connected = connected
+	peer.LastLogin = &lastLogin
+	require.NoError(t, manager.Store.SavePeer(context.Background(), accountID, peer))
+}
+
 func TestDefaultAccountManager_MarkPeerDisconnected_SchedulesInactivityExpiration(t *testing.T) {
 	manager, _, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
@@ -2702,7 +2850,7 @@ func TestAccount_GetNextPeerExpiration(t *testing.T) {
 			expectedNextExpiration: time.Duration(0),
 		},
 		{
-			name: "No connected peers, no expiration",
+			name: "Offline peer with expiration, return expiration",
 			peers: map[string]*nbpeer.Peer{
 				"peer-1": {
 					Status: &nbpeer.PeerStatus{
@@ -2721,8 +2869,33 @@ func TestAccount_GetNextPeerExpiration(t *testing.T) {
 			},
 			expiration:             time.Second,
 			expirationEnabled:      false,
-			expectedNextRun:        false,
-			expectedNextExpiration: time.Duration(0),
+			expectedNextRun:        true,
+			expectedNextExpiration: time.Second,
+		},
+		{
+			name: "Offline peer with the earliest deadline defines the next run",
+			peers: map[string]*nbpeer.Peer{
+				"peer-1": {
+					Status: &nbpeer.PeerStatus{
+						Connected: true,
+					},
+					LoginExpirationEnabled: true,
+					LastLogin:              util.ToPtr(time.Now().UTC()),
+					UserID:                 userID,
+				},
+				"peer-2": {
+					Status: &nbpeer.PeerStatus{
+						Connected: false,
+					},
+					LoginExpirationEnabled: true,
+					LastLogin:              util.ToPtr(time.Now().UTC().Add(-50 * time.Minute)),
+					UserID:                 userID,
+				},
+			},
+			expiration:             time.Hour,
+			expirationEnabled:      true,
+			expectedNextRun:        true,
+			expectedNextExpiration: 10 * time.Minute,
 		},
 		{
 			name: "Connected peers with disabled expiration, no expiration",
