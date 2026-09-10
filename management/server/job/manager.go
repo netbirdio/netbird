@@ -127,12 +127,17 @@ func (jm *Manager) HandleResponse(ctx context.Context, resp *proto.JobResponse, 
 	return nil
 }
 
-// CloseChannel closes a peer’s channel and cleans up its jobs
-func (jm *Manager) CloseChannel(ctx context.Context, accountID, peerID string) {
+// CloseChannel closes a peer’s channel and cleans up its jobs. A registered
+// channel other than session belongs to a newer job stream: the stale caller
+// must not close it or fail the jobs the new stream is serving.
+func (jm *Manager) CloseChannel(ctx context.Context, accountID, peerID string, session *Channel) {
 	jm.mu.Lock()
 	defer jm.mu.Unlock()
 
 	if ch, ok := jm.jobChannels[peerID]; ok {
+		if ch != session {
+			return
+		}
 		ch.Close()
 		delete(jm.jobChannels, peerID)
 	}

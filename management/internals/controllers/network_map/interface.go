@@ -35,7 +35,7 @@ type Controller interface {
 	OnPeersDeleted(ctx context.Context, accountID string, peerIDs []string, affectedPeerIDs []string) error
 	DisconnectPeers(ctx context.Context, accountId string, peerIDs []string)
 	OnPeerConnected(ctx context.Context, accountID string, peerID string) (chan *UpdateMessage, error)
-	OnPeerDisconnected(ctx context.Context, accountID string, peerID string)
+	OnPeerDisconnected(ctx context.Context, accountID string, peerID string, session chan *UpdateMessage) bool
 
 	TrackEphemeralPeer(ctx context.Context, peer *nbpeer.Peer)
 }
