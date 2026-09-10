@@ -277,11 +277,15 @@ func (m Manager) ValidateDomain(ctx context.Context, accountID, userID, domainID
 	if m.validator.IsValid(context.Background(), d.Domain, []string{targetCluster}) {
 		d.Validated = true
 		if _, err := m.store.UpdateCustomDomain(context.Background(), accountID, d); err != nil {
-			log.WithFields(log.Fields{
+			entry := log.WithFields(log.Fields{
 				"accountID": accountID,
 				"domainID":  domainID,
-				"domain":    d.Domain,
-			}).WithError(err).Error("update custom domain in store")
+			}).WithError(err)
+			if sErr, ok := status.FromError(err); ok && sErr.Type() == status.PreconditionFailed {
+				entry.Debug("custom domain registration is no longer pending validation")
+				return
+			}
+			entry.Error("update custom domain in store")
 			return
 		}
 		log.WithFields(log.Fields{"accountID": accountID, "domainID": domainID}).

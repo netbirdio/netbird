@@ -37,8 +37,8 @@ func TestValidateDomain_ExpiredRegistration(t *testing.T) {
 }
 
 func TestCreateDomain_ValidationDeadline(t *testing.T) {
+	env := setupClockDomainTest(t)
 	synctest.Test(t, func(t *testing.T) {
-		env := setupDomainTest(t)
 		ctx := context.Background()
 		createdAt := time.Now().UTC()
 		d, err := env.manager.CreateDomain(ctx, accountA, accountAUser, "pending.example.com", testCluster)
@@ -50,7 +50,8 @@ func TestCreateDomain_ValidationDeadline(t *testing.T) {
 		env.manager.ValidateDomain(ctx, accountA, accountAUser, d.ID)
 		stored := storedDomain(t, env.store, accountA, d.Domain)
 		require.NotNil(t, stored)
-		assert.Equal(t, d.ValidationExpiresAt, stored.ValidationExpiresAt, "failed validation must not extend the deadline")
+		require.NotNil(t, stored.ValidationExpiresAt)
+		assert.WithinDuration(t, *d.ValidationExpiresAt, *stored.ValidationExpiresAt, 0, "failed validation must not extend the deadline")
 	})
 }
 
@@ -134,8 +135,8 @@ func TestCleanupExpiredDomains_ConcurrentWorkers(t *testing.T) {
 }
 
 func TestRunValidationCleanup_HourlyAndRestart(t *testing.T) {
+	env := setupClockDomainTest(t)
 	synctest.Test(t, func(t *testing.T) {
-		env := setupDomainTest(t)
 		events := captureDomainEvents(env)
 		now := time.Now().UTC()
 		startup := createExpiringDomain(t, env, "startup.example.com", now.Add(-time.Hour))
@@ -188,8 +189,8 @@ func (r blockingDomainResolver) LookupCNAME(context.Context, string) (string, er
 func TestValidateDomain_DeadlinePassesDuringLookup(t *testing.T) {
 	for _, cleanup := range []bool{false, true} {
 		t.Run(fmt.Sprintf("cleanup=%t", cleanup), func(t *testing.T) {
+			env := setupClockDomainTest(t)
 			synctest.Test(t, func(t *testing.T) {
-				env := setupDomainTest(t)
 				events := captureDomainEvents(env)
 				ctx := context.Background()
 				d, err := env.manager.CreateDomain(ctx, accountA, accountAUser, "late.example.com", testCluster)
@@ -224,6 +225,14 @@ func TestValidateDomain_DeadlinePassesDuringLookup(t *testing.T) {
 			})
 		})
 	}
+}
+
+func setupClockDomainTest(t *testing.T) *domainTestEnv {
+	t.Helper()
+	// Network driver watchers cannot share cancellation channels across synctest bubbles.
+	// Store boundary and concurrency tests still exercise the selected database engine.
+	t.Setenv("NETBIRD_STORE_ENGINE", "sqlite")
+	return setupDomainTest(t)
 }
 
 func createExpiringDomain(t *testing.T, env *domainTestEnv, name string, expiresAt time.Time) *domain.Domain {
