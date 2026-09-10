@@ -22,6 +22,9 @@ import (
 )
 
 func TestAdapterHandlingConnectionClosures(t *testing.T) {
+	tmpdir, err := os.MkdirTemp("", "tmp-socket")
+	assert.NoError(t, err)
+
 	var cases = []struct {
 		description string
 		casenum     int
@@ -34,7 +37,7 @@ func TestAdapterHandlingConnectionClosures(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.description, func(t *testing.T) {
-			serversock := filepath.Join("/tmp", "http-server-"+strconv.FormatInt(rand.Int64(), 10)+".sock")
+			serversock := filepath.Join(tmpdir, "http-server-"+strconv.FormatInt(rand.Int64(), 10)+".sock")
 			t.Cleanup(func() { os.Remove(serversock) })
 
 			l, err := net.Listen("unix", serversock)
@@ -111,7 +114,10 @@ func TestAdapterHandlingConnectionClosures(t *testing.T) {
 func TestAdapterHandlingHttpConnection_NoHeadersSent(t *testing.T) {
 	t.Skip("currently disabled as it requires idle timeout to be set")
 
-	serversock := filepath.Join("/tmp", "http-server-"+strconv.FormatInt(rand.Int64(), 10)+".sock")
+	tmpdir, err := os.MkdirTemp("", "tmp-socket")
+	assert.NoError(t, err)
+
+	serversock := filepath.Join(tmpdir, "http-server-"+strconv.FormatInt(rand.Int64(), 10)+".sock")
 	defer os.Remove(serversock)
 
 	l, err := net.Listen("unix", serversock)
