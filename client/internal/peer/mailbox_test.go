@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/netbirdio/netbird/client/internal/peer/signaling"
+	"github.com/netbirdio/netbird/client/internal/peer/worker"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -70,7 +71,7 @@ func TestMailbox_DrainOrder(t *testing.T) {
 	require.True(t, mb.post(evRemoteAnswer{answer: signaling.OfferAnswer{}}))
 	require.True(t, mb.post(evRemoteOffer{offer: signaling.OfferAnswer{}}))
 	require.True(t, mb.post(evRelayDown{}))
-	require.True(t, mb.post(evICEDown{sessionChanged: true}))
+	require.True(t, mb.post(worker.ICEStateChanged{}))
 	require.True(t, mb.post(evClose{}))
 
 	evs := mb.drain()
@@ -80,7 +81,7 @@ func TestMailbox_DrainOrder(t *testing.T) {
 	assert.True(t, ok, "lifecycle events must come first")
 	_, ok = evs[1].(evRelayDown)
 	assert.True(t, ok, "transport events must keep FIFO order")
-	_, ok = evs[2].(evICEDown)
+	_, ok = evs[2].(worker.ICEStateChanged)
 	assert.True(t, ok, "transport events must keep FIFO order")
 	_, ok = evs[3].(evRemoteOffer)
 	assert.True(t, ok, "offer must come after transport events")

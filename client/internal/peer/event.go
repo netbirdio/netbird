@@ -14,13 +14,10 @@ import (
 // event is a message processed by the Conn event loop. All mutable Conn state
 // is owned by that loop; producers deliver events through the mailbox and
 // never mutate Conn state directly.
-type event any
+type event = any
 
-// staleableEvent is implemented by events tied to the lifetime of a transport
-// component (WG watcher, ICE agent, relay connection). Each such component runs
-// under its own context, cancelled when the component is superseded; an event
-// carrying a cancelled context is dropped at dispatch time. A cancel performed
-// by an earlier event in the same drained batch already suppresses it.
+// staleableEvent is implemented by events whose context becoming cancelled
+// makes them irrelevant, such as a timeout from an old WG watcher.
 type staleableEvent interface {
 	isStale() bool
 }
@@ -43,15 +40,6 @@ type evRemoteAnswer struct {
 type evRemoteCandidate struct {
 	candidate ice.Candidate
 	haRoutes  route.HAMap
-}
-
-type evICEReady struct {
-	priority worker.ConnPriority
-	info     worker.ICEConnInfo
-}
-
-type evICEDown struct {
-	sessionChanged bool
 }
 
 type evRelayReady struct {

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pion/ice/v4"
@@ -40,13 +40,17 @@ type ICEDependencies struct {
 	PortForwardManager *portforward.Manager
 }
 
+type iceDialFunc func(context.Context, *icemaker.ThreadSafeAgent, *signaling.OfferAnswer) (net.Conn, error)
+
+// ICE is owned by the Conn event loop. Pion callbacks and the dial goroutine
+// only post events. Credentials and InProgress expose atomic snapshots to
+// signaling and the reconnection guard.
 type ICE struct {
 	log                *log.Entry
 	key                string
 	iceConfig          icemaker.Config
 	isController       bool
-	onConnReady        func(priority ConnPriority, iceConnInfo ICEConnInfo)
-	onStatusDisconnect func(sessionChanged bool)
+	postEvent          func(any) bool
 	signaler           *signaling.Signaler
 	iFaceDiscover      stdnet.ExternalIFaceDiscover
 	statusRecorder     *status.Recorder
@@ -55,32 +59,28 @@ type ICE struct {
 
 	agent             *icemaker.ThreadSafeAgent
 	agentDialerCancel context.CancelFunc
-	agentConnecting   bool      // while it is true, drop all incoming offers
-	lastSuccess       time.Time // with this avoid the too frequent ICE agent recreation
-	// connectedAgent is the agent whose connection was last reported ready; guarded by muxAgent
+	agentConnecting   atomic.Bool
+	// connectedAgent is the agent whose connection was last reported ready.
 	connectedAgent *icemaker.ThreadSafeAgent
 	// remoteSessionID represents the peer's session identifier from the latest remote offer.
-	remoteSessionID icemaker.SessionID
-	// sessionID is used to track the current session ID of the ICE agent
-	// increase by one when disconnecting the agent
-	// with it the remote peer can discard the already deprecated offer/answer
-	// Without it the remote peer may recreate a workable ICE connection
-	sessionID            icemaker.SessionID
+	remoteSessionID      icemaker.SessionID
 	remoteSessionChanged bool
-	muxAgent             sync.Mutex
-
-	localUfrag string
-	localPwd   string
+	credentials          atomic.Pointer[signaling.Credentials]
 
 	// portForwardAttempted tracks if we've already tried port forwarding this session
 	portForwardAttempted bool
 
-	// dialFunc, when non-nil, replaces agentDial in connect(). Only for tests.
-	dialFunc func(ctx context.Context, agent *icemaker.ThreadSafeAgent, remoteOfferAnswer *signaling.OfferAnswer) (net.Conn, error)
+	// Captured before starting connect; only tests replace the dial operation.
+	dialFunc iceDialFunc
 }
 
-func NewICE(log *log.Entry, key string, iceConfig icemaker.Config, isController bool, onConnReady func(ConnPriority, ICEConnInfo), onStatusDisconnect func(bool), services ICEDependencies, hasRelayOnLocally bool) (*ICE, error) {
+// NewICE creates an event-loop-owned worker publishing to the current Open's mailbox.
+func NewICE(log *log.Entry, key string, iceConfig icemaker.Config, isController bool, postEvent func(any) bool, services ICEDependencies, hasRelayOnLocally bool) (*ICE, error) {
 	sessionID, err := icemaker.NewSessionID()
+	if err != nil {
+		return nil, err
+	}
+	localUfrag, localPwd, err := icemaker.GenerateICECredentials()
 	if err != nil {
 		return nil, err
 	}
@@ -90,31 +90,22 @@ func NewICE(log *log.Entry, key string, iceConfig icemaker.Config, isController 
 		key:                key,
 		iceConfig:          iceConfig,
 		isController:       isController,
-		onConnReady:        onConnReady,
-		onStatusDisconnect: onStatusDisconnect,
+		postEvent:          postEvent,
 		signaler:           services.Signaler,
 		iFaceDiscover:      services.IFaceDiscover,
 		statusRecorder:     services.StatusRecorder,
 		portForwardManager: services.PortForwardManager,
 		hasRelayOnLocally:  hasRelayOnLocally,
-		sessionID:          sessionID,
 	}
-
-	localUfrag, localPwd, err := icemaker.GenerateICECredentials()
-	if err != nil {
-		return nil, err
-	}
-	w.localUfrag = localUfrag
-	w.localPwd = localPwd
+	w.credentials.Store(&signaling.Credentials{UFrag: localUfrag, Pwd: localPwd, SessionID: sessionID})
 	return w, nil
 }
 
+// OnNewOffer starts a negotiation on the event loop.
 func (w *ICE) OnNewOffer(ctx context.Context, remoteOfferAnswer *signaling.OfferAnswer) {
 	w.log.Debugf("OnNewOffer for ICE, serial: %s", remoteOfferAnswer.SessionIDString())
-	w.muxAgent.Lock()
-	defer w.muxAgent.Unlock()
 
-	if w.agent != nil || w.agentConnecting {
+	if w.agent != nil || w.agentConnecting.Load() {
 		// backward compatibility with old clients that do not send session ID
 		if remoteOfferAnswer.SessionID == nil {
 			w.log.Debugf("agent already exists, skipping the offer")
@@ -137,7 +128,9 @@ func (w *ICE) OnNewOffer(ctx context.Context, remoteOfferAnswer *signaling.Offer
 		if err != nil {
 			w.log.Errorf("failed to create new session ID: %s", err)
 		}
-		w.sessionID = sessionID
+		creds := w.Credentials()
+		creds.SessionID = sessionID
+		w.credentials.Store(&creds)
 		w.abandonNegotiation()
 	}
 
@@ -149,32 +142,33 @@ func (w *ICE) OnNewOffer(ctx context.Context, remoteOfferAnswer *signaling.Offer
 	}
 
 	if remoteOfferAnswer.SessionID != nil {
-		w.log.Debugf("recreate ICE agent: %s / %s", w.sessionID, *remoteOfferAnswer.SessionID)
+		w.log.Debugf("recreate ICE agent: %s / %s", w.Credentials().SessionID, *remoteOfferAnswer.SessionID)
 	}
 	dialerCtx, dialerCancel := context.WithCancel(ctx)
-	agent, err := w.reCreateAgent(ctx, dialerCancel, preferredCandidateTypes)
+	agent, err := w.reCreateAgent(ctx, preferredCandidateTypes)
 	if err != nil {
+		dialerCancel()
 		w.log.Errorf("failed to recreate ICE Agent: %s", err)
 		return
 	}
 	w.agent = agent
 	w.agentDialerCancel = dialerCancel
-	w.agentConnecting = true
+	w.agentConnecting.Store(true)
 	if remoteOfferAnswer.SessionID != nil {
 		w.remoteSessionID = *remoteOfferAnswer.SessionID
 	} else {
 		w.remoteSessionID = ""
 	}
 
-	// Capture the cancel func at spawn time: connect reads it from the argument
-	// instead of the field, which a newer OnNewOffer may already have replaced.
-	go w.connect(dialerCtx, dialerCancel, agent, remoteOfferAnswer)
+	dial := w.dialFunc
+	if dial == nil {
+		dial = w.agentDial
+	}
+	go w.connect(dialerCtx, agent, *remoteOfferAnswer, dial)
 }
 
 // OnRemoteCandidate Handles ICE connection Candidate provided by the remote peer.
 func (w *ICE) OnRemoteCandidate(candidate ice.Candidate, haRoutes route.HAMap) {
-	w.muxAgent.Lock()
-	defer w.muxAgent.Unlock()
 	w.log.Debugf("OnRemoteCandidate from peer %s -> %s", w.key, candidate.String())
 	if w.agent == nil {
 		w.log.Warnf("ICE Agent is not initialized yet")
@@ -202,136 +196,113 @@ func (w *ICE) OnRemoteCandidate(candidate ice.Candidate, haRoutes route.HAMap) {
 	}
 }
 
+// Credentials returns a consistent snapshot for asynchronous signaling.
 func (w *ICE) Credentials() signaling.Credentials {
-	w.muxAgent.Lock()
-	defer w.muxAgent.Unlock()
-	return signaling.Credentials{
-		UFrag:     w.localUfrag,
-		Pwd:       w.localPwd,
-		SessionID: w.sessionID,
-	}
+	return *w.credentials.Load()
 }
 
+// InProgress returns the negotiation state published by the event loop.
 func (w *ICE) InProgress() bool {
-	w.muxAgent.Lock()
-	defer w.muxAgent.Unlock()
-
-	return w.agentConnecting
+	return w.agentConnecting.Load()
 }
 
+// Close releases the current agent on the event loop. Repeated calls are harmless.
 func (w *ICE) Close() {
-	w.muxAgent.Lock()
-	defer w.muxAgent.Unlock()
-
 	if w.agent != nil {
 		w.agentDialerCancel()
 		if err := w.agent.Close(); err != nil {
 			w.log.Warnf("failed to close ICE agent: %s", err)
 		}
 	}
-	// Unconditional: a dial goroutine racing this Close skips its own cleanup
-	// (closeAgent finds a nil agent), so the flags must be dropped here too or
-	// the reconnection guard reads the stale state as Connected forever.
+	// A later dial result no longer owns the agent, so Close must clear the
+	// connecting state before the reconnection guard reads it.
 	w.abandonNegotiation()
 }
 
-func (w *ICE) reCreateAgent(ctx context.Context, dialerCancel context.CancelFunc, candidates []ice.CandidateType) (*icemaker.ThreadSafeAgent, error) {
+func (w *ICE) reCreateAgent(ctx context.Context, candidates []ice.CandidateType) (*icemaker.ThreadSafeAgent, error) {
 	w.portForwardAttempted = false
-
-	agent, err := icemaker.NewAgent(ctx, w.iFaceDiscover, w.iceConfig, candidates, w.localUfrag, w.localPwd)
+	creds := w.Credentials()
+	agent, err := icemaker.NewAgent(ctx, w.iFaceDiscover, w.iceConfig, candidates, creds.UFrag, creds.Pwd)
 	if err != nil {
 		return nil, fmt.Errorf("create agent: %w", err)
 	}
+	configured := false
+	defer func() {
+		if !configured {
+			if err := agent.Close(); err != nil {
+				w.log.Warnf("failed to close unconfigured ICE agent: %s", err)
+			}
+		}
+	}()
 
-	if err := agent.OnCandidate(w.onICECandidate); err != nil {
-		return nil, err
-	}
-
-	if err := agent.OnConnectionStateChange(w.onConnectionStateChange(agent, dialerCancel)); err != nil {
-		return nil, err
-	}
-
-	if err := agent.OnSelectedCandidatePairChange(func(c1, c2 ice.Candidate) {
-		w.onICESelectedCandidatePair(agent, c1, c2)
+	post := w.postEvent
+	if err := agent.OnCandidate(func(candidate ice.Candidate) {
+		post(ICECandidate{Candidate: candidate})
 	}); err != nil {
 		return nil, err
 	}
-
+	if err := agent.OnConnectionStateChange(func(state ice.ConnectionState) {
+		post(ICEStateChanged{Agent: agent, State: state})
+	}); err != nil {
+		return nil, err
+	}
+	if err := agent.OnSelectedCandidatePairChange(func(local, remote ice.Candidate) {
+		post(ICESelectedPair{Agent: agent, Local: local, Remote: remote})
+	}); err != nil {
+		return nil, err
+	}
+	configured = true
 	return agent, nil
 }
 
-func (w *ICE) getSessionID() icemaker.SessionID {
-	w.muxAgent.Lock()
-	defer w.muxAgent.Unlock()
-
-	return w.sessionID
+// connect performs blocking ICE I/O without reading or changing negotiation state.
+func (w *ICE) connect(ctx context.Context, agent *icemaker.ThreadSafeAgent, offer signaling.OfferAnswer, dial iceDialFunc) {
+	result := ICEDialDone{Agent: agent, Offer: offer}
+	result.Err = agent.GatherCandidates()
+	if result.Err == nil {
+		result.Conn, result.Err = dial(ctx, agent, &offer)
+	}
+	if !w.postEvent(result) {
+		w.closeUnusedConn(result.Conn)
+	}
 }
 
-// will block until connection succeeded
-// but it won't release if ICE Agent went into Disconnected or Failed state,
-// so we have to cancel it with the provided context once agent detected a broken connection
-func (w *ICE) connect(ctx context.Context, dialerCancel context.CancelFunc, agent *icemaker.ThreadSafeAgent, remoteOfferAnswer *signaling.OfferAnswer) {
-	w.log.Debugf("gather candidates")
-	if err := agent.GatherCandidates(); err != nil {
-		w.log.Warnf("failed to gather candidates: %s", err)
-		w.closeAgent(agent, dialerCancel)
-		return
+// OnDialDone consumes the dial result on the event loop. Rejected results are
+// released here; accepted results transfer their connection to the caller.
+func (w *ICE) OnDialDone(e ICEDialDone) (ConnPriority, ICEConnInfo, bool) {
+	if e.Err != nil {
+		w.log.Debugf("ICE dial did not establish a connection: %v", e.Err)
+		w.closeUnusedConn(e.Conn)
+		w.closeAgent(e.Agent)
+		return None, ICEConnInfo{}, false
 	}
-
-	w.log.Debugf("agent dial")
-	dial := func(ctx context.Context, agent *icemaker.ThreadSafeAgent, remoteOfferAnswer *signaling.OfferAnswer) (net.Conn, error) {
-		return w.agentDial(ctx, agent, remoteOfferAnswer)
-	}
-	if w.dialFunc != nil {
-		dial = w.dialFunc
-	}
-	remoteConn, err := dial(ctx, agent, remoteOfferAnswer)
-	if err != nil {
-		w.log.Debugf("failed to dial the remote peer: %s", err)
-		w.closeAgent(agent, dialerCancel)
-		return
-	}
-	w.log.Debugf("agent dial succeeded")
 
 	// A newer negotiation may have replaced this agent during the dial.
-	// Discard its connection before querying candidates or punching ports.
-	w.muxAgent.Lock()
-	stale := w.agent != agent
-	w.muxAgent.Unlock()
-	if stale {
-		if err := remoteConn.Close(); err != nil {
-			w.log.Warnf("failed to close stale ICE connection: %s", err)
-		}
+	if w.agent != e.Agent {
+		w.closeUnusedConn(e.Conn)
 		w.log.Warnf("discarding connection from a stale ICE negotiation")
-		return
+		return None, ICEConnInfo{}, false
 	}
 
-	pair, err := agent.GetSelectedCandidatePair()
-	if err != nil {
-		w.closeAgent(agent, dialerCancel)
-		return
-	}
-	if pair == nil {
-		w.log.Warnf("selected candidate pair is nil, cannot proceed")
-		w.closeAgent(agent, dialerCancel)
-		return
+	pair, err := e.Agent.GetSelectedCandidatePair()
+	if err != nil || pair == nil {
+		w.log.Debugf("ICE dial has no selected candidate pair: %v", err)
+		w.closeUnusedConn(e.Conn)
+		w.closeAgent(e.Agent)
+		return None, ICEConnInfo{}, false
 	}
 
 	if !isRelayCandidate(pair.Local) {
-		// dynamically set remote WireGuard port if other side specified a different one from the default one
 		remoteWgPort := iface.DefaultWgPort
-		if remoteOfferAnswer.WgListenPort != 0 {
-			remoteWgPort = remoteOfferAnswer.WgListenPort
+		if e.Offer.WgListenPort != 0 {
+			remoteWgPort = e.Offer.WgListenPort
 		}
-
-		// To support old version's with direct mode we attempt to punch an additional role with the remote WireGuard port
 		go w.punchRemoteWGPort(pair, remoteWgPort)
 	}
-
-	ci := ICEConnInfo{
-		RemoteConn:                 remoteConn,
-		RosenpassPubKey:            remoteOfferAnswer.RosenpassPubKey,
-		RosenpassAddr:              remoteOfferAnswer.RosenpassAddr,
+	info := ICEConnInfo{
+		RemoteConn:                 e.Conn,
+		RosenpassPubKey:            e.Offer.RosenpassPubKey,
+		RosenpassAddr:              e.Offer.RosenpassAddr,
 		LocalIceCandidateType:      pair.Local.Type().String(),
 		RemoteIceCandidateType:     pair.Remote.Type().String(),
 		LocalIceCandidateEndpoint:  net.JoinHostPort(pair.Local.Address(), strconv.Itoa(pair.Local.Port())),
@@ -339,58 +310,52 @@ func (w *ICE) connect(ctx context.Context, dialerCancel context.CancelFunc, agen
 		Relayed:                    isRelayed(pair),
 		RelayedOnLocal:             isRelayCandidate(pair.Local),
 	}
-	w.log.Debugf("on ICE conn is ready to use")
-
-	w.muxAgent.Lock()
-	// Keep the ownership check atomic with the state update so a stale dial
-	// cannot overwrite a newer negotiation.
-	if w.agent != agent {
-		w.muxAgent.Unlock()
-		if err := remoteConn.Close(); err != nil {
-			w.log.Warnf("failed to close stale ICE connection: %s", err)
-		}
-		w.log.Warnf("discarding connection from a stale ICE negotiation")
-		return
-	}
-	w.agentConnecting = false
-	w.lastSuccess = time.Now()
-	w.connectedAgent = agent
-	w.muxAgent.Unlock()
-
-	w.log.Infof("connection succeeded with offer session: %s", remoteOfferAnswer.SessionIDString())
-	w.onConnReady(selectedPriority(pair), ci)
+	w.agentConnecting.Store(false)
+	w.connectedAgent = e.Agent
+	w.log.Infof("connection succeeded with offer session: %s", e.Offer.SessionIDString())
+	return selectedPriority(pair), info, true
 }
 
-func (w *ICE) closeAgent(agent *icemaker.ThreadSafeAgent, cancel context.CancelFunc) bool {
-	cancel()
+func (w *ICE) closeUnusedConn(conn net.Conn) {
+	if conn != nil {
+		if err := conn.Close(); err != nil {
+			w.log.Debugf("close unused ICE connection: %v", err)
+		}
+	}
+}
+
+func (w *ICE) closeAgent(agent *icemaker.ThreadSafeAgent) bool {
+	// Superseded agents had their dial context cancelled when replaced.
+	if w.agent == agent {
+		w.agentDialerCancel()
+	}
 	if err := agent.Close(); err != nil {
 		w.log.Warnf("failed to close ICE agent: %s", err)
 	}
 
-	w.muxAgent.Lock()
-	defer w.muxAgent.Unlock()
-
 	sessionChanged := w.remoteSessionChanged
 	w.remoteSessionChanged = false
 
-	// Only the owner of the current session may reset its state: a stale dial
-	// goroutine waking after a newer attempt must not clobber it.
+	// Only the owner of the current session may reset its state.
 	if w.agent == agent {
 		sessionID, err := icemaker.NewSessionID()
 		if err != nil {
 			w.log.Errorf("failed to create new session ID: %s", err)
 		}
-		w.sessionID = sessionID
+		creds := w.Credentials()
+		creds.SessionID = sessionID
+		w.credentials.Store(&creds)
 		w.abandonNegotiation()
 	}
 	return sessionChanged
 }
 
 // Clearing the agent and connecting flag together keeps retries from stalling.
-// Callers must dispose of the agent first and hold muxAgent.
+// Callers run on the event loop and must dispose of the agent first.
 func (w *ICE) abandonNegotiation() {
 	w.agent = nil
-	w.agentConnecting = false
+	w.agentDialerCancel = nil
+	w.agentConnecting.Store(false)
 	w.remoteSessionID = ""
 }
 
@@ -414,9 +379,9 @@ func (w *ICE) punchRemoteWGPort(pair *ice.CandidatePair, remoteWgPort int) {
 	}
 }
 
-// onICECandidate is a callback attached to an ICE Agent to receive new local connection candidates
-// and then signals them to the remote peer
-func (w *ICE) onICECandidate(candidate ice.Candidate) {
+// OnLocalCandidate signals a gathered candidate from the event loop.
+func (w *ICE) OnLocalCandidate(e ICECandidate) {
+	candidate := e.Candidate
 	// nil means candidate gathering has been ended
 	if candidate == nil {
 		return
@@ -459,13 +424,10 @@ func (w *ICE) injectPortForwardedCandidate(srflxCandidate ice.Candidate) {
 		return
 	}
 
-	w.muxAgent.Lock()
 	if w.portForwardAttempted {
-		w.muxAgent.Unlock()
 		return
 	}
 	w.portForwardAttempted = true
-	w.muxAgent.Unlock()
 
 	forwardedCandidate, err := w.createForwardedCandidate(srflxCandidate, mapping)
 	if err != nil {
@@ -530,7 +492,9 @@ func (w *ICE) createForwardedCandidate(srflxCandidate ice.Candidate, mapping *po
 	return candidate, nil
 }
 
-func (w *ICE) onICESelectedCandidatePair(agent *icemaker.ThreadSafeAgent, c1, c2 ice.Candidate) {
+// OnSelectedCandidatePair records the selected pair on the event loop.
+func (w *ICE) OnSelectedCandidatePair(e ICESelectedPair) {
+	agent, c1, c2 := e.Agent, e.Local, e.Remote
 	w.log.Debugf("selected candidate pair [local <-> remote] -> [%s <-> %s], peer %s", c1.String(), c2.String(),
 		w.key)
 
@@ -548,7 +512,7 @@ func (w *ICE) onICESelectedCandidatePair(agent *icemaker.ThreadSafeAgent, c1, c2
 }
 
 func (w *ICE) logSuccessfulPaths(agent *icemaker.ThreadSafeAgent) {
-	sessionID := w.getSessionID()
+	sessionID := w.Credentials().SessionID
 	stats := agent.GetCandidatePairsStats()
 	localCandidates, _ := agent.GetLocalCandidates()
 	remoteCandidates, _ := agent.GetRemoteCandidates()
@@ -578,48 +542,34 @@ func (w *ICE) logSuccessfulPaths(agent *icemaker.ThreadSafeAgent) {
 	}
 }
 
-func (w *ICE) onConnectionStateChange(agent *icemaker.ThreadSafeAgent, dialerCancel context.CancelFunc) func(ice.ConnectionState) {
-	// per-agent state; pion delivers callbacks of one agent sequentially
-	var connected bool
-	return func(state ice.ConnectionState) {
-		w.log.Debugf("ICE ConnectionState has changed to %s", state.String())
-		switch state {
-		case ice.ConnectionStateConnected:
-			connected = true
-			w.logSuccessfulPaths(agent)
-		case ice.ConnectionStateFailed, ice.ConnectionStateDisconnected, ice.ConnectionStateClosed:
-			// ice.ConnectionStateClosed happens when we recreate the agent. The P2P to relay switch requires
-			// notifying conn.onICEStateDisconnected so it can update the currently used priority.
-
-			sessionChanged := w.closeAgent(agent, dialerCancel)
-
-			if !connected {
-				return
-			}
-			connected = false
-
-			w.muxAgent.Lock()
-			stale := w.connectedAgent != agent
-			if !stale {
-				w.connectedAgent = nil
-			}
-			w.muxAgent.Unlock()
-
-			if stale {
-				w.log.Debugf("suppress disconnected event of replaced ICE agent")
-				return
-			}
-			w.onStatusDisconnect(sessionChanged)
+// OnConnectionStateChange processes Pion state on the event loop and reports
+// whether the last ready connection disconnected and the remote session changed.
+func (w *ICE) OnConnectionStateChange(e ICEStateChanged) (disconnected, sessionChanged bool) {
+	w.log.Debugf("ICE ConnectionState has changed to %s", e.State.String())
+	switch e.State {
+	case ice.ConnectionStateConnected:
+		w.logSuccessfulPaths(e.Agent)
+	case ice.ConnectionStateFailed, ice.ConnectionStateDisconnected, ice.ConnectionStateClosed:
+		sessionChanged = w.closeAgent(e.Agent)
+		if w.connectedAgent != e.Agent {
+			return false, sessionChanged
 		}
+		w.connectedAgent = nil
+		return true, sessionChanged
 	}
+	return false, false
 }
 
-func (w *ICE) agentDial(ctx context.Context, agent *icemaker.ThreadSafeAgent, remoteOfferAnswer *signaling.OfferAnswer) (*ice.Conn, error) {
+func (w *ICE) agentDial(ctx context.Context, agent *icemaker.ThreadSafeAgent, remoteOfferAnswer *signaling.OfferAnswer) (net.Conn, error) {
+	dial := agent.Accept
 	if w.isController {
-		return agent.Dial(ctx, remoteOfferAnswer.IceCredentials.UFrag, remoteOfferAnswer.IceCredentials.Pwd)
-	} else {
-		return agent.Accept(ctx, remoteOfferAnswer.IceCredentials.UFrag, remoteOfferAnswer.IceCredentials.Pwd)
+		dial = agent.Dial
 	}
+	conn, err := dial(ctx, remoteOfferAnswer.IceCredentials.UFrag, remoteOfferAnswer.IceCredentials.Pwd)
+	if err != nil {
+		return nil, err
+	}
+	return conn, nil
 }
 
 func shouldAddExtraCandidate(candidate ice.Candidate) bool {

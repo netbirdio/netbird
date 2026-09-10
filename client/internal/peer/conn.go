@@ -242,18 +242,20 @@ func (conn *Conn) open(engineCtx context.Context, firstPacket []byte) error {
 	conn.metricsStages = &metricsstages.MetricsStages{}
 
 	conn.ctx, conn.ctxCancel = context.WithCancel(engineCtx)
+	mb := newMailbox()
 
 	conn.workerRelay = worker.NewWorkerRelay(conn.Log, conn.config.Key, conn.config.IsController(), conn.onRelayConnectionIsReady, conn.onRelayDisconnected, conn.relayManager)
 
 	if !IsForceRelayed() {
 		relayIsSupportedLocally := conn.workerRelay.RelayIsSupportedLocally()
-		workerICE, err := worker.NewICE(conn.Log, conn.config.Key, conn.config.ICEConfig, conn.config.IsController(), conn.onICEConnectionIsReady, conn.onICEStateDisconnected, worker.ICEDependencies{
+		workerICE, err := worker.NewICE(conn.Log, conn.config.Key, conn.config.ICEConfig, conn.config.IsController(), mb.post, worker.ICEDependencies{
 			Signaler:           conn.signaler,
 			IFaceDiscover:      conn.iFaceDiscover,
 			StatusRecorder:     conn.statusRecorder,
 			PortForwardManager: conn.portForwardManager,
 		}, relayIsSupportedLocally)
 		if err != nil {
+			conn.ctxCancel()
 			return err
 		}
 		conn.workerICE = workerICE
@@ -288,7 +290,6 @@ func (conn *Conn) open(engineCtx context.Context, firstPacket []byte) error {
 		conn.Log.Warnf("error while updating the state err: %v", err)
 	}
 
-	mb := newMailbox()
 	conn.loopDone = make(chan struct{})
 	conn.mailbox.Store(mb)
 
@@ -446,10 +447,16 @@ func (conn *Conn) handleEvent(ev event) {
 		conn.handleRemoteAnswer(&e.answer)
 	case evRemoteCandidate:
 		conn.handleRemoteCandidate(e)
-	case evICEReady:
-		conn.handleICEReady(e.priority, e.info)
-	case evICEDown:
-		conn.handleICEDisconnected(e.sessionChanged)
+	case worker.ICEDialDone:
+		conn.handleICEDialDone(e)
+	case worker.ICEStateChanged:
+		if disconnected, sessionChanged := conn.workerICE.OnConnectionStateChange(e); disconnected {
+			conn.handleICEDisconnected(sessionChanged)
+		}
+	case worker.ICECandidate:
+		conn.workerICE.OnLocalCandidate(e)
+	case worker.ICESelectedPair:
+		conn.workerICE.OnSelectedCandidatePair(e)
 	case evRelayReady:
 		conn.handleRelayReady(e.info)
 	case evRelayDown:
@@ -533,6 +540,12 @@ func (conn *Conn) teardown(mb *mailbox, leftover []event, signalToRemote bool, d
 func (conn *Conn) releaseEvents(evs []event) {
 	for _, ev := range evs {
 		switch e := ev.(type) {
+		case worker.ICEDialDone:
+			if e.Conn != nil {
+				if err := e.Conn.Close(); err != nil {
+					conn.Log.Debugf("close unused ICE connection: %v", err)
+				}
+			}
 		case evRelayReady:
 			if err := e.info.RelayedConn.Close(); err != nil {
 				conn.Log.Warnf("failed to close unnecessary relayed connection: %v", err)
@@ -621,6 +634,16 @@ func (conn *Conn) handleGuardTick() {
 			conn.Log.Errorf("failed to send offer: %v", err)
 		}
 	}()
+}
+
+func (conn *Conn) handleICEDialDone(e worker.ICEDialDone) {
+	if conn.ctx.Err() != nil {
+		conn.releaseEvents([]event{e})
+		return
+	}
+	if priority, info, ready := conn.workerICE.OnDialDone(e); ready {
+		conn.handleICEReady(priority, info)
+	}
 }
 
 // handleICEReady starts proxying traffic from/to local WireGuard and sets the
@@ -925,14 +948,6 @@ func (conn *Conn) handleWGHandshakeSuccess(when time.Time) {
 
 func (conn *Conn) handleWGCheckSuccess() {
 	conn.wgTimeouts = 0
-}
-
-func (conn *Conn) onICEConnectionIsReady(priority worker.ConnPriority, iceConnInfo worker.ICEConnInfo) {
-	conn.post(evICEReady{priority: priority, info: iceConnInfo})
-}
-
-func (conn *Conn) onICEStateDisconnected(sessionChanged bool) {
-	conn.post(evICEDown{sessionChanged: sessionChanged})
 }
 
 // onRelayConnectionIsReady closes the relayed connection when the event loop
