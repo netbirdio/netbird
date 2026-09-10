@@ -87,7 +87,8 @@ func (am *DefaultAccountManager) StoreEvent(ctx context.Context, initiatorID, ta
 		save(ctx)
 		return
 	}
-	go save(ctx)
+	// Request cancellation must not discard the audit record of a completed operation.
+	go save(context.WithoutCancel(ctx))
 }
 
 type eventUserInfo struct {
