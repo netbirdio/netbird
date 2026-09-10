@@ -96,14 +96,14 @@ func Test_SetVersion_FallsBackToDownloadOnly_Linux(t *testing.T) {
 	defer recorder.UnsubscribeFromEvents(sub)
 
 	m := NewManager(recorder, statemanager.New(tmpFile))
-	m.update = &versionUpdateMock{latestVersion: v.Must(v.NewSemver("1.0.1"))}
+	m.update = &versionUpdateMock{latestVersion: v.Must(v.NewSemver("1.0.5"))}
 	m.currentVersion = "1.0.0"
 	m.Start(context.Background())
 	m.SetVersion("1.0.1", false)
 
 	ver, enforced := waitForUpdateEvent(sub, 500*time.Millisecond)
-	if ver != "1.0.1" {
-		t.Fatalf("expected download-only event for 1.0.1, got %q", ver)
+	if ver != "1.0.5" {
+		t.Fatalf("expected download-only event for fetched 1.0.5, got %q", ver)
 	}
 	if enforced {
 		t.Error("Linux fallback must never have enforced metadata")

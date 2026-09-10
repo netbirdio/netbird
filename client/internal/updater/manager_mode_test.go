@@ -87,3 +87,31 @@ func Test_ResetMode_ReturnsToUndecided(t *testing.T) {
 		t.Fatalf("expected enforced event again after reset, got %q enforced=%v", ver, enforced)
 	}
 }
+
+func Test_SetDownloadOnly_ClearsPendingVersion(t *testing.T) {
+	tmpFile := path.Join(t.TempDir(), "update-test-pending.json")
+	recorder := peer.NewRecorder("")
+	sub := recorder.SubscribeToEvents()
+	defer recorder.UnsubscribeFromEvents(sub)
+
+	m := NewManager(recorder, statemanager.New(tmpFile))
+	m.update = &versionUpdateMock{latestVersion: v.Must(v.NewSemver("1.0.1"))}
+	m.currentVersion = "1.0.0"
+	m.autoUpdateSupported = func() bool { return true }
+	m.Start(context.Background())
+	defer m.Stop()
+
+	m.SetVersion("1.0.1", false)
+	if ver, enforced := waitForUpdateEvent(sub, 500*time.Millisecond); ver != "1.0.1" || !enforced {
+		t.Fatalf("expected enforced event for 1.0.1, got %q enforced=%v", ver, enforced)
+	}
+
+	m.SetDownloadOnly()
+	if ver, enforced := waitForUpdateEvent(sub, 500*time.Millisecond); ver != "1.0.1" || enforced {
+		t.Fatalf("expected download-only event for 1.0.1, got %q enforced=%v", ver, enforced)
+	}
+
+	if err := m.Install(context.Background()); err == nil {
+		t.Fatal("Install in download-only mode must not install the staged managed version")
+	}
+}

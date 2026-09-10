@@ -45,6 +45,7 @@ type Manager struct {
 	stateManager   *statemanager.Manager
 
 	mode        updateMode
+	modeGen     uint64
 	forceUpdate bool // true when management sets AlwaysUpdate; skips UI interaction and installs directly
 
 	lastTrigger    time.Time
@@ -62,7 +63,7 @@ type Manager struct {
 	pendingVersion *v.Version
 
 	// updateMutex protects update, expectedVersion, updateToLatestVersion,
-	// mode, forceUpdate, pendingVersion, and lastTrigger fields
+	// mode, modeGen, forceUpdate, pendingVersion, and lastTrigger fields
 	updateMutex sync.Mutex
 
 	// installMutex and installing guard against concurrent installation attempts
@@ -158,11 +159,7 @@ func (m *Manager) Start(ctx context.Context) {
 
 func (m *Manager) SetDownloadOnly() {
 	m.updateMutex.Lock()
-	m.mode = modeDownloadOnly
-	m.forceUpdate = false
-	m.expectedVersion = nil
-	m.updateToLatestVersion = false
-	m.lastTrigger = time.Time{}
+	m.setModeLocked(modeDownloadOnly)
 	m.updateMutex.Unlock()
 
 	select {
@@ -185,30 +182,26 @@ func (m *Manager) SetVersion(expectedVersion string, forceUpdate bool) {
 
 	if expectedVersion == "" {
 		log.Errorf("empty expected version provided")
-		m.expectedVersion = nil
-		m.updateToLatestVersion = false
-		m.mode = modeDownloadOnly
+		m.setModeLocked(modeDownloadOnly)
 		return
 	}
 
-	if expectedVersion == latestVersion {
-		m.updateToLatestVersion = true
-		m.expectedVersion = nil
-	} else {
-		expectedSemVer, err := v.NewVersion(expectedVersion)
+	var expectedSemVer *v.Version
+	if expectedVersion != latestVersion {
+		parsed, err := v.NewVersion(expectedVersion)
 		if err != nil {
 			log.Errorf("error parsing version: %v", err)
 			return
 		}
-		if m.expectedVersion != nil && m.expectedVersion.Equal(expectedSemVer) {
+		if m.mode == modeManaged && m.expectedVersion != nil && m.expectedVersion.Equal(parsed) {
 			return
 		}
-		m.expectedVersion = expectedSemVer
-		m.updateToLatestVersion = false
+		expectedSemVer = parsed
 	}
 
-	m.lastTrigger = time.Time{}
-	m.mode = modeManaged
+	m.setModeLocked(modeManaged)
+	m.expectedVersion = expectedSemVer
+	m.updateToLatestVersion = expectedSemVer == nil
 	m.forceUpdate = forceUpdate
 
 	select {
@@ -221,12 +214,7 @@ func (m *Manager) ResetMode() {
 	m.updateMutex.Lock()
 	defer m.updateMutex.Unlock()
 
-	m.mode = modeUndecided
-	m.forceUpdate = false
-	m.expectedVersion = nil
-	m.updateToLatestVersion = false
-	m.pendingVersion = nil
-	m.lastTrigger = time.Time{}
+	m.setModeLocked(modeUndecided)
 }
 
 // Install triggers the installation of the pending version. It is called when the user clicks the install button in the UI.
@@ -276,6 +264,7 @@ func (m *Manager) NotifyUI() {
 		return
 	}
 	mode := m.mode
+	gen := m.modeGen
 	pendingVersion := m.pendingVersion
 	latestVersion := m.update.LatestVersion()
 	m.updateMutex.Unlock()
@@ -292,6 +281,9 @@ func (m *Manager) NotifyUI() {
 		if err != nil || currentVersion.GreaterThanOrEqual(latestVersion) {
 			return
 		}
+		if m.modeChanged(gen) {
+			return
+		}
 		m.statusRecorder.PublishEvent(
 			cProto.SystemEvent_INFO,
 			cProto.SystemEvent_SYSTEM,
@@ -302,7 +294,7 @@ func (m *Manager) NotifyUI() {
 		return
 	}
 
-	if pendingVersion != nil {
+	if pendingVersion != nil && !m.modeChanged(gen) {
 		m.statusRecorder.PublishEvent(
 			cProto.SystemEvent_INFO,
 			cProto.SystemEvent_SYSTEM,
@@ -368,6 +360,7 @@ func (m *Manager) handleUpdate(ctx context.Context) {
 	}
 
 	mode := m.mode
+	gen := m.modeGen
 	forceUpdate := m.forceUpdate
 	curLatestVersion := m.update.LatestVersion()
 
@@ -407,6 +400,11 @@ func (m *Manager) handleUpdate(ctx context.Context) {
 	}
 	m.updateMutex.Unlock()
 
+	if m.modeChanged(gen) {
+		log.Debugf("auto-update mode changed while checking %s, discarding", updateVersion)
+		return
+	}
+
 	if mode == modeDownloadOnly {
 		m.statusRecorder.PublishEvent(
 			cProto.SystemEvent_INFO,
@@ -432,6 +430,23 @@ func (m *Manager) handleUpdate(ctx context.Context) {
 		"",
 		map[string]string{"new_version_available": updateVersion.String(), "enforced": "true"},
 	)
+}
+
+func (m *Manager) modeChanged(gen uint64) bool {
+	m.updateMutex.Lock()
+	defer m.updateMutex.Unlock()
+
+	return m.modeGen != gen
+}
+
+func (m *Manager) setModeLocked(mode updateMode) {
+	m.mode = mode
+	m.modeGen++
+	m.forceUpdate = false
+	m.expectedVersion = nil
+	m.updateToLatestVersion = false
+	m.pendingVersion = nil
+	m.lastTrigger = time.Time{}
 }
 
 func (m *Manager) install(ctx context.Context, pendingVersion *v.Version) error {

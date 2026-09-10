@@ -274,7 +274,6 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 	stateManager.RegisterState(&sshconfig.ShutdownState{})
 
 	if c.updateManager != nil {
-		c.updateManager.ResetMode()
 		c.updateManager.CheckUpdateSuccess(c.ctx)
 	}
 
@@ -291,6 +290,10 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		// if context cancelled we not start new backoff cycle
 		if c.ctx.Err() != nil {
 			return nil
+		}
+
+		if c.updateManager != nil {
+			c.updateManager.ResetMode()
 		}
 
 		// suspend connection attempts while the OS reports no usable network

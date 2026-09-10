@@ -967,8 +967,14 @@ func (e *Engine) handleAutoUpdateVersion(autoUpdateSettings *mgmProto.AutoUpdate
 		return
 	}
 
-	if autoUpdateSettings == nil || autoUpdateSettings.Version == disableAutoUpdate {
-		log.Infof("auto-update is disabled")
+	if autoUpdateSettings == nil {
+		log.Infof("no auto-update settings received, defaulting to download-only")
+		e.updateManager.SetDownloadOnly()
+		return
+	}
+
+	if autoUpdateSettings.Version == disableAutoUpdate {
+		log.Infof("auto-update is disabled, switching to download-only")
 		e.updateManager.SetDownloadOnly()
 		return
 	}
