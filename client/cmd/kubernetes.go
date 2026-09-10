@@ -123,6 +123,7 @@ type reverseResolver interface {
 	LookupAddr(context.Context, string) ([]string, error)
 }
 
+// getKubernetesClusters discovers Kubernetes clusters from the supplied peer states.
 func getKubernetesClusters(ctx context.Context, peers []*proto.PeerState, nameFilter string) ([]kubernetesCluster, error) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = &tls.Config{
@@ -139,6 +140,7 @@ func getKubernetesClusters(ctx context.Context, peers []*proto.PeerState, nameFi
 	return getKubernetesClustersWithResolver(ctx, peers, nameFilter, &resolver, httpClient)
 }
 
+// getKubernetesClustersWithResolver discovers clusters using the provided dependencies.
 func getKubernetesClustersWithResolver(
 	ctx context.Context,
 	peers []*proto.PeerState,
@@ -149,10 +151,9 @@ func getKubernetesClustersWithResolver(
 	kcs := []kubernetesCluster{}
 	attempted := map[string]struct{}{}
 	for _, peer := range peers {
-		fqdns, err := resolver.LookupAddr(ctx, peer.IP)
+		fqdns, err := peerFQDNs(ctx, peer, resolver)
 		if err != nil {
-			log.Debugf("could not reverse-resolve peer %s: %v", peer.IP, err)
-			continue
+			return nil, err
 		}
 		for _, fqdn := range fqdns {
 			if _, ok := attempted[fqdn]; ok {
@@ -186,6 +187,24 @@ func getKubernetesClustersWithResolver(
 		}
 	}
 	return kcs, nil
+}
+
+// peerFQDNs returns the daemon-provided names before consulting reverse DNS.
+func peerFQDNs(ctx context.Context, peer *proto.PeerState, resolver reverseResolver) ([]string, error) {
+	if fqdn := peer.GetFqdn(); fqdn != "" {
+		return []string{fqdn}, nil
+	}
+
+	fqdns, err := resolver.LookupAddr(ctx, peer.GetIP())
+	if err == nil {
+		return fqdns, nil
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
+
+	log.Debugf("could not reverse-resolve peer %s: %v", peer.GetIP(), err)
+	return nil, nil
 }
 
 func fingerprintClusters(ctx context.Context, httpClient *http.Client, fqdn string) (*url.URL, string, error) {
