@@ -102,17 +102,20 @@ func TestSwitchProfile_ClearsJWTCache(t *testing.T) {
 	// switchProfileIfNeeded rather than the no-op path a nil request takes.
 	const target = "second"
 	username := "tester"
+	owner := unprivilegedIdentity()
 	_, err := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
 		ConfigPath:    filepath.Join(profilemanager.DefaultConfigPathDir, target+".json"),
 		ManagementURL: "https://api.netbird.io:443",
+		Owner:         &owner,
 	})
 	require.NoError(t, err)
 
-	owner := unprivilegedIdentity()
 	s.jwtCache.store("token", owner, testTTL, s.jwtCache.currentGeneration())
 
 	name := target
-	_, err = s.SwitchProfile(ctx, &proto.SwitchProfileRequest{ProfileName: &name, Username: &username})
+	// The handler scopes the switch to the caller's identity, which a real
+	// caller gets from the daemon's transport credentials.
+	_, err = s.SwitchProfile(ctxWithIdentity(owner), &proto.SwitchProfileRequest{ProfileName: &name, Username: &username})
 	require.NoError(t, err)
 
 	active, err := s.profileManager.GetActiveProfileState()

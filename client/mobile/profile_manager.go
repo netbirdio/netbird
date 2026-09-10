@@ -11,6 +11,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/mdm"
 )
@@ -57,8 +58,12 @@ type Profile struct {
 // All profile identity is ID-based; the human-readable name lives inside the
 // profile config's Name field.
 type ProfileManager struct {
-	configDir  string
-	username   string
+	configDir string
+	username  string
+	// identity scopes profile ownership. There is no IPC hop on mobile: the
+	// manager runs inside the app, so the owner of a profile is the app process
+	// itself, and the device has a single user anyway.
+	identity   ipcauth.Identity
 	serviceMgr *profilemanager.ServiceManager
 	mdmLoader  *mdm.Loader
 }
@@ -82,9 +87,18 @@ func NewProfileManager(configDir, username string) *ProfileManager {
 	profilesDir := filepath.Join(configDir, profilesSubdir)
 	serviceMgr := profilemanager.NewServiceManagerWithProfilesDir(defaultConfigPath, profilesDir)
 
+	// A failed read leaves the zero Identity, which is not Known and therefore
+	// owns nothing: profile access fails closed rather than falling back to
+	// something permissive.
+	identity, err := ipcauth.CurrentProcessIdentity()
+	if err != nil {
+		log.Errorf("failed to read this process's identity, profiles will be inaccessible: %v", err)
+	}
+
 	return &ProfileManager{
 		configDir:  configDir,
 		username:   username,
+		identity:   identity,
 		serviceMgr: serviceMgr,
 	}
 }
@@ -92,7 +106,7 @@ func NewProfileManager(configDir, username string) *ProfileManager {
 // ListProfiles returns all available profiles, including the default profile,
 // with their active status set.
 func (pm *ProfileManager) ListProfiles() ([]Profile, error) {
-	internalProfiles, err := pm.serviceMgr.ListProfiles(pm.username)
+	internalProfiles, err := pm.serviceMgr.ListProfiles(pm.identity)
 	if err != nil {
 		return nil, fmt.Errorf("list profiles: %w", err)
 	}
@@ -118,7 +132,7 @@ func (pm *ProfileManager) GetActiveProfile() (*Profile, error) {
 		return nil, fmt.Errorf("get active profile: %w", err)
 	}
 
-	prof, err := pm.serviceMgr.ResolveProfile(activeState.ID.String(), pm.username)
+	prof, err := pm.serviceMgr.ResolveProfile(activeState.ID.String(), pm.identity)
 	if err != nil {
 		return nil, fmt.Errorf("resolve active profile %q: %w", activeState.ID, err)
 	}
@@ -153,7 +167,7 @@ func (pm *ProfileManager) AddProfile(displayName string) (*Profile, error) {
 	if err := pm.checkProfilesAllowed(); err != nil {
 		return nil, err
 	}
-	profile, err := pm.serviceMgr.AddProfile(displayName, pm.username, nil)
+	profile, err := pm.serviceMgr.AddProfile(displayName, &pm.identity)
 	if err != nil {
 		return nil, fmt.Errorf("add profile: %w", err)
 	}
@@ -168,7 +182,7 @@ func (pm *ProfileManager) RenameProfile(id string, newName string) error {
 	if err := pm.checkProfilesAllowed(); err != nil {
 		return err
 	}
-	if err := pm.serviceMgr.RenameProfile(profilemanager.ID(id), pm.username, newName); err != nil {
+	if err := pm.serviceMgr.RenameProfile(profilemanager.ID(id), pm.identity, newName); err != nil {
 		return fmt.Errorf("rename profile: %w", err)
 	}
 
@@ -222,7 +236,7 @@ func (pm *ProfileManager) RemoveProfile(id string) error {
 		return err
 	}
 
-	if err := pm.serviceMgr.RemoveProfile(profilemanager.ID(id), pm.username); err != nil {
+	if err := pm.serviceMgr.RemoveProfile(profilemanager.ID(id), pm.identity); err != nil {
 		return fmt.Errorf("remove profile: %w", err)
 	}
 

@@ -100,10 +100,21 @@ type ActiveProfileState struct {
 	// before the ID-based config files. Legacy values were profile names, which
 	// were also the legacy filename stems, so they still resolve to the correct
 	// file on disk.
-	ID       ID     `json:"name"`
+	ID ID `json:"name"`
+
+	// Username records which per-username directory a pre-migration profile's
+	// file lives in. It is a hint for reconstructing that path, not a statement
+	// about who owns the profile: ownership lives in the profile's own JSON, as
+	// typed principals. Profiles in the shared directory leave it empty, and
+	// the field goes away once no per-username directory is left.
 	Username string `json:"username"`
 }
 
+// FilePath rebuilds the profile's path from the per-username layout.
+//
+// Prefer ServiceManager.ActiveProfilePath: this reconstruction only holds for a
+// profile that predates the ID-keyed layout, since a profile created after it
+// lives in the shared directory instead, under no username at all.
 func (a *ActiveProfileState) FilePath() (string, error) {
 	if a.ID == "" {
 		return "", fmt.Errorf("active profile ID is empty")
@@ -127,6 +138,68 @@ func (a *ActiveProfileState) FilePath() (string, error) {
 
 type ServiceManager struct {
 	profilesDir string // If set, overrides ConfigDirOverride for profile operations
+}
+
+// ActiveProfilePath returns the config file of the profile the active-profile
+// state points at.
+//
+// The path is looked up through the loader rather than rebuilt from the
+// recorded username, because a profile's directory is no longer a function of
+// who owns it: profiles created since the ID-keyed layout share one directory,
+// and only pre-migration ones sit under a per-username one. The username
+// survives as a tiebreaker for the single case that still needs one, a legacy
+// ID being a display name that two users can each hold.
+//
+// A state that points at a profile with no file yet still yields the path that
+// file would have, so a caller reads "not created yet" from a stat rather than
+// from an error.
+func (s *ServiceManager) ActiveProfilePath(a *ActiveProfileState) (string, error) {
+	if a == nil || a.ID == "" {
+		return "", fmt.Errorf("active profile ID is empty")
+	}
+	if a.ID == defaultProfileName {
+		return DefaultConfigPath, nil
+	}
+	if !IsValidProfileFilenameStem(a.ID) {
+		return "", fmt.Errorf("invalid profile ID: %q", a.ID)
+	}
+
+	profiles, err := s.loadAllProfiles()
+	if err != nil {
+		return "", fmt.Errorf("load profiles: %w", err)
+	}
+
+	var matches []Profile
+	for _, p := range profiles {
+		if p.ID == a.ID {
+			matches = append(matches, p)
+		}
+	}
+
+	switch len(matches) {
+	case 0:
+		// Nothing on disk under that ID, so the legacy layout is the only
+		// guess left for where the file would go.
+		return a.FilePath()
+	case 1:
+		return matches[0].Path, nil
+	}
+
+	// Two directories hold the same legacy ID, so the recorded hint says which
+	// one the daemon activated. State written before the hint was a directory
+	// recorded the raw account name, which the legacy layout sanitized on its
+	// way to becoming a directory, so try it both ways.
+	for _, want := range []string{a.Username, sanitizeProfileName(a.Username)} {
+		for _, p := range matches {
+			if filepath.Base(filepath.Dir(p.Path)) == want {
+				return p.Path, nil
+			}
+		}
+	}
+
+	log.Warnf("active profile %q exists in %d directories and none of them is %q, using %s",
+		a.ID, len(matches), a.Username, matches[0].Path)
+	return matches[0].Path, nil
 }
 
 func NewServiceManager(defaultConfigPath string) *ServiceManager {
@@ -470,13 +543,13 @@ func (s *ServiceManager) GetStatePath() string {
 		return defaultStatePath
 	}
 
-	configDir, err := s.getConfigDirLegacy(activeProf.Username)
+	configPath, err := s.ActiveProfilePath(activeProf)
 	if err != nil {
-		log.Warnf("failed to get config directory for user %s: %v", activeProf.Username, err)
+		log.Warnf("failed to resolve the active profile's path: %v", err)
 		return defaultStatePath
 	}
 
-	return filepath.Join(configDir, activeProf.ID.String()+".state.json")
+	return filepath.Join(filepath.Dir(configPath), activeProf.ID.String()+".state.json")
 }
 
 // getConfigDirLegacy returns the profiles directory, using profilesDir if set, otherwise getConfigDirForUser
@@ -489,15 +562,7 @@ func (s *ServiceManager) getConfigDirLegacy(username string) (string, error) {
 }
 
 func (s *ServiceManager) getConfigDir() (string, error) {
-	if s.profilesDir != "" {
-		return s.profilesDir, nil
-	}
-
-	if ConfigDirOverride != "" {
-		return ConfigDirOverride, nil
-	}
-
-	configDir := filepath.Join(DefaultConfigPathDir, DefaultProfilePathDir)
+	configDir := s.profilesDirPath()
 	if _, err := os.Stat(configDir); os.IsNotExist(err) {
 		if err := os.MkdirAll(configDir, 0700); err != nil {
 			return "", err
@@ -505,6 +570,20 @@ func (s *ServiceManager) getConfigDir() (string, error) {
 	}
 
 	return configDir, nil
+}
+
+// profilesDirPath returns the directory new profiles are written to without
+// creating it, so a read path can name it without leaving a directory behind.
+func (s *ServiceManager) profilesDirPath() string {
+	if s.profilesDir != "" {
+		return s.profilesDir
+	}
+
+	if ConfigDirOverride != "" {
+		return ConfigDirOverride
+	}
+
+	return filepath.Join(DefaultConfigPathDir, DefaultProfilePathDir)
 }
 
 // loadAllProfiles returns every profile visible to the daemon for the
@@ -538,36 +617,59 @@ func (s *ServiceManager) loadAllProfiles() ([]Profile, error) {
 	}
 
 	// The default profile is not seeded with an owner: it starts unowned, and
-	// the first claim stamps it like any other profile.
+	// the first claim stamps it like any other profile. A file that is not
+	// there yet is unowned rather than unreadable, since the daemon writes it
+	// on first run and every listing before that would otherwise fail.
+	var profiles []Profile
 	defaultOwners, err := readProfileOwners(DefaultConfigPath)
-	if err != nil {
-		return nil, err
+	switch {
+	case err == nil, errors.Is(err, os.ErrNotExist):
+		profiles = append(profiles, Profile{
+			ID:       defaultProfileName,
+			Name:     defaultName,
+			Path:     DefaultConfigPath,
+			IsActive: activeIsDefault,
+			Owners:   defaultOwners,
+		})
+	default:
+		// Same rule as a discovered profile whose owners cannot be read: leave
+		// it out rather than treat it as unowned, and leave it out rather than
+		// fail, so one unreadable file does not take every other profile with
+		// it.
+		log.Warnf("leaving the default profile out of the listing, its owners could not be read: %v", err)
 	}
-	profiles := []Profile{{
-		ID:       defaultProfileName,
-		Name:     defaultName,
-		Path:     DefaultConfigPath,
-		IsActive: activeIsDefault,
-		Owners:   defaultOwners,
-	}}
+
+	// The directory new profiles go to, plus every per-username directory left
+	// from before the ID-keyed layout. The first is not necessarily under
+	// DefaultConfigPathDir: a ServiceManager can be pointed at a directory of
+	// its own, which is what the mobile bindings do.
+	dirs := []string{s.profilesDirPath()}
 
 	configPathDir, err := os.ReadDir(DefaultConfigPathDir)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return profiles, nil
-		}
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("read profile directory: %w", err)
+	}
+	for _, entry := range configPathDir {
+		if entry.IsDir() {
+			dirs = append(dirs, filepath.Join(DefaultConfigPathDir, entry.Name()))
+		}
 	}
 
 	var fileProfiles []Profile
-	for _, entry := range configPathDir {
-		if entry.IsDir() {
-			legacyUsernameProfiles, err := s.getProfilesFromDirectory(filepath.Join(DefaultConfigPathDir, entry.Name()))
-			if err != nil {
-				return nil, err
-			}
-			fileProfiles = append(fileProfiles, legacyUsernameProfiles...)
+	scanned := make(map[string]bool, len(dirs))
+	for _, dir := range dirs {
+		// The profiles directory is usually one of the subdirectories above,
+		// so without this a profile would be listed twice.
+		if scanned[dir] {
+			continue
 		}
+		scanned[dir] = true
+
+		dirProfiles, err := s.getProfilesFromDirectory(dir)
+		if err != nil {
+			return nil, err
+		}
+		fileProfiles = append(fileProfiles, dirProfiles...)
 	}
 
 	sort.Slice(fileProfiles, func(i, j int) bool {

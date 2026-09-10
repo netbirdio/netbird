@@ -289,20 +289,25 @@ func TestListProfiles_PrivilegedResolvesUnfiltered(t *testing.T) {
 	})
 }
 
-func TestListProfiles_UnownedStaysOpenUntilClaimed(t *testing.T) {
-	withTestSM(t, func(sm *ServiceManager, userID ipcauth.Identity) {
+func TestListProfiles_UnownedIsPrivilegedOnly(t *testing.T) {
+	withTestSM(t, func(sm *ServiceManager, _ ipcauth.Identity) {
 		unowned, err := sm.AddProfile("unowned", nil)
 		require.NoError(t, err)
 
-		other := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
-		got, err := sm.ListProfiles(other)
+		alice := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
+		got, err := sm.ListProfiles(alice)
 		require.NoError(t, err)
-		assert.Contains(t, profileIDs(got), unowned.ID.String(),
-			"an unowned profile is addressable until it is claimed")
+		assert.NotContains(t, profileIDs(got), unowned.ID.String(),
+			"an unowned profile is not addressable until it is claimed")
+
+		root := ipcauth.KnownForTest(ipcauth.Identity{UID: 0})
+		got, err = sm.ListProfiles(root)
+		require.NoError(t, err)
+		assert.Contains(t, profileIDs(got), unowned.ID.String())
 	})
 }
 
-func TestListProfiles_UnreadableOwnersArePrivilegedOnly(t *testing.T) {
+func TestListProfiles_UnreadableOwnersAreSkipped(t *testing.T) {
 	withTestSM(t, func(sm *ServiceManager, _ ipcauth.Identity) {
 		configDir, err := sm.getConfigDir()
 		require.NoError(t, err)
@@ -320,10 +325,13 @@ func TestListProfiles_UnreadableOwnersArePrivilegedOnly(t *testing.T) {
 		assert.NotContains(t, profileIDs(got), tampered,
 			"a profile whose owners cannot be read must not fall back to unowned")
 
+		// Not even a privileged caller: the loader drops the profile before
+		// ownership is ever consulted, so corrupting the owner list hides the
+		// profile rather than unlocking it.
 		root := ipcauth.KnownForTest(ipcauth.Identity{UID: 0})
 		got, err = sm.ListProfiles(root)
 		require.NoError(t, err)
-		assert.Contains(t, profileIDs(got), tampered)
+		assert.NotContains(t, profileIDs(got), tampered)
 	})
 }
 

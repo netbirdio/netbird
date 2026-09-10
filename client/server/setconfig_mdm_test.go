@@ -11,6 +11,7 @@ import (
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
+	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/client/proto"
@@ -83,6 +84,7 @@ func setupServerWithProfile(t *testing.T) (s *Server, ctx context.Context, profN
 	_, err = profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
 		ConfigPath:    cfgPath,
 		ManagementURL: "https://api.netbird.io:443",
+		Owner:         testProfileOwner(),
 	})
 	require.NoError(t, err)
 
@@ -99,6 +101,15 @@ func setupServerWithProfile(t *testing.T) (s *Server, ctx context.Context, profN
 	ctx = privilegedTestCtx()
 	s = New(ctx, "console", "", false, false, false, false)
 	return s, ctx, profName, currUser.Username, cfgPath
+}
+
+// testProfileOwner is the identity the unprivileged test contexts carry, so a
+// fixture profile can be owned by the very caller that drives the handler.
+// Without an owner the profile is unowned, which the loader hides from every
+// unprivileged caller.
+func testProfileOwner() *ipcauth.Identity {
+	id := unprivilegedIdentity()
+	return &id
 }
 
 // extractViolation pulls the MDMManagedFieldsViolation detail from a
