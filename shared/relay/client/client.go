@@ -113,10 +113,6 @@ func newConnContainer(log *log.Entry, c *Client, peerID messages.PeerID, instanc
 	return cc
 }
 
-func (cc *connContainer) netConn() net.Conn {
-	return cc.conn
-}
-
 func (cc *connContainer) writeMsg(msg Msg) {
 	cc.msgChanLock.Lock()
 	defer cc.msgChanLock.Unlock()
@@ -300,7 +296,7 @@ func (c *Client) Connect(ctx context.Context) error {
 	return nil
 }
 
-// OpenConn create a new net.Conn for the destination peer ID. In case if the connection is in progress
+// OpenConn create a new Conn for the destination peer ID. In case if the connection is in progress
 // to the relay server, the function will block until the connection is established or timed out. Otherwise,
 // it will return immediately.
 // It block until the server confirm the peer is online.
@@ -358,7 +354,7 @@ func (c *Client) OpenConn(ctx context.Context, dstPeerID string) (*Conn, error) 
 	c.mu.Unlock()
 
 	c.log.Infof("remote peer is available: %s", peerID)
-	return container.netConn(), nil
+	return container.conn, nil
 }
 
 // ServerInstanceURL returns the address of the relay server. It could change after the close and reopen the connection.
