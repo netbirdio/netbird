@@ -27,7 +27,10 @@ func withPatchedGlobals(t *testing.T, configDir string, testFunc func()) {
 	DefaultConfigPath = filepath.Join(configDir, "default.json")
 	ActiveProfileStatePath = filepath.Join(configDir, "active_profile.json")
 	oldDefaultConfigPath = filepath.Join(configDir, "old_config.json")
-	ConfigDirOverride = configDir
+	// A subdirectory, mirroring production: loadAllProfiles only descends into
+	// directories under DefaultConfigPathDir, so profiles written straight into
+	// the config root would be invisible to it.
+	ConfigDirOverride = filepath.Join(configDir, DefaultProfilePathDir)
 	// Clean up any files in the config dir to ensure isolation
 	os.RemoveAll(configDir)
 	os.MkdirAll(configDir, 0755) //nolint: errcheck

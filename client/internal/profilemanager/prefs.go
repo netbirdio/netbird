@@ -29,7 +29,7 @@ func (s *ServiceManager) ProfilePrefs(id ID, username string) (*Prefs, error) {
 	if id == defaultProfileName {
 		return &Prefs{path: filepath.Join(filepath.Dir(DefaultConfigPath), id.String()+prefsFileSuffix)}, nil
 	}
-	configDir, err := s.getConfigDir(username)
+	configDir, err := s.getConfigDirLegacy(username)
 	if err != nil {
 		return nil, fmt.Errorf("get config directory for user %s: %w", username, err)
 	}

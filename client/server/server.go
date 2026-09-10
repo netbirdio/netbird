@@ -2337,7 +2337,12 @@ func (s *Server) RenameProfile(ctx context.Context, msg *proto.RenameProfileRequ
 		return nil, err
 	}
 
-	err = s.profileManager.RenameProfile(resolved.ID, msg.Username, msg.NewProfileName)
+	userID, ok := ipcauth.CallerIdentity(ctx)
+	if !ok {
+		return nil, gstatus.Error(codes.Unauthenticated, "caller identity could not be resolved")
+	}
+
+	err = s.profileManager.RenameProfile(resolved.ID, userID, msg.NewProfileName)
 	if err != nil {
 		log.Errorf("failed to rename profile: %v", err)
 		return nil, fmt.Errorf("failed to rename profile: %w", err)
@@ -2432,7 +2437,12 @@ func (s *Server) ListProfiles(ctx context.Context, msg *proto.ListProfilesReques
 		return nil, gstatus.Errorf(codes.InvalidArgument, "username must be provided")
 	}
 
-	profiles, err := s.profileManager.ListProfiles(msg.Username)
+	userID, ok := ipcauth.CallerIdentity(ctx)
+	if !ok {
+		return nil, gstatus.Error(codes.Unauthenticated, "caller identity could not be resolved")
+	}
+
+	profiles, err := s.profileManager.ListProfiles(userID)
 	if err != nil {
 		log.Errorf("failed to list profiles: %v", err)
 		return nil, fmt.Errorf("failed to list profiles: %w", err)
@@ -2465,10 +2475,15 @@ func (s *Server) GetActiveProfile(ctx context.Context, msg *proto.GetActiveProfi
 		return nil, fmt.Errorf("failed to get active profile state: %w", err)
 	}
 
+	userID, ok := ipcauth.CallerIdentity(ctx)
+	if !ok {
+		return nil, gstatus.Error(codes.Unauthenticated, "caller identity could not be resolved")
+	}
+
 	// Fallback to legacy name == ID
 	displayName := activeProfile.ID.String()
 	if activeProfile.ID != profilemanager.DefaultProfileName {
-		if profiles, lerr := s.profileManager.ListProfiles(activeProfile.Username); lerr == nil {
+		if profiles, lerr := s.profileManager.ListProfiles(userID); lerr == nil {
 			for _, p := range profiles {
 				if p.ID == activeProfile.ID {
 					displayName = p.Name

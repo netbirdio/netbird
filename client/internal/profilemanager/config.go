@@ -276,7 +276,7 @@ func baseConfigDir() (string, error) {
 	return os.UserConfigDir()
 }
 
-func getConfigDirForUser(username string) (string, error) {
+func getConfigDirForUserLegacy(username string) (string, error) {
 	if ConfigDirOverride != "" {
 		return ConfigDirOverride, nil
 	}
