@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 
@@ -32,6 +33,8 @@ type store interface {
 	CreateCustomDomain(ctx context.Context, accountID string, domainName string, targetCluster string, validated bool) (*domain.Domain, error)
 	UpdateCustomDomain(ctx context.Context, accountID string, d *domain.Domain) (*domain.Domain, error)
 	DeleteCustomDomain(ctx context.Context, accountID string, domainID string) error
+	GetExpiredCustomDomains(ctx context.Context, now time.Time, afterID domain.ID, limit int) ([]*domain.Domain, error)
+	DeleteExpiredCustomDomain(ctx context.Context, d *domain.Domain, now time.Time) (bool, error)
 }
 
 type proxyManager interface {
@@ -106,12 +109,13 @@ func (m Manager) GetDomains(ctx context.Context, accountID, userID string) ([]*d
 	// Add custom domains.
 	for _, d := range domains {
 		cd := &domain.Domain{
-			ID:            d.ID,
-			Domain:        d.Domain,
-			AccountID:     accountID,
-			TargetCluster: d.TargetCluster,
-			Type:          domain.TypeCustom,
-			Validated:     d.Validated,
+			ID:                  d.ID,
+			Domain:              d.Domain,
+			AccountID:           accountID,
+			TargetCluster:       d.TargetCluster,
+			Type:                domain.TypeCustom,
+			Validated:           d.Validated,
+			ValidationExpiresAt: d.ValidationExpiresAt,
 		}
 		if d.TargetCluster != "" {
 			cd.SupportsCustomPorts = m.proxyManager.ClusterSupportsCustomPorts(ctx, d.TargetCluster)
@@ -243,6 +247,14 @@ func (m Manager) ValidateDomain(ctx context.Context, accountID, userID, domainID
 		}).WithError(err).Error("get custom domain from store")
 		return
 	}
+	if d.Validated {
+		return
+	}
+	if d.ValidationExpiresAt == nil || !time.Now().Before(*d.ValidationExpiresAt) {
+		log.WithFields(log.Fields{"accountID": accountID, "domainID": domainID}).
+			Debug("custom domain validation window has expired")
+		return
+	}
 
 	// Validate only against the domain's target cluster
 	targetCluster := d.TargetCluster
@@ -263,11 +275,6 @@ func (m Manager) ValidateDomain(ctx context.Context, accountID, userID, domainID
 	}).Info("validating domain against target cluster")
 
 	if m.validator.IsValid(context.Background(), d.Domain, []string{targetCluster}) {
-		log.WithFields(log.Fields{
-			"accountID": accountID,
-			"domainID":  domainID,
-			"domain":    d.Domain,
-		}).Info("domain validated successfully")
 		d.Validated = true
 		if _, err := m.store.UpdateCustomDomain(context.Background(), accountID, d); err != nil {
 			log.WithFields(log.Fields{
@@ -277,6 +284,8 @@ func (m Manager) ValidateDomain(ctx context.Context, accountID, userID, domainID
 			}).WithError(err).Error("update custom domain in store")
 			return
 		}
+		log.WithFields(log.Fields{"accountID": accountID, "domainID": domainID}).
+			Info("custom domain validated successfully")
 
 		m.accountManager.StoreEvent(context.Background(), userID, domainID, accountID, activity.DomainValidated, d.EventMeta())
 	} else {
