@@ -700,7 +700,10 @@ func (c *Client) SelectRoute(id string) error {
 		return fmt.Errorf("not connected")
 	}
 
-	routeManager := engine.GetRouteManager()
+	routeManager, err := requireRouteManager(engine.GetRouteManager())
+	if err != nil {
+		return err
+	}
 	if id == "All" {
 		log.Debugf("select all routes")
 		routeManager.SelectAllRoutes()
@@ -725,7 +728,10 @@ func (c *Client) DeselectRoute(id string) error {
 		return fmt.Errorf("not connected")
 	}
 
-	routeManager := engine.GetRouteManager()
+	routeManager, err := requireRouteManager(engine.GetRouteManager())
+	if err != nil {
+		return err
+	}
 	if id == "All" {
 		log.Debugf("deselect all routes")
 		routeManager.DeselectAllRoutes()
