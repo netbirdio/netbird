@@ -58,7 +58,7 @@ func TestAdapterHandlingConnectionClosures(t *testing.T) {
 			go httpServer.Serve(l) //nolint:errcheck
 			t.Cleanup(func() { httpServer.Close() })
 
-			clientconn, _, err := websocket.Dial(context.Background(), "http://whatever",
+			clientconn, _, err := websocket.Dial(context.Background(), "http://whatever", //nolint:bodyclose
 				&websocket.DialOptions{HTTPClient: &http.Client{
 					Transport: &http.Transport{
 						DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
@@ -134,12 +134,13 @@ func TestAdapterHandlingHttpConnection_NoHeadersSent(t *testing.T) {
 	}
 	go httpServer.Serve(l) //nolint:errcheck
 
-	clientconn, _, err := websocket.Dial(context.Background(), "http://whatever", &websocket.DialOptions{HTTPClient: &http.Client{
-		Transport: &http.Transport{
-			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-				return net.Dial("unix", serversock)
-			},
-		}}})
+	clientconn, _, err := websocket.Dial(context.Background(), "http://whatever", //nolint:bodyclose
+		&websocket.DialOptions{HTTPClient: &http.Client{
+			Transport: &http.Transport{
+				DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
+					return net.Dial("unix", serversock)
+				},
+			}}})
 	assert.NoError(t, err)
 
 	h2client := &http.Client{
