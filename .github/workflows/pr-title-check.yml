@@ -7,6 +7,8 @@ on:
 jobs:
   check-title:
     runs-on: ubuntu-latest
+    # Crowdin's translation-sync service PRs are auto-generated with a fixed title.
+    if: github.event.pull_request.user.login != 'netbirddev'
     steps:
       - name: Validate PR title prefix
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
