@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/netip"
 	"testing"
 	"time"
@@ -535,7 +536,7 @@ func TestConnContextCauseOnLocalClose(t *testing.T) {
 		t.Fatal("conn context was not cancelled after a local close")
 	}
 
-	if cause := context.Cause(relayedConn.Context()); errors.Is(cause, ErrServerDisconnected) {
-		t.Errorf("local close must not be reported as a server disconnect, got: %v", cause)
+	if cause := context.Cause(relayedConn.Context()); !errors.Is(cause, net.ErrClosed) {
+		t.Errorf("unexpected cancellation cause after a local close: %v, want %v", cause, net.ErrClosed)
 	}
 }
