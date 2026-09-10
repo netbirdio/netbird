@@ -133,13 +133,5 @@ func (w *WorkerRelay) preferredRelayServer(myRelayAddress, remoteRelayAddress st
 func (w *WorkerRelay) watchRelayedConn(relayedConn *relayClient.Conn) {
 	<-relayedConn.Context().Done()
 
-	w.relayLock.Lock()
-	current := w.relayedConn == relayedConn
-	w.relayLock.Unlock()
-
-	if !current {
-		return
-	}
-
-	w.conn.onRelayDisconnected()
+	w.conn.onRelayDisconnected(relayedConn)
 }
