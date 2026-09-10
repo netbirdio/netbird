@@ -60,12 +60,20 @@ func (h *handler) createSettings(w http.ResponseWriter, r *http.Request) {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
+	// Emitting the validator here lets a client that just bootstrapped issue a
+	// conditional PUT without an intervening GET.
+	util.SetETag(w, created.ETag())
 	util.WriteJSONObject(r.Context(), w, created.ToAPIResponse())
 }
 
 // updateSettings replaces the mutable settings fields on the account's row.
 // A request carrying a cluster bootstraps the row when the account doesn't
 // have one yet.
+//
+// An If-Match header makes the update conditional: it is honoured against the
+// stored row inside the write's transaction, and a stale validator is refused
+// with 412 rather than overwriting what changed since the client read. Omitting
+// the header keeps the pre-existing last-write-wins behaviour.
 func (h *handler) updateSettings(w http.ResponseWriter, r *http.Request) {
 	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
 	if err != nil {
@@ -82,11 +90,12 @@ func (h *handler) updateSettings(w http.ResponseWriter, r *http.Request) {
 	settings := &types.Settings{AccountID: userAuth.AccountId}
 	settings.FromAPIRequest(&req)
 
-	updated, err := h.manager.UpdateSettings(r.Context(), userAuth.UserId, settings)
+	updated, err := h.manager.UpdateSettings(r.Context(), userAuth.UserId, settings, util.IfMatch(r))
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
+	util.SetETag(w, updated.ETag())
 	util.WriteJSONObject(r.Context(), w, updated.ToAPIResponse())
 }
 
@@ -94,6 +103,11 @@ func (h *handler) updateSettings(w http.ResponseWriter, r *http.Request) {
 // The manager refuses (412) while providers exist or a proxy is actively
 // serving the endpoint; a later POST bootstraps fresh, allocating a new
 // endpoint.
+//
+// An If-Match header makes the delete conditional, and is worth sending here
+// even more than on update: both existing guards are about state rather than
+// staleness, so nothing else stops a client from deleting a row that was
+// replaced since it read one.
 func (h *handler) deleteSettings(w http.ResponseWriter, r *http.Request) {
 	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
 	if err != nil {
@@ -101,7 +115,7 @@ func (h *handler) deleteSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.manager.DeleteSettings(r.Context(), userAuth.AccountId, userAuth.UserId); err != nil {
+	if err := h.manager.DeleteSettings(r.Context(), userAuth.AccountId, userAuth.UserId, util.IfMatch(r)); err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
@@ -123,5 +137,9 @@ func (h *handler) getSettings(w http.ResponseWriter, r *http.Request) {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
+	// The pre-bootstrap defaults are a representation like any other and carry
+	// a validator too, so an If-Match taken before bootstrap cannot silently
+	// match the row that appeared since.
+	util.SetETag(w, settings.ETag())
 	util.WriteJSONObject(r.Context(), w, settings.ToAPIResponse())
 }

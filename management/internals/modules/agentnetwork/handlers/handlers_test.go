@@ -93,6 +93,13 @@ func newAgentNetworkHandlerFixture(t *testing.T) *agentNetworkHandlerFixture {
 
 func (f *agentNetworkHandlerFixture) do(t *testing.T, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
+	return f.doWithHeaders(t, method, path, body, nil)
+}
+
+// doWithHeaders is do with request headers, for the cases where the header is
+// the thing under test (conditional requests).
+func (f *agentNetworkHandlerFixture) doWithHeaders(t *testing.T, method, path, body string, headers map[string]string) *httptest.ResponseRecorder {
+	t.Helper()
 	var reader io.Reader
 	if body != "" {
 		reader = strings.NewReader(body)
@@ -100,6 +107,9 @@ func (f *agentNetworkHandlerFixture) do(t *testing.T, method, path, body string)
 	req := httptest.NewRequest(method, path, reader)
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	for name, value := range headers {
+		req.Header.Set(name, value)
 	}
 	req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
 		UserId:    testUserID,
