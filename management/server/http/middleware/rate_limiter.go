@@ -14,12 +14,14 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/netbirdio/netbird/shared/management/http/util"
+	"github.com/netbirdio/netbird/trustedproxy"
 )
 
 const (
-	RateLimitingEnabledEnv = "NB_API_RATE_LIMITING_ENABLED"
-	RateLimitingBurstEnv   = "NB_API_RATE_LIMITING_BURST"
-	RateLimitingRPMEnv     = "NB_API_RATE_LIMITING_RPM"
+	RateLimitingEnabledEnv        = "NB_API_RATE_LIMITING_ENABLED"
+	RateLimitingBurstEnv          = "NB_API_RATE_LIMITING_BURST"
+	RateLimitingRPMEnv            = "NB_API_RATE_LIMITING_RPM"
+	RateLimitingTrustedProxiesEnv = "NB_API_RATE_LIMITING_TRUSTED_PROXIES"
 
 	defaultAPIRPM   = 6
 	defaultAPIBurst = 500
@@ -35,6 +37,9 @@ type RateLimiterConfig struct {
 	CleanupInterval time.Duration
 	// LimiterTTL defines how long a limiter should be kept after last use (age threshold for removal)
 	LimiterTTL time.Duration
+	// TrustedProxies lists the upstream proxies whose forwarding headers may be
+	// believed. Empty means requests are keyed by their direct peer address.
+	TrustedProxies *trustedproxy.List
 }
 
 // DefaultRateLimiterConfig returns a default configuration
@@ -76,11 +81,18 @@ func RateLimiterConfigFromEnv() (cfg *RateLimiterConfig, enabled bool) {
 		burst = defaultAPIBurst
 	}
 
+	trusted, err := trustedproxy.Parse(os.Getenv(RateLimitingTrustedProxiesEnv))
+	if err != nil {
+		log.Warnf("parsing %s env var: %v, trusting no proxies", RateLimitingTrustedProxiesEnv, err)
+		trusted = nil
+	}
+
 	return &RateLimiterConfig{
 		RequestsPerMinute: float64(rpm),
 		Burst:             burst,
 		CleanupInterval:   6 * time.Hour,
 		LimiterTTL:        24 * time.Hour,
+		TrustedProxies:    trusted,
 	}, os.Getenv(RateLimitingEnabledEnv) == "true"
 }
 
@@ -250,7 +262,7 @@ func (rl *APIRateLimiter) Middleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		clientIP := getClientIP(r)
+		clientIP := getClientIP(r, rl.config.TrustedProxies)
 		if !rl.Allow(clientIP) {
 			util.WriteErrorResponse("rate limit exceeded, please try again later", http.StatusTooManyRequests, w)
 			return
@@ -259,8 +271,15 @@ func (rl *APIRateLimiter) Middleware(next http.Handler) http.Handler {
 	})
 }
 
-// getClientIP extracts the client IP address from the request.
-func getClientIP(r *http.Request) string {
+// getClientIP extracts the client IP address from the request. Forwarding headers
+// are used only when the request arrives from a trusted proxy.
+func getClientIP(r *http.Request, trusted *trustedproxy.List) string {
+	if !trusted.Empty() {
+		if addr := trusted.ResolveClientIP(r.RemoteAddr, r.Header.Get("X-Forwarded-For")); addr.IsValid() {
+			return addr.String()
+		}
+	}
+
 	ip, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr
