@@ -39,9 +39,11 @@ type Privilege struct {
 	// change through the platform's own prompt: see SetGuardedSettings.
 	CanElevate bool `json:"canElevate"`
 	// Commands equivalent to the settings the daemon guards, ready to copy.
-	AllowSSHServer string `json:"allowSshServer"`
-	EnableSSHRoot  string `json:"enableSshRoot"`
-	DisableSSHAuth string `json:"disableSshAuth"`
+	AllowSSHServer     string `json:"allowSshServer"`
+	EnableSSHRoot      string `json:"enableSshRoot"`
+	DisableSSHAuth     string `json:"disableSshAuth"`
+	AllowVNCServer     string `json:"allowVncServer"`
+	DisableVNCApproval string `json:"disableVncApproval"`
 }
 
 type ConfigParams struct {
@@ -60,6 +62,8 @@ type Config struct {
 	MTU                           int64  `json:"mtu"`
 	DisableAutoConnect            bool   `json:"disableAutoConnect"`
 	ServerSSHAllowed              bool   `json:"serverSshAllowed"`
+	ServerVNCAllowed              bool   `json:"serverVncAllowed"`
+	DisableVNCApproval            bool   `json:"disableVncApproval"`
 	RosenpassEnabled              bool   `json:"rosenpassEnabled"`
 	RosenpassPermissive           bool   `json:"rosenpassPermissive"`
 	DisableNotifications          bool   `json:"disableNotifications"`
@@ -91,6 +95,8 @@ type SetConfigParams struct {
 	PreSharedKey                  *string `json:"preSharedKey,omitempty"`
 	DisableAutoConnect            *bool   `json:"disableAutoConnect,omitempty"`
 	ServerSSHAllowed              *bool   `json:"serverSshAllowed,omitempty"`
+	ServerVNCAllowed              *bool   `json:"serverVncAllowed,omitempty"`
+	DisableVNCApproval            *bool   `json:"disableVncApproval,omitempty"`
 	RosenpassEnabled              *bool   `json:"rosenpassEnabled,omitempty"`
 	RosenpassPermissive           *bool   `json:"rosenpassPermissive,omitempty"`
 	DisableNotifications          *bool   `json:"disableNotifications,omitempty"`
@@ -153,6 +159,8 @@ func (s *Settings) GetConfig(ctx context.Context, p ConfigParams) (Config, error
 		MTU:                           resp.GetMtu(),
 		DisableAutoConnect:            resp.GetDisableAutoConnect(),
 		ServerSSHAllowed:              resp.GetServerSSHAllowed(),
+		ServerVNCAllowed:              resp.GetServerVNCAllowed(),
+		DisableVNCApproval:            resp.GetDisableVNCApproval(),
 		RosenpassEnabled:              resp.GetRosenpassEnabled(),
 		RosenpassPermissive:           resp.GetRosenpassPermissive(),
 		DisableNotifications:          resp.GetDisableNotifications(),
@@ -188,6 +196,8 @@ func (s *Settings) SetConfig(ctx context.Context, p SetConfigParams) (SaveOutcom
 		OptionalPreSharedKey:          p.PreSharedKey,
 		DisableAutoConnect:            p.DisableAutoConnect,
 		ServerSSHAllowed:              p.ServerSSHAllowed,
+		ServerVNCAllowed:              p.ServerVNCAllowed,
+		DisableVNCApproval:            p.DisableVNCApproval,
 		RosenpassEnabled:              p.RosenpassEnabled,
 		RosenpassPermissive:           p.RosenpassPermissive,
 		DisableNotifications:          p.DisableNotifications,
@@ -273,11 +283,13 @@ func (s *Settings) guardedChanges(ctx context.Context, p SetConfigParams) (Guard
 	}
 
 	guarded := GuardedSettings{
-		ProfileName:      p.ProfileName,
-		Username:         p.Username,
-		ServerSSHAllowed: changedFlag(p.ServerSSHAllowed, stored.ServerSSHAllowed),
-		EnableSSHRoot:    changedFlag(p.EnableSSHRoot, stored.EnableSSHRoot),
-		DisableSSHAuth:   changedFlag(p.DisableSSHAuth, stored.DisableSSHAuth),
+		ProfileName:        p.ProfileName,
+		Username:           p.Username,
+		ServerSSHAllowed:   changedFlag(p.ServerSSHAllowed, stored.ServerSSHAllowed),
+		EnableSSHRoot:      changedFlag(p.EnableSSHRoot, stored.EnableSSHRoot),
+		DisableSSHAuth:     changedFlag(p.DisableSSHAuth, stored.DisableSSHAuth),
+		ServerVNCAllowed:   changedFlag(p.ServerVNCAllowed, stored.ServerVNCAllowed),
+		DisableVNCApproval: changedFlag(p.DisableVNCApproval, stored.DisableVNCApproval),
 	}
 	// An empty URL leaves the setting alone, which is the daemon's rule too.
 	if p.ManagementURL != "" && p.ManagementURL != stored.ManagementURL {
@@ -289,10 +301,10 @@ func (s *Settings) guardedChanges(ctx context.Context, p SetConfigParams) (Guard
 // Privilege reports whether this UI process could carry out the changes the
 // daemon restricts to root/administrator, whether it can instead ask the
 // operating system for the privileges when the user wants one of them, and the
-// command that performs the ones users hit in the SSH settings. It applies the
-// daemon's own rule to what it can see locally, so the frontend can decide up
-// front how to present those controls instead of letting a save fail. No daemon
-// round-trip, so it also works while the daemon is down.
+// command that performs each of the ones users hit in the SSH and VNC settings.
+// It applies the daemon's own rule to what it can see locally, so the frontend
+// can decide up front how to present those controls instead of letting a save
+// fail. No daemon round-trip, so it also works while the daemon is down.
 //
 // Being root or an elevated administrator is one way. The other is running as the
 // daemon's own user while the daemon is unprivileged, which the daemon accepts
@@ -314,12 +326,14 @@ func (s *Settings) Privilege() Privilege {
 
 func (s *Settings) newPrivilege(privileged bool) Privilege {
 	return Privilege{
-		Privileged:     privileged,
-		ActorKey:       ipcauth.PrivilegedActorKey(),
-		CanElevate:     s.canElevate(),
-		AllowSSHServer: ipcauth.UpCommand("--allow-server-ssh"),
-		EnableSSHRoot:  ipcauth.UpCommand("--enable-ssh-root"),
-		DisableSSHAuth: ipcauth.UpCommand("--disable-ssh-auth"),
+		Privileged:         privileged,
+		ActorKey:           ipcauth.PrivilegedActorKey(),
+		CanElevate:         s.canElevate(),
+		AllowSSHServer:     ipcauth.UpCommand("--allow-server-ssh"),
+		EnableSSHRoot:      ipcauth.UpCommand("--enable-ssh-root"),
+		DisableSSHAuth:     ipcauth.UpCommand("--disable-ssh-auth"),
+		AllowVNCServer:     ipcauth.UpCommand("--allow-server-vnc"),
+		DisableVNCApproval: ipcauth.UpCommand("--disable-vnc-approval"),
 	}
 }
 
@@ -402,5 +416,9 @@ func applyMDMRestrictions(mdm *MDMFields, cfgResp *proto.GetConfigResponse) {
 	if _, ok := set["allowServerSSH"]; ok {
 		allowed := cfgResp.GetServerSSHAllowed()
 		mdm.AllowServerSSH = &allowed
+	}
+	if _, ok := set["allowServerVNC"]; ok {
+		allowed := cfgResp.GetServerVNCAllowed()
+		mdm.AllowServerVNC = &allowed
 	}
 }

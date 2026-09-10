@@ -76,13 +76,15 @@ var (
 // owned by sessionwatch, not the caller.
 type StatusRecorder interface {
 	SetSessionExpiresAt(deadline time.Time)
+	// PublishEvent reports whether any subscriber received the event; the
+	// watcher does not act on it.
 	PublishEvent(
 		severity cProto.SystemEvent_Severity,
 		category cProto.SystemEvent_Category,
 		message string,
 		userMessage string,
 		metadata map[string]string,
-	)
+	) bool
 }
 
 // Watcher observes the latest session deadline and fires two warnings

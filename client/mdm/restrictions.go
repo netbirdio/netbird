@@ -14,6 +14,8 @@ type Fields struct {
 	DisableClientRoutes      bool   `json:"disableClientRoutes"`
 	DisableServerRoutes      bool   `json:"disableServerRoutes"`
 	AllowServerSSH           *bool  `json:"allowServerSSH"`
+	AllowServerVNC           *bool  `json:"allowServerVNC"`
+	DisableVNCApproval       bool   `json:"disableVNCApproval"`
 	DisableAutoConnect       bool   `json:"disableAutoConnect"`
 	DisableAutostart         bool   `json:"disableAutostart"`
 	BlockInbound             bool   `json:"blockInbound"`

@@ -961,10 +961,63 @@ func TestGetPeerNetworkMapComponents_SSHRequirements(t *testing.T) {
 			mutateRule: func(r *nmdata.PolicyRule) { r.Ports = []string{"443"} },
 			sshEnabled: true,
 		},
+		// A bidirectional rule grants access both ways, so the peer is
+		// authorized from the sources side too and needs the same inputs.
 		{
-			name: "netbird-ssh only counts on the destination side",
+			name: "netbird-ssh on the source side of a bidirectional rule",
 			mutateRule: func(r *nmdata.PolicyRule) {
 				r.Protocol = string(nbtypes.PolicyRuleProtocolNetbirdSSH)
+			},
+			targetInSrc: true,
+			wantAllowed: true,
+		},
+		{
+			name: "netbird-ssh on the source side of a one-way rule",
+			mutateRule: func(r *nmdata.PolicyRule) {
+				r.Protocol = string(nbtypes.PolicyRuleProtocolNetbirdSSH)
+				r.Bidirectional = false
+			},
+			targetInSrc: true,
+		},
+
+		// VNC resolves authorized users exactly the way SSH does, so it needs
+		// the same inputs carried into the components. Leaving it out strips
+		// them and the rule reaches the resolver with nobody authorized.
+		{
+			name: "netbird-vnc with authorized groups",
+			mutateRule: func(r *nmdata.PolicyRule) {
+				r.Protocol = string(nbtypes.PolicyRuleProtocolNetbirdVNC)
+				r.AuthorizedGroups = map[string][]string{"g-auth": nil}
+			},
+			wantGroupsMap: map[string][]string{"g-auth": {"user-a"}},
+		},
+		{
+			name: "netbird-vnc default needs allowed users",
+			mutateRule: func(r *nmdata.PolicyRule) {
+				r.Protocol = string(nbtypes.PolicyRuleProtocolNetbirdVNC)
+			},
+			wantAllowed: true,
+		},
+		{
+			name: "netbird-vnc with authorized user carries its own",
+			mutateRule: func(r *nmdata.PolicyRule) {
+				r.Protocol = string(nbtypes.PolicyRuleProtocolNetbirdVNC)
+				r.AuthorizedUser = "user-1"
+			},
+		},
+		{
+			name: "netbird-vnc on the source side of a bidirectional rule",
+			mutateRule: func(r *nmdata.PolicyRule) {
+				r.Protocol = string(nbtypes.PolicyRuleProtocolNetbirdVNC)
+			},
+			targetInSrc: true,
+			wantAllowed: true,
+		},
+		{
+			name: "netbird-vnc on the source side of a one-way rule",
+			mutateRule: func(r *nmdata.PolicyRule) {
+				r.Protocol = string(nbtypes.PolicyRuleProtocolNetbirdVNC)
+				r.Bidirectional = false
 			},
 			targetInSrc: true,
 		},

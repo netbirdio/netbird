@@ -573,7 +573,10 @@ func TestSqlStore_SavePeer(t *testing.T) {
 
 		numOfFields, err := populateFields.PopulateAll(reflectedMetadata)
 		assert.NoError(t, err)
-		assert.Equal(t, 33, numOfFields)
+		// The count includes nested struct fields, so every flag added to Flags
+		// moves it. Flags round-trips as the meta_flags blob on both the gorm and
+		// pgx paths, so a new flag needs no query change.
+		assert.Equal(t, 34, numOfFields)
 
 		// save status of non-existing peer
 		peer := &nbpeer.Peer{

@@ -512,6 +512,9 @@
     "settings.tabs.ssh": {
         "message": "SSH"
     },
+    "settings.tabs.vnc": {
+        "message": "VNC"
+    },
     "settings.tabs.advanced": {
         "message": "Розширені"
     },
@@ -719,6 +722,24 @@
     "settings.ssh.jwtTtl.suffix": {
         "message": "сек."
     },
+    "settings.vnc.section.server": {
+        "message": "Сервер"
+    },
+    "settings.vnc.section.approval": {
+        "message": "Підтвердження"
+    },
+    "settings.vnc.server.label": {
+        "message": "Увімкнути VNC-сервер"
+    },
+    "settings.vnc.server.help": {
+        "message": "Запустити VNC-сервер NetBird на цьому хості, щоб авторизовані піри могли бачити його екран або керувати ним."
+    },
+    "settings.vnc.approval.label": {
+        "message": "Вимагати підтвердження підключення"
+    },
+    "settings.vnc.approval.help": {
+        "message": "Показувати на цьому хості запит, який потрібно прийняти, перш ніж дозволити вхідне VNC-підключення."
+    },
     "settings.advanced.section.interface": {
         "message": "Інтерфейс"
     },
@@ -764,7 +785,7 @@
     "settings.troubleshooting.anonymize.help": {
         "message": "Приховує IP-адреси, домени та інші конфіденційні дані."
     },
-        "settings.troubleshooting.anonymize.info": {
+    "settings.troubleshooting.anonymize.info": {
         "message": "«Стандартний» залишає внутрішні адреси IPv4 та імена пірів читабельними для служби підтримки. «Суворий» додатково анонімізує приватні (RFC 1918), CGNAT- та link-local-адреси, імена пірів і публічні ключі WireGuard. Однакові значення замінюються тим самим псевдонімом, тож піри залишаються розрізнюваними. Використовуйте «Суворий», якщо ділитеся архівом за межами організації."
     },
     "settings.troubleshooting.anonymize.none": {
@@ -1039,6 +1060,45 @@
     },
     "window.title.sessionExpiration": {
         "message": "Термін дії сеансу закінчується"
+    },
+    "window.title.approval": {
+        "message": "Запит на підключення"
+    },
+    "approval.title.vnc": {
+        "message": "Дозволити VNC-підключення?"
+    },
+    "approval.title.ssh": {
+        "message": "Дозволити SSH-підключення?"
+    },
+    "approval.title.default": {
+        "message": "Дозволити вхідне підключення?"
+    },
+    "approval.field.user": {
+        "message": "Від користувача"
+    },
+    "approval.field.keyFingerprint": {
+        "message": "Відпечаток ключа"
+    },
+    "approval.field.peer": {
+        "message": "Через пір"
+    },
+    "approval.field.sourceIp": {
+        "message": "IP-адреса джерела"
+    },
+    "approval.field.osUser": {
+        "message": "Користувач ОС"
+    },
+    "approval.countdown": {
+        "message": "Автовідмова через {seconds} с"
+    },
+    "approval.action.allow": {
+        "message": "Дозволити"
+    },
+    "approval.action.allowViewOnly": {
+        "message": "Дозволити (лише перегляд)"
+    },
+    "approval.action.deny": {
+        "message": "Відхилити"
     },
     "window.title.updating": {
         "message": "Оновлення"
@@ -1355,22 +1415,31 @@
     "error.elevation_failed": {
         "message": "Не вдалося застосувати зміни з підвищеними привілеями. Замість цього виконайте:"
     },
-    "settings.ssh.privilege.actorRoot": {
+    "settings.privilege.actorRoot": {
         "message": "прав root"
     },
-    "settings.ssh.privilege.actorAdministrator": {
+    "settings.privilege.actorAdministrator": {
         "message": "прав адміністратора"
     },
-    "settings.ssh.privilege.hint": {
+    "settings.privilege.authorizePending": {
+        "message": "Очікування авторизації…"
+    },
+    "connect.activeSession.badge": {
+        "message": "Екран транслюється"
+    },
+    "connect.activeSession.tooltip": {
+        "message": "Цей екран зараз переглядають через VNC ({sessionCount} сеанс(ів)). Відключення завершить його, і якщо ви підключені через VNC, ви втратите доступ."
+    },
+    "connect.activeSession.tooltipNamed": {
+        "message": "Цей екран зараз переглядає {who} через VNC ({sessionCount} сеанс(ів)). Відключення завершить його, і якщо ви підключені через VNC, ви втратите доступ."
+    },
+    "settings.privilege.hint": {
         "message": "Потребує {actor}. Замість цього виконайте:"
     },
-    "settings.ssh.privilege.oneWay": {
+    "settings.privilege.oneWay": {
         "message": "Ви можете вимкнути це, але щоб увімкнути знову, знадобиться {actor}:"
     },
-    "settings.ssh.privilege.oneWayInverted": {
+    "settings.privilege.oneWayInverted": {
         "message": "Ви можете увімкнути це, але щоб вимкнути знову, знадобиться {actor}:"
-    },
-        "settings.ssh.privilege.authorizePending": {
-        "message": "Очікування авторизації…"
     }
 }

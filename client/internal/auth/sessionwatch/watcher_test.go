@@ -64,7 +64,7 @@ func (r *fakeRecorder) PublishEvent(
 	message string,
 	_ string,
 	metadata map[string]string,
-) {
+) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.events = append(r.events, event{
@@ -74,6 +74,7 @@ func (r *fakeRecorder) PublishEvent(
 		message:  message,
 		meta:     metadata,
 	})
+	return true
 }
 
 func (r *fakeRecorder) snapshot() []event {

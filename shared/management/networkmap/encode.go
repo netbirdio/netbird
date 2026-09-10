@@ -13,6 +13,7 @@ package networkmap
 
 import (
 	"context"
+	"encoding/base64"
 
 	log "github.com/sirupsen/logrus"
 	goproto "google.golang.org/protobuf/proto"
@@ -145,6 +146,8 @@ func GetProtoProtocol(protocol string) proto.RuleProtocol {
 		return proto.RuleProtocol_ICMP
 	case types.PolicyRuleProtocolNetbirdSSH:
 		return proto.RuleProtocol_NETBIRD_SSH
+	case types.PolicyRuleProtocolNetbirdVNC:
+		return proto.RuleProtocol_NETBIRD_VNC
 	default:
 		return proto.RuleProtocol_UNKNOWN
 	}
@@ -291,6 +294,41 @@ func AppendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*nmdata.Peer,
 		})
 	}
 	return dst
+}
+
+// BuildSessionPubKeysProto decodes base64 X25519 session pubkeys and hashes
+// the user IDs they belong to, emitting the proto entries the daemon's VNC
+// authorizer indexes by pubkey. An entry that cannot be decoded, is not a
+// 32-byte key, or whose user id will not hash is dropped: the authorizer
+// would never match it, and shipping it would only widen what the daemon
+// trusts on the strength of a malformed value.
+func BuildSessionPubKeysProto(ctx context.Context, in []types.VNCSessionPubKey) []*proto.SessionPubKey {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]*proto.SessionPubKey, 0, len(in))
+	for _, e := range in {
+		pub, err := base64.StdEncoding.DecodeString(e.PubKey)
+		if err != nil {
+			log.WithContext(ctx).Warnf("decode VNC session pubkey: %v", err)
+			continue
+		}
+		if len(pub) != 32 {
+			log.WithContext(ctx).Warnf("VNC session pubkey wrong length: %d", len(pub))
+			continue
+		}
+		hash, err := sshauth.HashUserID(e.UserID)
+		if err != nil {
+			log.WithContext(ctx).Warnf("hash VNC session user id: %v", err)
+			continue
+		}
+		out = append(out, &proto.SessionPubKey{
+			PubKey:      pub,
+			UserIdHash:  hash[:],
+			DisplayName: e.DisplayName,
+		})
+	}
+	return out
 }
 
 // lazyStateFor returns the per-peer lazy override for a remote peer. Connections

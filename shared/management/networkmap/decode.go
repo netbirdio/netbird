@@ -389,6 +389,8 @@ func decodePolicyCompact(pc *proto.PolicyCompact, policyID string, peerIDByIndex
 		Destinations:        pc.DestinationGroupIds,
 		AuthorizedUser:      pc.AuthorizedUser,
 		AuthorizedGroups:    authorizedGroupsFromProto(pc.AuthorizedGroups),
+		SessionPubKey:       pc.SessionPubKey,
+		SessionDisplayName:  pc.SessionDisplayName,
 		SourceResource:      resourceFromProto(pc.SourceResource, peerIDByIndex),
 		DestinationResource: resourceFromProto(pc.DestinationResource, peerIDByIndex),
 	}
@@ -582,6 +584,8 @@ func protocolFromProto(p proto.RuleProtocol) types.PolicyRuleProtocolType {
 		return types.PolicyRuleProtocolALL
 	case proto.RuleProtocol_NETBIRD_SSH:
 		return types.PolicyRuleProtocolNetbirdSSH
+	case proto.RuleProtocol_NETBIRD_VNC:
+		return types.PolicyRuleProtocolNetbirdVNC
 	default:
 		return types.PolicyRuleProtocolALL
 	}

@@ -512,6 +512,9 @@
     "settings.tabs.ssh": {
         "message": "SSH"
     },
+    "settings.tabs.vnc": {
+        "message": "VNC"
+    },
     "settings.tabs.advanced": {
         "message": "Avanzate"
     },
@@ -720,6 +723,24 @@
     },
     "settings.ssh.jwtTtl.suffix": {
         "message": "sec."
+    },
+    "settings.vnc.section.server": {
+        "message": "Server"
+    },
+    "settings.vnc.section.approval": {
+        "message": "Approvazione"
+    },
+    "settings.vnc.server.label": {
+        "message": "Abilita server VNC"
+    },
+    "settings.vnc.server.help": {
+        "message": "Esegui il server VNC di NetBird su questo host in modo che i peer autorizzati possano visualizzarne o controllarne lo schermo."
+    },
+    "settings.vnc.approval.label": {
+        "message": "Richiedi l'approvazione della connessione"
+    },
+    "settings.vnc.approval.help": {
+        "message": "Mostra su questo host una richiesta che deve essere accettata prima di consentire una connessione VNC in entrata."
     },
     "settings.advanced.section.interface": {
         "message": "Interfaccia"
@@ -1042,6 +1063,45 @@
     "window.title.sessionExpiration": {
         "message": "Sessione in scadenza"
     },
+    "window.title.approval": {
+        "message": "Richiesta di connessione"
+    },
+    "approval.title.vnc": {
+        "message": "Consentire la connessione VNC?"
+    },
+    "approval.title.ssh": {
+        "message": "Consentire la connessione SSH?"
+    },
+    "approval.title.default": {
+        "message": "Consentire la connessione in entrata?"
+    },
+    "approval.field.user": {
+        "message": "Dall'utente"
+    },
+    "approval.field.keyFingerprint": {
+        "message": "Impronta della chiave"
+    },
+    "approval.field.peer": {
+        "message": "Tramite peer"
+    },
+    "approval.field.sourceIp": {
+        "message": "IP di origine"
+    },
+    "approval.field.osUser": {
+        "message": "Utente del sistema"
+    },
+    "approval.countdown": {
+        "message": "Rifiuto automatico tra {seconds}s"
+    },
+    "approval.action.allow": {
+        "message": "Consenti"
+    },
+    "approval.action.allowViewOnly": {
+        "message": "Consenti (sola visualizzazione)"
+    },
+    "approval.action.deny": {
+        "message": "Rifiuta"
+    },
     "window.title.updating": {
         "message": "Aggiornamento"
     },
@@ -1357,22 +1417,34 @@
     "error.elevation_failed": {
         "message": "Non è stato possibile applicare la modifica con privilegi elevati. Esegua invece questo:"
     },
-    "settings.ssh.privilege.actorRoot": {
+    "settings.privilege.actorRoot": {
         "message": "i privilegi di root"
     },
-    "settings.ssh.privilege.actorAdministrator": {
+    "settings.privilege.actorAdministrator": {
         "message": "i privilegi di amministratore"
     },
-    "settings.ssh.privilege.hint": {
+    "settings.privilege.authorizePending": {
+        "message": "In attesa dell'autorizzazione…"
+    },
+    "connect.activeSession.badge": {
+        "message": "Schermo condiviso",
+        "description": "Short label on the badge shown on the main screen while somebody is attached to this machine over VNC."
+    },
+    "connect.activeSession.tooltip": {
+        "message": "Questo schermo è visualizzato tramite VNC ({sessionCount} sessione/sessioni). Disconnettendosi la sessione termina e, se sei collegato tramite VNC, perderai l’accesso.",
+        "description": "Tooltip on the screen-shared badge. {sessionCount} is how many VNC sessions are attached; wording covers any number since the bundle has no plural forms."
+    },
+    "connect.activeSession.tooltipNamed": {
+        "message": "Questo schermo è visualizzato tramite VNC da {who} ({sessionCount} sessione/sessioni). Disconnettendosi la sessione termina e, se sei collegato tramite VNC, perderai l’accesso.",
+        "description": "As connect.activeSession.tooltip, with {who} naming the dashboard users who started the sessions."
+    },
+    "settings.privilege.hint": {
         "message": "Richiede {actor}. Esegua invece questo:"
     },
-    "settings.ssh.privilege.oneWay": {
+    "settings.privilege.oneWay": {
         "message": "Può disabilitarlo, ma riabilitarlo richiede {actor}."
     },
-    "settings.ssh.privilege.oneWayInverted": {
+    "settings.privilege.oneWayInverted": {
         "message": "Può abilitarlo, ma disabilitarlo di nuovo richiede {actor}."
-    },
-    "settings.ssh.privilege.authorizePending": {
-        "message": "In attesa dell'autorizzazione…"
     }
 }

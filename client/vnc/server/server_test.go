@@ -1,0 +1,751 @@
+//go:build !js && !ios && !android
+
+package server
+
+import (
+	"bytes"
+	"context"
+	"encoding/binary"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"image"
+	"io"
+	"net"
+	"net/netip"
+	"strings"
+	"sync/atomic"
+	"syscall"
+	"testing"
+	"time"
+
+	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// testCapturer returns a 100x100 image for test sessions.
+type testCapturer struct{}
+
+func (t *testCapturer) Width() int  { return 100 }
+func (t *testCapturer) Height() int { return 100 }
+func (t *testCapturer) Capture() (*image.RGBA, error) {
+	return image.NewRGBA(image.Rect(0, 0, 100, 100)), nil
+}
+
+func startTestServer(t *testing.T, disableAuth bool) (net.Addr, *Server) {
+	t.Helper()
+
+	srv := New(Config{
+		Capturer:    &testCapturer{},
+		Injector:    &StubInputInjector{},
+		DisableAuth: disableAuth,
+	})
+
+	addr := netip.MustParseAddrPort("127.0.0.1:0")
+	network := netip.MustParsePrefix("127.0.0.0/8")
+	require.NoError(t, srv.Start(t.Context(), addr, network))
+	// No local-address override: isAllowedSource short-circuits on
+	// loopback-to-loopback before it reaches the own-IP check, so a 127.0.0.1
+	// client is admitted as is. Writing the field here would race the accept
+	// loop Start has already spawned.
+	t.Cleanup(func() { _ = srv.Stop() })
+
+	return srv.listener.Addr(), srv
+}
+
+func TestAuthEnabled_NoSessionAuth_RejectsConnection(t *testing.T) {
+	addr, _ := startTestServer(t, false)
+
+	conn, err := net.Dial("tcp", addr.String())
+	require.NoError(t, err)
+	defer conn.Close()
+
+	// Header with no Noise handshake. Auth-required servers must reject
+	// because no client static was authenticated.
+	header := make([]byte, 11) // mode + usernameLen + sessionID + w + h
+	header[0] = ModeAttach
+	_, err = conn.Write(header)
+	require.NoError(t, err)
+
+	var version [12]byte
+	_, err = io.ReadFull(conn, version[:])
+	require.NoError(t, err)
+	assert.Equal(t, "RFB 003.008\n", string(version[:]))
+
+	_, err = conn.Write(version[:])
+	require.NoError(t, err)
+
+	var numTypes [1]byte
+	_, err = io.ReadFull(conn, numTypes[:])
+	require.NoError(t, err)
+	assert.Equal(t, byte(0), numTypes[0], "should have 0 security types (failure)")
+
+	var reasonLen [4]byte
+	_, err = io.ReadFull(conn, reasonLen[:])
+	require.NoError(t, err)
+
+	reason := make([]byte, binary.BigEndian.Uint32(reasonLen[:]))
+	_, err = io.ReadFull(conn, reason)
+	require.NoError(t, err)
+	assert.Contains(t, string(reason), "identity proof missing", "rejection reason should mention missing identity proof")
+}
+
+func TestAuthDisabled_AllowsConnection(t *testing.T) {
+	addr, _ := startTestServer(t, true)
+
+	conn, err := net.Dial("tcp", addr.String())
+	require.NoError(t, err)
+	defer conn.Close()
+
+	header := make([]byte, 11) // mode + usernameLen + sessionID + w + h
+	header[0] = ModeAttach
+	_, err = conn.Write(header)
+	require.NoError(t, err)
+
+	// Server should send RFB version.
+	var version [12]byte
+	_, err = io.ReadFull(conn, version[:])
+	require.NoError(t, err)
+	assert.Equal(t, "RFB 003.008\n", string(version[:]))
+
+	// Write client version.
+	_, err = conn.Write(version[:])
+	require.NoError(t, err)
+
+	// Should get security types (not 0 = failure).
+	var numTypes [1]byte
+	_, err = io.ReadFull(conn, numTypes[:])
+	require.NoError(t, err)
+	assert.NotEqual(t, byte(0), numTypes[0], "should have at least one security type (auth disabled)")
+}
+
+// TestAuth_NoUnauthBytesPastHeader proves the server does not send any RFB
+// content to a connection that fails source validation. Specifically, the
+// server must close immediately and the client must see EOF before any RFB
+// version greeting is written.
+func TestAuth_NoUnauthBytesPastHeader(t *testing.T) {
+	// The listener has to be loopback so the test can dial it, while the
+	// overlay has to exclude 127.0.0.0/8 and the local address has to be
+	// non-loopback, or isAllowedSource short-circuits and admits the client.
+	// Start cannot express that pair, so the listener is supplied ready-made:
+	// the pre-listener path leaves localAddr and network alone, which lets them
+	// be set here, before Start spawns the accept loop that reads them.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	srv := New(Config{
+		Capturer:    &testCapturer{},
+		Injector:    &StubInputInjector{},
+		DisableAuth: true,
+		Listener:    ln,
+	})
+	srv.localAddr = netip.MustParseAddr("10.99.99.1")
+	srv.network = netip.MustParsePrefix("10.99.0.0/16")
+	require.NoError(t, srv.Start(t.Context(), netip.AddrPort{}, netip.Prefix{}))
+	t.Cleanup(func() { _ = srv.Stop() })
+
+	conn, err := net.Dial("tcp", srv.listener.Addr().String())
+	require.NoError(t, err)
+	defer conn.Close()
+	require.NoError(t, conn.SetDeadline(time.Now().Add(5*time.Second)))
+
+	// Reading even one byte must EOF: the source IP (127.0.0.1) is outside
+	// the configured overlay, so handleConnection closes before writing.
+	var b [1]byte
+	_, err = io.ReadFull(conn, b[:])
+	require.Error(t, err, "non-overlay client must see EOF, not an RFB greeting")
+}
+
+func TestIsAllowedSource(t *testing.T) {
+	tests := []struct {
+		name       string
+		localAddr  netip.Addr
+		network    netip.Prefix
+		localAddr6 netip.Addr
+		network6   netip.Prefix
+		remote     net.Addr
+		want       bool
+	}{
+		{
+			// Unix-domain remotes (per-session agent path) are local IPC,
+			// gated by the token, not by overlay membership.
+			name:      "non-tcp address allowed",
+			localAddr: netip.MustParseAddr("10.99.99.1"),
+			network:   netip.MustParsePrefix("10.99.0.0/16"),
+			remote:    &net.UnixAddr{Name: "/tmp/foo.sock", Net: "unix"},
+			want:      true,
+		},
+		{
+			name:      "own IP rejected",
+			localAddr: netip.MustParseAddr("10.99.99.1"),
+			network:   netip.MustParsePrefix("10.99.0.0/16"),
+			remote:    &net.TCPAddr{IP: net.ParseIP("10.99.99.1"), Port: 5900},
+			want:      false,
+		},
+		{
+			name:      "non-overlay IP rejected",
+			localAddr: netip.MustParseAddr("10.99.99.1"),
+			network:   netip.MustParsePrefix("10.99.0.0/16"),
+			remote:    &net.TCPAddr{IP: net.ParseIP("192.168.1.1"), Port: 5900},
+			want:      false,
+		},
+		{
+			name:      "overlay IP allowed",
+			localAddr: netip.MustParseAddr("10.99.99.1"),
+			network:   netip.MustParsePrefix("10.99.0.0/16"),
+			remote:    &net.TCPAddr{IP: net.ParseIP("10.99.99.2"), Port: 5900},
+			want:      true,
+		},
+		{
+			name:      "v4-mapped v6 in overlay allowed (unmapped)",
+			localAddr: netip.MustParseAddr("10.99.99.1"),
+			network:   netip.MustParsePrefix("10.99.0.0/16"),
+			remote:    &net.TCPAddr{IP: net.ParseIP("::ffff:10.99.99.2"), Port: 5900},
+			want:      true,
+		},
+		{
+			name:      "loopback allowed only when local is loopback",
+			localAddr: netip.MustParseAddr("127.0.0.1"),
+			network:   netip.MustParsePrefix("127.0.0.0/8"),
+			remote:    &net.TCPAddr{IP: net.ParseIP("127.0.0.5"), Port: 5900},
+			want:      true,
+		},
+		{
+			name:      "invalid network rejected (fail-closed)",
+			localAddr: netip.MustParseAddr("10.99.99.1"),
+			network:   netip.Prefix{},
+			remote:    &net.TCPAddr{IP: net.ParseIP("10.99.99.2"), Port: 5900},
+			want:      false,
+		},
+		{
+			name:       "v6 overlay IP allowed",
+			localAddr:  netip.MustParseAddr("10.99.99.1"),
+			network:    netip.MustParsePrefix("10.99.0.0/16"),
+			localAddr6: netip.MustParseAddr("fd00:1234::1"),
+			network6:   netip.MustParsePrefix("fd00:1234::/64"),
+			remote:     &net.TCPAddr{IP: net.ParseIP("fd00:1234::2"), Port: 5900},
+			want:       true,
+		},
+		{
+			name:       "v6 own IP rejected",
+			localAddr:  netip.MustParseAddr("10.99.99.1"),
+			network:    netip.MustParsePrefix("10.99.0.0/16"),
+			localAddr6: netip.MustParseAddr("fd00:1234::1"),
+			network6:   netip.MustParsePrefix("fd00:1234::/64"),
+			remote:     &net.TCPAddr{IP: net.ParseIP("fd00:1234::1"), Port: 5900},
+			want:       false,
+		},
+		{
+			name:       "v6 outside overlay rejected",
+			localAddr:  netip.MustParseAddr("10.99.99.1"),
+			network:    netip.MustParsePrefix("10.99.0.0/16"),
+			localAddr6: netip.MustParseAddr("fd00:1234::1"),
+			network6:   netip.MustParsePrefix("fd00:1234::/64"),
+			remote:     &net.TCPAddr{IP: net.ParseIP("2001:db8::5"), Port: 5900},
+			want:       false,
+		},
+		{
+			name:      "v6 rejected when only v4 overlay configured",
+			localAddr: netip.MustParseAddr("10.99.99.1"),
+			network:   netip.MustParsePrefix("10.99.0.0/16"),
+			remote:    &net.TCPAddr{IP: net.ParseIP("fd00:1234::2"), Port: 5900},
+			want:      false,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := New(Config{Capturer: &testCapturer{}, Injector: &StubInputInjector{}})
+			srv.localAddr = tc.localAddr
+			srv.network = tc.network
+			srv.localAddr6 = tc.localAddr6
+			srv.network6 = tc.network6
+			assert.Equal(t, tc.want, srv.isAllowedSource(tc.remote))
+		})
+	}
+}
+
+func TestStart_InvalidNetworkRejected(t *testing.T) {
+	srv := New(Config{Capturer: &testCapturer{}, Injector: &StubInputInjector{}})
+	addr := netip.MustParseAddrPort("127.0.0.1:0")
+	err := srv.Start(t.Context(), addr, netip.Prefix{})
+	require.Error(t, err, "Start must refuse an invalid overlay prefix")
+	assert.Contains(t, err.Error(), "invalid overlay network prefix")
+}
+
+func TestAgentToken_MismatchClosesConnection(t *testing.T) {
+	srv := New(Config{
+		Capturer:      &testCapturer{},
+		Injector:      &StubInputInjector{},
+		DisableAuth:   true,
+		AgentTokenHex: "deadbeefcafebabe",
+	})
+
+	addr := netip.MustParseAddrPort("127.0.0.1:0")
+	network := netip.MustParsePrefix("127.0.0.0/8")
+	require.NoError(t, srv.Start(t.Context(), addr, network))
+	// No local-address override: isAllowedSource short-circuits on
+	// loopback-to-loopback before the own-IP check, and writing srv.localAddr
+	// here would race the accept loop Start has already spawned.
+	t.Cleanup(func() { _ = srv.Stop() })
+
+	conn, err := net.Dial("tcp", srv.listener.Addr().String())
+	require.NoError(t, err)
+	defer conn.Close()
+	require.NoError(t, conn.SetDeadline(time.Now().Add(10*time.Second)))
+
+	// Answer the agent's challenge with a tag derived from the wrong token.
+	if err := agentClientHandshake(conn, bytes.Repeat([]byte{0xff}, agentTokenLen), false); err != nil {
+		// Expected: the server rejects and closes. The read below confirms it
+		// never reached the greeting.
+		_ = err
+	}
+	// The handshake clears the deadline on its way out, so re-arm it: without
+	// one, a server that neither closes nor greets would hang this test until
+	// the CI timeout instead of failing here.
+	require.NoError(t, conn.SetDeadline(time.Now().Add(10*time.Second)))
+
+	// Server must close without sending the RFB greeting.
+	var version [12]byte
+	_, err = io.ReadFull(conn, version[:])
+	require.Error(t, err, "server must close the connection on bad agent token")
+}
+
+func TestAgentToken_MatchAllowsHandshake(t *testing.T) {
+	const tokenHex = "deadbeefcafebabe"
+	srv := New(Config{
+		Capturer:      &testCapturer{},
+		Injector:      &StubInputInjector{},
+		DisableAuth:   true,
+		AgentTokenHex: tokenHex,
+	})
+	token, err := hex.DecodeString(tokenHex)
+	require.NoError(t, err)
+
+	addr := netip.MustParseAddrPort("127.0.0.1:0")
+	network := netip.MustParsePrefix("127.0.0.0/8")
+	require.NoError(t, srv.Start(t.Context(), addr, network))
+	// No local-address override: isAllowedSource short-circuits on
+	// loopback-to-loopback before the own-IP check, and writing srv.localAddr
+	// here would race the accept loop Start has already spawned.
+	t.Cleanup(func() { _ = srv.Stop() })
+
+	conn, err := net.Dial("tcp", srv.listener.Addr().String())
+	require.NoError(t, err)
+	defer conn.Close()
+	require.NoError(t, conn.SetDeadline(time.Now().Add(10*time.Second)))
+
+	require.NoError(t, agentClientHandshake(conn, token, false))
+	// Re-armed because the handshake clears it on the way out.
+	require.NoError(t, conn.SetDeadline(time.Now().Add(10*time.Second)))
+
+	// Send session header so handleConnection can proceed past readConnectionHeader.
+	header := make([]byte, 11) // ModeAttach + usernameLen=0 + sessionID=0 + width=0 + height=0
+	header[0] = ModeAttach
+	_, err = conn.Write(header)
+	require.NoError(t, err)
+
+	// With a matching token the server proceeds to the RFB greeting.
+	var version [12]byte
+	_, err = io.ReadFull(conn, version[:])
+	require.NoError(t, err, "server must keep the connection open after a valid agent token")
+	assert.Equal(t, "RFB 003.008\n", string(version[:]))
+}
+
+func TestSessionMode_RejectedWhenNoVMGR(t *testing.T) {
+	// Default platformSessionManager() on non-Linux returns nil, so ModeSession
+	// must be rejected with the UNSUPPORTED reason rather than crashing.
+	srv := New(Config{
+		Capturer:    &testCapturer{},
+		Injector:    &StubInputInjector{},
+		DisableAuth: true,
+	})
+
+	addr := netip.MustParseAddrPort("127.0.0.1:0")
+	network := netip.MustParsePrefix("127.0.0.0/8")
+	require.NoError(t, srv.Start(t.Context(), addr, network))
+	// Force vmgr to nil regardless of platform so the test is deterministic.
+	srv.vmgr = nil
+	t.Cleanup(func() { _ = srv.Stop() })
+
+	conn, err := net.Dial("tcp", srv.listener.Addr().String())
+	require.NoError(t, err)
+	defer conn.Close()
+	require.NoError(t, conn.SetDeadline(time.Now().Add(10*time.Second)))
+
+	// ModeSession with no username, so we exit on the vmgr==nil branch
+	// before username validation runs.
+	header := []byte{ModeSession, 0, 0, 0, 0}
+	_, err = conn.Write(header)
+	require.NoError(t, err)
+
+	var version [12]byte
+	_, err = io.ReadFull(conn, version[:])
+	require.NoError(t, err)
+	_, err = conn.Write(version[:])
+	require.NoError(t, err)
+
+	var numTypes [1]byte
+	_, err = io.ReadFull(conn, numTypes[:])
+	require.NoError(t, err)
+	assert.Equal(t, byte(0), numTypes[0])
+
+	var reasonLen [4]byte
+	_, err = io.ReadFull(conn, reasonLen[:])
+	require.NoError(t, err)
+	reason := make([]byte, binary.BigEndian.Uint32(reasonLen[:]))
+	_, err = io.ReadFull(conn, reason)
+	require.NoError(t, err)
+	assert.Contains(t, string(reason), RejectCodeUnsupportedOS)
+}
+
+// recordingApprover lets gate tests choose the outcome of the approval
+// prompt and verify how often (and with what info) the gate calls it.
+type recordingApprover struct {
+	calls    atomic.Int32
+	lastIn   ApprovalInfo
+	decision ApprovalDecision
+	respond  error
+}
+
+func (r *recordingApprover) Request(_ context.Context, info ApprovalInfo) (ApprovalDecision, error) {
+	r.calls.Add(1)
+	r.lastIn = info
+	if r.respond != nil {
+		return ApprovalDecision{}, r.respond
+	}
+	return r.decision, nil
+}
+
+// drainRejectClient simulates a remote VNC client just enough that
+// rejectConnection's handshake-half completes promptly: it reads the
+// server's "RFB 003.008\n", writes back a placeholder client version, and
+// drains until EOF. Without this the rejectConnection path would block
+// for up to two seconds on its SetReadDeadline.
+func drainRejectClient(t *testing.T, c net.Conn) {
+	t.Helper()
+	go func() {
+		defer c.Close()
+		var srvVer [12]byte
+		if _, err := io.ReadFull(c, srvVer[:]); err != nil {
+			return
+		}
+		_, _ = c.Write([]byte("RFB 003.008\n"))
+		_, _ = io.Copy(io.Discard, c)
+	}()
+}
+
+// newGateConn returns a server-side conn and a client-side conn linked by
+// net.Pipe, with the client-side already draining so gateApproval's
+// rejectConnection path completes without blocking the test.
+func newGateConn(t *testing.T) net.Conn {
+	t.Helper()
+	srv, cli := net.Pipe()
+	drainRejectClient(t, cli)
+	t.Cleanup(func() { _ = srv.Close() })
+	return srv
+}
+
+// newGateConnWithReason is newGateConn plus the reject reason the server
+// wrote, so a test can assert on the code the client would read.
+func newGateConnWithReason(t *testing.T) (net.Conn, <-chan string) {
+	t.Helper()
+	srv, cli := net.Pipe()
+	t.Cleanup(func() { _ = srv.Close() })
+
+	reasons := make(chan string, 1)
+	go func() {
+		defer cli.Close()
+		var srvVer [12]byte
+		if _, err := io.ReadFull(cli, srvVer[:]); err != nil {
+			return
+		}
+		if _, err := cli.Write([]byte("RFB 003.008\n")); err != nil {
+			return
+		}
+		// Server sends numTypes=0, then a 4-byte reason length, then the reason.
+		var head [5]byte
+		if _, err := io.ReadFull(cli, head[:]); err != nil {
+			return
+		}
+		reason := make([]byte, binary.BigEndian.Uint32(head[1:5]))
+		if _, err := io.ReadFull(cli, reason); err != nil {
+			return
+		}
+		reasons <- string(reason)
+	}()
+	return srv, reasons
+}
+
+func gateTestServer(requireApproval bool, approver Approver) *Server {
+	return &Server{
+		log:             log.WithField("test", "gate"),
+		requireApproval: requireApproval,
+		approver:        approver,
+	}
+}
+
+// TestGateApproval_Disabled_NoApproverCall: when the feature is off the
+// gate must short-circuit before consulting any approver. A nil approver
+// must NOT mean "deny" here — that would break upgrades for peers that
+// haven't opted in yet.
+func TestGateApproval_Disabled_NoApproverCall(t *testing.T) {
+	app := &recordingApprover{}
+	srv := gateTestServer(false, app)
+
+	conn := newGateConn(t)
+	defer conn.Close()
+	header := &connectionHeader{mode: ModeAttach}
+
+	_, err := srv.gateApproval(conn, header)
+	allowed := err == nil
+	assert.True(t, allowed, "gate must pass through when requireApproval is false")
+	assert.Equal(t, int32(0), app.calls.Load(), "approver must not be called when disabled")
+}
+
+// TestGateApproval_Enabled_NilApproverDenies is the most important
+// regression test for "no silent bypass": if the feature is enabled but
+// the broker wasn't wired (a misconfiguration), the gate must REJECT,
+// not pass through. The reject code must be the dedicated NO_APPROVER so
+// the failure is unambiguous in logs and on the client side.
+func TestGateApproval_Enabled_NilApproverDenies(t *testing.T) {
+	srv := gateTestServer(true, nil)
+
+	srvConn, cliConn := net.Pipe()
+	defer srvConn.Close()
+	defer cliConn.Close()
+
+	// Capture the reject reason the gate sends.
+	rejectReason := make(chan string, 1)
+	go func() {
+		var srvVer [12]byte
+		_, _ = io.ReadFull(cliConn, srvVer[:])
+		_, _ = cliConn.Write([]byte("RFB 003.008\n"))
+		// Server sends: 1 byte (numTypes=0), 4 bytes (reason len), reason.
+		var numTypes [1]byte
+		_, _ = io.ReadFull(cliConn, numTypes[:])
+		var lenBuf [4]byte
+		_, _ = io.ReadFull(cliConn, lenBuf[:])
+		reason := make([]byte, binary.BigEndian.Uint32(lenBuf[:]))
+		_, _ = io.ReadFull(cliConn, reason)
+		rejectReason <- string(reason)
+	}()
+
+	header := &connectionHeader{mode: ModeAttach}
+	_, err := srv.gateApproval(srvConn, header)
+	allowed := err == nil
+	assert.False(t, allowed, "missing approver MUST deny; never silently pass")
+
+	select {
+	case reason := <-rejectReason:
+		assert.Contains(t, reason, RejectCodeNoApprover, "reject code must surface the misconfiguration cause")
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not observe rejection reason")
+	}
+}
+
+// TestGateApproval_ApproverDenies maps every approver error to a deny.
+// We assert against every Err* the broker can produce so a future caller
+// adding a new error doesn't accidentally fall into a default-allow.
+func TestGateApproval_ApproverDenies(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+	}{
+		{"denied", errors.New("user denied")},
+		{"timeout", errors.New("approval timed out")},
+		{"no_subscriber", errors.New("no UI subscriber connected for approval")},
+		{"ctx_canceled", context.Canceled},
+		{"misc", errors.New("anything else")},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			app := &recordingApprover{respond: tc.err}
+			srv := gateTestServer(true, app)
+			conn := newGateConn(t)
+			defer conn.Close()
+
+			header := &connectionHeader{mode: ModeAttach}
+			_, err := srv.gateApproval(conn, header)
+			allowed := err == nil
+			assert.False(t, allowed, "approver error %v must deny", tc.err)
+			assert.Equal(t, int32(1), app.calls.Load())
+		})
+	}
+}
+
+// TestGateApproval_RejectCodeNamesCause pins the reject code the client
+// reads for each cause an approver can report. A device that cannot show a
+// prompt at all, or a user who walked away, must not be reported as a user
+// who said no: the caller acts on that difference, and a peer told "denied"
+// when nobody was ever asked has no reason to retry. Causes are wrapped in
+// the cases that carry one so the mapping cannot regress to == comparison.
+func TestGateApproval_RejectCodeNamesCause(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		code string
+	}{
+		{"denied", ErrApprovalDenied, RejectCodeApprovalDenied},
+		{"denied_wrapped", fmt.Errorf("broker: %w", ErrApprovalDenied), RejectCodeApprovalDenied},
+		{"timeout", ErrApprovalTimeout, RejectCodeApprovalTimeout},
+		{"timeout_wrapped", fmt.Errorf("broker: %w", ErrApprovalTimeout), RejectCodeApprovalTimeout},
+		{"unavailable", ErrApprovalUnavailable, RejectCodeApprovalUnavailable},
+		{"unavailable_wrapped", fmt.Errorf("no UI: %w", ErrApprovalUnavailable), RejectCodeApprovalUnavailable},
+		// An unclassified cause still rejects, reported as a denial.
+		{"ctx_canceled", context.Canceled, RejectCodeApprovalDenied},
+		{"unknown", errors.New("anything else"), RejectCodeApprovalDenied},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			app := &recordingApprover{respond: tc.err}
+			srv := gateTestServer(true, app)
+			conn, reasons := newGateConnWithReason(t)
+
+			_, err := srv.gateApproval(conn, &connectionHeader{mode: ModeAttach})
+			require.Error(t, err, "approver error %v must deny", tc.err)
+
+			select {
+			case reason := <-reasons:
+				assert.True(t, strings.HasPrefix(reason, tc.code+":"),
+					"reject reason %q must name the cause with code %s", reason, tc.code)
+			case <-time.After(2 * time.Second):
+				t.Fatal("did not observe rejection reason")
+			}
+		})
+	}
+}
+
+// TestGateApproval_ApproverAccepts confirms the happy path actually
+// returns true so we know the deny path is not the only outcome the
+// gate can produce.
+func TestGateApproval_ApproverAccepts(t *testing.T) {
+	app := &recordingApprover{respond: nil}
+	srv := gateTestServer(true, app)
+	conn := newGateConn(t)
+	defer conn.Close()
+
+	header := &connectionHeader{mode: ModeAttach, username: "alice"}
+	_, err := srv.gateApproval(conn, header)
+	allowed := err == nil
+	assert.True(t, allowed, "approver returning nil must let the gate pass")
+	assert.Equal(t, int32(1), app.calls.Load())
+	assert.Equal(t, "alice", app.lastIn.Username, "header username must reach the approver")
+}
+
+// TestGateApproval_PassesPubKeyHex confirms the gate hex-encodes the
+// 32-byte client static key into ApprovalInfo.PeerPubKey so the prompt's
+// metadata identifies which peer is connecting. A wrong-length key must
+// NOT bypass the gate; it just won't populate the field.
+func TestGateApproval_PassesPubKeyHex(t *testing.T) {
+	app := &recordingApprover{respond: nil}
+	srv := gateTestServer(true, app)
+	conn := newGateConn(t)
+	defer conn.Close()
+
+	pub := make([]byte, 32)
+	for i := range pub {
+		pub[i] = byte(i)
+	}
+	header := &connectionHeader{mode: ModeAttach, clientStatic: pub}
+	_, err := srv.gateApproval(conn, header)
+	allowed := err == nil
+	assert.True(t, allowed)
+	assert.Equal(t, hex.EncodeToString(pub), app.lastIn.PeerPubKey)
+}
+
+// TestCloseAdmission_RefusesAndDrains covers the shutdown barrier: once
+// admission is closed no further handler may start, and the drain signal fires
+// only after the ones already counted have finished.
+func TestCloseAdmission_RefusesAndDrains(t *testing.T) {
+	srv := &Server{log: log.WithField("test", t.Name())}
+
+	require.True(t, srv.beginHandler(), "a fresh server must admit handlers")
+	require.True(t, srv.beginHandler())
+
+	drained := srv.closeAdmission()
+	assert.False(t, srv.beginHandler(), "admission must be closed after closeAdmission")
+
+	srv.endHandler()
+	select {
+	case <-drained:
+		t.Fatal("drained before the last handler finished")
+	default:
+	}
+
+	srv.endHandler()
+	select {
+	case <-drained:
+	case <-time.After(time.Second):
+		t.Fatal("drain signal never fired")
+	}
+}
+
+// TestCloseAdmission_HandlerOutlivingDrain reproduces the restart hazard: Stop
+// gives up after handlerDrainTimeout, so a handler can still be running when a
+// later Start reopens admission. The counter must survive that (a sync.WaitGroup
+// panics on an Add racing the Wait it left behind), and the next Stop must wait
+// for both the straggler and the handlers admitted after the restart.
+func TestCloseAdmission_HandlerOutlivingDrain(t *testing.T) {
+	srv := &Server{log: log.WithField("test", t.Name())}
+
+	require.True(t, srv.beginHandler())
+	firstDrain := srv.closeAdmission()
+	select {
+	case <-firstDrain:
+		t.Fatal("drained while a handler was still in flight")
+	default:
+	}
+
+	// What Start does after a drain that timed out.
+	srv.handlersMu.Lock()
+	srv.stopping = false
+	srv.handlersDrained = nil
+	srv.handlersMu.Unlock()
+
+	require.True(t, srv.beginHandler(), "a restarted server must admit handlers again")
+
+	secondDrain := srv.closeAdmission()
+	srv.endHandler() // the straggler from before the restart
+	select {
+	case <-secondDrain:
+		t.Fatal("drained before the post-restart handler finished")
+	default:
+	}
+
+	srv.endHandler()
+	select {
+	case <-secondDrain:
+	case <-time.After(time.Second):
+		t.Fatal("drain signal never fired after restart")
+	}
+}
+
+func TestAcceptRetryable(t *testing.T) {
+	tests := []struct {
+		name      string
+		err       error
+		retryable bool
+	}{
+		{"aborted handshake", syscall.ECONNABORTED, true},
+		{"reset pending connection", syscall.ECONNRESET, true},
+		{"timed out pending connection", syscall.ETIMEDOUT, true},
+		{"process fd limit", syscall.EMFILE, true},
+		{"system fd limit", syscall.ENFILE, true},
+		{"no socket buffers", syscall.ENOBUFS, true},
+		{"out of kernel memory", syscall.ENOMEM, true},
+		// A retryable errno reached through the layers Accept actually wraps it in.
+		{"wrapped in OpError", &net.OpError{Op: "accept", Err: syscall.ECONNABORTED}, true},
+		// EINVAL persists for the life of a socket whose interface is gone, so
+		// retrying it livelocks. net.Error.Temporary would call it temporary.
+		{"invalid listening socket", syscall.EINVAL, false},
+		{"listener closed", net.ErrClosed, false},
+		{"unrelated error", errors.New("boom"), false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.retryable, acceptRetryable(tt.err))
+		})
+	}
+}

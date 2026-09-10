@@ -37,6 +37,10 @@ type NetworkMapComponentsCompact = sharedtypes.NetworkMapComponentsCompact
 type LookupMap = sharedtypes.LookupMap
 type FirewallRuleContext = sharedtypes.FirewallRuleContext
 
+type PeerConnResolveState = sharedtypes.PeerConnResolveState
+type RuleAuthCallbacks = sharedtypes.RuleAuthCallbacks
+type VNCSessionPubKey = sharedtypes.VNCSessionPubKey
+
 // Function forwarders preserve types.X(...) call sites that previously
 // resolved to package-local funcs. Plain forwarders (not var aliases) keep
 // the symbol immutable and allow the inliner to flatten the call.
@@ -47,6 +51,45 @@ func ParseRuleString(rule string) (PolicyRuleProtocolType, RulePortRange, error)
 
 func PolicyRuleImpliesLegacySSH(rule *PolicyRule) bool {
 	return nmdata.PolicyRuleImpliesLegacySSH(twinRule(rule))
+}
+
+func NewPeerConnResolveState() *PeerConnResolveState {
+	return sharedtypes.NewPeerConnResolveState()
+}
+
+// ApplyResolvedRuleToState forwards to the twin-typed helper while keeping the
+// real rule on the way back out to generateResources, which the legacy Account
+// calc still drives with real types.
+func ApplyResolvedRuleToState(rule *PolicyRule, sourcePeers, destPeers []*nbpeer.Peer, peerInSources, peerInDestinations, targetPeerSSHEnabled bool, generateResources func(*PolicyRule, []*nbpeer.Peer, int), cb RuleAuthCallbacks, state *PeerConnResolveState) {
+	emit := func(_ *nmdata.PolicyRule, peers []*nbpeer.Peer, direction int) {
+		generateResources(rule, peers, direction)
+	}
+	sharedtypes.ApplyResolvedRuleToState(twinRule(rule), sourcePeers, destPeers, peerInSources, peerInDestinations, targetPeerSSHEnabled, emit, cb, state)
+}
+
+func MergeAuthorizedGroupUsers(ctx context.Context, authorizedGroups map[string][]string, groupIDToUserIDs map[string][]string, target map[string]map[string]struct{}) {
+	sharedtypes.MergeAuthorizedGroupUsers(ctx, authorizedGroups, groupIDToUserIDs, target)
+}
+
+func EnsureWildcardUser(target map[string]map[string]struct{}, authorizedUser string) {
+	sharedtypes.EnsureWildcardUser(target, authorizedUser)
+}
+
+func MergeWildcardUsers(dst map[string]map[string]struct{}, users map[string]struct{}) {
+	sharedtypes.MergeWildcardUsers(dst, users)
+}
+
+// NormalizePolicyRuleProtocol is the real-typed sibling of the twin helper in
+// shared types: it maps the NetBird virtual protocols to the wire protocol and
+// scopes a portless netbird-vnc rule to the embedded VNC port.
+func NormalizePolicyRuleProtocol(rule *PolicyRule) (*PolicyRule, PolicyRuleProtocolType) {
+	protocol := sharedtypes.WirePolicyRuleProtocol(rule.Protocol)
+	if rule.Protocol != PolicyRuleProtocolNetbirdVNC || len(rule.Ports) > 0 || len(rule.PortRanges) > 0 {
+		return rule, protocol
+	}
+	scoped := *rule
+	scoped.Ports = sharedtypes.VNCScopedPorts()
+	return &scoped, protocol
 }
 
 // ExpandPortsAndRanges / AppendIPv6FirewallRule / GenerateRouteFirewallRules
@@ -97,4 +140,5 @@ const (
 	PolicyRuleProtocolUDP        = sharedtypes.PolicyRuleProtocolUDP
 	PolicyRuleProtocolICMP       = sharedtypes.PolicyRuleProtocolICMP
 	PolicyRuleProtocolNetbirdSSH = sharedtypes.PolicyRuleProtocolNetbirdSSH
+	PolicyRuleProtocolNetbirdVNC = sharedtypes.PolicyRuleProtocolNetbirdVNC
 )
