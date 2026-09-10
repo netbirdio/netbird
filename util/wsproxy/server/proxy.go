@@ -3,7 +3,6 @@ package server
 import (
 	"net/http"
 	"sync/atomic"
-	"time"
 
 	"github.com/coder/websocket"
 	log "github.com/sirupsen/logrus"
@@ -95,14 +94,17 @@ func (ph *proxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// MaxConcurrentStreams: 20,
 		// IdleTimeout: 10 * time.Second,
 	}).ServeConn(serverConn, &http2.ServeConnOpts{
-		Context: ctx,
-		Handler: ph.handler,
+		Context:    ctx,
+		Handler:    ph.handler,
 		BaseConfig: &http.Server{
-			// b/c we are wrapping a ws connection, ReadTimeout is effectively ignored until
-			// an h2 stream is opened and its read timeout is set. Until that time we are relying
-			// on ws connection built-in timeouts, which we have no control over.
-			// Stream timeout effectively sets a deadline for reading of a complete request body.
-			ReadTimeout: 5 * time.Second,
+			// b/c we are wrapping a ws connection, read and write connection deadlines normally set
+			// via ReadTimeout and WriteTimeout http.Server fields aren't available to us. The ws
+			// library doesn't expose connection deadline timer config, and we ignore these calls in "wsConnAdapter".
+			//
+			// Another issue is that Server.ServeConn() call bypasses setting of connection deadlines altogether,
+			// ReadTimeout and Writetimeout set here would only apply to h2 streams, i.e. after a HEADERS frame
+			// arrival and processing, turning ReadTimeout into a request body read deadline, and WriteTimeout into
+			// a response deadline (the latter not useful for streaming requests).
 		},
 	})
 
