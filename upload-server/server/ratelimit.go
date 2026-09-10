@@ -11,15 +11,18 @@ import (
 const defaultUploadBurst = 100
 
 func newRateLimiter() *middleware.APIRateLimiter {
-	cfg, _ := middleware.RateLimiterConfigFromEnv()
+	cfg, enabled := middleware.RateLimiterConfigFromEnv()
 	if os.Getenv(middleware.RateLimitingBurstEnv) == "" {
 		cfg.Burst = defaultUploadBurst
 	}
 
-	limiter := middleware.NewAPIRateLimiter(cfg)
-	if os.Getenv(middleware.RateLimitingEnabledEnv) == "false" {
-		limiter.SetEnabled(false)
+	// Rate limiting is enabled by default unless explicitly disabled
+	if os.Getenv(middleware.RateLimitingEnabledEnv) == "" {
+		enabled = true
 	}
+
+	limiter := middleware.NewAPIRateLimiter(cfg)
+	limiter.SetEnabled(enabled)
 
 	log.Infof("Upload URL rate limiting: enabled=%t rate=%.0f/min burst=%d trusted_proxies=%q",
 		limiter.Enabled(), cfg.RequestsPerMinute, cfg.Burst, os.Getenv(middleware.RateLimitingTrustedProxiesEnv))

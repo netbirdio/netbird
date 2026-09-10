@@ -22,6 +22,8 @@ const (
 
 	expiryParam    = "exp"
 	signatureParam = "sig"
+
+	minSigningKeyLen = 32
 )
 
 type signer struct {
@@ -32,6 +34,9 @@ func newSigner() (*signer, error) {
 	if env, ok := os.LookupEnv(signingKeyVar); ok {
 		if env == "" {
 			return nil, fmt.Errorf("%s is set but empty", signingKeyVar)
+		}
+		if len(env) < minSigningKeyLen {
+			return nil, fmt.Errorf("%s must be at least %d bytes", signingKeyVar, minSigningKeyLen)
 		}
 		return &signer{key: []byte(env)}, nil
 	}
@@ -71,7 +76,7 @@ func (s *signer) verify(objectKey string, query url.Values, now time.Time) error
 	if !hmac.Equal(got, s.signature(objectKey, exp)) {
 		return fmt.Errorf("signature mismatch")
 	}
-	if now.Unix() > exp {
+	if now.Unix() >= exp {
 		return fmt.Errorf("upload URL expired")
 	}
 

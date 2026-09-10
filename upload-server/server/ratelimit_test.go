@@ -11,6 +11,15 @@ import (
 	"github.com/netbirdio/netbird/upload-server/types"
 )
 
+func newTestRateLimiter(t *testing.T) *middleware.APIRateLimiter {
+	t.Helper()
+
+	limiter := newRateLimiter()
+	t.Cleanup(limiter.Stop)
+
+	return limiter
+}
+
 func getUploadURL(t *testing.T, mux *http.ServeMux) int {
 	t.Helper()
 
@@ -33,6 +42,7 @@ func Test_GetUploadURLIsRateLimited(t *testing.T) {
 }
 
 func Test_RateLimitingIsOnByDefault(t *testing.T) {
+	t.Setenv(middleware.RateLimitingEnabledEnv, "")
 	t.Setenv(middleware.RateLimitingBurstEnv, "1")
 	mux, _ := newLocalMux(t)
 
@@ -47,4 +57,15 @@ func Test_RateLimitingCanBeDisabled(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, getUploadURL(t, mux))
 	require.Equal(t, http.StatusOK, getUploadURL(t, mux))
+}
+
+func Test_ServerStopIsIdempotent(t *testing.T) {
+	t.Setenv("SERVER_URL", "https://localhost:8080")
+	t.Setenv("STORE_DIR", t.TempDir())
+	t.Setenv(signingKeyVar, testSigningKey)
+
+	srv := NewServer()
+
+	require.NoError(t, srv.Stop())
+	require.NotPanics(t, func() { _ = srv.Stop() })
 }

@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,12 +21,12 @@ func newLocalMux(t *testing.T) (*http.ServeMux, string) {
 	t.Helper()
 
 	mockDir := t.TempDir()
-	t.Setenv("SERVER_URL", "http://localhost:8080")
+	t.Setenv("SERVER_URL", "https://localhost:8080")
 	t.Setenv("STORE_DIR", mockDir)
 	t.Setenv(signingKeyVar, testSigningKey)
 
 	mux := http.NewServeMux()
-	require.NoError(t, configureLocalHandlers(mux, newRateLimiter()))
+	require.NoError(t, configureLocalHandlers(mux, newTestRateLimiter(t)))
 
 	return mux, mockDir
 }
@@ -82,6 +83,10 @@ func Test_LocalHandlePutRequest_RejectsUnauthorized(t *testing.T) {
 			query: signedQuery(t, "dir/other.txt"),
 		},
 		{
+			name:  "signature expiring this second",
+			query: expired.sign("dir/file.txt", time.Now().Add(-signatureTTL)).Encode(),
+		},
+		{
 			name:  "expired signature",
 			query: expired.sign("dir/file.txt", time.Now().Add(-signatureTTL-time.Minute)).Encode(),
 		},
@@ -130,6 +135,13 @@ func Test_NewSignerGeneratesEphemeralKey(t *testing.T) {
 
 func Test_NewSignerRejectsEmptyKey(t *testing.T) {
 	t.Setenv(signingKeyVar, "")
+
+	_, err := newSigner()
+	require.Error(t, err)
+}
+
+func Test_NewSignerRejectsShortKey(t *testing.T) {
+	t.Setenv(signingKeyVar, strings.Repeat("a", minSigningKeyLen-1))
 
 	_, err := newSigner()
 	require.Error(t, err)

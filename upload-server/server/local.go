@@ -33,9 +33,12 @@ func configureLocalHandlers(mux *http.ServeMux, limiter *middleware.APIRateLimit
 	if !ok {
 		return fmt.Errorf("SERVER_URL environment variable is required")
 	}
-	_, err := url.Parse(envURL)
+	parsedURL, err := url.Parse(envURL)
 	if err != nil {
 		return fmt.Errorf("SERVER_URL environment variable is invalid: %w", err)
+	}
+	if parsedURL.Scheme != "https" {
+		return fmt.Errorf("SERVER_URL environment variable must use https, got %q", parsedURL.Scheme)
 	}
 
 	dir := defaultDir
