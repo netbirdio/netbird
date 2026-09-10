@@ -569,7 +569,6 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 	}
 
 	conn.dumpState.RelayConnected()
-	conn.relayedConnRef = rci.relayedConn
 	conn.Log.Debugf("Relay connection has been established, setup the WireGuard")
 
 	wgProxy, err := conn.newProxy(rci.relayedConn)
@@ -587,7 +586,7 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 
 	if conn.isICEActive() {
 		conn.Log.Debugf("do not switch to relay because current priority is: %s", conn.currentConnPriority.String())
-		conn.setRelayedProxy(wgProxy)
+		conn.setRelayedProxy(wgProxy, rci.relayedConn)
 		conn.statusRelay.SetConnected()
 		conn.updateRelayStatus(rci.relayedConn.RemoteAddr().String(), rci.rosenpassPubKey, time.Now())
 		return
@@ -618,7 +617,7 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 	conn.rosenpassRemoteKey = rci.rosenpassPubKey
 	conn.currentConnPriority = conntype.Relay
 	conn.statusRelay.SetConnected()
-	conn.setRelayedProxy(wgProxy)
+	conn.setRelayedProxy(wgProxy, rci.relayedConn)
 	conn.updateRelayStatus(rci.relayedConn.RemoteAddr().String(), rci.rosenpassPubKey, updateTime)
 	conn.Log.Infof("start to communicate with peer via relay")
 	conn.doOnConnected(rci.rosenpassPubKey, rci.rosenpassAddr, updateTime)
@@ -946,13 +945,14 @@ func (conn *Conn) logTraceConnState() {
 	}
 }
 
-func (conn *Conn) setRelayedProxy(proxy wgproxy.Proxy) {
+func (conn *Conn) setRelayedProxy(proxy wgproxy.Proxy, relayedConn *relayClient.Conn) {
 	if conn.wgProxyRelay != nil {
 		if err := conn.wgProxyRelay.CloseConn(); err != nil {
 			conn.Log.Warnf("failed to close deprecated wg proxy conn: %v", err)
 		}
 	}
 	conn.wgProxyRelay = proxy
+	conn.relayedConnRef = relayedConn
 }
 
 // onWGHandshakeSuccess is called when the first WireGuard handshake is detected
