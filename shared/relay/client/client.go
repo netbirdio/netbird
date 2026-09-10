@@ -364,23 +364,6 @@ func (c *Client) ServerInstanceURL() (string, error) {
 	return c.instanceURL.String(), nil
 }
 
-// ConnectedIP returns the IP address of the live relay-server connection,
-// extracted from the underlying socket's RemoteAddr. Zero value if not
-// connected or if the address is not an IP literal.
-func (c *Client) ConnectedIP() netip.Addr {
-	c.mu.Lock()
-	conn := c.relayConn
-	c.mu.Unlock()
-	if conn == nil {
-		return netip.Addr{}
-	}
-	addr := conn.RemoteAddr()
-	if addr == nil {
-		return netip.Addr{}
-	}
-	return extractIPLiteral(addr.String())
-}
-
 // SetOnDisconnectListener sets a function that will be called when the connection to the relay server is closed.
 func (c *Client) SetOnDisconnectListener(fn func(string)) {
 	c.listenerMutex.Lock()
@@ -777,6 +760,17 @@ func (c *Client) listenForStopEvents(ctx context.Context, hc *healthcheck.Receiv
 	}
 }
 
+func (c *Client) serverInstanceAddress() (string, netip.Addr, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	addr, err := c.ServerInstanceURL()
+	if err != nil {
+		return "", netip.Addr{}, err
+	}
+	return addr, connectedIP(c.relayConn), nil
+}
+
 func (c *Client) closeAllConns() {
 	for _, container := range c.conns {
 		container.close()
@@ -921,6 +915,17 @@ func (c *Client) handlePeersWentOfflineMsg(buf []byte) {
 		return
 	}
 	c.stateSubscription.OnPeersWentOffline(peersID)
+}
+
+func connectedIP(conn net.Conn) netip.Addr {
+	if conn == nil {
+		return netip.Addr{}
+	}
+	addr := conn.RemoteAddr()
+	if addr == nil {
+		return netip.Addr{}
+	}
+	return extractIPLiteral(addr.String())
 }
 
 // extractIPLiteral returns the IP from address forms produced by the relay
