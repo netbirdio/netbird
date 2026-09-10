@@ -49,6 +49,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
+	"github.com/netbirdio/netbird/client/internal/peer/signaling"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
 	"github.com/netbirdio/netbird/client/internal/portforward"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
@@ -199,7 +200,7 @@ type EngineServices struct {
 type Engine struct {
 	// signal is a Signal Service client
 	signal   signal.Client
-	signaler *peer.Signaler
+	signaler *signaling.Signaler
 	// mgmClient is a Management Service client
 	mgmClient mgm.Client
 	// peerConns is a map that holds all the peers that are known to this peer
@@ -352,7 +353,7 @@ func NewEngine(
 		ctx:                ctx,
 		cancel:             cancel,
 		signal:             services.SignalClient,
-		signaler:           peer.NewSignaler(services.SignalClient, config.WgPrivateKey),
+		signaler:           signaling.NewSignaler(services.SignalClient, config.WgPrivateKey),
 		mgmClient:          services.MgmClient,
 		relayManager:       services.RelayManager,
 		peerStore:          peerstore.NewConnStore(),
@@ -2946,7 +2947,7 @@ func createFile(path string) error {
 	return file.Close()
 }
 
-func convertToOfferAnswer(msg *sProto.Message) (*peer.OfferAnswer, error) {
+func convertToOfferAnswer(msg *sProto.Message) (*signaling.OfferAnswer, error) {
 	remoteCred, err := signal.UnMarshalCredential(msg)
 	if err != nil {
 		return nil, err
@@ -2962,9 +2963,9 @@ func convertToOfferAnswer(msg *sProto.Message) (*peer.OfferAnswer, error) {
 	}
 
 	// Handle optional SessionID
-	var sessionID *peer.ICESessionID
+	var sessionID *icemaker.SessionID
 	if sessionBytes := msg.GetBody().GetSessionId(); sessionBytes != nil {
-		if id, err := peer.ICESessionIDFromBytes(sessionBytes); err != nil {
+		if id, err := icemaker.SessionIDFromBytes(sessionBytes); err != nil {
 			log.Warnf("Invalid session ID in message: %v", err)
 			sessionID = nil // Set to nil if conversion fails
 		} else {
@@ -2974,8 +2975,8 @@ func convertToOfferAnswer(msg *sProto.Message) (*peer.OfferAnswer, error) {
 
 	relayIP := decodeRelayIP(msg.GetBody().GetRelayServerIP())
 
-	offerAnswer := peer.OfferAnswer{
-		IceCredentials: peer.IceCredentials{
+	offerAnswer := signaling.OfferAnswer{
+		IceCredentials: signaling.IceCredentials{
 			UFrag: remoteCred.UFrag,
 			Pwd:   remoteCred.Pwd,
 		},

@@ -21,8 +21,6 @@ const (
 )
 
 type ICEMonitor struct {
-	ReconnectCh chan struct{}
-
 	iFaceDiscover stdnet.ExternalIFaceDiscover
 	iceConfig     icemaker.Config
 	tickerPeriod  time.Duration
@@ -34,7 +32,6 @@ type ICEMonitor struct {
 func NewICEMonitor(iFaceDiscover stdnet.ExternalIFaceDiscover, config icemaker.Config, period time.Duration) *ICEMonitor {
 	log.Debugf("prepare ICE monitor with period: %s", period)
 	cm := &ICEMonitor{
-		ReconnectCh:   make(chan struct{}, 1),
 		iFaceDiscover: iFaceDiscover,
 		iceConfig:     config,
 		tickerPeriod:  period,
