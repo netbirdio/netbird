@@ -100,7 +100,7 @@ func (ph *proxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		BaseConfig: &http.Server{
 			// b/c we are wrapping a ws connection, ReadTimeout is effectively ignored until
 			// an h2 stream is opened and its read timeout is set. Until that time we are relying
-			// on ws connection built-in timeouts, which we have no contol over.
+			// on ws connection built-in timeouts, which we have no control over.
 			// Stream timeout effectively sets a deadline for reading of a complete request body.
 			ReadTimeout: 5 * time.Second,
 		},
