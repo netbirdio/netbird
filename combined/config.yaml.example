@@ -80,6 +80,11 @@ server:
   disableAnonymousMetrics: false
   disableGeoliteUpdate: false
 
+  # Do not start the backward-compatibility management gRPC listener on
+  # 0.0.0.0:33073 (only needed by old agents enrolled against the
+  # pre-multiplexing management port)
+  disableLegacyPort: false
+
   # Embedded authentication/identity provider (Dex) configuration (always enabled)
   auth:
     # OIDC issuer URL - must be publicly accessible
