@@ -136,6 +136,11 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 	return nil
 }
 
+func (am *DefaultAccountManager) RefreshPeerLastSeen(ctx context.Context, accountId, peerId string) error {
+	_, err := am.Store.RefreshPeerLastSeen(ctx, accountId, peerId, time.Now())
+	return err
+}
+
 // schedulePeerExpirations reschedules the account's login/inactivity expiration
 // timers for an SSO peer that just connected.
 func (am *DefaultAccountManager) schedulePeerExpirations(ctx context.Context, accountID string, peer *nbpeer.Peer) error {
