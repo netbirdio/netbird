@@ -25,7 +25,7 @@ func newLocalMux(t *testing.T) (*http.ServeMux, string) {
 	t.Setenv(signingKeyVar, testSigningKey)
 
 	mux := http.NewServeMux()
-	require.NoError(t, configureLocalHandlers(mux))
+	require.NoError(t, configureLocalHandlers(mux, newRateLimiter()))
 
 	return mux, mockDir
 }

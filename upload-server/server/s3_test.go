@@ -90,7 +90,7 @@ func Test_S3HandlerGetUploadURL(t *testing.T) {
 	t.Setenv(bucketVar, bucketName)
 
 	mux := http.NewServeMux()
-	err = configureS3Handlers(mux)
+	err = configureS3Handlers(mux, newRateLimiter())
 	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodGet, types.GetURLPath+"?id=test-file", nil)

@@ -29,7 +29,7 @@ func Test_LocalHandlerGetUploadURL(t *testing.T) {
 	t.Setenv("STORE_DIR", t.TempDir())
 
 	mux := http.NewServeMux()
-	err := configureLocalHandlers(mux)
+	err := configureLocalHandlers(mux, newRateLimiter())
 	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodGet, types.GetURLPath+"?id=test-file", nil)
@@ -56,7 +56,7 @@ func Test_LocalHandlePutRequest(t *testing.T) {
 	t.Setenv(signingKeyVar, testSigningKey)
 
 	mux := http.NewServeMux()
-	err := configureLocalHandlers(mux)
+	err := configureLocalHandlers(mux, newRateLimiter())
 	require.NoError(t, err)
 
 	fileContent := []byte("test file content")
@@ -82,7 +82,7 @@ func Test_LocalHandlePutRequest_PathTraversal(t *testing.T) {
 	t.Setenv(signingKeyVar, testSigningKey)
 
 	mux := http.NewServeMux()
-	err := configureLocalHandlers(mux)
+	err := configureLocalHandlers(mux, newRateLimiter())
 	require.NoError(t, err)
 
 	fileContent := []byte("malicious content")
@@ -129,7 +129,7 @@ func Test_LocalHandlePutRequest_DuplicateFile(t *testing.T) {
 	t.Setenv(signingKeyVar, testSigningKey)
 
 	mux := http.NewServeMux()
-	err := configureLocalHandlers(mux)
+	err := configureLocalHandlers(mux, newRateLimiter())
 	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPut,
@@ -156,7 +156,7 @@ func Test_LocalHandlePutRequest_BodyTooLarge(t *testing.T) {
 	t.Setenv(signingKeyVar, testSigningKey)
 
 	mux := http.NewServeMux()
-	err := configureLocalHandlers(mux)
+	err := configureLocalHandlers(mux, newRateLimiter())
 	require.NoError(t, err)
 
 	largeBody := make([]byte, maxUploadSize+1)
