@@ -3,6 +3,7 @@ package server
 import (
 	"net/http"
 	"sync/atomic"
+	"time"
 
 	"github.com/coder/websocket"
 	log "github.com/sirupsen/logrus"
@@ -94,11 +95,12 @@ func (ph *proxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// MaxConcurrentStreams: 20,
 		// IdleTimeout: 10 * time.Second,
 	}).ServeConn(serverConn, &http2.ServeConnOpts{
-		Context:    ctx,
-		Handler:    ph.handler,
+		Context: ctx,
+		Handler: ph.handler,
 		BaseConfig: &http.Server{
-			// we don't set read/write timeouts here,
-			// as they interfere with streaming grpc calls
+			// this is a per-stream timeout which for an h2c is set on reception of a complete HEADERS frame
+			// and effectively sets a deadline for reading of complete request body
+			ReadTimeout: 5 * time.Second,
 		},
 	})
 
