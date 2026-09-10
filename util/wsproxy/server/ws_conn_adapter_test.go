@@ -58,12 +58,13 @@ func TestAdapterHandlingConnectionClosures(t *testing.T) {
 			go httpServer.Serve(l) //nolint:errcheck
 			t.Cleanup(func() { httpServer.Close() })
 
-			clientconn, _, err := websocket.Dial(context.Background(), "http://whatever", &websocket.DialOptions{HTTPClient: &http.Client{
-				Transport: &http.Transport{
-					DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-						return net.Dial("unix", serversock)
-					},
-				}}})
+			clientconn, _, err := websocket.Dial(context.Background(), "http://whatever",
+				&websocket.DialOptions{HTTPClient: &http.Client{
+					Transport: &http.Transport{
+						DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
+							return net.Dial("unix", serversock)
+						},
+					}}})
 			assert.NoError(t, err)
 
 			clientCtx, cancel := context.WithCancel(context.Background()) //nolint:govet
@@ -83,7 +84,7 @@ func TestAdapterHandlingConnectionClosures(t *testing.T) {
 			assert.NoError(t, err)
 
 			body, err := io.ReadAll(resp.Body)
-			t.Cleanup(func() { resp.Body.Close() })
+			defer resp.Body.Close()
 
 			assert.NoError(t, err)
 			assert.Equal(t, "echo: g'day", string(body))
@@ -118,8 +119,8 @@ func TestAdapterHandlingHttpConnection_NoHeadersSent(t *testing.T) {
 
 	proxy := New(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		buf, _ := io.ReadAll(r.Body)
-		defer r.Body.Close() //nolint:errcheck
-		w.Write([]byte("echo: " + string(buf)))
+		defer r.Body.Close()                    //nolint:errcheck
+		w.Write([]byte("echo: " + string(buf))) //nolint:errcheck
 	}))
 
 	handler, ok := proxy.Handler().(*proxyHandler)
