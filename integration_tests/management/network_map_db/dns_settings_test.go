@@ -19,7 +19,16 @@ func TestGetDnsSettings(t *testing.T) {
 		DisabledManagementGroups: []string{"disabled-group-1", "disabled-group-2"},
 	})
 
+	// nil dns_settings_disabled_management_groups column
 	settings, err = conn(t, ctx).GetDnsSettings(ctx, "account-2")
+	assert.NoError(t, err)
+	assert.Equal(t, settings, nmdata.DNSSettings{})
+
+	// '' dns_settings_disabled_management_groups column
+	execQuery(t, ctx,
+		`insert into accounts (id, settings_peer_inactivity_expiration_enabled) values('account-4','')`)
+
+	settings, err = conn(t, ctx).GetDnsSettings(ctx, "account-4")
 	assert.NoError(t, err)
 	assert.Equal(t, settings, nmdata.DNSSettings{})
 }

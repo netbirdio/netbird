@@ -38,7 +38,7 @@ func (sc *SqliteStoreConn) GetPrivateServices(ctx context.Context, accountId str
 	toret := make([]networkmapdb.Service, 0, len(services))
 	for _, service := range services {
 		acg := []string{}
-		if service.AccessGroups != nil {
+		if len(service.AccessGroups) != 0 {
 			if err := json.Unmarshal(service.AccessGroups, &acg); err != nil {
 				return nil, err
 			}

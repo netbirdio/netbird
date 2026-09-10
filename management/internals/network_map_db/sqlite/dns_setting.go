@@ -30,7 +30,7 @@ func (sc *SqliteStoreConn) GetDnsSettings(ctx context.Context, accountId string)
 		return value, err
 	}
 
-	if settings == nil {
+	if len(settings) == 0 {
 		return nmdata.DNSSettings{}, nil
 	}
 

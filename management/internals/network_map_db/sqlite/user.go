@@ -47,7 +47,7 @@ func (sc *SqliteStoreConn) GetAllowedUsers(ctx context.Context, accountId string
 		}
 		userIdIdx[user.ID] = struct{}{}
 		autogroups := make([]string, 0)
-		if user.AutoGroups == nil {
+		if len(user.AutoGroups) == 0 {
 			continue
 		}
 		if err := json.Unmarshal(user.AutoGroups, &autogroups); err != nil {
