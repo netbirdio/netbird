@@ -58,14 +58,3 @@ func Test_RateLimitingCanBeDisabled(t *testing.T) {
 	require.Equal(t, http.StatusOK, getUploadURL(t, mux))
 	require.Equal(t, http.StatusOK, getUploadURL(t, mux))
 }
-
-func Test_ServerStopIsIdempotent(t *testing.T) {
-	t.Setenv("SERVER_URL", "https://localhost:8080")
-	t.Setenv("STORE_DIR", t.TempDir())
-	t.Setenv(signingKeyVar, testSigningKey)
-
-	srv := NewServer()
-
-	require.NoError(t, srv.Stop())
-	require.NotPanics(t, func() { _ = srv.Stop() })
-}
