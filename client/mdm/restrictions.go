@@ -20,7 +20,7 @@ type Fields struct {
 	DisableMetricsCollection bool   `json:"disableMetricsCollection"`
 	SplitTunnelMode          bool   `json:"splitTunnelMode"`
 	SplitTunnelApps          bool   `json:"splitTunnelApps"`
-	RemoteJobsAllowed        bool   `json:"remoteJobsAllowed"`
+	RemoteJobsAllowed        bool   `json:"allowRemoteJobs"`
 	DisableAdvancedView      *bool  `json:"disableAdvancedView"`
 }
 
