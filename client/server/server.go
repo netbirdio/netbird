@@ -2837,23 +2837,30 @@ func (s *Server) SessionHolder() (ipcauth.Principal, bool) {
 // OwnsProfile reports whether the profile the handle resolves to answers to
 // this identity.
 //
-// The identity is handed to the loader directly. There is deliberately no
-// uid-to-username lookup on the way: the loader no longer keys profiles by
-// directory, and putting NSS on the authorization path would make every
-// decision wait on a resolver that can be slow, or absent, and would deny
-// every caller whenever it times out.
+// This triggers stamping of legacy profiles, and reloads the current config
+// if the handle is the active profile.
 func (s *Server) OwnsProfile(id ipcauth.Identity, handle string) bool {
-	if handle == "" {
-		act, err := s.profileManager.GetActiveProfileState()
-		if err != nil {
-			log.Warnf("failed to get active profile: %v", err)
-		}
+	act, err := s.profileManager.GetActiveProfileState()
+	if err != nil {
+		log.Warnf("failed to get active profile: %v", err)
+	}
+	if act != nil {
 		handle = act.ID.String()
 	}
 	resolved, err := s.resolveProfileHandle(handle, id)
 	if err != nil {
 		log.Errorf("failed to resolve profile %q: %v", handle, err)
 		return false
+	}
+	// resolveProfileHandle might stamp legacy profile owners and if
+	if act != nil {
+		config, _, err := s.getConfig(act)
+		if err != nil {
+			log.Errorf("failed to get active profile config: %v", err)
+		}
+		s.mutex.Lock()
+		s.config = config
+		s.mutex.Unlock()
 	}
 	return resolved.AccessibleBy(id)
 }

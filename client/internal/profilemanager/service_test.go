@@ -291,7 +291,7 @@ func TestListProfiles_PrivilegedResolvesUnfiltered(t *testing.T) {
 	})
 }
 
-func TestListProfiles_UnownedOutsideALegacyDirIsOpen(t *testing.T) {
+func TestListProfiles_OnlyTheDefaultFailsOpenWhenUnowned(t *testing.T) {
 	withTestSM(t, func(sm *ServiceManager, _ ipcauth.Identity) {
 		unowned, err := sm.AddProfile("unowned", nil)
 		require.NoError(t, err)
@@ -299,10 +299,16 @@ func TestListProfiles_UnownedOutsideALegacyDirIsOpen(t *testing.T) {
 		alice := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
 		got, err := sm.ListProfiles(alice)
 		require.NoError(t, err)
-		assert.Contains(t, profileIDs(got), unowned.ID.String(),
-			"a profile that never had an owner stays usable until someone claims it")
 		assert.Contains(t, profileIDs(got), defaultProfileName,
 			"a fresh install has to be usable before anything is claimed")
+		assert.NotContains(t, profileIDs(got), unowned.ID.String(),
+			"every other profile needs an owner before anyone can address it")
+
+		root := ipcauth.KnownForTest(ipcauth.Identity{UID: 0})
+		got, err = sm.ListProfiles(root)
+		require.NoError(t, err)
+		assert.Contains(t, profileIDs(got), unowned.ID.String(),
+			"root still reaches it, which is how it gets assigned")
 
 		nobody, err := sm.ListProfiles(ipcauth.Identity{})
 		require.NoError(t, err)
@@ -504,6 +510,21 @@ func TestRenameProfile_NotTheCallersProfile(t *testing.T) {
 		got, err := sm.ResolveProfile(created.ID.String(), userID)
 		require.NoError(t, err)
 		assert.Equal(t, "work", got.Name)
+	})
+}
+
+func TestResolveProfile_ClaimsOnTheWayThrough(t *testing.T) {
+	withLegacyLayout(t, func(sm *ServiceManager, configDir string) {
+		path := writeLegacyProfile(t, configDir, "alice", "work", nil)
+		stubLegacyDir(t, "alice")
+
+		// Resolution is what switching a profile goes through, so the claim has
+		// to land here and not only when something lists profiles.
+		alice := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
+		got, err := sm.ResolveProfile("work", alice)
+		require.NoError(t, err)
+		assert.Equal(t, path, got.Path)
+		assert.Equal(t, []string{"uid:4242"}, readOwners(t, path))
 	})
 }
 
