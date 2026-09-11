@@ -1296,7 +1296,7 @@ func (e *Engine) applyInfoFlags(info *system.Info) {
 // certificates found in the local store, signing each challenge nonce for our peer key.
 func (e *Engine) attachCertificateProofs(info *system.Info, checks []*mgmProto.Checks) {
 	peerKey := e.config.WgPrivateKey.PublicKey()
-	info.CertificateProofs = certproof.Collect(e.ctx, certproof.NewFileStore(certproof.StoreDir()), checks, peerKey[:])
+	info.CertificateProofs = certproof.Collect(e.ctx, certproof.DefaultStore(), checks, peerKey[:])
 }
 
 func (e *Engine) currentSystemInfo(ctx context.Context) *system.Info {
