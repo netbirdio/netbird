@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"go.uber.org/mock/gomock"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 	"golang.org/x/exp/maps"
 
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -1235,4 +1235,83 @@ func Test_IncrementNetworkSerial(t *testing.T) {
 	}
 
 	assert.Equal(t, totalPeers, int(account.Network.Serial), "Expected %d serial increases in account %s, got %d", totalPeers, accountID, account.Network.Serial)
+}
+
+func TestDefaultAccountManager_GroupPeersMustBelongToAccount(t *testing.T) {
+	manager, _, account, peer1, _, _ := setupNetworkMapTest(t)
+
+	otherAccount, err := createAccount(manager, "other_account", "other_user", "")
+	require.NoError(t, err)
+
+	foreignPeer := &peer2.Peer{
+		ID:        "foreign-peer",
+		AccountID: otherAccount.Id,
+		Key:       "foreign-key",
+		DNSLabel:  "foreign-peer",
+		IP:        uint32ToIP(1),
+	}
+	require.NoError(t, manager.Store.AddPeerToAccount(context.Background(), foreignPeer))
+
+	assertRejected := func(t *testing.T, err error) {
+		t.Helper()
+		require.Error(t, err)
+		s, ok := status.FromError(err)
+		require.True(t, ok, "expected status error, got %v", err)
+		assert.Equal(t, status.InvalidArgument, s.Type(), "peer outside the account should be rejected as invalid argument")
+	}
+
+	t.Run("create rejects foreign peer", func(t *testing.T) {
+		err := manager.CreateGroup(context.Background(), account.Id, userID, &types.Group{
+			Name:   "foreign",
+			Issued: types.GroupIssuedAPI,
+			Peers:  []string{peer1.ID, foreignPeer.ID},
+		})
+		assertRejected(t, err)
+
+		_, err = manager.Store.GetGroupByName(context.Background(), store.LockingStrengthNone, account.Id, "foreign")
+		assert.Error(t, err, "rejected create must not persist the group")
+	})
+
+	t.Run("update rejects foreign and unknown peers", func(t *testing.T) {
+		group := &types.Group{ID: "own", Name: "own", Issued: types.GroupIssuedAPI, Peers: []string{peer1.ID}}
+		require.NoError(t, manager.CreateGroup(context.Background(), account.Id, userID, group))
+
+		group.Peers = []string{peer1.ID, foreignPeer.ID}
+		assertRejected(t, manager.UpdateGroup(context.Background(), account.Id, userID, group))
+
+		group.Peers = []string{peer1.ID, "does-not-exist"}
+		assertRejected(t, manager.UpdateGroup(context.Background(), account.Id, userID, group))
+
+		stored, err := manager.Store.GetGroupByID(context.Background(), store.LockingStrengthNone, account.Id, group.ID)
+		require.NoError(t, err)
+		assert.Equal(t, []string{peer1.ID}, stored.Peers, "rejected updates must not change membership")
+	})
+
+	t.Run("update tolerates and drops pre-existing dangling members", func(t *testing.T) {
+		group := &types.Group{ID: "polluted", Name: "polluted", Issued: types.GroupIssuedAPI, Peers: []string{peer1.ID}}
+		require.NoError(t, manager.CreateGroup(context.Background(), account.Id, userID, group))
+		require.NoError(t, manager.Store.AddPeerToGroup(context.Background(), account.Id, foreignPeer.ID, group.ID))
+
+		group.Peers = []string{peer1.ID, foreignPeer.ID}
+		assert.NoError(t, manager.UpdateGroup(context.Background(), account.Id, userID, group), "keeping an existing member must not be rejected")
+
+		group.Peers = []string{peer1.ID}
+		require.NoError(t, manager.UpdateGroup(context.Background(), account.Id, userID, group))
+
+		stored, err := manager.Store.GetGroupByID(context.Background(), store.LockingStrengthNone, account.Id, group.ID)
+		require.NoError(t, err)
+		assert.Equal(t, []string{peer1.ID}, stored.Peers, "dangling member should be removed once omitted")
+	})
+
+	t.Run("direct add rejects foreign and unknown peers", func(t *testing.T) {
+		group := &types.Group{ID: "direct", Name: "direct", Issued: types.GroupIssuedAPI, Peers: []string{peer1.ID}}
+		require.NoError(t, manager.CreateGroup(context.Background(), account.Id, userID, group))
+
+		assertRejected(t, manager.GroupAddPeer(context.Background(), account.Id, group.ID, foreignPeer.ID))
+		assertRejected(t, manager.GroupAddPeer(context.Background(), account.Id, group.ID, "does-not-exist"))
+
+		stored, err := manager.Store.GetGroupByID(context.Background(), store.LockingStrengthNone, account.Id, group.ID)
+		require.NoError(t, err)
+		assert.Equal(t, []string{peer1.ID}, stored.Peers, "rejected direct adds must not change membership")
+	})
 }
