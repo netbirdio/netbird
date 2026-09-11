@@ -5757,20 +5757,6 @@ func (s *SqlStore) UpdateCustomDomain(ctx context.Context, accountID string, d *
 	return d, nil
 }
 
-func (s *SqlStore) DeleteCustomDomain(ctx context.Context, accountID string, domainID string) error {
-	result := s.db.Delete(domain.Domain{}, accountAndIDQueryCondition, accountID, domainID)
-	if result.Error != nil {
-		log.WithContext(ctx).Errorf("failed to delete reverse proxy custom domain from store: %v", result.Error)
-		return status.Errorf(status.Internal, "failed to delete reverse proxy custom domain from store")
-	}
-
-	if result.RowsAffected == 0 {
-		return status.Errorf(status.NotFound, "reverse proxy custom domain %s not found", domainID)
-	}
-
-	return nil
-}
-
 // CreateAccessLog creates a new access log entry in the database
 func (s *SqlStore) CreateAccessLog(ctx context.Context, logEntry *accesslogs.AccessLogEntry) error {
 	result := s.db.Create(logEntry)

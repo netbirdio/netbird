@@ -357,6 +357,22 @@ func (m Manager) DeriveClusterFromDomain(ctx context.Context, accountID, domain 
 	return "", fmt.Errorf("domain %s does not match any available proxy cluster", domain)
 }
 
+// ValidateServiceDomain holds custom domain authorization through a service write transaction.
+func (m Manager) ValidateServiceDomain(ctx context.Context, tx nbstore.Store, accountID, serviceDomain, cluster string) error {
+	if _, ok := ExtractClusterFromFreeDomain(serviceDomain, []string{cluster}); ok {
+		return nil
+	}
+	customDomains, err := tx.LockCustomDomains(ctx, accountID)
+	if err != nil {
+		return err
+	}
+	target, match := extractClusterFromCustomDomains(serviceDomain, customDomains)
+	if match != customDomainValidated || target != cluster {
+		return status.Errorf(status.PreconditionFailed, "custom domain authorization changed; retry the service operation")
+	}
+	return nil
+}
+
 func (m Manager) getClusterAllowList(ctx context.Context, accountID string) ([]string, error) {
 	byopAddresses, err := m.proxyManager.GetActiveClusterAddressesForAccount(ctx, accountID)
 	if err != nil {

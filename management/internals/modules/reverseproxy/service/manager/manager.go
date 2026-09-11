@@ -74,6 +74,7 @@ const unknownHostPlaceholder = "unknown"
 // ClusterDeriver derives the proxy cluster from a domain.
 type ClusterDeriver interface {
 	DeriveClusterFromDomain(ctx context.Context, accountID, domain string) (string, error)
+	ValidateServiceDomain(ctx context.Context, tx store.Store, accountID, domain, cluster string) error
 	GetClusterDomains() []string
 }
 
@@ -332,6 +333,9 @@ func (m *Manager) persistNewService(ctx context.Context, accountID string, svc *
 	}
 
 	return m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		if err := m.validateServiceDomain(ctx, transaction, accountID, svc, svc.ProxyCluster); err != nil {
+			return err
+		}
 		if svc.Domain != "" {
 			if err := m.checkDomainAvailable(ctx, transaction, svc.Domain, ""); err != nil {
 				return err
@@ -461,6 +465,9 @@ func (m *Manager) persistNewEphemeralService(ctx context.Context, accountID, pee
 	}
 
 	return m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		if err := m.validateServiceDomain(ctx, transaction, accountID, svc, svc.ProxyCluster); err != nil {
+			return err
+		}
 		if err := m.validateEphemeralPreconditions(ctx, transaction, accountID, peerID, svc); err != nil {
 			return err
 		}
@@ -622,6 +629,9 @@ func (m *Manager) resolveEffectiveCluster(ctx context.Context, accountID string,
 }
 
 func (m *Manager) executeServiceUpdate(ctx context.Context, transaction store.Store, accountID string, service *service.Service, updateInfo *serviceUpdateInfo, customPorts *bool, effectiveCluster string) error {
+	if err := m.validateServiceDomain(ctx, transaction, accountID, service, effectiveCluster); err != nil {
+		return err
+	}
 	existingService, err := transaction.GetServiceByID(ctx, store.LockingStrengthUpdate, accountID, service.ID)
 	if err != nil {
 		return err
@@ -675,6 +685,13 @@ func (m *Manager) executeServiceUpdate(ctx context.Context, transaction store.St
 	}
 
 	return nil
+}
+
+func (m *Manager) validateServiceDomain(ctx context.Context, tx store.Store, accountID string, svc *service.Service, cluster string) error {
+	if m.clusterDeriver == nil {
+		return nil
+	}
+	return m.clusterDeriver.ValidateServiceDomain(ctx, tx, accountID, svc.Domain, cluster)
 }
 
 // validateL4PortDiffOnClusterDiff checks if custom L4 ports are configured and validates port changes across clusters.

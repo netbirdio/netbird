@@ -3212,6 +3212,21 @@ func (mr *MockStoreMockRecorder) ListFreeDomains(ctx, accountID any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListFreeDomains", reflect.TypeOf((*MockStore)(nil).ListFreeDomains), ctx, accountID)
 }
 
+// LockCustomDomains mocks base method.
+func (m *MockStore) LockCustomDomains(ctx context.Context, accountID string) ([]*domain.Domain, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockCustomDomains", ctx, accountID)
+	ret0, _ := ret[0].([]*domain.Domain)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LockCustomDomains indicates an expected call of LockCustomDomains.
+func (mr *MockStoreMockRecorder) LockCustomDomains(ctx, accountID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockCustomDomains", reflect.TypeOf((*MockStore)(nil).LockCustomDomains), ctx, accountID)
+}
+
 // MarkAccountPrimary mocks base method.
 func (m *MockStore) MarkAccountPrimary(ctx context.Context, accountID string) error {
 	m.ctrl.T.Helper()
