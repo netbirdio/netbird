@@ -24,6 +24,7 @@ type wgAllowedIPMock struct {
 	added          map[string][]netip.Prefix
 	removed        map[string][]netip.Prefix
 	removeFailures int
+	removeByPrefix map[netip.Prefix]int
 	removeAttempts int
 }
 
@@ -66,6 +67,12 @@ func (m *wgAllowedIPMock) RemoveAllowedIP(peerKey string, allowedIP netip.Prefix
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.removeAttempts++
+	if m.removeByPrefix[allowedIP] != 0 {
+		if m.removeByPrefix[allowedIP] > 0 {
+			m.removeByPrefix[allowedIP]--
+		}
+		return errors.New("remove allowed IP")
+	}
 	if m.removeFailures != 0 {
 		if m.removeFailures > 0 {
 			m.removeFailures--
@@ -147,6 +154,42 @@ func TestRemoveRoutePreservesAllowedIPCleanupAfterPersistentFailure(t *testing.T
 
 	assert.Empty(t, wg.removedFor("peerA"), "a persistently failing removal must not be marked complete")
 	assert.Equal(t, 2, wg.attempts(), "every reconciliation must retry the removal")
+}
+
+func TestRemoveAllowedIPsRetriesOnlyFailedPrefix(t *testing.T) {
+	prefixA := netip.MustParsePrefix("203.0.113.7/32")
+	prefixB := netip.MustParsePrefix("203.0.113.8/32")
+	wg := &wgAllowedIPMock{removeByPrefix: map[netip.Prefix]int{prefixB: 1}}
+	r, _ := newRouteWithAllowedIP(t, wg)
+	addDynamicPrefix(t, r, domain.Domain("example.com"), prefixB, "peerA")
+
+	// A second handler owns this reference. The retry must leave it intact.
+	_, err := r.allowedIPsRefcounter.Increment(prefixA, "peerA")
+	require.NoError(t, err)
+
+	require.Error(t, r.RemoveAllowedIPs(), "the first removal of prefix B fails")
+	require.NoError(t, r.RemoveAllowedIPs(), "the retry removes only the pending prefix B")
+	assert.Equal(t, []netip.Prefix{prefixB}, wg.removedFor("peerA"),
+		"prefix A's other owner must keep it installed")
+
+	_, err = r.allowedIPsRefcounter.Decrement(prefixA, "peerA")
+	require.NoError(t, err)
+	assert.Equal(t, []netip.Prefix{prefixB, prefixA}, wg.removedFor("peerA"),
+		"removing prefix A must be deferred to its other owner")
+	assert.Equal(t, 3, wg.attempts(), "prefix A must not be decremented during the retry")
+}
+
+func TestRemoveAllowedIPsReleasesDuplicatePrefixesAcrossDomains(t *testing.T) {
+	prefix := netip.MustParsePrefix("203.0.113.7/32")
+	wg := &wgAllowedIPMock{removeFailures: 1}
+	r, _ := newRouteWithAllowedIP(t, wg)
+	addDynamicPrefix(t, r, domain.Domain("other.example.com"), prefix, "peerA")
+
+	require.Error(t, r.RemoveAllowedIPs(), "the final same-prefix removal fails once")
+	require.NoError(t, r.RemoveAllowedIPs(), "the pending removal is retried once")
+	assert.Equal(t, []netip.Prefix{prefix}, wg.removedFor("peerA"),
+		"the final of two same-prefix references must remove the allowed IP once")
+	assert.Equal(t, 2, wg.attempts(), "only the failed final removal is retried")
 }
 
 func TestRemoveRouteRetriesFailedSystemRouteCleanup(t *testing.T) {
@@ -236,4 +279,16 @@ func assertRoutePrefixesPending(t *testing.T, r *Route, prefix netip.Prefix) {
 	assert.Empty(t, r.currentPeerKey, "allowed IP cleanup already succeeded")
 	assert.Equal(t, []netip.Prefix{prefix}, r.dynamicDomains[domain.Domain("example.com")],
 		"the failed system route prefix is needed for the next cleanup attempt")
+}
+
+func addDynamicPrefix(t *testing.T, r *Route, d domain.Domain, prefix netip.Prefix, peerKey string) {
+	t.Helper()
+
+	_, err := r.routeRefCounter.Increment(prefix, struct{}{})
+	require.NoError(t, err)
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.dynamicDomains[d] = append(r.dynamicDomains[d], prefix)
+	require.NoError(t, r.incrementAllowedIP(d, prefix, peerKey))
 }
