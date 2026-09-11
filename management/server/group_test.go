@@ -157,6 +157,16 @@ func TestDefaultAccountManager_DeleteGroup(t *testing.T) {
 				return
 			}
 
+			group, getErr := am.GetGroup(context.Background(), account.Id, testCase.groupID, groupAdminUserID)
+			if getErr != nil {
+				t.Errorf("group %s should still exist after failed deletion: %s", testCase.groupID, getErr)
+				return
+			}
+			if group == nil {
+				t.Errorf("group %s was deleted despite the failed deletion", testCase.groupID)
+				return
+			}
+
 			var sErr *status.Error
 			if errors.As(err, &sErr) {
 				if sErr.Message != testCase.expectedReason {
@@ -246,9 +256,10 @@ func TestDefaultAccountManager_DeleteGroups(t *testing.T) {
 			expectedReasons: []string{"agent network policy"},
 		},
 		{
-			name:            "agent network budget rule",
-			groupIDs:        []string{"grp-for-agent-network-budget-rule"},
-			expectedReasons: []string{"agent network budget rule"},
+			name:               "agent network budget rule",
+			groupIDs:           []string{"grp-for-agent-network-budget-rule"},
+			expectedReasons:    []string{"agent network budget rule"},
+			expectedNotDeleted: []string{"grp-for-agent-network-budget-rule"},
 		},
 		{
 			name:               "reverse proxy services",
