@@ -1,12 +1,22 @@
 package net
 
 import (
+	"math"
 	"net"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// unsetRelaySocketBufferEnv clears the variable for the rest of the test and restores
+// any ambient value afterwards.
+func unsetRelaySocketBufferEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv(relaySocketBufferEnv, "")
+	require.NoError(t, os.Unsetenv(relaySocketBufferEnv))
+}
 
 func TestRelaySocketBufferSize(t *testing.T) {
 	tests := []struct {
@@ -50,15 +60,23 @@ func TestRelaySocketBufferSize(t *testing.T) {
 			setEnv:   true,
 			expected: defaultRelaySocketBufferSize,
 		},
+		{
+			name:     "value above the kernel cap is clamped",
+			envValue: "2000000000",
+			setEnv:   true,
+			expected: math.MaxInt32 / 2,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.setEnv {
 				t.Setenv(relaySocketBufferEnv, tt.envValue)
+			} else {
+				unsetRelaySocketBufferEnv(t)
 			}
 
-			assert.Equal(t, tt.expected, relaySocketBufferSize())
+			assert.Equal(t, tt.expected, relaySocketBufferSize(), "resolved buffer size")
 		})
 	}
 }

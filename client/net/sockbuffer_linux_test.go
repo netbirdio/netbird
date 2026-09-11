@@ -38,7 +38,43 @@ func getSockBuffers(t *testing.T, conn *net.UDPConn) (rcv, snd int) {
 	return rcv, snd
 }
 
+// setSockBuffers applies size with the unforced SO_RCVBUF/SO_SNDBUF, which works without
+// privilege while size stays under rmem_max/wmem_max, and returns the kernel readback.
+func setSockBuffers(t *testing.T, conn *net.UDPConn, size int) (rcv, snd int) {
+	t.Helper()
+
+	sc, err := conn.SyscallConn()
+	require.NoError(t, err)
+
+	var ctrlErr error
+	err = sc.Control(func(fd uintptr) {
+		ctrlErr = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_RCVBUF, size)
+		if ctrlErr != nil {
+			return
+		}
+		ctrlErr = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_SNDBUF, size)
+	})
+	require.NoError(t, err)
+	require.NoError(t, ctrlErr)
+
+	rcv, snd = getSockBuffers(t, conn)
+	require.Equal(t, 2*size, rcv, "precondition: receive buffer readback is doubled")
+	require.Equal(t, 2*size, snd, "precondition: send buffer readback is doubled")
+	return rcv, snd
+}
+
+func listenLoopbackUDP(t *testing.T) *net.UDPConn {
+	t.Helper()
+
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	return conn
+}
+
 func TestSizeRelaySocketBuffersGrowsBuffers(t *testing.T) {
+	unsetRelaySocketBufferEnv(t)
+
 	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	require.NoError(t, err)
 	defer conn.Close()
@@ -70,4 +106,51 @@ func TestSizeRelaySocketBuffersEnvDisable(t *testing.T) {
 
 	assert.Equal(t, rcvBefore, rcvAfter)
 	assert.Equal(t, sndBefore, sndAfter)
+}
+
+func TestSizeRelaySocketBuffersNeverShrinks(t *testing.T) {
+	// A 65536 request reads back as 131072. Asking for 32768 afterwards would read back
+	// as 65536, so applying it would halve buffers that are already larger.
+	t.Setenv(relaySocketBufferEnv, "32768")
+
+	conn := listenLoopbackUDP(t)
+	rcvBefore, sndBefore := setSockBuffers(t, conn, 65536)
+
+	SizeRelaySocketBuffers(conn)
+
+	rcvAfter, sndAfter := getSockBuffers(t, conn)
+	assert.Equal(t, rcvBefore, rcvAfter, "receive buffer must not shrink")
+	assert.Equal(t, sndBefore, sndAfter, "send buffer must not shrink")
+}
+
+func TestSizeRelaySocketBuffersOversizedValue(t *testing.T) {
+	// 1<<32 truncates to 0 in setsockopt's int32 argument, and the kernel turns 0 into its
+	// minimum buffer. On 32-bit platforms Atoi rejects the value and the default applies,
+	// which must not shrink either.
+	t.Setenv(relaySocketBufferEnv, "4294967296")
+
+	conn := listenLoopbackUDP(t)
+	rcvBefore, sndBefore := setSockBuffers(t, conn, 65536)
+
+	SizeRelaySocketBuffers(conn)
+
+	rcvAfter, sndAfter := getSockBuffers(t, conn)
+	assert.GreaterOrEqual(t, rcvAfter, rcvBefore, "receive buffer must not shrink")
+	assert.GreaterOrEqual(t, sndAfter, sndBefore, "send buffer must not shrink")
+}
+
+func TestSizeRelaySocketBuffersComparesKernelUnits(t *testing.T) {
+	// The buffers read back 131072. A 98304 request is below that as a raw number but reads
+	// back as 196608 once applied, so it still grows them. Comparing the readback against
+	// the unscaled request would wrongly skip it.
+	t.Setenv(relaySocketBufferEnv, "98304")
+
+	conn := listenLoopbackUDP(t)
+	setSockBuffers(t, conn, 65536)
+
+	SizeRelaySocketBuffers(conn)
+
+	rcvAfter, sndAfter := getSockBuffers(t, conn)
+	assert.Equal(t, 2*98304, rcvAfter, "receive buffer should reach the requested size")
+	assert.Equal(t, 2*98304, sndAfter, "send buffer should reach the requested size")
 }

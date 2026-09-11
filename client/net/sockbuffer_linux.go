@@ -13,61 +13,71 @@ type rawConnProvider interface {
 	SyscallConn() (syscall.RawConn, error)
 }
 
-// forceSocketBuffers sets the receive and send buffers with SO_RCVBUFFORCE /
-// SO_SNDBUFFORCE, which bypass net.core.rmem_max/wmem_max when the process holds
-// CAP_NET_ADMIN (typically when running as root). Returns true only when both
-// options were set, so the caller can fall back to the portable path otherwise.
-func forceSocketBuffers(conn any, size int) bool {
+func growSocketBuffers(conn any, size int) {
 	rc, ok := conn.(rawConnProvider)
 	if !ok {
-		return false
+		log.Debugf("relay socket buffer sizing skipped: %T has no raw connection", conn)
+		return
 	}
 	raw, err := rc.SyscallConn()
 	if err != nil {
-		log.Debugf("failed to get raw conn for forced relay socket sizing: %s", err)
-		return false
+		log.Debugf("relay socket buffer sizing skipped: get raw conn: %v", err)
+		return
 	}
 
-	var setErr error
-	ctrlErr := raw.Control(func(fd uintptr) {
-		if e := unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_RCVBUFFORCE, size); e != nil {
-			setErr = e
-			return
-		}
-		if e := unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_SNDBUFFORCE, size); e != nil {
-			setErr = e
-		}
-	})
-	if ctrlErr != nil {
-		log.Debugf("failed to control relay socket for forced sizing: %s", ctrlErr)
-		return false
-	}
-	if setErr != nil {
-		log.Debugf("forced relay socket sizing unavailable (%s); using portable sizing", setErr)
-		return false
-	}
-	return true
+	growSocketBuffer(raw, "receive", unix.SO_RCVBUF, unix.SO_RCVBUFFORCE, size)
+	growSocketBuffer(raw, "send", unix.SO_SNDBUF, unix.SO_SNDBUFFORCE, size)
 }
 
-// logRelaySocketBuffers reads back the effective SO_RCVBUF/SO_SNDBUF and logs
-// them at debug level. The kernel stores roughly twice the requested value for
-// its own bookkeeping, so the reported numbers are about 2x what was asked for.
-func logRelaySocketBuffers(conn any) {
-	rc, ok := conn.(rawConnProvider)
-	if !ok {
+// growSocketBuffer raises one buffer to size unless it is already at least that large.
+// The forced option goes first because it ignores rmem_max/wmem_max. The unforced
+// fallback is capped by them, so it only shrinks a buffer already above twice that cap.
+func growSocketBuffer(raw syscall.RawConn, name string, opt, forceOpt, size int) {
+	before, err := getSockoptInt(raw, opt)
+	if err != nil {
+		log.Debugf("relay socket %s buffer sizing skipped: read current size: %v", name, err)
 		return
 	}
-	raw, err := rc.SyscallConn()
-	if err != nil {
+	// The kernel doubles a requested size for its own overhead and reports the doubled
+	// value, but reports an untouched socket's default as is.
+	if before >= 2*size {
+		log.Debugf("relay socket %s buffer already %d bytes, keeping it", name, before)
 		return
 	}
 
-	var rcv, snd int
-	if err := raw.Control(func(fd uintptr) {
-		rcv, _ = unix.GetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_RCVBUF)
-		snd, _ = unix.GetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_SNDBUF)
-	}); err != nil {
+	if err := setSockoptInt(raw, forceOpt, size); err != nil {
+		log.Debugf("forced relay socket %s buffer sizing unavailable: %v", name, err)
+		if err := setSockoptInt(raw, opt, size); err != nil {
+			log.Debugf("failed to set relay socket %s buffer to %d bytes: %v", name, size, err)
+			return
+		}
+	}
+
+	after, err := getSockoptInt(raw, opt)
+	if err != nil {
+		log.Debugf("failed to read back relay socket %s buffer: %v", name, err)
 		return
 	}
-	log.Debugf("relay socket buffers: rcvbuf=%d sndbuf=%d (kernel-reported, ~2x requested)", rcv, snd)
+	log.Debugf("relay socket %s buffer set from %d to %d bytes (kernel-reported)", name, before, after)
+}
+
+func getSockoptInt(raw syscall.RawConn, opt int) (int, error) {
+	var value int
+	var sockErr error
+	if err := raw.Control(func(fd uintptr) {
+		value, sockErr = unix.GetsockoptInt(int(fd), unix.SOL_SOCKET, opt)
+	}); err != nil {
+		return 0, err
+	}
+	return value, sockErr
+}
+
+func setSockoptInt(raw syscall.RawConn, opt, value int) error {
+	var sockErr error
+	if err := raw.Control(func(fd uintptr) {
+		sockErr = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, opt, value)
+	}); err != nil {
+		return err
+	}
+	return sockErr
 }
