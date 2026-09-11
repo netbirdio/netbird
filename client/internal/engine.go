@@ -615,6 +615,13 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		log.Warnf("failed to populate DNS cache: %v", err)
 	}
 
+	// The login response carries the same NetbirdConfig a sync does, but Start
+	// does not run it through updateNetbirdConfig. Without this, a bundle
+	// requested between login and the first sync sees no published destination
+	// and falls back to the service NetBird runs, even where the deployment
+	// configured its own.
+	e.handleDebugUploadUpdate(netbirdConfig.GetDebug())
+
 	e.routeManager = routemanager.NewManager(routemanager.ManagerConfig{
 		Context:             e.ctx,
 		PublicKey:           e.config.WgPrivateKey.PublicKey().String(),
