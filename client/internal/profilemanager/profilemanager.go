@@ -51,7 +51,7 @@ func (p *Profile) AccessibleBy(id ipcauth.Identity) bool {
 		// A profile in a per-username directory belonged to a use, unowned fails
 		// closed. The account named by the directory reclaims it on their next
 		// lookup or until claimed by a privileged caller.
-		return p.LegacyUserDir == ""
+		return p.LegacyUserDir == "" && p.ID == DefaultProfileName
 	}
 	return p.Owners[0].Matches(id)
 }
