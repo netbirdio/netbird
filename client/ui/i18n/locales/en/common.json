@@ -1795,6 +1795,18 @@
         "message": "The NetBird daemon is not responding. Please check that the service is running.",
         "description": "Error: the NetBird background service isn't responding. 'daemon' = the background service."
     },
+    "error.settings_locked": {
+        "message": "Settings cannot be changed on this device: an administrator has locked them.",
+        "description": "Error: the local daemon was started with update-settings disabled, so it refuses configuration changes."
+    },
+    "error.settings_managed_by_mdm": {
+        "message": "This setting is managed by your organization and cannot be changed.",
+        "description": "Error: the setting is enforced by an MDM policy. 'MDM' = mobile device management, the organization's device-management system."
+    },
+    "error.change_refused": {
+        "message": "The NetBird service refused this change.",
+        "description": "Error: the daemon answered the request and declined it. Generic fallback for a refusal with no more specific cause."
+    },
     "error.unknown": {
         "message": "Operation failed.",
         "description": "Generic fallback error message used when no specific error applies."
