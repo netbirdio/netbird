@@ -124,9 +124,9 @@ func TestSizeRelaySocketBuffersNeverShrinks(t *testing.T) {
 }
 
 func TestSizeRelaySocketBuffersOversizedValue(t *testing.T) {
-	// 1<<32 truncates to 0 in setsockopt's int32 argument, and the kernel turns 0 into its
-	// minimum buffer. On 32-bit platforms Atoi rejects the value and the default applies,
-	// which must not shrink either.
+	// Unclamped, 1<<32 would truncate to 0 in setsockopt's int32 argument and the kernel
+	// would apply its minimum buffer. The clamped value must not shrink the buffers either;
+	// unprivileged, rmem_max caps the result, so only growth is asserted here.
 	t.Setenv(relaySocketBufferEnv, "4294967296")
 
 	conn := listenLoopbackUDP(t)

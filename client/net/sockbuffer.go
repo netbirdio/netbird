@@ -29,7 +29,7 @@ func relaySocketBufferSize() int {
 	if v == "" {
 		return defaultRelaySocketBufferSize
 	}
-	n, err := strconv.Atoi(v)
+	n, err := strconv.ParseInt(v, 10, 64)
 	if err != nil || n < 0 {
 		log.Warnf("invalid %s value %q, using default %d", relaySocketBufferEnv, v, defaultRelaySocketBufferSize)
 		return defaultRelaySocketBufferSize
@@ -38,7 +38,7 @@ func relaySocketBufferSize() int {
 		log.Warnf("%s value %d exceeds the kernel limit, using %d", relaySocketBufferEnv, n, maxRelaySocketBufferSize)
 		return maxRelaySocketBufferSize
 	}
-	return n
+	return int(n)
 }
 
 // SizeRelaySocketBuffers grows the receive and send buffers of a UDP socket that carries

@@ -66,6 +66,12 @@ func TestRelaySocketBufferSize(t *testing.T) {
 			setEnv:   true,
 			expected: math.MaxInt32 / 2,
 		},
+		{
+			name:     "value wider than 32 bits is clamped",
+			envValue: "4294967296",
+			setEnv:   true,
+			expected: math.MaxInt32 / 2,
+		},
 	}
 
 	for _, tt := range tests {
