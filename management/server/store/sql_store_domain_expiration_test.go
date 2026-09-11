@@ -20,16 +20,21 @@ func TestDeleteExpiredCustomDomain_ServiceDependencies(t *testing.T) {
 		require.NoError(t, store.SaveAccount(ctx, newAccountWithId(ctx, "owner", "admin", "")))
 		for _, tt := range []struct {
 			name        string
+			domainName  string
 			serviceHost string
 			protected   bool
 		}{
-			{"exact", "example.com", true},
-			{"subdomain", "deep.app.example.com", true},
-			{"case", "APP.EXAMPLE.COM.", true},
-			{"suffix-boundary", "notexample.com", false},
+			{"exact", "example.com", "example.com", true},
+			{"subdomain", "example.com", "deep.app.example.com", true},
+			{"case", "example.com", "APP.EXAMPLE.COM.", true},
+			{"suffix-boundary", "example.com", "notexample.com", false},
+			{"literal underscore", "a_b.example.com", "app.a_b.example.com", true},
+			{"underscore wildcard", "a_b.example.com", "app.axb.example.com", false},
+			{"legacy percent wildcard", "a%b.example.com", "app.axxb.example.com", false},
+			{"legacy escape character", "a!b.example.com", "app.ab.example.com", false},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				d, err := store.CreateCustomDomain(ctx, "owner", "example.com", "cluster", false)
+				d, err := store.CreateCustomDomain(ctx, "owner", tt.domainName, "cluster", false)
 				require.NoError(t, err)
 				require.NoError(t, db.Model(d).Update("validation_expires_at", now.Add(-time.Hour)).Error)
 				svc := &rpservice.Service{ID: "legacy", AccountID: "owner", Domain: tt.serviceHost}

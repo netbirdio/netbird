@@ -50,6 +50,8 @@ func (s *SqlStore) DeleteExpiredCustomDomain(ctx context.Context, d *domain.Doma
 
 func customDomainServices(db *gorm.DB, d *domain.Domain) *gorm.DB {
 	name := strings.ToLower(strings.TrimSuffix(d.Domain, "."))
+	// Shared domain validation permits underscores, and older rows may contain
+	// other LIKE metacharacters.
 	escaped := strings.NewReplacer("!", "!!", "%", "!%", "_", "!_").Replace(name)
 	return db.Model(&rpservice.Service{}).Where(
 		"LOWER(domain) IN ? OR LOWER(domain) LIKE ? ESCAPE '!' OR LOWER(domain) LIKE ? ESCAPE '!'",

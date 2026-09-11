@@ -19,6 +19,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	nbstore "github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
+	nbdomain "github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -130,6 +131,7 @@ func (m Manager) GetDomains(ctx context.Context, accountID, userID string) ([]*d
 	return ret, nil
 }
 
+// CreateDomain registers a normalized custom domain and attempts DNS validation.
 func (m Manager) CreateDomain(ctx context.Context, accountID, userID, domainName, targetCluster string) (*domain.Domain, error) {
 	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Create)
 	if err != nil {
@@ -137,6 +139,15 @@ func (m Manager) CreateDomain(ctx context.Context, accountID, userID, domainName
 	}
 	if !ok {
 		return nil, status.NewPermissionDeniedError()
+	}
+
+	parsed, err := nbdomain.FromString(strings.TrimSuffix(domainName, "."))
+	if err != nil {
+		return nil, status.Errorf(status.InvalidArgument, "invalid domain: %v", err)
+	}
+	domainName = parsed.PunycodeString()
+	if !nbdomain.IsValidDomainNoWildcard(domainName) {
+		return nil, status.Errorf(status.InvalidArgument, "invalid domain format")
 	}
 
 	// Verify the target cluster is in the available clusters for this account

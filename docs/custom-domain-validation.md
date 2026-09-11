@@ -1,3 +1,7 @@
+A new custom domain name is converted to lowercase ASCII (punycode), with a
+trailing dot removed, before availability and DNS validation checks. Invalid
+names and wildcard registrations are rejected before storage.
+
 A custom domain registration must complete validation within 48 hours of
 creation. Retrying validation does not extend this window. Once validation
 succeeds, the registration is exempt from this expiration policy.
