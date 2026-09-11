@@ -21,7 +21,7 @@ func newLocalMux(t *testing.T) (*http.ServeMux, string) {
 	t.Helper()
 
 	mockDir := t.TempDir()
-	t.Setenv("SERVER_URL", "https://localhost:8080")
+	t.Setenv("SERVER_URL", "http://localhost:8080")
 	t.Setenv("STORE_DIR", mockDir)
 	t.Setenv(signingKeyVar, testSigningKey)
 

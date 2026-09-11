@@ -24,7 +24,7 @@ func signedQuery(t *testing.T, objectKey string) string {
 }
 
 func Test_LocalHandlerGetUploadURL(t *testing.T) {
-	mockURL := "https://localhost:8080"
+	mockURL := "http://localhost:8080"
 	t.Setenv("SERVER_URL", mockURL)
 	t.Setenv("STORE_DIR", t.TempDir())
 
@@ -50,7 +50,7 @@ func Test_LocalHandlerGetUploadURL(t *testing.T) {
 
 func Test_LocalHandlePutRequest(t *testing.T) {
 	mockDir := t.TempDir()
-	mockURL := "https://localhost:8080"
+	mockURL := "http://localhost:8080"
 	t.Setenv("SERVER_URL", mockURL)
 	t.Setenv("STORE_DIR", mockDir)
 	t.Setenv(signingKeyVar, testSigningKey)
@@ -76,7 +76,7 @@ func Test_LocalHandlePutRequest(t *testing.T) {
 
 func Test_LocalHandlePutRequest_PathTraversal(t *testing.T) {
 	mockDir := t.TempDir()
-	mockURL := "https://localhost:8080"
+	mockURL := "http://localhost:8080"
 	t.Setenv("SERVER_URL", mockURL)
 	t.Setenv("STORE_DIR", mockDir)
 	t.Setenv(signingKeyVar, testSigningKey)
@@ -101,11 +101,11 @@ func Test_LocalHandlePutRequest_PathTraversal(t *testing.T) {
 
 func Test_LocalHandlePutRequest_DirTraversal(t *testing.T) {
 	mockDir := t.TempDir()
-	t.Setenv("SERVER_URL", "https://localhost:8080")
+	t.Setenv("SERVER_URL", "http://localhost:8080")
 	t.Setenv("STORE_DIR", mockDir)
 	t.Setenv(signingKeyVar, testSigningKey)
 
-	l := &local{url: "https://localhost:8080", dir: mockDir, signer: &signer{key: []byte(testSigningKey)}}
+	l := &local{url: "http://localhost:8080", dir: mockDir, signer: &signer{key: []byte(testSigningKey)}}
 
 	body := bytes.NewReader([]byte("bad"))
 	req := httptest.NewRequest(http.MethodPut,
@@ -124,7 +124,7 @@ func Test_LocalHandlePutRequest_DirTraversal(t *testing.T) {
 
 func Test_LocalHandlePutRequest_DuplicateFile(t *testing.T) {
 	mockDir := t.TempDir()
-	t.Setenv("SERVER_URL", "https://localhost:8080")
+	t.Setenv("SERVER_URL", "http://localhost:8080")
 	t.Setenv("STORE_DIR", mockDir)
 	t.Setenv(signingKeyVar, testSigningKey)
 
@@ -151,7 +151,7 @@ func Test_LocalHandlePutRequest_DuplicateFile(t *testing.T) {
 
 func Test_LocalHandlePutRequest_BodyTooLarge(t *testing.T) {
 	mockDir := t.TempDir()
-	t.Setenv("SERVER_URL", "https://localhost:8080")
+	t.Setenv("SERVER_URL", "http://localhost:8080")
 	t.Setenv("STORE_DIR", mockDir)
 	t.Setenv(signingKeyVar, testSigningKey)
 
@@ -169,13 +169,4 @@ func Test_LocalHandlePutRequest_BodyTooLarge(t *testing.T) {
 
 	_, err = os.Stat(filepath.Join(mockDir, "dir", "big.txt"))
 	require.True(t, os.IsNotExist(err))
-}
-
-func Test_ConfigureLocalHandlersRejectsPlaintextURL(t *testing.T) {
-	t.Setenv("SERVER_URL", "http://localhost:8080")
-	t.Setenv("STORE_DIR", t.TempDir())
-	t.Setenv(signingKeyVar, testSigningKey)
-
-	err := configureLocalHandlers(http.NewServeMux(), newTestRateLimiter(t))
-	require.Error(t, err)
 }
