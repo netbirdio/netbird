@@ -5,12 +5,14 @@ import (
 	"errors"
 	"net/netip"
 	"testing"
+	"time"
 
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	nbdns "github.com/netbirdio/netbird/client/internal/dns"
+	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/routemanager/client"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	"github.com/netbirdio/netbird/route"
@@ -20,6 +22,44 @@ import (
 type removeRouteHandler struct {
 	removeFailures int
 	removeAttempts int
+}
+
+type allowedIPCleanupHandler struct {
+	added            chan struct{}
+	owned            bool
+	pending          bool
+	removeFailures   int
+	removeAttempts   int
+	removeRouteCalls int
+}
+
+func (h *allowedIPCleanupHandler) String() string                 { return "test route" }
+func (h *allowedIPCleanupHandler) AddRoute(context.Context) error { return nil }
+func (h *allowedIPCleanupHandler) AddAllowedIPs(string) error {
+	h.owned = true
+	close(h.added)
+	return nil
+}
+func (h *allowedIPCleanupHandler) RemoveAllowedIPs() error {
+	if !h.owned && !h.pending {
+		return nil
+	}
+	h.removeAttempts++
+	if h.removeFailures != 0 {
+		if h.removeFailures > 0 {
+			h.removeFailures--
+		}
+		h.owned = false
+		h.pending = true
+		return errors.New("remove allowed IP")
+	}
+	h.owned = false
+	h.pending = false
+	return nil
+}
+func (h *allowedIPCleanupHandler) RemoveRoute() error {
+	h.removeRouteCalls++
+	return h.RemoveAllowedIPs()
 }
 
 type trackingDNSServer struct {
@@ -122,6 +162,60 @@ func TestUpdateSystemRoutesCommitsDNSBatchWhenPendingRemovalFails(t *testing.T) 
 	assert.Zero(t, dnsServer.cancelCalls, "the DNS batch must not discard successful work")
 }
 
+func TestObsoleteWatcherCleanupHandoff(t *testing.T) {
+	testCases := []struct {
+		name                string
+		removeFailures      int
+		firstUpdateFails    bool
+		expectedRemoveCalls int
+	}{
+		{
+			name:                "transient failure retries in the same update",
+			removeFailures:      1,
+			expectedRemoveCalls: 2,
+		},
+		{
+			name:                "persistent failure moves to pending removal",
+			removeFailures:      2,
+			firstUpdateFails:    true,
+			expectedRemoveCalls: 3,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			id := route.HAUniqueID("net1||10.0.0.0/24")
+			handler := &allowedIPCleanupHandler{
+				added:          make(chan struct{}),
+				removeFailures: testCase.removeFailures,
+			}
+			m := newManagerWithActiveHandler(id, handler)
+			m.clientNetworks = map[route.HAUniqueID]*client.Watcher{id: startedWatcher(t, handler)}
+
+			m.stopObsoleteClients(route.HAMap{})
+			require.Equal(t, 1, handler.removeAttempts, "Watcher.Stop makes the first cleanup attempt")
+			assert.True(t, handler.pending, "the failed watcher cleanup must remain pending")
+			assert.Empty(t, m.clientNetworks, "the obsolete watcher must be removed")
+
+			err := m.updateSystemRoutes(route.HAMap{})
+			if testCase.firstUpdateFails {
+				require.Error(t, err, "the second cleanup attempt fails")
+				assert.Empty(t, m.activeRoutes, "a failed teardown must not remain active")
+				assert.Same(t, handler, m.pendingRemovals[id], "the handler must remain pending")
+				require.NoError(t, m.updateSystemRoutes(route.HAMap{}), "the third cleanup attempt succeeds")
+			} else {
+				require.NoError(t, err, "RemoveRoute retries the cleanup in the same route update")
+			}
+
+			assert.Empty(t, m.activeRoutes, "the removed handler must not remain active")
+			assert.Empty(t, m.pendingRemovals, "successful cleanup must clear pending state")
+			assert.False(t, handler.pending, "the handler must not retain a pending cleanup")
+			assert.Equal(t, testCase.expectedRemoveCalls, handler.removeAttempts,
+				"Stop and manager updates must make the expected cleanup attempts")
+		})
+	}
+}
+
 func newManagerWithActiveHandler(id route.HAUniqueID, handler client.RouteHandler) *DefaultManager {
 	return &DefaultManager{
 		ctx:          context.Background(),
@@ -135,4 +229,24 @@ func newManagerWithActiveHandler(id route.HAUniqueID, handler client.RouteHandle
 
 func testRoute() *route.Route {
 	return &route.Route{Network: netip.MustParsePrefix("10.0.0.0/24")}
+}
+
+func startedWatcher(t *testing.T, handler *allowedIPCleanupHandler) *client.Watcher {
+	t.Helper()
+
+	statusRecorder := peer.NewRecorder("https://mgm")
+	require.NoError(t, statusRecorder.AddPeer("peer", "peer", "100.64.0.1", ""))
+	w := client.NewWatcher(client.WatcherConfig{
+		Context:        context.Background(),
+		StatusRecorder: statusRecorder,
+		Handler:        handler,
+	})
+	go w.Start()
+	w.SendUpdate(client.RoutesUpdate{Routes: []*route.Route{{ID: "route", Peer: "peer"}}})
+	select {
+	case <-handler.added:
+	case <-time.After(time.Second):
+		t.Fatal("watcher did not add allowed IPs")
+	}
+	return w
 }
