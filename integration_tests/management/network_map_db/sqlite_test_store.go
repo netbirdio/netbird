@@ -16,7 +16,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func createSqliteTestStore(baseData string) (*networkmap_sqlite.SqliteStore, func()) {
+func createSqliteTestStore(baseData string) (*networkmap_sqlite.SqliteStore, func(), *gormstore.SqlStore) {
 	storeSqliteFileName := ":memory:"
 	storeStr := fmt.Sprintf("%s?cache=shared", storeSqliteFileName)
 	if runtime.GOOS == "windows" {
@@ -24,11 +24,13 @@ func createSqliteTestStore(baseData string) (*networkmap_sqlite.SqliteStore, fun
 		storeStr = storeSqliteFileName
 	}
 
-	db, err := gorm.Open(sqlite.Open(storeStr), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(storeStr), &gorm.Config{
+		// Logger: logger.Default.LogMode(logger.Info),
+	})
 	if err != nil {
 		log.Fatalf("error initializing db: %s", err.Error())
 	}
-	_, err = gormstore.NewSqlStore(context.TODO(), db, types.SqliteStoreEngine, nil, false)
+	store, err := gormstore.NewSqlStore(context.TODO(), db, types.SqliteStoreEngine, nil, false)
 	if err != nil {
 		log.Fatalf("error initializing db: %s", err.Error())
 	}
@@ -44,5 +46,5 @@ func createSqliteTestStore(baseData string) (*networkmap_sqlite.SqliteStore, fun
 		}
 	}
 
-	return &networkmap_sqlite.SqliteStore{Db: sqldb}, func() {}
+	return &networkmap_sqlite.SqliteStore{Db: sqldb}, func() {}, store
 }

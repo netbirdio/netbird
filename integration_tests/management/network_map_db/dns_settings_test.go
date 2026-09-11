@@ -30,5 +30,5 @@ func TestGetDnsSettings(t *testing.T) {
 
 	settings, err = conn(t, ctx).GetDnsSettings(ctx, "account-4")
 	assert.NoError(t, err)
-	assert.Equal(t, settings, nmdata.DNSSettings{})
+	assert.Len(t, settings.DisabledManagementGroups, 0)
 }

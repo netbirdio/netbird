@@ -30,6 +30,7 @@ func (sc *SqliteStoreConn) GetDnsSettings(ctx context.Context, accountId string)
 		return value, err
 	}
 
+	// TODO (dmitri) not necessary once default column value is in place
 	if len(settings) == 0 {
 		return nmdata.DNSSettings{}, nil
 	}
