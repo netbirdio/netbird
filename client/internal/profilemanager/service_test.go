@@ -477,6 +477,36 @@ func TestClaimLegacyProfile_SkipsOneAlreadyOwnedInTheSameDirectory(t *testing.T)
 	})
 }
 
+func TestRenameProfile(t *testing.T) {
+	withTestSM(t, func(sm *ServiceManager, userID ipcauth.Identity) {
+		created, err := sm.AddProfile("work", &userID)
+		require.NoError(t, err)
+
+		require.NoError(t, sm.RenameProfile(created.ID, userID, "weekend"))
+
+		got, err := sm.ResolveProfile(created.ID.String(), userID)
+		require.NoError(t, err)
+		assert.Equal(t, "weekend", got.Name, "the new name is on disk")
+		assert.Equal(t, created.ID, got.ID, "renaming does not re-key the profile")
+		assert.Equal(t, created.Path, got.Path)
+	})
+}
+
+func TestRenameProfile_NotTheCallersProfile(t *testing.T) {
+	withTestSM(t, func(sm *ServiceManager, userID ipcauth.Identity) {
+		created, err := sm.AddProfile("work", &userID)
+		require.NoError(t, err)
+
+		stranger := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
+		require.Error(t, sm.RenameProfile(created.ID, stranger, "weekend"),
+			"a profile the caller cannot address is not theirs to rename")
+
+		got, err := sm.ResolveProfile(created.ID.String(), userID)
+		require.NoError(t, err)
+		assert.Equal(t, "work", got.Name)
+	})
+}
+
 func TestListProfiles_PrivilegedCallerDoesNotClaim(t *testing.T) {
 	withLegacyLayout(t, func(sm *ServiceManager, configDir string) {
 		path := writeLegacyProfile(t, configDir, "root", "work", nil)

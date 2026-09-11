@@ -288,6 +288,13 @@ func (s *Server) Start() error {
 		return err
 	}
 
+	// A half-migrated machine still runs, it just keeps resolving profiles the
+	// old way, so a failure here is logged and retried on the next start rather
+	// than kept from starting at all.
+	if err := s.profileManager.MigrateLegacyProfiles(); err != nil {
+		log.Errorf("profile migration did not finish, retrying on next start: %v", err)
+	}
+
 	activeProf, err := s.profileManager.GetActiveProfileState()
 	if err != nil {
 		return fmt.Errorf("failed to get active profile state: %w", err)
