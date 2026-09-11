@@ -484,6 +484,180 @@ jobs:
           path: dist/
           retention-days: 3
 
+  release_ui_linux_arm64:
+    # GTK/WebKitGTK are CGO dependencies. Build on the target architecture so
+    # the package links against ARM64 system libraries without emulation or a
+    # manually maintained cross-compilation sysroot.
+    needs: release
+    runs-on: ubuntu-24.04-arm
+    outputs:
+      release_ui_linux_arm64_artifact_url: ${{ steps.upload_release_ui_linux_arm64.outputs.artifact-url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0 # It is required for GoReleaser to work properly
+          persist-credentials: false
+
+      - name: Parse semver string
+        id: semver_parser
+        uses: netbirdio/shared-actions/actions/parse-semver@be5df6047383da2236e02243cceb857d8567c27e # v0.0.2
+
+      - name: Set trusted release build vars
+        if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && github.repository == 'netbirdio/netbird' }}
+        run: |
+          if [[ "${{ steps.semver_parser.outputs.prerelease }}" == "" ]]; then
+            echo "SKIP_PUBLISH=false" >> "$GITHUB_ENV"
+          fi
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: "go.mod"
+          cache: false
+      - name: Cache Go modules
+        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-${{ runner.arch }}-ui-go-releaser-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-ui-go-releaser-
+
+      - name: Install modules
+        run: go mod tidy
+
+      - name: check git status
+        run: git --no-pager diff --exit-code
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@a3252b78c470c02df07e9d59298aecedc3ccdd6d # v3.0.0
+        with:
+          version: 11
+
+      - name: Install dependencies
+        run: sudo apt update && sudo apt install -y -q libgtk-4-dev libwebkitgtk-6.0-dev libsoup-3.0-dev
+
+      - name: Decode GPG signing key
+        if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && github.repository == 'netbirdio/netbird' }}
+        env:
+          GPG_RPM_PRIVATE_KEY: ${{ secrets.GPG_RPM_PRIVATE_KEY }}
+        run: |
+          umask 077
+          printf '%s' "$GPG_RPM_PRIVATE_KEY" | base64 --decode > /tmp/gpg-rpm-signing-key.asc
+          echo "GPG_RPM_KEY_FILE=/tmp/gpg-rpm-signing-key.asc" >> "$GITHUB_ENV"
+
+      - name: Install wails3 CLI
+        # Version derived from go.mod so the binding generator always matches
+        # the wails runtime the binary links against.
+        run: |
+          WAILS_VERSION=$(go list -m -f '{{.Version}}' github.com/wailsapp/wails/v3)
+          go install github.com/wailsapp/wails/v3/cmd/wails3@"$WAILS_VERSION"
+
+      - name: Run snapshot GoReleaser
+        if: ${{ !(github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && github.repository == 'netbirdio/netbird') }}
+        uses: goreleaser/goreleaser-action@5daf1e915a5f0af01ddbcd89a43b8061ff4f1a89 # v7.2.2
+        with:
+          version: ${{ env.GORELEASER_VER }}
+          args: release --config .goreleaser_ui_linux_arm64.yaml --clean --snapshot
+        env:
+          SKIP_PUBLISH: "true"
+
+      - name: Run trusted release GoReleaser
+        if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && github.repository == 'netbirdio/netbird' }}
+        uses: goreleaser/goreleaser-action@5daf1e915a5f0af01ddbcd89a43b8061ff4f1a89 # v7.2.2
+        with:
+          version: ${{ env.GORELEASER_VER }}
+          args: release --config .goreleaser_ui_linux_arm64.yaml --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPLOAD_DEBIAN_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
+          UPLOAD_YUM_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
+          GPG_RPM_KEY_FILE: ${{ env.GPG_RPM_KEY_FILE }}
+          NFPM_NETBIRD_UI_RPM_LINUX_ARM64_PASSPHRASE: ${{ secrets.GPG_RPM_PASSPHRASE }}
+          SKIP_PUBLISH: ${{ env.SKIP_PUBLISH }}
+
+      - name: Verify ARM64 package artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          rpm_files=(dist/*.rpm)
+          deb_files=(dist/*.deb)
+          (( ${#rpm_files[@]} > 0 )) || { echo "No ARM64 RPM artifacts found" >&2; exit 1; }
+          (( ${#deb_files[@]} > 0 )) || { echo "No ARM64 DEB artifacts found" >&2; exit 1; }
+
+          for deb_file in "${deb_files[@]}"; do
+            arch=$(dpkg-deb --field "$deb_file" Architecture)
+            [[ "$arch" == "arm64" ]] || { echo "Unexpected DEB architecture $arch: $deb_file" >&2; exit 1; }
+          done
+
+          docker run --rm -v "$(pwd)/dist:/dist:ro" fedora:41 bash -c '
+            set -euo pipefail
+            dnf install -y -q rpm >/dev/null 2>&1
+            shopt -s nullglob
+            rpm_files=(/dist/*.rpm)
+            (( ${#rpm_files[@]} > 0 )) || { echo "No ARM64 RPM artifacts found" >&2; exit 1; }
+            for rpm_file in "${rpm_files[@]}"; do
+              arch=$(rpm -qp --qf "%{ARCH}" "$rpm_file")
+              [[ "$arch" == "aarch64" ]] || { echo "Unexpected RPM architecture $arch: $rpm_file" >&2; exit 1; }
+            done
+          '
+
+      - name: Verify trusted RPM signatures
+        if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && github.repository == 'netbirdio/netbird' }}
+        run: |
+          docker run --rm -v "$(pwd)/dist:/dist:ro" fedora:41 bash -c '
+            set -euo pipefail
+            dnf install -y -q rpm curl gnupg2 >/dev/null 2>&1
+            expected_fingerprint="AA9C09AA9DEA2F58112B40DFDFFEAB2FD267A61F"
+            expected_signature_key_id="dffeab2fd267a61f"
+            expected_checksig_key_id="d267a61f"
+            curl --fail --silent --show-error --location \
+              https://pkgs.netbird.io/yum/repodata/repomd.xml.key \
+              --output /tmp/rpm-pub.key
+            actual_fingerprint=$(gpg --batch --show-keys --with-colons /tmp/rpm-pub.key | awk -F: '\''$1 == "fpr" { print $10; exit }'\'')
+            [[ "$actual_fingerprint" == "$expected_fingerprint" ]] || {
+              echo "Unexpected RPM signing key fingerprint: $actual_fingerprint" >&2
+              exit 1
+            }
+            rpm --import /tmp/rpm-pub.key
+
+            shopt -s nullglob
+            rpm_files=(/dist/*.rpm)
+            (( ${#rpm_files[@]} > 0 )) || { echo "No ARM64 RPM artifacts found" >&2; exit 1; }
+            for rpm_file in "${rpm_files[@]}"; do
+              echo "--- $(basename "$rpm_file") ---"
+              signature=$(rpm -qp --qf "%{RSAHEADER:pgpsig}\n%{DSAHEADER:pgpsig}\n%{SIGPGP:pgpsig}\n%{SIGGPG:pgpsig}\n" "$rpm_file")
+              grep -Eqi "Key ID ${expected_signature_key_id}$" <<< "$signature" || {
+                echo "RPM is unsigned or not signed by the expected key: $rpm_file" >&2
+                exit 1
+              }
+              rpm --checksig --verbose "$rpm_file" | tee /tmp/rpm-checksig.out
+              grep -Eqi "signature, key ID ${expected_checksig_key_id}: OK" /tmp/rpm-checksig.out || {
+                echo "RPM cryptographic signature verification failed: $rpm_file" >&2
+                exit 1
+              }
+            done
+          '
+
+      - name: Clean up GPG key
+        if: ${{ always() && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && github.repository == 'netbirdio/netbird' }}
+        run: rm -f /tmp/gpg-rpm-signing-key.asc
+      - name: upload non tags for debug purposes
+        id: upload_release_ui_linux_arm64
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a #v7.0.1
+        with:
+          name: release-ui-linux-arm64
+          path: dist/
+          retention-days: 3
+
   release_ui_gtk3:
     # Legacy GTK3/WebKit2GTK 4.1 UI build for distros without WebKitGTK 6.0
     # (Ubuntu 22.04, Debian 12, RHEL 9, Fedora <=39). Runs on ubuntu-22.04 so
@@ -823,7 +997,7 @@ jobs:
   comment_release_artifacts:
     name: Comment release artifacts
     runs-on: ubuntu-latest
-    needs: [release, release_ui, release_ui_gtk3, release_ui_darwin]
+    needs: [release, release_ui, release_ui_linux_arm64, release_ui_gtk3, release_ui_darwin]
     if: ${{ always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
     permissions:
       contents: read
@@ -835,6 +1009,7 @@ jobs:
         env:
           RELEASE_RESULT: ${{ needs.release.result }}
           RELEASE_UI_RESULT: ${{ needs.release_ui.result }}
+          RELEASE_UI_LINUX_ARM64_RESULT: ${{ needs.release_ui_linux_arm64.result }}
           RELEASE_UI_GTK3_RESULT: ${{ needs.release_ui_gtk3.result }}
           RELEASE_UI_DARWIN_RESULT: ${{ needs.release_ui_darwin.result }}
           RELEASE_ARTIFACT_URL: ${{ needs.release.outputs.release_artifact_url }}
@@ -842,6 +1017,7 @@ jobs:
           WINDOWS_PACKAGES_ARTIFACT_URL: ${{ needs.release.outputs.windows_packages_artifact_url }}
           MACOS_PACKAGES_ARTIFACT_URL: ${{ needs.release.outputs.macos_packages_artifact_url }}
           RELEASE_UI_ARTIFACT_URL: ${{ needs.release_ui.outputs.release_ui_artifact_url }}
+          RELEASE_UI_LINUX_ARM64_ARTIFACT_URL: ${{ needs.release_ui_linux_arm64.outputs.release_ui_linux_arm64_artifact_url }}
           RELEASE_UI_GTK3_ARTIFACT_URL: ${{ needs.release_ui_gtk3.outputs.release_ui_gtk3_artifact_url }}
           RELEASE_UI_DARWIN_ARTIFACT_URL: ${{ needs.release_ui_darwin.outputs.release_ui_darwin_artifact_url }}
           GHCR_IMAGES_MARKDOWN: ${{ needs.release.outputs.ghcr_images }}
@@ -865,6 +1041,7 @@ jobs:
               ['Windows packages', process.env.WINDOWS_PACKAGES_ARTIFACT_URL, process.env.RELEASE_RESULT],
               ['macOS packages', process.env.MACOS_PACKAGES_ARTIFACT_URL, process.env.RELEASE_RESULT],
               ['UI artifacts', process.env.RELEASE_UI_ARTIFACT_URL, process.env.RELEASE_UI_RESULT],
+              ['UI Linux ARM64 artifacts', process.env.RELEASE_UI_LINUX_ARM64_ARTIFACT_URL, process.env.RELEASE_UI_LINUX_ARM64_RESULT],
               ['UI GTK3 artifacts', process.env.RELEASE_UI_GTK3_ARTIFACT_URL, process.env.RELEASE_UI_GTK3_RESULT],
               ['UI macOS artifacts', process.env.RELEASE_UI_DARWIN_ARTIFACT_URL, process.env.RELEASE_UI_DARWIN_RESULT],
             ];
@@ -922,7 +1099,7 @@ jobs:
 
   trigger_signer:
     runs-on: ubuntu-latest
-    needs: [release, release_ui, release_ui_gtk3, release_ui_darwin, test_windows_installer]
+    needs: [release, release_ui, release_ui_linux_arm64, release_ui_gtk3, release_ui_darwin, test_windows_installer]
     if: startsWith(github.ref, 'refs/tags/')
     steps:
       - name: Trigger binaries sign pipelines
