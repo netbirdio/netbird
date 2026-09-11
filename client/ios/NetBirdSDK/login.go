@@ -11,6 +11,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/client/mobile"
 	"github.com/netbirdio/netbird/client/system"
 )
@@ -39,14 +40,22 @@ type Auth struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 	config  *profilemanager.Config
+	base    *profilemanager.Config
+	policy  *mdm.Policy
 	cfgPath string
 }
 
-// NewAuth instantiate Auth struct and validate the management URL
-func NewAuth(cfgPath string, mgmURL string) (*Auth, error) {
-	inputCfg := profilemanager.ConfigInput{
-		ConfigPath:    cfgPath,
-		ManagementURL: mgmURL,
+// NewAuth instantiate Auth struct and validate the management URL.
+// Auth is constructed under the active MDM policy: the policy is overlaid on
+// the resolved config so the login runs against the enforced values, while
+// the persisted config keeps the caller-supplied ones; a caller-supplied
+// management URL is ignored while MDM manages that key. A nil fetcher
+// disables MDM enforcement.
+func NewAuth(cfgPath string, mgmURL string, fetcher PolicyFetcher) (*Auth, error) {
+	policy := loaderFor(fetcher).Load()
+	inputCfg := profilemanager.ConfigInput{ConfigPath: cfgPath}
+	if _, managed := policy.GetString(mdm.KeyManagementURL); !managed {
+		inputCfg.ManagementURL = mgmURL
 	}
 
 	// Load the existing config when a config file is already present so an
@@ -67,6 +76,10 @@ func NewAuth(cfgPath string, mgmURL string) (*Auth, error) {
 	if err != nil {
 		return nil, err
 	}
+	a := &Auth{policy: policy, cfgPath: cfgPath}
+	if err := a.setBaseConfig(cfg); err != nil {
+		return nil, err
+	}
 
 	// Use a cancellable context so Stop() can abort an in-progress interactive
 	// login. The PKCE flow's WaitToken blocks (and keeps its loopback HTTP server
@@ -76,14 +89,8 @@ func NewAuth(cfgPath string, mgmURL string) (*Auth, error) {
 	// process (decoupled from the network extension), so without this the server
 	// lingers after the user dismisses the browser and the next connect stalls
 	// trying to bind the same port.
-	ctx, cancel := context.WithCancel(context.Background())
-
-	return &Auth{
-		ctx:     ctx,
-		cancel:  cancel,
-		config:  cfg,
-		cfgPath: cfgPath,
-	}, nil
+	a.ctx, a.cancel = context.WithCancel(context.Background())
+	return a, nil
 }
 
 // NewAuthWithConfig instantiate Auth based on existing config
@@ -106,9 +113,7 @@ func (a *Auth) Stop() {
 	}
 }
 
-// SaveConfigIfSSOSupported test the connectivity with the management server by retrieving the server device flow info.
-// If it returns a flow info than save the configuration and return true. If it gets a codes.NotFound, it means that SSO
-// is not supported and returns false without saving the configuration. For other errors return false.
+// SaveConfigIfSSOSupported reports whether the management server supports SSO; the config is already persisted by NewAuth.
 func (a *Auth) SaveConfigIfSSOSupported(listener SSOListener) {
 	if listener == nil {
 		log.Errorf("SaveConfigIfSSOSupported: listener is nil")
@@ -136,17 +141,10 @@ func (a *Auth) saveConfigIfSSOSupported() (bool, error) {
 		return false, fmt.Errorf("failed to check SSO support: %v", err)
 	}
 
-	if !supportsSSO {
-		return false, nil
-	}
-
-	// Use DirectWriteOutConfig to avoid atomic file operations (temp file + rename)
-	// which are blocked by the tvOS sandbox in App Group containers
-	err = profilemanager.DirectWriteOutConfig(a.cfgPath, a.config)
-	return true, err
+	return supportsSSO, nil
 }
 
-// LoginWithSetupKeyAndSaveConfig test the connectivity with the management server with the setup key.
+// LoginWithSetupKeyAndSaveConfig registers the peer with the setup key; the config is already persisted by NewAuth.
 func (a *Auth) LoginWithSetupKeyAndSaveConfig(resultListener ErrListener, setupKey string, deviceName string) {
 	if resultListener == nil {
 		log.Errorf("LoginWithSetupKeyAndSaveConfig: resultListener is nil")
@@ -175,10 +173,7 @@ func (a *Auth) loginWithSetupKeyAndSaveConfig(setupKey string, deviceName string
 	if err != nil {
 		return fmt.Errorf("login failed: %v", err)
 	}
-
-	// Use DirectWriteOutConfig to avoid atomic file operations (temp file + rename)
-	// which are blocked by the tvOS sandbox in App Group containers
-	return profilemanager.DirectWriteOutConfig(a.cfgPath, a.config)
+	return nil
 }
 
 // LoginSync performs a synchronous login check without UI interaction
@@ -312,19 +307,6 @@ func (a *Auth) login(urlOpener URLOpener, forceDeviceAuth bool, deviceName strin
 		}
 	}
 
-	// Save the config before notifying success to ensure persistence completes
-	// before the callback potentially triggers teardown on the Swift side.
-	// Note: This differs from Android which doesn't save config after login.
-	// On iOS/tvOS, we save here because:
-	// 1. The config may have been modified during login (e.g., new tokens)
-	// 2. On tvOS, the Network Extension context may be the only place with
-	//    write permissions to the App Group container
-	if a.cfgPath != "" {
-		if err := profilemanager.DirectWriteOutConfig(a.cfgPath, a.config); err != nil {
-			log.Warnf("failed to save config after login: %v", err)
-		}
-	}
-
 	// Notify caller of successful login synchronously before returning
 	urlOpener.OnLoginSuccess()
 
@@ -375,23 +357,44 @@ func (a *Auth) foregroundGetTokenInfo(authClient *auth.Auth, urlOpener URLOpener
 	return &tokenInfo, nil
 }
 
-// GetConfigJSON returns the current config as a JSON string.
-// This can be used by the caller to persist the config via alternative storage
-// mechanisms (e.g., UserDefaults on tvOS where file writes are blocked).
+// GetConfigJSON returns the config without the MDM overlay as JSON, for persisting it outside the config file (tvOS).
 func (a *Auth) GetConfigJSON() (string, error) {
-	if a.config == nil {
+	cfg := a.base
+	if cfg == nil {
+		cfg = a.config
+	}
+	if cfg == nil {
 		return "", fmt.Errorf("no config available")
 	}
-	return profilemanager.ConfigToJSON(a.config)
+	return profilemanager.ConfigToJSON(cfg)
 }
 
-// SetConfigFromJSON loads config from a JSON string.
-// This can be used to restore config from alternative storage mechanisms.
+// SetConfigFromJSON replaces the config from JSON; the MDM overlay is applied on top for the login.
 func (a *Auth) SetConfigFromJSON(jsonStr string) error {
 	cfg, err := profilemanager.ConfigFromJSON(jsonStr)
 	if err != nil {
 		return err
 	}
-	a.config = cfg
+	return a.setBaseConfig(cfg)
+}
+
+func (a *Auth) setBaseConfig(base *profilemanager.Config) error {
+	overlaid, err := copyConfig(base)
+	if err != nil {
+		return err
+	}
+	if a.policy != nil {
+		overlaid.ApplyMDMPolicy(a.policy)
+	}
+	a.base = base
+	a.config = overlaid
 	return nil
+}
+
+func copyConfig(cfg *profilemanager.Config) (*profilemanager.Config, error) {
+	raw, err := profilemanager.ConfigToJSON(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return profilemanager.ConfigFromJSON(raw)
 }
