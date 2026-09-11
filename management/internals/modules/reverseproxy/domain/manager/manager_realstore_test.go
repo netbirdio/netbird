@@ -296,11 +296,8 @@ func TestValidateDomain_PermissionDeniedDoesNotValidate(t *testing.T) {
 	assert.Error(t, err, "the domain must still be unservable")
 }
 
-// Validation runs asynchronously, so it can finish after the domain was
-// deleted and then write a stale row back. gorm's Save falls back to an insert
-// when an update affects no rows, which would resurrect the domain as
-// validated; UpdateCustomDomain avoids that by selecting explicit columns.
-// This pins that behaviour, since dropping the Select would reintroduce it.
+// A validation finishing after deletion must reject the stale write, without
+// restoring the registration or reporting successful validation.
 func TestUpdateCustomDomain_DoesNotResurrectDeletedDomain(t *testing.T) {
 	ctx := context.Background()
 	env := setupDomainTest(t)
@@ -315,11 +312,9 @@ func TestUpdateCustomDomain_DoesNotResurrectDeletedDomain(t *testing.T) {
 	require.Nil(t, storedDomain(t, env.store, accountA, "racy.example.com"), "the domain should be gone")
 
 	// What an in-flight validation would write once its CNAME check succeeded.
-	// The write has to succeed for the assertion below to mean anything: a
-	// rejected write would leave the domain absent for the wrong reason.
 	stale.Validated = true
 	_, err = env.store.UpdateCustomDomain(ctx, accountA, stale)
-	require.NoError(t, err, "the update itself must succeed, so absence is not just a failed write")
+	require.Error(t, err, "a deleted registration must reject a late validation")
 
 	assert.Nil(t, storedDomain(t, env.store, accountA, "racy.example.com"),
 		"a late validation write must not recreate a deleted domain")
