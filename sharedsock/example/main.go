@@ -14,8 +14,8 @@ import (
 func main() {
 
 	port := 51820
-	rawSock, err := sharedsock.Listen(port, sharedsock.NewIncomingSTUNFilter(), iface.DefaultMTU)
-	if err != nil {
+	rawSock, err := sharedsock.Listen(port, sharedsock.NewIncomingSTUNFilter(), iface.DefaultMTU) //nolint:staticcheck
+	if err != nil {                                                                               //nolint:staticcheck // always errors on non-Linux builds
 		panic(err)
 	}
 

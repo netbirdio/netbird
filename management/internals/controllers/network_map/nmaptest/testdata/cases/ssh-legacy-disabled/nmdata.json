@@ -1,0 +1,30 @@
+{
+  "Network": {"Serial": 13},
+  "Peers": {
+    "peer-a": {"IP": "100.64.0.1", "Meta": {"WtVersion": "0.60.0"}},
+    "peer-srv": {"IP": "100.64.0.10", "Meta": {"WtVersion": "0.60.0"}}
+  },
+  "Groups": {
+    "grp-dev": {"Peers": ["peer-a"]},
+    "grp-srv": {"Peers": ["peer-srv"]}
+  },
+  "AllowedUserIDs": {"user-1": {}},
+  "Policies": [
+    {
+      "ID": "pol-tcp22",
+      "PublicID": "pol-tcp22-pub",
+      "Enabled": true,
+      "Rules": [
+        {
+          "Enabled": true,
+          "Action": "accept",
+          "Protocol": "tcp",
+          "Ports": ["22"],
+          "Bidirectional": true,
+          "Sources": ["grp-dev"],
+          "Destinations": ["grp-srv"]
+        }
+      ]
+    }
+  ]
+}

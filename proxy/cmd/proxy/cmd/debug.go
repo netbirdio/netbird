@@ -2,7 +2,13 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"os/signal"
+	"path/filepath"
 	"strconv"
+	"strings"
+	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -57,7 +63,11 @@ var debugSyncCmd = &cobra.Command{
 	SilenceUsage: true,
 }
 
-var pingTimeout string
+var (
+	pingTimeout time.Duration
+	pingIPv4    bool
+	pingIPv6    bool
+)
 
 var debugPingCmd = &cobra.Command{
 	Use:          "ping <account-id> <host> [port]",
@@ -99,6 +109,43 @@ var debugStopCmd = &cobra.Command{
 	SilenceUsage: true,
 }
 
+var debugPerfCmd = &cobra.Command{
+	Use:          "perf <pool-cap>",
+	Short:        "Live-retune the tunnel buffer pool cap on all running clients",
+	Args:         cobra.ExactArgs(1),
+	RunE:         runDebugPerfSet,
+	SilenceUsage: true,
+}
+
+var debugRuntimeCmd = &cobra.Command{
+	Use:          "runtime",
+	Short:        "Show runtime stats (heap, goroutines, RSS)",
+	Args:         cobra.NoArgs,
+	RunE:         runDebugRuntime,
+	SilenceUsage: true,
+}
+
+var debugCaptureCmd = &cobra.Command{
+	Use:   "capture <account-id> [filter expression]",
+	Short: "Capture packets on a client's WireGuard interface",
+	Long: `Captures decrypted packets flowing through a client's WireGuard interface.
+
+Default output is human-readable text. Use --pcap or --output for pcap binary.
+Filter arguments after the account ID use BPF-like syntax.
+
+Examples:
+  netbird-proxy debug capture <account-id>
+  netbird-proxy debug capture <account-id> --duration 1m host 10.0.0.1
+  netbird-proxy debug capture <account-id> host 10.0.0.1 and tcp port 443
+  netbird-proxy debug capture <account-id> not port 22
+  netbird-proxy debug capture <account-id> -o capture.pcap
+  netbird-proxy debug capture <account-id> --pcap | tcpdump -r - -n
+  netbird-proxy debug capture <account-id> --pcap | tshark -r -`,
+	Args:         cobra.MinimumNArgs(1),
+	RunE:         runDebugCapture,
+	SilenceUsage: true,
+}
+
 func init() {
 	debugCmd.PersistentFlags().StringVar(&debugAddr, "addr", envStringOrDefault("NB_PROXY_DEBUG_ADDRESS", "localhost:8444"), "Debug endpoint address")
 	debugCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Output JSON instead of pretty format")
@@ -108,7 +155,16 @@ func init() {
 	debugStatusCmd.Flags().StringVar(&statusFilterByStatus, "filter-by-status", "", "Filter by status (idle|connecting|connected)")
 	debugStatusCmd.Flags().StringVar(&statusFilterByConnectionType, "filter-by-connection-type", "", "Filter by connection type (P2P|Relayed)")
 
-	debugPingCmd.Flags().StringVar(&pingTimeout, "timeout", "", "Ping timeout (e.g., 10s)")
+	debugPingCmd.Flags().DurationVar(&pingTimeout, "timeout", 0, "Ping timeout (e.g., 10s)")
+	debugPingCmd.Flags().BoolVarP(&pingIPv4, "ipv4", "4", false, "Force IPv4")
+	debugPingCmd.Flags().BoolVarP(&pingIPv6, "ipv6", "6", false, "Force IPv6")
+	debugPingCmd.MarkFlagsMutuallyExclusive("ipv4", "ipv6")
+
+	debugCaptureCmd.Flags().DurationP("duration", "d", 0, "Capture duration (0 = server default)")
+	debugCaptureCmd.Flags().Bool("pcap", false, "Force pcap binary output (default when --output is set)")
+	debugCaptureCmd.Flags().BoolP("verbose", "v", false, "Show seq/ack, TTL, window, total length (text mode)")
+	debugCaptureCmd.Flags().Bool("ascii", false, "Print payload as ASCII after each packet (text mode)")
+	debugCaptureCmd.Flags().StringP("output", "o", "", "Write pcap to file instead of stdout")
 
 	debugCmd.AddCommand(debugHealthCmd)
 	debugCmd.AddCommand(debugClientsCmd)
@@ -119,6 +175,9 @@ func init() {
 	debugCmd.AddCommand(debugLogCmd)
 	debugCmd.AddCommand(debugStartCmd)
 	debugCmd.AddCommand(debugStopCmd)
+	debugCmd.AddCommand(debugPerfCmd)
+	debugCmd.AddCommand(debugRuntimeCmd)
+	debugCmd.AddCommand(debugCaptureCmd)
 
 	rootCmd.AddCommand(debugCmd)
 }
@@ -157,7 +216,14 @@ func runDebugPing(cmd *cobra.Command, args []string) error {
 		}
 		port = p
 	}
-	return getDebugClient(cmd).PingTCP(cmd.Context(), args[0], args[1], port, pingTimeout)
+	var ipVersion string
+	switch {
+	case pingIPv4:
+		ipVersion = "4"
+	case pingIPv6:
+		ipVersion = "6"
+	}
+	return getDebugClient(cmd).PingTCP(cmd.Context(), args[0], args[1], port, pingTimeout, ipVersion)
 }
 
 func runDebugLogLevel(cmd *cobra.Command, args []string) error {
@@ -170,4 +236,97 @@ func runDebugStart(cmd *cobra.Command, args []string) error {
 
 func runDebugStop(cmd *cobra.Command, args []string) error {
 	return getDebugClient(cmd).StopClient(cmd.Context(), args[0])
+}
+
+func runDebugPerfSet(cmd *cobra.Command, args []string) error {
+	n, err := strconv.ParseUint(args[0], 10, 32)
+	if err != nil {
+		return fmt.Errorf("invalid value %q: %w", args[0], err)
+	}
+	return getDebugClient(cmd).PerfSet(cmd.Context(), uint32(n))
+}
+
+func runDebugRuntime(cmd *cobra.Command, _ []string) error {
+	return getDebugClient(cmd).Runtime(cmd.Context())
+}
+
+func runDebugCapture(cmd *cobra.Command, args []string) error {
+	duration, _ := cmd.Flags().GetDuration("duration")
+	forcePcap, _ := cmd.Flags().GetBool("pcap")
+	verbose, _ := cmd.Flags().GetBool("verbose")
+	ascii, _ := cmd.Flags().GetBool("ascii")
+	outPath, _ := cmd.Flags().GetString("output")
+
+	// Default to text. Use pcap when --pcap is set or --output is given.
+	wantText := !forcePcap && outPath == ""
+
+	var filterExpr string
+	if len(args) > 1 {
+		filterExpr = strings.Join(args[1:], " ")
+	}
+
+	ctx, cancel := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
+	out, cleanup, err := captureOutputWriter(cmd, outPath)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	if wantText {
+		cmd.PrintErrln("Capturing packets... Press Ctrl+C to stop.")
+	} else {
+		cmd.PrintErrln("Capturing packets (pcap)... Press Ctrl+C to stop.")
+	}
+
+	var durationStr string
+	if duration > 0 {
+		durationStr = duration.String()
+	}
+
+	err = getDebugClient(cmd).Capture(ctx, debug.CaptureOptions{
+		AccountID:  args[0],
+		Duration:   durationStr,
+		FilterExpr: filterExpr,
+		Text:       wantText,
+		Verbose:    verbose,
+		ASCII:      ascii,
+		Output:     out,
+	})
+	if err != nil {
+		return err
+	}
+
+	cmd.PrintErrln("\nCapture finished.")
+	return nil
+}
+
+// captureOutputWriter returns the writer and cleanup function for capture output.
+func captureOutputWriter(cmd *cobra.Command, outPath string) (out *os.File, cleanup func(), err error) {
+	if outPath != "" {
+		f, err := os.CreateTemp(filepath.Dir(outPath), filepath.Base(outPath)+".*.tmp")
+		if err != nil {
+			return nil, nil, fmt.Errorf("create output file: %w", err)
+		}
+		tmpPath := f.Name()
+		return f, func() {
+			if err := f.Close(); err != nil {
+				cmd.PrintErrf("close output file: %v\n", err)
+			}
+			if fi, err := os.Stat(tmpPath); err == nil && fi.Size() > 0 {
+				if err := os.Rename(tmpPath, outPath); err != nil {
+					cmd.PrintErrf("rename output file: %v\n", err)
+				} else {
+					cmd.PrintErrf("Wrote %s\n", outPath)
+				}
+			} else {
+				os.Remove(tmpPath)
+			}
+		}, nil
+	}
+
+	return os.Stdout, func() {
+		// no cleanup needed for stdout
+	}, nil
 }

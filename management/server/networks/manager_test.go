@@ -32,8 +32,11 @@ func Test_GetAllNetworksReturnsNetworks(t *testing.T) {
 
 	networks, err := manager.GetAllNetworks(ctx, accountID, userID)
 	require.NoError(t, err)
-	require.Len(t, networks, 1)
-	require.Equal(t, "testNetworkId", networks[0].ID)
+	ids := make([]string, 0, len(networks))
+	for _, n := range networks {
+		ids = append(ids, n.ID)
+	}
+	require.ElementsMatch(t, []string{"testNetworkId", "secondNetworkId"}, ids)
 }
 
 func Test_GetNetworkReturnsNetwork(t *testing.T) {
@@ -126,4 +129,69 @@ func Test_UpdateNetworkSuccessfully(t *testing.T) {
 	updatedNetwork, err := manager.UpdateNetwork(ctx, userID, network)
 	require.NoError(t, err)
 	require.Equal(t, network.Name, updatedNetwork.Name)
+}
+
+func Test_CreateNetworkSetsPublicId(t *testing.T) {
+	ctx := context.Background()
+	const accountID = "testAccountId"
+	const userID = "testAdminId"
+
+	s, cleanUp, err := store.NewTestStoreFromSQL(ctx, "../testdata/networks.sql", t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(cleanUp)
+
+	am := mock_server.MockAccountManager{}
+	groupsManager := groups.NewManagerMock()
+	routerManager := routers.NewManagerMock()
+	resourcesManager := resources.NewManager(s, groupsManager, &am, nil)
+	manager := NewManager(s, resourcesManager, routerManager, &am)
+
+	created, err := manager.CreateNetwork(ctx, userID, &types.Network{
+		AccountID: accountID,
+		Name:      "seq-allocation-test",
+	})
+	require.NoError(t, err)
+	require.NotEqual(t, "", created.PublicID, "CreateNetwork must allocate a non-zero AccountSeqID")
+}
+
+// Test_UpdateNetworkPreservesSeqID verifies UpdateNetwork does not reset
+// AccountSeqID even when the caller passes a zero value (the shape REST
+// handlers produce because the field is `json:"-"`).
+func Test_UpdateNetworkPreservesPublicId(t *testing.T) {
+	ctx := context.Background()
+	const accountID = "testAccountId"
+	const userID = "testAdminId"
+
+	s, cleanUp, err := store.NewTestStoreFromSQL(ctx, "../testdata/networks.sql", t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(cleanUp)
+
+	am := mock_server.MockAccountManager{}
+	groupsManager := groups.NewManagerMock()
+	routerManager := routers.NewManagerMock()
+	resourcesManager := resources.NewManager(s, groupsManager, &am, nil)
+	manager := NewManager(s, resourcesManager, routerManager, &am)
+
+	created, err := manager.CreateNetwork(ctx, userID, &types.Network{
+		AccountID: accountID,
+		Name:      "seq-preserve-original",
+	})
+	require.NoError(t, err)
+	originalPublicId := created.PublicID
+	require.NotZero(t, originalPublicId)
+
+	update := &types.Network{
+		AccountID: accountID,
+		ID:        created.ID,
+		Name:      "seq-preserve-renamed",
+	}
+	require.Equal(t, "", update.PublicID, "incoming struct must mirror an HTTP handler shape")
+
+	_, err = manager.UpdateNetwork(ctx, userID, update)
+	require.NoError(t, err)
+
+	got, err := manager.GetNetwork(ctx, accountID, userID, created.ID)
+	require.NoError(t, err)
+	require.Equal(t, originalPublicId, got.PublicID, "PublicID must survive UpdateNetwork")
+	require.Equal(t, "seq-preserve-renamed", got.Name)
 }

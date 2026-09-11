@@ -7,15 +7,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"testing"
 
-	"github.com/golang/mock/gomock"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/mock/gomock"
 	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/management/internals/modules/permissions"
@@ -33,8 +33,8 @@ import (
 )
 
 var TestPeers = map[string]*nbpeer.Peer{
-	"A": {Key: "A", ID: "peer-A-ID", IP: net.ParseIP("100.100.100.100")},
-	"B": {Key: "B", ID: "peer-B-ID", IP: net.ParseIP("200.200.200.200")},
+	"A": {Key: "A", ID: "peer-A-ID", IP: netip.MustParseAddr("100.100.100.100")},
+	"B": {Key: "B", ID: "peer-B-ID", IP: netip.MustParseAddr("200.200.200.200")},
 }
 
 func initGroupTestData(t *testing.T, initGroups ...*types.Group) *handler {
@@ -44,7 +44,7 @@ func initGroupTestData(t *testing.T, initGroups ...*types.Group) *handler {
 	permissionsManagerMock := permissions.NewMockManager(ctrl)
 	permissionsManagerMock.EXPECT().
 		ValidateUserPermissions(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Eq(modules.Peers), gomock.Eq(operations.Read)).
-		Return(true, nil).
+		Return(true, context.Background(), nil).
 		AnyTimes()
 
 	return &handler{

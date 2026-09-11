@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"runtime"
@@ -52,7 +53,7 @@ func Test_S3HandlerGetUploadURL(t *testing.T) {
 	hostIP, err := c.Host(ctx)
 	require.NoError(t, err)
 
-	awsEndpoint := "http://" + hostIP + ":" + mappedPort.Port()
+	awsEndpoint := "http://" + net.JoinHostPort(hostIP, mappedPort.Port())
 
 	t.Setenv("AWS_REGION", awsRegion)
 	t.Setenv("AWS_ENDPOINT_URL", awsEndpoint)

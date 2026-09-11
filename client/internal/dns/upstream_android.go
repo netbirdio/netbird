@@ -11,6 +11,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/peer"
 	nbnet "github.com/netbirdio/netbird/client/net"
+	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
 type upstreamResolver struct {
@@ -26,9 +27,9 @@ func newUpstreamResolver(
 	_ WGIface,
 	statusRecorder *peer.Status,
 	hostsDNSHolder *hostsDNSHolder,
-	domain string,
+	d domain.Domain,
 ) (*upstreamResolver, error) {
-	upstreamResolverBase := newUpstreamResolverBase(ctx, statusRecorder, domain)
+	upstreamResolverBase := newUpstreamResolverBase(ctx, statusRecorder, d)
 	c := &upstreamResolver{
 		upstreamResolverBase: upstreamResolverBase,
 		hostsDNSHolder:       hostsDNSHolder,
@@ -86,7 +87,7 @@ func (u *upstreamResolver) isLocalResolver(upstream string) bool {
 	return false
 }
 
-func GetClientPrivate(ip netip.Addr, interfaceName string, dialTimeout time.Duration) (*dns.Client, error) {
+func GetClientPrivate(_ privateClientIface, _ netip.Addr, dialTimeout time.Duration) (*dns.Client, error) {
 	return &dns.Client{
 		Timeout: dialTimeout,
 		Net:     "udp",

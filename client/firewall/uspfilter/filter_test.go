@@ -78,18 +78,19 @@ func TestManagerCreate(t *testing.T) {
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 	}
 
-	m, err := Create(ifaceMock, false, flowLogger, nbiface.DefaultMTU)
+	m, err := Create(Config{IFace: ifaceMock, FlowLogger: flowLogger, MTU: nbiface.DefaultMTU})
 	if err != nil {
 		t.Errorf("failed to create Manager: %v", err)
 		return
 	}
+	t.Cleanup(func() { require.NoError(t, m.Close(nil)) })
 
 	if m == nil {
 		t.Error("Manager is nil")
 	}
 }
 
-func TestManagerAddPeerFiltering(t *testing.T) {
+func TestManagerAddFilterRule(t *testing.T) {
 	isSetFilterCalled := false
 	ifaceMock := &IFaceMock{
 		SetFilterFunc: func(device.PacketFilter) error {
@@ -98,18 +99,19 @@ func TestManagerAddPeerFiltering(t *testing.T) {
 		},
 	}
 
-	m, err := Create(ifaceMock, false, flowLogger, nbiface.DefaultMTU)
+	m, err := Create(Config{IFace: ifaceMock, FlowLogger: flowLogger, MTU: nbiface.DefaultMTU})
 	if err != nil {
 		t.Errorf("failed to create Manager: %v", err)
 		return
 	}
+	t.Cleanup(func() { require.NoError(t, m.Close(nil)) })
 
 	ip := net.ParseIP("192.168.1.1")
 	proto := fw.ProtocolTCP
 	port := &fw.Port{Values: []uint16{80}}
 	action := fw.ActionDrop
 
-	rule, err := m.AddPeerFiltering(nil, ip, proto, nil, port, action, "")
+	rule, err := m.AddFilterRule(nil, pfx(ip), fw.Network{}, proto, nil, port, action)
 	if err != nil {
 		t.Errorf("failed to add filtering: %v", err)
 		return
@@ -131,74 +133,47 @@ func TestManagerDeleteRule(t *testing.T) {
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 	}
 
-	m, err := Create(ifaceMock, false, flowLogger, nbiface.DefaultMTU)
+	m, err := Create(Config{IFace: ifaceMock, FlowLogger: flowLogger, MTU: nbiface.DefaultMTU})
 	if err != nil {
 		t.Errorf("failed to create Manager: %v", err)
 		return
 	}
+	t.Cleanup(func() { require.NoError(t, m.Close(nil)) })
 
 	ip := netip.MustParseAddr("192.168.1.1")
 	proto := fw.ProtocolTCP
 	port := &fw.Port{Values: []uint16{80}}
 	action := fw.ActionDrop
 
-	rule2, err := m.AddPeerFiltering(nil, ip.AsSlice(), proto, nil, port, action, "")
+	rule2, err := m.AddFilterRule(nil, pfx(ip.AsSlice()), fw.Network{}, proto, nil, port, action)
 	if err != nil {
 		t.Errorf("failed to add filtering: %v", err)
 		return
 	}
 
-	// Check rules exist in appropriate maps
-	for _, r := range rule2 {
-		peerRule, ok := r.(*PeerRule)
-		if !ok {
-			t.Errorf("rule should be a PeerRule")
-			continue
+	peerRule, ok := rule2.(*PeerRule)
+	require.True(t, ok, "rule should be a peer rule")
+
+	inMap := func() bool {
+		if peerRule.action == fw.ActionDrop {
+			return findRuleByID(m.incomingDenyRules, ip, rule2.ID())
 		}
-		// Check if rule exists in deny or allow maps based on action
-		var found bool
-		if peerRule.drop {
-			_, found = m.incomingDenyRules[ip][r.ID()]
-		} else {
-			_, found = m.incomingRules[ip][r.ID()]
-		}
-		if !found {
-			t.Errorf("rule2 is not in the expected rules map")
-		}
+		return findRuleByID(m.incomingAcceptRules, ip, rule2.ID())
 	}
 
-	for _, r := range rule2 {
-		err = m.DeletePeerRule(r)
-		if err != nil {
-			t.Errorf("failed to delete rule: %v", err)
-			return
-		}
-	}
+	require.True(t, inMap(), "rule2 should be in the expected rules list")
 
-	// Check rules are removed from appropriate maps
-	for _, r := range rule2 {
-		peerRule, ok := r.(*PeerRule)
-		if !ok {
-			t.Errorf("rule should be a PeerRule")
-			continue
-		}
-		// Check if rule is removed from deny or allow maps based on action
-		var found bool
-		if peerRule.drop {
-			_, found = m.incomingDenyRules[ip][r.ID()]
-		} else {
-			_, found = m.incomingRules[ip][r.ID()]
-		}
-		if found {
-			t.Errorf("rule2 should be removed from the rules map")
-		}
-	}
+	require.NoError(t, m.DeleteFilterRule(rule2), "failed to delete rule")
+
+	require.False(t, inMap(), "rule2 should be removed from the rules list")
 }
 
 func TestSetUDPPacketHook(t *testing.T) {
-	manager, err := Create(&IFaceMock{
-		SetFilterFunc: func(device.PacketFilter) error { return nil },
-	}, false, flowLogger, nbiface.DefaultMTU)
+	manager, err := Create(Config{
+		IFace: &IFaceMock{
+			SetFilterFunc: func(device.PacketFilter) error { return nil },
+		},
+		FlowLogger: flowLogger, MTU: nbiface.DefaultMTU})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, manager.Close(nil)) })
 
@@ -220,9 +195,11 @@ func TestSetUDPPacketHook(t *testing.T) {
 }
 
 func TestSetTCPPacketHook(t *testing.T) {
-	manager, err := Create(&IFaceMock{
-		SetFilterFunc: func(device.PacketFilter) error { return nil },
-	}, false, flowLogger, nbiface.DefaultMTU)
+	manager, err := Create(Config{
+		IFace: &IFaceMock{
+			SetFilterFunc: func(device.PacketFilter) error { return nil },
+		},
+		FlowLogger: flowLogger, MTU: nbiface.DefaultMTU})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, manager.Close(nil)) })
 
@@ -250,7 +227,7 @@ func TestPeerRuleLifecycleDenyRules(t *testing.T) {
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 	}
 
-	m, err := Create(ifaceMock, false, flowLogger, nbiface.DefaultMTU)
+	m, err := Create(Config{IFace: ifaceMock, FlowLogger: flowLogger, MTU: nbiface.DefaultMTU})
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, m.Close(nil))
@@ -260,36 +237,34 @@ func TestPeerRuleLifecycleDenyRules(t *testing.T) {
 	addr := netip.MustParseAddr("192.168.1.1")
 
 	// Add multiple deny rules for different ports
-	rule1, err := m.AddPeerFiltering(nil, ip, fw.ProtocolTCP, nil,
-		&fw.Port{Values: []uint16{22}}, fw.ActionDrop, "")
+	rule1, err := m.AddFilterRule(nil, pfx(ip), fw.Network{}, fw.ProtocolTCP, nil, &fw.Port{Values: []uint16{22}}, fw.ActionDrop)
 	require.NoError(t, err)
 
-	rule2, err := m.AddPeerFiltering(nil, ip, fw.ProtocolTCP, nil,
-		&fw.Port{Values: []uint16{80}}, fw.ActionDrop, "")
+	rule2, err := m.AddFilterRule(nil, pfx(ip), fw.Network{}, fw.ProtocolTCP, nil, &fw.Port{Values: []uint16{80}}, fw.ActionDrop)
 	require.NoError(t, err)
 
 	m.mutex.RLock()
-	denyCount := len(m.incomingDenyRules[addr])
+	denyCount := countRulesForAddr(m.incomingDenyRules, addr)
 	m.mutex.RUnlock()
 	require.Equal(t, 2, denyCount, "Should have exactly 2 deny rules")
 
 	// Delete the first deny rule
-	err = m.DeletePeerRule(rule1[0])
+	err = m.DeleteFilterRule(rule1)
 	require.NoError(t, err)
 
 	m.mutex.RLock()
-	denyCount = len(m.incomingDenyRules[addr])
+	denyCount = countRulesForAddr(m.incomingDenyRules, addr)
 	m.mutex.RUnlock()
 	require.Equal(t, 1, denyCount, "Should have 1 deny rule after deleting first")
 
 	// Delete the second deny rule
-	err = m.DeletePeerRule(rule2[0])
+	err = m.DeleteFilterRule(rule2)
 	require.NoError(t, err)
 
 	m.mutex.RLock()
-	_, exists := m.incomingDenyRules[addr]
+	exists := countRulesForAddr(m.incomingDenyRules, addr) > 0
 	m.mutex.RUnlock()
-	require.False(t, exists, "Deny rules IP entry should be cleaned up when empty")
+	require.False(t, exists, "Deny rules should be cleaned up when empty")
 }
 
 // TestPeerRuleAddAndDeleteDontLeak verifies that repeatedly adding and deleting
@@ -299,7 +274,7 @@ func TestPeerRuleAddAndDeleteDontLeak(t *testing.T) {
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 	}
 
-	m, err := Create(ifaceMock, false, flowLogger, nbiface.DefaultMTU)
+	m, err := Create(Config{IFace: ifaceMock, FlowLogger: flowLogger, MTU: nbiface.DefaultMTU})
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, m.Close(nil))
@@ -311,27 +286,21 @@ func TestPeerRuleAddAndDeleteDontLeak(t *testing.T) {
 	// Simulate 10 network map updates: add rule, delete old, add new
 	for i := 0; i < 10; i++ {
 		// Add a deny rule
-		rules, err := m.AddPeerFiltering(nil, ip, fw.ProtocolTCP, nil,
-			&fw.Port{Values: []uint16{22}}, fw.ActionDrop, "")
+		rules, err := m.AddFilterRule(nil, pfx(ip), fw.Network{}, fw.ProtocolTCP, nil, &fw.Port{Values: []uint16{22}}, fw.ActionDrop)
 		require.NoError(t, err)
 
 		// Add an allow rule
-		allowRules, err := m.AddPeerFiltering(nil, ip, fw.ProtocolTCP, nil,
-			&fw.Port{Values: []uint16{80}}, fw.ActionAccept, "")
+		allowRules, err := m.AddFilterRule(nil, pfx(ip), fw.Network{}, fw.ProtocolTCP, nil, &fw.Port{Values: []uint16{80}}, fw.ActionAccept)
 		require.NoError(t, err)
 
 		// Delete them (simulating ACL manager cleanup)
-		for _, r := range rules {
-			require.NoError(t, m.DeletePeerRule(r))
-		}
-		for _, r := range allowRules {
-			require.NoError(t, m.DeletePeerRule(r))
-		}
+		require.NoError(t, m.DeleteFilterRule(rules))
+		require.NoError(t, m.DeleteFilterRule(allowRules))
 	}
 
 	m.mutex.RLock()
-	denyCount := len(m.incomingDenyRules[addr])
-	allowCount := len(m.incomingRules[addr])
+	denyCount := countRulesForAddr(m.incomingDenyRules, addr)
+	allowCount := countRulesForAddr(m.incomingAcceptRules, addr)
 	m.mutex.RUnlock()
 
 	require.Equal(t, 0, denyCount, "No deny rules should remain after cleanup")
@@ -345,7 +314,7 @@ func TestMixedAllowDenyRulesSameIP(t *testing.T) {
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 	}
 
-	m, err := Create(ifaceMock, false, flowLogger, nbiface.DefaultMTU)
+	m, err := Create(Config{IFace: ifaceMock, FlowLogger: flowLogger, MTU: nbiface.DefaultMTU})
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, m.Close(nil))
@@ -354,41 +323,39 @@ func TestMixedAllowDenyRulesSameIP(t *testing.T) {
 	ip := net.ParseIP("192.168.1.1")
 
 	// Add allow rule for port 80
-	allowRule, err := m.AddPeerFiltering(nil, ip, fw.ProtocolTCP, nil,
-		&fw.Port{Values: []uint16{80}}, fw.ActionAccept, "")
+	allowRule, err := m.AddFilterRule(nil, pfx(ip), fw.Network{}, fw.ProtocolTCP, nil, &fw.Port{Values: []uint16{80}}, fw.ActionAccept)
 	require.NoError(t, err)
 
 	// Add deny rule for port 22
-	denyRule, err := m.AddPeerFiltering(nil, ip, fw.ProtocolTCP, nil,
-		&fw.Port{Values: []uint16{22}}, fw.ActionDrop, "")
+	denyRule, err := m.AddFilterRule(nil, pfx(ip), fw.Network{}, fw.ProtocolTCP, nil, &fw.Port{Values: []uint16{22}}, fw.ActionDrop)
 	require.NoError(t, err)
 
 	addr := netip.MustParseAddr("192.168.1.1")
 	m.mutex.RLock()
-	allowCount := len(m.incomingRules[addr])
-	denyCount := len(m.incomingDenyRules[addr])
+	allowCount := countRulesForAddr(m.incomingAcceptRules, addr)
+	denyCount := countRulesForAddr(m.incomingDenyRules, addr)
 	m.mutex.RUnlock()
 
 	require.Equal(t, 1, allowCount, "Should have 1 allow rule")
 	require.Equal(t, 1, denyCount, "Should have 1 deny rule")
 
 	// Delete allow rule should not affect deny rule
-	err = m.DeletePeerRule(allowRule[0])
+	err = m.DeleteFilterRule(allowRule)
 	require.NoError(t, err)
 
 	m.mutex.RLock()
-	denyCountAfter := len(m.incomingDenyRules[addr])
+	denyCountAfter := countRulesForAddr(m.incomingDenyRules, addr)
 	m.mutex.RUnlock()
 
 	require.Equal(t, 1, denyCountAfter, "Deny rule should still exist after deleting allow rule")
 
 	// Delete deny rule
-	err = m.DeletePeerRule(denyRule[0])
+	err = m.DeleteFilterRule(denyRule)
 	require.NoError(t, err)
 
 	m.mutex.RLock()
-	_, denyExists := m.incomingDenyRules[addr]
-	_, allowExists := m.incomingRules[addr]
+	denyExists := countRulesForAddr(m.incomingDenyRules, addr) > 0
+	allowExists := countRulesForAddr(m.incomingAcceptRules, addr) > 0
 	m.mutex.RUnlock()
 
 	require.False(t, denyExists, "Deny rules should be empty")
@@ -400,7 +367,7 @@ func TestManagerReset(t *testing.T) {
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 	}
 
-	m, err := Create(ifaceMock, false, flowLogger, nbiface.DefaultMTU)
+	m, err := Create(Config{IFace: ifaceMock, FlowLogger: flowLogger, MTU: nbiface.DefaultMTU})
 	if err != nil {
 		t.Errorf("failed to create Manager: %v", err)
 		return
@@ -411,7 +378,7 @@ func TestManagerReset(t *testing.T) {
 	port := &fw.Port{Values: []uint16{80}}
 	action := fw.ActionDrop
 
-	_, err = m.AddPeerFiltering(nil, ip, proto, nil, port, action, "")
+	_, err = m.AddFilterRule(nil, pfx(ip), fw.Network{}, proto, nil, port, action)
 	if err != nil {
 		t.Errorf("failed to add filtering: %v", err)
 		return
@@ -423,7 +390,7 @@ func TestManagerReset(t *testing.T) {
 		return
 	}
 
-	if len(m.outgoingRules) != 0 || len(m.incomingRules) != 0 || len(m.incomingDenyRules) != 0 {
+	if len(m.incomingAcceptRules) != 0 || len(m.incomingDenyRules) != 0 {
 		t.Errorf("rules are not empty")
 	}
 }
@@ -439,7 +406,7 @@ func TestNotMatchByIP(t *testing.T) {
 		},
 	}
 
-	m, err := Create(ifaceMock, false, flowLogger, nbiface.DefaultMTU)
+	m, err := Create(Config{IFace: ifaceMock, FlowLogger: flowLogger, MTU: nbiface.DefaultMTU})
 	if err != nil {
 		t.Errorf("failed to create Manager: %v", err)
 		return
@@ -449,7 +416,7 @@ func TestNotMatchByIP(t *testing.T) {
 	proto := fw.ProtocolUDP
 	action := fw.ActionAccept
 
-	_, err = m.AddPeerFiltering(nil, ip, proto, nil, nil, action, "")
+	_, err = m.AddFilterRule(nil, pfx(ip), fw.Network{}, proto, nil, nil, action)
 	if err != nil {
 		t.Errorf("failed to add filtering: %v", err)
 		return
@@ -502,7 +469,7 @@ func TestRemovePacketHook(t *testing.T) {
 	}
 
 	// creating manager instance
-	manager, err := Create(iface, false, flowLogger, nbiface.DefaultMTU)
+	manager, err := Create(Config{IFace: iface, FlowLogger: flowLogger, MTU: nbiface.DefaultMTU})
 	if err != nil {
 		t.Fatalf("Failed to create Manager: %s", err)
 	}
@@ -519,9 +486,11 @@ func TestRemovePacketHook(t *testing.T) {
 }
 
 func TestProcessOutgoingHooks(t *testing.T) {
-	manager, err := Create(&IFaceMock{
-		SetFilterFunc: func(device.PacketFilter) error { return nil },
-	}, false, flowLogger, nbiface.DefaultMTU)
+	manager, err := Create(Config{
+		IFace: &IFaceMock{
+			SetFilterFunc: func(device.PacketFilter) error { return nil },
+		},
+		FlowLogger: flowLogger, MTU: nbiface.DefaultMTU})
 	require.NoError(t, err)
 
 	manager.udpTracker.Close()
@@ -535,11 +504,16 @@ func TestProcessOutgoingHooks(t *testing.T) {
 			d := &decoder{
 				decoded: []gopacket.LayerType{},
 			}
-			d.parser = gopacket.NewDecodingLayerParser(
+			d.parser4 = gopacket.NewDecodingLayerParser(
 				layers.LayerTypeIPv4,
 				&d.eth, &d.ip4, &d.ip6, &d.icmp4, &d.icmp6, &d.tcp, &d.udp,
 			)
-			d.parser.IgnoreUnsupported = true
+			d.parser4.IgnoreUnsupported = true
+			d.parser6 = gopacket.NewDecodingLayerParser(
+				layers.LayerTypeIPv6,
+				&d.eth, &d.ip4, &d.ip6, &d.icmp4, &d.icmp6, &d.tcp, &d.udp,
+			)
+			d.parser6.IgnoreUnsupported = true
 			return d
 		},
 	}
@@ -601,7 +575,7 @@ func TestUSPFilterCreatePerformance(t *testing.T) {
 			ifaceMock := &IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
 			}
-			manager, err := Create(ifaceMock, false, flowLogger, nbiface.DefaultMTU)
+			manager, err := Create(Config{IFace: ifaceMock, FlowLogger: flowLogger, MTU: nbiface.DefaultMTU})
 			require.NoError(t, err)
 			time.Sleep(time.Second)
 
@@ -616,7 +590,7 @@ func TestUSPFilterCreatePerformance(t *testing.T) {
 			start := time.Now()
 			for i := 0; i < testMax; i++ {
 				port := &fw.Port{Values: []uint16{uint16(1000 + i)}}
-				_, err = manager.AddPeerFiltering(nil, ip, "tcp", nil, port, fw.ActionAccept, "")
+				_, err = manager.AddFilterRule(nil, pfx(ip), fw.Network{}, "tcp", nil, port, fw.ActionAccept)
 
 				require.NoError(t, err, "failed to add rule")
 			}
@@ -626,9 +600,11 @@ func TestUSPFilterCreatePerformance(t *testing.T) {
 }
 
 func TestStatefulFirewall_UDPTracking(t *testing.T) {
-	manager, err := Create(&IFaceMock{
-		SetFilterFunc: func(device.PacketFilter) error { return nil },
-	}, false, flowLogger, nbiface.DefaultMTU)
+	manager, err := Create(Config{
+		IFace: &IFaceMock{
+			SetFilterFunc: func(device.PacketFilter) error { return nil },
+		},
+		FlowLogger: flowLogger, MTU: nbiface.DefaultMTU})
 	require.NoError(t, err)
 
 	manager.udpTracker.Close() // Close the existing tracker
@@ -638,11 +614,16 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 			d := &decoder{
 				decoded: []gopacket.LayerType{},
 			}
-			d.parser = gopacket.NewDecodingLayerParser(
+			d.parser4 = gopacket.NewDecodingLayerParser(
 				layers.LayerTypeIPv4,
 				&d.eth, &d.ip4, &d.ip6, &d.icmp4, &d.icmp6, &d.tcp, &d.udp,
 			)
-			d.parser.IgnoreUnsupported = true
+			d.parser4.IgnoreUnsupported = true
+			d.parser6 = gopacket.NewDecodingLayerParser(
+				layers.LayerTypeIPv6,
+				&d.eth, &d.ip4, &d.ip6, &d.icmp4, &d.icmp6, &d.tcp, &d.udp,
+			)
+			d.parser6.IgnoreUnsupported = true
 			return d
 		},
 	}
@@ -835,7 +816,7 @@ func TestUpdateSetMerge(t *testing.T) {
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 	}
 
-	manager, err := Create(ifaceMock, false, flowLogger, nbiface.DefaultMTU)
+	manager, err := Create(Config{IFace: ifaceMock, FlowLogger: flowLogger, MTU: nbiface.DefaultMTU})
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		require.NoError(t, manager.Close(nil))
@@ -848,7 +829,7 @@ func TestUpdateSetMerge(t *testing.T) {
 		netip.MustParsePrefix("192.168.1.0/24"),
 	}
 
-	rule, err := manager.AddRouteFiltering(
+	rule, err := manager.AddFilterRule(
 		nil,
 		[]netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")},
 		fw.Network{Set: set},
@@ -921,7 +902,7 @@ func TestUpdateSetDeduplication(t *testing.T) {
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 	}
 
-	manager, err := Create(ifaceMock, false, flowLogger, nbiface.DefaultMTU)
+	manager, err := Create(Config{IFace: ifaceMock, FlowLogger: flowLogger, MTU: nbiface.DefaultMTU})
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		require.NoError(t, manager.Close(nil))
@@ -929,7 +910,7 @@ func TestUpdateSetDeduplication(t *testing.T) {
 
 	set := fw.NewDomainSet(domain.List{"example.org"})
 
-	rule, err := manager.AddRouteFiltering(
+	rule, err := manager.AddFilterRule(
 		nil,
 		[]netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")},
 		fw.Network{Set: set},
@@ -1041,15 +1022,15 @@ func TestMSSClamping(t *testing.T) {
 		},
 	}
 
-	manager, err := Create(ifaceMock, false, flowLogger, 1280)
+	manager, err := Create(Config{IFace: ifaceMock, FlowLogger: flowLogger, MTU: 1280})
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, manager.Close(nil))
 	}()
 
 	require.True(t, manager.mssClampEnabled, "MSS clamping should be enabled by default")
-	expectedMSSValue := uint16(1280 - ipTCPHeaderMinSize)
-	require.Equal(t, expectedMSSValue, manager.mssClampValue, "MSS clamp value should be MTU - 40")
+	require.Equal(t, uint16(1280-ipv4TCPHeaderMinSize), manager.mssClampValueIPv4, "IPv4 MSS clamp value should be MTU - 40")
+	require.Equal(t, uint16(1280-ipv6TCPHeaderMinSize), manager.mssClampValueIPv6, "IPv6 MSS clamp value should be MTU - 60")
 
 	err = manager.UpdateLocalIPs()
 	require.NoError(t, err)
@@ -1067,7 +1048,7 @@ func TestMSSClamping(t *testing.T) {
 		require.Len(t, d.tcp.Options, 1, "Should have MSS option")
 		require.Equal(t, uint8(layers.TCPOptionKindMSS), uint8(d.tcp.Options[0].OptionType))
 		actualMSS := binary.BigEndian.Uint16(d.tcp.Options[0].OptionData)
-		require.Equal(t, expectedMSSValue, actualMSS, "MSS should be clamped to MTU - 40")
+		require.Equal(t, manager.mssClampValueIPv4, actualMSS, "MSS should be clamped to MTU - 40")
 	})
 
 	t.Run("SYN packet with low MSS unchanged", func(t *testing.T) {
@@ -1091,7 +1072,7 @@ func TestMSSClamping(t *testing.T) {
 		d := parsePacket(t, packet)
 		require.Len(t, d.tcp.Options, 1, "Should have MSS option")
 		actualMSS := binary.BigEndian.Uint16(d.tcp.Options[0].OptionData)
-		require.Equal(t, expectedMSSValue, actualMSS, "MSS in SYN-ACK should be clamped")
+		require.Equal(t, manager.mssClampValueIPv4, actualMSS, "MSS in SYN-ACK should be clamped")
 	})
 
 	t.Run("Non-SYN packet unchanged", func(t *testing.T) {
@@ -1233,7 +1214,7 @@ func TestShouldForward(t *testing.T) {
 		return wgaddr.Address{IP: wgIP, Network: netip.PrefixFrom(wgIP, 24)}
 	}
 
-	manager, err := Create(ifaceMock, false, flowLogger, nbiface.DefaultMTU)
+	manager, err := Create(Config{IFace: ifaceMock, FlowLogger: flowLogger, MTU: nbiface.DefaultMTU})
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, manager.Close(nil))
@@ -1263,13 +1244,18 @@ func TestShouldForward(t *testing.T) {
 		d := &decoder{
 			decoded: []gopacket.LayerType{},
 		}
-		d.parser = gopacket.NewDecodingLayerParser(
+		d.parser4 = gopacket.NewDecodingLayerParser(
 			layers.LayerTypeIPv4,
 			&d.eth, &d.ip4, &d.ip6, &d.icmp4, &d.icmp6, &d.tcp, &d.udp,
 		)
-		d.parser.IgnoreUnsupported = true
+		d.parser4.IgnoreUnsupported = true
+		d.parser6 = gopacket.NewDecodingLayerParser(
+			layers.LayerTypeIPv6,
+			&d.eth, &d.ip4, &d.ip6, &d.icmp4, &d.icmp6, &d.tcp, &d.udp,
+		)
+		d.parser6.IgnoreUnsupported = true
 
-		err = d.parser.DecodeLayers(buf.Bytes(), &d.decoded)
+		err = d.decodePacket(buf.Bytes())
 		require.NoError(t, err)
 
 		return d
@@ -1327,6 +1313,44 @@ func TestShouldForward(t *testing.T) {
 			expected:          false,
 			description:       "should send to netstack listeners when service is registered",
 		},
+	}
+
+	// Add IPv6 to the interface and test dual-stack cases
+	wgIPv6 := netip.MustParseAddr("fd00::1")
+	otherIPv6 := netip.MustParseAddr("fd00::2")
+	ifaceMock.AddressFunc = func() wgaddr.Address {
+		return wgaddr.Address{
+			IP:      wgIP,
+			Network: netip.PrefixFrom(wgIP, 24),
+			IPv6:    wgIPv6,
+			IPv6Net: netip.PrefixFrom(wgIPv6, 64),
+		}
+	}
+
+	// Re-create manager to pick up the new address with IPv6
+	require.NoError(t, manager.Close(nil))
+	manager, err = Create(Config{IFace: ifaceMock, FlowLogger: flowLogger, MTU: nbiface.DefaultMTU})
+	require.NoError(t, err)
+
+	v6Cases := []struct {
+		name        string
+		dstIP       netip.Addr
+		expected    bool
+		description string
+	}{
+		{"v6 traffic to other address", otherIPv6, true, "should forward v6 traffic not destined to our v6 address"},
+		{"v6 traffic to our v6 IP", wgIPv6, false, "should not forward traffic destined to our v6 address"},
+		{"v4 traffic to other with v6 configured", otherIP, true, "should forward v4 traffic when v6 configured"},
+		{"v4 traffic to our v4 IP with v6 configured", wgIP, false, "should not forward traffic to our v4 address"},
+	}
+	for _, tt := range v6Cases {
+		t.Run(tt.name, func(t *testing.T) {
+			manager.localForwarding = true
+			manager.netstack = false
+			decoder := createTCPDecoder(8080)
+			result := manager.shouldForward(decoder, tt.dstIP)
+			require.Equal(t, tt.expected, result, tt.description)
+		})
 	}
 
 	for _, tt := range tests {

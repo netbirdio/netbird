@@ -1,0 +1,44 @@
+{
+  "Network": {"Serial": 32},
+  "AccountSettings": {"RoutingPeerDNSResolutionEnabled": true},
+  "Peers": {
+    "router-peer": {"IP": "100.64.0.9", "Meta": {"WtVersion": "0.60.0"}},
+    "proxy-peer": {
+      "IP": "100.64.0.99",
+      "Meta": {"WtVersion": "0.60.0"},
+      "ProxyMeta": {"Embedded": true, "Cluster": "eu.proxy.netbird.io"}
+    }
+  },
+  "NetworkResources": [
+    {
+      "ID": "res-domain",
+      "NetworkID": "net-1",
+      "Name": "app-domain",
+      "Type": "domain",
+      "Domain": "app.internal",
+      "Enabled": true
+    }
+  ],
+  "Routers": {
+    "net-1": {
+      "router-peer": {"PublicID": "router-direct", "Masquerade": true, "Metric": 9999, "Enabled": true}
+    }
+  },
+  "ProxyTargetedDomainResourceIDs": {"res-domain": {}},
+  "Services": [
+    {
+      "ID": "svc-1",
+      "Enabled": true,
+      "Mode": "http",
+      "ProxyCluster": "eu.proxy.netbird.io",
+      "Targets": [
+        {
+          "Enabled": true,
+          "Protocol": "https",
+          "TargetID": "res-domain",
+          "TargetType": "domain"
+        }
+      ]
+    }
+  ]
+}

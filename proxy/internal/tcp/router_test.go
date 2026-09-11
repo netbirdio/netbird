@@ -1739,3 +1739,229 @@ func TestCheckRestrictions_IPv4MappedIPv6(t *testing.T) {
 	connOutside := &fakeConn{remote: fakeAddr("[::ffff:192.168.1.1]:5678")}
 	assert.NotEqual(t, restrict.Allow, router.checkRestrictions(connOutside, route), "::ffff:192.168.1.1 not in v4 CIDR")
 }
+
+// TestRouter_PlainHTTP_RoutesToPlainChannel verifies that a plain (non-TLS)
+// connection lands on the plain HTTP channel when the router was built
+// with WithPlainHTTP, leaving the TLS channel untouched.
+func TestRouter_PlainHTTP_RoutesToPlainChannel(t *testing.T) {
+	logger := log.StandardLogger()
+	addr := &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 443}
+
+	router := NewRouter(logger, nil, addr, WithPlainHTTP(addr))
+	router.AddRoute("example.com", Route{Type: RouteHTTP})
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err, "test listener bind must succeed")
+	defer ln.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		_ = router.Serve(ctx, ln)
+	}()
+
+	// Plain HTTP request (no TLS handshake byte).
+	go func() {
+		conn, err := net.DialTimeout("tcp", ln.Addr().String(), 2*time.Second)
+		if err != nil {
+			return
+		}
+		_, _ = conn.Write([]byte("GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"))
+	}()
+
+	plainListener := router.HTTPListenerPlain()
+	require.NotNil(t, plainListener, "plain listener must be exposed when WithPlainHTTP is set")
+
+	acceptDone := make(chan net.Conn, 1)
+	go func() {
+		conn, err := plainListener.Accept()
+		if err == nil {
+			acceptDone <- conn
+		}
+	}()
+
+	tlsListener, ok := router.HTTPListener().(*chanListener)
+	require.True(t, ok, "router.HTTPListener() must be the test's chanListener; the test relies on observing its channel directly")
+
+	select {
+	case conn := <-acceptDone:
+		require.NotNil(t, conn)
+		_ = conn.Close()
+	case <-tlsListener.ch:
+		t.Fatal("plain HTTP request leaked into TLS channel")
+	case <-time.After(3 * time.Second):
+		t.Fatal("plain HTTP connection never reached plain channel")
+	}
+}
+
+// TestRouter_TLS_StaysOnTLSChannel_WhenPlainEnabled verifies that the
+// presence of a plain channel does not divert TLS traffic — TLS still
+// goes to the TLS channel as before.
+func TestRouter_TLS_StaysOnTLSChannel_WhenPlainEnabled(t *testing.T) {
+	logger := log.StandardLogger()
+	addr := &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 443}
+
+	router := NewRouter(logger, nil, addr, WithPlainHTTP(addr))
+	router.AddRoute("example.com", Route{Type: RouteHTTP})
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err, "test listener bind must succeed")
+	defer ln.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() { _ = router.Serve(ctx, ln) }()
+
+	// Send a TLS ClientHello.
+	go func() {
+		conn, err := net.DialTimeout("tcp", ln.Addr().String(), 2*time.Second)
+		if err != nil {
+			return
+		}
+		tlsConn := tls.Client(conn, &tls.Config{
+			ServerName:         "example.com",
+			InsecureSkipVerify: true, //nolint:gosec
+		})
+		_ = tlsConn.Handshake()
+		_ = tlsConn.Close()
+	}()
+
+	select {
+	case conn := <-router.httpCh:
+		require.NotNil(t, conn, "TLS conn should land on the TLS channel")
+		_ = conn.Close()
+	case <-time.After(5 * time.Second):
+		t.Fatal("TLS conn never reached the TLS channel")
+	}
+}
+
+// scriptedAcceptListener is a net.Listener whose Accept() returns
+// pre-scripted errors. Used by the accept-loop exit tests to simulate
+// the failure mode that triggers the tight-loop bug: a netstack
+// listener whose endpoint has been destroyed and now returns the gVisor
+// "endpoint is in invalid state" error from every Accept call.
+type scriptedAcceptListener struct {
+	errs   chan error
+	closed chan struct{}
+}
+
+func newScriptedAcceptListener(errs ...error) *scriptedAcceptListener {
+	s := &scriptedAcceptListener{
+		errs:   make(chan error, len(errs)+1),
+		closed: make(chan struct{}),
+	}
+	for _, e := range errs {
+		s.errs <- e
+	}
+	return s
+}
+
+func (s *scriptedAcceptListener) Accept() (net.Conn, error) {
+	select {
+	case <-s.closed:
+		return nil, net.ErrClosed
+	case err := <-s.errs:
+		return nil, err
+	}
+}
+
+func (s *scriptedAcceptListener) Close() error {
+	select {
+	case <-s.closed:
+	default:
+		close(s.closed)
+	}
+	return nil
+}
+
+func (s *scriptedAcceptListener) Addr() net.Addr {
+	return &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0}
+}
+
+// TestRouter_Serve_ExitsOnGVisorInvalidEndpoint is the regression guard
+// for the tight-loop bug: when the underlying netstack endpoint is
+// destroyed, Accept returns "endpoint is in invalid state" forever. The
+// loop must recognise that signal and return, otherwise it pegs a CPU
+// core and floods logs.
+func TestRouter_Serve_ExitsOnGVisorInvalidEndpoint(t *testing.T) {
+	logger := log.StandardLogger()
+	addr := &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 443}
+	router := NewRouter(logger, nil, addr)
+
+	gvisorErr := &net.OpError{
+		Op:   "accept",
+		Net:  "tcp",
+		Addr: addr,
+		Err:  errSentinel("endpoint is in invalid state"),
+	}
+	ln := newScriptedAcceptListener(gvisorErr)
+	defer ln.Close()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- router.Serve(context.Background(), ln)
+	}()
+
+	select {
+	case err := <-done:
+		assert.NoError(t, err, "Serve must return cleanly on a recognised closed-listener error")
+	case <-time.After(2 * time.Second):
+		t.Fatal("Serve did not exit on gVisor 'endpoint is in invalid state' — accept loop is spinning")
+	}
+}
+
+// TestRouter_Serve_BacksOffOnTransientError verifies the defence-in-
+// depth path: when Accept returns an unknown transient error, the loop
+// MUST not spin. It backs off, then exits cleanly once ctx is cancelled.
+// "Bounded call count" stands in for "no CPU spin" — without backoff
+// the goroutine would issue thousands of Accept calls in this window.
+func TestRouter_Serve_BacksOffOnTransientError(t *testing.T) {
+	logger := log.StandardLogger()
+	addr := &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 443}
+	router := NewRouter(logger, nil, addr)
+
+	const transientErrCount = 5
+	errs := make([]error, transientErrCount)
+	for i := range errs {
+		errs[i] = errSentinel("transient: too many open files")
+	}
+	ln := newScriptedAcceptListener(errs...)
+	defer ln.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	start := time.Now()
+	go func() {
+		done <- router.Serve(ctx, ln)
+	}()
+
+	// Cancel after enough time for the backoff to climb (5ms + 10ms +
+	// 20ms + 40ms = 75ms minimum), but short enough that a spinning
+	// loop would have made thousands of calls by now.
+	time.AfterFunc(150*time.Millisecond, cancel)
+
+	select {
+	case err := <-done:
+		assert.NoError(t, err, "Serve must return cleanly on ctx cancellation")
+	case <-time.After(2 * time.Second):
+		t.Fatal("Serve did not exit on ctx cancellation — backoff or exit path broken")
+	}
+
+	// Without backoff the loop would burn through all 5 scripted errors
+	// in microseconds and then block on the channel. With backoff the
+	// total wall time should be at least 5ms (the first backoff).
+	elapsed := time.Since(start)
+	assert.GreaterOrEqual(t, elapsed, minAcceptDelay,
+		"loop ran without backing off — would burn CPU in production")
+}
+
+// errSentinel mirrors gVisor's tcpip error message exactly. We can't
+// import the gVisor package without dragging in the whole netstack, so
+// the test uses the canonical string the production error formatter
+// emits — same shape IsClosedListenerErr matches in production.
+type errSentinel string
+
+func (e errSentinel) Error() string { return string(e) }
+

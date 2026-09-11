@@ -3,7 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
-	"net"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -20,53 +20,53 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 		Peers: map[string]*nbpeer.Peer{
 			"peerA": {
 				ID:     "peerA",
-				IP:     net.ParseIP("100.65.14.88"),
+				IP:     netip.MustParseAddr("100.65.14.88"),
 				Status: &nbpeer.PeerStatus{},
 			},
 			"peerB": {
 				ID:     "peerB",
-				IP:     net.ParseIP("100.65.80.39"),
+				IP:     netip.MustParseAddr("100.65.80.39"),
 				Status: &nbpeer.PeerStatus{},
 				Meta:   nbpeer.PeerSystemMeta{WtVersion: "0.48.0"},
 			},
 			"peerC": {
 				ID:     "peerC",
-				IP:     net.ParseIP("100.65.254.139"),
+				IP:     netip.MustParseAddr("100.65.254.139"),
 				Status: &nbpeer.PeerStatus{},
 			},
 			"peerD": {
 				ID:     "peerD",
-				IP:     net.ParseIP("100.65.62.5"),
+				IP:     netip.MustParseAddr("100.65.62.5"),
 				Status: &nbpeer.PeerStatus{},
 			},
 			"peerE": {
 				ID:     "peerE",
-				IP:     net.ParseIP("100.65.32.206"),
+				IP:     netip.MustParseAddr("100.65.32.206"),
 				Status: &nbpeer.PeerStatus{},
 			},
 			"peerF": {
 				ID:     "peerF",
-				IP:     net.ParseIP("100.65.250.202"),
+				IP:     netip.MustParseAddr("100.65.250.202"),
 				Status: &nbpeer.PeerStatus{},
 			},
 			"peerG": {
 				ID:     "peerG",
-				IP:     net.ParseIP("100.65.13.186"),
+				IP:     netip.MustParseAddr("100.65.13.186"),
 				Status: &nbpeer.PeerStatus{},
 			},
 			"peerH": {
 				ID:     "peerH",
-				IP:     net.ParseIP("100.65.29.55"),
+				IP:     netip.MustParseAddr("100.65.29.55"),
 				Status: &nbpeer.PeerStatus{},
 			},
 			"peerI": {
 				ID:     "peerI",
-				IP:     net.ParseIP("100.65.31.2"),
+				IP:     netip.MustParseAddr("100.65.31.2"),
 				Status: &nbpeer.PeerStatus{},
 			},
 			"peerK": {
 				ID:     "peerK",
-				IP:     net.ParseIP("100.32.80.1"),
+				IP:     netip.MustParseAddr("100.32.80.1"),
 				Status: &nbpeer.PeerStatus{},
 				Meta:   nbpeer.PeerSystemMeta{WtVersion: "0.30.0"},
 			},
@@ -540,17 +540,17 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 		Peers: map[string]*nbpeer.Peer{
 			"peerA": {
 				ID:     "peerA",
-				IP:     net.ParseIP("100.65.14.88"),
+				IP:     netip.MustParseAddr("100.65.14.88"),
 				Status: &nbpeer.PeerStatus{},
 			},
 			"peerB": {
 				ID:     "peerB",
-				IP:     net.ParseIP("100.65.80.39"),
+				IP:     netip.MustParseAddr("100.65.80.39"),
 				Status: &nbpeer.PeerStatus{},
 			},
 			"peerC": {
 				ID:     "peerC",
-				IP:     net.ParseIP("100.65.254.139"),
+				IP:     netip.MustParseAddr("100.65.254.139"),
 				Status: &nbpeer.PeerStatus{},
 			},
 		},
@@ -746,7 +746,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 		Peers: map[string]*nbpeer.Peer{
 			"peerA": {
 				ID:     "peerA",
-				IP:     net.ParseIP("100.65.14.88"),
+				IP:     netip.MustParseAddr("100.65.14.88"),
 				Status: &nbpeer.PeerStatus{},
 				Meta: nbpeer.PeerSystemMeta{
 					GoOS:          "linux",
@@ -756,7 +756,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 			},
 			"peerB": {
 				ID:     "peerB",
-				IP:     net.ParseIP("100.65.80.39"),
+				IP:     netip.MustParseAddr("100.65.80.39"),
 				Status: &nbpeer.PeerStatus{},
 				Meta: nbpeer.PeerSystemMeta{
 					GoOS:          "linux",
@@ -766,7 +766,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 			},
 			"peerC": {
 				ID:     "peerC",
-				IP:     net.ParseIP("100.65.254.139"),
+				IP:     netip.MustParseAddr("100.65.254.139"),
 				Status: &nbpeer.PeerStatus{},
 				Meta: nbpeer.PeerSystemMeta{
 					GoOS:          "linux",
@@ -776,7 +776,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 			},
 			"peerD": {
 				ID:     "peerD",
-				IP:     net.ParseIP("100.65.62.5"),
+				IP:     netip.MustParseAddr("100.65.62.5"),
 				Status: &nbpeer.PeerStatus{},
 				Meta: nbpeer.PeerSystemMeta{
 					GoOS:          "linux",
@@ -786,7 +786,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 			},
 			"peerE": {
 				ID:     "peerE",
-				IP:     net.ParseIP("100.65.32.206"),
+				IP:     netip.MustParseAddr("100.65.32.206"),
 				Status: &nbpeer.PeerStatus{},
 				Meta: nbpeer.PeerSystemMeta{
 					GoOS:          "linux",
@@ -796,7 +796,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 			},
 			"peerF": {
 				ID:     "peerF",
-				IP:     net.ParseIP("100.65.250.202"),
+				IP:     netip.MustParseAddr("100.65.250.202"),
 				Status: &nbpeer.PeerStatus{},
 				Meta: nbpeer.PeerSystemMeta{
 					GoOS:          "linux",
@@ -806,7 +806,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 			},
 			"peerG": {
 				ID:     "peerG",
-				IP:     net.ParseIP("100.65.13.186"),
+				IP:     netip.MustParseAddr("100.65.13.186"),
 				Status: &nbpeer.PeerStatus{},
 				Meta: nbpeer.PeerSystemMeta{
 					GoOS:          "linux",
@@ -816,7 +816,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 			},
 			"peerH": {
 				ID:     "peerH",
-				IP:     net.ParseIP("100.65.29.55"),
+				IP:     netip.MustParseAddr("100.65.29.55"),
 				Status: &nbpeer.PeerStatus{},
 				Meta: nbpeer.PeerSystemMeta{
 					GoOS:          "linux",
@@ -826,7 +826,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 			},
 			"peerI": {
 				ID:     "peerI",
-				IP:     net.ParseIP("100.65.21.56"),
+				IP:     netip.MustParseAddr("100.65.21.56"),
 				Status: &nbpeer.PeerStatus{},
 				Meta: nbpeer.PeerSystemMeta{
 					GoOS:          "windows",
@@ -1231,7 +1231,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -1263,7 +1263,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -1294,7 +1294,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -1314,17 +1314,19 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
 
-	// Updating disabled policy with destination and source groups containing peers should not update account's peers
-	// or send peer update
+	// Updating disabled policy with destination and source groups containing peers should still update account's peers
+	// because affected peer resolution does not filter by policy enabled state
 	t.Run("updating disabled policy with source and destination groups with peers", func(t *testing.T) {
+		drainPeerUpdates(updMsg)
+
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg)
 			close(done)
 		}()
 
@@ -1335,8 +1337,8 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+		case <-time.After(peerUpdateTimeout):
+			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
 
@@ -1355,7 +1357,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -1373,7 +1375,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 
@@ -1393,7 +1395,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})

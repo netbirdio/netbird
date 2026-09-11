@@ -289,7 +289,7 @@ func setupICEBind(t *testing.T) *ICEBind {
 		IP:      netip.MustParseAddr("100.64.0.1"),
 		Network: netip.MustParsePrefix("100.64.0.0/10"),
 	}
-	return NewICEBind(transportNet, nil, address, 1280)
+	return NewICEBind(transportNet, address, 1280)
 }
 
 func createDualStackConns(t *testing.T) (*net.UDPConn, *net.UDPConn) {

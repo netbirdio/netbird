@@ -13,7 +13,7 @@ import (
 const EnvSkipProxy = "NB_NETSTACK_SKIP_PROXY"
 
 type NetStackTun struct { //nolint:revive
-	address       netip.Addr
+	addresses     []netip.Addr
 	dnsAddress    netip.Addr
 	mtu           int
 	listenAddress string
@@ -22,9 +22,9 @@ type NetStackTun struct { //nolint:revive
 	tundev tun.Device
 }
 
-func NewNetStackTun(listenAddress string, address netip.Addr, dnsAddress netip.Addr, mtu int) *NetStackTun {
+func NewNetStackTun(listenAddress string, addresses []netip.Addr, dnsAddress netip.Addr, mtu int) *NetStackTun {
 	return &NetStackTun{
-		address:       address,
+		addresses:     addresses,
 		dnsAddress:    dnsAddress,
 		mtu:           mtu,
 		listenAddress: listenAddress,
@@ -33,7 +33,7 @@ func NewNetStackTun(listenAddress string, address netip.Addr, dnsAddress netip.A
 
 func (t *NetStackTun) Create() (tun.Device, *netstack.Net, error) {
 	nsTunDev, tunNet, err := netstack.CreateNetTUN(
-		[]netip.Addr{t.address},
+		t.addresses,
 		[]netip.Addr{t.dnsAddress},
 		t.mtu)
 	if err != nil {

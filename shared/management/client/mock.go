@@ -11,9 +11,10 @@ import (
 // MockClient is a mock implementation of the Client interface for testing.
 type MockClient struct {
 	CloseFunc                      func() error
-	SyncFunc                       func(ctx context.Context, sysInfo *system.Info, msgHandler func(msg *proto.SyncResponse) error) error
+	SyncFunc                       func(ctx context.Context, getInfo func(ctx context.Context) *system.Info, msgHandler func(msg *proto.SyncResponse) error) error
 	RegisterFunc                   func(setupKey string, jwtToken string, info *system.Info, sshKey []byte, dnsLabels domain.List) (*proto.LoginResponse, error)
 	LoginFunc                      func(info *system.Info, sshKey []byte, dnsLabels domain.List) (*proto.LoginResponse, error)
+	ExtendAuthSessionFunc          func(info *system.Info, jwtToken string) (*proto.ExtendAuthSessionResponse, error)
 	GetDeviceAuthorizationFlowFunc func() (*proto.DeviceAuthorizationFlow, error)
 	GetPKCEAuthorizationFlowFunc   func() (*proto.PKCEAuthorizationFlow, error)
 	GetServerURLFunc               func() string
@@ -37,11 +38,11 @@ func (m *MockClient) Close() error {
 	return m.CloseFunc()
 }
 
-func (m *MockClient) Sync(ctx context.Context, sysInfo *system.Info, msgHandler func(msg *proto.SyncResponse) error) error {
+func (m *MockClient) Sync(ctx context.Context, getInfo func(ctx context.Context) *system.Info, msgHandler func(msg *proto.SyncResponse) error) error {
 	if m.SyncFunc == nil {
 		return nil
 	}
-	return m.SyncFunc(ctx, sysInfo, msgHandler)
+	return m.SyncFunc(ctx, getInfo, msgHandler)
 }
 
 func (m *MockClient) Job(ctx context.Context, msgHandler func(msg *proto.JobRequest) *proto.JobResponse) error {
@@ -65,6 +66,13 @@ func (m *MockClient) Login(info *system.Info, sshKey []byte, dnsLabels domain.Li
 	return m.LoginFunc(info, sshKey, dnsLabels)
 }
 
+func (m *MockClient) ExtendAuthSession(info *system.Info, jwtToken string) (*proto.ExtendAuthSessionResponse, error) {
+	if m.ExtendAuthSessionFunc == nil {
+		return nil, nil
+	}
+	return m.ExtendAuthSessionFunc(info, jwtToken)
+}
+
 func (m *MockClient) GetDeviceAuthorizationFlow() (*proto.DeviceAuthorizationFlow, error) {
 	if m.GetDeviceAuthorizationFlowFunc == nil {
 		return nil, nil
@@ -84,11 +92,6 @@ func (m *MockClient) HealthCheck() error {
 		return nil
 	}
 	return m.HealthCheckFunc()
-}
-
-// GetNetworkMap mock implementation of GetNetworkMap from Client interface.
-func (m *MockClient) GetNetworkMap(_ *system.Info) (*proto.NetworkMap, error) {
-	return nil, nil
 }
 
 // GetServerURL mock implementation of GetServerURL from mgm.Client interface

@@ -1,0 +1,45 @@
+{
+  "Network": {"Serial": 27},
+  "AccountSettings": {"RoutingPeerDNSResolutionEnabled": true},
+  "Peers": {
+    "peer-a": {"IP": "100.64.0.1", "Meta": {"WtVersion": "0.60.0"}},
+    "peer-b": {"IP": "100.64.0.2", "Meta": {"WtVersion": "0.60.0"}},
+    "peer-r": {"IP": "100.64.0.9", "Meta": {"WtVersion": "0.60.0"}}
+  },
+  "Groups": {
+    "grp-dev": {"Peers": ["peer-a", "peer-b"]},
+    "grp-acl": {"Peers": ["peer-r"]}
+  },
+  "Policies": [
+    {
+      "ID": "pol-acl",
+      "Enabled": true,
+      "Rules": [
+        {
+          "Enabled": true,
+          "Action": "accept",
+          "Protocol": "tcp",
+          "Ports": ["3306"],
+          "Bidirectional": true,
+          "Sources": ["grp-dev"],
+          "Destinations": ["grp-acl"]
+        }
+      ]
+    }
+  ],
+  "Routes": [
+    {
+      "ID": "rt-acl",
+      "NetID": "db-net",
+      "Network": "10.70.0.0/24",
+      "NetworkType": 1,
+      "Peer": "peer-r",
+      "PeerID": "peer-r",
+      "Groups": ["grp-dev"],
+      "AccessControlGroups": ["grp-acl"],
+      "Metric": 9999,
+      "Masquerade": true,
+      "Enabled": true
+    }
+  ]
+}

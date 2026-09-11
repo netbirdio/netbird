@@ -8,7 +8,9 @@ import (
 	"github.com/miekg/dns"
 
 	dnsconfig "github.com/netbirdio/netbird/client/internal/dns/config"
+	"github.com/netbirdio/netbird/client/internal/dns/local"
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
@@ -70,10 +72,6 @@ func (m *MockServer) SearchDomains() []string {
 	return make([]string, 0)
 }
 
-// ProbeAvailability mocks implementation of ProbeAvailability from the Server interface
-func (m *MockServer) ProbeAvailability() {
-}
-
 func (m *MockServer) UpdateServerConfig(domains dnsconfig.ServerDomains) error {
 	if m.UpdateServerConfigFunc != nil {
 		return m.UpdateServerConfigFunc(domains)
@@ -85,13 +83,18 @@ func (m *MockServer) PopulateManagementDomain(mgmtURL *url.URL) error {
 	return nil
 }
 
-// SetRouteChecker mock implementation of SetRouteChecker from Server interface
-func (m *MockServer) SetRouteChecker(func(netip.Addr) bool) {
+// SetRouteSources mock implementation of SetRouteSources from Server interface
+func (m *MockServer) SetRouteSources(selected, active func() route.HAMap) {
 	// Mock implementation - no-op
 }
 
 // SetFirewall mock implementation of SetFirewall from Server interface
 func (m *MockServer) SetFirewall(Firewall) {
+	// Mock implementation - no-op
+}
+
+// SetPeerActivator mock implementation of SetPeerActivator from Server interface
+func (m *MockServer) SetPeerActivator(local.PeerActivator) {
 	// Mock implementation - no-op
 }
 

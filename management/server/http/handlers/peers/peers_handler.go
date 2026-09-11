@@ -214,6 +214,18 @@ func (h *Handler) UpdatePeer(w http.ResponseWriter, r *http.Request, userAuth *a
 		}
 	}
 
+	if req.Ipv6 != nil {
+		v6Addr, err := parseIPv6(req.Ipv6)
+		if err != nil {
+			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "%v", err), w)
+			return
+		}
+		if err = h.accountManager.UpdatePeerIPv6(r.Context(), userAuth.AccountId, userAuth.UserId, peerID, v6Addr); err != nil {
+			util.WriteError(r.Context(), err, w)
+			return
+		}
+	}
+
 	peer, err := h.accountManager.UpdatePeer(r.Context(), userAuth.AccountId, userAuth.UserId, update)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
@@ -318,6 +330,21 @@ func (h *Handler) setApprovalRequiredFlag(respBody []*api.PeerBatch, validPeersM
 	}
 }
 
+func parseIPv6(s *string) (netip.Addr, error) {
+	if s == nil {
+		return netip.Addr{}, fmt.Errorf("IPv6 address is nil")
+	}
+	addr, err := netip.ParseAddr(*s)
+	if err != nil {
+		return netip.Addr{}, fmt.Errorf("invalid IPv6 address %s: %w", *s, err)
+	}
+	addr = addr.Unmap()
+	if !addr.Is6() {
+		return netip.Addr{}, fmt.Errorf("address %s is not IPv6", *s)
+	}
+	return addr, nil
+}
+
 // GetAccessiblePeers returns a list of all peers that the specified peer can connect to within the network.
 func (h *Handler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
 	vars := mux.Vars(r)
@@ -369,9 +396,9 @@ func (h *Handler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request, use
 
 	dnsDomain := h.networkMapController.GetDNSDomain(account.Settings)
 
-	netMap := account.GetPeerNetworkMap(r.Context(), peerID, dns.CustomZone{}, nil, validPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil, account.GetActiveGroupUsers())
+	netMap := account.GetPeerNetworkMapFromComponents(r.Context(), peerID, dns.CustomZone{}, nil, validPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil, account.GetActiveGroupUsers())
 
-	util.WriteJSONObject(r.Context(), w, toAccessiblePeers(netMap, dnsDomain))
+	util.WriteJSONObject(r.Context(), w, toAccessiblePeers(account.Peers, netMap, dnsDomain))
 }
 
 func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
@@ -398,7 +425,7 @@ func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	peer, _, _, err := h.accountManager.AddPeer(r.Context(), userAuth.AccountId, "", userAuth.UserId, newPeer, true)
+	peer, _, _, _, err := h.accountManager.AddPeer(r.Context(), userAuth.AccountId, "", userAuth.UserId, newPeer, true)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -453,14 +480,21 @@ func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request, 
 	util.WriteJSONObject(r.Context(), w, resp)
 }
 
-func toAccessiblePeers(netMap *types.NetworkMap, dnsDomain string) []api.AccessiblePeer {
+// toAccessiblePeers resolves the twin peers in netMap back to the full account
+// peers (by ID) so the API response keeps Status/Name/OS/GeoNameID, which the
+// slim netmap twins intentionally don't carry.
+func toAccessiblePeers(accountPeers map[string]*nbpeer.Peer, netMap *types.NetworkMap, dnsDomain string) []api.AccessiblePeer {
 	accessiblePeers := make([]api.AccessiblePeer, 0, len(netMap.Peers)+len(netMap.OfflinePeers))
-	for _, p := range netMap.Peers {
-		accessiblePeers = append(accessiblePeers, peerToAccessiblePeer(p, dnsDomain))
+	appendByID := func(id string) {
+		if p, ok := accountPeers[id]; ok && p != nil {
+			accessiblePeers = append(accessiblePeers, peerToAccessiblePeer(p, dnsDomain))
+		}
 	}
-
+	for _, p := range netMap.Peers {
+		appendByID(p.ID)
+	}
 	for _, p := range netMap.OfflinePeers {
-		accessiblePeers = append(accessiblePeers, peerToAccessiblePeer(p, dnsDomain))
+		appendByID(p.ID)
 	}
 
 	return accessiblePeers
@@ -475,6 +509,7 @@ func peerToAccessiblePeer(peer *nbpeer.Peer, dnsDomain string) api.AccessiblePee
 		GeonameId:   int(peer.Location.GeoNameID),
 		Id:          peer.ID,
 		Ip:          peer.IP.String(),
+		Ipv6:        peerIPv6String(peer),
 		LastSeen:    peer.Status.LastSeen,
 		Name:        peer.Name,
 		Os:          peer.Meta.OS,
@@ -493,6 +528,7 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 		Id:                          peer.ID,
 		Name:                        peer.Name,
 		Ip:                          peer.IP.String(),
+		Ipv6:                        peerIPv6String(peer),
 		ConnectionIp:                peer.Location.ConnectionIP.String(),
 		Connected:                   peer.Status.Connected,
 		LastSeen:                    peer.Status.LastSeen,
@@ -527,6 +563,7 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 			RosenpassEnabled:      &peer.Meta.Flags.RosenpassEnabled,
 			RosenpassPermissive:   &peer.Meta.Flags.RosenpassPermissive,
 			ServerSshAllowed:      &peer.Meta.Flags.ServerSSHAllowed,
+			RemoteJobsAllowed:     &peer.Meta.Flags.RemoteJobsAllowed,
 		},
 	}
 
@@ -547,6 +584,7 @@ func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dn
 		Id:                          peer.ID,
 		Name:                        peer.Name,
 		Ip:                          peer.IP.String(),
+		Ipv6:                        peerIPv6String(peer),
 		ConnectionIp:                peer.Location.ConnectionIP.String(),
 		Connected:                   peer.Status.Connected,
 		LastSeen:                    peer.Status.LastSeen,
@@ -581,6 +619,7 @@ func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dn
 			RosenpassEnabled:      &peer.Meta.Flags.RosenpassEnabled,
 			RosenpassPermissive:   &peer.Meta.Flags.RosenpassPermissive,
 			ServerSshAllowed:      &peer.Meta.Flags.ServerSSHAllowed,
+			RemoteJobsAllowed:     &peer.Meta.Flags.RemoteJobsAllowed,
 		},
 	}
 }
@@ -622,4 +661,12 @@ func fqdnList(extraLabels []string, dnsDomain string) []string {
 		fqdnList = append(fqdnList, fqdn)
 	}
 	return fqdnList
+}
+
+func peerIPv6String(peer *nbpeer.Peer) *string {
+	if !peer.IPv6.IsValid() {
+		return nil
+	}
+	s := peer.IPv6.String()
+	return &s
 }

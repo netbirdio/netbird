@@ -339,8 +339,7 @@ func (c *HandlerChain) isHandlerMatch(qname string, entry HandlerEntry) bool {
 	case entry.Pattern == ".":
 		return true
 	case entry.IsWildcard:
-		parts := strings.Split(strings.TrimSuffix(qname, entry.Pattern), ".")
-		return len(parts) >= 2 && strings.HasSuffix(qname, entry.Pattern)
+		return strings.HasSuffix(qname, "."+entry.Pattern)
 	default:
 		// For non-wildcard patterns:
 		// If handler wants subdomain matching, allow suffix match

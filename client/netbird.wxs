@@ -18,13 +18,17 @@
 				<Component Id="NetbirdFiles" Guid="db3165de-cc6e-4922-8396-9d892950e23e" Bitness="always64">
 					<File ProcessorArchitecture="$(var.ProcessorArchitecture)" Source=".\dist\netbird_windows_$(var.ArchSuffix)\netbird.exe" KeyPath="yes" />
 					<File ProcessorArchitecture="$(var.ProcessorArchitecture)" Source=".\dist\netbird_windows_$(var.ArchSuffix)\netbird-ui.exe">
-						<Shortcut Id="NetbirdDesktopShortcut" Directory="DesktopFolder" Name="NetBird" WorkingDirectory="NetbirdInstallDir" Icon="NetbirdIcon" />
-						<Shortcut Id="NetbirdStartMenuShortcut" Directory="StartMenuFolder" Name="NetBird" WorkingDirectory="NetbirdInstallDir" Icon="NetbirdIcon" />
+						<Shortcut Id="NetbirdDesktopShortcut" Directory="DesktopFolder" Name="NetBird" WorkingDirectory="NetbirdInstallDir" Icon="NetbirdIcon">
+							<ShortcutProperty Key="System.AppUserModel.ID" Value="NetBird" />
+							<ShortcutProperty Key="System.AppUserModel.ToastActivatorCLSID" Value="{0E1B4DE7-E148-432B-9814-544F941826EC}" />
+						</Shortcut>
+						<Shortcut Id="NetbirdStartMenuShortcut" Directory="StartMenuFolder" Name="NetBird" WorkingDirectory="NetbirdInstallDir" Icon="NetbirdIcon">
+							<ShortcutProperty Key="System.AppUserModel.ID" Value="NetBird" />
+							<ShortcutProperty Key="System.AppUserModel.ToastActivatorCLSID" Value="{0E1B4DE7-E148-432B-9814-544F941826EC}" />
+						</Shortcut>
 					</File>
 					<File ProcessorArchitecture="$(var.ProcessorArchitecture)" Source=".\dist\netbird_windows_$(var.ArchSuffix)\wintun.dll" />
-					<?if $(var.ArchSuffix) = "amd64" ?>
-					<File ProcessorArchitecture="$(var.ProcessorArchitecture)" Source=".\dist\netbird_windows_$(var.ArchSuffix)\opengl32.dll" />
-					<?endif ?>
+					<File Id="NetbirdToastIcon" Name="netbird.png" Source=".\client\ui\assets\netbird.png" />
 
 					<ServiceInstall
                                      Id="NetBirdService"
@@ -46,17 +50,66 @@
 			</Directory>
 		</StandardDirectory>
 
+		<!-- Per-user component: HKCU keypath (auto GUID via "*"), separate from
+		     the per-machine NetbirdFiles component to satisfy ICE57. -->
+		<StandardDirectory Id="ProgramMenuFolder">
+			<Component Id="NetbirdAumidRegistry" Guid="*">
+				<RegistryKey Root="HKCU" Key="Software\Classes\AppUserModelId\NetBird" ForceDeleteOnUninstall="yes">
+					<RegistryValue Name="InstalledByMSI" Type="integer" Value="1" KeyPath="yes" />
+					<!-- Pre-seed the CLSID the Wails notifications service reads on
+					     first startup (notifications_windows.go:getGUID looks for
+					     the CustomActivator value under this key). Without this
+					     the service generates a fresh per-install UUID, which
+					     diverges from the ToastActivatorCLSID set on the Start
+					     Menu / Desktop shortcuts above and the COM activator
+					     never fires when a toast is clicked. -->
+					<RegistryValue Name="CustomActivator" Type="string" Value="{0E1B4DE7-E148-432B-9814-544F941826EC}" />
+				</RegistryKey>
+			</Component>
+		</StandardDirectory>
+
 		<ComponentGroup Id="NetbirdFilesComponent">
 			<ComponentRef Id="NetbirdFiles" />
+			<ComponentRef Id="NetbirdAumidRegistry" />
 		</ComponentGroup>
 
 		<util:CloseApplication Id="CloseNetBird" CloseMessage="no" Target="netbird.exe" RebootPrompt="no" />
 		<util:CloseApplication Id="CloseNetBirdUI" CloseMessage="no" Target="netbird-ui.exe" RebootPrompt="no" TerminateProcess="0" />
 
+		<!-- WebView2 evergreen runtime detection.
+		     Probe both the per-machine and per-user EdgeUpdate keys; if either
+		     reports a non-empty `pv` value the runtime is already installed
+		     and we skip the bootstrapper. -->
+		<Property Id="WEBVIEW2_VERSION_HKLM">
+			<RegistrySearch Id="WV2HKLM" Root="HKLM"
+				Key="SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+				Name="pv" Type="raw" Bitness="always64" />
+		</Property>
+		<Property Id="WEBVIEW2_VERSION_HKCU">
+			<RegistrySearch Id="WV2HKCU" Root="HKCU"
+				Key="Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+				Name="pv" Type="raw" />
+		</Property>
 
+		<!-- Embed the bootstrapper payload. Path is relative to the WiX
+		     working directory; sign-pipelines stages it next to client/
+		     via `wails3 generate webview2bootstrapper`. -->
+		<Binary Id="WebView2Bootstrapper" SourceFile=".\client\MicrosoftEdgeWebview2Setup.exe" />
+
+		<CustomAction Id="InstallWebView2"
+			BinaryRef="WebView2Bootstrapper"
+			ExeCommand="/silent /install"
+			Execute="deferred"
+			Impersonate="no"
+			Return="check" />
+
+		<InstallExecuteSequence>
+			<Custom Action="InstallWebView2" Before="InstallFinalize"
+				Condition="NOT WEBVIEW2_VERSION_HKLM AND NOT WEBVIEW2_VERSION_HKCU AND NOT REMOVE" />
+		</InstallExecuteSequence>
 
 		<!-- Icons -->
-		<Icon Id="NetbirdIcon" SourceFile=".\client\ui\assets\netbird.ico" />
+		<Icon Id="NetbirdIcon" SourceFile=".\client\ui\build\windows\icon.ico" />
 		<Property Id="ARPPRODUCTICON" Value="NetbirdIcon" />
 
 	</Package>

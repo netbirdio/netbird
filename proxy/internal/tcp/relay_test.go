@@ -13,7 +13,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/proxy/internal/netutil"
+	"github.com/netbirdio/netbird/util/netrelay"
 )
+
+func testRelay(ctx context.Context, logger *log.Entry, src, dst net.Conn, idleTimeout time.Duration) (int64, int64) {
+	return netrelay.Relay(ctx, src, dst, netrelay.Options{IdleTimeout: idleTimeout, Logger: logger})
+}
 
 func TestRelay_BidirectionalCopy(t *testing.T) {
 	srcClient, srcServer := net.Pipe()
@@ -41,7 +46,7 @@ func TestRelay_BidirectionalCopy(t *testing.T) {
 		srcClient.Close()
 	}()
 
-	s2d, d2s := Relay(ctx, logger, srcServer, dstServer, 0)
+	s2d, d2s := testRelay(ctx, logger, srcServer, dstServer, 0)
 
 	assert.Equal(t, int64(len(srcData)), s2d, "bytes src→dst")
 	assert.Equal(t, int64(len(dstData)), d2s, "bytes dst→src")
@@ -58,7 +63,7 @@ func TestRelay_ContextCancellation(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		Relay(ctx, logger, srcServer, dstServer, 0)
+		testRelay(ctx, logger, srcServer, dstServer, 0)
 		close(done)
 	}()
 
@@ -85,7 +90,7 @@ func TestRelay_OneSideClosed(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		Relay(ctx, logger, srcServer, dstServer, 0)
+		testRelay(ctx, logger, srcServer, dstServer, 0)
 		close(done)
 	}()
 
@@ -129,7 +134,7 @@ func TestRelay_LargeTransfer(t *testing.T) {
 		dstClient.Close()
 	}()
 
-	s2d, _ := Relay(ctx, logger, srcServer, dstServer, 0)
+	s2d, _ := testRelay(ctx, logger, srcServer, dstServer, 0)
 	assert.Equal(t, int64(len(data)), s2d, "should transfer all bytes")
 	require.NoError(t, <-errCh)
 }
@@ -182,7 +187,7 @@ func TestRelay_IdleTimeout(t *testing.T) {
 	done := make(chan struct{})
 	var s2d, d2s int64
 	go func() {
-		s2d, d2s = Relay(ctx, logger, srcServer, dstServer, 200*time.Millisecond)
+		s2d, d2s = testRelay(ctx, logger, srcServer, dstServer, 200*time.Millisecond)
 		close(done)
 	}()
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -11,6 +12,7 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/affectedpeers"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	nbdomain "github.com/netbirdio/netbird/shared/management/domain"
@@ -39,7 +41,8 @@ func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, acco
 		SearchDomainsEnabled: searchDomainEnabled,
 	}
 
-	var updateAccountPeers bool
+	var snap *affectedpeers.Snapshot
+	change := affectedpeers.Change{DistributionGroupIDs: newNSGroup.Groups}
 
 	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		var err error
@@ -47,12 +50,13 @@ func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, acco
 			return err
 		}
 
-		updateAccountPeers, err = anyGroupHasPeersOrResources(ctx, transaction, accountID, newNSGroup.Groups)
-		if err != nil {
+		newNSGroup.PublicID = xid.New().String()
+
+		if err = transaction.SaveNameServerGroup(ctx, newNSGroup); err != nil {
 			return err
 		}
 
-		if err = transaction.SaveNameServerGroup(ctx, newNSGroup); err != nil {
+		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
 			return err
 		}
 
@@ -64,9 +68,7 @@ func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, acco
 
 	am.StoreEvent(ctx, userID, newNSGroup.ID, accountID, activity.NameserverGroupCreated, newNSGroup.EventMeta())
 
-	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
-	}
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return newNSGroup.Copy(), nil
 }
@@ -77,7 +79,8 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 		return status.Errorf(status.InvalidArgument, "nameserver group provided is nil")
 	}
 
-	var updateAccountPeers bool
+	var snap *affectedpeers.Snapshot
+	var change affectedpeers.Change
 
 	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		oldNSGroup, err := transaction.GetNameServerGroupByID(ctx, store.LockingStrengthNone, accountID, nsGroupToSave.ID)
@@ -90,12 +93,14 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 			return err
 		}
 
-		updateAccountPeers, err = areNameServerGroupChangesAffectPeers(ctx, transaction, nsGroupToSave, oldNSGroup)
-		if err != nil {
+		nsGroupToSave.PublicID = oldNSGroup.PublicID
+
+		if err = transaction.SaveNameServerGroup(ctx, nsGroupToSave); err != nil {
 			return err
 		}
 
-		if err = transaction.SaveNameServerGroup(ctx, nsGroupToSave); err != nil {
+		change = affectedpeers.Change{DistributionGroupIDs: slices.Concat(nsGroupToSave.Groups, oldNSGroup.Groups)}
+		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
 			return err
 		}
 
@@ -107,9 +112,7 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 
 	am.StoreEvent(ctx, userID, nsGroupToSave.ID, accountID, activity.NameserverGroupUpdated, nsGroupToSave.EventMeta())
 
-	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
-	}
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return nil
 }
@@ -117,7 +120,8 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 // DeleteNameServerGroup deletes nameserver group with nsGroupID
 func (am *DefaultAccountManager) DeleteNameServerGroup(ctx context.Context, accountID, nsGroupID, userID string) error {
 	var nsGroup *nbdns.NameServerGroup
-	var updateAccountPeers bool
+	var snap *affectedpeers.Snapshot
+	var change affectedpeers.Change
 
 	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		var err error
@@ -126,8 +130,9 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(ctx context.Context, acco
 			return err
 		}
 
-		updateAccountPeers, err = anyGroupHasPeersOrResources(ctx, transaction, accountID, nsGroup.Groups)
-		if err != nil {
+		// Load before delete: the post-delete state no longer references the groups.
+		change = affectedpeers.Change{DistributionGroupIDs: nsGroup.Groups}
+		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
 			return err
 		}
 
@@ -143,9 +148,7 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(ctx context.Context, acco
 
 	am.StoreEvent(ctx, userID, nsGroup.ID, accountID, activity.NameserverGroupDeleted, nsGroup.EventMeta())
 
-	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
-	}
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return nil
 }
@@ -182,24 +185,6 @@ func validateNameServerGroup(ctx context.Context, transaction store.Store, accou
 	}
 
 	return validateGroups(nameserverGroup.Groups, groups)
-}
-
-// areNameServerGroupChangesAffectPeers checks if the changes in the nameserver group affect the peers.
-func areNameServerGroupChangesAffectPeers(ctx context.Context, transaction store.Store, newNSGroup, oldNSGroup *nbdns.NameServerGroup) (bool, error) {
-	if !newNSGroup.Enabled && !oldNSGroup.Enabled {
-		return false, nil
-	}
-
-	hasPeers, err := anyGroupHasPeersOrResources(ctx, transaction, newNSGroup.AccountID, newNSGroup.Groups)
-	if err != nil {
-		return false, err
-	}
-
-	if hasPeers {
-		return true, nil
-	}
-
-	return anyGroupHasPeersOrResources(ctx, transaction, oldNSGroup.AccountID, oldNSGroup.Groups)
 }
 
 func validateDomainInput(primary bool, domains []string, searchDomainsEnabled bool) error {

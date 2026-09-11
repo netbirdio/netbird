@@ -1,0 +1,4 @@
+{
+  "description": "Posture checks gate a policy's sources only, never its destinations. peer-srv-old would fail the version check, but it sits in the destination group, so peer-client must still receive it alongside peer-srv-new, and peer-srv-old must still receive peer-client. This asymmetry is deliberate in the compute path — destination peers are resolved with no posture checks passed in — and it is worth pinning because it is easy to assume a posture check protects both ends.",
+  "peers": ["peer-client", "peer-srv-old"]
+}

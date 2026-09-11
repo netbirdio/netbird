@@ -116,8 +116,8 @@ func TestReverseProxyServices_Create_200(t *testing.T) {
 			Name:    "test-service",
 			Domain:  "test.example.com",
 			Enabled: true,
-			Auth:    api.ServiceAuthConfig{},
-			Targets: []api.ServiceTarget{testServiceTarget},
+			Auth:    &api.ServiceAuthConfig{},
+			Targets: &[]api.ServiceTarget{testServiceTarget},
 		})
 		require.NoError(t, err)
 		assert.Equal(t, testService.Id, ret.Id)
@@ -136,8 +136,8 @@ func TestReverseProxyServices_Create_Err(t *testing.T) {
 			Name:    "test-service",
 			Domain:  "test.example.com",
 			Enabled: true,
-			Auth:    api.ServiceAuthConfig{},
-			Targets: []api.ServiceTarget{testServiceTarget},
+			Auth:    &api.ServiceAuthConfig{},
+			Targets: &[]api.ServiceTarget{testServiceTarget},
 		})
 		assert.Error(t, err)
 		assert.Equal(t, "No", err.Error())
@@ -154,8 +154,9 @@ func TestReverseProxyServices_Create_WithPerTargetOptions(t *testing.T) {
 			var req api.ServiceRequest
 			require.NoError(t, json.Unmarshal(reqBytes, &req))
 
-			require.Len(t, req.Targets, 1)
-			target := req.Targets[0]
+			require.NotNil(t, req.Targets, "targets must be set on the request")
+			require.Len(t, *req.Targets, 1)
+			target := (*req.Targets)[0]
 			require.NotNil(t, target.Options, "options should be present")
 			opts := target.Options
 			require.NotNil(t, opts.SkipTlsVerify, "skip_tls_verify should be present")
@@ -177,8 +178,8 @@ func TestReverseProxyServices_Create_WithPerTargetOptions(t *testing.T) {
 			Name:    "test-service",
 			Domain:  "test.example.com",
 			Enabled: true,
-			Auth:    api.ServiceAuthConfig{},
-			Targets: []api.ServiceTarget{
+			Auth:    &api.ServiceAuthConfig{},
+			Targets: &[]api.ServiceTarget{
 				{
 					TargetId:   "peer-123",
 					TargetType: "peer",
@@ -216,8 +217,8 @@ func TestReverseProxyServices_Update_200(t *testing.T) {
 			Name:    "updated-service",
 			Domain:  "test.example.com",
 			Enabled: true,
-			Auth:    api.ServiceAuthConfig{},
-			Targets: []api.ServiceTarget{testServiceTarget},
+			Auth:    &api.ServiceAuthConfig{},
+			Targets: &[]api.ServiceTarget{testServiceTarget},
 		})
 		require.NoError(t, err)
 		assert.Equal(t, testService.Id, ret.Id)
@@ -236,8 +237,8 @@ func TestReverseProxyServices_Update_Err(t *testing.T) {
 			Name:    "updated-service",
 			Domain:  "test.example.com",
 			Enabled: true,
-			Auth:    api.ServiceAuthConfig{},
-			Targets: []api.ServiceTarget{testServiceTarget},
+			Auth:    &api.ServiceAuthConfig{},
+			Targets: &[]api.ServiceTarget{testServiceTarget},
 		})
 		assert.Error(t, err)
 		assert.Equal(t, "No", err.Error())

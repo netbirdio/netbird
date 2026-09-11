@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang/mock/gomock"
+	"go.uber.org/mock/gomock"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -376,7 +376,7 @@ func startManagementForTest(t *testing.T, testFile string, config *config.Config
 		return nil, nil, "", cleanup, err
 	}
 
-	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", port_forwarding.NewControllerMock(), ephemeralMgr, config)
+	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", port_forwarding.NewControllerMock(), ephemeralMgr, config, nil)
 	accountManager, err := BuildManager(ctx, nil, store, networkMapController, jobManager, nil, "",
 		eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false, cacheStore)
 
@@ -391,7 +391,7 @@ func startManagementForTest(t *testing.T, testFile string, config *config.Config
 		return nil, nil, "", cleanup, err
 	}
 
-	mgmtServer, err := nbgrpc.NewServer(config, accountManager, settingsMockManager, jobManager, secretsManager, nil, nil, MockIntegratedValidator{}, networkMapController, nil)
+	mgmtServer, err := nbgrpc.NewServer(config, accountManager, settingsMockManager, jobManager, secretsManager, nil, nil, MockIntegratedValidator{}, networkMapController, nil, nil)
 	if err != nil {
 		return nil, nil, "", cleanup, err
 	}
@@ -728,7 +728,7 @@ func Test_LoginPerformance(t *testing.T) {
 						}
 
 						login := func() error {
-							_, _, _, err = am.LoginPeer(context.Background(), peerLogin)
+							_, _, _, _, err = am.LoginPeer(context.Background(), peerLogin)
 							if err != nil {
 								t.Logf("failed to login peer: %v", err)
 								return err
@@ -746,7 +746,7 @@ func Test_LoginPerformance(t *testing.T) {
 
 						go func(peerLogin types.PeerLogin, counterStart *int32) {
 							defer wgPeer.Done()
-							_, _, _, err = am.LoginPeer(context.Background(), peerLogin)
+							_, _, _, _, err = am.LoginPeer(context.Background(), peerLogin)
 							if err != nil {
 								t.Logf("failed to login peer: %v", err)
 								return

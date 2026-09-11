@@ -25,6 +25,12 @@ func (c *peekedConn) Read(b []byte) (int, error) {
 	return c.reader.Read(b)
 }
 
+// halfCloser matches connections that support shutting down the write
+// side while keeping the read side open (e.g. *net.TCPConn).
+type halfCloser interface {
+	CloseWrite() error
+}
+
 // CloseWrite delegates to the underlying connection if it supports
 // half-close (e.g. *net.TCPConn). Without this, embedding net.Conn
 // as an interface hides the concrete type's CloseWrite method, making

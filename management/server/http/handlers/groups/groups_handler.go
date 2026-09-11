@@ -43,7 +43,7 @@ func newHandler(accountManager account.Manager, permissionsManager permissions.M
 }
 
 func (h *handler) canReadPeers(r *http.Request, userAuth *auth.UserAuth) bool {
-	allowed, err := h.permissionsManager.ValidateUserPermissions(r.Context(), userAuth.AccountId, userAuth.UserId, modules.Peers, operations.Read)
+	allowed, _, err := h.permissionsManager.ValidateUserPermissions(r.Context(), userAuth.AccountId, userAuth.UserId, modules.Peers, operations.Read)
 	return err == nil && allowed
 }
 

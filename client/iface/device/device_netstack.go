@@ -3,6 +3,7 @@ package device
 import (
 	"errors"
 	"fmt"
+	"net/netip"
 
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/conn"
@@ -63,8 +64,12 @@ func (t *TunNetstackDevice) create() (WGConfigurer, error) {
 		return nil, fmt.Errorf("last ip: %w", err)
 	}
 
-	log.Debugf("netstack using address: %s", t.address.IP)
-	t.nsTun = nbnetstack.NewNetStackTun(t.listenAddress, t.address.IP, dnsAddr, int(t.mtu))
+	addresses := []netip.Addr{t.address.IP}
+	if t.address.HasIPv6() {
+		addresses = append(addresses, t.address.IPv6)
+	}
+	log.Debugf("netstack using addresses: %v", addresses)
+	t.nsTun = nbnetstack.NewNetStackTun(t.listenAddress, addresses, dnsAddr, int(t.mtu))
 	log.Debugf("netstack using dns address: %s", dnsAddr)
 	tunIface, net, err := t.nsTun.Create()
 	if err != nil {

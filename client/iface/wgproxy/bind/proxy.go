@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
-	"strings"
+
 	"sync"
 
 	log "github.com/sirupsen/logrus"
@@ -53,15 +53,15 @@ func NewProxyBind(bind Bind, mtu uint16) *ProxyBind {
 	return p
 }
 
-// AddTurnConn adds a new connection to the bind.
+// AddRelayedConn adds a new connection to the bind.
 // endpoint is the NetBird address of the remote peer. The SetEndpoint return with the address what will be used in the
 // WireGuard configuration.
 //
 // Parameters:
 //   - ctx: Context is used for proxyToLocal to avoid unnecessary error messages
 //   - nbAddr: The NetBird UDP address of the remote peer, it required to generate fake address
-//   - remoteConn: The established TURN connection to the remote peer
-func (p *ProxyBind) AddTurnConn(ctx context.Context, nbAddr *net.UDPAddr, remoteConn net.Conn) error {
+//   - remoteConn: The established relayed connection to the remote peer
+func (p *ProxyBind) AddRelayedConn(ctx context.Context, nbAddr *net.UDPAddr, remoteConn net.Conn) error {
 	fakeNetIP, err := fakeAddress(nbAddr)
 	if err != nil {
 		return err
@@ -136,6 +136,11 @@ func (p *ProxyBind) CloseConn() error {
 	return p.close()
 }
 
+// InjectPacket is a no-op for the userspace proxy: first-packet reinjection is kernel-only.
+func (p *ProxyBind) InjectPacket(_ []byte) error {
+	return nil
+}
+
 func (p *ProxyBind) close() error {
 	if p.remoteConn == nil {
 		return nil
@@ -196,18 +201,25 @@ func (p *ProxyBind) proxyToLocal(ctx context.Context) {
 	}
 }
 
-// fakeAddress returns a fake address that is used to as an identifier for the peer.
-// The fake address is in the format of 127.1.x.x where x.x is the last two octets of the peer address.
+// fakeAddress returns a fake address that is used as an identifier for the peer.
+// The fake address is in the format of 127.1.x.x where x.x is derived from the
+// last two bytes of the peer address (works for both IPv4 and IPv6).
 func fakeAddress(peerAddress *net.UDPAddr) (*netip.AddrPort, error) {
-	octets := strings.Split(peerAddress.IP.String(), ".")
-	if len(octets) != 4 {
-		return nil, fmt.Errorf("invalid IP format")
+	if peerAddress == nil {
+		return nil, fmt.Errorf("nil peer address")
+	}
+	if peerAddress.Port < 0 || peerAddress.Port > 65535 {
+		return nil, fmt.Errorf("invalid UDP port: %d", peerAddress.Port)
 	}
 
-	fakeIP, err := netip.ParseAddr(fmt.Sprintf("127.1.%s.%s", octets[2], octets[3]))
-	if err != nil {
-		return nil, fmt.Errorf("parse new IP: %w", err)
+	addr, ok := netip.AddrFromSlice(peerAddress.IP)
+	if !ok {
+		return nil, fmt.Errorf("invalid IP format")
 	}
+	addr = addr.Unmap()
+
+	raw := addr.As16()
+	fakeIP := netip.AddrFrom4([4]byte{127, 1, raw[14], raw[15]})
 
 	netipAddr := netip.AddrPortFrom(fakeIP, uint16(peerAddress.Port))
 	return &netipAddr, nil

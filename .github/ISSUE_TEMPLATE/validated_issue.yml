@@ -1,0 +1,128 @@
+name: Validated issue
+description: Maintainer/DevRel only. Create an issue after a discussion has been validated or for internally validated work.
+title: "[Validated]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Discussion-first issue policy
+
+        Issues are maintainer-curated work items. Community reports and feature requests should start in [Discussions](https://github.com/netbirdio/netbird/discussions) so DevRel can validate, reproduce, and route them before engineering time is committed.
+
+        Use this form when:
+        - A discussion has been validated and should become actionable work.
+        - A maintainer is opening internally validated work that can bypass the discussion-first flow.
+
+        Issues opened without a relevant validated discussion or maintainer context may be closed and redirected to Discussions.
+
+  - type: checkboxes
+    id: validation-checks
+    attributes:
+      label: Validation checklist
+      options:
+        - label: This issue is linked to a validated discussion, or it is being opened directly by a maintainer.
+          required: true
+        - label: The report has enough context for engineering to act on it without re-triaging from scratch.
+          required: true
+        - label: Sensitive data, secrets, private keys, internal hostnames, and public IPs have been removed or intentionally disclosed.
+          required: true
+
+  - type: dropdown
+    id: issue-type
+    attributes:
+      label: Issue type
+      options:
+        - Bug / Regression
+        - Feature / Enhancement
+        - Documentation
+        - Maintenance / Refactor
+        - Cross-repository coordination
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: source-discussion
+    attributes:
+      label: Source discussion
+      description: Link the GitHub Discussion that was validated. Maintainers bypassing the flow can write "Maintainer-created" and explain why below.
+      placeholder: https://github.com/netbirdio/netbird/discussions/1234
+    validations:
+      required: true
+
+  - type: input
+    id: validation-owner
+    attributes:
+      label: Validation owner
+      description: GitHub handle of the DevRel team member or maintainer who validated this work.
+      placeholder: "@username"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: target-repository
+    attributes:
+      label: Target repository
+      description: Where should the implementation work happen?
+      options:
+        - netbirdio/netbird
+        - netbirdio/dashboard
+        - netbirdio/kubernetes-operator
+        - netbirdio/docs
+        - Multiple repositories
+        - Unknown / needs routing
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Concise description of the validated work.
+      placeholder: What needs to be fixed, changed, documented, or built?
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Validation evidence
+      description: For bugs, include reproduction status, affected versions, logs, and environment. For features, include community traction, affected users, and alignment notes.
+      placeholder: |
+        - Reproduced by:
+        - Affected versions / platforms:
+        - Community signal:
+        - Related logs or screenshots:
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Proposed scope
+      description: Describe what is in scope and, if helpful, what is explicitly out of scope.
+      placeholder: |
+        In scope:
+        - ...
+
+        Out of scope:
+        - ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance criteria
+      description: What must be true for this issue to be closed?
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Links to related PRs, docs, issues in other repositories, roadmap items, or implementation notes.

@@ -26,7 +26,6 @@ type connStatusInputs struct {
 	iceInProgress       bool // a negotiation is currently in flight
 }
 
-
 // ConnStatus describe the status of a peer's connection
 type ConnStatus int32
 

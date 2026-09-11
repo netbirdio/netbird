@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"os/user"
 	"path/filepath"
 	"reflect"
@@ -47,17 +46,22 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 
 	pm := profilemanager.ServiceManager{}
 	err = pm.SetActiveProfileState(&profilemanager.ActiveProfileState{
-		Name:     profName,
+		ID:       profilemanager.ID(profName),
 		Username: currUser.Username,
 	})
 	require.NoError(t, err)
 
-	ctx := context.Background()
-	s := New(ctx, "console", "", false, false, false)
+	// The privileged-change gate reads the caller's kernel identity from the
+	// context, which a real caller gets from the daemon's transport credentials.
+	// This test drives the handler directly, so it stands in for a root caller;
+	// without an identity the gate would (correctly) refuse the SSH fields.
+	ctx := privilegedTestCtx()
+	s := New(ctx, "console", "", false, false, false, false)
 
 	rosenpassEnabled := true
 	rosenpassPermissive := true
 	serverSSHAllowed := true
+	remoteJobsAllowed := true
 	interfaceName := "utun100"
 	wireguardPort := int64(51820)
 	preSharedKey := "test-psk"
@@ -69,48 +73,53 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 	disableFirewall := true
 	blockLANAccess := true
 	disableNotifications := true
-	lazyConnectionEnabled := true
 	blockInbound := true
+	disableIPv6 := true
 	mtu := int64(1280)
 	sshJWTCacheTTL := int32(300)
+	enableLocalMetrics := true
+	localMetricsAddress := "127.0.0.1:9292"
 
 	req := &proto.SetConfigRequest{
-		ProfileName:           profName,
-		Username:              currUser.Username,
-		ManagementUrl:         "https://new-api.netbird.io:443",
-		AdminURL:              "https://new-admin.netbird.io",
-		RosenpassEnabled:      &rosenpassEnabled,
-		RosenpassPermissive:   &rosenpassPermissive,
-		ServerSSHAllowed:      &serverSSHAllowed,
-		InterfaceName:         &interfaceName,
-		WireguardPort:         &wireguardPort,
-		OptionalPreSharedKey:  &preSharedKey,
-		DisableAutoConnect:    &disableAutoConnect,
-		NetworkMonitor:        &networkMonitor,
-		DisableClientRoutes:   &disableClientRoutes,
-		DisableServerRoutes:   &disableServerRoutes,
-		DisableDns:            &disableDNS,
-		DisableFirewall:       &disableFirewall,
-		BlockLanAccess:        &blockLANAccess,
-		DisableNotifications:  &disableNotifications,
-		LazyConnectionEnabled: &lazyConnectionEnabled,
-		BlockInbound:          &blockInbound,
-		NatExternalIPs:        []string{"1.2.3.4", "5.6.7.8"},
-		CleanNATExternalIPs:   false,
-		CustomDNSAddress:      []byte("1.1.1.1:53"),
-		ExtraIFaceBlacklist:   []string{"eth1", "eth2"},
-		DnsLabels:             []string{"label1", "label2"},
-		CleanDNSLabels:        false,
-		DnsRouteInterval:      durationpb.New(2 * time.Minute),
-		Mtu:                   &mtu,
-		SshJWTCacheTTL:        &sshJWTCacheTTL,
+		ProfileName:          profName,
+		Username:             currUser.Username,
+		ManagementUrl:        "https://new-api.netbird.io:443",
+		AdminURL:             "https://new-admin.netbird.io",
+		RosenpassEnabled:     &rosenpassEnabled,
+		RosenpassPermissive:  &rosenpassPermissive,
+		ServerSSHAllowed:     &serverSSHAllowed,
+		RemoteJobsAllowed:    &remoteJobsAllowed,
+		InterfaceName:        &interfaceName,
+		WireguardPort:        &wireguardPort,
+		OptionalPreSharedKey: &preSharedKey,
+		DisableAutoConnect:   &disableAutoConnect,
+		NetworkMonitor:       &networkMonitor,
+		DisableClientRoutes:  &disableClientRoutes,
+		DisableServerRoutes:  &disableServerRoutes,
+		DisableDns:           &disableDNS,
+		DisableFirewall:      &disableFirewall,
+		BlockLanAccess:       &blockLANAccess,
+		DisableNotifications: &disableNotifications,
+		BlockInbound:         &blockInbound,
+		DisableIpv6:          &disableIPv6,
+		NatExternalIPs:       []string{"1.2.3.4", "5.6.7.8"},
+		CleanNATExternalIPs:  false,
+		CustomDNSAddress:     []byte("1.1.1.1:53"),
+		ExtraIFaceBlacklist:  []string{"eth1", "eth2"},
+		DnsLabels:            []string{"label1", "label2"},
+		CleanDNSLabels:       false,
+		DnsRouteInterval:     durationpb.New(2 * time.Minute),
+		Mtu:                  &mtu,
+		SshJWTCacheTTL:       &sshJWTCacheTTL,
+		EnableLocalMetrics:   &enableLocalMetrics,
+		LocalMetricsAddress:  &localMetricsAddress,
 	}
 
 	_, err = s.SetConfig(ctx, req)
 	require.NoError(t, err)
 
 	profState := profilemanager.ActiveProfileState{
-		Name:     profName,
+		ID:       profilemanager.ID(profName),
 		Username: currUser.Username,
 	}
 	cfgPath, err := profState.FilePath()
@@ -125,6 +134,8 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 	require.Equal(t, rosenpassPermissive, cfg.RosenpassPermissive)
 	require.NotNil(t, cfg.ServerSSHAllowed)
 	require.Equal(t, serverSSHAllowed, *cfg.ServerSSHAllowed)
+	require.NotNil(t, cfg.RemoteJobsAllowed)
+	require.Equal(t, remoteJobsAllowed, *cfg.RemoteJobsAllowed)
 	require.Equal(t, interfaceName, cfg.WgIface)
 	require.Equal(t, int(wireguardPort), cfg.WgPort)
 	require.Equal(t, preSharedKey, cfg.PreSharedKey)
@@ -138,8 +149,8 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 	require.Equal(t, blockLANAccess, cfg.BlockLANAccess)
 	require.NotNil(t, cfg.DisableNotifications)
 	require.Equal(t, disableNotifications, *cfg.DisableNotifications)
-	require.Equal(t, lazyConnectionEnabled, cfg.LazyConnectionEnabled)
 	require.Equal(t, blockInbound, cfg.BlockInbound)
+	require.Equal(t, disableIPv6, cfg.DisableIPv6)
 	require.Equal(t, []string{"1.2.3.4", "5.6.7.8"}, cfg.NATExternalIPs)
 	require.Equal(t, "1.1.1.1:53", cfg.CustomDNSAddress)
 	// IFaceBlackList contains defaults + extras
@@ -150,6 +161,8 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 	require.Equal(t, uint16(mtu), cfg.MTU)
 	require.NotNil(t, cfg.SSHJWTCacheTTL)
 	require.Equal(t, int(sshJWTCacheTTL), *cfg.SSHJWTCacheTTL)
+	require.Equal(t, enableLocalMetrics, cfg.LocalMetricsEnabled)
+	require.Equal(t, localMetricsAddress, cfg.LocalMetricsAddress)
 
 	verifyAllFieldsCovered(t, req)
 }
@@ -161,13 +174,14 @@ func verifyAllFieldsCovered(t *testing.T, req *proto.SetConfigRequest) {
 	t.Helper()
 
 	metadataFields := map[string]bool{
-		"state":               true, // protobuf internal
-		"sizeCache":           true, // protobuf internal
-		"unknownFields":       true, // protobuf internal
-		"Username":            true, // metadata
-		"ProfileName":         true, // metadata
-		"CleanNATExternalIPs": true, // control flag for clearing
-		"CleanDNSLabels":      true, // control flag for clearing
+		"state":                 true, // protobuf internal
+		"sizeCache":             true, // protobuf internal
+		"unknownFields":         true, // protobuf internal
+		"Username":              true, // metadata
+		"ProfileName":           true, // metadata
+		"CleanNATExternalIPs":   true, // control flag for clearing
+		"CleanDNSLabels":        true, // control flag for clearing
+		"LazyConnectionEnabled": true, // deprecated: proto field retained for compat, no longer applied
 	}
 
 	expectedFields := map[string]bool{
@@ -176,6 +190,7 @@ func verifyAllFieldsCovered(t *testing.T, req *proto.SetConfigRequest) {
 		"RosenpassEnabled":              true,
 		"RosenpassPermissive":           true,
 		"ServerSSHAllowed":              true,
+		"RemoteJobsAllowed":             true,
 		"InterfaceName":                 true,
 		"WireguardPort":                 true,
 		"OptionalPreSharedKey":          true,
@@ -187,8 +202,8 @@ func verifyAllFieldsCovered(t *testing.T, req *proto.SetConfigRequest) {
 		"DisableFirewall":               true,
 		"BlockLanAccess":                true,
 		"DisableNotifications":          true,
-		"LazyConnectionEnabled":         true,
 		"BlockInbound":                  true,
+		"DisableIpv6":                   true,
 		"NatExternalIPs":                true,
 		"CustomDNSAddress":              true,
 		"ExtraIFaceBlacklist":           true,
@@ -201,6 +216,8 @@ func verifyAllFieldsCovered(t *testing.T, req *proto.SetConfigRequest) {
 		"EnableSSHRemotePortForwarding": true,
 		"DisableSSHAuth":                true,
 		"SshJWTCacheTTL":                true,
+		"EnableLocalMetrics":            true,
+		"LocalMetricsAddress":           true,
 	}
 
 	val := reflect.ValueOf(req).Elem()
@@ -236,6 +253,7 @@ func TestCLIFlags_MappedToSetConfig(t *testing.T) {
 		"enable-rosenpass":                  "RosenpassEnabled",
 		"rosenpass-permissive":              "RosenpassPermissive",
 		"allow-server-ssh":                  "ServerSSHAllowed",
+		"allow-remote-jobs":                 "RemoteJobsAllowed",
 		"interface-name":                    "InterfaceName",
 		"wireguard-port":                    "WireguardPort",
 		"preshared-key":                     "OptionalPreSharedKey",
@@ -247,7 +265,7 @@ func TestCLIFlags_MappedToSetConfig(t *testing.T) {
 		"disable-firewall":                  "DisableFirewall",
 		"block-lan-access":                  "BlockLanAccess",
 		"block-inbound":                     "BlockInbound",
-		"enable-lazy-connection":            "LazyConnectionEnabled",
+		"disable-ipv6":                      "DisableIpv6",
 		"external-ip-map":                   "NatExternalIPs",
 		"dns-resolver-address":              "CustomDNSAddress",
 		"extra-iface-blacklist":             "ExtraIFaceBlacklist",
@@ -260,11 +278,14 @@ func TestCLIFlags_MappedToSetConfig(t *testing.T) {
 		"enable-ssh-remote-port-forwarding": "EnableSSHRemotePortForwarding",
 		"disable-ssh-auth":                  "DisableSSHAuth",
 		"ssh-jwt-cache-ttl":                 "SshJWTCacheTTL",
+		"enable-local-metrics":              "EnableLocalMetrics",
+		"local-metrics-address":             "LocalMetricsAddress",
 	}
 
 	// SetConfigRequest fields that don't have CLI flags (settable only via UI or other means).
 	fieldsWithoutCLIFlags := map[string]bool{
-		"DisableNotifications": true, // Only settable via UI
+		"DisableNotifications":  true, // Only settable via UI
+		"LazyConnectionEnabled": true, // deprecated: no longer settable (managed by server + NB_LAZY_CONN)
 	}
 
 	// Get all SetConfigRequest fields to verify our map is complete.

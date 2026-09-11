@@ -19,6 +19,14 @@ const _ = grpc.SupportPackageIsVersion7
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ProxyServiceClient interface {
 	GetMappingUpdate(ctx context.Context, in *GetMappingUpdateRequest, opts ...grpc.CallOption) (ProxyService_GetMappingUpdateClient, error)
+	// SyncMappings is a bidirectional stream that replaces GetMappingUpdate for
+	// new proxies. The proxy sends an initial SyncMappingsRequest to start the
+	// stream and then sends an ack after each batch is fully processed.
+	// Management waits for the ack before sending the next batch, providing
+	// application-level back-pressure during large initial syncs.
+	// Old proxies continue using GetMappingUpdate; old management servers
+	// return Unimplemented for this RPC and proxies fall back.
+	SyncMappings(ctx context.Context, opts ...grpc.CallOption) (ProxyService_SyncMappingsClient, error)
 	SendAccessLog(ctx context.Context, in *SendAccessLogRequest, opts ...grpc.CallOption) (*SendAccessLogResponse, error)
 	Authenticate(ctx context.Context, in *AuthenticateRequest, opts ...grpc.CallOption) (*AuthenticateResponse, error)
 	SendStatusUpdate(ctx context.Context, in *SendStatusUpdateRequest, opts ...grpc.CallOption) (*SendStatusUpdateResponse, error)
@@ -27,6 +35,24 @@ type ProxyServiceClient interface {
 	// ValidateSession validates a session token and checks user access permissions.
 	// Called by the proxy after receiving a session token from OIDC callback.
 	ValidateSession(ctx context.Context, in *ValidateSessionRequest, opts ...grpc.CallOption) (*ValidateSessionResponse, error)
+	// ValidateTunnelPeer resolves an inbound peer by its WireGuard tunnel IP and
+	// checks the resolved user's access against the service's access_groups.
+	// Acts as a fast-path equivalent of OIDC for requests originating on the
+	// netbird mesh: when the source IP maps to a known peer in the calling
+	// account and that peer is in the service's access_groups, the proxy can
+	// issue a session cookie without redirecting through the OIDC flow.
+	// Mirrors ValidateSession's response shape.
+	ValidateTunnelPeer(ctx context.Context, in *ValidateTunnelPeerRequest, opts ...grpc.CallOption) (*ValidateTunnelPeerResponse, error)
+	// CheckLLMPolicyLimits is the pre-flight RPC the proxy calls before each
+	// LLM request. Management runs the per-policy headroom selection across
+	// every policy authorising the caller's user / groups for the resolved
+	// provider and returns the chosen attribution policy + group, or a deny
+	// when no applicable policy has headroom > 0.
+	CheckLLMPolicyLimits(ctx context.Context, in *CheckLLMPolicyLimitsRequest, opts ...grpc.CallOption) (*CheckLLMPolicyLimitsResponse, error)
+	// RecordLLMUsage is the post-flight RPC the proxy calls after the upstream
+	// returns. Increments the per-(dimension, window) counters for the
+	// attribution policy chosen by CheckLLMPolicyLimits.
+	RecordLLMUsage(ctx context.Context, in *RecordLLMUsageRequest, opts ...grpc.CallOption) (*RecordLLMUsageResponse, error)
 }
 
 type proxyServiceClient struct {
@@ -63,6 +89,37 @@ type proxyServiceGetMappingUpdateClient struct {
 
 func (x *proxyServiceGetMappingUpdateClient) Recv() (*GetMappingUpdateResponse, error) {
 	m := new(GetMappingUpdateResponse)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func (c *proxyServiceClient) SyncMappings(ctx context.Context, opts ...grpc.CallOption) (ProxyService_SyncMappingsClient, error) {
+	stream, err := c.cc.NewStream(ctx, &ProxyService_ServiceDesc.Streams[1], "/management.ProxyService/SyncMappings", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &proxyServiceSyncMappingsClient{stream}
+	return x, nil
+}
+
+type ProxyService_SyncMappingsClient interface {
+	Send(*SyncMappingsRequest) error
+	Recv() (*SyncMappingsResponse, error)
+	grpc.ClientStream
+}
+
+type proxyServiceSyncMappingsClient struct {
+	grpc.ClientStream
+}
+
+func (x *proxyServiceSyncMappingsClient) Send(m *SyncMappingsRequest) error {
+	return x.ClientStream.SendMsg(m)
+}
+
+func (x *proxyServiceSyncMappingsClient) Recv() (*SyncMappingsResponse, error) {
+	m := new(SyncMappingsResponse)
 	if err := x.ClientStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
@@ -123,11 +180,46 @@ func (c *proxyServiceClient) ValidateSession(ctx context.Context, in *ValidateSe
 	return out, nil
 }
 
+func (c *proxyServiceClient) ValidateTunnelPeer(ctx context.Context, in *ValidateTunnelPeerRequest, opts ...grpc.CallOption) (*ValidateTunnelPeerResponse, error) {
+	out := new(ValidateTunnelPeerResponse)
+	err := c.cc.Invoke(ctx, "/management.ProxyService/ValidateTunnelPeer", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *proxyServiceClient) CheckLLMPolicyLimits(ctx context.Context, in *CheckLLMPolicyLimitsRequest, opts ...grpc.CallOption) (*CheckLLMPolicyLimitsResponse, error) {
+	out := new(CheckLLMPolicyLimitsResponse)
+	err := c.cc.Invoke(ctx, "/management.ProxyService/CheckLLMPolicyLimits", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *proxyServiceClient) RecordLLMUsage(ctx context.Context, in *RecordLLMUsageRequest, opts ...grpc.CallOption) (*RecordLLMUsageResponse, error) {
+	out := new(RecordLLMUsageResponse)
+	err := c.cc.Invoke(ctx, "/management.ProxyService/RecordLLMUsage", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ProxyServiceServer is the server API for ProxyService service.
 // All implementations must embed UnimplementedProxyServiceServer
 // for forward compatibility
 type ProxyServiceServer interface {
 	GetMappingUpdate(*GetMappingUpdateRequest, ProxyService_GetMappingUpdateServer) error
+	// SyncMappings is a bidirectional stream that replaces GetMappingUpdate for
+	// new proxies. The proxy sends an initial SyncMappingsRequest to start the
+	// stream and then sends an ack after each batch is fully processed.
+	// Management waits for the ack before sending the next batch, providing
+	// application-level back-pressure during large initial syncs.
+	// Old proxies continue using GetMappingUpdate; old management servers
+	// return Unimplemented for this RPC and proxies fall back.
+	SyncMappings(ProxyService_SyncMappingsServer) error
 	SendAccessLog(context.Context, *SendAccessLogRequest) (*SendAccessLogResponse, error)
 	Authenticate(context.Context, *AuthenticateRequest) (*AuthenticateResponse, error)
 	SendStatusUpdate(context.Context, *SendStatusUpdateRequest) (*SendStatusUpdateResponse, error)
@@ -136,6 +228,24 @@ type ProxyServiceServer interface {
 	// ValidateSession validates a session token and checks user access permissions.
 	// Called by the proxy after receiving a session token from OIDC callback.
 	ValidateSession(context.Context, *ValidateSessionRequest) (*ValidateSessionResponse, error)
+	// ValidateTunnelPeer resolves an inbound peer by its WireGuard tunnel IP and
+	// checks the resolved user's access against the service's access_groups.
+	// Acts as a fast-path equivalent of OIDC for requests originating on the
+	// netbird mesh: when the source IP maps to a known peer in the calling
+	// account and that peer is in the service's access_groups, the proxy can
+	// issue a session cookie without redirecting through the OIDC flow.
+	// Mirrors ValidateSession's response shape.
+	ValidateTunnelPeer(context.Context, *ValidateTunnelPeerRequest) (*ValidateTunnelPeerResponse, error)
+	// CheckLLMPolicyLimits is the pre-flight RPC the proxy calls before each
+	// LLM request. Management runs the per-policy headroom selection across
+	// every policy authorising the caller's user / groups for the resolved
+	// provider and returns the chosen attribution policy + group, or a deny
+	// when no applicable policy has headroom > 0.
+	CheckLLMPolicyLimits(context.Context, *CheckLLMPolicyLimitsRequest) (*CheckLLMPolicyLimitsResponse, error)
+	// RecordLLMUsage is the post-flight RPC the proxy calls after the upstream
+	// returns. Increments the per-(dimension, window) counters for the
+	// attribution policy chosen by CheckLLMPolicyLimits.
+	RecordLLMUsage(context.Context, *RecordLLMUsageRequest) (*RecordLLMUsageResponse, error)
 	mustEmbedUnimplementedProxyServiceServer()
 }
 
@@ -145,6 +255,9 @@ type UnimplementedProxyServiceServer struct {
 
 func (UnimplementedProxyServiceServer) GetMappingUpdate(*GetMappingUpdateRequest, ProxyService_GetMappingUpdateServer) error {
 	return status.Errorf(codes.Unimplemented, "method GetMappingUpdate not implemented")
+}
+func (UnimplementedProxyServiceServer) SyncMappings(ProxyService_SyncMappingsServer) error {
+	return status.Errorf(codes.Unimplemented, "method SyncMappings not implemented")
 }
 func (UnimplementedProxyServiceServer) SendAccessLog(context.Context, *SendAccessLogRequest) (*SendAccessLogResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SendAccessLog not implemented")
@@ -163,6 +276,15 @@ func (UnimplementedProxyServiceServer) GetOIDCURL(context.Context, *GetOIDCURLRe
 }
 func (UnimplementedProxyServiceServer) ValidateSession(context.Context, *ValidateSessionRequest) (*ValidateSessionResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ValidateSession not implemented")
+}
+func (UnimplementedProxyServiceServer) ValidateTunnelPeer(context.Context, *ValidateTunnelPeerRequest) (*ValidateTunnelPeerResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ValidateTunnelPeer not implemented")
+}
+func (UnimplementedProxyServiceServer) CheckLLMPolicyLimits(context.Context, *CheckLLMPolicyLimitsRequest) (*CheckLLMPolicyLimitsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CheckLLMPolicyLimits not implemented")
+}
+func (UnimplementedProxyServiceServer) RecordLLMUsage(context.Context, *RecordLLMUsageRequest) (*RecordLLMUsageResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RecordLLMUsage not implemented")
 }
 func (UnimplementedProxyServiceServer) mustEmbedUnimplementedProxyServiceServer() {}
 
@@ -196,6 +318,32 @@ type proxyServiceGetMappingUpdateServer struct {
 
 func (x *proxyServiceGetMappingUpdateServer) Send(m *GetMappingUpdateResponse) error {
 	return x.ServerStream.SendMsg(m)
+}
+
+func _ProxyService_SyncMappings_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(ProxyServiceServer).SyncMappings(&proxyServiceSyncMappingsServer{stream})
+}
+
+type ProxyService_SyncMappingsServer interface {
+	Send(*SyncMappingsResponse) error
+	Recv() (*SyncMappingsRequest, error)
+	grpc.ServerStream
+}
+
+type proxyServiceSyncMappingsServer struct {
+	grpc.ServerStream
+}
+
+func (x *proxyServiceSyncMappingsServer) Send(m *SyncMappingsResponse) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func (x *proxyServiceSyncMappingsServer) Recv() (*SyncMappingsRequest, error) {
+	m := new(SyncMappingsRequest)
+	if err := x.ServerStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
 }
 
 func _ProxyService_SendAccessLog_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -306,6 +454,60 @@ func _ProxyService_ValidateSession_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ProxyService_ValidateTunnelPeer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ValidateTunnelPeerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProxyServiceServer).ValidateTunnelPeer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/management.ProxyService/ValidateTunnelPeer",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProxyServiceServer).ValidateTunnelPeer(ctx, req.(*ValidateTunnelPeerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProxyService_CheckLLMPolicyLimits_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CheckLLMPolicyLimitsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProxyServiceServer).CheckLLMPolicyLimits(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/management.ProxyService/CheckLLMPolicyLimits",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProxyServiceServer).CheckLLMPolicyLimits(ctx, req.(*CheckLLMPolicyLimitsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProxyService_RecordLLMUsage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RecordLLMUsageRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProxyServiceServer).RecordLLMUsage(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/management.ProxyService/RecordLLMUsage",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProxyServiceServer).RecordLLMUsage(ctx, req.(*RecordLLMUsageRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ProxyService_ServiceDesc is the grpc.ServiceDesc for ProxyService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -337,12 +539,30 @@ var ProxyService_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "ValidateSession",
 			Handler:    _ProxyService_ValidateSession_Handler,
 		},
+		{
+			MethodName: "ValidateTunnelPeer",
+			Handler:    _ProxyService_ValidateTunnelPeer_Handler,
+		},
+		{
+			MethodName: "CheckLLMPolicyLimits",
+			Handler:    _ProxyService_CheckLLMPolicyLimits_Handler,
+		},
+		{
+			MethodName: "RecordLLMUsage",
+			Handler:    _ProxyService_RecordLLMUsage_Handler,
+		},
 	},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "GetMappingUpdate",
 			Handler:       _ProxyService_GetMappingUpdate_Handler,
 			ServerStreams: true,
+		},
+		{
+			StreamName:    "SyncMappings",
+			Handler:       _ProxyService_SyncMappings_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
 		},
 	},
 	Metadata: "proxy_service.proto",

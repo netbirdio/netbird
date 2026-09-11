@@ -13,7 +13,6 @@ const (
 	ipv4HeaderMinLen = 20
 	ipv4ProtoOffset  = 9
 	ipv4FlagsOffset  = 6
-	ipv4DstOffset    = 16
 	ipProtoUDP       = 17
 	ipProtoTCP       = 6
 	ipv4FragOffMask  = 0x1fff

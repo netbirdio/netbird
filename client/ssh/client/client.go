@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
-	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -17,7 +16,6 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 	"golang.org/x/term"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/netbirdio/netbird/client/internal/daemonaddr"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
@@ -25,13 +23,14 @@ import (
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/ssh/detection"
 	"github.com/netbirdio/netbird/util"
+	"github.com/netbirdio/netbird/util/netrelay"
 )
 
 const (
 	// DefaultDaemonAddr is the default address for the NetBird daemon
 	DefaultDaemonAddr = "unix:///var/run/netbird.sock"
 	// DefaultDaemonAddrWindows is the default address for the NetBird daemon on Windows
-	DefaultDaemonAddrWindows = "tcp://127.0.0.1:41731"
+	DefaultDaemonAddrWindows = daemonaddr.WindowsPipeAddr
 )
 
 // Client wraps crypto/ssh Client for simplified SSH operations
@@ -267,7 +266,7 @@ func getDefaultDaemonAddr() string {
 		return addr
 	}
 	if runtime.GOOS == "windows" {
-		return DefaultDaemonAddrWindows
+		return daemonaddr.ResolveDaemonAddr(DefaultDaemonAddrWindows)
 	}
 	return daemonaddr.ResolveUnixDaemonAddr(DefaultDaemonAddr)
 }
@@ -314,21 +313,23 @@ func Dial(ctx context.Context, addr, user string, opts DialOptions) (*Client, er
 
 // dialSSH establishes an SSH connection without JWT authentication
 func dialSSH(ctx context.Context, network, addr string, config *ssh.ClientConfig) (*Client, error) {
+	if config.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, config.Timeout)
+		defer cancel()
+	}
+
 	dialer := &net.Dialer{}
 	conn, err := dialer.DialContext(ctx, network, addr)
 	if err != nil {
 		return nil, fmt.Errorf("dial %s: %w", addr, err)
 	}
 
-	clientConn, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
+	client, err := nbssh.Handshake(ctx, conn, addr, config)
 	if err != nil {
-		if closeErr := conn.Close(); closeErr != nil {
-			log.Debugf("connection close after handshake failure: %v", closeErr)
-		}
-		return nil, fmt.Errorf("ssh handshake: %w", err)
+		return nil, err
 	}
 
-	client := ssh.NewClient(clientConn, chans, reqs)
 	return &Client{
 		client: client,
 	}, nil
@@ -409,12 +410,9 @@ func verifyHostKeyViaDaemon(hostname string, remote net.Addr, key ssh.PublicKey,
 }
 
 func connectToDaemon(daemonAddr string) (*grpc.ClientConn, error) {
-	addr := strings.TrimPrefix(daemonAddr, "tcp://")
+	target, opts := daemonaddr.DialTarget(daemonAddr)
 
-	conn, err := grpc.NewClient(
-		addr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
+	conn, err := grpc.NewClient(target, opts...)
 	if err != nil {
 		log.Debugf("failed to create gRPC client for NetBird daemon at %s: %v", daemonAddr, err)
 		return nil, fmt.Errorf("failed to connect to NetBird daemon: %w", err)
@@ -536,7 +534,7 @@ func (c *Client) LocalPortForward(ctx context.Context, localAddr, remoteAddr str
 				continue
 			}
 
-			go c.handleLocalForward(localConn, remoteAddr)
+			go c.handleLocalForward(ctx, localConn, remoteAddr)
 		}
 	}()
 
@@ -548,7 +546,7 @@ func (c *Client) LocalPortForward(ctx context.Context, localAddr, remoteAddr str
 }
 
 // handleLocalForward handles a single local port forwarding connection
-func (c *Client) handleLocalForward(localConn net.Conn, remoteAddr string) {
+func (c *Client) handleLocalForward(ctx context.Context, localConn net.Conn, remoteAddr string) {
 	defer func() {
 		if err := localConn.Close(); err != nil {
 			log.Debugf("local port forwarding: close local connection: %v", err)
@@ -571,7 +569,7 @@ func (c *Client) handleLocalForward(localConn net.Conn, remoteAddr string) {
 		}
 	}()
 
-	nbssh.BidirectionalCopy(log.NewEntry(log.StandardLogger()), localConn, channel)
+	netrelay.Relay(ctx, localConn, channel, netrelay.Options{Logger: log.NewEntry(log.StandardLogger())})
 }
 
 // RemotePortForward sets up remote port forwarding, binding on remote and forwarding to localAddr
@@ -653,16 +651,19 @@ func (c *Client) handleRemoteForwardChannels(ctx context.Context, localAddr stri
 		select {
 		case <-ctx.Done():
 			return
-		case newChan := <-channelRequests:
+		case newChan, ok := <-channelRequests:
+			if !ok {
+				return
+			}
 			if newChan != nil {
-				go c.handleRemoteForwardChannel(newChan, localAddr)
+				go c.handleRemoteForwardChannel(ctx, newChan, localAddr)
 			}
 		}
 	}
 }
 
 // handleRemoteForwardChannel handles a single forwarded-tcpip channel
-func (c *Client) handleRemoteForwardChannel(newChan ssh.NewChannel, localAddr string) {
+func (c *Client) handleRemoteForwardChannel(ctx context.Context, newChan ssh.NewChannel, localAddr string) {
 	channel, reqs, err := newChan.Accept()
 	if err != nil {
 		return
@@ -675,8 +676,14 @@ func (c *Client) handleRemoteForwardChannel(newChan ssh.NewChannel, localAddr st
 
 	go ssh.DiscardRequests(reqs)
 
-	localConn, err := net.Dial("tcp", localAddr)
+	// Bound the dial so a black-holed localAddr can't pin the accepted SSH
+	// channel open indefinitely; the relay itself runs under the outer ctx.
+	dialCtx, cancelDial := context.WithTimeout(ctx, 10*time.Second)
+	var dialer net.Dialer
+	localConn, err := dialer.DialContext(dialCtx, "tcp", localAddr)
+	cancelDial()
 	if err != nil {
+		log.Debugf("remote port forwarding: dial %s: %v", localAddr, err)
 		return
 	}
 	defer func() {
@@ -685,7 +692,7 @@ func (c *Client) handleRemoteForwardChannel(newChan ssh.NewChannel, localAddr st
 		}
 	}()
 
-	nbssh.BidirectionalCopy(log.NewEntry(log.StandardLogger()), localConn, channel)
+	netrelay.Relay(ctx, localConn, channel, netrelay.Options{Logger: log.NewEntry(log.StandardLogger())})
 }
 
 // tcpipForwardMsg represents the structure for tcpip-forward requests

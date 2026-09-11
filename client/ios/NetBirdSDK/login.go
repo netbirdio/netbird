@@ -11,6 +11,8 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/mdm"
+	"github.com/netbirdio/netbird/client/mobile"
 	"github.com/netbirdio/netbird/client/system"
 )
 
@@ -36,39 +38,82 @@ type URLOpener interface {
 // Auth can register or login new client
 type Auth struct {
 	ctx     context.Context
+	cancel  context.CancelFunc
 	config  *profilemanager.Config
+	base    *profilemanager.Config
+	policy  *mdm.Policy
 	cfgPath string
 }
 
-// NewAuth instantiate Auth struct and validate the management URL
-func NewAuth(cfgPath string, mgmURL string) (*Auth, error) {
-	inputCfg := profilemanager.ConfigInput{
-		ManagementURL: mgmURL,
+// NewAuth instantiate Auth struct and validate the management URL.
+// Auth is constructed under the active MDM policy: the policy is overlaid on
+// the resolved config so the login runs against the enforced values, while
+// the persisted config keeps the caller-supplied ones; a caller-supplied
+// management URL is ignored while MDM manages that key. A nil fetcher
+// disables MDM enforcement.
+func NewAuth(cfgPath string, mgmURL string, fetcher PolicyFetcher) (*Auth, error) {
+	policy := loaderFor(fetcher).Load()
+	inputCfg := profilemanager.ConfigInput{ConfigPath: cfgPath}
+	if _, managed := policy.GetString(mdm.KeyManagementURL); !managed {
+		inputCfg.ManagementURL = mgmURL
 	}
 
-	cfg, err := profilemanager.CreateInMemoryConfig(inputCfg)
+	// Load the existing config when a config file is already present so an
+	// interactive re-login reuses the peer's persisted WireGuard private key
+	// (and thus its identity) instead of generating a fresh one. Generating a
+	// new key registers a brand-new peer on the management server on every
+	// re-auth (named after the fallback hostname). Only fall back to a fresh
+	// in-memory config for the first-time login when no config file exists yet.
+	// DirectUpdateOrCreateConfig uses non-atomic writes so it also works inside
+	// the tvOS App Group sandbox where atomic temp-file+rename is blocked.
+	var cfg *profilemanager.Config
+	var err error
+	if cfgPath != "" {
+		cfg, err = profilemanager.DirectUpdateOrCreateConfig(inputCfg)
+	} else {
+		cfg, err = profilemanager.CreateInMemoryConfig(inputCfg)
+	}
 	if err != nil {
 		return nil, err
 	}
+	a := &Auth{policy: policy, cfgPath: cfgPath}
+	if err := a.setBaseConfig(cfg); err != nil {
+		return nil, err
+	}
 
-	return &Auth{
-		ctx:     context.Background(),
-		config:  cfg,
-		cfgPath: cfgPath,
-	}, nil
+	// Use a cancellable context so Stop() can abort an in-progress interactive
+	// login. The PKCE flow's WaitToken blocks (and keeps its loopback HTTP server
+	// bound to a port) until the OAuth callback arrives or the flow expires;
+	// cancelling the context unblocks WaitToken, which then shuts that server down
+	// and frees the port for the next login attempt. iOS runs login in the main-app
+	// process (decoupled from the network extension), so without this the server
+	// lingers after the user dismisses the browser and the next connect stalls
+	// trying to bind the same port.
+	a.ctx, a.cancel = context.WithCancel(context.Background())
+	return a, nil
 }
 
 // NewAuthWithConfig instantiate Auth based on existing config
 func NewAuthWithConfig(ctx context.Context, config *profilemanager.Config) *Auth {
+	ctx, cancel := context.WithCancel(ctx)
 	return &Auth{
 		ctx:    ctx,
+		cancel: cancel,
 		config: config,
 	}
 }
 
-// SaveConfigIfSSOSupported test the connectivity with the management server by retrieving the server device flow info.
-// If it returns a flow info than save the configuration and return true. If it gets a codes.NotFound, it means that SSO
-// is not supported and returns false without saving the configuration. For other errors return false.
+// Stop aborts an in-progress interactive login started via Login/LoginWithDeviceName.
+// It cancels the auth context, which unblocks the PKCE WaitToken and shuts down its
+// loopback HTTP server, freeing the redirect port. Safe to call multiple times and
+// safe to call when no login is running.
+func (a *Auth) Stop() {
+	if a.cancel != nil {
+		a.cancel()
+	}
+}
+
+// SaveConfigIfSSOSupported reports whether the management server supports SSO; the config is already persisted by NewAuth.
 func (a *Auth) SaveConfigIfSSOSupported(listener SSOListener) {
 	if listener == nil {
 		log.Errorf("SaveConfigIfSSOSupported: listener is nil")
@@ -96,17 +141,10 @@ func (a *Auth) saveConfigIfSSOSupported() (bool, error) {
 		return false, fmt.Errorf("failed to check SSO support: %v", err)
 	}
 
-	if !supportsSSO {
-		return false, nil
-	}
-
-	// Use DirectWriteOutConfig to avoid atomic file operations (temp file + rename)
-	// which are blocked by the tvOS sandbox in App Group containers
-	err = profilemanager.DirectWriteOutConfig(a.cfgPath, a.config)
-	return true, err
+	return supportsSSO, nil
 }
 
-// LoginWithSetupKeyAndSaveConfig test the connectivity with the management server with the setup key.
+// LoginWithSetupKeyAndSaveConfig registers the peer with the setup key; the config is already persisted by NewAuth.
 func (a *Auth) LoginWithSetupKeyAndSaveConfig(resultListener ErrListener, setupKey string, deviceName string) {
 	if resultListener == nil {
 		log.Errorf("LoginWithSetupKeyAndSaveConfig: resultListener is nil")
@@ -135,10 +173,7 @@ func (a *Auth) loginWithSetupKeyAndSaveConfig(setupKey string, deviceName string
 	if err != nil {
 		return fmt.Errorf("login failed: %v", err)
 	}
-
-	// Use DirectWriteOutConfig to avoid atomic file operations (temp file + rename)
-	// which are blocked by the tvOS sandbox in App Group containers
-	return profilemanager.DirectWriteOutConfig(a.cfgPath, a.config)
+	return nil
 }
 
 // LoginSync performs a synchronous login check without UI interaction
@@ -183,17 +218,36 @@ func (a *Auth) Login(resultListener ErrListener, urlOpener URLOpener, forceDevic
 // LoginWithDeviceName performs interactive login with device authentication support
 // The deviceName parameter allows specifying a custom device name (required for tvOS)
 func (a *Auth) LoginWithDeviceName(resultListener ErrListener, urlOpener URLOpener, forceDeviceAuth bool, deviceName string) {
+	a.startLogin(resultListener, urlOpener, forceDeviceAuth, deviceName, false)
+}
+
+// LoginInteractive performs the same interactive login as LoginWithDeviceName but skips the
+// IsLoginRequired() pre-flight and goes straight to the browser / device-code flow.
+//
+// IsLoginRequired() is itself a full Login RPC against the management server, so when the
+// caller has ALREADY established that login is required it is a pure duplicate. On iOS the
+// main app decides to show the browser based on its own isLoginRequired() check and then
+// calls straight into this method, so re-asking the server would add another Login RPC to
+// every interactive login.
+//
+// Use LoginWithDeviceName when the auth state is unknown and a silent (browser-less) login
+// must still be possible; use this when the browser is going to be shown regardless.
+func (a *Auth) LoginInteractive(resultListener ErrListener, urlOpener URLOpener, forceDeviceAuth bool, deviceName string) {
+	a.startLogin(resultListener, urlOpener, forceDeviceAuth, deviceName, true)
+}
+
+func (a *Auth) startLogin(resultListener ErrListener, urlOpener URLOpener, forceDeviceAuth bool, deviceName string, skipLoginCheck bool) {
 	if resultListener == nil {
-		log.Errorf("LoginWithDeviceName: resultListener is nil")
+		log.Errorf("startLogin: resultListener is nil")
 		return
 	}
 	if urlOpener == nil {
-		log.Errorf("LoginWithDeviceName: urlOpener is nil")
+		log.Errorf("startLogin: urlOpener is nil")
 		resultListener.OnError(fmt.Errorf("urlOpener is nil"))
 		return
 	}
 	go func() {
-		err := a.login(urlOpener, forceDeviceAuth, deviceName)
+		err := a.login(urlOpener, forceDeviceAuth, deviceName, skipLoginCheck)
 		if err != nil {
 			resultListener.OnError(err)
 		} else {
@@ -202,7 +256,7 @@ func (a *Auth) LoginWithDeviceName(resultListener ErrListener, urlOpener URLOpen
 	}()
 }
 
-func (a *Auth) login(urlOpener URLOpener, forceDeviceAuth bool, deviceName string) error {
+func (a *Auth) login(urlOpener URLOpener, forceDeviceAuth bool, deviceName string, skipLoginCheck bool) error {
 	// Create context with device name if provided
 	ctx := a.ctx
 	if deviceName != "" {
@@ -216,19 +270,24 @@ func (a *Auth) login(urlOpener URLOpener, forceDeviceAuth bool, deviceName strin
 	}
 	defer authClient.Close()
 
-	// check if we need to generate JWT token
-	needsLogin, err := authClient.IsLoginRequired(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to check login requirement: %v", err)
+	// check if we need to generate JWT token (skipped when the caller already knows)
+	needsLogin := true
+	if !skipLoginCheck {
+		needsLogin, err = authClient.IsLoginRequired(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to check login requirement: %v", err)
+		}
 	}
 
 	jwtToken := ""
+	email := ""
 	if needsLogin {
 		tokenInfo, err := a.foregroundGetTokenInfo(authClient, urlOpener, forceDeviceAuth)
 		if err != nil {
 			return fmt.Errorf("interactive sso login failed: %v", err)
 		}
 		jwtToken = tokenInfo.GetTokenToUse()
+		email = tokenInfo.Email
 	}
 
 	err, isAuthError := authClient.Login(ctx, "", jwtToken)
@@ -240,16 +299,11 @@ func (a *Auth) login(urlOpener URLOpener, forceDeviceAuth bool, deviceName strin
 		return fmt.Errorf("login failed: %v", err)
 	}
 
-	// Save the config before notifying success to ensure persistence completes
-	// before the callback potentially triggers teardown on the Swift side.
-	// Note: This differs from Android which doesn't save config after login.
-	// On iOS/tvOS, we save here because:
-	// 1. The config may have been modified during login (e.g., new tokens)
-	// 2. On tvOS, the Network Extension context may be the only place with
-	//    write permissions to the App Group container
-	if a.cfgPath != "" {
-		if err := profilemanager.DirectWriteOutConfig(a.cfgPath, a.config); err != nil {
-			log.Warnf("failed to save config after login: %v", err)
+	// Stored after Login, not before: a rejected token must not leave a hint
+	// pointing at an account that cannot be used.
+	if email != "" && a.cfgPath != "" {
+		if err := mobile.WriteProfileEmail(a.cfgPath, email); err != nil {
+			log.Warnf("failed to store profile account email: %v", err)
 		}
 	}
 
@@ -259,10 +313,24 @@ func (a *Auth) login(urlOpener URLOpener, forceDeviceAuth bool, deviceName strin
 	return nil
 }
 
+// profileLoginHint returns the stored account email for the profile at cfgPath,
+// so a re-login targets the account the profile already belongs to instead of
+// whatever session the shared browser cookie jar happens to hold.
+//
+// An empty hint is deliberate, not a fallback: a fresh profile leaves the
+// choice to the IdP. Switching accounts is done by switching or removing
+// profiles, not by logging out — logout keeps the email.
+func profileLoginHint(cfgPath string) string {
+	if cfgPath == "" {
+		return ""
+	}
+	return mobile.ReadProfileEmail(cfgPath)
+}
+
 const authInfoRequestTimeout = 30 * time.Second
 
 func (a *Auth) foregroundGetTokenInfo(authClient *auth.Auth, urlOpener URLOpener, forceDeviceAuth bool) (*auth.TokenInfo, error) {
-	oAuthFlow, err := authClient.GetOAuthFlow(a.ctx, forceDeviceAuth)
+	oAuthFlow, err := authClient.GetOAuthFlow(a.ctx, forceDeviceAuth, profileLoginHint(a.cfgPath))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get OAuth flow: %v", err)
 	}
@@ -289,23 +357,44 @@ func (a *Auth) foregroundGetTokenInfo(authClient *auth.Auth, urlOpener URLOpener
 	return &tokenInfo, nil
 }
 
-// GetConfigJSON returns the current config as a JSON string.
-// This can be used by the caller to persist the config via alternative storage
-// mechanisms (e.g., UserDefaults on tvOS where file writes are blocked).
+// GetConfigJSON returns the config without the MDM overlay as JSON, for persisting it outside the config file (tvOS).
 func (a *Auth) GetConfigJSON() (string, error) {
-	if a.config == nil {
+	cfg := a.base
+	if cfg == nil {
+		cfg = a.config
+	}
+	if cfg == nil {
 		return "", fmt.Errorf("no config available")
 	}
-	return profilemanager.ConfigToJSON(a.config)
+	return profilemanager.ConfigToJSON(cfg)
 }
 
-// SetConfigFromJSON loads config from a JSON string.
-// This can be used to restore config from alternative storage mechanisms.
+// SetConfigFromJSON replaces the config from JSON; the MDM overlay is applied on top for the login.
 func (a *Auth) SetConfigFromJSON(jsonStr string) error {
 	cfg, err := profilemanager.ConfigFromJSON(jsonStr)
 	if err != nil {
 		return err
 	}
-	a.config = cfg
+	return a.setBaseConfig(cfg)
+}
+
+func (a *Auth) setBaseConfig(base *profilemanager.Config) error {
+	overlaid, err := copyConfig(base)
+	if err != nil {
+		return err
+	}
+	if a.policy != nil {
+		overlaid.ApplyMDMPolicy(a.policy)
+	}
+	a.base = base
+	a.config = overlaid
 	return nil
+}
+
+func copyConfig(cfg *profilemanager.Config) (*profilemanager.Config, error) {
+	raw, err := profilemanager.ConfigToJSON(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return profilemanager.ConfigFromJSON(raw)
 }

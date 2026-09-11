@@ -19,8 +19,6 @@ import (
 
 const (
 	latestVersion = "latest"
-	// this version will be ignored
-	developmentVersion = "development"
 )
 
 var errNoUpdateState = errors.New("no update state found")
@@ -437,7 +435,7 @@ func (m *Manager) install(ctx context.Context, pendingVersion *v.Version) error 
 	}
 
 	inst := installer.New()
-	if err := inst.RunInstallation(ctx, pendingVersion.String()); err != nil {
+	if err := inst.RunInstallation(ctx, pendingVersion.String()); err != nil { //nolint:staticcheck // always errors on platforms without an installer
 		log.Errorf("error triggering update: %v", err)
 		m.statusRecorder.PublishEvent(
 			cProto.SystemEvent_ERROR,
@@ -483,7 +481,7 @@ func (m *Manager) loadAndDeleteUpdateState(ctx context.Context) (*UpdateState, e
 }
 
 func (m *Manager) shouldUpdate(updateVersion *v.Version, forceUpdate bool) bool {
-	if m.currentVersion == developmentVersion {
+	if version.IsDevelopmentVersion(m.currentVersion) {
 		log.Debugf("skipping auto-update, running development version")
 		return false
 	}

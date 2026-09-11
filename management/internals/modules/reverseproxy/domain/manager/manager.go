@@ -2,22 +2,28 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
 
+	agentnetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbstore "github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 type store interface {
 	GetAccount(ctx context.Context, accountID string) (*types.Account, error)
+	GetAgentNetworkSettings(ctx context.Context, lockStrength nbstore.LockingStrength, accountID string) (*agentnetworkTypes.Settings, error)
 
 	GetCustomDomain(ctx context.Context, accountID string, domainID string) (*domain.Domain, error)
+	GetCustomDomainByName(ctx context.Context, domainName string) (*domain.Domain, error)
 	ListFreeDomains(ctx context.Context, accountID string) ([]string, error)
 	ListCustomDomains(ctx context.Context, accountID string) ([]*domain.Domain, error)
 	CreateCustomDomain(ctx context.Context, accountID string, domainName string, targetCluster string, validated bool) (*domain.Domain, error)
@@ -27,9 +33,11 @@ type store interface {
 
 type proxyManager interface {
 	GetActiveClusterAddresses(ctx context.Context) ([]string, error)
+	GetActiveClusterAddressesForAccount(ctx context.Context, accountID string) ([]string, error)
 	ClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool
 	ClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
 	ClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
+	ClusterSupportsPrivate(ctx context.Context, clusterAddr string) *bool
 }
 
 type Manager struct {
@@ -57,8 +65,8 @@ func (m Manager) GetDomains(ctx context.Context, accountID, userID string) ([]*d
 	var ret []*domain.Domain
 
 	// Add connected proxy clusters as free domains.
-	// The cluster address itself is the free domain base (e.g., "eu.proxy.netbird.io").
-	allowList, err := m.proxyManager.GetActiveClusterAddresses(ctx)
+	// For BYOP accounts, only their own cluster is returned; otherwise shared clusters.
+	allowList, err := m.getClusterAllowList(ctx, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get active proxy cluster addresses: %v", err)
 		return nil, err
@@ -78,6 +86,7 @@ func (m Manager) GetDomains(ctx context.Context, accountID, userID string) ([]*d
 		d.SupportsCustomPorts = m.proxyManager.ClusterSupportsCustomPorts(ctx, cluster)
 		d.RequireSubdomain = m.proxyManager.ClusterRequireSubdomain(ctx, cluster)
 		d.SupportsCrowdSec = m.proxyManager.ClusterSupportsCrowdSec(ctx, cluster)
+		d.SupportsPrivate = m.proxyManager.ClusterSupportsPrivate(ctx, cluster)
 		ret = append(ret, d)
 	}
 
@@ -94,6 +103,7 @@ func (m Manager) GetDomains(ctx context.Context, accountID, userID string) ([]*d
 		if d.TargetCluster != "" {
 			cd.SupportsCustomPorts = m.proxyManager.ClusterSupportsCustomPorts(ctx, d.TargetCluster)
 			cd.SupportsCrowdSec = m.proxyManager.ClusterSupportsCrowdSec(ctx, d.TargetCluster)
+			cd.SupportsPrivate = m.proxyManager.ClusterSupportsPrivate(ctx, d.TargetCluster)
 		}
 		// Custom domains never require a subdomain by default since
 		// the account owns them and should be able to use the bare domain.
@@ -104,8 +114,8 @@ func (m Manager) GetDomains(ctx context.Context, accountID, userID string) ([]*d
 }
 
 func (m Manager) CreateDomain(ctx context.Context, accountID, userID, domainName, targetCluster string) (*domain.Domain, error) {
-	// Verify the target cluster is in the available clusters
-	allowList, err := m.proxyManager.GetActiveClusterAddresses(ctx)
+	// Verify the target cluster is in the available clusters for this account
+	allowList, err := m.getClusterAllowList(ctx, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get active proxy cluster addresses: %w", err)
 	}
@@ -118,6 +128,10 @@ func (m Manager) CreateDomain(ctx context.Context, accountID, userID, domainName
 	}
 	if !clusterValid {
 		return nil, fmt.Errorf("target cluster %s is not available", targetCluster)
+	}
+
+	if err := m.checkDomainAvailable(ctx, domainName); err != nil {
+		return nil, err
 	}
 
 	// Attempt an initial validation against the specified cluster only
@@ -134,6 +148,23 @@ func (m Manager) CreateDomain(ctx context.Context, accountID, userID, domainName
 	m.accountManager.StoreEvent(ctx, userID, d.ID, accountID, activity.DomainAdded, d.EventMeta())
 
 	return d, nil
+}
+
+// checkDomainAvailable reports whether the domain is free to claim. The unique
+// index on the column is the real guard; this turns the violation into a
+// conflict the caller can act on instead of a database error, and says nothing
+// about which account holds the domain.
+func (m Manager) checkDomainAvailable(ctx context.Context, domainName string) error {
+	_, err := m.store.GetCustomDomainByName(ctx, domainName)
+	if err == nil {
+		return status.Errorf(status.AlreadyExists, "domain %s is already registered", domainName)
+	}
+
+	if sErr, ok := status.FromError(err); ok && sErr.Type() == status.NotFound {
+		return nil
+	}
+
+	return fmt.Errorf("look up domain: %w", err)
 }
 
 func (m Manager) DeleteDomain(ctx context.Context, accountID, userID, domainID string) error {
@@ -228,7 +259,7 @@ func (m Manager) GetClusterDomains() []string {
 // For free domains (those ending with a known cluster suffix), the cluster is extracted from the domain.
 // For custom domains, the cluster is determined by checking the registered custom domain's target cluster.
 func (m Manager) DeriveClusterFromDomain(ctx context.Context, accountID, domain string) (string, error) {
-	allowList, err := m.proxyManager.GetActiveClusterAddresses(ctx)
+	allowList, err := m.getClusterAllowList(ctx, accountID)
 	if err != nil {
 		return "", fmt.Errorf("failed to get active proxy cluster addresses: %w", err)
 	}
@@ -245,19 +276,98 @@ func (m Manager) DeriveClusterFromDomain(ctx context.Context, accountID, domain 
 		return "", fmt.Errorf("list custom domains: %w", err)
 	}
 
-	targetCluster, valid := extractClusterFromCustomDomains(domain, customDomains)
-	if valid {
+	targetCluster, match := extractClusterFromCustomDomains(domain, customDomains)
+	switch match {
+	case customDomainValidated:
 		return targetCluster, nil
+	case customDomainUnvalidated:
+		return "", status.Errorf(status.PreconditionFailed, "domain %s is not validated", domain)
 	}
 
 	return "", fmt.Errorf("domain %s does not match any available proxy cluster", domain)
 }
 
-func extractClusterFromCustomDomains(serviceDomain string, customDomains []*domain.Domain) (string, bool) {
+func (m Manager) getClusterAllowList(ctx context.Context, accountID string) ([]string, error) {
+	byopAddresses, err := m.proxyManager.GetActiveClusterAddressesForAccount(ctx, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("get BYOP cluster addresses: %w", err)
+	}
+	publicAddresses, err := m.proxyManager.GetActiveClusterAddresses(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get public cluster addresses: %w", err)
+	}
+	reserved, err := m.reservedGatewayAddress(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]struct{}, len(byopAddresses)+len(publicAddresses))
+	merged := make([]string, 0, len(byopAddresses)+len(publicAddresses))
+	for _, addr := range byopAddresses {
+		if _, ok := seen[addr]; ok || addr == reserved {
+			continue
+		}
+		seen[addr] = struct{}{}
+		merged = append(merged, addr)
+	}
+	for _, addr := range publicAddresses {
+		if _, ok := seen[addr]; ok || addr == reserved {
+			continue
+		}
+		seen[addr] = struct{}{}
+		merged = append(merged, addr)
+	}
+	return merged, nil
+}
+
+// reservedGatewayAddress returns the account's agent-network gateway address
+// when its settings pin is self-addressed — a proxy dedicated to serving
+// exactly the gateway. Dropping that address from the cluster allow list keeps
+// it from being offered as a cluster for ordinary services, and because the
+// free-domain suffix match is depth-independent, dropping the address rejects
+// every name beneath it as well as the bare one. Only the account's own
+// gateway address can ever appear in its allow list (another tenant's gateway
+// proxy is account-scoped to them), so this single-address exclusion is
+// sufficient. Returns "" when the account has no settings row or a labeled
+// (shared-cluster) pin.
+func (m Manager) reservedGatewayAddress(ctx context.Context, accountID string) (string, error) {
+	settings, err := m.store.GetAgentNetworkSettings(ctx, nbstore.LockingStrengthNone, accountID)
+	if err != nil {
+		var sErr *status.Error
+		if errors.As(err, &sErr) && sErr.Type() == status.NotFound {
+			return "", nil
+		}
+		return "", fmt.Errorf("get agent network settings: %w", err)
+	}
+	if settings == nil || !settings.Dedicated() {
+		return "", nil
+	}
+	return settings.ProxyAddress, nil
+}
+
+// customDomainMatch describes how a service domain relates to the account's
+// custom domain rows.
+type customDomainMatch int
+
+const (
+	customDomainNoMatch customDomainMatch = iota
+	customDomainUnvalidated
+	customDomainValidated
+)
+
+// extractClusterFromCustomDomains finds the longest custom domain covering the
+// service domain and reports its target cluster. Only a validated row yields a
+// cluster: until the CNAME check has passed the account has not shown it
+// controls the name, so no traffic may be routed for it.
+func extractClusterFromCustomDomains(serviceDomain string, customDomains []*domain.Domain) (string, customDomainMatch) {
 	bestCluster := ""
 	bestLen := -1
+	matched := false
 	for _, cd := range customDomains {
 		if serviceDomain != cd.Domain && !strings.HasSuffix(serviceDomain, "."+cd.Domain) {
+			continue
+		}
+		matched = true
+		if !cd.Validated {
 			continue
 		}
 		if l := len(cd.Domain); l > bestLen {
@@ -265,7 +375,15 @@ func extractClusterFromCustomDomains(serviceDomain string, customDomains []*doma
 			bestCluster = cd.TargetCluster
 		}
 	}
-	return bestCluster, bestLen >= 0
+
+	switch {
+	case bestLen >= 0:
+		return bestCluster, customDomainValidated
+	case matched:
+		return "", customDomainUnvalidated
+	default:
+		return "", customDomainNoMatch
+	}
 }
 
 // ExtractClusterFromFreeDomain extracts the cluster address from a free domain.

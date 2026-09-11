@@ -8,7 +8,6 @@ import (
 	"sort"
 	"strings"
 
-	"golang.org/x/exp/maps"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
@@ -18,10 +17,11 @@ import (
 )
 
 type selectRoute struct {
-	NetID    route.NetID
-	Network  netip.Prefix
-	Domains  domain.List
-	Selected bool
+	NetID         route.NetID
+	Network       netip.Prefix
+	Domains       domain.List
+	Selected      bool
+	extraNetworks []netip.Prefix
 }
 
 // ListNetworks returns a list of all available networks.
@@ -29,7 +29,7 @@ func (s *Server) ListNetworks(context.Context, *proto.ListNetworksRequest) (*pro
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	if s.networksDisabled {
+	if s.checkNetworksDisabled() {
 		return nil, gstatus.Errorf(codes.Unavailable, errNetworksDisabled)
 	}
 
@@ -50,18 +50,32 @@ func (s *Server) ListNetworks(context.Context, *proto.ListNetworksRequest) (*pro
 	routesMap := routeMgr.GetClientRoutesWithNetID()
 	routeSelector := routeMgr.GetRouteSelector()
 
+	v6ExitMerged := route.V6ExitMergeSet(routesMap)
+
 	var routes []*selectRoute
 	for id, rt := range routesMap {
 		if len(rt) == 0 {
 			continue
 		}
-		route := &selectRoute{
+		// Skip v6 exit nodes that are merged into their v4 counterpart.
+		if _, ok := v6ExitMerged[id]; ok {
+			continue
+		}
+
+		r := &selectRoute{
 			NetID:    id,
 			Network:  rt[0].Network,
 			Domains:  rt[0].Domains,
 			Selected: routeSelector.IsSelected(id),
 		}
-		routes = append(routes, route)
+
+		// Merge paired v6 exit node prefix into this entry.
+		v6ID := route.NetID(string(id) + route.V6ExitSuffix)
+		if _, ok := v6ExitMerged[v6ID]; ok && len(routesMap[v6ID]) > 0 {
+			r.extraNetworks = []netip.Prefix{routesMap[v6ID][0].Network}
+		}
+
+		routes = append(routes, r)
 	}
 
 	sort.Slice(routes, func(i, j int) bool {
@@ -82,9 +96,13 @@ func (s *Server) ListNetworks(context.Context, *proto.ListNetworksRequest) (*pro
 	resolvedDomains := s.statusRecorder.GetResolvedDomainsStates()
 	var pbRoutes []*proto.Network
 	for _, route := range routes {
+		rangeStr := route.Network.String()
+		for _, extra := range route.extraNetworks {
+			rangeStr += ", " + extra.String()
+		}
 		pbRoute := &proto.Network{
 			ID:          string(route.NetID),
-			Range:       route.Network.String(),
+			Range:       rangeStr,
 			Domains:     route.Domains.ToSafeStringList(),
 			ResolvedIPs: map[string]*proto.IPList{},
 			Selected:    route.Selected,
@@ -124,7 +142,7 @@ func (s *Server) SelectNetworks(_ context.Context, req *proto.SelectNetworksRequ
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	if s.networksDisabled {
+	if s.checkNetworksDisabled() {
 		return nil, gstatus.Errorf(codes.Unavailable, errNetworksDisabled)
 	}
 
@@ -142,17 +160,11 @@ func (s *Server) SelectNetworks(_ context.Context, req *proto.SelectNetworksRequ
 		return nil, fmt.Errorf("no route manager")
 	}
 
-	routeSelector := routeManager.GetRouteSelector()
 	if req.GetAll() {
-		routeSelector.SelectAllRoutes()
-	} else {
-		routes := toNetIDs(req.GetNetworkIDs())
-		netIdRoutes := maps.Keys(routeManager.GetClientRoutesWithNetID())
-		if err := routeSelector.SelectRoutes(routes, req.GetAppend(), netIdRoutes); err != nil {
-			return nil, fmt.Errorf("select routes: %w", err)
-		}
+		routeManager.SelectAllRoutes()
+	} else if err := routeManager.SelectRoutes(toNetIDs(req.GetNetworkIDs()), req.GetAppend()); err != nil {
+		return nil, err
 	}
-	routeManager.TriggerSelection(routeManager.GetClientRoutes())
 
 	s.statusRecorder.PublishEvent(
 		proto.SystemEvent_INFO,
@@ -174,7 +186,7 @@ func (s *Server) DeselectNetworks(_ context.Context, req *proto.SelectNetworksRe
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	if s.networksDisabled {
+	if s.checkNetworksDisabled() {
 		return nil, gstatus.Errorf(codes.Unavailable, errNetworksDisabled)
 	}
 
@@ -192,17 +204,11 @@ func (s *Server) DeselectNetworks(_ context.Context, req *proto.SelectNetworksRe
 		return nil, fmt.Errorf("no route manager")
 	}
 
-	routeSelector := routeManager.GetRouteSelector()
 	if req.GetAll() {
-		routeSelector.DeselectAllRoutes()
-	} else {
-		routes := toNetIDs(req.GetNetworkIDs())
-		netIdRoutes := maps.Keys(routeManager.GetClientRoutesWithNetID())
-		if err := routeSelector.DeselectRoutes(routes, netIdRoutes); err != nil {
-			return nil, fmt.Errorf("deselect routes: %w", err)
-		}
+		routeManager.DeselectAllRoutes()
+	} else if err := routeManager.DeselectRoutes(toNetIDs(req.GetNetworkIDs())); err != nil {
+		return nil, err
 	}
-	routeManager.TriggerSelection(routeManager.GetClientRoutes())
 
 	s.statusRecorder.PublishEvent(
 		proto.SystemEvent_INFO,

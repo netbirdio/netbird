@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -158,6 +159,49 @@ func (c *Client) printClients(data map[string]any) {
 	for _, item := range clients {
 		c.printClientRow(item)
 	}
+
+	c.printInboundListeners(clients)
+}
+
+func (c *Client) printInboundListeners(clients []any) {
+	type row struct {
+		accountID string
+		tunnelIP  string
+		httpsPort int
+		httpPort  int
+	}
+	var rows []row
+	for _, item := range clients {
+		client, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		inbound, ok := client["inbound_listener"].(map[string]any)
+		if !ok {
+			continue
+		}
+		tunnelIP, _ := inbound["tunnel_ip"].(string)
+		httpsPort, _ := inbound["https_port"].(float64)
+		httpPort, _ := inbound["http_port"].(float64)
+		accountID, _ := client["account_id"].(string)
+		rows = append(rows, row{
+			accountID: accountID,
+			tunnelIP:  tunnelIP,
+			httpsPort: int(httpsPort),
+			httpPort:  int(httpPort),
+		})
+	}
+	if len(rows) == 0 {
+		return
+	}
+
+	_, _ = fmt.Fprintln(c.out)
+	_, _ = fmt.Fprintln(c.out, "Inbound listeners (per-account):")
+	_, _ = fmt.Fprintf(c.out, "  %-38s %-20s %-7s %s\n", "ACCOUNT ID", "TUNNEL IP", "HTTPS", "HTTP")
+	_, _ = fmt.Fprintln(c.out, "  "+strings.Repeat("-", 78))
+	for _, r := range rows {
+		_, _ = fmt.Fprintf(c.out, "  %-38s %-20s %-7d %d\n", r.accountID, r.tunnelIP, r.httpsPort, r.httpPort)
+	}
 }
 
 func (c *Client) printClientRow(item any) {
@@ -217,7 +261,14 @@ func (c *Client) ClientStatus(ctx context.Context, accountID string, filters Sta
 }
 
 func (c *Client) printClientStatus(data map[string]any) {
-	_, _ = fmt.Fprintf(c.out, "Account: %v\n\n", data["account_id"])
+	_, _ = fmt.Fprintf(c.out, "Account: %v\n", data["account_id"])
+	if inbound, ok := data["inbound_listener"].(map[string]any); ok {
+		tunnelIP, _ := inbound["tunnel_ip"].(string)
+		httpsPort, _ := inbound["https_port"].(float64)
+		httpPort, _ := inbound["http_port"].(float64)
+		_, _ = fmt.Fprintf(c.out, "Inbound listener: %s (https=%d, http=%d)\n", tunnelIP, int(httpsPort), int(httpPort))
+	}
+	_, _ = fmt.Fprintln(c.out)
 	if status, ok := data["status"].(string); ok {
 		_, _ = fmt.Fprint(c.out, status)
 	}
@@ -230,12 +281,16 @@ func (c *Client) ClientSyncResponse(ctx context.Context, accountID string) error
 }
 
 // PingTCP performs a TCP ping through a client.
-func (c *Client) PingTCP(ctx context.Context, accountID, host string, port int, timeout string) error {
+// ipVersion may be "4", "6", or "" for automatic.
+func (c *Client) PingTCP(ctx context.Context, accountID, host string, port int, timeout time.Duration, ipVersion string) error {
 	params := url.Values{}
 	params.Set("host", host)
 	params.Set("port", fmt.Sprintf("%d", port))
-	if timeout != "" {
-		params.Set("timeout", timeout)
+	if timeout > 0 {
+		params.Set("timeout", timeout.String())
+	}
+	if ipVersion != "" {
+		params.Set("ip_version", ipVersion)
 	}
 
 	path := fmt.Sprintf("/debug/clients/%s/pingtcp?%s", url.PathEscape(accountID), params.Encode())
@@ -244,11 +299,17 @@ func (c *Client) PingTCP(ctx context.Context, accountID, host string, port int, 
 
 func (c *Client) printPingResult(data map[string]any) {
 	success, _ := data["success"].(bool)
+	host := net.JoinHostPort(fmt.Sprint(data["host"]), fmt.Sprint(data["port"]))
 	if success {
-		_, _ = fmt.Fprintf(c.out, "Success: %v:%v\n", data["host"], data["port"])
+		remote, _ := data["remote"].(string)
+		if remote != "" && remote != host {
+			_, _ = fmt.Fprintf(c.out, "Success: %s (via %s)\n", host, remote)
+		} else {
+			_, _ = fmt.Fprintf(c.out, "Success: %s\n", host)
+		}
 		_, _ = fmt.Fprintf(c.out, "Latency: %v\n", data["latency"])
 	} else {
-		_, _ = fmt.Fprintf(c.out, "Failed: %v:%v\n", data["host"], data["port"])
+		_, _ = fmt.Fprintf(c.out, "Failed: %s\n", host)
 		c.printError(data)
 	}
 }
@@ -270,6 +331,63 @@ func (c *Client) printLogLevelResult(data map[string]any) {
 		_, _ = fmt.Fprintln(c.out, "Failed to set log level")
 		c.printError(data)
 	}
+}
+
+// PerfSet live-retunes the tunnel buffer pool cap on all running embedded
+// clients. Batch size is not live-tunable; configure it at proxy startup.
+func (c *Client) PerfSet(ctx context.Context, value uint32) error {
+	path := fmt.Sprintf("/debug/perf?value=%d", value)
+	return c.fetchAndPrint(ctx, path, c.printPerfSet)
+}
+
+func (c *Client) printPerfSet(data map[string]any) {
+	if errMsg, ok := data["error"].(string); ok && errMsg != "" {
+		c.printError(data)
+		return
+	}
+	val, _ := data["value"].(float64)
+	applied, _ := data["applied"].(float64)
+	_, _ = fmt.Fprintf(c.out, "Pool cap set to: %d\n", uint32(val))
+	_, _ = fmt.Fprintf(c.out, "Applied to %d live clients\n", int(applied))
+	if failed, ok := data["failed"].(map[string]any); ok && len(failed) > 0 {
+		_, _ = fmt.Fprintln(c.out, "Failed:")
+		for k, v := range failed {
+			_, _ = fmt.Fprintf(c.out, "  %s: %v\n", k, v)
+		}
+	}
+}
+
+// Runtime fetches runtime stats (heap, goroutines, RSS).
+func (c *Client) Runtime(ctx context.Context) error {
+	return c.fetchAndPrint(ctx, "/debug/runtime", c.printRuntime)
+}
+
+func (c *Client) printRuntime(data map[string]any) {
+	i := func(k string) uint64 {
+		v, _ := data[k].(float64)
+		return uint64(v)
+	}
+	mb := func(n uint64) string { return fmt.Sprintf("%.1f MB", float64(n)/(1<<20)) }
+
+	_, _ = fmt.Fprintf(c.out, "Uptime:       %v\n", data["uptime"])
+	_, _ = fmt.Fprintf(c.out, "Go:           %v on %d CPU (GOMAXPROCS=%d)\n", data["go_version"], uint32(i("num_cpu")), uint32(i("gomaxprocs")))
+	_, _ = fmt.Fprintf(c.out, "Goroutines:   %d\n", i("goroutines"))
+	_, _ = fmt.Fprintf(c.out, "Live objects: %d\n", i("live_objects"))
+	_, _ = fmt.Fprintf(c.out, "GC:           %d cycles, %v pause total\n", i("num_gc"), time.Duration(i("pause_total_ns")))
+	_, _ = fmt.Fprintln(c.out, "Heap:")
+	_, _ = fmt.Fprintf(c.out, "  alloc:      %s\n", mb(i("heap_alloc")))
+	_, _ = fmt.Fprintf(c.out, "  in-use:     %s\n", mb(i("heap_inuse")))
+	_, _ = fmt.Fprintf(c.out, "  idle:       %s\n", mb(i("heap_idle")))
+	_, _ = fmt.Fprintf(c.out, "  released:   %s\n", mb(i("heap_released")))
+	_, _ = fmt.Fprintf(c.out, "  sys:        %s\n", mb(i("heap_sys")))
+	_, _ = fmt.Fprintf(c.out, "Total sys:    %s\n", mb(i("sys")))
+	if _, ok := data["vm_rss"]; ok {
+		_, _ = fmt.Fprintln(c.out, "Process:")
+		_, _ = fmt.Fprintf(c.out, "  VmRSS:      %s\n", mb(i("vm_rss")))
+		_, _ = fmt.Fprintf(c.out, "  VmSize:     %s\n", mb(i("vm_size")))
+		_, _ = fmt.Fprintf(c.out, "  VmData:     %s\n", mb(i("vm_data")))
+	}
+	_, _ = fmt.Fprintf(c.out, "Clients:      %d (%d started)\n", i("clients"), i("started"))
 }
 
 // StartClient starts a specific client.
@@ -308,6 +426,76 @@ func (c *Client) printError(data map[string]any) {
 	if errMsg, ok := data["error"].(string); ok {
 		_, _ = fmt.Fprintf(c.out, "Error: %s\n", errMsg)
 	}
+}
+
+// CaptureOptions configures a capture request.
+type CaptureOptions struct {
+	AccountID  string
+	Duration   string
+	FilterExpr string
+	Text       bool
+	Verbose    bool
+	ASCII      bool
+	Output     io.Writer
+}
+
+// Capture streams a packet capture from the debug endpoint. The response body
+// (pcap or text) is written directly to opts.Output until the server closes the
+// connection or the context is cancelled.
+func (c *Client) Capture(ctx context.Context, opts CaptureOptions) error {
+	if opts.AccountID == "" {
+		return fmt.Errorf("account ID is required")
+	}
+	if opts.Output == nil {
+		return fmt.Errorf("output writer is required")
+	}
+
+	params := url.Values{}
+	if opts.Duration != "" {
+		params.Set("duration", opts.Duration)
+	}
+	if opts.FilterExpr != "" {
+		params.Set("filter", opts.FilterExpr)
+	}
+	if opts.Text {
+		params.Set("format", "text")
+	}
+	if opts.Verbose {
+		params.Set("verbose", "true")
+	}
+	if opts.ASCII {
+		params.Set("ascii", "true")
+	}
+
+	path := fmt.Sprintf("/debug/clients/%s/capture", url.PathEscape(opts.AccountID))
+	if len(params) > 0 {
+		path += "?" + params.Encode()
+	}
+
+	fullURL := c.baseURL + path
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+
+	// Use a separate client without timeout since captures stream for their full duration.
+	httpClient := &http.Client{}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("server error (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	_, err = io.Copy(opts.Output, resp.Body)
+	if err != nil && ctx.Err() != nil {
+		return nil
+	}
+	return err
 }
 
 func (c *Client) fetchAndPrint(ctx context.Context, path string, printer func(map[string]any)) error {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/affectedpeers"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
 	"github.com/netbirdio/netbird/management/server/networks/routers"
 	"github.com/netbirdio/netbird/management/server/networks/types"
@@ -48,9 +49,16 @@ func (m *managerImpl) GetAllNetworks(ctx context.Context, accountID, userID stri
 func (m *managerImpl) CreateNetwork(ctx context.Context, userID string, network *types.Network) (*types.Network, error) {
 	network.ID = xid.New().String()
 
-	err := m.store.SaveNetwork(ctx, network)
+	err := m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		network.PublicID = xid.New().String()
+
+		if err := transaction.SaveNetwork(ctx, network); err != nil {
+			return fmt.Errorf("failed to save network: %w", err)
+		}
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to save network: %w", err)
+		return nil, err
 	}
 
 	m.accountManager.StoreEvent(ctx, userID, network.ID, network.AccountID, activity.NetworkCreated, network.EventMeta())
@@ -63,14 +71,25 @@ func (m *managerImpl) GetNetwork(ctx context.Context, accountID, userID, network
 }
 
 func (m *managerImpl) UpdateNetwork(ctx context.Context, userID string, network *types.Network) (*types.Network, error) {
-	_, err := m.store.GetNetworkByID(ctx, store.LockingStrengthUpdate, network.AccountID, network.ID)
+	err := m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		existing, err := transaction.GetNetworkByID(ctx, store.LockingStrengthUpdate, network.AccountID, network.ID)
+		if err != nil {
+			return fmt.Errorf("failed to get network: %w", err)
+		}
+		network.PublicID = existing.PublicID
+
+		if err := transaction.SaveNetwork(ctx, network); err != nil {
+			return fmt.Errorf("failed to save network: %w", err)
+		}
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get network: %w", err)
+		return nil, err
 	}
 
 	m.accountManager.StoreEvent(ctx, userID, network.ID, network.AccountID, activity.NetworkUpdated, network.EventMeta())
 
-	return network, m.store.SaveNetwork(ctx, network)
+	return network, nil
 }
 
 func (m *managerImpl) DeleteNetwork(ctx context.Context, accountID, userID, networkID string) error {
@@ -80,30 +99,39 @@ func (m *managerImpl) DeleteNetwork(ctx context.Context, accountID, userID, netw
 	}
 
 	var eventsToStore []func()
+	var snap *affectedpeers.Snapshot
+	change := affectedpeers.Change{Networks: []*types.Network{network}}
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		resources, err := transaction.GetNetworkResourcesByNetID(ctx, store.LockingStrengthUpdate, accountID, networkID)
 		if err != nil {
 			return fmt.Errorf("failed to get resources in network: %w", err)
 		}
 
-		for _, resource := range resources {
-			event, err := m.resourcesManager.DeleteResourceInTransaction(ctx, transaction, accountID, userID, networkID, resource.ID)
-			if err != nil {
-				return fmt.Errorf("failed to delete resource: %w", err)
-			}
-			eventsToStore = append(eventsToStore, event...)
-		}
-
-		routers, err := transaction.GetNetworkRoutersByNetID(ctx, store.LockingStrengthUpdate, accountID, networkID)
+		netRouters, err := transaction.GetNetworkRoutersByNetID(ctx, store.LockingStrengthUpdate, accountID, networkID)
 		if err != nil {
 			return fmt.Errorf("failed to get routers in network: %w", err)
 		}
 
-		for _, router := range routers {
-			event, err := m.routersManager.DeleteRouterInTransaction(ctx, transaction, accountID, userID, networkID, router.ID)
+		var lerr error
+		if snap, lerr = affectedpeers.Load(ctx, transaction, accountID, change); lerr != nil {
+			return lerr
+		}
+
+		for _, resource := range resources {
+			deleted, event, err := m.resourcesManager.DeleteResourceInTransaction(ctx, transaction, accountID, userID, networkID, resource.ID)
+			if err != nil {
+				return fmt.Errorf("failed to delete resource: %w", err)
+			}
+			change.Resources = append(change.Resources, deleted)
+			eventsToStore = append(eventsToStore, event...)
+		}
+
+		for _, router := range netRouters {
+			deleted, event, err := m.routersManager.DeleteRouterInTransaction(ctx, transaction, accountID, userID, networkID, router.ID)
 			if err != nil {
 				return fmt.Errorf("failed to delete router: %w", err)
 			}
+			change.Routers = append(change.Routers, deleted)
 			eventsToStore = append(eventsToStore, event)
 		}
 
@@ -131,7 +159,7 @@ func (m *managerImpl) DeleteNetwork(ctx context.Context, accountID, userID, netw
 		event()
 	}
 
-	go m.accountManager.UpdateAccountPeers(ctx, accountID)
+	m.accountManager.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return nil
 }
