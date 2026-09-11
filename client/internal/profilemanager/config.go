@@ -1009,7 +1009,7 @@ func SameServiceURL(a, b *url.URL) bool {
 		return a == b
 	}
 
-	return a.Scheme == b.Scheme &&
+	return strings.EqualFold(a.Scheme, b.Scheme) &&
 		strings.EqualFold(a.Hostname(), b.Hostname()) &&
 		util.ServiceURLPort(a) == util.ServiceURLPort(b)
 }
