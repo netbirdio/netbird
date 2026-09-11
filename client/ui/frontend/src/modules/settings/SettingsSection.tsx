@@ -16,7 +16,7 @@ export const SectionGroup = ({
         {...(disabled ? { inert: "" } : {})}
         className={cn(
             "mb-8 rounded-md px-1 outline-none last:mb-1",
-            "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
+            "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
             disabled && "pointer-events-none opacity-30",
         )}
     >
@@ -33,7 +33,7 @@ export const SettingsBottomBar = ({ children }: { children: ReactNode }) => (
         <div className={"absolute bottom-0 left-0 w-full"}>
             <div
                 className={
-                    "flex w-full justify-end gap-3 border-t border-nb-gray-920 bg-nb-gray-940 px-8 py-5"
+                    "flex w-full justify-end gap-3 border-t border-nb-gray-800 bg-nb-gray-940 px-8 py-5 dark:border-nb-gray-920"
                 }
             >
                 {children}
