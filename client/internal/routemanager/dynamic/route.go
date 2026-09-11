@@ -33,6 +33,11 @@ const (
 
 type domainMap map[domain.Domain][]netip.Prefix
 
+type allowedIPRef struct {
+	prefix  netip.Prefix
+	peerKey string
+}
+
 type resolveResult struct {
 	domain domain.Domain
 	prefix netip.Prefix
@@ -45,6 +50,8 @@ type Route struct {
 	allowedIPsRefcounter *refcounter.AllowedIPsRefCounter
 	interval             time.Duration
 	dynamicDomains       domainMap
+	allowedIPRefs        map[allowedIPRef]int
+	pendingAllowedIPRefs map[allowedIPRef]struct{}
 	mu                   sync.Mutex
 	currentPeerKey       string
 	cancel               context.CancelFunc
@@ -63,6 +70,8 @@ func NewRoute(params common.HandlerParams, resolverAddr netip.AddrPort) *Route {
 		wgInterface:          params.WgInterface,
 		resolverAddr:         resolverAddr,
 		dynamicDomains:       domainMap{},
+		allowedIPRefs:        map[allowedIPRef]int{},
+		pendingAllowedIPRefs: map[allowedIPRef]struct{}{},
 	}
 }
 
@@ -146,19 +155,17 @@ func (r *Route) RemoveAllowedIPs() error {
 	return r.releaseAllowedIPsLocked()
 }
 
-// releaseAllowedIPsLocked decrements the allowed IPs refcounter for every prefix in
-// dynamicDomains. The caller must hold r.mu. An empty currentPeerKey means they are
-// already released, so it is a no-op.
+// releaseAllowedIPsLocked releases every allowed IP reference owned by this route.
+// The caller must hold r.mu.
 func (r *Route) releaseAllowedIPsLocked() error {
-	if r.currentPeerKey == "" {
-		return nil
-	}
-
 	var merr *multierror.Error
-	for _, domainPrefixes := range r.dynamicDomains {
-		for _, prefix := range domainPrefixes {
-			if _, err := r.allowedIPsRefcounter.Decrement(prefix, r.currentPeerKey); err != nil {
-				merr = multierror.Append(merr, fmt.Errorf("remove allowed IP %s: %w", prefix, err))
+	if err := r.retryPendingAllowedIPsLocked(); err != nil {
+		merr = multierror.Append(merr, err)
+	}
+	for ref, count := range r.allowedIPRefs {
+		for range count {
+			if err := r.releaseAllowedIPLocked(ref); err != nil {
+				merr = multierror.Append(merr, fmt.Errorf("remove allowed IP %s: %w", ref.prefix, err))
 			}
 		}
 	}
@@ -168,6 +175,35 @@ func (r *Route) releaseAllowedIPsLocked() error {
 	}
 
 	r.currentPeerKey = ""
+	return nil
+}
+
+func (r *Route) retryPendingAllowedIPsLocked() error {
+	var merr *multierror.Error
+	for ref := range r.pendingAllowedIPRefs {
+		if _, err := r.allowedIPsRefcounter.Decrement(ref.prefix, ref.peerKey); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("remove allowed IP %s: %w", ref.prefix, err))
+			continue
+		}
+		delete(r.pendingAllowedIPRefs, ref)
+	}
+	return nberrors.FormatErrorOrNil(merr)
+}
+
+func (r *Route) releaseAllowedIPLocked(ref allowedIPRef) error {
+	if r.allowedIPRefs[ref] == 0 {
+		return nil
+	}
+
+	r.allowedIPRefs[ref]--
+	if r.allowedIPRefs[ref] == 0 {
+		delete(r.allowedIPRefs, ref)
+	}
+
+	if _, err := r.allowedIPsRefcounter.Decrement(ref.prefix, ref.peerKey); err != nil {
+		r.pendingAllowedIPRefs[ref] = struct{}{}
+		return err
+	}
 	return nil
 }
 
@@ -285,6 +321,9 @@ func (r *Route) updateDynamicRoutes(ctx context.Context, newDomains domainMap) e
 	}
 
 	var merr *multierror.Error
+	if err := r.retryPendingAllowedIPsLocked(); err != nil {
+		merr = multierror.Append(merr, err)
+	}
 
 	for domain, newPrefixes := range newDomains {
 		oldPrefixes := r.dynamicDomains[domain]
@@ -346,7 +385,8 @@ func (r *Route) removeRoutes(prefixes []netip.Prefix) ([]netip.Prefix, error) {
 			merr = multierror.Append(merr, fmt.Errorf("remove dynamic route for IP %s: %w", prefix, err))
 		}
 		if r.currentPeerKey != "" {
-			if _, err := r.allowedIPsRefcounter.Decrement(prefix, r.currentPeerKey); err != nil {
+			ref := allowedIPRef{prefix: prefix, peerKey: r.currentPeerKey}
+			if err := r.releaseAllowedIPLocked(ref); err != nil {
 				merr = multierror.Append(merr, fmt.Errorf("remove allowed IP %s: %w", prefix, err))
 			}
 		}
@@ -367,6 +407,9 @@ func (r *Route) incrementAllowedIP(domain domain.Domain, prefix netip.Prefix, pe
 		)
 
 	}
+	allowedRef := allowedIPRef{prefix: prefix, peerKey: peerKey}
+	r.allowedIPRefs[allowedRef]++
+	delete(r.pendingAllowedIPRefs, allowedRef)
 	return nil
 }
 
