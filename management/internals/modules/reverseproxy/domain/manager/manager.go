@@ -362,7 +362,11 @@ func (m Manager) ValidateServiceDomain(ctx context.Context, tx nbstore.Store, ac
 	if _, ok := ExtractClusterFromFreeDomain(serviceDomain, []string{cluster}); ok {
 		return nil
 	}
-	customDomains, err := tx.LockCustomDomains(ctx, accountID)
+	name, err := nbdomain.FromString(serviceDomain)
+	if err != nil {
+		return fmt.Errorf("parse service domain: %w", err)
+	}
+	customDomains, err := tx.LockCustomDomains(ctx, accountID, name)
 	if err != nil {
 		return err
 	}

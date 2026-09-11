@@ -4,19 +4,28 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
+	nbdomain "github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
-// LockCustomDomains locks an account's registrations until the caller's transaction ends.
-func (s *SqlStore) LockCustomDomains(ctx context.Context, accountID string) ([]*domain.Domain, error) {
+// LockCustomDomains holds shared locks on registrations covering a service until commit.
+func (s *SqlStore) LockCustomDomains(ctx context.Context, accountID string, serviceDomain nbdomain.Domain) ([]*domain.Domain, error) {
+	var names []string
+	for name := serviceDomain.PunycodeString(); name != ""; {
+		names = append(names, name)
+		_, name, _ = strings.Cut(name, ".")
+	}
+
 	var domains []*domain.Domain
-	if err := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(LockingStrengthUpdate)}).
-		Where(accountIDCondition, accountID).Order("id").Find(&domains).Error; err != nil {
+	if err := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: string(LockingStrengthShare)}).
+		Where(accountIDCondition, accountID).Where("domain IN ?", names).
+		Order("id").Find(&domains).Error; err != nil {
 		return nil, fmt.Errorf("lock custom domains: %w", err)
 	}
 	return domains, nil
@@ -26,8 +35,8 @@ func (s *SqlStore) LockCustomDomains(ctx context.Context, accountID string) ([]*
 func (s *SqlStore) DeleteCustomDomain(ctx context.Context, accountID string, domainID string) error {
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var d domain.Domain
-		// Service writes take the same lock before checking validation, so neither
-		// operation can commit against the other's outdated view of the domain.
+		// Service writes hold a shared lock on this row through commit, so neither
+		// operation can proceed against the other's outdated view of the domain.
 		if err := tx.Clauses(clause.Locking{Strength: string(LockingStrengthUpdate)}).
 			Take(&d, accountAndIDQueryCondition, accountID, domainID).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {

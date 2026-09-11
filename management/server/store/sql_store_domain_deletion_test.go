@@ -10,8 +10,73 @@ import (
 	"github.com/stretchr/testify/require"
 
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
+	"github.com/netbirdio/netbird/management/server/types"
+	nbdomain "github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
+
+func TestLockCustomDomains_ConcurrentServices(t *testing.T) {
+	runTestForAllEngines(t, "", func(t *testing.T, store Store) {
+		if store.GetStoreEngine() == types.SqliteStoreEngine {
+			t.Skip("SQLite serializes transactions on one connection")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		require.NoError(t, store.SaveAccount(ctx, newAccountWithId(ctx, "owner", "admin", "")))
+		_, err := store.CreateCustomDomain(ctx, "owner", "one.example.com", "cluster", true)
+		require.NoError(t, err)
+		_, err = store.CreateCustomDomain(ctx, "owner", "two.example.com", "cluster", true)
+		require.NoError(t, err)
+
+		locked := make(chan error, 1)
+		release := make(chan struct{})
+		done := make(chan error, 1)
+		go func() {
+			done <- store.ExecuteInTransaction(ctx, func(tx Store) error {
+				_, err := tx.LockCustomDomains(ctx, "owner", "app.one.example.com")
+				locked <- err
+				if err != nil {
+					return err
+				}
+				select {
+				case <-release:
+					return nil
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			})
+		}()
+		var lockErr error
+		select {
+		case lockErr = <-locked:
+		case err := <-done:
+			t.Fatalf("transaction ended before locking: %v", err)
+		}
+		writeCtx, writeCancel := context.WithTimeout(ctx, 3*time.Second)
+		defer writeCancel()
+		var writeErr error
+		for _, name := range []nbdomain.Domain{"app.one.example.com", "app.two.example.com"} {
+			writeErr = store.ExecuteInTransaction(writeCtx, func(tx Store) error {
+				if _, err := tx.LockCustomDomains(writeCtx, "owner", name); err != nil {
+					return err
+				}
+				return tx.CreateService(writeCtx, &rpservice.Service{
+					ID: name.PunycodeString(), AccountID: "owner", Domain: name.PunycodeString(),
+				})
+			})
+			if writeErr != nil {
+				break
+			}
+		}
+		close(release)
+		require.NoError(t, <-done)
+		require.NoError(t, lockErr)
+		require.NoError(t, writeErr, "domain authorization locks must allow concurrent service writes")
+		services, err := store.GetAccountServices(ctx, LockingStrengthNone, "owner")
+		require.NoError(t, err)
+		assert.Len(t, services, 2, "both services must commit while the first domain is locked")
+	})
+}
 
 func TestDeleteCustomDomain_ServiceDependencies(t *testing.T) {
 	runTestForAllEngines(t, "", func(t *testing.T, store Store) {
@@ -52,14 +117,14 @@ func TestDeleteCustomDomain_ConcurrentServiceCreation(t *testing.T) {
 		for i := range 10 {
 			d, err := store.CreateCustomDomain(ctx, "owner", fmt.Sprintf("app%d.example.com", i), "cluster", true)
 			require.NoError(t, err)
-			svc := &rpservice.Service{ID: fmt.Sprintf("service-%d", i), AccountID: "owner", Domain: d.Domain}
+			svc := &rpservice.Service{ID: fmt.Sprintf("service-%d", i), AccountID: "owner", Domain: "nested." + d.Domain}
 			start := make(chan struct{})
 			created := make(chan error, 1)
 			deleted := make(chan error, 1)
 			go func() {
 				<-start
 				created <- store.ExecuteInTransaction(ctx, func(tx Store) error {
-					domains, err := tx.LockCustomDomains(ctx, "owner")
+					domains, err := tx.LockCustomDomains(ctx, "owner", nbdomain.Domain(svc.Domain))
 					if err != nil {
 						return err
 					}
