@@ -241,6 +241,7 @@ func startedWatcher(t *testing.T, handler *allowedIPCleanupHandler) *client.Watc
 		StatusRecorder: statusRecorder,
 		Handler:        handler,
 	})
+	t.Cleanup(w.Stop)
 	go w.Start()
 	w.SendUpdate(client.RoutesUpdate{Routes: []*route.Route{{ID: "route", Peer: "peer"}}})
 	select {
