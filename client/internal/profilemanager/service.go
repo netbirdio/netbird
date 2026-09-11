@@ -313,7 +313,11 @@ func (s *ServiceManager) AddProfile(displayName, username string) (*Profile, err
 	}
 
 	profPath := filepath.Join(configDir, id.String()+".json")
-	cfg, err := createNewConfig(ConfigInput{ConfigPath: profPath})
+	// Provisioned, not bare: this config goes straight to disk, and a profile
+	// file with no identity is one whose first reader has to mint the keys and
+	// remember to write them back. Before identity generation moved out of
+	// apply() into EnsureIdentity, createNewConfig produced them here too.
+	cfg, err := createProvisionedConfig(ConfigInput{ConfigPath: profPath})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create new config: %w", err)
 	}
