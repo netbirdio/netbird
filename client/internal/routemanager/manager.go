@@ -378,6 +378,7 @@ func (m *DefaultManager) updateSystemRoutes(newRoutes route.HAMap) error {
 	for id, handler := range toRemove {
 		if err := handler.RemoveRoute(); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("remove route %s: %w", handler.String(), err))
+			continue
 		}
 		delete(m.activeRoutes, id)
 	}
