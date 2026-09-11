@@ -111,6 +111,7 @@ type DefaultManager struct {
 	disableClientRoutes bool
 	disableServerRoutes bool
 	activeRoutes        map[route.HAUniqueID]client.RouteHandler
+	pendingRemovals     map[route.HAUniqueID]client.RouteHandler
 	fakeIPManager       *fakeip.Manager
 	dnsForwarderPort    atomic.Uint32
 }
@@ -141,6 +142,7 @@ func NewManager(config ManagerConfig) *DefaultManager {
 		disableClientRoutes: config.DisableClientRoutes,
 		disableServerRoutes: config.DisableServerRoutes,
 		activeRoutes:        make(map[route.HAUniqueID]client.RouteHandler),
+		pendingRemovals:     make(map[route.HAUniqueID]client.RouteHandler),
 	}
 	dm.dnsForwarderPort.Store(uint32(nbdns.ForwarderClientPort))
 
@@ -343,6 +345,7 @@ func (m *DefaultManager) Stop(stateManager *statemanager.Manager) {
 func (m *DefaultManager) updateSystemRoutes(newRoutes route.HAMap) error {
 	toAdd := make(map[route.HAUniqueID]*route.Route)
 	toRemove := make(map[route.HAUniqueID]client.RouteHandler)
+	blockedAdds := make(map[route.HAUniqueID]struct{})
 
 	for id, routes := range newRoutes {
 		if len(routes) > 0 {
@@ -359,6 +362,9 @@ func (m *DefaultManager) updateSystemRoutes(newRoutes route.HAMap) error {
 	}
 
 	var merr *multierror.Error
+	if m.pendingRemovals == nil {
+		m.pendingRemovals = make(map[route.HAUniqueID]client.RouteHandler)
+	}
 
 	// Begin batch mode to avoid calling applyHostConfig() after each DNS handler operation
 	batchStarted := false
@@ -376,15 +382,29 @@ func (m *DefaultManager) updateSystemRoutes(newRoutes route.HAMap) error {
 		}()
 	}
 
+	for id, handler := range m.pendingRemovals {
+		if err := handler.RemoveRoute(); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("remove route %s: %w", handler.String(), err))
+			blockedAdds[id] = struct{}{}
+			continue
+		}
+		delete(m.pendingRemovals, id)
+	}
+
 	for id, handler := range toRemove {
 		if err := handler.RemoveRoute(); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("remove route %s: %w", handler.String(), err))
+			m.pendingRemovals[id] = handler
+			delete(m.activeRoutes, id)
 			continue
 		}
 		delete(m.activeRoutes, id)
 	}
 
 	for id, route := range toAdd {
+		if _, blocked := blockedAdds[id]; blocked {
+			continue
+		}
 		params := common.HandlerParams{
 			Route:                route,
 			RouteRefCounter:      m.routeRefCounter,
