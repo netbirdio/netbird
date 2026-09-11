@@ -55,6 +55,8 @@ const (
 	SourceEphemeral = "ephemeral"
 )
 
+var ErrUnsupportedIPAddressUpstreamHost = errors.New("unsupported ip address for a direct upstream host")
+
 type TargetOptions struct {
 	SkipTLSVerify      bool              `json:"skip_tls_verify"`
 	RequestTimeout     time.Duration     `json:"request_timeout,omitempty"`
@@ -388,6 +390,7 @@ func (s *Service) ToProtoMapping(operation Operation, authToken string, oidcConf
 
 	if s.Auth.BearerAuth != nil && s.Auth.BearerAuth.Enabled {
 		auth.Oidc = true
+		auth.AllowedGroupIds = append([]string(nil), s.Auth.BearerAuth.DistributionGroups...)
 	}
 
 	for _, h := range s.Auth.HeaderAuths {
@@ -961,8 +964,8 @@ func (s *Service) validateHTTPTargets() error {
 				return err
 			}
 		case TargetTypeSubnet:
-			if target.Host == "" {
-				return fmt.Errorf("target %d has empty host but target_type is %q", i, target.TargetType)
+			if err := validateSubnetTarget(i, target); err != nil {
+				return err
 			}
 		case TargetTypeCluster:
 			if err := validateClusterTarget(i, target); err != nil {
@@ -982,6 +985,34 @@ func (s *Service) validateHTTPTargets() error {
 		}
 	}
 
+	return nil
+}
+
+func validateSubnetTarget(idx int, target *Target) error {
+	host := strings.TrimSpace(target.Host)
+	if host == "" {
+		return fmt.Errorf("target %d has empty host but target_type is %q", idx, target.TargetType)
+	}
+	if strings.ContainsAny(host, " \t/") {
+		return fmt.Errorf("target %d: host %q contains invalid characters", idx, host)
+	}
+	if _, _, err := net.SplitHostPort(host); err == nil {
+		return fmt.Errorf("target %d: host %q must not include a port (set target.port instead)", idx, host)
+	}
+	noBrackets := strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
+	maybeip, err := netip.ParseAddr(noBrackets)
+	if err != nil { // not an ip
+		return nil //nolint:nilerr
+	}
+	if maybeip.Zone() != "" {
+		return fmt.Errorf("invalid direct upstream host ip %s %w", maybeip.String(), ErrUnsupportedIPAddressUpstreamHost)
+	}
+	if !target.Options.DirectUpstream {
+		return nil
+	}
+	if maybeip.IsLoopback() || maybeip.IsMulticast() || maybeip.IsLinkLocalUnicast() {
+		return fmt.Errorf("invalid direct upstream host ip %s %w", maybeip.String(), ErrUnsupportedIPAddressUpstreamHost)
+	}
 	return nil
 }
 
@@ -1019,6 +1050,15 @@ func validateDirectUpstreamHost(idx int, target *Target) error {
 	if _, _, err := net.SplitHostPort(host); err == nil {
 		return fmt.Errorf("target %d: host %q must not include a port (set target.port instead)", idx, host)
 	}
+	noBrackets := strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
+	maybeip, err := netip.ParseAddr(noBrackets)
+	if err != nil { // not an ip
+		return nil //nolint:nilerr
+	}
+	if maybeip.Zone() != "" || maybeip.IsLoopback() || maybeip.IsMulticast() || maybeip.IsLinkLocalUnicast() {
+		return fmt.Errorf("invalid direct upstream host ip %s %w", maybeip.String(), ErrUnsupportedIPAddressUpstreamHost)
+	}
+
 	return nil
 }
 

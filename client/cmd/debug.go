@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os/user"
 	"strings"
 	"time"
 
@@ -114,7 +113,7 @@ func debugConfigDump(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("get active profile: %v", err)
 	}
-	currUser, err := user.Current()
+	currUser, err := profilemanager.InvokingUser()
 	if err != nil {
 		return fmt.Errorf("get current user: %v", err)
 	}

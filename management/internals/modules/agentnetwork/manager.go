@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/rand"
 	"slices"
 	"strings"
 	"sync"
@@ -85,6 +84,13 @@ type Manager interface {
 	RecordAccountBudgetUsage(ctx context.Context, accountID, userID string, groupIDs []string, tokensIn, tokensOut int64, costUSD float64) error
 	RecordUsage(ctx context.Context, in RecordUsageInput) error
 	SelectPolicyForRequest(ctx context.Context, in PolicySelectionInput) (*PolicySelectionResult, error)
+
+	// GetAgentConfigForUser backs the self-service agent-config endpoint.
+	// Caller-scoped, so it skips the role permission gate; see
+	// the implementation. The caller's own usage and requests come
+	// through GetUsageOverview / ListAccessLogs, which self-scope when
+	// the account-wide grant is missing.
+	GetAgentConfigForUser(ctx context.Context, accountID, userID string) (*types.AgentConfig, error)
 }
 
 // PolicySelectionInput is the per-request selection envelope. The
@@ -126,24 +132,34 @@ type managerImpl struct {
 	proxyController    proxy.Controller
 
 	// modelDiscovery queries vendors for the models a credential can reach.
-	// A field rather than a package call so tests can drive it without
-	// reaching the network.
+	// An interface rather than the concrete client because it is now on a
+	// write path: the credential check runs inside CreateProvider and
+	// UpdateProvider, so every test that saves a provider would otherwise
+	// reach a vendor over the network to do it.
 	//
 	// One instance serves every request for the process's lifetime, so its
 	// fields must stay read-only after construction: lazy initialisation
 	// inside Fetch or httpClient would race across request goroutines.
-	modelDiscovery *modeldiscovery.Client
+	modelDiscovery ModelLister
 
 	// reconcileCache holds the last set of synthesised proxy mappings
 	// per account, each paired with the proxy that served it, so a change
 	// of serving proxy can be diffed without re-deriving it.
 	reconcileMu    sync.Mutex
 	reconcileCache map[string]map[string]syntheticMapping
+}
 
-	// labelRngMu guards labelRng. PickUnique consumes math/rand.Source
-	// state; concurrent provider creates would otherwise race.
-	labelRngMu sync.Mutex
-	labelRng   *rand.Rand
+// ManagerOption replaces a manager dependency at construction. Production
+// passes none; each option exists for something a test cannot let run for
+// real.
+type ManagerOption func(*managerImpl)
+
+// WithModelLister replaces the vendor call behind the provider credential
+// check. A test that saves a provider needs this — the check runs inside
+// CreateProvider and UpdateProvider, so the write path reaches a vendor
+// without it.
+func WithModelLister(lister ModelLister) ManagerOption {
+	return func(m *managerImpl) { m.modelDiscovery = lister }
 }
 
 // NewManager constructs the persistent Agent Network manager. The
@@ -156,37 +172,149 @@ func NewManager(
 	permissionsManager permissions.Manager,
 	accountManager account.Manager,
 	proxyController proxy.Controller,
+	opts ...ManagerOption,
 ) Manager {
-	return &managerImpl{
+	m := &managerImpl{
 		store:              store,
 		accountManager:     accountManager,
 		permissionsManager: permissionsManager,
 		proxyController:    proxyController,
 		modelDiscovery:     &modeldiscovery.Client{},
 		reconcileCache:     make(map[string]map[string]syntheticMapping),
-		labelRng:           rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
 }
 
+// GetAllProviders returns the account's providers for callers holding the
+// providers read grant (connection config redacted unless they can also
+// update). A caller without the grant self-scopes instead of being denied
+// — mirroring the usage and log endpoints: they get the providers their
+// own policies authorize, redacted to the display surface, which is what
+// feeds the dashboard's provider filter for plain users.
 func (m *managerImpl) GetAllProviders(ctx context.Context, accountID, userID string) ([]*types.Provider, error) {
-	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkProviders, operations.Read); err != nil {
+	ok, _, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.AgentNetworkProviders, operations.Read)
+	if err != nil {
+		return nil, status.NewPermissionValidationError(err)
+	}
+	if !ok {
+		return m.callerScopedProviders(ctx, accountID, userID)
+	}
+	providers, err := m.store.GetAccountAgentNetworkProviders(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
 		return nil, err
 	}
-	return m.store.GetAccountAgentNetworkProviders(ctx, store.LockingStrengthNone, accountID)
+	return m.redactProvidersForViewer(ctx, accountID, userID, providers)
 }
 
+// GetProvider self-scopes like GetAllProviders: a caller without the read
+// grant may fetch a provider their own policies authorize (redacted), and
+// gets the same not-found answer for any other id — an out-of-scope
+// provider must be indistinguishable from a nonexistent one.
 func (m *managerImpl) GetProvider(ctx context.Context, accountID, userID, providerID string) (*types.Provider, error) {
-	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkProviders, operations.Read); err != nil {
+	ok, _, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.AgentNetworkProviders, operations.Read)
+	if err != nil {
+		return nil, status.NewPermissionValidationError(err)
+	}
+	if !ok {
+		scoped, err := m.callerScopedProviders(ctx, accountID, userID)
+		if err != nil {
+			return nil, err
+		}
+		for _, p := range scoped {
+			if p.ID == providerID {
+				return p, nil
+			}
+		}
+		return nil, status.NewAgentNetworkProviderNotFoundError(providerID)
+	}
+	provider, err := m.store.GetAgentNetworkProviderByID(ctx, store.LockingStrengthNone, accountID, providerID)
+	if err != nil {
 		return nil, err
 	}
-	return m.store.GetAgentNetworkProviderByID(ctx, store.LockingStrengthNone, accountID, providerID)
+	redacted, err := m.redactProvidersForViewer(ctx, accountID, userID, []*types.Provider{provider})
+	if err != nil {
+		return nil, err
+	}
+	return redacted[0], nil
+}
+
+// callerScopedProviders returns the providers the caller's own policies
+// authorize — the same selection the self-service setup answer and the
+// proxy's routing derive from — each reduced to the display surface. No
+// role permission is needed: the answer is scoped strictly to the caller,
+// and a caller outside every policy gets an empty list, indistinguishable
+// from an account with nothing configured.
+func (m *managerImpl) callerScopedProviders(ctx context.Context, accountID, userID string) ([]*types.Provider, error) {
+	user, err := m.store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get user: %w", err)
+	}
+	authorized, applicable, err := m.authorizedProvidersForGroups(ctx, accountID, user.AutoGroups)
+	if err != nil {
+		return nil, err
+	}
+	var guardrailsByID map[string]*types.Guardrail
+	if anyPolicyHasGuardrails(applicable) {
+		guardrailsByID, err = m.loadGuardrailsByID(ctx, accountID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	out := make([]*types.Provider, 0, len(authorized))
+	for _, p := range authorized {
+		r := p.RedactedForViewer()
+		// The model list follows the same effective computation the setup
+		// answer and the proxy use: allowlist-restricted callers see only
+		// the models their guardrails permit, and an unrestricted policy
+		// on a provider without an operator declaration surfaces the
+		// catalog models, matching the setup response — so the dashboard's
+		// model filter never offers a model the caller's own requests
+		// could not use, and never comes up empty when the setup page
+		// lists models. Grant holders keep the full declared lists —
+		// their usage view spans everyone's requests.
+		_, effective := effectiveModelsForProvider(p, policiesForProvider(applicable, p.ID), guardrailsByID)
+		r.Models = providerModelsByID(p, effective)
+		out = append(out, r)
+	}
+	return out, nil
+}
+
+// redactProvidersForViewer strips the connection configuration from
+// providers handed to a caller who holds only the read grant on
+// agent_network.providers. Update is the managing signal: a role that can
+// edit a provider sees its config in the edit form anyway, while a
+// read-only role (usage_viewer) only needs the display surface the usage
+// filters resolve against — upstream URLs and operator-supplied header
+// values are not part of that. Validation errors fail closed.
+func (m *managerImpl) redactProvidersForViewer(ctx context.Context, accountID, userID string, providers []*types.Provider) ([]*types.Provider, error) {
+	canManage, _, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.AgentNetworkProviders, operations.Update)
+	if err != nil {
+		return nil, status.NewPermissionValidationError(err)
+	}
+	if canManage {
+		return providers, nil
+	}
+	out := make([]*types.Provider, 0, len(providers))
+	for _, p := range providers {
+		if p == nil {
+			out = append(out, nil)
+			continue
+		}
+		out = append(out, p.RedactedForViewer())
+	}
+	return out, nil
 }
 
 // DiscoverProviderModels asks the vendor which models a credential can reach.
 //
-// recordID, when set, names an existing provider whose stored credential and
-// upstream are used instead of the ones in req — so the dashboard can refresh
-// the list without ever holding the key.
+// recordID, when set, names an existing provider whose stored credential is
+// used instead of the one in req — so the dashboard can refresh the list
+// without ever holding the key. An upstream in req overrides the stored one,
+// which is what lets a form list against a URL the operator has typed but not
+// saved yet, using the credential they cannot retype.
 //
 // Gated on Create rather than Read: this spends the operator's credential
 // against a third party, which is not something a read-only role should be
@@ -207,11 +335,29 @@ func (m *managerImpl) DiscoverProviderModels(ctx context.Context, accountID, use
 		// name a different one would run a provider's credential against
 		// whichever vendor endpoint they picked.
 		req.CatalogID = record.ProviderID
-		req.UpstreamURL = record.UpstreamURL
 		req.APIKey = record.APIKey
+		// The upstream is the one field the caller may override, so that a URL
+		// typed into the form can be listed against before it is saved.
+		//
+		// It sends the stored credential to a host the caller named, which is
+		// a capability they already have: the same permission set updates the
+		// record's upstream, and that write runs this same check against
+		// whatever it is pointed at. What it would not otherwise be is silent,
+		// since the write leaves an activity event behind — so the override is
+		// recorded here.
+		if strings.TrimSpace(req.UpstreamURL) == "" {
+			req.UpstreamURL = record.UpstreamURL
+		} else if req.UpstreamURL != record.UpstreamURL {
+			log.WithContext(ctx).Infof("agent network provider %s listed against caller-supplied upstream %s by user %s",
+				recordID, req.UpstreamURL, userID)
+		}
 	}
 
-	return m.modelDiscovery.Fetch(ctx, req)
+	models, err := m.modelDiscovery.Fetch(ctx, req)
+	if err != nil {
+		return nil, discoveryFailure(ctx, req.CatalogID, err)
+	}
+	return models, nil
 }
 
 // CreateProvider persists a new provider for the account. Providers have no
@@ -228,6 +374,18 @@ func (m *managerImpl) CreateProvider(ctx context.Context, userID string, provide
 	// at create time instead.
 	if strings.TrimSpace(provider.APIKey) == "" {
 		return nil, status.Errorf(status.InvalidArgument, "api_key is required when creating an agent network provider")
+	}
+	// Stored as it will be sent. The vendor call below trims the key before
+	// building the auth header while the synthesiser substitutes the stored
+	// value verbatim, so a key pasted with surrounding whitespace would pass
+	// its check and then fail every request the provider serves.
+	provider.APIKey = strings.TrimSpace(provider.APIKey)
+
+	// Before anything is persisted: a record whose upstream or credential does
+	// not work is rejected here rather than discovered later as a failed
+	// request with nothing pointing back at it.
+	if err := m.checkProviderCredential(ctx, provider); err != nil {
+		return nil, err
 	}
 
 	if provider.ID == "" {
@@ -264,11 +422,47 @@ func (m *managerImpl) UpdateProvider(ctx context.Context, userID string, provide
 	// Preserve the API key if the caller didn't rotate it. A
 	// whitespace-only value is treated as "not rotated" rather than a
 	// real key, but it must not silently overwrite a valid stored key.
-	if provider.APIKey == "" {
-		provider.APIKey = existing.APIKey
-	} else if strings.TrimSpace(provider.APIKey) == "" {
+	switch trimmed := strings.TrimSpace(provider.APIKey); {
+	case provider.APIKey == "":
+		// Trimmed on the way through: a record stored before keys were
+		// normalised carries whitespace the proxy still sends, and an edit
+		// that preserves the key is the occasion to repair it. Doing so makes
+		// the comparison below see a change, which is correct — that key has
+		// never been tested in the form it is about to be sent in.
+		provider.APIKey = strings.TrimSpace(existing.APIKey)
+	case trimmed == "":
 		return nil, status.Errorf(status.InvalidArgument, "api_key must be non-blank when rotating an agent network provider")
+	default:
+		// See CreateProvider: the key is stored in the form the proxy will
+		// send, so the check below tests what the provider will actually use.
+		provider.APIKey = trimmed
 	}
+
+	// Only the fields the vendor would judge are worth a round-trip. This same
+	// call carries renames, model rows and price edits, and none of those
+	// should wait on a vendor — or be refused because one is having a bad day.
+	//
+	// The catalog entry counts as one of them: it decides which vendor is
+	// asked, under which auth header, so moving a record from one to another
+	// sends an unchanged credential somewhere it has never been accepted.
+	//
+	// The comparison runs after the merge above, so an update that changes only
+	// the URL reads as unchanged on the key and is checked against the stored
+	// one, which is the only credential the operator has to offer here.
+	//
+	// Turning TLS verification back on is the fourth: the record was stored
+	// unchecked precisely because that flag was set, so this is the first
+	// moment it can be checked at all, and nothing else about it need change
+	// for that to be true.
+	if provider.UpstreamURL != existing.UpstreamURL ||
+		provider.APIKey != existing.APIKey ||
+		provider.ProviderID != existing.ProviderID ||
+		(existing.SkipTLSVerification && !provider.SkipTLSVerification) {
+		if err := m.checkProviderCredential(ctx, provider); err != nil {
+			return nil, err
+		}
+	}
+
 	// Always preserve the session keypair across updates so existing
 	// session cookies stay valid. The keys are server-managed and
 	// never surfaced through the API.
@@ -873,9 +1067,7 @@ func (m *managerImpl) bootstrapLabeled(ctx context.Context, settings *types.Sett
 	}
 
 	for attempt := 1; attempt <= maxDomainAllocationAttempts; attempt++ {
-		m.labelRngMu.Lock()
-		label := labelgen.PickTuple(m.labelRng)
-		m.labelRngMu.Unlock()
+		label := labelgen.PickTuple()
 		if label == "" {
 			// Only reachable if either word pool were emptied. An empty label
 			// would produce a broken endpoint like ".example.com", so fail
@@ -945,8 +1137,11 @@ func (m *managerImpl) ListConsumption(ctx context.Context, accountID, userID str
 
 // ListAccessLogs returns a paginated, server-side-filtered page of
 // agent-network access logs plus the total count matching the filter.
+// Callers without the account-wide logs grant get a self-scoped page —
+// only their own requests — instead of a denial.
 func (m *managerImpl) ListAccessLogs(ctx context.Context, accountID, userID string, filter types.AgentNetworkAccessLogFilter) ([]*types.AgentNetworkAccessLog, int64, error) {
-	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkLogs, operations.Read); err != nil {
+	filter, err := m.scopeFilterToCaller(ctx, accountID, userID, modules.AgentNetworkLogs, filter)
+	if err != nil {
 		return nil, 0, err
 	}
 	return m.store.GetAgentNetworkAccessLogs(ctx, store.LockingStrengthNone, accountID, filter)
@@ -954,18 +1149,23 @@ func (m *managerImpl) ListAccessLogs(ctx context.Context, accountID, userID stri
 
 // ListAccessLogSessions returns a paginated, server-side-filtered page of
 // agent-network access logs grouped by session, plus the total number of
-// sessions matching the filter.
+// sessions matching the filter. Self-scoped like ListAccessLogs for
+// callers without the account-wide logs grant.
 func (m *managerImpl) ListAccessLogSessions(ctx context.Context, accountID, userID string, filter types.AgentNetworkAccessLogFilter) ([]*types.AgentNetworkAccessLogSession, int64, error) {
-	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkLogs, operations.Read); err != nil {
+	filter, err := m.scopeFilterToCaller(ctx, accountID, userID, modules.AgentNetworkLogs, filter)
+	if err != nil {
 		return nil, 0, err
 	}
 	return m.store.GetAgentNetworkAccessLogSessions(ctx, store.LockingStrengthNone, accountID, filter)
 }
 
 // GetUsageOverview returns the filtered usage rows aggregated into time buckets
-// at the requested granularity, oldest-first.
+// at the requested granularity, oldest-first. Callers without the
+// account-wide usage grant get their own rows aggregated instead of a
+// denial, so the dashboard serves "my usage" from the same endpoint.
 func (m *managerImpl) GetUsageOverview(ctx context.Context, accountID, userID string, filter types.AgentNetworkAccessLogFilter, granularity types.UsageGranularity) ([]*types.AgentNetworkUsageBucket, error) {
-	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkUsage, operations.Read); err != nil {
+	filter, err := m.scopeFilterToCaller(ctx, accountID, userID, modules.AgentNetworkUsage, filter)
+	if err != nil {
 		return nil, err
 	}
 	rows, err := m.store.GetAgentNetworkUsageRows(ctx, store.LockingStrengthNone, accountID, filter)
@@ -973,6 +1173,25 @@ func (m *managerImpl) GetUsageOverview(ctx context.Context, accountID, userID st
 		return nil, err
 	}
 	return types.AggregateUsageByGranularity(rows, granularity), nil
+}
+
+// scopeFilterToCaller applies the account-wide read gate for module and,
+// when the caller lacks the grant, pins the filter to the caller instead
+// of denying: their own user id replaces any requested one and group
+// filters are dropped. A caller may always see their own rows — strictly
+// tighter than any role gate — which is what lets every authenticated
+// user read their usage and requests through the regular endpoints.
+// Validation errors (not denials) still fail closed.
+func (m *managerImpl) scopeFilterToCaller(ctx context.Context, accountID, userID string, module modules.Module, filter types.AgentNetworkAccessLogFilter) (types.AgentNetworkAccessLogFilter, error) {
+	ok, _, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, module, operations.Read)
+	if err != nil {
+		return filter, status.NewPermissionValidationError(err)
+	}
+	if !ok {
+		filter.UserID = &userID
+		filter.GroupIDs = nil
+	}
+	return filter, nil
 }
 
 // StartAccessLogCleanup launches a background sweep that periodically deletes

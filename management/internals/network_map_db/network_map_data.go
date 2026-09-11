@@ -3,10 +3,7 @@ package networkmapdb
 import (
 	"context"
 	"fmt"
-	"net/netip"
-	"strings"
 
-	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
 
@@ -48,7 +45,7 @@ func (s *NetworkMapDBStoreImpl) GetNetworkMapData(ctx context.Context, accountId
 	if err != nil {
 		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get network: %w", err))
 	}
-	peers, proxyPeers, err := tx.GetPeers(ctx, accountId)
+	peers, _, err := tx.GetPeers(ctx, accountId)
 	if err != nil {
 		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get peers: %w", err))
 	}
@@ -77,10 +74,6 @@ func (s *NetworkMapDBStoreImpl) GetNetworkMapData(ctx context.Context, accountId
 		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get dns settings: %w", err))
 	}
 	domains, err := tx.GetDomains(ctx, accountId)
-	if err != nil {
-		return rollbackAndReturnError(ctx, tx, err)
-	}
-	services, err := tx.GetPrivateServices(ctx, accountId)
 	if err != nil {
 		return rollbackAndReturnError(ctx, tx, err)
 	}
@@ -113,7 +106,7 @@ func (s *NetworkMapDBStoreImpl) GetNetworkMapData(ctx context.Context, accountId
 		GroupIDToUserIDs:               groupsToUserIds,
 		NetworkXIDToPublicID:           networkXIDToPublicID, // TODO (dmitri) maybe we can switch to public ids everywhere?
 		AppliedZoneCandidates:          dnsZones,
-		PrivateServiceCandidates:       buildPrivateServiceCandidates(services, domains, proxyPeers),
+		Domains:                        TwinProxyDomains(domains),
 		PostureCheckXIDToPublicID:      postureCheckXIDToPublicID,
 		ProxyTargetedDomainResourceIDs: proxyTargetedDomainResourceIDs,
 	}
@@ -152,94 +145,6 @@ func toSliceOfPtrs[T any](all []T) []*T {
 		toret = append(toret, &t)
 	}
 	return toret
-}
-
-func serviceDomainZone(svc Service, ds []Domain) string {
-	if domainFromSuffix(svc.Domain.String, svc.ProxyCluster.String) {
-		return svc.ProxyCluster.String
-	}
-
-	var zoneName string
-	for _, domain := range ds {
-		if domain.TargetCluster.String != svc.ProxyCluster.String {
-			continue
-		}
-		if domainFromSuffix(svc.Domain.String, domain.Domain.String) && len(domain.Domain.String) > len(zoneName) {
-			zoneName = domain.Domain.String
-		}
-	}
-
-	return zoneName
-}
-
-func domainFromSuffix(domain, suffix string) bool {
-	if suffix == "" {
-		return false
-	}
-	return domain == suffix || strings.HasSuffix(domain, "."+suffix)
-}
-
-func buildPrivateServiceCandidates(svcs []Service, domains []Domain, proxyPeersByCluster map[string][]*nmdata.Peer) []networkmap.PrivateServiceCandidate {
-	var out []networkmap.PrivateServiceCandidate
-
-	if len(proxyPeersByCluster) == 0 {
-		return out
-	}
-
-	for _, svc := range svcs {
-		if !svc.Enabled.Bool || !svc.Private.Bool {
-			continue
-		}
-		if len(svc.AccessGroups) == 0 {
-			continue
-		}
-
-		domainZone := serviceDomainZone(svc, domains)
-		if domainZone == "" {
-			continue
-		}
-
-		// this is implied when domainZone != "", but for maintainability's sake the check is explicit
-		// TODO (dmitri) make this an invariant
-		if svc.Domain.String == "" {
-			continue
-		}
-		var records []nmdata.SimpleRecord
-		for _, proxyPeer := range proxyPeersByCluster[svc.ProxyCluster.String] {
-			if record, ok := recordForProxyPeer(svc.Domain.String, proxyPeer.IP); ok {
-				records = append(records, record)
-			}
-		}
-		if len(records) == 0 {
-			continue
-		}
-
-		out = append(out, networkmap.PrivateServiceCandidate{
-			AccessGroups: svc.AccessGroups,
-			Zone: nmdata.CustomZone{
-				Domain:               dns.Fqdn(domainZone),
-				Records:              records,
-				NonAuthoritative:     true,
-				SearchDomainDisabled: true,
-			},
-		})
-	}
-
-	return out
-}
-
-func recordForProxyPeer(fqdn string, ip netip.Addr) (nmdata.SimpleRecord, bool) {
-	if !ip.IsValid() {
-		return nmdata.SimpleRecord{}, false
-	}
-
-	return nmdata.SimpleRecord{
-		Name:  dns.Fqdn(fqdn),
-		Type:  int(dns.TypeA),
-		Class: "IN",
-		TTL:   5,
-		RData: ip.String(),
-	}, true
 }
 
 func buildResourcePolicies(networkResources []nmdata.NetworkResource,

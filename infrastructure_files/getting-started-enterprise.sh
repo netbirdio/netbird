@@ -15,16 +15,25 @@ NETBIRD_EULA_URL="https://netbird.io/self-hosted-EULA"
 # server trusts X-Forwarded-* headers from this address only.
 TRAEFIK_IP="172.30.0.10"
 
+LICENSE_VERDICT="unknown"
+LICENSE_LOG_LINES=""
+
 check_docker_compose() {
-  if command -v docker-compose &> /dev/null; then
-    echo "docker-compose"
-    return
+  if ! command -v docker &> /dev/null && ! command -v docker-compose &> /dev/null; then
+    echo "Docker is not installed or not in PATH. Please follow the steps from the official guide: https://docs.docker.com/engine/install/" > /dev/stderr
+    exit 1
   fi
-  if docker compose --help &> /dev/null; then
+
+  if docker compose version &> /dev/null; then
     echo "docker compose"
     return
   fi
-  echo "docker-compose is not installed or not in PATH. See https://docs.docker.com/engine/install/" > /dev/stderr
+  if command -v docker-compose &> /dev/null && docker-compose version &> /dev/null; then
+    echo "docker-compose"
+    return
+  fi
+
+  echo "Docker Compose is not installed or not in PATH. Please follow the steps from the official guide: https://docs.docker.com/compose/install/" > /dev/stderr
   exit 1
 }
 
@@ -221,6 +230,90 @@ wait_postgres() {
   set -e
 }
 
+wait_for_license_verdict() {
+  local counter=0
+  local logs=""
+
+  echo -n "Waiting for the server to validate the license"
+  while [[ $counter -lt 60 ]]; do
+    logs=$($DOCKER_COMPOSE_COMMAND logs --no-color --tail=all netbird-server 2>/dev/null || true)
+
+    if grep -qi "license invalidated" <<< "$logs"; then
+      echo " rejected"
+      LICENSE_VERDICT="rejected"
+      LICENSE_LOG_LINES=$(grep -i "license" <<< "$logs" | tail -n 5 || true)
+      return 0
+    fi
+
+    if grep -qi "license validated" <<< "$logs"; then
+      echo " ok"
+      LICENSE_VERDICT="ok"
+      return 0
+    fi
+
+    echo -n " ."
+    sleep 2
+    counter=$((counter + 1))
+  done
+
+  echo " no verdict in 120s"
+  LICENSE_VERDICT="unknown"
+  LICENSE_LOG_LINES=$(grep -iE "failed to validate license|error validating license" <<< "$logs" | tail -n 3 || true)
+  return 0
+}
+
+report_license_verdict() {
+  if [[ "$LICENSE_VERDICT" == "ok" ]]; then
+    return 0
+  fi
+
+  if [[ "$LICENSE_VERDICT" == "unknown" ]]; then
+    echo ""
+    echo "  ⚠  The server logged no license verdict within 120s."
+    if [[ -n "$LICENSE_LOG_LINES" ]]; then
+      echo "     It was still reporting validation errors:"
+      while IFS= read -r line; do
+        [[ -n "$line" ]] && echo "     $line"
+      done <<< "$LICENSE_LOG_LINES"
+    fi
+    echo ""
+    echo "     Check the verdict with:"
+    echo ""
+    echo "       $DOCKER_COMPOSE_COMMAND logs netbird-server | grep -i license"
+    return 0
+  fi
+
+  local unreachable="false"
+  if grep -qi "couldn't be validated with the license server" <<< "$LICENSE_LOG_LINES"; then
+    unreachable="true"
+  fi
+
+  echo ""
+  if [[ "$unreachable" == "true" ]]; then
+    echo "  ⚠  The server could not validate the license:"
+  else
+    echo "  ⚠  The server rejected the license key:"
+  fi
+  while IFS= read -r line; do
+    [[ -n "$line" ]] && echo "     $line"
+  done <<< "$LICENSE_LOG_LINES"
+  echo ""
+  echo "     The stack is up, and only the license check did not pass."
+  echo ""
+  if [[ "$unreachable" == "true" ]]; then
+    echo "     The license server could not be reached, so the key itself was"
+    echo "     never checked. Confirm this host has outbound access to the"
+    echo "     license server, then restart:"
+  else
+    echo "     Check the reason the server gave above, verify that"
+    echo "     NETBIRD_LICENSE_KEY in .env matches the key you were issued,"
+    echo "     then restart:"
+  fi
+  echo ""
+  echo "       $DOCKER_COMPOSE_COMMAND up -d"
+  return 0
+}
+
 init_environment() {
   check_openssl
   DOCKER_COMPOSE_COMMAND=$(check_docker_compose)
@@ -300,6 +393,9 @@ init_environment() {
   $DOCKER_COMPOSE_COMMAND up -d
 
   echo ""
+  wait_for_license_verdict
+
+  echo ""
   echo "Done."
   echo ""
   echo "Dashboard: https://${NETBIRD_DOMAIN}"
@@ -309,6 +405,12 @@ init_environment() {
   echo ""
   echo "Tail logs:"
   echo "  cd $(pwd) && $DOCKER_COMPOSE_COMMAND logs -f netbird-server traefik"
+
+  report_license_verdict
+
+  if [[ "$LICENSE_VERDICT" == "rejected" ]]; then
+    exit 1
+  fi
 }
 
 # ------------------------------------------------------------------

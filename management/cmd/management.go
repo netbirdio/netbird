@@ -236,6 +236,9 @@ func ApplyEmbeddedIdPConfig(ctx context.Context, cfg *nbconfig.Config) error {
 		// Embedded IdP requires single account mode - multiple account mode is not supported
 		return fmt.Errorf("embedded IdP requires single account mode; multiple account mode is not supported with embedded IdP. Please remove --disable-single-account-mode flag")
 	}
+	if mgmtSingleAccModeDomain == "" {
+		return fmt.Errorf("embedded IdP requires single account mode; --single-account-mode-domain must not be empty")
+	}
 	// Enable user deletion from IDP by default if EmbeddedIdP is enabled
 	userDeleteFromIDPEnabled = true
 

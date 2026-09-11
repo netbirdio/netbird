@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"math/rand"
 	"testing"
 	"time"
 
@@ -28,7 +27,7 @@ func TestGroupIPv6Assignment(t *testing.T) {
 	require.NoError(t, err)
 
 	// Allocate IPv6 subnet for the account
-	account.Network.NetV6 = types.AllocateIPv6Subnet(rand.New(rand.NewSource(time.Now().UnixNano())))
+	account.Network.NetV6 = types.AllocateIPv6Subnet()
 	require.NoError(t, am.Store.SaveAccount(ctx, account))
 
 	// Create setup key

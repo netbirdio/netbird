@@ -175,6 +175,26 @@ func (p *Provider) FromAPIRequest(req *api.AgentNetworkProviderRequest) {
 
 // ToAPIResponse renders the provider as the API representation. The API
 // key is intentionally never surfaced.
+// RedactedForViewer returns a copy with the connection configuration
+// blanked: upstream URL, operator-typed extra header values, identity
+// header names, the TLS-verification override, and (defence in depth —
+// they never reach the wire anyway) the sealed credentials. Read-only
+// viewers such as usage_viewer only need the display surface — id,
+// catalog id, name, enabled state, and the model list the usage filters
+// resolve against — so their responses carry nothing about how the
+// operator connects to the vendor.
+func (p *Provider) RedactedForViewer() *Provider {
+	c := *p
+	c.UpstreamURL = ""
+	c.APIKey = ""
+	c.ExtraValues = nil
+	c.IdentityHeaderUserID = ""
+	c.IdentityHeaderGroups = ""
+	c.SkipTLSVerification = false
+	c.SessionPrivateKey = ""
+	return &c
+}
+
 func (p *Provider) ToAPIResponse() *api.AgentNetworkProvider {
 	models := make([]api.AgentNetworkProviderModel, 0, len(p.Models))
 	for _, m := range p.Models {

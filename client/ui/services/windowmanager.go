@@ -292,11 +292,15 @@ func (s *WindowManager) CloseBrowserLogin() {
 }
 
 // OpenSessionExpiration shows the countdown warning on the cursor's display; seconds seeds
-// the countdown. Singleton, destroyed on close.
-func (s *WindowManager) OpenSessionExpiration(seconds int) {
+// the countdown and deadlineUnixMilli (0 when unknown) is the absolute deadline the dialog
+// compares renewal snapshots against. Singleton, destroyed on close.
+func (s *WindowManager) OpenSessionExpiration(seconds int, deadlineUnixMilli int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	startURL := "/#/dialog/session-expiration?seconds=" + strconv.Itoa(seconds)
+	if deadlineUnixMilli > 0 {
+		startURL += "&deadline=" + strconv.FormatInt(deadlineUnixMilli, 10)
+	}
 	if s.sessionExpiration == nil {
 		opts := DialogWindowOptions("session-expiration", s.title("window.title.sessionExpiration"), startURL, s.linuxIcon)
 		opts.Screen = s.getScreenBasedOnCursorPosition()

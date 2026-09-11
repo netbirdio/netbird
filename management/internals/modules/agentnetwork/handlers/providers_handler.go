@@ -46,6 +46,7 @@ func RegisterEndpoints(manager agentnetwork.Manager, router *mux.Router) {
 	h.addConsumptionEndpoints(router)
 	h.addAccessLogEndpoints(router)
 	h.addBudgetRuleEndpoints(router)
+	h.addAgentConfigEndpoints(router)
 }
 
 func (h *handler) getCatalogProviders(w http.ResponseWriter, r *http.Request) {
@@ -338,6 +339,14 @@ func validate(req *api.AgentNetworkProviderRequest, requireAPIKey bool) error {
 	}
 	if requireAPIKey && (req.ApiKey == nil || strings.TrimSpace(*req.ApiKey) == "") {
 		return status.Errorf(status.InvalidArgument, "api_key is required")
+	}
+	// An update omits api_key to keep the stored credential. A key that is
+	// present but blank is not that: Provider.FromAPIRequest drops it exactly
+	// as if it were absent, so a rotation the operator believes they performed
+	// would answer 200 having changed nothing. Refuse it here, where the
+	// request still carries the difference between absent and blank.
+	if req.ApiKey != nil && strings.TrimSpace(*req.ApiKey) == "" {
+		return status.Errorf(status.InvalidArgument, "api_key must be omitted to keep the stored credential rather than sent blank")
 	}
 	if req.Models != nil {
 		for i, m := range *req.Models {

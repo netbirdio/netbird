@@ -36,7 +36,10 @@ type ProviderRoute struct {
 	// request on a same-vendor route so catch-all gateways of a different
 	// vendor can't swallow it. Empty disables vendor filtering for this
 	// route.
-	Vendor          string   `json:"vendor,omitempty"`
+	Vendor string `json:"vendor,omitempty"`
+	// Vendors lists every parser surface a multi-surface gateway accepts.
+	// Vendor remains supported for existing single-surface configurations.
+	Vendors         []string `json:"vendors,omitempty"`
 	Models          []string `json:"models"`
 	UpstreamScheme  string   `json:"upstream_scheme"`
 	UpstreamHost    string   `json:"upstream_host"`
