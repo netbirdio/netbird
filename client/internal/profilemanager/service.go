@@ -10,11 +10,14 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/internal/getent"
 	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/netbirdio/netbird/util"
 )
@@ -26,6 +29,8 @@ var (
 	DefaultConfigPathDir   = ""
 	DefaultConfigPath      = ""
 	ActiveProfileStatePath = ""
+
+	DefaultProfilePathDir = "profiles.v1"
 
 	ErrorOldDefaultConfigNotFound = errors.New("old default config not found")
 )
@@ -54,11 +59,11 @@ type profileMeta struct {
 	Name string
 }
 
-// nolint:unused
 type ownerMeta struct {
 	Owners []string
 }
 
+// ownersFieldName is the key on disk.
 func (e *ErrAmbiguousHandle) Error() string {
 	switch e.Kind {
 	case AmbiguityKindIDPrefix:
@@ -98,10 +103,21 @@ type ActiveProfileState struct {
 	// before the ID-based config files. Legacy values were profile names, which
 	// were also the legacy filename stems, so they still resolve to the correct
 	// file on disk.
-	ID       ID     `json:"name"`
+	ID ID `json:"name"`
+
+	// Username records which per-username directory a pre-migration profile's
+	// file lives in. It is a hint for reconstructing that path, not a statement
+	// about who owns the profile: ownership lives in the profile's own JSON, as
+	// typed principals. Profiles in the shared directory leave it empty, and
+	// the field goes away once no per-username directory is left.
 	Username string `json:"username"`
 }
 
+// FilePath rebuilds the profile's path from the per-username layout.
+//
+// Prefer ServiceManager.ActiveProfilePath: this reconstruction only holds for a
+// profile that predates the ID-keyed layout, since a profile created after it
+// lives in the shared directory instead, under no username at all.
 func (a *ActiveProfileState) FilePath() (string, error) {
 	if a.ID == "" {
 		return "", fmt.Errorf("active profile ID is empty")
@@ -115,7 +131,7 @@ func (a *ActiveProfileState) FilePath() (string, error) {
 		return "", fmt.Errorf("invalid profile ID: %q", a.ID)
 	}
 
-	configDir, err := getConfigDirForUser(a.Username)
+	configDir, err := getConfigDirForUserLegacy(a.Username)
 	if err != nil {
 		return "", fmt.Errorf("failed to get config directory for user %s: %w", a.Username, err)
 	}
@@ -125,6 +141,74 @@ func (a *ActiveProfileState) FilePath() (string, error) {
 
 type ServiceManager struct {
 	profilesDir string // If set, overrides ConfigDirOverride for profile operations
+}
+
+// ActiveProfilePath returns the config file of the profile the active-profile
+// state points at.
+//
+// The path is looked up through the loader rather than rebuilt from the
+// recorded username, because a profile's directory is no longer a function of
+// who owns it: profiles created since the ID-keyed layout share one directory,
+// and only pre-migration ones sit under a per-username one. The username
+// survives as a tiebreaker for the single case that still needs one, a legacy
+// ID being a display name that two users can each hold.
+//
+// A state that points at a profile with no file yet still yields the path that
+// file would have, so a caller reads "not created yet" from a stat rather than
+// from an error.
+func (s *ServiceManager) ActiveProfilePath(a *ActiveProfileState) (string, error) {
+	if a == nil || a.ID == "" {
+		return "", fmt.Errorf("active profile ID is empty")
+	}
+	if a.ID == defaultProfileName {
+		return DefaultConfigPath, nil
+	}
+	if !IsValidProfileFilenameStem(a.ID) {
+		return "", fmt.Errorf("invalid profile ID: %q", a.ID)
+	}
+
+	profiles, err := s.loadAllProfiles()
+	if err != nil {
+		return "", fmt.Errorf("load profiles: %w", err)
+	}
+
+	var matches []Profile
+	for _, p := range profiles {
+		if p.ID == a.ID {
+			matches = append(matches, p)
+		}
+	}
+
+	if len(matches) == 0 {
+		// Nothing on disk under that ID, so the legacy layout is the only
+		// guess left for where the file would go.
+		return a.FilePath()
+	}
+
+	if len(matches) == 1 {
+		return matches[0].Path, nil
+	}
+
+	// Migration gives every profile an ID no other profile holds, so getting
+	// here means it has not run yet or did not finish. Until it does, the
+	// recorded account name is the only thing telling namesakes apart, and
+	// picking the wrong one would point the daemon at another user's config.
+	// State written before the field held a directory recorded the raw account
+	// name, which the old layout sanitized on its way to becoming one.
+	for _, want := range []string{a.Username, sanitizeProfileName(a.Username)} {
+		if want == "" {
+			continue
+		}
+		for _, p := range matches {
+			if filepath.Base(filepath.Dir(p.Path)) == want {
+				return p.Path, nil
+			}
+		}
+	}
+
+	log.Warnf("%d profiles share the ID %q and none of them sits in %q, using %s",
+		len(matches), a.ID, a.Username, matches[0].Path)
+	return matches[0].Path, nil
 }
 
 func NewServiceManager(defaultConfigPath string) *ServiceManager {
@@ -268,10 +352,6 @@ func (s *ServiceManager) SetActiveProfileState(a *ActiveProfileState) error {
 		return errors.New("invalid active profile state")
 	}
 
-	if a.ID != defaultProfileName && a.Username == "" {
-		return fmt.Errorf("username must be set for non-default profiles, got: %s", a.ID)
-	}
-
 	if a.ID != defaultProfileName && !IsValidProfileFilenameStem(a.ID) {
 		return fmt.Errorf("invalid profile ID: %q", a.ID)
 	}
@@ -302,8 +382,8 @@ func (s *ServiceManager) DefaultProfilePath() string {
 // The returned Profile carries the freshly-generated ID so callers can
 // show it to the user (and so the gRPC AddProfileResponse can include
 // it).
-func (s *ServiceManager) AddProfile(displayName string, username string, callerId *ipcauth.Identity) (*Profile, error) {
-	configDir, err := s.getConfigDir(username)
+func (s *ServiceManager) AddProfile(displayName string, callerId *ipcauth.Identity) (*Profile, error) {
+	configDir, err := s.getConfigDir()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get config directory: %w", err)
 	}
@@ -325,7 +405,7 @@ func (s *ServiceManager) AddProfile(displayName string, username string, callerI
 	}
 	cfg.Name = displayName
 
-	if err := util.WriteJson(context.Background(), profPath, cfg); err != nil {
+	if err := util.WriteJsonWithRestrictedPermission(context.Background(), profPath, cfg); err != nil {
 		return nil, fmt.Errorf("failed to write profile config: %w", err)
 	}
 
@@ -336,7 +416,7 @@ func (s *ServiceManager) AddProfile(displayName string, username string, callerI
 	}, nil
 }
 
-func (s *ServiceManager) RenameProfile(id ID, username string, newName string) error {
+func (s *ServiceManager) RenameProfile(id ID, userID ipcauth.Identity, newName string) error {
 	displayName, err := sanitizeDisplayName(newName)
 	if err != nil {
 		return fmt.Errorf("invalid profile name: %w", err)
@@ -346,7 +426,7 @@ func (s *ServiceManager) RenameProfile(id ID, username string, newName string) e
 		return fmt.Errorf("invalid profile ID: %q", id)
 	}
 
-	profiles, err := s.loadAllProfiles(username)
+	profiles, err := s.loadAllProfilesForIdentity(userID)
 	if err != nil {
 		return fmt.Errorf("load profiles: %w", err)
 	}
@@ -362,26 +442,13 @@ func (s *ServiceManager) RenameProfile(id ID, username string, newName string) e
 		return ErrProfileNotFound
 	}
 
-	data, err := os.ReadFile(target.Path)
-	if err != nil {
-		return err
-	}
-	var cfg Config
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return err
-	}
-	cfg.Name = displayName
-
-	if err := util.WriteJson(context.Background(), target.Path, cfg); err != nil {
-		return fmt.Errorf("failed to write profile name: %w", err)
-	}
-	return nil
+	return writeProfileName(target.Path, displayName)
 }
 
 // RemoveProfile deletes the profile identified by id. Callers must have
 // already resolved any user-supplied handle to a concrete ID via
 // ResolveProfile.
-func (s *ServiceManager) RemoveProfile(id ID, username string) error {
+func (s *ServiceManager) RemoveProfile(id ID, userID ipcauth.Identity) error {
 	if id == defaultProfileName {
 		defaultName := readProfileName(DefaultConfigPath)
 		if defaultName == "" {
@@ -393,7 +460,7 @@ func (s *ServiceManager) RemoveProfile(id ID, username string) error {
 		return fmt.Errorf("invalid profile ID: %q", id)
 	}
 
-	profiles, err := s.loadAllProfiles(username)
+	profiles, err := s.loadAllProfilesForIdentity(userID)
 	if err != nil {
 		return fmt.Errorf("load profiles: %w", err)
 	}
@@ -436,8 +503,8 @@ func (s *ServiceManager) RemoveProfile(id ID, username string) error {
 
 // ListProfiles returns every profile for the given user, including the
 // default profile, with IsActive flags set.
-func (s *ServiceManager) ListProfiles(username string) ([]Profile, error) {
-	return s.loadAllProfiles(username)
+func (s *ServiceManager) ListProfiles(userID ipcauth.Identity) ([]Profile, error) {
+	return s.loadAllProfilesForIdentity(userID)
 }
 
 // GetStatePath returns the path to the state file based on the operating system
@@ -468,22 +535,47 @@ func (s *ServiceManager) GetStatePath() string {
 		return defaultStatePath
 	}
 
-	configDir, err := s.getConfigDir(activeProf.Username)
+	configPath, err := s.ActiveProfilePath(activeProf)
 	if err != nil {
-		log.Warnf("failed to get config directory for user %s: %v", activeProf.Username, err)
+		log.Warnf("failed to resolve the active profile's path: %v", err)
 		return defaultStatePath
 	}
 
-	return filepath.Join(configDir, activeProf.ID.String()+".state.json")
+	return filepath.Join(filepath.Dir(configPath), activeProf.ID.String()+".state.json")
 }
 
-// getConfigDir returns the profiles directory, using profilesDir if set, otherwise getConfigDirForUser
-func (s *ServiceManager) getConfigDir(username string) (string, error) {
+// getConfigDirLegacy returns the profiles directory, using profilesDir if set, otherwise getConfigDirForUser
+func (s *ServiceManager) getConfigDirLegacy(username string) (string, error) {
 	if s.profilesDir != "" {
 		return s.profilesDir, nil
 	}
 
-	return getConfigDirForUser(username)
+	return getConfigDirForUserLegacy(username)
+}
+
+func (s *ServiceManager) getConfigDir() (string, error) {
+	configDir := s.profilesDirPath()
+	if _, err := os.Stat(configDir); os.IsNotExist(err) {
+		if err := os.MkdirAll(configDir, 0700); err != nil {
+			return "", err
+		}
+	}
+
+	return configDir, nil
+}
+
+// profilesDirPath returns the directory new profiles are written to without
+// creating it, so a read path can name it without leaving a directory behind.
+func (s *ServiceManager) profilesDirPath() string {
+	if s.profilesDir != "" {
+		return s.profilesDir
+	}
+
+	if ConfigDirOverride != "" {
+		return ConfigDirOverride
+	}
+
+	return filepath.Join(DefaultConfigPathDir, DefaultProfilePathDir)
 }
 
 // loadAllProfiles returns every profile visible to the daemon for the
@@ -493,31 +585,219 @@ func (s *ServiceManager) getConfigDir(username string) (string, error) {
 // Each Profile is fully populated: ID is the filename stem, Name comes
 // from the JSON's "name" field (falling back to the filename stem when absent)
 // and Path is built from a basename read off disk.
-func (s *ServiceManager) loadAllProfiles(username string) ([]Profile, error) {
-	activeID, activeIsDefault := s.activeProfileID()
+func (s *ServiceManager) loadAllProfilesForIdentity(userID ipcauth.Identity) ([]Profile, error) {
+	allProfiles, err := s.loadAllProfiles()
+	if err != nil {
+		return nil, err
+	}
+
+	s.claimLegacyProfiles(allProfiles, userID)
+
+	accessible := make([]Profile, 0, len(allProfiles))
+	for _, p := range allProfiles {
+		if p.AccessibleBy(userID) {
+			accessible = append(accessible, p)
+		}
+	}
+
+	return accessible, nil
+}
+
+var (
+	legacyDirMu    sync.Mutex
+	legacyDirCache = map[string]string{}
+)
+
+// claimLegacyProfiles stamps the caller on every unowned profile in the
+// directory their own user name produced before the ownership model.
+//
+// Ownership lives in the file now, so the directory name is only a leftover.
+// Flattening is a separate step we are doing in the future. Moving it would
+// pull the state file out from under an engine that captured its path at
+// connect time.
+func (s *ServiceManager) claimLegacyProfiles(profiles []Profile, id ipcauth.Identity) {
+	// A privileged caller reaches every profile already and an internal load
+	// has no caller, so neither should leave an owner behind.
+	if !id.Known() || ipcauth.IsPrivilegedCaller(id) {
+		return
+	}
+
+	if !hasUnownedLegacyProfile(profiles) {
+		return
+	}
+
+	dir, ok := legacyDirForIdentity(id)
+	if !ok {
+		return
+	}
+
+	principal := ipcauth.OwnerPrincipalForIdentity(id)
+	parsed, ok := ipcauth.ParsePrincipal(principal)
+	if !ok {
+		log.Warnf("not claiming legacy profiles, %q is not a usable owner", principal)
+		return
+	}
+
+	for i := range profiles {
+		p := &profiles[i]
+		if len(p.Owners) > 0 || p.LegacyUserDir == "" || p.LegacyUserDir != dir {
+			continue
+		}
+
+		if err := StampOwner(p.Path, id); err != nil {
+			log.Warnf("could not claim legacy profile %s for %s: %v", p.Path, principal, err)
+			continue
+		}
+
+		p.Owners = []ipcauth.Principal{parsed}
+		log.Infof("claimed legacy profile %s for %s, its directory is named after that account", p.Path, principal)
+	}
+}
+
+func hasUnownedLegacyProfile(profiles []Profile) bool {
+	for i := range profiles {
+		if profiles[i].LegacyUserDir != "" && len(profiles[i].Owners) == 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// legacyDirForIdentity is a variable so a test can supply an account name
+// without depending on the host's user database.
+var legacyDirForIdentity = resolveLegacyDir
+
+// resolveLegacyDir returns the per-username directory the old layout would have
+// created for a caller, and whether there is one.
+//
+// Successes are cached for the process, failures are not, so a directory
+// service that is briefly unreachable does not lock its users out until the
+// daemon restarts.
+func resolveLegacyDir(id ipcauth.Identity) (string, bool) {
+	key := ipcauth.OwnerPrincipalForIdentity(id)
+
+	legacyDirMu.Lock()
+	cached, hit := legacyDirCache[key]
+	legacyDirMu.Unlock()
+	if hit {
+		return cached, cached != ""
+	}
+
+	lookup := strconv.FormatUint(uint64(id.UID), 10)
+	if id.IsWindows() {
+		lookup = id.SID
+	}
+
+	u, err := getent.LookupUserID(lookup)
+	if err != nil {
+		log.Warnf("cannot resolve %s to an account name, its legacy profiles stay unowned: %v", key, err)
+		return "", false
+	}
+
+	dir := sanitizeProfileName(u.Username)
+
+	legacyDirMu.Lock()
+	legacyDirCache[key] = dir
+	legacyDirMu.Unlock()
+
+	return dir, dir != ""
+}
+
+func (s *ServiceManager) loadAllProfiles() ([]Profile, error) {
+	_, activeIsDefault := s.activeProfileID()
 	defaultName := readProfileName(DefaultConfigPath)
 	if defaultName == "" {
 		defaultName = defaultProfileName
 	}
 
-	profiles := []Profile{{
-		ID:       defaultProfileName,
-		Name:     defaultName,
-		Path:     DefaultConfigPath,
-		IsActive: activeIsDefault,
-		// TODO: determine how to seed default owners
-		Owners: []ipcauth.Principal{},
-	}}
-
-	configDir, err := s.getConfigDir(username)
-	if err != nil {
-		return nil, fmt.Errorf("get config directory: %w", err)
+	// The default profile is not seeded with an owner: it starts unowned, and
+	// the first claim stamps it like any other profile. A file that is not
+	// there yet is unowned rather than unreadable, since the daemon writes it
+	// on first run and every listing before that would otherwise fail.
+	var profiles []Profile
+	defaultOwners, err := readProfileOwners(DefaultConfigPath)
+	switch {
+	case err == nil, errors.Is(err, os.ErrNotExist):
+		profiles = append(profiles, Profile{
+			ID:       defaultProfileName,
+			Name:     defaultName,
+			Path:     DefaultConfigPath,
+			IsActive: activeIsDefault,
+			Owners:   defaultOwners,
+		})
+	default:
+		// Same rule as a discovered profile whose owners cannot be read: leave
+		// it out rather than treat it as unowned, and leave it out rather than
+		// fail, so one unreadable file does not take every other profile with
+		// it.
+		log.Warnf("leaving the default profile out of the listing, its owners could not be read: %v", err)
 	}
 
+	// The directory new profiles go to, plus every per-username directory left
+	// from before the ID-keyed layout. The first is not necessarily under
+	// DefaultConfigPathDir: a ServiceManager can be pointed at a directory of
+	// its own, which is what the mobile bindings do.
+	dirs := []profileDir{{path: s.profilesDirPath()}}
+
+	configPathDir, err := os.ReadDir(DefaultConfigPathDir)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("read profile directory: %w", err)
+	}
+	for _, entry := range configPathDir {
+		if !entry.IsDir() || entry.Name() == DefaultProfilePathDir {
+			continue
+		}
+		// Every other subdirectory is named after the account that created the
+		// profiles in it. The dot in profiles.v1 is what keeps them apart,
+		// since sanitizeProfileName drops dots.
+		dirs = append(dirs, profileDir{
+			path:       filepath.Join(DefaultConfigPathDir, entry.Name()),
+			legacyUser: entry.Name(),
+		})
+	}
+
+	var fileProfiles []Profile
+	scanned := make(map[string]bool, len(dirs))
+	for _, dir := range dirs {
+		// The profiles directory is usually one of the subdirectories above,
+		// so without this a profile would be listed twice.
+		if scanned[dir.path] {
+			continue
+		}
+		scanned[dir.path] = true
+
+		dirProfiles, err := s.getProfilesFromDirectory(dir)
+		if err != nil {
+			return nil, err
+		}
+		fileProfiles = append(fileProfiles, dirProfiles...)
+	}
+
+	sort.Slice(fileProfiles, func(i, j int) bool {
+		if fileProfiles[i].Name != fileProfiles[j].Name {
+			return fileProfiles[i].Name < fileProfiles[j].Name
+		}
+		// Sort tie-break on ID so duplicate names always render in the same order.
+		return fileProfiles[i].ID < fileProfiles[j].ID
+	})
+	profiles = append(profiles, fileProfiles...)
+	return profiles, nil
+}
+
+// profileDir is one directory the loader scans. legacyUser is the sanitized
+// username it is named after, empty for the directory profiles go to now.
+type profileDir struct {
+	path       string
+	legacyUser string
+}
+
+func (s *ServiceManager) getProfilesFromDirectory(dir profileDir) ([]Profile, error) {
+	configDir := dir.path
+	activeID, _ := s.activeProfileID()
 	entries, err := os.ReadDir(configDir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return profiles, nil
+			return []Profile{}, nil
 		}
 		return nil, fmt.Errorf("read profile directory: %w", err)
 	}
@@ -550,26 +830,19 @@ func (s *ServiceManager) loadAllProfiles(username string) ([]Profile, error) {
 
 		owners, err := readProfileOwners(path)
 		if err != nil {
-			return nil, err
+			log.Warnf("reading profile owner failed for %s: %v", path, err)
+			continue
 		}
 		fileProfiles = append(fileProfiles, Profile{
-			ID:       stem,
-			Name:     name,
-			Path:     path,
-			IsActive: stem == ID(activeID),
-			Owners:   owners,
+			ID:            stem,
+			Name:          name,
+			Path:          path,
+			IsActive:      stem == ID(activeID),
+			Owners:        owners,
+			LegacyUserDir: dir.legacyUser,
 		})
 	}
-
-	sort.Slice(fileProfiles, func(i, j int) bool {
-		if fileProfiles[i].Name != fileProfiles[j].Name {
-			return fileProfiles[i].Name < fileProfiles[j].Name
-		}
-		// Sort tie-break on ID so duplicate names always render in the same order.
-		return fileProfiles[i].ID < fileProfiles[j].ID
-	})
-	profiles = append(profiles, fileProfiles...)
-	return profiles, nil
+	return fileProfiles, nil
 }
 
 // readProfileName parses just the "name" field from the profile Json.
@@ -606,27 +879,56 @@ func readProfileOwners(path string) ([]ipcauth.Principal, error) {
 
 	principal, ok := ipcauth.ParsePrincipal(meta.Owners[0])
 	if !ok {
-		// A malformed entry is ignored rather than trusted.
-		log.Warnf("ignoring unparseable owner %q in %s", meta.Owners[0], path)
-		return nil, nil
+		// An entry that cannot be parsed is not trusted, and it is not an
+		// absence of ownership either: the profile records an owner that cannot
+		// be matched against anyone.
+		return nil, fmt.Errorf("unparseable owner %q in %s", meta.Owners[0], path)
 	}
 	return []ipcauth.Principal{principal}, nil
 }
 
-// nolint: unused,unusedfunc
+// StampOwner records a caller as a profile's owner, replacing whoever is
+// recorded now.
 func StampOwner(path string, owner ipcauth.Identity) error {
+	return stampPrincipal(path, ipcauth.OwnerPrincipalForIdentity(owner))
+}
+
+// stampPrincipal records an owner principal directly. Migration needs this: it
+// resolves an account name rather than a caller, and a name the kernel never
+// vouched for must not become an Identity on the way.
+func stampPrincipal(path, principal string) error {
+	return updateProfileConfig(path, func(cfg *Config) {
+		cfg.Owners = []string{principal}
+	})
+}
+
+// writeProfileName sets a profile's display name. Renaming does it on request,
+// migration does it to move a name out of a filename that is about to change.
+func writeProfileName(path, name string) error {
+	return updateProfileConfig(path, func(cfg *Config) {
+		cfg.Name = name
+	})
+}
+
+// updateProfileConfig reads a profile, applies mutate and writes it back.
+//
+// The whole config makes the round trip, which is what every writer here does,
+// so a field this version does not model is dropped. That only happens after a
+// downgrade, and a downgrade already drops the owners it cannot read.
+func updateProfileConfig(path string, mutate func(*Config)) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
+
 	var cfg Config
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return err
 	}
-	cfg.Owners = []string{ipcauth.OwnerPrincipalForIdentity(owner)}
+	mutate(&cfg)
 
-	if err := util.WriteJson(context.Background(), path, cfg); err != nil {
-		return fmt.Errorf("failed to write profile owner: %w", err)
+	if err := util.WriteJsonWithRestrictedPermission(context.Background(), path, cfg); err != nil {
+		return fmt.Errorf("write profile %s: %w", path, err)
 	}
 	return nil
 }
@@ -648,12 +950,12 @@ func (s *ServiceManager) activeProfileID() (ID, bool) {
 // precedence is: exact ID match, then unique exact name, then unique ID
 // prefix. Ambiguous matches return *ErrAmbiguousHandle so callers can
 // surface the candidates.
-func (s *ServiceManager) ResolveProfile(handle, username string) (*Profile, error) {
+func (s *ServiceManager) ResolveProfile(handle string, userID ipcauth.Identity) (*Profile, error) {
 	if handle == "" {
 		return nil, fmt.Errorf("profile handle is empty")
 	}
 
-	profiles, err := s.loadAllProfiles(username)
+	profiles, err := s.loadAllProfilesForIdentity(userID)
 	if err != nil {
 		return nil, err
 	}
