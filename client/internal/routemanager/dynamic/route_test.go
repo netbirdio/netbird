@@ -27,6 +27,31 @@ type wgAllowedIPMock struct {
 	removeAttempts int
 }
 
+type routeCleanupMock struct {
+	mu             sync.Mutex
+	removeFailures int
+	removeAttempts int
+}
+
+func (m *routeCleanupMock) RemoveRoute(netip.Prefix) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.removeAttempts++
+	if m.removeFailures != 0 {
+		if m.removeFailures > 0 {
+			m.removeFailures--
+		}
+		return errors.New("remove route")
+	}
+	return nil
+}
+
+func (m *routeCleanupMock) attempts() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.removeAttempts
+}
+
 func (m *wgAllowedIPMock) AddAllowedIP(peerKey string, allowedIP netip.Prefix) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -124,12 +149,36 @@ func TestRemoveRoutePreservesAllowedIPCleanupAfterPersistentFailure(t *testing.T
 	assert.Equal(t, 2, wg.attempts(), "every reconciliation must retry the removal")
 }
 
+func TestRemoveRouteRetriesFailedSystemRouteCleanup(t *testing.T) {
+	wg := &wgAllowedIPMock{}
+	systemRoutes := &routeCleanupMock{removeFailures: 1}
+	r, prefix := newRouteWithCleanupMocks(t, wg, systemRoutes)
+
+	require.Error(t, r.RemoveRoute(), "the first system route removal fails")
+	assertRoutePrefixesPending(t, r, prefix)
+	assert.Equal(t, []netip.Prefix{prefix}, wg.removedFor("peerA"),
+		"allowed IP cleanup must not be repeated after it succeeds")
+
+	require.NoError(t, r.RemoveRoute(), "a later route reconciliation retries the system route cleanup")
+	assertRouteCleanupComplete(t, r)
+	assert.Equal(t, 2, systemRoutes.attempts(), "the system route removal must be attempted again")
+}
+
 func newRouteWithAllowedIP(t *testing.T, wg *wgAllowedIPMock) (*Route, netip.Prefix) {
+	return newRouteWithCleanupMocks(t, wg, nil)
+}
+
+func newRouteWithCleanupMocks(t *testing.T, wg *wgAllowedIPMock, systemRoutes *routeCleanupMock) (*Route, netip.Prefix) {
 	t.Helper()
 
 	routeRefCounter := refcounter.New(
 		func(netip.Prefix, struct{}) (struct{}, error) { return struct{}{}, nil },
-		func(netip.Prefix, struct{}) error { return nil },
+		func(prefix netip.Prefix, _ struct{}) error {
+			if systemRoutes == nil {
+				return nil
+			}
+			return systemRoutes.RemoveRoute(prefix)
+		},
 	)
 	allowedIPsRefCounter := refcounter.NewAllowedIPs(
 		func(prefix netip.Prefix, peerKey string) (string, error) {
@@ -154,6 +203,8 @@ func newRouteWithAllowedIP(t *testing.T, wg *wgAllowedIPMock) (*Route, netip.Pre
 		domain.Domain("example.com"): {prefix},
 	}
 
+	_, err := r.routeRefCounter.Increment(prefix, struct{}{})
+	require.NoError(t, err)
 	require.NoError(t, r.AddAllowedIPs("peerA"))
 	return r, prefix
 }
@@ -175,4 +226,14 @@ func assertRouteCleanupComplete(t *testing.T, r *Route) {
 	defer r.mu.Unlock()
 	assert.Empty(t, r.currentPeerKey, "the peer key must clear after successful cleanup")
 	assert.Empty(t, r.dynamicDomains, "the dynamic domains must clear after successful cleanup")
+}
+
+func assertRoutePrefixesPending(t *testing.T, r *Route, prefix netip.Prefix) {
+	t.Helper()
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	assert.Empty(t, r.currentPeerKey, "allowed IP cleanup already succeeded")
+	assert.Equal(t, []netip.Prefix{prefix}, r.dynamicDomains[domain.Domain("example.com")],
+		"the failed system route prefix is needed for the next cleanup attempt")
 }
