@@ -75,6 +75,7 @@ type BaseServer struct {
 	grpcExtensions []GRPCExtension
 
 	listener    net.Listener
+	tlsConfig   *tls.Config
 	certManager *autocert.Manager
 	update      *version.Update
 
@@ -95,6 +96,7 @@ type Config struct {
 	DisableGeoliteUpdate        bool
 	UserDeleteFromIDPEnabled    bool
 	AutoResolveDomains          bool
+	TLSConfig                   *tls.Config
 }
 
 // NewServer initializes and configures a new Server instance
@@ -111,6 +113,7 @@ func NewServer(cfg *Config) *BaseServer {
 		disableLegacyManagementPort: cfg.DisableLegacyManagementPort,
 		mgmtMetricsPort:             cfg.MgmtMetricsPort,
 		autoResolveDomains:          cfg.AutoResolveDomains,
+		tlsConfig:                   cfg.TLSConfig,
 	}
 	s.container[ContainerKeyBaseServer] = s
 
@@ -140,21 +143,9 @@ func (s *BaseServer) Start(ctx context.Context) error {
 	}
 	s.EphemeralManager().LoadInitialPeers(srvCtx)
 
-	var tlsConfig *tls.Config
-	tlsEnabled := false
-	if s.Config.HttpConfig.LetsEncryptDomain != "" {
-		s.certManager, err = encryption.CreateCertManager(s.Config.Datadir, s.Config.HttpConfig.LetsEncryptDomain)
-		if err != nil {
-			return fmt.Errorf("failed creating LetsEncrypt cert manager: %v", err)
-		}
-		tlsEnabled = true
-	} else if s.Config.HttpConfig.CertFile != "" && s.Config.HttpConfig.CertKey != "" {
-		tlsConfig, err = loadTLSConfig(s.Config.HttpConfig.CertFile, s.Config.HttpConfig.CertKey)
-		if err != nil {
-			log.WithContext(srvCtx).Errorf("cannot load TLS credentials: %v", err)
-			return err
-		}
-		tlsEnabled = true
+	tlsEnabled, err := s.setupTLS(srvCtx)
+	if err != nil {
+		return err
 	}
 
 	installationID, err := getInstallationID(srvCtx, s.Store())
@@ -216,8 +207,8 @@ func (s *BaseServer) Start(ctx context.Context) error {
 			log.WithContext(ctx).Infof("running HTTP server (LetsEncrypt challenge handler): %s", cml.Addr().String())
 			s.serveHTTP(ctx, cml, s.certManager.HTTPHandler(nil))
 		}
-	case tlsConfig != nil:
-		s.listener, err = tls.Listen("tcp", fmt.Sprintf(":%d", s.mgmtPort), tlsConfig)
+	case s.tlsConfig != nil:
+		s.listener, err = tls.Listen("tcp", fmt.Sprintf(":%d", s.mgmtPort), s.tlsConfig)
 		if err != nil {
 			return fmt.Errorf("failed creating TLS listener on port %d: %v", s.mgmtPort, err)
 		}
@@ -241,7 +232,6 @@ func (s *BaseServer) Start(ctx context.Context) error {
 
 	return nil
 }
-
 func (s *BaseServer) startDomainCleanup(ctx context.Context) {
 	if s.domainCleanupStop != nil {
 		return
@@ -257,6 +247,31 @@ func (s *BaseServer) startDomainCleanup(ctx context.Context) {
 		defer close(done)
 		mgr.RunValidationCleanup(ctx)
 	}()
+}
+
+// setupTLS resolves the listener's TLS source: an injected config wins over the HttpConfig certificate settings
+func (s *BaseServer) setupTLS(ctx context.Context) (bool, error) {
+	switch {
+	case s.tlsConfig != nil:
+		return true, nil
+	case s.Config.HttpConfig.LetsEncryptDomain != "":
+		certManager, err := encryption.CreateCertManager(s.Config.Datadir, s.Config.HttpConfig.LetsEncryptDomain)
+		if err != nil {
+			return false, fmt.Errorf("failed creating LetsEncrypt cert manager: %v", err)
+		}
+		s.certManager = certManager
+		return true, nil
+	case s.Config.HttpConfig.CertFile != "" && s.Config.HttpConfig.CertKey != "":
+		tlsConfig, err := loadTLSConfig(s.Config.HttpConfig.CertFile, s.Config.HttpConfig.CertKey)
+		if err != nil {
+			log.WithContext(ctx).Errorf("cannot load TLS credentials: %v", err)
+			return false, err
+		}
+		s.tlsConfig = tlsConfig
+		return true, nil
+	default:
+		return false, nil
+	}
 }
 
 // Stop attempts a graceful shutdown, waiting up to 5 seconds for active connections to finish
