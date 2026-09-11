@@ -11,7 +11,10 @@ import (
 	"github.com/netbirdio/netbird/util"
 )
 
-const prefsFileSuffix = ".prefs.json"
+const (
+	prefsFileSuffix = ".prefs.json"
+	stateFileSuffix = ".state.json"
+)
 
 var prefsMu sync.Mutex
 

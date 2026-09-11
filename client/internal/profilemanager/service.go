@@ -179,20 +179,26 @@ func (s *ServiceManager) ActiveProfilePath(a *ActiveProfileState) (string, error
 		}
 	}
 
-	switch len(matches) {
-	case 0:
+	if len(matches) == 0 {
 		// Nothing on disk under that ID, so the legacy layout is the only
 		// guess left for where the file would go.
 		return a.FilePath()
-	case 1:
+	}
+
+	if len(matches) == 1 {
 		return matches[0].Path, nil
 	}
 
-	// Two directories hold the same legacy ID, so the recorded hint says which
-	// one the daemon activated. State written before the hint was a directory
-	// recorded the raw account name, which the legacy layout sanitized on its
-	// way to becoming a directory, so try it both ways.
+	// Migration gives every profile an ID no other profile holds, so getting
+	// here means it has not run yet or did not finish. Until it does, the
+	// recorded account name is the only thing telling namesakes apart, and
+	// picking the wrong one would point the daemon at another user's config.
+	// State written before the field held a directory recorded the raw account
+	// name, which the old layout sanitized on its way to becoming one.
 	for _, want := range []string{a.Username, sanitizeProfileName(a.Username)} {
+		if want == "" {
+			continue
+		}
 		for _, p := range matches {
 			if filepath.Base(filepath.Dir(p.Path)) == want {
 				return p.Path, nil
@@ -200,8 +206,8 @@ func (s *ServiceManager) ActiveProfilePath(a *ActiveProfileState) (string, error
 		}
 	}
 
-	log.Warnf("active profile %q exists in %d directories and none of them is %q, using %s",
-		a.ID, len(matches), a.Username, matches[0].Path)
+	log.Warnf("%d profiles share the ID %q and none of them sits in %q, using %s",
+		len(matches), a.ID, a.Username, matches[0].Path)
 	return matches[0].Path, nil
 }
 
@@ -346,10 +352,6 @@ func (s *ServiceManager) SetActiveProfileState(a *ActiveProfileState) error {
 		return errors.New("invalid active profile state")
 	}
 
-	if a.ID != defaultProfileName && a.Username == "" {
-		return fmt.Errorf("username must be set for non-default profiles, got: %s", a.ID)
-	}
-
 	if a.ID != defaultProfileName && !IsValidProfileFilenameStem(a.ID) {
 		return fmt.Errorf("invalid profile ID: %q", a.ID)
 	}
@@ -440,20 +442,7 @@ func (s *ServiceManager) RenameProfile(id ID, userID ipcauth.Identity, newName s
 		return ErrProfileNotFound
 	}
 
-	data, err := os.ReadFile(target.Path)
-	if err != nil {
-		return err
-	}
-	var cfg Config
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return err
-	}
-	cfg.Name = displayName
-
-	if err := util.WriteJson(context.Background(), target.Path, cfg); err != nil {
-		return fmt.Errorf("failed to write profile name: %w", err)
-	}
-	return nil
+	return writeProfileName(target.Path, displayName)
 }
 
 // RemoveProfile deletes the profile identified by id. Callers must have
@@ -898,9 +887,35 @@ func readProfileOwners(path string) ([]ipcauth.Principal, error) {
 	return []ipcauth.Principal{principal}, nil
 }
 
-// StampOwner records owner as a profile's owner, replacing whoever is recorded
-// now.
+// StampOwner records a caller as a profile's owner, replacing whoever is
+// recorded now.
 func StampOwner(path string, owner ipcauth.Identity) error {
+	return stampPrincipal(path, ipcauth.OwnerPrincipalForIdentity(owner))
+}
+
+// stampPrincipal records an owner principal directly. Migration needs this: it
+// resolves an account name rather than a caller, and a name the kernel never
+// vouched for must not become an Identity on the way.
+func stampPrincipal(path, principal string) error {
+	return updateProfileConfig(path, func(cfg *Config) {
+		cfg.Owners = []string{principal}
+	})
+}
+
+// writeProfileName sets a profile's display name. Renaming does it on request,
+// migration does it to move a name out of a filename that is about to change.
+func writeProfileName(path, name string) error {
+	return updateProfileConfig(path, func(cfg *Config) {
+		cfg.Name = name
+	})
+}
+
+// updateProfileConfig reads a profile, applies mutate and writes it back.
+//
+// The whole config makes the round trip, which is what every writer here does,
+// so a field this version does not model is dropped. That only happens after a
+// downgrade, and a downgrade already drops the owners it cannot read.
+func updateProfileConfig(path string, mutate func(*Config)) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
@@ -910,10 +925,10 @@ func StampOwner(path string, owner ipcauth.Identity) error {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return err
 	}
-	cfg.Owners = []string{ipcauth.OwnerPrincipalForIdentity(owner)}
+	mutate(&cfg)
 
 	if err := util.WriteJson(context.Background(), path, cfg); err != nil {
-		return fmt.Errorf("write profile owner: %w", err)
+		return fmt.Errorf("write profile %s: %w", path, err)
 	}
 	return nil
 }
