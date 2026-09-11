@@ -365,20 +365,10 @@ func (m *DefaultManager) updateSystemRoutes(newRoutes route.HAMap) error {
 		m.pendingRemovals = make(map[route.HAUniqueID]client.RouteHandler)
 	}
 
-	// Begin batch mode to avoid calling applyHostConfig() after each DNS handler operation
-	batchStarted := false
+	// Begin batch mode to avoid calling applyHostConfig() after each DNS handler operation.
 	if m.dnsServer != nil {
 		m.dnsServer.BeginBatch()
-		batchStarted = true
-		defer func() {
-			if merr != nil {
-				// On error, cancel batch to discard partial DNS state
-				m.dnsServer.CancelBatch()
-			} else {
-				// On success, apply accumulated DNS changes
-				m.dnsServer.EndBatch()
-			}
-		}()
+		defer m.dnsServer.EndBatch()
 	}
 
 	for id, handler := range m.pendingRemovals {
@@ -426,7 +416,6 @@ func (m *DefaultManager) updateSystemRoutes(newRoutes route.HAMap) error {
 		m.activeRoutes[id] = handler
 	}
 
-	_ = batchStarted // Mark as used
 	return nberrors.FormatErrorOrNil(merr)
 }
 
