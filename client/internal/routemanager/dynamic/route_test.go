@@ -1,6 +1,7 @@
 package dynamic
 
 import (
+	"errors"
 	"net/netip"
 	"sync"
 	"testing"
@@ -19,9 +20,11 @@ import (
 // refcounter closures. It is not an iface.WGIface: Route reads r.wgInterface only on
 // the iOS path, which this test does not exercise.
 type wgAllowedIPMock struct {
-	mu      sync.Mutex
-	added   map[string][]netip.Prefix
-	removed map[string][]netip.Prefix
+	mu             sync.Mutex
+	added          map[string][]netip.Prefix
+	removed        map[string][]netip.Prefix
+	removeFailures int
+	removeAttempts int
 }
 
 func (m *wgAllowedIPMock) AddAllowedIP(peerKey string, allowedIP netip.Prefix) error {
@@ -37,11 +40,24 @@ func (m *wgAllowedIPMock) AddAllowedIP(peerKey string, allowedIP netip.Prefix) e
 func (m *wgAllowedIPMock) RemoveAllowedIP(peerKey string, allowedIP netip.Prefix) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.removeAttempts++
+	if m.removeFailures != 0 {
+		if m.removeFailures > 0 {
+			m.removeFailures--
+		}
+		return errors.New("remove allowed IP")
+	}
 	if m.removed == nil {
 		m.removed = map[string][]netip.Prefix{}
 	}
 	m.removed[peerKey] = append(m.removed[peerKey], allowedIP)
 	return nil
+}
+
+func (m *wgAllowedIPMock) attempts() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.removeAttempts
 }
 
 func (m *wgAllowedIPMock) addedFor(peerKey string) []netip.Prefix {
@@ -61,12 +77,60 @@ func (m *wgAllowedIPMock) removedFor(peerKey string) []netip.Prefix {
 // future call site could reintroduce. The refcounter must stay usable for the next peer.
 func TestRemoveRouteReleasesAllowedIPs(t *testing.T) {
 	wg := &wgAllowedIPMock{}
+	r, prefix := newRouteWithAllowedIP(t, wg)
+	assert.Equal(t, []netip.Prefix{prefix}, wg.addedFor("peerA"))
+
+	// Reversed order: RemoveRoute first. It must release the allowed IPs itself, since it
+	// wipes dynamicDomains, and the later RemoveAllowedIPs must then be a safe no-op.
+	require.NoError(t, r.RemoveRoute())
+	require.NoError(t, r.RemoveAllowedIPs())
+
+	assert.Equal(t, []netip.Prefix{prefix}, wg.removedFor("peerA"),
+		"peerA's allowed IP must have been released despite the reversed call order")
+
+	t.Run("refcounter is usable for a subsequent peer", func(t *testing.T) {
+		_, err := r.allowedIPsRefcounter.Increment(prefix, "peerB")
+		require.NoError(t, err)
+		assert.Equal(t, []netip.Prefix{prefix}, wg.addedFor("peerB"),
+			"refcounter must have been fully released, allowing a new peer to take the prefix")
+	})
+}
+
+func TestRemoveRouteRetriesAllowedIPCleanup(t *testing.T) {
+	wg := &wgAllowedIPMock{removeFailures: 1}
+	r, prefix := newRouteWithAllowedIP(t, wg)
+
+	require.Error(t, r.RemoveRoute(), "the first allowed IP removal fails")
+	assertRouteCleanupPending(t, r, "peerA", prefix)
+	assert.Empty(t, wg.removedFor("peerA"), "the failed removal must not be recorded as complete")
+
+	require.NoError(t, r.RemoveRoute(), "a later route reconciliation retries the cleanup")
+	assertRouteCleanupComplete(t, r)
+	assert.Equal(t, []netip.Prefix{prefix}, wg.removedFor("peerA"),
+		"the retry must remove the old peer's allowed IP")
+	assert.Equal(t, 2, wg.attempts(), "the removal must be attempted again")
+}
+
+func TestRemoveRoutePreservesAllowedIPCleanupAfterPersistentFailure(t *testing.T) {
+	wg := &wgAllowedIPMock{removeFailures: -1}
+	r, prefix := newRouteWithAllowedIP(t, wg)
+
+	for range 2 {
+		require.Error(t, r.RemoveRoute(), "a failed cleanup must keep the route retryable")
+		assertRouteCleanupPending(t, r, "peerA", prefix)
+	}
+
+	assert.Empty(t, wg.removedFor("peerA"), "a persistently failing removal must not be marked complete")
+	assert.Equal(t, 2, wg.attempts(), "every reconciliation must retry the removal")
+}
+
+func newRouteWithAllowedIP(t *testing.T, wg *wgAllowedIPMock) (*Route, netip.Prefix) {
+	t.Helper()
 
 	routeRefCounter := refcounter.New(
 		func(netip.Prefix, struct{}) (struct{}, error) { return struct{}{}, nil },
 		func(netip.Prefix, struct{}) error { return nil },
 	)
-
 	allowedIPsRefCounter := refcounter.NewAllowedIPs(
 		func(prefix netip.Prefix, peerKey string) (string, error) {
 			return peerKey, wg.AddAllowedIP(peerKey, prefix)
@@ -85,27 +149,30 @@ func TestRemoveRouteReleasesAllowedIPs(t *testing.T) {
 		AllowedIPsRefCounter: allowedIPsRefCounter,
 		StatusRecorder:       peer.NewRecorder("https://mgm"),
 	}, netip.AddrPort{})
-
 	prefix := netip.MustParsePrefix("203.0.113.7/32")
 	r.dynamicDomains = domainMap{
 		domain.Domain("example.com"): {prefix},
 	}
 
 	require.NoError(t, r.AddAllowedIPs("peerA"))
-	assert.Equal(t, []netip.Prefix{prefix}, wg.addedFor("peerA"))
+	return r, prefix
+}
 
-	// Reversed order: RemoveRoute first. It must release the allowed IPs itself, since it
-	// wipes dynamicDomains, and the later RemoveAllowedIPs must then be a safe no-op.
-	require.NoError(t, r.RemoveRoute())
-	require.NoError(t, r.RemoveAllowedIPs())
+func assertRouteCleanupPending(t *testing.T, r *Route, peerKey string, prefix netip.Prefix) {
+	t.Helper()
 
-	assert.Equal(t, []netip.Prefix{prefix}, wg.removedFor("peerA"),
-		"peerA's allowed IP must have been released despite the reversed call order")
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	assert.Equal(t, peerKey, r.currentPeerKey, "the peer key is needed for the next cleanup attempt")
+	assert.Equal(t, []netip.Prefix{prefix}, r.dynamicDomains[domain.Domain("example.com")],
+		"the prefixes are needed for the next cleanup attempt")
+}
 
-	t.Run("refcounter is usable for a subsequent peer", func(t *testing.T) {
-		_, err := r.allowedIPsRefcounter.Increment(prefix, "peerB")
-		require.NoError(t, err)
-		assert.Equal(t, []netip.Prefix{prefix}, wg.addedFor("peerB"),
-			"refcounter must have been fully released, allowing a new peer to take the prefix")
-	})
+func assertRouteCleanupComplete(t *testing.T, r *Route) {
+	t.Helper()
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	assert.Empty(t, r.currentPeerKey, "the peer key must clear after successful cleanup")
+	assert.Empty(t, r.dynamicDomains, "the dynamic domains must clear after successful cleanup")
 }

@@ -86,9 +86,6 @@ func (r *Route) AddRoute(ctx context.Context) error {
 }
 
 // RemoveRoute will stop the dynamic resolver and remove all dynamic routes.
-// Allowed IPs should preferably be removed separately, via RemoveAllowedIPs(),
-// before this method. RemoveRoute releases any still held as a safety net, since
-// it clears dynamicDomains, the state RemoveAllowedIPs() needs to know what to drop.
 func (r *Route) RemoveRoute() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -99,11 +96,8 @@ func (r *Route) RemoveRoute() error {
 
 	var merr *multierror.Error
 
-	// Only logged, never returned: updateSystemRoutes() drops the whole pending DNS batch
-	// on any error from here, and allowed IP release failures never reached that path
-	// before, so don't open it now.
 	if err := r.releaseAllowedIPsLocked(); err != nil {
-		log.Errorf("Failed to release allowed IPs for route [%v]: %v", r, err)
+		return fmt.Errorf("release allowed IPs: %w", err)
 	}
 
 	for domain, prefixes := range r.dynamicDomains {
@@ -146,8 +140,8 @@ func (r *Route) RemoveAllowedIPs() error {
 }
 
 // releaseAllowedIPsLocked decrements the allowed IPs refcounter for every prefix in
-// dynamicDomains and clears currentPeerKey. The caller must hold r.mu. An empty
-// currentPeerKey means they are already released, so it is a no-op.
+// dynamicDomains. The caller must hold r.mu. An empty currentPeerKey means they are
+// already released, so it is a no-op.
 func (r *Route) releaseAllowedIPsLocked() error {
 	if r.currentPeerKey == "" {
 		return nil
@@ -162,8 +156,12 @@ func (r *Route) releaseAllowedIPsLocked() error {
 		}
 	}
 
+	if err := nberrors.FormatErrorOrNil(merr); err != nil {
+		return err
+	}
+
 	r.currentPeerKey = ""
-	return nberrors.FormatErrorOrNil(merr)
+	return nil
 }
 
 func (r *Route) startResolver(ctx context.Context) {
