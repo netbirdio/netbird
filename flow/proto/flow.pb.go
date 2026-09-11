@@ -4,6 +4,8 @@
 // 	protoc        v3.21.9
 // source: flow.proto
 
+//go:build !tinygo
+
 package proto
 
 import (

@@ -4,6 +4,8 @@
 // 	protoc        v7.34.1
 // source: proxy_service.proto
 
+//go:build !tinygo
+
 package proto
 
 import (

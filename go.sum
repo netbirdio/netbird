@@ -492,8 +492,6 @@ github.com/netbirdio/signal-dispatcher/dispatcher v0.0.0-20250805121659-6b4ac470
 github.com/netbirdio/signal-dispatcher/dispatcher v0.0.0-20250805121659-6b4ac470ca45/go.mod h1:5/sjFmLb8O96B5737VCqhHyGRzNFIaN/Bu7ZodXc3qQ=
 github.com/netbirdio/wails/v3 v3.0.0-beta.3.0.20260825085513-5f07a01f7a78 h1:B/jRv24jnFeoA+VccxoCx6K94PUgsqR9wnshpeu9M+8=
 github.com/netbirdio/wails/v3 v3.0.0-beta.3.0.20260825085513-5f07a01f7a78/go.mod h1:/6QR46/nhGCSADHbS++XtDb9dkTnenTHlGskTPRo9S0=
-github.com/netbirdio/wireguard-go v0.0.0-20260628102922-2834bebf6c1a h1:3CWK+yTvRKOcC0Q8VCTGy4l60TEb27CQVS7LkMxwjmw=
-github.com/netbirdio/wireguard-go v0.0.0-20260628102922-2834bebf6c1a/go.mod h1:rpwXGsirqLqN2L0JDJQlwOboGHmptD5ZD6T2VmcqhTw=
 github.com/nxadm/tail v1.4.4/go.mod h1:kenIhsEOeOJmVchQTgglprH7qJGnHDVpk1VPCcaMI8A=
 github.com/nxadm/tail v1.4.8/go.mod h1:+ncqLTQzXmGhMZNUePPaPqPvBxHAIsmXswZKocGu+AU=
 github.com/nxadm/tail v1.4.11 h1:8feyoE3OzPrcshW5/MJ4sGESc5cqmGkGCWlco4l0bqY=
@@ -609,6 +607,12 @@ github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966 h1:JIAuq3EE
 github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966/go.mod h1:sUM3LWHvSMaG192sy56D9F7CNvL7jUJVXoqM1QKLnog=
 github.com/songgao/water v0.0.0-20200317203138-2b4b6d7c09d8 h1:TG/diQgUe0pntT/2D9tmUCz4VNwm9MfrtPr0SU2qSX8=
 github.com/songgao/water v0.0.0-20200317203138-2b4b6d7c09d8/go.mod h1:P5HUIBuIWKbyjl083/loAegFkfbFNx5i2qEP4CNbm7E=
+github.com/soypat/embedpb v0.0.0-20260812030151-767038853f17 h1:eQSUMTH51+9Y7nG/LLiG0OOyBdqkfSt6ASpO/xP0DB8=
+github.com/soypat/embedpb v0.0.0-20260812030151-767038853f17/go.mod h1:D3zaVBIOGGGDgC0LTYJe7CdR9CiBOqiS1FF0iQNkzNI=
+github.com/soypat/lneto v0.3.3-0.20260908095637-37e9d1628ba6 h1:TjACKGDD97oAw84qyF9/2e8WlTsl4uzDQAjHv0sgoBg=
+github.com/soypat/lneto v0.3.3-0.20260908095637-37e9d1628ba6/go.mod h1:Be5PjwoYukvHFiUXxpYi8+ppH2F/gw/vjGBvFdv+Ti8=
+github.com/soypat/wireguard-go-netbird v0.0.0-20260908100025-a2c77e1f4fa4 h1:XrzhBOjNrFs9h0U13aWlmKrxfTQKdvyRocOdJUCldwU=
+github.com/soypat/wireguard-go-netbird v0.0.0-20260908100025-a2c77e1f4fa4/go.mod h1:G3sMzZtx+Db/CbZ5v0jP77t3r6kiTh623Q4tlu/Qx2o=
 github.com/spf13/cast v1.10.0 h1:h2x0u2shc1QuLHfxi+cTJvs30+ZAHOGRic8uyGTDWxY=
 github.com/spf13/cast v1.10.0/go.mod h1:jNfB8QC9IA6ZuY2ZjDp0KtFO2LZZlg4S/7bzP6qqeHo=
 github.com/spf13/cobra v1.10.2 h1:DMTTonx5m65Ic0GOoRY2c16WCbHxOOw6xxezuLaBpcU=

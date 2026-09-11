@@ -12,7 +12,6 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
-	"google.golang.org/protobuf/encoding/protojson"
 
 	netbird "github.com/netbirdio/netbird/client/embed"
 	sshdetection "github.com/netbirdio/netbird/client/ssh/detection"
@@ -103,6 +102,12 @@ func parseClientOptions(jsOptions js.Value) (netbird.Options, error) {
 		return options, err
 	}
 	options.LazyConnectionEnabled = lazyConnectionEnabled
+
+	// TEMPORARY (startup-hang diagnosis): force trace logging, overriding both
+	// defaultLogLevel and whatever the dashboard passes as logLevel. The
+	// Engine.Start path is already instrumented at Info/Debug, so this is what
+	// makes it visible without adding any new log statements. Revert to drop.
+	options.LogLevel = "trace"
 
 	return options, nil
 }
@@ -493,12 +498,7 @@ func createGetSyncResponseMethod(client *netbird.Client) js.Func {
 				return
 			}
 
-			options := protojson.MarshalOptions{
-				EmitUnpopulated: true,
-				UseProtoNames:   true,
-				AllowPartial:    true,
-			}
-			jsonBytes, err := options.Marshal(syncResp)
+			jsonBytes, err := marshalSyncJSON(syncResp)
 			if err != nil {
 				reject.Invoke(js.ValueOf(fmt.Sprintf("marshal sync response: %v", err)))
 				return

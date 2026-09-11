@@ -35,16 +35,6 @@ const (
 	edeNetbirdUpstreamFailure uint16 = 49153
 )
 
-type resolver interface {
-	LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error)
-	LookupMX(ctx context.Context, name string) ([]*net.MX, error)
-	LookupTXT(ctx context.Context, name string) ([]string, error)
-	LookupNS(ctx context.Context, name string) ([]*net.NS, error)
-	LookupSRV(ctx context.Context, service, proto, name string) (string, []*net.SRV, error)
-	LookupCNAME(ctx context.Context, host string) (string, error)
-	LookupAddr(ctx context.Context, addr string) ([]string, error)
-}
-
 type firewaller interface {
 	UpdateSet(set firewall.Set, prefixes []netip.Prefix) error
 }

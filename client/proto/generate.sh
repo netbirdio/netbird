@@ -19,4 +19,6 @@ protoc -I ./ ./daemon.proto \
   --grpc-gateway_out=../ \
   --grpc-gateway_opt=generate_unbound_methods=true \
   --experimental_allow_proto3_optional
+# TinyGo variant: emits embedpb_generated.go, re-stamps //go:build !tinygo on the .pb.go.
+go tool embedpb -tag tinygo .
 cd "$old_pwd"

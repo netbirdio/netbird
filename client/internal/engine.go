@@ -2052,8 +2052,9 @@ func (e *Engine) receiveSignalEvents() error {
 				if err != nil {
 					return err
 				}
-
-				log.Debugf("receiveMSG: took %s to get lock for peer %s with session id %s", gotLock, msg.Key, offerAnswer.SessionID)
+				// TinyGo does not have panic recovery yet.
+				// offerAnswer.SessionID is nil at times and will panic in fmt package due to String method nil dereference, so call SessionIDString instead.
+				log.Debugf("receiveMSG: took %s to get lock for peer %s with session id %s", gotLock, msg.Key, offerAnswer.SessionIDString())
 
 				if msg.Body.Type == sProto.Body_OFFER {
 					conn.OnRemoteOffer(*offerAnswer)

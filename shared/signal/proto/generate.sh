@@ -14,4 +14,6 @@ cd "$script_path"
 go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.26
 go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.1
 protoc -I ./ ./signalexchange.proto --go_out=../ --go-grpc_out=../
+# TinyGo variant: emits embedpb_generated.go, re-stamps //go:build !tinygo on the .pb.go.
+go tool embedpb -tag tinygo .
 cd "$old_pwd"
