@@ -88,7 +88,7 @@ func (e *EndpointUpdater) configureAsResponder(addr *net.UDPAddr, presharedKey *
 	var ctx context.Context
 	ctx, e.cancelFunc = context.WithCancel(context.Background())
 	e.updateWg.Add(1)
-	go e.scheduleDelayedUpdate(ctx, addr, presharedKey)
+	go e.scheduleDelayedUpdate(ctx, addr)
 
 	if err := e.updateWireGuardPeer(nil, presharedKey); err != nil {
 		e.waitForCloseTheDelayedUpdate()
@@ -107,8 +107,14 @@ func (e *EndpointUpdater) waitForCloseTheDelayedUpdate() {
 	e.updateWg.Wait()
 }
 
-// scheduleDelayedUpdate waits for the fallback period before updating the endpoint
-func (e *EndpointUpdater) scheduleDelayedUpdate(ctx context.Context, addr *net.UDPAddr, presharedKey *wgtypes.Key) {
+// scheduleDelayedUpdate waits for the fallback period, then sets the responder's real
+// endpoint. It deliberately passes a nil preshared key so it only updates the endpoint
+// and leaves the current PSK untouched: the PSK captured when this was scheduled may be
+// stale by now (e.g. the post-quantum bootstrap derived a fresher PSK within the
+// fallback window, applied via SetPresharedKey), and re-applying the captured one would
+// revert WireGuard to a key the remote peer no longer uses — a mismatch that stalls the
+// handshake until the next retry.
+func (e *EndpointUpdater) scheduleDelayedUpdate(ctx context.Context, addr *net.UDPAddr) {
 	defer e.updateWg.Done()
 	t := time.NewTimer(fallbackDelay)
 	defer t.Stop()
@@ -117,7 +123,7 @@ func (e *EndpointUpdater) scheduleDelayedUpdate(ctx context.Context, addr *net.U
 	case <-ctx.Done():
 		return
 	case <-t.C:
-		if err := e.updateWireGuardPeer(addr, presharedKey); err != nil {
+		if err := e.updateWireGuardPeer(addr, nil); err != nil {
 			e.log.Errorf("failed to update WireGuard peer, address: %s, error: %v", addr, err)
 		}
 	}

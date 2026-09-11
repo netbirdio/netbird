@@ -27,6 +27,7 @@ import (
 	"github.com/netbirdio/netbird/client/anonymize"
 	"github.com/netbirdio/netbird/client/configs"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/pqkem"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/updater/installer"
 	nbstatus "github.com/netbirdio/netbird/client/status"
@@ -708,6 +709,9 @@ func (g *BundleGenerator) addCommonConfigFields(configContent *strings.Builder) 
 	configContent.WriteString(fmt.Sprintf("DisableIPv6Discovery: %v\n", g.internalConfig.DisableIPv6Discovery))
 	configContent.WriteString(fmt.Sprintf("RosenpassEnabled: %v\n", g.internalConfig.RosenpassEnabled))
 	configContent.WriteString(fmt.Sprintf("RosenpassPermissive: %v\n", g.internalConfig.RosenpassPermissive))
+	// ML-KEM (Rosenpass alternative) is env-driven, not part of the config, so read it here.
+	configContent.WriteString(fmt.Sprintf("MLKEMEnabled: %v\n", pqkem.Enabled()))
+	configContent.WriteString(fmt.Sprintf("MLKEMStrict: %v\n", pqkem.Strict()))
 	if g.internalConfig.ServerSSHAllowed != nil {
 		configContent.WriteString(fmt.Sprintf("ServerSSHAllowed: %v\n", *g.internalConfig.ServerSSHAllowed))
 	}

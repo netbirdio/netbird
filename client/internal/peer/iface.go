@@ -10,6 +10,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
+	"github.com/netbirdio/netbird/monotime"
 )
 
 type WGIface interface {
@@ -19,4 +20,11 @@ type WGIface interface {
 	GetProxy() wgproxy.Proxy
 	Address() wgaddr.Address
 	RemoveEndpointAddress(key string) error
+	// LastActivities returns the last real-data activity time per peer (WireGuard
+	// keepalives excluded), used to gate post-quantum PSK rotation on active tunnels.
+	LastActivities() map[string]monotime.Time
+	// IsUserspaceBind reports whether WireGuard runs in userspace. Only there does
+	// LastActivities track per-peer data activity; in kernel mode it is unavailable,
+	// so PSK rotation cannot be gated on activity.
+	IsUserspaceBind() bool
 }

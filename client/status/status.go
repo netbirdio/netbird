@@ -155,6 +155,8 @@ type OutputOverview struct {
 	FQDN                    string                     `json:"fqdn" yaml:"fqdn"`
 	RosenpassEnabled        bool                       `json:"quantumResistance" yaml:"quantumResistance"`
 	RosenpassPermissive     bool                       `json:"quantumResistancePermissive" yaml:"quantumResistancePermissive"`
+	MLKEMEnabled            bool                       `json:"mlkemEnabled" yaml:"mlkemEnabled"`
+	MLKEMStrict             bool                       `json:"mlkemStrict" yaml:"mlkemStrict"`
 	Networks                []string                   `json:"networks" yaml:"networks"`
 	NumberOfForwardingRules int                        `json:"forwardingRules" yaml:"forwardingRules"`
 	NSServerGroups          []NsServerGroupStateOutput `json:"dnsServers" yaml:"dnsServers"`
@@ -205,6 +207,8 @@ func ConvertToStatusOutputOverview(pbFullStatus *proto.FullStatus, opts ConvertO
 		FQDN:                    pbFullStatus.GetLocalPeerState().GetFqdn(),
 		RosenpassEnabled:        pbFullStatus.GetLocalPeerState().GetRosenpassEnabled(),
 		RosenpassPermissive:     pbFullStatus.GetLocalPeerState().GetRosenpassPermissive(),
+		MLKEMEnabled:            pbFullStatus.GetLocalPeerState().GetMlkemEnabled(),
+		MLKEMStrict:             pbFullStatus.GetLocalPeerState().GetMlkemStrict(),
 		Networks:                pbFullStatus.GetLocalPeerState().GetNetworks(),
 		NumberOfForwardingRules: int(pbFullStatus.GetNumberOfForwardingRules()),
 		NSServerGroups:          mapNSGroups(pbFullStatus.GetDnsServers()),
@@ -511,12 +515,14 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 		dnsServersString = fmt.Sprintf("%d/%d Available", countEnabled(o.NSServerGroups), len(o.NSServerGroups))
 	}
 
-	rosenpassEnabledStatus := "false"
-	if o.RosenpassEnabled {
-		rosenpassEnabledStatus = "true"
-		if o.RosenpassPermissive {
-			rosenpassEnabledStatus = "true (permissive)" //nolint:gosec
-		}
+	// Quantum resistance is the outcome (post-quantum protected or not); the mechanism
+	// that provides it — ML-KEM or Rosenpass, strict or permissive — is a separate detail.
+	mechanism := quantumResistanceMechanism(o.RosenpassEnabled, o.RosenpassPermissive, o.MLKEMEnabled, o.MLKEMStrict)
+	quantumResistanceStatus := "false"
+	mechanismLine := ""
+	if mechanism != "none" {
+		quantumResistanceStatus = "true"
+		mechanismLine = fmt.Sprintf("Quantum resistance mechanism: %s\n", mechanism)
 	}
 
 	lazyConnectionEnabledStatus := "false"
@@ -615,6 +621,7 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 			"Interface type: %s\n"+
 			"Wireguard port: %s\n"+
 			"Quantum resistance: %s\n"+
+			"%s"+
 			"Lazy connection: %s\n"+
 			"SSH Server: %s\n"+
 			"Networks: %s\n"+
@@ -634,7 +641,8 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 		ipv6Line,
 		interfaceTypeString,
 		wgPortString,
-		rosenpassEnabledStatus,
+		quantumResistanceStatus,
+		mechanismLine,
 		lazyConnectionEnabledStatus,
 		sshServerStatus,
 		networks,
@@ -647,7 +655,7 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 
 // FullDetailSummary returns a full detailed summary with peer details and events.
 func (o *OutputOverview) FullDetailSummary() string {
-	parsedPeersString := parsePeers(o.Peers, o.RosenpassEnabled, o.RosenpassPermissive)
+	parsedPeersString := parsePeers(o.Peers, o.RosenpassEnabled, o.RosenpassPermissive, o.MLKEMEnabled, o.MLKEMStrict)
 	parsedEventsString := parseEvents(o.Events)
 	summary := o.GeneralSummary(true, true, true, true)
 
@@ -690,6 +698,8 @@ func ToProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 	pbFullStatus.LocalPeerState.Fqdn = fullStatus.LocalPeerState.FQDN
 	pbFullStatus.LocalPeerState.RosenpassPermissive = fullStatus.RosenpassState.Permissive
 	pbFullStatus.LocalPeerState.RosenpassEnabled = fullStatus.RosenpassState.Enabled
+	pbFullStatus.LocalPeerState.MlkemEnabled = fullStatus.MLKEMState.Enabled
+	pbFullStatus.LocalPeerState.MlkemStrict = fullStatus.MLKEMState.Strict
 	pbFullStatus.LocalPeerState.Networks = maps.Keys(fullStatus.LocalPeerState.Routes)
 	pbFullStatus.NumberOfForwardingRules = int32(fullStatus.NumOfForwardingRules)
 	pbFullStatus.LazyConnectionEnabled = fullStatus.LazyConnectionEnabled
@@ -755,7 +765,47 @@ func ToProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 	return &pbFullStatus
 }
 
-func parsePeers(peers PeersStateOutput, rosenpassEnabled, rosenpassPermissive bool) string {
+// quantumResistanceMechanism reports which post-quantum mechanism the local client runs,
+// as an enum: "none", "ML-KEM strict", "ML-KEM permissive", "RP strict", "RP permissive".
+// ML-KEM and Rosenpass are mutually exclusive, so at most one is active; ML-KEM takes
+// precedence if somehow both are set. Strict/permissive is the fail-closed vs fail-open mode.
+func quantumResistanceMechanism(rosenpassEnabled, rosenpassPermissive, mlkemEnabled, mlkemStrict bool) string {
+	switch {
+	case mlkemEnabled && mlkemStrict:
+		return "ML-KEM strict"
+	case mlkemEnabled:
+		return "ML-KEM permissive"
+	case rosenpassEnabled && !rosenpassPermissive:
+		return "RP strict"
+	case rosenpassEnabled:
+		return "RP permissive"
+	default:
+		return "none"
+	}
+}
+
+// peerQuantumResistanceStatus renders the per-peer "Quantum resistance" field. established
+// reports whether this peer's tunnel is post-quantum protected (Rosenpass or ML-KEM). When
+// it is not, the reason is phrased for whichever mechanism is active locally.
+func peerQuantumResistanceStatus(established, rosenpassEnabled, rosenpassPermissive, mlkemEnabled, mlkemStrict bool) string {
+	if established {
+		return "true"
+	}
+	switch {
+	case mlkemEnabled && mlkemStrict:
+		return "false (ML-KEM strict: blocking peer traffic until the exchange converges)"
+	case mlkemEnabled:
+		return "false (ML-KEM: not converged yet, or peer does not run the exchange)"
+	case rosenpassEnabled && rosenpassPermissive:
+		return "false (remote didn't enable quantum resistance)"
+	case rosenpassEnabled:
+		return "false (connection won't work without a permissive mode)"
+	default:
+		return "false"
+	}
+}
+
+func parsePeers(peers PeersStateOutput, rosenpassEnabled, rosenpassPermissive, mlkemEnabled, mlkemStrict bool) string {
 	var (
 		peersString = ""
 	)
@@ -782,22 +832,7 @@ func parsePeers(peers PeersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 			remoteICEEndpoint = peerState.IceCandidateEndpoint.Remote
 		}
 
-		rosenpassEnabledStatus := "false"
-		if rosenpassEnabled {
-			if peerState.RosenpassEnabled {
-				rosenpassEnabledStatus = "true"
-			} else {
-				if rosenpassPermissive {
-					rosenpassEnabledStatus = "false (remote didn't enable quantum resistance)"
-				} else {
-					rosenpassEnabledStatus = "false (connection won't work without a permissive mode)"
-				}
-			}
-		} else {
-			if peerState.RosenpassEnabled {
-				rosenpassEnabledStatus = "false (connection might not work without a remote permissive mode)"
-			}
-		}
+		rosenpassEnabledStatus := peerQuantumResistanceStatus(peerState.RosenpassEnabled, rosenpassEnabled, rosenpassPermissive, mlkemEnabled, mlkemStrict)
 
 		networks := "-"
 		if len(peerState.Networks) > 0 {
