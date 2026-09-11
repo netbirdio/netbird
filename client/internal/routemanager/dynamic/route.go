@@ -100,18 +100,25 @@ func (r *Route) RemoveRoute() error {
 		return fmt.Errorf("release allowed IPs: %w", err)
 	}
 
+	remainingDomains := domainMap{}
 	for domain, prefixes := range r.dynamicDomains {
+		var remainingPrefixes []netip.Prefix
 		for _, prefix := range prefixes {
 			if _, err := r.routeRefCounter.Decrement(prefix); err != nil {
 				merr = multierror.Append(merr, fmt.Errorf("remove dynamic route for IP %s: %w", prefix, err))
+				remainingPrefixes = append(remainingPrefixes, prefix)
 			}
+		}
+		if len(remainingPrefixes) > 0 {
+			remainingDomains[domain] = remainingPrefixes
+			continue
 		}
 		log.Debugf("Removed dynamic route(s) for [%s]: %s", domain.SafeString(), strings.ReplaceAll(fmt.Sprintf("%s", prefixes), " ", ", "))
 
 		r.statusRecorder.DeleteResolvedDomainsStates(domain)
 	}
 
-	r.dynamicDomains = domainMap{}
+	r.dynamicDomains = remainingDomains
 
 	return nberrors.FormatErrorOrNil(merr)
 }
