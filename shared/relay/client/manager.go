@@ -256,11 +256,7 @@ func (m *Manager) RelayInstanceAddress() (string, netip.Addr, error) {
 	if m.relayClient == nil {
 		return "", netip.Addr{}, ErrRelayClientNotConnected
 	}
-	addr, err := m.relayClient.ServerInstanceURL()
-	if err != nil {
-		return "", netip.Addr{}, err
-	}
-	return addr, m.relayClient.ConnectedIP(), nil
+	return m.relayClient.serverInstanceAddress()
 }
 
 // ServerURLs returns the addresses of the relay servers.
