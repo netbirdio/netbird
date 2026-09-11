@@ -405,7 +405,7 @@ func (s *ServiceManager) AddProfile(displayName string, callerId *ipcauth.Identi
 	}
 	cfg.Name = displayName
 
-	if err := util.WriteJson(context.Background(), profPath, cfg); err != nil {
+	if err := util.WriteJsonWithRestrictedPermission(context.Background(), profPath, cfg); err != nil {
 		return nil, fmt.Errorf("failed to write profile config: %w", err)
 	}
 
@@ -927,7 +927,7 @@ func updateProfileConfig(path string, mutate func(*Config)) error {
 	}
 	mutate(&cfg)
 
-	if err := util.WriteJson(context.Background(), path, cfg); err != nil {
+	if err := util.WriteJsonWithRestrictedPermission(context.Background(), path, cfg); err != nil {
 		return fmt.Errorf("write profile %s: %w", path, err)
 	}
 	return nil
