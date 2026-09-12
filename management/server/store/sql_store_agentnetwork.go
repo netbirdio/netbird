@@ -315,6 +315,36 @@ func (s *SqlStore) GetAllAgentNetworkSettings(ctx context.Context, lockStrength 
 	return settings, nil
 }
 
+// HasGatewayClusterPinnedByOtherAccount reports whether another account has a
+// labeled agent network gateway pinned beneath host, making host its cluster.
+// A self-addressed endpoint on the very same hostname is not counted: that
+// collision is the domain unique index's to refuse, as a conflict. Case-folded,
+// since a settings row written before hostnames were normalised may carry
+// capitals; one row per account, so the scan is cheap.
+func (s *SqlStore) HasGatewayClusterPinnedByOtherAccount(ctx context.Context, host, accountID string) (bool, error) {
+	return s.countGatewayRowsByOtherAccount(ctx, "LOWER(proxy_address) = LOWER(?) AND LOWER(domain) <> LOWER(proxy_address)", host, accountID)
+}
+
+// HasGatewayEndpointByOtherAccount reports whether host is another account's
+// agent network endpoint hostname (domain). Case-folded for the same reason as
+// HasGatewayClusterPinnedByOtherAccount.
+func (s *SqlStore) HasGatewayEndpointByOtherAccount(ctx context.Context, host, accountID string) (bool, error) {
+	return s.countGatewayRowsByOtherAccount(ctx, "LOWER(domain) = LOWER(?)", host, accountID)
+}
+
+func (s *SqlStore) countGatewayRowsByOtherAccount(ctx context.Context, predicate, host, accountID string) (bool, error) {
+	var count int64
+	result := s.db.
+		Model(&agentNetworkTypes.Settings{}).
+		Where(predicate+" AND account_id != ?", host, accountID).
+		Count(&count)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to check agent network gateway claims at host: %v", result.Error)
+		return false, status.Errorf(status.Internal, "check agent network gateway claims at host")
+	}
+	return count > 0, nil
+}
+
 // GetAgentNetworkSettingsByProxyAddress returns every Settings row whose
 // gateway is served by the proxy declaring the given cluster address. Used by
 // cluster-scoped synthesis to find the accounts a shared proxy serves.
