@@ -79,6 +79,10 @@
         "message": "Disconnect",
         "description": "Tray menu item that disconnects from the network. Keep short."
     },
+    "tray.menu.reconnect": {
+        "message": "Reconnect",
+        "description": "Tray menu item that disconnects and connects again in one step. Keep short."
+    },
     "tray.menu.exitNode": {
         "message": "Exit Node",
         "description": "Tray submenu title for choosing an exit node (route all traffic through another peer)."
@@ -174,6 +178,10 @@
     "notify.error.disconnect": {
         "message": "Failed to disconnect",
         "description": "Error notification body shown when disconnecting failed."
+    },
+    "notify.error.reconnect": {
+        "message": "Failed to reconnect",
+        "description": "Error notification body shown when reconnecting failed."
     },
     "notify.error.switchProfile": {
         "message": "Failed to switch to {profile}",
