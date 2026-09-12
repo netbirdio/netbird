@@ -756,12 +756,27 @@ jobs:
       - name: check git status
         run: git --no-pager diff --exit-code
 
+      # Same summary as the unit job: a timeout here names the tests still
+      # running instead of ending in a goroutine dump.
       - name: Test
+        shell: bash
         run: |
+          set -o pipefail
           CGO_ENABLED=1 GOARCH=${{ matrix.arch }} \
           NETBIRD_STORE_ENGINE=${{ matrix.store }} \
           CI=true \
-          mage integrationtest:all -gotestflags="-coverprofile=coverage.txt"
+          mage integrationtest:all -gotestflags="-json -coverprofile=coverage.txt" \
+            | tee management-integration-test-events.jsonl \
+            | go run ./tools/gotestsummary
+
+      - name: Upload raw test events
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a #v7.0.1
+        with:
+          name: management-integration-test-events-${{ matrix.store }}
+          path: management-integration-test-events.jsonl
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload coverage reports to Codecov
         if: matrix.arch == 'amd64'
