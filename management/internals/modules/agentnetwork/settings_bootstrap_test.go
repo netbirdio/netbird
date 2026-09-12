@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"go.uber.org/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
@@ -36,6 +36,16 @@ type bootstrapFixture struct {
 
 func newBootstrapFixture(t *testing.T) *bootstrapFixture {
 	t.Helper()
+	return newBootstrapFixtureWith(t, func(st store.Store) store.Store { return st })
+}
+
+// newBootstrapFixtureWith hands the manager the real store as seen through
+// wrap, while the fixture keeps the unwrapped store for seeding and
+// assertions. It exists for cases that need something to happen between two
+// of the manager's store calls — a competing claim landing mid-bootstrap —
+// which a real store cannot be made to do on cue.
+func newBootstrapFixtureWith(t *testing.T, wrap func(store.Store) store.Store) *bootstrapFixture {
+	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("sqlite store not properly supported on Windows yet")
 	}
@@ -55,7 +65,7 @@ func newBootstrapFixture(t *testing.T) *bootstrapFixture {
 
 	vendor := &stubLister{}
 	return &bootstrapFixture{
-		manager: NewManager(st, perms, accounts, nil, WithModelLister(vendor)),
+		manager: NewManager(wrap(st), perms, accounts, nil, WithModelLister(vendor)),
 		store:   st,
 		perms:   perms,
 		vendor:  vendor,
@@ -401,6 +411,66 @@ func TestCreateSettingsRejectsHostAnotherAccountClaims(t *testing.T) {
 
 	_, err = f.store.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, "account1")
 	assert.Error(t, err, "no row may be left behind by a rejected bootstrap")
+}
+
+// claimingStore is a store.Store on which another account's proxy registers
+// at the host being pinned in the moment the settings row is written — the
+// interleaving a concurrent proxy connect produces when it passes its own
+// availability check before this bootstrap's row exists, so neither side's
+// pre-write check sees the other.
+type claimingStore struct {
+	store.Store
+	t       *testing.T
+	claim   *proxy.Proxy
+	claimed bool
+}
+
+func (s *claimingStore) CreateAgentNetworkSettings(ctx context.Context, settings *types.Settings) error {
+	if !s.claimed {
+		s.claimed = true
+		require.NoError(s.t, s.Store.SaveProxy(ctx, s.claim), "the competing claim must land")
+	}
+	return s.Store.CreateAgentNetworkSettings(ctx, settings)
+}
+
+// TestCreateSettingsWithdrawsPinClaimedDuringBootstrap covers the window
+// between validateGatewayCluster and the insert: a foreign proxy that claims
+// the host in that window is seen by the ownership re-read after the write,
+// and the pin is withdrawn rather than left standing on a cluster that will
+// never serve it. The refusal reads exactly as it would have had the
+// pre-write check caught the claim.
+func TestCreateSettingsWithdrawsPinClaimedDuringBootstrap(t *testing.T) {
+	ctx := context.Background()
+	const host = "shared.example.com"
+
+	f := newBootstrapFixtureWith(t, func(st store.Store) store.Store {
+		return &claimingStore{Store: st, t: t, claim: &proxy.Proxy{
+			ID:             "foreign",
+			ClusterAddress: host,
+			Status:         proxy.StatusConnected,
+			LastSeen:       time.Now().UTC(),
+			AccountID:      ptrTo("account2"),
+			Capabilities:   proxy.Capabilities{Private: ptrTo(true)},
+		}}
+	})
+	// A shared embedded cluster, so the pre-write validation passes on its
+	// own merits and only the claim landing mid-bootstrap can refuse it.
+	f.seedEmbeddedCluster(t, host)
+	f.expectPermission("account1", "user1", modules.AgentNetworkSettings, operations.Create, true)
+
+	_, err := f.createSettings(ctx, "account1", "user1", host, "")
+	require.Error(t, err, "a host claimed by another account mid-bootstrap must be refused")
+	var sErr *status.Error
+	require.ErrorAs(t, err, &sErr)
+	assert.Equal(t, status.InvalidArgument, sErr.Type())
+	assert.Contains(t, err.Error(), "not available to this account")
+
+	_, err = f.store.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, "account1")
+	assert.Error(t, err, "the pin written before the claim was seen must be withdrawn")
+
+	foreign, err := f.store.HasForeignAccountProxyAtHost(ctx, host, "account1")
+	require.NoError(t, err)
+	assert.True(t, foreign, "the competing claim, having landed first, keeps the host")
 }
 
 // TestCreateSettingsAcceptsSharedClusterAlongsideOwnProxy pins the other side

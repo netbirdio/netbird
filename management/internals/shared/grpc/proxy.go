@@ -571,6 +571,12 @@ func (s *ProxyServiceServer) registerProxyConnection(ctx context.Context, params
 	proxyRecord, err := s.proxyManager.Connect(ctx, params.proxyID, sessionID, params.address, peerInfo, accountID, caps)
 	if err != nil {
 		cancel()
+		if errors.Is(err, proxy.ErrClusterAddressUnavailable) {
+			// The claim was lost to a concurrent one after validateProxyConnect
+			// saw the address free; the row has been withdrawn. Same answer
+			// as the pre-write check gives, so the proxy treats both alike.
+			return nil, nil, status.Errorf(codes.AlreadyExists, "cluster address %s is already in use", params.address)
+		}
 		if accountID != nil {
 			return nil, nil, status.Errorf(codes.Internal, "failed to register BYOP proxy: %v", err)
 		}

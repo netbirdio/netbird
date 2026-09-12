@@ -325,6 +325,7 @@ type Store interface {
 
 	SaveProxy(ctx context.Context, proxy *proxy.Proxy) error
 	DisconnectProxy(ctx context.Context, proxyID, sessionID string) error
+	DeleteProxy(ctx context.Context, proxyID, sessionID string) error
 	UpdateProxyHeartbeat(ctx context.Context, p *proxy.Proxy) error
 	GetActiveProxyClusterAddresses(ctx context.Context) ([]string, error)
 	GetActiveProxyClusterAddressesForAccount(ctx context.Context, accountID string) ([]string, error)
@@ -627,6 +628,9 @@ func getMigrationsPreAuto(ctx context.Context) []migrationFunc {
 		},
 		func(db *gorm.DB) error {
 			return migration.MigrateAgentNetworkSettingsToDomain(ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.NormalizeAgentNetworkSettingsIdentity(ctx, db)
 		},
 	}
 }

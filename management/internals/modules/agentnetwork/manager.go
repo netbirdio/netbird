@@ -1097,8 +1097,7 @@ func (m *managerImpl) validateGatewayCluster(ctx context.Context, accountID, clu
 		return fmt.Errorf("check proxy cluster ownership: %w", err)
 	}
 	if foreign {
-		return status.Errorf(status.InvalidArgument,
-			"proxy cluster %s is not available to this account", clusterAddr)
+		return errForeignCluster(clusterAddr)
 	}
 
 	declared, err := m.accountClusterSpellings(ctx, accountID, clusterAddr)
@@ -1227,10 +1226,53 @@ func (m *managerImpl) bootstrapLabeled(ctx context.Context, settings *types.Sett
 			}
 			return fmt.Errorf("create agent network settings: %w", err)
 		}
-		return nil
+		return m.confirmGatewayClusterOwnership(ctx, settings)
 	}
 
 	return fmt.Errorf("allocate agent network endpoint for account %s: %d attempts exhausted", settings.AccountID, maxDomainAllocationAttempts)
+}
+
+// confirmGatewayClusterOwnership re-asks, once the settings row is committed,
+// whether another account's proxy declares the pinned cluster, and withdraws
+// the row if one does.
+//
+// validateGatewayCluster answered that before the insert, but the two are
+// separate statements: a foreign proxy can register at the host in between,
+// and its own availability check — run before its row is written — would not
+// have seen this pin yet either. Re-reading after the write closes that
+// window from this side, and Manager.Connect does the same from the proxy's:
+// both claimants write before they re-read, so of two concurrent claims at
+// least one re-reads after the other has committed and backs off. Each
+// statement runs autocommit, so that re-read sees every commit before it on
+// sqlite, postgres and mysql alike. Both may back off, which costs the caller
+// a retry; neither keeps a claim the other holds, which is the invariant.
+// No lock spans the proxies and settings tables portably, and a claims table
+// would be more machinery than the property needs.
+//
+// Only ownership is re-asked. The capability check is about what the cluster
+// can do, not who holds it, and does not race a claim.
+func (m *managerImpl) confirmGatewayClusterOwnership(ctx context.Context, settings *types.Settings) error {
+	foreign, err := m.store.HasForeignAccountProxyAtHost(ctx, settings.ProxyAddress, settings.AccountID)
+	if err == nil && !foreign {
+		return nil
+	}
+
+	if delErr := m.store.DeleteAgentNetworkSettings(ctx, settings.AccountID); delErr != nil {
+		log.WithContext(ctx).Errorf("failed to withdraw agent network settings for account %s after losing the claim on %s: %v",
+			settings.AccountID, settings.ProxyAddress, delErr)
+	}
+	if err != nil {
+		return fmt.Errorf("confirm proxy cluster ownership: %w", err)
+	}
+	log.WithContext(ctx).Warnf("proxy cluster %s was claimed by another account while account %s bootstrapped onto it, withdrawing the pin",
+		settings.ProxyAddress, settings.AccountID)
+	return errForeignCluster(settings.ProxyAddress)
+}
+
+// errForeignCluster is the refusal for a cluster another account's proxy
+// declares, worded the same whether it is caught before or after the insert.
+func errForeignCluster(clusterAddr string) error {
+	return status.Errorf(status.InvalidArgument, "proxy cluster %s is not available to this account", clusterAddr)
 }
 
 // isUniqueConstraintError reports whether err is a database unique-constraint

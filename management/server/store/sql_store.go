@@ -6292,6 +6292,25 @@ func (s *SqlStore) DisconnectProxy(ctx context.Context, proxyID, sessionID strin
 	return nil
 }
 
+// DeleteProxy removes the proxy's row, but only while it still carries the
+// given session: a registration withdrawing its own claim must not take out a
+// newer session's row for the same proxy. A row already superseded or gone is
+// not an error — the claim it would have withdrawn is no longer this session's
+// to withdraw.
+func (s *SqlStore) DeleteProxy(ctx context.Context, proxyID, sessionID string) error {
+	result := s.db.
+		Where("id = ? AND session_id = ?", proxyID, sessionID).
+		Delete(&proxy.Proxy{})
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to delete proxy %s session %s: %v", proxyID, sessionID, result.Error)
+		return status.Errorf(status.Internal, "failed to delete proxy")
+	}
+	if result.RowsAffected == 0 {
+		log.WithContext(ctx).Debugf("proxy %s session %s: no row deleted (superseded by newer session)", proxyID, sessionID)
+	}
+	return nil
+}
+
 // GetAllProxies returns all reverse proxy instance rows.
 func (s *SqlStore) GetAllProxies(ctx context.Context) ([]*proxy.Proxy, error) {
 	var proxies []*proxy.Proxy

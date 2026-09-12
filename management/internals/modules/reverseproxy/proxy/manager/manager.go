@@ -2,6 +2,7 @@ package manager
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -14,6 +15,7 @@ import (
 type store interface {
 	SaveProxy(ctx context.Context, p *proxy.Proxy) error
 	DisconnectProxy(ctx context.Context, proxyID, sessionID string) error
+	DeleteProxy(ctx context.Context, proxyID, sessionID string) error
 	UpdateProxyHeartbeat(ctx context.Context, p *proxy.Proxy) error
 	GetActiveProxyClusterAddresses(ctx context.Context) ([]string, error)
 	GetActiveProxyClusterAddressesForAccount(ctx context.Context, accountID string) ([]string, error)
@@ -74,6 +76,12 @@ func (m *Manager) Connect(ctx context.Context, proxyID, sessionID, clusterAddres
 		return nil, err
 	}
 
+	if accountID != nil {
+		if err := m.confirmClusterAddressClaim(ctx, p, *accountID); err != nil {
+			return nil, err
+		}
+	}
+
 	log.WithContext(ctx).WithFields(log.Fields{
 		"proxyID":        proxyID,
 		"sessionID":      sessionID,
@@ -82,6 +90,43 @@ func (m *Manager) Connect(ctx context.Context, proxyID, sessionID, clusterAddres
 	}).Info("proxy connected")
 
 	return p, nil
+}
+
+// confirmClusterAddressClaim re-asks, once the proxy's row is committed,
+// whether the account may hold the address, and withdraws the row if not.
+//
+// The connect path checks IsClusterAddressAvailable before Connect, but that
+// read and the write here are separate statements: another claim — a foreign
+// proxy row, or another account's agent network gateway pin — can land in
+// between, and its own check would not have seen this row yet either.
+// Re-reading after the write closes that window from this side, and the
+// gateway bootstrap does the same from its side: both claimants write before
+// they re-read, so of two concurrent claims at least one re-reads after the
+// other has committed and backs off. Each statement runs autocommit, so that
+// re-read sees every commit before it on sqlite, postgres and mysql alike.
+// Both may back off, which costs a reconnect; neither keeps a claim the other
+// holds, which is the invariant. No lock spans the proxies and settings
+// tables portably, and a claims table would be more machinery than the
+// property needs.
+//
+// The row is withdrawn on an inconclusive re-read too: a claim that cannot be
+// confirmed must not stand, and the proxy reconnects on its own.
+func (m *Manager) confirmClusterAddressClaim(ctx context.Context, p *proxy.Proxy, accountID string) error {
+	available, err := m.IsClusterAddressAvailable(ctx, p.ClusterAddress, accountID)
+	if err == nil && available {
+		return nil
+	}
+
+	if delErr := m.store.DeleteProxy(ctx, p.ID, p.SessionID); delErr != nil {
+		log.WithContext(ctx).Errorf("failed to withdraw proxy %s session %s after losing the claim on %s: %v",
+			p.ID, p.SessionID, p.ClusterAddress, delErr)
+	}
+	if err != nil {
+		return fmt.Errorf("confirm claim on cluster address %s: %w", p.ClusterAddress, err)
+	}
+	log.WithContext(ctx).Warnf("cluster address %s was claimed while proxy %s registered for account %s, withdrawing its row",
+		p.ClusterAddress, p.ID, accountID)
+	return fmt.Errorf("cluster address %s: %w", p.ClusterAddress, proxy.ErrClusterAddressUnavailable)
 }
 
 // Disconnect marks a proxy as disconnected in the database.

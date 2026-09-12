@@ -754,6 +754,20 @@ func (mr *MockStoreMockRecorder) DeletePostureChecks(ctx, accountID, postureChec
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeletePostureChecks", reflect.TypeOf((*MockStore)(nil).DeletePostureChecks), ctx, accountID, postureChecksID)
 }
 
+// DeleteProxy mocks base method.
+func (m *MockStore) DeleteProxy(ctx context.Context, proxyID, sessionID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteProxy", ctx, proxyID, sessionID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteProxy indicates an expected call of DeleteProxy.
+func (mr *MockStoreMockRecorder) DeleteProxy(ctx, proxyID, sessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteProxy", reflect.TypeOf((*MockStore)(nil).DeleteProxy), ctx, proxyID, sessionID)
+}
+
 // DeleteRoute mocks base method.
 func (m *MockStore) DeleteRoute(ctx context.Context, accountID, routeID string) error {
 	m.ctrl.T.Helper()

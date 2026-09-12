@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"errors"
 	"time"
 )
 
@@ -8,6 +9,14 @@ const (
 	StatusConnected    = "connected"
 	StatusDisconnected = "disconnected"
 )
+
+// ErrClusterAddressUnavailable is returned by Manager.Connect when the
+// cluster address turned out to be claimed by someone else once the proxy's
+// own row was written — a conflicting proxy row or another account's agent
+// network gateway pin that landed between the availability check and the
+// write. The proxy's row has been withdrawn by then; the caller reports the
+// address as taken, exactly as if the pre-write check had caught it.
+var ErrClusterAddressUnavailable = errors.New("cluster address is not available")
 
 // Capabilities describes what a proxy can handle, as reported via gRPC.
 // Nil fields mean the proxy never reported this capability.
