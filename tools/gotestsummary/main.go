@@ -48,6 +48,9 @@ type event struct {
 	Test    string  `json:"Test"`
 	Output  string  `json:"Output"`
 	Elapsed float64 `json:"Elapsed"`
+	// ImportPath is set instead of Package on build events; it carries a
+	// " [pkg.test]" suffix for a test binary.
+	ImportPath string `json:"ImportPath"`
 }
 
 type testKey struct {
@@ -71,13 +74,18 @@ type packageResult struct {
 type summarizer struct {
 	out io.Writer
 
-	output    map[testKey][]string
-	dropped   map[testKey]int
+	output  map[testKey][]string
+	dropped map[testKey]int
+	// pkgOutput keeps what a package printed outside any test, which is where
+	// compiler diagnostics of a failed build end up.
+	pkgOutput map[string][]string
 	stores    map[testKey]storeStats
 	tests     []testResult
 	packages  []packageResult
-	panicHead []string
-	panicking bool
+	// panics holds the head of a panic per package. Package streams interleave
+	// in a go test -json run, so one package's dump must not swallow another's
+	// output.
+	panics map[string][]string
 }
 
 type storeStats struct {
@@ -87,10 +95,12 @@ type storeStats struct {
 
 func newSummarizer(out io.Writer) *summarizer {
 	return &summarizer{
-		out:     out,
-		output:  make(map[testKey][]string),
-		dropped: make(map[testKey]int),
-		stores:  make(map[testKey]storeStats),
+		out:       out,
+		output:    make(map[testKey][]string),
+		dropped:   make(map[testKey]int),
+		pkgOutput: make(map[string][]string),
+		stores:    make(map[testKey]storeStats),
+		panics:    make(map[string][]string),
 	}
 }
 
@@ -140,10 +150,23 @@ func (s *summarizer) consume(r io.Reader) error {
 }
 
 func (s *summarizer) handle(ev event) {
+	if ev.Package == "" && ev.ImportPath != "" {
+		ev.Package, _, _ = strings.Cut(ev.ImportPath, " [")
+	}
 	key := testKey{pkg: ev.Package, name: ev.Test}
 	switch ev.Action {
-	case "output":
+	case "run":
+		// Register the test even before it prints anything, so a test that
+		// hangs silently still shows up as unfinished.
+		if ev.Test != "" {
+			if _, ok := s.output[key]; !ok {
+				s.output[key] = []string{}
+			}
+		}
+	case "output", "build-output":
 		s.handleOutput(key, strings.TrimRight(ev.Output, "\n"))
+	case "build-fail":
+		s.handlePackageResult(ev)
 	case "pass", "fail", "skip":
 		if ev.Test == "" {
 			s.handlePackageResult(ev)
@@ -155,13 +178,15 @@ func (s *summarizer) handle(ev event) {
 
 func (s *summarizer) handleOutput(key testKey, line string) {
 	if strings.HasPrefix(line, "panic: ") || strings.HasPrefix(line, "fatal error: ") {
-		s.panicking = true
+		if _, ok := s.panics[key.pkg]; !ok {
+			s.panics[key.pkg] = []string{}
+		}
 	}
-	if s.panicking {
-		// The goroutine dump that follows a panic is kept in panicHead only;
+	if head, ok := s.panics[key.pkg]; ok {
+		// The goroutine dump that follows a panic is kept in the panic head only;
 		// letting it flood the per-test buffers would hide the test's own output.
-		if len(s.panicHead) < panicHeadLines {
-			s.panicHead = append(s.panicHead, line)
+		if len(head) < panicHeadLines {
+			s.panics[key.pkg] = append(head, line)
 		}
 		return
 	}
@@ -176,14 +201,21 @@ func (s *summarizer) handleOutput(key testKey, line string) {
 	}
 
 	if key.name == "" {
+		s.pkgOutput[key.pkg] = appendBounded(s.pkgOutput[key.pkg], line)
 		return
 	}
-	buf := s.output[key]
-	if len(buf) >= bufferedOutputLines {
-		buf = buf[1:]
+	if len(s.output[key]) >= bufferedOutputLines {
 		s.dropped[key]++
 	}
-	s.output[key] = append(buf, line)
+	s.output[key] = appendBounded(s.output[key], line)
+}
+
+// appendBounded keeps the most recent bufferedOutputLines lines.
+func appendBounded(buf []string, line string) []string {
+	if len(buf) >= bufferedOutputLines {
+		buf = buf[1:]
+	}
+	return append(buf, line)
 }
 
 func (s *summarizer) handleTestResult(key testKey, ev event) {
@@ -232,26 +264,49 @@ func (s *summarizer) handlePackageResult(ev event) {
 
 	label := "ok  "
 	switch ev.Action {
-	case "fail":
+	case "fail", "build-fail":
 		label = "FAIL"
 	case "skip":
 		label = "skip"
 	}
 	fmt.Fprintf(s.out, "%s %s %s\n", label, shortPkg(ev.Package), elapsed.Round(time.Millisecond))
 
-	if ev.Action == "fail" {
+	if label == "FAIL" {
+		s.printPackageOutput(ev.Package)
 		s.printUnfinished(ev.Package)
+		s.printPanicHead(ev.Package)
 	}
-	if ev.Action == "fail" && len(s.panicHead) > 0 {
-		fmt.Fprintf(s.out, "\n==== panic in %s (first %d lines) ====\n", shortPkg(ev.Package), len(s.panicHead))
-		for _, l := range s.panicHead {
-			fmt.Fprintln(s.out, l)
-		}
-		fmt.Fprintln(s.out, "==== end of panic head ====")
-		fmt.Fprintln(s.out)
-		s.panicHead = nil
-		s.panicking = false
+	delete(s.pkgOutput, ev.Package)
+	delete(s.panics, ev.Package)
+}
+
+// printPackageOutput shows what a failed package printed outside its tests,
+// such as the compiler errors of a build failure.
+func (s *summarizer) printPackageOutput(pkg string) {
+	lines := s.pkgOutput[pkg]
+	if len(lines) == 0 {
+		return
 	}
+	if len(lines) > failedTestOutputLines {
+		lines = lines[len(lines)-failedTestOutputLines:]
+	}
+	fmt.Fprintf(s.out, "\n==== output of %s outside tests ====\n", shortPkg(pkg))
+	for _, l := range lines {
+		fmt.Fprintf(s.out, "    %s\n", l)
+	}
+}
+
+func (s *summarizer) printPanicHead(pkg string) {
+	head := s.panics[pkg]
+	if len(head) == 0 {
+		return
+	}
+	fmt.Fprintf(s.out, "\n==== panic in %s (first %d lines) ====\n", shortPkg(pkg), len(head))
+	for _, l := range head {
+		fmt.Fprintln(s.out, l)
+	}
+	fmt.Fprintln(s.out, "==== end of panic head ====")
+	fmt.Fprintln(s.out)
 }
 
 // printUnfinished names the tests of a failed package that never reported a
