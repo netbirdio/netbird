@@ -1,16 +1,104 @@
 package client
 
 import (
+	"context"
 	"fmt"
 	"net/netip"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/routemanager/common"
 	"github.com/netbirdio/netbird/client/internal/routemanager/static"
 	"github.com/netbirdio/netbird/route"
 )
+
+type blockingRemoveHandler struct {
+	removeStarted chan struct{}
+	releaseRemove chan struct{}
+	mu            sync.Mutex
+	removeCalls   int
+}
+
+func (h *blockingRemoveHandler) String() string                 { return "test route" }
+func (h *blockingRemoveHandler) AddRoute(context.Context) error { return nil }
+func (h *blockingRemoveHandler) RemoveRoute() error             { return nil }
+func (h *blockingRemoveHandler) AddAllowedIPs(string) error     { return nil }
+func (h *blockingRemoveHandler) RemoveAllowedIPs() error {
+	h.mu.Lock()
+	h.removeCalls++
+	h.mu.Unlock()
+	close(h.removeStarted)
+	<-h.releaseRemove
+	return nil
+}
+
+func (h *blockingRemoveHandler) removals() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.removeCalls
+}
+
+func TestWatcherStopWaitsForRunningRemoval(t *testing.T) {
+	handler := &blockingRemoveHandler{
+		removeStarted: make(chan struct{}),
+		releaseRemove: make(chan struct{}),
+	}
+	w := NewWatcher(WatcherConfig{
+		Context:        context.Background(),
+		StatusRecorder: peer.NewRecorder("https://mgm"),
+		Handler:        handler,
+	})
+	w.currentChosen = &route.Route{ID: "route", Peer: "peer"}
+
+	go w.Start()
+	w.peerStateUpdate <- map[string]peer.RouterState{}
+	select {
+	case <-handler.removeStarted:
+	case <-time.After(time.Second):
+		t.Fatal("watcher did not begin removing allowed IPs")
+	}
+
+	stopped := make(chan struct{})
+	go func() {
+		w.Stop()
+		close(stopped)
+	}()
+	select {
+	case <-stopped:
+		t.Fatal("Stop returned before the running removal completed")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(handler.releaseRemove)
+	select {
+	case <-stopped:
+	case <-time.After(time.Second):
+		t.Fatal("Stop did not return after the running removal completed")
+	}
+	assert.Equal(t, 1, handler.removals(), "Stop must not remove allowed IPs twice")
+	w.Stop()
+	assert.Equal(t, 1, handler.removals(), "a repeated Stop must not remove allowed IPs again")
+}
+
+func TestWatcherStopBeforeStartDoesNotBlock(t *testing.T) {
+	w := NewWatcher(WatcherConfig{Context: context.Background()})
+	w.Stop()
+
+	started := make(chan struct{})
+	go func() {
+		w.Start()
+		close(started)
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("Start blocked after Stop ran first")
+	}
+}
 
 func TestGetBestrouteFromStatuses(t *testing.T) {
 	testCases := []struct {

@@ -111,6 +111,7 @@ type DefaultManager struct {
 	disableClientRoutes bool
 	disableServerRoutes bool
 	activeRoutes        map[route.HAUniqueID]client.RouteHandler
+	pendingRemovals     map[route.HAUniqueID]client.RouteHandler
 	fakeIPManager       *fakeip.Manager
 	dnsForwarderPort    atomic.Uint32
 }
@@ -141,6 +142,7 @@ func NewManager(config ManagerConfig) *DefaultManager {
 		disableClientRoutes: config.DisableClientRoutes,
 		disableServerRoutes: config.DisableServerRoutes,
 		activeRoutes:        make(map[route.HAUniqueID]client.RouteHandler),
+		pendingRemovals:     make(map[route.HAUniqueID]client.RouteHandler),
 	}
 	dm.dnsForwarderPort.Store(uint32(nbdns.ForwarderClientPort))
 
@@ -343,6 +345,7 @@ func (m *DefaultManager) Stop(stateManager *statemanager.Manager) {
 func (m *DefaultManager) updateSystemRoutes(newRoutes route.HAMap) error {
 	toAdd := make(map[route.HAUniqueID]*route.Route)
 	toRemove := make(map[route.HAUniqueID]client.RouteHandler)
+	blockedAdds := make(map[route.HAUniqueID]struct{})
 
 	for id, routes := range newRoutes {
 		if len(routes) > 0 {
@@ -359,31 +362,39 @@ func (m *DefaultManager) updateSystemRoutes(newRoutes route.HAMap) error {
 	}
 
 	var merr *multierror.Error
+	if m.pendingRemovals == nil {
+		m.pendingRemovals = make(map[route.HAUniqueID]client.RouteHandler)
+	}
 
-	// Begin batch mode to avoid calling applyHostConfig() after each DNS handler operation
-	batchStarted := false
+	// Begin batch mode to avoid calling applyHostConfig() after each DNS handler operation.
 	if m.dnsServer != nil {
 		m.dnsServer.BeginBatch()
-		batchStarted = true
-		defer func() {
-			if merr != nil {
-				// On error, cancel batch to discard partial DNS state
-				m.dnsServer.CancelBatch()
-			} else {
-				// On success, apply accumulated DNS changes
-				m.dnsServer.EndBatch()
-			}
-		}()
+		defer m.dnsServer.EndBatch()
+	}
+
+	for id, handler := range m.pendingRemovals {
+		if err := handler.RemoveRoute(); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("remove route %s: %w", handler.String(), err))
+			blockedAdds[id] = struct{}{}
+			continue
+		}
+		delete(m.pendingRemovals, id)
 	}
 
 	for id, handler := range toRemove {
 		if err := handler.RemoveRoute(); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("remove route %s: %w", handler.String(), err))
+			m.pendingRemovals[id] = handler
+			delete(m.activeRoutes, id)
+			continue
 		}
 		delete(m.activeRoutes, id)
 	}
 
 	for id, route := range toAdd {
+		if _, blocked := blockedAdds[id]; blocked {
+			continue
+		}
 		params := common.HandlerParams{
 			Route:                route,
 			RouteRefCounter:      m.routeRefCounter,
@@ -406,7 +417,6 @@ func (m *DefaultManager) updateSystemRoutes(newRoutes route.HAMap) error {
 		m.activeRoutes[id] = handler
 	}
 
-	_ = batchStarted // Mark as used
 	return nberrors.FormatErrorOrNil(merr)
 }
 
@@ -437,6 +447,11 @@ func (m *DefaultManager) UpdateRoutes(
 		m.updateRouteSelectorFromManagement(clientRoutes)
 
 		filteredClientRoutes := m.routeSelector.FilterSelectedExitNodes(clientRoutes)
+
+		// Stop obsolete watchers first: RemoveRoute() clears the domain state that
+		// RemoveAllowedIPs() decrements from, so the outgoing peer's allowed IPs would
+		// otherwise stay installed forever.
+		m.stopObsoleteClients(filteredClientRoutes)
 
 		if err := m.updateSystemRoutes(filteredClientRoutes); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("update system routes: %w", err))
@@ -559,11 +574,14 @@ func (m *DefaultManager) TriggerSelection(networks route.HAMap) {
 
 	m.notifier.OnNewRoutes(networks)
 
+	// Stop obsolete watchers first: RemoveRoute() clears the domain state that
+	// RemoveAllowedIPs() decrements from, so the outgoing peer's allowed IPs would
+	// otherwise stay installed forever.
+	m.stopObsoleteClients(networks)
+
 	if err := m.updateSystemRoutes(networks); err != nil {
 		log.Errorf("failed to update system routes during selection: %v", err)
 	}
-
-	m.stopObsoleteClients(networks)
 
 	for id, routes := range networks {
 		if _, found := m.clientNetworks[id]; found {
@@ -614,10 +632,9 @@ func (m *DefaultManager) stopObsoleteClients(networks route.HAMap) {
 	}
 }
 
+// updateClientNetworks starts or updates the client network watchers for the given
+// routes. Callers must stop obsolete watchers first, via stopObsoleteClients.
 func (m *DefaultManager) updateClientNetworks(updateSerial uint64, networks route.HAMap) {
-	// removing routes that do not exist as per the update from the Management service.
-	m.stopObsoleteClients(networks)
-
 	for id, routes := range networks {
 		clientNetworkWatcher, found := m.clientNetworks[id]
 		if !found {
