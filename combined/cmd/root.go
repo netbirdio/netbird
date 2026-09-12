@@ -205,7 +205,7 @@ func createAllServers(ctx context.Context, cfg *CombinedConfig) (*serverInstance
 		metricsServer: metricsServer,
 	}
 
-	_, tlsSupport, err := handleTLSConfig(cfg)
+	tlsConfig, tlsSupport, err := handleTLSConfig(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup TLS config: %w", err)
 	}
@@ -214,7 +214,7 @@ func createAllServers(ctx context.Context, cfg *CombinedConfig) (*serverInstance
 		return nil, err
 	}
 
-	if err := servers.createManagementServer(ctx, cfg); err != nil {
+	if err := servers.createManagementServer(ctx, cfg, tlsConfig); err != nil {
 		return nil, err
 	}
 
@@ -264,7 +264,7 @@ func (s *serverInstances) createRelayServer(cfg *CombinedConfig, tlsSupport bool
 	return nil
 }
 
-func (s *serverInstances) createManagementServer(ctx context.Context, cfg *CombinedConfig) error {
+func (s *serverInstances) createManagementServer(ctx context.Context, cfg *CombinedConfig, tlsConfig *tls.Config) error {
 	if !cfg.Management.Enabled {
 		return nil
 	}
@@ -297,7 +297,7 @@ func (s *serverInstances) createManagementServer(ctx context.Context, cfg *Combi
 
 	LogConfigInfo(mgmtConfig)
 
-	s.mgmtSrv, err = createManagementServer(cfg, mgmtConfig)
+	s.mgmtSrv, err = createManagementServer(cfg, mgmtConfig, tlsConfig)
 	if err != nil {
 		cleanupSTUNListeners(s.stunListeners)
 		return fmt.Errorf("failed to create management server: %w", err)
@@ -365,7 +365,6 @@ func setupServerHooks(servers *serverInstances, cfg *CombinedConfig) {
 			})
 		}
 	}
-
 }
 
 func startServers(wg *sync.WaitGroup, srv *relayServer.Server, httpHealthcheck *healthcheck.Server, stunServer *stun.Server, metricsServer *sharedMetrics.Metrics) {
@@ -514,7 +513,7 @@ func handleTLSConfig(cfg *CombinedConfig) (*tls.Config, bool, error) {
 	return nil, false, nil
 }
 
-func createManagementServer(cfg *CombinedConfig, mgmtConfig *nbconfig.Config) (mgmtServer.Server, error) {
+func createManagementServer(cfg *CombinedConfig, mgmtConfig *nbconfig.Config, tlsConfig *tls.Config) (mgmtServer.Server, error) {
 	mgmt := cfg.Management
 
 	// Extract port from listen address
@@ -539,10 +538,11 @@ func createManagementServer(cfg *CombinedConfig, mgmtConfig *nbconfig.Config) (m
 		&mgmtServer.Config{
 			NbConfig:                mgmtConfig,
 			DNSDomain:               "",
-			MgmtSingleAccModeDomain: "",
+			MgmtSingleAccModeDomain: mgmtServer.DefaultSelfHostedDomain,
 			AutoResolveDomains:      true,
 			MgmtPort:                mgmtPort,
 			MgmtMetricsPort:         cfg.Server.MetricsPort,
+			TLSConfig:               tlsConfig,
 			DisableMetrics:          mgmt.DisableAnonymousMetrics,
 			DisableGeoliteUpdate:    mgmt.DisableGeoliteUpdate,
 			// Always enable user deletion from IDP in combined server (embedded IdP is always enabled)
@@ -554,7 +554,7 @@ func createManagementServer(cfg *CombinedConfig, mgmtConfig *nbconfig.Config) (m
 }
 
 // createCombinedHandler creates an HTTP handler that multiplexes Management, Signal (via wsproxy), and Relay WebSocket traffic
-func createCombinedHandler(grpcServer *grpc.Server, httpHandler http.Handler, idpHandler http.Handler, relaySrv *relayServer.Server, meter metric.Meter, cfg *CombinedConfig) http.Handler {
+func createCombinedHandler(grpcServer *grpc.Server, httpHandler, idpHandler http.Handler, relaySrv *relayServer.Server, meter metric.Meter, cfg *CombinedConfig) http.Handler {
 	wsProxy := wsproxyserver.New(grpcServer, wsproxyserver.WithOTelMeter(meter))
 
 	var relayAcceptFn func(conn listener.Conn)

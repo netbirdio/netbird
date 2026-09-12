@@ -431,6 +431,57 @@ func TestValidateSession_MissingToken(t *testing.T) {
 	assert.Contains(t, resp.DeniedReason, "missing")
 }
 
+// TestGenerateSessionToken_UserNotInAllowedGroupGetsNoToken is the regression
+// guard for the group-authorisation bypass: the callback used to hand a signed
+// token to a user the service denies, and the proxy honoured that token as soon
+// as the user moved it into the nb_session cookie themselves. Authorisation has
+// to run before the token is signed.
+func TestGenerateSessionToken_UserNotInAllowedGroupGetsNoToken(t *testing.T) {
+	setup := setupValidateSessionTest(t)
+	defer setup.cleanup()
+
+	token, err := setup.proxyService.GenerateSessionToken(context.Background(), "restricted-proxy.example.com", "nonGroupUserId", auth.MethodOIDC)
+
+	require.Error(t, err, "a user outside the distribution groups must not receive a token")
+	assert.ErrorIs(t, err, ErrUserNotInGroup, "the callback maps this sentinel onto the access denied page")
+	assert.Empty(t, token, "no token may reach the browser")
+}
+
+func TestGenerateSessionToken_UserInAllowedGroupGetsTokenWithGroups(t *testing.T) {
+	setup := setupValidateSessionTest(t)
+	defer setup.cleanup()
+
+	ctx := context.Background()
+	svc, err := setup.store.GetServiceByID(ctx, store.LockingStrengthNone, "testAccountId", "restrictedProxyId")
+	require.NoError(t, err)
+
+	token, err := setup.proxyService.GenerateSessionToken(ctx, "restricted-proxy.example.com", "allowedUserId", auth.MethodOIDC)
+	require.NoError(t, err)
+	require.NotEmpty(t, token)
+
+	pubKey, err := base64.StdEncoding.DecodeString(svc.SessionPublicKey)
+	require.NoError(t, err)
+
+	userID, _, method, groups, _, err := auth.ValidateSessionJWT(token, "restricted-proxy.example.com", pubKey)
+	require.NoError(t, err)
+	assert.Equal(t, "allowedUserId", userID)
+	assert.Equal(t, auth.MethodOIDC.String(), method)
+	assert.Equal(t, []string{"allowedGroupId"}, groups, "the proxy gates the cookie on this claim, so it must carry the matched group")
+}
+
+// TestGenerateSessionToken_UnrestrictedServiceAllowsAnyAccountUser keeps the new
+// gate scoped: a service without distribution groups is open to every user of
+// its account, as before.
+func TestGenerateSessionToken_UnrestrictedServiceAllowsAnyAccountUser(t *testing.T) {
+	setup := setupValidateSessionTest(t)
+	defer setup.cleanup()
+
+	token, err := setup.proxyService.GenerateSessionToken(context.Background(), "test-proxy.example.com", "nonGroupUserId", auth.MethodOIDC)
+
+	require.NoError(t, err, "an unrestricted service must keep working for any user of the account")
+	assert.NotEmpty(t, token)
+}
+
 type testValidateSessionServiceManager struct {
 	store store.Store
 }

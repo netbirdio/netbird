@@ -12,6 +12,7 @@
       "IP": "10.10.10.1",
       "IPv6": "fdf4:ba80:6aa5:89f1:44d7:8701:8699:4940",
       "RequiresApproval": false,
+      "Connected": true,
       "ExtraDNSLabels": [
         "extra-peer-1"
       ],
@@ -66,6 +67,7 @@
       "IP": "10.10.100.1",
       "IPv6": "fdf5:ba80:6aa5:89f1:44d7:8701:8699:4940",
       "RequiresApproval": false,
+      "Connected": true,
       "ExtraDNSLabels": [
         "extra-peer-2"
       ],
@@ -120,6 +122,7 @@
       "IP": "10.10.200.1",
       "IPv6": "fdf6:ba80:6aa5:89f1:44d7:8701:8699:4940",
       "RequiresApproval": false,
+      "Connected": true,
       "ExtraDNSLabels": [
         "extra-peer-3"
       ],
@@ -542,5 +545,11 @@
     }
   ],
   "PrivateServiceCandidates": null,
-  "Services": null
+  "Services": null,
+  "Domains": [
+    {
+      "Domain": "test-331.com",
+      "TargetCluster": "target-1.cluster.local"
+    }
+  ]
 }

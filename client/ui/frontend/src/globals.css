@@ -16,6 +16,66 @@
 @tailwind components;
 @tailwind utilities;
 
+/* nb-gray channels (space-separated RGB) consumed by tailwind.config.ts.
+   :root is the inverted light ramp — high stops are surfaces (near-white),
+   low stops are text (near-black); .dark restores the original dark ramp.
+   Surfaces stay darker than content cards to preserve their separation. */
+:root {
+    --nb-gray-DEFAULT: 243 243 243;
+    --nb-gray-50: 26 26 26;
+    --nb-gray-100: 33 33 33;
+    --nb-gray-200: 50 50 50;
+    --nb-gray-250: 58 58 58;
+    --nb-gray-300: 77 77 77;
+    --nb-gray-350: 92 92 92;
+    --nb-gray-400: 108 108 108;
+    --nb-gray-500: 135 135 135;
+    --nb-gray-600: 154 154 154;
+    --nb-gray-700: 209 209 209;
+    --nb-gray-800: 226 226 226;
+    --nb-gray-850: 234 234 234;
+    --nb-gray-900: 238 238 238;
+    --nb-gray-910: 240 240 240;
+    --nb-gray-920: 243 243 243;
+    --nb-gray-925: 245 245 245;
+    --nb-gray-930: 246 246 246;
+    --nb-gray-935: 248 248 248;
+    --nb-gray-940: 250 250 250;
+    --nb-gray-950: 252 252 252;
+    --nb-gray-960: 255 255 255;
+
+    --skeleton-base: 238 238 238;
+    --skeleton-highlight: 247 247 247;
+}
+
+.dark {
+    --nb-gray-DEFAULT: 24 26 29;
+    --nb-gray-50: 244 246 247;
+    --nb-gray-100: 228 231 233;
+    --nb-gray-200: 203 210 214;
+    --nb-gray-250: 183 192 198;
+    --nb-gray-300: 163 173 181;
+    --nb-gray-350: 143 156 168;
+    --nb-gray-400: 124 137 148;
+    --nb-gray-500: 97 110 121;
+    --nb-gray-600: 83 93 103;
+    --nb-gray-700: 71 78 87;
+    --nb-gray-800: 63 68 75;
+    --nb-gray-850: 54 59 64;
+    --nb-gray-900: 46 50 56;
+    --nb-gray-910: 43 47 51;
+    --nb-gray-920: 37 40 45;
+    --nb-gray-925: 30 33 35;
+    --nb-gray-930: 37 40 44;
+    --nb-gray-935: 31 33 36;
+    --nb-gray-940: 28 30 33;
+    --nb-gray-950: 24 26 29;
+    --nb-gray-960: 22 24 27;
+
+    --skeleton-base: 37 40 45;
+    --skeleton-highlight: 51 55 62;
+}
+
 html,
 body,
 #root {
@@ -28,8 +88,9 @@ body,
  * MacBackdropTranslucent (main.go) and TitleBarHiddenInset, which on macOS
  * lets the desktop wallpaper bleed through any non-opaque pixel. A 90%
  * body alpha meant two machines with different wallpapers saw different
- * effective backgrounds. Matching Wails' BackgroundColour (#181A1D / nb-gray
- * DEFAULT) here keeps things consistent regardless of the OS backdrop.
+ * effective backgrounds. Matching the per-theme Wails BackgroundColour
+ * (services.CurrentWindowBackgroundColour, nb-gray DEFAULT in both ramps)
+ * keeps things consistent regardless of the OS backdrop.
  */
 body {
     @apply bg-nb-gray font-sans text-nb-gray-200 antialiased;

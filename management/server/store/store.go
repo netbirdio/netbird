@@ -302,8 +302,11 @@ type Store interface {
 	GetCustomDomain(ctx context.Context, accountID string, domainID string) (*domain.Domain, error)
 	ListFreeDomains(ctx context.Context, accountID string) ([]string, error)
 	ListCustomDomains(ctx context.Context, accountID string) ([]*domain.Domain, error)
+	GetCustomDomainByName(ctx context.Context, domainName string) (*domain.Domain, error)
 	CreateCustomDomain(ctx context.Context, accountID string, domainName string, targetCluster string, validated bool) (*domain.Domain, error)
 	UpdateCustomDomain(ctx context.Context, accountID string, d *domain.Domain) (*domain.Domain, error)
+	GetExpiredCustomDomains(ctx context.Context, now time.Time, afterID domain.ID, limit int) ([]*domain.Domain, error)
+	DeleteExpiredCustomDomain(ctx context.Context, d *domain.Domain, now time.Time) (bool, error)
 	DeleteCustomDomain(ctx context.Context, accountID string, domainID string) error
 
 	CreateAccessLog(ctx context.Context, log *accesslogs.AccessLogEntry) error
@@ -642,6 +645,9 @@ func migratePostAuto(ctx context.Context, db *gorm.DB) error {
 
 func getMigrationsPostAuto(ctx context.Context) []migrationFunc {
 	return []migrationFunc{
+		func(db *gorm.DB) error {
+			return migration.MigrateCustomDomainValidationExpiry(ctx, db)
+		},
 		func(db *gorm.DB) error {
 			return migration.CreateIndexIfNotExists[nbpeer.Peer](ctx, db, "idx_account_ip", "account_id", "ip")
 		},

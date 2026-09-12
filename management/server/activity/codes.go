@@ -284,6 +284,9 @@ const (
 	// AgentNetworkSettingsDeleted indicates that a user deleted the Agent Network account settings, releasing the endpoint
 	AgentNetworkSettingsDeleted Activity = 142
 
+	// CustomDomainValidationExpired indicates that an unvalidated domain registration expired.
+	CustomDomainValidationExpired Activity = 143
+
 	AccountDeleted Activity = 99999
 )
 
@@ -461,9 +464,10 @@ var activityMap = map[Activity]Code{
 	AccountMetricsPushEnabled:  {"Account metrics push enabled", "account.setting.metrics.push.enable"},
 	AccountMetricsPushDisabled: {"Account metrics push disabled", "account.setting.metrics.push.disable"},
 
-	DomainAdded:     {"Domain added", "domain.add"},
-	DomainDeleted:   {"Domain deleted", "domain.delete"},
-	DomainValidated: {"Domain validated", "domain.validate"},
+	DomainAdded:                   {"Domain added", "domain.add"},
+	DomainDeleted:                 {"Domain deleted", "domain.delete"},
+	DomainValidated:               {"Domain validated", "domain.validate"},
+	CustomDomainValidationExpired: {"Unvalidated domain registration expired", "domain.validation.expire"},
 }
 
 // StringCode returns a string code of the activity

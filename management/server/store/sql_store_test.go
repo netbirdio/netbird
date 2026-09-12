@@ -573,7 +573,7 @@ func TestSqlStore_SavePeer(t *testing.T) {
 
 		numOfFields, err := populateFields.PopulateAll(reflectedMetadata)
 		assert.NoError(t, err)
-		assert.Equal(t, 32, numOfFields)
+		assert.Equal(t, 33, numOfFields)
 
 		// save status of non-existing peer
 		peer := &nbpeer.Peer{
@@ -2844,6 +2844,14 @@ func TestSqlStore_GetPeerGroups(t *testing.T) {
 	groups, err = store.GetPeerGroups(context.Background(), LockingStrengthNone, accountID, peerID)
 	require.NoError(t, err)
 	assert.Len(t, groups, 2)
+
+	foreignPeerID := "foreign-peer"
+	err = store.AddPeerToGroup(context.Background(), accountID, foreignPeerID, "cfefqs706sqkneg59g4h")
+	require.NoError(t, err)
+
+	groups, err = store.GetPeerGroups(context.Background(), LockingStrengthNone, "other-account", foreignPeerID)
+	require.NoError(t, err)
+	assert.Empty(t, groups, "groups of another account must not be returned")
 }
 
 func TestSqlStore_GetAccountPeers(t *testing.T) {
@@ -4039,9 +4047,15 @@ func TestSqlStore_GetPeersByGroupIDs(t *testing.T) {
 			}
 			require.NoError(t, store.CreateGroups(ctx, accountID, groups))
 
+			otherAccount := newAccountWithId(ctx, "other-account", "other-user", "")
+			require.NoError(t, store.SaveAccount(ctx, otherAccount))
+			foreignPeer := &nbpeer.Peer{ID: "foreign-peer", AccountID: otherAccount.Id}
+			require.NoError(t, store.AddPeerToAccount(ctx, foreignPeer))
+
 			require.NoError(t, store.AddPeerToGroup(ctx, accountID, peer1, group1ID))
 			require.NoError(t, store.AddPeerToGroup(ctx, accountID, peer2, group1ID))
 			require.NoError(t, store.AddPeerToGroup(ctx, accountID, peer1, group2ID))
+			require.NoError(t, store.AddPeerToGroup(ctx, accountID, foreignPeer.ID, group1ID))
 
 			peers, err := store.GetPeersByGroupIDs(ctx, accountID, tt.groupIDs)
 			require.NoError(t, err)
