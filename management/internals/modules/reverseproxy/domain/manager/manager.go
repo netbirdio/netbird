@@ -364,7 +364,7 @@ func (m Manager) ValidateServiceDomain(ctx context.Context, tx nbstore.Store, ac
 	}
 	name, err := nbdomain.FromString(serviceDomain)
 	if err != nil {
-		return fmt.Errorf("parse service domain: %w", err)
+		return status.Errorf(status.InvalidArgument, "invalid service domain: %v", err)
 	}
 	customDomains, err := tx.LockCustomDomains(ctx, accountID, name)
 	if err != nil {
