@@ -3154,7 +3154,12 @@ func NewMysqlStore(ctx context.Context, dsn string, metrics telemetry.AppMetrics
 		return nil, err
 	}
 
-	return NewSqlStore(ctx, db, types.MysqlStoreEngine, metrics, skipMigration)
+	store, err := NewSqlStore(ctx, db, types.MysqlStoreEngine, metrics, skipMigration)
+	if err != nil {
+		closeGormDB(db)
+		return nil, err
+	}
+	return store, nil
 }
 
 func getGormConfig() *gorm.Config {
@@ -3238,11 +3243,14 @@ func NewPostgresqlStoreForTests(ctx context.Context, dsn string, metrics telemet
 	}
 	pool, err := connectToPgDbForTests(context.Background(), dsn)
 	if err != nil {
+		closeGormDB(db)
 		return nil, err
 	}
 	store, err := NewSqlStore(ctx, db, types.PostgresStoreEngine, metrics, skipMigration)
 	if err != nil {
+		// Release the sessions, or the caller cannot drop the database.
 		pool.Close()
+		closeGormDB(db)
 		return nil, err
 	}
 	store.pool = pool
