@@ -1036,6 +1036,9 @@ func (m *managerImpl) bootstrapSelfAddressed(ctx context.Context, settings *type
 	if err != nil {
 		return status.Errorf(status.InvalidArgument, "invalid endpoint: %s", err)
 	}
+	if err := m.requireHostNotForeign(ctx, settings.AccountID, hostname); err != nil {
+		return err
+	}
 
 	settings.Domain = hostname
 	settings.ProxyAddress = hostname
@@ -1162,6 +1165,9 @@ func (m *managerImpl) bootstrapLabeled(ctx context.Context, settings *types.Sett
 	if err != nil {
 		return status.Errorf(status.InvalidArgument, "invalid proxy_address: %s", err)
 	}
+	if err := m.requireHostNotForeign(ctx, settings.AccountID, parent); err != nil {
+		return err
+	}
 
 	if err := m.validateGatewayCluster(ctx, settings.AccountID, parent); err != nil {
 		return err
@@ -1210,6 +1216,24 @@ func (m *managerImpl) bootstrapLabeled(ctx context.Context, settings *types.Sett
 	}
 
 	return fmt.Errorf("allocate agent network endpoint for account %s: %d attempts exhausted", settings.AccountID, maxDomainAllocationAttempts)
+}
+
+// requireHostNotForeign refuses to pin the account's gateway onto a host that
+// another account's proxy declares. The pin's proxy_address is what selects
+// the proxy that serves the endpoint, and an account-scoped proxy only ever
+// receives its own account's mappings, so such a pin could never be served —
+// and the endpoint it assigns is immutable. Shared proxies are not foreign, and
+// a host no proxy has declared stays pinnable: claiming the address before the
+// proxy's first connection is the documented order.
+func (m *managerImpl) requireHostNotForeign(ctx context.Context, accountID, host string) error {
+	foreign, err := m.store.HasForeignAccountProxyAtHost(ctx, host, accountID)
+	if err != nil {
+		return fmt.Errorf("check proxy host ownership: %w", err)
+	}
+	if foreign {
+		return status.Errorf(status.InvalidArgument, "proxy cluster %s is not available to this account", host)
+	}
+	return nil
 }
 
 // isUniqueConstraintError reports whether err is a database unique-constraint
