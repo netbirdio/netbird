@@ -1030,11 +1030,22 @@ func (m *managerImpl) CreateSettings(ctx context.Context, userID string, setting
 
 // bootstrapSelfAddressed claims the given hostname as the account's endpoint,
 // served only by a proxy declaring exactly that address (Domain ==
-// ProxyAddress). The domain unique index is the arbiter of availability.
+// ProxyAddress). The domain unique index arbitrates between pins; ownership
+// against another account's proxy is asked the same way as for a labeled pin,
+// because the hostname lands in proxy_address, which is what a proxy
+// registration is refused on when another account holds it there.
 func (m *managerImpl) bootstrapSelfAddressed(ctx context.Context, settings *types.Settings, endpoint string) error {
 	hostname, err := types.NormalizeHostname(endpoint)
 	if err != nil {
 		return status.Errorf(status.InvalidArgument, "invalid endpoint: %s", err)
+	}
+
+	foreign, err := m.store.HasForeignAccountProxyAtHost(ctx, hostname, settings.AccountID)
+	if err != nil {
+		return fmt.Errorf("check proxy cluster ownership: %w", err)
+	}
+	if foreign {
+		return errForeignCluster(hostname)
 	}
 
 	settings.Domain = hostname
@@ -1051,7 +1062,7 @@ func (m *managerImpl) bootstrapSelfAddressed(ctx context.Context, settings *type
 		}
 		return fmt.Errorf("create agent network settings: %w", err)
 	}
-	return nil
+	return m.confirmGatewayClusterOwnership(ctx, settings)
 }
 
 // validateGatewayCluster rejects a labeled bootstrap pinned to a cluster that
@@ -1232,25 +1243,12 @@ func (m *managerImpl) bootstrapLabeled(ctx context.Context, settings *types.Sett
 	return fmt.Errorf("allocate agent network endpoint for account %s: %d attempts exhausted", settings.AccountID, maxDomainAllocationAttempts)
 }
 
-// confirmGatewayClusterOwnership re-asks, once the settings row is committed,
-// whether another account's proxy declares the pinned cluster, and withdraws
-// the row if one does.
-//
-// validateGatewayCluster answered that before the insert, but the two are
-// separate statements: a foreign proxy can register at the host in between,
-// and its own availability check — run before its row is written — would not
-// have seen this pin yet either. Re-reading after the write closes that
-// window from this side, and Manager.Connect does the same from the proxy's:
-// both claimants write before they re-read, so of two concurrent claims at
-// least one re-reads after the other has committed and backs off. Each
-// statement runs autocommit, so that re-read sees every commit before it on
-// sqlite, postgres and mysql alike. Both may back off, which costs the caller
-// a retry; neither keeps a claim the other holds, which is the invariant.
-// No lock spans the proxies and settings tables portably, and a claims table
-// would be more machinery than the property needs.
-//
-// Only ownership is re-asked. The capability check is about what the cluster
-// can do, not who holds it, and does not race a claim.
+// confirmGatewayClusterOwnership re-reads ownership once the settings row is
+// committed and withdraws the row if another account's proxy now declares the
+// host; see proxy.ErrClusterAddressUnavailable for why the re-read is what
+// closes the race with a concurrent proxy registration. Only ownership is
+// re-read: the capability check is about what the cluster can do, not who
+// holds it, and does not race a claim.
 func (m *managerImpl) confirmGatewayClusterOwnership(ctx context.Context, settings *types.Settings) error {
 	foreign, err := m.store.HasForeignAccountProxyAtHost(ctx, settings.ProxyAddress, settings.AccountID)
 	if err == nil && !foreign {
