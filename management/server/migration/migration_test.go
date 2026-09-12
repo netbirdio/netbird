@@ -757,8 +757,9 @@ func TestMigrateAgentNetworkSettingsToDomain_BackfillsAndDropsLegacyColumns(t *t
 	db := setupDatabase(t)
 	require.NoError(t, db.Migrator().DropTable(&legacyAgentNetworkSettings{}))
 	require.NoError(t, db.AutoMigrate(&legacyAgentNetworkSettings{}))
+	// Spelled the way the legacy bootstrap kept it: trimmed, never folded.
 	require.NoError(t, db.Create(&legacyAgentNetworkSettings{
-		AccountID: "acct-1", Cluster: "eu.proxy.netbird.io", Subdomain: "violet", EnableLogCollection: true,
+		AccountID: "acct-1", Cluster: "EU.Proxy.NetBird.io", Subdomain: "Violet", EnableLogCollection: true,
 	}).Error)
 	require.NoError(t, db.Create(&legacyAgentNetworkSettings{
 		AccountID: "acct-2", Cluster: "us.proxy.netbird.io", Subdomain: "violet",
@@ -770,8 +771,10 @@ func TestMigrateAgentNetworkSettingsToDomain_BackfillsAndDropsLegacyColumns(t *t
 
 	var one, two agentNetworkTypes.Settings
 	require.NoError(t, db.First(&one, "account_id = ?", "acct-1").Error)
-	assert.Equal(t, "violet.eu.proxy.netbird.io", one.Domain, "domain must combine subdomain and cluster")
-	assert.Equal(t, "eu.proxy.netbird.io", one.ProxyAddress, "proxy address must carry the cluster")
+	assert.Equal(t, "violet.eu.proxy.netbird.io", one.Domain,
+		"domain must combine subdomain and cluster, folded to the canonical lowercase every reader compares against")
+	assert.Equal(t, "eu.proxy.netbird.io", one.ProxyAddress,
+		"proxy address must carry the cluster in canonical lowercase, matching what proxies register under")
 	assert.True(t, one.EnableLogCollection, "non-identity fields must ride through")
 	require.NoError(t, db.First(&two, "account_id = ?", "acct-2").Error)
 	assert.Equal(t, "violet.us.proxy.netbird.io", two.Domain,
@@ -857,4 +860,47 @@ func TestMigrateAgentNetworkSettingsToDomain_ResumesAfterPartialDrop(t *testing.
 	require.NoError(t, db.First(&row, "account_id = ?", "acct-1").Error)
 	assert.Equal(t, "violet.eu.proxy.netbird.io", row.Domain, "migrated values must be untouched")
 	assert.Equal(t, "eu.proxy.netbird.io", row.ProxyAddress, "migrated values must be untouched")
+}
+
+// TestNormalizeAgentNetworkSettingsIdentity_LowercasesReshapedRows covers rows
+// a released reshape already copied verbatim: capitals kept from the legacy
+// cluster spelling are folded in place, canonical rows are left alone, and
+// non-identity fields ride through.
+func TestNormalizeAgentNetworkSettingsIdentity_LowercasesReshapedRows(t *testing.T) {
+	ctx := context.Background()
+	db := setupDatabase(t)
+	require.NoError(t, db.Migrator().DropTable(&agentNetworkTypes.Settings{}))
+	require.NoError(t, db.AutoMigrate(&agentNetworkTypes.Settings{}))
+	require.NoError(t, db.Create(&agentNetworkTypes.Settings{
+		AccountID: "acct-legacy", Domain: "Violet.EU.Proxy.NetBird.io", ProxyAddress: "EU.Proxy.NetBird.io", EnableLogCollection: true,
+	}).Error)
+	require.NoError(t, db.Create(&agentNetworkTypes.Settings{
+		AccountID: "acct-canonical", Domain: "amber.us.proxy.netbird.io", ProxyAddress: "us.proxy.netbird.io",
+	}).Error)
+
+	require.NoError(t, migration.NormalizeAgentNetworkSettingsIdentity(ctx, db))
+
+	var legacy, canonical agentNetworkTypes.Settings
+	require.NoError(t, db.First(&legacy, "account_id = ?", "acct-legacy").Error)
+	assert.Equal(t, "violet.eu.proxy.netbird.io", legacy.Domain, "a mixed-case endpoint must be folded where it is stored")
+	assert.Equal(t, "eu.proxy.netbird.io", legacy.ProxyAddress, "a mixed-case pin must be folded so exact lookups find it")
+	assert.True(t, legacy.EnableLogCollection, "non-identity fields must ride through")
+	require.NoError(t, db.First(&canonical, "account_id = ?", "acct-canonical").Error)
+	assert.Equal(t, "amber.us.proxy.netbird.io", canonical.Domain, "a canonical row must be left as it is")
+	assert.Equal(t, "us.proxy.netbird.io", canonical.ProxyAddress)
+
+	require.NoError(t, migration.NormalizeAgentNetworkSettingsIdentity(ctx, db),
+		"a second run over a normalised table must be a no-op, not an error")
+}
+
+// TestNormalizeAgentNetworkSettingsIdentity_SkipsMissingTable pins that a
+// store which never had agent network settings is left untouched.
+func TestNormalizeAgentNetworkSettingsIdentity_SkipsMissingTable(t *testing.T) {
+	ctx := context.Background()
+	db := setupDatabase(t)
+	require.NoError(t, db.Migrator().DropTable(&agentNetworkTypes.Settings{}))
+
+	require.NoError(t, migration.NormalizeAgentNetworkSettingsIdentity(ctx, db),
+		"no table must be a no-op, not an error")
+	assert.False(t, db.Migrator().HasTable(&agentNetworkTypes.Settings{}), "the normaliser must not create the table")
 }
