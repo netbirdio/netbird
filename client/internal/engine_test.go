@@ -27,6 +27,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
 	"github.com/netbirdio/netbird/client/internal/dns"
+	"github.com/netbirdio/netbird/client/internal/lazyconn"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
@@ -579,6 +580,201 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestEngine_ModifiedPeerKeepsActivationState verifies that a peer re-added by
+// modifyPeers keeps its previous activation state under lazy connections. A
+// modified peer is removed and re-added, and a re-add defaults to idle; the
+// remote side of an established connection keeps its state and sends no further
+// offers, so a previously active peer parked idle leaves the pair unable to
+// reconnect until the remote's connection expires.
+func TestEngine_ModifiedPeerKeepsActivationState(t *testing.T) {
+	key, err := wgtypes.GeneratePrivateKey()
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(CtxInitState(context.Background()))
+	t.Cleanup(cancel)
+
+	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
+	engine := NewEngine(ctx, cancel, &EngineConfig{
+		WgIfaceName:    "utun103",
+		WgAddr:         wgaddr.MustParseWGAddress("100.64.0.1/24"),
+		WgPrivateKey:   key,
+		WgPort:         33101,
+		MTU:            iface.DefaultMTU,
+		LazyConnection: lazyconn.StateOn,
+	}, EngineServices{
+		SignalClient:   &signal.MockClient{},
+		MgmClient:      &mgmt.MockClient{},
+		RelayManager:   relayMgr,
+		StatusRecorder: peer.NewRecorder("https://mgm"),
+	}, MobileDependency{})
+
+	wgIface := &MockWGIface{
+		NameFunc: func() string { return "utun103" },
+		IsUserspaceBindFunc: func() bool {
+			return false
+		},
+		RemovePeerFunc: func(peerKey string) error {
+			return nil
+		},
+		AddressFunc: func() wgaddr.Address {
+			return wgaddr.Address{
+				IP:      netip.MustParseAddr("10.20.0.1"),
+				Network: netip.MustParsePrefix("10.20.0.0/24"),
+			}
+		},
+		UpdatePeerFunc: func(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
+			return nil
+		},
+	}
+	engine.wgInterface = wgIface
+	engine.routeManager = routemanager.NewManager(routemanager.ManagerConfig{
+		Context:          ctx,
+		PublicKey:        key.PublicKey().String(),
+		DNSRouteInterval: time.Minute,
+		WGInterface:      engine.wgInterface,
+		StatusRecorder:   engine.statusRecorder,
+		RelayManager:     relayMgr,
+	})
+	require.NoError(t, engine.routeManager.Init())
+	engine.dnsServer = &dns.MockServer{
+		UpdateDNSServerFunc: func(serial uint64, update nbdns.Config) error { return nil },
+	}
+	udpConn, err := net.ListenUDP("udp4", nil)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		if err := udpConn.Close(); err != nil {
+			t.Errorf("close UDP listener: %v", err)
+		}
+	})
+	engine.udpMux = udpmux.NewUniversalUDPMuxDefault(udpmux.UniversalUDPMuxParams{UDPConn: udpConn, MTU: 1280})
+	engine.ctx = ctx
+	engine.srWatcher = guard.NewSRWatcher(nil, nil, nil, icemaker.Config{})
+	engine.connMgr = NewConnMgr(engine.config, engine.statusRecorder, engine.peerStore, wgIface)
+	engine.connMgr.Start(ctx)
+	t.Cleanup(engine.connMgr.Close)
+
+	// No agent version: not lazy-capable, so the connection opens permanently.
+	activePeer := &mgmtProto.RemotePeerConfig{
+		WgPubKey:   "RRHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
+		AllowedIps: []string{"100.64.0.10/24"},
+	}
+	// Lazy-capable, never activated: managed as idle.
+	idlePeer := &mgmtProto.RemotePeerConfig{
+		WgPubKey:     "LLHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
+		AllowedIps:   []string{"100.64.0.11/24"},
+		AgentVersion: "development",
+	}
+
+	err = engine.updateNetworkMap(&mgmtProto.NetworkMap{
+		Serial:      1,
+		RemotePeers: []*mgmtProto.RemotePeerConfig{activePeer, idlePeer},
+	})
+	require.NoError(t, err)
+
+	state, err := engine.statusRecorder.GetPeer(activePeer.WgPubKey)
+	require.NoError(t, err)
+	require.Equal(t, peer.StatusConnecting, state.ConnStatus, "peer without lazy support should open a permanent connection")
+
+	state, err = engine.statusRecorder.GetPeer(idlePeer.WgPubKey)
+	require.NoError(t, err)
+	require.Equal(t, peer.StatusIdle, state.ConnStatus, "lazy-capable peer should be managed as idle")
+
+	// No transport can come up in this test, so mark the connection established
+	// directly: only an established connection counts as active across a modify.
+	require.NoError(t, engine.statusRecorder.UpdatePeerState(peer.State{
+		PubKey:     activePeer.WgPubKey,
+		ConnStatus: peer.StatusConnected,
+	}))
+
+	// The active peer's agent version changes, as when a peer registered over the
+	// API logs in and fills in its meta; the idle peer's allowed IPs change. Both
+	// count as modified and are removed and re-added.
+	err = engine.updateNetworkMap(&mgmtProto.NetworkMap{
+		Serial: 2,
+		RemotePeers: []*mgmtProto.RemotePeerConfig{
+			{
+				WgPubKey:     activePeer.WgPubKey,
+				AllowedIps:   activePeer.AllowedIps,
+				AgentVersion: "development",
+			},
+			{
+				WgPubKey:     idlePeer.WgPubKey,
+				AllowedIps:   []string{"100.64.0.21/24"},
+				AgentVersion: "development",
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	state, err = engine.statusRecorder.GetPeer(activePeer.WgPubKey)
+	require.NoError(t, err)
+	assert.NotEqual(t, peer.StatusIdle, state.ConnStatus, "previously active peer should stay active after a modify")
+
+	state, err = engine.statusRecorder.GetPeer(idlePeer.WgPubKey)
+	require.NoError(t, err)
+	assert.Equal(t, peer.StatusIdle, state.ConnStatus, "previously idle peer should stay idle after a modify")
+
+	// A woken peer that has not established a connection is re-added idle: its
+	// remote holds no state it would keep, and parking idle re-arms the activity
+	// listener so local traffic or a remote offer can wake it again.
+	wokenConn, ok := engine.peerStore.PeerConn(idlePeer.WgPubKey)
+	require.True(t, ok, "idle peer should have a connection")
+	engine.connMgr.ActivatePeer(ctx, wokenConn)
+	state, err = engine.statusRecorder.GetPeer(idlePeer.WgPubKey)
+	require.NoError(t, err)
+	require.Equal(t, peer.StatusConnecting, state.ConnStatus, "woken lazy peer should be connecting")
+
+	err = engine.updateNetworkMap(&mgmtProto.NetworkMap{
+		Serial: 3,
+		RemotePeers: []*mgmtProto.RemotePeerConfig{
+			{
+				WgPubKey:     activePeer.WgPubKey,
+				AllowedIps:   activePeer.AllowedIps,
+				AgentVersion: "development",
+			},
+			{
+				WgPubKey:     idlePeer.WgPubKey,
+				AllowedIps:   []string{"100.64.0.22/24"},
+				AgentVersion: "development",
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	state, err = engine.statusRecorder.GetPeer(idlePeer.WgPubKey)
+	require.NoError(t, err)
+	assert.Equal(t, peer.StatusIdle, state.ConnStatus, "peer mid handshake should be re-added idle after a modify")
+
+	// A missing status entry fails the modify before any connection is removed.
+	require.NoError(t, engine.statusRecorder.RemovePeer(activePeer.WgPubKey))
+	err = engine.updateNetworkMap(&mgmtProto.NetworkMap{
+		Serial: 4,
+		RemotePeers: []*mgmtProto.RemotePeerConfig{
+			{
+				WgPubKey:     activePeer.WgPubKey,
+				AllowedIps:   []string{"100.64.0.30/24"},
+				AgentVersion: "development",
+			},
+			{
+				WgPubKey:     idlePeer.WgPubKey,
+				AllowedIps:   []string{"100.64.0.31/24"},
+				AgentVersion: "development",
+			},
+		},
+	})
+	require.ErrorContains(t, err, "get status of modified peer", "a modify with an unavailable peer state should fail")
+
+	activeConn, ok := engine.peerStore.PeerConn(activePeer.WgPubKey)
+	require.True(t, ok, "peer with unavailable state should keep its connection")
+	assert.True(t, compareNetIPLists(activeConn.WgConfig().AllowedIps, activePeer.AllowedIps),
+		"peer with unavailable state should keep its allowed IPs")
+
+	idleConn, ok := engine.peerStore.PeerConn(idlePeer.WgPubKey)
+	require.True(t, ok, "the other modified peer should keep its connection")
+	assert.True(t, compareNetIPLists(idleConn.WgConfig().AllowedIps, []string{"100.64.0.22/24"}),
+		"the other modified peer should keep its allowed IPs")
 }
 
 func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
