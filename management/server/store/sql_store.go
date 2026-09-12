@@ -6446,6 +6446,25 @@ func (s *SqlStore) IsClusterAddressConflicting(ctx context.Context, clusterAddre
 	return count > 0, nil
 }
 
+// HasForeignAccountProxyAtHost reports whether a proxy owned by a different
+// account declares this host. Shared proxies (account_id IS NULL) are not
+// foreign: a shared cluster is what most accounts pin their agent network
+// gateway to. The match folds case because proxies declare their address as
+// the operator spelled it while the caller's host is normalised; that costs a
+// scan of the proxies table, taken once per account when its gateway is
+// bootstrapped, not on the per-connect path IsClusterAddressConflicting serves.
+func (s *SqlStore) HasForeignAccountProxyAtHost(ctx context.Context, host, accountID string) (bool, error) {
+	var count int64
+	result := s.db.
+		Model(&proxy.Proxy{}).
+		Where("LOWER(cluster_address) = LOWER(?) AND account_id IS NOT NULL AND account_id != ?", host, accountID).
+		Count(&count)
+	if result.Error != nil {
+		return false, status.Errorf(status.Internal, "check proxy host ownership: %v", result.Error)
+	}
+	return count > 0, nil
+}
+
 func (s *SqlStore) DeleteAccountCluster(ctx context.Context, clusterAddress, accountID string) error {
 	result := s.db.
 		Where("cluster_address = ? AND account_id = ?", clusterAddress, accountID).
