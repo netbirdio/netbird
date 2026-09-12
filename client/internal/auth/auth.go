@@ -83,6 +83,15 @@ func NewAuth(ctx context.Context, privateKey string, mgmURL *url.URL, config *pr
 	}, nil
 }
 
+// grpcClient returns the current management connection. Callers must go through it rather than
+// reading a.client: reconnect replaces that field while other goroutines are using it.
+func (a *Auth) grpcClient() *mgm.GrpcClient {
+	a.mutex.RLock()
+	defer a.mutex.RUnlock()
+
+	return a.client
+}
+
 // Close closes the management client connection
 func (a *Auth) Close() error {
 	a.mutex.Lock()
@@ -141,35 +150,19 @@ func (a *Auth) IsSSOSupported(ctx context.Context) (bool, error) {
 func (a *Auth) GetOAuthFlow(ctx context.Context, forceDeviceAuth bool, hint string) (OAuthFlow, error) {
 	var flow OAuthFlow
 
-	err := a.withRetry(ctx, func(client *mgm.GrpcClient) error {
-		if forceDeviceAuth {
-			deviceFlow, err := a.getDeviceFlow(client)
-			if err != nil {
-				return err
-			}
-			deviceFlow.SetLoginHint(hint)
-			flow = deviceFlow
-			return nil
-		}
+	// the connection is owned by a and outlives this call, so a later fallback reuses it
+	newAuth := func(context.Context) (*Auth, func(), error) {
+		return a, func() {}, nil
+	}
 
-		// Try PKCE flow first
-		pkceFlow, err := a.getPKCEFlow(client)
-		if err != nil {
-			// If PKCE not supported, try Device flow
-			if s, ok := status.FromError(err); ok && (s.Code() == codes.NotFound || s.Code() == codes.Unimplemented) {
-				deviceFlow, err := a.getDeviceFlow(client)
-				if err != nil {
-					return err
-				}
-				deviceFlow.SetLoginHint(hint)
-				flow = deviceFlow
-				return nil
-			}
-			return err
+	err := a.withRetry(ctx, func(client *mgm.GrpcClient) error {
+		var err error
+		flow, err = oauthFlowWithFallback(a, client, flowOrder(forceDeviceAuth, true), hint, newAuth)
+
+		if IsSSOUnavailable(err) {
+			return backoff.Permanent(err)
 		}
-		pkceFlow.SetLoginHint(hint)
-		flow = pkceFlow
-		return nil
+		return err
 	})
 
 	return flow, err

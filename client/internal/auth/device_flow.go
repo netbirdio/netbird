@@ -48,8 +48,17 @@ type DeviceAuthProviderConfig struct {
 	LoginHint string
 }
 
-// validateDeviceAuthConfig validates device authorization provider configuration
+// validateDeviceAuthConfig validates device authorization provider configuration. A missing
+// value means management does not have this flow configured, so the error wraps
+// errFlowNotConfigured and the caller can fall back to the other flow.
 func validateDeviceAuthConfig(config *DeviceAuthProviderConfig) error {
+	if err := checkDeviceAuthConfig(config); err != nil {
+		return fmt.Errorf("%w: %w", errFlowNotConfigured, err)
+	}
+	return nil
+}
+
+func checkDeviceAuthConfig(config *DeviceAuthProviderConfig) error {
 	errorMsgFormat := "invalid provider configuration received from management: %s value is empty. Contact your NetBird administrator"
 
 	if config.Audience == "" {
@@ -161,8 +170,12 @@ func (d *DeviceAuthorizationFlow) RequestAuthInfo(ctx context.Context) (AuthFlow
 		return AuthFlowInfo{}, fmt.Errorf("reading body failed with error: %v", err)
 	}
 
-	if res.StatusCode != 200 {
-		return AuthFlowInfo{}, fmt.Errorf("request device code returned status %d error: %s", res.StatusCode, string(body))
+	if res.StatusCode != http.StatusOK {
+		reqErr := fmt.Errorf("request device code returned status %d error: %s", res.StatusCode, string(body))
+		if deviceGrantUnsupported(res.StatusCode, body) {
+			return AuthFlowInfo{}, fmt.Errorf("%w: %w", errFlowNotConfigured, reqErr)
+		}
+		return AuthFlowInfo{}, reqErr
 	}
 
 	deviceCode := AuthFlowInfo{}
@@ -184,6 +197,34 @@ func (d *DeviceAuthorizationFlow) RequestAuthInfo(ctx context.Context) (AuthFlow
 	}
 
 	return deviceCode, err
+}
+
+// deviceGrantUnsupported reports whether the IdP's answer to a device code request means it does
+// not serve the device authorization grant at all, rather than a transient or request-specific
+// failure. An IdP that does not route the endpoint answers 404/405/501; one that knows the
+// endpoint but has the grant disabled for this client answers with an OAuth 2.0 error code.
+func deviceGrantUnsupported(statusCode int, body []byte) bool {
+	switch statusCode {
+	case http.StatusNotFound, http.StatusMethodNotAllowed, http.StatusNotImplemented:
+		return true
+	case http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden:
+	default:
+		return false
+	}
+
+	var oauthErr struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(body, &oauthErr); err != nil {
+		return false
+	}
+
+	switch oauthErr.Error {
+	case "unsupported_grant_type", "unauthorized_client":
+		return true
+	default:
+		return false
+	}
 }
 
 func appendLoginHint(uri, loginHint string) string {
