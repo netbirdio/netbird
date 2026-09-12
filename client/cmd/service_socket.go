@@ -20,15 +20,29 @@ type socketListener struct {
 	address string
 }
 
-func listenOnAddress(addr string) (*socketListener, error) {
+// listenOnAddress opens the daemon listener for addr. allowed holds the
+// resolved principals from --allow-group, empty when the socket is left open to
+// every local account; on Windows they go into the pipe's security descriptor,
+// on Unix they are applied to the socket file by applySocketAccess once the
+// listener exists.
+//
+// A TCP address cannot express either, so a restriction configured against one
+// is refused here, before anything is bound. Serving it anyway would leave the
+// daemon reachable by anything that can open a socket to the port, on a host
+// configured to be locked down.
+func listenOnAddress(addr string, allowed []string) (*socketListener, error) {
 	network, address, err := parseListenAddress(addr)
 	if err != nil {
 		return nil, err
 	}
 
+	if network == "tcp" && len(allowed) > 0 {
+		return nil, fmt.Errorf("cannot restrict %s to %v: a tcp listener carries no local access control, use a unix socket or npipe://", addr, allowed)
+	}
+
 	if network == "npipe" {
-		listener, path, err := listenNamedPipe(address) //nolint:staticcheck
-		if err != nil {                                 //nolint:staticcheck // always errors on non-Windows builds
+		listener, path, err := listenNamedPipe(address, allowed) //nolint:staticcheck
+		if err != nil {                                          //nolint:staticcheck // always errors on non-Windows builds
 			return nil, err
 		}
 		return &socketListener{Listener: listener, network: network, address: path}, nil
@@ -36,6 +50,17 @@ func listenOnAddress(addr string) (*socketListener, error) {
 
 	if network == "unix" {
 		removeStaleUnixSocket(address)
+
+		// A Unix socket accepts connections the moment it is bound, and the
+		// kernel checks its mode at connect() rather than at accept(), so the
+		// socket is bound at the narrowest mode the configuration allows rather
+		// than bound wide and narrowed after: a caller that gets in during such
+		// a window stays connected once the mode changes.
+		listener, err := listenUnixPrivate(address, allowed)
+		if err != nil {
+			return nil, err
+		}
+		return &socketListener{Listener: listener, network: network, address: address}, nil
 	}
 
 	listener, err := net.Listen(network, address)
@@ -107,13 +132,29 @@ func removeStaleUnixSocketForAddress(addr string) {
 	removeStaleUnixSocket(address)
 }
 
-func (l *socketListener) chmodUnixSocket(description string) error {
-	if l == nil || l.network != "unix" {
+// restrict sets the access the socket file grants, from the principals resolved
+// out of --allow-group. It is a no-op for a nil listener, which is what a
+// disabled JSON socket is, and for a named pipe, which carries its access rules
+// in the security descriptor it was created with.
+//
+// Any other transport that cannot express the restriction is an error rather
+// than a socket served without one. listenOnAddress refuses the same
+// combination before binding; this is the backstop that keeps a transport added
+// later from silently inheriting the unrestricted path.
+func (l *socketListener) restrict(description string, allowed []string) error {
+	if l == nil || l.network == "npipe" {
 		return nil
 	}
 
-	if err := os.Chmod(l.address, 0666); err != nil {
-		return fmt.Errorf("failed setting %s permissions for %s: %w", description, l.address, err)
+	if l.network != "unix" {
+		if len(allowed) > 0 {
+			return fmt.Errorf("cannot restrict the %s %s listener to %v", description, l.network, allowed)
+		}
+		return nil
+	}
+
+	if err := applySocketAccess(l.address, allowed); err != nil {
+		return fmt.Errorf("restrict %s socket %s: %w", description, l.address, err)
 	}
 	return nil
 }

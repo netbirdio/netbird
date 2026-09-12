@@ -9,6 +9,7 @@
 package mdm
 
 import (
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -67,6 +68,20 @@ const (
 	// (e.g. debug bundles). Read as a bool; absent = defer to the local config
 	// (which defaults to disabled). Stored on Config as RemoteJobsAllowed.
 	KeyRemoteJobsAllowed = "allowRemoteJobs"
+
+	// KeyAllowGroups restricts the daemon control socket and the JSON socket
+	// to the listed principals, overriding the install-time --allow-group in
+	// both directions: a managed host can be restricted without a reinstall,
+	// and an empty value lifts a restriction the install set. Absent = defer to
+	// the install-time flag.
+	//
+	// Read as a list of principals in kind:value form, "gid:1001" on Unix and
+	// "sid:S-1-5-21-..." on Windows, either as a real list or comma-separated.
+	// Resolved principals rather than group names because this is read on the
+	// daemon's boot path, where resolving a name can block on an unreachable
+	// LDAP or Active Directory backend. A name is still accepted, and still
+	// resolved, for a host where that is not a concern.
+	KeyAllowGroups = "allowGroups"
 
 	// KeyBundleUploadURL overrides the debug-bundle upload service URL for
 	// remote jobs, taking precedence over the management-supplied value. Read
@@ -155,23 +170,45 @@ func NewLoader(f PolicyFetcher) *Loader {
 //   - source present, zero keys:             info "MDM enrolled (no managed keys)"
 //   - source present, N keys:                info "MDM enrolled with N managed keys: [...]"
 func (l *Loader) Load() *Policy {
-	if l == nil {
-		return &Policy{values: map[string]any{}}
-	}
-	values, err := l.loadPlatform()
+	policy, err := l.LoadWithError()
 	if err != nil {
 		log.Tracef("MDM policy load: %v", err)
 		return &Policy{values: map[string]any{}}
 	}
+	return policy
+}
+
+// LoadWithError reads the platform-native MDM configuration and reports a
+// source that is present but could not be read, which Load hides behind an
+// empty Policy.
+//
+// A caller that enforces a managed security setting must use this and fail
+// closed: an unreadable source is not the same as an absent one, and treating
+// it as absent silently drops whatever the administrator configured. A caller
+// that only decides a default, such as the UI's autostart checkbox, is better
+// served by Load.
+//
+// An absent source is not an error. The platform loaders return the
+// documented (nil, nil) sentinel for "not enrolled", so only a real read
+// failure surfaces here.
+func (l *Loader) LoadWithError() (*Policy, error) {
+	if l == nil {
+		return &Policy{values: map[string]any{}}, nil
+	}
+
+	values, err := l.loadPlatform()
+	if err != nil {
+		return nil, fmt.Errorf("read MDM policy source: %w", err)
+	}
 	if values == nil {
-		return &Policy{values: map[string]any{}}
+		return &Policy{values: map[string]any{}}, nil
 	}
 	if len(values) == 0 {
 		log.Info("MDM enrolled (no managed keys)")
 	} else {
 		log.Infof("MDM enrolled with %d managed key(s): %v", len(values), sortedKeys(values))
 	}
-	return &Policy{values: values}
+	return &Policy{values: values}, nil
 }
 
 // IsEmpty reports whether the Policy has no managed keys.
