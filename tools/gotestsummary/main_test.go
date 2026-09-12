@@ -68,20 +68,6 @@ func TestPanicInOnePackageKeepsOtherPackageOutput(t *testing.T) {
 	}
 }
 
-func TestStoreSetupTimeIsAttributedToTheTest(t *testing.T) {
-	events := `
-{"Action":"run","Package":"a","Test":"TestStore"}
-{"Action":"output","Package":"a","Test":"TestStore","Output":"level=info msg=\"test store created: engine=mysql total=1.5s sqlite=100ms engine_setup=1.4s\"\n"}
-{"Action":"output","Package":"a","Test":"TestStore","Output":"level=info msg=\"test store created: engine=mysql total=500ms sqlite=100ms engine_setup=400ms\"\n"}
-{"Action":"pass","Package":"a","Test":"TestStore","Elapsed":2.5}
-{"Action":"pass","Package":"a","Elapsed":2.6}
-`
-	got := feed(t, events)
-	if !strings.Contains(got, "a.TestStore  [stores: 2, 2s]") {
-		t.Errorf("store setup not aggregated:\n%s", got)
-	}
-}
-
 func TestBuildFailureShowsCompilerOutput(t *testing.T) {
 	// The event sequence go test emits for a build failure: the build events
 	// name the test binary, then the package itself fails with FailedBuild.

@@ -687,7 +687,6 @@ func getMigrationsPostAuto(ctx context.Context) []migrationFunc {
 // NewTestStoreFromSQL is only used in tests. It will create a test database base of the store engine set in env.
 // Optionally it can load a SQL file to the database. If the filename is empty it will return an empty database
 func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (Store, func(), error) {
-	start := time.Now()
 	kind := getStoreEngineFromEnv()
 	if kind == "" {
 		kind = types.SqliteStoreEngine
@@ -725,15 +724,10 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 	var sqlStore Store
 	var cleanup func()
 
-	sqliteReady := time.Now()
 	maxRetries := 2
 	for i := 0; i < maxRetries; i++ {
 		sqlStore, cleanup, err = getSqlStoreEngine(ctx, store, kind)
 		if err == nil {
-			// Parsed by tools/gotestsummary to attribute store setup time per test.
-			log.WithContext(ctx).Infof("test store created: engine=%s total=%s sqlite=%s engine_setup=%s",
-				kind, time.Since(start).Round(time.Millisecond), sqliteReady.Sub(start).Round(time.Millisecond),
-				time.Since(sqliteReady).Round(time.Millisecond))
 			return sqlStore, cleanup, nil
 		}
 		if i < maxRetries-1 {

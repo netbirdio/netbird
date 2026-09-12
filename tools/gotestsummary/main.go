@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -39,8 +38,6 @@ const (
 	// test runs; only the tail is kept once the cap is reached.
 	bufferedOutputLines = 400
 )
-
-var storeCreatedRe = regexp.MustCompile(`test store created: engine=(\S+) total=(\S+)`)
 
 type event struct {
 	Action  string  `json:"Action"`
@@ -62,11 +59,9 @@ type testKey struct {
 }
 
 type testResult struct {
-	pkg, name  string
-	action     string
-	elapsed    time.Duration
-	storeCount int
-	storeTotal time.Duration
+	pkg, name string
+	action    string
+	elapsed   time.Duration
 }
 
 type packageResult struct {
@@ -86,18 +81,12 @@ type summarizer struct {
 	// failedBuilds holds the ImportPaths whose build failed and has not been
 	// reported through a package fail event yet.
 	failedBuilds map[string]bool
-	stores       map[testKey]storeStats
 	tests        []testResult
 	packages     []packageResult
 	// panics holds the head of a panic per package. Package streams interleave
 	// in a go test -json run, so one package's dump must not swallow another's
 	// output.
 	panics map[string][]string
-}
-
-type storeStats struct {
-	count int
-	total time.Duration
 }
 
 func newSummarizer(out io.Writer) *summarizer {
@@ -107,7 +96,6 @@ func newSummarizer(out io.Writer) *summarizer {
 		dropped:      make(map[testKey]int),
 		pkgOutput:    make(map[string][]string),
 		failedBuilds: make(map[string]bool),
-		stores:       make(map[testKey]storeStats),
 		panics:       make(map[string][]string),
 	}
 }
@@ -177,7 +165,7 @@ func (s *summarizer) handle(ev event) {
 		s.handleOutput(key, strings.TrimRight(ev.Output, "\n"))
 	case "build-output":
 		// Compiler output may carry several lines per event and is never test
-		// output, so it skips the panic and store-marker detection.
+		// output, so it skips the panic detection.
 		for _, line := range strings.Split(strings.TrimRight(ev.Output, "\n"), "\n") {
 			s.pkgOutput[key.pkg] = appendBounded(s.pkgOutput[key.pkg], line)
 		}
@@ -210,15 +198,6 @@ func (s *summarizer) handleOutput(key testKey, line string) {
 		return
 	}
 
-	if m := storeCreatedRe.FindStringSubmatch(line); m != nil {
-		if d, err := time.ParseDuration(m[2]); err == nil {
-			st := s.stores[key]
-			st.count++
-			st.total += d
-			s.stores[key] = st
-		}
-	}
-
 	if key.name == "" {
 		s.pkgOutput[key.pkg] = appendBounded(s.pkgOutput[key.pkg], line)
 		return
@@ -239,14 +218,11 @@ func appendBounded(buf []string, line string) []string {
 
 func (s *summarizer) handleTestResult(key testKey, ev event) {
 	elapsed := time.Duration(ev.Elapsed * float64(time.Second))
-	st := s.stores[key]
 	s.tests = append(s.tests, testResult{
-		pkg:        ev.Package,
-		name:       ev.Test,
-		action:     ev.Action,
-		elapsed:    elapsed,
-		storeCount: st.count,
-		storeTotal: st.total,
+		pkg:     ev.Package,
+		name:    ev.Test,
+		action:  ev.Action,
+		elapsed: elapsed,
 	})
 
 	if !strings.Contains(ev.Test, "/") || ev.Action == "fail" {
@@ -416,11 +392,7 @@ func (s *summarizer) printSlowest(title string, limit int, keep func(testResult)
 	fmt.Fprintln(s.out)
 	fmt.Fprintf(s.out, "==== %s (%d) ====\n", title, len(tests))
 	for _, t := range tests {
-		line := fmt.Sprintf("%9s  %-4s  %s.%s", t.elapsed.Round(time.Millisecond), t.action, shortPkg(t.pkg), t.name)
-		if t.storeCount > 0 {
-			line += fmt.Sprintf("  [stores: %d, %s]", t.storeCount, t.storeTotal.Round(time.Millisecond))
-		}
-		fmt.Fprintln(s.out, line)
+		fmt.Fprintf(s.out, "%9s  %-4s  %s.%s\n", t.elapsed.Round(time.Millisecond), t.action, shortPkg(t.pkg), t.name)
 	}
 }
 
