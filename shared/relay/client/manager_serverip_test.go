@@ -3,7 +3,6 @@ package client
 import (
 	"context"
 	"io"
-	"net/netip"
 	"testing"
 	"time"
 
@@ -85,7 +84,7 @@ func TestManager_ForeignRelayServerIP(t *testing.T) {
 	t.Run("no server IP, dial fails", func(t *testing.T) {
 		dialCtx, dialCancel := context.WithTimeout(ctx, 5*time.Second)
 		defer dialCancel()
-		_, err := mgrAlice.OpenConn(dialCtx, brokenFQDN, "bob", netip.Addr{})
+		_, err := mgrAlice.OpenConn(dialCtx, RelayServer{Addr: brokenFQDN}, "bob", true)
 		if err == nil {
 			t.Fatalf("expected OpenConn to fail without server IP, got success")
 		}
@@ -95,7 +94,7 @@ func TestManager_ForeignRelayServerIP(t *testing.T) {
 		// Bob waits for Alice's incoming peer connection on his side.
 		bobSideCh := make(chan error, 1)
 		go func() {
-			conn, err := mgrBob.OpenConn(ctx, bobRealAddr, "alice", netip.Addr{})
+			conn, err := mgrBob.OpenConn(ctx, RelayServer{Addr: bobRealAddr}, "alice", false)
 			if err != nil {
 				bobSideCh <- err
 				return
@@ -113,7 +112,7 @@ func TestManager_ForeignRelayServerIP(t *testing.T) {
 			bobSideCh <- nil
 		}()
 
-		aliceConn, err := mgrAlice.OpenConn(ctx, brokenFQDN, "bob", bobAdvertisedIP)
+		aliceConn, err := mgrAlice.OpenConn(ctx, RelayServer{Addr: brokenFQDN, IP: bobAdvertisedIP}, "bob", true)
 		if err != nil {
 			t.Fatalf("alice OpenConn with server IP: %s", err)
 		}

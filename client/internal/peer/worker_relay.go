@@ -54,19 +54,15 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	w.relaySupportedOnRemotePeer.Store(true)
 
 	// the relayManager will return with error in case if the connection has lost with relay server
-	currentRelayAddress, _, err := w.relayManager.RelayInstanceAddress()
+	_, _, err := w.relayManager.RelayInstanceAddress()
 	if err != nil {
 		w.log.Errorf("failed to handle new offer: %s", err)
 		return
 	}
 
-	srv := w.preferredRelayServer(currentRelayAddress, remoteOfferAnswer.RelaySrvAddress)
-	var serverIP netip.Addr
-	if srv == remoteOfferAnswer.RelaySrvAddress {
-		serverIP = remoteOfferAnswer.RelaySrvIP
-	}
-
-	relayedConn, err := w.relayManager.OpenConn(w.peerCtx, srv, w.config.Key, serverIP)
+	preferForeign := !w.isController
+	remoteRelayServer := relayClient.RelayServer{Addr: remoteOfferAnswer.RelaySrvAddress, IP: remoteOfferAnswer.RelaySrvIP}
+	relayedConn, err := w.relayManager.OpenConn(w.peerCtx, remoteRelayServer, w.config.Key, preferForeign)
 	if err != nil {
 		if errors.Is(err, relayClient.ErrConnAlreadyExists) {
 			w.log.Debugf("handled offer by reusing existing relay connection")
@@ -80,14 +76,13 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	w.relayedConn = relayedConn
 	w.relayLock.Unlock()
 
-	err = w.relayManager.AddCloseListener(srv, w.onRelayClientDisconnected)
-	if err != nil {
-		log.Errorf("failed to add close listener: %s", err)
+	if err := w.relayManager.AddCloseListener(relayedConn.RemoteAddr().String(), w.onRelayClientDisconnected); err != nil {
+		w.log.Errorf("failed to add close listener: %s", err)
 		_ = relayedConn.Close()
 		return
 	}
 
-	w.log.Debugf("peer conn opened via Relay: %s", srv)
+	w.log.Debugf("peer conn opened via Relay: %s", relayedConn.RemoteAddr())
 	go w.conn.onRelayConnectionIsReady(RelayConnInfo{
 		relayedConn:     relayedConn,
 		rosenpassPubKey: remoteOfferAnswer.RosenpassPubKey,
@@ -124,13 +119,6 @@ func (w *WorkerRelay) isRelaySupported(answer *OfferAnswer) bool {
 		return false
 	}
 	return answer.RelaySrvAddress != ""
-}
-
-func (w *WorkerRelay) preferredRelayServer(myRelayAddress, remoteRelayAddress string) string {
-	if w.isController {
-		return myRelayAddress
-	}
-	return remoteRelayAddress
 }
 
 func (w *WorkerRelay) onRelayClientDisconnected() {

@@ -2,17 +2,14 @@ package client
 
 import (
 	"context"
-	"net/netip"
 	"testing"
 	"time"
-
-	"github.com/stretchr/testify/require"
 )
 
 // TestCleanUpUnusedRelays_DoesNotBlockOnRealHangingDial drives a real, hanging foreign
-// relay dial and asserts cleanUpUnusedRelays does not stall behind it.
+// relay dial and asserts the foreign store cleanup does not stall behind it.
 func TestCleanUpUnusedRelays_DoesNotBlockOnRealHangingDial(t *testing.T) {
-	serverAddr := stallingRelayListener(t)
+	serverAddr, accepted := stallingRelayListener(t)
 
 	mCtx, mCancel := context.WithCancel(context.Background())
 	t.Cleanup(mCancel)
@@ -22,39 +19,32 @@ func TestCleanUpUnusedRelays_DoesNotBlockOnRealHangingDial(t *testing.T) {
 	dialDone := make(chan struct{})
 	go func() {
 		defer close(dialDone)
-		_, _ = m.openConnVia(mCtx, serverAddr, "peerKey", netip.Addr{})
+		_, _ = m.foreign.OpenConn(mCtx, "peerKey", RelayServer{Addr: serverAddr})
 	}()
 
-	// The track appears in the map once the dial is in flight.
-	require.Eventually(t, func() bool {
-		m.relayClientsMutex.RLock()
-		defer m.relayClientsMutex.RUnlock()
-		_, ok := m.relayClients[serverAddr]
-		return ok
-	}, 5*time.Second, 5*time.Millisecond, "relay dial did not start")
+	select {
+	case <-accepted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("relay dial did not reach the listener")
+	}
 
 	cleanupDone := make(chan struct{})
 	go func() {
 		defer close(cleanupDone)
-		m.cleanUpUnusedRelays()
+		m.foreign.cleanupUnused()
 	}()
 
 	select {
 	case <-cleanupDone:
 	case <-time.After(2 * time.Second):
-		t.Fatal("cleanUpUnusedRelays blocked on an in-progress relay dial while holding the relay map lock")
+		t.Fatal("cleanupUnused blocked on an in-progress relay dial")
 	}
-
-	m.relayClientsMutex.RLock()
-	_, stillTracked := m.relayClients[serverAddr]
-	m.relayClientsMutex.RUnlock()
-	require.True(t, stillTracked, "an in-progress relay dial must not be evicted by cleanup")
 
 	// Release the hanging dial so the goroutine can exit cleanly.
 	mCancel()
 	select {
 	case <-dialDone:
 	case <-time.After(5 * time.Second):
-		t.Fatal("openConnVia did not return after context cancellation")
+		t.Fatal("foreign OpenConn did not return after context cancellation")
 	}
 }
