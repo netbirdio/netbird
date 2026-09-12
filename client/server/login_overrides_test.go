@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/proto"
 )
 
 func TestPersistLoginOverrides(t *testing.T) {
@@ -80,10 +81,13 @@ func TestPersistLoginOverrides(t *testing.T) {
 			require.NoError(t, err, "seed config")
 
 			activeProf := &profilemanager.ActiveProfileState{ID: "default"}
-			err = persistLoginOverrides(activeProf, tt.newMgmtURL, tt.newPSK)
+			err = persistLoginOverrides(activeProf, &proto.LoginRequest{
+				ManagementUrl:        tt.newMgmtURL,
+				OptionalPreSharedKey: tt.newPSK,
+			})
 			require.NoError(t, err, "persistLoginOverrides")
 
-			cfg, err := profilemanager.ReadConfig(profilemanager.DefaultConfigPath)
+			cfg, err := profilemanager.ReadOrGenerateConfig(profilemanager.DefaultConfigPath)
 			require.NoError(t, err, "read back config")
 
 			require.Equal(t, tt.wantMgmtURL, cfg.ManagementURL.String(), "management URL")

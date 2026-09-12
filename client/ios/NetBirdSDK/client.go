@@ -130,6 +130,10 @@ func NewClient(cfgFile, stateFile, cacheDir, logFilePath, deviceName string, osV
 
 // SetConfigFromJSON stores the JSON config that later loads resolve instead of the config file (tvOS).
 func (c *Client) SetConfigFromJSON(jsonStr string) error {
+	// Parsed only to reject an unreadable document early; the JSON itself is
+	// what is stored, and every load re-parses it. A document carrying no peer
+	// identity is readable and accepted: that is a logged-out profile, and the
+	// login that follows provisions the keys.
 	if _, err := profilemanager.ConfigFromJSON(jsonStr); err != nil {
 		log.Errorf("SetConfigFromJSON: failed to parse config JSON: %v", err)
 		return err
