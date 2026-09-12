@@ -1045,6 +1045,9 @@ func (m *managerImpl) bootstrapSelfAddressed(ctx context.Context, settings *type
 	if err := m.requireNotClaimedByOtherAccount(ctx, settings.AccountID, hostname, m.store.HasGatewayClusterPinnedByOtherAccount); err != nil {
 		return err
 	}
+	if err := m.validateGatewayCluster(ctx, settings.AccountID, hostname); err != nil {
+		return err
+	}
 
 	settings.Domain = hostname
 	settings.ProxyAddress = hostname
@@ -1061,6 +1064,101 @@ func (m *managerImpl) bootstrapSelfAddressed(ctx context.Context, settings *type
 		return fmt.Errorf("create agent network settings: %w", err)
 	}
 	return nil
+}
+
+// validateGatewayCluster rejects a bootstrap pinned to a cluster that cannot
+// serve the account's gateway — a labeled endpoint beneath the cluster and a
+// self-addressed one on the very address a proxy declares alike, since the
+// service behind either is the same private one.
+//
+// The synthesised gateway service is unconditionally private
+// (buildAccountService): agents reach it over the WireGuard tunnel and are
+// authorised by ValidateTunnelPeer against the policies' source groups, and
+// its single target is the cluster itself with DirectUpstream. Only a proxy
+// running embedded in a netbird client (`netbird proxy`) can serve that — a
+// centralised proxy has no tunnel identity to authenticate against and no
+// WireGuard endpoint to be reached on. Management reports that per cluster as
+// the `private` capability, the same flag the dashboard renders as
+// supports_private when it gates NetBird-only services.
+//
+// Without this check the bootstrap happily pins to any cluster the caller
+// names, including one with no embedded proxy — and the endpoint it allocates
+// is immutable, so the account is left with a dead gateway that only a
+// DeleteSettings/re-bootstrap can undo.
+//
+// Whether management knows the cluster is decided on the proxy rows
+// themselves, never on how fresh their heartbeats are: a cluster's rows
+// outlive its proxies' liveness (only the stale-proxy reaper removes them), so
+// a cluster that exists stays judged as one. Judging on liveness instead would
+// make the same centralised cluster pass or fail depending on whether its
+// proxies happened to have heartbeated in the last couple of minutes.
+//
+// The single opening left is a cluster management holds no proxy row for at
+// all: pinning ahead of a proxy's first connection is a legitimate order — the
+// dedicated path claims an address the same way, before any proxy declares it.
+func (m *managerImpl) validateGatewayCluster(ctx context.Context, accountID, clusterAddr string) error {
+	declared, err := m.accountClusterSpellings(ctx, accountID, clusterAddr)
+	if err != nil {
+		return err
+	}
+	if len(declared) == 0 {
+		// No proxy has ever declared this address: an address-first pin.
+		return nil
+	}
+
+	// A cluster management knows has to prove it can serve the gateway, and
+	// only a live embedded proxy proves that. Both an explicit false and an
+	// unreported capability (nothing live in the cluster, or proxies predating
+	// capability reporting) fail here: unusable and unproven are the same
+	// answer for a decision that cannot be revisited later.
+	//
+	// The capability is read per declared spelling and taken as any-true, the
+	// same way it aggregates over a cluster's proxies: the store matches
+	// cluster_address exactly, so a host two proxies spelled differently must
+	// not come back unproven just because it was asked about under one of them.
+	for _, address := range declared {
+		if private := m.store.GetClusterSupportsPrivate(ctx, address); private != nil && *private {
+			return nil
+		}
+	}
+
+	return status.Errorf(status.InvalidArgument,
+		"proxy cluster %s cannot serve the agent network gateway: the gateway is reachable only from connected peers, "+
+			"which needs at least one connected embedded proxy (netbird proxy) in the cluster", clusterAddr)
+}
+
+// accountClusterSpellings returns every proxy cluster address in the account's
+// view — its own (BYOP) clusters plus the shared ones — that names the same
+// host as clusterAddr. Empty means management holds no proxy row for that host
+// in this account's view.
+//
+// A proxy declares its cluster address as the operator spelled it, so identity
+// is compared on the normalised form rather than byte-equal — an in-memory pass
+// over the account's clusters, not a query. What comes back is the stored
+// spelling, because the capability lookup matches cluster_address exactly and
+// would silently find nothing under a spelling the store never held. The
+// cluster listing is not gated on heartbeats, so this answer does not change
+// while a cluster's proxies are merely offline.
+func (m *managerImpl) accountClusterSpellings(ctx context.Context, accountID, clusterAddr string) ([]string, error) {
+	clusters, err := m.store.GetProxyClusters(ctx, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("list proxy clusters: %w", err)
+	}
+
+	var spellings []string
+	for _, cluster := range clusters {
+		normalized, err := types.NormalizeHostname(cluster.Address)
+		if err != nil {
+			// An address declared in a shape we cannot normalise is not one an
+			// endpoint can be allocated beneath.
+			log.WithContext(ctx).Debugf("skipping unusable proxy cluster address %q: %s", cluster.Address, err)
+			continue
+		}
+		if normalized == clusterAddr {
+			spellings = append(spellings, cluster.Address)
+		}
+	}
+	return spellings, nil
 }
 
 // bootstrapLabeled allocates a labeled endpoint one label beneath the given
@@ -1082,6 +1180,10 @@ func (m *managerImpl) bootstrapLabeled(ctx context.Context, settings *types.Sett
 	// accounts' labeled pins under the same cluster are not asked about: a
 	// shared cluster carries many of them by design.
 	if err := m.requireNotClaimedByOtherAccount(ctx, settings.AccountID, parent, m.store.HasGatewayEndpointByOtherAccount); err != nil {
+		return err
+	}
+
+	if err := m.validateGatewayCluster(ctx, settings.AccountID, parent); err != nil {
 		return err
 	}
 

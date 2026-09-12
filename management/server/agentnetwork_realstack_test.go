@@ -13,6 +13,7 @@ import (
 	networkmap "github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	agenttypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
+	rpproxy "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -92,6 +93,7 @@ func TestAgentNetwork_ProviderCRUD_FansOutToProxyAndClientPeers(t *testing.T) {
 	// UpdateAccountPeers, which is the path under test.
 	agentMgr := agentnetwork.NewManager(am.Store, permissions.NewManager(am.Store), am, nil)
 
+	seedEmbeddedProxyCluster(t, am.Store, clusterAddr)
 	_, err = agentMgr.CreateSettings(ctx, adminUserID, agenttypes.DefaultSettings(accountID), clusterAddr, "")
 	require.NoError(t, err, "CreateSettings must bootstrap the endpoint")
 	// The bootstrap itself reconciles and queues updates on both channels;
@@ -221,4 +223,23 @@ func synthZoneRData(sync *nbproto.SyncResponse, clusterAddr, fqdn string) string
 		}
 	}
 	return ""
+}
+
+// seedEmbeddedProxyCluster registers a connected proxy running embedded in a
+// netbird client for clusterAddr, matching what a real deployment looks like
+// when the account bootstraps: the agent-network gateway service is always
+// private, so its cluster has to be one that can serve private services.
+func seedEmbeddedProxyCluster(t *testing.T, st store.Store, clusterAddr string) {
+	t.Helper()
+	private := true
+	now := time.Now().UTC()
+	require.NoError(t, st.SaveProxy(context.Background(), &rpproxy.Proxy{
+		ID:             "agent-net-proxy-" + clusterAddr,
+		SessionID:      "agent-net-session",
+		ClusterAddress: clusterAddr,
+		LastSeen:       now,
+		ConnectedAt:    &now,
+		Status:         rpproxy.StatusConnected,
+		Capabilities:   rpproxy.Capabilities{Private: &private},
+	}), "seeding the proxy cluster must succeed")
 }

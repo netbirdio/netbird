@@ -101,6 +101,13 @@ func (f *bootstrapFixture) seedProxyAt(t *testing.T, proxyID, accountID, cluster
 	require.NoError(t, f.store.SaveProxy(context.Background(), p), "seeding a proxy must succeed")
 }
 
+// seedEmbeddedCluster is the common case: a shared cluster with a connected
+// embedded proxy, which is what the labeled bootstrap requires.
+func (f *bootstrapFixture) seedEmbeddedCluster(t *testing.T, clusterAddr string) {
+	t.Helper()
+	f.seedProxy(t, "proxy-"+clusterAddr, "", clusterAddr, ptrTo(true))
+}
+
 // requireForeignClusterRefusal asserts the refusal a pin onto another
 // account's host gets, and that it left no row behind.
 func (f *bootstrapFixture) requireForeignClusterRefusal(t *testing.T, err error, accountID string) {
@@ -140,6 +147,7 @@ func TestCreateSettingsRequiresPermission(t *testing.T) {
 func TestCreateSettingsLabeled(t *testing.T) {
 	ctx := context.Background()
 	f := newBootstrapFixture(t)
+	f.seedEmbeddedCluster(t, "cluster1.example.com")
 	f.expectPermission("account1", "user1", modules.AgentNetworkSettings, operations.Create, true)
 
 	created, err := f.createSettings(ctx, "account1", "user1", "Cluster1.Example.com", "")
@@ -213,6 +221,7 @@ func TestCreateSettingsIdentityFieldValidation(t *testing.T) {
 func TestCreateSettingsConflictsOnSecondBootstrap(t *testing.T) {
 	ctx := context.Background()
 	f := newBootstrapFixture(t)
+	f.seedEmbeddedCluster(t, "cluster1.example.com")
 	f.expectPermission("account1", "user1", modules.AgentNetworkSettings, operations.Create, true)
 
 	first, err := f.createSettings(ctx, "account1", "user1", "cluster1.example.com", "")
@@ -275,6 +284,109 @@ func TestCreateProviderHasNoSettingsSideEffects(t *testing.T) {
 
 	_, err = f.store.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, "account1")
 	assert.Error(t, err, "provider create must not conjure a settings row")
+}
+
+// TestCreateSettingsRejectsOfflineCluster is the guard against deciding on
+// heartbeat freshness. A centralised cluster is refused while its proxies are
+// live; the same cluster must stay refused once they stop heartbeating, which
+// takes only a couple of minutes (proxyActiveThreshold). Judging on liveness
+// would turn "wait for the proxy to go quiet" into a way to pin the account's
+// immutable endpoint to a cluster that can never serve it.
+func TestCreateSettingsRejectsOfflineCluster(t *testing.T) {
+	ctx := context.Background()
+	notPrivate := false
+
+	cases := map[string]*bool{
+		"centralised proxy gone quiet": &notPrivate,
+		// A cluster that could serve the gateway still has to have something
+		// live in it to prove so at bootstrap: refusing is the safe direction
+		// (reconnect the proxy and retry) where accepting is permanent.
+		"embedded proxy gone quiet": ptrTo(true),
+	}
+	for name, private := range cases {
+		t.Run(name, func(t *testing.T) {
+			f := newBootstrapFixture(t)
+			f.seedProxyAt(t, "proxy1", "", "offline.example.com", private,
+				time.Now().UTC().Add(-time.Hour))
+			f.expectPermission("account1", "user1", modules.AgentNetworkSettings, operations.Create, true)
+
+			_, err := f.createSettings(ctx, "account1", "user1", "offline.example.com", "")
+			require.Error(t, err, "a known cluster with nothing live in it must be rejected")
+			var sErr *status.Error
+			require.ErrorAs(t, err, &sErr)
+			assert.Equal(t, status.InvalidArgument, sErr.Type(), "rejection must be a validation error")
+			assert.Contains(t, err.Error(), "connected embedded proxy",
+				"the error must say a live embedded proxy is what is missing")
+
+			_, err = f.store.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, "account1")
+			assert.Error(t, err, "no row may be left behind by a rejected bootstrap")
+		})
+	}
+}
+
+// TestCreateSettingsRequiresPrivateCluster pins the capability gate: the
+// synthesised gateway service is always private, so a live cluster whose
+// proxies are not embedded in a netbird client cannot serve it and must not
+// become the account's immutable endpoint.
+func TestCreateSettingsRequiresPrivateCluster(t *testing.T) {
+	ctx := context.Background()
+	f := newBootstrapFixture(t)
+	notPrivate := false
+	f.seedProxy(t, "proxy1", "", "central.example.com", &notPrivate)
+	f.expectPermission("account1", "user1", modules.AgentNetworkSettings, operations.Create, true)
+
+	_, err := f.createSettings(ctx, "account1", "user1", "central.example.com", "")
+	require.Error(t, err, "a cluster without an embedded proxy must be rejected")
+	var sErr *status.Error
+	require.ErrorAs(t, err, &sErr)
+	assert.Equal(t, status.InvalidArgument, sErr.Type(), "rejection must be a validation error")
+	assert.Contains(t, err.Error(), "embedded proxy", "the error must name what the cluster is missing")
+
+	_, err = f.store.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, "account1")
+	assert.Error(t, err, "no row may be left behind by a rejected bootstrap")
+}
+
+// TestCreateSettingsAcceptsOwnPrivateCluster pins the BYOP happy path: the
+// account's own cluster with a connected embedded proxy is a valid pin.
+func TestCreateSettingsAcceptsOwnPrivateCluster(t *testing.T) {
+	ctx := context.Background()
+	f := newBootstrapFixture(t)
+	f.seedProxy(t, "proxy1", "account1", "byop.account1.example.com", ptrTo(true))
+	f.expectPermission("account1", "user1", modules.AgentNetworkSettings, operations.Create, true)
+
+	created, err := f.createSettings(ctx, "account1", "user1", "byop.account1.example.com", "")
+	require.NoError(t, err, "the account's own private cluster must be accepted")
+	assert.Equal(t, "byop.account1.example.com", created.ProxyAddress)
+}
+
+// TestCreateSettingsMatchesClusterCasing pins that a cluster spelled with
+// capitals in the store is still recognised as the same cluster the normalised
+// proxy_address names, in both directions: a private cluster is accepted and a
+// centralised one is refused, whatever the casing. The comparison is in memory
+// over the account's cluster list; the capability lookup is still asked under
+// the spelling the store actually holds, which is what an exact match needs.
+func TestCreateSettingsMatchesClusterCasing(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("own private cluster is found", func(t *testing.T) {
+		f := newBootstrapFixture(t)
+		f.seedProxy(t, "proxy1", "", "EU.Proxy.Example.com", ptrTo(true))
+		f.expectPermission("account1", "user1", modules.AgentNetworkSettings, operations.Create, true)
+
+		created, err := f.createSettings(ctx, "account1", "user1", "eu.proxy.example.com", "")
+		require.NoError(t, err, "a private cluster declared with capitals must still be accepted")
+		assert.Equal(t, "eu.proxy.example.com", created.ProxyAddress)
+	})
+
+	t.Run("non-private cluster is still refused", func(t *testing.T) {
+		f := newBootstrapFixture(t)
+		f.seedProxy(t, "proxy1", "", "Central.Example.com", ptrTo(false))
+		f.expectPermission("account1", "user1", modules.AgentNetworkSettings, operations.Create, true)
+
+		_, err := f.createSettings(ctx, "account1", "user1", "central.example.com", "")
+		require.Error(t, err, "casing must not become a way past the capability check")
+		assert.Contains(t, err.Error(), "embedded proxy")
+	})
 }
 
 // TestCreateSettingsRejectsForeignCluster pins tenant consistency on the pin:
@@ -412,5 +524,40 @@ func TestCreateSettingsRejectsHostAnotherAccountPinned(t *testing.T) {
 			_, err := f.createSettings(ctx, account, "user", "eu.proxy.netbird.io", "")
 			require.NoError(t, err, "labeled pins under one cluster are the shared-cluster shape and must not refuse each other")
 		}
+	})
+}
+
+// TestCreateSettingsSelfAddressedRequiresPrivateCluster pins that the
+// capability gate applies to a self-addressed endpoint too: the service behind
+// it is the same private one, so a proxy that already declares the hostname
+// must be an embedded one, whether the account's own or a shared cluster's. A
+// hostname no proxy declares yet stays claimable (TestCreateSettingsSelfAddressed).
+func TestCreateSettingsSelfAddressedRequiresPrivateCluster(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("centralised proxy at the hostname is refused", func(t *testing.T) {
+		f := newBootstrapFixture(t)
+		f.seedProxy(t, "central", "", "gw.example.com", ptrTo(false))
+		f.expectPermission("account1", "user1", modules.AgentNetworkSettings, operations.Create, true)
+
+		_, err := f.createSettings(ctx, "account1", "user1", "", "gw.example.com")
+		require.Error(t, err, "a self-addressed endpoint on a centralised proxy can never be served")
+		var sErr *status.Error
+		require.ErrorAs(t, err, &sErr)
+		assert.Equal(t, status.InvalidArgument, sErr.Type())
+		assert.Contains(t, err.Error(), "embedded proxy")
+
+		_, err = f.store.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, "account1")
+		assert.Error(t, err, "no row may be left behind by a rejected bootstrap")
+	})
+
+	t.Run("embedded proxy at the hostname is accepted", func(t *testing.T) {
+		f := newBootstrapFixture(t)
+		f.seedProxy(t, "embedded", "", "gw.example.com", ptrTo(true))
+		f.expectPermission("account1", "user1", modules.AgentNetworkSettings, operations.Create, true)
+
+		created, err := f.createSettings(ctx, "account1", "user1", "", "gw.example.com")
+		require.NoError(t, err)
+		assert.Equal(t, "gw.example.com", created.ProxyAddress)
 	})
 }

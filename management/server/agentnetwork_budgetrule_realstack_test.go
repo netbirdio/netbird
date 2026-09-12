@@ -89,6 +89,7 @@ func TestAgentNetwork_UpdateSettings_PreservesImmutableAndTogglesCollection(t *t
 
 	// Bootstrap is an explicit settings create; providers have no settings
 	// side effects anymore.
+	seedEmbeddedProxyCluster(t, am.Store, clusterAddr)
 	before, err := mgr.CreateSettings(ctx, adminUserID, agenttypes.DefaultSettings(accountID), clusterAddr, "")
 	require.NoError(t, err, "CreateSettings must bootstrap the row")
 	require.Equal(t, clusterAddr, before.ProxyAddress, "proxy address pinned at bootstrap")
