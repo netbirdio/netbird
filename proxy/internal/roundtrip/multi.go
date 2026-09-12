@@ -26,8 +26,8 @@ import (
 // branch at all), construct the MultiTransport via NewDirectOnly.
 type MultiTransport struct {
 	embedded http.RoundTripper
-	direct   *http.Transport
-	insecure *http.Transport
+	direct   *upstreamTransport
+	insecure *upstreamTransport
 }
 
 // errNoEmbeddedTransport is returned when a request reaches the
@@ -53,7 +53,6 @@ func NewMultiTransport(embedded http.RoundTripper, logger *log.Logger) *MultiTra
 	}
 	direct := &http.Transport{
 		DialContext:           dialWithTimeout(dialer.DialContext),
-		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          cfg.maxIdleConns,
 		MaxIdleConnsPerHost:   cfg.maxIdleConnsPerHost,
 		MaxConnsPerHost:       cfg.maxConnsPerHost,
@@ -70,8 +69,8 @@ func NewMultiTransport(embedded http.RoundTripper, logger *log.Logger) *MultiTra
 
 	return &MultiTransport{
 		embedded: embedded,
-		direct:   direct,
-		insecure: insecure,
+		direct:   newUpstreamTransport(direct, cfg.upstreamHTTPVersion, logger),
+		insecure: newUpstreamTransport(insecure, cfg.upstreamHTTPVersion, logger),
 	}
 }
 
