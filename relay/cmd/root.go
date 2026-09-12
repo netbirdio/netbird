@@ -19,10 +19,10 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/netbirdio/netbird/encryption"
+	"github.com/netbirdio/netbird/relay/auth"
 	"github.com/netbirdio/netbird/relay/healthcheck"
 	"github.com/netbirdio/netbird/relay/server"
 	"github.com/netbirdio/netbird/shared/metrics"
-	"github.com/netbirdio/netbird/shared/relay/auth"
 	"github.com/netbirdio/netbird/stun"
 	"github.com/netbirdio/netbird/trustedproxy"
 	"github.com/netbirdio/netbird/util"

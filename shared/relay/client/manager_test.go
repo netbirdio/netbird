@@ -11,8 +11,8 @@ import (
 	"go.opentelemetry.io/otel"
 
 	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/relay/auth/allow"
 	"github.com/netbirdio/netbird/relay/server"
-	"github.com/netbirdio/netbird/shared/relay/auth/allow"
 )
 
 // newManagerTestServerConfig creates a new server config for manager testing with the given address
