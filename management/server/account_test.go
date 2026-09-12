@@ -3516,7 +3516,13 @@ func buildTestManager(t testing.TB, store store.Store, nmdataStore *networkmapdb
 
 	eventStore := &activity.InMemoryEventStore{}
 
-	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
+	// Everything built here watches this context; cancelling it on cleanup stops
+	// the metrics flushers, caches and controllers instead of leaking them for
+	// the rest of the package run.
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	metrics, err := telemetry.NewDefaultAppMetrics(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -3534,8 +3540,6 @@ func buildTestManager(t testing.TB, store store.Store, nmdataStore *networkmapdb
 		CleanupStale(gomock.Any(), gomock.Any()).
 		Return(nil).
 		AnyTimes()
-
-	ctx := context.Background()
 
 	cacheStore, err := cache.NewStore(ctx, 100*time.Millisecond, 300*time.Millisecond, 100)
 	if err != nil {
