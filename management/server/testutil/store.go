@@ -39,11 +39,12 @@ func CreateMysqlTestContainer() (func(), string, error) {
 		mysql.WithPassword("testing"),
 		// Every test creates and drops a database with about 40 tables, so with
 		// the server defaults the run is dominated by durability work: each
-		// CREATE TABLE creates and fsyncs its own tablespace file and fsyncs the
-		// redo and binary logs. None of it protects anything in a container that
-		// is discarded after the run.
+		// CREATE TABLE fsyncs the redo log, the binary log and the doublewrite
+		// buffer. None of it protects anything in a container that is discarded
+		// after the run. Tables stay in per-table files on purpose: in the shared
+		// system tablespace the cost of every CREATE and DROP grew with the number
+		// of databases the run had already created.
 		testcontainers.WithCmd("mysqld",
-			"--innodb-file-per-table=OFF",
 			"--innodb-flush-log-at-trx-commit=0",
 			"--innodb-doublewrite=OFF",
 			"--skip-log-bin",

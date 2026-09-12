@@ -68,6 +68,14 @@ jobs:
           docker pull mlsmaycon/warmed-mysql:8
           docker image inspect mlsmaycon/warmed-mysql:8 --format 'entrypoint={{json .Config.Entrypoint}} cmd={{json .Config.Cmd}} env={{json .Config.Env}}'
 
+      - name: Runner calibration
+        run: |
+          nproc
+          grep -m1 "model name" /proc/cpuinfo
+          time dd if=/dev/zero of=/tmp/calib bs=1M count=256 conv=fsync
+          time sh -c 'for i in $(seq 1 200); do dd if=/dev/zero of=/tmp/calib-$i bs=4k count=1 conv=fsync 2>/dev/null; done'
+          rm -f /tmp/calib*
+
       - name: Build test summarizer
         run: go build -o /tmp/gotestsummary ./tools/gotestsummary
 
