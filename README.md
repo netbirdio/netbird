@@ -7,6 +7,7 @@
     <a href="https://sonarcloud.io/dashboard?id=netbirdio_netbird">
       <img src="https://sonarcloud.io/api/project_badges/measure?project=netbirdio_netbird&metric=alert_status" alt="SonarCloud alert status"/>
     </a>
+<a href="https://inspect.software/software/netbirdio/netbird"><img src="https://raw.githubusercontent.com/inspect-software/badges/main/v1/n/netbirdio/netbird.svg" alt="inspect.software score badge for netbirdio/netbird" /></a>
     <a href="https://github.com/netbirdio/netbird/blob/main/LICENSE">
       <img src="https://img.shields.io/badge/license-BSD--3-blue" alt="BSD-3 License"/>
     </a>
