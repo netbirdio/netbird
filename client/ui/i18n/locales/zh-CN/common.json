@@ -179,6 +179,69 @@
     "notify.mdm.policyApplied.body": {
         "message": "您的 NetBird 配置已根据 IT 策略更新。"
     },
+    "event.title": {
+        "message": "{severity}：{category}"
+    },
+    "event.severity.info": {
+        "message": "信息"
+    },
+    "event.severity.warning": {
+        "message": "警告"
+    },
+    "event.severity.error": {
+        "message": "错误"
+    },
+    "event.severity.critical": {
+        "message": "严重"
+    },
+    "event.category.network": {
+        "message": "网络"
+    },
+    "event.category.dns": {
+        "message": "DNS"
+    },
+    "event.category.authentication": {
+        "message": "身份验证"
+    },
+    "event.category.connectivity": {
+        "message": "连接"
+    },
+    "event.category.system": {
+        "message": "系统"
+    },
+    "event.panic": {
+        "message": "NetBird 服务发生崩溃。请重启该服务，并附上客户端日志提交错误报告。"
+    },
+    "event.dns.recovered": {
+        "message": "DNS 服务器已恢复可访问。"
+    },
+    "event.dns.unreachable": {
+        "message": "无法访问一个或多个 DNS 服务器。这可能影响您连接部分服务。"
+    },
+    "event.exitNode.connected": {
+        "message": "出口节点已连接。"
+    },
+    "event.exitNode.disconnected": {
+        "message": "出口节点已断开。"
+    },
+    "event.exitNode.connectionLost": {
+        "message": "与出口节点的连接已丢失。您的互联网访问可能受到影响。"
+    },
+    "event.exitNode.haChange": {
+        "message": "由于高可用性变更，出口节点已断开。"
+    },
+    "event.exitNode.disconnectedUnknown": {
+        "message": "出口节点因未知原因已断开。"
+    },
+    "event.update.installing": {
+        "message": "正在安装更新。"
+    },
+    "event.update.completed": {
+        "message": "NetBird 客户端已自动更新到版本 {version}。"
+    },
+    "event.update.failed": {
+        "message": "自动更新失败：{reason}"
+    },
     "common.cancel": {
         "message": "取消"
     },

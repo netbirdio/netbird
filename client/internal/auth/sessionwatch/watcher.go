@@ -21,6 +21,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	cProto "github.com/netbirdio/netbird/client/proto"
+	nbstatus "github.com/netbirdio/netbird/client/status"
 )
 
 const (
@@ -80,7 +81,7 @@ type StatusRecorder interface {
 		severity cProto.SystemEvent_Severity,
 		category cProto.SystemEvent_Category,
 		message string,
-		userMessage string,
+		userMessage *cProto.UserMessage,
 		metadata map[string]string,
 	)
 }
@@ -376,7 +377,22 @@ func publishWarning(recorder StatusRecorder, deadline time.Time, final bool) {
 		cProto.SystemEvent_CRITICAL,
 		cProto.SystemEvent_AUTHENTICATION,
 		message,
-		"",
+		warningUserMessage(deadline),
 		meta,
 	)
+}
+
+// warningUserMessage builds the localizable body for a session warning. The
+// remaining time is rendered here rather than in the UI so every consumer of the
+// event agrees on it; a deadline that is already gone (a warning delivered late)
+// drops to the variant without a countdown.
+func warningUserMessage(deadline time.Time) *cProto.UserMessage {
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		return cProto.NewUserMessage(cProto.UserMsgSessionExpiresSoon).
+			WithTitle(cProto.TitleSessionWarning)
+	}
+	return cProto.NewUserMessage(cProto.UserMsgSessionExpiresIn,
+		cProto.ArgRemaining, nbstatus.HumaniseDuration(remaining)).
+		WithTitle(cProto.TitleSessionWarning)
 }
