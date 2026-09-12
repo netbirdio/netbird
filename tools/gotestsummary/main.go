@@ -48,8 +48,9 @@ type event struct {
 	Test    string  `json:"Test"`
 	Output  string  `json:"Output"`
 	Elapsed float64 `json:"Elapsed"`
-	// ImportPath is set instead of Package on build events; it carries a
-	// " [pkg.test]" suffix for a test binary.
+	// ImportPath is set instead of Package on build events. It carries a
+	// " [pkg.test]" suffix naming the test binary the package was compiled
+	// for, and the same package can be built for several binaries at once.
 	ImportPath string `json:"ImportPath"`
 }
 
@@ -150,8 +151,10 @@ func (s *summarizer) consume(r io.Reader) error {
 }
 
 func (s *summarizer) handle(ev event) {
-	if ev.Package == "" && ev.ImportPath != "" {
-		ev.Package, _, _ = strings.Cut(ev.ImportPath, " [")
+	if ev.Package == "" {
+		// Keep the full path as the key so concurrent builds of one package for
+		// different test binaries do not share, and delete, each other's state.
+		ev.Package = ev.ImportPath
 	}
 	key := testKey{pkg: ev.Package, name: ev.Test}
 	switch ev.Action {
@@ -164,7 +167,10 @@ func (s *summarizer) handle(ev event) {
 			}
 		}
 	case "output", "build-output":
-		s.handleOutput(key, strings.TrimRight(ev.Output, "\n"))
+		// Test output arrives one line per event; build output may carry several.
+		for _, line := range strings.Split(strings.TrimRight(ev.Output, "\n"), "\n") {
+			s.handleOutput(key, line)
+		}
 	case "build-fail":
 		s.handlePackageResult(ev)
 	case "pass", "fail", "skip":
@@ -384,5 +390,6 @@ func (s *summarizer) printSlowest(title string, limit int, keep func(testResult)
 }
 
 func shortPkg(pkg string) string {
+	pkg, _, _ = strings.Cut(pkg, " [")
 	return strings.TrimPrefix(pkg, modulePrefix)
 }

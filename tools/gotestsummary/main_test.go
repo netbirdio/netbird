@@ -84,18 +84,35 @@ func TestStoreSetupTimeIsAttributedToTheTest(t *testing.T) {
 
 func TestBuildFailureShowsCompilerOutput(t *testing.T) {
 	events := `
-{"Action":"build-output","ImportPath":"a [a.test]","Output":"# a [a.test]\n"}
-{"Action":"build-output","ImportPath":"a [a.test]","Output":"a_test.go:7:2: undefined: nope\n"}
+{"Action":"build-output","ImportPath":"a [a.test]","Output":"# a [a.test]\na_test.go:7:2: undefined: nope\na_test.go:9:2: undefined: nope2\n"}
 {"Action":"build-fail","ImportPath":"a [a.test]"}
 `
 	got := feed(t, events)
 	for _, want := range []string{
 		"FAIL a 0s",
 		"==== output of a outside tests ====",
-		"    a_test.go:7:2: undefined: nope",
+		"    a_test.go:7:2: undefined: nope\n    a_test.go:9:2: undefined: nope2",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("output lacks %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestBuildVariantsOfOnePackageKeepSeparateOutput(t *testing.T) {
+	events := `
+{"Action":"build-output","ImportPath":"a [a.test]","Output":"a.go:1:1: broken for a.test\n"}
+{"Action":"build-output","ImportPath":"a [b.test]","Output":"a.go:1:1: broken for b.test\n"}
+{"Action":"build-fail","ImportPath":"a [a.test]"}
+{"Action":"build-fail","ImportPath":"a [b.test]"}
+`
+	got := feed(t, events)
+	if strings.Count(got, "==== output of a outside tests ====") != 2 {
+		t.Errorf("expected one output block per build variant:\n%s", got)
+	}
+	for _, want := range []string{"broken for a.test", "broken for b.test"} {
+		if strings.Count(got, want) != 1 {
+			t.Errorf("expected %q exactly once:\n%s", want, got)
 		}
 	}
 }
