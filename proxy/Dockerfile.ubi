@@ -1,0 +1,29 @@
+FROM registry.access.redhat.com/ubi9/ubi-minimal@sha256:7fbeae18dc9476399f565e68255f602a3374ea8614ba3d14843565131a13ff93
+
+ARG TARGETPLATFORM
+ARG VERSION=dev
+ARG RELEASE=1
+
+LABEL name="netbird-reverse-proxy" \
+      maintainer="NetBird <dev@netbird.io>" \
+      vendor="NetBird GmbH" \
+      version="${VERSION}" \
+      release="${RELEASE}" \
+      summary="NetBird Reverse Proxy" \
+      description="NetBird Reverse Proxy provides an identity-aware entrypoint to services in NetBird networks."
+
+COPY --chmod=0555 ${TARGETPLATFORM}/netbird-proxy /go/bin/netbird-proxy
+COPY licenses/ /licenses/
+# Only the writable directories share the root group for arbitrary non-root UIDs.
+# Runtime-created private keys retain the application's restrictive file modes.
+RUN mkdir -p /var/lib/netbird /certs && \
+    chown 1000:0 /var/lib/netbird /certs && \
+    chmod 0770 /var/lib/netbird /certs && \
+    chmod -R a+rX /licenses
+
+USER 1000:0
+ENV HOME=/var/lib/netbird
+ENV NB_PROXY_ADDRESS=":8443"
+EXPOSE 8443
+STOPSIGNAL SIGTERM
+ENTRYPOINT ["/go/bin/netbird-proxy"]

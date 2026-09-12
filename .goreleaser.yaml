@@ -458,6 +458,41 @@ dockers_v2:
        "org.opencontainers.image.revision": "{{.FullCommit}}"
        "org.opencontainers.image.source": "{{.GitURL}}"
        "maintainer": "dev@netbird.io"
+   - id: proxy-ubi
+     disable: "{{ .Env.SKIP_DOCKER_PUSH }}"
+     ids:
+       - netbird-proxy
+     images:
+       - netbirdio/reverse-proxy
+       - ghcr.io/netbirdio/reverse-proxy
+     tags:
+       - "{{ .Version }}-ubi"
+       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}ubi-latest{{ end }}"
+     dockerfile: proxy/Dockerfile.ubi
+     platforms:
+       - linux/amd64
+     build_args:
+       VERSION: "{{ .Version }}"
+       RELEASE: "{{ .Timestamp }}"
+     hooks:
+       pre:
+         - cmd: 'sh proxy/collect-licenses.sh "{{ .ContextDir }}/licenses"'
+           env:
+             - GOOS=linux
+             - GOARCH=amd64
+             - CGO_ENABLED=0
+     labels:
+       "org.opencontainers.image.created": "{{.Date}}"
+       "org.opencontainers.image.version": "{{.Version}}"
+       "org.opencontainers.image.revision": "{{.FullCommit}}"
+       "org.opencontainers.image.source": "{{.GitURL}}"
+     annotations:
+       "org.opencontainers.image.created": "{{.Date}}"
+       "org.opencontainers.image.title": "{{.ProjectName}}"
+       "org.opencontainers.image.version": "{{.Version}}"
+       "org.opencontainers.image.revision": "{{.FullCommit}}"
+       "org.opencontainers.image.source": "{{.GitURL}}"
+       "maintainer": "dev@netbird.io"
 
 brews:
   - ids:
