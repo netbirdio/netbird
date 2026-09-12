@@ -29,6 +29,10 @@ type Manager struct {
 	family4      *family
 	rawSupported bool
 
+	// ipsetSupport is shared by both families, so a kernel without
+	// usable ipset support degrades them together.
+	ipsetSupport *ipsetSupport
+
 	// IPv6 counterparts, nil when no v6 overlay
 	ipv6Client *iptables.IPTables
 	family6    *family
@@ -48,11 +52,12 @@ func Create(wgIface iFaceMapper, mtu uint16) (*Manager, error) {
 	}
 
 	m := &Manager{
-		wgIface:    wgIface,
-		ipv4Client: iptablesClient,
+		wgIface:      wgIface,
+		ipv4Client:   iptablesClient,
+		ipsetSupport: newIPSetSupport(),
 	}
 
-	m.family4, err = newFamily(iptablesClient, wgIface, mtu)
+	m.family4, err = newFamily(iptablesClient, wgIface, mtu, m.ipsetSupport)
 	if err != nil {
 		return nil, fmt.Errorf("create family: %w", err)
 	}
@@ -72,7 +77,7 @@ func (m *Manager) createIPv6Components(wgIface iFaceMapper, mtu uint16) error {
 		return fmt.Errorf("init ip6tables: %w", err)
 	}
 
-	family6, err := newFamily(ip6Client, wgIface, mtu)
+	family6, err := newFamily(ip6Client, wgIface, mtu, m.ipsetSupport)
 	if err != nil {
 		return fmt.Errorf("create v6 family: %w", err)
 	}
