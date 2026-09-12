@@ -372,3 +372,45 @@ func TestCreateSettingsUnknownHostIsPinnable(t *testing.T) {
 	require.NoError(t, err, "a host no proxy has declared must stay pinnable")
 	assert.Equal(t, "future.example.com", created.ProxyAddress)
 }
+
+// TestCreateSettingsRejectsHostAnotherAccountPinned covers claims made by pins
+// rather than proxies, which the proxy-row check cannot see. A labeled pin
+// beneath a host makes that host the other account's cluster, so a
+// self-addressed endpoint on it would never be served; a self-addressed
+// endpoint on a host makes the proxy declaring it theirs, so a label beneath
+// it would never be served either. Neither is a shared-cluster shape: many
+// labeled pins under one cluster are asked about in neither direction.
+func TestCreateSettingsRejectsHostAnotherAccountPinned(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("self-addressed onto another account's cluster", func(t *testing.T) {
+		f := newBootstrapFixture(t)
+		f.expectPermission("account2", "user2", modules.AgentNetworkSettings, operations.Create, true)
+		_, err := f.createSettings(ctx, "account2", "user2", "gw.example.com", "")
+		require.NoError(t, err, "account2's labeled pin beneath the host must go through first")
+
+		f.expectPermission("account1", "user1", modules.AgentNetworkSettings, operations.Create, true)
+		_, err = f.createSettings(ctx, "account1", "user1", "", "gw.example.com")
+		f.requireForeignClusterRefusal(t, err, "account1")
+	})
+
+	t.Run("labeled beneath another account's endpoint", func(t *testing.T) {
+		f := newBootstrapFixture(t)
+		f.expectPermission("account2", "user2", modules.AgentNetworkSettings, operations.Create, true)
+		_, err := f.createSettings(ctx, "account2", "user2", "", "gw.example.com")
+		require.NoError(t, err, "account2's self-addressed endpoint must go through first")
+
+		f.expectPermission("account1", "user1", modules.AgentNetworkSettings, operations.Create, true)
+		_, err = f.createSettings(ctx, "account1", "user1", "gw.example.com", "")
+		f.requireForeignClusterRefusal(t, err, "account1")
+	})
+
+	t.Run("labeled beside another account's labeled pin stays allowed", func(t *testing.T) {
+		f := newBootstrapFixture(t)
+		for _, account := range []string{"account1", "account2"} {
+			f.expectPermission(account, "user", modules.AgentNetworkSettings, operations.Create, true)
+			_, err := f.createSettings(ctx, account, "user", "eu.proxy.netbird.io", "")
+			require.NoError(t, err, "labeled pins under one cluster are the shared-cluster shape and must not refuse each other")
+		}
+	})
+}

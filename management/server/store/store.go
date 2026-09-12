@@ -341,6 +341,8 @@ type Store interface {
 	IsClusterAddressConflicting(ctx context.Context, clusterAddress, accountID string) (bool, error)
 	HasActiveProxyAtClusterAddress(ctx context.Context, clusterAddress string) (bool, error)
 	HasForeignAccountProxyAtHost(ctx context.Context, host, accountID string) (bool, error)
+	HasGatewayClusterPinnedByOtherAccount(ctx context.Context, host, accountID string) (bool, error)
+	HasGatewayEndpointByOtherAccount(ctx context.Context, host, accountID string) (bool, error)
 	DeleteAccountCluster(ctx context.Context, clusterAddress, accountID string) error
 
 	GetCustomDomainsCounts(ctx context.Context) (total int64, validated int64, err error)

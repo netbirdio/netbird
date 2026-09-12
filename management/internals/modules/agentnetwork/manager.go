@@ -1039,6 +1039,12 @@ func (m *managerImpl) bootstrapSelfAddressed(ctx context.Context, settings *type
 	if err := m.requireHostNotForeign(ctx, settings.AccountID, hostname); err != nil {
 		return err
 	}
+	// Another account's labeled pin beneath this hostname makes it their
+	// cluster: a proxy serving them there would never serve this endpoint.
+	// The domain unique index already arbitrates two endpoints on one name.
+	if err := m.requireNotClaimedByOtherAccount(ctx, settings.AccountID, hostname, m.store.HasGatewayClusterPinnedByOtherAccount); err != nil {
+		return err
+	}
 
 	settings.Domain = hostname
 	settings.ProxyAddress = hostname
@@ -1069,6 +1075,13 @@ func (m *managerImpl) bootstrapLabeled(ctx context.Context, settings *types.Sett
 		return status.Errorf(status.InvalidArgument, "invalid proxy_address: %s", err)
 	}
 	if err := m.requireHostNotForeign(ctx, settings.AccountID, parent); err != nil {
+		return err
+	}
+	// Another account's endpoint at this exact hostname means the proxy that
+	// declares it is theirs, so nothing would serve a label beneath it. Other
+	// accounts' labeled pins under the same cluster are not asked about: a
+	// shared cluster carries many of them by design.
+	if err := m.requireNotClaimedByOtherAccount(ctx, settings.AccountID, parent, m.store.HasGatewayEndpointByOtherAccount); err != nil {
 		return err
 	}
 
@@ -1130,9 +1143,26 @@ func (m *managerImpl) requireHostNotForeign(ctx context.Context, accountID, host
 		return fmt.Errorf("check proxy host ownership: %w", err)
 	}
 	if foreign {
-		return status.Errorf(status.InvalidArgument, "proxy cluster %s is not available to this account", host)
+		return errHostNotAvailable(host)
 	}
 	return nil
+}
+
+// requireNotClaimedByOtherAccount refuses the pin when another account's
+// gateway settings already claim the host in the shape claimed answers for.
+func (m *managerImpl) requireNotClaimedByOtherAccount(ctx context.Context, accountID, host string, claimed func(context.Context, string, string) (bool, error)) error {
+	taken, err := claimed(ctx, host, accountID)
+	if err != nil {
+		return fmt.Errorf("check agent network gateway claims at host: %w", err)
+	}
+	if taken {
+		return errHostNotAvailable(host)
+	}
+	return nil
+}
+
+func errHostNotAvailable(host string) error {
+	return status.Errorf(status.InvalidArgument, "proxy cluster %s is not available to this account", host)
 }
 
 // isUniqueConstraintError reports whether err is a database unique-constraint
