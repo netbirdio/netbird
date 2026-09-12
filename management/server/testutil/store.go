@@ -37,6 +37,17 @@ func CreateMysqlTestContainer() (func(), string, error) {
 		mysql.WithDatabase("testing"),
 		mysql.WithUsername("root"),
 		mysql.WithPassword("testing"),
+		// Every test creates and drops a database with about 40 tables, so with
+		// the server defaults the run is dominated by durability work: each
+		// CREATE TABLE creates and fsyncs its own tablespace file and fsyncs the
+		// redo and binary logs. None of it protects anything in a container that
+		// is discarded after the run.
+		testcontainers.WithCmd("mysqld",
+			"--innodb-file-per-table=OFF",
+			"--innodb-flush-log-at-trx-commit=0",
+			"--innodb-doublewrite=OFF",
+			"--skip-log-bin",
+		),
 		testcontainers.WithWaitStrategy(
 			wait.ForLog("/usr/sbin/mysqld: ready for connections").
 				WithOccurrence(1).WithStartupTimeout(15*time.Second).WithPollInterval(100*time.Millisecond),
