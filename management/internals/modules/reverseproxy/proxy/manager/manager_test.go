@@ -458,19 +458,28 @@ func TestConnect_WithdrawsClaimLostDuringRegistration(t *testing.T) {
 	}
 }
 
-// TestConnect_WithdrawsClaimWhenRecheckFails pins fail-closed: a re-read that
-// cannot answer leaves the row withdrawn and the connect refused, rather than
-// letting a claim stand that was never confirmed. The error is the store's,
-// not ErrClusterAddressUnavailable — nothing established that the address is
-// taken.
-func TestConnect_WithdrawsClaimWhenRecheckFails(t *testing.T) {
+// TestConnect_KeepsClaimWhenRecheckFails pins what an inconclusive re-read
+// does: the connect is refused with the store's error, not
+// ErrClusterAddressUnavailable, since nothing established that the address is
+// taken — and the row is marked disconnected rather than deleted. SaveProxy
+// upserts on the proxy ID, so on a reconnect that row is the claim the account
+// has held since its first connect; a transient store error must not hand the
+// address to whoever asks next.
+func TestConnect_KeepsClaimWhenRecheckFails(t *testing.T) {
 	accountID := "acc-1"
-	var withdrawn int
+	var disconnected []string
 	s := &mockStore{
 		hasGatewayPinnedByOtherAccountFunc: func(_ context.Context, _, _ string) (bool, error) {
 			return false, errors.New("db unavailable")
 		},
-		deleteProxyFunc: func(_ context.Context, _, _ string) error { withdrawn++; return nil },
+		disconnectProxyFunc: func(_ context.Context, proxyID, sessionID string) error {
+			disconnected = append(disconnected, proxyID+"/"+sessionID)
+			return nil
+		},
+		deleteProxyFunc: func(_ context.Context, proxyID, _ string) error {
+			t.Fatalf("an inconclusive re-read must not withdraw the row, but proxy %s was deleted", proxyID)
+			return nil
+		},
 	}
 
 	mgr := newTestManager(s)
@@ -478,7 +487,26 @@ func TestConnect_WithdrawsClaimWhenRecheckFails(t *testing.T) {
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, proxy.ErrClusterAddressUnavailable, "an inconclusive re-read is not a conflict")
 	assert.ErrorContains(t, err, "db unavailable", "the store's error must be the one surfaced")
-	assert.Equal(t, 1, withdrawn, "an unconfirmed claim must be withdrawn")
+	assert.Equal(t, []string{"proxy-1/session-1"}, disconnected, "the refused session must not stay marked connected")
+}
+
+// TestConnect_RefusesEvenWhenWithdrawalFails pins that a lost claim is
+// reported as lost whatever happens to the compensating delete: the caller
+// must never be told it holds an address another claim already has, and the
+// stale row is the reaper's problem, not a reason to lie.
+func TestConnect_RefusesEvenWhenWithdrawalFails(t *testing.T) {
+	accountID := "acc-1"
+	s := &mockStore{
+		hasGatewayPinnedByOtherAccountFunc: func(_ context.Context, _, _ string) (bool, error) { return true, nil },
+		deleteProxyFunc: func(_ context.Context, _, _ string) error {
+			return errors.New("delete failed")
+		},
+	}
+
+	mgr := newTestManager(s)
+	p, err := mgr.Connect(context.Background(), "proxy-1", "session-1", "gw.example.com", "10.0.0.1", &accountID, nil)
+	require.ErrorIs(t, err, proxy.ErrClusterAddressUnavailable, "a failed withdrawal must not turn a lost claim into a held one")
+	assert.Nil(t, p)
 }
 
 // TestConnect_ConfirmedClaimKeepsRow is the common case: nothing landed in the

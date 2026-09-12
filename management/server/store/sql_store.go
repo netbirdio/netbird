@@ -6306,7 +6306,7 @@ func (s *SqlStore) DeleteProxy(ctx context.Context, proxyID, sessionID string) e
 		return status.Errorf(status.Internal, "failed to delete proxy")
 	}
 	if result.RowsAffected == 0 {
-		log.WithContext(ctx).Debugf("proxy %s session %s: no row deleted (superseded by newer session)", proxyID, sessionID)
+		log.WithContext(ctx).Debugf("proxy %s session %s: no row deleted (already gone or superseded by a newer session)", proxyID, sessionID)
 	}
 	return nil
 }
