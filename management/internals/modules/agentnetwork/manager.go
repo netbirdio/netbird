@@ -1045,6 +1045,9 @@ func (m *managerImpl) bootstrapSelfAddressed(ctx context.Context, settings *type
 	if err := m.requireNotClaimedByOtherAccount(ctx, settings.AccountID, hostname, m.store.HasGatewayClusterPinnedByOtherAccount); err != nil {
 		return err
 	}
+	if err := m.validateGatewayCluster(ctx, settings.AccountID, hostname); err != nil {
+		return err
+	}
 
 	settings.Domain = hostname
 	settings.ProxyAddress = hostname
@@ -1063,8 +1066,10 @@ func (m *managerImpl) bootstrapSelfAddressed(ctx context.Context, settings *type
 	return nil
 }
 
-// validateGatewayCluster rejects a labeled bootstrap pinned to a cluster that
-// cannot serve the account's gateway.
+// validateGatewayCluster rejects a bootstrap pinned to a cluster that cannot
+// serve the account's gateway — a labeled endpoint beneath the cluster and a
+// self-addressed one on the very address a proxy declares alike, since the
+// service behind either is the same private one.
 //
 // The synthesised gateway service is unconditionally private
 // (buildAccountService): agents reach it over the WireGuard tunnel and are
@@ -1162,10 +1167,6 @@ func (m *managerImpl) accountClusterSpellings(ctx context.Context, accountID, cl
 // checked by read and the domain unique index stays the authority, so a
 // concurrent allocation of the same tuple surfaces as a unique violation and
 // another tuple is drawn.
-//
-// Unlike the self-addressed path this pins to a cluster that must already
-// exist, so the cluster is validated before an endpoint is allocated beneath
-// it.
 func (m *managerImpl) bootstrapLabeled(ctx context.Context, settings *types.Settings, proxyAddress string) error {
 	parent, err := types.NormalizeHostname(proxyAddress)
 	if err != nil {

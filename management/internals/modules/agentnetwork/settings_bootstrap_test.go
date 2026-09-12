@@ -526,3 +526,38 @@ func TestCreateSettingsRejectsHostAnotherAccountPinned(t *testing.T) {
 		}
 	})
 }
+
+// TestCreateSettingsSelfAddressedRequiresPrivateCluster pins that the
+// capability gate applies to a self-addressed endpoint too: the service behind
+// it is the same private one, so a proxy that already declares the hostname
+// must be an embedded one, whether the account's own or a shared cluster's. A
+// hostname no proxy declares yet stays claimable (TestCreateSettingsSelfAddressed).
+func TestCreateSettingsSelfAddressedRequiresPrivateCluster(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("centralised proxy at the hostname is refused", func(t *testing.T) {
+		f := newBootstrapFixture(t)
+		f.seedProxy(t, "central", "", "gw.example.com", ptrTo(false))
+		f.expectPermission("account1", "user1", modules.AgentNetworkSettings, operations.Create, true)
+
+		_, err := f.createSettings(ctx, "account1", "user1", "", "gw.example.com")
+		require.Error(t, err, "a self-addressed endpoint on a centralised proxy can never be served")
+		var sErr *status.Error
+		require.ErrorAs(t, err, &sErr)
+		assert.Equal(t, status.InvalidArgument, sErr.Type())
+		assert.Contains(t, err.Error(), "embedded proxy")
+
+		_, err = f.store.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, "account1")
+		assert.Error(t, err, "no row may be left behind by a rejected bootstrap")
+	})
+
+	t.Run("embedded proxy at the hostname is accepted", func(t *testing.T) {
+		f := newBootstrapFixture(t)
+		f.seedProxy(t, "embedded", "", "gw.example.com", ptrTo(true))
+		f.expectPermission("account1", "user1", modules.AgentNetworkSettings, operations.Create, true)
+
+		created, err := f.createSettings(ctx, "account1", "user1", "", "gw.example.com")
+		require.NoError(t, err)
+		assert.Equal(t, "gw.example.com", created.ProxyAddress)
+	})
+}
