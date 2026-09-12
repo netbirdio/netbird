@@ -447,6 +447,52 @@ func TestAnonymizeNetworkMap(t *testing.T) {
 	}
 }
 
+// TestAnonymizeNetworkMap_SingleLabelZone covers the shape a real bundle
+// carried: a custom zone named by a single label, alongside a nameserver group
+// whose match domain is an ordinary two-label domain. The single-label zone
+// used to pass through in the clear while its own records were anonymized.
+func TestAnonymizeNetworkMap_SingleLabelZone(t *testing.T) {
+	networkMap := &mgmProto.NetworkMap{
+		DNSConfig: &mgmProto.DNSConfig{
+			NameServerGroups: []*mgmProto.NameServerGroup{
+				{
+					NameServers: []*mgmProto.NameServer{{IP: "203.0.113.53"}},
+					Domains:     []string{"example.net"},
+				},
+			},
+			CustomZones: []*mgmProto.CustomZone{
+				{
+					Domain: "corp.",
+					Records: []*mgmProto.SimpleRecord{
+						{Name: "test.corp.", Type: 1, RData: "203.0.113.10"},
+						{Name: "app.corp.", Type: 1, RData: "203.0.113.10"},
+					},
+				},
+			},
+		},
+		Routes: []*mgmProto.Route{
+			{Network: "203.0.113.0/24", Domains: []string{"corp"}, NetID: "net-1"},
+		},
+	}
+
+	anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
+	require.NoError(t, anonymizeNetworkMap(networkMap, anonymizer), "anonymize the network map")
+
+	zone := networkMap.DNSConfig.CustomZones[0]
+	assert.NotContains(t, zone.Domain, "corp", "the single-label zone name should not survive")
+	assert.Regexp(t, `^anon-[a-zA-Z0-9]+\.domain\.$`, zone.Domain, "the zone should be replaced by an anon domain, trailing dot kept")
+
+	for _, record := range zone.Records {
+		assert.NotContains(t, record.Name, "corp", "a record name should not carry the original zone")
+		assert.True(t, strings.HasSuffix(record.Name, "."+zone.Domain),
+			"record %q should sit under the anonymized zone %q", record.Name, zone.Domain)
+	}
+
+	assert.NotContains(t, networkMap.DNSConfig.NameServerGroups[0].Domains[0], "example",
+		"the nameserver match domain should not survive")
+	assert.NotContains(t, networkMap.Routes[0].Domains[0], "corp", "a route domain should not survive")
+}
+
 func TestIsSensitiveEnvVar(t *testing.T) {
 	tests := []struct {
 		key       string
