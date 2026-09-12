@@ -571,6 +571,21 @@
     "settings.general.language.empty": {
         "message": "Ningún idioma coincide."
     },
+    "settings.general.theme.label": {
+        "message": "Tema"
+    },
+    "settings.general.theme.help": {
+        "message": "Elija el tema claro u oscuro, o siga la apariencia del sistema."
+    },
+    "settings.general.theme.system": {
+        "message": "Sistema"
+    },
+    "settings.general.theme.light": {
+        "message": "Claro"
+    },
+    "settings.general.theme.dark": {
+        "message": "Oscuro"
+    },
     "settings.general.management.label": {
         "message": "Servidor de gestión"
     },

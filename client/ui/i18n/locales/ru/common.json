@@ -571,6 +571,21 @@
     "settings.general.language.empty": {
         "message": "Языки не найдены."
     },
+    "settings.general.theme.label": {
+        "message": "Тема"
+    },
+    "settings.general.theme.help": {
+        "message": "Выберите светлую или тёмную тему либо следуйте системной."
+    },
+    "settings.general.theme.system": {
+        "message": "Системная"
+    },
+    "settings.general.theme.light": {
+        "message": "Светлая"
+    },
+    "settings.general.theme.dark": {
+        "message": "Тёмная"
+    },
     "settings.general.management.label": {
         "message": "Сервер управления"
     },

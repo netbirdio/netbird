@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Browser } from "@wailsio/runtime";
 import { BookOpen, MessageSquareText, MessagesSquare } from "lucide-react";
 import netbirdFull from "@/assets/logos/netbird-full.svg";
+import netbirdFullLight from "@/assets/logos/netbird-full-light.svg";
 
 // Brand glyphs from simpleicons.org (lucide deprecated its brand icons).
 const GithubIcon = (props: SVGProps<SVGSVGElement>) => (
@@ -90,7 +91,16 @@ export function SettingsAbout() {
                 "mx-auto flex min-h-[calc(100vh-12rem)] max-w-2xl flex-col items-center justify-center gap-4"
             }
         >
-            <img src={netbirdFull} alt={t("common.netbird")} className={"h-7 w-auto"} />
+            <img
+                src={netbirdFullLight}
+                alt={t("common.netbird")}
+                className={"h-7 w-auto dark:hidden"}
+            />
+            <img
+                src={netbirdFull}
+                alt={t("common.netbird")}
+                className={"hidden h-7 w-auto dark:block"}
+            />
             <div className={"flex flex-col items-center gap-0.5 text-center"}>
                 <button
                     type={"button"}
@@ -139,7 +149,7 @@ export function SettingsAbout() {
                         tabIndex={0}
                         onClick={() => openUrl(url)}
                         className={
-                            "inline-flex items-center gap-1.5 rounded-sm decoration-[0.5px] underline-offset-4 outline-none transition hover:text-nb-gray-100 hover:underline focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940"
+                            "inline-flex items-center gap-1.5 rounded-sm decoration-[0.5px] underline-offset-4 outline-none transition hover:text-nb-gray-100 hover:underline focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940"
                         }
                     >
                         <Icon aria-hidden={"true"} className={iconClassName ?? "h-3.5 w-3.5"} />
@@ -157,7 +167,7 @@ export function SettingsAbout() {
                         tabIndex={0}
                         onClick={() => openUrl(link.url)}
                         className={
-                            "rounded-sm decoration-[0.5px] underline-offset-4 outline-none transition hover:text-nb-gray-100 hover:underline focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940"
+                            "rounded-sm decoration-[0.5px] underline-offset-4 outline-none transition hover:text-nb-gray-100 hover:underline focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940"
                         }
                     >
                         {link.label}

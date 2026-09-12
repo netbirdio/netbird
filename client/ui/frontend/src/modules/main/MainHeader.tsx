@@ -74,7 +74,9 @@ export const MainHeader = () => {
                     <IconButton
                         icon={MoreVertical}
                         iconClassName={"text-nb-gray-200 wails-no-draggable"}
-                        className={"select-none"}
+                        className={
+                            "select-none hover:bg-nb-gray-800 data-[state=open]:bg-nb-gray-800 dark:hover:bg-nb-gray-900 dark:data-[state=open]:bg-nb-gray-900"
+                        }
                         aria-label={t("header.menu.open")}
                         aria-haspopup={"menu"}
                         aria-expanded={menuOpen}

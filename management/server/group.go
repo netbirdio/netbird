@@ -101,10 +101,8 @@ func (am *DefaultAccountManager) CreateGroup(ctx context.Context, accountID, use
 			return status.Errorf(status.Internal, "failed to create group: %v", err)
 		}
 
-		for _, peerID := range newGroup.Peers {
-			if err := transaction.AddPeerToGroup(ctx, accountID, peerID, newGroup.ID); err != nil {
-				return status.Errorf(status.Internal, "failed to add peer %s to group %s: %v", peerID, newGroup.ID, err)
-			}
+		if err = syncGroupMembership(ctx, transaction, accountID, newGroup.ID, newGroup.Peers, nil); err != nil {
+			return err
 		}
 
 		snap, err = affectedpeers.Load(ctx, transaction, accountID, change)
@@ -200,6 +198,9 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 
 // syncGroupMembership applies the peer membership delta for a group within a transaction.
 func syncGroupMembership(ctx context.Context, transaction store.Store, accountID, groupID string, peersToAdd, peersToRemove []string) error {
+	if err := validateGroupPeers(ctx, transaction, accountID, peersToAdd); err != nil {
+		return err
+	}
 	for _, peerID := range peersToAdd {
 		if err := transaction.AddPeerToGroup(ctx, accountID, peerID, groupID); err != nil {
 			return status.Errorf(status.Internal, "failed to add peer %s to group %s: %v", peerID, groupID, err)
@@ -210,6 +211,25 @@ func syncGroupMembership(ctx context.Context, transaction store.Store, accountID
 			return status.Errorf(status.Internal, "failed to remove peer %s from group %s: %v", peerID, groupID, err)
 		}
 	}
+	return nil
+}
+
+func validateGroupPeers(ctx context.Context, transaction store.Store, accountID string, peerIDs []string) error {
+	if len(peerIDs) == 0 {
+		return nil
+	}
+
+	peers, err := transaction.GetPeersByIDs(ctx, store.LockingStrengthNone, accountID, peerIDs)
+	if err != nil {
+		return err
+	}
+
+	for _, peerID := range peerIDs {
+		if _, ok := peers[peerID]; !ok {
+			return status.Errorf(status.InvalidArgument, "peer with ID %s not found", peerID)
+		}
+	}
+
 	return nil
 }
 
@@ -540,7 +560,7 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 	change := affectedpeers.Change{OutputPeerIDs: []string{peerID}, LinkGroups: []string{groupID}}
 
 	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		if err := transaction.AddPeerToGroup(ctx, accountID, peerID, groupID); err != nil {
+		if err := syncGroupMembership(ctx, transaction, accountID, groupID, []string{peerID}, nil); err != nil {
 			return err
 		}
 

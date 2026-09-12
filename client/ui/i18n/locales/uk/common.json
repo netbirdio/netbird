@@ -569,6 +569,21 @@
     "settings.general.language.empty": {
         "message": "Не знайдено жодної мови."
     },
+    "settings.general.theme.label": {
+        "message": "Тема"
+    },
+    "settings.general.theme.help": {
+        "message": "Виберіть світлу чи темну тему або використовуйте системні налаштування."
+    },
+    "settings.general.theme.system": {
+        "message": "Системна"
+    },
+    "settings.general.theme.light": {
+        "message": "Світла"
+    },
+    "settings.general.theme.dark": {
+        "message": "Темна"
+    },
     "settings.general.management.label": {
         "message": "Сервер керування"
     },
@@ -764,7 +779,7 @@
     "settings.troubleshooting.anonymize.help": {
         "message": "Приховує IP-адреси, домени та інші конфіденційні дані."
     },
-        "settings.troubleshooting.anonymize.info": {
+    "settings.troubleshooting.anonymize.info": {
         "message": "«Стандартний» залишає внутрішні адреси IPv4 та імена пірів читабельними для служби підтримки. «Суворий» додатково анонімізує приватні (RFC 1918), CGNAT- та link-local-адреси, імена пірів і публічні ключі WireGuard. Однакові значення замінюються тим самим псевдонімом, тож піри залишаються розрізнюваними. Використовуйте «Суворий», якщо ділитеся архівом за межами організації."
     },
     "settings.troubleshooting.anonymize.none": {
@@ -1370,7 +1385,7 @@
     "settings.ssh.privilege.oneWayInverted": {
         "message": "Ви можете увімкнути це, але щоб вимкнути знову, знадобиться {actor}:"
     },
-        "settings.ssh.privilege.authorizePending": {
+    "settings.ssh.privilege.authorizePending": {
         "message": "Очікування авторизації…"
     }
 }
