@@ -11,6 +11,7 @@ import { NotConnectedState } from "@/components/empty-state/NotConnectedState";
 import { useStatus } from "@/contexts/StatusContext";
 import { Peers } from "@/modules/main/advanced/peers/Peers";
 import { Networks } from "@/modules/main/advanced/networks/Networks";
+import { Files } from "@/modules/main/advanced/files/Files";
 import { NetworksProvider } from "@/contexts/NetworksContext";
 import { PeerDetailProvider, usePeerDetail } from "@/contexts/PeerDetailContext";
 import { useRestrictions } from "@/contexts/RestrictionsContext";
@@ -44,7 +45,10 @@ const MainBody = () => {
     const isAdvanced = viewMode === "advanced";
 
     return (
-        <main className={"wails-draggable flex min-h-0 flex-1"}>
+        // min-w-0 matters here: without it this flex parent keeps its automatic
+        // minimum width, and a long file name in the right panel pushes the
+        // layout wider than the window, which cannot be resized.
+        <main className={"wails-draggable flex min-h-0 min-w-0 flex-1"}>
             {/* Windows narrower width compensates for the OS frame Wails counts differently than macOS.
                 See https://github.com/wailsapp/wails/issues/3260 */}
             <div
@@ -98,10 +102,14 @@ const AdvancedAppRightPanel = () => {
                     role={"tabpanel"}
                     id={`nb-tabpanel-${section}`}
                     aria-labelledby={`nb-tab-${section}`}
-                    className={"flex min-h-0 flex-1 flex-col"}
+                    // min-w-0: this is the section's direct parent, so without
+                    // it a long file name sets the floor for the whole panel
+                    // and the row overflows instead of truncating.
+                    className={"flex min-h-0 min-w-0 flex-1 flex-col"}
                 >
                     {section === "peers" && <Peers />}
                     {section === "networks" && <Networks />}
+                    {section === "files" && <Files />}
                 </div>
             </div>
             {!isConnected && (

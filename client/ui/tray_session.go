@@ -174,22 +174,16 @@ func (t *Tray) registerSessionWarningCategory() {
 	}); err != nil {
 		log.Debugf("register session-warning notification category: %v", err)
 	}
-	t.svc.Notifier.OnNotificationResponse(func(result notifications.NotificationResult) {
-		if result.Error != nil {
-			log.Debugf("notification response error: %v", result.Error)
-			return
-		}
-		if result.Response.CategoryID != notifyCategorySessionWarning {
-			return
-		}
-		switch result.Response.ActionIdentifier {
-		case notifyActionExtendNow, notifications.DefaultActionIdentifier:
-			// DefaultActionIdentifier is the body-click on platforms with no separate buttons; treat as Extend.
-			go t.runExtendSession()
-		case notifyActionDismiss:
-			go t.dismissSessionWarning()
-		}
-	})
+}
+
+func (t *Tray) handleSessionWarningResponse(resp notifications.NotificationResponse) {
+	switch resp.ActionIdentifier {
+	case notifyActionExtendNow, notifications.DefaultActionIdentifier:
+		// DefaultActionIdentifier is the body-click on platforms with no separate buttons; treat as Extend.
+		go t.runExtendSession()
+	case notifyActionDismiss:
+		go t.dismissSessionWarning()
+	}
 }
 
 // buildSessionWarningBody composes the localised notification body from the daemon's metadata.
