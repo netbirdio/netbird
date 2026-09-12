@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rsa"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -274,8 +275,7 @@ func getPublicKey(token *jwt.Token, jwks *Jwks) (interface{}, error) {
 		}
 
 		if len(jwks.Keys[k].X5c) != 0 {
-			cert := "-----BEGIN CERTIFICATE-----\n" + jwks.Keys[k].X5c[0] + "\n-----END CERTIFICATE-----"
-			return jwt.ParseRSAPublicKeyFromPEM([]byte(cert))
+			return publicKeyFromX5c(jwks.Keys[k])
 		}
 
 		if jwks.Keys[k].Kty == "RSA" {
@@ -287,6 +287,46 @@ func getPublicKey(token *jwt.Token, jwks *Jwks) (interface{}, error) {
 	}
 
 	return nil, errKeyNotFound
+}
+
+// publicKeyFromX5c returns the public key of the first certificate in a JWKS x5c
+// chain, constrained to the key type declared by the JWK. It supports the same
+// key types as the non-x5c path (RSA and EC) and no others: the certificate must
+// actually hold a key of the declared type, and an unsupported kty stays
+// unsupported. This keeps x5c from widening the accepted algorithms.
+func publicKeyFromX5c(jwk JSONWebKey) (interface{}, error) {
+	der, err := base64.StdEncoding.DecodeString(jwk.X5c[0])
+	if err != nil {
+		return nil, fmt.Errorf("decode x5c certificate: %w", err)
+	}
+
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		return nil, fmt.Errorf("parse x5c certificate: %w", err)
+	}
+
+	switch jwk.Kty {
+	case "RSA":
+		key, ok := cert.PublicKey.(*rsa.PublicKey)
+		if !ok {
+			return nil, errors.New("x5c certificate does not contain an RSA public key")
+		}
+		return key, nil
+	case "EC":
+		key, ok := cert.PublicKey.(*ecdsa.PublicKey)
+		if !ok {
+			return nil, errors.New("x5c certificate does not contain an ECDSA public key")
+		}
+		if _, err := curveFromName(jwk.Crv); err != nil {
+			return nil, err
+		}
+		if key.Curve.Params().Name != jwk.Crv {
+			return nil, fmt.Errorf("x5c certificate curve %q does not match JWK curve %q", key.Curve.Params().Name, jwk.Crv)
+		}
+		return key, nil
+	default:
+		return nil, fmt.Errorf("unsupported JWK key type %q for x5c certificate", jwk.Kty)
+	}
 }
 
 func curveFromName(crv string) (elliptic.Curve, error) {
