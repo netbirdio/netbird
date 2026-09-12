@@ -24,9 +24,7 @@ type mockStore struct {
 	getProxyByAccountIDFunc                  func(ctx context.Context, accountID string) (*proxy.Proxy, error)
 	countProxiesByAccountIDFunc              func(ctx context.Context, accountID string) (int64, error)
 	isClusterAddressConflictingFunc          func(ctx context.Context, clusterAddress, accountID string) (bool, error)
-	hasGatewayPinnedByOtherAccountFunc       func(ctx context.Context, host, accountID string) (bool, error)
 	deleteAccountClusterFunc                 func(ctx context.Context, clusterAddress, accountID string) error
-	deleteProxyFunc                          func(ctx context.Context, proxyID, sessionID string) error
 }
 
 func (m *mockStore) SaveProxy(ctx context.Context, p *proxy.Proxy) error {
@@ -38,12 +36,6 @@ func (m *mockStore) SaveProxy(ctx context.Context, p *proxy.Proxy) error {
 func (m *mockStore) DisconnectProxy(ctx context.Context, proxyID, sessionID string) error {
 	if m.disconnectProxyFunc != nil {
 		return m.disconnectProxyFunc(ctx, proxyID, sessionID)
-	}
-	return nil
-}
-func (m *mockStore) DeleteProxy(ctx context.Context, proxyID, sessionID string) error {
-	if m.deleteProxyFunc != nil {
-		return m.deleteProxyFunc(ctx, proxyID, sessionID)
 	}
 	return nil
 }
@@ -89,12 +81,6 @@ func (m *mockStore) CountProxiesByAccountID(ctx context.Context, accountID strin
 func (m *mockStore) IsClusterAddressConflicting(ctx context.Context, clusterAddress, accountID string) (bool, error) {
 	if m.isClusterAddressConflictingFunc != nil {
 		return m.isClusterAddressConflictingFunc(ctx, clusterAddress, accountID)
-	}
-	return false, nil
-}
-func (m *mockStore) HasGatewayPinnedByOtherAccount(ctx context.Context, host, accountID string) (bool, error) {
-	if m.hasGatewayPinnedByOtherAccountFunc != nil {
-		return m.hasGatewayPinnedByOtherAccountFunc(ctx, host, accountID)
 	}
 	return false, nil
 }
@@ -351,204 +337,4 @@ func TestGetActiveClusterAddressesForAccount(t *testing.T) {
 	result, err := mgr.GetActiveClusterAddressesForAccount(context.Background(), "acc-123")
 	require.NoError(t, err)
 	assert.Equal(t, expected, result)
-}
-
-// TestIsClusterAddressAvailableConsidersGatewayPins pins that a proxy row is
-// not the only claim on an address.
-//
-// An agent network gateway pinned to the address by another account is
-// immutable and is served by whichever proxy declares that address, so a proxy
-// from a different account taking it strands the pin — the mapping paths never
-// hand an account-scoped proxy another account's mappings. Refusing the later
-// claimant is what makes the bootstrap-time ownership check hold over time
-// rather than only at the instant it runs: without this, an address a gateway
-// pinned while no proxy served it could be taken a moment, or a week, later.
-func TestIsClusterAddressAvailableConsidersGatewayPins(t *testing.T) {
-	ctx := context.Background()
-
-	tests := []struct {
-		name        string
-		conflicting bool
-		pinned      bool
-		available   bool
-	}{
-		{name: "free address", available: true},
-		{name: "claimed by a proxy", conflicting: true},
-		{name: "pinned by another account's gateway", pinned: true},
-		{name: "claimed both ways", conflicting: true, pinned: true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			st := &mockStore{
-				isClusterAddressConflictingFunc: func(context.Context, string, string) (bool, error) {
-					return tt.conflicting, nil
-				},
-				hasGatewayPinnedByOtherAccountFunc: func(context.Context, string, string) (bool, error) {
-					return tt.pinned, nil
-				},
-			}
-			m, err := NewManager(st, noop.NewMeterProvider().Meter(""))
-			require.NoError(t, err)
-
-			available, err := m.IsClusterAddressAvailable(ctx, "gw.example.com", "account1")
-			require.NoError(t, err)
-			assert.Equal(t, tt.available, available)
-		})
-	}
-}
-
-// TestIsClusterAddressAvailableSurfacesGatewayPinError pins that a failed pin
-// lookup refuses the claim rather than falling through to available: this runs
-// on the proxy-connect path, where "could not tell" must not read as "yes".
-func TestIsClusterAddressAvailableSurfacesGatewayPinError(t *testing.T) {
-	st := &mockStore{
-		hasGatewayPinnedByOtherAccountFunc: func(context.Context, string, string) (bool, error) {
-			return false, errors.New("db down")
-		},
-	}
-	m, err := NewManager(st, noop.NewMeterProvider().Meter(""))
-	require.NoError(t, err)
-
-	available, err := m.IsClusterAddressAvailable(context.Background(), "gw.example.com", "account1")
-	require.Error(t, err)
-	assert.False(t, available)
-}
-
-// TestConnect_WithdrawsClaimLostDuringRegistration covers the window between
-// the connect path's availability check and the row being written: a claim
-// that lands there — another account's proxy row or gateway pin — is seen by
-// the re-read after the write, and the proxy's own row is withdrawn rather
-// than left standing next to it. The refusal carries
-// ErrClusterAddressUnavailable so the connect path reports it exactly as it
-// would have had the pre-write check caught it.
-func TestConnect_WithdrawsClaimLostDuringRegistration(t *testing.T) {
-	accountID := "acc-1"
-
-	cases := map[string]func(s *mockStore, landed *bool){
-		"another account pinned its gateway to the address": func(s *mockStore, landed *bool) {
-			s.hasGatewayPinnedByOtherAccountFunc = func(_ context.Context, _, _ string) (bool, error) { return *landed, nil }
-		},
-		"another account's proxy declared the address": func(s *mockStore, landed *bool) {
-			s.isClusterAddressConflictingFunc = func(_ context.Context, _, _ string) (bool, error) { return *landed, nil }
-		},
-	}
-	for name, arm := range cases {
-		t.Run(name, func(t *testing.T) {
-			landed := false
-			var withdrawn []string
-			s := &mockStore{
-				// The competing claim commits as this row is written: the
-				// pre-write check (not exercised here) saw nothing, the
-				// re-read must.
-				saveProxyFunc: func(_ context.Context, _ *proxy.Proxy) error { landed = true; return nil },
-				deleteProxyFunc: func(_ context.Context, proxyID, sessionID string) error {
-					withdrawn = append(withdrawn, proxyID+"/"+sessionID)
-					return nil
-				},
-			}
-			arm(s, &landed)
-
-			mgr := newTestManager(s)
-			p, err := mgr.Connect(context.Background(), "proxy-1", "session-1", "gw.example.com", "10.0.0.1", &accountID, nil)
-			require.ErrorIs(t, err, proxy.ErrClusterAddressUnavailable, "a claim lost after the write must surface as the address being unavailable")
-			assert.Nil(t, p, "no record may be handed back for a withdrawn registration")
-			assert.Equal(t, []string{"proxy-1/session-1"}, withdrawn, "exactly this session's row must be withdrawn")
-		})
-	}
-}
-
-// TestConnect_KeepsClaimWhenRecheckFails pins what an inconclusive re-read
-// does: the connect is refused with the store's error, not
-// ErrClusterAddressUnavailable, since nothing established that the address is
-// taken — and the row is marked disconnected rather than deleted. SaveProxy
-// upserts on the proxy ID, so on a reconnect that row is the claim the account
-// has held since its first connect; a transient store error must not hand the
-// address to whoever asks next.
-func TestConnect_KeepsClaimWhenRecheckFails(t *testing.T) {
-	accountID := "acc-1"
-	var disconnected []string
-	s := &mockStore{
-		hasGatewayPinnedByOtherAccountFunc: func(_ context.Context, _, _ string) (bool, error) {
-			return false, errors.New("db unavailable")
-		},
-		disconnectProxyFunc: func(_ context.Context, proxyID, sessionID string) error {
-			disconnected = append(disconnected, proxyID+"/"+sessionID)
-			return nil
-		},
-		deleteProxyFunc: func(_ context.Context, proxyID, _ string) error {
-			t.Fatalf("an inconclusive re-read must not withdraw the row, but proxy %s was deleted", proxyID)
-			return nil
-		},
-	}
-
-	mgr := newTestManager(s)
-	_, err := mgr.Connect(context.Background(), "proxy-1", "session-1", "gw.example.com", "10.0.0.1", &accountID, nil)
-	require.Error(t, err)
-	assert.NotErrorIs(t, err, proxy.ErrClusterAddressUnavailable, "an inconclusive re-read is not a conflict")
-	assert.ErrorContains(t, err, "db unavailable", "the store's error must be the one surfaced")
-	assert.Equal(t, []string{"proxy-1/session-1"}, disconnected, "the refused session must not stay marked connected")
-}
-
-// TestConnect_RefusesEvenWhenWithdrawalFails pins that a lost claim is
-// reported as lost whatever happens to the compensating delete: the caller
-// must never be told it holds an address another claim already has, and the
-// stale row is the reaper's problem, not a reason to lie.
-func TestConnect_RefusesEvenWhenWithdrawalFails(t *testing.T) {
-	accountID := "acc-1"
-	s := &mockStore{
-		hasGatewayPinnedByOtherAccountFunc: func(_ context.Context, _, _ string) (bool, error) { return true, nil },
-		deleteProxyFunc: func(_ context.Context, _, _ string) error {
-			return errors.New("delete failed")
-		},
-	}
-
-	mgr := newTestManager(s)
-	p, err := mgr.Connect(context.Background(), "proxy-1", "session-1", "gw.example.com", "10.0.0.1", &accountID, nil)
-	require.ErrorIs(t, err, proxy.ErrClusterAddressUnavailable, "a failed withdrawal must not turn a lost claim into a held one")
-	assert.Nil(t, p)
-}
-
-// TestConnect_ConfirmedClaimKeepsRow is the common case: nothing landed in the
-// window, the re-read confirms the claim, and the row stays.
-func TestConnect_ConfirmedClaimKeepsRow(t *testing.T) {
-	accountID := "acc-1"
-	s := &mockStore{
-		deleteProxyFunc: func(_ context.Context, proxyID, _ string) error {
-			t.Fatalf("a confirmed claim must not be withdrawn, but proxy %s was", proxyID)
-			return nil
-		},
-	}
-
-	mgr := newTestManager(s)
-	p, err := mgr.Connect(context.Background(), "proxy-1", "session-1", "gw.example.com", "10.0.0.1", &accountID, nil)
-	require.NoError(t, err)
-	require.NotNil(t, p)
-	assert.Equal(t, proxy.StatusConnected, p.Status)
-}
-
-// TestConnect_SharedProxySkipsClaimRecheck pins that a shared, NetBird-operated
-// proxy — no account on its token — is not subject to the claim re-read: the
-// connect path never asks availability for it before the write either, and a
-// shared cluster is what accounts pin their gateways to, not a claim against
-// them.
-func TestConnect_SharedProxySkipsClaimRecheck(t *testing.T) {
-	s := &mockStore{
-		isClusterAddressConflictingFunc: func(_ context.Context, _, _ string) (bool, error) {
-			t.Fatal("a shared proxy must not be checked for address conflicts")
-			return false, nil
-		},
-		hasGatewayPinnedByOtherAccountFunc: func(_ context.Context, _, _ string) (bool, error) {
-			t.Fatal("a shared proxy must not be checked against gateway pins")
-			return false, nil
-		},
-		deleteProxyFunc: func(_ context.Context, _, _ string) error {
-			t.Fatal("a shared proxy's row must not be withdrawn")
-			return nil
-		},
-	}
-
-	mgr := newTestManager(s)
-	_, err := mgr.Connect(context.Background(), "proxy-1", "session-1", "eu.proxy.netbird.io", "10.0.0.1", nil, nil)
-	require.NoError(t, err)
 }

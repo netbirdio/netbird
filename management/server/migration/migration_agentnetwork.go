@@ -3,7 +3,6 @@ package migration
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -67,19 +66,12 @@ func MigrateAgentNetworkSettingsToDomain(ctx context.Context, db *gorm.DB) error
 		}
 
 		if hasCluster {
-			// The legacy bootstrap stored the cluster as the caller spelled
-			// it, trimmed but never folded, while every reader of these
-			// columns matches exactly against canonical lowercase: proxy
-			// addresses are canonicalised at connect, and the proxy's host
-			// map is keyed by the domain verbatim. Fold here so the reshaped
-			// row is addressable, rather than copying a spelling nothing
-			// will match.
-			concat := "LOWER(subdomain || '.' || cluster)"
+			concat := "subdomain || '.' || cluster"
 			if tx.Name() == "mysql" {
-				concat = "LOWER(CONCAT(subdomain, '.', cluster))"
+				concat = "CONCAT(subdomain, '.', cluster)"
 			}
 			res := tx.Exec(fmt.Sprintf(
-				"UPDATE agent_network_settings SET domain = %s, proxy_address = LOWER(cluster) WHERE (domain IS NULL OR domain = '') AND cluster <> '' AND subdomain <> ''",
+				"UPDATE agent_network_settings SET domain = %s, proxy_address = cluster WHERE (domain IS NULL OR domain = '') AND cluster <> '' AND subdomain <> ''",
 				concat,
 			))
 			if res.Error != nil {
@@ -95,9 +87,6 @@ func MigrateAgentNetworkSettingsToDomain(ctx context.Context, db *gorm.DB) error
 					"%d agent_network_settings row(s) have no cluster/subdomain to derive an endpoint from; resolve them manually before upgrading",
 					unmigratable,
 				)
-			}
-			if err := failOnDuplicateAgentNetworkDomains(tx); err != nil {
-				return err
 			}
 
 			if res.RowsAffected > 0 {
@@ -120,84 +109,4 @@ func MigrateAgentNetworkSettingsToDomain(ctx context.Context, db *gorm.DB) error
 
 		return nil
 	})
-}
-
-// agentNetworkSettingsIdentity is the post-reshape view of the two identity
-// columns, enough for the normaliser to address the table without importing
-// the current model.
-type agentNetworkSettingsIdentity struct {
-	AccountID    string `gorm:"primaryKey"`
-	Domain       string `gorm:"type:varchar(255)"`
-	ProxyAddress string `gorm:"type:varchar(255)"`
-}
-
-func (agentNetworkSettingsIdentity) TableName() string { return "agent_network_settings" }
-
-// NormalizeAgentNetworkSettingsIdentity lowercases domain and proxy_address on
-// rows already reshaped by a release whose backfill copied the legacy cluster
-// spelling verbatim.
-//
-// Every reader of these columns matches exactly against canonical lowercase:
-// the gateway-pin check a proxy registration runs and cluster-scoped mapping
-// synthesis look proxy_address up by the canonical address, the domain lookup
-// is followed by an exact Go compare, and the proxy's host map is keyed by the
-// domain verbatim. A row that kept capitals is invisible to all of them, so
-// the value is repaired where it is stored rather than folded on every read.
-//
-// MySQL needs the predicate spelled byte-wise: under its default
-// case-insensitive collation `domain <> LOWER(domain)` is false for every row,
-// which would leave the rows unrepaired while the Go-side compares still miss
-// them. Idempotent: the predicate selects only rows that would change, one
-// pass over a table holding one row per account. Runs after the reshape, so
-// the columns exist whenever the table does.
-func NormalizeAgentNetworkSettingsIdentity(ctx context.Context, db *gorm.DB) error {
-	model := &agentNetworkSettingsIdentity{}
-	migrator := db.Migrator()
-
-	if !migrator.HasTable(model) || !migrator.HasColumn(model, "Domain") || !migrator.HasColumn(model, "ProxyAddress") {
-		return nil
-	}
-
-	if err := failOnDuplicateAgentNetworkDomains(db); err != nil {
-		return err
-	}
-
-	predicate := "domain <> LOWER(domain) OR proxy_address <> LOWER(proxy_address)"
-	if db.Name() == "mysql" {
-		predicate = "BINARY domain <> BINARY LOWER(domain) OR BINARY proxy_address <> BINARY LOWER(proxy_address)"
-	}
-	res := db.Exec("UPDATE agent_network_settings SET domain = LOWER(domain), proxy_address = LOWER(proxy_address) WHERE " + predicate)
-	if res.Error != nil {
-		return fmt.Errorf("normalize agent_network_settings identity casing: %w", res.Error)
-	}
-	if res.RowsAffected > 0 {
-		log.WithContext(ctx).Infof("normalized casing on %d agent_network_settings row(s)", res.RowsAffected)
-	}
-
-	return nil
-}
-
-// failOnDuplicateAgentNetworkDomains refuses to continue when two settings
-// rows would fold onto one endpoint hostname. Two accounts cannot share an
-// endpoint, the unique index would refuse the fold with a driver message that
-// names no row, and there is no right answer as to which account keeps the
-// name, so the migration stops and says which hostname needs a human.
-func failOnDuplicateAgentNetworkDomains(db *gorm.DB) error {
-	var rows []struct{ Domain string }
-	err := db.Raw("SELECT LOWER(domain) AS domain FROM agent_network_settings GROUP BY LOWER(domain) HAVING COUNT(*) > 1").
-		Scan(&rows).Error
-	if err != nil {
-		return fmt.Errorf("check agent_network_settings for endpoints differing only by case: %w", err)
-	}
-	if len(rows) == 0 {
-		return nil
-	}
-	duplicates := make([]string, 0, len(rows))
-	for _, row := range rows {
-		duplicates = append(duplicates, row.Domain)
-	}
-	return fmt.Errorf(
-		"agent_network_settings holds endpoints that differ only by case (%s); resolve them manually before upgrading",
-		strings.Join(duplicates, ", "),
-	)
 }

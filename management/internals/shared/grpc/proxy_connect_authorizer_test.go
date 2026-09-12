@@ -3,12 +3,11 @@ package grpc
 import (
 	"context"
 	"errors"
-	"fmt"
 	"testing"
 
+	"go.uber.org/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
 
@@ -166,28 +165,4 @@ func TestValidateProxyConnect_AuthorizerRunsLast(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, codes.AlreadyExists, st.Code(), "an address conflict must keep its own status")
 	assert.Zero(t, auth.called, "a conflicting address must be rejected before policy runs")
-}
-
-// TestRegisterProxyConnection_LostClaimIsAlreadyExists pins the status a proxy
-// sees when its claim is lost after validateProxyConnect passed: the manager
-// withdraws the row and reports ErrClusterAddressUnavailable, and the connect
-// path must answer AlreadyExists — the same code the pre-write check gives —
-// rather than the Internal it uses for a store failure, so the proxy handles
-// the two paths to "address taken" identically.
-func TestRegisterProxyConnection_LostClaimIsAlreadyExists(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	mgr := proxy.NewMockManager(ctrl)
-	mgr.EXPECT().
-		Connect(gomock.Any(), "proxy-1", gomock.Any(), "cluster.example.com", gomock.Any(), gomock.Any(), gomock.Any()).
-		Return(nil, fmt.Errorf("cluster address cluster.example.com: %w", proxy.ErrClusterAddressUnavailable))
-	s := &ProxyServiceServer{proxyManager: mgr}
-
-	_, _, err := s.registerProxyConnection(scopedCtx("acc-1"), proxyConnectParams{proxyID: "proxy-1", address: "cluster.example.com"}, &proxyConnection{})
-	require.Error(t, err)
-	st, ok := grpcstatus.FromError(err)
-	require.True(t, ok)
-	assert.Equal(t, codes.AlreadyExists, st.Code(), "a claim lost after the check must read as the address being taken")
-	assert.Contains(t, st.Message(), "already in use")
-	_, tracked := s.connectedProxies.Load("proxy-1")
-	assert.False(t, tracked, "a refused registration must not be tracked as connected")
 }

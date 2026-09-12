@@ -325,7 +325,6 @@ type Store interface {
 
 	SaveProxy(ctx context.Context, proxy *proxy.Proxy) error
 	DisconnectProxy(ctx context.Context, proxyID, sessionID string) error
-	DeleteProxy(ctx context.Context, proxyID, sessionID string) error
 	UpdateProxyHeartbeat(ctx context.Context, p *proxy.Proxy) error
 	GetActiveProxyClusterAddresses(ctx context.Context) ([]string, error)
 	GetActiveProxyClusterAddressesForAccount(ctx context.Context, accountID string) ([]string, error)
@@ -341,7 +340,6 @@ type Store interface {
 	CountProxiesByAccountID(ctx context.Context, accountID string) (int64, error)
 	IsClusterAddressConflicting(ctx context.Context, clusterAddress, accountID string) (bool, error)
 	HasActiveProxyAtClusterAddress(ctx context.Context, clusterAddress string) (bool, error)
-	HasForeignAccountProxyAtHost(ctx context.Context, host, accountID string) (bool, error)
 	DeleteAccountCluster(ctx context.Context, clusterAddress, accountID string) error
 
 	GetCustomDomainsCounts(ctx context.Context) (total int64, validated int64, err error)
@@ -375,7 +373,6 @@ type Store interface {
 	GetAgentNetworkSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*agentNetworkTypes.Settings, error)
 	GetAllAgentNetworkSettings(ctx context.Context, lockStrength LockingStrength) ([]*agentNetworkTypes.Settings, error)
 	GetAgentNetworkSettingsByProxyAddress(ctx context.Context, lockStrength LockingStrength, proxyAddress string) ([]*agentNetworkTypes.Settings, error)
-	HasGatewayPinnedByOtherAccount(ctx context.Context, host, accountID string) (bool, error)
 	GetAgentNetworkSettingsByDomain(ctx context.Context, lockStrength LockingStrength, domain string) (*agentNetworkTypes.Settings, error)
 	CreateAgentNetworkSettings(ctx context.Context, settings *agentNetworkTypes.Settings) error
 	SaveAgentNetworkSettings(ctx context.Context, settings *agentNetworkTypes.Settings) error
@@ -628,9 +625,6 @@ func getMigrationsPreAuto(ctx context.Context) []migrationFunc {
 		},
 		func(db *gorm.DB) error {
 			return migration.MigrateAgentNetworkSettingsToDomain(ctx, db)
-		},
-		func(db *gorm.DB) error {
-			return migration.NormalizeAgentNetworkSettingsIdentity(ctx, db)
 		},
 	}
 }

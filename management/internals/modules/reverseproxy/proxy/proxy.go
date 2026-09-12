@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"errors"
 	"time"
 )
 
@@ -9,25 +8,6 @@ const (
 	StatusConnected    = "connected"
 	StatusDisconnected = "disconnected"
 )
-
-// ErrClusterAddressUnavailable is returned by Manager.Connect when the cluster
-// address turns out to be claimed by someone else once the proxy's own row is
-// written: a conflicting proxy row, or another account's agent network gateway
-// pinned to the address. The row has been withdrawn by then, and the caller
-// reports the address as taken exactly as if the pre-write check had caught it.
-//
-// Both kinds of claim are made the same way, write then re-read then withdraw,
-// and the re-read is the whole mechanism. Each side's availability check and
-// its write are separate autocommit statements, so two concurrent claimants
-// can each pass their check with neither row committed yet. Because both write
-// before they re-read, of two concurrent claims at least one re-reads after
-// the other has committed and backs off; each statement sees every commit
-// before it on sqlite, postgres and mysql alike. Both may back off, which
-// costs a retry; neither keeps a claim the other holds. No lock spans the
-// proxies and settings tables portably, and a claims table would be more
-// machinery than the property needs. The gateway side of the same protocol is
-// agentnetwork's confirmGatewayClusterOwnership.
-var ErrClusterAddressUnavailable = errors.New("cluster address is not available")
 
 // Capabilities describes what a proxy can handle, as reported via gRPC.
 // Nil fields mean the proxy never reported this capability.

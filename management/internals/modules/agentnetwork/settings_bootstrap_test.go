@@ -2,7 +2,6 @@ package agentnetwork
 
 import (
 	"context"
-	"errors"
 	"runtime"
 	"strings"
 	"testing"
@@ -37,16 +36,6 @@ type bootstrapFixture struct {
 
 func newBootstrapFixture(t *testing.T) *bootstrapFixture {
 	t.Helper()
-	return newBootstrapFixtureWith(t, func(st store.Store) store.Store { return st })
-}
-
-// newBootstrapFixtureWith hands the manager the real store as seen through
-// wrap, while the fixture keeps the unwrapped store for seeding and
-// assertions. It exists for cases that need something to happen between two
-// of the manager's store calls — a competing claim landing mid-bootstrap —
-// which a real store cannot be made to do on cue.
-func newBootstrapFixtureWith(t *testing.T, wrap func(store.Store) store.Store) *bootstrapFixture {
-	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("sqlite store not properly supported on Windows yet")
 	}
@@ -66,7 +55,7 @@ func newBootstrapFixtureWith(t *testing.T, wrap func(store.Store) store.Store) *
 
 	vendor := &stubLister{}
 	return &bootstrapFixture{
-		manager: NewManager(wrap(st), perms, accounts, nil, WithModelLister(vendor)),
+		manager: NewManager(st, perms, accounts, nil, WithModelLister(vendor)),
 		store:   st,
 		perms:   perms,
 		vendor:  vendor,
@@ -356,279 +345,6 @@ func TestCreateSettingsRequiresPrivateCluster(t *testing.T) {
 	assert.Error(t, err, "no row may be left behind by a rejected bootstrap")
 }
 
-// TestCreateSettingsRejectsForeignCluster pins tenant isolation on the pin: an
-// account-owned (BYOP) cluster belongs to the account that runs it and is not
-// one another account may hang its gateway beneath, even though it is
-// private-capable. Ownership does not lapse with the heartbeat either, so the
-// refusal holds while the foreign cluster is offline.
-func TestCreateSettingsRejectsForeignCluster(t *testing.T) {
-	ctx := context.Background()
-
-	cases := map[string]time.Time{
-		"live":    time.Now().UTC(),
-		"offline": time.Now().UTC().Add(-time.Hour),
-	}
-	for name, lastSeen := range cases {
-		t.Run(name, func(t *testing.T) {
-			f := newBootstrapFixture(t)
-			f.seedProxyAt(t, "proxy1", "account2", "byop.account2.example.com", ptrTo(true), lastSeen)
-			f.expectPermission("account1", "user1", modules.AgentNetworkSettings, operations.Create, true)
-
-			_, err := f.createSettings(ctx, "account1", "user1", "byop.account2.example.com", "")
-			require.Error(t, err, "another account's BYOP cluster must be rejected")
-			var sErr *status.Error
-			require.ErrorAs(t, err, &sErr)
-			assert.Equal(t, status.InvalidArgument, sErr.Type(), "rejection must be a validation error")
-			assert.Contains(t, err.Error(), "not available to this account",
-				"the error must say the cluster is not the account's to use")
-		})
-	}
-}
-
-// TestCreateSettingsRejectsHostAnotherAccountClaims pins that ownership is
-// decided before the account's own view, not after it.
-//
-// Two accounts holding rows for one hostname is the ambiguity the connect-time
-// conflict check prevents going forward and cannot see for a row written
-// before addresses were canonicalized. Deciding on the account's own view
-// first would skip the ownership question exactly when the account has a row
-// of its own — which is when a collision is worth catching — and the endpoint
-// pinned here cannot be moved afterwards.
-func TestCreateSettingsRejectsHostAnotherAccountClaims(t *testing.T) {
-	ctx := context.Background()
-	f := newBootstrapFixture(t)
-	// account1's own row is canonical and perfectly serviceable on its own.
-	f.seedProxy(t, "own", "account1", "shared.example.com", ptrTo(true))
-	// account2 holds a legacy, non-canonical spelling of the same host.
-	f.seedProxy(t, "foreign", "account2", "Shared.Example.com", ptrTo(true))
-	f.expectPermission("account1", "user1", modules.AgentNetworkSettings, operations.Create, true)
-
-	_, err := f.createSettings(ctx, "account1", "user1", "shared.example.com", "")
-	require.Error(t, err, "a host another account also claims must be refused")
-	var sErr *status.Error
-	require.ErrorAs(t, err, &sErr)
-	assert.Equal(t, status.InvalidArgument, sErr.Type())
-	assert.Contains(t, err.Error(), "not available to this account")
-
-	_, err = f.store.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, "account1")
-	assert.Error(t, err, "no row may be left behind by a rejected bootstrap")
-}
-
-// claimingStore is a store.Store on which another account's proxy registers
-// at the host being pinned in the moment the settings row is written — the
-// interleaving a concurrent proxy connect produces when it passes its own
-// availability check before this bootstrap's row exists, so neither side's
-// pre-write check sees the other.
-type claimingStore struct {
-	store.Store
-	t       *testing.T
-	claim   *proxy.Proxy
-	claimed bool
-}
-
-func (s *claimingStore) CreateAgentNetworkSettings(ctx context.Context, settings *types.Settings) error {
-	if !s.claimed {
-		s.claimed = true
-		require.NoError(s.t, s.Store.SaveProxy(ctx, s.claim), "the competing claim must land")
-	}
-	return s.Store.CreateAgentNetworkSettings(ctx, settings)
-}
-
-// foreignClaim is the competing claim the race tests let land: another
-// account's embedded proxy at host.
-func foreignClaim(host string) *proxy.Proxy {
-	return &proxy.Proxy{
-		ID:             "foreign",
-		ClusterAddress: host,
-		Status:         proxy.StatusConnected,
-		LastSeen:       time.Now().UTC(),
-		AccountID:      ptrTo("account2"),
-		Capabilities:   proxy.Capabilities{Private: ptrTo(true)},
-	}
-}
-
-// failingStore is a store.Store that fails a named call on its nth invocation,
-// for the paths where the bootstrap's own bookkeeping cannot be completed:
-// an ownership re-read that cannot answer, or a withdrawal that does not go
-// through.
-type failingStore struct {
-	store.Store
-	failOwnershipOn int
-	failDelete      bool
-	ownershipCalls  int
-}
-
-func (s *failingStore) HasForeignAccountProxyAtHost(ctx context.Context, host, accountID string) (bool, error) {
-	s.ownershipCalls++
-	if s.ownershipCalls == s.failOwnershipOn {
-		return false, errors.New("store unavailable")
-	}
-	return s.Store.HasForeignAccountProxyAtHost(ctx, host, accountID)
-}
-
-func (s *failingStore) DeleteAgentNetworkSettings(ctx context.Context, accountID string) error {
-	if s.failDelete {
-		return errors.New("delete failed")
-	}
-	return s.Store.DeleteAgentNetworkSettings(ctx, accountID)
-}
-
-// TestCreateSettingsWithdrawsPinClaimedDuringBootstrap covers the window
-// between validateGatewayCluster and the insert: a foreign proxy that claims
-// the host in that window is seen by the ownership re-read after the write,
-// and the pin is withdrawn rather than left standing on a cluster that will
-// never serve it. The refusal reads exactly as it would have had the
-// pre-write check caught the claim.
-func TestCreateSettingsWithdrawsPinClaimedDuringBootstrap(t *testing.T) {
-	ctx := context.Background()
-	const host = "shared.example.com"
-
-	f := newBootstrapFixtureWith(t, func(st store.Store) store.Store {
-		return &claimingStore{Store: st, t: t, claim: foreignClaim(host)}
-	})
-	// A shared embedded cluster, so the pre-write validation passes on its
-	// own merits and only the claim landing mid-bootstrap can refuse it.
-	f.seedEmbeddedCluster(t, host)
-	f.expectPermission("account1", "user1", modules.AgentNetworkSettings, operations.Create, true)
-
-	_, err := f.createSettings(ctx, "account1", "user1", host, "")
-	require.Error(t, err, "a host claimed by another account mid-bootstrap must be refused")
-	var sErr *status.Error
-	require.ErrorAs(t, err, &sErr)
-	assert.Equal(t, status.InvalidArgument, sErr.Type())
-	assert.Contains(t, err.Error(), "not available to this account")
-
-	_, err = f.store.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, "account1")
-	assert.Error(t, err, "the pin written before the claim was seen must be withdrawn")
-
-	foreign, err := f.store.HasForeignAccountProxyAtHost(ctx, host, "account1")
-	require.NoError(t, err)
-	assert.True(t, foreign, "the competing claim, having landed first, keeps the host")
-}
-
-// TestCreateSettingsSelfAddressedRejectsForeignHost pins that a self-addressed
-// pin is subject to the same ownership rule as a labeled one. The hostname is
-// stored as proxy_address, which is exactly what a proxy registration is
-// refused on when another account holds it there — so without this check any
-// account could pin an endpoint onto a host another account's proxy already
-// declares and lock that proxy out on its next reconnect, owning nothing.
-func TestCreateSettingsSelfAddressedRejectsForeignHost(t *testing.T) {
-	ctx := context.Background()
-	f := newBootstrapFixture(t)
-	f.seedProxy(t, "foreign", "account2", "gw.example.com", ptrTo(true))
-	f.expectPermission("account1", "user1", modules.AgentNetworkSettings, operations.Create, true)
-
-	_, err := f.createSettings(ctx, "account1", "user1", "", "gw.example.com")
-	require.Error(t, err, "a hostname another account's proxy declares must be refused")
-	var sErr *status.Error
-	require.ErrorAs(t, err, &sErr)
-	assert.Equal(t, status.InvalidArgument, sErr.Type())
-	assert.Contains(t, err.Error(), "not available to this account")
-
-	_, err = f.store.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, "account1")
-	assert.Error(t, err, "no row may be left behind by a rejected bootstrap")
-}
-
-// TestCreateSettingsSelfAddressedAcceptsOwnHost is the address-first order the
-// self-addressed path exists for, in both directions: a hostname no proxy has
-// declared, and one the account's own proxy already declares.
-func TestCreateSettingsSelfAddressedAcceptsOwnHost(t *testing.T) {
-	ctx := context.Background()
-	f := newBootstrapFixture(t)
-	f.seedProxy(t, "own", "account1", "gw.example.com", ptrTo(true))
-	f.expectPermission("account1", "user1", modules.AgentNetworkSettings, operations.Create, true)
-
-	created, err := f.createSettings(ctx, "account1", "user1", "", "gw.example.com")
-	require.NoError(t, err, "the account's own proxy is not a competing claim")
-	assert.Equal(t, "gw.example.com", created.ProxyAddress)
-}
-
-// TestCreateSettingsSelfAddressedWithdrawsPinClaimedDuringBootstrap is the
-// self-addressed twin of the labeled race: the competing proxy lands as the
-// row is written, the re-read sees it, and the pin is withdrawn.
-func TestCreateSettingsSelfAddressedWithdrawsPinClaimedDuringBootstrap(t *testing.T) {
-	ctx := context.Background()
-	const host = "gw.example.com"
-
-	f := newBootstrapFixtureWith(t, func(st store.Store) store.Store {
-		return &claimingStore{Store: st, t: t, claim: foreignClaim(host)}
-	})
-	f.expectPermission("account1", "user1", modules.AgentNetworkSettings, operations.Create, true)
-
-	_, err := f.createSettings(ctx, "account1", "user1", "", host)
-	require.Error(t, err, "a host claimed by another account mid-bootstrap must be refused")
-	var sErr *status.Error
-	require.ErrorAs(t, err, &sErr)
-	assert.Equal(t, status.InvalidArgument, sErr.Type())
-
-	_, err = f.store.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, "account1")
-	assert.Error(t, err, "the pin written before the claim was seen must be withdrawn")
-}
-
-// TestCreateSettingsWithdrawsPinWhenOwnershipRecheckFails pins fail-closed on
-// the bootstrap side: a re-read that cannot answer leaves no pin behind and
-// surfaces the store's error rather than a validation refusal, since nothing
-// established that the cluster is somebody else's.
-func TestCreateSettingsWithdrawsPinWhenOwnershipRecheckFails(t *testing.T) {
-	ctx := context.Background()
-	const host = "shared.example.com"
-
-	// The first ownership call is the pre-write check and must pass; the
-	// second is the re-read.
-	f := newBootstrapFixtureWith(t, func(st store.Store) store.Store {
-		return &failingStore{Store: st, failOwnershipOn: 2}
-	})
-	f.seedEmbeddedCluster(t, host)
-	f.expectPermission("account1", "user1", modules.AgentNetworkSettings, operations.Create, true)
-
-	_, err := f.createSettings(ctx, "account1", "user1", host, "")
-	require.Error(t, err)
-	var sErr *status.Error
-	assert.False(t, errors.As(err, &sErr) && sErr.Type() == status.InvalidArgument,
-		"an inconclusive re-read is not a validation refusal: %v", err)
-	assert.ErrorContains(t, err, "store unavailable", "the store's error must be the one surfaced")
-
-	_, err = f.store.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, "account1")
-	assert.Error(t, err, "a pin that could not be confirmed must not stand")
-}
-
-// TestCreateSettingsRefusesEvenWhenWithdrawalFails pins that a lost claim is
-// reported as lost whatever happens to the compensating delete: the caller
-// must not be told it holds a cluster another account's proxy declares.
-func TestCreateSettingsRefusesEvenWhenWithdrawalFails(t *testing.T) {
-	ctx := context.Background()
-	const host = "shared.example.com"
-
-	f := newBootstrapFixtureWith(t, func(st store.Store) store.Store {
-		return &failingStore{Store: &claimingStore{Store: st, t: t, claim: foreignClaim(host)}, failDelete: true}
-	})
-	f.seedEmbeddedCluster(t, host)
-	f.expectPermission("account1", "user1", modules.AgentNetworkSettings, operations.Create, true)
-
-	_, err := f.createSettings(ctx, "account1", "user1", host, "")
-	require.Error(t, err)
-	var sErr *status.Error
-	require.ErrorAs(t, err, &sErr)
-	assert.Equal(t, status.InvalidArgument, sErr.Type(), "a failed withdrawal must not turn a lost claim into a held one")
-	assert.Contains(t, err.Error(), "not available to this account")
-}
-
-// TestCreateSettingsAcceptsSharedClusterAlongsideOwnProxy pins the other side
-// of that ordering: a shared (NetBird-operated) proxy is not foreign, so
-// asking the ownership question first must not refuse the cluster most
-// accounts pin to.
-func TestCreateSettingsAcceptsSharedClusterAlongsideOwnProxy(t *testing.T) {
-	ctx := context.Background()
-	f := newBootstrapFixture(t)
-	f.seedProxy(t, "shared", "", "eu.proxy.example.com", ptrTo(true))
-	f.seedProxy(t, "own", "account1", "eu.proxy.example.com", ptrTo(true))
-	f.expectPermission("account1", "user1", modules.AgentNetworkSettings, operations.Create, true)
-
-	created, err := f.createSettings(ctx, "account1", "user1", "eu.proxy.example.com", "")
-	require.NoError(t, err, "a shared cluster must stay pinnable")
-	assert.Equal(t, "eu.proxy.example.com", created.ProxyAddress)
-}
-
 // TestCreateSettingsAcceptsOwnPrivateCluster pins the BYOP happy path: the
 // account's own cluster with a connected embedded proxy is a valid pin.
 func TestCreateSettingsAcceptsOwnPrivateCluster(t *testing.T) {
@@ -644,13 +360,10 @@ func TestCreateSettingsAcceptsOwnPrivateCluster(t *testing.T) {
 
 // TestCreateSettingsMatchesClusterCasing pins that a cluster spelled with
 // capitals in the store is still recognised as the same cluster the normalised
-// proxy_address names. Addresses are canonicalised where they are written
-// (canonicalProxyAddress on the proxy-connect path), so this is the belt to
-// that braces: it covers a row written before that landed, and any future
-// writer that skips it. The comparison is in memory over the account's cluster
-// list, so it costs nothing at the query — the capability lookup is still
-// asked under the spelling the store actually holds, which is what an exact,
-// indexed match needs.
+// proxy_address names, in both directions: a private cluster is accepted and a
+// centralised one is refused, whatever the casing. The comparison is in memory
+// over the account's cluster list; the capability lookup is still asked under
+// the spelling the store actually holds, which is what an exact match needs.
 func TestCreateSettingsMatchesClusterCasing(t *testing.T) {
 	ctx := context.Background()
 
@@ -662,19 +375,6 @@ func TestCreateSettingsMatchesClusterCasing(t *testing.T) {
 		created, err := f.createSettings(ctx, "account1", "user1", "eu.proxy.example.com", "")
 		require.NoError(t, err, "a private cluster declared with capitals must still be accepted")
 		assert.Equal(t, "eu.proxy.example.com", created.ProxyAddress)
-	})
-
-	t.Run("foreign cluster is still foreign", func(t *testing.T) {
-		f := newBootstrapFixture(t)
-		f.seedProxy(t, "proxy1", "account2", "BYOP.Account2.Example.com", ptrTo(true))
-		f.expectPermission("account1", "user1", modules.AgentNetworkSettings, operations.Create, true)
-
-		_, err := f.createSettings(ctx, "account1", "user1", "byop.account2.example.com", "")
-		require.Error(t, err, "another account's cluster must be refused whatever its casing")
-		var sErr *status.Error
-		require.ErrorAs(t, err, &sErr)
-		assert.Equal(t, status.InvalidArgument, sErr.Type())
-		assert.Contains(t, err.Error(), "not available to this account")
 	})
 
 	t.Run("non-private cluster is still refused", func(t *testing.T) {

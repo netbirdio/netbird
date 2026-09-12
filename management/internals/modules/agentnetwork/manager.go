@@ -1030,22 +1030,11 @@ func (m *managerImpl) CreateSettings(ctx context.Context, userID string, setting
 
 // bootstrapSelfAddressed claims the given hostname as the account's endpoint,
 // served only by a proxy declaring exactly that address (Domain ==
-// ProxyAddress). The domain unique index arbitrates between pins; ownership
-// against another account's proxy is asked the same way as for a labeled pin,
-// because the hostname lands in proxy_address, which is what a proxy
-// registration is refused on when another account holds it there.
+// ProxyAddress). The domain unique index is the arbiter of availability.
 func (m *managerImpl) bootstrapSelfAddressed(ctx context.Context, settings *types.Settings, endpoint string) error {
 	hostname, err := types.NormalizeHostname(endpoint)
 	if err != nil {
 		return status.Errorf(status.InvalidArgument, "invalid endpoint: %s", err)
-	}
-
-	foreign, err := m.store.HasForeignAccountProxyAtHost(ctx, hostname, settings.AccountID)
-	if err != nil {
-		return fmt.Errorf("check proxy cluster ownership: %w", err)
-	}
-	if foreign {
-		return errForeignCluster(hostname)
 	}
 
 	settings.Domain = hostname
@@ -1062,7 +1051,7 @@ func (m *managerImpl) bootstrapSelfAddressed(ctx context.Context, settings *type
 		}
 		return fmt.Errorf("create agent network settings: %w", err)
 	}
-	return m.confirmGatewayClusterOwnership(ctx, settings)
+	return nil
 }
 
 // validateGatewayCluster rejects a labeled bootstrap pinned to a cluster that
@@ -1078,10 +1067,10 @@ func (m *managerImpl) bootstrapSelfAddressed(ctx context.Context, settings *type
 // the `private` capability, the same flag the dashboard renders as
 // supports_private when it gates NetBird-only services.
 //
-// Without this check the bootstrap happily pins to any hostname the caller
-// names, including a cluster the account cannot use or one with no embedded
-// proxy — and the endpoint it allocates is immutable, so the account is left
-// with a dead gateway that only a DeleteSettings/re-bootstrap can undo.
+// Without this check the bootstrap happily pins to any cluster the caller
+// names, including one with no embedded proxy — and the endpoint it allocates
+// is immutable, so the account is left with a dead gateway that only a
+// DeleteSettings/re-bootstrap can undo.
 //
 // Whether management knows the cluster is decided on the proxy rows
 // themselves, never on how fresh their heartbeats are: a cluster's rows
@@ -1094,23 +1083,6 @@ func (m *managerImpl) bootstrapSelfAddressed(ctx context.Context, settings *type
 // all: pinning ahead of a proxy's first connection is a legitimate order — the
 // dedicated path claims an address the same way, before any proxy declares it.
 func (m *managerImpl) validateGatewayCluster(ctx context.Context, accountID, clusterAddr string) error {
-	// Ownership is decided first, before anything the account's own view can
-	// answer. A host another account's proxy declares is refused even when
-	// this account has a row for it too: two accounts claiming one hostname is
-	// the ambiguity the connect-time conflict check exists to prevent, and the
-	// endpoint pinned here cannot be moved afterwards, so the ambiguous case
-	// has to fail closed. Asking the account's view first would skip this
-	// whenever the account had any row of its own, which is exactly when a
-	// collision is worth catching. Shared proxies are not foreign — they are
-	// what most accounts pin to.
-	foreign, err := m.store.HasForeignAccountProxyAtHost(ctx, clusterAddr, accountID)
-	if err != nil {
-		return fmt.Errorf("check proxy cluster ownership: %w", err)
-	}
-	if foreign {
-		return errForeignCluster(clusterAddr)
-	}
-
 	declared, err := m.accountClusterSpellings(ctx, accountID, clusterAddr)
 	if err != nil {
 		return err
@@ -1146,16 +1118,13 @@ func (m *managerImpl) validateGatewayCluster(ctx context.Context, accountID, clu
 // host as clusterAddr. Empty means management holds no proxy row for that host
 // in this account's view.
 //
-// Addresses are canonicalised where they are written (canonicalProxyAddress on
-// the proxy-connect path), so a stored spelling normally is the normalised
-// form. Identity is still compared on the normalised form rather than
-// byte-equal, which costs nothing here — this is an in-memory pass over the
-// account's clusters, not a query — and covers a row written before that
-// landed. What comes back is the stored spelling either way, because the
-// capability lookup matches cluster_address exactly and would silently find
-// nothing under a spelling the store never held. The cluster listing is not
-// gated on heartbeats, so this answer does not change while a cluster's
-// proxies are merely offline.
+// A proxy declares its cluster address as the operator spelled it, so identity
+// is compared on the normalised form rather than byte-equal — an in-memory pass
+// over the account's clusters, not a query. What comes back is the stored
+// spelling, because the capability lookup matches cluster_address exactly and
+// would silently find nothing under a spelling the store never held. The
+// cluster listing is not gated on heartbeats, so this answer does not change
+// while a cluster's proxies are merely offline.
 func (m *managerImpl) accountClusterSpellings(ctx context.Context, accountID, clusterAddr string) ([]string, error) {
 	clusters, err := m.store.GetProxyClusters(ctx, accountID)
 	if err != nil {
@@ -1237,40 +1206,10 @@ func (m *managerImpl) bootstrapLabeled(ctx context.Context, settings *types.Sett
 			}
 			return fmt.Errorf("create agent network settings: %w", err)
 		}
-		return m.confirmGatewayClusterOwnership(ctx, settings)
-	}
-
-	return fmt.Errorf("allocate agent network endpoint for account %s: %d attempts exhausted", settings.AccountID, maxDomainAllocationAttempts)
-}
-
-// confirmGatewayClusterOwnership re-reads ownership once the settings row is
-// committed and withdraws the row if another account's proxy now declares the
-// host; see proxy.ErrClusterAddressUnavailable for why the re-read is what
-// closes the race with a concurrent proxy registration. Only ownership is
-// re-read: the capability check is about what the cluster can do, not who
-// holds it, and does not race a claim.
-func (m *managerImpl) confirmGatewayClusterOwnership(ctx context.Context, settings *types.Settings) error {
-	foreign, err := m.store.HasForeignAccountProxyAtHost(ctx, settings.ProxyAddress, settings.AccountID)
-	if err == nil && !foreign {
 		return nil
 	}
 
-	if delErr := m.store.DeleteAgentNetworkSettings(ctx, settings.AccountID); delErr != nil {
-		log.WithContext(ctx).Errorf("failed to withdraw agent network settings for account %s after losing the claim on %s: %v",
-			settings.AccountID, settings.ProxyAddress, delErr)
-	}
-	if err != nil {
-		return fmt.Errorf("confirm proxy cluster ownership: %w", err)
-	}
-	log.WithContext(ctx).Warnf("proxy cluster %s was claimed by another account while account %s bootstrapped onto it, withdrawing the pin",
-		settings.ProxyAddress, settings.AccountID)
-	return errForeignCluster(settings.ProxyAddress)
-}
-
-// errForeignCluster is the refusal for a cluster another account's proxy
-// declares, worded the same whether it is caught before or after the insert.
-func errForeignCluster(clusterAddr string) error {
-	return status.Errorf(status.InvalidArgument, "proxy cluster %s is not available to this account", clusterAddr)
+	return fmt.Errorf("allocate agent network endpoint for account %s: %d attempts exhausted", settings.AccountID, maxDomainAllocationAttempts)
 }
 
 // isUniqueConstraintError reports whether err is a database unique-constraint

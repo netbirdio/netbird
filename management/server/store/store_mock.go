@@ -754,20 +754,6 @@ func (mr *MockStoreMockRecorder) DeletePostureChecks(ctx, accountID, postureChec
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeletePostureChecks", reflect.TypeOf((*MockStore)(nil).DeletePostureChecks), ctx, accountID, postureChecksID)
 }
 
-// DeleteProxy mocks base method.
-func (m *MockStore) DeleteProxy(ctx context.Context, proxyID, sessionID string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteProxy", ctx, proxyID, sessionID)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// DeleteProxy indicates an expected call of DeleteProxy.
-func (mr *MockStoreMockRecorder) DeleteProxy(ctx, proxyID, sessionID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteProxy", reflect.TypeOf((*MockStore)(nil).DeleteProxy), ctx, proxyID, sessionID)
-}
-
 // DeleteRoute mocks base method.
 func (m *MockStore) DeleteRoute(ctx context.Context, accountID, routeID string) error {
 	m.ctrl.T.Helper()
@@ -3077,36 +3063,6 @@ func (m *MockStore) HasActiveProxyAtClusterAddress(ctx context.Context, clusterA
 func (mr *MockStoreMockRecorder) HasActiveProxyAtClusterAddress(ctx, clusterAddress any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasActiveProxyAtClusterAddress", reflect.TypeOf((*MockStore)(nil).HasActiveProxyAtClusterAddress), ctx, clusterAddress)
-}
-
-// HasForeignAccountProxyAtHost mocks base method.
-func (m *MockStore) HasForeignAccountProxyAtHost(ctx context.Context, host, accountID string) (bool, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "HasForeignAccountProxyAtHost", ctx, host, accountID)
-	ret0, _ := ret[0].(bool)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// HasForeignAccountProxyAtHost indicates an expected call of HasForeignAccountProxyAtHost.
-func (mr *MockStoreMockRecorder) HasForeignAccountProxyAtHost(ctx, host, accountID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasForeignAccountProxyAtHost", reflect.TypeOf((*MockStore)(nil).HasForeignAccountProxyAtHost), ctx, host, accountID)
-}
-
-// HasGatewayPinnedByOtherAccount mocks base method.
-func (m *MockStore) HasGatewayPinnedByOtherAccount(ctx context.Context, host, accountID string) (bool, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "HasGatewayPinnedByOtherAccount", ctx, host, accountID)
-	ret0, _ := ret[0].(bool)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// HasGatewayPinnedByOtherAccount indicates an expected call of HasGatewayPinnedByOtherAccount.
-func (mr *MockStoreMockRecorder) HasGatewayPinnedByOtherAccount(ctx, host, accountID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasGatewayPinnedByOtherAccount", reflect.TypeOf((*MockStore)(nil).HasGatewayPinnedByOtherAccount), ctx, host, accountID)
 }
 
 // IncrementAgentNetworkConsumption mocks base method.

@@ -6292,25 +6292,6 @@ func (s *SqlStore) DisconnectProxy(ctx context.Context, proxyID, sessionID strin
 	return nil
 }
 
-// DeleteProxy removes the proxy's row, but only while it still carries the
-// given session: a registration withdrawing its own claim must not take out a
-// newer session's row for the same proxy. A row already superseded or gone is
-// not an error — the claim it would have withdrawn is no longer this session's
-// to withdraw.
-func (s *SqlStore) DeleteProxy(ctx context.Context, proxyID, sessionID string) error {
-	result := s.db.
-		Where("id = ? AND session_id = ?", proxyID, sessionID).
-		Delete(&proxy.Proxy{})
-	if result.Error != nil {
-		log.WithContext(ctx).Errorf("failed to delete proxy %s session %s: %v", proxyID, sessionID, result.Error)
-		return status.Errorf(status.Internal, "failed to delete proxy")
-	}
-	if result.RowsAffected == 0 {
-		log.WithContext(ctx).Debugf("proxy %s session %s: no row deleted (already gone or superseded by a newer session)", proxyID, sessionID)
-	}
-	return nil
-}
-
 // GetAllProxies returns all reverse proxy instance rows.
 func (s *SqlStore) GetAllProxies(ctx context.Context) ([]*proxy.Proxy, error) {
 	var proxies []*proxy.Proxy
@@ -6435,13 +6416,11 @@ func (s *SqlStore) CountProxiesByAccountID(ctx context.Context, accountID string
 // queries. Backs the agent-network settings delete guard: settings cannot be
 // deleted while a proxy declares the endpoint hostname as its address.
 //
-// The comparison folds case on both sides. Addresses are canonicalized where
-// they are written now (canonicalProxyAddress on the proxy-connect path), so
-// this mostly matters for a row written before that: hostnames are
-// case-insensitive per RFC 4343, and on a case-sensitive collation a proxy
-// stored as "GW.Example.com" would otherwise slip past the guard. This runs
-// only on the settings delete path, so folding costs nothing worth indexing
-// around.
+// The comparison folds case on both sides: the caller passes a normalized
+// (lowercase) hostname, but proxies declare their cluster address verbatim
+// and Connect stores it unchanged, so on case-sensitive collations a proxy
+// declaring "GW.Example.com" would otherwise slip past the guard. Hostnames
+// are case-insensitive per RFC 4343; the guard must be too.
 func (s *SqlStore) HasActiveProxyAtClusterAddress(ctx context.Context, clusterAddress string) (bool, error) {
 	var count int64
 	result := s.db.
@@ -6451,39 +6430,6 @@ func (s *SqlStore) HasActiveProxyAtClusterAddress(ctx context.Context, clusterAd
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to count active proxies at cluster address: %v", result.Error)
 		return false, status.Errorf(status.Internal, "failed to count active proxies at cluster address")
-	}
-	return count > 0, nil
-}
-
-// IsClusterAddressConflicting reports whether the address is already declared
-// by a proxy outside the account — a shared proxy or another account's. The
-// match is exact, and stays exact so it uses the cluster_address index:
-// addresses are canonicalised where they are written (canonicalProxyAddress on
-// the proxy-connect path), so one host has one spelling in this column.
-// HasForeignAccountProxyAtHost reports whether a proxy owned by another
-// account declares this host, folding case on both sides.
-//
-// Shared proxies (account_id IS NULL) are deliberately not foreign: they are
-// what most accounts pin their gateway to. What this catches is two accounts
-// claiming one hostname, which IsClusterAddressConflicting prevents going
-// forward but cannot see for a row written before addresses were
-// canonicalized.
-//
-// It folds case where IsClusterAddressConflicting stays exact because the
-// callers differ in cost and in what they can assume. That one runs on every
-// account-scoped proxy connect, where both sides are canonical and the match
-// must stay exact to use the cluster_address index. This one runs once per
-// account, when an agent network bootstraps, and is the only thing standing
-// between that account and pinning its immutable endpoint to a cluster
-// somebody else runs — worth a scan on a path taken once.
-func (s *SqlStore) HasForeignAccountProxyAtHost(ctx context.Context, host, accountID string) (bool, error) {
-	var count int64
-	result := s.db.
-		Model(&proxy.Proxy{}).
-		Where("LOWER(cluster_address) = LOWER(?) AND account_id IS NOT NULL AND account_id != ?", host, accountID).
-		Count(&count)
-	if result.Error != nil {
-		return false, status.Errorf(status.Internal, "check proxy host ownership: %v", result.Error)
 	}
 	return count > 0, nil
 }
