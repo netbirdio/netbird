@@ -64,7 +64,9 @@ jobs:
 
       - name: download mysql image
         if: matrix.store == 'mysql'
-        run: docker pull mlsmaycon/warmed-mysql:8
+        run: |
+          docker pull mlsmaycon/warmed-mysql:8
+          docker image inspect mlsmaycon/warmed-mysql:8 --format 'entrypoint={{json .Config.Entrypoint}} cmd={{json .Config.Cmd}} env={{json .Config.Env}}'
 
       - name: Build test summarizer
         run: go build -o /tmp/gotestsummary ./tools/gotestsummary

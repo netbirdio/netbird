@@ -3213,7 +3213,11 @@ func NewSqliteStoreFromFileStore(ctx context.Context, fileStore *FileStore, data
 
 // NewPostgresqlStoreFromSqlStore restores a store from SqlStore and stores Postgres DB.
 func NewPostgresqlStoreFromSqlStore(ctx context.Context, sqliteStore *SqlStore, dsn string, metrics telemetry.AppMetrics) (*SqlStore, error) {
-	store, err := NewPostgresqlStoreForTests(ctx, dsn, metrics, false)
+	return newPostgresqlStoreFromSqlStore(ctx, sqliteStore, dsn, metrics, false)
+}
+
+func newPostgresqlStoreFromSqlStore(ctx context.Context, sqliteStore *SqlStore, dsn string, metrics telemetry.AppMetrics, skipMigration bool) (*SqlStore, error) {
+	store, err := NewPostgresqlStoreForTests(ctx, dsn, metrics, skipMigration)
 	if err != nil {
 		return nil, err
 	}
@@ -3279,7 +3283,11 @@ func connectToPgDbForTests(ctx context.Context, dsn string) (*pgxpool.Pool, erro
 
 // NewMysqlStoreFromSqlStore restores a store from SqlStore and stores MySQL DB.
 func NewMysqlStoreFromSqlStore(ctx context.Context, sqliteStore *SqlStore, dsn string, metrics telemetry.AppMetrics) (*SqlStore, error) {
-	store, err := NewMysqlStore(ctx, dsn, metrics, false)
+	return newMysqlStoreFromSqlStore(ctx, sqliteStore, dsn, metrics, false)
+}
+
+func newMysqlStoreFromSqlStore(ctx context.Context, sqliteStore *SqlStore, dsn string, metrics telemetry.AppMetrics, skipMigration bool) (*SqlStore, error) {
+	store, err := NewMysqlStore(ctx, dsn, metrics, skipMigration)
 	if err != nil {
 		return nil, err
 	}
