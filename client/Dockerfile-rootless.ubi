@@ -1,0 +1,45 @@
+FROM registry.access.redhat.com/ubi9/ubi-minimal@sha256:7fbeae18dc9476399f565e68255f602a3374ea8614ba3d14843565131a13ff93
+
+ARG TARGETPLATFORM
+ARG NETBIRD_BINARY=$TARGETPLATFORM/netbird
+ARG VERSION=dev
+ARG RELEASE=1
+
+LABEL name="netbird-rootless" \
+      maintainer="NetBird <dev@netbird.io>" \
+      vendor="NetBird GmbH" \
+      version="${VERSION}" \
+      release="${RELEASE}" \
+      summary="NetBird Rootless Client" \
+      description="NetBird connects devices through an encrypted overlay using userspace networking without a TUN device or network administration capabilities."
+
+RUN microdnf install -y bash ca-certificates && microdnf clean all
+
+COPY --chmod=0555 client/netbird-entrypoint.sh /usr/local/bin/netbird-entrypoint.sh
+COPY --chmod=0555 ${NETBIRD_BINARY} /usr/local/bin/netbird
+COPY licenses/ /licenses/
+# Only application storage is group-writable for arbitrary non-root UIDs.
+# Runtime-created credentials keep the client's restrictive file modes.
+RUN mkdir -p /var/lib/netbird && \
+    chown 1000:0 /var/lib/netbird && \
+    chmod 0770 /var/lib/netbird && \
+    chmod -R a+rX /licenses
+
+WORKDIR /var/lib/netbird
+USER 1000:0
+
+ENV \
+    HOME="/var/lib/netbird" \
+    NETBIRD_BIN="/usr/local/bin/netbird" \
+    NB_USE_NETSTACK_MODE="true" \
+    NB_ENABLE_NETSTACK_LOCAL_FORWARDING="true" \
+    NB_CONFIG="/var/lib/netbird/config.json" \
+    NB_STATE_DIR="/var/lib/netbird" \
+    NB_DAEMON_ADDR="unix:///var/lib/netbird/netbird.sock" \
+    NB_LOG_FILE="console,/var/lib/netbird/client.log" \
+    NB_DISABLE_DNS="true" \
+    NB_ENABLE_CAPTURE="false" \
+    NB_ENTRYPOINT_SERVICE_TIMEOUT="30"
+
+STOPSIGNAL SIGTERM
+ENTRYPOINT ["/usr/local/bin/netbird-entrypoint.sh"]

@@ -24,6 +24,17 @@ type testStore struct {
 	checkSchemaFunc    func(checks []SchemaCheck) []SchemaError
 	updateCalls        []updateUserIDCall
 	updateInfoCalls    []updateUserInfoCall
+
+	accountsCounter int64
+	accounts        map[string]*types.Account
+	domainAttrCalls []domainAttrCall
+}
+
+type domainAttrCall struct {
+	AccountID string
+	Domain    string
+	Category  string
+	IsPrimary bool
 }
 
 type updateUserIDCall struct {
@@ -36,6 +47,35 @@ type updateUserInfoCall struct {
 	UserID string
 	Email  string
 	Name   string
+}
+
+func (s *testStore) GetAccountsCounter(context.Context) (int64, error) {
+	return s.accountsCounter, nil
+}
+
+func (s *testStore) GetAnyAccountID(context.Context) (string, error) {
+	for id := range s.accounts {
+		return id, nil
+	}
+	return "", fmt.Errorf("no accounts")
+}
+
+func (s *testStore) IsPrimaryAccount(_ context.Context, accountID string) (bool, string, error) {
+	account, ok := s.accounts[accountID]
+	if !ok {
+		return false, "", fmt.Errorf("account %s not found", accountID)
+	}
+	return account.IsDomainPrimaryAccount, account.Domain, nil
+}
+
+func (s *testStore) UpdateAccountDomainAttributes(_ context.Context, accountID, domain, category string, isPrimaryDomain bool) error {
+	s.domainAttrCalls = append(s.domainAttrCalls, domainAttrCall{accountID, domain, category, isPrimaryDomain})
+	if account, ok := s.accounts[accountID]; ok {
+		account.Domain = domain
+		account.DomainCategory = category
+		account.IsDomainPrimaryAccount = isPrimaryDomain
+	}
+	return nil
 }
 
 func (s *testStore) ListUsers(ctx context.Context) ([]*types.User, error) {
@@ -825,4 +865,213 @@ func TestCheckSchema_MockStore(t *testing.T) {
 		assert.Equal(t, "users", errs[0].Table)
 		assert.Equal(t, "email", errs[0].Column)
 	})
+}
+
+func TestRequireSingleAccount(t *testing.T) {
+	tests := []struct {
+		name      string
+		accounts  int64
+		expectErr bool
+	}{
+		{name: "fresh install", accounts: 0},
+		{name: "single account", accounts: 1},
+		{name: "multiple accounts", accounts: 3, expectErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := &testServer{store: &testStore{accountsCounter: tt.accounts}}
+
+			err := RequireSingleAccount(srv)
+			if !tt.expectErr {
+				require.NoError(t, err)
+				return
+			}
+
+			require.Error(t, err)
+			assert.ErrorIs(t, err, ErrMultipleAccounts)
+		})
+	}
+}
+
+func TestEnsureSingleAccountDomain(t *testing.T) {
+	tests := []struct {
+		name            string
+		account         *types.Account
+		requestedDomain string
+		expectedDomain  string
+	}{
+		{
+			name:           "account migrated from an IdP without domain claims",
+			account:        &types.Account{Id: "account-1"},
+			expectedDomain: DefaultSingleAccountDomain,
+		},
+		{
+			name:            "requested domain is applied to an account without one",
+			account:         &types.Account{Id: "account-1"},
+			requestedDomain: "corp.example.com",
+			expectedDomain:  "corp.example.com",
+		},
+		{
+			name:           "account keeps its own domain",
+			account:        &types.Account{Id: "account-1", Domain: "acme.com"},
+			expectedDomain: "acme.com",
+		},
+		{
+			name:            "requesting the domain the account already has is not a conflict",
+			account:         &types.Account{Id: "account-1", Domain: "acme.com"},
+			requestedDomain: "acme.com",
+			expectedDomain:  "acme.com",
+		},
+		{
+			name: "already resolvable account is rewritten with the same values",
+			account: &types.Account{
+				Id:                     "account-1",
+				Domain:                 "acme.com",
+				DomainCategory:         types.PrivateCategory,
+				IsDomainPrimaryAccount: true,
+			},
+			expectedDomain: "acme.com",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &testStore{
+				accountsCounter: 1,
+				accounts:        map[string]*types.Account{tt.account.Id: tt.account},
+			}
+
+			require.NoError(t, EnsureSingleAccountDomain(&testServer{store: store}, tt.requestedDomain))
+
+			require.Len(t, store.domainAttrCalls, 1)
+			assert.Equal(t, domainAttrCall{
+				AccountID: tt.account.Id,
+				Domain:    tt.expectedDomain,
+				Category:  types.PrivateCategory,
+				IsPrimary: true,
+			}, store.domainAttrCalls[0])
+		})
+	}
+}
+
+func TestEnsureSingleAccountDomainDryRun(t *testing.T) {
+	t.Setenv(dryRunEnvKey, "true")
+
+	store := &testStore{
+		accountsCounter: 1,
+		accounts:        map[string]*types.Account{"account-1": {Id: "account-1"}},
+	}
+
+	require.NoError(t, EnsureSingleAccountDomain(&testServer{store: store}, ""))
+	assert.Empty(t, store.domainAttrCalls, "Dry run must not write anything")
+}
+
+func TestEnsureSingleAccountDomainRejectsUnresolvableDomains(t *testing.T) {
+	t.Run("account domain that cannot resolve is reported", func(t *testing.T) {
+		account := &types.Account{Id: "account-1", Domain: "corp"}
+		store := &testStore{
+			accountsCounter: 1,
+			accounts:        map[string]*types.Account{account.Id: account},
+		}
+
+		err := EnsureSingleAccountDomain(&testServer{store: store}, "")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrUnusableDomain)
+		assert.Empty(t, store.domainAttrCalls, "A broken account domain must not be replaced silently")
+	})
+
+	t.Run("requested domain conflicting with the account domain is reported", func(t *testing.T) {
+		account := &types.Account{Id: "account-1", Domain: "acme.com"}
+		store := &testStore{
+			accountsCounter: 1,
+			accounts:        map[string]*types.Account{account.Id: account},
+		}
+
+		err := EnsureSingleAccountDomain(&testServer{store: store}, "corp.example.com")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrDomainConflict)
+		assert.Empty(t, store.domainAttrCalls, "A conflict must not overwrite the account domain")
+	})
+
+	t.Run("configured domain that cannot resolve is rejected", func(t *testing.T) {
+		store := &testStore{
+			accountsCounter: 1,
+			accounts:        map[string]*types.Account{"account-1": {Id: "account-1"}},
+		}
+
+		err := EnsureSingleAccountDomain(&testServer{store: store}, "corp")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrUnusableDomain)
+		assert.Empty(t, store.domainAttrCalls)
+	})
+
+	t.Run("account appearing after the preflight is rejected", func(t *testing.T) {
+		store := &testStore{
+			accountsCounter: 2,
+			accounts: map[string]*types.Account{
+				"account-1": {Id: "account-1"},
+				"account-2": {Id: "account-2"},
+			},
+		}
+
+		err := EnsureSingleAccountDomain(&testServer{store: store}, "")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrMultipleAccounts)
+		assert.Empty(t, store.domainAttrCalls, "No account may be marked primary when several exist")
+	})
+
+	t.Run("fresh install with no accounts is a no-op", func(t *testing.T) {
+		store := &testStore{accountsCounter: 0, accounts: map[string]*types.Account{}}
+
+		require.NoError(t, EnsureSingleAccountDomain(&testServer{store: store}, ""))
+		assert.Empty(t, store.domainAttrCalls)
+	})
+}
+
+func TestCheckSingleAccountDomain(t *testing.T) {
+	tests := []struct {
+		name      string
+		account   *types.Account
+		requested string
+		expectErr error
+	}{
+		{
+			name:    "usable account domain passes",
+			account: &types.Account{Id: "account-1", Domain: "acme.com"},
+		},
+		{
+			name:    "empty account domain passes",
+			account: &types.Account{Id: "account-1"},
+		},
+		{
+			name:      "unresolvable account domain fails",
+			account:   &types.Account{Id: "account-1", Domain: "corp"},
+			expectErr: ErrUnusableDomain,
+		},
+		{
+			name:      "conflicting request fails",
+			account:   &types.Account{Id: "account-1", Domain: "acme.com"},
+			requested: "corp.example.com",
+			expectErr: ErrDomainConflict,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &testStore{
+				accountsCounter: 1,
+				accounts:        map[string]*types.Account{tt.account.Id: tt.account},
+			}
+
+			err := CheckSingleAccountDomain(&testServer{store: store}, tt.requested)
+			if tt.expectErr == nil {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, tt.expectErr)
+			}
+
+			assert.Empty(t, store.domainAttrCalls, "The preflight must not write anything")
+		})
+	}
 }

@@ -99,7 +99,7 @@ export function SettingsTroubleshooting() {
                                     "rounded-md border bg-white dark:bg-nb-gray-900",
                                     "border-neutral-200 dark:border-nb-gray-700",
                                     "cursor-default text-xs font-semibold text-nb-gray-100 outline-none",
-                                    "hover:border-nb-gray-600 data-[state=open]:border-nb-gray-600",
+                                    "hover:border-nb-gray-700 data-[state=open]:border-nb-gray-700 dark:hover:border-nb-gray-600 dark:data-[state=open]:border-nb-gray-600",
                                 )}
                             >
                                 {t(`settings.troubleshooting.anonymize.${anonymizeLevel}`)}
@@ -277,7 +277,10 @@ function DoneResult({
     };
     return (
         <CenteredPanel>
-            <SquareIcon icon={CircleCheckBig} className={"[&_svg]:text-green-500"} />
+            <SquareIcon
+                icon={CircleCheckBig}
+                className={"bg-white dark:bg-nb-gray-920 [&_svg]:text-green-500"}
+            />
 
             <div className={"flex max-w-sm flex-col items-center gap-2"}>
                 <DialogHeading className={"text-balance"}>
@@ -326,7 +329,9 @@ function DoneResult({
                             <button
                                 type={"button"}
                                 onClick={onRevealPath}
-                                className={"pointer-events-auto transition-all hover:text-white"}
+                                className={
+                                    "pointer-events-auto transition-all hover:text-nb-gray-50"
+                                }
                                 aria-label={t("settings.troubleshooting.done.openFileLocation")}
                             >
                                 <FolderOpen size={16} aria-hidden={"true"} />
@@ -339,7 +344,7 @@ function DoneResult({
                     <div
                         role={"alert"}
                         className={
-                            "rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300"
+                            "rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-700 dark:text-red-300"
                         }
                     >
                         {result.uploadFailureReason

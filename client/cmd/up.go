@@ -21,6 +21,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/mdm"
 	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/server"
@@ -234,6 +235,10 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *pr
 	if err != nil {
 		return fmt.Errorf("get config file: %v", err)
 	}
+	// CLI foreground path runs without the daemon Server: layer in the
+	// active MDM policy explicitly so a forced ManagementURL / PSK /
+	// other managed key actually takes effect on this run.
+	config.ApplyMDMPolicy(mdm.NewLoader(nil).Load())
 
 	_, _ = profilemanager.UpdateOldManagementURL(ctx, config, configFilePath)
 

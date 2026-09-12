@@ -1,7 +1,6 @@
 package types
 
 import (
-	"context"
 	"fmt"
 	"testing"
 
@@ -42,28 +41,29 @@ func TestInjectProxyPolicies_MultiPortTargetRanges(t *testing.T) {
 		}},
 	}
 
-	account.InjectProxyPolicies(context.Background())
-
-	require.Len(t, account.Policies, 1)
-	policy := account.Policies[0]
+	policies := injectedPolicies(account)
+	require.Len(t, policies, 1)
+	policy := policies[0]
 	assert.Equal(t, "proxy-access-service-1-proxy-peer-", policy.ID)
 	require.Len(t, policy.Rules, 4)
 
 	expected := []struct {
-		protocol PolicyRuleProtocolType
+		protocol string
 		start    uint16
 		end      uint16
 	}{
-		{PolicyRuleProtocolTCP, 443, 443},
-		{PolicyRuleProtocolUDP, 7443, 7443},
-		{PolicyRuleProtocolTCP, 6000, 6030},
-		{PolicyRuleProtocolUDP, 9000, 9002},
+		{string(PolicyRuleProtocolTCP), 443, 443},
+		{string(PolicyRuleProtocolUDP), 7443, 7443},
+		{string(PolicyRuleProtocolTCP), 6000, 6030},
+		{string(PolicyRuleProtocolUDP), 9000, 9002},
 	}
 	for i, rule := range policy.Rules {
 		assert.Equal(t, policy.ID, rule.PolicyID)
 		assert.Equal(t, fmt.Sprintf("%s-mapping-%d", policy.ID, i), rule.ID)
 		assert.Equal(t, expected[i].protocol, rule.Protocol)
-		require.Equal(t, []RulePortRange{{Start: expected[i].start, End: expected[i].end}}, rule.PortRanges)
+		require.Len(t, rule.PortRanges, 1)
+		assert.Equal(t, expected[i].start, rule.PortRanges[0].Start)
+		assert.Equal(t, expected[i].end, rule.PortRanges[0].End)
 		assert.Equal(t, "proxy-peer", rule.SourceResource.ID)
 		assert.Equal(t, "target-peer", rule.DestinationResource.ID)
 	}
@@ -87,12 +87,13 @@ func TestInjectProxyPolicies_LegacyScalarFallback(t *testing.T) {
 		}},
 	}
 
-	account.InjectProxyPolicies(context.Background())
-
-	require.Len(t, account.Policies, 1)
-	require.Len(t, account.Policies[0].Rules, 1)
-	rule := account.Policies[0].Rules[0]
-	assert.Equal(t, account.Policies[0].ID, rule.ID)
-	assert.Equal(t, PolicyRuleProtocolUDP, rule.Protocol)
-	assert.Equal(t, []RulePortRange{{Start: 53, End: 53}}, rule.PortRanges)
+	policies := injectedPolicies(account)
+	require.Len(t, policies, 1)
+	require.Len(t, policies[0].Rules, 1)
+	rule := policies[0].Rules[0]
+	assert.Equal(t, policies[0].ID, rule.ID)
+	assert.Equal(t, string(PolicyRuleProtocolUDP), rule.Protocol)
+	require.Len(t, rule.PortRanges, 1)
+	assert.Equal(t, uint16(53), rule.PortRanges[0].Start)
+	assert.Equal(t, uint16(53), rule.PortRanges[0].End)
 }

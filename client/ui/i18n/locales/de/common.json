@@ -571,6 +571,21 @@
     "settings.general.language.empty": {
         "message": "Keine Sprachen gefunden."
     },
+    "settings.general.theme.label": {
+        "message": "Erscheinungsbild"
+    },
+    "settings.general.theme.help": {
+        "message": "Hell, Dunkel oder die Systemeinstellung verwenden."
+    },
+    "settings.general.theme.system": {
+        "message": "System"
+    },
+    "settings.general.theme.light": {
+        "message": "Hell"
+    },
+    "settings.general.theme.dark": {
+        "message": "Dunkel"
+    },
     "settings.general.management.label": {
         "message": "Management-Server"
     },

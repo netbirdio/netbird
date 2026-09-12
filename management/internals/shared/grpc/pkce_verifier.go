@@ -5,22 +5,23 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/eko/gocache/lib/v4/cache"
 	"github.com/eko/gocache/lib/v4/store"
 	log "github.com/sirupsen/logrus"
+
+	nbcache "github.com/netbirdio/netbird/management/server/cache"
 )
 
 // PKCEVerifierStore manages PKCE verifiers for OAuth flows.
 // Supports both in-memory and Redis storage via NB_IDP_CACHE_REDIS_ADDRESS env var.
 type PKCEVerifierStore struct {
-	cache *cache.Cache[string]
+	cache nbcache.Store
 	ctx   context.Context
 }
 
 // NewPKCEVerifierStore creates a PKCE verifier store using the provided shared cache store.
-func NewPKCEVerifierStore(ctx context.Context, cacheStore store.StoreInterface) *PKCEVerifierStore {
+func NewPKCEVerifierStore(ctx context.Context, cacheStore nbcache.Store) *PKCEVerifierStore {
 	return &PKCEVerifierStore{
-		cache: cache.New[string](cacheStore),
+		cache: cacheStore,
 		ctx:   ctx,
 	}
 }
@@ -40,14 +41,14 @@ func (s *PKCEVerifierStore) Store(state, verifier string, ttl time.Duration) err
 // Returns the verifier and true if found, or empty string and false if not found.
 // This enforces single-use semantics for PKCE verifiers.
 func (s *PKCEVerifierStore) LoadAndDelete(state string) (string, bool) {
-	verifier, err := s.cache.Get(s.ctx, state)
+	verifier, found, err := s.cache.GetDel(s.ctx, state)
 	if err != nil {
-		log.Debugf("PKCE verifier not found for state")
+		log.Warnf("Failed to consume PKCE verifier: %v", err)
 		return "", false
 	}
-
-	if err := s.cache.Delete(s.ctx, state); err != nil {
-		log.Warnf("Failed to delete PKCE verifier for state: %v", err)
+	if !found {
+		log.Debug("PKCE verifier not found for state")
+		return "", false
 	}
 
 	return verifier, true

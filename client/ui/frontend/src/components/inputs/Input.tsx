@@ -32,19 +32,19 @@ const inputVariants = cva("", {
     variants: {
         variant: {
             default: [
-                "border-neutral-200 placeholder:text-neutral-500 dark:border-nb-gray-700 dark:bg-nb-gray-900 dark:placeholder:text-neutral-400/70",
+                "border-neutral-200 placeholder:text-nb-gray-600 dark:border-nb-gray-700 dark:bg-nb-gray-900 dark:placeholder:text-neutral-400/70",
                 "ring-offset-neutral-200/20 focus-visible:ring-neutral-300/10 dark:ring-offset-neutral-950/50 dark:focus-visible:ring-neutral-500/20",
             ],
             darker: [
-                "border-neutral-300 placeholder:text-neutral-500 dark:border-nb-gray-800 dark:bg-nb-gray-920 dark:placeholder:text-neutral-400/70",
+                "border-neutral-300 placeholder:text-nb-gray-600 dark:border-nb-gray-800 dark:bg-nb-gray-920 dark:placeholder:text-neutral-400/70",
                 "ring-offset-neutral-200/20 focus-visible:ring-neutral-300/10 dark:ring-offset-neutral-950/50 dark:focus-visible:ring-neutral-500/20",
             ],
             error: [
-                "border-neutral-200 text-red-500 placeholder:text-neutral-500 dark:border-red-500 dark:bg-nb-gray-900 dark:placeholder:text-neutral-400/70",
+                "border-neutral-200 text-red-500 placeholder:text-nb-gray-600 dark:border-red-500 dark:bg-nb-gray-900 dark:placeholder:text-neutral-400/70",
                 "ring-offset-red-500/10 focus-visible:ring-red-500/10 dark:ring-offset-red-500/10 dark:focus-visible:ring-red-500/10",
             ],
             warning: [
-                "border-neutral-200 text-orange-400 placeholder:text-neutral-500 dark:border-orange-400 dark:bg-nb-gray-900 dark:placeholder:text-neutral-400/70",
+                "border-neutral-200 text-orange-400 placeholder:text-nb-gray-600 dark:border-orange-400 dark:bg-nb-gray-900 dark:placeholder:text-neutral-400/70",
                 "ring-offset-orange-400/10 focus-visible:ring-orange-400/10 dark:ring-offset-orange-400/10 dark:focus-visible:ring-orange-400/10",
             ],
         },
@@ -158,7 +158,7 @@ function NumberStepper({
             className={cn(
                 "flex h-[40px] shrink-0 flex-col overflow-hidden",
                 "rounded-r-md border border-l-0",
-                "border-neutral-200 dark:border-nb-gray-700 dark:bg-nb-gray-900",
+                "border-neutral-200 bg-white dark:border-nb-gray-700 dark:bg-nb-gray-900",
                 error && "dark:border-red-500",
                 disabled && "pointer-events-none opacity-40",
             )}
@@ -274,7 +274,9 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
             <button
                 type={"button"}
                 onClick={() => setShowPassword((s) => !s)}
-                className={"pointer-events-auto transition-all hover:text-white"}
+                className={
+                    "pointer-events-auto text-nb-gray-400 transition-colors hover:text-nb-gray-50 dark:text-nb-gray-300 dark:hover:text-nb-gray-50"
+                }
                 aria-label={t("common.togglePasswordVisibility")}
                 aria-pressed={showPassword}
             >
@@ -303,7 +305,9 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
         <button
             type={"button"}
             onClick={onCopy}
-            className={"pointer-events-auto transition-all hover:text-white"}
+            className={
+                "pointer-events-auto text-nb-gray-400 transition-colors hover:text-nb-gray-50 dark:text-nb-gray-300 dark:hover:text-nb-gray-50"
+            }
             aria-label={t("common.copy")}
         >
             {copied ? (

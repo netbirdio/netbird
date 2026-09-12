@@ -5,11 +5,9 @@
 #include <netinet/in.h>
 #include <linux/bpf.h>
 #include <bpf/bpf_helpers.h>
-#include "dns_fwd.c"
 #include "wg_proxy.c"
 
 const __u16 flag_feature_wg_proxy = 0b01;
-const __u16 flag_feature_dns_fwd = 0b10;
 
 const __u32 map_key_features = 0;
 struct bpf_map_def SEC("maps") nb_features = {
@@ -46,10 +44,6 @@ int nb_xdp_prog(struct xdp_md *ctx) {
     // skip non UPD packages
     if (ip->protocol != IPPROTO_UDP) {
        return XDP_PASS;
-    }
-
-    if (*features & flag_feature_dns_fwd) {
-        xdp_dns_fwd(ip, udp);
     }
 
     if (*features & flag_feature_wg_proxy) {

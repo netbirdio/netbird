@@ -797,6 +797,7 @@ func setupSharedDomainHTTPAndTLS(t *testing.T) (*Server, *proto.ProxyMapping, ht
 	authMiddleware := auth.NewMiddleware(logger, nil, nil)
 	require.NoError(t, authMiddleware.AddDomain(
 		host, nil, "", time.Minute, types.AccountID("account-http"), types.ServiceID("svc-http"), nil, true,
+		nil,
 	))
 
 	httpRuntime := httpproxy.NewReverseProxy(http.DefaultTransport, "https", nil, logger)
@@ -980,7 +981,7 @@ func TestSnapshotReplacementPreservesSharedHTTPAndRebindsTCPRangeAndUDP(t *testi
 	httpRuntime := httpproxy.NewReverseProxy(http.DefaultTransport, "https", nil, logger)
 	httpRuntime.AddMapping(httpproxy.Mapping{ID: "svc-http", AccountID: "acct", Host: "shared.example.test", Paths: map[string]*httpproxy.PathTarget{}})
 	authMiddleware := auth.NewMiddleware(logger, nil, nil)
-	require.NoError(t, authMiddleware.AddDomain("shared.example.test", nil, "", 0, "acct", "svc-http", nil, true))
+	require.NoError(t, authMiddleware.AddDomain("shared.example.test", nil, "", 0, "acct", "svc-http", nil, true, nil))
 
 	srv := &Server{
 		ctx: ctx, Logger: logger, mgmtClient: statusUpdateOnlyClient{}, proxy: httpRuntime, auth: authMiddleware,
