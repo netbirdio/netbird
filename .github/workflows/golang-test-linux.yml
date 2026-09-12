@@ -494,7 +494,19 @@ jobs:
           go test -json -tags=devcert -coverprofile=coverage.txt \
             -exec "sudo --preserve-env=CI,NETBIRD_STORE_ENGINE" \
             -timeout 20m ./management/... ./shared/management/... \
+            | tee management-test-events.jsonl \
             | go run ./tools/gotestsummary
+
+      # The summary trims long outputs; the raw stream keeps every line for
+      # the failures that need it.
+      - name: Upload raw test events
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a #v7.0.1
+        with:
+          name: management-unit-test-events-${{ matrix.store }}
+          path: management-test-events.jsonl
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload coverage reports to Codecov
         if: matrix.arch == 'amd64'
