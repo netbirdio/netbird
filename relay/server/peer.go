@@ -115,12 +115,17 @@ func (p *Peer) ID() messages.PeerID {
 	return p.id
 }
 
+// Transport returns the transport name of the peer connection (e.g. "ws", "quic").
+func (p *Peer) Transport() string {
+	return p.conn.Protocol()
+}
+
 func (p *Peer) handleMsgType(ctx context.Context, msgType messages.MsgType, hc *healthcheck.Sender, n int, msg []byte) {
 	switch msgType {
 	case messages.MsgTypeHealthCheck:
 		hc.OnHCResponse()
 	case messages.MsgTypeTransport:
-		p.metrics.TransferBytesRecv.Add(ctx, int64(n))
+		p.metrics.RecordBytesRecv(p.Transport(), n)
 		p.metrics.PeerActivity(p.String())
 		p.handleTransportMsg(msg)
 	case messages.MsgTypeClose:
@@ -231,7 +236,8 @@ func (p *Peer) handleTransportMsg(msg []byte) {
 		p.log.Errorf("failed to write transport message to: %s", dp.String())
 		return
 	}
-	p.metrics.TransferBytesSent.Add(p.ctx, int64(n))
+	// bytes are written to the destination peer's connection, so label with its transport
+	p.metrics.RecordBytesSent(dp.Transport(), n)
 }
 
 func (p *Peer) handleSubscribePeerState(msg []byte) {
