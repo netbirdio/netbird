@@ -9,6 +9,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/trustedproxy"
 )
 
 func TestAPIRateLimiter_Allow(t *testing.T) {
@@ -134,7 +137,7 @@ func TestGetClientIP(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "/test", nil)
 			req.RemoteAddr = tc.remoteAddr
-			assert.Equal(t, tc.expected, getClientIP(req))
+			assert.Equal(t, tc.expected, getClientIP(req, nil))
 		})
 	}
 }
@@ -326,4 +329,48 @@ func TestRateLimiterConfigFromEnv(t *testing.T) {
 	cfg, _ = RateLimiterConfigFromEnv()
 	assert.Equal(t, float64(defaultAPIRPM), cfg.RequestsPerMinute, "non-positive rpm must fall back to default")
 	assert.Equal(t, defaultAPIBurst, cfg.Burst, "non-positive burst must fall back to default")
+}
+
+func TestGetClientIP_TrustedProxies(t *testing.T) {
+	trusted, err := trustedproxy.Parse("10.0.0.0/8")
+	require.NoError(t, err)
+
+	tests := []struct {
+		name       string
+		list       *trustedproxy.List
+		remoteAddr string
+		xff        string
+		expected   string
+	}{
+		{
+			name:       "no trusted proxies ignores the header",
+			remoteAddr: "10.0.0.1:5555",
+			xff:        "1.1.1.1, 2.2.2.2",
+			expected:   "10.0.0.1",
+		},
+		{
+			name:       "behind a trusted proxy uses the right-most untrusted hop",
+			list:       trusted,
+			remoteAddr: "10.0.0.1:5555",
+			xff:        "1.1.1.1, 2.2.2.2",
+			expected:   "2.2.2.2",
+		},
+		{
+			name:       "a caller reaching us directly cannot forge the header",
+			list:       trusted,
+			remoteAddr: "203.0.113.5:5555",
+			xff:        "1.1.1.1",
+			expected:   "203.0.113.5",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/test", nil)
+			req.RemoteAddr = tc.remoteAddr
+			req.Header.Set("X-Forwarded-For", tc.xff)
+
+			assert.Equal(t, tc.expected, getClientIP(req, tc.list))
+		})
+	}
 }
