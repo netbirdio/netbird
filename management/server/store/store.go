@@ -1062,10 +1062,9 @@ func cloneMysqlSchema(ctx context.Context, dsn string, tableDDL []string) error 
 }
 
 // dropDatabase removes a template that never became usable, so a failed setup
-// does not leave it behind on a shared server.
-// dropDatabase removes a template database that failed to migrate. The server
-// may still be tearing down the sessions the failed migration held, so the
-// drop retries while Postgres reports the database as in use.
+// does not leave it behind on a shared server. The server may still be tearing
+// down the sessions the failed migration held, so the drop retries while
+// Postgres reports the database as in use.
 func dropDatabase(admin *gorm.DB, name string) {
 	if err := execWithTemplateRetry(admin, fmt.Sprintf("DROP DATABASE IF EXISTS %s", name)); err != nil {
 		log.Warnf("failed to drop template database %s: %v", name, err)
