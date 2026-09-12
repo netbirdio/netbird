@@ -3222,16 +3222,9 @@ func newPostgresqlStoreFromSqlStore(ctx context.Context, sqliteStore *SqlStore, 
 		return nil, err
 	}
 
-	err = store.SaveInstallationID(ctx, sqliteStore.GetInstallationID())
-	if err != nil {
+	if err := seedFromSqliteStore(ctx, store, sqliteStore); err != nil {
+		closeStore(ctx, store)
 		return nil, err
-	}
-
-	for _, account := range sqliteStore.GetAllAccounts(ctx) {
-		err := store.SaveAccount(ctx, account)
-		if err != nil {
-			return nil, err
-		}
 	}
 
 	return store, nil
@@ -3286,22 +3279,38 @@ func NewMysqlStoreFromSqlStore(ctx context.Context, sqliteStore *SqlStore, dsn s
 	return newMysqlStoreFromSqlStore(ctx, sqliteStore, dsn, metrics, false)
 }
 
+// seedFromSqliteStore copies the installation ID and the accounts of the
+// sqlite seed store into a freshly created engine store.
+func seedFromSqliteStore(ctx context.Context, store, sqliteStore *SqlStore) error {
+	if err := store.SaveInstallationID(ctx, sqliteStore.GetInstallationID()); err != nil {
+		return err
+	}
+	for _, account := range sqliteStore.GetAllAccounts(ctx) {
+		if err := store.SaveAccount(ctx, account); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// closeStore releases a store that is not handed to the caller, so a failed
+// seed does not leak its connection and pool.
+func closeStore(ctx context.Context, store *SqlStore) {
+	store.Close(ctx)
+	if store.pool != nil {
+		store.pool.Close()
+	}
+}
+
 func newMysqlStoreFromSqlStore(ctx context.Context, sqliteStore *SqlStore, dsn string, metrics telemetry.AppMetrics, skipMigration bool) (*SqlStore, error) {
 	store, err := NewMysqlStore(ctx, dsn, metrics, skipMigration)
 	if err != nil {
 		return nil, err
 	}
 
-	err = store.SaveInstallationID(ctx, sqliteStore.GetInstallationID())
-	if err != nil {
+	if err := seedFromSqliteStore(ctx, store, sqliteStore); err != nil {
+		closeStore(ctx, store)
 		return nil, err
-	}
-
-	for _, account := range sqliteStore.GetAllAccounts(ctx) {
-		err := store.SaveAccount(ctx, account)
-		if err != nil {
-			return nil, err
-		}
 	}
 
 	return store, nil
