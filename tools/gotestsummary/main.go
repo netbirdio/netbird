@@ -52,6 +52,9 @@ type event struct {
 	// " [pkg.test]" suffix naming the test binary the package was compiled
 	// for, and the same package can be built for several binaries at once.
 	ImportPath string `json:"ImportPath"`
+	// FailedBuild names the ImportPath whose build failure made the package
+	// fail; go test reports the package fail event after the build-fail one.
+	FailedBuild string `json:"FailedBuild"`
 }
 
 type testKey struct {
@@ -80,9 +83,12 @@ type summarizer struct {
 	// pkgOutput keeps what a package printed outside any test, which is where
 	// compiler diagnostics of a failed build end up.
 	pkgOutput map[string][]string
-	stores    map[testKey]storeStats
-	tests     []testResult
-	packages  []packageResult
+	// failedBuilds holds the ImportPaths whose build failed and has not been
+	// reported through a package fail event yet.
+	failedBuilds map[string]bool
+	stores       map[testKey]storeStats
+	tests        []testResult
+	packages     []packageResult
 	// panics holds the head of a panic per package. Package streams interleave
 	// in a go test -json run, so one package's dump must not swallow another's
 	// output.
@@ -96,12 +102,13 @@ type storeStats struct {
 
 func newSummarizer(out io.Writer) *summarizer {
 	return &summarizer{
-		out:       out,
-		output:    make(map[testKey][]string),
-		dropped:   make(map[testKey]int),
-		pkgOutput: make(map[string][]string),
-		stores:    make(map[testKey]storeStats),
-		panics:    make(map[string][]string),
+		out:          out,
+		output:       make(map[testKey][]string),
+		dropped:      make(map[testKey]int),
+		pkgOutput:    make(map[string][]string),
+		failedBuilds: make(map[string]bool),
+		stores:       make(map[testKey]storeStats),
+		panics:       make(map[string][]string),
 	}
 }
 
@@ -166,13 +173,19 @@ func (s *summarizer) handle(ev event) {
 				s.output[key] = []string{}
 			}
 		}
-	case "output", "build-output":
-		// Test output arrives one line per event; build output may carry several.
+	case "output":
+		s.handleOutput(key, strings.TrimRight(ev.Output, "\n"))
+	case "build-output":
+		// Compiler output may carry several lines per event and is never test
+		// output, so it skips the panic and store-marker detection.
 		for _, line := range strings.Split(strings.TrimRight(ev.Output, "\n"), "\n") {
-			s.handleOutput(key, line)
+			s.pkgOutput[key.pkg] = appendBounded(s.pkgOutput[key.pkg], line)
 		}
 	case "build-fail":
-		s.handlePackageResult(ev)
+		// The package fail event that follows carries FailedBuild and reports
+		// the compiler output; this only remembers the build in case it never
+		// comes.
+		s.failedBuilds[key.pkg] = true
 	case "pass", "fail", "skip":
 		if ev.Test == "" {
 			s.handlePackageResult(ev)
@@ -278,7 +291,13 @@ func (s *summarizer) handlePackageResult(ev event) {
 	fmt.Fprintf(s.out, "%s %s %s\n", label, shortPkg(ev.Package), elapsed.Round(time.Millisecond))
 
 	if label == "FAIL" {
-		s.printPackageOutput(ev.Package)
+		if ev.FailedBuild != "" {
+			// Several test binaries can share one failed dependency, so its
+			// output stays available for the next package that names it.
+			s.printPackageOutput(ev.FailedBuild, "build output of %s")
+			delete(s.failedBuilds, ev.FailedBuild)
+		}
+		s.printPackageOutput(ev.Package, "output of %s outside tests")
 		s.printUnfinished(ev.Package)
 		s.printPanicHead(ev.Package)
 	}
@@ -286,9 +305,23 @@ func (s *summarizer) handlePackageResult(ev event) {
 	delete(s.panics, ev.Package)
 }
 
+// printUnclaimedBuildFailures reports the failed builds no package fail event
+// accounted for, so a compiler error never disappears from the log.
+func (s *summarizer) printUnclaimedBuildFailures() {
+	var builds []string
+	for b := range s.failedBuilds {
+		builds = append(builds, b)
+	}
+	sort.Strings(builds)
+	for _, b := range builds {
+		fmt.Fprintf(s.out, "FAIL %s [build failed]\n", shortPkg(b))
+		s.printPackageOutput(b, "build output of %s")
+	}
+}
+
 // printPackageOutput shows what a failed package printed outside its tests,
-// such as the compiler errors of a build failure.
-func (s *summarizer) printPackageOutput(pkg string) {
+// or the compiler errors of a failed build, under the given header.
+func (s *summarizer) printPackageOutput(pkg, header string) {
 	lines := s.pkgOutput[pkg]
 	if len(lines) == 0 {
 		return
@@ -296,7 +329,7 @@ func (s *summarizer) printPackageOutput(pkg string) {
 	if len(lines) > failedTestOutputLines {
 		lines = lines[len(lines)-failedTestOutputLines:]
 	}
-	fmt.Fprintf(s.out, "\n==== output of %s outside tests ====\n", shortPkg(pkg))
+	fmt.Fprintf(s.out, "\n==== "+header+" ====\n", shortPkg(pkg))
 	for _, l := range lines {
 		fmt.Fprintf(s.out, "    %s\n", l)
 	}
@@ -338,6 +371,8 @@ func (s *summarizer) printUnfinished(pkg string) {
 }
 
 func (s *summarizer) printSummary(slowest int) {
+	s.printUnclaimedBuildFailures()
+
 	fmt.Fprintln(s.out)
 	fmt.Fprintln(s.out, "==== package durations ====")
 	sort.Slice(s.packages, func(i, j int) bool { return s.packages[i].elapsed > s.packages[j].elapsed })

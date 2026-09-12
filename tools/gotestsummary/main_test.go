@@ -83,19 +83,80 @@ func TestStoreSetupTimeIsAttributedToTheTest(t *testing.T) {
 }
 
 func TestBuildFailureShowsCompilerOutput(t *testing.T) {
+	// The event sequence go test emits for a build failure: the build events
+	// name the test binary, then the package itself fails with FailedBuild.
 	events := `
 {"Action":"build-output","ImportPath":"a [a.test]","Output":"# a [a.test]\na_test.go:7:2: undefined: nope\na_test.go:9:2: undefined: nope2\n"}
 {"Action":"build-fail","ImportPath":"a [a.test]"}
+{"Action":"start","Package":"a"}
+{"Action":"output","Package":"a","Output":"FAIL\ta [build failed]\n"}
+{"Action":"fail","Package":"a","Elapsed":0,"FailedBuild":"a [a.test]"}
 `
 	got := feed(t, events)
 	for _, want := range []string{
-		"FAIL a 0s",
-		"==== output of a outside tests ====",
+		"==== build output of a ====",
 		"    a_test.go:7:2: undefined: nope\n    a_test.go:9:2: undefined: nope2",
+		"FAIL\ta [build failed]",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("output lacks %q:\n%s", want, got)
 		}
+	}
+	if n := strings.Count(got, "FAIL a 0s"); n != 1 {
+		t.Errorf("expected one FAIL line for the package, got %d:\n%s", n, got)
+	}
+	if n := strings.Count(got, "undefined: nope2"); n != 1 {
+		t.Errorf("expected the compiler output once, got %d:\n%s", n, got)
+	}
+}
+
+func TestFailedDependencyOutputIsShownForEveryImporter(t *testing.T) {
+	events := `
+{"Action":"build-output","ImportPath":"m/x","Output":"# m/x\nx.go:3:11: undefined: y\n"}
+{"Action":"build-fail","ImportPath":"m/x"}
+{"Action":"start","Package":"m/a"}
+{"Action":"output","Package":"m/a","Output":"FAIL\tm/a [build failed]\n"}
+{"Action":"fail","Package":"m/a","Elapsed":0,"FailedBuild":"m/x"}
+{"Action":"start","Package":"m/b"}
+{"Action":"output","Package":"m/b","Output":"FAIL\tm/b [build failed]\n"}
+{"Action":"fail","Package":"m/b","Elapsed":0,"FailedBuild":"m/x"}
+`
+	got := feed(t, events)
+	if n := strings.Count(got, "x.go:3:11: undefined: y"); n != 2 {
+		t.Errorf("expected the dependency's compiler output under both packages, got %d:\n%s", n, got)
+	}
+	if strings.Contains(got, "FAIL m/x") {
+		t.Errorf("the dependency must not be reported as a package of its own:\n%s", got)
+	}
+}
+
+func TestBuildFailureWithoutPackageEventIsStillReported(t *testing.T) {
+	events := `
+{"Action":"build-output","ImportPath":"a [a.test]","Output":"a_test.go:7:2: undefined: nope\n"}
+{"Action":"build-fail","ImportPath":"a [a.test]"}
+`
+	got := feed(t, events)
+	for _, want := range []string{"FAIL a [build failed]", "==== build output of a ====", "undefined: nope"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("output lacks %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestCompilerPanicIsBuildOutputNotTestPanic(t *testing.T) {
+	events := `
+{"Action":"build-output","ImportPath":"a [a.test]","Output":"# a [a.test]\npanic: internal compiler error\n\ngoroutine 1 [running]:\n"}
+{"Action":"build-fail","ImportPath":"a [a.test]"}
+{"Action":"start","Package":"a"}
+{"Action":"output","Package":"a","Output":"FAIL\ta [build failed]\n"}
+{"Action":"fail","Package":"a","Elapsed":0,"FailedBuild":"a [a.test]"}
+`
+	got := feed(t, events)
+	if !strings.Contains(got, "==== build output of a ====\n    # a [a.test]\n    panic: internal compiler error") {
+		t.Errorf("compiler diagnostic missing from the build output block:\n%s", got)
+	}
+	if strings.Contains(got, "==== panic in") {
+		t.Errorf("compiler output must not be reported as a test panic:\n%s", got)
 	}
 }
 
@@ -105,9 +166,13 @@ func TestBuildVariantsOfOnePackageKeepSeparateOutput(t *testing.T) {
 {"Action":"build-output","ImportPath":"a [b.test]","Output":"a.go:1:1: broken for b.test\n"}
 {"Action":"build-fail","ImportPath":"a [a.test]"}
 {"Action":"build-fail","ImportPath":"a [b.test]"}
+{"Action":"start","Package":"a"}
+{"Action":"fail","Package":"a","Elapsed":0,"FailedBuild":"a [a.test]"}
+{"Action":"start","Package":"b"}
+{"Action":"fail","Package":"b","Elapsed":0,"FailedBuild":"a [b.test]"}
 `
 	got := feed(t, events)
-	if strings.Count(got, "==== output of a outside tests ====") != 2 {
+	if strings.Count(got, "==== build output of a ====") != 2 {
 		t.Errorf("expected one output block per build variant:\n%s", got)
 	}
 	for _, want := range []string{"broken for a.test", "broken for b.test"} {
