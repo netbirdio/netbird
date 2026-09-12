@@ -24,6 +24,7 @@ type mockStore struct {
 	getProxyByAccountIDFunc                  func(ctx context.Context, accountID string) (*proxy.Proxy, error)
 	countProxiesByAccountIDFunc              func(ctx context.Context, accountID string) (int64, error)
 	isClusterAddressConflictingFunc          func(ctx context.Context, clusterAddress, accountID string) (bool, error)
+	hasGatewayPinnedByOtherAccountFunc       func(ctx context.Context, host, accountID string) (bool, error)
 	deleteAccountClusterFunc                 func(ctx context.Context, clusterAddress, accountID string) error
 }
 
@@ -81,6 +82,12 @@ func (m *mockStore) CountProxiesByAccountID(ctx context.Context, accountID strin
 func (m *mockStore) IsClusterAddressConflicting(ctx context.Context, clusterAddress, accountID string) (bool, error) {
 	if m.isClusterAddressConflictingFunc != nil {
 		return m.isClusterAddressConflictingFunc(ctx, clusterAddress, accountID)
+	}
+	return false, nil
+}
+func (m *mockStore) HasGatewayPinnedByOtherAccount(ctx context.Context, host, accountID string) (bool, error) {
+	if m.hasGatewayPinnedByOtherAccountFunc != nil {
+		return m.hasGatewayPinnedByOtherAccountFunc(ctx, host, accountID)
 	}
 	return false, nil
 }
@@ -337,4 +344,66 @@ func TestGetActiveClusterAddressesForAccount(t *testing.T) {
 	result, err := mgr.GetActiveClusterAddressesForAccount(context.Background(), "acc-123")
 	require.NoError(t, err)
 	assert.Equal(t, expected, result)
+}
+
+// TestIsClusterAddressAvailableConsidersGatewayPins pins that a proxy row is
+// not the only claim on an address.
+//
+// An agent network gateway pinned to the address by another account is
+// immutable and is served by whichever proxy declares that address, so a proxy
+// from a different account taking it strands the pin — the mapping paths never
+// hand an account-scoped proxy another account's mappings. Refusing the later
+// claimant is what makes the bootstrap-time ownership check hold over time
+// rather than only at the instant it runs: without this, an address a gateway
+// pinned while no proxy served it could be taken a moment, or a week, later.
+func TestIsClusterAddressAvailableConsidersGatewayPins(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name        string
+		conflicting bool
+		pinned      bool
+		available   bool
+	}{
+		{name: "free address", available: true},
+		{name: "claimed by a proxy", conflicting: true},
+		{name: "pinned by another account's gateway", pinned: true},
+		{name: "claimed both ways", conflicting: true, pinned: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st := &mockStore{
+				isClusterAddressConflictingFunc: func(context.Context, string, string) (bool, error) {
+					return tt.conflicting, nil
+				},
+				hasGatewayPinnedByOtherAccountFunc: func(context.Context, string, string) (bool, error) {
+					return tt.pinned, nil
+				},
+			}
+			m, err := NewManager(st, noop.NewMeterProvider().Meter(""))
+			require.NoError(t, err)
+
+			available, err := m.IsClusterAddressAvailable(ctx, "gw.example.com", "account1")
+			require.NoError(t, err)
+			assert.Equal(t, tt.available, available)
+		})
+	}
+}
+
+// TestIsClusterAddressAvailableSurfacesGatewayPinError pins that a failed pin
+// lookup refuses the claim rather than falling through to available: this runs
+// on the proxy-connect path, where "could not tell" must not read as "yes".
+func TestIsClusterAddressAvailableSurfacesGatewayPinError(t *testing.T) {
+	st := &mockStore{
+		hasGatewayPinnedByOtherAccountFunc: func(context.Context, string, string) (bool, error) {
+			return false, errors.New("db down")
+		},
+	}
+	m, err := NewManager(st, noop.NewMeterProvider().Meter(""))
+	require.NoError(t, err)
+
+	available, err := m.IsClusterAddressAvailable(context.Background(), "gw.example.com", "account1")
+	require.Error(t, err)
+	assert.False(t, available)
 }

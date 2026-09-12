@@ -3080,6 +3080,21 @@ func (mr *MockStoreMockRecorder) HasForeignAccountProxyAtHost(ctx, host, account
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasForeignAccountProxyAtHost", reflect.TypeOf((*MockStore)(nil).HasForeignAccountProxyAtHost), ctx, host, accountID)
 }
 
+// HasGatewayPinnedByOtherAccount mocks base method.
+func (m *MockStore) HasGatewayPinnedByOtherAccount(ctx context.Context, host, accountID string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HasGatewayPinnedByOtherAccount", ctx, host, accountID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// HasGatewayPinnedByOtherAccount indicates an expected call of HasGatewayPinnedByOtherAccount.
+func (mr *MockStoreMockRecorder) HasGatewayPinnedByOtherAccount(ctx, host, accountID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasGatewayPinnedByOtherAccount", reflect.TypeOf((*MockStore)(nil).HasGatewayPinnedByOtherAccount), ctx, host, accountID)
+}
+
 // IncrementAgentNetworkConsumption mocks base method.
 func (m *MockStore) IncrementAgentNetworkConsumption(ctx context.Context, accountID string, kind types.ConsumptionDimension, dimID string, windowSeconds int64, windowStart time.Time, tokensIn, tokensOut int64, costUSD float64) error {
 	m.ctrl.T.Helper()

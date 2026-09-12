@@ -26,6 +26,7 @@ type store interface {
 	GetProxyByAccountID(ctx context.Context, accountID string) (*proxy.Proxy, error)
 	CountProxiesByAccountID(ctx context.Context, accountID string) (int64, error)
 	IsClusterAddressConflicting(ctx context.Context, clusterAddress, accountID string) (bool, error)
+	HasGatewayPinnedByOtherAccount(ctx context.Context, host, accountID string) (bool, error)
 	DeleteAccountCluster(ctx context.Context, clusterAddress, accountID string) error
 }
 
@@ -169,12 +170,36 @@ func (m *Manager) CountAccountProxies(ctx context.Context, accountID string) (in
 	return m.store.CountProxiesByAccountID(ctx, accountID)
 }
 
+// IsClusterAddressAvailable reports whether the account may claim this cluster
+// address.
+//
+// Two kinds of claim make an address unavailable, and both are checked here so
+// that no caller can consult one and forget the other. A proxy row is the
+// obvious one. An agent network gateway pinned to the address by another
+// account is the second: that pin is immutable and is served by whichever
+// proxy declares the address, so letting a proxy from a different account take
+// it strands the pin — an account-scoped proxy never receives another
+// account's mappings. An account claiming an address its own gateway is pinned
+// to is the intended order, not a conflict: pin first, deploy the proxy after.
 func (m *Manager) IsClusterAddressAvailable(ctx context.Context, clusterAddress, accountID string) (bool, error) {
 	conflicting, err := m.store.IsClusterAddressConflicting(ctx, clusterAddress, accountID)
 	if err != nil {
 		return false, err
 	}
-	return !conflicting, nil
+	if conflicting {
+		return false, nil
+	}
+
+	pinned, err := m.store.HasGatewayPinnedByOtherAccount(ctx, clusterAddress, accountID)
+	if err != nil {
+		return false, err
+	}
+	if pinned {
+		log.WithContext(ctx).Infof("cluster address %s is pinned as another account's agent network gateway, refusing claim by account %s", clusterAddress, accountID)
+		return false, nil
+	}
+
+	return true, nil
 }
 
 func (m *Manager) DeleteAccountCluster(ctx context.Context, clusterAddress, accountID string) error {

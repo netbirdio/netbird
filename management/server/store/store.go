@@ -374,6 +374,7 @@ type Store interface {
 	GetAgentNetworkSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*agentNetworkTypes.Settings, error)
 	GetAllAgentNetworkSettings(ctx context.Context, lockStrength LockingStrength) ([]*agentNetworkTypes.Settings, error)
 	GetAgentNetworkSettingsByProxyAddress(ctx context.Context, lockStrength LockingStrength, proxyAddress string) ([]*agentNetworkTypes.Settings, error)
+	HasGatewayPinnedByOtherAccount(ctx context.Context, host, accountID string) (bool, error)
 	GetAgentNetworkSettingsByDomain(ctx context.Context, lockStrength LockingStrength, domain string) (*agentNetworkTypes.Settings, error)
 	CreateAgentNetworkSettings(ctx context.Context, settings *agentNetworkTypes.Settings) error
 	SaveAgentNetworkSettings(ctx context.Context, settings *agentNetworkTypes.Settings) error

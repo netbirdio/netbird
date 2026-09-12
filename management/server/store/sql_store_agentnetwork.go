@@ -315,6 +315,32 @@ func (s *SqlStore) GetAllAgentNetworkSettings(ctx context.Context, lockStrength 
 	return settings, nil
 }
 
+// HasGatewayPinnedByOtherAccount reports whether an account other than the
+// given one has its agent network gateway pinned to this host.
+//
+// A pin is a claim on the host, the same way a proxy row is: the pinned
+// endpoint is served by whichever proxy declares that address, and an
+// account-scoped proxy only ever receives its own account's mappings. A proxy
+// from a different account taking the address therefore cannot serve the pin
+// and silently strands it. The pin is immutable, so the account that holds it
+// cannot move out of the way — the later claimant is the one to refuse.
+//
+// Both sides are canonical (settings normalize on write, proxy addresses
+// canonicalize at connect), so the match is exact and uses the proxy_address
+// index.
+func (s *SqlStore) HasGatewayPinnedByOtherAccount(ctx context.Context, host, accountID string) (bool, error) {
+	var count int64
+	result := s.db.
+		Model(&agentNetworkTypes.Settings{}).
+		Where("proxy_address = ? AND account_id != ?", host, accountID).
+		Count(&count)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to check agent network gateway pins by proxy address: %v", result.Error)
+		return false, status.Errorf(status.Internal, "check agent network gateway pins")
+	}
+	return count > 0, nil
+}
+
 // GetAgentNetworkSettingsByProxyAddress returns every Settings row whose
 // gateway is served by the proxy declaring the given cluster address. Used by
 // cluster-scoped synthesis to find the accounts a shared proxy serves.
