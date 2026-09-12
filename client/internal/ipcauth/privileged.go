@@ -22,12 +22,12 @@ const (
 )
 
 // The identity of the process evaluating callers, captured once because it cannot
-// change. selfKnown is false when it could not be read, in which case nothing is
-// ever treated as this process. selfMayDelegate additionally requires this
-// process to be unprivileged: see IsPrivilegedCaller.
+// change. It stays the zero Identity when it could not be read, and the zero
+// Identity is not Known, so nothing is ever treated as this process.
+// selfMayDelegate additionally requires this process to be unprivileged: see
+// IsPrivilegedCaller.
 var (
 	selfIdentity    Identity
-	selfKnown       bool
 	selfMayDelegate bool
 	// selfPID is this process's PID, used to recognise the daemon dialling itself.
 	selfPID = os.Getpid()
@@ -38,7 +38,7 @@ func init() {
 	if err != nil {
 		return
 	}
-	selfIdentity, selfKnown = id, true
+	selfIdentity = id
 	// Only an unprivileged daemon delegates its authority to its own identity.
 	// When it is root or LocalSystem, sharing its identity does not mean sharing
 	// its power: on Windows a filtered and a full token carry the same SID, so
@@ -52,7 +52,12 @@ func init() {
 // runs inside the daemon and re-dials it locally, so this is what distinguishes
 // the gateway from any other caller, whatever user the daemon runs as.
 func IsDaemonSelf(id Identity) bool {
-	if !selfKnown || id.IsWindows() != selfIdentity.IsWindows() {
+	// An identity the kernel did not vouch for is nobody, least of all us: the
+	// zero Identity carries uid 0, which would otherwise match a root daemon.
+	if !id.Known() || !selfIdentity.Known() {
+		return false
+	}
+	if id.IsWindows() != selfIdentity.IsWindows() {
 		return false
 	}
 	if id.IsWindows() {
@@ -85,7 +90,7 @@ func IsPrivilegedCaller(id Identity) bool {
 // operation, because on such a host root is neither required nor necessarily
 // available.
 func SelfDelegatesTo() (Identity, bool) {
-	if !selfKnown || !selfMayDelegate {
+	if !selfIdentity.Known() || !selfMayDelegate {
 		return Identity{}, false
 	}
 	return selfIdentity, true

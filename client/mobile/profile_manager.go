@@ -153,7 +153,7 @@ func (pm *ProfileManager) AddProfile(displayName string) (*Profile, error) {
 	if err := pm.checkProfilesAllowed(); err != nil {
 		return nil, err
 	}
-	profile, err := pm.serviceMgr.AddProfile(displayName, pm.username)
+	profile, err := pm.serviceMgr.AddProfile(displayName, pm.username, nil)
 	if err != nil {
 		return nil, fmt.Errorf("add profile: %w", err)
 	}

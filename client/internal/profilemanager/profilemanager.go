@@ -8,6 +8,7 @@ import (
 	"sync"
 	"unicode"
 
+	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -30,6 +31,7 @@ type Profile struct {
 	// loader so callers do not have to reconstruct it from ID + dir.
 	Path     string
 	IsActive bool
+	Owners   []ipcauth.Principal
 }
 
 func (p *Profile) FilePath() (string, error) {

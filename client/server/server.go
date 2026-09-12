@@ -2303,7 +2303,11 @@ func (s *Server) AddProfile(ctx context.Context, msg *proto.AddProfileRequest) (
 		return nil, gstatus.Errorf(codes.InvalidArgument, "profile name and username must be provided")
 	}
 
-	created, err := s.profileManager.AddProfile(msg.ProfileName, msg.Username)
+	callerId, ok := ipcauth.CallerIdentity(ctx)
+	if !ok {
+		return nil, fmt.Errorf("failed to get identity from context")
+	}
+	created, err := s.profileManager.AddProfile(msg.ProfileName, msg.Username, &callerId)
 	if err != nil {
 		log.Errorf("failed to create profile: %v", err)
 		return nil, fmt.Errorf("failed to create profile: %w", err)
@@ -2722,6 +2726,35 @@ func (s *Server) authorizeAndPrepareLogin(callerCtx context.Context, msg *proto.
 	}
 
 	return ctx, activeProf, nil
+}
+
+// SessionHolder returns the principal that owns the active profile while it is
+// connected. The owner is a config value, so it stays a principal and is never
+// turned into an identity.
+//
+// Only the first owner is read. The field is a list on disk so multiple owners
+// can be added later without a format change, but multiple owners are not
+// supported yet.
+func (s *Server) SessionHolder() (ipcauth.Principal, bool) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if !s.clientRunning || len(s.config.Owners) == 0 {
+		return ipcauth.Principal{}, false
+	}
+
+	// The zero Principal matches nobody, so an unparseable owner locks the
+	// session rather than opening it.
+	principal, ok := ipcauth.ParsePrincipal(s.config.Owners[0])
+	if !ok {
+		log.Warnf("active profile has an unparseable owner %q", s.config.Owners[0])
+	}
+	return principal, true
+}
+
+func (s *Server) OwnsProfile(id ipcauth.Identity, handle string) bool {
+	// TODO
+	return false
 }
 
 func persistLoginOverrides(activeProf *profilemanager.ActiveProfileState, managementURL string, preSharedKey *string) error {
