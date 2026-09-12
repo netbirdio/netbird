@@ -74,7 +74,9 @@
 		</ComponentGroup>
 
 		<util:CloseApplication Id="CloseNetBird" CloseMessage="no" Target="netbird.exe" RebootPrompt="no" />
-		<util:CloseApplication Id="CloseNetBirdUI" CloseMessage="no" Target="netbird-ui.exe" RebootPrompt="no" TerminateProcess="0" />
+
+		<SetProperty Id="WixQuietExecCmdLine" Value="&quot;[System64Folder]taskkill.exe&quot; /F /IM netbird-ui.exe" Before="KillNetBirdUI" Sequence="execute" />
+		<CustomAction Id="KillNetBirdUI" BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)" DllEntry="WixQuietExec" Execute="immediate" Return="ignore" />
 
 		<!-- WebView2 evergreen runtime detection.
 		     Probe both the per-machine and per-user EdgeUpdate keys; if either
@@ -104,6 +106,7 @@
 			Return="check" />
 
 		<InstallExecuteSequence>
+			<Custom Action="KillNetBirdUI" Before="InstallValidate" />
 			<Custom Action="InstallWebView2" Before="InstallFinalize"
 				Condition="NOT WEBVIEW2_VERSION_HKLM AND NOT WEBVIEW2_VERSION_HKCU AND NOT REMOVE" />
 		</InstallExecuteSequence>
