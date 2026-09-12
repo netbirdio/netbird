@@ -6,6 +6,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 )
 
-func (e *Engine) newStdNet() (*stdnet.Net, error) {
+func (e *Engine) newStdNet() *stdnet.Net {
 	return stdnet.NewNet(e.clientCtx, e.config.IFaceBlackList)
 }

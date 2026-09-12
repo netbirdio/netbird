@@ -406,10 +406,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 	for n, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			peerPrivateKey, _ := wgtypes.GeneratePrivateKey()
-			newNet, err := stdnet.NewNet(context.Background(), nil)
-			if err != nil {
-				t.Fatal(err)
-			}
+			newNet := stdnet.NewNet(context.Background(), nil)
 			opts := iface.WGIFaceOpts{
 				IFaceName:    fmt.Sprintf("utun43%d", n),
 				Address:      wgaddr.MustParseWGAddress("100.65.65.2/24"),

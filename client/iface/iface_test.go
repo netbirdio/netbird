@@ -44,10 +44,7 @@ func TestWGIface_UpdateAddr(t *testing.T) {
 	ifaceName := fmt.Sprintf("utun%d", WgIntNumber+4)
 	addr := "100.64.0.1/8"
 	wgPort := 33100
-	newNet, err := stdnet.NewNet(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	newNet := stdnet.NewNet(context.Background(), nil)
 
 	opts := WGIFaceOpts{
 		IFaceName:    ifaceName,
@@ -127,10 +124,7 @@ func getIfaceAddrs(ifaceName string) ([]net.Addr, error) {
 func Test_CreateInterface(t *testing.T) {
 	ifaceName := fmt.Sprintf("utun%d", WgIntNumber+1)
 	wgIP := "10.99.99.1/32"
-	newNet, err := stdnet.NewNet(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	newNet := stdnet.NewNet(context.Background(), nil)
 	opts := WGIFaceOpts{
 		IFaceName:    ifaceName,
 		Address:      wgaddr.MustParseWGAddress(wgIP),
@@ -170,10 +164,7 @@ func Test_Close(t *testing.T) {
 	ifaceName := fmt.Sprintf("utun%d", WgIntNumber+2)
 	wgIP := "10.99.99.2/32"
 	wgPort := 33100
-	newNet, err := stdnet.NewNet(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	newNet := stdnet.NewNet(context.Background(), nil)
 
 	opts := WGIFaceOpts{
 		IFaceName:    ifaceName,
@@ -215,10 +206,7 @@ func TestRecreation(t *testing.T) {
 			ifaceName := fmt.Sprintf("utun%d", WgIntNumber+2)
 			wgIP := "10.99.99.2/32"
 			wgPort := 33100
-			newNet, err := stdnet.NewNet(context.Background(), nil)
-			if err != nil {
-				t.Fatal(err)
-			}
+			newNet := stdnet.NewNet(context.Background(), nil)
 
 			opts := WGIFaceOpts{
 				IFaceName:    ifaceName,
@@ -288,10 +276,7 @@ func Test_ConfigureInterface(t *testing.T) {
 	ifaceName := fmt.Sprintf("utun%d", WgIntNumber+3)
 	wgIP := "10.99.99.5/30"
 	wgPort := 33100
-	newNet, err := stdnet.NewNet(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	newNet := stdnet.NewNet(context.Background(), nil)
 	opts := WGIFaceOpts{
 		IFaceName:    ifaceName,
 		Address:      wgaddr.MustParseWGAddress(wgIP),
@@ -343,10 +328,7 @@ func Test_ConfigureInterface(t *testing.T) {
 func Test_UpdatePeer(t *testing.T) {
 	ifaceName := fmt.Sprintf("utun%d", WgIntNumber+4)
 	wgIP := "10.99.99.9/30"
-	newNet, err := stdnet.NewNet(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	newNet := stdnet.NewNet(context.Background(), nil)
 
 	opts := WGIFaceOpts{
 		IFaceName:    ifaceName,
@@ -413,10 +395,7 @@ func Test_UpdatePeer(t *testing.T) {
 func Test_RemovePeer(t *testing.T) {
 	ifaceName := fmt.Sprintf("utun%d", WgIntNumber+4)
 	wgIP := "10.99.99.13/30"
-	newNet, err := stdnet.NewNet(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	newNet := stdnet.NewNet(context.Background(), nil)
 
 	opts := WGIFaceOpts{
 		IFaceName:    ifaceName,
@@ -477,10 +456,7 @@ func Test_ConnectPeers(t *testing.T) {
 	peer2wgPort := 33200
 
 	keepAlive := 1 * time.Second
-	newNet, err := stdnet.NewNet(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	newNet := stdnet.NewNet(context.Background(), nil)
 
 	guid := fmt.Sprintf("{%s}", uuid.New().String())
 	device.CustomWindowsGUIDString = strings.ToLower(guid)
@@ -516,10 +492,7 @@ func Test_ConnectPeers(t *testing.T) {
 	guid = fmt.Sprintf("{%s}", uuid.New().String())
 	device.CustomWindowsGUIDString = strings.ToLower(guid)
 
-	newNet, err = stdnet.NewNet(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	newNet = stdnet.NewNet(context.Background(), nil)
 
 	optsPeer2 := WGIFaceOpts{
 		IFaceName:    peer2ifaceName,
