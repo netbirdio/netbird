@@ -36,7 +36,7 @@ export default function FancyToggleSwitch({
 
     if (loading) {
         const shimmer =
-            "text-transparent select-none rounded bg-[#25282d] box-decoration-clone animate-pulse";
+            "text-transparent select-none rounded bg-nb-gray-920 box-decoration-clone animate-pulse";
         return (
             <div
                 role={"status"}
@@ -58,7 +58,9 @@ export default function FancyToggleSwitch({
                     <div className={"mt-2 pr-1"}>
                         <div
                             aria-hidden={"true"}
-                            className={"h-[24px] w-[44px] animate-pulse rounded-full bg-[#25282d]"}
+                            className={
+                                "h-[24px] w-[44px] animate-pulse rounded-full bg-nb-gray-920"
+                            }
                         />
                     </div>
                 </div>

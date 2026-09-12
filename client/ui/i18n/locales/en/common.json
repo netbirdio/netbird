@@ -759,6 +759,26 @@
         "message": "No languages match.",
         "description": "Shown when no languages match the search."
     },
+    "settings.general.theme.label": {
+        "message": "Theme",
+        "description": "Label for the appearance/theme picker."
+    },
+    "settings.general.theme.help": {
+        "message": "Choose light or dark, or follow your system appearance.",
+        "description": "Helper text for the theme picker."
+    },
+    "settings.general.theme.system": {
+        "message": "System",
+        "description": "Theme option: follow the OS appearance."
+    },
+    "settings.general.theme.light": {
+        "message": "Light",
+        "description": "Theme option: light appearance."
+    },
+    "settings.general.theme.dark": {
+        "message": "Dark",
+        "description": "Theme option: dark appearance."
+    },
     "settings.general.management.label": {
         "message": "Management Server",
         "description": "Label for the management-server selector."

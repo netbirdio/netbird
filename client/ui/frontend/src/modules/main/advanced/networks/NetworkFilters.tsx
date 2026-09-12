@@ -43,7 +43,7 @@ export const NetworkFilters = ({ value, onChange, counts, disabled }: Props) => 
                     "inline-flex h-9 items-center gap-1.5 rounded-md px-2",
                     "text-sm text-nb-gray-200",
                     "outline-none transition-colors duration-150 hover:bg-nb-gray-900 data-[state=open]:bg-nb-gray-900",
-                    "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
+                    "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                     "disabled:pointer-events-none disabled:opacity-50",
                     "wails-no-draggable cursor-default",
                 )}

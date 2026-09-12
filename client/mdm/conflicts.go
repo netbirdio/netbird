@@ -1,6 +1,10 @@
 package mdm
 
-import "net/url"
+import (
+	"net/url"
+
+	"github.com/netbirdio/netbird/util"
+)
 
 // PreSharedKeyRedactedSentinel is the redaction mask returned in place of a
 // real pre-shared key; an incoming value equal to it is a round-trip echo,
@@ -44,8 +48,9 @@ func ConflictStringPtr(key string, p *string) ConflictCheck {
 	}
 }
 
-// ConflictURL builds a ConflictCheck for a URL-typed MDM key; both sides are
-// normalized via CanonicalURL before comparison.
+// ConflictURL builds a ConflictCheck for a URL-typed MDM key. The two sides are
+// compared as the endpoints they address, not as strings: see
+// util.SameServiceURL.
 func ConflictURL(key, got string) ConflictCheck {
 	return ConflictCheck{
 		Key: key,
@@ -54,7 +59,7 @@ func ConflictURL(key, got string) ConflictCheck {
 				return true
 			}
 			want, ok := pol.GetString(key)
-			return ok && CanonicalURL(want) == CanonicalURL(got)
+			return ok && util.SameServiceURLStrings(want, got)
 		},
 	}
 }

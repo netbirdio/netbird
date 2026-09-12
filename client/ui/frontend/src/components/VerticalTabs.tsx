@@ -46,12 +46,12 @@ const Trigger = forwardRef<HTMLButtonElement, TriggerProps>(function VerticalTab
         <Tabs.Trigger
             ref={ref}
             className={cn(
-                "group flex w-full cursor-default items-center gap-3 rounded-lg px-2 py-2.5 text-left outline-none",
+                "group flex w-full cursor-default items-center gap-3 rounded-md border border-transparent px-2 py-2.5 text-left outline-none dark:border-0",
                 "transition-colors duration-150",
-                "data-[state=active]:bg-nb-gray-930",
-                "data-[state=inactive]:hover:bg-nb-gray-935",
+                "data-[state=active]:border-nb-gray-800 data-[state=active]:bg-white dark:data-[state=active]:bg-nb-gray-930",
+                "data-[state=inactive]:hover:bg-nb-gray-850 dark:data-[state=inactive]:hover:bg-nb-gray-935",
                 isFocusVisible &&
-                    "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
+                    "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                 className,
             )}
             {...props}
@@ -61,13 +61,15 @@ const Trigger = forwardRef<HTMLButtonElement, TriggerProps>(function VerticalTab
                 aria-hidden={"true"}
                 className={cn(
                     "ml-2 shrink-0 transition-colors duration-150",
-                    "text-nb-gray-400 group-data-[state=active]:text-nb-gray-100",
+                    "text-nb-gray-350 dark:text-nb-gray-400",
+                    "group-data-[state=active]:text-nb-gray-100",
                 )}
             />
             <span
                 className={cn(
                     "min-w-0 truncate text-sm font-medium transition-colors duration-150",
-                    "text-nb-gray-400 group-data-[state=active]:text-nb-gray-100",
+                    "text-nb-gray-350 dark:text-nb-gray-400",
+                    "group-data-[state=active]:font-semibold group-data-[state=active]:text-nb-gray-100 dark:group-data-[state=active]:font-medium",
                 )}
             >
                 {title}
