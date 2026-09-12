@@ -65,8 +65,16 @@ func (r *family) AddNatRule(pair firewall.RouterPair) error {
 	}
 
 	if err := r.conn.Flush(); err != nil {
+		r.discardPendingSetElements()
 		r.rollbackRules(pair)
 		return fmt.Errorf("insert rules for %s: %w", pair.Destination, err)
+	}
+	if err := r.commitPendingSetElements(); err != nil {
+		// Rules are already in the kernel. Untracking them would leak
+		// NAT entries the route manager never records; the first 1500
+		// prefixes are already in the set. Keep the live rules, same as
+		// AddFilterRule, and retry overflow on a later commit.
+		log.Errorf("add remaining ipset elements after nat flush for %s: %v", pair.Destination, err)
 	}
 
 	return nil

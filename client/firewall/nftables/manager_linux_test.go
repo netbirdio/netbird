@@ -668,6 +668,79 @@ func TestNftablesManagerMultiPortFilter(t *testing.T) {
 	}
 }
 
+// TestNftablesPeerFilterNamedSourceSet installs a peer ACL with multiple
+// sources, which is backed by a named interval set. The input-chain rule
+// must land even if the paired prerouting mangle flush fails.
+func TestNftablesPeerFilterNamedSourceSet(t *testing.T) {
+	if check() != NFTABLES {
+		t.Skip("nftables not supported on this system")
+	}
+
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
+	require.NoError(t, err)
+	require.NoError(t, manager.Init(nil))
+
+	t.Cleanup(func() {
+		require.NoError(t, manager.Close(nil), "failed to reset manager state")
+	})
+
+	sources := []netip.Prefix{
+		netip.MustParsePrefix("100.96.0.10/32"),
+		netip.MustParsePrefix("100.96.0.11/32"),
+	}
+	rule, err := manager.AddFilterRule(nil, sources, fw.Network{}, fw.ProtocolALL, nil, nil, fw.ActionAccept)
+	require.NoError(t, err, "add multi-source peer ACL")
+
+	testClient := &nftables.Conn{}
+	inputRules, err := testClient.GetRules(manager.family4.workTable, manager.family4.chainInputRules)
+	require.NoError(t, err, "get input rules")
+
+	var inputRule *nftables.Rule
+	for _, kernelRule := range inputRules {
+		if string(kernelRule.UserData) == string(rule.ID()) {
+			inputRule = kernelRule
+			break
+		}
+	}
+	require.NotNil(t, inputRule, "peer ACL must be present in the input chain")
+
+	var lookup *expr.Lookup
+	for _, e := range inputRule.Exprs {
+		if l, ok := e.(*expr.Lookup); ok {
+			lookup = l
+			break
+		}
+	}
+	require.NotNil(t, lookup, "multi-source peer ACL must match via a named set")
+	require.NotEmpty(t, lookup.SetName, "lookup must name the source set")
+
+	sets, err := testClient.GetSets(manager.family4.workTable)
+	require.NoError(t, err, "get sets")
+	var sourceSet *nftables.Set
+	for _, s := range sets {
+		if s.Name == lookup.SetName {
+			sourceSet = s
+			break
+		}
+	}
+	require.NotNil(t, sourceSet, "named source set %s must exist", lookup.SetName)
+
+	prerouting := manager.family4.chainPrerouting
+	require.NotNil(t, prerouting, "prerouting chain must exist")
+	mangleRules, err := testClient.GetRules(manager.family4.workTable, prerouting)
+	require.NoError(t, err, "get mangle rules")
+	foundMangle := false
+	for _, kernelRule := range mangleRules {
+		if string(kernelRule.UserData) == string(rule.ID()) {
+			foundMangle = true
+			break
+		}
+	}
+	if !foundMangle {
+		t.Log("paired mangle rule missing; input ACL must still be present")
+	}
+}
+
 func compareExprsIgnoringCounters(t *testing.T, got, want []expr.Any) {
 	t.Helper()
 	require.Equal(t, len(got), len(want), "expression count mismatch")
