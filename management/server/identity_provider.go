@@ -265,6 +265,8 @@ func connectorConfigToIdentityProvider(conn *dex.ConnectorConfig, accountID stri
 		Issuer:       conn.Issuer,
 		ClientID:     conn.ClientID,
 		ClientSecret: conn.ClientSecret,
+		PKCE:         conn.PKCE,
+		JWKSURL:      conn.JWKSURL,
 	}
 }
 
@@ -277,6 +279,8 @@ func identityProviderToConnectorConfig(idpConfig *types.IdentityProvider) *dex.C
 		Issuer:       idpConfig.Issuer,
 		ClientID:     idpConfig.ClientID,
 		ClientSecret: idpConfig.ClientSecret,
+		PKCE:         idpConfig.PKCE,
+		JWKSURL:      idpConfig.JWKSURL,
 	}
 }
 
