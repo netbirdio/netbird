@@ -1,24 +1,43 @@
 {{ template "header.html" . }}
 
 <div class="nb-card">
+    {{ if .DeviceUserCode }}
+    <h1 class="nb-heading">Authorize Device</h1>
+    <p class="nb-subheading">
+        {{ .Client }} wants to sign in. Confirm this code matches the code shown on your device.
+    </p>
+    <div class="nb-device-code" aria-label="Device verification code">{{ .DeviceUserCode }}</div>
+    <p class="nb-warning">
+        Only continue if you started this sign-in and the code matches your device.
+    </p>
+    {{ else }}
     <h1 class="nb-heading">Grant Access</h1>
     <p class="nb-subheading">{{ .Client }} wants to access your account</p>
+    {{ end }}
 
     <form method="post">
-        <input type="hidden" name="req" value="{{ .ReqID }}"/>
+        <input type="hidden" name="req" value="{{ .AuthReqID }}"/>
         <input type="hidden" name="approval" value="approve"/>
         <button type="submit" class="nb-btn">
+            {{ if .DeviceUserCode }}
+            Authorize Device
+            {{ else }}
             Allow Access
+            {{ end }}
         </button>
     </form>
 
     <div class="nb-divider"></div>
 
     <form method="post">
-        <input type="hidden" name="req" value="{{ .ReqID }}"/>
+        <input type="hidden" name="req" value="{{ .AuthReqID }}"/>
         <input type="hidden" name="approval" value="rejected"/>
-        <button type="submit" class="nb-btn-connector" style="margin-bottom:0">
+        <button type="submit" class="{{ if .DeviceUserCode }}nb-btn-deny{{ else }}nb-btn-connector{{ end }}" style="margin-bottom:0">
+            {{ if .DeviceUserCode }}
+            Deny
+            {{ else }}
             Deny Access
+            {{ end }}
         </button>
     </form>
 </div>
