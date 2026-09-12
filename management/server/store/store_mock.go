@@ -3065,19 +3065,19 @@ func (mr *MockStoreMockRecorder) HasActiveProxyAtClusterAddress(ctx, clusterAddr
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasActiveProxyAtClusterAddress", reflect.TypeOf((*MockStore)(nil).HasActiveProxyAtClusterAddress), ctx, clusterAddress)
 }
 
-// HasProxyOutsideAccountAtHost mocks base method.
-func (m *MockStore) HasProxyOutsideAccountAtHost(ctx context.Context, host, accountID string) (bool, error) {
+// HasForeignAccountProxyAtHost mocks base method.
+func (m *MockStore) HasForeignAccountProxyAtHost(ctx context.Context, host, accountID string) (bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "HasProxyOutsideAccountAtHost", ctx, host, accountID)
+	ret := m.ctrl.Call(m, "HasForeignAccountProxyAtHost", ctx, host, accountID)
 	ret0, _ := ret[0].(bool)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// HasProxyOutsideAccountAtHost indicates an expected call of HasProxyOutsideAccountAtHost.
-func (mr *MockStoreMockRecorder) HasProxyOutsideAccountAtHost(ctx, host, accountID any) *gomock.Call {
+// HasForeignAccountProxyAtHost indicates an expected call of HasForeignAccountProxyAtHost.
+func (mr *MockStoreMockRecorder) HasForeignAccountProxyAtHost(ctx, host, accountID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasProxyOutsideAccountAtHost", reflect.TypeOf((*MockStore)(nil).HasProxyOutsideAccountAtHost), ctx, host, accountID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasForeignAccountProxyAtHost", reflect.TypeOf((*MockStore)(nil).HasForeignAccountProxyAtHost), ctx, host, accountID)
 }
 
 // IncrementAgentNetworkConsumption mocks base method.

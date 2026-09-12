@@ -6441,22 +6441,27 @@ func (s *SqlStore) HasActiveProxyAtClusterAddress(ctx context.Context, clusterAd
 // match is exact, and stays exact so it uses the cluster_address index:
 // addresses are canonicalised where they are written (canonicalProxyAddress on
 // the proxy-connect path), so one host has one spelling in this column.
-// HasProxyOutsideAccountAtHost reports the same thing as
-// IsClusterAddressConflicting, folding case on both sides.
+// HasForeignAccountProxyAtHost reports whether a proxy owned by another
+// account declares this host, folding case on both sides.
 //
-// The two exist separately because their callers differ in cost and in what
-// they can assume. IsClusterAddressConflicting runs on every account-scoped
-// proxy connect, where both sides are canonical and the match must stay exact
-// to use the cluster_address index. This one runs once per account, when an
-// agent network bootstraps, and is the only thing standing between that
-// account and pinning its immutable endpoint to a cluster somebody else runs
-// — so it also has to see a row written before addresses were canonicalized,
-// which is worth a scan on a path taken once.
-func (s *SqlStore) HasProxyOutsideAccountAtHost(ctx context.Context, host, accountID string) (bool, error) {
+// Shared proxies (account_id IS NULL) are deliberately not foreign: they are
+// what most accounts pin their gateway to. What this catches is two accounts
+// claiming one hostname, which IsClusterAddressConflicting prevents going
+// forward but cannot see for a row written before addresses were
+// canonicalized.
+//
+// It folds case where IsClusterAddressConflicting stays exact because the
+// callers differ in cost and in what they can assume. That one runs on every
+// account-scoped proxy connect, where both sides are canonical and the match
+// must stay exact to use the cluster_address index. This one runs once per
+// account, when an agent network bootstraps, and is the only thing standing
+// between that account and pinning its immutable endpoint to a cluster
+// somebody else runs — worth a scan on a path taken once.
+func (s *SqlStore) HasForeignAccountProxyAtHost(ctx context.Context, host, accountID string) (bool, error) {
 	var count int64
 	result := s.db.
 		Model(&proxy.Proxy{}).
-		Where("LOWER(cluster_address) = LOWER(?) AND (account_id IS NULL OR account_id != ?)", host, accountID).
+		Where("LOWER(cluster_address) = LOWER(?) AND account_id IS NOT NULL AND account_id != ?", host, accountID).
 		Count(&count)
 	if result.Error != nil {
 		return false, status.Errorf(status.Internal, "check proxy host ownership: %v", result.Error)

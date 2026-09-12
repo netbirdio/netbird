@@ -374,6 +374,51 @@ func TestCreateSettingsRejectsForeignCluster(t *testing.T) {
 	}
 }
 
+// TestCreateSettingsRejectsHostAnotherAccountClaims pins that ownership is
+// decided before the account's own view, not after it.
+//
+// Two accounts holding rows for one hostname is the ambiguity the connect-time
+// conflict check prevents going forward and cannot see for a row written
+// before addresses were canonicalized. Deciding on the account's own view
+// first would skip the ownership question exactly when the account has a row
+// of its own — which is when a collision is worth catching — and the endpoint
+// pinned here cannot be moved afterwards.
+func TestCreateSettingsRejectsHostAnotherAccountClaims(t *testing.T) {
+	ctx := context.Background()
+	f := newBootstrapFixture(t)
+	// account1's own row is canonical and perfectly serviceable on its own.
+	f.seedProxy(t, "own", "account1", "shared.example.com", ptrTo(true))
+	// account2 holds a legacy, non-canonical spelling of the same host.
+	f.seedProxy(t, "foreign", "account2", "Shared.Example.com", ptrTo(true))
+	f.expectPermission("account1", "user1", modules.AgentNetworkSettings, operations.Create, true)
+
+	_, err := f.createSettings(ctx, "account1", "user1", "shared.example.com", "")
+	require.Error(t, err, "a host another account also claims must be refused")
+	var sErr *status.Error
+	require.ErrorAs(t, err, &sErr)
+	assert.Equal(t, status.InvalidArgument, sErr.Type())
+	assert.Contains(t, err.Error(), "not available to this account")
+
+	_, err = f.store.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, "account1")
+	assert.Error(t, err, "no row may be left behind by a rejected bootstrap")
+}
+
+// TestCreateSettingsAcceptsSharedClusterAlongsideOwnProxy pins the other side
+// of that ordering: a shared (NetBird-operated) proxy is not foreign, so
+// asking the ownership question first must not refuse the cluster most
+// accounts pin to.
+func TestCreateSettingsAcceptsSharedClusterAlongsideOwnProxy(t *testing.T) {
+	ctx := context.Background()
+	f := newBootstrapFixture(t)
+	f.seedProxy(t, "shared", "", "eu.proxy.example.com", ptrTo(true))
+	f.seedProxy(t, "own", "account1", "eu.proxy.example.com", ptrTo(true))
+	f.expectPermission("account1", "user1", modules.AgentNetworkSettings, operations.Create, true)
+
+	created, err := f.createSettings(ctx, "account1", "user1", "eu.proxy.example.com", "")
+	require.NoError(t, err, "a shared cluster must stay pinnable")
+	assert.Equal(t, "eu.proxy.example.com", created.ProxyAddress)
+}
+
 // TestCreateSettingsAcceptsOwnPrivateCluster pins the BYOP happy path: the
 // account's own cluster with a connected embedded proxy is a valid pin.
 func TestCreateSettingsAcceptsOwnPrivateCluster(t *testing.T) {

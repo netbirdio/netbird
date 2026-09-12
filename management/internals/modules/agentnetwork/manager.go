@@ -1083,24 +1083,29 @@ func (m *managerImpl) bootstrapSelfAddressed(ctx context.Context, settings *type
 // all: pinning ahead of a proxy's first connection is a legitimate order — the
 // dedicated path claims an address the same way, before any proxy declares it.
 func (m *managerImpl) validateGatewayCluster(ctx context.Context, accountID, clusterAddr string) error {
+	// Ownership is decided first, before anything the account's own view can
+	// answer. A host another account's proxy declares is refused even when
+	// this account has a row for it too: two accounts claiming one hostname is
+	// the ambiguity the connect-time conflict check exists to prevent, and the
+	// endpoint pinned here cannot be moved afterwards, so the ambiguous case
+	// has to fail closed. Asking the account's view first would skip this
+	// whenever the account had any row of its own, which is exactly when a
+	// collision is worth catching. Shared proxies are not foreign — they are
+	// what most accounts pin to.
+	foreign, err := m.store.HasForeignAccountProxyAtHost(ctx, clusterAddr, accountID)
+	if err != nil {
+		return fmt.Errorf("check proxy cluster ownership: %w", err)
+	}
+	if foreign {
+		return status.Errorf(status.InvalidArgument,
+			"proxy cluster %s is not available to this account", clusterAddr)
+	}
+
 	declared, err := m.accountClusterSpellings(ctx, accountID, clusterAddr)
 	if err != nil {
 		return err
 	}
-
 	if len(declared) == 0 {
-		// Not in the account's view. A shared cluster would have been in it,
-		// so a proxy row elsewhere for this address can only be another
-		// account's BYOP cluster: its proxies filter foreign mappings out on
-		// delivery, making the pin dead on arrival.
-		foreign, err := m.store.HasProxyOutsideAccountAtHost(ctx, clusterAddr, accountID)
-		if err != nil {
-			return fmt.Errorf("check proxy cluster ownership: %w", err)
-		}
-		if foreign {
-			return status.Errorf(status.InvalidArgument,
-				"proxy cluster %s is not available to this account", clusterAddr)
-		}
 		// No proxy has ever declared this address: an address-first pin.
 		return nil
 	}
