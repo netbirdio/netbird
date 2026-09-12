@@ -740,6 +740,7 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 			time.Sleep(100 * time.Millisecond)
 		}
 	}
+	store.Close(ctx)
 	return nil, nil, fmt.Errorf("failed to create test store after %d attempts: %v", maxRetries, err)
 }
 
@@ -940,6 +941,7 @@ func postgresSchemaTemplate(ctx context.Context, baseDSN string, admin *gorm.DB)
 
 	tplStore, err := NewPostgresqlStoreForTests(ctx, replaceDBName(baseDSN, name), nil, false)
 	if err != nil {
+		dropDatabase(admin, name)
 		return "", fmt.Errorf("migrate postgres template database: %w", err)
 	}
 	// TEMPLATE refuses a source that still has sessions, so release both handles
@@ -971,11 +973,13 @@ func mysqlSchemaTemplate(ctx context.Context, baseDSN string, admin *gorm.DB) ([
 
 	tplStore, err := NewMysqlStore(ctx, replaceDBName(baseDSN, name), nil, false)
 	if err != nil {
+		dropDatabase(admin, name)
 		return nil, fmt.Errorf("migrate mysql template database: %w", err)
 	}
 	tableDDL, err := mysqlTableDDL(ctx, tplStore.db, name)
 	tplStore.Close(ctx)
 	if err != nil {
+		dropDatabase(admin, name)
 		return nil, err
 	}
 
@@ -1055,6 +1059,14 @@ func cloneMysqlSchema(ctx context.Context, dsn string, tableDDL []string) error 
 		}
 	}
 	return nil
+}
+
+// dropDatabase removes a template that never became usable, so a failed setup
+// does not leave it behind on a shared server.
+func dropDatabase(admin *gorm.DB, name string) {
+	if err := admin.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS %s", name)).Error; err != nil {
+		log.Debugf("failed to drop template database %s: %v", name, err)
+	}
 }
 
 func closeGormDB(db *gorm.DB) {
