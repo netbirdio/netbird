@@ -757,9 +757,11 @@ func TestMigrateAgentNetworkSettingsToDomain_BackfillsAndDropsLegacyColumns(t *t
 	db := setupDatabase(t)
 	require.NoError(t, db.Migrator().DropTable(&legacyAgentNetworkSettings{}))
 	require.NoError(t, db.AutoMigrate(&legacyAgentNetworkSettings{}))
-	// Spelled the way the legacy bootstrap kept it: trimmed, never folded.
+	// The cluster is spelled the way the legacy bootstrap kept it: as the
+	// caller typed it, trimmed but never folded. The subdomain was always
+	// server-assigned lowercase.
 	require.NoError(t, db.Create(&legacyAgentNetworkSettings{
-		AccountID: "acct-1", Cluster: "EU.Proxy.NetBird.io", Subdomain: "Violet", EnableLogCollection: true,
+		AccountID: "acct-1", Cluster: "EU.Proxy.NetBird.io", Subdomain: "violet", EnableLogCollection: true,
 	}).Error)
 	require.NoError(t, db.Create(&legacyAgentNetworkSettings{
 		AccountID: "acct-2", Cluster: "us.proxy.netbird.io", Subdomain: "violet",
@@ -903,4 +905,53 @@ func TestNormalizeAgentNetworkSettingsIdentity_SkipsMissingTable(t *testing.T) {
 	require.NoError(t, migration.NormalizeAgentNetworkSettingsIdentity(ctx, db),
 		"no table must be a no-op, not an error")
 	assert.False(t, db.Migrator().HasTable(&agentNetworkTypes.Settings{}), "the normaliser must not create the table")
+}
+
+// TestNormalizeAgentNetworkSettingsIdentity_RefusesCaseOnlyCollision pins the
+// loud failure: two rows that would fold onto one endpoint stop the migration
+// with the hostname named, and neither row is touched, rather than letting the
+// unique index refuse the fold with a driver message that names no row.
+func TestNormalizeAgentNetworkSettingsIdentity_RefusesCaseOnlyCollision(t *testing.T) {
+	ctx := context.Background()
+	db := setupDatabase(t)
+	if db.Name() == "mysql" {
+		t.Skip("MySQL's default collation refuses two rows differing only by case at insert; the collision cannot exist there")
+	}
+	require.NoError(t, db.Migrator().DropTable(&agentNetworkTypes.Settings{}))
+	require.NoError(t, db.AutoMigrate(&agentNetworkTypes.Settings{}))
+	require.NoError(t, db.Create(&agentNetworkTypes.Settings{
+		AccountID: "acct-1", Domain: "Violet.eu.proxy.netbird.io", ProxyAddress: "eu.proxy.netbird.io",
+	}).Error)
+	require.NoError(t, db.Create(&agentNetworkTypes.Settings{
+		AccountID: "acct-2", Domain: "violet.eu.proxy.netbird.io", ProxyAddress: "eu.proxy.netbird.io",
+	}).Error)
+
+	err := migration.NormalizeAgentNetworkSettingsIdentity(ctx, db)
+	require.Error(t, err, "two rows folding onto one endpoint must stop the migration")
+	assert.Contains(t, err.Error(), "violet.eu.proxy.netbird.io", "the failure must name the colliding hostname")
+
+	var one agentNetworkTypes.Settings
+	require.NoError(t, db.First(&one, "account_id = ?", "acct-1").Error)
+	assert.Equal(t, "Violet.eu.proxy.netbird.io", one.Domain, "a refused normalisation must leave every row as it was")
+}
+
+// TestMigrateAgentNetworkSettingsToDomain_RefusesCaseOnlyCollision pins the
+// same loud failure on the reshape: legacy rows whose identities differ only
+// by case would fold onto one endpoint, and the reshape must say so rather
+// than leave AutoMigrate to fail on the unique index.
+func TestMigrateAgentNetworkSettingsToDomain_RefusesCaseOnlyCollision(t *testing.T) {
+	ctx := context.Background()
+	db := setupDatabase(t)
+	require.NoError(t, db.Migrator().DropTable(&legacyAgentNetworkSettings{}))
+	require.NoError(t, db.AutoMigrate(&legacyAgentNetworkSettings{}))
+	require.NoError(t, db.Create(&legacyAgentNetworkSettings{
+		AccountID: "acct-1", Cluster: "EU.proxy.netbird.io", Subdomain: "violet",
+	}).Error)
+	require.NoError(t, db.Create(&legacyAgentNetworkSettings{
+		AccountID: "acct-2", Cluster: "eu.proxy.netbird.io", Subdomain: "violet",
+	}).Error)
+
+	err := migration.MigrateAgentNetworkSettingsToDomain(ctx, db)
+	require.Error(t, err, "legacy rows folding onto one endpoint must stop the reshape")
+	assert.Contains(t, err.Error(), "violet.eu.proxy.netbird.io", "the failure must name the colliding hostname")
 }
