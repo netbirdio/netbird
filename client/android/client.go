@@ -316,6 +316,20 @@ func (c *Client) NotifyNetworkChange() {
 // or "strict"; strict also anonymizes internal IP ranges, peer names, and
 // WireGuard public keys, and implies anonymize.
 func (c *Client) DebugBundle(platformFiles PlatformFiles, anonymize bool, anonymizeLevel string) (string, error) {
+	return c.debugBundle(platformFiles, anonymize, anonymizeLevel, true)
+}
+
+// DebugBundleFile generates a debug bundle and returns the path of the zip in
+// the cache directory instead of uploading it, so the app can hand the file to
+// the user for inspection. The caller owns the file and removes it once done.
+// anonymize and anonymizeLevel behave as in DebugBundle.
+func (c *Client) DebugBundleFile(platformFiles PlatformFiles, anonymize bool, anonymizeLevel string) (string, error) {
+	return c.debugBundle(platformFiles, anonymize, anonymizeLevel, false)
+}
+
+// debugBundle builds the bundle zip and either uploads it, returning the upload
+// key and removing the file, or leaves the file in place and returns its path.
+func (c *Client) debugBundle(platformFiles PlatformFiles, anonymize bool, anonymizeLevel string, upload bool) (string, error) {
 	cfg, cacheDir, cc := c.stateSnapshot()
 
 	// If the engine hasn't been started, load config from disk
@@ -329,6 +343,11 @@ func (c *Client) DebugBundle(platformFiles PlatformFiles, anonymize bool, anonym
 		}
 		cacheDir = platformFiles.CacheDir()
 	}
+
+	// Clear what an interrupted earlier run may have left in the cache before
+	// adding to it. Remote debug jobs write to the same directory, so anything
+	// younger than an hour is treated as possibly still in use.
+	debug.RemoveStaleBundles(cacheDir, time.Hour)
 
 	deps := debug.GeneratorDependencies{
 		InternalConfig: cfg,
@@ -366,6 +385,9 @@ func (c *Client) DebugBundle(platformFiles PlatformFiles, anonymize bool, anonym
 	path, err := bundleGenerator.Generate()
 	if err != nil {
 		return "", fmt.Errorf("generate debug bundle: %w", err)
+	}
+	if !upload {
+		return path, nil
 	}
 	defer func() {
 		if err := os.Remove(path); err != nil {
