@@ -1023,6 +1023,9 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 			Signature: p.Signature,
 		})
 	}
+	if len(proofs) > 0 {
+		log.Infof("peer meta carries %d certificate posture proofs", len(proofs))
+	}
 
 	return &proto.PeerSystemMeta{
 		Hostname:         info.Hostname,
