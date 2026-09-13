@@ -424,6 +424,18 @@ func TestParseSystemDNSSettings(t *testing.T) {
 			expectedIP:      netip.MustParseAddr("192.168.1.1"),
 		},
 		{
+			name: "v4_mapped_unspecified_address_skipped",
+			output: `<dictionary> {
+  ServerAddresses : <array> {
+    0 : ::ffff:0.0.0.0
+    1 : 192.168.1.1
+  }
+}
+`,
+			expectedServers: []netip.Addr{netip.MustParseAddr("192.168.1.1")},
+			expectedIP:      netip.MustParseAddr("192.168.1.1"),
+		},
+		{
 			name:   "empty_output",
 			output: "",
 		},
