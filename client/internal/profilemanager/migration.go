@@ -166,7 +166,7 @@ func (s *ServiceManager) stampActiveUserDir(profiles []Profile, active *ActivePr
 	dir := sanitizeProfileName(active.Username)
 	for i := range profiles {
 		p := &profiles[i]
-		if len(p.Owners) > 0 || (p.LegacyUserDir != dir && p.ID == defaultProfileName) {
+		if len(p.Owners) > 0 || (p.LegacyUserDir != dir && p.ID != defaultProfileName) {
 			continue
 		}
 		if err := stampPrincipal(p.Path, principal); err != nil {
