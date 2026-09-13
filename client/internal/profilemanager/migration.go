@@ -142,7 +142,8 @@ func rekeyProfile(p *Profile, fresh ID) error {
 }
 
 // stampActiveUserDir records the owner of every unowned profile in the
-// directory of the account the active profile state names.
+// directory of the account the active profile state names and the default
+// profile.
 //
 // That name is the one lossless input the old layout left behind. Resolving it
 // forward, from name to uid, avoids reversing a sanitized directory name, which
@@ -165,7 +166,7 @@ func (s *ServiceManager) stampActiveUserDir(profiles []Profile, active *ActivePr
 	dir := sanitizeProfileName(active.Username)
 	for i := range profiles {
 		p := &profiles[i]
-		if len(p.Owners) > 0 || p.LegacyUserDir != dir {
+		if len(p.Owners) > 0 || (p.LegacyUserDir != dir && p.ID == defaultProfileName) {
 			continue
 		}
 		if err := stampPrincipal(p.Path, principal); err != nil {
