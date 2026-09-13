@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os/user"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -97,7 +96,7 @@ func listProfilesFunc(cmd *cobra.Command, _ []string) error {
 	}
 	defer conn.Close()
 
-	currUser, err := user.Current()
+	currUser, err := profilemanager.InvokingUser()
 	if err != nil {
 		return fmt.Errorf("get current user: %w", err)
 	}
@@ -138,7 +137,7 @@ func addProfileFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	currUser, err := user.Current()
+	currUser, err := profilemanager.InvokingUser()
 	if err != nil {
 		return fmt.Errorf("get current user: %w", err)
 	}
@@ -179,7 +178,7 @@ func renameProfileFunc(cmd *cobra.Command, args []string) error {
 	}
 	defer conn.Close()
 
-	currUser, err := user.Current()
+	currUser, err := profilemanager.InvokingUser()
 	if err != nil {
 		return fmt.Errorf("get current user: %w", err)
 	}
@@ -233,7 +232,7 @@ func removeProfileFunc(cmd *cobra.Command, args []string) error {
 	}
 	defer conn.Close()
 
-	currUser, err := user.Current()
+	currUser, err := profilemanager.InvokingUser()
 	if err != nil {
 		return fmt.Errorf("get current user: %w", err)
 	}
@@ -261,7 +260,7 @@ func selectProfileFunc(cmd *cobra.Command, args []string) error {
 	profileManager := profilemanager.NewProfileManager()
 	handle := args[0]
 
-	currUser, err := user.Current()
+	currUser, err := profilemanager.InvokingUser()
 	if err != nil {
 		return fmt.Errorf("get current user: %w", err)
 	}

@@ -12,6 +12,7 @@ import (
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	"github.com/netbirdio/netbird/management/server/posture"
+	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 )
 
@@ -145,7 +146,7 @@ func TestAffectedPeers_GroupAddResource_RefreshesRoutingPeer(t *testing.T) {
 	assert.NotContains(t, affected, s.unrelatedPeerID, "unrelated peer must not be affected")
 }
 
-func (s *routerScenario) createPostureCheckGatedPolicy(t *testing.T, ctx context.Context) string {
+func (s *routerScenario) createPostureCheckGatedPolicy(t *testing.T, ctx context.Context, policy *types.Policy) string {
 	t.Helper()
 
 	check, err := s.manager.SavePostureChecks(ctx, s.accountID, userID, &posture.Checks{
@@ -156,7 +157,6 @@ func (s *routerScenario) createPostureCheckGatedPolicy(t *testing.T, ctx context
 	}, true)
 	require.NoError(t, err)
 
-	policy := peerToResourcePolicyByGroup(s.sourceGroupID, s.resourceGroupID)
 	policy.SourcePostureChecks = []string{check.ID}
 	_, err = s.manager.SavePolicy(ctx, s.accountID, userID, policy, true)
 	require.NoError(t, err)
@@ -168,7 +168,7 @@ func TestAffectedPeers_E2E_SavePostureCheck_RefreshesRoutingPeer(t *testing.T) {
 	s := setupRouterScenario(t, true)
 	ctx := context.Background()
 
-	checkID := s.createPostureCheckGatedPolicy(t, ctx)
+	checkID := s.createPostureCheckGatedPolicy(t, ctx, peerToResourcePolicyByGroup(s.sourceGroupID, s.resourceGroupID))
 
 	srcCh := s.updateManager.CreateChannel(ctx, s.sourcePeerID)
 	routerCh := s.updateManager.CreateChannel(ctx, s.routerPeerID)
@@ -337,4 +337,62 @@ func TestAffectedPeers_PeerChange_RouterInOtherNetworkNotAffected(t *testing.T) 
 	assert.Contains(t, affected, s.routerPeerID, "network A's routing peer must be affected")
 	assert.NotContains(t, affected, second.routerPeerID,
 		"a router in an unrelated network must not be affected by a source-peer change for another resource")
+}
+
+// TestAffectedPeers_E2E_PostureFlip_RefreshesRoutingPeer drives the customer path
+// on the twin store: the source peer's metadata flips a posture verdict on sync,
+// and the routing peer serving the gated resource must be refreshed in both
+// directions. Without the flip detection the deny direction takes the nmap
+// shortcut (the denied peer's map holds no router) and the allow direction
+// depends on which meta field moved, leaving the routers with a stale map.
+func TestAffectedPeers_E2E_PostureFlip_RefreshesRoutingPeer(t *testing.T) {
+	runPostureFlipRefreshesRoutingPeer(t, func(s *routerScenario) *types.Policy {
+		return peerToResourcePolicyByGroup(s.sourceGroupID, s.resourceGroupID)
+	})
+}
+
+// TestAffectedPeers_E2E_PostureFlip_DirectSourcePeer_RefreshesRoutingPeer is the same
+// scenario with the source peer named directly in the rule: it must receive its posture
+// checks and have its flips detected exactly like a group member.
+func TestAffectedPeers_E2E_PostureFlip_DirectSourcePeer_RefreshesRoutingPeer(t *testing.T) {
+	runPostureFlipRefreshesRoutingPeer(t, func(s *routerScenario) *types.Policy {
+		return peerToResourcePolicyByPeer(s.sourcePeerID, s.resourceGroupID)
+	})
+}
+
+func runPostureFlipRefreshesRoutingPeer(t *testing.T, policyFor func(s *routerScenario) *types.Policy) {
+	t.Helper()
+
+	manager, updateManager := createManagerWithNetworkMapStore(t)
+	s := buildRouterScenario(t, manager, updateManager, true)
+	ctx := context.Background()
+
+	s.createPostureCheckGatedPolicy(t, ctx, policyFor(s))
+
+	source, err := s.manager.Store.GetPeerByID(ctx, store.LockingStrengthNone, s.accountID, s.sourcePeerID)
+	require.NoError(t, err)
+
+	syncWithVersion := func(version string) {
+		meta := source.Meta
+		meta.WtVersion = version
+		_, _, _, _, err := s.manager.SyncPeer(ctx, types.PeerSync{WireGuardPubKey: source.Key, Meta: meta}, s.accountID)
+		require.NoError(t, err)
+	}
+	syncWithVersion("0.31.0")
+
+	routerCh := s.updateManager.CreateChannel(ctx, s.routerPeerID)
+	unrelatedCh := s.updateManager.CreateChannel(ctx, s.unrelatedPeerID)
+	t.Cleanup(func() {
+		s.updateManager.CloseChannel(ctx, s.routerPeerID)
+		s.updateManager.CloseChannel(ctx, s.unrelatedPeerID)
+	})
+	settleAffectedUpdates(routerCh, unrelatedCh)
+
+	syncWithVersion("0.29.0")
+	peerShouldReceiveUpdate(t, routerCh)
+	peerShouldNotReceiveUpdate(t, unrelatedCh)
+
+	syncWithVersion("0.31.0")
+	peerShouldReceiveUpdate(t, routerCh)
+	peerShouldNotReceiveUpdate(t, unrelatedCh)
 }

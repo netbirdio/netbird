@@ -146,11 +146,14 @@ func (c *GRPCClient) Receive(ctx context.Context, interval time.Duration, msgHan
 
 		streamStart := time.Now()
 
-		if err := c.receive(stream, msgHandler); err != nil {
+		// receive always returns a non-nil error once the stream breaks;
+		// handleRetryableError decides between reconnecting and exiting
+		// permanently on local context cancellation
+		err = c.receive(stream, msgHandler)
+		if !isContextDone(err) {
 			log.Errorf("receive failed: %v", err)
-			return c.handleRetryableError(err, streamStart, backOff)
 		}
-		return nil
+		return c.handleRetryableError(err, streamStart, backOff)
 	}
 
 	if err := backoff.Retry(operation, backOff); err != nil {

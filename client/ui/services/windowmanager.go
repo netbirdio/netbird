@@ -6,8 +6,10 @@ import (
 	"net/url"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 
@@ -29,39 +31,129 @@ const EventBrowserLoginCancel = "browser-login:cancel"
 // EventSettingsOpen tells the mounted settings window which tab to show.
 const EventSettingsOpen = "netbird:settings:open"
 
-var WindowBackgroundColour = application.NewRGB(24, 26, 29) // bg-nb-gray-950
+const EventWindowPainted = "netbird:window-painted"
+
+const paintedFallback = 2 * time.Second
+
+const headlessTeardownDelay = 2 * time.Second
+
+// Window background per effective appearance. Both match the body background
+// (bg-nb-gray DEFAULT) in globals.css so opaque native pixels and the webview
+// paint the same surface; keep the three in sync.
+var (
+	windowBackgroundDark  = application.NewRGB(24, 26, 29)    // dark nb-gray DEFAULT
+	windowBackgroundLight = application.NewRGB(243, 243, 243) // light nb-gray DEFAULT
+)
+
+// Appearance is one view of the theme state: the preference and the appearance
+// it resolves to. Take it once per window with CurrentAppearance and pass the
+// same value to every option builder -- Pref drives the macOS frame while Dark
+// drives the background and the Windows chrome, so reading them separately can
+// build a window with a new background behind the previous native frame.
+type Appearance struct {
+	Pref preferences.Theme
+	Dark bool
+}
+
+// storedAppearance is the snapshot maintained by services.Theme, published as
+// one value so the pair can never tear. It is the fallback for window creation
+// until resolveAppearance is installed.
+var storedAppearance atomic.Value // Appearance
+
+// resolveAppearance re-resolves against the live OS state. Theme installs it so
+// window creation never reads a stale seed: app.Env.IsDarkMode reports light
+// until Run installs the platform layer, and Wails runs every
+// ApplicationStarted listener in its own goroutine, so a startup window can be
+// created before Theme's listener has corrected the seed.
+var resolveAppearance atomic.Value // func() Appearance
+
+func init() {
+	storedAppearance.Store(Appearance{Pref: preferences.DefaultTheme, Dark: true})
+}
+
+func setAppearance(pref preferences.Theme, dark bool) {
+	storedAppearance.Store(Appearance{Pref: pref, Dark: dark})
+}
+
+func setAppearanceResolver(f func() Appearance) { resolveAppearance.Store(f) }
+
+// CurrentAppearance returns the snapshot every window creation must build from.
+func CurrentAppearance() Appearance {
+	if f, _ := resolveAppearance.Load().(func() Appearance); f != nil {
+		return f()
+	}
+	a, _ := storedAppearance.Load().(Appearance)
+	return a
+}
+
+// WindowBackgroundColour returns the background for a snapshot; use it for
+// every WebviewWindowOptions.BackgroundColour.
+func WindowBackgroundColour(a Appearance) application.RGBA {
+	return windowBackgroundColour(a.Dark)
+}
+
+// windowBackgroundColour maps a resolved appearance to its window background.
+func windowBackgroundColour(dark bool) application.RGBA {
+	if dark {
+		return windowBackgroundDark
+	}
+	return windowBackgroundLight
+}
 
 // WindowHeight is shared by the main and Settings windows.
 const WindowHeight = 660
 
 // Wails reads CustomTheme colours as 0x00BBGGRR (RGB byte order reversed).
-var microsoftWindowsTheme = &application.WindowTheme{
-	BorderColour:    u32ptr(0x00211E1C),
+var microsoftWindowsDarkTheme = &application.WindowTheme{
+	BorderColour:    u32ptr(0x00211E1C), // #1C1E21 nb-gray-940
 	TitleBarColour:  u32ptr(0x00211E1C),
-	TitleTextColour: u32ptr(0x00E9E7E4),
+	TitleTextColour: u32ptr(0x00E9E7E4), // #E4E7E9 nb-gray-100
 }
 
-// MicrosoftWindowsAppearanceOptions is the shared Windows chrome (Mica + dark + custom title bar).
-func MicrosoftWindowsAppearanceOptions() application.WindowsWindow {
+var microsoftWindowsLightTheme = &application.WindowTheme{
+	BorderColour:    u32ptr(0x00F3F3F3), // #F3F3F3 light nb-gray DEFAULT
+	TitleBarColour:  u32ptr(0x00F3F3F3),
+	TitleTextColour: u32ptr(0x00212121), // #212121 light nb-gray-100
+}
+
+// MicrosoftWindowsAppearanceOptions is the shared Windows chrome (Mica +
+// custom title bar), resolved at creation; setWindowAppearance re-themes live
+// windows on later changes. Never SystemDefault: Wails gives those windows a
+// SystemThemeChanged handler that re-themes chrome from the OS appearance,
+// which outlives a switch to a forced theme and fights it on the next OS flip.
+// Both CustomTheme slots hold one colour set for the same reason.
+func MicrosoftWindowsAppearanceOptions(a Appearance) application.WindowsWindow {
+	theme, chrome := application.Light, microsoftWindowsLightTheme
+	if a.Dark {
+		theme, chrome = application.Dark, microsoftWindowsDarkTheme
+	}
 	return application.WindowsWindow{
 		BackdropType: application.Mica,
-		Theme:        application.Dark,
+		Theme:        theme,
 		CustomTheme: application.ThemeSettings{
-			DarkModeActive:    microsoftWindowsTheme,
-			DarkModeInactive:  microsoftWindowsTheme,
-			LightModeActive:   microsoftWindowsTheme,
-			LightModeInactive: microsoftWindowsTheme,
+			DarkModeActive:    chrome,
+			DarkModeInactive:  chrome,
+			LightModeActive:   chrome,
+			LightModeInactive: chrome,
 		},
 	}
 }
 
 // AppleMacOSAppearanceOptions is the shared macOS chrome; FullScreenNone keeps the fixed-size layout.
-func AppleMacOSAppearanceOptions() application.MacWindow {
+func AppleMacOSAppearanceOptions(a Appearance) application.MacWindow {
+	appearance := application.DefaultAppearance
+	switch a.Pref {
+	case preferences.ThemeLight:
+		appearance = application.NSAppearanceNameAqua
+	case preferences.ThemeDark:
+		appearance = application.NSAppearanceNameDarkAqua
+	}
 	return application.MacWindow{
 		InvisibleTitleBarHeight: 38,
 		Backdrop:                application.MacBackdropNormal,
 		TitleBar:                application.MacTitleBarHiddenInset,
 		CollectionBehavior:      application.MacWindowCollectionBehaviorFullScreenNone,
+		Appearance:              appearance,
 	}
 }
 
@@ -75,6 +167,7 @@ func LinuxAppearanceOptions(icon []byte) application.LinuxWindow {
 
 // DialogWindowOptions is the baseline for every auxiliary dialog window; callers override per-dialog.
 func DialogWindowOptions(name, title, url string, linuxIcon []byte) application.WebviewWindowOptions {
+	a := CurrentAppearance()
 	return application.WebviewWindowOptions{
 		Name:                name,
 		Title:               title,
@@ -86,17 +179,14 @@ func DialogWindowOptions(name, title, url string, linuxIcon []byte) application.
 		MinimiseButtonState: application.ButtonHidden,
 		MaximiseButtonState: application.ButtonHidden,
 		CloseButtonState:    application.ButtonEnabled,
-		BackgroundColour:    WindowBackgroundColour,
+		BackgroundColour:    WindowBackgroundColour(a),
 		URL:                 url,
-		Mac:                 AppleMacOSAppearanceOptions(),
-		Windows:             MicrosoftWindowsAppearanceOptions(),
+		Mac:                 AppleMacOSAppearanceOptions(a),
+		Windows:             MicrosoftWindowsAppearanceOptions(a),
 		Linux:               LinuxAppearanceOptions(linuxIcon),
 	}
 }
 
-// WindowManager owns the auxiliary windows (main is created in main.go). Settings is created
-// eagerly and hidden on close to keep React state; the rest are created on open, destroyed on
-// close, so the macOS dock-reopen handler finds no hidden window to resurrect.
 type WindowManager struct {
 	app               *application.App
 	mainWindow        *application.WebviewWindow
@@ -112,15 +202,35 @@ type WindowManager struct {
 	// hiddenForLogin holds windows hidden while the BrowserLogin popup is open, restored on close.
 	hiddenForLogin []application.Window
 	mu             sync.Mutex
+	createMu       sync.Mutex
+	newMain        func(startURL string) *application.WebviewWindow
+	ready          map[uint]bool
+	showPending    map[uint]bool
+	pendingTab     map[uint]string
+	pendingEmits   map[uint][]string
+	fallbackTimers map[uint]*time.Timer
+	headlessMain   bool
+	headlessTimer  *time.Timer
 	// recenterOnShow is set only on the minimal-WM/XEmbed path, where the WM neither centers nor
 	// restores position; nil on full desktops so re-centering can't fight a user-moved window.
 	recenterOnShow func() bool
 }
 
-// NewWindowManager wires the manager to the main app; translator/prefs may be nil (tests). The
-// Settings window is created here (hidden) so the first OpenSettings is instant.
 func NewWindowManager(app *application.App, mainWindow *application.WebviewWindow, translator ErrorTranslator, prefs LanguagePreference, linuxIcon []byte) *WindowManager {
-	s := &WindowManager{app: app, mainWindow: mainWindow, translator: translator, prefs: prefs, linuxIcon: linuxIcon}
+	s := &WindowManager{
+		app:            app,
+		mainWindow:     mainWindow,
+		translator:     translator,
+		prefs:          prefs,
+		linuxIcon:      linuxIcon,
+		ready:          map[uint]bool{},
+		showPending:    map[uint]bool{},
+		pendingTab:     map[uint]string{},
+		pendingEmits:   map[uint][]string{},
+		fallbackTimers: map[uint]*time.Timer{},
+	}
+	s.watchPainted()
+	s.watchTriggerLogin()
 	// Re-title live windows on language flip. Wired internally so the binding generator
 	// doesn't try to expose the interface param.
 	if sub, ok := prefs.(LanguageSubscriber); ok && sub != nil {
@@ -136,7 +246,12 @@ func NewWindowManager(app *application.App, mainWindow *application.WebviewWindo
 			}
 		}()
 	}
-	s.settings = app.Window.NewWithOptions(application.WebviewWindowOptions{
+	return s
+}
+
+func (s *WindowManager) newSettingsWindow() *application.WebviewWindow {
+	a := CurrentAppearance()
+	w := s.app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:                "settings",
 		Title:               s.title("window.title.settings"),
 		Width:               900,
@@ -146,22 +261,19 @@ func NewWindowManager(app *application.App, mainWindow *application.WebviewWindo
 		MinimiseButtonState: application.ButtonHidden,
 		MaximiseButtonState: application.ButtonHidden,
 		CloseButtonState:    application.ButtonEnabled,
-		BackgroundColour:    WindowBackgroundColour,
+		BackgroundColour:    WindowBackgroundColour(a),
 		URL:                 "/#/settings",
-		Mac:                 AppleMacOSAppearanceOptions(),
-		Windows:             MicrosoftWindowsAppearanceOptions(),
-		Linux:               LinuxAppearanceOptions(linuxIcon),
+		Mac:                 AppleMacOSAppearanceOptions(a),
+		Windows:             MicrosoftWindowsAppearanceOptions(a),
+		Linux:               LinuxAppearanceOptions(s.linuxIcon),
 	})
-	// Hide (not destroy) on close to keep React state; reset to General for a flash-free reopen.
-	s.settings.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
-		if ShuttingDown() {
-			return
-		}
-		e.Cancel()
-		s.app.Event.Emit(EventSettingsOpen, "general")
-		s.settings.Hide()
+	w.RegisterHook(events.Common.WindowClosing, func(_ *application.WindowEvent) {
+		s.mu.Lock()
+		s.settings = nil
+		s.forgetWindowLocked(w)
+		s.mu.Unlock()
 	})
-	return s
+	return w
 }
 
 // OpenSettings shows the settings window on tab (empty → General), switching tab via
@@ -171,11 +283,20 @@ func (s *WindowManager) OpenSettings(tab string) {
 	if target == "" {
 		target = "general"
 	}
-	s.app.Event.Emit(EventSettingsOpen, target)
-	s.settings.Show()
-	s.settings.Focus()
-	// Re-center (minimal-WM only; see centerWhenReady).
-	s.centerWhenReady(s.settings)
+
+	w, _ := s.ensureWindow(&s.settings, s.newSettingsWindow)
+
+	s.mu.Lock()
+	ready := s.ready[w.ID()]
+	if !ready {
+		s.pendingTab[w.ID()] = target
+	}
+	s.mu.Unlock()
+
+	if ready {
+		s.app.Event.Emit(EventSettingsOpen, target)
+	}
+	s.showWhenReady(w)
 }
 
 // OpenBrowserLogin shows the SSO popup, creating it on first use.
@@ -258,11 +379,15 @@ func (s *WindowManager) CloseBrowserLogin() {
 }
 
 // OpenSessionExpiration shows the countdown warning on the cursor's display; seconds seeds
-// the countdown. Singleton, destroyed on close.
-func (s *WindowManager) OpenSessionExpiration(seconds int) {
+// the countdown and deadlineUnixMilli (0 when unknown) is the absolute deadline the dialog
+// compares renewal snapshots against. Singleton, destroyed on close.
+func (s *WindowManager) OpenSessionExpiration(seconds int, deadlineUnixMilli int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	startURL := "/#/dialog/session-expiration?seconds=" + strconv.Itoa(seconds)
+	if deadlineUnixMilli > 0 {
+		startURL += "&deadline=" + strconv.FormatInt(deadlineUnixMilli, 10)
+	}
 	if s.sessionExpiration == nil {
 		opts := DialogWindowOptions("session-expiration", s.title("window.title.sessionExpiration"), startURL, s.linuxIcon)
 		opts.Screen = s.getScreenBasedOnCursorPosition()
@@ -440,13 +565,295 @@ func (s *WindowManager) OpenMain() {
 // ShowMain brings the main window forward (re-centering on minimal WMs). The single entry
 // point every surface (tray, SIGUSR1, welcome) should use so centering applies uniformly.
 func (s *WindowManager) ShowMain() {
-	if s.mainWindow == nil {
+	s.showWhenReady(s.MainWindow())
+}
+
+// ShowMainAndEmit brings the main window forward and emits event once its frontend is ready.
+func (s *WindowManager) ShowMainAndEmit(event string) {
+	w := s.MainWindow()
+	if w == nil {
 		return
 	}
-	s.mainWindow.Show()
-	s.mainWindow.Focus()
-	// Re-center (minimal-WM only; see centerWhenReady).
-	s.centerWhenReady(s.mainWindow)
+
+	id := w.ID()
+	s.mu.Lock()
+	ready := s.ready[id]
+	if !ready {
+		s.pendingEmits[id] = append(s.pendingEmits[id], event)
+	}
+	s.mu.Unlock()
+
+	s.showWhenReady(w)
+	if ready {
+		s.app.Event.Emit(event)
+	}
+}
+
+func (s *WindowManager) MainWindow() *application.WebviewWindow {
+	w, _ := s.ensureMain("/")
+	return w
+}
+
+func (s *WindowManager) ensureMain(startURL string) (*application.WebviewWindow, bool) {
+	s.mu.Lock()
+	factory := s.newMain
+	s.mu.Unlock()
+	if factory == nil {
+		return s.ensureWindow(&s.mainWindow, nil)
+	}
+	return s.ensureWindow(&s.mainWindow, func() *application.WebviewWindow {
+		return factory(startURL)
+	})
+}
+
+func (s *WindowManager) ensureWindow(slot **application.WebviewWindow, factory func() *application.WebviewWindow) (*application.WebviewWindow, bool) {
+	s.createMu.Lock()
+	defer s.createMu.Unlock()
+
+	s.mu.Lock()
+	w := *slot
+	s.mu.Unlock()
+	if w != nil || factory == nil {
+		return w, false
+	}
+
+	w = factory()
+	s.armReady(w)
+
+	s.mu.Lock()
+	*slot = w
+	s.mu.Unlock()
+	return w, true
+}
+
+func (s *WindowManager) armReady(w *application.WebviewWindow) {
+	if w == nil {
+		return
+	}
+	w.RegisterHook(events.Common.WindowRuntimeReady, func(_ *application.WindowEvent) {
+		timer := time.AfterFunc(paintedFallback, func() {
+			log.Warnf("window %q never reported a first render, showing it anyway", w.Name())
+			s.markReady(w)
+		})
+		s.mu.Lock()
+		s.fallbackTimers[w.ID()] = timer
+		s.mu.Unlock()
+	})
+}
+
+func (s *WindowManager) watchPainted() {
+	s.app.Event.On(EventWindowPainted, func(e *application.CustomEvent) {
+		if w := s.windowByName(e.Sender); w != nil {
+			s.markReady(w)
+		}
+	})
+}
+
+func (s *WindowManager) watchTriggerLogin() {
+	s.app.Event.On(EventTriggerLogin, func(_ *application.CustomEvent) {
+		s.mu.Lock()
+		if s.headlessTimer != nil {
+			s.headlessTimer.Stop()
+			s.headlessTimer = nil
+		}
+		w := s.mainWindow
+		ready := w != nil && s.ready[w.ID()]
+		s.mu.Unlock()
+		if ready {
+			return
+		}
+
+		w, created := s.ensureMain("/")
+		if w == nil {
+			return
+		}
+
+		s.mu.Lock()
+		if created {
+			s.headlessMain = true
+		}
+		pending := !s.ready[w.ID()]
+		if pending {
+			s.pendingEmits[w.ID()] = append(s.pendingEmits[w.ID()], EventTriggerLogin)
+		}
+		s.mu.Unlock()
+
+		if !pending {
+			s.app.Event.Emit(EventTriggerLogin)
+		}
+	})
+
+	s.app.Event.On(EventBrowserLoginCancel, func(_ *application.CustomEvent) {
+		s.scheduleHeadlessTeardown()
+	})
+
+	s.app.Event.On(EventStatusSnapshot, func(e *application.CustomEvent) {
+		st, ok := e.Data.(Status)
+		if !ok {
+			return
+		}
+		switch st.Status {
+		case StatusConnected, StatusLoginFailed, StatusDaemonUnavailable:
+			s.scheduleHeadlessTeardown()
+		}
+	})
+}
+
+func (s *WindowManager) scheduleHeadlessTeardown() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.headlessMain || s.mainWindow == nil {
+		return
+	}
+	if s.headlessTimer != nil {
+		s.headlessTimer.Stop()
+	}
+	s.headlessTimer = time.AfterFunc(headlessTeardownDelay, s.closeHeadlessMain)
+}
+
+func (s *WindowManager) closeHeadlessMain() {
+	s.mu.Lock()
+	w := s.mainWindow
+	headless := s.headlessMain
+	s.headlessTimer = nil
+	s.mu.Unlock()
+	if !headless || w == nil {
+		return
+	}
+	w.Close()
+}
+
+func (s *WindowManager) forgetWindowLocked(w *application.WebviewWindow) {
+	if w == nil {
+		return
+	}
+
+	id := w.ID()
+	if timer := s.fallbackTimers[id]; timer != nil {
+		timer.Stop()
+	}
+	delete(s.fallbackTimers, id)
+	delete(s.ready, id)
+	delete(s.showPending, id)
+	delete(s.pendingTab, id)
+	delete(s.pendingEmits, id)
+
+	kept := s.hiddenForLogin[:0]
+	for _, hidden := range s.hiddenForLogin {
+		if hidden != application.Window(w) {
+			kept = append(kept, hidden)
+		}
+	}
+	s.hiddenForLogin = kept
+}
+
+func (s *WindowManager) windowByName(name string) *application.WebviewWindow {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	switch name {
+	case "main":
+		return s.mainWindow
+	case "settings":
+		return s.settings
+	default:
+		return nil
+	}
+}
+
+func (s *WindowManager) markReady(w *application.WebviewWindow) {
+	id := w.ID()
+	s.mu.Lock()
+	already := s.ready[id]
+	s.ready[id] = true
+	wanted := s.showPending[id]
+	tab, hasTab := s.pendingTab[id]
+	emits := s.pendingEmits[id]
+	if timer := s.fallbackTimers[id]; timer != nil {
+		timer.Stop()
+		delete(s.fallbackTimers, id)
+	}
+	delete(s.showPending, id)
+	delete(s.pendingTab, id)
+	delete(s.pendingEmits, id)
+	s.mu.Unlock()
+
+	if already {
+		return
+	}
+
+	if hasTab {
+		s.app.Event.Emit(EventSettingsOpen, tab)
+	}
+
+	if wanted {
+		s.showNow(w)
+	}
+
+	for _, event := range emits {
+		s.app.Event.Emit(event)
+	}
+}
+
+func (s *WindowManager) showWhenReady(w *application.WebviewWindow) {
+	if w == nil {
+		return
+	}
+
+	id := w.ID()
+	s.mu.Lock()
+	ready := s.ready[id]
+	if !ready {
+		s.showPending[id] = true
+	}
+	s.mu.Unlock()
+
+	if ready {
+		s.showNow(w)
+	}
+}
+
+func (s *WindowManager) showNow(w *application.WebviewWindow) {
+	s.mu.Lock()
+	if w == s.mainWindow {
+		s.headlessMain = false
+		if s.headlessTimer != nil {
+			s.headlessTimer.Stop()
+			s.headlessTimer = nil
+		}
+	}
+	s.mu.Unlock()
+	w.Show()
+	w.Focus()
+	s.centerWhenReady(w)
+}
+
+func (s *WindowManager) ShowMainAt(url string) {
+	w, created := s.ensureMain(url)
+	if w == nil {
+		return
+	}
+	if !created {
+		w.SetURL(url)
+	}
+	s.showWhenReady(w)
+}
+
+func (s *WindowManager) SetMainFactory(f func(startURL string) *application.WebviewWindow) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.newMain = f
+}
+
+func (s *WindowManager) ForgetMain() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.forgetWindowLocked(s.mainWindow)
+	s.mainWindow = nil
+	s.headlessMain = false
+	if s.headlessTimer != nil {
+		s.headlessTimer.Stop()
+		s.headlessTimer = nil
+	}
 }
 
 // SetRecenterOnShow installs the recenterOnShow predicate (see the field).

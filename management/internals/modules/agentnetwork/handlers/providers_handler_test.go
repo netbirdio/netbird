@@ -54,6 +54,39 @@ func TestValidate_ModelRates(t *testing.T) {
 	}
 }
 
+// TestValidate_ABlankApiKeyIsNotTheSameAsAnOmittedOne covers the one shape the
+// manager's own guard cannot see. Provider.FromAPIRequest assigns the key only
+// when it trims to something, so a request carrying "   " arrives at
+// UpdateProvider indistinguishable from one that omitted it — the stored
+// credential is kept and the write answers 200, telling an operator who thinks
+// they just rotated a key that it worked.
+//
+// The request still knows the difference, so the refusal belongs here.
+func TestValidate_ABlankApiKeyIsNotTheSameAsAnOmittedOne(t *testing.T) {
+	req := func(key *string) *api.AgentNetworkProviderRequest {
+		return &api.AgentNetworkProviderRequest{
+			ProviderId:  "openai_api",
+			Name:        "OpenAI",
+			UpstreamUrl: "https://api.openai.com",
+			ApiKey:      key,
+		}
+	}
+
+	blank := "   "
+	err := validate(req(&blank), false)
+	require.Error(t, err, "a blank api_key on update must not be read as 'keep what is stored'")
+	assert.Contains(t, err.Error(), "api_key")
+
+	require.NoError(t, validate(req(nil), false), "an omitted api_key is how an update keeps the stored credential")
+
+	// Create already refuses this, and keeps its own message: a caller who sent
+	// no usable key is told the field is required rather than being told how to
+	// preserve a credential that does not exist yet.
+	err = validate(req(&blank), true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "api_key is required")
+}
+
 // TestProviderHandler_UpdateReplacesFullState pins the update contract shared
 // with the other PUT endpoints: the request replaces the provider's mutable
 // state, so optional fields absent from the JSON land as their zero values.
@@ -64,10 +97,13 @@ func TestValidate_ModelRates(t *testing.T) {
 func TestProviderHandler_UpdateReplacesFullState(t *testing.T) {
 	f := newAgentNetworkHandlerFixture(t)
 
+	// A private upstream: the save-time credential check leaves it unchecked
+	// rather than spending "sk-test" against the real api.openai.com, which
+	// the vendor refuses.
 	create := `{
         "provider_id": "openai_api",
         "name": "openai",
-        "upstream_url": "https://api.openai.com",
+        "upstream_url": "https://10.255.255.1",
         "api_key": "sk-test",
         "enabled": true,
         "metadata_disabled": true,
@@ -84,7 +120,7 @@ func TestProviderHandler_UpdateReplacesFullState(t *testing.T) {
 
 	// Minimal update: only the required fields, no api_key. Everything
 	// optional must land as its zero value.
-	update := `{"provider_id": "openai_api", "name": "openai-renamed", "upstream_url": "https://api.openai.com", "enabled": true}`
+	update := `{"provider_id": "openai_api", "name": "openai-renamed", "upstream_url": "https://10.255.255.1", "enabled": true}`
 	rec = f.do(t, nethttp.MethodPut, "/agent-network/providers/"+created.Id, update)
 	require.Equal(t, nethttp.StatusOK, rec.Code, "update without api_key must succeed (key is preserved): %s", rec.Body.String())
 

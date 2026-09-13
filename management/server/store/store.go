@@ -1,6 +1,6 @@
 package store
 
-//go:generate go run github.com/golang/mock/mockgen -package store -destination=store_mock.go -source=./store.go -build_flags=-mod=mod
+//go:generate go tool mockgen -package store -destination=store_mock.go -source=./store.go -build_flags=-mod=mod
 
 import (
 	"context"
@@ -302,8 +302,11 @@ type Store interface {
 	GetCustomDomain(ctx context.Context, accountID string, domainID string) (*domain.Domain, error)
 	ListFreeDomains(ctx context.Context, accountID string) ([]string, error)
 	ListCustomDomains(ctx context.Context, accountID string) ([]*domain.Domain, error)
+	GetCustomDomainByName(ctx context.Context, domainName string) (*domain.Domain, error)
 	CreateCustomDomain(ctx context.Context, accountID string, domainName string, targetCluster string, validated bool) (*domain.Domain, error)
 	UpdateCustomDomain(ctx context.Context, accountID string, d *domain.Domain) (*domain.Domain, error)
+	GetExpiredCustomDomains(ctx context.Context, now time.Time, afterID domain.ID, limit int) ([]*domain.Domain, error)
+	DeleteExpiredCustomDomain(ctx context.Context, d *domain.Domain, now time.Time) (bool, error)
 	DeleteCustomDomain(ctx context.Context, accountID string, domainID string) error
 
 	CreateAccessLog(ctx context.Context, log *accesslogs.AccessLogEntry) error
@@ -436,8 +439,8 @@ type AgentNetworkMetrics struct {
 }
 
 const (
-	postgresDsnEnv       = "NB_STORE_ENGINE_POSTGRES_DSN"
-	postgresDsnEnvLegacy = "NETBIRD_STORE_ENGINE_POSTGRES_DSN"
+	PostgresDsnEnv       = "NB_STORE_ENGINE_POSTGRES_DSN"
+	PostgresDsnEnvLegacy = "NETBIRD_STORE_ENGINE_POSTGRES_DSN"
 	mysqlDsnEnv          = "NB_STORE_ENGINE_MYSQL_DSN"
 	mysqlDsnEnvLegacy    = "NETBIRD_STORE_ENGINE_MYSQL_DSN"
 )
@@ -642,6 +645,9 @@ func migratePostAuto(ctx context.Context, db *gorm.DB) error {
 func getMigrationsPostAuto(ctx context.Context) []migrationFunc {
 	return []migrationFunc{
 		func(db *gorm.DB) error {
+			return migration.MigrateCustomDomainValidationExpiry(ctx, db)
+		},
+		func(db *gorm.DB) error {
 			return migration.CreateIndexIfNotExists[nbpeer.Peer](ctx, db, "idx_account_ip", "account_id", "ip")
 		},
 		func(db *gorm.DB) error {
@@ -781,7 +787,7 @@ func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind types.Engine) 
 }
 
 func newReusedPostgresStore(ctx context.Context, store *SqlStore, kind types.Engine) (*SqlStore, func(), error) {
-	dsn, ok := lookupDSNEnv(postgresDsnEnv, postgresDsnEnvLegacy)
+	dsn, ok := lookupDSNEnv(PostgresDsnEnv, PostgresDsnEnvLegacy)
 	if !ok || dsn == "" {
 		var err error
 		_, dsn, err = testutil.CreatePostgresTestContainer()
@@ -791,7 +797,7 @@ func newReusedPostgresStore(ctx context.Context, store *SqlStore, kind types.Eng
 	}
 
 	if dsn == "" {
-		return nil, nil, fmt.Errorf("%s is not set", postgresDsnEnv)
+		return nil, nil, fmt.Errorf("%s is not set", PostgresDsnEnv)
 	}
 
 	db, err := openDBWithRetry(dsn, kind, 5)

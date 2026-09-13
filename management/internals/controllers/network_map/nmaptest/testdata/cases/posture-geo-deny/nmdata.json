@@ -1,0 +1,40 @@
+{
+  "Network": {"Serial": 32},
+  "Peers": {
+    "peer-ru": {"IP": "100.64.0.1", "Meta": {"WtVersion": "0.60.0"}, "Location": {"CountryCode": "RU", "CityName": "Moscow"}},
+    "peer-de": {"IP": "100.64.0.2", "Meta": {"WtVersion": "0.60.0"}, "Location": {"CountryCode": "DE", "CityName": "Berlin"}},
+    "peer-nowhere": {"IP": "100.64.0.3", "Meta": {"WtVersion": "0.60.0"}},
+    "peer-srv": {"IP": "100.64.0.10", "Meta": {"WtVersion": "0.60.0"}}
+  },
+  "Groups": {
+    "grp-clients": {"Peers": ["peer-ru", "peer-de", "peer-nowhere"]},
+    "grp-srv": {"Peers": ["peer-srv"]}
+  },
+  "PostureChecks": {
+    "chk-geo-deny": {
+      "Checks": {
+        "GeoLocationCheck": {
+          "Action": "deny",
+          "Locations": [{"CountryCode": "RU"}]
+        }
+      }
+    }
+  },
+  "Policies": [
+    {
+      "ID": "pol-geo-deny",
+      "Enabled": true,
+      "SourcePostureChecks": ["chk-geo-deny"],
+      "Rules": [
+        {
+          "Enabled": true,
+          "Action": "accept",
+          "Protocol": "all",
+          "Bidirectional": true,
+          "Sources": ["grp-clients"],
+          "Destinations": ["grp-srv"]
+        }
+      ]
+    }
+  ]
+}
