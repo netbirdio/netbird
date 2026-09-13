@@ -3473,7 +3473,7 @@ func (s *SqlStore) GetPeerGroups(ctx context.Context, lockStrength LockingStreng
 	var groups []*types.Group
 	query := tx.
 		Joins("JOIN group_peers ON group_peers.group_id = groups.id").
-		Where("group_peers.peer_id = ?", peerId).
+		Where("groups.account_id = ? AND group_peers.peer_id = ?", accountId, peerId).
 		Preload(clause.Associations).
 		Find(&groups)
 
@@ -5053,7 +5053,7 @@ func (s *SqlStore) GetPeersByGroupIDs(ctx context.Context, accountID string, gro
 		Select("DISTINCT peer_id").
 		Where("account_id = ? AND group_id IN ?", accountID, groupIDs)
 
-	result := s.db.Where("id IN (?)", peerIDsSubquery).Find(&peers)
+	result := s.db.Where("account_id = ? AND id IN (?)", accountID, peerIDsSubquery).Find(&peers)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to get peers by group IDs: %s", result.Error)
 		return nil, status.Errorf(status.Internal, "failed to get peers by group IDs")
@@ -5712,6 +5712,10 @@ func (s *SqlStore) CreateCustomDomain(ctx context.Context, accountID string, dom
 		Type:          domain.TypeCustom,
 		Validated:     validated,
 	}
+	if !validated {
+		expiresAt := time.Now().UTC().Add(domain.ValidationTTL)
+		newDomain.ValidationExpiresAt = &expiresAt
+	}
 	result := s.db.Create(newDomain)
 	if result.Error != nil {
 		// The unique index is the last guard when two requests clear the
@@ -5733,12 +5737,21 @@ func (s *SqlStore) CreateCustomDomain(ctx context.Context, accountID string, dom
 	return newDomain, nil
 }
 
+// UpdateCustomDomain completes validation only while the original registration is pending.
 func (s *SqlStore) UpdateCustomDomain(ctx context.Context, accountID string, d *domain.Domain) (*domain.Domain, error) {
-	d.AccountID = accountID
-	result := s.db.Select("*").Save(d)
+	if !d.Validated {
+		return nil, status.Errorf(status.InvalidArgument, "custom domain update must complete validation")
+	}
+	result := s.db.WithContext(ctx).Model(&domain.Domain{}).
+		Where(accountAndIDQueryCondition, accountID, d.ID).
+		Where("domain = ? AND target_cluster = ?", d.Domain, d.TargetCluster).
+		Where("validated = ? AND validation_expires_at > ?", false, time.Now().UTC()).
+		Update("validated", true)
 	if result.Error != nil {
-		log.WithContext(ctx).Errorf("failed to update reverse proxy custom domain to store: %v", result.Error)
-		return nil, status.Errorf(status.Internal, "failed to update reverse proxy custom domain to store")
+		return nil, fmt.Errorf("validate custom domain in store: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return nil, status.Errorf(status.PreconditionFailed, "custom domain registration is no longer pending validation")
 	}
 
 	return d, nil
