@@ -3,7 +3,6 @@ package healthcheck
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net"
 	"net/http"
 	"net/url"
@@ -50,12 +49,13 @@ type Server struct {
 	cacheStatus *HealthStatus
 }
 
+// NewServer creates a healthcheck server. ServiceChecker is optional: when
+// nil, the relay-specific checks (listener protocols, certificate, WebSocket
+// connectivity) are skipped and reported as not applicable rather than
+// treated as unhealthy - this is the case when the relay component is not
+// enabled on this instance.
 func NewServer(config Config) (*Server, error) {
 	mux := http.NewServeMux()
-
-	if config.ServiceChecker == nil {
-		return nil, errors.New("service checker is required")
-	}
 
 	server := &Server{
 		config: config,
@@ -126,6 +126,12 @@ func (s *Server) getHealthStatus(ctx context.Context) (*HealthStatus, bool) {
 		Timestamp:        time.Now(),
 		Status:           statusHealthy,
 		CertificateValid: true,
+	}
+
+	// The relay component is not applicable on this instance; report it as
+	// healthy by omission rather than calling into a nil ServiceChecker.
+	if s.config.ServiceChecker == nil {
+		return status, healthy
 	}
 
 	listeners, ok := s.validateListeners()
