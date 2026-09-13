@@ -2,8 +2,12 @@
 
 package ipcauth
 
-// activeUID has no meaning on platforms without a console-user concept
-// (ios, android).
-func activeIdentity() (Identity, bool) {
-	return Identity{}, false
+// isConsoleUser has no meaning on a platform that exposes no console-user
+// lookup, where nobody is ever at a console.
+//
+// Mobile is not built from here: ios satisfies darwin and android satisfies
+// linux, so both take those lookups, which are present but never find a GUI
+// session or a seat.
+func isConsoleUser(Identity) bool {
+	return false
 }

@@ -6,16 +6,28 @@ import (
 	"github.com/ebitengine/purego"
 )
 
-// activeIdentity returns the Identity of the user currently logged into the
-// macOS GUI console session. Uses SCDynamicStoreCopyConsoleUser from the
+// isConsoleUser reports whether id is the user currently logged into the macOS
+// GUI console session. Uses SCDynamicStoreCopyConsoleUser from the
 // SystemConfiguration framework via purego (no cgo).
-func activeIdentity() (Identity, bool) {
+func isConsoleUser(id Identity) bool {
+	// A SID belongs to a Windows principal and has no uid to compare.
+	if id.IsWindows() {
+		return false
+	}
+
+	uid, ok := consoleUID()
+	return ok && uid == id.UID
+}
+
+// consoleUID returns the uid of the GUI console session, and false when nobody
+// is logged in at it.
+func consoleUID() (uint32, bool) {
 	sc, err := purego.Dlopen(
 		"/System/Library/Frameworks/SystemConfiguration.framework/SystemConfiguration",
 		purego.RTLD_NOW|purego.RTLD_GLOBAL,
 	)
 	if err != nil {
-		return Identity{}, false
+		return 0, false
 	}
 
 	cf, err := purego.Dlopen(
@@ -23,7 +35,7 @@ func activeIdentity() (Identity, bool) {
 		purego.RTLD_NOW|purego.RTLD_GLOBAL,
 	)
 	if err != nil {
-		return Identity{}, false
+		return 0, false
 	}
 
 	// CFStringRef SCDynamicStoreCopyConsoleUser(SCDynamicStoreRef store,
@@ -43,7 +55,7 @@ func activeIdentity() (Identity, bool) {
 
 	cfStr := copyConsoleUser(0, unsafe.Pointer(&uid), unsafe.Pointer(&gid))
 	if cfStr == 0 {
-		return Identity{}, false
+		return 0, false
 	}
 	cfRelease(cfStr)
 
@@ -51,8 +63,8 @@ func activeIdentity() (Identity, bool) {
 	// console-user path to grant anything to root, so treat uid 0 as "no
 	// console user".
 	if uid == 0 {
-		return Identity{}, false
+		return 0, false
 	}
 
-	return Identity{UID: uid, known: true}, true
+	return uid, true
 }
