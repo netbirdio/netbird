@@ -555,7 +555,7 @@
         "message": "Manter conectado ao pechar"
     },
     "settings.general.keepConnectedOnQuit.help": {
-        "message": "Mantén a conexión de NetBird en segundo plano cando pechas a xanela principal."
+        "message": "Mantén a conexión de NetBird en segundo plano cando se pecha a xanela principal."
     },
     "settings.general.language.label": {
         "message": "Idioma da interface"
@@ -568,6 +568,21 @@
     },
     "settings.general.language.empty": {
         "message": "Ningún idioma coincide."
+    },
+    "settings.general.theme.label": {
+        "message": "Tema"
+    },
+    "settings.general.theme.help": {
+        "message": "Escolla claro ou escuro, ou siga a aparencia do seu sistema."
+    },
+    "settings.general.theme.system": {
+        "message": "Sistema"
+    },
+    "settings.general.theme.light": {
+        "message": "Claro"
+    },
+    "settings.general.theme.dark": {
+        "message": "Escuro"
     },
     "settings.general.management.label": {
         "message": "Servidor de xestión"
@@ -603,7 +618,7 @@
         "message": "Conectividade"
     },
     "settings.network.section.routingDns": {
-        "message": "Enrutamento e DNS"
+        "message": "Encamiñamento e DNS"
     },
     "settings.network.monitor.label": {
         "message": "Reconectar ao cambiar de rede"
@@ -645,13 +660,13 @@
         "message": "Bloquear tráfico entrante"
     },
     "settings.security.blockInbound.help": {
-        "message": "Rexeita conexións non solicitadas de peers a este dispositivo e a calquera rede que enrute. O tráfico saínte non se ve afectado."
+        "message": "Rexeita conexións non solicitadas de peers a este dispositivo e a calquera rede que encamiñe. O tráfico saínte non se ve afectado."
     },
     "settings.security.blockLan.label": {
         "message": "Bloquear acceso a LAN"
     },
     "settings.security.blockLan.help": {
-        "message": "Evita que os peers acaden a súa rede local ou os seus dispositivos cando este dispositivo enrute o seu tráfico."
+        "message": "Evita que os peers acaden a súa rede local ou os seus dispositivos cando este dispositivo encamiñe o seu tráfico."
     },
     "settings.security.rosenpass.label": {
         "message": "Activar resistencia cuántica"
@@ -765,7 +780,7 @@
         "message": "Oculta enderezos IP públicos e dominios que non sexan de NetBird nos rexistros."
     },
     "settings.troubleshooting.anonymize.info": {
-        "message": "Información de anonimización"
+        "message": "O nivel predeterminado mantén lexibles os enderezos IPv4 internos e os nomes dos peers para o soporte. O nivel estrito anonimiza ademais os enderezos IP privados (RFC 1918), CGNAT e de ligazón local, os nomes dos peers e as chaves públicas de WireGuard. Os valores recorrentes asígnanse ao mesmo marcador, polo que os peers seguen sendo distinguibles. Use Estrito cando comparta o paquete fóra da súa organización."
     },
     "settings.troubleshooting.anonymize.none": {
         "message": "Ningunha"
@@ -774,13 +789,13 @@
         "message": "Predeterminada"
     },
     "settings.troubleshooting.anonymize.strict": {
-        "message": "Estricta"
+        "message": "Estrita"
     },
     "settings.troubleshooting.systemInfo.label": {
         "message": "Incluír información do sistema"
     },
     "settings.troubleshooting.systemInfo.help": {
-        "message": "Inclúe SO, kernel, interfaces de rede e táboas de enrutamento."
+        "message": "Inclúe SO, kernel, interfaces de rede e táboas de encamiñamento."
     },
     "settings.troubleshooting.upload.label": {
         "message": "Subir paquete aos servidores de NetBird"
@@ -996,7 +1011,7 @@
         "message": "Actualizando cliente."
     },
     "update.page.outdated": {
-        "message": "A súa versión de cliente é máis antiga ca a versión de actualización automática establecida na xestión."
+        "message": "A súa versión de cliente é máis antiga que a versión de actualización automática establecida na xestión."
     },
     "update.page.status.running": {
         "message": "Actualizando"
@@ -1349,13 +1364,28 @@
     "error.unknown": {
         "message": "A operación fallou."
     },
+    "error.elevation_unavailable": {
+        "message": "NetBird non puido solicitar a este sistema os privilexios que o cambio require. Execute isto no seu lugar:"
+    },
+    "error.elevation_failed": {
+        "message": "O cambio non se puido aplicar con privilexios elevados. Execute isto no seu lugar:"
+    },
+    "settings.ssh.privilege.actorRoot": {
+        "message": "root"
+    },
+    "settings.ssh.privilege.actorAdministrator": {
+        "message": "privilexios de administrador"
+    },
     "settings.ssh.privilege.hint": {
         "message": "Require {actor}. Execute isto no seu lugar:"
     },
     "settings.ssh.privilege.oneWay": {
-        "message": "Pode desactivalo, pero para volvelo activar requírese {actor}:"
+        "message": "Pode desactivalo, pero para volvelo activar requírese {actor}."
     },
     "settings.ssh.privilege.oneWayInverted": {
-        "message": "Pode activalo, pero para volvelo desactivar requírese {actor}:"
+        "message": "Pode activalo, pero para volvelo desactivar requírese {actor}."
+    },
+    "settings.ssh.privilege.authorizePending": {
+        "message": "Agardando pola autorización…"
     }
 }
