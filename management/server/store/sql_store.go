@@ -3021,12 +3021,24 @@ func (s *SqlStore) SaveUserLastLogin(ctx context.Context, accountID, userID stri
 		return status.NewGetUserFromStoreError()
 	}
 
-	if !lastLogin.IsZero() {
-		user.LastLogin = &lastLogin
-		return s.db.Save(&user).Error
+	if lastLogin.IsZero() {
+		return nil
 	}
 
-	return nil
+	if err := user.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+		return fmt.Errorf("decrypt user: %w", err)
+	}
+
+	user.LastLogin = &lastLogin
+
+	userCopy := user.Copy()
+	userCopy.Email = user.Email
+	userCopy.Name = user.Name
+	if err := userCopy.EncryptSensitiveData(s.fieldEncrypt); err != nil {
+		return fmt.Errorf("encrypt user: %w", err)
+	}
+
+	return s.db.Save(userCopy).Error
 }
 
 func (s *SqlStore) GetPostureCheckByChecksDefinition(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error) {

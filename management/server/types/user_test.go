@@ -184,10 +184,22 @@ func TestUser_DecryptSensitiveData(t *testing.T) {
 		assert.Equal(t, "Test User", user.Name, "name should remain unchanged with nil encryptor")
 	})
 
-	t.Run("decrypt with invalid ciphertext returns error", func(t *testing.T) {
+	t.Run("decrypt with invalid base64 uses graceful fallback", func(t *testing.T) {
 		user := &User{
 			Id:    "user-6",
 			Email: "not-valid-base64-ciphertext!!!",
+			Name:  "Test User",
+		}
+
+		err := user.DecryptSensitiveData(fieldEncrypt)
+		require.NoError(t, err)
+		assert.Equal(t, "not-valid-base64-ciphertext!!!", user.Email)
+	})
+
+	t.Run("decrypt with invalid ciphertext returns error", func(t *testing.T) {
+		user := &User{
+			Id:    "user-6b",
+			Email: "c2hvcnQ=",
 			Name:  "Test User",
 		}
 

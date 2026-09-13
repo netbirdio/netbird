@@ -203,3 +203,44 @@ func TestUpdateConnector_AllowsSameTypeUpdate(t *testing.T) {
 	require.NoError(t, json.Unmarshal(conn.Config, &m))
 	assert.Equal(t, "https://login.microsoftonline.com/new/v2.0", m["issuer"])
 }
+
+func TestBuildOIDCConnectorConfig_PKCEAndJWKS(t *testing.T) {
+	pkce := true
+	jwks := "https://example.com/jwks"
+	cfg := &ConnectorConfig{
+		Type:    "oidc",
+		PKCE:    &pkce,
+		JWKSURL: &jwks,
+	}
+
+	data, err := buildOIDCConnectorConfig(cfg, "http://localhost")
+	require.NoError(t, err)
+
+	var parsed map[string]interface{}
+	err = json.Unmarshal(data, &parsed)
+	require.NoError(t, err)
+
+	assert.Equal(t, "S256", parsed["pkceChallenge"])
+	assert.Equal(t, "https://example.com/jwks", parsed["jwksURL"])
+}
+
+func TestOverlayConnectorConfig_PKCEAndJWKS(t *testing.T) {
+	oldConfig := []byte(`{"issuer": "old-issuer"}`)
+	pkce := true
+	jwks := "https://example.com/jwks"
+	cfg := &ConnectorConfig{
+		PKCE:    &pkce,
+		JWKSURL: &jwks,
+	}
+
+	data, err := overlayConnectorConfig(oldConfig, cfg)
+	require.NoError(t, err)
+
+	var parsed map[string]interface{}
+	err = json.Unmarshal(data, &parsed)
+	require.NoError(t, err)
+
+	assert.Equal(t, "old-issuer", parsed["issuer"])
+	assert.Equal(t, "S256", parsed["pkceChallenge"])
+	assert.Equal(t, "https://example.com/jwks", parsed["jwksURL"])
+}
