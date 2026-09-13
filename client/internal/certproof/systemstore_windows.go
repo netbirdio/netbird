@@ -46,35 +46,66 @@ func DefaultStore() Store {
 	return NewSystemStore()
 }
 
-// SystemStore yields the identities of the local machine's personal store, completing
-// their chains from the intermediate CA store. Keys are used through CNG and never exported.
-type SystemStore struct{}
+// SystemStore yields the identities of a personal certificate store, completing their
+// chains from the matching intermediate CA store. Keys are used through CNG and never
+// exported.
+//
+// The location decides whose certificates these are. The local machine store is the one
+// a service reads; the current user store lives in the signed-in user's registry hive
+// with keys protected against their profile, so it is only readable while running as
+// that user.
+type SystemStore struct {
+	location uint32
+}
 
+// NewSystemStore reads the local machine store, which is what the daemon uses.
 func NewSystemStore() *SystemStore {
-	return &SystemStore{}
+	return &SystemStore{location: windows.CERT_SYSTEM_STORE_LOCAL_MACHINE}
+}
+
+// NewUserStore reads the calling user's personal store. It is only useful in a process
+// already running as that user, which is what the posture helper is.
+func NewUserStore() *SystemStore {
+	return &SystemStore{location: windows.CERT_SYSTEM_STORE_CURRENT_USER}
 }
 
 func (s *SystemStore) Candidates(_ context.Context) ([]Candidate, error) {
-	leaves, err := storeCertificates(personalStore)
-	if err != nil || len(leaves) == 0 {
-		return nil, err
-	}
-	intermediates, err := storeCertificates(intermediateStore)
+	leaves, err := storeCertificates(s.location, personalStore)
 	if err != nil {
 		return nil, err
 	}
+	intermediates, err := storeCertificates(s.location, intermediateStore)
+	if err != nil {
+		return nil, err
+	}
+	log.Infof("certificate store %s holds %d personal certificates and %d intermediates", s, len(leaves), len(intermediates))
+	if len(leaves) == 0 {
+		return nil, nil
+	}
+
 	pool := slices.Concat(intermediates, leaves)
 	candidates := make([]Candidate, 0, len(leaves))
 	for _, leaf := range leaves {
-		candidates = append(candidates, Candidate{Chain: buildChain(leaf, pool), Signer: &systemStoreSigner{leaf: leaf}})
+		chain := buildChain(leaf, pool)
+		log.Infof("certificate store %s candidate %q issued by %q built a chain of %d certificates", s, leaf.Subject, leaf.Issuer, len(chain))
+		candidates = append(candidates, Candidate{Chain: chain, Signer: &systemStoreSigner{leaf: leaf, location: s.location}})
 	}
 	return candidates, nil
+}
+
+// String names the store location the way the Windows documentation does.
+func (s *SystemStore) String() string {
+	if s.location == windows.CERT_SYSTEM_STORE_CURRENT_USER {
+		return "CurrentUser"
+	}
+	return "LocalMachine"
 }
 
 // systemStoreSigner holds only the certificate; the store entry and its key are acquired
 // at signing time so no handles outlive a call.
 type systemStoreSigner struct {
-	leaf *x509.Certificate
+	leaf     *x509.Certificate
+	location uint32
 }
 
 func (s *systemStoreSigner) Public() crypto.PublicKey {
@@ -86,7 +117,7 @@ func (s *systemStoreSigner) Sign(_ io.Reader, digest []byte, opts crypto.SignerO
 	if err != nil {
 		return nil, err
 	}
-	store, err := openStore(personalStore)
+	store, err := openStore(s.location, personalStore)
 	if err != nil {
 		return nil, err
 	}
@@ -164,8 +195,8 @@ func ncryptSignHash(key uintptr, padding unsafe.Pointer, digest, signature []byt
 	return result, nil
 }
 
-func storeCertificates(name string) ([]*x509.Certificate, error) {
-	store, err := openStore(name)
+func storeCertificates(location uint32, name string) ([]*x509.Certificate, error) {
+	store, err := openStore(location, name)
 	if err != nil {
 		return nil, err
 	}
@@ -184,12 +215,12 @@ func storeCertificates(name string) ([]*x509.Certificate, error) {
 	return certs, err
 }
 
-func openStore(name string) (windows.Handle, error) {
+func openStore(location uint32, name string) (windows.Handle, error) {
 	namePtr, err := windows.UTF16PtrFromString(name)
 	if err != nil {
 		return 0, err
 	}
-	flags := uint32(windows.CERT_SYSTEM_STORE_LOCAL_MACHINE | windows.CERT_STORE_READONLY_FLAG | windows.CERT_STORE_OPEN_EXISTING_FLAG)
+	flags := location | uint32(windows.CERT_STORE_READONLY_FLAG|windows.CERT_STORE_OPEN_EXISTING_FLAG)
 	store, err := windows.CertOpenStore(windows.CERT_STORE_PROV_SYSTEM, 0, 0, flags, uintptr(unsafe.Pointer(namePtr)))
 	if err != nil {
 		return 0, fmt.Errorf("open %s certificate store: %w", name, err)

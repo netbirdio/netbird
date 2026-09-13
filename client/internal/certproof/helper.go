@@ -36,7 +36,7 @@ type HelperResponse struct {
 // lookup: the daemon cannot read a login keychain, so it launches this in the user's
 // session instead. Only the signature crosses back, never the private key.
 func RunHelper(ctx context.Context, in io.Reader, out io.Writer) error {
-	return runHelper(ctx, DefaultStore(), in, out)
+	return runHelper(ctx, helperStore(), in, out)
 }
 
 func runHelper(ctx context.Context, store Store, in io.Reader, out io.Writer) error {

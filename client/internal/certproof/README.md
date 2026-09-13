@@ -14,8 +14,15 @@ to one WireGuard peer key and cannot be replayed by another peer.
 | --- | --- | --- |
 | macOS | System keychain | the daemon, directly |
 | macOS | console user's login keychain | a helper in that user's desktop session |
-| Windows | CNG / system certificate store | the daemon, directly |
+| Windows | `LocalMachine\MY` | the service, directly |
+| Windows | signed-in user's `CurrentUser\MY` | a helper launched with that session's token |
 | Linux and others | PEM directory, `NB_CERT_STORE_DIR` or `/etc/netbird/certs` | the daemon, directly |
+
+macOS and Windows both keep per-user certificates out of reach of a privileged daemon,
+and both are handled the same way: the daemon reads the machine store itself and
+launches `netbird posture cert-proof` as the signed-in user for the rest. Only the
+signature and the chain come back. The helper, the request and response types and the
+subcommand are shared; only the way the child is launched differs.
 
 ## macOS: why the daemon cannot read a login keychain
 
@@ -55,23 +62,63 @@ signature and the certificate chain come back.**
 `netbird posture cert-proof` is hidden and not meant to be run by hand. It writes proofs
 to stdout and every log line to stderr, so stdout stays parseable.
 
-## Only the console user can be validated
+## Windows: the service and the signed-in user
+
+`LocalMachine\MY` is what the service reads, and it is where AD and Intune enrol device
+certificates. `CurrentUser\MY` lives in the signed-in user's registry hive with private
+keys protected by DPAPI against their profile, so it is only readable while running as
+that user.
+
+The failure mode differs from macOS in an important way: a service that opens
+`CURRENT_USER` does **not** get an error. "Current user" resolves to the service
+account's own hive, `HKU\S-1-5-18`, so it silently reads an empty and irrelevant store.
+There is nothing to log. That is why the service only ever opens `LocalMachine` and asks
+a helper for the rest.
+
+Windows does let a privileged service assume a user identity, which macOS does not for
+keychains, so no external tooling is involved:
+
+```go
+windows.WTSQueryUserToken(session, &token)
+cmd.SysProcAttr = &syscall.SysProcAttr{Token: syscall.Token(token), CreationFlags: windows.CREATE_NO_WINDOW}
+```
+
+`CREATE_NO_WINDOW` matters: without it a console window flashes on the user's desktop on
+every sync.
+
+Session selection prefers the physical console, then falls back to any active session,
+so remote desktop and VDI hosts work. `WTSQueryUserToken` needs `SE_TCB_NAME`, which
+LocalSystem holds and an ordinary process does not, so a user-run `netbird up` skips the
+helper and reads the machine store alone.
+
+In-process impersonation would also work, but it is per-OS-thread while goroutines
+migrate freely, so it would need `runtime.LockOSThread` around every key operation. The
+child process avoids that class of bug entirely.
+
+Unlike macOS, the Windows store acquires keys with `CRYPT_ACQUIRE_SILENT_FLAG`, so a key
+that would need a prompt fails immediately instead of blocking. That also means a
+smartcard PIN can never be satisfied this way.
+
+## Only the signed-in user can be validated
 
 This is the central limitation of the design, and it is deliberate.
 
-A proof from a login keychain can only ever be produced for **the user whose desktop
-session is currently open**. Consequences worth designing around:
+A proof from a user store can only ever be produced for **the user whose session is
+currently open**. Consequences worth designing around:
 
-- **At the login window there is no user proof.** macOS reports no console user, or
-  attributes the console to root, and `CurrentConsoleUser` returns false for both. Only
-  System keychain device proofs are sent. A posture check that demands a user
-  certificate will fail on a Mac sitting at the lock screen before anyone logs in.
-- **Logging out changes the answer.** Posture can flip between compliant and
-  non-compliant across logout, so management should treat "no proof" as its own state
-  rather than as a failed check, or users get disconnected at the login window.
-- **Fast user switching picks one user.** Other logged-in users keep valid sessions and
-  unlocked keychains, but only the console user is asked. If you ever need all of them,
-  enumerate GUI sessions instead of the console user.
+- **At the sign-in screen there is no user proof.** macOS reports no console user or
+  attributes the console to root, and `CurrentConsoleUser` returns false for both.
+  Windows reports no active session with a token. Only machine proofs are sent, so a
+  posture check that demands a user certificate fails on a machine nobody has signed
+  into yet.
+- **Signing out changes the answer.** Posture can flip between compliant and
+  non-compliant across a sign-out, so management should treat "no proof" as its own
+  state rather than as a failed check, or users get disconnected at the sign-in screen.
+- **One session is asked, not all of them.** macOS asks the console user, so other
+  fast-user-switched accounts are skipped even though their keychains are unlocked.
+  Windows prefers the console and otherwise takes the first active session. If you ever
+  need every signed-in user, both platforms would have to enumerate sessions and ask
+  each one.
 - **A locked keychain still blocks signing.** A user can be logged in with their
   keychain locked (locked on sleep, or manually). The helper then needs an unlock prompt
   and may block, which is why the spawn has a 30s timeout and a failure is reported as
