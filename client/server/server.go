@@ -1943,7 +1943,7 @@ func (s *Server) WaitJWTToken(
 		if s.jwtCache.store(token, caller, jwtCacheTTL, generation) {
 			log.Debugf("JWT token cached for SSH authentication, TTL: %v", jwtCacheTTL)
 		} else {
-			log.Debug("not caching the SSH JWT: the session it was obtained under ended while the IdP was polled")
+			log.Debug("not caching the SSH JWT: token is not cacheable or the session has ended")
 		}
 	}
 
