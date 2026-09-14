@@ -49,7 +49,7 @@ func (p *Preferences) GetManagementURL() (string, error) {
 		return p.configInput.ManagementURL, nil
 	}
 
-	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
+	cfg, err := profilemanager.ReadOrGenerateConfig(p.configInput.ConfigPath)
 	if err != nil {
 		return "", err
 	}
@@ -67,7 +67,7 @@ func (p *Preferences) GetAdminURL() (string, error) {
 		return p.configInput.AdminURL, nil
 	}
 
-	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
+	cfg, err := profilemanager.ReadOrGenerateConfig(p.configInput.ConfigPath)
 	if err != nil {
 		return "", err
 	}
@@ -89,7 +89,7 @@ func (p *Preferences) HasPreSharedKey() (bool, error) {
 		return *p.configInput.PreSharedKey != "", nil
 	}
 
-	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
+	cfg, err := profilemanager.ReadOrGenerateConfig(p.configInput.ConfigPath)
 	if err != nil {
 		return false, err
 	}
@@ -115,7 +115,7 @@ func (p *Preferences) GetRosenpassEnabled() (bool, error) {
 		return *p.configInput.RosenpassEnabled, nil
 	}
 
-	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
+	cfg, err := profilemanager.ReadOrGenerateConfig(p.configInput.ConfigPath)
 	if err != nil {
 		return false, err
 	}
@@ -136,7 +136,7 @@ func (p *Preferences) GetRosenpassPermissive() (bool, error) {
 		return *p.configInput.RosenpassPermissive, nil
 	}
 
-	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
+	cfg, err := profilemanager.ReadOrGenerateConfig(p.configInput.ConfigPath)
 	if err != nil {
 		return false, err
 	}
@@ -149,7 +149,7 @@ func (p *Preferences) GetDisableIPv6() (bool, error) {
 		return *p.configInput.DisableIPv6, nil
 	}
 
-	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
+	cfg, err := profilemanager.ReadOrGenerateConfig(p.configInput.ConfigPath)
 	if err != nil {
 		return false, err
 	}
@@ -168,7 +168,7 @@ func (p *Preferences) GetRemoteJobsAllowed() (bool, error) {
 		return *p.configInput.RemoteJobsAllowed, nil
 	}
 
-	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
+	cfg, err := profilemanager.ReadOrGenerateConfig(p.configInput.ConfigPath)
 	if err != nil {
 		return false, err
 	}

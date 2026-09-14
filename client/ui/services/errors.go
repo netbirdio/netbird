@@ -134,6 +134,10 @@ func (c errorClassifier) classify(err error) *ClientError {
 		strings.Contains(lower, "connection refused"),
 		strings.Contains(lower, "context deadline exceeded"):
 		code = "daemon_unreachable"
+	case strings.Contains(lower, "update settings are disabled"):
+		code = "settings_locked"
+	case strings.Contains(lower, "managed by mdm"):
+		code = "settings_managed_by_mdm"
 	}
 
 	// Fall back to the gRPC status code when the message didn't match a known
@@ -145,6 +149,11 @@ func (c errorClassifier) classify(err error) *ClientError {
 			code = "permission_denied"
 		case gcodes.Unavailable, gcodes.DeadlineExceeded:
 			code = "daemon_unreachable"
+		case gcodes.FailedPrecondition:
+			// The daemon answered and refused. The two refusals it composes
+			// are matched above; anything else that reaches here is still a
+			// refusal, so say that rather than "operation failed".
+			code = "change_refused"
 		}
 	}
 

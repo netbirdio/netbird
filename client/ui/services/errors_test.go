@@ -34,6 +34,28 @@ func TestErrorClassifier_Classify(t *testing.T) {
 		require.Equal(t, "session_expired", ce.Code)
 	})
 
+	t.Run("the update-settings kill switch is a refusal, not a failure", func(t *testing.T) {
+		err := gstatus.Error(gcodes.FailedPrecondition,
+			"update settings are disabled, you cannot use this feature without update settings enabled")
+
+		ce := c.classify(err)
+		require.NotNil(t, ce)
+		require.Equal(t, "settings_locked", ce.Code)
+	})
+
+	t.Run("an MDM-managed field is named as such", func(t *testing.T) {
+		err := gstatus.Error(gcodes.FailedPrecondition,
+			"fields managed by MDM cannot be modified: [managementURL]")
+
+		require.Equal(t, "settings_managed_by_mdm", c.classify(err).Code)
+	})
+
+	t.Run("any other refusal is still a refusal", func(t *testing.T) {
+		// FailedPrecondition means the daemon answered and declined; falling
+		// through to "unknown" showed "Operation failed" instead.
+		require.Equal(t, "change_refused", c.classify(gstatus.Error(gcodes.FailedPrecondition, "something else")).Code)
+	})
+
 	t.Run("unavailable code maps to daemon_unreachable", func(t *testing.T) {
 		ce := c.classify(gstatus.Error(gcodes.Unavailable, "transport closing"))
 		require.Equal(t, "daemon_unreachable", ce.Code)
