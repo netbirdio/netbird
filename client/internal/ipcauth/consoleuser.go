@@ -1,5 +1,14 @@
 package ipcauth
 
+import (
+	"sync"
+
+	log "github.com/sirupsen/logrus"
+)
+
+// logConsolePanic keeps the notice to once per process.
+var logConsolePanic sync.Once
+
 // IsConsoleUser reports whether a caller is sitting at one of this machine's
 // consoles right now.
 //
@@ -12,5 +21,23 @@ func IsConsoleUser(id Identity) bool {
 	if !id.Known() {
 		return false
 	}
-	return isConsoleUser(id)
+
+	return guardConsoleLookup(id, isConsoleUser)
+}
+
+// guardConsoleLookup runs a platform lookup and turns a panic out of it into
+// "cannot confirm".
+func guardConsoleLookup(id Identity, lookup func(Identity) bool) (atConsole bool) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			return
+		}
+		atConsole = false
+		logConsolePanic.Do(func() {
+			log.Errorf("console user lookup panicked, no caller will be treated as being at the console: %v", r)
+		})
+	}()
+
+	return lookup(id)
 }

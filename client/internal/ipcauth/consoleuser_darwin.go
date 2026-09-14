@@ -50,12 +50,12 @@ func consoleUID() (uint32, bool) {
 	// We pass nil for the store (NULL is accepted; the framework creates a
 	// transient one), discard the returned CFStringRef username (we only
 	// need the UID), and read uid via the out-pointer.
-	copyConsoleUserSym, err := purego.Dlsym(sc, "SCDynamicStoreCopyConsoleUser")
-	if err != nil {
+	copyConsoleUserSym, ok := resolveSymbol(sc, "SCDynamicStoreCopyConsoleUser")
+	if !ok {
 		return 0, false
 	}
-	cfReleaseSym, err := purego.Dlsym(cf, "CFRelease")
-	if err != nil {
+	cfReleaseSym, ok := resolveSymbol(cf, "CFRelease")
+	if !ok {
 		return 0, false
 	}
 
@@ -82,4 +82,14 @@ func consoleUID() (uint32, bool) {
 	}
 
 	return uid, true
+}
+
+// resolveSymbol looks up one symbol and reports false when it is not there,
+// rather than passing it to RegisterFunc which would panic.
+func resolveSymbol(handle uintptr, name string) (uintptr, bool) {
+	sym, err := purego.Dlsym(handle, name)
+	if err != nil || sym == 0 {
+		return 0, false
+	}
+	return sym, true
 }
