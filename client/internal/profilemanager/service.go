@@ -700,9 +700,9 @@ func (s *ServiceManager) claimDefaultProfileIfNeeded(profiles []Profile, id ipca
 // console without the machine running the test having a seat of its own.
 var isConsoleUser = ipcauth.IsConsoleUser
 
-// logDefaultClaimDisabled keeps the notice to once per process, since the claim
-// path runs on every profile load.
-var logDefaultClaimDisabled sync.Once
+// logDefaultClaimDisabledOrError keeps the notice to once per process, since the claim
+// path runs on every profile load. It also logs a parse failure once.
+var logDefaultClaimDisabledOrError sync.Once
 
 // defaultProfileClaimDisabled reports whether the environment turns off the
 // console-user claim of the default profile.
@@ -713,11 +713,13 @@ func defaultProfileClaimDisabled() bool {
 	}
 	disabled, err := strconv.ParseBool(val)
 	if err != nil {
-		log.Warnf("failed to parse %s: %v", EnvDisableDefaultProfileClaim, err)
+		logDefaultClaimDisabledOrError.Do(func() {
+			log.Warnf("failed to parse %s: %v", EnvDisableDefaultProfileClaim, err)
+		})
 		return false
 	}
 	if disabled {
-		logDefaultClaimDisabled.Do(func() {
+		logDefaultClaimDisabledOrError.Do(func() {
 			log.Infof("%s is set, the default profile stays unowned and reachable only by a privileged caller until an owner is recorded another way", EnvDisableDefaultProfileClaim)
 		})
 	}
