@@ -123,11 +123,8 @@ func NewServer(cfg *Config) *BaseServer {
 	}
 	s.container[ContainerKeyBaseServer] = s
 
-	// Boot-time constructors on both the OSS and the cloud server exit through
-	// log.Fatalf without returning, so the handlers are wired to the logrus
-	// exit path here, before any boot work runs.
-	log.RegisterExitHandler(s.RunStopHandlers)
-	s.OnStop(profiling.Start(applicationName))
+	stopProfiling := profiling.Start(applicationName)
+	s.OnStop(stopProfiling)
 
 	return s
 }

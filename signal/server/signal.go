@@ -93,10 +93,8 @@ func NewServer(ctx context.Context, meter metric.Meter, metricsPrefix ...string)
 		sendTimeout:   sTimeout,
 	}
 
-	// Fatal exits in the run command bypass Stop, so the handlers are wired
-	// to the logrus exit path as well.
-	log.RegisterExitHandler(s.RunStopHandlers)
-	s.OnStop(profiling.Start(applicationName))
+	stopProfiling := profiling.Start(applicationName)
+	s.OnStop(stopProfiling)
 
 	return s, nil
 }

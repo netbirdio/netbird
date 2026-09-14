@@ -362,6 +362,13 @@ func (s *Server) Start(ctx context.Context) error {
 		return err
 	}
 
+	startupOK := false
+	defer func() {
+		if !startupOK {
+			s.cleanupFailedStart()
+		}
+	}()
+
 	// Management client must be initialised BEFORE the middleware manager —
 	// initMiddlewareManager passes s.mgmtClient into the builtin FactoryContext
 	// that the limit-check / limit-record middlewares pull from. Reversed
@@ -396,18 +403,6 @@ func (s *Server) Start(ctx context.Context) error {
 	if err := s.initGeoLookup(); err != nil {
 		return err
 	}
-
-	startupOK := false
-	defer func() {
-		if startupOK {
-			return
-		}
-		if s.geoRaw != nil {
-			if closeErr := s.geoRaw.Close(); closeErr != nil {
-				s.Logger.Debugf("close geolocation on startup failure: %v", closeErr)
-			}
-		}
-	}()
 
 	s.auth = auth.NewMiddleware(s.Logger, s.mgmtClient, s.geo)
 	s.accessLog = accesslog.NewLogger(s.mgmtClient, s.Logger, s.TrustedProxies)
@@ -477,14 +472,7 @@ func (s *Server) Stop(ctx context.Context) error {
 		go func() {
 			defer close(done)
 			s.gracefulShutdown()
-			if s.runCancel != nil {
-				s.runCancel()
-			}
-			if s.mgmtConn != nil {
-				if err := s.mgmtConn.Close(); err != nil {
-					s.Logger.Debugf("management connection close: %v", err)
-				}
-			}
+			s.releaseRunResources()
 		}()
 
 		select {
@@ -497,6 +485,27 @@ func (s *Server) Stop(ctx context.Context) error {
 	s.startMu.Lock()
 	defer s.startMu.Unlock()
 	return s.runErr
+}
+
+// cleanupFailedStart releases what a failed Start already brought up. It
+// skips the drain and pre-stop delay because nothing has served yet, and
+// consumes stopOnce so a later Stop stays a no-op.
+func (s *Server) cleanupFailedStart() {
+	s.stopOnce.Do(func() {
+		s.shutdownServices()
+		s.releaseRunResources()
+	})
+}
+
+func (s *Server) releaseRunResources() {
+	if s.runCancel != nil {
+		s.runCancel()
+	}
+	if s.mgmtConn != nil {
+		if err := s.mgmtConn.Close(); err != nil {
+			s.Logger.Debugf("management connection close: %v", err)
+		}
+	}
 }
 
 // waitAndStop blocks until ctx is cancelled or a background goroutine

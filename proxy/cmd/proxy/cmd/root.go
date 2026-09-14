@@ -164,6 +164,7 @@ func runServer(cmd *cobra.Command, args []string) error {
 	logger.Infof("configured log level: %s", level)
 
 	stopProfiling := profiling.Start(applicationName)
+	defer stopProfiling()
 
 	var wgPool, wgBatch uint64
 	var perf embed.Performance
@@ -261,9 +262,7 @@ func runServer(cmd *cobra.Command, args []string) error {
 		CrowdSecAPIKey:           crowdsecAPIKey,
 	})
 
-	err = srv.ListenAndServe(ctx, addr)
-	stopProfiling()
-	return err
+	return srv.ListenAndServe(ctx, addr)
 }
 
 func envBoolOrDefault(key string, def bool) bool {
