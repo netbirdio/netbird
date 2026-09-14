@@ -15,6 +15,7 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 
 	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	"github.com/netbirdio/netbird/management/server/migration"
@@ -55,9 +56,18 @@ func setupDatabase(t *testing.T) *gorm.DB {
 
 		db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	case "sqlite":
-		db, err = gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+		db, err = gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{Logger: logger.Default.LogMode(logger.Info)})
 	default:
-		db, err = gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+		cleanup, dsn, err = testutil.CreatePostgresTestContainer()
+		if err != nil {
+			t.Fatalf("Failed to create PostgreSQL test container: %v", err)
+		}
+
+		if dsn == "" {
+			t.Fatalf("PostgreSQL connection string is empty, ensure the test container is running")
+		}
+
+		db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	}
 	if cleanup != nil {
 		t.Cleanup(cleanup)

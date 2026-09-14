@@ -33,9 +33,9 @@ type Peer struct {
 	// WireGuard public key
 	Key string // uniqueness index (check migrations)
 	// IP address of the Peer
-	IP netip.Addr `gorm:"serializer:json"` // uniqueness index per accountID (check migrations)
+	IP netip.Addr `gorm:"serializer:json;default:'{}'"` // uniqueness index per accountID (check migrations)
 	// IPv6 overlay address of the Peer, zero value if IPv6 is not enabled for the account.
-	IPv6 netip.Addr `gorm:"serializer:json"`
+	IPv6 netip.Addr `gorm:"serializer:json;default:'{}'"`
 	// Meta is a Peer system meta data
 	Meta PeerSystemMeta `gorm:"embedded;embeddedPrefix:meta_"`
 	// ProxyMeta is metadata related to proxy peers
@@ -69,7 +69,7 @@ type Peer struct {
 	Location Location `gorm:"embedded;embeddedPrefix:location_"`
 
 	// ExtraDNSLabels is a list of additional DNS labels that can be used to resolve the peer
-	ExtraDNSLabels []string `gorm:"serializer:json"`
+	ExtraDNSLabels []string `gorm:"serializer:json;default:'[]'"`
 	// AllowExtraDNSLabels indicates whether the peer allows extra DNS labels to be used for resolving the peer
 	AllowExtraDNSLabels bool
 }
@@ -103,7 +103,7 @@ type PeerStatus struct { //nolint:revive
 
 // Location is a geo location information of a Peer based on public connection IP
 type Location struct {
-	ConnectionIP net.IP `gorm:"serializer:json"` // from grpc peer or reverse proxy headers depends on setup
+	ConnectionIP net.IP `gorm:"serializer:json;default:'{}'"` // from grpc peer or reverse proxy headers depends on setup
 	CountryCode  string
 	CityName     string
 	GeoNameID    uint // city level geoname id
@@ -167,14 +167,14 @@ type PeerSystemMeta struct { //nolint:revive
 	WtVersion          string
 	UIVersion          string
 	KernelVersion      string
-	NetworkAddresses   []NetworkAddress `gorm:"serializer:json"`
+	NetworkAddresses   []NetworkAddress `gorm:"serializer:json;default:'[]'"`
 	SystemSerialNumber string
 	SystemProductName  string
 	SystemManufacturer string
-	Environment        Environment `gorm:"serializer:json"`
-	Flags              Flags       `gorm:"serializer:json"`
-	Files              []File      `gorm:"serializer:json"`
-	Capabilities       []int32     `gorm:"serializer:json"`
+	Environment        Environment `gorm:"serializer:json;default:'{}'"`
+	Flags              Flags       `gorm:"serializer:json;default:'{}'"`
+	Files              []File      `gorm:"serializer:json;default:'[]'"`
+	Capabilities       []int32     `gorm:"serializer:json;default:'[]'"`
 	SyncMessageVersion int
 }
 

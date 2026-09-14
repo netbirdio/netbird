@@ -36,7 +36,7 @@ type Settings struct {
 	JWTGroupsClaimName string
 
 	// JWTAllowGroups list of groups to which users are allowed access
-	JWTAllowGroups []string `gorm:"serializer:json"`
+	JWTAllowGroups []string `gorm:"serializer:json;default:'[]'"`
 
 	// RoutingPeerDNSResolutionEnabled enabled the DNS resolution on the routing peers
 	RoutingPeerDNSResolutionEnabled bool
@@ -45,14 +45,14 @@ type Settings struct {
 	DNSDomain string
 
 	// NetworkRange is the custom network range for that account
-	NetworkRange netip.Prefix `gorm:"serializer:json"`
+	NetworkRange netip.Prefix `gorm:"serializer:json;default:'{}'"`
 	// NetworkRangeV6 is the custom IPv6 network range for that account
-	NetworkRangeV6 netip.Prefix `gorm:"serializer:json"`
+	NetworkRangeV6 netip.Prefix `gorm:"serializer:json;default:'{}'"`
 
 	// PeerExposeEnabled enables or disables peer-initiated service expose
 	PeerExposeEnabled bool
 	// PeerExposeGroups list of peer group IDs allowed to expose services
-	PeerExposeGroups []string `gorm:"serializer:json"`
+	PeerExposeGroups []string `gorm:"serializer:json;default:'[]'"`
 
 	// Extra is a dictionary of Account settings
 	Extra *ExtraSettings `gorm:"embedded;embeddedPrefix:extra_"`
@@ -71,7 +71,7 @@ type Settings struct {
 	// Peers not in any of these groups will not be allocated an IPv6 address.
 	// Empty list means IPv6 is disabled for the account.
 	// For new accounts this defaults to the All group.
-	IPv6EnabledGroups []string `gorm:"serializer:json"`
+	IPv6EnabledGroups []string `gorm:"serializer:json;default:'[]'"`
 
 	// MetricsPushEnabled globally enables or disables client metrics push for the account
 	MetricsPushEnabled bool `gorm:"default:false"`
@@ -83,6 +83,7 @@ type Settings struct {
 	// DashboardFeatures holds per-account dashboard section visibility overrides.
 	// It serializes to a single JSON column so new sections can be added without
 	// a schema change.
+	// TODO (dmitri) no default value or column consistency constraints
 	DashboardFeatures *DashboardFeatures `gorm:"serializer:json"`
 
 	// EmbeddedIdpEnabled indicates if the embedded identity provider is enabled.
