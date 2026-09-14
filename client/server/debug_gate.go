@@ -50,14 +50,16 @@ func uiLogOpener(id ipcauth.Identity, identified bool) debug.LogOpener {
 //
 // insecure relaxes transport security (http, or an untrusted TLS certificate)
 // for a self-hosted server. It weakens a root-privileged upload, so it is
-// refused for an unprivileged caller regardless of the host.
-func requirePrivilegeForUploadURL(ctx context.Context, rawURL string, insecure bool) error {
+// refused for an unprivileged caller regardless of the host. upload says whether
+// the request asks for an upload at all; without one there is nothing to weaken.
+func requirePrivilegeForUploadURL(ctx context.Context, rawURL string, insecure, upload bool) error {
 	if rawURL == "" {
-		// An empty URL is not "no upload": the daemon then resolves the
-		// destination the management server published. Relaxing TLS on the way
-		// there exposes the bundle exactly as naming the host outright would, so
-		// it needs the same privilege.
-		if insecure {
+		// An empty URL with upload requested is not "no upload": the daemon then
+		// resolves the destination the management server published. Relaxing TLS
+		// on the way there exposes the bundle exactly as naming the host outright
+		// would, so it needs the same privilege. Without an upload there is no
+		// destination to weaken and a local-only bundle must not be refused.
+		if insecure && upload {
 			return denyPrivileged(ctx,
 				"uploading a debug bundle without transport security (--upload-bundle-insecure)",
 				ipcauth.ElevatedCommand("netbird debug bundle -U --upload-bundle-insecure"))

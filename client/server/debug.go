@@ -27,7 +27,7 @@ import (
 
 // DebugBundle creates a debug bundle and returns the location.
 func (s *Server) DebugBundle(callerCtx context.Context, req *proto.DebugBundleRequest) (resp *proto.DebugBundleResponse, err error) {
-	if err := requirePrivilegeForUploadURL(callerCtx, req.GetUploadURL(), req.GetUploadInsecure()); err != nil {
+	if err := requirePrivilegeForUploadURL(callerCtx, req.GetUploadURL(), req.GetUploadInsecure(), req.GetUpload()); err != nil {
 		return nil, err
 	}
 

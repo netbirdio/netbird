@@ -111,6 +111,7 @@ func TestRequirePrivilegeForUploadURL(t *testing.T) {
 		name     string
 		url      string
 		insecure bool
+		noUpload bool
 		unprivOK bool
 		invalid  bool
 		rootAlso bool
@@ -119,6 +120,8 @@ func TestRequirePrivilegeForUploadURL(t *testing.T) {
 		// An empty URL resolves to the destination management published, so
 		// relaxing TLS towards it needs the same privilege as naming a host.
 		{name: "insecure with no URL", url: "", insecure: true, rootAlso: true},
+		// insecure only weakens an upload; a local-only bundle must still pass.
+		{name: "insecure with no URL and no upload", url: "", insecure: true, noUpload: true, unprivOK: true},
 		{name: "default service", url: types.DefaultBundleURL, unprivOK: true},
 		{name: "default service, other path", url: "https://upload.debug.netbird.io/other", unprivOK: true},
 		{name: "loopback exfiltration endpoint", url: "https://127.0.0.1:8080/upload-url", rootAlso: true},
@@ -137,7 +140,7 @@ func TestRequirePrivilegeForUploadURL(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := requirePrivilegeForUploadURL(userCtx(), tc.url, tc.insecure)
+			err := requirePrivilegeForUploadURL(userCtx(), tc.url, tc.insecure, !tc.noUpload)
 
 			switch {
 			case tc.invalid:
@@ -153,7 +156,7 @@ func TestRequirePrivilegeForUploadURL(t *testing.T) {
 			}
 
 			if tc.rootAlso {
-				assertAllowed(t, requirePrivilegeForUploadURL(rootCtx(), tc.url, tc.insecure))
+				assertAllowed(t, requirePrivilegeForUploadURL(rootCtx(), tc.url, tc.insecure, !tc.noUpload))
 			}
 		})
 	}
