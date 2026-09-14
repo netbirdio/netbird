@@ -14,8 +14,9 @@ import (
 
 func newTestWindowManager() *WindowManager {
 	return &WindowManager{
-		creating:   map[string]bool{},
-		pendingOps: map[string][]windowOp{},
+		creating:     map[string]bool{},
+		pendingOps:   map[string][]windowOp{},
+		pendingClose: map[string]windowCloser{},
 	}
 }
 
@@ -194,4 +195,156 @@ func TestWithWindowNilFromFactoryReleasesCreation(t *testing.T) {
 	require.Equal(t, 0, opCalls)
 	require.Empty(t, s.creating)
 	require.Nil(t, slot)
+}
+
+func TestCloseWindowDuringCreationDefersCloseAndSkipsOps(t *testing.T) {
+	s := newTestWindowManager()
+	var slot *application.WebviewWindow
+	created := &application.WebviewWindow{}
+	opCalls, closeCalls := 0, 0
+	var closed *application.WebviewWindow
+	s.withWindow(windowError, &slot, func() *application.WebviewWindow {
+		s.closeWindow(windowError, &slot, func(w *application.WebviewWindow) {
+			closeCalls++
+			closed = w
+		})
+		require.Equal(t, 0, closeCalls)
+		return created
+	}, func(*application.WebviewWindow, bool) {
+		opCalls++
+	})
+	require.Equal(t, 0, opCalls)
+	require.Equal(t, 1, closeCalls)
+	require.Same(t, created, closed)
+	require.Nil(t, slot)
+	require.Empty(t, s.creating)
+	require.Empty(t, s.pendingOps)
+	require.Empty(t, s.pendingClose)
+
+	factoryCalls := 0
+	reopened := false
+	s.withWindow(windowError, &slot, func() *application.WebviewWindow {
+		factoryCalls++
+		return &application.WebviewWindow{}
+	}, func(_ *application.WebviewWindow, c bool) {
+		reopened = c
+	})
+	require.Equal(t, 1, factoryCalls)
+	require.True(t, reopened)
+	require.NotNil(t, slot)
+}
+
+func TestCloseWindowDuringDrainStopsRemainingOps(t *testing.T) {
+	s := newTestWindowManager()
+	var slot *application.WebviewWindow
+	var order []string
+	closeCalls := 0
+	var factory func() *application.WebviewWindow
+	factory = func() *application.WebviewWindow {
+		s.withWindow(windowWelcome, &slot, factory, func(*application.WebviewWindow, bool) {
+			order = append(order, "a")
+			s.closeWindow(windowWelcome, &slot, func(*application.WebviewWindow) { closeCalls++ })
+			s.withWindow(windowWelcome, &slot, factory, func(*application.WebviewWindow, bool) {
+				order = append(order, "c")
+			})
+		})
+		s.withWindow(windowWelcome, &slot, factory, func(*application.WebviewWindow, bool) {
+			order = append(order, "b")
+		})
+		return &application.WebviewWindow{}
+	}
+	s.withWindow(windowWelcome, &slot, factory, func(*application.WebviewWindow, bool) {
+		order = append(order, "outer")
+	})
+
+	// "b" was queued before the close and "c" after it; a close supersedes both
+	// rather than showing a window that is about to be destroyed.
+	require.Equal(t, []string{"outer", "a"}, order)
+	require.Equal(t, 1, closeCalls)
+	require.Nil(t, slot)
+	require.Empty(t, s.creating)
+	require.Empty(t, s.pendingOps)
+	require.Empty(t, s.pendingClose)
+}
+
+func TestCloseWindowWithoutWindowSkipsCloser(t *testing.T) {
+	s := newTestWindowManager()
+	var slot *application.WebviewWindow
+	calls := 0
+	s.closeWindow(windowBrowserLogin, &slot, func(*application.WebviewWindow) { calls++ })
+	require.Equal(t, 0, calls)
+	require.Nil(t, slot)
+	require.Empty(t, s.pendingClose)
+}
+
+func TestCloseWindowWithExistingWindowRunsCloser(t *testing.T) {
+	s := newTestWindowManager()
+	existing := &application.WebviewWindow{}
+	slot := existing
+	var got *application.WebviewWindow
+	s.closeWindow(windowError, &slot, func(w *application.WebviewWindow) { got = w })
+	require.Same(t, existing, got)
+	require.Nil(t, slot)
+	require.Empty(t, s.pendingClose)
+}
+
+func TestWithWindowNilFromFactoryDropsPendingClose(t *testing.T) {
+	s := newTestWindowManager()
+	var slot *application.WebviewWindow
+	closeCalls := 0
+	s.withWindow(windowError, &slot, func() *application.WebviewWindow {
+		s.closeWindow(windowError, &slot, func(*application.WebviewWindow) { closeCalls++ })
+		return nil
+	}, func(*application.WebviewWindow, bool) {})
+	require.Equal(t, 0, closeCalls)
+	require.Nil(t, slot)
+	require.Empty(t, s.creating)
+	require.Empty(t, s.pendingClose)
+}
+
+func TestWithWindowFactoryPanicDropsPendingClose(t *testing.T) {
+	s := newTestWindowManager()
+	var slot *application.WebviewWindow
+	closeCalls := 0
+	func() {
+		defer func() { require.NotNil(t, recover()) }()
+		s.withWindow(windowError, &slot, func() *application.WebviewWindow {
+			s.closeWindow(windowError, &slot, func(*application.WebviewWindow) { closeCalls++ })
+			panic("factory failed")
+		}, func(*application.WebviewWindow, bool) {})
+	}()
+	require.Equal(t, 0, closeCalls)
+	require.Empty(t, s.creating)
+	require.Empty(t, s.pendingClose)
+}
+
+func TestCloseWindowKeepsFirstDeferredCloser(t *testing.T) {
+	s := newTestWindowManager()
+	var slot *application.WebviewWindow
+	var ran []string
+	s.withWindow(windowError, &slot, func() *application.WebviewWindow {
+		s.closeWindow(windowError, &slot, func(*application.WebviewWindow) { ran = append(ran, "first") })
+		s.closeWindow(windowError, &slot, func(*application.WebviewWindow) { ran = append(ran, "second") })
+		return &application.WebviewWindow{}
+	}, func(*application.WebviewWindow, bool) {})
+	require.Equal(t, []string{"first"}, ran)
+	require.Nil(t, slot)
+	require.Empty(t, s.pendingClose)
+}
+
+func TestCloseRenewFlowDuringBrowserLoginCreationRestoresHiddenWindows(t *testing.T) {
+	s := newTestWindowManager()
+	s.withWindow(windowBrowserLogin, &s.browserLogin, func() *application.WebviewWindow {
+		s.CloseRenewFlow()
+		// Seeded after the call so the deferred closer, not CloseRenewFlow's own
+		// immediate restore, is what has to drain it. A nil entry is skipped by
+		// restoreHiddenWindows, so no Wails window is needed.
+		s.hiddenForLogin = []application.Window{nil}
+		return &application.WebviewWindow{}
+	}, func(*application.WebviewWindow, bool) {})
+
+	require.Nil(t, s.browserLogin)
+	require.Empty(t, s.hiddenForLogin)
+	require.Empty(t, s.creating)
+	require.Empty(t, s.pendingClose)
 }

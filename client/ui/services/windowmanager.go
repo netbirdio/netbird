@@ -24,6 +24,8 @@ type LanguageSubscriber interface {
 
 type windowOp func(w *application.WebviewWindow, created bool)
 
+type windowCloser func(w *application.WebviewWindow)
+
 // EventTriggerLogin asks the frontend's startLogin() to begin an SSO flow.
 const EventTriggerLogin = "trigger-login"
 
@@ -217,6 +219,7 @@ type WindowManager struct {
 	newMain        func(startURL string) *application.WebviewWindow
 	creating       map[string]bool
 	pendingOps     map[string][]windowOp
+	pendingClose   map[string]windowCloser
 	restoreGen     uint64
 	ready          map[uint]bool
 	showPending    map[uint]bool
@@ -239,6 +242,7 @@ func NewWindowManager(app *application.App, mainWindow *application.WebviewWindo
 		linuxIcon:      linuxIcon,
 		creating:       map[string]bool{},
 		pendingOps:     map[string][]windowOp{},
+		pendingClose:   map[string]windowCloser{},
 		ready:          map[uint]bool{},
 		showPending:    map[uint]bool{},
 		pendingTab:     map[uint]string{},
@@ -382,21 +386,13 @@ func (s *WindowManager) InstallProgressWindow() *application.WebviewWindow {
 }
 
 func (s *WindowManager) CloseBrowserLogin() {
-	s.mu.Lock()
-	w := s.browserLogin
-	s.browserLogin = nil
-	s.mu.Unlock()
 	// The WindowClosing hook no-ops on a programmatic close, so restore here —
 	// but only if a popup was actually open. The frontend calls this even when no
 	// popup was ever shown (e.g. resetDialog() after an early RequestExtend failure,
 	// or connection.ts's catch path), and hiddenForLogin is shared with
 	// OpenInstallProgress, so an unconditional restore could re-show windows a
 	// still-running install-progress is hiding.
-	if w == nil {
-		return
-	}
-	s.restoreHiddenWindows()
-	w.Close()
+	s.closeWindow(windowBrowserLogin, &s.browserLogin, s.restoreAndClose)
 }
 
 // OpenSessionExpiration shows the countdown warning on the cursor's display; seconds seeds
@@ -437,23 +433,15 @@ func (s *WindowManager) newSessionExpirationWindow(startURL string) *application
 }
 
 func (s *WindowManager) CloseSessionExpiration() {
-	s.mu.Lock()
-	w := s.sessionExpiration
-	s.sessionExpiration = nil
-	s.mu.Unlock()
-	if w != nil {
-		w.Close()
-	}
+	s.closeWindow(windowSessionExpiration, &s.sessionExpiration, closeOnly)
 }
 
 // CloseRenewFlow tears down the SSO session-renewal UI in a single call: it
 // closes the browser-login popup and the session-expiration window together.
 func (s *WindowManager) CloseRenewFlow() {
 	s.mu.Lock()
-	bl := s.browserLogin
-	se := s.sessionExpiration
-	s.browserLogin = nil
-	s.sessionExpiration = nil
+	bl := s.takeWindowLocked(windowBrowserLogin, &s.browserLogin, s.restoreAndClose)
+	se := s.takeWindowLocked(windowSessionExpiration, &s.sessionExpiration, closeOnly)
 	if se != nil {
 		kept := s.hiddenForLogin[:0]
 		for _, w := range s.hiddenForLogin {
@@ -511,13 +499,7 @@ func (s *WindowManager) newInstallProgressWindow(startURL string) *application.W
 }
 
 func (s *WindowManager) CloseInstallProgress() {
-	s.mu.Lock()
-	w := s.installProgress
-	s.installProgress = nil
-	s.mu.Unlock()
-	if w != nil {
-		w.Close()
-	}
+	s.closeWindow(windowInstallProgress, &s.installProgress, closeOnly)
 }
 
 // OpenWelcome shows the first-launch onboarding window. Singleton, destroyed on close.
@@ -547,13 +529,7 @@ func (s *WindowManager) newWelcomeWindow() *application.WebviewWindow {
 }
 
 func (s *WindowManager) CloseWelcome() {
-	s.mu.Lock()
-	w := s.welcome
-	s.welcome = nil
-	s.mu.Unlock()
-	if w != nil {
-		w.Close()
-	}
+	s.closeWindow(windowWelcome, &s.welcome, closeOnly)
 }
 
 // OpenError shows the custom error dialog; title/message/command are pre-localised
@@ -592,13 +568,7 @@ func (s *WindowManager) newErrorWindow(startURL string) *application.WebviewWind
 }
 
 func (s *WindowManager) CloseError() {
-	s.mu.Lock()
-	w := s.errorDialog
-	s.errorDialog = nil
-	s.mu.Unlock()
-	if w != nil {
-		w.Close()
-	}
+	s.closeWindow(windowError, &s.errorDialog, closeOnly)
 }
 
 // OpenMain brings the main window forward; the welcome handoff uses it instead of the tray.
@@ -676,7 +646,7 @@ func (s *WindowManager) withWindow(name string, slot **application.WebviewWindow
 	if w == nil {
 		return
 	}
-	s.finishCreation(name, w, op)
+	s.finishCreation(name, slot, w, op)
 }
 
 func (s *WindowManager) createWindow(name string, slot **application.WebviewWindow, factory func() *application.WebviewWindow) *application.WebviewWindow {
@@ -686,8 +656,7 @@ func (s *WindowManager) createWindow(name string, slot **application.WebviewWind
 			return
 		}
 		s.mu.Lock()
-		delete(s.creating, name)
-		delete(s.pendingOps, name)
+		s.releaseCreationLocked(name)
 		s.mu.Unlock()
 	}()
 
@@ -702,34 +671,79 @@ func (s *WindowManager) createWindow(name string, slot **application.WebviewWind
 	return w
 }
 
-func (s *WindowManager) finishCreation(name string, w *application.WebviewWindow, op windowOp) {
+func (s *WindowManager) finishCreation(name string, slot **application.WebviewWindow, w *application.WebviewWindow, op windowOp) {
 	finished := false
 	defer func() {
 		if finished {
 			return
 		}
 		s.mu.Lock()
-		delete(s.creating, name)
-		delete(s.pendingOps, name)
+		s.releaseCreationLocked(name)
 		s.mu.Unlock()
 	}()
 
-	op(w, true)
+	created := true
 	for {
 		s.mu.Lock()
-		queued := s.pendingOps[name]
-		delete(s.pendingOps, name)
-		if len(queued) == 0 {
-			delete(s.creating, name)
+		if closer := s.pendingClose[name]; closer != nil {
+			if *slot == w {
+				*slot = nil
+			}
+			s.releaseCreationLocked(name)
+			finished = true
+			s.mu.Unlock()
+			closer(w)
+			return
+		}
+		var next windowOp
+		switch {
+		case created:
+			next = op
+		case len(s.pendingOps[name]) > 0:
+			next = s.pendingOps[name][0]
+			s.pendingOps[name] = s.pendingOps[name][1:]
+		default:
+			s.releaseCreationLocked(name)
 			finished = true
 			s.mu.Unlock()
 			return
 		}
 		s.mu.Unlock()
-		for _, queuedOp := range queued {
-			queuedOp(w, false)
-		}
+		next(w, created)
+		created = false
 	}
+}
+
+func (s *WindowManager) closeWindow(name string, slot **application.WebviewWindow, closer windowCloser) {
+	s.mu.Lock()
+	w := s.takeWindowLocked(name, slot, closer)
+	s.mu.Unlock()
+	if w != nil {
+		closer(w)
+	}
+}
+
+func (s *WindowManager) takeWindowLocked(name string, slot **application.WebviewWindow, closer windowCloser) *application.WebviewWindow {
+	if s.creating[name] {
+		if s.pendingClose[name] == nil {
+			s.pendingClose[name] = closer
+		}
+		return nil
+	}
+	w := *slot
+	*slot = nil
+	return w
+}
+
+func (s *WindowManager) releaseCreationLocked(name string) {
+	delete(s.creating, name)
+	delete(s.pendingOps, name)
+	delete(s.pendingClose, name)
+}
+
+func (s *WindowManager) restoreAndClose(w *application.WebviewWindow) {
+	s.restoreHiddenWindows()
+	w.Close()
 }
 
 func (s *WindowManager) armReady(w *application.WebviewWindow) {
@@ -1157,3 +1171,5 @@ func errorDialogURL(title, message, command string) string {
 
 // u32ptr returns a pointer to v, for the optional *uint32 Wails theme fields.
 func u32ptr(v uint32) *uint32 { return &v }
+
+func closeOnly(w *application.WebviewWindow) { w.Close() }
