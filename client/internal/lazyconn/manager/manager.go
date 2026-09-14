@@ -539,8 +539,11 @@ func (m *Manager) checkHaGroupActivity(haGroup route.HAUniqueID, peerID string, 
 			continue
 		}
 
-		// If any peer in the group is active, do defer idle
-		if _, isInactive := inactivePeers[groupPeerID]; !isInactive {
+		// If any peer in the group is active, do defer idle. An entry naming a
+		// connection that has since been replaced says nothing about the one
+		// live now, so that peer counts as active too.
+		idleConnID, isInactive := inactivePeers[groupPeerID]
+		if !isInactive || idleConnID != cfg.PeerConnID {
 			return true
 		}
 	}

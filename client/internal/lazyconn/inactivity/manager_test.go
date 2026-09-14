@@ -117,6 +117,19 @@ func (f *fakeTickerMock) C() <-chan time.Time {
 
 func (f *fakeTickerMock) Stop() {}
 
+// installFakeTicker swaps the package-global ticker for one the test drives and
+// puts the original back afterwards, so a later test cannot inherit a ticker
+// whose channel never fires and then sit until its own timeout.
+func installFakeTicker(t *testing.T, c chan time.Time) {
+	t.Helper()
+
+	prev := newTicker
+	newTicker = func(time.Duration) Ticker {
+		return &fakeTickerMock{CChan: c}
+	}
+	t.Cleanup(func() { newTicker = prev })
+}
+
 func TestConcurrentPeerAccess(t *testing.T) {
 	wgMock := &mockWgInterface{lastActivities: map[string]monotime.Time{}}
 	mgr := NewManager(wgMock, nil)
@@ -190,9 +203,7 @@ func connIDOf(anchor *int) peerid.ConnID {
 func TestInactivityEventNamesTheConnectionItWasFoundOn(t *testing.T) {
 	peerID := "peer1"
 	fakeTick := make(chan time.Time, 1)
-	newTicker = func(d time.Duration) Ticker {
-		return &fakeTickerMock{CChan: fakeTick}
-	}
+	installFakeTicker(t, fakeTick)
 
 	var anchor int
 	connID := connIDOf(&anchor)
@@ -225,9 +236,7 @@ func TestInactivityEventNamesTheConnectionItWasFoundOn(t *testing.T) {
 func TestReAddedPeerIsReportedOnItsNewConnection(t *testing.T) {
 	peerID := "peer1"
 	fakeTick := make(chan time.Time, 1)
-	newTicker = func(d time.Duration) Ticker {
-		return &fakeTickerMock{CChan: fakeTick}
-	}
+	installFakeTicker(t, fakeTick)
 
 	var oldAnchor, newAnchor int
 	oldConn, newConn := connIDOf(&oldAnchor), connIDOf(&newAnchor)
