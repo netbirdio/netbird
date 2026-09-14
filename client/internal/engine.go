@@ -1239,10 +1239,19 @@ func (e *Engine) handleMetricsUpdate(config *mgmProto.MetricsConfig) {
 }
 
 // handleDebugUploadUpdate records the debug-bundle destination the management
-// server published. A nil DebugConfig clears it: a management server that stops
-// publishing a destination must take it away from the peer, not leave the peer
-// uploading to a host the operator has since removed.
+// server published.
+//
+// A nil DebugConfig carries no information and is left alone: the partial
+// updates that refresh TURN and relay credentials ship a NetbirdConfig holding
+// only those fields, and treating their absent Debug as "no destination" would
+// silently drop the operator's choice on every credential refresh. An operator
+// clearing the destination is an empty UploadUrl on a full config, which does
+// reach the store below.
 func (e *Engine) handleDebugUploadUpdate(config *mgmProto.DebugConfig) {
+	if config == nil {
+		return
+	}
+
 	url := config.GetUploadUrl()
 	e.debugUploadURL.Store(&url)
 }

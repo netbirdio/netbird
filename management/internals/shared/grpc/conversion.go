@@ -123,9 +123,10 @@ func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken
 	if settings != nil && settings.DebugBundleUploadURL != "" {
 		debugUploadURL = settings.DebugBundleUploadURL
 	}
-	if debugUploadURL != "" {
-		nbConfig.Debug = &proto.DebugConfig{UploadUrl: debugUploadURL}
-	}
+	// Always sent, empty included: this is a full config, so the peer can tell an
+	// operator clearing the destination from the partial updates that carry only
+	// TURN or relay credentials and say nothing about it.
+	nbConfig.Debug = &proto.DebugConfig{UploadUrl: debugUploadURL}
 
 	return nbConfig
 }
