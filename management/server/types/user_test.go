@@ -297,7 +297,7 @@ func TestUser_EncryptDecryptRoundTrip(t *testing.T) {
 	}
 }
 
-func TestUser_MaskedEmail(t *testing.T) {
+func TestMaskEmail(t *testing.T) {
 	testCases := []struct {
 		name     string
 		email    string
@@ -432,13 +432,8 @@ func TestUser_MaskedEmail(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			user := &User{Id: "test-user", Email: tc.email}
-			assert.Equal(t, tc.expected, user.MaskedEmail())
+			assert.Equal(t, tc.expected, MaskEmail(tc.email))
 		})
 	}
 
-	t.Run("nil user has no address to mask", func(t *testing.T) {
-		var user *User
-		assert.Equal(t, "", user.MaskedEmail())
-	})
 }
