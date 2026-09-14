@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strings"
 	"sync"
@@ -251,7 +252,7 @@ func (t *upstreamTransport) existingHTTP1() *http.Transport {
 // downgrade path is TLS-only, so a bare host and the same host on :443
 // are the same upstream.
 func upstreamKey(u *url.URL) string {
-	host := strings.ToLower(u.Hostname())
+	host := normalizeUpstreamHost(u.Hostname())
 
 	port := u.Port()
 	if port == "" || port == "443" {
@@ -261,6 +262,23 @@ func upstreamKey(u *url.URL) string {
 	// JoinHostPort rather than concatenation: an IPv6 literal needs its
 	// brackets back after Hostname stripped them.
 	return net.JoinHostPort(host, port)
+}
+
+// normalizeUpstreamHost folds the spellings of one host onto a single
+// key. An IP literal goes through netip so that the several textual
+// forms of one address (case, leading zeroes, a compressed run) collapse
+// and a v4-mapped address keys as the v4 address it is. A zone
+// identifier is left exactly as written: it names an interface, and
+// interface names are case-sensitive on the systems that have them, so
+// %eth0 and %ETH0 may be different links and must not share a pin.
+// Anything that is not an IP literal is a DNS name, which compares
+// case-insensitively.
+func normalizeUpstreamHost(host string) string {
+	if addr, err := netip.ParseAddr(host); err == nil {
+		return addr.Unmap().String()
+	}
+
+	return strings.ToLower(host)
 }
 
 // safeToRetry reports whether req may be sent a second time over

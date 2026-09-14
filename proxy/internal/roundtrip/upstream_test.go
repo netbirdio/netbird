@@ -154,6 +154,19 @@ func TestUpstreamKey(t *testing.T) {
 		// them, or the key is not a dialable authority.
 		{name: "ipv6 default port", url: "https://[2001:db8::1]/", want: "2001:db8::1"},
 		{name: "ipv6 with port", url: "https://[2001:db8::1]:8443/", want: "[2001:db8::1]:8443"},
+		// One address in three spellings: hex case, a leading zero and an
+		// uncompressed zero run are all the same upstream.
+		{name: "ipv6 upper case", url: "https://[2001:DB8::1]/", want: "2001:db8::1"},
+		{name: "ipv6 leading zero", url: "https://[2001:0db8::1]/", want: "2001:db8::1"},
+		{name: "ipv6 uncompressed", url: "https://[2001:db8:0:0:0:0:0:1]/", want: "2001:db8::1"},
+		// A v4-mapped address is the v4 address, not a second upstream.
+		{name: "v4-mapped", url: "https://[::ffff:192.0.2.1]/", want: "192.0.2.1"},
+		// A zone names an interface, and interface names are
+		// case-sensitive, so these two are different links.
+		{name: "ipv6 zone", url: "https://[fe80::1%25eth0]/", want: "fe80::1%eth0"},
+		{name: "ipv6 zone upper case", url: "https://[fe80::1%25ETH0]/", want: "fe80::1%ETH0"},
+		// The address before the zone still normalizes.
+		{name: "ipv6 zone with upper-case address", url: "https://[FE80::1%25eth0]/", want: "fe80::1%eth0"},
 	}
 
 	for _, tc := range tests {
