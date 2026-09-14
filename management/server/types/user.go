@@ -285,6 +285,30 @@ func (u *User) EncryptSensitiveData(enc *crypt.FieldEncrypt) error {
 	return nil
 }
 
+// MaskedEmail returns the user's email with the middle of the local part replaced
+// by a fixed run of asterisks, e.g. "ad****n@example.com", so a caller can be
+// told which account member to contact without being handed the address itself.
+// The run is a fixed width so it does not report how much it stands in for.
+// Returns "" when there is no address to mask.
+func (u *User) MaskedEmail() string {
+	if u == nil {
+		return ""
+	}
+
+	local, domain, found := strings.Cut(u.Email, "@")
+	if !found || local == "" || domain == "" {
+		return ""
+	}
+
+	// Runes, not bytes, so a non-ASCII local part is not cut mid-character.
+	if runes := []rune(local); len(runes) > 2 {
+		return string(runes[:2]) + "****" + string(runes[len(runes)-1]) + "@" + domain
+	}
+
+	// Too short to keep a tail without repeating what the lead already shows.
+	return local + "****@" + domain
+}
+
 // DecryptSensitiveData decrypts the user's sensitive fields (Email and Name) in place.
 func (u *User) DecryptSensitiveData(enc *crypt.FieldEncrypt) error {
 	if enc == nil {
