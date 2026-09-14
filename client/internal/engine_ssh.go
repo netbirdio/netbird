@@ -24,7 +24,8 @@ type sshServer interface {
 	Stop() error
 	GetStatus() (bool, []sshserver.SessionInfo)
 	UpdateSSHAuth(config *sshauth.Config)
-	JWTConfig(config *sshserver.JWTConfig) *sshserver.JWTConfig
+	UpdateJWTConfig(config *sshserver.JWTConfig)
+	JWTConfig() *sshserver.JWTConfig
 	AuthConfig() *sshauth.Config
 }
 
