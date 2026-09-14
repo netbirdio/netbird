@@ -70,10 +70,10 @@ type BundleOptions = {
     hasWindow: boolean;
     totalSec: number;
     // Whether to upload at all. The destination is the daemon's to pick: it
-    // takes the one the management server publishes, and only falls back to the
-    // service NetBird runs for a peer enrolled with NetBird's cloud. The UI must
-    // not name a vendor endpoint of its own, or a self-hosted deployment would
-    // ship its bundles out of the operator's control sphere.
+    // takes the one the management server publishes, and falls back to the
+    // service NetBird runs when it publishes none. The UI must not name a vendor
+    // endpoint of its own, or an operator who configured their own destination
+    // would be bypassed by the client they ship.
     upload: boolean;
     anonymizeLevel: AnonymizeLevel;
     systemInfo: boolean;
