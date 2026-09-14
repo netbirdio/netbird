@@ -2450,21 +2450,18 @@ func TestDefaultAccountManager_UpdateAccountSettings_SSHJWTMaxTokenAge(t *testin
 	initialAccount, err := manager.Store.GetAccount(context.Background(), account.Id)
 	require.NoError(t, err, "unable to get initial account")
 
-	updatedSettings, err := manager.UpdateAccountSettings(context.Background(), account.Id, userID, &types.Settings{
-		PeerLoginExpiration:        time.Hour,
-		PeerLoginExpirationEnabled: true,
-		SSHJWTMaxTokenAge:          10 * time.Minute,
-		Extra:                      &types.ExtraSettings{},
-	})
+	newSettings := initialAccount.Settings.Copy()
+	newSettings.SSHJWTMaxTokenAge = 10 * time.Minute
+	updatedSettings, err := manager.UpdateAccountSettings(context.Background(), account.Id, userID, newSettings)
 	require.NoError(t, err, "expecting to update account settings successfully but got error")
-	assert.Equal(t, 10*time.Minute, updatedSettings.SSHJWTMaxTokenAge)
+	assert.Equal(t, 10*time.Minute, updatedSettings.SSHJWTMaxTokenAge, "the returned settings must include the new JWT age")
 
 	peerShouldReceiveUpdate(t, updateMessage)
 
 	updatedAccount, err := manager.Store.GetAccount(context.Background(), account.Id)
 	require.NoError(t, err, "unable to get updated account")
-	assert.Equal(t, 10*time.Minute, updatedAccount.Settings.SSHJWTMaxTokenAge)
-	assert.Greater(t, updatedAccount.Network.CurrentSerial(), initialAccount.Network.CurrentSerial())
+	assert.Equal(t, 10*time.Minute, updatedAccount.Settings.SSHJWTMaxTokenAge, "the new JWT age must be persisted")
+	assert.Greater(t, updatedAccount.Network.CurrentSerial(), initialAccount.Network.CurrentSerial(), "a JWT-age-only update must advance the network serial")
 }
 
 func TestDefaultAccountManager_UpdateAccountSettings_PeerApproval(t *testing.T) {
