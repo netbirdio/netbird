@@ -6306,6 +6306,9 @@ type GetApiPeersParams struct {
 
 	// Ip Filter peers by IP address
 	Ip *string `form:"ip,omitempty" json:"ip,omitempty"`
+
+	// Mac Filter peers by MAC address of a network interface
+	Mac *string `form:"mac,omitempty" json:"mac,omitempty"`
 }
 
 // GetApiPeersPeerIdIngressPortsParams defines parameters for GetApiPeersPeerIdIngressPorts.
