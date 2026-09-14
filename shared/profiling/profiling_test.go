@@ -93,6 +93,72 @@ func TestLoadConfig(t *testing.T) {
 				Password: "token",
 			},
 		},
+		{
+			name: "http to loopback is allowed",
+			env: map[string]string{
+				"NB_PYROSCOPE_ADDRESS":  "http://127.0.0.1:4040",
+				"NB_PYROSCOPE_USER":     "123456",
+				"NB_PYROSCOPE_PASSWORD": "token",
+			},
+			expected: config{
+				Address:  "http://127.0.0.1:4040",
+				User:     "123456",
+				Password: "token",
+			},
+		},
+		{
+			name: "http to localhost is allowed",
+			env: map[string]string{
+				"NB_PYROSCOPE_ADDRESS":  "http://localhost:4040",
+				"NB_PYROSCOPE_USER":     "123456",
+				"NB_PYROSCOPE_PASSWORD": "token",
+			},
+			expected: config{
+				Address:  "http://localhost:4040",
+				User:     "123456",
+				Password: "token",
+			},
+		},
+		{
+			name: "http to private network is allowed",
+			env: map[string]string{
+				"NB_PYROSCOPE_ADDRESS":  "http://10.0.0.5:4040",
+				"NB_PYROSCOPE_USER":     "123456",
+				"NB_PYROSCOPE_PASSWORD": "token",
+			},
+			expected: config{
+				Address:  "http://10.0.0.5:4040",
+				User:     "123456",
+				Password: "token",
+			},
+		},
+		{
+			name: "http to public host is rejected",
+			env: map[string]string{
+				"NB_PYROSCOPE_ADDRESS":  "http://pyroscope.example.com",
+				"NB_PYROSCOPE_USER":     "123456",
+				"NB_PYROSCOPE_PASSWORD": "token",
+			},
+			wantErr: true,
+		},
+		{
+			name: "http to public address is rejected",
+			env: map[string]string{
+				"NB_PYROSCOPE_ADDRESS":  "http://203.0.113.10:4040",
+				"NB_PYROSCOPE_USER":     "123456",
+				"NB_PYROSCOPE_PASSWORD": "token",
+			},
+			wantErr: true,
+		},
+		{
+			name: "address without scheme is rejected",
+			env: map[string]string{
+				"NB_PYROSCOPE_ADDRESS":  "pyroscope.example.com:4040",
+				"NB_PYROSCOPE_USER":     "123456",
+				"NB_PYROSCOPE_PASSWORD": "token",
+			},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {

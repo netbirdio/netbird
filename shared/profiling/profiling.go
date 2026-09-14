@@ -3,7 +3,10 @@ package profiling
 import (
 	"errors"
 	"fmt"
+	"net/netip"
+	"net/url"
 	"os"
+	"strings"
 	"sync/atomic"
 
 	"github.com/caarlos0/env/v11"
@@ -87,6 +90,38 @@ func loadConfig() (config, error) {
 	if cfg.Address == "" {
 		return cfg, errNotConfigured
 	}
+	if err := validateAddress(cfg.Address); err != nil {
+		return cfg, err
+	}
 
 	return cfg, nil
+}
+
+// validateAddress refuses to send the basic-auth credentials in plaintext to
+// anything but a loopback or private endpoint.
+func validateAddress(address string) error {
+	u, err := url.Parse(address)
+	if err != nil {
+		return fmt.Errorf("invalid pyroscope address %q: %w", address, err)
+	}
+
+	switch u.Scheme {
+	case "https":
+		return nil
+	case "http":
+		if isLocalOrPrivate(u.Hostname()) {
+			return nil
+		}
+		return fmt.Errorf("insecure pyroscope address %q: use https for non-local endpoints", address)
+	default:
+		return fmt.Errorf("pyroscope address %q must use http or https", address)
+	}
+}
+
+func isLocalOrPrivate(host string) bool {
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return true
+	}
+	ip, err := netip.ParseAddr(host)
+	return err == nil && (ip.IsLoopback() || ip.IsPrivate())
 }
