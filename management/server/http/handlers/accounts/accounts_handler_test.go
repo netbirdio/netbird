@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"go.uber.org/mock/gomock"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/mock/gomock"
 
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/mock_server"
@@ -193,6 +193,8 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				DnsDomain:                       sr(""),
 				AutoUpdateAlways:                br(false),
 				AutoUpdateVersion:               sr(""),
+				MetricsPushEnabled:              br(false),
+				AgentNetworkOnly:                br(false),
 				EmbeddedIdpEnabled:              br(false),
 				LocalAuthDisabled:               br(false),
 				LocalMfaEnabled:                 br(false),
@@ -316,6 +318,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				EmbeddedIdpEnabled:              br(false),
 				LocalAuthDisabled:               br(false),
 				LocalMfaEnabled:                 br(false),
+				SshJwtMaxTokenAge:               ir(0),
 			},
 			expectedArray: false,
 			expectedID:    accountID,
@@ -348,6 +351,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				EmbeddedIdpEnabled: br(false),
 				LocalAuthDisabled:  br(false),
 				LocalMfaEnabled:    br(false),
+				SshJwtMaxTokenAge:  ir(0),
 			},
 			expectedArray: false,
 			expectedID:    accountID,
@@ -389,6 +393,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				EmbeddedIdpEnabled: br(false),
 				LocalAuthDisabled:  br(false),
 				LocalMfaEnabled:    br(false),
+				SshJwtMaxTokenAge:  ir(0),
 			},
 			expectedArray: false,
 			expectedID:    accountID,
