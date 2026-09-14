@@ -107,16 +107,10 @@ func (c *jwtCache) store(token string, owner ipcauth.Identity, maxAge time.Durat
 	c.enclave = memguard.NewEnclave(tokenBytes)
 	c.owner = &owner
 	c.issuedAt = iat.Time
-	if exp != nil {
-		c.expiresAt = exp.Time
-	}
-
 	cleanupAfter := maxAge - tokenAge
 	if exp != nil {
-		expiresIn := time.Until(exp.Time)
-		if expiresIn < cleanupAfter {
-			cleanupAfter = expiresIn
-		}
+		c.expiresAt = exp.Time
+		cleanupAfter = min(cleanupAfter, time.Until(exp.Time))
 	}
 
 	var timer *time.Timer
@@ -149,48 +143,24 @@ func (c *jwtCache) get(caller ipcauth.Identity, maxAge time.Duration) (string, b
 		return "", false
 	}
 
-	found := false
-	defer func() {
-		if !found {
-			c.cleanup()
-		}
-	}()
+	now := time.Now()
+	tokenAge := now.Sub(c.issuedAt)
+	if maxAge <= 0 || c.issuedAt.IsZero() || tokenAge < 0 || tokenAge > maxAge ||
+		(!c.expiresAt.IsZero() && !now.Before(c.expiresAt)) {
+		log.Debug("Cached JWT token is outside the current TTL or claim validity window")
+		c.cleanup()
+		return "", false
+	}
 
 	buffer, err := c.enclave.Open()
 	if err != nil {
 		log.Debugf("Failed to open JWT token enclave: %v", err)
-		return "", found
+		c.cleanup()
+		return "", false
 	}
 	defer buffer.Destroy()
 
-	token := string(buffer.Bytes())
-	if maxAge <= 0 {
-		return "", found
-	}
-
-	now := time.Now()
-	if !c.expiresAt.IsZero() && !now.Before(c.expiresAt) {
-		log.Debug("Cached JWT token expired by exp claim")
-		return "", found
-	}
-
-	if c.issuedAt.IsZero() {
-		log.Debug("Cached JWT token missing iat claim")
-		return "", found
-	}
-
-	tokenAge := now.Sub(c.issuedAt)
-	if tokenAge < 0 {
-		log.Debugf("JWT token has future iat claim, not caching: iat=%v, now=%v", c.issuedAt, now)
-		return "", found
-	}
-	if tokenAge > maxAge {
-		log.Debugf("Cached JWT token exceeded cache TTL by iat claim: age=%v, max=%v", now.Sub(c.issuedAt), maxAge)
-		return "", found
-	}
-
-	found = true
-	return token, found
+	return string(buffer.Bytes()), true
 }
 
 func (c *jwtCache) clear() {
