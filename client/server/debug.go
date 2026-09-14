@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"path/filepath"
 	"runtime/pprof"
 	"strings"
@@ -57,13 +58,25 @@ func (s *Server) DebugBundle(callerCtx context.Context, req *proto.DebugBundleRe
 	defer cancel()
 	key, err := debug.UploadDebugBundle(uploadCtx, uploadURL, managementURL, path, req.GetUploadInsecure())
 	if err != nil {
-		log.Errorf("failed to upload debug bundle to %s: %v", uploadURL, err)
+		log.Errorf("failed to upload debug bundle to %s: %v", redactUploadURL(uploadURL), err)
 		return &proto.DebugBundleResponse{Path: path, UploadFailureReason: err.Error()}, nil
 	}
 
-	log.Infof("debug bundle uploaded to %s with key %s", uploadURL, key)
+	log.Infof("debug bundle uploaded to %s with key %s", redactUploadURL(uploadURL), key)
 
 	return &proto.DebugBundleResponse{Path: path, UploadedKey: key}, nil
+}
+
+// redactUploadURL reduces an upload URL to scheme://host for logging. The URL
+// reaches the daemon from the management server or the caller and can carry
+// userinfo or a token in its query, neither of which belongs in a log file that
+// ends up inside the very bundles this uploads.
+func redactUploadURL(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Host == "" {
+		return "(unparsable upload URL)"
+	}
+	return parsed.Scheme + "://" + parsed.Host
 }
 
 // generateDebugBundle builds the bundle under s.mutex and returns its path plus
