@@ -25,6 +25,15 @@ elif command -v doas > /dev/null && [ "$(id -u)" -ne 0 ]; then
     SUDO="doas"
 fi
 
+# Downloads are staged in a private directory instead of /tmp. Fixed names in a
+# shared directory can collide with entries created there beforehand, and the
+# paths staged here are consumed by the privileged install steps below.
+NB_TMPDIR="$(mktemp -d "${TMPDIR:-/tmp}/netbird.XXXXXXXXXX")" || {
+    echo "Unable to create a temporary directory for the downloads"
+    exit 1
+}
+trap 'rm -rf "$NB_TMPDIR"' EXIT
+
 if [ -z ${NETBIRD_RELEASE+x} ]; then
     NETBIRD_RELEASE=latest
 fi
@@ -73,10 +82,11 @@ download_release_binary() {
     DOWNLOAD_URL="${BASE_URL}/${VERSION}/${BINARY_NAME}"
 
     echo "Installing $1 from $DOWNLOAD_URL"
+    ARCHIVE_PATH="${NB_TMPDIR}/${BINARY_NAME}"
     if [ -n "$GITHUB_TOKEN" ]; then
-      cd /tmp && curl -H  "Authorization: token ${GITHUB_TOKEN}" -LO "$DOWNLOAD_URL"
+      curl -H  "Authorization: token ${GITHUB_TOKEN}" -L -o "$ARCHIVE_PATH" "$DOWNLOAD_URL"
     else
-      cd /tmp && curl -LO "$DOWNLOAD_URL" || curl -LO --dns-servers 8.8.8.8 "$DOWNLOAD_URL"
+      curl -L -o "$ARCHIVE_PATH" "$DOWNLOAD_URL" || curl -L -o "$ARCHIVE_PATH" --dns-servers 8.8.8.8 "$DOWNLOAD_URL"
     fi
 
 
@@ -89,12 +99,12 @@ download_release_binary() {
         fi
 
         # Unzip the app and move to INSTALL_DIR
-        unzip -q -o "$BINARY_NAME"
-        mv -v "netbird_ui_${OS_TYPE}/" "$INSTALL_DIR/" || mv -v "netbird_ui_${OS_TYPE}_${ARCH}/" "$INSTALL_DIR/"
+        unzip -q -o "$ARCHIVE_PATH" -d "$NB_TMPDIR"
+        mv -v "${NB_TMPDIR}/netbird_ui_${OS_TYPE}/" "$INSTALL_DIR/" || mv -v "${NB_TMPDIR}/netbird_ui_${OS_TYPE}_${ARCH}/" "$INSTALL_DIR/"
     else
         ${SUDO} mkdir -p "$INSTALL_DIR"
-        tar -xzvf "$BINARY_NAME"
-        ${SUDO} mv "${1%_"${BINARY_BASE_NAME}"}" "$INSTALL_DIR/"
+        tar -xzvf "$ARCHIVE_PATH" -C "$NB_TMPDIR"
+        ${SUDO} mv "${NB_TMPDIR}/${1%_"${BINARY_BASE_NAME}"}" "$INSTALL_DIR/"
     fi
 }
 
@@ -185,9 +195,8 @@ install_pkg() {
 
   PKG_URL=$(curl -sIL -o /dev/null -w '%{url_effective}' "https://pkgs.netbird.io/macos/${ARCH}")
   echo "Downloading NetBird macOS installer from https://pkgs.netbird.io/macos/${ARCH}"
-  curl -fsSL -o /tmp/netbird.pkg "${PKG_URL}"
-  ${SUDO} installer -pkg /tmp/netbird.pkg -target /
-  rm -f /tmp/netbird.pkg
+  curl -fsSL -o "${NB_TMPDIR}/netbird.pkg" "${PKG_URL}"
+  ${SUDO} installer -pkg "${NB_TMPDIR}/netbird.pkg" -target /
 }
 
 check_use_bin_variable() {
