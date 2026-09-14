@@ -1,6 +1,6 @@
 import { type ComponentType, type KeyboardEvent, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { Layers3Icon, type LucideProps, MonitorSmartphoneIcon } from "lucide-react";
+import { FolderIcon, Layers3Icon, type LucideProps, MonitorSmartphoneIcon } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useNavSection, type NavSection } from "@/contexts/NavSectionContext";
 import { useStatus } from "@/contexts/StatusContext";
@@ -40,6 +40,11 @@ export const Navigation = () => {
             icon: Layers3Icon,
         });
     }
+    tabs.push({
+        value: "files",
+        label: t("nav.files.title"),
+        icon: FolderIcon,
+    });
 
     const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
@@ -103,7 +108,7 @@ export const Navigation = () => {
                         onKeyDown={handleKeyDown}
                         disabled={isDisabled}
                         className={cn(
-                            "group relative flex flex-1 items-center justify-center",
+                            "group relative flex min-w-0 flex-1 items-center justify-center",
                             "gap-2.5 px-5 py-3.5",
                             "outline-none transition-all",
                             isFirst && "rounded-tl-xl",
@@ -113,8 +118,8 @@ export const Navigation = () => {
                             isDisabled ? "cursor-not-allowed opacity-50" : "cursor-default",
                         )}
                     >
-                        <Icon size={14} aria-hidden={"true"} />
-                        <span className={"text-sm font-normal"}>{tab.label}</span>
+                        <Icon size={14} className={"shrink-0"} aria-hidden={"true"} />
+                        <span className={"truncate text-sm font-normal"}>{tab.label}</span>
                         <span
                             aria-hidden={"true"}
                             className={cn(

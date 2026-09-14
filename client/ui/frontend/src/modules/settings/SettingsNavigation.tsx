@@ -9,6 +9,7 @@ import {
     InfoIcon,
     LifeBuoyIcon,
     NetworkIcon,
+    Share2Icon,
     ShieldIcon,
     SlidersHorizontalIcon,
     SquareTerminalIcon,
@@ -49,6 +50,11 @@ export const SettingsNavigation = () => {
                         />
                     </>
                 )}
+                <VerticalTabs.Trigger
+                    value={"fileSharing"}
+                    icon={Share2Icon}
+                    title={t("settings.tabs.fileSharing")}
+                />
                 {!features.disableProfiles && (
                     <VerticalTabs.Trigger
                         value={"profiles"}
