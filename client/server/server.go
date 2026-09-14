@@ -24,6 +24,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/expose"
+	"github.com/netbirdio/netbird/client/internal/getent"
 	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -2477,6 +2478,81 @@ func (s *Server) RemoveProfile(ctx context.Context, msg *proto.RemoveProfileRequ
 	return &proto.RemoveProfileResponse{Id: resolved.ID.String()}, nil
 }
 
+// ClaimProfile records an owner on a profile.
+//
+// Root or administrator only, enforced by the gate. The owner is whoever the
+// caller names rather than the caller's own identity, so it is turned into a
+// principal by ownerPrincipal and validated before anything is written.
+func (s *Server) ClaimProfile(ctx context.Context, msg *proto.ClaimProfileRequest) (*proto.ClaimProfileResponse, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if s.checkProfilesDisabled() {
+		return nil, gstatus.Errorf(codes.Unavailable, errProfilesDisabled)
+	}
+
+	if msg.Handle == "" {
+		return nil, gstatus.Errorf(codes.InvalidArgument, "profile must be provided")
+	}
+	if msg.Owner == "" {
+		return nil, gstatus.Errorf(codes.InvalidArgument, "owner must be provided")
+	}
+
+	principal, err := ownerPrincipal(msg.Owner)
+	if err != nil {
+		return nil, gstatus.Errorf(codes.InvalidArgument, "%v", err)
+	}
+
+	callerID, err := callerIdentity(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	resolved, err := s.resolveProfileHandle(msg.Handle, callerID)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.profileManager.ClaimProfile(resolved, principal.String()); err != nil {
+		log.Errorf("failed to claim profile: %v", err)
+		return nil, fmt.Errorf("failed to claim profile: %w", err)
+	}
+
+	s.publishProfileListChanged(resolved.Name)
+
+	return &proto.ClaimProfileResponse{
+		Id:    resolved.ID.String(),
+		Owner: principal.String(),
+	}, nil
+}
+
+// ownerPrincipal turns what the caller supplied into an owner principal.
+//
+// A principal is taken as given and never looked up. A machine-wide profile is
+// routinely configured before the account that will own it exists, and a
+// directory service that is briefly unreachable cannot be told apart from an
+// account that is not there, so requiring a lookup would refuse both. Only its
+// shape is checked. Anything else is an account name, which nothing but a lookup
+// turns into a principal.
+//
+// Names resolve here rather than on the client so the daemon's own account
+// database is the one consulted.
+func ownerPrincipal(owner string) (ipcauth.Principal, error) {
+	candidate := owner
+	if _, ok := ipcauth.ParsePrincipal(owner); !ok {
+		u, err := getent.LookupUser(owner)
+		if err != nil {
+			return ipcauth.Principal{}, fmt.Errorf("resolve account %q: %w", owner, err)
+		}
+		resolved, ok := profilemanager.PrincipalForUser(u)
+		if !ok {
+			return ipcauth.Principal{}, fmt.Errorf("account %q has no usable id %q", owner, u.Uid)
+		}
+		candidate = resolved
+	}
+	return ipcauth.ValidatePrincipal(candidate)
+}
+
 // publishProfileListChanged nudges the desktop UI to refresh its profile list
 // after a CLI-driven add/remove. The daemon exposes no dedicated
 // profile-changed RPC event, and a profile add/remove doesn't move the
@@ -2537,10 +2613,15 @@ func (s *Server) ListProfiles(ctx context.Context, msg *proto.ListProfilesReques
 		Profiles: make([]*proto.Profile, len(profiles)),
 	}
 	for i, profile := range profiles {
+		owners := make([]string, 0, len(profile.Owners))
+		for _, owner := range profile.Owners {
+			owners = append(owners, owner.String())
+		}
 		response.Profiles[i] = &proto.Profile{
 			Id:       profile.ID.String(),
 			Name:     profile.Name,
 			IsActive: profile.IsActive,
+			Owners:   owners,
 		}
 	}
 

@@ -40,6 +40,14 @@ type MethodPolicy struct {
 	Rules          []Rule
 	Audit          bool
 	TargetsProfile bool
+
+	// Action and Command turn a privilege denial into guidance the caller can
+	// act on. Action reads as the subject of a sentence ("claiming a profile"),
+	// Command is the same operation run with the privileges it needs. Only read
+	// when Level is AuthzLevelPrivileged, the one denial a caller can fix by
+	// running as somebody else.
+	Action  string
+	Command string
 }
 
 // methodPolicies is the complete authorization surface. Every RPC on
@@ -100,6 +108,16 @@ var methodPolicies = map[string]MethodPolicy{
 	servicePath + "TracePacket":                {Level: AuthzLevelSessionHolder},
 	servicePath + "RegisterUILog":              {Level: AuthzLevelSessionHolder},
 	servicePath + "TriggerUpdate":              {Level: AuthzLevelSessionHolder, Audit: true},
+
+	// Root or administrator only. Claiming names an arbitrary principal, so the
+	// caller asserts who a profile belongs to. Ownership does not enter it.
+	servicePath + "ClaimProfile": {
+		Level:          AuthzLevelPrivileged,
+		TargetsProfile: true,
+		Audit:          true,
+		Action:         "claiming a profile",
+		Command:        ElevatedCommand("netbird profile claim"),
+	},
 }
 
 func methodPolicyFor(method string) MethodPolicy {

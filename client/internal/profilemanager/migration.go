@@ -192,7 +192,7 @@ func (s *ServiceManager) stampActiveUserDir(profiles []Profile, active *ActivePr
 		return fmt.Errorf("resolve %q: %w", active.Username, err)
 	}
 
-	principal, ok := principalForUser(u)
+	principal, ok := PrincipalForUser(u)
 	if !ok {
 		return fmt.Errorf("account %q has no usable id %q", active.Username, u.Uid)
 	}
@@ -212,10 +212,10 @@ func (s *ServiceManager) stampActiveUserDir(profiles []Profile, active *ActivePr
 	return nil
 }
 
-// principalForUser turns a resolved account into an owner principal. os/user
+// PrincipalForUser turns a resolved account into an owner principal. os/user
 // reports a numeric id on Unix and a SID on Windows, which is what tells the
 // two kinds apart without a build tag.
-func principalForUser(u *user.User) (string, bool) {
+func PrincipalForUser(u *user.User) (string, bool) {
 	if uid, err := strconv.ParseUint(u.Uid, 10, 32); err == nil {
 		return ipcauth.UIDPrincipal(uint32(uid)), true
 	}
