@@ -1488,11 +1488,16 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobR
 		log.Infof("using MDM debug bundle upload URL override instead of the management-supplied value")
 		uploadURL = override
 	}
+	uploadURL = debug.ResolveUploadURL(uploadURL, e.DebugUploadURL())
+
+	// Validated after resolution, so the destination this deployment published
+	// meets the same rule as one named in the job. Management validates it at
+	// write time, but a peer can be talking to an older or mismatched server,
+	// and a bad value should surface here rather than as a transport error
+	// halfway through the upload.
 	if err := validateBundleUploadURL(uploadURL); err != nil {
 		return nil, err
 	}
-
-	uploadURL = debug.ResolveUploadURL(uploadURL, e.DebugUploadURL())
 
 	bundleDeps := debug.GeneratorDependencies{
 		InternalConfig: e.config.ProfileConfig,
