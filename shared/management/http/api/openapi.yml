@@ -316,7 +316,7 @@ components:
           type: integer
           example: 43200
         ssh_jwt_max_token_age:
-          description: Maximum period of time of inactivity after which SSH JWT tokens expires (seconds). A value of 0 uses the default client enforcement window.
+          description: Maximum age of SSH JWT tokens since issuance (iat), in seconds. A value of 0 uses the default client enforcement window.
           type: integer
           minimum: 0
           example: 300
