@@ -1,8 +1,15 @@
 package ipcauth
 
 import (
+	"fmt"
 	"os"
 	"runtime"
+	"strings"
+
+	log "github.com/sirupsen/logrus"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // Fields of the ErrorInfo detail the daemon attaches to a PermissionDenied it
@@ -143,4 +150,48 @@ func ElevatedCommand(command string) string {
 // as a syntax error.
 func UpCommand(flags string) string {
 	return ElevatedCommand("netbird down") + "; " + ElevatedCommand("netbird up "+flags)
+}
+
+// PrivilegeError builds the PermissionDenied carrying summary and command.
+func PrivilegeError(summary, command string) error {
+	st := status.New(codes.PermissionDenied, fmt.Sprintf("%s\n\n%s", summary, command))
+
+	detailed, err := st.WithDetails(&errdetails.ErrorInfo{
+		Reason: ErrorReasonPrivilegeRequired,
+		Domain: ErrorDomain,
+		Metadata: map[string]string{
+			ErrorMetaSummary: summary,
+			ErrorMetaCommand: command,
+		},
+	})
+	if err != nil {
+		log.Debugf("attach privilege error detail: %v", err)
+		return st.Err()
+	}
+	return detailed.Err()
+}
+
+// RequiredActor names who may perform the operation and adjusts the command to
+// match. A daemon that is not itself privileged delegates to its own identity, so
+// telling that host's user to become root is wrong twice over: root is not what the
+// daemon checks for, and a rootless container has neither root nor sudo.
+func RequiredActor(command string) (string, string) {
+	self, delegates := SelfDelegatesTo()
+	if !delegates {
+		return PrivilegedActor(), command
+	}
+	return fmt.Sprintf("the user the daemon runs as (%s)", self), strings.ReplaceAll(command, "sudo ", "")
+}
+
+// PrivilegeSummary states what is refused and what it needs, in one sentence
+// that reads the same in a dialog and in a terminal.
+func PrivilegeSummary(action, actor string) string {
+	return fmt.Sprintf("%s requires %s.", capitalize(action), actor)
+}
+
+func capitalize(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
 }

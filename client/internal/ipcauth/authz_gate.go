@@ -82,6 +82,21 @@ func denyLevel(r Request, want AuthzLevel) error {
 		"%s requires %s, caller %s is %s", r.Method, want, r.Identity, r.Level)
 }
 
+// denyPolicyLevel refuses a caller at the gate, where the policy is in hand.
+//
+// Requiring privilege is the one denial a caller can act on, so it carries the
+// elevated command rather than a bare refusal. A privileged method that declares
+// no action keeps the plain message. Rules deny through denyLevel instead: they
+// cannot reach the policy table without an initialization cycle, and no rule
+// requires privilege.
+func denyPolicyLevel(r Request, p MethodPolicy) error {
+	if p.Level == AuthzLevelPrivileged && p.Action != "" {
+		actor, command := RequiredActor(p.Command)
+		return PrivilegeError(PrivilegeSummary(p.Action, actor), command)
+	}
+	return denyLevel(r, p.Level)
+}
+
 // StreamPolicyInterceptor authorizes each streaming RPC before the handler runs.
 // The request payload is not yet available, so no streaming method may be
 // target-scoped.
@@ -140,7 +155,7 @@ func (g *AuthzGate) authorize(ctx context.Context, method string, msg any) error
 	}
 	if req.Level < policy.Level {
 		log.Warnf("ipc authz: DENY %s for %s (%s), requires %s", method, id, req.Level, policy.Level)
-		return denyLevel(req, policy.Level)
+		return denyPolicyLevel(req, policy)
 	}
 	for _, rule := range policy.Rules {
 		if err := rule(req); err != nil {
