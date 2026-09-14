@@ -203,6 +203,7 @@ func (c *Client) Run(platformFiles PlatformFiles, urlOpener URLOpener, isAndroid
 	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder,
 		internal.WithNetEvents(c.netMgr))
 	c.setState(cfg, cacheDir, cfgFile, connectClient)
+	connectClient.SetSyncResponsePersistence(true)
 	// This path runs the interactive SSO flow, so reaching here means the peer
 	// is authenticated again — release the latch Status() reports from. Clear
 	// only once the fresh connect client is installed: until then Status()
@@ -245,6 +246,7 @@ func (c *Client) RunWithoutLogin(platformFiles PlatformFiles, dns *DNSList, dnsR
 	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder,
 		internal.WithNetEvents(c.netMgr))
 	c.setState(cfg, cacheDir, cfgFile, connectClient)
+	connectClient.SetSyncResponsePersistence(true)
 	return connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener, stateFile, cacheDir)
 }
 
