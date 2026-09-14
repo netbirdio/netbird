@@ -7,29 +7,12 @@ import (
 	"testing"
 
 	"github.com/miekg/dns"
-	networkmap_sqlite "github.com/netbirdio/netbird/management/internals/network_map_db/sqlite"
-	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/networkmap"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/stretchr/testify/assert"
 )
 
-type blah struct {
-	ID string
-	GG []byte
-}
-
 func TestGetAppliedZoneCandidatesViaPgxConnection(t *testing.T) {
-
-	err := s.SaveDNSSettings(context.TODO(), "account-1", &types.DNSSettings{})
-	assert.NoError(t, err)
-	result, err := sqlitestore.Db.QueryContext(context.TODO(), "select id, dns_settings_disabled_management_groups from accounts where id='account-1'")
-
-	zones, err := networkmap_sqlite.CollectRowsForSqlite[blah](result)
-	assert.NoError(t, err)
-
-	assert.Len(t, zones, 1)
-
 	ctx := context.TODO()
 
 	execQuery(t, ctx,
