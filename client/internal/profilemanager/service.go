@@ -591,6 +591,7 @@ func (s *ServiceManager) loadAllProfilesForIdentity(userID ipcauth.Identity) ([]
 		return nil, err
 	}
 
+	s.claimDefaultProfileIfNeeded(allProfiles, userID)
 	s.claimLegacyProfiles(allProfiles, userID)
 
 	accessible := make([]Profile, 0, len(allProfiles))
@@ -651,6 +652,37 @@ func (s *ServiceManager) claimLegacyProfiles(profiles []Profile, id ipcauth.Iden
 
 		p.Owners = []ipcauth.Principal{parsed}
 		log.Infof("claimed legacy profile %s for %s, its directory is named after that account", p.Path, principal)
+	}
+}
+
+func (s *ServiceManager) claimDefaultProfileIfNeeded(profiles []Profile, id ipcauth.Identity) {
+	if !id.Known() || ipcauth.IsPrivilegedCaller(id) {
+		return
+	}
+
+	var unowned bool
+	var p *Profile
+	for i := range profiles {
+		p = &profiles[i]
+		if p.ID == defaultProfileName && len(p.Owners) == 0 {
+			unowned = true
+			break
+		}
+	}
+
+	if unowned && ipcauth.IsConsoleUser(id) {
+		principal := ipcauth.OwnerPrincipalForIdentity(id)
+		parsed, ok := ipcauth.ParsePrincipal(principal)
+		if !ok {
+			log.Warnf("not claiming default profile, %q is not a usable owner", principal)
+			return
+		}
+		if err := StampOwner(p.Path, id); err != nil {
+			log.Warnf("could not claim default profile %s for %#v: %v", p.Path, id, err)
+			return
+		}
+		p.Owners = []ipcauth.Principal{parsed}
+		log.Infof("claimed default profile %s for %s", p.Path, principal)
 	}
 }
 
