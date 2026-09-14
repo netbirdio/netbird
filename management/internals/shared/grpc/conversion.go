@@ -279,7 +279,7 @@ func ToResponseProto(configProto nbconfig.Protocol) proto.HostConfig_Protocol {
 }
 
 // buildJWTConfig constructs JWT configuration for SSH servers from management server config
-func buildJWTConfig(config *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfig.DeviceAuthorizationFlow, settings *types.Settings) *proto.JWTConfig {
+func buildJWTConfig(config *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfig.DeviceAuthorizationFlow, settings *nmdata.AccountSettingsInfo) *proto.JWTConfig {
 	if config == nil || config.AuthAudience == "" || settings == nil {
 		return nil
 	}
