@@ -291,24 +291,30 @@ func TestListProfiles_PrivilegedResolvesUnfiltered(t *testing.T) {
 	})
 }
 
-func TestListProfiles_OnlyTheDefaultFailsOpenWhenUnowned(t *testing.T) {
+func TestListProfiles_UnownedProfilesArePrivilegedOnly(t *testing.T) {
 	withTestSM(t, func(sm *ServiceManager, _ ipcauth.Identity) {
+		// Nobody at the console, so the claim cannot stamp an owner partway
+		// through and change what the assertions below are looking at, whatever
+		// the machine running the test happens to look like.
+		stubConsoleUser(t, false)
+
 		unowned, err := sm.AddProfile("unowned", nil)
 		require.NoError(t, err)
 
 		alice := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
 		got, err := sm.ListProfiles(alice)
 		require.NoError(t, err)
-		assert.Contains(t, profileIDs(got), defaultProfileName,
-			"a fresh install has to be usable before anything is claimed")
+		assert.NotContains(t, profileIDs(got), defaultProfileName,
+			"the default profile has no exemption, being claimed is what opens it")
 		assert.NotContains(t, profileIDs(got), unowned.ID.String(),
-			"every other profile needs an owner before anyone can address it")
+			"every profile needs an owner before anyone can address it")
 
 		root := ipcauth.KnownForTest(ipcauth.Identity{UID: 0})
 		got, err = sm.ListProfiles(root)
 		require.NoError(t, err)
-		assert.Contains(t, profileIDs(got), unowned.ID.String(),
-			"root still reaches it, which is how it gets assigned")
+		assert.Contains(t, profileIDs(got), defaultProfileName,
+			"root still reaches both, which is how an unowned profile gets assigned")
+		assert.Contains(t, profileIDs(got), unowned.ID.String())
 
 		nobody, err := sm.ListProfiles(ipcauth.Identity{})
 		require.NoError(t, err)
