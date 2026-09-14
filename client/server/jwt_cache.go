@@ -58,49 +58,49 @@ func (c *jwtCache) store(token string, owner ipcauth.Identity, maxAge time.Durat
 	c.cleanup()
 
 	if maxAge <= 0 {
-		return
+		return false
 	}
 
 	jwtToken, _, err := gojwt.NewParser().ParseUnverified(token, gojwt.MapClaims{})
 	if err != nil {
 		log.Debugf("Failed to parse JWT token claims for cache: %v", err)
-		return
+		return false
 	}
 	claims, ok := jwtToken.Claims.(gojwt.MapClaims)
 	if !ok {
 		log.Debug("JWT token has invalid claims format, not caching")
-		return
+		return false
 	}
 
 	now := time.Now()
 	exp, err := claims.GetExpirationTime()
 	if err != nil {
 		log.Debugf("JWT token has invalid exp claim, not caching: %v", err)
-		return
+		return false
 	}
 	if exp != nil && !now.Before(exp.Time) {
 		log.Debug("JWT token expired by exp claim, not caching")
-		return
+		return false
 	}
 
 	iat, err := claims.GetIssuedAt()
 	if err != nil {
 		log.Debugf("JWT token has invalid iat claim, not caching: %v", err)
-		return
+		return false
 	}
 	if iat == nil {
 		log.Debug("JWT token missing iat claim, not caching")
-		return
+		return false
 	}
 	tokenAge := now.Sub(iat.Time)
 	if tokenAge < 0 {
 		log.Debugf("JWT token has future iat claim, not caching: iat=%v, now=%v", iat.Time, now)
-		return
+		return false
 	}
 
 	if tokenAge > maxAge {
 		log.Debugf("JWT token exceeded cache TTL by iat claim, not caching: age=%v, max=%v", tokenAge, maxAge)
-		return
+		return false
 	}
 
 	tokenBytes := []byte(token)
@@ -148,7 +148,7 @@ func (c *jwtCache) get(caller ipcauth.Identity, maxAge time.Duration) (string, b
 		log.Warnf("refusing the cached SSH JWT: caller %s is not the identity that obtained it", caller)
 		return "", false
 	}
-	
+
 	found := false
 	defer func() {
 		if !found {
