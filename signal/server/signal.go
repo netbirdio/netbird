@@ -17,6 +17,8 @@ import (
 
 	"github.com/netbirdio/signal-dispatcher/dispatcher"
 
+	"github.com/netbirdio/netbird/shared/lifecycle"
+	"github.com/netbirdio/netbird/shared/profiling"
 	"github.com/netbirdio/netbird/shared/signal/proto"
 	"github.com/netbirdio/netbird/signal/metrics"
 	"github.com/netbirdio/netbird/signal/peer"
@@ -43,6 +45,8 @@ const (
 	labelRegistrationNotFound = "not_found"
 
 	sendTimeout = 10 * time.Second
+
+	applicationName = "signal"
 )
 
 var (
@@ -51,6 +55,7 @@ var (
 
 // Server an instance of a Signal server
 type Server struct {
+	lifecycle.StopHandlers
 	registry *peer.Registry
 	proto.UnimplementedSignalExchangeServer
 	dispatcher *dispatcher.Dispatcher
@@ -88,7 +93,17 @@ func NewServer(ctx context.Context, meter metric.Meter, metricsPrefix ...string)
 		sendTimeout:   sTimeout,
 	}
 
+	// Fatal exits in the run command bypass Stop, so the handlers are wired
+	// to the logrus exit path as well.
+	log.RegisterExitHandler(s.RunStopHandlers)
+	s.OnStop(profiling.Start(applicationName))
+
 	return s, nil
+}
+
+// Stop runs the handlers registered with OnStop.
+func (s *Server) Stop() {
+	s.RunStopHandlers()
 }
 
 // Send forwards a message to the signal peer

@@ -374,7 +374,9 @@ func (s *Server) Start(ctx context.Context) error {
 	runCtx, runCancel := context.WithCancel(ctx)
 	s.runCancel = runCancel
 
-	s.initNetBirdClient()
+	if err := s.initNetBirdClient(); err != nil {
+		return err
+	}
 	// Create health checker before the mapping worker so it can track
 	// management connectivity from the first stream connection.
 	s.healthChecker = health.NewChecker(s.Logger, s.netbird)
@@ -568,7 +570,7 @@ func (s *Server) initManagementClient() error {
 // initNetBirdClient builds the multi-tenant embedded NetBird client used
 // for outbound RoundTripping and (when --private is on) per-account
 // inbound listeners.
-func (s *Server) initNetBirdClient() {
+func (s *Server) initNetBirdClient() error {
 	s.netbird = roundtrip.NewNetBird(s.ctx, s.ID, s.ProxyURL, roundtrip.ClientConfig{
 		MgmtAddr:     s.ManagementAddress,
 		WGPort:       s.WireguardPort,
@@ -581,6 +583,10 @@ func (s *Server) initNetBirdClient() {
 		BlockInbound: !s.Private,
 	}, s.Logger, s, s.mgmtClient)
 	s.netbird.OnAddPeer = s.meter.RecordAddPeerDuration
+	if err := s.meter.RegisterClientObserver(s.netbird.ClientCount); err != nil {
+		return fmt.Errorf("register client metrics: %w", err)
+	}
+	return nil
 }
 
 // initReverseProxy builds the meter-instrumented reverse proxy. MultiTransport
