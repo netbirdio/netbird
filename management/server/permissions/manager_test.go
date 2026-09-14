@@ -6,10 +6,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/permissions/roles"
+	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 )
 
@@ -136,4 +138,60 @@ func TestGetPermissionsByRoleIncludesSubmodules(t *testing.T) {
 	providers, ok := adminPermissions[modules.AgentNetworkProviders]
 	require.True(t, ok, "permissions map should contain the providers submodule")
 	assert.True(t, providers[operations.Delete], "admin should delete on the providers submodule")
+}
+
+// The pending-approval refusal names an owner, and it is raised before
+// ValidateAccountAccess has established that the caller belongs to the account
+// the request asked about. These pin that the address it discloses is always
+// the caller's own owner, never the owner of an account they have no claim to.
+func TestValidateUserPermissionsPendingApprovalNamesOwnOwnerOnly(t *testing.T) {
+	const (
+		callerID       = "pending-user"
+		ownAccountID   = "own-account"
+		otherAccountID = "other-account"
+	)
+
+	pendingUser := &types.User{
+		Id:              callerID,
+		AccountID:       ownAccountID,
+		Blocked:         true,
+		PendingApproval: true,
+	}
+
+	newManager := func(t *testing.T) (Manager, *store.MockStore) {
+		ctrl := gomock.NewController(t)
+		mockStore := store.NewMockStore(ctrl)
+		mockStore.EXPECT().
+			GetUserByUserID(gomock.Any(), gomock.Any(), callerID).
+			Return(pendingUser, nil).
+			AnyTimes()
+		return NewManager(mockStore), mockStore
+	}
+
+	t.Run("own account is named", func(t *testing.T) {
+		manager, mockStore := newManager(t)
+		mockStore.EXPECT().
+			GetAccountOwner(gomock.Any(), gomock.Any(), ownAccountID).
+			Return(&types.User{Id: "owner", AccountID: ownAccountID, Email: "owner@own.example"}, nil)
+
+		_, _, err := manager.ValidateUserPermissions(context.Background(), ownAccountID, callerID, modules.Users, operations.Read)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "ow****r@own.example")
+	})
+
+	t.Run("another account is never resolved or named", func(t *testing.T) {
+		manager, mockStore := newManager(t)
+		// The owner of the requested account must not even be looked up.
+		mockStore.EXPECT().
+			GetAccountOwner(gomock.Any(), gomock.Any(), otherAccountID).
+			Times(0)
+		mockStore.EXPECT().
+			GetAccountOwner(gomock.Any(), gomock.Any(), ownAccountID).
+			Return(&types.User{Id: "owner", AccountID: ownAccountID, Email: "owner@own.example"}, nil)
+
+		_, _, err := manager.ValidateUserPermissions(context.Background(), otherAccountID, callerID, modules.Users, operations.Read)
+		require.Error(t, err)
+		assert.NotContains(t, err.Error(), "other")
+		assert.Contains(t, err.Error(), "ow****r@own.example")
+	})
 }
