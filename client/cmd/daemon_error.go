@@ -12,22 +12,22 @@ import (
 )
 
 // daemonCallError prepares a daemon error for display. A refusal the daemon
-// raised because the operation needs root/administrator is already guidance
-// written for the user, so it is surfaced on its own instead of buried under the
-// gRPC envelope and the name of the RPC that hit it. Anything else is wrapped
-// with context as usual.
+// explained is already written for the user, so it is surfaced on its own
+// instead of buried under the gRPC envelope and the name of the RPC that hit it.
+// Anything else is wrapped with context as usual.
 func daemonCallError(context string, err error) error {
-	if guidance, ok := privilegeGuidance(err); ok {
+	if guidance, ok := denialGuidance(err); ok {
 		return errors.New(guidance)
 	}
 	return fmt.Errorf("%s: %w", context, err)
 }
 
-// privilegeGuidance renders the daemon's privilege refusal as a summary and the
-// command that performs the operation with the privileges it needs. It reports
-// false for any other error.
-func privilegeGuidance(err error) (string, bool) {
-	info, ok := privilegeErrorInfo(err)
+// denialGuidance renders a refusal the daemon explained: a summary, plus the
+// command that satisfies it when there is one. A refusal the caller cannot act
+// on, such as another user holding the connection, carries a summary alone. It
+// reports false for any other error.
+func denialGuidance(err error) (string, bool) {
+	info, ok := denialErrorInfo(err)
 	if !ok {
 		return "", false
 	}
@@ -46,9 +46,10 @@ func privilegeGuidance(err error) (string, bool) {
 	return fmt.Sprintf("%s\n\n    %s\n", summary, command), true
 }
 
-// privilegeErrorInfo returns the daemon's privilege-refusal detail, if the error
-// carries one.
-func privilegeErrorInfo(err error) (*errdetails.ErrorInfo, bool) {
+// denialErrorInfo returns the daemon's refusal detail, if the error carries one.
+// Matched on the domain rather than on a list of reasons, so a reason added
+// later is rendered rather than silently dropped back to the gRPC envelope.
+func denialErrorInfo(err error) (*errdetails.ErrorInfo, bool) {
 	if err == nil {
 		return nil, false
 	}
@@ -58,7 +59,7 @@ func privilegeErrorInfo(err error) (*errdetails.ErrorInfo, bool) {
 		if !ok {
 			continue
 		}
-		if info.GetReason() == ipcauth.ErrorReasonPrivilegeRequired && info.GetDomain() == ipcauth.ErrorDomain {
+		if info.GetDomain() == ipcauth.ErrorDomain {
 			return info, true
 		}
 	}

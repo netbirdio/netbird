@@ -26,6 +26,17 @@ const (
 	// ErrorMetaCommand is the command that performs the same operation with the
 	// privileges it needs, ready to copy and run.
 	ErrorMetaCommand = "command"
+
+	// ErrorReasonSessionHeld identifies a refusal caused by another user's live
+	// connection. Nothing the caller can run satisfies it, since the session is
+	// not theirs to end, so the detail carries no command.
+	ErrorReasonSessionHeld = "SESSION_HELD"
+
+	// ErrorReasonNotProfileOwner identifies a refusal caused by the profile
+	// belonging to another account. It carries no command either: privilege is
+	// not what the method asked for, so telling the caller to elevate would send
+	// them the wrong way.
+	ErrorReasonNotProfileOwner = "NOT_PROFILE_OWNER"
 )
 
 // The identity of the process evaluating callers, captured once because it cannot
@@ -154,18 +165,63 @@ func UpCommand(flags string) string {
 
 // PrivilegeError builds the PermissionDenied carrying summary and command.
 func PrivilegeError(summary, command string) error {
-	st := status.New(codes.PermissionDenied, fmt.Sprintf("%s\n\n%s", summary, command))
+	return denialError(ErrorReasonPrivilegeRequired, summary, command)
+}
 
+// SessionHeldError refuses an operation because another user has the machine
+// connected. It carries no command: the caller cannot end somebody else's
+// session, so the only useful thing to give them is the reason.
+func SessionHeldError(action string) error {
+	return denialError(ErrorReasonSessionHeld, sessionHeldSummary(action), "")
+}
+
+// NotOwnerError refuses an operation because the profile it addresses belongs to
+// somebody else.
+func NotOwnerError(action string) error {
+	return denialError(ErrorReasonNotProfileOwner, notOwnerSummary(action), "")
+}
+
+// sessionHeldSummary says whose the connection is and why that settles it.
+func sessionHeldSummary(action string) string {
+	return refusedSubject(action) + " refused while another user has this machine connected. " +
+		"The active profile and the connection on it belong to the user who brought it up, " +
+		"and they stay theirs until that user disconnects."
+}
+
+// notOwnerSummary says who the profile belongs to and why that settles it.
+func notOwnerSummary(action string) string {
+	return refusedSubject(action) + " refused because the profile it addresses belongs to another user. " +
+		"A profile and the configuration on it stay with the account that created or claimed it, " +
+		"so use one of your own or ask an administrator to hand this one over."
+}
+
+// refusedSubject opens a refusal with what was refused, falling back to the
+// command itself for a method that names no action.
+func refusedSubject(action string) string {
+	if action == "" {
+		return "This command is"
+	}
+	return capitalize(action) + " is"
+}
+
+// denialError builds a PermissionDenied carrying a summary a client can render,
+// and a command when there is one to give.
+func denialError(reason, summary, command string) error {
+	message := summary
+	metadata := map[string]string{ErrorMetaSummary: summary}
+	if command != "" {
+		message = fmt.Sprintf("%s\n\n%s", summary, command)
+		metadata[ErrorMetaCommand] = command
+	}
+
+	st := status.New(codes.PermissionDenied, message)
 	detailed, err := st.WithDetails(&errdetails.ErrorInfo{
-		Reason: ErrorReasonPrivilegeRequired,
-		Domain: ErrorDomain,
-		Metadata: map[string]string{
-			ErrorMetaSummary: summary,
-			ErrorMetaCommand: command,
-		},
+		Reason:   reason,
+		Domain:   ErrorDomain,
+		Metadata: metadata,
 	})
 	if err != nil {
-		log.Debugf("attach privilege error detail: %v", err)
+		log.Debugf("attach %s error detail: %v", reason, err)
 		return st.Err()
 	}
 	return detailed.Err()
