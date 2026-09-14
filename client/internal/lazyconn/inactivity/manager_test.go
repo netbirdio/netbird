@@ -6,11 +6,13 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unsafe"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
+	peerid "github.com/netbirdio/netbird/client/internal/peer/id"
 	"github.com/netbirdio/netbird/monotime"
 )
 
@@ -165,4 +167,86 @@ func TestConcurrentPeerAccess(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 	cancel()
 	wg.Wait()
+}
+
+// idleWg reports the peer as idle for long enough to trip the threshold.
+func idleWg(peerID string) *mockWgInterface {
+	return &mockWgInterface{
+		lastActivities: map[string]monotime.Time{
+			peerID: monotime.Time(int64(monotime.Now()) - int64(20*time.Minute)),
+		},
+	}
+}
+
+func connIDOf(anchor *int) peerid.ConnID {
+	return peerid.ConnID(unsafe.Pointer(anchor))
+}
+
+// A peer can be removed and re-added between the inactivity check and the moment
+// the consumer reads the event. The re-added peer is a different connection, so
+// the event has to say which connection it was found idle on; otherwise the
+// consumer cannot tell a stale signal from a live one and tears down a
+// connection that has just been established.
+func TestInactivityEventNamesTheConnectionItWasFoundOn(t *testing.T) {
+	peerID := "peer1"
+	fakeTick := make(chan time.Time, 1)
+	newTicker = func(d time.Duration) Ticker {
+		return &fakeTickerMock{CChan: fakeTick}
+	}
+
+	var anchor int
+	connID := connIDOf(&anchor)
+
+	manager := NewManager(idleWg(peerID), nil)
+	manager.AddPeer(&lazyconn.PeerConfig{
+		PublicKey:  peerID,
+		PeerConnID: connID,
+		Log:        log.WithField("peer", peerID),
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go manager.Start(ctx)
+	fakeTick <- time.Now()
+
+	select {
+	case inactive := <-manager.inactivePeersChan:
+		got, ok := inactive[peerID]
+		assert.True(t, ok, "expected the peer to be reported inactive")
+		assert.Equal(t, connID, got, "the event must carry the connection the peer was idle on")
+	case <-time.After(time.Second):
+		t.Fatal("expected inactivity event, but none received")
+	}
+}
+
+// After a peer is removed and re-added it is a new connection, and the manager
+// must report that one -- reporting the old connection is what lets a stale
+// event land on the new one.
+func TestReAddedPeerIsReportedOnItsNewConnection(t *testing.T) {
+	peerID := "peer1"
+	fakeTick := make(chan time.Time, 1)
+	newTicker = func(d time.Duration) Ticker {
+		return &fakeTickerMock{CChan: fakeTick}
+	}
+
+	var oldAnchor, newAnchor int
+	oldConn, newConn := connIDOf(&oldAnchor), connIDOf(&newAnchor)
+
+	manager := NewManager(idleWg(peerID), nil)
+	manager.AddPeer(&lazyconn.PeerConfig{PublicKey: peerID, PeerConnID: oldConn, Log: log.WithField("peer", peerID)})
+	manager.RemovePeer(peerID)
+	manager.AddPeer(&lazyconn.PeerConfig{PublicKey: peerID, PeerConnID: newConn, Log: log.WithField("peer", peerID)})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go manager.Start(ctx)
+	fakeTick <- time.Now()
+
+	select {
+	case inactive := <-manager.inactivePeersChan:
+		assert.Equal(t, newConn, inactive[peerID], "the event must name the live connection, not the replaced one")
+		assert.NotEqual(t, oldConn, inactive[peerID])
+	case <-time.After(time.Second):
+		t.Fatal("expected inactivity event, but none received")
+	}
 }

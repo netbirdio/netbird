@@ -499,7 +499,7 @@ func (m *Manager) armRoutedAllowedIPs(peerCfg *lazyconn.PeerConfig) {
 	}
 }
 
-func (m *Manager) shouldDeferIdleForHA(inactivePeers map[string]struct{}, peerID string) bool {
+func (m *Manager) shouldDeferIdleForHA(inactivePeers map[string]peerid.ConnID, peerID string) bool {
 	m.routesMu.RLock()
 	defer m.routesMu.RUnlock()
 
@@ -517,7 +517,7 @@ func (m *Manager) shouldDeferIdleForHA(inactivePeers map[string]struct{}, peerID
 	return false
 }
 
-func (m *Manager) checkHaGroupActivity(haGroup route.HAUniqueID, peerID string, inactivePeers map[string]struct{}) bool {
+func (m *Manager) checkHaGroupActivity(haGroup route.HAUniqueID, peerID string, inactivePeers map[string]peerid.ConnID) bool {
 	groupPeers := m.haGroupToPeers[haGroup]
 	for _, groupPeerID := range groupPeers {
 
@@ -573,14 +573,23 @@ func (m *Manager) onPeerActivity(ev activity.Event) {
 	m.peerStore.PeerConnOpenWithFirstPacket(m.engineCtx, mp.peerCfg.PublicKey, ev.FirstPacket)
 }
 
-func (m *Manager) onPeerInactivityTimedOut(peerIDs map[string]struct{}) {
+func (m *Manager) onPeerInactivityTimedOut(peerIDs map[string]peerid.ConnID) {
 	m.managedPeersMu.Lock()
 	defer m.managedPeersMu.Unlock()
 
-	for peerID := range peerIDs {
+	for peerID, idleConnID := range peerIDs {
 		peerCfg, ok := m.managedPeers[peerID]
 		if !ok {
 			log.Errorf("peer not found by peerId: %v", peerID)
+			continue
+		}
+
+		// The peer may have been removed and re-added between the inactivity
+		// check and this event. The re-added peer is a different connection, and
+		// the old signal says nothing about it, so idling on it would tear down a
+		// connection that has just been established.
+		if peerCfg.PeerConnID != idleConnID {
+			peerCfg.Log.Debugf("ignore inactivity event from a previous connection")
 			continue
 		}
 
