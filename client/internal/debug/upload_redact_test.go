@@ -38,7 +38,7 @@ func TestRedactURLsInError(t *testing.T) {
 		{
 			// The presigned PUT URL is the one that carries credentials.
 			name: "presigned URL loses its credentials",
-			err: errors.New(`upload failed: Put "https://bucket.s3.amazonaws.com/k?X-Amz-Signature=abc123&X-Amz-Credential=AKIA": timeout`),
+			err:  errors.New(`upload failed: Put "https://bucket.s3.amazonaws.com/k?X-Amz-Signature=abc123&X-Amz-Credential=AKIA": timeout`),
 			want: `upload failed: Put "https://bucket.s3.amazonaws.com": timeout`,
 		},
 		{
@@ -50,6 +50,23 @@ func TestRedactURLsInError(t *testing.T) {
 			name: "two URLs are both cut",
 			err:  errors.New(`redirect from https://a.example.com/x?t=1 to https://b.example.com/y?t=2`),
 			want: `redirect from https://a.example.com to https://b.example.com`,
+		},
+		{
+			// The match must stop at the delimiter, not run on and eat the
+			// words after it.
+			name: "closing paren and the prose after it survive",
+			err:  errors.New(`(see https://upload.example.com/x?t=1) for details`),
+			want: `(see https://upload.example.com) for details`,
+		},
+		{
+			name: "angle brackets survive",
+			err:  errors.New(`tried <https://a.example.com/p?q=1> and failed`),
+			want: `tried <https://a.example.com> and failed`,
+		},
+		{
+			name: "backticks survive",
+			err:  errors.New("use `https://b.example.com/p` instead"),
+			want: "use `https://b.example.com` instead",
 		},
 	}
 

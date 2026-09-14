@@ -178,8 +178,12 @@ func getURLHash(url string) string {
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(url)))
 }
 
-// urlInText matches an absolute http(s) URL inside a free-form message.
-var urlInText = regexp.MustCompile(`https?://[^\s"']+`)
+// urlInText matches an absolute http(s) URL inside a free-form message. The
+// class stops at the delimiters an error message wraps a URL in — quotes,
+// backticks, angle brackets, parens and braces — so the match does not run past
+// the URL and swallow the prose after it. TrimRight below then drops trailing
+// sentence punctuation, which a bare URL at the end of a clause picks up.
+var urlInText = regexp.MustCompile("https?://[^\\s\"'`<>\\[\\]{}()]+")
 
 // redactedError keeps the original error reachable for errors.Is/As while
 // presenting a message with every URL cut down to scheme://host.
