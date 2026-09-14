@@ -77,6 +77,7 @@ func init() {
 	application.RegisterEvent[authsession.Warning](services.EventSessionWarning)
 	application.RegisterEvent[updater.State](updater.EventStateChanged)
 	application.RegisterEvent[preferences.UIPreferences](preferences.EventPreferencesChanged)
+	application.RegisterEvent[services.SystemTheme](services.EventSystemThemeChanged)
 }
 
 func main() {
@@ -122,6 +123,9 @@ func main() {
 	})
 
 	bundle, prefStore, localizer := buildI18n(app)
+
+	// Before any window exists so creation-time backgrounds are already themed.
+	app.RegisterService(application.NewService(services.NewTheme(app, prefStore)))
 
 	// After bundle + prefStore: both are used to localise daemon errors.
 	settings := services.NewSettings(conn, bundle, prefStore, daemonAddr)
@@ -354,6 +358,7 @@ func newMainWindow(app *application.App, prefStore *preferences.Store, wm *servi
 	if prefStore.Get().ViewMode == preferences.ViewModeAdvanced {
 		initialWidth = 900
 	}
+	appearance := services.CurrentAppearance()
 	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:   "main",
 		Title:  "NetBird",
@@ -363,13 +368,13 @@ func newMainWindow(app *application.App, prefStore *preferences.Store, wm *servi
 		// drop new windows top-left unless asked.
 		InitialPosition:     application.WindowCentered,
 		Hidden:              true,
-		BackgroundColour:    services.WindowBackgroundColour,
+		BackgroundColour:    services.WindowBackgroundColour(appearance),
 		URL:                 startURL,
 		DisableResize:       true,
 		MinimiseButtonState: application.ButtonHidden,
 		MaximiseButtonState: application.ButtonHidden,
-		Mac:                 services.AppleMacOSAppearanceOptions(),
-		Windows:             services.MicrosoftWindowsAppearanceOptions(),
+		Mac:                 services.AppleMacOSAppearanceOptions(appearance),
+		Windows:             services.MicrosoftWindowsAppearanceOptions(appearance),
 		Linux: application.LinuxWindow{
 			Icon: iconWindow,
 		},

@@ -31,6 +31,7 @@ import (
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 	networkmapdbfactory "github.com/netbirdio/netbird/management/internals/network_map_db/factory"
+	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/activity"
 	activitystore "github.com/netbirdio/netbird/management/server/activity/store"
@@ -111,7 +112,8 @@ func (s *BaseServer) NetworkMapStore() *networkmapdb.NetworkMapDBStoreImpl {
 			s.Config.StoreConfig.Engine,
 			s.Config.Datadir,
 			s.IntegratedValidator(),
-			s.SettingsManager())
+			s.SettingsManager(),
+		)
 		// networkmap db store supports postgres and sqlite backends only
 		// for other backends a fallback is used, so NotSupportedStoreEngineError
 		// is not a fatal error
@@ -180,24 +182,7 @@ func (s *BaseServer) RateLimiter() *middleware.APIRateLimiter {
 
 func (s *BaseServer) GRPCServer() *grpc.Server {
 	return Create(s, func() *grpc.Server {
-		trustedPeers := s.Config.ReverseProxy.TrustedPeers
-		defaultTrustedPeers := []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0"), netip.MustParsePrefix("::/0")}
-		if len(trustedPeers) == 0 || slices.Equal[[]netip.Prefix](trustedPeers, defaultTrustedPeers) {
-			log.WithContext(context.Background()).Warn("TrustedPeers are configured to default value '0.0.0.0/0', '::/0'. This allows connection IP spoofing.")
-			trustedPeers = defaultTrustedPeers
-		}
-		trustedHTTPProxies := s.Config.ReverseProxy.TrustedHTTPProxies
-		trustedProxiesCount := s.Config.ReverseProxy.TrustedHTTPProxiesCount
-		if len(trustedHTTPProxies) > 0 && trustedProxiesCount > 0 {
-			log.WithContext(context.Background()).Warn("TrustedHTTPProxies and TrustedHTTPProxiesCount both are configured. " +
-				"This is not recommended way to extract X-Forwarded-For. Consider using one of these options.")
-		}
-		realipOpts := []realip.Option{
-			realip.WithTrustedPeers(trustedPeers),
-			realip.WithTrustedProxies(trustedHTTPProxies),
-			realip.WithTrustedProxiesCount(trustedProxiesCount),
-			realip.WithHeaders([]string{realip.XForwardedFor, realip.XRealIp}),
-		}
+		realipOpts := realIPOptions(s.Config.ReverseProxy)
 		proxyUnary, proxyStream, proxyAuthClose := nbgrpc.NewProxyAuthInterceptors(s.Store())
 		s.proxyAuthClose = proxyAuthClose
 		gRPCOpts := []grpc.ServerOption{
@@ -333,7 +318,7 @@ func (s *BaseServer) AccessLogsManager() accesslogs.Manager {
 	})
 }
 
-func loadTLSConfig(certFile string, certKey string) (*tls.Config, error) {
+func loadTLSConfig(certFile, certKey string) (*tls.Config, error) {
 	// Load server's certificate and private key
 	serverCert, err := tls.LoadX509KeyPair(certFile, certKey)
 	if err != nil {
@@ -379,4 +364,35 @@ func streamInterceptor(
 	//nolint
 	wrapped.WrappedContext = context.WithValue(ctx, nbContext.RequestIDKey, reqID)
 	return handler(srv, wrapped)
+}
+
+// realIPOptions builds the real-IP middleware options from the reverse proxy config.
+//
+// TrustedPeers controls which transport peers are allowed to supply forwarded-IP
+// headers. If empty, forwarded headers are ignored and the transport peer address
+// is used directly. Operators terminating connections at a reverse proxy should
+// configure TrustedPeers with that proxy's address or network.
+//
+// Only X-Forwarded-For is trusted. X-Real-IP contains a single client-supplied
+// address with no proxy chain to validate, and none of the reverse proxies we ship
+// use it on the gRPC path.
+func realIPOptions(cfg nbconfig.ReverseProxy) []realip.Option {
+	if idx := slices.IndexFunc(cfg.TrustedPeers, func(p netip.Prefix) bool { return p.Bits() == 0 }); idx >= 0 {
+		log.WithContext(context.Background()).Warnf("TrustedPeers contains the default route %s, which trusts "+
+			"X-Forwarded-For from every client and allows connection IP spoofing. Set TrustedPeers to the address "+
+			"of your reverse proxy, or leave it empty to use the connection's source address.", cfg.TrustedPeers[idx])
+	}
+	if cfg.TrustedHTTPProxiesCount > 0 {
+		log.WithContext(context.Background()).Warn(
+			"TrustedHTTPProxiesCount skips X-Forwarded-For entries by position before TrustedHTTPProxies filters by address. " +
+				"An incorrect count may skip the real client IP and produce an incorrect source address.",
+		)
+	}
+
+	return []realip.Option{
+		realip.WithTrustedPeers(cfg.TrustedPeers),
+		realip.WithTrustedProxies(cfg.TrustedHTTPProxies),
+		realip.WithTrustedProxiesCount(cfg.TrustedHTTPProxiesCount),
+		realip.WithHeaders([]string{realip.XForwardedFor}),
+	}
 }

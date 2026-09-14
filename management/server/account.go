@@ -719,8 +719,10 @@ func (am *DefaultAccountManager) schedulePeerLoginExpiration(ctx context.Context
 		log.WithContext(ctx).Tracef("peer login expiration job for account %s is already scheduled", accountID)
 		return
 	}
+	// The job outlives the request that arms it, so it must not inherit the request's cancellation.
+	jobCtx := context.WithoutCancel(ctx)
 	if nextRun, ok := am.getNextPeerExpiration(ctx, accountID); ok {
-		go am.peerLoginExpiry.Schedule(ctx, nextRun, accountID, am.peerLoginExpirationJob(ctx, accountID))
+		go am.peerLoginExpiry.Schedule(jobCtx, nextRun, accountID, am.peerLoginExpirationJob(jobCtx, accountID))
 	}
 }
 
@@ -752,8 +754,9 @@ func (am *DefaultAccountManager) peerInactivityExpirationJob(ctx context.Context
 // checkAndSchedulePeerInactivityExpiration periodically checks for inactive peers to end their sessions
 func (am *DefaultAccountManager) checkAndSchedulePeerInactivityExpiration(ctx context.Context, accountID string) {
 	am.peerInactivityExpiry.Cancel(ctx, []string{accountID})
+	jobCtx := context.WithoutCancel(ctx)
 	if nextRun, ok := am.getNextInactivePeerExpiration(ctx, accountID); ok {
-		go am.peerInactivityExpiry.Schedule(ctx, nextRun, accountID, am.peerInactivityExpirationJob(ctx, accountID))
+		go am.peerInactivityExpiry.Schedule(jobCtx, nextRun, accountID, am.peerInactivityExpirationJob(jobCtx, accountID))
 	}
 }
 

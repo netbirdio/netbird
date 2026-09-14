@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/exp/maps"
@@ -90,6 +91,14 @@ type Client struct {
 	connectClient *internal.ConnectClient
 	config        *profilemanager.Config
 	cacheDir      string
+
+	// mdmSource holds the per-Client MDM policy source and its change
+	// detector as one unit. Set by SetMDMPolicyFetcher (called from the
+	// Kotlin side). Each Run passes the loader to the resolved Config so
+	// applyMDMPolicy picks up the active overlay. Nil means "MDM
+	// enforcement off for this Client".
+	mdmSource atomic.Pointer[mdmSource]
+
 	// Identifies the running profile for the SSO login hint; see profile_state.go.
 	cfgPath string
 
@@ -178,6 +187,7 @@ func (c *Client) Run(platformFiles PlatformFiles, urlOpener URLOpener, isAndroid
 	if err != nil {
 		return err
 	}
+	c.applyMDMOverlay(cfg)
 	c.recorder.UpdateManagementAddress(cfg.ManagementURL.String())
 	c.recorder.UpdateRosenpass(cfg.RosenpassEnabled, cfg.RosenpassPermissive)
 
@@ -229,6 +239,7 @@ func (c *Client) RunWithoutLogin(platformFiles PlatformFiles, dns *DNSList, dnsR
 	if err != nil {
 		return err
 	}
+	c.applyMDMOverlay(cfg)
 	c.recorder.UpdateManagementAddress(cfg.ManagementURL.String())
 	c.recorder.UpdateRosenpass(cfg.RosenpassEnabled, cfg.RosenpassPermissive)
 
@@ -327,6 +338,7 @@ func (c *Client) DebugBundle(platformFiles PlatformFiles, anonymize bool, anonym
 		if err != nil {
 			return "", fmt.Errorf("load config: %w", err)
 		}
+		c.applyMDMOverlay(cfg)
 		cacheDir = platformFiles.CacheDir()
 	}
 
