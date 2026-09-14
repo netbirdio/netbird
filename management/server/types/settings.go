@@ -28,7 +28,7 @@ type Settings struct {
 	// GroupsPropagationEnabled allows to propagate auto groups from the user to the peer
 	GroupsPropagationEnabled bool
 
-	// SSHJWTMaxTokenAge is a setting that indicates when SSH JWToken peer inactivity expires.
+	// SSHJWTMaxTokenAge limits SSH JWT age since issuance; zero uses the client's default.
 	SSHJWTMaxTokenAge time.Duration
 
 	// JWTGroupsEnabled allows extract groups from JWT claim, which name defined in the JWTGroupsClaimName
