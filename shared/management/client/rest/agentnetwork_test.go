@@ -559,3 +559,123 @@ func TestAgentNetwork_DeleteSettings_Guarded(t *testing.T) {
 		assert.Contains(t, err.Error(), "cannot be deleted")
 	})
 }
+
+// TestAgentNetwork_GetSettings_ETag pins that the validator surfaces to the
+// caller with the transport's quoting stripped, so it can be handed straight
+// back to a conditional write without the caller knowing the wire syntax.
+func TestAgentNetwork_GetSettings_ETag(t *testing.T) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
+		mux.HandleFunc("/api/agent-network/settings", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("ETag", `"9f86d081884c7d65"`)
+			retBytes, _ := json.Marshal(testAgentNetworkSettings)
+			_, err := w.Write(retBytes)
+			require.NoError(t, err)
+		})
+		ret, etag, err := c.AgentNetwork.GetSettingsWithETag(context.Background())
+		require.NoError(t, err)
+		assert.Equal(t, testAgentNetworkSettings, *ret)
+		assert.Equal(t, "9f86d081884c7d65", etag, "the validator must arrive unquoted")
+	})
+}
+
+// TestAgentNetwork_UpdateSettings_IfMatch covers the round trip that makes the
+// whole feature usable: a validator taken from a read goes back out quoted on
+// the write, and the write's own validator comes back for the next one.
+func TestAgentNetwork_UpdateSettings_IfMatch(t *testing.T) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
+		mux.HandleFunc("/api/agent-network/settings", func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, `"9f86d081884c7d65"`, r.Header.Get("If-Match"),
+				"the precondition must go out quoted as a strong entity-tag")
+			w.Header().Set("ETag", `"0011223344556677"`)
+			retBytes, _ := json.Marshal(testAgentNetworkSettings)
+			_, err := w.Write(retBytes)
+			require.NoError(t, err)
+		})
+		_, etag, err := c.AgentNetwork.UpdateSettingsIfMatch(context.Background(), api.PutApiAgentNetworkSettingsJSONRequestBody{
+			Endpoint:            "brave-otter.eu.proxy.netbird.io",
+			ProxyAddress:        "eu.proxy.netbird.io",
+			EnableLogCollection: true,
+		}, "9f86d081884c7d65")
+		require.NoError(t, err)
+		assert.Equal(t, "0011223344556677", etag, "the write must return the new validator")
+	})
+}
+
+// TestAgentNetwork_UpdateSettings_NoPrecondition pins the back-compatible
+// path: the plain method sends no If-Match at all, rather than an empty or
+// wildcard one, so it stays the unconditional update it has always been.
+func TestAgentNetwork_UpdateSettings_NoPrecondition(t *testing.T) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
+		mux.HandleFunc("/api/agent-network/settings", func(w http.ResponseWriter, r *http.Request) {
+			assert.Empty(t, r.Header.Values("If-Match"), "an unconditional update must send no precondition")
+			retBytes, _ := json.Marshal(testAgentNetworkSettings)
+			_, err := w.Write(retBytes)
+			require.NoError(t, err)
+		})
+		_, err := c.AgentNetwork.UpdateSettings(context.Background(), api.PutApiAgentNetworkSettingsJSONRequestBody{
+			Endpoint:            "brave-otter.eu.proxy.netbird.io",
+			ProxyAddress:        "eu.proxy.netbird.io",
+			EnableLogCollection: true,
+		})
+		require.NoError(t, err)
+	})
+}
+
+// TestAgentNetwork_UpdateSettings_StalePrecondition pins how a refused write
+// reaches the caller: as an APIError a client can recognise as staleness and
+// answer by reading again, rather than as an opaque failure.
+func TestAgentNetwork_UpdateSettings_StalePrecondition(t *testing.T) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
+		mux.HandleFunc("/api/agent-network/settings", func(w http.ResponseWriter, r *http.Request) {
+			retBytes, _ := json.Marshal(util.ErrorResponse{Message: "if-match precondition failed: the settings have changed since they were read; get them again and retry", Code: 412})
+			w.WriteHeader(412)
+			_, err := w.Write(retBytes)
+			require.NoError(t, err)
+		})
+		_, _, err := c.AgentNetwork.UpdateSettingsIfMatch(context.Background(), api.PutApiAgentNetworkSettingsJSONRequestBody{
+			Endpoint:            "brave-otter.eu.proxy.netbird.io",
+			ProxyAddress:        "eu.proxy.netbird.io",
+			EnableLogCollection: true,
+		}, "9f86d081884c7d65")
+		require.Error(t, err)
+		assert.True(t, rest.IsPreconditionFailed(err), "a refused precondition must be recognisable as one")
+		assert.False(t, rest.IsNotFound(err), "it must not be confused with an unbootstrapped account")
+	})
+}
+
+// TestAgentNetwork_CreateSettings_ETag pins that the bootstrap hands back a
+// validator, which is what lets a client follow it with a conditional write
+// without an intervening read.
+func TestAgentNetwork_CreateSettings_ETag(t *testing.T) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
+		mux.HandleFunc("/api/agent-network/settings", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("ETag", `"9f86d081884c7d65"`)
+			retBytes, _ := json.Marshal(testAgentNetworkSettings)
+			_, err := w.Write(retBytes)
+			require.NoError(t, err)
+		})
+		_, etag, err := c.AgentNetwork.CreateSettingsWithETag(context.Background(), api.PostApiAgentNetworkSettingsJSONRequestBody{
+			ProxyAddress: ptr("eu.proxy.netbird.io"),
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "9f86d081884c7d65", etag, "the bootstrap must return a validator")
+	})
+}
+
+// TestAgentNetwork_DeleteSettings_IfMatch covers the conditional delete on the
+// wire, and that the plain method still sends nothing.
+func TestAgentNetwork_DeleteSettings_IfMatch(t *testing.T) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
+		var seen []string
+		mux.HandleFunc("/api/agent-network/settings", func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, "DELETE", r.Method)
+			seen = append(seen, r.Header.Get("If-Match"))
+			_, err := w.Write([]byte("{}"))
+			require.NoError(t, err)
+		})
+		require.NoError(t, c.AgentNetwork.DeleteSettingsIfMatch(context.Background(), "9f86d081884c7d65"))
+		require.NoError(t, c.AgentNetwork.DeleteSettings(context.Background()))
+		assert.Equal(t, []string{`"9f86d081884c7d65"`, ""}, seen,
+			"the conditional delete must carry the quoted validator and the plain one must carry nothing")
+	})
+}

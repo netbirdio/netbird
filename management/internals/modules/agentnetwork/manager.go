@@ -22,6 +22,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
+	httputil "github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -72,8 +73,8 @@ type Manager interface {
 
 	GetSettings(ctx context.Context, accountID, userID string) (*types.Settings, error)
 	CreateSettings(ctx context.Context, userID string, settings *types.Settings, proxyAddress, endpoint string) (*types.Settings, error)
-	UpdateSettings(ctx context.Context, userID string, settings *types.Settings) (*types.Settings, error)
-	DeleteSettings(ctx context.Context, accountID, userID string) error
+	UpdateSettings(ctx context.Context, userID string, settings *types.Settings, precondition *httputil.Precondition) (*types.Settings, error)
+	DeleteSettings(ctx context.Context, accountID, userID string, precondition *httputil.Precondition) error
 
 	ListConsumption(ctx context.Context, accountID, userID string) ([]*types.Consumption, error)
 	ListAccessLogs(ctx context.Context, accountID, userID string, filter types.AgentNetworkAccessLogFilter) ([]*types.AgentNetworkAccessLog, int64, error)
@@ -782,6 +783,13 @@ func (m *managerImpl) DeleteBudgetRule(ctx context.Context, accountID, userID, r
 	return nil
 }
 
+// stalePreconditionMsg is the refusal both conditional settings writes return.
+// Shared so the two cannot drift: DeleteSettings answers 412 for its state
+// guards as well, so the message is the only thing telling a client that it is
+// working from an old read rather than tripping over providers or a serving
+// proxy.
+const stalePreconditionMsg = "if-match precondition failed: the settings have changed since they were read; GET them again and retry"
+
 // UpdateSettings replaces the mutable account-level settings — the collection
 // toggles and retention — on the account's row. The identity fields (Domain,
 // ProxyAddress) are assigned at bootstrap (CreateSettings) and immutable: the
@@ -792,7 +800,11 @@ func (m *managerImpl) DeleteBudgetRule(ctx context.Context, accountID, userID, r
 // Because the collection toggles change the synthesised service config
 // (prompt-capture gating, access-log emission), a reconcile is triggered so
 // the proxy and peer network maps converge on the new state.
-func (m *managerImpl) UpdateSettings(ctx context.Context, userID string, settings *types.Settings) (*types.Settings, error) {
+//
+// precondition carries the caller's If-Match, and is nil for an unconditional
+// update — last write wins, which is what the dashboard wants and what every
+// client that predates conditional requests gets.
+func (m *managerImpl) UpdateSettings(ctx context.Context, userID string, settings *types.Settings, precondition *httputil.Precondition) (*types.Settings, error) {
 	if err := m.requirePermission(ctx, settings.AccountID, userID, modules.AgentNetworkSettings, operations.Update); err != nil {
 		return nil, err
 	}
@@ -809,6 +821,20 @@ func (m *managerImpl) UpdateSettings(ctx context.Context, userID string, setting
 			return status.Errorf(status.NotFound, "agent network settings have not been bootstrapped yet; POST /api/agent-network/settings to bootstrap them")
 		default:
 			return fmt.Errorf("get agent network settings: %w", err)
+		}
+
+		// Evaluated here, under the row lock and inside the write's own
+		// transaction, rather than in the handler: comparing before the
+		// transaction only narrows the race, since two requests can both pass
+		// the check before either writes. Locking the row first makes it a
+		// genuine compare-and-set.
+		//
+		// It comes before the identity comparison because a client holding a
+		// stale validator is stale in its identity echo too, and "you are
+		// working from an old read" is the more accurate answer than "the
+		// endpoint is immutable".
+		if !precondition.Matches(existing.ETag()) {
+			return status.Errorf(status.PreconditionFailed, "%s", stalePreconditionMsg)
 		}
 
 		// The identity echo is compared leniently (trimmed, case-insensitive):
@@ -873,7 +899,12 @@ func hostnamesEquivalent(supplied, stored string) bool {
 // is not reserved. That full-reset semantic is what gives clients that model
 // immutability as replace-on-change (e.g. Terraform's RequiresReplace) a real
 // path: tear down providers, delete, re-create.
-func (m *managerImpl) DeleteSettings(ctx context.Context, accountID, userID string) error {
+//
+// precondition carries the caller's If-Match, and is nil for an unconditional
+// delete. It matters more here than on update: the two guards above are about
+// state rather than staleness, so without it nothing stops a client from
+// deleting a row that was replaced since it last read one.
+func (m *managerImpl) DeleteSettings(ctx context.Context, accountID, userID string, precondition *httputil.Precondition) error {
 	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkSettings, operations.Delete); err != nil {
 		return err
 	}
@@ -887,6 +918,13 @@ func (m *managerImpl) DeleteSettings(ctx context.Context, accountID, userID stri
 			return status.Errorf(status.NotFound, "agent network settings have not been bootstrapped yet; there is nothing to delete")
 		default:
 			return fmt.Errorf("get agent network settings: %w", err)
+		}
+
+		// Under the row lock, for the same reason as in UpdateSettings, and
+		// before the state guards: a caller working from an old read should
+		// learn that first, not be told about providers it may not know exist.
+		if !precondition.Matches(existing.ETag()) {
+			return status.Errorf(status.PreconditionFailed, "%s", stalePreconditionMsg)
 		}
 
 		providers, err := tx.GetAccountAgentNetworkProviders(ctx, store.LockingStrengthNone, accountID)
@@ -1367,11 +1405,13 @@ func (*mockManager) CreateSettings(_ context.Context, _ string, s *types.Setting
 	return s, nil
 }
 
-func (*mockManager) UpdateSettings(_ context.Context, _ string, s *types.Settings) (*types.Settings, error) {
+func (*mockManager) UpdateSettings(_ context.Context, _ string, s *types.Settings, _ *httputil.Precondition) (*types.Settings, error) {
 	return s, nil
 }
 
-func (*mockManager) DeleteSettings(_ context.Context, _, _ string) error { return nil }
+func (*mockManager) DeleteSettings(_ context.Context, _, _ string, _ *httputil.Precondition) error {
+	return nil
+}
 
 func (*mockManager) ListConsumption(_ context.Context, _, _ string) ([]*types.Consumption, error) {
 	return nil, nil

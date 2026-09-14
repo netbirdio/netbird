@@ -98,7 +98,7 @@ func NewAPIHandler(ctx context.Context, router *mux.Router, accountManager accou
 		isValidChildAccount,
 	)
 
-	corsMiddleware := cors.AllowAll()
+	corsMiddleware := newCORSMiddleware()
 
 	metricsMiddleware := appMetrics.HTTPMiddleware()
 
@@ -144,4 +144,33 @@ func NewAPIHandler(ctx context.Context, router *mux.Router, accountManager accou
 	}
 
 	return router, nil
+}
+
+// newCORSMiddleware builds the API's CORS policy: cors.AllowAll() plus ETag in
+// ExposedHeaders.
+//
+// The addition is what makes conditional requests usable from a browser. A
+// response header that is not CORS-safelisted is invisible to JavaScript
+// unless it is named in Access-Control-Expose-Headers, and ETag is not on that
+// list — so without this the server can hand a browser client a validator it
+// has no way to read, leaving conditional requests to non-browser clients
+// only. If-Match needs nothing further, since AllowedHeaders is already "*".
+//
+// Everything else mirrors cors.AllowAll() exactly. It is spelled out rather
+// than called because the library offers no way to extend it.
+func newCORSMiddleware() *cors.Cors {
+	return cors.New(cors.Options{
+		AllowedOrigins: []string{"*"},
+		AllowedMethods: []string{
+			http.MethodHead,
+			http.MethodGet,
+			http.MethodPost,
+			http.MethodPut,
+			http.MethodPatch,
+			http.MethodDelete,
+		},
+		AllowedHeaders:   []string{"*"},
+		ExposedHeaders:   []string{"ETag"},
+		AllowCredentials: false,
+	})
 }
