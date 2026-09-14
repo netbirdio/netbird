@@ -50,11 +50,20 @@ func consoleUID() (uint32, bool) {
 	// We pass nil for the store (NULL is accepted; the framework creates a
 	// transient one), discard the returned CFStringRef username (we only
 	// need the UID), and read uid via the out-pointer.
+	copyConsoleUserSym, err := purego.Dlsym(sc, "SCDynamicStoreCopyConsoleUser")
+	if err != nil {
+		return 0, false
+	}
+	cfReleaseSym, err := purego.Dlsym(cf, "CFRelease")
+	if err != nil {
+		return 0, false
+	}
+
 	var copyConsoleUser func(store uintptr, uidPtr, gidPtr unsafe.Pointer) uintptr
-	purego.RegisterLibFunc(&copyConsoleUser, sc, "SCDynamicStoreCopyConsoleUser")
+	purego.RegisterFunc(&copyConsoleUser, copyConsoleUserSym)
 
 	var cfRelease func(uintptr)
-	purego.RegisterLibFunc(&cfRelease, cf, "CFRelease")
+	purego.RegisterFunc(&cfRelease, cfReleaseSym)
 
 	var uid uint32
 	var gid uint32
