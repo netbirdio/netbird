@@ -25,6 +25,11 @@ const (
 	// front of it.
 	certFileVar = "SERVER_CERT_FILE"
 	keyFileVar  = "SERVER_KEY_FILE"
+
+	// readTimeout bounds a whole request. It has to clear a 150 MiB upload on a
+	// slow link, so it is generous rather than tight; it exists to put a ceiling
+	// on a connection that stalls forever, not to police throughput.
+	readTimeout = 10 * time.Minute
 )
 
 type Server struct {
@@ -55,7 +60,19 @@ func NewServer() *Server {
 	}
 
 	return &Server{
-		srv:      &http.Server{Addr: address, Handler: mux},
+		srv: &http.Server{
+			Addr:    address,
+			Handler: mux,
+			// A deployment terminating TLS in front of this server gets timeouts
+			// from its proxy; one serving TLS directly (certFileVar below) has
+			// only these, and without them a slow client holds a connection and
+			// its goroutine for as long as it likes. The write side is left
+			// alone on purpose: uploads run to 150 MiB and a deadline there
+			// would cut off slow but legitimate ones.
+			ReadHeaderTimeout: 10 * time.Second,
+			ReadTimeout:       readTimeout,
+			IdleTimeout:       60 * time.Second,
+		},
 		certFile: certFile,
 		keyFile:  keyFile,
 	}
