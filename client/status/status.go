@@ -1023,7 +1023,7 @@ func anonymizeOverview(a *anonymize.Anonymizer, overview *OutputOverview) {
 
 	for i, nsGroup := range overview.NSServerGroups {
 		for j, domain := range nsGroup.Domains {
-			overview.NSServerGroups[i].Domains[j] = a.AnonymizeDomain(domain)
+			overview.NSServerGroups[i].Domains[j] = a.AnonymizeDomainName(domain)
 		}
 		for j, ns := range nsGroup.Servers {
 			host, port, err := net.SplitHostPort(ns)
