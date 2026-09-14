@@ -22,6 +22,11 @@ import (
 	"github.com/netbirdio/netbird/util"
 )
 
+// EnvDisableDefaultProfileClaim turns off the console-user claim of an unowned
+// default profile. The profile then stays unowned until a privileged caller
+// records an owner.
+const EnvDisableDefaultProfileClaim = "NB_DISABLE_DEFAULT_PROFILE_CLAIM"
+
 var (
 	oldDefaultConfigPathDir = ""
 	oldDefaultConfigPath    = ""
@@ -670,7 +675,7 @@ func (s *ServiceManager) claimDefaultProfileIfNeeded(profiles []Profile, id ipca
 		}
 	}
 
-	if unowned && ipcauth.IsConsoleUser(id) {
+	if unowned && !defaultProfileClaimDisabled() && isConsoleUser(id) {
 		principal := ipcauth.OwnerPrincipalForIdentity(id)
 		parsed, ok := ipcauth.ParsePrincipal(principal)
 		if !ok {
@@ -684,6 +689,34 @@ func (s *ServiceManager) claimDefaultProfileIfNeeded(profiles []Profile, id ipca
 		p.Owners = []ipcauth.Principal{parsed}
 		log.Infof("claimed default profile %s for %s", p.Path, principal)
 	}
+}
+
+// isConsoleUser is a variable so a test can decide whether a caller is at the
+// console without the machine running the test having a seat of its own.
+var isConsoleUser = ipcauth.IsConsoleUser
+
+// logDefaultClaimDisabled keeps the notice to once per process, since the claim
+// path runs on every profile load.
+var logDefaultClaimDisabled sync.Once
+
+// defaultProfileClaimDisabled reports whether the environment turns off the
+// console-user claim of the default profile.
+func defaultProfileClaimDisabled() bool {
+	val := os.Getenv(EnvDisableDefaultProfileClaim)
+	if val == "" {
+		return false
+	}
+	disabled, err := strconv.ParseBool(val)
+	if err != nil {
+		log.Warnf("failed to parse %s: %v", EnvDisableDefaultProfileClaim, err)
+		return false
+	}
+	if disabled {
+		logDefaultClaimDisabled.Do(func() {
+			log.Infof("%s is set, the default profile stays unowned and reachable only by a privileged caller until an owner is recorded another way", EnvDisableDefaultProfileClaim)
+		})
+	}
+	return disabled
 }
 
 func hasUnownedLegacyProfile(profiles []Profile) bool {
