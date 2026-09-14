@@ -84,10 +84,37 @@ func FillEmptySettingsJsonColumns(ctx context.Context, db *gorm.DB) error {
 			return res.Error
 		}
 		res = tx.Exec(`update accounts set settings_extra_integrated_validator_groups='[]' where id in (select id from accounts where settings_extra_integrated_validator_groups='' or settings_extra_integrated_validator_groups=null order by id asc)`)
+		return res.Error
+	})
+}
+
+func FillEmptyPolicyRuleJsonColumns(ctx context.Context, db *gorm.DB) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		res := tx.Exec(`update policy_rules set destinations='[]' where id in (select id from policy_rules where destinations='' or destinations=null order by id asc)`)
 		if res.Error != nil {
 			return res.Error
 		}
-
+		res = tx.Exec(`update policy_rules set destination_resource='{}' where id in (select id from policy_rules where destination_resource='' or destination_resource=null order by id asc)`)
+		if res.Error != nil {
+			return res.Error
+		}
+		res = tx.Exec(`update policy_rules set sources='[]' where id in (select id from policy_rules where sources='' or sources=null order by id asc)`)
+		if res.Error != nil {
+			return res.Error
+		}
+		res = tx.Exec(`update policy_rules set source_resource='{}' where id in (select id from policy_rules where source_resource='' or source_resource=null order by id asc)`)
+		if res.Error != nil {
+			return res.Error
+		}
+		res = tx.Exec(`update policy_rules set ports='[]' where id in (select id from policy_rules where ports='' or ports=null order by id asc)`)
+		if res.Error != nil {
+			return res.Error
+		}
+		res = tx.Exec(`update policy_rules set port_ranges='[]' where id in (select id from policy_rules where port_ranges='' or port_ranges=null order by id asc)`)
+		if res.Error != nil {
+			return res.Error
+		}
+		res = tx.Exec(`update policy_rules set authorized_groups='{}' where id in (select id from policy_rules where authorized_groups='' or authorized_groups=null order by id asc)`)
 		return res.Error
 	})
 }

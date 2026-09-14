@@ -74,6 +74,31 @@ func TestFillEmptyJson_Settings(t *testing.T) {
 	require.False(t, rows.Next())
 }
 
+func TestFillEmptyJson_PolicyRule(t *testing.T) {
+	db := setupPolicyRulesTestDB(t)
+
+	res, err := db.ConnPool.ExecContext(context.Background(),
+		`insert into policies (id) values('policy-id-1')`)
+	require.NoError(t, err)
+
+	res, err = db.ConnPool.ExecContext(context.Background(),
+		`insert into policy_rules (id,policy_id,destinations,destination_resource,sources,source_resource,ports,port_ranges,authorized_groups)
+		 values('id-1','policy-id-1','','','','','','','')`)
+	require.NoError(t, err)
+	n, _ := res.RowsAffected()
+	require.Equal(t, n, int64(1))
+
+	err = migration.FillEmptyPolicyRuleJsonColumns(context.Background(), db)
+	require.NoError(t, err)
+
+	rows, err := db.ConnPool.QueryContext(context.Background(),
+		`select id from policy_rules where destinations='' or destinations=null or destination_resource='' or destination_resource=null or sources='' or sources=null 
+		 or source_resource='' or source_resource=null or ports='' or ports=null or port_ranges='' or port_ranges=null or authorized_groups='' or authorized_groups=null`)
+	require.NoError(t, err)
+	rows.Next()
+	require.False(t, rows.Next())
+}
+
 func setupNsGroupsTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db := setupDatabase(t)
@@ -97,6 +122,15 @@ func setupAccountsTestDB(t *testing.T) *gorm.DB {
 	db := setupDatabase(t)
 	_ = db.Migrator().DropTable(&types.Account{})
 	err := db.AutoMigrate(&peer.Peer{})
+	require.NoError(t, err, "Failed to auto-migrate tables")
+	return db
+}
+
+func setupPolicyRulesTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db := setupDatabase(t)
+	_ = db.Migrator().DropTable(&types.Policy{}, &types.PolicyRule{})
+	err := db.AutoMigrate(&types.Policy{}, &types.PolicyRule{})
 	require.NoError(t, err, "Failed to auto-migrate tables")
 	return db
 }
