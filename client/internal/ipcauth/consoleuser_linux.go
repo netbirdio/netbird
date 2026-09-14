@@ -1,7 +1,13 @@
 package ipcauth
 
 import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
 	"github.com/godbus/dbus/v5"
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -19,10 +25,20 @@ const (
 	sessionRemote    = sessionInterface + ".Remote"
 	sessionUser      = sessionInterface + ".User"
 
+	// propertiesGet is the standard property reader. godbus offers no
+	// context-aware GetProperty, and GetProperty is only this call underneath,
+	// so a bounded read has to make it directly.
+	propertiesGet = "org.freedesktop.DBus.Properties.Get"
+
 	// nullObjectPath is what logind puts in an object path field that refers to
 	// nothing, a seat with no session in the foreground being the one that
 	// matters here.
 	nullObjectPath = dbus.ObjectPath("/")
+
+	// consoleLookupTimeout bounds the whole seat walk, not each call in it, so
+	// a machine with several seats cannot multiply what an unanswering bus
+	// costs. A healthy lookup is well under a millisecond.
+	consoleLookupTimeout = 1 * time.Second
 )
 
 // isConsoleUser reports whether id holds the foreground session of one of this
@@ -42,17 +58,21 @@ func isConsoleUser(id Identity) bool {
 		return false
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), consoleLookupTimeout)
+	defer cancel()
+
 	// ListSeats returns a(so): seat id and object path.
 	var seats []struct {
 		ID   string
 		Path dbus.ObjectPath
 	}
-	if err := conn.Object(loginDest, loginPath).Call(listSeats, 0).Store(&seats); err != nil {
+	if err := conn.Object(loginDest, loginPath).CallWithContext(ctx, listSeats, 0).Store(&seats); err != nil {
+		log.Debugf("cannot list seats, treating the caller as not at the console: %v", err)
 		return false
 	}
 
 	for _, seat := range seats {
-		uid, ok := consoleSessionUID(conn, seat.Path)
+		uid, ok := consoleSessionUID(ctx, conn, seat.Path)
 		if ok && uid == id.UID {
 			return true
 		}
@@ -63,11 +83,11 @@ func isConsoleUser(id Identity) bool {
 
 // consoleSessionUID returns who holds a seat's foreground session, and false
 // unless that session is a person logged in locally.
-func consoleSessionUID(conn *dbus.Conn, seatPath dbus.ObjectPath) (uint32, bool) {
+func consoleSessionUID(ctx context.Context, conn *dbus.Conn, seatPath dbus.ObjectPath) (uint32, bool) {
 	// ActiveSession is (so): session id and object path. It names nothing on a
 	// seat whose VT has been switched away from, and on one whose display
 	// manager has not started a session yet.
-	prop, err := conn.Object(loginDest, seatPath).GetProperty(seatActiveSession)
+	prop, err := property(ctx, conn.Object(loginDest, seatPath), seatActiveSession)
 	if err != nil {
 		return 0, false
 	}
@@ -86,7 +106,7 @@ func consoleSessionUID(conn *dbus.Conn, seatPath dbus.ObjectPath) (uint32, bool)
 
 	// Only "user" sessions count: a greeter or a lock screen is the display
 	// manager sitting at the seat, not somebody to hand a profile to.
-	if class, ok := stringProperty(session, sessionClass); !ok || class != "user" {
+	if class, ok := stringProperty(ctx, session, sessionClass); !ok || class != "user" {
 		return 0, false
 	}
 
@@ -94,20 +114,20 @@ func consoleSessionUID(conn *dbus.Conn, seatPath dbus.ObjectPath) (uint32, bool)
 	// type, which pam_systemd takes from the environment of whoever opened the
 	// session, remoteness is set by the thing that accepted the connection. So
 	// it is worth asking even once the seat is established.
-	if remote, ok := boolProperty(session, sessionRemote); !ok || remote {
+	if remote, ok := boolProperty(ctx, session, sessionRemote); !ok || remote {
 		return 0, false
 	}
 
 	// Implied by the seat having named this session, and kept as a cross-check
 	// against a foreground that moved between the two calls.
-	if isActive, ok := boolProperty(session, sessionActive); !ok || !isActive {
+	if isActive, ok := boolProperty(ctx, session, sessionActive); !ok || !isActive {
 		return 0, false
 	}
 
 	// User is (uo): uid and the user object's path. Read from the session
 	// object rather than carried over from a listing, so the uid returned and
 	// the checks above are known to describe the same session.
-	prop, err = session.GetProperty(sessionUser)
+	prop, err = property(ctx, session, sessionUser)
 	if err != nil {
 		return 0, false
 	}
@@ -122,8 +142,20 @@ func consoleSessionUID(conn *dbus.Conn, seatPath dbus.ObjectPath) (uint32, bool)
 	return owner.UID, true
 }
 
-func stringProperty(obj dbus.BusObject, name string) (string, bool) {
-	prop, err := obj.GetProperty(name)
+// property reads one property under ctx, name being the interface.member form
+// godbus takes. It is what GetProperty does, with a deadline the caller owns.
+func property(ctx context.Context, obj dbus.BusObject, name string) (dbus.Variant, error) {
+	idx := strings.LastIndex(name, ".")
+	if idx < 0 || idx+1 == len(name) {
+		return dbus.Variant{}, fmt.Errorf("invalid property name %q", name)
+	}
+	var v dbus.Variant
+	err := obj.CallWithContext(ctx, propertiesGet, 0, name[:idx], name[idx+1:]).Store(&v)
+	return v, err
+}
+
+func stringProperty(ctx context.Context, obj dbus.BusObject, name string) (string, bool) {
+	prop, err := property(ctx, obj, name)
 	if err != nil {
 		return "", false
 	}
@@ -131,8 +163,8 @@ func stringProperty(obj dbus.BusObject, name string) (string, bool) {
 	return s, ok
 }
 
-func boolProperty(obj dbus.BusObject, name string) (bool, bool) {
-	prop, err := obj.GetProperty(name)
+func boolProperty(ctx context.Context, obj dbus.BusObject, name string) (bool, bool) {
+	prop, err := property(ctx, obj, name)
 	if err != nil {
 		return false, false
 	}
