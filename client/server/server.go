@@ -2857,21 +2857,23 @@ func (s *Server) SessionHolder() (ipcauth.Principal, bool) {
 // This triggers stamping of legacy profiles, and reloads the current config
 // if the handle is the active profile.
 func (s *Server) OwnsProfile(id ipcauth.Identity, handle string) bool {
-	act, err := s.profileManager.GetActiveProfileState()
-	if err != nil {
-		log.Warnf("failed to get active profile: %v", err)
-	}
-	if act != nil {
-		handle = act.ID.String()
+	var activeProfile *profilemanager.ActiveProfileState
+	if handle == "" {
+		activeState, err := s.profileManager.GetActiveProfileState()
+		if err != nil {
+			log.Warnf("failed to get active profile: %v", err)
+		}
+		activeProfile = activeState
+		handle = activeProfile.ID.String()
 	}
 	resolved, err := s.resolveProfileHandle(handle, id)
 	if err != nil {
 		log.Errorf("failed to resolve profile %q: %v", handle, err)
 		return false
 	}
-	// resolveProfileHandle might stamp legacy profile owners and if
-	if act != nil {
-		config, _, err := s.getConfig(act)
+	// resolveProfileHandle might stamp legacy profile owners
+	if activeProfile != nil {
+		config, _, err := s.getConfig(activeProfile)
 		if err != nil {
 			log.Errorf("failed to get active profile config: %v", err)
 		}
