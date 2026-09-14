@@ -4,10 +4,14 @@ import (
 	"context"
 	"crypto/sha256"
 	b64 "encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"net/netip"
+	"net/url"
 	"os"
 	"runtime"
 	"strconv"
@@ -33,12 +37,15 @@ import (
 	"github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/internals/shared/grpc"
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
+	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	peershandler "github.com/netbirdio/netbird/management/server/http/handlers/peers"
 	"github.com/netbirdio/netbird/management/server/http/testing/testing_tools"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/job"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/shared/auth"
+	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/status"
 
 	"github.com/netbirdio/netbird/management/server/util"
@@ -718,7 +725,7 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 				return
 			}
 
-			peers, err := manager.GetPeers(context.Background(), accountID, someUser, "", "")
+			peers, err := manager.GetPeers(context.Background(), accountID, someUser, "", "", "")
 			if err != nil {
 				t.Fatal(err)
 				return
@@ -727,6 +734,71 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 
 			assert.Len(t, peers, testCase.expectedPeerCount)
 
+		})
+	}
+}
+
+func TestDefaultAccountManager_GetPeers_FilterByMac(t *testing.T) {
+	ctx := context.Background()
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+	account := newAccountWithId(ctx, "mac-account", "mac-admin", "", "", "", false)
+	account.Peers["matching"] = &nbpeer.Peer{
+		ID: "matching", Key: "matching-key", Name: "laptop", DNSLabel: "laptop",
+		IP: netip.MustParseAddr("100.64.0.10"), Status: &nbpeer.PeerStatus{},
+		Meta: nbpeer.PeerSystemMeta{NetworkAddresses: []nbpeer.NetworkAddress{
+			{NetIP: netip.MustParsePrefix("192.168.0.11/24"), Mac: "00:93:37:bd:83:0f"},
+			{NetIP: netip.MustParsePrefix("192.168.1.11/24"), Mac: "aa:bb:cc:dd:ee:ff"},
+		}},
+	}
+	account.Peers["other"] = &nbpeer.Peer{
+		ID: "other", Key: "other-key", Name: "desktop", DNSLabel: "desktop",
+		IP: netip.MustParseAddr("100.64.0.20"), Status: &nbpeer.PeerStatus{},
+	}
+	require.NoError(t, manager.Store.SaveAccount(ctx, account))
+	otherAccount := newAccountWithId(ctx, "other-account", "other-admin", "", "", "", false)
+	otherPeer := account.Peers["matching"].Copy()
+	otherPeer.ID, otherPeer.Key = "outside-account", "outside-key"
+	otherAccount.Peers[otherPeer.ID] = otherPeer
+	require.NoError(t, manager.Store.SaveAccount(ctx, otherAccount))
+	handler := peershandler.NewHandler(manager, manager.networkMapController, manager.permissionsManager)
+
+	tests := []struct {
+		name, nameFilter, ipFilter, macFilter string
+		wantIDs                               []string
+	}{
+		{name: "no filter", wantIDs: []string{"matching", "other"}},
+		{name: "full MAC", macFilter: "00:93:37:bd:83:0f", wantIDs: []string{"matching"}},
+		{name: "partial MAC", macFilter: "93:37:bd", wantIDs: []string{"matching"}},
+		{name: "second interface", macFilter: "aa:bb:cc:dd:ee:ff", wantIDs: []string{"matching"}},
+		{name: "unknown MAC", macFilter: "11:22:33:44:55:66"},
+		{name: "combined filters", nameFilter: "laptop", ipFilter: "100.64.0.10", macFilter: "00:93:37", wantIDs: []string{"matching"}},
+		{name: "name mismatch", nameFilter: "desktop", macFilter: "00:93:37"},
+		{name: "IP mismatch", ipFilter: "100.64.0.20", macFilter: "00:93:37"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			peers, err := manager.GetPeers(ctx, account.Id, "mac-admin", tt.nameFilter, tt.ipFilter, tt.macFilter)
+			require.NoError(t, err)
+			ids := make([]string, 0, len(peers))
+			for _, peer := range peers {
+				ids = append(ids, peer.ID)
+			}
+			assert.ElementsMatch(t, tt.wantIDs, ids, "filters should return only matching peers in the account")
+
+			query := url.Values{"name": {tt.nameFilter}, "ip": {tt.ipFilter}, "mac": {tt.macFilter}}
+			req := httptest.NewRequest(http.MethodGet, "/api/peers?"+query.Encode(), nil)
+			req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{AccountId: account.Id, UserId: "mac-admin"})
+			recorder := httptest.NewRecorder()
+			handler.GetAllPeers(recorder, req)
+			require.Equal(t, http.StatusOK, recorder.Code, "peer listing should succeed: %s", recorder.Body.String())
+			var response []api.PeerBatch
+			require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+			responseIDs := make([]string, 0, len(response))
+			for _, peer := range response {
+				responseIDs = append(responseIDs, peer.Id)
+			}
+			assert.ElementsMatch(t, tt.wantIDs, responseIDs, "HTTP query filters should reach the store")
 		})
 	}
 }
@@ -934,7 +1006,7 @@ func BenchmarkGetPeers(b *testing.B) {
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				_, err := manager.GetPeers(context.Background(), accountID, userID, "", "")
+				_, err := manager.GetPeers(context.Background(), accountID, userID, "", "", "")
 				if err != nil {
 					b.Fatalf("GetPeers failed: %v", err)
 				}
