@@ -556,15 +556,21 @@ func (s *Server) revokedConnections() []net.Conn {
 	return revoked
 }
 
-// JWTConfig returns the JWT authentication this server was built with, or nil
-// when JWT authentication is disabled.
-func (s *Server) JWTConfig(config *JWTConfig) *JWTConfig {
+// UpdateJWTConfig updates the JWT authentication settings used by new SSH auth attempts.
+func (s *Server) UpdateJWTConfig(config *JWTConfig) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.jwtConfig = config
 	s.jwtValidator = nil
 	s.jwtExtractor = nil
 	s.jwtAuthVersion++
+}
+
+// JWTConfig returns the current JWT authentication configuration, or nil
+// when JWT authentication is disabled.
+func (s *Server) JWTConfig() *JWTConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return s.jwtConfig
 }
 
