@@ -296,3 +296,139 @@ func TestUser_EncryptDecryptRoundTrip(t *testing.T) {
 		})
 	}
 }
+
+func TestUser_MaskedEmail(t *testing.T) {
+	testCases := []struct {
+		name     string
+		email    string
+		expected string
+	}{
+		{
+			name:     "ordinary address keeps the first two, the last, and the domain",
+			email:    "admin@example.com",
+			expected: "ad****n@example.com",
+		},
+		{
+			name:     "three characters is the shortest local part that keeps a tail",
+			email:    "abc@example.com",
+			expected: "ab****c@example.com",
+		},
+		{
+			name:     "two character local part drops the tail rather than repeat the lead",
+			email:    "ab@example.com",
+			expected: "ab****@example.com",
+		},
+		{
+			name:     "single character local part is not padded out",
+			email:    "a@b.co",
+			expected: "a****@b.co",
+		},
+		{
+			name:     "mask width does not report the length it stands in for",
+			email:    "a.very.long.local.part@example.com",
+			expected: "a.****t@example.com",
+		},
+		{
+			name:     "a local part far longer than the mask is still reduced to three characters",
+			email:    "finance.department.notifications.owner.account@example.com",
+			expected: "fi****t@example.com",
+		},
+		{
+			name:     "plus addressing is masked along with the rest of the local part",
+			email:    "admin+netbird@example.com",
+			expected: "ad****d@example.com",
+		},
+		{
+			name:     "separators inside the local part are not treated specially",
+			email:    "first.last-name_x@example.com",
+			expected: "fi****x@example.com",
+		},
+		{
+			name:     "case is preserved rather than normalised",
+			email:    "Admin@Example.COM",
+			expected: "Ad****n@Example.COM",
+		},
+		{
+			name:     "subdomains stay intact",
+			email:    "owner@mail.corp.example.com",
+			expected: "ow****r@mail.corp.example.com",
+		},
+		{
+			name:     "german umlauts count as single characters",
+			email:    "müller@example.de",
+			expected: "mü****r@example.de",
+		},
+		{
+			name:     "cyrillic local part is cut on runes",
+			email:    "иванов@example.ru",
+			expected: "ив****в@example.ru",
+		},
+		{
+			name:     "cjk local part of exactly three runes keeps a tail",
+			email:    "用户名@example.cn",
+			expected: "用户****名@example.cn",
+		},
+		{
+			name:     "arabic local part is cut on runes",
+			email:    "مستخدم@example.sa",
+			expected: "مس****م@example.sa",
+		},
+		{
+			name:     "two rune non-ascii local part drops the tail",
+			email:    "ää@example.de",
+			expected: "ää****@example.de",
+		},
+		{
+			name:     "astral plane runes are not split into surrogates",
+			email:    "a🎉b@example.com",
+			expected: "a🎉****b@example.com",
+		},
+		{
+			name:     "a non-ascii domain is left alone",
+			email:    "admin@münchen.example",
+			expected: "ad****n@münchen.example",
+		},
+		{
+			name:     "only the first separator splits, so a second stays in the domain",
+			email:    "a@b@example.com",
+			expected: "a****@b@example.com",
+		},
+		{
+			name:     "empty email has nothing to mask",
+			email:    "",
+			expected: "",
+		},
+		{
+			name:     "value without a separator is not an address",
+			email:    "not-an-email",
+			expected: "",
+		},
+		{
+			name:     "missing local part is not an address",
+			email:    "@example.com",
+			expected: "",
+		},
+		{
+			name:     "missing domain is not an address",
+			email:    "admin@",
+			expected: "",
+		},
+		{
+			name:     "a bare separator is not an address",
+			email:    "@",
+			expected: "",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			user := &User{Id: "test-user", Email: tc.email}
+			assert.Equal(t, tc.expected, user.MaskedEmail())
+		})
+	}
+
+	t.Run("nil user has no address to mask", func(t *testing.T) {
+		var user *User
+		assert.Equal(t, "", user.MaskedEmail())
+	})
+}
