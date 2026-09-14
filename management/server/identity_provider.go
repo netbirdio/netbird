@@ -21,6 +21,9 @@ import (
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
+// maxDiscoveryDocumentSize caps the discovery document read at 1 MiB. Providers serve a few kilobytes.
+const maxDiscoveryDocumentSize = 1 << 20
+
 // oidcProviderJSON represents the OpenID Connect discovery document
 type oidcProviderJSON struct {
 	Issuer string `json:"issuer"`
@@ -33,6 +36,10 @@ func validateOIDCIssuer(ctx context.Context, issuer string) error {
 
 	httpClient := &http.Client{
 		Timeout: 10 * time.Second,
+		// An issuer that redirects its own discovery document is misconfigured.
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, wellKnown, nil)
@@ -46,22 +53,22 @@ func validateOIDCIssuer(ctx context.Context, issuer string) error {
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("%w: unable to read response body: %v", types.ErrIdentityProviderIssuerUnreachable, err)
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("%w: %s", types.ErrIdentityProviderIssuerUnreachable, resp.Status)
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("%w: %s: %s", types.ErrIdentityProviderIssuerUnreachable, resp.Status, body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxDiscoveryDocumentSize+1))
+	if err != nil || len(body) > maxDiscoveryDocumentSize {
+		return fmt.Errorf("%w: failed to decode provider discovery object", types.ErrIdentityProviderIssuerUnreachable)
 	}
 
 	var p oidcProviderJSON
 	if err := json.Unmarshal(body, &p); err != nil {
-		return fmt.Errorf("%w: failed to decode provider discovery object: %v", types.ErrIdentityProviderIssuerUnreachable, err)
+		return fmt.Errorf("%w: failed to decode provider discovery object", types.ErrIdentityProviderIssuerUnreachable)
 	}
 
 	if p.Issuer != issuer {
-		return fmt.Errorf("%w: expected %q got %q", types.ErrIdentityProviderIssuerMismatch, issuer, p.Issuer)
+		return fmt.Errorf("%w: %q", types.ErrIdentityProviderIssuerMismatch, issuer)
 	}
 
 	return nil
@@ -125,13 +132,13 @@ func (am *DefaultAccountManager) GetIdentityProvider(ctx context.Context, accoun
 
 // CreateIdentityProvider creates a new identity provider
 func (am *DefaultAccountManager) CreateIdentityProvider(ctx context.Context, accountID, userID string, idpConfig *types.IdentityProvider) (*types.IdentityProvider, error) {
-	if err := validateIdentityProviderConfig(ctx, idpConfig); err != nil {
-		return nil, err
-	}
-
 	embeddedManager, ok := am.idpManager.(*idp.EmbeddedIdPManager)
 	if !ok {
 		return nil, status.Errorf(status.Internal, "identity provider management requires embedded IdP")
+	}
+
+	if err := validateIdentityProviderConfig(ctx, idpConfig); err != nil {
+		return nil, err
 	}
 
 	// Generate ID if not provided
@@ -154,13 +161,13 @@ func (am *DefaultAccountManager) CreateIdentityProvider(ctx context.Context, acc
 
 // UpdateIdentityProvider updates an existing identity provider
 func (am *DefaultAccountManager) UpdateIdentityProvider(ctx context.Context, accountID, idpID, userID string, idpConfig *types.IdentityProvider) (*types.IdentityProvider, error) {
-	if err := validateIdentityProviderConfig(ctx, idpConfig); err != nil {
-		return nil, err
-	}
-
 	embeddedManager, ok := am.idpManager.(*idp.EmbeddedIdPManager)
 	if !ok {
 		return nil, status.Errorf(status.Internal, "identity provider management requires embedded IdP")
+	}
+
+	if err := validateIdentityProviderConfig(ctx, idpConfig); err != nil {
+		return nil, err
 	}
 
 	idpConfig.ID = idpID
