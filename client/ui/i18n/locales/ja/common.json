@@ -179,6 +179,69 @@
     "notify.mdm.policyApplied.body": {
         "message": "NetBird の構成が IT ポリシーによって更新されました。"
     },
+    "event.title": {
+        "message": "{severity}: {category}"
+    },
+    "event.severity.info": {
+        "message": "情報"
+    },
+    "event.severity.warning": {
+        "message": "警告"
+    },
+    "event.severity.error": {
+        "message": "エラー"
+    },
+    "event.severity.critical": {
+        "message": "重大"
+    },
+    "event.category.network": {
+        "message": "ネットワーク"
+    },
+    "event.category.dns": {
+        "message": "DNS"
+    },
+    "event.category.authentication": {
+        "message": "認証"
+    },
+    "event.category.connectivity": {
+        "message": "接続"
+    },
+    "event.category.system": {
+        "message": "システム"
+    },
+    "event.panic": {
+        "message": "NetBird サービスがクラッシュしました。サービスを再起動し、クライアントログを添えてバグを報告してください。"
+    },
+    "event.dns.recovered": {
+        "message": "DNS サーバーに再び到達できるようになりました。"
+    },
+    "event.dns.unreachable": {
+        "message": "1 つ以上の DNS サーバーに到達できません。一部のサービスへの接続に影響する可能性があります。"
+    },
+    "event.exitNode.connected": {
+        "message": "出口ノードに接続しました。"
+    },
+    "event.exitNode.disconnected": {
+        "message": "出口ノードの接続を解除しました。"
+    },
+    "event.exitNode.connectionLost": {
+        "message": "出口ノードとの接続が失われました。インターネット接続に影響する可能性があります。"
+    },
+    "event.exitNode.haChange": {
+        "message": "高可用性の変更により出口ノードの接続が解除されました。"
+    },
+    "event.exitNode.disconnectedUnknown": {
+        "message": "不明な理由により出口ノードの接続が解除されました。"
+    },
+    "event.update.installing": {
+        "message": "更新をインストールしています。"
+    },
+    "event.update.completed": {
+        "message": "NetBird クライアントがバージョン {version} に自動更新されました。"
+    },
+    "event.update.failed": {
+        "message": "自動更新に失敗しました: {reason}"
+    },
     "common.cancel": {
         "message": "キャンセル"
     },

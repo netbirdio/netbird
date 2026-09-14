@@ -179,6 +179,69 @@
     "notify.mdm.policyApplied.body": {
         "message": "A NetBird konfigurációt az IT-szabályzat frissítette."
     },
+    "event.title": {
+        "message": "{severity}: {category}"
+    },
+    "event.severity.info": {
+        "message": "Információ"
+    },
+    "event.severity.warning": {
+        "message": "Figyelmeztetés"
+    },
+    "event.severity.error": {
+        "message": "Hiba"
+    },
+    "event.severity.critical": {
+        "message": "Kritikus"
+    },
+    "event.category.network": {
+        "message": "Hálózat"
+    },
+    "event.category.dns": {
+        "message": "DNS"
+    },
+    "event.category.authentication": {
+        "message": "Hitelesítés"
+    },
+    "event.category.connectivity": {
+        "message": "Kapcsolat"
+    },
+    "event.category.system": {
+        "message": "Rendszer"
+    },
+    "event.panic": {
+        "message": "A NetBird szolgáltatás összeomlott. Kérjük, indítsa újra a szolgáltatást, és küldjön hibajelentést a kliens naplóival."
+    },
+    "event.dns.recovered": {
+        "message": "A DNS-kiszolgálók ismét elérhetők."
+    },
+    "event.dns.unreachable": {
+        "message": "Egy vagy több DNS-kiszolgáló nem érhető el. Ez befolyásolhatja egyes szolgáltatások elérését."
+    },
+    "event.exitNode.connected": {
+        "message": "Exit Node csatlakoztatva."
+    },
+    "event.exitNode.disconnected": {
+        "message": "Exit Node leválasztva."
+    },
+    "event.exitNode.connectionLost": {
+        "message": "Megszakadt a kapcsolat az Exit Node-dal. Ez érintheti az internetelérést."
+    },
+    "event.exitNode.haChange": {
+        "message": "Az Exit Node leválasztva a magas rendelkezésre állás változása miatt."
+    },
+    "event.exitNode.disconnectedUnknown": {
+        "message": "Az Exit Node ismeretlen okból leválasztva."
+    },
+    "event.update.installing": {
+        "message": "A frissítés telepítése folyamatban."
+    },
+    "event.update.completed": {
+        "message": "A NetBird kliens automatikusan a {version} verzióra frissült."
+    },
+    "event.update.failed": {
+        "message": "Az automatikus frissítés sikertelen: {reason}"
+    },
     "common.cancel": {
         "message": "Mégse"
     },
