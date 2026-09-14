@@ -164,23 +164,35 @@ func (s *ServiceManager) stampActiveUserDir(profiles []Profile, active *ActivePr
 	}
 
 	dir := sanitizeProfileName(active.Username)
+	if dir == "" {
+		log.Warnf("account %q leaves nothing after sanitizing, so its per-username profiles stay unowned", active.Username)
+	}
+
 	for i := range profiles {
 		p := &profiles[i]
-		if len(p.Owners) > 0 {
-			continue
-		}
-		inAccountDir := p.LegacyUserDir == dir
-		claimsDefault := p.ID == defaultProfileName && !defaultProfileClaimDisabled()
-		if !inAccountDir && !claimsDefault {
+		if len(p.Owners) > 0 || !takesActiveAccountOwner(p, dir) {
 			continue
 		}
 		if err := stampPrincipal(p.Path, principal); err != nil {
 			return fmt.Errorf("stamp %s: %w", p.ID, err)
 		}
-		log.Infof("recorded %s as the owner of %s, the directory it sits in is that account's", principal, p.Path)
+		log.Infof("recorded %s as the owner of %s, the account the active profile state names", principal, p.Path)
 	}
 
 	return nil
+}
+
+// takesActiveAccountOwner reports whether an unowned profile should be stamped
+// with the active account's principal, dir being the legacy directory name that
+// account produced.
+//
+// An empty dir is the absence of a directory, not a directory whose name is
+// empty, so nothing matches it.
+func takesActiveAccountOwner(p *Profile, dir string) bool {
+	if dir != "" && p.LegacyUserDir == dir {
+		return true
+	}
+	return p.ID == defaultProfileName && !defaultProfileClaimDisabled()
 }
 
 // principalForUser turns a resolved account into an owner principal. os/user
