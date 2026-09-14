@@ -159,15 +159,23 @@ jobs:
         run: git --no-pager diff --exit-code
 
       - name: Test
-        # Exclude client/ui: its main.go uses //go:embed all:frontend/dist,
-        # which fails to compile until the frontend has been built. The Wails UI
-        # has no Go-side unit tests, and its release pipeline runs `pnpm build`
-        # before goreleaser.
+        # Exclude the client/ui package itself: its main.go uses //go:embed
+        # all:frontend/dist, which fails to compile until the frontend has been
+        # built, and its release pipeline runs `pnpm build` before goreleaser.
+        # The pattern is anchored so the subpackages (services, preferences,
+        # i18n, authsession) still run on amd64: they hold Go-side unit tests and
+        # link against the gtk4/webkitgtk dev packages installed above. Only the
+        # 64-bit ones are installed, so the 386 leg drops all of client/ui.
         # `go list -e` lets the listing succeed even though the embed fails to
         # resolve; the grep then drops the broken package by path. Without -e,
         # go list aborts with empty stdout and `go test` falls back to the repo
         # root, which has no Go files.
-        run: CGO_ENABLED=1 GOARCH=${{ matrix.arch }} CI=true go test -coverprofile=coverage.txt -tags 'devcert privileged' -exec 'sudo --preserve-env=CI,CGO_ENABLED' -timeout 10m -p 1 $(go list -e ./... | grep -v -e /management -e /signal -e /relay -e /proxy -e /combined -e /client/ui -e /client/testutil/privileged)
+        run: |
+          UI_EXCLUDE='/client/ui$'
+          if [ "${{ matrix.arch }}" = "386" ]; then
+            UI_EXCLUDE='/client/ui'
+          fi
+          CGO_ENABLED=1 GOARCH=${{ matrix.arch }} CI=true go test -coverprofile=coverage.txt -tags 'devcert privileged' -exec 'sudo --preserve-env=CI,CGO_ENABLED' -timeout 10m -p 1 $(go list -e ./... | grep -v -e /management -e /signal -e /relay -e /proxy -e /combined -e "$UI_EXCLUDE" -e /client/testutil/privileged)
 
       - name: Upload coverage reports to Codecov
         if: matrix.arch == 'amd64'
@@ -211,6 +219,9 @@ jobs:
             ${{ runner.os }}-gotest-cache-
 
       - name: Run tests in container
+        # Unlike the native job above, this one drops all of client/ui including
+        # the subpackages: the alpine container has no gtk4/webkitgtk, so the
+        # Wails application package they import would fail to link.
         env:
           HOST_GOCACHE: ${{ steps.go-env.outputs.cache_dir }}
           HOST_GOMODCACHE: ${{ steps.go-env.outputs.modcache_dir }}
