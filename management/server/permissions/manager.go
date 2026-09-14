@@ -62,7 +62,7 @@ func (m *managerImpl) ValidateUserPermissions(
 	}
 
 	if user.IsBlocked() && user.PendingApproval {
-		return false, ctx, m.pendingApprovalError(ctx, accountID)
+		return false, ctx, m.pendingApprovalError(ctx, user)
 	}
 
 	ctxEnriched, err := m.ValidateAccountAccess(ctx, accountID, user, false)
@@ -82,13 +82,16 @@ func (m *managerImpl) ValidateUserPermissions(
 	return m.ValidateRoleModuleAccess(ctx, accountID, role, module, operation), ctxEnriched, nil
 }
 
-// pendingApprovalError refuses a user awaiting approval, naming the account
-// owner to contact when their address resolves. Failing to resolve it is not a
-// reason to withhold the refusal, so the owner lookup is best effort.
-func (m *managerImpl) pendingApprovalError(ctx context.Context, accountID string) error {
-	owner, err := m.store.GetAccountOwner(ctx, store.LockingStrengthNone, accountID)
+// pendingApprovalError refuses a user awaiting approval, naming the owner who
+// can approve them. That is the owner of the user's own account, never the
+// account the request asked about: the two differ until ValidateAccountAccess
+// runs below, so resolving the requested one would hand its owner's address to
+// a caller with no claim to it. Failing to resolve is not a reason to withhold
+// the refusal, so the lookup is best effort.
+func (m *managerImpl) pendingApprovalError(ctx context.Context, user *types.User) error {
+	owner, err := m.store.GetAccountOwner(ctx, store.LockingStrengthNone, user.AccountID)
 	if err != nil {
-		log.WithContext(ctx).Debugf("failed to resolve owner of account %s for pending approval message: %v", accountID, err)
+		log.WithContext(ctx).Debugf("failed to resolve owner of account %s for pending approval message: %v", user.AccountID, err)
 	}
 
 	if masked := owner.MaskedEmail(); masked != "" {
