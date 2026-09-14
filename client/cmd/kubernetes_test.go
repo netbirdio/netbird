@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -10,7 +12,63 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/client/proto"
 )
+
+type reverseResolverFunc func(context.Context, string) ([]string, error)
+
+// LookupAddr resolves an IP address with the test resolver function.
+func (f reverseResolverFunc) LookupAddr(ctx context.Context, ip string) ([]string, error) {
+	return f(ctx, ip)
+}
+
+// TestGetKubernetesClustersSkipsReverseLookupFailures verifies discovery continues after a failed lookup.
+func TestGetKubernetesClustersSkipsReverseLookupFailures(t *testing.T) {
+	peers := []*proto.PeerState{
+		{IP: "100.64.0.10"},
+		{IP: "100.64.0.11"},
+	}
+	var lookupIPs []string
+	resolver := reverseResolverFunc(func(_ context.Context, ip string) ([]string, error) {
+		lookupIPs = append(lookupIPs, ip)
+		if ip == peers[0].IP {
+			return nil, errors.New("no PTR record")
+		}
+		return []string{"unrelated.example.com."}, nil
+	})
+
+	clusters, err := getKubernetesClustersWithResolver(
+		t.Context(), peers, "", resolver, http.DefaultClient)
+	require.NoError(t, err)
+	require.Equal(t, []string{peers[0].IP, peers[1].IP}, lookupIPs,
+		"discovery must process every peer after a reverse lookup failure")
+	require.Empty(t, clusters, "an unrelated peer lookup failure must not abort discovery")
+}
+
+// TestPeerFQDNsUsesStoredFQDN verifies daemon-provided names avoid reverse DNS.
+func TestPeerFQDNsUsesStoredFQDN(t *testing.T) {
+	resolver := reverseResolverFunc(func(context.Context, string) ([]string, error) {
+		t.Fatal("reverse DNS should not be called when the peer FQDN is available")
+		return nil, nil
+	})
+
+	fqdns, err := peerFQDNs(t.Context(), &proto.PeerState{Fqdn: "cluster.netbird-kubeapi-proxy"}, resolver)
+	require.NoError(t, err)
+	require.Equal(t, []string{"cluster.netbird-kubeapi-proxy"}, fqdns)
+}
+
+// TestPeerFQDNsPreservesContextCancellation verifies cancellation is returned to the caller.
+func TestPeerFQDNsPreservesContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	resolver := reverseResolverFunc(func(ctx context.Context, _ string) ([]string, error) {
+		return nil, ctx.Err()
+	})
+
+	_, err := peerFQDNs(ctx, &proto.PeerState{IP: "100.64.0.10"}, resolver)
+	require.ErrorIs(t, err, context.Canceled)
+}
 
 func TestFingerprintClusters(t *testing.T) {
 	t.Parallel()
