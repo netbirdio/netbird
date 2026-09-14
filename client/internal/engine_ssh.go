@@ -24,6 +24,8 @@ type sshServer interface {
 	Stop() error
 	GetStatus() (bool, []sshserver.SessionInfo)
 	UpdateSSHAuth(config *sshauth.Config)
+	JWTConfig() *sshserver.JWTConfig
+	AuthConfig() *sshauth.Config
 }
 
 func (e *Engine) setupSSHPortRedirection() error {
@@ -40,6 +42,14 @@ func (e *Engine) setupSSHPortRedirection() error {
 		return fmt.Errorf("add SSH port redirection: %w", err)
 	}
 	log.Infof("SSH port redirection enabled: %s:22 -> %s:22022", localAddr, localAddr)
+
+	if v6 := e.wgInterface.Address().IPv6; v6.IsValid() {
+		if err := e.firewall.AddInboundDNAT(v6, firewallManager.ProtocolTCP, 22, 22022); err != nil {
+			log.Warnf("failed to add IPv6 SSH port redirection: %v", err)
+		} else {
+			log.Infof("SSH port redirection enabled: [%s]:22 -> [%s]:22022", v6, v6)
+		}
+	}
 
 	return nil
 }
@@ -69,7 +79,7 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 
 	if e.config.DisableSSHAuth != nil && *e.config.DisableSSHAuth {
 		log.Info("starting SSH server without JWT authentication (authentication disabled by config)")
-		return e.startSSHServer(nil)
+		return e.startSSHServer(nil, nil)
 	}
 
 	if protoJWT := sshConf.GetJwtConfig(); protoJWT != nil {
@@ -87,7 +97,7 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 			MaxTokenAge:  protoJWT.GetMaxTokenAge(),
 		}
 
-		return e.startSSHServer(jwtConfig)
+		return e.startSSHServer(jwtConfig, nil)
 	}
 
 	return errors.New("SSH server requires valid JWT configuration")
@@ -137,29 +147,18 @@ func (e *Engine) extractPeerSSHInfo(remotePeers []*mgmProto.RemotePeerConfig) []
 			continue
 		}
 
-		peerIP := e.extractPeerIP(peerConfig)
+		peerV4, peerV6 := overlayAddrsFromAllowedIPs(peerConfig.GetAllowedIps(), e.wgInterface.Address().IPv6Net)
 		hostname := e.extractHostname(peerConfig)
 
 		peerInfo = append(peerInfo, sshconfig.PeerSSHInfo{
 			Hostname: hostname,
-			IP:       peerIP,
+			IP:       peerV4,
+			IPv6:     peerV6,
 			FQDN:     peerConfig.GetFqdn(),
 		})
 	}
 
 	return peerInfo
-}
-
-// extractPeerIP extracts IP address from peer's allowed IPs
-func (e *Engine) extractPeerIP(peerConfig *mgmProto.RemotePeerConfig) string {
-	if len(peerConfig.GetAllowedIps()) == 0 {
-		return ""
-	}
-
-	if prefix, err := netip.ParsePrefix(peerConfig.GetAllowedIps()[0]); err == nil {
-		return prefix.Addr().String()
-	}
-	return ""
 }
 
 // extractHostname extracts short hostname from FQDN
@@ -208,7 +207,7 @@ func (e *Engine) GetPeerSSHKey(peerAddress string) ([]byte, bool) {
 
 	fullStatus := statusRecorder.GetFullStatus()
 	for _, peerState := range fullStatus.Peers {
-		if peerState.IP == peerAddress || peerState.FQDN == peerAddress {
+		if peerState.IP == peerAddress || peerState.FQDN == peerAddress || peerState.IPv6 == peerAddress {
 			if len(peerState.SSHHostKey) > 0 {
 				return peerState.SSHHostKey, true
 			}
@@ -234,8 +233,33 @@ func (e *Engine) cleanupSSHConfig() {
 	}
 }
 
-// startSSHServer initializes and starts the SSH server with proper configuration.
-func (e *Engine) startSSHServer(jwtConfig *sshserver.JWTConfig) error {
+// restartSSHListeners rebuilds the SSH server so it listens on new sockets, on
+// the same terms it was started with. No-op when it is not running. See
+// Engine.rebindOverlayListeners for why this is needed.
+func (e *Engine) restartSSHListeners() error {
+	if e.sshServer == nil {
+		return nil
+	}
+	// Read from the server before it goes away. A rebuilt one starts with an
+	// empty authorizer, which fails closed, so without carrying the
+	// authorization over every JWT login is refused until the next network map
+	// happens to bring one.
+	jwtConfig, authConfig := e.sshServer.JWTConfig(), e.sshServer.AuthConfig()
+	if err := e.stopSSHServer(); err != nil {
+		return fmt.Errorf("rebind SSH listeners: %w", err)
+	}
+	if err := e.startSSHServer(jwtConfig, authConfig); err != nil {
+		return fmt.Errorf("rebind SSH listeners: %w", err)
+	}
+	return nil
+}
+
+// startSSHServer initializes and starts the SSH server with proper
+// configuration. authConfig is the fine-grained authorization to open with, and
+// is applied before the server accepts anything: a server that starts listening
+// with an empty authorizer refuses the logins that arrive in the meantime.
+// Nil leaves it as management has not sent one yet.
+func (e *Engine) startSSHServer(jwtConfig *sshserver.JWTConfig, authConfig *sshauth.Config) error {
 	if e.wgInterface == nil {
 		return errors.New("wg interface not initialized")
 	}
@@ -243,6 +267,7 @@ func (e *Engine) startSSHServer(jwtConfig *sshserver.JWTConfig) error {
 	serverConfig := &sshserver.Config{
 		HostKeyPEM: e.config.SSHKey,
 		JWT:        jwtConfig,
+		Auth:       authConfig,
 	}
 	server := sshserver.New(serverConfig)
 
@@ -260,6 +285,13 @@ func (e *Engine) startSSHServer(jwtConfig *sshserver.JWTConfig) error {
 
 	if err := server.Start(e.ctx, listenAddr); err != nil {
 		return fmt.Errorf("start SSH server: %w", err)
+	}
+
+	if v6 := wgAddr.IPv6; v6.IsValid() {
+		v6Addr := netip.AddrPortFrom(v6, sshserver.InternalSSHPort)
+		if err := server.AddListener(e.ctx, v6Addr); err != nil {
+			log.Warnf("failed to add IPv6 SSH listener: %v", err)
+		}
 	}
 
 	e.sshServer = server
@@ -329,6 +361,12 @@ func (e *Engine) cleanupSSHPortRedirection() error {
 		return fmt.Errorf("remove SSH port redirection: %w", err)
 	}
 	log.Debugf("SSH port redirection removed: %s:22 -> %s:22022", localAddr, localAddr)
+
+	if v6 := e.wgInterface.Address().IPv6; v6.IsValid() {
+		if err := e.firewall.RemoveInboundDNAT(v6, firewallManager.ProtocolTCP, 22, 22022); err != nil {
+			log.Debugf("failed to remove IPv6 SSH port redirection: %v", err)
+		}
+	}
 
 	return nil
 }

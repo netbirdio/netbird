@@ -46,6 +46,13 @@ type Settings struct {
 
 	// NetworkRange is the custom network range for that account
 	NetworkRange netip.Prefix `gorm:"serializer:json"`
+	// NetworkRangeV6 is the custom IPv6 network range for that account
+	NetworkRangeV6 netip.Prefix `gorm:"serializer:json"`
+
+	// PeerExposeEnabled enables or disables peer-initiated service expose
+	PeerExposeEnabled bool
+	// PeerExposeGroups list of peer group IDs allowed to expose services
+	PeerExposeGroups []string `gorm:"serializer:json"`
 
 	// Extra is a dictionary of Account settings
 	Extra *ExtraSettings `gorm:"embedded;embeddedPrefix:extra_"`
@@ -56,6 +63,28 @@ type Settings struct {
 	// AutoUpdateVersion client auto-update version
 	AutoUpdateVersion string `gorm:"default:'disabled'"`
 
+	// AutoUpdateAlways when true, updates are installed automatically in the background;
+	// when false, updates require user interaction from the UI
+	AutoUpdateAlways bool `gorm:"default:false"`
+
+	// IPv6EnabledGroups is the list of group IDs whose peers receive IPv6 overlay addresses.
+	// Peers not in any of these groups will not be allocated an IPv6 address.
+	// Empty list means IPv6 is disabled for the account.
+	// For new accounts this defaults to the All group.
+	IPv6EnabledGroups []string `gorm:"serializer:json"`
+
+	// MetricsPushEnabled globally enables or disables client metrics push for the account
+	MetricsPushEnabled bool `gorm:"default:false"`
+
+	// AgentNetworkOnly limits the dashboard to the Agent Network surface for this account.
+	// Set for accounts created via netbird.ai signups; users can disable it later.
+	AgentNetworkOnly bool `gorm:"default:false"`
+
+	// DashboardFeatures holds per-account dashboard section visibility overrides.
+	// It serializes to a single JSON column so new sections can be added without
+	// a schema change.
+	DashboardFeatures *DashboardFeatures `gorm:"serializer:json"`
+
 	// EmbeddedIdpEnabled indicates if the embedded identity provider is enabled.
 	// This is a runtime-only field, not stored in the database.
 	EmbeddedIdpEnabled bool `gorm:"-"`
@@ -63,6 +92,10 @@ type Settings struct {
 	// LocalAuthDisabled indicates if local (email/password) authentication is disabled.
 	// This is a runtime-only field, not stored in the database.
 	LocalAuthDisabled bool `gorm:"-"`
+
+	// LocalMfaEnabled indicates if TOTP MFA is enabled for local users.
+	// Only applicable when the embedded IDP is enabled.
+	LocalMfaEnabled bool
 }
 
 // Copy copies the Settings struct
@@ -80,17 +113,47 @@ func (s *Settings) Copy() *Settings {
 		PeerInactivityExpiration:        s.PeerInactivityExpiration,
 
 		RoutingPeerDNSResolutionEnabled: s.RoutingPeerDNSResolutionEnabled,
+		PeerExposeEnabled:               s.PeerExposeEnabled,
+		PeerExposeGroups:                slices.Clone(s.PeerExposeGroups),
 		LazyConnectionEnabled:           s.LazyConnectionEnabled,
 		DNSDomain:                       s.DNSDomain,
 		NetworkRange:                    s.NetworkRange,
+		NetworkRangeV6:                  s.NetworkRangeV6,
 		AutoUpdateVersion:               s.AutoUpdateVersion,
+		AutoUpdateAlways:                s.AutoUpdateAlways,
+		IPv6EnabledGroups:               slices.Clone(s.IPv6EnabledGroups),
+		MetricsPushEnabled:              s.MetricsPushEnabled,
+		AgentNetworkOnly:                s.AgentNetworkOnly,
 		EmbeddedIdpEnabled:              s.EmbeddedIdpEnabled,
 		LocalAuthDisabled:               s.LocalAuthDisabled,
+		LocalMfaEnabled:                 s.LocalMfaEnabled,
 	}
 	if s.Extra != nil {
 		settings.Extra = s.Extra.Copy()
 	}
+	if s.DashboardFeatures != nil {
+		settings.DashboardFeatures = s.DashboardFeatures.Copy()
+	}
 	return settings
+}
+
+// DashboardFeatures holds per-account dashboard section visibility overrides.
+// Nil fields are unset and follow the default dashboard behavior; an explicit
+// value forces that section shown or hidden for the account.
+type DashboardFeatures struct {
+	// AgentNetwork, when set, forces the Agent Network menu shown (true) or
+	// hidden (false) regardless of the deployment feature flag.
+	AgentNetwork *bool `json:"agent_network,omitempty"`
+}
+
+// Copy returns a deep copy of the DashboardFeatures struct.
+func (d *DashboardFeatures) Copy() *DashboardFeatures {
+	c := &DashboardFeatures{}
+	if d.AgentNetwork != nil {
+		v := *d.AgentNetwork
+		c.AgentNetwork = &v
+	}
+	return c
 }
 
 type ExtraSettings struct {

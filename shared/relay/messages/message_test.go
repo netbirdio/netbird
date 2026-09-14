@@ -4,28 +4,11 @@ import (
 	"testing"
 )
 
-func TestMarshalHelloMsg(t *testing.T) {
-	peerID := HashID("abdFAaBcawquEiCMzAabYosuUaGLtSNhKxz+")
-	msg, err := MarshalHelloMsg(peerID, nil)
-	if err != nil {
-		t.Fatalf("error: %v", err)
-	}
-
-	msgType, err := DetermineClientMessageType(msg)
-	if err != nil {
-		t.Fatalf("error: %v", err)
-	}
-
-	if msgType != MsgTypeHello {
-		t.Errorf("expected %d, got %d", MsgTypeHello, msgType)
-	}
-
-	receivedPeerID, _, err := UnmarshalHelloMsg(msg)
-	if err != nil {
-		t.Fatalf("error: %v", err)
-	}
-	if receivedPeerID.String() != peerID.String() {
-		t.Errorf("expected %s, got %s", peerID, receivedPeerID)
+func TestDetermineClientMessageTypeRejectsHello(t *testing.T) {
+	// The reserved legacy Hello message (type 1) must be rejected by the server.
+	msg := []byte{byte(CurrentProtocolVersion), byte(MsgTypeHello)}
+	if _, err := DetermineClientMessageType(msg); err == nil {
+		t.Fatalf("expected hello message type to be rejected")
 	}
 }
 

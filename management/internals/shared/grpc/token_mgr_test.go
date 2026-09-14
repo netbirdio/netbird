@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang/mock/gomock"
+	"go.uber.org/mock/gomock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"

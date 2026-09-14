@@ -30,6 +30,11 @@ func GetInfo(ctx context.Context) *Info {
 		kernelVersion = osInfo[2]
 	}
 
+	addrs, err := networkAddresses()
+	if err != nil {
+		log.Warnf("discover network addresses: %s", err)
+	}
+
 	gio := &Info{
 		GoOS:               runtime.GOOS,
 		Kernel:             kernel,
@@ -41,6 +46,7 @@ func GetInfo(ctx context.Context) *Info {
 		NetbirdVersion:     version.NetbirdVersion(),
 		UIVersion:          extractUIVersion(ctx),
 		KernelVersion:      kernelVersion,
+		NetworkAddresses:   addrs,
 		SystemSerialNumber: serial(),
 		SystemProductName:  productModel(),
 		SystemManufacturer: productManufacturer(),
@@ -50,7 +56,7 @@ func GetInfo(ctx context.Context) *Info {
 }
 
 // checkFileAndProcess checks if the file path exists and if a process is running at that path.
-func checkFileAndProcess(paths []string) ([]File, error) {
+func checkFileAndProcess(_ context.Context, _ []string) ([]File, error) {
 	return []File{}, nil
 }
 

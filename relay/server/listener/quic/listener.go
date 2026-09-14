@@ -5,12 +5,13 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"net"
 
 	"github.com/quic-go/quic-go"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/relay/protocol"
+	relaylistener "github.com/netbirdio/netbird/relay/server/listener"
+	nbRelay "github.com/netbirdio/netbird/shared/relay"
 )
 
 const Proto protocol.Protocol = "quic"
@@ -24,10 +25,10 @@ type Listener struct {
 	listener *quic.Listener
 }
 
-func (l *Listener) Listen(acceptFn func(conn net.Conn)) error {
+func (l *Listener) Listen(acceptFn func(conn relaylistener.Conn)) error {
 	quicCfg := &quic.Config{
 		EnableDatagrams:   true,
-		InitialPacketSize: 1452,
+		InitialPacketSize: nbRelay.QUICInitialPacketSize,
 	}
 	listener, err := quic.ListenAddr(l.Address, l.TLSConfig, quicCfg)
 	if err != nil {
@@ -50,7 +51,10 @@ func (l *Listener) Listen(acceptFn func(conn net.Conn)) error {
 
 		log.Infof("QUIC client connected from: %s", session.RemoteAddr())
 		conn := NewConn(session)
-		acceptFn(conn)
+		// Run the accept handler (which performs the pre-auth handshake) in its
+		// own goroutine so a slow or stalled handshake cannot block accepting
+		// further connections.
+		go acceptFn(conn)
 	}
 }
 

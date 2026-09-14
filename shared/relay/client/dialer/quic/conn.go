@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/quic-go/quic-go"
-	log "github.com/sirupsen/logrus"
 
 	netErr "github.com/netbirdio/netbird/shared/relay/client/dialer/net"
 )
@@ -52,13 +51,15 @@ func (c *Conn) Read(b []byte) (n int, err error) {
 }
 
 func (c *Conn) Write(b []byte) (int, error) {
-	err := c.session.SendDatagram(b)
-	if err != nil {
-		err = c.remoteCloseErrHandling(err)
-		log.Errorf("failed to write to QUIC stream: %v", err)
-		return 0, err
+	if err := c.session.SendDatagram(b); err != nil {
+		return 0, c.writeErrHandling(err, len(b))
 	}
 	return len(b), nil
+}
+
+// Protocol returns the transport name for this connection.
+func (c *Conn) Protocol() string {
+	return Network
 }
 
 func (c *Conn) RemoteAddr() net.Addr {
@@ -94,4 +95,16 @@ func (c *Conn) remoteCloseErrHandling(err error) error {
 		return netErr.ErrClosedByServer
 	}
 	return err
+}
+
+// writeErrHandling normalizes SendDatagram errors. A datagram that exceeds the
+// path's QUIC packet budget is mapped to ErrDatagramTooLarge (annotated with the
+// datagram size and path budget) so the relay client can fall back to a
+// non-datagram transport.
+func (c *Conn) writeErrHandling(err error, size int) error {
+	var tooLarge *quic.DatagramTooLargeError
+	if errors.As(err, &tooLarge) {
+		return fmt.Errorf("%w: %d byte datagram over path budget %d", netErr.ErrDatagramTooLarge, size, tooLarge.MaxDatagramPayloadSize)
+	}
+	return c.remoteCloseErrHandling(err)
 }

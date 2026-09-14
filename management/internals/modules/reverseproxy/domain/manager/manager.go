@@ -1,0 +1,469 @@
+package manager
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net"
+	"strings"
+	"time"
+
+	log "github.com/sirupsen/logrus"
+
+	agentnetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
+	"github.com/netbirdio/netbird/management/server/account"
+	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
+	"github.com/netbirdio/netbird/management/server/permissions/operations"
+	nbstore "github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/management/server/types"
+	nbdomain "github.com/netbirdio/netbird/shared/management/domain"
+	"github.com/netbirdio/netbird/shared/management/status"
+)
+
+type store interface {
+	GetAccount(ctx context.Context, accountID string) (*types.Account, error)
+	GetAgentNetworkSettings(ctx context.Context, lockStrength nbstore.LockingStrength, accountID string) (*agentnetworkTypes.Settings, error)
+
+	GetCustomDomain(ctx context.Context, accountID string, domainID string) (*domain.Domain, error)
+	GetCustomDomainByName(ctx context.Context, domainName string) (*domain.Domain, error)
+	ListFreeDomains(ctx context.Context, accountID string) ([]string, error)
+	ListCustomDomains(ctx context.Context, accountID string) ([]*domain.Domain, error)
+	CreateCustomDomain(ctx context.Context, accountID string, domainName string, targetCluster string, validated bool) (*domain.Domain, error)
+	UpdateCustomDomain(ctx context.Context, accountID string, d *domain.Domain) (*domain.Domain, error)
+	DeleteCustomDomain(ctx context.Context, accountID string, domainID string) error
+	GetExpiredCustomDomains(ctx context.Context, now time.Time, afterID domain.ID, limit int) ([]*domain.Domain, error)
+	DeleteExpiredCustomDomain(ctx context.Context, d *domain.Domain, now time.Time) (bool, error)
+}
+
+type proxyManager interface {
+	GetActiveClusterAddresses(ctx context.Context) ([]string, error)
+	GetActiveClusterAddressesForAccount(ctx context.Context, accountID string) ([]string, error)
+	ClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool
+	ClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
+	ClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
+	ClusterSupportsPrivate(ctx context.Context, clusterAddr string) *bool
+}
+
+type Manager struct {
+	store              store
+	validator          domain.Validator
+	proxyManager       proxyManager
+	permissionsManager permissions.Manager
+	accountManager     account.Manager
+}
+
+func NewManager(store store, proxyMgr proxyManager, permissionsManager permissions.Manager, accountManager account.Manager) Manager {
+	return Manager{
+		store:              store,
+		proxyManager:       proxyMgr,
+		validator:          domain.Validator{Resolver: net.DefaultResolver},
+		permissionsManager: permissionsManager,
+		accountManager:     accountManager,
+	}
+}
+
+func (m Manager) GetDomains(ctx context.Context, accountID, userID string) ([]*domain.Domain, error) {
+	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Read)
+	if err != nil {
+		return nil, status.NewPermissionValidationError(err)
+	}
+	if !ok {
+		return nil, status.NewPermissionDeniedError()
+	}
+
+	domains, err := m.store.ListCustomDomains(ctx, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("list custom domains: %w", err)
+	}
+
+	var ret []*domain.Domain
+
+	// Add connected proxy clusters as free domains.
+	// For BYOP accounts, only their own cluster is returned; otherwise shared clusters.
+	allowList, err := m.getClusterAllowList(ctx, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get active proxy cluster addresses: %v", err)
+		return nil, err
+	}
+	log.WithContext(ctx).WithFields(log.Fields{
+		"accountID":      accountID,
+		"proxyAllowList": allowList,
+	}).Debug("getting domains with proxy allow list")
+
+	for _, cluster := range allowList {
+		d := &domain.Domain{
+			Domain:    cluster,
+			AccountID: accountID,
+			Type:      domain.TypeFree,
+			Validated: true,
+		}
+		d.SupportsCustomPorts = m.proxyManager.ClusterSupportsCustomPorts(ctx, cluster)
+		d.RequireSubdomain = m.proxyManager.ClusterRequireSubdomain(ctx, cluster)
+		d.SupportsCrowdSec = m.proxyManager.ClusterSupportsCrowdSec(ctx, cluster)
+		d.SupportsPrivate = m.proxyManager.ClusterSupportsPrivate(ctx, cluster)
+		ret = append(ret, d)
+	}
+
+	// Add custom domains.
+	for _, d := range domains {
+		cd := &domain.Domain{
+			ID:                  d.ID,
+			Domain:              d.Domain,
+			AccountID:           accountID,
+			TargetCluster:       d.TargetCluster,
+			Type:                domain.TypeCustom,
+			Validated:           d.Validated,
+			ValidationExpiresAt: d.ValidationExpiresAt,
+		}
+		if d.TargetCluster != "" {
+			cd.SupportsCustomPorts = m.proxyManager.ClusterSupportsCustomPorts(ctx, d.TargetCluster)
+			cd.SupportsCrowdSec = m.proxyManager.ClusterSupportsCrowdSec(ctx, d.TargetCluster)
+			cd.SupportsPrivate = m.proxyManager.ClusterSupportsPrivate(ctx, d.TargetCluster)
+		}
+		// Custom domains never require a subdomain by default since
+		// the account owns them and should be able to use the bare domain.
+		ret = append(ret, cd)
+	}
+
+	return ret, nil
+}
+
+// CreateDomain registers a normalized custom domain and attempts DNS validation.
+func (m Manager) CreateDomain(ctx context.Context, accountID, userID, domainName, targetCluster string) (*domain.Domain, error) {
+	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Create)
+	if err != nil {
+		return nil, status.NewPermissionValidationError(err)
+	}
+	if !ok {
+		return nil, status.NewPermissionDeniedError()
+	}
+
+	parsed, err := nbdomain.FromString(strings.TrimSuffix(domainName, "."))
+	if err != nil {
+		return nil, status.Errorf(status.InvalidArgument, "invalid domain: %v", err)
+	}
+	domainName = parsed.PunycodeString()
+	if !nbdomain.IsValidDomainNoWildcard(domainName) {
+		return nil, status.Errorf(status.InvalidArgument, "invalid domain format")
+	}
+
+	// Verify the target cluster is in the available clusters for this account
+	allowList, err := m.getClusterAllowList(ctx, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get active proxy cluster addresses: %w", err)
+	}
+	clusterValid := false
+	for _, cluster := range allowList {
+		if cluster == targetCluster {
+			clusterValid = true
+			break
+		}
+	}
+	if !clusterValid {
+		return nil, fmt.Errorf("target cluster %s is not available", targetCluster)
+	}
+
+	if err := m.checkDomainAvailable(ctx, domainName); err != nil {
+		return nil, err
+	}
+
+	// Attempt an initial validation against the specified cluster only
+	var validated bool
+	if m.validator.IsValid(ctx, domainName, []string{targetCluster}) {
+		validated = true
+	}
+
+	d, err := m.store.CreateCustomDomain(ctx, accountID, domainName, targetCluster, validated)
+	if err != nil {
+		return d, fmt.Errorf("create domain in store: %w", err)
+	}
+
+	m.accountManager.StoreEvent(ctx, userID, d.ID, accountID, activity.DomainAdded, d.EventMeta())
+
+	return d, nil
+}
+
+// checkDomainAvailable reports whether the domain is free to claim. The unique
+// index on the column is the real guard; this turns the violation into a
+// conflict the caller can act on instead of a database error, and says nothing
+// about which account holds the domain.
+func (m Manager) checkDomainAvailable(ctx context.Context, domainName string) error {
+	_, err := m.store.GetCustomDomainByName(ctx, domainName)
+	if err == nil {
+		return status.Errorf(status.AlreadyExists, "domain %s is already registered", domainName)
+	}
+
+	if sErr, ok := status.FromError(err); ok && sErr.Type() == status.NotFound {
+		return nil
+	}
+
+	return fmt.Errorf("look up domain: %w", err)
+}
+
+func (m Manager) DeleteDomain(ctx context.Context, accountID, userID, domainID string) error {
+	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Delete)
+	if err != nil {
+		return status.NewPermissionValidationError(err)
+	}
+	if !ok {
+		return status.NewPermissionDeniedError()
+	}
+
+	d, err := m.store.GetCustomDomain(ctx, accountID, domainID)
+	if err != nil {
+		return fmt.Errorf("get domain from store: %w", err)
+	}
+
+	if err := m.store.DeleteCustomDomain(ctx, accountID, domainID); err != nil {
+		// TODO: check for "no records" type error. Because that is a success condition.
+		return fmt.Errorf("delete domain from store: %w", err)
+	}
+
+	m.accountManager.StoreEvent(ctx, userID, domainID, accountID, activity.DomainDeleted, d.EventMeta())
+
+	return nil
+}
+
+func (m Manager) ValidateDomain(ctx context.Context, accountID, userID, domainID string) {
+	ok, _, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Create)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"accountID": accountID,
+			"domainID":  domainID,
+		}).WithError(err).Error("validate domain")
+		return
+	}
+	if !ok {
+		log.WithFields(log.Fields{
+			"accountID": accountID,
+			"domainID":  domainID,
+			"userID":    userID,
+		}).Error("validate domain: permission denied")
+		return
+	}
+
+	log.WithFields(log.Fields{
+		"accountID": accountID,
+		"domainID":  domainID,
+	}).Info("starting domain validation")
+
+	d, err := m.store.GetCustomDomain(context.Background(), accountID, domainID)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"accountID": accountID,
+			"domainID":  domainID,
+		}).WithError(err).Error("get custom domain from store")
+		return
+	}
+	if d.Validated {
+		return
+	}
+	if d.ValidationExpiresAt == nil || !time.Now().Before(*d.ValidationExpiresAt) {
+		log.WithFields(log.Fields{"accountID": accountID, "domainID": domainID}).
+			Debug("custom domain validation window has expired")
+		return
+	}
+
+	// Validate only against the domain's target cluster
+	targetCluster := d.TargetCluster
+	if targetCluster == "" {
+		log.WithFields(log.Fields{
+			"accountID": accountID,
+			"domainID":  domainID,
+			"domain":    d.Domain,
+		}).Warn("domain has no target cluster set, skipping validation")
+		return
+	}
+
+	log.WithFields(log.Fields{
+		"accountID":     accountID,
+		"domainID":      domainID,
+		"domain":        d.Domain,
+		"targetCluster": targetCluster,
+	}).Info("validating domain against target cluster")
+
+	if m.validator.IsValid(context.Background(), d.Domain, []string{targetCluster}) {
+		d.Validated = true
+		if _, err := m.store.UpdateCustomDomain(context.Background(), accountID, d); err != nil {
+			entry := log.WithFields(log.Fields{
+				"accountID": accountID,
+				"domainID":  domainID,
+			}).WithError(err)
+			if sErr, ok := status.FromError(err); ok && sErr.Type() == status.PreconditionFailed {
+				entry.Debug("custom domain registration is no longer pending validation")
+				return
+			}
+			entry.Error("update custom domain in store")
+			return
+		}
+		log.WithFields(log.Fields{"accountID": accountID, "domainID": domainID}).
+			Info("custom domain validated successfully")
+
+		m.accountManager.StoreEvent(context.Background(), userID, domainID, accountID, activity.DomainValidated, d.EventMeta())
+	} else {
+		log.WithFields(log.Fields{
+			"accountID":     accountID,
+			"domainID":      domainID,
+			"domain":        d.Domain,
+			"targetCluster": targetCluster,
+		}).Warn("domain validation failed - CNAME does not match target cluster")
+	}
+}
+
+// GetClusterDomains returns a list of proxy cluster domains.
+func (m Manager) GetClusterDomains() []string {
+	if m.proxyManager == nil {
+		return nil
+	}
+	addresses, err := m.proxyManager.GetActiveClusterAddresses(context.Background())
+	if err != nil {
+		return nil
+	}
+	return addresses
+}
+
+// DeriveClusterFromDomain determines the proxy cluster for a given domain.
+// For free domains (those ending with a known cluster suffix), the cluster is extracted from the domain.
+// For custom domains, the cluster is determined by checking the registered custom domain's target cluster.
+func (m Manager) DeriveClusterFromDomain(ctx context.Context, accountID, domain string) (string, error) {
+	allowList, err := m.getClusterAllowList(ctx, accountID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get active proxy cluster addresses: %w", err)
+	}
+	if len(allowList) == 0 {
+		return "", fmt.Errorf("no proxy clusters available")
+	}
+
+	if cluster, ok := ExtractClusterFromFreeDomain(domain, allowList); ok {
+		return cluster, nil
+	}
+
+	customDomains, err := m.store.ListCustomDomains(ctx, accountID)
+	if err != nil {
+		return "", fmt.Errorf("list custom domains: %w", err)
+	}
+
+	targetCluster, match := extractClusterFromCustomDomains(domain, customDomains)
+	switch match {
+	case customDomainValidated:
+		return targetCluster, nil
+	case customDomainUnvalidated:
+		return "", status.Errorf(status.PreconditionFailed, "domain %s is not validated", domain)
+	}
+
+	return "", fmt.Errorf("domain %s does not match any available proxy cluster", domain)
+}
+
+func (m Manager) getClusterAllowList(ctx context.Context, accountID string) ([]string, error) {
+	byopAddresses, err := m.proxyManager.GetActiveClusterAddressesForAccount(ctx, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("get BYOP cluster addresses: %w", err)
+	}
+	publicAddresses, err := m.proxyManager.GetActiveClusterAddresses(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get public cluster addresses: %w", err)
+	}
+	reserved, err := m.reservedGatewayAddress(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]struct{}, len(byopAddresses)+len(publicAddresses))
+	merged := make([]string, 0, len(byopAddresses)+len(publicAddresses))
+	for _, addr := range byopAddresses {
+		if _, ok := seen[addr]; ok || addr == reserved {
+			continue
+		}
+		seen[addr] = struct{}{}
+		merged = append(merged, addr)
+	}
+	for _, addr := range publicAddresses {
+		if _, ok := seen[addr]; ok || addr == reserved {
+			continue
+		}
+		seen[addr] = struct{}{}
+		merged = append(merged, addr)
+	}
+	return merged, nil
+}
+
+// reservedGatewayAddress returns the account's agent-network gateway address
+// when its settings pin is self-addressed — a proxy dedicated to serving
+// exactly the gateway. Dropping that address from the cluster allow list keeps
+// it from being offered as a cluster for ordinary services, and because the
+// free-domain suffix match is depth-independent, dropping the address rejects
+// every name beneath it as well as the bare one. Only the account's own
+// gateway address can ever appear in its allow list (another tenant's gateway
+// proxy is account-scoped to them), so this single-address exclusion is
+// sufficient. Returns "" when the account has no settings row or a labeled
+// (shared-cluster) pin.
+func (m Manager) reservedGatewayAddress(ctx context.Context, accountID string) (string, error) {
+	settings, err := m.store.GetAgentNetworkSettings(ctx, nbstore.LockingStrengthNone, accountID)
+	if err != nil {
+		var sErr *status.Error
+		if errors.As(err, &sErr) && sErr.Type() == status.NotFound {
+			return "", nil
+		}
+		return "", fmt.Errorf("get agent network settings: %w", err)
+	}
+	if settings == nil || !settings.Dedicated() {
+		return "", nil
+	}
+	return settings.ProxyAddress, nil
+}
+
+// customDomainMatch describes how a service domain relates to the account's
+// custom domain rows.
+type customDomainMatch int
+
+const (
+	customDomainNoMatch customDomainMatch = iota
+	customDomainUnvalidated
+	customDomainValidated
+)
+
+// extractClusterFromCustomDomains finds the longest custom domain covering the
+// service domain and reports its target cluster. Only a validated row yields a
+// cluster: until the CNAME check has passed the account has not shown it
+// controls the name, so no traffic may be routed for it.
+func extractClusterFromCustomDomains(serviceDomain string, customDomains []*domain.Domain) (string, customDomainMatch) {
+	bestCluster := ""
+	bestLen := -1
+	matched := false
+	for _, cd := range customDomains {
+		if serviceDomain != cd.Domain && !strings.HasSuffix(serviceDomain, "."+cd.Domain) {
+			continue
+		}
+		matched = true
+		if !cd.Validated {
+			continue
+		}
+		if l := len(cd.Domain); l > bestLen {
+			bestLen = l
+			bestCluster = cd.TargetCluster
+		}
+	}
+
+	switch {
+	case bestLen >= 0:
+		return bestCluster, customDomainValidated
+	case matched:
+		return "", customDomainUnvalidated
+	default:
+		return "", customDomainNoMatch
+	}
+}
+
+// ExtractClusterFromFreeDomain extracts the cluster address from a free domain.
+// Free domains have the format: <name>.<nonce>.<cluster> (e.g., myapp.abc123.eu.proxy.netbird.io)
+// It matches the domain suffix against available clusters and returns the matching cluster.
+func ExtractClusterFromFreeDomain(domain string, availableClusters []string) (string, bool) {
+	for _, cluster := range availableClusters {
+		if domain == cluster || strings.HasSuffix(domain, "."+cluster) {
+			return cluster, true
+		}
+	}
+	return "", false
+}

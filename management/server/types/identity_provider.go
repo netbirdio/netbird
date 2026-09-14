@@ -3,6 +3,7 @@ package types
 import (
 	"errors"
 	"net/url"
+	"strings"
 )
 
 // Identity provider validation errors
@@ -39,6 +40,8 @@ const (
 	IdentityProviderTypeAuthentik IdentityProviderType = "authentik"
 	// IdentityProviderTypeKeycloak is the Keycloak identity provider
 	IdentityProviderTypeKeycloak IdentityProviderType = "keycloak"
+	// IdentityProviderTypeADFS is the Microsoft AD FS identity provider
+	IdentityProviderTypeADFS IdentityProviderType = "adfs"
 )
 
 // IdentityProvider represents an identity provider configuration
@@ -97,7 +100,16 @@ func (idp *IdentityProvider) Validate() error {
 	}
 	if idp.Issuer != "" {
 		parsedURL, err := url.Parse(idp.Issuer)
-		if err != nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
+		if err != nil || parsedURL.Host == "" {
+			return ErrIdentityProviderIssuerInvalid
+		}
+		if parsedURL.Scheme != "https" {
+			return ErrIdentityProviderIssuerInvalid
+		}
+		if parsedURL.User != nil {
+			return ErrIdentityProviderIssuerInvalid
+		}
+		if strings.ContainsAny(idp.Issuer, "?#") {
 			return ErrIdentityProviderIssuerInvalid
 		}
 	}
@@ -112,7 +124,8 @@ func (t IdentityProviderType) IsValid() bool {
 	switch t {
 	case IdentityProviderTypeOIDC, IdentityProviderTypeZitadel, IdentityProviderTypeEntra,
 		IdentityProviderTypeGoogle, IdentityProviderTypeOkta, IdentityProviderTypePocketID,
-		IdentityProviderTypeMicrosoft, IdentityProviderTypeAuthentik, IdentityProviderTypeKeycloak:
+		IdentityProviderTypeMicrosoft, IdentityProviderTypeAuthentik, IdentityProviderTypeKeycloak,
+		IdentityProviderTypeADFS:
 		return true
 	}
 	return false

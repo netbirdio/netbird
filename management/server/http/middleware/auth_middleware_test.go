@@ -196,6 +196,8 @@ func TestAuthMiddleware_Handler(t *testing.T) {
 		GetPATInfoFunc:                  mockGetAccountInfoFromPAT,
 	}
 
+	disabledLimiter := NewAPIRateLimiter(nil)
+	disabledLimiter.SetEnabled(false)
 	authMiddleware := NewAuthMiddleware(
 		mockAuth,
 		func(ctx context.Context, userAuth nbauth.UserAuth) (string, string, error) {
@@ -207,8 +209,9 @@ func TestAuthMiddleware_Handler(t *testing.T) {
 		func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 			return &types.User{}, nil
 		},
+		disabledLimiter,
 		nil,
-		nil,
+		func(_ context.Context, _, _, _ string) bool { return false },
 	)
 
 	handlerToTest := authMiddleware.Handler(nextHandler)
@@ -235,6 +238,66 @@ func TestAuthMiddleware_Handler(t *testing.T) {
 				t.Errorf("expected status code %d, got %d", tc.expectedStatusCode, result.StatusCode)
 			}
 		})
+	}
+}
+
+// TestAuthMiddleware_SyncUserJWTGroupsDetachedFromRequestCancellation ensures the
+// JWT group sync write is not bound to the request context. The dashboard SPA
+// routinely aborts in-flight requests on re-render/navigation; if the sync ran in
+// the request context, the cancellation would roll back the DB transaction and the
+// synced groups would silently never persist. The sync must receive a context that
+// is not cancelled even when the originating request is.
+func TestAuthMiddleware_SyncUserJWTGroupsDetachedFromRequestCancellation(t *testing.T) {
+	var (
+		syncCalled bool
+		syncCtxErr error
+	)
+
+	mockAuth := &auth.MockManager{
+		ValidateAndParseTokenFunc:       mockValidateAndParseToken,
+		EnsureUserAccessByJWTGroupsFunc: mockEnsureUserAccessByJWTGroups,
+		MarkPATUsedFunc:                 mockMarkPATUsed,
+		GetPATInfoFunc:                  mockGetAccountInfoFromPAT,
+	}
+
+	disabledLimiter := NewAPIRateLimiter(nil)
+	disabledLimiter.SetEnabled(false)
+
+	authMiddleware := NewAuthMiddleware(
+		mockAuth,
+		func(ctx context.Context, userAuth nbauth.UserAuth) (string, string, error) {
+			return userAuth.AccountId, userAuth.UserId, nil
+		},
+		func(ctx context.Context, userAuth nbauth.UserAuth) error {
+			syncCalled = true
+			syncCtxErr = ctx.Err()
+			return nil
+		},
+		func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
+			return &types.User{}, nil
+		},
+		disabledLimiter,
+		nil,
+		func(_ context.Context, _, _, _ string) bool { return false },
+	)
+
+	handlerToTest := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+
+	// Simulate the dashboard aborting the request: it arrives already cancelled.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	req := httptest.NewRequest("GET", "http://testing/test", nil).WithContext(ctx)
+	req.Header.Set("Authorization", "Bearer "+JWT)
+	rec := httptest.NewRecorder()
+
+	handlerToTest.ServeHTTP(rec, req)
+
+	if !syncCalled {
+		t.Fatal("syncUserJWTGroups was not called")
+	}
+	if syncCtxErr != nil {
+		t.Fatalf("syncUserJWTGroups received a cancelled context (%v); the group-sync write must be detached from request cancellation", syncCtxErr)
 	}
 }
 
@@ -266,8 +329,9 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 				return &types.User{}, nil
 			},
-			rateLimitConfig,
+			NewAPIRateLimiter(rateLimitConfig),
 			nil,
+			func(_ context.Context, _, _, _ string) bool { return false },
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -318,8 +382,9 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 				return &types.User{}, nil
 			},
-			rateLimitConfig,
+			NewAPIRateLimiter(rateLimitConfig),
 			nil,
+			func(_ context.Context, _, _, _ string) bool { return false },
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -361,8 +426,9 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 				return &types.User{}, nil
 			},
-			rateLimitConfig,
+			NewAPIRateLimiter(rateLimitConfig),
 			nil,
+			func(_ context.Context, _, _, _ string) bool { return false },
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -405,8 +471,9 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 				return &types.User{}, nil
 			},
-			rateLimitConfig,
+			NewAPIRateLimiter(rateLimitConfig),
 			nil,
+			func(_ context.Context, _, _, _ string) bool { return false },
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -469,8 +536,9 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 				return &types.User{}, nil
 			},
-			rateLimitConfig,
+			NewAPIRateLimiter(rateLimitConfig),
 			nil,
+			func(_ context.Context, _, _, _ string) bool { return false },
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -528,8 +596,9 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 				return &types.User{}, nil
 			},
-			rateLimitConfig,
+			NewAPIRateLimiter(rateLimitConfig),
 			nil,
+			func(_ context.Context, _, _, _ string) bool { return false },
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -583,8 +652,9 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 				return &types.User{}, nil
 			},
-			rateLimitConfig,
+			NewAPIRateLimiter(rateLimitConfig),
 			nil,
+			func(_ context.Context, _, _, _ string) bool { return false },
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -627,15 +697,14 @@ func TestAuthMiddleware_Handler_Child(t *testing.T) {
 			},
 		},
 		{
-			name:       "Valid PAT Token accesses child",
+			name:       "PAT Token with account param ignored in public version",
 			path:       "/test?account=xyz",
 			authHeader: "Token " + PAT,
 			expectedUserAuth: &nbauth.UserAuth{
-				AccountId:      "xyz",
+				AccountId:      accountID,
 				UserId:         userID,
 				Domain:         testAccount.Domain,
 				DomainCategory: testAccount.DomainCategory,
-				IsChild:        true,
 				IsPAT:          true,
 			},
 		},
@@ -652,15 +721,14 @@ func TestAuthMiddleware_Handler_Child(t *testing.T) {
 		},
 
 		{
-			name:       "Valid JWT Token with child",
+			name:       "JWT Token with account param ignored in public version",
 			path:       "/test?account=xyz",
 			authHeader: "Bearer " + JWT,
 			expectedUserAuth: &nbauth.UserAuth{
-				AccountId:      "xyz",
+				AccountId:      accountID,
 				UserId:         userID,
 				Domain:         testAccount.Domain,
 				DomainCategory: testAccount.DomainCategory,
-				IsChild:        true,
 			},
 		},
 	}
@@ -672,6 +740,8 @@ func TestAuthMiddleware_Handler_Child(t *testing.T) {
 		GetPATInfoFunc:                  mockGetAccountInfoFromPAT,
 	}
 
+	disabledLimiter := NewAPIRateLimiter(nil)
+	disabledLimiter.SetEnabled(false)
 	authMiddleware := NewAuthMiddleware(
 		mockAuth,
 		func(ctx context.Context, userAuth nbauth.UserAuth) (string, string, error) {
@@ -683,8 +753,9 @@ func TestAuthMiddleware_Handler_Child(t *testing.T) {
 		func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 			return &types.User{}, nil
 		},
+		disabledLimiter,
 		nil,
-		nil,
+		func(_ context.Context, _, _, _ string) bool { return false },
 	)
 
 	for _, tc := range tt {

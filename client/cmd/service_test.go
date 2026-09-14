@@ -1,168 +1,30 @@
 package cmd
 
 import (
-	"context"
-	"fmt"
 	"os"
+	"os/signal"
 	"runtime"
+	"syscall"
 	"testing"
-	"time"
 
-	"github.com/kardianos/service"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-const (
-	serviceStartTimeout = 10 * time.Second
-	serviceStopTimeout  = 5 * time.Second
-	statusPollInterval  = 500 * time.Millisecond
-)
-
-// waitForServiceStatus waits for service to reach expected status with timeout
-func waitForServiceStatus(expectedStatus service.Status, timeout time.Duration) (bool, error) {
-	cfg, err := newSVCConfig()
-	if err != nil {
-		return false, err
+// TestMain intercepts when this test binary is run as a daemon subprocess.
+// On FreeBSD, the rc.d service script runs the binary via daemon(8) -r with
+// "service run ..." arguments. Since the test binary can't handle cobra CLI
+// args, it exits immediately, causing daemon -r to respawn rapidly until
+// hitting the rate limit and exiting. This makes service restart unreliable.
+// Blocking here keeps the subprocess alive until the init system sends SIGTERM.
+func TestMain(m *testing.M) {
+	if len(os.Args) > 2 && os.Args[1] == "service" && os.Args[2] == "run" {
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, syscall.SIGTERM, os.Interrupt)
+		<-sig
+		return
 	}
-
-	ctxSvc, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	s, err := newSVC(newProgram(ctxSvc, cancel), cfg)
-	if err != nil {
-		return false, err
-	}
-
-	ctx, timeoutCancel := context.WithTimeout(context.Background(), timeout)
-	defer timeoutCancel()
-
-	ticker := time.NewTicker(statusPollInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return false, fmt.Errorf("timeout waiting for service status %v", expectedStatus)
-		case <-ticker.C:
-			status, err := s.Status()
-			if err != nil {
-				// Continue polling on transient errors
-				continue
-			}
-			if status == expectedStatus {
-				return true, nil
-			}
-		}
-	}
-}
-
-// TestServiceLifecycle tests the complete service lifecycle
-func TestServiceLifecycle(t *testing.T) {
-	// TODO: Add support for Windows and macOS
-	if runtime.GOOS != "linux" && runtime.GOOS != "freebsd" {
-		t.Skipf("Skipping service lifecycle test on unsupported OS: %s", runtime.GOOS)
-	}
-
-	if os.Getenv("CONTAINER") == "true" {
-		t.Skip("Skipping service lifecycle test in container environment")
-	}
-
-	originalServiceName := serviceName
-	serviceName = "netbirdtest" + fmt.Sprintf("%d", time.Now().Unix())
-	defer func() {
-		serviceName = originalServiceName
-	}()
-
-	tempDir := t.TempDir()
-	configPath = fmt.Sprintf("%s/netbird-test-config.json", tempDir)
-	logLevel = "info"
-	daemonAddr = fmt.Sprintf("unix://%s/netbird-test.sock", tempDir)
-
-	ctx := context.Background()
-
-	t.Run("Install", func(t *testing.T) {
-		installCmd.SetContext(ctx)
-		err := installCmd.RunE(installCmd, []string{})
-		require.NoError(t, err)
-
-		cfg, err := newSVCConfig()
-		require.NoError(t, err)
-
-		ctxSvc, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		s, err := newSVC(newProgram(ctxSvc, cancel), cfg)
-		require.NoError(t, err)
-
-		status, err := s.Status()
-		assert.NoError(t, err)
-		assert.NotEqual(t, service.StatusUnknown, status)
-	})
-
-	t.Run("Start", func(t *testing.T) {
-		startCmd.SetContext(ctx)
-		err := startCmd.RunE(startCmd, []string{})
-		require.NoError(t, err)
-
-		running, err := waitForServiceStatus(service.StatusRunning, serviceStartTimeout)
-		require.NoError(t, err)
-		assert.True(t, running)
-	})
-
-	t.Run("Restart", func(t *testing.T) {
-		restartCmd.SetContext(ctx)
-		err := restartCmd.RunE(restartCmd, []string{})
-		require.NoError(t, err)
-
-		running, err := waitForServiceStatus(service.StatusRunning, serviceStartTimeout)
-		require.NoError(t, err)
-		assert.True(t, running)
-	})
-
-	t.Run("Reconfigure", func(t *testing.T) {
-		originalLogLevel := logLevel
-		logLevel = "debug"
-		defer func() {
-			logLevel = originalLogLevel
-		}()
-
-		reconfigureCmd.SetContext(ctx)
-		err := reconfigureCmd.RunE(reconfigureCmd, []string{})
-		require.NoError(t, err)
-
-		running, err := waitForServiceStatus(service.StatusRunning, serviceStartTimeout)
-		require.NoError(t, err)
-		assert.True(t, running)
-	})
-
-	t.Run("Stop", func(t *testing.T) {
-		stopCmd.SetContext(ctx)
-		err := stopCmd.RunE(stopCmd, []string{})
-		require.NoError(t, err)
-
-		stopped, err := waitForServiceStatus(service.StatusStopped, serviceStopTimeout)
-		require.NoError(t, err)
-		assert.True(t, stopped)
-	})
-
-	t.Run("Uninstall", func(t *testing.T) {
-		uninstallCmd.SetContext(ctx)
-		err := uninstallCmd.RunE(uninstallCmd, []string{})
-		require.NoError(t, err)
-
-		cfg, err := newSVCConfig()
-		require.NoError(t, err)
-
-		ctxSvc, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		s, err := newSVC(newProgram(ctxSvc, cancel), cfg)
-		require.NoError(t, err)
-
-		_, err = s.Status()
-		assert.Error(t, err)
-	})
+	os.Exit(m.Run())
 }
 
 // TestServiceEnvVars tests environment variable parsing

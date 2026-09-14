@@ -28,7 +28,13 @@ func NewChannel() *Channel {
 	return jc
 }
 
-func (jc *Channel) AddEvent(ctx context.Context, responseWait time.Duration, event *Event) error {
+func (jc *Channel) AddEvent(ctx context.Context, responseWait time.Duration, event *Event) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = ErrJobChannelClosed
+		}
+	}()
+
 	select {
 	case <-ctx.Done():
 		return ctx.Err()

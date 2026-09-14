@@ -8,7 +8,7 @@ import (
 	os "os"
 	reflect "reflect"
 
-	gomock "github.com/golang/mock/gomock"
+	gomock "go.uber.org/mock/gomock"
 	tun "golang.zx2c4.com/wireguard/tun"
 )
 

@@ -1,7 +1,9 @@
+.claude
 .idea
 .run
 *.iml
 dist/
+!proxy/web/dist/
 bin/
 .env
 conf.json
@@ -32,3 +34,4 @@ infrastructure_files/setup-*.env
 vendor/
 /netbird
 client/netbird-electron/
+management/server/types/testdata/

@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"sync"
 	"time"
 
@@ -45,9 +46,10 @@ func NewClient(nbClient *netbird.Client) *Client {
 	}
 }
 
-// Connect establishes an SSH connection through NetBird network
-func (c *Client) Connect(host string, port int, username, jwtToken string) error {
-	addr := fmt.Sprintf("%s:%d", host, port)
+// Connect establishes an SSH connection through NetBird network.
+// ipVersion may be 4, 6, or 0 for automatic selection.
+func (c *Client) Connect(host string, port int, username, jwtToken string, ipVersion int) error {
+	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	logrus.Infof("SSH: Connecting to %s as %s", addr, username)
 
 	authMethods, err := c.getAuthMethods(jwtToken)
@@ -62,21 +64,28 @@ func (c *Client) Connect(host string, port int, username, jwtToken string) error
 		Timeout:         sshDialTimeout,
 	}
 
+	network := "tcp"
+	switch ipVersion {
+	case 4:
+		network = "tcp4"
+	case 6:
+		network = "tcp6"
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), sshDialTimeout)
 	defer cancel()
 
-	conn, err := c.nbClient.Dial(ctx, "tcp", addr)
+	conn, err := c.nbClient.Dial(ctx, network, addr)
 	if err != nil {
 		return fmt.Errorf("dial %s: %w", addr, err)
 	}
 
-	sshConn, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
+	sshClient, err := nbssh.Handshake(ctx, conn, addr, config)
 	if err != nil {
-		closeWithLog(conn, "connection after handshake error")
-		return fmt.Errorf("SSH handshake: %w", err)
+		return err
 	}
 
-	c.sshClient = ssh.NewClient(sshConn, chans, reqs)
+	c.sshClient = sshClient
 	logrus.Infof("SSH: Connected to %s", addr)
 
 	return nil
@@ -109,57 +118,26 @@ func (c *Client) getAuthMethods(jwtToken string) ([]ssh.AuthMethod, error) {
 	return []ssh.AuthMethod{ssh.PublicKeys(signer)}, nil
 }
 
-// StartSession starts an SSH session with PTY
+// StartSession starts an SSH session with PTY. It holds the client lock for
+// the whole startup so Close cannot tear the client down mid-setup and the
+// new session cannot be installed into an already closed client.
 func (c *Client) StartSession(cols, rows int) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	if c.sshClient == nil {
 		return fmt.Errorf("SSH client not connected")
 	}
 
-	session, err := c.sshClient.NewSession()
+	pty, err := nbssh.StartPTYSession(c.sshClient, cols, rows)
 	if err != nil {
-		return fmt.Errorf("create session: %w", err)
+		return err
 	}
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.session = session
-
-	modes := ssh.TerminalModes{
-		ssh.ECHO:          1,
-		ssh.TTY_OP_ISPEED: 14400,
-		ssh.TTY_OP_OSPEED: 14400,
-		ssh.VINTR:         3,
-		ssh.VQUIT:         28,
-		ssh.VERASE:        127,
-	}
-
-	if err := session.RequestPty("xterm-256color", rows, cols, modes); err != nil {
-		closeWithLog(session, "session after PTY error")
-		return fmt.Errorf("PTY request: %w", err)
-	}
-
-	c.stdin, err = session.StdinPipe()
-	if err != nil {
-		closeWithLog(session, "session after stdin error")
-		return fmt.Errorf("get stdin: %w", err)
-	}
-
-	c.stdout, err = session.StdoutPipe()
-	if err != nil {
-		closeWithLog(session, "session after stdout error")
-		return fmt.Errorf("get stdout: %w", err)
-	}
-
-	c.stderr, err = session.StderrPipe()
-	if err != nil {
-		closeWithLog(session, "session after stderr error")
-		return fmt.Errorf("get stderr: %w", err)
-	}
-
-	if err := session.Shell(); err != nil {
-		closeWithLog(session, "session after shell error")
-		return fmt.Errorf("start shell: %w", err)
-	}
+	c.session = pty.Session
+	c.stdin = pty.Stdin
+	c.stdout = pty.Stdout
+	c.stderr = pty.Stderr
 
 	logrus.Info("SSH: Session started with PTY")
 	return nil

@@ -13,6 +13,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/netbirdio/netbird/client/proto"
+	"github.com/netbirdio/netbird/util"
 )
 
 const (
@@ -32,6 +33,19 @@ var (
 // HostKeyVerifier provides SSH host key verification
 type HostKeyVerifier interface {
 	VerifySSHHostKey(peerAddress string, key []byte) error
+}
+
+// PeerKeyLookup returns the stored SSH host key for a peer address.
+type PeerKeyLookup func(peerAddress string) ([]byte, bool)
+
+// VerifySSHHostKey implements HostKeyVerifier by looking up the stored key
+// and comparing it against the presented key.
+func (l PeerKeyLookup) VerifySSHHostKey(peerAddress string, presentedKey []byte) error {
+	storedKey, found := l(peerAddress)
+	if !found {
+		return ErrPeerNotFound
+	}
+	return VerifyHostKey(storedKey, presentedKey, peerAddress)
 }
 
 // DaemonHostKeyVerifier implements HostKeyVerifier using the NetBird daemon
@@ -92,7 +106,8 @@ func printAuthInstructions(stderr io.Writer, authResponse *proto.RequestJWTAuthR
 
 // RequestJWTToken requests or retrieves a JWT token for SSH authentication
 func RequestJWTToken(ctx context.Context, client proto.DaemonServiceClient, stdout, stderr io.Writer, useCache bool, hint string, openBrowser func(string) error) (string, error) {
-	req := &proto.RequestJWTAuthRequest{}
+	// the ssh client runs in the user's session, the daemon does not: tell it what we can see
+	req := &proto.RequestJWTAuthRequest{HasGraphicalSession: util.HasGraphicalSession()}
 	if hint != "" {
 		req.Hint = &hint
 	}
@@ -192,65 +207,4 @@ func buildAddressList(hostname string, remote net.Addr) []string {
 		}
 	}
 	return addresses
-}
-
-// BidirectionalCopy copies data bidirectionally between two io.ReadWriter connections.
-// It waits for both directions to complete before returning.
-// The caller is responsible for closing the connections.
-func BidirectionalCopy(logger *log.Entry, rw1, rw2 io.ReadWriter) {
-	done := make(chan struct{}, 2)
-
-	go func() {
-		if _, err := io.Copy(rw2, rw1); err != nil && !isExpectedCopyError(err) {
-			logger.Debugf("copy error (1->2): %v", err)
-		}
-		done <- struct{}{}
-	}()
-
-	go func() {
-		if _, err := io.Copy(rw1, rw2); err != nil && !isExpectedCopyError(err) {
-			logger.Debugf("copy error (2->1): %v", err)
-		}
-		done <- struct{}{}
-	}()
-
-	<-done
-	<-done
-}
-
-func isExpectedCopyError(err error) bool {
-	return errors.Is(err, io.EOF) || errors.Is(err, context.Canceled)
-}
-
-// BidirectionalCopyWithContext copies data bidirectionally between two io.ReadWriteCloser connections.
-// It waits for both directions to complete or for context cancellation before returning.
-// Both connections are closed when the function returns.
-func BidirectionalCopyWithContext(logger *log.Entry, ctx context.Context, conn1, conn2 io.ReadWriteCloser) {
-	done := make(chan struct{}, 2)
-
-	go func() {
-		if _, err := io.Copy(conn2, conn1); err != nil && !isExpectedCopyError(err) {
-			logger.Debugf("copy error (1->2): %v", err)
-		}
-		done <- struct{}{}
-	}()
-
-	go func() {
-		if _, err := io.Copy(conn1, conn2); err != nil && !isExpectedCopyError(err) {
-			logger.Debugf("copy error (2->1): %v", err)
-		}
-		done <- struct{}{}
-	}()
-
-	select {
-	case <-ctx.Done():
-	case <-done:
-		select {
-		case <-ctx.Done():
-		case <-done:
-		}
-	}
-
-	_ = conn1.Close()
-	_ = conn2.Close()
 }

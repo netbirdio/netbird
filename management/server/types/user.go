@@ -6,18 +6,20 @@ import (
 	"time"
 
 	"github.com/netbirdio/netbird/management/server/idp"
-	"github.com/netbirdio/netbird/management/server/integration_reference"
+	"github.com/netbirdio/netbird/shared/management/integration_reference"
 	"github.com/netbirdio/netbird/util/crypt"
 )
 
 const (
-	UserRoleOwner        UserRole = "owner"
-	UserRoleAdmin        UserRole = "admin"
-	UserRoleUser         UserRole = "user"
-	UserRoleUnknown      UserRole = "unknown"
-	UserRoleBillingAdmin UserRole = "billing_admin"
-	UserRoleAuditor      UserRole = "auditor"
-	UserRoleNetworkAdmin UserRole = "network_admin"
+	UserRoleOwner             UserRole = "owner"
+	UserRoleAdmin             UserRole = "admin"
+	UserRoleUser              UserRole = "user"
+	UserRoleUnknown           UserRole = "unknown"
+	UserRoleBillingAdmin      UserRole = "billing_admin"
+	UserRoleAuditor           UserRole = "auditor"
+	UserRoleNetworkAdmin      UserRole = "network_admin"
+	UserRoleAgentNetworkAdmin UserRole = "agent_network_admin"
+	UserRoleUsageViewer       UserRole = "usage_viewer"
 
 	UserStatusActive   UserStatus = "active"
 	UserStatusDisabled UserStatus = "disabled"
@@ -42,6 +44,10 @@ func StrRoleToUserRole(strRole string) UserRole {
 		return UserRoleAuditor
 	case "network_admin":
 		return UserRoleNetworkAdmin
+	case "agent_network_admin":
+		return UserRoleAgentNetworkAdmin
+	case "usage_viewer":
+		return UserRoleUsageViewer
 	default:
 		return UserRoleUnknown
 	}
@@ -140,7 +146,7 @@ func (u *User) IsRegularUser() bool {
 
 // IsRestrictable checks whether a user is in a restrictable role.
 func (u *User) IsRestrictable() bool {
-	return u.Role == UserRoleUser || u.Role == UserRoleBillingAdmin
+	return u.Role == UserRoleUser || u.Role == UserRoleBillingAdmin || u.Role == UserRoleUsageViewer
 }
 
 // ToUserInfo converts a User object to a UserInfo object.

@@ -13,25 +13,30 @@ import (
 	"os"
 	"os/signal"
 	"path"
+	"path/filepath"
 	"strings"
 	"syscall"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
+	"github.com/netbirdio/netbird/management/server/types"
+
 	"github.com/netbirdio/netbird/formatter/hook"
+	agentnetworkpricing "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/pricing"
 	"github.com/netbirdio/netbird/management/internals/server"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	nbdomain "github.com/netbirdio/netbird/shared/management/domain"
+	"github.com/netbirdio/netbird/shared/management/grpc"
 	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/util/crypt"
 )
 
-var newServer = func(config *nbconfig.Config, dnsDomain, mgmtSingleAccModeDomain string, mgmtPort int, mgmtMetricsPort int, disableMetrics, disableGeoliteUpdate, userDeleteFromIDPEnabled bool) server.Server {
-	return server.NewServer(config, dnsDomain, mgmtSingleAccModeDomain, mgmtPort, mgmtMetricsPort, disableMetrics, disableGeoliteUpdate, userDeleteFromIDPEnabled)
+var newServer = func(cfg *server.Config) server.Server {
+	return server.NewServer(cfg)
 }
 
-func SetNewServer(fn func(config *nbconfig.Config, dnsDomain, mgmtSingleAccModeDomain string, mgmtPort int, mgmtMetricsPort int, disableMetrics, disableGeoliteUpdate, userDeleteFromIDPEnabled bool) server.Server) {
+func SetNewServer(fn func(*server.Config) server.Server) {
 	newServer = fn
 }
 
@@ -55,7 +60,7 @@ var (
 			// detect whether user specified a port
 			userPort := cmd.Flag("port").Changed
 
-			config, err = loadMgmtConfig(ctx, nbconfig.MgmtConfigPath)
+			config, err = LoadMgmtConfig(ctx, nbconfig.MgmtConfigPath)
 			if err != nil {
 				return fmt.Errorf("failed reading provided config file: %s: %v", nbconfig.MgmtConfigPath, err)
 			}
@@ -108,7 +113,40 @@ var (
 				mgmtSingleAccModeDomain = ""
 			}
 
-			srv := newServer(config, dnsDomain, mgmtSingleAccModeDomain, mgmtPort, mgmtMetricsPort, disableMetrics, disableGeoliteUpdate, userDeleteFromIDPEnabled)
+			// Load the management-side LLM pricing defaults file: an
+			// explicitly configured path is required to load (a typo must
+			// fail startup — the operator believes those rates are live);
+			// otherwise <datadir>/defaults_llm_pricing.yaml is probed and
+			// may be absent (compiled-in defaults serve). A relative path
+			// is resolved against the datadir so a bare filename lands
+			// alongside the store. Either way the path stays watched: the
+			// reloader picks up edits — and the file appearing later —
+			// without a restart.
+			pricingPath := config.AgentNetwork.PricingDefaultsFile
+			pricingRequired := pricingPath != ""
+			if !pricingRequired {
+				pricingPath = agentnetworkpricing.DefaultFileName
+			}
+			if !filepath.IsAbs(pricingPath) {
+				pricingPath = filepath.Join(config.Datadir, pricingPath)
+			}
+			log.Infof("loading agent-network pricing defaults from %s (required: %v)", pricingPath, pricingRequired)
+			if err := agentnetworkpricing.LoadFile(pricingPath, pricingRequired); err != nil {
+				return fmt.Errorf("load agent-network pricing defaults: %v", err)
+			}
+			agentnetworkpricing.StartReloader(ctx, agentnetworkpricing.ReloadInterval)
+
+			srv := newServer(&server.Config{
+				NbConfig:                    config,
+				DNSDomain:                   dnsDomain,
+				MgmtSingleAccModeDomain:     mgmtSingleAccModeDomain,
+				MgmtPort:                    mgmtPort,
+				MgmtMetricsPort:             mgmtMetricsPort,
+				DisableLegacyManagementPort: disableLegacyManagementPort,
+				DisableMetrics:              disableMetrics,
+				DisableGeoliteUpdate:        disableGeoliteUpdate,
+				UserDeleteFromIDPEnabled:    userDeleteFromIDPEnabled,
+			})
 			go func() {
 				if err := srv.Start(cmd.Context()); err != nil {
 					log.Fatalf("Server error: %v", err)
@@ -133,35 +171,47 @@ var (
 	}
 )
 
-func loadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*nbconfig.Config, error) {
+func LoadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*nbconfig.Config, error) {
 	loadedConfig := &nbconfig.Config{}
 	if _, err := util.ReadJsonWithEnvSub(mgmtConfigPath, loadedConfig); err != nil {
 		return nil, err
 	}
 
-	applyCommandLineOverrides(loadedConfig)
+	ApplyCommandLineOverrides(loadedConfig)
 
-	// Apply EmbeddedIdP config to HttpConfig if embedded IdP is enabled
-	err := applyEmbeddedIdPConfig(ctx, loadedConfig)
+	err := grpc.ValidateSyncMessageVersion(loadedConfig.HighestSupportedSyncMessageVersion)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := applyOIDCConfig(ctx, loadedConfig); err != nil {
+	for account, version := range loadedConfig.PerAccountHighestSupportedSyncMessageVersion {
+		err := grpc.ValidateSyncMessageVersion(&version)
+		if err != nil {
+			return nil, fmt.Errorf("unrecognized sync message version for account %s, %w", account, err)
+		}
+	}
+
+	// Apply EmbeddedIdP config to HttpConfig if embedded IdP is enabled
+	err = ApplyEmbeddedIdPConfig(ctx, loadedConfig)
+	if err != nil {
 		return nil, err
 	}
 
-	logConfigInfo(loadedConfig)
+	if err := ApplyOIDCConfig(ctx, loadedConfig); err != nil {
+		return nil, err
+	}
 
-	if err := ensureEncryptionKey(ctx, mgmtConfigPath, loadedConfig); err != nil {
+	LogConfigInfo(loadedConfig)
+
+	if err := EnsureEncryptionKey(ctx, mgmtConfigPath, loadedConfig); err != nil {
 		return nil, err
 	}
 
 	return loadedConfig, nil
 }
 
-// applyCommandLineOverrides applies command-line flag overrides to the config
-func applyCommandLineOverrides(cfg *nbconfig.Config) {
+// ApplyCommandLineOverrides applies command-line flag overrides to the config
+func ApplyCommandLineOverrides(cfg *nbconfig.Config) {
 	if mgmtLetsencryptDomain != "" {
 		cfg.HttpConfig.LetsEncryptDomain = mgmtLetsencryptDomain
 	}
@@ -174,9 +224,9 @@ func applyCommandLineOverrides(cfg *nbconfig.Config) {
 	}
 }
 
-// applyEmbeddedIdPConfig populates HttpConfig and EmbeddedIdP storage from config when embedded IdP is enabled.
+// ApplyEmbeddedIdPConfig populates HttpConfig and EmbeddedIdP storage from config when embedded IdP is enabled.
 // This allows users to only specify EmbeddedIdP config without duplicating values in HttpConfig.
-func applyEmbeddedIdPConfig(ctx context.Context, cfg *nbconfig.Config) error {
+func ApplyEmbeddedIdPConfig(ctx context.Context, cfg *nbconfig.Config) error {
 	if cfg.EmbeddedIdP == nil || !cfg.EmbeddedIdP.Enabled {
 		return nil
 	}
@@ -185,6 +235,9 @@ func applyEmbeddedIdPConfig(ctx context.Context, cfg *nbconfig.Config) error {
 	if disableSingleAccMode {
 		// Embedded IdP requires single account mode - multiple account mode is not supported
 		return fmt.Errorf("embedded IdP requires single account mode; multiple account mode is not supported with embedded IdP. Please remove --disable-single-account-mode flag")
+	}
+	if mgmtSingleAccModeDomain == "" {
+		return fmt.Errorf("embedded IdP requires single account mode; --single-account-mode-domain must not be empty")
 	}
 	// Enable user deletion from IDP by default if EmbeddedIdP is enabled
 	userDeleteFromIDPEnabled = true
@@ -197,7 +250,7 @@ func applyEmbeddedIdPConfig(ctx context.Context, cfg *nbconfig.Config) error {
 		cfg.EmbeddedIdP.Storage.Type = "sqlite3"
 	}
 	if cfg.EmbeddedIdP.Storage.Config.File == "" && cfg.Datadir != "" {
-		cfg.EmbeddedIdP.Storage.Config.File = path.Join(cfg.Datadir, "idp.db")
+		cfg.EmbeddedIdP.Storage.Config.File = filepath.Join(cfg.Datadir, "idp.db")
 	}
 
 	issuer := cfg.EmbeddedIdP.Issuer
@@ -213,17 +266,20 @@ func applyEmbeddedIdPConfig(ctx context.Context, cfg *nbconfig.Config) error {
 	// Set HttpConfig values from EmbeddedIdP
 	cfg.HttpConfig.AuthIssuer = issuer
 	cfg.HttpConfig.AuthAudience = "netbird-dashboard"
+	cfg.HttpConfig.AuthClientID = cfg.HttpConfig.AuthAudience
 	cfg.HttpConfig.CLIAuthAudience = "netbird-cli"
 	cfg.HttpConfig.AuthUserIDClaim = "sub"
 	cfg.HttpConfig.AuthKeysLocation = issuer + "/keys"
 	cfg.HttpConfig.OIDCConfigEndpoint = issuer + "/.well-known/openid-configuration"
 	cfg.HttpConfig.IdpSignKeyRefreshEnabled = true
+	callbackURL := strings.TrimSuffix(cfg.HttpConfig.AuthIssuer, "/oauth2")
+	cfg.HttpConfig.AuthCallbackURL = callbackURL + types.ProxyCallbackEndpointFull
 
 	return nil
 }
 
-// applyOIDCConfig fetches and applies OIDC configuration if endpoint is specified
-func applyOIDCConfig(ctx context.Context, cfg *nbconfig.Config) error {
+// ApplyOIDCConfig fetches and applies OIDC configuration if endpoint is specified
+func ApplyOIDCConfig(ctx context.Context, cfg *nbconfig.Config) error {
 	oidcEndpoint := cfg.HttpConfig.OIDCConfigEndpoint
 	if oidcEndpoint == "" {
 		return nil
@@ -249,16 +305,16 @@ func applyOIDCConfig(ctx context.Context, cfg *nbconfig.Config) error {
 		oidcConfig.JwksURI, cfg.HttpConfig.AuthKeysLocation)
 	cfg.HttpConfig.AuthKeysLocation = oidcConfig.JwksURI
 
-	if err := applyDeviceAuthFlowConfig(ctx, cfg, &oidcConfig, oidcEndpoint); err != nil {
+	if err := ApplyDeviceAuthFlowConfig(ctx, cfg, &oidcConfig, oidcEndpoint); err != nil {
 		return err
 	}
-	applyPKCEFlowConfig(ctx, cfg, &oidcConfig)
+	ApplyPKCEFlowConfig(ctx, cfg, &oidcConfig)
 
 	return nil
 }
 
-// applyDeviceAuthFlowConfig applies OIDC config to DeviceAuthorizationFlow if enabled
-func applyDeviceAuthFlowConfig(ctx context.Context, cfg *nbconfig.Config, oidcConfig *OIDCConfigResponse, oidcEndpoint string) error {
+// ApplyDeviceAuthFlowConfig applies OIDC config to DeviceAuthorizationFlow if enabled
+func ApplyDeviceAuthFlowConfig(ctx context.Context, cfg *nbconfig.Config, oidcConfig *OIDCConfigResponse, oidcEndpoint string) error {
 	if cfg.DeviceAuthorizationFlow == nil || strings.ToLower(cfg.DeviceAuthorizationFlow.Provider) == string(nbconfig.NONE) {
 		return nil
 	}
@@ -285,8 +341,8 @@ func applyDeviceAuthFlowConfig(ctx context.Context, cfg *nbconfig.Config, oidcCo
 	return nil
 }
 
-// applyPKCEFlowConfig applies OIDC config to PKCEAuthorizationFlow if configured
-func applyPKCEFlowConfig(ctx context.Context, cfg *nbconfig.Config, oidcConfig *OIDCConfigResponse) {
+// ApplyPKCEFlowConfig applies OIDC config to PKCEAuthorizationFlow if configured
+func ApplyPKCEFlowConfig(ctx context.Context, cfg *nbconfig.Config, oidcConfig *OIDCConfigResponse) {
 	if cfg.PKCEAuthorizationFlow == nil {
 		return
 	}
@@ -299,8 +355,8 @@ func applyPKCEFlowConfig(ctx context.Context, cfg *nbconfig.Config, oidcConfig *
 	cfg.PKCEAuthorizationFlow.ProviderConfig.AuthorizationEndpoint = oidcConfig.AuthorizationEndpoint
 }
 
-// logConfigInfo logs informational messages about the loaded configuration
-func logConfigInfo(cfg *nbconfig.Config) {
+// LogConfigInfo logs informational messages about the loaded configuration
+func LogConfigInfo(cfg *nbconfig.Config) {
 	if cfg.EmbeddedIdP != nil {
 		log.Infof("running with the embedded IdP: %v", cfg.EmbeddedIdP.Issuer)
 	}
@@ -309,8 +365,8 @@ func logConfigInfo(cfg *nbconfig.Config) {
 	}
 }
 
-// ensureEncryptionKey generates and saves a DataStoreEncryptionKey if not set
-func ensureEncryptionKey(ctx context.Context, configPath string, cfg *nbconfig.Config) error {
+// EnsureEncryptionKey generates and saves a DataStoreEncryptionKey if not set
+func EnsureEncryptionKey(ctx context.Context, configPath string, cfg *nbconfig.Config) error {
 	if cfg.DataStoreEncryptionKey != "" {
 		return nil
 	}

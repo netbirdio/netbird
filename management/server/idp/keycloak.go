@@ -66,7 +66,7 @@ func NewKeycloakManager(config KeycloakClientConfig, appMetrics telemetry.AppMet
 		Timeout:   idpTimeout(),
 		Transport: httpTransport,
 	}
-	
+
 	helper := JsonParser{}
 
 	if config.ClientID == "" {

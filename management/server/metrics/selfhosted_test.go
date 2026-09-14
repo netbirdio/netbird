@@ -6,11 +6,13 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/idp/dex"
+	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
+	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
 )
@@ -27,7 +29,8 @@ func (mockDatasource) GetAllConnectedPeers() map[string]struct{} {
 // GetAllAccounts returns a list of *server.Account for use in tests with predefined information
 func (mockDatasource) GetAllAccounts(_ context.Context) []*types.Account {
 	localUserID := dex.EncodeDexUserID("10", "local")
-	idpUserID := dex.EncodeDexUserID("20", "zitadel")
+	idpUserID := dex.EncodeDexUserID("20", "zitadel-d5uv82dra0haedlf6kv0")
+	oidcUserID := dex.EncodeDexUserID("30", "d6jvvp69kmnc73c9pl40")
 	return []*types.Account{
 		{
 			Id:       "1",
@@ -115,6 +118,41 @@ func (mockDatasource) GetAllAccounts(_ context.Context) []*types.Account {
 					},
 				},
 			},
+			Services: []*rpservice.Service{
+				{
+					ID:      "svc1",
+					Enabled: true,
+					Targets: []*rpservice.Target{
+						{TargetType: "peer"},
+						{TargetType: "host", Options: rpservice.TargetOptions{DirectUpstream: true}},
+					},
+					Auth: rpservice.AuthConfig{
+						PasswordAuth: &rpservice.PasswordAuthConfig{Enabled: true},
+					},
+					Meta: rpservice.Meta{Status: string(rpservice.StatusActive)},
+				},
+				{
+					ID:      "svc2",
+					Enabled: false,
+					Targets: []*rpservice.Target{
+						{TargetType: "domain"},
+					},
+					Auth: rpservice.AuthConfig{
+						BearerAuth: &rpservice.BearerAuthConfig{Enabled: true},
+					},
+					Meta: rpservice.Meta{Status: string(rpservice.StatusPending)},
+				},
+				{
+					ID:           "svc3-private",
+					Enabled:      true,
+					Private:      true,
+					AccessGroups: []string{"grp-eng", "grp-ops"},
+					Targets: []*rpservice.Target{
+						{TargetType: "cluster", Options: rpservice.TargetOptions{DirectUpstream: true}},
+					},
+					Meta: rpservice.Meta{Status: string(rpservice.StatusActive)},
+				},
+			},
 		},
 		{
 			Id:       "2",
@@ -180,6 +218,13 @@ func (mockDatasource) GetAllAccounts(_ context.Context) []*types.Account {
 						"1": {},
 					},
 				},
+				oidcUserID: {
+					Id:            oidcUserID,
+					IsServiceUser: false,
+					PATs: map[string]*types.PersonalAccessToken{
+						"1": {},
+					},
+				},
 			},
 			Networks: []*networkTypes.Network{
 				{
@@ -215,6 +260,38 @@ func (mockDatasource) GetStoreEngine() types.Engine {
 	return types.FileStoreEngine
 }
 
+// GetCustomDomainsCounts returns test custom domain counts.
+func (mockDatasource) GetCustomDomainsCounts(_ context.Context) (int64, int64, error) {
+	return 3, 2, nil
+}
+
+// GetProxyMetrics returns canned proxy/cluster counts so the
+// generateProperties test can assert the BYOP signals end-to-end.
+func (mockDatasource) GetProxyMetrics(_ context.Context) (store.ProxyMetrics, error) {
+	return store.ProxyMetrics{
+		Clusters:         3,
+		ClustersBYOP:     1,
+		ClustersPrivate:  1,
+		Proxies:          4,
+		ProxiesConnected: 2,
+	}, nil
+}
+
+// GetAgentNetworkMetrics returns canned agent-network counts so the
+// generateProperties test can assert the adoption/usage signals end-to-end.
+func (mockDatasource) GetAgentNetworkMetrics(_ context.Context) (store.AgentNetworkMetrics, error) {
+	return store.AgentNetworkMetrics{
+		Accounts:             2,
+		Providers:            5,
+		Policies:             3,
+		BudgetRules:          1,
+		LogCollectionEnabled: 2,
+		InputTokens:          1000,
+		OutputTokens:         500,
+		CostUSD:              1.25,
+	}, nil
+}
+
 // TestGenerateProperties tests and validate the properties generation by using the mockDatasource for the Worker.generateProperties
 func TestGenerateProperties(t *testing.T) {
 	ds := mockDatasource{}
@@ -247,14 +324,14 @@ func TestGenerateProperties(t *testing.T) {
 	if properties["rules"] != 4 {
 		t.Errorf("expected 4 rules, got %d", properties["rules"])
 	}
-	if properties["users"] != 2 {
-		t.Errorf("expected 1 users, got %d", properties["users"])
+	if properties["users"] != 3 {
+		t.Errorf("expected 3 users, got %d", properties["users"])
 	}
 	if properties["setup_keys_usage"] != 2 {
 		t.Errorf("expected 1 setup_keys_usage, got %d", properties["setup_keys_usage"])
 	}
-	if properties["pats"] != 4 {
-		t.Errorf("expected 4 personal_access_tokens, got %d", properties["pats"])
+	if properties["pats"] != 5 {
+		t.Errorf("expected 5 personal_access_tokens, got %d", properties["pats"])
 	}
 	if properties["peers_ssh_enabled"] != 2 {
 		t.Errorf("expected 2 peers_ssh_enabled, got %d", properties["peers_ssh_enabled"])
@@ -338,7 +415,120 @@ func TestGenerateProperties(t *testing.T) {
 	if properties["local_users_count"] != 1 {
 		t.Errorf("expected 1 local_users_count, got %d", properties["local_users_count"])
 	}
-	if properties["idp_users_count"] != 1 {
-		t.Errorf("expected 1 idp_users_count, got %d", properties["idp_users_count"])
+	if properties["idp_users_count"] != 2 {
+		t.Errorf("expected 2 idp_users_count, got %d", properties["idp_users_count"])
+	}
+	if properties["embedded_idp_users_local"] != 1 {
+		t.Errorf("expected 1 embedded_idp_users_local, got %v", properties["embedded_idp_users_local"])
+	}
+	if properties["embedded_idp_users_zitadel"] != 1 {
+		t.Errorf("expected 1 embedded_idp_users_zitadel, got %v", properties["embedded_idp_users_zitadel"])
+	}
+	if properties["embedded_idp_users_oidc"] != 1 {
+		t.Errorf("expected 1 embedded_idp_users_oidc, got %v", properties["embedded_idp_users_oidc"])
+	}
+	if properties["embedded_idp_count"] != 3 {
+		t.Errorf("expected 3 embedded_idp_count, got %v", properties["embedded_idp_count"])
+	}
+
+	if properties["services"] != 3 {
+		t.Errorf("expected 3 services, got %v", properties["services"])
+	}
+	if properties["services_enabled"] != 2 {
+		t.Errorf("expected 2 services_enabled, got %v", properties["services_enabled"])
+	}
+	if properties["services_targets"] != 4 {
+		t.Errorf("expected 4 services_targets, got %v", properties["services_targets"])
+	}
+	if properties["services_status_active"] != 2 {
+		t.Errorf("expected 2 services_status_active, got %v", properties["services_status_active"])
+	}
+	if properties["services_status_pending"] != 1 {
+		t.Errorf("expected 1 services_status_pending, got %v", properties["services_status_pending"])
+	}
+	if properties["services_status_error"] != 0 {
+		t.Errorf("expected 0 services_status_error, got %v", properties["services_status_error"])
+	}
+	if properties["services_target_type_peer"] != 1 {
+		t.Errorf("expected 1 services_target_type_peer, got %v", properties["services_target_type_peer"])
+	}
+	if properties["services_target_type_host"] != 1 {
+		t.Errorf("expected 1 services_target_type_host, got %v", properties["services_target_type_host"])
+	}
+	if properties["services_target_type_domain"] != 1 {
+		t.Errorf("expected 1 services_target_type_domain, got %v", properties["services_target_type_domain"])
+	}
+	if properties["services_target_type_cluster"] != 1 {
+		t.Errorf("expected 1 services_target_type_cluster, got %v", properties["services_target_type_cluster"])
+	}
+	if properties["services_auth_password"] != 1 {
+		t.Errorf("expected 1 services_auth_password, got %v", properties["services_auth_password"])
+	}
+	if properties["services_auth_oidc"] != 1 {
+		t.Errorf("expected 1 services_auth_oidc, got %v", properties["services_auth_oidc"])
+	}
+	if properties["services_auth_pin"] != 0 {
+		t.Errorf("expected 0 services_auth_pin, got %v", properties["services_auth_pin"])
+	}
+	if properties["services_private"] != 1 {
+		t.Errorf("expected 1 services_private, got %v", properties["services_private"])
+	}
+	if properties["services_private_with_access_groups"] != 1 {
+		t.Errorf("expected 1 services_private_with_access_groups, got %v", properties["services_private_with_access_groups"])
+	}
+	if properties["services_private_access_groups_sum"] != 2 {
+		t.Errorf("expected 2 services_private_access_groups_sum, got %v", properties["services_private_access_groups_sum"])
+	}
+	if properties["services_with_direct_upstream"] != 2 {
+		t.Errorf("expected 2 services_with_direct_upstream, got %v", properties["services_with_direct_upstream"])
+	}
+	if properties["proxy_clusters"] != int64(3) {
+		t.Errorf("expected 3 proxy_clusters, got %v", properties["proxy_clusters"])
+	}
+	if properties["proxy_clusters_byop"] != int64(1) {
+		t.Errorf("expected 1 proxy_clusters_byop, got %v", properties["proxy_clusters_byop"])
+	}
+	if properties["proxy_clusters_private"] != int64(1) {
+		t.Errorf("expected 1 proxy_clusters_private, got %v", properties["proxy_clusters_private"])
+	}
+	if properties["proxies"] != int64(4) {
+		t.Errorf("expected 4 proxies, got %v", properties["proxies"])
+	}
+	if properties["proxies_connected"] != int64(2) {
+		t.Errorf("expected 2 proxies_connected, got %v", properties["proxies_connected"])
+	}
+	if properties["custom_domains"] != int64(3) {
+		t.Errorf("expected 3 custom_domains, got %v", properties["custom_domains"])
+	}
+	if properties["custom_domains_validated"] != int64(2) {
+		t.Errorf("expected 2 custom_domains_validated, got %v", properties["custom_domains_validated"])
+	}
+}
+
+func TestExtractIdpType(t *testing.T) {
+	tests := []struct {
+		connectorID string
+		expected    string
+	}{
+		{"okta-abc123def", "okta"},
+		{"zitadel-d5uv82dra0haedlf6kv0", "zitadel"},
+		{"entra-xyz789", "entra"},
+		{"google-abc123", "google"},
+		{"pocketid-abc123", "pocketid"},
+		{"microsoft-abc123", "microsoft"},
+		{"authentik-abc123", "authentik"},
+		{"keycloak-d5uv82dra0haedlf6kv0", "keycloak"},
+		{"local", "local"},
+		{"d6jvvp69kmnc73c9pl40", "oidc"},
+		{"", "oidc"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.connectorID, func(t *testing.T) {
+			result := extractIdpType(tt.connectorID)
+			if result != tt.expected {
+				t.Errorf("extractIdpType(%q) = %q, want %q", tt.connectorID, result, tt.expected)
+			}
+		})
 	}
 }
