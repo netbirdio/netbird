@@ -25,6 +25,8 @@ import (
 const defaultDuration = 12 * time.Hour
 
 // SecretsManager used to manage TURN and relay secrets
+//
+//go:generate go tool mockgen -source=./token_mgr.go -destination=./token_mgr_mock.go -package=grpc
 type SecretsManager interface {
 	GenerateTurnToken() (*Token, error)
 	GenerateRelayToken() (*Token, error)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -205,6 +206,14 @@ func (s *stubStore) UpdateCustomDomain(context.Context, string, *domain.Domain) 
 }
 
 func (s *stubStore) DeleteCustomDomain(context.Context, string, string) error {
+	panic("not used in allow-list tests")
+}
+
+func (s *stubStore) GetExpiredCustomDomains(context.Context, time.Time, domain.ID, int) ([]*domain.Domain, error) {
+	panic("not used in allow-list tests")
+}
+
+func (s *stubStore) DeleteExpiredCustomDomain(context.Context, *domain.Domain, time.Time) (bool, error) {
 	panic("not used in allow-list tests")
 }
 

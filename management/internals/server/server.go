@@ -66,7 +66,8 @@ type BaseServer struct {
 	disableLegacyManagementPort bool
 	autoResolveDomains          bool
 
-	proxyAuthClose func()
+	proxyAuthClose    func()
+	domainCleanupStop func()
 
 	// grpcExtensions holds additional gRPC services, interceptors, and shutdown
 	// hooks registered by external modules via RegisterGRPCExtension. Populated
@@ -227,8 +228,25 @@ func (s *BaseServer) Start(ctx context.Context) error {
 	s.update.SetOnUpdateListener(func() {
 		log.WithContext(ctx).Infof("your management version, \"%s\", is outdated, a new management version is available. Learn more here: https://github.com/netbirdio/netbird/releases", version.NetbirdVersion())
 	})
+	s.startDomainCleanup(srvCtx)
 
 	return nil
+}
+func (s *BaseServer) startDomainCleanup(ctx context.Context) {
+	if s.domainCleanupStop != nil {
+		return
+	}
+	mgr := s.ReverseProxyDomainManager()
+	ctx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	s.domainCleanupStop = func() {
+		cancel()
+		<-done
+	}
+	go func() {
+		defer close(done)
+		mgr.RunValidationCleanup(ctx)
+	}()
 }
 
 // setupTLS resolves the listener's TLS source: an injected config wins over the HttpConfig certificate settings
@@ -260,6 +278,9 @@ func (s *BaseServer) setupTLS(ctx context.Context) (bool, error) {
 func (s *BaseServer) Stop() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	if s.domainCleanupStop != nil {
+		s.domainCleanupStop()
+	}
 
 	s.IntegratedValidator().Stop(ctx)
 	if s.GeoLocationManager() != nil {

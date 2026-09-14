@@ -160,9 +160,10 @@ jobs:
 
       - name: Test
         # Exclude client/ui: its main.go uses //go:embed all:frontend/dist,
-        # which fails to compile until the frontend has been built. The Wails UI
-        # has no Go-side unit tests, and its release pipeline runs `pnpm build`
-        # before goreleaser.
+        # which fails to compile until the frontend has been built, and its
+        # release pipeline runs `pnpm build` before goreleaser. The subpackages
+        # go with it because this runner's gtk4 is older than the wails runtime
+        # needs; the Client UI / Unit job below covers them instead.
         # `go list -e` lets the listing succeed even though the embed fails to
         # resolve; the grep then drops the broken package by path. Without -e,
         # go list aborts with empty stdout and `go test` falls back to the repo
@@ -176,6 +177,35 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           slug: netbirdio/netbird
           flags: unit,client
+
+  test_client_ui:
+    name: "Client UI / Unit"
+    # Pinned to 24.04 rather than the 22.04 the other client jobs use: the wails
+    # runtime's linux cgo layer needs GtkFileDialog, which arrived in gtk4 4.10,
+    # and jammy ships 4.6. Not ubuntu-latest, so a runner image rollover cannot
+    # move this out from under us.
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: "go.mod"
+          cache: false
+
+      - name: Install dependencies
+        run: sudo apt update && sudo apt install -y -q libgtk-4-dev libwebkitgtk-6.0-dev libsoup-3.0-dev
+
+      - name: Test
+        # client/ui itself stays out: its main.go embeds all:frontend/dist,
+        # which only exists after `pnpm build`. The subpackages carry the
+        # Go-side unit tests, including the window manager re-entrancy
+        # regression test, and need no frontend bundle.
+        run: CGO_ENABLED=1 go test -timeout 5m ./client/ui/authsession/... ./client/ui/i18n/... ./client/ui/preferences/... ./client/ui/services/...
 
   test_client_on_docker:
     name: "Client (Docker) / Unit"
@@ -211,6 +241,9 @@ jobs:
             ${{ runner.os }}-gotest-cache-
 
       - name: Run tests in container
+        # Unlike the native job above, this one drops all of client/ui including
+        # the subpackages: the alpine container has no gtk4/webkitgtk, so the
+        # Wails application package they import would fail to link.
         env:
           HOST_GOCACHE: ${{ steps.go-env.outputs.cache_dir }}
           HOST_GOMODCACHE: ${{ steps.go-env.outputs.modcache_dir }}
