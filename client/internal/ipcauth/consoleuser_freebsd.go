@@ -1,18 +1,28 @@
 package ipcauth
 
 import (
-	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"syscall"
 )
 
+const (
+	devDir = "/dev"
+
+	// vtPrefix names the virtual terminals vt(4) publishes. How many there are
+	// is a kernel constant rather than a fixed number, and past the tenth they
+	// are not spelled in decimal: the unit is rendered in base 32, so the one
+	// after ttyv9 is ttyva.
+	vtPrefix = "ttyv"
+)
+
 // isConsoleUser reports whether id is logged into the FreeBSD console.
-// FreeBSD's vt(4) chowns the active virtual terminal device to the logged-in
-// user, so a non-root owner of any /dev/ttyvN reliably identifies a console
-// user.
+// FreeBSD's vt(4) chowns the virtual terminal device to the user logged in on
+// it, so a non-root owner of any /dev/ttyv* reliably identifies a console user.
 //
-// We scan /dev/ttyv0../dev/ttyv9. Network ptys (pts) are intentionally not
-// considered: SSH'd users are not "at the console".
+// Network ptys (pts) are intentionally not considered: SSH'd users are not "at
+// the console".
 func isConsoleUser(id Identity) bool {
 	// A SID belongs to a Windows principal and has no uid to compare.
 	if id.IsWindows() {
@@ -26,9 +36,18 @@ func isConsoleUser(id Identity) bool {
 		return false
 	}
 
-	for i := 0; i < 10; i++ {
-		path := fmt.Sprintf("/dev/ttyv%d", i)
-		fi, err := os.Stat(path)
+	entries, err := os.ReadDir(devDir)
+	if err != nil {
+		return false
+	}
+
+	for _, entry := range entries {
+		name := entry.Name()
+		suffix, ok := strings.CutPrefix(name, vtPrefix)
+		if !ok || suffix == "" {
+			continue
+		}
+		fi, err := os.Stat(filepath.Join(devDir, name))
 		if err != nil {
 			continue
 		}
