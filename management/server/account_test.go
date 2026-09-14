@@ -2431,6 +2431,37 @@ func TestDefaultAccountManager_UpdateAccountSettings(t *testing.T) {
 		Extra:                      &types.ExtraSettings{},
 	})
 	require.Error(t, err, "expecting to fail when providing PeerLoginExpiration more than 180 days")
+
+	_, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &types.Settings{
+		PeerLoginExpiration:        time.Hour,
+		PeerLoginExpirationEnabled: false,
+		SSHJWTMaxTokenAge:          -time.Second,
+		Extra:                      &types.ExtraSettings{},
+	})
+	require.Error(t, err, "expecting to fail when providing negative SSHJWTMaxTokenAge")
+}
+
+func TestDefaultAccountManager_UpdateAccountSettings_SSHJWTMaxTokenAge(t *testing.T) {
+	manager, updateManager, account, peer1, _, _ := setupNetworkMapTest(t)
+
+	updateMessage := updateManager.CreateChannel(context.Background(), peer1.ID)
+	defer updateManager.CloseChannel(context.Background(), peer1.ID)
+
+	initialAccount, err := manager.Store.GetAccount(context.Background(), account.Id)
+	require.NoError(t, err, "unable to get initial account")
+
+	newSettings := initialAccount.Settings.Copy()
+	newSettings.SSHJWTMaxTokenAge = 10 * time.Minute
+	updatedSettings, err := manager.UpdateAccountSettings(context.Background(), account.Id, userID, newSettings)
+	require.NoError(t, err, "expecting to update account settings successfully but got error")
+	assert.Equal(t, 10*time.Minute, updatedSettings.SSHJWTMaxTokenAge, "the returned settings must include the new JWT age")
+
+	peerShouldReceiveUpdate(t, updateMessage)
+
+	updatedAccount, err := manager.Store.GetAccount(context.Background(), account.Id)
+	require.NoError(t, err, "unable to get updated account")
+	assert.Equal(t, 10*time.Minute, updatedAccount.Settings.SSHJWTMaxTokenAge, "the new JWT age must be persisted")
+	assert.Greater(t, updatedAccount.Network.CurrentSerial(), initialAccount.Network.CurrentSerial(), "a JWT-age-only update must advance the network serial")
 }
 
 func TestDefaultAccountManager_UpdateAccountSettings_PeerApproval(t *testing.T) {

@@ -173,11 +173,11 @@ type Server struct {
 
 	remoteForwardListeners map[forwardKey]net.Listener
 
-	jwtValidator *jwt.Validator
-	jwtExtractor *jwt.ClaimsExtractor
-	jwtConfig    *JWTConfig
-
-	authorizer *sshauth.Authorizer
+	jwtValidator   *jwt.Validator
+	jwtExtractor   *jwt.ClaimsExtractor
+	jwtConfig      *JWTConfig
+	jwtAuthVersion uint64
+	authorizer     *sshauth.Authorizer
 
 	suSupportsPty    bool
 	loginIsUtilLinux bool
@@ -464,14 +464,34 @@ func (s *Server) UpdateSSHAuth(config *sshauth.Config) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Reset JWT validator/extractor to pick up new userIDClaim
-	s.jwtValidator = nil
-	s.jwtExtractor = nil
-
+	userIDClaim := s.authorizer.GetUserIDClaim()
 	s.authorizer.Update(config)
+	if userIDClaim != s.authorizer.GetUserIDClaim() {
+		s.jwtValidator = nil
+		s.jwtExtractor = nil
+		s.jwtAuthVersion++
+	}
 }
 
-// JWTConfig returns the JWT authentication this server was built with, or nil
+// UpdateJWTConfig updates the JWT authentication settings used by new SSH auth attempts.
+func (s *Server) UpdateJWTConfig(config *JWTConfig) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if current := s.jwtConfig; current != nil && config != nil &&
+		current.Issuer == config.Issuer && current.KeysLocation == config.KeysLocation &&
+		slices.Equal(current.Audiences, config.Audiences) {
+		if current.MaxTokenAge != config.MaxTokenAge {
+			s.jwtConfig = config
+		}
+		return
+	}
+	s.jwtConfig = config
+	s.jwtValidator = nil
+	s.jwtExtractor = nil
+	s.jwtAuthVersion++
+}
+
+// JWTConfig returns the current JWT authentication configuration, or nil
 // when JWT authentication is disabled.
 func (s *Server) JWTConfig() *JWTConfig {
 	s.mu.RLock()
@@ -492,68 +512,55 @@ func (s *Server) AuthConfig() *sshauth.Config {
 	return authorizer.Config()
 }
 
-// ensureJWTValidator initializes the JWT validator and extractor if not already initialized
-func (s *Server) ensureJWTValidator() error {
-	s.mu.RLock()
-	if s.jwtValidator != nil && s.jwtExtractor != nil {
+// getJWTAuth captures matching settings and validators for one authentication attempt.
+func (s *Server) getJWTAuth() (*jwt.Validator, *jwt.ClaimsExtractor, *JWTConfig, error) {
+	for {
+		s.mu.RLock()
+		if s.jwtValidator != nil && s.jwtExtractor != nil {
+			validator, extractor, config := s.jwtValidator, s.jwtExtractor, s.jwtConfig
+			s.mu.RUnlock()
+			return validator, extractor, config, nil
+		}
+		config := s.jwtConfig
+		authVersion := s.jwtAuthVersion
+		userIDClaim := s.authorizer.GetUserIDClaim()
 		s.mu.RUnlock()
-		return nil
+
+		if config == nil {
+			return nil, nil, nil, fmt.Errorf("JWT config not set")
+		}
+		if len(config.Audiences) == 0 {
+			return nil, nil, nil, fmt.Errorf("JWT config has no audiences configured")
+		}
+		log.Debugf("Initializing JWT validator (issuer: %s, audiences: %v)", config.Issuer, config.Audiences)
+		validator := jwt.NewValidator(
+			config.Issuer,
+			config.Audiences,
+			config.KeysLocation,
+			true,
+		)
+
+		// Use custom userIDClaim from authorizer if available
+		extractorOptions := []jwt.ClaimsExtractorOption{
+			jwt.WithAudience(config.Audiences[0]),
+		}
+		if userIDClaim != "" {
+			extractorOptions = append(extractorOptions, jwt.WithUserIDClaim(userIDClaim))
+			log.Debugf("Using custom user ID claim: %s", userIDClaim)
+		}
+		extractor := jwt.NewClaimsExtractor(extractorOptions...)
+
+		s.mu.Lock()
+		if s.jwtAuthVersion == authVersion && s.jwtValidator == nil {
+			s.jwtValidator = validator
+			s.jwtExtractor = extractor
+			log.Infof("JWT validator initialized successfully")
+		}
+		s.mu.Unlock()
 	}
-	config := s.jwtConfig
-	authorizer := s.authorizer
-	s.mu.RUnlock()
-
-	if config == nil {
-		return fmt.Errorf("JWT config not set")
-	}
-
-	if len(config.Audiences) == 0 {
-		return fmt.Errorf("JWT config has no audiences configured")
-	}
-
-	log.Debugf("Initializing JWT validator (issuer: %s, audiences: %v)", config.Issuer, config.Audiences)
-	validator := jwt.NewValidator(
-		config.Issuer,
-		config.Audiences,
-		config.KeysLocation,
-		true,
-	)
-
-	// Use custom userIDClaim from authorizer if available
-	extractorOptions := []jwt.ClaimsExtractorOption{
-		jwt.WithAudience(config.Audiences[0]),
-	}
-	if authorizer.GetUserIDClaim() != "" {
-		extractorOptions = append(extractorOptions, jwt.WithUserIDClaim(authorizer.GetUserIDClaim()))
-		log.Debugf("Using custom user ID claim: %s", authorizer.GetUserIDClaim())
-	}
-
-	extractor := jwt.NewClaimsExtractor(extractorOptions...)
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.jwtValidator != nil && s.jwtExtractor != nil {
-		return nil
-	}
-
-	s.jwtValidator = validator
-	s.jwtExtractor = extractor
-
-	log.Infof("JWT validator initialized successfully")
-	return nil
 }
 
-func (s *Server) validateJWTToken(tokenString string) (*gojwt.Token, error) {
-	s.mu.RLock()
-	jwtValidator := s.jwtValidator
-	jwtConfig := s.jwtConfig
-	s.mu.RUnlock()
-
-	if jwtValidator == nil {
-		return nil, fmt.Errorf("JWT validator not initialized")
-	}
-
+func (s *Server) validateJWTToken(tokenString string, jwtValidator *jwt.Validator, jwtConfig *JWTConfig) (*gojwt.Token, error) {
 	token, err := jwtValidator.ValidateAndParse(context.Background(), tokenString)
 	if err != nil {
 		if jwtConfig != nil {
@@ -605,16 +612,7 @@ func (s *Server) checkTokenAge(token *gojwt.Token, jwtConfig *JWTConfig) error {
 	return nil
 }
 
-func (s *Server) extractAndValidateUser(token *gojwt.Token) (*auth.UserAuth, error) {
-	s.mu.RLock()
-	jwtExtractor := s.jwtExtractor
-	s.mu.RUnlock()
-
-	if jwtExtractor == nil {
-		userID := extractUserID(token)
-		return nil, fmt.Errorf("JWT extractor not initialized (user=%s)", userID)
-	}
-
+func (s *Server) extractAndValidateUser(token *gojwt.Token, jwtExtractor *jwt.ClaimsExtractor) (*auth.UserAuth, error) {
 	userAuth, err := jwtExtractor.ToUserAuth(token)
 	if err != nil {
 		userID := extractUserID(token)
@@ -680,18 +678,19 @@ func (s *Server) passwordHandler(ctx ssh.Context, password string) bool {
 	remoteAddr := ctx.RemoteAddr()
 	logger := s.getRequestLogger(ctx)
 
-	if err := s.ensureJWTValidator(); err != nil {
+	validator, extractor, config, err := s.getJWTAuth()
+	if err != nil {
 		logger.Errorf("JWT validator initialization failed: %v", err)
 		return false
 	}
 
-	token, err := s.validateJWTToken(password)
+	token, err := s.validateJWTToken(password, validator, config)
 	if err != nil {
 		logger.Warnf("JWT authentication failed: %v", err)
 		return false
 	}
 
-	userAuth, err := s.extractAndValidateUser(token)
+	userAuth, err := s.extractAndValidateUser(token, extractor)
 	if err != nil {
 		logger.Warnf("user validation failed: %v", err)
 		return false

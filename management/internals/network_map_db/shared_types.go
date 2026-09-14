@@ -68,6 +68,7 @@ type Account struct {
 	AutoUpdateVersion               sql.NullString
 	AutoUpdateAlways                sql.NullBool
 	MetricsPushEnabled              sql.NullBool
+	SSHJWTMaxTokenAge               sql.NullInt64
 }
 
 type Domain struct {
