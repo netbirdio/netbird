@@ -59,6 +59,11 @@ type DomainConfig struct {
 	IPRestrictions    *restrict.Filter
 	// Private routes the domain through ValidateTunnelPeer; failure → 403.
 	Private bool
+	// AllowedGroups holds the group ids that may reach the service through an
+	// OIDC identity. When non-empty, a session cookie is honoured only if its
+	// groups claim intersects this set. Empty means group membership does not
+	// restrict access.
+	AllowedGroups map[string]struct{}
 }
 
 type validationResult struct {
@@ -316,6 +321,9 @@ func (mw *Middleware) handleOAuthCallbackError(w http.ResponseWriter, r *http.Re
 
 // forwardWithSessionCookie checks for a valid session cookie and, if found,
 // sets the user identity on the request context and forwards to the next handler.
+// A signature-valid cookie is not on its own a grant: an OIDC session must also
+// carry a group the service allows, so a token cannot be replayed past the
+// group check that gated the login it came from.
 func (mw *Middleware) forwardWithSessionCookie(w http.ResponseWriter, r *http.Request, host string, config DomainConfig, next http.Handler) bool {
 	cookie, err := r.Cookie(auth.SessionCookieName)
 	if err != nil {
@@ -332,6 +340,14 @@ func (mw *Middleware) forwardWithSessionCookie(w http.ResponseWriter, r *http.Re
 	if method == auth.MethodHeader.String() {
 		mw.logger.WithField("host", host).
 			Debug("ignoring header-auth session cookie; the header is required on every request")
+		return false
+	}
+
+	if !sessionGroupsAllowed(config.AllowedGroups, auth.Method(method), groups) {
+		mw.logger.WithFields(log.Fields{
+			"host":    host,
+			"user_id": userID,
+		}).Debug("session cookie rejected: groups claim does not intersect the service's allowed groups")
 		return false
 	}
 
@@ -625,7 +641,8 @@ func wasCredentialSubmitted(r *http.Request, method auth.Method) bool {
 
 // AddDomain registers authentication schemes for the given domain. With schemes a valid session public key is required.
 // private=true forces ValidateTunnelPeer enforcement (403 on failure) regardless of the schemes list.
-func (mw *Middleware) AddDomain(domain string, schemes []Scheme, publicKeyB64 string, expiration time.Duration, accountID types.AccountID, serviceID types.ServiceID, ipRestrictions *restrict.Filter, private bool) error {
+// allowedGroups restricts OIDC sessions to the given group ids; empty means unrestricted.
+func (mw *Middleware) AddDomain(domain string, schemes []Scheme, publicKeyB64 string, expiration time.Duration, accountID types.AccountID, serviceID types.ServiceID, ipRestrictions *restrict.Filter, private bool, allowedGroups []string) error {
 	if len(schemes) == 0 {
 		mw.domainsMux.Lock()
 		defer mw.domainsMux.Unlock()
@@ -634,6 +651,7 @@ func (mw *Middleware) AddDomain(domain string, schemes []Scheme, publicKeyB64 st
 			ServiceID:      serviceID,
 			IPRestrictions: ipRestrictions,
 			Private:        private,
+			AllowedGroups:  groupSet(allowedGroups),
 		}
 		return nil
 	}
@@ -656,6 +674,7 @@ func (mw *Middleware) AddDomain(domain string, schemes []Scheme, publicKeyB64 st
 		ServiceID:         serviceID,
 		IPRestrictions:    ipRestrictions,
 		Private:           private,
+		AllowedGroups:     groupSet(allowedGroups),
 	}
 	return nil
 }
@@ -705,6 +724,50 @@ func (mw *Middleware) validateSessionToken(ctx context.Context, host, token stri
 		return nil, err
 	}
 	return &validationResult{UserID: userID, UserEmail: email, Valid: true, Groups: groups, GroupNames: groupNames}, nil
+}
+
+// groupSet builds the lookup set the cookie path consults, returning nil for an
+// empty list so callers can test membership restriction with len().
+func groupSet(groups []string) map[string]struct{} {
+	if len(groups) == 0 {
+		return nil
+	}
+	set := make(map[string]struct{}, len(groups))
+	for _, g := range groups {
+		if g != "" {
+			set[g] = struct{}{}
+		}
+	}
+	if len(set) == 0 {
+		return nil
+	}
+	return set
+}
+
+// sessionGroupsAllowed reports whether a session token's groups claim satisfies
+// the service's allowed groups. Only OIDC sessions are gated: password, PIN and
+// header credentials carry no group identity and are authorised by the secret
+// itself, which mirrors how management validates them. A token minted before the
+// groups claim existed carries none and is therefore denied on a group-restricted
+// service, which sends the user back through login for a fresh decision. A method
+// this build doesn't know carries no such argument, so it is denied.
+func sessionGroupsAllowed(allowed map[string]struct{}, method auth.Method, groups []string) bool {
+	if len(allowed) == 0 {
+		return true
+	}
+	switch method {
+	case auth.MethodPassword, auth.MethodPIN, auth.MethodHeader:
+		return true
+	case auth.MethodOIDC:
+		for _, g := range groups {
+			if _, ok := allowed[g]; ok {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
+	}
 }
 
 // stripSessionTokenParam returns the request URI with the session_token query
