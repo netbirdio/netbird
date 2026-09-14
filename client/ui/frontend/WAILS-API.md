@@ -283,7 +283,7 @@ The tray also reads a tray-only synthetic `"Error"` for icon purposes; the front
 
 `UpParams` / `LogoutParams` / `ProfileRef` / `ConfigParams` / `ActiveProfile`: all `{ profileName, username: string }` (different names but same shape — kept distinct by Wails for clarity).
 
-`DebugBundleParams`: `{ anonymize, systemInfo, upload: boolean; logFileCount: number }`.
+`DebugBundleParams`: `{ anonymize, systemInfo, upload: boolean; anonymizeLevel: string; logFileCount: number }`.
 
 `DebugBundleResult`: `{ path, uploadedKey, uploadFailureReason: string }`.
 
