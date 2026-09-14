@@ -710,15 +710,168 @@ func (p *ReverseProxy) setUntrustedForwardingHeaders(r *httputil.ProxyRequest, c
 }
 
 // stripSessionCookie removes the proxy's session cookie from the outgoing
-// request while preserving all other cookies.
+// request while preserving all other cookies. It operates on the raw Cookie
+// header text rather than round-tripping through the cookie parser, which
+// drops any cookie whose value contains a byte outside the RFC 6265
+// cookie-octet range (e.g. a `;` escaped as \073 in a quoted value). Only the
+// matching cookie pair and its adjacent delimiter are removed, so every other
+// byte is forwarded verbatim.
 func stripSessionCookie(r *httputil.ProxyRequest) {
-	cookies := r.In.Cookies()
-	r.Out.Header.Del("Cookie")
-	for _, c := range cookies {
-		if c.Name != auth.SessionCookieName {
-			r.Out.AddCookie(c)
+	in := r.In.Header.Values("Cookie")
+	if len(in) == 0 {
+		return
+	}
+
+	out := make([]string, 0, len(in))
+	changed := false
+	for _, line := range in {
+		stripped, removed := stripCookiePair(line, auth.SessionCookieName)
+		if removed {
+			changed = true
+		}
+		if stripped != "" {
+			out = append(out, stripped)
 		}
 	}
+
+	switch {
+	case len(out) == 0:
+		r.Out.Header.Del("Cookie")
+	case changed:
+		r.Out.Header.Set("Cookie", strings.Join(out, "; "))
+	default:
+		// No session cookie present: forward the header(s) exactly as received.
+		r.Out.Header["Cookie"] = in
+	}
+}
+
+// stripCookiePair removes every cookie pair named name from a single raw Cookie
+// header field value. Names are matched exactly — cookie names are
+// case-sensitive per RFC 6265 §4.1.1. Only each matching pair and one adjacent
+// separator are removed; every other byte is preserved verbatim, including
+// semicolons inside quoted values and whitespace adjacent to surviving cookies.
+//
+// The line is processed as a sequence of "segments": a segment is the text
+// between two top-level ';' separators (top-level = outside any quoted value),
+// including its leading whitespace. Each segment is matched by its name, which
+// is the trimmed token before its first '='. A matched segment is dropped
+// together with the ';' that follows it (or, for the final segment, the ';'
+// that precedes it), so surviving pairs re-join with exactly one separator.
+func stripCookiePair(line, name string) (string, bool) {
+	out := make([]byte, 0, len(line))
+	removed := false
+	lastSemi := -1 // index in out of the last written ';', or -1
+
+	segStart := 0
+	for segStart < len(line) {
+		sep := nextCookieSeparator(line, segStart)
+		if cookiePairMatches(line[segStart:sep], name) {
+			removed = true
+			if sep < len(line) {
+				// Middle or first pair: drop the segment and its trailing
+				// ';' plus the whitespace after it.
+				segStart = skipCookieSeparator(line, sep)
+				continue
+			}
+			// Final pair: drop the segment and the '; ' that precedes it,
+			// which was written when the previous segment was kept.
+			if lastSemi >= 0 {
+				out = out[:lastSemi]
+			}
+			break
+		}
+		// Keep the segment and, when a separator follows, its trailing ';'
+		// plus the whitespace after it.
+		end := sep
+		if sep < len(line) {
+			end = skipCookieSeparator(line, sep)
+		}
+		start := len(out)
+		out = append(out, line[segStart:end]...)
+		if sep < len(line) {
+			lastSemi = start + (sep - segStart)
+		}
+		segStart = end
+	}
+	return string(out), removed
+}
+
+// nextCookieSeparator returns the index of the next top-level ';' in line at or
+// after start, or len(line) if the segment runs to the end of the line. A ';'
+// inside a quoted value does not end a segment; a ';' after an unterminated
+// quote does (an unterminated '"' is an ordinary cookie-octet, per RFC 6265).
+// Only a quote that opens a value is treated as a quote opener — an embedded
+// quote in a name, value, or another pair is an ordinary byte. Quote state
+// resets at every top-level ';', so it is never tracked across segments.
+func nextCookieSeparator(line string, start int) int {
+	valueStart := -1 // index of the first byte of the value, or -1 before any '='
+	for i := start; i < len(line); i++ {
+		switch line[i] {
+		case '"':
+			// Only a quote that opens the value starts a quoted value. An
+			// embedded quote in the name or a later pair is an ordinary byte
+			// (an embedded quote paired with a later value's quote would
+			// swallow the pair between them).
+			if i == valueStart {
+				if end, ok := skipQuotedValue(line, i); ok {
+					i = end - 1
+				}
+			}
+		case '=':
+			if valueStart < 0 {
+				// Remember the first byte of the value (after optional
+				// whitespace) so the opener check above has a target.
+				valueStart = i + 1
+				for valueStart < len(line) && (line[valueStart] == ' ' || line[valueStart] == '\t') {
+					valueStart++
+				}
+			}
+		case ';':
+			return i
+		}
+	}
+	return len(line)
+}
+
+// skipQuotedValue reports whether a quoted value opens at line[i] (line[i] ==
+// '"') and, if so, returns the index just past its closing quote. A
+// backslash-escaped character — including an escaped quote — is literal and
+// does not close the value. If the quote is unterminated, ok is false and the
+// '"' must be treated as an ordinary byte.
+func skipQuotedValue(line string, i int) (int, bool) {
+	for j := i + 1; j < len(line); j++ {
+		if line[j] == '\\' {
+			j++
+			continue
+		}
+		if line[j] == '"' {
+			return j + 1, true
+		}
+	}
+	return 0, false
+}
+
+// skipCookieSeparator returns the index just past a separator at sep: the ';'
+// plus any immediately following whitespace. Removing a pair takes its whole
+// trailing separator with it, so surviving pairs re-join with exactly one
+// separator and no stray leading whitespace.
+func skipCookieSeparator(line string, sep int) int {
+	sep++
+	for sep < len(line) && (line[sep] == ' ' || line[sep] == '\t') {
+		sep++
+	}
+	return sep
+}
+
+// cookiePairMatches reports whether the raw bytes of a cookie segment are the
+// pair named name. The segment may include leading/trailing whitespace and a
+// value; the name is the trimmed token before the first '='. Comparison is
+// exact (case-sensitive, per RFC 6265 §4.1.1).
+func cookiePairMatches(segment, name string) bool {
+	if eq := strings.IndexByte(segment, '='); eq >= 0 {
+		segment = segment[:eq]
+	}
+	return strings.Trim(segment, " \t") == name
 }
 
 // stripSessionTokenQuery removes the OIDC session_token query parameter from
