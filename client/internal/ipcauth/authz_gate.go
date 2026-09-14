@@ -90,10 +90,27 @@ func denyLevel(r Request, want AuthzLevel) error {
 // cannot reach the policy table without an initialization cycle, and no rule
 // requires privilege.
 func denyPolicyLevel(r Request, p MethodPolicy) error {
-	if p.Level == AuthzLevelPrivileged && p.Action != "" {
-		actor, command := RequiredActor(p.Command)
-		return PrivilegeError(PrivilegeSummary(p.Action, actor), command)
+	switch p.Level {
+	case AuthzLevelPrivileged:
+		if p.Action != "" {
+			actor, command := RequiredActor(p.Command)
+			return PrivilegeError(PrivilegeSummary(p.Action, actor), command)
+		}
+
+	case AuthzLevelSessionHolder:
+		// Reaching here means the caller is short of session holder, and
+		// resolveLevel grants that level whenever no session runs or the holder
+		// is the caller. So a running session is held by somebody else. With no
+		// session running the caller fell short on ownership instead.
+		if _, running := r.State.SessionHolder(); running {
+			return SessionHeldError(p.Action)
+		}
+		return NotOwnerError(p.Action)
+
+	case AuthzLevelProfileOwner:
+		return NotOwnerError(p.Action)
 	}
+
 	return denyLevel(r, p.Level)
 }
 
