@@ -58,6 +58,7 @@ const (
 	keyQueryCondition              = "key = ?"
 	mysqlKeyQueryCondition         = "`key` = ?"
 	accountAndIDQueryCondition     = "account_id = ? and id = ?"
+	accountAndAnyIDQueryCondition  = "account_id = ? and (id = ? or public_id = ?)"
 	accountAndPeerIDQueryCondition = "account_id = ? and peer_id = ?"
 	accountAndIDsQueryCondition    = "account_id = ? AND id IN ?"
 	accountIDCondition             = "account_id = ?"
@@ -4038,6 +4039,30 @@ func (s *SqlStore) GetPolicyByID(ctx context.Context, lockStrength LockingStreng
 	return policy, nil
 }
 
+// GetPolicyByIDOrPublicID retrieves a policy by either its ID or its PublicID. Peers report
+// whichever of the two the network map they were served carries, so callers resolving a
+// peer-reported reference cannot know upfront which namespace it belongs to.
+func (s *SqlStore) GetPolicyByIDOrPublicID(ctx context.Context, lockStrength LockingStrength, accountID, policyID string) (*types.Policy, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var policy *types.Policy
+
+	result := tx.Preload(clause.Associations).
+		Take(&policy, accountAndAnyIDQueryCondition, accountID, policyID, policyID)
+	if err := result.Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, status.NewPolicyNotFoundError(policyID)
+		}
+		log.WithContext(ctx).Errorf("failed to get policy from store: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to get policy from store")
+	}
+
+	return policy, nil
+}
+
 func (s *SqlStore) CreatePolicy(ctx context.Context, policy *types.Policy) error {
 	result := s.db.Create(policy)
 	if result.Error != nil {
@@ -4212,6 +4237,27 @@ func (s *SqlStore) GetRouteByID(ctx context.Context, lockStrength LockingStrengt
 
 	var route *route.Route
 	result := tx.Take(&route, accountAndIDQueryCondition, accountID, routeID)
+	if err := result.Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, status.NewRouteNotFoundError(routeID)
+		}
+		log.WithContext(ctx).Errorf("failed to get route from the store: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to get route from store")
+	}
+
+	return route, nil
+}
+
+// GetRouteByIDOrPublicID retrieves a route by either its ID or its PublicID. See
+// GetPolicyByIDOrPublicID for why peer-reported references need both.
+func (s *SqlStore) GetRouteByIDOrPublicID(ctx context.Context, lockStrength LockingStrength, accountID string, routeID string) (*route.Route, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var route *route.Route
+	result := tx.Take(&route, accountAndAnyIDQueryCondition, accountID, routeID, routeID)
 	if err := result.Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.NewRouteNotFoundError(routeID)
@@ -4606,6 +4652,28 @@ func (s *SqlStore) GetNetworkResourceByID(ctx context.Context, lockStrength Lock
 	var netResources *resourceTypes.NetworkResource
 	result := tx.
 		Take(&netResources, accountAndIDQueryCondition, accountID, resourceID)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.NewNetworkResourceNotFoundError(resourceID)
+		}
+		log.WithContext(ctx).Errorf("failed to get network resource from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get network resource from store")
+	}
+
+	return netResources, nil
+}
+
+// GetNetworkResourceByIDOrPublicID retrieves a network resource by either its ID or its
+// PublicID. See GetPolicyByIDOrPublicID for why peer-reported references need both.
+func (s *SqlStore) GetNetworkResourceByIDOrPublicID(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) (*resourceTypes.NetworkResource, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var netResources *resourceTypes.NetworkResource
+	result := tx.
+		Take(&netResources, accountAndAnyIDQueryCondition, accountID, resourceID, resourceID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.NewNetworkResourceNotFoundError(resourceID)
