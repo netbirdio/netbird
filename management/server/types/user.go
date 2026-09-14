@@ -301,12 +301,16 @@ func (u *User) MaskedEmail() string {
 	}
 
 	// Runes, not bytes, so a non-ASCII local part is not cut mid-character.
-	if runes := []rune(local); len(runes) > 2 {
-		return string(runes[:2]) + "****" + string(runes[len(runes)-1]) + "@" + domain
+	runes := []rune(local)
+
+	// Keeping the first two and the last needs a local part of at least four to
+	// hide anything at all: at three or fewer those are the whole of it, and the
+	// address would be recoverable in full from what is meant to conceal it.
+	if len(runes) < 4 {
+		return "****@" + domain
 	}
 
-	// Too short to keep a tail without repeating what the lead already shows.
-	return local + "****@" + domain
+	return string(runes[:2]) + "****" + string(runes[len(runes)-1]) + "@" + domain
 }
 
 // DecryptSensitiveData decrypts the user's sensitive fields (Email and Name) in place.

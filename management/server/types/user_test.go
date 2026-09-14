@@ -309,19 +309,24 @@ func TestUser_MaskedEmail(t *testing.T) {
 			expected: "ad****n@example.com",
 		},
 		{
-			name:     "three characters is the shortest local part that keeps a tail",
+			name:     "four characters is the shortest local part that reveals anything",
+			email:    "abcd@example.com",
+			expected: "ab****d@example.com",
+		},
+		{
+			name:     "three character local part is masked whole, since a lead and tail would be all of it",
 			email:    "abc@example.com",
-			expected: "ab****c@example.com",
+			expected: "****@example.com",
 		},
 		{
-			name:     "two character local part drops the tail rather than repeat the lead",
+			name:     "two character local part is masked whole",
 			email:    "ab@example.com",
-			expected: "ab****@example.com",
+			expected: "****@example.com",
 		},
 		{
-			name:     "single character local part is not padded out",
+			name:     "single character local part is masked whole",
 			email:    "a@b.co",
-			expected: "a****@b.co",
+			expected: "****@b.co",
 		},
 		{
 			name:     "mask width does not report the length it stands in for",
@@ -364,9 +369,14 @@ func TestUser_MaskedEmail(t *testing.T) {
 			expected: "ив****в@example.ru",
 		},
 		{
-			name:     "cjk local part of exactly three runes keeps a tail",
+			name:     "cjk local part of three runes is masked whole, counted in runes not bytes",
 			email:    "用户名@example.cn",
-			expected: "用户****名@example.cn",
+			expected: "****@example.cn",
+		},
+		{
+			name:     "cjk local part of four runes reveals the first two and the last",
+			email:    "用户名字@example.cn",
+			expected: "用户****字@example.cn",
 		},
 		{
 			name:     "arabic local part is cut on runes",
@@ -374,14 +384,14 @@ func TestUser_MaskedEmail(t *testing.T) {
 			expected: "مس****م@example.sa",
 		},
 		{
-			name:     "two rune non-ascii local part drops the tail",
+			name:     "two rune non-ascii local part is masked whole",
 			email:    "ää@example.de",
-			expected: "ää****@example.de",
+			expected: "****@example.de",
 		},
 		{
 			name:     "astral plane runes are not split into surrogates",
-			email:    "a🎉b@example.com",
-			expected: "a🎉****b@example.com",
+			email:    "a🎉bc@example.com",
+			expected: "a🎉****c@example.com",
 		},
 		{
 			name:     "a non-ascii domain is left alone",
@@ -391,7 +401,7 @@ func TestUser_MaskedEmail(t *testing.T) {
 		{
 			name:     "only the first separator splits, so a second stays in the domain",
 			email:    "a@b@example.com",
-			expected: "a****@b@example.com",
+			expected: "****@b@example.com",
 		},
 		{
 			name:     "empty email has nothing to mask",
