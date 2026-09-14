@@ -32,9 +32,9 @@ import (
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
-	"github.com/netbirdio/netbird/client/system"
 	sshauth "github.com/netbirdio/netbird/client/ssh/auth"
 	sshserver "github.com/netbirdio/netbird/client/ssh/server"
+	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/monotime"
 	"github.com/netbirdio/netbird/route"
@@ -73,6 +73,14 @@ func (m *mockSSHServer) UpdateSSHAuth(config *sshauth.Config) {
 func (m *mockSSHServer) UpdateJWTConfig(config *sshserver.JWTConfig) {
 	m.updateJWTCalls++
 	m.jwtConfig = config
+}
+
+func (m *mockSSHServer) JWTConfig() *sshserver.JWTConfig {
+	return m.jwtConfig
+}
+
+func (m *mockSSHServer) AuthConfig() *sshauth.Config {
+	return m.authConfig
 }
 
 type MockWGIface struct {

@@ -125,9 +125,13 @@ func TestUpdateJWTConfig(t *testing.T) {
 	server.jwtValidator = nbjwt.NewValidator(originalConfig.Issuer, originalConfig.Audiences, originalConfig.KeysLocation, true)
 	server.jwtExtractor = nbjwt.NewClaimsExtractor()
 
+	require.Same(t, originalConfig, server.JWTConfig(), "getter must return the current config")
+	require.NotNil(t, server.jwtValidator, "getter must preserve the validator")
+	require.NotNil(t, server.jwtExtractor, "getter must preserve the extractor")
+
 	server.UpdateJWTConfig(updatedConfig)
 
-	require.Same(t, updatedConfig, server.jwtConfig)
+	require.Same(t, updatedConfig, server.JWTConfig(), "getter must return the updated config")
 	assert.Nil(t, server.jwtValidator)
 	assert.Nil(t, server.jwtExtractor)
 }
