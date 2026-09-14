@@ -586,6 +586,7 @@ func TwinAccountSettings(s *Settings) *nmdata.AccountSettingsInfo {
 		AutoUpdateVersion:               s.AutoUpdateVersion,
 		AutoUpdateAlways:                s.AutoUpdateAlways,
 		MetricsPushEnabled:              s.MetricsPushEnabled,
+		SSHJWTMaxTokenAge:               s.SSHJWTMaxTokenAge,
 	}
 }
 

@@ -22,7 +22,8 @@ const (
 	settings_lazy_connection_enabled as lazy_connection_enabled,
 	settings_auto_update_version as auto_update_version,
 	settings_auto_update_always as auto_update_always,
-	settings_metrics_push_enabled as metrics_push_enabled
+	settings_metrics_push_enabled as metrics_push_enabled,
+	settings_ssh_jwt_max_token_age as ssh_jwt_max_token_age
 	from accounts
 	where id=$1
 	`
@@ -50,6 +51,7 @@ func (pgc *PgStoreConn) GetAccountSettings(ctx context.Context, accountId string
 		AutoUpdateVersion:               settings.AutoUpdateVersion.String,
 		AutoUpdateAlways:                settings.AutoUpdateAlways.Bool,
 		MetricsPushEnabled:              settings.MetricsPushEnabled.Bool,
+		SSHJWTMaxTokenAge:               time.Duration(settings.SSHJWTMaxTokenAge.Int64),
 	}
 	if settings.IPv6EnabledGroups != nil {
 		if err := json.Unmarshal(settings.IPv6EnabledGroups, &settingsInfo.IPv6EnabledGroups); err != nil {
