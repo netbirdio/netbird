@@ -247,7 +247,10 @@ func (d DebugUpload) Validate() error {
 	if parsed.Scheme != "https" {
 		return fmt.Errorf("debug upload URL must use https, got scheme %q", parsed.Scheme)
 	}
-	if parsed.Host == "" {
+	// Hostname(), not Host: an authority like ":443" is non-empty but has no
+	// host, and the peers reject it (see profilemanager.ValidateBundleUploadURL).
+	// Management must not publish a destination its own clients refuse.
+	if parsed.Hostname() == "" {
 		return errors.New("debug upload URL must have a host")
 	}
 

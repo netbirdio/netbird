@@ -21,6 +21,8 @@ func TestDebugUploadValidate(t *testing.T) {
 		{name: "http refused", url: "http://upload.example.com/upload-url", wantErr: "must use https"},
 		{name: "scheme-less refused", url: "upload.example.com/upload-url", wantErr: "must use https"},
 		{name: "host-less refused", url: "https:///upload-url", wantErr: "must have a host"},
+		// ":443" is a non-empty authority with no host; the peers refuse it.
+		{name: "port-only authority refused", url: "https://:443/upload-url", wantErr: "must have a host"},
 		{name: "unparsable refused", url: "https://upload.example.com:port", wantErr: "parse debug upload URL"},
 	}
 
