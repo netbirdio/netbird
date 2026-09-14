@@ -60,6 +60,14 @@ var methodPolicies = map[string]MethodPolicy{
 	servicePath + "GetActiveProfile": {Level: AuthzLevelIdentified, Action: "reading the active profile"},
 	servicePath + "GetFeatures":      {Level: AuthzLevelIdentified, Action: "reading feature flags"},
 	servicePath + "WailsUIReady":     {Level: AuthzLevelIdentified, Action: "starting the UI"},
+<<<<<<< HEAD
+=======
+
+	// Pending flows: bound to the principal that started them, at any level.
+	servicePath + "WaitSSOLogin":          {Level: AuthzLevelIdentified, Rules: []Rule{RequireFlowInitiator}, Audit: true, Action: "waiting for the login to finish"},
+	servicePath + "WaitJWTToken":          {Level: AuthzLevelIdentified, Rules: []Rule{RequireFlowInitiator}, Audit: true, Action: "waiting for the token"},
+	servicePath + "WaitExtendAuthSession": {Level: AuthzLevelIdentified, Rules: []Rule{RequireFlowInitiator}, Action: "extending the session"},
+>>>>>>> 38337642c ((WIP) Add readable errors for AuthzLevels)
 
 	// Owner of the profile the request names.
 	servicePath + "GetConfig":     {Level: AuthzLevelProfileOwner, TargetsProfile: true, Audit: true, Action: "reading the profile configuration"},
@@ -69,11 +77,14 @@ var methodPolicies = map[string]MethodPolicy{
 	servicePath + "RenameProfile": {Level: AuthzLevelProfileOwner, TargetsProfile: true, Action: "renaming a profile"},
 	servicePath + "RemoveProfile": {Level: AuthzLevelProfileOwner, TargetsProfile: true, Audit: true, Action: "removing a profile"},
 	servicePath + "SwitchProfile": {Level: AuthzLevelSessionHolder, TargetsProfile: true, Audit: true, Action: "switching profile"},
+<<<<<<< HEAD
 
 	// Owner of the active profile, which is what an empty target resolves to.
 	servicePath + "WaitSSOLogin":          {Level: AuthzLevelProfileOwner, Audit: true, Action: "waiting for the login to finish"},
 	servicePath + "WaitJWTToken":          {Level: AuthzLevelProfileOwner, Audit: true, Action: "waiting for the token"},
 	servicePath + "WaitExtendAuthSession": {Level: AuthzLevelProfileOwner, Action: "extending the session"},
+=======
+>>>>>>> 38337642c ((WIP) Add readable errors for AuthzLevels)
 
 	// Owner of some profile
 	servicePath + "GetLogLevel":        {Level: AuthzLevelProfileOwner, Action: "reading the log level"},
