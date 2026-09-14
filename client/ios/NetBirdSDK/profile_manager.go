@@ -52,6 +52,12 @@ func NewProfileManager(configDir string) *ProfileManager {
 	return &ProfileManager{impl: mobile.NewProfileManager(configDir, iosUsername)}
 }
 
+// SetMDMPolicyFetcher registers the native-provided MDM policy fetcher on
+// this ProfileManager; passing nil disables MDM enforcement.
+func (pm *ProfileManager) SetMDMPolicyFetcher(f PolicyFetcher) {
+	pm.impl.SetMDMLoader(loaderFor(f))
+}
+
 // ListProfiles returns all available profiles, including the default profile,
 // with their active status set.
 func (pm *ProfileManager) ListProfiles() (*ProfileArray, error) {

@@ -97,9 +97,9 @@ export function LanguagePicker() {
                                 "rounded-md border bg-white dark:bg-nb-gray-900",
                                 "border-neutral-200 dark:border-nb-gray-700",
                                 "cursor-default text-xs font-semibold text-nb-gray-100 outline-none",
-                                "hover:border-nb-gray-600 data-[state=open]:border-nb-gray-600",
+                                "hover:border-nb-gray-700 data-[state=open]:border-nb-gray-700 dark:hover:border-nb-gray-600 dark:data-[state=open]:border-nb-gray-600",
                                 isFocusVisible &&
-                                    "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
+                                    "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                                 "disabled:opacity-50",
                             )}
                         >
@@ -157,7 +157,7 @@ export function LanguagePicker() {
                                             placeholder={t("settings.general.language.search")}
                                             aria-label={t("settings.general.language.search")}
                                             className={cn(
-                                                "w-full bg-transparent text-xs text-nb-gray-100 placeholder:text-nb-gray-300",
+                                                "w-full bg-transparent text-xs text-nb-gray-100 placeholder:text-nb-gray-600 dark:placeholder:text-nb-gray-300",
                                                 "border-none outline-none",
                                             )}
                                         />
