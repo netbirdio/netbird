@@ -166,6 +166,10 @@ func (am *DefaultAccountManager) ListPolicies(ctx context.Context, accountID, us
 // validatePolicy validates the policy and its rules. For updates it returns
 // the existing policy loaded from the store so callers can avoid a second read.
 func validatePolicy(ctx context.Context, transaction store.Store, accountID string, policy *types.Policy) (*types.Policy, error) {
+	if len(policy.Rules) > 1 {
+		return nil, status.Errorf(status.InvalidArgument, "policies with multiple rules are not supported")
+	}
+
 	var existingPolicy *types.Policy
 	if policy.ID != "" {
 		var err error
