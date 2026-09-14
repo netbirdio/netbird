@@ -27,11 +27,12 @@ const errCloseConnection = "Failed to close connection: %v"
 
 // uploadBundleURLUsage documents that an empty flag is not "no upload" but
 // "wherever this deployment says": the daemon takes the destination from the
-// management server, and only falls back to the service NetBird runs for a peer
-// enrolled with NetBird's cloud. Naming another one requires root, since the
-// daemon fetches the URL and PUTs its own logs and state to whatever it returns.
+// management server, falling back to the service NetBird runs when none is
+// published. Naming another host requires root, since the daemon fetches the URL
+// and PUTs its own logs and state to whatever it returns.
 const uploadBundleURLUsage = "Upload service URL to get an upload URL from. " +
-	"Defaults to the one the management server publishes; requires root when set explicitly"
+	"Defaults to the one the management server publishes, or to NetBird's service when it publishes none; " +
+	"naming any host other than NetBird's requires root"
 
 var (
 	logFileCount             uint32
