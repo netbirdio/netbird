@@ -383,6 +383,10 @@ func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGen
 // asterisk is filled in by os.CreateTemp.
 const bundleFilePattern = "netbird.debug.*.zip"
 
+// exportedBundlePrefix replaces the generated bundle prefix when a caller takes
+// ownership of the file, so RemoveStaleBundles never matches it.
+const exportedBundlePrefix = "netbird.debug-file."
+
 // RemoveStaleBundles deletes bundle zips that an interrupted generation or
 // upload left behind in dir. Only files older than maxAge go, so a bundle that
 // another caller is still writing or uploading in the same directory survives.
@@ -405,6 +409,17 @@ func RemoveStaleBundles(dir string, maxAge time.Duration) {
 		}
 		log.Infof("removed stale debug bundle %s", path)
 	}
+}
+
+// ExportBundle renames a generated bundle out of the RemoveStaleBundles pattern
+// and returns the new path. The caller owns the file from then on.
+func ExportBundle(path string) (string, error) {
+	base := strings.TrimPrefix(filepath.Base(path), strings.SplitN(bundleFilePattern, "*", 2)[0])
+	exported := filepath.Join(filepath.Dir(path), exportedBundlePrefix+base)
+	if err := os.Rename(path, exported); err != nil {
+		return "", fmt.Errorf("export debug bundle: %w", err)
+	}
+	return exported, nil
 }
 
 // Generate creates a debug bundle and returns the location.

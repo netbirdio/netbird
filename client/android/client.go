@@ -323,7 +323,8 @@ func (c *Client) DebugBundle(platformFiles PlatformFiles, anonymize bool, anonym
 
 // DebugBundleFile generates a debug bundle and returns the path of the zip in
 // the cache directory instead of uploading it, so the app can hand the file to
-// the user for inspection. The caller owns the file and removes it once done.
+// the user for inspection. The caller owns the file and removes it once done;
+// the stale-bundle cleanup of later runs never touches it.
 // anonymize and anonymizeLevel behave as in DebugBundle.
 func (c *Client) DebugBundleFile(platformFiles PlatformFiles, anonymize bool, anonymizeLevel string) (string, error) {
 	return c.debugBundle(platformFiles, anonymize, anonymizeLevel, false)
@@ -389,7 +390,7 @@ func (c *Client) debugBundle(platformFiles PlatformFiles, anonymize bool, anonym
 		return "", fmt.Errorf("generate debug bundle: %w", err)
 	}
 	if !upload {
-		return path, nil
+		return debug.ExportBundle(path)
 	}
 	defer func() {
 		if err := os.Remove(path); err != nil {
