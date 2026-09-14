@@ -159,23 +159,16 @@ jobs:
         run: git --no-pager diff --exit-code
 
       - name: Test
-        # Exclude the client/ui package itself: its main.go uses //go:embed
-        # all:frontend/dist, which fails to compile until the frontend has been
-        # built, and its release pipeline runs `pnpm build` before goreleaser.
-        # The pattern is anchored so the subpackages (services, preferences,
-        # i18n, authsession) still run on amd64: they hold Go-side unit tests and
-        # link against the gtk4/webkitgtk dev packages installed above. Only the
-        # 64-bit ones are installed, so the 386 leg drops all of client/ui.
+        # Exclude client/ui: its main.go uses //go:embed all:frontend/dist,
+        # which fails to compile until the frontend has been built, and its
+        # release pipeline runs `pnpm build` before goreleaser. The subpackages
+        # go with it because this runner's gtk4 is older than the wails runtime
+        # needs; the Client UI / Unit job below covers them instead.
         # `go list -e` lets the listing succeed even though the embed fails to
         # resolve; the grep then drops the broken package by path. Without -e,
         # go list aborts with empty stdout and `go test` falls back to the repo
         # root, which has no Go files.
-        run: |
-          UI_EXCLUDE='/client/ui$'
-          if [ "${{ matrix.arch }}" = "386" ]; then
-            UI_EXCLUDE='/client/ui'
-          fi
-          CGO_ENABLED=1 GOARCH=${{ matrix.arch }} CI=true go test -coverprofile=coverage.txt -tags 'devcert privileged' -exec 'sudo --preserve-env=CI,CGO_ENABLED' -timeout 10m -p 1 $(go list -e ./... | grep -v -e /management -e /signal -e /relay -e /proxy -e /combined -e "$UI_EXCLUDE" -e /client/testutil/privileged)
+        run: CGO_ENABLED=1 GOARCH=${{ matrix.arch }} CI=true go test -coverprofile=coverage.txt -tags 'devcert privileged' -exec 'sudo --preserve-env=CI,CGO_ENABLED' -timeout 10m -p 1 $(go list -e ./... | grep -v -e /management -e /signal -e /relay -e /proxy -e /combined -e /client/ui -e /client/testutil/privileged)
 
       - name: Upload coverage reports to Codecov
         if: matrix.arch == 'amd64'
@@ -184,6 +177,35 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           slug: netbirdio/netbird
           flags: unit,client
+
+  test_client_ui:
+    name: "Client UI / Unit"
+    # Pinned to 24.04 rather than the 22.04 the other client jobs use: the wails
+    # runtime's linux cgo layer needs GtkFileDialog, which arrived in gtk4 4.10,
+    # and jammy ships 4.6. Not ubuntu-latest, so a runner image rollover cannot
+    # move this out from under us.
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: "go.mod"
+          cache: false
+
+      - name: Install dependencies
+        run: sudo apt update && sudo apt install -y -q libgtk-4-dev libwebkitgtk-6.0-dev libsoup-3.0-dev
+
+      - name: Test
+        # client/ui itself stays out: its main.go embeds all:frontend/dist,
+        # which only exists after `pnpm build`. The subpackages carry the
+        # Go-side unit tests, including the window manager re-entrancy
+        # regression test, and need no frontend bundle.
+        run: CGO_ENABLED=1 go test -timeout 5m ./client/ui/authsession/... ./client/ui/i18n/... ./client/ui/preferences/... ./client/ui/services/...
 
   test_client_on_docker:
     name: "Client (Docker) / Unit"
