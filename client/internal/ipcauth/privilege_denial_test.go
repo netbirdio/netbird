@@ -119,17 +119,41 @@ func TestDenyPolicyLevelExplainsAHeldSession(t *testing.T) {
 		State:    stubState{holder: Principal{Kind: KindUID, Value: "4242"}, running: true},
 	}
 
+<<<<<<< HEAD
 	info := denialDetail(t, denyPolicyLevel(req, methodPolicies[servicePath+"Up"]))
 	assert.Equal(t, ErrorReasonSessionHeld, info.GetReason())
+=======
+	err := denyPolicyLevel(req, methodPolicies[servicePath+"Up"])
+	require.Error(t, err)
+
+	st := gstatus.Convert(err)
+	assert.Equal(t, codes.PermissionDenied, st.Code())
+
+	var info *errdetails.ErrorInfo
+	for _, d := range st.Details() {
+		if got, ok := d.(*errdetails.ErrorInfo); ok {
+			info = got
+		}
+	}
+	require.NotNil(t, info)
+	assert.Equal(t, ErrorReasonSessionHeld, info.GetReason())
+	assert.Equal(t, ErrorDomain, info.GetDomain())
+>>>>>>> 38337642c ((WIP) Add readable errors for AuthzLevels)
 
 	summary := info.GetMetadata()[ErrorMetaSummary]
 	assert.Contains(t, summary, "Connecting", "the summary names what was refused")
 	assert.Contains(t, summary, "another user")
 	assert.NotContains(t, summary, "4242", "who holds it is not the caller's business")
 
+<<<<<<< HEAD
 	// An administrator outranks the session holder, so taking the connection
 	// down is a remedy the caller can actually be pointed at.
 	assert.Contains(t, info.GetMetadata()[ErrorMetaCommand], "netbird down")
+=======
+	_, hasCommand := info.GetMetadata()[ErrorMetaCommand]
+	assert.False(t, hasCommand, "there is no command that ends somebody else's session")
+	assert.NotContains(t, st.Message(), "sudo")
+>>>>>>> 38337642c ((WIP) Add readable errors for AuthzLevels)
 }
 
 // With no session running, a caller short of session holder fell short on
@@ -170,6 +194,7 @@ func denialDetail(t *testing.T, err error) *errdetails.ErrorInfo {
 	t.Fatal("refusal carries no ErrorInfo detail")
 	return nil
 }
+<<<<<<< HEAD
 
 // DenialFrom is the one reader of the detail the builders attach, so the CLI and
 // the UI cannot drift on what counts as a refusal.
@@ -225,3 +250,5 @@ func TestDenialFromFallsBackToTheStatusMessage(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "refused for reasons", denial.Summary)
 }
+=======
+>>>>>>> 38337642c ((WIP) Add readable errors for AuthzLevels)
