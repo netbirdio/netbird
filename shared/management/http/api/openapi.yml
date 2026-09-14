@@ -390,6 +390,7 @@ components:
             URL with a host. Empty falls back to the deployment-wide value configured on the management server, and with
             neither to the upload service NetBird runs.
           type: string
+          pattern: '^$|^https://[^/?#:\s]+(:[0-9]+)?([/?#].*)?$'
           example: "https://upload.example.com/upload-url"
         agent_network_only:
           description: Limits the dashboard to the Agent Network surface for this account. Set for accounts created via netbird.ai signups and can be disabled later. Enabling this requires dashboard_features.agent_network to be true in the same request.
