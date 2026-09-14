@@ -2854,34 +2854,79 @@ func (s *Server) SessionHolder() (ipcauth.Principal, bool) {
 // OwnsProfile reports whether the profile the handle resolves to answers to
 // this identity.
 //
-// This triggers stamping of legacy profiles, and reloads the current config
-// if the handle is the active profile.
+// This triggers stamping of legacy profiles, and reloads the active profile's
+// config so the stamp is visible to SessionHolder.
 func (s *Server) OwnsProfile(id ipcauth.Identity, handle string) bool {
-	var activeProfile *profilemanager.ActiveProfileState
-	if handle == "" {
-		activeState, err := s.profileManager.GetActiveProfileState()
-		if err != nil {
-			log.Warnf("failed to get active profile: %v", err)
-		}
-		activeProfile = activeState
-		handle = activeProfile.ID.String()
-	}
-	resolved, err := s.resolveProfileHandle(handle, id)
+	// Without the active profile there is nothing to fall back to and nothing
+	// to refresh, so the gate gets a no rather than a guess.
+	activeProfile, err := s.profileManager.GetActiveProfileState()
 	if err != nil {
-		log.Errorf("failed to resolve profile %q: %v", handle, err)
+		log.Warnf("failed to get active profile: %v", err)
 		return false
 	}
-	// resolveProfileHandle might stamp legacy profile owners
-	if activeProfile != nil {
-		config, _, err := s.getConfig(activeProfile)
-		if err != nil {
-			log.Errorf("failed to get active profile config: %v", err)
-		}
-		s.mutex.Lock()
-		s.config = config
-		s.mutex.Unlock()
+	if activeProfile == nil {
+		log.Warn("no active profile to authorize against")
+		return false
+	}
+	if handle == "" {
+		handle = activeProfile.ID.String()
+	}
+
+	resolved, resolveErr := s.resolveProfileHandle(handle, id)
+
+	if afterProfileResolve != nil {
+		afterProfileResolve()
+	}
+
+	// Resolving stamps an owner on every legacy profile the caller can claim,
+	// not only the one the handle names, so the daemon's copy of the active
+	// profile's config goes stale whatever the handle was, and whether or not
+	// resolution succeeded. SessionHolder reads Owners off that copy, so
+	// refresh it before this answer reaches the gate.
+	s.reloadActiveConfig()
+
+	if resolveErr != nil {
+		log.Errorf("failed to resolve profile %q: %v", handle, resolveErr)
+		return false
 	}
 	return resolved.AccessibleBy(id)
+}
+
+// afterProfileResolve is a seam for tests to run a concurrent profile switch
+// between the resolution that stamps owners and the reload that publishes them.
+var afterProfileResolve func()
+
+// reloadActiveConfig refreshes the daemon's copy of the active profile's config
+// from disk, which is where SessionHolder reads the owner of a live session.
+//
+// The active profile is read here and the whole reload runs under s.mutex.
+// SwitchProfile and Up change the active profile and install its config under
+// that same lock.
+func (s *Server) reloadActiveConfig() {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	// The handlers that start a session read their own config off disk, no need
+	// for a reload.
+	if !s.clientRunning {
+		return
+	}
+
+	activeProfile, err := s.profileManager.GetActiveProfileState()
+	if err != nil {
+		log.Errorf("failed to reload the active profile state: %v", err)
+		return
+	}
+	if activeProfile == nil {
+		return
+	}
+
+	config, _, err := s.getConfig(activeProfile)
+	if err != nil {
+		log.Errorf("failed to reload active profile config: %v", err)
+		return
+	}
+	s.config = config
 }
 
 func (s *Server) persistLoginOverrides(activeProf *profilemanager.ActiveProfileState, managementURL string, preSharedKey *string) error {
