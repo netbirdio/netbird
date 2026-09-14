@@ -40,6 +40,9 @@ func consoleUID() (uint32, bool) {
 	if err != nil {
 		return 0, false
 	}
+	defer func() {
+		_ = purego.Dlclose(cf)
+	}()
 
 	// CFStringRef SCDynamicStoreCopyConsoleUser(SCDynamicStoreRef store,
 	//     uid_t *uid, gid_t *gid);
