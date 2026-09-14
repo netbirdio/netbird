@@ -43,7 +43,12 @@ func ipv6STUNPacket(dstPort uint16, cookie uint32) []byte {
 	return append(udp, payload...)
 }
 
-func runFilter(t *testing.T, raw []bpf.RawInstruction, packet []byte) int {
+// runFilter reports whether the filter accepts the packet. A BPF program returns
+// the number of bytes to accept, so zero means drop and anything else means
+// accept -- including the conventional accept-everything value 0xffffffff, which
+// is -1 once the VM returns it as an int on 32-bit platforms. Comparing against
+// zero rather than ordering keeps that correct on 386 as well as amd64.
+func runFilter(t *testing.T, raw []bpf.RawInstruction, packet []byte) bool {
 	t.Helper()
 
 	insts, ok := bpf.Disassemble(raw)
@@ -58,7 +63,7 @@ func runFilter(t *testing.T, raw []bpf.RawInstruction, packet []byte) int {
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	return n
+	return n != 0
 }
 
 func TestIncomingSTUNFilterIPv4(t *testing.T) {
@@ -86,7 +91,7 @@ func TestIncomingSTUNFilterIPv4(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			packet := ipv4STUNPacket(tc.optionWords, tc.dstPort, tc.cookie)
-			got := runFilter(t, raw4, packet) > 0
+			got := runFilter(t, raw4, packet)
 			if got != tc.wantMatch {
 				t.Errorf("match = %v, want %v", got, tc.wantMatch)
 			}
@@ -100,13 +105,13 @@ func TestIncomingSTUNFilterIPv6(t *testing.T) {
 		t.Fatalf("get instructions: %v", err)
 	}
 
-	if runFilter(t, raw6, ipv6STUNPacket(testPort, magicCookie)) == 0 {
+	if !runFilter(t, raw6, ipv6STUNPacket(testPort, magicCookie)) {
 		t.Error("stun packet did not match")
 	}
-	if runFilter(t, raw6, ipv6STUNPacket(testPort+1, magicCookie)) > 0 {
+	if runFilter(t, raw6, ipv6STUNPacket(testPort+1, magicCookie)) {
 		t.Error("packet for another port matched")
 	}
-	if runFilter(t, raw6, ipv6STUNPacket(testPort, 0xdeadbeef)) > 0 {
+	if runFilter(t, raw6, ipv6STUNPacket(testPort, 0xdeadbeef)) {
 		t.Error("non-stun packet matched")
 	}
 }
