@@ -1,0 +1,4 @@
+{
+  "description": "Subnet network resource behind one directly-assigned router, with masquerade off and a non-default metric so both reach the wire verbatim, and an all-protocol policy from a two-peer source group. peer-r's route firewall rule must list both source peers; peer-b confirms a second client in the same group gets its own identical route.",
+  "peers": ["peer-a", "peer-b", "peer-r"]
+}

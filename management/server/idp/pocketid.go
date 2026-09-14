@@ -90,7 +90,7 @@ func NewPocketIdManager(config PocketIdClientConfig, appMetrics telemetry.AppMet
 		Timeout:   idpTimeout(),
 		Transport: httpTransport,
 	}
-	
+
 	helper := JsonParser{}
 
 	if config.ManagementEndpoint == "" {

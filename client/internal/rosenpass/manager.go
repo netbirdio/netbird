@@ -28,22 +28,33 @@ func hashRosenpassKey(key []byte) string {
 	return hex.EncodeToString(hasher.Sum(nil))
 }
 
+// rpServer is the subset of rp.Server used by Manager. Defined as an interface
+// so tests can substitute a mock without spinning up a real UDP server.
+type rpServer interface {
+	AddPeer(rp.PeerConfig) (rp.PeerID, error)
+	RemovePeer(rp.PeerID) error
+	Run() error
+	Close() error
+}
+
 type Manager struct {
 	ifaceName    string
+	localWgKey   wgtypes.Key
 	spk          []byte
 	ssk          []byte
 	rpKeyHash    string
 	preSharedKey *[32]byte
 	rpPeerIDs    map[string]*rp.PeerID
 	rpWgHandler  *NetbirdHandler
-	server       *rp.Server
+	server       rpServer
 	lock         sync.Mutex
 	port         int
 	wgIface      PresharedKeySetter
 }
 
-// NewManager creates a new Rosenpass manager
-func NewManager(preSharedKey *wgtypes.Key, wgIfaceName string) (*Manager, error) {
+// NewManager creates a new Rosenpass manager. localWgKey is the local
+// WireGuard public key, used to derive the per-peer rendezvous key.
+func NewManager(preSharedKey *wgtypes.Key, wgIfaceName string, localWgKey wgtypes.Key) (*Manager, error) {
 	public, secret, err := rp.GenerateKeyPair()
 	if err != nil {
 		return nil, err
@@ -51,7 +62,23 @@ func NewManager(preSharedKey *wgtypes.Key, wgIfaceName string) (*Manager, error)
 
 	rpKeyHash := hashRosenpassKey(public)
 	log.Tracef("generated new rosenpass key pair with public key %s", rpKeyHash)
-	return &Manager{ifaceName: wgIfaceName, rpKeyHash: rpKeyHash, spk: public, ssk: secret, preSharedKey: (*[32]byte)(preSharedKey), rpPeerIDs: make(map[string]*rp.PeerID), lock: sync.Mutex{}}, nil
+	return &Manager{
+		ifaceName:    wgIfaceName,
+		localWgKey:   localWgKey,
+		rpKeyHash:    rpKeyHash,
+		spk:          public,
+		ssk:          secret,
+		preSharedKey: (*[32]byte)(preSharedKey),
+		rpPeerIDs:    make(map[string]*rp.PeerID),
+		// rpWgHandler is created here (instead of only in generateConfig) so it
+		// is never nil between NewManager and Run(). Otherwise an early
+		// OnConnected call (race observed on Android, issue #4341) panics on
+		// nil receiver in addPeer -> m.rpWgHandler.AddPeer. generateConfig will
+		// replace it with a fresh handler on each Run() to clear stale peer
+		// state from previous engine sessions.
+		rpWgHandler: NewNetbirdHandler((*[32]byte)(preSharedKey), localWgKey),
+		lock:        sync.Mutex{},
+	}, nil
 }
 
 func (m *Manager) GetPubKey() []byte {
@@ -65,6 +92,16 @@ func (m *Manager) GetAddress() *net.UDPAddr {
 
 // addPeer adds a new peer to the Rosenpass server
 func (m *Manager) addPeer(rosenpassPubKey []byte, rosenpassAddr string, wireGuardIP string, wireGuardPubKey string) error {
+	// Defense in depth against issue #4341 (Android crash): if Run() has not
+	// completed yet, m.server / m.rpWgHandler may be nil. Return an explicit
+	// error instead of panicking on nil-receiver dereference.
+	if m.server == nil {
+		return fmt.Errorf("rosenpass server not initialized")
+	}
+	if m.rpWgHandler == nil {
+		return fmt.Errorf("rosenpass wg handler not initialized")
+	}
+
 	var err error
 	pcfg := rp.PeerConfig{PublicKey: rosenpassPubKey}
 	if m.preSharedKey != nil {
@@ -75,9 +112,19 @@ func (m *Manager) addPeer(rosenpassPubKey []byte, rosenpassAddr string, wireGuar
 		if err != nil {
 			return fmt.Errorf("failed to parse rosenpass address: %w", err)
 		}
-		peerAddr := fmt.Sprintf("%s:%s", wireGuardIP, strPort)
+		peerAddr := net.JoinHostPort(wireGuardIP, strPort)
 		if pcfg.Endpoint, err = net.ResolveUDPAddr("udp", peerAddr); err != nil {
 			return fmt.Errorf("failed to resolve peer endpoint address: %w", err)
+		}
+		// Our local Rosenpass UDP server binds on the IPv6 wildcard ([::]) — see
+		// GetAddress(). The remote peer's endpoint (pcfg.Endpoint) is the destination
+		// our server will sendto when initiating handshakes. ResolveUDPAddr returns a
+		// 4-byte IPv4 for IPv4 hosts, which the kernel rejects (EDESTADDRREQ) when
+		// sent from an AF_INET6 socket. Normalize the remote endpoint to IPv4-mapped
+		// IPv6 so its address family matches our listening socket.
+		// TODO: maybe bind the Rosenpass UDP server to the peer wg IP addr
+		if v4 := pcfg.Endpoint.IP.To4(); v4 != nil {
+			pcfg.Endpoint.IP = v4.To16()
 		}
 	}
 	peerID, err := m.server.AddPeer(pcfg)
@@ -117,7 +164,7 @@ func (m *Manager) generateConfig() (rp.Config, error) {
 	cfg.Peers = []rp.PeerConfig{}
 
 	m.lock.Lock()
-	m.rpWgHandler = NewNetbirdHandler()
+	m.rpWgHandler = NewNetbirdHandler(m.preSharedKey, m.localWgKey)
 	if m.wgIface != nil {
 		m.rpWgHandler.SetInterface(m.wgIface)
 	}
@@ -182,24 +229,31 @@ func (m *Manager) Run() error {
 		return err
 	}
 
-	m.server, err = rp.NewUDPServer(conf)
+	server, err := rp.NewUDPServer(conf)
 	if err != nil {
 		return err
 	}
 
+	m.lock.Lock()
+	m.server = server
+	m.lock.Unlock()
+
 	log.Infof("starting rosenpass server on port %d", m.port)
 
-	return m.server.Run()
+	return server.Run()
 }
 
 // Close closes the Rosenpass server
 func (m *Manager) Close() error {
-	if m.server != nil {
-		err := m.server.Close()
-		if err != nil {
-			log.Errorf("failed closing local rosenpass server")
-		}
-		m.server = nil
+	m.lock.Lock()
+	server := m.server
+	m.server = nil
+	m.lock.Unlock()
+	if server == nil {
+		return nil
+	}
+	if err := server.Close(); err != nil {
+		log.Errorf("failed closing local rosenpass server: %v", err)
 	}
 	return nil
 }
@@ -259,6 +313,9 @@ func findRandomAvailableUDPPort() (int, error) {
 	}
 	defer conn.Close()
 
-	splitAddress := strings.Split(conn.LocalAddr().String(), ":")
-	return strconv.Atoi(splitAddress[len(splitAddress)-1])
+	_, portStr, err := net.SplitHostPort(conn.LocalAddr().String())
+	if err != nil {
+		return 0, fmt.Errorf("parse local address %s: %w", conn.LocalAddr(), err)
+	}
+	return strconv.Atoi(portStr)
 }

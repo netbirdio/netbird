@@ -128,7 +128,7 @@ cat <<-EOF | ${SUDO} tee /etc/yum.repos.d/netbird.repo
 name=NetBird
 baseurl=https://pkgs.netbird.io/yum/
 enabled=1
-gpgcheck=0
+gpgcheck=1
 gpgkey=https://pkgs.netbird.io/yum/repodata/repomd.xml.key
 repo_gpgcheck=1
 EOF
@@ -417,15 +417,30 @@ if type uname >/dev/null 2>&1; then
               # Check the availability of a compatible package manager
               if check_use_bin_variable; then
                   PACKAGE_MANAGER="bin"
+              elif [ -e /run/ostree-booted ]; then
+                  if [ -x "$(command -v rpm-ostree)" ]; then
+                      PACKAGE_MANAGER="rpm-ostree"
+                      echo "The installation will be performed using rpm-ostree package manager"
+                  elif [ -x "$(command -v bootc)" ]; then
+                      echo "Detected bootc system without rpm-ostree." >&2
+                      echo "NetBird cannot be installed via package manager on this system." >&2
+                      echo "Options:" >&2
+                      echo "  1. Install via Distrobox (instructions in the installation docs)" >&2
+                      echo "  2. Rebuild your base image with rpm-ostree included" >&2
+                      echo "  3. Bake NetBird into your Containerfile" >&2
+                      exit 1
+                  else
+                      echo "Detected ostree-booted system without rpm-ostree or bootc." >&2
+                      echo "NetBird cannot be installed automatically on this atomic system." >&2
+                      echo "Please install NetBird by rebuilding your base image or use a supported package manager." >&2
+                      exit 1
+                  fi
               elif [ -x "$(command -v apt-get)" ]; then
                   PACKAGE_MANAGER="apt"
                   echo "The installation will be performed using apt package manager"
               elif [ -x "$(command -v dnf)" ]; then
                   PACKAGE_MANAGER="dnf"
                   echo "The installation will be performed using dnf package manager"
-              elif [ -x "$(command -v rpm-ostree)" ]; then
-                  PACKAGE_MANAGER="rpm-ostree"
-                  echo "The installation will be performed using rpm-ostree package manager"
               elif [ -x "$(command -v yum)" ]; then
                   PACKAGE_MANAGER="yum"
                   echo "The installation will be performed using yum package manager"

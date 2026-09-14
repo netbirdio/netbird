@@ -164,9 +164,7 @@ func BenchmarkHashingMethods(b *testing.B) {
 		KernelVersion:      "5.15.0-76-generic",
 		Hostname:           "prod-server-database-01",
 		SystemSerialNumber: "PC-1234567890",
-		NetworkAddresses:   []nbpeer.NetworkAddress{{Mac: "00:1B:44:11:3A:B7"}, {Mac: "00:1B:44:11:3A:B8"}},
 	}
-	pubip := "8.8.8.8"
 
 	var resultString string
 	var resultUint uint64
@@ -175,7 +173,7 @@ func BenchmarkHashingMethods(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			resultString = builderString(meta, pubip)
+			resultString = builderString(meta)
 		}
 	})
 
@@ -183,7 +181,7 @@ func BenchmarkHashingMethods(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			resultString = fnvHashToString(meta, pubip)
+			resultString = fnvHashToString(meta)
 		}
 	})
 
@@ -191,7 +189,7 @@ func BenchmarkHashingMethods(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			resultUint = metaHash(meta, pubip)
+			resultUint = metaHash(meta)
 		}
 	})
 
@@ -199,29 +197,20 @@ func BenchmarkHashingMethods(b *testing.B) {
 	_ = resultUint
 }
 
-func fnvHashToString(meta nbpeer.PeerSystemMeta, pubip string) string {
+func fnvHashToString(meta nbpeer.PeerSystemMeta) string {
 	h := fnv.New64a()
-
-	if len(meta.NetworkAddresses) != 0 {
-		for _, na := range meta.NetworkAddresses {
-			h.Write([]byte(na.Mac))
-		}
-	}
 
 	h.Write([]byte(meta.WtVersion))
 	h.Write([]byte(meta.OSVersion))
 	h.Write([]byte(meta.KernelVersion))
 	h.Write([]byte(meta.Hostname))
 	h.Write([]byte(meta.SystemSerialNumber))
-	h.Write([]byte(pubip))
 
 	return strconv.FormatUint(h.Sum64(), 16)
 }
 
-func builderString(meta nbpeer.PeerSystemMeta, pubip string) string {
-	mac := getMacAddress(meta.NetworkAddresses)
-	estimatedSize := len(meta.WtVersion) + len(meta.OSVersion) + len(meta.KernelVersion) + len(meta.Hostname) + len(meta.SystemSerialNumber) +
-		len(pubip) + len(mac) + 6
+func builderString(meta nbpeer.PeerSystemMeta) string {
+	estimatedSize := len(meta.WtVersion) + len(meta.OSVersion) + len(meta.KernelVersion) + len(meta.Hostname) + len(meta.SystemSerialNumber) + 4
 
 	var b strings.Builder
 	b.Grow(estimatedSize)
@@ -235,21 +224,8 @@ func builderString(meta nbpeer.PeerSystemMeta, pubip string) string {
 	b.WriteString(meta.Hostname)
 	b.WriteByte('|')
 	b.WriteString(meta.SystemSerialNumber)
-	b.WriteByte('|')
-	b.WriteString(pubip)
 
 	return b.String()
-}
-
-func getMacAddress(nas []nbpeer.NetworkAddress) string {
-	if len(nas) == 0 {
-		return ""
-	}
-	macs := make([]string, 0, len(nas))
-	for _, na := range nas {
-		macs = append(macs, na.Mac)
-	}
-	return strings.Join(macs, "/")
 }
 
 func BenchmarkLoginFilter_ParallelLoad(b *testing.B) {

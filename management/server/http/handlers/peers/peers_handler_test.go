@@ -13,15 +13,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang/mock/gomock"
 	"github.com/gorilla/mux"
-	ugomock "go.uber.org/mock/gomock"
+	"go.uber.org/mock/gomock"
 	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
+	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/api"
@@ -104,7 +105,7 @@ func initTestMetaData(t *testing.T, peers ...*nbpeer.Peer) *Handler {
 		},
 	}
 
-	ctrl := ugomock.NewController(t)
+	ctrl := gomock.NewController(t)
 
 	networkMapController := network_map.NewMockController(ctrl)
 	networkMapController.EXPECT().
@@ -114,7 +115,17 @@ func initTestMetaData(t *testing.T, peers ...*nbpeer.Peer) *Handler {
 
 	ctrl2 := gomock.NewController(t)
 	permissionsManager := permissions.NewMockManager(ctrl2)
-	permissionsManager.EXPECT().ValidateAccountAccess(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
+	permissionsManager.EXPECT().ValidateAccountAccess(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(context.Background(), nil).AnyTimes()
+	permissionsManager.EXPECT().
+		ValidateUserPermissions(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Eq(modules.Peers), gomock.Eq(operations.Read)).
+		DoAndReturn(func(ctx context.Context, accountID, userID string, module modules.Module, operation operations.Operation) (bool, context.Context, error) {
+			user, ok := account.Users[userID]
+			if !ok {
+				return false, ctx, fmt.Errorf("user not found")
+			}
+			return user.HasAdminPower() || user.IsServiceUser, ctx, nil
+		}).
+		AnyTimes()
 
 	return &Handler{
 		accountManager: &mock_server.MockAccountManager{
@@ -134,7 +145,7 @@ func initTestMetaData(t *testing.T, peers ...*nbpeer.Peer) *Handler {
 			UpdatePeerIPFunc: func(_ context.Context, accountID, userID, peerID string, newIP netip.Addr) error {
 				for _, peer := range peers {
 					if peer.ID == peerID {
-						peer.IP = net.IP(newIP.AsSlice())
+						peer.IP = newIP
 						return nil
 					}
 				}
@@ -216,7 +227,8 @@ func TestGetPeers(t *testing.T) {
 	peer := &nbpeer.Peer{
 		ID:                     testPeerID,
 		Key:                    "key",
-		IP:                     net.ParseIP("100.64.0.1"),
+		IP:                     netip.MustParseAddr("100.64.0.1"),
+		IPv6:                   netip.MustParseAddr("fd00::1"),
 		Status:                 &nbpeer.PeerStatus{Connected: true},
 		Name:                   "PeerName",
 		LoginExpirationEnabled: false,
@@ -356,7 +368,8 @@ func TestGetAccessiblePeers(t *testing.T) {
 	peer1 := &nbpeer.Peer{
 		ID:                     "peer1",
 		Key:                    "key1",
-		IP:                     net.ParseIP("100.64.0.1"),
+		IP:                     netip.MustParseAddr("100.64.0.1"),
+		IPv6:                   netip.MustParseAddr("fd00:1234::1"),
 		Status:                 &nbpeer.PeerStatus{Connected: true},
 		Name:                   "peer1",
 		LoginExpirationEnabled: false,
@@ -366,7 +379,8 @@ func TestGetAccessiblePeers(t *testing.T) {
 	peer2 := &nbpeer.Peer{
 		ID:                     "peer2",
 		Key:                    "key2",
-		IP:                     net.ParseIP("100.64.0.2"),
+		IP:                     netip.MustParseAddr("100.64.0.2"),
+		IPv6:                   netip.MustParseAddr("fd00:1234::2"),
 		Status:                 &nbpeer.PeerStatus{Connected: true},
 		Name:                   "peer2",
 		LoginExpirationEnabled: false,
@@ -376,19 +390,19 @@ func TestGetAccessiblePeers(t *testing.T) {
 	peer3 := &nbpeer.Peer{
 		ID:                     "peer3",
 		Key:                    "key3",
-		IP:                     net.ParseIP("100.64.0.3"),
+		IP:                     netip.MustParseAddr("100.64.0.3"),
+		IPv6:                   netip.MustParseAddr("fd00:1234::3"),
 		Status:                 &nbpeer.PeerStatus{Connected: true},
 		Name:                   "peer3",
 		LoginExpirationEnabled: false,
 		UserID:                 regularUser,
 	}
 
-	p := initTestMetaData(t, peer1, peer2, peer3)
-
 	tt := []struct {
 		name           string
 		peerID         string
 		callerUserID   string
+		viewBlocked    bool
 		expectedStatus int
 		expectedPeers  []string
 	}{
@@ -427,10 +441,56 @@ func TestGetAccessiblePeers(t *testing.T) {
 			expectedStatus: http.StatusOK,
 			expectedPeers:  []string{"peer1", "peer2"},
 		},
+		{
+			name:           "regular user gets empty for owned peer list when view blocked",
+			peerID:         "peer1",
+			callerUserID:   regularUser,
+			viewBlocked:    true,
+			expectedStatus: http.StatusOK,
+			expectedPeers:  []string{},
+		},
+		{
+			name:           "regular user gets empty list for unowned peer when view blocked",
+			peerID:         "peer2",
+			callerUserID:   regularUser,
+			viewBlocked:    true,
+			expectedStatus: http.StatusOK,
+			expectedPeers:  []string{},
+		},
+		{
+			name:           "admin user still sees accessible peers when view blocked",
+			peerID:         "peer2",
+			callerUserID:   adminUser,
+			viewBlocked:    true,
+			expectedStatus: http.StatusOK,
+			expectedPeers:  []string{"peer1", "peer3"},
+		},
+		{
+			name:           "service user still sees accessible peers when view blocked",
+			peerID:         "peer3",
+			callerUserID:   serviceUser,
+			viewBlocked:    true,
+			expectedStatus: http.StatusOK,
+			expectedPeers:  []string{"peer1", "peer2"},
+		},
 	}
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
+			p := initTestMetaData(t, peer1, peer2, peer3)
+
+			if tc.viewBlocked {
+				mockAM := p.accountManager.(*mock_server.MockAccountManager)
+				originalGetAccountByIDFunc := mockAM.GetAccountByIDFunc
+				mockAM.GetAccountByIDFunc = func(ctx context.Context, accountID string, userID string) (*types.Account, error) {
+					account, err := originalGetAccountByIDFunc(ctx, accountID, userID)
+					if err != nil {
+						return nil, err
+					}
+					account.Settings.RegularUsersViewBlocked = true
+					return account, nil
+				}
+			}
 
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/peers/%s/accessible-peers", tc.peerID), nil)
@@ -475,7 +535,8 @@ func TestPeersHandlerUpdatePeerIP(t *testing.T) {
 	testPeer := &nbpeer.Peer{
 		ID:                     testPeerID,
 		Key:                    "key",
-		IP:                     net.ParseIP("100.64.0.1"),
+		IP:                     netip.MustParseAddr("100.64.0.1"),
+		IPv6:                   netip.MustParseAddr("fd00::1"),
 		Status:                 &nbpeer.PeerStatus{Connected: false, LastSeen: time.Now()},
 		Name:                   "test-host@netbird.io",
 		LoginExpirationEnabled: false,

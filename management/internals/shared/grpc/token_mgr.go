@@ -25,6 +25,8 @@ import (
 const defaultDuration = 12 * time.Hour
 
 // SecretsManager used to manage TURN and relay secrets
+//
+//go:generate go tool mockgen -source=./token_mgr.go -destination=./token_mgr_mock.go -package=grpc
 type SecretsManager interface {
 	GenerateTurnToken() (*Token, error)
 	GenerateRelayToken() (*Token, error)
@@ -161,6 +163,8 @@ func (m *TimeBasedAuthSecretsManager) SetupRefresh(ctx context.Context, accountI
 		m.turnCancelMap[peerID] = turnCancel
 		go m.refreshTURNTokens(ctx, accountID, peerID, turnCancel)
 		log.WithContext(ctx).Debugf("starting TURN refresh for %s", peerID)
+	} else {
+		log.WithContext(ctx).Debugf("no TURN configuration, skipping TURN refresh for %s", peerID)
 	}
 
 	if m.relayCfg != nil {
@@ -168,6 +172,8 @@ func (m *TimeBasedAuthSecretsManager) SetupRefresh(ctx context.Context, accountI
 		m.relayCancelMap[peerID] = relayCancel
 		go m.refreshRelayTokens(ctx, accountID, peerID, relayCancel)
 		log.WithContext(ctx).Tracef("starting relay refresh for %s", peerID)
+	} else {
+		log.WithContext(ctx).Tracef("no relay configuration, skipping relay refresh for %s", peerID)
 	}
 }
 

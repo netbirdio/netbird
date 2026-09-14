@@ -1,0 +1,237 @@
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Issue Triage
+
+        Use this category for reproducible bugs and regressions in NetBird.
+
+        The more context you include, the faster we can validate and act on your report. If you're not sure whether something is a bug, **Q&A / Support** is a good starting point — we can always move the conversation here once we've confirmed it's a product issue.
+
+        Intermittent issues are useful too. Include the trigger, frequency, timing, and any logs or debug evidence you have, and we'll work from there.
+
+        Please don't include secrets, tokens, private keys, internal hostnames, or public IPs. Security vulnerabilities should be reported through the repository security policy rather than a public discussion.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Before posting
+      options:
+        - label: I searched existing discussions and issues, including closed ones, and checked the relevant docs.
+          required: true
+        - label: I believe this is a product bug rather than a configuration or setup question.
+          required: true
+        - label: I can reproduce this issue, or for intermittent issues I've included trigger, frequency, and timing details below.
+          required: true
+        - label: I removed or anonymized sensitive data from logs, screenshots, and configuration.
+          required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      description: Select every area this report touches.
+      multiple: true
+      options:
+        - Client / Agent
+        - Reverse Proxy
+        - CLI
+        - Desktop UI
+        - Mobile app
+        - Peer connectivity
+        - DNS
+        - Routes / Exit nodes
+        - NetBird SSH
+        - Relay / Signal / NAT traversal
+        - Login / Authentication / IdP
+        - Dashboard / Admin UI
+        - Management service / API
+        - Access control policies / Posture checks
+        - Self-hosting / Deployment
+        - Kubernetes / Operator
+        - Documentation
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment type
+      options:
+        - NetBird Cloud
+        - Self-hosted - quickstart script
+        - Self-hosted - advanced/custom deployment
+        - Local development build
+        - Not sure / environment I do not fully control
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Operating system or environment
+      description: Select every environment involved in the reproduction.
+      multiple: true
+      options:
+        - Linux
+        - macOS
+        - Windows
+        - Android
+        - iOS
+        - FreeBSD
+        - OpenWRT
+        - Docker
+        - Kubernetes
+        - Synology
+        - Browser
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: version
+    attributes:
+      label: NetBird version and upgrade status
+      description: Run `netbird version` where applicable. For self-hosted deployments, include management, signal, relay, and dashboard versions if available. If you cannot test on a current/supported version, explain why.
+      placeholder: |
+        Example:
+        - Client: 0.30.2
+        - Management: 0.30.2
+        - Signal: 0.30.2
+        - Relay: 0.30.2
+        - Dashboard: 0.30.2
+        - Upgrade status: reproduced on current version / cannot upgrade because ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: regression
+    attributes:
+      label: Did this work before?
+      options:
+        - Yes, this worked before
+        - No, this never worked
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: regression-details
+    attributes:
+      label: Regression details
+      description: If this worked before, include the last known working version, first known broken version, and any recent upgrade, configuration, network, or IdP changes.
+      placeholder: |
+        - Last known working version:
+        - First known broken version:
+        - Recent changes:
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Briefly describe the reproducible bug.
+      placeholder: What is broken?
+    validations:
+      required: true
+
+  - type: textarea
+    id: current-behavior
+    attributes:
+      label: Current behavior
+      description: What happens now? Include exact errors, timeouts, UI messages, or failed commands when possible.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Provide the smallest set of steps that reliably reproduces the bug. If the issue is intermittent, include the trigger, frequency, timing, and relevant timestamps.
+      placeholder: |
+        1. Configure ...
+        2. Run ...
+        3. Observe ...
+
+        For intermittent issues:
+        - Trigger:
+        - Frequency:
+        - Timing/timestamps:
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment and topology
+      description: Include the relevant topology and software involved in the reproduction. For UI/docs-only reports, write `N/A` if this does not apply. Use `None`, `Unknown`, or `N/A` where appropriate.
+      placeholder: |
+        - Peer A:
+        - Peer B:
+        - Same LAN or different networks:
+        - NAT/CGNAT/corporate firewall/mobile network:
+        - Other VPN software:
+        - Firewall, DNS, or endpoint security software:
+        - Routes, DNS, policies, posture checks, or SSH rules involved:
+        - IdP, reverse proxy, or browser involved:
+    validations:
+      required: true
+
+  - type: textarea
+    id: self-hosted-details
+    attributes:
+      label: Self-hosted details, if available
+      description: Optional. If you use self-hosting and have access to these details, include them. If you do not administer the environment, provide what you know and say what you cannot access.
+      placeholder: |
+        - Deployment method: quickstart / Docker Compose / Helm / operator / custom
+        - Management/signal/relay/dashboard versions:
+        - Reverse proxy:
+        - IdP/provider:
+        - STUN/TURN/coturn/relay details:
+        - Relevant component logs:
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs, status output, or debug evidence
+      description: |
+        For client, connectivity, DNS, route, relay/signal, or self-hosted reports, logs are essential — please include anonymized output from `netbird status -dA`, or a debug bundle via `netbird debug for 1m -AS -U`. Debug bundles are automatically deleted after 30 days.
+
+        For UI, dashboard, or documentation reports, leave the pre-filled `N/A`.
+      value: "N/A"
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: related-reports
+    attributes:
+      label: Related issues or discussions
+      description: Optional. Link similar reports you found while searching, if any.
+      placeholder: |
+        - Related issue/discussion:
+        - Why this may be the same or different:
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: Optional. Help us understand priority. How many users, peers, environments, or workflows are affected? Is there a workaround?
+      placeholder: |
+        - Affected users/peers:
+        - Business or production impact:
+        - Workaround available:
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Add links to related discussions, issues, docs, screenshots, recordings, or anything else that may help validation.

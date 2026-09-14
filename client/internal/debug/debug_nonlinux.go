@@ -17,3 +17,8 @@ func (g *BundleGenerator) addIPRules() error {
 	// IP rules are only supported on Linux
 	return nil
 }
+
+func (g *BundleGenerator) addSysctls() error {
+	// Sysctl collection is only supported on Linux
+	return nil
+}

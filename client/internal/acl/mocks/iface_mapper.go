@@ -7,7 +7,7 @@ package mocks
 import (
 	reflect "reflect"
 
-	gomock "github.com/golang/mock/gomock"
+	gomock "go.uber.org/mock/gomock"
 	wgdevice "golang.zx2c4.com/wireguard/device"
 
 	"github.com/netbirdio/netbird/client/iface/device"

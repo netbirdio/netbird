@@ -22,10 +22,6 @@ func GetRoutesFromTable() ([]netip.Prefix, error) {
 	return []netip.Prefix{}, nil
 }
 
-func hasSeparateRouting() ([]netip.Prefix, error) {
-	return []netip.Prefix{}, nil
-}
-
 // GetDetailedRoutesFromTable returns empty routes for WASM.
 func GetDetailedRoutesFromTable() ([]DetailedRoute, error) {
 	return []DetailedRoute{}, nil

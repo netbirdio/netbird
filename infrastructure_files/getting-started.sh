@@ -19,19 +19,62 @@ readonly MSG_SEPARATOR="=========================================="
 # Utility Functions
 ############################################
 
-check_docker_compose() {
-  if command -v docker-compose &> /dev/null
-  then
-      echo "docker-compose"
-      return
-  fi
-  if docker compose --help &> /dev/null
-  then
-      echo "docker compose"
-      return
+check_docker_sock_perms() {
+  local sock="${DOCKER_HOST:-unix:///var/run/docker.sock}"
+  sock="${sock#unix://}"
+
+  if [[ ! -S "$sock" ]]; then
+    return 0
   fi
 
-  echo "docker-compose is not installed or not in PATH. Please follow the steps from the official guide: https://docs.docker.com/engine/install/" > /dev/stderr
+  if [[ ! -r "$sock" ]] || [[ ! -w "$sock" ]]; then
+    local group
+    if [[ "${OSTYPE}" == "darwin"* ]]; then
+      group="$(stat -f '%Sg' "$sock")"
+    else
+      group="$(stat -c '%G' "$sock")"
+    fi
+
+    echo "Cannot access Docker socket: $sock" > /dev/stderr
+    echo "" > /dev/stderr
+    echo "Socket permissions:" > /dev/stderr
+    ls -l "$sock" > /dev/stderr
+    echo "" > /dev/stderr
+
+    if [[ "$group" == "docker" ]]; then
+      echo "Your user may need to be added to the '$group' group:" > /dev/stderr
+      echo "  sudo usermod -aG $group \"$USER\"" > /dev/stderr
+      echo "Then log out and back in, or run this for the current shell:" > /dev/stderr
+      echo "  newgrp $group" > /dev/stderr
+      echo "Note: newgrp is temporary; usermod is the permanent group change." > /dev/stderr
+    else
+      echo "The Docker socket is owned by the '$group' group, which is not the standard 'docker' group." > /dev/stderr
+      echo "For safety, this script will not suggest adding your user to '$group'." > /dev/stderr
+      echo "Instead, either run this script with appropriate privileges (for example, via sudo) or follow Docker's post-install steps to configure access via the 'docker' group:" > /dev/stderr
+      echo "  https://docs.docker.com/engine/install/linux-postinstall/" > /dev/stderr
+    fi
+
+    exit 1
+  fi
+  return 0
+}
+
+check_docker_compose() {
+  if ! command -v docker &> /dev/null && ! command -v docker-compose &> /dev/null; then
+    echo "Docker is not installed or not in PATH. Please follow the steps from the official guide: https://docs.docker.com/engine/install/" > /dev/stderr
+    exit 1
+  fi
+
+  if docker compose version &> /dev/null; then
+    echo "docker compose"
+    return
+  fi
+  if command -v docker-compose &> /dev/null && docker-compose version &> /dev/null; then
+    echo "docker-compose"
+    return
+  fi
+
+  echo "Docker Compose is not installed or not in PATH. Please follow the steps from the official guide: https://docs.docker.com/compose/install/" > /dev/stderr
   exit 1
 }
 
@@ -58,15 +101,89 @@ get_main_ip_address() {
 }
 
 check_nb_domain() {
-  DOMAIN=$1
-  if [[ "$DOMAIN-x" == "-x" ]]; then
+  local domain="$1"
+
+  if [[ -z "$domain" ]]; then
     echo "The NETBIRD_DOMAIN variable cannot be empty." > /dev/stderr
     return 1
   fi
-
-  if [[ "$DOMAIN" == "netbird.example.com" ]]; then
+  if [[ "$domain" == "use-ip" ]]; then
+    return 0
+  fi
+  if [[ "$domain" == "netbird.example.com" ]]; then
     echo "The NETBIRD_DOMAIN cannot be netbird.example.com" > /dev/stderr
     return 1
+  fi
+  if [[ "$domain" =~ ^[0-9.]+$ ]]; then
+    echo "'$domain' is an IP address. Use 'use-ip' to install on this host's IP over HTTP, or an FQDN to get a TLS certificate." > /dev/stderr
+    return 1
+  fi
+  if [[ ! "$domain" =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$ ]]; then
+    echo "'$domain' is not a valid FQDN. It needs at least one dot (e.g. netbird.my-domain.com), with no scheme, port or trailing dot." > /dev/stderr
+    return 1
+  fi
+  return 0
+}
+
+check_domain_resolves() {
+  local domain="$1"
+  if command -v getent &> /dev/null && getent hosts "$domain" &> /dev/null; then return 0; fi
+  if command -v host &> /dev/null && host "$domain" &> /dev/null; then return 0; fi
+  if command -v dig &> /dev/null && [[ -n "$(dig +short "$domain" 2>/dev/null)" ]]; then return 0; fi
+  if command -v nslookup &> /dev/null && nslookup "$domain" &> /dev/null; then return 0; fi
+  return 1
+}
+
+# Non-interactive configuration
+# ------------------------------
+# Every prompt below can be pre-answered with an environment variable, so the
+# script runs unattended (cloud-init, CI, Terraform, curl | bash). resolve()
+# is the single place that decides env var vs prompt vs default; the read_*
+# helpers stay pure prompts.
+#
+# Supported env vars:
+#   NETBIRD_DOMAIN                    domain/FQDN (required)
+#   NETBIRD_LETSENCRYPT_EMAIL         ACME email (required for built-in Traefik)
+#   NETBIRD_AGENT_NETWORK             true enables the agent-network preset
+#   NETBIRD_REVERSE_PROXY_TYPE        0-5 (default 0 = built-in Traefik)
+#   NETBIRD_ENABLE_PROXY              true/false (default false)
+#   NETBIRD_ENABLE_CROWDSEC           true/false (default false)
+#   NETBIRD_TRAEFIK_EXTERNAL_NETWORK  external-Traefik network (type 1)
+#   NETBIRD_TRAEFIK_ENTRYPOINT        external-Traefik entrypoint (type 1, default websecure)
+#   NETBIRD_TRAEFIK_CERTRESOLVER      external-Traefik cert resolver (type 1)
+#   NETBIRD_BIND_LOCALHOST_ONLY       true/false (default true, types 2-5)
+#   NETBIRD_EXTERNAL_PROXY_NETWORK    docker network to join (types 2-4)
+#   NETBIRD_TRUSTED_PEERS             reverse proxy address management sees (default: built-in Traefik's IP, empty for types 1-5)
+#   NETBIRD_NON_INTERACTIVE           true forces unattended mode even with a TTY
+
+# tty_available succeeds only when we may prompt: never when the operator has
+# set NETBIRD_NON_INTERACTIVE=true, otherwise only when /dev/tty can actually
+# be opened. A PTY can be attached in automation (CI runners, some
+# provisioners), so the env override is the authoritative signal and the
+# /dev/tty probe is the fallback. /dev/tty is a world-rw device node even with
+# no terminal, so a permission test ([ -r ]) is not enough - we must open it.
+tty_available() {
+  [[ "${NETBIRD_NON_INTERACTIVE:-}" == "true" ]] && return 1
+  { true < /dev/tty; } 2>/dev/null
+}
+
+# resolve ENV_VAR_NAME DEFAULT PROMPT_FN [prompt args...]
+#   env var set and non-empty -> its value
+#   interactive               -> PROMPT_FN "$@" (prompt behavior unchanged)
+#   otherwise                 -> DEFAULT, or abort when DEFAULT is "required"
+resolve() {
+  local env_name="$1" default="$2" prompt_fn="$3"
+  shift 3
+  local env_value="${!env_name:-}"
+  if [[ -n "$env_value" ]]; then
+    echo "$env_value"
+  elif tty_available; then
+    "$prompt_fn" "$@"
+  elif [[ "$default" == "required" ]]; then
+    echo "$env_name is required for a non-interactive install." > /dev/stderr
+    exit 1
+  else
+    echo "$default"
   fi
   return 0
 }
@@ -77,7 +194,22 @@ read_nb_domain() {
   read -r READ_NETBIRD_DOMAIN < /dev/tty
   if ! check_nb_domain "$READ_NETBIRD_DOMAIN"; then
     read_nb_domain
+    return
   fi
+
+  if [[ "$READ_NETBIRD_DOMAIN" != "use-ip" ]] && ! check_domain_resolves "$READ_NETBIRD_DOMAIN"; then
+    local confirm=""
+    echo "" > /dev/stderr
+    echo "Warning: '$READ_NETBIRD_DOMAIN' does not resolve via DNS from this host." > /dev/stderr
+    echo "TLS certificate issuance and client connections will fail until it does." > /dev/stderr
+    echo -n "Continue anyway? [y/N]: " > /dev/stderr
+    read -r confirm < /dev/tty
+    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+      read_nb_domain
+      return
+    fi
+  fi
+
   echo "$READ_NETBIRD_DOMAIN"
   return 0
 }
@@ -85,8 +217,8 @@ read_nb_domain() {
 read_reverse_proxy_type() {
   echo "" > /dev/stderr
   echo "Which reverse proxy will you use?" > /dev/stderr
-  echo "  [0] Built-in Caddy (recommended - automatic TLS)" > /dev/stderr
-  echo "  [1] Traefik (labels added to containers)" > /dev/stderr
+  echo "  [0] Traefik (recommended - automatic TLS, included in Docker Compose)" > /dev/stderr
+  echo "  [1] Existing Traefik (labels for external Traefik instance)" > /dev/stderr
   echo "  [2] Nginx (generates config template)" > /dev/stderr
   echo "  [3] Nginx Proxy Manager (generates config + instructions)" > /dev/stderr
   echo "  [4] External Caddy (generates Caddyfile snippet)" > /dev/stderr
@@ -166,6 +298,53 @@ read_proxy_docker_network() {
   return 0
 }
 
+read_enable_proxy() {
+  echo "" > /dev/stderr
+  echo "Do you want to enable the NetBird Proxy service?" > /dev/stderr
+  echo "The proxy allows you to selectively expose internal NetBird network resources" > /dev/stderr
+  echo "to the internet. You control which resources are exposed through the dashboard." > /dev/stderr
+  echo -n "Enable proxy? [y/N]: " > /dev/stderr
+  read -r CHOICE < /dev/tty
+
+  if [[ "$CHOICE" =~ ^[Yy]$ ]]; then
+    echo "true"
+  else
+    echo "false"
+  fi
+  return 0
+}
+
+read_enable_crowdsec() {
+  echo "" > /dev/stderr
+  echo "Do you want to enable CrowdSec IP reputation blocking?" > /dev/stderr
+  echo "CrowdSec checks client IPs against a community threat intelligence database" > /dev/stderr
+  echo "and blocks known malicious sources before they reach your services." > /dev/stderr
+  echo "A local CrowdSec LAPI container will be added to your deployment." > /dev/stderr
+  echo -n "Enable CrowdSec? [y/N]: " > /dev/stderr
+  read -r CHOICE < /dev/tty
+
+  if [[ "$CHOICE" =~ ^[Yy]$ ]]; then
+    echo "true"
+  else
+    echo "false"
+  fi
+  return 0
+}
+
+read_traefik_acme_email() {
+  echo "" > /dev/stderr
+  echo "Enter your email for Let's Encrypt certificate notifications." > /dev/stderr
+  echo -n "Email address: " > /dev/stderr
+  read -r EMAIL < /dev/tty
+  if [[ -z "$EMAIL" ]]; then
+    echo "Email is required for Let's Encrypt." > /dev/stderr
+    read_traefik_acme_email
+    return
+  fi
+  echo "$EMAIL"
+  return 0
+}
+
 get_bind_address() {
   if [[ "$BIND_LOCALHOST_ONLY" == "true" ]]; then
     echo "127.0.0.1"
@@ -182,20 +361,40 @@ get_upstream_host() {
   return 0
 }
 
-wait_management() {
+wait_management_proxy() {
+  local proxy_container="${1:-traefik}"
+  local use_docker_logs=false
   set +e
-  echo -n "Waiting for Management server to become ready"
+
+  if [[ "$proxy_container" == "detect-traefik" ]]; then
+    proxy_container=$(docker ps --format "{{.ID}}\t{{.Image}}\t{{.Ports}}" \
+    | awk -F'\t' '$2 ~ /traefik/ && $3 ~ /:(80|443)->/ {print $1; exit}')
+
+    if [[ -z "$proxy_container" ]]; then
+      echo "Warning: could not auto-detect Traefik container, log output will be skipped on timeout." > /dev/stderr
+    else
+      use_docker_logs=true
+    fi
+  fi
+
+  echo -n "Waiting for NetBird server to become ready"
   counter=1
   while true; do
-    # Check the embedded IdP endpoint
+    # Check the embedded IdP endpoint through the reverse proxy
     if curl -sk -f -o /dev/null "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/oauth2/.well-known/openid-configuration" 2>/dev/null; then
       break
     fi
     if [[ $counter -eq 60 ]]; then
       echo ""
       echo "Taking too long. Checking logs..."
-      $DOCKER_COMPOSE_COMMAND logs --tail=20 caddy
-      $DOCKER_COMPOSE_COMMAND logs --tail=20 management
+      if [[ -n "$proxy_container" ]]; then
+        if [[ "$use_docker_logs" == "true" ]]; then
+          docker logs --tail=20 "$proxy_container"
+        else
+          $DOCKER_COMPOSE_COMMAND logs --tail=20 "$proxy_container"
+        fi
+      fi
+      $DOCKER_COMPOSE_COMMAND logs --tail=20 netbird-server
     fi
     echo -n " ."
     sleep 2
@@ -209,7 +408,7 @@ wait_management() {
 wait_management_direct() {
   set +e
   local upstream_host=$(get_upstream_host)
-  echo -n "Waiting for Management server to become ready"
+  echo -n "Waiting for NetBird server to become ready"
   counter=1
   while true; do
     # Check the embedded IdP endpoint directly (no reverse proxy)
@@ -219,7 +418,7 @@ wait_management_direct() {
     if [[ $counter -eq 60 ]]; then
       echo ""
       echo "Taking too long. Checking logs..."
-      $DOCKER_COMPOSE_COMMAND logs --tail=20 management
+      $DOCKER_COMPOSE_COMMAND logs --tail=20 netbird-server
     fi
     echo -n " ."
     sleep 2
@@ -235,85 +434,173 @@ wait_management_direct() {
 ############################################
 
 initialize_default_values() {
-  CADDY_SECURE_DOMAIN=""
   NETBIRD_PORT=80
   NETBIRD_HTTP_PROTOCOL="http"
   NETBIRD_RELAY_PROTO="rel"
   NETBIRD_RELAY_AUTH_SECRET=$(openssl rand -base64 32 | sed "$SED_STRIP_PADDING")
   # Note: DataStoreEncryptionKey must keep base64 padding (=) for Go's base64.StdEncoding
   DATASTORE_ENCRYPTION_KEY=$(openssl rand -base64 32)
+  SESSION_COOKIE_ENCRYPTION_KEY=$(openssl rand -base64 32)
   NETBIRD_STUN_PORT=3478
 
   # Docker images
-  CADDY_IMAGE="caddy"
-  DASHBOARD_IMAGE="netbirdio/dashboard:latest"
-  SIGNAL_IMAGE="netbirdio/signal:latest"
-  RELAY_IMAGE="netbirdio/relay:latest"
-  MANAGEMENT_IMAGE="netbirdio/management:latest"
-
+  DASHBOARD_IMAGE=${DASHBOARD_IMAGE:-"netbirdio/dashboard:latest"}
+  # Combined server replaces separate signal, relay, and management containers
+  NETBIRD_SERVER_IMAGE=${NETBIRD_SERVER_IMAGE:-"netbirdio/netbird-server:latest"}
+  NETBIRD_PROXY_IMAGE=${NETBIRD_PROXY_IMAGE:-"netbirdio/reverse-proxy:latest"}
+  TRAEFIK_IMAGE=${TRAEFIK_IMAGE:-"traefik:v3.6"}
+  CROWDSEC_IMAGE=${CROWDSEC_IMAGE:-"crowdsecurity/crowdsec:v1.7.7"}
   # Reverse proxy configuration
   REVERSE_PROXY_TYPE="0"
   TRAEFIK_EXTERNAL_NETWORK=""
   TRAEFIK_ENTRYPOINT="websecure"
   TRAEFIK_CERTRESOLVER=""
+  TRAEFIK_ACME_EMAIL=""
   DASHBOARD_HOST_PORT="8080"
-  MANAGEMENT_HOST_PORT="8081"
-  SIGNAL_HOST_PORT="8083"
-  SIGNAL_GRPC_PORT="10000"
-  RELAY_HOST_PORT="8084"
+  MANAGEMENT_HOST_PORT="8081"  # Combined server port (management + signal + relay)
   BIND_LOCALHOST_ONLY="true"
   EXTERNAL_PROXY_NETWORK=""
+  TRUSTED_PEERS=""             # Address the reverse proxy connects to management from
+
+
+  # Traefik static IP within the internal bridge network
+  TRAEFIK_IP="172.30.0.10"
+
+  # NetBird Proxy configuration
+  ENABLE_PROXY="false"
+  PROXY_TOKEN=""
+
+  # CrowdSec configuration
+  ENABLE_CROWDSEC="false"
+  CROWDSEC_BOUNCER_KEY=""
   return 0
 }
 
 configure_domain() {
+  # Domain is validated (not a free-form value), so it keeps its own guard
+  # rather than going through resolve(): a valid NETBIRD_DOMAIN is used as-is,
+  # otherwise we prompt, or abort when there is no terminal to prompt on.
+  local prompted="false"
   if ! check_nb_domain "$NETBIRD_DOMAIN"; then
+    if ! tty_available; then
+      if [[ -n "$NETBIRD_DOMAIN" ]]; then
+        echo "NETBIRD_DOMAIN='$NETBIRD_DOMAIN' cannot be used for a non-interactive install." > /dev/stderr
+      else
+        echo "NETBIRD_DOMAIN is required for a non-interactive install." > /dev/stderr
+      fi
+      exit 1
+    fi
     NETBIRD_DOMAIN=$(read_nb_domain)
+    prompted="true"
+  fi
+
+  if [[ "$prompted" == "false" && "$NETBIRD_DOMAIN" != "use-ip" ]] && ! check_domain_resolves "$NETBIRD_DOMAIN"; then
+    echo "Warning: '$NETBIRD_DOMAIN' does not resolve via DNS from this host." > /dev/stderr
+    echo "TLS certificate issuance and client connections will fail until it does." > /dev/stderr
   fi
 
   if [[ "$NETBIRD_DOMAIN" == "use-ip" ]]; then
     NETBIRD_DOMAIN=$(get_main_ip_address)
+    BASE_DOMAIN=$NETBIRD_DOMAIN
   else
     NETBIRD_PORT=443
-    CADDY_SECURE_DOMAIN=", $NETBIRD_DOMAIN:$NETBIRD_PORT"
     NETBIRD_HTTP_PROTOCOL="https"
     NETBIRD_RELAY_PROTO="rels"
+    BASE_DOMAIN=$(echo $NETBIRD_DOMAIN | sed -E 's/^[^.]+\.//')
   fi
   return 0
 }
 
-configure_reverse_proxy() {
-  # Prompt for reverse proxy type
-  REVERSE_PROXY_TYPE=$(read_reverse_proxy_type)
+apply_agent_network_preset() {
+  # Agent-network turnkey install: built-in Traefik + NetBird Proxy with
+  # NB_PROXY_PRIVATE=true, dashboard locked to agent-network-only mode.
+  # Bypasses every reverse-proxy / proxy / CrowdSec prompt. The only
+  # inputs we still need from the operator are the domain (handled by
+  # configure_domain via NETBIRD_DOMAIN env var or interactive prompt)
+  # and the ACME email — both honor env vars first and fall back to a
+  # prompt only when unset. CrowdSec is intentionally off.
+  REVERSE_PROXY_TYPE="0"
+  ENABLE_PROXY="true"
+  ENABLE_CROWDSEC="false"
+  TRUSTED_PEERS="${NETBIRD_TRUSTED_PEERS:-$TRAEFIK_IP/32}"
 
-  # Handle Traefik-specific prompts
+  TRAEFIK_ACME_EMAIL=$(resolve NETBIRD_LETSENCRYPT_EMAIL required read_traefik_acme_email)
+
+  echo "" > /dev/stderr
+  echo "Agent-network preset enabled (NETBIRD_AGENT_NETWORK=true):" > /dev/stderr
+  echo "  - reverse proxy: built-in Traefik" > /dev/stderr
+  echo "  - NetBird Proxy: enabled with NB_PROXY_PRIVATE=true" > /dev/stderr
+  echo "  - server image: ${NETBIRD_SERVER_IMAGE}" > /dev/stderr
+  echo "  - proxy image: ${NETBIRD_PROXY_IMAGE}" > /dev/stderr
+  echo "  - dashboard: NETBIRD_AGENT_NETWORK_ONLY=true" > /dev/stderr
+  echo "  - CrowdSec: disabled" > /dev/stderr
+  echo "  - Let's Encrypt email: ${TRAEFIK_ACME_EMAIL}" > /dev/stderr
+  echo "" > /dev/stderr
+}
+
+configure_reverse_proxy() {
+  # Short-circuit: agent-network preset locks every reverse-proxy /
+  # proxy / CrowdSec choice and bypasses the interactive prompts.
+  if [[ "${NETBIRD_AGENT_NETWORK}" == "true" ]]; then
+    apply_agent_network_preset
+    return 0
+  fi
+
+  # Reverse proxy type (env NETBIRD_REVERSE_PROXY_TYPE, else prompt, else 0)
+  REVERSE_PROXY_TYPE=$(resolve NETBIRD_REVERSE_PROXY_TYPE 0 read_reverse_proxy_type)
+
+  # Handle built-in Traefik prompts (option 0)
+  if [[ "$REVERSE_PROXY_TYPE" == "0" ]]; then
+    TRAEFIK_ACME_EMAIL=$(resolve NETBIRD_LETSENCRYPT_EMAIL required read_traefik_acme_email)
+    ENABLE_PROXY=$(resolve NETBIRD_ENABLE_PROXY false read_enable_proxy)
+    if [[ "$ENABLE_PROXY" == "true" ]]; then
+      ENABLE_CROWDSEC=$(resolve NETBIRD_ENABLE_CROWDSEC false read_enable_crowdsec)
+    fi
+  fi
+
+  # Handle external Traefik-specific prompts (option 1)
   if [[ "$REVERSE_PROXY_TYPE" == "1" ]]; then
-    TRAEFIK_EXTERNAL_NETWORK=$(read_traefik_network)
-    TRAEFIK_ENTRYPOINT=$(read_traefik_entrypoint)
-    TRAEFIK_CERTRESOLVER=$(read_traefik_certresolver)
+    TRAEFIK_EXTERNAL_NETWORK=$(resolve NETBIRD_TRAEFIK_EXTERNAL_NETWORK "" read_traefik_network)
+    TRAEFIK_ENTRYPOINT=$(resolve NETBIRD_TRAEFIK_ENTRYPOINT websecure read_traefik_entrypoint)
+    TRAEFIK_CERTRESOLVER=$(resolve NETBIRD_TRAEFIK_CERTRESOLVER "" read_traefik_certresolver)
   fi
 
   # Handle port binding for external proxy options (2-5)
   if [[ "$REVERSE_PROXY_TYPE" -ge 2 ]]; then
-    BIND_LOCALHOST_ONLY=$(read_port_binding_preference)
+    BIND_LOCALHOST_ONLY=$(resolve NETBIRD_BIND_LOCALHOST_ONLY true read_port_binding_preference)
   fi
 
   # Handle Docker network prompts for external proxies (options 2-4)
   case "$REVERSE_PROXY_TYPE" in
-    2) EXTERNAL_PROXY_NETWORK=$(read_proxy_docker_network "Nginx") ;;
-    3) EXTERNAL_PROXY_NETWORK=$(read_proxy_docker_network "Nginx Proxy Manager") ;;
-    4) EXTERNAL_PROXY_NETWORK=$(read_proxy_docker_network "Caddy") ;;
+    2) EXTERNAL_PROXY_NETWORK=$(resolve NETBIRD_EXTERNAL_PROXY_NETWORK "" read_proxy_docker_network "Nginx") ;;
+    3) EXTERNAL_PROXY_NETWORK=$(resolve NETBIRD_EXTERNAL_PROXY_NETWORK "" read_proxy_docker_network "Nginx Proxy Manager") ;;
+    4) EXTERNAL_PROXY_NETWORK=$(resolve NETBIRD_EXTERNAL_PROXY_NETWORK "" read_proxy_docker_network "Caddy") ;;
     *) ;; # No network prompt for other options
   esac
+
+  # Only the bundled Traefik has an address we know at render time. External proxies
+  # must supply the address their proxy reaches management from.
+  if [[ "$REVERSE_PROXY_TYPE" == "0" ]]; then
+    TRUSTED_PEERS="${NETBIRD_TRUSTED_PEERS:-$TRAEFIK_IP/32}"
+  else
+    TRUSTED_PEERS="${NETBIRD_TRUSTED_PEERS:-}"
+    if [[ -z "$TRUSTED_PEERS" ]]; then
+      echo "" > /dev/stderr
+      echo "Note: reverseProxy.trustedPeers is unset, so NetBird will use the address your" > /dev/stderr
+      echo "proxy connects from as each peer's connection IP. To record real client IPs," > /dev/stderr
+      echo "set NETBIRD_TRUSTED_PEERS to your proxy's address (e.g. 172.20.0.5/32) and re-run." > /dev/stderr
+      echo "" > /dev/stderr
+    fi
+  fi
   return 0
 }
 
 check_existing_installation() {
-  if [[ -f management.json ]]; then
+  if [[ -f config.yaml ]]; then
     echo "Generated files already exist, if you want to reinitialize the environment, please remove them first."
     echo "You can use the following commands:"
     echo "  $DOCKER_COMPOSE_COMMAND down --volumes # to remove all containers and volumes"
-    echo "  rm -f docker-compose.yml Caddyfile dashboard.env management.json relay.env nginx-netbird.conf caddyfile-netbird.txt npm-advanced-config.txt"
+    echo "  rm -f docker-compose.yml dashboard.env config.yaml proxy.env traefik-dynamic.yaml nginx-netbird.conf caddyfile-netbird.txt npm-advanced-config.txt && rm -rf crowdsec/"
     echo "Be aware that this will remove all data from the database, and you will have to reconfigure the dashboard."
     exit 1
   fi
@@ -326,8 +613,18 @@ generate_configuration_files() {
   # Render docker-compose and proxy config based on selection
   case "$REVERSE_PROXY_TYPE" in
     0)
-      render_docker_compose > docker-compose.yml
-      render_caddyfile > Caddyfile
+      render_docker_compose_traefik_builtin > docker-compose.yml
+      if [[ "$ENABLE_PROXY" == "true" ]]; then
+        # Create placeholder proxy.env so docker-compose can validate
+        # This will be overwritten with the actual token after netbird-server starts
+        echo "# Placeholder - will be updated with token after netbird-server starts" > proxy.env
+        echo "NB_PROXY_TOKEN=placeholder" >> proxy.env
+        # TCP ServersTransport for PROXY protocol v2 to the proxy backend
+        render_traefik_dynamic > traefik-dynamic.yaml
+        if [[ "$ENABLE_CROWDSEC" == "true" ]]; then
+          mkdir -p crowdsec
+        fi
+      fi
       ;;
     1)
       render_docker_compose_traefik > docker-compose.yml
@@ -355,33 +652,96 @@ generate_configuration_files() {
 
   # Common files for all configurations
   render_dashboard_env > dashboard.env
-  render_management_json > management.json
-  render_relay_env > relay.env
+  install -m 600 /dev/null config.yaml
+  render_combined_yaml >> config.yaml
   return 0
 }
 
 start_services_and_show_instructions() {
-  # For built-in Caddy and Traefik, start containers immediately
+  # For built-in Traefik, start containers immediately
   # For NPM, start containers first (NPM needs services running to create proxy)
   # For other external proxies, show instructions first and wait for user confirmation
   if [[ "$REVERSE_PROXY_TYPE" == "0" ]]; then
-    # Built-in Caddy - handles everything automatically
+    # Built-in Traefik - two-phase startup if proxy is enabled
     echo -e "$MSG_STARTING_SERVICES"
-    $DOCKER_COMPOSE_COMMAND up -d
 
-    sleep 3
-    wait_management
+    if [[ "$ENABLE_PROXY" == "true" ]]; then
+      # Phase 1: Start core services (without proxy)
+      local core_services="traefik dashboard netbird-server"
+      if [[ "$ENABLE_CROWDSEC" == "true" ]]; then
+        core_services="$core_services crowdsec"
+      fi
+      echo "Starting core services..."
+      $DOCKER_COMPOSE_COMMAND up -d $core_services
+
+      sleep 3
+      wait_management_proxy traefik
+
+      # Phase 2: Create proxy token and start proxy
+      echo ""
+      echo "Creating proxy access token..."
+      # Use docker exec with bash to run the token command directly
+      PROXY_TOKEN=$($DOCKER_COMPOSE_COMMAND exec -T netbird-server \
+        /go/bin/netbird-server admin token create --name "default-proxy" --config /etc/netbird/config.yaml 2>/dev/null | grep "^Token:" | awk '{print $2}')
+
+      if [[ -z "$PROXY_TOKEN" ]]; then
+        echo "ERROR: Failed to create proxy token. Check netbird-server logs." > /dev/stderr
+        $DOCKER_COMPOSE_COMMAND logs --tail=20 netbird-server
+        exit 1
+      fi
+
+      echo "Proxy token created successfully."
+
+      if [[ "$ENABLE_CROWDSEC" == "true" ]]; then
+        echo "Registering CrowdSec bouncer..."
+        local cs_retries=0
+        while ! $DOCKER_COMPOSE_COMMAND exec -T crowdsec cscli lapi status >/dev/null 2>&1; do
+          cs_retries=$((cs_retries + 1))
+          if [[ $cs_retries -ge 30 ]]; then
+            echo "WARNING: CrowdSec did not become ready. Skipping CrowdSec setup." > /dev/stderr
+            echo "You can register a bouncer manually later with:" > /dev/stderr
+            echo "  docker exec netbird-crowdsec cscli bouncers add netbird-proxy -o raw" > /dev/stderr
+            ENABLE_CROWDSEC="false"
+            break
+          fi
+          sleep 2
+        done
+
+        if [[ "$ENABLE_CROWDSEC" == "true" ]]; then
+          CROWDSEC_BOUNCER_KEY=$($DOCKER_COMPOSE_COMMAND exec -T crowdsec \
+            cscli bouncers add netbird-proxy -o raw 2>/dev/null)
+          if [[ -z "$CROWDSEC_BOUNCER_KEY" ]]; then
+            echo "WARNING: Failed to create CrowdSec bouncer key. Skipping CrowdSec setup." > /dev/stderr
+            ENABLE_CROWDSEC="false"
+          else
+            echo "CrowdSec bouncer registered."
+          fi
+        fi
+      fi
+
+      render_proxy_env > proxy.env
+
+      # Start proxy service
+      echo "Starting proxy service..."
+      $DOCKER_COMPOSE_COMMAND up -d proxy
+    else
+      # No proxy - start all services at once
+      $DOCKER_COMPOSE_COMMAND up -d
+
+      sleep 3
+      wait_management_proxy traefik
+    fi
 
     echo -e "$MSG_DONE"
     print_post_setup_instructions
   elif [[ "$REVERSE_PROXY_TYPE" == "1" ]]; then
-    # Traefik - start containers first, then show instructions
+    # External Traefik - start containers, then show instructions
     # Traefik discovers services via Docker labels, so containers must be running
     echo -e "$MSG_STARTING_SERVICES"
     $DOCKER_COMPOSE_COMMAND up -d
 
     sleep 3
-    wait_management_direct
+    wait_management_proxy detect-traefik
 
     echo -e "$MSG_DONE"
     print_post_setup_instructions
@@ -407,8 +767,13 @@ start_services_and_show_instructions() {
     print_post_setup_instructions
 
     echo ""
-    echo -n "Press Enter when your reverse proxy is configured (or Ctrl+C to exit)... "
-    read -r < /dev/tty
+    if tty_available; then
+      echo -n "Press Enter when your reverse proxy is configured (or Ctrl+C to exit)... "
+      read -r < /dev/tty
+    else
+      echo "Non-interactive mode: starting NetBird containers now. Finish configuring"
+      echo "your reverse proxy using the instructions above so it can reach them."
+    fi
 
     echo -e "$MSG_STARTING_SERVICES"
     $DOCKER_COMPOSE_COMMAND up -d
@@ -424,12 +789,15 @@ start_services_and_show_instructions() {
 }
 
 init_environment() {
+  # Check if docker compose is installed using check_docker_compose function
+  DOCKER_COMPOSE_COMMAND=$(check_docker_compose)
+  check_docker_sock_perms
+
   initialize_default_values
   configure_domain
   configure_reverse_proxy
 
   check_jq
-  DOCKER_COMPOSE_COMMAND=$(check_docker_compose)
 
   check_existing_installation
   generate_configuration_files
@@ -441,75 +809,262 @@ init_environment() {
 # Configuration File Renderers
 ############################################
 
-render_caddyfile() {
+render_docker_compose_traefik_builtin() {
+  # Generate proxy service section and Traefik dynamic config if enabled
+  local proxy_service=""
+  local proxy_volumes=""
+  local crowdsec_service=""
+  local crowdsec_volumes=""
+  local traefik_file_provider=""
+  local traefik_dynamic_volume=""
+  if [[ "$ENABLE_PROXY" == "true" ]]; then
+    traefik_file_provider='      - "--providers.file.filename=/etc/traefik/dynamic.yaml"'
+    traefik_dynamic_volume="      - ./traefik-dynamic.yaml:/etc/traefik/dynamic.yaml:ro"
+
+    local proxy_depends="
+      netbird-server:
+        condition: service_started"
+    if [[ "$ENABLE_CROWDSEC" == "true" ]]; then
+      proxy_depends="
+      netbird-server:
+        condition: service_started
+      crowdsec:
+        condition: service_healthy"
+    fi
+
+    proxy_service="
+  # NetBird Proxy - exposes internal resources to the internet
+  proxy:
+    image: $NETBIRD_PROXY_IMAGE
+    container_name: netbird-proxy
+    ports:
+    - 51820:51820/udp
+    restart: unless-stopped
+    networks: [netbird]
+    depends_on:${proxy_depends}
+    env_file:
+      - ./proxy.env
+    volumes:
+      - netbird_proxy_certs:/certs
+    labels:
+      # TCP passthrough for any unmatched domain (proxy handles its own TLS)
+      - traefik.enable=true
+      - traefik.tcp.routers.proxy-passthrough.entrypoints=websecure
+      - traefik.tcp.routers.proxy-passthrough.rule=HostSNI(\`*\`)
+      - traefik.tcp.routers.proxy-passthrough.tls.passthrough=true
+      - traefik.tcp.routers.proxy-passthrough.service=proxy-tls
+      - traefik.tcp.routers.proxy-passthrough.priority=1
+      - traefik.tcp.services.proxy-tls.loadbalancer.server.port=8443
+      - traefik.tcp.services.proxy-tls.loadbalancer.serverstransport=pp-v2@file
+    logging:
+      driver: \"json-file\"
+      options:
+        max-size: \"500m\"
+        max-file: \"2\"
+"
+    proxy_volumes="
+  netbird_proxy_certs:"
+
+    if [[ "$ENABLE_CROWDSEC" == "true" ]]; then
+      crowdsec_service="
+  crowdsec:
+    image: $CROWDSEC_IMAGE
+    container_name: netbird-crowdsec
+    restart: unless-stopped
+    networks: [netbird]
+    environment:
+      COLLECTIONS: crowdsecurity/linux
+    volumes:
+      - ./crowdsec:/etc/crowdsec
+      - crowdsec_db:/var/lib/crowdsec/data
+    healthcheck:
+      test: ["CMD", "cscli", "lapi", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+    labels:
+      - traefik.enable=false
+    logging:
+      driver: \"json-file\"
+      options:
+        max-size: \"500m\"
+        max-file: \"2\"
+"
+      crowdsec_volumes="
+  crowdsec_db:"
+    fi
+  fi
+
   cat <<EOF
-{  
-  servers :80,:443 {
-    protocols h1 h2c h2 h3
-  }
-}
+services:
+  # Traefik reverse proxy (automatic TLS via Let's Encrypt)
+  traefik:
+    image: $TRAEFIK_IMAGE
+    container_name: netbird-traefik
+    restart: unless-stopped
+    networks:
+      netbird:
+        ipv4_address: $TRAEFIK_IP
+    command:
+      # Logging
+      - "--log.level=INFO"
+      - "--accesslog=true"
+      # Docker provider
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=netbird"
+      # Entrypoints
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.websecure.allowACMEByPass=true"
+      # Disable timeouts for long-lived gRPC streams
+      - "--entrypoints.websecure.transport.respondingTimeouts.readTimeout=0"
+      - "--entrypoints.websecure.transport.respondingTimeouts.writeTimeout=0"
+      - "--entrypoints.websecure.transport.respondingTimeouts.idleTimeout=0"
+      # HTTP to HTTPS redirect
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      # Let's Encrypt ACME
+      - "--certificatesresolvers.letsencrypt.acme.email=$TRAEFIK_ACME_EMAIL"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
+      # gRPC transport settings
+      - "--serverstransport.forwardingtimeouts.responseheadertimeout=0s"
+      - "--serverstransport.forwardingtimeouts.idleconntimeout=0s"
+$traefik_file_provider
+    ports:
+      - '443:443'
+      - '80:80'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - netbird_traefik_letsencrypt:/letsencrypt
+$traefik_dynamic_volume
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
 
-(security_headers) {
-    header * {
-        Strict-Transport-Security "max-age=3600; includeSubDomains; preload"
-        X-Content-Type-Options "nosniff"
-        X-Frame-Options "SAMEORIGIN"
-        X-XSS-Protection "1; mode=block"
-        -Server
-        Referrer-Policy strict-origin-when-cross-origin
-    }
-}
+  # UI dashboard
+  dashboard:
+    image: $DASHBOARD_IMAGE
+    container_name: netbird-dashboard
+    restart: unless-stopped
+    networks: [netbird]
+    env_file:
+      - ./dashboard.env
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.netbird-dashboard.rule=Host(\`$NETBIRD_DOMAIN\`)
+      - traefik.http.routers.netbird-dashboard.entrypoints=websecure
+      - traefik.http.routers.netbird-dashboard.tls=true
+      - traefik.http.routers.netbird-dashboard.tls.certresolver=letsencrypt
+      - traefik.http.routers.netbird-dashboard.service=dashboard
+      - traefik.http.routers.netbird-dashboard.priority=1
+      - traefik.http.services.dashboard.loadbalancer.server.port=80
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
 
-:80${CADDY_SECURE_DOMAIN} {
-    import security_headers
-    # relay
-    reverse_proxy /relay* relay:80
-    # Signal
-    reverse_proxy /ws-proxy/signal* signal:80
-    reverse_proxy /signalexchange.SignalExchange/* h2c://signal:10000
-    # Management
-    reverse_proxy /api/* management:80
-    reverse_proxy /ws-proxy/management* management:80
-    reverse_proxy /management.ManagementService/* h2c://management:80
-    reverse_proxy /oauth2/* management:80
-    # Dashboard
-    reverse_proxy /* dashboard:80
-}
+  # Combined server (Management + Signal + Relay + STUN)
+  netbird-server:
+    image: $NETBIRD_SERVER_IMAGE
+    container_name: netbird-server
+    restart: unless-stopped
+    networks: [netbird]
+    ports:
+      - '$NETBIRD_STUN_PORT:$NETBIRD_STUN_PORT/udp'
+    volumes:
+      - netbird_data:/var/lib/netbird
+      - ./config.yaml:/etc/netbird/config.yaml
+    command: ["--config", "/etc/netbird/config.yaml"]
+    labels:
+      - traefik.enable=true
+      # gRPC router (needs h2c backend for HTTP/2 cleartext)
+      - traefik.http.routers.netbird-grpc.rule=Host(\`$NETBIRD_DOMAIN\`) && (PathPrefix(\`/signalexchange.SignalExchange/\`) || PathPrefix(\`/management.ManagementService/\`) || PathPrefix(\`/management.ProxyService/\`))
+      - traefik.http.routers.netbird-grpc.entrypoints=websecure
+      - traefik.http.routers.netbird-grpc.tls=true
+      - traefik.http.routers.netbird-grpc.tls.certresolver=letsencrypt
+      - traefik.http.routers.netbird-grpc.service=netbird-server-h2c
+      - traefik.http.routers.netbird-grpc.priority=100
+      # Backend router (relay, WebSocket, API, OAuth2)
+      - traefik.http.routers.netbird-backend.rule=Host(\`$NETBIRD_DOMAIN\`) && (PathPrefix(\`/relay\`) || PathPrefix(\`/ws-proxy/\`) || PathPrefix(\`/api\`) || PathPrefix(\`/oauth2\`))
+      - traefik.http.routers.netbird-backend.entrypoints=websecure
+      - traefik.http.routers.netbird-backend.tls=true
+      - traefik.http.routers.netbird-backend.tls.certresolver=letsencrypt
+      - traefik.http.routers.netbird-backend.service=netbird-server
+      - traefik.http.routers.netbird-backend.priority=100
+      # Services
+      - traefik.http.services.netbird-server.loadbalancer.server.port=80
+      - traefik.http.services.netbird-server-h2c.loadbalancer.server.port=80
+      - traefik.http.services.netbird-server-h2c.loadbalancer.server.scheme=h2c
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
+${proxy_service}${crowdsec_service}
+volumes:
+  netbird_data:
+  netbird_traefik_letsencrypt:${proxy_volumes}${crowdsec_volumes}
+
+networks:
+  netbird:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+          gateway: 172.30.0.1
 EOF
   return 0
 }
 
-render_management_json() {
+render_combined_yaml() {
   cat <<EOF
-{
-    "Stuns": [
-        {
-            "Proto": "udp",
-            "URI": "stun:$NETBIRD_DOMAIN:$NETBIRD_STUN_PORT"
-        }
-    ],
-    "Relay": {
-        "Addresses": ["$NETBIRD_RELAY_PROTO://$NETBIRD_DOMAIN:$NETBIRD_PORT"],
-        "CredentialsTTL": "24h",
-        "Secret": "$NETBIRD_RELAY_AUTH_SECRET"
-    },
-    "Signal": {
-        "Proto": "$NETBIRD_HTTP_PROTOCOL",
-        "URI": "$NETBIRD_DOMAIN:$NETBIRD_PORT"
-    },
-    "Datadir": "/var/lib/netbird",
-    "DataStoreEncryptionKey": "$DATASTORE_ENCRYPTION_KEY",
-    "EmbeddedIdP": {
-        "Enabled": true,
-        "Issuer": "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/oauth2",
-        "DashboardRedirectURIs": [
-            "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/nb-auth",
-            "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/nb-silent-auth"
-        ]
-    }
-}
+# Combined NetBird Server Configuration (Simplified)
+# Generated by getting-started.sh
+
+server:
+  listenAddress: ":80"
+  exposedAddress: "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT"
+  stunPorts:
+    - $NETBIRD_STUN_PORT
+  metricsPort: 9090
+  healthcheckAddress: ":9000"
+  logLevel: "info"
+  logFile: "console"
+
+  authSecret: "$NETBIRD_RELAY_AUTH_SECRET"
+  dataDir: "/var/lib/netbird"
+
+  auth:
+    issuer: "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/oauth2"
+    signKeyRefreshEnabled: true
+    sessionCookieEncryptionKey: "$SESSION_COOKIE_ENCRYPTION_KEY"
+    dashboardRedirectURIs:
+      - "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/nb-auth"
+      - "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/nb-silent-auth"
+    cliRedirectURIs:
+      - "http://localhost:53000/"
+
+  reverseProxy:
+    trustedHTTPProxies:
+      - "$TRAEFIK_IP/32"
+$(render_trusted_peers)
+
+  store:
+    engine: "sqlite"
+    encryptionKey: "$DATASTORE_ENCRYPTION_KEY"
 EOF
   return 0
+}
+
+render_trusted_peers() {
+  if [[ -n "$TRUSTED_PEERS" ]]; then
+    printf '    trustedPeers:\n      - "%s"' "$TRUSTED_PEERS"
+  fi
 }
 
 render_dashboard_env() {
@@ -531,117 +1086,69 @@ NGINX_SSL_PORT=443
 # Letsencrypt
 LETSENCRYPT_DOMAIN=none
 EOF
+
+  if [[ "${NETBIRD_AGENT_NETWORK}" == "true" ]]; then
+    cat <<EOF
+# Agent-network preset: dashboard hides the standard NetBird surfaces
+# and exposes only the AI Observability + agent-network configuration
+# pages. Paired with NB_PROXY_PRIVATE=true on the proxy side.
+NETBIRD_AGENT_NETWORK_ONLY=true
+EOF
+  fi
   return 0
 }
 
-render_relay_env() {
-  cat <<EOF
-NB_LOG_LEVEL=info
-NB_LISTEN_ADDRESS=:80
-NB_EXPOSED_ADDRESS=$NETBIRD_RELAY_PROTO://$NETBIRD_DOMAIN:$NETBIRD_PORT
-NB_AUTH_SECRET=$NETBIRD_RELAY_AUTH_SECRET
-NB_ENABLE_STUN=true
-NB_STUN_LOG_LEVEL=info
-NB_STUN_PORTS=$NETBIRD_STUN_PORT
+render_traefik_dynamic() {
+  cat <<'EOF'
+tcp:
+  serversTransports:
+    pp-v2:
+      proxyProtocol:
+        version: 2
 EOF
   return 0
 }
 
-render_docker_compose() {
+render_proxy_env() {
   cat <<EOF
-services:
-  # Caddy reverse proxy
-  caddy:
-    image: $CADDY_IMAGE
-    container_name: netbird-caddy
-    restart: unless-stopped
-    networks: [netbird]
-    ports:
-      - '443:443'
-      - '443:443/udp'
-      - '80:80'
-    volumes:
-      - netbird_caddy_data:/data
-      - ./Caddyfile:/etc/caddy/Caddyfile
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "500m"
-        max-file: "2"
-
-  # UI dashboard
-  dashboard:
-    image: $DASHBOARD_IMAGE
-    container_name: netbird-dashboard
-    restart: unless-stopped
-    networks: [netbird]
-    env_file:
-      - ./dashboard.env
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "500m"
-        max-file: "2"
-
-  # Signal
-  signal:
-    image: $SIGNAL_IMAGE
-    container_name: netbird-signal
-    restart: unless-stopped
-    networks: [netbird]
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "500m"
-        max-file: "2"
-
-  # Relay (includes embedded STUN server)
-  relay:
-    image: $RELAY_IMAGE
-    container_name: netbird-relay
-    restart: unless-stopped
-    networks: [netbird]
-    ports:
-      - '$NETBIRD_STUN_PORT:$NETBIRD_STUN_PORT/udp'
-    env_file:
-      - ./relay.env
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "500m"
-        max-file: "2"
-
-  # Management (includes embedded IdP)
-  management:
-    image: $MANAGEMENT_IMAGE
-    container_name: netbird-management
-    restart: unless-stopped
-    networks: [netbird]
-    volumes:
-      - netbird_management:/var/lib/netbird
-      - ./management.json:/etc/netbird/management.json
-    command: [
-      "--port", "80",
-      "--log-file", "console",
-      "--log-level", "info",
-      "--disable-anonymous-metrics=false",
-      "--single-account-mode-domain=netbird.selfhosted",
-      "--dns-domain=netbird.selfhosted",
-      "--idp-sign-key-refresh-enabled",
-    ]
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "500m"
-        max-file: "2"
-
-volumes:
-  netbird_caddy_data:
-  netbird_management:
-
-networks:
-  netbird:
+# NetBird Proxy Configuration
+NB_PROXY_DEBUG_LOGS=false
+# Use internal Docker network to connect to management (avoids hairpin NAT issues)
+NB_PROXY_MANAGEMENT_ADDRESS=http://netbird-server:80
+# Allow insecure gRPC connection to management (required for internal Docker network)
+NB_PROXY_ALLOW_INSECURE=true
+# Public URL where this proxy is reachable (used for cluster registration)
+NB_PROXY_DOMAIN=$NETBIRD_DOMAIN
+NB_PROXY_ADDRESS=:8443
+NB_PROXY_TOKEN=$PROXY_TOKEN
+NB_PROXY_CERTIFICATE_DIRECTORY=/certs
+NB_PROXY_ACME_CERTIFICATES=true
+NB_PROXY_ACME_CHALLENGE_TYPE=tls-alpn-01
+NB_PROXY_FORWARDED_PROTO=https
+# Enable PROXY protocol to preserve client IPs through L4 proxies (Traefik TCP passthrough)
+NB_PROXY_PROXY_PROTOCOL=true
+# Trust Traefik's IP for PROXY protocol headers
+NB_PROXY_TRUSTED_PROXIES=$TRAEFIK_IP
 EOF
+
+  if [[ "${NETBIRD_AGENT_NETWORK}" == "true" ]]; then
+    cat <<EOF
+# Agent-network preset: turn the proxy into the private reverse-proxy
+# ingress for agent-network synth services. Disables the public-facing
+# surface so the proxy serves only synth-generated routes (the
+# llm_router-driven LLM endpoints) and the per-account inbound
+# listeners on the embedded netstack.
+NB_PROXY_PRIVATE=true
+EOF
+  fi
+
+  if [[ "$ENABLE_CROWDSEC" == "true" && -n "$CROWDSEC_BOUNCER_KEY" ]]; then
+    cat <<EOF
+NB_PROXY_CROWDSEC_API_URL=http://crowdsec:8080
+NB_PROXY_CROWDSEC_API_KEY=$CROWDSEC_BOUNCER_KEY
+EOF
+  fi
+
   return 0
 }
 
@@ -682,107 +1189,36 @@ $(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-das
         max-size: "500m"
         max-file: "2"
 
-  # Signal
-  signal:
-    image: $SIGNAL_IMAGE
-    container_name: netbird-signal
-    restart: unless-stopped
-    networks: [$network_name]
-    labels:
-      - traefik.enable=true
-      # WebSocket router
-      - traefik.http.routers.netbird-signal-ws.rule=Host(\`$NETBIRD_DOMAIN\`) && PathPrefix(\`/ws-proxy/signal\`)
-      - traefik.http.routers.netbird-signal-ws.entrypoints=$TRAEFIK_ENTRYPOINT
-      - traefik.http.routers.netbird-signal-ws.tls=true
-$(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-signal-ws.${tls_labels}"; fi)
-      - traefik.http.routers.netbird-signal-ws.service=netbird-signal-ws
-      - traefik.http.services.netbird-signal-ws.loadbalancer.server.port=80
-      # gRPC router
-      - traefik.http.routers.netbird-signal-grpc.rule=Host(\`$NETBIRD_DOMAIN\`) && PathPrefix(\`/signalexchange.SignalExchange/\`)
-      - traefik.http.routers.netbird-signal-grpc.entrypoints=$TRAEFIK_ENTRYPOINT
-      - traefik.http.routers.netbird-signal-grpc.tls=true
-$(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-signal-grpc.${tls_labels}"; fi)
-      - traefik.http.routers.netbird-signal-grpc.service=netbird-signal-grpc
-      - traefik.http.services.netbird-signal-grpc.loadbalancer.server.port=10000
-      - traefik.http.services.netbird-signal-grpc.loadbalancer.server.scheme=h2c
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "500m"
-        max-file: "2"
-
-  # Relay (includes embedded STUN server)
-  relay:
-    image: $RELAY_IMAGE
-    container_name: netbird-relay
+  # Combined server (Management + Signal + Relay + STUN)
+  netbird-server:
+    image: $NETBIRD_SERVER_IMAGE
+    container_name: netbird-server
     restart: unless-stopped
     networks: [$network_name]
     ports:
       - '$NETBIRD_STUN_PORT:$NETBIRD_STUN_PORT/udp'
-    env_file:
-      - ./relay.env
-    labels:
-      - traefik.enable=true
-      - traefik.http.routers.netbird-relay.rule=Host(\`$NETBIRD_DOMAIN\`) && PathPrefix(\`/relay\`)
-      - traefik.http.routers.netbird-relay.entrypoints=$TRAEFIK_ENTRYPOINT
-      - traefik.http.routers.netbird-relay.tls=true
-$(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-relay.${tls_labels}"; fi)
-      - traefik.http.services.netbird-relay.loadbalancer.server.port=80
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "500m"
-        max-file: "2"
-
-  # Management (includes embedded IdP)
-  management:
-    image: $MANAGEMENT_IMAGE
-    container_name: netbird-management
-    restart: unless-stopped
-    networks: [$network_name]
     volumes:
-      - netbird_management:/var/lib/netbird
-      - ./management.json:/etc/netbird/management.json
-    command: [
-      "--port", "80",
-      "--log-file", "console",
-      "--log-level", "info",
-      "--disable-anonymous-metrics=false",
-      "--single-account-mode-domain=netbird.selfhosted",
-      "--dns-domain=netbird.selfhosted",
-      "--idp-sign-key-refresh-enabled",
-    ]
+      - netbird_data:/var/lib/netbird
+      - ./config.yaml:/etc/netbird/config.yaml
+    command: ["--config", "/etc/netbird/config.yaml"]
     labels:
       - traefik.enable=true
-      # API router
-      - traefik.http.routers.netbird-api.rule=Host(\`$NETBIRD_DOMAIN\`) && PathPrefix(\`/api\`)
-      - traefik.http.routers.netbird-api.entrypoints=$TRAEFIK_ENTRYPOINT
-      - traefik.http.routers.netbird-api.tls=true
-$(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-api.${tls_labels}"; fi)
-      - traefik.http.routers.netbird-api.service=netbird-api
-      - traefik.http.services.netbird-api.loadbalancer.server.port=80
-      # Management WebSocket router
-      - traefik.http.routers.netbird-mgmt-ws.rule=Host(\`$NETBIRD_DOMAIN\`) && PathPrefix(\`/ws-proxy/management\`)
-      - traefik.http.routers.netbird-mgmt-ws.entrypoints=$TRAEFIK_ENTRYPOINT
-      - traefik.http.routers.netbird-mgmt-ws.tls=true
-$(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-mgmt-ws.${tls_labels}"; fi)
-      - traefik.http.routers.netbird-mgmt-ws.service=netbird-mgmt-ws
-      - traefik.http.services.netbird-mgmt-ws.loadbalancer.server.port=80
-      # Management gRPC router
-      - traefik.http.routers.netbird-mgmt-grpc.rule=Host(\`$NETBIRD_DOMAIN\`) && PathPrefix(\`/management.ManagementService/\`)
-      - traefik.http.routers.netbird-mgmt-grpc.entrypoints=$TRAEFIK_ENTRYPOINT
-      - traefik.http.routers.netbird-mgmt-grpc.tls=true
-$(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-mgmt-grpc.${tls_labels}"; fi)
-      - traefik.http.routers.netbird-mgmt-grpc.service=netbird-mgmt-grpc
-      - traefik.http.services.netbird-mgmt-grpc.loadbalancer.server.port=80
-      - traefik.http.services.netbird-mgmt-grpc.loadbalancer.server.scheme=h2c
-      # OAuth2 router (embedded IdP)
-      - traefik.http.routers.netbird-oauth2.rule=Host(\`$NETBIRD_DOMAIN\`) && PathPrefix(\`/oauth2\`)
-      - traefik.http.routers.netbird-oauth2.entrypoints=$TRAEFIK_ENTRYPOINT
-      - traefik.http.routers.netbird-oauth2.tls=true
-$(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-oauth2.${tls_labels}"; fi)
-      - traefik.http.routers.netbird-oauth2.service=netbird-oauth2
-      - traefik.http.services.netbird-oauth2.loadbalancer.server.port=80
+      # gRPC router (needs h2c backend for HTTP/2 cleartext)
+      - traefik.http.routers.netbird-grpc.rule=Host(\`$NETBIRD_DOMAIN\`) && (PathPrefix(\`/signalexchange.SignalExchange/\`) || PathPrefix(\`/management.ManagementService/\`))
+      - traefik.http.routers.netbird-grpc.entrypoints=$TRAEFIK_ENTRYPOINT
+      - traefik.http.routers.netbird-grpc.tls=true
+$(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-grpc.${tls_labels}"; fi)
+      - traefik.http.routers.netbird-grpc.service=netbird-server-h2c
+      # Backend router (relay, WebSocket, API, OAuth2)
+      - traefik.http.routers.netbird-backend.rule=Host(\`$NETBIRD_DOMAIN\`) && (PathPrefix(\`/relay\`) || PathPrefix(\`/ws-proxy/\`) || PathPrefix(\`/api\`) || PathPrefix(\`/oauth2\`))
+      - traefik.http.routers.netbird-backend.entrypoints=$TRAEFIK_ENTRYPOINT
+      - traefik.http.routers.netbird-backend.tls=true
+$(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-backend.${tls_labels}"; fi)
+      - traefik.http.routers.netbird-backend.service=netbird-server
+      # Services
+      - traefik.http.services.netbird-server.loadbalancer.server.port=80
+      - traefik.http.services.netbird-server-h2c.loadbalancer.server.port=80
+      - traefik.http.services.netbird-server-h2c.loadbalancer.server.scheme=h2c
     logging:
       driver: "json-file"
       options:
@@ -790,7 +1226,7 @@ $(if [[ -n "$tls_labels" ]]; then echo "      - traefik.http.routers.netbird-oau
         max-file: "2"
 
 volumes:
-  netbird_management:
+  netbird_data:
 
 networks:
   $network_name:
@@ -832,58 +1268,19 @@ services:
         max-size: "500m"
         max-file: "2"
 
-  # Signal
-  signal:
-    image: $SIGNAL_IMAGE
-    container_name: netbird-signal
-    restart: unless-stopped
-    networks: ${networks}
-    ports:
-      - '${bind_addr}:${SIGNAL_HOST_PORT}:80'
-      - '${bind_addr}:${SIGNAL_GRPC_PORT}:10000'
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "500m"
-        max-file: "2"
-
-  # Relay (includes embedded STUN server)
-  relay:
-    image: $RELAY_IMAGE
-    container_name: netbird-relay
-    restart: unless-stopped
-    networks: ${networks}
-    ports:
-      - '${bind_addr}:${RELAY_HOST_PORT}:80'
-      - '$NETBIRD_STUN_PORT:$NETBIRD_STUN_PORT/udp'
-    env_file:
-      - ./relay.env
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "500m"
-        max-file: "2"
-
-  # Management (includes embedded IdP)
-  management:
-    image: $MANAGEMENT_IMAGE
-    container_name: netbird-management
+  # Combined server (Management + Signal + Relay + STUN)
+  netbird-server:
+    image: $NETBIRD_SERVER_IMAGE
+    container_name: netbird-server
     restart: unless-stopped
     networks: ${networks}
     ports:
       - '${bind_addr}:${MANAGEMENT_HOST_PORT}:80'
+      - '$NETBIRD_STUN_PORT:$NETBIRD_STUN_PORT/udp'
     volumes:
-      - netbird_management:/var/lib/netbird
-      - ./management.json:/etc/netbird/management.json
-    command: [
-      "--port", "80",
-      "--log-file", "console",
-      "--log-level", "info",
-      "--disable-anonymous-metrics=false",
-      "--single-account-mode-domain=netbird.selfhosted",
-      "--dns-domain=netbird.selfhosted",
-      "--idp-sign-key-refresh-enabled",
-    ]
+      - netbird_data:/var/lib/netbird
+      - ./config.yaml:/etc/netbird/config.yaml
+    command: ["--config", "/etc/netbird/config.yaml"]
     logging:
       driver: "json-file"
       options:
@@ -891,7 +1288,7 @@ services:
         max-file: "2"
 
 volumes:
-  netbird_management:
+  netbird_data:
 
 ${networks_config}
 EOF
@@ -901,10 +1298,7 @@ EOF
 render_nginx_conf() {
   local upstream_host=$(get_upstream_host)
   local dashboard_addr="${upstream_host}:${DASHBOARD_HOST_PORT}"
-  local signal_grpc_addr="${upstream_host}:${SIGNAL_GRPC_PORT}"
-  local signal_ws_addr="${upstream_host}:${SIGNAL_HOST_PORT}"
-  local mgmt_addr="${upstream_host}:${MANAGEMENT_HOST_PORT}"
-  local relay_addr="${upstream_host}:${RELAY_HOST_PORT}"
+  local server_addr="${upstream_host}:${MANAGEMENT_HOST_PORT}"
   local install_note="# 1. Update SSL certificate paths below
 # 2. Copy to your nginx config directory:
 #    Debian/Ubuntu: /etc/nginx/sites-available/netbird (then symlink to sites-enabled)
@@ -914,10 +1308,7 @@ render_nginx_conf() {
   # If running in Docker network, use container names
   if [[ -n "$EXTERNAL_PROXY_NETWORK" ]]; then
     dashboard_addr="netbird-dashboard:80"
-    signal_grpc_addr="netbird-signal:10000"
-    signal_ws_addr="netbird-signal:80"
-    mgmt_addr="netbird-management:80"
-    relay_addr="netbird-relay:80"
+    server_addr="netbird-server:80"
     install_note="# This config uses container names since Nginx is on the same Docker network.
 # Add this to your nginx.conf or include it from a separate file."
   fi
@@ -932,17 +1323,8 @@ upstream netbird_dashboard {
     server ${dashboard_addr};
     keepalive 10;
 }
-upstream netbird_signal {
-    server ${signal_grpc_addr};
-}
-upstream netbird_signal_ws {
-    server ${signal_ws_addr};
-}
-upstream netbird_management {
-    server ${mgmt_addr};
-}
-upstream netbird_relay {
-    server ${relay_addr};
+upstream netbird_server {
+    server ${server_addr};
 }
 
 server {
@@ -993,9 +1375,9 @@ server {
     proxy_set_header X-Forwarded-Host \$host;
     grpc_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
 
-    # Relay (WebSocket)
-    location /relay {
-        proxy_pass http://netbird_relay;
+    # WebSocket connections (relay, signal, management)
+    location ~ ^/(relay|ws-proxy/) {
+        proxy_pass http://netbird_server;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "Upgrade";
@@ -1003,51 +1385,17 @@ server {
         proxy_read_timeout 1d;
     }
 
-    # Signal WebSocket
-    location /ws-proxy/signal {
-        proxy_pass http://netbird_signal_ws;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "Upgrade";
-        proxy_set_header Host \$host;
-        proxy_read_timeout 1d;
-    }
-
-    # Signal gRPC
-    location /signalexchange.SignalExchange/ {
-        grpc_pass grpc://netbird_signal;
+    # Native gRPC (signal + management)
+    location ~ ^/(signalexchange\.SignalExchange|management\.ManagementService)/ {
+        grpc_pass grpc://netbird_server;
         grpc_read_timeout 1d;
         grpc_send_timeout 1d;
         grpc_socket_keepalive on;
     }
 
-    # Management API
-    location /api/ {
-        proxy_pass http://netbird_management;
-        proxy_set_header Host \$host;
-    }
-
-    # Management WebSocket
-    location /ws-proxy/management {
-        proxy_pass http://netbird_management;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "Upgrade";
-        proxy_set_header Host \$host;
-        proxy_read_timeout 1d;
-    }
-
-    # Management gRPC
-    location /management.ManagementService/ {
-        grpc_pass grpc://netbird_management;
-        grpc_read_timeout 1d;
-        grpc_send_timeout 1d;
-        grpc_socket_keepalive on;
-    }
-
-    # Embedded IdP OAuth2
-    location /oauth2/ {
-        proxy_pass http://netbird_management;
+    # HTTP routes (API + OAuth2)
+    location ~ ^/(api|oauth2)/ {
+        proxy_pass http://netbird_server;
         proxy_set_header Host \$host;
     }
 
@@ -1063,19 +1411,13 @@ EOF
 render_external_caddyfile() {
   local upstream_host=$(get_upstream_host)
   local dashboard_addr="${upstream_host}:${DASHBOARD_HOST_PORT}"
-  local signal_grpc_addr="${upstream_host}:${SIGNAL_GRPC_PORT}"
-  local signal_ws_addr="${upstream_host}:${SIGNAL_HOST_PORT}"
-  local mgmt_addr="${upstream_host}:${MANAGEMENT_HOST_PORT}"
-  local relay_addr="${upstream_host}:${RELAY_HOST_PORT}"
+  local server_addr="${upstream_host}:${MANAGEMENT_HOST_PORT}"
   local install_note="# Add this block to your existing Caddyfile and reload Caddy"
 
   # If running in Docker network, use container names
   if [[ -n "$EXTERNAL_PROXY_NETWORK" ]]; then
     dashboard_addr="netbird-dashboard:80"
-    signal_grpc_addr="netbird-signal:10000"
-    signal_ws_addr="netbird-signal:80"
-    mgmt_addr="netbird-management:80"
-    relay_addr="netbird-relay:80"
+    server_addr="netbird-server:80"
     install_note="# This config uses container names since Caddy is on the same Docker network.
 # Add this block to your Caddyfile and reload Caddy."
   fi
@@ -1087,28 +1429,15 @@ render_external_caddyfile() {
 ${install_note}
 
 $NETBIRD_DOMAIN {
-    # Relay (WebSocket)
-    reverse_proxy /relay* ${relay_addr}
+    # Native gRPC (needs HTTP/2 cleartext to backend)
+    @grpc header Content-Type application/grpc*
+    reverse_proxy @grpc h2c://${server_addr}
 
-    # Signal WebSocket
-    reverse_proxy /ws-proxy/signal* ${signal_ws_addr}
+    # Combined server paths (relay, signal, management, OAuth2)
+    @backend path /relay* /ws-proxy/* /api/* /oauth2/*
+    reverse_proxy @backend ${server_addr}
 
-    # Signal gRPC (h2c for plaintext HTTP/2)
-    reverse_proxy /signalexchange.SignalExchange/* h2c://${signal_grpc_addr}
-
-    # Management API
-    reverse_proxy /api/* ${mgmt_addr}
-
-    # Management WebSocket
-    reverse_proxy /ws-proxy/management* ${mgmt_addr}
-
-    # Management gRPC
-    reverse_proxy /management.ManagementService/* h2c://${mgmt_addr}
-
-    # Embedded IdP OAuth2
-    reverse_proxy /oauth2/* ${mgmt_addr}
-
-    # Dashboard (catch-all)
+    # Dashboard (everything else)
     reverse_proxy /* ${dashboard_addr}
 }
 EOF
@@ -1117,17 +1446,11 @@ EOF
 
 render_npm_advanced_config() {
   local upstream_host=$(get_upstream_host)
-  local relay_addr="${upstream_host}:${RELAY_HOST_PORT}"
-  local signal_addr="${upstream_host}:${SIGNAL_HOST_PORT}"
-  local signal_grpc_addr="${upstream_host}:${SIGNAL_GRPC_PORT}"
-  local mgmt_addr="${upstream_host}:${MANAGEMENT_HOST_PORT}"
+  local server_addr="${upstream_host}:${MANAGEMENT_HOST_PORT}"
 
   # If external network is specified, use container names instead of host addresses
   if [[ -n "$EXTERNAL_PROXY_NETWORK" ]]; then
-    relay_addr="netbird-relay:80"
-    signal_addr="netbird-signal:80"
-    signal_grpc_addr="netbird-signal:10000"
-    mgmt_addr="netbird-management:80"
+    server_addr="netbird-server:80"
   fi
 
   cat <<EOF
@@ -1140,9 +1463,9 @@ render_npm_advanced_config() {
 client_header_timeout 1d;
 client_body_timeout 1d;
 
-# Relay WebSocket
-location /relay {
-    proxy_pass http://${relay_addr};
+# WebSocket connections (relay, signal, management)
+location ~ ^/(relay|ws-proxy/) {
+    proxy_pass http://${server_addr};
     proxy_http_version 1.1;
     proxy_set_header Upgrade \$http_upgrade;
     proxy_set_header Connection "upgrade";
@@ -1153,64 +1476,24 @@ location /relay {
     proxy_read_timeout 1d;
 }
 
-# Signal WebSocket
-location /ws-proxy/signal {
-    proxy_pass http://${signal_addr};
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade \$http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_set_header Host \$host;
-    proxy_set_header X-Real-IP \$remote_addr;
-    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto \$scheme;
-    proxy_read_timeout 1d;
-}
-
-# Management WebSocket
-location /ws-proxy/management {
-    proxy_pass http://${mgmt_addr};
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade \$http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_set_header Host \$host;
-    proxy_set_header X-Real-IP \$remote_addr;
-    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto \$scheme;
-    proxy_read_timeout 1d;
-}
-
-# API routes
-location /api/ {
-    proxy_pass http://${mgmt_addr};
-    proxy_set_header Host \$host;
-    proxy_set_header X-Real-IP \$remote_addr;
-    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto \$scheme;
-}
-
-# OAuth2/IdP routes
-location /oauth2/ {
-    proxy_pass http://${mgmt_addr};
-    proxy_set_header Host \$host;
-    proxy_set_header X-Real-IP \$remote_addr;
-    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto \$scheme;
-}
-
-# gRPC for Signal service
-location /signalexchange.SignalExchange/ {
-    grpc_pass grpc://${signal_grpc_addr};
+# Native gRPC (signal + management)
+location ~ ^/(signalexchange\.SignalExchange|management\.ManagementService)/ {
+    grpc_pass grpc://${server_addr};
+    # Overwrite rather than pass through: without this the client's own
+    # x-forwarded-for metadata reaches NetBird as the connection IP.
+    grpc_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
     grpc_read_timeout 1d;
     grpc_send_timeout 1d;
     grpc_socket_keepalive on;
 }
 
-# gRPC for Management service
-location /management.ManagementService/ {
-    grpc_pass grpc://${mgmt_addr};
-    grpc_read_timeout 1d;
-    grpc_send_timeout 1d;
-    grpc_socket_keepalive on;
+# HTTP routes (API + OAuth2)
+location ~ ^/(api|oauth2)/ {
+    proxy_pass http://${server_addr};
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
 }
 EOF
   return 0
@@ -1220,9 +1503,69 @@ EOF
 # Post-Setup Instructions per Proxy Type
 ############################################
 
-print_caddy_instructions() {
-  echo "You can access the NetBird dashboard at $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN"
+print_builtin_traefik_instructions() {
+  echo ""
+  echo "$MSG_SEPARATOR"
+  echo "  NETBIRD SETUP COMPLETE"
+  echo "$MSG_SEPARATOR"
+  echo ""
+  echo "You can access the NetBird dashboard at:"
+  echo "  $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN"
+  echo ""
   echo "Follow the onboarding steps to set up your NetBird instance."
+  echo ""
+  echo "Traefik is handling TLS certificates automatically via Let's Encrypt."
+  echo "If you see certificate warnings, wait a moment for certificate issuance to complete."
+  echo ""
+  echo "Open ports:"
+  echo "  - 443/tcp   (HTTPS - all NetBird services)"
+  echo "  - 80/tcp    (HTTP - redirects to HTTPS)"
+  echo "  - $NETBIRD_STUN_PORT/udp   (STUN - required for NAT traversal)"
+  if [[ "$ENABLE_PROXY" == "true" ]]; then
+    echo "  - 51820/udp (WIREGUARD - (optional) for P2P proxy connections)"
+  fi
+  echo ""
+  if [[ "${NETBIRD_AGENT_NETWORK}" == "true" ]]; then
+    echo "For enterprise environments requiring high availability and advanced integrations,"
+    echo "consider a commercial on-prem license:"
+    echo ""
+    echo "  Commercial license: https://netbird.ai/pricing"
+    echo "  Documentation: https://docs.netbird.io/agent-network"
+  else
+    echo "This setup is ideal for homelabs and smaller organization deployments."
+    echo "For enterprise environments requiring high availability and advanced integrations,"
+    echo "consider a commercial on-prem license or scaling your open source deployment:"
+    echo ""
+    echo "  Commercial license: https://netbird.io/pricing#on-prem"
+    echo "  Scaling guide:      https://docs.netbird.io/scaling-your-self-hosted-deployment"
+  fi
+  echo ""
+  if [[ "$ENABLE_PROXY" == "true" ]]; then
+    echo "NetBird Proxy:"
+    echo "  The proxy service is enabled and running."
+    echo "  Any domain NOT matching $NETBIRD_DOMAIN will be passed through to the proxy."
+    echo "  The proxy handles its own TLS certificates via ACME TLS-ALPN-01 challenge."
+    echo "  Point your proxy domain to this server's domain address like in the examples below:"
+    echo ""
+    echo "  *.$NETBIRD_DOMAIN    CNAME    $NETBIRD_DOMAIN"
+    echo ""
+    if [[ "$ENABLE_CROWDSEC" == "true" ]]; then
+      echo "CrowdSec IP Reputation:"
+      echo "  CrowdSec LAPI is running and connected to the community blocklist."
+      echo "  The proxy will automatically check client IPs against known threats."
+      echo "  Enable CrowdSec per-service in the dashboard under Access Control."
+      echo ""
+      echo "  To enroll in CrowdSec Console (optional, for dashboard and premium blocklists):"
+      echo "    docker exec netbird-crowdsec cscli console enroll <your-enrollment-key>"
+      echo "  Get your enrollment key at: https://app.crowdsec.net"
+      echo ""
+    fi
+  fi
+  if [[ "${NETBIRD_AGENT_NETWORK}" == "true" ]]; then
+    echo "Note: The public domain is only for setting up secure connections."
+    echo "Your APIs and agent services remain private and are never exposed publicly."
+    echo ""
+  fi
   return 0
 }
 
@@ -1254,6 +1597,8 @@ print_traefik_instructions() {
   if [[ -n "$TRAEFIK_CERTRESOLVER" ]]; then
     echo "  - Certificate resolver '$TRAEFIK_CERTRESOLVER' must be configured"
   fi
+  echo "  - Disable read timeout on the entrypoint for gRPC streams:"
+  echo "    --entrypoints.$TRAEFIK_ENTRYPOINT.transport.respondingTimeouts.readTimeout=0"
   echo "  - HTTP to HTTPS redirect (recommended)"
   return 0
 }
@@ -1267,7 +1612,7 @@ print_nginx_instructions() {
   echo ""
   echo "Generated: nginx-netbird.conf"
   echo ""
-  echo "IMPORTANT: Unlike Caddy, Nginx requires manual TLS certificate setup."
+  echo "IMPORTANT: Nginx requires manual TLS certificate setup."
   echo "You'll need to obtain SSL/TLS certificates and configure the paths in the"
   echo "generated config file. The config includes examples for common certificate sources."
   echo ""
@@ -1293,10 +1638,8 @@ print_nginx_instructions() {
     echo "https://docs.netbird.io/selfhosted/reverse-proxy#tls-certificate-setup-for-nginx"
     echo ""
     echo "Container ports (bound to ${bind_addr}):"
-    echo "  Dashboard:  ${DASHBOARD_HOST_PORT}"
-    echo "  Signal:     ${SIGNAL_HOST_PORT} (HTTP), ${SIGNAL_GRPC_PORT} (gRPC)"
-    echo "  Management: ${MANAGEMENT_HOST_PORT}"
-    echo "  Relay:      ${RELAY_HOST_PORT}"
+    echo "  Dashboard:     ${DASHBOARD_HOST_PORT}"
+    echo "  NetBird Server: ${MANAGEMENT_HOST_PORT} (all services)"
   fi
   return 0
 }
@@ -1328,10 +1671,8 @@ print_npm_instructions() {
     echo "    - Paste contents of npm-advanced-config.txt"
   else
     echo "Container ports (bound to ${bind_addr}):"
-    echo "  Dashboard:  ${DASHBOARD_HOST_PORT}"
-    echo "  Signal:     ${SIGNAL_HOST_PORT} (HTTP), ${SIGNAL_GRPC_PORT} (gRPC)"
-    echo "  Management: ${MANAGEMENT_HOST_PORT}"
-    echo "  Relay:      ${RELAY_HOST_PORT}"
+    echo "  Dashboard:     ${DASHBOARD_HOST_PORT}"
+    echo "  NetBird Server: ${MANAGEMENT_HOST_PORT} (all services)"
     echo ""
     echo "In NPM, create a Proxy Host:"
     echo "  Domain: $NETBIRD_DOMAIN"
@@ -1371,10 +1712,8 @@ print_external_caddy_instructions() {
     echo "  2. Reload Caddy: caddy reload --config /path/to/Caddyfile"
     echo ""
     echo "Container ports (bound to ${bind_addr}):"
-    echo "  Dashboard:  ${DASHBOARD_HOST_PORT}"
-    echo "  Signal:     ${SIGNAL_HOST_PORT} (HTTP), ${SIGNAL_GRPC_PORT} (gRPC)"
-    echo "  Management: ${MANAGEMENT_HOST_PORT}"
-    echo "  Relay:      ${RELAY_HOST_PORT}"
+    echo "  Dashboard:     ${DASHBOARD_HOST_PORT}"
+    echo "  NetBird Server: ${MANAGEMENT_HOST_PORT} (all services)"
   fi
   return 0
 }
@@ -1388,46 +1727,35 @@ print_manual_instructions() {
   echo "$MSG_SEPARATOR"
   echo ""
   echo "Container ports (bound to ${bind_addr}):"
-  echo "  Dashboard:  ${DASHBOARD_HOST_PORT}"
-  echo "  Signal:     ${SIGNAL_HOST_PORT} (HTTP), ${SIGNAL_GRPC_PORT} (gRPC)"
-  echo "  Management: ${MANAGEMENT_HOST_PORT}"
-  echo "  Relay:      ${RELAY_HOST_PORT}"
+  echo "  Dashboard:     ${DASHBOARD_HOST_PORT}"
+  echo "  NetBird Server: ${MANAGEMENT_HOST_PORT} (all services: management, signal, relay)"
   echo ""
-  echo "Configure your reverse proxy with these routes:"
+  echo "Configure your reverse proxy with these routes (all go to the same backend):"
   echo ""
-  echo "  /relay*                          -> ${upstream_host}:${RELAY_HOST_PORT}"
-  echo "    (HTTP with WebSocket upgrade)"
+  echo "  WebSocket (relay, signal, management WS proxy):"
+  echo "    /relay*, /ws-proxy/*           -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
+  echo "    (HTTP with WebSocket upgrade, extended timeout)"
   echo ""
-  echo "  /ws-proxy/signal*                -> ${upstream_host}:${SIGNAL_HOST_PORT}"
-  echo "    (HTTP with WebSocket upgrade)"
-  echo ""
-  echo "  /signalexchange.SignalExchange/* -> ${upstream_host}:${SIGNAL_GRPC_PORT}"
+  echo "  Native gRPC (signal + management):"
+  echo "    /signalexchange.SignalExchange/* -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
+  echo "    /management.ManagementService/* -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
   echo "    (gRPC/h2c - plaintext HTTP/2)"
   echo ""
-  echo "  /api/*                           -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
-  echo "    (HTTP)"
+  echo "  HTTP (API + embedded IdP):"
+  echo "    /api/*, /oauth2/*              -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
   echo ""
-  echo "  /ws-proxy/management*            -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
-  echo "    (HTTP with WebSocket upgrade)"
-  echo ""
-  echo "  /management.ManagementService/*  -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
-  echo "    (gRPC/h2c - plaintext HTTP/2)"
-  echo ""
-  echo "  /oauth2/*                        -> ${upstream_host}:${MANAGEMENT_HOST_PORT}"
-  echo "    (HTTP - embedded IdP)"
-  echo ""
-  echo "  /*                               -> ${upstream_host}:${DASHBOARD_HOST_PORT}"
-  echo "    (HTTP - catch-all for dashboard)"
+  echo "  Dashboard (catch-all):"
+  echo "    /*                             -> ${upstream_host}:${DASHBOARD_HOST_PORT}"
   echo ""
   echo "IMPORTANT: gRPC routes require HTTP/2 (h2c) upstream support."
-  echo "Long-running connections need extended timeouts (recommend 1 day)."
+  echo "WebSocket and gRPC connections need extended timeouts (recommend 1 day)."
   return 0
 }
 
 print_post_setup_instructions() {
   case "$REVERSE_PROXY_TYPE" in
     0)
-      print_caddy_instructions
+      print_builtin_traefik_instructions
       ;;
     1)
       print_traefik_instructions

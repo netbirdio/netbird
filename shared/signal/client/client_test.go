@@ -65,7 +65,10 @@ var _ = Describe("GrpcClient", func() {
 						return
 					}
 				}()
-				clientA.WaitStreamConnected()
+				ctxA, cancelA := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancelA()
+				clientA.WaitStreamConnected(ctxA)
+				Expect(clientA.StreamConnected()).To(BeTrue())
 
 				// connect PeerB to Signal
 				keyB, _ := wgtypes.GenerateKey()
@@ -91,7 +94,10 @@ var _ = Describe("GrpcClient", func() {
 					}
 				}()
 
-				clientB.WaitStreamConnected()
+				ctxB, cancelB := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancelB()
+				clientB.WaitStreamConnected(ctxB)
+				Expect(clientB.StreamConnected()).To(BeTrue())
 
 				// PeerA initiates ping-pong
 				err := clientA.Send(&sigProto.Message{
@@ -129,8 +135,10 @@ var _ = Describe("GrpcClient", func() {
 						return
 					}
 				}()
-				client.WaitStreamConnected()
-				Expect(client).NotTo(BeNil())
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				client.WaitStreamConnected(ctx)
+				Expect(client.StreamConnected()).To(BeTrue())
 			})
 		})
 

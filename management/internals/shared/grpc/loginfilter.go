@@ -13,7 +13,7 @@ const (
 	reconnThreshold   = 5 * time.Minute
 	baseBlockDuration = 10 * time.Minute // Duration for which a peer is banned after exceeding the reconnection limit
 	reconnLimitForBan = 30               // Number of reconnections within the reconnTreshold that triggers a ban
-	metaChangeLimit   = 3                // Number of reconnections with different metadata that triggers a ban of one peer
+	metaChangeLimit   = 5                // Number of reconnections with different metadata that triggers a ban of one peer
 )
 
 type lfConfig struct {
@@ -139,7 +139,7 @@ func (l *loginFilter) addLogin(wgPubKey string, metaHash uint64) {
 	state.lastSeen = now
 }
 
-func metaHash(meta nbpeer.PeerSystemMeta, pubip string) uint64 {
+func metaHash(meta nbpeer.PeerSystemMeta) uint64 {
 	h := fnv.New64a()
 
 	h.Write([]byte(meta.WtVersion))
@@ -147,14 +147,6 @@ func metaHash(meta nbpeer.PeerSystemMeta, pubip string) uint64 {
 	h.Write([]byte(meta.KernelVersion))
 	h.Write([]byte(meta.Hostname))
 	h.Write([]byte(meta.SystemSerialNumber))
-	h.Write([]byte(pubip))
 
-	macs := uint64(0)
-	for _, na := range meta.NetworkAddresses {
-		for _, r := range na.Mac {
-			macs += uint64(r)
-		}
-	}
-
-	return h.Sum64() + macs
+	return h.Sum64()
 }

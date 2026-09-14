@@ -10,15 +10,16 @@ import (
 	"net/http"
 	// nolint:gosec
 	_ "net/http/pprof"
+	"os"
 	"time"
 
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
+	"golang.org/x/net/http2/h2c" //nolint:staticcheck
 
-	"github.com/netbirdio/netbird/signal/metrics"
+	"github.com/netbirdio/netbird/shared/metrics"
 
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/shared/signal/proto"
@@ -38,13 +39,13 @@ import (
 const legacyGRPCPort = 10000
 
 var (
-	signalPort              int
-	metricsPort             int
-	signalLetsencryptDomain string
-	signalSSLDir            string
-	defaultSignalSSLDir     string
-	signalCertFile          string
-	signalCertKey           string
+	signalPort               int
+	metricsPort              int
+	signalLetsencryptDomain  string
+	signalLetsencryptEmail   string
+	signalLetsencryptDataDir string
+	signalCertFile           string
+	signalCertKey            string
 
 	signalKaep = grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
 		MinTime:             5 * time.Second,
@@ -195,12 +196,14 @@ var (
 )
 
 func startPprof() {
-	go func() {
-		log.Debugf("Starting pprof server on 127.0.0.1:6060")
-		if err := http.ListenAndServe("127.0.0.1:6060", nil); err != nil {
-			log.Fatalf("pprof server failed: %v", err)
-		}
-	}()
+	if pprofAddr := os.Getenv("NB_PPROF_ADDR"); pprofAddr != "" {
+		log.Infof("pprof enabled, listening on: %s", pprofAddr)
+		go func() {
+			if err := http.ListenAndServe(pprofAddr, nil); err != nil {
+				log.Fatalf("pprof server failed: %v", err)
+			}
+		}()
+	}
 }
 
 func getTLSConfigurations() ([]grpc.ServerOption, *autocert.Manager, *tls.Config, error) {
@@ -216,7 +219,7 @@ func getTLSConfigurations() ([]grpc.ServerOption, *autocert.Manager, *tls.Config
 	}
 
 	if signalLetsencryptDomain != "" {
-		certManager, err = encryption.CreateCertManager(signalSSLDir, signalLetsencryptDomain)
+		certManager, err = encryption.CreateCertManager(signalLetsencryptDataDir, signalLetsencryptDomain)
 		if err != nil {
 			return nil, certManager, nil, err
 		}
@@ -281,6 +284,7 @@ func serveHTTP(httpListener net.Listener, handler http.Handler) {
 	go func() {
 		// Use h2c to support HTTP/2 without TLS (needed for gRPC)
 		h1s := &http.Server{
+			//nolint:staticcheck // h2c also handles the HTTP/1 Upgrade mechanism, which http.Server's UnencryptedHTTP2 does not
 			Handler: h2c.NewHandler(handler, &http2.Server{}),
 		}
 		err := h1s.Serve(httpListener)
@@ -326,9 +330,11 @@ func loadTLSConfig(certFile string, certKey string) (*tls.Config, error) {
 func init() {
 	runCmd.PersistentFlags().IntVar(&signalPort, "port", 80, "Server port to listen on (defaults to 443 if TLS is enabled, 80 otherwise")
 	runCmd.Flags().IntVar(&metricsPort, "metrics-port", 9090, "metrics endpoint http port. Metrics are accessible under host:metrics-port/metrics")
-	runCmd.Flags().StringVar(&signalSSLDir, "ssl-dir", defaultSignalSSLDir, "server ssl directory location. *Required only for Let's Encrypt certificates.")
-	runCmd.Flags().StringVar(&signalLetsencryptDomain, "letsencrypt-domain", "", "a domain to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS")
-	runCmd.Flags().StringVar(&signalCertFile, "cert-file", "", "Location of your SSL certificate. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect")
-	runCmd.Flags().StringVar(&signalCertKey, "cert-key", "", "Location of your SSL certificate private key. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect")
+	runCmd.PersistentFlags().StringVar(&signalLetsencryptDataDir, "letsencrypt-data-dir", "", "a directory to store Let's Encrypt data. Required if Let's Encrypt is enabled.")
+	runCmd.PersistentFlags().StringVar(&signalLetsencryptDataDir, "ssl-dir", "", "server ssl directory location. *Required only for Let's Encrypt certificates. Deprecated: use --letsencrypt-data-dir")
+	runCmd.PersistentFlags().StringVar(&signalLetsencryptDomain, "letsencrypt-domain", "", "a domain to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS")
+	runCmd.PersistentFlags().StringVar(&signalLetsencryptEmail, "letsencrypt-email", "", "email address to use for Let's Encrypt certificate registration")
+	runCmd.PersistentFlags().StringVar(&signalCertFile, "cert-file", "", "Location of your SSL certificate. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect")
+	runCmd.PersistentFlags().StringVar(&signalCertKey, "cert-key", "", "Location of your SSL certificate private key. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect")
 	setFlagsFromEnvVars(runCmd)
 }

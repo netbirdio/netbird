@@ -6,33 +6,38 @@ import (
 )
 
 type mocListener struct {
-	lastState int
+	lastState ClientState
 	wg        sync.WaitGroup
+	peersWg   sync.WaitGroup
 	peers     int
 }
 
 func (l *mocListener) OnConnected() {
-	l.lastState = stateConnected
+	l.lastState = ClientStateConnected
 	l.wg.Done()
 }
 func (l *mocListener) OnDisconnected() {
-	l.lastState = stateDisconnected
+	l.lastState = ClientStateDisconnected
 	l.wg.Done()
 }
 func (l *mocListener) OnConnecting() {
-	l.lastState = stateConnecting
+	l.lastState = ClientStateConnecting
 	l.wg.Done()
 }
 func (l *mocListener) OnDisconnecting() {
-	l.lastState = stateDisconnecting
+	l.lastState = ClientStateDisconnecting
 	l.wg.Done()
 }
 
+func (l *mocListener) OnStateChanged(state ClientState) {
+
+}
 func (l *mocListener) OnAddressChanged(host, addr string) {
 
 }
 func (l *mocListener) OnPeersListChanged(size int) {
 	l.peers = size
+	l.peersWg.Done()
 }
 
 func (l *mocListener) setWaiter() {
@@ -43,19 +48,27 @@ func (l *mocListener) wait() {
 	l.wg.Wait()
 }
 
+func (l *mocListener) setPeersWaiter() {
+	l.peersWg.Add(1)
+}
+
+func (l *mocListener) waitPeers() {
+	l.peersWg.Wait()
+}
+
 func Test_notifier_serverState(t *testing.T) {
 
 	type scenario struct {
 		name        string
-		expected    int
+		expected    ClientState
 		mgmState    bool
 		signalState bool
 	}
 	scenarios := []scenario{
-		{"connected", stateConnected, true, true},
-		{"mgm down", stateConnecting, false, true},
-		{"signal down", stateConnecting, true, false},
-		{"disconnected", stateDisconnected, false, false},
+		{"connected", ClientStateConnected, true, true},
+		{"mgm down", ClientStateConnecting, false, true},
+		{"signal down", ClientStateConnecting, true, false},
+		{"disconnected", ClientStateDisconnected, false, false},
 	}
 
 	for _, tt := range scenarios {
@@ -72,11 +85,13 @@ func Test_notifier_serverState(t *testing.T) {
 func Test_notifier_SetListener(t *testing.T) {
 	listener := &mocListener{}
 	listener.setWaiter()
+	listener.setPeersWaiter()
 
 	n := newNotifier()
-	n.lastNotification = stateConnecting
+	n.lastNotification = ClientStateConnecting
 	n.setListener(listener)
 	listener.wait()
+	listener.waitPeers()
 	if listener.lastState != n.lastNotification {
 		t.Errorf("invalid state: %d, expected: %d", listener.lastState, n.lastNotification)
 	}
@@ -85,9 +100,14 @@ func Test_notifier_SetListener(t *testing.T) {
 func Test_notifier_RemoveListener(t *testing.T) {
 	listener := &mocListener{}
 	listener.setWaiter()
+	listener.setPeersWaiter()
 	n := newNotifier()
-	n.lastNotification = stateConnecting
+	n.lastNotification = ClientStateConnecting
 	n.setListener(listener)
+	// setListener replays cached state on a goroutine; wait for both the state
+	// and peers callbacks to finish so we don't race on listener.peers.
+	listener.wait()
+	listener.waitPeers()
 	n.removeListener()
 	n.peerListChanged(1)
 

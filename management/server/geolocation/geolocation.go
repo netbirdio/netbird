@@ -44,6 +44,12 @@ type Record struct {
 		GeonameID uint   `maxminddb:"geoname_id"`
 		ISOCode   string `maxminddb:"iso_code"`
 	} `maxminddb:"country"`
+	Subdivisions []struct {
+		ISOCode string `maxminddb:"iso_code"`
+		Names   struct {
+			En string `maxminddb:"en"`
+		} `maxminddb:"names"`
+	} `maxminddb:"subdivisions"`
 }
 
 type City struct {
@@ -124,6 +130,10 @@ func (gl *geolocationImpl) Lookup(ip net.IP) (*Record, error) {
 	gl.mux.RLock()
 	defer gl.mux.RUnlock()
 
+	if gl.db == nil {
+		return nil, fmt.Errorf("geolocation database is not available")
+	}
+
 	var record Record
 	err := gl.db.Lookup(ip, &record)
 	if err != nil {
@@ -167,8 +177,14 @@ func (gl *geolocationImpl) GetCitiesByCountry(countryISOCode string) ([]City, er
 
 func (gl *geolocationImpl) Stop() error {
 	close(gl.stopCh)
-	if gl.db != nil {
-		if err := gl.db.Close(); err != nil {
+
+	gl.mux.Lock()
+	db := gl.db
+	gl.db = nil
+	gl.mux.Unlock()
+
+	if db != nil {
+		if err := db.Close(); err != nil {
 			return err
 		}
 	}
@@ -226,7 +242,11 @@ func getDatabaseFilename(ctx context.Context, databaseURL string, filenamePatter
 	// strip suffixes that may be nested, such as .tar.gz
 	basename := strings.SplitN(filename, ".", 2)[0]
 	// get date version from basename
-	date := strings.SplitN(basename, "_", 2)[1]
+	parts := strings.SplitN(basename, "_", 2)
+	if len(parts) < 2 || parts[1] == "" {
+		return "", fmt.Errorf("unexpected database filename %q: missing date suffix", filename)
+	}
+	date := parts[1]
 	// format db as "GeoLite2-Cities-{maxmind|geonames}_{DATE}.{mmdb|db}"
 	databaseFilename := filepath.Base(strings.Replace(filenamePattern, "*", date, 1))
 

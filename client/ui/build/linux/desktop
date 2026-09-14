@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Name=NetBird
+Comment=NetBird desktop client
+# The Exec line includes %u to pass the URL to the application
+Exec=/usr/local/bin/netbird-ui %u
+Terminal=false
+Type=Application
+Icon=netbird-ui
+Categories=Utility;
+StartupWMClass=netbird-ui
+
+ 
