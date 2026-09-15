@@ -1374,5 +1374,14 @@
     },
     "settings.ssh.privilege.authorizePending": {
         "message": "承認を待っています…"
+    },
+    "profile.ownedByAnother": {
+        "message": "Another user's profile"
+    },
+    "error.session_held": {
+        "message": "Another user has this machine connected."
+    },
+    "error.not_profile_owner": {
+        "message": "This profile belongs to another user."
     }
 }

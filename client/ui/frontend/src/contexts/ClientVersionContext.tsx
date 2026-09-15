@@ -13,7 +13,7 @@ import { Events } from "@wailsio/runtime";
 import { Update as UpdateSvc, WindowManager } from "@bindings/services";
 import type { State as UpdateState } from "@bindings/updater/models.js";
 import i18next from "@/lib/i18n";
-import { errorDialog, formatErrorMessage } from "@/lib/errors";
+import { errorDialogFor } from "@/lib/errors";
 
 const isDaemonUnavailable = (e: unknown): boolean => {
     const msg = e instanceof Error ? e.message : String(e);
@@ -61,10 +61,7 @@ export const ClientVersionProvider = ({ children }: { children: ReactNode }) => 
             })
             .catch((e) => {
                 if (cancelled || isDaemonUnavailable(e)) return;
-                void errorDialog({
-                    Title: i18next.t("update.error.loadStateTitle"),
-                    Message: formatErrorMessage(e),
-                });
+                void errorDialogFor(i18next.t("update.error.loadStateTitle"), e);
             });
         const off = Events.On(EVENT_UPDATE_STATE, (ev: { data: UpdateState }) => {
             if (ev?.data) setState(ev.data);
@@ -90,10 +87,7 @@ export const ClientVersionProvider = ({ children }: { children: ReactNode }) => 
             .catch(async (e) => {
                 if (isDaemonUnavailable(e)) return;
                 WindowManager.CloseInstallProgress().catch(console.error);
-                await errorDialog({
-                    Title: i18next.t("update.error.triggerTitle"),
-                    Message: formatErrorMessage(e),
-                });
+                await errorDialogFor(i18next.t("update.error.triggerTitle"), e);
             })
             .finally(() => setUpdating(false));
     }, [state.version]);

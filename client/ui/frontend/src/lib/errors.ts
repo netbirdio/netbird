@@ -63,11 +63,25 @@ export const errorCommand = (e: unknown): string => classify(e)?.command ?? "";
 export type ErrorDialogOptions = {
     Title: string;
     Message: string;
-    // Command is shown for copying below the message. Defaults to the one the
-    // error carries, so callers only pass it to override.
+    // Command is shown for copying below the message. Prefer errorDialogFor,
+    // which takes it from the error, over setting this by hand.
     Command?: string;
 };
 
 export function errorDialog(options: ErrorDialogOptions): Promise<void> {
     return WindowManager.OpenError(options.Title, options.Message, options.Command ?? "");
+}
+
+// errorDialogFor opens a dialog for a thrown error, taking both the message and
+// any command the daemon attached from the error itself.
+//
+// Use it wherever the message is just the error. Passing Command by hand is what
+// kept the daemon's suggested command off the screen everywhere except Settings,
+// since every other caller had to remember to ask for it.
+export function errorDialogFor(title: string, e: unknown): Promise<void> {
+    return errorDialog({
+        Title: title,
+        Message: formatErrorMessage(e),
+        Command: errorCommand(e),
+    });
 }
