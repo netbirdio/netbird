@@ -29,7 +29,7 @@ func Test_S3HandlerGetUploadURL(t *testing.T) {
 	ctx := context.Background()
 	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
-			Image:        "minio/minio:RELEASE.2025-04-22T22-12-26Z",
+			Image:        "quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z",
 			ExposedPorts: []string{"9000/tcp"},
 			Env: map[string]string{
 				"MINIO_ROOT_USER":     "minioadmin",

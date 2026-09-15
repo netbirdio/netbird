@@ -14,12 +14,14 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/pion/ice/v4"
 	"github.com/pion/stun/v3"
 	log "github.com/sirupsen/logrus"
+	wgdevice "golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun/netstack"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
@@ -236,6 +238,12 @@ type Engine struct {
 
 	wgInterface WGIface
 
+	// wgDevice is a lock-free handle on the WireGuard device behind
+	// wgInterface. Reaching the device through wgInterface requires
+	// syncMsgMux, which handleSync holds while it adds and removes peers;
+	// SetPerformance must stay reachable exactly when that work is stuck.
+	wgDevice atomic.Pointer[wgdevice.Device]
+
 	udpMux *udpmux.UniversalUDPMuxDefault
 
 	// networkSerial is the latest CurrentSerial (state ID) of the network sent by the Management service
@@ -264,6 +272,8 @@ type Engine struct {
 
 	// checks are the client-applied posture checks that need to be evaluated on the client
 	checks []*mgmProto.Checks
+
+	infoSource system.InfoSource
 
 	relayManager       *relayClient.Manager
 	stateManager       *statemanager.Manager
@@ -649,6 +659,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		log.Errorf("failed to pull up wgInterface [%s]: %s", e.wgInterface.Name(), err.Error())
 		return fmt.Errorf("up wg interface: %w", err)
 	}
+	e.wgDevice.Store(e.wgInterface.GetWGDevice())
 
 	// Set up notrack rules immediately after proxy is listening to prevent
 	// conntrack entries from being created before the rules are in place
@@ -1241,9 +1252,7 @@ func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 	if isChecksEqual(e.checks, checks) {
 		return nil
 	}
-	e.checks = checks
-
-	info, ok := system.GetInfoWithChecksTimeout(e.ctx, systemInfoTimeout, checks, e.overlayAddresses()...)
+	info, ok := e.infoSource.Refresh(e.ctx, systemInfoTimeout, checks, e.overlayAddresses()...)
 	if !ok {
 		// Gathering timed out; skip the meta sync this cycle rather than blocking the
 		// sync loop (and syncMsgMux) on a stuck system call. A later sync will retry.
@@ -1254,6 +1263,7 @@ func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 	if err := e.mgmClient.SyncMeta(info); err != nil {
 		return fmt.Errorf("could not sync meta: error %s", err)
 	}
+	e.checks = checks
 	return nil
 }
 
@@ -1278,6 +1288,28 @@ func (e *Engine) applyInfoFlags(info *system.Info) {
 		e.config.DisableSSHAuth,
 		&e.config.RemoteJobsAllowed,
 	)
+}
+
+func (e *Engine) currentSystemInfo(ctx context.Context) *system.Info {
+	info := e.infoSource.Current(ctx, e.overlayAddresses()...)
+	e.applyInfoFlags(info)
+	return info
+}
+
+// syncInfoFunc returns the info callback for the management sync stream. The
+// first connect sends the info refreshed right before it instead of gathering
+// again; every reconnect gathers a fresh one. The stream retry loop calls the
+// callback sequentially, so the handoff needs no synchronization.
+func (e *Engine) syncInfoFunc(refreshed *system.Info) func(ctx context.Context) *system.Info {
+	return func(ctx context.Context) *system.Info {
+		if refreshed == nil {
+			return e.currentSystemInfo(ctx)
+		}
+		info := refreshed
+		refreshed = nil
+		e.applyInfoFlags(info)
+		return info
+	}
 }
 
 // overlayAddresses returns our own WireGuard overlay address (v4 and v6) so it
@@ -1473,15 +1505,11 @@ func (e *Engine) receiveManagementEvents() {
 	e.shutdownWg.Add(1)
 	go func() {
 		defer e.shutdownWg.Done()
-		info, ok := system.GetInfoWithChecksTimeout(e.ctx, systemInfoTimeout, e.checks, e.overlayAddresses()...)
+		info, ok := e.infoSource.Refresh(e.ctx, systemInfoTimeout, e.checks, e.overlayAddresses()...)
 		if !ok {
-			// Gathering timed out; connect the stream with base info so management
-			// connectivity still comes up rather than blocking here.
-			info = system.GetInfo(e.ctx)
+			log.Warnf("posture checks not refreshed before the sync connect, sending the previous results")
 		}
-		e.applyInfoFlags(info)
-
-		err := e.mgmClient.Sync(e.ctx, info, e.handleSync)
+		err := e.mgmClient.Sync(e.ctx, e.syncInfoFunc(info), e.handleSync)
 		if err != nil {
 			// happens if management is unavailable for a long time.
 			// We want to cancel the operation of the whole client
@@ -2125,6 +2153,10 @@ func (e *Engine) close() {
 	log.Debugf("removing Netbird interface %s", e.config.WgIfaceName)
 
 	if e.wgInterface != nil {
+		// Drop the handle before the close starts: a retune that loads it
+		// afterwards would touch a device on its way out and report success
+		// for an engine that is already gone.
+		e.wgDevice.Store(nil)
 		if err := e.wgInterface.Close(); err != nil {
 			log.Errorf("failed closing Netbird interface %s %v", e.config.WgIfaceName, err)
 		}
@@ -2284,15 +2316,16 @@ type Performance struct {
 }
 
 // SetPerformance applies the given tuning to this engine's live Device.
+//
+// It deliberately does not take syncMsgMux. Raising the buffer pool cap is the
+// recovery path for a device whose pool is exhausted, and an exhausted pool
+// blocks peer removal inside handleSync, which holds syncMsgMux for as long as
+// it stays blocked. Taking the lock here would make the retune unreachable in
+// the one situation that needs it.
 func (e *Engine) SetPerformance(t Performance) error {
-	e.syncMsgMux.Lock()
-	defer e.syncMsgMux.Unlock()
-	if e.wgInterface == nil {
-		return fmt.Errorf("wg interface not initialized")
-	}
-	dev := e.wgInterface.GetWGDevice()
+	dev := e.wgDevice.Load()
 	if dev == nil {
-		return fmt.Errorf("wg device not initialized")
+		return errors.New("wg device not initialized")
 	}
 	if t.PreallocatedBuffersPerPool != nil {
 		dev.SetPreallocatedBuffersPerPool(*t.PreallocatedBuffersPerPool)

@@ -3,12 +3,24 @@
 package services
 
 import (
+	"fmt"
+	"sync/atomic"
 	"testing"
+	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
+
+func newTestWindowManager() *WindowManager {
+	return &WindowManager{
+		creating:     map[string]bool{},
+		pendingOps:   map[string][]windowOp{},
+		pendingClose: map[string]windowCloser{},
+		restoreGen:   map[string]uint64{},
+		generation:   map[string]uint64{},
+	}
+}
 
 type fakeWindow struct {
 	name    string
@@ -37,20 +49,22 @@ func (f *fakeWindow) IsVisible() bool { return f.visible }
 
 func (f *fakeWindow) Name() string { return f.name }
 
-func newTestWindowManager(windows ...*fakeWindow) (*WindowManager, *int) {
-	raised := 0
-	s := &WindowManager{
-		generation: map[string]uint64{},
-		allWindows: func() []hideableWindow {
-			all := make([]hideableWindow, 0, len(windows))
-			for _, w := range windows {
-				all = append(all, w)
-			}
-			return all
-		},
-		raiseMain: func() { raised++ },
+type fakeDesktop struct {
+	windows []*fakeWindow
+	raised  int
+}
+
+func newFakeDesktop(s *WindowManager, windows ...*fakeWindow) *fakeDesktop {
+	d := &fakeDesktop{windows: windows}
+	s.allWindows = func() []hideableWindow {
+		all := make([]hideableWindow, 0, len(d.windows))
+		for _, w := range d.windows {
+			all = append(all, w)
+		}
+		return all
 	}
-	return s, &raised
+	s.raiseMain = func() { d.raised++ }
+	return d
 }
 
 func ownersOf(hidden []hiddenWindow) []string {
@@ -61,93 +75,474 @@ func ownersOf(hidden []hiddenWindow) []string {
 	return owners
 }
 
-func TestHideOtherWindowsLockedSkipsKeepNameAndInvisible(t *testing.T) {
-	main := newFakeWindow("main")
-	settings := newFakeWindow("settings")
+func waitDone(t *testing.T, done <-chan struct{}, msg string) {
+	t.Helper()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal(msg)
+	}
+}
+
+func TestWithWindowReusesExistingWindow(t *testing.T) {
+	s := newTestWindowManager()
+	existing := &application.WebviewWindow{}
+	slot := existing
+	factoryCalls := 0
+	var got *application.WebviewWindow
+	created := true
+	s.withWindow(windowMain, &slot, func() *application.WebviewWindow {
+		factoryCalls++
+		return &application.WebviewWindow{}
+	}, func(w *application.WebviewWindow, c bool) {
+		got, created = w, c
+	})
+	require.Equal(t, 0, factoryCalls)
+	require.Same(t, existing, got)
+	require.False(t, created)
+}
+
+func TestWithWindowNilFactoryWithoutWindowSkipsOp(t *testing.T) {
+	s := newTestWindowManager()
+	var slot *application.WebviewWindow
+	opCalls := 0
+	s.withWindow(windowMain, &slot, nil, func(*application.WebviewWindow, bool) {
+		opCalls++
+	})
+	require.Equal(t, 0, opCalls)
+	require.Nil(t, slot)
+}
+
+func TestWithWindowReentrantCallDuringCreationIsQueued(t *testing.T) {
+	s := newTestWindowManager()
+	var slot *application.WebviewWindow
+	factoryCalls := 0
+	var order []string
+	var factory func() *application.WebviewWindow
+	factory = func() *application.WebviewWindow {
+		factoryCalls++
+		// Simulates the Windows message pump re-entering the tray click handler
+		// while WebView2 is still initialising the window being created.
+		s.withWindow(windowMain, &slot, factory, func(_ *application.WebviewWindow, created bool) {
+			order = append(order, fmt.Sprintf("reentrant:%v", created))
+		})
+		return &application.WebviewWindow{}
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.withWindow(windowMain, &slot, factory, func(_ *application.WebviewWindow, created bool) {
+			order = append(order, fmt.Sprintf("outer:%v", created))
+		})
+	}()
+	waitDone(t, done, "withWindow deadlocked on a re-entrant call during creation")
+
+	require.Equal(t, 1, factoryCalls)
+	require.Equal(t, []string{"outer:true", "reentrant:false"}, order)
+	require.NotNil(t, slot)
+	require.Empty(t, s.creating)
+	require.Empty(t, s.pendingOps)
+}
+
+func TestWithWindowConcurrentCallersShareOneCreation(t *testing.T) {
+	s := newTestWindowManager()
+	var slot *application.WebviewWindow
+	factoryEntered := make(chan struct{})
+	release := make(chan struct{})
+	var factoryCalls, opCalls atomic.Int32
+	factory := func() *application.WebviewWindow {
+		factoryCalls.Add(1)
+		close(factoryEntered)
+		<-release
+		return &application.WebviewWindow{}
+	}
+	op := func(*application.WebviewWindow, bool) { opCalls.Add(1) }
+
+	first := make(chan struct{})
+	go func() {
+		defer close(first)
+		s.withWindow(windowSettings, &slot, factory, op)
+	}()
+	<-factoryEntered
+
+	second := make(chan struct{})
+	go func() {
+		defer close(second)
+		s.withWindow(windowSettings, &slot, factory, op)
+	}()
+	waitDone(t, second, "second caller blocked while the window was being created")
+	require.Equal(t, int32(0), opCalls.Load())
+
+	close(release)
+	waitDone(t, first, "creator did not finish")
+
+	require.Equal(t, int32(1), factoryCalls.Load())
+	require.Equal(t, int32(2), opCalls.Load())
+	require.NotNil(t, slot)
+}
+
+func TestWithWindowOpsQueuedDuringCreationRunInArrivalOrder(t *testing.T) {
+	s := newTestWindowManager()
+	var slot *application.WebviewWindow
+	var order []string
+	record := func(label string) windowOp {
+		return func(_ *application.WebviewWindow, created bool) {
+			order = append(order, fmt.Sprintf("%s:%v", label, created))
+		}
+	}
+	var factory func() *application.WebviewWindow
+	factory = func() *application.WebviewWindow {
+		s.withWindow(windowMain, &slot, factory, func(w *application.WebviewWindow, created bool) {
+			record("a")(w, created)
+			// Arrives while the creator is still draining the queue: it must not
+			// jump ahead of "b" through the existing-window fast path.
+			s.withWindow(windowMain, &slot, factory, record("c"))
+		})
+		s.withWindow(windowMain, &slot, factory, record("b"))
+		return &application.WebviewWindow{}
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.withWindow(windowMain, &slot, factory, record("outer"))
+	}()
+	waitDone(t, done, "withWindow deadlocked while draining queued operations")
+
+	require.Equal(t, []string{"outer:true", "a:false", "b:false", "c:false"}, order)
+	require.Empty(t, s.creating)
+	require.Empty(t, s.pendingOps)
+}
+
+func TestWithWindowFactoryPanicReleasesCreation(t *testing.T) {
+	s := newTestWindowManager()
+	var slot *application.WebviewWindow
+	func() {
+		defer func() { require.NotNil(t, recover()) }()
+		s.withWindow(windowMain, &slot, func() *application.WebviewWindow {
+			panic("factory failed")
+		}, func(*application.WebviewWindow, bool) {})
+	}()
+	require.Empty(t, s.creating)
+	require.Empty(t, s.pendingOps)
+	require.Nil(t, slot)
+
+	created := false
+	s.withWindow(windowMain, &slot, func() *application.WebviewWindow {
+		return &application.WebviewWindow{}
+	}, func(_ *application.WebviewWindow, c bool) {
+		created = c
+	})
+	require.True(t, created)
+	require.NotNil(t, slot)
+}
+
+func TestWithWindowNilFromFactoryReleasesCreation(t *testing.T) {
+	s := newTestWindowManager()
+	var slot *application.WebviewWindow
+	opCalls := 0
+	s.withWindow(windowMain, &slot, func() *application.WebviewWindow {
+		return nil
+	}, func(*application.WebviewWindow, bool) {
+		opCalls++
+	})
+	require.Equal(t, 0, opCalls)
+	require.Empty(t, s.creating)
+	require.Nil(t, slot)
+}
+
+func TestCloseWindowDuringCreationDefersCloseAndSkipsOps(t *testing.T) {
+	s := newTestWindowManager()
+	var slot *application.WebviewWindow
+	created := &application.WebviewWindow{}
+	opCalls, closeCalls := 0, 0
+	var closed *application.WebviewWindow
+	s.withWindow(windowError, &slot, func() *application.WebviewWindow {
+		s.closeWindow(windowError, &slot, func(w *application.WebviewWindow) {
+			closeCalls++
+			closed = w
+		})
+		require.Equal(t, 0, closeCalls)
+		return created
+	}, func(*application.WebviewWindow, bool) {
+		opCalls++
+	})
+	require.Equal(t, 0, opCalls)
+	require.Equal(t, 1, closeCalls)
+	require.Same(t, created, closed)
+	require.Nil(t, slot)
+	require.Empty(t, s.creating)
+	require.Empty(t, s.pendingOps)
+	require.Empty(t, s.pendingClose)
+
+	factoryCalls := 0
+	reopened := false
+	s.withWindow(windowError, &slot, func() *application.WebviewWindow {
+		factoryCalls++
+		return &application.WebviewWindow{}
+	}, func(_ *application.WebviewWindow, c bool) {
+		reopened = c
+	})
+	require.Equal(t, 1, factoryCalls)
+	require.True(t, reopened)
+	require.NotNil(t, slot)
+}
+
+func TestCloseWindowDuringDrainStopsRemainingOps(t *testing.T) {
+	s := newTestWindowManager()
+	var slot *application.WebviewWindow
+	var order []string
+	closeCalls := 0
+	var factory func() *application.WebviewWindow
+	factory = func() *application.WebviewWindow {
+		s.withWindow(windowWelcome, &slot, factory, func(*application.WebviewWindow, bool) {
+			order = append(order, "a")
+			s.closeWindow(windowWelcome, &slot, func(*application.WebviewWindow) { closeCalls++ })
+			s.withWindow(windowWelcome, &slot, factory, func(*application.WebviewWindow, bool) {
+				order = append(order, "c")
+			})
+		})
+		s.withWindow(windowWelcome, &slot, factory, func(*application.WebviewWindow, bool) {
+			order = append(order, "b")
+		})
+		return &application.WebviewWindow{}
+	}
+	s.withWindow(windowWelcome, &slot, factory, func(*application.WebviewWindow, bool) {
+		order = append(order, "outer")
+	})
+
+	// "b" was queued before the close and "c" after it; a close supersedes both
+	// rather than showing a window that is about to be destroyed.
+	require.Equal(t, []string{"outer", "a"}, order)
+	require.Equal(t, 1, closeCalls)
+	require.Nil(t, slot)
+	require.Empty(t, s.creating)
+	require.Empty(t, s.pendingOps)
+	require.Empty(t, s.pendingClose)
+}
+
+func TestCloseWindowWithoutWindowSkipsCloser(t *testing.T) {
+	s := newTestWindowManager()
+	var slot *application.WebviewWindow
+	calls := 0
+	s.closeWindow(windowBrowserLogin, &slot, func(*application.WebviewWindow) { calls++ })
+	require.Equal(t, 0, calls)
+	require.Nil(t, slot)
+	require.Empty(t, s.pendingClose)
+}
+
+func TestCloseWindowWithExistingWindowRunsCloser(t *testing.T) {
+	s := newTestWindowManager()
+	existing := &application.WebviewWindow{}
+	slot := existing
+	var got *application.WebviewWindow
+	s.closeWindow(windowError, &slot, func(w *application.WebviewWindow) { got = w })
+	require.Same(t, existing, got)
+	require.Nil(t, slot)
+	require.Empty(t, s.pendingClose)
+}
+
+func TestWithWindowNilFromFactoryDropsPendingClose(t *testing.T) {
+	s := newTestWindowManager()
+	var slot *application.WebviewWindow
+	closeCalls := 0
+	s.withWindow(windowError, &slot, func() *application.WebviewWindow {
+		s.closeWindow(windowError, &slot, func(*application.WebviewWindow) { closeCalls++ })
+		return nil
+	}, func(*application.WebviewWindow, bool) {})
+	require.Equal(t, 0, closeCalls)
+	require.Nil(t, slot)
+	require.Empty(t, s.creating)
+	require.Empty(t, s.pendingClose)
+}
+
+func TestWithWindowFactoryPanicDropsPendingClose(t *testing.T) {
+	s := newTestWindowManager()
+	var slot *application.WebviewWindow
+	closeCalls := 0
+	func() {
+		defer func() { require.NotNil(t, recover()) }()
+		s.withWindow(windowError, &slot, func() *application.WebviewWindow {
+			s.closeWindow(windowError, &slot, func(*application.WebviewWindow) { closeCalls++ })
+			panic("factory failed")
+		}, func(*application.WebviewWindow, bool) {})
+	}()
+	require.Equal(t, 0, closeCalls)
+	require.Empty(t, s.creating)
+	require.Empty(t, s.pendingClose)
+}
+
+func TestCloseWindowKeepsFirstDeferredCloser(t *testing.T) {
+	s := newTestWindowManager()
+	var slot *application.WebviewWindow
+	var ran []string
+	s.withWindow(windowError, &slot, func() *application.WebviewWindow {
+		s.closeWindow(windowError, &slot, func(*application.WebviewWindow) { ran = append(ran, "first") })
+		s.closeWindow(windowError, &slot, func(*application.WebviewWindow) { ran = append(ran, "second") })
+		return &application.WebviewWindow{}
+	}, func(*application.WebviewWindow, bool) {})
+	require.Equal(t, []string{"first"}, ran)
+	require.Nil(t, slot)
+	require.Empty(t, s.pendingClose)
+}
+
+func TestCloseRenewFlowDuringBrowserLoginCreationRestoresHiddenWindows(t *testing.T) {
+	s := newTestWindowManager()
+	s.withWindow(windowBrowserLogin, &s.browserLogin, func() *application.WebviewWindow {
+		s.CloseRenewFlow()
+		// Seeded after the call so the deferred closer, not CloseRenewFlow's own
+		// immediate restore, is what has to drain it. A nil entry is skipped by
+		// restoreHiddenWindows, so no Wails window is needed.
+		s.hiddenWindows = []hiddenWindow{{owner: windowBrowserLogin}}
+		return &application.WebviewWindow{}
+	}, func(*application.WebviewWindow, bool) {})
+
+	require.Nil(t, s.browserLogin)
+	require.Empty(t, s.hiddenWindows)
+	require.Empty(t, s.creating)
+	require.Empty(t, s.pendingClose)
+}
+
+func TestHideOtherWindowsSkipsKeepNameAndInvisible(t *testing.T) {
+	main := newFakeWindow(windowMain)
+	settings := newFakeWindow(windowSettings)
 	settings.visible = false
-	popup := newFakeWindow("browser-login")
-	s, _ := newTestWindowManager(main, settings, popup)
+	popup := newFakeWindow(windowBrowserLogin)
+	s := newTestWindowManager()
+	newFakeDesktop(s, main, settings, popup)
 
-	s.hideOtherWindowsLocked("browser-login")
+	s.hideOtherWindows(windowBrowserLogin)
 
-	assert.False(t, main.visible)
-	assert.Equal(t, 1, main.hidden)
-	assert.Equal(t, 0, settings.hidden, "an already hidden window must not be recorded")
-	assert.Equal(t, 0, popup.hidden, "the popup itself must stay visible")
-	assert.Equal(t, []string{"browser-login"}, ownersOf(s.hiddenWindows))
+	require.False(t, main.visible)
+	require.Equal(t, 1, main.hidden)
+	require.Equal(t, 0, settings.hidden, "an already hidden window must not be recorded")
+	require.Equal(t, 0, popup.hidden, "the popup itself must stay visible")
+	require.Equal(t, []string{windowBrowserLogin}, ownersOf(s.hiddenWindows))
 }
 
 func TestInstallDuringLoginKeepsMainHiddenUntilLoginCloses(t *testing.T) {
-	main := newFakeWindow("main")
-	login := newFakeWindow("browser-login")
-	install := newFakeWindow("install-progress")
-	s, raised := newTestWindowManager(main, login, install)
+	main := newFakeWindow(windowMain)
+	login := newFakeWindow(windowBrowserLogin)
+	install := newFakeWindow(windowInstallProgress)
+	install.visible = false
+	s := newTestWindowManager()
+	d := newFakeDesktop(s, main, login, install)
 
-	s.hideOtherWindowsLocked("browser-login")
+	s.hideOtherWindows(windowBrowserLogin)
 	require.False(t, main.visible)
-	require.False(t, install.visible)
 
 	install.visible = true
-	s.hideOtherWindowsLocked("install-progress")
-	assert.False(t, login.visible, "the login popup is hidden by the install popup")
+	s.hideOtherWindows(windowInstallProgress)
+	require.False(t, login.visible, "the install popup hides the login popup")
 
-	s.restoreHiddenWindowsLocked("install-progress")
-	assert.True(t, login.visible, "the install popup restores the login popup it hid")
-	assert.False(t, main.visible, "the main window stays hidden for the login popup")
-	assert.Equal(t, 0, *raised)
-	assert.Equal(t, []string{"browser-login", "browser-login"}, ownersOf(s.hiddenWindows))
+	s.restoreHiddenWindows(windowInstallProgress)
+	require.True(t, login.visible, "the install popup restores the login popup it hid")
+	require.False(t, main.visible, "the main window stays hidden for the login popup")
+	require.Equal(t, 0, d.raised)
+	require.Equal(t, []string{windowBrowserLogin}, ownersOf(s.hiddenWindows))
 
-	s.restoreHiddenWindowsLocked("browser-login")
-	assert.True(t, main.visible)
-	assert.Equal(t, 1, *raised, "restoring the main window raises it above the SSO browser")
-	assert.Empty(t, s.hiddenWindows)
+	s.restoreHiddenWindows(windowBrowserLogin)
+	require.True(t, main.visible)
+	require.Equal(t, 1, d.raised, "restoring the main window raises it above the SSO browser")
+	require.Empty(t, s.hiddenWindows)
 }
 
-func TestRestoreHiddenWindowsLockedUnknownOwnerKeepsEverything(t *testing.T) {
-	main := newFakeWindow("main")
-	s, raised := newTestWindowManager(main)
-	s.hideOtherWindowsLocked("browser-login")
+func TestRestoreHiddenWindowsUnknownOwnerKeepsEverything(t *testing.T) {
+	main := newFakeWindow(windowMain)
+	s := newTestWindowManager()
+	d := newFakeDesktop(s, main)
+	s.hideOtherWindows(windowBrowserLogin)
 
-	s.restoreHiddenWindowsLocked("welcome")
+	s.restoreHiddenWindows(windowWelcome)
 
-	assert.False(t, main.visible)
-	assert.Equal(t, []string{"browser-login"}, ownersOf(s.hiddenWindows))
-	assert.Equal(t, 0, *raised)
+	require.False(t, main.visible)
+	require.Equal(t, []string{windowBrowserLogin}, ownersOf(s.hiddenWindows))
+	require.Equal(t, 0, d.raised)
 }
 
-func TestRestoreHiddenWindowsLockedWithoutMainDoesNotRaise(t *testing.T) {
-	settings := newFakeWindow("settings")
-	s, raised := newTestWindowManager(settings)
-	s.hideOtherWindowsLocked("browser-login")
+func TestRestoreHiddenWindowsWithoutMainDoesNotRaise(t *testing.T) {
+	settings := newFakeWindow(windowSettings)
+	s := newTestWindowManager()
+	d := newFakeDesktop(s, settings)
+	s.hideOtherWindows(windowBrowserLogin)
 
-	s.restoreHiddenWindowsLocked("browser-login")
+	s.restoreHiddenWindows(windowBrowserLogin)
 
-	assert.True(t, settings.visible)
-	assert.Equal(t, 0, *raised)
+	require.True(t, settings.visible)
+	require.Equal(t, 0, d.raised)
 }
 
-func TestRestoreHiddenWindowsLockedEmptyIsNoop(t *testing.T) {
-	s, _ := newTestWindowManager()
-	require.NotPanics(t, func() { s.restoreHiddenWindowsLocked("browser-login") })
-	assert.Empty(t, s.hiddenWindows)
+func TestRestoreHiddenWindowsEmptyIsNoop(t *testing.T) {
+	s := newTestWindowManager()
+	require.NotPanics(t, func() { s.restoreHiddenWindows(windowBrowserLogin) })
+	require.Empty(t, s.hiddenWindows)
+}
+
+func TestHideOtherWindowsRacingOwnRestoreReshowsWhatItHid(t *testing.T) {
+	main := newFakeWindow(windowMain)
+	s := newTestWindowManager()
+	d := newFakeDesktop(s, main)
+	enumerate := s.allWindows
+	// A restore for the same owner lands between the generation snapshot and the record.
+	s.allWindows = func() []hideableWindow {
+		s.restoreHiddenWindows(windowBrowserLogin)
+		return enumerate()
+	}
+
+	s.hideOtherWindows(windowBrowserLogin)
+
+	require.True(t, main.visible)
+	require.Equal(t, 1, main.hidden)
+	require.Empty(t, s.hiddenWindows)
+	require.Equal(t, 0, d.raised)
+}
+
+func TestHideOtherWindowsIgnoresRestoreOfAnotherOwner(t *testing.T) {
+	main := newFakeWindow(windowMain)
+	s := newTestWindowManager()
+	newFakeDesktop(s, main)
+	enumerate := s.allWindows
+	s.allWindows = func() []hideableWindow {
+		s.restoreHiddenWindows(windowInstallProgress)
+		return enumerate()
+	}
+
+	s.hideOtherWindows(windowBrowserLogin)
+
+	require.False(t, main.visible)
+	require.Equal(t, []string{windowBrowserLogin}, ownersOf(s.hiddenWindows))
+}
+
+func TestRestoringCloserRestoresOnlyItsOwner(t *testing.T) {
+	main := newFakeWindow(windowMain)
+	s := newTestWindowManager()
+	newFakeDesktop(s, main)
+	s.hideOtherWindows(windowBrowserLogin)
+	s.hiddenWindows = append(s.hiddenWindows, hiddenWindow{owner: windowInstallProgress})
+
+	s.restoringCloser(windowBrowserLogin)(&application.WebviewWindow{})
+
+	require.True(t, main.visible)
+	require.Equal(t, []string{windowInstallProgress}, ownersOf(s.hiddenWindows))
 }
 
 func TestStampGenerationTracksLatestPerWindow(t *testing.T) {
-	s, _ := newTestWindowManager()
+	s := newTestWindowManager()
 
-	first := s.stampGeneration("browser-login", "/#/dialog/browser-login")
-	assert.Equal(t, "/#/dialog/browser-login?gen=1", first)
-	assert.True(t, s.matchesGeneration("browser-login", 1))
+	first := s.stampGeneration(windowBrowserLogin, "/#/dialog/browser-login")
+	require.Equal(t, "/#/dialog/browser-login?gen=1", first)
+	require.True(t, s.matchesGeneration(windowBrowserLogin, 1))
 
-	second := s.stampGeneration("browser-login", "/#/dialog/browser-login?uri=x")
-	assert.Equal(t, "/#/dialog/browser-login?uri=x&gen=2", second)
-	assert.False(t, s.matchesGeneration("browser-login", 1))
-	assert.True(t, s.matchesGeneration("browser-login", 2))
+	second := s.stampGeneration(windowBrowserLogin, "/#/dialog/browser-login?uri=x")
+	require.Equal(t, "/#/dialog/browser-login?uri=x&gen=2", second)
+	require.False(t, s.matchesGeneration(windowBrowserLogin, 1))
+	require.True(t, s.matchesGeneration(windowBrowserLogin, 2))
 }
 
 func TestMatchesGenerationUntrackedWindowAccepts(t *testing.T) {
-	s, _ := newTestWindowManager()
-	assert.True(t, s.matchesGeneration("main", 0))
+	s := newTestWindowManager()
+	require.True(t, s.matchesGeneration(windowMain, 0))
 }
 
 func TestPaintedGeneration(t *testing.T) {
@@ -165,7 +560,7 @@ func TestPaintedGeneration(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, paintedGeneration(tc.data))
+			require.Equal(t, tc.want, paintedGeneration(tc.data))
 		})
 	}
 }

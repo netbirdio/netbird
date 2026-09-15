@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Events, Window } from "@wailsio/runtime";
 import i18next from "@/lib/i18n";
 import { isLinux } from "@/lib/platform";
@@ -9,6 +10,8 @@ const EVENT_WINDOW_PAINTED = "netbird:window-painted";
 // then reports it as painted so Go shows it. Re-applies on content resize and language change.
 export function useAutoSizeWindow<T extends HTMLElement>(width: number, ready: boolean = true) {
     const ref = useRef<T | null>(null);
+    const [params] = useSearchParams();
+    const generation = params.get("gen") ?? "";
     useLayoutEffect(() => {
         const el = ref.current;
         if (!el) return;
@@ -18,7 +21,7 @@ export function useAutoSizeWindow<T extends HTMLElement>(width: number, ready: b
         const paintedOnce = () => {
             if (painted) return;
             painted = true;
-            Events.Emit(EVENT_WINDOW_PAINTED).catch(() => {});
+            Events.Emit(EVENT_WINDOW_PAINTED, generation).catch(() => {});
         };
         const apply = async () => {
             if (!ready) return;
@@ -56,6 +59,6 @@ export function useAutoSizeWindow<T extends HTMLElement>(width: number, ready: b
             cancelAnimationFrame(raf2);
             i18next.off("languageChanged", scheduleApply);
         };
-    }, [width, ready]);
+    }, [width, ready, generation]);
     return ref;
 }

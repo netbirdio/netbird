@@ -17,11 +17,12 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 )
 
-// reconcileWGMock is a minimal iface.WGIface that only records AddAllowedIP calls; every other
-// method is an inert stub because ReconcilePeerAllowedIPs exercises none of them.
+// reconcileWGMock is a minimal iface.WGIface that records AddAllowedIP calls and reports the
+// configured address; every other method is an inert stub because the tests exercise none of them.
 type reconcileWGMock struct {
 	mu   sync.Mutex
 	adds map[string][]netip.Prefix
+	addr wgaddr.Address
 }
 
 func (m *reconcileWGMock) AddAllowedIP(peerKey string, allowedIP netip.Prefix) error {
@@ -42,7 +43,7 @@ func (m *reconcileWGMock) added(peerKey string) []netip.Prefix {
 
 func (m *reconcileWGMock) RemoveAllowedIP(string, netip.Prefix) error { return nil }
 func (m *reconcileWGMock) Name() string                               { return "utun-test" }
-func (m *reconcileWGMock) Address() wgaddr.Address                    { return wgaddr.Address{} }
+func (m *reconcileWGMock) Address() wgaddr.Address                    { return m.addr }
 func (m *reconcileWGMock) ToInterface() *net.Interface                { return nil }
 func (m *reconcileWGMock) IsUserspaceBind() bool                      { return false }
 func (m *reconcileWGMock) GetFilter() device.PacketFilter             { return nil }

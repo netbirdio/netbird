@@ -116,7 +116,7 @@ func (h *Handshaker) Listen(ctx context.Context) {
 	for {
 		select {
 		case remoteOfferAnswer := <-h.remoteOffersCh:
-			h.log.Infof("received offer, running version %s, remote WireGuard listen port %d, session id: %s, remote ICE supported: %t", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort, remoteOfferAnswer.SessionIDString(), remoteOfferAnswer.hasICECredentials())
+			h.log.Infof("received offer, running version %s, remote WireGuard listen port %d, session id: %s, remote ICE supported: %t, relay server: %s, relay IP: %s", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort, remoteOfferAnswer.SessionIDString(), remoteOfferAnswer.hasICECredentials(), remoteOfferAnswer.RelaySrvAddress, remoteOfferAnswer.RelaySrvIP)
 
 			// Record signaling received for reconnection attempts
 			if h.metricsStages != nil {
@@ -138,7 +138,7 @@ func (h *Handshaker) Listen(ctx context.Context) {
 				continue
 			}
 		case remoteOfferAnswer := <-h.remoteAnswerCh:
-			h.log.Infof("received answer, running version %s, remote WireGuard listen port %d, session id: %s, remote ICE supported: %t", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort, remoteOfferAnswer.SessionIDString(), remoteOfferAnswer.hasICECredentials())
+			h.log.Infof("received answer, running version %s, remote WireGuard listen port %d, session id: %s, remote ICE supported: %t, relay server: %s, relay IP: %s", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort, remoteOfferAnswer.SessionIDString(), remoteOfferAnswer.hasICECredentials(), remoteOfferAnswer.RelaySrvAddress, remoteOfferAnswer.RelaySrvIP)
 
 			// Record signaling received for reconnection attempts
 			if h.metricsStages != nil {
@@ -209,14 +209,14 @@ func (h *Handshaker) sendOffer() error {
 	}
 
 	offer := h.buildOfferAnswer()
-	h.log.Debugf("sending offer with serial: %s", offer.SessionIDString())
+	h.log.Debugf("sending offer with serial: %s, relay server: %s, relay IP: %s", offer.SessionIDString(), offer.RelaySrvAddress, offer.RelaySrvIP)
 
 	return h.signaler.SignalOffer(offer, h.config.Key)
 }
 
 func (h *Handshaker) sendAnswer() error {
 	answer := h.buildOfferAnswer()
-	h.log.Debugf("sending answer with serial: %s", answer.SessionIDString())
+	h.log.Debugf("sending answer with serial: %s, relay server: %s, relay IP: %s", answer.SessionIDString(), answer.RelaySrvAddress, answer.RelaySrvIP)
 
 	return h.signaler.SignalAnswer(answer, h.config.Key)
 }

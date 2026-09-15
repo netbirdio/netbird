@@ -42,16 +42,19 @@ func (sc *SqliteStoreConn) GetAllowedUsers(ctx context.Context, accountId string
 	userIdIdx := make(map[string]struct{})
 	groupIdToUserIds := make(map[string][]string)
 	for _, user := range users {
+		for _, allgid := range allGroupIds {
+			groupIdToUserIds[allgid] = append(groupIdToUserIds[allgid], user.ID)
+		}
+		userIdIdx[user.ID] = struct{}{}
 		autogroups := make([]string, 0)
+		if user.AutoGroups == nil {
+			continue
+		}
 		if err := json.Unmarshal(user.AutoGroups, &autogroups); err != nil {
 			return nil, nil, err
 		}
-		userIdIdx[user.ID] = struct{}{}
 		for _, groupId := range autogroups {
 			groupIdToUserIds[groupId] = append(groupIdToUserIds[groupId], user.ID)
-		}
-		for _, allgid := range allGroupIds {
-			groupIdToUserIds[allgid] = append(groupIdToUserIds[allgid], user.ID)
 		}
 	}
 

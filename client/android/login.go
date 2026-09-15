@@ -8,6 +8,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/client/mobile"
 	"github.com/netbirdio/netbird/client/system"
 )
@@ -46,16 +47,24 @@ type Auth struct {
 // an earlier call is orphaned on the server. It also breaks a client that enrols and then runs from
 // the persisted config, because the identity it registered is not the one it runs with — the
 // management stream rejects it with "no peer auth method provided".
-func NewAuth(cfgPath string, mgmURL string) (*Auth, error) {
-	inputCfg := profilemanager.ConfigInput{
-		ConfigPath:    cfgPath,
-		ManagementURL: mgmURL,
+//
+// Auth is constructed under the active MDM policy: the policy is overlaid on
+// the resolved config so the login runs against the enforced values, while
+// the persisted config keeps the caller-supplied ones; a caller-supplied
+// management URL is ignored while MDM manages that key. A nil fetcher
+// disables MDM enforcement.
+func NewAuth(cfgPath string, mgmURL string, fetcher PolicyFetcher) (*Auth, error) {
+	policy := loaderFor(fetcher).Load()
+	inputCfg := profilemanager.ConfigInput{ConfigPath: cfgPath}
+	if _, managed := policy.GetString(mdm.KeyManagementURL); !managed {
+		inputCfg.ManagementURL = mgmURL
 	}
 
 	cfg, err := profilemanager.UpdateOrCreateConfig(inputCfg)
 	if err != nil {
 		return nil, err
 	}
+	cfg.ApplyMDMPolicy(policy)
 
 	return &Auth{
 		ctx:     context.Background(),
@@ -75,9 +84,7 @@ func NewAuthWithConfig(ctx context.Context, config *profilemanager.Config, cfgPa
 	}
 }
 
-// SaveConfigIfSSOSupported test the connectivity with the management server by retrieving the server device flow info.
-// If it returns a flow info than save the configuration and return true. If it gets a codes.NotFound, it means that SSO
-// is not supported and returns false without saving the configuration. For other errors return false.
+// SaveConfigIfSSOSupported reports whether the management server supports SSO; the config is already persisted by NewAuth.
 func (a *Auth) SaveConfigIfSSOSupported(listener SSOListener) {
 	go func() {
 		sso, err := a.saveConfigIfSSOSupported()
@@ -101,15 +108,10 @@ func (a *Auth) saveConfigIfSSOSupported() (bool, error) {
 		return false, fmt.Errorf("failed to check SSO support: %v", err)
 	}
 
-	if !supportsSSO {
-		return false, nil
-	}
-
-	err = profilemanager.WriteOutConfig(a.cfgPath, a.config)
-	return true, err
+	return supportsSSO, nil
 }
 
-// LoginWithSetupKeyAndSaveConfig test the connectivity with the management server with the setup key.
+// LoginWithSetupKeyAndSaveConfig registers the peer with the setup key; the config is already persisted by NewAuth.
 func (a *Auth) LoginWithSetupKeyAndSaveConfig(resultListener ErrListener, setupKey string, deviceName string) {
 	go func() {
 		err := a.loginWithSetupKeyAndSaveConfig(setupKey, deviceName)
@@ -134,8 +136,7 @@ func (a *Auth) loginWithSetupKeyAndSaveConfig(setupKey string, deviceName string
 	if err != nil {
 		return fmt.Errorf("login failed: %v", err)
 	}
-
-	return profilemanager.WriteOutConfig(a.cfgPath, a.config)
+	return nil
 }
 
 // Login try register the client on the server

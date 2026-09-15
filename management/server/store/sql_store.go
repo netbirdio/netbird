@@ -3154,7 +3154,12 @@ func NewMysqlStore(ctx context.Context, dsn string, metrics telemetry.AppMetrics
 		return nil, err
 	}
 
-	return NewSqlStore(ctx, db, types.MysqlStoreEngine, metrics, skipMigration)
+	store, err := NewSqlStore(ctx, db, types.MysqlStoreEngine, metrics, skipMigration)
+	if err != nil {
+		closeGormDB(db)
+		return nil, err
+	}
+	return store, nil
 }
 
 func getGormConfig() *gorm.Config {
@@ -3213,21 +3218,18 @@ func NewSqliteStoreFromFileStore(ctx context.Context, fileStore *FileStore, data
 
 // NewPostgresqlStoreFromSqlStore restores a store from SqlStore and stores Postgres DB.
 func NewPostgresqlStoreFromSqlStore(ctx context.Context, sqliteStore *SqlStore, dsn string, metrics telemetry.AppMetrics) (*SqlStore, error) {
-	store, err := NewPostgresqlStoreForTests(ctx, dsn, metrics, false)
+	return newPostgresqlStoreFromSqlStore(ctx, sqliteStore, dsn, metrics, false)
+}
+
+func newPostgresqlStoreFromSqlStore(ctx context.Context, sqliteStore *SqlStore, dsn string, metrics telemetry.AppMetrics, skipMigration bool) (*SqlStore, error) {
+	store, err := NewPostgresqlStoreForTests(ctx, dsn, metrics, skipMigration)
 	if err != nil {
 		return nil, err
 	}
 
-	err = store.SaveInstallationID(ctx, sqliteStore.GetInstallationID())
-	if err != nil {
+	if err := seedFromSqliteStore(ctx, store, sqliteStore); err != nil {
+		closeStore(ctx, store)
 		return nil, err
-	}
-
-	for _, account := range sqliteStore.GetAllAccounts(ctx) {
-		err := store.SaveAccount(ctx, account)
-		if err != nil {
-			return nil, err
-		}
 	}
 
 	return store, nil
@@ -3241,11 +3243,14 @@ func NewPostgresqlStoreForTests(ctx context.Context, dsn string, metrics telemet
 	}
 	pool, err := connectToPgDbForTests(context.Background(), dsn)
 	if err != nil {
+		closeGormDB(db)
 		return nil, err
 	}
 	store, err := NewSqlStore(ctx, db, types.PostgresStoreEngine, metrics, skipMigration)
 	if err != nil {
+		// Release the sessions, or the caller cannot drop the database.
 		pool.Close()
+		closeGormDB(db)
 		return nil, err
 	}
 	store.pool = pool
@@ -3279,21 +3284,41 @@ func connectToPgDbForTests(ctx context.Context, dsn string) (*pgxpool.Pool, erro
 
 // NewMysqlStoreFromSqlStore restores a store from SqlStore and stores MySQL DB.
 func NewMysqlStoreFromSqlStore(ctx context.Context, sqliteStore *SqlStore, dsn string, metrics telemetry.AppMetrics) (*SqlStore, error) {
-	store, err := NewMysqlStore(ctx, dsn, metrics, false)
-	if err != nil {
-		return nil, err
-	}
+	return newMysqlStoreFromSqlStore(ctx, sqliteStore, dsn, metrics, false)
+}
 
-	err = store.SaveInstallationID(ctx, sqliteStore.GetInstallationID())
-	if err != nil {
-		return nil, err
+// seedFromSqliteStore copies the installation ID and the accounts of the
+// sqlite seed store into a freshly created engine store.
+func seedFromSqliteStore(ctx context.Context, store, sqliteStore *SqlStore) error {
+	if err := store.SaveInstallationID(ctx, sqliteStore.GetInstallationID()); err != nil {
+		return err
 	}
-
 	for _, account := range sqliteStore.GetAllAccounts(ctx) {
-		err := store.SaveAccount(ctx, account)
-		if err != nil {
-			return nil, err
+		if err := store.SaveAccount(ctx, account); err != nil {
+			return err
 		}
+	}
+	return nil
+}
+
+// closeStore releases a store that is not handed to the caller, so a failed
+// seed does not leak its connection and pool.
+func closeStore(ctx context.Context, store *SqlStore) {
+	store.Close(ctx)
+	if store.pool != nil {
+		store.pool.Close()
+	}
+}
+
+func newMysqlStoreFromSqlStore(ctx context.Context, sqliteStore *SqlStore, dsn string, metrics telemetry.AppMetrics, skipMigration bool) (*SqlStore, error) {
+	store, err := NewMysqlStore(ctx, dsn, metrics, skipMigration)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := seedFromSqliteStore(ctx, store, sqliteStore); err != nil {
+		closeStore(ctx, store)
+		return nil, err
 	}
 
 	return store, nil
@@ -3473,7 +3498,7 @@ func (s *SqlStore) GetPeerGroups(ctx context.Context, lockStrength LockingStreng
 	var groups []*types.Group
 	query := tx.
 		Joins("JOIN group_peers ON group_peers.group_id = groups.id").
-		Where("group_peers.peer_id = ?", peerId).
+		Where("groups.account_id = ? AND group_peers.peer_id = ?", accountId, peerId).
 		Preload(clause.Associations).
 		Find(&groups)
 
@@ -5053,7 +5078,7 @@ func (s *SqlStore) GetPeersByGroupIDs(ctx context.Context, accountID string, gro
 		Select("DISTINCT peer_id").
 		Where("account_id = ? AND group_id IN ?", accountID, groupIDs)
 
-	result := s.db.Where("id IN (?)", peerIDsSubquery).Find(&peers)
+	result := s.db.Where("account_id = ? AND id IN (?)", accountID, peerIDsSubquery).Find(&peers)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to get peers by group IDs: %s", result.Error)
 		return nil, status.Errorf(status.Internal, "failed to get peers by group IDs")
@@ -5686,6 +5711,23 @@ func (s *SqlStore) ListCustomDomains(ctx context.Context, accountID string) ([]*
 	return domains, nil
 }
 
+// GetCustomDomainByName returns the custom domain row holding the given name,
+// regardless of which account owns it.
+func (s *SqlStore) GetCustomDomainByName(ctx context.Context, domainName string) (*domain.Domain, error) {
+	customDomain := &domain.Domain{}
+	result := s.db.Take(customDomain, "domain = ?", domainName)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "custom domain %s not found", domainName)
+		}
+
+		log.WithContext(ctx).Errorf("failed to get custom domain by name from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get custom domain from store")
+	}
+
+	return customDomain, nil
+}
+
 func (s *SqlStore) CreateCustomDomain(ctx context.Context, accountID string, domainName string, targetCluster string, validated bool) (*domain.Domain, error) {
 	newDomain := &domain.Domain{
 		ID:            xid.New().String(), // Generate our own ID because gorm doesn't always configure the database to handle this for us.
@@ -5695,8 +5737,24 @@ func (s *SqlStore) CreateCustomDomain(ctx context.Context, accountID string, dom
 		Type:          domain.TypeCustom,
 		Validated:     validated,
 	}
+	if !validated {
+		expiresAt := time.Now().UTC().Add(domain.ValidationTTL)
+		newDomain.ValidationExpiresAt = &expiresAt
+	}
 	result := s.db.Create(newDomain)
 	if result.Error != nil {
+		// The unique index is the last guard when two requests clear the
+		// manager's availability check at the same time. The one that loses the
+		// insert is a conflict, not an internal failure.
+		var count int64
+		if err := s.db.Model(&domain.Domain{}).Where("domain = ?", domainName).Count(&count).Error; err == nil && count > 0 {
+			// The insert error is logged even on this path: the name being taken
+			// is what the caller has to act on, but if the insert also failed for
+			// an unrelated reason the operator still needs to see it.
+			log.WithContext(ctx).Warnf("create reverse proxy custom domain %s rejected, name already registered: %v", domainName, result.Error)
+			return nil, status.Errorf(status.AlreadyExists, "domain %s is already registered", domainName)
+		}
+
 		log.WithContext(ctx).Errorf("failed to create reverse proxy custom domain to store: %v", result.Error)
 		return nil, status.Errorf(status.Internal, "failed to create reverse proxy custom domain to store")
 	}
@@ -5704,12 +5762,21 @@ func (s *SqlStore) CreateCustomDomain(ctx context.Context, accountID string, dom
 	return newDomain, nil
 }
 
+// UpdateCustomDomain completes validation only while the original registration is pending.
 func (s *SqlStore) UpdateCustomDomain(ctx context.Context, accountID string, d *domain.Domain) (*domain.Domain, error) {
-	d.AccountID = accountID
-	result := s.db.Select("*").Save(d)
+	if !d.Validated {
+		return nil, status.Errorf(status.InvalidArgument, "custom domain update must complete validation")
+	}
+	result := s.db.WithContext(ctx).Model(&domain.Domain{}).
+		Where(accountAndIDQueryCondition, accountID, d.ID).
+		Where("domain = ? AND target_cluster = ?", d.Domain, d.TargetCluster).
+		Where("validated = ? AND validation_expires_at > ?", false, time.Now().UTC()).
+		Update("validated", true)
 	if result.Error != nil {
-		log.WithContext(ctx).Errorf("failed to update reverse proxy custom domain to store: %v", result.Error)
-		return nil, status.Errorf(status.Internal, "failed to update reverse proxy custom domain to store")
+		return nil, fmt.Errorf("validate custom domain in store: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return nil, status.Errorf(status.PreconditionFailed, "custom domain registration is no longer pending validation")
 	}
 
 	return d, nil
@@ -6400,6 +6467,25 @@ func (s *SqlStore) IsClusterAddressConflicting(ctx context.Context, clusterAddre
 		Count(&count)
 	if result.Error != nil {
 		return false, status.Errorf(status.Internal, "check cluster address conflict: %v", result.Error)
+	}
+	return count > 0, nil
+}
+
+// HasForeignAccountProxyAtHost reports whether a proxy owned by a different
+// account declares this host. Shared proxies (account_id IS NULL) are not
+// foreign: a shared cluster is what most accounts pin their agent network
+// gateway to. The match folds case because proxies declare their address as
+// the operator spelled it while the caller's host is normalised; that costs a
+// scan of the proxies table, taken once per account when its gateway is
+// bootstrapped, not on the per-connect path IsClusterAddressConflicting serves.
+func (s *SqlStore) HasForeignAccountProxyAtHost(ctx context.Context, host, accountID string) (bool, error) {
+	var count int64
+	result := s.db.
+		Model(&proxy.Proxy{}).
+		Where("LOWER(cluster_address) = LOWER(?) AND account_id IS NOT NULL AND account_id != ?", host, accountID).
+		Count(&count)
+	if result.Error != nil {
+		return false, status.Errorf(status.Internal, "check proxy host ownership: %v", result.Error)
 	}
 	return count > 0, nil
 }

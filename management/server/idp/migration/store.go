@@ -60,6 +60,20 @@ type Store interface {
 	// CheckSchema verifies that all tables and columns required by the migration
 	// exist in the database. Returns a list of problems; an empty slice means OK.
 	CheckSchema(checks []SchemaCheck) []SchemaError
+
+	// GetAccountsCounter returns the total number of accounts in the store.
+	GetAccountsCounter(ctx context.Context) (int64, error)
+
+	// GetAnyAccountID returns the ID of one of the existing accounts.
+	GetAnyAccountID(ctx context.Context) (string, error)
+
+	// IsPrimaryAccount returns whether the account is the primary account for its domain,
+	// along with that domain.
+	IsPrimaryAccount(ctx context.Context, accountID string) (bool, string, error)
+
+	// UpdateAccountDomainAttributes sets the domain, domain category and primary
+	// domain flag of an account.
+	UpdateAccountDomainAttributes(ctx context.Context, accountID string, domain string, category string, isPrimaryDomain bool) error
 }
 
 // RequiredEventSchema lists all tables and columns that the migration tool needs

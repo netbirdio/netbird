@@ -82,10 +82,10 @@ type serviceNotification struct {
 // clientEntry holds an embedded NetBird client and tracks which services use it.
 type clientEntry struct {
 	client    *embed.Client
-	transport *http.Transport
+	transport *upstreamTransport
 	// insecureTransport is a clone of transport with TLS verification disabled,
 	// used when per-target skip_tls_verify is set.
-	insecureTransport *http.Transport
+	insecureTransport *upstreamTransport
 	services          map[ServiceKey]serviceInfo
 	createdAt         time.Time
 	started           bool
@@ -414,7 +414,6 @@ func (n *NetBird) createClientEntry(ctx context.Context, accountID types.Account
 	// not work with reverse proxied requests.
 	transport := &http.Transport{
 		DialContext:           dialWithTimeout(client.DialContext),
-		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          n.transportCfg.maxIdleConns,
 		MaxIdleConnsPerHost:   n.transportCfg.maxIdleConnsPerHost,
 		MaxConnsPerHost:       n.transportCfg.maxConnsPerHost,
@@ -426,15 +425,14 @@ func (n *NetBird) createClientEntry(ctx context.Context, accountID types.Account
 		ReadBufferSize:        n.transportCfg.readBufferSize,
 		DisableCompression:    n.transportCfg.disableCompression,
 	}
-
 	insecureTransport := transport.Clone()
 	insecureTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec
 
 	return &clientEntry{
 		client:            client,
 		services:          map[ServiceKey]serviceInfo{key: si},
-		transport:         transport,
-		insecureTransport: insecureTransport,
+		transport:         newUpstreamTransport(transport, n.transportCfg.upstreamHTTPVersion, n.logger),
+		insecureTransport: newUpstreamTransport(insecureTransport, n.transportCfg.upstreamHTTPVersion, n.logger),
 		createdAt:         time.Now(),
 		started:           false,
 		inflightMap:       make(map[backendKey]chan struct{}),

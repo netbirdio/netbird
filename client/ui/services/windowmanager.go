@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -20,6 +21,20 @@ import (
 // LanguageSubscriber delivers UI preference changes so window titles follow the language.
 type LanguageSubscriber interface {
 	Subscribe() (<-chan preferences.UIPreferences, func())
+}
+
+type windowOp func(w *application.WebviewWindow, created bool)
+
+type windowCloser func(w *application.WebviewWindow)
+
+// hideableWindow is the slice of application.Window the hide/restore bookkeeping needs.
+// Narrow enough to fake in tests, which application.Window itself is not: it carries
+// unexported methods.
+type hideableWindow interface {
+	Show() application.Window
+	Hide() application.Window
+	IsVisible() bool
+	Name() string
 }
 
 // EventTriggerLogin asks the frontend's startLogin() to begin an SSO flow.
@@ -40,39 +55,133 @@ const paintedFallback = 3 * time.Second
 
 const headlessTeardownDelay = 2 * time.Second
 
-var WindowBackgroundColour = application.NewRGB(24, 26, 29) // bg-nb-gray-950
+const (
+	windowMain              = "main"
+	windowSettings          = "settings"
+	windowBrowserLogin      = "browser-login"
+	windowSessionExpiration = "session-expiration"
+	windowInstallProgress   = "install-progress"
+	windowWelcome           = "welcome"
+	windowError             = "error"
+)
+
+// Window background per effective appearance. Both match the body background
+// (bg-nb-gray DEFAULT) in globals.css so opaque native pixels and the webview
+// paint the same surface; keep the three in sync.
+var (
+	windowBackgroundDark  = application.NewRGB(24, 26, 29)    // dark nb-gray DEFAULT
+	windowBackgroundLight = application.NewRGB(243, 243, 243) // light nb-gray DEFAULT
+)
+
+// Appearance is one view of the theme state: the preference and the appearance
+// it resolves to. Take it once per window with CurrentAppearance and pass the
+// same value to every option builder -- Pref drives the macOS frame while Dark
+// drives the background and the Windows chrome, so reading them separately can
+// build a window with a new background behind the previous native frame.
+type Appearance struct {
+	Pref preferences.Theme
+	Dark bool
+}
+
+// storedAppearance is the snapshot maintained by services.Theme, published as
+// one value so the pair can never tear. It is the fallback for window creation
+// until resolveAppearance is installed.
+var storedAppearance atomic.Value // Appearance
+
+// resolveAppearance re-resolves against the live OS state. Theme installs it so
+// window creation never reads a stale seed: app.Env.IsDarkMode reports light
+// until Run installs the platform layer, and Wails runs every
+// ApplicationStarted listener in its own goroutine, so a startup window can be
+// created before Theme's listener has corrected the seed.
+var resolveAppearance atomic.Value // func() Appearance
+
+func init() {
+	storedAppearance.Store(Appearance{Pref: preferences.DefaultTheme, Dark: true})
+}
+
+func setAppearance(pref preferences.Theme, dark bool) {
+	storedAppearance.Store(Appearance{Pref: pref, Dark: dark})
+}
+
+func setAppearanceResolver(f func() Appearance) { resolveAppearance.Store(f) }
+
+// CurrentAppearance returns the snapshot every window creation must build from.
+func CurrentAppearance() Appearance {
+	if f, _ := resolveAppearance.Load().(func() Appearance); f != nil {
+		return f()
+	}
+	a, _ := storedAppearance.Load().(Appearance)
+	return a
+}
+
+// WindowBackgroundColour returns the background for a snapshot; use it for
+// every WebviewWindowOptions.BackgroundColour.
+func WindowBackgroundColour(a Appearance) application.RGBA {
+	return windowBackgroundColour(a.Dark)
+}
+
+// windowBackgroundColour maps a resolved appearance to its window background.
+func windowBackgroundColour(dark bool) application.RGBA {
+	if dark {
+		return windowBackgroundDark
+	}
+	return windowBackgroundLight
+}
 
 // WindowHeight is shared by the main and Settings windows.
 const WindowHeight = 660
 
 // Wails reads CustomTheme colours as 0x00BBGGRR (RGB byte order reversed).
-var microsoftWindowsTheme = &application.WindowTheme{
-	BorderColour:    u32ptr(0x00211E1C),
+var microsoftWindowsDarkTheme = &application.WindowTheme{
+	BorderColour:    u32ptr(0x00211E1C), // #1C1E21 nb-gray-940
 	TitleBarColour:  u32ptr(0x00211E1C),
-	TitleTextColour: u32ptr(0x00E9E7E4),
+	TitleTextColour: u32ptr(0x00E9E7E4), // #E4E7E9 nb-gray-100
 }
 
-// MicrosoftWindowsAppearanceOptions is the shared Windows chrome (Mica + dark + custom title bar).
-func MicrosoftWindowsAppearanceOptions() application.WindowsWindow {
+var microsoftWindowsLightTheme = &application.WindowTheme{
+	BorderColour:    u32ptr(0x00F3F3F3), // #F3F3F3 light nb-gray DEFAULT
+	TitleBarColour:  u32ptr(0x00F3F3F3),
+	TitleTextColour: u32ptr(0x00212121), // #212121 light nb-gray-100
+}
+
+// MicrosoftWindowsAppearanceOptions is the shared Windows chrome (Mica +
+// custom title bar), resolved at creation; setWindowAppearance re-themes live
+// windows on later changes. Never SystemDefault: Wails gives those windows a
+// SystemThemeChanged handler that re-themes chrome from the OS appearance,
+// which outlives a switch to a forced theme and fights it on the next OS flip.
+// Both CustomTheme slots hold one colour set for the same reason.
+func MicrosoftWindowsAppearanceOptions(a Appearance) application.WindowsWindow {
+	theme, chrome := application.Light, microsoftWindowsLightTheme
+	if a.Dark {
+		theme, chrome = application.Dark, microsoftWindowsDarkTheme
+	}
 	return application.WindowsWindow{
 		BackdropType: application.Mica,
-		Theme:        application.Dark,
+		Theme:        theme,
 		CustomTheme: application.ThemeSettings{
-			DarkModeActive:    microsoftWindowsTheme,
-			DarkModeInactive:  microsoftWindowsTheme,
-			LightModeActive:   microsoftWindowsTheme,
-			LightModeInactive: microsoftWindowsTheme,
+			DarkModeActive:    chrome,
+			DarkModeInactive:  chrome,
+			LightModeActive:   chrome,
+			LightModeInactive: chrome,
 		},
 	}
 }
 
 // AppleMacOSAppearanceOptions is the shared macOS chrome; FullScreenNone keeps the fixed-size layout.
-func AppleMacOSAppearanceOptions() application.MacWindow {
+func AppleMacOSAppearanceOptions(a Appearance) application.MacWindow {
+	appearance := application.DefaultAppearance
+	switch a.Pref {
+	case preferences.ThemeLight:
+		appearance = application.NSAppearanceNameAqua
+	case preferences.ThemeDark:
+		appearance = application.NSAppearanceNameDarkAqua
+	}
 	return application.MacWindow{
 		InvisibleTitleBarHeight: 38,
 		Backdrop:                application.MacBackdropNormal,
 		TitleBar:                application.MacTitleBarHiddenInset,
 		CollectionBehavior:      application.MacWindowCollectionBehaviorFullScreenNone,
+		Appearance:              appearance,
 	}
 }
 
@@ -86,6 +195,7 @@ func LinuxAppearanceOptions(icon []byte) application.LinuxWindow {
 
 // DialogWindowOptions is the baseline for every auxiliary dialog window; callers override per-dialog.
 func DialogWindowOptions(name, title, url string, linuxIcon []byte) application.WebviewWindowOptions {
+	a := CurrentAppearance()
 	return application.WebviewWindowOptions{
 		Name:                name,
 		Title:               title,
@@ -97,22 +207,12 @@ func DialogWindowOptions(name, title, url string, linuxIcon []byte) application.
 		MinimiseButtonState: application.ButtonHidden,
 		MaximiseButtonState: application.ButtonHidden,
 		CloseButtonState:    application.ButtonEnabled,
-		BackgroundColour:    WindowBackgroundColour,
+		BackgroundColour:    WindowBackgroundColour(a),
 		URL:                 url,
-		Mac:                 AppleMacOSAppearanceOptions(),
-		Windows:             MicrosoftWindowsAppearanceOptions(),
+		Mac:                 AppleMacOSAppearanceOptions(a),
+		Windows:             MicrosoftWindowsAppearanceOptions(a),
 		Linux:               LinuxAppearanceOptions(linuxIcon),
 	}
-}
-
-// hideableWindow is the slice of application.Window the hide/restore bookkeeping needs.
-// Narrow enough to fake in tests, which application.Window itself is not: it carries
-// unexported methods.
-type hideableWindow interface {
-	Show() application.Window
-	Hide() application.Window
-	IsVisible() bool
-	Name() string
 }
 
 // hiddenWindow records a window hidden by owner, the name of the popup that hid it.
@@ -138,11 +238,14 @@ type WindowManager struct {
 	hiddenWindows []hiddenWindow
 	// allWindows and raiseMain are the seams the hide/restore tests replace; both are nil
 	// in production, where the Wails app and the platform helper are used directly.
-	allWindows func() []hideableWindow
-	raiseMain  func()
-	mu         sync.Mutex
-	createMu   sync.Mutex
-	newMain    func(startURL string) *application.WebviewWindow
+	allWindows   func() []hideableWindow
+	raiseMain    func()
+	mu           sync.Mutex
+	newMain      func(startURL string) *application.WebviewWindow
+	creating     map[string]bool
+	pendingOps   map[string][]windowOp
+	pendingClose map[string]windowCloser
+	restoreGen   map[string]uint64
 	// painted gates showing a window: set by the frontend's first render, or by the
 	// fallback timer so a webview that never wakes up still becomes visible.
 	painted map[uint]bool
@@ -155,8 +258,7 @@ type WindowManager struct {
 	fallbackTimers map[uint]*time.Timer
 	afterShow      map[uint]func()
 	// generation maps a window name to the token stamped into its current start URL, so a
-	// painted report from a replaced window can be told apart from the live one's. Keyed by
-	// name, not ID, because the URL is built before the window (and its ID) exists.
+	// painted report from a replaced window can be told apart from the live one's.
 	generation     map[string]uint64
 	lastGeneration uint64
 	headlessMain   bool
@@ -173,6 +275,10 @@ func NewWindowManager(app *application.App, mainWindow *application.WebviewWindo
 		translator:     translator,
 		prefs:          prefs,
 		linuxIcon:      linuxIcon,
+		creating:       map[string]bool{},
+		pendingOps:     map[string][]windowOp{},
+		pendingClose:   map[string]windowCloser{},
+		restoreGen:     map[string]uint64{},
 		painted:        map[uint]bool{},
 		mounted:        map[uint]bool{},
 		showPending:    map[uint]bool{},
@@ -203,8 +309,9 @@ func NewWindowManager(app *application.App, mainWindow *application.WebviewWindo
 }
 
 func (s *WindowManager) newSettingsWindow() *application.WebviewWindow {
+	a := CurrentAppearance()
 	w := s.app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name:                "settings",
+		Name:                windowSettings,
 		Title:               s.title("window.title.settings"),
 		Width:               900,
 		Height:              WindowHeight,
@@ -213,10 +320,10 @@ func (s *WindowManager) newSettingsWindow() *application.WebviewWindow {
 		MinimiseButtonState: application.ButtonHidden,
 		MaximiseButtonState: application.ButtonHidden,
 		CloseButtonState:    application.ButtonEnabled,
-		BackgroundColour:    WindowBackgroundColour,
+		BackgroundColour:    WindowBackgroundColour(a),
 		URL:                 "/#/settings",
-		Mac:                 AppleMacOSAppearanceOptions(),
-		Windows:             MicrosoftWindowsAppearanceOptions(),
+		Mac:                 AppleMacOSAppearanceOptions(a),
+		Windows:             MicrosoftWindowsAppearanceOptions(a),
 		Linux:               LinuxAppearanceOptions(s.linuxIcon),
 	})
 	w.RegisterHook(events.Common.WindowClosing, func(_ *application.WindowEvent) {
@@ -225,6 +332,7 @@ func (s *WindowManager) newSettingsWindow() *application.WebviewWindow {
 		s.forgetWindowLocked(w)
 		s.mu.Unlock()
 	})
+	s.armReady(w)
 	return w
 }
 
@@ -236,69 +344,36 @@ func (s *WindowManager) OpenSettings(tab string) {
 		target = "general"
 	}
 
-	w, _ := s.ensureWindow(&s.settings, s.newSettingsWindow)
+	s.withWindow(windowSettings, &s.settings, s.newSettingsWindow, func(w *application.WebviewWindow, _ bool) {
+		s.mu.Lock()
+		mounted := s.mounted[w.ID()]
+		if !mounted {
+			s.pendingTab[w.ID()] = target
+		}
+		s.mu.Unlock()
 
-	s.mu.Lock()
-	mounted := s.mounted[w.ID()]
-	if !mounted {
-		s.pendingTab[w.ID()] = target
-	}
-	s.mu.Unlock()
-
-	if mounted {
-		s.app.Event.Emit(EventSettingsOpen, target)
-	}
-	s.showWhenReady(w)
+		if mounted {
+			s.app.Event.Emit(EventSettingsOpen, target)
+		}
+		s.showWhenReady(w)
+	})
 }
 
 // OpenBrowserLogin shows the SSO popup, creating it on first use.
 func (s *WindowManager) OpenBrowserLogin(uri string) {
-	s.mu.Lock()
-	if s.browserLogin == nil {
-		startURL := "/#/dialog/browser-login"
-		if uri != "" {
-			startURL = "/#/dialog/browser-login?uri=" + url.QueryEscape(uri)
-		}
-		s.hideOtherWindowsLocked("browser-login")
-		opts := DialogWindowOptions("browser-login", s.title("window.title.signIn"), s.stampGenerationLocked("browser-login", startURL), s.linuxIcon)
-		// Not always-on-top: it would obscure the browser tab the user logs in through.
-		opts.AlwaysOnTop = false
-		opts.InitialPosition = application.WindowCentered
-		// Open on the active (where users cursor is) display, like the session-expiration dialog.
-		opts.Screen = s.getScreenBasedOnCursorPosition()
-		bl := s.app.Window.NewWithOptions(opts)
-		s.browserLogin = bl
-		bl.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
-			s.mu.Lock()
-			// Only a live user red-X still has this registered; programmatic closers
-			// nil s.browserLogin first and clean up themselves. Guarding here stops a
-			// stale close event from wiping a replacement popup's state.
-			userClosed := s.browserLogin == bl
-			if userClosed {
-				s.browserLogin = nil
-				s.restoreHiddenWindowsLocked("browser-login")
-			}
-			s.forgetWindowLocked(bl)
-			s.mu.Unlock()
-			if userClosed {
-				s.app.Event.Emit(EventBrowserLoginCancel)
-			}
-		})
-		s.mu.Unlock()
-		s.armReady(bl)
-		s.centerOnCursorScreen(bl)
-		log.Debugf("browser-login popup created")
-		s.showThenOpenBrowser(bl, uri)
-		return
-	}
-	bl := s.browserLogin
-	s.mu.Unlock()
+	startURL := "/#/dialog/browser-login"
 	if uri != "" {
-		bl.SetURL(s.stampGeneration("browser-login", "/#/dialog/browser-login?uri="+url.QueryEscape(uri)))
+		startURL = "/#/dialog/browser-login?uri=" + url.QueryEscape(uri)
 	}
-	s.centerOnCursorScreen(bl)
-	log.Debugf("browser-login popup reused")
-	s.showThenOpenBrowser(bl, uri)
+	s.withWindow(windowBrowserLogin, &s.browserLogin, func() *application.WebviewWindow {
+		return s.newBrowserLoginWindow(s.stampGeneration(windowBrowserLogin, startURL))
+	}, func(w *application.WebviewWindow, created bool) {
+		if !created && uri != "" {
+			w.SetURL(s.stampGeneration(windowBrowserLogin, startURL))
+		}
+		s.centerOnCursorScreen(w)
+		s.showThenOpenBrowser(w, uri)
+	})
 }
 
 func (s *WindowManager) showThenOpenBrowser(w *application.WebviewWindow, uri string) {
@@ -322,6 +397,35 @@ func (s *WindowManager) openBrowser(uri string) {
 	}()
 }
 
+func (s *WindowManager) newBrowserLoginWindow(startURL string) *application.WebviewWindow {
+	s.hideOtherWindows(windowBrowserLogin)
+	opts := DialogWindowOptions(windowBrowserLogin, s.title("window.title.signIn"), startURL, s.linuxIcon)
+	// Not always-on-top: it would obscure the browser tab the user logs in through.
+	opts.AlwaysOnTop = false
+	opts.InitialPosition = application.WindowCentered
+	// Open on the active (where users cursor is) display, like the session-expiration dialog.
+	opts.Screen = s.getScreenBasedOnCursorPosition()
+	w := s.app.Window.NewWithOptions(opts)
+	w.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
+		s.mu.Lock()
+		// Only a live user red-X still has this registered; programmatic closers
+		// nil s.browserLogin first and clean up themselves. Guarding here stops a
+		// stale close event from wiping a replacement popup's state.
+		userClosed := s.browserLogin == w
+		if userClosed {
+			s.browserLogin = nil
+		}
+		s.forgetWindowLocked(w)
+		s.mu.Unlock()
+		if userClosed {
+			s.restoreHiddenWindows(windowBrowserLogin)
+			s.app.Event.Emit(EventBrowserLoginCancel)
+		}
+	})
+	s.armReady(w)
+	return w
+}
+
 // BrowserLoginWindow returns the live SSO popup, or nil. While non-nil it is the
 // app's focal window: tray "Open" and dock activation hand off to it, not the main window.
 func (s *WindowManager) BrowserLoginWindow() *application.WebviewWindow {
@@ -339,17 +443,11 @@ func (s *WindowManager) InstallProgressWindow() *application.WebviewWindow {
 }
 
 func (s *WindowManager) CloseBrowserLogin() {
-	s.mu.Lock()
-	w := s.browserLogin
-	s.browserLogin = nil
-	// The WindowClosing hook no-ops on a programmatic close, so restore here. Restoring
-	// by owner is already a no-op when no popup was open, which the frontend does call
-	// (resetDialog() after an early RequestExtend failure, or connection.ts's catch path).
-	s.restoreHiddenWindowsLocked("browser-login")
-	s.mu.Unlock()
-	if w != nil {
-		w.Close()
-	}
+	// The WindowClosing hook no-ops on a programmatic close, so the closer restores.
+	// The frontend calls this even when no popup was ever shown (resetDialog() after an
+	// early RequestExtend failure, or connection.ts's catch path); closeWindow skips the
+	// closer then, and an owner-scoped restore cannot touch what install-progress hides.
+	s.closeWindow(windowBrowserLogin, &s.browserLogin, s.restoringCloser(windowBrowserLogin))
 }
 
 // OpenSessionExpiration shows the countdown warning on the cursor's display; seconds seeds
@@ -360,54 +458,44 @@ func (s *WindowManager) OpenSessionExpiration(seconds int, deadlineUnixMilli int
 	if deadlineUnixMilli > 0 {
 		startURL += "&deadline=" + strconv.FormatInt(deadlineUnixMilli, 10)
 	}
-	s.mu.Lock()
-	if s.sessionExpiration == nil {
-		opts := DialogWindowOptions("session-expiration", s.title("window.title.sessionExpiration"), s.stampGenerationLocked("session-expiration", startURL), s.linuxIcon)
-		opts.Screen = s.getScreenBasedOnCursorPosition()
-		opts.InitialPosition = application.WindowCentered
-		w := s.app.Window.NewWithOptions(opts)
-		s.sessionExpiration = w
-		w.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
-			s.mu.Lock()
-			if s.sessionExpiration == w {
-				s.sessionExpiration = nil
-			}
-			s.forgetWindowLocked(w)
-			s.mu.Unlock()
-		})
-		s.mu.Unlock()
-		s.armReady(w)
+	s.withWindow(windowSessionExpiration, &s.sessionExpiration, func() *application.WebviewWindow {
+		return s.newSessionExpirationWindow(s.stampGeneration(windowSessionExpiration, startURL))
+	}, func(w *application.WebviewWindow, created bool) {
+		if !created {
+			w.SetURL(s.stampGeneration(windowSessionExpiration, startURL))
+		}
 		s.centerOnCursorScreen(w)
 		s.showWhenReady(w)
-		return
-	}
-	w := s.sessionExpiration
-	s.mu.Unlock()
-	w.SetURL(s.stampGeneration("session-expiration", startURL))
-	s.centerOnCursorScreen(w)
-	s.showWhenReady(w)
+	})
+}
+
+func (s *WindowManager) newSessionExpirationWindow(startURL string) *application.WebviewWindow {
+	opts := DialogWindowOptions(windowSessionExpiration, s.title("window.title.sessionExpiration"), startURL, s.linuxIcon)
+	opts.Screen = s.getScreenBasedOnCursorPosition()
+	opts.InitialPosition = application.WindowCentered
+	w := s.app.Window.NewWithOptions(opts)
+	w.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
+		s.mu.Lock()
+		if s.sessionExpiration == w {
+			s.sessionExpiration = nil
+		}
+		s.forgetWindowLocked(w)
+		s.mu.Unlock()
+	})
+	s.armReady(w)
+	return w
 }
 
 func (s *WindowManager) CloseSessionExpiration() {
-	s.mu.Lock()
-	w := s.sessionExpiration
-	s.sessionExpiration = nil
-	s.mu.Unlock()
-	if w != nil {
-		w.Close()
-	}
+	s.closeWindow(windowSessionExpiration, &s.sessionExpiration, closeOnly)
 }
 
 // CloseRenewFlow tears down the SSO session-renewal UI in a single call: it
 // closes the browser-login popup and the session-expiration window together.
 func (s *WindowManager) CloseRenewFlow() {
 	s.mu.Lock()
-	bl := s.browserLogin
-	se := s.sessionExpiration
-	s.browserLogin = nil
-	s.sessionExpiration = nil
-	// Both popups go away here, so drop the session-expiration window from the restore
-	// set rather than re-showing the window this call is closing.
+	bl := s.takeWindowLocked(windowBrowserLogin, &s.browserLogin, s.restoringCloser(windowBrowserLogin))
+	se := s.takeWindowLocked(windowSessionExpiration, &s.sessionExpiration, closeOnly)
 	if se != nil {
 		kept := s.hiddenWindows[:0]
 		for _, hidden := range s.hiddenWindows {
@@ -417,9 +505,9 @@ func (s *WindowManager) CloseRenewFlow() {
 		}
 		s.hiddenWindows = kept
 	}
-	s.restoreHiddenWindowsLocked("browser-login")
 	s.mu.Unlock()
 
+	s.restoreHiddenWindows(windowBrowserLogin)
 	// Close after unlock so the re-entrant handlers can take s.mu.
 	if bl != nil {
 		bl.Close()
@@ -436,83 +524,67 @@ func (s *WindowManager) OpenInstallProgress(version string) {
 	if version != "" {
 		startURL = "/#/dialog/install-progress?version=" + url.QueryEscape(version)
 	}
-	s.mu.Lock()
-	if s.installProgress == nil {
-		s.hideOtherWindowsLocked("install-progress")
-		w := s.app.Window.NewWithOptions(
-			DialogWindowOptions("install-progress", s.title("window.title.updating"), s.stampGenerationLocked("install-progress", startURL), s.linuxIcon),
-		)
-		s.installProgress = w
-		w.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
-			s.mu.Lock()
-			// Only a live user close still has this registered; CloseInstallProgress
-			// nils s.installProgress first and restores itself. Guarding here stops a
-			// stale close event from re-showing windows a replacement popup hides.
-			if s.installProgress == w {
-				s.installProgress = nil
-				s.restoreHiddenWindowsLocked("install-progress")
-			}
-			s.forgetWindowLocked(w)
-			s.mu.Unlock()
-		})
-		s.mu.Unlock()
-		s.armReady(w)
+	s.withWindow(windowInstallProgress, &s.installProgress, func() *application.WebviewWindow {
+		return s.newInstallProgressWindow(s.stampGeneration(windowInstallProgress, startURL))
+	}, func(w *application.WebviewWindow, created bool) {
+		if !created {
+			w.SetURL(s.stampGeneration(windowInstallProgress, startURL))
+		}
 		s.showWhenReady(w)
-		return
-	}
-	w := s.installProgress
-	s.mu.Unlock()
-	w.SetURL(s.stampGeneration("install-progress", startURL))
-	s.showWhenReady(w)
+	})
+}
+
+func (s *WindowManager) newInstallProgressWindow(startURL string) *application.WebviewWindow {
+	s.hideOtherWindows(windowInstallProgress)
+	w := s.app.Window.NewWithOptions(
+		DialogWindowOptions(windowInstallProgress, s.title("window.title.updating"), startURL, s.linuxIcon),
+	)
+	w.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
+		s.mu.Lock()
+		userClosed := s.installProgress == w
+		if userClosed {
+			s.installProgress = nil
+		}
+		s.forgetWindowLocked(w)
+		s.mu.Unlock()
+		if userClosed {
+			s.restoreHiddenWindows(windowInstallProgress)
+		}
+	})
+	s.armReady(w)
+	return w
 }
 
 func (s *WindowManager) CloseInstallProgress() {
-	s.mu.Lock()
-	w := s.installProgress
-	s.installProgress = nil
-	// The guarded WindowClosing handler no-ops on a programmatic close, so restore here.
-	s.restoreHiddenWindowsLocked("install-progress")
-	s.mu.Unlock()
-	if w != nil {
-		w.Close()
-	}
+	s.closeWindow(windowInstallProgress, &s.installProgress, s.restoringCloser(windowInstallProgress))
 }
 
 // OpenWelcome shows the first-launch onboarding window. Singleton, destroyed on close.
 func (s *WindowManager) OpenWelcome() {
-	s.mu.Lock()
-	if s.welcome == nil {
-		opts := DialogWindowOptions("welcome", s.title("window.title.welcome"), s.stampGenerationLocked("welcome", "/#/dialog/welcome"), s.linuxIcon)
-		opts.Width = 420
-		opts.InitialPosition = application.WindowCentered
-		w := s.app.Window.NewWithOptions(opts)
-		s.welcome = w
-		w.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
-			s.mu.Lock()
-			if s.welcome == w {
-				s.welcome = nil
-			}
-			s.forgetWindowLocked(w)
-			s.mu.Unlock()
-		})
-		s.mu.Unlock()
-		s.armReady(w)
+	s.withWindow(windowWelcome, &s.welcome, s.newWelcomeWindow, func(w *application.WebviewWindow, _ bool) {
 		s.showWhenReady(w)
-		return
-	}
-	w := s.welcome
-	s.mu.Unlock()
-	s.showWhenReady(w)
+	})
+}
+
+func (s *WindowManager) newWelcomeWindow() *application.WebviewWindow {
+	opts := DialogWindowOptions(windowWelcome, s.title("window.title.welcome"), s.stampGeneration(windowWelcome, "/#/dialog/welcome"), s.linuxIcon)
+	opts.Width = 420
+	opts.InitialPosition = application.WindowCentered
+	w := s.app.Window.NewWithOptions(opts)
+	w.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
+		s.mu.Lock()
+		if s.welcome == w {
+			s.welcome = nil
+		}
+		s.forgetWindowLocked(w)
+		s.mu.Unlock()
+	})
+	s.armReady(w)
+	return w
 }
 
 func (s *WindowManager) CloseWelcome() {
-	s.mu.Lock()
-	w := s.welcome
-	s.welcome = nil
-	s.mu.Unlock()
-	if w != nil {
-		w.Close()
-	}
+	s.closeWindow(windowWelcome, &s.welcome, closeOnly)
 }
 
 // OpenError shows the custom error dialog; title/message/command are pre-localised
@@ -524,39 +596,34 @@ func (s *WindowManager) OpenError(title, message, command string) {
 		return
 	}
 	startURL := errorDialogURL(title, message, command)
-	s.mu.Lock()
-	if s.errorDialog == nil {
-		w := s.app.Window.NewWithOptions(
-			DialogWindowOptions("error", s.title("window.title.error"), s.stampGenerationLocked("error", startURL), s.linuxIcon),
-		)
-		s.errorDialog = w
-		w.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
-			s.mu.Lock()
-			if s.errorDialog == w {
-				s.errorDialog = nil
-			}
-			s.forgetWindowLocked(w)
-			s.mu.Unlock()
-		})
-		s.mu.Unlock()
-		s.armReady(w)
+	s.withWindow(windowError, &s.errorDialog, func() *application.WebviewWindow {
+		return s.newErrorWindow(s.stampGeneration(windowError, startURL))
+	}, func(w *application.WebviewWindow, created bool) {
+		if !created {
+			w.SetURL(s.stampGeneration(windowError, startURL))
+		}
 		s.showWhenReady(w)
-		return
-	}
-	w := s.errorDialog
-	s.mu.Unlock()
-	w.SetURL(s.stampGeneration("error", startURL))
-	s.showWhenReady(w)
+	})
+}
+
+func (s *WindowManager) newErrorWindow(startURL string) *application.WebviewWindow {
+	w := s.app.Window.NewWithOptions(
+		DialogWindowOptions(windowError, s.title("window.title.error"), startURL, s.linuxIcon),
+	)
+	w.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
+		s.mu.Lock()
+		if s.errorDialog == w {
+			s.errorDialog = nil
+		}
+		s.forgetWindowLocked(w)
+		s.mu.Unlock()
+	})
+	s.armReady(w)
+	return w
 }
 
 func (s *WindowManager) CloseError() {
-	s.mu.Lock()
-	w := s.errorDialog
-	s.errorDialog = nil
-	s.mu.Unlock()
-	if w != nil {
-		w.Close()
-	}
+	s.closeWindow(windowError, &s.errorDialog, closeOnly)
 }
 
 // OpenMain brings the main window forward; the welcome handoff uses it instead of the tray.
@@ -567,65 +634,173 @@ func (s *WindowManager) OpenMain() {
 // ShowMain brings the main window forward (re-centering on minimal WMs). The single entry
 // point every surface (tray, SIGUSR1, welcome) should use so centering applies uniformly.
 func (s *WindowManager) ShowMain() {
-	s.showWhenReady(s.MainWindow())
+	s.ensureMain("/", func(w *application.WebviewWindow, _ bool) {
+		s.showWhenReady(w)
+	})
 }
 
 // ShowMainAndEmit brings the main window forward and emits event once its frontend is ready.
 func (s *WindowManager) ShowMainAndEmit(event string) {
-	w := s.MainWindow()
-	if w == nil {
-		return
-	}
+	s.ensureMain("/", func(w *application.WebviewWindow, _ bool) {
+		id := w.ID()
+		s.mu.Lock()
+		mounted := s.mounted[id]
+		if !mounted {
+			s.pendingEmits[id] = append(s.pendingEmits[id], event)
+		}
+		s.mu.Unlock()
 
-	id := w.ID()
-	s.mu.Lock()
-	mounted := s.mounted[id]
-	if !mounted {
-		s.pendingEmits[id] = append(s.pendingEmits[id], event)
-	}
-	s.mu.Unlock()
-
-	s.showWhenReady(w)
-	if mounted {
-		s.app.Event.Emit(event)
-	}
+		s.showWhenReady(w)
+		if mounted {
+			s.app.Event.Emit(event)
+		}
+	})
 }
 
 func (s *WindowManager) MainWindow() *application.WebviewWindow {
-	w, _ := s.ensureMain("/")
-	return w
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.mainWindow
 }
 
-func (s *WindowManager) ensureMain(startURL string) (*application.WebviewWindow, bool) {
+func (s *WindowManager) ensureMain(startURL string, op windowOp) {
 	s.mu.Lock()
 	factory := s.newMain
 	s.mu.Unlock()
 	if factory == nil {
-		return s.ensureWindow(&s.mainWindow, nil)
+		s.withWindow(windowMain, &s.mainWindow, nil, op)
+		return
 	}
-	return s.ensureWindow(&s.mainWindow, func() *application.WebviewWindow {
-		return factory(startURL)
-	})
+	s.withWindow(windowMain, &s.mainWindow, func() *application.WebviewWindow {
+		w := factory(startURL)
+		s.armReady(w)
+		return w
+	}, op)
 }
 
-func (s *WindowManager) ensureWindow(slot **application.WebviewWindow, factory func() *application.WebviewWindow) (*application.WebviewWindow, bool) {
-	s.createMu.Lock()
-	defer s.createMu.Unlock()
-
+func (s *WindowManager) withWindow(name string, slot **application.WebviewWindow, factory func() *application.WebviewWindow, op windowOp) {
 	s.mu.Lock()
-	w := *slot
-	s.mu.Unlock()
-	if w != nil || factory == nil {
-		return w, false
+	if s.creating[name] {
+		s.pendingOps[name] = append(s.pendingOps[name], op)
+		s.mu.Unlock()
+		return
 	}
+	if w := *slot; w != nil {
+		s.mu.Unlock()
+		op(w, false)
+		return
+	}
+	if factory == nil {
+		s.mu.Unlock()
+		return
+	}
+	s.creating[name] = true
+	s.mu.Unlock()
 
-	w = factory()
-	s.armReady(w)
+	w := s.createWindow(name, slot, factory)
+	if w == nil {
+		return
+	}
+	s.finishCreation(name, slot, w, op)
+}
 
+func (s *WindowManager) createWindow(name string, slot **application.WebviewWindow, factory func() *application.WebviewWindow) *application.WebviewWindow {
+	created := false
+	defer func() {
+		if created {
+			return
+		}
+		s.mu.Lock()
+		s.releaseCreationLocked(name)
+		s.mu.Unlock()
+	}()
+
+	w := factory()
+	if w == nil {
+		return nil
+	}
 	s.mu.Lock()
 	*slot = w
 	s.mu.Unlock()
-	return w, true
+	created = true
+	return w
+}
+
+func (s *WindowManager) finishCreation(name string, slot **application.WebviewWindow, w *application.WebviewWindow, op windowOp) {
+	finished := false
+	defer func() {
+		if finished {
+			return
+		}
+		s.mu.Lock()
+		s.releaseCreationLocked(name)
+		s.mu.Unlock()
+	}()
+
+	created := true
+	for {
+		s.mu.Lock()
+		if closer := s.pendingClose[name]; closer != nil {
+			if *slot == w {
+				*slot = nil
+			}
+			s.releaseCreationLocked(name)
+			finished = true
+			s.mu.Unlock()
+			closer(w)
+			return
+		}
+		var next windowOp
+		switch {
+		case created:
+			next = op
+		case len(s.pendingOps[name]) > 0:
+			next = s.pendingOps[name][0]
+			s.pendingOps[name] = s.pendingOps[name][1:]
+		default:
+			s.releaseCreationLocked(name)
+			finished = true
+			s.mu.Unlock()
+			return
+		}
+		s.mu.Unlock()
+		next(w, created)
+		created = false
+	}
+}
+
+func (s *WindowManager) closeWindow(name string, slot **application.WebviewWindow, closer windowCloser) {
+	s.mu.Lock()
+	w := s.takeWindowLocked(name, slot, closer)
+	s.mu.Unlock()
+	if w != nil {
+		closer(w)
+	}
+}
+
+func (s *WindowManager) takeWindowLocked(name string, slot **application.WebviewWindow, closer windowCloser) *application.WebviewWindow {
+	if s.creating[name] {
+		if s.pendingClose[name] == nil {
+			s.pendingClose[name] = closer
+		}
+		return nil
+	}
+	w := *slot
+	*slot = nil
+	return w
+}
+
+func (s *WindowManager) releaseCreationLocked(name string) {
+	delete(s.creating, name)
+	delete(s.pendingOps, name)
+	delete(s.pendingClose, name)
+}
+
+func (s *WindowManager) restoringCloser(owner string) windowCloser {
+	return func(w *application.WebviewWindow) {
+		s.restoreHiddenWindows(owner)
+		w.Close()
+	}
 }
 
 // armReady starts the fallback that shows w even if its frontend never reports a first
@@ -698,24 +873,21 @@ func (s *WindowManager) watchTriggerLogin() {
 			return
 		}
 
-		w, created := s.ensureMain("/")
-		if w == nil {
-			return
-		}
+		s.ensureMain("/", func(w *application.WebviewWindow, created bool) {
+			s.mu.Lock()
+			if created {
+				s.headlessMain = true
+			}
+			pending := !s.mounted[w.ID()]
+			if pending {
+				s.pendingEmits[w.ID()] = append(s.pendingEmits[w.ID()], EventTriggerLogin)
+			}
+			s.mu.Unlock()
 
-		s.mu.Lock()
-		if created {
-			s.headlessMain = true
-		}
-		pending := !s.mounted[w.ID()]
-		if pending {
-			s.pendingEmits[w.ID()] = append(s.pendingEmits[w.ID()], EventTriggerLogin)
-		}
-		s.mu.Unlock()
-
-		if !pending {
-			s.app.Event.Emit(EventTriggerLogin)
-		}
+			if !pending {
+				s.app.Event.Emit(EventTriggerLogin)
+			}
+		})
 	})
 
 	s.app.Event.On(EventBrowserLoginCancel, func(_ *application.CustomEvent) {
@@ -774,7 +946,6 @@ func (s *WindowManager) forgetWindowLocked(w *application.WebviewWindow) {
 	delete(s.pendingTab, id)
 	delete(s.pendingEmits, id)
 	delete(s.afterShow, id)
-	delete(s.generation, w.Name())
 
 	kept := s.hiddenWindows[:0]
 	for _, hidden := range s.hiddenWindows {
@@ -788,10 +959,6 @@ func (s *WindowManager) forgetWindowLocked(w *application.WebviewWindow) {
 func (s *WindowManager) stampGeneration(name, startURL string) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.stampGenerationLocked(name, startURL)
-}
-
-func (s *WindowManager) stampGenerationLocked(name, startURL string) string {
 	s.lastGeneration++
 	s.generation[name] = s.lastGeneration
 	return appendGeneration(startURL, s.lastGeneration)
@@ -819,20 +986,20 @@ func (s *WindowManager) hideableWindows() []hideableWindow {
 	return windows
 }
 
-func (s *WindowManager) isMainWindow(w hideableWindow) bool {
+func (s *WindowManager) isMainWindow(w hideableWindow, mainWindow *application.WebviewWindow) bool {
 	if s.allWindows != nil {
-		return w != nil && w.Name() == "main"
+		return w != nil && w.Name() == windowMain
 	}
-	return s.mainWindow != nil && sameWindow(w, s.mainWindow)
+	return sameWindow(w, mainWindow)
 }
 
-func (s *WindowManager) raiseMainWindow() {
+func (s *WindowManager) raiseMainWindow(mainWindow *application.WebviewWindow) {
 	if s.raiseMain != nil {
 		s.raiseMain()
 		return
 	}
-	if s.mainWindow != nil {
-		raiseToForeground(s.mainWindow)
+	if mainWindow != nil {
+		raiseToForeground(mainWindow)
 	}
 }
 
@@ -840,19 +1007,19 @@ func (s *WindowManager) windowByName(name string) *application.WebviewWindow {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	switch name {
-	case "main":
+	case windowMain:
 		return s.mainWindow
-	case "settings":
+	case windowSettings:
 		return s.settings
-	case "browser-login":
+	case windowBrowserLogin:
 		return s.browserLogin
-	case "session-expiration":
+	case windowSessionExpiration:
 		return s.sessionExpiration
-	case "install-progress":
+	case windowInstallProgress:
 		return s.installProgress
-	case "welcome":
+	case windowWelcome:
 		return s.welcome
-	case "error":
+	case windowError:
 		return s.errorDialog
 	default:
 		return nil
@@ -945,14 +1112,12 @@ func (s *WindowManager) showNow(w *application.WebviewWindow) {
 }
 
 func (s *WindowManager) ShowMainAt(url string) {
-	w, created := s.ensureMain(url)
-	if w == nil {
-		return
-	}
-	if !created {
-		w.SetURL(url)
-	}
-	s.showWhenReady(w)
+	s.ensureMain(url, func(w *application.WebviewWindow, created bool) {
+		if !created {
+			w.SetURL(url)
+		}
+		s.showWhenReady(w)
+	})
 }
 
 func (s *WindowManager) SetMainFactory(f func(startURL string) *application.WebviewWindow) {
@@ -1072,46 +1237,75 @@ func (s *WindowManager) retitleAll() {
 	}
 }
 
-// hideOtherWindowsLocked hides every visible window except keepName, recording them
-// against keepName so only its own restore brings them back. A window already hidden by
-// an earlier popup is skipped, leaving it tagged to the popup that actually hid it.
-// Caller must hold s.mu.
-func (s *WindowManager) hideOtherWindowsLocked(keepName string) {
+// hideOtherWindows hides every visible window except keepName, recording them against
+// keepName so only its own restore brings them back. A window already hidden by an
+// earlier popup is skipped, leaving it tagged to the popup that actually hid it. The
+// per-owner generation catches a restore for keepName that ran between the snapshot and
+// the record, in which case the windows are re-shown rather than stranded.
+func (s *WindowManager) hideOtherWindows(keepName string) {
+	s.mu.Lock()
+	gen := s.restoreGen[keepName]
+	s.mu.Unlock()
+
+	var hidden []hideableWindow
 	for _, w := range s.hideableWindows() {
-		if w == nil || w.Name() == keepName {
-			continue
-		}
-		if !w.IsVisible() {
+		if w == nil || w.Name() == keepName || !w.IsVisible() {
 			continue
 		}
 		w.Hide()
-		s.hiddenWindows = append(s.hiddenWindows, hiddenWindow{win: w, owner: keepName})
+		hidden = append(hidden, w)
+	}
+	if len(hidden) == 0 {
+		return
+	}
+
+	s.mu.Lock()
+	restored := s.restoreGen[keepName] != gen
+	if !restored {
+		for _, w := range hidden {
+			s.hiddenWindows = append(s.hiddenWindows, hiddenWindow{win: w, owner: keepName})
+		}
+	}
+	s.mu.Unlock()
+	if !restored {
+		return
+	}
+	for _, w := range hidden {
+		w.Show()
 	}
 }
 
-// restoreHiddenWindowsLocked re-shows the windows owner hid, leaving those another popup
-// still hides untouched (caller holds s.mu). If the main window was among them,
-// raiseToForeground lifts it above the SSO browser, which still owns the foreground — a
-// plain Show/Focus would be demoted to a taskbar flash and leave it stranded behind.
-func (s *WindowManager) restoreHiddenWindowsLocked(owner string) {
-	mainRestored := false
+// restoreHiddenWindows re-shows the windows owner hid, leaving those another popup still
+// hides untouched. If the main window was among them, raiseToForeground lifts it above
+// the SSO browser, which still owns the foreground — a plain Show/Focus would be demoted
+// to a taskbar flash and leave it stranded behind.
+func (s *WindowManager) restoreHiddenWindows(owner string) {
+	s.mu.Lock()
+	mainWindow := s.mainWindow
+	var restore []hideableWindow
 	kept := s.hiddenWindows[:0]
 	for _, hidden := range s.hiddenWindows {
 		if hidden.owner != owner {
 			kept = append(kept, hidden)
 			continue
 		}
-		if hidden.win == nil {
-			continue
-		}
-		hidden.win.Show()
-		if s.isMainWindow(hidden.win) {
-			mainRestored = true
+		if hidden.win != nil {
+			restore = append(restore, hidden.win)
 		}
 	}
 	s.hiddenWindows = kept
+	s.restoreGen[owner]++
+	s.mu.Unlock()
+
+	mainRestored := false
+	for _, w := range restore {
+		w.Show()
+		if s.isMainWindow(w, mainWindow) {
+			mainRestored = true
+		}
+	}
 	if mainRestored {
-		s.raiseMainWindow()
+		s.raiseMainWindow(mainWindow)
 	}
 }
 
@@ -1126,8 +1320,11 @@ func (s *WindowManager) getScreenBasedOnCursorPosition() *application.Screen {
 			return sc
 		}
 	}
-	if s.mainWindow != nil {
-		if sc, err := s.mainWindow.GetScreen(); err == nil {
+	s.mu.Lock()
+	mainWindow := s.mainWindow
+	s.mu.Unlock()
+	if mainWindow != nil {
+		if sc, err := mainWindow.GetScreen(); err == nil {
 			return sc
 		}
 	}
@@ -1164,7 +1361,7 @@ func appendGeneration(startURL string, gen uint64) string {
 }
 
 // paintedGeneration reads the token a painted report carries back, returning 0 when the
-// frontend sent none (an older bundle, or the main window, which is never re-stamped).
+// frontend sent none (an older bundle, or the main window, which is never stamped).
 func paintedGeneration(data any) uint64 {
 	switch v := data.(type) {
 	case string:
@@ -1197,3 +1394,5 @@ func sameWindow(hidden hideableWindow, w *application.WebviewWindow) bool {
 
 // u32ptr returns a pointer to v, for the optional *uint32 Wails theme fields.
 func u32ptr(v uint32) *uint32 { return &v }
+
+func closeOnly(w *application.WebviewWindow) { w.Close() }

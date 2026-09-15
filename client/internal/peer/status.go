@@ -819,8 +819,8 @@ func (d *Status) SetSessionExpiresAt(deadline time.Time) {
 // "none" would blank the UI at the exact moment it should say the session
 // ended.
 func (d *Status) GetSessionExpiresAt() time.Time {
-	d.mux.Lock()
-	defer d.mux.Unlock()
+	d.mux.RLock()
+	defer d.mux.RUnlock()
 	return d.sessionExpiresAt
 }
 

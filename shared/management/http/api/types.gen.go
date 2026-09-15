@@ -77,6 +77,27 @@ func (e AgentNetworkConsumptionDimensionKind) Valid() bool {
 	}
 }
 
+// Defines values for AgentNetworkManagedProxyState.
+const (
+	AgentNetworkManagedProxyStateFailed       AgentNetworkManagedProxyState = "failed"
+	AgentNetworkManagedProxyStateProvisioning AgentNetworkManagedProxyState = "provisioning"
+	AgentNetworkManagedProxyStateReady        AgentNetworkManagedProxyState = "ready"
+)
+
+// Valid indicates whether the value is a known member of the AgentNetworkManagedProxyState enum.
+func (e AgentNetworkManagedProxyState) Valid() bool {
+	switch e {
+	case AgentNetworkManagedProxyStateFailed:
+		return true
+	case AgentNetworkManagedProxyStateProvisioning:
+		return true
+	case AgentNetworkManagedProxyStateReady:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CreateAzureIntegrationRequestHost.
 const (
 	CreateAzureIntegrationRequestHostMicrosoftCom CreateAzureIntegrationRequestHost = "microsoft.com"
@@ -2222,6 +2243,33 @@ type AgentNetworkGuardrailRequest struct {
 
 	// Name Display name for the guardrail.
 	Name string `json:"name"`
+}
+
+// AgentNetworkManagedProxy A NetBird-managed Agent Network gateway deployment.
+type AgentNetworkManagedProxy struct {
+	// Endpoint The account's gateway hostname.
+	Endpoint string `json:"endpoint"`
+
+	// Id Managed proxy deployment ID.
+	Id string `json:"id"`
+
+	// Message Failure detail reported by the rollout. Only set when state is `failed`.
+	Message *string `json:"message,omitempty"`
+
+	// Region Region of the cluster hosting the deployment.
+	Region *string `json:"region,omitempty"`
+
+	// State Derived deployment state. `provisioning` until the gateway is rolled out and connected, `ready` while the gateway actively serves the endpoint, `failed` when the rollout reported a failure.
+	State AgentNetworkManagedProxyState `json:"state"`
+}
+
+// AgentNetworkManagedProxyState Derived deployment state. `provisioning` until the gateway is rolled out and connected, `ready` while the gateway actively serves the endpoint, `failed` when the rollout reported a failure.
+type AgentNetworkManagedProxyState string
+
+// AgentNetworkManagedProxyConflict Conflict body returned when the account already has an Agent Network endpoint that managed provisioning does not own, naming that endpoint.
+type AgentNetworkManagedProxyConflict struct {
+	// Endpoint The Agent Network endpoint already assigned to the account.
+	Endpoint string `json:"endpoint"`
 }
 
 // AgentNetworkModelDiscoveryRequest defines model for AgentNetworkModelDiscoveryRequest.
