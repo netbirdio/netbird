@@ -830,7 +830,7 @@ func collectProfilesInDir(dir string, active *profilemanager.ActiveProfileState)
 }
 
 func isProfileJSON(name string) bool {
-return strings.HasSuffix(name, profileJSONSuffix) && !strings.HasSuffix(name, profileStateJSONSuffix) && !strings.HasSuffix(name, ".prefs.json")
+	return strings.HasSuffix(name, profileJSONSuffix) && !strings.HasSuffix(name, profileStateJSONSuffix) && !strings.HasSuffix(name, ".prefs.json")
 }
 
 func newProfileEntry(id, path string, active *profilemanager.ActiveProfileState) profileEntry {
