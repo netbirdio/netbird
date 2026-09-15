@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	gstatus "google.golang.org/grpc/status"
 )
 
@@ -202,7 +201,7 @@ func TestDenialFromIgnoresWhatIsNotOurs(t *testing.T) {
 	_, ok = DenialFrom(errors.New("connection refused"))
 	assert.False(t, ok, "a plain error explains no refusal")
 
-	_, ok = DenialFrom(status.Error(codes.PermissionDenied, "denied"))
+	_, ok = DenialFrom(gstatus.Error(codes.PermissionDenied, "denied"))
 	assert.False(t, ok, "a status with no detail of ours is not ours to reword")
 }
 
@@ -216,7 +215,7 @@ func TestDenialFromSeesThroughWrapping(t *testing.T) {
 // A detail with no summary still refused something, so the status message stands
 // in rather than leaving a consumer with nothing to show.
 func TestDenialFromFallsBackToTheStatusMessage(t *testing.T) {
-	st, err := status.New(codes.PermissionDenied, "refused for reasons").WithDetails(&errdetails.ErrorInfo{
+	st, err := gstatus.New(codes.PermissionDenied, "refused for reasons").WithDetails(&errdetails.ErrorInfo{
 		Reason: ErrorReasonSessionHeld,
 		Domain: ErrorDomain,
 	})
