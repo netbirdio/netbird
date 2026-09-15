@@ -3,9 +3,11 @@ package auth
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -52,6 +54,22 @@ func (s *SessionStore) RegisterToken(ctx context.Context, token string, expiresA
 }
 
 func hashToken(token string) string {
-	sum := sha256.Sum256([]byte(token))
+	sum := sha256.Sum256([]byte(canonicalizeToken(token)))
 	return hex.EncodeToString(sum[:])
+}
+
+// canonicalizeToken re-encodes the JWT signature segment so noncanonical
+// spellings of the same signature map to one stable cache key.
+func canonicalizeToken(token string) string {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return token
+	}
+
+	sig, err := base64.RawURLEncoding.DecodeString(parts[2])
+	if err != nil {
+		return token
+	}
+
+	return parts[0] + "." + parts[1] + "." + base64.RawURLEncoding.EncodeToString(sig)
 }
