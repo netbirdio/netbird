@@ -38,6 +38,9 @@ func (r *family) AddFilterRule(
 
 	ruleID := nbid.GenerateRuleID(sources, destination, proto, sPort, dPort, action)
 	if existing, ok := r.filters[ruleID]; ok {
+		if err := r.commitPendingSetElements(); err != nil {
+			log.Errorf("add remaining ipset elements for existing rule: %v", err)
+		}
 		return existing, nil
 	}
 
@@ -53,7 +56,11 @@ func (r *family) AddFilterRule(
 		exprs, err = r.buildPeerFilterExprs(srcExprs, proto, sPort, dPort)
 	}
 	if err != nil {
-		r.dropNetworkMatch(srcExprs)
+		if len(exprs) == 0 {
+			r.rollbackQueuedNetwork(srcExprs)
+		} else {
+			r.rollbackQueuedNetwork(exprs)
+		}
 		return nil, err
 	}
 
@@ -71,23 +78,6 @@ func (r *family) AddFilterRule(
 
 	userData := []byte(ruleID)
 
-	// Build the paired prerouting mangle rule before flushing so both
-	// rules commit in one transaction. An anonymous port set binds to
-	// exactly one rule, so the mangle rule needs its own expression list
-	// with fresh sets, not a clone of the main rule's. Guard on the
-	// prerouting chain first: building the expressions queues the port
-	// set, so skipping the build when there is no chain to bind it to
-	// keeps an unbound set out of the connection batch.
-	var mangleRule *nftables.Rule
-	if !isRoute && r.chainPrerouting != nil {
-		mangleExprs, err := r.buildPeerFilterExprs(srcExprs, proto, sPort, dPort)
-		if err != nil {
-			r.dropNetworkMatch(exprs)
-			return nil, fmt.Errorf("build mangle rule: %w", err)
-		}
-		mangleRule = r.queuePreroutingRule(mangleExprs, userData)
-	}
-
 	nftRule := &nftables.Rule{
 		Table:    r.workTable,
 		Chain:    chain,
@@ -99,10 +89,22 @@ func (r *family) AddFilterRule(
 	} else {
 		nftRule = r.conn.AddRule(nftRule)
 	}
+	// Commit the filter rule (and any named set it looks up) before the
+	// prerouting mangle pair. The mangle rule uses nft_fib; if that
+	// expression is missing the kernel returns ENOENT and a shared batch
+	// would roll back the ACL as well. DNS forward and single-source
+	// peer rules hit this path with no named set, so the set-ID fix
+	// cannot save them.
 	if err := r.conn.Flush(); err != nil {
+		r.discardPendingSetElements()
 		r.dropNetworkMatch(exprs)
 		return nil, fmt.Errorf(flushError, err)
 	}
+	if err := r.commitPendingSetElements(); err != nil {
+		log.Errorf("add remaining ipset elements after rule flush: %v", err)
+	}
+
+	mangleRule := r.flushPreroutingPair(srcExprs, proto, sPort, dPort, userData, isRoute)
 
 	rule := &Rule{
 		nftRule:    nftRule,
@@ -115,6 +117,47 @@ func (r *family) AddFilterRule(
 	log.Debugf("added filter rule: sources=%v, destination=%v, proto=%v, sPort=%v, dPort=%v, action=%v",
 		sources, destination, proto, sPort, dPort, action)
 	return rule, nil
+}
+
+// rollbackQueuedNetwork commits any named sets already queued on conn so
+// they can be deleted, then drops their refcounts. google/nftables cannot
+// unqueue AddSet; deleting through sConn before that flush misses them.
+func (r *family) rollbackQueuedNetwork(exprs []expr.Any) {
+	r.discardPendingSetElements()
+	if err := r.conn.Flush(); err != nil {
+		log.Debugf("flush queued sets for rollback: %v", err)
+	}
+	r.dropNetworkMatch(exprs)
+}
+
+// flushPreroutingPair installs the prerouting mangle counterpart after
+// the filter rule is already in the kernel. Failure is logged and
+// ignored: the ACL must stay even when nft_fib is unavailable.
+func (r *family) flushPreroutingPair(
+	srcExprs []expr.Any,
+	proto firewall.Protocol,
+	sPort, dPort *firewall.Port,
+	userData []byte,
+	isRoute bool,
+) *nftables.Rule {
+	if isRoute || r.chainPrerouting == nil {
+		return nil
+	}
+
+	mangleExprs, err := r.buildPeerFilterExprs(srcExprs, proto, sPort, dPort)
+	if err != nil {
+		log.Errorf("build mangle rule: %v", err)
+		return nil
+	}
+	mangleRule := r.queuePreroutingRule(mangleExprs, userData)
+	if mangleRule == nil {
+		return nil
+	}
+	if err := r.conn.Flush(); err != nil {
+		log.Errorf("flush prerouting mangle rule: %v", err)
+		return nil
+	}
+	return mangleRule
 }
 
 // buildPeerFilterExprs assembles the input-chain (peer ACL) match: the
@@ -172,8 +215,7 @@ func (r *family) buildRouteFilterExprs(
 	if proto != firewall.ProtocolALL {
 		protoNum, err := r.af.protoNum(proto)
 		if err != nil {
-			r.dropNetworkMatch(destExprs)
-			return nil, fmt.Errorf("convert protocol to number: %w", err)
+			return exprs, fmt.Errorf("convert protocol to number: %w", err)
 		}
 		exprs = append(exprs,
 			&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
@@ -182,8 +224,7 @@ func (r *family) buildRouteFilterExprs(
 
 		portExprs, err := r.applyPorts(sPort, dPort)
 		if err != nil {
-			r.dropNetworkMatch(destExprs)
-			return nil, err
+			return exprs, err
 		}
 		exprs = append(exprs, portExprs...)
 	}
