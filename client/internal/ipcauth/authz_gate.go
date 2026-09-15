@@ -18,6 +18,9 @@ type DaemonState interface {
 	// whether one is held.
 	SessionHolder() (Principal, bool)
 
+	// OwnsProfile reports whether id owns the profile a request names. An empty
+	// handle is the active profile, which is what a method that acts on the
+	// live session resolves against.
 	OwnsProfile(id Identity, handle string) bool
 }
 
@@ -72,13 +75,6 @@ func RequireLevel(want AuthzLevel) Rule {
 		}
 		return denyLevel(r, want)
 	}
-}
-
-// RequireFlowInitiator binds a pending authentication flow to the identity that
-// started it.
-func RequireFlowInitiator(r Request) error {
-	// TODO: needs the flow registry keyed by initiator.
-	return nil
 }
 
 func denyLevel(r Request, want AuthzLevel) error {
