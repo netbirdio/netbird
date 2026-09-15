@@ -110,13 +110,13 @@ func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPee
 
 	accessLogsManager := accesslogsmanager.NewManager(store, permissionsManager, nil)
 	proxyTokenStore := nbgrpc.NewOneTimeTokenStore(ctx, cacheStore)
-	pkceverifierStore := nbgrpc.NewPKCEVerifierStore(ctx, cacheStore)
+	singleUseStore := nbgrpc.NewSingleUseStore(ctx, cacheStore)
 	noopMeter := noop.NewMeterProvider().Meter("")
 	proxyMgr, err := proxymanager.NewManager(store, noopMeter)
 	if err != nil {
 		t.Fatalf("Failed to create proxy manager: %v", err)
 	}
-	proxyServiceServer := nbgrpc.NewProxyServiceServer(accessLogsManager, proxyTokenStore, pkceverifierStore, nbgrpc.ProxyOIDCConfig{}, peersManager, userManager, nil, proxyMgr, nil)
+	proxyServiceServer := nbgrpc.NewProxyServiceServer(accessLogsManager, proxyTokenStore, singleUseStore, nbgrpc.ProxyOIDCConfig{}, peersManager, userManager, nil, proxyMgr, nil)
 	// NewProxyServiceServer starts cleanupStaleProxies on a context it derives
 	// from context.Background(), independent of the cancellable ctx above;
 	// Close() cancels it so the goroutine does not outlive the test.
@@ -250,13 +250,13 @@ func BuildApiBlackBoxWithDBStateAndPeerChannel(t testing_tools.TB, sqlFile strin
 
 	accessLogsManager := accesslogsmanager.NewManager(store, permissionsManager, nil)
 	proxyTokenStore := nbgrpc.NewOneTimeTokenStore(ctx, cacheStore)
-	pkceverifierStore := nbgrpc.NewPKCEVerifierStore(ctx, cacheStore)
+	singleUseStore := nbgrpc.NewSingleUseStore(ctx, cacheStore)
 	noopMeter := noop.NewMeterProvider().Meter("")
 	proxyMgr, err := proxymanager.NewManager(store, noopMeter)
 	if err != nil {
 		t.Fatalf("Failed to create proxy manager: %v", err)
 	}
-	proxyServiceServer := nbgrpc.NewProxyServiceServer(accessLogsManager, proxyTokenStore, pkceverifierStore, nbgrpc.ProxyOIDCConfig{}, peersManager, userManager, nil, proxyMgr, nil)
+	proxyServiceServer := nbgrpc.NewProxyServiceServer(accessLogsManager, proxyTokenStore, singleUseStore, nbgrpc.ProxyOIDCConfig{}, peersManager, userManager, nil, proxyMgr, nil)
 	// NewProxyServiceServer starts cleanupStaleProxies on a context it derives
 	// from context.Background(), independent of the cancellable ctx above;
 	// Close() cancels it so the goroutine does not outlive the test.

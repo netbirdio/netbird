@@ -142,7 +142,7 @@ type ProxyServiceServer struct {
 	oidcConfig ProxyOIDCConfig
 
 	// Store for PKCE verifiers
-	pkceVerifierStore *PKCEVerifierStore
+	singleUseStore *SingleUseStore
 
 	// tokenTTL is the lifetime of one-time tokens generated for proxy
 	// authentication. Defaults to defaultProxyTokenTTL when zero.
@@ -207,13 +207,13 @@ func enforceAccountScope(ctx context.Context, requestAccountID string) error {
 }
 
 // NewProxyServiceServer creates a new proxy service server.
-func NewProxyServiceServer(accessLogMgr accesslogs.Manager, tokenStore *OneTimeTokenStore, pkceStore *PKCEVerifierStore, oidcConfig ProxyOIDCConfig, peersManager peers.Manager, usersManager users.Manager, idpManager idp.Manager, proxyMgr proxy.Manager, tokenChecker ProxyTokenChecker) *ProxyServiceServer {
+func NewProxyServiceServer(accessLogMgr accesslogs.Manager, tokenStore *OneTimeTokenStore, singleUseStore *SingleUseStore, oidcConfig ProxyOIDCConfig, peersManager peers.Manager, usersManager users.Manager, idpManager idp.Manager, proxyMgr proxy.Manager, tokenChecker ProxyTokenChecker) *ProxyServiceServer {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &ProxyServiceServer{
 		accessLogManager:  accessLogMgr,
 		oidcConfig:        oidcConfig,
 		tokenStore:        tokenStore,
-		pkceVerifierStore: pkceStore,
+		singleUseStore:    singleUseStore,
 		peersManager:      peersManager,
 		usersManager:      usersManager,
 		idpManager:        idpManager,
@@ -1561,7 +1561,7 @@ func (s *ProxyServiceServer) GetOIDCURL(ctx context.Context, req *proto.GetOIDCU
 	state := fmt.Sprintf("%s|%s|%s", base64.URLEncoding.EncodeToString([]byte(redirectURL.String())), nonceB64, hmacSum)
 
 	codeVerifier := oauth2.GenerateVerifier()
-	if err := s.pkceVerifierStore.Store(state, codeVerifier, pkceVerifierTTL); err != nil {
+	if err := s.singleUseStore.Store(state, codeVerifier, pkceVerifierTTL); err != nil {
 		log.WithContext(ctx).Errorf("failed to store PKCE verifier: %v", err)
 		return nil, status.Errorf(codes.Internal, "store PKCE verifier: %v", err)
 	}
@@ -1627,7 +1627,7 @@ func (s *ProxyServiceServer) ValidateState(state string) (verifier, redirectURL 
 	}
 
 	// Consume the PKCE verifier only after HMAC validation passes.
-	verifier, ok := s.pkceVerifierStore.LoadAndDelete(state)
+	verifier, ok := s.singleUseStore.LoadAndDelete(state)
 	if !ok {
 		return "", "", errors.New("no verifier for state")
 	}
