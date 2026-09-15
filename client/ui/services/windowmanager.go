@@ -105,6 +105,12 @@ func DialogWindowOptions(name, title, url string, linuxIcon []byte) application.
 	}
 }
 
+// hiddenWindow records a window hidden by owner, the name of the popup that hid it.
+type hiddenWindow struct {
+	win   application.Window
+	owner string
+}
+
 type WindowManager struct {
 	app               *application.App
 	mainWindow        *application.WebviewWindow
@@ -117,11 +123,12 @@ type WindowManager struct {
 	installProgress   *application.WebviewWindow
 	welcome           *application.WebviewWindow
 	errorDialog       *application.WebviewWindow
-	// hiddenForLogin holds windows hidden while the BrowserLogin popup is open, restored on close.
-	hiddenForLogin []application.Window
-	mu             sync.Mutex
-	createMu       sync.Mutex
-	newMain        func(startURL string) *application.WebviewWindow
+	// hiddenWindows holds windows hidden while a popup owns the screen, each tagged with
+	// the popup that hid it so closing one popup cannot restore what another still hides.
+	hiddenWindows []hiddenWindow
+	mu            sync.Mutex
+	createMu      sync.Mutex
+	newMain       func(startURL string) *application.WebviewWindow
 	// painted gates showing a window: set by the frontend's first render, or by the
 	// fallback timer so a webview that never wakes up still becomes visible.
 	painted map[uint]bool
@@ -255,7 +262,7 @@ func (s *WindowManager) OpenBrowserLogin(uri string) {
 			userClosed := s.browserLogin == bl
 			if userClosed {
 				s.browserLogin = nil
-				s.restoreHiddenWindowsLocked()
+				s.restoreHiddenWindowsLocked("browser-login")
 			}
 			s.forgetWindowLocked(bl)
 			s.mu.Unlock()
@@ -321,15 +328,10 @@ func (s *WindowManager) CloseBrowserLogin() {
 	s.mu.Lock()
 	w := s.browserLogin
 	s.browserLogin = nil
-	// The WindowClosing hook no-ops on a programmatic close, so restore here —
-	// but only if a popup was actually open. The frontend calls this even when no
-	// popup was ever shown (e.g. resetDialog() after an early RequestExtend failure,
-	// or connection.ts's catch path), and hiddenForLogin is shared with
-	// OpenInstallProgress, so an unconditional restore could re-show windows a
-	// still-running install-progress is hiding.
-	if w != nil {
-		s.restoreHiddenWindowsLocked()
-	}
+	// The WindowClosing hook no-ops on a programmatic close, so restore here. Restoring
+	// by owner is already a no-op when no popup was open, which the frontend does call
+	// (resetDialog() after an early RequestExtend failure, or connection.ts's catch path).
+	s.restoreHiddenWindowsLocked("browser-login")
 	s.mu.Unlock()
 	if w != nil {
 		w.Close()
@@ -390,16 +392,18 @@ func (s *WindowManager) CloseRenewFlow() {
 	se := s.sessionExpiration
 	s.browserLogin = nil
 	s.sessionExpiration = nil
+	// Both popups go away here, so drop the session-expiration window from the restore
+	// set rather than re-showing the window this call is closing.
 	if se != nil {
-		kept := s.hiddenForLogin[:0]
-		for _, w := range s.hiddenForLogin {
-			if w != se {
-				kept = append(kept, w)
+		kept := s.hiddenWindows[:0]
+		for _, hidden := range s.hiddenWindows {
+			if hidden.win != application.Window(se) {
+				kept = append(kept, hidden)
 			}
 		}
-		s.hiddenForLogin = kept
+		s.hiddenWindows = kept
 	}
-	s.restoreHiddenWindowsLocked()
+	s.restoreHiddenWindowsLocked("browser-login")
 	s.mu.Unlock()
 
 	// Close after unlock so the re-entrant handlers can take s.mu.
@@ -432,7 +436,7 @@ func (s *WindowManager) OpenInstallProgress(version string) {
 			// stale close event from re-showing windows a replacement popup hides.
 			if s.installProgress == w {
 				s.installProgress = nil
-				s.restoreHiddenWindowsLocked()
+				s.restoreHiddenWindowsLocked("install-progress")
 			}
 			s.forgetWindowLocked(w)
 			s.mu.Unlock()
@@ -452,12 +456,8 @@ func (s *WindowManager) CloseInstallProgress() {
 	s.mu.Lock()
 	w := s.installProgress
 	s.installProgress = nil
-	// The guarded WindowClosing handler no-ops on a programmatic close, so restore
-	// here — but only if a popup was actually open, since hiddenForLogin is shared
-	// with OpenBrowserLogin.
-	if w != nil {
-		s.restoreHiddenWindowsLocked()
-	}
+	// The guarded WindowClosing handler no-ops on a programmatic close, so restore here.
+	s.restoreHiddenWindowsLocked("install-progress")
 	s.mu.Unlock()
 	if w != nil {
 		w.Close()
@@ -762,13 +762,13 @@ func (s *WindowManager) forgetWindowLocked(w *application.WebviewWindow) {
 	delete(s.afterShow, id)
 	delete(s.generation, w.Name())
 
-	kept := s.hiddenForLogin[:0]
-	for _, hidden := range s.hiddenForLogin {
-		if hidden != application.Window(w) {
+	kept := s.hiddenWindows[:0]
+	for _, hidden := range s.hiddenWindows {
+		if hidden.win != application.Window(w) {
 			kept = append(kept, hidden)
 		}
 	}
-	s.hiddenForLogin = kept
+	s.hiddenWindows = kept
 }
 
 func (s *WindowManager) stampGeneration(name, startURL string) string {
@@ -1029,8 +1029,10 @@ func (s *WindowManager) retitleAll() {
 	}
 }
 
-// hideOtherWindowsLocked hides every visible window except keepName, recording
-// them in hiddenForLogin for restoreHiddenWindowsLocked. Caller must hold s.mu.
+// hideOtherWindowsLocked hides every visible window except keepName, recording them
+// against keepName so only its own restore brings them back. A window already hidden by
+// an earlier popup is skipped, leaving it tagged to the popup that actually hid it.
+// Caller must hold s.mu.
 func (s *WindowManager) hideOtherWindowsLocked(keepName string) {
 	for _, w := range s.app.Window.GetAll() {
 		if w == nil || w.Name() == keepName {
@@ -1040,26 +1042,31 @@ func (s *WindowManager) hideOtherWindowsLocked(keepName string) {
 			continue
 		}
 		w.Hide()
-		s.hiddenForLogin = append(s.hiddenForLogin, w)
+		s.hiddenWindows = append(s.hiddenWindows, hiddenWindow{win: w, owner: keepName})
 	}
 }
 
-// restoreHiddenWindowsLocked re-shows windows hidden by hideOtherWindowsLocked
-// (caller holds s.mu). If the main window was among them, raiseToForeground
-// lifts it above the SSO browser, which still owns the foreground — a plain
-// Show/Focus would be demoted to a taskbar flash and leave it stranded behind.
-func (s *WindowManager) restoreHiddenWindowsLocked() {
+// restoreHiddenWindowsLocked re-shows the windows owner hid, leaving those another popup
+// still hides untouched (caller holds s.mu). If the main window was among them,
+// raiseToForeground lifts it above the SSO browser, which still owns the foreground — a
+// plain Show/Focus would be demoted to a taskbar flash and leave it stranded behind.
+func (s *WindowManager) restoreHiddenWindowsLocked(owner string) {
 	mainRestored := false
-	for _, w := range s.hiddenForLogin {
-		if w == nil {
+	kept := s.hiddenWindows[:0]
+	for _, hidden := range s.hiddenWindows {
+		if hidden.owner != owner {
+			kept = append(kept, hidden)
 			continue
 		}
-		w.Show()
-		if w == s.mainWindow {
+		if hidden.win == nil {
+			continue
+		}
+		hidden.win.Show()
+		if hidden.win == s.mainWindow {
 			mainRestored = true
 		}
 	}
-	s.hiddenForLogin = nil
+	s.hiddenWindows = kept
 	if mainRestored && s.mainWindow != nil {
 		raiseToForeground(s.mainWindow)
 	}
