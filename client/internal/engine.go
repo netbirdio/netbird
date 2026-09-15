@@ -324,6 +324,7 @@ type Engine struct {
 // session-warning flow.
 type sessionDeadlineWatcher interface {
 	Update(deadline time.Time) error
+	Recheck()
 	Dismiss()
 	Close()
 }
