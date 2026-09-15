@@ -409,9 +409,19 @@ func TestServiceParams_FieldsCoveredInFunctions(t *testing.T) {
 		applyFields[k] = v
 	}
 
+	// AllowGroupIDs records what AllowGroups resolved to at install time. It is
+	// derived, so restoring it would pin an install to a stale ID instead of
+	// resolving the names again.
+	fieldsNotRestored := map[string]bool{
+		"AllowGroupIDs": true,
+	}
+
 	for _, field := range structFields {
 		assert.Contains(t, currentFields, field,
 			"serviceParams field %q is not captured in currentServiceParams()", field)
+		if fieldsNotRestored[field] {
+			continue
+		}
 		assert.Contains(t, applyFields, field,
 			"serviceParams field %q is not restored in applyServiceParams()/applyServiceEnvParams()", field)
 	}
@@ -431,9 +441,13 @@ func TestServiceParams_BuildArgsCoversAllFlags(t *testing.T) {
 	installerFile, err := parser.ParseFile(fset, "service_installer.go", nil, 0)
 	require.NoError(t, err)
 
-	// Fields that are handled outside of buildServiceArguments (env vars go through newSVCConfig).
+	// Fields that are handled outside of buildServiceArguments:
+	// ServiceEnvVars goes through newSVCConfig() EnvVars. AllowGroups is
+	// carried as AllowGroupIDs instead: the service runs with the resolved
+	// principals, not with the names they were resolved from.
 	fieldsNotInArgs := map[string]bool{
 		"ServiceEnvVars": true,
+		"AllowGroups":    true,
 	}
 
 	buildFields := extractFuncGlobalRefs(t, installerFile, "buildServiceArguments")
@@ -459,7 +473,8 @@ func TestServiceParams_BuildArgsCoversAllFlags(t *testing.T) {
 	// (builtins, boilerplate, loop variables).
 	nonParamGlobals := map[string]bool{
 		"args": true, "append": true, "string": true, "_": true,
-		"logFile": true, // range variable over logFiles
+		"logFile":   true, // range variable over logFiles
+		"principal": true, // range variable over resolvedAllowGroups
 	}
 	for ref := range buildFields {
 		if nonParamGlobals[ref] {
@@ -566,6 +581,8 @@ func fieldToGlobalVar(field string) string {
 		"DisableNetworks":       "networksDisabled",
 		"EnableJSONSocket":      "enableJSONSocket",
 		"ServiceEnvVars":        "serviceEnvVars",
+		"AllowGroups":           "allowGroups",
+		"AllowGroupIDs":         "resolvedAllowGroups",
 	}
 	if v, ok := m[field]; ok {
 		return v
