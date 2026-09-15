@@ -196,11 +196,12 @@ func Test_notifier_SetListenerStopsPreviousDeliverer(t *testing.T) {
 	waitFor(t, old.entered, "old listener not called")
 
 	n.peerListChanged(7)
+	oldDone := n.peerListDone
 	n.setListener(replacement)
 	close(old.release)
 
 	waitFor(t, replacement.done, "replacement listener not notified")
-	time.Sleep(50 * time.Millisecond)
+	waitFor(t, oldDone, "old deliverer did not exit")
 
 	if got := old.calls.Load(); got != 1 {
 		t.Errorf("stale deliverer ran %d times, expected 1", got)
