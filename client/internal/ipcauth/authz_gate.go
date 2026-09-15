@@ -148,7 +148,7 @@ func (g *AuthzGate) authorize(ctx context.Context, method string, msg any) error
 	}
 	for _, rule := range policy.Rules {
 		if err := rule(req); err != nil {
-			log.Warnf("ipc authz: DENY %s for %s (%s): %v", method, id, req.Level, err)
+			log.Warnf("ipc authz: DENY %s for %s (%s): error", method, id, req.Level)
 			return err
 		}
 	}
