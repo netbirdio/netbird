@@ -14,17 +14,24 @@ const (
 	idleTimeout = 30 * time.Second
 )
 
+// peerActivity tracks a connected peer's transport and the time it was last active.
+type peerActivity struct {
+	transport  string
+	lastActive time.Time
+}
+
 type Metrics struct {
 	metric.Meter
 
-	TransferBytesSent  metric.Int64Counter
-	TransferBytesRecv  metric.Int64Counter
+	transferBytesSent  metric.Int64Counter
+	transferBytesRecv  metric.Int64Counter
 	AuthenticationTime metric.Float64Histogram
 	PeerStoreTime      metric.Float64Histogram
 	peerReconnections  metric.Int64Counter
 	peers              metric.Int64UpDownCounter
 	peerActivityChan   chan string
-	peerLastActive     map[string]time.Time
+	peerLastActive     map[string]peerActivity
+	seenTransports     map[string]struct{}
 	mutexActivity      sync.Mutex
 	ctx                context.Context
 }
@@ -90,8 +97,8 @@ func NewMetrics(ctx context.Context, meter metric.Meter) (*Metrics, error) {
 
 	m := &Metrics{
 		Meter:              meter,
-		TransferBytesSent:  bytesSent,
-		TransferBytesRecv:  bytesRecv,
+		transferBytesSent:  bytesSent,
+		transferBytesRecv:  bytesRecv,
 		AuthenticationTime: authTime,
 		PeerStoreTime:      peerStoreTime,
 		peers:              peers,
@@ -99,14 +106,19 @@ func NewMetrics(ctx context.Context, meter metric.Meter) (*Metrics, error) {
 
 		ctx:              ctx,
 		peerActivityChan: make(chan string, 10),
-		peerLastActive:   make(map[string]time.Time),
+		peerLastActive:   make(map[string]peerActivity),
+		seenTransports:   make(map[string]struct{}),
 	}
 
 	_, err = meter.RegisterCallback(
 		func(ctx context.Context, o metric.Observer) error {
 			active, idle := m.calculateActiveIdleConnections()
-			o.ObserveInt64(peersActive, active)
-			o.ObserveInt64(peersIdle, idle)
+			for transport, count := range active {
+				o.ObserveInt64(peersActive, count, metric.WithAttributes(attribute.String("transport", transport)))
+			}
+			for transport, count := range idle {
+				o.ObserveInt64(peersIdle, count, metric.WithAttributes(attribute.String("transport", transport)))
+			}
 			return nil
 		},
 		peersActive, peersIdle,
@@ -119,13 +131,34 @@ func NewMetrics(ctx context.Context, meter metric.Meter) (*Metrics, error) {
 	return m, nil
 }
 
+// RegisterTransport records a transport the relay serves so its active/idle gauges report 0 from
+// startup - even before any peer connects - matching the pre-label behaviour where the scalar gauges
+// were always observed.
+func (m *Metrics) RegisterTransport(transport string) {
+	m.mutexActivity.Lock()
+	defer m.mutexActivity.Unlock()
+	m.seenTransports[transport] = struct{}{}
+}
+
 // PeerConnected increments the number of connected peers and increments number of idle connections
 func (m *Metrics) PeerConnected(id, transport string) {
 	m.peers.Add(m.ctx, 1, metric.WithAttributes(attribute.String("transport", transport)))
 	m.mutexActivity.Lock()
 	defer m.mutexActivity.Unlock()
 
-	m.peerLastActive[id] = time.Time{}
+	// zero lastActive keeps the peer counted as idle until it relays its first message
+	m.peerLastActive[id] = peerActivity{transport: transport}
+	m.seenTransports[transport] = struct{}{}
+}
+
+// RecordBytesSent records the number of bytes relayed out to a peer over the given transport.
+func (m *Metrics) RecordBytesSent(transport string, n int) {
+	m.transferBytesSent.Add(m.ctx, int64(n), metric.WithAttributes(attribute.String("transport", transport)))
+}
+
+// RecordBytesRecv records the number of bytes received from a peer over the given transport.
+func (m *Metrics) RecordBytesRecv(transport string, n int) {
+	m.transferBytesRecv.Add(m.ctx, int64(n), metric.WithAttributes(attribute.String("transport", transport)))
 }
 
 // RecordAuthenticationTime measures the time taken for peer authentication
@@ -160,16 +193,25 @@ func (m *Metrics) PeerActivity(peerID string) {
 	}
 }
 
-func (m *Metrics) calculateActiveIdleConnections() (int64, int64) {
-	active, idle := int64(0), int64(0)
+// calculateActiveIdleConnections returns the number of active and idle peers grouped by transport.
+// Every transport the relay has served keeps a 0-valued entry in both maps, so the gauges keep
+// reporting 0 rather than disappearing when a bucket - or the whole relay - has no peers. This
+// preserves the pre-label behaviour where the scalar gauges were always observed, even at zero.
+func (m *Metrics) calculateActiveIdleConnections() (active, idle map[string]int64) {
+	active, idle = make(map[string]int64), make(map[string]int64)
 	m.mutexActivity.Lock()
 	defer m.mutexActivity.Unlock()
 
-	for _, lastActive := range m.peerLastActive {
-		if time.Since(lastActive) > idleTimeout {
-			idle++
+	for transport := range m.seenTransports {
+		active[transport] = 0
+		idle[transport] = 0
+	}
+
+	for _, peer := range m.peerLastActive {
+		if time.Since(peer.lastActive) > idleTimeout {
+			idle[peer.transport]++
 		} else {
-			active++
+			active[peer.transport]++
 		}
 	}
 	return active, idle
@@ -179,12 +221,21 @@ func (m *Metrics) readPeerActivity() {
 	for {
 		select {
 		case peerID := <-m.peerActivityChan:
-			m.mutexActivity.Lock()
-			m.peerLastActive[peerID] = time.Now()
-			m.mutexActivity.Unlock()
+			m.refreshActivity(peerID)
 		case <-m.ctx.Done():
 			return
 		}
+	}
+}
+
+// refreshActivity updates the last-active time of a connected peer. A late event for a peer that has
+// already disconnected is ignored, so it cannot resurrect the peer in the activity map.
+func (m *Metrics) refreshActivity(peerID string) {
+	m.mutexActivity.Lock()
+	defer m.mutexActivity.Unlock()
+	if peer, ok := m.peerLastActive[peerID]; ok {
+		peer.lastActive = time.Now()
+		m.peerLastActive[peerID] = peer
 	}
 }
 
