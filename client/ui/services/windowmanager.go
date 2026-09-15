@@ -105,9 +105,19 @@ func DialogWindowOptions(name, title, url string, linuxIcon []byte) application.
 	}
 }
 
+// hideableWindow is the slice of application.Window the hide/restore bookkeeping needs.
+// Narrow enough to fake in tests, which application.Window itself is not: it carries
+// unexported methods.
+type hideableWindow interface {
+	Show() application.Window
+	Hide() application.Window
+	IsVisible() bool
+	Name() string
+}
+
 // hiddenWindow records a window hidden by owner, the name of the popup that hid it.
 type hiddenWindow struct {
-	win   application.Window
+	win   hideableWindow
 	owner string
 }
 
@@ -126,9 +136,13 @@ type WindowManager struct {
 	// hiddenWindows holds windows hidden while a popup owns the screen, each tagged with
 	// the popup that hid it so closing one popup cannot restore what another still hides.
 	hiddenWindows []hiddenWindow
-	mu            sync.Mutex
-	createMu      sync.Mutex
-	newMain       func(startURL string) *application.WebviewWindow
+	// allWindows and raiseMain are the seams the hide/restore tests replace; both are nil
+	// in production, where the Wails app and the platform helper are used directly.
+	allWindows func() []hideableWindow
+	raiseMain  func()
+	mu         sync.Mutex
+	createMu   sync.Mutex
+	newMain    func(startURL string) *application.WebviewWindow
 	// painted gates showing a window: set by the frontend's first render, or by the
 	// fallback timer so a webview that never wakes up still becomes visible.
 	painted map[uint]bool
@@ -397,7 +411,7 @@ func (s *WindowManager) CloseRenewFlow() {
 	if se != nil {
 		kept := s.hiddenWindows[:0]
 		for _, hidden := range s.hiddenWindows {
-			if hidden.win != application.Window(se) {
+			if !sameWindow(hidden.win, se) {
 				kept = append(kept, hidden)
 			}
 		}
@@ -764,7 +778,7 @@ func (s *WindowManager) forgetWindowLocked(w *application.WebviewWindow) {
 
 	kept := s.hiddenWindows[:0]
 	for _, hidden := range s.hiddenWindows {
-		if hidden.win != application.Window(w) {
+		if !sameWindow(hidden.win, w) {
 			kept = append(kept, hidden)
 		}
 	}
@@ -791,6 +805,35 @@ func (s *WindowManager) matchesGeneration(name string, gen uint64) bool {
 		return true
 	}
 	return want == gen
+}
+
+func (s *WindowManager) hideableWindows() []hideableWindow {
+	if s.allWindows != nil {
+		return s.allWindows()
+	}
+	all := s.app.Window.GetAll()
+	windows := make([]hideableWindow, 0, len(all))
+	for _, w := range all {
+		windows = append(windows, w)
+	}
+	return windows
+}
+
+func (s *WindowManager) isMainWindow(w hideableWindow) bool {
+	if s.allWindows != nil {
+		return w != nil && w.Name() == "main"
+	}
+	return s.mainWindow != nil && sameWindow(w, s.mainWindow)
+}
+
+func (s *WindowManager) raiseMainWindow() {
+	if s.raiseMain != nil {
+		s.raiseMain()
+		return
+	}
+	if s.mainWindow != nil {
+		raiseToForeground(s.mainWindow)
+	}
 }
 
 func (s *WindowManager) windowByName(name string) *application.WebviewWindow {
@@ -1034,7 +1077,7 @@ func (s *WindowManager) retitleAll() {
 // an earlier popup is skipped, leaving it tagged to the popup that actually hid it.
 // Caller must hold s.mu.
 func (s *WindowManager) hideOtherWindowsLocked(keepName string) {
-	for _, w := range s.app.Window.GetAll() {
+	for _, w := range s.hideableWindows() {
 		if w == nil || w.Name() == keepName {
 			continue
 		}
@@ -1062,13 +1105,13 @@ func (s *WindowManager) restoreHiddenWindowsLocked(owner string) {
 			continue
 		}
 		hidden.win.Show()
-		if hidden.win == s.mainWindow {
+		if s.isMainWindow(hidden.win) {
 			mainRestored = true
 		}
 	}
 	s.hiddenWindows = kept
-	if mainRestored && s.mainWindow != nil {
-		raiseToForeground(s.mainWindow)
+	if mainRestored {
+		s.raiseMainWindow()
 	}
 }
 
@@ -1140,6 +1183,16 @@ func paintedGeneration(data any) uint64 {
 	default:
 		return 0
 	}
+}
+
+// sameWindow reports whether a hidden entry refers to w, comparing through the interface
+// so a nil entry never matches a live window.
+func sameWindow(hidden hideableWindow, w *application.WebviewWindow) bool {
+	if hidden == nil || w == nil {
+		return false
+	}
+	other, ok := hidden.(*application.WebviewWindow)
+	return ok && other == w
 }
 
 // u32ptr returns a pointer to v, for the optional *uint32 Wails theme fields.
