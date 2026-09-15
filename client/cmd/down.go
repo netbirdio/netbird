@@ -40,8 +40,7 @@ var downCmd = &cobra.Command{
 		daemonClient := proto.NewDaemonServiceClient(conn)
 
 		if _, err := daemonClient.Down(ctx, &proto.DownRequest{}); err != nil {
-			log.Errorf("call service down method: %v", err)
-			return err
+			return daemonCallError("call service down method", err)
 		}
 
 		cmd.Println("Disconnected")

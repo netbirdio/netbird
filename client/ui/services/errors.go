@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"strings"
 
-	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	gcodes "google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
@@ -15,19 +14,10 @@ import (
 	"github.com/netbirdio/netbird/client/ui/preferences"
 )
 
-// privilegeErrorInfo returns the daemon's privilege-refusal detail, if the error
-// carries one.
-func privilegeErrorInfo(err error) (*errdetails.ErrorInfo, bool) {
-	for _, detail := range gstatus.Convert(err).Details() {
-		info, ok := detail.(*errdetails.ErrorInfo)
-		if !ok {
-			continue
-		}
-		if info.GetReason() == ipcauth.ErrorReasonPrivilegeRequired && info.GetDomain() == ipcauth.ErrorDomain {
-			return info, true
-		}
-	}
-	return nil, false
+// privilegeRefused reports whether the daemon refused for want of privileges
+func privilegeRefused(err error) bool {
+	denial, ok := ipcauth.DenialFrom(err)
+	return ok && denial.Reason == ipcauth.ErrorReasonPrivilegeRequired
 }
 
 // ErrorTranslator localises daemon errors; runtime impl is *i18n.Bundle.
@@ -95,19 +85,13 @@ func (c errorClassifier) classify(err error) *ClientError {
 	}
 
 	// A refusal for want of privileges carries its own summary and the command
-	// that performs the operation, both written for the user. Surface them
-	// verbatim: no substring guessing, and no localisation of a message the
-	// daemon composed.
-	if info, ok := privilegeErrorInfo(err); ok {
-		summary := info.GetMetadata()[ipcauth.ErrorMetaSummary]
-		if summary == "" {
-			summary = msg
-		}
+	// that performs the operation, both written for the user.
+	if denial, ok := ipcauth.DenialFrom(err); ok && denial.Reason == ipcauth.ErrorReasonPrivilegeRequired {
 		return &ClientError{
 			Code:    "privilege_required",
-			Short:   summary,
-			Long:    summary,
-			Command: info.GetMetadata()[ipcauth.ErrorMetaCommand],
+			Short:   denial.Summary,
+			Long:    denial.Summary,
+			Command: denial.Command,
 		}
 	}
 

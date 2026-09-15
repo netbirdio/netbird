@@ -1,12 +1,15 @@
 package ipcauth
 
 import (
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	gstatus "google.golang.org/grpc/status"
 )
 
@@ -117,30 +120,17 @@ func TestDenyPolicyLevelExplainsAHeldSession(t *testing.T) {
 		State:    stubState{holder: Principal{Kind: KindUID, Value: "4242"}, running: true},
 	}
 
-	err := denyPolicyLevel(req, methodPolicies[servicePath+"Up"])
-	require.Error(t, err)
-
-	st := gstatus.Convert(err)
-	assert.Equal(t, codes.PermissionDenied, st.Code())
-
-	var info *errdetails.ErrorInfo
-	for _, d := range st.Details() {
-		if got, ok := d.(*errdetails.ErrorInfo); ok {
-			info = got
-		}
-	}
-	require.NotNil(t, info)
+	info := denialDetail(t, denyPolicyLevel(req, methodPolicies[servicePath+"Up"]))
 	assert.Equal(t, ErrorReasonSessionHeld, info.GetReason())
-	assert.Equal(t, ErrorDomain, info.GetDomain())
 
 	summary := info.GetMetadata()[ErrorMetaSummary]
 	assert.Contains(t, summary, "Connecting", "the summary names what was refused")
 	assert.Contains(t, summary, "another user")
 	assert.NotContains(t, summary, "4242", "who holds it is not the caller's business")
 
-	_, hasCommand := info.GetMetadata()[ErrorMetaCommand]
-	assert.False(t, hasCommand, "there is no command that ends somebody else's session")
-	assert.NotContains(t, st.Message(), "sudo")
+	// An administrator outranks the session holder, so taking the connection
+	// down is a remedy the caller can actually be pointed at.
+	assert.Contains(t, info.GetMetadata()[ErrorMetaCommand], "netbird down")
 }
 
 // With no session running, a caller short of session holder fell short on
@@ -180,4 +170,59 @@ func denialDetail(t *testing.T, err error) *errdetails.ErrorInfo {
 	}
 	t.Fatal("refusal carries no ErrorInfo detail")
 	return nil
+}
+
+// DenialFrom is the one reader of the detail the builders attach, so the CLI and
+// the UI cannot drift on what counts as a refusal.
+func TestDenialFromReadsEveryReason(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		err     error
+		reason  string
+		command bool
+	}{
+		{"privilege", PrivilegeError("Claiming a profile requires root.", "sudo netbird profile claim"), ErrorReasonPrivilegeRequired, true},
+		{"session held", SessionHeldError("connecting"), ErrorReasonSessionHeld, true},
+		{"not owner", NotOwnerError("switching profile"), ErrorReasonNotProfileOwner, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			denial, ok := DenialFrom(tc.err)
+			require.True(t, ok)
+			assert.Equal(t, tc.reason, denial.Reason)
+			assert.NotEmpty(t, denial.Summary)
+			assert.Equal(t, tc.command, denial.Command != "")
+		})
+	}
+}
+
+func TestDenialFromIgnoresWhatIsNotOurs(t *testing.T) {
+	_, ok := DenialFrom(nil)
+	assert.False(t, ok)
+
+	_, ok = DenialFrom(errors.New("connection refused"))
+	assert.False(t, ok, "a plain error explains no refusal")
+
+	_, ok = DenialFrom(status.Error(codes.PermissionDenied, "denied"))
+	assert.False(t, ok, "a status with no detail of ours is not ours to reword")
+}
+
+// A wrap must not hide the refusal, since commands add context before printing.
+func TestDenialFromSeesThroughWrapping(t *testing.T) {
+	denial, ok := DenialFrom(fmt.Errorf("up failed: %w", SessionHeldError("connecting")))
+	require.True(t, ok)
+	assert.Equal(t, ErrorReasonSessionHeld, denial.Reason)
+}
+
+// A detail with no summary still refused something, so the status message stands
+// in rather than leaving a consumer with nothing to show.
+func TestDenialFromFallsBackToTheStatusMessage(t *testing.T) {
+	st, err := status.New(codes.PermissionDenied, "refused for reasons").WithDetails(&errdetails.ErrorInfo{
+		Reason: ErrorReasonSessionHeld,
+		Domain: ErrorDomain,
+	})
+	require.NoError(t, err)
+
+	denial, ok := DenialFrom(st.Err())
+	require.True(t, ok)
+	assert.Equal(t, "refused for reasons", denial.Summary)
 }
