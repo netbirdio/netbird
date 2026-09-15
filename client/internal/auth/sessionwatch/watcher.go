@@ -303,6 +303,12 @@ func (w *Watcher) fire(armedFor time.Time) {
 		w.mu.Unlock()
 		return
 	}
+	if w.lateLocked(armedFor, w.finalLead) {
+		w.firedAt = armedFor
+		w.mu.Unlock()
+		log.Infof("auth session expiry soon warning skipped (final-warning window already passed)")
+		return
+	}
 	w.firedAt = armedFor
 	recorder := w.recorder
 	w.mu.Unlock()
@@ -331,6 +337,12 @@ func (w *Watcher) fireFinal(armedFor time.Time) {
 		log.Infof("auth session final-warning skipped (dismissed by user)")
 		return
 	}
+	if w.lateLocked(armedFor, 0) {
+		w.finalFiredAt = armedFor
+		w.mu.Unlock()
+		log.Infof("auth session final-warning skipped (deadline already passed)")
+		return
+	}
 	w.finalFiredAt = armedFor
 	recorder := w.recorder
 	w.mu.Unlock()
@@ -339,6 +351,15 @@ func (w *Watcher) fireFinal(armedFor time.Time) {
 	}
 	log.Infof("auth session final-warning fired")
 	publishWarning(recorder, armedFor, true)
+}
+
+// lateLocked reports whether the wall clock has already reached
+// armedFor minus cutoffLead. The timers run on the monotonic clock,
+// which does not advance while an Android device is suspended, so a
+// timer can fire long after the window it was armed for. Caller must
+// hold w.mu.
+func (w *Watcher) lateLocked(armedFor time.Time, cutoffLead time.Duration) bool {
+	return !time.Now().Before(armedFor.Add(-cutoffLead))
 }
 
 // armOneShotLocked schedules cb at fireAt. When fireAt is already in the
