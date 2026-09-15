@@ -898,12 +898,12 @@ func (s *ServiceManager) ClaimProfile(p *Profile, principal string) error {
 	if err != nil {
 		return fmt.Errorf("profile path: %w", err)
 	}
-	if err := stampPrincipal(path, principal); err != nil {
-		return fmt.Errorf("claim %s for %s: %w", p.ID, principal, err)
-	}
 	parsed, ok := ipcauth.ParsePrincipal(principal)
 	if !ok {
 		return fmt.Errorf("claimed %s with an unusable owner %q", p.ID, principal)
+	}
+	if err := stampPrincipal(path, principal); err != nil {
+		return fmt.Errorf("claim %s for %s: %w", p.ID, principal, err)
 	}
 	p.Owners = []ipcauth.Principal{parsed}
 	log.Infof("claimed profile %s for %s", path, principal)

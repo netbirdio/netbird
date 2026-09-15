@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 	gstatus "google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/internal/ipcauth"
@@ -58,10 +59,32 @@ func denialInterceptor(ctx context.Context, method string, req, reply any, cc *g
 	return asDaemonDenial(invoker(ctx, method, req, reply, cc, opts...))
 }
 
-// denialStreamInterceptor does the same for a stream's opening error.
+// denialStreamInterceptor does the same for a stream, on the way out and for as
+// long as it runs.
 func denialStreamInterceptor(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
 	stream, err := streamer(ctx, desc, cc, method, opts...)
-	return stream, asDaemonDenial(err)
+	if err != nil {
+		return stream, asDaemonDenial(err)
+	}
+	return denialStream{ClientStream: stream}, nil
+}
+
+// denialStream re-presents refusals a stream reports after it was opened.
+type denialStream struct {
+	grpc.ClientStream
+}
+
+func (s denialStream) RecvMsg(m any) error {
+	return asDaemonDenial(s.ClientStream.RecvMsg(m))
+}
+
+func (s denialStream) SendMsg(m any) error {
+	return asDaemonDenial(s.ClientStream.SendMsg(m))
+}
+
+func (s denialStream) Header() (metadata.MD, error) {
+	md, err := s.ClientStream.Header()
+	return md, asDaemonDenial(err)
 }
 
 // printCommandError writes a failed command's error, taking over from cobra so a

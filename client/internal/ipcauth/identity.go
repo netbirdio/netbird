@@ -208,11 +208,6 @@ func OwnerPrincipalForIdentity(id Identity) string {
 
 // ValidatePrincipal checks an owner principal typed by a user, as opposed to one
 // read back off disk.
-//
-// ParsePrincipal stays lenient so an existing config is never reinterpreted, and
-// it checks only the kind: "uid:abc" parses. That is not good enough on the way
-// in, because a principal nobody matches does not leave a profile open, it locks
-// it to privileged callers. This is the stricter gate a new owner passes.
 func ValidatePrincipal(s string) (Principal, error) {
 	p, ok := ParsePrincipal(s)
 	if !ok {
@@ -251,7 +246,7 @@ func looksLikeSID(v string) bool {
 		if part == "" {
 			return false
 		}
-		if _, err := strconv.ParseUint(part, 10, 64); err != nil {
+		if _, err := strconv.ParseUint(part, 10, 32); err != nil {
 			return false
 		}
 	}

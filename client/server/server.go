@@ -2506,7 +2506,6 @@ func (s *Server) ClaimProfile(ctx context.Context, msg *proto.ClaimProfileReques
 	}
 
 	if err := s.profileManager.ClaimProfile(resolved, principal.String()); err != nil {
-		log.Errorf("failed to claim profile: %v", err)
 		return nil, fmt.Errorf("failed to claim profile: %w", err)
 	}
 
