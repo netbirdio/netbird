@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"testing"
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	gstatus "google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/internal/ipcauth"
@@ -121,4 +124,56 @@ func TestAsDaemonDenialLeavesOtherErrorsAlone(t *testing.T) {
 	foreign := gstatus.Error(codes.Unavailable, "daemon not initialized")
 	assert.Equal(t, foreign, asDaemonDenial(foreign))
 	assert.Nil(t, asDaemonDenial(nil))
+}
+
+// fakeStream reports err from every call, standing in for a stream the daemon
+// opened and then refused.
+type fakeStream struct {
+	grpc.ClientStream
+	err error
+}
+
+func (f fakeStream) RecvMsg(any) error            { return f.err }
+func (f fakeStream) SendMsg(any) error            { return f.err }
+func (f fakeStream) Header() (metadata.MD, error) { return nil, f.err }
+
+// Opening a stream does not wait for the server to accept it, so a refusal
+// arrives on the first Recv. capture and expose both read it there.
+func TestDenialStreamConvertsRefusalsAfterOpen(t *testing.T) {
+	s := denialStream{ClientStream: fakeStream{err: ipcauth.SessionHeldError("starting a packet capture")}}
+
+	for name, err := range map[string]error{
+		"RecvMsg": s.RecvMsg(nil),
+		"SendMsg": s.SendMsg(nil),
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.Error(t, err)
+			assert.NotContains(t, err.Error(), "rpc error", "the envelope must not survive")
+			assert.Contains(t, err.Error(), "Starting a packet capture is refused")
+
+			st, ok := gstatus.FromError(err)
+			require.True(t, ok, "the code has to survive for callers that branch on it")
+			assert.Equal(t, codes.PermissionDenied, st.Code())
+		})
+	}
+
+	_, err := s.Header()
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "rpc error")
+}
+
+// A clean end of stream is not an error. Callers compare against io.EOF, so it
+// has to come back as the very same value.
+func TestDenialStreamPassesEOFThrough(t *testing.T) {
+	s := denialStream{ClientStream: fakeStream{err: io.EOF}}
+
+	assert.Same(t, io.EOF, s.RecvMsg(nil))
+	assert.True(t, errors.Is(s.RecvMsg(nil), io.EOF))
+}
+
+func TestDenialStreamLeavesOtherErrorsAlone(t *testing.T) {
+	plain := errors.New("transport closing")
+	s := denialStream{ClientStream: fakeStream{err: plain}}
+
+	assert.Same(t, plain, s.RecvMsg(nil))
 }
