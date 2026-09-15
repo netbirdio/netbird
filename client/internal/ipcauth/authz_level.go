@@ -26,7 +26,7 @@ const (
 	AuthzLevelPrivileged
 )
 
-// Strint() resolves a AuthzLevel to a human readable debug string.
+// String() resolves a AuthzLevel to a human readable debug string.
 func (l AuthzLevel) String() string {
 	switch l {
 	case AuthzLevelIdentified:
