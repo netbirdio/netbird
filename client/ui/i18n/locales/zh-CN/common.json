@@ -59,6 +59,9 @@
     "tray.menu.disconnect": {
         "message": "断开连接"
     },
+    "tray.menu.reconnect": {
+        "message": "重新连接"
+    },
     "tray.menu.exitNode": {
         "message": "出口节点"
     },
@@ -130,6 +133,9 @@
     },
     "notify.error.disconnect": {
         "message": "断开连接失败"
+    },
+    "notify.error.reconnect": {
+        "message": "重新连接失败"
     },
     "notify.error.switchProfile": {
         "message": "切换到 {profile} 失败"
