@@ -245,7 +245,7 @@ web:
 enablePasswordDB: true
 `
 	configPath := filepath.Join(tmpDir, "config.yaml")
-	err = os.WriteFile(configPath, []byte(yamlContent), 0644)
+	err = os.WriteFile(configPath, []byte(yamlContent), 0o644)
 	require.NoError(t, err)
 
 	// Load config and create provider
@@ -317,7 +317,7 @@ connectors:
     redirectURI: http://localhost:5556/dex/callback
 `
 	configPath := filepath.Join(tmpDir, "config.yaml")
-	err = os.WriteFile(configPath, []byte(yamlContent), 0644)
+	err = os.WriteFile(configPath, []byte(yamlContent), 0o644)
 	require.NoError(t, err)
 
 	yamlConfig, err := LoadConfig(configPath)
@@ -375,7 +375,7 @@ connectors:
     clientSecret: original-secret
 `
 	configPath := filepath.Join(tmpDir, "config.yaml")
-	err = os.WriteFile(configPath, []byte(yamlContent1), 0644)
+	err = os.WriteFile(configPath, []byte(yamlContent1), 0o644)
 	require.NoError(t, err)
 
 	yamlConfig1, err := LoadConfig(configPath)
@@ -417,7 +417,7 @@ connectors:
     clientID: updated-client-id
     clientSecret: updated-secret
 `
-	err = os.WriteFile(configPath, []byte(yamlContent2), 0644)
+	err = os.WriteFile(configPath, []byte(yamlContent2), 0o644)
 	require.NoError(t, err)
 
 	yamlConfig2, err := LoadConfig(configPath)
@@ -483,7 +483,7 @@ connectors:
     clientSecret: google-secret
 `
 	configPath := filepath.Join(tmpDir, "config.yaml")
-	err = os.WriteFile(configPath, []byte(yamlContent), 0644)
+	err = os.WriteFile(configPath, []byte(yamlContent), 0o644)
 	require.NoError(t, err)
 
 	yamlConfig, err := LoadConfig(configPath)
@@ -549,7 +549,7 @@ web:
 enablePasswordDB: true
 `
 	configPath := filepath.Join(tmpDir, "config.yaml")
-	err = os.WriteFile(configPath, []byte(yamlContent), 0644)
+	err = os.WriteFile(configPath, []byte(yamlContent), 0o644)
 	require.NoError(t, err)
 
 	yamlConfig, err := LoadConfig(configPath)
@@ -610,7 +610,7 @@ web:
 enablePasswordDB: true
 `
 	configPath := filepath.Join(tmpDir, "config.yaml")
-	err = os.WriteFile(configPath, []byte(yamlContent), 0644)
+	err = os.WriteFile(configPath, []byte(yamlContent), 0o644)
 	require.NoError(t, err)
 
 	yamlConfig, err := LoadConfig(configPath)
@@ -668,7 +668,7 @@ enablePasswordDB: true
 ` + grantTypesYAML
 
 	configPath := filepath.Join(tmpDir, "config.yaml")
-	require.NoError(t, os.WriteFile(configPath, []byte(yamlContent), 0644))
+	require.NoError(t, os.WriteFile(configPath, []byte(yamlContent), 0o644))
 
 	yamlConfig, err := LoadConfig(configPath)
 	require.NoError(t, err)
@@ -716,4 +716,70 @@ func TestHandler_AllowsDeviceEndpointsWhenGrantsDefault(t *testing.T) {
 	rec := httptest.NewRecorder()
 	provider.Handler().ServeHTTP(rec, req)
 	assert.NotEqual(t, http.StatusNotFound, rec.Code)
+}
+
+func TestInitializeStorage_SetsConnectorGrantTypes(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	yamlContent := `
+issuer: http://localhost:5556/dex
+storage:
+  type: sqlite3
+  config:
+    file: ` + filepath.Join(tmpDir, "dex.db") + `
+web:
+  http: 127.0.0.1:5556
+enablePasswordDB: true
+connectors:
+- type: oidc
+  id: my-oidc
+  name: My OIDC Provider
+  config:
+    issuer: https://accounts.example.com
+    clientID: test-client-id
+`
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte(yamlContent), 0o644))
+
+	yamlConfig, err := LoadConfig(configPath)
+	require.NoError(t, err)
+
+	stor := openTestStorage(t, tmpDir)
+	defer stor.Close()
+	require.NoError(t, initializeStorage(ctx, stor, yamlConfig))
+
+	connectors, err := stor.ListConnectors(ctx)
+	require.NoError(t, err)
+	require.Len(t, connectors, 2)
+	for _, conn := range connectors {
+		assert.Equal(t, DefaultGrantTypes, conn.GrantTypes, "connector %s", conn.ID)
+	}
+}
+
+func TestNewProvider_SetsGrantTypes(t *testing.T) {
+	ctx := context.Background()
+
+	provider, err := NewProvider(ctx, &Config{
+		Issuer:  "https://example.com/oauth2",
+		Port:    5556,
+		DataDir: t.TempDir(),
+	})
+	require.NoError(t, err)
+	defer func() { _ = provider.storage.Close() }()
+
+	req := httptest.NewRequest(http.MethodGet, "/oauth2/.well-known/openid-configuration", nil)
+	rec := httptest.NewRecorder()
+	provider.Handler().ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var discovery struct {
+		GrantTypes []string `json:"grant_types_supported"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &discovery))
+	assert.ElementsMatch(t, DefaultGrantTypes, discovery.GrantTypes)
+
+	local, err := provider.storage.GetConnector(ctx, "local")
+	require.NoError(t, err)
+	assert.Equal(t, DefaultGrantTypes, local.GrantTypes)
 }
