@@ -891,7 +891,7 @@ func readProfileOwners(path string) ([]ipcauth.Principal, error) {
 // recorded now.
 func StampOwner(path string, owner ipcauth.Identity) error {
 	if !owner.Known() {
-		return fmt.Errorf("cannot stamp owner that is verified by the kernel")
+		return fmt.Errorf("cannot stamp owner that is not verified by the kernel")
 	}
 	return stampPrincipal(path, ipcauth.OwnerPrincipalForIdentity(owner))
 }
