@@ -2,8 +2,10 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"os/user"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,9 +13,22 @@ import (
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
+	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
 )
+
+// claimOwner names an owner the platform could actually hold, the way
+// privilegedIdentity does for callers: a uid names nobody on Windows, where an
+// owner is a SID, so a hardcoded one is refused before a test reaches what it
+// is checking. The account itself need not exist, since a claim never looks one
+// up.
+func claimOwner(n uint32) string {
+	if runtime.GOOS == "windows" {
+		return ipcauth.OwnerPrincipalForIdentity(ipcauth.Identity{SID: fmt.Sprintf("S-1-5-21-1-2-3-%d", n)})
+	}
+	return ipcauth.OwnerPrincipalForIdentity(ipcauth.Identity{UID: n})
+}
 
 // claimTestServer points the profile manager at a temp dir holding one default
 // profile, which is the profile a claim exists to settle.
@@ -43,18 +58,19 @@ func claimTestServer(t *testing.T) *Server {
 func TestClaimProfile_RecordsTheOwner(t *testing.T) {
 	srv := claimTestServer(t)
 
+	owner := claimOwner(4242)
 	resp, err := srv.ClaimProfile(rootCtx(), &proto.ClaimProfileRequest{
 		Handle: "default",
-		Owner:  "uid:4242",
+		Owner:  owner,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "default", resp.GetId())
-	assert.Equal(t, "uid:4242", resp.GetOwner())
+	assert.Equal(t, owner, resp.GetOwner())
 
 	list, err := srv.ListProfiles(rootCtx(), &proto.ListProfilesRequest{})
 	require.NoError(t, err)
 	require.Len(t, list.GetProfiles(), 1)
-	assert.Equal(t, []string{"uid:4242"}, list.GetProfiles()[0].GetOwners(),
+	assert.Equal(t, []string{owner}, list.GetProfiles()[0].GetOwners(),
 		"the listing has to show the owner, it is the only way to confirm a claim")
 }
 
@@ -105,7 +121,7 @@ func TestClaimProfile_RefusesAnUnknownProfile(t *testing.T) {
 
 	_, err := srv.ClaimProfile(rootCtx(), &proto.ClaimProfileRequest{
 		Handle: "no-such-profile",
-		Owner:  "uid:4242",
+		Owner:  claimOwner(4242),
 	})
 	require.Error(t, err)
 	assert.Equal(t, codes.NotFound, gstatus.Convert(err).Code())
@@ -116,7 +132,7 @@ func TestClaimProfile_NeedsAnIdentifiedCaller(t *testing.T) {
 
 	_, err := srv.ClaimProfile(context.Background(), &proto.ClaimProfileRequest{
 		Handle: "default",
-		Owner:  "uid:4242",
+		Owner:  claimOwner(4242),
 	})
 	require.Error(t, err)
 	assert.Equal(t, codes.Unauthenticated, gstatus.Convert(err).Code())
@@ -126,7 +142,7 @@ func TestClaimProfile_NeedsAnIdentifiedCaller(t *testing.T) {
 // is the provisioning case: a machine-wide profile is configured before the
 // account that will own it.
 func TestClaimProfile_TakesAPrincipalWithoutResolvingIt(t *testing.T) {
-	for _, owner := range []string{"uid:4242", "uid:999999"} {
+	for _, owner := range []string{claimOwner(4242), claimOwner(999999)} {
 		t.Run(owner, func(t *testing.T) {
 			srv := claimTestServer(t)
 
