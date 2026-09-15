@@ -122,7 +122,12 @@ type WindowManager struct {
 	mu             sync.Mutex
 	createMu       sync.Mutex
 	newMain        func(startURL string) *application.WebviewWindow
-	ready          map[uint]bool
+	// painted gates showing a window: set by the frontend's first render, or by the
+	// fallback timer so a webview that never wakes up still becomes visible.
+	painted map[uint]bool
+	// mounted gates emitting to a window: set only by a real frontend report, since an
+	// event emitted to a frontend that has not subscribed yet is dropped, not queued.
+	mounted        map[uint]bool
 	showPending    map[uint]bool
 	pendingTab     map[uint]string
 	pendingEmits   map[uint][]string
@@ -147,7 +152,8 @@ func NewWindowManager(app *application.App, mainWindow *application.WebviewWindo
 		translator:     translator,
 		prefs:          prefs,
 		linuxIcon:      linuxIcon,
-		ready:          map[uint]bool{},
+		painted:        map[uint]bool{},
+		mounted:        map[uint]bool{},
 		showPending:    map[uint]bool{},
 		pendingTab:     map[uint]string{},
 		pendingEmits:   map[uint][]string{},
@@ -212,13 +218,13 @@ func (s *WindowManager) OpenSettings(tab string) {
 	w, _ := s.ensureWindow(&s.settings, s.newSettingsWindow)
 
 	s.mu.Lock()
-	ready := s.ready[w.ID()]
-	if !ready {
+	mounted := s.mounted[w.ID()]
+	if !mounted {
 		s.pendingTab[w.ID()] = target
 	}
 	s.mu.Unlock()
 
-	if ready {
+	if mounted {
 		s.app.Event.Emit(EventSettingsOpen, target)
 	}
 	s.showWhenReady(w)
@@ -559,14 +565,14 @@ func (s *WindowManager) ShowMainAndEmit(event string) {
 
 	id := w.ID()
 	s.mu.Lock()
-	ready := s.ready[id]
-	if !ready {
+	mounted := s.mounted[id]
+	if !mounted {
 		s.pendingEmits[id] = append(s.pendingEmits[id], event)
 	}
 	s.mu.Unlock()
 
 	s.showWhenReady(w)
-	if ready {
+	if mounted {
 		s.app.Event.Emit(event)
 	}
 }
@@ -608,24 +614,41 @@ func (s *WindowManager) ensureWindow(slot **application.WebviewWindow, factory f
 	return w, true
 }
 
+// armReady starts the fallback that shows w even if its frontend never reports a first
+// render. The timer starts at creation, because a hidden webview can be suspended before
+// it reaches WindowRuntimeReady — the very case this fallback covers. That makes the first
+// budget cover webview boot as well, so the runtime-ready hook rearms it to give the
+// frontend its own full budget to mount and paint.
 func (s *WindowManager) armReady(w *application.WebviewWindow) {
 	if w == nil {
 		return
 	}
+	s.armPaintedFallback(w)
+	w.RegisterHook(events.Common.WindowRuntimeReady, func(_ *application.WindowEvent) {
+		s.armPaintedFallback(w)
+	})
+}
+
+func (s *WindowManager) armPaintedFallback(w *application.WebviewWindow) {
 	id := w.ID()
 	timer := time.AfterFunc(paintedFallback, func() {
 		s.mu.Lock()
-		ready := s.ready[id]
+		painted := s.painted[id]
 		s.mu.Unlock()
-		if ready {
+		if painted {
 			return
 		}
 		log.Warnf("window %q never reported a first render, showing it anyway", w.Name())
-		s.markReady(w)
+		s.markPainted(w)
 	})
+
 	s.mu.Lock()
-	if s.ready[id] {
+	if prev := s.fallbackTimers[id]; prev != nil {
+		prev.Stop()
+	}
+	if s.painted[id] {
 		timer.Stop()
+		delete(s.fallbackTimers, id)
 	} else {
 		s.fallbackTimers[id] = timer
 	}
@@ -642,7 +665,8 @@ func (s *WindowManager) watchPainted() {
 			log.Debugf("ignoring stale painted report for window %q", e.Sender)
 			return
 		}
-		s.markReady(w)
+		s.markPainted(w)
+		s.markMounted(w)
 	})
 }
 
@@ -654,7 +678,7 @@ func (s *WindowManager) watchTriggerLogin() {
 			s.headlessTimer = nil
 		}
 		w := s.mainWindow
-		ready := w != nil && s.ready[w.ID()]
+		ready := w != nil && s.mounted[w.ID()]
 		s.mu.Unlock()
 		if ready {
 			return
@@ -669,7 +693,7 @@ func (s *WindowManager) watchTriggerLogin() {
 		if created {
 			s.headlessMain = true
 		}
-		pending := !s.ready[w.ID()]
+		pending := !s.mounted[w.ID()]
 		if pending {
 			s.pendingEmits[w.ID()] = append(s.pendingEmits[w.ID()], EventTriggerLogin)
 		}
@@ -730,7 +754,8 @@ func (s *WindowManager) forgetWindowLocked(w *application.WebviewWindow) {
 		timer.Stop()
 	}
 	delete(s.fallbackTimers, id)
-	delete(s.ready, id)
+	delete(s.painted, id)
+	delete(s.mounted, id)
 	delete(s.showPending, id)
 	delete(s.pendingTab, id)
 	delete(s.pendingEmits, id)
@@ -791,19 +816,35 @@ func (s *WindowManager) windowByName(name string) *application.WebviewWindow {
 	}
 }
 
-func (s *WindowManager) markReady(w *application.WebviewWindow) {
+func (s *WindowManager) markPainted(w *application.WebviewWindow) {
 	id := w.ID()
 	s.mu.Lock()
-	already := s.ready[id]
-	s.ready[id] = true
+	already := s.painted[id]
+	s.painted[id] = true
 	wanted := s.showPending[id]
-	tab, hasTab := s.pendingTab[id]
-	emits := s.pendingEmits[id]
+	delete(s.showPending, id)
 	if timer := s.fallbackTimers[id]; timer != nil {
 		timer.Stop()
 		delete(s.fallbackTimers, id)
 	}
-	delete(s.showPending, id)
+	s.mu.Unlock()
+
+	if already || !wanted {
+		return
+	}
+	s.showNow(w)
+}
+
+// markMounted records that the window's frontend is subscribed, and flushes the events
+// held back for it. The fallback timer never calls this: showing a blank window is
+// recoverable, emitting into a frontend that cannot hear it is not.
+func (s *WindowManager) markMounted(w *application.WebviewWindow) {
+	id := w.ID()
+	s.mu.Lock()
+	already := s.mounted[id]
+	s.mounted[id] = true
+	tab, hasTab := s.pendingTab[id]
+	emits := s.pendingEmits[id]
 	delete(s.pendingTab, id)
 	delete(s.pendingEmits, id)
 	s.mu.Unlock()
@@ -814,10 +855,6 @@ func (s *WindowManager) markReady(w *application.WebviewWindow) {
 
 	if hasTab {
 		s.app.Event.Emit(EventSettingsOpen, tab)
-	}
-
-	if wanted {
-		s.showNow(w)
 	}
 
 	for _, event := range emits {
@@ -832,13 +869,13 @@ func (s *WindowManager) showWhenReady(w *application.WebviewWindow) {
 
 	id := w.ID()
 	s.mu.Lock()
-	ready := s.ready[id]
-	if !ready {
+	painted := s.painted[id]
+	if !painted {
 		s.showPending[id] = true
 	}
 	s.mu.Unlock()
 
-	if ready {
+	if painted {
 		s.showNow(w)
 	}
 }
