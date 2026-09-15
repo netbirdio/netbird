@@ -17,6 +17,9 @@ ARCH="$(uname -m)"
 PACKAGE_MANAGER="bin"
 INSTALL_DIR=""
 SUDO=""
+# curl protocol set for --proto / --proto-redir: https and nothing else, so no
+# request and no redirect in a chain can fall back to plaintext.
+PROTO_HTTPS="=https"
 
 
 if command -v sudo > /dev/null && [ "$(id -u)" -ne 0 ]; then
@@ -84,9 +87,9 @@ download_release_binary() {
     echo "Installing $1 from $DOWNLOAD_URL"
     ARCHIVE_PATH="${NB_TMPDIR}/${BINARY_NAME}"
     if [ -n "$GITHUB_TOKEN" ]; then
-      curl -H  "Authorization: token ${GITHUB_TOKEN}" -L -o "$ARCHIVE_PATH" "$DOWNLOAD_URL"
+      curl -H  "Authorization: token ${GITHUB_TOKEN}" -L --proto "$PROTO_HTTPS" --proto-redir "$PROTO_HTTPS" -o "$ARCHIVE_PATH" "$DOWNLOAD_URL"
     else
-      curl -L -o "$ARCHIVE_PATH" "$DOWNLOAD_URL" || curl -L -o "$ARCHIVE_PATH" --dns-servers 8.8.8.8 "$DOWNLOAD_URL"
+      curl -L --proto "$PROTO_HTTPS" --proto-redir "$PROTO_HTTPS" -o "$ARCHIVE_PATH" "$DOWNLOAD_URL" || curl -L --proto "$PROTO_HTTPS" --proto-redir "$PROTO_HTTPS" -o "$ARCHIVE_PATH" --dns-servers 8.8.8.8 "$DOWNLOAD_URL"
     fi
 
 
@@ -120,7 +123,7 @@ add_apt_repo() {
         /usr/share/keyrings/netbird-archive-keyring.gpg \
         /usr/share/keyrings/wiretrustee-archive-keyring.gpg
 
-    curl -sSL https://pkgs.netbird.io/debian/public.key \
+    curl -sSL --proto "$PROTO_HTTPS" --proto-redir "$PROTO_HTTPS" https://pkgs.netbird.io/debian/public.key \
     | ${SUDO} gpg --dearmor -o /usr/share/keyrings/netbird-archive-keyring.gpg
 
     # Explicitly set the file permission
@@ -193,9 +196,9 @@ install_pkg() {
     *) echo "Unsupported macOS arch: $(uname -m)" >&2; exit 1 ;;
   esac
 
-  PKG_URL=$(curl -sIL -o /dev/null -w '%{url_effective}' "https://pkgs.netbird.io/macos/${ARCH}")
+  PKG_URL=$(curl -sIL --proto "$PROTO_HTTPS" --proto-redir "$PROTO_HTTPS" -o /dev/null -w '%{url_effective}' "https://pkgs.netbird.io/macos/${ARCH}")
   echo "Downloading NetBird macOS installer from https://pkgs.netbird.io/macos/${ARCH}"
-  curl -fsSL -o "${NB_TMPDIR}/netbird.pkg" "${PKG_URL}"
+  curl -fsSL --proto "$PROTO_HTTPS" --proto-redir "$PROTO_HTTPS" -o "${NB_TMPDIR}/netbird.pkg" "${PKG_URL}"
   ${SUDO} installer -pkg "${NB_TMPDIR}/netbird.pkg" -target /
 }
 
