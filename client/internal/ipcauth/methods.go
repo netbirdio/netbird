@@ -53,11 +53,6 @@ var methodPolicies = map[string]MethodPolicy{
 	servicePath + "GetFeatures":      {Level: AuthzLevelIdentified},
 	servicePath + "WailsUIReady":     {Level: AuthzLevelIdentified},
 
-	// Pending flows: bound to the principal that started them, at any level.
-	servicePath + "WaitSSOLogin":          {Level: AuthzLevelIdentified, Rules: []Rule{RequireFlowInitiator}, Audit: true},
-	servicePath + "WaitJWTToken":          {Level: AuthzLevelIdentified, Rules: []Rule{RequireFlowInitiator}, Audit: true},
-	servicePath + "WaitExtendAuthSession": {Level: AuthzLevelIdentified, Rules: []Rule{RequireFlowInitiator}},
-
 	// Owner of the profile the request names.
 	servicePath + "GetConfig":     {Level: AuthzLevelProfileOwner, TargetsProfile: true, Audit: true},
 	servicePath + "SetConfig":     {Level: AuthzLevelProfileOwner, TargetsProfile: true, Audit: true},
@@ -67,12 +62,14 @@ var methodPolicies = map[string]MethodPolicy{
 	servicePath + "RemoveProfile": {Level: AuthzLevelProfileOwner, TargetsProfile: true, Audit: true},
 	servicePath + "SwitchProfile": {Level: AuthzLevelSessionHolder, TargetsProfile: true, Audit: true},
 
-	// Owner of some profile
+	// Owner of the active profile, which is what an empty target resolves to.
 	servicePath + "GetLogLevel":        {Level: AuthzLevelProfileOwner},
 	servicePath + "ListStates":         {Level: AuthzLevelProfileOwner},
 	servicePath + "GetInstallerResult": {Level: AuthzLevelProfileOwner},
 
-	// Session holder: the live engine and everything daemon-wide.
+	// Session holder: the live engine and everything daemon-wide. A pending
+	// authentication flow belongs to the profile it was started for, so each
+	// Wait sits at the level of the RPC that starts it.
 	servicePath + "Up":                         {Level: AuthzLevelSessionHolder, TargetsProfile: true, Audit: true},
 	servicePath + "Down":                       {Level: AuthzLevelSessionHolder, Audit: true},
 	servicePath + "SubscribeStatus":            {Level: AuthzLevelSessionHolder},
@@ -85,7 +82,10 @@ var methodPolicies = map[string]MethodPolicy{
 	servicePath + "ExposeService":              {Level: AuthzLevelSessionHolder, Audit: true},
 	servicePath + "GetPeerSSHHostKey":          {Level: AuthzLevelSessionHolder},
 	servicePath + "RequestJWTAuth":             {Level: AuthzLevelSessionHolder, Audit: true},
+	servicePath + "WaitJWTToken":               {Level: AuthzLevelSessionHolder, Audit: true},
 	servicePath + "RequestExtendAuthSession":   {Level: AuthzLevelSessionHolder},
+	servicePath + "WaitExtendAuthSession":      {Level: AuthzLevelSessionHolder},
+	servicePath + "WaitSSOLogin":               {Level: AuthzLevelSessionHolder, Audit: true},
 	servicePath + "DismissSessionWarning":      {Level: AuthzLevelSessionHolder},
 	servicePath + "DebugBundle":                {Level: AuthzLevelSessionHolder, Audit: true},
 	servicePath + "SetLogLevel":                {Level: AuthzLevelSessionHolder},

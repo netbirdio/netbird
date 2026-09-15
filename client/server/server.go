@@ -165,9 +165,9 @@ type oauthAuthFlow struct {
 	info      auth.AuthFlowInfo
 
 	// cacheGeneration is the SSH JWT cache's generation as of the start of the
-	// request that created this flow. The flow outlives a profile switch, so
-	// reading the generation any later — when the IdP has answered, or when the
-	// token finally arrives — would read the new session's one and let the old
+	// request that created this flow. A logout or a profile switch clears the
+	// flow, but the IdP may already have been polled by then, so reading the
+	// generation any later would read the new session's one and let the old
 	// session's token into the new session's cache.
 	cacheGeneration uint64
 
@@ -1277,6 +1277,7 @@ func (s *Server) SwitchProfile(callerCtx context.Context, msg *proto.SwitchProfi
 	s.localMetrics.Reconcile(config.LocalMetricsEnabled, config.LocalMetricsAddress)
 
 	s.jwtCache.clear()
+	s.clearPendingAuthFlows()
 
 	if msg != nil && msg.ProfileName != nil {
 		s.publishProfileListChanged(*msg.ProfileName)
@@ -1335,8 +1336,24 @@ func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownRes
 	return &proto.DownResponse{}, nil
 }
 
-func (s *Server) cleanupConnection() error {
+// clearPendingAuthFlows drops both pending authentication flows and wakes their
+// waiters. A flow is only ever authorized against the profile that was active
+// when it started, so leaving one behind across a switch or a logout would hand
+// its result to whoever owns the profile that comes next.
+//
+// The caller holds s.mutex.
+func (s *Server) clearPendingAuthFlows() {
+	if s.oauthAuthFlow.waitCancel != nil {
+		s.oauthAuthFlow.waitCancel()
+	}
 	s.oauthAuthFlow = oauthAuthFlow{}
+
+	s.extendAuthSessionFlow.CancelWait()
+	s.extendAuthSessionFlow.Clear()
+}
+
+func (s *Server) cleanupConnection() error {
+	s.clearPendingAuthFlows()
 
 	if s.actCancel == nil {
 		return ErrServiceNotUp
