@@ -34,7 +34,7 @@ import { isNetbirdCloud } from "@/hooks/useManagementUrl.ts";
 import { SectionGroup, SettingsBottomBar } from "@/modules/settings/SettingsSection.tsx";
 import { cn } from "@/lib/cn";
 import { reconcileOrder } from "@/lib/sorting";
-import { errorDialog, formatErrorMessage } from "@/lib/errors";
+import { errorDialogFor } from "@/lib/errors";
 
 const DEFAULT_PROFILE_ID = "default";
 
@@ -84,10 +84,7 @@ export function ProfilesTab() {
         try {
             await fn();
         } catch (e) {
-            await errorDialog({
-                Title: title,
-                Message: formatErrorMessage(e),
-            });
+            await errorDialogFor(title, e);
         } finally {
             setBusy(false);
         }

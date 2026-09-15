@@ -14,7 +14,7 @@ import type { Config } from "@bindings/services/models.js";
 import i18next from "@/lib/i18n";
 import { useProfile } from "@/contexts/ProfileContext.tsx";
 import { SettingsSkeleton } from "@/modules/settings/SettingsSkeleton.tsx";
-import { errorCommand, errorDialog, formatErrorMessage as errorMessage } from "@/lib/errors.ts";
+import { errorDialogFor } from "@/lib/errors.ts";
 
 const SAVE_DEBOUNCE_MS = 400;
 
@@ -116,10 +116,7 @@ const useSettingsState = () => {
                 setLoaded({ profileName: activeProfileId, data });
             } catch (e) {
                 if (cancelled || !showError) return;
-                await errorDialog({
-                    Title: i18next.t("settings.error.loadTitle"),
-                    Message: errorMessage(e),
-                });
+                await errorDialogFor(i18next.t("settings.error.loadTitle"), e);
             }
         };
 
@@ -177,11 +174,7 @@ const useSettingsState = () => {
                 // holds before reporting, so the UI never shows a value the
                 // daemon does not have.
                 await reload(profileName);
-                await errorDialog({
-                    Title: i18next.t("settings.error.saveTitle"),
-                    Message: errorMessage(e),
-                    Command: errorCommand(e),
-                });
+                await errorDialogFor(i18next.t("settings.error.saveTitle"), e);
             }
         },
         [username, reload],
@@ -268,11 +261,7 @@ const useSettingsState = () => {
                 // through here at all; this is a prompt that could not be raised,
                 // which carries the command that would have done it.
                 await reload(cur.profileName);
-                await errorDialog({
-                    Title: i18next.t("settings.error.saveTitle"),
-                    Message: errorMessage(e),
-                    Command: errorCommand(e),
-                });
+                await errorDialogFor(i18next.t("settings.error.saveTitle"), e);
                 return;
             }
             // Either the change went through or the user declined it. The daemon
@@ -361,10 +350,7 @@ export const AutostartSettingsProvider = ({ children }: { children: ReactNode })
             await Autostart.SetEnabled(enabled);
         } catch (e) {
             setAutostart((s) => (s ? { ...s, enabled: !enabled } : s));
-            await errorDialog({
-                Title: i18next.t("settings.general.autostart.errorTitle"),
-                Message: errorMessage(e),
-            });
+            await errorDialogFor(i18next.t("settings.general.autostart.errorTitle"), e);
         }
     }, []);
 

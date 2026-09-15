@@ -2637,15 +2637,21 @@ func (s *Server) GetActiveProfile(ctx context.Context, msg *proto.GetActiveProfi
 		return nil, gstatus.Error(codes.Unauthenticated, "caller identity could not be resolved")
 	}
 
-	// Fallback to legacy name == ID
-	displayName := activeProfile.ID.String()
-	if activeProfile.ID != profilemanager.DefaultProfileName {
-		if profiles, lerr := s.profileManager.ListProfiles(userID); lerr == nil {
-			for _, p := range profiles {
-				if p.ID == activeProfile.ID {
-					displayName = p.Name
-					break
-				}
+	// The name is resolved through the caller's own listing, so a profile
+	// belonging to somebody else is not in it. Leave the name empty rather than
+	// falling back to the ID: a 32 character hex string tells the user nothing,
+	// and the owner's chosen name is not the caller's to read. Clients render
+	// their own wording for an active profile that is not theirs.
+	//
+	// A legacy profile is its own name, so the ID stands in for it.
+	displayName := ""
+	if activeProfile.ID == profilemanager.DefaultProfileName {
+		displayName = activeProfile.ID.String()
+	} else if profiles, lerr := s.profileManager.ListProfiles(userID); lerr == nil {
+		for _, p := range profiles {
+			if p.ID == activeProfile.ID {
+				displayName = p.Name
+				break
 			}
 		}
 	}
