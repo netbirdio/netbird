@@ -5,6 +5,7 @@ package services
 import (
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -31,6 +32,9 @@ const EventBrowserLoginCancel = "browser-login:cancel"
 const EventSettingsOpen = "netbird:settings:open"
 
 const EventWindowPainted = "netbird:window-painted"
+
+// generationParam carries the painted-report token in each dialog's start URL.
+const generationParam = "gen"
 
 const paintedFallback = 3 * time.Second
 
@@ -124,6 +128,11 @@ type WindowManager struct {
 	pendingEmits   map[uint][]string
 	fallbackTimers map[uint]*time.Timer
 	afterShow      map[uint]func()
+	// generation maps a window name to the token stamped into its current start URL, so a
+	// painted report from a replaced window can be told apart from the live one's. Keyed by
+	// name, not ID, because the URL is built before the window (and its ID) exists.
+	generation     map[string]uint64
+	lastGeneration uint64
 	headlessMain   bool
 	headlessTimer  *time.Timer
 	// recenterOnShow is set only on the minimal-WM/XEmbed path, where the WM neither centers nor
@@ -144,6 +153,7 @@ func NewWindowManager(app *application.App, mainWindow *application.WebviewWindo
 		pendingEmits:   map[uint][]string{},
 		fallbackTimers: map[uint]*time.Timer{},
 		afterShow:      map[uint]func(){},
+		generation:     map[string]uint64{},
 	}
 	s.watchPainted()
 	s.watchTriggerLogin()
@@ -223,7 +233,7 @@ func (s *WindowManager) OpenBrowserLogin(uri string) {
 			startURL = "/#/dialog/browser-login?uri=" + url.QueryEscape(uri)
 		}
 		s.hideOtherWindowsLocked("browser-login")
-		opts := DialogWindowOptions("browser-login", s.title("window.title.signIn"), startURL, s.linuxIcon)
+		opts := DialogWindowOptions("browser-login", s.title("window.title.signIn"), s.stampGenerationLocked("browser-login", startURL), s.linuxIcon)
 		// Not always-on-top: it would obscure the browser tab the user logs in through.
 		opts.AlwaysOnTop = false
 		opts.InitialPosition = application.WindowCentered
@@ -257,7 +267,7 @@ func (s *WindowManager) OpenBrowserLogin(uri string) {
 	bl := s.browserLogin
 	s.mu.Unlock()
 	if uri != "" {
-		bl.SetURL("/#/dialog/browser-login?uri=" + url.QueryEscape(uri))
+		bl.SetURL(s.stampGeneration("browser-login", "/#/dialog/browser-login?uri="+url.QueryEscape(uri)))
 	}
 	s.centerOnCursorScreen(bl)
 	log.Debugf("browser-login popup reused")
@@ -330,7 +340,7 @@ func (s *WindowManager) OpenSessionExpiration(seconds int, deadlineUnixMilli int
 	}
 	s.mu.Lock()
 	if s.sessionExpiration == nil {
-		opts := DialogWindowOptions("session-expiration", s.title("window.title.sessionExpiration"), startURL, s.linuxIcon)
+		opts := DialogWindowOptions("session-expiration", s.title("window.title.sessionExpiration"), s.stampGenerationLocked("session-expiration", startURL), s.linuxIcon)
 		opts.Screen = s.getScreenBasedOnCursorPosition()
 		opts.InitialPosition = application.WindowCentered
 		w := s.app.Window.NewWithOptions(opts)
@@ -351,7 +361,7 @@ func (s *WindowManager) OpenSessionExpiration(seconds int, deadlineUnixMilli int
 	}
 	w := s.sessionExpiration
 	s.mu.Unlock()
-	w.SetURL(startURL)
+	w.SetURL(s.stampGeneration("session-expiration", startURL))
 	s.centerOnCursorScreen(w)
 	s.showWhenReady(w)
 }
@@ -406,7 +416,7 @@ func (s *WindowManager) OpenInstallProgress(version string) {
 	if s.installProgress == nil {
 		s.hideOtherWindowsLocked("install-progress")
 		w := s.app.Window.NewWithOptions(
-			DialogWindowOptions("install-progress", s.title("window.title.updating"), startURL, s.linuxIcon),
+			DialogWindowOptions("install-progress", s.title("window.title.updating"), s.stampGenerationLocked("install-progress", startURL), s.linuxIcon),
 		)
 		s.installProgress = w
 		w.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
@@ -428,7 +438,7 @@ func (s *WindowManager) OpenInstallProgress(version string) {
 	}
 	w := s.installProgress
 	s.mu.Unlock()
-	w.SetURL(startURL)
+	w.SetURL(s.stampGeneration("install-progress", startURL))
 	s.showWhenReady(w)
 }
 
@@ -452,7 +462,7 @@ func (s *WindowManager) CloseInstallProgress() {
 func (s *WindowManager) OpenWelcome() {
 	s.mu.Lock()
 	if s.welcome == nil {
-		opts := DialogWindowOptions("welcome", s.title("window.title.welcome"), "/#/dialog/welcome", s.linuxIcon)
+		opts := DialogWindowOptions("welcome", s.title("window.title.welcome"), s.stampGenerationLocked("welcome", "/#/dialog/welcome"), s.linuxIcon)
 		opts.Width = 420
 		opts.InitialPosition = application.WindowCentered
 		w := s.app.Window.NewWithOptions(opts)
@@ -497,7 +507,7 @@ func (s *WindowManager) OpenError(title, message, command string) {
 	s.mu.Lock()
 	if s.errorDialog == nil {
 		w := s.app.Window.NewWithOptions(
-			DialogWindowOptions("error", s.title("window.title.error"), startURL, s.linuxIcon),
+			DialogWindowOptions("error", s.title("window.title.error"), s.stampGenerationLocked("error", startURL), s.linuxIcon),
 		)
 		s.errorDialog = w
 		w.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
@@ -515,7 +525,7 @@ func (s *WindowManager) OpenError(title, message, command string) {
 	}
 	w := s.errorDialog
 	s.mu.Unlock()
-	w.SetURL(startURL)
+	w.SetURL(s.stampGeneration("error", startURL))
 	s.showWhenReady(w)
 }
 
@@ -624,9 +634,15 @@ func (s *WindowManager) armReady(w *application.WebviewWindow) {
 
 func (s *WindowManager) watchPainted() {
 	s.app.Event.On(EventWindowPainted, func(e *application.CustomEvent) {
-		if w := s.windowByName(e.Sender); w != nil {
-			s.markReady(w)
+		w := s.windowByName(e.Sender)
+		if w == nil {
+			return
 		}
+		if !s.matchesGeneration(e.Sender, paintedGeneration(e.Data)) {
+			log.Debugf("ignoring stale painted report for window %q", e.Sender)
+			return
+		}
+		s.markReady(w)
 	})
 }
 
@@ -719,6 +735,7 @@ func (s *WindowManager) forgetWindowLocked(w *application.WebviewWindow) {
 	delete(s.pendingTab, id)
 	delete(s.pendingEmits, id)
 	delete(s.afterShow, id)
+	delete(s.generation, w.Name())
 
 	kept := s.hiddenForLogin[:0]
 	for _, hidden := range s.hiddenForLogin {
@@ -727,6 +744,28 @@ func (s *WindowManager) forgetWindowLocked(w *application.WebviewWindow) {
 		}
 	}
 	s.hiddenForLogin = kept
+}
+
+func (s *WindowManager) stampGeneration(name, startURL string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.stampGenerationLocked(name, startURL)
+}
+
+func (s *WindowManager) stampGenerationLocked(name, startURL string) string {
+	s.lastGeneration++
+	s.generation[name] = s.lastGeneration
+	return appendGeneration(startURL, s.lastGeneration)
+}
+
+func (s *WindowManager) matchesGeneration(name string, gen uint64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	want, tracked := s.generation[name]
+	if !tracked {
+		return true
+	}
+	return want == gen
 }
 
 func (s *WindowManager) windowByName(name string) *application.WebviewWindow {
@@ -1025,6 +1064,38 @@ func errorDialogURL(title, message, command string) string {
 		startURL += "?" + enc
 	}
 	return startURL
+}
+
+// appendGeneration adds the painted-report token to a dialog start URL, keeping any
+// existing query params intact across the "/#/path?params" hash-router form.
+func appendGeneration(startURL string, gen uint64) string {
+	sep := "?"
+	if strings.Contains(startURL, "?") {
+		sep = "&"
+	}
+	return startURL + sep + generationParam + "=" + strconv.FormatUint(gen, 10)
+}
+
+// paintedGeneration reads the token a painted report carries back, returning 0 when the
+// frontend sent none (an older bundle, or the main window, which is never re-stamped).
+func paintedGeneration(data any) uint64 {
+	switch v := data.(type) {
+	case string:
+		gen, err := strconv.ParseUint(v, 10, 64)
+		if err != nil {
+			return 0
+		}
+		return gen
+	case float64:
+		return uint64(v)
+	case []any:
+		if len(v) == 0 {
+			return 0
+		}
+		return paintedGeneration(v[0])
+	default:
+		return 0
+	}
 }
 
 // u32ptr returns a pointer to v, for the optional *uint32 Wails theme fields.
