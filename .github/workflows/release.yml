@@ -358,6 +358,24 @@ jobs:
           path: dist/netbird_darwin**
           retention-days: 7
 
+  # Certify and publish the rootless UBI client image in the Red Hat Ecosystem
+  # Catalog. Stable tags only: goreleaser pushes <version>-rootless-ubi to
+  # ghcr.io in the release job above, and preflight submits every architecture
+  # of that manifest list to Pyxis. Auto-publish on the component makes the new
+  # version public once certification passes.
+  redhat_certification:
+    name: "Red Hat / Certify rootless UBI image"
+    needs: release
+    if: |
+      github.repository == 'netbirdio/netbird' &&
+      startsWith(github.ref, 'refs/tags/v') &&
+      !contains(github.ref_name, '-')
+    uses: ./.github/workflows/redhat-certification.yml
+    with:
+      version: ${{ github.ref_name }}
+    secrets:
+      PYXIS_API_TOKEN: ${{ secrets.PYXIS_API_TOKEN }}
+
   release_ui:
     runs-on: ubuntu-latest
     outputs:
