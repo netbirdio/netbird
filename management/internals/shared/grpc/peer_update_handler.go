@@ -117,6 +117,7 @@ func (pu *PeerUpdateHandler) SendUpdate(ctx context.Context, update *network_map
 		return status.Errorf(codes.Internal, "failed processing update message")
 	}
 
+	stampCertificateChallenges(update.Update.GetChecks(), pu.peerKey, key)
 	encryptedResp, err := pu.encrypter.EncryptMessage(pu.peerKey, key, update.Update)
 	if err != nil {
 		pu.cleanupFunc()
