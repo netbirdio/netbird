@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/json"
+	"io"
 	"net"
 	"net/netip"
 	"net/url"
@@ -846,6 +847,7 @@ func TestAddConfig_AllFieldsCovered(t *testing.T) {
 		"Name":                 "non-config: profile name is not needed for debug purposes",
 		"policy":               "non-config: in-memory MDM policy snapshot, surfaced via Config.Policy() / GetConfigResponse.MDMManagedFields",
 		"DebugBundleUploadURL": "sensitive: MDM-provided upload URL may carry credentials or query tokens; kept out of the shared bundle",
+		"Owners":               "non-config: owner information is not needed for debug purposes",
 	}
 
 	mURL, _ := url.Parse("https://api.example.com:443")
@@ -968,4 +970,175 @@ func renderAddConfigSpecific(g *BundleGenerator) string {
 
 func newAnonymizerForTest() *anonymize.Anonymizer {
 	return anonymize.NewAnonymizer(anonymize.DefaultAddresses())
+}
+
+// writeProfileJSON writes a profile config with the given display name and
+// owner principals, mirroring what the profile manager persists.
+func writeProfileJSON(t *testing.T, path, name string, owners []string) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
+	data, err := json.Marshal(map[string]any{"Name": name, "Owners": owners})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path, data, 0o600))
+}
+
+// setupProfilesDir points the profile manager at a temporary state directory
+// laid out the way the daemon writes it, with the default profile at the top
+// level and further profiles in subdirectories.
+func setupProfilesDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+
+	origDir := profilemanager.DefaultConfigPathDir
+	origDefault := profilemanager.DefaultConfigPath
+	origActive := profilemanager.ActiveProfileStatePath
+	t.Cleanup(func() {
+		profilemanager.DefaultConfigPathDir = origDir
+		profilemanager.DefaultConfigPath = origDefault
+		profilemanager.ActiveProfileStatePath = origActive
+	})
+
+	profilemanager.DefaultConfigPathDir = dir
+	profilemanager.DefaultConfigPath = filepath.Join(dir, "default.json")
+	profilemanager.ActiveProfileStatePath = filepath.Join(dir, "active_profile.json")
+
+	return dir
+}
+
+func bundleFiles(t *testing.T, add func(g *BundleGenerator) error) map[string]string {
+	t.Helper()
+
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	g := &BundleGenerator{
+		anonymizer: anonymize.NewAnonymizer(anonymize.DefaultAddresses()),
+		archive:    zw,
+	}
+	require.NoError(t, add(g))
+	require.NoError(t, zw.Close())
+
+	zr, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	require.NoError(t, err)
+
+	files := make(map[string]string, len(zr.File))
+	for _, f := range zr.File {
+		rc, err := f.Open()
+		require.NoError(t, err)
+		content, err := io.ReadAll(rc)
+		require.NoError(t, rc.Close())
+		require.NoError(t, err)
+		files[f.Name] = string(content)
+	}
+	return files
+}
+
+func TestAddProfiles(t *testing.T) {
+	t.Run("collects id, name and owners per profile", func(t *testing.T) {
+		dir := setupProfilesDir(t)
+
+		writeProfileJSON(t, profilemanager.DefaultConfigPath, "default", nil)
+		writeProfileJSON(t, filepath.Join(dir, "alice", "aaaa1111.json"), "work", []string{"uid:1000"})
+		writeProfileJSON(t, filepath.Join(dir, "bob", "bbbb2222.json"), "home", []string{"uid:1001"})
+		// State files sit next to the profiles and must not be listed as one.
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "alice", "aaaa1111.state.json"), []byte(`{"email":"a@b.c"}`), 0o600))
+
+		active, err := json.Marshal(map[string]string{"name": "aaaa1111", "username": "alice"})
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(profilemanager.ActiveProfileStatePath, active, 0o600))
+
+		files := bundleFiles(t, (*BundleGenerator).addProfiles)
+
+		profiles := files[profilesBundleFile]
+		require.NotEmpty(t, profiles, "bundle should contain %s", profilesBundleFile)
+
+		assert.Contains(t, profiles, "Profiles found: 3", "default plus both subdirectory profiles should be listed")
+		assert.Contains(t, profiles, "[aaaa1111]")
+		assert.Contains(t, profiles, "Name:   work")
+		assert.Contains(t, profiles, "Owners: uid:1000")
+		assert.Contains(t, profiles, "[bbbb2222]")
+		assert.Contains(t, profiles, "Owners: uid:1001")
+		assert.NotContains(t, profiles, "aaaa1111.state.json", "state files are not profiles")
+
+		// The default profile carries no owners yet.
+		assert.Contains(t, profiles, "Owners: (none)")
+
+		assert.Equal(t, string(active), files[activeProfileBundleFile], "active profile state should be dumped verbatim")
+	})
+
+	t.Run("reports every owner, not only the honored one", func(t *testing.T) {
+		dir := setupProfilesDir(t)
+		// The client honors the first owner only, so extra entries are invisible
+		// to it and worth surfacing in the bundle.
+		writeProfileJSON(t, filepath.Join(dir, "alice", "aaaa1111.json"), "work", []string{"uid:1000", "uid:1001", "bogus"})
+
+		entries := collectProfileEntries(nil)
+		require.Len(t, entries, 1)
+		assert.Equal(t, []string{"uid:1000", "uid:1001", "bogus"}, entries[0].owners, "the whole owners list should be reported")
+	})
+
+	t.Run("marks the active profile in any subdirectory", func(t *testing.T) {
+		dir := setupProfilesDir(t)
+
+		writeProfileJSON(t, filepath.Join(dir, "some-dir", "aaaa1111.json"), "work", []string{"uid:1000"})
+		writeProfileJSON(t, filepath.Join(dir, "other-dir", "bbbb2222.json"), "home", []string{"uid:1001"})
+
+		active, err := json.Marshal(map[string]string{"name": "aaaa1111", "username": "nonexistent"})
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(profilemanager.ActiveProfileStatePath, active, 0o600))
+
+		entries := collectProfileEntries(mustActiveState(t))
+		require.Len(t, entries, 2)
+
+		for _, entry := range entries {
+			assert.Equal(t, entry.id == "aaaa1111", entry.isActive, "active state should match on ID alone, got %+v", entry)
+		}
+	})
+
+	t.Run("missing active profile state still lists profiles", func(t *testing.T) {
+		dir := setupProfilesDir(t)
+		writeProfileJSON(t, filepath.Join(dir, "alice", "aaaa1111.json"), "work", []string{"uid:1000"})
+
+		files := bundleFiles(t, (*BundleGenerator).addProfiles)
+
+		assert.Contains(t, files[profilesBundleFile], "[aaaa1111]")
+		assert.Contains(t, files[profilesBundleFile], "Active profile: none recorded")
+		assert.NotContains(t, files, activeProfileBundleFile, "no state file means nothing to dump")
+	})
+
+	t.Run("keeps an empty active profile state file", func(t *testing.T) {
+		dir := setupProfilesDir(t)
+		writeProfileJSON(t, filepath.Join(dir, "alice", "aaaa1111.json"), "work", []string{"uid:1000"})
+		// A truncated write leaves the file in place with no content. The bundle
+		// has to show that, not look like the file was never written.
+		require.NoError(t, os.WriteFile(profilemanager.ActiveProfileStatePath, nil, 0o600))
+
+		files := bundleFiles(t, (*BundleGenerator).addProfiles)
+
+		raw, ok := files[activeProfileBundleFile]
+		assert.True(t, ok, "an empty state file should still be dumped")
+		assert.Empty(t, raw)
+		assert.Contains(t, files[profilesBundleFile], "Active profile: unknown")
+	})
+
+	t.Run("records a parse error and keeps the other profiles", func(t *testing.T) {
+		dir := setupProfilesDir(t)
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, "alice"), 0o700))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "alice", "aaaa1111.json"), []byte("{broken"), 0o600))
+		writeProfileJSON(t, filepath.Join(dir, "alice", "bbbb2222.json"), "work", []string{"uid:1000"})
+
+		entries := collectProfileEntries(nil)
+		require.Len(t, entries, 2)
+		assert.Error(t, entries[0].loadErr, "the unreadable profile should carry its error")
+		assert.Equal(t, "aaaa1111", entries[0].name, "an unreadable profile falls back to its ID as the name")
+		assert.NoError(t, entries[1].loadErr)
+		assert.Equal(t, "work", entries[1].name)
+	})
+}
+
+func mustActiveState(t *testing.T) *profilemanager.ActiveProfileState {
+	t.Helper()
+	state, _, err := readActiveProfileState()
+	require.NoError(t, err)
+	require.NotNil(t, state)
+	return state
 }

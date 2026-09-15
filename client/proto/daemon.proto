@@ -835,6 +835,7 @@ message Profile {
   string name = 1;
   bool is_active = 2;
   string id = 3;
+  repeated string owners = 4;
 }
 
 message GetActiveProfileRequest {}

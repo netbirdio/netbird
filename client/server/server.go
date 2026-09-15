@@ -165,9 +165,9 @@ type oauthAuthFlow struct {
 	info      auth.AuthFlowInfo
 
 	// cacheGeneration is the SSH JWT cache's generation as of the start of the
-	// request that created this flow. The flow outlives a profile switch, so
-	// reading the generation any later — when the IdP has answered, or when the
-	// token finally arrives — would read the new session's one and let the old
+	// request that created this flow. A logout or a profile switch clears the
+	// flow, but the IdP may already have been polled by then, so reading the
+	// generation any later would read the new session's one and let the old
 	// session's token into the new session's cache.
 	cacheGeneration uint64
 
@@ -1277,6 +1277,7 @@ func (s *Server) SwitchProfile(callerCtx context.Context, msg *proto.SwitchProfi
 	s.localMetrics.Reconcile(config.LocalMetricsEnabled, config.LocalMetricsAddress)
 
 	s.jwtCache.clear()
+	s.clearPendingAuthFlows()
 
 	if msg != nil && msg.ProfileName != nil {
 		s.publishProfileListChanged(*msg.ProfileName)
@@ -1335,8 +1336,24 @@ func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownRes
 	return &proto.DownResponse{}, nil
 }
 
-func (s *Server) cleanupConnection() error {
+// clearPendingAuthFlows drops both pending authentication flows and wakes their
+// waiters. A flow is only ever authorized against the profile that was active
+// when it started, so leaving one behind across a switch or a logout would hand
+// its result to whoever owns the profile that comes next.
+//
+// The caller holds s.mutex.
+func (s *Server) clearPendingAuthFlows() {
+	if s.oauthAuthFlow.waitCancel != nil {
+		s.oauthAuthFlow.waitCancel()
+	}
 	s.oauthAuthFlow = oauthAuthFlow{}
+
+	s.extendAuthSessionFlow.CancelWait()
+	s.extendAuthSessionFlow.Clear()
+}
+
+func (s *Server) cleanupConnection() error {
+	s.clearPendingAuthFlows()
 
 	if s.actCancel == nil {
 		return ErrServiceNotUp
@@ -2303,7 +2320,11 @@ func (s *Server) AddProfile(ctx context.Context, msg *proto.AddProfileRequest) (
 		return nil, gstatus.Errorf(codes.InvalidArgument, "profile name and username must be provided")
 	}
 
-	created, err := s.profileManager.AddProfile(msg.ProfileName, msg.Username)
+	callerId, ok := ipcauth.CallerIdentity(ctx)
+	if !ok {
+		return nil, fmt.Errorf("failed to get identity from context")
+	}
+	created, err := s.profileManager.AddProfile(msg.ProfileName, msg.Username, &callerId)
 	if err != nil {
 		log.Errorf("failed to create profile: %v", err)
 		return nil, fmt.Errorf("failed to create profile: %w", err)
@@ -2722,6 +2743,35 @@ func (s *Server) authorizeAndPrepareLogin(callerCtx context.Context, msg *proto.
 	}
 
 	return ctx, activeProf, nil
+}
+
+// SessionHolder returns the principal that owns the active profile while it is
+// connected. The owner is a config value, so it stays a principal and is never
+// turned into an identity.
+//
+// Only the first owner is read. The field is a list on disk so multiple owners
+// can be added later without a format change, but multiple owners are not
+// supported yet.
+func (s *Server) SessionHolder() (ipcauth.Principal, bool) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if !s.clientRunning || len(s.config.Owners) == 0 {
+		return ipcauth.Principal{}, false
+	}
+
+	// The zero Principal matches nobody, so an unparseable owner locks the
+	// session rather than opening it.
+	principal, ok := ipcauth.ParsePrincipal(s.config.Owners[0])
+	if !ok {
+		log.Warnf("active profile has an unparseable owner %q", s.config.Owners[0])
+	}
+	return principal, true
+}
+
+func (s *Server) OwnsProfile(id ipcauth.Identity, handle string) bool {
+	// TODO
+	return false
 }
 
 func persistLoginOverrides(activeProf *profilemanager.ActiveProfileState, managementURL string, preSharedKey *string) error {

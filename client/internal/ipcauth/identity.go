@@ -13,6 +13,8 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strconv"
+	"strings"
 
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/peer"
@@ -54,7 +56,14 @@ type Identity struct {
 	// process dialling itself, which is what the JSON gateway does, and is never
 	// used to grant anything.
 	PID int32
+
+	// known marks if an identity was provided by the kernel. Without it, an
+	// empty Identity struct would resolve as root.
+	known bool
 }
+
+// Known reports whether this identity came from a kernel credential read.
+func (i Identity) Known() bool { return i.known }
 
 // IsWindows reports whether this identity is a Windows principal (SID-based)
 // rather than a Unix uid/gid principal.
@@ -75,6 +84,9 @@ func (i Identity) IsWindows() bool {
 // (Domain Admins and friends) are deliberately not consulted: they say
 // nothing about what this token may do on this machine.
 func (i Identity) IsPrivileged() bool {
+	if !i.known {
+		return false
+	}
 	if !i.IsWindows() {
 		return i.UID == 0
 	}
@@ -98,6 +110,9 @@ func (i Identity) IsPrivileged() bool {
 // happen to leave at zero. The zero Identity carries uid 0, so callers must
 // establish that both identities are real before the answer means anything.
 func (i Identity) SameUser(other Identity) bool {
+	if !i.known || !other.known {
+		return false
+	}
 	if i.SID != "" || other.SID != "" {
 		return i.SID == other.SID
 	}
@@ -106,6 +121,11 @@ func (i Identity) SameUser(other Identity) bool {
 
 // String renders the identity for audit logs and denial messages.
 func (i Identity) String() string {
+	// An unknown identity has a zero UID, which would print as "uid=0" and read
+	// as root in an audit trail.
+	if !i.known {
+		return "unidentified"
+	}
 	if i.IsWindows() {
 		return fmt.Sprintf("sid=%s elevated=%t", i.SID, i.Elevated)
 	}
@@ -138,3 +158,79 @@ func IdentityFromContext(ctx context.Context) (Identity, bool) {
 	}
 	return info.Identity, true
 }
+
+// PrincipalKind is the type of an owner principal.
+type PrincipalKind string
+
+const (
+	KindUID PrincipalKind = "uid" // Unix user ID
+	KindSID PrincipalKind = "sid" // Windows user or group SID
+)
+
+// Principal is a parsed owner entry from a profile's Owners list.
+type Principal struct {
+	Kind  PrincipalKind
+	Value string
+}
+
+// ParsePrincipal parses a "kind:value" owner string. Returns false for empty
+// values or unknown kinds so malformed entries are ignored rather than trusted.
+func ParsePrincipal(s string) (Principal, bool) {
+	kind, value, ok := strings.Cut(s, ":")
+	if !ok || value == "" {
+		return Principal{}, false
+	}
+	switch PrincipalKind(kind) {
+	case KindUID, KindSID:
+		return Principal{Kind: PrincipalKind(kind), Value: value}, true
+	default:
+		return Principal{}, false
+	}
+}
+
+// UIDPrincipal builds the owner string for a Unix user ID.
+func UIDPrincipal(uid uint32) string {
+	return string(KindUID) + ":" + strconv.FormatUint(uint64(uid), 10)
+}
+
+// SIDPrincipal builds the owner string for a Windows SID.
+func SIDPrincipal(sid string) string { return string(KindSID) + ":" + sid }
+
+// OwnerPrincipalForIdentity returns the self-ownership principal for an identity:
+// the user's UID on Unix, or the user's SID on Windows.
+func OwnerPrincipalForIdentity(id Identity) string {
+	if id.IsWindows() {
+		return SIDPrincipal(id.SID)
+	}
+	return UIDPrincipal(id.UID)
+}
+
+// Matches reports whether a kernel-attested caller satisfies this stored owner
+// principal.
+//
+// A principal is a config value, not a caller, so it is never converted into an
+// Identity.
+func (p Principal) Matches(id Identity) bool {
+	if !id.Known() {
+		return false
+	}
+	switch p.Kind {
+	case KindUID:
+		if id.IsWindows() {
+			return false
+		}
+		uid, err := strconv.ParseUint(p.Value, 10, 32)
+		return err == nil && uint32(uid) == id.UID
+	case KindSID:
+		if !id.IsWindows() {
+			return false
+		}
+		// Only the user SID. Group ownership is not supported yet.
+		return id.SID == p.Value
+	default:
+		return false
+	}
+}
+
+// String renders the principal as the kind:value form it is stored in.
+func (p Principal) String() string { return string(p.Kind) + ":" + p.Value }

@@ -21,6 +21,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/netbirdio/netbird/client/internal/routemanager/dynamic"
 	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/client/ssh"
@@ -103,6 +104,7 @@ type ConfigInput struct {
 
 	LocalMetricsEnabled *bool
 	LocalMetricsAddress *string
+	Owner               *ipcauth.Identity
 }
 
 // Config Configuration type
@@ -204,6 +206,8 @@ type Config struct {
 	// state via Policy() and the mdm.Policy API (HasKey, ManagedKeys,
 	// IsEmpty).
 	policy *mdm.Policy `json:"-"`
+
+	Owners []string
 }
 
 // ApplyMDMPolicy overlays the supplied MDM Policy on top of the current
@@ -717,6 +721,13 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 	} else if config.MTU == 0 {
 		config.MTU = iface.DefaultMTU
 		log.Infof("using default MTU %d", config.MTU)
+		updated = true
+	}
+
+	if input.Owner != nil {
+		ownerString := ipcauth.OwnerPrincipalForIdentity(*input.Owner)
+		config.Owners = append([]string{}, ownerString)
+		log.Infof("setting '%s' as owner for profile %s", ownerString, config.Name)
 		updated = true
 	}
 

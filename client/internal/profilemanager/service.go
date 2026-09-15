@@ -15,6 +15,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -51,6 +52,11 @@ const (
 // reading all fields
 type profileMeta struct {
 	Name string
+}
+
+// nolint:unused
+type ownerMeta struct {
+	Owners []string
 }
 
 func (e *ErrAmbiguousHandle) Error() string {
@@ -296,7 +302,7 @@ func (s *ServiceManager) DefaultProfilePath() string {
 // The returned Profile carries the freshly-generated ID so callers can
 // show it to the user (and so the gRPC AddProfileResponse can include
 // it).
-func (s *ServiceManager) AddProfile(displayName, username string) (*Profile, error) {
+func (s *ServiceManager) AddProfile(displayName string, username string, callerId *ipcauth.Identity) (*Profile, error) {
 	configDir, err := s.getConfigDir(username)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get config directory: %w", err)
@@ -313,7 +319,7 @@ func (s *ServiceManager) AddProfile(displayName, username string) (*Profile, err
 	}
 
 	profPath := filepath.Join(configDir, id.String()+".json")
-	cfg, err := createNewConfig(ConfigInput{ConfigPath: profPath})
+	cfg, err := createNewConfig(ConfigInput{ConfigPath: profPath, Owner: callerId})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create new config: %w", err)
 	}
@@ -499,6 +505,8 @@ func (s *ServiceManager) loadAllProfiles(username string) ([]Profile, error) {
 		Name:     defaultName,
 		Path:     DefaultConfigPath,
 		IsActive: activeIsDefault,
+		// TODO: determine how to seed default owners
+		Owners: []ipcauth.Principal{},
 	}}
 
 	configDir, err := s.getConfigDir(username)
@@ -539,11 +547,17 @@ func (s *ServiceManager) loadAllProfiles(username string) ([]Profile, error) {
 		if name == "" {
 			name = stem.String()
 		}
+
+		owners, err := readProfileOwners(path)
+		if err != nil {
+			return nil, err
+		}
 		fileProfiles = append(fileProfiles, Profile{
 			ID:       stem,
 			Name:     name,
 			Path:     path,
 			IsActive: stem == ID(activeID),
+			Owners:   owners,
 		})
 	}
 
@@ -569,6 +583,52 @@ func readProfileName(path string) string {
 		return ""
 	}
 	return meta.Name
+}
+
+// readProfileOwners parses the owner principals from a profile JSON. Owners stay
+// principals so they are never mistaken for a kernel-attested caller.
+//
+// Only the first entry is read. The field is a list on disk so multiple owners
+// can be added later without a format change, but multiple owners are not
+// supported yet.
+func readProfileOwners(path string) ([]ipcauth.Principal, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var meta ownerMeta
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return nil, err
+	}
+	if len(meta.Owners) == 0 {
+		return nil, nil
+	}
+
+	principal, ok := ipcauth.ParsePrincipal(meta.Owners[0])
+	if !ok {
+		// A malformed entry is ignored rather than trusted.
+		log.Warnf("ignoring unparseable owner %q in %s", meta.Owners[0], path)
+		return nil, nil
+	}
+	return []ipcauth.Principal{principal}, nil
+}
+
+// nolint: unused,unusedfunc
+func StampOwner(path string, owner ipcauth.Identity) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var cfg Config
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return err
+	}
+	cfg.Owners = []string{ipcauth.OwnerPrincipalForIdentity(owner)}
+
+	if err := util.WriteJson(context.Background(), path, cfg); err != nil {
+		return fmt.Errorf("failed to write profile owner: %w", err)
+	}
+	return nil
 }
 
 // activeProfileID returns the currently-active profile's ID. The second
