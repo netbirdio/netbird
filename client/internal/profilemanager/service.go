@@ -618,7 +618,7 @@ var (
 func (s *ServiceManager) claimLegacyProfiles(profiles []Profile, id ipcauth.Identity) {
 	// A privileged caller reaches every profile already and an internal load
 	// has no caller, so neither should leave an owner behind.
-	if !id.Known() || ipcauth.IsPrivilegedCaller(id) {
+	if ipcauth.IsPrivilegedCaller(id) {
 		return
 	}
 
@@ -890,6 +890,9 @@ func readProfileOwners(path string) ([]ipcauth.Principal, error) {
 // StampOwner records a caller as a profile's owner, replacing whoever is
 // recorded now.
 func StampOwner(path string, owner ipcauth.Identity) error {
+	if !owner.Known() {
+		return fmt.Errorf("cannot stamp owner that is verified by the kernel")
+	}
 	return stampPrincipal(path, ipcauth.OwnerPrincipalForIdentity(owner))
 }
 
