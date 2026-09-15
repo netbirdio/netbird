@@ -163,16 +163,55 @@ func UpCommand(flags string) string {
 	return ElevatedCommand("netbird down") + "; " + ElevatedCommand("netbird up "+flags)
 }
 
+// Denial is a refusal the daemon explained, read back off the error it raised.
+// The reason identifies which refusal it was, so a consumer can present each one
+// in its own way without matching on message text.
+type Denial struct {
+	Reason  string
+	Summary string
+	Command string
+}
+
+// DenialFrom returns the refusal a daemon error explains, if it explains one.
+func DenialFrom(err error) (Denial, bool) {
+	if err == nil {
+		return Denial{}, false
+	}
+
+	st := status.Convert(err)
+	for _, detail := range st.Details() {
+		info, ok := detail.(*errdetails.ErrorInfo)
+		if !ok || info.GetDomain() != ErrorDomain {
+			continue
+		}
+
+		summary := info.GetMetadata()[ErrorMetaSummary]
+		if summary == "" {
+			// A detail with no summary still refused something. The status
+			// message carries the same sentence, and showing it beats showing
+			// a consumer nothing.
+			summary = strings.TrimSpace(st.Message())
+		}
+
+		return Denial{
+			Reason:  info.GetReason(),
+			Summary: summary,
+			Command: info.GetMetadata()[ErrorMetaCommand],
+		}, true
+	}
+
+	return Denial{}, false
+}
+
 // PrivilegeError builds the PermissionDenied carrying summary and command.
 func PrivilegeError(summary, command string) error {
 	return denialError(ErrorReasonPrivilegeRequired, summary, command)
 }
 
 // SessionHeldError refuses an operation because another user has the machine
-// connected. It carries no command: the caller cannot end somebody else's
-// session, so the only useful thing to give them is the reason.
+// connected.
 func SessionHeldError(action string) error {
-	return denialError(ErrorReasonSessionHeld, sessionHeldSummary(action), "")
+	return denialError(ErrorReasonSessionHeld, sessionHeldSummary(action), ElevatedCommand("netbird down"))
 }
 
 // NotOwnerError refuses an operation because the profile it addresses belongs to
@@ -185,7 +224,7 @@ func NotOwnerError(action string) error {
 func sessionHeldSummary(action string) string {
 	return refusedSubject(action) + " refused while another user has this machine connected. " +
 		"The active profile and the connection on it belong to the user who brought it up, " +
-		"and they stay theirs until that user disconnects."
+		"so the connection has to come down before anyone else can use the machine."
 }
 
 // notOwnerSummary says who the profile belongs to and why that settles it.

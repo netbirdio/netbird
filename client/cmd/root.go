@@ -91,6 +91,9 @@ var (
 		Short:        "",
 		Long:         "",
 		SilenceUsage: true,
+		// Execute prints the error instead, so a refusal the daemon already
+		// explained is not reprinted inside a gRPC envelope.
+		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			SetFlagsFromEnvVars(cmd.Root())
 
@@ -111,7 +114,11 @@ func Execute() error {
 	if isUpdateBinary() {
 		return updateCmd.Execute()
 	}
-	return rootCmd.Execute()
+	err := rootCmd.Execute()
+	if err != nil {
+		printCommandError(rootCmd, err)
+	}
+	return err
 }
 
 // init initialises package-level defaults and configures the root
@@ -281,7 +288,13 @@ func DialClientGRPCServer(ctx context.Context, addr string) (*grpc.ClientConn, e
 	defer cancel()
 
 	target, opts := daddr.DialTarget(addr)
-	opts = append(opts, grpc.WithBlock())
+	// Refusals are re-presented here, at the one place every command dials, so
+	// no command has to remember to render them.
+	opts = append(opts,
+		grpc.WithBlock(),
+		grpc.WithChainUnaryInterceptor(denialInterceptor),
+		grpc.WithChainStreamInterceptor(denialStreamInterceptor),
+	)
 
 	return grpc.DialContext(ctx, target, opts...)
 }

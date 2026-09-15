@@ -1,24 +1,19 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
-	"strings"
 
-	"google.golang.org/genproto/googleapis/rpc/errdetails"
+	"github.com/spf13/cobra"
+	"google.golang.org/grpc"
 	gstatus "google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/internal/ipcauth"
 )
 
-// daemonCallError prepares a daemon error for display. A refusal the daemon
-// explained is already written for the user, so it is surfaced on its own
-// instead of buried under the gRPC envelope and the name of the RPC that hit it.
-// Anything else is wrapped with context as usual.
+// daemonCallError adds the context a failed daemon call happened in.
 func daemonCallError(context string, err error) error {
-	if guidance, ok := denialGuidance(err); ok {
-		return errors.New(guidance)
-	}
 	return fmt.Errorf("%s: %w", context, err)
 }
 
@@ -27,41 +22,67 @@ func daemonCallError(context string, err error) error {
 // on, such as another user holding the connection, carries a summary alone. It
 // reports false for any other error.
 func denialGuidance(err error) (string, bool) {
-	info, ok := denialErrorInfo(err)
+	denial, ok := ipcauth.DenialFrom(err)
 	if !ok {
 		return "", false
 	}
-
-	summary := info.GetMetadata()[ipcauth.ErrorMetaSummary]
-	command := info.GetMetadata()[ipcauth.ErrorMetaCommand]
-	if summary == "" {
-		// Detail without a summary: fall back to the status message, which
-		// carries the same text.
-		summary = strings.TrimSpace(gstatus.Convert(err).Message())
+	if denial.Command == "" {
+		return denial.Summary, true
 	}
-	if command == "" {
-		return summary, true
-	}
-
-	return fmt.Sprintf("%s\n\n    %s\n", summary, command), true
+	return fmt.Sprintf("%s\n\n    %s\n", denial.Summary, denial.Command), true
 }
 
-// denialErrorInfo returns the daemon's refusal detail, if the error carries one.
-// Matched on the domain rather than on a list of reasons, so a reason added
-// later is rendered rather than silently dropped back to the gRPC envelope.
-func denialErrorInfo(err error) (*errdetails.ErrorInfo, bool) {
-	if err == nil {
-		return nil, false
+// daemonDenial is a refusal the daemon explained, carrying its own sentence as
+// the error text while keeping the gRPC status underneath.
+type daemonDenial struct {
+	status  *gstatus.Status
+	summary string
+}
+
+func (d daemonDenial) Error() string               { return d.summary }
+func (d daemonDenial) GRPCStatus() *gstatus.Status { return d.status }
+
+// asDaemonDenial re-presents a refusal the daemon explained. Anything else is
+// returned untouched.
+func asDaemonDenial(err error) error {
+	guidance, ok := denialGuidance(err)
+	if !ok {
+		return err
+	}
+	return daemonDenial{status: gstatus.Convert(err), summary: guidance}
+}
+
+// denialInterceptor re-presents refusals as they leave the daemon, before any
+// command gets a chance to wrap them.
+func denialInterceptor(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+	return asDaemonDenial(invoker(ctx, method, req, reply, cc, opts...))
+}
+
+// denialStreamInterceptor does the same for a stream's opening error.
+func denialStreamInterceptor(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
+	stream, err := streamer(ctx, desc, cc, method, opts...)
+	return stream, asDaemonDenial(err)
+}
+
+// printCommandError writes a failed command's error, taking over from cobra so a
+// refusal the daemon explained is printed as written.
+func printCommandError(cmd *cobra.Command, err error) {
+	// Unwrapped, so a command that added context with %w still prints the
+	// sentence alone. A command that used %v keeps its prefix, and the sentence
+	// is still readable because daemonDenial carries no envelope.
+	var denial daemonDenial
+	if errors.As(err, &denial) {
+		cmd.PrintErrln(denial.summary)
+		return
 	}
 
-	for _, detail := range gstatus.Convert(err).Details() {
-		info, ok := detail.(*errdetails.ErrorInfo)
-		if !ok {
-			continue
-		}
-		if info.GetDomain() == ipcauth.ErrorDomain {
-			return info, true
-		}
+	// A refusal that reached here as a plain status did not come through the
+	// dial helper's interceptor. Render it anyway rather than leaking an
+	// envelope because of where it was dialled.
+	if guidance, ok := denialGuidance(err); ok {
+		cmd.PrintErrln(guidance)
+		return
 	}
-	return nil, false
+
+	cmd.PrintErrln(cmd.ErrPrefix(), err.Error())
 }
