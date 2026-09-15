@@ -131,7 +131,8 @@ func TestHostOnly(t *testing.T) {
 		{"example.com:443", "example.com"},
 		{"example.com", "example.com"},
 		{"127.0.0.1:8080", "127.0.0.1"},
-		{"[::1]:443", "[::1]"},
+		{"[::1]:443", "::1"},
+		{"Example.COM.:443", "example.com"},
 		{"", ""},
 	}
 	for _, tt := range tests {

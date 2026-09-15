@@ -291,6 +291,10 @@ type Store interface {
 	DeleteService(ctx context.Context, accountID, serviceID string) error
 	GetServiceByID(ctx context.Context, lockStrength LockingStrength, accountID, serviceID string) (*rpservice.Service, error)
 	GetServiceByDomain(ctx context.Context, domain string) (*rpservice.Service, error)
+	GetHTTPServiceByDomain(ctx context.Context, domain string) (*rpservice.Service, error)
+	GetEphemeralServiceByPeerAndDomain(ctx context.Context, lockStrength LockingStrength, accountID, peerID, domain string) (*rpservice.Service, error)
+	GetServicesByDomain(ctx context.Context, lockStrength LockingStrength, domain string) ([]*rpservice.Service, error)
+	AcquireServiceDomainLock(ctx context.Context, domain string) error
 	GetServices(ctx context.Context, lockStrength LockingStrength) ([]*rpservice.Service, error)
 	GetAccountServices(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*rpservice.Service, error)
 
@@ -631,6 +635,9 @@ func getMigrationsPreAuto(ctx context.Context) []migrationFunc {
 		func(db *gorm.DB) error {
 			return migration.MigrateAgentNetworkSettingsToDomain(ctx, db)
 		},
+		func(db *gorm.DB) error {
+			return migration.PrepareReverseProxySharedDomains(ctx, db)
+		},
 	}
 }
 
@@ -675,6 +682,12 @@ func getMigrationsPostAuto(ctx context.Context) []migrationFunc {
 		},
 		func(db *gorm.DB) error {
 			return migration.DropIndex[proxy.Proxy](ctx, db, "idx_proxy_account_id_unique")
+		},
+		func(db *gorm.DB) error {
+			return migration.BackfillReverseProxyHTTPDomains(ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.MigrateReverseProxyPortMappings(ctx, db)
 		},
 		// Post-auto so the per-bucket cost columns already exist when the legacy
 		// aggregates are folded into them and dropped.

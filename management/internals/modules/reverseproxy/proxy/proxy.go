@@ -23,6 +23,9 @@ type Capabilities struct {
 	// Private indicates whether this proxy supports inbound access via Wireguard
 	// tunnel and netbird-only authentication policies
 	Private *bool
+	// SupportsPortMappings indicates whether this proxy can install the
+	// repeated multi-port/range representation on ProxyMapping.
+	SupportsPortMappings *bool
 }
 
 // Proxy represents a reverse proxy instance
