@@ -209,16 +209,9 @@ func PrivilegeError(summary, command string) error {
 }
 
 // SessionHeldError refuses an operation because another user has the machine
-<<<<<<< HEAD
 // connected.
 func SessionHeldError(action string) error {
 	return denialError(ErrorReasonSessionHeld, sessionHeldSummary(action), ElevatedCommand("netbird down"))
-=======
-// connected. It carries no command: the caller cannot end somebody else's
-// session, so the only useful thing to give them is the reason.
-func SessionHeldError(action string) error {
-	return denialError(ErrorReasonSessionHeld, sessionHeldSummary(action), "")
->>>>>>> 38337642c ((WIP) Add readable errors for AuthzLevels)
 }
 
 // NotOwnerError refuses an operation because the profile it addresses belongs to
@@ -231,11 +224,7 @@ func NotOwnerError(action string) error {
 func sessionHeldSummary(action string) string {
 	return refusedSubject(action) + " refused while another user has this machine connected. " +
 		"The active profile and the connection on it belong to the user who brought it up, " +
-<<<<<<< HEAD
 		"so the connection has to come down before anyone else can use the machine."
-=======
-		"and they stay theirs until that user disconnects."
->>>>>>> 38337642c ((WIP) Add readable errors for AuthzLevels)
 }
 
 // notOwnerSummary says who the profile belongs to and why that settles it.
