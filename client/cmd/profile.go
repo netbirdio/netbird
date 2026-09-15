@@ -190,7 +190,7 @@ func claimProfileFunc(cmd *cobra.Command, args []string) error {
 		Owner:  owner,
 	})
 	if err != nil {
-		return daemonCallError("claim profile", wrapAmbiguityError(err, handle))
+		return daemonCallError("claim profile", wrapAmbiguityError(err, handle, "claim <id-prefix>"))
 	}
 
 	cmd.Printf("Profile %s claimed for %s\n", profilemanager.ID(resp.Id).ShortID(), resp.Owner)
@@ -279,7 +279,7 @@ func renameProfileFunc(cmd *cobra.Command, args []string) error {
 		NewProfileName: newProfilename,
 	})
 	if err != nil {
-		return wrapAmbiguityError(err, handle)
+		return wrapAmbiguityError(err, handle, "rename <id-prefix> <new_profile_name>")
 	}
 
 	dupCount, _ := countProfilesWithName(cmd.Context(), daemonClient, currUser.Username, newProfilename)
@@ -331,7 +331,7 @@ func removeProfileFunc(cmd *cobra.Command, args []string) error {
 		Username:    currUser.Username,
 	})
 	if err != nil {
-		return wrapAmbiguityError(err, handle)
+		return wrapAmbiguityError(err, handle, "remove <id-prefix>")
 	}
 
 	cmd.Printf("Profile removed: %s\n", resp.Id)
@@ -366,7 +366,7 @@ func selectProfileFunc(cmd *cobra.Command, args []string) error {
 		Username:    &currUser.Username,
 	})
 	if err != nil {
-		return wrapAmbiguityError(err, handle)
+		return wrapAmbiguityError(err, handle, "select <id-prefix>")
 	}
 
 	if err := profileManager.SwitchProfile(profilemanager.ID(switchResp.Id)); err != nil {
@@ -391,8 +391,9 @@ func selectProfileFunc(cmd *cobra.Command, args []string) error {
 
 // wrapAmbiguityError turns the daemon's gRPC InvalidArgument errors
 // (which carry the resolver's message verbatim) into CLI-friendly text
-// that points the user at --show-id.
-func wrapAmbiguityError(err error, handle string) error {
+// that points the user at --show-id. retry names the command to run again by
+// ID prefix, as it would be typed after `netbird profile`.
+func wrapAmbiguityError(err error, handle, retry string) error {
 	if err == nil {
 		return nil
 	}
@@ -404,7 +405,7 @@ func wrapAmbiguityError(err error, handle string) error {
 	case codes.InvalidArgument:
 		msg := st.Message()
 		if strings.Contains(msg, "ambiguous") {
-			return errors.New(msg + "\nRun `netbird profile list --show-id` to see IDs, then select by ID prefix:\n  netbird profile select|remove <id-prefix>")
+			return errors.New(msg + "\nRun `netbird profile list --show-id` to see IDs, then retry by ID prefix:\n  netbird profile " + retry)
 		}
 	case codes.NotFound:
 		return fmt.Errorf("profile %q not found", handle)
