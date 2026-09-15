@@ -12,7 +12,7 @@ import { Events } from "@wailsio/runtime";
 import { Connection, ProfileSwitcher, Profiles as ProfilesSvc } from "@bindings/services";
 import type { Profile } from "@bindings/services/models.js";
 import i18next from "@/lib/i18n";
-import { errorDialog, formatErrorMessage } from "@/lib/errors";
+import { errorDialogFor } from "@/lib/errors";
 
 const EVENT_PROFILE_CHANGED = "netbird:profile:changed";
 
@@ -65,7 +65,15 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
                 ProfilesSvc.List(u),
             ]);
             setUsername(u);
-            setActiveProfile(active.profileName || "default");
+            // An empty name means the daemon would not disclose it: the active
+            // profile belongs to another user. Falling back to "default" would
+            // name the wrong profile, so say what it is instead.
+            const activeName = active.profileName
+                ? active.profileName
+                : active.id
+                  ? i18next.t("profile.ownedByAnother")
+                  : "default";
+            setActiveProfile(activeName);
             setActiveProfileId(active.id || "default");
             setProfiles(list);
             setLoaded(true);
@@ -78,10 +86,7 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
                 return;
             }
             setLoaded(true);
-            await errorDialog({
-                Title: i18next.t("profile.error.loadTitle"),
-                Message: formatErrorMessage(e),
-            });
+            await errorDialogFor(i18next.t("profile.error.loadTitle"), e);
         }
     }, []);
 

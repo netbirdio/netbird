@@ -15,6 +15,22 @@ import (
 )
 
 // privilegeRefused reports whether the daemon refused for want of privileges
+// denialCode maps a refusal to the code the frontend presents it by. An unknown
+// reason keeps the summary the daemon wrote and loses only the tailored
+// presentation, which is what makes adding a reason daemon-side safe.
+func denialCode(reason string) string {
+	switch reason {
+	case ipcauth.ErrorReasonPrivilegeRequired:
+		return "privilege_required"
+	case ipcauth.ErrorReasonSessionHeld:
+		return "session_held"
+	case ipcauth.ErrorReasonNotProfileOwner:
+		return "not_profile_owner"
+	default:
+		return "permission_denied"
+	}
+}
+
 func privilegeRefused(err error) bool {
 	denial, ok := ipcauth.DenialFrom(err)
 	return ok && denial.Reason == ipcauth.ErrorReasonPrivilegeRequired
@@ -84,11 +100,13 @@ func (c errorClassifier) classify(err error) *ClientError {
 		grpcCode = st.Code()
 	}
 
-	// A refusal for want of privileges carries its own summary and the command
-	// that performs the operation, both written for the user.
-	if denial, ok := ipcauth.DenialFrom(err); ok && denial.Reason == ipcauth.ErrorReasonPrivilegeRequired {
+	// A refusal the daemon explained carries its own summary, and sometimes the
+	// command that satisfies it, both written for the user. The code only picks
+	// the frontend's presentation, so an unrecognised reason still reaches the
+	// user intact.
+	if denial, ok := ipcauth.DenialFrom(err); ok {
 		return &ClientError{
-			Code:    "privilege_required",
+			Code:    denialCode(denial.Reason),
 			Short:   denial.Summary,
 			Long:    denial.Summary,
 			Command: denial.Command,

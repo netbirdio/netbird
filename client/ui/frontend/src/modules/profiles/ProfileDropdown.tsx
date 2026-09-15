@@ -10,7 +10,7 @@ import { Tooltip } from "@/components/Tooltip";
 import { useProfile } from "@/contexts/ProfileContext";
 import { useFocusVisible } from "@/hooks/useFocusVisible";
 import { cn } from "@/lib/cn";
-import { errorDialog, formatErrorMessage } from "@/lib/errors";
+import { errorDialogFor } from "@/lib/errors";
 
 type ProfileDropdownProps = {
     onManageProfiles?: () => void;
@@ -45,10 +45,7 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
         try {
             await fn();
         } catch (e) {
-            await errorDialog({
-                Title: title,
-                Message: formatErrorMessage(e),
-            });
+            await errorDialogFor(title, e);
         } finally {
             setBusy(false);
         }
