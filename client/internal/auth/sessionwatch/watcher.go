@@ -303,7 +303,7 @@ func (w *Watcher) fire(armedFor time.Time) {
 		w.mu.Unlock()
 		return
 	}
-	if w.lateLocked(armedFor, w.finalLead) {
+	if w.lateLocked(armedFor, max(w.finalLead, 0)) {
 		w.firedAt = armedFor
 		w.mu.Unlock()
 		log.Infof("auth session expiry soon warning skipped (final-warning window already passed)")
@@ -359,7 +359,8 @@ func (w *Watcher) fireFinal(armedFor time.Time) {
 // timer can fire long after the window it was armed for. Caller must
 // hold w.mu.
 func (w *Watcher) lateLocked(armedFor time.Time, cutoffLead time.Duration) bool {
-	return !time.Now().Before(armedFor.Add(-cutoffLead))
+	cutoff := armedFor.Add(-cutoffLead).Round(0)
+	return !time.Now().Round(0).Before(cutoff)
 }
 
 // armOneShotLocked schedules cb at fireAt. When fireAt is already in the
