@@ -207,7 +207,7 @@ func (s *Settings) SetConfig(ctx context.Context, p SetConfigParams) (SaveOutcom
 		SshJWTCacheTTL:                p.SSHJWTCacheTTL,
 	}
 	if _, err := cli.SetConfig(ctx, req); err != nil {
-		if _, refused := privilegeErrorInfo(err); refused {
+		if privilegeRefused(err) {
 			return s.setConfigElevated(ctx, p, req, err)
 		}
 		// Classified so the frontend gets the daemon's guidance instead of the

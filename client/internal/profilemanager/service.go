@@ -887,6 +887,29 @@ func readProfileOwners(path string) ([]ipcauth.Principal, error) {
 	return []ipcauth.Principal{principal}, nil
 }
 
+// ClaimProfile records a principal as a profile's sole owner, replacing whoever
+// is recorded now.
+//
+// The principal comes from an administrator rather than from the kernel, so it
+// is never turned into an Identity on the way. Callers validate it with
+// ipcauth.ValidatePrincipal first.
+func (s *ServiceManager) ClaimProfile(p *Profile, principal string) error {
+	path, err := p.FilePath()
+	if err != nil {
+		return fmt.Errorf("profile path: %w", err)
+	}
+	parsed, ok := ipcauth.ParsePrincipal(principal)
+	if !ok {
+		return fmt.Errorf("claimed %s with an unusable owner %q", p.ID, principal)
+	}
+	if err := stampPrincipal(path, principal); err != nil {
+		return fmt.Errorf("claim %s for %s: %w", p.ID, principal, err)
+	}
+	p.Owners = []ipcauth.Principal{parsed}
+	log.Infof("claimed profile %s for %s", path, principal)
+	return nil
+}
+
 // StampOwner records a caller as a profile's owner, replacing whoever is
 // recorded now.
 func StampOwner(path string, owner ipcauth.Identity) error {

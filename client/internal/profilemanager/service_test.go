@@ -643,3 +643,66 @@ func TestListProfiles_UnidentifiedCallerGetsNothing(t *testing.T) {
 		assert.Empty(t, got)
 	})
 }
+
+func TestClaimProfile_RecordsAnArbitraryPrincipal(t *testing.T) {
+	withTestSM(t, func(sm *ServiceManager, _ ipcauth.Identity) {
+		p, err := sm.AddProfile("work", nil)
+		require.NoError(t, err)
+		require.Empty(t, readOwners(t, p.Path))
+
+		require.NoError(t, sm.ClaimProfile(p, "uid:4242"))
+		assert.Equal(t, []string{"uid:4242"}, readOwners(t, p.Path))
+
+		alice := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
+		bob := ipcauth.KnownForTest(ipcauth.Identity{UID: 5252})
+		assert.True(t, p.AccessibleBy(alice), "the claim is reflected in memory, not only on disk")
+		assert.False(t, p.AccessibleBy(bob))
+
+		got, err := sm.ListProfiles(alice)
+		require.NoError(t, err)
+		assert.Contains(t, profileIDs(got), p.ID.String())
+
+		got, err = sm.ListProfiles(bob)
+		require.NoError(t, err)
+		assert.NotContains(t, profileIDs(got), p.ID.String())
+	})
+}
+
+func TestClaimProfile_ReplacesTheRecordedOwner(t *testing.T) {
+	withTestSM(t, func(sm *ServiceManager, _ ipcauth.Identity) {
+		p, err := sm.AddProfile("work", nil)
+		require.NoError(t, err)
+
+		require.NoError(t, sm.ClaimProfile(p, "uid:4242"))
+		require.NoError(t, sm.ClaimProfile(p, "uid:5252"))
+
+		assert.Equal(t, []string{"uid:5252"}, readOwners(t, p.Path),
+			"handing a profile over replaces the owner rather than adding one")
+
+		old := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
+		assert.False(t, p.AccessibleBy(old), "the previous owner loses access")
+	})
+}
+
+func TestClaimProfile_ClaimsTheDefaultProfile(t *testing.T) {
+	withTestSM(t, func(sm *ServiceManager, _ ipcauth.Identity) {
+		all, err := sm.loadAllProfiles()
+		require.NoError(t, err)
+		var def *Profile
+		for i := range all {
+			if all[i].ID == defaultProfileName {
+				def = &all[i]
+			}
+		}
+		require.NotNil(t, def)
+
+		require.NoError(t, sm.ClaimProfile(def, "uid:4242"))
+		assert.Equal(t, []string{"uid:4242"}, readOwners(t, DefaultConfigPath),
+			"the headless case this exists for: no console user, owner recorded by hand")
+
+		alice := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
+		got, err := sm.ListProfiles(alice)
+		require.NoError(t, err)
+		assert.Contains(t, profileIDs(got), defaultProfileName)
+	})
+}
