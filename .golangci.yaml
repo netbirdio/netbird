@@ -93,6 +93,9 @@ linters:
           - unused
         path: client/firewall/iptables/rule\.go
       - linters:
+          - unused
+        path: client/internal/dns/dnsfw/(types|syscall|zsyscall)_windows.*\.go
+      - linters:
           - gosec
           - mirror
         path: test\.go
