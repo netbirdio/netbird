@@ -66,10 +66,12 @@ func configProvider(cfg api.AgentNetworkAgentConfig, name string) *api.AgentNetw
 func TestAgentConfigAllowlistOfDeclaredModels(t *testing.T) {
 	ctx := context.Background()
 
-	// Saving a provider makes management list the upstream's models with the
-	// credential, so the providers point at the mock upstream, which answers
-	// both the OpenAI and the Bedrock listing; a real vendor refuses the dummy
-	// key and the save with it. The test is about the allowlist, not the wire.
+	// Saving a provider makes management verify the credential against the
+	// upstream, and a real vendor refuses the dummy key and the save with it.
+	// The providers point at the mock upstream instead: it resolves to a
+	// private address, which the check declines to dial and treats as
+	// unverifiable rather than as a failure, so the save goes through. The
+	// test is about the allowlist, not the upstream.
 	vllm, err := harness.StartVLLM(ctx, srv)
 	require.NoError(t, err, "start mock upstream")
 	t.Cleanup(func() { _ = vllm.Terminate(context.Background()) })
