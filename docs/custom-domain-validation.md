@@ -26,3 +26,8 @@ window. Restarting management does not extend a previously assigned deadline.
 Registrations with existing services, including services using subdomains, are
 retained for operator review. Management logs their account and domain IDs so
 an operator can identify and resolve those dependencies before cleanup.
+
+Manual deletion is also refused while any service uses the domain or a subdomain,
+including disabled services. Delete those services or move them to another domain
+before removing the registration. A refused deletion returns HTTP 412 and leaves
+the domain and its services unchanged; no deletion activity event is recorded.
