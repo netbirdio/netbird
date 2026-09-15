@@ -119,3 +119,73 @@ func TestMigrate_UnresolvableAccountLeavesNoMarker(t *testing.T) {
 			"an unfinished run leaves no marker, so the next start tries again")
 	})
 }
+
+// TestTakesActiveAccountOwner pins which profiles migration hands the active
+// account's principal to.
+func TestTakesActiveAccountOwner(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		dir      string
+		profile  Profile
+		disabled bool
+		want     bool
+	}{
+		{
+			name:    "profile in the account's own directory",
+			dir:     "alice",
+			profile: Profile{ID: "work", LegacyUserDir: "alice"},
+			want:    true,
+		},
+		{
+			name:    "profile in another account's directory",
+			dir:     "alice",
+			profile: Profile{ID: "work", LegacyUserDir: "bob"},
+			want:    false,
+		},
+		{
+			name:    "default profile",
+			dir:     "alice",
+			profile: Profile{ID: defaultProfileName},
+			want:    true,
+		},
+		{
+			name:     "default profile with the claim disabled",
+			dir:      "alice",
+			profile:  Profile{ID: defaultProfileName},
+			disabled: true,
+			want:     false,
+		},
+		{
+			name:    "default profile when the account has no directory name",
+			dir:     "",
+			profile: Profile{ID: defaultProfileName},
+			want:    true,
+		},
+		{
+			name:     "default profile when the account has no directory name and the claim is disabled",
+			dir:      "",
+			profile:  Profile{ID: defaultProfileName},
+			disabled: true,
+			want:     false,
+		},
+		{
+			name:    "shared-directory profile when the account has no directory name",
+			dir:     "",
+			profile: Profile{ID: "work"},
+			want:    false,
+		},
+		{
+			name:    "profile in a real directory when the account has no directory name",
+			dir:     "",
+			profile: Profile{ID: "work", LegacyUserDir: "alice"},
+			want:    false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.disabled {
+				t.Setenv(EnvDisableDefaultProfileClaim, "true")
+			}
+			assert.Equal(t, tc.want, takesActiveAccountOwner(&tc.profile, tc.dir))
+		})
+	}
+}
