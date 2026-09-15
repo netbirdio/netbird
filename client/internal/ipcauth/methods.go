@@ -78,6 +78,7 @@ var methodPolicies = map[string]MethodPolicy{
 	servicePath + "WaitExtendAuthSession": {Level: AuthzLevelProfileOwner, Action: "extending the session"},
 
 	// Owner of some profile
+	servicePath + "GetLogLevel":        {Level: AuthzLevelProfileOwner, Action: "reading the log level"},
 	servicePath + "ListStates":         {Level: AuthzLevelProfileOwner, Action: "listing stored state"},
 	servicePath + "GetInstallerResult": {Level: AuthzLevelProfileOwner, Action: "reading the installer result"},
 
