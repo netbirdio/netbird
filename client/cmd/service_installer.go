@@ -173,6 +173,10 @@ var uninstallCmd = &cobra.Command{
 			return err
 		}
 
+		if err := loadAndApplyServiceParams(cmd); err != nil {
+			cmd.PrintErrf("Warning: failed to load saved service params: %v\n", err)
+		}
+
 		cfg, err := newSVCConfig()
 		if err != nil {
 			return fmt.Errorf("create service config: %w", err)
