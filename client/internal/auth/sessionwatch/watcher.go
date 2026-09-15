@@ -92,6 +92,7 @@ type StatusRecorder interface {
 type Watcher struct {
 	lead      time.Duration
 	finalLead time.Duration
+	now       func() time.Time
 
 	mu           sync.Mutex
 	current      time.Time
@@ -121,6 +122,7 @@ func NewWithLeads(lead, final time.Duration, recorder StatusRecorder) *Watcher {
 	return &Watcher{
 		lead:      lead,
 		finalLead: final,
+		now:       time.Now,
 		recorder:  recorder,
 	}
 }
@@ -153,7 +155,7 @@ func (w *Watcher) Update(deadline time.Time) error {
 		return nil
 	}
 
-	now := time.Now()
+	now := w.now()
 	switch {
 	case deadline.Before(time.Unix(0, 0)):
 		w.clearLocked()
@@ -167,6 +169,7 @@ func (w *Watcher) Update(deadline time.Time) error {
 	}
 
 	if deadline.Equal(w.current) {
+		w.recheckLocked(now)
 		w.mu.Unlock()
 		return nil
 	}
@@ -189,7 +192,7 @@ func (w *Watcher) Update(deadline time.Time) error {
 	if recorder != nil {
 		recorder.SetSessionExpiresAt(deadline)
 	}
-	log.Infof("auth session deadline set to: %s (in %s)", deadline.Format(time.RFC3339), time.Until(deadline).Round(time.Second))
+	log.Infof("auth session deadline set to: %s (in %s)", deadline.Format(time.RFC3339), deadline.Sub(w.now()).Round(time.Second))
 	return nil
 }
 
@@ -282,13 +285,35 @@ func (w *Watcher) stopTimerLocked() {
 }
 
 func (w *Watcher) armTimerLocked(deadline time.Time) {
-	w.timer = armOneShotLocked(deadline.Add(-w.lead), func() { w.fire(deadline) })
+	now := w.now()
+	if !w.firedAt.Equal(deadline) {
+		w.timer = armOneShotLocked(deadline.Add(-w.lead).Sub(now), func() { w.fire(deadline) })
+	}
 	// finalLead <= 0 disables the final-warning timer entirely. Used by
 	// tests that predate the final-warning fallback so a millisecond-scale
 	// deadline does not flush both timers at once.
-	if w.finalLead > 0 {
-		w.finalTimer = armOneShotLocked(deadline.Add(-w.finalLead), func() { w.fireFinal(deadline) })
+	if w.finalLead > 0 && !w.finalFiredAt.Equal(deadline) {
+		w.finalTimer = armOneShotLocked(deadline.Add(-w.finalLead).Sub(now), func() { w.fireFinal(deadline) })
 	}
+}
+
+// Recheck re-derives the warning schedule from the wall clock after the
+// monotonic timers may have stalled, e.g. across a device suspend.
+func (w *Watcher) Recheck() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.closed {
+		return
+	}
+	w.recheckLocked(w.now())
+}
+
+func (w *Watcher) recheckLocked(now time.Time) {
+	if w.current.IsZero() || !w.current.After(now) {
+		return
+	}
+	w.stopTimerLocked()
+	w.armTimerLocked(w.current)
 }
 
 func (w *Watcher) fire(armedFor time.Time) {
@@ -359,15 +384,14 @@ func (w *Watcher) fireFinal(armedFor time.Time) {
 // timer can fire long after the window it was armed for. Caller must
 // hold w.mu.
 func (w *Watcher) lateLocked(armedFor time.Time, cutoffLead time.Duration) bool {
-	return !time.Now().Before(armedFor.Add(-cutoffLead))
+	return !w.now().Before(armedFor.Add(-cutoffLead))
 }
 
-// armOneShotLocked schedules cb at fireAt. When fireAt is already in the
-// past it dispatches on the next scheduler tick so a state-change recorder
+// armOneShotLocked schedules cb after delay. When delay is not positive
+// it dispatches on the next scheduler tick so a state-change recorder
 // notification (invoked after w.mu is released) lands first. Caller must
 // hold w.mu.
-func armOneShotLocked(fireAt time.Time, cb func()) *time.Timer {
-	delay := time.Until(fireAt)
+func armOneShotLocked(delay time.Duration, cb func()) *time.Timer {
 	if delay <= 0 {
 		return time.AfterFunc(0, cb)
 	}
