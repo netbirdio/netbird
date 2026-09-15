@@ -125,6 +125,8 @@ type coalescingListener struct {
 	maxInFlight atomic.Int32
 	last        atomic.Int32
 	done        chan struct{}
+	entered     chan struct{}
+	release     chan struct{}
 	once        sync.Once
 }
 
@@ -143,8 +145,13 @@ func (l *coalescingListener) OnPeersListChanged(size int) {
 			break
 		}
 	}
+	if l.calls.Add(1) == 1 && l.entered != nil {
+		close(l.entered)
+	}
+	if l.release != nil {
+		<-l.release
+	}
 	time.Sleep(time.Millisecond)
-	l.calls.Add(1)
 	l.last.Store(int32(size))
 	l.inFlight.Add(-1)
 	if size == l.final {
@@ -177,26 +184,37 @@ func Test_notifier_PeerListChangedCoalesces(t *testing.T) {
 }
 
 func Test_notifier_SetListenerStopsPreviousDeliverer(t *testing.T) {
-	old := &coalescingListener{final: 0, done: make(chan struct{})}
+	old := &coalescingListener{
+		final:   -1,
+		done:    make(chan struct{}),
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
 	replacement := &coalescingListener{final: 7, done: make(chan struct{})}
 	n := newNotifier()
 	n.setListener(old)
-	select {
-	case <-old.done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("initial peer count not delivered")
-	}
+	waitFor(t, old.entered, "old listener not called")
 
-	n.setListener(replacement)
 	n.peerListChanged(7)
+	n.setListener(replacement)
+	close(old.release)
 
-	select {
-	case <-replacement.done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("replacement listener not notified")
+	waitFor(t, replacement.done, "replacement listener not notified")
+	time.Sleep(50 * time.Millisecond)
+
+	if got := old.calls.Load(); got != 1 {
+		t.Errorf("stale deliverer ran %d times, expected 1", got)
 	}
-
 	if got := old.last.Load(); got == 7 {
-		t.Errorf("stale deliverer notified the removed listener")
+		t.Errorf("stale deliverer delivered the new peer count")
+	}
+}
+
+func waitFor(t *testing.T, ch <-chan struct{}, msg string) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(5 * time.Second):
+		t.Fatal(msg)
 	}
 }
