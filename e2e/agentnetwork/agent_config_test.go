@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/e2e/harness"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
@@ -65,16 +66,22 @@ func configProvider(cfg api.AgentNetworkAgentConfig, name string) *api.AgentNetw
 func TestAgentConfigAllowlistOfDeclaredModels(t *testing.T) {
 	ctx := context.Background()
 
+	// Saving a provider makes management list the upstream's models with the
+	// credential, so the providers point at the mock upstream, which answers
+	// both the OpenAI and the Bedrock listing; a real vendor refuses the dummy
+	// key and the save with it. The test is about the allowlist, not the wire.
+	vllm, err := harness.StartVLLM(ctx, srv)
+	require.NoError(t, err, "start mock upstream")
+	t.Cleanup(func() { _ = vllm.Terminate(context.Background()) })
+
 	cases := []struct {
 		name      string
 		catalogID string
-		upstream  string
 		declared  string
 	}{
 		{
 			name:      "plain-declared-id",
 			catalogID: "openai_api",
-			upstream:  "https://api.openai.com",
 			declared:  "gpt-4o-mini",
 		},
 		{
@@ -83,7 +90,6 @@ func TestAgentConfigAllowlistOfDeclaredModels(t *testing.T) {
 			// picker copies it as-is.
 			name:      "bedrock-declared-id",
 			catalogID: "bedrock_api",
-			upstream:  "https://bedrock-runtime.eu-central-1.amazonaws.com",
 			declared:  "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
 		},
 	}
@@ -101,7 +107,7 @@ func TestAgentConfigAllowlistOfDeclaredModels(t *testing.T) {
 			prov, err := srv.CreateProvider(ctx, api.AgentNetworkProviderRequest{
 				Name:        providerName,
 				ProviderId:  tc.catalogID,
-				UpstreamUrl: tc.upstream,
+				UpstreamUrl: vllm.URL,
 				ApiKey:      ptr("sk-dummy-e2e-key"),
 				Enabled:     ptr(true),
 				Models:      &[]api.AgentNetworkProviderModel{{Id: tc.declared, InputPer1k: 0.001, OutputPer1k: 0.002}},
