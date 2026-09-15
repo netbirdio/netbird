@@ -235,17 +235,23 @@ func ValidatePrincipal(s string) (Principal, error) {
 }
 
 // looksLikeSID reports whether a value has the shape of a security identifier,
-// "S-1-<authority>" followed by at least one sub-authority. A shape check only,
-// since the account it names need not exist yet.
+// "S-1-<authority>" followed by one to fifteen sub-authorities. A shape check
+// only, since the account it names need not exist yet.
 func looksLikeSID(v string) bool {
 	parts := strings.Split(v, "-")
 	if len(parts) < 4 || parts[0] != "S" || parts[1] != "1" {
 		return false
 	}
-	for _, part := range parts[2:] {
-		if part == "" {
-			return false
-		}
+	// The identifier authority is a 48-bit field, unlike the 32-bit
+	// sub-authorities that follow it, of which a SID carries at most 15.
+	if _, err := strconv.ParseUint(parts[2], 10, 48); err != nil {
+		return false
+	}
+	subAuthorities := parts[3:]
+	if len(subAuthorities) > 15 {
+		return false
+	}
+	for _, part := range subAuthorities {
 		if _, err := strconv.ParseUint(part, 10, 32); err != nil {
 			return false
 		}
