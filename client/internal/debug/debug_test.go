@@ -1105,6 +1105,21 @@ func TestAddProfiles(t *testing.T) {
 		assert.NotContains(t, files, activeProfileBundleFile, "no state file means nothing to dump")
 	})
 
+	t.Run("keeps an empty active profile state file", func(t *testing.T) {
+		dir := setupProfilesDir(t)
+		writeProfileJSON(t, filepath.Join(dir, "alice", "aaaa1111.json"), "work", []string{"uid:1000"})
+		// A truncated write leaves the file in place with no content. The bundle
+		// has to show that, not look like the file was never written.
+		require.NoError(t, os.WriteFile(profilemanager.ActiveProfileStatePath, nil, 0o600))
+
+		files := bundleFiles(t, (*BundleGenerator).addProfiles)
+
+		raw, ok := files[activeProfileBundleFile]
+		assert.True(t, ok, "an empty state file should still be dumped")
+		assert.Empty(t, raw)
+		assert.Contains(t, files[profilesBundleFile], "Active profile: unknown")
+	})
+
 	t.Run("records a parse error and keeps the other profiles", func(t *testing.T) {
 		dir := setupProfilesDir(t)
 		require.NoError(t, os.MkdirAll(filepath.Join(dir, "alice"), 0o700))

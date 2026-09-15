@@ -746,7 +746,9 @@ func (g *BundleGenerator) addProfiles() error {
 		return fmt.Errorf("add profiles file to zip: %w", err)
 	}
 
-	if len(activeRaw) == 0 {
+	// A file that is present but empty still says something: the state was
+	// truncated rather than never written.
+	if activeRaw == nil {
 		return nil
 	}
 	if err := g.addFileToZip(bytes.NewReader(activeRaw), activeProfileBundleFile); err != nil {
@@ -759,7 +761,8 @@ func (g *BundleGenerator) addProfiles() error {
 // readActiveProfileState reads the state file directly rather than through
 // ServiceManager, whose getters seed a default one when it is missing. Bundle
 // collection must not write the state it reports on. The raw bytes come back
-// even when parsing fails, so a corrupted file still reaches the bundle.
+// even when parsing fails, so a corrupted file still reaches the bundle, and
+// they are nil only when nothing was read at all.
 func readActiveProfileState() (*profilemanager.ActiveProfileState, []byte, error) {
 	data, err := os.ReadFile(profilemanager.ActiveProfileStatePath)
 	if err != nil {
