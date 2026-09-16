@@ -1388,7 +1388,7 @@
         "message": "Può abilitarlo, ma disabilitarlo di nuovo richiede {actor}."
     },
     "settings.ssh.privilege.authorizePending": {
-        "message": "In attesa dell'autorizzazione..."
+        "message": "In attesa dell'autorizzazione…"
     },
     "profile.ownedByAnother": {
         "message": "Profilo di un altro utente"
