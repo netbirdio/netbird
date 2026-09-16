@@ -2513,7 +2513,7 @@ func (s *Server) ClaimProfile(ctx context.Context, msg *proto.ClaimProfileReques
 		return nil, err
 	}
 
-	if err := s.profileManager.ClaimProfile(resolved, principal.String()); err != nil {
+	if err := s.profileManager.ClaimProfile(resolved, principal); err != nil {
 		return nil, fmt.Errorf("failed to claim profile: %w", err)
 	}
 

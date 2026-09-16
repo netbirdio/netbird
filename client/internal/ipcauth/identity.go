@@ -213,25 +213,34 @@ func ValidatePrincipal(s string) (Principal, error) {
 	if !ok {
 		return Principal{}, fmt.Errorf("owner %q is not a %s: or %s: principal", s, KindUID, KindSID)
 	}
+	if err := p.Validate(); err != nil {
+		return Principal{}, err
+	}
+	return p, nil
+}
 
+// Validate reports whether a principal is one a caller on this platform could
+// ever hold.
+func (p Principal) Validate() error {
 	switch p.Kind {
 	case KindUID:
 		if runtime.GOOS == "windows" {
-			return Principal{}, fmt.Errorf("owner %q names a Unix user ID, which no caller on this platform can hold", s)
+			return fmt.Errorf("owner %q names a Unix user ID, which no caller on this platform can hold", p.String())
 		}
 		if _, err := strconv.ParseUint(p.Value, 10, 32); err != nil {
-			return Principal{}, fmt.Errorf("owner %q does not carry a user ID", s)
+			return fmt.Errorf("owner %q does not carry a user ID", p.String())
 		}
 	case KindSID:
 		if runtime.GOOS != "windows" {
-			return Principal{}, fmt.Errorf("owner %q names a Windows SID, which no caller on this platform can hold", s)
+			return fmt.Errorf("owner %q names a Windows SID, which no caller on this platform can hold", p.String())
 		}
 		if !looksLikeSID(p.Value) {
-			return Principal{}, fmt.Errorf("owner %q does not carry a SID", s)
+			return fmt.Errorf("owner %q does not carry a SID", p.String())
 		}
+	default:
+		return fmt.Errorf("owner %q is not a %s: or %s: principal", p.String(), KindUID, KindSID)
 	}
-
-	return p, nil
+	return nil
 }
 
 // looksLikeSID reports whether a value has the shape of a security identifier,

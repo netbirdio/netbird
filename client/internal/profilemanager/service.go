@@ -891,21 +891,20 @@ func readProfileOwners(path string) ([]ipcauth.Principal, error) {
 // is recorded now.
 //
 // The principal comes from an administrator rather than from the kernel, so it
-// is never turned into an Identity on the way. Callers validate it with
-// ipcauth.ValidatePrincipal first.
-func (s *ServiceManager) ClaimProfile(p *Profile, principal string) error {
+// is never turned into an Identity on the way and it is validated here.
+func (s *ServiceManager) ClaimProfile(p *Profile, principal ipcauth.Principal) error {
+	if err := principal.Validate(); err != nil {
+		return fmt.Errorf("claim %s: %w", p.ID, err)
+	}
+
 	path, err := p.FilePath()
 	if err != nil {
 		return fmt.Errorf("profile path: %w", err)
 	}
-	parsed, ok := ipcauth.ParsePrincipal(principal)
-	if !ok {
-		return fmt.Errorf("claimed %s with an unusable owner %q", p.ID, principal)
-	}
-	if err := stampPrincipal(path, principal); err != nil {
+	if err := stampPrincipal(path, principal.String()); err != nil {
 		return fmt.Errorf("claim %s for %s: %w", p.ID, principal, err)
 	}
-	p.Owners = []ipcauth.Principal{parsed}
+	p.Owners = []ipcauth.Principal{principal}
 	log.Infof("claimed profile %s for %s", path, principal)
 	return nil
 }

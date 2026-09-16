@@ -61,3 +61,19 @@ func TestParsePrincipalStaysLenient(t *testing.T) {
 		})
 	}
 }
+
+// ValidatePrincipal cannot reach the unknown kinds, since ParsePrincipal refuses
+// them first. A Principal built in code can carry one, and a privileged writer
+// validates the value it was handed rather than a string it parsed.
+func TestPrincipalValidateRejectsKindsParsingNeverProduces(t *testing.T) {
+	for _, p := range []Principal{
+		{},
+		{Kind: "bogus", Value: "1000"},
+		{Kind: KindUID},
+		{Kind: KindSID},
+	} {
+		t.Run(p.String(), func(t *testing.T) {
+			assert.Error(t, p.Validate(), "%v must not be accepted as an owner", p)
+		})
+	}
+}

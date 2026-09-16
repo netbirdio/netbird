@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -660,17 +661,36 @@ func TestActiveProfilePath_RefusesToGuessBetweenNamesakes(t *testing.T) {
 	})
 }
 
+// claimIdentity names a caller the platform could actually hold: a uid names
+// nobody on Windows, where a caller is a SID. The account itself need not
+// exist, since a claim never looks one up.
+func claimIdentity(n uint32) ipcauth.Identity {
+	if runtime.GOOS == "windows" {
+		return ipcauth.KnownForTest(ipcauth.Identity{SID: fmt.Sprintf("S-1-5-21-1-2-3-%d", n)})
+	}
+	return ipcauth.KnownForTest(ipcauth.Identity{UID: n})
+}
+
+// claimPrincipal is the owner principal that claimIdentity's caller matches.
+func claimPrincipal(t *testing.T, n uint32) ipcauth.Principal {
+	t.Helper()
+	p, err := ipcauth.ValidatePrincipal(ipcauth.OwnerPrincipalForIdentity(claimIdentity(n)))
+	require.NoError(t, err)
+	return p
+}
+
 func TestClaimProfile_RecordsAnArbitraryPrincipal(t *testing.T) {
 	withTestSM(t, func(sm *ServiceManager, _ ipcauth.Identity) {
 		p, err := sm.AddProfile("work", nil)
 		require.NoError(t, err)
 		require.Empty(t, readOwners(t, p.Path))
 
-		require.NoError(t, sm.ClaimProfile(p, "uid:4242"))
-		assert.Equal(t, []string{"uid:4242"}, readOwners(t, p.Path))
+		owner := claimPrincipal(t, 4242)
+		require.NoError(t, sm.ClaimProfile(p, owner))
+		assert.Equal(t, []string{owner.String()}, readOwners(t, p.Path))
 
-		alice := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
-		bob := ipcauth.KnownForTest(ipcauth.Identity{UID: 5252})
+		alice := claimIdentity(4242)
+		bob := claimIdentity(5252)
 		assert.True(t, p.AccessibleBy(alice), "the claim is reflected in memory, not only on disk")
 		assert.False(t, p.AccessibleBy(bob))
 
@@ -689,13 +709,13 @@ func TestClaimProfile_ReplacesTheRecordedOwner(t *testing.T) {
 		p, err := sm.AddProfile("work", nil)
 		require.NoError(t, err)
 
-		require.NoError(t, sm.ClaimProfile(p, "uid:4242"))
-		require.NoError(t, sm.ClaimProfile(p, "uid:5252"))
+		require.NoError(t, sm.ClaimProfile(p, claimPrincipal(t, 4242)))
+		require.NoError(t, sm.ClaimProfile(p, claimPrincipal(t, 5252)))
 
-		assert.Equal(t, []string{"uid:5252"}, readOwners(t, p.Path),
+		assert.Equal(t, []string{claimPrincipal(t, 5252).String()}, readOwners(t, p.Path),
 			"handing a profile over replaces the owner rather than adding one")
 
-		old := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
+		old := claimIdentity(4242)
 		assert.False(t, p.AccessibleBy(old), "the previous owner loses access")
 	})
 }
@@ -712,13 +732,40 @@ func TestClaimProfile_ClaimsTheDefaultProfile(t *testing.T) {
 		}
 		require.NotNil(t, def)
 
-		require.NoError(t, sm.ClaimProfile(def, "uid:4242"))
-		assert.Equal(t, []string{"uid:4242"}, readOwners(t, DefaultConfigPath),
+		owner := claimPrincipal(t, 4242)
+		require.NoError(t, sm.ClaimProfile(def, owner))
+		assert.Equal(t, []string{owner.String()}, readOwners(t, DefaultConfigPath),
 			"the headless case this exists for: no console user, owner recorded by hand")
 
-		alice := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
+		alice := claimIdentity(4242)
 		got, err := sm.ListProfiles(alice)
 		require.NoError(t, err)
 		assert.Contains(t, profileIDs(got), defaultProfileName)
 	})
+}
+
+// ClaimProfile writes the value the ownership check reads back, so an owner no
+// caller could ever match is refused here rather than in whichever caller
+// happens to reach it.
+func TestClaimProfile_RefusesAnOwnerNobodyCanMatch(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		principal ipcauth.Principal
+	}{
+		{"no kind", ipcauth.Principal{}},
+		{"unknown kind", ipcauth.Principal{Kind: "bogus", Value: "1000"}},
+		{"uid that is not a number", ipcauth.Principal{Kind: ipcauth.KindUID, Value: "abc"}},
+		{"sid that is not a sid", ipcauth.Principal{Kind: ipcauth.KindSID, Value: "any"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			withTestSM(t, func(sm *ServiceManager, _ ipcauth.Identity) {
+				p, err := sm.AddProfile("work", nil)
+				require.NoError(t, err)
+
+				require.Error(t, sm.ClaimProfile(p, tc.principal))
+				assert.Empty(t, readOwners(t, p.Path), "a refused claim records nothing")
+				assert.Empty(t, p.Owners, "and leaves the loaded profile as it was")
+			})
+		})
+	}
 }
