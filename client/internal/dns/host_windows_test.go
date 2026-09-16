@@ -8,6 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/windows/registry"
+
+	"github.com/netbirdio/netbird/client/internal/winregistry"
 )
 
 // TestNRPTEntriesCleanupOnConfigChange tests that old NRPT entries are properly cleaned up
@@ -440,9 +442,12 @@ func TestRemoveEmptyGPOPolicyStore(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, exists, "Should remove the GPO policy store once it is empty")
 
-	// a store is not ours to remove while somebody else has a rule in it
+	// A store is not ours to remove while somebody else has a rule in it. The
+	// rule is written volatile like our own: the rules above created the parent
+	// chain volatile, and Windows refuses a stable subkey under a volatile
+	// parent.
 	foreignRule := GPODNSPolicyConfigRoot + `\{2A3B4C5D-6E7F-4041-8283-84858687888A}`
-	foreignKey, _, err := registry.CreateKey(registry.LOCAL_MACHINE, foreignRule, registry.SET_VALUE)
+	foreignKey, _, err := winregistry.CreateVolatileKey(registry.LOCAL_MACHINE, foreignRule, registry.SET_VALUE)
 	require.NoError(t, err, "Should create a foreign GPO rule")
 	foreignKey.Close()
 	t.Cleanup(func() {
