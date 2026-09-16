@@ -22,12 +22,15 @@ type UpdateResult struct {
 // Update is the Wails-bound facade over the daemon's update RPCs. The state
 // machine and push event live in client/ui/updater.
 type Update struct {
-	conn   DaemonConn
-	holder *updater.Holder
+	conn       DaemonConn
+	holder     *updater.Holder
+	classifier errorClassifier
 }
 
-func NewUpdate(conn DaemonConn, holder *updater.Holder) *Update {
-	return &Update{conn: conn, holder: holder}
+// NewUpdate wires up an Update service. translator or prefs may be nil, in
+// which case classification falls back to the bare error key.
+func NewUpdate(conn DaemonConn, holder *updater.Holder, translator ErrorTranslator, prefs LanguagePreference) *Update {
+	return &Update{conn: conn, holder: holder, classifier: errorClassifier{translator: translator, prefs: prefs}}
 }
 
 func (s *Update) GetState() updater.State {
@@ -52,11 +55,11 @@ func (s *Update) Quit() {
 func (s *Update) Trigger(ctx context.Context) (UpdateResult, error) {
 	cli, err := s.conn.Client()
 	if err != nil {
-		return UpdateResult{}, err
+		return UpdateResult{}, s.classifier.classify(err)
 	}
 	resp, err := cli.TriggerUpdate(ctx, &proto.TriggerUpdateRequest{})
 	if err != nil {
-		return UpdateResult{}, err
+		return UpdateResult{}, s.classifier.classify(err)
 	}
 	return UpdateResult{
 		Success:  resp.GetSuccess(),

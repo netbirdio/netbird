@@ -13,12 +13,7 @@ import { Events } from "@wailsio/runtime";
 import { Update as UpdateSvc, WindowManager } from "@bindings/services";
 import type { State as UpdateState } from "@bindings/updater/models.js";
 import i18next from "@/lib/i18n";
-import { errorDialogFor } from "@/lib/errors";
-
-const isDaemonUnavailable = (e: unknown): boolean => {
-    const msg = e instanceof Error ? e.message : String(e);
-    return msg.includes("code = Unavailable");
-};
+import { errorDialogFor, isDaemonUnavailable } from "@/lib/errors";
 
 type ClientVersionContextValue = {
     updateAvailable: boolean;

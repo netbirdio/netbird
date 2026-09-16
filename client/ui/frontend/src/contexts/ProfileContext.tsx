@@ -12,7 +12,7 @@ import { Events } from "@wailsio/runtime";
 import { Connection, ProfileSwitcher, Profiles as ProfilesSvc } from "@bindings/services";
 import type { Profile } from "@bindings/services/models.js";
 import i18next from "@/lib/i18n";
-import { errorDialogFor } from "@/lib/errors";
+import { errorDialogFor, isDaemonUnavailable } from "@/lib/errors";
 
 const EVENT_PROFILE_CHANGED = "netbird:profile:changed";
 
@@ -78,8 +78,7 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
             setProfiles(list);
             setLoaded(true);
         } catch (e) {
-            const msg = e instanceof Error ? e.message : String(e);
-            if (msg.includes("code = Unavailable")) {
+            if (isDaemonUnavailable(e)) {
                 retryRef.current = setTimeout(() => {
                     void refresh();
                 }, 1000);

@@ -1,6 +1,6 @@
 import { WindowManager } from "@bindings/services";
 
-type ClassifiedError = { short: string; long: string; command: string };
+type ClassifiedError = { code: string; short: string; long: string; command: string };
 
 const asObject = (v: unknown): Record<string, unknown> | null =>
     v && typeof v === "object" ? (v as Record<string, unknown>) : null;
@@ -22,14 +22,15 @@ const toWailsEnvelope = (e: unknown): Record<string, unknown> | null => {
     return asObject(obj.cause) ?? parseJsonObject(obj.message);
 };
 
-// Read { short, long, command } from wherever the classified error sits in the envelope
+// Read { code, short, long, command } from wherever the classified error sits in the envelope
 const toClassifiedError = (v: unknown): ClassifiedError | null => {
     const o = asObject(v);
     if (!o) return null;
+    const code = typeof o.code === "string" ? o.code : "";
     const short = typeof o.short === "string" ? o.short : "";
     const long = typeof o.long === "string" ? o.long : "";
     const command = typeof o.command === "string" ? o.command : "";
-    return short || long ? { short, long, command } : null;
+    return short || long ? { code, short, long, command } : null;
 };
 
 const classify = (e: unknown): ClassifiedError | null => {
@@ -59,6 +60,16 @@ export const formatErrorMessage = (e: unknown): string => {
 // daemon refused, when the error carries one (a change that needs elevated
 // privileges). Empty for every other error.
 export const errorCommand = (e: unknown): string => classify(e)?.command ?? "";
+
+// isDaemonUnavailable reports whether an error means the daemon could not be
+// reached, so a caller can retry quietly instead of putting a dialog up while
+// the service is still starting. Matches the classified code first and the raw
+// gRPC status text second, since not every service classifies its errors.
+export const isDaemonUnavailable = (e: unknown): boolean => {
+    if (classify(e)?.code === "daemon_unreachable") return true;
+    const msg = e instanceof Error ? e.message : String(e);
+    return msg.includes("code = Unavailable");
+};
 
 export type ErrorDialogOptions = {
     Title: string;
