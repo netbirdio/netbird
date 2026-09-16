@@ -729,12 +729,12 @@ func TestSetProfileField_KeepsKeysItWasNotAskedToWrite(t *testing.T) {
 		// Keys Config has no field for, in every shape a newer client could
 		// leave one behind.
 		unknown := map[string]any{
-			"AString":  "keep me",
-			"ANumber":  float64(7),
-			"ABool":    true,
-			"ANull":    nil,
-			"AList":    []any{"a", float64(2), false},
-			"AnObject": map[string]any{"Nested": map[string]any{"Deep": []any{float64(1)}}},
+			"String": "keep me",
+			"Number": float64(7),
+			"Bool":   true,
+			"Null":   nil,
+			"List":   []any{"a", float64(2), false},
+			"Object": map[string]any{"Nested": map[string]any{"Deep": []any{float64(1)}}},
 		}
 		fields := map[string]any{"MTU": 1280}
 		for k, v := range unknown {
