@@ -171,9 +171,11 @@ should be root-only. And a wrong PIN counts against the TPM's dictionary-attack 
 which is shared with everything else on the machine that uses the TPM.
 
 The module is loaded at runtime without cgo, through `purego`, which means the binary is
-dynamically linked against libc. The standard release binary stays fully static, so the
-PKCS#11 store is compiled in only with `-tags pkcs11` on linux/amd64 and linux/arm64.
-Without the tag, setting `NB_CERT_PKCS11_URI` logs that the build lacks the support.
+dynamically linked against libc. The store is therefore compiled in only with `-tags pkcs11`
+on linux/amd64 and linux/arm64: the deb and rpm packages are built that way, since they
+target glibc distributions, while the release tarballs and the Alpine-based container
+images keep the fully static build. Without the tag, setting `NB_CERT_PKCS11_URI` logs that
+the build lacks the support.
 
 To exercise the path without hardware, initialise a SoftHSM token and run the end-to-end
 test, which imports a key and certificate itself:
