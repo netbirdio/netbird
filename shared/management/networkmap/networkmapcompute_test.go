@@ -448,10 +448,9 @@ func TestGetPeerNetworkMapComponents_PeerResourceRules(t *testing.T) {
 		assert.ElementsMatch(t, []string{targetID, remote.ID}, peerIDSet(c.Peers))
 	})
 
-	// Legacy parity: directly referenced peers bypass the ValidatedPeers gate
-	// and posture checks that group-derived peers go through; the client-side
-	// Calculate shares this behavior via getPeerFromResource.
-	t.Run("unvalidated source resource peer still connects", func(t *testing.T) {
+	// A directly referenced peer is admitted like a member of a group holding only
+	// that peer: the ValidatedPeers gate and the posture checks apply equally.
+	t.Run("unvalidated source resource peer is excluded", func(t *testing.T) {
 		target := newPeer(targetID, 1)
 		unval := newPeer("peer-unval", 2)
 		nmd := newNMD(target, unval)
@@ -463,10 +462,10 @@ func TestGetPeerNetworkMapComponents_PeerResourceRules(t *testing.T) {
 
 		c := compute(nmd, targetID)
 
-		assert.ElementsMatch(t, []string{targetID, unval.ID}, peerIDSet(c.Peers))
+		assert.ElementsMatch(t, []string{targetID}, peerIDSet(c.Peers))
 	})
 
-	t.Run("source resource peer bypasses posture checks", func(t *testing.T) {
+	t.Run("source resource peer failing posture checks is excluded", func(t *testing.T) {
 		target := newPeer(targetID, 1)
 		failing := newPeer("peer-failing", 2)
 		failing.Meta.WtVersion = failingVersion
@@ -481,8 +480,63 @@ func TestGetPeerNetworkMapComponents_PeerResourceRules(t *testing.T) {
 
 		c := compute(nmd, targetID)
 
-		assert.ElementsMatch(t, []string{targetID, failing.ID}, peerIDSet(c.Peers))
+		assert.ElementsMatch(t, []string{targetID}, peerIDSet(c.Peers))
 		assert.Empty(t, c.PostureFailedPeers)
+	})
+
+	t.Run("direct source peer failure recorded when connected via another policy", func(t *testing.T) {
+		target := newPeer(targetID, 1)
+		failing := newPeer("peer-failing", 2)
+		failing.Meta.WtVersion = failingVersion
+		nmd := newNMD(target, failing)
+		addVersionCheck(nmd, "pc-1", postureMinVersion)
+		addGroup(nmd, "g-dst", targetID)
+		checkedRule := newRule(nil, []string{"g-dst"})
+		checkedRule.SourceResource = peerResource(failing.ID)
+		checked := newPolicy("p-checked", checkedRule)
+		checked.SourcePostureChecks = []string{"pc-1"}
+		openRule := newRule(nil, []string{"g-dst"})
+		openRule.SourceResource = peerResource(failing.ID)
+		nmd.Policies = []*nmdata.Policy{checked, newPolicy("p-open", openRule)}
+
+		c := compute(nmd, targetID)
+
+		assert.ElementsMatch(t, []string{targetID, failing.ID}, peerIDSet(c.Peers))
+		assert.Equal(t, map[string]map[string]struct{}{"pc-1": {failing.ID: {}}}, c.PostureFailedPeers)
+	})
+
+	t.Run("target as source resource failing posture checks gets no policy", func(t *testing.T) {
+		target := newPeer(targetID, 1)
+		target.Meta.WtVersion = failingVersion
+		dst := newPeer("peer-dst", 2)
+		nmd := newNMD(target, dst)
+		addVersionCheck(nmd, "pc-1", postureMinVersion)
+		addGroup(nmd, "g-dst", dst.ID)
+		rule := newRule(nil, []string{"g-dst"})
+		rule.SourceResource = peerResource(targetID)
+		p := newPolicy("p-1", rule)
+		p.SourcePostureChecks = []string{"pc-1"}
+		nmd.Policies = []*nmdata.Policy{p}
+
+		c := compute(nmd, targetID)
+
+		assert.Empty(t, policyIDs(c.Policies))
+		assert.ElementsMatch(t, []string{targetID}, peerIDSet(c.Peers))
+	})
+
+	t.Run("unvalidated destination resource peer is excluded", func(t *testing.T) {
+		target := newPeer(targetID, 1)
+		unval := newPeer("peer-unval", 2)
+		nmd := newNMD(target, unval)
+		delete(nmd.ValidatedPeers, unval.ID)
+		addGroup(nmd, "g-src", targetID)
+		rule := newRule([]string{"g-src"}, nil)
+		rule.DestinationResource = peerResource(unval.ID)
+		nmd.Policies = []*nmdata.Policy{newPolicy("p-1", rule)}
+
+		c := compute(nmd, targetID)
+
+		assert.ElementsMatch(t, []string{targetID}, peerIDSet(c.Peers))
 	})
 
 	t.Run("unrelated peer resource rule ignored", func(t *testing.T) {

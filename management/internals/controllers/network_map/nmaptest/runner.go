@@ -183,6 +183,7 @@ func RunCase(t *testing.T, c Case) {
 	ctx := context.Background()
 	nmData := c.Data
 	applyFixtureDefaults(nmData)
+	nmData.BuildPrivateServiceCandidates()
 	nmData.PrecomputePostureValidation()
 
 	dnsDomain := c.DNSDomain

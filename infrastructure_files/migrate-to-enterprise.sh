@@ -40,6 +40,10 @@ ENTERPRISE_CONFIG_FILE="config.yaml.enterprise"
 # completed successfully.
 ROLLBACK_STATE="disarmed"
 ENV_EXISTED="unknown"
+# Verdict the server logs about the license key on startup: ok, rejected, or
+# unknown when neither line appeared before the timeout.
+LICENSE_VERDICT="unknown"
+LICENSE_LOG_LINES=""
 ENV_BACKUP=""
 PG_VOLUME_NAME=""
 BACKUP_DIR=""
@@ -59,15 +63,21 @@ ENTERPRISE_CONFIG="no"
 NETBIRD_EULA_URL="https://netbird.io/self-hosted-EULA"
 
 check_docker_compose() {
-  if command -v docker-compose &> /dev/null; then
-    echo "docker-compose"
-    return
+  if ! command -v docker &> /dev/null && ! command -v docker-compose &> /dev/null; then
+    echo "Docker is not installed or not in PATH. Please follow the steps from the official guide: https://docs.docker.com/engine/install/" > /dev/stderr
+    exit 1
   fi
-  if docker compose --help &> /dev/null; then
+
+  if docker compose version &> /dev/null; then
     echo "docker compose"
     return
   fi
-  echo "docker-compose is not installed or not in PATH." > /dev/stderr
+  if command -v docker-compose &> /dev/null && docker-compose version &> /dev/null; then
+    echo "docker-compose"
+    return
+  fi
+
+  echo "Docker Compose is not installed or not in PATH. Please follow the steps from the official guide: https://docs.docker.com/compose/install/" > /dev/stderr
   exit 1
 }
 
@@ -1000,6 +1010,39 @@ init_migration() {
   check_stale_postgres_volume
 }
 
+wait_for_license_verdict() {
+  local counter=0
+  local logs=""
+
+  echo -n "Waiting for the server to validate the license"
+  while [[ $counter -lt 60 ]]; do
+
+    logs=$($DOCKER_COMPOSE_COMMAND logs --no-color --tail=all "$COMBINED_SERVICE" 2>/dev/null || true)
+
+    if grep -qi "license invalidated" <<< "$logs"; then
+      echo " rejected"
+      LICENSE_VERDICT="rejected"
+      LICENSE_LOG_LINES=$(grep -i "license" <<< "$logs" | tail -n 5 || true)
+      return 0
+    fi
+
+    if grep -qi "license validated" <<< "$logs"; then
+      echo " ok"
+      LICENSE_VERDICT="ok"
+      return 0
+    fi
+
+    echo -n " ."
+    sleep 2
+    counter=$((counter + 1))
+  done
+
+  echo " no verdict in 120s"
+  LICENSE_VERDICT="unknown"
+  LICENSE_LOG_LINES=$(grep -iE "failed to validate license|error validating license" <<< "$logs" | tail -n 3 || true)
+  return 0
+}
+
 apply_changes() {
   # From here on a failure must roll the deployment back.
   ROLLBACK_STATE="armed"
@@ -1101,7 +1144,55 @@ apply_changes() {
   $DOCKER_COMPOSE_COMMAND up -d
 
   echo ""
+  wait_for_license_verdict
+
+  echo ""
   echo "Migration complete."
+
+  if [[ "$LICENSE_VERDICT" == "rejected" ]]; then
+    local unreachable="false"
+    if grep -qi "couldn't be validated with the license server" <<< "$LICENSE_LOG_LINES"; then
+      unreachable="true"
+    fi
+
+    echo ""
+    if [[ "$unreachable" == "true" ]]; then
+      echo "  ⚠  The server could not validate the license:"
+    else
+      echo "  ⚠  The server rejected the license key:"
+    fi
+    while IFS= read -r line; do
+      [[ -n "$line" ]] && echo "     $line"
+    done <<< "$LICENSE_LOG_LINES"
+    echo ""
+    echo "     The migration itself completed: the images and any migrated data"
+    echo "     are in place, and only the license check did not pass."
+    echo ""
+    if [[ "$unreachable" == "true" ]]; then
+      echo "     The license server could not be reached, so the key itself was"
+      echo "     never checked. Confirm this host has outbound access to the"
+      echo "     license server, then restart:"
+    else
+      echo "     Check the reason the server gave above, verify that"
+      echo "     NB_LICENSE_KEY in .env matches the key you were issued, then"
+      echo "     restart:"
+    fi
+    echo ""
+    echo "       $DOCKER_COMPOSE_COMMAND up -d"
+  elif [[ "$LICENSE_VERDICT" == "unknown" ]]; then
+    echo ""
+    echo "  ⚠  The server logged no license verdict within 120s."
+    if [[ -n "$LICENSE_LOG_LINES" ]]; then
+      echo "     It was still reporting validation errors:"
+      while IFS= read -r line; do
+        [[ -n "$line" ]] && echo "     $line"
+      done <<< "$LICENSE_LOG_LINES"
+    fi
+    echo ""
+    echo "     Check the verdict with:"
+    echo ""
+    echo "       $DOCKER_COMPOSE_COMMAND logs $COMBINED_SERVICE | grep -i license"
+  fi
 
   # Nothing left to undo.
   ROLLBACK_STATE="disarmed"
@@ -1122,6 +1213,11 @@ print_summary() {
   fi
   [[ "$ENABLE_FLOW" == "yes" ]] && echo "  Traffic flow:     enabled"
   [[ "$ENABLE_FLOW" != "yes" ]] && echo "  Traffic flow:     disabled"
+  case "$LICENSE_VERDICT" in
+    ok)       echo "  License:          validated by the server" ;;
+    rejected) echo "  License:          REJECTED - see above, the install is not usable yet" ;;
+    *)        echo "  License:          not confirmed (no verdict in the logs yet)" ;;
+  esac
   echo ""
   echo "  Generated files (next to your docker-compose.yml):"
   echo "    $OVERRIDE_FILE"
@@ -1176,3 +1272,10 @@ trap 'exit 130' INT TERM
 init_migration
 apply_changes
 print_summary
+
+# A rejected license leaves a migrated but unusable install. Say so in the exit
+# code too, or a wrapper script reads this run as a clean success.
+if [[ "$LICENSE_VERDICT" == "rejected" ]]; then
+  exit 1
+fi
+exit 0

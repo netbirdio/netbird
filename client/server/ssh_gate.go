@@ -44,6 +44,7 @@ import (
 type privilegedConfigChange struct {
 	managementURL       string
 	serverSSHAllowed    *bool
+	remoteJobsAllowed   *bool
 	enableSSHRoot       *bool
 	disableSSHAuth      *bool
 	enableLocalMetrics  *bool
@@ -54,6 +55,7 @@ func privilegedChangeFromSetConfig(msg *proto.SetConfigRequest) privilegedConfig
 	return privilegedConfigChange{
 		managementURL:       msg.GetManagementUrl(),
 		serverSSHAllowed:    msg.ServerSSHAllowed,
+		remoteJobsAllowed:   msg.RemoteJobsAllowed,
 		enableSSHRoot:       msg.EnableSSHRoot,
 		disableSSHAuth:      msg.DisableSSHAuth,
 		enableLocalMetrics:  msg.EnableLocalMetrics,
@@ -65,6 +67,7 @@ func privilegedChangeFromLogin(msg *proto.LoginRequest) privilegedConfigChange {
 	return privilegedConfigChange{
 		managementURL:       msg.GetManagementUrl(),
 		serverSSHAllowed:    msg.ServerSSHAllowed,
+		remoteJobsAllowed:   msg.RemoteJobsAllowed,
 		enableSSHRoot:       msg.EnableSSHRoot,
 		disableSSHAuth:      msg.DisableSSHAuth,
 		enableLocalMetrics:  msg.EnableLocalMetrics,
@@ -90,6 +93,15 @@ func requirePrivilegeForConfigChange(ctx context.Context, stored *profilemanager
 
 	if enables(sshServerCurrentlyAllowed(stored), change.serverSSHAllowed) {
 		return denyPrivileged(ctx, "enabling the NetBird SSH server", ipcauth.UpCommand("--allow-server-ssh"))
+	}
+
+	// Enabling remote jobs lets the management server run jobs (e.g. debug
+	// bundles) on this host, so turning it on crosses the user-to-root
+	// boundary the same way enabling the SSH server does. The stored value
+	// defaults to off (nil = off), so a legacy config is correctly seen as
+	// off and turning it on requires privilege.
+	if enables(storedFlag(stored, func(c *profilemanager.Config) *bool { return c.RemoteJobsAllowed }), change.remoteJobsAllowed) {
+		return denyPrivileged(ctx, "enabling remote jobs", ipcauth.UpCommand("--allow-remote-jobs"))
 	}
 
 	if addr, exposes := exposesLocalMetrics(stored, change); exposes {

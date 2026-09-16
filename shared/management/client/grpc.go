@@ -205,9 +205,9 @@ func (c *GrpcClient) ready() bool {
 
 // Sync wraps the real client's Sync endpoint call and takes care of retries and encryption/decryption of messages
 // Blocking request. The result will be sent via msgHandler callback function
-func (c *GrpcClient) Sync(ctx context.Context, sysInfo *system.Info, msgHandler func(msg *proto.SyncResponse) error) error {
+func (c *GrpcClient) Sync(ctx context.Context, getInfo func(ctx context.Context) *system.Info, msgHandler func(msg *proto.SyncResponse) error) error {
 	return c.withMgmtStream(ctx, func(ctx context.Context, serverPubKey wgtypes.Key, backOff backoff.BackOff) error {
-		return c.handleSyncStream(ctx, serverPubKey, sysInfo, msgHandler, backOff)
+		return c.handleSyncStream(ctx, serverPubKey, getInfo, msgHandler, backOff)
 	})
 }
 
@@ -424,11 +424,11 @@ func (c *GrpcClient) sendJobResponse(
 	return nil
 }
 
-func (c *GrpcClient) handleSyncStream(ctx context.Context, serverPubKey wgtypes.Key, sysInfo *system.Info, msgHandler func(msg *proto.SyncResponse) error, backOff backoff.BackOff) error {
+func (c *GrpcClient) handleSyncStream(ctx context.Context, serverPubKey wgtypes.Key, getInfo func(ctx context.Context) *system.Info, msgHandler func(msg *proto.SyncResponse) error, backOff backoff.BackOff) error {
 	ctx, cancelStream := context.WithCancel(ctx)
 	defer cancelStream()
 
-	stream, err := c.connectToSyncStream(ctx, serverPubKey, sysInfo)
+	stream, err := c.connectToSyncStream(ctx, serverPubKey, getInfo(ctx))
 	if err != nil {
 		log.Debugf("failed to open Management Service stream: %s", err)
 		c.notifyDisconnected(err)
@@ -1039,6 +1039,7 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 			RosenpassEnabled:    info.RosenpassEnabled,
 			RosenpassPermissive: info.RosenpassPermissive,
 			ServerSSHAllowed:    info.ServerSSHAllowed,
+			RemoteJobsAllowed:   info.RemoteJobsAllowed,
 
 			DisableClientRoutes: info.DisableClientRoutes,
 			DisableServerRoutes: info.DisableServerRoutes,

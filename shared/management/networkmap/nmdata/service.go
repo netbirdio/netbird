@@ -9,6 +9,7 @@ type Service struct {
 	Enabled      bool
 	Private      bool
 	Mode         string
+	Domain       string
 	ProxyCluster string
 	AccessGroups []string
 	Targets      []*ServiceTarget

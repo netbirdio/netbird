@@ -32,7 +32,7 @@ list; both are optional and default to the full privileged suite.
 
 1. Skips immediately when it detects it is already inside the container
    (`DOCKER_CI=true`), so the privileged tests run in place instead of recursing.
-2. Otherwise spins up a `golang:1.25-alpine` container (matching CI),
+2. Otherwise spins up a `golang:1.26.7-alpine` container (matching CI),
    bind-mounts the repo and the host Go build/module caches, installs the
    required packages, and runs `go test -tags 'devcert privileged'` over the
    client packages.

@@ -711,6 +711,9 @@ func (g *BundleGenerator) addCommonConfigFields(configContent *strings.Builder) 
 	if g.internalConfig.ServerSSHAllowed != nil {
 		configContent.WriteString(fmt.Sprintf("ServerSSHAllowed: %v\n", *g.internalConfig.ServerSSHAllowed))
 	}
+	if g.internalConfig.RemoteJobsAllowed != nil {
+		configContent.WriteString(fmt.Sprintf("RemoteJobsAllowed: %v\n", *g.internalConfig.RemoteJobsAllowed))
+	}
 	if g.internalConfig.EnableSSHRoot != nil {
 		configContent.WriteString(fmt.Sprintf("EnableSSHRoot: %v\n", *g.internalConfig.EnableSSHRoot))
 	}

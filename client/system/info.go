@@ -65,6 +65,7 @@ type Info struct {
 	RosenpassEnabled    bool
 	RosenpassPermissive bool
 	ServerSSHAllowed    bool
+	RemoteJobsAllowed   bool
 
 	DisableClientRoutes bool
 	DisableServerRoutes bool
@@ -90,11 +91,15 @@ func (i *Info) SetFlags(
 	disableDNS, disableFirewall, blockLANAccess, blockInbound, disableIPv6 bool, syncMessageVersion *int,
 	enableSSHRoot, enableSSHSFTP, enableSSHLocalPortForwarding, enableSSHRemotePortForwarding *bool,
 	disableSSHAuth *bool,
+	remoteJobsAllowed *bool,
 ) {
 	i.RosenpassEnabled = rosenpassEnabled
 	i.RosenpassPermissive = rosenpassPermissive
 	if serverSSHAllowed != nil {
 		i.ServerSSHAllowed = *serverSSHAllowed
+	}
+	if remoteJobsAllowed != nil {
+		i.RemoteJobsAllowed = *remoteJobsAllowed
 	}
 
 	i.DisableClientRoutes = disableClientRoutes

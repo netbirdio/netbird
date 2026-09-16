@@ -230,13 +230,13 @@ func (c *NetworkMapComponents) getPeerConnectionResources(targetPeerID string) (
 			var peerInSources, peerInDestinations bool
 
 			if rule.SourceResource.Type == string(ResourceTypePeer) && rule.SourceResource.ID != "" {
-				sourcePeers, peerInSources = c.getPeerFromResource(rule.SourceResource, targetPeerID)
+				sourcePeers, peerInSources = c.getPeerFromResource(rule.SourceResource, targetPeerID, policy.SourcePostureChecks)
 			} else {
 				sourcePeers, peerInSources = c.getAllPeersFromGroups(rule.Sources, targetPeerID, policy.SourcePostureChecks)
 			}
 
 			if rule.DestinationResource.Type == string(ResourceTypePeer) && rule.DestinationResource.ID != "" {
-				destinationPeers, peerInDestinations = c.getPeerFromResource(rule.DestinationResource, targetPeerID)
+				destinationPeers, peerInDestinations = c.getPeerFromResource(rule.DestinationResource, targetPeerID, nil)
 			} else {
 				destinationPeers, peerInDestinations = c.getAllPeersFromGroups(rule.Destinations, targetPeerID, nil)
 			}
@@ -373,8 +373,21 @@ func (c *NetworkMapComponents) connResourcesGenerator(targetPeer *nmdata.Peer) (
 }
 
 func (c *NetworkMapComponents) getAllPeersFromGroups(groups []string, peerID string, sourcePostureChecksIDs []string) ([]*nmdata.Peer, bool) {
+	return c.filterPolicyPeers(c.getUniquePeerIDsFromGroupsIDs(groups), peerID, sourcePostureChecksIDs)
+}
+
+// getPeerFromResource resolves a rule side that names a peer directly. The peer is
+// subject to the same admission as a group member, so a direct peer behaves exactly
+// like a group holding only that peer.
+func (c *NetworkMapComponents) getPeerFromResource(resource nmdata.Resource, peerID string, sourcePostureChecksIDs []string) ([]*nmdata.Peer, bool) {
+	return c.filterPolicyPeers([]string{resource.ID}, peerID, sourcePostureChecksIDs)
+}
+
+// filterPolicyPeers admits the peers of one rule side: known to the components and
+// passing the rule's posture checks. It reports the admitted peers other than peerID
+// and whether peerID itself is admitted on that side.
+func (c *NetworkMapComponents) filterPolicyPeers(uniquePeerIDs []string, peerID string, sourcePostureChecksIDs []string) ([]*nmdata.Peer, bool) {
 	peerInGroups := false
-	uniquePeerIDs := c.getUniquePeerIDsFromGroupsIDs(groups)
 	filteredPeers := make([]*nmdata.Peer, 0, len(uniquePeerIDs))
 
 	for _, p := range uniquePeerIDs {
@@ -425,19 +438,6 @@ func (c *NetworkMapComponents) getUniquePeerIDsFromGroupsIDs(groups []string) []
 	}
 
 	return ids
-}
-
-func (c *NetworkMapComponents) getPeerFromResource(resource nmdata.Resource, peerID string) ([]*nmdata.Peer, bool) {
-	if resource.ID == peerID {
-		return []*nmdata.Peer{}, true
-	}
-
-	peerInfo := c.GetPeerInfo(resource.ID)
-	if peerInfo == nil {
-		return []*nmdata.Peer{}, false
-	}
-
-	return []*nmdata.Peer{peerInfo}, false
 }
 
 func (c *NetworkMapComponents) filterPeersByLoginExpiration(aclPeers []*nmdata.Peer) ([]*nmdata.Peer, []*nmdata.Peer) {

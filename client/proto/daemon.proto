@@ -245,6 +245,9 @@ message LoginRequest {
 
   optional bool enable_local_metrics = 41;
   optional string local_metrics_address = 42;
+  // remoteJobsAllowed opts the peer into management-requested remote jobs
+  // (e.g. debug bundles). Absent leaves the stored value unchanged.
+  optional bool remoteJobsAllowed = 43;
 }
 
 message LoginResponse {
@@ -364,6 +367,8 @@ message GetConfigResponse {
   int32 sshJWTCacheTTL = 26;
 
   bool disable_ipv6 = 27;
+
+  bool remoteJobsAllowed = 29;
 
   // mDMManagedFields lists the names of configuration keys whose value is
   // currently enforced by an MDM policy. Names match mdm.Key* constants
@@ -772,6 +777,9 @@ message SetConfigRequest {
 
   optional bool enable_local_metrics = 36;
   optional string local_metrics_address = 37;
+  // remoteJobsAllowed opts the peer into management-requested remote jobs
+  // (e.g. debug bundles). Absent leaves the stored value unchanged.
+  optional bool remoteJobsAllowed = 38;
 }
 
 message SetConfigResponse{}

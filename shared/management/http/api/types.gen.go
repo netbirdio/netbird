@@ -77,6 +77,27 @@ func (e AgentNetworkConsumptionDimensionKind) Valid() bool {
 	}
 }
 
+// Defines values for AgentNetworkManagedProxyState.
+const (
+	AgentNetworkManagedProxyStateFailed       AgentNetworkManagedProxyState = "failed"
+	AgentNetworkManagedProxyStateProvisioning AgentNetworkManagedProxyState = "provisioning"
+	AgentNetworkManagedProxyStateReady        AgentNetworkManagedProxyState = "ready"
+)
+
+// Valid indicates whether the value is a known member of the AgentNetworkManagedProxyState enum.
+func (e AgentNetworkManagedProxyState) Valid() bool {
+	switch e {
+	case AgentNetworkManagedProxyStateFailed:
+		return true
+	case AgentNetworkManagedProxyStateProvisioning:
+		return true
+	case AgentNetworkManagedProxyStateReady:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CreateAzureIntegrationRequestHost.
 const (
 	CreateAzureIntegrationRequestHostMicrosoftCom CreateAzureIntegrationRequestHost = "microsoft.com"
@@ -1931,6 +1952,36 @@ type AgentNetworkAccessLogsResponse struct {
 	TotalRecords int `json:"total_records"`
 }
 
+// AgentNetworkAgentConfig The caller-scoped Agent Network connection config backing the self-service "Connect your agent" view. Available to every authenticated user; the providers are computed from the caller's own groups and the answer carries display metadata only.
+type AgentNetworkAgentConfig struct {
+	// Configured False only when the account has no Agent Network set up. A caller that no policy covers yet still reads as configured, with an empty providers list.
+	Configured bool `json:"configured"`
+
+	// Endpoint The account's Agent Network base URL, reachable over the NetBird tunnel only. Returned to every member of a configured account - it authorizes nothing on its own, since the gateway still refuses every request no policy permits. Empty when configured is false.
+	Endpoint string `json:"endpoint"`
+
+	// Providers The providers at least one of the caller's policies authorizes, in creation order. Empty when no policy covers the caller.
+	Providers []AgentNetworkAgentConfigProvider `json:"providers"`
+}
+
+// AgentNetworkAgentConfigProvider One provider the caller may use, reduced to what a local tool needs for configuration.
+type AgentNetworkAgentConfigProvider struct {
+	// AllModelsAllowed True when no model allowlist restricts this provider for the caller; models then lists the declared or catalog models as a courtesy.
+	AllModelsAllowed bool `json:"all_models_allowed"`
+
+	// ApiFlavor Request-body shape the provider speaks ("anthropic", "openai"). Empty when the gateway dispatches it by URL path instead.
+	ApiFlavor string `json:"api_flavor"`
+
+	// CatalogId Catalog entry id naming the provider type.
+	CatalogId string `json:"catalog_id"`
+
+	// Models The effective model allowlist for the caller (or the declared/catalog models when all_models_allowed is true).
+	Models []string `json:"models"`
+
+	// Name Operator-assigned provider label.
+	Name string `json:"name"`
+}
+
 // AgentNetworkBudgetRule Account-level budget rule. A limit-only rule bound to groups and/or users that applies across all policies as a min-wins ceiling. Empty targets means it applies to every caller.
 type AgentNetworkBudgetRule struct {
 	CreatedAt *time.Time `json:"created_at,omitempty"`
@@ -2194,6 +2245,33 @@ type AgentNetworkGuardrailRequest struct {
 	Name string `json:"name"`
 }
 
+// AgentNetworkManagedProxy A NetBird-managed Agent Network gateway deployment.
+type AgentNetworkManagedProxy struct {
+	// Endpoint The account's gateway hostname.
+	Endpoint string `json:"endpoint"`
+
+	// Id Managed proxy deployment ID.
+	Id string `json:"id"`
+
+	// Message Failure detail reported by the rollout. Only set when state is `failed`.
+	Message *string `json:"message,omitempty"`
+
+	// Region Region of the cluster hosting the deployment.
+	Region *string `json:"region,omitempty"`
+
+	// State Derived deployment state. `provisioning` until the gateway is rolled out and connected, `ready` while the gateway actively serves the endpoint, `failed` when the rollout reported a failure.
+	State AgentNetworkManagedProxyState `json:"state"`
+}
+
+// AgentNetworkManagedProxyState Derived deployment state. `provisioning` until the gateway is rolled out and connected, `ready` while the gateway actively serves the endpoint, `failed` when the rollout reported a failure.
+type AgentNetworkManagedProxyState string
+
+// AgentNetworkManagedProxyConflict Conflict body returned when the account already has an Agent Network endpoint that managed provisioning does not own, naming that endpoint.
+type AgentNetworkManagedProxyConflict struct {
+	// Endpoint The Agent Network endpoint already assigned to the account.
+	Endpoint string `json:"endpoint"`
+}
+
 // AgentNetworkModelDiscoveryRequest defines model for AgentNetworkModelDiscoveryRequest.
 type AgentNetworkModelDiscoveryRequest struct {
 	// ApiKey Credential to query the vendor with, for a provider that has not been saved yet. Mutually exclusive with provider_id.
@@ -2202,10 +2280,10 @@ type AgentNetworkModelDiscoveryRequest struct {
 	// CatalogProviderId Catalog provider to query (AgentNetworkCatalogProvider.id). Determines the listing endpoint, the auth header and the response shape.
 	CatalogProviderId string `json:"catalog_provider_id"`
 
-	// ProviderId Existing Agent Network provider record whose stored credential and upstream should be used. Lets the form refresh the list without the client holding the key.
+	// ProviderId Existing Agent Network provider record to query with. Its stored credential is used, and its upstream unless upstream_url overrides it, so the form can refresh the list without the client holding the key.
 	ProviderId *string `json:"provider_id,omitempty"`
 
-	// UpstreamUrl The upstream being configured. Used to reach vendors that serve their listing from the same host as inference, and to read back the region for those whose host embeds one. Ignored when provider_id is supplied.
+	// UpstreamUrl The upstream being configured. Used to reach vendors that serve their listing from the same host as inference, and to read back the region for those whose host embeds one. Sent alongside provider_id, it overrides the stored upstream, so an edit can be listed against the URL on the form before it is saved.
 	UpstreamUrl *string `json:"upstream_url,omitempty"`
 }
 
@@ -2575,6 +2653,9 @@ type BundleParameters struct {
 	// Anonymize Whether sensitive data should be anonymized in the bundle.
 	Anonymize bool `json:"anonymize"`
 
+	// AnonymizeLevel How much the anonymizer redacts. "default" (or empty) keeps internal IP ranges, "strict" also anonymizes them.
+	AnonymizeLevel *string `json:"anonymize_level,omitempty"`
+
 	// BundleFor Whether to generate a bundle for the given timeframe.
 	BundleFor bool `json:"bundle_for"`
 
@@ -2583,6 +2664,9 @@ type BundleParameters struct {
 
 	// LogFileCount Maximum number of log files to include in the bundle.
 	LogFileCount int `json:"log_file_count"`
+
+	// UploadUrl Service URL the client requests an upload URL from before uploading the bundle. Empty selects the default upload server.
+	UploadUrl *string `json:"upload_url,omitempty"`
 }
 
 // BundleResult defines model for BundleResult.
@@ -4326,6 +4410,9 @@ type PeerLocalFlags struct {
 
 	// LazyConnectionEnabled Indicates whether lazy connection is enabled on this peer
 	LazyConnectionEnabled *bool `json:"lazy_connection_enabled,omitempty"`
+
+	// RemoteJobsAllowed Indicates whether the peer has opted into management-requested remote jobs (e.g. debug bundles)
+	RemoteJobsAllowed *bool `json:"remote_jobs_allowed,omitempty"`
 
 	// RosenpassEnabled Indicates whether Rosenpass is enabled on this peer
 	RosenpassEnabled *bool `json:"rosenpass_enabled,omitempty"`

@@ -94,7 +94,7 @@ func TestValidateLineProtocol_RejectsOnBadLine(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestValidateAuth(t *testing.T) {
+func TestValidatePeerIDFormat(t *testing.T) {
 	tests := []struct {
 		name    string
 		peerID  string
@@ -113,7 +113,7 @@ func TestValidateAuth(t *testing.T) {
 			if tt.peerID != "" {
 				r.Header.Set("X-Peer-ID", tt.peerID)
 			}
-			err := validateAuth(r)
+			err := validatePeerIDFormat(r)
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {
