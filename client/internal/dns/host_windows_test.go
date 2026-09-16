@@ -405,3 +405,58 @@ func TestNRPTDomainBatching(t *testing.T) {
 		})
 	}
 }
+
+// TestRemoveEmptyGPOPolicyStore verifies that cleanup takes the GPO policy
+// store itself with it once our rules are gone, since the store existing keeps
+// the local one from being applied, and that a store with somebody else's rule
+// in it is left alone.
+func TestRemoveEmptyGPOPolicyStore(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping registry integration test in short mode")
+	}
+
+	t.Cleanup(func() { cleanupRegistryKeys(t) })
+	cleanupRegistryKeys(t)
+
+	testIP := netip.MustParseAddr("100.64.0.1")
+	cfg := &registryConfigurator{gpo: true}
+
+	// a store holding a rule of ours is kept, because the rule is still applied
+	require.NoError(t, cfg.addDNSMatchPolicy([]string{".example.com"}, testIP))
+	exists, err := registryKeyExists(gpoDnsPolicyConfigMatchPath + "-0")
+	require.NoError(t, err)
+	require.True(t, exists, "Should write the rule to the GPO policy store")
+
+	require.NoError(t, removeEmptyGPOPolicyStore())
+	exists, err = registryKeyExists(GPODNSPolicyConfigRoot)
+	require.NoError(t, err)
+	assert.True(t, exists, "Should keep a policy store that still holds a rule")
+
+	// once the rules are gone the store goes with them
+	require.NoError(t, cfg.removeDNSMatchPolicies())
+	require.NoError(t, removeEmptyGPOPolicyStore())
+
+	exists, err = registryKeyExists(GPODNSPolicyConfigRoot)
+	require.NoError(t, err)
+	assert.False(t, exists, "Should remove the GPO policy store once it is empty")
+
+	// a store is not ours to remove while somebody else has a rule in it
+	foreignRule := GPODNSPolicyConfigRoot + `\{2A3B4C5D-6E7F-4041-8283-84858687888A}`
+	foreignKey, _, err := registry.CreateKey(registry.LOCAL_MACHINE, foreignRule, registry.SET_VALUE)
+	require.NoError(t, err, "Should create a foreign GPO rule")
+	foreignKey.Close()
+	t.Cleanup(func() {
+		_ = registry.DeleteKey(registry.LOCAL_MACHINE, foreignRule)
+		_ = registry.DeleteKey(registry.LOCAL_MACHINE, GPODNSPolicyConfigRoot)
+	})
+
+	require.NoError(t, cfg.removeDNSMatchPolicies())
+	require.NoError(t, removeEmptyGPOPolicyStore())
+
+	exists, err = registryKeyExists(foreignRule)
+	require.NoError(t, err)
+	assert.True(t, exists, "Should not remove a foreign rule")
+	exists, err = registryKeyExists(GPODNSPolicyConfigRoot)
+	require.NoError(t, err)
+	assert.True(t, exists, "Should keep a policy store that still holds a foreign rule")
+}

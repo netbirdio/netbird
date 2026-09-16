@@ -606,6 +606,13 @@ func (r *registryConfigurator) restoreHostDNS() error {
 		return fmt.Errorf("remove dns match policies: %w", err)
 	}
 
+	// Only on the way out, once no rule of ours is left: during a session the
+	// store is where the rules of this run live, and emptying it mid-session
+	// would have the next rule recreate it anyway.
+	if err := removeEmptyGPOPolicyStore(); err != nil {
+		log.Warnf("%v", err)
+	}
+
 	if err := r.deleteInterfaceRegistryKeyProperty(interfaceConfigSearchListKey); err != nil {
 		return fmt.Errorf("remove interface registry key: %w", err)
 	}
@@ -649,6 +656,46 @@ func (r *registryConfigurator) removeDNSMatchPolicies() error {
 
 func (r *registryConfigurator) restoreUncleanShutdownDNS() error {
 	return r.restoreHostDNS()
+}
+
+// removeEmptyGPOPolicyStore deletes the group policy DnsPolicyConfig key once
+// nothing is left in it. The key survives the deletion of the last rule it
+// held, and the client treats its presence as "group policy configures the
+// NRPT", so an empty one left behind keeps every later run writing rules there.
+// Rules in that store reach the resolver only when the policy engine next
+// applies DNS client policy, and a rule this client writes belongs to no GPO,
+// so nothing schedules that application: both adding and removing a rule are
+// held up by a minute or more, and for a removal that is a catch-all rule
+// resolving every name over an interface that no longer exists. With the store
+// absent the local one is authoritative and a change applies at once.
+//
+// A store that still holds rules, values or subkeys of somebody else's is left
+// alone.
+func removeEmptyGPOPolicyStore() error {
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, GPODNSPolicyConfigRoot, registry.QUERY_VALUE)
+	switch {
+	case errors.Is(err, registry.ErrNotExist), errors.Is(err, syscall.ERROR_PATH_NOT_FOUND):
+		return nil
+	case err != nil:
+		return fmt.Errorf("open HKEY_LOCAL_MACHINE\\%s: %w", GPODNSPolicyConfigRoot, err)
+	}
+
+	info, err := k.Stat()
+	closer(k)
+	if err != nil {
+		return fmt.Errorf("stat HKEY_LOCAL_MACHINE\\%s: %w", GPODNSPolicyConfigRoot, err)
+	}
+
+	if info.SubKeyCount != 0 || info.ValueCount != 0 {
+		return nil
+	}
+
+	if err := registry.DeleteKey(registry.LOCAL_MACHINE, GPODNSPolicyConfigRoot); err != nil {
+		return fmt.Errorf("delete empty HKEY_LOCAL_MACHINE\\%s: %w", GPODNSPolicyConfigRoot, err)
+	}
+
+	log.Infof("removed the empty GPO DNS policy store, leaving the local one authoritative")
+	return nil
 }
 
 // listNRPTRuleKeys returns the names of our NRPT rule keys under a policy store
