@@ -643,3 +643,19 @@ func TestListProfiles_UnidentifiedCallerGetsNothing(t *testing.T) {
 		assert.Empty(t, got)
 	})
 }
+
+func TestActiveProfilePath_RefusesToGuessBetweenNamesakes(t *testing.T) {
+	withLegacyLayout(t, func(sm *ServiceManager, configDir string) {
+		writeLegacyProfile(t, configDir, "alice", "work", nil)
+		writeLegacyProfile(t, configDir, "bob", "work", nil)
+
+		_, err := sm.ActiveProfilePath(&ActiveProfileState{ID: "work"})
+		require.ErrorIs(t, err, ErrAmbiguousActiveProfile,
+			"running one account's config under another account's name is worse than not running")
+
+		path, err := sm.ActiveProfilePath(&ActiveProfileState{ID: "work", Username: "bob"})
+		require.NoError(t, err)
+		assert.Equal(t, filepath.Join(configDir, "bob", "work.json"), path,
+			"the recorded directory is what tells the namesakes apart")
+	})
+}
