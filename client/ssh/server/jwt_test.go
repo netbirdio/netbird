@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"runtime"
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -106,6 +107,157 @@ func TestJWTEnforcement(t *testing.T) {
 		defer client.Close()
 	})
 
+}
+
+func TestUpdateJWTConfig(t *testing.T) {
+	keys, privateKey, keysURL := setupJWKSServer(t)
+	t.Cleanup(keys.Close)
+	newKeys, newPrivateKey, newKeysURL := setupJWKSServer(t)
+	t.Cleanup(newKeys.Close)
+
+	for _, field := range []string{"issuer", "audience", "keys"} {
+		t.Run(field, func(t *testing.T) {
+			config := &JWTConfig{Issuer: "issuer", Audiences: []string{"audience"}, KeysLocation: keysURL}
+			server := New(&Config{JWT: config})
+			validator, extractor, snapshot, err := server.getJWTAuth()
+			require.NoError(t, err)
+			oldToken := generateValidJWT(t, privateKey, config.Issuer, config.Audiences[0])
+			updated := *config
+			signingKey := privateKey
+			switch field {
+			case "issuer":
+				updated.Issuer = "new-issuer"
+			case "audience":
+				updated.Audiences = []string{"new-audience"}
+			case "keys":
+				updated.KeysLocation = newKeysURL
+				signingKey = newPrivateKey
+			}
+			server.UpdateJWTConfig(&updated)
+
+			// An attempt that already captured its settings can finish after an update.
+			parsed, err := server.validateJWTToken(oldToken, validator, snapshot)
+			require.NoError(t, err)
+			user, err := server.extractAndValidateUser(parsed, extractor)
+			require.NoError(t, err)
+			assert.Equal(t, "test-user", user.UserId, "the captured extractor must remain usable")
+
+			validator, _, snapshot, err = server.getJWTAuth()
+			require.NoError(t, err)
+			_, err = server.validateJWTToken(oldToken, validator, snapshot)
+			assert.Error(t, err, "new attempts must reject the previous configuration's token")
+			newToken := generateValidJWT(t, signingKey, updated.Issuer, updated.Audiences[0])
+			_, err = server.validateJWTToken(newToken, validator, snapshot)
+			assert.NoError(t, err, "new attempts must accept the updated configuration's token")
+		})
+	}
+}
+
+func TestUpdateJWTConfigPreservesKeys(t *testing.T) {
+	privateKey, jwksJSON := generateTestJWKS(t)
+	var requests atomic.Int32
+	jwksServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		w.Header().Set("Cache-Control", "max-age=3600")
+		_, err := w.Write(jwksJSON)
+		assert.NoError(t, err)
+	}))
+	t.Cleanup(jwksServer.Close)
+
+	config := &JWTConfig{Issuer: "issuer", Audiences: []string{"audience"}, KeysLocation: jwksServer.URL, MaxTokenAge: 300}
+	server := New(&Config{JWT: config})
+	validator, _, snapshot, err := server.getJWTAuth()
+	require.NoError(t, err)
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+		"iss": config.Issuer, "aud": config.Audiences[0], "sub": "test-user",
+		"iat": time.Now().Add(-6 * time.Minute).Unix(), "exp": time.Now().Add(time.Hour).Unix(),
+	})
+	token.Header["kid"] = "test-key-id"
+	signed, err := token.SignedString(privateKey)
+	require.NoError(t, err)
+	_, err = server.validateJWTToken(signed, validator, snapshot)
+	require.ErrorContains(t, err, "token expired")
+
+	for _, maxAge := range []int64{300, 600} {
+		updated := *config
+		updated.MaxTokenAge = maxAge
+		server.UpdateJWTConfig(&updated)
+		server.UpdateSSHAuth(&sshauth.Config{UserIDClaim: server.authorizer.GetUserIDClaim()})
+		validator, _, snapshot, err = server.getJWTAuth()
+		require.NoError(t, err)
+		_, err = server.validateJWTToken(signed, validator, snapshot)
+		if maxAge == 300 {
+			assert.ErrorContains(t, err, "token expired")
+		} else {
+			assert.NoError(t, err)
+		}
+		assert.Equal(t, int32(1), requests.Load(), "unchanged and age-only updates must reuse cached keys")
+	}
+}
+
+func TestJWTConfigUpdateDuringInitialization(t *testing.T) {
+	privateKey, jwksJSON := generateTestJWKS(t)
+	started, release := make(chan struct{}), make(chan struct{})
+	var requests atomic.Int32
+	jwksServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if requests.Add(1) == 1 {
+			close(started)
+			<-release
+		}
+		w.Header().Set("Cache-Control", "max-age=3600")
+		_, err := w.Write(jwksJSON)
+		assert.NoError(t, err)
+	}))
+	t.Cleanup(jwksServer.Close)
+	// Release a blocked request even if a precondition fails.
+	t.Cleanup(func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	})
+	config := &JWTConfig{Issuer: "issuer", Audiences: []string{"audience"}, KeysLocation: jwksServer.URL}
+	server := New(&Config{JWT: config})
+	updated := *config
+	updated.Issuer = "new-issuer"
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+		"iss": updated.Issuer, "aud": updated.Audiences[0], "sub": "old-user", "email": "new-user",
+		"iat": time.Now().Unix(), "exp": time.Now().Add(time.Hour).Unix(),
+	})
+	token.Header["kid"] = "test-key-id"
+	signed, err := token.SignedString(privateKey)
+	require.NoError(t, err)
+	done := make(chan error, 1)
+	go func() {
+		validator, extractor, snapshot, err := server.getJWTAuth()
+		if err == nil {
+			var parsed *jwt.Token
+			parsed, err = server.validateJWTToken(signed, validator, snapshot)
+			if err == nil {
+				user, extractErr := server.extractAndValidateUser(parsed, extractor)
+				err = extractErr
+				if err == nil {
+					assert.Equal(t, "new-user", user.UserId, "initialization must use the updated user-ID claim")
+				}
+			}
+		}
+		done <- err
+	}()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("validator initialization did not request signing keys")
+	}
+	server.UpdateJWTConfig(&updated)
+	server.UpdateSSHAuth(&sshauth.Config{UserIDClaim: "email"})
+	close(release)
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("validator initialization did not finish after reconfiguration")
+	}
 }
 
 // setupJWKSServer creates a test HTTP server serving JWKS and returns the server, private key, and URL

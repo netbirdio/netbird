@@ -28,6 +28,9 @@ type Settings struct {
 	// GroupsPropagationEnabled allows to propagate auto groups from the user to the peer
 	GroupsPropagationEnabled bool
 
+	// SSHJWTMaxTokenAge limits SSH JWT age since issuance; zero uses the client's default.
+	SSHJWTMaxTokenAge time.Duration
+
 	// JWTGroupsEnabled allows extract groups from JWT claim, which name defined in the JWTGroupsClaimName
 	// and add it to account groups.
 	JWTGroupsEnabled bool
@@ -106,6 +109,7 @@ func (s *Settings) Copy() *Settings {
 		JWTGroupsEnabled:           s.JWTGroupsEnabled,
 		JWTGroupsClaimName:         s.JWTGroupsClaimName,
 		GroupsPropagationEnabled:   s.GroupsPropagationEnabled,
+		SSHJWTMaxTokenAge:          s.SSHJWTMaxTokenAge,
 		JWTAllowGroups:             s.JWTAllowGroups,
 		RegularUsersViewBlocked:    s.RegularUsersViewBlocked,
 
