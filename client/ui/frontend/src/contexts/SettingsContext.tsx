@@ -9,7 +9,7 @@ import {
     type ReactNode,
 } from "react";
 import { Events } from "@wailsio/runtime";
-import { Autostart, Settings as SettingsSvc, Version } from "@bindings/services";
+import { Autostart, Settings as SettingsSvc } from "@bindings/services";
 import type { Config } from "@bindings/services/models.js";
 import i18next from "@/lib/i18n";
 import { useProfile } from "@/contexts/ProfileContext.tsx";
@@ -29,7 +29,6 @@ export type GuardedField = "serverSshAllowed" | "enableSshRoot" | "disableSshAut
 
 type SettingsContextValue = {
     config: Config;
-    guiVersion: string;
     setField: <K extends keyof Config>(k: K, v: Config[K]) => void;
     saveField: <K extends keyof Config>(k: K, v: Config[K]) => Promise<void>;
     saveFields: (partial: Partial<Config>, opts?: { preSharedKey?: string }) => Promise<void>;
@@ -66,7 +65,6 @@ type LoadedConfig = { profileName: string; data: Config };
 const useSettingsState = () => {
     const { username, activeProfileId, loaded: profileLoaded } = useProfile();
     const [loaded, setLoaded] = useState<LoadedConfig | null>(null);
-    const [guiVersion, setGuiVersion] = useState<string>("—");
     const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const loadedRef = useRef<LoadedConfig | null>(null);
     // Set when the daemon's config changed while a save was pending, so the read
@@ -134,16 +132,6 @@ const useSettingsState = () => {
             off();
         };
     }, [profileLoaded, activeProfileId, username]);
-
-    useEffect(() => {
-        let cancelled = false;
-        Version.GUI().then((v) => {
-            if (!cancelled) setGuiVersion(v);
-        });
-        return () => {
-            cancelled = true;
-        };
-    }, []);
 
     useEffect(
         () => () => {
@@ -292,7 +280,6 @@ const useSettingsState = () => {
 
     return {
         config: loaded?.data ?? null,
-        guiVersion,
         setField,
         saveField,
         saveFields,
@@ -302,15 +289,13 @@ const useSettingsState = () => {
 };
 
 export const SettingsProvider = ({ children }: { children: ReactNode }) => {
-    const { config, guiVersion, setField, saveField, saveFields, saveGuardedField, saveNow } =
+    const { config, setField, saveField, saveFields, saveGuardedField, saveNow } =
         useSettingsState();
 
     const value = useMemo<SettingsContextValue | null>(
         () =>
-            config
-                ? { config, guiVersion, setField, saveField, saveFields, saveGuardedField, saveNow }
-                : null,
-        [config, guiVersion, setField, saveField, saveFields, saveGuardedField, saveNow],
+            config ? { config, setField, saveField, saveFields, saveGuardedField, saveNow } : null,
+        [config, setField, saveField, saveFields, saveGuardedField, saveNow],
     );
 
     if (!value) {
