@@ -17,6 +17,8 @@ to one WireGuard peer key and cannot be replayed by another peer.
 | Windows | `LocalMachine\MY` | the service, directly |
 | Windows | signed-in user's `CurrentUser\MY` | a helper launched with that session's token |
 | Linux and others | PEM directory, `NB_CERT_STORE_DIR` or `/etc/netbird/certs` | the daemon, directly |
+| Linux | a `TSS2 PRIVATE KEY` file in that directory, signed by the TPM | the daemon, through `/dev/tpmrm0` |
+| Linux | a PKCS#11 token named by `NB_CERT_PKCS11_URI`, such as tpm2-pkcs11 | the daemon, through the token's module, in builds with the `pkcs11` tag |
 
 macOS and Windows both keep per-user certificates out of reach of a privileged daemon,
 and both are handled the same way: the daemon reads the machine store itself and
@@ -98,6 +100,89 @@ child process avoids that class of bug entirely.
 Unlike macOS, the Windows store acquires keys with `CRYPT_ACQUIRE_SILENT_FLAG`, so a key
 that would need a prompt fails immediately instead of blocking. That also means a
 smartcard PIN can never be satisfied this way.
+
+## Linux: keys held by the TPM
+
+Enrollment tooling on Linux keeps a TPM-resident key as a `TSS2 PRIVATE KEY` PEM file,
+the format of draft-bottomley-tpm2-keys that tpm2-openssl, tpm2-tss-engine and
+`tpm2_encodeobject` write. The file holds the key wrapped by its parent; the TPM is the
+only thing that can use it. Drop it next to the certificate as usual:
+
+```
+openssl genpkey -provider tpm2 -algorithm EC -pkeyopt group:P-256 -out /etc/netbird/certs/device.key
+openssl req -provider tpm2 -provider default -new -key /etc/netbird/certs/device.key -subj /CN=device -out device.csr
+```
+
+Sign the CSR with the organisation CA and store the result as `device.pem`. The store
+parses the key file without touching the TPM, so the certificate is listed as a
+candidate like any other, and every signature opens `/dev/tpmrm0`, loads the key under
+its parent, signs, flushes and closes again. `NB_TPM_DEVICE` overrides the device path.
+
+What the key file may look like:
+
+- **Parent.** A persistent handle such as `0x81000001` is used as is. The owner
+  hierarchy, which both tpm2-openssl and tpm2-tss-engine default to, means the key was
+  created under a transient primary from the TCG default ECC P-256 template, and that
+  same primary is derived again before loading.
+- **No authorization value.** A key created with a password needs someone to type it,
+  which the daemon cannot arrange, so the certificate is skipped with a log line rather
+  than blocking on a TPM auth failure.
+- **RSA-2048 or P-256, sometimes P-384.** Those are what the PC Client profile requires
+  of a TPM; P-384 depends on the chip. The TPM chooses the RSA-PSS salt itself, which is
+  why management verifies PSS proofs with `rsa.PSSSaltLengthAuto`.
+
+Windows needs none of this: a certificate enrolled into the TPM sits behind the Microsoft
+Platform Crypto Provider and the CNG path above signs with it unchanged. macOS has no
+TPM; its Secure Enclave keys are reachable only through the keychain path.
+
+To exercise the path without hardware, run a software TPM and point the end-to-end test
+at it:
+
+```
+swtpm socket --tpm2 --server type=unixio,path=/tmp/swtpm.sock --ctrl type=unixio,path=/tmp/swtpm.ctrl --flags not-need-init,startup-clear
+NB_TPM_DEVICE=/tmp/swtpm.sock go test ./client/internal/certproof/ -run TestCollect_TPMKeyEndToEnd -v
+```
+
+## Linux: keys behind a PKCS#11 token
+
+Distributions that follow Red Hat's guidance reach the TPM through tpm2-pkcs11, a PKCS#11
+module whose token holds both the key and, after `tpm2_ptool addcert`, the certificate.
+The store reads that token when `NB_CERT_PKCS11_URI` names it with an RFC 7512 URI:
+
+```
+NB_CERT_PKCS11_URI='pkcs11:token=netbird?module-path=/usr/lib/x86_64-linux-gnu/libtpm2_pkcs11.so&pin-source=file:/etc/netbird/pkcs11.pin'
+```
+
+`token` selects the token by label, or the first token present when absent. `module-path`
+names the library to load; `module-name=tpm2_pkcs11` resolves to `libtpm2_pkcs11.so` on
+the loader's search path, and with neither the p11-kit proxy is loaded, which exposes every
+module the system has registered. `pin-source` points at a file holding the user PIN and
+`pin-value` carries it inline; without either no login happens, and tpm2-pkcs11 then shows
+no private keys at all. Every other attribute is ignored.
+
+Certificates and private keys are paired by `CKA_ID`, which is what `tpm2_ptool addcert`
+and `pkcs11-tool` set. Chains are completed from the other certificates on the token. Each
+operation opens a session, logs in, works, logs out and closes, so no token handle
+outlives a call, and the PEM directory keeps working when the token does not: the two are
+queried together and a failing token is logged rather than hiding file certificates.
+
+Two consequences of the PIN are worth knowing. It is a secret on disk, so the PIN file
+should be root-only. And a wrong PIN counts against the TPM's dictionary-attack lockout,
+which is shared with everything else on the machine that uses the TPM.
+
+The module is loaded at runtime without cgo, through `purego`, which means the binary is
+dynamically linked against libc. The standard release binary stays fully static, so the
+PKCS#11 store is compiled in only with `-tags pkcs11` on linux/amd64 and linux/arm64.
+Without the tag, setting `NB_CERT_PKCS11_URI` logs that the build lacks the support.
+
+To exercise the path without hardware, initialise a SoftHSM token and run the end-to-end
+test, which imports a key and certificate itself:
+
+```
+softhsm2-util --init-token --free --label netbird --pin 1234 --so-pin 1234
+NB_TEST_PKCS11_URI='pkcs11:token=netbird?module-path=/usr/lib/softhsm/libsofthsm2.so&pin-value=1234' \
+  go test -tags pkcs11 ./client/internal/certproof/ -run PKCS11 -v
+```
 
 ## Only the signed-in user can be validated
 

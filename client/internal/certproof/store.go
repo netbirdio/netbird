@@ -12,6 +12,8 @@ import (
 	"strings"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/internal/tpm"
 )
 
 const (
@@ -32,7 +34,8 @@ type Store interface {
 }
 
 // FileStore reads PEM files from a directory. A file holds the chain (leaf first) and
-// either its private key or a sibling "<name>.key" file holds it.
+// either its private key or a sibling "<name>.key" file holds it. The key is a plain
+// PKCS#8, EC or RSA key, or a TSS2 key the TPM signs with.
 type FileStore struct {
 	dir string
 }
@@ -116,7 +119,7 @@ func parsePEM(data []byte) ([]*x509.Certificate, crypto.Signer, error) {
 				return nil, nil, fmt.Errorf("parse certificate: %w", err)
 			}
 			chain = append(chain, cert)
-		case "PRIVATE KEY", "EC PRIVATE KEY", "RSA PRIVATE KEY":
+		case "PRIVATE KEY", "EC PRIVATE KEY", "RSA PRIVATE KEY", tpm.KeyPEMType:
 			key, err := parsePrivateKey(block)
 			if err != nil {
 				return nil, nil, err
@@ -130,6 +133,8 @@ func parsePrivateKey(block *pem.Block) (crypto.Signer, error) {
 	var key any
 	var err error
 	switch block.Type {
+	case tpm.KeyPEMType:
+		return tpm.ParseKey(block.Bytes)
 	case "EC PRIVATE KEY":
 		key, err = x509.ParseECPrivateKey(block.Bytes)
 	case "RSA PRIVATE KEY":
@@ -153,4 +158,22 @@ func isCertFile(name string) bool {
 		return true
 	}
 	return false
+}
+
+// Stores queries several stores and carries on when one fails, so a broken token cannot
+// hide the certificates a directory holds. A failure is logged instead of returned
+// because Collect treats a store error as "no proofs at all".
+type Stores []Store
+
+func (s Stores) Candidates(ctx context.Context) ([]Candidate, error) {
+	var all []Candidate
+	for _, store := range s {
+		candidates, err := store.Candidates(ctx)
+		if err != nil {
+			log.Warnf("certificate store %T unavailable: %v", store, err)
+			continue
+		}
+		all = append(all, candidates...)
+	}
+	return all, nil
 }

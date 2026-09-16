@@ -131,7 +131,7 @@ func verifySignature(pub crypto.PublicKey, sigAlg string, msg, sig []byte) bool 
 		return ecdsa.VerifyASN1(pub.(*ecdsa.PublicKey), d[:], sig)
 	case SigAlgRSAPSSSHA256:
 		d := sha256.Sum256(msg)
-		return rsa.VerifyPSS(pub.(*rsa.PublicKey), crypto.SHA256, d[:], sig, &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash}) == nil
+		return rsa.VerifyPSS(pub.(*rsa.PublicKey), crypto.SHA256, d[:], sig, &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthAuto}) == nil
 	case SigAlgEd25519:
 		return ed25519.Verify(pub.(ed25519.PublicKey), msg, sig)
 	}

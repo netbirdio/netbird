@@ -2,6 +2,9 @@ package certposture
 
 import (
 	"crypto"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/x509"
 	"testing"
 	"time"
@@ -136,6 +139,22 @@ func TestChainPEM_RoundTrip(t *testing.T) {
 	require.Len(t, chain, 2)
 	assert.Equal(t, leaf.Raw, chain[0].Raw)
 	assert.Equal(t, ca.Cert.Raw, chain[1].Raw)
+}
+
+func TestVerify_AcceptsMaximumPSSSalt(t *testing.T) {
+	// A TPM chooses the PSS salt itself and older firmware uses the largest salt that
+	// fits, so a proof from such a key carries more salt than Sign asks a software key for.
+	ca := certtest.NewCA(t, "root")
+	key := certtest.RSAKey(t).(*rsa.PrivateKey)
+	leaf := ca.Issue(t, key, "device")
+	c := NewChallenger(secret)
+	nonce := c.Nonce(peerKey, now)
+	digest := sha256.Sum256(proofMessage(nonce, peerKey))
+	sig, err := rsa.SignPSS(rand.Reader, key, crypto.SHA256, digest[:], &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthAuto})
+	require.NoError(t, err)
+
+	_, err = c.Verify(Proof{Nonce: nonce, Chain: [][]byte{leaf.Raw}, SigAlg: SigAlgRSAPSSSHA256, Signature: sig}, peerKey, now)
+	assert.NoError(t, err, "a valid PSS signature must verify regardless of salt length")
 }
 
 func signedProof(t *testing.T, c *Challenger, ca *certtest.CA, key crypto.Signer) Proof {
