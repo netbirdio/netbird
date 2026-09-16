@@ -1,11 +1,13 @@
 package profilemanager
 
 import (
+	"errors"
 	"os"
 	"os/user"
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -117,5 +119,110 @@ func TestMigrate_UnresolvableAccountLeavesNoMarker(t *testing.T) {
 		assert.Empty(t, readOwners(t, path))
 		assert.NoDirExists(t, filepath.Join(configDir, DefaultProfilePathDir),
 			"an unfinished run leaves no marker, so the next start tries again")
+	})
+}
+
+// failRenamesOf makes every rename of a file with the given suffix fail, and
+// returns the function that lets them through again.
+func failRenamesOf(t *testing.T, suffix string) func() {
+	t.Helper()
+
+	orig := renameFile
+	failing := true
+	renameFile = func(from, to string) error {
+		if failing && strings.HasSuffix(from, suffix) {
+			return errors.New("simulated rename failure")
+		}
+		return orig(from, to)
+	}
+	t.Cleanup(func() { renameFile = orig })
+
+	return func() { failing = false }
+}
+
+func TestMigrate_AStateFileThatCannotFollowRollsBackTheRekey(t *testing.T) {
+	username, _ := currentUserPrincipal(t)
+
+	withLegacyLayout(t, func(sm *ServiceManager, configDir string) {
+		dir := sanitizeProfileName(username)
+		mine := writeLegacyProfile(t, configDir, dir, "work", nil)
+		writeLegacyProfile(t, configDir, "someone-else", "work", nil)
+		state := filepath.Join(configDir, dir, "work"+stateFileSuffix)
+		require.NoError(t, os.WriteFile(state, []byte("{}"), 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(configDir, dir, "work"+prefsFileSuffix), []byte("{}"), 0600))
+		require.NoError(t, sm.SetActiveProfileState(&ActiveProfileState{ID: "work", Username: username}))
+
+		allowRenames := failRenamesOf(t, prefsFileSuffix)
+
+		require.Error(t, sm.MigrateLegacyProfiles())
+		assert.NoDirExists(t, filepath.Join(configDir, DefaultProfilePathDir),
+			"a rekey that could not finish leaves no marker, so the next start tries again")
+		assert.FileExists(t, mine, "the profile is back under the ID its state file still carry")
+		assert.FileExists(t, state, "and so is the state file that had already moved")
+
+		// The next start finds the profile exactly as the failed one did, and
+		// the state file are still beside it once the rekey goes through.
+		allowRenames()
+		require.NoError(t, sm.MigrateLegacyProfiles())
+
+		profiles, err := sm.loadAllProfiles()
+		require.NoError(t, err)
+
+		ids := map[ID]int{}
+		var rolledBack *Profile
+		for i := range profiles {
+			p := &profiles[i]
+			ids[p.ID]++
+			if p.ID != defaultProfileName && filepath.Dir(p.Path) == filepath.Join(configDir, dir) {
+				rolledBack = p
+			}
+		}
+		for id, n := range ids {
+			assert.Equal(t, 1, n, "%s is still shared after migration", id)
+		}
+
+		require.NotNil(t, rolledBack)
+		for _, suffix := range []string{stateFileSuffix, prefsFileSuffix} {
+			assert.FileExists(t, filepath.Join(configDir, dir, rolledBack.ID.String()+suffix),
+				"%s follows the profile it belongs to", suffix)
+		}
+	})
+}
+
+func TestMigrate_NamesakesTheStateCannotTellApartLeaveNoMarker(t *testing.T) {
+	username, _ := currentUserPrincipal(t)
+
+	withLegacyLayout(t, func(sm *ServiceManager, configDir string) {
+		dir := sanitizeProfileName(username)
+		mine := writeLegacyProfile(t, configDir, dir, "work", nil)
+		theirs := writeLegacyProfile(t, configDir, "someone-else", "work", nil)
+		require.NoError(t, sm.SetActiveProfileState(&ActiveProfileState{ID: "work"}))
+
+		require.ErrorIs(t, sm.MigrateLegacyProfiles(), ErrAmbiguousActiveProfile)
+		assert.NoDirExists(t, filepath.Join(configDir, DefaultProfilePathDir),
+			"the marker would retire the only pass that can still separate them")
+		assert.FileExists(t, mine, "so both namesakes are left as they are")
+		assert.FileExists(t, theirs)
+
+		// And until they are separated the active profile does not resolve to
+		// whichever of them happened to sort first.
+		state, err := sm.GetActiveProfileState()
+		require.NoError(t, err)
+		_, err = sm.ActiveProfilePath(state)
+		require.ErrorIs(t, err, ErrAmbiguousActiveProfile)
+
+		// Selecting a profile records the directory that tells them apart, and
+		// the start after that finishes the job.
+		require.NoError(t, sm.SetActiveProfileState(&ActiveProfileState{ID: "work", Username: username}))
+		require.NoError(t, sm.MigrateLegacyProfiles())
+		assert.DirExists(t, filepath.Join(configDir, DefaultProfilePathDir))
+
+		state, err = sm.GetActiveProfileState()
+		require.NoError(t, err)
+		active, err := sm.ActiveProfilePath(state)
+		require.NoError(t, err)
+		assert.NotEqual(t, ID("work"), state.ID, "the namesakes are separated")
+		assert.Equal(t, dir, filepath.Base(filepath.Dir(active)),
+			"and the active one still sits in the account that was running it")
 	})
 }

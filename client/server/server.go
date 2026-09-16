@@ -301,6 +301,14 @@ func (s *Server) Start() error {
 	}
 
 	config, existingConfig, err := s.getConfig(activeProf)
+	if errors.Is(err, profilemanager.ErrAmbiguousActiveProfile) {
+		// Running one of the namesakes anyway could connect the machine as
+		// another users profile, so the daemon comes up on the default
+		// profile instead of refusing to start.
+		log.Errorf("starting on the default profile, the active one could not be resolved: %v", err)
+		activeProf = &profilemanager.ActiveProfileState{ID: profilemanager.DefaultProfileName}
+		config, existingConfig, err = s.getConfig(activeProf)
+	}
 	if err != nil {
 		log.Errorf("failed to get active profile config: %v", err)
 

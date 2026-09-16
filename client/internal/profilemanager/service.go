@@ -206,9 +206,9 @@ func (s *ServiceManager) ActiveProfilePath(a *ActiveProfileState) (string, error
 		}
 	}
 
-	log.Warnf("%d profiles share the ID %q and none of them sits in %q, using %s",
-		len(matches), a.ID, a.Username, matches[0].Path)
-	return matches[0].Path, nil
+	// Nothing left to tell them apart, so this fails rather than guesses.
+	return "", fmt.Errorf("%w: %d profiles hold the ID %q and the active profile state does not say which account's directory it is in",
+		ErrAmbiguousActiveProfile, len(matches), a.ID)
 }
 
 func NewServiceManager(defaultConfigPath string) *ServiceManager {

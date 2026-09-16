@@ -42,12 +42,18 @@ func (s *ServiceManager) MigrateLegacyProfiles() error {
 		return fmt.Errorf("active profile state: %w", err)
 	}
 
-	if err := s.rekeyDuplicateIDs(profiles, active); err != nil {
+	unresolved, err := s.rekeyDuplicateIDs(profiles, active)
+	if err != nil {
 		return err
 	}
 
 	if err := s.stampActiveUserDir(profiles, active); err != nil {
 		return err
+	}
+
+	if unresolved != "" {
+		return fmt.Errorf("%w: %q is still held by more than one profile, the active profile state does not say which one is active",
+			ErrAmbiguousActiveProfile, unresolved)
 	}
 
 	if err := os.MkdirAll(dest, 0700); err != nil {
@@ -61,7 +67,9 @@ func (s *ServiceManager) MigrateLegacyProfiles() error {
 // rekeyDuplicateIDs gives every profile sharing an ID a fresh one, in place.
 // The file stays in its directory, only its name changes, so nothing that holds
 // a path to a sibling file is disturbed.
-func (s *ServiceManager) rekeyDuplicateIDs(profiles []Profile, active *ActiveProfileState) error {
+//
+// It returns the one ID it could not settle, empty when it settled them all.
+func (s *ServiceManager) rekeyDuplicateIDs(profiles []Profile, active *ActiveProfileState) (ID, error) {
 	groups := make(map[ID][]*Profile, len(profiles))
 	for i := range profiles {
 		p := &profiles[i]
@@ -71,6 +79,7 @@ func (s *ServiceManager) rekeyDuplicateIDs(profiles []Profile, active *ActivePro
 		groups[p.ID] = append(groups[p.ID], p)
 	}
 
+	var unresolved ID
 	activeDir := sanitizeProfileName(active.Username)
 	for id, group := range groups {
 		if len(group) < 2 {
@@ -84,6 +93,7 @@ func (s *ServiceManager) rekeyDuplicateIDs(profiles []Profile, active *ActivePro
 		// way.
 		if id == active.ID && activeDir == "" {
 			log.Warnf("leaving %d profiles named %q as they are, the active profile state does not say which one is active", len(group), id)
+			unresolved = id
 			continue
 		}
 
@@ -92,25 +102,34 @@ func (s *ServiceManager) rekeyDuplicateIDs(profiles []Profile, active *ActivePro
 
 			fresh, err := generateProfileID()
 			if err != nil {
-				return fmt.Errorf("generate profile ID: %w", err)
+				return "", fmt.Errorf("generate profile ID: %w", err)
 			}
 			if err := rekeyProfile(p, fresh); err != nil {
-				return err
+				return "", err
 			}
 
 			if wasActive {
 				active.ID = fresh
 				if err := s.SetActiveProfileState(active); err != nil {
-					return fmt.Errorf("repoint active profile: %w", err)
+					return "", fmt.Errorf("repoint active profile: %w", err)
 				}
 			}
 		}
 	}
 
-	return nil
+	return unresolved, nil
 }
 
-// rekeyProfile renames a profile and its sidecars to a fresh ID.
+// renameFile is os.Rename, replaced in tests that need a rename to fail.
+var renameFile = os.Rename
+
+// movedFile is a completed rename, kept so it can be undone.
+type movedFile struct{ at, was string }
+
+// rekeyProfile renames a profile and its state file to a fresh ID.
+//
+// The state file move first and the profile file last, we try to restore if
+// renaming the profile file.
 func rekeyProfile(p *Profile, fresh ID) error {
 	// A legacy profile's display name is its filename, so it has to be in the
 	// file before the filename stops meaning anything. The loader already
@@ -121,24 +140,40 @@ func rekeyProfile(p *Profile, fresh ID) error {
 	}
 
 	dir := filepath.Dir(p.Path)
-	target := filepath.Join(dir, fresh.String()+".json")
-	if err := os.Rename(p.Path, target); err != nil {
-		return fmt.Errorf("rekey %s: %w", p.ID, err)
-	}
 
+	var moved []movedFile
 	for _, suffix := range []string{stateFileSuffix, prefsFileSuffix} {
 		src := filepath.Join(dir, p.ID.String()+suffix)
 		if _, err := os.Stat(src); err != nil {
 			continue
 		}
-		if err := os.Rename(src, filepath.Join(dir, fresh.String()+suffix)); err != nil {
-			log.Warnf("could not rename %s alongside its profile: %v", src, err)
+		dst := filepath.Join(dir, fresh.String()+suffix)
+		if err := renameFile(src, dst); err != nil {
+			undoMoves(moved)
+			return fmt.Errorf("rekey %s alongside profile %s: %w", filepath.Base(src), p.ID, err)
 		}
+		moved = append(moved, movedFile{at: dst, was: src})
+	}
+
+	target := filepath.Join(dir, fresh.String()+".json")
+	if err := renameFile(p.Path, target); err != nil {
+		undoMoves(moved)
+		return fmt.Errorf("rekey %s: %w", p.ID, err)
 	}
 
 	log.Infof("profile %q in %s now has the unique ID %s", p.ID, dir, fresh)
 	p.ID, p.Path = fresh, target
 	return nil
+}
+
+// undoMoves puts back what a half-finished rekey moved, so the next start finds
+// the profile as this one did and can rekey it from scratch.
+func undoMoves(moved []movedFile) {
+	for _, m := range moved {
+		if err := renameFile(m.at, m.was); err != nil {
+			log.Errorf("could not move %s back to %s after a failed rekey, it is now orphaned: %v", m.at, m.was, err)
+		}
+	}
 }
 
 // stampActiveUserDir records the owner of every unowned profile in the
