@@ -74,6 +74,21 @@ func TestPrincipalDoesNotMatchGroupSID(t *testing.T) {
 	assert.False(t, group.Matches(member), "a group SID owner must not match a group member")
 }
 
+// A GID principal is parseable because the daemon socket restriction stores one,
+// but it confers no ownership: an owner field holding one must match nobody
+// rather than admit everyone whose primary group happens to be it.
+func TestGIDPrincipalNeverMatches(t *testing.T) {
+	group, ok := ParsePrincipal(GIDPrincipal(1000))
+	require.True(t, ok, "a gid principal must parse, the socket restriction stores it")
+	assert.Equal(t, KindGID, group.Kind)
+	assert.Equal(t, "gid:1000", group.String())
+
+	assert.False(t, group.Matches(KnownForTest(Identity{UID: 1000, GID: 1000})),
+		"a gid owner must not match a caller whose primary group it is")
+	assert.False(t, group.Matches(KnownForTest(Identity{UID: 0, GID: 0})))
+	assert.False(t, group.Matches(Identity{}))
+}
+
 func TestPrincipalMatchingIsPlatformScoped(t *testing.T) {
 	unix, ok := ParsePrincipal("uid:1000")
 	require.True(t, ok)
