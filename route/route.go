@@ -97,20 +97,20 @@ type Route struct {
 	AccountID string `gorm:"index"`
 	PublicID  string `json:"-"`
 	// Network and Domains are mutually exclusive
-	Network             netip.Prefix `gorm:"serializer:json"`
-	Domains             domain.List  `gorm:"serializer:json"`
+	Network             netip.Prefix `gorm:"serializer:json;default:'{}'"`
+	Domains             domain.List  `gorm:"serializer:json;default:'[]'"`
 	KeepRoute           bool
 	NetID               NetID
 	Description         string
 	Peer                string
 	PeerID              string   `gorm:"-"`
-	PeerGroups          []string `gorm:"serializer:json"`
+	PeerGroups          []string `gorm:"serializer:json;default:'[]'"`
 	NetworkType         NetworkType
 	Masquerade          bool
 	Metric              int
 	Enabled             bool
-	Groups              []string `gorm:"serializer:json"`
-	AccessControlGroups []string `gorm:"serializer:json"`
+	Groups              []string `gorm:"serializer:json;default:'[]'"`
+	AccessControlGroups []string `gorm:"serializer:json;default:'[]'"`
 	// SkipAutoApply indicates if this exit node route (0.0.0.0/0) should skip auto-application for client routing
 	SkipAutoApply bool
 }

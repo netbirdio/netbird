@@ -118,3 +118,29 @@ func FillEmptyPolicyRuleJsonColumns(ctx context.Context, db *gorm.DB) error {
 		return res.Error
 	})
 }
+
+func FillEmptyRouteJsonColumns(ctx context.Context, db *gorm.DB) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		res := tx.Exec(`update routes set network='{}' where id in (select id from routes where network='' or network=null order by id asc)`)
+		if res.Error != nil {
+			return res.Error
+		}
+		res = tx.Exec(`update routes set domains='[]' where id in (select id from routes where domains='' or domains=null order by id asc)`)
+		if res.Error != nil {
+			return res.Error
+		}
+		res = tx.Exec(`update routes set peer_groups='[]' where id in (select id from routes where peer_groups='' or peer_groups=null order by id asc)`)
+		if res.Error != nil {
+			return res.Error
+		}
+		res = tx.Exec(`update routes set groups='[]' where id in (select id from routes where groups='' or groups=null order by id asc)`)
+		if res.Error != nil {
+			return res.Error
+		}
+		res = tx.Exec(`update routes set access_control_groups='[]' where id in (select id from routes where access_control_groups='' or access_control_groups=null order by id asc)`)
+		if res.Error != nil {
+			return res.Error
+		}
+		return res.Error
+	})
+}

@@ -8,6 +8,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/migration"
 	"github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/route"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
@@ -99,6 +100,24 @@ func TestFillEmptyJson_PolicyRule(t *testing.T) {
 	require.False(t, rows.Next())
 }
 
+func TestFillEmptyJson_Route(t *testing.T) {
+	db := setupRouteTestDB(t)
+
+	res, err := db.ConnPool.ExecContext(context.Background(), `insert into routes (id,account_id,network,domains,peer_groups,groups,access_control_groups) values('id-1','account-id-1','','','','','')`)
+	require.NoError(t, err)
+	n, _ := res.RowsAffected()
+	require.Equal(t, n, int64(1))
+
+	err = migration.FillEmptyRouteJsonColumns(context.Background(), db)
+	require.NoError(t, err)
+
+	rows, err := db.ConnPool.QueryContext(context.Background(), "select id from routes where network='' or network=null or domains='' or domains=null or peer_groups='' or peer_groups=null or groups='' or groups=null or access_control_groups='' or access_control_groups=null")
+	require.NoError(t, err)
+
+	rows.Next()
+	require.False(t, rows.Next())
+}
+
 func setupNsGroupsTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db := setupDatabase(t)
@@ -131,6 +150,15 @@ func setupPolicyRulesTestDB(t *testing.T) *gorm.DB {
 	db := setupDatabase(t)
 	_ = db.Migrator().DropTable(&types.Policy{}, &types.PolicyRule{})
 	err := db.AutoMigrate(&types.Policy{}, &types.PolicyRule{})
+	require.NoError(t, err, "Failed to auto-migrate tables")
+	return db
+}
+
+func setupRouteTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db := setupDatabase(t)
+	_ = db.Migrator().DropTable(&route.Route{})
+	err := db.AutoMigrate(&route.Route{})
 	require.NoError(t, err, "Failed to auto-migrate tables")
 	return db
 }

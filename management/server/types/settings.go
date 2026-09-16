@@ -167,7 +167,7 @@ type ExtraSettings struct {
 	// IntegratedValidator is the string enum for the integrated validator type
 	IntegratedValidator string
 	// IntegratedValidatorGroups list of group IDs to be used with integrated approval configurations
-	IntegratedValidatorGroups []string `gorm:"serializer:json"`
+	IntegratedValidatorGroups []string `gorm:"serializer:json;default:'[]'"`
 
 	FlowEnabled              bool     `gorm:"-"`
 	FlowGroups               []string `gorm:"-"`
