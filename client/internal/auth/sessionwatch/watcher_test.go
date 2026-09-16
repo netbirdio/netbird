@@ -527,3 +527,96 @@ func TestDismissBeforeUpdateIsNoop(t *testing.T) {
 	}
 	t.Fatalf("final-warning did not publish after no-op pre-Update Dismiss, events=%+v", r.snapshot())
 }
+
+// fakeClock stands in for Watcher.now so a test can move the wall clock
+// without the monotonic timers noticing, the way a device suspend does.
+type fakeClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func (c *fakeClock) read() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+func (c *fakeClock) set(t time.Time) {
+	c.mu.Lock()
+	c.now = t
+	c.mu.Unlock()
+}
+
+func newSuspendedWatcher(t *testing.T, r *fakeRecorder) (*Watcher, *fakeClock, time.Time) {
+	t.Helper()
+	clock := &fakeClock{now: time.Now()}
+	w := NewWithLeads(10*time.Minute, 2*time.Minute, r)
+	w.now = clock.read
+	deadline := clock.read().Add(time.Hour)
+	if err := w.Update(deadline); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	waitForEvents(t, r, 1)
+	time.Sleep(20 * time.Millisecond)
+	if n := countWhere(r.snapshot(), func(e event) bool { return e.kind == publish }); n != 0 {
+		t.Fatalf("no warning may fire an hour ahead, got %+v", r.snapshot())
+	}
+	return w, clock, deadline
+}
+
+func TestRecheckFiresWarningsReachedWhileSuspended(t *testing.T) {
+	r := &fakeRecorder{}
+	w, clock, deadline := newSuspendedWatcher(t, r)
+	defer w.Close()
+
+	clock.set(deadline.Add(-5 * time.Minute))
+	w.Recheck()
+	events := waitForEvents(t, r, 2)
+	if !events[1].isWarning() {
+		t.Fatalf("expected the T-10 warning after recheck inside its window, got %+v", events[1])
+	}
+
+	clock.set(deadline.Add(-1 * time.Minute))
+	w.Recheck()
+	events = waitForEvents(t, r, 3)
+	if !events[2].isFinalWarning() {
+		t.Fatalf("expected the final warning after recheck inside its window, got %+v", events[2])
+	}
+
+	w.Recheck()
+	time.Sleep(20 * time.Millisecond)
+	if n := countWhere(r.snapshot(), func(e event) bool { return e.kind == publish }); n != 2 {
+		t.Fatalf("recheck must not repeat warnings for the same deadline, got %+v", r.snapshot())
+	}
+}
+
+func TestSameDeadlineUpdateRechecksWallClock(t *testing.T) {
+	r := &fakeRecorder{}
+	w, clock, deadline := newSuspendedWatcher(t, r)
+	defer w.Close()
+
+	clock.set(deadline.Add(-5 * time.Minute))
+	if err := w.Update(deadline); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	events := waitForEvents(t, r, 2)
+	if !events[1].isWarning() {
+		t.Fatalf("expected the T-10 warning from a same-deadline sync inside its window, got %+v", events[1])
+	}
+	if n := countWhere(events, func(e event) bool { return e.kind == stateChange }); n != 1 {
+		t.Fatalf("same-deadline update must not re-notify the recorder, got %+v", events)
+	}
+}
+
+func TestRecheckAfterDeadlineStaysSilent(t *testing.T) {
+	r := &fakeRecorder{}
+	w, clock, deadline := newSuspendedWatcher(t, r)
+	defer w.Close()
+
+	clock.set(deadline.Add(time.Minute))
+	w.Recheck()
+	time.Sleep(30 * time.Millisecond)
+	if n := countWhere(r.snapshot(), func(e event) bool { return e.kind == publish }); n != 0 {
+		t.Fatalf("no warning may fire once the deadline has passed, got %+v", r.snapshot())
+	}
+}
