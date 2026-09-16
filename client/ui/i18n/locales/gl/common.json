@@ -569,21 +569,6 @@
     "settings.general.language.empty": {
         "message": "Ningún idioma coincide."
     },
-    "settings.general.theme.label": {
-        "message": "Tema"
-    },
-    "settings.general.theme.help": {
-        "message": "Escolla claro ou escuro, ou siga a aparencia do seu sistema."
-    },
-    "settings.general.theme.system": {
-        "message": "Sistema"
-    },
-    "settings.general.theme.light": {
-        "message": "Claro"
-    },
-    "settings.general.theme.dark": {
-        "message": "Escuro"
-    },
     "settings.general.management.label": {
         "message": "Servidor de xestión"
     },
@@ -1364,18 +1349,6 @@
     "error.unknown": {
         "message": "A operación fallou."
     },
-    "error.elevation_unavailable": {
-        "message": "NetBird non puido solicitar a este sistema os privilexios que o cambio require. Execute isto no seu lugar:"
-    },
-    "error.elevation_failed": {
-        "message": "O cambio non se puido aplicar con privilexios elevados. Execute isto no seu lugar:"
-    },
-    "settings.ssh.privilege.actorRoot": {
-        "message": "root"
-    },
-    "settings.ssh.privilege.actorAdministrator": {
-        "message": "privilexios de administrador"
-    },
     "settings.ssh.privilege.hint": {
         "message": "Require {actor}. Execute isto no seu lugar:"
     },
@@ -1384,8 +1357,5 @@
     },
     "settings.ssh.privilege.oneWayInverted": {
         "message": "Pode activalo, pero para volvelo desactivar requírese {actor}."
-    },
-    "settings.ssh.privilege.authorizePending": {
-        "message": "Agardando pola autorización…"
     }
 }
