@@ -676,6 +676,22 @@ func TestListProfiles_ClaimKeepsFieldsThisVersionDoesNotModel(t *testing.T) {
 			"SomethingNewer": newer,
 		})
 		stubLegacyDir(t, "alice")
+
+		alice := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
+		_, err := sm.ListProfiles(alice)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"uid:4242"}, readOwners(t, path), "the claim still lands")
+
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		var doc map[string]any
+		require.NoError(t, json.Unmarshal(data, &doc))
+
+		assert.Equal(t, newer, doc["SomethingNewer"],
+			"a listing must not drop the settings of a client that models more than this one")
+		assert.Equal(t, float64(1280), doc["MTU"], "and leaves the ones it does model alone")
+		assert.NotContains(t, doc, "PrivateKey",
+			"nor write out the rest of Config just because it has fields for it")
 	})
 }
 
@@ -695,18 +711,8 @@ func TestClaimDefaultProfile_ConsoleUserClaimsIt(t *testing.T) {
 		alice := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
 		_, err := sm.ListProfiles(alice)
 		require.NoError(t, err)
-		assert.Equal(t, []string{"uid:4242"}, readOwners(t, path), "the claim still lands")
-
-		data, err := os.ReadFile(path)
-		require.NoError(t, err)
-		var doc map[string]any
-		require.NoError(t, json.Unmarshal(data, &doc))
-
-		assert.Equal(t, newer, doc["SomethingNewer"],
-			"a listing must not drop the settings of a client that models more than this one")
-		assert.Equal(t, float64(1280), doc["MTU"], "and leaves the ones it does model alone")
-		assert.NotContains(t, doc, "PrivateKey",
-			"nor write out the rest of Config just because it has fields for it")
+		assert.Equal(t, []string{"uid:4242"}, readOwners(t, DefaultConfigPath),
+			"the first caller at the console closes the window the default profile is open in")
 	})
 }
 
@@ -779,8 +785,6 @@ func TestSetProfileField_KeepsKeysItWasNotAskedToWrite(t *testing.T) {
 		assert.Equal(t, []any{"uid:4242"}, doc["Owners"], "and the fields it was asked for are written")
 		assert.Equal(t, "Work", doc["Name"])
 		assert.Len(t, doc, len(unknown)+3, "with nothing else added")
-		assert.Equal(t, []string{"uid:4242"}, readOwners(t, DefaultConfigPath),
-			"the first caller at the console closes the window the default profile is open in")
 	})
 }
 
