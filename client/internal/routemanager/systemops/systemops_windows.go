@@ -29,6 +29,17 @@ func init() {
 
 const (
 	InfiniteLifetime = 0xffffffff
+
+	// vpnRouteMetric weights routes installed on the overlay interface. Windows compares
+	// metrics only between routes of equal prefix length, so a high value yields to a native
+	// route of the same length while leaving more specific routes unaffected. Prefixes that
+	// sit inside a locally attached subnet never get here; this only settles equal-length
+	// races. Must stay within the 1..9999 range Windows accepts.
+	vpnRouteMetric = 5000
+
+	// exclusionRouteMetric weights routes installed on a physical interface to keep traffic
+	// off the overlay. Their whole purpose is to outrank the overlay, so they stay lowest.
+	exclusionRouteMetric = 1
 )
 
 type RouteUpdateType int
@@ -221,7 +232,17 @@ func (r *SysOps) addToRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
 		nexthop.Intf = &net.Interface{Index: zone}
 	}
 
-	return addRoute(prefix, nexthop)
+	return addRoute(prefix, nexthop, r.routeMetric(nexthop))
+}
+
+// routeMetric returns the metric for a route leaving over nexthop. A route on the overlay
+// interface must yield to an equally specific native route; a route on a physical interface
+// exists to bypass the overlay and must not.
+func (r *SysOps) routeMetric(nexthop Nexthop) uint32 {
+	if r.wgInterface != nil && nexthop.Intf != nil && nexthop.Intf.Name == r.wgInterface.Name() {
+		return vpnRouteMetric
+	}
+	return exclusionRouteMetric
 }
 
 func (r *SysOps) removeFromRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
@@ -259,23 +280,33 @@ func setupRouteEntry(prefix netip.Prefix, nexthop Nexthop) (*MIB_IPFORWARD_ROW2,
 }
 
 // addRoute adds a route using Windows iphelper APIs
-func addRoute(prefix netip.Prefix, nexthop Nexthop) (err error) {
+func addRoute(prefix netip.Prefix, nexthop Nexthop, metric uint32) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("panic in addRoute: %v, stack trace: %s", r, debug.Stack())
 		}
 	}()
 
-	route, setupErr := setupRouteEntry(prefix, nexthop)
+	route, setupErr := newManagedRouteEntry(prefix, nexthop, metric)
 	if setupErr != nil {
-		return fmt.Errorf("setup route entry: %w", setupErr)
+		return setupErr
 	}
 
-	route.Metric = 1
+	return createIPForwardEntry2(route)
+}
+
+// newManagedRouteEntry builds a persistent route entry carrying the given metric.
+func newManagedRouteEntry(prefix netip.Prefix, nexthop Nexthop, metric uint32) (*MIB_IPFORWARD_ROW2, error) {
+	route, err := setupRouteEntry(prefix, nexthop)
+	if err != nil {
+		return nil, fmt.Errorf("setup route entry: %w", err)
+	}
+
+	route.Metric = metric
 	route.ValidLifetime = InfiniteLifetime
 	route.PreferredLifetime = InfiniteLifetime
 
-	return createIPForwardEntry2(route)
+	return route, nil
 }
 
 // deleteRoute deletes a route using Windows iphelper APIs

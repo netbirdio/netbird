@@ -17,6 +17,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
+	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	"github.com/netbirdio/netbird/client/internal/routemanager/sysctl"
 	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
@@ -175,6 +176,11 @@ func (r *SysOps) removeFromRouteTable(prefix netip.Prefix, nexthop Nexthop) erro
 func (r *SysOps) AddVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 	if err := r.validateRoute(prefix); err != nil {
 		return err
+	}
+
+	if subnet, ok := r.localSubnetOverlap(prefix); ok {
+		log.Debugf("Skipping VPN route %s: overlaps local subnet %s", prefix, subnet)
+		return refcounter.ErrIgnore
 	}
 
 	if !nbnet.AdvancedRouting() {

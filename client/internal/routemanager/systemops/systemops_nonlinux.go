@@ -8,6 +8,8 @@ import (
 	"runtime"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 )
 
 // IPRule contains IP rule information for debugging
@@ -33,6 +35,12 @@ func (r *SysOps) AddVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 	if err := r.validateRoute(prefix); err != nil {
 		return err
 	}
+
+	if subnet, ok := r.localSubnetOverlap(prefix); ok {
+		log.Debugf("Skipping VPN route %s: overlaps local subnet %s", prefix, subnet)
+		return refcounter.ErrIgnore
+	}
+
 	return r.genericAddVPNRoute(prefix, intf)
 }
 

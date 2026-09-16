@@ -25,7 +25,15 @@ import (
 	"github.com/netbirdio/netbird/client/net/hooks"
 )
 
-const localSubnetsCacheTTL = 15 * time.Minute
+const (
+	// localSubnetsCacheTTL bounds the exclusion-route lookup, which runs per connection.
+	localSubnetsCacheTTL = 15 * time.Minute
+
+	// localSubnetsGuardTTL bounds the VPN-route guard. Route installs come in bursts on a
+	// network map update, so this collapses a whole burst into one refresh while still
+	// re-reading the host's subnets between bursts, where a LAN change would show up.
+	localSubnetsGuardTTL = 5 * time.Second
+)
 
 var splitDefaultv4_1 = netip.PrefixFrom(netip.IPv4Unspecified(), 1)
 var splitDefaultv4_2 = netip.PrefixFrom(netip.AddrFrom4([4]byte{128}), 1)
@@ -155,27 +163,60 @@ func (r *SysOps) addRouteToNonVPNIntf(prefix netip.Prefix, vpnIntf wgIface, init
 }
 
 func (r *SysOps) isPrefixInLocalSubnets(prefix netip.Prefix) (bool, *net.IPNet) {
-	r.localSubnetsCacheMu.RLock()
-	cacheAge := time.Since(r.localSubnetsCacheTime)
-	subnets := r.localSubnetsCache
-	r.localSubnetsCacheMu.RUnlock()
-
-	if cacheAge > localSubnetsCacheTTL || subnets == nil {
-		r.localSubnetsCacheMu.Lock()
-		if time.Since(r.localSubnetsCacheTime) > localSubnetsCacheTTL || r.localSubnetsCache == nil {
-			r.refreshLocalSubnetsCache()
-		}
-		subnets = r.localSubnetsCache
-		r.localSubnetsCacheMu.Unlock()
-	}
-
-	for _, subnet := range subnets {
+	for _, subnet := range r.localSubnets(localSubnetsCacheTTL) {
 		if subnet.Contains(prefix.Addr().AsSlice()) {
 			return true, subnet
 		}
 	}
 
 	return false, nil
+}
+
+// localSubnetOverlap returns the directly attached subnet that contains the prefix, if any.
+// The host already reaches such a subnet over its own link, and a VPN route inside it would
+// shadow that link: longest-prefix match ignores the route metric, so a /32 host route on the
+// overlay beats the native /24 no matter how the two are weighted.
+//
+// A prefix broader than the local subnet is deliberately not reported. Longest-prefix match
+// already leaves the local subnet's own addresses on the local link, and the overlay still has
+// to carry the rest of the prefix. The default route is exempt for the same reason.
+func (r *SysOps) localSubnetOverlap(prefix netip.Prefix) (*net.IPNet, bool) {
+	if !prefix.IsValid() || prefix.Bits() == 0 {
+		return nil, false
+	}
+
+	for _, subnet := range r.localSubnets(localSubnetsGuardTTL) {
+		local, ok := ipNetToPrefix(subnet)
+		if !ok {
+			continue
+		}
+		if prefix.Bits() >= local.Bits() && local.Contains(prefix.Addr()) {
+			return subnet, true
+		}
+	}
+
+	return nil, false
+}
+
+// localSubnets returns the directly attached subnets, refreshing them when the cache is
+// older than maxAge. Callers pick maxAge from how costly a stale answer is for them.
+func (r *SysOps) localSubnets(maxAge time.Duration) []*net.IPNet {
+	r.localSubnetsCacheMu.RLock()
+	cacheAge := time.Since(r.localSubnetsCacheTime)
+	subnets := r.localSubnetsCache
+	r.localSubnetsCacheMu.RUnlock()
+
+	if cacheAge <= maxAge && subnets != nil {
+		return subnets
+	}
+
+	r.localSubnetsCacheMu.Lock()
+	defer r.localSubnetsCacheMu.Unlock()
+
+	if time.Since(r.localSubnetsCacheTime) > maxAge || r.localSubnetsCache == nil {
+		r.refreshLocalSubnetsCache()
+	}
+	return r.localSubnetsCache
 }
 
 func (r *SysOps) refreshLocalSubnetsCache() {
@@ -187,6 +228,10 @@ func (r *SysOps) refreshLocalSubnetsCache() {
 
 	var newSubnets []*net.IPNet
 	for _, intf := range localInterfaces {
+		if r.skipLocalInterface(intf) {
+			continue
+		}
+
 		addrs, err := intf.Addrs()
 		if err != nil {
 			log.Errorf("Failed to get addresses for interface %s: %v", intf.Name, err)
@@ -199,12 +244,72 @@ func (r *SysOps) refreshLocalSubnetsCache() {
 				log.Errorf("Failed to convert address to IPNet: %v", addr)
 				continue
 			}
+			if r.skipLocalSubnet(ipnet) {
+				continue
+			}
 			newSubnets = append(newSubnets, ipnet)
 		}
 	}
 
 	r.localSubnetsCache = newSubnets
 	r.localSubnetsCacheTime = time.Now()
+}
+
+// skipLocalInterface reports whether an interface contributes no locally reachable
+// subnet: it is down or loopback, or it is the overlay interface itself, whose
+// subnet would otherwise make every mesh prefix look local.
+func (r *SysOps) skipLocalInterface(intf net.Interface) bool {
+	if intf.Flags&net.FlagUp == 0 || intf.Flags&net.FlagLoopback != 0 {
+		return true
+	}
+	return r.wgInterface != nil && intf.Name == r.wgInterface.Name()
+}
+
+// skipLocalSubnet drops addresses that cannot stand in for a reachable LAN, including
+// overlay addresses that a platform may report on an interface other than the overlay one.
+func (r *SysOps) skipLocalSubnet(ipnet *net.IPNet) bool {
+	addr, ok := netip.AddrFromSlice(ipnet.IP)
+	if !ok {
+		return true
+	}
+	addr = addr.Unmap()
+
+	return addr.IsLoopback() ||
+		addr.IsLinkLocalUnicast() ||
+		addr.IsLinkLocalMulticast() ||
+		r.isOwnAddress(addr)
+}
+
+// ipNetToPrefix converts a net.IPNet to a canonical netip.Prefix, unmapping v4-in-v6
+// addresses so IPv4 comparisons match. It reports false for a non-contiguous mask.
+func ipNetToPrefix(ipnet *net.IPNet) (netip.Prefix, bool) {
+	if ipnet == nil {
+		return netip.Prefix{}, false
+	}
+
+	addr, ok := netip.AddrFromSlice(ipnet.IP)
+	if !ok {
+		return netip.Prefix{}, false
+	}
+	addr = addr.Unmap()
+
+	ones, bits := ipnet.Mask.Size()
+	if bits == 0 {
+		return netip.Prefix{}, false
+	}
+	// A v4 address carrying a 16-byte mask counts the 96-bit v4-mapped prefix.
+	if addr.Is4() && bits == 128 {
+		ones -= 96
+	}
+	if ones < 0 {
+		return netip.Prefix{}, false
+	}
+
+	prefix := netip.PrefixFrom(addr, ones)
+	if !prefix.IsValid() {
+		return netip.Prefix{}, false
+	}
+	return prefix.Masked(), true
 }
 
 // genericAddVPNRoute adds a new route to the vpn interface, it splits the default prefix
