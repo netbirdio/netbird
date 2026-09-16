@@ -224,6 +224,8 @@ func (r *SysOps) CleanupRouting(stateManager *statemanager.Manager, advancedRout
 	return r.cleanupRefCounter(stateManager)
 }
 
+// addToRouteTable installs a route, recovering the outgoing interface from the next hop's zone
+// when the caller supplied a zoned address rather than an interface.
 func (r *SysOps) addToRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
 	log.Debugf("Adding route to %s via %s", prefix, nexthop)
 	// if we don't have an interface but a zone, extract the interface index from the zone

@@ -162,6 +162,10 @@ func (r *SysOps) addRouteToNonVPNIntf(prefix netip.Prefix, vpnIntf wgIface, init
 	return exitNextHop, nil
 }
 
+// isPrefixInLocalSubnets reports whether the prefix's own address falls inside a locally
+// attached subnet. It deliberately does not require the whole prefix to be contained, unlike
+// localSubnetOverlap: BSD blackholes any host route added inside a connected subnet, however
+// much of the prefix that subnet covers.
 func (r *SysOps) isPrefixInLocalSubnets(prefix netip.Prefix) (bool, *net.IPNet) {
 	for _, subnet := range r.localSubnets(localSubnetsCacheTTL) {
 		if subnet.Contains(prefix.Addr().AsSlice()) {
@@ -219,6 +223,8 @@ func (r *SysOps) localSubnets(maxAge time.Duration) []*net.IPNet {
 	return r.localSubnetsCache
 }
 
+// refreshLocalSubnetsCache rebuilds the cache from the host's current interfaces.
+// The caller must hold localSubnetsCacheMu for writing.
 func (r *SysOps) refreshLocalSubnetsCache() {
 	localInterfaces, err := net.Interfaces()
 	if err != nil {

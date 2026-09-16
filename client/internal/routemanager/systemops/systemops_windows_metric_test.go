@@ -53,6 +53,7 @@ func TestSysOps_routeMetric(t *testing.T) {
 	}
 }
 
+// A managed route must carry the metric it was built with and never expire.
 func TestNewManagedRouteEntry(t *testing.T) {
 	for _, prefix := range []string{"192.168.100.0/24", "2001:db8::/64"} {
 		t.Run(prefix, func(t *testing.T) {

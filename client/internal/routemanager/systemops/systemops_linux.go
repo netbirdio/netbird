@@ -173,6 +173,12 @@ func (r *SysOps) removeFromRouteTable(prefix netip.Prefix, nexthop Nexthop) erro
 	return removeRoute(prefix, nexthop, syscall.RT_TABLE_MAIN)
 }
 
+// AddVPNRoute adds a route for the prefix over the VPN interface.
+//
+// Under advanced routing the route lands in the NetBird table, which the main table already
+// outranks by rule priority. The legacy path shares the main table with the host's own routes,
+// so a prefix contained in a locally attached subnet is skipped with refcounter.ErrIgnore
+// instead of installed, where it would shadow that link.
 func (r *SysOps) AddVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 	if err := r.validateRoute(prefix); err != nil {
 		return err

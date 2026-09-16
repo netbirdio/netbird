@@ -17,6 +17,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 )
 
+// mustIPNet parses a CIDR fixture, failing the test rather than returning an error.
 func mustIPNet(t *testing.T, s string) *net.IPNet {
 	t.Helper()
 	_, ipnet, err := net.ParseCIDR(s)
@@ -47,6 +48,8 @@ func newSysOpsWithLocalSubnets(t *testing.T, subnets ...*net.IPNet) *SysOps {
 	return sysOps
 }
 
+// A prefix contained in a locally attached subnet must be reported so the caller skips it,
+// while an adjacent, unrelated or broader prefix stays routable over the overlay.
 func TestSysOps_localSubnetOverlap(t *testing.T) {
 	local := []*net.IPNet{
 		mustIPNet(t, "192.168.1.0/24"),
@@ -166,6 +169,8 @@ func TestSysOps_localSubnetOverlapV4MappedSubnet(t *testing.T) {
 	assert.False(t, ok, "v4-mapped local subnet should not match an unrelated v4 prefix")
 }
 
+// A host route inside the local LAN is the case that blackholed native traffic: it must be
+// ignored by the refcounter rather than installed on the overlay.
 func TestSysOps_AddVPNRouteSkipsLocalOverlap(t *testing.T) {
 	sysOps := newSysOpsWithLocalSubnets(t, mustIPNet(t, "192.168.1.0/24"))
 
@@ -173,6 +178,8 @@ func TestSysOps_AddVPNRouteSkipsLocalOverlap(t *testing.T) {
 	assert.True(t, errors.Is(err, refcounter.ErrIgnore), "overlapping route must be ignored, got %v", err)
 }
 
+// Only interfaces carrying a reachable LAN may feed the cache. A down, loopback or overlay
+// interface would otherwise make mesh prefixes look locally attached.
 func TestSysOps_skipLocalInterface(t *testing.T) {
 	sysOps := newSysOpsWithLocalSubnets(t)
 
@@ -210,6 +217,8 @@ func TestSysOps_skipLocalInterface(t *testing.T) {
 	}
 }
 
+// Addresses that cannot stand in for a reachable LAN are dropped, while a physical subnet is
+// kept even when it overlaps the overlay pool.
 func TestSysOps_skipLocalSubnet(t *testing.T) {
 	sysOps := newSysOpsWithLocalSubnets(t)
 
@@ -255,6 +264,8 @@ func TestSysOps_skipLocalSubnet(t *testing.T) {
 	}
 }
 
+// Interface addresses arrive with either a 4 or 16 byte mask, and a v4 address carrying a v6
+// sized mask must still convert to a v4 prefix so IPv4 comparisons match.
 func TestIPNetToPrefix(t *testing.T) {
 	tests := []struct {
 		name   string

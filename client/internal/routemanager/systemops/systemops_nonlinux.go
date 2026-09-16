@@ -31,6 +31,10 @@ type IPRule struct {
 	Invert       bool
 }
 
+// AddVPNRoute adds a route for the prefix over the VPN interface, unless the prefix is
+// contained in a locally attached subnet. The host already reaches such a subnet over its own
+// link, so the route is skipped with refcounter.ErrIgnore and left untracked rather than
+// installed where it would shadow that link.
 func (r *SysOps) AddVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 	if err := r.validateRoute(prefix); err != nil {
 		return err
