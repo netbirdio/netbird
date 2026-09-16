@@ -116,7 +116,7 @@ var methodPolicies = map[string]MethodPolicy{
 		TargetsProfile: true,
 		Audit:          true,
 		Action:         "claiming a profile",
-		Command:        ElevatedCommand("netbird profile claim"),
+		Command:        ElevatedCommand("netbird profile claim <profile>"),
 	},
 }
 
@@ -124,6 +124,5 @@ func methodPolicyFor(method string) MethodPolicy {
 	if p, ok := methodPolicies[method]; ok {
 		return p
 	}
-	// TODO: reconsider falling back to Privileged rather than direct DENY.
 	return MethodPolicy{Level: AuthzLevelPrivileged, Audit: true}
 }
