@@ -239,7 +239,6 @@ nfpms:
     dependencies:
       - systemd
       - ca-certificates
-      - iproute
     # Generated in CI by chglog from git tags; Red Hat certification requires an
     # RPM changelog (RPM Version Handling subtest).
     changelog: changelog.yml
