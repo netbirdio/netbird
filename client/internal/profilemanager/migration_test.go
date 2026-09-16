@@ -204,6 +204,11 @@ func TestMigrate_NamesakesTheStateCannotTellApartLeaveNoMarker(t *testing.T) {
 		assert.FileExists(t, mine, "so both namesakes are left as they are")
 		assert.FileExists(t, theirs)
 
+		profiles, err := sm.loadAllProfiles()
+		require.NoError(t, err)
+		assert.Equal(t, 2, countID(profiles, "work"),
+			"the group keeps the ID, since rekeying it would leave the state pointing at nothing")
+
 		// And until they are separated the active profile does not resolve to
 		// whichever of them happened to sort first.
 		state, err := sm.GetActiveProfileState()
@@ -224,5 +229,40 @@ func TestMigrate_NamesakesTheStateCannotTellApartLeaveNoMarker(t *testing.T) {
 		assert.NotEqual(t, ID("work"), state.ID, "the namesakes are separated")
 		assert.Equal(t, dir, filepath.Base(filepath.Dir(active)),
 			"and the active one still sits in the account that was running it")
+	})
+}
+
+// countID reports how many of the loaded profiles hold id.
+func countID(profiles []Profile, id ID) int {
+	n := 0
+	for _, p := range profiles {
+		if p.ID == id {
+			n++
+		}
+	}
+	return n
+}
+
+func TestMigrate_LeavesAProfileThatAlreadyNamesAnOwnerAlone(t *testing.T) {
+	username, principal := currentUserPrincipal(t)
+
+	// A SID is never what a Unix host stamps, so it says "someone else holds
+	// this" without depending on the uid the test happens to run as.
+	const otherOwner = "sid:S-1-5-21-0-0-0-1001"
+
+	withLegacyLayout(t, func(sm *ServiceManager, configDir string) {
+		dir := sanitizeProfileName(username)
+		claimed := writeLegacyProfile(t, configDir, dir, "claimed", map[string]any{
+			"Owners": []string{otherOwner},
+		})
+		unclaimed := writeLegacyProfile(t, configDir, dir, "unclaimed", nil)
+		require.NoError(t, sm.SetActiveProfileState(&ActiveProfileState{ID: "unclaimed", Username: username}))
+
+		require.NoError(t, sm.MigrateLegacyProfiles())
+
+		assert.Equal(t, []string{otherOwner}, readOwners(t, claimed),
+			"the directory a profile sits in does not re-attribute one that already names an owner")
+		assert.Equal(t, []string{principal}, readOwners(t, unclaimed),
+			"only the profiles with no owner of their own are attributed")
 	})
 }
