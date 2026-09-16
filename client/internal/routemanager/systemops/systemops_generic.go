@@ -265,8 +265,13 @@ func (r *SysOps) skipLocalInterface(intf net.Interface) bool {
 	return r.wgInterface != nil && intf.Name == r.wgInterface.Name()
 }
 
-// skipLocalSubnet drops addresses that cannot stand in for a reachable LAN, including
-// overlay addresses that a platform may report on an interface other than the overlay one.
+// skipLocalSubnet drops addresses that cannot stand in for a reachable LAN.
+//
+// It deliberately does not filter on overlay pool membership. The overlay's own addresses
+// are already excluded by interface in skipLocalInterface, and validateRoute rejects any
+// prefix inside the pool before the guard runs. Filtering by pool membership here would
+// instead discard a physical subnet that legitimately overlaps the pool, which happens
+// whenever the host sits behind CGNAT and the overlay uses the default 100.64.0.0/10.
 func (r *SysOps) skipLocalSubnet(ipnet *net.IPNet) bool {
 	addr, ok := netip.AddrFromSlice(ipnet.IP)
 	if !ok {
@@ -276,8 +281,7 @@ func (r *SysOps) skipLocalSubnet(ipnet *net.IPNet) bool {
 
 	return addr.IsLoopback() ||
 		addr.IsLinkLocalUnicast() ||
-		addr.IsLinkLocalMulticast() ||
-		r.isOwnAddress(addr)
+		addr.IsLinkLocalMulticast()
 }
 
 // ipNetToPrefix converts a net.IPNet to a canonical netip.Prefix, unmapping v4-in-v6

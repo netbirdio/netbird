@@ -30,11 +30,14 @@ func init() {
 const (
 	InfiniteLifetime = 0xffffffff
 
-	// vpnRouteMetric weights routes installed on the overlay interface. Windows compares
-	// metrics only between routes of equal prefix length, so a high value yields to a native
-	// route of the same length while leaving more specific routes unaffected. Prefixes that
-	// sit inside a locally attached subnet never get here; this only settles equal-length
-	// races. Must stay within the 1..9999 range Windows accepts.
+	// vpnRouteMetric weights routes installed on the overlay interface so they lose an
+	// equal-length race against a native route. Windows ranks by prefix length first and
+	// only then by route metric plus interface metric, so this is a large margin rather
+	// than a guarantee: a native route still loses if its interface carries a manually
+	// configured metric in the thousands. Windows' automatic interface metrics top out at
+	// 65, which leaves the margin intact. The guard in localSubnetOverlap is what actually
+	// prevents shadowing; this only settles races it does not cover.
+	// Must stay within the 1..9999 range Windows accepts.
 	vpnRouteMetric = 5000
 
 	// exclusionRouteMetric weights routes installed on a physical interface to keep traffic

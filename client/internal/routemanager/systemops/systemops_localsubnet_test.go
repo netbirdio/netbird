@@ -224,9 +224,12 @@ func TestSysOps_skipLocalSubnet(t *testing.T) {
 			want:  false,
 		},
 		{
-			name:  "overlay address is skipped",
+			// A host behind CGNAT has a physical subnet inside the default 100.64.0.0/10
+			// overlay pool. It must stay in the cache, or a VPN route could shadow it.
+			// The overlay's own addresses are excluded by interface, not by pool membership.
+			name:  "physical subnet overlapping the overlay pool is kept",
 			ipnet: &net.IPNet{IP: net.ParseIP("100.64.0.1"), Mask: net.CIDRMask(16, 32)},
-			want:  true,
+			want:  false,
 		},
 		{
 			name:  "link local v4 is skipped",

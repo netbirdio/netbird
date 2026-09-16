@@ -178,12 +178,15 @@ func (r *SysOps) AddVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 		return err
 	}
 
-	if subnet, ok := r.localSubnetOverlap(prefix); ok {
-		log.Debugf("Skipping VPN route %s: overlaps local subnet %s", prefix, subnet)
-		return refcounter.ErrIgnore
-	}
-
+	// Only the legacy path shares one table with the host's own routes and can shadow them.
+	// Advanced routing keeps VPN routes in a separate table that the main table already wins
+	// against via rule priority, so skipping there would only strand the prefix if the LAN
+	// later disappeared.
 	if !nbnet.AdvancedRouting() {
+		if subnet, ok := r.localSubnetOverlap(prefix); ok {
+			log.Debugf("Skipping VPN route %s: overlaps local subnet %s", prefix, subnet)
+			return refcounter.ErrIgnore
+		}
 		return r.genericAddVPNRoute(prefix, intf)
 	}
 

@@ -3,6 +3,7 @@
 package systemops
 
 import (
+	"fmt"
 	"net"
 	"net/netip"
 	"testing"
@@ -63,4 +64,43 @@ func TestNewManagedRouteEntry(t *testing.T) {
 			assert.EqualValues(t, InfiniteLifetime, route.PreferredLifetime, "preferred lifetime")
 		})
 	}
+}
+
+// The overlay metric only ever settles an equal-length race, and Windows ranks by the sum of
+// route and interface metric. These cases pin the margin that sum leaves: a native route on
+// an interface using any of Windows' automatic metrics, which top out at 65, still wins.
+func TestVPNRouteMetricLosesToNativeRoute(t *testing.T) {
+	const nativeRouteMetric = 256 // what Windows assigns a directly connected subnet route
+
+	// Windows' automatic interface metric table, from 2 Gb/s down to sub-200 Kb/s links.
+	automaticInterfaceMetrics := []int{5, 10, 20, 25, 35, 45, 55, 65}
+
+	for _, ifMetric := range automaticInterfaceMetrics {
+		t.Run(fmt.Sprintf("native interface metric %d", ifMetric), func(t *testing.T) {
+			native := candidateRoute{interfaceIndex: 1, prefixLength: 24, routeMetric: nativeRouteMetric, interfaceMetric: ifMetric}
+			overlay := candidateRoute{interfaceIndex: 2, prefixLength: 24, routeMetric: vpnRouteMetric, interfaceMetric: 5}
+
+			candidates := []candidateRoute{overlay, native}
+			sortRouteCandidates(candidates)
+			assert.Equal(t, native, candidates[0], "the native route must outrank the overlay route")
+
+			exclusion := candidateRoute{interfaceIndex: 1, prefixLength: 24, routeMetric: exclusionRouteMetric, interfaceMetric: ifMetric}
+			candidates = []candidateRoute{overlay, exclusion}
+			sortRouteCandidates(candidates)
+			assert.Equal(t, exclusion, candidates[0], "an exclusion route must outrank the overlay route")
+		})
+	}
+}
+
+// A more specific overlay route still wins on prefix length whatever the metrics are, which is
+// why the metric alone cannot fix host-route shadowing and the guard has to skip the install.
+func TestVPNRouteMetricCannotBeatLongerPrefix(t *testing.T) {
+	native := candidateRoute{interfaceIndex: 1, prefixLength: 24, routeMetric: 256, interfaceMetric: 5}
+	overlayHostRoute := candidateRoute{interfaceIndex: 2, prefixLength: 32, routeMetric: vpnRouteMetric, interfaceMetric: 9999}
+
+	candidates := []candidateRoute{native, overlayHostRoute}
+	sortRouteCandidates(candidates)
+
+	assert.Equal(t, overlayHostRoute, candidates[0],
+		"longest prefix wins regardless of metric, so the guard is what prevents shadowing")
 }
