@@ -460,3 +460,34 @@ func TestRemoveEmptyGPOPolicyStore(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, exists, "Should keep a policy store that still holds a foreign rule")
 }
+
+// TestDeleteInterfaceRegistryKeyPropertyTwice verifies that removing a value
+// that is already gone, or one on an interface key that is, reports success.
+// Teardown runs again after a failed cleanup, and the steps that follow this
+// one have to be reached on that second run.
+func TestDeleteInterfaceRegistryKeyPropertyTwice(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping registry integration test in short mode")
+	}
+
+	testGUID := "{12345678-1234-1234-1234-123456789ABC}"
+	interfacePath := InterfaceConfigPath + `\` + testGUID
+	testKey, _, err := registry.CreateKey(registry.LOCAL_MACHINE, interfacePath, registry.SET_VALUE)
+	require.NoError(t, err, "Should create test interface registry key")
+	testKey.Close()
+	t.Cleanup(func() {
+		_ = registry.DeleteKey(registry.LOCAL_MACHINE, interfacePath)
+	})
+
+	cfg := &registryConfigurator{guid: testGUID}
+
+	require.NoError(t, cfg.setInterfaceRegistryKeyStringValue(interfaceConfigSearchListKey, "example.com"))
+	require.NoError(t, cfg.deleteInterfaceRegistryKeyProperty(interfaceConfigSearchListKey))
+	assert.NoError(t, cfg.deleteInterfaceRegistryKeyProperty(interfaceConfigSearchListKey),
+		"Should report success for a value that is already gone")
+
+	// and with the interface key itself gone, as it is once the adapter is
+	require.NoError(t, registry.DeleteKey(registry.LOCAL_MACHINE, interfacePath))
+	assert.NoError(t, cfg.deleteInterfaceRegistryKeyProperty(interfaceConfigSearchListKey),
+		"Should report success when the interface key does not exist")
+}
