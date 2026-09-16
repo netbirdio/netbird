@@ -234,10 +234,34 @@ nfpms:
       - netbird
     formats:
       - rpm
+    # Runtime and post-install requirements. Red Hat software certification
+    # (RPM Dependency Tracking) rejects packages that declare no dependencies.
+    dependencies:
+      - systemd
+      - ca-certificates
+      - iproute
+    # Generated in CI by chglog from git tags; Red Hat certification requires an
+    # RPM changelog (RPM Version Handling subtest).
+    changelog: changelog.yml
+    # License, documentation and a config file so the RPM Provenance subtest sees
+    # %license, %doc and %config entries instead of a bare binary.
+    contents:
+      - src: LICENSE
+        dst: /usr/share/licenses/netbird/LICENSE
+        type: license
+      - src: README.md
+        dst: /usr/share/doc/netbird/README.md
+        type: doc
+      - src: release_files/netbird.sysconfig
+        dst: /etc/sysconfig/netbird
+        type: config|noreplace
     scripts:
       postinstall: "release_files/post_install.sh"
       preremove: "release_files/pre_remove.sh"
     rpm:
+      summary: NetBird client
+      group: Applications/Internet
+      packager: NetBird <dev@netbird.io>
       signature:
         key_file: '{{ if index .Env "GPG_RPM_KEY_FILE" }}{{ .Env.GPG_RPM_KEY_FILE }}{{ end }}'
 dockers_v2:
