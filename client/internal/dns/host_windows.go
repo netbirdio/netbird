@@ -576,14 +576,22 @@ func (r *registryConfigurator) setInterfaceRegistryKeyStringValue(key, value str
 	return nil
 }
 
+// deleteInterfaceRegistryKeyProperty removes a value from the interface key.
+// A value that is already gone, or an interface key that is, is not an error:
+// the caller asked for the value not to be there, and a cleanup that runs twice
+// has to reach its later steps on the second run as well.
 func (r *registryConfigurator) deleteInterfaceRegistryKeyProperty(propertyKey string) error {
 	regKey, err := r.getInterfaceRegistryKey()
-	if err != nil {
+	switch {
+	case errors.Is(err, registry.ErrNotExist), errors.Is(err, syscall.ERROR_PATH_NOT_FOUND):
+		log.Debugf("interface key of %s does not exist, nothing to delete %s from", r.guid, propertyKey)
+		return nil
+	case err != nil:
 		return fmt.Errorf("get interface registry key: %w", err)
 	}
 	defer closer(regKey)
 
-	if err := regKey.DeleteValue(propertyKey); err != nil {
+	if err := regKey.DeleteValue(propertyKey); err != nil && !errors.Is(err, registry.ErrNotExist) {
 		return fmt.Errorf("delete registry key %s: %w", propertyKey, err)
 	}
 	return nil
