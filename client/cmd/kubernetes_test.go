@@ -75,15 +75,33 @@ func TestGetKubernetesClustersResolverAddressCompatibility(t *testing.T) {
 type testAddressResolver struct {
 	records map[string][]string
 	lookups []string
+	err     error
 }
 
 func (r *testAddressResolver) LookupAddr(_ context.Context, addr string) ([]string, error) {
 	r.lookups = append(r.lookups, addr)
+	if r.err != nil {
+		return nil, r.err
+	}
 	fqdns, ok := r.records[addr]
 	if !ok {
 		return nil, errors.New("no such host")
 	}
 	return fqdns, nil
+}
+
+func TestGetKubernetesClustersPropagatesLookupCancellation(t *testing.T) {
+	t.Parallel()
+
+	for _, lookupErr := range []error{context.Canceled, context.DeadlineExceeded} {
+		_, err := getKubernetesClustersWithResolver(
+			t.Context(),
+			[]*proto.PeerState{{IP: "100.96.6.73"}},
+			"",
+			&testAddressResolver{err: lookupErr},
+		)
+		assert.ErrorIs(t, err, lookupErr, "canceled DNS lookup should stop discovery")
+	}
 }
 
 func TestGetKubernetesClustersSkipsPeersWithoutPTRRecords(t *testing.T) {
