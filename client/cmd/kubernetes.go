@@ -64,7 +64,7 @@ func kubernetesList(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	kcs, err := getKubernetesClusters(cmd.Context(), statusResp.FullStatus.Peers, "")
+	kcs, err := getKubernetesClusters(cmd.Context(), statusResp.FullStatus.Peers, "", statusResp.GetDnsResolverAddress())
 	if err != nil {
 		return err
 	}
@@ -97,7 +97,7 @@ func kubernetesWriteKubeconfig(cmd *cobra.Command, args []string) error {
 	}
 
 	clusterName := args[0]
-	kcs, err := getKubernetesClusters(cmd.Context(), statusResp.FullStatus.Peers, clusterName)
+	kcs, err := getKubernetesClusters(cmd.Context(), statusResp.FullStatus.Peers, clusterName, statusResp.GetDnsResolverAddress())
 	if err != nil {
 		return err
 	}
@@ -124,13 +124,30 @@ type addressResolver interface {
 	LookupAddr(ctx context.Context, addr string) ([]string, error)
 }
 
-func getKubernetesClusters(ctx context.Context, peers []*proto.PeerState, nameFilter string) ([]kubernetesCluster, error) {
+func getKubernetesClusters(ctx context.Context, peers []*proto.PeerState, nameFilter, resolverAddress string) ([]kubernetesCluster, error) {
 	resolver := &net.Resolver{
 		// Required so both DNS records are returned.
 		// https://github.com/golang/go/issues/17093
 		PreferGo: true,
 	}
+	if resolverAddress != "" {
+		address, err := netip.ParseAddrPort(resolverAddress)
+		if err != nil {
+			return nil, fmt.Errorf("parse NetBird DNS resolver address: %w", err)
+		}
+		resolver = newNetBirdResolver(address)
+	}
 	return getKubernetesClustersWithResolver(ctx, peers, nameFilter, resolver)
+}
+
+func newNetBirdResolver(address netip.AddrPort) *net.Resolver {
+	dialer := &net.Dialer{}
+	return &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			return dialer.DialContext(ctx, network, address.String())
+		},
+	}
 }
 
 func getKubernetesClustersWithResolver(ctx context.Context, peers []*proto.PeerState, nameFilter string, resolver addressResolver) ([]kubernetesCluster, error) {
