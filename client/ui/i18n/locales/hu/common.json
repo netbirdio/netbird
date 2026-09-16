@@ -1391,12 +1391,12 @@
         "message": "Várakozás az engedélyezésre…"
     },
     "profile.ownedByAnother": {
-        "message": "Another user's profile"
+        "message": "Másik felhasználó profilja"
     },
     "error.session_held": {
-        "message": "Another user has this machine connected."
+        "message": "Egy másik felhasználó csatlakoztatta ezt a gépet."
     },
     "error.not_profile_owner": {
-        "message": "This profile belongs to another user."
+        "message": "Ez a profil egy másik felhasználóé."
     }
 }

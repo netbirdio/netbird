@@ -1391,12 +1391,12 @@
         "message": "Ожидание авторизации…"
     },
     "profile.ownedByAnother": {
-        "message": "Another user's profile"
+        "message": "Профиль другого пользователя"
     },
     "error.session_held": {
-        "message": "Another user has this machine connected."
+        "message": "Другой пользователь подключил эту машину."
     },
     "error.not_profile_owner": {
-        "message": "This profile belongs to another user."
+        "message": "Этот профиль принадлежит другому пользователю."
     }
 }

@@ -1391,12 +1391,12 @@
         "message": "En attente de l’autorisation…"
     },
     "profile.ownedByAnother": {
-        "message": "Another user's profile"
+        "message": "Profil d’un autre utilisateur"
     },
     "error.session_held": {
-        "message": "Another user has this machine connected."
+        "message": "Un autre utilisateur a connecté cette machine."
     },
     "error.not_profile_owner": {
-        "message": "This profile belongs to another user."
+        "message": "Ce profil appartient à un autre utilisateur."
     }
 }

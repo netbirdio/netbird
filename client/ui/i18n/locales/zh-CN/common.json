@@ -1391,12 +1391,12 @@
         "message": "正在等待授权…"
     },
     "profile.ownedByAnother": {
-        "message": "Another user's profile"
+        "message": "其他用户的配置文件"
     },
     "error.session_held": {
-        "message": "Another user has this machine connected."
+        "message": "其他用户已连接此机器。"
     },
     "error.not_profile_owner": {
-        "message": "This profile belongs to another user."
+        "message": "此配置文件属于其他用户。"
     }
 }
