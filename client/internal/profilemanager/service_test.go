@@ -678,6 +678,7 @@ func TestListProfiles_ClaimKeepsFieldsThisVersionDoesNotModel(t *testing.T) {
 		stubLegacyDir(t, "alice")
 	})
 }
+
 // stubConsoleUser replaces the console lookup, so the default-profile claim can
 // be exercised without the machine running the test having a seat of its own.
 func stubConsoleUser(t *testing.T, atConsole bool) {
@@ -778,7 +779,6 @@ func TestSetProfileField_KeepsKeysItWasNotAskedToWrite(t *testing.T) {
 		assert.Equal(t, []any{"uid:4242"}, doc["Owners"], "and the fields it was asked for are written")
 		assert.Equal(t, "Work", doc["Name"])
 		assert.Len(t, doc, len(unknown)+3, "with nothing else added")
-=======
 		assert.Equal(t, []string{"uid:4242"}, readOwners(t, DefaultConfigPath),
 			"the first caller at the console closes the window the default profile is open in")
 	})
