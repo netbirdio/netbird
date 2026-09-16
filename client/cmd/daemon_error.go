@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -90,6 +91,9 @@ func (s denialStream) Header() (metadata.MD, error) {
 // printCommandError writes a failed command's error, taking over from cobra so a
 // refusal the daemon explained is printed as written.
 func printCommandError(cmd *cobra.Command, err error) {
+	// Keep the raw error at debug
+	log.Debugf("command failed: %v", err)
+
 	// Unwrapped, so a command that added context with %w still prints the
 	// sentence alone. A command that used %v keeps its prefix, and the sentence
 	// is still readable because daemonDenial carries no envelope.

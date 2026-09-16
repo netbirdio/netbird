@@ -7,6 +7,7 @@ import (
 	"io"
 	"testing"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -176,4 +177,64 @@ func TestDenialStreamLeavesOtherErrorsAlone(t *testing.T) {
 	s := denialStream{ClientStream: fakeStream{err: plain}}
 
 	assert.Same(t, plain, s.RecvMsg(nil))
+}
+
+// captureLog points the standard logger at a buffer for the duration of a test,
+// standing in for the console writer every interactive command installs.
+func captureLog(t *testing.T, level log.Level) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	logger := log.StandardLogger()
+	prevOut, prevLevel, prevFmt := logger.Out, logger.Level, logger.Formatter
+	logger.SetOutput(&buf)
+	logger.SetLevel(level)
+	// The default formatter escapes the quotes inside a message, which would let
+	// a logged error slip past a comparison against the error's own text.
+	logger.SetFormatter(&log.TextFormatter{DisableQuote: true, DisableTimestamp: true})
+	t.Cleanup(func() {
+		logger.SetOutput(prevOut)
+		logger.SetLevel(prevLevel)
+		logger.SetFormatter(prevFmt)
+	})
+	return &buf
+}
+
+// Console logging and PrintErrln both write to os.Stderr, so a command that logs
+// the error it is about to return has it printed twice: once by the logger and
+// once by Execute. SilenceErrors does not cover this, it only retires cobra's
+// own copy.
+func TestCommandDoesNotLogTheErrorItReturns(t *testing.T) {
+	logged := captureLog(t, log.InfoLevel)
+
+	prev := logLevel
+	logLevel = "bogus"
+	t.Cleanup(func() { logLevel = prev })
+
+	err := downCmd.RunE(downCmd, nil)
+	require.Error(t, err, "an unparseable log level fails before the command dials")
+	assert.NotContains(t, logged.String(), err.Error(), "Execute renders this error, so the command must not log it")
+
+	assert.Contains(t, printed(t, err), "not a valid logrus Level", "and it is still reported once")
+}
+
+// The rendered sentence drops the envelope and code on purpose, so the raw error
+// stays available to a bug report at debug level, below what a user sees.
+func TestPrintCommandErrorKeepsTheRawErrorAtDebug(t *testing.T) {
+	logged := captureLog(t, log.DebugLevel)
+
+	out := printed(t, ipcauth.SessionHeldError("disconnecting"))
+
+	assert.NotContains(t, out, "rpc error", "the user still reads the sentence alone")
+	assert.Contains(t, logged.String(), "rpc error", "the envelope a bug report needs survives in the log")
+	assert.Contains(t, logged.String(), "PermissionDenied")
+}
+
+// At the level an interactive command actually runs at, the diagnostic stays out
+// of the way, so the failure reaches the terminal exactly once.
+func TestPrintCommandErrorLogsNothingAtInfo(t *testing.T) {
+	logged := captureLog(t, log.InfoLevel)
+
+	printed(t, errors.New("connection refused"))
+
+	assert.NotContains(t, logged.String(), "connection refused")
 }
