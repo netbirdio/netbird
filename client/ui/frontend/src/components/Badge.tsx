@@ -11,12 +11,14 @@ type Props = HTMLAttributes<HTMLSpanElement> & {
 };
 
 const VARIANT_CLASSES: Record<BadgeVariant, string> = {
-    info: "bg-sky-900 border border-sky-700 text-sky-200",
+    info: "bg-sky-100 border border-sky-300 text-sky-800 dark:bg-sky-900 dark:border-sky-700 dark:text-sky-200",
     neutral: "bg-nb-gray-900 border border-nb-gray-850 text-nb-gray-200",
-    brand: "bg-netbird/15 border border-netbird/30 text-netbird",
-    success: "bg-green-900 border border-green-700 text-green-200",
-    warning: "bg-yellow-900 border border-yellow-700 text-yellow-200",
-    danger: "bg-red-900 border border-red-700 text-red-200",
+    brand: "bg-netbird/15 border border-netbird/30 text-netbird-700 dark:text-netbird",
+    success:
+        "bg-green-100 border border-green-300 text-green-800 dark:bg-green-900 dark:border-green-700 dark:text-green-200",
+    warning:
+        "bg-yellow-100 border border-yellow-300 text-yellow-800 dark:bg-yellow-900 dark:border-yellow-700 dark:text-yellow-200",
+    danger: "bg-red-100 border border-red-300 text-red-800 dark:bg-red-900 dark:border-red-700 dark:text-red-200",
 };
 
 export const Badge = forwardRef<HTMLSpanElement, Props>(function Badge(
