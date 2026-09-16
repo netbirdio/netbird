@@ -63,7 +63,12 @@ type ownerMeta struct {
 	Owners []string
 }
 
-// ownersFieldName is the key on disk.
+// Config JSON keys on disk.
+const (
+	ownersFieldName = "Owners"
+	nameFieldName   = "Name"
+)
+
 func (e *ErrAmbiguousHandle) Error() string {
 	switch e.Kind {
 	case AmbiguityKindIDPrefix:
@@ -900,37 +905,45 @@ func StampOwner(path string, owner ipcauth.Identity) error {
 // resolves an account name rather than a caller, and a name the kernel never
 // vouched for must not become an Identity on the way.
 func stampPrincipal(path, principal string) error {
-	return updateProfileConfig(path, func(cfg *Config) {
-		cfg.Owners = []string{principal}
-	})
+	return setProfileField(path, ownersFieldName, []string{principal})
 }
 
 // writeProfileName sets a profile's display name. Renaming does it on request,
 // migration does it to move a name out of a filename that is about to change.
 func writeProfileName(path, name string) error {
-	return updateProfileConfig(path, func(cfg *Config) {
-		cfg.Name = name
-	})
+	return setProfileField(path, nameFieldName, name)
 }
 
-// updateProfileConfig reads a profile, applies mutate and writes it back.
-//
-// The whole config makes the round trip, which is what every writer here does,
-// so a field this version does not model is dropped. That only happens after a
-// downgrade, and a downgrade already drops the owners it cannot read.
-func updateProfileConfig(path string, mutate func(*Config)) error {
+// setProfileField replaces one top-level key of a profile's JSON and leaves the
+// rest of the document as it found it.
+func setProfileField(path, field string, value any) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
 
-	var cfg Config
-	if err := json.Unmarshal(data, &cfg); err != nil {
+	doc := map[string]json.RawMessage{}
+	if err := json.Unmarshal(data, &doc); err != nil {
 		return err
 	}
-	mutate(&cfg)
+	if doc == nil {
+		return fmt.Errorf("profile %s holds no object to set %s on", path, field)
+	}
 
-	if err := util.WriteJsonWithRestrictedPermission(context.Background(), path, cfg); err != nil {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return fmt.Errorf("encode %s of %s: %w", field, path, err)
+	}
+
+	// Decoding matches keys case-insensitively
+	for k := range doc {
+		if k != field && strings.EqualFold(k, field) {
+			delete(doc, k)
+		}
+	}
+	doc[field] = raw
+
+	if err := util.WriteJsonWithRestrictedPermission(context.Background(), path, doc); err != nil {
 		return fmt.Errorf("write profile %s: %w", path, err)
 	}
 	return nil

@@ -266,3 +266,26 @@ func TestMigrate_LeavesAProfileThatAlreadyNamesAnOwnerAlone(t *testing.T) {
 			"only the profiles with no owner of their own are attributed")
 	})
 }
+
+func TestMigrate_SkipsAProfileItCannotStamp(t *testing.T) {
+	username, principal := currentUserPrincipal(t)
+
+	withLegacyLayout(t, func(sm *ServiceManager, configDir string) {
+		dir := sanitizeProfileName(username)
+		good := writeLegacyProfile(t, configDir, dir, "work", nil)
+		broken := filepath.Join(configDir, dir, "broken.json")
+		require.NoError(t, os.WriteFile(broken, []byte("null"), 0600))
+		require.NoError(t, sm.SetActiveProfileState(&ActiveProfileState{ID: "work", Username: username}))
+
+		require.NoError(t, sm.MigrateLegacyProfiles())
+
+		assert.Equal(t, []string{principal}, readOwners(t, good),
+			"one profile that cannot be stamped does not hold up the rest")
+		assert.DirExists(t, filepath.Join(configDir, DefaultProfilePathDir),
+			"and the marker still lands, since the claim path retries the one left behind")
+
+		data, err := os.ReadFile(broken)
+		require.NoError(t, err)
+		assert.Equal(t, "null", string(data), "the profile it could not stamp is untouched")
+	})
+}

@@ -659,3 +659,104 @@ func TestActiveProfilePath_RefusesToGuessBetweenNamesakes(t *testing.T) {
 			"the recorded directory is what tells the namesakes apart")
 	})
 }
+
+func TestListProfiles_ClaimKeepsFieldsThisVersionDoesNotModel(t *testing.T) {
+	withLegacyLayout(t, func(sm *ServiceManager, configDir string) {
+		// What a client newer than this one leaves behind: a key Config has no
+		// field for, next to one it does.
+		newer := map[string]any{"Enabled": true, "Hosts": []any{"a", "b"}}
+		path := writeLegacyProfile(t, configDir, "alice", "work", map[string]any{
+			"MTU":            1280,
+			"SomethingNewer": newer,
+		})
+		stubLegacyDir(t, "alice")
+
+		alice := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
+		_, err := sm.ListProfiles(alice)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"uid:4242"}, readOwners(t, path), "the claim still lands")
+
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		var doc map[string]any
+		require.NoError(t, json.Unmarshal(data, &doc))
+
+		assert.Equal(t, newer, doc["SomethingNewer"],
+			"a listing must not drop the settings of a client that models more than this one")
+		assert.Equal(t, float64(1280), doc["MTU"], "and leaves the ones it does model alone")
+		assert.NotContains(t, doc, "PrivateKey",
+			"nor write out the rest of Config just because it has fields for it")
+	})
+}
+
+func TestSetProfileField_ReplacesAKeySpelledInAnotherCase(t *testing.T) {
+	withLegacyLayout(t, func(sm *ServiceManager, configDir string) {
+		path := writeLegacyProfile(t, configDir, "alice", "work", map[string]any{
+			"owners": []any{"uid:1"},
+		})
+
+		require.NoError(t, stampPrincipal(path, "uid:4242"))
+
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		var doc map[string]any
+		require.NoError(t, json.Unmarshal(data, &doc))
+
+		assert.NotContains(t, doc, "owners",
+			"two spellings of one field would leave the reader to pick")
+		assert.Equal(t, []any{"uid:4242"}, doc["Owners"])
+		assert.Equal(t, []string{"uid:4242"}, readOwners(t, path))
+	})
+}
+
+func TestSetProfileField_RefusesADocumentThatIsNotAnObject(t *testing.T) {
+	withLegacyLayout(t, func(sm *ServiceManager, configDir string) {
+		path := filepath.Join(configDir, "alice", "work.json")
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0700))
+		require.NoError(t, os.WriteFile(path, []byte("null"), 0600))
+
+		require.Error(t, stampPrincipal(path, "uid:4242"),
+			"a profile that is not an object is not one an owner can be set on")
+
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		assert.Equal(t, "null", string(data), "and it is left as it was found")
+	})
+}
+
+func TestSetProfileField_KeepsKeysItWasNotAskedToWrite(t *testing.T) {
+	withLegacyLayout(t, func(sm *ServiceManager, configDir string) {
+		// Keys Config has no field for, in every shape a newer client could
+		// leave one behind.
+		unknown := map[string]any{
+			"AString":  "keep me",
+			"ANumber":  float64(7),
+			"ABool":    true,
+			"ANull":    nil,
+			"AList":    []any{"a", float64(2), false},
+			"AnObject": map[string]any{"Nested": map[string]any{"Deep": []any{float64(1)}}},
+		}
+		fields := map[string]any{"MTU": 1280}
+		for k, v := range unknown {
+			fields[k] = v
+		}
+		path := writeLegacyProfile(t, configDir, "alice", "work", fields)
+
+		require.NoError(t, setProfileField(path, ownersFieldName, []string{"uid:4242"}))
+		require.NoError(t, setProfileField(path, nameFieldName, "Work"))
+
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		var doc map[string]any
+		require.NoError(t, json.Unmarshal(data, &doc))
+
+		for k, want := range unknown {
+			assert.Equal(t, want, doc[k],
+				"%s is not a key this version models, so it is not this version's to drop", k)
+		}
+		assert.Equal(t, float64(1280), doc["MTU"], "a key it does model is left where it was too")
+		assert.Equal(t, []any{"uid:4242"}, doc["Owners"], "and the fields it was asked for are written")
+		assert.Equal(t, "Work", doc["Name"])
+		assert.Len(t, doc, len(unknown)+3, "with nothing else added")
+	})
+}

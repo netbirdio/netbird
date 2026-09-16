@@ -204,7 +204,8 @@ func (s *ServiceManager) stampActiveUserDir(profiles []Profile, active *ActivePr
 			continue
 		}
 		if err := stampPrincipal(p.Path, principal); err != nil {
-			return fmt.Errorf("stamp %s: %w", p.ID, err)
+			log.Warnf("leaving %s unowned, its owner could not be recorded: %v", p.Path, err)
+			continue
 		}
 		log.Infof("recorded %s as the owner of %s, the directory it sits in is that account's", principal, p.Path)
 	}
