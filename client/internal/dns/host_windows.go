@@ -606,20 +606,18 @@ func (r *registryConfigurator) restoreHostDNS() error {
 		return fmt.Errorf("remove dns match policies: %w", err)
 	}
 
-	// Only on the way out, once no rule of ours is left: during a session the
-	// store is where the rules of this run live, and emptying it mid-session
-	// would have the next rule recreate it anyway.
-	if err := removeEmptyGPOPolicyStore(); err != nil {
-		log.Warnf("%v", err)
-	}
-
 	if err := r.deleteInterfaceRegistryKeyProperty(interfaceConfigSearchListKey); err != nil {
 		return fmt.Errorf("remove interface registry key: %w", err)
 	}
 
 	go r.flushDNSCache()
 
-	return nil
+	// Last, and only on the way out, once no rule of ours is left: during a
+	// session the store is where the rules of this run live, and emptying it
+	// mid-session would have the next rule recreate it anyway. Propagated so a
+	// failure keeps the shutdown state for the next run to retry, rather than
+	// leaving the store to hold up every rule change from here on.
+	return removeEmptyGPOPolicyStore()
 }
 
 // removeDNSMatchPolicies deletes every NRPT rule this client may have created,
