@@ -1393,6 +1393,9 @@
     "profile.ownedByAnother": {
         "message": "Profil eines anderen Benutzers"
     },
+    "error.privilege_required": {
+        "message": "Diese Aktion erfordert erhöhte Rechte."
+    },
     "error.session_held": {
         "message": "Ein anderer Benutzer hat diesen Rechner verbunden."
     },

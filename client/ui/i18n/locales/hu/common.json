@@ -1393,6 +1393,9 @@
     "profile.ownedByAnother": {
         "message": "Másik felhasználó profilja"
     },
+    "error.privilege_required": {
+        "message": "Ehhez a művelethez emelt szintű jogosultság szükséges."
+    },
     "error.session_held": {
         "message": "Egy másik felhasználó csatlakoztatta ezt a gépet."
     },

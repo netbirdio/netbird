@@ -1391,6 +1391,9 @@
     "profile.ownedByAnother": {
         "message": "Профіль іншого користувача"
     },
+    "error.privilege_required": {
+        "message": "Ця дія потребує підвищених привілеїв."
+    },
     "error.session_held": {
         "message": "Інший користувач підключив цю машину."
     },

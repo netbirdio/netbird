@@ -14,23 +14,24 @@ import (
 	"github.com/netbirdio/netbird/client/ui/preferences"
 )
 
-// privilegeRefused reports whether the daemon refused for want of privileges
-// denialCode maps a refusal to the code the frontend presents it by. An unknown
-// reason keeps the summary the daemon wrote and loses only the tailored
-// presentation, which is what makes adding a reason daemon-side safe.
-func denialCode(reason string) string {
+// denialCode maps a refusal to the code the frontend presents it by, reporting
+// false for a reason this build does not know. An unknown reason keeps the
+// summary the daemon wrote and loses only the tailored presentation, which is
+// what makes adding a reason daemon-side safe.
+func denialCode(reason string) (string, bool) {
 	switch reason {
 	case ipcauth.ErrorReasonPrivilegeRequired:
-		return "privilege_required"
+		return "privilege_required", true
 	case ipcauth.ErrorReasonSessionHeld:
-		return "session_held"
+		return "session_held", true
 	case ipcauth.ErrorReasonNotProfileOwner:
-		return "not_profile_owner"
+		return "not_profile_owner", true
 	default:
-		return "permission_denied"
+		return "permission_denied", false
 	}
 }
 
+// privilegeRefused reports whether the daemon refused for want of privileges.
 func privilegeRefused(err error) bool {
 	denial, ok := ipcauth.DenialFrom(err)
 	return ok && denial.Reason == ipcauth.ErrorReasonPrivilegeRequired
@@ -46,9 +47,10 @@ type LanguagePreference interface {
 	Get() preferences.UIPreferences
 }
 
-// ClientError is a structured error returned to the frontend. The frontend
-// translates Code via i18n; Short is an English fallback; Long carries the
-// unwrapped daemon message.
+// ClientError is a structured error returned to the frontend. Short is the
+// localised headline, Long the unwrapped daemon message shown under it, and Code
+// the stable identifier Short was resolved from. The frontend reads Short, Long
+// and Command; it does not translate Code itself.
 type ClientError struct {
 	Code  string `json:"code"`
 	Short string `json:"short"`
@@ -100,17 +102,8 @@ func (c errorClassifier) classify(err error) *ClientError {
 		grpcCode = st.Code()
 	}
 
-	// A refusal the daemon explained carries its own summary, and sometimes the
-	// command that satisfies it, both written for the user. The code only picks
-	// the frontend's presentation, so an unrecognised reason still reaches the
-	// user intact.
 	if denial, ok := ipcauth.DenialFrom(err); ok {
-		return &ClientError{
-			Code:    denialCode(denial.Reason),
-			Short:   denial.Summary,
-			Long:    denial.Summary,
-			Command: denial.Command,
-		}
+		return c.classifyDenial(denial)
 	}
 
 	lower := strings.ToLower(msg)
@@ -154,6 +147,24 @@ func (c errorClassifier) classify(err error) *ClientError {
 		Code:  code,
 		Short: c.translateShort(code),
 		Long:  msg,
+	}
+}
+
+// classifyDenial presents a refusal the daemon explained: a localised headline
+// for the reasons this build knows, with the daemon's own sentence as the
+// detail the frontend shows under it. An unrecognised reason keeps that sentence
+// as the headline too, so a reason added daemon-side still reaches the user.
+func (c errorClassifier) classifyDenial(denial ipcauth.Denial) *ClientError {
+	code, known := denialCode(denial.Reason)
+	short := denial.Summary
+	if known {
+		short = c.translateShort(code)
+	}
+	return &ClientError{
+		Code:    code,
+		Short:   short,
+		Long:    denial.Summary,
+		Command: denial.Command,
 	}
 }
 

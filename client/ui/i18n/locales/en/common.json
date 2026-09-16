@@ -1855,6 +1855,10 @@
         "message": "Another user's profile",
         "description": "Shown in place of the active profile's name when it belongs to a different user account."
     },
+    "error.privilege_required": {
+        "message": "This action requires elevated privileges.",
+        "description": "Short headline when the daemon refuses an action that needs elevated privileges. The daemon's own sentence, naming the action and what it needs, is shown as the detail."
+    },
     "error.session_held": {
         "message": "Another user has this machine connected.",
         "description": "Short headline when the daemon refuses an action because a different user account holds the active connection. The daemon's own sentence is shown as the detail."

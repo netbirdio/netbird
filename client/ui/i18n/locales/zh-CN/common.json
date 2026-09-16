@@ -1393,6 +1393,9 @@
     "profile.ownedByAnother": {
         "message": "其他用户的配置文件"
     },
+    "error.privilege_required": {
+        "message": "此操作需要提升的权限。"
+    },
     "error.session_held": {
         "message": "其他用户已连接此机器。"
     },

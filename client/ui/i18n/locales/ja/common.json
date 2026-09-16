@@ -1393,6 +1393,9 @@
     "profile.ownedByAnother": {
         "message": "別のユーザーのプロファイル"
     },
+    "error.privilege_required": {
+        "message": "この操作には昇格した権限が必要です。"
+    },
     "error.session_held": {
         "message": "別のユーザーがこのマシンを接続しています。"
     },
