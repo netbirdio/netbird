@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/netbirdio/netbird/client/mdm"
@@ -47,6 +48,51 @@ func resolveAllowGroups(values []string) ([]string, error) {
 	return resolved, nil
 }
 
+// bootResolveTimeout bounds the group resolution the daemon does while
+// starting. A value already in kind:value form resolves without a lookup, so
+// this only bites on a name, which getent, NSS or LSA may answer from a
+// directory service that is slow or unreachable.
+const bootResolveTimeout = 5 * time.Second
+
+// resolveAllowGroupsBounded resolves the configured groups without letting a
+// directory lookup hold up the daemon's start indefinitely.
+//
+// The lookup runs on its own goroutine because the platform calls underneath it
+// take no context: on timeout the daemon stops waiting and refuses to serve,
+// while the goroutine finishes into a buffered channel nobody reads. Refusing
+// is the same answer a failed resolution gets, since a restriction that cannot
+// be evaluated must not become a socket open to everybody.
+func resolveAllowGroupsBounded(values []string) ([]string, error) {
+	return resolveAllowGroupsWithin(values, bootResolveTimeout, resolveAllowGroups)
+}
+
+// resolveAllowGroupsWithin is resolveAllowGroupsBounded with the timeout and
+// the resolver supplied, so a test can drive the deadline without waiting on
+// one or needing a directory service that hangs.
+func resolveAllowGroupsWithin(values []string, timeout time.Duration, resolve func([]string) ([]string, error)) ([]string, error) {
+	type outcome struct {
+		principals []string
+		err        error
+	}
+
+	done := make(chan outcome, 1)
+	go func() {
+		principals, err := resolve(values)
+		done <- outcome{principals, err}
+	}()
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case res := <-done:
+		return res.principals, res.err
+	case <-timer.C:
+		return nil, fmt.Errorf("resolving the allowed groups took longer than %s: configure them as resolved principals (%s:<id> or %s:<SID>) so the daemon needs no directory lookup while starting",
+			timeout, ipcauth.KindGID, ipcauth.KindSID)
+	}
+}
+
 // daemonSocketPrincipals returns the principals the daemon restricts its
 // sockets to, and the configuration that asked for them. An MDM policy
 // overrides the install-time --allow-group in both directions, as the other
@@ -74,7 +120,7 @@ func daemonSocketPrincipals(policy *mdm.Policy) ([]string, string, error) {
 		values = managed
 	}
 
-	resolved, err := resolveAllowGroups(values)
+	resolved, err := resolveAllowGroupsBounded(values)
 	if err != nil {
 		return nil, source, fmt.Errorf("%s: %w", source, err)
 	}

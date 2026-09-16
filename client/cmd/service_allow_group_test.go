@@ -4,6 +4,7 @@ package cmd
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -149,6 +150,41 @@ func TestTCPListenerRefusesARestriction(t *testing.T) {
 	t.Run("a disabled json socket is not an error", func(t *testing.T) {
 		var listener *socketListener
 		assert.NoError(t, listener.restrict("daemon JSON", []string{testAllowGroupPrincipal}))
+	})
+}
+
+// A group name makes the daemon ask a directory service while it is starting.
+// That lookup has to be bounded, or an unreachable LDAP or AD backend holds up
+// the start until the service manager gives up on it.
+func TestResolveAllowGroupsWithin(t *testing.T) {
+	t.Run("a resolution that answers in time is passed through", func(t *testing.T) {
+		resolved, err := resolveAllowGroupsWithin([]string{"anything"}, time.Minute,
+			func([]string) ([]string, error) { return []string{testAllowGroupPrincipal}, nil })
+		require.NoError(t, err)
+		assert.Equal(t, []string{testAllowGroupPrincipal}, resolved)
+	})
+
+	t.Run("a resolution error is passed through", func(t *testing.T) {
+		_, err := resolveAllowGroupsWithin([]string{"anything"}, time.Minute,
+			func([]string) ([]string, error) { return nil, assert.AnError })
+		require.ErrorIs(t, err, assert.AnError)
+	})
+
+	// The daemon must stop waiting and refuse to serve, which is the same
+	// answer a failed resolution gets: a restriction it cannot evaluate must
+	// never become a socket open to everybody.
+	t.Run("a lookup that never answers is an error, not an empty restriction", func(t *testing.T) {
+		blocked := make(chan struct{})
+		t.Cleanup(func() { close(blocked) })
+
+		resolved, err := resolveAllowGroupsWithin([]string{"netbird-users"}, 10*time.Millisecond,
+			func([]string) ([]string, error) {
+				<-blocked
+				return nil, nil
+			})
+		require.Error(t, err)
+		assert.Empty(t, resolved, "a timeout must not yield an unrestricted socket")
+		assert.Contains(t, err.Error(), "gid:<id>", "the error should say how to avoid the lookup")
 	})
 }
 

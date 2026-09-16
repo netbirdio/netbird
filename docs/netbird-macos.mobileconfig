@@ -169,13 +169,17 @@
                                      Restricts the daemon control socket, and the JSON socket
                                      where it is enabled, to the listed principals. Accounts
                                      outside them cannot connect at all. Overrides the
-                                     install-time allow-group flag in both directions; an
-                                     empty string lifts a restriction the install set.
+                                     install-time allow-group flag in both directions; an empty
+                                     string lifts a restriction the install-time flag set.
 
-                                     Unix group IDs in gid:<id> form, comma-separated. Resolved
-                                     IDs rather than group names because the daemon reads this
-                                     while starting and must not wait on a directory service.
-                                     One group per host: a Unix socket carries one owning group. -->
+                                     Exactly one Unix group ID, in gid:<id> form. A Unix socket
+                                     carries one owning group, so a second entry is refused and
+                                     the daemon does not serve. The comma-separated form is for
+                                     Windows accounts and SIDs only.
+
+                                     A resolved ID rather than a group name, because the daemon
+                                     reads this while starting and must not wait on a directory
+                                     service. -->
                                 <!--
                                 <key>allowGroups</key>
                                 <string>gid:1001</string>
