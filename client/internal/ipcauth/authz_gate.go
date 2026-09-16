@@ -98,11 +98,9 @@ func denyPolicyLevel(r Request, p MethodPolicy) error {
 		}
 
 	case AuthzLevelSessionHolder:
-		// Reaching here means the caller is short of session holder, and
-		// resolveLevel grants that level whenever no session runs or the holder
-		// is the caller. So a running session is held by somebody else. With no
-		// session running the caller fell short on ownership instead.
-		if _, running := r.State.SessionHolder(); running {
+		// resolveLevel stops at profile owner only when a session is running and
+		// somebody else holds it.
+		if r.Level == AuthzLevelProfileOwner {
 			return SessionHeldError(p.Action)
 		}
 		return NotOwnerError(p.Action)
