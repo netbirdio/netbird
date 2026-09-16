@@ -92,6 +92,11 @@ nfpms:
         dst: /usr/share/applications/org.wails.netbird.desktop
       - src: client/ui/build/appicon.png
         dst: /usr/share/pixmaps/netbird.png
+      # Names the polkit action for the elevation prompt the app raises when an
+      # unprivileged user changes a privileged setting; without it the dialog
+      # shows a raw command line.
+      - src: client/ui/build/linux/polkit/io.netbird.settings.policy
+        dst: /usr/share/polkit-1/actions/io.netbird.settings.policy
     dependencies:
       - netbird (>= 0.75.0)
       - libgtk-4-1 (>= 4.14)
@@ -116,6 +121,11 @@ nfpms:
         dst: /usr/share/applications/org.wails.netbird.desktop
       - src: client/ui/build/appicon.png
         dst: /usr/share/pixmaps/netbird.png
+      # Names the polkit action for the elevation prompt the app raises when an
+      # unprivileged user changes a privileged setting; without it the dialog
+      # shows a raw command line.
+      - src: client/ui/build/linux/polkit/io.netbird.settings.policy
+        dst: /usr/share/polkit-1/actions/io.netbird.settings.policy
     dependencies:
       - netbird >= 0.75.0
       - (gtk4 >= 4.14 or libgtk-4-1 >= 4.14)

@@ -3,7 +3,7 @@
 # artifact), so this mirrors its alpine runtime + entrypoint while compiling the
 # CGO-free client inline. BuildKit cache mounts keep rebuilds incremental.
 
-FROM golang:1.25-bookworm AS builder
+FROM golang:1.26.7-bookworm AS builder
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download

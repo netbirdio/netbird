@@ -1,9 +1,13 @@
 package llm_request_parser
 
 import (
+	"context"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/proxy/internal/middleware"
 )
 
 func TestParseBedrockPath(t *testing.T) {
@@ -35,4 +39,26 @@ func TestParseBedrockPath(t *testing.T) {
 			require.Equal(t, tt.stream, br.stream, "stream for %q", tt.path)
 		}
 	}
+}
+
+// TestInvoke_BedrockCountTokens covers the dedicated token-counting
+// endpoint. Denying it does not break the client, it just pushes context
+// counting back onto the inference endpoint, which is billable.
+func TestInvoke_BedrockCountTokens(t *testing.T) {
+	mw := newMiddleware(t)
+
+	out, err := mw.Invoke(context.Background(), &middleware.Input{
+		URL:  "/model/us.anthropic.claude-sonnet-4-5-20250929-v1:0/count-tokens",
+		Body: []byte(`{"input":{"converse":{"messages":[]}}}`),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out)
+	assert.Equal(t, middleware.DecisionAllow, out.Decision)
+
+	model, ok := metaValue(t, out.Metadata, middleware.KeyLLMModel)
+	require.True(t, ok, "count-tokens carries a model in the path and must emit it")
+	assert.Equal(t, "anthropic.claude-sonnet-4-5", model, "model must be normalized like any other action")
+
+	stream, _ := metaValue(t, out.Metadata, middleware.KeyLLMStream)
+	assert.Equal(t, "false", stream, "count-tokens never streams")
 }

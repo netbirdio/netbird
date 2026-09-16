@@ -18,10 +18,9 @@ import (
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller/cache"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/networkmap"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/netiputil"
 )
@@ -47,7 +46,7 @@ func init() {
 // nil when no server config is set (the fan-out network-map path) because clients treat any
 // non-nil config as authoritative: a config without a relay section is interpreted as relay
 // disabled and wipes the clients' relay URLs.
-func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken *Token, extraSettings *types.ExtraSettings, settings *types.Settings) *proto.NetbirdConfig {
+func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken *Token, extraSettings *types.ExtraSettings, settings *nmdata.AccountSettingsInfo) *proto.NetbirdConfig {
 	if config == nil {
 		return nil
 	}
@@ -119,7 +118,7 @@ func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken
 	return nbConfig
 }
 
-func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, settings *types.Settings, httpConfig *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfig.DeviceAuthorizationFlow, enableSSH bool, forceRoutingPeerDNS bool) *proto.PeerConfig {
+func toPeerConfig(peer *nmdata.Peer, network *nmdata.Network, dnsName string, settings *nmdata.AccountSettingsInfo, httpConfig *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfig.DeviceAuthorizationFlow, enableSSH bool, forceRoutingPeerDNS bool) *proto.PeerConfig {
 	netmask, _ := network.Net.Mask.Size()
 	fqdn := peer.FQDN(dnsName)
 
@@ -154,12 +153,13 @@ func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, set
 	return peerConfig
 }
 
-func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfig.DeviceAuthorizationFlow, peer *nbpeer.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *cache.DNSConfigCache, settings *types.Settings, extraSettings *types.ExtraSettings, peerGroups []string, dnsFwdPort int64) *proto.SyncResponse {
+func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfig.DeviceAuthorizationFlow, peer *nmdata.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*nmdata.PostureChecks, dnsCache *cache.DNSConfigCache, settings *nmdata.AccountSettingsInfo, extraSettings *types.ExtraSettings, peerGroups []string, dnsFwdPort int64) *proto.SyncResponse {
 	// IPv6 data in AllowedIPs and SourcePrefixes wildcard expansion depends on
 	// whether the target peer supports IPv6. Routes and firewall rules are already
 	// filtered at the source (network map builder).
 	includeIPv6 := peer.SupportsIPv6() && peer.IPv6.IsValid()
 	useSourcePrefixes := peer.SupportsSourcePrefixes()
+	localIsProxy := peer.ProxyMeta.Embedded
 
 	response := &proto.SyncResponse{
 		PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings, httpConfig, deviceFlowConfig, networkMap.EnableSSH, networkMap.ForceRoutingPeerDNSResolution),
@@ -179,7 +179,7 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 	response.NetworkMap.PeerConfig = response.PeerConfig
 
 	remotePeers := make([]*proto.RemotePeerConfig, 0, len(networkMap.Peers)+len(networkMap.OfflinePeers))
-	remotePeers = networkmap.AppendRemotePeerConfig(remotePeers, networkMap.Peers, dnsName, includeIPv6)
+	remotePeers = networkmap.AppendRemotePeerConfig(remotePeers, networkMap.Peers, dnsName, includeIPv6, localIsProxy)
 
 	if !shouldSkipSendingDeprecatedRemotePeers(peer.Meta.WtVersion) {
 		response.RemotePeers = remotePeers
@@ -189,7 +189,7 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 	response.RemotePeersIsEmpty = len(remotePeers) == 0
 	response.NetworkMap.RemotePeersIsEmpty = response.RemotePeersIsEmpty
 
-	response.NetworkMap.OfflinePeers = networkmap.AppendRemotePeerConfig(nil, networkMap.OfflinePeers, dnsName, includeIPv6)
+	response.NetworkMap.OfflinePeers = networkmap.AppendRemotePeerConfig(nil, networkMap.OfflinePeers, dnsName, includeIPv6, localIsProxy)
 
 	firewallRules := networkmap.ToProtocolFirewallRules(networkMap.FirewallRules, includeIPv6, useSourcePrefixes)
 	response.NetworkMap.FirewallRules = firewallRules

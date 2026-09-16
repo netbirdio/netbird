@@ -58,10 +58,6 @@ var DefaultInterfaceBlacklist = []string{
 	"Tailscale", "tailscale", "docker", "veth", "br-", "lo",
 }
 
-// loadMDMPolicy is the package-level indirection used by apply() to read the
-// active MDM policy. Tests override this to inject a fake policy.
-var loadMDMPolicy = mdm.LoadPolicy
-
 // ConfigInput carries configuration changes to the client
 type ConfigInput struct {
 	ManagementURL                 string
@@ -70,6 +66,7 @@ type ConfigInput struct {
 	StateFilePath                 string
 	PreSharedKey                  *string
 	ServerSSHAllowed              *bool
+	RemoteJobsAllowed             *bool
 	EnableSSHRoot                 *bool
 	EnableSSHSFTP                 *bool
 	EnableSSHLocalPortForwarding  *bool
@@ -103,6 +100,9 @@ type ConfigInput struct {
 	DNSLabels domain.List
 
 	MTU *uint16
+
+	LocalMetricsEnabled *bool
+	LocalMetricsAddress *string
 }
 
 // Config Configuration type
@@ -124,6 +124,7 @@ type Config struct {
 	RosenpassEnabled              bool
 	RosenpassPermissive           bool
 	ServerSSHAllowed              *bool
+	RemoteJobsAllowed             *bool
 	EnableSSHRoot                 *bool
 	EnableSSHSFTP                 *bool
 	EnableSSHLocalPortForwarding  *bool
@@ -143,6 +144,11 @@ type Config struct {
 	DisableNotifications *bool
 
 	DNSLabels domain.List
+
+	// LocalMetricsEnabled enables the local Prometheus /metrics endpoint.
+	LocalMetricsEnabled bool
+	// LocalMetricsAddress is the listen address of the local /metrics endpoint.
+	LocalMetricsAddress string
 
 	// SSHKey is a private SSH key in a PEM format
 	SSHKey string
@@ -184,14 +190,32 @@ type Config struct {
 	// Runtime-only: re-derived from MDM policy on each load, never persisted.
 	LazyConnection string `json:"-"`
 
+	// DebugBundleUploadURL is the MDM-managed debug-bundle upload URL override.
+	// When set, it takes precedence over the management-supplied upload URL for
+	// remote debug bundle jobs. Runtime-only: re-derived from MDM policy on each
+	// load, never persisted.
+	DebugBundleUploadURL string `json:"-"`
+
 	MTU uint16
 
-	// policy is the MDM policy that produced the currently-set values for
-	// any MDM-enforced fields. Set by applyMDMPolicy at the tail of apply()
-	// and reset on every apply() invocation. Never persisted to disk.
-	// Callers query enforcement state via Policy() and the mdm.Policy API
-	// (HasKey, ManagedKeys, IsEmpty).
+	// policy is the MDM policy that produced the currently-set values
+	// for any MDM-enforced fields. Set by ApplyMDMPolicy on every
+	// invocation. Never persisted to disk. Callers query enforcement
+	// state via Policy() and the mdm.Policy API (HasKey, ManagedKeys,
+	// IsEmpty).
 	policy *mdm.Policy `json:"-"`
+}
+
+// ApplyMDMPolicy overlays the supplied MDM Policy on top of the current
+// Config values and records it as Policy(). The overlay is not reversible:
+// an empty Policy only clears the enforcement metadata, so resolve the base
+// Config again (from disk or JSON) before applying a changed policy, the way
+// the lifecycle owners do on every load.
+func (config *Config) ApplyMDMPolicy(policy *mdm.Policy) {
+	if config == nil {
+		return
+	}
+	config.applyMDMPolicy(policy)
 }
 
 // Policy returns the MDM policy applied to this Config. Returns a non-nil
@@ -217,6 +241,12 @@ func getConfigDir() (string, error) {
 	}
 
 	configDir := filepath.Join(base, "netbird")
+	// Under sudo this is the invoking user's directory and strictly read-only:
+	// anything root creates in it would be root-owned and break the user's own
+	// runs. Reads of a missing directory fall through to defaults.
+	if sudoActive() {
+		return configDir, nil
+	}
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		return "", err
 	}
@@ -224,6 +254,16 @@ func getConfigDir() (string, error) {
 }
 
 func baseConfigDir() (string, error) {
+	if u, ok := sudoInvokingUser(); ok {
+		return userBaseConfigDir(u)
+	}
+	// Fail closed instead of falling through to root's own config directory:
+	// reading root's active-profile and email state for what is actually the
+	// invoking user's invocation is the very confusion this resolution exists
+	// to prevent.
+	if sudoActive() {
+		return "", fmt.Errorf("resolve sudo invoking user %q: refusing to fall back to root's config directory", os.Getenv(envSudoUser))
+	}
 	if runtime.GOOS == "darwin" {
 		if u, err := user.Current(); err == nil && u.HomeDir != "" {
 			return filepath.Join(u.HomeDir, "Library", "Application Support"), nil
@@ -265,7 +305,10 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 	config := &Config{
 		// defaults to false only for new (post 0.26) configurations
 		ServerSSHAllowed: util.False(),
-		WgPort:           iface.DefaultWgPort,
+		// Remote jobs are an explicit opt-in and default off, including for
+		// legacy configs (a nil value materializes to false at connect time).
+		RemoteJobsAllowed: util.False(),
+		WgPort:            iface.DefaultWgPort,
 	}
 
 	if _, err := config.apply(input); err != nil {
@@ -388,6 +431,18 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
+	if input.LocalMetricsEnabled != nil && *input.LocalMetricsEnabled != config.LocalMetricsEnabled {
+		log.Infof("switching local metrics to %t", *input.LocalMetricsEnabled)
+		config.LocalMetricsEnabled = *input.LocalMetricsEnabled
+		updated = true
+	}
+
+	if input.LocalMetricsAddress != nil && *input.LocalMetricsAddress != config.LocalMetricsAddress {
+		log.Infof("switching local metrics address to %s", *input.LocalMetricsAddress)
+		config.LocalMetricsAddress = *input.LocalMetricsAddress
+		updated = true
+	}
+
 	if input.NetworkMonitor != nil && (config.NetworkMonitor == nil || *input.NetworkMonitor != *config.NetworkMonitor) {
 		log.Infof("switching Network Monitor to %t", *input.NetworkMonitor)
 		config.NetworkMonitor = input.NetworkMonitor
@@ -453,6 +508,21 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 			log.Infof("falling back to enabled SSH server for pre-existing configuration")
 			config.ServerSSHAllowed = util.True()
 		}
+		updated = true
+	}
+
+	if input.RemoteJobsAllowed != nil && (config.RemoteJobsAllowed == nil || *input.RemoteJobsAllowed != *config.RemoteJobsAllowed) {
+		if *input.RemoteJobsAllowed {
+			log.Infof("enabling remote jobs")
+		} else {
+			log.Infof("disabling remote jobs")
+		}
+		config.RemoteJobsAllowed = input.RemoteJobsAllowed
+		updated = true
+	} else if config.RemoteJobsAllowed == nil {
+		// Remote jobs are an explicit opt-in: unlike SSH, a pre-existing config
+		// with no value defaults to disabled rather than being turned on.
+		config.RemoteJobsAllowed = util.False()
 		updated = true
 	}
 
@@ -650,9 +720,11 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	// MDM is the last override layer: any key present in the policy
-	// supersedes defaults, on-disk config, env vars and CLI input.
-	config.applyMDMPolicy(loadMDMPolicy())
+	// Initialise the MDM overlay to "no enforcement" so Config.Policy()
+	// never returns a stale or nil policy on a freshly applied Config.
+	// Lifecycle owners that want to enforce a real MDM policy invoke
+	// Config.ApplyMDMPolicy(loader.Load()) after this returns.
+	config.applyMDMPolicy(mdm.NewPolicy(nil))
 
 	return updated, nil
 }
@@ -665,6 +737,14 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 // for the key, so per-field rejection of user writes still applies).
 func (config *Config) applyMDMPolicy(policy *mdm.Policy) {
 	config.policy = policy
+
+	// DebugBundleUploadURL is a runtime-only override re-derived from MDM on
+	// every apply. Resolve it unconditionally (before the IsEmpty early return)
+	// so a policy that drops the key, becomes empty, or carries an invalid
+	// value can never leave a previously-enforced upload target active on a
+	// reused Config instance.
+	config.DebugBundleUploadURL = mdmDebugBundleUploadURL(policy)
+
 	if policy.IsEmpty() {
 		return
 	}
@@ -712,12 +792,19 @@ func (config *Config) applyMDMPolicy(policy *mdm.Policy) {
 	}
 
 	applyBool(mdm.KeyAllowServerSSH, func(v bool) { bv := v; config.ServerSSHAllowed = &bv })
+	applyBool(mdm.KeyRemoteJobsAllowed, func(v bool) { bv := v; config.RemoteJobsAllowed = &bv })
 	applyBool(mdm.KeyDisableClientRoutes, func(v bool) { config.DisableClientRoutes = v })
 	applyBool(mdm.KeyDisableServerRoutes, func(v bool) { config.DisableServerRoutes = v })
 	applyBool(mdm.KeyBlockInbound, func(v bool) { config.BlockInbound = v })
 	applyBool(mdm.KeyDisableAutoConnect, func(v bool) { config.DisableAutoConnect = v })
 	applyBool(mdm.KeyRosenpassEnabled, func(v bool) { config.RosenpassEnabled = v })
 	applyBool(mdm.KeyRosenpassPermissive, func(v bool) { config.RosenpassPermissive = v })
+	applyBool(mdm.KeyEnableLocalMetrics, func(v bool) { config.LocalMetricsEnabled = v })
+
+	if v, ok := policy.GetString(mdm.KeyLocalMetricsAddress); ok {
+		config.LocalMetricsAddress = v
+		logApplied(mdm.KeyLocalMetricsAddress, v)
+	}
 
 	if v, ok := policy.GetInt(mdm.KeyWireguardPort); ok {
 		// REG_DWORD is 32-bit; UDP port range is 1-65535. Clamp at the
@@ -739,6 +826,52 @@ func (config *Config) applyMDMPolicy(policy *mdm.Policy) {
 		config.LazyConnection = state
 		logApplied(mdm.KeyLazyConnection, state)
 	}
+
+}
+
+// ValidateBundleUploadURL sanity-checks a debug-bundle upload URL. An empty
+// value is accepted — the executor falls back to the default upload service. A
+// non-empty value must be a well-formed https URL with a host; a malformed
+// value or a plaintext scheme is rejected. It deliberately does not constrain
+// which host may receive the bundle. This is the single source of truth for the
+// rule, shared by the remote-job executor (client/internal) and the MDM policy
+// override below so the two validation paths cannot drift.
+func ValidateBundleUploadURL(raw string) error {
+	if raw == "" {
+		return nil
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("parse upload URL: %w", err)
+	}
+	// Hostname(), not Host: an authority like ":443" is non-empty but has no
+	// host, and would fail the actual upload.
+	if parsed.Scheme != "https" || parsed.Hostname() == "" {
+		return fmt.Errorf("upload URL must be an https URL with a host")
+	}
+	return nil
+}
+
+// mdmDebugBundleUploadURL resolves the MDM-enforced debug-bundle upload URL
+// override from the policy, returning the empty string when the policy does
+// not carry a valid KeyBundleUploadURL. An absent or invalid value fails
+// closed to "" so it falls back to the management-supplied or default upload
+// target rather than a previously-enforced one. The URL is never logged: it
+// can embed credentials or signed query tokens (KeyBundleUploadURL is in
+// mdm.SecretKeys).
+func mdmDebugBundleUploadURL(policy *mdm.Policy) string {
+	v, ok := policy.GetString(mdm.KeyBundleUploadURL)
+	if !ok || v == "" {
+		return ""
+	}
+	// Must be a well-formed https URL with a host, matching the client's
+	// remote-job upload-URL validation (shared validator, single source of truth).
+	if err := ValidateBundleUploadURL(v); err != nil {
+		log.Warnf("MDM debug bundle upload URL is invalid (must be an https URL with a host); ignoring the override")
+		return ""
+	}
+	log.Infof("MDM override %s = ********** (secret)", mdm.KeyBundleUploadURL)
+	return v
 }
 
 // parseURL parses and validates the URL for the named service. The URL

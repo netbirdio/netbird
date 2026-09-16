@@ -224,3 +224,35 @@ func TestMetadataKeys_Allowlist(t *testing.T) {
 	}
 	assert.ElementsMatch(t, want, keys)
 }
+
+// TestInvoke_NonInferenceSkipsPreflight covers gateway model discovery:
+// GET /v1/models carries no model, and management's per-model allowlist
+// fails closed on an empty one, so a pre-flight would deny discovery for
+// exactly the accounts that use the model allowlist. The router marks the
+// request non-inference after authorising the route, and the gate must
+// then allow without calling management at all.
+func TestInvoke_NonInferenceSkipsPreflight(t *testing.T) {
+	mgmt := &fakeMgmt{
+		checkResp: &proto.CheckLLMPolicyLimitsResponse{
+			Decision: "deny",
+			DenyCode: "llm_policy.model_blocked",
+		},
+	}
+	m := New(mgmt, nil)
+
+	out := runInvoke(t, m, &middleware.Input{
+		AccountID:  "acc-1",
+		UserID:     "user-bob",
+		UserGroups: []string{"grp-engineers"},
+		Metadata: []middleware.KV{
+			{Key: middleware.KeyLLMResolvedProviderID, Value: "prov-1"},
+			{Key: middleware.KeyLLMNonInference, Value: "true"},
+		},
+	})
+
+	assert.Equal(t, middleware.DecisionAllow, out.Decision, "model-less endpoints must not be gated on a model")
+	assert.Nil(t, mgmt.checkReq, "no pre-flight may be sent for a non-inference request")
+
+	assert.Empty(t, lookupKV(out.Metadata, middleware.KeyLLMSelectedPolicyID),
+		"no policy is attributed when nothing was metered")
+}

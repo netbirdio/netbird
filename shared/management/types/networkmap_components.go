@@ -14,32 +14,33 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
 
 type NetworkMapComponents struct {
 	PeerID string
 
-	Network          *Network
-	AccountSettings  *AccountSettingsInfo
-	DNSSettings      *DNSSettings
+	Network          *nmdata.Network
+	AccountSettings  *nmdata.AccountSettingsInfo
+	DNSSettings      *nmdata.DNSSettings
 	CustomZoneDomain string
 
-	Peers               map[string]*ComponentPeer
-	Groups              map[string]*ComponentGroup
-	Policies            []*Policy
-	Routes              []*route.Route
-	NameServerGroups    []*nbdns.NameServerGroup
-	AllDNSRecords       []nbdns.SimpleRecord
-	AccountZones        []nbdns.CustomZone
-	ResourcePoliciesMap map[string][]*Policy
-	RoutersMap          map[string]map[string]*ComponentRouter
-	NetworkResources    []*ComponentResource
+	Peers               map[string]*nmdata.Peer
+	Groups              map[string]*nmdata.Group
+	Policies            []*nmdata.Policy
+	Routes              []*nmdata.Route
+	NameServerGroups    []*nmdata.NameServerGroup
+	AllDNSRecords       []nmdata.SimpleRecord
+	AccountZones        []nmdata.CustomZone
+	ResourcePoliciesMap map[string][]*nmdata.Policy
+	RoutersMap          map[string]map[string]*nmdata.NetworkRouter
+	NetworkResources    []*nmdata.NetworkResource
 
 	GroupIDToUserIDs   map[string][]string
 	AllowedUserIDs     map[string]struct{}
 	PostureFailedPeers map[string]map[string]struct{}
 
-	RouterPeers map[string]*ComponentPeer
+	RouterPeers map[string]*nmdata.Peer
 
 	// NetworkXIDToPublicID maps Network.ID (xid) → PublicID.
 	// Consumed by the envelope encoder to
@@ -51,20 +52,21 @@ type NetworkMapComponents struct {
 	// Same role as NetworkXIDToPublicID, used for PostureFailedPeers keys and
 	// policy SourcePostureChecks references.
 	PostureCheckXIDToPublicID map[string]string
-	routesByPeerOnce          sync.Once
-	routesByPeerIdx           map[string][]routeIndexEntry
-
-	// true when returning an empty-like map (returned instead of nil)
-	empty bool
 
 	// ForceRoutingPeerDNSResolution forces the peer to run/use routing-peer DNS
 	// resolution regardless of the account-global setting, for reverse-proxy
 	// domain targets.
 	ForceRoutingPeerDNSResolution bool
+
+	routesByPeerOnce sync.Once
+	routesByPeerIdx  map[string][]routeIndexEntry
+
+	// true when returning an empty-like map (returned instead of nil)
+	empty bool
 }
 
 type routeIndexEntry struct {
-	route    *route.Route
+	route    *nmdata.Route
 	viaGroup bool
 }
 
@@ -80,15 +82,15 @@ func EmptyNetworkMapComponents(nm *NetworkMapComponents) *NetworkMapComponents {
 	return nm
 }
 
-func (c *NetworkMapComponents) GetPeerInfo(peerID string) *ComponentPeer {
+func (c *NetworkMapComponents) GetPeerInfo(peerID string) *nmdata.Peer {
 	return c.Peers[peerID]
 }
 
-func (c *NetworkMapComponents) GetRouterPeerInfo(peerID string) *ComponentPeer {
+func (c *NetworkMapComponents) GetRouterPeerInfo(peerID string) *nmdata.Peer {
 	return c.RouterPeers[peerID]
 }
 
-func (c *NetworkMapComponents) GetGroupInfo(groupID string) *ComponentGroup {
+func (c *NetworkMapComponents) GetGroupInfo(groupID string) *nmdata.Group {
 	return c.Groups[groupID]
 }
 
@@ -143,8 +145,8 @@ func (c *NetworkMapComponents) Calculate(ctx context.Context) *NetworkMap {
 	peersToConnect, expiredPeers := c.filterPeersByLoginExpiration(aclPeers)
 
 	includeIPv6 := false
-	if p := c.Peers[targetPeerID]; p != nil {
-		includeIPv6 = p.SupportsIPv6 && p.IPv6.IsValid()
+	if p := c.GetPeerInfo(targetPeerID); p != nil {
+		includeIPv6 = p.SupportsIPv6() && p.IPv6.IsValid()
 	}
 	routesUpdate := filterAndExpandRoutes(c.getRoutesToSync(targetPeerID, peersToConnect, peerGroups), includeIPv6)
 	routesFirewallRules := c.getPeerRoutesFirewallRules(ctx, targetPeerID, includeIPv6)
@@ -175,11 +177,11 @@ func (c *NetworkMapComponents) Calculate(ctx context.Context) *NetworkMap {
 		if c.CustomZoneDomain != "" && len(c.AllDNSRecords) > 0 {
 			customZones = append(customZones, nbdns.CustomZone{
 				Domain:  c.CustomZoneDomain,
-				Records: c.AllDNSRecords,
+				Records: toRealRecords(c.AllDNSRecords),
 			})
 		}
 
-		customZones = append(customZones, c.AccountZones...)
+		customZones = append(customZones, toRealZones(c.AccountZones)...)
 
 		dnsUpdate.CustomZones = customZones
 		dnsUpdate.NameServerGroups = c.getPeerNSGroupsFromGroups(targetPeerID, peerGroups)
@@ -187,7 +189,7 @@ func (c *NetworkMapComponents) Calculate(ctx context.Context) *NetworkMap {
 
 	return &NetworkMap{
 		Peers:               peersToConnectIncludingRouters,
-		Network:             c.Network.Copy(),
+		Network:             c.Network,
 		Routes:              append(filterAndExpandRoutes(networkResourcesRoutes, includeIPv6), routesUpdate...),
 		DNSConfig:           dnsUpdate,
 		OfflinePeers:        expiredPeers,
@@ -204,7 +206,7 @@ func (c *NetworkMapComponents) IsEmpty() bool {
 	return c.empty
 }
 
-func (c *NetworkMapComponents) getPeerConnectionResources(targetPeerID string) ([]*ComponentPeer, []*FirewallRule, map[string]map[string]struct{}, bool) {
+func (c *NetworkMapComponents) getPeerConnectionResources(targetPeerID string) ([]*nmdata.Peer, []*FirewallRule, map[string]map[string]struct{}, bool) {
 	targetPeer := c.GetPeerInfo(targetPeerID)
 	if targetPeer == nil {
 		return nil, nil, nil, false
@@ -215,26 +217,26 @@ func (c *NetworkMapComponents) getPeerConnectionResources(targetPeerID string) (
 	sshEnabled := false
 
 	for _, policy := range c.Policies {
-		if !policy.Enabled {
+		if policy == nil || !policy.Enabled {
 			continue
 		}
 
 		for _, rule := range policy.Rules {
-			if !rule.Enabled {
+			if rule == nil || !rule.Enabled {
 				continue
 			}
 
-			var sourcePeers, destinationPeers []*ComponentPeer
+			var sourcePeers, destinationPeers []*nmdata.Peer
 			var peerInSources, peerInDestinations bool
 
-			if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
-				sourcePeers, peerInSources = c.getPeerFromResource(rule.SourceResource, targetPeerID)
+			if rule.SourceResource.Type == string(ResourceTypePeer) && rule.SourceResource.ID != "" {
+				sourcePeers, peerInSources = c.getPeerFromResource(rule.SourceResource, targetPeerID, policy.SourcePostureChecks)
 			} else {
 				sourcePeers, peerInSources = c.getAllPeersFromGroups(rule.Sources, targetPeerID, policy.SourcePostureChecks)
 			}
 
-			if rule.DestinationResource.Type == ResourceTypePeer && rule.DestinationResource.ID != "" {
-				destinationPeers, peerInDestinations = c.getPeerFromResource(rule.DestinationResource, targetPeerID)
+			if rule.DestinationResource.Type == string(ResourceTypePeer) && rule.DestinationResource.ID != "" {
+				destinationPeers, peerInDestinations = c.getPeerFromResource(rule.DestinationResource, targetPeerID, nil)
 			} else {
 				destinationPeers, peerInDestinations = c.getAllPeersFromGroups(rule.Destinations, targetPeerID, nil)
 			}
@@ -256,7 +258,7 @@ func (c *NetworkMapComponents) getPeerConnectionResources(targetPeerID string) (
 				generateResources(rule, sourcePeers, FirewallRuleDirectionIN)
 			}
 
-			if peerInDestinations && rule.Protocol == PolicyRuleProtocolNetbirdSSH {
+			if peerInDestinations && rule.Protocol == string(PolicyRuleProtocolNetbirdSSH) {
 				sshEnabled = true
 				switch {
 				case len(rule.AuthorizedGroups) > 0:
@@ -287,7 +289,7 @@ func (c *NetworkMapComponents) getPeerConnectionResources(targetPeerID string) (
 				default:
 					authorizedUsers[auth.Wildcard] = c.getAllowedUserIDs()
 				}
-			} else if peerInDestinations && PolicyRuleImpliesLegacySSH(rule) && targetPeer.SSHEnabled {
+			} else if peerInDestinations && nmdata.PolicyRuleImpliesLegacySSH(rule) && targetPeer.SSHEnabled {
 				sshEnabled = true
 				authorizedUsers[auth.Wildcard] = c.getAllowedUserIDs()
 			}
@@ -307,19 +309,19 @@ func (c *NetworkMapComponents) getAllowedUserIDs() map[string]struct{} {
 	return make(map[string]struct{})
 }
 
-func (c *NetworkMapComponents) connResourcesGenerator(targetPeer *ComponentPeer) (func(*PolicyRule, []*ComponentPeer, int), func() ([]*ComponentPeer, []*FirewallRule)) {
+func (c *NetworkMapComponents) connResourcesGenerator(targetPeer *nmdata.Peer) (func(*nmdata.PolicyRule, []*nmdata.Peer, int), func() ([]*nmdata.Peer, []*FirewallRule)) {
 	rulesExists := make(map[string]struct{})
 	peersExists := make(map[string]struct{})
 	rules := make([]*FirewallRule, 0)
-	peers := make([]*ComponentPeer, 0)
+	peers := make([]*nmdata.Peer, 0)
 
-	return func(rule *PolicyRule, groupPeers []*ComponentPeer, direction int) {
+	return func(rule *nmdata.PolicyRule, groupPeers []*nmdata.Peer, direction int) {
 			protocol := rule.Protocol
-			if protocol == PolicyRuleProtocolNetbirdSSH {
-				protocol = PolicyRuleProtocolTCP
+			if protocol == string(PolicyRuleProtocolNetbirdSSH) {
+				protocol = string(PolicyRuleProtocolTCP)
 			}
 
-			protocolStr := string(protocol)
+			protocolStr := protocol
 			actionStr := string(rule.Action)
 			dirStr := strconv.Itoa(direction)
 			portsJoined := strings.Join(rule.Ports, ",")
@@ -365,15 +367,28 @@ func (c *NetworkMapComponents) connResourcesGenerator(targetPeer *ComponentPeer)
 					PortsJoined: portsJoined,
 				})
 			}
-		}, func() ([]*ComponentPeer, []*FirewallRule) {
+		}, func() ([]*nmdata.Peer, []*FirewallRule) {
 			return peers, rules
 		}
 }
 
-func (c *NetworkMapComponents) getAllPeersFromGroups(groups []string, peerID string, sourcePostureChecksIDs []string) ([]*ComponentPeer, bool) {
+func (c *NetworkMapComponents) getAllPeersFromGroups(groups []string, peerID string, sourcePostureChecksIDs []string) ([]*nmdata.Peer, bool) {
+	return c.filterPolicyPeers(c.getUniquePeerIDsFromGroupsIDs(groups), peerID, sourcePostureChecksIDs)
+}
+
+// getPeerFromResource resolves a rule side that names a peer directly. The peer is
+// subject to the same admission as a group member, so a direct peer behaves exactly
+// like a group holding only that peer.
+func (c *NetworkMapComponents) getPeerFromResource(resource nmdata.Resource, peerID string, sourcePostureChecksIDs []string) ([]*nmdata.Peer, bool) {
+	return c.filterPolicyPeers([]string{resource.ID}, peerID, sourcePostureChecksIDs)
+}
+
+// filterPolicyPeers admits the peers of one rule side: known to the components and
+// passing the rule's posture checks. It reports the admitted peers other than peerID
+// and whether peerID itself is admitted on that side.
+func (c *NetworkMapComponents) filterPolicyPeers(uniquePeerIDs []string, peerID string, sourcePostureChecksIDs []string) ([]*nmdata.Peer, bool) {
 	peerInGroups := false
-	uniquePeerIDs := c.getUniquePeerIDsFromGroupsIDs(groups)
-	filteredPeers := make([]*ComponentPeer, 0, len(uniquePeerIDs))
+	filteredPeers := make([]*nmdata.Peer, 0, len(uniquePeerIDs))
 
 	for _, p := range uniquePeerIDs {
 		peerInfo := c.GetPeerInfo(p)
@@ -425,22 +440,9 @@ func (c *NetworkMapComponents) getUniquePeerIDsFromGroupsIDs(groups []string) []
 	return ids
 }
 
-func (c *NetworkMapComponents) getPeerFromResource(resource Resource, peerID string) ([]*ComponentPeer, bool) {
-	if resource.ID == peerID {
-		return []*ComponentPeer{}, true
-	}
-
-	peerInfo := c.GetPeerInfo(resource.ID)
-	if peerInfo == nil {
-		return []*ComponentPeer{}, false
-	}
-
-	return []*ComponentPeer{peerInfo}, false
-}
-
-func (c *NetworkMapComponents) filterPeersByLoginExpiration(aclPeers []*ComponentPeer) ([]*ComponentPeer, []*ComponentPeer) {
-	peersToConnect := make([]*ComponentPeer, 0, len(aclPeers))
-	var expiredPeers []*ComponentPeer
+func (c *NetworkMapComponents) filterPeersByLoginExpiration(aclPeers []*nmdata.Peer) ([]*nmdata.Peer, []*nmdata.Peer) {
+	peersToConnect := make([]*nmdata.Peer, 0, len(aclPeers))
+	var expiredPeers []*nmdata.Peer
 
 	for _, p := range aclPeers {
 		expired, _ := p.LoginExpired(c.AccountSettings.PeerLoginExpiration)
@@ -480,7 +482,7 @@ func (c *NetworkMapComponents) getPeerNSGroupsFromGroups(peerID string, groupLis
 		for _, gID := range nsGroup.Groups {
 			if _, found := groupList[gID]; found {
 				if !c.peerIsNameserver(peerIPStr, nsGroup) {
-					peerNSGroups = append(peerNSGroups, nsGroup.Copy())
+					peerNSGroups = append(peerNSGroups, toRealNSGroup(nsGroup))
 				}
 				break
 			}
@@ -490,7 +492,7 @@ func (c *NetworkMapComponents) getPeerNSGroupsFromGroups(peerID string, groupLis
 	return peerNSGroups
 }
 
-func (c *NetworkMapComponents) peerIsNameserver(peerIPStr string, nsGroup *nbdns.NameServerGroup) bool {
+func (c *NetworkMapComponents) peerIsNameserver(peerIPStr string, nsGroup *nmdata.NameServerGroup) bool {
 	for _, ns := range nsGroup.NameServers {
 		if peerIPStr == ns.IP.String() {
 			return true
@@ -502,8 +504,8 @@ func (c *NetworkMapComponents) peerIsNameserver(peerIPStr string, nsGroup *nbdns
 // filterAndExpandRoutes drops v6 routes for non-capable peers and duplicates
 // the default v4 route (0.0.0.0/0) as ::/0 for v6-capable peers.
 // TODO: the "-v6" suffix on IDs could collide with user-supplied route IDs.
-func filterAndExpandRoutes(routes []*route.Route, includeIPv6 bool) []*route.Route {
-	filtered := make([]*route.Route, 0, len(routes))
+func filterAndExpandRoutes(routes []*nmdata.Route, includeIPv6 bool) []*nmdata.Route {
+	filtered := make([]*nmdata.Route, 0, len(routes))
 	for _, r := range routes {
 		if !includeIPv6 && r.Network.Addr().Is6() {
 			continue
@@ -515,14 +517,14 @@ func filterAndExpandRoutes(routes []*route.Route, includeIPv6 bool) []*route.Rou
 			v6.ID = r.ID + "-v6-default"
 			v6.NetID = r.NetID + "-v6"
 			v6.Network = netip.MustParsePrefix("::/0")
-			v6.NetworkType = route.IPv6Network
+			v6.NetworkType = nmdata.NetworkTypeIPv6
 			filtered = append(filtered, v6)
 		}
 	}
 	return filtered
 }
 
-func (c *NetworkMapComponents) getRoutesToSync(peerID string, aclPeers []*ComponentPeer, peerGroups LookupMap) []*route.Route {
+func (c *NetworkMapComponents) getRoutesToSync(peerID string, aclPeers []*nmdata.Peer, peerGroups LookupMap) []*nmdata.Route {
 	routes, peerDisabledRoutes := c.getRoutingPeerRoutes(peerID)
 	peerRoutesMembership := make(LookupMap)
 	for _, r := range append(routes, peerDisabledRoutes...) {
@@ -539,7 +541,7 @@ func (c *NetworkMapComponents) getRoutesToSync(peerID string, aclPeers []*Compon
 	return routes
 }
 
-func (c *NetworkMapComponents) getRoutingPeerRoutes(peerID string) (enabledRoutes []*route.Route, disabledRoutes []*route.Route) {
+func (c *NetworkMapComponents) getRoutingPeerRoutes(peerID string) (enabledRoutes []*nmdata.Route, disabledRoutes []*nmdata.Route) {
 	peerInfo := c.GetPeerInfo(peerID)
 	if peerInfo == nil {
 		peerInfo = c.GetRouterPeerInfo(peerID)
@@ -548,9 +550,9 @@ func (c *NetworkMapComponents) getRoutingPeerRoutes(peerID string) (enabledRoute
 		return enabledRoutes, disabledRoutes
 	}
 
-	seenRoute := make(map[route.ID]struct{})
+	seenRoute := make(map[string]struct{})
 
-	takeRoute := func(r *route.Route) {
+	takeRoute := func(r *nmdata.Route) {
 		if _, ok := seenRoute[r.ID]; ok {
 			return
 		}
@@ -569,7 +571,7 @@ func (c *NetworkMapComponents) getRoutingPeerRoutes(peerID string) (enabledRoute
 		if entry.viaGroup {
 			newPeerRoute := entry.route.Copy()
 			newPeerRoute.PeerGroups = nil
-			newPeerRoute.ID = route.ID(string(entry.route.ID) + ":" + peerID)
+			newPeerRoute.ID = entry.route.ID + ":" + peerID
 			takeRoute(newPeerRoute)
 			continue
 		}
@@ -602,8 +604,8 @@ func (c *NetworkMapComponents) routesByPeer() map[string][]routeIndexEntry {
 	return c.routesByPeerIdx
 }
 
-func (c *NetworkMapComponents) filterRoutesByGroups(routes []*route.Route, groupListMap LookupMap) []*route.Route {
-	var filteredRoutes []*route.Route
+func (c *NetworkMapComponents) filterRoutesByGroups(routes []*nmdata.Route, groupListMap LookupMap) []*nmdata.Route {
+	var filteredRoutes []*nmdata.Route
 	for _, r := range routes {
 		for _, groupID := range r.Groups {
 			_, found := groupListMap[groupID]
@@ -616,8 +618,8 @@ func (c *NetworkMapComponents) filterRoutesByGroups(routes []*route.Route, group
 	return filteredRoutes
 }
 
-func (c *NetworkMapComponents) filterRoutesFromPeersOfSameHAGroup(routes []*route.Route, peerMemberships LookupMap) []*route.Route {
-	var filteredRoutes []*route.Route
+func (c *NetworkMapComponents) filterRoutesFromPeersOfSameHAGroup(routes []*nmdata.Route, peerMemberships LookupMap) []*nmdata.Route {
+	var filteredRoutes []*nmdata.Route
 	for _, r := range routes {
 		_, found := peerMemberships[string(r.GetHAUniqueID())]
 		if !found {
@@ -650,7 +652,7 @@ func (c *NetworkMapComponents) getPeerRoutesFirewallRules(ctx context.Context, p
 	return routesFirewallRules
 }
 
-func (c *NetworkMapComponents) getDefaultPermit(r *route.Route, includeIPv6 bool) []*RouteFirewallRule {
+func (c *NetworkMapComponents) getDefaultPermit(r *nmdata.Route, includeIPv6 bool) []*RouteFirewallRule {
 	if r.Network.Addr().Is6() && !includeIPv6 {
 		return nil
 	}
@@ -667,7 +669,7 @@ func (c *NetworkMapComponents) getDefaultPermit(r *route.Route, includeIPv6 bool
 		Protocol:     string(PolicyRuleProtocolALL),
 		Domains:      r.Domains,
 		IsDynamic:    r.IsDynamic(),
-		RouteID:      r.ID,
+		RouteID:      route.ID(r.ID),
 	}
 
 	rules := []*RouteFirewallRule{&rule}
@@ -678,7 +680,7 @@ func (c *NetworkMapComponents) getDefaultPermit(r *route.Route, includeIPv6 bool
 		ruleV6.SourceRanges = []string{"::/0"}
 		if isDefaultV4 {
 			ruleV6.Destination = "::/0"
-			ruleV6.RouteID = r.ID + "-v6-default"
+			ruleV6.RouteID = route.ID(r.ID + "-v6-default")
 		}
 		rules = append(rules, &ruleV6)
 	}
@@ -686,7 +688,7 @@ func (c *NetworkMapComponents) getDefaultPermit(r *route.Route, includeIPv6 bool
 	return rules
 }
 
-func (c *NetworkMapComponents) getDistributionGroupsPeers(r *route.Route) map[string]struct{} {
+func (c *NetworkMapComponents) getDistributionGroupsPeers(r *nmdata.Route) map[string]struct{} {
 	distPeers := make(map[string]struct{})
 	for _, id := range r.Groups {
 		group := c.GetGroupInfo(id)
@@ -701,11 +703,17 @@ func (c *NetworkMapComponents) getDistributionGroupsPeers(r *route.Route) map[st
 	return distPeers
 }
 
-func (c *NetworkMapComponents) getAllRoutePoliciesFromGroups(accessControlGroups []string) []*Policy {
-	routePolicies := make([]*Policy, 0)
+func (c *NetworkMapComponents) getAllRoutePoliciesFromGroups(accessControlGroups []string) []*nmdata.Policy {
+	routePolicies := make([]*nmdata.Policy, 0)
 	for _, groupID := range accessControlGroups {
 		for _, policy := range c.Policies {
+			if policy == nil {
+				continue
+			}
 			for _, rule := range policy.Rules {
+				if rule == nil {
+					continue
+				}
 				if slices.Contains(rule.Destinations, groupID) {
 					routePolicies = append(routePolicies, policy)
 				}
@@ -716,15 +724,15 @@ func (c *NetworkMapComponents) getAllRoutePoliciesFromGroups(accessControlGroups
 	return routePolicies
 }
 
-func (c *NetworkMapComponents) getRouteFirewallRules(ctx context.Context, peerID string, policies []*Policy, route *route.Route, distributionPeers map[string]struct{}, includeIPv6 bool) []*RouteFirewallRule {
+func (c *NetworkMapComponents) getRouteFirewallRules(ctx context.Context, peerID string, policies []*nmdata.Policy, route *nmdata.Route, distributionPeers map[string]struct{}, includeIPv6 bool) []*RouteFirewallRule {
 	var fwRules []*RouteFirewallRule
 	for _, policy := range policies {
-		if !policy.Enabled {
+		if policy == nil || !policy.Enabled {
 			continue
 		}
 
 		for _, rule := range policy.Rules {
-			if !rule.Enabled {
+			if rule == nil || !rule.Enabled {
 				continue
 			}
 
@@ -736,7 +744,7 @@ func (c *NetworkMapComponents) getRouteFirewallRules(ctx context.Context, peerID
 	return fwRules
 }
 
-func (c *NetworkMapComponents) getRulePeers(rule *PolicyRule, postureChecks []string, peerID string, distributionPeers map[string]struct{}) []*ComponentPeer {
+func (c *NetworkMapComponents) getRulePeers(rule *nmdata.PolicyRule, postureChecks []string, peerID string, distributionPeers map[string]struct{}) []*nmdata.Peer {
 	distPeersWithPolicy := make(map[string]struct{})
 	for _, id := range rule.Sources {
 		group := c.GetGroupInfo(id)
@@ -755,7 +763,7 @@ func (c *NetworkMapComponents) getRulePeers(rule *PolicyRule, postureChecks []st
 			}
 		}
 	}
-	if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
+	if rule.SourceResource.Type == string(ResourceTypePeer) && rule.SourceResource.ID != "" {
 		_, distPeer := distributionPeers[rule.SourceResource.ID]
 		_, valid := c.Peers[rule.SourceResource.ID]
 		if distPeer && valid && c.ValidatePostureChecksOnPeer(rule.SourceResource.ID, postureChecks) {
@@ -763,7 +771,7 @@ func (c *NetworkMapComponents) getRulePeers(rule *PolicyRule, postureChecks []st
 		}
 	}
 
-	distributionGroupPeers := make([]*ComponentPeer, 0, len(distPeersWithPolicy))
+	distributionGroupPeers := make([]*nmdata.Peer, 0, len(distPeersWithPolicy))
 	for pID := range distPeersWithPolicy {
 		peerInfo := c.GetPeerInfo(pID)
 		if peerInfo == nil {
@@ -774,9 +782,9 @@ func (c *NetworkMapComponents) getRulePeers(rule *PolicyRule, postureChecks []st
 	return distributionGroupPeers
 }
 
-func (c *NetworkMapComponents) getNetworkResourcesRoutesToSync(peerID string) (bool, []*route.Route, map[string]struct{}) {
+func (c *NetworkMapComponents) getNetworkResourcesRoutesToSync(peerID string) (bool, []*nmdata.Route, map[string]struct{}) {
 	var isRoutingPeer bool
-	var routes []*route.Route
+	var routes []*nmdata.Route
 	allSourcePeers := make(map[string]struct{})
 
 	for _, resource := range c.NetworkResources {
@@ -803,14 +811,17 @@ func (c *NetworkMapComponents) getNetworkResourcesRoutesToSync(peerID string) (b
 
 func (c *NetworkMapComponents) processResourcePolicies(
 	peerID string,
-	resource *ComponentResource,
-	networkRoutingPeers map[string]*ComponentRouter,
+	resource *nmdata.NetworkResource,
+	networkRoutingPeers map[string]*nmdata.NetworkRouter,
 	addSourcePeers bool,
 	allSourcePeers map[string]struct{},
-) []*route.Route {
-	var routes []*route.Route
+) []*nmdata.Route {
+	var routes []*nmdata.Route
 
 	for _, policy := range c.ResourcePoliciesMap[resource.ID] {
+		if policy == nil || !policy.Enabled || len(policy.Rules) == 0 || policy.Rules[0] == nil {
+			continue
+		}
 		peers := c.getResourcePolicyPeers(policy)
 		if addSourcePeers {
 			for _, pID := range c.getPostureValidPeers(peers, policy.SourcePostureChecks) {
@@ -830,17 +841,17 @@ func (c *NetworkMapComponents) processResourcePolicies(
 	return routes
 }
 
-func (c *NetworkMapComponents) getResourcePolicyPeers(policy *Policy) []string {
-	if policy.Rules[0].SourceResource.Type == ResourceTypePeer && policy.Rules[0].SourceResource.ID != "" {
+func (c *NetworkMapComponents) getResourcePolicyPeers(policy *nmdata.Policy) []string {
+	if policy.Rules[0].SourceResource.Type == string(ResourceTypePeer) && policy.Rules[0].SourceResource.ID != "" {
 		return []string{policy.Rules[0].SourceResource.ID}
 	}
 	return c.getUniquePeerIDsFromGroupsIDs(policy.SourceGroups())
 }
 
-func (c *NetworkMapComponents) getNetworkResourcesRoutes(resource *ComponentResource, peerID string, router *ComponentRouter) []*route.Route {
+func (c *NetworkMapComponents) getNetworkResourcesRoutes(resource *nmdata.NetworkResource, peerID string, router *nmdata.NetworkRouter) []*nmdata.Route {
 	resourceAppliedPolicies := c.ResourcePoliciesMap[resource.ID]
 
-	var routes []*route.Route
+	var routes []*nmdata.Route
 	if len(resourceAppliedPolicies) > 0 {
 		peerInfo := c.GetPeerInfo(peerID)
 		if peerInfo != nil {
@@ -851,9 +862,9 @@ func (c *NetworkMapComponents) getNetworkResourcesRoutes(resource *ComponentReso
 	return routes
 }
 
-func (c *NetworkMapComponents) networkResourceToRoute(resource *ComponentResource, peer *ComponentPeer, router *ComponentRouter) *route.Route {
-	r := &route.Route{
-		ID:          route.ID(resource.ID + ":" + peer.ID),
+func (c *NetworkMapComponents) networkResourceToRoute(resource *nmdata.NetworkResource, peer *nmdata.Peer, router *nmdata.NetworkRouter) *nmdata.Route {
+	r := &nmdata.Route{
+		ID:          resource.ID + ":" + peer.ID,
 		AccountID:   resource.AccountID,
 		Peer:        peer.Key,
 		PeerID:      peer.ID,
@@ -861,24 +872,24 @@ func (c *NetworkMapComponents) networkResourceToRoute(resource *ComponentResourc
 		Masquerade:  router.Masquerade,
 		Enabled:     resource.Enabled,
 		KeepRoute:   true,
-		NetID:       route.NetID(resource.Name),
+		NetID:       resource.Name,
 		Description: resource.Description,
 	}
 
-	if resource.Type == ComponentResourceHost || resource.Type == ComponentResourceSubnet {
+	if resource.Type == string(ResourceTypeHost) || resource.Type == string(ResourceTypeSubnet) {
 		r.Network = resource.Prefix
 
-		r.NetworkType = route.IPv4Network
+		r.NetworkType = nmdata.NetworkTypeIPv4
 		if resource.Prefix.Addr().Is6() {
-			r.NetworkType = route.IPv6Network
+			r.NetworkType = nmdata.NetworkTypeIPv6
 		}
 	}
 
-	if resource.Type == ComponentResourceDomain {
+	if resource.Type == string(ResourceTypeDomain) {
 		domainList, err := domain.FromStringList([]string{resource.Domain})
 		if err == nil {
 			r.Domains = domainList
-			r.NetworkType = route.DomainNetwork
+			r.NetworkType = nmdata.NetworkTypeDomain
 			r.Network = netip.PrefixFrom(netip.AddrFrom4([4]byte{192, 0, 2, 0}), 32)
 		}
 	}
@@ -896,7 +907,7 @@ func (c *NetworkMapComponents) getPostureValidPeers(inputPeers []string, posture
 	return dest
 }
 
-func (c *NetworkMapComponents) getPeerNetworkResourceFirewallRules(ctx context.Context, peerID string, routes []*route.Route, includeIPv6 bool) []*RouteFirewallRule {
+func (c *NetworkMapComponents) getPeerNetworkResourceFirewallRules(ctx context.Context, peerID string, routes []*nmdata.Route, includeIPv6 bool) []*RouteFirewallRule {
 	routesFirewallRules := make([]*RouteFirewallRule, 0)
 
 	peerInfo := c.GetPeerInfo(peerID)
@@ -924,11 +935,17 @@ func (c *NetworkMapComponents) getPeerNetworkResourceFirewallRules(ctx context.C
 	return routesFirewallRules
 }
 
-func (c *NetworkMapComponents) getPoliciesSourcePeers(policies []*Policy) map[string]struct{} {
+func (c *NetworkMapComponents) getPoliciesSourcePeers(policies []*nmdata.Policy) map[string]struct{} {
 	sourcePeers := make(map[string]struct{})
 
 	for _, policy := range policies {
+		if policy == nil {
+			continue
+		}
 		for _, rule := range policy.Rules {
+			if rule == nil {
+				continue
+			}
 			for _, sourceGroup := range rule.Sources {
 				group := c.GetGroupInfo(sourceGroup)
 				if group == nil {
@@ -940,7 +957,7 @@ func (c *NetworkMapComponents) getPoliciesSourcePeers(policies []*Policy) map[st
 				}
 			}
 
-			if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
+			if rule.SourceResource.Type == string(ResourceTypePeer) && rule.SourceResource.ID != "" {
 				sourcePeers[rule.SourceResource.ID] = struct{}{}
 			}
 		}
@@ -950,13 +967,13 @@ func (c *NetworkMapComponents) getPoliciesSourcePeers(policies []*Policy) map[st
 }
 
 func (c *NetworkMapComponents) addNetworksRoutingPeers(
-	networkResourcesRoutes []*route.Route,
+	networkResourcesRoutes []*nmdata.Route,
 	peerID string,
-	peersToConnect []*ComponentPeer,
-	expiredPeers []*ComponentPeer,
+	peersToConnect []*nmdata.Peer,
+	expiredPeers []*nmdata.Peer,
 	isRouter bool,
 	sourcePeers map[string]struct{},
-) []*ComponentPeer {
+) []*nmdata.Peer {
 
 	networkRoutesPeers := make(map[string]struct{}, len(networkResourcesRoutes))
 	for _, r := range networkResourcesRoutes {
@@ -1006,8 +1023,8 @@ type FirewallRuleContext struct {
 	PortsJoined string
 }
 
-func AppendIPv6FirewallRule(rules []*FirewallRule, rulesExists map[string]struct{}, peer, targetPeer *ComponentPeer, rule *PolicyRule, rc FirewallRuleContext) []*FirewallRule {
-	if !peer.IPv6.IsValid() || !targetPeer.SupportsIPv6 || !targetPeer.IPv6.IsValid() {
+func AppendIPv6FirewallRule(rules []*FirewallRule, rulesExists map[string]struct{}, peer, targetPeer *nmdata.Peer, rule *nmdata.PolicyRule, rc FirewallRuleContext) []*FirewallRule {
+	if !peer.IPv6.IsValid() || !targetPeer.SupportsIPv6() || !targetPeer.IPv6.IsValid() {
 		return rules
 	}
 

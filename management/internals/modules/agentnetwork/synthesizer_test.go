@@ -6,10 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"go.uber.org/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/catalog"
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -494,6 +495,55 @@ func TestSynthesizeServices_IdentityInject_LiteLLM(t *testing.T) {
 	assert.Equal(t, "x-litellm-end-user-id", entry.HeaderPair.EndUserIDHeader,
 		"end-user-id header must come from the catalog entry's IdentityInjection block")
 	assert.Equal(t, "x-litellm-tags", entry.HeaderPair.TagsHeader)
+}
+
+func TestBuildIdentityInjectConfigJSON_Agentgateway(t *testing.T) {
+	provider := &types.Provider{
+		ID:         "prov-agentgateway",
+		ProviderID: "agentgateway",
+	}
+
+	raw, err := buildIdentityInjectConfigJSON(
+		[]*types.Provider{provider},
+		map[string][]string{provider.ID: []string{"grp-eng"}},
+	)
+	require.NoError(t, err)
+
+	var cfg identityInjectConfig
+	require.NoError(t, json.Unmarshal(raw, &cfg))
+	require.Len(t, cfg.Providers, 1)
+
+	rule := cfg.Providers[0]
+	assert.Equal(t, provider.ID, rule.ProviderID)
+	require.NotNil(t, rule.HeaderPair)
+	assert.Nil(t, rule.JSONMetadata)
+	assert.Equal(t, "x-netbird-user-id", rule.HeaderPair.EndUserIDHeader)
+	assert.Equal(t, "x-netbird-groups", rule.HeaderPair.TagsHeader)
+	assert.False(t, rule.HeaderPair.EndUserIDInBody)
+	assert.False(t, rule.HeaderPair.TagsInBody)
+}
+
+func TestBuildRouterConfigJSON_AgentgatewayVendors(t *testing.T) {
+	provider := &types.Provider{
+		ID:          "prov-agentgateway",
+		ProviderID:  "agentgateway",
+		UpstreamURL: "https://gateway.example.com",
+		APIKey:      "virtual-key",
+	}
+
+	raw, err := buildRouterConfigJSON(
+		[]*types.Provider{provider},
+		map[string][]string{provider.ID: {"grp-eng"}},
+		nil,
+	)
+	require.NoError(t, err)
+
+	var cfg routerConfig
+	require.NoError(t, json.Unmarshal(raw, &cfg))
+	require.Len(t, cfg.Providers, 1)
+	assert.Empty(t, cfg.Providers[0].Vendor,
+		"the singular vendor remains empty for a multi-surface gateway")
+	assert.Equal(t, []string{"openai", "anthropic"}, cfg.Providers[0].Vendors)
 }
 
 // TestSynthesizeServices_IdentityInject_Bifrost_OperatorOverrides
@@ -1244,4 +1294,58 @@ func TestSynthesizeServices_EmptyAPIKey_FailsClosed(t *testing.T) {
 	_, err := SynthesizeServices(ctx, mockStore, testAccountID)
 	require.Error(t, err, "synthesis must refuse a provider with no api key")
 	assert.Contains(t, err.Error(), "no api key", "error must surface the missing credential")
+}
+
+// TestDiscoveryHost pins which providers get a separate listing host. Getting
+// this wrong in either direction is costly: a missing host leaves Bedrock
+// discovery 404ing at AWS, and a host on the wrong provider would send that
+// provider's listing — and its credential — somewhere the operator never
+// configured.
+func TestDiscoveryHost(t *testing.T) {
+	entry := func(id string) catalog.Provider {
+		p, ok := catalog.Lookup(id)
+		require.True(t, ok, "catalog entry %s must exist", id)
+		return p
+	}
+
+	for _, tc := range []struct {
+		name     string
+		entry    catalog.Provider
+		upstream string
+		want     string
+	}{
+		{
+			// ListInferenceProfiles is a control-plane operation; the runtime
+			// host answers <UnknownOperationException/> for it.
+			name:  "bedrock splits the listing off the runtime host",
+			entry: entry("bedrock_api"), upstream: "https://bedrock-runtime.eu-central-1.amazonaws.com",
+			want: "bedrock.eu-central-1.amazonaws.com",
+		},
+		{
+			name:  "bedrock in another region",
+			entry: entry("bedrock_api"), upstream: "https://bedrock-runtime.us-west-2.amazonaws.com",
+			want: "bedrock.us-west-2.amazonaws.com",
+		},
+		{
+			// A proxied Bedrock endpoint may well serve both from one place,
+			// and there is no region to read back out of it.
+			name:  "proxied bedrock upstream yields no discovery host",
+			entry: entry("bedrock_api"), upstream: "https://bedrock.internal.example.com",
+			want: "",
+		},
+		{
+			name:  "openai serves its listing from the same host",
+			entry: entry("openai_api"), upstream: "https://api.openai.com",
+			want: "",
+		},
+		{
+			name:  "vertex serves its listing from the same host",
+			entry: entry("vertex_ai_api"), upstream: "https://us-east5-aiplatform.googleapis.com",
+			want: "",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, discoveryHost(tc.entry, tc.upstream))
+		})
+	}
 }

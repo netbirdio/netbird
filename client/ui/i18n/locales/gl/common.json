@@ -147,22 +147,22 @@
         "message": "A sesión caduca en breve"
     },
     "notify.sessionWarning.body": {
-        "message": "A súa sesión de NetBird caduca en {remaining}. Faga clic en Ampliar agora para renovar."
+        "message": "A súa sesión de NetBird caduca en {remaining}. Prema en Prolongar agora para renovar."
     },
     "notify.sessionWarning.bodyGeneric": {
-        "message": "A súa sesión de NetBird está a punto de caducar. Faga clic en Ampliar agora para renovar."
+        "message": "A súa sesión de NetBird está a punto de caducar. Prema en Prolongar agora para renovar."
     },
     "notify.sessionWarning.extend": {
-        "message": "Ampliar agora"
+        "message": "Prolongar agora"
     },
     "notify.sessionWarning.dismiss": {
         "message": "Descartar"
     },
     "notify.sessionWarning.failed": {
-        "message": "Erro ao ampliar a sesión de NetBird"
+        "message": "Erro ao prolongar a sesión de NetBird"
     },
     "notify.sessionWarning.successTitle": {
-        "message": "Sesión de NetBird ampliada"
+        "message": "Sesión de NetBird prolongada"
     },
     "notify.sessionWarning.successBody": {
         "message": "A súa sesión foi renovada."
@@ -198,7 +198,7 @@
         "message": "Copiar"
     },
     "common.togglePasswordVisibility": {
-        "message": "Conmutar visibilidade do contrasinal"
+        "message": "Amosar ou ocultar o contrasinal"
     },
     "common.increase": {
         "message": "Aumentar"
@@ -231,7 +231,7 @@
         "message": "Non se puido atopar ningún resultado"
     },
     "common.noResults.description": {
-        "message": "Non puidemos atopar ningún resultado. Por favor, intente cun termo de busca diferente ou cambie os seus filtros."
+        "message": "Non puidemos atopar ningún resultado. Por favor, tente cun termo de busca diferente ou cambie os seus filtros."
     },
     "notConnected.title": {
         "message": "Sen conexión"
@@ -291,7 +291,7 @@
         "message": "Abrir configuración"
     },
     "header.togglePanel": {
-        "message": "Conmutar panel lateral"
+        "message": "Alternar panel lateral"
     },
     "profile.selector.loading": {
         "message": "Cargando..."
@@ -315,7 +315,7 @@
         "message": "Máis opcións"
     },
     "profile.selector.deregister": {
-        "message": "Desrexistrar"
+        "message": "Dar de baixa"
     },
     "profile.selector.delete": {
         "message": "Eliminar"
@@ -375,7 +375,7 @@
         "message": "Cambiar de perfil"
     },
     "connect.toggle.label": {
-        "message": "Conmutar conexión de NetBird"
+        "message": "Alternar conexión de NetBird"
     },
     "connect.localIp.label": {
         "message": "Enderezos IP locais"
@@ -396,34 +396,34 @@
         "message": "Detalles do peer"
     },
     "networks.row.toggle": {
-        "message": "Conmutar {name}"
+        "message": "Alternar {name}"
     },
     "networks.bulk.label": {
-        "message": "Conmutar todos os recursos visibles"
+        "message": "Alternar todos os recursos visibles"
     },
     "profile.switch.title": {
         "message": "Cambiar ao perfil «{name}»?"
     },
     "profile.switch.message": {
-        "message": "Está seguro de que desexa cambiar de perfil?\nO seu perfil actual desconectarase."
+        "message": "Ten a certeza de que quere cambiar de perfil?\nO seu perfil actual desconectarase."
     },
     "profile.switch.confirm": {
         "message": "Confirmar"
     },
     "profile.deregister.title": {
-        "message": "Desrexistrar o perfil «{name}»?"
+        "message": "Dar de baixa o perfil «{name}»?"
     },
     "profile.deregister.message": {
-        "message": "Está seguro de que desexa desrexistrar este perfil?\nTerá que iniciar sesión de novo para usalo."
+        "message": "Ten a certeza de que quere dar de baixa este perfil?\nTerá que iniciar sesión de novo para usalo."
     },
     "profile.deregister.confirm": {
-        "message": "Desrexistrar"
+        "message": "Dar de baixa"
     },
     "profile.delete.title": {
         "message": "Eliminar o perfil «{name}»?"
     },
     "profile.delete.message": {
-        "message": "Está seguro de que desexa eliminar este perfil?\nEsta acción non se pode desfacer."
+        "message": "Ten a certeza de que quere eliminar este perfil?\nEsta acción non se pode desfacer."
     },
     "profile.delete.disabledActive": {
         "message": "Os perfís activos non se poden eliminar. Cambie a un perfil diferente antes de eliminar este perfil."
@@ -435,7 +435,7 @@
         "message": "Erro ao cambiar de perfil"
     },
     "profile.error.deregisterTitle": {
-        "message": "Erro ao desrexistrar o perfil"
+        "message": "Erro ao dar de baixa o perfil"
     },
     "profile.error.deleteTitle": {
         "message": "Erro ao eliminar o perfil"
@@ -471,7 +471,7 @@
         "message": "Perfís"
     },
     "settings.profiles.intro": {
-        "message": "Manteña identidades de NetBird separadas lado a lado, por exemplo contas de traballo e persoais, ou diferentes servidores de xestión. Engada, desrexistre ou elimine perfís a continuación."
+        "message": "Manteña identidades de NetBird separadas lado a lado, por exemplo contas de traballo e persoais, ou diferentes servidores de xestión. Engada, dea de baixa ou elimine perfís a continuación."
     },
     "settings.profiles.addProfile": {
         "message": "Engadir perfil"
@@ -568,6 +568,21 @@
     },
     "settings.general.language.empty": {
         "message": "Ningún idioma coincide."
+    },
+    "settings.general.theme.label": {
+        "message": "Tema"
+    },
+    "settings.general.theme.help": {
+        "message": "Escolla claro ou escuro, ou siga a aparencia do seu sistema."
+    },
+    "settings.general.theme.system": {
+        "message": "Sistema"
+    },
+    "settings.general.theme.light": {
+        "message": "Claro"
+    },
+    "settings.general.theme.dark": {
+        "message": "Escuro"
     },
     "settings.general.management.label": {
         "message": "Servidor de xestión"
@@ -693,13 +708,13 @@
         "message": "Transfire ficheiros de xeito seguro usando clientes nativos de SFTP ou SCP."
     },
     "settings.ssh.localForward.label": {
-        "message": "Redirección de portos locais"
+        "message": "Reenvío de portos locais"
     },
     "settings.ssh.localForward.help": {
-        "message": "Permite que os peers conectados creen túneles de portos locais cara a servizos accesibles dende este equipo."
+        "message": "Permite que os peers conectados fagan túneles de portos locais cara a servizos accesibles desde este equipo."
     },
     "settings.ssh.remoteForward.label": {
-        "message": "Redirección de portos remotos"
+        "message": "Reenvío de portos remotos"
     },
     "settings.ssh.remoteForward.help": {
         "message": "Permite que os peers conectados expoñan portos neste equipo cara á súa propia máquina."
@@ -753,7 +768,7 @@
         "message": "Chave precompartida"
     },
     "settings.advanced.psk.help": {
-        "message": "Chave PSK opcional de WireGuard para cifrado simétrico adicional. Non é o mesmo ca unha chave de configuración de NetBird. Só se comunicará con peers que usen a mesma chave precompartida."
+        "message": "Chave PSK opcional de WireGuard para cifrado simétrico adicional. Non é o mesmo que unha chave de configuración de NetBird. Só se comunicará con peers que usen a mesma chave precompartida."
     },
     "settings.troubleshooting.section.title": {
         "message": "Paquete de depuración"
@@ -1107,7 +1122,7 @@
         "message": "Abrimos unha lapela no seu navegador para que poida rematar de iniciar sesión. Non a ve?"
     },
     "browserLogin.tryAgain": {
-        "message": "Intentar de novo"
+        "message": "Tentar de novo"
     },
     "browserLogin.openFailedTitle": {
         "message": "Erro ao abrir o navegador"
@@ -1143,7 +1158,7 @@
         "message": "Pechar"
     },
     "sessionExpiration.extendFailedTitle": {
-        "message": "Erro ao ampliar a sesión"
+        "message": "Erro ao prolongar a sesión"
     },
     "sessionExpiration.logoutFailedTitle": {
         "message": "Erro ao pechar sesión"
@@ -1349,13 +1364,28 @@
     "error.unknown": {
         "message": "A operación fallou."
     },
+    "error.elevation_unavailable": {
+        "message": "NetBird non puido solicitar a este sistema os privilexios que o cambio require. Execute isto no seu lugar:"
+    },
+    "error.elevation_failed": {
+        "message": "O cambio non se puido aplicar con privilexios elevados. Execute isto no seu lugar:"
+    },
+    "settings.ssh.privilege.actorRoot": {
+        "message": "root"
+    },
+    "settings.ssh.privilege.actorAdministrator": {
+        "message": "privilexios de administrador"
+    },
     "settings.ssh.privilege.hint": {
         "message": "Require {actor}. Execute isto no seu lugar:"
     },
     "settings.ssh.privilege.oneWay": {
-        "message": "Pode desactivalo, pero para volvelo activar requírese {actor}."
+        "message": "Pode desactivalo, pero para volvelo activar requírese {actor}:"
     },
     "settings.ssh.privilege.oneWayInverted": {
-        "message": "Pode activalo, pero para volvelo desactivar requírese {actor}."
+        "message": "Pode activalo, pero para volvelo desactivar requírese {actor}:"
+    },
+    "settings.ssh.privilege.authorizePending": {
+        "message": "Agardando pola autorización…"
     }
 }

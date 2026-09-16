@@ -91,6 +91,12 @@ func SelfDelegatesTo() (Identity, bool) {
 	return selfIdentity, true
 }
 
+// The values PrivilegedActorKey returns.
+const (
+	ActorKeyAdministrator = "administrator"
+	ActorKeyRoot          = "root"
+)
+
 // PrivilegedActor names the principal a privileged operation requires, for use
 // in messages shown to the user.
 func PrivilegedActor() string {
@@ -98,6 +104,16 @@ func PrivilegedActor() string {
 		return "administrator privileges"
 	}
 	return "root"
+}
+
+// PrivilegedActorKey identifies that principal without wording it, for a client
+// that writes its own message in the user's language. The words PrivilegedActor
+// returns are English, and a translated sentence cannot borrow them.
+func PrivilegedActorKey() string {
+	if runtime.GOOS == "windows" {
+		return ActorKeyAdministrator
+	}
+	return ActorKeyRoot
 }
 
 // ElevatedCommand renders a command so that running it grants the privileges the
