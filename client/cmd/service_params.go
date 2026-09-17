@@ -14,6 +14,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/configs"
 	"github.com/netbirdio/netbird/client/internal/daemonaddr"
+	"github.com/netbirdio/netbird/client/internal/elevate"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -43,10 +44,33 @@ func serviceParamsPath() string {
 
 // loadServiceParams reads saved service parameters from disk.
 // Returns nil with no error if the file does not exist.
+//
+// The file is read by an elevated install and decides the arguments and the
+// environment of the service it then registers, so it is used only when its
+// ownership and permissions are the ones saveServiceParams leaves behind. That
+// restricted ACL is applied when the file is written, which is not necessarily
+// before it is first read, so this is checked rather than assumed. A file that
+// fails the check is treated as absent, and the install proceeds with its
+// defaults.
 func loadServiceParams() (*serviceParams, error) {
 	path := serviceParamsPath()
 
-	data, err := os.ReadFile(path)
+	// Resolve links first so the checks apply to the file that is actually read.
+	// Since the check covers every directory above it as well, nobody who fails
+	// it can swap the file between here and the read below.
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil //nolint:nilnil
+		}
+		return nil, fmt.Errorf("resolve service params %s: %w", path, err)
+	}
+
+	if err := elevate.CheckOnlyOwnerWritable(resolved); err != nil {
+		return nil, fmt.Errorf("refusing to read service params from %s: %w", resolved, err)
+	}
+
+	data, err := os.ReadFile(resolved)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil //nolint:nilnil
