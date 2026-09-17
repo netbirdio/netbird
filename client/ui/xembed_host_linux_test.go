@@ -22,9 +22,9 @@ func TestIconPixmapValidate(t *testing.T) {
 		{"zero size", iconPixmap{W: 0, H: 0}, false},
 		{"negative size", iconPixmap{W: -1, H: 2, Pix: make([]byte, 16)}, false},
 		{"beyond the dimension bound", iconPixmap{W: maxIconPixmapDim + 1, H: 1, Pix: make([]byte, 16)}, false},
-		// W*H*4 overflows int32 and wraps to 0, which the bound must catch
-		// before the size comparison can be fooled by it.
-		{"dimensions overflowing int32", iconPixmap{W: 1 << 15, H: 1 << 15, Pix: make([]byte, 16)}, false},
+		// Dimensions this large would overflow the W*H*4 size arithmetic on a
+		// 32-bit build; the bound rejects them before it is ever evaluated.
+		{"dimensions beyond any plausible icon", iconPixmap{W: 1 << 15, H: 1 << 15, Pix: make([]byte, 16)}, false},
 	}
 
 	for _, tc := range tests {

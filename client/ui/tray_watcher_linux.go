@@ -138,7 +138,7 @@ func (w *statusNotifierWatcher) RegisterStatusNotifierHost(service string) *dbus
 // host is built outside hostsMu because newXembedHost blocks on a D-Bus
 // round-trip to the item, and one unresponsive item must not hold up the rest.
 func (w *statusNotifierWatcher) tryStartXembedHost(id, busName string, objPath dbus.ObjectPath) {
-	if w.hasHost(id) {
+	if w.hostedBy(id) == busName {
 		return
 	}
 
@@ -157,7 +157,7 @@ func (w *statusNotifierWatcher) tryStartXembedHost(id, busName string, objPath d
 		return
 	}
 
-	if !w.addHost(id, host) {
+	if !w.addHost(id, busName, host) {
 		host.stop()
 		closeBus(sessionConn)
 		return
@@ -170,24 +170,36 @@ func (w *statusNotifierWatcher) tryStartXembedHost(id, busName string, objPath d
 	log.Infof("StatusNotifierWatcher: XEmbed tray icon created for %s", id)
 }
 
-func (w *statusNotifierWatcher) hasHost(id string) bool {
+// hostedBy reports the bus name the item's host is currently attached to, or ""
+// when the item has no host.
+func (w *statusNotifierWatcher) hostedBy(id string) string {
 	w.hostsMu.Lock()
 	defer w.hostsMu.Unlock()
 
-	_, exists := w.hosts[id]
-	return exists
+	if host, exists := w.hosts[id]; exists {
+		return host.busName
+	}
+	return ""
 }
 
-// addHost publishes the host, reporting false when a concurrent registration
-// for the same item got there first.
-func (w *statusNotifierWatcher) addHost(id string, host *xembedHost) bool {
+// addHost publishes the host, displacing one left behind by an earlier owner of
+// the same item: a client that registers under a stable name and then restarts
+// comes back on a new unique name, and its icon has to follow. Reports false
+// when another registration from the same owner got there first.
+func (w *statusNotifierWatcher) addHost(id, busName string, host *xembedHost) bool {
 	w.hostsMu.Lock()
-	defer w.hostsMu.Unlock()
-
-	if _, exists := w.hosts[id]; exists {
+	displaced, exists := w.hosts[id]
+	if exists && displaced.busName == busName {
+		w.hostsMu.Unlock()
 		return false
 	}
 	w.hosts[id] = host
+	w.hostsMu.Unlock()
+
+	if exists {
+		// Its run loop then returns and releases the window and the bus.
+		displaced.stop()
+	}
 	return true
 }
 
