@@ -32,6 +32,28 @@ type Profile struct {
 	Path     string
 	IsActive bool
 	Owners   []ipcauth.Principal
+	// LegacyUserDir is the sanitized username of the per-username directory the
+	// profile was found in, empty for the profiles.v1 directory and for the
+	// default profile. It is the only legacy evidence of profile ownership.
+	LegacyUserDir string
+}
+
+// AccessibleBy reports whether a kernel-attested caller may address this
+// profile.
+func (p *Profile) AccessibleBy(id ipcauth.Identity) bool {
+	if !id.Known() {
+		return false
+	}
+	if ipcauth.IsPrivilegedCaller(id) {
+		return true
+	}
+	if len(p.Owners) == 0 {
+		// A profile in a per-username directory belonged to a use, unowned fails
+		// closed. The account named by the directory reclaims it on their next
+		// lookup or until claimed by a privileged caller.
+		return p.LegacyUserDir == "" && p.ID == DefaultProfileName
+	}
+	return p.Owners[0].Matches(id)
 }
 
 func (p *Profile) FilePath() (string, error) {
@@ -60,7 +82,7 @@ func (p *Profile) FilePath() (string, error) {
 		return "", fmt.Errorf("failed to get current user: %w", err)
 	}
 
-	configDir, err := getConfigDirForUser(username.Username)
+	configDir, err := getConfigDirForUserLegacy(username.Username)
 	if err != nil {
 		return "", fmt.Errorf("failed to get config directory for user %s: %w", username.Username, err)
 	}

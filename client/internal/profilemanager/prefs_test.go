@@ -3,11 +3,14 @@ package profilemanager
 import (
 	"errors"
 	"os"
+	"os/user"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/client/internal/ipcauth"
 )
 
 type testPrefsSection struct {
@@ -15,9 +18,20 @@ type testPrefsSection struct {
 	Dest string `json:"dest"`
 }
 
+// currentUsername returns the account the prefs store keys its legacy config
+// directory by. Profile ownership itself is carried by an ipcauth.Identity, but
+// the on-disk layout is still per-username.
+func currentUsername(t *testing.T) string {
+	t.Helper()
+	u, err := user.Current()
+	require.NoError(t, err)
+	return u.Username
+}
+
 func TestProfilePrefs_RoundTrip(t *testing.T) {
-	withTestSM(t, func(sm *ServiceManager, username string) {
-		created, err := sm.AddProfile("work", username, nil)
+	withTestSM(t, func(sm *ServiceManager, userID ipcauth.Identity) {
+		username := currentUsername(t)
+		created, err := sm.AddProfile("work", &userID)
 		require.NoError(t, err)
 
 		prefs, err := sm.ProfilePrefs(created.ID, username)
@@ -41,8 +55,9 @@ func TestProfilePrefs_RoundTrip(t *testing.T) {
 }
 
 func TestProfilePrefs_GetMissingNamespace(t *testing.T) {
-	withTestSM(t, func(sm *ServiceManager, username string) {
-		created, err := sm.AddProfile("work", username, nil)
+	withTestSM(t, func(sm *ServiceManager, userID ipcauth.Identity) {
+		username := currentUsername(t)
+		created, err := sm.AddProfile("work", &userID)
 		require.NoError(t, err)
 
 		prefs, err := sm.ProfilePrefs(created.ID, username)
@@ -56,8 +71,9 @@ func TestProfilePrefs_GetMissingNamespace(t *testing.T) {
 }
 
 func TestProfilePrefs_RemoveNamespace(t *testing.T) {
-	withTestSM(t, func(sm *ServiceManager, username string) {
-		created, err := sm.AddProfile("work", username, nil)
+	withTestSM(t, func(sm *ServiceManager, userID ipcauth.Identity) {
+		username := currentUsername(t)
+		created, err := sm.AddProfile("work", &userID)
 		require.NoError(t, err)
 
 		prefs, err := sm.ProfilePrefs(created.ID, username)
@@ -82,15 +98,17 @@ func TestProfilePrefs_RemoveNamespace(t *testing.T) {
 }
 
 func TestProfilePrefs_RejectsInvalidID(t *testing.T) {
-	withTestSM(t, func(sm *ServiceManager, username string) {
+	withTestSM(t, func(sm *ServiceManager, userID ipcauth.Identity) {
+		username := currentUsername(t)
 		_, err := sm.ProfilePrefs("../escape", username)
 		assert.Error(t, err)
 	})
 }
 
 func TestProfilePrefs_RejectsEmptyNamespace(t *testing.T) {
-	withTestSM(t, func(sm *ServiceManager, username string) {
-		created, err := sm.AddProfile("work", username, nil)
+	withTestSM(t, func(sm *ServiceManager, userID ipcauth.Identity) {
+		username := currentUsername(t)
+		created, err := sm.AddProfile("work", &userID)
 		require.NoError(t, err)
 
 		prefs, err := sm.ProfilePrefs(created.ID, username)
@@ -104,7 +122,8 @@ func TestProfilePrefs_RejectsEmptyNamespace(t *testing.T) {
 }
 
 func TestProfilePrefs_DefaultProfile(t *testing.T) {
-	withTestSM(t, func(sm *ServiceManager, username string) {
+	withTestSM(t, func(sm *ServiceManager, userID ipcauth.Identity) {
+		username := currentUsername(t)
 		prefs, err := sm.ProfilePrefs(defaultProfileName, username)
 		require.NoError(t, err)
 
@@ -117,21 +136,22 @@ func TestProfilePrefs_DefaultProfile(t *testing.T) {
 }
 
 func TestRemoveProfile_DeletesPrefsFile(t *testing.T) {
-	withTestSM(t, func(sm *ServiceManager, username string) {
-		created, err := sm.AddProfile("work", username, nil)
+	withTestSM(t, func(sm *ServiceManager, userID ipcauth.Identity) {
+		username := currentUsername(t)
+		created, err := sm.AddProfile("work", &userID)
 		require.NoError(t, err)
 
 		prefs, err := sm.ProfilePrefs(created.ID, username)
 		require.NoError(t, err)
 		require.NoError(t, prefs.Put("filedrop", testPrefsSection{Mode: 2}))
 
-		configDir, err := sm.getConfigDir(username)
+		configDir, err := sm.getConfigDirLegacy(username)
 		require.NoError(t, err)
 		prefsPath := filepath.Join(configDir, created.ID.String()+prefsFileSuffix)
 		_, err = os.Stat(prefsPath)
 		require.NoError(t, err)
 
-		require.NoError(t, sm.RemoveProfile(created.ID, username))
+		require.NoError(t, sm.RemoveProfile(created.ID, userID))
 		_, err = os.Stat(prefsPath)
 		assert.True(t, errors.Is(err, os.ErrNotExist), "prefs file should be removed")
 	})

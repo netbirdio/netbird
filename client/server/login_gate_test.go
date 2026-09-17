@@ -31,6 +31,7 @@ func TestLogin_RefusedChangeLeavesTheProfileAlone(t *testing.T) {
 		ConfigPath:       filepath.Join(profilemanager.DefaultConfigPathDir, target+".json"),
 		ManagementURL:    "https://api.netbird.io:443",
 		ServerSSHAllowed: boolPtr(true),
+		Owner:            testProfileOwner(),
 	})
 	require.NoError(t, err)
 
@@ -63,6 +64,7 @@ func TestLogin_ChangeThatBecomesPrivilegedMidRequestHasNoSideEffects(t *testing.
 		ConfigPath:       targetPath,
 		ManagementURL:    "https://api.netbird.io:443",
 		ServerSSHAllowed: boolPtr(false),
+		Owner:            testProfileOwner(),
 	})
 	require.NoError(t, err)
 
@@ -110,6 +112,7 @@ func TestLogin_RefusedChangeLeavesAnInProgressLoginAlone(t *testing.T) {
 		ConfigPath:       filepath.Join(profilemanager.DefaultConfigPathDir, target+".json"),
 		ManagementURL:    "https://api.netbird.io:443",
 		ServerSSHAllowed: boolPtr(true),
+		Owner:            testProfileOwner(),
 	})
 	require.NoError(t, err)
 
