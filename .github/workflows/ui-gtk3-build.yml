@@ -1,0 +1,90 @@
+name: UI GTK3 Build
+
+# The legacy GTK3 UI (-tags gtk3) is otherwise only built by the
+# release_ui_gtk3 job in release.yml, which runs on tags. A build-tag mismatch
+# between xembed_host_linux.go (!gtk3) and its stub xembed_host_gtk3_linux.go
+# (gtk3) therefore stays green through PR CI and first fails at release time.
+# This job compiles the tag on every change to client/ui so the break surfaces
+# in the PR that causes it.
+
+on:
+  pull_request:
+    paths:
+      - "client/ui/**/*.go"
+      - "client/ui/*.c"
+      - "client/ui/*.h"
+      - ".github/workflows/ui-gtk3-build.yml"
+  push:
+    branches:
+      - main
+      - "release-*"
+    paths:
+      - "client/ui/**/*.go"
+      - "client/ui/*.c"
+      - "client/ui/*.h"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || github.actor_id }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (-tags gtk3)
+    # Mirrors release_ui_gtk3: ubuntu-22.04 is the oldest supported glibc and
+    # the only runner carrying libwebkit2gtk-4.1-dev.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: "go.mod"
+          cache: false
+
+      - name: Cache Go modules
+        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-ui-gtk3-build-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-ui-gtk3-build-
+
+      - name: Install dependencies
+        # Same set as release_ui_gtk3: the gtk3 tag resolves the Wails Linux
+        # backend against GTK3 / WebKit2GTK 4.1, not GTK4 / WebKitGTK 6.0.
+        run: sudo apt update && sudo apt install -y -q libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      - name: Stub Wails frontend bundle
+        # client/ui/main.go has //go:embed all:frontend/dist. The directory is
+        # produced by `pnpm run build` and is gitignored, so a compile-only run
+        # needs a placeholder for the embed pattern to match.
+        run: |
+          mkdir -p client/ui/frontend/dist
+          touch client/ui/frontend/dist/.embed-placeholder
+
+      - name: Build
+        # Tags and CGO mirror the netbird-ui-gtk3 build in
+        # .goreleaser_ui_gtk3.yaml so this compiles what the release compiles.
+        working-directory: client/ui
+        env:
+          CGO_ENABLED: "1"
+        run: go build -tags "production gtk3" -o /dev/null .
+
+      - name: Vet
+        # Catches build-tag drift in files the binary does not reach, including
+        # the _test.go files, which no other workflow compiles: client/ui is
+        # excluded from the Go test jobs on all three platforms.
+        working-directory: client/ui
+        env:
+          CGO_ENABLED: "1"
+        run: go vet -tags "production gtk3" ./...
