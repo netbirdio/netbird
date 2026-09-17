@@ -251,7 +251,7 @@ func NewDefaultServerPermanentUpstream(
 
 	ds.hostsDNSHolder.set(hostsDnsList)
 	ds.permanent = true
-	ds.currentConfig = dnsConfigToHostDNSConfig(config, ds.service.RuntimeIP(), ds.service.RuntimePort())
+	ds.currentConfig = dnsConfigToHostDNSConfig(config, ds.service.RuntimeIP(), ds.service.RuntimePort(), nil)
 	ds.searchDomainNotifier = newNotifier(ds.searchDomains())
 	ds.searchDomainNotifier.setListener(listener)
 	setServerDns(ds)
@@ -672,7 +672,7 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 
 	s.localResolver.Update(localZones)
 
-	s.currentConfig = dnsConfigToHostDNSConfig(update, s.service.RuntimeIP(), s.service.RuntimePort())
+	s.currentConfig = dnsConfigToHostDNSConfig(update, s.service.RuntimeIP(), s.service.RuntimePort(), nil)
 
 	if s.service.RuntimePort() != DefaultPort && !s.hostManager.supportCustomPort() {
 		log.Warnf("the DNS manager of this peer doesn't support custom port. Disabling primary DNS setup. " +
