@@ -373,9 +373,8 @@ func streamInterceptor(
 // is used directly. Operators terminating connections at a reverse proxy should
 // configure TrustedPeers with that proxy's address or network.
 //
-// Only X-Forwarded-For is trusted. X-Real-IP contains a single client-supplied
-// address with no proxy chain to validate, and none of the reverse proxies we ship
-// use it on the gRPC path.
+// X-Forwarded-For is consulted first. X-Real-IP is read when X-Forwarded-For is
+// absent or has no entries left after TrustedHTTPProxiesCount is applied.
 func realIPOptions(cfg nbconfig.ReverseProxy) []realip.Option {
 	if idx := slices.IndexFunc(cfg.TrustedPeers, func(p netip.Prefix) bool { return p.Bits() == 0 }); idx >= 0 {
 		log.WithContext(context.Background()).Warnf("TrustedPeers contains the default route %s, which trusts "+
@@ -393,6 +392,6 @@ func realIPOptions(cfg nbconfig.ReverseProxy) []realip.Option {
 		realip.WithTrustedPeers(cfg.TrustedPeers),
 		realip.WithTrustedProxies(cfg.TrustedHTTPProxies),
 		realip.WithTrustedProxiesCount(cfg.TrustedHTTPProxiesCount),
-		realip.WithHeaders([]string{realip.XForwardedFor}),
+		realip.WithHeaders([]string{realip.XForwardedFor, realip.XRealIp}),
 	}
 }
