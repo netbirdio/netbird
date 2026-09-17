@@ -7,9 +7,12 @@ import (
 	"testing"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/internal/metrics"
+	"github.com/netbirdio/netbird/client/internal/peer/conntype"
 	"github.com/netbirdio/netbird/client/internal/peer/dispatcher"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	"github.com/netbirdio/netbird/client/internal/peer/ice"
@@ -302,5 +305,116 @@ func TestConn_presharedKey_RosenpassManaged(t *testing.T) {
 	conn.rosenpassInitializedPresharedKeyValidator = func(peerKey string) bool { return false }
 	if k := conn.presharedKey([]byte("remote")); k == nil {
 		t.Fatalf("expected non-nil presharedKey before Rosenpass manages PSK")
+	}
+}
+
+func newWGTimeoutTestConn(rosenpassEnabled bool, disconnected *[]string) *Conn {
+	cfg := ConnConfig{
+		Key:      "LLHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
+		LocalKey: "RRHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
+		WgConfig: WgConfig{RemoteKey: "LLHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU="},
+	}
+	if rosenpassEnabled {
+		cfg.RosenpassConfig = RosenpassConfig{PubKey: []byte("dummykey")}
+	}
+
+	conn := &Conn{
+		ctx:           context.Background(),
+		config:        cfg,
+		Log:           log.WithField("peer", cfg.Key),
+		metricsStages: &MetricsStages{},
+	}
+	conn.SetOnDisconnected(func(remotePeer string) {
+		*disconnected = append(*disconnected, remotePeer)
+	})
+	return conn
+}
+
+// TestConn_onWGDisconnected_EscalatesToRosenpassReset: repeated handshake
+// timeouts with rosenpass enabled mean the preshared keys have desynced. The
+// renewal exchange runs over the dead tunnel and cannot resync them, so after
+// wgTimeoutEscalationThreshold consecutive timeouts the conn must report the
+// peer disconnected, dropping its rosenpass state so the next configuration
+// programs the rendezvous key.
+func TestConn_onWGDisconnected_EscalatesToRosenpassReset(t *testing.T) {
+	var disconnected []string
+	conn := newWGTimeoutTestConn(true, &disconnected)
+
+	for i := 0; i < wgTimeoutEscalationThreshold-1; i++ {
+		conn.onWGDisconnected(conn.ctx)
+	}
+	assert.Empty(t, disconnected, "escalation must not fire below the threshold")
+
+	conn.onWGDisconnected(conn.ctx)
+	assert.Equal(t, []string{conn.config.WgConfig.RemoteKey}, disconnected,
+		"reaching the threshold must report the peer disconnected once")
+
+	for i := 0; i < wgTimeoutEscalationThreshold-1; i++ {
+		conn.onWGDisconnected(conn.ctx)
+	}
+	assert.Len(t, disconnected, 1, "escalation must restart counting after firing")
+
+	conn.onWGDisconnected(conn.ctx)
+	assert.Len(t, disconnected, 2, "continued timeouts must escalate again")
+}
+
+// TestConn_onWGDisconnected_CheckSuccessResetsEscalation: a successful
+// handshake between timeouts means the tunnel recovered; the counter must
+// start over.
+func TestConn_onWGDisconnected_CheckSuccessResetsEscalation(t *testing.T) {
+	var disconnected []string
+	conn := newWGTimeoutTestConn(true, &disconnected)
+
+	for i := 0; i < wgTimeoutEscalationThreshold-1; i++ {
+		conn.onWGDisconnected(conn.ctx)
+	}
+	conn.onWGCheckSuccess()
+
+	for i := 0; i < wgTimeoutEscalationThreshold-1; i++ {
+		conn.onWGDisconnected(conn.ctx)
+	}
+	assert.Empty(t, disconnected, "handshake success must reset the timeout count")
+}
+
+// TestConn_onWGDisconnected_NoEscalationWithoutRosenpass: without rosenpass
+// there is no per-peer key state to reset; repeated timeouts must not report
+// disconnects.
+func TestConn_onWGDisconnected_NoEscalationWithoutRosenpass(t *testing.T) {
+	var disconnected []string
+	conn := newWGTimeoutTestConn(false, &disconnected)
+
+	for i := 0; i < wgTimeoutEscalationThreshold*3; i++ {
+		conn.onWGDisconnected(conn.ctx)
+	}
+	assert.Empty(t, disconnected, "escalation must be limited to rosenpass connections")
+}
+
+func TestMetricsConnType(t *testing.T) {
+	tests := []struct {
+		name     string
+		priority conntype.ConnPriority
+		expected metrics.ConnectionType
+	}{
+		{"relay", conntype.Relay, metrics.ConnectionTypeRelay},
+		{"ice over turn is relayed, not p2p", conntype.ICETurn, metrics.ConnectionTypeICETurn},
+		{"direct p2p", conntype.ICEP2P, metrics.ConnectionTypeICEP2P},
+		{"unset priority is unknown, not p2p", conntype.None, metrics.ConnectionTypeUnknown},
+		{"unrecognised priority is unknown", conntype.ConnPriority(99), metrics.ConnectionTypeUnknown},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, metricsConnType(tc.priority))
+		})
+	}
+}
+
+func TestMetricsConnType_RelayedMatchesIsRelayed(t *testing.T) {
+	for _, priority := range []conntype.ConnPriority{conntype.None, conntype.Relay, conntype.ICETurn, conntype.ICEP2P} {
+		conn := &Conn{currentConnPriority: priority}
+		tag := metricsConnType(priority)
+		relayedTag := tag == metrics.ConnectionTypeRelay || tag == metrics.ConnectionTypeICETurn
+		assert.Equal(t, conn.isRelayed(), relayedTag,
+			"priority %s: isRelayed and the %q metric tag must agree", priority, tag)
 	}
 }

@@ -1,6 +1,6 @@
 package proxy
 
-//go:generate go run github.com/golang/mock/mockgen -package proxy -destination=manager_mock.go -source=./manager.go -build_flags=-mod=mod
+//go:generate go tool mockgen -package proxy -destination=manager_mock.go -source=./manager.go -build_flags=-mod=mod
 
 import (
 	"context"

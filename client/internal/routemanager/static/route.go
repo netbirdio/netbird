@@ -15,6 +15,11 @@ type Route struct {
 	route                *route.Route
 	routeRefCounter      *refcounter.RouteRefCounter
 	allowedIPsRefcounter *refcounter.AllowedIPsRefCounter
+	// currentPeerKey is the routing peer this watcher currently has the prefix installed on
+	// (the HA winner elected by the watcher). It can differ from route.Peer and change on
+	// failover, so it is recorded on AddAllowedIPs and used on RemoveAllowedIPs to decrement
+	// the exact peer that was incremented.
+	currentPeerKey string
 }
 
 func NewRoute(params common.HandlerParams) *Route {
@@ -52,12 +57,15 @@ func (r *Route) AddAllowedIPs(peerKey string) error {
 			ref.Out,
 		)
 	}
+	r.currentPeerKey = peerKey
 	return nil
 }
 
 func (r *Route) RemoveAllowedIPs() error {
-	if _, err := r.allowedIPsRefcounter.Decrement(r.route.Network); err != nil {
-		return err
+	var err error
+	if _, decErr := r.allowedIPsRefcounter.Decrement(r.route.Network, r.currentPeerKey); decErr != nil {
+		err = fmt.Errorf("remove allowed IP %s: %w", r.route.Network, decErr)
 	}
-	return nil
+	r.currentPeerKey = ""
+	return err
 }

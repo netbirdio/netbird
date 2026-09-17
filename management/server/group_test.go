@@ -11,13 +11,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang/mock/gomock"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 	"golang.org/x/exp/maps"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
+	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/networks"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
@@ -170,6 +172,26 @@ func TestDefaultAccountManager_DeleteGroup(t *testing.T) {
 			"grp-for-integration",
 			"only service users with admin power can delete integration group",
 		},
+		{
+			"agent network policy",
+			"grp-for-agent-network-policy",
+			"agent network policy",
+		},
+		{
+			"agent network budget rule",
+			"grp-for-agent-network-budget-rule",
+			"agent network budget rule",
+		},
+		{
+			"reverse proxy private service access group",
+			"grp-for-rp-private",
+			"reverse proxy service",
+		},
+		{
+			"reverse proxy bearer distribution group",
+			"grp-for-rp-bearer",
+			"reverse proxy service",
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -177,6 +199,16 @@ func TestDefaultAccountManager_DeleteGroup(t *testing.T) {
 			err = am.DeleteGroup(context.Background(), account.Id, groupAdminUserID, testCase.groupID)
 			if err == nil {
 				t.Errorf("delete %s group successfully", testCase.groupID)
+				return
+			}
+
+			group, getErr := am.GetGroup(context.Background(), account.Id, testCase.groupID, groupAdminUserID)
+			if getErr != nil {
+				t.Errorf("group %s should still exist after failed deletion: %s", testCase.groupID, getErr)
+				return
+			}
+			if group == nil {
+				t.Errorf("group %s was deleted despite the failed deletion", testCase.groupID)
 				return
 			}
 
@@ -264,6 +296,23 @@ func TestDefaultAccountManager_DeleteGroups(t *testing.T) {
 			expectedReasons: []string{"only service users with admin power can delete integration group"},
 		},
 		{
+			name:            "agent network policy",
+			groupIDs:        []string{"grp-for-agent-network-policy"},
+			expectedReasons: []string{"agent network policy"},
+		},
+		{
+			name:               "agent network budget rule",
+			groupIDs:           []string{"grp-for-agent-network-budget-rule"},
+			expectedReasons:    []string{"agent network budget rule"},
+			expectedNotDeleted: []string{"grp-for-agent-network-budget-rule"},
+		},
+		{
+			name:               "reverse proxy services",
+			groupIDs:           []string{"grp-for-rp-private", "grp-for-rp-bearer"},
+			expectedReasons:    []string{"reverse proxy service", "reverse proxy service"},
+			expectedNotDeleted: []string{"grp-for-rp-private", "grp-for-rp-bearer"},
+		},
+		{
 			name:            "successfully delete multiple groups",
 			groupIDs:        []string{"group-1", "group-2"},
 			expectedDeleted: []string{"group-1", "group-2"},
@@ -327,6 +376,65 @@ func TestDefaultAccountManager_DeleteGroups(t *testing.T) {
 				assert.NotNil(t, group, "group should exist: %s", groupID)
 			}
 		})
+	}
+}
+
+func TestDefaultAccountManager_DeleteGroupUnlinkedFromReverseProxyService(t *testing.T) {
+	am, _, err := createManager(t)
+	require.NoError(t, err, "Failed to create account manager")
+
+	_, account, err := initTestGroupAccount(am)
+	require.NoError(t, err, "Failed to init testing account")
+
+	deletableGroups := []*types.Group{
+		{
+			ID:        "grp-rp-bearer-disabled",
+			AccountID: account.Id,
+			Name:      "Group only in a disabled bearer auth",
+			Issued:    types.GroupIssuedAPI,
+			Peers:     make([]string, 0),
+		},
+		{
+			ID:        "grp-rp-nonprivate-access",
+			AccountID: account.Id,
+			Name:      "Group only in a non-private service's access groups",
+			Issued:    types.GroupIssuedAPI,
+			Peers:     make([]string, 0),
+		},
+	}
+	for _, group := range deletableGroups {
+		require.NoError(t, am.CreateGroup(context.Background(), account.Id, groupAdminUserID, group))
+	}
+
+	// Disabled bearer auth and stale access groups on a non-private service
+	// are inert configuration and must not block group deletion.
+	services := []*rpservice.Service{
+		{
+			ID:        "rp-svc-bearer-disabled",
+			AccountID: account.Id,
+			Domain:    "bearer-disabled.services.example.com",
+			Auth: rpservice.AuthConfig{
+				BearerAuth: &rpservice.BearerAuthConfig{
+					Enabled:            false,
+					DistributionGroups: []string{"grp-rp-bearer-disabled"},
+				},
+			},
+		},
+		{
+			ID:           "rp-svc-nonprivate-access",
+			AccountID:    account.Id,
+			Domain:       "nonprivate.services.example.com",
+			Private:      false,
+			AccessGroups: []string{"grp-rp-nonprivate-access"},
+		},
+	}
+	for _, svc := range services {
+		require.NoError(t, am.Store.CreateService(context.Background(), svc))
+	}
+
+	for _, group := range deletableGroups {
+		err = am.DeleteGroup(context.Background(), account.Id, groupAdminUserID, group.ID)
+		assert.NoError(t, err, "group %s is not referenced by an active reverse proxy gate and should be deletable", group.ID)
 	}
 }
 
@@ -451,6 +559,38 @@ func initTestGroupAccount(am *DefaultAccountManager) (*DefaultAccountManager, *t
 		Peers:     make([]string, 0),
 	}
 
+	groupForAgentNetworkPolicy := &types.Group{
+		ID:        "grp-for-agent-network-policy",
+		AccountID: "account-id",
+		Name:      "Group for agent network policies",
+		Issued:    types.GroupIssuedAPI,
+		Peers:     make([]string, 0),
+	}
+
+	groupForAgentNetworkBudgetRule := &types.Group{
+		ID:        "grp-for-agent-network-budget-rule",
+		AccountID: "account-id",
+		Name:      "Group for agent network budget rules",
+		Issued:    types.GroupIssuedAPI,
+		Peers:     make([]string, 0),
+	}
+
+	groupForRPPrivate := &types.Group{
+		ID:        "grp-for-rp-private",
+		AccountID: "account-id",
+		Name:      "Group for private reverse proxy service",
+		Issued:    types.GroupIssuedAPI,
+		Peers:     make([]string, 0),
+	}
+
+	groupForRPBearer := &types.Group{
+		ID:        "grp-for-rp-bearer",
+		AccountID: "account-id",
+		Name:      "Group for bearer reverse proxy service",
+		Issued:    types.GroupIssuedAPI,
+		Peers:     make([]string, 0),
+	}
+
 	routeResource := &route.Route{
 		ID:     "example route",
 		Groups: []string{groupForRoute.ID},
@@ -506,6 +646,81 @@ func initTestGroupAccount(am *DefaultAccountManager) (*DefaultAccountManager, *t
 	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForSetupKeys)
 	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForUsers)
 	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForIntegration)
+	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForAgentNetworkPolicy)
+	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForAgentNetworkBudgetRule)
+	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForRPPrivate)
+	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForRPBearer)
+
+	agentNetworkPolicy := &agentNetworkTypes.Policy{
+		ID:           "example agent network policy",
+		AccountID:    accountID,
+		Name:         "Example agent network policy",
+		Enabled:      true,
+		SourceGroups: []string{groupForAgentNetworkPolicy.ID},
+	}
+	if err := am.Store.SaveAgentNetworkPolicy(context.Background(), agentNetworkPolicy); err != nil {
+		return nil, nil, err
+	}
+
+	budgetRuleDecoy := agentNetworkTypes.NewAccountBudgetRule(accountID)
+	budgetRuleDecoy.Name = "Unrelated agent network budget rule"
+	budgetRuleDecoy.TargetGroups = []string{"unrelated-group"}
+	if err := am.Store.SaveAgentNetworkBudgetRule(context.Background(), budgetRuleDecoy); err != nil {
+		return nil, nil, err
+	}
+
+	budgetRule := agentNetworkTypes.NewAccountBudgetRule(accountID)
+	budgetRule.Name = "Example agent network budget rule"
+	budgetRule.TargetGroups = []string{groupForAgentNetworkBudgetRule.ID}
+	if err := am.Store.SaveAgentNetworkBudgetRule(context.Background(), budgetRule); err != nil {
+		return nil, nil, err
+	}
+
+	// The decoy services are created first so the linkage check has to scan
+	// past services that do not reference the groups under test.
+	rpServices := []*rpservice.Service{
+		{
+			ID:           "rp-svc-private-decoy",
+			AccountID:    accountID,
+			Domain:       "private-decoy.services.example.com",
+			Private:      true,
+			AccessGroups: []string{"unrelated-group"},
+		},
+		{
+			ID:        "rp-svc-bearer-decoy",
+			AccountID: accountID,
+			Domain:    "bearer-decoy.services.example.com",
+			Auth: rpservice.AuthConfig{
+				BearerAuth: &rpservice.BearerAuthConfig{
+					Enabled:            true,
+					DistributionGroups: []string{"unrelated-group"},
+				},
+			},
+		},
+		{
+			ID:           "rp-svc-private",
+			AccountID:    accountID,
+			Domain:       "private.services.example.com",
+			Private:      true,
+			AccessGroups: []string{groupForRPPrivate.ID},
+		},
+		{
+			ID:        "rp-svc-bearer",
+			AccountID: accountID,
+			Domain:    "bearer.services.example.com",
+			Auth: rpservice.AuthConfig{
+				BearerAuth: &rpservice.BearerAuthConfig{
+					Enabled:            true,
+					DistributionGroups: []string{groupForRPBearer.ID},
+				},
+			},
+		},
+	}
+	for _, svc := range rpServices {
+		if err := am.Store.CreateService(context.Background(), svc); err != nil {
+			return nil, nil, err
+		}
+	}
 
 	acc, err := am.Store.GetAccount(context.Background(), account.Id)
 	if err != nil {
@@ -1109,4 +1324,83 @@ func Test_IncrementNetworkSerial(t *testing.T) {
 	}
 
 	assert.Equal(t, totalPeers, int(account.Network.Serial), "Expected %d serial increases in account %s, got %d", totalPeers, accountID, account.Network.Serial)
+}
+
+func TestDefaultAccountManager_GroupPeersMustBelongToAccount(t *testing.T) {
+	manager, _, account, peer1, _, _ := setupNetworkMapTest(t)
+
+	otherAccount, err := createAccount(manager, "other_account", "other_user", "")
+	require.NoError(t, err)
+
+	foreignPeer := &peer2.Peer{
+		ID:        "foreign-peer",
+		AccountID: otherAccount.Id,
+		Key:       "foreign-key",
+		DNSLabel:  "foreign-peer",
+		IP:        uint32ToIP(1),
+	}
+	require.NoError(t, manager.Store.AddPeerToAccount(context.Background(), foreignPeer))
+
+	assertRejected := func(t *testing.T, err error) {
+		t.Helper()
+		require.Error(t, err)
+		s, ok := status.FromError(err)
+		require.True(t, ok, "expected status error, got %v", err)
+		assert.Equal(t, status.InvalidArgument, s.Type(), "peer outside the account should be rejected as invalid argument")
+	}
+
+	t.Run("create rejects foreign peer", func(t *testing.T) {
+		err := manager.CreateGroup(context.Background(), account.Id, userID, &types.Group{
+			Name:   "foreign",
+			Issued: types.GroupIssuedAPI,
+			Peers:  []string{peer1.ID, foreignPeer.ID},
+		})
+		assertRejected(t, err)
+
+		_, err = manager.Store.GetGroupByName(context.Background(), store.LockingStrengthNone, account.Id, "foreign")
+		assert.Error(t, err, "rejected create must not persist the group")
+	})
+
+	t.Run("update rejects foreign and unknown peers", func(t *testing.T) {
+		group := &types.Group{ID: "own", Name: "own", Issued: types.GroupIssuedAPI, Peers: []string{peer1.ID}}
+		require.NoError(t, manager.CreateGroup(context.Background(), account.Id, userID, group))
+
+		group.Peers = []string{peer1.ID, foreignPeer.ID}
+		assertRejected(t, manager.UpdateGroup(context.Background(), account.Id, userID, group))
+
+		group.Peers = []string{peer1.ID, "does-not-exist"}
+		assertRejected(t, manager.UpdateGroup(context.Background(), account.Id, userID, group))
+
+		stored, err := manager.Store.GetGroupByID(context.Background(), store.LockingStrengthNone, account.Id, group.ID)
+		require.NoError(t, err)
+		assert.Equal(t, []string{peer1.ID}, stored.Peers, "rejected updates must not change membership")
+	})
+
+	t.Run("update tolerates and drops pre-existing dangling members", func(t *testing.T) {
+		group := &types.Group{ID: "polluted", Name: "polluted", Issued: types.GroupIssuedAPI, Peers: []string{peer1.ID}}
+		require.NoError(t, manager.CreateGroup(context.Background(), account.Id, userID, group))
+		require.NoError(t, manager.Store.AddPeerToGroup(context.Background(), account.Id, foreignPeer.ID, group.ID))
+
+		group.Peers = []string{peer1.ID, foreignPeer.ID}
+		assert.NoError(t, manager.UpdateGroup(context.Background(), account.Id, userID, group), "keeping an existing member must not be rejected")
+
+		group.Peers = []string{peer1.ID}
+		require.NoError(t, manager.UpdateGroup(context.Background(), account.Id, userID, group))
+
+		stored, err := manager.Store.GetGroupByID(context.Background(), store.LockingStrengthNone, account.Id, group.ID)
+		require.NoError(t, err)
+		assert.Equal(t, []string{peer1.ID}, stored.Peers, "dangling member should be removed once omitted")
+	})
+
+	t.Run("direct add rejects foreign and unknown peers", func(t *testing.T) {
+		group := &types.Group{ID: "direct", Name: "direct", Issued: types.GroupIssuedAPI, Peers: []string{peer1.ID}}
+		require.NoError(t, manager.CreateGroup(context.Background(), account.Id, userID, group))
+
+		assertRejected(t, manager.GroupAddPeer(context.Background(), account.Id, group.ID, foreignPeer.ID))
+		assertRejected(t, manager.GroupAddPeer(context.Background(), account.Id, group.ID, "does-not-exist"))
+
+		stored, err := manager.Store.GetGroupByID(context.Background(), store.LockingStrengthNone, account.Id, group.ID)
+		require.NoError(t, err)
+		assert.Equal(t, []string{peer1.ID}, stored.Peers, "rejected direct adds must not change membership")
+	})
 }

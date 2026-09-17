@@ -10,7 +10,7 @@ import (
 
 const (
 	earlyMsgTTL      = 5 * time.Second
-	earlyMsgCapacity = 1000
+	earlyMsgCapacity = 10000
 )
 
 // earlyMsgBuffer buffers transport messages that arrive before the corresponding

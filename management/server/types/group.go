@@ -1,8 +1,8 @@
 package types
 
 import (
-	"github.com/netbirdio/netbird/management/server/integration_reference"
-	"github.com/netbirdio/netbird/management/server/networks/resources/types"
+	"github.com/netbirdio/netbird/shared/management/integration_reference"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
 
 const (
@@ -18,6 +18,8 @@ type Group struct {
 
 	// AccountID is a reference to Account that this object belongs
 	AccountID string `json:"-" gorm:"index"`
+
+	PublicID string `json:"-"`
 
 	// Name visible in the UI
 	Name string
@@ -66,7 +68,7 @@ func (g *Group) EventMeta() map[string]any {
 	return map[string]any{"name": g.Name}
 }
 
-func (g *Group) EventMetaResource(resource *types.NetworkResource) map[string]any {
+func (g *Group) EventMetaResource(resource *nmdata.NetworkResource) map[string]any {
 	return map[string]any{"name": g.Name, "id": g.ID, "resource_name": resource.Name, "resource_id": resource.ID, "resource_type": resource.Type}
 }
 
@@ -74,6 +76,7 @@ func (g *Group) Copy() *Group {
 	group := &Group{
 		ID:                   g.ID,
 		AccountID:            g.AccountID,
+		PublicID:             g.PublicID,
 		Name:                 g.Name,
 		Issued:               g.Issued,
 		Peers:                make([]string, len(g.Peers)),

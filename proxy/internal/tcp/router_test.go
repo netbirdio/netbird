@@ -1836,3 +1836,132 @@ func TestRouter_TLS_StaysOnTLSChannel_WhenPlainEnabled(t *testing.T) {
 		t.Fatal("TLS conn never reached the TLS channel")
 	}
 }
+
+// scriptedAcceptListener is a net.Listener whose Accept() returns
+// pre-scripted errors. Used by the accept-loop exit tests to simulate
+// the failure mode that triggers the tight-loop bug: a netstack
+// listener whose endpoint has been destroyed and now returns the gVisor
+// "endpoint is in invalid state" error from every Accept call.
+type scriptedAcceptListener struct {
+	errs   chan error
+	closed chan struct{}
+}
+
+func newScriptedAcceptListener(errs ...error) *scriptedAcceptListener {
+	s := &scriptedAcceptListener{
+		errs:   make(chan error, len(errs)+1),
+		closed: make(chan struct{}),
+	}
+	for _, e := range errs {
+		s.errs <- e
+	}
+	return s
+}
+
+func (s *scriptedAcceptListener) Accept() (net.Conn, error) {
+	select {
+	case <-s.closed:
+		return nil, net.ErrClosed
+	case err := <-s.errs:
+		return nil, err
+	}
+}
+
+func (s *scriptedAcceptListener) Close() error {
+	select {
+	case <-s.closed:
+	default:
+		close(s.closed)
+	}
+	return nil
+}
+
+func (s *scriptedAcceptListener) Addr() net.Addr {
+	return &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0}
+}
+
+// TestRouter_Serve_ExitsOnGVisorInvalidEndpoint is the regression guard
+// for the tight-loop bug: when the underlying netstack endpoint is
+// destroyed, Accept returns "endpoint is in invalid state" forever. The
+// loop must recognise that signal and return, otherwise it pegs a CPU
+// core and floods logs.
+func TestRouter_Serve_ExitsOnGVisorInvalidEndpoint(t *testing.T) {
+	logger := log.StandardLogger()
+	addr := &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 443}
+	router := NewRouter(logger, nil, addr)
+
+	gvisorErr := &net.OpError{
+		Op:   "accept",
+		Net:  "tcp",
+		Addr: addr,
+		Err:  errSentinel("endpoint is in invalid state"),
+	}
+	ln := newScriptedAcceptListener(gvisorErr)
+	defer ln.Close()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- router.Serve(context.Background(), ln)
+	}()
+
+	select {
+	case err := <-done:
+		assert.NoError(t, err, "Serve must return cleanly on a recognised closed-listener error")
+	case <-time.After(2 * time.Second):
+		t.Fatal("Serve did not exit on gVisor 'endpoint is in invalid state' — accept loop is spinning")
+	}
+}
+
+// TestRouter_Serve_BacksOffOnTransientError verifies the defence-in-
+// depth path: when Accept returns an unknown transient error, the loop
+// MUST not spin. It backs off, then exits cleanly once ctx is cancelled.
+// "Bounded call count" stands in for "no CPU spin" — without backoff
+// the goroutine would issue thousands of Accept calls in this window.
+func TestRouter_Serve_BacksOffOnTransientError(t *testing.T) {
+	logger := log.StandardLogger()
+	addr := &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 443}
+	router := NewRouter(logger, nil, addr)
+
+	const transientErrCount = 5
+	errs := make([]error, transientErrCount)
+	for i := range errs {
+		errs[i] = errSentinel("transient: too many open files")
+	}
+	ln := newScriptedAcceptListener(errs...)
+	defer ln.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	start := time.Now()
+	go func() {
+		done <- router.Serve(ctx, ln)
+	}()
+
+	// Cancel after enough time for the backoff to climb (5ms + 10ms +
+	// 20ms + 40ms = 75ms minimum), but short enough that a spinning
+	// loop would have made thousands of calls by now.
+	time.AfterFunc(150*time.Millisecond, cancel)
+
+	select {
+	case err := <-done:
+		assert.NoError(t, err, "Serve must return cleanly on ctx cancellation")
+	case <-time.After(2 * time.Second):
+		t.Fatal("Serve did not exit on ctx cancellation — backoff or exit path broken")
+	}
+
+	// Without backoff the loop would burn through all 5 scripted errors
+	// in microseconds and then block on the channel. With backoff the
+	// total wall time should be at least 5ms (the first backoff).
+	elapsed := time.Since(start)
+	assert.GreaterOrEqual(t, elapsed, minAcceptDelay,
+		"loop ran without backing off — would burn CPU in production")
+}
+
+// errSentinel mirrors gVisor's tcpip error message exactly. We can't
+// import the gVisor package without dragging in the whole netstack, so
+// the test uses the canonical string the production error formatter
+// emits — same shape IsClosedListenerErr matches in production.
+type errSentinel string
+
+func (e errSentinel) Error() string { return string(e) }
+

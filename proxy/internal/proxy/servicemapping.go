@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/netbirdio/netbird/proxy/internal/middleware"
+	"github.com/netbirdio/netbird/proxy/internal/middleware/bodytap"
 	"github.com/netbirdio/netbird/proxy/internal/types"
 )
 
@@ -32,6 +34,20 @@ type PathTarget struct {
 	// over the embedded NetBird WireGuard client when forwarding requests
 	// to this target. Default false → embedded client (existing behaviour).
 	DirectUpstream bool
+	// Middlewares is the validated per-target middleware chain. Nil or empty
+	// for non-agent-network targets, keeping them on the no-middleware fast path.
+	Middlewares []middleware.Spec
+	// CaptureConfig holds the per-target body-capture limits used by the
+	// middleware chain. Nil for targets without body-inspecting middlewares.
+	CaptureConfig *bodytap.Config
+	// AgentNetwork marks this target as a synthesised agent-network target so
+	// the proxy can tag access-log entries and gate agent-network behaviour.
+	AgentNetwork bool
+	// DisableAccessLog suppresses the per-request access-log emission for this
+	// target. Defaults false so non-agent-network targets continue to log
+	// unchanged. The agent-network synthesizer sets this true only when the
+	// account's EnableLogCollection toggle is off.
+	DisableAccessLog bool
 }
 
 // Mapping describes how a domain is routed by the HTTP reverse proxy.

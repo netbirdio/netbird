@@ -33,17 +33,34 @@ func CtxGetState(ctx context.Context) *contextState {
 }
 
 type contextState struct {
-	err    error
-	status StatusType
-	mutex  sync.Mutex
+	err      error
+	status   StatusType
+	mutex    sync.Mutex
+	onChange func()
+}
+
+// SetOnChange installs a callback fired after every successful Set. Used by
+// the daemon to wire the status recorder's notifyStateChange so any
+// state.Set in the connect/login paths pushes a fresh snapshot to
+// SubscribeStatus subscribers without each callsite having to opt in.
+// The callback runs outside the contextState mutex to avoid a lock-order
+// dependency with the recorder's stateChangeMux.
+func (c *contextState) SetOnChange(fn func()) {
+	c.mutex.Lock()
+	c.onChange = fn
+	c.mutex.Unlock()
 }
 
 func (c *contextState) Set(update StatusType) {
 	c.mutex.Lock()
-	defer c.mutex.Unlock()
-
 	c.status = update
 	c.err = nil
+	cb := c.onChange
+	c.mutex.Unlock()
+
+	if cb != nil {
+		cb()
+	}
 }
 
 func (c *contextState) Status() (StatusType, error) {
@@ -55,6 +72,17 @@ func (c *contextState) Status() (StatusType, error) {
 	}
 
 	return c.status, nil
+}
+
+// CurrentStatus returns the last status set via Set, ignoring any wrapped
+// error. Use when the status is needed for reporting purposes (e.g. the
+// status snapshot stream) and a transient wrapped error from a retry loop
+// shouldn't blank out the underlying status.
+func (c *contextState) CurrentStatus() StatusType {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	return c.status
 }
 
 func (c *contextState) Wrap(err error) error {

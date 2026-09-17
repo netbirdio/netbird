@@ -119,13 +119,14 @@ func (d *BindListener) ReadPackets() {
 	}
 
 	d.peerCfg.Log.Debugf("removing lazy endpoint for peer %s", d.peerCfg.PublicKey)
-	if err := d.wgIface.RemovePeer(d.peerCfg.PublicKey); err != nil {
-		d.peerCfg.Log.Errorf("failed to remove endpoint: %s", err)
-	}
-
 	_ = d.lazyConn.Close()
 	d.bind.RemoveEndpoint(d.fakeIP)
 	d.done.Done()
+}
+
+// CapturedPacket is unused in userspace bind mode: first-packet reinjection is kernel-only.
+func (d *BindListener) CapturedPacket() []byte {
+	return nil
 }
 
 // Close stops the listener and cleans up resources.

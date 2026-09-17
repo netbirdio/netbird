@@ -882,17 +882,31 @@ func getInterfaceMetric(interfaceIndex uint32, family int16) int {
 	return int(ipInterfaceRow.Metric)
 }
 
-// sortRouteCandidates sorts route candidates by priority: prefix length -> route metric -> interface metric
+// sortRouteCandidates sorts route candidates by priority: prefix length -> combined metric -> route metric.
+// Windows prefers the longest matching prefix and, among prefixes of the same length, the lowest metric, see
+// https://learn.microsoft.com/en-us/windows-hardware/customize/desktop/unattend/microsoft-windows-tcpip-interfaces-interface-routes-route-metric
 func sortRouteCandidates(candidates []candidateRoute) {
 	sort.Slice(candidates, func(i, j int) bool {
 		if candidates[i].prefixLength != candidates[j].prefixLength {
 			return candidates[i].prefixLength > candidates[j].prefixLength
 		}
-		if candidates[i].routeMetric != candidates[j].routeMetric {
-			return candidates[i].routeMetric < candidates[j].routeMetric
+		mi, mj := combinedMetric(candidates[i]), combinedMetric(candidates[j])
+		if mi != mj {
+			return mi < mj
 		}
-		return candidates[i].interfaceMetric < candidates[j].interfaceMetric
+		return candidates[i].routeMetric < candidates[j].routeMetric
 	})
+}
+
+// combinedMetric returns the effective metric Windows uses to rank routes with an equal prefix length:
+// the sum of the route metric and the metric of the interface the route is on, see
+// https://learn.microsoft.com/en-us/windows-server/networking/technologies/network-subsystem/net-sub-interface-metric
+// An unknown interface metric contributes nothing.
+func combinedMetric(candidate candidateRoute) uint64 {
+	if candidate.interfaceMetric < 0 {
+		return uint64(candidate.routeMetric)
+	}
+	return uint64(candidate.routeMetric) + uint64(candidate.interfaceMetric)
 }
 
 // GetBestInterface finds the best interface for reaching a destination,
@@ -900,8 +914,8 @@ func sortRouteCandidates(candidates []candidateRoute) {
 //
 // Route selection priority:
 // 1. Longest prefix match (most specific route)
-// 2. Lowest route metric
-// 3. Lowest interface metric
+// 2. Lowest combined metric (route metric + interface metric)
+// 3. Lowest route metric.
 func GetBestInterface(dest netip.Addr, vpnIntf string) (*net.Interface, error) {
 	var skipInterfaceIndex int
 	if vpnIntf != "" {
@@ -925,7 +939,6 @@ func GetBestInterface(dest netip.Addr, vpnIntf string) (*net.Interface, error) {
 		return nil, fmt.Errorf("no route to %s", dest)
 	}
 
-	// Sort routes: prefix length -> route metric -> interface metric
 	sortRouteCandidates(candidates)
 
 	for _, candidate := range candidates {

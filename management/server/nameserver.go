@@ -67,6 +67,8 @@ func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, acco
 			return err
 		}
 
+		newNSGroup.PublicID = xid.New().String()
+
 		if err = transaction.SaveNameServerGroup(ctx, newNSGroup); err != nil {
 			return err
 		}
@@ -115,6 +117,8 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 		if err = validateNameServerGroup(ctx, transaction, accountID, nsGroupToSave); err != nil {
 			return err
 		}
+
+		nsGroupToSave.PublicID = oldNSGroup.PublicID
 
 		if err = transaction.SaveNameServerGroup(ctx, nsGroupToSave); err != nil {
 			return err

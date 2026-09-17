@@ -147,6 +147,10 @@ type Client struct {
 	// ReverseProxyTokens account-scoped proxy access tokens used to register
 	// self-hosted (bring-your-own-proxy) `netbird proxy` instances.
 	ReverseProxyTokens *ReverseProxyTokensAPI
+
+	// AgentNetwork NetBird Agent Network (AI/LLM gateway) APIs: catalog,
+	// providers, policies, guardrails, budget rules and account settings.
+	AgentNetwork *AgentNetworkAPI
 }
 
 // New initialize new Client instance using PAT token
@@ -209,6 +213,7 @@ func (c *Client) initialize() {
 	c.ReverseProxyClusters = &ReverseProxyClustersAPI{c}
 	c.ReverseProxyDomains = &ReverseProxyDomainsAPI{c}
 	c.ReverseProxyTokens = &ReverseProxyTokensAPI{c}
+	c.AgentNetwork = &AgentNetworkAPI{c}
 }
 
 // NewRequest creates and executes new management API request

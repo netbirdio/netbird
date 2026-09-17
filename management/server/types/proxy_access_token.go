@@ -68,7 +68,7 @@ type ProxyAccessTokenGenerated struct {
 // CreateNewProxyAccessToken generates a new proxy access token.
 // Returns the token with hashed value stored and plain token for one-time display.
 func CreateNewProxyAccessToken(name string, expiresIn time.Duration, accountID *string, createdBy string) (*ProxyAccessTokenGenerated, error) {
-	hashedToken, plainToken, err := generateProxyToken()
+	hashedToken, plainToken, err := GenerateProxyToken()
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +94,10 @@ func CreateNewProxyAccessToken(name string, expiresIn time.Duration, accountID *
 	}, nil
 }
 
-func generateProxyToken() (HashedProxyToken, PlainProxyToken, error) {
+// GenerateProxyToken generates a new random proxy token, returning its SHA-256
+// hash (for storage) and the one-time plaintext. Exported so external modules
+// can mint tokens in the canonical proxy-token format.
+func GenerateProxyToken() (HashedProxyToken, PlainProxyToken, error) {
 	secret, err := b.Random(ProxyTokenSecretLength)
 	if err != nil {
 		return "", "", err

@@ -1,6 +1,7 @@
 package mdm
 
 import (
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -31,8 +32,8 @@ func TestPolicy_Empty(t *testing.T) {
 
 func TestPolicy_HasKey(t *testing.T) {
 	p := NewPolicy(map[string]any{
-		KeyManagementURL:    "https://corp.example.com",
-		KeyDisableProfiles:  true,
+		KeyManagementURL:   "https://corp.example.com",
+		KeyDisableProfiles: true,
 	})
 	assert.False(t, p.IsEmpty())
 	assert.True(t, p.HasKey(KeyManagementURL))
@@ -53,8 +54,8 @@ func TestPolicy_ManagedKeysSorted(t *testing.T) {
 func TestPolicy_GetString(t *testing.T) {
 	p := NewPolicy(map[string]any{
 		KeyManagementURL:   "https://corp.example.com",
-		KeyDisableProfiles: true,            // wrong type for GetString
-		KeyPreSharedKey:        "",              // empty rejected
+		KeyDisableProfiles: true, // wrong type for GetString
+		KeyPreSharedKey:    "",   // empty rejected
 	})
 	v, ok := p.GetString(KeyManagementURL)
 	assert.True(t, ok)
@@ -85,12 +86,18 @@ func TestPolicy_GetBool(t *testing.T) {
 		{"string 0", "0", false, true},
 		{"string yes", "yes", true, true},
 		{"string no", "no", false, true},
+		{"string on", "on", true, true},
+		{"string off", "off", false, true},
+		{"mixed case On", "On", true, true},
+		{"upper TRUE", "TRUE", true, true},
+		{"padded yes", "  yes  ", true, true},
 		{"int nonzero", 1, true, true},
 		{"int zero", 0, false, true},
 		{"int64 nonzero", int64(2), true, true},
 		{"int64 zero", int64(0), false, true},
 		{"string garbage", "maybe", false, false},
-		{"float unsupported", 1.0, false, false},
+		{"float nonzero", 1.0, true, true},
+		{"float zero", 0.0, false, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -150,10 +157,29 @@ func TestPolicy_GetStringSlice(t *testing.T) {
 	})
 }
 
-func TestLoadPolicy_PlatformStubReturnsEmpty(t *testing.T) {
-	// loadPlatformPolicy is a stub on every OS for Phase 1. LoadPolicy must
-	// degrade gracefully and never return nil.
-	p := LoadPolicy()
+// encoding/json decodes every JSON number into float64, so the mobile
+// loaders never see int.
+func TestJSONLoader_BoolFromNumber(t *testing.T) {
+	p := NewJSONLoader(func() string { return `{"blockInbound":1,"disableProfiles":0}` }).Load()
+
+	got, ok := p.GetBool(KeyBlockInbound)
+	assert.True(t, ok)
+	assert.True(t, got)
+
+	got, ok = p.GetBool(KeyDisableProfiles)
+	assert.True(t, ok)
+	assert.False(t, got)
+}
+
+func TestLoader_NilFetcherReturnsEmpty(t *testing.T) {
+	// Loader.Load with no fetcher (desktop construction) must degrade
+	// gracefully and never return nil; on linux loadPlatform is a stub
+	// returning (nil, nil), and Load is expected to translate that
+	// into a non-nil empty Policy.
+	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+		t.Skip("a nil fetcher reads the OS-managed policy on this platform")
+	}
+	p := NewLoader(nil).Load()
 	require.NotNil(t, p)
 	assert.True(t, p.IsEmpty())
 	assert.Empty(t, p.ManagedKeys())

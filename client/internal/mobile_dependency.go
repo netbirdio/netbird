@@ -11,12 +11,14 @@ import (
 
 // MobileDependency collect all dependencies for mobile platform
 type MobileDependency struct {
-	// Android only
-	TunAdapter            device.TunAdapter
-	IFaceDiscover         stdnet.ExternalIFaceDiscover
+	// Android and iOS
 	NetworkChangeListener listener.NetworkChangeListener
-	HostDNSAddresses      []netip.AddrPort
-	DnsReadyListener      dns.ReadyListener
+
+	// Android only
+	TunAdapter       device.TunAdapter
+	IFaceDiscover    stdnet.ExternalIFaceDiscover
+	HostDNSAddresses []netip.AddrPort
+	DnsReadyListener dns.ReadyListener
 
 	//	iOS only
 	DnsManager     dns.IosDnsManager

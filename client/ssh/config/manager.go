@@ -14,6 +14,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	nbssh "github.com/netbirdio/netbird/client/ssh"
+	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
 const (
@@ -218,11 +219,20 @@ func (m *Manager) buildHostPatterns(peer PeerSSHInfo) []string {
 	if peer.IPv6.IsValid() {
 		hostPatterns = append(hostPatterns, peer.IPv6.String())
 	}
-	if peer.FQDN != "" {
+	// Peer FQDNs and hostnames originate from remote peers, so they must be
+	// validated as plain DNS names before being embedded in the ssh_config
+	// "Match host" pattern list. This prevents injection of arbitrary
+	// ssh_config directives via embedded quotes, whitespace, newlines, the
+	// comma pattern separator, or the "*"/"?" pattern metacharacters.
+	if domain.IsValidDomainNoWildcard(peer.FQDN) {
 		hostPatterns = append(hostPatterns, peer.FQDN)
+	} else if peer.FQDN != "" {
+		log.Warnf("skipping peer FQDN with invalid characters in SSH config: %q", peer.FQDN)
 	}
-	if peer.Hostname != "" && peer.Hostname != peer.FQDN {
+	if peer.Hostname != peer.FQDN && domain.IsValidDomainNoWildcard(peer.Hostname) {
 		hostPatterns = append(hostPatterns, peer.Hostname)
+	} else if peer.Hostname != "" && peer.Hostname != peer.FQDN {
+		log.Warnf("skipping peer hostname with invalid characters in SSH config: %q", peer.Hostname)
 	}
 	return hostPatterns
 }

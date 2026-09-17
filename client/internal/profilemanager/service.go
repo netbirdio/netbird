@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"syscall"
 
 	log "github.com/sirupsen/logrus"
 
@@ -419,6 +420,11 @@ func (s *ServiceManager) RemoveProfile(id ID, username string) error {
 		log.Warnf("failed to remove profile state file %s: %v", stateFile, err)
 	}
 
+	prefsFile := filepath.Join(filepath.Dir(target.Path), id.String()+prefsFileSuffix)
+	if err := removePrefsFile(prefsFile); err != nil && !os.IsNotExist(err) {
+		log.Warnf("failed to remove profile prefs file %s: %v", prefsFile, err)
+	}
+
 	return nil
 }
 
@@ -439,7 +445,11 @@ func (s *ServiceManager) GetStatePath() string {
 
 	activeProf, err := s.GetActiveProfileState()
 	if err != nil {
-		log.Warnf("failed to get active profile state: %v", err)
+		if errors.Is(err, syscall.ENOSYS) {
+			log.Debugf("active profile state unavailable on this platform: %v", err)
+		} else {
+			log.Warnf("failed to get active profile state: %v", err)
+		}
 		return defaultStatePath
 	}
 

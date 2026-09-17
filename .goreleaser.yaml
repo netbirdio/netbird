@@ -212,6 +212,7 @@ nfpms:
     description: Netbird client.
     homepage: https://netbird.io/
     license: BSD-3-Clause
+    vendor: NetBird
     id: netbird_deb
     bindir: /usr/bin
     builds:
@@ -226,16 +227,40 @@ nfpms:
     description: Netbird client.
     homepage: https://netbird.io/
     license: BSD-3-Clause
+    vendor: NetBird
     id: netbird_rpm
     bindir: /usr/bin
     builds:
       - netbird
     formats:
       - rpm
+    # The client verifies TLS to management and signal against the system trust
+    # store. Red Hat software certification (RPM Dependency Tracking) also
+    # rejects packages that declare no dependencies at all.
+    dependencies:
+      - ca-certificates
+    # Generated in CI by chglog from git tags; Red Hat certification requires an
+    # RPM changelog (RPM Version Handling subtest).
+    changelog: changelog.yml
+    # License, documentation and a config file so the RPM Provenance subtest sees
+    # %license, %doc and %config entries instead of a bare binary.
+    contents:
+      - src: LICENSE
+        dst: /usr/share/licenses/netbird/LICENSE
+        type: license
+      - src: README.md
+        dst: /usr/share/doc/netbird/README.md
+        type: doc
+      - src: release_files/netbird.sysconfig
+        dst: /etc/sysconfig/netbird
+        type: config|noreplace
     scripts:
       postinstall: "release_files/post_install.sh"
       preremove: "release_files/pre_remove.sh"
     rpm:
+      summary: NetBird client
+      group: Applications/Internet
+      packager: NetBird <dev@netbird.io>
       signature:
         key_file: '{{ if index .Env "GPG_RPM_KEY_FILE" }}{{ .Env.GPG_RPM_KEY_FILE }}{{ end }}'
 dockers_v2:
@@ -271,8 +296,8 @@ dockers_v2:
        - netbirdio/netbird
        - ghcr.io/netbirdio/netbird
      tags:
-       - "v{{ .Version }}-rootless"
-       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}latest{{ end }}"
+       - "{{ .Version }}-rootless"
+       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}rootless-latest{{ end }}"
      dockerfile: client/Dockerfile-rootless
      extra_files:
        - client/netbird-entrypoint.sh
@@ -280,6 +305,43 @@ dockers_v2:
        - linux/amd64
        - linux/arm64
        - linux/arm/6
+     annotations:
+       "org.opencontainers.image.created": "{{.Date}}"
+       "org.opencontainers.image.title": "{{.ProjectName}}"
+       "org.opencontainers.image.version": "{{.Version}}"
+       "org.opencontainers.image.revision": "{{.FullCommit}}"
+       "org.opencontainers.image.source": "{{.GitURL}}"
+       "maintainer": "dev@netbird.io"
+   - id: netbird-rootless-ubi
+     disable: "{{ .Env.SKIP_DOCKER_PUSH }}"
+     ids:
+       - netbird
+     images:
+       - netbirdio/netbird
+       - ghcr.io/netbirdio/netbird
+     tags:
+       - "{{ .Version }}-rootless-ubi"
+       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}rootless-ubi-latest{{ end }}"
+     dockerfile: client/Dockerfile-rootless.ubi
+     extra_files:
+       - client/netbird-entrypoint.sh
+     platforms:
+       - linux/amd64
+       - linux/arm64
+     build_args:
+       VERSION: "{{ .Version }}"
+       RELEASE: "{{ .Timestamp }}"
+     hooks:
+       pre:
+         - cmd: 'sh client/collect-licenses.sh "{{ .ContextDir }}/licenses" amd64 arm64'
+           env:
+             - GOOS=linux
+             - CGO_ENABLED=0
+     labels:
+       "org.opencontainers.image.created": "{{.Date}}"
+       "org.opencontainers.image.version": "{{.Version}}"
+       "org.opencontainers.image.revision": "{{.FullCommit}}"
+       "org.opencontainers.image.source": "{{.GitURL}}"
      annotations:
        "org.opencontainers.image.created": "{{.Date}}"
        "org.opencontainers.image.title": "{{.ProjectName}}"
@@ -466,6 +528,13 @@ checksum:
     - glob: ./infrastructure_files/migrate-to-enterprise.sh
 
 release:
+  # The signing pipeline (netbirdio/sign-pipelines, dispatched by
+  # trigger_signer) marks the release latest once the Windows and macOS
+  # artifacts are signed. Without this override goreleaser marks it latest
+  # at publish time, while those artifacts are still unsigned.
+  make_latest: false
+  # Mark x.y.z-rc.* and other prerelease tags as prereleases on GitHub.
+  prerelease: auto
   extra_files:
     - glob: ./infrastructure_files/getting-started-with-zitadel.sh
     - glob: ./release_files/install.sh

@@ -95,7 +95,7 @@ func TestProxyCloseByRemoteConn(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			addr, _ := net.ResolveUDPAddr("udp", "100.108.135.221:51892")
 			relayedConn := newMockConn()
-			err := tt.proxy.AddTurnConn(ctx, addr, relayedConn)
+			err := tt.proxy.AddRelayedConn(ctx, addr, relayedConn)
 			if err != nil {
 				t.Errorf("error: %v", err)
 			}
@@ -157,7 +157,7 @@ func redirectTraffic(t *testing.T, proxy Proxy, wgPort int, endPointAddr *net.UD
 		_ = relayedServer.Close()
 	}()
 
-	if err := proxy.AddTurnConn(context.Background(), endPointAddr, relayedConn); err != nil {
+	if err := proxy.AddRelayedConn(context.Background(), endPointAddr, relayedConn); err != nil {
 		t.Errorf("error: %v", err)
 	}
 	defer func() {

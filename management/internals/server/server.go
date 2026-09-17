@@ -15,7 +15,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
+	"golang.org/x/net/http2/h2c" //nolint:staticcheck
 	"google.golang.org/grpc"
 
 	"github.com/netbirdio/netbird/encryption"
@@ -66,9 +66,16 @@ type BaseServer struct {
 	disableLegacyManagementPort bool
 	autoResolveDomains          bool
 
-	proxyAuthClose func()
+	proxyAuthClose    func()
+	domainCleanupStop func()
+
+	// grpcExtensions holds additional gRPC services, interceptors, and shutdown
+	// hooks registered by external modules via RegisterGRPCExtension. Populated
+	// during boot (single-threaded), consumed by GRPCServer() and Stop().
+	grpcExtensions []GRPCExtension
 
 	listener    net.Listener
+	tlsConfig   *tls.Config
 	certManager *autocert.Manager
 	update      *version.Update
 
@@ -89,6 +96,7 @@ type Config struct {
 	DisableGeoliteUpdate        bool
 	UserDeleteFromIDPEnabled    bool
 	AutoResolveDomains          bool
+	TLSConfig                   *tls.Config
 }
 
 // NewServer initializes and configures a new Server instance
@@ -105,6 +113,7 @@ func NewServer(cfg *Config) *BaseServer {
 		disableLegacyManagementPort: cfg.DisableLegacyManagementPort,
 		mgmtMetricsPort:             cfg.MgmtMetricsPort,
 		autoResolveDomains:          cfg.AutoResolveDomains,
+		tlsConfig:                   cfg.TLSConfig,
 	}
 	s.container[ContainerKeyBaseServer] = s
 
@@ -134,21 +143,9 @@ func (s *BaseServer) Start(ctx context.Context) error {
 	}
 	s.EphemeralManager().LoadInitialPeers(srvCtx)
 
-	var tlsConfig *tls.Config
-	tlsEnabled := false
-	if s.Config.HttpConfig.LetsEncryptDomain != "" {
-		s.certManager, err = encryption.CreateCertManager(s.Config.Datadir, s.Config.HttpConfig.LetsEncryptDomain)
-		if err != nil {
-			return fmt.Errorf("failed creating LetsEncrypt cert manager: %v", err)
-		}
-		tlsEnabled = true
-	} else if s.Config.HttpConfig.CertFile != "" && s.Config.HttpConfig.CertKey != "" {
-		tlsConfig, err = loadTLSConfig(s.Config.HttpConfig.CertFile, s.Config.HttpConfig.CertKey)
-		if err != nil {
-			log.WithContext(srvCtx).Errorf("cannot load TLS credentials: %v", err)
-			return err
-		}
-		tlsEnabled = true
+	tlsEnabled, err := s.setupTLS(srvCtx)
+	if err != nil {
+		return err
 	}
 
 	installationID, err := getInstallationID(srvCtx, s.Store())
@@ -210,8 +207,8 @@ func (s *BaseServer) Start(ctx context.Context) error {
 			log.WithContext(ctx).Infof("running HTTP server (LetsEncrypt challenge handler): %s", cml.Addr().String())
 			s.serveHTTP(ctx, cml, s.certManager.HTTPHandler(nil))
 		}
-	case tlsConfig != nil:
-		s.listener, err = tls.Listen("tcp", fmt.Sprintf(":%d", s.mgmtPort), tlsConfig)
+	case s.tlsConfig != nil:
+		s.listener, err = tls.Listen("tcp", fmt.Sprintf(":%d", s.mgmtPort), s.tlsConfig)
 		if err != nil {
 			return fmt.Errorf("failed creating TLS listener on port %d: %v", s.mgmtPort, err)
 		}
@@ -231,14 +228,59 @@ func (s *BaseServer) Start(ctx context.Context) error {
 	s.update.SetOnUpdateListener(func() {
 		log.WithContext(ctx).Infof("your management version, \"%s\", is outdated, a new management version is available. Learn more here: https://github.com/netbirdio/netbird/releases", version.NetbirdVersion())
 	})
+	s.startDomainCleanup(srvCtx)
 
 	return nil
+}
+func (s *BaseServer) startDomainCleanup(ctx context.Context) {
+	if s.domainCleanupStop != nil {
+		return
+	}
+	mgr := s.ReverseProxyDomainManager()
+	ctx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	s.domainCleanupStop = func() {
+		cancel()
+		<-done
+	}
+	go func() {
+		defer close(done)
+		mgr.RunValidationCleanup(ctx)
+	}()
+}
+
+// setupTLS resolves the listener's TLS source: an injected config wins over the HttpConfig certificate settings
+func (s *BaseServer) setupTLS(ctx context.Context) (bool, error) {
+	switch {
+	case s.tlsConfig != nil:
+		return true, nil
+	case s.Config.HttpConfig.LetsEncryptDomain != "":
+		certManager, err := encryption.CreateCertManager(s.Config.Datadir, s.Config.HttpConfig.LetsEncryptDomain)
+		if err != nil {
+			return false, fmt.Errorf("failed creating LetsEncrypt cert manager: %v", err)
+		}
+		s.certManager = certManager
+		return true, nil
+	case s.Config.HttpConfig.CertFile != "" && s.Config.HttpConfig.CertKey != "":
+		tlsConfig, err := loadTLSConfig(s.Config.HttpConfig.CertFile, s.Config.HttpConfig.CertKey)
+		if err != nil {
+			log.WithContext(ctx).Errorf("cannot load TLS credentials: %v", err)
+			return false, err
+		}
+		s.tlsConfig = tlsConfig
+		return true, nil
+	default:
+		return false, nil
+	}
 }
 
 // Stop attempts a graceful shutdown, waiting up to 5 seconds for active connections to finish
 func (s *BaseServer) Stop() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	if s.domainCleanupStop != nil {
+		s.domainCleanupStop()
+	}
 
 	s.IntegratedValidator().Stop(ctx)
 	if s.GeoLocationManager() != nil {
@@ -257,6 +299,7 @@ func (s *BaseServer) Stop() error {
 		s.proxyAuthClose()
 		s.proxyAuthClose = nil
 	}
+	runExtensionShutdownHooks(ctx, s.grpcExtensions)
 	_ = s.Store().Close(ctx)
 	_ = s.EventStore().Close(ctx)
 	if s.update != nil {
@@ -382,6 +425,7 @@ func (s *BaseServer) serveGRPCWithHTTP(ctx context.Context, listener net.Listene
 			// the following magic is needed to support HTTP2 without TLS
 			// and still share a single port between gRPC and HTTP APIs
 			h1s := &http.Server{
+				//nolint:staticcheck // h2c also handles the HTTP/1 Upgrade mechanism, which http.Server's UnencryptedHTTP2 does not
 				Handler: h2c.NewHandler(handler, &http2.Server{}),
 			}
 			err = h1s.Serve(listener)

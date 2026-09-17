@@ -1,4 +1,4 @@
-.PHONY: lint lint-all lint-install setup-hooks
+.PHONY: lint lint-all lint-install setup-hooks test-unit test-privileged
 GOLANGCI_LINT := $(shell pwd)/bin/golangci-lint
 
 # Install golangci-lint locally if needed
@@ -23,5 +23,17 @@ lint-install: $(GOLANGCI_LINT)
 # Setup git hooks for all developers
 setup-hooks:
 	@git config core.hooksPath .githooks
-	@chmod +x .githooks/pre-push
-	@echo "✅ Git hooks configured! Pre-push will now run 'make lint'"
+	@chmod +x .githooks/pre-push .githooks/commit-msg
+	@echo "✅ Git hooks configured! Pre-push runs 'make lint'; commit-msg refuses attribution trailers"
+
+# Host-safe unit tests: excludes the privileged-tagged tests (root / system-mutating).
+# Runs as a normal user with no sudo and leaves host networking untouched.
+test-unit:
+	@go test -tags devcert -timeout 10m ./...
+
+# Privileged suite: runs the `privileged`-tagged tests inside a --privileged
+# --cap-add=NET_ADMIN container via the ory/dockertest harness. Requires Docker.
+# Narrow the run with env vars, e.g.:
+#   PRIV_RUN=TestNftablesManager PRIV_PKGS=./client/firewall/nftables/... make test-privileged
+test-privileged:
+	@go test -tags 'devcert privileged' -timeout 30m -run TestRunPrivilegedSuiteInDocker -v ./client/testutil/privileged/...

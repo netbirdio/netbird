@@ -4,6 +4,13 @@ import (
 	"context"
 	"os"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/server/idp"
+	"github.com/netbirdio/netbird/shared/management/grpc"
 )
 
 const (
@@ -20,34 +27,65 @@ const (
 		"AuthAudience": "https://stageapp/",
 		"AuthIssuer": "https://something.eu.auth0.com/",
 		"OIDCConfigEndpoint": "https://something.eu.auth0.com/.well-known/openid-configuration"
+	  },
+	  "HighestSupportedSyncMessageVersion": 1,
+	  "PerAccountHighestSupportedSyncMessageVersion": {
+	    "1": 0,
+		"2": 1
 	  }
 	}`
 )
 
-func Test_loadMgmtConfig(t *testing.T) {
-	tmpFile, err := createConfig()
-	if err != nil {
-		t.Fatalf("failed to create config: %s", err)
-	}
+func Test_LoadMgmtConfig(t *testing.T) {
+	tmpFile, err := createConfig(exampleConfig)
+	assert.NoError(t, err)
 
 	cfg, err := LoadMgmtConfig(context.Background(), tmpFile)
-	if err != nil {
-		t.Fatalf("failed to load management config: %s", err)
-	}
-	if cfg.Relay == nil {
-		t.Fatalf("config is nil")
-	}
-	if len(cfg.Relay.Addresses) == 0 {
-		t.Fatalf("relay address is empty")
-	}
+	assert.NoError(t, err)
+	assert.NotEmpty(t, cfg.Relay)
+	assert.NotEmpty(t, cfg.Relay.Addresses)
+	assert.Equal(t, int(grpc.ComponentNetworkMap), *cfg.HighestSupportedSyncMessageVersion)
+	assert.Equal(t, map[string]int{"1": int(grpc.Base), "2": int(grpc.ComponentNetworkMap)}, cfg.PerAccountHighestSupportedSyncMessageVersion)
 }
 
-func createConfig() (string, error) {
+func Test_LoadMgmtConfig_Empty(t *testing.T) {
+	tmpFile, err := createConfig(`{
+		"HttpConfig": {
+			"AuthAudience": "https://stageapp/",
+			"AuthIssuer": "https://something.eu.auth0.com/",
+			"OIDCConfigEndpoint": "https://something.eu.auth0.com/.well-known/openid-configuration"
+		}
+	}`)
+	assert.NoError(t, err)
+
+	cfg, err := LoadMgmtConfig(context.Background(), tmpFile)
+	assert.NoError(t, err)
+	assert.Nil(t, cfg.HighestSupportedSyncMessageVersion)
+	assert.Nil(t, cfg.PerAccountHighestSupportedSyncMessageVersion)
+}
+
+func TestApplyEmbeddedIdPConfigRequiresSingleAccountDomain(t *testing.T) {
+	previousDomain := mgmtSingleAccModeDomain
+	previousDisabled := disableSingleAccMode
+	t.Cleanup(func() {
+		mgmtSingleAccModeDomain = previousDomain
+		disableSingleAccMode = previousDisabled
+	})
+
+	mgmtSingleAccModeDomain = ""
+	disableSingleAccMode = false
+	cfg := &nbconfig.Config{
+		EmbeddedIdP: &idp.EmbeddedIdPConfig{Enabled: true},
+	}
+	require.ErrorContains(t, ApplyEmbeddedIdPConfig(context.Background(), cfg), "embedded IdP requires single account mode")
+}
+
+func createConfig(config string) (string, error) {
 	tmpfile, err := os.CreateTemp("", "config.json")
 	if err != nil {
 		return "", err
 	}
-	_, err = tmpfile.Write([]byte(exampleConfig))
+	_, err = tmpfile.Write([]byte(config))
 	if err != nil {
 		return "", err
 	}

@@ -18,6 +18,7 @@ import (
 	"context"
 
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/exp/maps"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
@@ -28,6 +29,19 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
 )
+
+// agentNetworkSynthesizer returns the account's synthesised (never-persisted)
+// agent-network reverse-proxy services. It is registered at boot via
+// SetAgentNetworkSynthesizer to avoid an import cycle (agentnetwork → account →
+// affectedpeers). nil when agent-network is not wired, in which case only
+// persisted services are considered.
+var agentNetworkSynthesizer func(ctx context.Context, s store.Store, accountID string) ([]*rpservice.Service, error)
+
+// SetAgentNetworkSynthesizer registers the agent-network service synthesiser.
+// Called once during boot, before any request is served.
+func SetAgentNetworkSynthesizer(fn func(ctx context.Context, s store.Store, accountID string) ([]*rpservice.Service, error)) {
+	agentNetworkSynthesizer = fn
+}
 
 // Snapshot is an in-memory view of the collections needed to expand a Change.
 // Loaded in-tx, walked by Expand after commit. Only the collections the Change
@@ -70,7 +84,7 @@ func (snap *Snapshot) loadCollections(ctx context.Context, s store.Store, accoun
 	hasGroupOrPeerChange := len(c.ChangedGroupIDs) > 0 || len(c.ChangedPeerIDs) > 0 || len(c.LinkGroups) > 0 || len(c.Resources) > 0
 	hasNetworkObject := len(c.Routers) > 0 || len(c.Resources) > 0 || len(c.Networks) > 0
 	// the resource<->router bridge can fire for any of these
-	needsRoutersResources := hasGroupOrPeerChange || len(c.PostureCheckIDs) > 0 || len(c.Policies) > 0 || hasNetworkObject
+	needsRoutersResources := hasGroupOrPeerChange || len(c.PostureCheckIDs) > 0 || len(c.Policies) > 0 || hasNetworkObject || len(c.UserGroupIDs) > 0 || c.AllowedUsersChanged
 
 	if needsRoutersResources {
 		if err := snap.loadPolicyRoutersResources(ctx, s, accountID); err != nil {
@@ -124,7 +138,12 @@ func (snap *Snapshot) loadDNS(ctx context.Context, s store.Store, accountID stri
 }
 
 // loadProxyServices loads the embedded-proxy cluster index, and the services only
-// when the account actually has embedded proxy peers.
+// when the account actually has embedded proxy peers. Both the persisted
+// reverse-proxy services and the synthesised agent-network services are loaded:
+// agent-network services are never persisted, so without synthesising them here
+// collectFromProxyServices can't fold the embedded proxy peer into the affected
+// set when a client's group changes, and the proxy never learns a newly
+// authorised client until it reconnects (full network-map resync).
 func (snap *Snapshot) loadProxyServices(ctx context.Context, s store.Store, accountID string) error {
 	var err error
 	if snap.proxyByCluster, err = s.GetEmbeddedProxyPeerIDsByCluster(ctx, accountID); err != nil {
@@ -133,8 +152,21 @@ func (snap *Snapshot) loadProxyServices(ctx context.Context, s store.Store, acco
 	if len(snap.proxyByCluster) == 0 {
 		return nil
 	}
-	snap.services, err = s.GetAccountServices(ctx, store.LockingStrengthNone, accountID)
-	return err
+	if snap.services, err = s.GetAccountServices(ctx, store.LockingStrengthNone, accountID); err != nil {
+		return err
+	}
+	if agentNetworkSynthesizer == nil {
+		return nil
+	}
+	synth, serr := agentNetworkSynthesizer(ctx, s, accountID)
+	if serr != nil {
+		// Non-fatal: fall back to persisted services. The next full
+		// network-map resync still converges the proxy.
+		log.WithContext(ctx).Warnf("affectedpeers: synthesise agent-network services for account %s: %v", accountID, serr)
+		return nil
+	}
+	snap.services = append(snap.services, synth...)
+	return nil
 }
 
 // loadGroupIndex loads all groups (for group.Resources) and builds the
@@ -188,6 +220,18 @@ type Change struct {
 	// (correct when the peer's own attributes changed, e.g. IP/status).
 	OutputPeerIDs []string
 
+	// UserGroupIDs are groups whose USER membership changed (a user's auto-groups),
+	// as opposed to their peer membership. Peers ship the group -> user mapping only
+	// for the groups an SSH rule authorizes, so these refresh the destinations of the
+	// SSH rules authorizing them — independently of any peer moving between groups.
+	UserGroupIDs []string
+
+	// AllowedUsersChanged marks a change to the set of users allowed to open SSH
+	// sessions — a user was created, blocked or unblocked. That set is account-wide,
+	// and peers receive it through the SSH rules that name no group or user of their
+	// own, so those rules' destinations refresh.
+	AllowedUsersChanged bool
+
 	// LinkGroups are groups used ONLY to match policies/routes/routers and walk to the
 	// OPPOSITE side — they are never expanded to their own members. Use this when a
 	// peer's group membership changed: pass the peer in ChangedPeerIDs and its
@@ -209,6 +253,8 @@ func (c Change) isEmpty() bool {
 		len(c.Resources) == 0 &&
 		len(c.Networks) == 0 &&
 		len(c.PostureCheckIDs) == 0 &&
+		len(c.UserGroupIDs) == 0 &&
+		!c.AllowedUsersChanged &&
 		len(c.DistributionGroupIDs) == 0 &&
 		len(c.RemovedPeersByGroup) == 0 &&
 		len(c.LinkGroups) == 0 &&
@@ -327,6 +373,9 @@ func (r *resolver) walk() {
 		r.collectFromNetworkRouters()
 		r.collectFromProxyServices()
 	}
+
+	r.collectFromSSHAuthorizedGroups()
+	r.collectFromAllowedUsers()
 
 	r.collectFromChangedRoutes(r.change.Routes)
 	r.collectFromChangedRouters(r.change.Routers)
@@ -778,6 +827,59 @@ func (r *resolver) collectFromNameServers() {
 			r.foldOutputGroups(ns.Groups)
 		}
 	}
+}
+
+// collectFromSSHAuthorizedGroups folds the destinations of the enabled SSH rules that
+// authorize a group whose user membership changed. Those destination peers carry the
+// group -> user mapping for the groups they authorize, so they refresh even when no
+// peer moved between groups.
+func (r *resolver) collectFromSSHAuthorizedGroups() {
+	if len(r.change.UserGroupIDs) == 0 {
+		return
+	}
+
+	changed := toSet(r.change.UserGroupIDs)
+	for _, policy := range r.policies() {
+		for _, rule := range policy.Rules {
+			if !rule.Enabled || rule.Protocol != types.PolicyRuleProtocolNetbirdSSH {
+				continue
+			}
+			if !anyInSet(maps.Keys(rule.AuthorizedGroups), changed) {
+				continue
+			}
+			log.WithContext(r.ctx).Tracef("collectFromSSHAuthorizedGroups: rule %s authorizes a changed user group -> folding its destinations", rule.ID)
+			r.foldPolicySideForRule(policy, rule, sideDestination)
+		}
+	}
+}
+
+// collectFromAllowedUsers folds the destinations of the rules that make a peer carry
+// the account's allowed-user set, for a change to who is in that set.
+func (r *resolver) collectFromAllowedUsers() {
+	if !r.change.AllowedUsersChanged {
+		return
+	}
+
+	for _, policy := range r.policies() {
+		for _, rule := range policy.Rules {
+			if !rule.Enabled || !ruleShipsAllowedUsers(rule) {
+				continue
+			}
+			log.WithContext(r.ctx).Tracef("collectFromAllowedUsers: rule %s ships the allowed-user set -> folding its destinations", rule.ID)
+			r.foldPolicySideForRule(policy, rule, sideDestination)
+		}
+	}
+}
+
+// ruleShipsAllowedUsers reports whether a rule makes its destination peers carry the
+// account's allowed-user set. It mirrors the network map's SSH requirements except for
+// the destination peer's own SSH flag, which the snapshot does not hold — so it folds a
+// superset and never misses a peer.
+func ruleShipsAllowedUsers(rule *types.PolicyRule) bool {
+	if rule.Protocol == types.PolicyRuleProtocolNetbirdSSH {
+		return len(rule.AuthorizedGroups) == 0 && rule.AuthorizedUser == ""
+	}
+	return types.PolicyRuleImpliesLegacySSH(rule)
 }
 
 func (r *resolver) collectFromDNSSettings() {

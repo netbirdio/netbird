@@ -1,0 +1,4 @@
+{
+  "description": "A DISABLED policy granting access to a network resource must grant nothing: no route to 10.90.0.0/24 for peer-a and none for the router either, exactly as if the policy were absent. THE FULL EXPECTATION CURRENTLY FAILS, and should: resource-policy selection never checks policy.Enabled (networkmapcompute.go and networkmap_components.go both test only nil/len(Rules)/Rules[0]), so the legacy path still hands out the route — access survives disabling the policy. The envelope path happens to be correct because the encoder drops disabled policies from the wire. Fix the compute path, do not weaken this expectation.",
+  "peers": ["peer-a", "peer-r"]
+}
