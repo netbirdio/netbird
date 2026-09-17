@@ -155,7 +155,7 @@ func (r *family) finishIncompleteFilter(
 	}
 	var srcExprs []expr.Any
 	if existing.nftRule != nil {
-		srcExprs = namedLookups(existing.nftRule.Exprs)
+		srcExprs = sourceMatchExprs(r.af, existing.nftRule.Exprs)
 	}
 	existing.mangleRule = r.flushPreroutingPair(srcExprs, proto, sPort, dPort, []byte(existing.id), false)
 	return nil
@@ -678,14 +678,30 @@ func findSets(rule *nftables.Rule) []string {
 	return sets
 }
 
-func namedLookups(exprs []expr.Any) []expr.Any {
-	var lookups []expr.Any
-	for _, e := range exprs {
-		lookup, ok := e.(*expr.Lookup)
-		if !ok || lookup.SetName == "" {
-			continue
+// sourceMatchExprs copies the source IP match from a stored filter rule:
+// the network-header payload that loads the address, plus lookup or prefix
+// compare. Proto and transport-port matches are skipped so a rebuilt
+// prerouting pair still loads the packet source into the lookup register.
+func sourceMatchExprs(af addrFamily, exprs []expr.Any) []expr.Any {
+	i := 0
+	if i+1 < len(exprs) {
+		payload, isPayload := exprs[i].(*expr.Payload)
+		_, isCmp := exprs[i+1].(*expr.Cmp)
+		if isPayload && isCmp && payload.Len == 1 && payload.Offset == af.protoOffset {
+			i += 2
 		}
-		lookups = append(lookups, lookup)
 	}
-	return lookups
+	var out []expr.Any
+	for ; i < len(exprs); i++ {
+		switch e := exprs[i].(type) {
+		case *expr.Verdict, *expr.Counter:
+			return out
+		case *expr.Payload:
+			if e.Base == expr.PayloadBaseTransportHeader {
+				return out
+			}
+		}
+		out = append(out, exprs[i])
+	}
+	return out
 }

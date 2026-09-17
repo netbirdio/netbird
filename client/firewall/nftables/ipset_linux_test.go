@@ -257,14 +257,26 @@ func TestRollbackFlushedFilterRuleKeepsRefsIfDeleteFails(t *testing.T) {
 	assert.Equal(t, 1, ref.Count)
 }
 
-func TestNamedLookups(t *testing.T) {
-	got := namedLookups([]expr.Any{
-		&expr.Payload{},
-		&expr.Lookup{SetName: "s"},
+func TestSourceMatchExprsKeepsPayloadBeforeLookup(t *testing.T) {
+	af := afIPv4
+	exprs := []expr.Any{
+		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: af.protoOffset, Len: 1},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{6}},
+		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: af.srcAddrOffset, Len: af.addrLen},
+		&expr.Lookup{SourceRegister: 1, SetName: "s"},
+		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseTransportHeader, Offset: 2, Len: 2},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{0, 80}},
 		&expr.Verdict{Kind: expr.VerdictAccept},
-	})
-	require.Len(t, got, 1)
-	assert.Equal(t, "s", got[0].(*expr.Lookup).SetName)
+	}
+
+	got := sourceMatchExprs(af, exprs)
+	require.Len(t, got, 2)
+	payload, ok := got[0].(*expr.Payload)
+	require.True(t, ok)
+	assert.Equal(t, af.srcAddrOffset, payload.Offset)
+	lookup, ok := got[1].(*expr.Lookup)
+	require.True(t, ok)
+	assert.Equal(t, "s", lookup.SetName)
 }
 
 func TestFinishIncompleteFilterCommitsPending(t *testing.T) {
