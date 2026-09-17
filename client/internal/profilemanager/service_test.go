@@ -20,21 +20,36 @@ import (
 )
 
 // withTestSM wires up patched globals + a clean config dir and returns a
-// fully initialized ServiceManager plus the username we are scoped to.
+// fully initialized ServiceManager plus the identity we are scoped to.
 func withTestSM(t *testing.T, fn func(sm *ServiceManager, id ipcauth.Identity)) {
 	t.Helper()
 	withTempConfigDir(t, func(configDir string) {
 		withPatchedGlobals(t, configDir, func() {
-			u, err := user.Current()
-			require.NoError(t, err)
 			sm := &ServiceManager{}
 			require.NoError(t, sm.CreateDefaultProfile())
-			uid, err := strconv.ParseUint(u.Uid, 10, 32)
+
+			userID, err := ipcauth.CurrentProcessIdentity()
 			require.NoError(t, err)
-			userID := ipcauth.Identity{UID: uint32(uid)}
-			userID = ipcauth.KnownForTest(userID)
+
 			fn(sm, userID)
 		})
+	})
+}
+
+// The identity the helper hands out has to work as a profile owner on the
+// platform the suite is running on.
+func TestWithTestSM_ScopesToAUsableOwner(t *testing.T) {
+	withTestSM(t, func(sm *ServiceManager, id ipcauth.Identity) {
+		require.True(t, id.Known(), "every test in this package authorizes against this identity")
+
+		created, err := sm.AddProfile("owned", &id)
+		require.NoError(t, err)
+
+		got, err := sm.ResolveProfile(created.ID.String(), id)
+		require.NoError(t, err)
+		require.Len(t, got.Owners, 1, "the profile records the identity it was created for")
+		assert.True(t, got.Owners[0].Matches(id),
+			"the stamped owner %v does not match the identity it was stamped from", got.Owners[0])
 	})
 }
 
