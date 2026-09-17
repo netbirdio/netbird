@@ -271,6 +271,35 @@ func TestSysOps_ReconcileReinstallsWithheldRoute(t *testing.T) {
 	assert.True(t, installed, "reinstalled route must be mirrored")
 }
 
+// Synthetic split-default halves are mirrored for idempotent teardown but refcounted under the
+// parent default, so per-prefix reconciliation must skip them. Forgetting a split mark (its key
+// is absent from the refcounter) without deleting the OS route would strand the route: shutdown
+// then finds no mirror entry to remove it against.
+func TestSysOps_ReconcileKeepsSplitDefaultRoutes(t *testing.T) {
+	d := &testDiscovery{
+		ifaces: []net.Interface{testEth0(2)},
+		addrs:  map[string][]net.Addr{"eth0": {testSubnet("10.0.0.5", "10.0.0.0/24")}},
+	}
+	sysOps, _, removes := newGuardSysOps(d)
+	counter := stubCounter()
+	intf := &net.Interface{Index: 1, Name: "wt0"}
+
+	// The refcounter only ever holds the parent default, never the /1 halves.
+	splits := []netip.Prefix{splitDefaultv4_1, splitDefaultv4_2, splitDefaultv6_1, splitDefaultv6_2}
+	for _, split := range splits {
+		sysOps.trackInstalledVPNRoute(split, intf)
+	}
+
+	require.NoError(t, sysOps.ReconcileLocalSubnets(counter))
+
+	installed, _ := sysOps.vpnRoutesSnapshot()
+	for _, split := range splits {
+		_, ok := installed[split]
+		assert.Truef(t, ok, "split-default %s must stay mirrored for teardown", split)
+	}
+	assert.EqualValues(t, 0, removes.Load(), "split-default routes must not be reprogrammed")
+}
+
 // Concurrent adds, removes, and reconciliations must not race or leak guard marks.
 func TestSysOps_ConcurrentRouteUpdates(t *testing.T) {
 	d := &testDiscovery{

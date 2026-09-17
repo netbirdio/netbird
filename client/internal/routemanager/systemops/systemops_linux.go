@@ -220,12 +220,15 @@ func (r *SysOps) AddVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 			return fmt.Errorf("add v6 blackhole: %w", err)
 		}
 	}
-	if err := addRoute(prefix, Nexthop{netip.Addr{}, intf}, NetbirdVPNTableID); err != nil {
+	if _, err := addRoute(prefix, Nexthop{netip.Addr{}, intf}, NetbirdVPNTableID); err != nil {
 		return fmt.Errorf("add route: %w", err)
 	}
 	return nil
 }
 
+// RemoveVPNRoute removes the prefix's VPN route. Under advanced routing it deletes from the
+// NetBird table; on the legacy path it first clears any withheld guard mark, since a prefix the
+// guard withheld has no OS route to remove.
 func (r *SysOps) RemoveVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 	if err := r.validateRoute(prefix); err != nil {
 		return err
@@ -698,6 +701,7 @@ func addRoute(prefix netip.Prefix, nexthop Nexthop, tableID int) (bool, error) {
 		if !isOpErr(err) {
 			return false, fmt.Errorf("netlink add route: %w", err)
 		}
+		return false, nil
 	}
 
 	return true, nil

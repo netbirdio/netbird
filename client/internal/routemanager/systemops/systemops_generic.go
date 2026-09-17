@@ -40,6 +40,18 @@ var splitDefaultv4_2 = netip.PrefixFrom(netip.AddrFrom4([4]byte{128}), 1)
 var splitDefaultv6_1 = netip.PrefixFrom(netip.IPv6Unspecified(), 1)
 var splitDefaultv6_2 = netip.PrefixFrom(netip.AddrFrom16([16]byte{0x80}), 1)
 
+// isSplitDefaultPrefix reports whether prefix is one of the synthetic /1 halves
+// genericAddVPNRoute installs in place of a default route. They are mirrored for
+// idempotent removal but refcounted under the parent default, so per-prefix
+// reconciliation must skip them.
+func isSplitDefaultPrefix(prefix netip.Prefix) bool {
+	switch prefix {
+	case splitDefaultv4_1, splitDefaultv4_2, splitDefaultv6_1, splitDefaultv6_2:
+		return true
+	}
+	return false
+}
+
 func (r *SysOps) setupRefCounter(initAddresses []net.IP, stateManager *statemanager.Manager) error {
 	stateManager.RegisterState(&ShutdownState{})
 
@@ -271,6 +283,17 @@ func (r *SysOps) takeSuppressedVPNRoute(prefix netip.Prefix) bool {
 	return true
 }
 
+// peekInstalledVPNRoute reports the owning interface and generation without clearing the mark.
+func (r *SysOps) peekInstalledVPNRoute(prefix netip.Prefix) (*net.Interface, uint64, bool) {
+	r.vpnRoutesMu.Lock()
+	defer r.vpnRoutesMu.Unlock()
+	state, ok := r.installedVPNRoutes[prefix]
+	if !ok {
+		return nil, 0, false
+	}
+	return state.intf, state.gen, true
+}
+
 // takeInstalledVPNRoute clears the installed mirror and reports the owning interface.
 func (r *SysOps) takeInstalledVPNRoute(prefix netip.Prefix) (*net.Interface, bool) {
 	r.vpnRoutesMu.Lock()
@@ -352,6 +375,9 @@ func (r *SysOps) ReconcileLocalSubnets(counter *refcounter.RouteRefCounter) erro
 
 	var merr *multierror.Error
 	for prefix, state := range installed {
+		if isSplitDefaultPrefix(prefix) {
+			continue
+		}
 		if _, ok := counter.Get(prefix); !ok {
 			r.takeInstalledVPNRouteIfMatch(prefix, state.gen)
 			continue
@@ -367,6 +393,9 @@ func (r *SysOps) ReconcileLocalSubnets(counter *refcounter.RouteRefCounter) erro
 	}
 
 	for prefix, state := range suppressed {
+		if isSplitDefaultPrefix(prefix) {
+			continue
+		}
 		if _, ok := counter.Get(prefix); !ok {
 			r.unsuppressVPNRouteIfMatch(prefix, state.gen)
 			continue
@@ -617,6 +646,22 @@ func (r *SysOps) genericAddVPNRoute(prefix netip.Prefix, intf *net.Interface) er
 	return nil
 }
 
+// removeInstalledTableRoute deletes the OS route for a mirrored prefix, clearing the mirror
+// mark only after the deletion succeeds. A failed removal keeps the mark so the refcounter's
+// retained entry can retry on the next decrement instead of leaking the route. A prefix with
+// no mark is a no-op.
+func (r *SysOps) removeInstalledTableRoute(prefix netip.Prefix, nextHop Nexthop) error {
+	_, gen, ok := r.peekInstalledVPNRoute(prefix)
+	if !ok {
+		return nil
+	}
+	if err := r.removeFromRouteTable(prefix, nextHop); err != nil {
+		return err
+	}
+	r.takeInstalledVPNRouteIfMatch(prefix, gen)
+	return nil
+}
+
 // genericRemoveVPNRoute removes the route from the vpn interface. If a default prefix is given,
 // it will remove the split /1 prefixes
 func (r *SysOps) genericRemoveVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
@@ -625,16 +670,8 @@ func (r *SysOps) genericRemoveVPNRoute(prefix netip.Prefix, intf *net.Interface)
 	switch prefix {
 	case vars.Defaultv4:
 		var result *multierror.Error
-		if _, ok := r.takeInstalledVPNRoute(splitDefaultv4_1); ok {
-			if err := r.removeFromRouteTable(splitDefaultv4_1, nextHop); err != nil {
-				result = multierror.Append(result, err)
-			}
-		}
-		if _, ok := r.takeInstalledVPNRoute(splitDefaultv4_2); ok {
-			if err := r.removeFromRouteTable(splitDefaultv4_2, nextHop); err != nil {
-				result = multierror.Append(result, err)
-			}
-		}
+		result = multierror.Append(result, r.removeInstalledTableRoute(splitDefaultv4_1, nextHop))
+		result = multierror.Append(result, r.removeInstalledTableRoute(splitDefaultv4_2, nextHop))
 
 		if !r.wgInterface.Address().HasIPv6() {
 			result = multierror.Append(result, r.removeV6SplitDefault(nextHop))
@@ -644,13 +681,12 @@ func (r *SysOps) genericRemoveVPNRoute(prefix netip.Prefix, intf *net.Interface)
 	case vars.Defaultv6:
 		return nberrors.FormatErrorOrNil(r.removeV6SplitDefault(nextHop))
 	default:
-		if _, ok := r.takeInstalledVPNRoute(prefix); ok {
-			return r.removeFromRouteTable(prefix, nextHop)
-		}
-		return nil
+		return r.removeInstalledTableRoute(prefix, nextHop)
 	}
 }
 
+// addV6SplitDefault installs the two /1 halves that stand in for ::/0 over the VPN interface,
+// rolling back the first half if the second fails so no partial default is left behind.
 func (r *SysOps) addV6SplitDefault(nextHop Nexthop) error {
 	created1, err := r.addToRouteTable(splitDefaultv6_1, nextHop)
 	if err != nil {
@@ -676,18 +712,12 @@ func (r *SysOps) addV6SplitDefault(nextHop Nexthop) error {
 	return nil
 }
 
+// removeV6SplitDefault removes the two /1 halves that stand in for ::/0, accumulating errors so
+// a failure on one half still attempts the other.
 func (r *SysOps) removeV6SplitDefault(nextHop Nexthop) *multierror.Error {
 	var result *multierror.Error
-	if _, ok := r.takeInstalledVPNRoute(splitDefaultv6_1); ok {
-		if err := r.removeFromRouteTable(splitDefaultv6_1, nextHop); err != nil {
-			result = multierror.Append(result, err)
-		}
-	}
-	if _, ok := r.takeInstalledVPNRoute(splitDefaultv6_2); ok {
-		if err := r.removeFromRouteTable(splitDefaultv6_2, nextHop); err != nil {
-			result = multierror.Append(result, err)
-		}
-	}
+	result = multierror.Append(result, r.removeInstalledTableRoute(splitDefaultv6_1, nextHop))
+	result = multierror.Append(result, r.removeInstalledTableRoute(splitDefaultv6_2, nextHop))
 	return result
 }
 

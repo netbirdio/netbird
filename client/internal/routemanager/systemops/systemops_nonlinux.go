@@ -56,6 +56,8 @@ func (r *SysOps) AddVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 	return nil
 }
 
+// RemoveVPNRoute removes the prefix's VPN route over the given interface. A prefix the guard
+// withheld has no OS route, so its suppressed mark is cleared without touching the table.
 func (r *SysOps) RemoveVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 	if err := r.validateRoute(prefix); err != nil {
 		return err
