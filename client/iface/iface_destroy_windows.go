@@ -5,9 +5,15 @@ package iface
 import (
 	"fmt"
 	"os/exec"
+	"path/filepath"
 
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/sys/windows"
 )
+
+// defaultSystem32Dir is where the system directory is on every supported
+// install, used only when the API that reports it fails.
+const defaultSystem32Dir = `C:\Windows\System32`
 
 func (w *WGIface) Destroy() error {
 	netshCmd := GetSystem32Command("netsh")
@@ -18,15 +24,19 @@ func (w *WGIface) Destroy() error {
 	return nil
 }
 
-// GetSystem32Command checks if a command can be found in the system path and returns it. In case it can't find it
-// in the path it will return the full path of a command assuming C:\windows\system32 as the base path.
+// GetSystem32Command returns the full path of a Windows utility under the
+// system directory.
+//
+// PATH is deliberately not consulted. The daemon runs as LocalSystem with an
+// environment of its own, so whoever can place an entry in that PATH chooses
+// which binary runs with those privileges. The system directory is read from
+// the API rather than from %SystemRoot% for the same reason.
 func GetSystem32Command(command string) string {
-	_, err := exec.LookPath(command)
-	if err == nil {
-		return command
+	sysDir, err := windows.GetSystemDirectory()
+	if err != nil {
+		log.Warnf("Failed to locate the Windows system directory, falling back to %s: %v", defaultSystem32Dir, err)
+		sysDir = defaultSystem32Dir
 	}
 
-	log.Tracef("Command %s not found in PATH, using C:\\windows\\system32\\%s.exe path", command, command)
-
-	return "C:\\windows\\system32\\" + command + ".exe"
+	return filepath.Join(sysDir, command+".exe")
 }
