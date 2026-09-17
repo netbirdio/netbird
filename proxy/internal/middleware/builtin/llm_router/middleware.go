@@ -234,7 +234,7 @@ func (m *Middleware) decide(
 // upstream — clients such as Codex call GET /v1/models at startup to enumerate
 // availability and read a 403 as "model unavailable".
 func (m *Middleware) routeModelless(reqPath, surface, method string, userGroups []string) *middleware.Output {
-	route, outcome := m.matchModelless(reqPath, method, userGroups)
+	route, outcome := m.matchModelless(reqPath, surface, method, userGroups)
 	switch outcome {
 	case matchOutcomeFound:
 		out := m.allowWithRoute(route, surface, userGroups)
@@ -736,14 +736,14 @@ func (m *Middleware) matchPathRoute(reqPath, model string, userGroups []string, 
 
 // matchModelless selects a route for a non-inference, model-less request.
 // It mirrors matchRoute's group-authorisation filter and path-prefix
-// tiebreak but skips the per-model filter, since any provider the caller's
-// groups authorise can serve a model-listing request. Returns
+// tiebreak but skips the per-model filter. API-based endpoints also require
+// compatibility with the parsed surface; Bedrock remains path-routed. Returns
 // matchOutcomeFound with the chosen route (single authorised provider wins
 // outright; multiple fall to the longest UpstreamPath prefix-match, then
 // declaration order), matchOutcomeUnauthorised when no provider authorises
 // the caller, or matchOutcomeUnknownModel when the path isn't a recognised
 // model-less endpoint.
-func (m *Middleware) matchModelless(reqPath, method string, userGroups []string) (ProviderRoute, matchOutcome) {
+func (m *Middleware) matchModelless(reqPath, surface, method string, userGroups []string) (ProviderRoute, matchOutcome) {
 	if !isNonInferenceMethod(method) {
 		return ProviderRoute{}, matchOutcomeUnknownModel
 	}
@@ -771,7 +771,9 @@ func (m *Middleware) matchModelless(reqPath, method string, userGroups []string)
 		// Vertex/Bedrock are path-routed and don't serve OpenAI-style
 		// model-listing endpoints; including them here could rewrite a
 		// GET /v1/models to an upstream that 404s it.
-		eligible = func(r ProviderRoute) bool { return !r.Vertex && !r.Bedrock }
+		eligible = func(r ProviderRoute) bool {
+			return !r.Vertex && !r.Bedrock && (surface == "" || routeSupportsVendor(r, surface))
+		}
 	default:
 		return ProviderRoute{}, matchOutcomeUnknownModel
 	}

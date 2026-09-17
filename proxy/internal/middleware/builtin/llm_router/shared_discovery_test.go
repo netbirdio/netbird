@@ -131,35 +131,80 @@ func TestRouter_SharedGatewayListingSurface(t *testing.T) {
 		AllowedGroupIDs: []string{defaultTestGroup},
 	}
 	tests := []struct {
-		name    string
-		surface string
-		vendor  string
-		vendors []string
-		models  []string
-		want    []string
+		name         string
+		surface      string
+		vendor       string
+		vendors      []string
+		models       []string
+		want         []string
+		wantProvider string
 	}{
-		{"matching vendor", "openai", "openai", nil, []string{"model-b"}, []string{"model-a", "model-b"}},
-		{"matching vendors", "openai", "anthropic", []string{"openai", "anthropic"}, []string{"model-b"}, []string{"model-a", "model-b"}},
-		{"incompatible vendor", "openai", "anthropic", nil, []string{"model-b"}, []string{"model-a"}},
-		{"incompatible vendors", "openai", "", []string{"anthropic"}, []string{"model-b"}, []string{"model-a"}},
-		{"incompatible catch-all", "openai", "anthropic", nil, nil, []string{"model-a"}},
-		{"compatible catch-all", "openai", "", []string{"openai"}, nil, nil},
-		{"unspecified surface", "", "anthropic", nil, []string{"model-b"}, []string{"model-a", "model-b"}},
+		{"matching vendor", "openai", "openai", nil, []string{"model-b"}, []string{"model-a", "model-b"}, ""},
+		{"matching vendors", "openai", "anthropic", []string{"openai", "anthropic"}, []string{"model-b"}, []string{"model-a", "model-b"}, ""},
+		{"incompatible vendor", "openai", "anthropic", nil, []string{"model-b"}, []string{"model-a"}, "first"},
+		{"incompatible vendors", "openai", "", []string{"anthropic"}, []string{"model-b"}, []string{"model-a"}, "first"},
+		{"incompatible catch-all", "openai", "anthropic", nil, nil, []string{"model-a"}, "first"},
+		{"compatible catch-all", "openai", "", []string{"openai"}, nil, nil, ""},
+		{"unspecified surface", "", "anthropic", nil, []string{"model-b"}, []string{"model-a", "model-b"}, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			other := base
 			other.ID, other.Vendor, other.Vendors, other.Models = "other", tt.vendor, tt.vendors, tt.models
-			mw := New(Config{Providers: []ProviderRoute{base, other}})
+			for order, providers := range map[string][]ProviderRoute{
+				"base first": {base, other}, "sibling first": {other, base},
+			} {
+				t.Run(order, func(t *testing.T) {
+					mw := New(Config{Providers: providers})
+					in := newModellessInput(modelListingPath)
+					in.Metadata = []middleware.KV{{Key: middleware.KeyLLMProvider, Value: tt.surface}}
+					out, err := mw.Invoke(context.Background(), in)
+					require.NoError(t, err)
+					require.Equal(t, middleware.DecisionAllow, out.Decision, "authorized listing should pass")
+					require.NotNil(t, out.Mutations)
+					require.NotNil(t, out.Mutations.RewriteUpstream)
+					assert.ElementsMatch(t, tt.want, out.Mutations.RewriteUpstream.DiscoveryModels,
+						"only records supporting the requested API may contribute models or lift the bound")
+					if tt.want == nil {
+						assert.Nil(t, out.Mutations.RewriteUpstream.DiscoveryModels,
+							"an unrestricted compatible record must leave the listing unbounded")
+					}
+					if tt.wantProvider != "" {
+						provider, _ := metaValue(t, out.Metadata, middleware.KeyLLMResolvedProviderID)
+						assert.Equal(t, tt.wantProvider, provider, "the selected route must support the requested API")
+					}
+				})
+			}
+		})
+	}
+}
+
+// TestRouter_ListingDeniesWithoutCompatibleAuthorisedRoute prevents a rejected
+// compatible record from falling back to a caller-authorized incompatible one.
+func TestRouter_ListingDeniesWithoutCompatibleAuthorisedRoute(t *testing.T) {
+	other := ProviderRoute{
+		ID: "anthropic", Vendor: "anthropic", Models: []string{"model-b"},
+		UpstreamScheme: "https", UpstreamHost: "gateway.example.com",
+		AllowedGroupIDs: []string{defaultTestGroup},
+	}
+	private := other
+	private.ID, private.Vendor = "openai-private", "openai"
+	private.AllowedGroupIDs = []string{"private-team"}
+	untagged := other
+	untagged.ID, untagged.Vendor = "untagged", ""
+	for name, providers := range map[string][]ProviderRoute{
+		"no compatible record": {other}, "compatible record unauthorized": {other, private},
+		"no declared API": {untagged},
+	} {
+		t.Run(name, func(t *testing.T) {
+			mw := New(Config{Providers: providers})
 			in := newModellessInput(modelListingPath)
-			in.Metadata = []middleware.KV{{Key: middleware.KeyLLMProvider, Value: tt.surface}}
+			in.Metadata = []middleware.KV{{Key: middleware.KeyLLMProvider, Value: "openai"}}
 			out, err := mw.Invoke(context.Background(), in)
 			require.NoError(t, err)
-			require.Equal(t, middleware.DecisionAllow, out.Decision, "authorized listing should pass")
-			require.NotNil(t, out.Mutations)
-			require.NotNil(t, out.Mutations.RewriteUpstream)
-			assert.Equal(t, tt.want, out.Mutations.RewriteUpstream.DiscoveryModels,
-				"only siblings supporting the requested API may contribute models or lift the bound")
+			assert.Equal(t, middleware.DecisionDeny, out.Decision,
+				"an OpenAI listing requires a compatible record authorized for this caller")
+			assert.Nil(t, out.Mutations, "denied discovery must not select an upstream")
 		})
 	}
 }
