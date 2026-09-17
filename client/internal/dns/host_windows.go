@@ -124,19 +124,9 @@ func newHostManager(wgInterface WGIface) (*registryConfigurator, error) {
 		return nil, err
 	}
 
-	var useGPO bool
-	k, err := registry.OpenKey(registry.LOCAL_MACHINE, GPODNSPolicyConfigRoot, registry.QUERY_VALUE)
-	if err != nil {
-		log.Debugf("failed to open GPO DNS policy root: %v", err)
-	} else {
-		closer(k)
-		useGPO = true
-		log.Infof("detected GPO DNS policy configuration, using policy store")
-	}
-
 	configurator := &registryConfigurator{
 		guid: guid,
-		gpo:  useGPO,
+		gpo:  useGPOPolicyStore(),
 	}
 
 	origNameservers, err := configurator.captureOriginalNameservers()
@@ -662,6 +652,33 @@ func (r *registryConfigurator) removeDNSMatchPolicies() error {
 
 func (r *registryConfigurator) restoreUncleanShutdownDNS() error {
 	return r.restoreHostDNS()
+}
+
+// useGPOPolicyStore reports whether NRPT rules have to go into the group policy
+// store, and clears an empty one out of the way first.
+//
+// The order is the point. A store left empty by an earlier run would otherwise
+// decide this run too, sending its rules somewhere the resolver only reads when
+// the policy engine next applies DNS client policy. Removing it before the
+// choice is made leaves the local store authoritative for the whole session,
+// including the first one after an upgrade.
+func useGPOPolicyStore() bool {
+	if err := removeEmptyGPOPolicyStore(); err != nil {
+		// Nothing to retry against here: the worst case is the run going
+		// through the group policy store, which is where it would have gone
+		// before this check existed.
+		log.Warnf("%v", err)
+	}
+
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, GPODNSPolicyConfigRoot, registry.QUERY_VALUE)
+	if err != nil {
+		log.Debugf("failed to open GPO DNS policy root: %v", err)
+		return false
+	}
+	closer(k)
+
+	log.Infof("detected GPO DNS policy configuration, using policy store")
+	return true
 }
 
 // removeEmptyGPOPolicyStore deletes the group policy DnsPolicyConfig key once

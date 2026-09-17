@@ -496,3 +496,41 @@ func TestDeleteInterfaceRegistryKeyPropertyTwice(t *testing.T) {
 	assert.NoError(t, cfg.deleteInterfaceRegistryKeyProperty(interfaceConfigSearchListKey),
 		"Should report success when the interface key does not exist")
 }
+
+// TestUseGPOPolicyStoreClearsEmptyStore verifies that the store is cleared
+// before it is consulted, so an empty one left by an earlier run does not send
+// this run's rules to the group policy store. A store somebody else has a rule
+// in still decides where the rules go.
+func TestUseGPOPolicyStoreClearsEmptyStore(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping registry integration test in short mode")
+	}
+
+	t.Cleanup(func() { cleanupRegistryKeys(t) })
+	cleanupRegistryKeys(t)
+
+	// the leftover an earlier run used to keep, which the client read as
+	// "group policy configures the NRPT" for every run after it
+	emptyStore, _, err := winregistry.CreateVolatileKey(registry.LOCAL_MACHINE, GPODNSPolicyConfigRoot, registry.SET_VALUE)
+	require.NoError(t, err, "Should create the GPO policy store")
+	emptyStore.Close()
+
+	assert.False(t, useGPOPolicyStore(), "An empty store should not decide where the rules go")
+	exists, err := registryKeyExists(GPODNSPolicyConfigRoot)
+	require.NoError(t, err)
+	assert.False(t, exists, "Should clear the empty store before consulting it")
+
+	foreignRule := GPODNSPolicyConfigRoot + `\{2A3B4C5D-6E7F-4041-8283-84858687888A}`
+	foreignKey, _, err := winregistry.CreateVolatileKey(registry.LOCAL_MACHINE, foreignRule, registry.SET_VALUE)
+	require.NoError(t, err, "Should create a foreign GPO rule")
+	foreignKey.Close()
+	t.Cleanup(func() {
+		_ = registry.DeleteKey(registry.LOCAL_MACHINE, foreignRule)
+		_ = registry.DeleteKey(registry.LOCAL_MACHINE, GPODNSPolicyConfigRoot)
+	})
+
+	assert.True(t, useGPOPolicyStore(), "A store holding a rule should decide where the rules go")
+	exists, err = registryKeyExists(GPODNSPolicyConfigRoot)
+	require.NoError(t, err)
+	assert.True(t, exists, "Should keep a store that holds a rule")
+}
