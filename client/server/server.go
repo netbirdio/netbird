@@ -307,6 +307,9 @@ func (s *Server) Start() error {
 		// another users profile, so the daemon comes up on the default
 		// profile instead of refusing to start.
 		log.Errorf("starting on the default profile, the active one could not be resolved: %v", err)
+		if err := s.profileManager.SetActiveProfileStateToDefault(); err != nil {
+			return fmt.Errorf("set active profile to default: %w", err)
+		}
 		activeProf = &profilemanager.ActiveProfileState{ID: profilemanager.DefaultProfileName}
 		config, existingConfig, err = s.getConfig(activeProf)
 	}

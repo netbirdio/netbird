@@ -22,6 +22,11 @@ import (
 	"github.com/netbirdio/netbird/util"
 )
 
+// EnvDisableDefaultProfileClaim turns off the console-user claim of an unowned
+// default profile. The profile then stays unowned until a privileged caller
+// records an owner.
+const EnvDisableDefaultProfileClaim = "NB_DISABLE_DEFAULT_PROFILE_CLAIM"
+
 var (
 	oldDefaultConfigPathDir = ""
 	oldDefaultConfigPath    = ""
@@ -63,7 +68,12 @@ type ownerMeta struct {
 	Owners []string
 }
 
-// ownersFieldName is the key on disk.
+// Config JSON keys on disk.
+const (
+	ownersFieldName = "Owners"
+	nameFieldName   = "Name"
+)
+
 func (e *ErrAmbiguousHandle) Error() string {
 	switch e.Kind {
 	case AmbiguityKindIDPrefix:
@@ -591,6 +601,7 @@ func (s *ServiceManager) loadAllProfilesForIdentity(userID ipcauth.Identity) ([]
 		return nil, err
 	}
 
+	s.claimDefaultProfileIfNeeded(allProfiles, userID)
 	s.claimLegacyProfiles(allProfiles, userID)
 
 	accessible := make([]Profile, 0, len(allProfiles))
@@ -652,6 +663,67 @@ func (s *ServiceManager) claimLegacyProfiles(profiles []Profile, id ipcauth.Iden
 		p.Owners = []ipcauth.Principal{parsed}
 		log.Infof("claimed legacy profile %s for %s, its directory is named after that account", p.Path, principal)
 	}
+}
+
+func (s *ServiceManager) claimDefaultProfileIfNeeded(profiles []Profile, id ipcauth.Identity) {
+	if !id.Known() || ipcauth.IsPrivilegedCaller(id) {
+		return
+	}
+
+	var unowned bool
+	var p *Profile
+	for i := range profiles {
+		p = &profiles[i]
+		if p.ID == defaultProfileName && len(p.Owners) == 0 {
+			unowned = true
+			break
+		}
+	}
+
+	if unowned && !defaultProfileClaimDisabled() && isConsoleUser(id) {
+		principal := ipcauth.OwnerPrincipalForIdentity(id)
+		parsed, ok := ipcauth.ParsePrincipal(principal)
+		if !ok {
+			log.Warnf("not claiming default profile, %q is not a usable owner", principal)
+			return
+		}
+		if err := StampOwner(p.Path, id); err != nil {
+			log.Warnf("could not claim default profile %s for %#v: %v", p.Path, id, err)
+			return
+		}
+		p.Owners = []ipcauth.Principal{parsed}
+		log.Infof("claimed default profile %s for %s", p.Path, principal)
+	}
+}
+
+// isConsoleUser is a variable so a test can decide whether a caller is at the
+// console without the machine running the test having a seat of its own.
+var isConsoleUser = ipcauth.IsConsoleUser
+
+// logDefaultClaimDisabledOrError keeps the notice to once per process, since the claim
+// path runs on every profile load. It also logs a parse failure once.
+var logDefaultClaimDisabledOrError sync.Once
+
+// defaultProfileClaimDisabled reports whether the environment turns off the
+// console-user claim of the default profile.
+func defaultProfileClaimDisabled() bool {
+	val := os.Getenv(EnvDisableDefaultProfileClaim)
+	if val == "" {
+		return false
+	}
+	disabled, err := strconv.ParseBool(val)
+	if err != nil {
+		logDefaultClaimDisabledOrError.Do(func() {
+			log.Warnf("failed to parse %s: %v", EnvDisableDefaultProfileClaim, err)
+		})
+		return false
+	}
+	if disabled {
+		logDefaultClaimDisabledOrError.Do(func() {
+			log.Infof("%s is set, the default profile stays unowned and reachable only by a privileged caller until an owner is recorded another way", EnvDisableDefaultProfileClaim)
+		})
+	}
+	return disabled
 }
 
 func hasUnownedLegacyProfile(profiles []Profile) bool {
@@ -922,37 +994,45 @@ func StampOwner(path string, owner ipcauth.Identity) error {
 // resolves an account name rather than a caller, and a name the kernel never
 // vouched for must not become an Identity on the way.
 func stampPrincipal(path, principal string) error {
-	return updateProfileConfig(path, func(cfg *Config) {
-		cfg.Owners = []string{principal}
-	})
+	return setProfileField(path, ownersFieldName, []string{principal})
 }
 
 // writeProfileName sets a profile's display name. Renaming does it on request,
 // migration does it to move a name out of a filename that is about to change.
 func writeProfileName(path, name string) error {
-	return updateProfileConfig(path, func(cfg *Config) {
-		cfg.Name = name
-	})
+	return setProfileField(path, nameFieldName, name)
 }
 
-// updateProfileConfig reads a profile, applies mutate and writes it back.
-//
-// The whole config makes the round trip, which is what every writer here does,
-// so a field this version does not model is dropped. That only happens after a
-// downgrade, and a downgrade already drops the owners it cannot read.
-func updateProfileConfig(path string, mutate func(*Config)) error {
+// setProfileField replaces one top-level key of a profile's JSON and leaves the
+// rest of the document as it found it.
+func setProfileField(path, field string, value any) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
 
-	var cfg Config
-	if err := json.Unmarshal(data, &cfg); err != nil {
+	doc := map[string]json.RawMessage{}
+	if err := json.Unmarshal(data, &doc); err != nil {
 		return err
 	}
-	mutate(&cfg)
+	if doc == nil {
+		return fmt.Errorf("profile %s holds no object to set %s on", path, field)
+	}
 
-	if err := util.WriteJsonWithRestrictedPermission(context.Background(), path, cfg); err != nil {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return fmt.Errorf("encode %s of %s: %w", field, path, err)
+	}
+
+	// Decoding matches keys case-insensitively
+	for k := range doc {
+		if k != field && strings.EqualFold(k, field) {
+			delete(doc, k)
+		}
+	}
+	doc[field] = raw
+
+	if err := util.WriteJsonWithRestrictedPermission(context.Background(), path, doc); err != nil {
 		return fmt.Errorf("write profile %s: %w", path, err)
 	}
 	return nil

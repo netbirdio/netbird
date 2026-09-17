@@ -266,3 +266,96 @@ func TestMigrate_LeavesAProfileThatAlreadyNamesAnOwnerAlone(t *testing.T) {
 			"only the profiles with no owner of their own are attributed")
 	})
 }
+
+func TestMigrate_SkipsAProfileItCannotStamp(t *testing.T) {
+	username, principal := currentUserPrincipal(t)
+
+	withLegacyLayout(t, func(sm *ServiceManager, configDir string) {
+		dir := sanitizeProfileName(username)
+		good := writeLegacyProfile(t, configDir, dir, "work", nil)
+		broken := filepath.Join(configDir, dir, "broken.json")
+		require.NoError(t, os.WriteFile(broken, []byte("null"), 0600))
+		require.NoError(t, sm.SetActiveProfileState(&ActiveProfileState{ID: "work", Username: username}))
+
+		require.NoError(t, sm.MigrateLegacyProfiles())
+
+		assert.Equal(t, []string{principal}, readOwners(t, good),
+			"one profile that cannot be stamped does not hold up the rest")
+		assert.DirExists(t, filepath.Join(configDir, DefaultProfilePathDir),
+			"and the marker still lands, since the claim path retries the one left behind")
+
+		data, err := os.ReadFile(broken)
+		require.NoError(t, err)
+		assert.Equal(t, "null", string(data), "the profile it could not stamp is untouched")
+	})
+}
+
+// TestTakesActiveAccountOwner pins which profiles migration hands the active
+// account's principal to.
+func TestTakesActiveAccountOwner(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		dir      string
+		profile  Profile
+		disabled bool
+		want     bool
+	}{
+		{
+			name:    "profile in the account's own directory",
+			dir:     "alice",
+			profile: Profile{ID: "work", LegacyUserDir: "alice"},
+			want:    true,
+		},
+		{
+			name:    "profile in another account's directory",
+			dir:     "alice",
+			profile: Profile{ID: "work", LegacyUserDir: "bob"},
+			want:    false,
+		},
+		{
+			name:    "default profile",
+			dir:     "alice",
+			profile: Profile{ID: defaultProfileName},
+			want:    true,
+		},
+		{
+			name:     "default profile with the claim disabled",
+			dir:      "alice",
+			profile:  Profile{ID: defaultProfileName},
+			disabled: true,
+			want:     false,
+		},
+		{
+			name:    "default profile when the account has no directory name",
+			dir:     "",
+			profile: Profile{ID: defaultProfileName},
+			want:    true,
+		},
+		{
+			name:     "default profile when the account has no directory name and the claim is disabled",
+			dir:      "",
+			profile:  Profile{ID: defaultProfileName},
+			disabled: true,
+			want:     false,
+		},
+		{
+			name:    "shared-directory profile when the account has no directory name",
+			dir:     "",
+			profile: Profile{ID: "work"},
+			want:    false,
+		},
+		{
+			name:    "profile in a real directory when the account has no directory name",
+			dir:     "",
+			profile: Profile{ID: "work", LegacyUserDir: "alice"},
+			want:    false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.disabled {
+				t.Setenv(EnvDisableDefaultProfileClaim, "true")
+			}
+			assert.Equal(t, tc.want, takesActiveAccountOwner(&tc.profile, tc.dir))
+		})
+	}
+}
