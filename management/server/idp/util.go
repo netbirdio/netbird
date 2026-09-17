@@ -2,6 +2,7 @@ package idp
 
 import (
 	"encoding/json"
+	"net/http"
 	"net/url"
 	"os"
 	"strings"
@@ -80,6 +81,19 @@ const (
 	// Sets the defaultTimeout to 10s.
 	defaultTimeout = 10 * time.Second
 )
+
+func newHTTPClient() *http.Client {
+	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
+	httpTransport.MaxIdleConns = 5
+
+	return &http.Client{
+		Timeout:   idpTimeout(),
+		Transport: httpTransport,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+}
 
 // idpTimeout returns a timeout value for the IDP
 func idpTimeout() time.Duration {
