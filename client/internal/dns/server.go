@@ -678,6 +678,45 @@ func (s *DefaultServer) routeSnapshot() routeSnapshot {
 	return snap
 }
 
+// gateNameServerGroups returns the gating decision for every group in groups,
+// keyed by group identity, and logs the ones being withheld. Deciding once per
+// configuration pass keeps the host config and the handler chain consistent
+// with each other, and keeps the log to one line per withheld group.
+func (s *DefaultServer) gateNameServerGroups(groups []*nbdns.NameServerGroup, snap routeSnapshot) map[nsGroupID]bool {
+	allowed := make(map[nsGroupID]bool, len(groups))
+	for _, nsGroup := range groups {
+		if nsGroup == nil {
+			continue
+		}
+		key := generateGroupKey(nsGroup)
+		if _, seen := allowed[key]; seen {
+			continue
+		}
+
+		ok := s.routedUpstreamGate.allow(nsGroup, snap)
+		allowed[key] = ok
+		if !ok {
+			log.Infof("withholding nameserver group [%s] for domains %v: no route to its upstreams",
+				joinAddrPorts(s.usableNameServers(nsGroup.NameServers)), nsGroup.Domains)
+		}
+	}
+	return allowed
+}
+
+// allowFuncFrom turns a gating decision map into the predicate the host config
+// builder takes. A group missing from the map is allowed: the map is built from
+// the same update, so an absent key means a bug here, and failing open keeps
+// DNS working rather than silently dropping a resolver.
+func allowFuncFrom(allowed map[nsGroupID]bool) nsGroupAllowFunc {
+	return func(nsGroup *nbdns.NameServerGroup) bool {
+		if nsGroup == nil {
+			return true
+		}
+		ok, present := allowed[generateGroupKey(nsGroup)]
+		return !present || ok
+	}
+}
+
 func (s *DefaultServer) applyConfiguration(update nbdns.Config, snap routeSnapshot) error {
 	// is the service should be Disabled, we stop the listener or fake resolver
 	if update.ServiceEnable {
@@ -705,7 +744,9 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config, snap routeSnapsh
 
 	s.localResolver.Update(localZones)
 
-	s.currentConfig = dnsConfigToHostDNSConfig(update, s.service.RuntimeIP(), s.service.RuntimePort(), nil)
+	allowed := s.gateNameServerGroups(update.NameServerGroups, snap)
+
+	s.currentConfig = dnsConfigToHostDNSConfig(update, s.service.RuntimeIP(), s.service.RuntimePort(), allowFuncFrom(allowed))
 
 	if s.service.RuntimePort() != DefaultPort && !s.hostManager.supportCustomPort() {
 		log.Warnf("the DNS manager of this peer doesn't support custom port. Disabling primary DNS setup. " +

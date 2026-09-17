@@ -1,6 +1,7 @@
 package dns
 
 import (
+	"context"
 	"fmt"
 	"net/netip"
 	"os"
@@ -9,6 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/client/internal/dns/local"
+	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
@@ -176,6 +180,91 @@ func TestRoutedUpstreamGateLatch(t *testing.T) {
 	assert.False(t, always.allow(group, withoutRoute))
 	assert.True(t, always.allow(group, withRoute))
 	assert.False(t, always.allow(group, withoutRoute), "withdrawn again when the route goes away")
+}
+
+// A withheld group must leave no trace in the host config: neither its match
+// domains nor, for a Primary group, the RouteAll flag that hands the whole
+// resolver path to NetBird.
+func TestApplyConfigurationWithholdsRoutedNSGroup(t *testing.T) {
+	routedGroup := nsGroupWith("10.10.0.53")
+	routedGroup.Domains = []string{"corp.example.com"}
+
+	primaryGroup := nsGroupWith("10.10.0.54")
+	primaryGroup.Domains = nil
+	primaryGroup.Primary = true
+
+	update := nbdns.Config{
+		ServiceEnable:    true,
+		NameServerGroups: []*nbdns.NameServerGroup{routedGroup, primaryGroup},
+	}
+
+	selected := haMapWith("10.10.0.0/24")
+
+	tests := []struct {
+		name             string
+		mode             routedUpstreamGating
+		installed        route.HAMap
+		expectedDomains  []string
+		expectedRouteAll bool
+	}{
+		{
+			name:             "off keeps the group even with no route",
+			mode:             gatingOff,
+			installed:        route.HAMap{},
+			expectedDomains:  []string{"corp.example.com."},
+			expectedRouteAll: true,
+		},
+		{
+			name:             "no route withholds domains and RouteAll",
+			mode:             gatingAlways,
+			installed:        route.HAMap{},
+			expectedDomains:  nil,
+			expectedRouteAll: false,
+		},
+		{
+			name:             "an installed route restores both",
+			mode:             gatingAlways,
+			installed:        haMapWith("10.10.0.0/24"),
+			expectedDomains:  []string{"corp.example.com."},
+			expectedRouteAll: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var captured HostDNSConfig
+			server := &DefaultServer{
+				ctx:          context.Background(),
+				handlerChain: NewHandlerChain(),
+				hostManager: &mockHostConfigurator{
+					applyDNSConfigFunc: func(config HostDNSConfig, _ *statemanager.Manager) error {
+						captured = config
+						return nil
+					},
+					supportCustomPortFunc: func() bool { return true },
+					stringFunc:            func() string { return "mock" },
+				},
+				localResolver:      &local.Resolver{},
+				service:            &mockService{},
+				wgInterface:        &mocWGIface{},
+				statusRecorder:     peer.NewRecorder("test"),
+				extraDomains:       make(map[domain.Domain]int),
+				currentConfigHash:  ^uint64(0),
+				healthRefresh:      make(chan struct{}, 1),
+				routedUpstreamGate: newRoutedUpstreamGate(tc.mode),
+			}
+
+			snap := routeSnapshot{selected: selected, installed: tc.installed}
+			require.NoError(t, server.applyConfiguration(update, snap))
+
+			var domains []string
+			for _, d := range captured.Domains {
+				domains = append(domains, d.Domain)
+			}
+			assert.Equal(t, tc.expectedDomains, domains)
+			assert.Equal(t, tc.expectedRouteAll, captured.RouteAll)
+		})
+	}
 }
 
 func TestRoutedUpstreamGatingString(t *testing.T) {
