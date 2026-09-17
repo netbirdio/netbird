@@ -291,24 +291,30 @@ func TestListProfiles_PrivilegedResolvesUnfiltered(t *testing.T) {
 	})
 }
 
-func TestListProfiles_OnlyTheDefaultFailsOpenWhenUnowned(t *testing.T) {
+func TestListProfiles_UnownedProfilesArePrivilegedOnly(t *testing.T) {
 	withTestSM(t, func(sm *ServiceManager, _ ipcauth.Identity) {
+		// Nobody at the console, so the claim cannot stamp an owner partway
+		// through and change what the assertions below are looking at, whatever
+		// the machine running the test happens to look like.
+		stubConsoleUser(t, false)
+
 		unowned, err := sm.AddProfile("unowned", nil)
 		require.NoError(t, err)
 
 		alice := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
 		got, err := sm.ListProfiles(alice)
 		require.NoError(t, err)
-		assert.Contains(t, profileIDs(got), defaultProfileName,
-			"a fresh install has to be usable before anything is claimed")
+		assert.NotContains(t, profileIDs(got), defaultProfileName,
+			"the default profile has no exemption, being claimed is what opens it")
 		assert.NotContains(t, profileIDs(got), unowned.ID.String(),
-			"every other profile needs an owner before anyone can address it")
+			"every profile needs an owner before anyone can address it")
 
 		root := ipcauth.KnownForTest(ipcauth.Identity{UID: 0})
 		got, err = sm.ListProfiles(root)
 		require.NoError(t, err)
-		assert.Contains(t, profileIDs(got), unowned.ID.String(),
-			"root still reaches it, which is how it gets assigned")
+		assert.Contains(t, profileIDs(got), defaultProfileName,
+			"root still reaches both, which is how an unowned profile gets assigned")
+		assert.Contains(t, profileIDs(got), unowned.ID.String())
 
 		nobody, err := sm.ListProfiles(ipcauth.Identity{})
 		require.NoError(t, err)
@@ -689,6 +695,27 @@ func TestListProfiles_ClaimKeepsFieldsThisVersionDoesNotModel(t *testing.T) {
 	})
 }
 
+// stubConsoleUser replaces the console lookup, so the default-profile claim can
+// be exercised without the machine running the test having a seat of its own.
+func stubConsoleUser(t *testing.T, atConsole bool) {
+	t.Helper()
+	orig := isConsoleUser
+	isConsoleUser = func(ipcauth.Identity) bool { return atConsole }
+	t.Cleanup(func() { isConsoleUser = orig })
+}
+
+func TestClaimDefaultProfile_ConsoleUserClaimsIt(t *testing.T) {
+	withLegacyLayout(t, func(sm *ServiceManager, _ string) {
+		stubConsoleUser(t, true)
+
+		alice := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
+		_, err := sm.ListProfiles(alice)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"uid:4242"}, readOwners(t, DefaultConfigPath),
+			"the first caller at the console closes the window the default profile is open in")
+	})
+}
+
 func TestSetProfileField_ReplacesAKeySpelledInAnotherCase(t *testing.T) {
 	withLegacyLayout(t, func(sm *ServiceManager, configDir string) {
 		path := writeLegacyProfile(t, configDir, "alice", "work", map[string]any{
@@ -758,5 +785,43 @@ func TestSetProfileField_KeepsKeysItWasNotAskedToWrite(t *testing.T) {
 		assert.Equal(t, []any{"uid:4242"}, doc["Owners"], "and the fields it was asked for are written")
 		assert.Equal(t, "Work", doc["Name"])
 		assert.Len(t, doc, len(unknown)+3, "with nothing else added")
+	})
+}
+
+func TestClaimDefaultProfile_CallerAwayFromTheConsoleDoesNotClaimIt(t *testing.T) {
+	withLegacyLayout(t, func(sm *ServiceManager, _ string) {
+		stubConsoleUser(t, false)
+
+		alice := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
+		_, err := sm.ListProfiles(alice)
+		require.NoError(t, err)
+		assert.Empty(t, readOwners(t, DefaultConfigPath),
+			"a local caller who is not at the console must not take the machine's profile")
+	})
+}
+
+func TestClaimDefaultProfile_DisableEnvWithholdsTheClaim(t *testing.T) {
+	withLegacyLayout(t, func(sm *ServiceManager, _ string) {
+		stubConsoleUser(t, true)
+		t.Setenv(EnvDisableDefaultProfileClaim, "true")
+
+		alice := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
+		_, err := sm.ListProfiles(alice)
+		require.NoError(t, err)
+		assert.Empty(t, readOwners(t, DefaultConfigPath),
+			"the flag withholds the claim even from a caller who would otherwise get it")
+	})
+}
+
+func TestClaimDefaultProfile_UnparseableDisableEnvLeavesTheClaimOn(t *testing.T) {
+	withLegacyLayout(t, func(sm *ServiceManager, _ string) {
+		stubConsoleUser(t, true)
+		t.Setenv(EnvDisableDefaultProfileClaim, "yes please")
+
+		alice := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
+		_, err := sm.ListProfiles(alice)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"uid:4242"}, readOwners(t, DefaultConfigPath),
+			"a typo must not be what turns a safety mechanism off")
 	})
 }
