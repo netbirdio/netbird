@@ -3,7 +3,6 @@
 package systemops
 
 import (
-	"errors"
 	"net"
 	"net/netip"
 	"testing"
@@ -14,7 +13,6 @@ import (
 
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/routemanager/notifier"
-	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 )
 
 // mustIPNet parses a CIDR fixture, failing the test rather than returning an error.
@@ -44,6 +42,7 @@ func newSysOpsWithLocalSubnets(t *testing.T, subnets ...*net.IPNet) *SysOps {
 
 	sysOps.localSubnetsCache = subnets
 	sysOps.localSubnetsCacheTime = time.Now()
+	sysOps.localSubnetsHealthy = true
 
 	return sysOps
 }
@@ -142,7 +141,8 @@ func TestSysOps_localSubnetOverlap(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			sysOps := newSysOpsWithLocalSubnets(t, local...)
 
-			subnet, ok := sysOps.localSubnetOverlap(netip.MustParsePrefix(tt.prefix))
+			subnet, ok, healthy := sysOps.localSubnetOverlap(netip.MustParsePrefix(tt.prefix))
+			require.True(t, healthy, "pinned cache must be verified for %s", tt.prefix)
 			assert.Equal(t, tt.wantOverlap, ok, "overlap verdict for %s", tt.prefix)
 			if !tt.wantOverlap {
 				assert.Nil(t, subnet, "no subnet should be reported when there is no overlap")
@@ -162,20 +162,28 @@ func TestSysOps_localSubnetOverlapV4MappedSubnet(t *testing.T) {
 	}
 	sysOps := newSysOpsWithLocalSubnets(t, mapped)
 
-	_, ok := sysOps.localSubnetOverlap(netip.MustParsePrefix("192.168.5.7/32"))
+	_, ok, healthy := sysOps.localSubnetOverlap(netip.MustParsePrefix("192.168.5.7/32"))
+	assert.True(t, healthy, "pinned cache must be verified")
 	assert.True(t, ok, "v4-mapped local subnet should match a v4 prefix inside it")
 
-	_, ok = sysOps.localSubnetOverlap(netip.MustParsePrefix("192.168.6.0/24"))
+	_, ok, _ = sysOps.localSubnetOverlap(netip.MustParsePrefix("192.168.6.0/24"))
 	assert.False(t, ok, "v4-mapped local subnet should not match an unrelated v4 prefix")
 }
 
 // A host route inside the local LAN is the case that blackholed native traffic: it must be
-// ignored by the refcounter rather than installed on the overlay.
+// withheld with no OS route rather than installed on the overlay. Withholding stays counted
+// by the caller's refcounter so a later reconcile can install it after the LAN disappears.
 func TestSysOps_AddVPNRouteSkipsLocalOverlap(t *testing.T) {
 	sysOps := newSysOpsWithLocalSubnets(t, mustIPNet(t, "192.168.1.0/24"))
 
-	err := sysOps.AddVPNRoute(netip.MustParsePrefix("192.168.1.10/32"), &net.Interface{Index: 1, Name: "wt0"})
-	assert.True(t, errors.Is(err, refcounter.ErrIgnore), "overlapping route must be ignored, got %v", err)
+	prefix := netip.MustParsePrefix("192.168.1.10/32")
+	require.NoError(t, sysOps.AddVPNRoute(prefix, &net.Interface{Index: 1, Name: "wt0"}))
+	assert.True(t, sysOps.isSuppressedVPNRoute(prefix), "overlapping route must be withheld")
+	_, installed := sysOps.takeInstalledVPNRoute(prefix)
+	assert.False(t, installed, "overlapping route must not reach the table")
+
+	require.NoError(t, sysOps.RemoveVPNRoute(prefix, &net.Interface{Index: 1, Name: "wt0"}))
+	assert.False(t, sysOps.isSuppressedVPNRoute(prefix), "remove must clear the withheld mark")
 }
 
 // Only interfaces carrying a reachable LAN may feed the cache. A down, loopback or overlay

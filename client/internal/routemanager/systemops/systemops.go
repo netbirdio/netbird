@@ -81,6 +81,30 @@ type SysOps struct {
 	localSubnetsCache     []*net.IPNet
 	localSubnetsCacheMu   sync.RWMutex
 	localSubnetsCacheTime time.Time
+	// localSubnetsHealthy reports whether the last discovery attempt enumerated
+	// every interface address successfully. Only a validated snapshot may guide
+	// installs; otherwise callers must fail closed. A nil cache with
+	// healthy=false means no attempt has ever succeeded.
+	localSubnetsHealthy bool
+	// installedVPNRoutes mirrors the OS routes this host installed through the local
+	// subnet guard, and suppressedVPNRoutes tracks valid prefixes the guard withheld
+	// (overlap or unverified discovery). Both stay counted by the route refcounter, so
+	// holder add/remove accounting is unaffected; the two maps only record whether an OS
+	// route exists and which interface installs it. Guarded by vpnRoutesMu, which must
+	// never be held while acquiring refcounter locks (the add path runs under the
+	// refcounter lock, so nesting the other way would deadlock).
+	installedVPNRoutes  map[netip.Prefix]*net.Interface
+	suppressedVPNRoutes map[netip.Prefix]*net.Interface
+	vpnRoutesMu         sync.Mutex
+	// listInterfaces and interfaceAddrs inject host discovery. Nil means the real
+	// net package calls; tests override them to simulate enumeration failure.
+	listInterfaces func() ([]net.Interface, error)
+	interfaceAddrs func(net.Interface) ([]net.Addr, error)
+	// installGuardedRoute and removeGuardedRoute program the table for guard-managed
+	// prefixes (initial adds and reconciliation). Nil selects the platform
+	// AddVPNRoute/RemoveVPNRoute; tests override them to avoid touching the host.
+	installGuardedRoute func(netip.Prefix, *net.Interface) error
+	removeGuardedRoute  func(netip.Prefix, *net.Interface) error
 }
 
 func New(wgInterface wgIface, notifier *notifier.Notifier) *SysOps {

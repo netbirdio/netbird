@@ -9,6 +9,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
@@ -43,6 +44,12 @@ func (r *SysOps) RemoveVPNRoute(prefix netip.Prefix, _ *net.Interface) error {
 
 	delete(r.prefixes, prefix)
 	r.notify()
+	return nil
+}
+
+// ReconcileLocalSubnets is a no-op on iOS: VPN routes are programmed by the platform TUN,
+// so there is no local-subnet guard state to converge.
+func (r *SysOps) ReconcileLocalSubnets(*refcounter.RouteRefCounter) error {
 	return nil
 }
 

@@ -142,6 +142,12 @@ func (r *SysOps) routeSocket(action int, prefix netip.Prefix, nexthop Nexthop) e
 	}
 
 	if err := r.writeRouteMessage(msg, routeBudget); err != nil {
+		if action == unix.RTM_ADD && errors.Is(err, syscall.EEXIST) {
+			return nil
+		}
+		if action == unix.RTM_DELETE && (errors.Is(err, syscall.ESRCH) || errors.Is(err, syscall.ENOENT)) {
+			return nil
+		}
 		a := "add"
 		if action == unix.RTM_DELETE {
 			a = "remove"

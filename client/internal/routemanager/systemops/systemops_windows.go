@@ -3,6 +3,7 @@ package systemops
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -297,7 +298,13 @@ func addRoute(prefix netip.Prefix, nexthop Nexthop, metric uint32) (err error) {
 		return setupErr
 	}
 
-	return createIPForwardEntry2(route)
+	if err := createIPForwardEntry2(route); err != nil {
+		if errors.Is(err, windows.ERROR_OBJECT_ALREADY_EXISTS) || errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 // newManagedRouteEntry builds a persistent route entry carrying the given metric.
@@ -328,6 +335,9 @@ func deleteRoute(prefix netip.Prefix, nexthop Nexthop) (err error) {
 	}
 
 	if err := getIPForwardEntry2(route); err != nil {
+		if errors.Is(err, windows.ERROR_NOT_FOUND) {
+			return nil
+		}
 		return fmt.Errorf("get route entry: %w", err)
 	}
 
