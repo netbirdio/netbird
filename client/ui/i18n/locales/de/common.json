@@ -1389,5 +1389,17 @@
     },
     "settings.ssh.privilege.authorizePending": {
         "message": "Warten auf Autorisierung…"
+    },
+    "profile.ownedByAnother": {
+        "message": "Profil eines anderen Benutzers"
+    },
+    "error.privilege_required": {
+        "message": "Diese Aktion erfordert erhöhte Rechte."
+    },
+    "error.session_held": {
+        "message": "Ein anderer Benutzer hat diesen Rechner verbunden."
+    },
+    "error.not_profile_owner": {
+        "message": "Dieses Profil gehört einem anderen Benutzer."
     }
 }

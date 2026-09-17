@@ -60,6 +60,8 @@ var methodPolicies = map[string]MethodPolicy{
 	servicePath + "GetActiveProfile": {Level: AuthzLevelIdentified, Action: "reading the active profile"},
 	servicePath + "GetFeatures":      {Level: AuthzLevelIdentified, Action: "reading feature flags"},
 	servicePath + "WailsUIReady":     {Level: AuthzLevelIdentified, Action: "starting the UI"},
+	// If a higher level is used, the deny logs message is spammed on frequent UI polls.
+	servicePath + "RegisterUILog": {Level: AuthzLevelIdentified, Action: "registering the UI log"},
 
 	// Owner of the profile the request names.
 	servicePath + "GetConfig":     {Level: AuthzLevelProfileOwner, TargetsProfile: true, Audit: true, Action: "reading the profile configuration"},
@@ -106,7 +108,6 @@ var methodPolicies = map[string]MethodPolicy{
 	servicePath + "CleanState":                 {Level: AuthzLevelSessionHolder, Audit: true, Action: "clearing stored state"},
 	servicePath + "DeleteState":                {Level: AuthzLevelSessionHolder, Audit: true, Action: "deleting stored state"},
 	servicePath + "TracePacket":                {Level: AuthzLevelSessionHolder, Action: "tracing a packet"},
-	servicePath + "RegisterUILog":              {Level: AuthzLevelSessionHolder, Action: "registering the UI log"},
 	servicePath + "TriggerUpdate":              {Level: AuthzLevelSessionHolder, Audit: true, Action: "starting an update"},
 
 	// Root or administrator only. Claiming names an arbitrary principal, so the
