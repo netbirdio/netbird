@@ -60,6 +60,7 @@ type Manager interface {
 	GetClientRoutes() route.HAMap
 	GetSelectedClientRoutes() route.HAMap
 	GetActiveClientRoutes() route.HAMap
+	GetInstalledClientRoutes() route.HAMap
 	GetClientRoutesWithNetID() map[route.NetID][]*route.Route
 	SetRouteChangeListener(listener listener.NetworkChangeListener)
 	CurrentRouteRange() []string
@@ -509,6 +510,32 @@ func (m *DefaultManager) GetSelectedClientRoutes() route.HAMap {
 // that are currently reachable: the route's peer is Connected and is
 // the one actively carrying the route (not just an HA sibling).
 func (m *DefaultManager) GetActiveClientRoutes() route.HAMap {
+	return m.selectedRoutesCarriedByPeer(func(st peer.State) bool {
+		return st.ConnStatus == peer.StatusConnected
+	})
+}
+
+// GetInstalledClientRoutes returns the subset of selected client routes whose
+// allowed IPs are installed on a peer the HA election still considers eligible.
+//
+// It differs from GetActiveClientRoutes in one condition: a peer merely parked
+// by lazy connections (StatusIdle means the connection is closed, not that the
+// peer is unreachable) still counts, because traffic to the routed prefix wakes
+// it. Only StatusConnecting is rejected, mirroring the eligibility rule in
+// routemanager/client.getBestRouteFromStatuses — an unreachable peer keeps
+// retrying and stays in StatusConnecting, so that is the state that means "no
+// usable path".
+func (m *DefaultManager) GetInstalledClientRoutes() route.HAMap {
+	return m.selectedRoutesCarriedByPeer(func(st peer.State) bool {
+		return st.ConnStatus != peer.StatusConnecting
+	})
+}
+
+// selectedRoutesCarriedByPeer returns the selected client routes for which at
+// least one route has a peer that satisfies eligible and carries the route's
+// prefix in its peer state, i.e. is the one the watcher installed allowed IPs
+// on rather than just an HA sibling.
+func (m *DefaultManager) selectedRoutesCarriedByPeer(eligible func(peer.State) bool) route.HAMap {
 	m.mux.Lock()
 	selected := m.routeSelector.FilterSelectedExitNodes(maps.Clone(m.clientRoutes))
 	recorder := m.statusRecorder
@@ -525,7 +552,7 @@ func (m *DefaultManager) GetActiveClientRoutes() route.HAMap {
 			if err != nil {
 				continue
 			}
-			if st.ConnStatus != peer.StatusConnected {
+			if !eligible(st) {
 				continue
 			}
 			if _, hasRoute := st.GetRoutes()[r.Network.String()]; !hasRoute {

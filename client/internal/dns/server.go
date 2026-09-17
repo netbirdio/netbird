@@ -80,7 +80,7 @@ type Server interface {
 	SearchDomains() []string
 	UpdateServerConfig(domains dnsconfig.ServerDomains) error
 	PopulateManagementDomain(mgmtURL *url.URL) error
-	SetRouteSources(selected, active func() route.HAMap)
+	SetRouteSources(selected, active, installed func() route.HAMap)
 	SetFirewall(Firewall)
 	SetPeerActivator(local.PeerActivator)
 }
@@ -174,6 +174,11 @@ type DefaultServer struct {
 	selectedRoutes func() route.HAMap
 	// activeRoutes returns the subset whose peer is in StatusConnected.
 	activeRoutes func() route.HAMap
+	// installedRoutes returns the subset whose allowed IPs are installed on
+	// a peer the HA election still considers eligible. Unlike activeRoutes
+	// it keeps a peer parked by lazy connections, which is reachable on
+	// demand rather than unreachable.
+	installedRoutes func() route.HAMap
 
 	nsGroups        []*nbdns.NameServerGroup
 	healthProjectMu sync.Mutex
@@ -318,11 +323,12 @@ func newDefaultServer(
 
 // SetRouteSources wires the route-manager accessors used by health
 // projection to classify each upstream for emission timing.
-func (s *DefaultServer) SetRouteSources(selected, active func() route.HAMap) {
+func (s *DefaultServer) SetRouteSources(selected, active, installed func() route.HAMap) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 	s.selectedRoutes = selected
 	s.activeRoutes = active
+	s.installedRoutes = installed
 
 	// Permanent / iOS constructors build the root handler before the
 	// engine wires route sources, so its selectedRoutes callback would
