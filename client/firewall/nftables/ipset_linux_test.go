@@ -1,9 +1,11 @@
 package nftables
 
 import (
+	"fmt"
 	"net/netip"
 	"testing"
 
+	"github.com/google/nftables"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -33,4 +35,142 @@ func TestConvertPrefixesToSetWildcard(t *testing.T) {
 			assert.Len(t, elements[1].Key, int(tt.af.addrLen), "interval-end key must be a zero address, not empty")
 		})
 	}
+}
+
+func pendingUpdate(name string) pendingSetUpdate {
+	return pendingSetUpdate{
+		set:      &nftables.Set{Name: name},
+		elements: []nftables.SetElement{{Key: []byte{1}}, {Key: []byte{2}}},
+	}
+}
+
+func TestDiscardPendingSetsLeavesUnrelated(t *testing.T) {
+	r := &family{pendingSetElements: map[string]pendingSetUpdate{
+		"keep": pendingUpdate("keep"),
+		"drop": pendingUpdate("drop"),
+	}}
+
+	r.discardPendingSets([]string{"drop"})
+
+	_, keep := r.pendingSetElements["keep"]
+	_, drop := r.pendingSetElements["drop"]
+	assert.True(t, keep, "unrelated pending work must survive")
+	assert.False(t, drop, "queued set of the failing call must be dropped")
+}
+
+func TestDiscardPendingSetElementsClearsAll(t *testing.T) {
+	r := &family{pendingSetElements: map[string]pendingSetUpdate{
+		"a": pendingUpdate("a"),
+		"b": pendingUpdate("b"),
+	}}
+
+	r.discardPendingSetElements()
+
+	assert.Empty(t, r.pendingSetElements)
+}
+
+func TestPendingAddedSince(t *testing.T) {
+	r := &family{pendingSetElements: map[string]pendingSetUpdate{
+		"old": pendingUpdate("old"),
+		"new": pendingUpdate("new"),
+	}}
+
+	added := r.pendingAddedSince(map[string]struct{}{"old": {}})
+	assert.ElementsMatch(t, []string{"new"}, added)
+}
+
+func TestCommitPendingSetsRetriesThenSucceeds(t *testing.T) {
+	attempts := 0
+	r := &family{
+		sConn:              &nftables.Conn{},
+		pendingSetElements: map[string]pendingSetUpdate{"s": pendingUpdate("s")},
+		testPendingFlush: func() error {
+			attempts++
+			if attempts < pendingSetCommitAttempts {
+				return fmt.Errorf("netlink busy")
+			}
+			return nil
+		},
+	}
+
+	require.NoError(t, r.commitPendingSets([]string{"s"}))
+	assert.Equal(t, pendingSetCommitAttempts, attempts)
+	assert.Empty(t, r.pendingSetElements)
+}
+
+func TestCommitPendingSetsRetriesThenKeepsRemaining(t *testing.T) {
+	r := &family{
+		sConn:              &nftables.Conn{},
+		pendingSetElements: map[string]pendingSetUpdate{"s": pendingUpdate("s")},
+		testPendingFlush: func() error {
+			return fmt.Errorf("netlink busy")
+		},
+	}
+
+	err := r.commitPendingSets([]string{"s"})
+	require.Error(t, err)
+	_, ok := r.pendingSetElements["s"]
+	assert.True(t, ok, "failed overflow must remain queued for rollback to discard")
+}
+
+func TestCommitPendingSetsSkipsUnrelated(t *testing.T) {
+	flushed := 0
+	r := &family{
+		sConn: &nftables.Conn{},
+		pendingSetElements: map[string]pendingSetUpdate{
+			"a": pendingUpdate("a"),
+			"b": pendingUpdate("b"),
+		},
+		testPendingFlush: func() error {
+			flushed++
+			return nil
+		},
+	}
+
+	require.NoError(t, r.commitPendingSets([]string{"a"}))
+	assert.Equal(t, 1, flushed)
+	_, a := r.pendingSetElements["a"]
+	_, b := r.pendingSetElements["b"]
+	assert.False(t, a)
+	assert.True(t, b, "sets not named by this commit must stay queued")
+}
+
+func TestCommitOverflowOrRollbackDiscardsQueuedOnly(t *testing.T) {
+	rolled := false
+	r := &family{
+		sConn: &nftables.Conn{},
+		pendingSetElements: map[string]pendingSetUpdate{
+			"keep": pendingUpdate("keep"),
+			"drop": pendingUpdate("drop"),
+		},
+		testPendingFlush: func() error {
+			return fmt.Errorf("netlink busy")
+		},
+	}
+
+	err := r.commitOverflowOrRollback([]string{"drop"}, func() { rolled = true })
+	require.Error(t, err)
+	assert.True(t, rolled, "live rule must be torn down after overflow retries fail")
+
+	_, keep := r.pendingSetElements["keep"]
+	_, drop := r.pendingSetElements["drop"]
+	assert.True(t, keep, "unrelated pending prefixes must not be discarded")
+	assert.False(t, drop)
+}
+
+func TestCommitOverflowOrRollbackEmptyQueued(t *testing.T) {
+	rolled := false
+	r := &family{
+		pendingSetElements: map[string]pendingSetUpdate{
+			"keep": pendingUpdate("keep"),
+		},
+		testPendingFlush: func() error {
+			return fmt.Errorf("netlink busy")
+		},
+	}
+
+	require.NoError(t, r.commitOverflowOrRollback(nil, func() { rolled = true }))
+	assert.False(t, rolled)
+	_, keep := r.pendingSetElements["keep"]
+	assert.True(t, keep)
 }

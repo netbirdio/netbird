@@ -69,27 +69,91 @@ func (r *family) createIpSet(setName string, input setInput) (*nftables.Set, err
 	return nfset, nil
 }
 
-// commitPendingSetElements writes overflow chunks that did not fit in the
-// rule batch. The named set must already exist in the kernel. Entries are
-// removed only after their batches succeed so a later retry still has them.
+// commitPendingSetElements writes every overflow chunk that did not fit in
+// a rule batch. The named set must already exist in the kernel. Callers
+// that installed a specific rule should use commitPendingSets with the
+// names that call queued so an unrelated leftover cannot fail them.
 func (r *family) commitPendingSetElements() error {
-	if len(r.pendingSetElements) == 0 {
+	names := make([]string, 0, len(r.pendingSetElements))
+	for name := range r.pendingSetElements {
+		names = append(names, name)
+	}
+	return r.commitPendingSets(names)
+}
+
+// commitPendingSets writes overflow chunks for the named sets, retrying
+// immediately a few times. Entries stay in the map until their batches
+// succeed so a retry does not replay prefixes that already landed.
+func (r *family) commitPendingSets(names []string) error {
+	if len(names) == 0 {
 		return nil
 	}
+	var err error
+	for attempt := 1; attempt <= pendingSetCommitAttempts; attempt++ {
+		err = r.commitPendingSetsOnce(names)
+		if err == nil {
+			return nil
+		}
+		log.Debugf("commit pending ipset elements attempt %d/%d: %v", attempt, pendingSetCommitAttempts, err)
+	}
+	return err
+}
 
+func (r *family) commitPendingSetsOnce(names []string) error {
 	maxElements := maxPrefixesSet * 2
-	remaining := make(map[string]pendingSetUpdate)
 	var merr *multierror.Error
-	for setName, p := range r.pendingSetElements {
+	for _, setName := range names {
+		p, ok := r.pendingSetElements[setName]
+		if !ok {
+			continue
+		}
 		left, err := r.addElementBatches(p.set, p.elements, maxElements)
 		if err != nil {
-			remaining[setName] = pendingSetUpdate{set: p.set, elements: left}
+			r.pendingSetElements[setName] = pendingSetUpdate{set: p.set, elements: left}
 			merr = multierror.Append(merr, fmt.Errorf("add remaining elements to set %s: %w", setName, err))
 			continue
 		}
+		delete(r.pendingSetElements, setName)
 	}
-	r.pendingSetElements = remaining
 	return nberrors.FormatErrorOrNil(merr)
+}
+
+// commitOverflowOrRollback commits overflow for sets queued by the current
+// Add*. On failure after retries it drops those pending entries and runs
+// rollback so the caller can return an error instead of a half-installed rule.
+func (r *family) commitOverflowOrRollback(queued []string, rollback func()) error {
+	if err := r.commitPendingSets(queued); err != nil {
+		r.discardPendingSets(queued)
+		rollback()
+		return fmt.Errorf("add remaining ipset elements: %w", err)
+	}
+	return nil
+}
+
+func (r *family) pendingSetSnapshot() map[string]struct{} {
+	snap := make(map[string]struct{}, len(r.pendingSetElements))
+	for name := range r.pendingSetElements {
+		snap[name] = struct{}{}
+	}
+	return snap
+}
+
+func (r *family) pendingAddedSince(before map[string]struct{}) []string {
+	var names []string
+	for name := range r.pendingSetElements {
+		if _, ok := before[name]; !ok {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+// discardPendingSets removes overflow queued for the given set names.
+// Unrelated pending work is left in place.
+func (r *family) discardPendingSets(names []string) {
+	for _, name := range names {
+		delete(r.pendingSetElements, name)
+	}
 }
 
 func (r *family) discardPendingSetElements() {
@@ -109,12 +173,19 @@ func (r *family) addElementBatches(nfset *nftables.Set, elements []nftables.SetE
 		if err := r.sConn.SetAddElements(nfset, subElement); err != nil {
 			return elements[subStart:], fmt.Errorf("error adding prefixes (%d) to set %s: %w", nSubPrefixes, nfset.Name, err)
 		}
-		if err := r.sConn.Flush(); err != nil {
+		if err := r.flushSetElements(); err != nil {
 			return elements[subStart:], fmt.Errorf(flushError, err)
 		}
 		log.Debugf("Added new prefixes (%d) in ipset: %s", nSubPrefixes, nfset.Name)
 	}
 	return nil, nil
+}
+
+func (r *family) flushSetElements() error {
+	if r.testPendingFlush != nil {
+		return r.testPendingFlush()
+	}
+	return r.sConn.Flush()
 }
 
 func (r *family) convertPrefixesToSet(prefixes []netip.Prefix) []nftables.SetElement {

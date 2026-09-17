@@ -27,6 +27,8 @@ func (r *family) AddNatRule(pair firewall.RouterPair) error {
 	// message buffered on the shared connection cannot be un-queued, so
 	// returning an error after queueing would leave the next caller's Flush
 	// to commit a rule nothing tracks.
+	pendingBefore := r.pendingSetSnapshot()
+
 	var legacyExprs []expr.Any
 	if r.legacyManagement {
 		log.Warnf("This peer is connected to a NetBird Management service with an older version. Allowing all traffic for %s", pair.Destination)
@@ -34,6 +36,7 @@ func (r *family) AddNatRule(pair firewall.RouterPair) error {
 		var err error
 		legacyExprs, err = r.legacyRouteRuleExprs(pair)
 		if err != nil {
+			r.discardPendingSets(r.pendingAddedSince(pendingBefore))
 			return fmt.Errorf("build legacy routing rule: %w", err)
 		}
 	}
@@ -44,12 +47,14 @@ func (r *family) AddNatRule(pair firewall.RouterPair) error {
 		var err error
 		natExprs, err = r.natRuleExprs(pair)
 		if err != nil {
+			r.discardPendingSets(r.pendingAddedSince(pendingBefore))
 			r.dropNetworkMatch(legacyExprs)
 			return fmt.Errorf("build nat rule: %w", err)
 		}
 
 		inverseExprs, err = r.natRuleExprs(inverse)
 		if err != nil {
+			r.discardPendingSets(r.pendingAddedSince(pendingBefore))
 			r.dropNetworkMatch(legacyExprs)
 			r.dropNetworkMatch(natExprs)
 			return fmt.Errorf("build inverse nat rule: %w", err)
@@ -64,17 +69,16 @@ func (r *family) AddNatRule(pair firewall.RouterPair) error {
 		r.queueNatRule(inverse, inverseExprs)
 	}
 
+	queued := r.pendingAddedSince(pendingBefore)
 	if err := r.conn.Flush(); err != nil {
-		r.discardPendingSetElements()
+		r.discardPendingSets(queued)
 		r.rollbackRules(pair)
 		return fmt.Errorf("insert rules for %s: %w", pair.Destination, err)
 	}
-	if err := r.commitPendingSetElements(); err != nil {
-		// Rules are already in the kernel. Untracking them would leak
-		// NAT entries the route manager never records; the first 1500
-		// prefixes are already in the set. Keep the live rules, same as
-		// AddFilterRule, and retry overflow on a later commit.
-		log.Errorf("add remaining ipset elements after nat flush for %s: %v", pair.Destination, err)
+	if err := r.commitOverflowOrRollback(queued, func() {
+		r.rollbackFlushedNat(pair)
+	}); err != nil {
+		return err
 	}
 
 	return nil
@@ -94,6 +98,48 @@ func (r *family) rollbackRules(pair firewall.RouterPair) {
 		}
 		if err := r.decrementSetCounter(rule); err != nil {
 			log.Warnf("rollback set counter for %s: %v", key, err)
+		}
+		delete(r.rules, key)
+	}
+}
+
+// rollbackFlushedNat removes NAT/legacy rules that already landed in the
+// kernel after a successful conn.Flush, then drops their ipset refs. This
+// is the overflow-failure path: untracking alone would leak kernel rules
+// because the route manager never recorded a successful add.
+func (r *family) rollbackFlushedNat(pair firewall.RouterPair) {
+	if err := r.refreshRulesMap(); err != nil {
+		log.Errorf("refresh rules for overflow rollback: %v", err)
+	}
+
+	keys := []firewall.RuleID{
+		pair.GenKey(firewall.ForwardingFormat),
+		pair.GenKey(firewall.PreroutingFormat),
+		firewall.GetInversePair(pair).GenKey(firewall.PreroutingFormat),
+	}
+	for _, key := range keys {
+		rule, ok := r.rules[key]
+		if !ok {
+			continue
+		}
+		if rule.Handle != 0 {
+			if err := r.conn.DelRule(rule); err != nil {
+				log.Errorf("queue overflow rollback delete %s: %v", key, err)
+			}
+		} else {
+			log.Errorf("overflow rollback: nat rule %s has no handle, kernel rule may leak", key)
+		}
+	}
+	if err := r.conn.Flush(); err != nil {
+		log.Errorf("flush nat overflow rollback: %v", err)
+	}
+	for _, key := range keys {
+		rule, ok := r.rules[key]
+		if !ok {
+			continue
+		}
+		if err := r.decrementSetCounter(rule); err != nil {
+			log.Warnf("overflow rollback set counter for %s: %v", key, err)
 		}
 		delete(r.rules, key)
 	}

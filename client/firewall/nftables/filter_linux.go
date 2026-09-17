@@ -38,11 +38,10 @@ func (r *family) AddFilterRule(
 
 	ruleID := nbid.GenerateRuleID(sources, destination, proto, sPort, dPort, action)
 	if existing, ok := r.filters[ruleID]; ok {
-		if err := r.commitPendingSetElements(); err != nil {
-			log.Errorf("add remaining ipset elements for existing rule: %v", err)
-		}
 		return existing, nil
 	}
+
+	pendingBefore := r.pendingSetSnapshot()
 
 	srcExprs, err := r.applyNetwork(sourceNetwork(sources), sources, true)
 	if err != nil {
@@ -56,10 +55,11 @@ func (r *family) AddFilterRule(
 		exprs, err = r.buildPeerFilterExprs(srcExprs, proto, sPort, dPort)
 	}
 	if err != nil {
+		queued := r.pendingAddedSince(pendingBefore)
 		if len(exprs) == 0 {
-			r.rollbackQueuedNetwork(srcExprs)
+			r.rollbackQueuedNetwork(srcExprs, queued)
 		} else {
-			r.rollbackQueuedNetwork(exprs)
+			r.rollbackQueuedNetwork(exprs, queued)
 		}
 		return nil, err
 	}
@@ -95,13 +95,16 @@ func (r *family) AddFilterRule(
 	// would roll back the ACL as well. DNS forward and single-source
 	// peer rules hit this path with no named set, so the set-ID fix
 	// cannot save them.
+	queued := r.pendingAddedSince(pendingBefore)
 	if err := r.conn.Flush(); err != nil {
-		r.discardPendingSetElements()
+		r.discardPendingSets(queued)
 		r.dropNetworkMatch(exprs)
 		return nil, fmt.Errorf(flushError, err)
 	}
-	if err := r.commitPendingSetElements(); err != nil {
-		log.Errorf("add remaining ipset elements after rule flush: %v", err)
+	if err := r.commitOverflowOrRollback(queued, func() {
+		r.rollbackFlushedFilterRule(nftRule, exprs)
+	}); err != nil {
+		return nil, err
 	}
 
 	mangleRule := r.flushPreroutingPair(srcExprs, proto, sPort, dPort, userData, isRoute)
@@ -122,10 +125,42 @@ func (r *family) AddFilterRule(
 // rollbackQueuedNetwork commits any named sets already queued on conn so
 // they can be deleted, then drops their refcounts. google/nftables cannot
 // unqueue AddSet; deleting through sConn before that flush misses them.
-func (r *family) rollbackQueuedNetwork(exprs []expr.Any) {
-	r.discardPendingSetElements()
+func (r *family) rollbackQueuedNetwork(exprs []expr.Any, queued []string) {
+	r.discardPendingSets(queued)
 	if err := r.conn.Flush(); err != nil {
 		log.Debugf("flush queued sets for rollback: %v", err)
+	}
+	r.dropNetworkMatch(exprs)
+}
+
+// rollbackFlushedFilterRule deletes a filter rule that already landed in the
+// kernel after conn.Flush, then drops the ipset refs so a partial source set
+// is not left live. The rule is not yet tracked in r.filters.
+func (r *family) rollbackFlushedFilterRule(nftRule *nftables.Rule, exprs []expr.Any) {
+	if nftRule != nil && nftRule.Chain != nil && r.workTable != nil {
+		toDelete := nftRule
+		if nftRule.Handle == 0 {
+			list, err := r.conn.GetRules(r.workTable, nftRule.Chain)
+			if err != nil {
+				log.Errorf("list rules for overflow rollback: %v", err)
+			} else {
+				for _, rule := range list {
+					if string(rule.UserData) == string(nftRule.UserData) {
+						toDelete = rule
+						break
+					}
+				}
+			}
+		}
+		if toDelete.Handle != 0 {
+			if err := r.conn.DelRule(toDelete); err != nil {
+				log.Errorf("queue overflow rollback delete: %v", err)
+			} else if err := r.conn.Flush(); err != nil {
+				log.Errorf("flush overflow rollback delete: %v", err)
+			}
+		} else {
+			log.Errorf("overflow rollback: filter rule has no handle, kernel rule may leak")
+		}
 	}
 	r.dropNetworkMatch(exprs)
 }

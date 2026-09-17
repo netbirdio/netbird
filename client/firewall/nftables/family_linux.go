@@ -56,8 +56,12 @@ const (
 	ipv6TCPHeaderSize = 60
 
 	// maxPrefixesSet 1638 prefixes start to fail, taking some margin
-	maxPrefixesSet       = 1500
-	refreshRulesMapError = "refresh rules map: %w"
+	maxPrefixesSet = 1500
+	// pendingSetCommitAttempts is how many times a failed overflow flush is
+	// retried in the same Add* call. There is no sleep: a later rule must not
+	// be required to finish a set.
+	pendingSetCommitAttempts = 3
+	refreshRulesMapError     = "refresh rules map: %w"
 )
 
 var (
@@ -90,11 +94,15 @@ type family struct {
 	sConn *nftables.Conn
 	// pendingSetElements holds overflow chunks from createIpSet that
 	// cannot join the rule batch. They are committed on sConn after the
-	// rule flush has created the set.
+	// rule flush has created the set. A failed overflow after retries
+	// rolls the rule back; leftover entries are not reported as success.
 	pendingSetElements map[string]pendingSetUpdate
-	workTable          *nftables.Table
-	filterTable        *nftables.Table
-	chains             map[string]*nftables.Chain
+	// testPendingFlush, when set, replaces sConn.Flush in addElementBatches.
+	// Tests use it to simulate overflow commit failures without netlink.
+	testPendingFlush func() error
+	workTable        *nftables.Table
+	filterTable      *nftables.Table
+	chains           map[string]*nftables.Chain
 
 	// filters holds peer + route filter rules keyed by content hash.
 	// AddFilterRule writes here; DeleteFilterRule looks up by id.
