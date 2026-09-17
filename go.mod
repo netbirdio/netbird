@@ -295,7 +295,7 @@ require (
 	github.com/openbao/openbao/api/v2 v2.5.1 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.1 // indirect
-	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
+	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect
 	github.com/pion/dtls/v2 v2.2.10 // indirect
 	github.com/pion/dtls/v3 v3.0.9 // indirect
