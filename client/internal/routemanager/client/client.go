@@ -298,6 +298,8 @@ func (w *Watcher) addAllowedIPs(route *route.Route) error {
 		log.Warnf("Failed to update peer state: %v", err)
 	}
 
+	log.Infof("Installed allowed IPs of route %s for network [%v] on peer %s", route.ID, w.handler, route.Peer)
+
 	w.connectEvent(route)
 	return nil
 }
@@ -310,6 +312,8 @@ func (w *Watcher) removeAllowedIPs(route *route.Route, rsn reason) error {
 	if err := w.handler.RemoveAllowedIPs(); err != nil {
 		return fmt.Errorf("remove allowed IPs: %w", err)
 	}
+
+	log.Infof("Removed allowed IPs of route %s for network [%v] from peer %s", route.ID, w.handler, route.Peer)
 
 	w.disconnectEvent(route, rsn)
 
