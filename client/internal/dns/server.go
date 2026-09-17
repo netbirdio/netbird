@@ -729,12 +729,16 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config, snap routeSnapsh
 		}
 	}
 
+	// Decided once and used for both the chain and the host config so the two
+	// cannot disagree about a group within the same pass.
+	allow := allowFuncFrom(s.gateNameServerGroups(update.NameServerGroups, snap))
+
 	localMuxUpdates, localZones, err := s.buildLocalHandlerUpdate(update.CustomZones)
 	if err != nil {
 		return fmt.Errorf("local handler updater: %w", err)
 	}
 
-	upstreamMuxUpdates, err := s.buildUpstreamHandlerUpdate(update.NameServerGroups)
+	upstreamMuxUpdates, err := s.buildUpstreamHandlerUpdate(update.NameServerGroups, allow)
 	if err != nil {
 		return fmt.Errorf("upstream handler updater: %w", err)
 	}
@@ -744,9 +748,7 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config, snap routeSnapsh
 
 	s.localResolver.Update(localZones)
 
-	allowed := s.gateNameServerGroups(update.NameServerGroups, snap)
-
-	s.currentConfig = dnsConfigToHostDNSConfig(update, s.service.RuntimeIP(), s.service.RuntimePort(), allowFuncFrom(allowed))
+	s.currentConfig = dnsConfigToHostDNSConfig(update, s.service.RuntimeIP(), s.service.RuntimePort(), allow)
 
 	if s.service.RuntimePort() != DefaultPort && !s.hostManager.supportCustomPort() {
 		log.Warnf("the DNS manager of this peer doesn't support custom port. Disabling primary DNS setup. " +
@@ -948,7 +950,12 @@ func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) 
 	return muxUpdates, zones, nil
 }
 
-func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.NameServerGroup) ([]handlerWrapper, error) {
+// buildUpstreamHandlerUpdate builds the chain handlers for nameServerGroups.
+// Groups rejected by allow get no handler, so a query for their domains falls
+// through to the default and fallback upstreams: the chain only descends on
+// NXDOMAIN with the Zero bit set, so a registered handler that can only time
+// out would end the chain in SERVFAIL instead.
+func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.NameServerGroup, allow nsGroupAllowFunc) ([]handlerWrapper, error) {
 	var muxUpdates []handlerWrapper
 
 	for _, nsGroup := range nameServerGroups {
@@ -971,6 +978,12 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 	groupedNS := groupNSGroupsByDomain(nameServerGroups)
 
 	for _, domainGroup := range groupedNS {
+		domainGroup.groups = allowedNSGroups(domainGroup.groups, allow)
+		if len(domainGroup.groups) == 0 {
+			log.Debugf("no nameserver group with a route for domain=%s, registering no handler", domainGroup.domain)
+			continue
+		}
+
 		priority := PriorityUpstream
 		if domainGroup.domain == nbdns.RootZone {
 			priority = PriorityDefault
@@ -988,6 +1001,20 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 	}
 
 	return muxUpdates, nil
+}
+
+func allowedNSGroups(groups []*nbdns.NameServerGroup, allow nsGroupAllowFunc) []*nbdns.NameServerGroup {
+	if allow == nil {
+		return groups
+	}
+
+	out := make([]*nbdns.NameServerGroup, 0, len(groups))
+	for _, nsGroup := range groups {
+		if allow(nsGroup) {
+			out = append(out, nsGroup)
+		}
+	}
+	return out
 }
 
 // buildMergedDomainHandler merges every nameserver group that targets the

@@ -1596,7 +1596,7 @@ func TestLocalResolverPriorityInServer(t *testing.T) {
 	localMuxUpdates, _, err := server.buildLocalHandlerUpdate(config.CustomZones)
 	assert.NoError(t, err)
 
-	upstreamMuxUpdates, err := server.buildUpstreamHandlerUpdate(config.NameServerGroups)
+	upstreamMuxUpdates, err := server.buildUpstreamHandlerUpdate(config.NameServerGroups, nil)
 	assert.NoError(t, err)
 
 	// Verify that local handler has higher priority than upstream for same domain
@@ -1692,7 +1692,7 @@ func TestBuildUpstreamHandler_MergesGroupsPerDomain(t *testing.T) {
 		},
 	}
 
-	muxUpdates, err := server.buildUpstreamHandlerUpdate(groups)
+	muxUpdates, err := server.buildUpstreamHandlerUpdate(groups, nil)
 	require.NoError(t, err)
 	require.Len(t, muxUpdates, 1, "same-domain groups should merge into one handler")
 	assert.Equal(t, "example.com", muxUpdates[0].domain)
@@ -2365,7 +2365,7 @@ func TestDNSLoopPrevention(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			muxUpdates, err := server.buildUpstreamHandlerUpdate(tt.nsGroups)
+			muxUpdates, err := server.buildUpstreamHandlerUpdate(tt.nsGroups, nil)
 			assert.NoError(t, err)
 			assert.Len(t, muxUpdates, tt.expectedHandlers)
 

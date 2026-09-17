@@ -267,6 +267,48 @@ func TestApplyConfigurationWithholdsRoutedNSGroup(t *testing.T) {
 	}
 }
 
+// A withheld group must also get no chain handler. Leaving one registered
+// would answer SERVFAIL after its upstream times out, and SERVFAIL terminates
+// the chain instead of descending to the default and fallback upstreams.
+func TestBuildUpstreamHandlerUpdateSkipsWithheldGroups(t *testing.T) {
+	routed := nsGroupWith("10.10.0.53")
+	routed.Domains = []string{"corp.example.com"}
+
+	public := nsGroupWith("1.1.1.1")
+	public.Domains = []string{"other.example.com"}
+
+	server := &DefaultServer{
+		ctx:            context.Background(),
+		handlerChain:   NewHandlerChain(),
+		hostManager:    &noopHostConfigurator{},
+		localResolver:  &local.Resolver{},
+		service:        &mockService{},
+		wgInterface:    &mocWGIface{},
+		statusRecorder: peer.NewRecorder("test"),
+		extraDomains:   make(map[domain.Domain]int),
+	}
+
+	groups := []*nbdns.NameServerGroup{routed, public}
+	withheld := map[nsGroupID]bool{
+		generateGroupKey(routed): false,
+		generateGroupKey(public): true,
+	}
+
+	updates, err := server.buildUpstreamHandlerUpdate(groups, allowFuncFrom(withheld))
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		for _, u := range updates {
+			u.handler.Stop()
+		}
+	})
+
+	var domains []string
+	for _, u := range updates {
+		domains = append(domains, u.domain)
+	}
+	assert.Equal(t, []string{"other.example.com"}, domains)
+}
+
 func TestRoutedUpstreamGatingString(t *testing.T) {
 	assert.Equal(t, "off", gatingOff.String())
 	assert.Equal(t, "startup", gatingStartup.String())
