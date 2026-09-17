@@ -63,6 +63,7 @@ type WatcherConfig struct {
 	StatusRecorder   *peer.Status
 	Route            *route.Route
 	Handler          RouteHandler
+	DNSServer        nbdns.Server
 }
 
 // Watcher watches route and peer changes and updates allowed IPs accordingly.
@@ -81,6 +82,10 @@ type Watcher struct {
 	currentChosenStatus *routerPeerStatus
 	handler             RouteHandler
 	updateSerial        uint64
+	// dnsServer is notified when this watcher installs or removes allowed
+	// IPs, because that changes which upstream nameservers are reachable.
+	// Nil on the paths that build a watcher without one.
+	dnsServer nbdns.Server
 }
 
 func NewWatcher(config WatcherConfig) *Watcher {
@@ -97,6 +102,7 @@ func NewWatcher(config WatcherConfig) *Watcher {
 		peerStateUpdate:     make(chan map[string]peer.RouterState),
 		handler:             config.Handler,
 		currentChosenStatus: nil,
+		dnsServer:           config.DNSServer,
 	}
 	return client
 }

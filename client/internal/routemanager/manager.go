@@ -611,6 +611,7 @@ func (m *DefaultManager) TriggerSelection(networks route.HAMap) {
 			StatusRecorder:   m.statusRecorder,
 			Route:            routes[0],
 			Handler:          handler,
+			DNSServer:        m.dnsServer,
 		}
 		clientNetworkWatcher := client.NewWatcher(config)
 		m.clientNetworks[id] = clientNetworkWatcher
@@ -661,6 +662,7 @@ func (m *DefaultManager) updateClientNetworks(updateSerial uint64, networks rout
 				StatusRecorder:   m.statusRecorder,
 				Route:            routes[0],
 				Handler:          handler,
+				DNSServer:        m.dnsServer,
 			}
 			clientNetworkWatcher = client.NewWatcher(config)
 			m.clientNetworks[id] = clientNetworkWatcher
