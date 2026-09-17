@@ -80,7 +80,7 @@ type Config struct {
 	// can attach their own).
 	HealthAddr string
 	// The number of 'engine not started' errors to trigger liveness check failure
-	EngineNotStartedErrLimit uint16
+	EngineNotStartedErrLimit int
 
 	// ForwardedProto overrides the X-Forwarded-Proto value sent to
 	// backends. Valid values: "auto", "http", "https".

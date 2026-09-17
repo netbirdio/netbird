@@ -4,6 +4,7 @@ package health
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"strings"
@@ -45,7 +46,8 @@ type Checker struct {
 	// Defaults to checkClientHealth; overridable in tests.
 	checkHealth func(*embed.Client) ClientHealth
 
-	engineNotStartedErrLimit uint16
+	engineNotStartedErrCount int
+	engineNotStartedErrLimit int
 }
 
 // ClientHealth represents the health status of a single NetBird client.
@@ -97,6 +99,14 @@ func (c *Checker) SetShuttingDown() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.shuttingDown = true
+}
+
+func (c *Checker) RegisterError(err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if errors.Is(err, embed.ErrEngineNotStarted) {
+		c.engineNotStartedErrCount += 1
+	}
 }
 
 // CheckClientsConnected verifies all clients are connected to management/signal/relay.
@@ -160,8 +170,7 @@ func (c *Checker) CheckClientsConnected(ctx context.Context) (bool, map[types.Ac
 // LivenessProbe returns true if the process is alive.
 // This should always return true if we can respond.
 func (c *Checker) LivenessProbe() bool {
-
-	return true
+	return c.engineNotStartedErrCount > c.engineNotStartedErrLimit
 }
 
 // ReadinessProbe returns true if the server can accept traffic.
@@ -303,7 +312,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 }
 
 // NewChecker creates a new health checker.
-func NewChecker(logger *log.Logger, provider clientProvider, engineNotStartedErrLimit uint16) *Checker {
+func NewChecker(logger *log.Logger, provider clientProvider, engineNotStartedErrLimit int) *Checker {
 	if logger == nil {
 		logger = log.StandardLogger()
 	}

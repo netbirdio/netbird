@@ -239,6 +239,7 @@ func runServer(cmd *cobra.Command, args []string) error {
 		DebugEndpointEnabled:     debugEndpoint,
 		DebugEndpointAddress:     debugEndpointAddr,
 		HealthAddr:               healthAddr,
+		EngineNotStartedErrLimit: int(engineNotStartedErrLimit),
 		ForwardedProto:           forwardedProto,
 		TrustedProxies:           parsedTrustedProxies,
 		CertLockMethod:           nbacme.CertLockMethod(certLockMethod),
