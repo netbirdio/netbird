@@ -6,7 +6,7 @@ import { ToggleSwitch } from "@/components/switches/ToggleSwitch.tsx";
 import { useStatus } from "@/contexts/StatusContext.tsx";
 import { useProfile } from "@/contexts/ProfileContext.tsx";
 import { cn } from "@/lib/cn.ts";
-import { errorDialog, formatErrorMessage } from "@/lib/errors.ts";
+import { errorDialogFor } from "@/lib/errors.ts";
 import {
     startConnection,
     EVENT_BROWSER_LOGIN_CANCEL,
@@ -39,8 +39,6 @@ const STATUS_KEY: Record<ConnectionState, string> = {
 const NEEDS_LOGIN_STATES = new Set(["NeedsLogin", "SessionExpired", "LoginFailed"]);
 
 const FORCE_TOGGLE_DELAY_MS = 7000;
-
-const errorMessage = formatErrorMessage;
 
 export const MainConnectionStatusSwitch = () => {
     const { t } = useTranslation();
@@ -100,10 +98,7 @@ export const MainConnectionStatusSwitch = () => {
         } catch (e) {
             setAction(null);
             await refresh();
-            await errorDialog({
-                Title: t("connect.error.connectTitle"),
-                Message: errorMessage(e),
-            });
+            await errorDialogFor(t("connect.error.connectTitle"), e);
         }
     };
 
@@ -115,10 +110,7 @@ export const MainConnectionStatusSwitch = () => {
         } catch (e) {
             setAction(null);
             await refresh();
-            await errorDialog({
-                Title: t("connect.error.disconnectTitle"),
-                Message: errorMessage(e),
-            });
+            await errorDialogFor(t("connect.error.disconnectTitle"), e);
         }
     };
 
@@ -209,10 +201,7 @@ export const MainConnectionStatusSwitch = () => {
         } catch (e) {
             setAction(null);
             await refresh();
-            await errorDialog({
-                Title: t("connect.error.disconnectTitle"),
-                Message: errorMessage(e),
-            });
+            await errorDialogFor(t("connect.error.disconnectTitle"), e);
         }
     };
     const show = connState === ConnectionState.Connected;

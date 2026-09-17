@@ -1389,5 +1389,17 @@
     },
     "settings.ssh.privilege.authorizePending": {
         "message": "Aguardando a autorização…"
+    },
+    "profile.ownedByAnother": {
+        "message": "Perfil de outro usuário"
+    },
+    "error.privilege_required": {
+        "message": "Esta ação requer privilégios elevados."
+    },
+    "error.session_held": {
+        "message": "Outro usuário está com esta máquina conectada."
+    },
+    "error.not_profile_owner": {
+        "message": "Este perfil pertence a outro usuário."
     }
 }

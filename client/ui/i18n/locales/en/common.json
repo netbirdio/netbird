@@ -1850,5 +1850,21 @@
     "settings.ssh.privilege.authorizePending": {
         "message": "Waiting for authorization…",
         "description": "Replaces the help text under a guarded SSH setting while the authorization prompt is open, which can take a few seconds to appear. Keep the trailing ellipsis."
+    },
+    "profile.ownedByAnother": {
+        "message": "Another user's profile",
+        "description": "Shown in place of the active profile's name when it belongs to a different user account."
+    },
+    "error.privilege_required": {
+        "message": "This action requires elevated privileges.",
+        "description": "Short headline when the daemon refuses an action that needs elevated privileges. The daemon's own sentence, naming the action and what it needs, is shown as the detail."
+    },
+    "error.session_held": {
+        "message": "Another user has this machine connected.",
+        "description": "Short headline when the daemon refuses an action because a different user account holds the active connection. The daemon's own sentence is shown as the detail."
+    },
+    "error.not_profile_owner": {
+        "message": "This profile belongs to another user.",
+        "description": "Short headline when the daemon refuses an action because the profile it addresses is owned by a different user account."
     }
 }
