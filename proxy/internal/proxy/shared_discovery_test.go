@@ -12,6 +12,8 @@ import (
 	"github.com/netbirdio/netbird/proxy/internal/middleware/builtin/llm_router"
 )
 
+// TestModelDiscoveryFilter_SharedGatewayRecords checks the client-visible listing,
+// because a correct router bound must also survive response-body filtering.
 func TestModelDiscoveryFilter_SharedGatewayRecords(t *testing.T) {
 	first := llm_router.ProviderRoute{
 		ID: "first", Models: []string{"model-a"},

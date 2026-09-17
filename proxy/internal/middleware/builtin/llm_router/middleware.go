@@ -252,7 +252,7 @@ func (m *Middleware) routeModelless(reqPath, surface, method string, userGroups 
 			// What the caller may actually use bounds what the picker may
 			// offer: every entry outside it is a request the chain will deny a
 			// moment later.
-			if models, bounded := m.discoverableListingModels(route, userGroups); bounded {
+			if models, bounded := m.discoverableListingModels(route, surface, userGroups); bounded {
 				out.Mutations.RewriteUpstream.DiscoveryModels = models
 			}
 		}
@@ -270,7 +270,7 @@ func (m *Middleware) routeModelless(reqPath, surface, method string, userGroups 
 // discoverableListingModels keeps a shared gateway's listing usable when its
 // models are split across records. Each record contributes only what this
 // caller may use; unrelated upstreams still have independent catalogs.
-func (m *Middleware) discoverableListingModels(route ProviderRoute, userGroups []string) ([]string, bool) {
+func (m *Middleware) discoverableListingModels(route ProviderRoute, surface string, userGroups []string) ([]string, bool) {
 	models, bounded := discoverableModels(route, userGroups)
 	if !bounded || route.Vertex || route.Bedrock {
 		return models, bounded
@@ -281,6 +281,7 @@ func (m *Middleware) discoverableListingModels(route ProviderRoute, userGroups [
 	}
 	for _, candidate := range m.cfg.Providers {
 		if candidate.ID == route.ID || candidate.Vertex || candidate.Bedrock ||
+			(surface != "" && !routeSupportsVendor(candidate, surface)) ||
 			!routeAuthorisesGroups(candidate, userGroups) || !sameDiscoveryUpstream(route, candidate) {
 			continue
 		}
@@ -298,12 +299,12 @@ func (m *Middleware) discoverableListingModels(route ProviderRoute, userGroups [
 	return models, true
 }
 
-// Credentials and URL paths can select different tenants on the same gateway.
-// Only records making the same authenticated listing request may share a bound.
+// sameDiscoveryUpstream keeps tenants separate: only records making the same
+// authenticated listing request may share a bound, even on the same gateway.
 func sameDiscoveryUpstream(a, b ProviderRoute) bool {
 	return a.UpstreamScheme == b.UpstreamScheme && a.UpstreamHost == b.UpstreamHost &&
 		a.UpstreamPath == b.UpstreamPath && a.DiscoveryHost == b.DiscoveryHost &&
-		a.AuthHeaderName == b.AuthHeaderName && a.AuthHeaderValue == b.AuthHeaderValue &&
+		strings.EqualFold(a.AuthHeaderName, b.AuthHeaderName) && a.AuthHeaderValue == b.AuthHeaderValue &&
 		a.GCPServiceAccountKeyB64 == b.GCPServiceAccountKeyB64 && a.SkipTLSVerify == b.SkipTLSVerify
 }
 
