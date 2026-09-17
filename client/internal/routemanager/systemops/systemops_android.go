@@ -35,6 +35,7 @@ func (r *SysOps) ReconcileLocalSubnets(*refcounter.RouteRefCounter) error {
 	return nil
 }
 
+// removeFromRouteTable is a no-op on Android, since VPN routes are handled by the platform VPN API.
 func (r *SysOps) removeFromRouteTable(netip.Prefix, Nexthop) error {
 	return nil
 }

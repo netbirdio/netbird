@@ -227,13 +227,13 @@ func (r *SysOps) CleanupRouting(stateManager *statemanager.Manager, advancedRout
 
 // addToRouteTable installs a route, recovering the outgoing interface from the next hop's zone
 // when the caller supplied a zoned address rather than an interface.
-func (r *SysOps) addToRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
+func (r *SysOps) addToRouteTable(prefix netip.Prefix, nexthop Nexthop) (bool, error) {
 	log.Debugf("Adding route to %s via %s", prefix, nexthop)
 	// if we don't have an interface but a zone, extract the interface index from the zone
 	if nexthop.IP.Zone() != "" && nexthop.Intf == nil {
 		zone, err := strconv.Atoi(nexthop.IP.Zone())
 		if err != nil {
-			return fmt.Errorf("invalid zone: %w", err)
+			return false, fmt.Errorf("invalid zone: %w", err)
 		}
 		nexthop.Intf = &net.Interface{Index: zone}
 	}
@@ -286,7 +286,7 @@ func setupRouteEntry(prefix netip.Prefix, nexthop Nexthop) (*MIB_IPFORWARD_ROW2,
 }
 
 // addRoute adds a route using Windows iphelper APIs
-func addRoute(prefix netip.Prefix, nexthop Nexthop, metric uint32) (err error) {
+func addRoute(prefix netip.Prefix, nexthop Nexthop, metric uint32) (created bool, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("panic in addRoute: %v, stack trace: %s", r, debug.Stack())
@@ -295,16 +295,16 @@ func addRoute(prefix netip.Prefix, nexthop Nexthop, metric uint32) (err error) {
 
 	route, setupErr := newManagedRouteEntry(prefix, nexthop, metric)
 	if setupErr != nil {
-		return setupErr
+		return false, setupErr
 	}
 
 	if err := createIPForwardEntry2(route); err != nil {
 		if errors.Is(err, windows.ERROR_OBJECT_ALREADY_EXISTS) || errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
-			return nil
+			return false, nil
 		}
-		return err
+		return false, err
 	}
-	return nil
+	return true, nil
 }
 
 // newManagedRouteEntry builds a persistent route entry carrying the given metric.
@@ -407,7 +407,7 @@ func createIPForwardEntry2(route *MIB_IPFORWARD_ROW2) error {
 		if e1 != 0 {
 			return fmt.Errorf("CreateIpForwardEntry2: %w", e1)
 		}
-		return fmt.Errorf("CreateIpForwardEntry2: code %d", windows.NTStatus(r1))
+		return fmt.Errorf("CreateIpForwardEntry2: %w", windows.Errno(r1))
 	}
 	return nil
 }
@@ -418,7 +418,7 @@ func deleteIPForwardEntry2(route *MIB_IPFORWARD_ROW2) error {
 		if e1 != 0 {
 			return fmt.Errorf("DeleteIpForwardEntry2: %w", e1)
 		}
-		return fmt.Errorf("DeleteIpForwardEntry2: code %d", r1)
+		return fmt.Errorf("DeleteIpForwardEntry2: %w", windows.Errno(r1))
 	}
 	return nil
 }
@@ -429,7 +429,7 @@ func getIPForwardEntry2(route *MIB_IPFORWARD_ROW2) error {
 		if e1 != 0 {
 			return fmt.Errorf("GetIpForwardEntry2: %w", e1)
 		}
-		return fmt.Errorf("GetIpForwardEntry2: code %d", r1)
+		return fmt.Errorf("GetIpForwardEntry2: %w", windows.Errno(r1))
 	}
 	return nil
 }

@@ -53,7 +53,6 @@ func (r *SysOps) AddVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 	if err := r.genericAddVPNRoute(prefix, intf); err != nil {
 		return err
 	}
-	r.trackInstalledVPNRoute(prefix, intf)
 	return nil
 }
 
@@ -67,7 +66,6 @@ func (r *SysOps) RemoveVPNRoute(prefix netip.Prefix, intf *net.Interface) error 
 	if err := r.genericRemoveVPNRoute(prefix, intf); err != nil {
 		return err
 	}
-	r.takeInstalledVPNRoute(prefix)
 	return nil
 }
 

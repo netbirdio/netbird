@@ -63,6 +63,14 @@ type wgIface interface {
 
 type ExclusionCounter = refcounter.Counter[netip.Prefix, struct{}, Nexthop]
 
+// vpnRouteState tracks an interface and the generation of its mark, so reconciliation
+// can do an atomic compare-and-clear without holding vpnRoutesMu while checking
+// external state like the route refcounter.
+type vpnRouteState struct {
+	intf *net.Interface
+	gen  uint64
+}
+
 type SysOps struct {
 	refCounter  *ExclusionCounter
 	wgInterface wgIface
@@ -93,9 +101,10 @@ type SysOps struct {
 	// route exists and which interface installs it. Guarded by vpnRoutesMu, which must
 	// never be held while acquiring refcounter locks (the add path runs under the
 	// refcounter lock, so nesting the other way would deadlock).
-	installedVPNRoutes  map[netip.Prefix]*net.Interface
-	suppressedVPNRoutes map[netip.Prefix]*net.Interface
+	installedVPNRoutes  map[netip.Prefix]vpnRouteState
+	suppressedVPNRoutes map[netip.Prefix]vpnRouteState
 	vpnRoutesMu         sync.Mutex
+	routeGen            uint64
 	// listInterfaces and interfaceAddrs inject host discovery. Nil means the real
 	// net package calls; tests override them to simulate enumeration failure.
 	listInterfaces func() ([]net.Interface, error)

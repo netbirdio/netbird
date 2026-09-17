@@ -158,7 +158,7 @@ func (r *SysOps) addRouteToNonVPNIntf(prefix netip.Prefix, vpnIntf wgIface, init
 	}
 
 	log.Debugf("Adding a new route for prefix %s with next hop %s", prefix, exitNextHop.IP)
-	if err := r.addToRouteTable(prefix, exitNextHop); err != nil {
+	if _, err := r.addToRouteTable(prefix, exitNextHop); err != nil {
 		return Nexthop{}, fmt.Errorf("add route to table: %w", err)
 	}
 
@@ -222,9 +222,10 @@ func (r *SysOps) trackInstalledVPNRoute(prefix netip.Prefix, intf *net.Interface
 	r.vpnRoutesMu.Lock()
 	defer r.vpnRoutesMu.Unlock()
 	if r.installedVPNRoutes == nil {
-		r.installedVPNRoutes = make(map[netip.Prefix]*net.Interface)
+		r.installedVPNRoutes = make(map[netip.Prefix]vpnRouteState)
 	}
-	r.installedVPNRoutes[prefix] = intf
+	r.routeGen++
+	r.installedVPNRoutes[prefix] = vpnRouteState{intf: intf, gen: r.routeGen}
 	delete(r.suppressedVPNRoutes, prefix)
 }
 
@@ -235,10 +236,11 @@ func (r *SysOps) suppressVPNRoute(prefix netip.Prefix, intf *net.Interface) {
 	r.vpnRoutesMu.Lock()
 	defer r.vpnRoutesMu.Unlock()
 	if r.suppressedVPNRoutes == nil {
-		r.suppressedVPNRoutes = make(map[netip.Prefix]*net.Interface)
+		r.suppressedVPNRoutes = make(map[netip.Prefix]vpnRouteState)
 	}
 	delete(r.installedVPNRoutes, prefix)
-	r.suppressedVPNRoutes[prefix] = intf
+	r.routeGen++
+	r.suppressedVPNRoutes[prefix] = vpnRouteState{intf: intf, gen: r.routeGen}
 }
 
 // unsuppressVPNRoute drops the suppressed mark, e.g. after a verified install.
@@ -246,6 +248,15 @@ func (r *SysOps) unsuppressVPNRoute(prefix netip.Prefix) {
 	r.vpnRoutesMu.Lock()
 	defer r.vpnRoutesMu.Unlock()
 	delete(r.suppressedVPNRoutes, prefix)
+}
+
+// unsuppressVPNRouteIfMatch drops the suppressed mark if it matches the snapshot generation.
+func (r *SysOps) unsuppressVPNRouteIfMatch(prefix netip.Prefix, gen uint64) {
+	r.vpnRoutesMu.Lock()
+	defer r.vpnRoutesMu.Unlock()
+	if state, ok := r.suppressedVPNRoutes[prefix]; ok && state.gen == gen {
+		delete(r.suppressedVPNRoutes, prefix)
+	}
 }
 
 // takeSuppressedVPNRoute clears the suppressed mark and reports whether it was set. A set
@@ -264,12 +275,24 @@ func (r *SysOps) takeSuppressedVPNRoute(prefix netip.Prefix) bool {
 func (r *SysOps) takeInstalledVPNRoute(prefix netip.Prefix) (*net.Interface, bool) {
 	r.vpnRoutesMu.Lock()
 	defer r.vpnRoutesMu.Unlock()
-	intf, ok := r.installedVPNRoutes[prefix]
+	state, ok := r.installedVPNRoutes[prefix]
 	if !ok {
 		return nil, false
 	}
 	delete(r.installedVPNRoutes, prefix)
-	return intf, true
+	return state.intf, true
+}
+
+// takeInstalledVPNRouteIfMatch clears the installed mirror if it matches the snapshot generation.
+func (r *SysOps) takeInstalledVPNRouteIfMatch(prefix netip.Prefix, gen uint64) (*net.Interface, bool) {
+	r.vpnRoutesMu.Lock()
+	defer r.vpnRoutesMu.Unlock()
+	state, ok := r.installedVPNRoutes[prefix]
+	if !ok || state.gen != gen {
+		return nil, false
+	}
+	delete(r.installedVPNRoutes, prefix)
+	return state.intf, true
 }
 
 // isSuppressedVPNRoute reports whether the prefix is currently withheld.
@@ -282,16 +305,16 @@ func (r *SysOps) isSuppressedVPNRoute(prefix netip.Prefix) bool {
 
 // vpnRoutesSnapshot copies both guard sets so reconciliation can act on them without holding
 // the mirror mutex while calling into route programming or the refcounter.
-func (r *SysOps) vpnRoutesSnapshot() (map[netip.Prefix]*net.Interface, map[netip.Prefix]*net.Interface) {
+func (r *SysOps) vpnRoutesSnapshot() (map[netip.Prefix]vpnRouteState, map[netip.Prefix]vpnRouteState) {
 	r.vpnRoutesMu.Lock()
 	defer r.vpnRoutesMu.Unlock()
-	installed := make(map[netip.Prefix]*net.Interface, len(r.installedVPNRoutes))
-	for prefix, intf := range r.installedVPNRoutes {
-		installed[prefix] = intf
+	installed := make(map[netip.Prefix]vpnRouteState, len(r.installedVPNRoutes))
+	for prefix, state := range r.installedVPNRoutes {
+		installed[prefix] = state
 	}
-	suppressed := make(map[netip.Prefix]*net.Interface, len(r.suppressedVPNRoutes))
-	for prefix, intf := range r.suppressedVPNRoutes {
-		suppressed[prefix] = intf
+	suppressed := make(map[netip.Prefix]vpnRouteState, len(r.suppressedVPNRoutes))
+	for prefix, state := range r.suppressedVPNRoutes {
+		suppressed[prefix] = state
 	}
 	return installed, suppressed
 }
@@ -328,36 +351,36 @@ func (r *SysOps) ReconcileLocalSubnets(counter *refcounter.RouteRefCounter) erro
 	installed, suppressed := r.vpnRoutesSnapshot()
 
 	var merr *multierror.Error
-	for prefix, intf := range installed {
+	for prefix, state := range installed {
 		if _, ok := counter.Get(prefix); !ok {
-			r.takeInstalledVPNRoute(prefix)
+			r.takeInstalledVPNRouteIfMatch(prefix, state.gen)
 			continue
 		}
-		if _, overlap, _ := r.localSubnetOverlap(prefix); !overlap {
+		if _, overlap, healthy := r.localSubnetOverlap(prefix); !healthy || !overlap {
 			continue
 		}
-		if err := r.removeTableRoute(prefix, intf); err != nil {
+		if err := r.removeTableRoute(prefix, state.intf); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("remove shadowing route %s: %w", prefix, err))
 			continue
 		}
-		r.suppressVPNRoute(prefix, intf)
+		r.suppressVPNRoute(prefix, state.intf)
 	}
 
-	for prefix, intf := range suppressed {
+	for prefix, state := range suppressed {
 		if _, ok := counter.Get(prefix); !ok {
-			r.unsuppressVPNRoute(prefix)
+			r.unsuppressVPNRouteIfMatch(prefix, state.gen)
 			continue
 		}
-		if _, overlap, _ := r.localSubnetOverlap(prefix); overlap {
+		if _, overlap, healthy := r.localSubnetOverlap(prefix); !healthy || overlap {
 			continue
 		}
-		if err := r.installTableRoute(prefix, intf); err != nil {
+		if err := r.installTableRoute(prefix, state.intf); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("reinstall route %s: %w", prefix, err))
 			continue
 		}
-		r.trackInstalledVPNRoute(prefix, intf)
+		r.trackInstalledVPNRoute(prefix, state.intf)
 		if _, ok := counter.Get(prefix); !ok {
-			if err := r.removeTableRoute(prefix, intf); err != nil {
+			if err := r.removeTableRoute(prefix, state.intf); err != nil {
 				merr = multierror.Append(merr, fmt.Errorf("roll back orphaned route %s: %w", prefix, err))
 				continue
 			}
@@ -546,14 +569,26 @@ func (r *SysOps) genericAddVPNRoute(prefix netip.Prefix, intf *net.Interface) er
 
 	switch prefix {
 	case vars.Defaultv4:
-		if err := r.addToRouteTable(splitDefaultv4_1, nextHop); err != nil {
+		created1, err := r.addToRouteTable(splitDefaultv4_1, nextHop)
+		if err != nil {
 			return err
 		}
-		if err := r.addToRouteTable(splitDefaultv4_2, nextHop); err != nil {
-			if err2 := r.removeFromRouteTable(splitDefaultv4_1, nextHop); err2 != nil {
-				log.Warnf("Failed to rollback route addition: %s", err2)
+		if created1 {
+			r.trackInstalledVPNRoute(splitDefaultv4_1, intf)
+		}
+
+		created2, err := r.addToRouteTable(splitDefaultv4_2, nextHop)
+		if err != nil {
+			if created1 {
+				if err2 := r.removeFromRouteTable(splitDefaultv4_1, nextHop); err2 != nil {
+					log.Warnf("Failed to rollback route addition: %s", err2)
+				}
+				r.takeInstalledVPNRoute(splitDefaultv4_1)
 			}
 			return err
+		}
+		if created2 {
+			r.trackInstalledVPNRoute(splitDefaultv4_2, intf)
 		}
 
 		// When the interface has no v6, add v6 split-default as blackhole so
@@ -572,7 +607,14 @@ func (r *SysOps) genericAddVPNRoute(prefix netip.Prefix, intf *net.Interface) er
 		return r.addV6SplitDefault(nextHop)
 	}
 
-	return r.addToRouteTable(prefix, nextHop)
+	created, err := r.addToRouteTable(prefix, nextHop)
+	if err != nil {
+		return err
+	}
+	if created {
+		r.trackInstalledVPNRoute(prefix, intf)
+	}
+	return nil
 }
 
 // genericRemoveVPNRoute removes the route from the vpn interface. If a default prefix is given,
@@ -583,11 +625,15 @@ func (r *SysOps) genericRemoveVPNRoute(prefix netip.Prefix, intf *net.Interface)
 	switch prefix {
 	case vars.Defaultv4:
 		var result *multierror.Error
-		if err := r.removeFromRouteTable(splitDefaultv4_1, nextHop); err != nil {
-			result = multierror.Append(result, err)
+		if _, ok := r.takeInstalledVPNRoute(splitDefaultv4_1); ok {
+			if err := r.removeFromRouteTable(splitDefaultv4_1, nextHop); err != nil {
+				result = multierror.Append(result, err)
+			}
 		}
-		if err := r.removeFromRouteTable(splitDefaultv4_2, nextHop); err != nil {
-			result = multierror.Append(result, err)
+		if _, ok := r.takeInstalledVPNRoute(splitDefaultv4_2); ok {
+			if err := r.removeFromRouteTable(splitDefaultv4_2, nextHop); err != nil {
+				result = multierror.Append(result, err)
+			}
 		}
 
 		if !r.wgInterface.Address().HasIPv6() {
@@ -598,30 +644,49 @@ func (r *SysOps) genericRemoveVPNRoute(prefix netip.Prefix, intf *net.Interface)
 	case vars.Defaultv6:
 		return nberrors.FormatErrorOrNil(r.removeV6SplitDefault(nextHop))
 	default:
-		return r.removeFromRouteTable(prefix, nextHop)
+		if _, ok := r.takeInstalledVPNRoute(prefix); ok {
+			return r.removeFromRouteTable(prefix, nextHop)
+		}
+		return nil
 	}
 }
 
 func (r *SysOps) addV6SplitDefault(nextHop Nexthop) error {
-	if err := r.addToRouteTable(splitDefaultv6_1, nextHop); err != nil {
+	created1, err := r.addToRouteTable(splitDefaultv6_1, nextHop)
+	if err != nil {
 		return fmt.Errorf("add split 1: %w", err)
 	}
-	if err := r.addToRouteTable(splitDefaultv6_2, nextHop); err != nil {
-		if err2 := r.removeFromRouteTable(splitDefaultv6_1, nextHop); err2 != nil {
-			log.Warnf("Failed to rollback v6 split-default: %s", err2)
+	if created1 {
+		r.trackInstalledVPNRoute(splitDefaultv6_1, nextHop.Intf)
+	}
+
+	created2, err := r.addToRouteTable(splitDefaultv6_2, nextHop)
+	if err != nil {
+		if created1 {
+			if err2 := r.removeFromRouteTable(splitDefaultv6_1, nextHop); err2 != nil {
+				log.Warnf("Failed to rollback v6 split-default: %s", err2)
+			}
+			r.takeInstalledVPNRoute(splitDefaultv6_1)
 		}
 		return fmt.Errorf("add split 2: %w", err)
+	}
+	if created2 {
+		r.trackInstalledVPNRoute(splitDefaultv6_2, nextHop.Intf)
 	}
 	return nil
 }
 
 func (r *SysOps) removeV6SplitDefault(nextHop Nexthop) *multierror.Error {
 	var result *multierror.Error
-	if err := r.removeFromRouteTable(splitDefaultv6_1, nextHop); err != nil {
-		result = multierror.Append(result, err)
+	if _, ok := r.takeInstalledVPNRoute(splitDefaultv6_1); ok {
+		if err := r.removeFromRouteTable(splitDefaultv6_1, nextHop); err != nil {
+			result = multierror.Append(result, err)
+		}
 	}
-	if err := r.removeFromRouteTable(splitDefaultv6_2, nextHop); err != nil {
-		result = multierror.Append(result, err)
+	if _, ok := r.takeInstalledVPNRoute(splitDefaultv6_2); ok {
+		if err := r.removeFromRouteTable(splitDefaultv6_2, nextHop); err != nil {
+			result = multierror.Append(result, err)
+		}
 	}
 	return result
 }

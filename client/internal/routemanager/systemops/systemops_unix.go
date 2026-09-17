@@ -123,38 +123,47 @@ func (r *SysOps) FlushMarkedRoutes() error {
 	return nberrors.FormatErrorOrNil(merr)
 }
 
-func (r *SysOps) addToRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
+// addToRouteTable installs a new route into the system routing table.
+func (r *SysOps) addToRouteTable(prefix netip.Prefix, nexthop Nexthop) (bool, error) {
+	return r.routeSocketAdd(prefix, nexthop)
+}
+
+// removeFromRouteTable removes an existing route from the system routing table.
+func (r *SysOps) removeFromRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
+	_, err := r.routeSocket(unix.RTM_DELETE, prefix, nexthop)
+	return err
+}
+
+// routeSocketAdd invokes routeSocket with the addition action.
+func (r *SysOps) routeSocketAdd(prefix netip.Prefix, nexthop Nexthop) (bool, error) {
 	return r.routeSocket(unix.RTM_ADD, prefix, nexthop)
 }
 
-func (r *SysOps) removeFromRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
-	return r.routeSocket(unix.RTM_DELETE, prefix, nexthop)
-}
-
-func (r *SysOps) routeSocket(action int, prefix netip.Prefix, nexthop Nexthop) error {
+// routeSocket interacts with the routing socket to perform the specified action.
+func (r *SysOps) routeSocket(action int, prefix netip.Prefix, nexthop Nexthop) (bool, error) {
 	if !prefix.IsValid() {
-		return fmt.Errorf("invalid prefix: %s", prefix)
+		return false, fmt.Errorf("invalid prefix: %s", prefix)
 	}
 
 	msg, err := r.buildRouteMessage(action, prefix, nexthop)
 	if err != nil {
-		return fmt.Errorf("build route message: %w", err)
+		return false, fmt.Errorf("build route message: %w", err)
 	}
 
 	if err := r.writeRouteMessage(msg, routeBudget); err != nil {
 		if action == unix.RTM_ADD && errors.Is(err, syscall.EEXIST) {
-			return nil
+			return false, nil
 		}
 		if action == unix.RTM_DELETE && (errors.Is(err, syscall.ESRCH) || errors.Is(err, syscall.ENOENT)) {
-			return nil
+			return false, nil
 		}
 		a := "add"
 		if action == unix.RTM_DELETE {
 			a = "remove"
 		}
-		return fmt.Errorf("%s route for %s: %w", a, prefix, err)
+		return false, fmt.Errorf("%s route for %s: %w", a, prefix, err)
 	}
-	return nil
+	return true, nil
 }
 
 // writeRouteMessage sends a route message over AF_ROUTE and waits for the

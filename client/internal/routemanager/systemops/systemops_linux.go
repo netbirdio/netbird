@@ -164,10 +164,12 @@ func (r *SysOps) CleanupRouting(stateManager *statemanager.Manager, advancedRout
 	return nberrors.FormatErrorOrNil(result)
 }
 
-func (r *SysOps) addToRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
+// addToRouteTable adds a route for a given prefix and next hop to the main routing table.
+func (r *SysOps) addToRouteTable(prefix netip.Prefix, nexthop Nexthop) (bool, error) {
 	return addRoute(prefix, nexthop, syscall.RT_TABLE_MAIN)
 }
 
+// removeFromRouteTable removes a route for a given prefix and next hop from the main routing table.
 func (r *SysOps) removeFromRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
 	return removeRoute(prefix, nexthop, syscall.RT_TABLE_MAIN)
 }
@@ -202,7 +204,6 @@ func (r *SysOps) AddVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 		if err := r.genericAddVPNRoute(prefix, intf); err != nil {
 			return err
 		}
-		r.trackInstalledVPNRoute(prefix, intf)
 		return nil
 	}
 
@@ -237,7 +238,6 @@ func (r *SysOps) RemoveVPNRoute(prefix netip.Prefix, intf *net.Interface) error 
 		if err := r.genericRemoveVPNRoute(prefix, intf); err != nil {
 			return err
 		}
-		r.takeInstalledVPNRoute(prefix)
 		return nil
 	}
 
@@ -674,7 +674,7 @@ func ruleActionToString(action int) string {
 }
 
 // addRoute adds a route to a specific routing table identified by tableID.
-func addRoute(prefix netip.Prefix, nexthop Nexthop, tableID int) error {
+func addRoute(prefix netip.Prefix, nexthop Nexthop, tableID int) (bool, error) {
 	route := &netlink.Route{
 		Scope:  netlink.SCOPE_UNIVERSE,
 		Table:  tableID,
@@ -683,19 +683,24 @@ func addRoute(prefix netip.Prefix, nexthop Nexthop, tableID int) error {
 
 	_, ipNet, err := net.ParseCIDR(prefix.String())
 	if err != nil {
-		return fmt.Errorf(errParsePrefixMsg, prefix, err)
+		return false, fmt.Errorf(errParsePrefixMsg, prefix, err)
 	}
 	route.Dst = ipNet
 
 	if err := addNextHop(nexthop, route); err != nil {
-		return fmt.Errorf("add gateway and device: %w", err)
+		return false, fmt.Errorf("add gateway and device: %w", err)
 	}
 
-	if err := netlink.RouteAdd(route); err != nil && !isOpErr(err) && !errors.Is(err, syscall.EEXIST) {
-		return fmt.Errorf("netlink add route: %w", err)
+	if err := netlink.RouteAdd(route); err != nil {
+		if errors.Is(err, syscall.EEXIST) {
+			return false, nil
+		}
+		if !isOpErr(err) {
+			return false, fmt.Errorf("netlink add route: %w", err)
+		}
 	}
 
-	return nil
+	return true, nil
 }
 
 // addUnreachableRoute adds an unreachable route for the specified IP family and routing table.

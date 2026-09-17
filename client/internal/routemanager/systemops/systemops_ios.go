@@ -61,6 +61,7 @@ func (r *SysOps) notify() {
 	r.notifier.OnNewPrefixes(prefixes)
 }
 
+// removeFromRouteTable is a no-op on iOS, since VPN routes are handled by the platform VPN API.
 func (r *SysOps) removeFromRouteTable(netip.Prefix, Nexthop) error {
 	return nil
 }
