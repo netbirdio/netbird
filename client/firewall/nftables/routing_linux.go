@@ -79,7 +79,7 @@ func (r *family) AddNatRule(pair firewall.RouterPair) error {
 	queued := r.pendingForExprs(legacyExprs, natExprs, inverseExprs)
 	if err := r.conn.Flush(); err != nil {
 		r.discardPendingSets(r.pendingAddedSince(pendingBefore))
-		r.rollbackRules(pair)
+		r.rollbackRules(queuedIDs)
 		return fmt.Errorf("insert rules for %s: %w", pair.Destination, err)
 	}
 	if err := r.commitOverflowOrRollback(queued, func() bool {
@@ -91,14 +91,11 @@ func (r *family) AddNatRule(pair firewall.RouterPair) error {
 	return nil
 }
 
-// rollbackRules cleans up unflushed rules and their set counters after a flush failure.
-func (r *family) rollbackRules(pair firewall.RouterPair) {
-	keys := []firewall.RuleID{
-		pair.GenKey(firewall.ForwardingFormat),
-		pair.GenKey(firewall.PreroutingFormat),
-		firewall.GetInversePair(pair).GenKey(firewall.PreroutingFormat),
-	}
-	for _, key := range keys {
+// rollbackRules untracks NAT/legacy rules queued in this AddNatRule after
+// conn.Flush failed. The kernel batch did not land, so only these entries
+// should be dropped; a skipped replacement must keep the previous live rule.
+func (r *family) rollbackRules(ids []firewall.RuleID) {
+	for _, key := range ids {
 		rule, ok := r.rules[key]
 		if !ok {
 			continue

@@ -38,12 +38,8 @@ func (r *family) AddFilterRule(
 
 	ruleID := nbid.GenerateRuleID(sources, destination, proto, sPort, dPort, action)
 	if existing, ok := r.filters[ruleID]; ok {
-		if existing.nftRule != nil {
-			if names := r.pendingForExprs(existing.nftRule.Exprs); len(names) > 0 {
-				if err := r.commitPendingSets(names); err != nil {
-					return nil, fmt.Errorf("add remaining ipset elements: %w", err)
-				}
-			}
+		if err := r.finishIncompleteFilter(existing, proto, sPort, dPort, isRoute); err != nil {
+			return nil, err
 		}
 		return existing, nil
 	}
@@ -136,6 +132,33 @@ func (r *family) AddFilterRule(
 	log.Debugf("added filter rule: sources=%v, destination=%v, proto=%v, sPort=%v, dPort=%v, action=%v",
 		sources, destination, proto, sPort, dPort, action)
 	return rule, nil
+}
+
+// finishIncompleteFilter completes a rule that landed in the kernel but
+// whose overflow commit (and therefore prerouting pair) did not. The
+// retry must install the redirect-mark mangle before reporting success.
+func (r *family) finishIncompleteFilter(
+	existing *Rule,
+	proto firewall.Protocol,
+	sPort, dPort *firewall.Port,
+	isRoute bool,
+) error {
+	if existing.nftRule != nil {
+		if names := r.pendingForExprs(existing.nftRule.Exprs); len(names) > 0 {
+			if err := r.commitPendingSets(names); err != nil {
+				return fmt.Errorf("add remaining ipset elements: %w", err)
+			}
+		}
+	}
+	if existing.mangleRule != nil || isRoute {
+		return nil
+	}
+	var srcExprs []expr.Any
+	if existing.nftRule != nil {
+		srcExprs = namedLookups(existing.nftRule.Exprs)
+	}
+	existing.mangleRule = r.flushPreroutingPair(srcExprs, proto, sPort, dPort, []byte(existing.id), false)
+	return nil
 }
 
 // rollbackQueuedNetwork commits any named sets already queued on conn so
@@ -357,6 +380,7 @@ func (r *family) DeleteFilterRule(rule firewall.Rule) error {
 			return err
 		}
 		r.dropNetworkMatch(pr.nftRule.Exprs)
+		r.discardPendingSets(r.pendingForExprs(pr.nftRule.Exprs))
 		delete(r.filters, ruleID)
 		return nil
 	}
@@ -370,6 +394,7 @@ func (r *family) DeleteFilterRule(rule firewall.Rule) error {
 	}
 
 	r.dropNetworkMatch(pr.nftRule.Exprs)
+	r.discardPendingSets(r.pendingForExprs(pr.nftRule.Exprs))
 	delete(r.filters, ruleID)
 	return nil
 }
@@ -651,4 +676,16 @@ func findSets(rule *nftables.Rule) []string {
 		}
 	}
 	return sets
+}
+
+func namedLookups(exprs []expr.Any) []expr.Any {
+	var lookups []expr.Any
+	for _, e := range exprs {
+		lookup, ok := e.(*expr.Lookup)
+		if !ok || lookup.SetName == "" {
+			continue
+		}
+		lookups = append(lookups, lookup)
+	}
+	return lookups
 }

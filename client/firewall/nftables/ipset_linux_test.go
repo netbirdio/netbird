@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 )
 
@@ -254,4 +255,34 @@ func TestRollbackFlushedFilterRuleKeepsRefsIfDeleteFails(t *testing.T) {
 	ref, ok := r.ipsetCounter.Get("s")
 	require.True(t, ok)
 	assert.Equal(t, 1, ref.Count)
+}
+
+func TestNamedLookups(t *testing.T) {
+	got := namedLookups([]expr.Any{
+		&expr.Payload{},
+		&expr.Lookup{SetName: "s"},
+		&expr.Verdict{Kind: expr.VerdictAccept},
+	})
+	require.Len(t, got, 1)
+	assert.Equal(t, "s", got[0].(*expr.Lookup).SetName)
+}
+
+func TestFinishIncompleteFilterCommitsPending(t *testing.T) {
+	flushed := 0
+	r := &family{
+		sConn:              &nftables.Conn{},
+		pendingSetElements: map[string]pendingSetUpdate{"s": pendingUpdate("s")},
+		testPendingFlush: func() error {
+			flushed++
+			return nil
+		},
+	}
+	existing := &Rule{
+		id:      "rule",
+		nftRule: &nftables.Rule{Exprs: []expr.Any{&expr.Lookup{SetName: "s"}}},
+	}
+
+	require.NoError(t, r.finishIncompleteFilter(existing, firewall.ProtocolTCP, nil, nil, false))
+	assert.Equal(t, 1, flushed)
+	assert.Empty(t, r.pendingSetElements)
 }
