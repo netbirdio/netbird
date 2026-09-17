@@ -127,7 +127,7 @@ func (h *handler) validateNetworkRange(ctx context.Context, accountID, userID st
 }
 
 func (h *handler) validateCapacity(ctx context.Context, accountID, userID string, prefix netip.Prefix) error {
-	peers, err := h.accountManager.GetPeers(ctx, accountID, userID, "", "")
+	peers, err := h.accountManager.GetPeers(ctx, accountID, userID, "", "", "")
 	if err != nil {
 		return status.Errorf(status.Internal, "get peer count: %v", err)
 	}

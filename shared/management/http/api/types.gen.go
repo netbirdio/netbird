@@ -3826,6 +3826,15 @@ type Network struct {
 	RoutingPeersCount int `json:"routing_peers_count"`
 }
 
+// NetworkAddress defines model for NetworkAddress.
+type NetworkAddress struct {
+	// Mac MAC address of the interface
+	Mac string `json:"mac"`
+
+	// NetIp IP address with CIDR of the interface
+	NetIp string `json:"net_ip"`
+}
+
 // NetworkRequest defines model for NetworkRequest.
 type NetworkRequest struct {
 	// Description Network description
@@ -4275,6 +4284,9 @@ type Peer struct {
 	// Name Peer's hostname
 	Name string `json:"name"`
 
+	// NetworkAddresses Network interfaces (IP + MAC) reported by the peer
+	NetworkAddresses *[]NetworkAddress `json:"network_addresses,omitempty"`
+
 	// Os Peer's operating system and version
 	Os string `json:"os"`
 
@@ -4368,6 +4380,9 @@ type PeerBatch struct {
 
 	// Name Peer's hostname
 	Name string `json:"name"`
+
+	// NetworkAddresses Network interfaces (IP + MAC) reported by the peer
+	NetworkAddresses *[]NetworkAddress `json:"network_addresses,omitempty"`
 
 	// Os Peer's operating system and version
 	Os string `json:"os"`
@@ -6291,6 +6306,9 @@ type GetApiPeersParams struct {
 
 	// Ip Filter peers by IP address
 	Ip *string `form:"ip,omitempty" json:"ip,omitempty"`
+
+	// Mac Filter peers by MAC address of a network interface
+	Mac *string `form:"mac,omitempty" json:"mac,omitempty"`
 }
 
 // GetApiPeersPeerIdIngressPortsParams defines parameters for GetApiPeersPeerIdIngressPorts.
