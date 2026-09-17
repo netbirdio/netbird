@@ -79,6 +79,8 @@ type Config struct {
 	// surface. Empty disables the health probe entirely (library callers
 	// can attach their own).
 	HealthAddr string
+	// The number of 'engine not started' errors to trigger liveness check failure
+	EngineNotStartedErrLimit uint16
 
 	// ForwardedProto overrides the X-Forwarded-Proto value sent to
 	// backends. Valid values: "auto", "http", "https".
@@ -157,6 +159,7 @@ func New(ctx context.Context, cfg Config) *Server {
 		DebugEndpointEnabled:     cfg.DebugEndpointEnabled,
 		DebugEndpointAddress:     cfg.DebugEndpointAddress,
 		HealthAddress:            cfg.HealthAddr,
+		EngineNotStartedErrLimit: cfg.EngineNotStartedErrLimit,
 		ForwardedProto:           cfg.ForwardedProto,
 		TrustedProxies:           cfg.TrustedProxies,
 		WireguardPort:            cfg.WireguardPort,

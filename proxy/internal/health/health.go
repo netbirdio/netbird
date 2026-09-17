@@ -44,6 +44,8 @@ type Checker struct {
 	// checkHealth checks the health of a single client.
 	// Defaults to checkClientHealth; overridable in tests.
 	checkHealth func(*embed.Client) ClientHealth
+
+	engineNotStartedErrLimit uint16
 }
 
 // ClientHealth represents the health status of a single NetBird client.
@@ -158,6 +160,7 @@ func (c *Checker) CheckClientsConnected(ctx context.Context) (bool, map[types.Ac
 // LivenessProbe returns true if the process is alive.
 // This should always return true if we can respond.
 func (c *Checker) LivenessProbe() bool {
+
 	return true
 }
 
@@ -300,15 +303,16 @@ func (s *Server) Shutdown(ctx context.Context) error {
 }
 
 // NewChecker creates a new health checker.
-func NewChecker(logger *log.Logger, provider clientProvider) *Checker {
+func NewChecker(logger *log.Logger, provider clientProvider, engineNotStartedErrLimit uint16) *Checker {
 	if logger == nil {
 		logger = log.StandardLogger()
 	}
 	return &Checker{
-		logger:      logger,
-		provider:    provider,
-		checkSem:    make(chan struct{}, maxConcurrentChecks),
-		checkHealth: checkClientHealth,
+		logger:                   logger,
+		provider:                 provider,
+		checkSem:                 make(chan struct{}, maxConcurrentChecks),
+		checkHealth:              checkClientHealth,
+		engineNotStartedErrLimit: engineNotStartedErrLimit,
 	}
 }
 
