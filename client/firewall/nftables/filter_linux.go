@@ -135,34 +135,55 @@ func (r *family) rollbackQueuedNetwork(exprs []expr.Any, queued []string) {
 
 // rollbackFlushedFilterRule deletes a filter rule that already landed in the
 // kernel after conn.Flush, then drops the ipset refs so a partial source set
-// is not left live. The rule is not yet tracked in r.filters.
+// is not left live. The rule is not yet tracked in r.filters. Refs are
+// dropped only after the kernel delete commits; otherwise the live rule
+// would point at a set the counter already released.
 func (r *family) rollbackFlushedFilterRule(nftRule *nftables.Rule, exprs []expr.Any) {
-	if nftRule != nil && nftRule.Chain != nil && r.workTable != nil {
-		toDelete := nftRule
-		if nftRule.Handle == 0 {
-			list, err := r.conn.GetRules(r.workTable, nftRule.Chain)
-			if err != nil {
-				log.Errorf("list rules for overflow rollback: %v", err)
-			} else {
-				for _, rule := range list {
-					if string(rule.UserData) == string(nftRule.UserData) {
-						toDelete = rule
-						break
-					}
-				}
-			}
+	if r.deleteFlushedRule(nftRule) {
+		r.dropNetworkMatch(exprs)
+		return
+	}
+	log.Errorf("overflow rollback: leaving ipset refs because the filter rule may still be in the kernel")
+}
+
+// deleteFlushedRule removes a rule that is already in the kernel. It looks
+// the handle up by UserData when Flush did not populate it. False means the
+// delete did not commit, so callers must not drop tracking or set refs.
+func (r *family) deleteFlushedRule(nftRule *nftables.Rule) bool {
+	if nftRule == nil || nftRule.Chain == nil || r.workTable == nil {
+		return false
+	}
+	toDelete := nftRule
+	if nftRule.Handle == 0 {
+		list, err := r.conn.GetRules(r.workTable, nftRule.Chain)
+		if err != nil {
+			log.Errorf("list rules for overflow rollback: %v", err)
+			return false
 		}
-		if toDelete.Handle != 0 {
-			if err := r.conn.DelRule(toDelete); err != nil {
-				log.Errorf("queue overflow rollback delete: %v", err)
-			} else if err := r.conn.Flush(); err != nil {
-				log.Errorf("flush overflow rollback delete: %v", err)
+		for _, rule := range list {
+			if string(rule.UserData) == string(nftRule.UserData) {
+				toDelete = rule
+				break
 			}
-		} else {
-			log.Errorf("overflow rollback: filter rule has no handle, kernel rule may leak")
 		}
 	}
-	r.dropNetworkMatch(exprs)
+	if toDelete.Handle == 0 {
+		log.Errorf("overflow rollback: filter rule has no handle")
+		return false
+	}
+	var err error
+	for attempt := 1; attempt <= pendingSetCommitAttempts; attempt++ {
+		if err = r.conn.DelRule(toDelete); err != nil {
+			log.Errorf("queue overflow rollback delete attempt %d/%d: %v", attempt, pendingSetCommitAttempts, err)
+			continue
+		}
+		if err = r.conn.Flush(); err != nil {
+			log.Errorf("flush overflow rollback delete attempt %d/%d: %v", attempt, pendingSetCommitAttempts, err)
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 // flushPreroutingPair installs the prerouting mangle counterpart after

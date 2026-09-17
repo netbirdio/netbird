@@ -61,12 +61,19 @@ func (r *family) AddNatRule(pair firewall.RouterPair) error {
 		}
 	}
 
+	var queuedIDs []firewall.RuleID
 	if legacyExprs != nil {
-		r.queueLegacyRouteRule(pair, legacyExprs)
+		if id, ok := r.queueLegacyRouteRule(pair, legacyExprs); ok {
+			queuedIDs = append(queuedIDs, id)
+		}
 	}
 	if pair.Masquerade {
-		r.queueNatRule(pair, natExprs)
-		r.queueNatRule(inverse, inverseExprs)
+		if id, ok := r.queueNatRule(pair, natExprs); ok {
+			queuedIDs = append(queuedIDs, id)
+		}
+		if id, ok := r.queueNatRule(inverse, inverseExprs); ok {
+			queuedIDs = append(queuedIDs, id)
+		}
 	}
 
 	queued := r.pendingAddedSince(pendingBefore)
@@ -76,7 +83,7 @@ func (r *family) AddNatRule(pair firewall.RouterPair) error {
 		return fmt.Errorf("insert rules for %s: %w", pair.Destination, err)
 	}
 	if err := r.commitOverflowOrRollback(queued, func() {
-		r.rollbackFlushedNat(pair)
+		r.rollbackFlushedNat(queuedIDs)
 	}); err != nil {
 		return err
 	}
@@ -103,37 +110,44 @@ func (r *family) rollbackRules(pair firewall.RouterPair) {
 	}
 }
 
-// rollbackFlushedNat removes NAT/legacy rules that already landed in the
-// kernel after a successful conn.Flush, then drops their ipset refs. This
-// is the overflow-failure path: untracking alone would leak kernel rules
-// because the route manager never recorded a successful add.
-func (r *family) rollbackFlushedNat(pair firewall.RouterPair) {
+// rollbackFlushedNat removes NAT/legacy rules that this AddNatRule
+// invocation queued and that already landed after conn.Flush, then drops
+// their ipset refs. Keys are the rules actually queued: a failed
+// replacement must not delete the previous live rule that queueNatRule
+// left tracked. Untracking alone would leak kernel rules because the
+// route manager never recorded a successful add.
+func (r *family) rollbackFlushedNat(ids []firewall.RuleID) {
+	if len(ids) == 0 {
+		return
+	}
 	if err := r.refreshRulesMap(); err != nil {
 		log.Errorf("refresh rules for overflow rollback: %v", err)
 	}
 
-	keys := []firewall.RuleID{
-		pair.GenKey(firewall.ForwardingFormat),
-		pair.GenKey(firewall.PreroutingFormat),
-		firewall.GetInversePair(pair).GenKey(firewall.PreroutingFormat),
-	}
-	for _, key := range keys {
+	var toDrop []firewall.RuleID
+	for _, key := range ids {
 		rule, ok := r.rules[key]
 		if !ok {
 			continue
 		}
-		if rule.Handle != 0 {
-			if err := r.conn.DelRule(rule); err != nil {
-				log.Errorf("queue overflow rollback delete %s: %v", key, err)
-			}
-		} else {
-			log.Errorf("overflow rollback: nat rule %s has no handle, kernel rule may leak", key)
+		if rule.Handle == 0 {
+			log.Errorf("overflow rollback: nat rule %s has no handle, leaving it tracked", key)
+			continue
 		}
+		if err := r.conn.DelRule(rule); err != nil {
+			log.Errorf("queue overflow rollback delete %s: %v", key, err)
+			continue
+		}
+		toDrop = append(toDrop, key)
+	}
+	if len(toDrop) == 0 {
+		return
 	}
 	if err := r.conn.Flush(); err != nil {
 		log.Errorf("flush nat overflow rollback: %v", err)
+		return
 	}
-	for _, key := range keys {
+	for _, key := range toDrop {
 		rule, ok := r.rules[key]
 		if !ok {
 			continue
@@ -207,7 +221,7 @@ func (r *family) natRuleExprs(pair firewall.RouterPair) ([]expr.Any, error) {
 // prerouting marking rule on the connection. Failures are logged rather than
 // returned: the caller has already queued messages that only a Flush can
 // commit, so it must not return early.
-func (r *family) queueNatRule(pair firewall.RouterPair, exprs []expr.Any) {
+func (r *family) queueNatRule(pair firewall.RouterPair, exprs []expr.Any) (firewall.RuleID, bool) {
 	ruleID := pair.GenKey(firewall.PreroutingFormat)
 
 	if _, exists := r.rules[ruleID]; exists {
@@ -218,7 +232,7 @@ func (r *family) queueNatRule(pair firewall.RouterPair, exprs []expr.Any) {
 			// it lets the next update retry the whole replacement.
 			log.Errorf("replace prerouting rule %s: %v", ruleID, err)
 			r.dropNetworkMatch(exprs)
-			return
+			return ruleID, false
 		}
 	}
 
@@ -230,6 +244,7 @@ func (r *family) queueNatRule(pair firewall.RouterPair, exprs []expr.Any) {
 		Exprs:    exprs,
 		UserData: []byte(ruleID),
 	})
+	return ruleID, true
 }
 
 func (r *family) addPostroutingRules() {
@@ -415,7 +430,7 @@ func (r *family) legacyRouteRuleExprs(pair firewall.RouterPair) ([]expr.Any, err
 // queueLegacyRouteRule replaces any tracked rule for the pair and queues the
 // new legacy forwarding rule. Failures are logged for the same reason as in
 // queueNatRule.
-func (r *family) queueLegacyRouteRule(pair firewall.RouterPair, exprs []expr.Any) {
+func (r *family) queueLegacyRouteRule(pair firewall.RouterPair, exprs []expr.Any) (firewall.RuleID, bool) {
 	ruleID := pair.GenKey(firewall.ForwardingFormat)
 
 	if _, exists := r.rules[ruleID]; exists {
@@ -423,7 +438,7 @@ func (r *family) queueLegacyRouteRule(pair firewall.RouterPair, exprs []expr.Any
 			// Keep the old rule tracked instead of losing it, as in queueNatRule.
 			log.Errorf("replace legacy forwarding rule %s: %v", ruleID, err)
 			r.dropNetworkMatch(exprs)
-			return
+			return ruleID, false
 		}
 	}
 
@@ -433,6 +448,7 @@ func (r *family) queueLegacyRouteRule(pair firewall.RouterPair, exprs []expr.Any
 		Exprs:    exprs,
 		UserData: []byte(ruleID),
 	})
+	return ruleID, true
 }
 
 // removeLegacyRouteRule removes a legacy routing rule for mgmt servers pre route acls

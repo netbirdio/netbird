@@ -6,8 +6,11 @@ import (
 	"testing"
 
 	"github.com/google/nftables"
+	"github.com/google/nftables/expr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 )
 
 // TestConvertPrefixesToSetWildcard verifies that a /0 prefix produces a
@@ -173,4 +176,52 @@ func TestCommitOverflowOrRollbackEmptyQueued(t *testing.T) {
 	assert.False(t, rolled)
 	_, keep := r.pendingSetElements["keep"]
 	assert.True(t, keep)
+}
+
+func TestAddElementBatchesReturnsUncommittedSuffix(t *testing.T) {
+	elements := make([]nftables.SetElement, 6)
+	for i := range elements {
+		elements[i] = nftables.SetElement{Key: []byte{byte(i)}}
+	}
+
+	flushes := 0
+	r := &family{
+		sConn: &nftables.Conn{},
+		testPendingFlush: func() error {
+			flushes++
+			if flushes == 2 {
+				return fmt.Errorf("netlink busy")
+			}
+			return nil
+		},
+	}
+
+	left, err := r.addElementBatches(&nftables.Set{Name: "s"}, elements, 2)
+	require.Error(t, err)
+	assert.Equal(t, 2, flushes)
+	require.Len(t, left, 4, "retry must keep only the failed batch and the tail, not replay the committed first batch")
+	assert.Equal(t, byte(2), left[0].Key[0])
+}
+
+func TestRollbackFlushedFilterRuleKeepsRefsIfDeleteFails(t *testing.T) {
+	var removed bool
+	r := &family{
+		ipsetCounter: refcounter.New(
+			func(key string, _ setInput) (*nftables.Set, error) {
+				return &nftables.Set{Name: key}, nil
+			},
+			func(key string, _ *nftables.Set) error {
+				removed = true
+				return nil
+			},
+		),
+	}
+	_, err := r.ipsetCounter.Increment("s", setInput{})
+	require.NoError(t, err)
+
+	r.rollbackFlushedFilterRule(nil, []expr.Any{&expr.Lookup{SetName: "s"}})
+	assert.False(t, removed, "must not drop the set while the kernel rule may still look it up")
+	ref, ok := r.ipsetCounter.Get("s")
+	require.True(t, ok)
+	assert.Equal(t, 1, ref.Count)
 }
