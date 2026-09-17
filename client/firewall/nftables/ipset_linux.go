@@ -34,7 +34,7 @@ func (r *family) getIpSet(set firewall.Set, prefixes []netip.Prefix, isSource bo
 // createIpSet queues a named interval set on conn. The caller must flush
 // conn together with the rule that looks the set up: NFTA_LOOKUP_SET_ID is
 // valid only in that transaction. Overflow elements are stored for
-// commitPendingSetElements after that flush.
+// commitPendingSets after that flush.
 func (r *family) createIpSet(setName string, input setInput) (*nftables.Set, error) {
 	// overlapping prefixes will result in an error, so we need to merge them
 	prefixes := firewall.MergeIPRanges(input.prefixes)
@@ -67,18 +67,6 @@ func (r *family) createIpSet(setName string, input setInput) (*nftables.Set, err
 	log.Debugf("Queued new ipset: %s with %d initial prefixes (total prefixes %d)", setName, len(initialElements)/2, len(prefixes))
 	log.Infof("Created new ipset: %s with %d prefixes", setName, len(prefixes))
 	return nfset, nil
-}
-
-// commitPendingSetElements writes every overflow chunk that did not fit in
-// a rule batch. The named set must already exist in the kernel. Callers
-// that installed a specific rule should use commitPendingSets with the
-// names that call queued so an unrelated leftover cannot fail them.
-func (r *family) commitPendingSetElements() error {
-	names := make([]string, 0, len(r.pendingSetElements))
-	for name := range r.pendingSetElements {
-		names = append(names, name)
-	}
-	return r.commitPendingSets(names)
 }
 
 // commitPendingSets writes overflow chunks for the named sets, retrying

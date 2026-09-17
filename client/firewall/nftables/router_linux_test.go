@@ -33,7 +33,11 @@ const (
 func commitQueuedIpSet(t *testing.T, r *family) {
 	t.Helper()
 	require.NoError(t, r.conn.Flush(), "flush queued ipset")
-	require.NoError(t, r.commitPendingSetElements(), "commit overflow ipset elements")
+	names := make([]string, 0, len(r.pendingSetElements))
+	for name := range r.pendingSetElements {
+		names = append(names, name)
+	}
+	require.NoError(t, r.commitPendingSets(names), "commit overflow ipset elements")
 }
 
 func TestNftablesManager_AddNatRule(t *testing.T) {
