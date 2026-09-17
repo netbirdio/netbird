@@ -151,7 +151,10 @@ func TestCommitOverflowOrRollbackDiscardsQueuedOnly(t *testing.T) {
 		},
 	}
 
-	err := r.commitOverflowOrRollback([]string{"drop"}, func() { rolled = true })
+	err := r.commitOverflowOrRollback([]string{"drop"}, func() bool {
+		rolled = true
+		return true
+	})
 	require.Error(t, err)
 	assert.True(t, rolled, "live rule must be torn down after overflow retries fail")
 
@@ -159,6 +162,33 @@ func TestCommitOverflowOrRollbackDiscardsQueuedOnly(t *testing.T) {
 	_, drop := r.pendingSetElements["drop"]
 	assert.True(t, keep, "unrelated pending prefixes must not be discarded")
 	assert.False(t, drop)
+}
+
+func TestCommitOverflowOrRollbackKeepsPendingIfRollbackFails(t *testing.T) {
+	r := &family{
+		sConn: &nftables.Conn{},
+		pendingSetElements: map[string]pendingSetUpdate{
+			"drop": pendingUpdate("drop"),
+		},
+		testPendingFlush: func() error {
+			return fmt.Errorf("netlink busy")
+		},
+	}
+
+	err := r.commitOverflowOrRollback([]string{"drop"}, func() bool { return false })
+	require.Error(t, err)
+	_, drop := r.pendingSetElements["drop"]
+	assert.True(t, drop, "pending overflow must survive when the live rule cannot be deleted")
+}
+
+func TestPendingForExprs(t *testing.T) {
+	r := &family{pendingSetElements: map[string]pendingSetUpdate{
+		"s":     pendingUpdate("s"),
+		"other": pendingUpdate("other"),
+	}}
+
+	names := r.pendingForExprs([]expr.Any{&expr.Lookup{SetName: "s"}})
+	assert.Equal(t, []string{"s"}, names)
 }
 
 func TestCommitOverflowOrRollbackEmptyQueued(t *testing.T) {
@@ -172,7 +202,7 @@ func TestCommitOverflowOrRollbackEmptyQueued(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, r.commitOverflowOrRollback(nil, func() { rolled = true }))
+	require.NoError(t, r.commitOverflowOrRollback(nil, func() bool { rolled = true; return true }))
 	assert.False(t, rolled)
 	_, keep := r.pendingSetElements["keep"]
 	assert.True(t, keep)

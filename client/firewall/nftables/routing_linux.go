@@ -76,14 +76,14 @@ func (r *family) AddNatRule(pair firewall.RouterPair) error {
 		}
 	}
 
-	queued := r.pendingAddedSince(pendingBefore)
+	queued := r.pendingForExprs(legacyExprs, natExprs, inverseExprs)
 	if err := r.conn.Flush(); err != nil {
-		r.discardPendingSets(queued)
+		r.discardPendingSets(r.pendingAddedSince(pendingBefore))
 		r.rollbackRules(pair)
 		return fmt.Errorf("insert rules for %s: %w", pair.Destination, err)
 	}
-	if err := r.commitOverflowOrRollback(queued, func() {
-		r.rollbackFlushedNat(queuedIDs)
+	if err := r.commitOverflowOrRollback(queued, func() bool {
+		return r.rollbackFlushedNat(queuedIDs)
 	}); err != nil {
 		return err
 	}
@@ -116,9 +116,9 @@ func (r *family) rollbackRules(pair firewall.RouterPair) {
 // replacement must not delete the previous live rule that queueNatRule
 // left tracked. Untracking alone would leak kernel rules because the
 // route manager never recorded a successful add.
-func (r *family) rollbackFlushedNat(ids []firewall.RuleID) {
+func (r *family) rollbackFlushedNat(ids []firewall.RuleID) bool {
 	if len(ids) == 0 {
-		return
+		return true
 	}
 	if err := r.refreshRulesMap(); err != nil {
 		log.Errorf("refresh rules for overflow rollback: %v", err)
@@ -141,11 +141,11 @@ func (r *family) rollbackFlushedNat(ids []firewall.RuleID) {
 		toDrop = append(toDrop, key)
 	}
 	if len(toDrop) == 0 {
-		return
+		return r.natIDsCleared(ids)
 	}
 	if err := r.conn.Flush(); err != nil {
 		log.Errorf("flush nat overflow rollback: %v", err)
-		return
+		return false
 	}
 	for _, key := range toDrop {
 		rule, ok := r.rules[key]
@@ -157,6 +157,16 @@ func (r *family) rollbackFlushedNat(ids []firewall.RuleID) {
 		}
 		delete(r.rules, key)
 	}
+	return r.natIDsCleared(ids)
+}
+
+func (r *family) natIDsCleared(ids []firewall.RuleID) bool {
+	for _, key := range ids {
+		if _, ok := r.rules[key]; ok {
+			return false
+		}
+	}
+	return true
 }
 
 // natRuleExprs resolves the match expressions of the pair's prerouting

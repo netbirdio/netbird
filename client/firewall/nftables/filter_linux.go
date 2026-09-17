@@ -38,6 +38,13 @@ func (r *family) AddFilterRule(
 
 	ruleID := nbid.GenerateRuleID(sources, destination, proto, sPort, dPort, action)
 	if existing, ok := r.filters[ruleID]; ok {
+		if existing.nftRule != nil {
+			if names := r.pendingForExprs(existing.nftRule.Exprs); len(names) > 0 {
+				if err := r.commitPendingSets(names); err != nil {
+					return nil, fmt.Errorf("add remaining ipset elements: %w", err)
+				}
+			}
+		}
 		return existing, nil
 	}
 
@@ -95,15 +102,24 @@ func (r *family) AddFilterRule(
 	// would roll back the ACL as well. DNS forward and single-source
 	// peer rules hit this path with no named set, so the set-ID fix
 	// cannot save them.
-	queued := r.pendingAddedSince(pendingBefore)
+	queued := r.pendingForExprs(exprs)
 	if err := r.conn.Flush(); err != nil {
-		r.discardPendingSets(queued)
+		r.discardPendingSets(r.pendingAddedSince(pendingBefore))
 		r.dropNetworkMatch(exprs)
 		return nil, fmt.Errorf(flushError, err)
 	}
-	if err := r.commitOverflowOrRollback(queued, func() {
-		r.rollbackFlushedFilterRule(nftRule, exprs)
+	rolledBack := false
+	if err := r.commitOverflowOrRollback(queued, func() bool {
+		rolledBack = r.rollbackFlushedFilterRule(nftRule, exprs)
+		return rolledBack
 	}); err != nil {
+		if !rolledBack {
+			r.filters[ruleID] = &Rule{
+				nftRule: nftRule,
+				sources: sources,
+				id:      ruleID,
+			}
+		}
 		return nil, err
 	}
 
@@ -138,12 +154,13 @@ func (r *family) rollbackQueuedNetwork(exprs []expr.Any, queued []string) {
 // is not left live. The rule is not yet tracked in r.filters. Refs are
 // dropped only after the kernel delete commits; otherwise the live rule
 // would point at a set the counter already released.
-func (r *family) rollbackFlushedFilterRule(nftRule *nftables.Rule, exprs []expr.Any) {
+func (r *family) rollbackFlushedFilterRule(nftRule *nftables.Rule, exprs []expr.Any) bool {
 	if r.deleteFlushedRule(nftRule) {
 		r.dropNetworkMatch(exprs)
-		return
+		return true
 	}
-	log.Errorf("overflow rollback: leaving ipset refs because the filter rule may still be in the kernel")
+	log.Errorf("overflow rollback: leaving ipset refs and pending overflow because the filter rule may still be in the kernel")
+	return false
 }
 
 // deleteFlushedRule removes a rule that is already in the kernel. It looks

@@ -118,13 +118,16 @@ func (r *family) commitPendingSetsOnce(names []string) error {
 	return nberrors.FormatErrorOrNil(merr)
 }
 
-// commitOverflowOrRollback commits overflow for sets queued by the current
-// Add*. On failure after retries it drops those pending entries and runs
-// rollback so the caller can return an error instead of a half-installed rule.
-func (r *family) commitOverflowOrRollback(queued []string, rollback func()) error {
+// commitOverflowOrRollback commits overflow for sets used by the current
+// Add*. On failure after retries it rolls the live rule back. Pending
+// overflow is discarded only when that rollback deletes the rule; otherwise
+// the suffix is kept so a retry can finish the set instead of reusing a
+// truncated one.
+func (r *family) commitOverflowOrRollback(queued []string, rollback func() bool) error {
 	if err := r.commitPendingSets(queued); err != nil {
-		r.discardPendingSets(queued)
-		rollback()
+		if rollback() {
+			r.discardPendingSets(queued)
+		}
 		return fmt.Errorf("add remaining ipset elements: %w", err)
 	}
 	return nil
@@ -143,6 +146,28 @@ func (r *family) pendingAddedSince(before map[string]struct{}) []string {
 	for name := range r.pendingSetElements {
 		if _, ok := before[name]; !ok {
 			names = append(names, name)
+		}
+	}
+	return names
+}
+
+func (r *family) pendingForExprs(exprsList ...[]expr.Any) []string {
+	seen := make(map[string]struct{})
+	var names []string
+	for _, exprs := range exprsList {
+		for _, e := range exprs {
+			lookup, ok := e.(*expr.Lookup)
+			if !ok || lookup.SetName == "" {
+				continue
+			}
+			if _, pending := r.pendingSetElements[lookup.SetName]; !pending {
+				continue
+			}
+			if _, dup := seen[lookup.SetName]; dup {
+				continue
+			}
+			seen[lookup.SetName] = struct{}{}
+			names = append(names, lookup.SetName)
 		}
 	}
 	return names
