@@ -252,7 +252,7 @@ func (m *Middleware) routeModelless(reqPath, surface, method string, userGroups 
 			// What the caller may actually use bounds what the picker may
 			// offer: every entry outside it is a request the chain will deny a
 			// moment later.
-			if models, bounded := discoverableModels(route, userGroups); bounded {
+			if models, bounded := m.discoverableListingModels(route, userGroups); bounded {
 				out.Mutations.RewriteUpstream.DiscoveryModels = models
 			}
 		}
@@ -265,6 +265,46 @@ func (m *Middleware) routeModelless(reqPath, surface, method string, userGroups 
 	default:
 		return denyMissingModel(surface)
 	}
+}
+
+// discoverableListingModels keeps a shared gateway's listing usable when its
+// models are split across records. Each record contributes only what this
+// caller may use; unrelated upstreams still have independent catalogs.
+func (m *Middleware) discoverableListingModels(route ProviderRoute, userGroups []string) ([]string, bool) {
+	models, bounded := discoverableModels(route, userGroups)
+	if !bounded || route.Vertex || route.Bedrock {
+		return models, bounded
+	}
+	seen := make(map[string]struct{}, len(models))
+	for _, model := range models {
+		seen[model] = struct{}{}
+	}
+	for _, candidate := range m.cfg.Providers {
+		if candidate.ID == route.ID || candidate.Vertex || candidate.Bedrock ||
+			!routeAuthorisesGroups(candidate, userGroups) || !sameDiscoveryUpstream(route, candidate) {
+			continue
+		}
+		additional, restricted := discoverableModels(candidate, userGroups)
+		if !restricted {
+			return nil, false
+		}
+		for _, model := range additional {
+			if _, exists := seen[model]; !exists {
+				seen[model] = struct{}{}
+				models = append(models, model)
+			}
+		}
+	}
+	return models, true
+}
+
+// Credentials and URL paths can select different tenants on the same gateway.
+// Only records making the same authenticated listing request may share a bound.
+func sameDiscoveryUpstream(a, b ProviderRoute) bool {
+	return a.UpstreamScheme == b.UpstreamScheme && a.UpstreamHost == b.UpstreamHost &&
+		a.UpstreamPath == b.UpstreamPath && a.DiscoveryHost == b.DiscoveryHost &&
+		a.AuthHeaderName == b.AuthHeaderName && a.AuthHeaderValue == b.AuthHeaderValue &&
+		a.GCPServiceAccountKeyB64 == b.GCPServiceAccountKeyB64 && a.SkipTLSVerify == b.SkipTLSVerify
 }
 
 // isNonInferenceMethod reports whether a request method is one the
