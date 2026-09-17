@@ -88,6 +88,11 @@ func (m *MockServer) SetRouteSources(selected, active, installed func() route.HA
 	// Mock implementation - no-op
 }
 
+// OnInstalledRoutesChanged mock implementation of OnInstalledRoutesChanged from Server interface
+func (m *MockServer) OnInstalledRoutesChanged() {
+	// Mock implementation - no-op
+}
+
 // SetFirewall mock implementation of SetFirewall from Server interface
 func (m *MockServer) SetFirewall(Firewall) {
 	// Mock implementation - no-op

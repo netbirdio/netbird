@@ -81,6 +81,7 @@ type Server interface {
 	UpdateServerConfig(domains dnsconfig.ServerDomains) error
 	PopulateManagementDomain(mgmtURL *url.URL) error
 	SetRouteSources(selected, active, installed func() route.HAMap)
+	OnInstalledRoutesChanged()
 	SetFirewall(Firewall)
 	SetPeerActivator(local.PeerActivator)
 }
@@ -195,6 +196,18 @@ type DefaultServer struct {
 	// healthRefresh is buffered=1; writers coalesce, senders never block.
 	// See refreshHealth for the lock-order rationale.
 	healthRefresh chan struct{}
+	// routeRefresh carries "the installed routes changed, re-decide gating".
+	// Buffered=1 for the same reason as healthRefresh, and asynchronous for a
+	// stronger one: the sender is the route manager, which holds its own lock
+	// while calling into this server, so re-applying inline would invert the
+	// lock order.
+	routeRefresh chan struct{}
+	// currentUpdate is the last configuration received from management, kept
+	// so a gating change can be re-applied without waiting for the next sync.
+	currentUpdate nbdns.Config
+	// haveUpdate guards currentUpdate: an empty config is a valid update, so
+	// the zero value cannot be used to mean "nothing received yet".
+	haveUpdate bool
 }
 
 type handlerWithStop interface {
@@ -312,6 +325,7 @@ func newDefaultServer(
 		warningDelayBase:  warningDelayBaseFromEnv(),
 		healthRefresh:     make(chan struct{}, 1),
 
+		routeRefresh:       make(chan struct{}, 1),
 		routedUpstreamGate: newRoutedUpstreamGate(routedUpstreamGatingFromEnv()),
 	}
 	// Wire the local resolver against the peer status recorder so it can
@@ -346,6 +360,17 @@ func (s *DefaultServer) SetRouteSources(selected, active, installed func() route
 		if h, ok := entry.handler.(routeSettable); ok {
 			h.setSelectedRoutes(selected)
 		}
+	}
+}
+
+// OnInstalledRoutesChanged tells the server that the set of routes whose
+// allowed IPs are installed may have changed, so nameserver gating has to be
+// re-decided. Never blocks and never re-applies inline: callers hold the route
+// manager's lock, which this server's own paths take after s.mux.
+func (s *DefaultServer) OnInstalledRoutesChanged() {
+	select {
+	case s.routeRefresh <- struct{}{}:
+	default:
 	}
 }
 
@@ -460,6 +485,7 @@ func (s *DefaultServer) Initialize() (err error) {
 	s.stateManager.RegisterState(&ShutdownState{})
 
 	s.startHealthRefresher()
+	s.startRouteRefresher()
 
 	// Keep using noop host manager if dns off requested or running in netstack mode.
 	// Netstack mode currently doesn't have a way to receive DNS requests.
@@ -728,6 +754,9 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config, snap routeSnapsh
 			log.Errorf("failed to disable DNS: %v", err)
 		}
 	}
+
+	s.currentUpdate = update
+	s.haveUpdate = true
 
 	// Decided once and used for both the chain and the host config so the two
 	// cannot disagree about a group within the same pass.
@@ -1367,6 +1396,45 @@ func (s *DefaultServer) collectUpstreamHealth() map[netip.AddrPort]UpstreamHealt
 		}
 	}
 	return merged
+}
+
+func (s *DefaultServer) startRouteRefresher() {
+	s.shutdownWg.Add(1)
+	go func() {
+		defer s.shutdownWg.Done()
+		for {
+			select {
+			case <-s.ctx.Done():
+				return
+			case <-s.routeRefresh:
+			}
+			s.refreshRoutedUpstreams()
+		}
+	}()
+}
+
+// refreshRoutedUpstreams re-applies the last configuration from management
+// against the current route state, so a group withheld earlier gets configured
+// once a route to its upstreams appears (and, in gatingAlways, withdrawn again
+// when it goes away). Replaying is safe: applyHostConfig hash-dedups and
+// service.Listen returns early when the listener is already up.
+func (s *DefaultServer) refreshRoutedUpstreams() {
+	if s.ctx.Err() != nil {
+		return
+	}
+
+	snap := s.routeSnapshot()
+
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	if !s.haveUpdate {
+		return
+	}
+
+	if err := s.applyConfiguration(s.currentUpdate, snap); err != nil {
+		log.Errorf("failed to re-apply DNS configuration after a route change: %v", err)
+	}
 }
 
 func (s *DefaultServer) startHealthRefresher() {

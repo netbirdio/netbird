@@ -309,6 +309,74 @@ func TestBuildUpstreamHandlerUpdateSkipsWithheldGroups(t *testing.T) {
 	assert.Equal(t, []string{"other.example.com"}, domains)
 }
 
+// The route becoming installed after management already pushed the config is
+// the ordinary startup order, so the server has to re-decide on its own rather
+// than wait for the next sync.
+func TestRefreshRoutedUpstreamsPicksUpANewRoute(t *testing.T) {
+	group := nsGroupWith("10.10.0.53")
+	group.Domains = []string{"corp.example.com"}
+	update := nbdns.Config{
+		ServiceEnable:    true,
+		NameServerGroups: []*nbdns.NameServerGroup{group},
+	}
+
+	var captured HostDNSConfig
+	installed := route.HAMap{}
+
+	server := &DefaultServer{
+		ctx:          context.Background(),
+		handlerChain: NewHandlerChain(),
+		hostManager: &mockHostConfigurator{
+			applyDNSConfigFunc: func(config HostDNSConfig, _ *statemanager.Manager) error {
+				captured = config
+				return nil
+			},
+			supportCustomPortFunc: func() bool { return true },
+			stringFunc:            func() string { return "mock" },
+		},
+		localResolver:      &local.Resolver{},
+		service:            &mockService{},
+		wgInterface:        &mocWGIface{},
+		statusRecorder:     peer.NewRecorder("test"),
+		extraDomains:       make(map[domain.Domain]int),
+		currentConfigHash:  ^uint64(0),
+		healthRefresh:      make(chan struct{}, 1),
+		routeRefresh:       make(chan struct{}, 1),
+		routedUpstreamGate: newRoutedUpstreamGate(gatingAlways),
+		selectedRoutes:     func() route.HAMap { return haMapWith("10.10.0.0/24") },
+		installedRoutes:    func() route.HAMap { return installed },
+	}
+
+	require.NoError(t, server.applyConfiguration(update, server.routeSnapshot()))
+	assert.Empty(t, captured.Domains, "withheld while no route is installed")
+
+	installed = haMapWith("10.10.0.0/24")
+	server.refreshRoutedUpstreams()
+
+	var domains []string
+	for _, d := range captured.Domains {
+		domains = append(domains, d.Domain)
+	}
+	assert.Equal(t, []string{"corp.example.com."}, domains)
+
+	// And back again, because this is gatingAlways.
+	installed = route.HAMap{}
+	server.refreshRoutedUpstreams()
+	assert.Empty(t, captured.Domains)
+}
+
+// OnInstalledRoutesChanged is called from the route manager while it holds its
+// own lock, so it must never block and never re-apply inline.
+func TestOnInstalledRoutesChangedNeverBlocks(t *testing.T) {
+	server := &DefaultServer{routeRefresh: make(chan struct{}, 1)}
+
+	for i := 0; i < 5; i++ {
+		server.OnInstalledRoutesChanged()
+	}
+
+	assert.Len(t, server.routeRefresh, 1, "repeated signals coalesce")
+}
+
 func TestRoutedUpstreamGatingString(t *testing.T) {
 	assert.Equal(t, "off", gatingOff.String())
 	assert.Equal(t, "startup", gatingStartup.String())
