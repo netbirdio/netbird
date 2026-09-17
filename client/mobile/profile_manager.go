@@ -132,7 +132,7 @@ func (pm *ProfileManager) GetActiveProfile() (*Profile, error) {
 		return nil, fmt.Errorf("get active profile: %w", err)
 	}
 
-	prof, err := pm.serviceMgr.ResolveProfile(activeState.ID.String(), pm.identity)
+	prof, err := pm.serviceMgr.ResolveProfile(activeState.ID.String())
 	if err != nil {
 		return nil, fmt.Errorf("resolve active profile %q: %w", activeState.ID, err)
 	}
@@ -182,7 +182,7 @@ func (pm *ProfileManager) RenameProfile(id string, newName string) error {
 	if err := pm.checkProfilesAllowed(); err != nil {
 		return err
 	}
-	if err := pm.serviceMgr.RenameProfile(profilemanager.ID(id), pm.identity, newName); err != nil {
+	if err := pm.serviceMgr.RenameProfile(profilemanager.ID(id), newName); err != nil {
 		return fmt.Errorf("rename profile: %w", err)
 	}
 
@@ -236,7 +236,7 @@ func (pm *ProfileManager) RemoveProfile(id string) error {
 		return err
 	}
 
-	if err := pm.serviceMgr.RemoveProfile(profilemanager.ID(id), pm.identity); err != nil {
+	if err := pm.serviceMgr.RemoveProfile(profilemanager.ID(id)); err != nil {
 		return fmt.Errorf("remove profile: %w", err)
 	}
 

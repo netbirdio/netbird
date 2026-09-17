@@ -426,7 +426,7 @@ func (s *ServiceManager) AddProfile(displayName string, callerId *ipcauth.Identi
 	}, nil
 }
 
-func (s *ServiceManager) RenameProfile(id ID, userID ipcauth.Identity, newName string) error {
+func (s *ServiceManager) RenameProfile(id ID, newName string) error {
 	displayName, err := sanitizeDisplayName(newName)
 	if err != nil {
 		return fmt.Errorf("invalid profile name: %w", err)
@@ -436,7 +436,7 @@ func (s *ServiceManager) RenameProfile(id ID, userID ipcauth.Identity, newName s
 		return fmt.Errorf("invalid profile ID: %q", id)
 	}
 
-	profiles, err := s.loadAllProfilesForIdentity(userID)
+	profiles, err := s.loadAllProfiles()
 	if err != nil {
 		return fmt.Errorf("load profiles: %w", err)
 	}
@@ -458,7 +458,7 @@ func (s *ServiceManager) RenameProfile(id ID, userID ipcauth.Identity, newName s
 // RemoveProfile deletes the profile identified by id. Callers must have
 // already resolved any user-supplied handle to a concrete ID via
 // ResolveProfile.
-func (s *ServiceManager) RemoveProfile(id ID, userID ipcauth.Identity) error {
+func (s *ServiceManager) RemoveProfile(id ID) error {
 	if id == defaultProfileName {
 		defaultName := readProfileName(DefaultConfigPath)
 		if defaultName == "" {
@@ -470,7 +470,7 @@ func (s *ServiceManager) RemoveProfile(id ID, userID ipcauth.Identity) error {
 		return fmt.Errorf("invalid profile ID: %q", id)
 	}
 
-	profiles, err := s.loadAllProfilesForIdentity(userID)
+	profiles, err := s.loadAllProfiles()
 	if err != nil {
 		return fmt.Errorf("load profiles: %w", err)
 	}
@@ -511,8 +511,7 @@ func (s *ServiceManager) RemoveProfile(id ID, userID ipcauth.Identity) error {
 	return nil
 }
 
-// ListProfiles returns every profile for the given user, including the
-// default profile, with IsActive flags set.
+// ListProfiles returns every profile for the given user
 func (s *ServiceManager) ListProfiles(userID ipcauth.Identity) ([]Profile, error) {
 	return s.loadAllProfilesForIdentity(userID)
 }
@@ -588,21 +587,20 @@ func (s *ServiceManager) profilesDirPath() string {
 	return filepath.Join(DefaultConfigPathDir, DefaultProfilePathDir)
 }
 
-// loadAllProfiles returns every profile visible to the daemon for the
-// given user, including the default profile. The returned slice is sorted
-// by ID for a stable display order.
+// loadAllProfiles returns every profile acessible by a given kernal attested
+// user. The returned slice is sorted by ID for a stable display order.
 //
 // Each Profile is fully populated: ID is the filename stem, Name comes
 // from the JSON's "name" field (falling back to the filename stem when absent)
 // and Path is built from a basename read off disk.
 func (s *ServiceManager) loadAllProfilesForIdentity(userID ipcauth.Identity) ([]Profile, error) {
+	if !userID.Known() {
+		return []Profile{}, nil
+	}
 	allProfiles, err := s.loadAllProfiles()
 	if err != nil {
 		return nil, err
 	}
-
-	s.claimDefaultProfileIfNeeded(allProfiles, userID)
-	s.claimLegacyProfiles(allProfiles, userID)
 
 	accessible := make([]Profile, 0, len(allProfiles))
 	for _, p := range allProfiles {
@@ -619,17 +617,23 @@ var (
 	legacyDirCache = map[string]string{}
 )
 
-// claimLegacyProfiles stamps the caller on every unowned profile in the
+// ClaimLegacyProfiles stamps the caller on every unowned profile in the
 // directory their own user name produced before the ownership model.
 //
 // Ownership lives in the file now, so the directory name is only a leftover.
 // Flattening is a separate step we are doing in the future. Moving it would
 // pull the state file out from under an engine that captured its path at
 // connect time.
-func (s *ServiceManager) claimLegacyProfiles(profiles []Profile, id ipcauth.Identity) {
+func (s *ServiceManager) ClaimLegacyProfiles(id ipcauth.Identity) {
 	// A privileged caller reaches every profile already and an internal load
 	// has no caller, so neither should leave an owner behind.
 	if ipcauth.IsPrivilegedCaller(id) {
+		return
+	}
+
+	profiles, err := s.loadAllProfiles()
+	if err != nil {
+		log.Warnf("could not load all profiles: %v", err)
 		return
 	}
 
@@ -665,8 +669,14 @@ func (s *ServiceManager) claimLegacyProfiles(profiles []Profile, id ipcauth.Iden
 	}
 }
 
-func (s *ServiceManager) claimDefaultProfileIfNeeded(profiles []Profile, id ipcauth.Identity) {
+func (s *ServiceManager) ClaimDefaultProfileIfNeeded(id ipcauth.Identity) {
 	if !id.Known() || ipcauth.IsPrivilegedCaller(id) {
+		return
+	}
+
+	profiles, err := s.loadAllProfiles()
+	if err != nil {
+		log.Warnf("could not load all profiles: %w", err)
 		return
 	}
 
@@ -1055,12 +1065,12 @@ func (s *ServiceManager) activeProfileID() (ID, bool) {
 // precedence is: exact ID match, then unique exact name, then unique ID
 // prefix. Ambiguous matches return *ErrAmbiguousHandle so callers can
 // surface the candidates.
-func (s *ServiceManager) ResolveProfile(handle string, userID ipcauth.Identity) (*Profile, error) {
+func (s *ServiceManager) ResolveProfile(handle string) (*Profile, error) {
 	if handle == "" {
 		return nil, fmt.Errorf("profile handle is empty")
 	}
 
-	profiles, err := s.loadAllProfilesForIdentity(userID)
+	profiles, err := s.loadAllProfiles()
 	if err != nil {
 		return nil, err
 	}
