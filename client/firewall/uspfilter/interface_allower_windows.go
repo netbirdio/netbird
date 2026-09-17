@@ -3,14 +3,13 @@ package uspfilter
 import (
 	"fmt"
 	"os/exec"
-	"path/filepath"
 	"syscall"
 
 	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
-	"golang.org/x/sys/windows"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
+	"github.com/netbirdio/netbird/client/internal/wincmd"
 )
 
 type action string
@@ -19,10 +18,6 @@ const (
 	addRule          action = "add"
 	deleteRule       action = "delete"
 	firewallRuleName        = "Netbird"
-
-	// defaultSystem32Dir is where the system directory is on every supported
-	// install, used only when the API that reports it fails.
-	defaultSystem32Dir = `C:\Windows\System32`
 )
 
 // WindowsInterfaceAllower opens the NetBird interface in the Windows firewall
@@ -97,7 +92,7 @@ func manageFirewallRule(ruleName string, action action, extraArgs ...string) err
 	if action == addRule {
 		args = append(args, extraArgs...)
 	}
-	netshCmd := GetSystem32Command("netsh")
+	netshCmd := wincmd.System32("netsh")
 	cmd := exec.Command(netshCmd, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	return cmd.Run()
@@ -106,7 +101,7 @@ func manageFirewallRule(ruleName string, action action, extraArgs ...string) err
 func isWindowsFirewallReachable() bool {
 	args := []string{"advfirewall", "show", "allprofiles", "state"}
 
-	netshCmd := GetSystem32Command("netsh")
+	netshCmd := wincmd.System32("netsh")
 
 	cmd := exec.Command(netshCmd, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
@@ -123,27 +118,10 @@ func isWindowsFirewallReachable() bool {
 func isFirewallRuleActive(ruleName string) bool {
 	args := []string{"advfirewall", "firewall", "show", "rule", "name=" + ruleName}
 
-	netshCmd := GetSystem32Command("netsh")
+	netshCmd := wincmd.System32("netsh")
 
 	cmd := exec.Command(netshCmd, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	_, err := cmd.Output()
 	return err == nil
-}
-
-// GetSystem32Command returns the full path of a Windows utility under the
-// system directory.
-//
-// PATH is deliberately not consulted. The daemon runs as LocalSystem with an
-// environment of its own, so whoever can place an entry in that PATH chooses
-// which binary runs with those privileges. The system directory is read from
-// the API rather than from %SystemRoot% for the same reason.
-func GetSystem32Command(command string) string {
-	sysDir, err := windows.GetSystemDirectory()
-	if err != nil {
-		log.Warnf("Failed to locate the Windows system directory, falling back to %s: %v", defaultSystem32Dir, err)
-		sysDir = defaultSystem32Dir
-	}
-
-	return filepath.Join(sysDir, command+".exe")
 }
