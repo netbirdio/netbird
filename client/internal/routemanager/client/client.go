@@ -305,9 +305,21 @@ func (w *Watcher) addAllowedIPs(route *route.Route) error {
 	}
 
 	log.Infof("Installed allowed IPs of route %s for network [%v] on peer %s", route.ID, w.handler, route.Peer)
+	w.notifyDNSServer()
 
 	w.connectEvent(route)
 	return nil
+}
+
+// notifyDNSServer tells the DNS server that the installed routes changed, so
+// it can re-decide which upstream nameservers it has a route to. The call is
+// non-blocking by contract: this runs with the route manager's lock held on
+// some paths, and the DNS server reaches back into it.
+func (w *Watcher) notifyDNSServer() {
+	if w.dnsServer == nil {
+		return
+	}
+	w.dnsServer.OnInstalledRoutesChanged()
 }
 
 func (w *Watcher) removeAllowedIPs(route *route.Route, rsn reason) error {
@@ -320,6 +332,7 @@ func (w *Watcher) removeAllowedIPs(route *route.Route, rsn reason) error {
 	}
 
 	log.Infof("Removed allowed IPs of route %s for network [%v] from peer %s", route.ID, w.handler, route.Peer)
+	w.notifyDNSServer()
 
 	w.disconnectEvent(route, rsn)
 
