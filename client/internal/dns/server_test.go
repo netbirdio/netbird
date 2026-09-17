@@ -1313,7 +1313,7 @@ func TestExtraDomains(t *testing.T) {
 
 			// Apply initial configuration
 			if tt.initialConfig.ServiceEnable {
-				err := server.applyConfiguration(tt.initialConfig)
+				err := server.applyConfiguration(tt.initialConfig, routeSnapshot{})
 				assert.NoError(t, err)
 			}
 
@@ -1329,7 +1329,7 @@ func TestExtraDomains(t *testing.T) {
 
 			// Apply final configuration if specified
 			if tt.finalConfig.ServiceEnable {
-				err := server.applyConfiguration(tt.finalConfig)
+				err := server.applyConfiguration(tt.finalConfig, routeSnapshot{})
 				assert.NoError(t, err)
 			}
 
@@ -1456,7 +1456,7 @@ func TestUpdateConfigWithExistingExtraDomains(t *testing.T) {
 			{Domain: "config.example.com"},
 		},
 	}
-	err := server.applyConfiguration(initialConfig)
+	err := server.applyConfiguration(initialConfig, routeSnapshot{})
 	assert.NoError(t, err)
 
 	var domains []string
@@ -1474,7 +1474,7 @@ func TestUpdateConfigWithExistingExtraDomains(t *testing.T) {
 			{Domain: "extra.example.com"},
 		},
 	}
-	err = server.applyConfiguration(updatedConfig)
+	err = server.applyConfiguration(updatedConfig, routeSnapshot{})
 	assert.NoError(t, err)
 
 	// Verify both domains are in config, but no duplicates
@@ -1542,7 +1542,7 @@ func TestDomainCaseHandling(t *testing.T) {
 			{Domain: "config.example.com"},
 		},
 	}
-	err := server.applyConfiguration(config)
+	err := server.applyConfiguration(config, routeSnapshot{})
 	assert.NoError(t, err)
 
 	var domains []string

@@ -179,6 +179,9 @@ type DefaultServer struct {
 	// it keeps a peer parked by lazy connections, which is reachable on
 	// demand rather than unreachable.
 	installedRoutes func() route.HAMap
+	// routedUpstreamGate withholds nameserver groups whose upstreams have no
+	// route. Accessed only on the configuration path, under s.mux.
+	routedUpstreamGate *routedUpstreamGate
 
 	nsGroups        []*nbdns.NameServerGroup
 	healthProjectMu sync.Mutex
@@ -308,6 +311,8 @@ func newDefaultServer(
 		currentConfigHash: ^uint64(0), // Initialize to max uint64 to ensure first config is always applied
 		warningDelayBase:  warningDelayBaseFromEnv(),
 		healthRefresh:     make(chan struct{}, 1),
+
+		routedUpstreamGate: newRoutedUpstreamGate(routedUpstreamGatingFromEnv()),
 	}
 	// Wire the local resolver against the peer status recorder so it can
 	// suppress A/AAAA answers that point at disconnected peers (typical
@@ -578,6 +583,9 @@ func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) erro
 			"network update is %d behind the last applied update", s.updateSerial-serial)
 	}
 
+	// Resolved before taking s.mux on purpose, see routeSnapshot.
+	snap := s.routeSnapshot()
+
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -597,7 +605,7 @@ func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) erro
 		return nil
 	}
 
-	if err := s.applyConfiguration(update); err != nil {
+	if err := s.applyConfiguration(update, snap); err != nil {
 		return fmt.Errorf("apply configuration: %w", err)
 	}
 
@@ -651,7 +659,26 @@ func (s *DefaultServer) UpdateServerConfig(domains dnsconfig.ServerDomains) erro
 	return nil
 }
 
-func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
+// routeSnapshot resolves the route accessors. Must NOT be called while holding
+// s.mux: the accessors re-enter the route manager's lock, and the route manager
+// takes s.mux on its own paths (see refreshHealth for the same constraint).
+func (s *DefaultServer) routeSnapshot() routeSnapshot {
+	s.mux.Lock()
+	selFn := s.selectedRoutes
+	instFn := s.installedRoutes
+	s.mux.Unlock()
+
+	var snap routeSnapshot
+	if selFn != nil {
+		snap.selected = selFn()
+	}
+	if instFn != nil {
+		snap.installed = instFn()
+	}
+	return snap
+}
+
+func (s *DefaultServer) applyConfiguration(update nbdns.Config, snap routeSnapshot) error {
 	// is the service should be Disabled, we stop the listener or fake resolver
 	if update.ServiceEnable {
 		if err := s.enableDNS(); err != nil {
