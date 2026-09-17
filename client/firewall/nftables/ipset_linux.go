@@ -183,8 +183,10 @@ func (r *family) addElementBatches(nfset *nftables.Set, elements []nftables.SetE
 		subElement := elements[subStart:subEnd]
 		nSubPrefixes := len(subElement) / 2
 		log.Tracef("Adding new prefixes (%d) in ipset: %s", nSubPrefixes, nfset.Name)
-		if err := r.sConn.SetAddElements(nfset, subElement); err != nil {
-			return elements[subStart:], fmt.Errorf("error adding prefixes (%d) to set %s: %w", nSubPrefixes, nfset.Name, err)
+		if r.testPendingFlush == nil {
+			if err := r.sConn.SetAddElements(nfset, subElement); err != nil {
+				return elements[subStart:], fmt.Errorf("error adding prefixes (%d) to set %s: %w", nSubPrefixes, nfset.Name, err)
+			}
 		}
 		if err := r.flushSetElements(); err != nil {
 			return elements[subStart:], fmt.Errorf(flushError, err)

@@ -97,8 +97,8 @@ type family struct {
 	// rule flush has created the set. A failed overflow after retries
 	// rolls the rule back; leftover entries are not reported as success.
 	pendingSetElements map[string]pendingSetUpdate
-	// testPendingFlush, when set, replaces sConn.Flush in addElementBatches.
-	// Tests use it to simulate overflow commit failures without netlink.
+	// testPendingFlush, when set, drives addElementBatches without netlink:
+	// SetAddElements is skipped and Flush is replaced by this hook.
 	testPendingFlush func() error
 	workTable        *nftables.Table
 	filterTable      *nftables.Table
