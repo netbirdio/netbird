@@ -20,8 +20,9 @@ type DaemonState interface {
 
 	// OwnsProfile reports whether id owns the profile a request names. An empty
 	// handle is the active profile, which is what a method that acts on the
-	// live session resolves against.
-	OwnsProfile(id Identity, handle string) bool
+	// live session resolves against. The error says what was wrong with the
+	// handle itself.
+	OwnsProfile(id Identity, handle string) (bool, error)
 }
 
 // AuthzGate authorizes every RPC call before its handler run.
@@ -82,6 +83,36 @@ func denyLevel(r Request, want AuthzLevel) error {
 		"%s requires %s, caller %s is %s", r.Method, want, r.Identity, r.Level)
 }
 
+// denyPolicyLevel refuses a caller at the gate, where the policy is in hand.
+//
+// Requiring privilege is the one denial a caller can act on, so it carries the
+// elevated command rather than a bare refusal. A privileged method that declares
+// no action keeps the plain message. Rules deny through denyLevel instead: they
+// cannot reach the policy table without an initialization cycle, and no rule
+// requires privilege.
+func denyPolicyLevel(r Request, p MethodPolicy) error {
+	switch p.Level {
+	case AuthzLevelPrivileged:
+		if p.Action != "" {
+			actor, command := RequiredActor(p.Command)
+			return PrivilegeError(PrivilegeSummary(p.Action, actor), command)
+		}
+
+	case AuthzLevelSessionHolder:
+		// resolveLevel stops at profile owner only when a session is running and
+		// somebody else holds it.
+		if r.Level == AuthzLevelProfileOwner {
+			return SessionHeldError(p.Action)
+		}
+		return NotOwnerError(p.Action)
+
+	case AuthzLevelProfileOwner:
+		return NotOwnerError(p.Action)
+	}
+
+	return denyLevel(r, p.Level)
+}
+
 // StreamPolicyInterceptor authorizes each streaming RPC before the handler runs.
 // The request payload is not yet available, so no streaming method may be
 // target-scoped.
@@ -130,9 +161,11 @@ func (g *AuthzGate) authorize(ctx context.Context, method string, msg any) error
 		target = named
 	}
 
+	level, resolveErr := resolveLevel(id, target, st)
+
 	req := Request{
 		Identity: id,
-		Level:    resolveLevel(id, target, st),
+		Level:    level,
 		Target:   target,
 		Method:   method,
 		State:    st,
@@ -140,7 +173,10 @@ func (g *AuthzGate) authorize(ctx context.Context, method string, msg any) error
 	}
 	if req.Level < policy.Level {
 		log.Warnf("ipc authz: DENY %s for %s (%s), requires %s", method, id, req.Level, policy.Level)
-		return denyLevel(req, policy.Level)
+		if resolveErr != nil {
+			return resolveErr
+		}
+		return denyPolicyLevel(req, policy)
 	}
 	for _, rule := range policy.Rules {
 		if err := rule(req); err != nil {

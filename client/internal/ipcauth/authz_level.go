@@ -1,5 +1,9 @@
 package ipcauth
 
+import (
+	gstatus "google.golang.org/grpc/status"
+)
+
 // AuthzLevel is the authority a caller holds over the daemon's current state.
 // The values are ordered, and each level can do everything the levles below
 // it can. A MethodPolicy is satisfied when the caller's level is at least
@@ -42,18 +46,44 @@ func (l AuthzLevel) String() string {
 	}
 }
 
-func resolveLevel(id Identity, target string, st DaemonState) AuthzLevel {
+// resolveLevel is the authority the caller holds over the profile the request
+// names. The second return is what was wrong with the handle, when that is
+// worth showing the caller instead of a refusal. It never raises the level: a
+// resolution that failed still denies.
+func resolveLevel(id Identity, target string, st DaemonState) (AuthzLevel, error) {
 	if !id.Known() {
-		return AuthzLevelNone
+		return AuthzLevelNone, nil
 	}
 	if IsPrivilegedCaller(id) {
-		return AuthzLevelPrivileged
+		return AuthzLevelPrivileged, nil
 	}
-	if !st.OwnsProfile(id, target) {
-		return AuthzLevelIdentified
+	ownsProfile, err := st.OwnsProfile(id, target)
+	if err != nil {
+		return AuthzLevelIdentified, presentableHandleError(target, err)
+	}
+	if !ownsProfile {
+		return AuthzLevelIdentified, nil
 	}
 	if holder, running := st.SessionHolder(); !running || holder.Matches(id) {
-		return AuthzLevelSessionHolder
+		return AuthzLevelSessionHolder, nil
 	}
-	return AuthzLevelProfileOwner
+	return AuthzLevelProfileOwner, nil
+}
+
+// presentableHandleError keeps a resolution failure only when the gate can put
+// it in front of the caller in place of its own refusal. Everything else is
+// dropped, and the caller gets the refusal their level earned.
+func presentableHandleError(target string, err error) error {
+	// An empty target is the active profile rather than something the caller
+	// typed, so a failure to resolve it is not theirs to correct.
+	if target == "" {
+		return nil
+	}
+
+	// Only a gRPC status reaches the caller as a sentence the CLI and the UI
+	// render.
+	if _, ok := gstatus.FromError(err); !ok {
+		return nil
+	}
+	return err
 }

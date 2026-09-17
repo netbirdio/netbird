@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	gstatus "google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
@@ -45,7 +47,9 @@ func TestOwnsProfile_RefreshesActiveConfigForAnyHandle(t *testing.T) {
 			_, running := s.SessionHolder()
 			require.False(t, running, "fixture is wrong: the stale copy already names an owner")
 
-			require.True(t, s.OwnsProfile(owner, tc.handle), "the caller owns every profile in this fixture")
+			owns, err := s.OwnsProfile(owner, tc.handle)
+			require.NoError(t, err)
+			require.True(t, owns, "the caller owns every profile in this fixture")
 
 			holder, running := s.SessionHolder()
 			require.True(t, running, "the claimed owner never reached the daemon's config, so the live session is unowned")
@@ -61,7 +65,9 @@ func TestOwnsProfile_UnreadableActiveProfileStateDenies(t *testing.T) {
 
 	require.NoError(t, os.WriteFile(profilemanager.ActiveProfileStatePath, []byte("{"), 0600))
 
-	require.False(t, s.OwnsProfile(unprivilegedIdentity(), ""))
+	owns, err := s.OwnsProfile(unprivilegedIdentity(), "")
+	require.NoError(t, err, "an unreadable active profile is not the caller's handle to fix")
+	require.False(t, owns)
 }
 
 // A config the daemon cannot re-read leaves the one it already has in place.
@@ -78,7 +84,9 @@ func TestOwnsProfile_UnreadableConfigKeepsTheOneInPlace(t *testing.T) {
 	s.config = kept
 	s.clientRunning = true
 
-	require.False(t, s.OwnsProfile(unprivilegedIdentity(), ""))
+	owns, err := s.OwnsProfile(unprivilegedIdentity(), "")
+	require.False(t, owns, "a profile that did not resolve is nobody's")
+	require.Equal(t, codes.NotFound, gstatus.Code(err), "resolution failed")
 	require.Same(t, kept, s.config, "a failed reload replaced the daemon's config")
 
 	holder, running := s.SessionHolder()
@@ -115,7 +123,9 @@ func TestOwnsProfile_ReloadFollowsASwitchThatLandsMidCheck(t *testing.T) {
 	}
 	t.Cleanup(func() { afterProfileResolve = nil })
 
-	require.True(t, s.OwnsProfile(owner, activeProfile))
+	owns, err := s.OwnsProfile(owner, activeProfile)
+	require.NoError(t, err)
+	require.True(t, owns)
 
 	require.NotNil(t, s.config.ManagementURL)
 	require.Equal(t, switchedToURL, s.config.ManagementURL.String(),
@@ -130,6 +140,8 @@ func TestOwnsProfile_IdleDaemonKeepsItsConfig(t *testing.T) {
 	s.config = untouched
 	s.clientRunning = false
 
-	require.True(t, s.OwnsProfile(unprivilegedIdentity(), activeProfile))
+	owns, err := s.OwnsProfile(unprivilegedIdentity(), activeProfile)
+	require.NoError(t, err)
+	require.True(t, owns)
 	require.Same(t, untouched, s.config)
 }

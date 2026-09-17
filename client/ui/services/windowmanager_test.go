@@ -348,3 +348,12 @@ func TestCloseRenewFlowDuringBrowserLoginCreationRestoresHiddenWindows(t *testin
 	require.Empty(t, s.creating)
 	require.Empty(t, s.pendingClose)
 }
+
+// The settings window opens on whichever tab the caller asked for, so a tab that
+// does not read the daemon configuration never mounts the one that does.
+func TestSettingsWindowURLCarriesTab(t *testing.T) {
+	require.Equal(t, "/#/settings?tab=profiles", settingsWindowURL("profiles"))
+	require.Equal(t, "/#/settings?tab=general", settingsWindowURL("general"))
+	require.Equal(t, "/#/settings?tab=a%2Fb+c", settingsWindowURL("a/b c"),
+		"a tab name is escaped rather than trusted to be URL-safe")
+}

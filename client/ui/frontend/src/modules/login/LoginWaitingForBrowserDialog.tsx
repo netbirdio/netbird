@@ -11,7 +11,7 @@ import { DialogDescription } from "@/components/dialog/DialogDescription";
 import { DialogHeading } from "@/components/dialog/DialogHeading";
 import { SquareIcon } from "@/components/SquareIcon";
 import { useAutoSizeWindow } from "@/hooks/useAutoSizeWindow";
-import { errorDialog, formatErrorMessage } from "@/lib/errors";
+import { errorDialogFor } from "@/lib/errors";
 
 const EVENT_CANCEL = "browser-login:cancel";
 const WINDOW_WIDTH = 360;
@@ -25,10 +25,7 @@ export default function LoginWaitingForBrowserDialog() {
 
     const reportOpenFailure = useCallback(
         (e: unknown) => {
-            void errorDialog({
-                Title: t("browserLogin.openFailedTitle"),
-                Message: formatErrorMessage(e),
-            });
+            void errorDialogFor(t("browserLogin.openFailedTitle"), e);
         },
         [t],
     );

@@ -136,7 +136,7 @@ func upFunc(cmd *cobra.Command, args []string) error {
 	if profileName != "" {
 		activeProf, err = switchOrCreateProfile(cmd.Context(), pm, profileName, username.Username)
 		if err != nil {
-			return fmt.Errorf("switch profile: %v", err)
+			return fmt.Errorf("switch profile: %w", err)
 		}
 		profileSwitched = true
 	} else {
@@ -344,8 +344,7 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 		}
 
 		if _, err := client.Down(ctx, &proto.DownRequest{}); err != nil {
-			log.Errorf("call service down method: %v", err)
-			return err
+			return daemonCallError("call service down method", err)
 		}
 	}
 

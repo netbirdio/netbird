@@ -24,6 +24,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/expose"
+	"github.com/netbirdio/netbird/client/internal/getent"
 	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -2480,6 +2481,80 @@ func (s *Server) RemoveProfile(ctx context.Context, msg *proto.RemoveProfileRequ
 	return &proto.RemoveProfileResponse{Id: resolved.ID.String()}, nil
 }
 
+// ClaimProfile records an owner on a profile.
+//
+// Root or administrator only, enforced by the gate. The owner is whoever the
+// caller names rather than the caller's own identity, so it is turned into a
+// principal by ownerPrincipal and validated before anything is written.
+func (s *Server) ClaimProfile(ctx context.Context, msg *proto.ClaimProfileRequest) (*proto.ClaimProfileResponse, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if s.checkProfilesDisabled() {
+		return nil, gstatus.Errorf(codes.Unavailable, errProfilesDisabled)
+	}
+
+	if msg.Handle == "" {
+		return nil, gstatus.Errorf(codes.InvalidArgument, "profile must be provided")
+	}
+	if msg.Owner == "" {
+		return nil, gstatus.Errorf(codes.InvalidArgument, "owner must be provided")
+	}
+
+	principal, err := ownerPrincipal(msg.Owner)
+	if err != nil {
+		return nil, gstatus.Errorf(codes.InvalidArgument, "%v", err)
+	}
+
+	callerID, err := callerIdentity(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	resolved, err := s.resolveProfileHandle(msg.Handle, callerID)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.profileManager.ClaimProfile(resolved, principal); err != nil {
+		return nil, fmt.Errorf("failed to claim profile: %w", err)
+	}
+
+	s.publishProfileListChanged(resolved.Name)
+
+	return &proto.ClaimProfileResponse{
+		Id:    resolved.ID.String(),
+		Owner: principal.String(),
+	}, nil
+}
+
+// ownerPrincipal turns what the caller supplied into an owner principal.
+//
+// A principal is taken as given and never looked up. A machine-wide profile is
+// routinely configured before the account that will own it exists, and a
+// directory service that is briefly unreachable cannot be told apart from an
+// account that is not there, so requiring a lookup would refuse both. Only its
+// shape is checked. Anything else is an account name, which nothing but a lookup
+// turns into a principal.
+//
+// Names resolve here rather than on the client so the daemon's own account
+// database is the one consulted.
+func ownerPrincipal(owner string) (ipcauth.Principal, error) {
+	candidate := owner
+	if _, ok := ipcauth.ParsePrincipal(owner); !ok {
+		u, err := getent.LookupUser(owner)
+		if err != nil {
+			return ipcauth.Principal{}, fmt.Errorf("resolve account %q: %w", owner, err)
+		}
+		resolved, ok := profilemanager.PrincipalForUser(u)
+		if !ok {
+			return ipcauth.Principal{}, fmt.Errorf("account %q has no usable id %q", owner, u.Uid)
+		}
+		candidate = resolved
+	}
+	return ipcauth.ValidatePrincipal(candidate)
+}
+
 // publishProfileListChanged nudges the desktop UI to refresh its profile list
 // after a CLI-driven add/remove. The daemon exposes no dedicated
 // profile-changed RPC event, and a profile add/remove doesn't move the
@@ -2540,10 +2615,15 @@ func (s *Server) ListProfiles(ctx context.Context, msg *proto.ListProfilesReques
 		Profiles: make([]*proto.Profile, len(profiles)),
 	}
 	for i, profile := range profiles {
+		owners := make([]string, 0, len(profile.Owners))
+		for _, owner := range profile.Owners {
+			owners = append(owners, owner.String())
+		}
 		response.Profiles[i] = &proto.Profile{
 			Id:       profile.ID.String(),
 			Name:     profile.Name,
 			IsActive: profile.IsActive,
+			Owners:   owners,
 		}
 	}
 
@@ -2568,15 +2648,21 @@ func (s *Server) GetActiveProfile(ctx context.Context, msg *proto.GetActiveProfi
 		return nil, gstatus.Error(codes.Unauthenticated, "caller identity could not be resolved")
 	}
 
-	// Fallback to legacy name == ID
-	displayName := activeProfile.ID.String()
-	if activeProfile.ID != profilemanager.DefaultProfileName {
-		if profiles, lerr := s.profileManager.ListProfiles(userID); lerr == nil {
-			for _, p := range profiles {
-				if p.ID == activeProfile.ID {
-					displayName = p.Name
-					break
-				}
+	// The name is resolved through the caller's own listing, so a profile
+	// belonging to somebody else is not in it. Leave the name empty rather than
+	// falling back to the ID: a 32 character hex string tells the user nothing,
+	// and the owner's chosen name is not the caller's to read. Clients render
+	// their own wording for an active profile that is not theirs.
+	//
+	// A legacy profile is its own name, so the ID stands in for it.
+	displayName := ""
+	if activeProfile.ID == profilemanager.DefaultProfileName {
+		displayName = activeProfile.ID.String()
+	} else if profiles, lerr := s.profileManager.ListProfiles(userID); lerr == nil {
+		for _, p := range profiles {
+			if p.ID == activeProfile.ID {
+				displayName = p.Name
+				break
 			}
 		}
 	}
@@ -2863,21 +2949,22 @@ func (s *Server) SessionHolder() (ipcauth.Principal, bool) {
 }
 
 // OwnsProfile reports whether the profile the handle resolves to answers to
-// this identity.
+// this identity, and what was wrong with the handle when resolution failed.
 //
 // This triggers stamping of legacy profiles, and reloads the active profile's
 // config so the stamp is visible to SessionHolder.
-func (s *Server) OwnsProfile(id ipcauth.Identity, handle string) bool {
+func (s *Server) OwnsProfile(id ipcauth.Identity, handle string) (bool, error) {
 	// Without the active profile there is nothing to fall back to and nothing
-	// to refresh, so the gate gets a no rather than a guess.
+	// to refresh, so the gate gets a no rather than a guess. The handle is not
+	// what went wrong here, so the gate is left to refuse in its own words.
 	activeProfile, err := s.profileManager.GetActiveProfileState()
 	if err != nil {
 		log.Warnf("failed to get active profile: %v", err)
-		return false
+		return false, nil
 	}
 	if activeProfile == nil {
 		log.Warn("no active profile to authorize against")
-		return false
+		return false, nil
 	}
 	if handle == "" {
 		handle = activeProfile.ID.String()
@@ -2897,10 +2984,10 @@ func (s *Server) OwnsProfile(id ipcauth.Identity, handle string) bool {
 	s.reloadActiveConfig()
 
 	if resolveErr != nil {
-		log.Errorf("failed to resolve profile %q: %v", handle, resolveErr)
-		return false
+		log.Debugf("failed to resolve profile %q: %v", handle, resolveErr)
+		return false, resolveErr
 	}
-	return resolved.AccessibleBy(id)
+	return resolved.AccessibleBy(id), nil
 }
 
 // afterProfileResolve is a seam for tests to run a concurrent profile switch
