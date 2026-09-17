@@ -20,8 +20,9 @@ type DaemonState interface {
 
 	// OwnsProfile reports whether id owns the profile a request names. An empty
 	// handle is the active profile, which is what a method that acts on the
-	// live session resolves against.
-	OwnsProfile(id Identity, handle string) bool
+	// live session resolves against. The error says what was wrong with the
+	// handle itself.
+	OwnsProfile(id Identity, handle string) (bool, error)
 }
 
 // AuthzGate authorizes every RPC call before its handler run.
@@ -160,9 +161,11 @@ func (g *AuthzGate) authorize(ctx context.Context, method string, msg any) error
 		target = named
 	}
 
+	level, handleErr := resolveLevel(id, target, st)
+
 	req := Request{
 		Identity: id,
-		Level:    resolveLevel(id, target, st),
+		Level:    level,
 		Target:   target,
 		Method:   method,
 		State:    st,
@@ -170,6 +173,9 @@ func (g *AuthzGate) authorize(ctx context.Context, method string, msg any) error
 	}
 	if req.Level < policy.Level {
 		log.Warnf("ipc authz: DENY %s for %s (%s), requires %s", method, id, req.Level, policy.Level)
+		if handleErr != nil {
+			return handleErr
+		}
 		return denyPolicyLevel(req, policy)
 	}
 	for _, rule := range policy.Rules {

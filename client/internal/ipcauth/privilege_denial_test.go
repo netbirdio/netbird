@@ -104,10 +104,12 @@ func TestDenyPolicyLevelWithoutGuidanceStaysBare(t *testing.T) {
 type stubState struct {
 	holder  Principal
 	running bool
+	owns    bool
+	ownsErr error
 }
 
-func (s stubState) SessionHolder() (Principal, bool)  { return s.holder, s.running }
-func (s stubState) OwnsProfile(Identity, string) bool { return true }
+func (s stubState) SessionHolder() (Principal, bool)           { return s.holder, s.running }
+func (s stubState) OwnsProfile(Identity, string) (bool, error) { return s.owns, s.ownsErr }
 
 // A refusal caused by somebody else's connection explains itself and offers no
 // command, since the caller cannot end a session that is not theirs.

@@ -2943,21 +2943,22 @@ func (s *Server) SessionHolder() (ipcauth.Principal, bool) {
 }
 
 // OwnsProfile reports whether the profile the handle resolves to answers to
-// this identity.
+// this identity, and what was wrong with the handle when resolution failed.
 //
 // This triggers stamping of legacy profiles, and reloads the active profile's
 // config so the stamp is visible to SessionHolder.
-func (s *Server) OwnsProfile(id ipcauth.Identity, handle string) bool {
+func (s *Server) OwnsProfile(id ipcauth.Identity, handle string) (bool, error) {
 	// Without the active profile there is nothing to fall back to and nothing
-	// to refresh, so the gate gets a no rather than a guess.
+	// to refresh, so the gate gets a no rather than a guess. The handle is not
+	// what went wrong here, so the gate is left to refuse in its own words.
 	activeProfile, err := s.profileManager.GetActiveProfileState()
 	if err != nil {
 		log.Warnf("failed to get active profile: %v", err)
-		return false
+		return false, nil
 	}
 	if activeProfile == nil {
 		log.Warn("no active profile to authorize against")
-		return false
+		return false, nil
 	}
 	if handle == "" {
 		handle = activeProfile.ID.String()
@@ -2977,10 +2978,10 @@ func (s *Server) OwnsProfile(id ipcauth.Identity, handle string) bool {
 	s.reloadActiveConfig()
 
 	if resolveErr != nil {
-		log.Errorf("failed to resolve profile %q: %v", handle, resolveErr)
-		return false
+		log.Debugf("failed to resolve profile %q: %v", handle, resolveErr)
+		return false, resolveErr
 	}
-	return resolved.AccessibleBy(id)
+	return resolved.AccessibleBy(id), nil
 }
 
 // afterProfileResolve is a seam for tests to run a concurrent profile switch
