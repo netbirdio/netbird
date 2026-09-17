@@ -108,8 +108,32 @@ func TestAuthorizeAllowsIdentifiedMethodsDespiteAResolveFailure(t *testing.T) {
 // Ownership is the gate's answer, never the error's: a resolution that failed is
 // a no whatever it returned alongside.
 func TestAuthorizeRefusesWhenResolutionFails(t *testing.T) {
-	g := gateFor(t, stubState{owns: true, ownsErr: gstatus.Error(codes.NotFound, "profile not found")})
+	g := gateFor(t, stubState{owns: false, ownsErr: gstatus.Error(codes.NotFound, "profile not found")})
 
 	err := g.authorize(transportCtx(unprivUser, nil), servicePath+"SwitchProfile", switchTo("some-profile"))
 	assert.Error(t, err, "an error from the resolution cannot be read as ownership")
+}
+
+// A resolution that failed established nothing about the profile, so no level
+// returned alongside the error may be acted on. This is the invariant the gate
+// clamps, pinned at the function that has to hold it.
+func TestResolveLevelNeverRaisesTheLevelOnAFailure(t *testing.T) {
+	asDaemon(t, root)
+
+	notFound := gstatus.Error(codes.NotFound, "profile not found")
+
+	for _, tc := range []struct {
+		name string
+		st   stubState
+	}{
+		{"a live session it reports as owned", stubState{owns: true, running: true, ownsErr: notFound}},
+		{"an idle daemon it reports as owned", stubState{owns: true, ownsErr: notFound}},
+		{"a daemon-side failure it reports as owned", stubState{owns: true, ownsErr: errors.New("read profile directory")}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			level, _ := resolveLevel(unprivUser, "some-profile", tc.st)
+			assert.Equal(t, AuthzLevelIdentified, level,
+				"a failed resolution cannot confer %s", level)
+		})
+	}
 }

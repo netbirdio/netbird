@@ -161,7 +161,7 @@ func (g *AuthzGate) authorize(ctx context.Context, method string, msg any) error
 		target = named
 	}
 
-	level, handleErr := resolveLevel(id, target, st)
+	level, resolveErr := resolveLevel(id, target, st)
 
 	req := Request{
 		Identity: id,
@@ -173,8 +173,8 @@ func (g *AuthzGate) authorize(ctx context.Context, method string, msg any) error
 	}
 	if req.Level < policy.Level {
 		log.Warnf("ipc authz: DENY %s for %s (%s), requires %s", method, id, req.Level, policy.Level)
-		if handleErr != nil {
-			return handleErr
+		if resolveErr != nil {
+			return resolveErr
 		}
 		return denyPolicyLevel(req, policy)
 	}

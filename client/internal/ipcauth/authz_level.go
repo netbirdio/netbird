@@ -58,8 +58,8 @@ func resolveLevel(id Identity, target string, st DaemonState) (AuthzLevel, error
 		return AuthzLevelPrivileged, nil
 	}
 	ownsProfile, err := st.OwnsProfile(id, target)
-	if _, ok := gstatus.FromError(err); !ok {
-		return AuthzLevelIdentified, err
+	if err != nil {
+		return AuthzLevelIdentified, presentableHandleError(target, err)
 	}
 	if !ownsProfile {
 		return AuthzLevelIdentified, nil
@@ -68,4 +68,22 @@ func resolveLevel(id Identity, target string, st DaemonState) (AuthzLevel, error
 		return AuthzLevelSessionHolder, nil
 	}
 	return AuthzLevelProfileOwner, nil
+}
+
+// presentableHandleError keeps a resolution failure only when the gate can put
+// it in front of the caller in place of its own refusal. Everything else is
+// dropped, and the caller gets the refusal their level earned.
+func presentableHandleError(target string, err error) error {
+	// An empty target is the active profile rather than something the caller
+	// typed, so a failure to resolve it is not theirs to correct.
+	if target == "" {
+		return nil
+	}
+
+	// Only a gRPC status reaches the caller as a sentence the CLI and the UI
+	// render.
+	if _, ok := gstatus.FromError(err); !ok {
+		return nil
+	}
+	return err
 }
