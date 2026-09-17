@@ -9,6 +9,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -206,10 +207,16 @@ func applyServiceParams(cmd *cobra.Command, params *serviceParams) {
 // If --service-env was explicitly set to empty, all saved env vars are cleared.
 // If --service-env was not set, saved env vars are used entirely.
 func applyServiceEnvParams(cmd *cobra.Command, params *serviceParams) {
+	// A forbidden name explicitly passed on the command line is an error the
+	// operator is told about, but one restored from a file written by an older
+	// version is dropped: an install that refuses to run would leave the host
+	// without a daemon over a variable nobody is asking for any more.
+	saved := dropForbiddenServiceEnvVars(cmd, params.ServiceEnvVars)
+
 	if !cmd.Flags().Changed("service-env") {
-		if len(params.ServiceEnvVars) > 0 {
+		if len(saved) > 0 {
 			// No explicit env vars: rebuild serviceEnvVars from saved params.
-			serviceEnvVars = envMapToSlice(params.ServiceEnvVars)
+			serviceEnvVars = envMapToSlice(saved)
 		}
 		return
 	}
@@ -228,13 +235,13 @@ func applyServiceEnvParams(cmd *cobra.Command, params *serviceParams) {
 		return
 	}
 
-	if len(params.ServiceEnvVars) == 0 {
+	if len(saved) == 0 {
 		return
 	}
 
 	// Merge saved values underneath explicit ones.
-	merged := make(map[string]string, len(params.ServiceEnvVars)+len(explicit))
-	maps.Copy(merged, params.ServiceEnvVars)
+	merged := make(map[string]string, len(saved)+len(explicit))
+	maps.Copy(merged, saved)
 	maps.Copy(merged, explicit) // explicit wins on conflict
 	serviceEnvVars = envMapToSlice(merged)
 }
@@ -255,6 +262,20 @@ var resetParamsCmd = &cobra.Command{
 		cmd.Printf("Removed saved service parameters (%s)\n", path)
 		return nil
 	},
+}
+
+// dropForbiddenServiceEnvVars returns the saved entries that may still be
+// registered on the service, reporting every one it leaves behind.
+func dropForbiddenServiceEnvVars(cmd *cobra.Command, saved map[string]string) map[string]string {
+	kept := make(map[string]string, len(saved))
+	for key, value := range saved {
+		if _, forbidden := forbiddenServiceEnvVars[strings.ToUpper(key)]; forbidden {
+			cmd.PrintErrf("Warning: ignoring saved service environment variable %s: it decides which executables and libraries the service loads\n", key)
+			continue
+		}
+		kept[key] = value
+	}
+	return kept
 }
 
 // envMapToSlice converts a map of env vars to a KEY=VALUE slice.

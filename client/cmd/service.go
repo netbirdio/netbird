@@ -25,6 +25,28 @@ var serviceCmd = &cobra.Command{
 
 const defaultJSONSocket = "unix:///var/run/netbird-http.sock"
 
+// forbiddenServiceEnvVars are the environment variables the service is never
+// registered with, keyed in upper case. They select which binaries and
+// libraries the daemon loads, so setting one of them redirects work the daemon
+// does with the privileges of the account it runs under — LocalSystem on
+// Windows, root elsewhere. The daemon has no use for any of them, and the
+// resolution of the utilities it shells out to does not depend on them.
+var forbiddenServiceEnvVars = map[string]struct{}{
+	"PATH":                  {},
+	"PATHEXT":               {},
+	"SYSTEMROOT":            {},
+	"WINDIR":                {},
+	"COMSPEC":               {},
+	"TEMP":                  {},
+	"TMP":                   {},
+	"LD_PRELOAD":            {},
+	"LD_LIBRARY_PATH":       {},
+	"LD_AUDIT":              {},
+	"DYLD_INSERT_LIBRARIES": {},
+	"DYLD_LIBRARY_PATH":     {},
+	"DYLD_FRAMEWORK_PATH":   {},
+}
+
 var (
 	serviceName      string
 	serviceEnvVars   []string
@@ -125,6 +147,14 @@ func parseServiceEnvVars(envVars []string) (map[string]string, error) {
 
 		if key == "" {
 			return nil, fmt.Errorf("empty environment variable key in: %s", env)
+		}
+
+		// Windows environment variable names are case-insensitive, and the ones
+		// listed here are rejected on every platform: a service that resolves a
+		// different set of executables or libraries than the host it runs on is
+		// not something to configure by accident.
+		if _, forbidden := forbiddenServiceEnvVars[strings.ToUpper(key)]; forbidden {
+			return nil, fmt.Errorf("environment variable %s cannot be set on the service: it decides which executables and libraries the service loads", key)
 		}
 
 		envMap[key] = value

@@ -353,6 +353,33 @@ func TestApplyServiceEnvParams_NotChanged(t *testing.T) {
 	assert.Equal(t, map[string]string{"FROM_SAVED": "val"}, result)
 }
 
+func TestParseServiceEnvVars_RejectsForbiddenNames(t *testing.T) {
+	for _, env := range []string{"PATH=C:\\attacker", "Path=C:\\attacker", "LD_PRELOAD=/tmp/evil.so"} {
+		_, err := parseServiceEnvVars([]string{"KEEP=me", env})
+		require.Errorf(t, err, "%s selects what the service loads and must be refused", env)
+	}
+}
+
+func TestApplyServiceEnvParams_DropsForbiddenSavedNames(t *testing.T) {
+	origServiceEnvVars := serviceEnvVars
+	t.Cleanup(func() { serviceEnvVars = origServiceEnvVars })
+
+	serviceEnvVars = nil
+
+	cmd := &cobra.Command{}
+	cmd.Flags().StringSlice("service-env", nil, "")
+
+	saved := &serviceParams{
+		ServiceEnvVars: map[string]string{"PATH": "C:\\attacker", "NB_LOG_FORMAT": "json"},
+	}
+
+	applyServiceEnvParams(cmd, saved)
+
+	result, err := parseServiceEnvVars(serviceEnvVars)
+	require.NoError(t, err, "a saved PATH must be dropped rather than fail the install")
+	assert.Equal(t, map[string]string{"NB_LOG_FORMAT": "json"}, result)
+}
+
 func TestApplyServiceEnvParams_ExplicitEmptyClears(t *testing.T) {
 	origServiceEnvVars := serviceEnvVars
 	t.Cleanup(func() { serviceEnvVars = origServiceEnvVars })
