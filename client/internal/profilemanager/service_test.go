@@ -292,24 +292,30 @@ func TestListProfiles_PrivilegedResolvesUnfiltered(t *testing.T) {
 	})
 }
 
-func TestListProfiles_OnlyTheDefaultFailsOpenWhenUnowned(t *testing.T) {
+func TestListProfiles_UnownedProfilesArePrivilegedOnly(t *testing.T) {
 	withTestSM(t, func(sm *ServiceManager, _ ipcauth.Identity) {
+		// Nobody at the console, so the claim cannot stamp an owner partway
+		// through and change what the assertions below are looking at, whatever
+		// the machine running the test happens to look like.
+		stubConsoleUser(t, false)
+
 		unowned, err := sm.AddProfile("unowned", nil)
 		require.NoError(t, err)
 
 		alice := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
 		got, err := sm.ListProfiles(alice)
 		require.NoError(t, err)
-		assert.Contains(t, profileIDs(got), defaultProfileName,
-			"a fresh install has to be usable before anything is claimed")
+		assert.NotContains(t, profileIDs(got), defaultProfileName,
+			"the default profile has no exemption, being claimed is what opens it")
 		assert.NotContains(t, profileIDs(got), unowned.ID.String(),
-			"every other profile needs an owner before anyone can address it")
+			"every profile needs an owner before anyone can address it")
 
 		root := ipcauth.KnownForTest(ipcauth.Identity{UID: 0})
 		got, err = sm.ListProfiles(root)
 		require.NoError(t, err)
-		assert.Contains(t, profileIDs(got), unowned.ID.String(),
-			"root still reaches it, which is how it gets assigned")
+		assert.Contains(t, profileIDs(got), defaultProfileName,
+			"root still reaches both, which is how an unowned profile gets assigned")
+		assert.Contains(t, profileIDs(got), unowned.ID.String())
 
 		nobody, err := sm.ListProfiles(ipcauth.Identity{})
 		require.NoError(t, err)
@@ -768,4 +774,164 @@ func TestClaimProfile_RefusesAnOwnerNobodyCanMatch(t *testing.T) {
 			})
 		})
 	}
+}
+
+func TestListProfiles_ClaimKeepsFieldsThisVersionDoesNotModel(t *testing.T) {
+	withLegacyLayout(t, func(sm *ServiceManager, configDir string) {
+		// What a client newer than this one leaves behind: a key Config has no
+		// field for, next to one it does.
+		newer := map[string]any{"Enabled": true, "Hosts": []any{"a", "b"}}
+		path := writeLegacyProfile(t, configDir, "alice", "work", map[string]any{
+			"MTU":            1280,
+			"SomethingNewer": newer,
+		})
+		stubLegacyDir(t, "alice")
+
+		alice := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
+		_, err := sm.ListProfiles(alice)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"uid:4242"}, readOwners(t, path), "the claim still lands")
+
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		var doc map[string]any
+		require.NoError(t, json.Unmarshal(data, &doc))
+
+		assert.Equal(t, newer, doc["SomethingNewer"],
+			"a listing must not drop the settings of a client that models more than this one")
+		assert.Equal(t, float64(1280), doc["MTU"], "and leaves the ones it does model alone")
+		assert.NotContains(t, doc, "PrivateKey",
+			"nor write out the rest of Config just because it has fields for it")
+	})
+}
+
+// stubConsoleUser replaces the console lookup, so the default-profile claim can
+// be exercised without the machine running the test having a seat of its own.
+func stubConsoleUser(t *testing.T, atConsole bool) {
+	t.Helper()
+	orig := isConsoleUser
+	isConsoleUser = func(ipcauth.Identity) bool { return atConsole }
+	t.Cleanup(func() { isConsoleUser = orig })
+}
+
+func TestClaimDefaultProfile_ConsoleUserClaimsIt(t *testing.T) {
+	withLegacyLayout(t, func(sm *ServiceManager, _ string) {
+		stubConsoleUser(t, true)
+
+		alice := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
+		_, err := sm.ListProfiles(alice)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"uid:4242"}, readOwners(t, DefaultConfigPath),
+			"the first caller at the console closes the window the default profile is open in")
+	})
+}
+
+func TestSetProfileField_ReplacesAKeySpelledInAnotherCase(t *testing.T) {
+	withLegacyLayout(t, func(sm *ServiceManager, configDir string) {
+		path := writeLegacyProfile(t, configDir, "alice", "work", map[string]any{
+			"owners": []any{"uid:1"},
+		})
+
+		require.NoError(t, stampPrincipal(path, "uid:4242"))
+
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		var doc map[string]any
+		require.NoError(t, json.Unmarshal(data, &doc))
+
+		assert.NotContains(t, doc, "owners",
+			"two spellings of one field would leave the reader to pick")
+		assert.Equal(t, []any{"uid:4242"}, doc["Owners"])
+		assert.Equal(t, []string{"uid:4242"}, readOwners(t, path))
+	})
+}
+
+func TestSetProfileField_RefusesADocumentThatIsNotAnObject(t *testing.T) {
+	withLegacyLayout(t, func(sm *ServiceManager, configDir string) {
+		path := filepath.Join(configDir, "alice", "work.json")
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0700))
+		require.NoError(t, os.WriteFile(path, []byte("null"), 0600))
+
+		require.Error(t, stampPrincipal(path, "uid:4242"),
+			"a profile that is not an object is not one an owner can be set on")
+
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		assert.Equal(t, "null", string(data), "and it is left as it was found")
+	})
+}
+
+func TestSetProfileField_KeepsKeysItWasNotAskedToWrite(t *testing.T) {
+	withLegacyLayout(t, func(sm *ServiceManager, configDir string) {
+		// Keys Config has no field for, in every shape a newer client could
+		// leave one behind.
+		unknown := map[string]any{
+			"String": "keep me",
+			"Number": float64(7),
+			"Bool":   true,
+			"Null":   nil,
+			"List":   []any{"a", float64(2), false},
+			"Object": map[string]any{"Nested": map[string]any{"Deep": []any{float64(1)}}},
+		}
+		fields := map[string]any{"MTU": 1280}
+		for k, v := range unknown {
+			fields[k] = v
+		}
+		path := writeLegacyProfile(t, configDir, "alice", "work", fields)
+
+		require.NoError(t, setProfileField(path, ownersFieldName, []string{"uid:4242"}))
+		require.NoError(t, setProfileField(path, nameFieldName, "Work"))
+
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		var doc map[string]any
+		require.NoError(t, json.Unmarshal(data, &doc))
+
+		for k, want := range unknown {
+			assert.Equal(t, want, doc[k],
+				"%s is not a key this version models, so it is not this version's to drop", k)
+		}
+		assert.Equal(t, float64(1280), doc["MTU"], "a key it does model is left where it was too")
+		assert.Equal(t, []any{"uid:4242"}, doc["Owners"], "and the fields it was asked for are written")
+		assert.Equal(t, "Work", doc["Name"])
+		assert.Len(t, doc, len(unknown)+3, "with nothing else added")
+	})
+}
+
+func TestClaimDefaultProfile_CallerAwayFromTheConsoleDoesNotClaimIt(t *testing.T) {
+	withLegacyLayout(t, func(sm *ServiceManager, _ string) {
+		stubConsoleUser(t, false)
+
+		alice := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
+		_, err := sm.ListProfiles(alice)
+		require.NoError(t, err)
+		assert.Empty(t, readOwners(t, DefaultConfigPath),
+			"a local caller who is not at the console must not take the machine's profile")
+	})
+}
+
+func TestClaimDefaultProfile_DisableEnvWithholdsTheClaim(t *testing.T) {
+	withLegacyLayout(t, func(sm *ServiceManager, _ string) {
+		stubConsoleUser(t, true)
+		t.Setenv(EnvDisableDefaultProfileClaim, "true")
+
+		alice := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
+		_, err := sm.ListProfiles(alice)
+		require.NoError(t, err)
+		assert.Empty(t, readOwners(t, DefaultConfigPath),
+			"the flag withholds the claim even from a caller who would otherwise get it")
+	})
+}
+
+func TestClaimDefaultProfile_UnparseableDisableEnvLeavesTheClaimOn(t *testing.T) {
+	withLegacyLayout(t, func(sm *ServiceManager, _ string) {
+		stubConsoleUser(t, true)
+		t.Setenv(EnvDisableDefaultProfileClaim, "yes please")
+
+		alice := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
+		_, err := sm.ListProfiles(alice)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"uid:4242"}, readOwners(t, DefaultConfigPath),
+			"a typo must not be what turns a safety mechanism off")
+	})
 }

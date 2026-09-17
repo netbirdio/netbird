@@ -20,8 +20,9 @@ type DaemonState interface {
 
 	// OwnsProfile reports whether id owns the profile a request names. An empty
 	// handle is the active profile, which is what a method that acts on the
-	// live session resolves against.
-	OwnsProfile(id Identity, handle string) bool
+	// live session resolves against. The error says what was wrong with the
+	// handle itself.
+	OwnsProfile(id Identity, handle string) (bool, error)
 }
 
 // AuthzGate authorizes every RPC call before its handler run.
@@ -98,11 +99,9 @@ func denyPolicyLevel(r Request, p MethodPolicy) error {
 		}
 
 	case AuthzLevelSessionHolder:
-		// Reaching here means the caller is short of session holder, and
-		// resolveLevel grants that level whenever no session runs or the holder
-		// is the caller. So a running session is held by somebody else. With no
-		// session running the caller fell short on ownership instead.
-		if _, running := r.State.SessionHolder(); running {
+		// resolveLevel stops at profile owner only when a session is running and
+		// somebody else holds it.
+		if r.Level == AuthzLevelProfileOwner {
 			return SessionHeldError(p.Action)
 		}
 		return NotOwnerError(p.Action)
@@ -162,9 +161,11 @@ func (g *AuthzGate) authorize(ctx context.Context, method string, msg any) error
 		target = named
 	}
 
+	level, handleErr := resolveLevel(id, target, st)
+
 	req := Request{
 		Identity: id,
-		Level:    resolveLevel(id, target, st),
+		Level:    level,
 		Target:   target,
 		Method:   method,
 		State:    st,
@@ -172,6 +173,9 @@ func (g *AuthzGate) authorize(ctx context.Context, method string, msg any) error
 	}
 	if req.Level < policy.Level {
 		log.Warnf("ipc authz: DENY %s for %s (%s), requires %s", method, id, req.Level, policy.Level)
+		if handleErr != nil {
+			return handleErr
+		}
 		return denyPolicyLevel(req, policy)
 	}
 	for _, rule := range policy.Rules {

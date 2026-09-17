@@ -177,7 +177,8 @@ func undoMoves(moved []movedFile) {
 }
 
 // stampActiveUserDir records the owner of every unowned profile in the
-// directory of the account the active profile state names.
+// directory of the account the active profile state names and the default
+// profile.
 //
 // That name is the one lossless input the old layout left behind. Resolving it
 // forward, from name to uid, avoids reversing a sanitized directory name, which
@@ -198,18 +199,36 @@ func (s *ServiceManager) stampActiveUserDir(profiles []Profile, active *ActivePr
 	}
 
 	dir := sanitizeProfileName(active.Username)
+	if dir == "" {
+		log.Warnf("account %q leaves nothing after sanitizing, so its per-username profiles stay unowned", active.Username)
+	}
+
 	for i := range profiles {
 		p := &profiles[i]
-		if len(p.Owners) > 0 || p.LegacyUserDir != dir {
+		if len(p.Owners) > 0 || !takesActiveAccountOwner(p, dir) {
 			continue
 		}
 		if err := stampPrincipal(p.Path, principal); err != nil {
-			return fmt.Errorf("stamp %s: %w", p.ID, err)
+			log.Warnf("leaving %s unowned, its owner could not be recorded: %v", p.Path, err)
+			continue
 		}
-		log.Infof("recorded %s as the owner of %s, the directory it sits in is that account's", principal, p.Path)
+		log.Infof("recorded %s as the owner of %s, the account the active profile state names", principal, p.Path)
 	}
 
 	return nil
+}
+
+// takesActiveAccountOwner reports whether an unowned profile should be stamped
+// with the active account's principal, dir being the legacy directory name that
+// account produced.
+//
+// An empty dir is the absence of a directory, not a directory whose name is
+// empty, so nothing matches it.
+func takesActiveAccountOwner(p *Profile, dir string) bool {
+	if dir != "" && p.LegacyUserDir == dir {
+		return true
+	}
+	return p.ID == defaultProfileName && !defaultProfileClaimDisabled()
 }
 
 // PrincipalForUser turns a resolved account into an owner principal. os/user

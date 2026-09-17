@@ -104,10 +104,12 @@ func TestDenyPolicyLevelWithoutGuidanceStaysBare(t *testing.T) {
 type stubState struct {
 	holder  Principal
 	running bool
+	owns    bool
+	ownsErr error
 }
 
-func (s stubState) SessionHolder() (Principal, bool)  { return s.holder, s.running }
-func (s stubState) OwnsProfile(Identity, string) bool { return true }
+func (s stubState) SessionHolder() (Principal, bool)           { return s.holder, s.running }
+func (s stubState) OwnsProfile(Identity, string) (bool, error) { return s.owns, s.ownsErr }
 
 // A refusal caused by somebody else's connection explains itself and offers no
 // command, since the caller cannot end a session that is not theirs.
@@ -145,6 +147,25 @@ func TestDenyPolicyLevelWithNoSessionBlamesOwnership(t *testing.T) {
 	info := denialDetail(t, denyPolicyLevel(req, methodPolicies[servicePath+"Up"]))
 	assert.Equal(t, ErrorReasonNotProfileOwner, info.GetReason())
 	assert.NotContains(t, info.GetMetadata()[ErrorMetaSummary], "connected")
+}
+
+// Somebody else's session is not what stops a caller who never owned the
+// profile: they are refused for the profile, and netbird down is neither theirs
+// to run nor any help.
+func TestDenyPolicyLevelBlamesOwnershipWhileASessionRuns(t *testing.T) {
+	req := Request{
+		Identity: KnownForTest(Identity{UID: 1000}),
+		Level:    AuthzLevelIdentified,
+		Method:   servicePath + "Up",
+		State:    stubState{holder: Principal{Kind: KindUID, Value: "4242"}, running: true},
+	}
+
+	info := denialDetail(t, denyPolicyLevel(req, methodPolicies[servicePath+"Up"]))
+	assert.Equal(t, ErrorReasonNotProfileOwner, info.GetReason())
+	assert.Contains(t, info.GetMetadata()[ErrorMetaSummary], "belongs to another user")
+
+	_, hasCommand := info.GetMetadata()[ErrorMetaCommand]
+	assert.False(t, hasCommand, "ending a session does not make the profile theirs")
 }
 
 // A method with no Action still refuses, it just cannot name the operation.
