@@ -234,10 +234,10 @@ nfpms:
       - netbird
     formats:
       - rpm
-    # Runtime and post-install requirements. Red Hat software certification
-    # (RPM Dependency Tracking) rejects packages that declare no dependencies.
+    # The client verifies TLS to management and signal against the system trust
+    # store. Red Hat software certification (RPM Dependency Tracking) also
+    # rejects packages that declare no dependencies at all.
     dependencies:
-      - systemd
       - ca-certificates
     # Generated in CI by chglog from git tags; Red Hat certification requires an
     # RPM changelog (RPM Version Handling subtest).
