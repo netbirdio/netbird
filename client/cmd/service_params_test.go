@@ -9,6 +9,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -354,9 +355,35 @@ func TestApplyServiceEnvParams_NotChanged(t *testing.T) {
 }
 
 func TestParseServiceEnvVars_RejectsForbiddenNames(t *testing.T) {
-	for _, env := range []string{"PATH=C:\\attacker", "Path=C:\\attacker", "LD_PRELOAD=/tmp/evil.so"} {
+	for _, env := range []string{"PATH=C:\\somewhere", "LD_PRELOAD=/tmp/lib.so", "DYLD_FALLBACK_LIBRARY_PATH=/tmp"} {
 		_, err := parseServiceEnvVars([]string{"KEEP=me", env})
-		require.Errorf(t, err, "%s selects what the service loads and must be refused", env)
+		require.Errorf(t, err, "%s selects what the service resolves and must be refused", env)
+	}
+}
+
+func TestIsForbiddenServiceEnvVar(t *testing.T) {
+	// The loader families are matched by prefix, so a name nobody has heard of
+	// yet is refused too.
+	for _, name := range []string{
+		"PATH", "PATHEXT", "COMSPEC", "SYSTEMROOT", "WINDIR", "TEMP", "TMP",
+		"LD_PRELOAD", "LD_AUDIT", "DYLD_INSERT_LIBRARIES", "DYLD_FALLBACK_FRAMEWORK_PATH",
+	} {
+		assert.Truef(t, isForbiddenServiceEnvVar(name), "%s must be refused", name)
+	}
+
+	// The prefix must not swallow names that merely start with the same letters.
+	for _, name := range []string{"NB_LOG_LEVEL", "NB_WG_DEBUG", "HTTPS_PROXY", "LDAP_URL", "DYLDX"} {
+		assert.Falsef(t, isForbiddenServiceEnvVar(name), "%s has no reason to be refused", name)
+	}
+
+	// On Windows a variable is the same one however it is spelled; elsewhere
+	// Path and PATH are two variables and only the exact one is read.
+	if runtime.GOOS == "windows" {
+		assert.True(t, isForbiddenServiceEnvVar("Path"))
+		assert.True(t, isForbiddenServiceEnvVar("ld_preload"))
+	} else {
+		assert.False(t, isForbiddenServiceEnvVar("Path"))
+		assert.False(t, isForbiddenServiceEnvVar("ld_preload"))
 	}
 }
 

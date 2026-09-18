@@ -9,7 +9,6 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -269,8 +268,8 @@ var resetParamsCmd = &cobra.Command{
 func dropForbiddenServiceEnvVars(cmd *cobra.Command, saved map[string]string) map[string]string {
 	kept := make(map[string]string, len(saved))
 	for key, value := range saved {
-		if _, forbidden := forbiddenServiceEnvVars[strings.ToUpper(key)]; forbidden {
-			cmd.PrintErrf("Warning: ignoring saved service environment variable %s: it decides which executables and libraries the service loads\n", key)
+		if isForbiddenServiceEnvVar(key) {
+			cmd.PrintErrf("Warning: ignoring saved service environment variable %s: it decides where the service resolves the executables, libraries or temporary files it uses\n", key)
 			continue
 		}
 		kept[key] = value

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 
@@ -26,26 +27,28 @@ var serviceCmd = &cobra.Command{
 const defaultJSONSocket = "unix:///var/run/netbird-http.sock"
 
 // forbiddenServiceEnvVars are the environment variables the service is never
-// registered with, keyed in upper case. They select which binaries and
-// libraries the daemon loads, so setting one of them redirects work the daemon
-// does with the privileges of the account it runs under — LocalSystem on
-// Windows, root elsewhere. The daemon has no use for any of them, and the
-// resolution of the utilities it shells out to does not depend on them.
+// registered with, keyed in upper case since these are Windows names. Each one
+// decides where the daemon resolves something it then uses with the privileges
+// of the account it runs under — LocalSystem on Windows, root elsewhere: the
+// executables it runs (PATH, PATHEXT, COMSPEC, SystemRoot, windir) or the
+// directory it writes temporary files in (TEMP, TMP). The daemon needs none of
+// them, and the utilities it shells out to are resolved by absolute path.
 var forbiddenServiceEnvVars = map[string]struct{}{
-	"PATH":                  {},
-	"PATHEXT":               {},
-	"SYSTEMROOT":            {},
-	"WINDIR":                {},
-	"COMSPEC":               {},
-	"TEMP":                  {},
-	"TMP":                   {},
-	"LD_PRELOAD":            {},
-	"LD_LIBRARY_PATH":       {},
-	"LD_AUDIT":              {},
-	"DYLD_INSERT_LIBRARIES": {},
-	"DYLD_LIBRARY_PATH":     {},
-	"DYLD_FRAMEWORK_PATH":   {},
+	"PATH":       {},
+	"PATHEXT":    {},
+	"SYSTEMROOT": {},
+	"WINDIR":     {},
+	"COMSPEC":    {},
+	"TEMP":       {},
+	"TMP":        {},
 }
+
+// forbiddenServiceEnvPrefixes are the dynamic-loader families, refused whole
+// rather than by name: LD_PRELOAD, DYLD_INSERT_LIBRARIES and their siblings all
+// reach the loader of the process, the set differs per platform and libc, and
+// new members arrive with new OS releases. Listing them one by one is a list
+// that is wrong the moment it is written.
+var forbiddenServiceEnvPrefixes = []string{"LD_", "DYLD_"}
 
 var (
 	serviceName      string
@@ -149,16 +152,33 @@ func parseServiceEnvVars(envVars []string) (map[string]string, error) {
 			return nil, fmt.Errorf("empty environment variable key in: %s", env)
 		}
 
-		// Windows environment variable names are case-insensitive, and the ones
-		// listed here are rejected on every platform: a service that resolves a
-		// different set of executables or libraries than the host it runs on is
-		// not something to configure by accident.
-		if _, forbidden := forbiddenServiceEnvVars[strings.ToUpper(key)]; forbidden {
-			return nil, fmt.Errorf("environment variable %s cannot be set on the service: it decides which executables and libraries the service loads", key)
+		if isForbiddenServiceEnvVar(key) {
+			return nil, fmt.Errorf("environment variable %s cannot be set on the service: it decides where the service resolves the executables, libraries or temporary files it uses", key)
 		}
 
 		envMap[key] = value
 	}
 
 	return envMap, nil
+}
+
+// isForbiddenServiceEnvVar reports whether name is one the service must not be
+// registered with.
+//
+// The names are matched case-insensitively only on Windows, where they are the
+// same variable however they are spelled. Elsewhere the environment is
+// case-sensitive, so Path and PATH are two different variables and only the
+// exact spelling is the one the loader reads.
+func isForbiddenServiceEnvVar(name string) bool {
+	if runtime.GOOS == "windows" {
+		name = strings.ToUpper(name)
+	}
+
+	if _, forbidden := forbiddenServiceEnvVars[name]; forbidden {
+		return true
+	}
+
+	return slices.ContainsFunc(forbiddenServiceEnvPrefixes, func(prefix string) bool {
+		return strings.HasPrefix(name, prefix)
+	})
 }
