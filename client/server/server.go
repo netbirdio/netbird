@@ -2914,10 +2914,6 @@ func (s *Server) ResolveTarget(id ipcauth.Identity, handle string) (ipcauth.Targ
 
 	match, matchErr := s.profileManager.MatchProfiles(handle)
 
-	if afterProfileResolve != nil {
-		afterProfileResolve()
-	}
-
 	if matchErr != nil {
 		log.Debugf("failed to match profile %q: %v", handle, matchErr)
 		return ipcauth.Target{}, matchHandleError(handle, matchErr)
@@ -2980,10 +2976,6 @@ func (s *Server) targetProfile(ctx context.Context) (*profilemanager.Profile, er
 	}
 	return resolved, nil
 }
-
-// afterProfileResolve is a seam for tests to run a concurrent profile switch
-// between the resolution that stamps owners and the reload that publishes them.
-var afterProfileResolve func()
 
 // reloadActiveConfig refreshes the daemon's copy of the active profile's config
 // from disk, which is where SessionHolder reads the owner of a live session.

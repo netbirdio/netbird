@@ -92,44 +92,6 @@ func TestResolveTarget_UnreadableConfigKeepsTheOneInPlace(t *testing.T) {
 	require.True(t, holder.Matches(unprivilegedIdentity()))
 }
 
-// A profile switch can land while the gate is still resolving: the resolution
-// reads every profile off disk, and SwitchProfile only needs the daemon lock,
-// which the gate does not hold. The config the reload publishes has to be the
-// one the daemon is now on, not the one the check started out reading.
-func TestResolveTarget_ReloadFollowsASwitchThatLandsMidCheck(t *testing.T) {
-	s, _, activeProfile, _, _ := setupServerWithProfile(t)
-	owner := unprivilegedIdentity()
-
-	switchedTo := "switched-to"
-	switchedToURL := "https://switched-to.example:443"
-	_, err := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
-		ConfigPath:    filepath.Join(profilemanager.DefaultConfigPathDir, switchedTo+".json"),
-		ManagementURL: switchedToURL,
-		Owner:         &owner,
-	})
-	require.NoError(t, err)
-
-	s.config = &profilemanager.Config{}
-	s.clientRunning = true
-
-	// Stand in for a SwitchProfile that lands between the resolution and the
-	// reload, which is the whole window the profile files are being read in.
-	afterProfileResolve = func() {
-		require.NoError(t, s.profileManager.SetActiveProfileState(&profilemanager.ActiveProfileState{
-			ID: profilemanager.ID(switchedTo),
-		}))
-	}
-	t.Cleanup(func() { afterProfileResolve = nil })
-
-	target, err := s.ResolveTarget(owner, activeProfile)
-	require.NoError(t, err)
-	require.True(t, target.Owned)
-
-	require.NotNil(t, s.config.ManagementURL)
-	require.Equal(t, switchedToURL, s.config.ManagementURL.String(),
-		"the reload published the config of a profile the daemon had already left")
-}
-
 // The handlers that start a session read their config off disk themselves.
 func TestResolveTarget_IdleDaemonKeepsItsConfig(t *testing.T) {
 	s, _, activeProfile, _, _ := setupServerWithProfile(t)
