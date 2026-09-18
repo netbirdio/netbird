@@ -20,8 +20,9 @@ import (
 )
 
 var (
-	profileListShowID bool
-	profileClaimOwner string
+	profileListShowID    bool
+	profileListShowOwner bool
+	profileClaimOwner    string
 )
 
 var profileCmd = &cobra.Command{
@@ -81,6 +82,7 @@ var profileClaimCmd = &cobra.Command{
 
 func init() {
 	profileListCmd.Flags().BoolVar(&profileListShowID, "show-id", false, "show the profile ID column")
+	profileListCmd.Flags().BoolVar(&profileListShowOwner, "show-owner", false, "show the profile owner column")
 	profileClaimCmd.Flags().StringVar(&profileClaimOwner, "owner", "",
 		"principal (uid:1000, sid:S-1-5-21-...) or account name to record as the owner. On linux: defaults to the user running the command with sudo.")
 }
@@ -125,29 +127,39 @@ func listProfilesFunc(cmd *cobra.Command, _ []string) error {
 	}
 
 	tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+
+	header := make([]string, 0, 4)
 	if profileListShowID {
-		fmt.Fprintln(tw, "ID\tNAME\tACTIVE\tOWNER")
-	} else {
-		fmt.Fprintln(tw, "NAME\tACTIVE\tOWNER")
+		header = append(header, "ID")
 	}
+	header = append(header, "NAME", "ACTIVE")
+	if profileListShowOwner {
+		header = append(header, "OWNER")
+	}
+	fmt.Fprintln(tw, strings.Join(header, "\t"))
+
 	for _, profile := range resp.Profiles {
 		marker := ""
 		if profile.IsActive {
-			marker = "✓"
+			// We prefer ASCII
+			marker = "*"
 		}
-		name := profilemanager.StripCtrlChars(profile.Name)
-		id := profilemanager.ID(profile.Id)
-		// An unowned profile is reachable by a privileged caller alone, so say
-		// so rather than leaving the column blank.
-		owner := "unowned"
-		if len(profile.Owners) > 0 {
-			owner = profilemanager.StripCtrlChars(profile.Owners[0])
-		}
+
+		row := make([]string, 0, len(header))
 		if profileListShowID {
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", id.ShortID(), name, marker, owner)
-		} else {
-			fmt.Fprintf(tw, "%s\t%s\t%s\n", name, marker, owner)
+			row = append(row, profilemanager.ID(profile.Id).ShortID())
 		}
+		row = append(row, profilemanager.StripCtrlChars(profile.Name), marker)
+		if profileListShowOwner {
+			// An unowned profile is reachable by a privileged caller alone, so
+			// say so rather than leaving the column blank.
+			owner := "unowned"
+			if len(profile.Owners) > 0 {
+				owner = profilemanager.StripCtrlChars(profile.Owners[0])
+			}
+			row = append(row, owner)
+		}
+		fmt.Fprintln(tw, strings.Join(row, "\t"))
 	}
 	return tw.Flush()
 }
