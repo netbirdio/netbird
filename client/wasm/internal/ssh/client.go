@@ -4,9 +4,11 @@ package ssh
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -141,6 +143,71 @@ func (c *Client) StartSession(cols, rows int) error {
 
 	logrus.Info("SSH: Session started with PTY")
 	return nil
+}
+
+// CommandResult is the outcome of one non-interactive command.
+type CommandResult struct {
+	Stdout   string
+	Stderr   string
+	ExitCode int
+}
+
+// RunCommand runs one command in its own exec session and returns its output.
+//
+// Deliberately NOT the PTY session StartSession opens. A PTY multiplexes stdout
+// and stderr into one stream, echoes what was written, carries terminal escape
+// sequences, and gives no exit status — so a caller that needs to know whether
+// a command SUCCEEDED can only guess by scraping text. An exec session keeps
+// the two streams apart and reports the real exit status, which is the whole
+// reason this exists alongside the interactive path.
+//
+// A non-zero exit is a RESULT, not an error: it comes back in ExitCode with
+// whatever the command wrote, because "the command ran and failed" and "the
+// command could not be run" are different things to whoever is reading.
+//
+// Each call gets a fresh session, since an SSH session is single-use once its
+// command has run. The connection is reused.
+func (c *Client) RunCommand(command string, timeout time.Duration) (*CommandResult, error) {
+	c.mu.RLock()
+	sshClient := c.sshClient
+	c.mu.RUnlock()
+
+	if sshClient == nil {
+		return nil, fmt.Errorf("SSH client not connected")
+	}
+
+	session, err := sshClient.NewSession()
+	if err != nil {
+		return nil, fmt.Errorf("open exec session: %w", err)
+	}
+	defer closeWithLog(session, "SSH exec session")
+
+	var stdout, stderr strings.Builder
+	session.Stdout = &stdout
+	session.Stderr = &stderr
+
+	// Run in a goroutine so a command that never returns cannot wedge the
+	// caller. Closing the session is what unblocks Run.
+	done := make(chan error, 1)
+	go func() { done <- session.Run(command) }()
+
+	select {
+	case runErr := <-done:
+		result := &CommandResult{Stdout: stdout.String(), Stderr: stderr.String()}
+		if runErr == nil {
+			return result, nil
+		}
+		var exitErr *ssh.ExitError
+		if errors.As(runErr, &exitErr) {
+			result.ExitCode = exitErr.ExitStatus()
+			return result, nil
+		}
+		// A signal, or a transport failure: the command did not complete, so
+		// this is an error rather than an exit code.
+		return nil, fmt.Errorf("run command: %w", runErr)
+	case <-time.After(timeout):
+		return nil, fmt.Errorf("command timed out after %s", timeout)
+	}
 }
 
 // Write sends data to the SSH session
