@@ -6,6 +6,17 @@ import (
 	"path/filepath"
 )
 
+// CheckOnlyOwnerWritable reports an error unless path, and every directory
+// leading to it, is owned by an account that can already act with the privileges
+// the caller holds, and is writable by nobody else.
+//
+// Exported for callers outside elevation that read a file while privileged and
+// then act on what it says: the same question this package asks of an
+// executable, asked of a configuration file.
+func CheckOnlyOwnerWritable(path string) error {
+	return checkOnlyOwnerWritable(path)
+}
+
 // trustedSelf returns the path of this executable, provided it is one we are
 // willing to have run as root.
 //
