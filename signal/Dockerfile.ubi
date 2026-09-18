@@ -1,0 +1,23 @@
+FROM registry.access.redhat.com/ubi9/ubi-minimal@sha256:7fbeae18dc9476399f565e68255f602a3374ea8614ba3d14843565131a13ff93
+
+ARG TARGETPLATFORM
+ARG VERSION=dev
+ARG RELEASE=1
+
+LABEL name="netbird-signal" \
+      maintainer="NetBird <dev@netbird.io>" \
+      vendor="NetBird GmbH" \
+      version="${VERSION}" \
+      release="${RELEASE}" \
+      summary="NetBird Signal server" \
+      description="NetBird Signal brokers peer handshakes."
+
+COPY --chmod=0555 ${TARGETPLATFORM}/netbird-signal /go/bin/netbird-signal
+COPY licenses/AGPL-3.0.txt licenses/BSD-3-Clause.txt licenses/Go-LICENSE licenses/Go-PATENTS /licenses/
+COPY licenses/third_party/ /licenses/third_party/
+RUN chmod -R a+rX /licenses
+
+USER 65532
+STOPSIGNAL SIGINT
+ENTRYPOINT [ "/go/bin/netbird-signal", "run" ]
+CMD ["--log-file", "console"]
