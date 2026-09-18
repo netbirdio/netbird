@@ -114,12 +114,16 @@ func (s stubState) ResolveTarget(Identity, string) (Target, error) { return s.ta
 
 // A refusal caused by somebody else's connection explains itself and offers no
 // command, since the caller cannot end a session that is not theirs.
+//
+// Profile owner is the whole input: denyPolicyLevel reads the level and nothing
+// else, and resolveLevel only ever hands it that level when a session is
+// running and somebody else holds it. TestAuthorizeBlamesAHeldSession is what
+// holds those two together.
 func TestDenyPolicyLevelExplainsAHeldSession(t *testing.T) {
 	req := Request{
 		Identity: KnownForTest(Identity{UID: 1000}),
 		Level:    AuthzLevelProfileOwner,
 		Method:   servicePath + "Up",
-		State:    stubState{holder: Principal{Kind: KindUID, Value: "4242"}, running: true},
 	}
 
 	info := denialDetail(t, denyPolicyLevel(req, methodPolicies[servicePath+"Up"]))
@@ -135,35 +139,20 @@ func TestDenyPolicyLevelExplainsAHeldSession(t *testing.T) {
 	assert.Contains(t, info.GetMetadata()[ErrorMetaCommand], "netbird down")
 }
 
-// With no session running, a caller short of session holder fell short on
-// ownership instead, and the refusal says so rather than blaming a session.
-func TestDenyPolicyLevelWithNoSessionBlamesOwnership(t *testing.T) {
+// A caller who never owned the profile is refused for the profile, whatever the
+// connection is doing.
+func TestDenyPolicyLevelBelowProfileOwnerBlamesOwnership(t *testing.T) {
 	req := Request{
 		Identity: KnownForTest(Identity{UID: 1000}),
 		Level:    AuthzLevelIdentified,
 		Method:   servicePath + "Up",
-		State:    stubState{},
-	}
-
-	info := denialDetail(t, denyPolicyLevel(req, methodPolicies[servicePath+"Up"]))
-	assert.Equal(t, ErrorReasonNotProfileOwner, info.GetReason())
-	assert.NotContains(t, info.GetMetadata()[ErrorMetaSummary], "connected")
-}
-
-// Somebody else's session is not what stops a caller who never owned the
-// profile: they are refused for the profile, and netbird down is neither theirs
-// to run nor any help.
-func TestDenyPolicyLevelBlamesOwnershipWhileASessionRuns(t *testing.T) {
-	req := Request{
-		Identity: KnownForTest(Identity{UID: 1000}),
-		Level:    AuthzLevelIdentified,
-		Method:   servicePath + "Up",
-		State:    stubState{holder: Principal{Kind: KindUID, Value: "4242"}, running: true},
 	}
 
 	info := denialDetail(t, denyPolicyLevel(req, methodPolicies[servicePath+"Up"]))
 	assert.Equal(t, ErrorReasonNotProfileOwner, info.GetReason())
 	assert.Contains(t, info.GetMetadata()[ErrorMetaSummary], "belongs to another user")
+	assert.NotContains(t, info.GetMetadata()[ErrorMetaSummary], "connected",
+		"the refusal is about the profile, so it must not blame a connection")
 
 	_, hasCommand := info.GetMetadata()[ErrorMetaCommand]
 	assert.False(t, hasCommand, "ending a session does not make the profile theirs")

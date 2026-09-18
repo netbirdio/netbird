@@ -106,34 +106,42 @@ func TestAuthorizeAllowsIdentifiedMethodsDespiteAResolveFailure(t *testing.T) {
 	}
 }
 
-// Ownership is the gate's answer, never the error's: a resolution that failed is
-// a no whatever it returned alongside.
-func TestAuthorizeRefusesWhenResolutionFails(t *testing.T) {
-	g := gateFor(t, stubState{targetErr: gstatus.Error(codes.NotFound, "profile not found")})
-
-	_, err := g.authorize(transportCtx(unprivUser, nil), servicePath+"SwitchProfile", switchTo("some-profile"))
-	assert.Error(t, err, "an error from the resolution cannot be read as ownership")
-}
-
 // A resolution that failed established nothing about the profile, so ownership
 // reported alongside the error may not be acted on. A state that answers both
 // at once is exactly what this refuses to trust.
 func TestResolveLevelNeverRaisesTheLevelOnAFailure(t *testing.T) {
 	notFound := gstatus.Error(codes.NotFound, "profile not found")
 	owned := Target{Path: "/profiles/some-profile.json", Owned: true}
+	someoneElse := Principal{Kind: KindUID, Value: "4242"}
 
 	for _, tc := range []struct {
-		name string
-		st   stubState
+		name   string
+		method string
+		msg    any
+		st     stubState
 	}{
-		{"a live session it reports as owned", stubState{target: owned, running: true, targetErr: notFound}},
-		{"an idle daemon it reports as owned", stubState{target: owned, targetErr: notFound}},
-		{"a daemon-side failure it reports as owned", stubState{target: owned, targetErr: errors.New("read profile directory")}},
+		{
+			// A session somebody else holds stops at profile owner, so this
+			// needs a method profile owner is enough for.
+			name: "a live session it reports as owned", method: "GetConfig",
+			msg: &proto.GetConfigRequest{ProfileName: "some-profile"},
+			st:  stubState{target: owned, running: true, holder: someoneElse, targetErr: notFound},
+		},
+		{
+			name: "an idle daemon it reports as owned", method: "SwitchProfile",
+			msg: switchTo("some-profile"),
+			st:  stubState{target: owned, targetErr: notFound},
+		},
+		{
+			name: "a daemon-side failure it reports as owned", method: "SwitchProfile",
+			msg: switchTo("some-profile"),
+			st:  stubState{target: owned, targetErr: errors.New("read profile directory")},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			g := gateFor(t, tc.st)
 
-			_, err := g.authorize(transportCtx(unprivUser, nil), servicePath+"SwitchProfile", switchTo("some-profile"))
+			_, err := g.authorize(transportCtx(unprivUser, nil), servicePath+tc.method, tc.msg)
 			assert.Error(t, err, "a failed resolution conferred a level it had no business conferring")
 		})
 	}
@@ -166,4 +174,22 @@ func TestAuthorizeCarriesTheTargetForAPrivilegedCaller(t *testing.T) {
 	got, ok := TargetFromContext(ctx)
 	require.True(t, ok, "root resolved nothing to act on")
 	assert.Equal(t, "/profiles/abcd1111.json", got)
+}
+
+func TestAuthorizeBlamesAHeldSession(t *testing.T) {
+	g := gateFor(t, stubState{
+		target:  Target{Path: "/profiles/mine.json", Owned: true},
+		running: true,
+		holder:  Principal{Kind: KindUID, Value: "4242"},
+	})
+
+	_, err := g.authorize(transportCtx(unprivUser, nil), servicePath+"Up", &proto.UpRequest{})
+	require.Error(t, err)
+
+	denial, ok := DenialFrom(err)
+	require.True(t, ok, "a caller kept out by somebody else's session got no explanation")
+	assert.Equal(t, ErrorReasonSessionHeld, denial.Reason,
+		"the caller owns the profile, so the refusal is about the connection, not ownership")
+	assert.Contains(t, denial.Command, "netbird down",
+		"taking the connection down is the remedy this refusal points at")
 }
