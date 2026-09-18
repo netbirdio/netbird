@@ -9,14 +9,13 @@ import (
 	"time"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
+	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/types/known/emptypb"
-
-	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 )
 
 const (
@@ -161,11 +160,19 @@ func TestRealIPTrustedPeerHonoursForwardedHeaders(t *testing.T) {
 	)
 }
 
-func TestRealIPIgnoresXRealIPWhenProxyCountIsSet(t *testing.T) {
+func TestRealIPReadsXRealIPWhenProxyCountSkipsForwardedFor(t *testing.T) {
 	cfg := nbconfig.ReverseProxy{
 		TrustedPeers:            []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")},
 		TrustedHTTPProxiesCount: 1,
 	}
 
-	assertRealIP(t, cfg, "127.0.0.1", realip.XRealIp, "203.0.113.44")
+	t.Run("no X-Forwarded-For", func(t *testing.T) {
+		assertRealIP(t, cfg, "203.0.113.44", realip.XRealIp, "203.0.113.44")
+	})
+	t.Run("single-entry X-Forwarded-For", func(t *testing.T) {
+		assertRealIP(t, cfg, "198.51.100.7",
+			realip.XForwardedFor, "203.0.113.44",
+			realip.XRealIp, "198.51.100.7",
+		)
+	})
 }
