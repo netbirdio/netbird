@@ -1,0 +1,189 @@
+package certproof
+
+import (
+	"context"
+	"crypto"
+	"crypto/ecdsa"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/asn1"
+	"errors"
+	"math/big"
+	"os"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/client/internal/pkcs11"
+	"github.com/netbirdio/netbird/shared/management/certposture"
+	"github.com/netbirdio/netbird/shared/management/certposture/certtest"
+	"github.com/netbirdio/netbird/shared/management/proto"
+)
+
+const testPKCS11URIEnv = "NB_TEST_PKCS11_URI"
+
+type failingStore struct{}
+
+func (failingStore) Candidates(context.Context) ([]Candidate, error) {
+	return nil, errors.New("token unplugged")
+}
+
+func TestStores_KeepsFileCertificatesWhenTokenFails(t *testing.T) {
+	ca := certtest.NewCA(t, "corp")
+	key := certtest.ECDSAKey(t)
+	dir := t.TempDir()
+	writeFile(t, dir, "device.pem", certtest.CertPEM(ca.Issue(t, key, "device"))+certtest.KeyPEM(t, key))
+
+	candidates, err := Stores{failingStore{}, NewFileStore(dir)}.Candidates(context.Background())
+	require.NoError(t, err)
+	assert.Len(t, candidates, 1, "the directory's certificate must survive a failing token")
+}
+
+// TestCollect_PKCS11TokenEndToEnd needs an initialised token with a user PIN, named by
+// NB_TEST_PKCS11_URI. With SoftHSM:
+//
+//	softhsm2-util --init-token --free --label netbird --pin 1234 --so-pin 1234
+//	NB_TEST_PKCS11_URI='pkcs11:token=netbird?module-path=/usr/lib/softhsm/libsofthsm2.so&pin-value=1234' \
+//	  go test -tags pkcs11 ./client/internal/certproof/ -run PKCS11 -v
+//
+// It imports a key and its certificate as token objects, then proves the certificate
+// through the store the way the daemon would. Every run adds one more identity to the token.
+func TestCollect_PKCS11TokenEndToEnd(t *testing.T) {
+	uri := os.Getenv(testPKCS11URIEnv)
+	if uri == "" {
+		t.Skipf("set %s to a PKCS#11 URI with a PIN to run", testPKCS11URIEnv)
+	}
+	store, err := NewPKCS11Store(uri)
+	require.NoError(t, err)
+	if _, err := pkcs11.Load(store.uri.Module()); errors.Is(err, pkcs11.ErrUnsupported) {
+		t.Skip(err)
+	}
+
+	keys := map[string]crypto.Signer{"ecdsa": certtest.ECDSAKey(t), "rsa": certtest.RSAKey(t)}
+	for name, key := range keys {
+		t.Run(name, func(t *testing.T) {
+			ca := certtest.NewCA(t, "corp-"+name)
+			leaf := ca.Issue(t, key, "device-"+name)
+			importIdentity(t, uri, key, leaf)
+
+			challenger := certposture.NewChallenger([]byte("secret"))
+			now := time.Now()
+			nonce := challenger.Nonce(peerKey, now)
+			checks := []*proto.Checks{{CertificateChallenge: &proto.CertificateChallenge{Nonce: nonce, CaCertificates: []string{ca.PEM}}}}
+
+			proofs := Collect(context.Background(), store, checks, peerKey)
+			require.Len(t, proofs, 1, "the token-held key must prove exactly this run's certificate")
+			chain, err := challenger.Verify(proofs[0], peerKey, now)
+			require.NoError(t, err)
+			assert.True(t, leaf.Equal(chain[0]), "proof must carry the imported certificate")
+		})
+	}
+}
+
+// Attribute and key types the import needs and the store does not.
+const (
+	attrPrivate         = 0x2
+	attrIssuer          = 0x81
+	attrSerialNumber    = 0x82
+	attrKeyType         = 0x100
+	attrSensitive       = 0x103
+	attrSign            = 0x108
+	attrModulus         = 0x120
+	attrPublicExponent  = 0x122
+	attrPrivateExponent = 0x123
+	attrPrime1          = 0x124
+	attrPrime2          = 0x125
+	attrExponent1       = 0x126
+	attrExponent2       = 0x127
+	attrCoefficient     = 0x128
+	attrECParams        = 0x180
+	keyTypeRSA          = 0x0
+	keyTypeEC           = 0x3
+)
+
+var (
+	ckTrue  = []byte{1}
+	ckFalse = []byte{0}
+	// The P-256 named curve OID in DER, which is what CKA_EC_PARAMS carries.
+	oidP256 = []byte{0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07}
+)
+
+func importIdentity(t *testing.T, uri string, key crypto.Signer, leaf *x509.Certificate) {
+	t.Helper()
+	parsed, err := pkcs11.ParseURI(uri)
+	require.NoError(t, err)
+	module, err := pkcs11.Load(parsed.Module())
+	require.NoError(t, err)
+	pin, err := parsed.PIN()
+	require.NoError(t, err)
+	session, err := module.OpenReadWriteSession(parsed.Token, pin)
+	require.NoError(t, err)
+	defer session.Close()
+
+	id := make([]byte, 8)
+	_, err = rand.Read(id)
+	require.NoError(t, err)
+	label := []byte(leaf.Subject.CommonName)
+	serial, err := asn1.Marshal(leaf.SerialNumber)
+	require.NoError(t, err)
+
+	_, err = session.CreateObject(
+		attr(pkcs11.AttrClass, pkcs11.ULong(pkcs11.ClassCertificate)),
+		attr(pkcs11.AttrCertificateType, pkcs11.ULong(pkcs11.CertificateX509)),
+		attr(pkcs11.AttrToken, ckTrue),
+		attr(attrPrivate, ckFalse),
+		attr(pkcs11.AttrLabel, label),
+		attr(pkcs11.AttrID, id),
+		attr(pkcs11.AttrSubject, leaf.RawSubject),
+		attr(attrIssuer, leaf.RawIssuer),
+		attr(attrSerialNumber, serial),
+		attr(pkcs11.AttrValue, leaf.Raw),
+	)
+	require.NoError(t, err, "import certificate")
+
+	template := []pkcs11.Attribute{
+		attr(pkcs11.AttrClass, pkcs11.ULong(pkcs11.ClassPrivateKey)),
+		attr(pkcs11.AttrToken, ckTrue),
+		attr(attrPrivate, ckTrue),
+		attr(attrSensitive, ckTrue),
+		attr(attrSign, ckTrue),
+		attr(pkcs11.AttrLabel, label),
+		attr(pkcs11.AttrID, id),
+	}
+	_, err = session.CreateObject(append(template, keyAttributes(t, key)...)...)
+	require.NoError(t, err, "import private key")
+}
+
+func keyAttributes(t *testing.T, key crypto.Signer) []pkcs11.Attribute {
+	t.Helper()
+	switch k := key.(type) {
+	case *ecdsa.PrivateKey:
+		return []pkcs11.Attribute{
+			attr(attrKeyType, pkcs11.ULong(keyTypeEC)),
+			attr(attrECParams, oidP256),
+			attr(pkcs11.AttrValue, k.D.FillBytes(make([]byte, 32))),
+		}
+	case *rsa.PrivateKey:
+		k.Precompute()
+		return []pkcs11.Attribute{
+			attr(attrKeyType, pkcs11.ULong(keyTypeRSA)),
+			attr(attrModulus, k.N.Bytes()),
+			attr(attrPublicExponent, big.NewInt(int64(k.E)).Bytes()),
+			attr(attrPrivateExponent, k.D.Bytes()),
+			attr(attrPrime1, k.Primes[0].Bytes()),
+			attr(attrPrime2, k.Primes[1].Bytes()),
+			attr(attrExponent1, k.Precomputed.Dp.Bytes()),
+			attr(attrExponent2, k.Precomputed.Dq.Bytes()),
+			attr(attrCoefficient, k.Precomputed.Qinv.Bytes()),
+		}
+	}
+	t.Fatalf("unsupported key %T", key)
+	return nil
+}
+
+func attr(typ uint, value []byte) pkcs11.Attribute {
+	return pkcs11.Attribute{Type: typ, Value: value}
+}
