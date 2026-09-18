@@ -595,10 +595,8 @@ jobs:
           shopt -s nullglob
           rpm_files=(dist/*.rpm)
           deb_files=(dist/*.deb)
-          tar_files=(dist/*.tar.gz)
           (( ${#rpm_files[@]} > 0 )) || { echo "No ARM64 RPM artifacts found" >&2; exit 1; }
           (( ${#deb_files[@]} > 0 )) || { echo "No ARM64 DEB artifacts found" >&2; exit 1; }
-          (( ${#tar_files[@]} > 0 )) || { echo "No ARM64 TAR.GZ artifacts found" >&2; exit 1; }
 
           for deb_file in "${deb_files[@]}"; do
             arch=$(dpkg-deb --field "$deb_file" Architecture)

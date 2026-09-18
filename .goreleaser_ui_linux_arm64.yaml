@@ -1,6 +1,3 @@
-# Keep Linux packaging in sync with .goreleaser_ui.yaml: dependencies, contents,
-# scripts, signing and upload settings. Build/package/archive IDs and the
-# checksum name stay ARM64-specific to avoid collisions between release jobs.
 version: 2
 env:
   - SKIP_PUBLISH={{ if index .Env "SKIP_PUBLISH" }}{{ .Env.SKIP_PUBLISH }}{{ else }}true{{ end }}
