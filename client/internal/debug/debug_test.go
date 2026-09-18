@@ -969,3 +969,28 @@ func renderAddConfigSpecific(g *BundleGenerator) string {
 func newAnonymizerForTest() *anonymize.Anonymizer {
 	return anonymize.NewAnonymizer(anonymize.DefaultAddresses())
 }
+
+func TestRemoveStaleBundles(t *testing.T) {
+	dir := t.TempDir()
+	stale := filepath.Join(dir, "netbird.debug.111.zip")
+	fresh := filepath.Join(dir, "netbird.debug.222.zip")
+	other := filepath.Join(dir, "netbird.debug.333.txt")
+	owned := filepath.Join(dir, "netbird.debug.444.zip")
+	for _, p := range []string{stale, fresh, other, owned} {
+		require.NoError(t, os.WriteFile(p, []byte("x"), 0o600))
+	}
+	exported, err := ExportBundle(owned)
+	require.NoError(t, err)
+	old := time.Now().Add(-2 * time.Hour)
+	for _, p := range []string{stale, other, exported} {
+		require.NoError(t, os.Chtimes(p, old, old))
+	}
+
+	RemoveStaleBundles(dir, time.Hour)
+
+	assert.NoFileExists(t, stale, "bundle older than maxAge should be removed")
+	assert.FileExists(t, fresh, "bundle younger than maxAge must survive, it may still be uploading")
+	assert.FileExists(t, other, "files outside the bundle pattern must not be touched")
+	assert.NoFileExists(t, owned)
+	assert.FileExists(t, exported, "exported bundle is caller-owned and must survive regardless of age")
+}
