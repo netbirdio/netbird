@@ -1779,6 +1779,27 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 	}
 	require.NoError(t, store.SaveAccount(context.Background(), account2))
 
+	account3 := newAccountWithId(context.Background(), "account3", "account3Owner", "", "owner@example.com", "", false)
+	account3.Users["pending-user"] = &types.User{
+		Id:              "pending-user",
+		AccountID:       account3.Id,
+		Role:            types.UserRoleUser,
+		Blocked:         true,
+		PendingApproval: true,
+	}
+	require.NoError(t, store.SaveAccount(context.Background(), account3))
+
+	// The owner has no address to name, so the refusal falls back to the generic one.
+	account4 := newAccountWithId(context.Background(), "account4", "account4Owner", "", "", "", false)
+	account4.Users["pending-user-without-owner-email"] = &types.User{
+		Id:              "pending-user-without-owner-email",
+		AccountID:       account4.Id,
+		Role:            types.UserRoleUser,
+		Blocked:         true,
+		PendingApproval: true,
+	}
+	require.NoError(t, store.SaveAccount(context.Background(), account4))
+
 	permissionsManager := permissions.NewManager(store)
 	am := DefaultAccountManager{
 		Store:              store,
@@ -1811,6 +1832,16 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 			name:        "service user",
 			userAuth:    auth.UserAuth{AccountId: account1.Id, UserId: "service-user"},
 			expectedErr: status.NewPermissionDeniedError(),
+		},
+		{
+			name:        "pending approval names the owner",
+			userAuth:    auth.UserAuth{AccountId: account3.Id, UserId: "pending-user"},
+			expectedErr: status.NewUserPendingApprovalByOwnerError("ow****r@example.com"),
+		},
+		{
+			name:        "pending approval without an owner address",
+			userAuth:    auth.UserAuth{AccountId: account4.Id, UserId: "pending-user-without-owner-email"},
+			expectedErr: status.NewUserPendingApprovalError(),
 		},
 		{
 			name:     "owner user",
