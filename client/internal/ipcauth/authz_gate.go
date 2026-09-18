@@ -4,11 +4,10 @@ import (
 	"context"
 	"sync"
 
-	"github.com/netbirdio/netbird/client/proto"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+	gstatus "google.golang.org/grpc/status"
 )
 
 // DaemonState is used to surface the server state needed for determining
@@ -50,70 +49,6 @@ func (g *AuthzGate) state() DaemonState {
 	return g.st
 }
 
-// RequireHolderForFullStatus escalates a StatusRequest that asks for peer detail
-// or for probes to be run.
-func RequireHolderForFullStatus(r Request) error {
-	statusReq, ok := r.Msg.(*proto.StatusRequest)
-	if !ok {
-		return nil
-	}
-	if r.Level < AuthzLevelSessionHolder {
-		if statusReq.GetFullPeerStatus {
-			statusReq.GetFullPeerStatus = false
-		}
-		if statusReq.ShouldRunProbes {
-			statusReq.ShouldRunProbes = false
-		}
-		return nil
-	}
-	return RequireLevel(AuthzLevelSessionHolder)(r)
-}
-
-// RequireLevel builds a rule from a level, for composing inside another rule.
-func RequireLevel(want AuthzLevel) Rule {
-	return func(r Request) error {
-		if r.Level >= want {
-			return nil
-		}
-		return denyLevel(r, want)
-	}
-}
-
-func denyLevel(r Request, want AuthzLevel) error {
-	return status.Errorf(codes.PermissionDenied,
-		"%s requires %s, caller %s is %s", r.Method, want, r.Identity, r.Level)
-}
-
-// denyPolicyLevel refuses a caller at the gate, where the policy is in hand.
-//
-// Requiring privilege is the one denial a caller can act on, so it carries the
-// elevated command rather than a bare refusal. A privileged method that declares
-// no action keeps the plain message. Rules deny through denyLevel instead: they
-// cannot reach the policy table without an initialization cycle, and no rule
-// requires privilege.
-func denyPolicyLevel(r Request, p MethodPolicy) error {
-	switch p.Level {
-	case AuthzLevelPrivileged:
-		if p.Action != "" {
-			actor, command := RequiredActor(p.Command)
-			return PrivilegeError(PrivilegeSummary(p.Action, actor), command)
-		}
-
-	case AuthzLevelSessionHolder:
-		// resolveLevel stops at profile owner only when a session is running and
-		// somebody else holds it.
-		if r.Level == AuthzLevelProfileOwner {
-			return SessionHeldError(p.Action)
-		}
-		return NotOwnerError(p.Action)
-
-	case AuthzLevelProfileOwner:
-		return NotOwnerError(p.Action)
-	}
-
-	return denyLevel(r, p.Level)
-}
-
 // StreamPolicyInterceptor authorizes each streaming RPC before the handler runs.
 // The request payload is not yet available, so no streaming method may be
 // target-scoped.
@@ -139,17 +74,36 @@ func (g *AuthzGate) UnaryPolicyInterceptor() grpc.UnaryServerInterceptor {
 	}
 }
 
+// resolveLevel is the authority the caller holds over the profile the request
+// resolved to. A profile the caller does not own confers nothing beyond being
+// identified, which is also what an unresolved handle leaves them with.
+func (g *AuthzGate) resolveLevel(id Identity, target Target) AuthzLevel {
+	if !id.Known() {
+		return AuthzLevelNone
+	}
+	if IsPrivilegedCaller(id) {
+		return AuthzLevelPrivileged
+	}
+	if !target.Owned {
+		return AuthzLevelIdentified
+	}
+	if holder, running := g.st.SessionHolder(); !running || holder.Matches(id) {
+		return AuthzLevelSessionHolder
+	}
+	return AuthzLevelProfileOwner
+}
+
 func (g *AuthzGate) authorize(ctx context.Context, method string, msg any) (context.Context, error) {
 	id, ok := CallerIdentity(ctx)
 	if !ok {
 		log.Warnf("ipc authz: DENY %s, caller identity unavailable", method)
-		return ctx, status.Error(codes.PermissionDenied,
+		return ctx, gstatus.Error(codes.PermissionDenied,
 			"caller identity could not be verified on the daemon control channel")
 	}
 	st := g.state()
 	if st == nil {
 		log.Warnf("ipc authz: DENY %s for %s, daemon state not attached", method, id)
-		return ctx, status.Error(codes.Unavailable, "daemon not initialized")
+		return ctx, gstatus.Error(codes.Unavailable, "daemon not initialized")
 	}
 	policy := methodPolicyFor(method)
 
@@ -159,14 +113,14 @@ func (g *AuthzGate) authorize(ctx context.Context, method string, msg any) (cont
 	if policy.TargetsProfile {
 		named, ok := targetProfile(msg)
 		if !ok {
-			return ctx, status.Errorf(codes.Internal, "%s is declared target-scoped but names no profile", method)
+			return ctx, gstatus.Errorf(codes.Internal, "%s is declared target-scoped but names no profile", method)
 		}
 		handle = named
 	}
 
 	target, handleErr := st.ResolveTarget(id, handle)
 
-	level := resolveLevel(id, target, st)
+	level := g.resolveLevel(id, target)
 
 	if handleErr != nil && handle != "" {
 		level = AuthzLevelIdentified
@@ -203,4 +157,28 @@ func (g *AuthzGate) authorize(ctx context.Context, method string, msg any) (cont
 		return ctx, nil
 	}
 	return ContextWithTarget(ctx, target.Path), nil
+}
+
+// presentableHandleError keeps a resolution failure only when the gate can put
+// it in front of the caller in place of its own refusal. Everything else is
+// dropped, and the caller gets the refusal their level earned.
+func presentableHandleError(handle string, err error) error {
+	if err == nil {
+		return nil
+	}
+
+	// An empty handle is the active profile rather than something the caller
+	// typed, so a failure to resolve it is not theirs to correct.
+	if handle == "" {
+		return nil
+	}
+
+	// Only a gRPC status reaches the caller as a sentence the CLI and the UI
+	// render. A plain error is a daemon-side failure, and putting it on the
+	// wire would tell the caller about the daemon rather than about the handle
+	// they gave.
+	if _, ok := gstatus.FromError(err); !ok {
+		return nil
+	}
+	return err
 }

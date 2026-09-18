@@ -1,5 +1,9 @@
 package ipcauth
 
+import (
+	"github.com/netbirdio/netbird/client/proto"
+)
+
 const servicePath = "/daemon.DaemonService/"
 
 // Request is what a rule decides on: the authorization plus the state and the
@@ -48,6 +52,25 @@ type MethodPolicy struct {
 	// running as somebody else.
 	Action  string
 	Command string
+}
+
+// RequireHolderForFullStatus escalates a StatusRequest that asks for peer detail
+// or for probes to be run.
+func RequireHolderForFullStatus(r Request) error {
+	statusReq, ok := r.Msg.(*proto.StatusRequest)
+	if !ok {
+		return nil
+	}
+	if r.Level < AuthzLevelSessionHolder {
+		if statusReq.GetFullPeerStatus {
+			statusReq.GetFullPeerStatus = false
+		}
+		if statusReq.ShouldRunProbes {
+			statusReq.ShouldRunProbes = false
+		}
+		return nil
+	}
+	return RequireLevel(AuthzLevelSessionHolder)(r)
 }
 
 // methodPolicies is the complete authorization surface. Every RPC on
