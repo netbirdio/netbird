@@ -652,7 +652,7 @@ func (s *ServiceManager) ClaimLegacyProfiles(id ipcauth.Identity) {
 }
 
 func (s *ServiceManager) ClaimDefaultProfileIfNeeded(id ipcauth.Identity) {
-	if !id.Known() || ipcauth.IsPrivilegedCaller(id) {
+	if !id.Known() || ipcauth.IsPrivilegedCaller(id) || !defaultProfileClaimDisabled() {
 		return
 	}
 
@@ -672,7 +672,7 @@ func (s *ServiceManager) ClaimDefaultProfileIfNeeded(id ipcauth.Identity) {
 		}
 	}
 
-	if unowned && !defaultProfileClaimDisabled() && isConsoleUser(id) {
+	if unowned && isConsoleUser(id) {
 		principal := ipcauth.OwnerPrincipalForIdentity(id)
 		parsed, ok := ipcauth.ParsePrincipal(principal)
 		if !ok {
