@@ -21,6 +21,10 @@ import (
 type Config struct {
 	// ListenAddr is the TCP address the main listener binds. Required.
 	ListenAddr string
+	// PublicPort is the external port forwarded to the main listener. It lets
+	// TLS passthrough mappings share the main SNI router when an ingress proxy
+	// translates ports, for example public 443 to internal 8443.
+	PublicPort uint16
 	// ID identifies this proxy instance to management. Empty values are
 	// replaced with a timestamped default at Server.Start time (see
 	// initDefaults), not in New.
@@ -137,6 +141,7 @@ func New(ctx context.Context, cfg Config) *Server {
 	return &Server{
 		ctx:                      ctx,
 		ListenAddr:               cfg.ListenAddr,
+		mainPublicPort:           cfg.PublicPort,
 		ID:                       cfg.ID,
 		Logger:                   cfg.Logger,
 		Version:                  cfg.Version,

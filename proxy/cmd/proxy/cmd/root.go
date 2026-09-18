@@ -52,6 +52,7 @@ var (
 	mgmtAddr              string
 	addr                  string
 	proxyDomain           string
+	publicPort            uint16
 	maxDialTimeout        time.Duration
 	maxSessionIdleTimeout time.Duration
 	certDir               string
@@ -96,6 +97,7 @@ func init() {
 	_ = rootCmd.PersistentFlags().MarkDeprecated("debug", "use --log-level instead")
 	rootCmd.Flags().StringVar(&mgmtAddr, "mgmt", envStringOrDefault("NB_PROXY_MANAGEMENT_ADDRESS", DefaultManagementURL), "Management address to connect to")
 	rootCmd.Flags().StringVar(&addr, "addr", envStringOrDefault("NB_PROXY_ADDRESS", ":443"), "Reverse proxy address to listen on")
+	rootCmd.Flags().Uint16Var(&publicPort, "public-port", envUint16OrDefault("NB_PROXY_PUBLIC_PORT", 443), "External HTTPS port forwarded to the main proxy listener")
 	rootCmd.Flags().StringVar(&proxyDomain, "domain", envStringOrDefault("NB_PROXY_DOMAIN", ""), "The Domain at which this proxy will be reached. e.g., netbird.example.com")
 	rootCmd.Flags().StringVar(&certDir, "cert-dir", envStringOrDefault("NB_PROXY_CERTIFICATE_DIRECTORY", "./certs"), "Directory to store certificates")
 	rootCmd.Flags().BoolVar(&acmeCerts, "acme-certs", envBoolOrDefault("NB_PROXY_ACME_CERTIFICATES", false), "Generate ACME certificates automatically")
@@ -218,8 +220,9 @@ func runServer(cmd *cobra.Command, args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
-	srv := proxy.New(ctx, proxy.Config{
+	return proxy.New(ctx, proxy.Config{
 		ListenAddr:               addr,
+		PublicPort:               publicPort,
 		Logger:                   logger,
 		Version:                  Version,
 		ManagementAddress:        mgmtAddr,
@@ -254,9 +257,7 @@ func runServer(cmd *cobra.Command, args []string) error {
 		GeoDataDir:               geoDataDir,
 		CrowdSecAPIURL:           crowdsecAPIURL,
 		CrowdSecAPIKey:           crowdsecAPIKey,
-	})
-
-	return srv.ListenAndServe(ctx, addr)
+	}).ListenAndServe(ctx, addr)
 }
 
 func envBoolOrDefault(key string, def bool) bool {
