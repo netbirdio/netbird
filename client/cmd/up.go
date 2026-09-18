@@ -338,6 +338,11 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 	}
 
 	if status.Status == string(internal.StatusConnected) {
+		if status.GetFullStatus() == nil {
+			cmd.Println("Already connected and the connection belongs to another user.")
+			cmd.Println("Run 'netbird down' as a privileged user to be able to claim the session with this user.")
+			return nil
+		}
 		if !profileSwitched {
 			cmd.Println("Already connected")
 			return nil
