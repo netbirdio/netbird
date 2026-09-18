@@ -1812,6 +1812,9 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 	}
 	require.NoError(t, store.SaveAccount(context.Background(), account5))
 
+	account6 := newAccountWithId(context.Background(), "account6", "account6Owner", "", "stranger@example.com", "", false)
+	require.NoError(t, store.SaveAccount(context.Background(), account6))
+
 	permissionsManager := permissions.NewManager(store)
 	am := DefaultAccountManager{
 		Store:              store,
@@ -1859,6 +1862,19 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 			name:        "pending approval without an owner",
 			userAuth:    auth.UserAuth{AccountId: account5.Id, UserId: "pending-user-without-owner"},
 			expectedErr: status.NewUserPendingApprovalError(),
+		},
+		{
+			// The account claim points at an account the caller is not in. The
+			// owner named has to be the one of the account holding the caller's
+			// own record, never the one the claim asks for.
+			name:        "pending approval ignores a mismatched account claim",
+			userAuth:    auth.UserAuth{AccountId: account6.Id, UserId: "pending-user"},
+			expectedErr: status.NewUserPendingApprovalByOwnerError("ow****r@example.com"),
+		},
+		{
+			name:        "blocked user answers before the account claim is validated",
+			userAuth:    auth.UserAuth{AccountId: account6.Id, UserId: "blocked-user"},
+			expectedErr: status.NewUserBlockedError(),
 		},
 		{
 			name:     "owner user",
