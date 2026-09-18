@@ -243,10 +243,7 @@ func TestUpdateDNSServer(t *testing.T) {
 	for n, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			privKey, _ := wgtypes.GenerateKey()
-			newNet, err := stdnet.NewNet(context.Background(), nil)
-			if err != nil {
-				t.Fatal(err)
-			}
+			newNet := stdnet.NewNet(context.Background(), nil)
 
 			opts := iface.WGIFaceOpts{
 				IFaceName:    fmt.Sprintf("utun230%d", n),
@@ -348,11 +345,7 @@ func TestDNSFakeResolverHandleUpdates(t *testing.T) {
 	defer t.Setenv("NB_WG_KERNEL_DISABLED", ov)
 
 	t.Setenv("NB_WG_KERNEL_DISABLED", "true")
-	newNet, err := stdnet.NewNet(context.Background(), []string{"utun2301"})
-	if err != nil {
-		t.Errorf("create stdnet: %v", err)
-		return
-	}
+	newNet := stdnet.NewNet(context.Background(), []string{"utun2301"})
 
 	privKey, _ := wgtypes.GeneratePrivateKey()
 	opts := iface.WGIFaceOpts{

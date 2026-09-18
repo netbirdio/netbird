@@ -394,11 +394,7 @@ func createWgInterfaceWithBind(t *testing.T) (*iface.WGIface, error) {
 	defer t.Setenv("NB_WG_KERNEL_DISABLED", ov)
 
 	t.Setenv("NB_WG_KERNEL_DISABLED", "true")
-	newNet, err := stdnet.NewNet(context.Background(), []string{"utun2301"})
-	if err != nil {
-		t.Fatalf("create stdnet: %v", err)
-		return nil, err
-	}
+	newNet := stdnet.NewNet(context.Background(), []string{"utun2301"})
 
 	privKey, _ := wgtypes.GeneratePrivateKey()
 
