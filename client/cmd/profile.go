@@ -74,24 +74,15 @@ var profileSelectCmd = &cobra.Command{
 var profileClaimCmd = &cobra.Command{
 	Use:   "claim <profile>",
 	Short: "Record an owner on a profile",
-	Long: `Record who owns a profile. Requires root or administrator privileges.
-
-A profile with no owner is reachable by a privileged caller alone. Claiming is
-how ownership is settled on a machine with no console user, such as one set up
-from a setup key, and how a profile is handed to a different account.
-
-The owner is given as a principal ("uid:1000", "sid:S-1-5-21-...") or an account
-name, which the daemon resolves. Without --owner the profile is claimed for the
-user who ran sudo. On Windows --owner is required, since elevation keeps no
-record of who asked for it.`,
-	Args: cobra.ExactArgs(1),
-	RunE: claimProfileFunc,
+	Long:  `Record who owns a profile. Requires root or administrator privileges. Accepts the owner is given as a principal ("uid:1000", "sid:S-1-5-21-...") or an account name. Without --owner the profile is claimed for the user who ran sudo. On Windows --owner is required.`,
+	Args:  cobra.ExactArgs(1),
+	RunE:  claimProfileFunc,
 }
 
 func init() {
 	profileListCmd.Flags().BoolVar(&profileListShowID, "show-id", false, "show the profile ID column")
 	profileClaimCmd.Flags().StringVar(&profileClaimOwner, "owner", "",
-		"principal (uid:1000, sid:S-1-5-21-...) or account name to record as the owner. Defaults to the user running the command.")
+		"principal (uid:1000, sid:S-1-5-21-...) or account name to record as the owner. On linux: defaults to the user running the command with sudo.")
 }
 
 func setupCmd(cmd *cobra.Command) error {
