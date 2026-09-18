@@ -1,11 +1,17 @@
 package nftables
 
 import (
+	"fmt"
 	"net/netip"
 	"testing"
 
+	"github.com/google/nftables"
+	"github.com/google/nftables/expr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	firewall "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 )
 
 // TestConvertPrefixesToSetWildcard verifies that a /0 prefix produces a
@@ -33,4 +39,262 @@ func TestConvertPrefixesToSetWildcard(t *testing.T) {
 			assert.Len(t, elements[1].Key, int(tt.af.addrLen), "interval-end key must be a zero address, not empty")
 		})
 	}
+}
+
+func pendingUpdate(name string) pendingSetUpdate {
+	return pendingSetUpdate{
+		set:      &nftables.Set{Name: name},
+		elements: []nftables.SetElement{{Key: []byte{1}}, {Key: []byte{2}}},
+	}
+}
+
+func TestDiscardPendingSetsLeavesUnrelated(t *testing.T) {
+	r := &family{pendingSetElements: map[string]pendingSetUpdate{
+		"keep": pendingUpdate("keep"),
+		"drop": pendingUpdate("drop"),
+	}}
+
+	r.discardPendingSets([]string{"drop"})
+
+	_, keep := r.pendingSetElements["keep"]
+	_, drop := r.pendingSetElements["drop"]
+	assert.True(t, keep, "unrelated pending work must survive")
+	assert.False(t, drop, "queued set of the failing call must be dropped")
+}
+
+func TestDiscardPendingSetElementsClearsAll(t *testing.T) {
+	r := &family{pendingSetElements: map[string]pendingSetUpdate{
+		"a": pendingUpdate("a"),
+		"b": pendingUpdate("b"),
+	}}
+
+	r.discardPendingSetElements()
+
+	assert.Empty(t, r.pendingSetElements)
+}
+
+func TestPendingAddedSince(t *testing.T) {
+	r := &family{pendingSetElements: map[string]pendingSetUpdate{
+		"old": pendingUpdate("old"),
+		"new": pendingUpdate("new"),
+	}}
+
+	added := r.pendingAddedSince(map[string]struct{}{"old": {}})
+	assert.ElementsMatch(t, []string{"new"}, added)
+}
+
+func TestCommitPendingSetsRetriesThenSucceeds(t *testing.T) {
+	attempts := 0
+	r := &family{
+		sConn:              &nftables.Conn{},
+		pendingSetElements: map[string]pendingSetUpdate{"s": pendingUpdate("s")},
+		testPendingFlush: func() error {
+			attempts++
+			if attempts < pendingSetCommitAttempts {
+				return fmt.Errorf("netlink busy")
+			}
+			return nil
+		},
+	}
+
+	require.NoError(t, r.commitPendingSets([]string{"s"}))
+	assert.Equal(t, pendingSetCommitAttempts, attempts)
+	assert.Empty(t, r.pendingSetElements)
+}
+
+func TestCommitPendingSetsRetriesThenKeepsRemaining(t *testing.T) {
+	r := &family{
+		sConn:              &nftables.Conn{},
+		pendingSetElements: map[string]pendingSetUpdate{"s": pendingUpdate("s")},
+		testPendingFlush: func() error {
+			return fmt.Errorf("netlink busy")
+		},
+	}
+
+	err := r.commitPendingSets([]string{"s"})
+	require.Error(t, err)
+	_, ok := r.pendingSetElements["s"]
+	assert.True(t, ok, "failed overflow must remain queued for rollback to discard")
+}
+
+func TestCommitPendingSetsSkipsUnrelated(t *testing.T) {
+	flushed := 0
+	r := &family{
+		sConn: &nftables.Conn{},
+		pendingSetElements: map[string]pendingSetUpdate{
+			"a": pendingUpdate("a"),
+			"b": pendingUpdate("b"),
+		},
+		testPendingFlush: func() error {
+			flushed++
+			return nil
+		},
+	}
+
+	require.NoError(t, r.commitPendingSets([]string{"a"}))
+	assert.Equal(t, 1, flushed)
+	_, a := r.pendingSetElements["a"]
+	_, b := r.pendingSetElements["b"]
+	assert.False(t, a)
+	assert.True(t, b, "sets not named by this commit must stay queued")
+}
+
+func TestCommitOverflowOrRollbackDiscardsQueuedOnly(t *testing.T) {
+	rolled := false
+	r := &family{
+		sConn: &nftables.Conn{},
+		pendingSetElements: map[string]pendingSetUpdate{
+			"keep": pendingUpdate("keep"),
+			"drop": pendingUpdate("drop"),
+		},
+		testPendingFlush: func() error {
+			return fmt.Errorf("netlink busy")
+		},
+	}
+
+	err := r.commitOverflowOrRollback([]string{"drop"}, func() bool {
+		rolled = true
+		return true
+	})
+	require.Error(t, err)
+	assert.True(t, rolled, "live rule must be torn down after overflow retries fail")
+
+	_, keep := r.pendingSetElements["keep"]
+	_, drop := r.pendingSetElements["drop"]
+	assert.True(t, keep, "unrelated pending prefixes must not be discarded")
+	assert.False(t, drop)
+}
+
+func TestCommitOverflowOrRollbackKeepsPendingIfRollbackFails(t *testing.T) {
+	r := &family{
+		sConn: &nftables.Conn{},
+		pendingSetElements: map[string]pendingSetUpdate{
+			"drop": pendingUpdate("drop"),
+		},
+		testPendingFlush: func() error {
+			return fmt.Errorf("netlink busy")
+		},
+	}
+
+	err := r.commitOverflowOrRollback([]string{"drop"}, func() bool { return false })
+	require.Error(t, err)
+	_, drop := r.pendingSetElements["drop"]
+	assert.True(t, drop, "pending overflow must survive when the live rule cannot be deleted")
+}
+
+func TestPendingForExprs(t *testing.T) {
+	r := &family{pendingSetElements: map[string]pendingSetUpdate{
+		"s":     pendingUpdate("s"),
+		"other": pendingUpdate("other"),
+	}}
+
+	names := r.pendingForExprs([]expr.Any{&expr.Lookup{SetName: "s"}})
+	assert.Equal(t, []string{"s"}, names)
+}
+
+func TestCommitOverflowOrRollbackEmptyQueued(t *testing.T) {
+	rolled := false
+	r := &family{
+		pendingSetElements: map[string]pendingSetUpdate{
+			"keep": pendingUpdate("keep"),
+		},
+		testPendingFlush: func() error {
+			return fmt.Errorf("netlink busy")
+		},
+	}
+
+	require.NoError(t, r.commitOverflowOrRollback(nil, func() bool { rolled = true; return true }))
+	assert.False(t, rolled)
+	_, keep := r.pendingSetElements["keep"]
+	assert.True(t, keep)
+}
+
+func TestAddElementBatchesReturnsUncommittedSuffix(t *testing.T) {
+	elements := make([]nftables.SetElement, 6)
+	for i := range elements {
+		elements[i] = nftables.SetElement{Key: []byte{byte(i)}}
+	}
+
+	flushes := 0
+	r := &family{
+		sConn: &nftables.Conn{},
+		testPendingFlush: func() error {
+			flushes++
+			if flushes == 2 {
+				return fmt.Errorf("netlink busy")
+			}
+			return nil
+		},
+	}
+
+	left, err := r.addElementBatches(&nftables.Set{Name: "s"}, elements, 2)
+	require.Error(t, err)
+	assert.Equal(t, 2, flushes)
+	require.Len(t, left, 4, "retry must keep only the failed batch and the tail, not replay the committed first batch")
+	assert.Equal(t, byte(2), left[0].Key[0])
+}
+
+func TestRollbackFlushedFilterRuleKeepsRefsIfDeleteFails(t *testing.T) {
+	var removed bool
+	r := &family{
+		ipsetCounter: refcounter.New(
+			func(key string, _ setInput) (*nftables.Set, error) {
+				return &nftables.Set{Name: key}, nil
+			},
+			func(key string, _ *nftables.Set) error {
+				removed = true
+				return nil
+			},
+		),
+	}
+	_, err := r.ipsetCounter.Increment("s", setInput{})
+	require.NoError(t, err)
+
+	r.rollbackFlushedFilterRule(nil, []expr.Any{&expr.Lookup{SetName: "s"}})
+	assert.False(t, removed, "must not drop the set while the kernel rule may still look it up")
+	ref, ok := r.ipsetCounter.Get("s")
+	require.True(t, ok)
+	assert.Equal(t, 1, ref.Count)
+}
+
+func TestSourceMatchExprsKeepsPayloadBeforeLookup(t *testing.T) {
+	af := afIPv4
+	exprs := []expr.Any{
+		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: af.protoOffset, Len: 1},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{6}},
+		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: af.srcAddrOffset, Len: af.addrLen},
+		&expr.Lookup{SourceRegister: 1, SetName: "s"},
+		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseTransportHeader, Offset: 2, Len: 2},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{0, 80}},
+		&expr.Verdict{Kind: expr.VerdictAccept},
+	}
+
+	got := sourceMatchExprs(af, exprs)
+	require.Len(t, got, 2)
+	payload, ok := got[0].(*expr.Payload)
+	require.True(t, ok)
+	assert.Equal(t, af.srcAddrOffset, payload.Offset)
+	lookup, ok := got[1].(*expr.Lookup)
+	require.True(t, ok)
+	assert.Equal(t, "s", lookup.SetName)
+}
+
+func TestFinishIncompleteFilterCommitsPending(t *testing.T) {
+	flushed := 0
+	r := &family{
+		sConn:              &nftables.Conn{},
+		pendingSetElements: map[string]pendingSetUpdate{"s": pendingUpdate("s")},
+		testPendingFlush: func() error {
+			flushed++
+			return nil
+		},
+	}
+	existing := &Rule{
+		id:      "rule",
+		nftRule: &nftables.Rule{Exprs: []expr.Any{&expr.Lookup{SetName: "s"}}},
+	}
+
+	require.NoError(t, r.finishIncompleteFilter(existing, firewall.ProtocolTCP, nil, nil, false))
+	assert.Equal(t, 1, flushed)
+	assert.Empty(t, r.pendingSetElements)
 }

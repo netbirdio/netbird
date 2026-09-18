@@ -38,8 +38,13 @@ func (r *family) AddFilterRule(
 
 	ruleID := nbid.GenerateRuleID(sources, destination, proto, sPort, dPort, action)
 	if existing, ok := r.filters[ruleID]; ok {
+		if err := r.finishIncompleteFilter(existing, proto, sPort, dPort, isRoute); err != nil {
+			return nil, err
+		}
 		return existing, nil
 	}
+
+	pendingBefore := r.pendingSetSnapshot()
 
 	srcExprs, err := r.applyNetwork(sourceNetwork(sources), sources, true)
 	if err != nil {
@@ -53,7 +58,12 @@ func (r *family) AddFilterRule(
 		exprs, err = r.buildPeerFilterExprs(srcExprs, proto, sPort, dPort)
 	}
 	if err != nil {
-		r.dropNetworkMatch(srcExprs)
+		queued := r.pendingAddedSince(pendingBefore)
+		if len(exprs) == 0 {
+			r.rollbackQueuedNetwork(srcExprs, queued)
+		} else {
+			r.rollbackQueuedNetwork(exprs, queued)
+		}
 		return nil, err
 	}
 
@@ -71,23 +81,6 @@ func (r *family) AddFilterRule(
 
 	userData := []byte(ruleID)
 
-	// Build the paired prerouting mangle rule before flushing so both
-	// rules commit in one transaction. An anonymous port set binds to
-	// exactly one rule, so the mangle rule needs its own expression list
-	// with fresh sets, not a clone of the main rule's. Guard on the
-	// prerouting chain first: building the expressions queues the port
-	// set, so skipping the build when there is no chain to bind it to
-	// keeps an unbound set out of the connection batch.
-	var mangleRule *nftables.Rule
-	if !isRoute && r.chainPrerouting != nil {
-		mangleExprs, err := r.buildPeerFilterExprs(srcExprs, proto, sPort, dPort)
-		if err != nil {
-			r.dropNetworkMatch(exprs)
-			return nil, fmt.Errorf("build mangle rule: %w", err)
-		}
-		mangleRule = r.queuePreroutingRule(mangleExprs, userData)
-	}
-
 	nftRule := &nftables.Rule{
 		Table:    r.workTable,
 		Chain:    chain,
@@ -99,10 +92,34 @@ func (r *family) AddFilterRule(
 	} else {
 		nftRule = r.conn.AddRule(nftRule)
 	}
+	// Commit the filter rule (and any named set it looks up) before the
+	// prerouting mangle pair. The mangle rule uses nft_fib; if that
+	// expression is missing the kernel returns ENOENT and a shared batch
+	// would roll back the ACL as well. DNS forward and single-source
+	// peer rules hit this path with no named set, so the set-ID fix
+	// cannot save them.
+	queued := r.pendingForExprs(exprs)
 	if err := r.conn.Flush(); err != nil {
+		r.discardPendingSets(r.pendingAddedSince(pendingBefore))
 		r.dropNetworkMatch(exprs)
 		return nil, fmt.Errorf(flushError, err)
 	}
+	rolledBack := false
+	if err := r.commitOverflowOrRollback(queued, func() bool {
+		rolledBack = r.rollbackFlushedFilterRule(nftRule, exprs)
+		return rolledBack
+	}); err != nil {
+		if !rolledBack {
+			r.filters[ruleID] = &Rule{
+				nftRule: nftRule,
+				sources: sources,
+				id:      ruleID,
+			}
+		}
+		return nil, err
+	}
+
+	mangleRule := r.flushPreroutingPair(srcExprs, proto, sPort, dPort, userData, isRoute)
 
 	rule := &Rule{
 		nftRule:    nftRule,
@@ -115,6 +132,128 @@ func (r *family) AddFilterRule(
 	log.Debugf("added filter rule: sources=%v, destination=%v, proto=%v, sPort=%v, dPort=%v, action=%v",
 		sources, destination, proto, sPort, dPort, action)
 	return rule, nil
+}
+
+// finishIncompleteFilter completes a rule that landed in the kernel but
+// whose overflow commit (and therefore prerouting pair) did not. The
+// retry must install the redirect-mark mangle before reporting success.
+func (r *family) finishIncompleteFilter(
+	existing *Rule,
+	proto firewall.Protocol,
+	sPort, dPort *firewall.Port,
+	isRoute bool,
+) error {
+	if existing.nftRule != nil {
+		if names := r.pendingForExprs(existing.nftRule.Exprs); len(names) > 0 {
+			if err := r.commitPendingSets(names); err != nil {
+				return fmt.Errorf("add remaining ipset elements: %w", err)
+			}
+		}
+	}
+	if existing.mangleRule != nil || isRoute {
+		return nil
+	}
+	var srcExprs []expr.Any
+	if existing.nftRule != nil {
+		srcExprs = sourceMatchExprs(r.af, existing.nftRule.Exprs)
+	}
+	existing.mangleRule = r.flushPreroutingPair(srcExprs, proto, sPort, dPort, []byte(existing.id), false)
+	return nil
+}
+
+// rollbackQueuedNetwork commits any named sets already queued on conn so
+// they can be deleted, then drops their refcounts. google/nftables cannot
+// unqueue AddSet; deleting through sConn before that flush misses them.
+func (r *family) rollbackQueuedNetwork(exprs []expr.Any, queued []string) {
+	r.discardPendingSets(queued)
+	if err := r.conn.Flush(); err != nil {
+		log.Debugf("flush queued sets for rollback: %v", err)
+	}
+	r.dropNetworkMatch(exprs)
+}
+
+// rollbackFlushedFilterRule deletes a filter rule that already landed in the
+// kernel after conn.Flush, then drops the ipset refs so a partial source set
+// is not left live. The rule is not yet tracked in r.filters. Refs are
+// dropped only after the kernel delete commits; otherwise the live rule
+// would point at a set the counter already released.
+func (r *family) rollbackFlushedFilterRule(nftRule *nftables.Rule, exprs []expr.Any) bool {
+	if r.deleteFlushedRule(nftRule) {
+		r.dropNetworkMatch(exprs)
+		return true
+	}
+	log.Errorf("overflow rollback: leaving ipset refs and pending overflow because the filter rule may still be in the kernel")
+	return false
+}
+
+// deleteFlushedRule removes a rule that is already in the kernel. It looks
+// the handle up by UserData when Flush did not populate it. False means the
+// delete did not commit, so callers must not drop tracking or set refs.
+func (r *family) deleteFlushedRule(nftRule *nftables.Rule) bool {
+	if nftRule == nil || nftRule.Chain == nil || r.workTable == nil {
+		return false
+	}
+	toDelete := nftRule
+	if nftRule.Handle == 0 {
+		list, err := r.conn.GetRules(r.workTable, nftRule.Chain)
+		if err != nil {
+			log.Errorf("list rules for overflow rollback: %v", err)
+			return false
+		}
+		for _, rule := range list {
+			if string(rule.UserData) == string(nftRule.UserData) {
+				toDelete = rule
+				break
+			}
+		}
+	}
+	if toDelete.Handle == 0 {
+		log.Errorf("overflow rollback: filter rule has no handle")
+		return false
+	}
+	var err error
+	for attempt := 1; attempt <= pendingSetCommitAttempts; attempt++ {
+		if err = r.conn.DelRule(toDelete); err != nil {
+			log.Errorf("queue overflow rollback delete attempt %d/%d: %v", attempt, pendingSetCommitAttempts, err)
+			continue
+		}
+		if err = r.conn.Flush(); err != nil {
+			log.Errorf("flush overflow rollback delete attempt %d/%d: %v", attempt, pendingSetCommitAttempts, err)
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// flushPreroutingPair installs the prerouting mangle counterpart after
+// the filter rule is already in the kernel. Failure is logged and
+// ignored: the ACL must stay even when nft_fib is unavailable.
+func (r *family) flushPreroutingPair(
+	srcExprs []expr.Any,
+	proto firewall.Protocol,
+	sPort, dPort *firewall.Port,
+	userData []byte,
+	isRoute bool,
+) *nftables.Rule {
+	if isRoute || r.chainPrerouting == nil {
+		return nil
+	}
+
+	mangleExprs, err := r.buildPeerFilterExprs(srcExprs, proto, sPort, dPort)
+	if err != nil {
+		log.Errorf("build mangle rule: %v", err)
+		return nil
+	}
+	mangleRule := r.queuePreroutingRule(mangleExprs, userData)
+	if mangleRule == nil {
+		return nil
+	}
+	if err := r.conn.Flush(); err != nil {
+		log.Errorf("flush prerouting mangle rule: %v", err)
+		return nil
+	}
+	return mangleRule
 }
 
 // buildPeerFilterExprs assembles the input-chain (peer ACL) match: the
@@ -172,8 +311,7 @@ func (r *family) buildRouteFilterExprs(
 	if proto != firewall.ProtocolALL {
 		protoNum, err := r.af.protoNum(proto)
 		if err != nil {
-			r.dropNetworkMatch(destExprs)
-			return nil, fmt.Errorf("convert protocol to number: %w", err)
+			return exprs, fmt.Errorf("convert protocol to number: %w", err)
 		}
 		exprs = append(exprs,
 			&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
@@ -182,8 +320,7 @@ func (r *family) buildRouteFilterExprs(
 
 		portExprs, err := r.applyPorts(sPort, dPort)
 		if err != nil {
-			r.dropNetworkMatch(destExprs)
-			return nil, err
+			return exprs, err
 		}
 		exprs = append(exprs, portExprs...)
 	}
@@ -243,6 +380,7 @@ func (r *family) DeleteFilterRule(rule firewall.Rule) error {
 			return err
 		}
 		r.dropNetworkMatch(pr.nftRule.Exprs)
+		r.discardPendingSets(r.pendingForExprs(pr.nftRule.Exprs))
 		delete(r.filters, ruleID)
 		return nil
 	}
@@ -256,6 +394,7 @@ func (r *family) DeleteFilterRule(rule firewall.Rule) error {
 	}
 
 	r.dropNetworkMatch(pr.nftRule.Exprs)
+	r.discardPendingSets(r.pendingForExprs(pr.nftRule.Exprs))
 	delete(r.filters, ruleID)
 	return nil
 }
@@ -537,4 +676,32 @@ func findSets(rule *nftables.Rule) []string {
 		}
 	}
 	return sets
+}
+
+// sourceMatchExprs copies the source IP match from a stored filter rule:
+// the network-header payload that loads the address, plus lookup or prefix
+// compare. Proto and transport-port matches are skipped so a rebuilt
+// prerouting pair still loads the packet source into the lookup register.
+func sourceMatchExprs(af addrFamily, exprs []expr.Any) []expr.Any {
+	i := 0
+	if i+1 < len(exprs) {
+		payload, isPayload := exprs[i].(*expr.Payload)
+		_, isCmp := exprs[i+1].(*expr.Cmp)
+		if isPayload && isCmp && payload.Len == 1 && payload.Offset == af.protoOffset {
+			i += 2
+		}
+	}
+	var out []expr.Any
+	for ; i < len(exprs); i++ {
+		switch e := exprs[i].(type) {
+		case *expr.Verdict, *expr.Counter:
+			return out
+		case *expr.Payload:
+			if e.Base == expr.PayloadBaseTransportHeader {
+				return out
+			}
+		}
+		out = append(out, exprs[i])
+	}
+	return out
 }
