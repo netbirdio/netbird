@@ -100,6 +100,8 @@ service DaemonService {
 
   rpc RemoveProfile(RemoveProfileRequest) returns (RemoveProfileResponse) {}
 
+  rpc ClaimProfile(ClaimProfileRequest) returns (ClaimProfileResponse) {}
+
   rpc ListProfiles(ListProfilesRequest) returns (ListProfilesResponse) {}
 
   rpc GetActiveProfile(GetActiveProfileRequest) returns (GetActiveProfileResponse) {}
@@ -823,6 +825,22 @@ message RemoveProfileResponse {
   string id = 1;
 }
 
+message ClaimProfileRequest {
+  // handle is an exact ID, a unique ID prefix, or a unique display name.
+  // Resolution happens server-side.
+  string handle = 1;
+  // owner is either principal to record ("uid:1000" or "sid:S-1-5-21-...") or
+  // an account the daemon resolves.
+  string owner = 2;
+}
+
+message ClaimProfileResponse {
+  // id is the full resolved ID of the claimed profile.
+  string id = 1;
+  // owner is the principal recorded, echoed back for confirmation.
+  string owner = 2;
+}
+
 message ListProfilesRequest {
   string username = 1;
 }
@@ -835,6 +853,7 @@ message Profile {
   string name = 1;
   bool is_active = 2;
   string id = 3;
+  repeated string owners = 4;
 }
 
 message GetActiveProfileRequest {}

@@ -86,7 +86,7 @@ func TestJSONGateway_ForgedIdentityHeaderIsDropped(t *testing.T) {
 	req.Header.Set("Grpc-Metadata-X-Netbird-Fwd", "1")
 	req.Header.Set("Grpc-Metadata-X-Netbird-Fwd-Sid", "S-1-5-18")
 
-	caller := ipcauth.Identity{UID: 31000, GID: 31000}
+	caller := ipcauth.KnownForTest(ipcauth.Identity{UID: 31000, GID: 31000})
 	md := gatewayMetadata(t, req, clientCtx(caller, true))
 
 	id, ok := ipcauth.CallerIdentity(daemonSideCtx(t, md))
@@ -114,7 +114,7 @@ func TestJSONGateway_HeaderlessRequestIsStillMarkedForwarded(t *testing.T) {
 	req.Header = http.Header{}
 	req.Host = ""
 
-	caller := ipcauth.Identity{UID: 31000, GID: 31000}
+	caller := ipcauth.KnownForTest(ipcauth.Identity{UID: 31000, GID: 31000})
 	ctx := clientCtx(caller, true)
 
 	// Pin the skip path itself: if grpc-gateway ever produced a pair here, this

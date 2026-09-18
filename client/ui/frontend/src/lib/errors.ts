@@ -1,6 +1,6 @@
 import { WindowManager } from "@bindings/services";
 
-type ClassifiedError = { short: string; long: string; command: string };
+type ClassifiedError = { code: string; short: string; long: string; command: string };
 
 const asObject = (v: unknown): Record<string, unknown> | null =>
     v && typeof v === "object" ? (v as Record<string, unknown>) : null;
@@ -22,14 +22,15 @@ const toWailsEnvelope = (e: unknown): Record<string, unknown> | null => {
     return asObject(obj.cause) ?? parseJsonObject(obj.message);
 };
 
-// Read { short, long, command } from wherever the classified error sits in the envelope
+// Read { code, short, long, command } from wherever the classified error sits in the envelope
 const toClassifiedError = (v: unknown): ClassifiedError | null => {
     const o = asObject(v);
     if (!o) return null;
+    const code = typeof o.code === "string" ? o.code : "";
     const short = typeof o.short === "string" ? o.short : "";
     const long = typeof o.long === "string" ? o.long : "";
     const command = typeof o.command === "string" ? o.command : "";
-    return short || long ? { short, long, command } : null;
+    return short || long ? { code, short, long, command } : null;
 };
 
 const classify = (e: unknown): ClassifiedError | null => {
@@ -60,14 +61,38 @@ export const formatErrorMessage = (e: unknown): string => {
 // privileges). Empty for every other error.
 export const errorCommand = (e: unknown): string => classify(e)?.command ?? "";
 
+// isDaemonUnavailable reports whether an error means the daemon could not be
+// reached, so a caller can retry quietly instead of putting a dialog up while
+// the service is still starting. Matches the classified code first and the raw
+// gRPC status text second, since not every service classifies its errors.
+export const isDaemonUnavailable = (e: unknown): boolean => {
+    if (classify(e)?.code === "daemon_unreachable") return true;
+    const msg = e instanceof Error ? e.message : String(e);
+    return msg.includes("code = Unavailable");
+};
+
 export type ErrorDialogOptions = {
     Title: string;
     Message: string;
-    // Command is shown for copying below the message. Defaults to the one the
-    // error carries, so callers only pass it to override.
+    // Command is shown for copying below the message. Prefer errorDialogFor,
+    // which takes it from the error, over setting this by hand.
     Command?: string;
 };
 
 export function errorDialog(options: ErrorDialogOptions): Promise<void> {
     return WindowManager.OpenError(options.Title, options.Message, options.Command ?? "");
+}
+
+// errorDialogFor opens a dialog for a thrown error, taking both the message and
+// any command the daemon attached from the error itself.
+//
+// Use it wherever the message is just the error. Passing Command by hand is what
+// kept the daemon's suggested command off the screen everywhere except Settings,
+// since every other caller had to remember to ask for it.
+export function errorDialogFor(title: string, e: unknown): Promise<void> {
+    return errorDialog({
+        Title: title,
+        Message: formatErrorMessage(e),
+        Command: errorCommand(e),
+    });
 }

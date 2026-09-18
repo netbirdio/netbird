@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -18,7 +19,11 @@ import (
 	"github.com/netbirdio/netbird/util"
 )
 
-var profileListShowID bool
+var (
+	profileListShowID    bool
+	profileListShowOwner bool
+	profileClaimOwner    string
+)
 
 var profileCmd = &cobra.Command{
 	Use:   "profile",
@@ -67,8 +72,19 @@ var profileSelectCmd = &cobra.Command{
 	RunE:  selectProfileFunc,
 }
 
+var profileClaimCmd = &cobra.Command{
+	Use:   "claim <profile>",
+	Short: "Record an owner on a profile",
+	Long:  `Record who owns a profile. Requires root or administrator privileges. Accepts the owner is given as a principal ("uid:1000", "sid:S-1-5-21-...") or an account name. Without --owner the profile is claimed for the user who ran sudo. On Windows --owner is required.`,
+	Args:  cobra.ExactArgs(1),
+	RunE:  claimProfileFunc,
+}
+
 func init() {
 	profileListCmd.Flags().BoolVar(&profileListShowID, "show-id", false, "show the profile ID column")
+	profileListCmd.Flags().BoolVar(&profileListShowOwner, "show-owner", false, "show the profile owner column")
+	profileClaimCmd.Flags().StringVar(&profileClaimOwner, "owner", "",
+		"principal (uid:1000, sid:S-1-5-21-...) or account name to record as the owner. On linux: defaults to the user running the command with sudo.")
 }
 
 func setupCmd(cmd *cobra.Command) error {
@@ -111,25 +127,98 @@ func listProfilesFunc(cmd *cobra.Command, _ []string) error {
 	}
 
 	tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+
+	header := make([]string, 0, 4)
 	if profileListShowID {
-		fmt.Fprintln(tw, "ID\tNAME\tACTIVE")
-	} else {
-		fmt.Fprintln(tw, "NAME\tACTIVE")
+		header = append(header, "ID")
 	}
+	header = append(header, "NAME", "ACTIVE")
+	if profileListShowOwner {
+		header = append(header, "OWNER")
+	}
+	fmt.Fprintln(tw, strings.Join(header, "\t"))
+
 	for _, profile := range resp.Profiles {
 		marker := ""
 		if profile.IsActive {
-			marker = "✓"
+			// We prefer ASCII
+			marker = "*"
 		}
-		name := profilemanager.StripCtrlChars(profile.Name)
-		id := profilemanager.ID(profile.Id)
+
+		row := make([]string, 0, len(header))
 		if profileListShowID {
-			fmt.Fprintf(tw, "%s\t%s\t%s\n", id.ShortID(), name, marker)
-		} else {
-			fmt.Fprintf(tw, "%s\t%s\n", name, marker)
+			row = append(row, profilemanager.ID(profile.Id).ShortID())
 		}
+		row = append(row, profilemanager.StripCtrlChars(profile.Name), marker)
+		if profileListShowOwner {
+			// An unowned profile is reachable by a privileged caller alone, so
+			// say so rather than leaving the column blank.
+			owner := "unowned"
+			if len(profile.Owners) > 0 {
+				owner = profilemanager.StripCtrlChars(profile.Owners[0])
+			}
+			row = append(row, owner)
+		}
+		fmt.Fprintln(tw, strings.Join(row, "\t"))
 	}
 	return tw.Flush()
+}
+
+func claimProfileFunc(cmd *cobra.Command, args []string) error {
+	if err := setupCmd(cmd); err != nil {
+		return err
+	}
+
+	// The daemon resolves and validates the owner. All that happens here is
+	// filling in who "me" is when the flag is omitted.
+	owner := profileClaimOwner
+	if owner == "" {
+		var err error
+		if owner, err = defaultClaimOwner(); err != nil {
+			return err
+		}
+	}
+
+	conn, err := DialClientGRPCServer(cmd.Context(), daemonAddr)
+	if err != nil {
+		return fmt.Errorf("connect to service CLI interface: %w", err)
+	}
+	defer conn.Close()
+
+	daemonClient := proto.NewDaemonServiceClient(conn)
+	handle := args[0]
+
+	resp, err := daemonClient.ClaimProfile(cmd.Context(), &proto.ClaimProfileRequest{
+		Handle: handle,
+		Owner:  owner,
+	})
+	if err != nil {
+		return daemonCallError("claim profile", wrapAmbiguityError(err, handle, "claim <id-prefix>"))
+	}
+
+	cmd.Printf("Profile %s claimed for %s\n", profilemanager.ID(resp.Id).ShortID(), resp.Owner)
+	return nil
+}
+
+// defaultClaimOwner names who to claim for when --owner is omitted.
+//
+// Unix has SUDO_USER,  Windows has no equivalent.
+func defaultClaimOwner() (string, error) {
+	if runtime.GOOS == "windows" {
+		return "", errors.New("name the owner with --owner, Windows keeps no record of who asked for elevation")
+	}
+
+	// Plain root has no invoking user to act for, so claiming for "me" would
+	// silently mean root.
+	if profilemanager.IsPlainRoot() {
+		return "", errors.New("no invoking user to claim for, name the owner with --owner")
+	}
+
+	u, err := profilemanager.InvokingUser()
+	if err != nil {
+		return "", fmt.Errorf("get current user: %w", err)
+	}
+	return u.Username, nil
 }
 
 func addProfileFunc(cmd *cobra.Command, args []string) error {
@@ -193,7 +282,7 @@ func renameProfileFunc(cmd *cobra.Command, args []string) error {
 		NewProfileName: newProfilename,
 	})
 	if err != nil {
-		return wrapAmbiguityError(err, handle)
+		return wrapAmbiguityError(err, handle, "rename <id-prefix> <new_profile_name>")
 	}
 
 	dupCount, _ := countProfilesWithName(cmd.Context(), daemonClient, currUser.Username, newProfilename)
@@ -245,7 +334,7 @@ func removeProfileFunc(cmd *cobra.Command, args []string) error {
 		Username:    currUser.Username,
 	})
 	if err != nil {
-		return wrapAmbiguityError(err, handle)
+		return wrapAmbiguityError(err, handle, "remove <id-prefix>")
 	}
 
 	cmd.Printf("Profile removed: %s\n", resp.Id)
@@ -280,7 +369,7 @@ func selectProfileFunc(cmd *cobra.Command, args []string) error {
 		Username:    &currUser.Username,
 	})
 	if err != nil {
-		return wrapAmbiguityError(err, handle)
+		return wrapAmbiguityError(err, handle, "select <id-prefix>")
 	}
 
 	if err := profileManager.SwitchProfile(profilemanager.ID(switchResp.Id)); err != nil {
@@ -305,8 +394,9 @@ func selectProfileFunc(cmd *cobra.Command, args []string) error {
 
 // wrapAmbiguityError turns the daemon's gRPC InvalidArgument errors
 // (which carry the resolver's message verbatim) into CLI-friendly text
-// that points the user at --show-id.
-func wrapAmbiguityError(err error, handle string) error {
+// that points the user at --show-id. retry names the command to run again by
+// ID prefix, as it would be typed after `netbird profile`.
+func wrapAmbiguityError(err error, handle, retry string) error {
 	if err == nil {
 		return nil
 	}
@@ -318,7 +408,7 @@ func wrapAmbiguityError(err error, handle string) error {
 	case codes.InvalidArgument:
 		msg := st.Message()
 		if strings.Contains(msg, "ambiguous") {
-			return errors.New(msg + "\nRun `netbird profile list --show-id` to see IDs, then select by ID prefix:\n  netbird profile select|remove <id-prefix>")
+			return errors.New(msg + "\nRun `netbird profile list --show-id` to see IDs, then retry by ID prefix:\n  netbird profile " + retry)
 		}
 	case codes.NotFound:
 		return fmt.Errorf("profile %q not found", handle)
