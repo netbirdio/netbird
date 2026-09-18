@@ -399,7 +399,7 @@ func readOwners(t *testing.T, path string) []string {
 	t.Helper()
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
-	var meta ownerMeta
+	var meta profileMeta
 	require.NoError(t, json.Unmarshal(data, &meta))
 	return meta.Owners
 }
@@ -922,5 +922,35 @@ func TestClaimDefaultProfile_UnparseableDisableEnvLeavesTheClaimOn(t *testing.T)
 		claimAndList(t, sm, alice)
 		assert.Equal(t, []string{"uid:4242"}, readOwners(t, DefaultConfigPath),
 			"a typo must not be what turns a safety mechanism off")
+	})
+}
+
+// The default profile's file is named by the platform, not after its ID: the
+// mobile bindings call it netbird.cfg. Deriving the ID from the filename drops
+// the profile out of every listing there, and the name has no ".json" to trim
+// so the stem is rejected outright.
+func TestLoadAllProfiles_DefaultProfileIsNotNamedAfterItsFile(t *testing.T) {
+	withTempConfigDir(t, func(configDir string) {
+		withPatchedGlobals(t, configDir, func() {
+			original := DefaultConfigPath
+			DefaultConfigPath = filepath.Join(configDir, "netbird.cfg")
+			t.Cleanup(func() { DefaultConfigPath = original })
+
+			sm := &ServiceManager{}
+			require.NoError(t, sm.CreateDefaultProfile())
+
+			profiles, err := sm.loadAllProfiles()
+			require.NoError(t, err)
+			assert.Contains(t, profileIDs(profiles), defaultProfileName,
+				"the default profile is missing from the listing on a platform that names its file")
+
+			got, err := sm.ProfileByID(defaultProfileName)
+			require.NoError(t, err)
+			assert.Equal(t, DefaultConfigPath, got.Path)
+
+			byPath, err := sm.ProfileByPath(DefaultConfigPath)
+			require.NoError(t, err)
+			assert.Equal(t, ID(defaultProfileName), byPath.ID)
+		})
 	})
 }

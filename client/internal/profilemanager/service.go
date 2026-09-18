@@ -68,10 +68,7 @@ const (
 // profileMeta is the minimal slice of a profile JSON we need, so we avoid
 // reading all fields
 type profileMeta struct {
-	Name string
-}
-
-type ownerMeta struct {
+	Name   string
 	Owners []string
 }
 
@@ -451,14 +448,14 @@ func (s *ServiceManager) RenameProfile(id ID, newName string) error {
 	return writeProfileName(target.Path, displayName)
 }
 
-// RemoveProfile deletes the profile identified by id. Callers must have
-// already resolved any user-supplied handle to a concrete ID via
-// ResolveProfile.
+// RemoveProfile deletes the profile identified by id. Callers must have already
+// turned any user-supplied handle into a concrete ID, which is what the
+// authorization gate does before a handler runs.
 func (s *ServiceManager) RemoveProfile(id ID) error {
 	if id == defaultProfileName {
-		defaultName := readProfileName(DefaultConfigPath)
-		if defaultName == "" {
-			defaultName = defaultProfileName
+		defaultName := defaultProfileName
+		if defaultProfile, err := parseDefaultProfile(); err == nil {
+			defaultName = defaultProfile.Name
 		}
 		return fmt.Errorf("cannot remove default profile with name: %s", defaultName)
 	}
@@ -772,67 +769,23 @@ func resolveLegacyDir(id ipcauth.Identity) (string, bool) {
 
 func (s *ServiceManager) loadAllProfiles() ([]Profile, error) {
 	_, activeIsDefault := s.activeProfileID()
-	defaultName := readProfileName(DefaultConfigPath)
-	if defaultName == "" {
-		defaultName = defaultProfileName
-	}
 
-	// The default profile is not seeded with an owner: it starts unowned, and
-	// the first claim stamps it like any other profile. A file that is not
-	// there yet is unowned rather than unreadable, since the daemon writes it
-	// on first run and every listing before that would otherwise fail.
 	var profiles []Profile
-	defaultOwners, err := readProfileOwners(DefaultConfigPath)
-	switch {
-	case err == nil, errors.Is(err, os.ErrNotExist):
-		profiles = append(profiles, Profile{
-			ID:       defaultProfileName,
-			Name:     defaultName,
-			Path:     DefaultConfigPath,
-			IsActive: activeIsDefault,
-			Owners:   defaultOwners,
-		})
-	default:
-		// Same rule as a discovered profile whose owners cannot be read: leave
-		// it out rather than treat it as unowned, and leave it out rather than
-		// fail, so one unreadable file does not take every other profile with
-		// it.
-		log.Warnf("leaving the default profile out of the listing, its owners could not be read: %v", err)
+	defaultProfile, err := parseDefaultProfile()
+	if err != nil {
+		log.Warnf("leaving the default profile out of the listing: %v", err)
+	} else {
+		defaultProfile.IsActive = activeIsDefault
+		profiles = append(profiles, defaultProfile)
 	}
 
-	// The directory new profiles go to, plus every per-username directory left
-	// from before the ID-keyed layout. The first is not necessarily under
-	// DefaultConfigPathDir: a ServiceManager can be pointed at a directory of
-	// its own, which is what the mobile bindings do.
-	dirs := []profileDir{{path: s.profilesDirPath()}}
-
-	configPathDir, err := os.ReadDir(DefaultConfigPathDir)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("read profile directory: %w", err)
-	}
-	for _, entry := range configPathDir {
-		if !entry.IsDir() || entry.Name() == DefaultProfilePathDir {
-			continue
-		}
-		// Every other subdirectory is named after the account that created the
-		// profiles in it. The dot in profiles.v1 is what keeps them apart,
-		// since sanitizeProfileName drops dots.
-		dirs = append(dirs, profileDir{
-			path:       filepath.Join(DefaultConfigPathDir, entry.Name()),
-			legacyUser: entry.Name(),
-		})
+	dirs, err := s.profileDirs()
+	if err != nil {
+		return nil, err
 	}
 
 	var fileProfiles []Profile
-	scanned := make(map[string]bool, len(dirs))
 	for _, dir := range dirs {
-		// The profiles directory is usually one of the subdirectories above,
-		// so without this a profile would be listed twice.
-		if scanned[dir.path] {
-			continue
-		}
-		scanned[dir.path] = true
-
 		dirProfiles, err := s.getProfilesFromDirectory(dir)
 		if err != nil {
 			return nil, err
@@ -856,6 +809,48 @@ func (s *ServiceManager) loadAllProfiles() ([]Profile, error) {
 type profileDir struct {
 	path       string
 	legacyUser string
+}
+
+// profileDirs lists the directories a profile can live in: the one new profiles
+// go to, plus every per-username directory left from before the ID-keyed
+// layout. The first is not necessarily under DefaultConfigPathDir, since a
+// ServiceManager can be pointed at a directory of its own, which is what the
+// mobile bindings do.
+//
+// The default profile is not in any of them: it sits at DefaultConfigPath.
+func (s *ServiceManager) profileDirs() ([]profileDir, error) {
+	dirs := []profileDir{{path: s.profilesDirPath()}}
+
+	entries, err := os.ReadDir(DefaultConfigPathDir)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("read profile directory: %w", err)
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || entry.Name() == DefaultProfilePathDir {
+			continue
+		}
+		// Every other subdirectory is named after the account that created the
+		// profiles in it. The dot in profiles.v1 is what keeps them apart,
+		// since sanitizeProfileName drops dots.
+		dirs = append(dirs, profileDir{
+			path:       filepath.Join(DefaultConfigPathDir, entry.Name()),
+			legacyUser: entry.Name(),
+		})
+	}
+
+	// The profiles directory is usually one of the subdirectories above, so
+	// without this a profile would be read twice.
+	// Guard for mobile subdirectories.
+	seen := make(map[string]bool, len(dirs))
+	unique := dirs[:0]
+	for _, dir := range dirs {
+		if seen[dir.path] {
+			continue
+		}
+		seen[dir.path] = true
+		unique = append(unique, dir)
+	}
+	return unique, nil
 }
 
 func (s *ServiceManager) getProfilesFromDirectory(dir profileDir) ([]Profile, error) {
@@ -889,67 +884,103 @@ func (s *ServiceManager) getProfilesFromDirectory(dir profileDir) ([]Profile, er
 		if !IsValidProfileFilenameStem(ID(stem)) {
 			continue
 		}
-		path := filepath.Join(configDir, base)
-		name := readProfileName(path)
-		if name == "" {
-			name = stem.String()
-		}
-
-		owners, err := readProfileOwners(path)
+		profile, err := parseProfileFile(filepath.Join(configDir, base), dir.legacyUser)
 		if err != nil {
-			log.Warnf("reading profile owner failed for %s: %v", path, err)
+			log.Warnf("leaving profile %s out of the listing: %v", base, err)
 			continue
 		}
-		fileProfiles = append(fileProfiles, Profile{
-			ID:            stem,
-			Name:          name,
-			Path:          path,
-			IsActive:      stem == ID(activeID),
-			Owners:        owners,
-			LegacyUserDir: dir.legacyUser,
-		})
+		profile.IsActive = profile.ID == ID(activeID)
+
+		fileProfiles = append(fileProfiles, profile)
 	}
 	return fileProfiles, nil
 }
 
-// readProfileName parses just the "name" field from the profile Json.
-func readProfileName(path string) string {
+// parseProfile turns one file on disk into a Profile. It is the only place that
+// conversion happens, so a listing and a single lookup cannot drift on what a
+// profile file means, and it reads the file once rather than once per field.
+//
+// The ID is given rather than taken from the filename. Every profile but one is
+// named after its ID; the default profile's file is named by the platform, and
+// the mobile bindings call it netbird.cfg.
+//
+// IsActive is left to the caller: it depends on which profile the daemon is on
+// rather than on the file, and a caller listing many profiles already knows it.
+func parseProfile(path string, id ID, legacyUser string) (Profile, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return ""
+		return Profile{}, err
 	}
+
 	var meta profileMeta
 	if err := json.Unmarshal(data, &meta); err != nil {
-		return ""
+		return Profile{}, fmt.Errorf("parse profile %s: %w", path, err)
 	}
-	return meta.Name
+
+	owners, err := parseOwners(meta.Owners)
+	if err != nil {
+		return Profile{}, fmt.Errorf("could not parse owner for path: %s: %w", path, err)
+	}
+
+	// The name falls back to the ID, which is what a legacy profile written
+	// before the field existed has.
+	name := meta.Name
+	if name == "" {
+		name = id.String()
+	}
+
+	return Profile{
+		ID:            id,
+		Name:          name,
+		Path:          path,
+		Owners:        owners,
+		LegacyUserDir: legacyUser,
+	}, nil
 }
 
-// readProfileOwners parses the owner principals from a profile JSON. Owners stay
-// principals so they are never mistaken for a kernel-attested caller.
+// parseProfileFile reads a profile whose ID is its filename stem, which is
+// every profile except the default one.
+func parseProfileFile(path, legacyUser string) (Profile, error) {
+	stem := ID(strings.TrimSuffix(filepath.Base(path), ".json"))
+	if !IsValidProfileFilenameStem(stem) {
+		return Profile{}, fmt.Errorf("invalid profile ID: %q", stem)
+	}
+	return parseProfile(path, stem, legacyUser)
+}
+
+// parseDefaultProfile reads the default profile, which is the one profile that
+// is allowed not to exist yet: the daemon writes it on first run, and a file
+// that is not there is unowned rather than unreadable. Every listing before the
+// first run would otherwise fail.
+func parseDefaultProfile() (Profile, error) {
+	profile, err := parseProfile(DefaultConfigPath, defaultProfileName, "")
+	if errors.Is(err, os.ErrNotExist) {
+		return Profile{
+			ID:   defaultProfileName,
+			Name: defaultProfileName,
+			Path: DefaultConfigPath,
+		}, nil
+	}
+	return profile, err
+}
+
+// parseOwners turns the recorded owners into principals. Owners stay principals
+// so they are never mistaken for a kernel-attested caller.
 //
 // Only the first entry is read. The field is a list on disk so multiple owners
 // can be added later without a format change, but multiple owners are not
 // supported yet.
-func readProfileOwners(path string) ([]ipcauth.Principal, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	var meta ownerMeta
-	if err := json.Unmarshal(data, &meta); err != nil {
-		return nil, err
-	}
-	if len(meta.Owners) == 0 {
+func parseOwners(owners []string) ([]ipcauth.Principal, error) {
+	if len(owners) == 0 {
 		return nil, nil
 	}
 
-	principal, ok := ipcauth.ParsePrincipal(meta.Owners[0])
+	principal, ok := ipcauth.ParsePrincipal(owners[0])
 	if !ok {
 		// An entry that cannot be parsed is not trusted, and it is not an
 		// absence of ownership either: the profile records an owner that cannot
 		// be matched against anyone.
-		return nil, fmt.Errorf("unparseable owner %q in %s", meta.Owners[0], path)
+		return nil, fmt.Errorf("unparseable owner %q", owners[0])
 	}
 	return []ipcauth.Principal{principal}, nil
 }
@@ -1106,36 +1137,90 @@ func (s *ServiceManager) ProfileByPath(path string) (*Profile, error) {
 		return nil, fmt.Errorf("profile path is empty")
 	}
 
-	profiles, err := s.loadAllProfiles()
+	legacyUser, ok, err := s.profileDirOf(path)
 	if err != nil {
 		return nil, err
 	}
-
-	for i := range profiles {
-		if profiles[i].Path == path {
-			return &profiles[i], nil
-		}
+	if !ok {
+		return nil, fmt.Errorf("path %q is not in a profile directory", path)
 	}
 
-	return nil, ErrProfileNotFound
+	if filepath.Clean(path) == filepath.Clean(DefaultConfigPath) {
+		defaultProfile, err := parseDefaultProfile()
+		if err != nil {
+			return nil, err
+		}
+		return &defaultProfile, nil
+	}
+
+	profile, err := parseProfileFile(path, legacyUser)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, ErrProfileNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &profile, nil
 }
 
-// ProfileByID returns the first profile with this ID. Only a caller that has no
-// second profile to confuse it with may use this: a legacy ID is a display name
-// and two accounts can hold the same one. Prefer ProfileByPath.
+// profileDirOf reports whether a path is a profile file in one of the
+// directories profiles live in, and which legacy account's directory that is.
+func (s *ServiceManager) profileDirOf(path string) (legacyUser string, ok bool, err error) {
+	clean := filepath.Clean(path)
+	if clean == filepath.Clean(DefaultConfigPath) {
+		return "", true, nil
+	}
+
+	dirs, err := s.profileDirs()
+	if err != nil {
+		return "", false, err
+	}
+
+	parent := filepath.Dir(clean)
+	for _, dir := range dirs {
+		if filepath.Clean(dir.path) == parent {
+			return dir.legacyUser, true, nil
+		}
+	}
+	return "", false, nil
+}
+
+// ProfileByID returns the first profile with this ID, reading only the files
+// that could hold it rather than every profile on the machine.
+//
+// A legacy ID is a display name and two accounts can hold the same one in their
+// own directories, so a caller that might be looking at somebody else's
+// namesake wants ProfileByPath instead.
 func (s *ServiceManager) ProfileByID(id ID) (*Profile, error) {
 	if id == "" {
 		return nil, fmt.Errorf("profile ID is empty")
 	}
+	if id == defaultProfileName {
+		defaultProfile, err := parseDefaultProfile()
+		if err != nil {
+			return nil, err
+		}
+		return &defaultProfile, nil
+	}
+	if !IsValidProfileFilenameStem(id) {
+		return nil, fmt.Errorf("invalid profile ID: %q", id)
+	}
 
-	profiles, err := s.loadAllProfiles()
+	dirs, err := s.profileDirs()
 	if err != nil {
 		return nil, err
 	}
 
-	for i := range profiles {
-		if profiles[i].ID == id {
-			return &profiles[i], nil
+	for _, dir := range dirs {
+		path := filepath.Join(dir.path, id.String()+".json")
+		profile, err := parseProfile(path, id, dir.legacyUser)
+		switch {
+		case err == nil:
+			return &profile, nil
+		case errors.Is(err, os.ErrNotExist):
+			continue
+		default:
+			log.Warnf("skipping profile %s: %v", path, err)
 		}
 	}
 
