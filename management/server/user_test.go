@@ -1800,6 +1800,18 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 	}
 	require.NoError(t, store.SaveAccount(context.Background(), account4))
 
+	// No user holds the owner role, so the owner lookup itself fails.
+	account5 := newAccountWithId(context.Background(), "account5", "account5Admin", "", "", "", false)
+	account5.Users["account5Admin"].Role = types.UserRoleAdmin
+	account5.Users["pending-user-without-owner"] = &types.User{
+		Id:              "pending-user-without-owner",
+		AccountID:       account5.Id,
+		Role:            types.UserRoleUser,
+		Blocked:         true,
+		PendingApproval: true,
+	}
+	require.NoError(t, store.SaveAccount(context.Background(), account5))
+
 	permissionsManager := permissions.NewManager(store)
 	am := DefaultAccountManager{
 		Store:              store,
@@ -1841,6 +1853,11 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 		{
 			name:        "pending approval without an owner address",
 			userAuth:    auth.UserAuth{AccountId: account4.Id, UserId: "pending-user-without-owner-email"},
+			expectedErr: status.NewUserPendingApprovalError(),
+		},
+		{
+			name:        "pending approval without an owner",
+			userAuth:    auth.UserAuth{AccountId: account5.Id, UserId: "pending-user-without-owner"},
 			expectedErr: status.NewUserPendingApprovalError(),
 		},
 		{
