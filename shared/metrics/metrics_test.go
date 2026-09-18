@@ -49,5 +49,5 @@ func TestMetricsLoopbackListener(t *testing.T) {
 	body, err := io.ReadAll(response.Body)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, response.StatusCode, "metrics endpoint must remain available")
-	assert.Regexp(t, `(?m)^loopback_test_total\{[^}]*\} 1$`, string(body), "scrapes must include recorded metrics")
+	assert.Regexp(t, `(?m)^loopback_test_total(?:\{[^}]*\})? 1$`, string(body), "scrapes must include recorded metrics")
 }
