@@ -1021,8 +1021,10 @@ type StatusResponse struct {
 	// Unset when the peer is not SSO-registered or login expiration is disabled.
 	// The UI derives "warning active" from this value and its own clock.
 	SessionExpiresAt *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=sessionExpiresAt,proto3" json:"sessionExpiresAt,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Active local NetBird DNS resolver in ip:port format.
+	DnsResolverAddress string `protobuf:"bytes,5,opt,name=dnsResolverAddress,proto3" json:"dnsResolverAddress,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *StatusResponse) Reset() {
@@ -1081,6 +1083,13 @@ func (x *StatusResponse) GetSessionExpiresAt() *timestamppb.Timestamp {
 		return x.SessionExpiresAt
 	}
 	return nil
+}
+
+func (x *StatusResponse) GetDnsResolverAddress() string {
+	if x != nil {
+		return x.DnsResolverAddress
+	}
+	return ""
 }
 
 type DownRequest struct {
@@ -7194,14 +7203,15 @@ const file_daemon_proto_rawDesc = "" +
 	"\x11getFullPeerStatus\x18\x01 \x01(\bR\x11getFullPeerStatus\x12(\n" +
 	"\x0fshouldRunProbes\x18\x02 \x01(\bR\x0fshouldRunProbes\x12'\n" +
 	"\fwaitForReady\x18\x03 \x01(\bH\x00R\fwaitForReady\x88\x01\x01B\x0f\n" +
-	"\r_waitForReady\"\xca\x01\n" +
+	"\r_waitForReady\"\xfa\x01\n" +
 	"\x0eStatusResponse\x12\x16\n" +
 	"\x06status\x18\x01 \x01(\tR\x06status\x122\n" +
 	"\n" +
 	"fullStatus\x18\x02 \x01(\v2\x12.daemon.FullStatusR\n" +
 	"fullStatus\x12$\n" +
 	"\rdaemonVersion\x18\x03 \x01(\tR\rdaemonVersion\x12F\n" +
-	"\x10sessionExpiresAt\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\x10sessionExpiresAt\"\r\n" +
+	"\x10sessionExpiresAt\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\x10sessionExpiresAt\x12.\n" +
+	"\x12dnsResolverAddress\x18\x05 \x01(\tR\x12dnsResolverAddress\"\r\n" +
 	"\vDownRequest\"\x0e\n" +
 	"\fDownResponse\"P\n" +
 	"\x10GetConfigRequest\x12 \n" +

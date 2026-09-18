@@ -544,8 +544,11 @@ func (m *mockHandler) ID() types.HandlerID                   { return types.Hand
 
 type mockService struct{}
 
-func (m *mockService) Listen() error                   { return nil }
-func (m *mockService) Stop() error                     { return nil }
+func (m *mockService) Listen() error { return nil }
+func (m *mockService) Stop() error   { return nil }
+func (m *mockService) ResolverAddress() (netip.AddrPort, bool) {
+	return netip.MustParseAddrPort("127.0.0.1:53"), true
+}
 func (m *mockService) RuntimeIP() netip.Addr           { return netip.MustParseAddr("127.0.0.1") }
 func (m *mockService) RuntimePort() int                { return 53 }
 func (m *mockService) RegisterMux(string, dns.Handler) {}
