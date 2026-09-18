@@ -186,6 +186,11 @@ jobs:
         run: bash shared/management/http/api/generate.sh
       - name: check git status
         run: git --no-pager diff --exit-code
+      - name: Generate RPM changelog from git tags
+        # nfpm embeds changelog.yml into the RPM; Red Hat software certification
+        # requires a changelog. Generated, not committed (see .gitignore).
+        # chglog is a go.mod tool directive, so go.sum pins it and its deps.
+        run: bash release_files/rpm-changelog.sh
       - name: Set up QEMU
         uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 #v4.1.0
       - name: Set up Docker Buildx
@@ -287,10 +292,15 @@ jobs:
           image_refs=()
 
           tag_and_push() {
-            local src="$1" img_name tag dst
+            local src="$1" img_name tag dst variant=""
             img_name="${src%%:*}"
+            # Client variants share a repository, so keep their tag suffixes.
+            case "$src" in
+              *-rootless-ubi-amd64) variant="-rootless-ubi" ;;
+              *-rootless-amd64) variant="-rootless" ;;
+            esac
             for tag in $(resolve_tags); do
-              dst="${img_name}:${tag}"
+              dst="${img_name}:${tag}${variant}"
               echo "Tagging ${src} -> ${dst}"
               docker tag "$src" "$dst"
               docker push "$dst"

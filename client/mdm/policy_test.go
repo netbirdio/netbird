@@ -96,7 +96,8 @@ func TestPolicy_GetBool(t *testing.T) {
 		{"int64 nonzero", int64(2), true, true},
 		{"int64 zero", int64(0), false, true},
 		{"string garbage", "maybe", false, false},
-		{"float unsupported", 1.0, false, false},
+		{"float nonzero", 1.0, true, true},
+		{"float zero", 0.0, false, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -154,6 +155,20 @@ func TestPolicy_GetStringSlice(t *testing.T) {
 		_, ok := p.GetStringSlice(KeySplitTunnelApps)
 		assert.False(t, ok)
 	})
+}
+
+// encoding/json decodes every JSON number into float64, so the mobile
+// loaders never see int.
+func TestJSONLoader_BoolFromNumber(t *testing.T) {
+	p := NewJSONLoader(func() string { return `{"blockInbound":1,"disableProfiles":0}` }).Load()
+
+	got, ok := p.GetBool(KeyBlockInbound)
+	assert.True(t, ok)
+	assert.True(t, got)
+
+	got, ok = p.GetBool(KeyDisableProfiles)
+	assert.True(t, ok)
+	assert.False(t, got)
 }
 
 func TestLoader_NilFetcherReturnsEmpty(t *testing.T) {
