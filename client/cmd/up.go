@@ -306,8 +306,14 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 
 	client := proto.NewDaemonServiceClient(conn)
 
+	// The peer detail is asked for because of what its absence means, not
+	// because it is read: the daemon strips it from a caller who does not hold
+	// the session, which is how the check below tells the holder apart. Without
+	// the flag the daemon never fills it in for anyone and that check is always
+	// true.
 	status, err := client.Status(ctx, &proto.StatusRequest{
-		WaitForReady: func() *bool { b := true; return &b }(),
+		WaitForReady:      func() *bool { b := true; return &b }(),
+		GetFullPeerStatus: true,
 	})
 	if err != nil {
 		return fmt.Errorf("unable to get daemon status: %v", err)
