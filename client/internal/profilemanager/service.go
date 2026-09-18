@@ -569,7 +569,7 @@ func (s *ServiceManager) profilesDirPath() string {
 	return filepath.Join(DefaultConfigPathDir, DefaultProfilePathDir)
 }
 
-// loadAllProfiles returns every profile acessible by a given kernal attested
+// loadAllProfiles returns every profile accessible by a given kernel attested
 // user. The returned slice is sorted by ID for a stable display order.
 //
 // Each Profile is fully populated: ID is the filename stem, Name comes

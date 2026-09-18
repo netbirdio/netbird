@@ -28,8 +28,7 @@ const (
 	ErrorMetaCommand = "command"
 
 	// ErrorReasonSessionHeld identifies a refusal caused by another user's live
-	// connection. Nothing the caller can run satisfies it, since the session is
-	// not theirs to end, so the detail carries no command.
+	// connection.
 	ErrorReasonSessionHeld = "SESSION_HELD"
 
 	// ErrorReasonNotProfileOwner identifies a refusal caused by the profile

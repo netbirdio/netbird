@@ -829,8 +829,8 @@ message ClaimProfileRequest {
   // handle is an exact ID, a unique ID prefix, or a unique display name.
   // Resolution happens server-side.
   string handle = 1;
-  // owner is the principal to record, "uid:1000" or "sid:S-1-5-21-...".
-  // The daemon validates its shape and does not require the account to exist.
+  // owner is either principal to record ("uid:1000" or "sid:S-1-5-21-...") or
+  // an account the daemon resolves.
   string owner = 2;
 }
 
