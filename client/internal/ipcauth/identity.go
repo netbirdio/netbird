@@ -12,10 +12,14 @@ package ipcauth
 import (
 	"context"
 	"fmt"
+	"os"
 	"runtime"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
+
+	log "github.com/sirupsen/logrus"
 
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/peer"
@@ -28,6 +32,32 @@ const (
 	sidNetworkService = "S-1-5-20"     // NT AUTHORITY\NETWORK SERVICE
 	sidAdministrators = "S-1-5-32-544" // BUILTIN\Administrators
 )
+
+const EnvDisableProfileOwnership = "NB_DISABLE_PROFILE_OWNERSHIP"
+
+var logProfileOwnershipDisabledOrError sync.Once
+
+// defaultProfileClaimDisabled reports whether the environment turns off
+// profile ownership. A ownership check will always return true.
+func isProfileOwnershipDisabled() bool {
+	val := os.Getenv(EnvDisableProfileOwnership)
+	if val == "" {
+		return false
+	}
+	disabled, err := strconv.ParseBool(val)
+	if err != nil {
+		logProfileOwnershipDisabledOrError.Do(func() {
+			log.Warnf("failed to parse %s: %v", EnvDisableProfileOwnership, err)
+		})
+		return false
+	}
+	if disabled {
+		logProfileOwnershipDisabledOrError.Do(func() {
+			log.Infof("%s is set, ownership of profiles are disabled and any identified caller can use the profile", EnvDisableProfileOwnership)
+		})
+	}
+	return disabled
+}
 
 // Identity is the kernel-authenticated identity of a local IPC caller. The
 // zero value is not a valid identity: consumers must only use one obtained
@@ -280,6 +310,9 @@ func looksLikeSID(v string) bool {
 // A principal is a config value, not a caller, so it is never converted into an
 // Identity.
 func (p Principal) Matches(id Identity) bool {
+	if isProfileOwnershipDisabled() {
+		return true
+	}
 	if !id.Known() {
 		return false
 	}
