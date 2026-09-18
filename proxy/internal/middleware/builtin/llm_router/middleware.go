@@ -234,7 +234,7 @@ func (m *Middleware) decide(
 // upstream — clients such as Codex call GET /v1/models at startup to enumerate
 // availability and read a 403 as "model unavailable".
 func (m *Middleware) routeModelless(reqPath, surface, method string, userGroups []string) *middleware.Output {
-	route, outcome := m.matchModelless(reqPath, method, userGroups)
+	route, outcome := m.matchModelless(reqPath, surface, method, userGroups)
 	switch outcome {
 	case matchOutcomeFound:
 		out := m.allowWithRoute(route, surface, userGroups)
@@ -252,7 +252,7 @@ func (m *Middleware) routeModelless(reqPath, surface, method string, userGroups 
 			// What the caller may actually use bounds what the picker may
 			// offer: every entry outside it is a request the chain will deny a
 			// moment later.
-			if models, bounded := discoverableModels(route, userGroups); bounded {
+			if models, bounded := m.discoverableListingModels(route, surface, userGroups); bounded {
 				out.Mutations.RewriteUpstream.DiscoveryModels = models
 			}
 		}
@@ -265,6 +265,47 @@ func (m *Middleware) routeModelless(reqPath, surface, method string, userGroups 
 	default:
 		return denyMissingModel(surface)
 	}
+}
+
+// discoverableListingModels keeps a shared gateway's listing usable when its
+// models are split across records. Each record contributes only what this
+// caller may use; unrelated upstreams still have independent catalogs.
+func (m *Middleware) discoverableListingModels(route ProviderRoute, surface string, userGroups []string) ([]string, bool) {
+	models, bounded := discoverableModels(route, userGroups)
+	if !bounded || route.Vertex || route.Bedrock {
+		return models, bounded
+	}
+	seen := make(map[string]struct{}, len(models))
+	for _, model := range models {
+		seen[model] = struct{}{}
+	}
+	for _, candidate := range m.cfg.Providers {
+		if candidate.ID == route.ID || candidate.Vertex || candidate.Bedrock ||
+			(surface != "" && !routeSupportsVendor(candidate, surface)) ||
+			!routeAuthorisesGroups(candidate, userGroups) || !sameDiscoveryUpstream(route, candidate) {
+			continue
+		}
+		additional, restricted := discoverableModels(candidate, userGroups)
+		if !restricted {
+			return nil, false
+		}
+		for _, model := range additional {
+			if _, exists := seen[model]; !exists {
+				seen[model] = struct{}{}
+				models = append(models, model)
+			}
+		}
+	}
+	return models, true
+}
+
+// sameDiscoveryUpstream keeps tenants separate: only records making the same
+// authenticated listing request may share a bound, even on the same gateway.
+func sameDiscoveryUpstream(a, b ProviderRoute) bool {
+	return a.UpstreamScheme == b.UpstreamScheme && a.UpstreamHost == b.UpstreamHost &&
+		a.UpstreamPath == b.UpstreamPath && a.DiscoveryHost == b.DiscoveryHost &&
+		strings.EqualFold(a.AuthHeaderName, b.AuthHeaderName) && a.AuthHeaderValue == b.AuthHeaderValue &&
+		a.GCPServiceAccountKeyB64 == b.GCPServiceAccountKeyB64 && a.SkipTLSVerify == b.SkipTLSVerify
 }
 
 // isNonInferenceMethod reports whether a request method is one the
@@ -695,14 +736,14 @@ func (m *Middleware) matchPathRoute(reqPath, model string, userGroups []string, 
 
 // matchModelless selects a route for a non-inference, model-less request.
 // It mirrors matchRoute's group-authorisation filter and path-prefix
-// tiebreak but skips the per-model filter, since any provider the caller's
-// groups authorise can serve a model-listing request. Returns
+// tiebreak but skips the per-model filter. API-based endpoints also require
+// compatibility with the parsed surface; Bedrock remains path-routed. Returns
 // matchOutcomeFound with the chosen route (single authorised provider wins
 // outright; multiple fall to the longest UpstreamPath prefix-match, then
 // declaration order), matchOutcomeUnauthorised when no provider authorises
 // the caller, or matchOutcomeUnknownModel when the path isn't a recognised
 // model-less endpoint.
-func (m *Middleware) matchModelless(reqPath, method string, userGroups []string) (ProviderRoute, matchOutcome) {
+func (m *Middleware) matchModelless(reqPath, surface, method string, userGroups []string) (ProviderRoute, matchOutcome) {
 	if !isNonInferenceMethod(method) {
 		return ProviderRoute{}, matchOutcomeUnknownModel
 	}
@@ -730,7 +771,9 @@ func (m *Middleware) matchModelless(reqPath, method string, userGroups []string)
 		// Vertex/Bedrock are path-routed and don't serve OpenAI-style
 		// model-listing endpoints; including them here could rewrite a
 		// GET /v1/models to an upstream that 404s it.
-		eligible = func(r ProviderRoute) bool { return !r.Vertex && !r.Bedrock }
+		eligible = func(r ProviderRoute) bool {
+			return !r.Vertex && !r.Bedrock && (surface == "" || routeSupportsVendor(r, surface))
+		}
 	default:
 		return ProviderRoute{}, matchOutcomeUnknownModel
 	}
