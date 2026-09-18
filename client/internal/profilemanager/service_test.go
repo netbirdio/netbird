@@ -39,6 +39,31 @@ func withTestSM(t *testing.T, fn func(sm *ServiceManager, id ipcauth.Identity)) 
 
 // The identity the helper hands out has to work as a profile owner on the
 // platform the suite is running on.
+// matchOne is the single profile a handle matches, for the tests that are about
+// the matcher's precedence rather than about who is asking.
+func matchOne(t *testing.T, sm *ServiceManager, handle string) Profile {
+	t.Helper()
+
+	match, err := sm.MatchProfiles(handle)
+	require.NoError(t, err)
+	require.Len(t, match.Profiles, 1, "handle %q did not match exactly one profile", handle)
+	return match.Profiles[0]
+}
+
+// claimAndList is the sequence a request goes through now: the gate stamps
+// whatever the caller can claim, and only then is the listing filtered by what
+// they own. Listing on its own no longer claims.
+func claimAndList(t *testing.T, sm *ServiceManager, id ipcauth.Identity) []Profile {
+	t.Helper()
+
+	sm.ClaimDefaultProfileIfNeeded(id)
+	sm.ClaimLegacyProfiles(id)
+
+	profiles, err := sm.ListProfiles(id)
+	require.NoError(t, err)
+	return profiles
+}
+
 func TestWithTestSM_ScopesToAUsableOwner(t *testing.T) {
 	withTestSM(t, func(sm *ServiceManager, id ipcauth.Identity) {
 		require.True(t, id.Known(), "every test in this package authorizes against this identity")
@@ -46,7 +71,7 @@ func TestWithTestSM_ScopesToAUsableOwner(t *testing.T) {
 		created, err := sm.AddProfile("owned", &id)
 		require.NoError(t, err)
 
-		got, err := sm.ResolveProfile(created.ID.String(), id)
+		got, err := sm.ProfileByID(created.ID)
 		require.NoError(t, err)
 		require.Len(t, got.Owners, 1, "the profile records the identity it was created for")
 		assert.True(t, got.Owners[0].Matches(id),
@@ -59,8 +84,7 @@ func TestServiceProfile_ExactID(t *testing.T) {
 		created, err := sm.AddProfile("work", nil)
 		require.NoError(t, err)
 
-		got, err := sm.ResolveProfile(created.ID.String(), userID)
-		require.NoError(t, err)
+		got := matchOne(t, sm, created.ID.String())
 		assert.Equal(t, created.ID, got.ID)
 		assert.Equal(t, "work", got.Name)
 	})
@@ -72,8 +96,7 @@ func TestServiceProfile_IDPrefix(t *testing.T) {
 		require.NoError(t, err)
 
 		prefix := created.ID[:4]
-		got, err := sm.ResolveProfile(prefix.String(), userID)
-		require.NoError(t, err)
+		got := matchOne(t, sm, prefix.String())
 		assert.Equal(t, created.ID, got.ID)
 	})
 }
@@ -91,11 +114,12 @@ func TestServiceProfile_AmbiguousPrefix(t *testing.T) {
 			require.NoError(t, util.WriteJson(context.Background(), path, &Config{Name: id}))
 		}
 
-		_, err = sm.ResolveProfile("abcd", userID)
-		var amb *ErrAmbiguousHandle
-		require.ErrorAs(t, err, &amb)
-		assert.Equal(t, AmbiguityKindIDPrefix, amb.Kind)
-		assert.Len(t, amb.Candidates, 2)
+		// Deciding between the two belongs to whoever knows who is asking, so
+		// the matcher hands both back rather than refusing.
+		match, err := sm.MatchProfiles("abcd")
+		require.NoError(t, err)
+		assert.Equal(t, AmbiguityKindIDPrefix, match.Kind)
+		assert.Len(t, match.Profiles, 2)
 	})
 }
 
@@ -104,8 +128,7 @@ func TestServiceProfile_ExactNameUnique(t *testing.T) {
 		_, err := sm.AddProfile("work", &userID)
 		require.NoError(t, err)
 
-		got, err := sm.ResolveProfile("work", userID)
-		require.NoError(t, err)
+		got := matchOne(t, sm, "work")
 		assert.Equal(t, "work", got.Name)
 	})
 }
@@ -117,25 +140,23 @@ func TestServiceProfile_AmbiguousName(t *testing.T) {
 		_, err = sm.AddProfile("work", &userID)
 		require.NoError(t, err)
 
-		_, err = sm.ResolveProfile("work", userID)
-		var amb *ErrAmbiguousHandle
-		require.ErrorAs(t, err, &amb)
-		assert.Equal(t, AmbiguityKindName, amb.Kind)
-		assert.Len(t, amb.Candidates, 2)
+		match, err := sm.MatchProfiles("work")
+		require.NoError(t, err)
+		assert.Equal(t, AmbiguityKindName, match.Kind)
+		assert.Len(t, match.Profiles, 2)
 	})
 }
 
 func TestServiceProfile_NotFound(t *testing.T) {
 	withTestSM(t, func(sm *ServiceManager, userID ipcauth.Identity) {
-		_, err := sm.ResolveProfile("nope", userID)
+		_, err := sm.MatchProfiles("nope")
 		assert.ErrorIs(t, err, ErrProfileNotFound)
 	})
 }
 
 func TestServiceProfile_DefaultByExactID(t *testing.T) {
 	withTestSM(t, func(sm *ServiceManager, userID ipcauth.Identity) {
-		got, err := sm.ResolveProfile(defaultProfileName, userID)
-		require.NoError(t, err)
+		got := matchOne(t, sm, defaultProfileName)
 		assert.Equal(t, defaultProfileName, got.ID.String())
 	})
 }
@@ -151,8 +172,7 @@ func TestServiceProfile_LegacyFilenameCoexists(t *testing.T) {
 		path := filepath.Join(configDir, "legacy.json")
 		require.NoError(t, util.WriteJson(context.Background(), path, &Config{}))
 
-		got, err := sm.ResolveProfile("legacy", userID)
-		require.NoError(t, err)
+		got := matchOne(t, sm, "legacy")
 		assert.Equal(t, "legacy", got.ID.String())
 		// Name falls back to the filename stem when JSON omits it.
 		assert.Equal(t, "legacy", got.Name)
@@ -187,7 +207,7 @@ func TestAddProfile_RejectsInvalidNames(t *testing.T) {
 
 func TestRemoveProfile_RejectsInvalidID(t *testing.T) {
 	withTestSM(t, func(sm *ServiceManager, userID ipcauth.Identity) {
-		err := sm.RemoveProfile("../escape", userID)
+		err := sm.RemoveProfile("../escape")
 		assert.Error(t, err)
 	})
 }
@@ -253,7 +273,7 @@ func TestRemoveProfile_DeletesStateFile(t *testing.T) {
 		statePath := filepath.Join(configDir, created.ID.String()+".state.json")
 		require.NoError(t, os.WriteFile(statePath, []byte(`{"email":"a@b"}`), 0600))
 
-		require.NoError(t, sm.RemoveProfile(created.ID, userID))
+		require.NoError(t, sm.RemoveProfile(created.ID))
 		_, err = os.Stat(statePath)
 		assert.True(t, errors.Is(err, os.ErrNotExist), "state file should be removed")
 	})
@@ -318,16 +338,14 @@ func TestListProfiles_UnownedProfilesArePrivilegedOnly(t *testing.T) {
 		require.NoError(t, err)
 
 		alice := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
-		got, err := sm.ListProfiles(alice)
-		require.NoError(t, err)
+		got := claimAndList(t, sm, alice)
 		assert.NotContains(t, profileIDs(got), defaultProfileName,
 			"the default profile has no exemption, being claimed is what opens it")
 		assert.NotContains(t, profileIDs(got), unowned.ID.String(),
 			"every profile needs an owner before anyone can address it")
 
 		root := ipcauth.KnownForTest(ipcauth.Identity{UID: 0})
-		got, err = sm.ListProfiles(root)
-		require.NoError(t, err)
+		got = claimAndList(t, sm, root)
 		assert.Contains(t, profileIDs(got), defaultProfileName,
 			"root still reaches both, which is how an unowned profile gets assigned")
 		assert.Contains(t, profileIDs(got), unowned.ID.String())
@@ -392,15 +410,13 @@ func TestListProfiles_UnownedLegacyProfileIsPrivilegedOnly(t *testing.T) {
 		stubLegacyDir(t, "bob")
 
 		bob := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
-		got, err := sm.ListProfiles(bob)
-		require.NoError(t, err)
+		got := claimAndList(t, sm, bob)
 		assert.NotContains(t, profileIDs(got), "work",
 			"a profile sitting in someone else's directory is not free to take")
 		assert.Empty(t, readOwners(t, path), "and it is not claimed on the way past")
 
 		root := ipcauth.KnownForTest(ipcauth.Identity{UID: 0})
-		got, err = sm.ListProfiles(root)
-		require.NoError(t, err)
+		got = claimAndList(t, sm, root)
 		assert.Contains(t, profileIDs(got), "work",
 			"root still reaches it, which is how it gets reassigned")
 	})
@@ -412,18 +428,16 @@ func TestListProfiles_ClaimsLegacyProfileForItsOwnAccount(t *testing.T) {
 		stubLegacyDir(t, "alice")
 
 		alice := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
-		got, err := sm.ListProfiles(alice)
-		require.NoError(t, err)
+		got := claimAndList(t, sm, alice)
 		assert.Contains(t, profileIDs(got), "work",
-			"the claim lands before the listing is filtered, so the gap closes in one call")
+			"the profile in the caller's own directory is claimed for them and then listed")
 		assert.Equal(t, []string{"uid:4242"}, readOwners(t, path))
 
 		// The claim is on disk now, so it is the owner check and not the
 		// directory name that keeps the next caller out.
 		stubLegacyDir(t, "alice")
 		other := ipcauth.KnownForTest(ipcauth.Identity{UID: 5252})
-		got, err = sm.ListProfiles(other)
-		require.NoError(t, err)
+		got = claimAndList(t, sm, other)
 		assert.NotContains(t, profileIDs(got), "work")
 		assert.Equal(t, []string{"uid:4242"}, readOwners(t, path),
 			"a second caller does not overwrite a stamped owner")
@@ -439,8 +453,7 @@ func TestClaimLegacyProfile_LeavesTheProfileWhereItIs(t *testing.T) {
 		stubLegacyDir(t, "alice")
 
 		alice := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
-		got, err := sm.ListProfiles(alice)
-		require.NoError(t, err)
+		got := claimAndList(t, sm, alice)
 
 		claimed := ownedProfile(t, got, "uid:4242")
 		assert.Equal(t, ID("work"), claimed.ID, "claiming does not re-key the profile")
@@ -463,8 +476,7 @@ func TestClaimLegacyProfile_NamesakeInAnotherDirectoryIsUntouched(t *testing.T) 
 		stubLegacyDir(t, "alice")
 
 		alice := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
-		got, err := sm.ListProfiles(alice)
-		require.NoError(t, err)
+		got := claimAndList(t, sm, alice)
 
 		claimed := ownedProfile(t, got, "uid:4242")
 		assert.Equal(t, filepath.Join(configDir, "alice", "work.json"), claimed.Path,
@@ -496,8 +508,7 @@ func TestClaimLegacyProfile_SkipsOneAlreadyOwnedInTheSameDirectory(t *testing.T)
 		stubLegacyDir(t, "alice")
 
 		alice := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
-		_, err := sm.ListProfiles(alice)
-		require.NoError(t, err)
+		claimAndList(t, sm, alice)
 
 		assert.Equal(t, []string{"uid:9999"}, readOwners(t, taken),
 			"a profile that already has an owner is not restamped")
@@ -510,43 +521,13 @@ func TestRenameProfile(t *testing.T) {
 		created, err := sm.AddProfile("work", &userID)
 		require.NoError(t, err)
 
-		require.NoError(t, sm.RenameProfile(created.ID, userID, "weekend"))
+		require.NoError(t, sm.RenameProfile(created.ID, "weekend"))
 
-		got, err := sm.ResolveProfile(created.ID.String(), userID)
+		got, err := sm.ProfileByID(created.ID)
 		require.NoError(t, err)
 		assert.Equal(t, "weekend", got.Name, "the new name is on disk")
 		assert.Equal(t, created.ID, got.ID, "renaming does not re-key the profile")
 		assert.Equal(t, created.Path, got.Path)
-	})
-}
-
-func TestRenameProfile_NotTheCallersProfile(t *testing.T) {
-	withTestSM(t, func(sm *ServiceManager, userID ipcauth.Identity) {
-		created, err := sm.AddProfile("work", &userID)
-		require.NoError(t, err)
-
-		stranger := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
-		require.Error(t, sm.RenameProfile(created.ID, stranger, "weekend"),
-			"a profile the caller cannot address is not theirs to rename")
-
-		got, err := sm.ResolveProfile(created.ID.String(), userID)
-		require.NoError(t, err)
-		assert.Equal(t, "work", got.Name)
-	})
-}
-
-func TestResolveProfile_ClaimsOnTheWayThrough(t *testing.T) {
-	withLegacyLayout(t, func(sm *ServiceManager, configDir string) {
-		path := writeLegacyProfile(t, configDir, "alice", "work", nil)
-		stubLegacyDir(t, "alice")
-
-		// Resolution is what switching a profile goes through, so the claim has
-		// to land here and not only when something lists profiles.
-		alice := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
-		got, err := sm.ResolveProfile("work", alice)
-		require.NoError(t, err)
-		assert.Equal(t, path, got.Path)
-		assert.Equal(t, []string{"uid:4242"}, readOwners(t, path))
 	})
 }
 
@@ -556,11 +537,10 @@ func TestListProfiles_PrivilegedCallerDoesNotClaim(t *testing.T) {
 		stubLegacyDir(t, "root")
 
 		root := ipcauth.KnownForTest(ipcauth.Identity{UID: 0})
-		got, err := sm.ListProfiles(root)
-		require.NoError(t, err)
+		got := claimAndList(t, sm, root)
 		assert.Contains(t, profileIDs(got), "work")
 		assert.Empty(t, readOwners(t, path),
-			"root reaches every profile anyway, so a listing must not stamp one")
+			"root reaches every profile anyway, so the claim must not stamp one")
 	})
 }
 
@@ -598,8 +578,7 @@ func TestClaimLegacyProfile_LeavesAnOwnerItCannotParse(t *testing.T) {
 		stubLegacyDir(t, "alice")
 
 		alice := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
-		got, err := sm.ListProfiles(alice)
-		require.NoError(t, err)
+		got := claimAndList(t, sm, alice)
 
 		assert.NotContains(t, profileIDs(got), "work")
 		assert.Equal(t, []string{"group:devs"}, readOwners(t, path),
@@ -803,8 +782,7 @@ func TestListProfiles_ClaimKeepsFieldsThisVersionDoesNotModel(t *testing.T) {
 		stubLegacyDir(t, "alice")
 
 		alice := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
-		_, err := sm.ListProfiles(alice)
-		require.NoError(t, err)
+		claimAndList(t, sm, alice)
 		assert.Equal(t, []string{"uid:4242"}, readOwners(t, path), "the claim still lands")
 
 		data, err := os.ReadFile(path)
@@ -834,8 +812,7 @@ func TestClaimDefaultProfile_ConsoleUserClaimsIt(t *testing.T) {
 		stubConsoleUser(t, true)
 
 		alice := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
-		_, err := sm.ListProfiles(alice)
-		require.NoError(t, err)
+		claimAndList(t, sm, alice)
 		assert.Equal(t, []string{"uid:4242"}, readOwners(t, DefaultConfigPath),
 			"the first caller at the console closes the window the default profile is open in")
 	})
@@ -918,8 +895,7 @@ func TestClaimDefaultProfile_CallerAwayFromTheConsoleDoesNotClaimIt(t *testing.T
 		stubConsoleUser(t, false)
 
 		alice := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
-		_, err := sm.ListProfiles(alice)
-		require.NoError(t, err)
+		claimAndList(t, sm, alice)
 		assert.Empty(t, readOwners(t, DefaultConfigPath),
 			"a local caller who is not at the console must not take the machine's profile")
 	})
@@ -931,8 +907,7 @@ func TestClaimDefaultProfile_DisableEnvWithholdsTheClaim(t *testing.T) {
 		t.Setenv(EnvDisableDefaultProfileClaim, "true")
 
 		alice := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
-		_, err := sm.ListProfiles(alice)
-		require.NoError(t, err)
+		claimAndList(t, sm, alice)
 		assert.Empty(t, readOwners(t, DefaultConfigPath),
 			"the flag withholds the claim even from a caller who would otherwise get it")
 	})
@@ -944,8 +919,7 @@ func TestClaimDefaultProfile_UnparseableDisableEnvLeavesTheClaimOn(t *testing.T)
 		t.Setenv(EnvDisableDefaultProfileClaim, "yes please")
 
 		alice := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
-		_, err := sm.ListProfiles(alice)
-		require.NoError(t, err)
+		claimAndList(t, sm, alice)
 		assert.Equal(t, []string{"uid:4242"}, readOwners(t, DefaultConfigPath),
 			"a typo must not be what turns a safety mechanism off")
 	})

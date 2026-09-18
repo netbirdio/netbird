@@ -132,7 +132,7 @@ func (pm *ProfileManager) GetActiveProfile() (*Profile, error) {
 		return nil, fmt.Errorf("get active profile: %w", err)
 	}
 
-	prof, err := pm.serviceMgr.ResolveProfile(activeState.ID.String())
+	prof, err := pm.serviceMgr.ProfileByID(activeState.ID)
 	if err != nil {
 		return nil, fmt.Errorf("resolve active profile %q: %w", activeState.ID, err)
 	}

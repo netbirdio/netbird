@@ -27,15 +27,16 @@ func TestLogin_RefusedChangeLeavesTheProfileAlone(t *testing.T) {
 	// A second profile that runs the SSH server, which is what makes repointing
 	// its management binding a privileged change.
 	target := "ssh-enabled"
+	targetPath := filepath.Join(profilemanager.DefaultConfigPathDir, target+".json")
 	_, err := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
-		ConfigPath:       filepath.Join(profilemanager.DefaultConfigPathDir, target+".json"),
+		ConfigPath:       targetPath,
 		ManagementURL:    "https://api.netbird.io:443",
 		ServerSSHAllowed: boolPtr(true),
 		Owner:            testProfileOwner(),
 	})
 	require.NoError(t, err)
 
-	_, err = s.Login(userCtx(), &proto.LoginRequest{
+	_, err = s.Login(withTarget(userCtx(), targetPath), &proto.LoginRequest{
 		ProfileName:   &target,
 		Username:      &username,
 		ManagementUrl: "https://mgmt.attacker.example:443",
@@ -82,7 +83,7 @@ func TestLogin_ChangeThatBecomesPrivilegedMidRequestHasNoSideEffects(t *testing.
 	}
 	t.Cleanup(func() { afterLoginPreCheck = nil })
 
-	_, err = s.Login(userCtx(), &proto.LoginRequest{
+	_, err = s.Login(withTarget(userCtx(), targetPath), &proto.LoginRequest{
 		ProfileName:   &target,
 		Username:      &username,
 		ManagementUrl: "https://mgmt.attacker.example:443",
@@ -108,8 +109,9 @@ func TestLogin_RefusedChangeLeavesAnInProgressLoginAlone(t *testing.T) {
 	s.rootCtx = internal.CtxInitState(context.Background())
 
 	target := "ssh-enabled"
+	targetPath := filepath.Join(profilemanager.DefaultConfigPathDir, target+".json")
 	_, err := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
-		ConfigPath:       filepath.Join(profilemanager.DefaultConfigPathDir, target+".json"),
+		ConfigPath:       targetPath,
 		ManagementURL:    "https://api.netbird.io:443",
 		ServerSSHAllowed: boolPtr(true),
 		Owner:            testProfileOwner(),
@@ -119,7 +121,7 @@ func TestLogin_RefusedChangeLeavesAnInProgressLoginAlone(t *testing.T) {
 	cancelled := false
 	s.actCancel = func() { cancelled = true }
 
-	_, err = s.Login(userCtx(), &proto.LoginRequest{
+	_, err = s.Login(withTarget(userCtx(), targetPath), &proto.LoginRequest{
 		ProfileName:   &target,
 		Username:      &username,
 		ManagementUrl: "https://mgmt.attacker.example:443",

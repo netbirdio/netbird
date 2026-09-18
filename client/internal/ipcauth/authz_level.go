@@ -47,41 +47,42 @@ func (l AuthzLevel) String() string {
 }
 
 // resolveLevel is the authority the caller holds over the profile the request
-// names. The second return is what was wrong with the handle, when that is
-// worth showing the caller instead of a refusal. It never raises the level: a
-// resolution that failed still denies.
-func resolveLevel(id Identity, target string, st DaemonState) (AuthzLevel, error) {
+// resolved to. A profile the caller does not own confers nothing beyond being
+// identified, which is also what an unresolved handle leaves them with.
+func resolveLevel(id Identity, target Target, st DaemonState) AuthzLevel {
 	if !id.Known() {
-		return AuthzLevelNone, nil
+		return AuthzLevelNone
 	}
 	if IsPrivilegedCaller(id) {
-		return AuthzLevelPrivileged, nil
+		return AuthzLevelPrivileged
 	}
-	ownsProfile, err := st.OwnsProfile(id, target)
-	if err != nil {
-		return AuthzLevelIdentified, presentableHandleError(target, err)
-	}
-	if !ownsProfile {
-		return AuthzLevelIdentified, nil
+	if !target.Owned {
+		return AuthzLevelIdentified
 	}
 	if holder, running := st.SessionHolder(); !running || holder.Matches(id) {
-		return AuthzLevelSessionHolder, nil
+		return AuthzLevelSessionHolder
 	}
-	return AuthzLevelProfileOwner, nil
+	return AuthzLevelProfileOwner
 }
 
 // presentableHandleError keeps a resolution failure only when the gate can put
 // it in front of the caller in place of its own refusal. Everything else is
 // dropped, and the caller gets the refusal their level earned.
-func presentableHandleError(target string, err error) error {
-	// An empty target is the active profile rather than something the caller
+func presentableHandleError(handle string, err error) error {
+	if err == nil {
+		return nil
+	}
+
+	// An empty handle is the active profile rather than something the caller
 	// typed, so a failure to resolve it is not theirs to correct.
-	if target == "" {
+	if handle == "" {
 		return nil
 	}
 
 	// Only a gRPC status reaches the caller as a sentence the CLI and the UI
-	// render.
+	// render. A plain error is a daemon-side failure, and putting it on the
+	// wire would tell the caller about the daemon rather than about the handle
+	// they gave.
 	if _, ok := gstatus.FromError(err); !ok {
 		return nil
 	}

@@ -48,7 +48,7 @@ func TestLogout_ActiveProfileAllowedWhenProfilesDisabled(t *testing.T) {
 
 	s.profilesDisabled = true
 
-	_, err := s.Logout(userCtx(), &proto.LogoutRequest{
+	_, err := s.Logout(withTarget(userCtx(), cfgPath), &proto.LogoutRequest{
 		ProfileName: &activeProfile,
 		Username:    &username,
 	})
@@ -67,8 +67,9 @@ func TestLogout_OtherProfileStaysGatedWhenProfilesDisabled(t *testing.T) {
 	s.rootCtx = internal.CtxInitState(context.Background())
 
 	other := "other-profile"
+	otherPath := filepath.Join(profilemanager.DefaultConfigPathDir, other+".json")
 	_, err := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
-		ConfigPath:    filepath.Join(profilemanager.DefaultConfigPathDir, other+".json"),
+		ConfigPath:    otherPath,
 		ManagementURL: unreachableManagementURL,
 		Owner:         testProfileOwner(),
 	})
@@ -76,7 +77,7 @@ func TestLogout_OtherProfileStaysGatedWhenProfilesDisabled(t *testing.T) {
 
 	s.profilesDisabled = true
 
-	_, err = s.Logout(userCtx(), &proto.LogoutRequest{
+	_, err = s.Logout(withTarget(userCtx(), otherPath), &proto.LogoutRequest{
 		ProfileName: &other,
 		Username:    &username,
 	})
@@ -95,11 +96,11 @@ func TestLogout_ForeignUserProfileStaysGatedWhenProfilesDisabled(t *testing.T) {
 	s.rootCtx = internal.CtxInitState(context.Background())
 
 	shared := "shared-legacy-name"
-	plantNamesakeProfiles(t, s, shared)
+	ownPath := plantNamesakeProfiles(t, s, shared)
 
 	s.profilesDisabled = true
 
-	_, err := s.Logout(userCtx(), &proto.LogoutRequest{
+	_, err := s.Logout(withTarget(userCtx(), ownPath), &proto.LogoutRequest{
 		ProfileName: &shared,
 		Username:    &username,
 	})
@@ -114,7 +115,7 @@ func TestLogout_ForeignUserProfileStaysGatedWhenProfilesDisabled(t *testing.T) {
 // which is the one made active. Only the caller's copy carries an owner, so
 // that is the one a handle resolves to, while the active profile stays the
 // other file.
-func plantNamesakeProfiles(t *testing.T, s *Server, id string) {
+func plantNamesakeProfiles(t *testing.T, s *Server, id string) string {
 	t.Helper()
 
 	foreignDir := filepath.Join(profilemanager.DefaultConfigPathDir, "someone-else")
@@ -125,8 +126,9 @@ func plantNamesakeProfiles(t *testing.T, s *Server, id string) {
 	})
 	require.NoError(t, err)
 
+	ownPath := filepath.Join(profilemanager.DefaultConfigPathDir, id+".json")
 	_, err = profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
-		ConfigPath:    filepath.Join(profilemanager.DefaultConfigPathDir, id+".json"),
+		ConfigPath:    ownPath,
 		ManagementURL: unreachableManagementURL,
 		Owner:         testProfileOwner(),
 	})
@@ -136,6 +138,8 @@ func plantNamesakeProfiles(t *testing.T, s *Server, id string) {
 		ID:       profilemanager.ID(id),
 		Username: "someone-else",
 	}))
+
+	return ownPath
 }
 
 // Deregistering a namesake profile must not go out with the running config.
@@ -156,11 +160,11 @@ func TestLogout_ForeignUserProfileDoesNotUseTheRunningConfig(t *testing.T) {
 	s.connectClient = newDummyConnectClient(context.Background())
 
 	shared := "shared-legacy-name"
-	plantNamesakeProfiles(t, s, shared)
+	ownPath := plantNamesakeProfiles(t, s, shared)
 
 	// Bounded so the deregistration the fixed path attempts fails on the dial
 	// rather than sitting in gRPC backoff for the whole test timeout.
-	ctx, cancel := context.WithTimeout(userCtx(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(withTarget(userCtx(), ownPath), 2*time.Second)
 	t.Cleanup(cancel)
 
 	_, err = s.Logout(ctx, &proto.LogoutRequest{
@@ -206,7 +210,7 @@ func TestLogout_ActiveProfileAllowedWhenProfilesEnabled(t *testing.T) {
 	s.rootCtx = internal.CtxInitState(context.Background())
 	enableSSHOnProfile(t, cfgPath)
 
-	_, err := s.Logout(userCtx(), &proto.LogoutRequest{
+	_, err := s.Logout(withTarget(userCtx(), cfgPath), &proto.LogoutRequest{
 		ProfileName: &activeProfile,
 		Username:    &username,
 	})

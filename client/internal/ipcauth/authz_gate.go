@@ -18,11 +18,12 @@ type DaemonState interface {
 	// whether one is held.
 	SessionHolder() (Principal, bool)
 
-	// OwnsProfile reports whether id owns the profile a request names. An empty
-	// handle is the active profile, which is what a method that acts on the
-	// live session resolves against. The error says what was wrong with the
-	// handle itself.
-	OwnsProfile(id Identity, handle string) (bool, error)
+	// ResolveTarget resolves the profile a request names to a concrete profile
+	// and reports whether the caller may address it. An empty handle is the
+	// active profile.
+	//
+	// The error says what was wrong with the handle itself.
+	ResolveTarget(id Identity, handle string) (Target, error)
 }
 
 // AuthzGate authorizes every RPC call before its handler run.
@@ -118,8 +119,9 @@ func denyPolicyLevel(r Request, p MethodPolicy) error {
 // target-scoped.
 func (g *AuthzGate) StreamPolicyInterceptor() grpc.StreamServerInterceptor {
 	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-		authErr := g.authorize(ss.Context(), info.FullMethod, nil)
-		if authErr != nil {
+		// A stream's context cannot be replaced from here. We use context to pass
+		// resolved target profile and no streaming method may be target-scoped.
+		if _, authErr := g.authorize(ss.Context(), info.FullMethod, nil); authErr != nil {
 			return authErr
 		}
 		return handler(srv, ss)
@@ -129,7 +131,7 @@ func (g *AuthzGate) StreamPolicyInterceptor() grpc.StreamServerInterceptor {
 // UnaryPolicyInterceptor authorizes each unary RPC before the handler runs.
 func (g *AuthzGate) UnaryPolicyInterceptor() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
-		authErr := g.authorize(ctx, info.FullMethod, req)
+		ctx, authErr := g.authorize(ctx, info.FullMethod, req)
 		if authErr != nil {
 			return nil, authErr
 		}
@@ -137,55 +139,68 @@ func (g *AuthzGate) UnaryPolicyInterceptor() grpc.UnaryServerInterceptor {
 	}
 }
 
-func (g *AuthzGate) authorize(ctx context.Context, method string, msg any) error {
+func (g *AuthzGate) authorize(ctx context.Context, method string, msg any) (context.Context, error) {
 	id, ok := CallerIdentity(ctx)
 	if !ok {
 		log.Warnf("ipc authz: DENY %s, caller identity unavailable", method)
-		return status.Error(codes.PermissionDenied,
+		return ctx, status.Error(codes.PermissionDenied,
 			"caller identity could not be verified on the daemon control channel")
 	}
 	st := g.state()
 	if st == nil {
 		log.Warnf("ipc authz: DENY %s for %s, daemon state not attached", method, id)
-		return status.Error(codes.Unavailable, "daemon not initialized")
+		return ctx, status.Error(codes.Unavailable, "daemon not initialized")
 	}
 	policy := methodPolicyFor(method)
 
-	// Only a target-scoped method reads a profile off the request.
-	var target string
+	// Only a target-scoped method reads a profile off the request. Everything
+	// else acts on the active profile, which an empty handle resolves to.
+	var handle string
 	if policy.TargetsProfile {
 		named, ok := targetProfile(msg)
 		if !ok {
-			return status.Errorf(codes.Internal, "%s is declared target-scoped but names no profile", method)
+			return ctx, status.Errorf(codes.Internal, "%s is declared target-scoped but names no profile", method)
 		}
-		target = named
+		handle = named
 	}
 
-	level, resolveErr := resolveLevel(id, target, st)
+	target, handleErr := st.ResolveTarget(id, handle)
+
+	level := resolveLevel(id, target, st)
+
+	if handleErr != nil && handle != "" {
+		level = AuthzLevelIdentified
+	}
 
 	req := Request{
 		Identity: id,
 		Level:    level,
-		Target:   target,
+		Target:   handle,
 		Method:   method,
 		State:    st,
 		Msg:      msg,
 	}
 	if req.Level < policy.Level {
 		log.Warnf("ipc authz: DENY %s for %s (%s), requires %s", method, id, req.Level, policy.Level)
-		if resolveErr != nil {
-			return resolveErr
+		if presentable := presentableHandleError(handle, handleErr); presentable != nil {
+			return ctx, presentable
 		}
-		return denyPolicyLevel(req, policy)
+		return ctx, denyPolicyLevel(req, policy)
 	}
 	for _, rule := range policy.Rules {
 		if err := rule(req); err != nil {
 			log.Warnf("ipc authz: DENY %s for %s (%s): error", method, id, req.Level)
-			return err
+			return ctx, err
 		}
 	}
 	if policy.Audit {
 		log.Infof("ipc authz: allow %s for %s (%s)", method, id, req.Level)
 	}
-	return nil
+	if !target.Owned {
+		// Reaching here means the method was open to the caller's level
+		// without owning anything, so there is no authorized profile to hand
+		// the handler.
+		return ctx, nil
+	}
+	return ContextWithTarget(ctx, target.Path), nil
 }

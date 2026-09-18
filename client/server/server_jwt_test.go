@@ -103,8 +103,9 @@ func TestSwitchProfile_ClearsJWTCache(t *testing.T) {
 	const target = "second"
 	username := "tester"
 	owner := unprivilegedIdentity()
+	targetPath := filepath.Join(profilemanager.DefaultConfigPathDir, target+".json")
 	_, err := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
-		ConfigPath:    filepath.Join(profilemanager.DefaultConfigPathDir, target+".json"),
+		ConfigPath:    targetPath,
 		ManagementURL: "https://api.netbird.io:443",
 		Owner:         &owner,
 	})
@@ -115,7 +116,7 @@ func TestSwitchProfile_ClearsJWTCache(t *testing.T) {
 	name := target
 	// The handler scopes the switch to the caller's identity, which a real
 	// caller gets from the daemon's transport credentials.
-	_, err = s.SwitchProfile(ctxWithIdentity(owner), &proto.SwitchProfileRequest{ProfileName: &name, Username: &username})
+	_, err = s.SwitchProfile(withTarget(ctxWithIdentity(owner), targetPath), &proto.SwitchProfileRequest{ProfileName: &name, Username: &username})
 	require.NoError(t, err)
 
 	active, err := s.profileManager.GetActiveProfileState()

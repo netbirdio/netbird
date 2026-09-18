@@ -151,7 +151,7 @@ func TestRemoveProfile_DeletesPrefsFile(t *testing.T) {
 		_, err = os.Stat(prefsPath)
 		require.NoError(t, err)
 
-		require.NoError(t, sm.RemoveProfile(created.ID, userID))
+		require.NoError(t, sm.RemoveProfile(created.ID))
 		_, err = os.Stat(prefsPath)
 		assert.True(t, errors.Is(err, os.ErrNotExist), "prefs file should be removed")
 	})

@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"fmt"
 	"os/user"
 	"path/filepath"
@@ -59,7 +58,7 @@ func TestClaimProfile_RecordsTheOwner(t *testing.T) {
 	srv := claimTestServer(t)
 
 	owner := claimOwner(4242)
-	resp, err := srv.ClaimProfile(rootCtx(), &proto.ClaimProfileRequest{
+	resp, err := srv.ClaimProfile(withTarget(rootCtx(), profilemanager.DefaultConfigPath), &proto.ClaimProfileRequest{
 		Handle: "default",
 		Owner:  owner,
 	})
@@ -119,10 +118,7 @@ func TestClaimProfile_RequiresBothArguments(t *testing.T) {
 func TestClaimProfile_RefusesAnUnknownProfile(t *testing.T) {
 	srv := claimTestServer(t)
 
-	_, err := srv.ClaimProfile(rootCtx(), &proto.ClaimProfileRequest{
-		Handle: "no-such-profile",
-		Owner:  claimOwner(4242),
-	})
+	_, err := srv.ResolveTarget(privilegedIdentity(), "no-such-profile")
 	require.Error(t, err)
 	assert.Equal(t, codes.NotFound, gstatus.Convert(err).Code())
 }
@@ -130,12 +126,11 @@ func TestClaimProfile_RefusesAnUnknownProfile(t *testing.T) {
 func TestClaimProfile_NeedsAnIdentifiedCaller(t *testing.T) {
 	srv := claimTestServer(t)
 
-	_, err := srv.ClaimProfile(context.Background(), &proto.ClaimProfileRequest{
-		Handle: "default",
-		Owner:  claimOwner(4242),
-	})
-	require.Error(t, err)
-	assert.Equal(t, codes.Unauthenticated, gstatus.Convert(err).Code())
+	// A caller the kernel did not vouch for reaches no profile, so the gate has
+	// nothing to authorize and the handler is never entered.
+	target, err := srv.ResolveTarget(ipcauth.Identity{}, "default")
+	require.NoError(t, err)
+	assert.False(t, target.Owned, "an unattested caller must not be able to claim")
 }
 
 // A principal is taken as given. The account deliberately does not exist, which
@@ -146,7 +141,7 @@ func TestClaimProfile_TakesAPrincipalWithoutResolvingIt(t *testing.T) {
 		t.Run(owner, func(t *testing.T) {
 			srv := claimTestServer(t)
 
-			resp, err := srv.ClaimProfile(rootCtx(), &proto.ClaimProfileRequest{
+			resp, err := srv.ClaimProfile(withTarget(rootCtx(), profilemanager.DefaultConfigPath), &proto.ClaimProfileRequest{
 				Handle: "default",
 				Owner:  owner,
 			})
@@ -164,7 +159,7 @@ func TestClaimProfile_ResolvesAnAccountName(t *testing.T) {
 	want, ok := profilemanager.PrincipalForUser(u)
 	require.True(t, ok)
 
-	resp, err := srv.ClaimProfile(rootCtx(), &proto.ClaimProfileRequest{
+	resp, err := srv.ClaimProfile(withTarget(rootCtx(), profilemanager.DefaultConfigPath), &proto.ClaimProfileRequest{
 		Handle: "default",
 		Owner:  u.Username,
 	})

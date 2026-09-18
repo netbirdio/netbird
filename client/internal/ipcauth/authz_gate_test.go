@@ -35,9 +35,9 @@ func switchTo(handle string) *proto.SwitchProfileRequest {
 // exists and belongs to somebody, which a mistyped handle does not.
 func TestAuthorizeSurfacesWhatIsWrongWithTheHandle(t *testing.T) {
 	notFound := gstatus.Errorf(codes.NotFound, "profile %q not found", "asdfasdfasdf")
-	g := gateFor(t, stubState{ownsErr: notFound})
+	g := gateFor(t, stubState{targetErr: notFound})
 
-	err := g.authorize(transportCtx(unprivUser, nil), servicePath+"SwitchProfile", switchTo("asdfasdfasdf"))
+	_, err := g.authorize(transportCtx(unprivUser, nil), servicePath+"SwitchProfile", switchTo("asdfasdfasdf"))
 	require.Error(t, err)
 
 	st := gstatus.Convert(err)
@@ -52,9 +52,9 @@ func TestAuthorizeSurfacesWhatIsWrongWithTheHandle(t *testing.T) {
 // error, and the CLI reformats it into a hint. It has to reach the CLI.
 func TestAuthorizeSurfacesAnAmbiguousHandle(t *testing.T) {
 	ambiguous := gstatus.Errorf(codes.InvalidArgument, "handle %q matches 2 profiles", "ab")
-	g := gateFor(t, stubState{ownsErr: ambiguous})
+	g := gateFor(t, stubState{targetErr: ambiguous})
 
-	err := g.authorize(transportCtx(unprivUser, nil), servicePath+"SwitchProfile", switchTo("ab"))
+	_, err := g.authorize(transportCtx(unprivUser, nil), servicePath+"SwitchProfile", switchTo("ab"))
 	require.Error(t, err)
 	assert.Equal(t, codes.InvalidArgument, gstatus.Convert(err).Code())
 }
@@ -64,9 +64,9 @@ func TestAuthorizeSurfacesAnAmbiguousHandle(t *testing.T) {
 // the refusal stays about who the profile belongs to.
 func TestAuthorizeBlamesOwnershipForTheActiveProfile(t *testing.T) {
 	notFound := gstatus.Errorf(codes.NotFound, "profile %q not found", "active-profile-id")
-	g := gateFor(t, stubState{ownsErr: notFound})
+	g := gateFor(t, stubState{targetErr: notFound})
 
-	err := g.authorize(transportCtx(unprivUser, nil), servicePath+"SwitchProfile", switchTo(""))
+	_, err := g.authorize(transportCtx(unprivUser, nil), servicePath+"SwitchProfile", switchTo(""))
 	require.Error(t, err)
 
 	denial, ok := DenialFrom(err)
@@ -78,9 +78,9 @@ func TestAuthorizeBlamesOwnershipForTheActiveProfile(t *testing.T) {
 // A daemon-side failure is not something the caller can correct, and putting it
 // on the wire would describe the daemon rather than the request.
 func TestAuthorizeKeepsADaemonFailureOffTheWire(t *testing.T) {
-	g := gateFor(t, stubState{ownsErr: errors.New("read profile directory: permission denied")})
+	g := gateFor(t, stubState{targetErr: errors.New("read profile directory: permission denied")})
 
-	err := g.authorize(transportCtx(unprivUser, nil), servicePath+"SwitchProfile", switchTo("some-profile"))
+	_, err := g.authorize(transportCtx(unprivUser, nil), servicePath+"SwitchProfile", switchTo("some-profile"))
 	require.Error(t, err)
 
 	denial, ok := DenialFrom(err)
@@ -93,14 +93,15 @@ func TestAuthorizeKeepsADaemonFailureOffTheWire(t *testing.T) {
 // identified caller may make. A failure there must not take those down.
 func TestAuthorizeAllowsIdentifiedMethodsDespiteAResolveFailure(t *testing.T) {
 	notFound := gstatus.Errorf(codes.NotFound, "profile %q not found", "active-profile-id")
-	g := gateFor(t, stubState{ownsErr: notFound})
+	g := gateFor(t, stubState{targetErr: notFound})
 
 	for _, method := range []string{"ListProfiles", "AddProfile", "GetActiveProfile", "GetFeatures"} {
 		t.Run(method, func(t *testing.T) {
 			require.Equal(t, AuthzLevelIdentified, methodPolicies[servicePath+method].Level,
 				"fixture is wrong: %s is no longer open to any identified caller", method)
 
-			assert.NoError(t, g.authorize(transportCtx(unprivUser, nil), servicePath+method, nil))
+			_, err := g.authorize(transportCtx(unprivUser, nil), servicePath+method, nil)
+			assert.NoError(t, err)
 		})
 	}
 }
@@ -108,32 +109,61 @@ func TestAuthorizeAllowsIdentifiedMethodsDespiteAResolveFailure(t *testing.T) {
 // Ownership is the gate's answer, never the error's: a resolution that failed is
 // a no whatever it returned alongside.
 func TestAuthorizeRefusesWhenResolutionFails(t *testing.T) {
-	g := gateFor(t, stubState{owns: false, ownsErr: gstatus.Error(codes.NotFound, "profile not found")})
+	g := gateFor(t, stubState{targetErr: gstatus.Error(codes.NotFound, "profile not found")})
 
-	err := g.authorize(transportCtx(unprivUser, nil), servicePath+"SwitchProfile", switchTo("some-profile"))
+	_, err := g.authorize(transportCtx(unprivUser, nil), servicePath+"SwitchProfile", switchTo("some-profile"))
 	assert.Error(t, err, "an error from the resolution cannot be read as ownership")
 }
 
-// A resolution that failed established nothing about the profile, so no level
-// returned alongside the error may be acted on. This is the invariant the gate
-// clamps, pinned at the function that has to hold it.
+// A resolution that failed established nothing about the profile, so ownership
+// reported alongside the error may not be acted on. A state that answers both
+// at once is exactly what this refuses to trust.
 func TestResolveLevelNeverRaisesTheLevelOnAFailure(t *testing.T) {
-	asDaemon(t, root)
-
 	notFound := gstatus.Error(codes.NotFound, "profile not found")
+	owned := Target{Path: "/profiles/some-profile.json", Owned: true}
 
 	for _, tc := range []struct {
 		name string
 		st   stubState
 	}{
-		{"a live session it reports as owned", stubState{owns: true, running: true, ownsErr: notFound}},
-		{"an idle daemon it reports as owned", stubState{owns: true, ownsErr: notFound}},
-		{"a daemon-side failure it reports as owned", stubState{owns: true, ownsErr: errors.New("read profile directory")}},
+		{"a live session it reports as owned", stubState{target: owned, running: true, targetErr: notFound}},
+		{"an idle daemon it reports as owned", stubState{target: owned, targetErr: notFound}},
+		{"a daemon-side failure it reports as owned", stubState{target: owned, targetErr: errors.New("read profile directory")}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			level, _ := resolveLevel(unprivUser, "some-profile", tc.st)
-			assert.Equal(t, AuthzLevelIdentified, level,
-				"a failed resolution cannot confer %s", level)
+			g := gateFor(t, tc.st)
+
+			_, err := g.authorize(transportCtx(unprivUser, nil), servicePath+"SwitchProfile", switchTo("some-profile"))
+			assert.Error(t, err, "a failed resolution conferred a level it had no business conferring")
 		})
 	}
+}
+
+// The profile the gate resolved is what the handler acts on, so it has to reach
+// the handler. Resolving the handle a second time downstream is what this
+// exists to make unnecessary.
+func TestAuthorizeCarriesTheResolvedTargetToTheHandler(t *testing.T) {
+	g := gateFor(t, stubState{target: Target{Path: "/profiles/abcd1111.json", Owned: true}})
+
+	ctx, err := g.authorize(transportCtx(unprivUser, nil), servicePath+"SwitchProfile", switchTo("work"))
+	require.NoError(t, err)
+
+	got, ok := TargetFromContext(ctx)
+	require.True(t, ok, "the handler has no profile to act on")
+	assert.Equal(t, "/profiles/abcd1111.json", got,
+		"the handler would act on a different profile than the one authorized")
+}
+
+// A privileged caller skips the ownership question but still needs the profile
+// their handle named, or every target-scoped RPC breaks under sudo.
+func TestAuthorizeCarriesTheTargetForAPrivilegedCaller(t *testing.T) {
+	g := gateFor(t, stubState{target: Target{Path: "/profiles/abcd1111.json", Owned: true}})
+
+	ctx, err := g.authorize(transportCtx(root, nil), servicePath+"ClaimProfile",
+		&proto.ClaimProfileRequest{Handle: "work"})
+	require.NoError(t, err)
+
+	got, ok := TargetFromContext(ctx)
+	require.True(t, ok, "root resolved nothing to act on")
+	assert.Equal(t, "/profiles/abcd1111.json", got)
 }

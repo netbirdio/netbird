@@ -38,6 +38,14 @@ var unprivUID = uint32(os.Geteuid() + 1)
 
 // The fabricated identities have to be shaped like the platform's: a uid says
 // nothing on Windows, and a zero uid there would read as root and be privileged.
+// withTarget is a request context as the gate leaves it: carrying the profile
+// the gate resolved and authorized out of the request's handle. A test that
+// calls a target-scoped handler directly supplies it, since the interceptor
+// that normally would is not in play.
+func withTarget(ctx context.Context, profilePath string) context.Context {
+	return ipcauth.ContextWithTarget(ctx, profilePath)
+}
+
 func rootCtx() context.Context { return ctxWithIdentity(privilegedIdentity()) }
 func userCtx() context.Context { return ctxWithIdentity(unprivilegedIdentity()) }
 

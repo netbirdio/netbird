@@ -100,6 +100,12 @@ func setupServerWithProfile(t *testing.T) (s *Server, ctx context.Context, profN
 	// without an identity the gate would (correctly) refuse the SSH fields.
 	ctx = privilegedTestCtx()
 	s = New(ctx, "console", "", false, false, false, false)
+
+	// The gate resolves the request's handle before the handler runs and hands
+	// the profile down in the context. Driving the handler directly skips the
+	// gate, so the fixture stands in for it with the profile these requests
+	// name.
+	ctx = withTarget(ctx, cfgPath)
 	return s, ctx, profName, currUser.Username, cfgPath
 }
 

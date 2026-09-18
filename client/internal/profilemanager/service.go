@@ -49,6 +49,13 @@ type ErrAmbiguousHandle struct {
 	Kind       AmbiguityKind
 }
 
+// HandleMatch is the set of profiles a handle matched and which matcher found
+// them. Kind only carries meaning when more than one profile matched.
+type HandleMatch struct {
+	Profiles []Profile
+	Kind     AmbiguityKind
+}
+
 // AmbiguityKind describes which matcher produced the ambiguity, so callers
 // can tailor the error message.
 type AmbiguityKind int
@@ -436,20 +443,9 @@ func (s *ServiceManager) RenameProfile(id ID, newName string) error {
 		return fmt.Errorf("invalid profile ID: %q", id)
 	}
 
-	profiles, err := s.loadAllProfiles()
+	target, err := s.ProfileByID(id)
 	if err != nil {
-		return fmt.Errorf("load profiles: %w", err)
-	}
-
-	var target *Profile
-	for i := range profiles {
-		if profiles[i].ID == id {
-			target = &profiles[i]
-			break
-		}
-	}
-	if target == nil {
-		return ErrProfileNotFound
+		return err
 	}
 
 	return writeProfileName(target.Path, displayName)
@@ -470,20 +466,9 @@ func (s *ServiceManager) RemoveProfile(id ID) error {
 		return fmt.Errorf("invalid profile ID: %q", id)
 	}
 
-	profiles, err := s.loadAllProfiles()
+	target, err := s.ProfileByID(id)
 	if err != nil {
-		return fmt.Errorf("load profiles: %w", err)
-	}
-
-	var target *Profile
-	for i := range profiles {
-		if profiles[i].ID == id {
-			target = &profiles[i]
-			break
-		}
-	}
-	if target == nil {
-		return ErrProfileNotFound
+		return err
 	}
 
 	activeProf, err := s.GetActiveProfileState()
@@ -676,7 +661,7 @@ func (s *ServiceManager) ClaimDefaultProfileIfNeeded(id ipcauth.Identity) {
 
 	profiles, err := s.loadAllProfiles()
 	if err != nil {
-		log.Warnf("could not load all profiles: %w", err)
+		log.Warnf("could not load all profiles: %v", err)
 		return
 	}
 
@@ -1061,24 +1046,30 @@ func (s *ServiceManager) activeProfileID() (ID, bool) {
 	return state.ID, false
 }
 
-// ResolveProfile turns a user-supplied handle into a Profile. Resolution
-// precedence is: exact ID match, then unique exact name, then unique ID
-// prefix. Ambiguous matches return *ErrAmbiguousHandle so callers can
-// surface the candidates.
-func (s *ServiceManager) ResolveProfile(handle string) (*Profile, error) {
+// MatchProfiles returns every profile a user-supplied handle matches, at the
+// highest precedence tier that matched at all: exact ID, then exact name, then
+// ID prefix. It answers existence and nothing else, so choosing between several
+// matches is left to the caller that knows who is asking.
+func (s *ServiceManager) MatchProfiles(handle string) (HandleMatch, error) {
 	if handle == "" {
-		return nil, fmt.Errorf("profile handle is empty")
+		return HandleMatch{}, fmt.Errorf("profile handle is empty")
 	}
 
 	profiles, err := s.loadAllProfiles()
 	if err != nil {
-		return nil, err
+		return HandleMatch{}, err
 	}
 
+	// A legacy ID is a display name two accounts can hold in their own profile
+	// directories, so even an exact ID can match more than one file.
+	var idMatches []Profile
 	for i := range profiles {
 		if profiles[i].ID == ID(handle) {
-			return &profiles[i], nil
+			idMatches = append(idMatches, profiles[i])
 		}
+	}
+	if len(idMatches) > 0 {
+		return HandleMatch{Profiles: idMatches, Kind: AmbiguityKindName}, nil
 	}
 
 	var nameMatches []Profile
@@ -1087,15 +1078,8 @@ func (s *ServiceManager) ResolveProfile(handle string) (*Profile, error) {
 			nameMatches = append(nameMatches, profiles[i])
 		}
 	}
-	if len(nameMatches) == 1 {
-		return &nameMatches[0], nil
-	}
-	if len(nameMatches) > 1 {
-		return nil, &ErrAmbiguousHandle{
-			Handle:     handle,
-			Candidates: nameMatches,
-			Kind:       AmbiguityKindName,
-		}
+	if len(nameMatches) > 0 {
+		return HandleMatch{Profiles: nameMatches, Kind: AmbiguityKindName}, nil
 	}
 
 	// ID prefix match. Skip the default profile so `select d` does not
@@ -1109,14 +1093,49 @@ func (s *ServiceManager) ResolveProfile(handle string) (*Profile, error) {
 			prefixMatches = append(prefixMatches, profiles[i])
 		}
 	}
-	if len(prefixMatches) == 1 {
-		return &prefixMatches[0], nil
+	if len(prefixMatches) > 0 {
+		return HandleMatch{Profiles: prefixMatches, Kind: AmbiguityKindIDPrefix}, nil
 	}
-	if len(prefixMatches) > 1 {
-		return nil, &ErrAmbiguousHandle{
-			Handle:     handle,
-			Candidates: prefixMatches,
-			Kind:       AmbiguityKindIDPrefix,
+
+	return HandleMatch{}, ErrProfileNotFound
+}
+
+// ProfileByPath returns the profile stored at this path.
+func (s *ServiceManager) ProfileByPath(path string) (*Profile, error) {
+	if path == "" {
+		return nil, fmt.Errorf("profile path is empty")
+	}
+
+	profiles, err := s.loadAllProfiles()
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range profiles {
+		if profiles[i].Path == path {
+			return &profiles[i], nil
+		}
+	}
+
+	return nil, ErrProfileNotFound
+}
+
+// ProfileByID returns the first profile with this ID. Only a caller that has no
+// second profile to confuse it with may use this: a legacy ID is a display name
+// and two accounts can hold the same one. Prefer ProfileByPath.
+func (s *ServiceManager) ProfileByID(id ID) (*Profile, error) {
+	if id == "" {
+		return nil, fmt.Errorf("profile ID is empty")
+	}
+
+	profiles, err := s.loadAllProfiles()
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range profiles {
+		if profiles[i].ID == id {
+			return &profiles[i], nil
 		}
 	}
 

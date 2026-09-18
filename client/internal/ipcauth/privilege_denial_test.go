@@ -102,14 +102,15 @@ func TestDenyPolicyLevelWithoutGuidanceStaysBare(t *testing.T) {
 
 // stubState stands in for the daemon so a denial can be built without a server.
 type stubState struct {
-	holder  Principal
-	running bool
-	owns    bool
-	ownsErr error
+	holder    Principal
+	running   bool
+	target    Target
+	targetErr error
 }
 
-func (s stubState) SessionHolder() (Principal, bool)           { return s.holder, s.running }
-func (s stubState) OwnsProfile(Identity, string) (bool, error) { return s.owns, s.ownsErr }
+func (s stubState) SessionHolder() (Principal, bool) { return s.holder, s.running }
+
+func (s stubState) ResolveTarget(Identity, string) (Target, error) { return s.target, s.targetErr }
 
 // A refusal caused by somebody else's connection explains itself and offers no
 // command, since the caller cannot end a session that is not theirs.
