@@ -652,7 +652,7 @@ func (s *ServiceManager) ClaimLegacyProfiles(id ipcauth.Identity) {
 }
 
 func (s *ServiceManager) ClaimDefaultProfileIfNeeded(id ipcauth.Identity) {
-	if !id.Known() || ipcauth.IsPrivilegedCaller(id) || !defaultProfileClaimDisabled() {
+	if !id.Known() || ipcauth.IsPrivilegedCaller(id) || defaultProfileClaimDisabled() {
 		return
 	}
 
