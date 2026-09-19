@@ -203,3 +203,116 @@ func TestUpdateConnector_AllowsSameTypeUpdate(t *testing.T) {
 	require.NoError(t, json.Unmarshal(conn.Config, &m))
 	assert.Equal(t, "https://login.microsoftonline.com/new/v2.0", m["issuer"])
 }
+
+func TestConnectorGrantTypes(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("created connectors get the default allowlist", func(t *testing.T) {
+		p, cleanup := newTestProvider(t)
+		defer cleanup()
+
+		_, err := p.CreateConnector(ctx, &ConnectorConfig{
+			ID:       "entra-test",
+			Name:     "Entra",
+			Type:     "entra",
+			Issuer:   "https://login.microsoftonline.com/tid/v2.0",
+			ClientID: "client-id",
+		})
+		require.NoError(t, err)
+
+		conn, err := p.storage.GetConnector(ctx, "entra-test")
+		require.NoError(t, err)
+		assert.Equal(t, DefaultGrantTypes, conn.GrantTypes)
+		assert.NotContains(t, conn.GrantTypes, "urn:ietf:params:oauth:grant-type:token-exchange")
+	})
+
+	t.Run("updates do not reset the allowlist", func(t *testing.T) {
+		p, cleanup := newTestProvider(t)
+		defer cleanup()
+
+		_, err := p.CreateConnector(ctx, &ConnectorConfig{
+			ID:           "entra-test",
+			Name:         "Entra",
+			Type:         "entra",
+			Issuer:       "https://login.microsoftonline.com/tid/v2.0",
+			ClientID:     "client-id",
+			ClientSecret: "old-secret",
+		})
+		require.NoError(t, err)
+
+		require.NoError(t, p.UpdateConnector(ctx, &ConnectorConfig{
+			ID:           "entra-test",
+			Type:         "entra",
+			ClientSecret: "new-secret",
+		}))
+
+		conn, err := p.storage.GetConnector(ctx, "entra-test")
+		require.NoError(t, err)
+		assert.Equal(t, DefaultGrantTypes, conn.GrantTypes,
+			"an empty list would re-enable token exchange for this connector")
+	})
+
+	t.Run("updating a connector stored without an allowlist sets the default", func(t *testing.T) {
+		p, cleanup := newTestProvider(t)
+		defer cleanup()
+
+		// Mimic a connector written by an older release.
+		require.NoError(t, p.storage.CreateConnector(ctx, storage.Connector{
+			ID:     "legacy-oidc",
+			Type:   "oidc",
+			Name:   "Legacy",
+			Config: []byte(`{"issuer":"https://accounts.example.com","clientID":"client-id"}`),
+		}))
+
+		require.NoError(t, p.UpdateConnector(ctx, &ConnectorConfig{
+			ID:           "legacy-oidc",
+			ClientSecret: "new-secret",
+		}))
+
+		conn, err := p.storage.GetConnector(ctx, "legacy-oidc")
+		require.NoError(t, err)
+		assert.Equal(t, DefaultGrantTypes, conn.GrantTypes)
+	})
+
+	t.Run("backfills connectors stored without an allowlist", func(t *testing.T) {
+		p, cleanup := newTestProvider(t)
+		defer cleanup()
+
+		// Mimic a connector written by an older release.
+		require.NoError(t, p.storage.CreateConnector(ctx, storage.Connector{
+			ID:     "legacy-oidc",
+			Type:   "oidc",
+			Name:   "Legacy",
+			Config: []byte(`{"issuer":"https://accounts.example.com"}`),
+		}))
+		require.NoError(t, p.storage.CreateConnector(ctx, storage.Connector{
+			ID:         "opted-in",
+			Type:       "oidc",
+			Name:       "Opted In",
+			Config:     []byte(`{"issuer":"https://accounts.example.com"}`),
+			GrantTypes: []string{"urn:ietf:params:oauth:grant-type:token-exchange"},
+		}))
+
+		require.NoError(t, ensureConnectorGrantTypes(ctx, p.storage))
+
+		legacy, err := p.storage.GetConnector(ctx, "legacy-oidc")
+		require.NoError(t, err)
+		assert.Equal(t, DefaultGrantTypes, legacy.GrantTypes)
+
+		optedIn, err := p.storage.GetConnector(ctx, "opted-in")
+		require.NoError(t, err)
+		assert.Equal(t, []string{"urn:ietf:params:oauth:grant-type:token-exchange"}, optedIn.GrantTypes,
+			"an explicit operator allowlist must not be overwritten")
+	})
+
+	t.Run("static connectors default and honour an explicit allowlist", func(t *testing.T) {
+		conn, err := (&Connector{ID: "static-oidc", Type: "oidc", Name: "Static"}).ToStorageConnector()
+		require.NoError(t, err)
+		assert.Equal(t, DefaultGrantTypes, conn.GrantTypes)
+
+		explicit := []string{"authorization_code", "urn:ietf:params:oauth:grant-type:token-exchange"}
+		conn, err = (&Connector{ID: "static-oidc", Type: "oidc", Name: "Static", GrantTypes: explicit}).ToStorageConnector()
+		require.NoError(t, err)
+		assert.Equal(t, explicit, conn.GrantTypes)
+	})
+}

@@ -7,16 +7,16 @@ import (
 	"log/slog"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
-	"golang.org/x/crypto/bcrypt"
-	"gopkg.in/yaml.v3"
-
 	"github.com/dexidp/dex/server"
 	"github.com/dexidp/dex/storage"
 	"github.com/dexidp/dex/storage/sql"
+	"golang.org/x/crypto/bcrypt"
+	"gopkg.in/yaml.v3"
 
 	"github.com/netbirdio/netbird/idp/dex/web"
 )
@@ -226,10 +226,11 @@ func (p *Password) UnmarshalYAML(node *yaml.Node) error {
 
 // Connector is a connector configuration that can unmarshal YAML dynamically.
 type Connector struct {
-	Type   string                 `yaml:"type" json:"type"`
-	Name   string                 `yaml:"name" json:"name"`
-	ID     string                 `yaml:"id" json:"id"`
-	Config map[string]interface{} `yaml:"config" json:"config"`
+	Type       string                 `yaml:"type" json:"type"`
+	Name       string                 `yaml:"name" json:"name"`
+	ID         string                 `yaml:"id" json:"id"`
+	Config     map[string]interface{} `yaml:"config" json:"config"`
+	GrantTypes []string               `yaml:"grantTypes" json:"grantTypes"`
 }
 
 // ToStorageConnector converts a Connector to storage.Connector type.
@@ -243,11 +244,17 @@ func (c *Connector) ToStorageConnector() (storage.Connector, error) {
 		return storage.Connector{}, fmt.Errorf("failed to marshal connector config: %v", err)
 	}
 
+	grantTypes := c.GrantTypes
+	if len(grantTypes) == 0 {
+		grantTypes = slices.Clone(DefaultGrantTypes)
+	}
+
 	return storage.Connector{
-		ID:     c.ID,
-		Type:   dexType,
-		Name:   c.Name,
-		Config: data,
+		ID:         c.ID,
+		Type:       dexType,
+		Name:       c.Name,
+		Config:     data,
+		GrantTypes: grantTypes,
 	}, nil
 }
 
