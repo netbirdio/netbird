@@ -191,7 +191,10 @@ type NetBird struct {
 	// was reused). The duration covers keygen + gRPC CreateProxyPeer + embed.New.
 	OnAddPeer func(d time.Duration, err error)
 
-	// startClient runs the post-create client startup. Nil uses runClientStartup;
+	OnError func(err error)
+
+	// startClient runs the post-create client startup. Nil uses runClientS
+	// tartup;
 	// tests override it to avoid a real embed client.Start.
 	startClient func(accountID types.AccountID, client *embed.Client)
 }
@@ -802,6 +805,7 @@ func NewNetBird(ctx context.Context, proxyID, proxyAddr string, clientCfg Client
 		statusNotifier: notifier,
 		mgmtClient:     mgmtClient,
 		transportCfg:   loadTransportConfig(logger),
+		OnError:        func(err error) {},
 	}
 }
 
@@ -929,4 +933,9 @@ func logEmbedOptions(logger *log.Logger, accountID types.AccountID, serviceID ty
 		"perf_buffers_per_pool": perfBuffers,
 		"perf_max_batch_size":   perfBatch,
 	}).Info("starting embedded netbird client for account")
+}
+
+func (n *NetBird) WithOnErrorCallback(f func(error)) *NetBird {
+	n.OnError = f
+	return n
 }

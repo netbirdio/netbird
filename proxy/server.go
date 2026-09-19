@@ -188,7 +188,8 @@ type Server struct {
 	// DebugEndpointAddress is the address for the debug HTTP endpoint (default: ":8444").
 	DebugEndpointAddress string
 	// HealthAddress is the address for the health probe endpoint.
-	HealthAddress string
+	HealthAddress            string
+	EngineNotStartedErrLimit int
 	// ProxyToken is the access token for authenticating with the management server.
 	ProxyToken string
 	// ForwardedProto overrides the X-Forwarded-Proto value sent to backends.
@@ -377,7 +378,8 @@ func (s *Server) Start(ctx context.Context) error {
 	s.initNetBirdClient()
 	// Create health checker before the mapping worker so it can track
 	// management connectivity from the first stream connection.
-	s.healthChecker = health.NewChecker(s.Logger, s.netbird)
+	s.healthChecker = health.NewChecker(s.Logger, s.netbird, s.EngineNotStartedErrLimit)
+	s.netbird.WithOnErrorCallback(s.healthChecker.RegisterError)
 
 	s.crowdsecRegistry = crowdsec.NewRegistry(s.CrowdSecAPIURL, s.CrowdSecAPIKey, log.NewEntry(s.Logger))
 	s.crowdsecServices = make(map[types.ServiceID]bool)

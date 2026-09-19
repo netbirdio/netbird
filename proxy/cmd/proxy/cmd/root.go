@@ -47,38 +47,39 @@ var (
 )
 
 var (
-	logLevel              string
-	debugLogs             bool
-	mgmtAddr              string
-	addr                  string
-	proxyDomain           string
-	maxDialTimeout        time.Duration
-	maxSessionIdleTimeout time.Duration
-	certDir               string
-	acmeCerts             bool
-	acmeAddr              string
-	acmeDir               string
-	acmeEABKID            string
-	acmeEABHMACKey        string
-	acmeChallengeType     string
-	debugEndpoint         bool
-	debugEndpointAddr     string
-	healthAddr            string
-	forwardedProto        string
-	trustedProxies        string
-	certFile              string
-	certKeyFile           string
-	certLockMethod        string
-	wildcardCertDir       string
-	wgPort                uint16
-	proxyProtocol         bool
-	preSharedKey          string
-	supportsCustomPorts   bool
-	requireSubdomain      bool
-	private               bool
-	geoDataDir            string
-	crowdsecAPIURL        string
-	crowdsecAPIKey        string
+	logLevel                 string
+	debugLogs                bool
+	mgmtAddr                 string
+	addr                     string
+	proxyDomain              string
+	maxDialTimeout           time.Duration
+	maxSessionIdleTimeout    time.Duration
+	certDir                  string
+	acmeCerts                bool
+	acmeAddr                 string
+	acmeDir                  string
+	acmeEABKID               string
+	acmeEABHMACKey           string
+	acmeChallengeType        string
+	debugEndpoint            bool
+	debugEndpointAddr        string
+	healthAddr               string
+	engineNotStartedErrLimit uint16
+	forwardedProto           string
+	trustedProxies           string
+	certFile                 string
+	certKeyFile              string
+	certLockMethod           string
+	wildcardCertDir          string
+	wgPort                   uint16
+	proxyProtocol            bool
+	preSharedKey             string
+	supportsCustomPorts      bool
+	requireSubdomain         bool
+	private                  bool
+	geoDataDir               string
+	crowdsecAPIURL           string
+	crowdsecAPIKey           string
 )
 
 var rootCmd = &cobra.Command{
@@ -107,6 +108,7 @@ func init() {
 	rootCmd.Flags().BoolVar(&debugEndpoint, "debug-endpoint", envBoolOrDefault("NB_PROXY_DEBUG_ENDPOINT", false), "Enable debug HTTP endpoint")
 	rootCmd.Flags().StringVar(&debugEndpointAddr, "debug-endpoint-addr", envStringOrDefault("NB_PROXY_DEBUG_ENDPOINT_ADDRESS", "localhost:8444"), "Address for the debug HTTP endpoint")
 	rootCmd.Flags().StringVar(&healthAddr, "health-addr", envStringOrDefault("NB_PROXY_HEALTH_ADDRESS", "localhost:8080"), "Address for the health probe endpoint (liveness/readiness/startup)")
+	rootCmd.Flags().Uint16Var(&engineNotStartedErrLimit, "engine-not-started-addr", envUint16OrDefault("NB_PROXY_ENGINE_NOT_STARTED_LIMIT", 10), "The number of 'engine not srated' error occurences to trigger liveness check failure")
 	rootCmd.Flags().StringVar(&forwardedProto, "forwarded-proto", envStringOrDefault("NB_PROXY_FORWARDED_PROTO", "auto"), "X-Forwarded-Proto value for backends: auto, http, or https")
 	rootCmd.Flags().StringVar(&trustedProxies, "trusted-proxies", envStringOrDefault("NB_PROXY_TRUSTED_PROXIES", ""), "Comma-separated list of trusted upstream proxy CIDR ranges (e.g. '10.0.0.0/8,192.168.1.1')")
 	rootCmd.Flags().StringVar(&certFile, "cert-file", envStringOrDefault("NB_PROXY_CERTIFICATE_FILE", "tls.crt"), "TLS certificate filename within the certificate directory")
@@ -237,6 +239,7 @@ func runServer(cmd *cobra.Command, args []string) error {
 		DebugEndpointEnabled:     debugEndpoint,
 		DebugEndpointAddress:     debugEndpointAddr,
 		HealthAddr:               healthAddr,
+		EngineNotStartedErrLimit: int(engineNotStartedErrLimit),
 		ForwardedProto:           forwardedProto,
 		TrustedProxies:           parsedTrustedProxies,
 		CertLockMethod:           nbacme.CertLockMethod(certLockMethod),
