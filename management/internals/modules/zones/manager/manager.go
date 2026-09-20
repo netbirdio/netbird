@@ -99,7 +99,7 @@ func (m *managerImpl) CreateZone(ctx context.Context, accountID, userID string, 
 
 	m.accountManager.StoreEvent(ctx, userID, zone.ID, accountID, activity.DNSZoneCreated, zone.EventMeta())
 
-	go m.accountManager.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceZone, Operation: types.UpdateOperationCreate})
+	go m.accountManager.UpdateAccountPeers(context.WithoutCancel(ctx), accountID, types.UpdateReason{Resource: types.UpdateResourceZone, Operation: types.UpdateOperationCreate})
 
 	return zone, nil
 }
@@ -147,7 +147,7 @@ func (m *managerImpl) UpdateZone(ctx context.Context, accountID, userID string, 
 
 	m.accountManager.StoreEvent(ctx, userID, zone.ID, accountID, activity.DNSZoneUpdated, zone.EventMeta())
 
-	go m.accountManager.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceZone, Operation: types.UpdateOperationUpdate})
+	go m.accountManager.UpdateAccountPeers(context.WithoutCancel(ctx), accountID, types.UpdateReason{Resource: types.UpdateResourceZone, Operation: types.UpdateOperationUpdate})
 
 	return zone, nil
 }
@@ -209,7 +209,7 @@ func (m *managerImpl) DeleteZone(ctx context.Context, accountID, userID, zoneID 
 		event()
 	}
 
-	go m.accountManager.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceZone, Operation: types.UpdateOperationDelete})
+	go m.accountManager.UpdateAccountPeers(context.WithoutCancel(ctx), accountID, types.UpdateReason{Resource: types.UpdateResourceZone, Operation: types.UpdateOperationDelete})
 
 	return nil
 }

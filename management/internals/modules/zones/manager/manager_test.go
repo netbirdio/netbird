@@ -178,9 +178,12 @@ func TestManagerImpl_CreateZone(t *testing.T) {
 			DistributionGroups: []string{testGroupID},
 		}
 
+		reqCtx, reqCancel := context.WithCancel(ctx)
+		defer reqCancel()
+
 		mockPermissionsManager.EXPECT().
-			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Create).
-			Return(true, ctx, nil)
+			ValidateUserPermissions(reqCtx, testAccountID, testUserID, modules.Dns, operations.Create).
+			Return(true, reqCtx, nil)
 
 		mockAccountManager.StoreEventFunc = func(ctx context.Context, initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any) {
 			assert.Equal(t, testUserID, initiatorID)
@@ -188,13 +191,22 @@ func TestManagerImpl_CreateZone(t *testing.T) {
 			assert.Equal(t, activity.DNSZoneCreated, activityID)
 		}
 
-		updatePeersCh := make(chan types.UpdateReason, 1)
-		mockAccountManager.UpdateAccountPeersFunc = func(ctx context.Context, accountID string, reason types.UpdateReason) {
-			assert.Equal(t, testAccountID, accountID)
-			updatePeersCh <- reason
+		type updateCall struct {
+			accountID string
+			reason    types.UpdateReason
+			ctxErr    error
+		}
+		updatePeersCh := make(chan updateCall, 1)
+		mockAccountManager.UpdateAccountPeersFunc = func(callCtx context.Context, accountID string, reason types.UpdateReason) {
+			updatePeersCh <- updateCall{
+				accountID: accountID,
+				reason:    reason,
+				ctxErr:    callCtx.Err(),
+			}
 		}
 
-		result, err := manager.CreateZone(ctx, testAccountID, testUserID, inputZone)
+		result, err := manager.CreateZone(reqCtx, testAccountID, testUserID, inputZone)
+		reqCancel()
 		require.NoError(t, err)
 		assert.NotNil(t, result)
 		assert.NotEmpty(t, result.ID)
@@ -206,10 +218,12 @@ func TestManagerImpl_CreateZone(t *testing.T) {
 		assert.Equal(t, inputZone.DistributionGroups, result.DistributionGroups)
 
 		select {
-		case reason := <-updatePeersCh:
-			assert.Equal(t, types.UpdateResourceZone, reason.Resource)
-			assert.Equal(t, types.UpdateOperationCreate, reason.Operation)
-		case <-time.After(time.Second):
+		case call := <-updatePeersCh:
+			assert.Equal(t, testAccountID, call.accountID)
+			assert.Equal(t, types.UpdateResourceZone, call.reason.Resource)
+			assert.Equal(t, types.UpdateOperationCreate, call.reason.Operation)
+			assert.NoError(t, call.ctxErr, "UpdateAccountPeers context must not be canceled when request context is canceled")
+		case <-time.After(5 * time.Second):
 			t.Fatal("timed out waiting for UpdateAccountPeers")
 		}
 	})
