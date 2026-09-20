@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -183,7 +184,11 @@ func (s *SSHClient) Connect(host string, port int, user, password string) error 
 	gen := s.gen
 	s.mu.Unlock()
 
-	serverType := detectServerType(host, port)
+	// Every socket this dial opens has to be pinned to the tunnel interface;
+	// see makeWGDialer for why an unbound one cannot reach a peer from here.
+	dialer := makeWGDialer(cfg.WgIface, sshDialTimeout)
+
+	serverType := detectServerType(host, port, dialer)
 	log.Debugf("SSH server type: %s", serverType)
 
 	authMethods, hostKeyCallback, err := s.buildAuth(cfg, cfgPath, engine, serverType, password)
@@ -197,7 +202,7 @@ func (s *SSHClient) Connect(host string, port int, user, password string) error 
 		HostKeyCallback: hostKeyCallback,
 		Timeout:         sshDialTimeout,
 	}
-	err = s.dialAndHandshake(gen, host, port, clientConfig)
+	err = s.dialAndHandshake(gen, host, port, clientConfig, dialer)
 
 	// An unknown host key is a prompt, not a failure: return the marker intact
 	// (rootCause would unwrap it) so Swift can show the fingerprint and retry.
@@ -497,7 +502,8 @@ func (s *SSHClient) requestJWTToken(cfg *profilemanager.Config, cfgPath string) 
 	return token, nil
 }
 
-func (s *SSHClient) dialAndHandshake(gen uint64, host string, port int, clientConfig *gossh.ClientConfig) error {
+func (s *SSHClient) dialAndHandshake(gen uint64, host string, port int, clientConfig *gossh.ClientConfig,
+	dialer *net.Dialer) error {
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	ctx, cancel := context.WithTimeout(context.Background(), sshDialTimeout)
 	defer cancel()
@@ -510,7 +516,6 @@ func (s *SSHClient) dialAndHandshake(gen uint64, host string, port int, clientCo
 	s.dialCancel = cancel
 	s.mu.Unlock()
 
-	var dialer net.Dialer
 	conn, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return fmt.Errorf("dial %s: %w", addr, err)
@@ -596,11 +601,10 @@ func closeQuiet(c io.Closer, label string) {
 	}
 }
 
-func detectServerType(host string, port int) detection.ServerType {
+func detectServerType(host string, port int, dialer *net.Dialer) detection.ServerType {
 	ctx, cancel := context.WithTimeout(context.Background(), sshDetectionTimeout)
 	defer cancel()
 
-	dialer := &net.Dialer{}
 	serverType, err := detection.DetectSSHServerType(ctx, dialer, host, port)
 	if err != nil {
 		log.Debugf("ssh: server detection failed: %v (assuming regular SSH)", err)
@@ -676,4 +680,44 @@ func runSSHOAuthFlow(ctx context.Context, flow auth.OAuthFlow, urlOpener URLOpen
 	}
 
 	return &tokenInfo, nil
+}
+
+// makeWGDialer returns a dialer whose sockets are bound to the tunnel
+// interface. This is what makes an SSH session possible at all from the
+// network extension: iOS deliberately keeps the provider's own traffic out of
+// the tunnel that provider serves, so it cannot route itself into a loop.
+// Without the bind, a connection to a peer's 100.x.x.x address is handed to
+// the physical interface, which has no route for the CGNAT range, and the
+// dial fails with "network is unreachable".
+//
+// The Android client needs none of this: there the VPN service does carry the
+// app's own traffic, so a plain dialer reaches the peer.
+//
+// Falls back to an unbound dialer when the interface is not there — the tunnel
+// may still be coming up, and a dial that fails on its own says more than one
+// refused here.
+func makeWGDialer(wgIface string, timeout time.Duration) *net.Dialer {
+	return &net.Dialer{
+		Timeout: timeout,
+		Control: func(network, address string, c syscall.RawConn) error {
+			iface, err := net.InterfaceByName(wgIface)
+			if err != nil {
+				log.Debugf("ssh: tunnel interface %q not found, dialing unbound: %v", wgIface, err)
+				return nil
+			}
+			var bindErr error
+			if ctrlErr := c.Control(func(fd uintptr) {
+				// IP_BOUND_IF on Darwin; x/sys is not vendored for this
+				// package, so the option number is spelled out.
+				const ipBoundIf = 25
+				bindErr = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IP, ipBoundIf, iface.Index)
+			}); ctrlErr != nil {
+				return ctrlErr
+			}
+			if bindErr != nil {
+				log.Debugf("ssh: binding to %q failed: %v", wgIface, bindErr)
+			}
+			return bindErr
+		},
+	}
 }
