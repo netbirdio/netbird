@@ -99,6 +99,8 @@ func (m *managerImpl) CreateZone(ctx context.Context, accountID, userID string, 
 
 	m.accountManager.StoreEvent(ctx, userID, zone.ID, accountID, activity.DNSZoneCreated, zone.EventMeta())
 
+	go m.accountManager.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceZone, Operation: types.UpdateOperationCreate})
+
 	return zone, nil
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"go.uber.org/mock/gomock"
 	"github.com/stretchr/testify/assert"
@@ -187,6 +188,12 @@ func TestManagerImpl_CreateZone(t *testing.T) {
 			assert.Equal(t, activity.DNSZoneCreated, activityID)
 		}
 
+		updatePeersCh := make(chan types.UpdateReason, 1)
+		mockAccountManager.UpdateAccountPeersFunc = func(ctx context.Context, accountID string, reason types.UpdateReason) {
+			assert.Equal(t, testAccountID, accountID)
+			updatePeersCh <- reason
+		}
+
 		result, err := manager.CreateZone(ctx, testAccountID, testUserID, inputZone)
 		require.NoError(t, err)
 		assert.NotNil(t, result)
@@ -197,6 +204,14 @@ func TestManagerImpl_CreateZone(t *testing.T) {
 		assert.Equal(t, inputZone.Enabled, result.Enabled)
 		assert.Equal(t, inputZone.EnableSearchDomain, result.EnableSearchDomain)
 		assert.Equal(t, inputZone.DistributionGroups, result.DistributionGroups)
+
+		select {
+		case reason := <-updatePeersCh:
+			assert.Equal(t, types.UpdateResourceZone, reason.Resource)
+			assert.Equal(t, types.UpdateOperationCreate, reason.Operation)
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for UpdateAccountPeers")
+		}
 	})
 
 	t.Run("permission denied", func(t *testing.T) {
