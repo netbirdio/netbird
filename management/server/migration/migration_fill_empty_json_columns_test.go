@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/server/migration"
 	"github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -118,6 +119,47 @@ func TestFillEmptyJson_Route(t *testing.T) {
 	require.False(t, rows.Next())
 }
 
+func TestFillEmptyJson_Service(t *testing.T) {
+	db := setupServicesTestDB(t)
+
+	res, err := db.ConnPool.ExecContext(context.Background(), `insert into services (id,account_id,auth,restrictions,access_groups) values('id-1','account-id-1','','','')`)
+	require.NoError(t, err)
+	n, _ := res.RowsAffected()
+	require.Equal(t, n, int64(1))
+
+	err = migration.FillEmptyServiceJsonColumns(context.Background(), db)
+	require.NoError(t, err)
+
+	rows, err := db.ConnPool.QueryContext(context.Background(), "select id from services where auth='' or auth=null or restrictions='' or restrictions=null or access_groups='' or access_groups=null")
+	require.NoError(t, err)
+
+	rows.Next()
+	require.False(t, rows.Next())
+}
+
+func TestFillEmptyJson_ServiceTargets(t *testing.T) {
+	db := setupServicesTestDB(t)
+
+	res, err := db.ConnPool.ExecContext(context.Background(), `insert into services (id,account_id) values('id-2','account-id-1')`)
+	require.NoError(t, err)
+	n, _ := res.RowsAffected()
+	require.Equal(t, n, int64(1))
+
+	res, err = db.ConnPool.ExecContext(context.Background(), `insert into targets (service_id,account_id,custom_headers,middlewares,capture_content_types) values('id-2','account-id-1','','','')`)
+	require.NoError(t, err)
+	n, _ = res.RowsAffected()
+	require.Equal(t, n, int64(1))
+
+	err = migration.FillEmptyServiceTargetsJsonColumns(context.Background(), db)
+	require.NoError(t, err)
+
+	rows, err := db.ConnPool.QueryContext(context.Background(), "select id from targets where custom_headers='' or custom_headers=null or middlewares='' or middlewares=null or capture_content_types='' or capture_content_types=null")
+	require.NoError(t, err)
+
+	rows.Next()
+	require.False(t, rows.Next())
+}
+
 func setupNsGroupsTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db := setupDatabase(t)
@@ -159,6 +201,17 @@ func setupRouteTestDB(t *testing.T) *gorm.DB {
 	db := setupDatabase(t)
 	_ = db.Migrator().DropTable(&route.Route{})
 	err := db.AutoMigrate(&route.Route{})
+	require.NoError(t, err, "Failed to auto-migrate tables")
+	return db
+}
+
+func setupServicesTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db := setupDatabase(t)
+	_ = db.Migrator().DropTable(&service.Service{})
+	err := db.AutoMigrate(&service.Service{})
+	_ = db.Migrator().DropTable(&service.Target{})
+	err = db.AutoMigrate(&service.Target{})
 	require.NoError(t, err, "Failed to auto-migrate tables")
 	return db
 }

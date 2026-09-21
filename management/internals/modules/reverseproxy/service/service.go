@@ -62,7 +62,7 @@ type TargetOptions struct {
 	RequestTimeout     time.Duration     `json:"request_timeout,omitempty"`
 	SessionIdleTimeout time.Duration     `json:"session_idle_timeout,omitempty"`
 	PathRewrite        PathRewriteMode   `json:"path_rewrite,omitempty"`
-	CustomHeaders      map[string]string `gorm:"serializer:json" json:"custom_headers,omitempty"`
+	CustomHeaders      map[string]string `gorm:"serializer:json;default:'{}'" json:"custom_headers,omitempty"`
 	// DirectUpstream bypasses the proxy's embedded NetBird client and dials
 	// the target via the proxy host's network stack. Useful for upstreams
 	// reachable without WireGuard (public APIs, LAN services, localhost
@@ -71,10 +71,10 @@ type TargetOptions struct {
 	// Middlewares carries per-target agent-network middleware configs. Empty
 	// for private and operator-defined services; populated only by the
 	// agent-network synthesizer.
-	Middlewares             []MiddlewareConfig `gorm:"serializer:json" json:"middlewares,omitempty"`
+	Middlewares             []MiddlewareConfig `gorm:"serializer:json;default:'[]'" json:"middlewares,omitempty"`
 	CaptureMaxRequestBytes  int64              `json:"capture_max_request_bytes,omitempty"`
 	CaptureMaxResponseBytes int64              `json:"capture_max_response_bytes,omitempty"`
-	CaptureContentTypes     []string           `gorm:"serializer:json" json:"capture_content_types,omitempty"`
+	CaptureContentTypes     []string           `gorm:"serializer:json;default:'[]'" json:"capture_content_types,omitempty"`
 	// AgentNetwork marks targets synthesised from Agent Network state. The
 	// proxy uses it to gate agent-network-specific behaviour (access log
 	// tagging, observability, etc.).
@@ -154,19 +154,19 @@ type HeaderAuthConfig struct {
 }
 
 type AuthConfig struct {
-	PasswordAuth *PasswordAuthConfig `json:"password_auth,omitempty" gorm:"serializer:json"`
-	PinAuth      *PINAuthConfig      `json:"pin_auth,omitempty" gorm:"serializer:json"`
-	BearerAuth   *BearerAuthConfig   `json:"bearer_auth,omitempty" gorm:"serializer:json"`
-	HeaderAuths  []*HeaderAuthConfig `json:"header_auths,omitempty" gorm:"serializer:json"`
+	PasswordAuth *PasswordAuthConfig `json:"password_auth,omitempty"`
+	PinAuth      *PINAuthConfig      `json:"pin_auth,omitempty"`
+	BearerAuth   *BearerAuthConfig   `json:"bearer_auth,omitempty"`
+	HeaderAuths  []*HeaderAuthConfig `json:"header_auths,omitempty"`
 }
 
 // AccessRestrictions controls who can connect to the service based on IP or geography.
 type AccessRestrictions struct {
-	AllowedCIDRs     []string `json:"allowed_cidrs,omitempty" gorm:"serializer:json"`
-	BlockedCIDRs     []string `json:"blocked_cidrs,omitempty" gorm:"serializer:json"`
-	AllowedCountries []string `json:"allowed_countries,omitempty" gorm:"serializer:json"`
-	BlockedCountries []string `json:"blocked_countries,omitempty" gorm:"serializer:json"`
-	CrowdSecMode     string   `json:"crowdsec_mode,omitempty" gorm:"serializer:json"`
+	AllowedCIDRs     []string `json:"allowed_cidrs,omitempty"`
+	BlockedCIDRs     []string `json:"blocked_cidrs,omitempty"`
+	AllowedCountries []string `json:"allowed_countries,omitempty"`
+	BlockedCountries []string `json:"blocked_countries,omitempty"`
+	CrowdSecMode     string   `json:"crowdsec_mode,omitempty"`
 }
 
 // Copy returns a deep copy of the AccessRestrictions.
@@ -242,8 +242,8 @@ type Service struct {
 	Terminated        bool
 	PassHostHeader    bool
 	RewriteRedirects  bool
-	Auth              AuthConfig         `gorm:"serializer:json"`
-	Restrictions      AccessRestrictions `gorm:"serializer:json"`
+	Auth              AuthConfig         `gorm:"serializer:json;default:'{}'"`
+	Restrictions      AccessRestrictions `gorm:"serializer:json;default:'{}'"`
 	Meta              Meta               `gorm:"embedded;embeddedPrefix:meta_"`
 	SessionPrivateKey string             `gorm:"column:session_private_key"`
 	SessionPublicKey  string             `gorm:"column:session_public_key"`
@@ -256,7 +256,7 @@ type Service struct {
 	// Private marks the service as NetBird-only: auth via ValidateTunnelPeer against AccessGroups instead of SSO. HTTP-only.
 	Private bool
 	// AccessGroups is the group ID allowlist for inbound peers on private services. Mutually exclusive with bearer SSO.
-	AccessGroups []string `json:"access_groups,omitempty" gorm:"serializer:json"`
+	AccessGroups []string `json:"access_groups,omitempty" gorm:"serializer:json;default:'[]'"`
 }
 
 // InitNewRecord generates a new unique ID and resets metadata for a newly created

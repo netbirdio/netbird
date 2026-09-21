@@ -144,3 +144,33 @@ func FillEmptyRouteJsonColumns(ctx context.Context, db *gorm.DB) error {
 		return res.Error
 	})
 }
+
+func FillEmptyServiceJsonColumns(ctx context.Context, db *gorm.DB) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		res := tx.Exec(`update services set auth='{}' where id in (select id from services where auth='' or auth=null order by id asc)`)
+		if res.Error != nil {
+			return res.Error
+		}
+		res = tx.Exec(`update services set restrictions='{}' where id in (select id from services where restrictions='' or restrictions=null order by id asc)`)
+		if res.Error != nil {
+			return res.Error
+		}
+		res = tx.Exec(`update services set access_groups='{}' where id in (select id from services where access_groups='' or access_groups=null order by id asc)`)
+		return res.Error
+	})
+}
+
+func FillEmptyServiceTargetsJsonColumns(ctx context.Context, db *gorm.DB) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		res := tx.Exec(`update targets set custom_headers='{}' where id in (select id from targets where custom_headers='' or custom_headers=null order by id asc)`)
+		if res.Error != nil {
+			return res.Error
+		}
+		res = tx.Exec(`update targets set middlewares='{}' where id in (select id from targets where middlewares='' or middlewares=null order by id asc)`)
+		if res.Error != nil {
+			return res.Error
+		}
+		res = tx.Exec(`update targets set capture_content_types='{}' where id in (select id from targets where capture_content_types='' or capture_content_types=null order by id asc)`)
+		return res.Error
+	})
+}
