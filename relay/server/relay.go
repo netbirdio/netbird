@@ -21,7 +21,8 @@ import (
 )
 
 type Listener interface {
-	Listen(func(conn listener.Conn)) error
+	Bind() error
+	Serve(func(conn listener.Conn)) error
 	Shutdown(ctx context.Context) error
 	Protocol() protocol.Protocol
 }

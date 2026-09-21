@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"net/url"
 	"sync"
 
@@ -35,6 +36,7 @@ type Server struct {
 	relay       *Relay
 	listeners   []Listener
 	listenerMux sync.Mutex
+	closed      bool
 }
 
 // NewServer creates and returns a new relay server instance.
@@ -62,39 +64,30 @@ func NewServer(config Config) (*Server, error) {
 	}, nil
 }
 
-// Listen starts the relay server.
+// Listen binds the relay listeners and serves them until Shutdown is called.
 func (r *Server) Listen(cfg ListenerConfig) error {
-	wSListener := &ws.Listener{
-		Address:        cfg.Address,
-		TLSConfig:      cfg.TLSConfig,
-		TrustedProxies: cfg.TrustedProxies,
-	}
-
 	r.listenerMux.Lock()
-	r.listeners = append(r.listeners, wSListener)
-
-	tlsConfigQUIC, err := quictls.ServerQUICTLSConfig(cfg.TLSConfig)
-	if err != nil {
-		log.Warnf("Not starting QUIC listener: %v", err)
-	} else {
-		quicListener := &quic.Listener{
-			Address:   cfg.Address,
-			TLSConfig: tlsConfigQUIC,
-		}
-
-		r.listeners = append(r.listeners, quicListener)
+	if r.closed {
+		r.listenerMux.Unlock()
+		return nil
 	}
 
-	errChan := make(chan error, len(r.listeners))
+	listeners, err := bindListeners(newListeners(cfg))
+	if err != nil {
+		r.listenerMux.Unlock()
+		return err
+	}
+	r.listeners = append(r.listeners, listeners...)
+
+	errChan := make(chan error, len(listeners))
 	wg := sync.WaitGroup{}
-	for _, l := range r.listeners {
+	for _, l := range listeners {
 		wg.Add(1)
 		go func(listener Listener) {
 			defer wg.Done()
-			errChan <- listener.Listen(r.relay.Accept)
+			errChan <- listener.Serve(r.relay.Accept)
 		}(l)
 	}
-
 	r.listenerMux.Unlock()
 
 	wg.Wait()
@@ -113,15 +106,12 @@ func (r *Server) Shutdown(ctx context.Context) error {
 	r.relay.Shutdown(ctx)
 
 	r.listenerMux.Lock()
-	var multiErr *multierror.Error
-	for _, l := range r.listeners {
-		if err := l.Shutdown(ctx); err != nil {
-			multiErr = multierror.Append(multiErr, err)
-		}
-	}
+	defer r.listenerMux.Unlock()
+
+	r.closed = true
+	err := shutdownListeners(ctx, r.listeners)
 	r.listeners = r.listeners[:0]
-	r.listenerMux.Unlock()
-	return nberrors.FormatErrorOrNil(multiErr)
+	return err
 }
 
 func (r *Server) ListenerProtocols() []protocol.Protocol {
@@ -144,4 +134,49 @@ func (r *Server) InstanceURL() url.URL {
 // starting the relay's own listeners.
 func (r *Server) RelayAccept() func(conn listener.Conn) {
 	return r.relay.Accept
+}
+
+func newListeners(cfg ListenerConfig) []Listener {
+	listeners := []Listener{
+		&ws.Listener{
+			Address:        cfg.Address,
+			TLSConfig:      cfg.TLSConfig,
+			TrustedProxies: cfg.TrustedProxies,
+		},
+	}
+
+	tlsConfigQUIC, err := quictls.ServerQUICTLSConfig(cfg.TLSConfig)
+	if err != nil {
+		log.Warnf("Not starting QUIC listener: %v", err)
+		return listeners
+	}
+
+	return append(listeners, &quic.Listener{
+		Address:   cfg.Address,
+		TLSConfig: tlsConfigQUIC,
+	})
+}
+
+func bindListeners(listeners []Listener) ([]Listener, error) {
+	bound := make([]Listener, 0, len(listeners))
+	for _, l := range listeners {
+		if err := l.Bind(); err != nil {
+			if shutdownErr := shutdownListeners(context.Background(), bound); shutdownErr != nil {
+				log.Warnf("failed to close listeners after bind error: %v", shutdownErr)
+			}
+			return nil, fmt.Errorf("%s listener: %w", l.Protocol(), err)
+		}
+		bound = append(bound, l)
+	}
+	return bound, nil
+}
+
+func shutdownListeners(ctx context.Context, listeners []Listener) error {
+	var multiErr *multierror.Error
+	for _, l := range listeners {
+		if err := l.Shutdown(ctx); err != nil {
+			multiErr = multierror.Append(multiErr, err)
+		}
+	}
+	return nberrors.FormatErrorOrNil(multiErr)
 }
