@@ -133,7 +133,7 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 			if mw.forwardWithTunnelPeer(w, r, host, config, next) {
 				return
 			}
-			http.Error(w, "Forbidden", http.StatusForbidden)
+			denyPrivate(w)
 			return
 		}
 
@@ -228,7 +228,7 @@ func (mw *Middleware) checkIPRestrictions(w http.ResponseWriter, r *http.Request
 	clientIP := mw.resolveClientIP(r)
 	if !clientIP.IsValid() {
 		mw.logger.Debugf("IP restriction: cannot resolve client address for %q, denying", r.RemoteAddr)
-		http.Error(w, "Forbidden", http.StatusForbidden)
+		denyForbidden(w, config)
 		return false
 	}
 
@@ -263,8 +263,28 @@ func (mw *Middleware) checkIPRestrictions(w http.ResponseWriter, r *http.Request
 
 	reason := verdict.String()
 	mw.blockIPRestriction(r, reason)
-	http.Error(w, "Forbidden", http.StatusForbidden)
+	denyForbidden(w, config)
 	return false
+}
+
+// denyForbidden writes a 403, dropping the client connection when the
+// domain is private so a later retry cannot reuse it.
+func denyForbidden(w http.ResponseWriter, config DomainConfig) {
+	if config.Private {
+		denyPrivate(w)
+		return
+	}
+	http.Error(w, "Forbidden", http.StatusForbidden)
+}
+
+// denyPrivate writes a 403 and closes the connection, so a client refused
+// before joining the overlay cannot keep retrying on the same warm socket.
+// Go's HTTP/2 server turns the exact lowercase "close" token into a GOAWAY.
+func denyPrivate(w http.ResponseWriter) {
+	h := w.Header()
+	h.Set("Connection", "close")
+	h.Set("Cache-Control", "no-store")
+	http.Error(w, "Forbidden", http.StatusForbidden)
 }
 
 // resolveClientIP extracts the real client IP from CapturedData, falling back to r.RemoteAddr.
