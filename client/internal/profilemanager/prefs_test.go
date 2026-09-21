@@ -176,6 +176,21 @@ func TestPrefsFileLock_ExcludesAnotherProcess(t *testing.T) {
 	unlock, err := lockPrefsFile(path)
 	require.NoError(t, err)
 
+	// Released explicitly below to timestamp it, and again on the way out so
+	// an assertion that fires earlier cannot leave the child blocked on a lock
+	// nobody will drop.
+	held := true
+	release := func() time.Time {
+		if !held {
+			return time.Time{}
+		}
+		held = false
+		at := time.Now()
+		unlock()
+		return at
+	}
+	defer release()
+
 	child := exec.Command(os.Args[0], "-test.run=TestPrefsFileLock_ExcludesAnotherProcess")
 	child.Env = append(os.Environ(), prefsLockChildEnv+"=1", prefsLockPathEnv+"="+path)
 	require.NoError(t, child.Start())
@@ -186,15 +201,19 @@ func TestPrefsFileLock_ExcludesAnotherProcess(t *testing.T) {
 		return err == nil
 	}, 30*time.Second, 10*time.Millisecond, "the child never reached the lock")
 
-	// The child has announced itself and is now blocking on the lock. Give it
-	// room to get through in case it does not block at all.
-	time.Sleep(500 * time.Millisecond)
-	_, err = os.Stat(path + ".child-acquired")
-	require.True(t, os.IsNotExist(err),
-		"the child took the lock while this process was still holding it")
+	// The child has announced itself and should now be blocking on the lock.
+	// Watch for the whole grace period rather than sampling once at the end:
+	// a single check cannot tell a lock that blocks from a child that was
+	// simply descheduled, and would pass against a broken lock.
+	grace := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(grace) {
+		_, err := os.Stat(path + ".child-acquired")
+		require.True(t, os.IsNotExist(err),
+			"the child took the lock while this process was still holding it")
+		time.Sleep(10 * time.Millisecond)
+	}
 
-	released := time.Now()
-	unlock()
+	released := release()
 	require.NoError(t, child.Wait())
 
 	raw, err := os.ReadFile(path + ".child-acquired")

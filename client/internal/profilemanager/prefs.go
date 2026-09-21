@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"sync"
 
-	log "github.com/sirupsen/logrus"
-
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -130,16 +128,13 @@ func removePrefsFile(path string) error {
 	}
 	defer unlock()
 
-	if err := os.Remove(path); err != nil {
-		return err
-	}
-	// The lock file outlives the prefs it guarded; drop it too, or a deleted
-	// profile leaves one behind for good. Removing it while still holding the
-	// lock is safe: a waiter holds its own descriptor to the same inode.
-	if err := os.Remove(path + ".lock"); err != nil && !os.IsNotExist(err) {
-		log.Debugf("could not remove prefs lock %s: %v", path+".lock", err)
-	}
-	return nil
+	// The lock file is left behind on purpose. The lock binds to the inode,
+	// not to the name, so unlinking it while holding it lets the next caller
+	// create a fresh inode under the same name and lock that instead — two
+	// processes would then be inside the read-modify-write at once, which is
+	// exactly what the lock exists to prevent. An empty file per deleted
+	// profile costs nothing next to that.
+	return os.Remove(path)
 }
 
 func readPrefsFile(path string) (map[string]json.RawMessage, error) {
