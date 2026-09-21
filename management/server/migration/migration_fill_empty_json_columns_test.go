@@ -155,7 +155,24 @@ func TestFillEmptyJson_ServiceTargets(t *testing.T) {
 
 	rows, err := db.ConnPool.QueryContext(context.Background(), "select id from targets where custom_headers='' or custom_headers=null or middlewares='' or middlewares=null or capture_content_types='' or capture_content_types=null")
 	require.NoError(t, err)
+	rows.Next()
+	require.False(t, rows.Next())
+}
 
+func TestFillEmptyJson_AccountNetwork(t *testing.T) {
+	db := setupAccountsTestDB(t)
+
+	res, err := db.ConnPool.ExecContext(context.Background(),
+		`insert into accounts (id,network_net,network_net_v6) values('id-1','','')`)
+	require.NoError(t, err)
+	n, _ := res.RowsAffected()
+	require.Equal(t, n, int64(1))
+
+	err = migration.FillEmptyAccountNetworkJsonColumns(context.Background(), db)
+	require.NoError(t, err)
+
+	rows, err := db.ConnPool.QueryContext(context.Background(), "select id from accounts where network_net='' or network_net=null or network_net_v6='' or network_net_v6=null")
+	require.NoError(t, err)
 	rows.Next()
 	require.False(t, rows.Next())
 }

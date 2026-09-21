@@ -29,9 +29,9 @@ const (
 
 type Network struct {
 	Identifier string    `json:"id"`
-	Net        net.IPNet `gorm:"serializer:json"`
+	Net        net.IPNet `gorm:"serializer:json;dafult:'{}'"`
 	// NetV6 is the IPv6 ULA subnet for this account's overlay. Empty if not yet allocated.
-	NetV6 net.IPNet `gorm:"serializer:json"`
+	NetV6 net.IPNet `gorm:"serializer:json;default:'{}'"`
 	Dns   string
 	// Serial is an ID that increments by 1 when any change to the network happened (e.g. new peer has been added).
 	// Used to synchronize state to the client apps.

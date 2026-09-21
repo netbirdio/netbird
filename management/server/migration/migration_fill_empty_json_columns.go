@@ -174,3 +174,14 @@ func FillEmptyServiceTargetsJsonColumns(ctx context.Context, db *gorm.DB) error 
 		return res.Error
 	})
 }
+
+func FillEmptyAccountNetworkJsonColumns(ctx context.Context, db *gorm.DB) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		res := tx.Exec(`update accounts set network_net='{}' where id in (select id from accounts where network_net='' or network_net=null order by id asc)`)
+		if res.Error != nil {
+			return res.Error
+		}
+		res = tx.Exec(`update accounts set network_net_v6='{}' where id in (select id from accounts where network_net_v6='' or network_net_v6=null order by id asc)`)
+		return res.Error
+	})
+}
