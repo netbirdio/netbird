@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sync"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -45,6 +47,12 @@ func (p *Prefs) Get(namespace string, v any) (bool, error) {
 	prefsMu.Lock()
 	defer prefsMu.Unlock()
 
+	unlock, err := lockPrefsFile(p.path)
+	if err != nil {
+		return false, err
+	}
+	defer unlock()
+
 	sections, err := readPrefsFile(p.path)
 	if err != nil {
 		return false, err
@@ -72,6 +80,12 @@ func (p *Prefs) Put(namespace string, v any) error {
 	prefsMu.Lock()
 	defer prefsMu.Unlock()
 
+	unlock, err := lockPrefsFile(p.path)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
 	sections, err := readPrefsFile(p.path)
 	if err != nil {
 		return err
@@ -89,6 +103,12 @@ func (p *Prefs) Remove(namespace string) error {
 	prefsMu.Lock()
 	defer prefsMu.Unlock()
 
+	unlock, err := lockPrefsFile(p.path)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
 	sections, err := readPrefsFile(p.path)
 	if err != nil {
 		return err
@@ -103,7 +123,23 @@ func (p *Prefs) Remove(namespace string) error {
 func removePrefsFile(path string) error {
 	prefsMu.Lock()
 	defer prefsMu.Unlock()
-	return os.Remove(path)
+
+	unlock, err := lockPrefsFile(path)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	if err := os.Remove(path); err != nil {
+		return err
+	}
+	// The lock file outlives the prefs it guarded; drop it too, or a deleted
+	// profile leaves one behind for good. Removing it while still holding the
+	// lock is safe: a waiter holds its own descriptor to the same inode.
+	if err := os.Remove(path + ".lock"); err != nil && !os.IsNotExist(err) {
+		log.Debugf("could not remove prefs lock %s: %v", path+".lock", err)
+	}
+	return nil
 }
 
 func readPrefsFile(path string) (map[string]json.RawMessage, error) {
