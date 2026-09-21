@@ -255,7 +255,7 @@ func TestApplyConfigurationWithholdsRoutedNSGroup(t *testing.T) {
 			}
 
 			snap := routeSnapshot{selected: selected, installed: tc.installed}
-			require.NoError(t, server.applyConfiguration(update, snap))
+			require.NoError(t, server.applyConfiguration(update, server.gateNameServerGroups(update.NameServerGroups, snap)))
 
 			var domains []string
 			for _, d := range captured.Domains {
@@ -347,7 +347,7 @@ func TestRefreshRoutedUpstreamsPicksUpANewRoute(t *testing.T) {
 		installedRoutes:    func() route.HAMap { return installed },
 	}
 
-	require.NoError(t, server.applyConfiguration(update, server.routeSnapshot()))
+	require.NoError(t, server.applyConfiguration(update, server.gateNameServerGroups(update.NameServerGroups, server.routeSnapshot())))
 	assert.Empty(t, captured.Domains, "withheld while no route is installed")
 
 	installed = haMapWith("10.10.0.0/24")

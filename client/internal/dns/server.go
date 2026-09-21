@@ -207,6 +207,10 @@ type DefaultServer struct {
 	currentUpdate nbdns.Config
 	// haveUpdate guards currentUpdate: an empty config IS a valid config.
 	haveUpdate bool
+	// lastGateDecision is the gating verdict the current configuration was
+	// built from, so a route change that does not change it can skip the
+	// re-apply.
+	lastGateDecision map[nsGroupID]bool
 }
 
 type handlerWithStop interface {
@@ -641,7 +645,7 @@ func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) erro
 		return nil
 	}
 
-	if err := s.applyConfiguration(update, snap); err != nil {
+	if err := s.applyConfiguration(update, s.gateNameServerGroups(update.NameServerGroups, snap)); err != nil {
 		return fmt.Errorf("apply configuration: %w", err)
 	}
 
@@ -753,7 +757,11 @@ func allowFuncFrom(allowed map[nsGroupID]bool) nsGroupAllowFunc {
 	}
 }
 
-func (s *DefaultServer) applyConfiguration(update nbdns.Config, snap routeSnapshot) error {
+// applyConfiguration installs update, with allowed carrying the gating verdict
+// per nameserver group. The caller decides rather than this function, so that
+// a caller which only wants to re-apply on a gating change can compare the new
+// verdict against the old one first.
+func (s *DefaultServer) applyConfiguration(update nbdns.Config, allowed map[nsGroupID]bool) error {
 	// is the service should be Disabled, we stop the listener or fake resolver
 	if update.ServiceEnable {
 		if err := s.enableDNS(); err != nil {
@@ -767,10 +775,11 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config, snap routeSnapsh
 
 	s.currentUpdate = update
 	s.haveUpdate = true
+	s.lastGateDecision = allowed
 
-	// Decided once and used for both the chain and the host config so the two
-	// cannot disagree about a group within the same pass.
-	allow := allowFuncFrom(s.gateNameServerGroups(update.NameServerGroups, snap))
+	// One verdict for both the chain and the host config, so the two cannot
+	// disagree about a group within the same pass.
+	allow := allowFuncFrom(allowed)
 
 	localMuxUpdates, localZones, err := s.buildLocalHandlerUpdate(update.CustomZones)
 	if err != nil {
@@ -1442,7 +1451,9 @@ func (s *DefaultServer) refreshRoutedUpstreams() {
 		return
 	}
 
-	if err := s.applyConfiguration(s.currentUpdate, snap); err != nil {
+	allowed := s.gateNameServerGroups(s.currentUpdate.NameServerGroups, snap)
+
+	if err := s.applyConfiguration(s.currentUpdate, allowed); err != nil {
 		log.Errorf("failed to re-apply DNS configuration after a route change: %v", err)
 	}
 }
