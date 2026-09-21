@@ -39,7 +39,7 @@ type NetworkResource struct {
 	Address     string   `gorm:"-"`
 	GroupIDs    []string `gorm:"-"`
 	Domain      string
-	Prefix      netip.Prefix `gorm:"serializer:json"`
+	Prefix      netip.Prefix `gorm:"serializer:json;default:'{}'"`
 	Enabled     bool
 }
 

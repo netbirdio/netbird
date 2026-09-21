@@ -7,6 +7,7 @@ import (
 	"github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/server/migration"
+	net_types "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	"github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
@@ -177,6 +178,24 @@ func TestFillEmptyJson_AccountNetwork(t *testing.T) {
 	require.False(t, rows.Next())
 }
 
+func TestFillEmptyJsonField_NetworkResource(t *testing.T) {
+	db := setupNetworkResourceTestDB(t)
+
+	res, err := db.ConnPool.ExecContext(context.Background(),
+		`insert into network_resources (id,prefix) values('id-1','')`)
+	require.NoError(t, err)
+	n, _ := res.RowsAffected()
+	require.Equal(t, n, int64(1))
+
+	err = migration.FillEmptyNetworkResourceJsonColumns(context.Background(), db)
+	require.NoError(t, err)
+
+	rows, err := db.ConnPool.QueryContext(context.Background(), "select id from network_resources where prefix='' or prefix=null")
+	require.NoError(t, err)
+	rows.Next()
+	require.False(t, rows.Next())
+}
+
 func setupNsGroupsTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db := setupDatabase(t)
@@ -229,6 +248,15 @@ func setupServicesTestDB(t *testing.T) *gorm.DB {
 	err := db.AutoMigrate(&service.Service{})
 	_ = db.Migrator().DropTable(&service.Target{})
 	err = db.AutoMigrate(&service.Target{})
+	require.NoError(t, err, "Failed to auto-migrate tables")
+	return db
+}
+
+func setupNetworkResourceTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db := setupDatabase(t)
+	_ = db.Migrator().DropTable(&net_types.NetworkResource{})
+	err := db.AutoMigrate(&net_types.NetworkResource{})
 	require.NoError(t, err, "Failed to auto-migrate tables")
 	return db
 }

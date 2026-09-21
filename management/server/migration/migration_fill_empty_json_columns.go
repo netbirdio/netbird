@@ -185,3 +185,10 @@ func FillEmptyAccountNetworkJsonColumns(ctx context.Context, db *gorm.DB) error 
 		return res.Error
 	})
 }
+
+func FillEmptyNetworkResourceJsonColumns(ctx context.Context, db *gorm.DB) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		res := tx.Exec(`update network_resources set prefix='{}' where id in (select id from network_resources where prefix='' or prefix=null order by id asc)`)
+		return res.Error
+	})
+}
