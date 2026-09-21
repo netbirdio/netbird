@@ -3,6 +3,7 @@
 package nftables
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -244,7 +245,7 @@ func (r *family) queueNatRule(pair firewall.RouterPair, exprs []expr.Any, releas
 
 	if _, exists := r.rules[ruleID]; exists {
 		old, err := r.removeNatRule(pair)
-		if err != nil {
+		if err != nil && !errors.Is(err, errRuleNotQueued) {
 			// The rule this replaces may still be in the kernel. Keep tracking
 			// it and skip the new one: overwriting the entry would leave the old
 			// rule installed with nothing that can find it again, while keeping
@@ -458,7 +459,7 @@ func (r *family) queueLegacyRouteRule(pair firewall.RouterPair, exprs []expr.Any
 
 	if _, exists := r.rules[ruleID]; exists {
 		old, err := r.removeLegacyRouteRule(pair)
-		if err != nil {
+		if err != nil && !errors.Is(err, errRuleNotQueued) {
 			// Keep the old rule tracked instead of losing it, as in queueNatRule.
 			log.Errorf("replace legacy forwarding rule %s: %v", ruleID, err)
 			r.dropNetworkMatch(exprs)
@@ -484,7 +485,7 @@ func (r *family) removeLegacyRouteRule(pair firewall.RouterPair) (*nftables.Rule
 
 	rule, exists := r.rules[ruleID]
 	if !exists {
-		return nil, nil
+		return nil, errRuleNotQueued
 	}
 
 	return r.deleteLegacyRuleEntry(ruleID, rule)
@@ -493,7 +494,9 @@ func (r *family) removeLegacyRouteRule(pair firewall.RouterPair) (*nftables.Rule
 // deleteLegacyRuleEntry queues the delete of one legacy forwarding rule and
 // untracks it. The rule is returned when it was queued for deletion so the
 // caller can release its set references after the delete commits; the stale
-// handle path releases them inline because nothing is queued.
+// handle path releases them inline because nothing is queued. Coding errors
+// aside, callers only invoke this for tracked rules, so errRuleNotQueued is
+// reserved for the stale bookmark path.
 func (r *family) deleteLegacyRuleEntry(ruleID firewall.RuleID, rule *nftables.Rule) (*nftables.Rule, error) {
 	if rule.Handle == 0 {
 		log.Warnf("legacy forwarding rule %s has no handle, removing stale entry", ruleID)
@@ -501,7 +504,7 @@ func (r *family) deleteLegacyRuleEntry(ruleID firewall.RuleID, rule *nftables.Ru
 			log.Warnf("decrement set counter for stale rule %s: %v", ruleID, err)
 		}
 		delete(r.rules, ruleID)
-		return nil, nil
+		return nil, errRuleNotQueued
 	}
 
 	if err := r.conn.DelRule(rule); err != nil {
@@ -537,7 +540,7 @@ func (r *family) RemoveAllLegacyRouteRules() error {
 		}
 		found = true
 		deleted, err := r.deleteLegacyRuleEntry(k, rule)
-		if err != nil {
+		if err != nil && !errors.Is(err, errRuleNotQueued) {
 			merr = multierror.Append(merr, err)
 			continue
 		}
@@ -617,25 +620,31 @@ func (r *family) RemoveNatRule(pair firewall.RouterPair) error {
 
 	if pair.Masquerade {
 		rule, err := r.removeNatRule(pair)
-		if err != nil {
-			merr = multierror.Append(merr, fmt.Errorf("remove prerouting rule: %w", err))
-		} else if rule != nil {
+		switch {
+		case err == nil:
 			released = append(released, rule)
+		case errors.Is(err, errRuleNotQueued):
+		default:
+			merr = multierror.Append(merr, fmt.Errorf("remove prerouting rule: %w", err))
 		}
 
 		rule, err = r.removeNatRule(firewall.GetInversePair(pair))
-		if err != nil {
-			merr = multierror.Append(merr, fmt.Errorf("remove inverse prerouting rule: %w", err))
-		} else if rule != nil {
+		switch {
+		case err == nil:
 			released = append(released, rule)
+		case errors.Is(err, errRuleNotQueued):
+		default:
+			merr = multierror.Append(merr, fmt.Errorf("remove inverse prerouting rule: %w", err))
 		}
 	}
 
 	rule, err := r.removeLegacyRouteRule(pair)
-	if err != nil {
-		merr = multierror.Append(merr, fmt.Errorf("remove legacy routing rule: %w", err))
-	} else if rule != nil {
+	switch {
+	case err == nil:
 		released = append(released, rule)
+	case errors.Is(err, errRuleNotQueued):
+	default:
+		merr = multierror.Append(merr, fmt.Errorf("remove legacy routing rule: %w", err))
 	}
 
 	// The DELRULEs must commit before the sets they referenced can be
@@ -655,17 +664,23 @@ func (r *family) RemoveNatRule(pair firewall.RouterPair) error {
 	return nberrors.FormatErrorOrNil(merr)
 }
 
+// errRuleNotQueued marks a removal that had nothing to release after the
+// batch commits: the rule was absent or only a stale bookmark. Callers treat
+// it as a silent no-op rather than a failure.
+var errRuleNotQueued = errors.New("rule not queued")
+
 // removeNatRule queues the delete of the pair's prerouting marking rule and
 // untracks it. The rule is returned when it was queued for deletion so the
 // caller can release its set references after the delete commits; the stale
-// handle path releases them inline because nothing is queued.
+// handle path releases them inline because nothing is queued. errRuleNotQueued
+// is returned when there was no rule to remove.
 func (r *family) removeNatRule(pair firewall.RouterPair) (*nftables.Rule, error) {
 	ruleID := pair.GenKey(firewall.PreroutingFormat)
 
 	rule, exists := r.rules[ruleID]
 	if !exists {
 		log.Debugf("prerouting rule %s not found", ruleID)
-		return nil, nil
+		return nil, errRuleNotQueued
 	}
 
 	if rule.Handle == 0 {
@@ -674,7 +689,7 @@ func (r *family) removeNatRule(pair firewall.RouterPair) (*nftables.Rule, error)
 			log.Warnf("decrement set counter for stale rule %s: %v", ruleID, err)
 		}
 		delete(r.rules, ruleID)
-		return nil, nil
+		return nil, errRuleNotQueued
 	}
 
 	if err := r.conn.DelRule(rule); err != nil {
