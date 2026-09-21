@@ -14,6 +14,8 @@ import (
 	gstatus "google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/internal/getent"
+	"github.com/netbirdio/netbird/client/internal/ipcauth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/util"
@@ -138,7 +140,17 @@ func listProfilesFunc(cmd *cobra.Command, _ []string) error {
 	}
 	fmt.Fprintln(tw, strings.Join(header, "\t"))
 
-	for _, profile := range resp.Profiles {
+	err = printProfiles(tw, header, resp.Profiles)
+	if err != nil {
+		return fmt.Errorf("print owners: %w", err)
+	}
+
+	return tw.Flush()
+}
+
+func printProfiles(tw *tabwriter.Writer, header []string, profiles []*proto.Profile) error {
+	ownerCache := map[string]string{}
+	for _, profile := range profiles {
 		marker := ""
 		if profile.IsActive {
 			// We prefer ASCII
@@ -156,12 +168,31 @@ func listProfilesFunc(cmd *cobra.Command, _ []string) error {
 			owner := "unowned"
 			if len(profile.Owners) > 0 {
 				owner = profilemanager.StripCtrlChars(profile.Owners[0])
+				if _, exists := ownerCache[owner]; !exists {
+					ownerUsername, err := resolveOwnerUsername(owner)
+					if err != nil {
+						return err
+					}
+					ownerCache[owner] = ownerUsername
+				}
 			}
-			row = append(row, owner)
+			row = append(row, ownerCache[owner])
 		}
 		fmt.Fprintln(tw, strings.Join(row, "\t"))
 	}
-	return tw.Flush()
+	return nil
+}
+
+func resolveOwnerUsername(owner string) (string, error) {
+	principal, ok := ipcauth.ParsePrincipal(owner)
+	if !ok {
+		return "", fmt.Errorf("parsing owner field failed: %s", owner)
+	}
+	user, err := getent.LookupUserID(principal.Value)
+	if err != nil {
+		return "", err
+	}
+	return user.Username, nil
 }
 
 func claimProfileFunc(cmd *cobra.Command, args []string) error {
