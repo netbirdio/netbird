@@ -205,8 +205,7 @@ type DefaultServer struct {
 	// currentUpdate is the last configuration received from management, kept
 	// so a gating change can be re-applied without waiting for the next sync.
 	currentUpdate nbdns.Config
-	// haveUpdate guards currentUpdate: an empty config is a valid update, so
-	// the zero value cannot be used to mean "nothing received yet".
+	// haveUpdate guards currentUpdate: an empty config IS a valid config.
 	haveUpdate bool
 }
 
