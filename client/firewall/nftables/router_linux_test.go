@@ -1106,6 +1106,50 @@ func TestRouter_AddNatRule_WithStaleEntry(t *testing.T) {
 	assert.Equal(t, 1, found, "NAT rule should exist in kernel")
 }
 
+// TestNftablesManager_NatRuleWithSetDestinationRemovesSet verifies that
+// removing a masqueraded NAT rule with a named-set destination deletes the
+// set together with the rule. The set must be released only after the
+// referencing DELRULEs have committed; deleting it while they are still
+// queued is rejected by the kernel with EBUSY and strands the set.
+func TestNftablesManager_NatRuleWithSetDestinationRemovesSet(t *testing.T) {
+	if check() != NFTABLES {
+		t.Skip("nftables not supported on this system")
+	}
+
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
+	require.NoError(t, err, "create manager")
+	require.NoError(t, manager.Init(nil), "init manager")
+	t.Cleanup(func() {
+		require.NoError(t, manager.Close(nil), "reset manager state")
+	})
+
+	rtr := manager.family4
+	destSet := firewall.NewPrefixSet([]netip.Prefix{netip.MustParsePrefix("100.100.200.0/24")})
+	pair := firewall.RouterPair{
+		ID:          "natsetremoval",
+		Source:      firewall.Network{Prefix: netip.MustParsePrefix("100.100.100.1/32")},
+		Destination: firewall.Network{Set: destSet},
+		Masquerade:  true,
+	}
+
+	require.NoError(t, rtr.AddNatRule(pair), "add masqueraded NAT rule with set destination")
+
+	setNames := func() []string {
+		l, err := rtr.conn.GetSets(rtr.workTable)
+		require.NoError(t, err, "list sets")
+		names := make([]string, 0, len(l))
+		for _, s := range l {
+			names = append(names, s.Name)
+		}
+		return names
+	}
+
+	require.Contains(t, setNames(), destSet.HashedName(), "named destination set must exist after add")
+
+	require.NoError(t, rtr.RemoveNatRule(pair), "remove NAT rule must succeed")
+	assert.NotContains(t, setNames(), destSet.HashedName(), "destination set must be removed with the rule")
+}
+
 func TestCalculateLastIP(t *testing.T) {
 	tests := []struct {
 		prefix string
