@@ -475,6 +475,14 @@ func (s *SSHClient) requestJWTToken(cfg *profilemanager.Config, cfgPath string) 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
+	// Hand the cancel to Close. The browser round-trip runs before a socket
+	// exists, so without this a session closed while the user is still in the
+	// browser keeps waiting here — for up to the five minutes above — and
+	// Close returns to a caller whose connect attempt is still alive.
+	s.mu.Lock()
+	s.dialCancel = cancel
+	s.mu.Unlock()
+
 	flow, err := auth.NewOAuthFlow(ctx, cfg, false, true, profileLoginHint(cfgPath))
 	if err != nil {
 		return "", fmt.Errorf("create oauth flow: %w", err)
