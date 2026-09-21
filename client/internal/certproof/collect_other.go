@@ -9,11 +9,12 @@ import (
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
-// CollectProofs answers the certificate challenges in checks from the platform store.
-// Only macOS and Windows keep per-user certificates out of reach of a privileged
-// daemon, so every other platform reads its store in the daemon itself.
-func CollectProofs(ctx context.Context, checks []*proto.Checks, peerKey []byte) []certposture.Proof {
-	return Collect(ctx, DefaultStore(), checks, peerKey)
+// CollectProofs answers the certificate challenges in checks from the platform store,
+// joined by the PKCS#11 token that token names when it names one. Only macOS and
+// Windows keep per-user certificates out of reach of a privileged daemon, so every
+// other platform reads its store in the daemon itself.
+func CollectProofs(ctx context.Context, checks []*proto.Checks, peerKey []byte, token PKCS11Config) []certposture.Proof {
+	return Collect(ctx, storeWithToken(token), checks, peerKey)
 }
 
 // helperStore is the store the helper reads. Nothing launches a helper on these

@@ -18,7 +18,7 @@ to one WireGuard peer key and cannot be replayed by another peer.
 | Windows | signed-in user's `CurrentUser\MY` | a helper launched with that session's token |
 | Linux and others | PEM directory, `NB_CERT_STORE_DIR` or `/etc/netbird/certs` | the daemon, directly |
 | Linux | a `TSS2 PRIVATE KEY` file in that directory, signed by the TPM | the daemon, through `/dev/tpmrm0` |
-| Linux | a PKCS#11 token named by `NB_CERT_PKCS11_URI`, such as tpm2-pkcs11 | the daemon, through the token's module, in builds with the `pkcs11` tag |
+| Linux | a PKCS#11 token, tpm2-pkcs11 for one, enabled by `CertPKCS11PIN` in the profile config | the daemon, through the token's module, in builds with the `pkcs11` tag |
 
 macOS and Windows both keep per-user certificates out of reach of a privileged daemon,
 and both are handled the same way: the daemon reads the machine store itself and
@@ -147,18 +147,28 @@ NB_TPM_DEVICE=/tmp/swtpm.sock go test ./client/internal/certproof/ -run TestColl
 
 Distributions that follow Red Hat's guidance reach the TPM through tpm2-pkcs11, a PKCS#11
 module whose token holds both the key and, after `tpm2_ptool addcert`, the certificate.
-The store reads that token when `NB_CERT_PKCS11_URI` names it with an RFC 7512 URI:
+The store reads that token when the profile config, `/etc/netbird/config.json` by default,
+carries the token's user PIN:
 
+```json
+"CertPKCS11PIN": "1234"
 ```
-NB_CERT_PKCS11_URI='pkcs11:token=netbird?module-path=/usr/lib/x86_64-linux-gnu/libtpm2_pkcs11.so&pin-source=file:/etc/netbird/pkcs11.pin'
+
+That alone opens the first token the p11-kit proxy exposes, which is tpm2-pkcs11 on a
+stock setup that has registered it. `CertPKCS11URI`, an RFC 7512 URI, narrows that down
+on a host with several tokens or without p11-kit:
+
+```json
+"CertPKCS11URI": "pkcs11:token=netbird?module-path=/usr/lib/x86_64-linux-gnu/libtpm2_pkcs11.so"
 ```
 
 `token` selects the token by label, or the first token present when absent. `module-path`
 names the library to load; `module-name=tpm2_pkcs11` resolves to `libtpm2_pkcs11.so` on
 the loader's search path, and with neither the p11-kit proxy is loaded, which exposes every
-module the system has registered. `pin-source` points at a file holding the user PIN and
-`pin-value` carries it inline; without either no login happens, and tpm2-pkcs11 then shows
-no private keys at all. Every other attribute is ignored.
+module the system has registered. The URI may carry the PIN itself, as `pin-value` inline
+or `pin-source` naming a file, and `CertPKCS11PIN` takes precedence over both. Without any
+PIN no login happens, and tpm2-pkcs11 then shows no private keys at all. Every other
+attribute is ignored.
 
 Certificates and private keys are paired by `CKA_ID`, which is what `tpm2_ptool addcert`
 and `pkcs11-tool` set. Chains are completed from the other certificates on the token. Each
@@ -166,15 +176,17 @@ operation opens a session, logs in, works, logs out and closes, so no token hand
 outlives a call, and the PEM directory keeps working when the token does not: the two are
 queried together and a failing token is logged rather than hiding file certificates.
 
-Two consequences of the PIN are worth knowing. It is a secret on disk, so the PIN file
-should be root-only. And a wrong PIN counts against the TPM's dictionary-attack lockout,
-which is shared with everything else on the machine that uses the TPM.
+Two consequences of the PIN are worth knowing. It is a secret on disk, which the profile
+config already is: it holds the WireGuard private key and is written readable by root
+alone, and the debug bundle's config dump leaves `CertPKCS11PIN` out. And a wrong PIN
+counts against the TPM's dictionary-attack lockout, which is shared with everything else
+on the machine that uses the TPM.
 
 The module is loaded at runtime without cgo, through `purego`, which means the binary is
 dynamically linked against libc. The store is therefore compiled in only with `-tags pkcs11`
 on linux/amd64 and linux/arm64: the deb and rpm packages are built that way, since they
 target glibc distributions, while the release tarballs and the Alpine-based container
-images keep the fully static build. Without the tag, setting `NB_CERT_PKCS11_URI` logs that
+images keep the fully static build. Without the tag, setting `CertPKCS11PIN` logs that
 the build lacks the support.
 
 To exercise the path without hardware, initialise a SoftHSM token and run the end-to-end

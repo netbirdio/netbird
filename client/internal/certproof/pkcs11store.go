@@ -14,22 +14,32 @@ import (
 	"github.com/netbirdio/netbird/client/internal/pkcs11"
 )
 
-const PKCS11URIEnv = "NB_CERT_PKCS11_URI"
+// PKCS11Config names the token whose certificates the store yields. URI is an RFC 7512
+// PKCS#11 URI, or empty for the first token the p11-kit proxy exposes. PIN is the user
+// PIN, and takes precedence over a pin-value or pin-source the URI carries.
+type PKCS11Config struct {
+	URI string
+	PIN string
+}
 
 // PKCS11Store yields the identities of a PKCS#11 token, which is how tpm2-pkcs11 exposes
 // TPM-held keys on Linux. Certificates and keys are paired by CKA_ID, the convention
 // tpm2_ptool addcert and pkcs11-tool follow, and every signature happens on the token.
 type PKCS11Store struct {
 	uri *pkcs11.URI
+	pin string
 }
 
-// NewPKCS11Store reads the token, module and PIN source from an RFC 7512 PKCS#11 URI.
-func NewPKCS11Store(uri string) (*PKCS11Store, error) {
-	parsed, err := pkcs11.ParseURI(uri)
+// NewPKCS11Store parses cfg.URI, standing in the bare defaults when it is empty.
+func NewPKCS11Store(cfg PKCS11Config) (*PKCS11Store, error) {
+	if cfg.URI == "" {
+		return &PKCS11Store{uri: &pkcs11.URI{}, pin: cfg.PIN}, nil
+	}
+	parsed, err := pkcs11.ParseURI(cfg.URI)
 	if err != nil {
 		return nil, err
 	}
-	return &PKCS11Store{uri: parsed}, nil
+	return &PKCS11Store{uri: parsed, pin: cfg.PIN}, nil
 }
 
 func (s *PKCS11Store) Candidates(_ context.Context) ([]Candidate, error) {
@@ -74,11 +84,18 @@ func (s *PKCS11Store) open() (*pkcs11.Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	pin, err := s.uri.PIN()
+	pin, err := s.userPIN()
 	if err != nil {
 		return nil, err
 	}
 	return module.OpenSession(s.uri.Token, pin)
+}
+
+func (s *PKCS11Store) userPIN() ([]byte, error) {
+	if s.pin != "" {
+		return []byte(s.pin), nil
+	}
+	return s.uri.PIN()
 }
 
 type tokenCertificate struct {

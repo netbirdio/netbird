@@ -56,7 +56,7 @@ func TestCollect_PKCS11TokenEndToEnd(t *testing.T) {
 	if uri == "" {
 		t.Skipf("set %s to a PKCS#11 URI with a PIN to run", testPKCS11URIEnv)
 	}
-	store, err := NewPKCS11Store(uri)
+	store, err := NewPKCS11Store(PKCS11Config{URI: uri})
 	require.NoError(t, err)
 	if _, err := pkcs11.Load(store.uri.Module()); errors.Is(err, pkcs11.ErrUnsupported) {
 		t.Skip(err)
@@ -186,4 +186,31 @@ func keyAttributes(t *testing.T, key crypto.Signer) []pkcs11.Attribute {
 
 func attr(typ uint, value []byte) pkcs11.Attribute {
 	return pkcs11.Attribute{Type: typ, Value: value}
+}
+
+func TestNewPKCS11Store_PIN(t *testing.T) {
+	tests := []struct {
+		name       string
+		cfg        PKCS11Config
+		wantPIN    []byte
+		wantModule string
+	}{
+		{"pin alone opens the first p11-kit token", PKCS11Config{PIN: "1234"}, []byte("1234"), pkcs11.DefaultModule},
+		{"pin field wins over pin-value", PKCS11Config{URI: "pkcs11:?module-path=/lib/x.so&pin-value=0000", PIN: "1234"}, []byte("1234"), "/lib/x.so"},
+		{"uri pin-value stands in for a missing field", PKCS11Config{URI: "pkcs11:?pin-value=0000"}, []byte("0000"), pkcs11.DefaultModule},
+		{"no pin at all means no login", PKCS11Config{URI: "pkcs11:token=netbird"}, nil, pkcs11.DefaultModule},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store, err := NewPKCS11Store(tt.cfg)
+			require.NoError(t, err)
+			pin, err := store.userPIN()
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantPIN, pin, "PIN, nil meaning no login")
+			assert.Equal(t, tt.wantModule, store.uri.Module(), "module to load")
+		})
+	}
+
+	_, err := NewPKCS11Store(PKCS11Config{URI: "not-a-pkcs11-uri", PIN: "1234"})
+	assert.Error(t, err, "a malformed URI must not be silently replaced by the defaults")
 }

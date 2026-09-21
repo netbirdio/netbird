@@ -186,6 +186,15 @@ type Config struct {
 
 	ClientCertKeyPair *tls.Certificate `json:"-"`
 
+	// CertPKCS11PIN is the user PIN of the PKCS#11 token, tpm2-pkcs11 for one, whose
+	// certificates answer certificate posture checks on Linux. Setting it enables the
+	// token store; see client/internal/certproof/README.md.
+	CertPKCS11PIN string
+
+	// CertPKCS11URI is the RFC 7512 URI selecting that token and its module. Empty means
+	// the first token the p11-kit proxy exposes.
+	CertPKCS11URI string
+
 	// LazyConnection is the MDM-managed lazy-connection override ("on"/"off"/"").
 	// Runtime-only: re-derived from MDM policy on each load, never persisted.
 	LazyConnection string `json:"-"`

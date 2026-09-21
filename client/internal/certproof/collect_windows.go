@@ -25,7 +25,7 @@ const helperTimeout = 30 * time.Second
 // Intune enrol device certificates, and reaches the signed-in user's store by launching
 // a helper with that session's token. A machine at the sign-in screen therefore proves
 // device certificates alone.
-func CollectProofs(ctx context.Context, checks []*proto.Checks, peerKey []byte) []certposture.Proof {
+func CollectProofs(ctx context.Context, checks []*proto.Checks, peerKey []byte, _ PKCS11Config) []certposture.Proof {
 	challenges := certificateChallenges(checks)
 	if len(challenges) == 0 {
 		logNoChallenges(checks)

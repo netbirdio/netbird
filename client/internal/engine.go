@@ -171,6 +171,8 @@ type EngineConfig struct {
 
 	MTU uint16
 
+	CertPKCS11 certproof.PKCS11Config
+
 	// for debug bundle generation
 	ProfileConfig *profilemanager.Config
 
@@ -1296,7 +1298,7 @@ func (e *Engine) applyInfoFlags(info *system.Info) {
 // certificates reachable on this device, signing each challenge nonce for our peer key.
 func (e *Engine) attachCertificateProofs(info *system.Info, checks []*mgmProto.Checks) {
 	peerKey := e.config.WgPrivateKey.PublicKey()
-	info.CertificateProofs = certproof.CollectProofs(e.ctx, checks, peerKey[:])
+	info.CertificateProofs = certproof.CollectProofs(e.ctx, checks, peerKey[:], e.config.CertPKCS11)
 }
 
 func (e *Engine) currentSystemInfo(ctx context.Context) *system.Info {
