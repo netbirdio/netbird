@@ -192,3 +192,10 @@ func FillEmptyNetworkResourceJsonColumns(ctx context.Context, db *gorm.DB) error
 		return res.Error
 	})
 }
+
+func FillEmptyNetworkRouterJsonColumns(ctx context.Context, db *gorm.DB) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		res := tx.Exec(`update network_routers set peer_groups='[]' where id in (select id from network_routers where peer_groups='' or peer_groups=null order by id asc)`)
+		return res.Error
+	})
+}

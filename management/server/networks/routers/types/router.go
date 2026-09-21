@@ -15,7 +15,7 @@ type NetworkRouter struct {
 	AccountID  string `gorm:"index"`
 	PublicID   string `json:"-"`
 	Peer       string
-	PeerGroups []string `gorm:"serializer:json"`
+	PeerGroups []string `gorm:"serializer:json;default:'[]'"`
 	Masquerade bool
 	Metric     int
 	Enabled    bool

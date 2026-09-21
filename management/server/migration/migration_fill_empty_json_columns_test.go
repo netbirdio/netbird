@@ -8,6 +8,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/server/migration"
 	net_types "github.com/netbirdio/netbird/management/server/networks/resources/types"
+	router_types "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	"github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
@@ -196,6 +197,24 @@ func TestFillEmptyJsonField_NetworkResource(t *testing.T) {
 	require.False(t, rows.Next())
 }
 
+func TestFillEmptyJsonField_NetworkRouter(t *testing.T) {
+	db := setupNetworkRouterTestDB(t)
+
+	res, err := db.ConnPool.ExecContext(context.Background(),
+		`insert into network_routers (id,peer_groups) values('id-1','')`)
+	require.NoError(t, err)
+	n, _ := res.RowsAffected()
+	require.Equal(t, n, int64(1))
+
+	err = migration.FillEmptyNetworkRouterJsonColumns(context.Background(), db)
+	require.NoError(t, err)
+
+	rows, err := db.ConnPool.QueryContext(context.Background(), "select id from network_routers where peer_groups='' or peer_groups=null")
+	require.NoError(t, err)
+	rows.Next()
+	require.False(t, rows.Next())
+}
+
 func setupNsGroupsTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db := setupDatabase(t)
@@ -257,6 +276,15 @@ func setupNetworkResourceTestDB(t *testing.T) *gorm.DB {
 	db := setupDatabase(t)
 	_ = db.Migrator().DropTable(&net_types.NetworkResource{})
 	err := db.AutoMigrate(&net_types.NetworkResource{})
+	require.NoError(t, err, "Failed to auto-migrate tables")
+	return db
+}
+
+func setupNetworkRouterTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db := setupDatabase(t)
+	_ = db.Migrator().DropTable(&router_types.NetworkRouter{})
+	err := db.AutoMigrate(&router_types.NetworkRouter{})
 	require.NoError(t, err, "Failed to auto-migrate tables")
 	return db
 }
