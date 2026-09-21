@@ -1851,9 +1851,13 @@
         "message": "Waiting for authorization…",
         "description": "Replaces the help text under a guarded SSH setting while the authorization prompt is open, which can take a few seconds to appear. Keep the trailing ellipsis."
     },
-    "profile.ownedByAnother": {
-        "message": "Another user's profile",
-        "description": "Shown in place of the active profile's name when it belongs to a different user account."
+    "profile.ownedByAnother.name": {
+        "message": "Another user",
+        "description": "Stands in for the active profile's name in the profile selector when that profile belongs to a different user account, whose name the daemon does not disclose. Keep it short: it sits in a narrow header button that truncates longer text."
+    },
+    "profile.ownedByAnother.hint": {
+        "message": "The active profile belongs to another user. Only its owner can change or disconnect it.",
+        "description": "Sentence explaining why the active profile cannot be acted on: it belongs to a different user account. Shown as a tooltip on the profile selector and as a notice above the profile list."
     },
     "error.privilege_required": {
         "message": "This action requires elevated privileges.",

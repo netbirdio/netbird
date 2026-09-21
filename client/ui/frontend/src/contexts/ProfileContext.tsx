@@ -18,12 +18,17 @@ const EVENT_PROFILE_CHANGED = "netbird:profile:changed";
 
 type ProfileContextValue = {
     username: string;
-    // activeProfile is the display NAME of the active profile (for rendering
-    // and the "default" check). activeProfileId is its stable on-disk ID, used
-    // as the handle for daemon requests and for active-profile comparisons,
-    // since display names can collide.
+    // activeProfile is the display NAME of the active profile, empty when the
+    // daemon withholds it (see activeProfileForeign). activeProfileId is its
+    // stable on-disk ID, used as the handle for daemon requests and for
+    // active-profile comparisons, since display names can collide.
     activeProfile: string;
     activeProfileId: string;
+    // activeProfileForeign is set when the daemon is on a profile this user
+    // cannot address, so nothing in profiles is marked active and none of the
+    // profile actions will be allowed on it. Views render their own wording
+    // for it rather than a name.
+    activeProfileForeign: boolean;
     profiles: Profile[];
     loaded: boolean;
     refresh: () => Promise<void>;
@@ -49,6 +54,7 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
     const [username, setUsername] = useState("");
     const [activeProfile, setActiveProfile] = useState("");
     const [activeProfileId, setActiveProfileId] = useState("");
+    const [activeProfileForeign, setActiveProfileForeign] = useState(false);
     const [profiles, setProfiles] = useState<Profile[]>([]);
     const [loaded, setLoaded] = useState(false);
     const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -65,15 +71,13 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
                 ProfilesSvc.List(u),
             ]);
             setUsername(u);
-            // An empty name means the daemon would not disclose it: the active
-            // profile belongs to another user. Falling back to "default" would
-            // name the wrong profile, so say what it is instead.
-            const activeName = active.profileName
-                ? active.profileName
-                : active.id
-                  ? i18next.t("profile.ownedByAnother")
-                  : "default";
-            setActiveProfile(activeName);
+            // The listing holds every profile this user may address, so an
+            // active profile missing from it is one they cannot act on at all:
+            // the daemon withholds its name too. Falling back to "default"
+            // would name the wrong profile, and a user who owns a profile of
+            // their own called "default" could not tell the two apart.
+            setActiveProfileForeign(!!active.id && !list.some((p) => p.id === active.id));
+            setActiveProfile(active.profileName);
             setActiveProfileId(active.id || "default");
             setProfiles(list);
             setLoaded(true);
@@ -169,6 +173,7 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
             username,
             activeProfile,
             activeProfileId,
+            activeProfileForeign,
             profiles,
             loaded,
             refresh,
@@ -183,6 +188,7 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
             username,
             activeProfile,
             activeProfileId,
+            activeProfileForeign,
             profiles,
             loaded,
             refresh,

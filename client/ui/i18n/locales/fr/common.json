@@ -1390,8 +1390,11 @@
     "settings.ssh.privilege.authorizePending": {
         "message": "En attente de l’autorisation…"
     },
-    "profile.ownedByAnother": {
-        "message": "Profil d’un autre utilisateur"
+    "profile.ownedByAnother.name": {
+        "message": "Autre utilisateur"
+    },
+    "profile.ownedByAnother.hint": {
+        "message": "Le profil actif appartient à un autre utilisateur. Seul son propriétaire peut le modifier ou le déconnecter."
     },
     "error.privilege_required": {
         "message": "Cette action nécessite des privilèges élevés."

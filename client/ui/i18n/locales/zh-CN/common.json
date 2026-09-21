@@ -1390,8 +1390,11 @@
     "settings.ssh.privilege.authorizePending": {
         "message": "正在等待授权…"
     },
-    "profile.ownedByAnother": {
-        "message": "其他用户的配置文件"
+    "profile.ownedByAnother.name": {
+        "message": "其他用户"
+    },
+    "profile.ownedByAnother.hint": {
+        "message": "活动配置文件属于其他用户。只有其所有者才能更改或断开连接。"
     },
     "error.privilege_required": {
         "message": "此操作需要提升的权限。"

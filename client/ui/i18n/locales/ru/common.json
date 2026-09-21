@@ -1390,8 +1390,11 @@
     "settings.ssh.privilege.authorizePending": {
         "message": "Ожидание авторизации…"
     },
-    "profile.ownedByAnother": {
-        "message": "Профиль другого пользователя"
+    "profile.ownedByAnother.name": {
+        "message": "Другой пользователь"
+    },
+    "profile.ownedByAnother.hint": {
+        "message": "Активный профиль принадлежит другому пользователю. Изменить его или отключить может только владелец."
     },
     "error.privilege_required": {
         "message": "Для этого действия нужны повышенные права."
