@@ -1826,6 +1826,42 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 	}
 	require.NoError(t, store.SaveAccount(context.Background(), account2))
 
+	account3 := newAccountWithId(context.Background(), "account3", "account3Owner", "", "owner@example.com", "", false)
+	account3.Users["pending-user"] = &types.User{
+		Id:              "pending-user",
+		AccountID:       account3.Id,
+		Role:            types.UserRoleUser,
+		Blocked:         true,
+		PendingApproval: true,
+	}
+	require.NoError(t, store.SaveAccount(context.Background(), account3))
+
+	// The owner has no address to name, so the refusal falls back to the generic one.
+	account4 := newAccountWithId(context.Background(), "account4", "account4Owner", "", "", "", false)
+	account4.Users["pending-user-without-owner-email"] = &types.User{
+		Id:              "pending-user-without-owner-email",
+		AccountID:       account4.Id,
+		Role:            types.UserRoleUser,
+		Blocked:         true,
+		PendingApproval: true,
+	}
+	require.NoError(t, store.SaveAccount(context.Background(), account4))
+
+	// No user holds the owner role, so the owner lookup itself fails.
+	account5 := newAccountWithId(context.Background(), "account5", "account5Admin", "", "", "", false)
+	account5.Users["account5Admin"].Role = types.UserRoleAdmin
+	account5.Users["pending-user-without-owner"] = &types.User{
+		Id:              "pending-user-without-owner",
+		AccountID:       account5.Id,
+		Role:            types.UserRoleUser,
+		Blocked:         true,
+		PendingApproval: true,
+	}
+	require.NoError(t, store.SaveAccount(context.Background(), account5))
+
+	account6 := newAccountWithId(context.Background(), "account6", "account6Owner", "", "stranger@example.com", "", false)
+	require.NoError(t, store.SaveAccount(context.Background(), account6))
+
 	permissionsManager := permissions.NewManager(store)
 	am := DefaultAccountManager{
 		Store:              store,
@@ -1853,6 +1889,34 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 			name:        "service user",
 			userAuth:    auth.UserAuth{AccountId: account1.Id, UserId: "service-user"},
 			expectedErr: status.NewPermissionDeniedError(),
+		},
+		{
+			name:        "pending approval names the owner",
+			userAuth:    auth.UserAuth{AccountId: account3.Id, UserId: "pending-user"},
+			expectedErr: status.NewUserPendingApprovalByOwnerError("ow****r@example.com"),
+		},
+		{
+			name:        "pending approval without an owner address",
+			userAuth:    auth.UserAuth{AccountId: account4.Id, UserId: "pending-user-without-owner-email"},
+			expectedErr: status.NewUserPendingApprovalError(),
+		},
+		{
+			name:        "pending approval without an owner",
+			userAuth:    auth.UserAuth{AccountId: account5.Id, UserId: "pending-user-without-owner"},
+			expectedErr: status.NewUserPendingApprovalError(),
+		},
+		{
+			// The account claim points at an account the caller is not in. The
+			// owner named has to be the one of the account holding the caller's
+			// own record, never the one the claim asks for.
+			name:        "pending approval ignores a mismatched account claim",
+			userAuth:    auth.UserAuth{AccountId: account6.Id, UserId: "pending-user"},
+			expectedErr: status.NewUserPendingApprovalByOwnerError("ow****r@example.com"),
+		},
+		{
+			name:        "blocked user answers before the account claim is validated",
+			userAuth:    auth.UserAuth{AccountId: account6.Id, UserId: "blocked-user"},
+			expectedErr: status.NewUserBlockedError(),
 		},
 		{
 			name:     "owner user",
