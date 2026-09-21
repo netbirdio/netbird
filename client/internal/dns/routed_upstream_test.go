@@ -368,13 +368,39 @@ func TestRefreshRoutedUpstreamsPicksUpANewRoute(t *testing.T) {
 // OnInstalledRoutesChanged is called from the route manager while it holds its
 // own lock, so it must never block and never re-apply inline.
 func TestOnInstalledRoutesChangedNeverBlocks(t *testing.T) {
-	server := &DefaultServer{routeRefresh: make(chan struct{}, 1)}
+	server := &DefaultServer{
+		routeRefresh:       make(chan struct{}, 1),
+		routedUpstreamGate: newRoutedUpstreamGate(gatingAlways),
+	}
 
 	for i := 0; i < 5; i++ {
 		server.OnInstalledRoutesChanged()
 	}
 
 	assert.Len(t, server.routeRefresh, 1, "repeated signals coalesce")
+}
+
+// A re-apply rebuilds the whole handler chain, so the default mode must not
+// pay for it on every route change.
+func TestOnInstalledRoutesChangedIsInertWhenGatingIsOff(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		gate *routedUpstreamGate
+	}{
+		{name: "off", gate: newRoutedUpstreamGate(gatingOff)},
+		{name: "no gate at all", gate: nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := &DefaultServer{
+				routeRefresh:       make(chan struct{}, 1),
+				routedUpstreamGate: tc.gate,
+			}
+
+			server.OnInstalledRoutesChanged()
+
+			assert.Empty(t, server.routeRefresh, "no refresh should be signalled")
+		})
+	}
 }
 
 func TestRoutedUpstreamGatingString(t *testing.T) {

@@ -367,6 +367,17 @@ func (s *DefaultServer) SetRouteSources(selected, active, installed func() route
 // re-decided. Never blocks and never re-applies inline: callers hold the route
 // manager's lock, which this server's own paths take after s.mux.
 func (s *DefaultServer) OnInstalledRoutesChanged() {
+	// Nothing downstream can change while gating is off, and a re-apply is not
+	// free: it rebuilds the whole handler chain. Bail out before signalling so
+	// the default path stays exactly as it was before gating existed.
+	//
+	// Read without s.mux on purpose: the gate and its mode are set once in the
+	// constructor and never reassigned, and this must not block. Only the
+	// gate's latch is mutable, and it is not touched here.
+	if s.routedUpstreamGate == nil || s.routedUpstreamGate.mode == gatingOff {
+		return
+	}
+
 	select {
 	case s.routeRefresh <- struct{}{}:
 	default:
