@@ -190,10 +190,11 @@ func NewTray(app *application.App, window *application.WebviewWindow, svc TraySe
 	}
 	t.menu = t.buildMenu()
 	t.tray.SetMenu(t.menu)
-	// macOS/Linux give click→menu natively, so bindTrayClick is a no-op there
-	// (binding OnClick→OpenMenu on macOS would freeze the tray); Windows has no
-	// native left-click handler so it wires one to open the main window, leaving
-	// the menu on right-click (see tray_click_*.go). On Linux AttachWindow is
+	// macOS wires OnClick→OpenMenu (tray_click_darwin.go) — native left-click
+	// via the Wails event-monitor stopped working on macOS 26+. Linux opens the
+	// main window on left-click (tray_click_linux.go). Windows has no native
+	// left-click handler so it wires one to open the main window, leaving the
+	// menu on right-click (tray_click_windows.go). On Linux AttachWindow is
 	// skipped — with applySmartDefaults it would pop the window alongside the
 	// menu (e.g. GNOME Shell AppIndicator).
 	bindTrayClick(t)
