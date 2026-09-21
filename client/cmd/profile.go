@@ -162,21 +162,25 @@ func printProfiles(tw *tabwriter.Writer, header []string, profiles []*proto.Prof
 			row = append(row, profilemanager.ID(profile.Id).ShortID())
 		}
 		row = append(row, profilemanager.StripCtrlChars(profile.Name), marker)
-		if profileListShowOwner {
-			// An unowned profile is reachable by a privileged caller alone, so
-			// say so rather than leaving the column blank.
-			owner := "unowned"
-			if len(profile.Owners) > 0 {
-				owner = profilemanager.StripCtrlChars(profile.Owners[0])
-				if _, exists := ownerCache[owner]; !exists {
-					ownerUsername, err := resolveOwnerUsername(owner)
-					if err != nil {
-						return err
-					}
-					ownerCache[owner] = ownerUsername
+		if !profileListShowOwner {
+			fmt.Fprintln(tw, strings.Join(row, "\t"))
+			continue
+		}
+
+		var owner string
+		if len(profile.Owners) > 0 {
+			owner = profilemanager.StripCtrlChars(profile.Owners[0])
+			if _, exists := ownerCache[owner]; !exists {
+				ownerUsername, err := resolveOwnerUsername(owner)
+				if err != nil {
+					// Lookup fail and we fallback to principal: uid:<uid> or sid:<sid>
+					ownerUsername = owner
 				}
+				ownerCache[owner] = ownerUsername
 			}
-			row = append(row, ownerCache[owner])
+			row = append(row, profilemanager.StripCtrlChars(ownerCache[owner]))
+		} else {
+			row = append(row, "unowned")
 		}
 		fmt.Fprintln(tw, strings.Join(row, "\t"))
 	}
