@@ -87,6 +87,7 @@ type Middleware struct {
 	sessionValidator SessionValidator
 	geo              restrict.GeoResolver
 	tunnelCache      *tunnelValidationCache
+	credentials      *credentialLimiter
 }
 
 // NewMiddleware creates a new authentication middleware. The sessionValidator is
@@ -101,6 +102,7 @@ func NewMiddleware(logger *log.Logger, sessionValidator SessionValidator, geo re
 		sessionValidator: sessionValidator,
 		geo:              geo,
 		tunnelCache:      newTunnelValidationCache(),
+		credentials:      newCredentialLimiter(),
 	}
 }
 
@@ -543,13 +545,9 @@ func (mw *Middleware) authenticateWithSchemes(w http.ResponseWriter, r *http.Req
 	var attemptedMethod string
 
 	for _, scheme := range config.Schemes {
-		token, promptData, err := scheme.Authenticate(r)
+		token, promptData, err := mw.authenticateScheme(r, config, scheme)
 		if err != nil {
-			mw.logger.WithField("scheme", scheme.Type().String()).Warnf("authentication infrastructure error: %v", err)
-			if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
-				cd.SetOrigin(proxy.OriginAuth)
-			}
-			http.Error(w, "authentication service unavailable", http.StatusBadGateway)
+			mw.writeAuthenticationError(w, r, scheme.Type(), err)
 			return
 		}
 
@@ -650,9 +648,9 @@ func setSessionCookie(w http.ResponseWriter, token string, expiration time.Durat
 func wasCredentialSubmitted(r *http.Request, method auth.Method) bool {
 	switch method {
 	case auth.MethodPIN:
-		return r.FormValue("pin") != ""
+		return credentialFormValue(r, pinFormId) != ""
 	case auth.MethodPassword:
-		return r.FormValue("password") != ""
+		return credentialFormValue(r, passwordFormId) != ""
 	case auth.MethodOIDC:
 		return r.URL.Query().Get("session_token") != ""
 	}
