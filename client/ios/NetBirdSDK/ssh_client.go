@@ -16,6 +16,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	gossh "golang.org/x/crypto/ssh"
+	"golang.org/x/sys/unix"
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/auth"
@@ -338,8 +339,8 @@ func (s *SSHClient) startSession(cols, rows int) error {
 	s.mu.Unlock()
 
 	readerDone := make(chan string, 2)
-	go func() { readerDone <- s.readLoop(pty.Stdout, "stdout") }()
-	go func() { readerDone <- s.readLoop(pty.Stderr, "stderr") }()
+	go func() { readerDone <- s.readLoop(gen, pty.Stdout, "stdout") }()
+	go func() { readerDone <- s.readLoop(gen, pty.Stderr, "stderr") }()
 	go func() {
 		reason := <-readerDone
 		if second := <-readerDone; reason == "" {
@@ -542,14 +543,22 @@ func (s *SSHClient) dialAndHandshake(gen uint64, host string, port int, clientCo
 	return nil
 }
 
-func (s *SSHClient) readLoop(r io.Reader, name string) string {
+// readLoop forwards one stream to the listener until it ends. It carries the
+// generation of the connection it belongs to: a reader left over from a
+// session that was closed or redialled can still hold buffered bytes, and
+// delivering those would paint one session's output into another's terminal.
+func (s *SSHClient) readLoop(gen uint64, r io.Reader, name string) string {
 	buf := make([]byte, 4096)
 	for {
 		n, err := r.Read(buf)
 		if n > 0 {
 			s.mu.Lock()
 			listener := s.listener
+			stale := gen != s.gen
 			s.mu.Unlock()
+			if stale {
+				return ""
+			}
 			if listener != nil {
 				chunk := make([]byte, n)
 				copy(chunk, buf[:n])
@@ -707,10 +716,7 @@ func makeWGDialer(wgIface string, timeout time.Duration) *net.Dialer {
 			}
 			var bindErr error
 			if ctrlErr := c.Control(func(fd uintptr) {
-				// IP_BOUND_IF on Darwin; x/sys is not vendored for this
-				// package, so the option number is spelled out.
-				const ipBoundIf = 25
-				bindErr = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IP, ipBoundIf, iface.Index)
+				bindErr = bindToTunnel(fd, network, iface)
 			}); ctrlErr != nil {
 				return ctrlErr
 			}
@@ -719,5 +725,26 @@ func makeWGDialer(wgIface string, timeout time.Duration) *net.Dialer {
 			}
 			return bindErr
 		},
+	}
+}
+
+// bindToTunnel pins one socket to the tunnel interface. Which option to use is
+// decided by the socket's family, not by the address: IP_BOUND_IF on an
+// AF_INET6 socket fails with EINVAL whatever V6ONLY says, because the
+// IPPROTO_IP path is dispatched by socket domain. IPV6_BOUND_IF also scopes
+// v4-mapped egress from a dual-stack socket, so it covers both families there.
+// This mirrors client/net/net_darwin.go, which binds the underlay the same way.
+func bindToTunnel(fd uintptr, network string, iface *net.Interface) error {
+	switch network {
+	case "tcp6", "udp6", "ip6":
+		if err := unix.SetsockoptInt(int(fd), unix.IPPROTO_IPV6, unix.IPV6_BOUND_IF, iface.Index); err != nil {
+			return fmt.Errorf("set IPV6_BOUND_IF (interface %s, index %d): %w", iface.Name, iface.Index, err)
+		}
+		return nil
+	default:
+		if err := unix.SetsockoptInt(int(fd), unix.IPPROTO_IP, unix.IP_BOUND_IF, iface.Index); err != nil {
+			return fmt.Errorf("set IP_BOUND_IF (interface %s, index %d): %w", iface.Name, iface.Index, err)
+		}
+		return nil
 	}
 }
