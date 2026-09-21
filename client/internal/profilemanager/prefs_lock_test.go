@@ -1,4 +1,4 @@
-//go:build !js && !plan9
+//go:build !js && !plan9 && !ios && !android
 
 package profilemanager
 
