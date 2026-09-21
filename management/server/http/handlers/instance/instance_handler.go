@@ -8,8 +8,6 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/internals/modules/permissions"
-	"github.com/netbirdio/netbird/management/internals/modules/permissions/modules"
-	"github.com/netbirdio/netbird/management/internals/modules/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/account"
 	nbinstance "github.com/netbirdio/netbird/management/server/instance"
 	"github.com/netbirdio/netbird/shared/auth"
@@ -36,12 +34,12 @@ func AddEndpoints(instanceManager nbinstance.Manager, accountManager account.Man
 }
 
 // AddVersionEndpoint registers the authenticated version endpoint.
-func AddVersionEndpoint(instanceManager nbinstance.Manager, router *mux.Router, permissionsManager permissions.Manager) {
+func AddVersionEndpoint(instanceManager nbinstance.Manager, router *mux.Router) {
 	h := &handler{
 		instanceManager: instanceManager,
 	}
 
-	router.HandleFunc("/instance/version", permissionsManager.WithPermission(modules.Settings, operations.Read, h.getVersionInfo)).Methods("GET", "OPTIONS")
+	router.HandleFunc("/instance/version", permissions.WrapHandler(h.getVersionInfo)).Methods("GET", "OPTIONS")
 }
 
 // getInstanceStatus returns the instance status including whether setup is required.

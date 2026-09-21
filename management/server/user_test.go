@@ -1414,8 +1414,8 @@ func TestUser_GetUsersFromAccount_ForUser(t *testing.T) {
 		t.Fatalf("Error when getting users from account: %s", err)
 	}
 
-	// Service users should see all users
-	assert.Equal(t, 2, len(users))
+	// Service users follow their role like any other user, a role user only sees themselves
+	assert.Equal(t, 1, len(users))
 }
 
 func TestDefaultAccountManager_SaveUser(t *testing.T) {

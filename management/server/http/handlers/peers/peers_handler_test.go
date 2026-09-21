@@ -501,7 +501,7 @@ func TestGetAccessiblePeers(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/peers/{peerId}/accessible-peers", permissions.WrapHandler(p.GetAccessiblePeers)).Methods("GET")
+			router.HandleFunc("/api/peers/{peerId}/accessible-peers", permissions.WithPermission(p.permissionsManager, modules.Peers, operations.Read, p.GetAccessiblePeers, p.getOwnAccessiblePeers)).Methods("GET")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

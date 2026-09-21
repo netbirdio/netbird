@@ -16,6 +16,8 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/idp/dex"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions/modules"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/affectedpeers"
@@ -965,8 +967,12 @@ func (am *DefaultAccountManager) GetOrCreateAccountByUser(ctx context.Context, u
 // GetUsersFromAccount performs a batched request for users from IDP by account ID apply filter on what data to return
 // based on provided user role.
 func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accountID, initiatorUserID string) (map[string]*types.UserInfo, error) {
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Users, operations.Read)
+	if err != nil {
+		return nil, status.NewPermissionValidationError(err)
+	}
+
 	var user *types.User
-	var err error
 	if initiatorUserID != activity.SystemInitiator {
 		result, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, initiatorUserID)
 		if err != nil {
@@ -976,11 +982,8 @@ func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accoun
 	}
 
 	accountUsers := []*types.User{}
-
-	hasFullAccess := initiatorUserID == activity.SystemInitiator || user.HasAdminPower() || user.IsServiceUser
-
 	switch {
-	case hasFullAccess:
+	case allowed:
 		start := time.Now()
 		accountUsers, err = am.Store.GetAccountUsers(ctx, store.LockingStrengthNone, accountID)
 		if err != nil {
@@ -1465,8 +1468,10 @@ func (am *DefaultAccountManager) GetCurrentUserInfo(ctx context.Context, userAut
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	// Permission checks are now handled by the HTTP middleware via WithPermission wrapper
-	// User account association is already validated above by GetUserByUserID
+	ctx, err = am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false)
+	if err != nil {
+		return nil, err
+	}
 
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {

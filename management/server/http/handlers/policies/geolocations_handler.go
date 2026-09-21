@@ -7,8 +7,6 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/netbirdio/netbird/management/internals/modules/permissions"
-	"github.com/netbirdio/netbird/management/internals/modules/permissions/modules"
-	"github.com/netbirdio/netbird/management/internals/modules/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/shared/auth"
@@ -30,8 +28,8 @@ type geolocationsHandler struct {
 
 func AddLocationsEndpoints(accountManager account.Manager, locationManager geolocation.Geolocation, permissionsManager permissions.Manager, router *mux.Router) {
 	locationHandler := newGeolocationsHandlerHandler(accountManager, locationManager, permissionsManager)
-	router.HandleFunc("/locations/countries", permissionsManager.WithPermission(modules.Policies, operations.Read, locationHandler.getAllCountries)).Methods("GET", "OPTIONS")
-	router.HandleFunc("/locations/countries/{country}/cities", permissionsManager.WithPermission(modules.Policies, operations.Read, locationHandler.getCitiesByCountry)).Methods("GET", "OPTIONS")
+	router.HandleFunc("/locations/countries", permissions.WrapHandler(locationHandler.getAllCountries)).Methods("GET", "OPTIONS")
+	router.HandleFunc("/locations/countries/{country}/cities", permissions.WrapHandler(locationHandler.getCitiesByCountry)).Methods("GET", "OPTIONS")
 }
 
 // newGeolocationsHandlerHandler creates a new Geolocations handler

@@ -34,11 +34,11 @@ type Handler struct {
 
 func AddEndpoints(accountManager account.Manager, router *mux.Router, networkMapController network_map.Controller, permissionsManager permissions.Manager) {
 	peersHandler := NewHandler(accountManager, networkMapController, permissionsManager)
-	router.HandleFunc("/peers", permissionsManager.WithPermission(modules.Peers, operations.Read, peersHandler.GetAllPeers)).Methods("GET", "OPTIONS")
-	router.HandleFunc("/peers/{peerId}", permissionsManager.WithPermission(modules.Peers, operations.Read, peersHandler.GetPeer)).Methods("GET", "OPTIONS")
+	router.HandleFunc("/peers", permissionsManager.WithPermission(modules.Peers, operations.Read, peersHandler.GetAllPeers, peersHandler.getOwnPeers)).Methods("GET", "OPTIONS")
+	router.HandleFunc("/peers/{peerId}", permissionsManager.WithPermission(modules.Peers, operations.Read, peersHandler.GetPeer, peersHandler.getOwnPeer)).Methods("GET", "OPTIONS")
 	router.HandleFunc("/peers/{peerId}", permissionsManager.WithPermission(modules.Peers, operations.Update, peersHandler.UpdatePeer)).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/peers/{peerId}", permissionsManager.WithPermission(modules.Peers, operations.Delete, peersHandler.DeletePeer)).Methods("DELETE", "OPTIONS")
-	router.HandleFunc("/peers/{peerId}/accessible-peers", permissionsManager.WithPermission(modules.Peers, operations.Read, peersHandler.GetAccessiblePeers)).Methods("GET", "OPTIONS")
+	router.HandleFunc("/peers/{peerId}/accessible-peers", permissionsManager.WithPermission(modules.Peers, operations.Read, peersHandler.GetAccessiblePeers, peersHandler.getOwnAccessiblePeers)).Methods("GET", "OPTIONS")
 	router.HandleFunc("/peers/{peerId}/temporary-access", permissionsManager.WithPermission(modules.Peers, operations.Create, peersHandler.CreateTemporaryAccess)).Methods("POST", "OPTIONS")
 	router.HandleFunc("/peers/{peerId}/jobs", permissionsManager.WithPermission(modules.RemoteJobs, operations.Read, peersHandler.ListJobs)).Methods("GET", "OPTIONS")
 	router.HandleFunc("/peers/{peerId}/jobs", permissionsManager.WithPermission(modules.RemoteJobs, operations.Create, peersHandler.CreateJob)).Methods("POST", "OPTIONS")
@@ -128,19 +128,46 @@ func (h *Handler) GetJob(w http.ResponseWriter, r *http.Request, userAuth *auth.
 
 // GetPeer handles GET request for a single peer
 func (h *Handler) GetPeer(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
-	vars := mux.Vars(r)
-	peerID := vars["peerId"]
+	peer, ok := h.peerFromRequest(w, r, userAuth)
+	if !ok {
+		return
+	}
+
+	h.writePeer(w, r, userAuth, peer)
+}
+
+func (h *Handler) getOwnPeer(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) bool {
+	peer, ok := h.peerFromRequest(w, r, userAuth)
+	if !ok {
+		return true
+	}
+
+	if peer.UserID != userAuth.UserId {
+		util.WriteError(r.Context(), status.Errorf(status.NotFound, "peer not found"), w)
+		return true
+	}
+
+	h.writePeer(w, r, userAuth, peer)
+	return true
+}
+
+func (h *Handler) peerFromRequest(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) (*nbpeer.Peer, bool) {
+	peerID := mux.Vars(r)["peerId"]
 	if len(peerID) == 0 {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid peer ID"), w)
-		return
+		return nil, false
 	}
 
 	peer, err := h.accountManager.GetPeer(r.Context(), userAuth.AccountId, peerID, userAuth.UserId)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
-		return
+		return nil, false
 	}
 
+	return peer, true
+}
+
+func (h *Handler) writePeer(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth, peer *nbpeer.Peer) {
 	if peer.ProxyMeta.Embedded {
 		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "not allowed to read peer"), w)
 		return
@@ -154,7 +181,7 @@ func (h *Handler) GetPeer(w http.ResponseWriter, r *http.Request, userAuth *auth
 
 	dnsDomain := h.networkMapController.GetDNSDomain(settings)
 
-	grps, _ := h.accountManager.GetPeerGroups(r.Context(), userAuth.AccountId, peerID)
+	grps, _ := h.accountManager.GetPeerGroups(r.Context(), userAuth.AccountId, peer.ID)
 	grpsInfoMap := groups.ToGroupsInfoMap(grps, 0)
 
 	validPeers, invalidPeers, err := h.accountManager.GetValidatedPeers(r.Context(), userAuth.AccountId)
@@ -167,7 +194,7 @@ func (h *Handler) GetPeer(w http.ResponseWriter, r *http.Request, userAuth *auth
 	_, valid := validPeers[peer.ID]
 	reason := invalidPeers[peer.ID]
 
-	util.WriteJSONObject(r.Context(), w, toSinglePeerResponse(peer, grpsInfoMap[peerID], dnsDomain, valid, reason))
+	util.WriteJSONObject(r.Context(), w, toSinglePeerResponse(peer, grpsInfoMap[peer.ID], dnsDomain, valid, reason))
 }
 
 // UpdatePeer handles PUT request to update a peer
@@ -280,10 +307,19 @@ func (h *Handler) DeletePeer(w http.ResponseWriter, r *http.Request, userAuth *a
 
 // GetAllPeers returns a list of all peers associated with a provided account
 func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
+	h.listPeers(w, r, userAuth, true)
+}
+
+func (h *Handler) getOwnPeers(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) bool {
+	h.listPeers(w, r, userAuth, false)
+	return true
+}
+
+func (h *Handler) listPeers(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth, all bool) {
 	nameFilter := r.URL.Query().Get("name")
 	ipFilter := r.URL.Query().Get("ip")
 
-	peers, err := h.accountManager.GetPeers(r.Context(), userAuth.AccountId, userAuth.UserId, nameFilter, ipFilter, true)
+	peers, err := h.accountManager.GetPeers(r.Context(), userAuth.AccountId, userAuth.UserId, nameFilter, ipFilter, all)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -354,40 +390,36 @@ func (h *Handler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request, use
 		return
 	}
 
-	user, err := h.accountManager.GetUserByID(r.Context(), userAuth.UserId)
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
 	account, err := h.accountManager.GetAccountByID(r.Context(), userAuth.AccountId, activity.SystemInitiator)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	// Check if user is an admin/service user through their role
-	isAdmin := user.Role == types.UserRoleAdmin || user.Role == types.UserRoleOwner
+	h.writeAccessiblePeers(w, r, account, peerID)
+}
 
-	if !isAdmin && !user.IsServiceUser && !userAuth.IsChild {
-		if account.Settings.RegularUsersViewBlocked {
-			util.WriteJSONObject(r.Context(), w, []api.AccessiblePeer{})
-			return
-		}
+func (h *Handler) getOwnAccessiblePeers(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) bool {
+	peerID := mux.Vars(r)["peerId"]
 
-		peer, ok := account.Peers[peerID]
-		if !ok {
-			util.WriteError(r.Context(), status.Errorf(status.NotFound, "peer not found"), w)
-			return
-		}
-
-		if peer.UserID != user.Id {
-			util.WriteJSONObject(r.Context(), w, []api.AccessiblePeer{})
-			return
-		}
+	account, err := h.accountManager.GetAccountByID(r.Context(), userAuth.AccountId, activity.SystemInitiator)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return true
 	}
 
-	validPeers, _, err := h.accountManager.GetValidatedPeers(r.Context(), userAuth.AccountId)
+	peer, ok := account.Peers[peerID]
+	if account.Settings.RegularUsersViewBlocked || !ok || peer.UserID != userAuth.UserId {
+		util.WriteJSONObject(r.Context(), w, []api.AccessiblePeer{})
+		return true
+	}
+
+	h.writeAccessiblePeers(w, r, account, peerID)
+	return true
+}
+
+func (h *Handler) writeAccessiblePeers(w http.ResponseWriter, r *http.Request, account *types.Account, peerID string) {
+	validPeers, _, err := h.accountManager.GetValidatedPeers(r.Context(), account.Id)
 	if err != nil {
 		log.WithContext(r.Context()).Errorf("failed to list approved peers: %v", err)
 		util.WriteError(r.Context(), fmt.Errorf("internal error"), w)
@@ -409,9 +441,18 @@ func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	var req api.PeerTemporaryAccessRequest
-	err := json.NewDecoder(r.Body).Decode(&req)
+	allowed, _, err := h.permissionsManager.ValidateUserPermissions(r.Context(), userAuth.AccountId, userAuth.UserId, modules.Policies, operations.Create)
 	if err != nil {
+		util.WriteError(r.Context(), status.NewPermissionValidationError(err), w)
+		return
+	}
+	if !allowed {
+		util.WriteError(r.Context(), status.NewPermissionDeniedError(), w)
+		return
+	}
+
+	var req api.PeerTemporaryAccessRequest
+	if err = json.NewDecoder(r.Body).Decode(&req); err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 		return
 	}

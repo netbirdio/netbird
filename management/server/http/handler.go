@@ -129,7 +129,7 @@ func NewAPIHandler(ctx context.Context, router *mux.Router, accountManager accou
 		agentnetworkhandlers.RegisterEndpoints(agentNetworkManager, router)
 	}
 	instance.AddEndpoints(instanceManager, accountManager, router)
-	instance.AddVersionEndpoint(instanceManager, router, permissionsManager)
+	instance.AddVersionEndpoint(instanceManager, router)
 	if serviceManager != nil && reverseProxyDomainManager != nil {
 		reverseproxymanager.RegisterEndpoints(serviceManager, *reverseProxyDomainManager, reverseProxyAccessLogsManager, permissionsManager, router)
 	}

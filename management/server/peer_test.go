@@ -553,7 +553,7 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 		return
 	}
 
-	// the user can see its own peer
+	// authorization is enforced at the HTTP layer, the manager returns any peer of the account
 	peer, err := manager.GetPeer(context.Background(), accountID, peer1.ID, someUser)
 	if err != nil {
 		t.Fatal(err)
@@ -561,12 +561,13 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 	}
 	assert.NotNil(t, peer)
 
-	// the user can NOT see peer2 because it is not owned by them.
-	// Regular users only see peers they directly own.
-	_, err = manager.GetPeer(context.Background(), accountID, peer2.ID, someUser)
-	assert.Error(t, err)
+	peer, err = manager.GetPeer(context.Background(), accountID, peer2.ID, someUser)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+	assert.NotNil(t, peer)
 
-	// admin users can always access all the peers
 	peer, err = manager.GetPeer(context.Background(), accountID, peer1.ID, adminUser)
 	if err != nil {
 		t.Fatal(err)
@@ -602,7 +603,7 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 			role:                types.UserRoleUser,
 			limitedViewSettings: false,
 			isServiceUser:       true,
-			expectedPeerCount:   2,
+			expectedPeerCount:   1,
 		},
 		{
 			name:                "Regular user, limited view settings",
@@ -616,7 +617,7 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 			role:                types.UserRoleUser,
 			limitedViewSettings: true,
 			isServiceUser:       true,
-			expectedPeerCount:   2,
+			expectedPeerCount:   0,
 		},
 		{
 			name:                "Admin, no limited view settings, not a service user",

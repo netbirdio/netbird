@@ -21,12 +21,13 @@ import (
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
-// AuthErrorHandler is called when an auth error occurs during permission validation.
-// If it returns true, the error is considered handled and the default error response is skipped.
-type AuthErrorHandler func(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth, err error) bool
+// PermissionDeniedHandler is called when the user's role does not grant the requested operation.
+// It is not called for validation failures such as blocked users or foreign accounts.
+// If it returns true, the request is considered handled and the default 403 response is skipped.
+type PermissionDeniedHandler func(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) bool
 
 type Manager interface {
-	WithPermission(module modules.Module, operation operations.Operation, handlerFunc func(w http.ResponseWriter, r *http.Request, auth *auth.UserAuth), authErrHandler ...AuthErrorHandler) http.HandlerFunc
+	WithPermission(module modules.Module, operation operations.Operation, handlerFunc func(w http.ResponseWriter, r *http.Request, auth *auth.UserAuth), onDenied ...PermissionDeniedHandler) http.HandlerFunc
 	ValidateUserPermissions(ctx context.Context, accountID, userID string, module modules.Module, operation operations.Operation) (bool, context.Context, error)
 	ValidateRoleModuleAccess(ctx context.Context, accountID string, role roles.RolePermissions, module modules.Module, operation operations.Operation) bool
 	ValidateAccountAccess(ctx context.Context, accountID string, user *types.User, allowOwnerAndAdmin bool) (context.Context, error)
@@ -45,18 +46,30 @@ func NewManager(store store.Store) Manager {
 	}
 }
 
-// WithPermission wraps an HTTP handler with permission checking logic.
-// An optional AuthErrorHandler can be provided to intercept auth errors before the default response is written.
-// The wrapped handler receives a request whose context is enriched by the permission validation.
 func (m *managerImpl) WithPermission(
 	module modules.Module,
 	operation operations.Operation,
 	handlerFunc func(w http.ResponseWriter, r *http.Request, auth *auth.UserAuth),
-	authErrHandler ...AuthErrorHandler,
+	onDenied ...PermissionDeniedHandler,
 ) http.HandlerFunc {
-	var onAuthErr AuthErrorHandler
-	if len(authErrHandler) > 0 {
-		onAuthErr = authErrHandler[0]
+	return WithPermission(m, module, operation, handlerFunc, onDenied...)
+}
+
+// WithPermission wraps an HTTP handler with permission checking performed by the given manager.
+// Implementations embedding another Manager must route their own WithPermission through this
+// function so that their ValidateUserPermissions override is the one consulted.
+// An optional PermissionDeniedHandler can serve a reduced, self-scoped response when the role denies the operation.
+// The wrapped handler receives a request whose context is enriched by the permission validation.
+func WithPermission(
+	m Manager,
+	module modules.Module,
+	operation operations.Operation,
+	handlerFunc func(w http.ResponseWriter, r *http.Request, auth *auth.UserAuth),
+	onDenied ...PermissionDeniedHandler,
+) http.HandlerFunc {
+	var deniedHandler PermissionDeniedHandler
+	if len(onDenied) > 0 {
+		deniedHandler = onDenied[0]
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -68,23 +81,19 @@ func (m *managerImpl) WithPermission(
 		}
 
 		allowed, ctx, err := m.ValidateUserPermissions(r.Context(), userAuth.AccountId, userAuth.UserId, module, operation)
-		enriched := r.WithContext(ctx)
 		if err != nil {
-			if onAuthErr != nil && onAuthErr(w, enriched, &userAuth, err) {
-				return
-			}
 			log.WithContext(ctx).Errorf("failed to validate permissions for user %s on account %s: %v", userAuth.UserId, userAuth.AccountId, err)
 			util.WriteError(ctx, status.NewPermissionValidationError(err), w)
 			return
 		}
 
+		enriched := r.WithContext(ctx)
 		if !allowed {
-			permErr := status.NewPermissionDeniedError()
-			if onAuthErr != nil && onAuthErr(w, enriched, &userAuth, permErr) {
+			if deniedHandler != nil && deniedHandler(w, enriched, &userAuth) {
 				return
 			}
 			log.WithContext(ctx).Tracef("user %s on account %s is not allowed to %s in %s", userAuth.UserId, userAuth.AccountId, operation, module)
-			util.WriteError(ctx, permErr, w)
+			util.WriteError(ctx, status.NewPermissionDeniedError(), w)
 			return
 		}
 

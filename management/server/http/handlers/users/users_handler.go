@@ -28,14 +28,14 @@ type handler struct {
 func AddEndpoints(accountManager account.Manager, router *mux.Router, permissionsManager permissions.Manager) {
 	userHandler := newHandler(accountManager)
 	router.HandleFunc("/users", permissionsManager.WithPermission(modules.Users, operations.Read, userHandler.getAllUsers, userHandler.getOwnUser)).Methods("GET", "OPTIONS")
-	router.HandleFunc("/users/current", permissionsManager.WithPermission(modules.Users, operations.Read, userHandler.getCurrentUser, userHandler.getCurrentUserFallback)).Methods("GET", "OPTIONS")
+	router.HandleFunc("/users/current", permissions.WrapHandler(userHandler.getCurrentUser)).Methods("GET", "OPTIONS")
 	router.HandleFunc("/users/{userId}", permissionsManager.WithPermission(modules.Users, operations.Update, userHandler.updateUser)).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/users/{userId}", permissionsManager.WithPermission(modules.Users, operations.Delete, userHandler.deleteUser)).Methods("DELETE", "OPTIONS")
 	router.HandleFunc("/users", permissionsManager.WithPermission(modules.Users, operations.Create, userHandler.createUser)).Methods("POST", "OPTIONS")
 	router.HandleFunc("/users/{userId}/invite", permissionsManager.WithPermission(modules.Users, operations.Create, userHandler.inviteUser)).Methods("POST", "OPTIONS")
 	router.HandleFunc("/users/{userId}/approve", permissionsManager.WithPermission(modules.Users, operations.Update, userHandler.approveUser)).Methods("POST", "OPTIONS")
 	router.HandleFunc("/users/{userId}/reject", permissionsManager.WithPermission(modules.Users, operations.Delete, userHandler.rejectUser)).Methods("DELETE", "OPTIONS")
-	router.HandleFunc("/users/{userId}/password", permissionsManager.WithPermission(modules.Users, operations.Update, userHandler.changePassword)).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/users/{userId}/password", permissionsManager.WithPermission(modules.Users, operations.Update, userHandler.changePassword, userHandler.changeOwnPassword)).Methods("PUT", "OPTIONS")
 	addUsersTokensEndpoint(accountManager, router, permissionsManager)
 }
 
@@ -405,28 +405,16 @@ func (h *handler) changePassword(w http.ResponseWriter, r *http.Request, userAut
 	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
 }
 
-func (h *handler) getCurrentUserFallback(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth, err error) bool {
-	s, ok := status.FromError(err)
-	if !ok || s.ErrorType != status.PermissionDenied {
+func (h *handler) changeOwnPassword(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) bool {
+	if mux.Vars(r)["userId"] != userAuth.UserId {
 		return false
 	}
 
-	user, userErr := h.accountManager.GetCurrentUserInfo(r.Context(), *userAuth)
-	if userErr != nil {
-		util.WriteError(r.Context(), userErr, w)
-		return true
-	}
-
-	util.WriteJSONObject(r.Context(), w, toUserWithPermissionsResponse(user, userAuth.UserId))
+	h.changePassword(w, r, userAuth)
 	return true
 }
 
-func (h *handler) getOwnUser(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth, err error) bool {
-	s, ok := status.FromError(err)
-	if !ok || s.ErrorType != status.PermissionDenied {
-		return false
-	}
-
+func (h *handler) getOwnUser(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) bool {
 	if r.URL.Query().Get("service_user") != "" {
 		return false
 	}

@@ -1932,7 +1932,7 @@ func (am *DefaultAccountManager) onPeersInvalidated(ctx context.Context, account
 	peers := []*nbpeer.Peer{}
 	log.WithContext(ctx).Debugf("invalidating peers %v for account %s", peerIDs, accountID)
 	for _, peerID := range peerIDs {
-		peer, err := am.GetPeer(ctx, accountID, peerID, activity.SystemInitiator)
+		peer, err := am.Store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
 		if err != nil {
 			log.WithContext(ctx).Errorf("failed to get invalidated peer %s for account %s: %v", peerID, accountID, err)
 			continue

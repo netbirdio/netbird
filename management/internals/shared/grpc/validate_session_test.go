@@ -506,10 +506,6 @@ func (m *testValidateSessionServiceManager) DeleteService(_ context.Context, _, 
 	return nil
 }
 
-func (m *testValidateSessionServiceManager) DeleteAllServices(_ context.Context, _, _ string) error {
-	return nil
-}
-
 func (m *testValidateSessionServiceManager) SetCertificateIssuedAt(_ context.Context, _, _ string) error {
 	return nil
 }

@@ -132,13 +132,13 @@ func (am *DefaultAccountManager) GetIdentityProvider(ctx context.Context, accoun
 
 // CreateIdentityProvider creates a new identity provider
 func (am *DefaultAccountManager) CreateIdentityProvider(ctx context.Context, accountID, userID string, idpConfig *types.IdentityProvider) (*types.IdentityProvider, error) {
+	if err := validateIdentityProviderConfig(ctx, idpConfig); err != nil {
+		return nil, err
+	}
+
 	embeddedManager, ok := am.idpManager.(*idp.EmbeddedIdPManager)
 	if !ok {
 		return nil, status.Errorf(status.Internal, "identity provider management requires embedded IdP")
-	}
-
-	if err := validateIdentityProviderConfig(ctx, idpConfig); err != nil {
-		return nil, err
 	}
 
 	// Generate ID if not provided
@@ -161,13 +161,13 @@ func (am *DefaultAccountManager) CreateIdentityProvider(ctx context.Context, acc
 
 // UpdateIdentityProvider updates an existing identity provider
 func (am *DefaultAccountManager) UpdateIdentityProvider(ctx context.Context, accountID, idpID, userID string, idpConfig *types.IdentityProvider) (*types.IdentityProvider, error) {
+	if err := validateIdentityProviderConfig(ctx, idpConfig); err != nil {
+		return nil, err
+	}
+
 	embeddedManager, ok := am.idpManager.(*idp.EmbeddedIdPManager)
 	if !ok {
 		return nil, status.Errorf(status.Internal, "identity provider management requires embedded IdP")
-	}
-
-	if err := validateIdentityProviderConfig(ctx, idpConfig); err != nil {
-		return nil, err
 	}
 
 	idpConfig.ID = idpID

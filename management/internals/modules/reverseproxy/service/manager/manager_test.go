@@ -1052,30 +1052,6 @@ func TestDeleteService_DeletesEphemeralExpose(t *testing.T) {
 	assert.NoError(t, err, "new expose should succeed after API delete")
 }
 
-func TestDeleteAllServices_DeletesEphemeralExposes(t *testing.T) {
-	ctx := context.Background()
-	mgr, _ := setupIntegrationTest(t)
-
-	for i := range 3 {
-		_, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
-			Port: uint16(8080 + i),
-			Mode: "http",
-		})
-		require.NoError(t, err)
-	}
-
-	count, err := mgr.store.CountEphemeralServicesByPeer(ctx, store.LockingStrengthNone, testAccountID, testPeerID)
-	require.NoError(t, err)
-	assert.Equal(t, int64(3), count, "all ephemeral services should exist")
-
-	err = mgr.DeleteAllServices(ctx, testAccountID, testUserID)
-	require.NoError(t, err)
-
-	count, err = mgr.store.CountEphemeralServicesByPeer(ctx, store.LockingStrengthNone, testAccountID, testPeerID)
-	require.NoError(t, err)
-	assert.Equal(t, int64(0), count, "all ephemeral services should be deleted after DeleteAllServices")
-}
-
 func TestRenewServiceFromPeer(t *testing.T) {
 	ctx := context.Background()
 

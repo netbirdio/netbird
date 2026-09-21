@@ -51,7 +51,7 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 		return nil, err
 	}
 
-	if all || user.IsAdminOrServiceUser() {
+	if all || user.HasAdminPower() {
 		return am.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, nameFilter, ipFilter)
 	}
 
@@ -1453,25 +1453,10 @@ func peerLoginExpired(ctx context.Context, peer *nbpeer.Peer, settings *types.Se
 	return false
 }
 
-// GetPeer returns a peer visible to the user within an account.
-// Users with "peers:read" permission can access any peer. Otherwise, users can access only their own peer.
+// GetPeer returns a peer within an account. Callers are expected to have passed the
+// "peers:read" permission check at the HTTP layer.
 func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID, userID string) (*nbpeer.Peer, error) {
-	peer, err := am.Store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
-	if err != nil {
-		return nil, err
-	}
-
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
-	if err != nil {
-		return nil, err
-	}
-
-	// if admin or user owns this peer, return peer
-	if user.IsAdminOrServiceUser() || peer.UserID == userID {
-		return peer, nil
-	}
-
-	return nil, status.Errorf(status.Internal, "user %s has no access to peer %s under account %s", userID, peer.ID, accountID)
+	return am.Store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
 }
 
 // UpdateAccountPeers updates all peers that belong to an account.

@@ -298,7 +298,7 @@ func mockValidateAndParseToken(_ context.Context, token string) (auth.UserAuth, 
 	userAuth := auth.UserAuth{}
 
 	switch token {
-	case "testUserId", "testAdminId", "testOwnerId", "testServiceUserId", "testServiceAdminId", "blockedUserId":
+	case "testUserId", "testAdminId", "testOwnerId", "testAuditorId", "testServiceUserId", "testServiceAdminId", "blockedUserId":
 		userAuth.UserId = token
 		userAuth.AccountId = "testAccountId"
 		userAuth.Domain = "test.com"

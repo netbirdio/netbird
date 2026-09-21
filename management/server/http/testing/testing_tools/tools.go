@@ -32,6 +32,7 @@ const (
 	TestUserId         = "testUserId"
 	TestAdminId        = "testAdminId"
 	TestOwnerId        = "testOwnerId"
+	TestAuditorId      = "testAuditorId"
 	TestServiceUserId  = "testServiceUserId"
 	TestServiceAdminId = "testServiceAdminId"
 	BlockedUserId      = "blockedUserId"

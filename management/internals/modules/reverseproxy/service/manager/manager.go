@@ -842,43 +842,6 @@ func (m *Manager) DeleteService(ctx context.Context, accountID, userID, serviceI
 	return nil
 }
 
-func (m *Manager) DeleteAllServices(ctx context.Context, accountID, userID string) error {
-	var services []*service.Service
-	err := m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		var err error
-		services, err = transaction.GetAccountServices(ctx, store.LockingStrengthUpdate, accountID)
-		if err != nil {
-			return err
-		}
-
-		for _, svc := range services {
-			if err = transaction.DeleteServiceTargets(ctx, accountID, svc.ID); err != nil {
-				return fmt.Errorf("failed to delete service targets: %w", err)
-			}
-
-			if err = transaction.DeleteService(ctx, accountID, svc.ID); err != nil {
-				return fmt.Errorf("failed to delete service: %w", err)
-			}
-		}
-
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-
-	oidcCfg := m.proxyController.GetOIDCValidationConfig()
-
-	for _, svc := range services {
-		m.accountManager.StoreEvent(ctx, userID, svc.ID, accountID, activity.ServiceDeleted, svc.EventMeta())
-		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, svc.ToProtoMapping(service.Delete, "", oidcCfg), svc.ProxyCluster)
-	}
-
-	m.accountManager.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceService, Operation: types.UpdateOperationDelete})
-
-	return nil
-}
-
 // SetCertificateIssuedAt sets the certificate issued timestamp to the current time.
 // Call this when receiving a gRPC notification that the certificate was issued.
 func (m *Manager) SetCertificateIssuedAt(ctx context.Context, accountID, serviceID string) error {

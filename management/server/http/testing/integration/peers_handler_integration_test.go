@@ -26,31 +26,37 @@ func Test_Peers_GetAll(t *testing.T) {
 		name           string
 		userId         string
 		expectResponse bool
+		expectedPeers  int
 	}{
 		{
 			name:           "Regular user",
 			userId:         testing_tools.TestUserId,
-			expectResponse: false,
+			expectResponse: true,
+			expectedPeers:  1,
 		},
 		{
 			name:           "Admin user",
 			userId:         testing_tools.TestAdminId,
 			expectResponse: true,
+			expectedPeers:  2,
 		},
 		{
 			name:           "Owner user",
 			userId:         testing_tools.TestOwnerId,
 			expectResponse: true,
+			expectedPeers:  2,
 		},
 		{
 			name:           "Regular service user",
 			userId:         testing_tools.TestServiceUserId,
-			expectResponse: false,
+			expectResponse: true,
+			expectedPeers:  0,
 		},
 		{
 			name:           "Admin service user",
 			userId:         testing_tools.TestServiceAdminId,
 			expectResponse: true,
+			expectedPeers:  2,
 		},
 		{
 			name:           "Blocked user",
@@ -88,13 +94,37 @@ func Test_Peers_GetAll(t *testing.T) {
 				t.Fatalf("Sent content is not in correct json format; %v", err)
 			}
 
-			assert.GreaterOrEqual(t, len(got), 2, "Expected at least 2 peers")
+			assert.Len(t, got, user.expectedPeers, "regular users must only see their own peers")
 
 			select {
 			case <-done:
 			case <-time.After(time.Second):
 				t.Error("timeout waiting for peerShouldNotReceiveUpdate")
 			}
+		})
+	}
+}
+
+func Test_Peers_GetById_RegularUser(t *testing.T) {
+	tt := []struct {
+		name           string
+		peerId         string
+		expectedStatus int
+	}{
+		{"Own peer", testing_tools.TestPeerId, http.StatusOK},
+		{"Peer of another user", testPeerId2, http.StatusNotFound},
+		{"Non-existing peer", "nonExistingPeerId", http.StatusNotFound},
+	}
+
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			apiHandler, _, _ := channel.BuildApiBlackBoxWithDBState(t, "../testdata/peers_integration.sql", nil, false)
+
+			req := testing_tools.BuildRequest(t, []byte{}, http.MethodGet, "/api/peers/"+tc.peerId, testing_tools.TestUserId)
+			recorder := httptest.NewRecorder()
+			apiHandler.ServeHTTP(recorder, req)
+
+			assert.Equal(t, tc.expectedStatus, recorder.Code, "unexpected status, body: %s", recorder.Body.String())
 		})
 	}
 }
@@ -106,11 +136,6 @@ func Test_Peers_GetById(t *testing.T) {
 		expectResponse bool
 	}{
 		{
-			name:           "Regular user",
-			userId:         testing_tools.TestUserId,
-			expectResponse: false,
-		},
-		{
 			name:           "Admin user",
 			userId:         testing_tools.TestAdminId,
 			expectResponse: true,
@@ -118,6 +143,11 @@ func Test_Peers_GetById(t *testing.T) {
 		{
 			name:           "Owner user",
 			userId:         testing_tools.TestOwnerId,
+			expectResponse: true,
+		},
+		{
+			name:           "Auditor user",
+			userId:         testing_tools.TestAuditorId,
 			expectResponse: true,
 		},
 		{
@@ -508,7 +538,7 @@ func Test_Peers_GetAccessiblePeers(t *testing.T) {
 		{
 			name:           "Regular user",
 			userId:         testing_tools.TestUserId,
-			expectResponse: false,
+			expectResponse: true,
 		},
 		{
 			name:           "Admin user",
@@ -523,7 +553,7 @@ func Test_Peers_GetAccessiblePeers(t *testing.T) {
 		{
 			name:           "Regular service user",
 			userId:         testing_tools.TestServiceUserId,
-			expectResponse: false,
+			expectResponse: true,
 		},
 		{
 			name:           "Admin service user",

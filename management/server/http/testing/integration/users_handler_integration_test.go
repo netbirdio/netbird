@@ -26,6 +26,7 @@ func Test_Users_GetAll(t *testing.T) {
 		{"Regular user", testing_tools.TestUserId, true},
 		{"Admin user", testing_tools.TestAdminId, true},
 		{"Owner user", testing_tools.TestOwnerId, true},
+		{"Auditor user", testing_tools.TestAuditorId, true},
 		{"Regular service user", testing_tools.TestServiceUserId, false},
 		{"Admin service user", testing_tools.TestServiceAdminId, true},
 		{"Blocked user", testing_tools.BlockedUserId, false},
@@ -58,6 +59,49 @@ func Test_Users_GetAll(t *testing.T) {
 			case <-time.After(time.Second):
 				t.Error("timeout waiting for peerShouldNotReceiveUpdate")
 			}
+		})
+	}
+}
+
+func Test_Users_GetAll_ReadOnlyRoleSeesAllUsers(t *testing.T) {
+	apiHandler, _, _ := channel.BuildApiBlackBoxWithDBState(t, "../testdata/users_integration.sql", nil, false)
+
+	req := testing_tools.BuildRequest(t, []byte{}, http.MethodGet, "/api/users", testing_tools.TestAuditorId)
+	recorder := httptest.NewRecorder()
+	apiHandler.ServeHTTP(recorder, req)
+
+	content, _ := testing_tools.ReadResponse(t, recorder, http.StatusOK, true)
+
+	got := []api.User{}
+	if err := json.Unmarshal(content, &got); err != nil {
+		t.Fatalf("Sent content is not in correct json format; %v", err)
+	}
+
+	assert.Greater(t, len(got), 1, "auditor must see every user of the account, not only themselves")
+}
+
+func Test_Users_ChangePassword(t *testing.T) {
+	tt := []struct {
+		name           string
+		userId         string
+		targetUserId   string
+		expectedStatus int
+	}{
+		{"Regular user changes own password", testing_tools.TestUserId, testing_tools.TestUserId, http.StatusPreconditionFailed},
+		{"Regular user changes another user's password", testing_tools.TestUserId, testing_tools.TestAdminId, http.StatusForbidden},
+		{"Admin changes another user's password", testing_tools.TestAdminId, testing_tools.TestUserId, http.StatusPreconditionFailed},
+	}
+
+	body := []byte(`{"old_password":"OldPass123!","new_password":"NewPass456!"}`)
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			apiHandler, _, _ := channel.BuildApiBlackBoxWithDBState(t, "../testdata/users_integration.sql", nil, false)
+
+			req := testing_tools.BuildRequest(t, body, http.MethodPut, "/api/users/"+tc.targetUserId+"/password", tc.userId)
+			recorder := httptest.NewRecorder()
+			apiHandler.ServeHTTP(recorder, req)
+
+			assert.Equal(t, tc.expectedStatus, recorder.Code, "unexpected status, body: %s", recorder.Body.String())
 		})
 	}
 }

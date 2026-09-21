@@ -15,10 +15,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	"github.com/netbirdio/netbird/management/internals/modules/permissions"
-	"github.com/netbirdio/netbird/management/internals/modules/permissions/modules"
-	"github.com/netbirdio/netbird/management/internals/modules/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/account"
+	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/idp"
 	nbinstance "github.com/netbirdio/netbird/management/server/instance"
 	"github.com/netbirdio/netbird/management/server/mock_server"
@@ -550,17 +548,11 @@ func TestSetup_PAT_CreatePATFails_Rollback(t *testing.T) {
 
 func TestGetVersionInfo_Success(t *testing.T) {
 	manager := &mockInstanceManager{}
-	ctrl := gomock.NewController(t)
-	permissionsManager := permissions.NewMockManager(ctrl)
-	permissionsManager.EXPECT().WithPermission(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(func(module modules.Module, operation operations.Operation, handler func(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth), authErrHandler ...permissions.AuthErrorHandler) http.HandlerFunc {
-		return func(w http.ResponseWriter, r *http.Request) {
-			handler(w, r, &auth.UserAuth{})
-		}
-	}).AnyTimes()
 	router := mux.NewRouter()
-	AddVersionEndpoint(manager, router, permissionsManager)
+	AddVersionEndpoint(manager, router)
 
 	req := httptest.NewRequest(http.MethodGet, "/instance/version", nil)
+	req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{})
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -585,17 +577,11 @@ func TestGetVersionInfo_Error(t *testing.T) {
 			return nil, errors.New("failed to fetch versions")
 		},
 	}
-	ctrl := gomock.NewController(t)
-	permissionsManager := permissions.NewMockManager(ctrl)
-	permissionsManager.EXPECT().WithPermission(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(func(module modules.Module, operation operations.Operation, handler func(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth), authErrHandler ...permissions.AuthErrorHandler) http.HandlerFunc {
-		return func(w http.ResponseWriter, r *http.Request) {
-			handler(w, r, &auth.UserAuth{})
-		}
-	}).AnyTimes()
 	router := mux.NewRouter()
-	AddVersionEndpoint(manager, router, permissionsManager)
+	AddVersionEndpoint(manager, router)
 
 	req := httptest.NewRequest(http.MethodGet, "/instance/version", nil)
+	req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{})
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
