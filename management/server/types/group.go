@@ -32,7 +32,7 @@ type Group struct {
 	GroupPeers []GroupPeer `gorm:"foreignKey:GroupID;references:id;constraint:OnDelete:CASCADE;"`
 
 	// Resources contains a list of resources in that group
-	Resources []Resource `gorm:"serializer:json"`
+	Resources []Resource `gorm:"serializer:json;default:'[]'"`
 
 	IntegrationReference integration_reference.IntegrationReference `gorm:"embedded;embeddedPrefix:integration_ref_"`
 }

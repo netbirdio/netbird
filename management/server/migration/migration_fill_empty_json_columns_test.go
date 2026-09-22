@@ -135,6 +135,21 @@ func TestFillEmptyJsonFields(t *testing.T) {
 			setupFuncs:    []func(t *testing.T, db *gorm.DB){setupTestDB[types.SetupKey]},
 			migrationFunc: migration.FillEmptySetupKeyJsonColumns,
 		},
+		{
+			description: "empty user_invites.auto_groups",
+			createSQL: `insert into user_invites (id,account_id,auto_groups,email,name,role,hashed_token,expires_at,created_at,created_by)
+			values('id-1','account-id-2','','test@test.test','Test Test','test-role','12345','02/01/2026 02:03:04','01/01/2026 02:03:04','Test Test')`,
+			querySQL:      "select id from user_invites where auto_groups='' or auto_groups=null",
+			setupFuncs:    []func(t *testing.T, db *gorm.DB){setupTestDB[types.UserInviteRecord]},
+			migrationFunc: migration.FillEmptyUserInvitesJsonColumns,
+		},
+		{
+			description:   "empty group.resources",
+			createSQL:     `insert into groups (id,resources) values('id-1','')`,
+			querySQL:      "select id from groups where resources='' or resources=null",
+			setupFuncs:    []func(t *testing.T, db *gorm.DB){setupTestDB[types.Group]},
+			migrationFunc: migration.FillEmptyGroupJsonColumns,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.description, func(t *testing.T) {

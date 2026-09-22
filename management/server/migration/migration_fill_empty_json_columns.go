@@ -227,3 +227,17 @@ func FillEmptySetupKeyJsonColumns(ctx context.Context, db *gorm.DB) error {
 		return res.Error
 	})
 }
+
+func FillEmptyUserInvitesJsonColumns(ctx context.Context, db *gorm.DB) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		res := tx.Exec(`update user_invites set auto_groups='[]' where id in (select id from user_invites where auto_groups='' or auto_groups=null order by id asc)`)
+		return res.Error
+	})
+}
+
+func FillEmptyGroupJsonColumns(ctx context.Context, db *gorm.DB) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		res := tx.Exec(`update groups set resources='[]' where id in (select id from groups where resources='' or resources=null order by id asc)`)
+		return res.Error
+	})
+}
