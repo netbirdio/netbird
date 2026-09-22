@@ -24,6 +24,7 @@ const (
 	uiDevSetup    = (1 << 30) | (92 << 16) | (0x55 << 8) | 3
 	uiSetEvBit    = (1 << 30) | (4 << 16) | (0x55 << 8) | 100
 	uiSetKeyBit   = (1 << 30) | (4 << 16) | (0x55 << 8) | 101
+	uiSetRelBit   = (1 << 30) | (4 << 16) | (0x55 << 8) | 102
 	uiSetAbsBit   = (1 << 30) | (4 << 16) | (0x55 << 8) | 103
 	uinputAbsSize = 64 // legacy struct uses absmin/absmax/absfuzz/absflat[64].
 )
@@ -32,10 +33,15 @@ const (
 const (
 	evSyn = 0x00
 	evKey = 0x01
+	evRel = 0x02
 	evAbs = 0x03
 	evRep = 0x14
 
 	synReport = 0
+
+	// relWheel carries notched vertical scroll, one unit per detent, which is
+	// what the RFB wheel-up/wheel-down button bits describe.
+	relWheel = 0x08
 
 	// keyMaxCode is the kernel's KEY_MAX: the largest code UI_SET_KEYBIT
 	// accepts. Anything above it would make the ioctl fail.
@@ -98,6 +104,16 @@ func NewUInputInjector(w, h int) (*UInputInjector, error) {
 		return nil, err
 	}
 	if err := setBit(fd, uiSetEvBit, evSyn); err != nil {
+		unix.Close(fd)
+		return nil, err
+	}
+	// Scroll arrives as the RFB wheel button bits, which have no KEY_ code to
+	// press: the kernel expects a relative wheel delta instead.
+	if err := setBit(fd, uiSetEvBit, evRel); err != nil {
+		unix.Close(fd)
+		return nil, err
+	}
+	if err := setBit(fd, uiSetRelBit, relWheel); err != nil {
 		unix.Close(fd)
 		return nil, err
 	}
@@ -271,6 +287,22 @@ func (u *UInputInjector) InjectPointer(buttonMask uint16, x, y, serverW, serverH
 			_ = u.emit(evKey, b.key, 0)
 		}
 	}
+
+	// RFB spells a wheel notch as a press of button 4 (up) or 5 (down),
+	// immediately released. There is no KEY_ code for either, so each press
+	// edge becomes one relative wheel detent; the release edge carries no
+	// further movement and is ignored.
+	const (
+		wheelUpBit   = 1 << 3
+		wheelDownBit = 1 << 4
+	)
+	if buttonMask&wheelUpBit != 0 && u.prevButtons&wheelUpBit == 0 {
+		_ = u.emit(evRel, relWheel, 1)
+	}
+	if buttonMask&wheelDownBit != 0 && u.prevButtons&wheelDownBit == 0 {
+		_ = u.emit(evRel, relWheel, -1)
+	}
+
 	u.prevButtons = buttonMask
 	u.sync()
 }
@@ -433,6 +465,12 @@ func keymapByKeysym(_ []uint16) map[uint32]uint16 {
 		0xffe3: keyLeftCtrl, 0xffe4: keyRightCtrl,
 		0xffe9: keyLeftAlt, 0xffea: keyRightAlt,
 		0xffeb: keyLeftMeta, 0xffec: keyRightMeta,
+		// Caps_Lock is in stickyModifierKeysyms, so a client that drops
+		// mid-press relies on this entry to get the release delivered.
+		0xffe5: keyCapsLock,
+		// Meta_L / Meta_R. X11 clients send these as well as Super_L/Super_R
+		// above, and Linux has no separate Meta code.
+		0xffe7: keyLeftMeta, 0xffe8: keyRightMeta,
 	}
 	// Letters: register both lowercase and uppercase keysyms onto the same
 	// KEY_ code. The client sends Shift separately for uppercase.
