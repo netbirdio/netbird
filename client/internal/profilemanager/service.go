@@ -413,11 +413,10 @@ func (s *ServiceManager) AddProfile(displayName string, callerId *ipcauth.Identi
 	}
 
 	profPath := filepath.Join(configDir, id.String()+".json")
-	cfg, err := createNewConfig(ConfigInput{ConfigPath: profPath, Owner: callerId})
+	cfg, err := createNewConfig(ConfigInput{ConfigPath: profPath, Owner: callerId, Name: displayName})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create new config: %w", err)
 	}
-	cfg.Name = displayName
 
 	if err := util.WriteJsonWithRestrictedPermission(context.Background(), profPath, cfg); err != nil {
 		return nil, fmt.Errorf("failed to write profile config: %w", err)

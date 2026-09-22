@@ -191,6 +191,21 @@ func TestAddProfile_AllowsDuplicateWithFlag(t *testing.T) {
 	})
 }
 
+func TestAddProfile_PersistsName(t *testing.T) {
+	// The returned Profile carries the name regardless, so this reads the
+	// file back: the name has to reach the config apply pass, which is what
+	// the owner log line and every later reader see.
+	withTestSM(t, func(sm *ServiceManager, userID ipcauth.Identity) {
+		prof, err := sm.AddProfile("My Work Account", &userID)
+		require.NoError(t, err)
+
+		cfg, err := ReadConfig(prof.Path)
+		require.NoError(t, err)
+		assert.Equal(t, "My Work Account", cfg.Name, "stored config should carry the display name")
+		require.Len(t, cfg.Owners, 1, "profile should record its creator as owner")
+	})
+}
+
 func TestAddProfile_RejectsInvalidNames(t *testing.T) {
 	withTestSM(t, func(sm *ServiceManager, userID ipcauth.Identity) {
 		cases := []string{

@@ -104,7 +104,11 @@ type ConfigInput struct {
 
 	LocalMetricsEnabled *bool
 	LocalMetricsAddress *string
-	Owner               *ipcauth.Identity
+
+	// Name is the profile's display name, independent of the on-disk
+	// filename. Empty leaves the stored name unchanged.
+	Name  string
+	Owner *ipcauth.Identity
 }
 
 // Config Configuration type
@@ -323,8 +327,12 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 }
 
 func (config *Config) apply(input ConfigInput) (updated bool, err error) {
-	if config.Name != "" {
-		sanitized, err := sanitizeDisplayName(config.Name)
+	name := config.Name
+	if input.Name != "" {
+		name = input.Name
+	}
+	if name != "" {
+		sanitized, err := sanitizeDisplayName(name)
 		if err != nil {
 			return false, fmt.Errorf("invalid profile name: %w", err)
 		}
