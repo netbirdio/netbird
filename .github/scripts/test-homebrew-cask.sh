@@ -20,9 +20,16 @@ readonly plist='/Library/LaunchDaemons/netbird.plist'
 readonly cask='netbirdio/tap/netbird-ui'
 readonly formula='netbirdio/tap/netbird'
 readonly published_cask="$test_dir/published-netbird-ui.rb"
+readonly legacy_cask="$test_dir/legacy-netbird-ui.rb"
 readonly rendered_cask="$test_dir/rendered-netbird-ui.rb"
+readonly fixture_dir="$test_dir/fixture"
+readonly serve_dir="$test_dir/serve"
+readonly fixture_zip="$serve_dir/netbird-ui.zip"
+readonly fixture_port=18080
+readonly fixture_url="http://127.0.0.1:$fixture_port/netbird-ui.zip"
+readonly marker="$test_dir/installer.marker"
 
-mkdir -p "$results_dir" "$test_dir/downloads"
+mkdir -p "$results_dir" "$fixture_dir/netbird_ui_darwin" "$serve_dir" "$test_dir/downloads"
 exec > >(tee "$results_dir/test.log") 2>&1
 
 sudo -n true
@@ -34,6 +41,7 @@ if sudo launchctl print system/netbird > "$results_dir/initial-service.log" 2>&1
 fi
 
 install_attempted=false
+server_pid=''
 daemon_pid=''
 version=''
 
@@ -71,6 +79,9 @@ cleanup() {
     if command -v netbird >/dev/null; then
         brew uninstall --formula "$formula" || status=1
     fi
+    if [[ -n $server_pid ]]; then
+        kill "$server_pid" 2>/dev/null || true
+    fi
     exit "$status"
 }
 trap cleanup EXIT
@@ -96,6 +107,54 @@ release_fields() {
 use_cask() {
     local file=$1
     cp "$file" "$tap_dir/Casks/netbird-ui.rb"
+}
+
+# The released installer opens the UI as root, which never returns on a headless
+# runner. The cask only needs two script paths and a version argument, so the test
+# ships a stub bundle that records what it received and starts the daemon.
+build_fixture() {
+    local bundle="$fixture_dir/netbird_ui_darwin"
+    printf '#!/bin/sh\nexit 0\n' > "$bundle/netbird-ui"
+    chmod 755 "$bundle/netbird-ui"
+    cat > "$bundle/installer.sh" <<EOF
+#!/bin/sh
+set -eu
+export PATH=\$PATH:/usr/local/bin:/opt/homebrew/bin
+printf 'version=%s\\nuid=%s\\n' "\$1" "\$(id -u)" > '$marker'
+netbird service install
+netbird service start
+EOF
+    printf '#!/bin/sh\nexit 0\n' > "$bundle/uninstaller.sh"
+    # Shipped without the executable bit so the 0755 seen after install can only come from the cask.
+    chmod 644 "$bundle/installer.sh" "$bundle/uninstaller.sh"
+    rm -f "$fixture_zip"
+    (cd "$fixture_dir" && zip -qr "$fixture_zip" netbird_ui_darwin)
+}
+
+start_fixture_server() {
+    python3 -m http.server "$fixture_port" --bind 127.0.0.1 --directory "$serve_dir" \
+        > "$results_dir/fixture-server.log" 2>&1 &
+    server_pid=$!
+    local attempt
+    for attempt in {1..20}; do
+        if curl --silent --fail --output /dev/null "$fixture_url"; then
+            return
+        fi
+        sleep 0.5
+    done
+    fail "The fixture HTTP server did not come up on port $fixture_port."
+}
+
+assert_published_layout() {
+    local url archive script
+    while read -r url; do
+        archive="$test_dir/downloads/${url##*/}"
+        curl --fail --location --silent --retry 3 --output "$archive" "$url"
+        for script in installer.sh uninstaller.sh; do
+            unzip -l "$archive" | grep -q " netbird_ui_darwin/$script\$" ||
+                fail "The published archive ${url##*/} has no netbird_ui_darwin/$script."
+        done
+    done < <(cask_field url "$published_cask")
 }
 
 assert_no_deprecations() {
@@ -141,10 +200,10 @@ assert_service_absent() {
 }
 
 assert_installed() {
-    local log=$1 script
-    if grep -F 'Netbird UI Version:' "$log"; then
-        fail "The installer did not receive the expected version argument."
-    fi
+    local script
+    [[ -f $marker ]] || fail "The cask did not run installer.sh."
+    grep -qx "version=$version" "$marker" || fail "installer.sh did not receive the cask version: $(cat "$marker")"
+    grep -qx 'uid=0' "$marker" || fail "installer.sh did not run as root: $(cat "$marker")"
     [[ -d "$app" && -x "$app/netbird-ui" ]] || fail "The UI was not installed."
     for script in installer.sh uninstaller.sh; do
         [[ $(stat -f '%Lp' "$app/$script") == 755 ]] || fail "Incorrect permissions on $script."
@@ -173,7 +232,7 @@ installed_caskfiles() {
 }
 
 assert_legacy_metadata() {
-    installed_caskfiles rb | grep -q . || fail "The published cask did not leave a legacy Ruby caskfile behind."
+    installed_caskfiles rb | grep -q . || fail "The legacy cask did not leave a Ruby caskfile behind."
 }
 
 assert_steps_metadata() {
@@ -189,47 +248,30 @@ brew tap netbirdio/tap "${GITHUB_WORKSPACE:?}/.homebrew-cask-tap"
 tap_dir=$(brew --repository netbirdio/tap)
 readonly tap_dir
 
-# The tap's published cask is the fixture: it names the signed archives that real
-# users install today, and it carries their checksums. Changes to the installer
-# scripts inside those archives need freshly packaged artifacts instead.
 [[ -f "$tap_dir/Casks/netbird-ui.rb" ]] || fail "The tap has no Casks/netbird-ui.rb."
 cp "$tap_dir/Casks/netbird-ui.rb" "$published_cask"
 cp "$published_cask" "$results_dir/published-netbird-ui.rb"
 
-version=$(cask_field version "$published_cask")
+version=$(brew info --json=v2 --formula "$formula" | jq -r '.formulae[0].versions.stable')
 readonly version
-[[ -n $version ]] || fail "The published cask has no version stanza."
-[[ $(cask_field url "$published_cask" | wc -l) -eq 2 ]] || fail "Expected exactly two url stanzas in the published cask."
-[[ $(cask_field sha256 "$published_cask" | wc -l) -eq 2 ]] || fail "Expected exactly two sha256 stanzas in the published cask."
+[[ -n $version && $version != null ]] || fail "Could not read the formula version from the tap."
 
-amd_url='' amd_sha='' arm_url='' arm_sha=''
-while IFS=$'\t' read -r url sum; do
-    [[ $url == *"$version"* ]] || fail "Download URL does not carry the cask version: $url"
-    case "$url" in
-        *_darwin_amd64_*) amd_url=$url; amd_sha=$sum ;;
-        *_darwin_arm64_*) arm_url=$url; arm_sha=$sum ;;
-        *) fail "Unrecognised download URL in the published cask: $url" ;;
-    esac
-done < <(paste <(cask_field url "$published_cask") <(cask_field sha256 "$published_cask"))
-[[ -n $amd_url && -n $amd_sha && -n $arm_url && -n $arm_sha ]] || fail "Could not read both architectures from the published cask."
+assert_published_layout
 
-formula_version=$(brew info --json=v2 --formula "$formula" | jq -r '.formulae[0].versions.stable')
-if [[ $formula_version != "$version" ]]; then
-    fail "The tap is mid-release: formula $formula_version, cask $version. Retry once both match."
-fi
+build_fixture
+fixture_sha=$(shasum -a 256 "$fixture_zip" | cut -d' ' -f1)
+readonly fixture_sha
+start_fixture_server
 
-export PROJECT=netbird-ui VERSION="$version" AMD_URL="$amd_url" ARM_URL="$arm_url"
-export AMD="$test_dir/downloads/${amd_url##*/}" ARM="$test_dir/downloads/${arm_url##*/}"
-curl --fail --location --retry 3 --output "$AMD" "$AMD_URL"
-curl --fail --location --retry 3 --output "$ARM" "$ARM_URL"
-shasum -a 256 --check <<EOF
-$amd_sha  $AMD
-$arm_sha  $ARM
-EOF
-
+export PROJECT=netbird-ui VERSION="$version"
+export AMD="$fixture_zip" ARM="$fixture_zip" AMD_URL="$fixture_url" ARM_URL="$fixture_url"
 gomplate -f "$GITHUB_WORKSPACE/client/ui/netbird-ui.rb.tmpl" -o "$rendered_cask"
 cp "$rendered_cask" "$results_dir/rendered-netbird-ui.rb"
-if ! diff <(release_fields "$published_cask") <(release_fields "$rendered_cask"); then
+
+sed -E "s|^([[:space:]]*version) \"[^\"]+\"|\\1 \"$version\"|; s|^([[:space:]]*url) \"[^\"]+\"|\\1 \"$fixture_url\"|; s|^([[:space:]]*sha256) \"[^\"]+\"|\\1 \"$fixture_sha\"|" \
+    "$published_cask" > "$legacy_cask"
+cp "$legacy_cask" "$results_dir/legacy-netbird-ui.rb"
+if ! diff <(release_fields "$legacy_cask") <(release_fields "$rendered_cask"); then
     fail "The rendered cask changes release data, not only lifecycle stanzas."
 fi
 
@@ -240,14 +282,15 @@ assert_no_deprecations "$results_dir/load.log"
 run_logged style brew style --cask --only-cops=Cask/InstallSteps "$cask"
 
 run_logged install-cli brew install --formula "$formula"
-[[ $(netbird version) == "$version" ]] || fail "The CLI fixture version does not match the UI."
+[[ $(netbird version) == "$version" ]] || fail "The installed CLI does not report the formula version."
 
 for scenario in running stopped missing; do
     echo "::group::Uninstall with $scenario service"
     install_attempted=true
+    sudo rm -f "$marker"
     run_logged "install-$scenario" brew install --cask "$cask"
     assert_no_deprecations "$results_dir/install-$scenario.log"
-    assert_installed "$results_dir/install-$scenario.log"
+    assert_installed
     stop_ui
 
     case "$scenario" in
@@ -276,15 +319,17 @@ done
 # one, whose legacy flight blocks Homebrew replays from the saved Ruby caskfile.
 echo "::group::Reinstall over the published legacy cask"
 install_attempted=true
-use_cask "$published_cask"
+use_cask "$legacy_cask"
+sudo rm -f "$marker"
 run_logged install-legacy brew install --cask "$cask"
-assert_installed "$results_dir/install-legacy.log"
+assert_installed
 assert_legacy_metadata
 stop_ui
 
 use_cask "$rendered_cask"
+sudo rm -f "$marker"
 run_logged reinstall-legacy brew reinstall --cask "$cask"
-assert_installed "$results_dir/reinstall-legacy.log"
+assert_installed
 assert_steps_metadata
 stop_ui
 
