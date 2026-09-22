@@ -205,8 +205,8 @@ func TestNetworkMapComponents_SkipRouteFirewallRules(t *testing.T) {
 		"skipping route firewall rules must not change the routes")
 	assert.ElementsMatch(t, peerIDs(full.Peers), peerIDs(skipped.Peers),
 		"skipping route firewall rules must not change the peers to connect")
-	assert.Len(t, skipped.FirewallRules, len(full.FirewallRules),
-		"peer firewall rules are unrelated and must still be computed")
+	assert.Equal(t, full.FirewallRules, skipped.FirewallRules,
+		"peer firewall rules are unrelated and must come out unchanged")
 }
 
 func routeNetworks(routes []*nmdata.Route) []string {
