@@ -83,6 +83,9 @@ func newTestServer(t *testing.T, addr string) *Server {
 		AuthValidator:  &allow.Auth{},
 	})
 	require.NoError(t, err)
+	t.Cleanup(func() {
+		assert.NoError(t, srv.Shutdown(context.Background()))
+	})
 	return srv
 }
 

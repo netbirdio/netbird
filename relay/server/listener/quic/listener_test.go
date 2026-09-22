@@ -50,14 +50,19 @@ func TestListener_ShutdownStopsServe(t *testing.T) {
 	// only a session handed to acceptFn proves Serve is blocked in Accept when
 	// Shutdown arrives.
 	dialTestSession(t, addr)
+	var conn relaylistener.Conn
 	select {
-	case <-accepted:
+	case conn = <-accepted:
 	case <-time.After(5 * time.Second):
 		t.Fatal("listener did not accept the test session")
 	}
 
 	require.NoError(t, l.Shutdown(context.Background()))
 	assert.NoError(t, waitForServeToReturn(t, errChan))
+
+	// Shutdown leaves accepted sessions alive, as the relay closes its peers itself,
+	// and quic-go keeps the UDP socket bound until the last session is gone.
+	require.NoError(t, conn.Close())
 	requireUDPAddressFree(t, addr)
 }
 
@@ -109,8 +114,9 @@ func waitForServeToReturn(t *testing.T, errChan <-chan error) error {
 	}
 }
 
-// quic-go closes the UDP socket from its read loop after Close returns, so the
-// address is polled rather than checked once.
+// quic-go retires a closed session's connection IDs on a timer and closes the UDP
+// socket from its read loop once the last one is gone, so the address is polled
+// rather than checked once.
 func requireUDPAddressFree(t *testing.T, addr string) {
 	t.Helper()
 	require.Eventually(t, func() bool {

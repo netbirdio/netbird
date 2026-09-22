@@ -12,10 +12,12 @@ import (
 )
 
 type closeRecorderConn struct {
+	reads  int
 	closed bool
 }
 
 func (c *closeRecorderConn) Read(context.Context, []byte) (int, error) {
+	c.reads++
 	return 0, net.ErrClosed
 }
 
@@ -47,4 +49,7 @@ func TestRelay_AcceptAfterShutdownClosesConn(t *testing.T) {
 	conn := &closeRecorderConn{}
 	relay.Accept(conn)
 	assert.True(t, conn.closed, "a connection accepted after shutdown must be closed")
+	// The handshake error path closes the connection too, so only an untouched Read
+	// proves the closed guard rejected it before any handshake.
+	assert.Zero(t, conn.reads, "a connection accepted after shutdown must not be read")
 }
