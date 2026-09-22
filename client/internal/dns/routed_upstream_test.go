@@ -289,12 +289,12 @@ func TestBuildUpstreamHandlerUpdateSkipsWithheldGroups(t *testing.T) {
 	}
 
 	groups := []*nbdns.NameServerGroup{routed, public}
-	withheld := map[nsGroupID]bool{
+	allowed := map[nsGroupID]bool{
 		generateGroupKey(routed): false,
 		generateGroupKey(public): true,
 	}
 
-	updates, err := server.buildUpstreamHandlerUpdate(groups, allowFuncFrom(withheld))
+	updates, err := server.buildUpstreamHandlerUpdate(groups, allowFuncFrom(allowed))
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		for _, u := range updates {
