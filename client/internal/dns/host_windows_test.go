@@ -94,6 +94,145 @@ func TestNRPTEntriesCleanupOnConfigChange(t *testing.T) {
 	assert.False(t, exists, "NRPT rule 2 should NOT exist after reducing to 75 domains")
 }
 
+// TestNRPTCatchAllRule verifies that RouteAll adds the root namespace to the
+// match rule instead of a rule of its own, that .local is carved back out with
+// an empty server list, and that both go away when RouteAll is cleared or the
+// host DNS is restored.
+func TestNRPTCatchAllRule(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping registry integration test in short mode")
+	}
+
+	defer cleanupRegistryKeys(t)
+	cleanupRegistryKeys(t)
+
+	testIP := netip.MustParseAddr("100.64.0.1")
+	testGUID := "{12345678-1234-1234-1234-123456789ABC}"
+	interfacePath := InterfaceConfigPath + `\` + testGUID
+	testKey, _, err := registry.CreateKey(registry.LOCAL_MACHINE, interfacePath, registry.SET_VALUE)
+	require.NoError(t, err, "Should create test interface registry key")
+	require.NoError(t, testKey.Close(), "close test interface registry key")
+	defer func() {
+		assert.NoError(t, registry.DeleteKey(registry.LOCAL_MACHINE, interfacePath), "delete test interface registry key")
+	}()
+
+	cfg := &registryConfigurator{guid: testGUID}
+
+	matchOnly := HostDNSConfig{
+		ServerIP: testIP,
+		Domains:  []DomainConfig{{Domain: "example.com", MatchOnly: true}},
+	}
+	primary := HostDNSConfig{
+		ServerIP: testIP,
+		RouteAll: true,
+		Domains:  []DomainConfig{{Domain: "example.com", MatchOnly: true}},
+	}
+	firstRule := fmt.Sprintf("%s-0", dnsPolicyConfigMatchPath)
+
+	// The root namespace is not a rule of its own: it rides in the match rule,
+	// which is the point of it not being a special case.
+	require.NoError(t, cfg.applyDNSConfig(matchOnly, nil))
+	names := ruleNamespaces(t, firstRule)
+	assert.Contains(t, names, ".example.com")
+	assert.NotContains(t, names, nrptCatchAllNamespace, "a match-only config must not claim every namespace")
+
+	require.NoError(t, cfg.applyDNSConfig(primary, nil))
+	names = ruleNamespaces(t, firstRule)
+	assert.Contains(t, names, ".example.com")
+	assert.Contains(t, names, nrptCatchAllNamespace, "RouteAll should add the root namespace to the match rule")
+
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, firstRule, registry.QUERY_VALUE)
+	require.NoError(t, err)
+	servers, _, err := k.GetStringValue(dnsPolicyConfigGenericDNSServersKey)
+	require.NoError(t, err)
+	assert.Equal(t, testIP.String(), servers, "every namespace in the rule resolves through our resolver")
+	require.NoError(t, k.Close(), "close match rule key")
+
+	// .local is carved back out: RFC 6762 reserves it for mDNS, so it needs a
+	// rule of its own — it is the one rule with a different server list.
+	ek, err := registry.OpenKey(registry.LOCAL_MACHINE, dnsPolicyConfigExemptLocalPath, registry.QUERY_VALUE)
+	require.NoError(t, err, "exemption rule should exist once the root namespace is claimed")
+
+	exemptNames, _, err := ek.GetStringsValue(dnsPolicyConfigNameKey)
+	require.NoError(t, err)
+	assert.Equal(t, []string{nrptLocalNamespace}, exemptNames, "the exemption should name only the mDNS namespace")
+
+	exemptServers, _, err := ek.GetStringValue(dnsPolicyConfigGenericDNSServersKey)
+	require.NoError(t, err, "the value has to be present, empty: without it Windows drops the rule")
+	assert.Empty(t, exemptServers, "an exemption rule lists no servers")
+
+	exemptOpts, _, err := ek.GetIntegerValue(dnsPolicyConfigConfigOptionsKey)
+	require.NoError(t, err)
+	assert.EqualValues(t, dnsPolicyConfigConfigOptionsValue, exemptOpts, "same options as a normal rule; the empty server list is what makes it an exemption")
+	require.NoError(t, ek.Close(), "close exemption rule key")
+
+	require.NoError(t, cfg.applyDNSConfig(matchOnly, nil))
+	names = ruleNamespaces(t, firstRule)
+	assert.NotContains(t, names, nrptCatchAllNamespace, "clearing RouteAll should drop the root namespace")
+
+	exists, err := registryKeyExists(dnsPolicyConfigExemptLocalPath)
+	require.NoError(t, err)
+	assert.False(t, exists, "exemption rule should go with the namespace it carves out of")
+
+	require.NoError(t, cfg.applyDNSConfig(primary, nil))
+	require.NoError(t, cfg.restoreHostDNS())
+	exists, err = registryKeyExists(firstRule)
+	require.NoError(t, err)
+	assert.False(t, exists, "restore should leave no rule behind")
+}
+
+// ruleNamespaces returns the namespaces an NRPT rule key claims.
+func ruleNamespaces(t *testing.T, path string) []string {
+	t.Helper()
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, path, registry.QUERY_VALUE)
+	require.NoError(t, err, "rule key %s should exist", path)
+	defer k.Close()
+
+	names, _, err := k.GetStringsValue(dnsPolicyConfigNameKey)
+	require.NoError(t, err)
+	return names
+}
+
+// TestNRPTCatchAllRuleLegacyEnv verifies that NB_USE_LEGACY_DNS_RESOLUTION
+// leaves the root namespace unclaimed, so no rule is written for a RouteAll
+// config that carries no match domains.
+func TestNRPTCatchAllRuleLegacyEnv(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping registry integration test in short mode")
+	}
+
+	defer cleanupRegistryKeys(t)
+	cleanupRegistryKeys(t)
+
+	t.Setenv(envLegacyDNSResolution, "true")
+
+	testGUID := "{12345678-1234-1234-1234-123456789ABC}"
+	interfacePath := InterfaceConfigPath + `\` + testGUID
+	testKey, _, err := registry.CreateKey(registry.LOCAL_MACHINE, interfacePath, registry.SET_VALUE)
+	require.NoError(t, err, "Should create test interface registry key")
+	require.NoError(t, testKey.Close(), "close test interface registry key")
+	defer func() {
+		assert.NoError(t, registry.DeleteKey(registry.LOCAL_MACHINE, interfacePath), "delete test interface registry key")
+	}()
+
+	cfg := &registryConfigurator{guid: testGUID}
+	config := HostDNSConfig{
+		ServerIP: netip.MustParseAddr("100.64.0.1"),
+		RouteAll: true,
+	}
+
+	require.NoError(t, cfg.applyDNSConfig(config, nil))
+
+	// RouteAll with no match domains and the switch set leaves nothing to write.
+	exists, err := registryKeyExists(fmt.Sprintf("%s-0", dnsPolicyConfigMatchPath))
+	require.NoError(t, err)
+	assert.False(t, exists, "no rule should be written when the legacy env var is set")
+
+	exists, err = registryKeyExists(dnsPolicyConfigExemptLocalPath)
+	require.NoError(t, err)
+	assert.False(t, exists, "no exemption without a claimed root namespace")
+}
+
 func registryKeyExists(path string) (bool, error) {
 	k, err := registry.OpenKey(registry.LOCAL_MACHINE, path, registry.QUERY_VALUE)
 	if err != nil {

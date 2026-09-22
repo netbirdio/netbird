@@ -606,16 +606,19 @@ func (m *Manager) resolveEffectiveCluster(ctx context.Context, accountID string,
 		return existing.ProxyCluster, nil
 	}
 
-	if m.clusterDeriver != nil {
-		derived, err := m.clusterDeriver.DeriveClusterFromDomain(ctx, accountID, svc.Domain)
-		if err != nil {
-			log.WithError(err).Warnf("could not derive cluster from domain %s", svc.Domain)
-		} else {
-			return derived, nil
-		}
+	if m.clusterDeriver == nil {
+		return existing.ProxyCluster, nil
 	}
 
-	return existing.ProxyCluster, nil
+	// Falling back to the old cluster here would let an update move a service
+	// onto a domain the account has not validated, bypassing the check that
+	// creation makes.
+	derived, err := m.clusterDeriver.DeriveClusterFromDomain(ctx, accountID, svc.Domain)
+	if err != nil {
+		return "", status.Errorf(status.PreconditionFailed, "could not derive cluster from domain %s: %v", svc.Domain, err)
+	}
+
+	return derived, nil
 }
 
 func (m *Manager) executeServiceUpdate(ctx context.Context, transaction store.Store, accountID string, service *service.Service, updateInfo *serviceUpdateInfo, customPorts *bool, effectiveCluster string) error {

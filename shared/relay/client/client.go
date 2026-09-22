@@ -14,7 +14,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/client/netsweep"
+	"github.com/netbirdio/netbird/client/netevents/sweep"
 	auth "github.com/netbirdio/netbird/shared/relay/auth/hmac"
 	"github.com/netbirdio/netbird/shared/relay/client/dialer"
 	netErr "github.com/netbirdio/netbird/shared/relay/client/dialer/net"
@@ -30,6 +30,12 @@ const (
 
 var (
 	ErrConnAlreadyExists = fmt.Errorf("connection already exists")
+	// ErrServerDisconnected is the cancellation cause of a relayed Conn when the
+	// client lost the connection to the relay server.
+	ErrServerDisconnected = fmt.Errorf("relay server disconnected")
+	// ErrPeerDisconnected is the cancellation cause of a relayed Conn when the
+	// remote peer went offline.
+	ErrPeerDisconnected = fmt.Errorf("remote peer disconnected")
 )
 
 type internalStopFlag struct {
@@ -74,16 +80,17 @@ type connContainer struct {
 	msgChanLock sync.Mutex
 	closed      bool // flag to check if channel is closed
 	ctx         context.Context
-	cancel      context.CancelFunc
+	cancel      context.CancelCauseFunc
 }
 
 func newConnContainer(log *log.Entry, c *Client, peerID messages.PeerID, instanceURL *RelayAddr) *connContainer {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancelCause(context.Background())
 	msgChan := make(chan Msg, connChannelSize)
 	cn := &Conn{
 		dstID:       peerID,
 		messageChan: msgChan,
 		instanceURL: instanceURL,
+		ctx:         ctx,
 	}
 	cc := &connContainer{
 		log:      log,
@@ -106,10 +113,6 @@ func newConnContainer(log *log.Entry, c *Client, peerID messages.PeerID, instanc
 	return cc
 }
 
-func (cc *connContainer) netConn() net.Conn {
-	return cc.conn
-}
-
 func (cc *connContainer) writeMsg(msg Msg) {
 	cc.msgChanLock.Lock()
 	defer cc.msgChanLock.Unlock()
@@ -128,8 +131,8 @@ func (cc *connContainer) writeMsg(msg Msg) {
 	}
 }
 
-func (cc *connContainer) close() {
-	cc.cancel()
+func (cc *connContainer) close(cause error) {
+	cc.cancel(cause)
 
 	cc.msgChanLock.Lock()
 	defer cc.msgChanLock.Unlock()
@@ -149,6 +152,14 @@ func (cc *connContainer) close() {
 // transportConn is implemented by relay connections that know their transport.
 type transportConn interface {
 	Protocol() string
+}
+
+// NetEvents is the OS network event view the relay consumes: availability
+// gating for the reconnect guard and dial registration for the network change
+// sweep.
+type NetEvents interface {
+	NetworkWatcher
+	StartDial(ctx context.Context) *sweep.Dial
 }
 
 // Client is a client for the relay server. It is responsible for establishing a connection to the relay server and
@@ -186,9 +197,10 @@ type Client struct {
 	// the manager.
 	transportFallback *transportFallback
 
-	// sweeper cuts the relay connection on network change; the read loop
-	// reports the disconnect and the guard reconnects. Shared via the manager.
-	sweeper *netsweep.Sweeper
+	// netEvents registers the relay dial for the network change sweep; the
+	// read loop reports the disconnect and the guard reconnects. Shared via
+	// the manager.
+	netEvents NetEvents
 	// datagramFallbackTriggered guards a single fallback per connection so a
 	// burst of oversized datagrams triggers one reconnect, not many.
 	datagramFallbackTriggered atomic.Bool
@@ -270,7 +282,7 @@ func (c *Client) Connect(ctx context.Context) error {
 	c.stateSubscription = NewPeersStateSubscription(c.log, c.relayConn, c.closeConnsByPeerID)
 
 	c.log = c.log.WithField("relay", instanceURL.String())
-	c.log.Infof("relay connection established")
+	c.log.Infof("relay connection established, server IP: %s", connectedIP(c.relayConn))
 
 	c.serviceIsRunning = true
 
@@ -284,12 +296,12 @@ func (c *Client) Connect(ctx context.Context) error {
 	return nil
 }
 
-// OpenConn create a new net.Conn for the destination peer ID. In case if the connection is in progress
+// OpenConn create a new Conn for the destination peer ID. In case if the connection is in progress
 // to the relay server, the function will block until the connection is established or timed out. Otherwise,
 // it will return immediately.
 // It block until the server confirm the peer is online.
 // todo: what should happen if call with the same peerID with multiple times?
-func (c *Client) OpenConn(ctx context.Context, dstPeerID string) (net.Conn, error) {
+func (c *Client) OpenConn(ctx context.Context, dstPeerID string) (*Conn, error) {
 	peerID := messages.HashID(dstPeerID)
 
 	c.mu.Lock()
@@ -326,7 +338,7 @@ func (c *Client) OpenConn(ctx context.Context, dstPeerID string) (net.Conn, erro
 			delete(c.conns, peerID)
 		}
 		c.mu.Unlock()
-		container.close()
+		container.close(err)
 		return nil, err
 	}
 
@@ -336,13 +348,13 @@ func (c *Client) OpenConn(ctx context.Context, dstPeerID string) (net.Conn, erro
 			delete(c.conns, peerID)
 		}
 		c.mu.Unlock()
-		container.close()
+		container.close(ErrServerDisconnected)
 		return nil, fmt.Errorf("relay connection is not established")
 	}
 	c.mu.Unlock()
 
 	c.log.Infof("remote peer is available: %s", peerID)
-	return container.netConn(), nil
+	return container.conn, nil
 }
 
 // ServerInstanceURL returns the address of the relay server. It could change after the close and reopen the connection.
@@ -353,23 +365,6 @@ func (c *Client) ServerInstanceURL() (string, error) {
 		return "", fmt.Errorf("relay connection is not established")
 	}
 	return c.instanceURL.String(), nil
-}
-
-// ConnectedIP returns the IP address of the live relay-server connection,
-// extracted from the underlying socket's RemoteAddr. Zero value if not
-// connected or if the address is not an IP literal.
-func (c *Client) ConnectedIP() netip.Addr {
-	c.mu.Lock()
-	conn := c.relayConn
-	c.mu.Unlock()
-	if conn == nil {
-		return netip.Addr{}
-	}
-	addr := conn.RemoteAddr()
-	if addr == nil {
-		return netip.Addr{}
-	}
-	return extractIPLiteral(addr.String())
 }
 
 // SetOnDisconnectListener sets a function that will be called when the connection to the relay server is closed.
@@ -400,7 +395,12 @@ func (c *Client) Close() error {
 func (c *Client) connect(ctx context.Context) (*RelayAddr, error) {
 	// A sweep cancels this context, so a dial started on the old network
 	// aborts instead of waiting out its handshake timeout.
-	dial := c.sweeper.StartDial(ctx)
+	var dial *sweep.Dial
+	if c.netEvents != nil {
+		dial = c.netEvents.StartDial(ctx)
+	} else {
+		dial = (*sweep.Sweeper)(nil).StartDial(ctx)
+	}
 	defer dial.Release()
 	ctx = dial.Ctx()
 
@@ -763,9 +763,20 @@ func (c *Client) listenForStopEvents(ctx context.Context, hc *healthcheck.Receiv
 	}
 }
 
+func (c *Client) serverInstanceAddress() (string, netip.Addr, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	addr, err := c.ServerInstanceURL()
+	if err != nil {
+		return "", netip.Addr{}, err
+	}
+	return addr, connectedIP(c.relayConn), nil
+}
+
 func (c *Client) closeAllConns() {
 	for _, container := range c.conns {
-		container.close()
+		container.close(ErrServerDisconnected)
 	}
 	c.conns = make(map[messages.PeerID]*connContainer)
 
@@ -785,7 +796,7 @@ func (c *Client) closeConnsByPeerID(peerIDs []messages.PeerID) {
 		}
 
 		container.log.Infof("remote peer has been disconnected, free up connection: %s", peerID)
-		container.close()
+		container.close(ErrPeerDisconnected)
 		delete(c.conns, peerID)
 	}
 
@@ -813,7 +824,7 @@ func (c *Client) closeConn(containerRef *connContainer, id messages.PeerID) erro
 
 	c.log.Infof("free up connection to peer: %s", id)
 	delete(c.conns, id)
-	current.close()
+	current.close(net.ErrClosed)
 
 	return nil
 }
@@ -907,6 +918,17 @@ func (c *Client) handlePeersWentOfflineMsg(buf []byte) {
 		return
 	}
 	c.stateSubscription.OnPeersWentOffline(peersID)
+}
+
+func connectedIP(conn net.Conn) netip.Addr {
+	if conn == nil {
+		return netip.Addr{}
+	}
+	addr := conn.RemoteAddr()
+	if addr == nil {
+		return netip.Addr{}
+	}
+	return extractIPLiteral(addr.String())
 }
 
 // extractIPLiteral returns the IP from address forms produced by the relay

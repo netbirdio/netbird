@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/server/integration_reference"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
@@ -21,6 +20,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/management/integration_reference"
 )
 
 // TestGetAccount_LoadsCustomDomains verifies GetAccount populates account.Domains.
@@ -64,7 +64,7 @@ func assertGetAccountLoadsCustomDomains(t *testing.T, store Store) {
 
 	_, err := store.CreateCustomDomain(ctx, accountID, "example.com", "eu.proxy.netbird.io", true)
 	require.NoError(t, err, "creating the first custom domain must succeed")
-	_, err = store.CreateCustomDomain(ctx, accountID, "apps.acme.io", "us.proxy.netbird.io", false)
+	pending, err := store.CreateCustomDomain(ctx, accountID, "apps.acme.io", "us.proxy.netbird.io", false)
 	require.NoError(t, err, "creating the second custom domain must succeed")
 
 	account, err := store.GetAccount(ctx, accountID)
@@ -75,6 +75,10 @@ func assertGetAccountLoadsCustomDomains(t *testing.T, store Store) {
 	for _, d := range account.Domains {
 		require.NotNil(t, d)
 		byDomain[d.Domain] = d.TargetCluster
+		if d.ID == pending.ID {
+			require.NotNil(t, d.ValidationExpiresAt)
+			assert.WithinDuration(t, *pending.ValidationExpiresAt, *d.ValidationExpiresAt, time.Millisecond, "both account loaders must preserve the validation deadline")
+		}
 	}
 	assert.Equal(t, "eu.proxy.netbird.io", byDomain["example.com"], "custom domain must carry its target cluster")
 	assert.Equal(t, "us.proxy.netbird.io", byDomain["apps.acme.io"], "custom domain must carry its target cluster")

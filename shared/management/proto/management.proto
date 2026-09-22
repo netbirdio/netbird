@@ -114,6 +114,9 @@ message BundleParameters {
   // (or empty) keeps internal IP ranges, "strict" also anonymizes them.
   // Unknown values are treated as "strict".
   string anonymize_level  = 5;
+  // upload_url is the service URL the client requests an upload URL from
+  // before uploading the bundle. Empty selects the default upload server.
+  string upload_url       = 6;
 }
 
 message BundleResult {
@@ -231,6 +234,11 @@ message Flags {
   bool disableSSHAuth = 15;
 
   bool disableIPv6 = 16;
+
+  // remoteJobsAllowed mirrors the peer's local opt-in for management-requested
+  // remote jobs (e.g. debug bundles). Reported so the dashboard can surface
+  // peers that have opted out.
+  bool remoteJobsAllowed = 17;
 }
 
 // PeerCapability represents a feature the client binary supports.
@@ -501,6 +509,22 @@ message RemotePeerConfig {
   string fqdn = 4;
 
   string agentVersion = 5;
+
+  // lazyState is the management per-peer override for lazy (on-demand)
+  // connections to this remote peer. LazyStateDefault follows the account-wide
+  // flag; LazyStateLazy forces lazy; LazyStateEager forces an always-active
+  // connection. A local NB_LAZY_CONN/MDM override still wins over this.
+  LazyState lazyState = 6;
+}
+
+// LazyState is the management per-peer override for lazy connections.
+enum LazyState {
+  // Follow the account-wide lazy connection flag.
+  LazyStateDefault = 0;
+  // Force a lazy (on-demand) connection regardless of the account flag.
+  LazyStateLazy = 1;
+  // Force an always-active connection regardless of the account flag.
+  LazyStateEager = 2;
 }
 
 // SSHConfig represents SSH configurations of a peer.
@@ -1016,6 +1040,11 @@ message PeerCompact {
   // (port 22022) is only added when this flag is set and the peer agent
   // version supports it.
   bool server_ssh_allowed = 13;
+
+  // Mirror of types.Peer.ProxyMeta.Embedded. Connections involving an
+  // ephemeral proxy peer on either endpoint default to lazy, so this bit
+  // feeds the per-peer lazyState emitted in RemotePeerConfig.
+  bool proxy_embedded = 14;
 }
 
 // PolicyCompact is the compact form of a policy rule. Group references use
@@ -1073,13 +1102,12 @@ message PolicyCompact {
 // ResourceCompact mirrors types.Resource. Used by PolicyCompact to carry
 // rule.SourceResource / rule.DestinationResource when the rule targets a
 // specific resource (typically a peer) rather than groups.
-// peer_index_set tells whether peer_index is valid (proto3 uint32 cannot
-// disambiguate "0" from "unset"); set only when type == "peer".
 message ResourceCompact {
   string type = 1;
   bool peer_index_set = 2;
   uint32 peer_index = 3;
-  reserved 4; // future: host/subnet/domain references when needed
+  reserved 4;
+  string id = 5; // public id for domain/host/subnet resources
 }
 
 // UserNameList is a list of local-user names — used as the value type in
@@ -1103,6 +1131,8 @@ message GroupCompact {
   // groups lose that property and the two sides expand policy
   // destinations differently.
   bool is_all = 3;
+
+  repeated ResourceCompact resources = 4;
 }
 
 // DNSSettingsCompact mirrors types.DNSSettings.

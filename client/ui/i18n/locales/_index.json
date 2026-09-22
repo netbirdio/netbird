@@ -1,6 +1,7 @@
 {
     "languages": [
         {"code": "en", "displayName": "English (US)", "englishName": "English (US)"},
+        {"code": "uk", "displayName": "Українська", "englishName": "Ukrainian"},
         {"code": "de", "displayName": "Deutsch", "englishName": "German"},
         {"code": "hu", "displayName": "Magyar", "englishName": "Hungarian"},
         {"code": "ru", "displayName": "Русский", "englishName": "Russian"},

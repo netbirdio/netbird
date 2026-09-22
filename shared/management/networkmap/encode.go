@@ -17,10 +17,11 @@ import (
 	log "github.com/sirupsen/logrus"
 	goproto "google.golang.org/protobuf/proto"
 
-	nbdns "github.com/netbirdio/netbird/dns"
 	"net/netip"
 
-	nbroute "github.com/netbirdio/netbird/route"
+	nbdns "github.com/netbirdio/netbird/dns"
+
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/management/types"
 	"github.com/netbirdio/netbird/shared/netiputil"
@@ -28,7 +29,7 @@ import (
 )
 
 // ToProtocolRoutes converts a slice of typed routes to their proto form.
-func ToProtocolRoutes(routes []*nbroute.Route) []*proto.Route {
+func ToProtocolRoutes(routes []*nmdata.Route) []*proto.Route {
 	protoRoutes := make([]*proto.Route, 0, len(routes))
 	for _, r := range routes {
 		protoRoutes = append(protoRoutes, ToProtocolRoute(r))
@@ -37,7 +38,7 @@ func ToProtocolRoutes(routes []*nbroute.Route) []*proto.Route {
 }
 
 // ToProtocolRoute converts one typed route to its proto form.
-func ToProtocolRoute(route *nbroute.Route) *proto.Route {
+func ToProtocolRoute(route *nmdata.Route) *proto.Route {
 	return &proto.Route{
 		ID:            string(route.ID),
 		NetID:         string(route.NetID),
@@ -272,8 +273,9 @@ func ToProtocolDNSConfig(update nbdns.Config, cache DNSConfigCache, forwardPort 
 }
 
 // AppendRemotePeerConfig appends typed peers as proto.RemotePeerConfig
-// entries to dst and returns the result.
-func AppendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*types.ComponentPeer, dnsName string, includeIPv6 bool) []*proto.RemotePeerConfig {
+// entries to dst and returns the result. localIsProxy reports whether the peer
+// receiving this config is itself an embedded proxy.
+func AppendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*nmdata.Peer, dnsName string, includeIPv6 bool, localIsProxy bool) []*proto.RemotePeerConfig {
 	for _, rPeer := range peers {
 		allowedIPs := []string{rPeer.IP.String() + "/32"}
 		if includeIPv6 && rPeer.IPv6.IsValid() {
@@ -284,10 +286,23 @@ func AppendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*types.Compon
 			AllowedIps:   allowedIPs,
 			SshConfig:    &proto.SSHConfig{SshPubKey: []byte(rPeer.SSHKey)},
 			Fqdn:         rPeer.FQDN(dnsName),
-			AgentVersion: rPeer.AgentVersion,
+			AgentVersion: rPeer.Meta.WtVersion,
+			LazyState:    lazyStateFor(localIsProxy, rPeer),
 		})
 	}
 	return dst
+}
+
+// lazyStateFor returns the per-peer lazy override for a remote peer. Connections
+// involving an ephemeral proxy peer on either endpoint default to lazy so shared
+// proxy infrastructure is not kept permanently connected to every peer. All
+// other peers follow the account-wide flag. A future admin-facing per-peer
+// setting can return LazyStateEager here to force a peer always-active.
+func lazyStateFor(localIsProxy bool, rPeer *nmdata.Peer) proto.LazyState {
+	if localIsProxy || rPeer.ProxyMeta.Embedded {
+		return proto.LazyState_LazyStateLazy
+	}
+	return proto.LazyState_LazyStateDefault
 }
 
 // BuildAuthorizedUsersProto deduplicates user-IDs into a hashed list and

@@ -56,9 +56,9 @@ func WriteJson(ctx context.Context, file string, obj interface{}) error {
 }
 
 // DirectWriteJson writes JSON config object to a file creating parent directories if required without creating a temporary file
-func DirectWriteJson(ctx context.Context, file string, obj interface{}) error {
+func DirectWriteJson(ctx context.Context, file string, obj interface{}) (err error) {
 
-	_, _, err := prepareConfigFileDir(file)
+	_, _, err = prepareConfigFileDir(file)
 	if err != nil {
 		return err
 	}
@@ -68,11 +68,24 @@ func DirectWriteJson(ctx context.Context, file string, obj interface{}) error {
 		return err
 	}
 
+	// Named return so a failed Close is reported rather than logged and
+	// swallowed: the write is only durable once the file closes cleanly, and a
+	// caller told "written" would carry on with data that never landed.
 	defer func() {
-		err = targetFile.Close()
-		if err != nil {
-			log.Errorf("failed to close file %s: %v", file, err)
+		cerr := targetFile.Close()
+		if cerr == nil {
+			return
 		}
+		if err == nil {
+			// Returned, not logged: the caller reports it once.
+			err = cerr
+			return
+		}
+		// The body already failed and that error is the one the caller gets, so
+		// it is the one that explains the failure. This is then the only place
+		// the close failure can surface — at debug, per the logging rules for
+		// close errors on writes.
+		log.Debugf("failed to close file %s after %v: %v", file, err, cerr)
 	}()
 
 	// make it pretty

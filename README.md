@@ -26,7 +26,7 @@
   <strong>
     Start using NetBird at <a href="https://netbird.io/pricing">netbird.io</a>
     <br/>
-    See <a href="https://netbird.io/docs/">Documentation</a>
+    See <a href="https://docs.netbird.io/">Documentation</a>
     <br/>
     Join our <a href="https://docs.netbird.io/slack-url">Slack channel</a> or our <a href="https://forum.netbird.io">Community forum</a>
   </strong>
