@@ -2,6 +2,8 @@ package grpc
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"time"
 
@@ -12,9 +14,10 @@ import (
 )
 
 // SingleUseStore holds short-lived, single-use values in the shared cache
-// (in-memory or Redis via NB_IDP_CACHE_REDIS_ADDRESS). LoadAndDelete consumes a
-// value so only one caller can redeem it. Currently backs the OAuth PKCE
-// verifiers (keyed by the caller's state parameter).
+// (memory or Redis via NB_IDP_CACHE_REDIS_ADDRESS). It backs both the OAuth
+// PKCE verifiers (keyed by the caller's state) and the OIDC session exchange
+// codes (keyed by a generated random code). LoadAndDelete consumes a value so
+// only one caller can redeem it.
 type SingleUseStore struct {
 	cache nbcache.Store
 	ctx   context.Context
@@ -34,6 +37,20 @@ func (s *SingleUseStore) Store(key, value string, ttl time.Duration) error {
 		return fmt.Errorf("store single-use value: %w", err)
 	}
 	return nil
+}
+
+// Generate stores a value for one-time retrieval and returns its random key.
+func (s *SingleUseStore) Generate(value string, ttl time.Duration) (string, error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", fmt.Errorf("generate single-use key: %w", err)
+	}
+
+	key := base64.RawURLEncoding.EncodeToString(buf)
+	if err := s.Store(key, value, ttl); err != nil {
+		return "", err
+	}
+	return key, nil
 }
 
 // LoadAndDelete retrieves and removes the value for key, returning it and true
