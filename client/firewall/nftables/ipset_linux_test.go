@@ -139,7 +139,7 @@ func TestCommitPendingSetsSkipsUnrelated(t *testing.T) {
 	assert.True(t, b, "sets not named by this commit must stay queued")
 }
 
-func TestCommitOverflowOrRollbackDiscardsQueuedOnly(t *testing.T) {
+func TestCommitOverflowOrRollbackKeepsPendingOnRollback(t *testing.T) {
 	rolled := false
 	r := &family{
 		sConn: &nftables.Conn{},
@@ -162,7 +162,41 @@ func TestCommitOverflowOrRollbackDiscardsQueuedOnly(t *testing.T) {
 	_, keep := r.pendingSetElements["keep"]
 	_, drop := r.pendingSetElements["drop"]
 	assert.True(t, keep, "unrelated pending prefixes must not be discarded")
-	assert.False(t, drop)
+	assert.True(t, drop, "rollback drops refs, not pending: a shared set's overflow belongs to its other users")
+}
+
+func TestPendingOverflowTracksSetRefcount(t *testing.T) {
+	r := &family{
+		sConn:              &nftables.Conn{},
+		pendingSetElements: make(map[string]pendingSetUpdate),
+		testPendingFlush:   func() error { return nil },
+	}
+	r.ipsetCounter = refcounter.New(
+		func(key string, _ setInput) (*nftables.Set, error) {
+			return &nftables.Set{
+				Name:  key,
+				Table: &nftables.Table{Name: "netbird", Family: nftables.TableFamilyIPv4},
+			}, nil
+		},
+		r.deleteIpSet,
+	)
+
+	_, err := r.ipsetCounter.Increment("shared", setInput{})
+	require.NoError(t, err)
+	_, err = r.ipsetCounter.Increment("shared", setInput{})
+	require.NoError(t, err, "two rules with the same source list share one refcounted set")
+
+	r.pendingSetElements["shared"] = pendingUpdate("shared")
+
+	_, err = r.ipsetCounter.Decrement("shared")
+	require.NoError(t, err, "first rule leaves, set still referenced by the second")
+	_, ok := r.pendingSetElements["shared"]
+	assert.True(t, ok, "shared pending overflow must survive while another rule still uses the set")
+
+	_, err = r.ipsetCounter.Decrement("shared")
+	require.NoError(t, err, "second rule leaves, last reference released")
+	_, ok = r.pendingSetElements["shared"]
+	assert.False(t, ok, "pending overflow must be released exactly when its set is deleted")
 }
 
 func TestCommitOverflowOrRollbackKeepsPendingIfRollbackFails(t *testing.T) {

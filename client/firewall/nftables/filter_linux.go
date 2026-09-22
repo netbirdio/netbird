@@ -380,7 +380,6 @@ func (r *family) DeleteFilterRule(rule firewall.Rule) error {
 			return err
 		}
 		r.dropNetworkMatch(pr.nftRule.Exprs)
-		r.discardPendingSets(r.pendingForExprs(pr.nftRule.Exprs))
 		delete(r.filters, ruleID)
 		return nil
 	}
@@ -394,7 +393,6 @@ func (r *family) DeleteFilterRule(rule firewall.Rule) error {
 	}
 
 	r.dropNetworkMatch(pr.nftRule.Exprs)
-	r.discardPendingSets(r.pendingForExprs(pr.nftRule.Exprs))
 	delete(r.filters, ruleID)
 	return nil
 }

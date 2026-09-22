@@ -107,15 +107,13 @@ func (r *family) commitPendingSetsOnce(names []string) error {
 }
 
 // commitOverflowOrRollback commits overflow for sets used by the current
-// Add*. On failure after retries it rolls the live rule back. Pending
-// overflow is discarded only when that rollback deletes the rule; otherwise
-// the suffix is kept so a retry can finish the set instead of reusing a
-// truncated one.
+// Add*. On failure after retries it rolls the live rule back. The rollback
+// drops the rule's set refs and leaves the pending overflow alone; that is
+// released by deleteIpSet when the last reference to a set goes away, so a
+// shared set keeps its suffix for the other rules that still depend on it.
 func (r *family) commitOverflowOrRollback(queued []string, rollback func() bool) error {
 	if err := r.commitPendingSets(queued); err != nil {
-		if rollback() {
-			r.discardPendingSets(queued)
-		}
+		rollback()
 		return fmt.Errorf("add remaining ipset elements: %w", err)
 	}
 	return nil
@@ -262,16 +260,21 @@ func uint32ToBytes(ip uint32) [4]byte {
 }
 
 // deleteIpSet removes a named set from the kernel via sConn, the dedicated
-// set connection.
+// set connection, and releases the set's pending overflow. Pending overflow
+// is owned by the set: once the last reference drops and the set is gone
+// nothing needs the suffix committed, but a set with remaining users keeps
+// it for the rules that still depend on it.
 func (r *family) deleteIpSet(setName string, nfset *nftables.Set) error {
 	r.sConn.DelSet(nfset)
-	if err := r.sConn.Flush(); err != nil {
+	if err := r.flushSetElements(); err != nil {
 		if errors.Is(err, syscall.ENOENT) {
+			delete(r.pendingSetElements, setName)
 			return nil
 		}
 		return fmt.Errorf(flushError, err)
 	}
 
+	delete(r.pendingSetElements, setName)
 	log.Debugf("Deleted unused ipset %s", setName)
 	return nil
 }

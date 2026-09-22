@@ -96,9 +96,12 @@ type family struct {
 	// cannot join the rule batch. They are committed on sConn after the
 	// rule flush has created the set. A failed overflow after retries
 	// rolls the rule back; leftover entries are not reported as success.
+	// Entries are released by deleteIpSet when the last reference to the
+	// set drops, never on a per-rule delete that may share the set.
 	pendingSetElements map[string]pendingSetUpdate
-	// testPendingFlush, when set, drives addElementBatches without netlink:
-	// SetAddElements is skipped and Flush is replaced by this hook.
+	// testPendingFlush, when set, drives sConn flushes without netlink:
+	// element adds are skipped and Flush is replaced by this hook. Element
+	// batches and set deletes both go through it.
 	testPendingFlush func() error
 	workTable        *nftables.Table
 	filterTable      *nftables.Table
