@@ -124,7 +124,7 @@ func TestConnect_WithAccountID(t *testing.T) {
 	}
 
 	mgr := newTestManager(s)
-	_, err := mgr.Connect(context.Background(), "proxy-1", "session-1", "cluster.example.com", "10.0.0.1", &accountID, nil)
+	_, err := mgr.Connect(context.Background(), "proxy-1", "session-1", "cluster.example.com", "10.0.0.1", "0.60.0", &accountID, nil)
 	require.NoError(t, err)
 
 	require.NotNil(t, savedProxy)
@@ -132,6 +132,7 @@ func TestConnect_WithAccountID(t *testing.T) {
 	assert.Equal(t, "session-1", savedProxy.SessionID)
 	assert.Equal(t, "cluster.example.com", savedProxy.ClusterAddress)
 	assert.Equal(t, "10.0.0.1", savedProxy.IPAddress)
+	assert.Equal(t, "0.60.0", savedProxy.Version, "reported proxy version should be stored")
 	assert.Equal(t, &accountID, savedProxy.AccountID)
 	assert.Equal(t, proxy.StatusConnected, savedProxy.Status)
 	assert.NotNil(t, savedProxy.ConnectedAt)
@@ -147,7 +148,7 @@ func TestConnect_WithoutAccountID(t *testing.T) {
 	}
 
 	mgr := newTestManager(s)
-	_, err := mgr.Connect(context.Background(), "proxy-1", "session-1", "eu.proxy.netbird.io", "10.0.0.1", nil, nil)
+	_, err := mgr.Connect(context.Background(), "proxy-1", "session-1", "eu.proxy.netbird.io", "10.0.0.1", "", nil, nil)
 	require.NoError(t, err)
 
 	require.NotNil(t, savedProxy)
@@ -163,7 +164,7 @@ func TestConnect_StoreError(t *testing.T) {
 	}
 
 	mgr := newTestManager(s)
-	_, err := mgr.Connect(context.Background(), "proxy-1", "session-1", "cluster.example.com", "10.0.0.1", nil, nil)
+	_, err := mgr.Connect(context.Background(), "proxy-1", "session-1", "cluster.example.com", "10.0.0.1", "", nil, nil)
 	assert.Error(t, err)
 }
 

@@ -35,6 +35,7 @@ func seedProxies(t *testing.T, ctx context.Context, s store.Store) {
 			SessionID:      "session-1",
 			ClusterAddress: "cluster-a.example.com",
 			IPAddress:      "10.0.0.1",
+			Version:        "0.60.0",
 			LastSeen:       time.Now(),
 			Status:         rpproxy.StatusConnected,
 		},
@@ -89,6 +90,7 @@ func TestRunDisconnectAllWithConfirmation(t *testing.T) {
 	require.Contains(t, output, "proxy-2")
 	require.Contains(t, output, "proxy-3")
 	require.Contains(t, output, "cluster-a.example.com")
+	require.Contains(t, output, "0.60.0")
 	require.Contains(t, output, "account-1")
 	require.Contains(t, output, "Type \"disconnect all proxies\" to continue")
 	require.Contains(t, output, "Force-marked 2 of 3 reverse proxy instance(s) as disconnected.")

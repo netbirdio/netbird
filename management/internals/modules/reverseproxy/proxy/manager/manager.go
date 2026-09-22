@@ -50,7 +50,7 @@ func NewManager(store store, meter metric.Meter) (*Manager, error) {
 
 // Connect registers a new proxy connection in the database.
 // capabilities may be nil for old proxies that do not report them.
-func (m *Manager) Connect(ctx context.Context, proxyID, sessionID, clusterAddress, ipAddress string, accountID *string, capabilities *proxy.Capabilities) (*proxy.Proxy, error) {
+func (m *Manager) Connect(ctx context.Context, proxyID, sessionID, clusterAddress, ipAddress, version string, accountID *string, capabilities *proxy.Capabilities) (*proxy.Proxy, error) {
 	now := time.Now()
 	var caps proxy.Capabilities
 	if capabilities != nil {
@@ -61,6 +61,7 @@ func (m *Manager) Connect(ctx context.Context, proxyID, sessionID, clusterAddres
 		SessionID:      sessionID,
 		ClusterAddress: clusterAddress,
 		IPAddress:      ipAddress,
+		Version:        version,
 		AccountID:      accountID,
 		LastSeen:       now,
 		ConnectedAt:    &now,
@@ -78,6 +79,7 @@ func (m *Manager) Connect(ctx context.Context, proxyID, sessionID, clusterAddres
 		"sessionID":      sessionID,
 		"clusterAddress": clusterAddress,
 		"ipAddress":      ipAddress,
+		"version":        version,
 	}).Info("proxy connected")
 
 	return p, nil
