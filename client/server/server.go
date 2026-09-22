@@ -1178,8 +1178,15 @@ func (s *Server) storedLoginConfig(activeProf *profilemanager.ActiveProfileState
 	return s.storedProfileConfig(handle, username)
 }
 
-// storedConfigAtPath reads a profile config file, yielding nil when it does not
-// exist yet.
+// storedConfigAtPath reads a profile config file with the MDM policy applied on
+// top, yielding nil when the file does not exist yet.
+//
+// The overlay matters because the privilege gates are this function's only
+// consumers, and they have to reason about the config the engine will actually
+// run. An MDM policy that enables a remote-access server leaves the on-disk
+// value off, so without it the guards read a host publishing its console as one
+// running nothing, and let an unprivileged caller repoint the management
+// identity that decides who may connect to it.
 func (s *Server) storedConfigAtPath(path string) (*profilemanager.Config, error) {
 	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
@@ -1192,6 +1199,7 @@ func (s *Server) storedConfigAtPath(path string) (*profilemanager.Config, error)
 	if err != nil {
 		return nil, fmt.Errorf("read profile config: %w", err)
 	}
+	cfg.ApplyMDMPolicy(s.mdmLoader.Load())
 	return cfg, nil
 }
 

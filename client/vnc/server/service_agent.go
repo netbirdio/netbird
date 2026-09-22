@@ -16,6 +16,17 @@ type sessionAgent interface {
 	Release()
 }
 
+// resetServiceAgent reopens the latch stopServiceAgent closed, so a restarted
+// server can build a manager again. Without it every accept loop of the new
+// lifecycle keeps getting a nil agent and service mode stays dead for the rest
+// of the process. Owned by Start, mirroring the other stop-time latches it
+// clears.
+func (s *Server) resetServiceAgent() {
+	s.serviceAgentMu.Lock()
+	defer s.serviceAgentMu.Unlock()
+	s.serviceAgentStopped = false
+}
+
 // stopServiceAgent tears down the shared manager, if one was ever built, and
 // latches the server so a still-draining accept loop cannot build another.
 // Owned by Stop rather than by an accept loop: the loops share the manager, so

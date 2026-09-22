@@ -26,9 +26,27 @@ func TestPickXorgCandidate(t *testing.T) {
 			wantOutcome: x11NotFound,
 		},
 		{
-			name:        "single server is used whatever its VT",
+			// The console is on tty2 and the only X server serves tty9, so it
+			// belongs to another seat. Being the sole candidate does not make
+			// it the right one to hand a remote user.
+			name:        "a lone server on an inactive VT is refused",
 			candidates:  []xorgCandidate{{display: ":3", vt: 9}},
 			activeVT:    2,
+			wantOutcome: x11Ambiguous,
+		},
+		{
+			name:        "a lone VT-less server is used when the active VT matches nothing",
+			candidates:  []xorgCandidate{{display: ":3", vt: -1}},
+			activeVT:    2,
+			want:        ":3",
+			wantOutcome: x11Detected,
+		},
+		{
+			// No active-VT signal at all, so a single server is the host's only
+			// one and there is no other seat it could belong to.
+			name:        "a lone server is used when the active VT is unknown",
+			candidates:  []xorgCandidate{{display: ":3", vt: 9}},
+			activeVT:    -1,
 			want:        ":3",
 			wantOutcome: x11Detected,
 		},

@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -142,52 +143,88 @@ func detectX11FromProc() x11Detection {
 	return x11Detected
 }
 
-// pickXorgCandidate chooses which X server to attach to.
-//
-// The one on the active VT wins outright. Failing that the choice has to be
-// unambiguous, because guessing wrong means handing a remote user another local
-// user's screen and keyboard: a single candidate is taken, and anything else is
-// refused. The lowest display number only breaks ties among servers that all
-// record no VT, where there is no active-session signal to go on at all.
+// pickXorgCandidate chooses which X server to attach to. Guessing wrong hands a
+// remote user another local user's screen and keyboard, so an unresolvable
+// choice is refused rather than approximated.
 func pickXorgCandidate(candidates []xorgCandidate, activeVT int) (xorgCandidate, x11Detection) {
 	if len(candidates) == 0 {
 		return xorgCandidate{}, x11NotFound
 	}
 	if activeVT > 0 {
-		for _, c := range candidates {
-			if c.vt == activeVT {
-				return c, x11Detected
-			}
+		return pickForActiveVT(candidates, activeVT)
+	}
+	return pickWithoutActiveVT(candidates)
+}
+
+// pickForActiveVT chooses when the console's VT is known. The server on that VT
+// wins outright. Otherwise every candidate that records a VT serves some seat
+// that is demonstrably not the console's, which makes it a session this
+// connection has no business showing — however few of them there are. Only a
+// server recording no VT (Xvfb, Xwayland, a nested server) stays eligible.
+func pickForActiveVT(candidates []xorgCandidate, activeVT int) (xorgCandidate, x11Detection) {
+	for _, c := range candidates {
+		if c.vt == activeVT {
+			return c, x11Detected
 		}
 	}
+
+	vtless := candidatesWithoutVT(candidates)
+	if len(vtless) == 0 {
+		log.Warnf("found %d X server(s), none serving the active VT (%s); not attaching to any",
+			len(candidates), describeActiveVT(activeVT))
+		return xorgCandidate{}, x11Ambiguous
+	}
+	best := lowestDisplay(vtless)
+	if len(vtless) > 1 {
+		log.Warnf("found %d VT-less X servers and none serving the active VT (%s); attaching to the lowest display %s",
+			len(vtless), describeActiveVT(activeVT), best.display)
+	}
+	return best, x11Detected
+}
+
+// pickWithoutActiveVT chooses when there is no active-VT signal at all: no
+// sysfs, a seat with no VT, FreeBSD. A lone X server is taken as the host's
+// only one. Among several there is nothing to separate the console's from
+// another seat's, so the VT-less ones are preferred and the lowest display
+// breaks the tie.
+func pickWithoutActiveVT(candidates []xorgCandidate) (xorgCandidate, x11Detection) {
 	if len(candidates) == 1 {
 		return candidates[0], x11Detected
 	}
 
-	// Several servers and no way to tell which is on the console. One that
-	// records a VT is on some seat other than the active one, so it is a
-	// session this connection has no business showing.
+	vtless := candidatesWithoutVT(candidates)
+	if len(vtless) == 0 {
+		log.Warnf("found %d X servers on virtual terminals and no active-VT signal; not attaching to any",
+			len(candidates))
+		return xorgCandidate{}, x11Ambiguous
+	}
+	best := lowestDisplay(vtless)
+	log.Warnf("found %d X servers and no active-VT signal; attaching to the lowest VT-less display %s",
+		len(candidates), best.display)
+	return best, x11Detected
+}
+
+// candidatesWithoutVT returns the candidates that record no virtual terminal.
+func candidatesWithoutVT(candidates []xorgCandidate) []xorgCandidate {
 	var vtless []xorgCandidate
 	for _, c := range candidates {
 		if c.vt < 0 {
 			vtless = append(vtless, c)
 		}
 	}
-	if len(vtless) == 0 {
-		log.Warnf("found %d X servers, all on virtual terminals and none of them the active one (%s); not attaching to any",
-			len(candidates), describeActiveVT(activeVT))
-		return xorgCandidate{}, x11Ambiguous
-	}
+	return vtless
+}
 
-	best := vtless[0]
-	for _, c := range vtless[1:] {
+// lowestDisplay returns the candidate with the lowest display number. candidates
+// must not be empty.
+func lowestDisplay(candidates []xorgCandidate) xorgCandidate {
+	best := candidates[0]
+	for _, c := range candidates[1:] {
 		if displayNumber(c.display) < displayNumber(best.display) {
 			best = c
 		}
 	}
-	log.Warnf("found %d X servers and none on the active VT (%s); attaching to the lowest VT-less display %s",
-		len(candidates), describeActiveVT(activeVT), best.display)
-	return best, x11Detected
+	return best
 }
 
 // describeActiveVT renders the active VT for a log line, keeping "we could not
@@ -242,17 +279,20 @@ func displayNumber(display string) int {
 	return n
 }
 
-// detectX11FromSockets checks /tmp/.X11-unix/ for X sockets and uses ps
-// to find the auth file. Works on FreeBSD and other systems without /proc.
+// detectX11FromSockets checks /tmp/.X11-unix/ for X sockets and uses ps to find
+// the auth file. Works on FreeBSD and other systems without /proc.
+//
+// A socket carries no hint of which seat it serves, so the display is only used
+// when exactly one exists. Picking among several would attach the VNC session to
+// an arbitrary user's screen and route the remote user's input there, and this
+// path runs precisely where the /proc VT evidence is unavailable.
 func detectX11FromSockets() bool {
 	entries, err := os.ReadDir(x11SocketDir)
 	if err != nil {
 		return false
 	}
 
-	// Pick the lowest numeric display rather than the lexically first
-	// entry, so X10 doesn't win over X2.
-	minDisplay := -1
+	var displays []int
 	for _, e := range entries {
 		name := e.Name()
 		if len(name) < 2 || name[0] != 'X' {
@@ -262,16 +302,20 @@ func detectX11FromSockets() bool {
 		if err != nil {
 			continue
 		}
-		if minDisplay < 0 || n < minDisplay {
-			minDisplay = n
-		}
+		displays = append(displays, n)
 	}
-	if minDisplay < 0 {
+	if len(displays) == 0 {
 		return false
 	}
-	display := ":" + strconv.Itoa(minDisplay)
+	if len(displays) > 1 {
+		log.Warnf("found %d X sockets in %s and no way to tell which serves the console; not attaching to any",
+			len(displays), x11SocketDir)
+		return false
+	}
+
+	display := ":" + strconv.Itoa(displays[0])
 	os.Setenv(envDisplay, display)
-	auth := findXorgAuthFromPS()
+	auth := findXorgAuthFromPS(display)
 	if auth != "" {
 		os.Setenv(envXAuthority, auth)
 		log.Infof("auto-detected DISPLAY=%s (from socket) XAUTHORITY=%s (from ps)", display, auth)
@@ -281,8 +325,11 @@ func detectX11FromSockets() bool {
 	return true
 }
 
-// findXorgAuthFromPS runs ps to find Xorg and extract its -auth argument.
-func findXorgAuthFromPS() string {
+// findXorgAuthFromPS runs ps to find the X server serving display and extracts
+// its -auth argument. The display has to match: on a host running more than one
+// X server the first ps hit is not necessarily the one being attached to, and
+// handing that server's cookie to a different display fails the connection.
+func findXorgAuthFromPS(display string) string {
 	out, err := exec.Command("ps", "auxww").Output()
 	if err != nil {
 		return ""
@@ -292,6 +339,9 @@ func findXorgAuthFromPS() string {
 			continue
 		}
 		fields := strings.Fields(line)
+		if !slices.Contains(fields, display) {
+			continue
+		}
 		for i, f := range fields {
 			if f == "-auth" && i+1 < len(fields) {
 				return fields[i+1]
@@ -385,6 +435,11 @@ func NewX11Capturer(display, cookieHex string) (*X11Capturer, error) {
 	}
 	screen := setup.Roots[0]
 
+	if err := checkPixmapFormat(setup, screen.RootDepth); err != nil {
+		conn.Close()
+		return nil, err
+	}
+
 	c := &X11Capturer{
 		conn:   conn,
 		screen: &screen,
@@ -398,6 +453,28 @@ func NewX11Capturer(display, cookieHex string) (*X11Capturer, error) {
 
 	log.Infof("X11 capturer ready: %dx%d (display=%s, shm=%v)", c.w, c.h, display, c.useSHM)
 	return c, nil
+}
+
+// checkPixmapFormat rejects a screen whose pixels this capturer cannot decode.
+// GetImage returns ZPixmap data in the server's pixmap format for the screen's
+// depth, and both the SHM and GetImage paths read it as 8-bit-per-channel BGRA.
+// A 16-bpp screen, a packed 24-bpp one, or a 30-bit deep-colour one would
+// otherwise pass startup and fail on every frame instead.
+func checkPixmapFormat(setup *xproto.SetupInfo, depth byte) error {
+	if depth != 24 && depth != 32 {
+		return fmt.Errorf("unsupported X11 root depth %d, need 24 or 32", depth)
+	}
+	for _, f := range setup.PixmapFormats {
+		if f.Depth != depth {
+			continue
+		}
+		if f.BitsPerPixel != 32 {
+			return fmt.Errorf("unsupported X11 pixmap format for depth %d: %d bits per pixel, need 32",
+				depth, f.BitsPerPixel)
+		}
+		return nil
+	}
+	return fmt.Errorf("no X11 pixmap format for root depth %d", depth)
 }
 
 // initSHM is implemented in capture_x11_shm_linux.go (requires SysV SHM).

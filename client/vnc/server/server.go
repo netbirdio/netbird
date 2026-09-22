@@ -789,6 +789,7 @@ func (s *Server) Start(ctx context.Context, addr netip.AddrPort, network netip.P
 	s.stopping = false
 	s.handlersDrained = nil
 	s.handlersMu.Unlock()
+	s.resetServiceAgent()
 
 	s.ctx, s.cancel = context.WithCancel(ctx)
 	s.vmgr = s.platformSessionManager()

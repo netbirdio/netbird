@@ -65,18 +65,38 @@ func writeXAuthFile(path, hostname, display string, cookie []byte, uid, gid uint
 	appendField([]byte(xauthMITMagic))
 	appendField(cookie)
 
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, buf, 0600); err != nil {
+	// The runtime dir is shared and writable by other local accounts, so a
+	// fixed temp name is something an occupant can pre-create as a symlink:
+	// the daemon would then write this cookie wherever it points and chown the
+	// target away. CreateTemp opens O_EXCL under an unpredictable name, which
+	// fails rather than follows, and the mode and owner are set through the
+	// descriptor so no path is resolved a second time.
+	f, err := os.CreateTemp(dir, ".Xauthority-*")
+	if err != nil {
+		return fmt.Errorf("create xauth tmp: %w", err)
+	}
+	tmp := f.Name()
+	defer func() {
+		if tmp != "" {
+			_ = os.Remove(tmp)
+		}
+	}()
+
+	if _, err := f.Write(buf); err != nil {
+		f.Close()
 		return fmt.Errorf("write xauth tmp: %w", err)
 	}
-	if err := os.Chown(tmp, int(uid), int(gid)); err != nil {
-		_ = os.Remove(tmp)
+	if err := f.Chown(int(uid), int(gid)); err != nil {
+		f.Close()
 		return fmt.Errorf("chown xauth tmp: %w", err)
 	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close xauth tmp: %w", err)
+	}
 	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
 		return fmt.Errorf("rename xauth: %w", err)
 	}
+	tmp = ""
 	return nil
 }
 
