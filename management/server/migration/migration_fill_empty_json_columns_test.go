@@ -233,6 +233,24 @@ func TestFillEmptyJsonField_AccountDnsSettings(t *testing.T) {
 	require.False(t, rows.Next())
 }
 
+func TestFillEmptyJsonField_User(t *testing.T) {
+	db := setupUserTestDB(t)
+
+	res, err := db.ConnPool.ExecContext(context.Background(),
+		`insert into users (id,auto_groups) values('id-1','')`)
+	require.NoError(t, err)
+	n, _ := res.RowsAffected()
+	require.Equal(t, n, int64(1))
+
+	err = migration.FillEmptyUserJsonColumns(context.Background(), db)
+	require.NoError(t, err)
+
+	rows, err := db.ConnPool.QueryContext(context.Background(), "select id from users where auto_groups='' or auto_groups=null")
+	require.NoError(t, err)
+	rows.Next()
+	require.False(t, rows.Next())
+}
+
 func setupNsGroupsTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db := setupDatabase(t)
@@ -303,6 +321,15 @@ func setupNetworkRouterTestDB(t *testing.T) *gorm.DB {
 	db := setupDatabase(t)
 	_ = db.Migrator().DropTable(&router_types.NetworkRouter{})
 	err := db.AutoMigrate(&router_types.NetworkRouter{})
+	require.NoError(t, err, "Failed to auto-migrate tables")
+	return db
+}
+
+func setupUserTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db := setupDatabase(t)
+	_ = db.Migrator().DropTable(&types.User{})
+	err := db.AutoMigrate(&types.User{})
 	require.NoError(t, err, "Failed to auto-migrate tables")
 	return db
 }

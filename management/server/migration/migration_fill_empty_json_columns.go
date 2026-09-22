@@ -206,3 +206,10 @@ func FillEmptyAccountDnsSettingsJsonColumns(ctx context.Context, db *gorm.DB) er
 		return res.Error
 	})
 }
+
+func FillEmptyUserJsonColumns(ctx context.Context, db *gorm.DB) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		res := tx.Exec(`update users set auto_groups='[]' where id in (select id from users where auto_groups='' or auto_groups=null order by id asc)`)
+		return res.Error
+	})
+}

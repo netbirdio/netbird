@@ -91,7 +91,7 @@ type User struct {
 	// ServiceUserName is only set if IsServiceUser is true
 	ServiceUserName string
 	// AutoGroups is a list of Group IDs to auto-assign to peers registered by this user
-	AutoGroups []string                        `gorm:"serializer:json"`
+	AutoGroups []string                        `gorm:"serializer:json;default:'[]'"`
 	PATs       map[string]*PersonalAccessToken `gorm:"-"`
 	PATsG      []PersonalAccessToken           `json:"-" gorm:"foreignKey:UserID;references:id;constraint:OnDelete:CASCADE;"`
 	// Blocked indicates whether the user is blocked. Blocked users can't use the system.
