@@ -788,10 +788,6 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config, allowed map[nsGr
 		}
 	}
 
-	s.currentUpdate = update
-	s.haveUpdate = true
-	s.lastGateDecision = allowed
-
 	// One verdict for both the chain and the host config, so the two cannot
 	// disagree about a group within the same pass.
 	allow := allowFuncFrom(allowed)
@@ -806,6 +802,14 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config, allowed map[nsGr
 		return fmt.Errorf("upstream handler updater: %w", err)
 	}
 	muxUpdates := append(localMuxUpdates, upstreamMuxUpdates...) //nolint:gocritic
+
+	// Recorded only once the configuration can no longer fail to build. A
+	// rejected update must not become the one a later route change replays,
+	// and its verdict must not be remembered either: that would make the next
+	// refresh see "nothing changed" and skip the retry.
+	s.currentUpdate = update
+	s.haveUpdate = true
+	s.lastGateDecision = allowed
 
 	s.updateMux(muxUpdates)
 

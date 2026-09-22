@@ -456,6 +456,40 @@ func TestProjectNSGroupHealthReportsWithheldGroups(t *testing.T) {
 	assert.True(t, byDomain["other.example.com"].Enabled, "an allowed group is unaffected")
 }
 
+// A configuration that failed to build must not become the one a later route
+// change replays, and its verdict must not be remembered either.
+func TestApplyConfigurationDoesNotLatchAFailedUpdate(t *testing.T) {
+	server := &DefaultServer{
+		ctx:                context.Background(),
+		handlerChain:       NewHandlerChain(),
+		hostManager:        &noopHostConfigurator{},
+		localResolver:      &local.Resolver{},
+		service:            &mockService{},
+		wgInterface:        &mocWGIface{},
+		statusRecorder:     peer.NewRecorder("test"),
+		extraDomains:       make(map[domain.Domain]int),
+		currentConfigHash:  ^uint64(0),
+		healthRefresh:      make(chan struct{}, 1),
+		routeRefresh:       make(chan struct{}, 1),
+		routedUpstreamGate: newRoutedUpstreamGate(gatingAlways),
+	}
+
+	// A non-primary group with no domains is rejected by buildUpstreamHandlerUpdate.
+	broken := nsGroupWith("10.10.0.53")
+	broken.Domains = nil
+	broken.Primary = false
+	update := nbdns.Config{
+		ServiceEnable:    true,
+		NameServerGroups: []*nbdns.NameServerGroup{broken},
+	}
+
+	err := server.applyConfiguration(update, map[nsGroupID]bool{})
+	require.Error(t, err, "the update should have been rejected")
+
+	assert.False(t, server.haveUpdate, "a rejected update must not be replayable")
+	assert.Empty(t, server.lastGateDecision, "a rejected update's verdict must not be remembered")
+}
+
 // OnInstalledRoutesChanged is called from the route manager while it holds its
 // own lock, so it must never block and never re-apply inline.
 func TestOnInstalledRoutesChangedNeverBlocks(t *testing.T) {
