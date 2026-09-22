@@ -313,14 +313,30 @@ func (s *ServiceManager) CreateDefaultProfile() error {
 	return nil
 }
 
+// activeStateMu serializes every access to the active profile state file,
+// reads included.
+// The path is a package-level global that every ServiceManager in the process
+// shares, so the lock is package level too.
+var activeStateMu sync.Mutex
+
+// GetActiveProfileState returns the profile the daemon is on, seeding the state
+// with the default profile when there is nothing on disk yet.
 func (s *ServiceManager) GetActiveProfileState() (*ActiveProfileState, error) {
-	if err := s.setDefaultActiveState(); err != nil {
+	activeStateMu.Lock()
+	defer activeStateMu.Unlock()
+
+	return s.readActiveProfileState()
+}
+
+// readActiveProfileState is GetActiveProfileState with activeStateMu held.
+func (s *ServiceManager) readActiveProfileState() (*ActiveProfileState, error) {
+	if err := s.seedActiveState(); err != nil {
 		return nil, fmt.Errorf("failed to set default active profile state: %w", err)
 	}
 	var activeProfile ActiveProfileState
 	if _, err := util.ReadJson(ActiveProfileStatePath, &activeProfile); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			if err := s.SetActiveProfileStateToDefault(); err != nil {
+			if err := s.writeDefaultActiveProfileState(); err != nil {
 				return nil, fmt.Errorf("failed to set active profile to default: %w", err)
 			}
 			return &ActiveProfileState{
@@ -333,7 +349,7 @@ func (s *ServiceManager) GetActiveProfileState() (*ActiveProfileState, error) {
 	}
 
 	if activeProfile.ID == "" {
-		if err := s.SetActiveProfileStateToDefault(); err != nil {
+		if err := s.writeDefaultActiveProfileState(); err != nil {
 			return nil, fmt.Errorf("failed to set active profile to default: %w", err)
 		}
 		return &ActiveProfileState{
@@ -346,11 +362,13 @@ func (s *ServiceManager) GetActiveProfileState() (*ActiveProfileState, error) {
 
 }
 
-func (s *ServiceManager) setDefaultActiveState() error {
+// seedActiveState writes the default state when the file is not there yet.
+// Called with activeStateMu held.
+func (s *ServiceManager) seedActiveState() error {
 	_, err := os.Stat(ActiveProfileStatePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			if err := s.SetActiveProfileStateToDefault(); err != nil {
+			if err := s.writeDefaultActiveProfileState(); err != nil {
 				return fmt.Errorf("failed to set active profile to default: %w", err)
 			}
 		} else {
@@ -361,7 +379,16 @@ func (s *ServiceManager) setDefaultActiveState() error {
 	return nil
 }
 
+// SetActiveProfileState records a as the profile the daemon is on.
 func (s *ServiceManager) SetActiveProfileState(a *ActiveProfileState) error {
+	activeStateMu.Lock()
+	defer activeStateMu.Unlock()
+
+	return s.writeActiveProfileState(a)
+}
+
+// writeActiveProfileState is SetActiveProfileState with activeStateMu held.
+func (s *ServiceManager) writeActiveProfileState(a *ActiveProfileState) error {
 	if a == nil || a.ID == "" {
 		return errors.New("invalid active profile state")
 	}
@@ -378,8 +405,18 @@ func (s *ServiceManager) SetActiveProfileState(a *ActiveProfileState) error {
 	return nil
 }
 
+// SetActiveProfileStateToDefault points the daemon at the default profile.
 func (s *ServiceManager) SetActiveProfileStateToDefault() error {
-	return s.SetActiveProfileState(&ActiveProfileState{
+	activeStateMu.Lock()
+	defer activeStateMu.Unlock()
+
+	return s.writeDefaultActiveProfileState()
+}
+
+// writeDefaultActiveProfileState is SetActiveProfileStateToDefault with
+// activeStateMu held.
+func (s *ServiceManager) writeDefaultActiveProfileState() error {
+	return s.writeActiveProfileState(&ActiveProfileState{
 		ID:       defaultProfileName,
 		Username: "",
 	})

@@ -1240,7 +1240,9 @@ func (s *Server) switchProfileIfNeeded(resolved *profilemanager.Profile, activeP
 		ID:       resolved.ID,
 		Username: legacyDirHint(resolved),
 	}); err != nil {
-		log.Errorf("failed to set active profile state: %v", err)
+		// Debug, not error: every caller logs the failure with its own
+		// context, and logging it here too reports one failed switch twice.
+		log.Debugf("failed to set active profile state: %v", err)
 		return nil, fmt.Errorf("failed to set active profile state: %w", err)
 	}
 
