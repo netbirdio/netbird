@@ -2,6 +2,13 @@ package server
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"fmt"
+	"math/big"
 	"net"
 	"testing"
 	"time"
@@ -9,7 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/netbirdio/netbird/relay/server/listener/ws"
+	"github.com/netbirdio/netbird/relay/server/listener/quic"
 	"github.com/netbirdio/netbird/shared/relay/auth/allow"
 )
 
@@ -44,6 +51,36 @@ func TestServer_ShutdownStopsListen(t *testing.T) {
 	requireAddressFree(t, addr)
 }
 
+func TestServer_ConcurrentListenAndShutdown(t *testing.T) {
+	tlsCfg := testTLSConfig(t)
+	for round := 0; round < 20; round++ {
+		t.Run(fmt.Sprintf("round-%d", round), func(t *testing.T) {
+			addr := freeAddress(t)
+			srv := newTestServer(t, addr)
+
+			start := make(chan struct{})
+			listenErr := make(chan error, 1)
+			shutdownErr := make(chan error, 1)
+			go func() {
+				<-start
+				listenErr <- srv.Listen(ListenerConfig{Address: addr, TLSConfig: tlsCfg})
+			}()
+			go func() {
+				<-start
+				shutdownErr <- srv.Shutdown(context.Background())
+			}()
+			close(start)
+
+			// Either side may take the lock first: Listen then returns without binding,
+			// or Shutdown stops its accept loops. Listen must return in both cases.
+			assert.NoError(t, waitForListenToReturn(t, listenErr))
+			assert.NoError(t, <-shutdownErr)
+			assert.Empty(t, srv.ListenerProtocols(), "no listener may stay registered after shutdown")
+			requireAddressFree(t, addr)
+		})
+	}
+}
+
 func TestServer_ListenReturnsBindError(t *testing.T) {
 	blocker, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
@@ -63,17 +100,28 @@ func TestServer_ListenReturnsBindError(t *testing.T) {
 	requireAddressFree(t, addr)
 }
 
-func TestBindListeners_RollsBackOnError(t *testing.T) {
+func TestServer_ListenRollsBackOnBindError(t *testing.T) {
 	addr := freeAddress(t)
-	listeners := []Listener{
-		&ws.Listener{Address: addr},
-		&ws.Listener{Address: addr},
-	}
+	blocker, err := net.ListenPacket("udp", addr)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = blocker.Close() })
+	srv := newTestServer(t, addr)
+	tlsCfg := testTLSConfig(t)
 
-	bound, err := bindListeners(listeners)
-	require.Error(t, err, "binding the same address twice must fail")
-	assert.Nil(t, bound, "no listener may be reported as bound after a failure")
-	requireAddressFree(t, addr)
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- srv.Listen(ListenerConfig{Address: addr, TLSConfig: tlsCfg})
+	}()
+
+	err = waitForListenToReturn(t, errChan)
+	require.Error(t, err, "Listen must fail when the QUIC port is taken")
+	assert.ErrorContains(t, err, string(quic.Proto)+" listener", "the QUIC listener must be the one that failed to bind")
+	assert.Empty(t, srv.ListenerProtocols(), "a failed Listen must not register listeners")
+
+	// The WS listener binds first, so a free TCP port proves the rollback closed it.
+	ln, err := net.Listen("tcp", addr)
+	require.NoError(t, err, "the WS socket must be released after the QUIC bind failure")
+	require.NoError(t, ln.Close())
 }
 
 func newTestServer(t *testing.T, addr string) *Server {
@@ -158,4 +206,25 @@ func requireAddressFree(t *testing.T, addr string) {
 		_ = conn.Close()
 		return true
 	}, 5*time.Second, 10*time.Millisecond, "address %s must be released", addr)
+}
+
+// A nil TLS config only yields a QUIC listener in the devcert build, so the tests
+// that need both listeners pass a real one and bind them regardless of build tags.
+func testTLSConfig(t *testing.T) *tls.Config {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
+	}
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	require.NoError(t, err)
+
+	return &tls.Config{
+		Certificates: []tls.Certificate{{Certificate: [][]byte{certDER}, PrivateKey: key}},
+	}
 }
