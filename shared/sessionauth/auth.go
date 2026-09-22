@@ -117,14 +117,16 @@ func (a *Authorizer) Update(config *Config) {
 	}
 	a.userIDClaim = userIDClaim
 
-	// Store authorized users list
-	a.authorizedUsers = config.AuthorizedUsers
+	// Copy rather than alias: the caller keeps its Config, and everything
+	// published here is read by authorization decisions on other goroutines
+	// under a.mu. A retained slice would let a later write by the caller
+	// change who is authorized, outside that lock and with no write barrier.
+	a.authorizedUsers = slices.Clone(config.AuthorizedUsers)
 
-	// Store machine users mapping
-	machineUsers := make(map[string][]uint32)
+	machineUsers := make(map[string][]uint32, len(config.MachineUsers))
 	for osUser, indexes := range config.MachineUsers {
 		if len(indexes) > 0 {
-			machineUsers[osUser] = indexes
+			machineUsers[osUser] = slices.Clone(indexes)
 		}
 	}
 	a.machineUsers = machineUsers

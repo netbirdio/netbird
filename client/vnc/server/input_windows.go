@@ -132,6 +132,7 @@ type inputCmd struct {
 type WindowsInputInjector struct {
 	ch             chan inputCmd
 	closed         chan struct{}
+	done           chan struct{}
 	closeOnce      sync.Once
 	prevButtonMask uint16
 	// lastQueuedButtonMask is the most recent buttonMask submitted to ch
@@ -150,18 +151,26 @@ func NewWindowsInputInjector() *WindowsInputInjector {
 	w := &WindowsInputInjector{
 		ch:     make(chan inputCmd, 64),
 		closed: make(chan struct{}),
+		done:   make(chan struct{}),
 	}
 	go w.loop()
 	return w
 }
 
-// Close stops the injector loop. Safe to call multiple times. Subsequent
-// Inject*/SetClipboard/TypeText calls become no-ops; we use a separate
-// signal channel rather than closing ch so late senders can't panic.
+// Close stops the injector loop and waits for it to finish, including the
+// commands already queued. Safe to call multiple times. Subsequent
+// Inject*/SetClipboard/TypeText calls become no-ops; we use a separate signal
+// channel rather than closing ch so late senders can't panic.
+//
+// The wait is what makes disconnect cleanup reliable: a session releases its
+// held modifiers and mouse buttons by queueing key-ups on its way out, so a
+// Close that returned while those were still queued would leave a key or a
+// button held down on the host with nothing left to lift it.
 func (w *WindowsInputInjector) Close() {
 	w.closeOnce.Do(func() {
 		close(w.closed)
 	})
+	<-w.done
 }
 
 // tryEnqueue posts a command unless the injector is closed or the channel is
@@ -191,10 +200,12 @@ func (w *WindowsInputInjector) enqueueReliable(cmd inputCmd) {
 
 func (w *WindowsInputInjector) loop() {
 	runtime.LockOSThread()
+	defer close(w.done)
 
 	for {
 		select {
 		case <-w.closed:
+			w.drain()
 			return
 		case cmd := <-w.ch:
 			w.dispatch(cmd)
@@ -202,11 +213,34 @@ func (w *WindowsInputInjector) loop() {
 	}
 }
 
+// drain dispatches the commands already accepted into the queue. Both select
+// arms above can be ready at once, and Go picks between them at random, so the
+// close arm cannot assume the queue is empty.
+func (w *WindowsInputInjector) drain() {
+	for {
+		select {
+		case cmd := <-w.ch:
+			w.dispatch(cmd)
+		default:
+			return
+		}
+	}
+}
+
 func (w *WindowsInputInjector) dispatch(cmd inputCmd) {
-	// Switch to the current input desktop so SendInput and the clipboard
-	// API target the desktop the user sees. The returned name tells us
-	// whether we are on the secure Winlogon desktop.
-	_, _ = switchToInputDesktop()
+	// Switch to the current input desktop so SendInput and the clipboard API
+	// target the desktop the user sees.
+	//
+	// A failed switch leaves this thread attached to whichever desktop it was
+	// on last, which during a desktop or session transition is the previous
+	// user's desktop or the secure Winlogon one. Injecting there delivers the
+	// remote user's keystrokes to a desktop they were never authorized for, so
+	// the command is dropped instead. Nothing is lost by dropping a key-up
+	// either: the key is held on the desktop this thread can no longer reach.
+	if ok, _ := switchToInputDesktop(); !ok {
+		log.Debugf("dropping input command: cannot attach to the current input desktop")
+		return
+	}
 
 	switch {
 	case cmd.isClipboard:
