@@ -456,6 +456,66 @@ func TestProjectNSGroupHealthReportsWithheldGroups(t *testing.T) {
 	assert.True(t, byDomain["other.example.com"].Enabled, "an allowed group is unaffected")
 }
 
+// countingService counts the service stops a disabled configuration triggers.
+type countingService struct {
+	mockService
+	stops int
+}
+
+func (c *countingService) Stop() error {
+	c.stops++
+	return nil
+}
+
+// Management can switch DNS off. Replaying that configuration on a route
+// change stops the service and rebuilds the whole handler chain again for a
+// service that is not running, on every transition of a flapping peer.
+func TestRefreshRoutedUpstreamsSkipsWhenDNSIsDisabled(t *testing.T) {
+	group := nsGroupWith("10.10.0.53")
+	group.Domains = []string{"corp.example.com"}
+
+	svc := &countingService{}
+	// Starts installed so the first pass allows the group; withdrawing it below
+	// flips the verdict, which is what gets past the unchanged-verdict skip.
+	installed := haMapWith("10.10.0.0/24")
+	server := &DefaultServer{
+		ctx:          context.Background(),
+		handlerChain: NewHandlerChain(),
+		hostManager: &mockHostConfigurator{
+			applyDNSConfigFunc:    func(HostDNSConfig, *statemanager.Manager) error { return nil },
+			restoreHostDNSFunc:    func() error { return nil },
+			supportCustomPortFunc: func() bool { return true },
+			stringFunc:            func() string { return "mock" },
+		},
+		localResolver:      &local.Resolver{},
+		service:            svc,
+		wgInterface:        &mocWGIface{},
+		statusRecorder:     peer.NewRecorder("test"),
+		extraDomains:       make(map[domain.Domain]int),
+		currentConfigHash:  ^uint64(0),
+		healthRefresh:      make(chan struct{}, 1),
+		routeRefresh:       make(chan struct{}, 1),
+		routedUpstreamGate: newRoutedUpstreamGate(gatingAlways),
+		selectedRoutes:     func() route.HAMap { return haMapWith("10.10.0.0/24") },
+		installedRoutes:    func() route.HAMap { return installed },
+	}
+
+	update := nbdns.Config{
+		ServiceEnable:    false,
+		NameServerGroups: []*nbdns.NameServerGroup{group},
+	}
+	snap := server.routeSnapshot()
+	require.NoError(t, server.applyConfiguration(update, server.gateNameServerGroups(update.NameServerGroups, snap)))
+	require.Equal(t, 1, svc.stops, "the disabled configuration should have stopped the service once")
+
+	// The routing peer goes away: the verdict genuinely changes, so the
+	// unchanged-verdict skip does not apply and only the disabled check can
+	// stop the replay.
+	installed = route.HAMap{}
+	server.refreshRoutedUpstreams()
+	assert.Equal(t, 1, svc.stops, "a route change must not re-apply a disabled DNS configuration")
+}
+
 // A configuration that failed to build must not become the one a later route
 // change replays, and its verdict must not be remembered either.
 func TestApplyConfigurationDoesNotLatchAFailedUpdate(t *testing.T) {
