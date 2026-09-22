@@ -66,6 +66,11 @@ func TestEnvelopeToNetworkMap_MultipleGroupsWithMissingPublicIDs(t *testing.T) {
 			Name:     "All",
 			Peers:    []string{"peer-B"},
 		},
+		"group-public": {
+			PublicID: "group-custom",
+			Name:     "other",
+			Peers:    []string{"peer-B"},
+		},
 	}
 	c.NameServerGroups = []*nmdata.NameServerGroup{{
 		ID:       "nsg-internal",
@@ -86,7 +91,7 @@ func TestEnvelopeToNetworkMap_MultipleGroupsWithMissingPublicIDs(t *testing.T) {
 	})
 
 	full := envelope.GetFull()
-	require.Len(t, full.Groups, 2)
+	require.Len(t, full.Groups, 3)
 	sort.SliceStable(full.Groups, func(i, j int) bool {
 		return full.Groups[i].IsAll == false && full.Groups[j].IsAll == true
 	})
