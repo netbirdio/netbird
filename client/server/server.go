@@ -1513,7 +1513,7 @@ func (s *Server) getConfig(activeProf *profilemanager.ActiveProfileState) (*prof
 	_, err = os.Stat(cfgPath)
 	configExisted := !os.IsNotExist(err)
 
-	log.Infof("active profile config existed: %t, err %v", configExisted, err)
+	log.Debugf("active profile config existed: %t, err %v", configExisted, err)
 
 	config, err := profilemanager.ReadConfig(cfgPath)
 	if err != nil {
