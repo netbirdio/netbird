@@ -318,7 +318,10 @@ func (s *ServiceManager) GetActiveProfileState() (*ActiveProfileState, error) {
 		return nil, fmt.Errorf("failed to set default active profile state: %w", err)
 	}
 	var activeProfile ActiveProfileState
-	if _, err := util.ReadJson(ActiveProfileStatePath, &activeProfile); err != nil {
+	// Share mode: the authz gate reads this on every RPC, so a plain read
+	// would regularly be the open handle that stops a switch from renaming
+	// its new state over the file.
+	if _, err := util.ReadJsonShareMode(ActiveProfileStatePath, &activeProfile); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			if err := s.SetActiveProfileStateToDefault(); err != nil {
 				return nil, fmt.Errorf("failed to set active profile to default: %w", err)

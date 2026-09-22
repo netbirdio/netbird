@@ -294,29 +294,16 @@ func getEnvMap() map[string]string {
 	return envMap
 }
 
-// ReadJson reads JSON config file with FILE_SHARE_DELETE and maps to a
-// provided interface
-/*
+// ReadJsonShareMode reads a JSON config file into res the way ReadJson does,
+// but without holding the file against a rename.
+//
+// Use it for a file the process also rewrites: a write is a temp file renamed
+// over the real one, and on Windows that replace fails while any handle is
+// open on the destination without delete sharing. On every other platform it
+// is ReadJson.
 func ReadJsonShareMode(file string, res interface{}) (interface{}, error) {
-	f, err := os.OpenFile(file, syscall.FILE_SHARE_READ|syscall.FILE_SHARE_WRITE|syscall.FILE_SHARE_DELETE, 0600)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-
-	bs, err := io.ReadAll(f)
-	if err != nil {
-		return nil, err
-	}
-
-	err = json.Unmarshal(bs, &res)
-	if err != nil {
-		return nil, err
-	}
-
-	return res, nil
+	return readJsonShareMode(file, res)
 }
-*/
 
 // CopyFileContents copies contents of the given src file to the dst file
 func CopyFileContents(src, dst string) (err error) {
