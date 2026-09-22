@@ -91,7 +91,10 @@ func TestAgentHandshake_TokenNeverSent(t *testing.T) {
 	}()
 
 	require.NoError(t, agentClientHandshake(daemonSide, token, false))
-	assert.NotContains(t, sent.Bytes(), token, "the token must not cross the socket")
+	// bytes.Contains, not assert.NotContains: testify compares a []byte
+	// haystack element-wise, and a []byte is never an element of a []byte, so
+	// the assertion held whatever crossed the wire — including the whole token.
+	assert.False(t, bytes.Contains(sent.Bytes(), token), "the token must not cross the socket")
 }
 
 // A tag is bound to the nonce it answered, so replaying one against a fresh
