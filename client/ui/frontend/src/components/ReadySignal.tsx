@@ -9,7 +9,7 @@ export const ReadySignal = () => {
     const { isReady } = useStatus();
     const [params] = useSearchParams();
     const generation = params.get("gen") ?? "";
-    const sent = useRef("");
+    const sent = useRef<string | null>(null);
 
     useEffect(() => {
         if (!isReady || sent.current === generation) return;
