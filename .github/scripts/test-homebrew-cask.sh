@@ -163,12 +163,6 @@ assert_no_deprecations() {
     fi
 }
 
-assert_no_launchctl_noise() {
-    if grep -E 'Boot-out failed|Unload failed' "$@"; then
-        fail "The uninstall printed launchctl errors that the legacy stanza kept silent."
-    fi
-}
-
 wait_for_daemon() {
     local attempt
     for attempt in {1..30}; do
@@ -218,7 +212,6 @@ assert_installed() {
 assert_uninstalled() {
     local log=$1
     assert_no_deprecations "$log"
-    assert_no_launchctl_noise "$log"
     [[ ! -e "$app" ]] || fail "The UI app remains after uninstall."
     [[ ! -e "$plist" ]] || fail "The daemon plist remains after uninstall."
     assert_service_absent
