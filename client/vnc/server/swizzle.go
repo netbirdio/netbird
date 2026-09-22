@@ -44,10 +44,11 @@ func swizzleBGRAtoRGBA(dst, src []byte) {
 }
 
 // swizzleBGRAtoRGBABytes is the byte-order-independent form, used on big-endian
-// targets. dst and src must be the same length and a multiple of 4.
+// targets. It converts whole pixels for as long as both sides have one left.
 func swizzleBGRAtoRGBABytes(dst, src []byte) {
-	for i := 0; i < len(src); i += 4 {
-		b, g, r := src[i], src[i+1], src[i+2]
-		dst[i], dst[i+1], dst[i+2], dst[i+3] = r, g, b, 0xFF
+	for i := 0; i+4 <= len(src) && i+4 <= len(dst); i += 4 {
+		s := src[i : i+4 : i+4]
+		d := dst[i : i+4 : i+4]
+		d[0], d[1], d[2], d[3] = s[2], s[1], s[0], 0xFF
 	}
 }

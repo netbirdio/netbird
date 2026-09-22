@@ -101,6 +101,7 @@ func TestApplyResolvedRule_SSHSkipsSourcePeer(t *testing.T) {
 			}
 			rule := &nmdata.PolicyRule{
 				Protocol:      string(PolicyRuleProtocolNetbirdSSH),
+				Action:        string(PolicyTrafficActionAccept),
 				Bidirectional: bidirectional,
 			}
 			state := NewPeerConnResolveState()
@@ -153,6 +154,7 @@ func TestApplyResolvedRule_SSHEnablesDestinationPeer(t *testing.T) {
 func TestApplyResolvedRule_LegacySSHSkipsSourcePeer(t *testing.T) {
 	rule := &nmdata.PolicyRule{
 		Protocol:      string(PolicyRuleProtocolTCP),
+		Action:        string(PolicyTrafficActionAccept),
 		Ports:         []string{"22"},
 		Bidirectional: true,
 	}

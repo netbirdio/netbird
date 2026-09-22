@@ -370,16 +370,6 @@ func (s *Server) evictActiveCaptureLocked() func() {
 	}
 }
 
-// releaseCapture clears the active-capture owner if it still matches sess.
-func (s *Server) releaseCapture(sess *capture.Session) {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-	if s.activeCapture == sess {
-		s.activeCapture = nil
-		s.activeCaptureCancel = nil
-	}
-}
-
 // clearCaptureIfOwner clears engine's capture slot only if sess still owns it.
 func (s *Server) clearCaptureIfOwner(sess *capture.Session, engine *internal.Engine) {
 	s.mutex.Lock()

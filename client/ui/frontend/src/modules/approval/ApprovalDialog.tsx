@@ -43,10 +43,16 @@ export default function ApprovalDialog() {
     const peerPubKey = params.get("peer_pubkey") ?? "";
     const expiresAt = params.get("expires_at") ?? "";
 
+    // requestID is a dependency because the window is reused across prompts. A
+    // request that carries no usable expires_at falls back to a deadline
+    // measured from now, and without recomputing it here the next prompt
+    // inherits the previous request's deadline and can close the moment it
+    // opens.
     const deadline = useMemo(() => {
         const parsed = Date.parse(expiresAt);
         return Number.isFinite(parsed) ? parsed : Date.now() + FALLBACK_SECONDS * 1000;
-    }, [expiresAt]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [expiresAt, requestID]);
 
     const title = useMemo(() => {
         switch (kind) {
@@ -125,9 +131,11 @@ export default function ApprovalDialog() {
         setBusy(false);
         setArmed(false);
         closedRef.current = false;
+        setRemaining(secondsLeft());
         const id = globalThis.setTimeout(() => setArmed(true), ARMING_MS);
         return () => globalThis.clearTimeout(id);
-    }, [requestID]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [requestID, deadline]);
     useEffect(() => {
         const id = globalThis.setInterval(() => {
             const left = secondsLeft();
