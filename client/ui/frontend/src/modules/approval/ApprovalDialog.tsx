@@ -73,6 +73,13 @@ export default function ApprovalDialog() {
         return out;
     }, [initiator, peerPubKey, peerName, sourceIP, username, t]);
 
+    // A second prompt reuses this window by changing its URL, so the component
+    // can stay mounted across requests. Track which request is on screen now,
+    // and close only while it is still the one being answered — otherwise a
+    // slow response to the previous request dismisses the new prompt unseen.
+    const currentRequestID = useRef(requestID);
+    currentRequestID.current = requestID;
+
     const respond = useCallback(
         async (accept: boolean, viewOnly: boolean) => {
             if (busy) return;
@@ -84,17 +91,15 @@ export default function ApprovalDialog() {
             } catch (e) {
                 console.error("respond approval failed", e);
             } finally {
-                WindowManager.CloseApproval().catch(console.error);
+                if (currentRequestID.current === requestID) {
+                    WindowManager.CloseApproval().catch(console.error);
+                }
             }
         },
         [busy, requestID],
     );
 
     const [armed, setArmed] = useState(false);
-    useEffect(() => {
-        const id = globalThis.setTimeout(() => setArmed(true), ARMING_MS);
-        return () => globalThis.clearTimeout(id);
-    }, []);
 
     // The dialog is non-modal, so the browser's own Escape-to-cancel does not
     // apply and denying has to be wired up by hand.
@@ -111,6 +116,18 @@ export default function ApprovalDialog() {
     const secondsLeft = () => Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
     const [remaining, setRemaining] = useState(secondsLeft);
     const closedRef = useRef(false);
+
+    // Every per-request flag has to be cleared when the window is reused, or the
+    // new prompt inherits the previous one's: already armed, so Allow is live on
+    // the first frame; still busy, so both buttons are dead; already closed, so
+    // the deadline never dismisses it.
+    useEffect(() => {
+        setBusy(false);
+        setArmed(false);
+        closedRef.current = false;
+        const id = globalThis.setTimeout(() => setArmed(true), ARMING_MS);
+        return () => globalThis.clearTimeout(id);
+    }, [requestID]);
     useEffect(() => {
         const id = globalThis.setInterval(() => {
             const left = secondsLeft();

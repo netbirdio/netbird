@@ -1456,8 +1456,5 @@
     },
     "settings.privilege.oneWayInverted": {
         "message": "Ви можете увімкнути це, але щоб вимкнути знову, знадобиться {actor}:"
-    },
-    "settings.ssh.privilege.authorizePending": {
-        "message": "Очікування авторизації…"
     }
 }

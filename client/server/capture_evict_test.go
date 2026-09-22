@@ -77,18 +77,10 @@ func TestClaimCapture_EvictionDoesNotHoldMutex(t *testing.T) {
 		t.Fatal("claimCapture blocked evicting a stalled capture")
 	}
 
-	locked := make(chan struct{})
-	go func() {
-		s.mutex.Lock()
-		s.mutex.Unlock()
-		close(locked)
-	}()
-
-	select {
-	case <-locked:
-	case <-time.After(5 * time.Second):
+	if !s.mutex.TryLock() {
 		t.Fatal("s.mutex still held after evicting a stalled capture")
 	}
+	s.mutex.Unlock()
 
 	select {
 	case <-sess.Done():

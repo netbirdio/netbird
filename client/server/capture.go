@@ -118,13 +118,6 @@ func (s *Server) StartCapture(req *proto.StartCaptureRequest, stream proto.Daemo
 		return err
 	}
 
-	if err := engine.SetCapture(sess); err != nil {
-		s.releaseCapture(sess)
-		sess.Stop()
-		pw.Close()
-		return status.Errorf(codes.Internal, "set capture: %v", err)
-	}
-
 	// Send an empty initial message to signal that the capture was accepted.
 	// The client waits for this before printing the banner, so it must arrive
 	// before any packet data.
@@ -305,25 +298,39 @@ func (s *Server) cleanupBundleCapture() {
 	s.bundleCapture = nil
 }
 
-// claimCapture reserves the engine's capture slot for sess. If another
-// capture is already running it is evicted: a previous streaming session
-// whose gRPC client died and never freed the slot stays stuck otherwise,
-// and a bundle capture is just informational state.
+// claimCapture reserves the engine's capture slot for sess and installs sess on
+// the engine. If another capture is already running it is evicted: a previous
+// streaming session whose gRPC client died and never freed the slot stays stuck
+// otherwise, and a bundle capture is just informational state. The returned
+// engine already has sess installed; the caller must not install it again.
 func (s *Server) claimCapture(sess *capture.Session, cancel func()) (*internal.Engine, error) {
 	s.mutex.Lock()
 	stopEvicted := s.evictActiveCaptureLocked()
-	engine, err := s.getCaptureEngineLocked()
-	if err == nil {
-		s.activeCapture = sess
-		s.activeCaptureCancel = cancel
-	}
+	engine, err := s.installCaptureLocked(sess, cancel)
 	s.mutex.Unlock()
 
+	// Waits for the evicted session's writer, so it must run outside s.mutex.
 	stopEvicted()
 
 	if err != nil {
 		return nil, err
 	}
+	return engine, nil
+}
+
+// installCaptureLocked installs sess on the engine and records it as the slot's
+// owner, so no other claim can interleave between the two. On failure the slot
+// is left unowned. Caller must hold mutex.
+func (s *Server) installCaptureLocked(sess *capture.Session, cancel func()) (*internal.Engine, error) {
+	engine, err := s.getCaptureEngineLocked()
+	if err != nil {
+		return nil, err
+	}
+	if err := engine.SetCapture(sess); err != nil {
+		return nil, status.Errorf(codes.Internal, "set capture: %v", err)
+	}
+	s.activeCapture = sess
+	s.activeCaptureCancel = cancel
 	return engine, nil
 }
 
