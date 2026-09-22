@@ -84,15 +84,18 @@ run_logged() {
 }
 
 cask_field() {
-    sed -nE "s/^[[:space:]]*$1 \"([^\"]+)\".*/\\1/p" "$2"
+    local stanza=$1 file=$2
+    sed -nE "s/^[[:space:]]*$stanza \"([^\"]+)\".*/\\1/p" "$file"
 }
 
 release_fields() {
-    grep -E '^[[:space:]]*(version|url|sha256|app) ' "$1"
+    local file=$1
+    grep -E '^[[:space:]]*(version|url|sha256|app) ' "$file"
 }
 
 use_cask() {
-    cp "$1" "$tap_dir/Casks/netbird-ui.rb"
+    local file=$1
+    cp "$file" "$tap_dir/Casks/netbird-ui.rb"
 }
 
 assert_no_deprecations() {
@@ -165,7 +168,8 @@ assert_uninstalled() {
 }
 
 installed_caskfiles() {
-    find "$(brew --caskroom)/netbird-ui/.metadata" -name "netbird-ui.$1" 2>/dev/null
+    local extension=$1
+    find "$(brew --caskroom)/netbird-ui/.metadata" -name "netbird-ui.$extension" 2>/dev/null
 }
 
 assert_legacy_metadata() {
@@ -247,6 +251,7 @@ for scenario in running stopped missing; do
     stop_ui
 
     case "$scenario" in
+        running) ;;
         stopped)
             run_logged stop-daemon sudo netbird service stop
             wait_for_exit "$daemon_pid"
@@ -259,6 +264,7 @@ for scenario in running stopped missing; do
             [[ ! -e "$plist" ]] || fail "The missing-service scenario still has a plist."
             assert_service_absent
             ;;
+        *) fail "Unknown uninstall scenario: $scenario" ;;
     esac
 
     run_logged "uninstall-$scenario" brew uninstall --cask "$cask"
