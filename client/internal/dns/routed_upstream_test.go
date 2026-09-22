@@ -417,6 +417,45 @@ func TestRefreshRoutedUpstreamsWithholdsOnceTheRoutesAreKnown(t *testing.T) {
 	assert.Empty(t, captured.Domains, "withheld once the route is known to exist but is not installed")
 }
 
+// A withheld group has no handler, so nothing ever observes its upstreams and
+// the health verdict stays Undecided — which on its own reads as Enabled. The
+// management-visible state must say it is not serving, and why.
+func TestProjectNSGroupHealthReportsWithheldGroups(t *testing.T) {
+	routedGroup := nsGroupWith("10.10.0.53")
+	routedGroup.Domains = []string{"corp.example.com"}
+	publicGroup := nsGroupWith("1.1.1.1")
+	publicGroup.Domains = []string{"other.example.com"}
+
+	recorder := peer.NewRecorder("test")
+	server := &DefaultServer{
+		service:        &mockService{},
+		statusRecorder: recorder,
+	}
+
+	server.projectNSGroupHealth(nsHealthSnapshot{
+		groups: []*nbdns.NameServerGroup{routedGroup, publicGroup},
+		merged: map[netip.AddrPort]UpstreamHealth{},
+		allowed: map[nsGroupID]bool{
+			generateGroupKey(routedGroup): false,
+			generateGroupKey(publicGroup): true,
+		},
+	})
+
+	states := recorder.GetFullStatus().NSGroupStates
+	byDomain := map[string]peer.NSGroupState{}
+	for _, st := range states {
+		require.NotEmpty(t, st.Domains)
+		byDomain[st.Domains[0]] = st
+	}
+
+	withheld := byDomain["corp.example.com"]
+	assert.False(t, withheld.Enabled, "a withheld group is not serving")
+	require.Error(t, withheld.Error)
+	assert.ErrorIs(t, withheld.Error, errNoRouteToNameservers)
+
+	assert.True(t, byDomain["other.example.com"].Enabled, "an allowed group is unaffected")
+}
+
 // OnInstalledRoutesChanged is called from the route manager while it holds its
 // own lock, so it must never block and never re-apply inline.
 func TestOnInstalledRoutesChangedNeverBlocks(t *testing.T) {

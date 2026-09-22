@@ -102,7 +102,14 @@ type nsHealthSnapshot struct {
 	merged   map[netip.AddrPort]UpstreamHealth
 	selected route.HAMap
 	active   route.HAMap
+	// allowed is the gating verdict the current configuration was built from.
+	// A group missing from it was never gated, so it counts as allowed.
+	allowed map[nsGroupID]bool
 }
+
+// errNoRouteToNameservers is what a withheld group reports instead of a health
+// verdict: it has no handler, so there is nothing to observe about it.
+var errNoRouteToNameservers = errors.New("no route to the nameservers")
 
 // nsGroupProj holds per-group state for the emission rules.
 type nsGroupProj struct {
@@ -1188,6 +1195,7 @@ func (s *DefaultServer) refreshHealth() {
 	merged := s.collectUpstreamHealth()
 	selFn := s.selectedRoutes
 	actFn := s.activeRoutes
+	allowed := maps.Clone(s.lastGateDecision)
 	s.mux.Unlock()
 
 	var selected, active route.HAMap
@@ -1203,6 +1211,7 @@ func (s *DefaultServer) refreshHealth() {
 		merged:   merged,
 		selected: selected,
 		active:   active,
+		allowed:  allowed,
 	})
 }
 
@@ -1242,6 +1251,21 @@ func (s *DefaultServer) projectNSGroupHealth(snap nsHealthSnapshot) {
 		verdict, groupErr := evaluateNSGroupHealth(snap.merged, servers, now)
 		id := generateGroupKey(group)
 		seen[id] = struct{}{}
+
+		// A withheld group has no handler, so no query ever reaches its
+		// upstreams and the health verdict would stay Undecided, which reads
+		// as Enabled. Report what is actually true instead: it is not serving,
+		// and the reason is the missing route rather than a sick nameserver.
+		if allowed, gated := snap.allowed[id]; gated && !allowed {
+			states = append(states, peer.NSGroupState{
+				ID:      string(id),
+				Servers: servers,
+				Domains: group.Domains,
+				Enabled: false,
+				Error:   errNoRouteToNameservers,
+			})
+			continue
+		}
 
 		immediate := s.groupHasImmediateUpstream(servers, snap)
 
