@@ -59,6 +59,9 @@ var writeSerializerOptions = gopacket.SerializeOptions{
 // We use the maximum (68) for both IPv4 and IPv6
 const maxIPUDPOverhead = 68
 
+// udpChecksumOffset is the offset of the checksum field within the UDP header.
+const udpChecksumOffset = 6
+
 // Listen creates an IPv4 and IPv6 raw sockets, starts a reader and routing table routines
 func Listen(port int, filter BPFFilter, mtu uint16) (_ net.PacketConn, err error) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -95,6 +98,11 @@ func Listen(port int, filter BPFFilter, mtu uint16) (_ net.PacketConn, err error
 		if err = nbnet.SetSocketMark(rawSock.conn6); err != nil {
 			return nil, fmt.Errorf("set SO_MARK on ipv6 socket: %w", err)
 		}
+		// The kernel fills in the UDP checksum from the source address it selects on send,
+		// so the IPv6 path needs no route lookup to build the pseudo-header.
+		if err = rawSock.conn6.SetsockoptInt(unix.IPPROTO_IPV6, unix.IPV6_CHECKSUM, udpChecksumOffset); err != nil {
+			return nil, fmt.Errorf("enable kernel checksum on ipv6 socket: %w", err)
+		}
 	}
 
 	ipv4Instructions, ipv6Instructions, err := filter.GetInstructions(uint32(rawSock.port))
@@ -122,7 +130,7 @@ func Listen(port int, filter BPFFilter, mtu uint16) (_ net.PacketConn, err error
 }
 
 // resolveSrc returns the source IP the kernel will pick for a packet sent to
-// dst by these raw sockets, mirroring the fwmark the kernel will see on send.
+// dst by the IPv4 raw socket, mirroring the fwmark the kernel will see on send.
 func (s *SharedSocket) resolveSrc(dst net.IP) (net.IP, error) {
 	opts := &netlink.RouteGetOptions{}
 	if nbnet.AdvancedRouting() {
@@ -288,60 +296,60 @@ func (s *SharedSocket) WriteTo(buf []byte, rAddr net.Addr) (n int, err error) {
 		return -1, fmt.Errorf("invalid address type")
 	}
 
-	buffer := gopacket.NewSerializeBuffer()
-	payload := gopacket.Payload(buf)
-
 	udp := &layers.UDP{
 		SrcPort: layers.UDPPort(s.port),
 		DstPort: layers.UDPPort(rUDPAddr.Port),
 	}
 
-	src, err := s.resolveSrc(rUDPAddr.IP)
+	if dst := rUDPAddr.IP.To4(); dst != nil {
+		return s.writeTo4(udp, buf, dst)
+	}
+	return s.writeTo6(udp, buf, rUDPAddr.IP)
+}
+
+// writeTo4 sends a UDP packet over the IPv4 raw socket. IPv4 raw sockets have no
+// kernel checksum offload, so the pseudo-header source comes from a route lookup.
+func (s *SharedSocket) writeTo4(udp *layers.UDP, buf []byte, dst net.IP) (int, error) {
+	src, err := s.resolveSrc(dst)
 	if err != nil {
-		return 0, fmt.Errorf("resolve source for %s: %w", rUDPAddr.IP, err)
+		return 0, fmt.Errorf("resolve source for %s: %w", dst, err)
 	}
 
-	rSockAddr, conn, nwLayer := s.getWriterObjects(src, rUDPAddr.IP)
-	if conn == nil {
-		return 0, fmt.Errorf("no raw socket for %s", rUDPAddr.IP)
+	nwLayer := &layers.IPv4{
+		Version:  4,
+		TTL:      64,
+		Protocol: layers.IPProtocolUDP,
+		SrcIP:    src,
+		DstIP:    dst,
 	}
-
 	if err := udp.SetNetworkLayerForChecksum(nwLayer); err != nil {
 		return -1, fmt.Errorf("failed to set network layer for checksum: %w", err)
 	}
 
-	if err := gopacket.SerializeLayers(buffer, writeSerializerOptions, udp, payload); err != nil {
+	buffer := gopacket.NewSerializeBuffer()
+	if err := gopacket.SerializeLayers(buffer, writeSerializerOptions, udp, gopacket.Payload(buf)); err != nil {
 		return -1, fmt.Errorf("failed serialize rcvdPacket: %w", err)
 	}
 
-	bufser := buffer.Bytes()
-
-	return 0, conn.Sendto(context.TODO(), bufser, 0, rSockAddr)
+	sa := &unix.SockaddrInet4{}
+	copy(sa.Addr[:], dst)
+	return 0, s.conn4.Sendto(context.TODO(), buffer.Bytes(), 0, sa)
 }
 
-// getWriterObjects returns the specific IP version objects that are used to build a packet and send it using the raw socket
-func (s *SharedSocket) getWriterObjects(src, dest net.IP) (sa unix.Sockaddr, conn *socket.Conn, layer gopacket.NetworkLayer) {
-	if dest.To4() == nil {
-		sa = &unix.SockaddrInet6{}
-		copy(sa.(*unix.SockaddrInet6).Addr[:], dest.To16())
-		conn = s.conn6
-
-		layer = &layers.IPv6{
-			SrcIP: src,
-			DstIP: dest,
-		}
-	} else {
-		sa = &unix.SockaddrInet4{}
-		copy(sa.(*unix.SockaddrInet4).Addr[:], dest.To4())
-		conn = s.conn4
-		layer = &layers.IPv4{
-			Version:  4,
-			TTL:      64,
-			Protocol: layers.IPProtocolUDP,
-			SrcIP:    src,
-			DstIP:    dest,
-		}
+// writeTo6 sends a UDP packet over the IPv6 raw socket, leaving the checksum to the
+// kernel (IPV6_CHECKSUM).
+func (s *SharedSocket) writeTo6(udp *layers.UDP, buf []byte, dst net.IP) (int, error) {
+	if s.conn6 == nil {
+		return 0, fmt.Errorf("no raw socket for %s", dst)
 	}
 
-	return sa, conn, layer
+	buffer := gopacket.NewSerializeBuffer()
+	opts := gopacket.SerializeOptions{FixLengths: true}
+	if err := gopacket.SerializeLayers(buffer, opts, udp, gopacket.Payload(buf)); err != nil {
+		return -1, fmt.Errorf("failed serialize rcvdPacket: %w", err)
+	}
+
+	sa := &unix.SockaddrInet6{}
+	copy(sa.Addr[:], dst.To16())
+	return 0, s.conn6.Sendto(context.TODO(), buffer.Bytes(), 0, sa)
 }
