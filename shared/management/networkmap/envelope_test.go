@@ -37,7 +37,7 @@ func TestEnvelopeToNetworkMap_RoundTrip(t *testing.T) {
 	var decoded proto.NetworkMapEnvelope
 	require.NoError(t, goproto.Unmarshal(wire, &decoded), "unmarshal envelope")
 
-	result, err := nbnetworkmap.EnvelopeToNetworkMap(context.Background(), &decoded, localPeerKey, "netbird.cloud")
+	result, err := nbnetworkmap.EnvelopeToNetworkMap(context.Background(), &decoded, localPeerKey, "netbird.cloud", false)
 	require.NoError(t, err, "EnvelopeToNetworkMap")
 	require.NotNil(t, result)
 	require.NotNil(t, result.NetworkMap, "decoded NetworkMap must be non-nil")
@@ -78,7 +78,7 @@ func TestCalculate_FirewallRuleProtocol_NeverNetbirdSSH(t *testing.T) {
 	var decoded proto.NetworkMapEnvelope
 	require.NoError(t, goproto.Unmarshal(wire, &decoded))
 
-	result, err := nbnetworkmap.EnvelopeToNetworkMap(context.Background(), &decoded, localPeerKey, "netbird.cloud")
+	result, err := nbnetworkmap.EnvelopeToNetworkMap(context.Background(), &decoded, localPeerKey, "netbird.cloud", false)
 	require.NoError(t, err)
 	require.NotEmpty(t, result.NetworkMap.FirewallRules, "ssh policy should produce firewall rules")
 	for i, fr := range result.NetworkMap.FirewallRules {
@@ -88,13 +88,13 @@ func TestCalculate_FirewallRuleProtocol_NeverNetbirdSSH(t *testing.T) {
 }
 
 func TestEnvelopeToNetworkMap_NilEnvelope(t *testing.T) {
-	_, err := nbnetworkmap.EnvelopeToNetworkMap(context.Background(), nil, "key", "netbird.cloud")
+	_, err := nbnetworkmap.EnvelopeToNetworkMap(context.Background(), nil, "key", "netbird.cloud", false)
 	require.Error(t, err, "nil envelope must produce an error rather than panic")
 }
 
 func TestEnvelopeToNetworkMap_FullPayloadMissing(t *testing.T) {
 	env := &proto.NetworkMapEnvelope{}
-	_, err := nbnetworkmap.EnvelopeToNetworkMap(context.Background(), env, "key", "netbird.cloud")
+	_, err := nbnetworkmap.EnvelopeToNetworkMap(context.Background(), env, "key", "netbird.cloud", false)
 	require.Error(t, err, "envelope with no Full payload must produce an error")
 }
 
@@ -126,7 +126,7 @@ func TestDecodeEnvelope_MalformedWgKeyPeerSkipped(t *testing.T) {
 	var decoded proto.NetworkMapEnvelope
 	require.NoError(t, goproto.Unmarshal(wire, &decoded), "unmarshal envelope")
 
-	result, err := nbnetworkmap.EnvelopeToNetworkMap(context.Background(), &decoded, localPeerKey, "netbird.cloud")
+	result, err := nbnetworkmap.EnvelopeToNetworkMap(context.Background(), &decoded, localPeerKey, "netbird.cloud", false)
 	require.NoError(t, err, "EnvelopeToNetworkMap must tolerate one bad peer key")
 	require.NotNil(t, result)
 	require.NotNil(t, result.Components)
@@ -195,7 +195,7 @@ func TestEnvelopeRoundTrip_AllGroupShortCircuitParity(t *testing.T) {
 	var decodedEnv proto.NetworkMapEnvelope
 	require.NoError(t, goproto.Unmarshal(wire, &decodedEnv), "unmarshal envelope")
 
-	result, err := nbnetworkmap.EnvelopeToNetworkMap(ctx, &decodedEnv, peers["peer-T"].Key, "netbird.cloud")
+	result, err := nbnetworkmap.EnvelopeToNetworkMap(ctx, &decodedEnv, peers["peer-T"].Key, "netbird.cloud", false)
 	require.NoError(t, err, "EnvelopeToNetworkMap")
 	clientNM := result.NetworkMap
 
@@ -253,7 +253,7 @@ func TestEnvelopeToNetworkMap_EmptyComponents(t *testing.T) {
 	var decoded proto.NetworkMapEnvelope
 	require.NoError(t, goproto.Unmarshal(wire, &decoded), "unmarshal envelope")
 
-	result, err := nbnetworkmap.EnvelopeToNetworkMap(context.Background(), &decoded, localPeerKey, "netbird.cloud")
+	result, err := nbnetworkmap.EnvelopeToNetworkMap(context.Background(), &decoded, localPeerKey, "netbird.cloud", false)
 	require.NoError(t, err, "EnvelopeToNetworkMap must degrade gracefully on empty components")
 	require.Equal(t, uint64(7), result.NetworkMap.Serial)
 	require.Empty(t, result.NetworkMap.RemotePeers, "unvalidated peer connects to nobody")
@@ -276,7 +276,7 @@ func TestEnvelopeToNetworkMap_MissingNetwork(t *testing.T) {
 	var decoded proto.NetworkMapEnvelope
 	require.NoError(t, goproto.Unmarshal(wire, &decoded), "unmarshal envelope")
 
-	result, err := nbnetworkmap.EnvelopeToNetworkMap(context.Background(), &decoded, localPeerKey, "netbird.cloud")
+	result, err := nbnetworkmap.EnvelopeToNetworkMap(context.Background(), &decoded, localPeerKey, "netbird.cloud", false)
 	require.NoError(t, err, "a missing AccountNetwork must not panic the client")
 	require.NotNil(t, result.Components.Network)
 	require.NotEmpty(t, result.NetworkMap.RemotePeers, "the rest of the snapshot stays usable")

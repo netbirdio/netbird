@@ -175,6 +175,48 @@ func TestNetworkMapComponents_NetworkResourceRoutes_RouterPeer(t *testing.T) {
 	assert.NotEmpty(t, nm.RoutesFirewallRules, "router peer should have route firewall rules for the resource")
 }
 
+// A receiver without a firewall asks Calculate to skip the route firewall
+// rules. Everything the rest of the sync consumes — routes, peers, peer
+// firewall rules — must come out unchanged.
+func TestNetworkMapComponents_SkipRouteFirewallRules(t *testing.T) {
+	ctx := context.Background()
+	account := createComponentTestAccount()
+	validated := allPeersValidated(account)
+
+	components := account.GetPeerNetworkMapComponents(
+		ctx,
+		"peer-router-1",
+		account.GetPeersCustomZone(ctx, "netbird.io"),
+		nil,
+		validated,
+		account.GetResourcePoliciesMap(),
+		account.GetResourceRoutersMap(),
+		account.GetActiveGroupUsers(),
+	)
+
+	full := components.Calculate(ctx)
+	require.NotEmpty(t, full.RoutesFirewallRules, "baseline: router peer must get route firewall rules")
+
+	components.SkipRouteFirewallRules = true
+	skipped := components.Calculate(ctx)
+
+	assert.Empty(t, skipped.RoutesFirewallRules, "route firewall rules must not be computed when skipped")
+	assert.ElementsMatch(t, routeNetworks(full.Routes), routeNetworks(skipped.Routes),
+		"skipping route firewall rules must not change the routes")
+	assert.ElementsMatch(t, peerIDs(full.Peers), peerIDs(skipped.Peers),
+		"skipping route firewall rules must not change the peers to connect")
+	assert.Len(t, skipped.FirewallRules, len(full.FirewallRules),
+		"peer firewall rules are unrelated and must still be computed")
+}
+
+func routeNetworks(routes []*nmdata.Route) []string {
+	networks := make([]string, 0, len(routes))
+	for _, r := range routes {
+		networks = append(networks, r.Network.String())
+	}
+	return networks
+}
+
 func TestNetworkMapComponents_NetworkResourceRoutes_UnrelatedPeer(t *testing.T) {
 	account := createComponentTestAccount()
 	validated := allPeersValidated(account)
