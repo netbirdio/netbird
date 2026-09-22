@@ -17,24 +17,6 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestFillEmptyJson_NameserverGroup(t *testing.T) {
-	db := setupNsGroupsTestDB(t)
-
-	res, err := db.ConnPool.ExecContext(context.Background(), `insert into name_server_groups (id,account_id,name,name_servers,groups,domains) values('id-1','account-id-1','test-nsg-2','','','')`)
-	require.NoError(t, err)
-	n, _ := res.RowsAffected()
-	require.Equal(t, n, int64(1))
-
-	err = migration.FillEmptyNameserverGroupJsonColumns(context.Background(), db)
-	require.NoError(t, err)
-
-	rows, err := db.ConnPool.QueryContext(context.Background(), "select id from name_server_groups where name_servers='' or name_servers=null or groups='' or groups=null or domains='' or domains=null")
-	require.NoError(t, err)
-
-	rows.Next()
-	require.False(t, rows.Next())
-}
-
 func TestFillEmptyJson_Peers(t *testing.T) {
 	db := setupPeersTestDB(t)
 
@@ -53,27 +35,6 @@ func TestFillEmptyJson_Peers(t *testing.T) {
 		 or meta_environment='' or meta_environment=null or meta_flags='' or meta_flags=null or meta_files='' or meta_files=null 
 		 or meta_capabilities='' or meta_capabilities=null or location_connection_ip='' or location_connection_ip=null 
 		 or extra_dns_labels='' or extra_dns_labels=null`)
-	require.NoError(t, err)
-	rows.Next()
-	require.False(t, rows.Next())
-}
-
-func TestFillEmptyJson_Settings(t *testing.T) {
-	db := setupAccountsTestDB(t)
-
-	res, err := db.ConnPool.ExecContext(context.Background(),
-		`insert into accounts (id,settings_jwt_allow_groups,settings_network_range,settings_network_range_v6,settings_peer_expose_groups,settings_ipv6_enabled_groups,settings_extra_integrated_validator_groups)
-		 values('id-1','','','','','','')`)
-	require.NoError(t, err)
-	n, _ := res.RowsAffected()
-	require.Equal(t, n, int64(1))
-
-	err = migration.FillEmptySettingsJsonColumns(context.Background(), db)
-	require.NoError(t, err)
-
-	rows, err := db.ConnPool.QueryContext(context.Background(),
-		`select id from accounts where settings_jwt_allow_groups='' or settings_jwt_allow_groups=null or settings_network_range='' or settings_network_range=null or settings_network_range_v6='' or settings_network_range_v6=null 
-		 or settings_peer_expose_groups='' or settings_peer_expose_groups=null or settings_ipv6_enabled_groups='' or settings_ipv6_enabled_groups=null or settings_extra_integrated_validator_groups='' or settings_extra_integrated_validator_groups=null`)
 	require.NoError(t, err)
 	rows.Next()
 	require.False(t, rows.Next())
@@ -104,188 +65,125 @@ func TestFillEmptyJson_PolicyRule(t *testing.T) {
 	require.False(t, rows.Next())
 }
 
-func TestFillEmptyJson_Route(t *testing.T) {
-	db := setupRouteTestDB(t)
+func TestFillEmptyJsonFields(t *testing.T) {
+	db := setupDatabase(t)
 
-	res, err := db.ConnPool.ExecContext(context.Background(), `insert into routes (id,account_id,network,domains,peer_groups,groups,access_control_groups) values('id-1','account-id-1','','','','','')`)
-	require.NoError(t, err)
-	n, _ := res.RowsAffected()
-	require.Equal(t, n, int64(1))
+	var tests = []struct {
+		description   string
+		setupFuncs    []func(t *testing.T, db *gorm.DB)
+		migrationFunc func(context.Context, *gorm.DB) error
+		createSQL     string
+		querySQL      string
+	}{
+		{
+			description:   "empty service json fields",
+			createSQL:     `insert into services (id,account_id,auth,restrictions,access_groups) values('id-1','account-id-1','','','')`,
+			querySQL:      `select id from services where auth='' or auth=null or restrictions='' or restrictions=null or access_groups='' or access_groups=null`,
+			setupFuncs:    []func(t *testing.T, db *gorm.DB){setupTestDB[service.Service], setupTestDB[service.Target]},
+			migrationFunc: migration.FillEmptyServiceJsonColumns,
+		},
+		{
+			description: "empty service targets json fields",
+			createSQL: `insert into services (id,account_id) values('id-2','account-id-1');
+			insert into targets (service_id,account_id,custom_headers,middlewares,capture_content_types) values('id-2','account-id-1','','','')`,
+			querySQL:      `select id from targets where custom_headers='' or custom_headers=null or middlewares='' or middlewares=null or capture_content_types='' or capture_content_types=null`,
+			setupFuncs:    []func(t *testing.T, db *gorm.DB){setupTestDB[service.Service], setupTestDB[service.Target]},
+			migrationFunc: migration.FillEmptyServiceJsonColumns,
+		},
+		{
+			description:   "empty name_server_groups json fields",
+			createSQL:     `insert into name_server_groups (id,account_id,name,name_servers,groups,domains) values('id-1','account-id-1','test-nsg-2','','','')`,
+			querySQL:      `select id from name_server_groups where name_servers='' or name_servers=null or groups='' or groups=null or domains='' or domains=null`,
+			setupFuncs:    []func(t *testing.T, db *gorm.DB){setupTestDB[dns.NameServerGroup]},
+			migrationFunc: migration.FillEmptyNameserverGroupJsonColumns,
+		},
+		{
+			description: "empty account settings json fields",
+			createSQL: `insert into accounts (id,settings_jwt_allow_groups,settings_network_range,settings_network_range_v6,settings_peer_expose_groups,settings_ipv6_enabled_groups,settings_extra_integrated_validator_groups)
+		 values('id-1','','','','','','')`,
+			querySQL: `select id from accounts where settings_jwt_allow_groups='' or settings_jwt_allow_groups=null or settings_network_range='' or settings_network_range=null or settings_network_range_v6='' or settings_network_range_v6=null 
+		 or settings_peer_expose_groups='' or settings_peer_expose_groups=null or settings_ipv6_enabled_groups='' or settings_ipv6_enabled_groups=null or settings_extra_integrated_validator_groups='' or settings_extra_integrated_validator_groups=null`,
+			setupFuncs:    []func(t *testing.T, db *gorm.DB){setupTestDB[types.Account]},
+			migrationFunc: migration.FillEmptySettingsJsonColumns,
+		},
+		{
+			description: "empty routes json fields",
+			createSQL: `insert into accounts (id) values('account-id-1');
+			insert into routes (id,account_id,network,domains,peer_groups,groups,access_control_groups) values('id-1','account-id-1','','','','','')`,
+			querySQL:      "select id from routes where network='' or network=null or domains='' or domains=null or peer_groups='' or peer_groups=null or groups='' or groups=null or access_control_groups='' or access_control_groups=null",
+			setupFuncs:    []func(t *testing.T, db *gorm.DB){setupTestDB[route.Route]},
+			migrationFunc: migration.FillEmptyRouteJsonColumns,
+		},
+		{
+			description:   "empty accounts.networks",
+			createSQL:     "insert into accounts (id,network_net,network_net_v6) values('id-1','','')",
+			querySQL:      "select id from accounts where network_net='' or network_net=null or network_net_v6='' or network_net_v6=null",
+			setupFuncs:    []func(t *testing.T, db *gorm.DB){setupTestDB[types.Account]},
+			migrationFunc: migration.FillEmptyAccountNetworkJsonColumns,
+		},
+		{
+			description:   "empty network_resources.prefix",
+			createSQL:     "insert into network_resources (id,prefix) values('id-1','')",
+			querySQL:      "select id from network_resources where prefix='' or prefix=null",
+			setupFuncs:    []func(t *testing.T, db *gorm.DB){setupTestDB[net_types.NetworkResource]},
+			migrationFunc: migration.FillEmptyNetworkResourceJsonColumns,
+		},
+		{
+			description:   "empty network_routers.peer_groups",
+			createSQL:     "insert into network_routers (id,peer_groups) values('id-1','')",
+			querySQL:      "select id from network_routers where peer_groups='' or peer_groups=null",
+			setupFuncs:    []func(t *testing.T, db *gorm.DB){setupTestDB[router_types.NetworkRouter]},
+			migrationFunc: migration.FillEmptyNetworkRouterJsonColumns,
+		},
+		{
+			description:   "empty accounts.dns_settings_disabled_management_groups",
+			createSQL:     "insert into accounts (id,dns_settings_disabled_management_groups) values('id-1','')",
+			querySQL:      "select id from accounts where dns_settings_disabled_management_groups='' or dns_settings_disabled_management_groups=null",
+			setupFuncs:    []func(t *testing.T, db *gorm.DB){setupTestDB[types.Account]},
+			migrationFunc: migration.FillEmptyAccountDnsSettingsJsonColumns,
+		},
+		{
+			description:   "empty users.auto_groups",
+			createSQL:     "insert into users (id,auto_groups) values('id-1','')",
+			querySQL:      "select id from users where auto_groups='' or auto_groups=null",
+			setupFuncs:    []func(t *testing.T, db *gorm.DB){setupTestDB[types.User]},
+			migrationFunc: migration.FillEmptyUserJsonColumns,
+		},
+		{
+			description:   "empty posture_checks.checks",
+			createSQL:     "insert into posture_checks (id,checks) values('id-1','')",
+			querySQL:      "select id from posture_checks where checks='' or checks=null",
+			setupFuncs:    []func(t *testing.T, db *gorm.DB){setupTestDB[posture.Checks]},
+			migrationFunc: migration.FillEmptyPostureCheckJsonColumns,
+		},
+		{
+			description:   "empty setup_keys.auto_groups",
+			createSQL:     "insert into setup_keys (id,auto_groups) values('id-1','')",
+			querySQL:      "select id from setup_keys where auto_groups='' or auto_groups=null",
+			setupFuncs:    []func(t *testing.T, db *gorm.DB){setupTestDB[types.SetupKey]},
+			migrationFunc: migration.FillEmptySetupKeyJsonColumns,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.description, func(t *testing.T) {
+			for _, f := range tt.setupFuncs {
+				f(t, db)
+			}
 
-	err = migration.FillEmptyRouteJsonColumns(context.Background(), db)
-	require.NoError(t, err)
+			res, err := db.ConnPool.ExecContext(context.Background(), tt.createSQL)
+			require.NoError(t, err)
+			n, _ := res.RowsAffected()
+			require.Equal(t, n, int64(1))
 
-	rows, err := db.ConnPool.QueryContext(context.Background(), "select id from routes where network='' or network=null or domains='' or domains=null or peer_groups='' or peer_groups=null or groups='' or groups=null or access_control_groups='' or access_control_groups=null")
-	require.NoError(t, err)
+			err = tt.migrationFunc(context.Background(), db)
+			require.NoError(t, err)
 
-	rows.Next()
-	require.False(t, rows.Next())
-}
-
-func TestFillEmptyJson_Service(t *testing.T) {
-	db := setupServicesTestDB(t)
-
-	res, err := db.ConnPool.ExecContext(context.Background(), `insert into services (id,account_id,auth,restrictions,access_groups) values('id-1','account-id-1','','','')`)
-	require.NoError(t, err)
-	n, _ := res.RowsAffected()
-	require.Equal(t, n, int64(1))
-
-	err = migration.FillEmptyServiceJsonColumns(context.Background(), db)
-	require.NoError(t, err)
-
-	rows, err := db.ConnPool.QueryContext(context.Background(), "select id from services where auth='' or auth=null or restrictions='' or restrictions=null or access_groups='' or access_groups=null")
-	require.NoError(t, err)
-
-	rows.Next()
-	require.False(t, rows.Next())
-}
-
-func TestFillEmptyJson_ServiceTargets(t *testing.T) {
-	db := setupServicesTestDB(t)
-
-	res, err := db.ConnPool.ExecContext(context.Background(), `insert into services (id,account_id) values('id-2','account-id-1')`)
-	require.NoError(t, err)
-	n, _ := res.RowsAffected()
-	require.Equal(t, n, int64(1))
-
-	res, err = db.ConnPool.ExecContext(context.Background(), `insert into targets (service_id,account_id,custom_headers,middlewares,capture_content_types) values('id-2','account-id-1','','','')`)
-	require.NoError(t, err)
-	n, _ = res.RowsAffected()
-	require.Equal(t, n, int64(1))
-
-	err = migration.FillEmptyServiceTargetsJsonColumns(context.Background(), db)
-	require.NoError(t, err)
-
-	rows, err := db.ConnPool.QueryContext(context.Background(), "select id from targets where custom_headers='' or custom_headers=null or middlewares='' or middlewares=null or capture_content_types='' or capture_content_types=null")
-	require.NoError(t, err)
-	rows.Next()
-	require.False(t, rows.Next())
-}
-
-func TestFillEmptyJson_AccountNetwork(t *testing.T) {
-	db := setupAccountsTestDB(t)
-
-	res, err := db.ConnPool.ExecContext(context.Background(),
-		`insert into accounts (id,network_net,network_net_v6) values('id-1','','')`)
-	require.NoError(t, err)
-	n, _ := res.RowsAffected()
-	require.Equal(t, n, int64(1))
-
-	err = migration.FillEmptyAccountNetworkJsonColumns(context.Background(), db)
-	require.NoError(t, err)
-
-	rows, err := db.ConnPool.QueryContext(context.Background(), "select id from accounts where network_net='' or network_net=null or network_net_v6='' or network_net_v6=null")
-	require.NoError(t, err)
-	rows.Next()
-	require.False(t, rows.Next())
-}
-
-func TestFillEmptyJsonField_NetworkResource(t *testing.T) {
-	db := setupNetworkResourceTestDB(t)
-
-	res, err := db.ConnPool.ExecContext(context.Background(),
-		`insert into network_resources (id,prefix) values('id-1','')`)
-	require.NoError(t, err)
-	n, _ := res.RowsAffected()
-	require.Equal(t, n, int64(1))
-
-	err = migration.FillEmptyNetworkResourceJsonColumns(context.Background(), db)
-	require.NoError(t, err)
-
-	rows, err := db.ConnPool.QueryContext(context.Background(), "select id from network_resources where prefix='' or prefix=null")
-	require.NoError(t, err)
-	rows.Next()
-	require.False(t, rows.Next())
-}
-
-func TestFillEmptyJsonField_NetworkRouter(t *testing.T) {
-	db := setupNetworkRouterTestDB(t)
-
-	res, err := db.ConnPool.ExecContext(context.Background(),
-		`insert into network_routers (id,peer_groups) values('id-1','')`)
-	require.NoError(t, err)
-	n, _ := res.RowsAffected()
-	require.Equal(t, n, int64(1))
-
-	err = migration.FillEmptyNetworkRouterJsonColumns(context.Background(), db)
-	require.NoError(t, err)
-
-	rows, err := db.ConnPool.QueryContext(context.Background(), "select id from network_routers where peer_groups='' or peer_groups=null")
-	require.NoError(t, err)
-	rows.Next()
-	require.False(t, rows.Next())
-}
-
-func TestFillEmptyJsonField_AccountDnsSettings(t *testing.T) {
-	db := setupAccountsTestDB(t)
-
-	res, err := db.ConnPool.ExecContext(context.Background(),
-		`insert into accounts (id,dns_settings_disabled_management_groups) values('id-1','')`)
-	require.NoError(t, err)
-	n, _ := res.RowsAffected()
-	require.Equal(t, n, int64(1))
-
-	err = migration.FillEmptyAccountDnsSettingsJsonColumns(context.Background(), db)
-	require.NoError(t, err)
-
-	rows, err := db.ConnPool.QueryContext(context.Background(), "select id from accounts where dns_settings_disabled_management_groups='' or dns_settings_disabled_management_groups=null")
-	require.NoError(t, err)
-	rows.Next()
-	require.False(t, rows.Next())
-}
-
-func TestFillEmptyJsonField_User(t *testing.T) {
-	db := setupUserTestDB(t)
-
-	res, err := db.ConnPool.ExecContext(context.Background(),
-		`insert into users (id,auto_groups) values('id-1','')`)
-	require.NoError(t, err)
-	n, _ := res.RowsAffected()
-	require.Equal(t, n, int64(1))
-
-	err = migration.FillEmptyUserJsonColumns(context.Background(), db)
-	require.NoError(t, err)
-
-	rows, err := db.ConnPool.QueryContext(context.Background(), "select id from users where auto_groups='' or auto_groups=null")
-	require.NoError(t, err)
-	rows.Next()
-	require.False(t, rows.Next())
-}
-
-func TestFillEmptyJsonField_PostureChecks(t *testing.T) {
-	db := setupPostureChecksTestDB(t)
-
-	res, err := db.ConnPool.ExecContext(context.Background(),
-		`insert into posture_checks (id,checks) values('id-1','')`)
-	require.NoError(t, err)
-	n, _ := res.RowsAffected()
-	require.Equal(t, n, int64(1))
-
-	err = migration.FillEmptyPostureCheckJsonColumns(context.Background(), db)
-	require.NoError(t, err)
-
-	rows, err := db.ConnPool.QueryContext(context.Background(), "select id from posture_checks where checks='' or checks=null")
-	require.NoError(t, err)
-	rows.Next()
-	require.False(t, rows.Next())
-}
-
-func TestFillEmptyJsonField_SetupKeys(t *testing.T) {
-	db := setupSetupKeysTestDB(t)
-
-	res, err := db.ConnPool.ExecContext(context.Background(),
-		`insert into setup_keys (id,auto_groups) values('id-1','')`)
-	require.NoError(t, err)
-	n, _ := res.RowsAffected()
-	require.Equal(t, n, int64(1))
-
-	err = migration.FillEmptySetupKeyJsonColumns(context.Background(), db)
-	require.NoError(t, err)
-
-	rows, err := db.ConnPool.QueryContext(context.Background(), "select id from setup_keys where auto_groups='' or auto_groups=null")
-	require.NoError(t, err)
-	rows.Next()
-	require.False(t, rows.Next())
+			rows, err := db.ConnPool.QueryContext(context.Background(), tt.querySQL)
+			require.NoError(t, err)
+			rows.Next()
+			require.False(t, rows.Next())
+		})
+	}
 }
 
 func setupNsGroupsTestDB(t *testing.T) *gorm.DB {
@@ -362,29 +260,9 @@ func setupNetworkRouterTestDB(t *testing.T) *gorm.DB {
 	return db
 }
 
-func setupUserTestDB(t *testing.T) *gorm.DB {
+func setupTestDB[T any](t *testing.T, db *gorm.DB) {
 	t.Helper()
-	db := setupDatabase(t)
-	_ = db.Migrator().DropTable(&types.User{})
-	err := db.AutoMigrate(&types.User{})
+	_ = db.Migrator().DropTable(new(T))
+	err := db.AutoMigrate(new(T))
 	require.NoError(t, err, "Failed to auto-migrate tables")
-	return db
-}
-
-func setupPostureChecksTestDB(t *testing.T) *gorm.DB {
-	t.Helper()
-	db := setupDatabase(t)
-	_ = db.Migrator().DropTable(&posture.Checks{})
-	err := db.AutoMigrate(&posture.Checks{})
-	require.NoError(t, err, "Failed to auto-migrate tables")
-	return db
-}
-
-func setupSetupKeysTestDB(t *testing.T) *gorm.DB {
-	t.Helper()
-	db := setupDatabase(t)
-	_ = db.Migrator().DropTable(&types.SetupKey{})
-	err := db.AutoMigrate(&types.SetupKey{})
-	require.NoError(t, err, "Failed to auto-migrate tables")
-	return db
 }
