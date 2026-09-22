@@ -735,8 +735,16 @@ func (s *DefaultServer) gateNameServerGroups(groups []*nbdns.NameServerGroup, sn
 
 		ok := s.routedUpstreamGate.allow(nsGroup, snap)
 		allowed[key] = ok
-		if !ok {
+
+		// Log the transition, not the state: this runs on every route change,
+		// and a group that stays withheld has nothing new to report.
+		was, known := s.lastGateDecision[key]
+		switch {
+		case !ok && (!known || was):
 			log.Infof("withholding nameserver group [%s] for domains %v: no route to its upstreams",
+				joinAddrPorts(s.usableNameServers(nsGroup.NameServers)), nsGroup.Domains)
+		case ok && known && !was:
+			log.Infof("restoring nameserver group [%s] for domains %v: a route to its upstreams exists again",
 				joinAddrPorts(s.usableNameServers(nsGroup.NameServers)), nsGroup.Domains)
 		}
 	}
@@ -1452,6 +1460,12 @@ func (s *DefaultServer) refreshRoutedUpstreams() {
 	}
 
 	allowed := s.gateNameServerGroups(s.currentUpdate.NameServerGroups, snap)
+	if maps.Equal(allowed, s.lastGateDecision) {
+		// Most route changes cover no nameserver at all. Re-applying would
+		// rebuild the whole handler chain to produce the same configuration.
+		log.Tracef("routed upstream gating unchanged, not re-applying the DNS configuration")
+		return
+	}
 
 	if err := s.applyConfiguration(s.currentUpdate, allowed); err != nil {
 		log.Errorf("failed to re-apply DNS configuration after a route change: %v", err)
