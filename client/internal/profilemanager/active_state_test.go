@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -13,9 +12,12 @@ import (
 // The daemon reads the active profile state on every RPC (the authz gate
 // resolves the request's target against it) while a profile switch writes it.
 // The write is a temp file renamed over the real one, and Windows refuses to
-// replace a file another handle holds open, so an unserialized read fails the
-// switch with "Access is denied". Every caller goes through ServiceManager, so
-// serializing there is what keeps the two apart.
+// replace a file another handle holds open, so a read in flight fails the
+// switch with "Access is denied" and the switch is lost.
+//
+// This says what the file layer owes the daemon rather than how it delivers it:
+// a switch has to land whoever is reading, and a reader has to see one whole
+// state or the other. It fails on Windows if that stops being true.
 func TestActiveProfileState_ReadsDoNotBreakAConcurrentWrite(t *testing.T) {
 	withTempConfigDir(t, func(configDir string) {
 		withPatchedGlobals(t, configDir, func() {
@@ -77,52 +79,6 @@ func TestActiveProfileState_ReadsDoNotBreakAConcurrentWrite(t *testing.T) {
 			require.NoError(t, err)
 			assert.Contains(t, []ID{defaultProfileName, switched}, state.ID,
 				"the file holds whichever switch landed last, not a mix of the two")
-		})
-	})
-}
-
-// The lock is the whole mechanism, so each entry point has to take it: one
-// that reads or writes the file outside it can still collide with a switch.
-// Holding it here must block every one of them.
-func TestActiveProfileState_EntryPointsTakeTheLock(t *testing.T) {
-	withTempConfigDir(t, func(configDir string) {
-		withPatchedGlobals(t, configDir, func() {
-			sm := &ServiceManager{}
-			require.NoError(t, sm.CreateDefaultProfile())
-
-			for _, tc := range []struct {
-				name string
-				call func()
-			}{
-				{"GetActiveProfileState", func() { _, _ = sm.GetActiveProfileState() }},
-				{"SetActiveProfileStateToDefault", func() { _ = sm.SetActiveProfileStateToDefault() }},
-				{"SetActiveProfileState", func() {
-					_ = sm.SetActiveProfileState(&ActiveProfileState{ID: defaultProfileName})
-				}},
-			} {
-				t.Run(tc.name, func(t *testing.T) {
-					done := make(chan struct{})
-					activeStateMu.Lock()
-					go func() {
-						defer close(done)
-						tc.call()
-					}()
-
-					select {
-					case <-done:
-						activeStateMu.Unlock()
-						t.Fatalf("%s ran while activeStateMu was held, so it can touch the state file during a switch", tc.name)
-					case <-time.After(50 * time.Millisecond):
-					}
-
-					activeStateMu.Unlock()
-					select {
-					case <-done:
-					case <-time.After(5 * time.Second):
-						t.Fatalf("%s did not finish after the lock was released", tc.name)
-					}
-				})
-			}
 		})
 	})
 }

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	//	"syscall"
 	"text/template"
 
 	log "github.com/sirupsen/logrus"
@@ -292,6 +293,30 @@ func getEnvMap() map[string]string {
 
 	return envMap
 }
+
+// ReadJson reads JSON config file with FILE_SHARE_DELETE and maps to a
+// provided interface
+/*
+func ReadJsonShareMode(file string, res interface{}) (interface{}, error) {
+	f, err := os.OpenFile(file, syscall.FILE_SHARE_READ|syscall.FILE_SHARE_WRITE|syscall.FILE_SHARE_DELETE, 0600)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	bs, err := io.ReadAll(f)
+	if err != nil {
+		return nil, err
+	}
+
+	err = json.Unmarshal(bs, &res)
+	if err != nil {
+		return nil, err
+	}
+
+	return res, nil
+}
+*/
 
 // CopyFileContents copies contents of the given src file to the dst file
 func CopyFileContents(src, dst string) (err error) {
