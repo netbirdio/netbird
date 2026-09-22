@@ -140,6 +140,13 @@ func (c errorClassifier) classify(err error) *ClientError {
 		code = "settings_managed_by_mdm"
 	}
 
+	// Deliberately no blanket mapping for FailedPrecondition below: the daemon
+	// returns it for two dozen states that are not settings refusals at all —
+	// "not logged in", "client is not running", "session can no longer be
+	// extended" — and this classifier is shared with the session and connection
+	// services. Only the two refusals the daemon composes are named, by their
+	// message.
+
 	// Fall back to the gRPC status code when the message didn't match a known
 	// substring — the daemon now forwards the innermost code with a clean desc
 	// that no longer contains the English marker text.
@@ -149,11 +156,6 @@ func (c errorClassifier) classify(err error) *ClientError {
 			code = "permission_denied"
 		case gcodes.Unavailable, gcodes.DeadlineExceeded:
 			code = "daemon_unreachable"
-		case gcodes.FailedPrecondition:
-			// The daemon answered and refused. The two refusals it composes
-			// are matched above; anything else that reaches here is still a
-			// refusal, so say that rather than "operation failed".
-			code = "change_refused"
 		}
 	}
 

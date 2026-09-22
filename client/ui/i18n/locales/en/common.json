@@ -1803,10 +1803,6 @@
         "message": "This setting is managed by your organization and cannot be changed.",
         "description": "Error: the setting is enforced by an MDM policy. 'MDM' = mobile device management, the organization's device-management system."
     },
-    "error.change_refused": {
-        "message": "The NetBird service refused this change.",
-        "description": "Error: the daemon answered the request and declined it. Generic fallback for a refusal with no more specific cause."
-    },
     "error.unknown": {
         "message": "Operation failed.",
         "description": "Generic fallback error message used when no specific error applies."

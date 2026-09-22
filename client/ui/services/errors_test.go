@@ -50,10 +50,11 @@ func TestErrorClassifier_Classify(t *testing.T) {
 		require.Equal(t, "settings_managed_by_mdm", c.classify(err).Code)
 	})
 
-	t.Run("any other refusal is still a refusal", func(t *testing.T) {
-		// FailedPrecondition means the daemon answered and declined; falling
-		// through to "unknown" showed "Operation failed" instead.
-		require.Equal(t, "change_refused", c.classify(gstatus.Error(gcodes.FailedPrecondition, "something else")).Code)
+	t.Run("an unrelated FailedPrecondition is not called a refusal", func(t *testing.T) {
+		// The daemon uses this code for states that are not settings refusals,
+		// and this classifier is shared with the session and connection
+		// services, so only the two refusals it composes are named.
+		require.Equal(t, "unknown", c.classify(gstatus.Error(gcodes.FailedPrecondition, "not logged in")).Code)
 	})
 
 	t.Run("unavailable code maps to daemon_unreachable", func(t *testing.T) {
