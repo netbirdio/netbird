@@ -453,6 +453,15 @@ func (m *DefaultManager) UpdateRoutes(
 	}
 	m.clientRoutes = clientRoutes
 
+	// The engine applies the DNS configuration before it hands us the routes,
+	// so the first gating decision of a session is taken while clientRoutes is
+	// still empty and every upstream looks unrouted. Nothing else would correct
+	// that when the routing peer never comes up, because the allowed-IP signal
+	// only fires once a peer is elected. Re-decide now that the routes are known.
+	if m.dnsServer != nil {
+		m.dnsServer.OnInstalledRoutesChanged()
+	}
+
 	if m.serverRouter == nil {
 		return nberrors.FormatErrorOrNil(merr)
 	}

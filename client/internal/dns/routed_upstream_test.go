@@ -365,6 +365,58 @@ func TestRefreshRoutedUpstreamsPicksUpANewRoute(t *testing.T) {
 	assert.Empty(t, captured.Domains)
 }
 
+// The engine applies the DNS configuration before it hands the routes to the
+// route manager, so the first decision of a session sees no routes at all and
+// every upstream looks unrouted. When the routing peer never comes up there is
+// no allowed-IP signal to correct it, so the route manager has to re-trigger
+// once the routes are known.
+func TestRefreshRoutedUpstreamsWithholdsOnceTheRoutesAreKnown(t *testing.T) {
+	group := nsGroupWith("10.10.0.53")
+	group.Domains = []string{"corp.example.com"}
+	update := nbdns.Config{
+		ServiceEnable:    true,
+		NameServerGroups: []*nbdns.NameServerGroup{group},
+	}
+
+	var captured HostDNSConfig
+	// Starts empty: the DNS config is applied before the routes are known.
+	selected := route.HAMap{}
+
+	server := &DefaultServer{
+		ctx:          context.Background(),
+		handlerChain: NewHandlerChain(),
+		hostManager: &mockHostConfigurator{
+			applyDNSConfigFunc: func(config HostDNSConfig, _ *statemanager.Manager) error {
+				captured = config
+				return nil
+			},
+			supportCustomPortFunc: func() bool { return true },
+			stringFunc:            func() string { return "mock" },
+		},
+		localResolver:      &local.Resolver{},
+		service:            &mockService{},
+		wgInterface:        &mocWGIface{},
+		statusRecorder:     peer.NewRecorder("test"),
+		extraDomains:       make(map[domain.Domain]int),
+		currentConfigHash:  ^uint64(0),
+		healthRefresh:      make(chan struct{}, 1),
+		routeRefresh:       make(chan struct{}, 1),
+		routedUpstreamGate: newRoutedUpstreamGate(gatingAlways),
+		selectedRoutes:     func() route.HAMap { return selected },
+		installedRoutes:    func() route.HAMap { return route.HAMap{} },
+	}
+
+	snap := server.routeSnapshot()
+	require.NoError(t, server.applyConfiguration(update, server.gateNameServerGroups(update.NameServerGroups, snap)))
+	require.NotEmpty(t, captured.Domains, "no routes are known yet, so the group cannot be classified as routed")
+
+	// The route manager now knows the route, but no peer carries it.
+	selected = haMapWith("10.10.0.0/24")
+	server.refreshRoutedUpstreams()
+
+	assert.Empty(t, captured.Domains, "withheld once the route is known to exist but is not installed")
+}
+
 // OnInstalledRoutesChanged is called from the route manager while it holds its
 // own lock, so it must never block and never re-apply inline.
 func TestOnInstalledRoutesChangedNeverBlocks(t *testing.T) {
