@@ -89,6 +89,7 @@ type Middleware struct {
 	sessionValidator SessionValidator
 	geo              restrict.GeoResolver
 	tunnelCache      *tunnelValidationCache
+	credentials      *credentialLimiter
 }
 
 // NewMiddleware creates a new authentication middleware. The sessionValidator is
@@ -103,6 +104,7 @@ func NewMiddleware(logger *log.Logger, sessionValidator SessionValidator, geo re
 		sessionValidator: sessionValidator,
 		geo:              geo,
 		tunnelCache:      newTunnelValidationCache(),
+		credentials:      newCredentialLimiter(),
 	}
 }
 
@@ -135,7 +137,7 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 			if mw.forwardWithTunnelPeer(w, r, host, config, next) {
 				return
 			}
-			http.Error(w, "Forbidden", http.StatusForbidden)
+			denyPrivate(w)
 			return
 		}
 
@@ -230,7 +232,7 @@ func (mw *Middleware) checkIPRestrictions(w http.ResponseWriter, r *http.Request
 	clientIP := mw.resolveClientIP(r)
 	if !clientIP.IsValid() {
 		mw.logger.Debugf("IP restriction: cannot resolve client address for %q, denying", r.RemoteAddr)
-		http.Error(w, "Forbidden", http.StatusForbidden)
+		denyForbidden(w, config)
 		return false
 	}
 
@@ -265,8 +267,28 @@ func (mw *Middleware) checkIPRestrictions(w http.ResponseWriter, r *http.Request
 
 	reason := verdict.String()
 	mw.blockIPRestriction(r, reason)
-	http.Error(w, "Forbidden", http.StatusForbidden)
+	denyForbidden(w, config)
 	return false
+}
+
+// denyForbidden writes a 403, dropping the client connection when the
+// domain is private so a later retry cannot reuse it.
+func denyForbidden(w http.ResponseWriter, config DomainConfig) {
+	if config.Private {
+		denyPrivate(w)
+		return
+	}
+	http.Error(w, "Forbidden", http.StatusForbidden)
+}
+
+// denyPrivate writes a 403 and closes the connection, so a client refused
+// before joining the overlay cannot keep retrying on the same warm socket.
+// Go's HTTP/2 server turns the exact lowercase "close" token into a GOAWAY.
+func denyPrivate(w http.ResponseWriter) {
+	h := w.Header()
+	h.Set("Connection", "close")
+	h.Set("Cache-Control", "no-store")
+	http.Error(w, "Forbidden", http.StatusForbidden)
 }
 
 // resolveClientIP extracts the real client IP from CapturedData, falling back to r.RemoteAddr.
@@ -525,13 +547,9 @@ func (mw *Middleware) authenticateWithSchemes(w http.ResponseWriter, r *http.Req
 	var attemptedMethod string
 
 	for _, scheme := range config.Schemes {
-		token, promptData, err := scheme.Authenticate(r)
+		token, promptData, err := mw.authenticateScheme(r, config, scheme)
 		if err != nil {
-			mw.logger.WithField("scheme", scheme.Type().String()).Warnf("authentication infrastructure error: %v", err)
-			if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
-				cd.SetOrigin(proxy.OriginAuth)
-			}
-			http.Error(w, "authentication service unavailable", http.StatusBadGateway)
+			mw.writeAuthenticationError(w, r, scheme.Type(), err)
 			return
 		}
 
@@ -639,9 +657,9 @@ func setSessionCookie(w http.ResponseWriter, token string, expiration time.Durat
 func wasCredentialSubmitted(r *http.Request, method auth.Method) bool {
 	switch method {
 	case auth.MethodPIN:
-		return r.FormValue("pin") != ""
+		return credentialFormValue(r, pinFormId) != ""
 	case auth.MethodPassword:
-		return r.FormValue("password") != ""
+		return credentialFormValue(r, passwordFormId) != ""
 	case auth.MethodOIDC:
 		return r.URL.Query().Get("session_token") != "" || r.URL.Query().Get("session_code") != ""
 	}

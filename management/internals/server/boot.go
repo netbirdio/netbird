@@ -366,21 +366,24 @@ func streamInterceptor(
 	return handler(srv, wrapped)
 }
 
-// realIPOptions builds the real-IP middleware options from the reverse proxy config.
+// realIPOptions builds the real-IP middleware options.
 //
-// TrustedPeers controls which transport peers are allowed to supply forwarded-IP
-// headers. If empty, forwarded headers are ignored and the transport peer address
-// is used directly. Operators terminating connections at a reverse proxy should
-// configure TrustedPeers with that proxy's address or network.
+// Empty TrustedPeers trusts all IPv4 and IPv6 sources. Configure TrustedPeers
+// with the reverse proxy address or network.
 //
-// Only X-Forwarded-For is trusted. X-Real-IP contains a single client-supplied
-// address with no proxy chain to validate, and none of the reverse proxies we ship
-// use it on the gRPC path.
+// X-Forwarded-For takes precedence over X-Real-IP.
 func realIPOptions(cfg nbconfig.ReverseProxy) []realip.Option {
-	if idx := slices.IndexFunc(cfg.TrustedPeers, func(p netip.Prefix) bool { return p.Bits() == 0 }); idx >= 0 {
+	trustedPeers := cfg.TrustedPeers
+	if len(trustedPeers) == 0 {
+		trustedPeers = []netip.Prefix{
+			netip.MustParsePrefix("0.0.0.0/0"),
+			netip.MustParsePrefix("::/0"),
+		}
+	}
+	if idx := slices.IndexFunc(trustedPeers, func(p netip.Prefix) bool { return p.Bits() == 0 }); idx >= 0 {
 		log.WithContext(context.Background()).Warnf("TrustedPeers contains the default route %s, which trusts "+
 			"X-Forwarded-For from every client and allows connection IP spoofing. Set TrustedPeers to the address "+
-			"of your reverse proxy, or leave it empty to use the connection's source address.", cfg.TrustedPeers[idx])
+			"of your reverse proxy.", trustedPeers[idx])
 	}
 	if cfg.TrustedHTTPProxiesCount > 0 {
 		log.WithContext(context.Background()).Warn(
@@ -390,9 +393,9 @@ func realIPOptions(cfg nbconfig.ReverseProxy) []realip.Option {
 	}
 
 	return []realip.Option{
-		realip.WithTrustedPeers(cfg.TrustedPeers),
+		realip.WithTrustedPeers(trustedPeers),
 		realip.WithTrustedProxies(cfg.TrustedHTTPProxies),
 		realip.WithTrustedProxiesCount(cfg.TrustedHTTPProxiesCount),
-		realip.WithHeaders([]string{realip.XForwardedFor}),
+		realip.WithHeaders([]string{realip.XForwardedFor, realip.XRealIp}),
 	}
 }
