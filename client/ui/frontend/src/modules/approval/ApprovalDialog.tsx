@@ -13,6 +13,10 @@ import { useAutoSizeWindow } from "@/hooks/useAutoSizeWindow";
 const WINDOW_WIDTH = 360;
 // Fallback window so a missing/unparseable expires_at can't leave the prompt open forever.
 const FALLBACK_SECONDS = 13;
+// The window raises itself over whatever the user is doing, so the accept
+// actions stay inert briefly after it appears: a keystroke or click already in
+// flight must not be what grants a remote session.
+const ARMING_MS = 800;
 
 // shortFingerprint groups a hex key as XXXX-XXXX-XXXX-XXXX (16 chars). Mirrors the
 // daemon's approval.ShortKeyFingerprint so the value matches an out-of-band reference.
@@ -86,6 +90,24 @@ export default function ApprovalDialog() {
         [busy, requestID],
     );
 
+    const [armed, setArmed] = useState(false);
+    useEffect(() => {
+        const id = globalThis.setTimeout(() => setArmed(true), ARMING_MS);
+        return () => globalThis.clearTimeout(id);
+    }, []);
+
+    // The dialog is non-modal, so the browser's own Escape-to-cancel does not
+    // apply and denying has to be wired up by hand.
+    useEffect(() => {
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.key !== "Escape") return;
+            e.preventDefault();
+            void respond(false, false);
+        };
+        globalThis.addEventListener("keydown", onKeyDown);
+        return () => globalThis.removeEventListener("keydown", onKeyDown);
+    }, [respond]);
+
     const secondsLeft = () => Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
     const [remaining, setRemaining] = useState(secondsLeft);
     const closedRef = useRef(false);
@@ -143,13 +165,14 @@ export default function ApprovalDialog() {
                         size={"sm"}
                         className={"w-full"}
                         onClick={() => respond(true, true)}
-                        disabled={busy}
+                        disabled={busy || !armed}
                     >
                         {t("approval.action.allowViewOnly")}
                     </Button>
                 )}
                 <div className={"flex flex-row gap-2.5"}>
                     <Button
+                        autoFocus
                         variant={"danger"}
                         size={"sm"}
                         className={"flex-1"}
@@ -159,12 +182,11 @@ export default function ApprovalDialog() {
                         {t("approval.action.deny")}
                     </Button>
                     <Button
-                        autoFocus
                         variant={"primary"}
                         size={"sm"}
                         className={"flex-1"}
                         onClick={() => respond(true, false)}
-                        disabled={busy}
+                        disabled={busy || !armed}
                     >
                         {t("approval.action.allow")}
                     </Button>
