@@ -64,7 +64,8 @@ type xembedHost struct {
 	iconW    int
 	iconH    int
 
-	stopCh chan struct{}
+	stopCh   chan struct{}
+	stopOnce sync.Once
 }
 
 // newXembedHost creates an XEmbed tray icon for the given SNI item. Errors when
@@ -214,6 +215,8 @@ func (h *xembedHost) drawIcon() {
 
 // run is the event loop: polls X11 events and D-Bus NewIcon signals until stopped.
 func (h *xembedHost) run() {
+	defer h.destroy()
+
 	matchRule := "type='signal',interface='org.kde.StatusNotifierItem',member='NewIcon',sender='" + h.busName + "'"
 	if err := h.conn.BusObject().Call("org.freedesktop.DBus.AddMatch", 0, matchRule).Err; err != nil {
 		log.Debugf("xembed: failed to add signal match: %v", err)
@@ -369,14 +372,17 @@ func (h *xembedHost) sendMenuEvent(id int32) {
 	}
 }
 
-func (h *xembedHost) stop() {
-	select {
-	case <-h.stopCh:
-		return
-	default:
-		close(h.stopCh)
-	}
+// signalStop asks the run loop to exit. Safe from any goroutine and any number
+// of times; it touches no X state, because the display belongs to run.
+func (h *xembedHost) signalStop() {
+	h.stopOnce.Do(func() { close(h.stopCh) })
+}
 
+// destroy releases the X resources, and may only be called by the goroutine
+// that owns the display: run on its way out, or the creator when run was never
+// started. Xlib is not safe to call while another thread is inside it on the
+// same display, so a second goroutine must use signalStop and let run finish.
+func (h *xembedHost) destroy() {
 	C.xembed_destroy_icon(h.dpy, h.iconWin)
 	C.XCloseDisplay(h.dpy)
 }

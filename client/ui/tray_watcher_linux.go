@@ -158,7 +158,8 @@ func (w *statusNotifierWatcher) tryStartXembedHost(id, busName string, objPath d
 	}
 
 	if !w.addHost(id, busName, host) {
-		host.stop()
+		// run never started, so this goroutine still owns the display.
+		host.destroy()
 		closeBus(sessionConn)
 		return
 	}
@@ -197,15 +198,18 @@ func (w *statusNotifierWatcher) addHost(id, busName string, host *xembedHost) bo
 	w.hostsMu.Unlock()
 
 	if exists {
-		// Its run loop then returns and releases the window and the bus.
-		displaced.stop()
+		// Only a signal: the displaced host's run loop owns its display and
+		// releases the window itself on the way out, and removeHost then
+		// closes its bus.
+		displaced.signalStop()
 	}
 	return true
 }
 
-// removeHost releases the host once its run loop has exited, which happens when
-// the tray manager goes away. Dropping the entry lets the item be hosted again
-// if it re-registers.
+// removeHost drops the host once its run loop has exited, which happens when
+// the tray manager goes away or a new owner displaces it. The run loop has
+// already released the X resources by then, so only the bus is left. Dropping
+// the entry lets the item be hosted again if it re-registers.
 func (w *statusNotifierWatcher) removeHost(id string, host *xembedHost, conn *dbus.Conn) {
 	w.hostsMu.Lock()
 	if w.hosts[id] == host {
@@ -213,7 +217,6 @@ func (w *statusNotifierWatcher) removeHost(id string, host *xembedHost, conn *db
 	}
 	w.hostsMu.Unlock()
 
-	host.stop()
 	closeBus(conn)
 }
 
