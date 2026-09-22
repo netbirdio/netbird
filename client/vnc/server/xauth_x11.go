@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/jezek/xgb"
 
@@ -39,6 +40,16 @@ func writeXAuthFile(path, hostname, display string, cookie []byte, uid, gid uint
 		return fmt.Errorf("cookie must be 16 bytes")
 	}
 	dir := filepath.Dir(path)
+	// The runtime dir is shared: unprivileged CLI and UI clients list it to
+	// find the daemon's socket, so it has to stay readable. Create it at 0755
+	// before MkdirAll can mint it at 0711 as a side effect of creating the
+	// xauth subdirectory below, which would break that discovery on a host
+	// where nothing else had created it yet.
+	if root := filepath.Clean(configs.RuntimeDir); root != "" {
+		if err := os.MkdirAll(root, 0755); err != nil {
+			return fmt.Errorf("mkdir runtime dir: %w", err)
+		}
+	}
 	if err := os.MkdirAll(dir, 0711); err != nil {
 		return fmt.Errorf("mkdir xauth parent: %w", err)
 	}
@@ -137,7 +148,20 @@ func ensureTraversable(dir string) error {
 // addTraversalBits ORs group and other execute onto dir's mode, leaving every
 // other bit as it was. A directory that is already traversable is not touched.
 func addTraversalBits(dir string) error {
-	info, err := os.Stat(dir)
+	// os.Stat and os.Chmod both resolve symlinks, and this walks a directory
+	// other local accounts can write to. A component pre-created there as a
+	// symlink would have the daemon, running as root, OR the execute bits onto
+	// whatever it points at, loosening a directory the attacker could not
+	// otherwise traverse. Going through an O_NOFOLLOW descriptor refuses the
+	// symlink and pins the mode change to the directory actually opened, the
+	// same way the temp file above is handled.
+	f, err := os.OpenFile(dir, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_DIRECTORY, 0)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", dir, err)
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
 	if err != nil {
 		return fmt.Errorf("stat %s: %w", dir, err)
 	}
@@ -146,7 +170,7 @@ func addTraversalBits(dir string) error {
 	if mode&traversal == traversal {
 		return nil
 	}
-	if err := os.Chmod(dir, mode|traversal); err != nil {
+	if err := f.Chmod(mode | traversal); err != nil {
 		return fmt.Errorf("chmod %s: %w", dir, err)
 	}
 	return nil

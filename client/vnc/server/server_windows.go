@@ -349,7 +349,11 @@ func (s *Server) platformShutdown() {
 // Session 0 operations (agent spawning, SendSAS).
 func (s *Server) platformInit() {
 	var prior []windows.Tokenprivileges
-	for _, priv := range []string{"SeTcbPrivilege", "SeAssignPrimaryTokenPrivilege"} {
+	// SeIncreaseQuotaPrivilege belongs with the other two: CreateProcessAsUser
+	// assigns the new process a quota against the target user, and without it
+	// the call fails with ERROR_PRIVILEGE_NOT_HELD, which the spawn path treats
+	// as fatal and disables service mode for the whole run.
+	for _, priv := range []string{"SeTcbPrivilege", "SeAssignPrimaryTokenPrivilege", "SeIncreaseQuotaPrivilege"} {
 		prev, err := enablePrivilege(priv)
 		if err != nil {
 			log.Debugf("enable %s: %v", priv, err)
