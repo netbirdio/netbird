@@ -3,6 +3,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"image"
 	"sync"
@@ -140,6 +141,14 @@ func (c *FBCapturer) Capture() (*image.RGBA, error) {
 func (c *FBCapturer) CaptureInto(dst *image.RGBA) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	// Close unmaps but leaves w/h in place, so a capture arriving afterwards
+	// would pass the size check below and index into a nil mapping. Matches the
+	// Linux capturer.
+	if c.mmap == nil {
+		return errors.New("framebuffer capturer is closed")
+	}
+
 	if dst.Rect.Dx() != c.w || dst.Rect.Dy() != c.h {
 		return fmt.Errorf("dst size mismatch: dst=%dx%d fb=%dx%d",
 			dst.Rect.Dx(), dst.Rect.Dy(), c.w, c.h)

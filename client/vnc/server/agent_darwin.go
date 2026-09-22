@@ -180,10 +180,24 @@ func prepareAgentSocketDir(uid uint32) (string, error) {
 	if err := os.Mkdir(subdir, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
 		return "", fmt.Errorf("mkdir %s: %w", subdir, err)
 	}
-	if err := os.Chmod(subdir, 0o700); err != nil {
+
+	// A sticky world-writable parent is accepted, and the sticky bit only stops
+	// another user replacing an entry — it does not stop them creating one. So
+	// between the purge above and this Mkdir they can put a symlink at
+	// vnc-<uid>, and Mkdir then returns EEXIST over it. Applying the mode and
+	// owner by path from here would follow that symlink and chown whatever it
+	// points at to them; going through an O_NOFOLLOW descriptor refuses the
+	// symlink outright and pins the rest to the directory actually opened.
+	f, err := os.OpenFile(subdir, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_DIRECTORY, 0)
+	if err != nil {
+		return "", fmt.Errorf("open agent socket dir %s: %w", subdir, err)
+	}
+	defer f.Close()
+
+	if err := f.Chmod(0o700); err != nil {
 		return "", fmt.Errorf("chmod %s: %w", subdir, err)
 	}
-	if err := os.Chown(subdir, int(uid), -1); err != nil {
+	if err := f.Chown(int(uid), -1); err != nil {
 		return "", fmt.Errorf("chown %s -> uid %d: %w", subdir, uid, err)
 	}
 	return subdir, nil
