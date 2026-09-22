@@ -3,7 +3,6 @@
 package server
 
 import (
-	"encoding/binary"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -42,11 +41,14 @@ type metricsConn struct {
 
 	recorder func(SessionTick)
 
-	bytesOut    atomic.Uint64
-	writes      atomic.Uint64
-	writeNanos  atomic.Uint64
-	largestPkt  atomic.Uint64
-	fbus        atomic.Uint64
+	bytesOut   atomic.Uint64
+	writes     atomic.Uint64
+	writeNanos atomic.Uint64
+	largestPkt atomic.Uint64
+	fbus       atomic.Uint64
+	// inFBU is true between beginFBU and endFBU, so only the writes that make
+	// up a FramebufferUpdate are counted against it.
+	inFBU       atomic.Bool
 	fbuBytes    atomic.Uint64
 	fbuRects    atomic.Uint64
 	maxFBUBytes atomic.Uint64
@@ -170,36 +172,44 @@ func (m *metricsConn) BusyFraction() float64 {
 	return m.busyFraction
 }
 
-// startsFBU reports whether the Write payload begins a FramebufferUpdate
-// message (message type byte 0). This holds both for the standalone 4-byte
-// header that sendDirtyAndMoves writes before its rect bodies and for the
-// single framed Write that sendFullUpdate / sendEmptyUpdate use to emit a
-// whole FBU (header plus body) at once. Either way the FBU boundary lines
-// up with this Write boundary.
-func startsFBU(p []byte) bool {
-	return len(p) >= 1 && p[0] == serverFramebufferUpdate
+// beginFBU records that the writes which follow belong to a new
+// FramebufferUpdate carrying rects rectangles, closing off the accounting for
+// the previous one.
+//
+// The encoder says this rather than the wrapper inferring it from the payload.
+// A FramebufferUpdate's message type is 0, and so is the leading byte of plenty
+// of other traffic: the four zero bytes of a successful security result, and
+// any rect body whose x coordinate is below 256. Sniffing counted each of those
+// as a new update, inflating the FBU count and cutting the byte and rect totals
+// of the update actually in flight into pieces.
+func (m *metricsConn) beginFBU(rects int) {
+	m.flushFBUMax()
+	m.inFBU.Store(true)
+	m.fbus.Add(1)
+	if rects > 0 {
+		m.fbuRects.Add(uint64(rects))
+	}
+}
+
+// endFBU closes the update beginFBU opened and folds its totals into the
+// per-tick maxima straight away, so a frame is accounted in the tick it was
+// sent in rather than whenever the next one happens to start. Writes outside a
+// begin/end pair — the handshake, clipboard traffic, bell — are not part of any
+// update and are left out of the FBU byte total.
+func (m *metricsConn) endFBU() {
+	m.flushFBUMax()
+	m.inFBU.Store(false)
 }
 
 func (m *metricsConn) Write(p []byte) (int, error) {
-	fbuStart := startsFBU(p)
-	if fbuStart {
-		m.flushFBUMax()
-		m.fbus.Add(1)
-	}
-
 	t0 := time.Now()
 	n, err := m.Conn.Write(p)
 	m.writeNanos.Add(uint64(time.Since(t0).Nanoseconds()))
 	m.bytesOut.Add(uint64(n))
 	m.writes.Add(1)
 
-	m.fbuBytes.Add(uint64(n))
-	if fbuStart {
-		// Rect count is carried in bytes 2:3 of the FBU header. A standalone
-		// header records it here; the rect bodies that follow only add bytes.
-		if len(p) >= 4 {
-			m.fbuRects.Add(uint64(binary.BigEndian.Uint16(p[2:4])))
-		}
+	if m.inFBU.Load() {
+		m.fbuBytes.Add(uint64(n))
 	}
 
 	if uint64(n) > m.largestPkt.Load() {

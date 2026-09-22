@@ -296,6 +296,7 @@ func (s *session) sendDesktopSize(w, h int) error {
 	body := encodeDesktopSizeBody(w, h)
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	defer s.markFBU(1)()
 	if _, err := s.conn.Write(header); err != nil {
 		return err
 	}
@@ -318,6 +319,7 @@ func (s *session) sendExtMouseAck() error {
 
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	defer s.markFBU(1)()
 	if _, err := s.conn.Write(header); err != nil {
 		return err
 	}
@@ -448,13 +450,13 @@ func (s *session) sendEmptyUpdate() error {
 	if cursorRect == nil {
 		var buf [4]byte
 		buf[0] = serverFramebufferUpdate
-		return s.writeFramed(buf[:])
+		return s.writeFramed(buf[:], 0)
 	}
 	buf := make([]byte, 4+len(cursorRect))
 	buf[0] = serverFramebufferUpdate
 	binary.BigEndian.PutUint16(buf[2:4], 1)
 	copy(buf[4:], cursorRect)
-	return s.writeFramed(buf)
+	return s.writeFramed(buf, 1)
 }
 
 func (s *session) sendFullUpdate(img *image.RGBA) error {
@@ -486,7 +488,7 @@ func (s *session) sendFullUpdate(img *image.RGBA) error {
 		rectBuf = body
 	default:
 		if cursorRect == nil {
-			return s.writeFramed(encodeRawRect(img, pf, 0, 0, w, h))
+			return s.writeFramed(encodeRawRect(img, pf, 0, 0, w, h), 1)
 		}
 		rectBuf = encodeRawRect(img, pf, 0, 0, w, h)[4:]
 	}
@@ -497,7 +499,7 @@ func (s *session) sendFullUpdate(img *image.RGBA) error {
 	off := 4
 	off += copy(buf[off:], cursorRect)
 	copy(buf[off:], rectBuf)
-	return s.writeFramed(buf)
+	return s.writeFramed(buf, int(rectCount))
 }
 
 // encodeZlibSingle encodes one full-frame rect with Zlib. When cursorRect is
@@ -508,7 +510,7 @@ func (s *session) sendFullUpdate(img *image.RGBA) error {
 func (s *session) encodeZlibSingle(img *image.RGBA, pf clientPixelFormat, w, h int, zlib *zlibState, cursorRect []byte) (body []byte, done bool, err error) {
 	if zb, ok := encodeZlibRect(img, pf, 0, 0, w, h, zlib); ok {
 		if cursorRect == nil {
-			if werr := s.writeFramed(zb); werr != nil {
+			if werr := s.writeFramed(zb, 1); werr != nil {
 				return nil, true, werr
 			}
 			return nil, true, nil
@@ -516,7 +518,7 @@ func (s *session) encodeZlibSingle(img *image.RGBA, pf clientPixelFormat, w, h i
 		return zb[4:], false, nil
 	}
 	if cursorRect == nil {
-		if werr := s.writeFramed(encodeRawRect(img, pf, 0, 0, w, h)); werr != nil {
+		if werr := s.writeFramed(encodeRawRect(img, pf, 0, 0, w, h), 1); werr != nil {
 			return nil, true, werr
 		}
 		return nil, true, nil
@@ -524,13 +526,36 @@ func (s *session) encodeZlibSingle(img *image.RGBA, pf clientPixelFormat, w, h i
 	return encodeRawRect(img, pf, 0, 0, w, h)[4:], false, nil
 }
 
-func (s *session) writeFramed(buf []byte) error {
+// writeFramed writes one complete FramebufferUpdate, header and body together.
+// rects is the rectangle count in that header, reported to the metrics wrapper
+// so it knows where this update begins.
+func (s *session) writeFramed(buf []byte, rects int) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	defer s.markFBU(rects)()
 	if _, err := s.conn.Write(buf); err != nil {
 		return err
 	}
 	return nil
+}
+
+// fbuMarker is implemented by the metrics wrapper around the connection.
+type fbuMarker interface {
+	beginFBU(rects int)
+	endFBU()
+}
+
+// markFBU tells the connection wrapper that a FramebufferUpdate with rects
+// rectangles starts here, and returns the function that closes it. A plain
+// connection does not implement the interface, and the result is then a no-op.
+// Caller must hold writeMu, so the update and its writes stay one step.
+func (s *session) markFBU(rects int) func() {
+	m, ok := s.conn.(fbuMarker)
+	if !ok {
+		return func() {}
+	}
+	m.beginFBU(rects)
+	return m.endFBU
 }
 
 // sendDirtyAndMoves writes one FramebufferUpdate combining CopyRect moves
@@ -561,6 +586,7 @@ func (s *session) sendDirtyAndMoves(img *image.RGBA, moves []copyRectMove, rects
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
+	defer s.markFBU(total)()
 	if _, err := s.conn.Write(header); err != nil {
 		return err
 	}
