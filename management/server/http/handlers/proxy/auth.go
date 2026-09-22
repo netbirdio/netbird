@@ -119,10 +119,14 @@ func (h *AuthCallbackHandler) handleCallback(w http.ResponseWriter, r *http.Requ
 	redirectURL.Scheme = "https"
 
 	query := redirectURL.Query()
-	query.Set("session_token", sessionToken)
+	if code, ok := h.proxyService.GenerateSessionCode(sessionToken); ok {
+		query.Set("session_code", code)
+	} else {
+		query.Set("session_token", sessionToken)
+	}
 	redirectURL.RawQuery = query.Encode()
 
-	log.WithField("redirect", redirectURL.Host).Debug("OAuth callback: redirecting user with session token")
+	log.WithField("redirect", redirectURL.Host).Debug("OAuth callback: redirecting user to proxy")
 	http.Redirect(w, r, redirectURL.String(), http.StatusFound)
 }
 

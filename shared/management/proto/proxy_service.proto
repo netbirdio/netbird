@@ -364,6 +364,8 @@ message GetOIDCURLResponse {
 message ValidateSessionRequest {
   string domain = 1;
   string session_token = 2;
+  // session_code is a short-lived, single-use code exchanged for a session token.
+  string session_code = 3;
 }
 
 message ValidateSessionResponse {
@@ -380,6 +382,8 @@ message ValidateSessionResponse {
   // Stamped onto upstream requests as X-NetBird-Groups so downstream
   // services can read names rather than opaque ids.
   repeated string peer_group_names = 6;
+  // session_token contains the durable token issued when session_code is redeemed.
+  string session_token = 7;
 }
 
 // ValidateTunnelPeerRequest carries the inbound peer's tunnel IP and the
@@ -506,4 +510,3 @@ message RecordLLMUsageRequest {
 
 message RecordLLMUsageResponse {
 }
-

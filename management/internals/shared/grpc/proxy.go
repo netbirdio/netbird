@@ -27,8 +27,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/netbirdio/netbird/shared/management/domain"
-
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
@@ -42,6 +40,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/users"
 	proxyauth "github.com/netbirdio/netbird/proxy/auth"
 	"github.com/netbirdio/netbird/shared/hash/argon2id"
+	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	nbstatus "github.com/netbirdio/netbird/shared/management/status"
 )
@@ -141,7 +140,7 @@ type ProxyServiceServer struct {
 	// OIDC configuration for proxy authentication
 	oidcConfig ProxyOIDCConfig
 
-	// Store for PKCE verifiers
+	// singleUseStore backs both PKCE verifiers and OIDC session exchange codes.
 	singleUseStore *SingleUseStore
 
 	// tokenTTL is the lifetime of one-time tokens generated for proxy
@@ -156,6 +155,8 @@ type ProxyServiceServer struct {
 }
 
 const pkceVerifierTTL = 10 * time.Minute
+
+const sessionCodeTTL = 60 * time.Second
 
 const defaultProxyTokenTTL = 5 * time.Minute
 
@@ -302,6 +303,20 @@ func (s *ProxyServiceServer) proxyConnectAuthorizer() ProxyConnectAuthorizer {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.connectAuthorizer
+}
+
+// GenerateSessionCode creates a single-use code for the given session token.
+func (s *ProxyServiceServer) GenerateSessionCode(sessionToken string) (code string, ok bool) {
+	if s.singleUseStore == nil {
+		return "", false
+	}
+
+	code, err := s.singleUseStore.Generate(sessionToken, sessionCodeTTL)
+	if err != nil {
+		log.WithError(err).Error("failed to generate proxy session code")
+		return "", false
+	}
+	return code, true
 }
 
 // CheckLLMPolicyLimits is the pre-flight policy gate the proxy calls before
@@ -1839,6 +1854,19 @@ func (s *ProxyServiceServer) ValidateSession(ctx context.Context, req *proto.Val
 	domain := req.GetDomain()
 	sessionToken := req.GetSessionToken()
 
+	// A one-time code from the OIDC callback is redeemed here for the durable
+	// token, so the token never travels in a redirect URL. The redeemed token
+	// is returned to the proxy (mintedToken) to install as the session cookie.
+	mintedToken := ""
+	if code := req.GetSessionCode(); code != "" {
+		redeemed, found := s.singleUseStore.LoadAndDelete(code)
+		if !found {
+			return deniedSessionResponse("invalid or expired session code"), nil
+		}
+		sessionToken = redeemed
+		mintedToken = redeemed
+	}
+
 	if domain == "" || sessionToken == "" {
 		return deniedSessionResponse("missing domain or session_token"), nil
 	}
@@ -1910,6 +1938,7 @@ func (s *ProxyServiceServer) ValidateSession(ctx context.Context, req *proto.Val
 		UserEmail:      user.Email,
 		PeerGroupIds:   groupIDs,
 		PeerGroupNames: groupNames,
+		SessionToken:   mintedToken,
 	}, nil
 }
 

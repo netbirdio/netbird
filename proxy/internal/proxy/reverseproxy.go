@@ -721,12 +721,13 @@ func stripSessionCookie(r *httputil.ProxyRequest) {
 	}
 }
 
-// stripSessionTokenQuery removes the OIDC session_token query parameter from
-// the outgoing URL to prevent credential leakage to backends.
+// stripSessionTokenQuery removes the OIDC session hand-off query parameters
+// from the outgoing URL to prevent credential leakage to backends.
 func stripSessionTokenQuery(r *httputil.ProxyRequest) {
 	q := r.Out.URL.Query()
-	if q.Has("session_token") {
+	if q.Has("session_token") || q.Has("session_code") {
 		q.Del("session_token")
+		q.Del("session_code")
 		r.Out.URL.RawQuery = q.Encode()
 	}
 }
