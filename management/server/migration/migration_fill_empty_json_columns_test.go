@@ -270,6 +270,24 @@ func TestFillEmptyJsonField_PostureChecks(t *testing.T) {
 	require.False(t, rows.Next())
 }
 
+func TestFillEmptyJsonField_SetupKeys(t *testing.T) {
+	db := setupSetupKeysTestDB(t)
+
+	res, err := db.ConnPool.ExecContext(context.Background(),
+		`insert into setup_keys (id,auto_groups) values('id-1','')`)
+	require.NoError(t, err)
+	n, _ := res.RowsAffected()
+	require.Equal(t, n, int64(1))
+
+	err = migration.FillEmptySetupKeyJsonColumns(context.Background(), db)
+	require.NoError(t, err)
+
+	rows, err := db.ConnPool.QueryContext(context.Background(), "select id from setup_keys where auto_groups='' or auto_groups=null")
+	require.NoError(t, err)
+	rows.Next()
+	require.False(t, rows.Next())
+}
+
 func setupNsGroupsTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db := setupDatabase(t)
@@ -358,6 +376,15 @@ func setupPostureChecksTestDB(t *testing.T) *gorm.DB {
 	db := setupDatabase(t)
 	_ = db.Migrator().DropTable(&posture.Checks{})
 	err := db.AutoMigrate(&posture.Checks{})
+	require.NoError(t, err, "Failed to auto-migrate tables")
+	return db
+}
+
+func setupSetupKeysTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db := setupDatabase(t)
+	_ = db.Migrator().DropTable(&types.SetupKey{})
+	err := db.AutoMigrate(&types.SetupKey{})
 	require.NoError(t, err, "Failed to auto-migrate tables")
 	return db
 }

@@ -220,3 +220,10 @@ func FillEmptyPostureCheckJsonColumns(ctx context.Context, db *gorm.DB) error {
 		return res.Error
 	})
 }
+
+func FillEmptySetupKeyJsonColumns(ctx context.Context, db *gorm.DB) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		res := tx.Exec(`update setup_keys set auto_groups='[]' where id in (select id from setup_keys where auto_groups='' or auto_groups=null order by id asc)`)
+		return res.Error
+	})
+}
