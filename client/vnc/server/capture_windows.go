@@ -278,6 +278,11 @@ type DesktopCapturer struct {
 // buffered to size 1 so the worker never blocks on a sender that's gone.
 type captureReq struct {
 	reply chan captureReply
+	// into, when non-nil, is copied into on the worker goroutine before the
+	// reply is sent. The worker recycles its output buffers, so copying there
+	// is what keeps a session from reading one that a later capture has
+	// already started overwriting.
+	into *image.RGBA
 }
 
 type captureReply struct {
@@ -382,6 +387,30 @@ func (c *DesktopCapturer) Capture() (*image.RGBA, error) {
 		return r.img, nil
 	case <-c.done:
 		return nil, fmt.Errorf("capturer closed")
+	}
+}
+
+// CaptureInto fills dst with a freshly captured frame.
+//
+// The worker owns a small ring of output buffers and recycles them, so the
+// pointer Capture returns stops being stable a couple of captures later. This
+// path does the copy on the worker instead, while it still owns the buffer, so
+// a session reading at its own pace can never be overtaken. It also skips the
+// staleness cache: that cache exists to share one DXGI round-trip between
+// sessions asking at the same moment, and copying from it would read the same
+// recycled buffer this is avoiding.
+func (c *DesktopCapturer) CaptureInto(dst *image.RGBA) error {
+	reply := make(chan captureReply, 1)
+	select {
+	case c.reqCh <- captureReq{reply: reply, into: dst}:
+	case <-c.done:
+		return fmt.Errorf("capturer closed")
+	}
+	select {
+	case r := <-reply:
+		return r.err
+	case <-c.done:
+		return fmt.Errorf("capturer closed")
 	}
 }
 
@@ -498,6 +527,17 @@ func (w *captureWorker) serveRequest(req captureReq) {
 	} else {
 		w.c.cursorState.store(snap)
 	}
+
+	if req.into != nil {
+		if req.into.Rect != img.Rect {
+			req.reply <- captureReply{err: fmt.Errorf("dst size mismatch: dst=%v capturer=%v", req.into.Rect, img.Rect)}
+			return
+		}
+		copy(req.into.Pix, img.Pix)
+		req.reply <- captureReply{img: req.into}
+		return
+	}
+
 	req.reply <- captureReply{img: img}
 }
 
@@ -595,3 +635,8 @@ func (w *captureWorker) closeCapturer() {
 		w.cap = nil
 	}
 }
+
+var (
+	_ ScreenCapturer = (*DesktopCapturer)(nil)
+	_ captureIntoer  = (*DesktopCapturer)(nil)
+)

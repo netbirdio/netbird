@@ -265,8 +265,52 @@ func runSASListenerLoop(ctx context.Context, ev windows.Handle) {
 	}
 }
 
-// enablePrivilege enables a named privilege on the current process token.
-func enablePrivilege(name string) error {
+// priorPrivileges holds the state of the privileges platformInit enabled, so
+// platformShutdown can restore them. Package scope rather than a Server field
+// because these live on the process token, not on any one server instance.
+var (
+	privMu          sync.Mutex
+	priorPrivileges []windows.Tokenprivileges
+)
+
+// enablePrivilege enables a named privilege on the current process token and
+// returns the state it held beforehand, so the caller can put it back. A result
+// with PrivilegeCount == 0 means there was nothing to restore.
+func enablePrivilege(name string) (windows.Tokenprivileges, error) {
+	var prev windows.Tokenprivileges
+
+	var token windows.Token
+	if err := windows.OpenProcessToken(windows.CurrentProcess(),
+		windows.TOKEN_ADJUST_PRIVILEGES|windows.TOKEN_QUERY, &token); err != nil {
+		return prev, err
+	}
+	defer token.Close()
+
+	var luid windows.LUID
+	namePtr, err := windows.UTF16PtrFromString(name)
+	if err != nil {
+		return prev, fmt.Errorf("UTF16 privilege name: %w", err)
+	}
+	if err := windows.LookupPrivilegeValue(nil, namePtr, &luid); err != nil {
+		return prev, err
+	}
+	tp := windows.Tokenprivileges{PrivilegeCount: 1}
+	tp.Privileges[0].Luid = luid
+	tp.Privileges[0].Attributes = windows.SE_PRIVILEGE_ENABLED
+
+	var retLen uint32
+	if err := windows.AdjustTokenPrivileges(token, false, &tp,
+		uint32(unsafe.Sizeof(prev)), &prev, &retLen); err != nil {
+		return windows.Tokenprivileges{}, err
+	}
+	return prev, nil
+}
+
+// restorePrivilege puts back a privilege state captured by enablePrivilege.
+func restorePrivilege(prev windows.Tokenprivileges) error {
+	if prev.PrivilegeCount == 0 {
+		return nil
+	}
 	var token windows.Token
 	if err := windows.OpenProcessToken(windows.CurrentProcess(),
 		windows.TOKEN_ADJUST_PRIVILEGES|windows.TOKEN_QUERY, &token); err != nil {
@@ -274,18 +318,7 @@ func enablePrivilege(name string) error {
 	}
 	defer token.Close()
 
-	var luid windows.LUID
-	namePtr, err := windows.UTF16PtrFromString(name)
-	if err != nil {
-		return fmt.Errorf("UTF16 privilege name: %w", err)
-	}
-	if err := windows.LookupPrivilegeValue(nil, namePtr, &luid); err != nil {
-		return err
-	}
-	tp := windows.Tokenprivileges{PrivilegeCount: 1}
-	tp.Privileges[0].Luid = luid
-	tp.Privileges[0].Attributes = windows.SE_PRIVILEGE_ENABLED
-	return windows.AdjustTokenPrivileges(token, false, &tp, 0, nil, nil)
+	return windows.AdjustTokenPrivileges(token, false, &prev, 0, nil, nil)
 }
 
 func (s *Server) platformSessionManager() virtualSessionManager {
@@ -295,16 +328,40 @@ func (s *Server) platformSessionManager() virtualSessionManager {
 // platformShutdown restores any machine state mutated by platformInit.
 func (s *Server) platformShutdown() {
 	disableSoftwareSAS()
+
+	// Hand back the privileges platformInit took. The daemon token outlives
+	// the VNC server, so leaving SeTcb and SeAssignPrimaryToken enabled would
+	// keep two of the most powerful privileges on the box switched on for the
+	// rest of the process after VNC is turned off again.
+	privMu.Lock()
+	prev := priorPrivileges
+	priorPrivileges = nil
+	privMu.Unlock()
+
+	for _, p := range prev {
+		if err := restorePrivilege(p); err != nil {
+			log.Debugf("restore privilege: %v", err)
+		}
+	}
 }
 
 // platformInit starts the SAS listener and enables privileges needed for
 // Session 0 operations (agent spawning, SendSAS).
 func (s *Server) platformInit() {
+	var prior []windows.Tokenprivileges
 	for _, priv := range []string{"SeTcbPrivilege", "SeAssignPrimaryTokenPrivilege"} {
-		if err := enablePrivilege(priv); err != nil {
+		prev, err := enablePrivilege(priv)
+		if err != nil {
 			log.Debugf("enable %s: %v", priv, err)
+			continue
 		}
+		prior = append(prior, prev)
 	}
+
+	privMu.Lock()
+	priorPrivileges = prior
+	privMu.Unlock()
+
 	startSASListener(s.ctx)
 }
 
