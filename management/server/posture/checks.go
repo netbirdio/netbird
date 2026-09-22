@@ -51,7 +51,7 @@ type Checks struct {
 	PublicID string `json:"-"`
 
 	// Checks is a set of objects that perform the actual checks
-	Checks ChecksDefinition `gorm:"serializer:json"`
+	Checks ChecksDefinition `gorm:"serializer:json;default:'{}'"`
 }
 
 // ChecksDefinition contains definition of actual check

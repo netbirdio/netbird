@@ -213,3 +213,10 @@ func FillEmptyUserJsonColumns(ctx context.Context, db *gorm.DB) error {
 		return res.Error
 	})
 }
+
+func FillEmptyPostureCheckJsonColumns(ctx context.Context, db *gorm.DB) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		res := tx.Exec(`update posture_checks set checks='{}' where id in (select id from posture_checks where checks='' or checks=null order by id asc)`)
+		return res.Error
+	})
+}

@@ -10,6 +10,7 @@ import (
 	net_types "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	router_types "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	"github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
 	"github.com/stretchr/testify/require"
@@ -251,6 +252,24 @@ func TestFillEmptyJsonField_User(t *testing.T) {
 	require.False(t, rows.Next())
 }
 
+func TestFillEmptyJsonField_PostureChecks(t *testing.T) {
+	db := setupPostureChecksTestDB(t)
+
+	res, err := db.ConnPool.ExecContext(context.Background(),
+		`insert into posture_checks (id,checks) values('id-1','')`)
+	require.NoError(t, err)
+	n, _ := res.RowsAffected()
+	require.Equal(t, n, int64(1))
+
+	err = migration.FillEmptyPostureCheckJsonColumns(context.Background(), db)
+	require.NoError(t, err)
+
+	rows, err := db.ConnPool.QueryContext(context.Background(), "select id from posture_checks where checks='' or checks=null")
+	require.NoError(t, err)
+	rows.Next()
+	require.False(t, rows.Next())
+}
+
 func setupNsGroupsTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db := setupDatabase(t)
@@ -330,6 +349,15 @@ func setupUserTestDB(t *testing.T) *gorm.DB {
 	db := setupDatabase(t)
 	_ = db.Migrator().DropTable(&types.User{})
 	err := db.AutoMigrate(&types.User{})
+	require.NoError(t, err, "Failed to auto-migrate tables")
+	return db
+}
+
+func setupPostureChecksTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db := setupDatabase(t)
+	_ = db.Migrator().DropTable(&posture.Checks{})
+	err := db.AutoMigrate(&posture.Checks{})
 	require.NoError(t, err, "Failed to auto-migrate tables")
 	return db
 }
