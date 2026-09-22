@@ -1,0 +1,46 @@
+name: Test Homebrew cask
+
+on:
+  pull_request:
+    paths:
+      - "client/ui/netbird-ui.rb.tmpl"
+      - ".github/scripts/test-homebrew-cask.sh"
+      - ".github/workflows/test-homebrew-cask.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || github.actor_id }}
+  cancel-in-progress: true
+
+jobs:
+  install-uninstall:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Clone the Homebrew tap
+        run: git clone https://github.com/netbirdio/homebrew-tap.git .homebrew-cask-tap
+
+      - name: Update Homebrew and install gomplate
+        # The runner image disables auto-update; the cask steps DSL needs Homebrew 6.0.20 or newer.
+        run: |
+          brew update
+          brew install gomplate
+
+      - name: Install and uninstall the cask
+        run: .github/scripts/test-homebrew-cask.sh
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a #v7.0.1
+        with:
+          name: homebrew-cask-results
+          path: ${{ runner.temp }}/homebrew-cask/results
+          if-no-files-found: ignore
