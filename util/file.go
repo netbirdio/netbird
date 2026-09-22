@@ -163,7 +163,7 @@ func writeBytes(ctx context.Context, file string, configDir string, configFileNa
 		return fmt.Errorf("after temp file: %w", ctx.Err())
 	}
 
-	if err = os.Rename(tempFileName, file); err != nil {
+	if err = renameFile(tempFileName, file); err != nil {
 		return fmt.Errorf("move %s to %s: %w", tempFileName, file, err)
 	}
 
