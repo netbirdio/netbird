@@ -156,8 +156,14 @@ func (c *CGCapturer) Cursor() (*image.RGBA, int, int, uint64, error) {
 	return c.cursor.Cursor()
 }
 
-// CursorPos returns the current global mouse location via CGEventCreate /
-// CGEventGetLocation. Coordinates are screen pixels in the main display.
+// CursorPos returns the current mouse location in this capturer's framebuffer
+// pixels, which is the space the caller composites the sprite into.
+//
+// CGEventGetLocation reports logical points. That is not the framebuffer's grid
+// on a Retina display: the frame is captured at native resolution and then
+// optionally halved, so the two differ by the display's backing scale factor
+// over downscale. Returning points unconverted puts the cursor at a fraction of
+// its real position whenever those disagree.
 func (c *CGCapturer) CursorPos() (int, int, error) {
 	if cgEventCreate == nil || cgEventGetLocation == nil {
 		return 0, 0, fmt.Errorf("CGEvent location APIs unavailable")
@@ -168,7 +174,11 @@ func (c *CGCapturer) CursorPos() (int, int, error) {
 	}
 	defer cfRelease(ev)
 	pt := cgEventGetLocation(ev)
-	return int(pt.X), int(pt.Y), nil
+
+	if c.logicalW <= 0 || c.logicalH <= 0 {
+		return int(pt.X), int(pt.Y), nil
+	}
+	return int(pt.X) * c.w / c.logicalW, int(pt.Y) * c.h / c.logicalH, nil
 }
 
 // Cursor on MacPoller forwards to the lazy CGCapturer. ensureCapturerLocked

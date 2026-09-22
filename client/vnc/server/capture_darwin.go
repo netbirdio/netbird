@@ -111,6 +111,11 @@ type CGCapturer struct {
 	w, h      int
 	// downscale is 1 for pixel-perfect, 2 for Retina 2:1 box-filter downscale.
 	downscale int
+	// logicalW/logicalH are the display's size in logical points, the unit
+	// CGEventGetLocation reports the cursor in. Kept so CursorPos can convert
+	// into the framebuffer's own pixel grid, which differs from it whenever
+	// the display is Retina.
+	logicalW, logicalH int
 	hashSeed  maphash.Seed
 	lastHash  uint64
 	hasHash   bool
@@ -197,6 +202,7 @@ func NewCGCapturer() (*CGCapturer, error) {
 	}
 	c.w = nativeW / c.downscale
 	c.h = nativeH / c.downscale
+	c.logicalW, c.logicalH = logicalW, logicalH
 
 	log.Infof("macOS capturer ready: %dx%d (native %dx%d, logical %dx%d, downscale=%d, display=%d)",
 		c.w, c.h, nativeW, nativeH, logicalW, logicalH, c.downscale, displayID)

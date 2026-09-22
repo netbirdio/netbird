@@ -706,13 +706,15 @@ func scalePxToLogical(px, py, serverW, serverH int) (float64, float64) {
 }
 
 func (m *MacInputInjector) dispatchPointer(src uintptr, buttonMask uint16, x, y float64) {
-	leftDown := buttonMask&0x01 != 0
-	rightDown := buttonMask&0x04 != 0
-	middleDown := buttonMask&0x02 != 0
-	m.postMoveOrDrag(src, leftDown, rightDown, x, y)
+	// Move with the buttons that were already held, not the ones this event
+	// introduces. Using the new state posts the motion as a drag before the
+	// mouse-down that begins it, and as a plain move before the mouse-up that
+	// ends it, so a press reads as a drag with no click and a release drops the
+	// drag one event early.
+	prev := m.lastButtons
+	m.postMoveOrDrag(src, prev&0x01 != 0, prev&0x04 != 0, x, y)
 	m.postButtonTransitions(src, buttonMask, x, y)
 	m.postScrollWheel(src, buttonMask)
-	_ = middleDown
 }
 
 func (m *MacInputInjector) postMoveOrDrag(src uintptr, leftDown, rightDown bool, x, y float64) {

@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -61,11 +62,43 @@ func (s *ShutdownState) Cleanup() error {
 			if killErr := syscall.Kill(proc.PID, syscall.SIGKILL); killErr != nil {
 				log.Debugf("cleanup: kill pid %d (%s): group kill: %v, single kill: %v", proc.PID, desc, err, killErr)
 			}
+			continue
+		}
+
+		// An X server or a desktop process may catch or ignore TERM, and this
+		// record is discarded below either way, so nothing would come back for
+		// it. Escalate the way the ordinary virtual-session shutdown does
+		// rather than leaving it running against the next session.
+		if groupGone(proc.PID, cleanupGracePeriod) {
+			continue
+		}
+		log.Debugf("cleanup: pid %d (%s) survived SIGTERM, sending SIGKILL", proc.PID, desc)
+		if err := syscall.Kill(-proc.PID, syscall.SIGKILL); err != nil {
+			log.Debugf("cleanup: SIGKILL pid %d (%s): %v", proc.PID, desc, err)
 		}
 	}
 
 	s.Processes = nil
 	return nil
+}
+
+// cleanupGracePeriod is how long a signalled process group gets to exit on its
+// own before Cleanup escalates to SIGKILL.
+const cleanupGracePeriod = 2 * time.Second
+
+// groupGone polls the process group until it has exited or grace expires, and
+// reports whether it is gone. Signal 0 only probes for existence.
+func groupGone(pid int, grace time.Duration) bool {
+	deadline := time.Now().Add(grace)
+	for {
+		if err := syscall.Kill(-pid, 0); err != nil {
+			return true
+		}
+		if !time.Now().Before(deadline) {
+			return false
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 
 // describeProcess captures the identity of a freshly started process so a later
