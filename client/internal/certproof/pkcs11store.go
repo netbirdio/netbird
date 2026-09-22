@@ -23,23 +23,28 @@ type PKCS11Config struct {
 }
 
 // PKCS11Store yields the identities of a PKCS#11 token, which is how tpm2-pkcs11 exposes
-// TPM-held keys on Linux. Certificates and keys are paired by CKA_ID, the convention
-// tpm2_ptool addcert and pkcs11-tool follow, and every signature happens on the token.
+// TPM-held keys on Linux. Certificates on the token are paired with keys by CKA_ID, the
+// convention tpm2_ptool addcert and pkcs11-tool follow; certificate files in the PEM
+// directory by public key. Every signature happens on the token.
 type PKCS11Store struct {
-	uri *pkcs11.URI
-	pin string
+	uri     *pkcs11.URI
+	pin     string
+	certDir string
 }
 
-// NewPKCS11Store parses cfg.URI, standing in the bare defaults when it is empty.
-func NewPKCS11Store(cfg PKCS11Config) (*PKCS11Store, error) {
+// NewPKCS11Store parses cfg.URI, standing in the bare defaults when it is empty. Files in
+// certDir without a key of their own are paired with the token's keys by public key.
+func NewPKCS11Store(cfg PKCS11Config, certDir string) (*PKCS11Store, error) {
+	store := &PKCS11Store{uri: &pkcs11.URI{}, pin: cfg.PIN, certDir: certDir}
 	if cfg.URI == "" {
-		return &PKCS11Store{uri: &pkcs11.URI{}, pin: cfg.PIN}, nil
+		return store, nil
 	}
 	parsed, err := pkcs11.ParseURI(cfg.URI)
 	if err != nil {
 		return nil, err
 	}
-	return &PKCS11Store{uri: parsed, pin: cfg.PIN}, nil
+	store.uri = parsed
+	return store, nil
 }
 
 func (s *PKCS11Store) Candidates(_ context.Context) ([]Candidate, error) {
@@ -53,23 +58,113 @@ func (s *PKCS11Store) Candidates(_ context.Context) ([]Candidate, error) {
 	if err != nil {
 		return nil, err
 	}
-	log.Infof("%s holds %d certificates", s, len(certs))
+	fileChains, err := s.fileChains()
+	if err != nil {
+		return nil, err
+	}
+	log.Infof("%s holds %d certificates, %d certificate files without a key wait for its keys", s, len(certs), len(fileChains))
 
 	pool := make([]*x509.Certificate, 0, len(certs))
 	for _, cert := range certs {
 		pool = append(pool, cert.cert)
 	}
+	for _, chain := range fileChains {
+		pool = append(pool, chain...)
+	}
+
 	var candidates []Candidate
 	for _, cert := range certs {
 		if _, err := privateKey(session, cert.id); err != nil {
 			log.Infof("%s certificate %q has no usable private key: %v", s, cert.cert.Subject, err)
 			continue
 		}
-		chain := buildChain(cert.cert, pool)
-		log.Infof("%s candidate %q issued by %q built a chain of %d certificates", s, cert.cert.Subject, cert.cert.Issuer, len(chain))
-		candidates = append(candidates, Candidate{Chain: chain, Signer: &pkcs11Signer{store: s, leaf: cert.cert, id: cert.id}})
+		candidates = append(candidates, s.candidate(cert.cert, cert.id, pool))
+	}
+	if len(fileChains) == 0 {
+		return candidates, nil
+	}
+
+	keys, err := tokenPublicKeys(session)
+	if err != nil {
+		return nil, err
+	}
+	for _, chain := range fileChains {
+		leaf := chain[0]
+		id, ok := keys.idFor(leaf.PublicKey)
+		if !ok {
+			log.Debugf("%s holds no key for certificate %q from %s", s, leaf.Subject, s.certDir)
+			continue
+		}
+		candidates = append(candidates, s.candidate(leaf, id, pool))
 	}
 	return candidates, nil
+}
+
+func (s *PKCS11Store) candidate(leaf *x509.Certificate, id []byte, pool []*x509.Certificate) Candidate {
+	chain := buildChain(leaf, pool)
+	log.Infof("%s candidate %q issued by %q built a chain of %d certificates", s, leaf.Subject, leaf.Issuer, len(chain))
+	return Candidate{Chain: chain, Signer: &pkcs11Signer{store: s, leaf: leaf, id: id}}
+}
+
+// fileChains reads the certificate files in the PEM directory that carry no key of their
+// own; the file store answers for the ones that do.
+func (s *PKCS11Store) fileChains() ([][]*x509.Certificate, error) {
+	if s.certDir == "" {
+		return nil, nil
+	}
+	paths, err := certFiles(s.certDir)
+	if err != nil {
+		return nil, err
+	}
+	var chains [][]*x509.Certificate
+	for _, path := range paths {
+		chain, signer, err := loadPEM(path)
+		if err != nil || signer != nil {
+			continue
+		}
+		chains = append(chains, chain)
+	}
+	return chains, nil
+}
+
+type tokenKey struct {
+	id     []byte
+	public crypto.PublicKey
+}
+
+type tokenKeys []tokenKey
+
+func tokenPublicKeys(session *pkcs11.Session) (tokenKeys, error) {
+	objects, err := session.FindObjects(pkcs11.Attribute{Type: pkcs11.AttrClass, Value: pkcs11.ULong(pkcs11.ClassPublicKey)})
+	if err != nil {
+		return nil, err
+	}
+	keys := make(tokenKeys, 0, len(objects))
+	for _, object := range objects {
+		id, err := session.Attribute(object, pkcs11.AttrID)
+		if err != nil {
+			return nil, err
+		}
+		public, err := session.PublicKey(object)
+		if err != nil {
+			log.Debugf("skipping public key on PKCS#11 token: %v", err)
+			continue
+		}
+		keys = append(keys, tokenKey{id: id, public: public})
+	}
+	return keys, nil
+}
+
+// idFor finds the token key whose public half is pub, so a certificate kept outside the
+// token is still signed for by the key inside it.
+func (k tokenKeys) idFor(pub crypto.PublicKey) ([]byte, bool) {
+	for _, key := range k {
+		equaler, ok := key.public.(interface{ Equal(crypto.PublicKey) bool })
+		if ok && len(key.id) > 0 && equaler.Equal(pub) {
+			return key.id, true
+		}
+	}
+	return nil, false
 }
 
 func (s *PKCS11Store) String() string {

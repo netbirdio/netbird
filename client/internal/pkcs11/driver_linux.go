@@ -3,7 +3,6 @@
 package pkcs11
 
 import (
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"runtime"
@@ -326,11 +325,4 @@ func first(attrs []attribute) *attribute {
 		return nil
 	}
 	return &attrs[0]
-}
-
-// ULong encodes an integer attribute value the way the module reads a CK_ULONG.
-func ULong(v uint) []byte {
-	buf := make([]byte, unsafe.Sizeof(ulong(0)))
-	binary.NativeEndian.PutUint64(buf, uint64(v))
-	return buf
 }

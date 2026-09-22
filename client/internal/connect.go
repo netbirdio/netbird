@@ -672,7 +672,10 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 
 		LazyConnection: lazyconn.ParseState(config.LazyConnection),
 
-		CertPKCS11: certproof.PKCS11Config{URI: config.CertPKCS11URI, PIN: config.CertPKCS11PIN},
+		CertStore: certproof.Config{
+			Dir:    config.CertStoreDir,
+			PKCS11: certproof.PKCS11Config{URI: config.CertPKCS11URI, PIN: config.CertPKCS11PIN},
+		},
 
 		MTU:     selectMTU(config.MTU, peerConfig.Mtu),
 		LogPath: logPath,

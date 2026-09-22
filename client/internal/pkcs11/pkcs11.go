@@ -5,6 +5,7 @@
 package pkcs11
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"sync"
@@ -23,8 +24,16 @@ const (
 	AttrLabel           = 0x3
 	AttrValue           = 0x11
 	AttrCertificateType = 0x80
+	AttrKeyType         = 0x100
 	AttrSubject         = 0x101
 	AttrID              = 0x102
+	AttrModulus         = 0x120
+	AttrPublicExponent  = 0x122
+	AttrECParams        = 0x180
+	AttrECPoint         = 0x181
+
+	KeyRSA = 0x0
+	KeyEC  = 0x3
 
 	MechRSAPKCSPSS = 0xd
 	MechSHA256     = 0x250
@@ -232,4 +241,19 @@ type driver interface {
 	attribute(session uint, obj Object, typ uint) ([]byte, error)
 	sign(session uint, mech Mechanism, key Object, data []byte) ([]byte, error)
 	createObject(session uint, template []Attribute) (Object, error)
+}
+
+// ulongSize is the width of CK_ULONG on the 64-bit platforms the driver builds for.
+const ulongSize = 8
+
+// ULong encodes an integer attribute value the way the module reads a CK_ULONG.
+func ULong(v uint) []byte {
+	return binary.NativeEndian.AppendUint64(nil, uint64(v))
+}
+
+func ulongValue(b []byte) (uint, error) {
+	if len(b) != ulongSize {
+		return 0, fmt.Errorf("CK_ULONG value has %d bytes", len(b))
+	}
+	return uint(binary.NativeEndian.Uint64(b)), nil
 }

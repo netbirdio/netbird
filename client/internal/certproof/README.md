@@ -16,7 +16,7 @@ to one WireGuard peer key and cannot be replayed by another peer.
 | macOS | console user's login keychain | a helper in that user's desktop session |
 | Windows | `LocalMachine\MY` | the service, directly |
 | Windows | signed-in user's `CurrentUser\MY` | a helper launched with that session's token |
-| Linux and others | PEM directory, `NB_CERT_STORE_DIR` or `/etc/netbird/certs` | the daemon, directly |
+| Linux and others | PEM directory: `CertStoreDir` in the profile config, else `NB_CERT_STORE_DIR`, else `/etc/netbird/certs` | the daemon, directly |
 | Linux | a `TSS2 PRIVATE KEY` file in that directory, signed by the TPM | the daemon, through `/dev/tpmrm0` |
 | Linux | a PKCS#11 token, tpm2-pkcs11 for one, enabled by `CertPKCS11PIN` in the profile config | the daemon, through the token's module, in builds with the `pkcs11` tag |
 
@@ -170,9 +170,17 @@ or `pin-source` naming a file, and `CertPKCS11PIN` takes precedence over both. W
 PIN no login happens, and tpm2-pkcs11 then shows no private keys at all. Every other
 attribute is ignored.
 
-Certificates and private keys are paired by `CKA_ID`, which is what `tpm2_ptool addcert`
-and `pkcs11-tool` set. Chains are completed from the other certificates on the token. Each
-operation opens a session, logs in, works, logs out and closes, so no token handle
+The certificate may live on the token or in the PEM directory: `CertStoreDir` in the
+profile config, else `NB_CERT_STORE_DIR`, else `/etc/netbird/certs`. On the token,
+certificates and private keys are paired by `CKA_ID`,
+which is what `tpm2_ptool addcert` and `pkcs11-tool` set. In the directory, a certificate
+file without a key of its own is paired with the token key whose public key it carries, so
+`device.pem` alone next to a key that only the TPM holds is enough; the token's public key
+object, which `tpm2_ptool addkey` and `import` create alongside the private one, is what
+the store compares against. Chains are completed from the certificates on the token and in
+the directory together, so intermediates may sit in either place.
+
+Each operation opens a session, logs in, works, logs out and closes, so no token handle
 outlives a call, and the PEM directory keeps working when the token does not: the two are
 queried together and a failing token is logged rather than hiding file certificates.
 

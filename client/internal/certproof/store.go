@@ -33,6 +33,21 @@ type Store interface {
 	Candidates(ctx context.Context) ([]Candidate, error)
 }
 
+// Config selects where the Linux daemon looks for certificates: Dir is the PEM directory,
+// empty for NB_CERT_STORE_DIR or /etc/netbird/certs, and PKCS11 names a token whose keys
+// sign for certificates on the token or in that directory.
+type Config struct {
+	Dir    string
+	PKCS11 PKCS11Config
+}
+
+func (c Config) dir() string {
+	if c.Dir != "" {
+		return c.Dir
+	}
+	return StoreDir()
+}
+
 // FileStore reads PEM files from a directory. A file holds the chain (leaf first) and
 // either its private key or a sibling "<name>.key" file holds it. The key is a plain
 // PKCS#8, EC or RSA key, or a TSS2 key the TPM signs with.
@@ -52,55 +67,76 @@ func StoreDir() string {
 }
 
 func (s *FileStore) Candidates(_ context.Context) ([]Candidate, error) {
-	entries, err := os.ReadDir(s.dir)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
+	paths, err := certFiles(s.dir)
 	if err != nil {
-		return nil, fmt.Errorf("read certificate store %s: %w", s.dir, err)
+		return nil, err
 	}
 
 	var candidates []Candidate
-	for _, entry := range entries {
-		if entry.IsDir() || !isCertFile(entry.Name()) {
-			continue
-		}
-		path := filepath.Join(s.dir, entry.Name())
-		candidate, err := s.load(path)
+	for _, path := range paths {
+		chain, signer, err := loadPEM(path)
 		if err != nil {
 			log.Warnf("skipping certificate %s: %v", path, err)
 			continue
 		}
-		candidates = append(candidates, candidate)
+		if signer == nil {
+			log.Debugf("certificate %s has no key file, only a token can sign for it", path)
+			continue
+		}
+		candidates = append(candidates, Candidate{Chain: chain, Signer: signer})
 	}
 	return candidates, nil
 }
 
-func (s *FileStore) load(path string) (Candidate, error) {
+// certFiles lists the certificate files in dir, none when the directory does not exist.
+func certFiles(dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read certificate store %s: %w", dir, err)
+	}
+	var paths []string
+	for _, entry := range entries {
+		if !entry.IsDir() && isCertFile(entry.Name()) {
+			paths = append(paths, filepath.Join(dir, entry.Name()))
+		}
+	}
+	return paths, nil
+}
+
+// loadPEM reads a certificate file and its private key, held in the file itself or in
+// the sibling "<name>.key" file. The signer is nil when neither holds a key.
+func loadPEM(path string) ([]*x509.Certificate, crypto.Signer, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return Candidate{}, err
+		return nil, nil, err
 	}
 	chain, signer, err := parsePEM(data)
 	if err != nil {
-		return Candidate{}, err
+		return nil, nil, err
 	}
 	if len(chain) == 0 {
-		return Candidate{}, errors.New("no certificate")
+		return nil, nil, errors.New("no certificate")
+	}
+	if signer != nil {
+		return chain, signer, nil
+	}
+	keyData, err := os.ReadFile(strings.TrimSuffix(path, filepath.Ext(path)) + ".key")
+	if errors.Is(err, os.ErrNotExist) {
+		return chain, nil, nil
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("read key file: %w", err)
+	}
+	if _, signer, err = parsePEM(keyData); err != nil {
+		return nil, nil, err
 	}
 	if signer == nil {
-		keyData, err := os.ReadFile(strings.TrimSuffix(path, filepath.Ext(path)) + ".key")
-		if err != nil {
-			return Candidate{}, fmt.Errorf("no private key: %w", err)
-		}
-		if _, signer, err = parsePEM(keyData); err != nil {
-			return Candidate{}, err
-		}
-		if signer == nil {
-			return Candidate{}, errors.New("no private key in key file")
-		}
+		return nil, nil, errors.New("no private key in key file")
 	}
-	return Candidate{Chain: chain, Signer: signer}, nil
+	return chain, signer, nil
 }
 
 func parsePEM(data []byte) ([]*x509.Certificate, crypto.Signer, error) {

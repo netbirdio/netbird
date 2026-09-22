@@ -9,13 +9,14 @@ func DefaultStore() Store {
 	return NewFileStore(StoreDir())
 }
 
-// storeWithToken joins DefaultStore with the PKCS#11 token cfg names, when it names one.
-func storeWithToken(cfg PKCS11Config) Store {
-	files := DefaultStore()
-	if cfg.URI == "" && cfg.PIN == "" {
+// storeWithToken reads the PEM directory cfg names, joined by the PKCS#11 token when cfg
+// names one. The token pairs the directory's key-less certificates with its own keys.
+func storeWithToken(cfg Config) Store {
+	files := NewFileStore(cfg.dir())
+	if cfg.PKCS11.URI == "" && cfg.PKCS11.PIN == "" {
 		return files
 	}
-	token, err := NewPKCS11Store(cfg)
+	token, err := NewPKCS11Store(cfg.PKCS11, cfg.dir())
 	if err != nil {
 		log.Warnf("ignoring PKCS#11 URI: %v", err)
 		return files

@@ -24,7 +24,7 @@ const helperTimeout = 30 * time.Second
 // installs device identities, and reaches the console user's login keychain only by
 // launching a helper into that user's session. A Mac sitting at the login window
 // therefore yields device proofs alone.
-func CollectProofs(ctx context.Context, checks []*proto.Checks, peerKey []byte, _ PKCS11Config) []certposture.Proof {
+func CollectProofs(ctx context.Context, checks []*proto.Checks, peerKey []byte, _ Config) []certposture.Proof {
 	challenges := certificateChallenges(checks)
 	if len(challenges) == 0 {
 		logNoChallenges(checks)
