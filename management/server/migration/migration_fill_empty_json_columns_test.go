@@ -215,6 +215,24 @@ func TestFillEmptyJsonField_NetworkRouter(t *testing.T) {
 	require.False(t, rows.Next())
 }
 
+func TestFillEmptyJsonField_AccountDnsSettings(t *testing.T) {
+	db := setupAccountsTestDB(t)
+
+	res, err := db.ConnPool.ExecContext(context.Background(),
+		`insert into accounts (id,dns_settings_disabled_management_groups) values('id-1','')`)
+	require.NoError(t, err)
+	n, _ := res.RowsAffected()
+	require.Equal(t, n, int64(1))
+
+	err = migration.FillEmptyAccountDnsSettingsJsonColumns(context.Background(), db)
+	require.NoError(t, err)
+
+	rows, err := db.ConnPool.QueryContext(context.Background(), "select id from accounts where dns_settings_disabled_management_groups='' or dns_settings_disabled_management_groups=null")
+	require.NoError(t, err)
+	rows.Next()
+	require.False(t, rows.Next())
+}
+
 func setupNsGroupsTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db := setupDatabase(t)

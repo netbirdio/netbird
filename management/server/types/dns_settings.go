@@ -3,7 +3,7 @@ package types
 // DNSSettings defines dns settings at the account level
 type DNSSettings struct {
 	// DisabledManagementGroups groups whose DNS management is disabled
-	DisabledManagementGroups []string `gorm:"serializer:json"` //;default:'[]'
+	DisabledManagementGroups []string `gorm:"serializer:json;default:'[]'"`
 }
 
 // Copy returns a copy of the DNS settings

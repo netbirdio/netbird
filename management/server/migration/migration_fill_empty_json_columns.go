@@ -199,3 +199,10 @@ func FillEmptyNetworkRouterJsonColumns(ctx context.Context, db *gorm.DB) error {
 		return res.Error
 	})
 }
+
+func FillEmptyAccountDnsSettingsJsonColumns(ctx context.Context, db *gorm.DB) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		res := tx.Exec(`update accounts set dns_settings_disabled_management_groups='[]' where id in (select id from accounts where dns_settings_disabled_management_groups='' or dns_settings_disabled_management_groups=null order by id asc)`)
+		return res.Error
+	})
+}
