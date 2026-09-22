@@ -380,10 +380,14 @@ func (e *componentEncoder) groupPublicXid(groupID string) (string, bool) {
 	if g.PublicID != "" {
 		return g.PublicID, true
 	}
-	// Upgraded accounts may temporarily contain groups without a public ID.
-	// Falling back to the stable internal ID keeps wire references unique and
-	// prevents multiple groups from collapsing into the same empty key.
-	return groupID, groupID != ""
+	if groupID == "" {
+		return "", false
+	}
+
+	// Public IDs are generated as xid strings. Prefix legacy internal IDs with
+	// a separator that cannot occur in an xid so they cannot collide with a
+	// different group's public ID on the wire.
+	return "internal:" + groupID, true
 }
 
 // resourceToProto translates types.Resource for the wire. For peer-typed
