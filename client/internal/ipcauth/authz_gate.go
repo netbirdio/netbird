@@ -87,6 +87,10 @@ func (g *AuthzGate) resolveLevel(id Identity, target Target) AuthzLevel {
 	if !target.Owned {
 		return AuthzLevelIdentified
 	}
+	// With ownership off, reaching the profile is also reaching its session.
+	if ProfileOwnershipDisabled() {
+		return AuthzLevelSessionHolder
+	}
 	if holder, running := g.st.SessionHolder(); !running || holder.Matches(id) {
 		return AuthzLevelSessionHolder
 	}

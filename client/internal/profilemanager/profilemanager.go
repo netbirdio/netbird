@@ -44,6 +44,9 @@ func (p *Profile) AccessibleBy(id ipcauth.Identity) bool {
 	if !id.Known() {
 		return false
 	}
+	if ipcauth.ProfileOwnershipDisabled() {
+		return true
+	}
 	if ipcauth.IsPrivilegedCaller(id) {
 		return true
 	}

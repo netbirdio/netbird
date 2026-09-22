@@ -37,9 +37,15 @@ const EnvDisableProfileOwnership = "NB_DISABLE_PROFILE_OWNERSHIP"
 
 var logProfileOwnershipDisabledOrError sync.Once
 
-// defaultProfileClaimDisabled reports whether the environment turns off
-// profile ownership. A ownership check will always return true.
-func isProfileOwnershipDisabled() bool {
+// ProfileOwnershipDisabled reports whether profile ownership is turned off, so
+// every identified caller reaches every profile and controls its session.
+//
+// Mobile records no owners. The app is the only caller and the platform sandbox
+// already isolates one install from another.
+func ProfileOwnershipDisabled() bool {
+	if runtime.GOOS == "android" || runtime.GOOS == "ios" {
+		return true
+	}
 	val := os.Getenv(EnvDisableProfileOwnership)
 	if val == "" {
 		return false
@@ -310,9 +316,6 @@ func looksLikeSID(v string) bool {
 // A principal is a config value, not a caller, so it is never converted into an
 // Identity.
 func (p Principal) Matches(id Identity) bool {
-	if isProfileOwnershipDisabled() {
-		return true
-	}
 	if !id.Known() {
 		return false
 	}

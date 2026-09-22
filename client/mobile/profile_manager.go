@@ -60,9 +60,8 @@ type Profile struct {
 type ProfileManager struct {
 	configDir string
 	username  string
-	// identity scopes profile ownership. There is no IPC hop on mobile: the
-	// manager runs inside the app, so the owner of a profile is the app process
-	// itself, and the device has a single user anyway.
+	// identity is this app process, which every profile call is made as. Mobile
+	// records no owners, see ipcauth.ProfileOwnershipDisabled.
 	identity   ipcauth.Identity
 	serviceMgr *profilemanager.ServiceManager
 	mdmLoader  *mdm.Loader
@@ -167,7 +166,7 @@ func (pm *ProfileManager) AddProfile(displayName string) (*Profile, error) {
 	if err := pm.checkProfilesAllowed(); err != nil {
 		return nil, err
 	}
-	profile, err := pm.serviceMgr.AddProfile(displayName, &pm.identity)
+	profile, err := pm.serviceMgr.AddProfile(displayName, nil)
 	if err != nil {
 		return nil, fmt.Errorf("add profile: %w", err)
 	}

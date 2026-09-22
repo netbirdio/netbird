@@ -7,7 +7,18 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/netbirdio/netbird/client/internal/ipcauth"
 )
+
+func TestAccessibleByReachesUnownedProfileWhenOwnershipDisabled(t *testing.T) {
+	t.Setenv(ipcauth.EnvDisableProfileOwnership, "true")
+
+	unowned := Profile{}
+	caller := ipcauth.KnownForTest(ipcauth.Identity{UID: 4242})
+
+	assert.True(t, unowned.AccessibleBy(caller), "an unowned profile is reachable with ownership off")
+}
 
 func withTempConfigDir(t *testing.T, testFunc func(configDir string)) {
 	t.Helper()

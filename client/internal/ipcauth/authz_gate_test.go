@@ -176,6 +176,19 @@ func TestAuthorizeCarriesTheTargetForAPrivilegedCaller(t *testing.T) {
 	assert.Equal(t, "/profiles/abcd1111.json", got)
 }
 
+// With ownership off, somebody else's live session is not a reason to refuse.
+func TestAuthorizeIgnoresAHeldSessionWhenOwnershipDisabled(t *testing.T) {
+	t.Setenv(EnvDisableProfileOwnership, "true")
+	g := gateFor(t, stubState{
+		target:  Target{Path: "/profiles/mine.json", Owned: true},
+		running: true,
+		holder:  Principal{Kind: KindUID, Value: "4242"},
+	})
+
+	_, err := g.authorize(transportCtx(unprivUser, nil), servicePath+"Up", &proto.UpRequest{})
+	assert.NoError(t, err)
+}
+
 func TestAuthorizeBlamesAHeldSession(t *testing.T) {
 	g := gateFor(t, stubState{
 		target:  Target{Path: "/profiles/mine.json", Owned: true},

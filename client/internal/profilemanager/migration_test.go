@@ -1,3 +1,5 @@
+//go:build !ios && !android
+
 package profilemanager
 
 import (
