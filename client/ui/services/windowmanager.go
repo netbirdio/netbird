@@ -236,6 +236,7 @@ type WindowManager struct {
 	// hiddenWindows holds windows hidden while a popup owns the screen, each tagged with
 	// the popup that hid it so closing one popup cannot restore what another still hides.
 	hiddenWindows []hiddenWindow
+	hiding        map[string]bool
 	// allWindows and raiseMain are the seams the hide/restore tests replace; both are nil
 	// in production, where the Wails app and the platform helper are used directly.
 	allWindows   func() []hideableWindow
@@ -279,6 +280,7 @@ func NewWindowManager(app *application.App, mainWindow *application.WebviewWindo
 		pendingOps:     map[string][]windowOp{},
 		pendingClose:   map[string]windowCloser{},
 		restoreGen:     map[string]uint64{},
+		hiding:         map[string]bool{},
 		painted:        map[uint]bool{},
 		mounted:        map[uint]bool{},
 		showPending:    map[uint]bool{},
@@ -1244,6 +1246,7 @@ func (s *WindowManager) retitleAll() {
 // the record, in which case the windows are re-shown rather than stranded.
 func (s *WindowManager) hideOtherWindows(keepName string) {
 	s.mu.Lock()
+	s.hiding[keepName] = true
 	gen := s.restoreGen[keepName]
 	s.mu.Unlock()
 
@@ -1275,17 +1278,23 @@ func (s *WindowManager) hideOtherWindows(keepName string) {
 	}
 }
 
-// restoreHiddenWindows re-shows the windows owner hid, leaving those another popup still
-// hides untouched. If the main window was among them, raiseToForeground lifts it above
-// the SSO browser, which still owns the foreground — a plain Show/Focus would be demoted
-// to a taskbar flash and leave it stranded behind.
+// restoreHiddenWindows re-shows the windows owner hid, unless another popup still covers
+// them, in which case they are handed to that popup. If the main window was among them,
+// raiseToForeground lifts it above the SSO browser, which still owns the foreground — a
+// plain Show/Focus would be demoted to a taskbar flash and leave it stranded behind.
 func (s *WindowManager) restoreHiddenWindows(owner string) {
 	s.mu.Lock()
 	mainWindow := s.mainWindow
+	delete(s.hiding, owner)
 	var restore []hideableWindow
 	kept := s.hiddenWindows[:0]
 	for _, hidden := range s.hiddenWindows {
 		if hidden.owner != owner {
+			kept = append(kept, hidden)
+			continue
+		}
+		if coverer, covered := s.coveringPopupLocked(hidden.win); covered {
+			hidden.owner = coverer
 			kept = append(kept, hidden)
 			continue
 		}
@@ -1307,6 +1316,18 @@ func (s *WindowManager) restoreHiddenWindows(owner string) {
 	if mainRestored {
 		s.raiseMainWindow(mainWindow)
 	}
+}
+
+func (s *WindowManager) coveringPopupLocked(w hideableWindow) (string, bool) {
+	if w == nil {
+		return "", false
+	}
+	for name := range s.hiding {
+		if name != w.Name() {
+			return name, true
+		}
+	}
+	return "", false
 }
 
 // getScreenBasedOnCursorPosition returns the cursor's display, falling back to the

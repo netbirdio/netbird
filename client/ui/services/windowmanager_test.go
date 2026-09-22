@@ -18,6 +18,7 @@ func newTestWindowManager() *WindowManager {
 		pendingOps:   map[string][]windowOp{},
 		pendingClose: map[string]windowCloser{},
 		restoreGen:   map[string]uint64{},
+		hiding:       map[string]bool{},
 		generation:   map[string]uint64{},
 	}
 }
@@ -446,6 +447,78 @@ func TestInstallDuringLoginKeepsMainHiddenUntilLoginCloses(t *testing.T) {
 	require.True(t, main.visible)
 	require.Equal(t, 1, d.raised, "restoring the main window raises it above the SSO browser")
 	require.Empty(t, s.hiddenWindows)
+}
+
+func TestLoginClosingUnderInstallHandsMainToInstall(t *testing.T) {
+	main := newFakeWindow(windowMain)
+	login := newFakeWindow(windowBrowserLogin)
+	install := newFakeWindow(windowInstallProgress)
+	install.visible = false
+	s := newTestWindowManager()
+	d := newFakeDesktop(s, main, login, install)
+
+	s.hideOtherWindows(windowBrowserLogin)
+	install.visible = true
+	s.hideOtherWindows(windowInstallProgress)
+	require.False(t, main.visible)
+	require.False(t, login.visible, "the install popup hides the login popup")
+
+	// The login popup closes while the install popup is still up: the main window it
+	// hid must not resurface under the install popup, it is handed over instead.
+	s.restoreHiddenWindows(windowBrowserLogin)
+	require.False(t, main.visible, "the install popup still covers the main window")
+	require.Equal(t, 0, d.raised)
+	require.Equal(t, []string{windowInstallProgress, windowInstallProgress}, ownersOf(s.hiddenWindows))
+
+	s.restoreHiddenWindows(windowInstallProgress)
+	require.True(t, main.visible, "the install popup restores the handed-over main window")
+	require.Equal(t, 1, d.raised)
+	require.Empty(t, s.hiddenWindows)
+}
+
+func TestInstallClosingUnderLoginHandsMainToLogin(t *testing.T) {
+	main := newFakeWindow(windowMain)
+	install := newFakeWindow(windowInstallProgress)
+	login := newFakeWindow(windowBrowserLogin)
+	login.visible = false
+	s := newTestWindowManager()
+	d := newFakeDesktop(s, main, install, login)
+
+	s.hideOtherWindows(windowInstallProgress)
+	login.visible = true
+	s.hideOtherWindows(windowBrowserLogin)
+	require.False(t, install.visible, "the login popup hides the install popup")
+
+	s.restoreHiddenWindows(windowInstallProgress)
+	require.False(t, main.visible, "the login popup still covers the main window")
+	require.Equal(t, 0, d.raised)
+	require.Equal(t, []string{windowBrowserLogin, windowBrowserLogin}, ownersOf(s.hiddenWindows))
+
+	s.restoreHiddenWindows(windowBrowserLogin)
+	require.True(t, main.visible)
+	require.Equal(t, 1, d.raised)
+	require.Empty(t, s.hiddenWindows)
+}
+
+func TestPopupClosingReshowsTheCoveringPopupItself(t *testing.T) {
+	main := newFakeWindow(windowMain)
+	install := newFakeWindow(windowInstallProgress)
+	login := newFakeWindow(windowBrowserLogin)
+	login.visible = false
+	s := newTestWindowManager()
+	d := newFakeDesktop(s, main, install, login)
+
+	s.hideOtherWindows(windowInstallProgress)
+	login.visible = true
+	s.hideOtherWindows(windowBrowserLogin)
+
+	// The login popup hid the install popup itself; closing the login popup must bring
+	// the install popup back rather than hand it over to its own owner.
+	s.restoreHiddenWindows(windowBrowserLogin)
+	require.True(t, install.visible, "a popup is never handed over to itself")
+	require.False(t, main.visible, "the main window stays with the install popup")
+	require.Equal(t, 0, d.raised)
+	require.Equal(t, []string{windowInstallProgress}, ownersOf(s.hiddenWindows))
 }
 
 func TestRestoreHiddenWindowsUnknownOwnerKeepsEverything(t *testing.T) {
