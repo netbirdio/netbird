@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/quic-go/quic-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -30,12 +31,33 @@ func TestListener_ShutdownBeforeServe(t *testing.T) {
 		errChan <- l.Serve(func(relaylistener.Conn) {})
 	}()
 
+	assert.NoError(t, waitForServeToReturn(t, errChan))
+	requireUDPAddressFree(t, addr)
+}
+
+func TestListener_ShutdownStopsServe(t *testing.T) {
+	l := &Listener{Address: "127.0.0.1:0", TLSConfig: testTLSConfig(t)}
+	require.NoError(t, l.Bind())
+	addr := l.listener.Addr().String()
+
+	accepted := make(chan relaylistener.Conn, 1)
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- l.Serve(func(conn relaylistener.Conn) { accepted <- conn })
+	}()
+
+	// quic-go completes handshakes on a bound socket before Accept is called, so
+	// only a session handed to acceptFn proves Serve is blocked in Accept when
+	// Shutdown arrives.
+	dialTestSession(t, addr)
 	select {
-	case err := <-errChan:
-		assert.NoError(t, err)
+	case <-accepted:
 	case <-time.After(5 * time.Second):
-		t.Fatal("Serve did not return on a listener that was already shut down")
+		t.Fatal("listener did not accept the test session")
 	}
+
+	require.NoError(t, l.Shutdown(context.Background()))
+	assert.NoError(t, waitForServeToReturn(t, errChan))
 	requireUDPAddressFree(t, addr)
 }
 
@@ -62,6 +84,28 @@ func testTLSConfig(t *testing.T) *tls.Config {
 	return &tls.Config{
 		Certificates: []tls.Certificate{{Certificate: [][]byte{certDER}, PrivateKey: key}},
 		NextProtos:   []string{quictls.NBalpn},
+	}
+}
+
+func dialTestSession(t *testing.T, addr string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	tlsCfg := &tls.Config{InsecureSkipVerify: true, NextProtos: []string{quictls.NBalpn}}
+	session, err := quic.DialAddr(ctx, addr, tlsCfg, &quic.Config{EnableDatagrams: true})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = session.CloseWithError(0, "") })
+}
+
+func waitForServeToReturn(t *testing.T, errChan <-chan error) error {
+	t.Helper()
+	select {
+	case err := <-errChan:
+		return err
+	case <-time.After(5 * time.Second):
+		t.Fatal("Serve did not return")
+		return nil
 	}
 }
 

@@ -103,12 +103,11 @@ func (r *Server) Listen(cfg ListenerConfig) error {
 // Shutdown stops the relay server. If there are active connections, they will be closed gracefully. In case of a context,
 // the connections will be forcefully closed.
 func (r *Server) Shutdown(ctx context.Context) error {
-	r.relay.Shutdown(ctx)
-
 	r.listenerMux.Lock()
 	defer r.listenerMux.Unlock()
 
 	r.closed = true
+	r.relay.Shutdown(ctx)
 	err := shutdownListeners(ctx, r.listeners)
 	r.listeners = r.listeners[:0]
 	return err
