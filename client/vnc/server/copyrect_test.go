@@ -5,6 +5,8 @@ package server
 import (
 	"image"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // fillTile paints a tileSize×tileSize block of img at (x,y) with the colour
@@ -222,4 +224,32 @@ func TestEncodeCopyRectBody_Layout(t *testing.T) {
 	if got[12] != 0 || got[13] != 100 || got[14] != 0 || got[15] != 200 {
 		t.Fatalf("bad src bytes: % x", got[12:16])
 	}
+}
+
+// prevTiles maps a tile hash to the position that carries it, so it can hold
+// at most one entry per tile. Rehashing the same tile with fresh content must
+// retire the hash it used to carry: a session over changing content otherwise
+// accumulates one dead entry per distinct hash it has ever seen, for as long
+// as the session lives.
+func TestCopyRectDetector_PrevTilesStaysBounded(t *testing.T) {
+	const w, h = 128, 128 // 2x2 tiles at 64px
+	const ts = 64
+	const tiles = 4
+
+	frame := image.NewRGBA(image.Rect(0, 0, w, h))
+	d := newCopyRectDetector(ts)
+	d.rebuild(frame, w, h)
+
+	dirty := [][4]int{{0, 0, ts, ts}, {ts, 0, ts, ts}, {0, ts, ts, ts}, {ts, ts, ts, ts}}
+	for i := range 200 {
+		for ty := range 2 {
+			for tx := range 2 {
+				fillTile(frame, tx*ts, ty*ts, ts, byte(i), byte(i*3), byte(tx+ty))
+			}
+		}
+		d.updateDirty(frame, w, h, dirty)
+	}
+
+	assert.LessOrEqual(t, len(d.prevTiles), tiles,
+		"prevTiles must not grow past one entry per tile across repeated content changes")
 }

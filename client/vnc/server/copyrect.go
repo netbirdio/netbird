@@ -126,13 +126,27 @@ func (d *copyRectDetector) updateDirty(frame *image.RGBA, w, h int, dirty [][4]i
 		if tx+ts > w || ty+ts > h {
 			continue
 		}
+		idx := (ty/ts)*d.cols + (tx / ts)
+		pos := [2]int{tx, ty}
 		sum := d.hashTile(frame, tx, ty)
-		d.tileHash[(ty/ts)*d.cols+(tx/ts)] = sum
+
+		// Retire the hash this tile used to carry. Without this the map keeps
+		// one entry per distinct hash the tile has ever had, so a long session
+		// over changing content grows it without bound. Only drop the entry
+		// while it still points here: another tile may have claimed that hash
+		// since, and its mapping is live.
+		if old := d.tileHash[idx]; old != sum {
+			if owner, ok := d.prevTiles[old]; ok && owner == pos {
+				delete(d.prevTiles, old)
+			}
+		}
+
+		d.tileHash[idx] = sum
 		// Latest-wins on collision: ensures the most recent owner of this
 		// hash is the one we'll return on lookup. The previous owner's
 		// entry, if any, gets shadowed; if its content has changed it's
 		// stale anyway and findTileMatch's verification will skip it.
-		d.prevTiles[sum] = [2]int{tx, ty}
+		d.prevTiles[sum] = pos
 	}
 }
 
