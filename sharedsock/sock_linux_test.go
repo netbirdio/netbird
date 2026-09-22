@@ -183,14 +183,15 @@ func TestWriteTo6KernelChecksum(t *testing.T) {
 	assert.Equal(t, string(msg), string(buf[:n]), "payload should arrive intact")
 	assert.Equal(t, testingPort, from.(*net.UDPAddr).Port, "source port should be the shared port")
 
-	segment := readUDP6Segment(t, capture, uint16(listenerPort))
+	segment := readUDP6Segment(t, capture, uint16(testingPort), uint16(listenerPort))
+	assert.Equal(t, string(msg), string(segment[8:]), "captured segment should carry the test payload")
 	assert.NotZero(t, binary.BigEndian.Uint16(segment[udpChecksumOffset:]), "checksum should be filled in")
 	assert.True(t, udp6ChecksumValid(loopback, loopback, segment), "checksum should verify against the pseudo-header")
 }
 
-// readUDP6Segment returns the first UDP segment the capture socket sees for dstPort.
-// IPv6 raw sockets deliver the transport header without the IP header.
-func readUDP6Segment(t *testing.T, capture *socket.Conn, dstPort uint16) []byte {
+// readUDP6Segment returns the first UDP segment the capture socket sees from srcPort to
+// dstPort. IPv6 raw sockets deliver the transport header without the IP header.
+func readUDP6Segment(t *testing.T, capture *socket.Conn, srcPort, dstPort uint16) []byte {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -200,7 +201,7 @@ func readUDP6Segment(t *testing.T, capture *socket.Conn, dstPort uint16) []byte 
 	for {
 		n, _, err := capture.Recvfrom(ctx, buf, 0)
 		require.NoError(t, err, "capture IPv6 packet")
-		if n >= 8 && binary.BigEndian.Uint16(buf[2:4]) == dstPort {
+		if n >= 8 && binary.BigEndian.Uint16(buf[0:2]) == srcPort && binary.BigEndian.Uint16(buf[2:4]) == dstPort {
 			return append([]byte(nil), buf[:n]...)
 		}
 	}

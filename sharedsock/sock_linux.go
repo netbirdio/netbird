@@ -100,8 +100,12 @@ func Listen(port int, filter BPFFilter, mtu uint16) (_ net.PacketConn, err error
 		}
 		// The kernel fills in the UDP checksum from the source address it selects on send,
 		// so the IPv6 path needs no route lookup to build the pseudo-header.
-		if err = rawSock.conn6.SetsockoptInt(unix.IPPROTO_IPV6, unix.IPV6_CHECKSUM, udpChecksumOffset); err != nil {
-			return nil, fmt.Errorf("enable kernel checksum on ipv6 socket: %w", err)
+		if err := rawSock.conn6.SetsockoptInt(unix.IPPROTO_IPV6, unix.IPV6_CHECKSUM, udpChecksumOffset); err != nil {
+			log.Errorf("Failed to enable kernel checksum on ipv6 raw socket, continuing without ipv6: %v", err)
+			if closeErr := rawSock.conn6.Close(); closeErr != nil {
+				log.Debugf("failed to close ipv6 raw socket: %v", closeErr)
+			}
+			rawSock.conn6 = nil
 		}
 	}
 
@@ -333,7 +337,10 @@ func (s *SharedSocket) writeTo4(udp *layers.UDP, buf []byte, dst net.IP) (int, e
 
 	sa := &unix.SockaddrInet4{}
 	copy(sa.Addr[:], dst)
-	return 0, s.conn4.Sendto(context.TODO(), buffer.Bytes(), 0, sa)
+	if err := s.conn4.Sendto(context.TODO(), buffer.Bytes(), 0, sa); err != nil {
+		return 0, err
+	}
+	return len(buf), nil
 }
 
 // writeTo6 sends a UDP packet over the IPv6 raw socket, leaving the checksum to the
@@ -351,5 +358,8 @@ func (s *SharedSocket) writeTo6(udp *layers.UDP, buf []byte, dst net.IP) (int, e
 
 	sa := &unix.SockaddrInet6{}
 	copy(sa.Addr[:], dst.To16())
-	return 0, s.conn6.Sendto(context.TODO(), buffer.Bytes(), 0, sa)
+	if err := s.conn6.Sendto(context.TODO(), buffer.Bytes(), 0, sa); err != nil {
+		return 0, err
+	}
+	return len(buf), nil
 }
