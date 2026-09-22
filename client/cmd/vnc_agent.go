@@ -65,6 +65,17 @@ var vncAgentCmd = &cobra.Command{
 			return fmt.Errorf("drop privileges to uid %d: %w", vncAgentTargetUID, err)
 		}
 
+		// Before the socket exists, not after: the daemon treats the socket
+		// appearing as "this agent is ready to serve". Building the capturer
+		// and injector can take a while and can fail — on macOS it raises the
+		// Screen Recording prompt and waits on the user — so binding first
+		// publishes an agent that is not serving yet, and the first connection
+		// stalls or fails against it.
+		capturer, injector, err := newAgentResources()
+		if err != nil {
+			return err
+		}
+
 		if err := os.Remove(vncAgentSocket); err != nil && !os.IsNotExist(err) {
 			log.Debugf("remove stale socket %s: %v", vncAgentSocket, err)
 		}
@@ -78,11 +89,6 @@ var vncAgentCmd = &cobra.Command{
 
 		ctx := cmd.Context()
 
-		capturer, injector, err := newAgentResources()
-		if err != nil {
-			_ = ln.Close()
-			return err
-		}
 		srv := vncserver.New(vncserver.Config{
 			Capturer:      capturer,
 			Injector:      injector,

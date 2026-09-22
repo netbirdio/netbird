@@ -12,10 +12,20 @@ import (
 
 func newPlatformVNC() (vncserver.ScreenCapturer, vncserver.InputInjector, bool) {
 	capturer := vncserver.NewMacPoller()
-	// No permission request here. Screen Recording is a user-scope TCC service,
-	// so a request from this process is dropped when it runs as a LaunchDaemon:
-	// no prompt appears and NetBird never even shows up in the Screen Recording
-	// list. The per-user agent asks instead, see newAgentResources.
+
+	// Ask only when this process is the one that will capture. Screen Recording
+	// is a user-scope TCC service, so the request is dropped from a
+	// LaunchDaemon: no prompt appears and NetBird never even reaches the Screen
+	// Recording list. In that case the per-user agent asks instead, see
+	// newAgentResources.
+	//
+	// Without service mode there is no agent, so this process captures and
+	// nothing else will ever raise the prompt — the client would serve a
+	// windowless desktop with no indication why.
+	if !vncNeedsServiceMode() {
+		vncserver.RequestScreenRecording()
+	}
+
 	injector, err := vncserver.NewMacInputInjector()
 	if err != nil {
 		log.Debugf("VNC: macOS input injector: %v", err)
