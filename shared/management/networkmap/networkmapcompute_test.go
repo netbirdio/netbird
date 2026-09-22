@@ -961,15 +961,14 @@ func TestGetPeerNetworkMapComponents_SSHRequirements(t *testing.T) {
 			mutateRule: func(r *nmdata.PolicyRule) { r.Ports = []string{"443"} },
 			sshEnabled: true,
 		},
-		// A bidirectional rule grants access both ways, so the peer is
-		// authorized from the sources side too and needs the same inputs.
+		// SSH authorization follows the destination side, so a source-side peer
+		// needs no lookup inputs either way round.
 		{
-			name: "netbird-ssh on the source side of a bidirectional rule",
+			name: "netbird-ssh only counts on the destination side",
 			mutateRule: func(r *nmdata.PolicyRule) {
 				r.Protocol = string(nbtypes.PolicyRuleProtocolNetbirdSSH)
 			},
 			targetInSrc: true,
-			wantAllowed: true,
 		},
 		{
 			name: "netbird-ssh on the source side of a one-way rule",
@@ -978,6 +977,14 @@ func TestGetPeerNetworkMapComponents_SSHRequirements(t *testing.T) {
 				r.Bidirectional = false
 			},
 			targetInSrc: true,
+		},
+		// A drop rule authorizes nobody, so it needs no lookup inputs.
+		{
+			name: "netbird-ssh drop rule needs no inputs",
+			mutateRule: func(r *nmdata.PolicyRule) {
+				r.Protocol = string(nbtypes.PolicyRuleProtocolNetbirdSSH)
+				r.Action = string(nbtypes.PolicyTrafficActionDrop)
+			},
 		},
 
 		// VNC resolves authorized users exactly the way SSH does, so it needs

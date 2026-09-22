@@ -81,14 +81,18 @@ func MergeWildcardUsers(dst map[string]map[string]struct{}, users map[string]str
 
 // NormalizePolicyRuleProtocol is the real-typed sibling of the twin helper in
 // shared types: it maps the NetBird virtual protocols to the wire protocol and
-// scopes a portless netbird-vnc rule to the embedded VNC port.
+// scopes a portless marker-protocol rule to the port that protocol implies.
 func NormalizePolicyRuleProtocol(rule *PolicyRule) (*PolicyRule, PolicyRuleProtocolType) {
 	protocol := sharedtypes.WirePolicyRuleProtocol(rule.Protocol)
-	if rule.Protocol != PolicyRuleProtocolNetbirdVNC || len(rule.Ports) > 0 || len(rule.PortRanges) > 0 {
+	if len(rule.Ports) > 0 || len(rule.PortRanges) > 0 {
+		return rule, protocol
+	}
+	ports, ok := sharedtypes.MarkerScopedPorts(rule.Protocol)
+	if !ok {
 		return rule, protocol
 	}
 	scoped := *rule
-	scoped.Ports = sharedtypes.VNCScopedPorts()
+	scoped.Ports = ports
 	return &scoped, protocol
 }
 

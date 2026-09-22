@@ -71,10 +71,17 @@ func ApplyResolvedRuleToState[P any](
 ) {
 	emitRuleDirections(rule, sourcePeers, destPeers, peerInSources, peerInDestinations, generateResources)
 
-	receivingPeer := peerInDestinations || (rule.Bidirectional && peerInSources)
+	// The firewall rule above carries the rule's own action, but authorization
+	// is only ever granted by an accept: a rule written to deny SSH or VNC must
+	// not contribute authorized users, and an action this code does not
+	// recognise as an accept grants nothing either.
+	if rule.Action != string(PolicyTrafficActionAccept) {
+		return
+	}
+
 	switch {
 	case rule.Protocol == string(PolicyRuleProtocolNetbirdSSH):
-		if !receivingPeer {
+		if !peerInDestinations {
 			return
 		}
 		state.SSHEnabled = true
@@ -82,7 +89,7 @@ func ApplyResolvedRuleToState[P any](
 	case rule.Protocol == string(PolicyRuleProtocolNetbirdVNC):
 		cb.handleVNCRule(rule, peerInSources, peerInDestinations, state)
 	case nmdata.PolicyRuleImpliesLegacySSH(rule) && targetPeerSSHEnabled:
-		if !receivingPeer {
+		if !peerInDestinations {
 			return
 		}
 		state.SSHEnabled = true
@@ -211,16 +218,43 @@ func VNCScopedPorts() []string {
 	return []string{strconv.Itoa(VNCInternalPort)}
 }
 
+// SSHScopedPorts returns the ports a netbird-ssh rule is scoped to when it
+// declares none of its own. It matches the port range ParseRuleString gives the
+// bare "netbird-ssh" spelling, so the two ways of writing the same rule produce
+// the same reach.
+func SSHScopedPorts() []string {
+	return []string{strconv.Itoa(nativeSSHPortNumber)}
+}
+
+// MarkerScopedPorts returns the ports the NetBird marker protocols imply, for a
+// rule that declares none of its own. ok is false for every other protocol,
+// which carries no implied port.
+func MarkerScopedPorts(protocol PolicyRuleProtocolType) ([]string, bool) {
+	switch protocol {
+	case PolicyRuleProtocolNetbirdVNC:
+		return VNCScopedPorts(), true
+	case PolicyRuleProtocolNetbirdSSH:
+		return SSHScopedPorts(), true
+	default:
+		return nil, false
+	}
+}
+
 // NormalizePolicyRuleProtocol maps a rule's protocol with
-// WirePolicyRuleProtocol and scopes a portless netbird-vnc rule to the
-// embedded VNC port. It returns the effective rule, which is a shallow copy
-// only when the ports had to be overridden.
+// WirePolicyRuleProtocol and scopes a portless marker-protocol rule to the port
+// that protocol implies, so it doesn't degrade into an unscoped TCP allow. It
+// returns the effective rule, which is a shallow copy only when the ports had
+// to be overridden.
 func NormalizePolicyRuleProtocol(rule *nmdata.PolicyRule) (*nmdata.PolicyRule, PolicyRuleProtocolType) {
 	protocol := WirePolicyRuleProtocol(PolicyRuleProtocolType(rule.Protocol))
-	if rule.Protocol != string(PolicyRuleProtocolNetbirdVNC) || len(rule.Ports) > 0 || len(rule.PortRanges) > 0 {
+	if len(rule.Ports) > 0 || len(rule.PortRanges) > 0 {
+		return rule, protocol
+	}
+	ports, ok := MarkerScopedPorts(PolicyRuleProtocolType(rule.Protocol))
+	if !ok {
 		return rule, protocol
 	}
 	scoped := *rule
-	scoped.Ports = VNCScopedPorts()
+	scoped.Ports = ports
 	return &scoped, protocol
 }

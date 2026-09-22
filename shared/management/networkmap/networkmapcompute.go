@@ -16,18 +16,36 @@ type authRequirements struct {
 	needAllowedUserIDs bool
 }
 
-// collectFor records what rule needs to resolve its authorized users, for a
-// peer the resolver will authorize under it.
+// collectFor records what rule needs to resolve its authorized users, for the
+// peer named by peerInSources/peerInDestinations. It collects nothing for a
+// peer the resolver will not authorize under the rule, so the components do not
+// carry the account's user list to a peer that has no use for it.
+//
+// The sides mirror ApplyResolvedRuleToState: SSH authorization follows the
+// destination alone, while a bidirectional VNC rule also authorizes its source
+// side, because the Noise_IK handshake needs the session key on both ends. A
+// rule that is not an accept authorizes nobody on either side.
 //
 // Both marker protocols resolve users the same way, so a VNC rule needs exactly
 // what an SSH rule needs: the group-to-user mapping when the rule names groups,
 // the account's allowed-user set when it names nobody, and nothing at all when
 // it carries its own user.
-func (a *authRequirements) collectFor(rule *nmdata.PolicyRule, peerSSHEnabled bool) {
-	isMarkerRule := rule.Protocol == string(types.PolicyRuleProtocolNetbirdSSH) ||
-		rule.Protocol == string(types.PolicyRuleProtocolNetbirdVNC)
-	if !isMarkerRule {
-		if nmdata.PolicyRuleImpliesLegacySSH(rule) && peerSSHEnabled {
+func (a *authRequirements) collectFor(rule *nmdata.PolicyRule, peerSSHEnabled, peerInSources, peerInDestinations bool) {
+	if rule.Action != string(types.PolicyTrafficActionAccept) {
+		return
+	}
+
+	switch rule.Protocol {
+	case string(types.PolicyRuleProtocolNetbirdVNC):
+		if !peerInDestinations && !(rule.Bidirectional && peerInSources) {
+			return
+		}
+	case string(types.PolicyRuleProtocolNetbirdSSH):
+		if !peerInDestinations {
+			return
+		}
+	default:
+		if peerInDestinations && nmdata.PolicyRuleImpliesLegacySSH(rule) && peerSSHEnabled {
 			a.needAllowedUserIDs = true
 		}
 		return
@@ -393,14 +411,7 @@ func (nmd *NetworkMapData) getPeersGroupsPoliciesRoutes(
 
 			}
 
-			// Collected for whichever side the resolver will actually authorize:
-			// a bidirectional rule grants access in both directions, so a peer
-			// that appears only in Sources is authorized too. Gating this on
-			// peerInDestinations alone leaves that peer's rule reaching the
-			// resolver with none of the inputs it needs to name a user.
-			if peerInDestinations || (rule.Bidirectional && peerInSources) {
-				authReqs.collectFor(rule, peerSSHEnabled)
-			}
+			authReqs.collectFor(rule, peerSSHEnabled, peerInSources, peerInDestinations)
 		}
 		if policyRelevant {
 			relevantPolicies = append(relevantPolicies, policy)
