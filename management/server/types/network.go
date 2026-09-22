@@ -29,7 +29,7 @@ const (
 
 type Network struct {
 	Identifier string    `json:"id"`
-	Net        net.IPNet `gorm:"serializer:json;dafult:'{}'"`
+	Net        net.IPNet `gorm:"serializer:json;default:'{}'"`
 	// NetV6 is the IPv6 ULA subnet for this account's overlay. Empty if not yet allocated.
 	NetV6 net.IPNet `gorm:"serializer:json;default:'{}'"`
 	Dns   string

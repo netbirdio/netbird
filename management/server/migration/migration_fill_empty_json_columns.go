@@ -88,6 +88,13 @@ func FillEmptySettingsJsonColumns(ctx context.Context, db *gorm.DB) error {
 	})
 }
 
+func FillEmptyPolicyJsonColumns(ctx context.Context, db *gorm.DB) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		res := tx.Exec(`update policies set source_posture_checks='[]' where id in (select id from policies where source_posture_checks='' or source_posture_checks=null order by id asc)`)
+		return res.Error
+	})
+}
+
 func FillEmptyPolicyRuleJsonColumns(ctx context.Context, db *gorm.DB) error {
 	return db.Transaction(func(tx *gorm.DB) error {
 		res := tx.Exec(`update policy_rules set destinations='[]' where id in (select id from policy_rules where destinations='' or destinations=null order by id asc)`)

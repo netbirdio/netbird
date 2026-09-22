@@ -28,7 +28,7 @@ func TestFillEmptyJsonFields(t *testing.T) {
 		querySQL      string
 	}{
 		{
-			description: "empty policy rule json fields",
+			description: "empty peer json fields",
 			createSQL: `insert into peers (id,account_id,ip,ipv6,meta_network_addresses,meta_environment,meta_flags,meta_files,meta_capabilities,location_connection_ip,extra_dns_labels)
 		 values('id-1','account-id-1','','','','','','','','','')`,
 			querySQL: `select id from peers where ip='' or ip=null or ipv6='' or ipv6=null or meta_network_addresses='' or meta_network_addresses=null 
@@ -46,6 +46,13 @@ func TestFillEmptyJsonFields(t *testing.T) {
 		 or source_resource='' or source_resource=null or ports='' or ports=null or port_ranges='' or port_ranges=null or authorized_groups='' or authorized_groups=null`,
 			setupFuncs:    []func(t *testing.T, db *gorm.DB){setupTestDB[types.Policy], setupTestDB[types.PolicyRule]},
 			migrationFunc: migration.FillEmptyPolicyRuleJsonColumns,
+		},
+		{
+			description:   "empty policy json fields",
+			createSQL:     `insert into policies (id,source_posture_checks) values('policy-id-1','')`,
+			querySQL:      `select id from policies where source_posture_checks='' or source_posture_checks=null`,
+			setupFuncs:    []func(t *testing.T, db *gorm.DB){setupTestDB[types.Policy]},
+			migrationFunc: migration.FillEmptyPolicyJsonColumns,
 		},
 		{
 			description:   "empty service json fields",
