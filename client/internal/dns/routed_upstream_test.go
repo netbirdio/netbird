@@ -144,6 +144,34 @@ func TestRoutedUpstreamGateAllow(t *testing.T) {
 	}
 }
 
+func TestHAMapLongestMatch(t *testing.T) {
+	ip := netip.MustParseAddr("10.1.17.53")
+
+	tests := []struct {
+		name     string
+		hm       route.HAMap
+		expected string
+	}{
+		{name: "nothing covers it", hm: haMapWith("192.168.0.0/24"), expected: ""},
+		{name: "only a default route", hm: haMapWith("0.0.0.0/0"), expected: "0.0.0.0/0"},
+		{name: "specific beats default", hm: haMapWith("0.0.0.0/0", "10.1.17.0/24"), expected: "10.1.17.0/24"},
+		{name: "most specific of several", hm: haMapWith("10.0.0.0/8", "10.1.0.0/16", "10.1.17.0/24"), expected: "10.1.17.0/24"},
+		{name: "empty map", hm: route.HAMap{}, expected: ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			best, ok := haMapLongestMatch(tc.hm, ip)
+			if tc.expected == "" {
+				assert.False(t, ok, "expected no match, got %s", best)
+				return
+			}
+			require.True(t, ok, "expected %s to match", tc.expected)
+			assert.Equal(t, tc.expected, best.String())
+		})
+	}
+}
+
 // A dynamic route makes the routed-ness of an upstream unprovable. Honouring
 // that unknown would withhold every nameserver of any account that has one, so
 // it must not gate.
