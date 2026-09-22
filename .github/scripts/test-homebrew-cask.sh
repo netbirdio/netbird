@@ -116,13 +116,20 @@ build_fixture() {
     local bundle="$fixture_dir/netbird_ui_darwin"
     printf '#!/bin/sh\nexit 0\n' > "$bundle/netbird-ui"
     chmod 755 "$bundle/netbird-ui"
+    # After a bootout launchd keeps tearing the previous daemon down for a couple of
+    # seconds, and loading the same label again fails until that finishes.
     cat > "$bundle/installer.sh" <<EOF
 #!/bin/sh
 set -eu
 export PATH=\$PATH:/usr/local/bin:/opt/homebrew/bin
 printf 'version=%s\\nuid=%s\\n' "\$1" "\$(id -u)" > '$marker'
 netbird service install
-netbird service start
+attempt=0
+until netbird service start; do
+    attempt=\$((attempt + 1))
+    [ "\$attempt" -lt 15 ] || exit 1
+    sleep 1
+done
 EOF
     printf '#!/bin/sh\nexit 0\n' > "$bundle/uninstaller.sh"
     # Shipped without the executable bit so the 0755 seen after install can only come from the cask.
