@@ -205,7 +205,12 @@ func (e *componentEncoder) encodeGroups() []*proto.GroupCompact {
 	}
 
 	out := make([]*proto.GroupCompact, 0, len(e.components.Groups))
-	for _, g := range e.components.Groups {
+	for groupID, g := range e.components.Groups {
+		wireID, ok := e.groupPublicXid(groupID)
+		if !ok {
+			continue
+		}
+
 		peerIdxs := make([]uint32, 0, len(g.Peers))
 		for _, peerID := range g.Peers {
 			if idx, ok := e.peerOrder[peerID]; ok {
@@ -224,7 +229,7 @@ func (e *componentEncoder) encodeGroups() []*proto.GroupCompact {
 		}
 
 		out = append(out, &proto.GroupCompact{
-			Id:          g.PublicID,
+			Id:          wireID,
 			PeerIndexes: peerIdxs,
 			IsAll:       g.IsGroupAll(),
 			Resources:   groupCompactResources(),
@@ -369,10 +374,16 @@ func (e *componentEncoder) authorizedGroupKey(groupID string) (string, bool) {
 
 func (e *componentEncoder) groupPublicXid(groupID string) (string, bool) {
 	g, ok := e.components.Groups[groupID]
-	if !ok {
+	if !ok || g == nil {
 		return "", false
 	}
-	return g.PublicID, true
+	if g.PublicID != "" {
+		return g.PublicID, true
+	}
+	// Upgraded accounts may temporarily contain groups without a public ID.
+	// Falling back to the stable internal ID keeps wire references unique and
+	// prevents multiple groups from collapsing into the same empty key.
+	return groupID, groupID != ""
 }
 
 // resourceToProto translates types.Resource for the wire. For peer-typed
