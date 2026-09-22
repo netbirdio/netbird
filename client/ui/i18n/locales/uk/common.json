@@ -572,6 +572,21 @@
     "settings.general.language.empty": {
         "message": "Не знайдено жодної мови."
     },
+    "settings.general.theme.label": {
+        "message": "Тема"
+    },
+    "settings.general.theme.help": {
+        "message": "Виберіть світлу чи темну тему або використовуйте системні налаштування."
+    },
+    "settings.general.theme.system": {
+        "message": "Системна"
+    },
+    "settings.general.theme.light": {
+        "message": "Світла"
+    },
+    "settings.general.theme.dark": {
+        "message": "Темна"
+    },
     "settings.general.management.label": {
         "message": "Сервер керування"
     },
@@ -1441,5 +1456,8 @@
     },
     "settings.privilege.oneWayInverted": {
         "message": "Ви можете увімкнути це, але щоб вимкнути знову, знадобиться {actor}:"
+    },
+    "settings.ssh.privilege.authorizePending": {
+        "message": "Очікування авторизації…"
     }
 }

@@ -22,6 +22,7 @@ type Fields struct {
 	DisableMetricsCollection bool   `json:"disableMetricsCollection"`
 	SplitTunnelMode          bool   `json:"splitTunnelMode"`
 	SplitTunnelApps          bool   `json:"splitTunnelApps"`
+	RemoteJobsAllowed        bool   `json:"allowRemoteJobs"`
 	DisableAdvancedView      *bool  `json:"disableAdvancedView"`
 }
 
@@ -62,6 +63,7 @@ func BuildRestrictions(policy *Policy) Restrictions {
 	r.MDM.DisableMetricsCollection = policy.HasKey(KeyDisableMetricsCollection)
 	r.MDM.SplitTunnelMode = policy.HasKey(KeySplitTunnelMode)
 	r.MDM.SplitTunnelApps = policy.HasKey(KeySplitTunnelApps)
+	r.MDM.RemoteJobsAllowed = policy.HasKey(KeyRemoteJobsAllowed)
 	if v, ok := policy.GetBool(KeyAllowServerSSH); ok {
 		r.MDM.AllowServerSSH = &v
 	}

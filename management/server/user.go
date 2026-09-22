@@ -1177,28 +1177,35 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 	dnsDomain := am.networkMapController.GetDNSDomain(settings)
 
 	var peerIDs []string
-	for _, peer := range peers {
+	defer func() {
+		if len(peerIDs) == 0 {
+			return
+		}
+		// this will trigger peer disconnect from the management service
+		log.Debugf("Expiring %d peers for account %s", len(peerIDs), accountID)
+		am.networkMapController.DisconnectPeers(ctx, accountID, peerIDs)
+	}()
+	for _, candidate := range peers {
 		// nolint:staticcheck
-		ctx = context.WithValue(ctx, nbcontext.PeerIDKey, peer.Key)
+		peerCtx := context.WithValue(ctx, nbcontext.PeerIDKey, candidate.Key)
 
-		if peer.UserID == "" {
+		if candidate.UserID == "" {
 			// we do not want to expire peers that are added via setup key
 			continue
 		}
 
-		if peer.Status.LoginExpired {
+		peer, err := am.expirePeerIfStillDue(peerCtx, accountID, candidate.ID, settings, reason)
+		if err != nil {
+			return err
+		}
+		if peer == nil {
 			continue
 		}
 		peerIDs = append(peerIDs, peer.ID)
-		peer.MarkLoginExpired(true)
-
-		if err := am.Store.SavePeerStatus(ctx, accountID, peer.ID, *peer.Status); err != nil {
-			return err
-		}
 		meta := peer.EventMeta(dnsDomain)
 		meta["reason"] = string(reason)
 		am.StoreEvent(
-			ctx,
+			peerCtx,
 			peer.UserID, peer.ID, accountID,
 			activity.PeerLoginExpired, meta,
 		)
@@ -1215,13 +1222,51 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 	if err != nil {
 		return fmt.Errorf("notify network map controller of peer update: %w", err)
 	}
-
-	if len(peerIDs) != 0 {
-		// this will trigger peer disconnect from the management service
-		log.Debugf("Expiring %d peers for account %s", len(peerIDs), accountID)
-		am.networkMapController.DisconnectPeers(ctx, accountID, peerIDs)
-	}
 	return nil
+}
+
+// expirePeerIfStillDue flags the peer as login-expired and returns its fresh copy, or nil
+// when it no longer qualifies. The candidate list is read without a lock, so a login that
+// landed in between would otherwise be overwritten with a stale expired status.
+func (am *DefaultAccountManager) expirePeerIfStillDue(ctx context.Context, accountID, peerID string, settings *types.Settings, reason peerExpirationReason) (*nbpeer.Peer, error) {
+	var expired *nbpeer.Peer
+	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		peer, err := transaction.GetPeerByID(ctx, store.LockingStrengthUpdate, accountID, peerID)
+		if err != nil {
+			if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
+				return nil
+			}
+			return err
+		}
+		if peer.Status.LoginExpired || !peerExpirationDue(peer, settings, reason) {
+			return nil
+		}
+		peer.MarkLoginExpired(true)
+		if err := transaction.SavePeerStatus(ctx, accountID, peer.ID, *peer.Status); err != nil {
+			return err
+		}
+		expired = peer
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return expired, nil
+}
+
+// peerExpirationDue re-evaluates a time-based expiry against the peer's current state.
+// Administrative reasons expire the peer unconditionally.
+func peerExpirationDue(peer *nbpeer.Peer, settings *types.Settings, reason peerExpirationReason) bool {
+	switch reason {
+	case peerExpirationSessionExpired:
+		expired, _ := peer.LoginExpired(settings.PeerLoginExpiration)
+		return settings.PeerLoginExpirationEnabled && expired
+	case peerExpirationInactivity:
+		expired, _ := peer.SessionExpired(settings.PeerInactivityExpiration)
+		return settings.PeerInactivityExpirationEnabled && expired
+	default:
+		return true
+	}
 }
 
 func (am *DefaultAccountManager) deleteUserFromIDP(ctx context.Context, targetUserID, accountID string) error {
@@ -1403,6 +1448,25 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 	return updateAccountPeers, nil
 }
 
+// pendingApprovalError refuses a user awaiting approval, naming the owner who
+// can approve them when their address resolves. Failing to resolve one is not a
+// reason to withhold the refusal, so the lookup is best effort.
+func (am *DefaultAccountManager) pendingApprovalError(ctx context.Context, accountID string) error {
+	owner, err := am.GetOwnerInfo(ctx, accountID)
+	if err != nil {
+		log.WithContext(ctx).Debugf("pending approval refusal: owner of account %s did not resolve: %v", accountID, err)
+		return status.NewUserPendingApprovalError()
+	}
+
+	masked := types.MaskEmail(owner.Email)
+	if masked == "" {
+		log.WithContext(ctx).Debugf("pending approval refusal: no address found for the owner of account %s", accountID)
+		return status.NewUserPendingApprovalError()
+	}
+
+	return status.NewUserPendingApprovalByOwnerError(masked)
+}
+
 // GetOwnerInfo retrieves the owner information for a given account ID.
 func (am *DefaultAccountManager) GetOwnerInfo(ctx context.Context, accountID string) (*types.UserInfo, error) {
 	owner, err := am.Store.GetAccountOwner(ctx, store.LockingStrengthNone, accountID)
@@ -1458,6 +1522,14 @@ func (am *DefaultAccountManager) GetCurrentUserInfo(ctx context.Context, userAut
 	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
 	if err != nil {
 		return nil, err
+	}
+
+	// A user pending approval is blocked too, and the dashboard needs to tell
+	// the two apart: one is a dead end, the other resolves by itself once the
+	// owner acts. Naming that owner needs the address the IdP holds, which is
+	// why this is answered here rather than in the permission gate.
+	if user.IsBlocked() && user.PendingApproval {
+		return nil, am.pendingApprovalError(ctx, user.AccountID)
 	}
 
 	if user.IsBlocked() {

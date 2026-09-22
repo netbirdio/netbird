@@ -6,6 +6,16 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
+type Encrypter interface {
+	EncryptMessage(remotePubKey wgtypes.Key, ourPrivateKey wgtypes.Key, message pb.Message) ([]byte, error)
+}
+
+type DefaultEncrypter struct{}
+
+func (e DefaultEncrypter) EncryptMessage(remotePubKey wgtypes.Key, ourPrivateKey wgtypes.Key, message pb.Message) ([]byte, error) {
+	return EncryptMessage(remotePubKey, ourPrivateKey, message)
+}
+
 // EncryptMessage encrypts a body of the given protobuf Message
 func EncryptMessage(remotePubKey wgtypes.Key, ourPrivateKey wgtypes.Key, message pb.Message) ([]byte, error) {
 	byteResp, err := pb.Marshal(message)

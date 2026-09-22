@@ -808,8 +808,8 @@ server:
 
   # Trust X-Forwarded-* only from the Traefik container's static address. Both
   # keys must stay in step with the ipv4_address pinned in docker-compose.yml:
-  # trustedPeers decides whether forwarded headers are read at all, and leaving
-  # it unset falls back to 0.0.0.0/0.
+  # trustedPeers restricts which sources may supply forwarded headers. Leaving
+  # it unset trusts all IPv4 and IPv6 sources.
   reverseProxy:
     trustedPeers:
       - "${TRAEFIK_IP}/32"

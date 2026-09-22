@@ -20,6 +20,7 @@ import { useFocusVisible } from "@/hooks/useFocusVisible";
 import { Check as CheckIcon, ChevronDownIcon, Copy as CopyIcon } from "lucide-react";
 import * as Popover from "@radix-ui/react-popover";
 import netbirdFullLogo from "@/assets/logos/netbird-full.svg";
+import netbirdFullLogoLight from "@/assets/logos/netbird-full-light.svg";
 import { ActiveSessionIndicator } from "@/modules/main/ActiveSessionIndicator.tsx";
 
 enum ConnectionState {
@@ -226,9 +227,15 @@ export const MainConnectionStatusSwitch = () => {
             style={{ top: contentTop("11.7rem") }}
         >
             <img
+                src={netbirdFullLogoLight}
+                alt={"NetBird"}
+                className={"wails-no-draggable mb-4 h-7 w-auto select-none dark:hidden"}
+                draggable={false}
+            />
+            <img
                 src={netbirdFullLogo}
                 alt={"NetBird"}
-                className={"wails-no-draggable mb-4 h-7 w-auto select-none"}
+                className={"wails-no-draggable mb-4 hidden h-7 w-auto select-none dark:block"}
                 draggable={false}
             />
 
@@ -325,7 +332,7 @@ const LocalIpLine = ({ ip, ipv6, show }: { ip: string; ipv6: string; show: boole
                         className={cn(
                             "group relative inline-flex cursor-default items-center rounded-sm outline-none",
                             isFocusVisible &&
-                                "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
+                                "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                             "transition-colors",
                         )}
                     >
@@ -399,7 +406,7 @@ const IpRow = ({ value }: { value: string }) => {
                 "text-nb-gray-200 hover:bg-nb-gray-900 hover:text-nb-gray-50",
                 "cursor-default outline-none transition-colors",
                 isFocusVisible &&
-                    "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/60",
+                    "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-nb-gray-50/60",
             )}
         >
             <span className={"min-w-0 truncate font-mono text-[0.75rem]"}>{value}</span>
