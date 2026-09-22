@@ -13,6 +13,7 @@ package main
 import "C"
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -64,8 +65,10 @@ type xembedHost struct {
 	iconW    int
 	iconH    int
 
-	stopCh   chan struct{}
-	stopOnce sync.Once
+	// Cancelled to ask run to exit. It also aborts the icon fetch, which
+	// would otherwise pin the loop on a peer that never answers.
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 // newXembedHost creates an XEmbed tray icon for the given SNI item. Errors when
@@ -75,7 +78,7 @@ func newXembedHost(conn *dbus.Conn, busName string, objPath dbus.ObjectPath) (*x
 	// Resolve the icon before docking: a window docked with nothing to paint
 	// renders as a solid black square in the panel, which is worse for the user
 	// than the item having no tray icon at all.
-	icon, err := fetchIconPixmap(conn, busName, objPath)
+	icon, err := fetchIconPixmap(context.Background(), conn, busName, objPath)
 	if err != nil {
 		return nil, err
 	}
@@ -121,12 +124,17 @@ func newXembedHost(conn *dbus.Conn, busName string, objPath dbus.ObjectPath) (*x
 		iconData: icon.Pix,
 		iconW:    int(icon.W),
 		iconH:    int(icon.H),
-		stopCh:   make(chan struct{}),
 	}
+	h.ctx, h.cancel = context.WithCancel(context.Background())
 
 	h.drawIcon()
 	return h, nil
 }
+
+// iconFetchTimeout bounds the property read. The item is another process, and
+// an unresponsive one would otherwise hold the run loop for as long as the bus
+// allows, leaving a stale icon docked after a replacement has arrived.
+const iconFetchTimeout = 5 * time.Second
 
 // maxIconPixmapDim bounds the dimensions an item may claim. Tray icons are
 // tiny, and any bound keeps the pixel-buffer size check below free of integer
@@ -145,8 +153,14 @@ type iconPixmap struct {
 // fetchIconPixmap reads the item's first icon frame. Items that publish only
 // IconName carry an empty IconPixmap and are reported as an error, since this
 // host has no icon-theme lookup to fall back on.
-func fetchIconPixmap(conn *dbus.Conn, busName string, objPath dbus.ObjectPath) (iconPixmap, error) {
-	variant, err := conn.Object(busName, objPath).GetProperty("org.kde.StatusNotifierItem.IconPixmap")
+func fetchIconPixmap(ctx context.Context, conn *dbus.Conn, busName string, objPath dbus.ObjectPath) (iconPixmap, error) {
+	ctx, cancel := context.WithTimeout(ctx, iconFetchTimeout)
+	defer cancel()
+
+	// The context-aware form of GetProperty, which godbus does not provide.
+	var variant dbus.Variant
+	err := conn.Object(busName, objPath).CallWithContext(ctx, "org.freedesktop.DBus.Properties.Get", 0,
+		"org.kde.StatusNotifierItem", "IconPixmap").Store(&variant)
 	if err != nil {
 		return iconPixmap{}, fmt.Errorf("get IconPixmap of %s %s: %w", busName, objPath, err)
 	}
@@ -180,7 +194,7 @@ func (i iconPixmap) validate() error {
 }
 
 func (h *xembedHost) fetchAndDrawIcon() {
-	icon, err := fetchIconPixmap(h.conn, h.busName, h.objPath)
+	icon, err := fetchIconPixmap(h.ctx, h.conn, h.busName, h.objPath)
 	if err != nil {
 		log.Debugf("xembed: %v", err)
 		return
@@ -231,7 +245,7 @@ func (h *xembedHost) run() {
 
 	for {
 		select {
-		case <-h.stopCh:
+		case <-h.ctx.Done():
 			return
 
 		case sig := <-sigCh:
@@ -372,10 +386,11 @@ func (h *xembedHost) sendMenuEvent(id int32) {
 	}
 }
 
-// signalStop asks the run loop to exit. Safe from any goroutine and any number
-// of times; it touches no X state, because the display belongs to run.
+// signalStop asks the run loop to exit, aborting a pending icon fetch so it
+// does not linger. Safe from any goroutine and any number of times; it touches
+// no X state, because the display belongs to run.
 func (h *xembedHost) signalStop() {
-	h.stopOnce.Do(func() { close(h.stopCh) })
+	h.cancel()
 }
 
 // destroy releases the X resources, and may only be called by the goroutine
