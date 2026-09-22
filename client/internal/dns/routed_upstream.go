@@ -83,13 +83,19 @@ func (g routedUpstreamGating) String() string {
 // installed. A group all of whose nameservers sit behind a routing peer with
 // no installed route is withheld.
 //
-// Only a concrete prefix match counts as "routed". A dynamic (domain) route
-// carries a placeholder Network that cannot be prefix-checked, and
-// haMapContains reports that as an unknown for the whole map rather than for
-// this address, so honouring it would withhold every nameserver of any account
-// that has a single domain route. groupHasImmediateUpstream makes the opposite
-// choice on the same unknown because there the cost of being wrong is a
-// delayed warning, not a resolver that never gets configured.
+// "Reached through a routing peer" is decided by longest prefix match, because
+// a default route covers every address. A nameserver sitting behind an exit
+// node is served by that default route and must stay configured while it is up;
+// a nameserver that had its own specific route must be withheld when that route
+// goes, even though the default route still nominally covers it — traffic would
+// leave through the exit node, which has no path to it.
+//
+// Only a concrete prefix counts. A dynamic (domain) route carries a placeholder
+// Network that can be neither matched nor ranked, so honouring it would withhold
+// every nameserver of any account that has a single domain route.
+// groupHasImmediateUpstream makes the opposite choice on the same unknown
+// because there the cost of being wrong is a delayed warning, not a resolver
+// that never gets configured.
 func (g *routedUpstreamGate) allow(nsGroup *nbdns.NameServerGroup, snap routeSnapshot) bool {
 	if g == nil || g.mode == gatingOff {
 		return true
@@ -108,13 +114,19 @@ func (g *routedUpstreamGate) allow(nsGroup *nbdns.NameServerGroup, snap routeSna
 	for _, ns := range nsGroup.NameServers {
 		ip := ns.IP.Unmap()
 
-		routed, _ := haMapContains(snap.selected, ip)
+		// The prefix that would carry traffic to this address is the most
+		// specific one covering it, not just any one that happens to.
+		want, routed := haMapLongestMatch(snap.selected, ip)
 		if !routed {
 			g.remember(key)
 			return true
 		}
 
-		if installed, _ := haMapContains(snap.installed, ip); installed {
+		// Installed is a subset of selected, so an equally specific match is
+		// the same prefix: the route that should carry this address is up.
+		// A shorter one means it is gone and something broader has taken over,
+		// which is not a path to this nameserver.
+		if have, ok := haMapLongestMatch(snap.installed, ip); ok && have.Bits() == want.Bits() {
 			g.remember(key)
 			return true
 		}

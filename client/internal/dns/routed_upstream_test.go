@@ -172,6 +172,65 @@ func TestHAMapLongestMatch(t *testing.T) {
 	}
 }
 
+// A default route covers every address, so "is it in the map" cannot tell a
+// nameserver served by an exit node from one whose own route has gone and is
+// now being swallowed by that exit node.
+func TestRoutedUpstreamGateUsesLongestPrefix(t *testing.T) {
+	const ns = "10.1.17.53"
+
+	tests := []struct {
+		name      string
+		selected  route.HAMap
+		installed route.HAMap
+		expected  bool
+		why       string
+	}{
+		{
+			name:      "served by the exit node, exit node up",
+			selected:  haMapWith("0.0.0.0/0"),
+			installed: haMapWith("0.0.0.0/0"),
+			expected:  true,
+			why:       "the default route is the one that carries it, and it is up",
+		},
+		{
+			name:      "served by the exit node, exit node down",
+			selected:  haMapWith("0.0.0.0/0"),
+			installed: route.HAMap{},
+			expected:  false,
+			why:       "the only route to it is gone",
+		},
+		{
+			name:      "own route gone, exit node still up",
+			selected:  haMapWith("0.0.0.0/0", "10.1.17.0/24"),
+			installed: haMapWith("0.0.0.0/0"),
+			expected:  false,
+			why:       "traffic would leave through the exit node, which has no path to it",
+		},
+		{
+			name:      "own route up alongside the exit node",
+			selected:  haMapWith("0.0.0.0/0", "10.1.17.0/24"),
+			installed: haMapWith("0.0.0.0/0", "10.1.17.0/24"),
+			expected:  true,
+			why:       "the specific route that carries it is up",
+		},
+		{
+			name:      "not routed at all",
+			selected:  haMapWith("192.168.0.0/24"),
+			installed: route.HAMap{},
+			expected:  true,
+			why:       "nothing in the overlay carries it, so it is a public resolver",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			gate := newRoutedUpstreamGate(gatingAlways)
+			snap := routeSnapshot{selected: tc.selected, installed: tc.installed}
+			assert.Equal(t, tc.expected, gate.allow(nsGroupWith(ns), snap), tc.why)
+		})
+	}
+}
+
 // A dynamic route makes the routed-ness of an upstream unprovable. Honouring
 // that unknown would withhold every nameserver of any account that has one, so
 // it must not gate.
