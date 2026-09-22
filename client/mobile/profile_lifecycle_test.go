@@ -63,7 +63,7 @@ func TestProfileSurvivesLogoutAndReload(t *testing.T) {
 	// fails nor mints a key that nothing would write down.
 	after := loadAsTheMobileSDKsDo(t, configPath)
 	assert.Empty(t, after.PrivateKey, "loading a logged-out profile minted a key nothing will persist")
-	assert.Empty(t, after.SSHKey)
+	assert.Empty(t, after.SSHKey, "loading a logged-out profile minted an SSH key")
 	assert.Equal(t, managementURL, after.ManagementURL.String(), "the rest of the profile did not survive the logout")
 
 	// Switched away from and back: still the same profile, still loadable.
@@ -73,9 +73,10 @@ func TestProfileSurvivesLogoutAndReload(t *testing.T) {
 
 	active, err := pm.GetActiveProfile()
 	require.NoError(t, err)
-	assert.Equal(t, created.ID, active.ID)
+	assert.Equal(t, created.ID, active.ID, "the profile switched to is not the active one")
 
-	assert.Equal(t, managementURL, loadAsTheMobileSDKsDo(t, configPath).ManagementURL.String())
+	assert.Equal(t, managementURL, loadAsTheMobileSDKsDo(t, configPath).ManagementURL.String(),
+		"the profile did not survive the round of switches")
 }
 
 // The profile the SDKs fall back to gets the same treatment, since it is the
@@ -91,6 +92,6 @@ func TestDefaultProfileSurvivesLogoutAndReload(t *testing.T) {
 	require.NoError(t, pm.LogoutProfile(profilemanager.DefaultProfileName))
 
 	reloaded := loadAsTheMobileSDKsDo(t, configPath)
-	assert.Empty(t, reloaded.PrivateKey)
+	assert.Empty(t, reloaded.PrivateKey, "loading the logged-out default profile minted a key")
 	assert.NotNil(t, reloaded.ManagementURL, "the profile lost its management URL")
 }
