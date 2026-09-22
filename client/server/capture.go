@@ -186,11 +186,15 @@ func streamToGRPC(r io.Reader, stream proto.DaemonService_StartCaptureServer) er
 // never called (e.g. CLI crash).
 func (s *Server) StartBundleCapture(_ context.Context, req *proto.StartBundleCaptureRequest) (*proto.StartBundleCaptureResponse, error) {
 	s.mutex.Lock()
+	// Registered before the unlock so it runs after it: the eviction teardown
+	// waits on the evicted session's writer and must not hold s.mutex.
+	stopEvicted := func() {}
+	defer func() { stopEvicted() }()
 	defer s.mutex.Unlock()
 
 	s.stopBundleCaptureLocked()
 	s.cleanupBundleCapture()
-	s.evictActiveCaptureLocked()
+	stopEvicted = s.evictActiveCaptureLocked()
 
 	engine, err := s.getCaptureEngineLocked()
 	if err != nil {
@@ -307,28 +311,36 @@ func (s *Server) cleanupBundleCapture() {
 // and a bundle capture is just informational state.
 func (s *Server) claimCapture(sess *capture.Session, cancel func()) (*internal.Engine, error) {
 	s.mutex.Lock()
-	defer s.mutex.Unlock()
-
-	s.evictActiveCaptureLocked()
+	stopEvicted := s.evictActiveCaptureLocked()
 	engine, err := s.getCaptureEngineLocked()
+	if err == nil {
+		s.activeCapture = sess
+		s.activeCaptureCancel = cancel
+	}
+	s.mutex.Unlock()
+
+	stopEvicted()
+
 	if err != nil {
 		return nil, err
 	}
-	s.activeCapture = sess
-	s.activeCaptureCancel = cancel
 	return engine, nil
 }
 
-// evictActiveCaptureLocked tears down whatever capture currently owns
-// the engine slot so a fresh claim can succeed. Caller must hold mutex.
-func (s *Server) evictActiveCaptureLocked() {
+// evictActiveCaptureLocked releases the engine's capture slot from whatever
+// capture currently owns it so a fresh claim can succeed, and returns the rest
+// of that teardown as a function. The returned function is never nil, is safe
+// to call more than once, and blocks until the evicted session's writer
+// goroutine has exited, so the caller must run it only after releasing
+// s.mutex. Caller must hold mutex.
+func (s *Server) evictActiveCaptureLocked() func() {
 	if s.activeCapture == nil {
-		return
+		return func() {}
 	}
 	if s.bundleCapture != nil && s.bundleCapture.sess == s.activeCapture {
 		log.Infof("evicting running bundle capture to start a new capture")
 		s.stopBundleCaptureLocked()
-		return
+		return func() {}
 	}
 	log.Infof("evicting previous streaming capture to start a new one")
 	prev := s.activeCapture
@@ -340,9 +352,14 @@ func (s *Server) evictActiveCaptureLocked() {
 	}
 	s.activeCapture = nil
 	s.activeCaptureCancel = nil
-	prev.Stop()
-	if cancel != nil {
-		cancel()
+	return func() {
+		// Close the output pipe before waiting: Stop waits for the writer
+		// goroutine, which stays blocked in a write for as long as the reader
+		// side is open and not draining.
+		if cancel != nil {
+			cancel()
+		}
+		prev.Stop()
 	}
 }
 
