@@ -17,54 +17,6 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestFillEmptyJson_Peers(t *testing.T) {
-	db := setupPeersTestDB(t)
-
-	res, err := db.ConnPool.ExecContext(context.Background(),
-		`insert into peers (id,account_id,ip,ipv6,meta_network_addresses,meta_environment,meta_flags,meta_files,meta_capabilities,location_connection_ip,extra_dns_labels)
-		 values('id-1','account-id-1','','','','','','','','','')`)
-	require.NoError(t, err)
-	n, _ := res.RowsAffected()
-	require.Equal(t, n, int64(1))
-
-	err = migration.FillEmptyPeerJsonColumns(context.Background(), db)
-	require.NoError(t, err)
-
-	rows, err := db.ConnPool.QueryContext(context.Background(),
-		`select id from peers where ip='' or ip=null or ipv6='' or ipv6=null or meta_network_addresses='' or meta_network_addresses=null 
-		 or meta_environment='' or meta_environment=null or meta_flags='' or meta_flags=null or meta_files='' or meta_files=null 
-		 or meta_capabilities='' or meta_capabilities=null or location_connection_ip='' or location_connection_ip=null 
-		 or extra_dns_labels='' or extra_dns_labels=null`)
-	require.NoError(t, err)
-	rows.Next()
-	require.False(t, rows.Next())
-}
-
-func TestFillEmptyJson_PolicyRule(t *testing.T) {
-	db := setupPolicyRulesTestDB(t)
-
-	res, err := db.ConnPool.ExecContext(context.Background(),
-		`insert into policies (id) values('policy-id-1')`)
-	require.NoError(t, err)
-
-	res, err = db.ConnPool.ExecContext(context.Background(),
-		`insert into policy_rules (id,policy_id,destinations,destination_resource,sources,source_resource,ports,port_ranges,authorized_groups)
-		 values('id-1','policy-id-1','','','','','','','')`)
-	require.NoError(t, err)
-	n, _ := res.RowsAffected()
-	require.Equal(t, n, int64(1))
-
-	err = migration.FillEmptyPolicyRuleJsonColumns(context.Background(), db)
-	require.NoError(t, err)
-
-	rows, err := db.ConnPool.QueryContext(context.Background(),
-		`select id from policy_rules where destinations='' or destinations=null or destination_resource='' or destination_resource=null or sources='' or sources=null 
-		 or source_resource='' or source_resource=null or ports='' or ports=null or port_ranges='' or port_ranges=null or authorized_groups='' or authorized_groups=null`)
-	require.NoError(t, err)
-	rows.Next()
-	require.False(t, rows.Next())
-}
-
 func TestFillEmptyJsonFields(t *testing.T) {
 	db := setupDatabase(t)
 
@@ -75,6 +27,26 @@ func TestFillEmptyJsonFields(t *testing.T) {
 		createSQL     string
 		querySQL      string
 	}{
+		{
+			description: "empty policy rule json fields",
+			createSQL: `insert into peers (id,account_id,ip,ipv6,meta_network_addresses,meta_environment,meta_flags,meta_files,meta_capabilities,location_connection_ip,extra_dns_labels)
+		 values('id-1','account-id-1','','','','','','','','','')`,
+			querySQL: `select id from peers where ip='' or ip=null or ipv6='' or ipv6=null or meta_network_addresses='' or meta_network_addresses=null 
+		 or meta_environment='' or meta_environment=null or meta_flags='' or meta_flags=null or meta_files='' or meta_files=null 
+		 or meta_capabilities='' or meta_capabilities=null or location_connection_ip='' or location_connection_ip=null 
+		 or extra_dns_labels='' or extra_dns_labels=null`,
+			setupFuncs:    []func(t *testing.T, db *gorm.DB){setupTestDB[peer.Peer]},
+			migrationFunc: migration.FillEmptyPeerJsonColumns,
+		},
+		{
+			description: "empty policy rule json fields",
+			createSQL: `insert into policies (id) values('policy-id-1');insert into policy_rules (id,policy_id,destinations,destination_resource,sources,source_resource,ports,port_ranges,authorized_groups)
+		 values('id-1','policy-id-1','','','','','','','')`,
+			querySQL: `select id from policy_rules where destinations='' or destinations=null or destination_resource='' or destination_resource=null or sources='' or sources=null 
+		 or source_resource='' or source_resource=null or ports='' or ports=null or port_ranges='' or port_ranges=null or authorized_groups='' or authorized_groups=null`,
+			setupFuncs:    []func(t *testing.T, db *gorm.DB){setupTestDB[types.Policy], setupTestDB[types.PolicyRule]},
+			migrationFunc: migration.FillEmptyPolicyRuleJsonColumns,
+		},
 		{
 			description:   "empty service json fields",
 			createSQL:     `insert into services (id,account_id,auth,restrictions,access_groups) values('id-1','account-id-1','','','')`,
@@ -184,80 +156,6 @@ func TestFillEmptyJsonFields(t *testing.T) {
 			require.False(t, rows.Next())
 		})
 	}
-}
-
-func setupNsGroupsTestDB(t *testing.T) *gorm.DB {
-	t.Helper()
-	db := setupDatabase(t)
-	_ = db.Migrator().DropTable(&dns.NameServerGroup{})
-	err := db.AutoMigrate(&dns.NameServerGroup{})
-	require.NoError(t, err, "Failed to auto-migrate tables")
-	return db
-}
-
-func setupPeersTestDB(t *testing.T) *gorm.DB {
-	t.Helper()
-	db := setupDatabase(t)
-	_ = db.Migrator().DropTable(&peer.Peer{})
-	err := db.AutoMigrate(&peer.Peer{})
-	require.NoError(t, err, "Failed to auto-migrate tables")
-	return db
-}
-
-func setupAccountsTestDB(t *testing.T) *gorm.DB {
-	t.Helper()
-	db := setupDatabase(t)
-	_ = db.Migrator().DropTable(&types.Account{})
-	err := db.AutoMigrate(&peer.Peer{})
-	require.NoError(t, err, "Failed to auto-migrate tables")
-	return db
-}
-
-func setupPolicyRulesTestDB(t *testing.T) *gorm.DB {
-	t.Helper()
-	db := setupDatabase(t)
-	_ = db.Migrator().DropTable(&types.Policy{}, &types.PolicyRule{})
-	err := db.AutoMigrate(&types.Policy{}, &types.PolicyRule{})
-	require.NoError(t, err, "Failed to auto-migrate tables")
-	return db
-}
-
-func setupRouteTestDB(t *testing.T) *gorm.DB {
-	t.Helper()
-	db := setupDatabase(t)
-	_ = db.Migrator().DropTable(&route.Route{})
-	err := db.AutoMigrate(&route.Route{})
-	require.NoError(t, err, "Failed to auto-migrate tables")
-	return db
-}
-
-func setupServicesTestDB(t *testing.T) *gorm.DB {
-	t.Helper()
-	db := setupDatabase(t)
-	_ = db.Migrator().DropTable(&service.Service{})
-	err := db.AutoMigrate(&service.Service{})
-	_ = db.Migrator().DropTable(&service.Target{})
-	err = db.AutoMigrate(&service.Target{})
-	require.NoError(t, err, "Failed to auto-migrate tables")
-	return db
-}
-
-func setupNetworkResourceTestDB(t *testing.T) *gorm.DB {
-	t.Helper()
-	db := setupDatabase(t)
-	_ = db.Migrator().DropTable(&net_types.NetworkResource{})
-	err := db.AutoMigrate(&net_types.NetworkResource{})
-	require.NoError(t, err, "Failed to auto-migrate tables")
-	return db
-}
-
-func setupNetworkRouterTestDB(t *testing.T) *gorm.DB {
-	t.Helper()
-	db := setupDatabase(t)
-	_ = db.Migrator().DropTable(&router_types.NetworkRouter{})
-	err := db.AutoMigrate(&router_types.NetworkRouter{})
-	require.NoError(t, err, "Failed to auto-migrate tables")
-	return db
 }
 
 func setupTestDB[T any](t *testing.T, db *gorm.DB) {
