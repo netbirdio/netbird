@@ -114,6 +114,12 @@ type session struct {
 	// source so the encoder stops polling for the rest of the session.
 	// Reset on SetEncodings so a reconnect can retry.
 	cursorSourceFailed bool
+	// cursorSourceFailures counts consecutive errors from the cursor source.
+	// A single error does not latch: the Windows sampler fails across a
+	// desktop switch and recovers on the next capture, and latching there
+	// costs the client its cursor for the rest of the session. Reset by the
+	// first success.
+	cursorSourceFailures int
 	// showRemoteCursor switches the encoder to compositing the server
 	// cursor sprite into the captured framebuffer at the remote position
 	// instead of emitting the Cursor pseudo-encoding. Toggled by the
@@ -489,6 +495,7 @@ func (s *session) resetEncodingCaps() {
 	s.clientSupportsCursor = false
 	s.clientSupportsExtMouseButtons = false
 	s.cursorSourceFailed = false
+	s.cursorSourceFailures = 0
 	s.clientJPEGQuality = -1
 	s.clientZlibLevel = -1
 }

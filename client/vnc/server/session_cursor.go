@@ -8,6 +8,13 @@ import (
 	"image"
 )
 
+// cursorSourceFailureLimit is how many consecutive Cursor() errors are taken as
+// the source being genuinely unavailable rather than momentarily unreadable.
+// Transient failures are normal: the Windows sampler cannot read the cursor
+// across a desktop switch or while the secure desktop is up, and recovers by
+// the next capture.
+const cursorSourceFailureLimit = 10
+
 // pendingCursorRect returns the Cursor pseudo-rect for the current sprite
 // when the client negotiated the encoding and the platform exposes a
 // cursor source whose serial has changed since the last emission. A nil
@@ -46,11 +53,18 @@ func (s *session) pendingCursorRect(pf clientPixelFormat) []byte {
 	img, hotX, hotY, serial, err := src.Cursor()
 	if err != nil {
 		s.encMu.Lock()
-		s.cursorSourceFailed = true
+		s.cursorSourceFailures++
+		failures := s.cursorSourceFailures
+		if failures >= cursorSourceFailureLimit {
+			s.cursorSourceFailed = true
+		}
 		s.encMu.Unlock()
-		s.log.Debugf("cursor source unavailable: %v", err)
+		s.log.Debugf("cursor source unavailable (%d consecutive): %v", failures, err)
 		return nil
 	}
+	s.encMu.Lock()
+	s.cursorSourceFailures = 0
+	s.encMu.Unlock()
 	if img == nil {
 		s.logCursorSkip("no-sprite", "no cursor rect: capturer returned no sprite")
 		return nil

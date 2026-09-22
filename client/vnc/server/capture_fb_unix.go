@@ -53,22 +53,33 @@ func (p *FBPoller) ClientDisconnect() {
 	if p.clients <= 0 && p.capturer != nil {
 		p.capturer.Close()
 		p.capturer = nil
+		// Drop the geometry with the device. The next client re-reads it, and
+		// the framebuffer may be gone or resized by then.
+		p.w, p.h = 0, 0
 	}
 }
 
-// Width returns the framebuffer width, doing lazy init if needed.
+// Width returns the framebuffer width, doing lazy init if needed. Zero when
+// the device cannot be opened: the geometry cached from an earlier session is
+// no evidence the framebuffer is still there, and reporting it admits a VNC
+// session whose every frame then fails.
 func (p *FBPoller) Width() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	_ = p.ensureCapturerLocked()
+	if err := p.ensureCapturerLocked(); err != nil {
+		return 0
+	}
 	return p.w
 }
 
-// Height returns the framebuffer height, doing lazy init if needed.
+// Height returns the framebuffer height, doing lazy init if needed. Zero when
+// the device cannot be opened, for the reason given on Width.
 func (p *FBPoller) Height() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	_ = p.ensureCapturerLocked()
+	if err := p.ensureCapturerLocked(); err != nil {
+		return 0
+	}
 	return p.h
 }
 
@@ -103,6 +114,7 @@ func (p *FBPoller) Close() {
 		p.capturer.Close()
 		p.capturer = nil
 	}
+	p.w, p.h = 0, 0
 }
 
 func (p *FBPoller) ensureCapturerLocked() error {
