@@ -1348,6 +1348,12 @@
     "error.daemon_unreachable": {
         "message": "Le daemon NetBird ne répond pas. Veuillez vérifier que le service est en cours d’exécution."
     },
+    "error.settings_locked": {
+        "message": "Les paramètres ne peuvent pas être modifiés sur cet appareil : un administrateur les a verrouillés."
+    },
+    "error.settings_managed_by_mdm": {
+        "message": "Ce paramètre est géré par votre organisation et ne peut pas être modifié."
+    },
     "error.unknown": {
         "message": "L’opération a échoué."
     },

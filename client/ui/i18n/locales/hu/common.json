@@ -1348,6 +1348,12 @@
     "error.daemon_unreachable": {
         "message": "A NetBird szolgáltatás nem válaszol. Kérjük, ellenőrizze, hogy fut-e a szolgáltatás."
     },
+    "error.settings_locked": {
+        "message": "A beállítások ezen az eszközön nem módosíthatók: egy rendszergazda zárolta őket."
+    },
+    "error.settings_managed_by_mdm": {
+        "message": "Ezt a beállítást a szervezete kezeli, ezért nem módosítható."
+    },
     "error.unknown": {
         "message": "A művelet meghiúsult."
     },
