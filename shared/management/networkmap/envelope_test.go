@@ -174,7 +174,7 @@ func roundTripComponents(t *testing.T, c *types.NetworkMapComponents, localPeerK
 	var decoded proto.NetworkMapEnvelope
 	require.NoError(t, goproto.Unmarshal(wire, &decoded), "unmarshal envelope")
 
-	result, err := nbnetworkmap.EnvelopeToNetworkMap(context.Background(), &decoded, localPeerKey, "netbird.cloud")
+	result, err := nbnetworkmap.EnvelopeToNetworkMap(context.Background(), &decoded, localPeerKey, "netbird.cloud", false)
 	require.NoError(t, err, "EnvelopeToNetworkMap")
 	require.NotNil(t, result)
 	require.NotNil(t, result.NetworkMap)
