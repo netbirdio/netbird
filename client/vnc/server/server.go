@@ -618,6 +618,16 @@ func (s *Server) trackConn(c net.Conn) {
 	s.sessionsMu.Unlock()
 }
 
+// retrackConn replaces a tracked raw connection with the wrapper its handler
+// will actually hold, so shutdown, connAuth registration and the handler's own
+// untrackConn all agree on which object is registered.
+func (s *Server) retrackConn(raw, wrapped net.Conn) {
+	s.sessionsMu.Lock()
+	delete(s.acceptedConns, raw)
+	s.acceptedConns[wrapped] = struct{}{}
+	s.sessionsMu.Unlock()
+}
+
 // untrackConn forgets a connection once its handler is returning.
 func (s *Server) untrackConn(c net.Conn) {
 	s.sessionsMu.Lock()
@@ -1126,8 +1136,12 @@ func (s *Server) handleConnection(conn net.Conn) {
 	}
 	// Behind the daemon the accepted address is only the local socket; the
 	// remote peer is the one the daemon vouched for in the grant.
-	conn = withGrantPeer(conn, grant)
-	connLog = s.log.WithField("remote", conn.RemoteAddr().String())
+	if wrapped := withGrantPeer(conn, grant); wrapped != conn {
+		s.retrackConn(conn, wrapped)
+		defer s.untrackConn(wrapped)
+		conn = wrapped
+		connLog = s.log.WithField("remote", conn.RemoteAddr().String())
+	}
 	header, err := s.readConnectionHeader(conn)
 	if err != nil {
 		connLog.Infof("VNC connection rejected: header read failed: %v", err)

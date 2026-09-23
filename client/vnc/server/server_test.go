@@ -357,6 +357,16 @@ func TestAgentToken_MatchAllowsHandshake(t *testing.T) {
 	sessions := srv.ActiveSessions()
 	require.Len(t, sessions, 1, "one session must be active")
 	assert.Equal(t, peer, sessions[0].RemoteAddress, "the session must report the grant's peer")
+
+	// Shutdown and connAuth cleanup key on the tracked connection, so it must
+	// be the wrapper the handler registers everything under, not the raw one.
+	srv.sessionsMu.Lock()
+	var tracked []string
+	for c := range srv.acceptedConns {
+		tracked = append(tracked, c.RemoteAddr().String())
+	}
+	srv.sessionsMu.Unlock()
+	assert.Equal(t, []string{peer}, tracked, "the wrapped connection must be the tracked one")
 }
 
 func TestSessionMode_RejectedWhenNoVMGR(t *testing.T) {
