@@ -906,13 +906,8 @@ func (s *ServiceManager) getProfilesFromDirectory(dir profileDir) ([]Profile, er
 // IsActive is left to the caller: it depends on which profile the daemon is on
 // rather than on the file, and a caller listing many profiles already knows it.
 func parseProfile(path string, id ID, legacyUser string) (Profile, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return Profile{}, err
-	}
-
 	var meta profileMeta
-	if err := json.Unmarshal(data, &meta); err != nil {
+	if _, err := util.ReadJson(path, &meta); err != nil {
 		return Profile{}, fmt.Errorf("parse profile %s: %w", path, err)
 	}
 
