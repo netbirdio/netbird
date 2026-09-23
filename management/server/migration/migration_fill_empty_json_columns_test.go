@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/server/migration"
@@ -159,10 +160,17 @@ func TestFillEmptyJsonFields(t *testing.T) {
 			migrationFunc: migration.FillEmptyGroupJsonColumns,
 		},
 		{
-			description:   "empty zone.distrobution_groups",
+			description:   "empty zone.distribution_groups",
 			createSQL:     `insert into zones (id,distribution_groups) values('id-1','')`,
 			querySQL:      "select id from zones where distribution_groups='' or distribution_groups=null",
 			setupFuncs:    []func(t *testing.T, db *gorm.DB){setupTestDB[zones.Zone]},
+			migrationFunc: migration.FillEmptyZoneJsonColumns,
+		},
+		{
+			description:   "empty access_log_entries.metadata",
+			createSQL:     `insert into access_log_entries (id,metadata) values('id-1','')`,
+			querySQL:      "select id from access_log_entries where metadata='' or metadata=null",
+			setupFuncs:    []func(t *testing.T, db *gorm.DB){setupTestDB[accesslogs.AccessLogEntry]},
 			migrationFunc: migration.FillEmptyZoneJsonColumns,
 		},
 	}

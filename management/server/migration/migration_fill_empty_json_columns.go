@@ -255,3 +255,10 @@ func FillEmptyZoneJsonColumns(ctx context.Context, db *gorm.DB) error {
 		return res.Error
 	})
 }
+
+func FillEmptyAccessLogEntryJsonColumns(ctx context.Context, db *gorm.DB) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		res := tx.Exec(`update access_log_entries set metadata='[]' where id in (select id from access_log_entries where metadata='' or metadata=null order by id asc)`)
+		return res.Error
+	})
+}
