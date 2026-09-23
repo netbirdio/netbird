@@ -1749,6 +1749,9 @@ type AccountSettings struct {
 
 	// RoutingPeerDnsResolutionEnabled Enables or disables DNS resolution on the routing peers
 	RoutingPeerDnsResolutionEnabled *bool `json:"routing_peer_dns_resolution_enabled,omitempty"`
+
+	// SshJwtMaxTokenAge Maximum age of SSH JWT tokens since issuance (iat), in seconds. A value of 0 uses the default client enforcement window.
+	SshJwtMaxTokenAge *int `json:"ssh_jwt_max_token_age,omitempty"`
 }
 
 // AgentNetworkAccessLog One per-request agent-network (LLM) access log entry with flattened, queryable LLM dimensions.
