@@ -720,9 +720,24 @@ func (s *DefaultServer) routeSnapshot() routeSnapshot {
 		snap.selected = selFn()
 	}
 	if instFn != nil {
-		snap.installed = instFn()
+		snap.installed = haMapPrefixes(instFn())
 	}
 	return snap
+}
+
+// haMapPrefixes flattens the concrete prefixes of an HA map. Dynamic routes
+// carry a placeholder Network and are dropped.
+func haMapPrefixes(hm route.HAMap) []netip.Prefix {
+	var out []netip.Prefix
+	for _, routes := range hm {
+		for _, r := range routes {
+			if r.IsDynamic() {
+				continue
+			}
+			out = append(out, r.Network)
+		}
+	}
+	return out
 }
 
 // gateNameServerGroups returns the gating decision for every group in groups,

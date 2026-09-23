@@ -1,6 +1,7 @@
 package dns
 
 import (
+	"net/netip"
 	"os"
 	"strings"
 
@@ -28,9 +29,26 @@ type routeSnapshot struct {
 	// selected are the admin-enabled client routes, used to tell whether an
 	// upstream is reached through a routing peer at all.
 	selected route.HAMap
-	// installed are the routes whose allowed IPs are currently installed on
-	// an eligible peer, i.e. the ones a packet can actually take.
-	installed route.HAMap
+	// installed are the prefixes whose allowed IPs are currently on the
+	// interface, i.e. the ones a packet can actually take.
+	installed []netip.Prefix
+}
+
+// longestPrefixMatch returns the most specific prefix in the set covering ip,
+// the counterpart of haMapLongestMatch for a plain prefix list.
+func longestPrefixMatch(prefixes []netip.Prefix, ip netip.Addr) (netip.Prefix, bool) {
+	var best netip.Prefix
+	found := false
+	for _, p := range prefixes {
+		if !p.Contains(ip) {
+			continue
+		}
+		if !found || p.Bits() > best.Bits() {
+			best = p
+			found = true
+		}
+	}
+	return best, found
 }
 
 // routedUpstreamGate answers whether a nameserver group may be configured,
@@ -126,7 +144,7 @@ func (g *routedUpstreamGate) allow(nsGroup *nbdns.NameServerGroup, snap routeSna
 		// the same prefix: the route that should carry this address is up.
 		// A shorter one means it is gone and something broader has taken over,
 		// which is not a path to this nameserver.
-		if have, ok := haMapLongestMatch(snap.installed, ip); ok && have.Bits() == want.Bits() {
+		if have, ok := longestPrefixMatch(snap.installed, ip); ok && have.Bits() == want.Bits() {
 			g.remember(key)
 			return true
 		}

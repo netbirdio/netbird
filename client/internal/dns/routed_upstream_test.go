@@ -60,6 +60,15 @@ func nsGroupWith(ips ...string) *nbdns.NameServerGroup {
 	return group
 }
 
+// prefixes builds the installed-prefix set the gate consumes.
+func prefixes(list ...string) []netip.Prefix {
+	out := make([]netip.Prefix, 0, len(list))
+	for _, p := range list {
+		out = append(out, netip.MustParsePrefix(p))
+	}
+	return out
+}
+
 func haMapWith(prefixes ...string) route.HAMap {
 	hm := route.HAMap{}
 	for i, prefix := range prefixes {
@@ -82,7 +91,7 @@ func TestRoutedUpstreamGateAllow(t *testing.T) {
 		mode      routedUpstreamGating
 		group     *nbdns.NameServerGroup
 		selected  route.HAMap
-		installed route.HAMap
+		installed []netip.Prefix
 		expected  bool
 	}{
 		{
@@ -90,7 +99,7 @@ func TestRoutedUpstreamGateAllow(t *testing.T) {
 			mode:      gatingOff,
 			group:     nsGroupWith(routedNS),
 			selected:  haMapWith("10.10.0.0/24"),
-			installed: route.HAMap{},
+			installed: nil,
 			expected:  true,
 		},
 		{
@@ -98,7 +107,7 @@ func TestRoutedUpstreamGateAllow(t *testing.T) {
 			mode:      gatingAlways,
 			group:     nsGroupWith(routedNS),
 			selected:  haMapWith("10.10.0.0/24"),
-			installed: route.HAMap{},
+			installed: nil,
 			expected:  false,
 		},
 		{
@@ -106,7 +115,7 @@ func TestRoutedUpstreamGateAllow(t *testing.T) {
 			mode:      gatingAlways,
 			group:     nsGroupWith(routedNS),
 			selected:  haMapWith("10.10.0.0/24"),
-			installed: haMapWith("10.10.0.0/24"),
+			installed: prefixes("10.10.0.0/24"),
 			expected:  true,
 		},
 		{
@@ -114,7 +123,7 @@ func TestRoutedUpstreamGateAllow(t *testing.T) {
 			mode:      gatingAlways,
 			group:     nsGroupWith(publicNS),
 			selected:  haMapWith("10.10.0.0/24"),
-			installed: route.HAMap{},
+			installed: nil,
 			expected:  true,
 		},
 		{
@@ -122,7 +131,7 @@ func TestRoutedUpstreamGateAllow(t *testing.T) {
 			mode:      gatingAlways,
 			group:     nsGroupWith(routedNS, publicNS),
 			selected:  haMapWith("10.10.0.0/24"),
-			installed: route.HAMap{},
+			installed: nil,
 			expected:  true,
 		},
 		{
@@ -130,7 +139,7 @@ func TestRoutedUpstreamGateAllow(t *testing.T) {
 			mode:      gatingAlways,
 			group:     nsGroupWith(),
 			selected:  haMapWith("10.10.0.0/24"),
-			installed: route.HAMap{},
+			installed: nil,
 			expected:  true,
 		},
 	}
@@ -181,42 +190,42 @@ func TestRoutedUpstreamGateUsesLongestPrefix(t *testing.T) {
 	tests := []struct {
 		name      string
 		selected  route.HAMap
-		installed route.HAMap
+		installed []netip.Prefix
 		expected  bool
 		why       string
 	}{
 		{
 			name:      "served by the exit node, exit node up",
 			selected:  haMapWith("0.0.0.0/0"),
-			installed: haMapWith("0.0.0.0/0"),
+			installed: prefixes("0.0.0.0/0"),
 			expected:  true,
 			why:       "the default route is the one that carries it, and it is up",
 		},
 		{
 			name:      "served by the exit node, exit node down",
 			selected:  haMapWith("0.0.0.0/0"),
-			installed: route.HAMap{},
+			installed: nil,
 			expected:  false,
 			why:       "the only route to it is gone",
 		},
 		{
 			name:      "own route gone, exit node still up",
 			selected:  haMapWith("0.0.0.0/0", "10.1.17.0/24"),
-			installed: haMapWith("0.0.0.0/0"),
+			installed: prefixes("0.0.0.0/0"),
 			expected:  false,
 			why:       "traffic would leave through the exit node, which has no path to it",
 		},
 		{
 			name:      "own route up alongside the exit node",
 			selected:  haMapWith("0.0.0.0/0", "10.1.17.0/24"),
-			installed: haMapWith("0.0.0.0/0", "10.1.17.0/24"),
+			installed: prefixes("0.0.0.0/0", "10.1.17.0/24"),
 			expected:  true,
 			why:       "the specific route that carries it is up",
 		},
 		{
 			name:      "not routed at all",
 			selected:  haMapWith("192.168.0.0/24"),
-			installed: route.HAMap{},
+			installed: nil,
 			expected:  true,
 			why:       "nothing in the overlay carries it, so it is a public resolver",
 		},
@@ -246,7 +255,7 @@ func TestRoutedUpstreamGateIgnoresDynamicRoutes(t *testing.T) {
 	require.True(t, dynamic["dyn|example.com"][0].IsDynamic())
 
 	gate := newRoutedUpstreamGate(gatingAlways)
-	snap := routeSnapshot{selected: dynamic, installed: route.HAMap{}}
+	snap := routeSnapshot{selected: dynamic, installed: nil}
 	assert.True(t, gate.allow(nsGroupWith("10.10.0.53"), snap))
 }
 
@@ -255,8 +264,8 @@ func TestRoutedUpstreamGateIgnoresDynamicRoutes(t *testing.T) {
 func TestRoutedUpstreamGateLatch(t *testing.T) {
 	group := nsGroupWith("10.10.0.53")
 	selected := haMapWith("10.10.0.0/24")
-	withRoute := routeSnapshot{selected: selected, installed: haMapWith("10.10.0.0/24")}
-	withoutRoute := routeSnapshot{selected: selected, installed: route.HAMap{}}
+	withRoute := routeSnapshot{selected: selected, installed: prefixes("10.10.0.0/24")}
+	withoutRoute := routeSnapshot{selected: selected, installed: nil}
 
 	startup := newRoutedUpstreamGate(gatingStartup)
 	assert.False(t, startup.allow(group, withoutRoute), "withheld before the route exists")
@@ -290,28 +299,28 @@ func TestApplyConfigurationWithholdsRoutedNSGroup(t *testing.T) {
 	tests := []struct {
 		name             string
 		mode             routedUpstreamGating
-		installed        route.HAMap
+		installed        []netip.Prefix
 		expectedDomains  []string
 		expectedRouteAll bool
 	}{
 		{
 			name:             "off keeps the group even with no route",
 			mode:             gatingOff,
-			installed:        route.HAMap{},
+			installed:        nil,
 			expectedDomains:  []string{"corp.example.com."},
 			expectedRouteAll: true,
 		},
 		{
 			name:             "no route withholds domains and RouteAll",
 			mode:             gatingAlways,
-			installed:        route.HAMap{},
+			installed:        nil,
 			expectedDomains:  nil,
 			expectedRouteAll: false,
 		},
 		{
 			name:             "an installed route restores both",
 			mode:             gatingAlways,
-			installed:        haMapWith("10.10.0.0/24"),
+			installed:        prefixes("10.10.0.0/24"),
 			expectedDomains:  []string{"corp.example.com."},
 			expectedRouteAll: true,
 		},
