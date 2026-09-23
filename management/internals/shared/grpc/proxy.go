@@ -312,10 +312,6 @@ func (s *ProxyServiceServer) proxyConnectAuthorizer() ProxyConnectAuthorizer {
 
 // GenerateSessionCode creates a single-use code for the given session token.
 func (s *ProxyServiceServer) GenerateSessionCode(sessionToken string) (code string, ok bool) {
-	if s.singleUseStore == nil {
-		return "", false
-	}
-
 	code, err := s.singleUseStore.Generate(sessionToken, sessionCodeTTL)
 	if err != nil {
 		log.WithError(err).Error("failed to generate proxy session code")

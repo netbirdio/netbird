@@ -554,6 +554,26 @@ func TestAuthCallback_UserAllowedToLogin(t *testing.T) {
 			require.NotEmpty(t, location.Query().Get(tt.wantParam))
 			require.Empty(t, location.Query().Get(tt.absentParam))
 			require.Empty(t, location.Query().Get("error"))
+
+			if tt.wantParam == "session_code" {
+				code := location.Query().Get("session_code")
+				response, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
+					Domain:      location.Hostname(),
+					SessionCode: code,
+				})
+				require.NoError(t, err)
+				require.True(t, response.GetValid())
+				require.NotEmpty(t, response.GetSessionToken())
+				require.NotEqual(t, code, response.GetSessionToken())
+
+				replayed, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
+					Domain:      location.Hostname(),
+					SessionCode: code,
+				})
+				require.NoError(t, err)
+				require.False(t, replayed.GetValid())
+				require.Empty(t, replayed.GetSessionToken())
+			}
 		})
 	}
 }

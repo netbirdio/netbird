@@ -6680,7 +6680,7 @@ func (s *SqlStore) GetActiveProxyVersions(ctx context.Context, clusterAddr strin
 	var versions []string
 	err := s.db.WithContext(ctx).
 		Model(&proxy.Proxy{}).
-		Where("cluster_address = ? AND status = ? AND last_seen > ?",
+		Where("LOWER(cluster_address) = LOWER(?) AND status = ? AND last_seen > ?",
 			clusterAddr, proxy.StatusConnected, time.Now().Add(-proxyActiveThreshold)).
 		Pluck("version", &versions).Error
 	if err != nil {
