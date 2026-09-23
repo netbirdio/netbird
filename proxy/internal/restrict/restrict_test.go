@@ -285,6 +285,13 @@ func TestFilter_Check_AllowMatchAny(t *testing.T) {
 			addr:   "1.1.1.1", geo: &unavailableGeo{}, want: DenyGeoUnavailable,
 		},
 		{
+			// The CIDR short-circuit must not skip the country blocklist: with geo
+			// down the address cannot be cleared against it, so it fails closed.
+			name:   "CIDR match still needs geo for a country blocklist",
+			config: FilterConfig{AllowMatch: AllowMatchAny, AllowedCIDRs: []string{"203.0.113.0/24"}, BlockedCountries: []string{"CN"}},
+			addr:   "203.0.113.7", geo: &unavailableGeo{}, want: DenyGeoUnavailable,
+		},
+		{
 			name:   "block gate wins over allowed CIDR (blocked country)",
 			config: FilterConfig{AllowMatch: AllowMatchAny, AllowedCIDRs: []string{"0.0.0.0/0"}, BlockedCountries: []string{"CN"}},
 			addr:   "2.2.2.2", geo: geo, want: DenyCountry,
