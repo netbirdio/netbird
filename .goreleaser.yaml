@@ -40,6 +40,26 @@ builds:
     tags:
       - load_wgnt_from_rsrc
 
+  # deb and rpm packages target glibc distributions, so they carry the PKCS#11 store, which
+  # links libc. Tarballs and the Alpine-based images keep the static build above.
+  - id: netbird-pkcs11
+    dir: client
+    binary: netbird
+    env: [CGO_ENABLED=0]
+    goos:
+      - linux
+    goarch:
+      - arm
+      - amd64
+      - arm64
+      - 386
+    ldflags:
+      - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    tags:
+      - load_wgnt_from_rsrc
+      - pkcs11
+
   - id: netbird-static
     dir: client
     binary: netbird
@@ -216,7 +236,7 @@ nfpms:
     id: netbird_deb
     bindir: /usr/bin
     builds:
-      - netbird
+      - netbird-pkcs11
     formats:
       - deb
     scripts:
@@ -231,7 +251,7 @@ nfpms:
     id: netbird_rpm
     bindir: /usr/bin
     builds:
-      - netbird
+      - netbird-pkcs11
     formats:
       - rpm
     # The client verifies TLS to management and signal against the system trust
