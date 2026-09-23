@@ -24,6 +24,9 @@ RUN mkdir -p /var/lib/netbird /certs && \
 USER 1000:0
 ENV HOME=/var/lib/netbird
 ENV NB_PROXY_ADDRESS=":8443"
+# Unprivileged ports: runtimes such as OpenShift and Podman keep the kernel
+# default that reserves ports below 1024 for root. 8080 is the health probe.
+ENV NB_PROXY_ACME_ADDRESS=":8081"
 EXPOSE 8443
 STOPSIGNAL SIGTERM
 ENTRYPOINT ["/go/bin/netbird-proxy"]
