@@ -296,3 +296,14 @@ func FillEmptyAgentNetworkPolicyJsonColumns(ctx context.Context, db *gorm.DB) er
 		return res.Error
 	})
 }
+
+func FillEmptyAgentNetworkProviderJsonColumns(ctx context.Context, db *gorm.DB) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		res := tx.Exec(`update agent_network_providers set extra_values='{}' where id in (select id from agent_network_providers where extra_values='' or extra_values=null order by id asc)`)
+		if res.Error != nil {
+			return res.Error
+		}
+		res = tx.Exec(`update agent_network_providers set models='[]' where id in (select id from agent_network_providers where models='' or models=null order by id asc)`)
+		return res.Error
+	})
+}
