@@ -830,7 +830,8 @@ func restrictionsFromAPI(r *api.AccessRestrictions) (AccessRestrictions, error) 
 		res.CrowdSecMode = string(*r.CrowdsecMode)
 	}
 	if r.AllowMatch != nil {
-		if !r.AllowMatch.Valid() {
+		// Empty is the default (all), the same as omitting the field.
+		if *r.AllowMatch != "" && !r.AllowMatch.Valid() {
 			return AccessRestrictions{}, fmt.Errorf("invalid allow_match %q", *r.AllowMatch)
 		}
 		res.AllowMatch = string(*r.AllowMatch)

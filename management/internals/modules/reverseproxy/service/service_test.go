@@ -1444,6 +1444,18 @@ func TestRestrictions_AllowMatch_EmptyDefaultsToAll(t *testing.T) {
 	assert.Nil(t, apiOut.AllowMatch, "empty allow_match is omitted from the API response")
 }
 
+func TestRestrictions_AllowMatch_ExplicitEmptyIsAccepted(t *testing.T) {
+	// A client echoing back an empty allow_match means the default, the same as
+	// omitting it, and must not be rejected as an invalid enum value.
+	empty := api.AccessRestrictionsAllowMatch("")
+	model, err := restrictionsFromAPI(&api.AccessRestrictions{
+		AllowedCidrs: &[]string{"203.0.113.0/24"},
+		AllowMatch:   &empty,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, model.AllowMatch, "explicit empty allow_match stays empty, meaning all")
+}
+
 func TestRestrictions_AllowMatchOnly_Preserved(t *testing.T) {
 	// allow_match set without any list must not be dropped by the emptiness
 	// guards, so it round-trips through both the API and proto conversions.
