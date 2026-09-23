@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 
@@ -22,11 +23,16 @@ type X11InputInjector struct {
 	// between every session, so without it two clients interleave their button
 	// transitions, and a keystroke can land between another session's
 	// Shift-down and Shift-up and come out as the wrong character.
-	inputMu           sync.Mutex
-	conn              *xgb.Conn
-	root              xproto.Window
-	screen            *xproto.ScreenInfo
-	display           string
+	inputMu sync.Mutex
+	conn    *xgb.Conn
+	root    xproto.Window
+	screen  *xproto.ScreenInfo
+	display string
+	// cookieHex is kept so the connection can be re-established the same way
+	// it was first made.
+	cookieHex string
+	// lastLiveCheck paces the liveness probe in ensureConnLocked.
+	lastLiveCheck     time.Time
 	keysymMap         map[uint32]byte
 	lastButtons       uint16
 	clipboardTool     string
@@ -49,35 +55,19 @@ func NewX11InputInjector(display, cookieHex, authFile string) (*X11InputInjector
 		return nil, fmt.Errorf("DISPLAY not set and no Xorg process found")
 	}
 
-	var conn *xgb.Conn
-	var err error
-	if cookieHex != "" {
-		conn, err = dialXUnixWithCookie(display, cookieHex)
-	} else {
-		conn, err = xgb.NewConnDisplay(display)
-	}
+	conn, screen, err := dialX11Input(display, cookieHex)
 	if err != nil {
-		return nil, fmt.Errorf("connect to X11 display %s: %w", display, err)
+		return nil, err
 	}
-
-	if err := xtest.Init(conn); err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("init XTest extension: %w", err)
-	}
-
-	setup := xproto.Setup(conn)
-	if len(setup.Roots) == 0 {
-		conn.Close()
-		return nil, fmt.Errorf("no X11 screens")
-	}
-	screen := setup.Roots[0]
 
 	inj := &X11InputInjector{
-		conn:     conn,
-		root:     screen.Root,
-		screen:   &screen,
-		display:  display,
-		authFile: authFile,
+		conn:          conn,
+		root:          screen.Root,
+		screen:        &screen,
+		display:       display,
+		cookieHex:     cookieHex,
+		authFile:      authFile,
+		lastLiveCheck: time.Now(),
 	}
 	inj.cacheKeyboardMapping()
 	inj.resolveClipboardTool()
@@ -86,10 +76,71 @@ func NewX11InputInjector(display, cookieHex, authFile string) (*X11InputInjector
 	return inj, nil
 }
 
+// x11InjectorLiveCheck is how often the injector confirms its X connection is
+// still alive before injecting. A restarted X server leaves the old connection
+// dead, and XTest requests on it fail silently, so without a probe input never
+// comes back even after capture has recovered on its own.
+const x11InjectorLiveCheck = 2 * time.Second
+
+// dialX11Input opens an X connection for input injection and initialises XTest
+// on it, returning the first screen.
+func dialX11Input(display, cookieHex string) (*xgb.Conn, xproto.ScreenInfo, error) {
+	var conn *xgb.Conn
+	var err error
+	if cookieHex != "" {
+		conn, err = dialXUnixWithCookie(display, cookieHex)
+	} else {
+		conn, err = xgb.NewConnDisplay(display)
+	}
+	if err != nil {
+		return nil, xproto.ScreenInfo{}, fmt.Errorf("connect to X11 display %s: %w", display, err)
+	}
+
+	if err := xtest.Init(conn); err != nil {
+		conn.Close()
+		return nil, xproto.ScreenInfo{}, fmt.Errorf("init XTest extension: %w", err)
+	}
+
+	setup := xproto.Setup(conn)
+	if len(setup.Roots) == 0 {
+		conn.Close()
+		return nil, xproto.ScreenInfo{}, fmt.Errorf("no X11 screens")
+	}
+	return conn, setup.Roots[0], nil
+}
+
+// ensureConnLocked probes the X connection at most once per
+// x11InjectorLiveCheck and reconnects when it has died, refreshing the screen
+// and the keyboard mapping, both of which belong to the new server. A failed
+// reconnect keeps the dead connection and tries again on the next interval.
+// Caller must hold inputMu.
+func (x *X11InputInjector) ensureConnLocked() {
+	if time.Since(x.lastLiveCheck) < x11InjectorLiveCheck {
+		return
+	}
+	x.lastLiveCheck = time.Now()
+	if _, err := xproto.GetInputFocus(x.conn).Reply(); err == nil {
+		return
+	}
+
+	conn, screen, err := dialX11Input(x.display, x.cookieHex)
+	if err != nil {
+		log.Debugf("X11 input connection lost, reconnect to %s: %v", x.display, err)
+		return
+	}
+	x.conn.Close()
+	x.conn = conn
+	x.root = screen.Root
+	x.screen = &screen
+	x.cacheKeyboardMapping()
+	log.Infof("X11 input injector reconnected (display=%s)", x.display)
+}
+
 // InjectKey simulates a key press or release. keysym is an X11 KeySym.
 func (x *X11InputInjector) InjectKey(keysym uint32, down bool) {
 	x.inputMu.Lock()
 	defer x.inputMu.Unlock()
+	x.ensureConnLocked()
 	x.injectKeyLocked(keysym, down)
 }
 
@@ -111,6 +162,7 @@ func (x *X11InputInjector) injectKeyLocked(keysym uint32, down bool) {
 func (x *X11InputInjector) InjectKeyScancode(scancode, keysym uint32, down bool) {
 	x.inputMu.Lock()
 	defer x.inputMu.Unlock()
+	x.ensureConnLocked()
 
 	linuxKey := qemuScancodeToLinuxKey(scancode)
 	if linuxKey == 0 {
@@ -147,6 +199,7 @@ func (x *X11InputInjector) InjectPointer(buttonMask uint16, px, py, serverW, ser
 	// lastButtons and the write closes the sequence.
 	x.inputMu.Lock()
 	defer x.inputMu.Unlock()
+	x.ensureConnLocked()
 
 	// Scale to actual screen coordinates.
 	screenW := int(x.screen.WidthInPixels)
@@ -262,6 +315,18 @@ func (x *X11InputInjector) SetClipboard(text string) {
 // are skipped: a paste workflow for them needs Wayland-aware text input
 // or layout introspection that this path does not implement.
 func (x *X11InputInjector) TypeText(text string) {
+	x.inputMu.Lock()
+	x.ensureConnLocked()
+	restoreCaps := x.clearCapsLockLocked()
+	x.inputMu.Unlock()
+	if restoreCaps {
+		defer func() {
+			x.inputMu.Lock()
+			defer x.inputMu.Unlock()
+			x.toggleCapsLockLocked()
+		}()
+	}
+
 	const maxChars = 4096
 	count := 0
 	for _, r := range text {
@@ -301,6 +366,34 @@ func (x *X11InputInjector) typeRune(keysym uint32, shift bool) {
 	if shift && shiftCode != 0 {
 		xtest.FakeInput(x.conn, xproto.KeyRelease, shiftCode, 0, x.root, 0, 0, 0)
 	}
+}
+
+// xLockMask is the core-protocol modifier bit for Lock, which is Caps Lock on
+// every standard keymap.
+const xLockMask = 1 << 1
+
+// clearCapsLockLocked turns Caps Lock off when it is on and reports whether it
+// did, so the caller can put it back. The typed runes carry their case in the
+// Shift framing, and with Caps Lock engaged the server inverts it: pasted text
+// comes out with every letter's case flipped. Caller must hold inputMu.
+func (x *X11InputInjector) clearCapsLockLocked() bool {
+	reply, err := xproto.QueryPointer(x.conn, x.root).Reply()
+	if err != nil || reply.Mask&xLockMask == 0 {
+		return false
+	}
+	return x.toggleCapsLockLocked()
+}
+
+// toggleCapsLockLocked presses and releases Caps Lock, reporting whether the
+// keymap has one to press. Caller must hold inputMu.
+func (x *X11InputInjector) toggleCapsLockLocked() bool {
+	keycode := x.keysymToKeycode(0xffe5) // Caps_Lock
+	if keycode == 0 {
+		return false
+	}
+	xtest.FakeInput(x.conn, xproto.KeyPress, keycode, 0, x.root, 0, 0, 0)
+	xtest.FakeInput(x.conn, xproto.KeyRelease, keycode, 0, x.root, 0, 0, 0)
+	return true
 }
 
 func (x *X11InputInjector) resolveClipboardTool() {

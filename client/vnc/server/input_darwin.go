@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf16"
 	"unsafe"
 
 	"github.com/ebitengine/purego"
@@ -92,6 +93,10 @@ var (
 	cgEventSetFlags             func(uintptr, uint64)
 	cgEventSetType              func(uintptr, int32)
 	cgEventCreateForInput       func(uintptr) uintptr
+	// cgEventKeyboardSetUnicodeString attaches literal text to a keyboard
+	// event, so the receiving app gets those characters whatever the active
+	// keyboard layout would have produced for the keycode.
+	cgEventKeyboardSetUnicodeString func(uintptr, uintptr, *uint16)
 
 	// CGEventCreateScrollWheelEvent is variadic, call via SyscallN.
 	cgEventCreateScrollWheelEventAddr uintptr
@@ -163,6 +168,9 @@ func initDarwinInput() {
 		purego.RegisterLibFunc(&cgEventSetFlags, cg, "CGEventSetFlags")
 		purego.RegisterLibFunc(&cgEventSetType, cg, "CGEventSetType")
 		purego.RegisterLibFunc(&cgEventCreateForInput, cg, "CGEventCreate")
+		if sym, err := purego.Dlsym(cg, "CGEventKeyboardSetUnicodeString"); err == nil {
+			purego.RegisterFunc(&cgEventKeyboardSetUnicodeString, sym)
+		}
 
 		sym, err := purego.Dlsym(cg, "CGEventCreateScrollWheelEvent")
 		if err == nil {
@@ -341,7 +349,13 @@ type MacInputInjector struct {
 	// made so far. Input arrives continuously, so the cold path is paced by time
 	// rather than by event count.
 	axNextTry atomic.Int64
-	axAsks    atomic.Int32
+	// axFirstAsk is when the first ask was made, the start of axAskWindow.
+	axFirstAsk atomic.Int64
+	// keyMu serializes keyboard emission. One injector is shared by every
+	// attach-mode session, and a modifier transition and the key that follows
+	// it have to reach the event stream as one step: interleaved with another
+	// client's, one client's Shift lands on the other's keystroke.
+	keyMu sync.Mutex
 	// modifiers is the CGEventFlags state the remote client has built up with
 	// its modifier key events, stamped onto everything posted afterwards.
 	modifiers atomic.Uint64
@@ -393,9 +407,13 @@ const (
 	// dropped without a trace. Asking again is the only way to land it, since
 	// nothing in this process can observe either the dialog or the answer.
 	axAskRetry = 8 * time.Second
-	// axMaxAsks bounds that, so a user who wants neither is left alone. A later
-	// connection asks again from a fresh process anyway.
-	axMaxAsks = 3
+	// axAskWindow bounds that, so a user who wants neither is left alone. It is
+	// a span of time rather than a count of asks because the thing being waited
+	// out is a person answering the Screen Recording dialog: a fixed three asks
+	// ran out after about sixteen seconds, and a user slower than that lost
+	// remote input for the whole agent. A later connection asks again from a
+	// fresh process anyway.
+	axAskWindow = 2 * time.Minute
 )
 
 // postEventAllowed reports whether injected events are allowed to land, reading
@@ -406,6 +424,16 @@ const (
 // It is deliberately not used anywhere else: AXIsProcessTrusted has the side
 // effect of filing the caller in the Accessibility list with the box unchecked,
 // and a decision on file, even that one, stops macOS from ever showing the dialog.
+// requestPostEvent asks for kTCCServicePostEvent where the call exists, and
+// reports whether it is granted. Where it does not exist, Accessibility is the
+// gate and there is nothing further to ask for.
+func requestPostEvent() bool {
+	if cgRequestPostEventAccess == nil {
+		return true
+	}
+	return cgRequestPostEventAccess()
+}
+
 func postEventAllowed() bool {
 	if cgPreflightPostEventAccess == nil {
 		return axProcessTrusted()
@@ -438,7 +466,8 @@ func (m *MacInputInjector) askAccessibility() {
 		return
 	}
 	m.axNextTry.Store(now.Add(axAskRetry).UnixNano())
-	if m.axAsks.Add(1) >= axMaxAsks {
+	m.axFirstAsk.CompareAndSwap(0, now.UnixNano())
+	if now.Sub(time.Unix(0, m.axFirstAsk.Load())) >= axAskWindow {
 		m.axDone.Store(true)
 	}
 
@@ -448,7 +477,11 @@ func (m *MacInputInjector) askAccessibility() {
 	// when the permission is already there, so this cannot produce a stray dialog.
 	switch {
 	case axIsProcessTrustedWithOptions != nil:
-		if axProcessIsTrusted() {
+		// Accessibility is what puts the dialog up, but CGEventPost is judged
+		// by kTCCServicePostEvent. A host can have the first and not the
+		// second, and returning on Accessibility alone would then never ask
+		// for the one that is missing, leaving input dead for the session.
+		if axProcessIsTrusted() && (postEventAllowed() || requestPostEvent()) {
 			return
 		}
 	case cgRequestPostEventAccess != nil:
@@ -517,6 +550,8 @@ func (m *MacInputInjector) InjectKey(keysym uint32, down bool) {
 	if keycode == 0xFFFF {
 		return
 	}
+	m.keyMu.Lock()
+	defer m.keyMu.Unlock()
 	m.postMacKey(src, keycode, down)
 }
 
@@ -537,6 +572,8 @@ func (m *MacInputInjector) InjectKeyScancode(scancode, keysym uint32, down bool)
 		m.InjectKey(keysym, down)
 		return
 	}
+	m.keyMu.Lock()
+	defer m.keyMu.Unlock()
 	m.postMacKey(src, vk, down)
 }
 
@@ -572,11 +609,23 @@ func (m *MacInputInjector) postMacKey(src uintptr, keycode uint16, down bool) {
 // bits off each event they receive, so the state has to be attached to
 // everything posted afterwards, which is what m.modifiers is for.
 func (m *MacInputInjector) postModifier(src uintptr, keycode uint16, down bool, bit uint64) {
+	// Caps Lock is a toggle, not a held modifier: each press flips it and the
+	// release changes nothing. Treating it like Shift clears it again on
+	// key-up, so the remote Caps Lock could never stay on.
+	capsLock := bit == kCGEventFlagMaskAlphaShift
+	if capsLock && !down {
+		return
+	}
+
 	var flags uint64
 	for {
 		old := m.modifiers.Load()
-		flags = old | bit
-		if !down {
+		switch {
+		case capsLock:
+			flags = old ^ bit
+		case down:
+			flags = old | bit
+		default:
 			flags = old &^ bit
 		}
 		if m.modifiers.CompareAndSwap(old, flags) {
@@ -714,7 +763,7 @@ func (m *MacInputInjector) dispatchPointer(src uintptr, buttonMask uint16, x, y 
 	prev := m.lastButtons
 	m.postMoveOrDrag(src, prev&0x01 != 0, prev&0x04 != 0, x, y)
 	m.postButtonTransitions(src, buttonMask, x, y)
-	m.postScrollWheel(src, buttonMask)
+	m.postScrollWheel(src, prev, buttonMask)
 }
 
 func (m *MacInputInjector) postMoveOrDrag(src uintptr, leftDown, rightDown bool, x, y float64) {
@@ -762,11 +811,16 @@ func (m *MacInputInjector) postButtonTransitions(src uintptr, buttonMask uint16,
 	emit(1<<8, 1<<8, kCGEventOtherMouseDown, kCGEventOtherMouseUp, 4, 4)
 }
 
-func (m *MacInputInjector) postScrollWheel(src uintptr, buttonMask uint16) {
-	if buttonMask&0x08 != 0 {
+// postScrollWheel posts one tick per press of a wheel button. RFB spells a
+// notch as button 4 or 5 going down; a client that keeps the bit set across
+// several pointer samples is still describing that one notch, so only the
+// rising edge scrolls, as on the Windows and uinput backends.
+func (m *MacInputInjector) postScrollWheel(src uintptr, prev, buttonMask uint16) {
+	pressed := buttonMask &^ prev
+	if pressed&0x08 != 0 {
 		m.postScroll(src, scrollPixelsPerWheelTick)
 	}
-	if buttonMask&0x10 != 0 {
+	if pressed&0x10 != 0 {
 		m.postScroll(src, -scrollPixelsPerWheelTick)
 	}
 }
@@ -853,6 +907,8 @@ func (m *MacInputInjector) TypeText(text string) {
 	}
 	const maxChars = 4096
 	count := 0
+	m.keyMu.Lock()
+	defer m.keyMu.Unlock()
 	for _, r := range text {
 		if count >= maxChars {
 			break
@@ -865,6 +921,9 @@ func (m *MacInputInjector) TypeText(text string) {
 // typeRune emits the press/release events for a single ASCII rune, framing
 // the keystroke with Shift-down/up when required by the keysym.
 func (m *MacInputInjector) typeRune(src uintptr, r rune) {
+	if m.typeUnicodeRune(src, r) {
+		return
+	}
 	keysym, shift, ok := keysymForASCIIRune(r)
 	if !ok {
 		return
@@ -1062,3 +1121,31 @@ var specialKeyMap = map[uint32]uint16{
 }
 
 var _ InputInjector = (*MacInputInjector)(nil)
+
+// typeUnicodeRune types r as literal text rather than as a key on a US
+// layout, reporting false when that path is unavailable or r is a control
+// character that has to arrive as its own key (Return, Tab). Mapping a rune to
+// a keycode assumes the host's layout matches the table: on AZERTY or QWERTZ
+// that types the wrong characters, including into password fields. Text
+// attached to the event is inserted as-is, and covers non-ASCII as well.
+func (m *MacInputInjector) typeUnicodeRune(src uintptr, r rune) bool {
+	if cgEventKeyboardSetUnicodeString == nil || r < 0x20 || r == 0x7f {
+		return false
+	}
+	units := utf16.Encode([]rune{r})
+	for _, down := range []bool{true, false} {
+		event := cgEventCreateKeyboardEvent(src, 0, down)
+		if event == 0 {
+			return false
+		}
+		// No modifiers: a Shift or Option the remote client is holding would
+		// otherwise be applied on top of the literal character.
+		if cgEventSetFlags != nil {
+			cgEventSetFlags(event, 0)
+		}
+		cgEventKeyboardSetUnicodeString(event, uintptr(len(units)), &units[0])
+		cgEventPost(kCGHIDEventTap, event)
+		cfRelease(event)
+	}
+	return true
+}

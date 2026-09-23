@@ -194,6 +194,10 @@ func (e *Engine) startVNCServer(authConfig *sshauth.Config) error {
 	listenAddr := netip.AddrPortFrom(netbirdIP, vnc.InternalPort)
 	network := e.wgInterface.Address().Network
 	if err := srv.Start(e.ctx, listenAddr, network); err != nil {
+		// The server never took ownership, so nothing else will release what
+		// newPlatformVNC opened: the X11 injector's display connection, the
+		// uinput device, the framebuffer mapping.
+		closeVNCResources(capturer, injector)
 		return fmt.Errorf("start VNC server: %w", err)
 	}
 
@@ -392,5 +396,16 @@ func (e *Engine) persistVNCProcesses(state *vncserver.ShutdownState) {
 	}
 	if err := e.stateManager.UpdateState(state); err != nil {
 		log.Debugf("update VNC session state: %v", err)
+	}
+}
+
+// closeVNCResources releases a capturer and an injector that implement Close.
+// Either may be a stub that holds nothing.
+func closeVNCResources(capturer vncserver.ScreenCapturer, injector vncserver.InputInjector) {
+	if c, ok := capturer.(interface{ Close() }); ok {
+		c.Close()
+	}
+	if i, ok := injector.(interface{ Close() }); ok {
+		i.Close()
 	}
 }
