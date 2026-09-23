@@ -135,7 +135,7 @@ func (r *Route) RemoveAllowedIPs() error {
 	var merr *multierror.Error
 	for _, domainPrefixes := range r.dynamicDomains {
 		for _, prefix := range domainPrefixes {
-			if _, err := r.allowedIPsRefcounter.Decrement(prefix); err != nil {
+			if _, err := r.allowedIPsRefcounter.Decrement(prefix, r.currentPeerKey); err != nil {
 				merr = multierror.Append(merr, fmt.Errorf("remove allowed IP %s: %w", prefix, err))
 			}
 		}
@@ -320,7 +320,7 @@ func (r *Route) removeRoutes(prefixes []netip.Prefix) ([]netip.Prefix, error) {
 			merr = multierror.Append(merr, fmt.Errorf("remove dynamic route for IP %s: %w", prefix, err))
 		}
 		if r.currentPeerKey != "" {
-			if _, err := r.allowedIPsRefcounter.Decrement(prefix); err != nil {
+			if _, err := r.allowedIPsRefcounter.Decrement(prefix, r.currentPeerKey); err != nil {
 				merr = multierror.Append(merr, fmt.Errorf("remove allowed IP %s: %w", prefix, err))
 			}
 		}

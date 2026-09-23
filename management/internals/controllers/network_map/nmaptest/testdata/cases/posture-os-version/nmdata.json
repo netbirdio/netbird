@@ -1,0 +1,43 @@
+{
+  "Network": {"Serial": 30},
+  "Peers": {
+    "peer-lin-ok": {"IP": "100.64.0.1", "Meta": {"WtVersion": "0.60.0", "GoOS": "linux", "KernelVersion": "6.1.0-arch1"}},
+    "peer-lin-old": {"IP": "100.64.0.2", "Meta": {"WtVersion": "0.60.0", "GoOS": "linux", "KernelVersion": "5.4.0-generic"}},
+    "peer-mac-ok": {"IP": "100.64.0.3", "Meta": {"WtVersion": "0.60.0", "GoOS": "darwin", "OSVersion": "14.2"}},
+    "peer-mac-old": {"IP": "100.64.0.4", "Meta": {"WtVersion": "0.60.0", "GoOS": "darwin", "OSVersion": "12.0"}},
+    "peer-win": {"IP": "100.64.0.5", "Meta": {"WtVersion": "0.60.0", "GoOS": "windows", "KernelVersion": "10.0.19045"}},
+    "peer-srv": {"IP": "100.64.0.10", "Meta": {"WtVersion": "0.60.0", "GoOS": "linux", "KernelVersion": "6.1.0-arch1"}}
+  },
+  "Groups": {
+    "grp-clients": {"Peers": ["peer-lin-ok", "peer-lin-old", "peer-mac-ok", "peer-mac-old", "peer-win"]},
+    "grp-srv": {"Peers": ["peer-srv"]}
+  },
+  "PostureChecks": {
+    "chk-os": {
+      "Checks": {
+        "OSVersionCheck": {
+          "Linux": {"MinKernelVersion": "6.0.0"},
+          "Darwin": {"MinVersion": "13.0"}
+        }
+      }
+    }
+  },
+  "Policies": [
+    {
+      "ID": "pol-os",
+      "Enabled": true,
+      "SourcePostureChecks": ["chk-os"],
+      "Rules": [
+        {
+          "Enabled": true,
+          "Action": "accept",
+          "Protocol": "tcp",
+          "Ports": ["443"],
+          "Bidirectional": true,
+          "Sources": ["grp-clients"],
+          "Destinations": ["grp-srv"]
+        }
+      ]
+    }
+  ]
+}

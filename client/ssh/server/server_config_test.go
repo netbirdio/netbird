@@ -239,6 +239,7 @@ func TestServer_PrivilegedPortAccess(t *testing.T) {
 		forwardType   string
 		port          uint32
 		username      string
+		uid           string
 		expectError   bool
 		errorMsg      string
 		skipOnWindows bool
@@ -248,6 +249,7 @@ func TestServer_PrivilegedPortAccess(t *testing.T) {
 			forwardType:   "remote",
 			port:          80,
 			username:      "testuser",
+			uid:           "1000",
 			expectError:   true,
 			errorMsg:      "cannot bind to privileged port",
 			skipOnWindows: true,
@@ -257,6 +259,7 @@ func TestServer_PrivilegedPortAccess(t *testing.T) {
 			forwardType:   "tcpip-forward",
 			port:          443,
 			username:      "testuser",
+			uid:           "1000",
 			expectError:   true,
 			errorMsg:      "cannot bind to privileged port",
 			skipOnWindows: true,
@@ -266,6 +269,7 @@ func TestServer_PrivilegedPortAccess(t *testing.T) {
 			forwardType: "remote",
 			port:        8080,
 			username:    "testuser",
+			uid:         "1000",
 			expectError: false,
 		},
 		{
@@ -273,6 +277,7 @@ func TestServer_PrivilegedPortAccess(t *testing.T) {
 			forwardType: "remote",
 			port:        0,
 			username:    "testuser",
+			uid:         "1000",
 			expectError: false,
 		},
 		{
@@ -280,13 +285,35 @@ func TestServer_PrivilegedPortAccess(t *testing.T) {
 			forwardType: "remote",
 			port:        22,
 			username:    "root",
+			uid:         "0",
 			expectError: false,
+		},
+		{
+			// Only uid 0 is privileged, whatever the account is called.
+			name:          "uid 0 under another name may bind a privileged port",
+			forwardType:   "remote",
+			port:          22,
+			username:      "toor",
+			uid:           "0",
+			expectError:   false,
+			skipOnWindows: true,
+		},
+		{
+			name:          "account named root without uid 0 may not",
+			forwardType:   "remote",
+			port:          22,
+			username:      "root",
+			uid:           "1000",
+			expectError:   true,
+			errorMsg:      "cannot bind to privileged port",
+			skipOnWindows: true,
 		},
 		{
 			name:        "local forward privileged port allowed for non-root",
 			forwardType: "local",
 			port:        80,
 			username:    "testuser",
+			uid:         "1000",
 			expectError: false,
 		},
 	}
@@ -299,7 +326,7 @@ func TestServer_PrivilegedPortAccess(t *testing.T) {
 
 			result := PrivilegeCheckResult{
 				Allowed: true,
-				User:    &user.User{Username: tt.username},
+				User:    &user.User{Username: tt.username, Uid: tt.uid},
 			}
 
 			err := server.checkPrivilegedPortAccess(tt.forwardType, tt.port, result)
@@ -420,6 +447,13 @@ func TestServer_PortConflictHandling(t *testing.T) {
 
 func TestServer_IsPrivilegedUser(t *testing.T) {
 
+	// Windows classification depends on account SIDs and group membership, and
+	// the accounts involved carry localized, renameable names. It is covered by
+	// TestIsWindowsAccountPrivileged, which resolves them from well-known SIDs.
+	if runtime.GOOS == "windows" {
+		t.Skip("covered by TestIsWindowsAccountPrivileged")
+	}
+
 	tests := []struct {
 		username    string
 		expected    bool
@@ -440,44 +474,16 @@ func TestServer_IsPrivilegedUser(t *testing.T) {
 			expected:    false,
 			description: "empty username should not be privileged",
 		},
-	}
-
-	// Add Windows-specific tests
-	if runtime.GOOS == "windows" {
-		tests = append(tests, []struct {
-			username    string
-			expected    bool
-			description string
-		}{
-			{
-				username:    "Administrator",
-				expected:    true,
-				description: "Administrator should be considered privileged on Windows",
-			},
-			{
-				username:    "administrator",
-				expected:    true,
-				description: "administrator should be considered privileged on Windows (case insensitive)",
-			},
-		}...)
-	} else {
-		// On non-Windows systems, Administrator should not be privileged
-		tests = append(tests, []struct {
-			username    string
-			expected    bool
-			description string
-		}{
-			{
-				username:    "Administrator",
-				expected:    false,
-				description: "Administrator should not be privileged on non-Windows systems",
-			},
-		}...)
+		{
+			username:    "Administrator",
+			expected:    false,
+			description: "Administrator should not be privileged on non-Windows systems",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.description, func(t *testing.T) {
-			result := isPrivilegedUsername(tt.username)
+			result := isPrivilegedOrUnknown(tt.username)
 			assert.Equal(t, tt.expected, result, tt.description)
 		})
 	}

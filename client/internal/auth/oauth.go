@@ -97,9 +97,7 @@ func authenticateWithPKCEFlow(ctx context.Context, config *profilemanager.Config
 		return nil, fmt.Errorf("getting pkce authorization flow info failed with error: %v", err)
 	}
 
-	if hint != "" {
-		pkceFlowInfo.SetLoginHint(hint)
-	}
+	pkceFlowInfo.SetLoginHint(hint)
 
 	return pkceFlowInfo, nil
 }
@@ -127,9 +125,7 @@ func authenticateWithDeviceCodeFlow(ctx context.Context, config *profilemanager.
 		}
 	}
 
-	if hint != "" {
-		deviceFlowInfo.SetLoginHint(hint)
-	}
+	deviceFlowInfo.SetLoginHint(hint)
 
 	return deviceFlowInfo, nil
 }

@@ -45,7 +45,7 @@ func TestTracePacket(t *testing.T) {
 			},
 		}
 
-		m, err := Create(ifaceMock, false, flowLogger, iface.DefaultMTU)
+		m, err := Create(Config{IFace: ifaceMock, FlowLogger: flowLogger, MTU: iface.DefaultMTU})
 		require.NoError(t, err)
 
 		if !statefulMode {
@@ -97,7 +97,7 @@ func TestTracePacket(t *testing.T) {
 				proto := fw.ProtocolTCP
 				port := &fw.Port{Values: []uint16{80}}
 				action := fw.ActionAccept
-				_, err := m.AddPeerFiltering(nil, ip, proto, nil, port, action, "")
+				_, err := m.AddFilterRule(nil, pfx(ip), fw.Network{}, proto, nil, port, action)
 				require.NoError(t, err)
 			},
 			packetBuilder: func() *PacketBuilder {
@@ -121,7 +121,7 @@ func TestTracePacket(t *testing.T) {
 				proto := fw.ProtocolTCP
 				port := &fw.Port{Values: []uint16{80}}
 				action := fw.ActionDrop
-				_, err := m.AddPeerFiltering(nil, ip, proto, nil, port, action, "")
+				_, err := m.AddFilterRule(nil, pfx(ip), fw.Network{}, proto, nil, port, action)
 				require.NoError(t, err)
 			},
 			packetBuilder: func() *PacketBuilder {
@@ -150,7 +150,7 @@ func TestTracePacket(t *testing.T) {
 				proto := fw.ProtocolTCP
 				port := &fw.Port{Values: []uint16{80}}
 				action := fw.ActionAccept
-				_, err := m.AddPeerFiltering(nil, ip, proto, nil, port, action, "")
+				_, err := m.AddFilterRule(nil, pfx(ip), fw.Network{}, proto, nil, port, action)
 				require.NoError(t, err)
 			},
 			packetBuilder: func() *PacketBuilder {
@@ -178,7 +178,7 @@ func TestTracePacket(t *testing.T) {
 				proto := fw.ProtocolTCP
 				port := &fw.Port{Values: []uint16{80}}
 				action := fw.ActionAccept
-				_, err := m.AddPeerFiltering(nil, ip, proto, nil, port, action, "")
+				_, err := m.AddFilterRule(nil, pfx(ip), fw.Network{}, proto, nil, port, action)
 				require.NoError(t, err)
 			},
 			packetBuilder: func() *PacketBuilder {
@@ -205,7 +205,7 @@ func TestTracePacket(t *testing.T) {
 
 				src := netip.PrefixFrom(netip.AddrFrom4([4]byte{1, 1, 1, 1}), 32)
 				dst := netip.PrefixFrom(netip.AddrFrom4([4]byte{192, 168, 17, 2}), 32)
-				_, err := m.AddRouteFiltering(nil, []netip.Prefix{src}, fw.Network{Prefix: dst}, fw.ProtocolTCP, nil, &fw.Port{Values: []uint16{80}}, fw.ActionAccept)
+				_, err := m.AddFilterRule(nil, []netip.Prefix{src}, fw.Network{Prefix: dst}, fw.ProtocolTCP, nil, &fw.Port{Values: []uint16{80}}, fw.ActionAccept)
 				require.NoError(t, err)
 			},
 			packetBuilder: func() *PacketBuilder {
@@ -231,7 +231,7 @@ func TestTracePacket(t *testing.T) {
 
 				src := netip.PrefixFrom(netip.AddrFrom4([4]byte{1, 1, 1, 1}), 32)
 				dst := netip.PrefixFrom(netip.AddrFrom4([4]byte{192, 168, 17, 2}), 32)
-				_, err := m.AddRouteFiltering(nil, []netip.Prefix{src}, fw.Network{Prefix: dst}, fw.ProtocolTCP, nil, &fw.Port{Values: []uint16{80}}, fw.ActionDrop)
+				_, err := m.AddFilterRule(nil, []netip.Prefix{src}, fw.Network{Prefix: dst}, fw.ProtocolTCP, nil, &fw.Port{Values: []uint16{80}}, fw.ActionDrop)
 				require.NoError(t, err)
 			},
 			packetBuilder: func() *PacketBuilder {
@@ -332,7 +332,7 @@ func TestTracePacket(t *testing.T) {
 				ip := net.ParseIP("1.1.1.1")
 				proto := fw.ProtocolICMP
 				action := fw.ActionAccept
-				_, err := m.AddPeerFiltering(nil, ip, proto, nil, nil, action, "")
+				_, err := m.AddFilterRule(nil, pfx(ip), fw.Network{}, proto, nil, nil, action)
 				require.NoError(t, err)
 			},
 			packetBuilder: func() *PacketBuilder {
@@ -355,7 +355,7 @@ func TestTracePacket(t *testing.T) {
 				ip := net.ParseIP("1.1.1.1")
 				proto := fw.ProtocolICMP
 				action := fw.ActionDrop
-				_, err := m.AddPeerFiltering(nil, ip, proto, nil, nil, action, "")
+				_, err := m.AddFilterRule(nil, pfx(ip), fw.Network{}, proto, nil, nil, action)
 				require.NoError(t, err)
 			},
 			packetBuilder: func() *PacketBuilder {
@@ -379,7 +379,7 @@ func TestTracePacket(t *testing.T) {
 				proto := fw.ProtocolUDP
 				port := &fw.Port{Values: []uint16{53}}
 				action := fw.ActionAccept
-				_, err := m.AddPeerFiltering(nil, ip, proto, nil, port, action, "")
+				_, err := m.AddFilterRule(nil, pfx(ip), fw.Network{}, proto, nil, port, action)
 				require.NoError(t, err)
 			},
 			packetBuilder: func() *PacketBuilder {
@@ -423,7 +423,7 @@ func TestTracePacket(t *testing.T) {
 				proto := fw.ProtocolTCP
 				port := &fw.Port{Values: []uint16{80}}
 				action := fw.ActionDrop
-				_, err := m.AddPeerFiltering(nil, ip, proto, nil, port, action, "")
+				_, err := m.AddFilterRule(nil, pfx(ip), fw.Network{}, proto, nil, port, action)
 				require.NoError(t, err)
 			},
 			packetBuilder: func() *PacketBuilder {

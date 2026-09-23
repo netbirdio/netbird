@@ -57,12 +57,11 @@ func TestVLLMProvider(t *testing.T) {
 	// is enumerated so the router dispatches this model string to this provider.
 	dummyKey := "sk-vllm-e2e"
 	prov, err := srv.CreateProvider(ctx, api.AgentNetworkProviderRequest{
-		Name:             "vllm",
-		ProviderId:       "vllm",
-		UpstreamUrl:      vllm.URL,
-		ApiKey:           &dummyKey,
-		Enabled:          ptr(true),
-		BootstrapCluster: ptr(harness.AgentNetworkCluster),
+		Name:        "vllm",
+		ProviderId:  "vllm",
+		UpstreamUrl: vllm.URL,
+		ApiKey:      &dummyKey,
+		Enabled:     ptr(true),
 		Models: &[]api.AgentNetworkProviderModel{
 			{Id: harness.VLLMModel, InputPer1k: 0.001, OutputPer1k: 0.002},
 		},

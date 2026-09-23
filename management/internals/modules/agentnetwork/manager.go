@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/rand"
 	"slices"
 	"strings"
 	"sync"
@@ -13,6 +12,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/labelgen"
+	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/modeldiscovery"
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/sessionkey"
@@ -22,7 +22,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
-	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -48,9 +47,10 @@ func ensureSessionKeys(p *types.Provider) error {
 type Manager interface {
 	GetAllProviders(ctx context.Context, accountID, userID string) ([]*types.Provider, error)
 	GetProvider(ctx context.Context, accountID, userID, providerID string) (*types.Provider, error)
-	CreateProvider(ctx context.Context, userID string, provider *types.Provider, bootstrapCluster string) (*types.Provider, error)
+	CreateProvider(ctx context.Context, userID string, provider *types.Provider) (*types.Provider, error)
 	UpdateProvider(ctx context.Context, userID string, provider *types.Provider) (*types.Provider, error)
 	DeleteProvider(ctx context.Context, accountID, userID, providerID string) error
+	DiscoverProviderModels(ctx context.Context, accountID, userID string, req modeldiscovery.Request, recordID string) ([]modeldiscovery.Model, error)
 
 	GetAllPolicies(ctx context.Context, accountID, userID string) ([]*types.Policy, error)
 	GetPolicy(ctx context.Context, accountID, userID, policyID string) (*types.Policy, error)
@@ -71,7 +71,9 @@ type Manager interface {
 	DeleteBudgetRule(ctx context.Context, accountID, userID, ruleID string) error
 
 	GetSettings(ctx context.Context, accountID, userID string) (*types.Settings, error)
+	CreateSettings(ctx context.Context, userID string, settings *types.Settings, proxyAddress, endpoint string) (*types.Settings, error)
 	UpdateSettings(ctx context.Context, userID string, settings *types.Settings) (*types.Settings, error)
+	DeleteSettings(ctx context.Context, accountID, userID string) error
 
 	ListConsumption(ctx context.Context, accountID, userID string) ([]*types.Consumption, error)
 	ListAccessLogs(ctx context.Context, accountID, userID string, filter types.AgentNetworkAccessLogFilter) ([]*types.AgentNetworkAccessLog, int64, error)
@@ -82,16 +84,28 @@ type Manager interface {
 	RecordAccountBudgetUsage(ctx context.Context, accountID, userID string, groupIDs []string, tokensIn, tokensOut int64, costUSD float64) error
 	RecordUsage(ctx context.Context, in RecordUsageInput) error
 	SelectPolicyForRequest(ctx context.Context, in PolicySelectionInput) (*PolicySelectionResult, error)
+
+	// GetAgentConfigForUser backs the self-service agent-config endpoint.
+	// Caller-scoped, so it skips the role permission gate; see
+	// the implementation. The caller's own usage and requests come
+	// through GetUsageOverview / ListAccessLogs, which self-scope when
+	// the account-wide grant is missing.
+	GetAgentConfigForUser(ctx context.Context, accountID, userID string) (*types.AgentConfig, error)
 }
 
 // PolicySelectionInput is the per-request selection envelope. The
 // proxy populates it from CapturedData (account, user, groups) plus
-// the provider llm_router resolved.
+// the provider llm_router resolved and the model it extracted.
 type PolicySelectionInput struct {
 	AccountID  string
 	UserID     string
 	GroupIDs   []string
 	ProviderID string
+	// Model is the already-normalised upstream model id the proxy extracted
+	// (parser strips Bedrock region/version, Vertex @version), so a
+	// case-insensitive compare suffices. Empty = undetermined → not permitted
+	// (fail closed).
+	Model string
 }
 
 // PolicySelectionResult names the policy that "pays" for this request
@@ -117,17 +131,35 @@ type managerImpl struct {
 	permissionsManager permissions.Manager
 	proxyController    proxy.Controller
 
-	// reconcileCache holds the last set of synthesised proxy mappings
-	// per account so reconcile can emit precise Create/Update/Delete
-	// updates instead of a full re-push on every mutation. Keyed by
-	// accountID, then by synthesised service ID.
-	reconcileMu    sync.Mutex
-	reconcileCache map[string]map[string]*proto.ProxyMapping
+	// modelDiscovery queries vendors for the models a credential can reach.
+	// An interface rather than the concrete client because it is now on a
+	// write path: the credential check runs inside CreateProvider and
+	// UpdateProvider, so every test that saves a provider would otherwise
+	// reach a vendor over the network to do it.
+	//
+	// One instance serves every request for the process's lifetime, so its
+	// fields must stay read-only after construction: lazy initialisation
+	// inside Fetch or httpClient would race across request goroutines.
+	modelDiscovery ModelLister
 
-	// labelRngMu guards labelRng. PickUnique consumes math/rand.Source
-	// state; concurrent provider creates would otherwise race.
-	labelRngMu sync.Mutex
-	labelRng   *rand.Rand
+	// reconcileCache holds the last set of synthesised proxy mappings
+	// per account, each paired with the proxy that served it, so a change
+	// of serving proxy can be diffed without re-deriving it.
+	reconcileMu    sync.Mutex
+	reconcileCache map[string]map[string]syntheticMapping
+}
+
+// ManagerOption replaces a manager dependency at construction. Production
+// passes none; each option exists for something a test cannot let run for
+// real.
+type ManagerOption func(*managerImpl)
+
+// WithModelLister replaces the vendor call behind the provider credential
+// check. A test that saves a provider needs this — the check runs inside
+// CreateProvider and UpdateProvider, so the write path reaches a vendor
+// without it.
+func WithModelLister(lister ModelLister) ManagerOption {
+	return func(m *managerImpl) { m.modelDiscovery = lister }
 }
 
 // NewManager constructs the persistent Agent Network manager. The
@@ -140,37 +172,200 @@ func NewManager(
 	permissionsManager permissions.Manager,
 	accountManager account.Manager,
 	proxyController proxy.Controller,
+	opts ...ManagerOption,
 ) Manager {
-	return &managerImpl{
+	m := &managerImpl{
 		store:              store,
 		accountManager:     accountManager,
 		permissionsManager: permissionsManager,
 		proxyController:    proxyController,
-		reconcileCache:     make(map[string]map[string]*proto.ProxyMapping),
-		labelRng:           rand.New(rand.NewSource(time.Now().UnixNano())),
+		modelDiscovery:     &modeldiscovery.Client{},
+		reconcileCache:     make(map[string]map[string]syntheticMapping),
 	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
 }
 
+// GetAllProviders returns the account's providers for callers holding the
+// providers read grant (connection config redacted unless they can also
+// update). A caller without the grant self-scopes instead of being denied
+// — mirroring the usage and log endpoints: they get the providers their
+// own policies authorize, redacted to the display surface, which is what
+// feeds the dashboard's provider filter for plain users.
 func (m *managerImpl) GetAllProviders(ctx context.Context, accountID, userID string) ([]*types.Provider, error) {
-	if err := m.requirePermission(ctx, accountID, userID, operations.Read); err != nil {
+	ok, _, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.AgentNetworkProviders, operations.Read)
+	if err != nil {
+		return nil, status.NewPermissionValidationError(err)
+	}
+	if !ok {
+		return m.callerScopedProviders(ctx, accountID, userID)
+	}
+	providers, err := m.store.GetAccountAgentNetworkProviders(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
 		return nil, err
 	}
-	return m.store.GetAccountAgentNetworkProviders(ctx, store.LockingStrengthNone, accountID)
+	return m.redactProvidersForViewer(ctx, accountID, userID, providers)
 }
 
+// GetProvider self-scopes like GetAllProviders: a caller without the read
+// grant may fetch a provider their own policies authorize (redacted), and
+// gets the same not-found answer for any other id — an out-of-scope
+// provider must be indistinguishable from a nonexistent one.
 func (m *managerImpl) GetProvider(ctx context.Context, accountID, userID, providerID string) (*types.Provider, error) {
-	if err := m.requirePermission(ctx, accountID, userID, operations.Read); err != nil {
+	ok, _, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.AgentNetworkProviders, operations.Read)
+	if err != nil {
+		return nil, status.NewPermissionValidationError(err)
+	}
+	if !ok {
+		scoped, err := m.callerScopedProviders(ctx, accountID, userID)
+		if err != nil {
+			return nil, err
+		}
+		for _, p := range scoped {
+			if p.ID == providerID {
+				return p, nil
+			}
+		}
+		return nil, status.NewAgentNetworkProviderNotFoundError(providerID)
+	}
+	provider, err := m.store.GetAgentNetworkProviderByID(ctx, store.LockingStrengthNone, accountID, providerID)
+	if err != nil {
 		return nil, err
 	}
-	return m.store.GetAgentNetworkProviderByID(ctx, store.LockingStrengthNone, accountID, providerID)
+	redacted, err := m.redactProvidersForViewer(ctx, accountID, userID, []*types.Provider{provider})
+	if err != nil {
+		return nil, err
+	}
+	return redacted[0], nil
 }
 
-// CreateProvider persists a new provider for the account. bootstrapCluster
-// is used only when the per-account agent-network Settings row hasn't
-// been created yet; otherwise it is ignored (the cluster is pinned on
-// Settings and every provider in the account routes through it).
-func (m *managerImpl) CreateProvider(ctx context.Context, userID string, provider *types.Provider, bootstrapCluster string) (*types.Provider, error) {
-	if err := m.requirePermission(ctx, provider.AccountID, userID, operations.Create); err != nil {
+// callerScopedProviders returns the providers the caller's own policies
+// authorize — the same selection the self-service setup answer and the
+// proxy's routing derive from — each reduced to the display surface. No
+// role permission is needed: the answer is scoped strictly to the caller,
+// and a caller outside every policy gets an empty list, indistinguishable
+// from an account with nothing configured.
+func (m *managerImpl) callerScopedProviders(ctx context.Context, accountID, userID string) ([]*types.Provider, error) {
+	user, err := m.store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get user: %w", err)
+	}
+	authorized, applicable, err := m.authorizedProvidersForGroups(ctx, accountID, user.AutoGroups)
+	if err != nil {
+		return nil, err
+	}
+	var guardrailsByID map[string]*types.Guardrail
+	if anyPolicyHasGuardrails(applicable) {
+		guardrailsByID, err = m.loadGuardrailsByID(ctx, accountID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	out := make([]*types.Provider, 0, len(authorized))
+	for _, p := range authorized {
+		r := p.RedactedForViewer()
+		// The model list follows the same effective computation the setup
+		// answer and the proxy use: allowlist-restricted callers see only
+		// the models their guardrails permit, and an unrestricted policy
+		// on a provider without an operator declaration surfaces the
+		// catalog models, matching the setup response — so the dashboard's
+		// model filter never offers a model the caller's own requests
+		// could not use, and never comes up empty when the setup page
+		// lists models. Grant holders keep the full declared lists —
+		// their usage view spans everyone's requests.
+		_, effective := effectiveModelsForProvider(p, policiesForProvider(applicable, p.ID), guardrailsByID)
+		r.Models = providerModelsByID(p, effective)
+		out = append(out, r)
+	}
+	return out, nil
+}
+
+// redactProvidersForViewer strips the connection configuration from
+// providers handed to a caller who holds only the read grant on
+// agent_network.providers. Update is the managing signal: a role that can
+// edit a provider sees its config in the edit form anyway, while a
+// read-only role (usage_viewer) only needs the display surface the usage
+// filters resolve against — upstream URLs and operator-supplied header
+// values are not part of that. Validation errors fail closed.
+func (m *managerImpl) redactProvidersForViewer(ctx context.Context, accountID, userID string, providers []*types.Provider) ([]*types.Provider, error) {
+	canManage, _, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.AgentNetworkProviders, operations.Update)
+	if err != nil {
+		return nil, status.NewPermissionValidationError(err)
+	}
+	if canManage {
+		return providers, nil
+	}
+	out := make([]*types.Provider, 0, len(providers))
+	for _, p := range providers {
+		if p == nil {
+			out = append(out, nil)
+			continue
+		}
+		out = append(out, p.RedactedForViewer())
+	}
+	return out, nil
+}
+
+// DiscoverProviderModels asks the vendor which models a credential can reach.
+//
+// recordID, when set, names an existing provider whose stored credential is
+// used instead of the one in req — so the dashboard can refresh the list
+// without ever holding the key. An upstream in req overrides the stored one,
+// which is what lets a form list against a URL the operator has typed but not
+// saved yet, using the credential they cannot retype.
+//
+// Gated on Create rather than Read: this spends the operator's credential
+// against a third party, which is not something a read-only role should be
+// able to make the server do. That one check also covers reading the stored
+// record — Create is strictly stronger than Read here, and the lookup is
+// scoped to accountID, so another account's record is never reachable.
+func (m *managerImpl) DiscoverProviderModels(ctx context.Context, accountID, userID string, req modeldiscovery.Request, recordID string) ([]modeldiscovery.Model, error) {
+	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkProviders, operations.Create); err != nil {
+		return nil, err
+	}
+
+	if recordID != "" {
+		record, err := m.store.GetAgentNetworkProviderByID(ctx, store.LockingStrengthNone, accountID, recordID)
+		if err != nil {
+			return nil, err
+		}
+		// The catalog id comes from the stored record too: letting the caller
+		// name a different one would run a provider's credential against
+		// whichever vendor endpoint they picked.
+		req.CatalogID = record.ProviderID
+		req.APIKey = record.APIKey
+		// The upstream is the one field the caller may override, so that a URL
+		// typed into the form can be listed against before it is saved.
+		//
+		// It sends the stored credential to a host the caller named, which is
+		// a capability they already have: the same permission set updates the
+		// record's upstream, and that write runs this same check against
+		// whatever it is pointed at. What it would not otherwise be is silent,
+		// since the write leaves an activity event behind — so the override is
+		// recorded here.
+		if strings.TrimSpace(req.UpstreamURL) == "" {
+			req.UpstreamURL = record.UpstreamURL
+		} else if req.UpstreamURL != record.UpstreamURL {
+			log.WithContext(ctx).Infof("agent network provider %s listed against caller-supplied upstream %s by user %s",
+				recordID, req.UpstreamURL, userID)
+		}
+	}
+
+	models, err := m.modelDiscovery.Fetch(ctx, req)
+	if err != nil {
+		return nil, discoveryFailure(ctx, req.CatalogID, err)
+	}
+	return models, nil
+}
+
+// CreateProvider persists a new provider for the account. Providers have no
+// settings side effects: the account's endpoint is bootstrapped separately and
+// explicitly via CreateSettings, and every provider in the account routes
+// through it.
+func (m *managerImpl) CreateProvider(ctx context.Context, userID string, provider *types.Provider) (*types.Provider, error) {
+	if err := m.requirePermission(ctx, provider.AccountID, userID, modules.AgentNetworkProviders, operations.Create); err != nil {
 		return nil, err
 	}
 
@@ -179,6 +374,18 @@ func (m *managerImpl) CreateProvider(ctx context.Context, userID string, provide
 	// at create time instead.
 	if strings.TrimSpace(provider.APIKey) == "" {
 		return nil, status.Errorf(status.InvalidArgument, "api_key is required when creating an agent network provider")
+	}
+	// Stored as it will be sent. The vendor call below trims the key before
+	// building the auth header while the synthesiser substitutes the stored
+	// value verbatim, so a key pasted with surrounding whitespace would pass
+	// its check and then fail every request the provider serves.
+	provider.APIKey = strings.TrimSpace(provider.APIKey)
+
+	// Before anything is persisted: a record whose upstream or credential does
+	// not work is rejected here rather than discovered later as a failed
+	// request with nothing pointing back at it.
+	if err := m.checkProviderCredential(ctx, provider); err != nil {
+		return nil, err
 	}
 
 	if provider.ID == "" {
@@ -196,16 +403,6 @@ func (m *managerImpl) CreateProvider(ctx context.Context, userID string, provide
 		return nil, fmt.Errorf("save agent network provider: %w", err)
 	}
 
-	if strings.TrimSpace(bootstrapCluster) != "" {
-		if _, err := m.bootstrapSettingsIfNeeded(ctx, provider.AccountID, bootstrapCluster); err != nil {
-			// The provider create has already succeeded; logging the
-			// bootstrap miss matches the plan's PoC behaviour. The synth
-			// path treats a missing settings row as a no-op, and the next
-			// provider create retries the bootstrap.
-			log.WithContext(ctx).Debugf("agent-network bootstrap settings for account %s on cluster %s: %v", provider.AccountID, bootstrapCluster, err)
-		}
-	}
-
 	m.accountManager.StoreEvent(ctx, userID, provider.ID, provider.AccountID, activity.AgentNetworkProviderCreated, provider.EventMeta())
 	m.reconcile(ctx, provider.AccountID)
 
@@ -213,7 +410,7 @@ func (m *managerImpl) CreateProvider(ctx context.Context, userID string, provide
 }
 
 func (m *managerImpl) UpdateProvider(ctx context.Context, userID string, provider *types.Provider) (*types.Provider, error) {
-	if err := m.requirePermission(ctx, provider.AccountID, userID, operations.Update); err != nil {
+	if err := m.requirePermission(ctx, provider.AccountID, userID, modules.AgentNetworkProviders, operations.Update); err != nil {
 		return nil, err
 	}
 
@@ -225,11 +422,47 @@ func (m *managerImpl) UpdateProvider(ctx context.Context, userID string, provide
 	// Preserve the API key if the caller didn't rotate it. A
 	// whitespace-only value is treated as "not rotated" rather than a
 	// real key, but it must not silently overwrite a valid stored key.
-	if provider.APIKey == "" {
-		provider.APIKey = existing.APIKey
-	} else if strings.TrimSpace(provider.APIKey) == "" {
+	switch trimmed := strings.TrimSpace(provider.APIKey); {
+	case provider.APIKey == "":
+		// Trimmed on the way through: a record stored before keys were
+		// normalised carries whitespace the proxy still sends, and an edit
+		// that preserves the key is the occasion to repair it. Doing so makes
+		// the comparison below see a change, which is correct — that key has
+		// never been tested in the form it is about to be sent in.
+		provider.APIKey = strings.TrimSpace(existing.APIKey)
+	case trimmed == "":
 		return nil, status.Errorf(status.InvalidArgument, "api_key must be non-blank when rotating an agent network provider")
+	default:
+		// See CreateProvider: the key is stored in the form the proxy will
+		// send, so the check below tests what the provider will actually use.
+		provider.APIKey = trimmed
 	}
+
+	// Only the fields the vendor would judge are worth a round-trip. This same
+	// call carries renames, model rows and price edits, and none of those
+	// should wait on a vendor — or be refused because one is having a bad day.
+	//
+	// The catalog entry counts as one of them: it decides which vendor is
+	// asked, under which auth header, so moving a record from one to another
+	// sends an unchanged credential somewhere it has never been accepted.
+	//
+	// The comparison runs after the merge above, so an update that changes only
+	// the URL reads as unchanged on the key and is checked against the stored
+	// one, which is the only credential the operator has to offer here.
+	//
+	// Turning TLS verification back on is the fourth: the record was stored
+	// unchecked precisely because that flag was set, so this is the first
+	// moment it can be checked at all, and nothing else about it need change
+	// for that to be true.
+	if provider.UpstreamURL != existing.UpstreamURL ||
+		provider.APIKey != existing.APIKey ||
+		provider.ProviderID != existing.ProviderID ||
+		(existing.SkipTLSVerification && !provider.SkipTLSVerification) {
+		if err := m.checkProviderCredential(ctx, provider); err != nil {
+			return nil, err
+		}
+	}
+
 	// Always preserve the session keypair across updates so existing
 	// session cookies stay valid. The keys are server-managed and
 	// never surfaced through the API.
@@ -252,7 +485,7 @@ func (m *managerImpl) UpdateProvider(ctx context.Context, userID string, provide
 }
 
 func (m *managerImpl) DeleteProvider(ctx context.Context, accountID, userID, providerID string) error {
-	if err := m.requirePermission(ctx, accountID, userID, operations.Delete); err != nil {
+	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkProviders, operations.Delete); err != nil {
 		return err
 	}
 
@@ -301,21 +534,21 @@ func pluralize(n int, singular, plural string) string {
 }
 
 func (m *managerImpl) GetAllPolicies(ctx context.Context, accountID, userID string) ([]*types.Policy, error) {
-	if err := m.requirePermission(ctx, accountID, userID, operations.Read); err != nil {
+	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkPolicies, operations.Read); err != nil {
 		return nil, err
 	}
 	return m.store.GetAccountAgentNetworkPolicies(ctx, store.LockingStrengthNone, accountID)
 }
 
 func (m *managerImpl) GetPolicy(ctx context.Context, accountID, userID, policyID string) (*types.Policy, error) {
-	if err := m.requirePermission(ctx, accountID, userID, operations.Read); err != nil {
+	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkPolicies, operations.Read); err != nil {
 		return nil, err
 	}
 	return m.store.GetAgentNetworkPolicyByID(ctx, store.LockingStrengthNone, accountID, policyID)
 }
 
 func (m *managerImpl) CreatePolicy(ctx context.Context, userID string, policy *types.Policy) (*types.Policy, error) {
-	if err := m.requirePermission(ctx, policy.AccountID, userID, operations.Create); err != nil {
+	if err := m.requirePermission(ctx, policy.AccountID, userID, modules.AgentNetworkPolicies, operations.Create); err != nil {
 		return nil, err
 	}
 
@@ -341,7 +574,7 @@ func (m *managerImpl) CreatePolicy(ctx context.Context, userID string, policy *t
 }
 
 func (m *managerImpl) UpdatePolicy(ctx context.Context, userID string, policy *types.Policy) (*types.Policy, error) {
-	if err := m.requirePermission(ctx, policy.AccountID, userID, operations.Update); err != nil {
+	if err := m.requirePermission(ctx, policy.AccountID, userID, modules.AgentNetworkPolicies, operations.Update); err != nil {
 		return nil, err
 	}
 
@@ -368,7 +601,7 @@ func (m *managerImpl) UpdatePolicy(ctx context.Context, userID string, policy *t
 }
 
 func (m *managerImpl) DeletePolicy(ctx context.Context, accountID, userID, policyID string) error {
-	if err := m.requirePermission(ctx, accountID, userID, operations.Delete); err != nil {
+	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkPolicies, operations.Delete); err != nil {
 		return err
 	}
 
@@ -388,21 +621,21 @@ func (m *managerImpl) DeletePolicy(ctx context.Context, accountID, userID, polic
 }
 
 func (m *managerImpl) GetAllGuardrails(ctx context.Context, accountID, userID string) ([]*types.Guardrail, error) {
-	if err := m.requirePermission(ctx, accountID, userID, operations.Read); err != nil {
+	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkGuardrails, operations.Read); err != nil {
 		return nil, err
 	}
 	return m.store.GetAccountAgentNetworkGuardrails(ctx, store.LockingStrengthNone, accountID)
 }
 
 func (m *managerImpl) GetGuardrail(ctx context.Context, accountID, userID, guardrailID string) (*types.Guardrail, error) {
-	if err := m.requirePermission(ctx, accountID, userID, operations.Read); err != nil {
+	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkGuardrails, operations.Read); err != nil {
 		return nil, err
 	}
 	return m.store.GetAgentNetworkGuardrailByID(ctx, store.LockingStrengthNone, accountID, guardrailID)
 }
 
 func (m *managerImpl) CreateGuardrail(ctx context.Context, userID string, guardrail *types.Guardrail) (*types.Guardrail, error) {
-	if err := m.requirePermission(ctx, guardrail.AccountID, userID, operations.Create); err != nil {
+	if err := m.requirePermission(ctx, guardrail.AccountID, userID, modules.AgentNetworkGuardrails, operations.Create); err != nil {
 		return nil, err
 	}
 
@@ -424,7 +657,7 @@ func (m *managerImpl) CreateGuardrail(ctx context.Context, userID string, guardr
 }
 
 func (m *managerImpl) UpdateGuardrail(ctx context.Context, userID string, guardrail *types.Guardrail) (*types.Guardrail, error) {
-	if err := m.requirePermission(ctx, guardrail.AccountID, userID, operations.Update); err != nil {
+	if err := m.requirePermission(ctx, guardrail.AccountID, userID, modules.AgentNetworkGuardrails, operations.Update); err != nil {
 		return nil, err
 	}
 
@@ -447,7 +680,7 @@ func (m *managerImpl) UpdateGuardrail(ctx context.Context, userID string, guardr
 }
 
 func (m *managerImpl) DeleteGuardrail(ctx context.Context, accountID, userID, guardrailID string) error {
-	if err := m.requirePermission(ctx, accountID, userID, operations.Delete); err != nil {
+	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkGuardrails, operations.Delete); err != nil {
 		return err
 	}
 
@@ -468,7 +701,7 @@ func (m *managerImpl) DeleteGuardrail(ctx context.Context, accountID, userID, gu
 
 // GetAllBudgetRules returns every account-level budget rule for the account.
 func (m *managerImpl) GetAllBudgetRules(ctx context.Context, accountID, userID string) ([]*types.AccountBudgetRule, error) {
-	if err := m.requirePermission(ctx, accountID, userID, operations.Read); err != nil {
+	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkBudgets, operations.Read); err != nil {
 		return nil, err
 	}
 	return m.store.GetAccountAgentNetworkBudgetRules(ctx, store.LockingStrengthNone, accountID)
@@ -476,7 +709,7 @@ func (m *managerImpl) GetAllBudgetRules(ctx context.Context, accountID, userID s
 
 // GetBudgetRule returns a single account-level budget rule.
 func (m *managerImpl) GetBudgetRule(ctx context.Context, accountID, userID, ruleID string) (*types.AccountBudgetRule, error) {
-	if err := m.requirePermission(ctx, accountID, userID, operations.Read); err != nil {
+	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkBudgets, operations.Read); err != nil {
 		return nil, err
 	}
 	return m.store.GetAgentNetworkBudgetRuleByID(ctx, store.LockingStrengthNone, accountID, ruleID)
@@ -486,7 +719,7 @@ func (m *managerImpl) GetBudgetRule(ctx context.Context, accountID, userID, rule
 // enforced at request time (CheckLLMPolicyLimits), not baked into the synth
 // proxy config, so no reconcile is needed.
 func (m *managerImpl) CreateBudgetRule(ctx context.Context, userID string, rule *types.AccountBudgetRule) (*types.AccountBudgetRule, error) {
-	if err := m.requirePermission(ctx, rule.AccountID, userID, operations.Create); err != nil {
+	if err := m.requirePermission(ctx, rule.AccountID, userID, modules.AgentNetworkBudgets, operations.Create); err != nil {
 		return nil, err
 	}
 
@@ -508,7 +741,7 @@ func (m *managerImpl) CreateBudgetRule(ctx context.Context, userID string, rule 
 
 // UpdateBudgetRule updates an existing account-level budget rule.
 func (m *managerImpl) UpdateBudgetRule(ctx context.Context, userID string, rule *types.AccountBudgetRule) (*types.AccountBudgetRule, error) {
-	if err := m.requirePermission(ctx, rule.AccountID, userID, operations.Update); err != nil {
+	if err := m.requirePermission(ctx, rule.AccountID, userID, modules.AgentNetworkBudgets, operations.Update); err != nil {
 		return nil, err
 	}
 
@@ -531,7 +764,7 @@ func (m *managerImpl) UpdateBudgetRule(ctx context.Context, userID string, rule 
 
 // DeleteBudgetRule removes an account-level budget rule.
 func (m *managerImpl) DeleteBudgetRule(ctx context.Context, accountID, userID, ruleID string) error {
-	if err := m.requirePermission(ctx, accountID, userID, operations.Delete); err != nil {
+	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkBudgets, operations.Delete); err != nil {
 		return err
 	}
 
@@ -549,40 +782,152 @@ func (m *managerImpl) DeleteBudgetRule(ctx context.Context, accountID, userID, r
 	return nil
 }
 
-// UpdateSettings applies the mutable account-level settings — the collection
-// toggles — onto the existing row. Cluster and Subdomain are immutable and are
-// preserved from the persisted row regardless of the input. Because the
-// collection toggles change the synthesised service config (prompt-capture
-// gating, access-log emission), a reconcile is triggered so the proxy and peer
-// network maps converge on the new state.
+// UpdateSettings replaces the mutable account-level settings — the collection
+// toggles and retention — on the account's row. The identity fields (Domain,
+// ProxyAddress) are assigned at bootstrap (CreateSettings) and immutable: the
+// request carries them, matching the PUT convention of every other endpoint,
+// but they are only compared against the stored row — a request carrying
+// different values is rejected, and the stored values are never overwritten.
+// When the account has no settings row yet the update fails with NotFound.
+// Because the collection toggles change the synthesised service config
+// (prompt-capture gating, access-log emission), a reconcile is triggered so
+// the proxy and peer network maps converge on the new state.
 func (m *managerImpl) UpdateSettings(ctx context.Context, userID string, settings *types.Settings) (*types.Settings, error) {
-	if err := m.requirePermission(ctx, settings.AccountID, userID, operations.Update); err != nil {
+	if err := m.requirePermission(ctx, settings.AccountID, userID, modules.AgentNetworkSettings, operations.Update); err != nil {
 		return nil, err
 	}
 
-	existing, err := m.store.GetAgentNetworkSettings(ctx, store.LockingStrengthUpdate, settings.AccountID)
+	// The row lock from LockingStrengthUpdate only holds for the duration of
+	// the surrounding transaction, so the read and the save must share one —
+	// otherwise concurrent PUTs could interleave between them.
+	var updated *types.Settings
+	err := m.store.ExecuteInTransaction(ctx, func(tx store.Store) error {
+		existing, err := tx.GetAgentNetworkSettings(ctx, store.LockingStrengthUpdate, settings.AccountID)
+		switch {
+		case err == nil:
+		case isNotFound(err):
+			return status.Errorf(status.NotFound, "agent network settings have not been bootstrapped yet; POST /api/agent-network/settings to bootstrap them")
+		default:
+			return fmt.Errorf("get agent network settings: %w", err)
+		}
+
+		// The identity echo is compared leniently (trimmed, case-insensitive):
+		// the stored values are normalized lowercase, and a client replaying a
+		// GET response must never be rejected over casing it didn't choose.
+		if !hostnamesEquivalent(settings.Domain, existing.Domain) {
+			return status.Errorf(status.InvalidArgument, "endpoint is immutable: it must match the assigned endpoint %q; delete the settings to release it and bootstrap again", existing.Domain)
+		}
+		if !hostnamesEquivalent(settings.ProxyAddress, existing.ProxyAddress) {
+			return status.Errorf(status.InvalidArgument, "proxy_address is immutable: it must match the assigned proxy address %q; delete the settings to release it and bootstrap again", existing.ProxyAddress)
+		}
+
+		existing.EnableLogCollection = settings.EnableLogCollection
+		existing.EnablePromptCollection = settings.EnablePromptCollection
+		existing.RedactPii = settings.RedactPii
+		existing.AccessLogRetentionDays = settings.AccessLogRetentionDays
+		existing.UpdatedAt = time.Now().UTC()
+
+		if err := tx.SaveAgentNetworkSettings(ctx, existing); err != nil {
+			return fmt.Errorf("save agent network settings: %w", err)
+		}
+		updated = existing
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("get agent network settings: %w", err)
-	}
-
-	existing.EnableLogCollection = settings.EnableLogCollection
-	existing.EnablePromptCollection = settings.EnablePromptCollection
-	existing.RedactPii = settings.RedactPii
-	existing.AccessLogRetentionDays = settings.AccessLogRetentionDays
-	existing.UpdatedAt = time.Now().UTC()
-
-	if err := m.store.SaveAgentNetworkSettings(ctx, existing); err != nil {
-		return nil, fmt.Errorf("save agent network settings: %w", err)
+		return nil, err
 	}
 
 	m.accountManager.StoreEvent(ctx, userID, settings.AccountID, settings.AccountID, activity.AgentNetworkSettingsUpdated, map[string]any{
-		"log_collection":    existing.EnableLogCollection,
-		"prompt_collection": existing.EnablePromptCollection,
-		"redact_pii":        existing.RedactPii,
+		"log_collection":    updated.EnableLogCollection,
+		"prompt_collection": updated.EnablePromptCollection,
+		"redact_pii":        updated.RedactPii,
 	})
 	m.reconcile(ctx, settings.AccountID)
 
-	return existing, nil
+	return updated, nil
+}
+
+// hostnamesEquivalent reports whether a caller-supplied hostname names the
+// same host as a stored (normalized, lowercase) one: equal after trimming and
+// case folding. No structural validation — an arbitrary mismatch and a
+// malformed value are both simply "not the assigned value".
+func hostnamesEquivalent(supplied, stored string) bool {
+	return strings.EqualFold(strings.TrimSpace(supplied), stored)
+}
+
+// DeleteSettings removes the account's settings row, releasing the endpoint.
+// Two guards make this a bootstrap-repair operation rather than a way to tear
+// down a serving gateway, both re-checked under the row lock:
+//
+//   - No Agent Network providers may exist for the account. Providers route
+//     through the endpoint; delete them first.
+//   - No proxy may be actively serving the endpoint — that is, no active proxy
+//     declares the endpoint hostname as its cluster address. This is the
+//     dedicated (self-addressed) shape's guard: the proxy at the address IS
+//     this account's gateway. A labeled endpoint hangs beneath a shared
+//     cluster's address, and with the account's providers already gone the
+//     shared proxy serves nothing of the account's, so the parent cluster
+//     being up does not block the delete.
+//
+// Bootstrapping again after a delete allocates fresh — the released hostname
+// is not reserved. That full-reset semantic is what gives clients that model
+// immutability as replace-on-change (e.g. Terraform's RequiresReplace) a real
+// path: tear down providers, delete, re-create.
+func (m *managerImpl) DeleteSettings(ctx context.Context, accountID, userID string) error {
+	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkSettings, operations.Delete); err != nil {
+		return err
+	}
+
+	var deleted *types.Settings
+	err := m.store.ExecuteInTransaction(ctx, func(tx store.Store) error {
+		existing, err := tx.GetAgentNetworkSettings(ctx, store.LockingStrengthUpdate, accountID)
+		switch {
+		case err == nil:
+		case isNotFound(err):
+			return status.Errorf(status.NotFound, "agent network settings have not been bootstrapped yet; there is nothing to delete")
+		default:
+			return fmt.Errorf("get agent network settings: %w", err)
+		}
+
+		providers, err := tx.GetAccountAgentNetworkProviders(ctx, store.LockingStrengthNone, accountID)
+		if err != nil {
+			return fmt.Errorf("get agent network providers: %w", err)
+		}
+		if len(providers) > 0 {
+			return status.Errorf(status.PreconditionFailed, "agent network settings cannot be deleted while %d provider(s) exist; delete the providers first", len(providers))
+		}
+
+		serving, err := tx.HasActiveProxyAtClusterAddress(ctx, existing.Domain)
+		if err != nil {
+			return fmt.Errorf("check for a proxy serving the endpoint: %w", err)
+		}
+		if serving {
+			return status.Errorf(status.PreconditionFailed, "agent network settings cannot be deleted while a proxy is actively serving the endpoint %q", existing.Domain)
+		}
+
+		if err := tx.DeleteAgentNetworkSettings(ctx, accountID); err != nil {
+			return fmt.Errorf("delete agent network settings: %w", err)
+		}
+		deleted = existing
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	m.accountManager.StoreEvent(ctx, userID, accountID, accountID, activity.AgentNetworkSettingsDeleted, map[string]any{
+		"endpoint":      deleted.Domain,
+		"proxy_address": deleted.ProxyAddress,
+	})
+	m.reconcile(ctx, accountID)
+
+	return nil
+}
+
+// isNotFound reports whether err is a status.NotFound error.
+func isNotFound(err error) bool {
+	var sErr *status.Error
+	return errors.As(err, &sErr) && sErr.Type() == status.NotFound
 }
 
 // validateProviderRefs ensures every destination provider id refers to a
@@ -606,73 +951,331 @@ func (m *managerImpl) validateProviderRefs(ctx context.Context, accountID string
 	return nil
 }
 
-// GetSettings returns the agent-network settings row for the account.
-// Returns the underlying status.NotFound when no row has been
-// bootstrapped yet (i.e. the account has no providers).
+// GetSettings returns the agent-network settings row for the account. When no
+// row has been bootstrapped yet, the defaults are returned (without
+// persisting) with cluster and subdomain empty — settings always read as an
+// object, like the account and DNS settings endpoints.
 func (m *managerImpl) GetSettings(ctx context.Context, accountID, userID string) (*types.Settings, error) {
-	if err := m.requirePermission(ctx, accountID, userID, operations.Read); err != nil {
+	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkSettings, operations.Read); err != nil {
 		return nil, err
 	}
-	return m.store.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, accountID)
+	settings, err := m.store.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, accountID)
+	switch {
+	case err == nil:
+		return settings, nil
+	case isNotFound(err):
+		return types.DefaultSettings(accountID), nil
+	default:
+		return nil, err
+	}
 }
 
-// bootstrapSettingsIfNeeded creates the per-account agent-network
-// settings row when missing. The cluster comes from the create-time
-// hint the dashboard sends (auto-picked from the active cluster list);
-// the subdomain is picked from the curated wordlist avoiding
-// collisions on the same cluster. Idempotent: if a row already exists
-// it is returned untouched and the hint is ignored.
-func (m *managerImpl) bootstrapSettingsIfNeeded(ctx context.Context, accountID, providerCluster string) (*types.Settings, error) {
-	if accountID == "" {
-		return nil, fmt.Errorf("bootstrap settings: account id is required")
+// maxDomainAllocationAttempts bounds the label search when bootstrapping a
+// labeled endpoint. Package-level (rather than function-local) so tests can
+// assert on the exhaustion path without duplicating the literal.
+const maxDomainAllocationAttempts = 10
+
+// CreateSettings bootstraps the per-account settings row, assigning the
+// account's immutable endpoint. Exactly one of proxyAddress and endpoint must
+// be non-empty: proxyAddress allocates a labeled endpoint one label beneath
+// the given cluster address; endpoint claims the given hostname verbatim as a
+// self-addressed (dedicated) endpoint — a legitimate claim before any proxy
+// declares the address (address-first). settings carries the account ID and
+// the initial collection toggles; its identity fields are assigned here.
+func (m *managerImpl) CreateSettings(ctx context.Context, userID string, settings *types.Settings, proxyAddress, endpoint string) (*types.Settings, error) {
+	if settings == nil || settings.AccountID == "" {
+		return nil, status.Errorf(status.InvalidArgument, "account id is required")
 	}
-	if strings.TrimSpace(providerCluster) == "" {
-		return nil, fmt.Errorf("bootstrap settings: provider cluster is required")
+	if err := m.requirePermission(ctx, settings.AccountID, userID, modules.AgentNetworkSettings, operations.Create); err != nil {
+		return nil, err
 	}
 
-	existing, err := m.store.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, accountID)
-	if err == nil {
-		return existing, nil
+	hasProxyAddress := strings.TrimSpace(proxyAddress) != ""
+	hasEndpoint := strings.TrimSpace(endpoint) != ""
+	if hasProxyAddress == hasEndpoint {
+		return nil, status.Errorf(status.InvalidArgument, "exactly one of proxy_address and endpoint is required")
 	}
-	var sErr *status.Error
-	if !errors.As(err, &sErr) || sErr.Type() != status.NotFound {
+
+	// Fail fast on an existing row for a clean 409; the insert below stays
+	// the authority against concurrent bootstraps (the primary key wins).
+	if _, err := m.store.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, settings.AccountID); err == nil {
+		return nil, status.Errorf(status.AlreadyExists, "agent network settings already bootstrapped for account %s", settings.AccountID)
+	} else if !isNotFound(err) {
 		return nil, fmt.Errorf("get agent network settings: %w", err)
 	}
 
-	siblings, err := m.store.GetAgentNetworkSettingsByCluster(ctx, store.LockingStrengthNone, providerCluster)
-	if err != nil {
-		return nil, fmt.Errorf("list agent network settings on cluster: %w", err)
-	}
-	taken := make(map[string]struct{}, len(siblings))
-	for _, s := range siblings {
-		taken[s.Subdomain] = struct{}{}
-	}
-
-	suffix := accountID
-	if len(suffix) > 4 {
-		suffix = suffix[:4]
-	}
-
-	m.labelRngMu.Lock()
-	subdomain := labelgen.PickUnique(m.labelRng, taken, suffix)
-	m.labelRngMu.Unlock()
-
 	now := time.Now().UTC()
-	settings := &types.Settings{
-		AccountID: accountID,
-		Cluster:   providerCluster,
-		Subdomain: subdomain,
-		// Logs on by default; usage is collected regardless. Retention bounds
-		// how long full log rows are kept.
-		EnableLogCollection:    true,
-		AccessLogRetentionDays: types.DefaultAccessLogRetentionDays,
-		CreatedAt:              now,
-		UpdatedAt:              now,
+	settings.CreatedAt = now
+	settings.UpdatedAt = now
+
+	var err error
+	if hasEndpoint {
+		err = m.bootstrapSelfAddressed(ctx, settings, endpoint)
+	} else {
+		err = m.bootstrapLabeled(ctx, settings, proxyAddress)
 	}
-	if err := m.store.SaveAgentNetworkSettings(ctx, settings); err != nil {
-		return nil, fmt.Errorf("save agent network settings: %w", err)
+	if err != nil {
+		return nil, err
 	}
+
+	m.accountManager.StoreEvent(ctx, userID, settings.AccountID, settings.AccountID, activity.AgentNetworkSettingsUpdated, map[string]any{
+		"bootstrapped": true,
+		"endpoint":     settings.Domain,
+		"dedicated":    settings.Dedicated(),
+	})
+	m.reconcile(ctx, settings.AccountID)
+
 	return settings, nil
+}
+
+// bootstrapSelfAddressed claims the given hostname as the account's endpoint,
+// served only by a proxy declaring exactly that address (Domain ==
+// ProxyAddress). The domain unique index is the arbiter of availability.
+func (m *managerImpl) bootstrapSelfAddressed(ctx context.Context, settings *types.Settings, endpoint string) error {
+	hostname, err := types.NormalizeHostname(endpoint)
+	if err != nil {
+		return status.Errorf(status.InvalidArgument, "invalid endpoint: %s", err)
+	}
+	if err := m.requireHostNotForeign(ctx, settings.AccountID, hostname); err != nil {
+		return err
+	}
+	// Another account's labeled pin beneath this hostname makes it their
+	// cluster: a proxy serving them there would never serve this endpoint.
+	// The domain unique index already arbitrates two endpoints on one name.
+	if err := m.requireNotClaimedByOtherAccount(ctx, settings.AccountID, hostname, m.store.HasGatewayClusterPinnedByOtherAccount); err != nil {
+		return err
+	}
+	if err := m.validateGatewayCluster(ctx, settings.AccountID, hostname); err != nil {
+		return err
+	}
+
+	settings.Domain = hostname
+	settings.ProxyAddress = hostname
+	if err := m.store.CreateAgentNetworkSettings(ctx, settings); err != nil {
+		if isUniqueConstraintError(err) {
+			// The violation is either the account primary key (a concurrent
+			// bootstrap for the same account won) or the domain index
+			// (another account holds the hostname). Distinguish by re-read.
+			if _, getErr := m.store.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, settings.AccountID); getErr == nil {
+				return status.Errorf(status.AlreadyExists, "agent network settings already bootstrapped for account %s", settings.AccountID)
+			}
+			return status.Errorf(status.AlreadyExists, "endpoint %s is already taken", hostname)
+		}
+		return fmt.Errorf("create agent network settings: %w", err)
+	}
+	return nil
+}
+
+// validateGatewayCluster rejects a bootstrap pinned to a cluster that cannot
+// serve the account's gateway — a labeled endpoint beneath the cluster and a
+// self-addressed one on the very address a proxy declares alike, since the
+// service behind either is the same private one.
+//
+// The synthesised gateway service is unconditionally private
+// (buildAccountService): agents reach it over the WireGuard tunnel and are
+// authorised by ValidateTunnelPeer against the policies' source groups, and
+// its single target is the cluster itself with DirectUpstream. Only a cluster
+// with private capabilities can serve that. Management reports it per cluster
+// as the `private` capability, the same flag the dashboard renders as
+// supports_private when it gates NetBird-only services.
+//
+// Without this check the bootstrap happily pins to any cluster the caller
+// names, including one without private capabilities — and the endpoint it
+// allocates is immutable, so the account is left with a dead gateway that only
+// a DeleteSettings/re-bootstrap can undo.
+//
+// Whether management knows the cluster is decided on the proxy rows
+// themselves, never on how fresh their heartbeats are: a cluster's rows
+// outlive its proxies' liveness (only the stale-proxy reaper removes them), so
+// a cluster that exists stays judged as one. Judging on liveness instead would
+// make the same centralised cluster pass or fail depending on whether its
+// proxies happened to have heartbeated in the last couple of minutes.
+//
+// The single opening left is a cluster management holds no proxy row for at
+// all: pinning ahead of a proxy's first connection is a legitimate order — the
+// dedicated path claims an address the same way, before any proxy declares it.
+func (m *managerImpl) validateGatewayCluster(ctx context.Context, accountID, clusterAddr string) error {
+	declared, err := m.accountClusterSpellings(ctx, accountID, clusterAddr)
+	if err != nil {
+		return err
+	}
+	if len(declared) == 0 {
+		// No proxy has ever declared this address: an address-first pin.
+		return nil
+	}
+
+	// A cluster management knows has to prove it can serve the gateway, and
+	// only a live proxy reporting the capability proves that. Both an explicit false and an
+	// unreported capability (nothing live in the cluster, or proxies predating
+	// capability reporting) fail here: unusable and unproven are the same
+	// answer for a decision that cannot be revisited later.
+	//
+	// The capability is read per declared spelling and taken as any-true, the
+	// same way it aggregates over a cluster's proxies: the store matches
+	// cluster_address exactly, so a host two proxies spelled differently must
+	// not come back unproven just because it was asked about under one of them.
+	for _, address := range declared {
+		if private := m.store.GetClusterSupportsPrivate(ctx, address); private != nil && *private {
+			return nil
+		}
+	}
+
+	return status.Errorf(status.InvalidArgument,
+		"proxy cluster %s has no private capabilities: the agent network gateway requires a reverse proxy cluster "+
+			"with private capabilities", clusterAddr)
+}
+
+// accountClusterSpellings returns every proxy cluster address in the account's
+// view — its own (BYOP) clusters plus the shared ones — that names the same
+// host as clusterAddr. Empty means management holds no proxy row for that host
+// in this account's view.
+//
+// A proxy declares its cluster address as the operator spelled it, so identity
+// is compared on the normalised form rather than byte-equal — an in-memory pass
+// over the account's clusters, not a query. What comes back is the stored
+// spelling, because the capability lookup matches cluster_address exactly and
+// would silently find nothing under a spelling the store never held. The
+// cluster listing is not gated on heartbeats, so this answer does not change
+// while a cluster's proxies are merely offline.
+func (m *managerImpl) accountClusterSpellings(ctx context.Context, accountID, clusterAddr string) ([]string, error) {
+	clusters, err := m.store.GetProxyClusters(ctx, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("list proxy clusters: %w", err)
+	}
+
+	var spellings []string
+	for _, cluster := range clusters {
+		normalized, err := types.NormalizeHostname(cluster.Address)
+		if err != nil {
+			// An address declared in a shape we cannot normalise is not one an
+			// endpoint can be allocated beneath.
+			log.WithContext(ctx).Debugf("skipping unusable proxy cluster address %q: %s", cluster.Address, err)
+			continue
+		}
+		if normalized == clusterAddr {
+			spellings = append(spellings, cluster.Address)
+		}
+	}
+	return spellings, nil
+}
+
+// bootstrapLabeled allocates a labeled endpoint one label beneath the given
+// cluster address: Domain = <label>.<proxyAddress>, served by whichever proxy
+// declares the parent. Labels are adjective-noun tuples; a candidate is
+// checked by read and the domain unique index stays the authority, so a
+// concurrent allocation of the same tuple surfaces as a unique violation and
+// another tuple is drawn.
+func (m *managerImpl) bootstrapLabeled(ctx context.Context, settings *types.Settings, proxyAddress string) error {
+	parent, err := types.NormalizeHostname(proxyAddress)
+	if err != nil {
+		return status.Errorf(status.InvalidArgument, "invalid proxy_address: %s", err)
+	}
+	if err := m.requireHostNotForeign(ctx, settings.AccountID, parent); err != nil {
+		return err
+	}
+	// Another account's endpoint at this exact hostname means the proxy that
+	// declares it is theirs, so nothing would serve a label beneath it. Other
+	// accounts' labeled pins under the same cluster are not asked about: a
+	// shared cluster carries many of them by design.
+	if err := m.requireNotClaimedByOtherAccount(ctx, settings.AccountID, parent, m.store.HasGatewayEndpointByOtherAccount); err != nil {
+		return err
+	}
+
+	if err := m.validateGatewayCluster(ctx, settings.AccountID, parent); err != nil {
+		return err
+	}
+
+	for attempt := 1; attempt <= maxDomainAllocationAttempts; attempt++ {
+		label := labelgen.PickTuple()
+		if label == "" {
+			// Only reachable if either word pool were emptied. An empty label
+			// would produce a broken endpoint like ".example.com", so fail
+			// loudly rather than looping or inserting.
+			return fmt.Errorf("allocate agent network endpoint for account %s: label generator returned an empty label", settings.AccountID)
+		}
+
+		candidate, err := types.NormalizeHostname(label + "." + parent)
+		if err != nil {
+			return status.Errorf(status.InvalidArgument, "proxy_address leaves no room for a label: %s", err)
+		}
+
+		_, err = m.store.GetAgentNetworkSettingsByDomain(ctx, store.LockingStrengthNone, candidate)
+		if err == nil {
+			log.WithContext(ctx).Tracef("agent-network endpoint %q taken, retrying (attempt %d/%d)", candidate, attempt, maxDomainAllocationAttempts)
+			continue
+		}
+		if !isNotFound(err) {
+			return fmt.Errorf("check agent network endpoint availability: %w", err)
+		}
+
+		settings.Domain = candidate
+		settings.ProxyAddress = parent
+		if err := m.store.CreateAgentNetworkSettings(ctx, settings); err != nil {
+			if isUniqueConstraintError(err) {
+				// A concurrent bootstrap for the same account may have won on
+				// the primary key — return the conflict. A lost race on the
+				// domain index just means the tuple was taken between the
+				// read and the insert: draw another.
+				if _, getErr := m.store.GetAgentNetworkSettings(ctx, store.LockingStrengthNone, settings.AccountID); getErr == nil {
+					return status.Errorf(status.AlreadyExists, "agent network settings already bootstrapped for account %s", settings.AccountID)
+				}
+				log.WithContext(ctx).Tracef("agent-network endpoint %q lost an allocation race, retrying (attempt %d/%d)", candidate, attempt, maxDomainAllocationAttempts)
+				continue
+			}
+			return fmt.Errorf("create agent network settings: %w", err)
+		}
+		return nil
+	}
+
+	return fmt.Errorf("allocate agent network endpoint for account %s: %d attempts exhausted", settings.AccountID, maxDomainAllocationAttempts)
+}
+
+// requireHostNotForeign refuses to pin the account's gateway onto a host that
+// another account's proxy declares. The pin's proxy_address is what selects
+// the proxy that serves the endpoint, and an account-scoped proxy only ever
+// receives its own account's mappings, so such a pin could never be served —
+// and the endpoint it assigns is immutable. Shared proxies are not foreign, and
+// a host no proxy has declared stays pinnable: claiming the address before the
+// proxy's first connection is the documented order.
+func (m *managerImpl) requireHostNotForeign(ctx context.Context, accountID, host string) error {
+	foreign, err := m.store.HasForeignAccountProxyAtHost(ctx, host, accountID)
+	if err != nil {
+		return fmt.Errorf("check proxy host ownership: %w", err)
+	}
+	if foreign {
+		return errHostNotAvailable(host)
+	}
+	return nil
+}
+
+// requireNotClaimedByOtherAccount refuses the pin when another account's
+// gateway settings already claim the host in the shape claimed answers for.
+func (m *managerImpl) requireNotClaimedByOtherAccount(ctx context.Context, accountID, host string, claimed func(context.Context, string, string) (bool, error)) error {
+	taken, err := claimed(ctx, host, accountID)
+	if err != nil {
+		return fmt.Errorf("check agent network gateway claims at host: %w", err)
+	}
+	if taken {
+		return errHostNotAvailable(host)
+	}
+	return nil
+}
+
+func errHostNotAvailable(host string) error {
+	return status.Errorf(status.InvalidArgument, "proxy cluster %s is not available to this account", host)
+}
+
+// isUniqueConstraintError reports whether err is a database unique-constraint
+// violation, matched on the driver message because CreateAgentNetworkSettings
+// deliberately returns the driver error unwrapped.
+func isUniqueConstraintError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "(SQLSTATE 23505)") || // postgres
+		strings.Contains(msg, "Error 1062 (23000)") || // mysql
+		strings.Contains(msg, "UNIQUE constraint failed") // sqlite
 }
 
 // ListConsumption returns every consumption row recorded for the
@@ -680,7 +1283,7 @@ func (m *managerImpl) bootstrapSettingsIfNeeded(ctx context.Context, accountID, 
 // counter view; permission gate is the same Read role that gates
 // every other agent-network surface.
 func (m *managerImpl) ListConsumption(ctx context.Context, accountID, userID string) ([]*types.Consumption, error) {
-	if err := m.requirePermission(ctx, accountID, userID, operations.Read); err != nil {
+	if err := m.requirePermission(ctx, accountID, userID, modules.AgentNetworkUsage, operations.Read); err != nil {
 		return nil, err
 	}
 	return m.store.ListAgentNetworkConsumption(ctx, store.LockingStrengthNone, accountID)
@@ -688,8 +1291,11 @@ func (m *managerImpl) ListConsumption(ctx context.Context, accountID, userID str
 
 // ListAccessLogs returns a paginated, server-side-filtered page of
 // agent-network access logs plus the total count matching the filter.
+// Callers without the account-wide logs grant get a self-scoped page —
+// only their own requests — instead of a denial.
 func (m *managerImpl) ListAccessLogs(ctx context.Context, accountID, userID string, filter types.AgentNetworkAccessLogFilter) ([]*types.AgentNetworkAccessLog, int64, error) {
-	if err := m.requirePermission(ctx, accountID, userID, operations.Read); err != nil {
+	filter, err := m.scopeFilterToCaller(ctx, accountID, userID, modules.AgentNetworkLogs, filter)
+	if err != nil {
 		return nil, 0, err
 	}
 	return m.store.GetAgentNetworkAccessLogs(ctx, store.LockingStrengthNone, accountID, filter)
@@ -697,18 +1303,23 @@ func (m *managerImpl) ListAccessLogs(ctx context.Context, accountID, userID stri
 
 // ListAccessLogSessions returns a paginated, server-side-filtered page of
 // agent-network access logs grouped by session, plus the total number of
-// sessions matching the filter.
+// sessions matching the filter. Self-scoped like ListAccessLogs for
+// callers without the account-wide logs grant.
 func (m *managerImpl) ListAccessLogSessions(ctx context.Context, accountID, userID string, filter types.AgentNetworkAccessLogFilter) ([]*types.AgentNetworkAccessLogSession, int64, error) {
-	if err := m.requirePermission(ctx, accountID, userID, operations.Read); err != nil {
+	filter, err := m.scopeFilterToCaller(ctx, accountID, userID, modules.AgentNetworkLogs, filter)
+	if err != nil {
 		return nil, 0, err
 	}
 	return m.store.GetAgentNetworkAccessLogSessions(ctx, store.LockingStrengthNone, accountID, filter)
 }
 
 // GetUsageOverview returns the filtered usage rows aggregated into time buckets
-// at the requested granularity, oldest-first.
+// at the requested granularity, oldest-first. Callers without the
+// account-wide usage grant get their own rows aggregated instead of a
+// denial, so the dashboard serves "my usage" from the same endpoint.
 func (m *managerImpl) GetUsageOverview(ctx context.Context, accountID, userID string, filter types.AgentNetworkAccessLogFilter, granularity types.UsageGranularity) ([]*types.AgentNetworkUsageBucket, error) {
-	if err := m.requirePermission(ctx, accountID, userID, operations.Read); err != nil {
+	filter, err := m.scopeFilterToCaller(ctx, accountID, userID, modules.AgentNetworkUsage, filter)
+	if err != nil {
 		return nil, err
 	}
 	rows, err := m.store.GetAgentNetworkUsageRows(ctx, store.LockingStrengthNone, accountID, filter)
@@ -716,6 +1327,25 @@ func (m *managerImpl) GetUsageOverview(ctx context.Context, accountID, userID st
 		return nil, err
 	}
 	return types.AggregateUsageByGranularity(rows, granularity), nil
+}
+
+// scopeFilterToCaller applies the account-wide read gate for module and,
+// when the caller lacks the grant, pins the filter to the caller instead
+// of denying: their own user id replaces any requested one and group
+// filters are dropped. A caller may always see their own rows — strictly
+// tighter than any role gate — which is what lets every authenticated
+// user read their usage and requests through the regular endpoints.
+// Validation errors (not denials) still fail closed.
+func (m *managerImpl) scopeFilterToCaller(ctx context.Context, accountID, userID string, module modules.Module, filter types.AgentNetworkAccessLogFilter) (types.AgentNetworkAccessLogFilter, error) {
+	ok, _, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, module, operations.Read)
+	if err != nil {
+		return filter, status.NewPermissionValidationError(err)
+	}
+	if !ok {
+		filter.UserID = &userID
+		filter.GroupIDs = nil
+	}
+	return filter, nil
 }
 
 // StartAccessLogCleanup launches a background sweep that periodically deletes
@@ -782,8 +1412,8 @@ func (m *managerImpl) RecordConsumption(ctx context.Context, accountID string, k
 	return m.store.IncrementAgentNetworkConsumption(ctx, accountID, kind, dimID, windowSeconds, windowStart, tokensIn, tokensOut, costUSD)
 }
 
-func (m *managerImpl) requirePermission(ctx context.Context, accountID, userID string, op operations.Operation) error {
-	ok, _, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.AgentNetwork, op)
+func (m *managerImpl) requirePermission(ctx context.Context, accountID, userID string, module modules.Module, op operations.Operation) error {
+	ok, _, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, module, op)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}
@@ -804,11 +1434,15 @@ func (*mockManager) GetAllProviders(_ context.Context, _, _ string) ([]*types.Pr
 	return []*types.Provider{}, nil
 }
 
+func (*mockManager) DiscoverProviderModels(_ context.Context, _, _ string, _ modeldiscovery.Request, _ string) ([]modeldiscovery.Model, error) {
+	return nil, nil
+}
+
 func (*mockManager) GetProvider(_ context.Context, _, _, _ string) (*types.Provider, error) {
 	return &types.Provider{}, nil
 }
 
-func (*mockManager) CreateProvider(_ context.Context, _ string, p *types.Provider, _ string) (*types.Provider, error) {
+func (*mockManager) CreateProvider(_ context.Context, _ string, p *types.Provider) (*types.Provider, error) {
 	return p, nil
 }
 
@@ -872,13 +1506,26 @@ func (*mockManager) UpdateBudgetRule(_ context.Context, _ string, r *types.Accou
 
 func (*mockManager) DeleteBudgetRule(_ context.Context, _, _, _ string) error { return nil }
 
-func (*mockManager) GetSettings(_ context.Context, _, _ string) (*types.Settings, error) {
-	return nil, status.Errorf(status.NotFound, "agent network settings not found")
+func (*mockManager) GetSettings(_ context.Context, accountID, _ string) (*types.Settings, error) {
+	return types.DefaultSettings(accountID), nil
+}
+
+func (*mockManager) CreateSettings(_ context.Context, _ string, s *types.Settings, proxyAddress, endpoint string) (*types.Settings, error) {
+	if endpoint != "" {
+		s.Domain = endpoint
+		s.ProxyAddress = endpoint
+	} else {
+		s.Domain = "mock." + proxyAddress
+		s.ProxyAddress = proxyAddress
+	}
+	return s, nil
 }
 
 func (*mockManager) UpdateSettings(_ context.Context, _ string, s *types.Settings) (*types.Settings, error) {
 	return s, nil
 }
+
+func (*mockManager) DeleteSettings(_ context.Context, _, _ string) error { return nil }
 
 func (*mockManager) ListConsumption(_ context.Context, _, _ string) ([]*types.Consumption, error) {
 	return nil, nil

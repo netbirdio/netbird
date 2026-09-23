@@ -31,6 +31,14 @@ func (s *Preferences) SetViewMode(_ context.Context, mode preferences.ViewMode) 
 	return s.store.SetViewMode(mode)
 }
 
+func (s *Preferences) SetTheme(_ context.Context, theme preferences.Theme) error {
+	return s.store.SetTheme(theme)
+}
+
 func (s *Preferences) SetOnboardingCompleted(_ context.Context, done bool) error {
 	return s.store.SetOnboardingCompleted(done)
+}
+
+func (s *Preferences) SetKeepConnectedOnQuit(_ context.Context, keep bool) error {
+	return s.store.SetKeepConnectedOnQuit(keep)
 }

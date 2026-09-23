@@ -1,0 +1,43 @@
+{
+  "Network": {"Serial": 26},
+  "AccountSettings": {"RoutingPeerDNSResolutionEnabled": true},
+  "Peers": {
+    "peer-a": {"IP": "100.64.0.1", "Meta": {"WtVersion": "0.60.0"}},
+    "peer-r1": {"IP": "100.64.0.11", "Meta": {"WtVersion": "0.60.0"}},
+    "peer-r2": {"IP": "100.64.0.12", "Meta": {"WtVersion": "0.60.0"}}
+  },
+  "Groups": {
+    "grp-dev": {"Peers": ["peer-a"]},
+    "grp-routers": {"Peers": ["peer-r1", "peer-r2"]}
+  },
+  "Policies": [
+    {
+      "ID": "pol-conn",
+      "Enabled": true,
+      "Rules": [
+        {
+          "Enabled": true,
+          "Action": "accept",
+          "Protocol": "tcp",
+          "Ports": ["8080"],
+          "Bidirectional": true,
+          "Sources": ["grp-dev"],
+          "Destinations": ["grp-routers"]
+        }
+      ]
+    }
+  ],
+  "Routes": [
+    {
+      "ID": "rt-ha",
+      "NetID": "ha-net",
+      "Network": "10.60.0.0/24",
+      "NetworkType": 1,
+      "PeerGroups": ["grp-routers"],
+      "Groups": ["grp-dev"],
+      "Metric": 9999,
+      "Masquerade": true,
+      "Enabled": true
+    }
+  ]
+}

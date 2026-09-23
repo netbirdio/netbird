@@ -2,7 +2,6 @@ package cost_meter
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 
@@ -11,16 +10,27 @@ import (
 	"github.com/netbirdio/netbird/proxy/internal/middleware/builtin"
 )
 
-// defaultPricingFilename is the basename probed inside the proxy data
-// directory when no override is configured.
-const defaultPricingFilename = "pricing.yaml"
-
-// Config is the on-wire configuration for the middleware.
+// Config is the on-wire configuration for the middleware, synthesized by
+// management (buildCostMeterConfigJSON). The proxy has no embedded price
+// list: this payload is the only pricing source, and updates arrive as
+// ordinary mapping pushes that rebuild the chain (and with it this
+// middleware instance) — no per-request fetches, no reload loops.
 type Config struct {
-	// PricingPath optionally overrides the basename of the pricing
-	// file probed inside the proxy data directory. When empty the
-	// loader falls back to "pricing.yaml".
-	PricingPath string `json:"pricing_path"`
+	Pricing *PricingConfig `json:"pricing"`
+}
+
+// PricingConfig carries the full pricing table:
+//   - Defaults: parser surface ("openai"/"anthropic"/"bedrock") ->
+//     normalized model id -> rates, matched against llm.provider +
+//     llm.model.
+//   - Providers: provider record id -> normalized model id -> rates,
+//     matched against the llm.resolved_provider_id metadata llm_router
+//     stamps. Entries arrive fully materialized (management folds default
+//     cache rates in at synth time), so lookup order is simply
+//     per-record first, defaults second.
+type PricingConfig struct {
+	Defaults  map[string]map[string]pricing.EntryJSON `json:"defaults"`
+	Providers map[string]map[string]pricing.EntryJSON `json:"providers"`
 }
 
 // Factory builds cost_meter instances from raw config bytes.
@@ -29,45 +39,45 @@ type Factory struct{}
 // ID returns the registry identifier.
 func (Factory) ID() string { return ID }
 
-// New constructs a middleware instance. Empty, null, and {} configs
-// are accepted; non-empty rawConfig that fails to unmarshal is
-// rejected so misconfigurations surface at chain build time. The
-// pricing loader is built once per instance and reused across
-// invocations.
+// New constructs a middleware instance. Empty, null, and {} configs are
+// accepted for backward compatibility with a management server that
+// predates config-delivered pricing — the instance then skips every cost
+// computation (unknown_model) and a warning is logged once at build time.
+// Non-empty rawConfig that fails to unmarshal, or a table carrying a
+// non-finite / negative rate, is rejected so misconfigurations surface at
+// chain build time.
 func (Factory) New(rawConfig []byte) (middleware.Middleware, error) {
 	cfg, err := decodeConfig(rawConfig)
 	if err != nil {
 		return nil, err
 	}
 
-	fctx := builtin.Context()
-	pricingPath := cfg.PricingPath
-	if pricingPath == "" {
-		pricingPath = defaultPricingFilename
+	if cfg.Pricing == nil {
+		if logger := builtin.Context().Logger; logger != nil {
+			logger.Warnf("cost_meter: no pricing table in middleware config; management predates config-delivered pricing — every request will record cost.skipped=unknown_model ($0)")
+		}
+		return newMiddleware(mustEmptyTable(), nil), nil
 	}
 
-	loader, err := pricing.NewLoader(fctx.DataDir, pricingPath, ID, nil)
+	defaults, err := pricing.NewTable(cfg.Pricing.Defaults)
 	if err != nil {
-		return nil, fmt.Errorf("init pricing loader: %w", err)
+		return nil, fmt.Errorf("cost_meter pricing defaults: %w", err)
 	}
-
-	cancel := startReloader(fctx.Context, loader)
-
-	return newMiddleware(loader, cancel), nil
+	perRecord, err := pricing.NewEntries(cfg.Pricing.Providers)
+	if err != nil {
+		return nil, fmt.Errorf("cost_meter per-provider pricing: %w", err)
+	}
+	return newMiddleware(defaults, perRecord), nil
 }
 
-// startReloader binds the loader's mtime-poll goroutine to a context
-// derived from the proxy-lifetime context and returns its cancel func so
-// the owning middleware can stop the goroutine on teardown. Returns nil
-// when there's nothing to watch (nil context or defaults-only loader), in
-// which case the middleware's Close is a no-op.
-func startReloader(ctx context.Context, loader *pricing.Loader) context.CancelFunc {
-	if ctx == nil || !loader.WatchesFile() {
-		return nil
+// mustEmptyTable returns a valid empty table. NewTable on a nil map cannot
+// fail; the panic guard documents that invariant.
+func mustEmptyTable() *pricing.Table {
+	t, err := pricing.NewTable(nil)
+	if err != nil {
+		panic(fmt.Sprintf("cost_meter: empty pricing table must build: %v", err))
 	}
-	cctx, cancel := context.WithCancel(ctx)
-	go loader.Reload(cctx)
-	return cancel
+	return t
 }
 
 // decodeConfig accepts empty, null, and {} configs, returning a

@@ -83,8 +83,11 @@ func (m *Middleware) MutationsSupported() bool { return false }
 // prompt capture only affects the metadata emitted alongside an allow.
 func (m *Middleware) Invoke(_ context.Context, in *middleware.Input) (*middleware.Output, error) {
 	model, modelPresent := lookupMetadata(in.Metadata, middleware.KeyLLMModel)
+	providerID, _ := lookupMetadata(in.Metadata, middleware.KeyLLMResolvedProviderID)
+	surface, _ := lookupMetadata(in.Metadata, middleware.KeyLLMProvider)
+	nonInference, _ := lookupMetadata(in.Metadata, middleware.KeyLLMNonInference)
 
-	if denial := m.evaluateAllowlist(model, modelPresent); denial != nil {
+	if denial := m.evaluateAllowlist(providerID, surface, model, modelPresent, nonInference == "true"); denial != nil {
 		return denial, nil
 	}
 
@@ -110,28 +113,51 @@ func (m *Middleware) Invoke(_ context.Context, in *middleware.Input) (*middlewar
 // is a no-op.
 func (m *Middleware) Close() error { return nil }
 
-// evaluateAllowlist returns a deny Output when the configured allowlist
-// rejects the model. A nil return means the request should proceed.
-func (m *Middleware) evaluateAllowlist(model string, modelPresent bool) *middleware.Output {
-	if len(m.cfg.ModelAllowlist) == 0 {
+// evaluateAllowlist denies when the resolved provider's allowlist rejects the
+// model; nil means proceed. Scoped to the provider llm_router resolved, so an
+// unrestricted provider (absent from config) is never caught by another's list.
+func (m *Middleware) evaluateAllowlist(providerID, surface, model string, modelPresent, nonInference bool) *middleware.Output {
+	if len(m.cfg.ProviderAllowlists) == 0 {
 		return nil
 	}
-	// Fail closed: with an allowlist configured, a request whose model the
-	// upstream parser could not extract (absent or empty) must be denied rather
-	// than allowed. This is what enforces the allowlist for URL/path-routed
-	// providers (Bedrock, Vertex, ...) whose model lives outside the JSON body.
+	// Restrictions exist but the resolved provider is unknown, so we can't tell
+	// if this request targets a restricted provider — fail closed. llm_router
+	// normally stamps the provider first, so this is a defensive guard.
+	if providerID == "" {
+		return denyModel(surface, "", denyCodeModelUnknown, denyMessageModelUnknown, denyReasonModelUnknown)
+	}
+	allowlist, restricted := m.cfg.ProviderAllowlists[providerID]
+	if !restricted {
+		// This provider has no allowlist (some authorising policy left it
+		// unrestricted); management owns any per-policy/group decision.
+		return nil
+	}
+	// Fail closed: with an allowlist in effect for this provider, a request whose
+	// model the parser couldn't extract (absent/empty) is denied. This enforces
+	// the allowlist for path-routed providers (Bedrock, Vertex) with no body model.
+	//
+	// The exception is a non-inference endpoint the router already authorised.
+	// The model listing and the connection-warming probe name no model
+	// anywhere — not in a body, not in the path — so failing closed here
+	// rejected model discovery for exactly the accounts that configured an
+	// allowlist, which is the outage this endpoint is meant to avoid. The
+	// per-model lookup does name one (the router stamps it from the path), so
+	// it still falls through to the allowlist check below.
 	if !modelPresent || normaliseModel(model) == "" {
-		return denyModel("", denyCodeModelUnknown, denyMessageModelUnknown, denyReasonModelUnknown)
+		if nonInference {
+			return nil
+		}
+		return denyModel(surface, "", denyCodeModelUnknown, denyMessageModelUnknown, denyReasonModelUnknown)
 	}
-	if m.modelInAllowlist(model) {
+	if modelInAllowlist(allowlist, model) {
 		return nil
 	}
-	return denyModel(model, denyCodeModel, denyMessageModel, denyReasonModel)
+	return denyModel(surface, model, denyCodeModel, denyMessageModel, denyReasonModel)
 }
 
 // denyModel builds a 403 deny Output for a model-allowlist rejection. model is
 // included in the details only when non-empty.
-func denyModel(model, code, message, reason string) *middleware.Output {
+func denyModel(surface, model, code, message, reason string) *middleware.Output {
 	details := map[string]string{}
 	if model != "" {
 		details["model"] = model
@@ -143,6 +169,7 @@ func denyModel(model, code, message, reason string) *middleware.Output {
 			Code:    code,
 			Message: message,
 			Details: details,
+			Surface: surface,
 		},
 		Metadata: []middleware.KV{
 			{Key: middleware.KeyLLMPolicyDecision, Value: "deny"},
@@ -151,14 +178,15 @@ func denyModel(model, code, message, reason string) *middleware.Output {
 	}
 }
 
-// modelInAllowlist reports whether the model matches any allowlist
-// entry under the case-insensitive, trim-tolerant comparison rule.
-func (m *Middleware) modelInAllowlist(model string) bool {
+// modelInAllowlist reports whether the model matches any entry in the supplied
+// (already-normalised) allowlist under the case-insensitive, trim-tolerant
+// comparison rule.
+func modelInAllowlist(allowlist []string, model string) bool {
 	normalised := normaliseModel(model)
 	if normalised == "" {
 		return false
 	}
-	for _, allowed := range m.cfg.ModelAllowlist {
+	for _, allowed := range allowlist {
 		if allowed == normalised {
 			return true
 		}

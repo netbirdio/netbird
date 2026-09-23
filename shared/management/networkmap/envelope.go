@@ -36,7 +36,7 @@ type EnvelopeResult struct {
 // dnsName is the account's DNS domain ("netbird.cloud" etc.); used when
 // rebuilding the per-peer FQDNs that proto.RemotePeerConfig carries.
 func EnvelopeToNetworkMap(ctx context.Context, env *proto.NetworkMapEnvelope, localPeerKey, dnsName string) (*EnvelopeResult, error) {
-	components, err := DecodeEnvelope(env)
+	components, err := DecodeEnvelope(ctx, env)
 	if err != nil {
 		return nil, fmt.Errorf("decode envelope: %w", err)
 	}
@@ -54,8 +54,8 @@ func EnvelopeToNetworkMap(ctx context.Context, env *proto.NetworkMapEnvelope, lo
 	}
 	components.PeerID = canonicalKey
 
-	includeIPv6 := localPeer.SupportsIPv6 && localPeer.IPv6.IsValid()
-	useSourcePrefixes := localPeer.SupportsSourcePrefixes
+	includeIPv6 := localPeer.SupportsIPv6() && localPeer.IPv6.IsValid()
+	useSourcePrefixes := localPeer.SupportsSourcePrefixes()
 
 	typedNM := components.Calculate(ctx)
 
@@ -74,11 +74,11 @@ func EnvelopeToNetworkMap(ctx context.Context, env *proto.NetworkMapEnvelope, lo
 	protoNM.Routes = ToProtocolRoutes(typedNM.Routes)
 	protoNM.DNSConfig = ToProtocolDNSConfig(typedNM.DNSConfig, nil, dnsFwdPort)
 
-	remotePeers := AppendRemotePeerConfig(nil, typedNM.Peers, dnsName, includeIPv6)
+	remotePeers := AppendRemotePeerConfig(nil, typedNM.Peers, dnsName, includeIPv6, localPeer.ProxyMeta.Embedded)
 	protoNM.RemotePeers = remotePeers
 	protoNM.RemotePeersIsEmpty = len(remotePeers) == 0
 
-	protoNM.OfflinePeers = AppendRemotePeerConfig(nil, typedNM.OfflinePeers, dnsName, includeIPv6)
+	protoNM.OfflinePeers = AppendRemotePeerConfig(nil, typedNM.OfflinePeers, dnsName, includeIPv6, localPeer.ProxyMeta.Embedded)
 
 	firewallRules := ToProtocolFirewallRules(typedNM.FirewallRules, includeIPv6, useSourcePrefixes)
 	protoNM.FirewallRules = firewallRules

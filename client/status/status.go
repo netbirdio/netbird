@@ -46,7 +46,10 @@ func ParseDaemonStatus(s string) DaemonStatus {
 
 // ConvertOptions holds parameters for ConvertToStatusOutputOverview.
 type ConvertOptions struct {
-	Anonymize            bool
+	Anonymize bool
+	// AnonymizeLevel selects how much the anonymizer redacts. Only
+	// meaningful when Anonymize is set.
+	AnonymizeLevel       anonymize.Level
 	DaemonVersion        string
 	DaemonStatus         DaemonStatus
 	StatusFilter         string
@@ -217,6 +220,7 @@ func ConvertToStatusOutputOverview(pbFullStatus *proto.FullStatus, opts ConvertO
 
 	if opts.Anonymize {
 		anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
+		anonymizer.SetLevel(opts.AnonymizeLevel)
 		anonymizeOverview(anonymizer, &overview)
 	}
 
@@ -976,6 +980,7 @@ func timeAgo(t time.Time) string {
 
 func anonymizePeerDetail(a *anonymize.Anonymizer, peer *PeerStateDetailOutput) {
 	peer.FQDN = a.AnonymizeDomain(peer.FQDN)
+	peer.PubKey = a.AnonymizeWGKey(peer.PubKey)
 	if localIP, port, err := net.SplitHostPort(peer.IceCandidateEndpoint.Local); err == nil {
 		peer.IceCandidateEndpoint.Local = fmt.Sprintf("%s:%s", a.AnonymizeIPString(localIP), port)
 	}
@@ -1007,6 +1012,7 @@ func anonymizeOverview(a *anonymize.Anonymizer, overview *OutputOverview) {
 	overview.SignalState.URL = a.AnonymizeURI(overview.SignalState.URL)
 	overview.SignalState.Error = a.AnonymizeString(overview.SignalState.Error)
 
+	overview.PubKey = a.AnonymizeWGKey(overview.PubKey)
 	overview.IP = a.AnonymizeIPString(overview.IP)
 	overview.IPv6 = a.AnonymizeIPString(overview.IPv6)
 	for i, detail := range overview.Relays.Details {

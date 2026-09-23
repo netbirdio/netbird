@@ -704,3 +704,57 @@ func TestInject_ExtraHeaders_EmptyValueSkipped(t *testing.T) {
 			"empty extra value must not be stamped")
 	}
 }
+
+// TestInject_AnthropicBodyIsNotRewritten pins the shape gate. Claude Code
+// reaches a LiteLLM record on /v1/messages, where "user" is not a
+// permitted top-level field and metadata accepts only "user_id", so
+// writing the OpenAI-standard fields would turn a working request into a
+// 400 naming a field the client never sent. Header stamping still runs, so
+// spend tracking and per-end-user budgets keep working.
+func TestInject_AnthropicBodyIsNotRewritten(t *testing.T) {
+	rule := liteLLMRuleWithBody()
+	rule.HeaderPair.EndUserIDInBody = true
+	mw := New(Config{Providers: []ProviderInjection{rule}})
+
+	in := newInput(litellmProvider, "alice", []string{"grp-eng"})
+	in.UserEmail = "alice@example.com"
+	in.Metadata = append(in.Metadata, middleware.KV{Key: middleware.KeyLLMProvider, Value: "anthropic"})
+	in.Body = []byte(`{"model":"claude-sonnet-5","messages":[]}`)
+
+	out, err := mw.Invoke(context.Background(), in)
+	require.NoError(t, err)
+	require.NotNil(t, out.Mutations)
+	assert.Empty(t, out.Mutations.BodyReplace,
+		"an Anthropic-shaped body must reach the upstream unmodified")
+
+	var endUser string
+	for _, kv := range out.Mutations.HeadersAdd {
+		if kv.Key == "x-litellm-end-user-id" {
+			endUser = kv.Value
+		}
+	}
+	assert.Equal(t, "alice@example.com", endUser,
+		"header stamping must still carry identity when body inject is skipped")
+}
+
+// TestInject_OpenAIBodyStillRewritten guards the gate against
+// over-reaching: the OpenAI surface must keep its body-level identity,
+// which is the only path LiteLLM's tag-budget check reads.
+func TestInject_OpenAIBodyStillRewritten(t *testing.T) {
+	mw := New(Config{Providers: []ProviderInjection{liteLLMRuleWithBody()}})
+
+	in := newInput(litellmProvider, "alice", []string{"grp-eng"})
+	in.Metadata = append(in.Metadata, middleware.KV{Key: middleware.KeyLLMProvider, Value: "openai"})
+	in.Body = []byte(`{"model":"gpt-4o-mini","messages":[]}`)
+
+	out, err := mw.Invoke(context.Background(), in)
+	require.NoError(t, err)
+	require.NotNil(t, out.Mutations)
+	require.NotEmpty(t, out.Mutations.BodyReplace, "the OpenAI surface still gets body tags")
+
+	var doc map[string]any
+	require.NoError(t, json.Unmarshal(out.Mutations.BodyReplace, &doc))
+	meta, ok := doc["metadata"].(map[string]any)
+	require.True(t, ok, "metadata must be an object")
+	assert.NotEmpty(t, meta["tags"], "metadata.tags must still be written")
+}

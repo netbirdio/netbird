@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"slices"
 
+	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 
@@ -99,10 +101,8 @@ func (am *DefaultAccountManager) CreateGroup(ctx context.Context, accountID, use
 			return status.Errorf(status.Internal, "failed to create group: %v", err)
 		}
 
-		for _, peerID := range newGroup.Peers {
-			if err := transaction.AddPeerToGroup(ctx, accountID, peerID, newGroup.ID); err != nil {
-				return status.Errorf(status.Internal, "failed to add peer %s to group %s: %v", peerID, newGroup.ID, err)
-			}
+		if err = syncGroupMembership(ctx, transaction, accountID, newGroup.ID, newGroup.Peers, nil); err != nil {
+			return err
 		}
 
 		snap, err = affectedpeers.Load(ctx, transaction, accountID, change)
@@ -198,6 +198,9 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 
 // syncGroupMembership applies the peer membership delta for a group within a transaction.
 func syncGroupMembership(ctx context.Context, transaction store.Store, accountID, groupID string, peersToAdd, peersToRemove []string) error {
+	if err := validateGroupPeers(ctx, transaction, accountID, peersToAdd); err != nil {
+		return err
+	}
 	for _, peerID := range peersToAdd {
 		if err := transaction.AddPeerToGroup(ctx, accountID, peerID, groupID); err != nil {
 			return status.Errorf(status.Internal, "failed to add peer %s to group %s: %v", peerID, groupID, err)
@@ -208,6 +211,25 @@ func syncGroupMembership(ctx context.Context, transaction store.Store, accountID
 			return status.Errorf(status.Internal, "failed to remove peer %s from group %s: %v", peerID, groupID, err)
 		}
 	}
+	return nil
+}
+
+func validateGroupPeers(ctx context.Context, transaction store.Store, accountID string, peerIDs []string) error {
+	if len(peerIDs) == 0 {
+		return nil
+	}
+
+	peers, err := transaction.GetPeersByIDs(ctx, store.LockingStrengthNone, accountID, peerIDs)
+	if err != nil {
+		return err
+	}
+
+	for _, peerID := range peerIDs {
+		if _, ok := peers[peerID]; !ok {
+			return status.Errorf(status.InvalidArgument, "peer with ID %s not found", peerID)
+		}
+	}
+
 	return nil
 }
 
@@ -538,7 +560,7 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 	change := affectedpeers.Change{OutputPeerIDs: []string{peerID}, LinkGroups: []string{groupID}}
 
 	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		if err := transaction.AddPeerToGroup(ctx, accountID, peerID, groupID); err != nil {
+		if err := syncGroupMembership(ctx, transaction, accountID, groupID, []string{peerID}, nil); err != nil {
 			return err
 		}
 
@@ -744,6 +766,22 @@ func validateDeleteGroup(ctx context.Context, transaction store.Store, group *ty
 		return &GroupLinkError{"network router", linkedRouter.ID}
 	}
 
+	if isLinked, linkedService := isGroupLinkedToReverseProxyService(ctx, transaction, group.AccountID, group.ID); isLinked {
+		return &GroupLinkError{"reverse proxy service", linkedService.Domain}
+	}
+
+	if isLinked, linkedPolicy := isGroupLinkedToAgentNetworkPolicy(ctx, transaction, group.AccountID, group.ID); isLinked {
+		return &GroupLinkError{"agent network policy", linkedPolicy.Name}
+	}
+
+	isLinked, linkedRule, err := isGroupLinkedToAgentNetworkBudgetRule(ctx, transaction, group.AccountID, group.ID)
+	if err != nil {
+		return status.Errorf(status.Internal, "failed to check agent network budget rules")
+	}
+	if isLinked {
+		return &GroupLinkError{"agent network budget rule", linkedRule.Name}
+	}
+
 	return checkGroupLinkedToSettings(ctx, transaction, group)
 }
 
@@ -873,6 +911,66 @@ func isGroupLinkedToNetworkRouter(ctx context.Context, transaction store.Store, 
 		}
 	}
 	return false, nil
+}
+
+// isGroupLinkedToReverseProxyService checks if a group is used as an access group
+// of a private reverse proxy service or as a bearer-auth distribution group.
+func isGroupLinkedToReverseProxyService(ctx context.Context, transaction store.Store, accountID string, groupID string) (bool, *service.Service) {
+	services, err := transaction.GetAccountServices(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("error retrieving reverse proxy services while checking group linkage: %v", err)
+		return false, nil
+	}
+
+	for _, svc := range services {
+		if svc.Private && slices.Contains(svc.AccessGroups, groupID) {
+			return true, svc
+		}
+		if svc.Auth.BearerAuth != nil && svc.Auth.BearerAuth.Enabled && slices.Contains(svc.Auth.BearerAuth.DistributionGroups, groupID) {
+			return true, svc
+		}
+	}
+	return false, nil
+}
+
+// isGroupLinkedToAgentNetworkPolicy checks if a group is used as a source group by any
+// agent network policy in the account.
+func isGroupLinkedToAgentNetworkPolicy(ctx context.Context, transaction store.Store, accountID string, groupID string) (bool, *agentNetworkTypes.Policy) {
+	policies, err := transaction.GetAccountAgentNetworkPolicies(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("error retrieving agent network policies while checking group linkage: %v", err)
+		return false, nil
+	}
+
+	for _, policy := range policies {
+		if policy == nil {
+			continue
+		}
+		if slices.Contains(policy.SourceGroups, groupID) {
+			return true, policy
+		}
+	}
+	return false, nil
+}
+
+// isGroupLinkedToAgentNetworkBudgetRule checks if a group is a target of any
+// account-level agent network budget rule.
+func isGroupLinkedToAgentNetworkBudgetRule(ctx context.Context, transaction store.Store, accountID string, groupID string) (bool, *agentNetworkTypes.AccountBudgetRule, error) {
+	rules, err := transaction.GetAccountAgentNetworkBudgetRules(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("error retrieving agent network budget rules while checking group linkage: %v", err)
+		return false, nil, err
+	}
+
+	for _, rule := range rules {
+		if rule == nil {
+			continue
+		}
+		if slices.Contains(rule.TargetGroups, groupID) {
+			return true, rule, nil
+		}
+	}
+	return false, nil, nil
 }
 
 // areGroupChangesAffectPeers checks if any changes to the specified groups will affect peers.

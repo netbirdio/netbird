@@ -15,7 +15,7 @@ func UpdateStaticInfoAsync() {
 }
 
 // GetInfo retrieves system information for WASM environment
-func GetInfo(_ context.Context) *Info {
+func GetInfo(ctx context.Context) *Info {
 	info := &Info{
 		GoOS:           runtime.GOOS,
 		Kernel:         runtime.GOARCH,
@@ -30,6 +30,13 @@ func GetInfo(_ context.Context) *Info {
 	collectBrowserInfo(info)
 	collectLocationInfo(info)
 	collectSystemInfo(info)
+
+	// A caller-provided device name wins, as on the other platforms. A peer
+	// registered over an API keeps reporting the name it was registered with,
+	// so its meta does not change on the first sync.
+	if name := extractDeviceName(ctx, info.Hostname); name != "" {
+		info.Hostname = name
+	}
 	return info
 }
 
