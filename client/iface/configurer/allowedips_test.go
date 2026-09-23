@@ -149,3 +149,58 @@ func TestAllowedIPStoreAddExistingDoesNotCreate(t *testing.T) {
 	prefixes, _ := s.get(testPeer)
 	assert.Equal(t, []netip.Prefix{overlay, routed}, prefixes, "addExisting must union onto a known peer")
 }
+
+func TestAllowedIPStoreHandsPrefixOverToTheNewOwner(t *testing.T) {
+	s := newAllowedIPStore()
+	routed := netip.MustParsePrefix("10.20.0.0/16")
+	other := "other"
+
+	s.set(testPeer, []netip.Prefix{netip.MustParsePrefix("100.64.0.1/32"), routed})
+	s.set(other, []netip.Prefix{netip.MustParsePrefix("100.64.0.2/32")})
+
+	// The device takes an allowed IP away from its previous holder when it is configured on
+	// another peer, so the store must do the same rather than list it under both.
+	s.addExisting(other, []netip.Prefix{routed})
+
+	previous, _ := s.get(testPeer)
+	assert.NotContains(t, previous, routed, "the previous owner must lose the prefix")
+	current, _ := s.get(other)
+	assert.Contains(t, current, routed, "the new owner must hold the prefix")
+}
+
+func TestAllowedIPStoreForgetReleasesOwnership(t *testing.T) {
+	s := newAllowedIPStore()
+	routed := netip.MustParsePrefix("10.20.0.0/16")
+
+	s.set(testPeer, []netip.Prefix{routed})
+	s.forget(testPeer)
+	s.set("other", []netip.Prefix{routed})
+
+	// A forgotten peer must not be resurrected as a key in the peer map by a later claim.
+	_, ok := s.get(testPeer)
+	assert.False(t, ok, "the forgotten peer must stay unknown")
+	current, _ := s.get("other")
+	assert.Equal(t, []netip.Prefix{routed}, current, "the new owner must hold the prefix")
+}
+
+func TestNormalizePrefixClearsHostBits(t *testing.T) {
+	// A device stores a prefix masked, so a caller passing host bits must still match what a
+	// device fallback seeded, otherwise that prefix could never be removed by value.
+	assert.Equal(t, netip.MustParsePrefix("10.20.0.0/16"),
+		normalizePrefix(netip.MustParsePrefix("10.20.0.1/16")), "host bits must be cleared")
+	assert.Equal(t, netip.MustParsePrefix("fd00::/64"),
+		normalizePrefix(netip.MustParsePrefix("fd00::1/64")), "host bits must be cleared for v6")
+}
+
+func TestIPNetsToPrefixesKeepsV6InTheMappedRange(t *testing.T) {
+	// ::ffff:0:0/64 reads as v4-mapped but is a genuine v6 prefix: unmapping it would leave a
+	// v4 address under a 64 bit mask, which is invalid, and the allowed IP would be dropped.
+	got := ipNetsToPrefixes([]net.IPNet{{
+		IP:   net.ParseIP("::ffff:0:0"),
+		Mask: net.CIDRMask(64, 128),
+	}})
+
+	require.Len(t, got, 1, "the prefix must be converted, not dropped")
+	assert.False(t, got[0].Addr().Is4(), "a v6 prefix in the mapped range must not become v4")
+	assert.Equal(t, 64, got[0].Bits(), "the prefix length must survive the conversion")
+}

@@ -181,3 +181,29 @@ func TestAddAllowedIPOnAbsentPeerDoesNotResurrectIt(t *testing.T) {
 	require.NoError(t, err, "read device stats")
 	assert.Len(t, stats.Peers, 2, "no peer may be created while clearing an endpoint")
 }
+
+// TestRemoveEndpointAddressDoesNotStealAPrefixFromAnotherPeer covers WireGuard's rule that an
+// allowed IP belongs to exactly one peer: configuring a prefix on a peer takes it away from
+// whichever peer held it before. UpdatePeer relies on that rule rather than removing the prefix
+// from the previous holder itself, so a prefix handed over between peers must not come back.
+func TestRemoveEndpointAddressDoesNotStealAPrefixFromAnotherPeer(t *testing.T) {
+	c := newTestUSPConfigurer(t)
+	keys := seedPeers(t, c, 2)
+	peerA, peerB := keys[0], keys[1]
+	routed := netip.MustParsePrefix("10.20.0.0/16")
+
+	require.NoError(t, c.AddAllowedIP(peerA, routed), "give the prefix to A")
+	require.Contains(t, peerAllowedIPs(t, c, peerA), routed.String(), "A must hold the prefix")
+
+	// The route moves to B. The device takes it away from A on its own.
+	require.NoError(t, c.AddAllowedIP(peerB, routed), "hand the prefix over to B")
+	require.Contains(t, peerAllowedIPs(t, c, peerB), routed.String(), "B must hold the prefix")
+	require.NotContains(t, peerAllowedIPs(t, c, peerA), routed.String(), "the device must have taken it from A")
+
+	require.NoError(t, c.RemoveEndpointAddress(peerA), "clear A's endpoint")
+
+	assert.NotContains(t, peerAllowedIPs(t, c, peerA), routed.String(),
+		"clearing A's endpoint must not take the prefix back from B")
+	assert.Contains(t, peerAllowedIPs(t, c, peerB), routed.String(),
+		"B must still hold the prefix")
+}

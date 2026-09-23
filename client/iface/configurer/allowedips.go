@@ -13,16 +13,28 @@ type peerKey string
 //
 // A configurer is the only writer of its device's peer set, so the mirror is authoritative
 // by construction. It spares the paths that have to rewrite one peer's allowed IPs a full
-// device dump just to recover prefixes the process already configured itself. An operator
-// reconfiguring the device out of band, through `wg set` or the UAPI socket, is the one way
-// the mirror can go stale; callers fall back to the device when a peer is missing from it.
+// device dump just to recover prefixes the process already configured itself.
+//
+// An allowed IP belongs to exactly one peer: configuring a prefix on a peer takes it away
+// from whichever peer held it before, and the configurer leaves that handover to the device
+// rather than removing the prefix from the previous holder itself. The store tracks the
+// owner of each prefix and performs the same handover, so rewriting one peer's list never
+// takes a prefix back from the peer that owns it now.
+//
+// An operator reconfiguring the device out of band, through `wg set` or the UAPI socket, is
+// the one way the mirror can still go stale; callers fall back to the device when a peer is
+// missing from it, which also reseats ownership of that peer's prefixes.
 type allowedIPStore struct {
-	mu    sync.RWMutex
-	peers map[peerKey][]netip.Prefix
+	mu     sync.RWMutex
+	peers  map[peerKey][]netip.Prefix
+	owners map[netip.Prefix]peerKey
 }
 
 func newAllowedIPStore() *allowedIPStore {
-	return &allowedIPStore{peers: make(map[peerKey][]netip.Prefix)}
+	return &allowedIPStore{
+		peers:  make(map[peerKey][]netip.Prefix),
+		owners: make(map[netip.Prefix]peerKey),
+	}
 }
 
 // get returns the prefixes recorded for a peer, and whether the peer is known at all.
@@ -43,7 +55,14 @@ func (s *allowedIPStore) set(key string, prefixes []netip.Prefix) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.peers[peerKey(key)] = normalizePrefixes(prefixes)
+	k := peerKey(key)
+	s.releaseLocked(k)
+
+	normalized := normalizePrefixes(prefixes)
+	for _, prefix := range normalized {
+		s.claimLocked(k, prefix)
+	}
+	s.peers[k] = normalized
 }
 
 // add records prefixes on a peer without dropping the ones already there, matching the
@@ -54,14 +73,7 @@ func (s *allowedIPStore) add(key string, prefixes []netip.Prefix) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	merged := s.peers[peerKey(key)]
-	for _, prefix := range prefixes {
-		prefix = normalizePrefix(prefix)
-		if !slices.Contains(merged, prefix) {
-			merged = append(merged, prefix)
-		}
-	}
-	s.peers[peerKey(key)] = merged
+	s.mergeLocked(peerKey(key), prefixes)
 }
 
 // addExisting is add for an update-only device operation. Such an operation is a silent
@@ -72,18 +84,11 @@ func (s *allowedIPStore) addExisting(key string, prefixes []netip.Prefix) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	merged, ok := s.peers[peerKey(key)]
-	if !ok {
+	k := peerKey(key)
+	if _, ok := s.peers[k]; !ok {
 		return
 	}
-
-	for _, prefix := range prefixes {
-		prefix = normalizePrefix(prefix)
-		if !slices.Contains(merged, prefix) {
-			merged = append(merged, prefix)
-		}
-	}
-	s.peers[peerKey(key)] = merged
+	s.mergeLocked(k, prefixes)
 }
 
 // forget drops every prefix recorded for a peer.
@@ -91,7 +96,9 @@ func (s *allowedIPStore) forget(key string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	delete(s.peers, peerKey(key))
+	k := peerKey(key)
+	s.releaseLocked(k)
+	delete(s.peers, k)
 }
 
 // reset drops every peer, mirroring a device reconfiguration that replaces the peer set.
@@ -100,22 +107,56 @@ func (s *allowedIPStore) reset() {
 	defer s.mu.Unlock()
 
 	s.peers = make(map[peerKey][]netip.Prefix)
+	s.owners = make(map[netip.Prefix]peerKey)
 }
 
-// normalizePrefix unmaps a v4-mapped v6 prefix so that it compares equal to, and marshals
-// like, the plain v4 prefix for the same network. The store recognises a prefix by value, and
-// prefixesToIPNets would otherwise pair a 16 byte address with a v4 sized mask.
+func (s *allowedIPStore) mergeLocked(k peerKey, prefixes []netip.Prefix) {
+	merged := s.peers[k]
+	for _, prefix := range prefixes {
+		prefix = normalizePrefix(prefix)
+		s.claimLocked(k, prefix)
+		if !slices.Contains(merged, prefix) {
+			merged = append(merged, prefix)
+		}
+	}
+	s.peers[k] = merged
+}
+
+// claimLocked hands a prefix over to a peer, taking it from its previous owner the way the
+// device does when the same prefix is configured on a second peer.
+func (s *allowedIPStore) claimLocked(k peerKey, prefix netip.Prefix) {
+	if owner, ok := s.owners[prefix]; ok && owner != k {
+		s.peers[owner] = slices.DeleteFunc(s.peers[owner], func(p netip.Prefix) bool {
+			return p == prefix
+		})
+	}
+	s.owners[prefix] = k
+}
+
+// releaseLocked drops a peer's claim on every prefix it currently holds.
+func (s *allowedIPStore) releaseLocked(k peerKey) {
+	for _, prefix := range s.peers[k] {
+		if s.owners[prefix] == k {
+			delete(s.owners, prefix)
+		}
+	}
+}
+
+// normalizePrefix puts a prefix into the form the store recognises it by. It unmaps a
+// v4-mapped v6 prefix so that it compares equal to, and marshals like, the plain v4 prefix
+// for the same network, and it clears the host bits, which a device does on its own: a
+// caller passing 10.20.0.1/16 must still match the 10.20.0.0/16 read back from the device.
 func normalizePrefix(prefix netip.Prefix) netip.Prefix {
 	addr := prefix.Addr()
 	if !addr.Is4In6() {
-		return prefix
+		return prefix.Masked()
 	}
 
 	bits := prefix.Bits()
 	if bits >= 96 {
 		bits -= 96
 	}
-	return netip.PrefixFrom(addr.Unmap(), bits)
+	return netip.PrefixFrom(addr.Unmap(), bits).Masked()
 }
 
 func normalizePrefixes(prefixes []netip.Prefix) []netip.Prefix {
@@ -135,18 +176,26 @@ func ipNetsToPrefixes(ipNets []net.IPNet) []netip.Prefix {
 		if !ok {
 			continue
 		}
-		ones, _ := ipNet.Mask.Size()
-		addr = addr.Unmap()
-		// A device may report a v4 prefix as a v4-mapped address under a 128 bit mask.
-		if addr.Is4() && ones >= 96 {
-			ones -= 96
+
+		ones, maskBits := ipNet.Mask.Size()
+		// A device may report a v4 prefix as a v4-mapped address. Align the address form with
+		// the mask rather than unmapping on sight: a 32 bit mask always describes v4, while a
+		// 128 bit mask describes v4 only when it covers the mapped prefix, so a genuine v6
+		// prefix inside the mapped range stays v6 instead of being dropped as invalid.
+		if addr.Is4In6() {
+			switch {
+			case maskBits == 32:
+				addr = addr.Unmap()
+			case maskBits == 128 && ones >= 96:
+				addr, ones = addr.Unmap(), ones-96
+			}
 		}
 
 		prefix := netip.PrefixFrom(addr, ones)
 		if !prefix.IsValid() {
 			continue
 		}
-		prefixes = append(prefixes, prefix)
+		prefixes = append(prefixes, prefix.Masked())
 	}
 	return prefixes
 }
