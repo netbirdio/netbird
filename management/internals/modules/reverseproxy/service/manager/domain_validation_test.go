@@ -30,7 +30,7 @@ func withRealDomainManager(t *testing.T, mgr *Manager, testStore store.Store) {
 	proxyMgr, err := proxymanager.NewManager(testStore, noop.NewMeterProvider().Meter(""))
 	require.NoError(t, err)
 
-	_, err = proxyMgr.Connect(ctx, "proxy-1", "session-1", validationTestCluster, "127.0.0.1", nil, nil)
+	_, err = proxyMgr.Connect(ctx, "proxy-1", "session-1", validationTestCluster, "127.0.0.1", "", nil, nil)
 	require.NoError(t, err)
 
 	accountMgr := &mock_server.MockAccountManager{
