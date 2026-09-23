@@ -242,13 +242,6 @@ nfpms:
     # Generated in CI by chglog from git tags; Red Hat certification requires an
     # RPM changelog (RPM Version Handling subtest).
     changelog: changelog.yml
-    # Red Hat certification (RPM Version Handling subtest) expects at least two
-    # "netbird… = <version>" lines in `rpm -q --provides`. rpmbuild adds the ISA
-    # provide (netbird(x86-64) = …) automatically, nfpm does not, and GoReleaser
-    # does not template this field, so use a version-only virtual provide with
-    # the env var exported by the release workflow.
-    provides:
-      - "netbird-client = ${NETBIRD_RPM_VERSION}-1"
     # License, documentation and a config file so the RPM Provenance subtest sees
     # %license, %doc and %config entries instead of a bare binary.
     contents:
