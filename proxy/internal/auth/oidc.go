@@ -13,6 +13,10 @@ import (
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
+// sessionTokenParam is the query parameter the management server uses to hand
+// the minted session token back to the proxy after an OIDC login.
+const sessionTokenParam = "session_token"
+
 type urlGenerator interface {
 	GetOIDCURL(context.Context, *proto.GetOIDCURLRequest, ...grpc.CallOption) (*proto.GetOIDCURLResponse, error)
 }
@@ -43,7 +47,7 @@ func (o OIDC) Authenticate(r *http.Request) (string, string, error) {
 	// Check for the session_token query param (from OIDC redirects).
 	// The management server passes the token in the URL because it cannot set
 	// cookies for the proxy's domain (cookies are domain-scoped per RFC 6265).
-	if token := r.URL.Query().Get("session_token"); token != "" {
+	if token := r.URL.Query().Get(sessionTokenParam); token != "" {
 		return token, "", nil
 	}
 

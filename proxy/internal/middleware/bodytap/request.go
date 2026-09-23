@@ -21,6 +21,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/netbirdio/netbird/proxy/internal/netutil"
 )
 
 // MaxRoutingScanBytes bounds how far ScanRoutingFields will read into a
@@ -34,7 +36,6 @@ const MaxRoutingScanBytes int64 = 32 << 20
 // metadata key by the chain when a request body is not surfaced.
 const (
 	BypassUpgradeHeader    = "upgrade_header"
-	BypassConnectionUpgrd  = "connection_upgrade"
 	BypassContentType      = "content_type_not_allowed"
 	BypassBudget           = "capture_budget_exhausted"
 	BypassNoConfig         = "no_capture_config"
@@ -125,11 +126,12 @@ func CaptureRequest(r *http.Request, cfg *Config, b Budget) (body []byte, trunca
 	if cfg.MaxRequestBytes <= 0 {
 		return nil, false, 0, BypassCapZero, release, nil
 	}
-	if r.Header.Get("Upgrade") != "" {
+	// The predicate has to be the forwarder's own: a looser one (either header
+	// on its own) skips capture for requests the forwarder still delivers to
+	// the upstream with their body intact, which hides them from every
+	// deny-capable middleware in the chain.
+	if netutil.IsUpgradeRequest(r.Header) {
 		return nil, false, 0, BypassUpgradeHeader, release, nil
-	}
-	if strings.EqualFold(r.Header.Get("Connection"), "upgrade") {
-		return nil, false, 0, BypassConnectionUpgrd, release, nil
 	}
 	if !contentTypeAllowed(r.Header.Get("Content-Type"), cfg.ContentTypes) {
 		return nil, false, 0, BypassContentType, release, nil

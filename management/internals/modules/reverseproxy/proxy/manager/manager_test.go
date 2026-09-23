@@ -99,6 +99,9 @@ func (m *mockStore) GetClusterRequireSubdomain(_ context.Context, _ string) *boo
 func (m *mockStore) GetClusterSupportsCrowdSec(_ context.Context, _ string) *bool {
 	return nil
 }
+func (m *mockStore) GetClusterSupportsAppSec(_ context.Context, _ string) *bool {
+	return nil
+}
 func (m *mockStore) GetClusterSupportsPrivate(_ context.Context, _ string) *bool {
 	return nil
 }

@@ -126,6 +126,23 @@ type Config struct {
 	// CrowdSecAPIKey is the CrowdSec bouncer API key. Empty disables
 	// CrowdSec.
 	CrowdSecAPIKey string
+	// CrowdSecAppSecURL is the CrowdSec AppSec (WAF) endpoint. Empty disables
+	// HTTP request inspection.
+	CrowdSecAppSecURL string
+	// CrowdSecAppSecTimeout bounds a single AppSec inspection call. Zero falls
+	// back to the internal default.
+	CrowdSecAppSecTimeout time.Duration
+	// CrowdSecAppSecMaxBodyBytes caps the request body mirrored to AppSec.
+	// Zero falls back to the internal default; negative forwards no body.
+	CrowdSecAppSecMaxBodyBytes int64
+	// CrowdSecAppSecMaxConcurrent bounds AppSec inspections in flight toward
+	// the engine. Zero falls back to the internal default; negative removes
+	// the bound.
+	CrowdSecAppSecMaxConcurrent int
+	// MiddlewareCaptureBudgetBytes bounds the total request-body buffering in
+	// flight across the proxy, shared by AppSec inspection and the
+	// agent-network capture. Zero falls back to the internal default.
+	MiddlewareCaptureBudgetBytes int64
 }
 
 // New builds a Server from cfg without performing any I/O. No goroutines
@@ -135,42 +152,47 @@ type Config struct {
 // directly) byte-for-byte equivalent.
 func New(ctx context.Context, cfg Config) *Server {
 	return &Server{
-		ctx:                      ctx,
-		ListenAddr:               cfg.ListenAddr,
-		ID:                       cfg.ID,
-		Logger:                   cfg.Logger,
-		Version:                  cfg.Version,
-		ProxyURL:                 cfg.ProxyURL,
-		ManagementAddress:        cfg.ManagementAddress,
-		ProxyToken:               cfg.ProxyToken,
-		CertificateDirectory:     cfg.CertificateDirectory,
-		CertificateFile:          cfg.CertificateFile,
-		CertificateKeyFile:       cfg.CertificateKeyFile,
-		GenerateACMECertificates: cfg.GenerateACMECertificates,
-		ACMEChallengeAddress:     cfg.ACMEChallengeAddress,
-		ACMEDirectory:            cfg.ACMEDirectory,
-		ACMEEABKID:               cfg.ACMEEABKID,
-		ACMEEABHMACKey:           cfg.ACMEEABHMACKey,
-		ACMEChallengeType:        cfg.ACMEChallengeType,
-		CertLockMethod:           cfg.CertLockMethod,
-		WildcardCertDir:          cfg.WildcardCertDir,
-		DebugEndpointEnabled:     cfg.DebugEndpointEnabled,
-		DebugEndpointAddress:     cfg.DebugEndpointAddress,
-		HealthAddress:            cfg.HealthAddr,
-		ForwardedProto:           cfg.ForwardedProto,
-		TrustedProxies:           cfg.TrustedProxies,
-		WireguardPort:            cfg.WireguardPort,
-		ProxyProtocol:            cfg.ProxyProtocol,
-		PreSharedKey:             cfg.PreSharedKey,
-		Performance:              cfg.Performance,
-		SupportsCustomPorts:      cfg.SupportsCustomPorts,
-		RequireSubdomain:         cfg.RequireSubdomain,
-		Private:                  cfg.Private,
-		MaxDialTimeout:           cfg.MaxDialTimeout,
-		MaxSessionIdleTimeout:    cfg.MaxSessionIdleTimeout,
-		MappingBatchWatchdog:     cfg.MappingBatchWatchdog,
-		GeoDataDir:               cfg.GeoDataDir,
-		CrowdSecAPIURL:           cfg.CrowdSecAPIURL,
-		CrowdSecAPIKey:           cfg.CrowdSecAPIKey,
+		ctx:                          ctx,
+		ListenAddr:                   cfg.ListenAddr,
+		ID:                           cfg.ID,
+		Logger:                       cfg.Logger,
+		Version:                      cfg.Version,
+		ProxyURL:                     cfg.ProxyURL,
+		ManagementAddress:            cfg.ManagementAddress,
+		ProxyToken:                   cfg.ProxyToken,
+		CertificateDirectory:         cfg.CertificateDirectory,
+		CertificateFile:              cfg.CertificateFile,
+		CertificateKeyFile:           cfg.CertificateKeyFile,
+		GenerateACMECertificates:     cfg.GenerateACMECertificates,
+		ACMEChallengeAddress:         cfg.ACMEChallengeAddress,
+		ACMEDirectory:                cfg.ACMEDirectory,
+		ACMEEABKID:                   cfg.ACMEEABKID,
+		ACMEEABHMACKey:               cfg.ACMEEABHMACKey,
+		ACMEChallengeType:            cfg.ACMEChallengeType,
+		CertLockMethod:               cfg.CertLockMethod,
+		WildcardCertDir:              cfg.WildcardCertDir,
+		DebugEndpointEnabled:         cfg.DebugEndpointEnabled,
+		DebugEndpointAddress:         cfg.DebugEndpointAddress,
+		HealthAddress:                cfg.HealthAddr,
+		ForwardedProto:               cfg.ForwardedProto,
+		TrustedProxies:               cfg.TrustedProxies,
+		WireguardPort:                cfg.WireguardPort,
+		ProxyProtocol:                cfg.ProxyProtocol,
+		PreSharedKey:                 cfg.PreSharedKey,
+		Performance:                  cfg.Performance,
+		SupportsCustomPorts:          cfg.SupportsCustomPorts,
+		RequireSubdomain:             cfg.RequireSubdomain,
+		Private:                      cfg.Private,
+		MaxDialTimeout:               cfg.MaxDialTimeout,
+		MaxSessionIdleTimeout:        cfg.MaxSessionIdleTimeout,
+		MappingBatchWatchdog:         cfg.MappingBatchWatchdog,
+		GeoDataDir:                   cfg.GeoDataDir,
+		CrowdSecAPIURL:               cfg.CrowdSecAPIURL,
+		CrowdSecAPIKey:               cfg.CrowdSecAPIKey,
+		CrowdSecAppSecURL:            cfg.CrowdSecAppSecURL,
+		CrowdSecAppSecTimeout:        cfg.CrowdSecAppSecTimeout,
+		CrowdSecAppSecMaxBodyBytes:   cfg.CrowdSecAppSecMaxBodyBytes,
+		CrowdSecAppSecMaxConcurrent:  cfg.CrowdSecAppSecMaxConcurrent,
+		MiddlewareCaptureBudgetBytes: cfg.MiddlewareCaptureBudgetBytes,
 	}
 }

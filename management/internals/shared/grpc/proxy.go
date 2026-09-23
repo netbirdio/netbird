@@ -564,6 +564,7 @@ func (s *ProxyServiceServer) registerProxyConnection(ctx context.Context, params
 			SupportsCustomPorts: c.SupportsCustomPorts,
 			RequireSubdomain:    c.RequireSubdomain,
 			SupportsCrowdsec:    c.SupportsCrowdsec,
+			SupportsAppsec:      c.SupportsAppsec,
 			Private:             c.Private,
 		}
 	}

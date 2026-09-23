@@ -3392,6 +3392,30 @@ components:
             - "observe"
           default: "off"
           description: CrowdSec IP reputation mode. Only available when the proxy cluster supports CrowdSec.
+        allow_match:
+          type: string
+          enum:
+            - "all"
+            - "any"
+          default: "all"
+          description: >-
+            How the allowlists (allowed_cidrs, allowed_countries) combine.
+            "all" (default) requires a connection to match every configured
+            allowlist (AND); "any" requires it to match at least one (OR), e.g.
+            an allowed country OR an allowed CIDR. Blocklists always reject on
+            match regardless of this setting.
+        appsec_mode:
+          type: string
+          enum:
+            - "off"
+            - "enforce"
+            - "observe"
+          default: "off"
+          description: >-
+            CrowdSec AppSec (WAF) request inspection mode. Only available when
+            the proxy cluster supports AppSec, and only applied to HTTP
+            services. "enforce" blocks requests the WAF flags; "observe" records
+            the verdict in the access log without blocking.
     PasswordAuthConfig:
       type: object
       properties:
@@ -3528,6 +3552,10 @@ components:
           type: boolean
           description: Whether all active proxies in the cluster have CrowdSec configured
           example: false
+        supports_appsec:
+          type: boolean
+          description: Whether all active proxies in the cluster have a CrowdSec AppSec (WAF) endpoint configured
+          example: false
         private:
           type: boolean
           description: True when at least one connected proxy in this cluster is running embedded in a netbird client (`netbird proxy`) and serving over a WireGuard tunnel. Lets the dashboard distinguish per-peer / private clusters from centralised ones.
@@ -3586,6 +3614,10 @@ components:
         supports_crowdsec:
           type: boolean
           description: Whether the proxy cluster has CrowdSec configured
+          example: false
+        supports_appsec:
+          type: boolean
+          description: Whether the proxy cluster has a CrowdSec AppSec (WAF) endpoint configured
           example: false
         supports_private:
           type: boolean

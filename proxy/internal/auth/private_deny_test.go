@@ -121,7 +121,7 @@ func newPrivateMiddleware(t *testing.T, validator SessionValidator, ipRestrictio
 	t.Helper()
 	mw := NewMiddleware(log.StandardLogger(), validator, nil)
 	kp := generateTestKeyPair(t)
-	require.NoError(t, mw.AddDomain(testServerHost, nil, kp.PublicKey, time.Hour, "acct-1", "svc-1", ipRestrictions, true, nil))
+	require.NoError(t, mw.AddDomain(testServerHost, DomainSettings{SessionPublicKey: kp.PublicKey, SessionExpiration: time.Hour, AccountID: "acct-1", ServiceID: "svc-1", IPRestrictions: ipRestrictions, Private: true}))
 	return mw
 }
 
@@ -203,7 +203,7 @@ func TestPrivateAllow_KeepsConnection(t *testing.T) {
 func TestPublicDeny_KeepsConnection(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
 	filter := restrict.ParseFilter(restrict.FilterConfig{AllowedCIDRs: []string{"10.0.0.0/8"}})
-	require.NoError(t, mw.AddDomain(testServerHost, nil, "", 0, "acct-1", "svc-1", filter, false, nil))
+	require.NoError(t, mw.AddDomain(testServerHost, DomainSettings{AccountID: "acct-1", ServiceID: "svc-1", IPRestrictions: filter}))
 	srv := startProtectedServer(t, mw, netip.MustParseAddr("192.168.1.1"), nil, false)
 	client := srv.Client()
 
@@ -247,7 +247,7 @@ func TestCheckIPRestrictions_PrivateDenialClosesConnection(t *testing.T) {
 func TestCheckIPRestrictions_PublicDenialKeepsConnection(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
 	filter := restrict.ParseFilter(restrict.FilterConfig{AllowedCIDRs: []string{"10.0.0.0/8"}})
-	require.NoError(t, mw.AddDomain(testServerHost, nil, "", 0, "acct-1", "svc-1", filter, false, nil))
+	require.NoError(t, mw.AddDomain(testServerHost, DomainSettings{AccountID: "acct-1", ServiceID: "svc-1", IPRestrictions: filter}))
 	handler := mw.Protect(newPassthroughHandler())
 
 	tests := []struct {
