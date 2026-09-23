@@ -4,6 +4,7 @@ package server
 
 import (
 	"encoding/binary"
+	"image"
 	"unsafe"
 )
 
@@ -50,5 +51,22 @@ func swizzleBGRAtoRGBABytes(dst, src []byte) {
 		s := src[i : i+4 : i+4]
 		d := dst[i : i+4 : i+4]
 		d[0], d[1], d[2], d[3] = s[2], s[1], s[0], 0xFF
+	}
+}
+
+// swizzleBGRAIntoImage converts a tightly packed w x h BGRA source into dst.
+// dst may be any image.RGBA of that size, including one whose rows are padded
+// (a SubImage, or a buffer allocated with a wider stride): swizzleBGRAtoRGBA on
+// dst.Pix as a whole would then write pixel data into the padding and shift
+// every row after the first. A packed dst still takes the single-pass path.
+func swizzleBGRAIntoImage(dst *image.RGBA, src []byte, w, h int) {
+	rowBytes := w * 4
+	if dst.Stride == rowBytes {
+		swizzleBGRAtoRGBA(dst.Pix[:rowBytes*h], src[:rowBytes*h])
+		return
+	}
+	for y := 0; y < h; y++ {
+		d := dst.Pix[y*dst.Stride : y*dst.Stride+rowBytes]
+		swizzleBGRAtoRGBA(d, src[y*rowBytes:(y+1)*rowBytes])
 	}
 }

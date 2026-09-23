@@ -54,7 +54,10 @@ func NewFBCapturer(path string) (*FBCapturer, error) {
 	if path == "" {
 		path = defaultFBPath()
 	}
-	fd, err := unix.Open(path, unix.O_RDWR, 0)
+	// Read-only is all capture needs: FBIOGTYPE and a PROT_READ mapping both
+	// work on it, and asking for write access fails on a deployment that only
+	// granted the service read access to the console device.
+	fd, err := unix.Open(path, unix.O_RDONLY, 0)
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
@@ -79,13 +82,13 @@ func NewFBCapturer(path string) (*FBCapturer, error) {
 		return nil, fmt.Errorf("mmap %s: %w (vt may not support mmap on this driver, e.g. virtio_gpu)", path, err)
 	}
 
-	bpp := int(fbt.FbDepth)
 	stride, err := freebsdFBStride(fbt)
 	if err != nil {
 		_ = unix.Munmap(mm)
 		unix.Close(fd)
 		return nil, err
 	}
+	bpp := freebsdStorageBits(fbt, stride)
 	c := &FBCapturer{
 		path:   path,
 		fd:     fd, // valid fd >= 0; we use -1 as the closed sentinel
@@ -97,6 +100,20 @@ func NewFBCapturer(path string) (*FBCapturer, error) {
 	}
 	log.Infof("framebuffer capturer ready: %s %dx%d bpp=%d (freebsd vt)", path, c.w, c.h, c.bpp)
 	return c, nil
+}
+
+// freebsdStorageBits returns how many bits each pixel occupies in memory,
+// which is not what fb_depth reports. fb_depth is the colour depth: a KMS
+// framebuffer is depth 24 stored as 32-bit XRGB, and decoding that with the
+// packed 24-bit path reads every row at three-quarters of its real width and
+// corrupts the whole screen. fbtype carries no storage field, so the row pitch
+// decides: a depth-24 row wide enough for four bytes per pixel is 32-bit
+// storage, anything narrower is packed.
+func freebsdStorageBits(fbt fbType, stride int) int {
+	if fbt.FbDepth == 24 && stride >= int(fbt.FbWidth)*4 {
+		return 32
+	}
+	return int(fbt.FbDepth)
 }
 
 // freebsdFBStride returns the framebuffer's row pitch in bytes.

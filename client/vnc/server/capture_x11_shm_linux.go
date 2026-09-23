@@ -86,7 +86,7 @@ func (c *X11Capturer) captureSHMInto(dst *image.RGBA) error {
 	if err := c.fillSHM(); err != nil {
 		return err
 	}
-	swizzleBGRAtoRGBA(dst.Pix, c.shmAddr[:c.w*c.h*4])
+	swizzleBGRAIntoImage(dst, c.shmAddr[:c.w*c.h*4], c.w, c.h)
 	return nil
 }
 

@@ -6,54 +6,29 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
-// The row pitch decides where every row after the first begins, so getting it
-// from the reported width instead of the mapping shears the whole image on any
-// device that pads its rows.
-func TestFreebsdFBStride(t *testing.T) {
+// fb_depth is colour depth, not storage: a KMS console is depth 24 stored as
+// 32-bit XRGB, and decoding it as packed 24-bit reads every row at the wrong
+// width. The row pitch decides which it is.
+func TestFreebsdStorageBits(t *testing.T) {
 	tests := []struct {
-		name    string
-		fbt     fbType
-		want    int
-		wantErr bool
+		name   string
+		depth  int32
+		width  int32
+		stride int
+		want   int
 	}{
-		{
-			name: "unpadded 32bpp",
-			fbt:  fbType{FbWidth: 1920, FbHeight: 1080, FbDepth: 32, FbSize: 1920 * 4 * 1080},
-			want: 1920 * 4,
-		},
-		{
-			name: "row padded up to an alignment",
-			fbt:  fbType{FbWidth: 1366, FbHeight: 768, FbDepth: 32, FbSize: 5504 * 768},
-			want: 5504, // 1366*4 = 5464, padded to 5504
-		},
-		{
-			name: "unpadded 16bpp",
-			fbt:  fbType{FbWidth: 800, FbHeight: 600, FbDepth: 16, FbSize: 800 * 2 * 600},
-			want: 800 * 2,
-		},
-		{
-			// A mapping too small for the geometry it reports: reading rows at
-			// the reported width would run off the end of it.
-			name:    "size cannot hold the geometry",
-			fbt:     fbType{FbWidth: 1920, FbHeight: 1080, FbDepth: 32, FbSize: 1920 * 4 * 500},
-			wantErr: true,
-		},
+		{"depth 24 in 32-bit pixels", 24, 1024, 4096, 32},
+		{"depth 24 in 32-bit pixels with padding", 24, 1000, 4096, 32},
+		{"packed depth 24", 24, 1024, 3072, 24},
+		{"depth 32", 32, 1024, 4096, 32},
+		{"depth 16", 16, 1024, 2048, 16},
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := freebsdFBStride(tt.fbt)
-			if tt.wantErr {
-				require.Error(t, err)
-				return
-			}
-			require.NoError(t, err)
-			assert.Equal(t, tt.want, got)
-			assert.GreaterOrEqual(t, got, int(tt.fbt.FbWidth)*(int(tt.fbt.FbDepth)/8),
-				"the pitch can pad a row but never truncate it")
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := freebsdStorageBits(fbType{FbDepth: tc.depth, FbWidth: tc.width}, tc.stride)
+			assert.Equal(t, tc.want, got, "storage bits per pixel")
 		})
 	}
 }

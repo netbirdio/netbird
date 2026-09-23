@@ -435,7 +435,7 @@ func NewX11Capturer(display, cookieHex string) (*X11Capturer, error) {
 	}
 	screen := setup.Roots[0]
 
-	if err := checkPixmapFormat(setup, screen.RootDepth); err != nil {
+	if err := checkPixmapFormat(setup, &screen); err != nil {
 		conn.Close()
 		return nil, err
 	}
@@ -457,13 +457,29 @@ func NewX11Capturer(display, cookieHex string) (*X11Capturer, error) {
 
 // checkPixmapFormat rejects a screen whose pixels this capturer cannot decode.
 // GetImage returns ZPixmap data in the server's pixmap format for the screen's
-// depth, and both the SHM and GetImage paths read it as 8-bit-per-channel BGRA.
-// A 16-bpp screen, a packed 24-bpp one, or a 30-bit deep-colour one would
-// otherwise pass startup and fail on every frame instead.
-func checkPixmapFormat(setup *xproto.SetupInfo, depth byte) error {
+// depth, and both the SHM and GetImage paths read it as 8-bit-per-channel BGRA:
+// blue in the first byte of each pixel. That needs three things to hold, and a
+// screen failing any of them would pass startup and then deliver every frame
+// with wrong colours or garbage instead: 32 bits per pixel at depth 24 or 32,
+// least-significant-byte-first image order, and a root visual whose masks put
+// red, green and blue in the second, third and fourth bytes from the top.
+func checkPixmapFormat(setup *xproto.SetupInfo, screen *xproto.ScreenInfo) error {
+	depth := screen.RootDepth
 	if depth != 24 && depth != 32 {
 		return fmt.Errorf("unsupported X11 root depth %d, need 24 or 32", depth)
 	}
+	if err := checkPixmapBitsPerPixel(setup, depth); err != nil {
+		return err
+	}
+	if setup.ImageByteOrder != xproto.ImageOrderLSBFirst {
+		return fmt.Errorf("unsupported X11 image byte order %d, need LSB first", setup.ImageByteOrder)
+	}
+	return checkRootVisualMasks(screen)
+}
+
+// checkPixmapBitsPerPixel requires the pixmap format for depth to store 32
+// bits per pixel.
+func checkPixmapBitsPerPixel(setup *xproto.SetupInfo, depth byte) error {
 	for _, f := range setup.PixmapFormats {
 		if f.Depth != depth {
 			continue
@@ -475,6 +491,24 @@ func checkPixmapFormat(setup *xproto.SetupInfo, depth byte) error {
 		return nil
 	}
 	return fmt.Errorf("no X11 pixmap format for root depth %d", depth)
+}
+
+// checkRootVisualMasks requires the root visual to be 0xRRGGBB, which in an
+// LSB-first 32-bit pixel is the B, G, R byte order the decoder reads.
+func checkRootVisualMasks(screen *xproto.ScreenInfo) error {
+	for _, d := range screen.AllowedDepths {
+		for _, v := range d.Visuals {
+			if v.VisualId != screen.RootVisual {
+				continue
+			}
+			if v.RedMask != 0xff0000 || v.GreenMask != 0x00ff00 || v.BlueMask != 0x0000ff {
+				return fmt.Errorf("unsupported X11 root visual masks r=%#x g=%#x b=%#x, need 0xff0000/0xff00/0xff",
+					v.RedMask, v.GreenMask, v.BlueMask)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("X11 root visual %d not found among the screen's visuals", screen.RootVisual)
 }
 
 // initSHM is implemented in capture_x11_shm_linux.go (requires SysV SHM).
@@ -527,7 +561,7 @@ func (c *X11Capturer) captureGetImageInto(dst *image.RGBA) error {
 	if len(reply.Data) < n {
 		return fmt.Errorf("GetImage returned %d bytes, expected %d", len(reply.Data), n)
 	}
-	swizzleBGRAtoRGBA(dst.Pix, reply.Data)
+	swizzleBGRAIntoImage(dst, reply.Data, c.w, c.h)
 	return nil
 }
 
@@ -657,6 +691,9 @@ func (p *X11Poller) Close() {
 		p.capturer.Close()
 		p.capturer = nil
 	}
+	// The cache would otherwise keep answering Capture for freshWindow after
+	// shutdown, with a picture of a desktop this poller no longer watches.
+	p.lastFrame = nil
 }
 
 // Width returns the screen width. Triggers lazy init if needed.
