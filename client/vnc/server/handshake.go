@@ -224,13 +224,13 @@ func (s *Server) maybeRunNoiseHandshake(conn net.Conn, magic [4]byte, headerMode
 }
 
 // verifyAgentToken runs the agent's half of the mutual challenge-response with
-// the daemon when a token is configured, and reports the view-only flag the
-// daemon authenticated. Returns (ok, viewOnly). ok=false closes the connection.
-func (s *Server) verifyAgentToken(conn net.Conn, connLog *log.Entry) (bool, bool) {
+// the daemon when a token is configured, and reports the grant the daemon
+// authenticated. Returns (ok, grant). ok=false closes the connection.
+func (s *Server) verifyAgentToken(conn net.Conn, connLog *log.Entry) (bool, agentGrant) {
 	if len(s.agentToken) == 0 {
-		return true, false
+		return true, agentGrant{}
 	}
-	viewOnly, err := agentServerHandshake(conn, s.agentToken)
+	grant, err := agentServerHandshake(conn, s.agentToken)
 	if err != nil {
 		if isProbeDisconnect(err) {
 			connLog.Tracef("agent auth: %v", err)
@@ -238,9 +238,9 @@ func (s *Server) verifyAgentToken(conn net.Conn, connLog *log.Entry) (bool, bool
 			connLog.Warnf("agent auth: %v", err)
 		}
 		conn.Close()
-		return false, false
+		return false, agentGrant{}
 	}
-	return true, viewOnly
+	return true, grant
 }
 
 // authorizeSession runs the Noise_IK handshake when auth is enabled.

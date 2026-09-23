@@ -176,7 +176,8 @@ func proxyToAgent(ctx context.Context, client net.Conn, socketPath, authToken st
 		return fmt.Errorf("agent peer validation failed: %w", err)
 	}
 
-	if err := agentClientHandshake(agentConn, tokenBytes, viewOnly); err != nil {
+	grant := agentGrant{viewOnly: viewOnly, peerAddr: client.RemoteAddr().String()}
+	if err := agentClientHandshake(agentConn, tokenBytes, grant); err != nil {
 		_ = agentConn.Close()
 		return fmt.Errorf("agent handshake: %w", err)
 	}

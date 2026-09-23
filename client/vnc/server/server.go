@@ -1065,9 +1065,9 @@ func (s *Server) validateCapturer(capturer ScreenCapturer) error {
 // and from the local WireGuard IP (prevents local privilege escalation).
 // Matches the SSH server's connectionValidator logic.
 func (s *Server) isAllowedSource(addr net.Addr) bool {
-	// Unix-socket remotes (the agent path) are local IPC, gated by the
-	// token, not by overlay membership.
-	if _, ok := addr.(*net.UnixAddr); ok {
+	// Unix-socket and named-pipe remotes (the agent path) are local IPC,
+	// gated by the token, not by overlay membership.
+	if isLocalIPCAddr(addr) {
 		return true
 	}
 	tcpAddr, ok := addr.(*net.TCPAddr)
@@ -1115,7 +1115,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 		_ = conn.Close()
 		return
 	}
-	ok, agentViewOnly := s.verifyAgentToken(conn, connLog)
+	ok, grant := s.verifyAgentToken(conn, connLog)
 	if !ok {
 		// Reported there already, at a level that tells a liveness probe apart
 		// from a bad token. The daemon dials the agent socket to wait for it to
@@ -1124,6 +1124,10 @@ func (s *Server) handleConnection(conn net.Conn) {
 		connLog.Debug("VNC connection rejected: agent token check failed")
 		return
 	}
+	// Behind the daemon the accepted address is only the local socket; the
+	// remote peer is the one the daemon vouched for in the grant.
+	conn = withGrantPeer(conn, grant)
+	connLog = s.log.WithField("remote", conn.RemoteAddr().String())
 	header, err := s.readConnectionHeader(conn)
 	if err != nil {
 		connLog.Infof("VNC connection rejected: header read failed: %v", err)
@@ -1205,7 +1209,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 		serverW:  w,
 		serverH:  h,
 		log:      connLog,
-		viewOnly: decision.ViewOnly || agentViewOnly,
+		viewOnly: decision.ViewOnly || grant.viewOnly,
 	}
 	sess.serve()
 	connLog.Infof("VNC connection closed (%dms)", time.Since(start).Milliseconds())
@@ -1365,4 +1369,14 @@ func acceptRetryable(err error) bool {
 	return slices.ContainsFunc(retryable, func(errno syscall.Errno) bool {
 		return errors.Is(err, errno)
 	})
+}
+
+// isLocalIPCAddr reports whether addr belongs to a local IPC transport: a
+// Unix-domain socket, or a Windows named pipe (go-winio names its network
+// "pipe").
+func isLocalIPCAddr(addr net.Addr) bool {
+	if _, ok := addr.(*net.UnixAddr); ok {
+		return true
+	}
+	return addr != nil && addr.Network() == "pipe"
 }

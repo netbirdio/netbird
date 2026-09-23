@@ -183,8 +183,6 @@ type fbRequest struct {
 	incremental bool
 }
 
-func (s *session) addr() string { return s.conn.RemoteAddr().String() }
-
 // lockWrite takes writeMu and arms the write deadline for the writes that
 // follow, returning the unlock. Every server-to-client write goes through it,
 // so no write can outlive writeDeadline.
@@ -205,10 +203,10 @@ func (s *session) serve() {
 	s.encodeCh = make(chan fbRequest, 1)
 
 	if err := s.handshake(); err != nil {
-		s.log.Warnf("handshake with %s: %v", s.addr(), err)
+		s.log.Warnf("RFB handshake: %v", err)
 		return
 	}
-	s.log.Infof("client connected: %s", s.addr())
+	s.log.Info("client connected")
 
 	// View-only clients can't move the pointer, so default to compositing
 	// the host cursor into the framebuffer. The client can still send
@@ -246,9 +244,9 @@ func (s *session) serve() {
 	// messageLoop only ever returns an error, so the interesting question is
 	// which one: a clean client disconnect is io.EOF and not worth a warning.
 	if err := s.messageLoop(); !errors.Is(err, io.EOF) {
-		s.log.Warnf("client %s disconnected: %v", s.addr(), err)
+		s.log.Warnf("client disconnected: %v", err)
 	} else {
-		s.log.Infof("client disconnected: %s", s.addr())
+		s.log.Info("client disconnected")
 	}
 }
 

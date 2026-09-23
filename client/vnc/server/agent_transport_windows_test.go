@@ -64,6 +64,43 @@ func TestAgentPipePeerPID(t *testing.T) {
 	assert.Error(t, validateAgentPeer(conn, 0), "unknown PID must fail closed")
 }
 
+// The agent's server runs its source check on the accepted pipe connection's
+// remote address, so that address must count as local IPC.
+func TestAgentPipeRemoteAddrIsAllowedSource(t *testing.T) {
+	path, err := newAgentPipePath(0)
+	require.NoError(t, err)
+	ln, err := listenAgentPipe(path, testPipeSDDL)
+	if errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+		t.Skip("creating a pipe under ProtectedPrefix needs administrator rights")
+	}
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			close(accepted)
+			return
+		}
+		accepted <- c
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	client, err := dialAgent(ctx, path)
+	require.NoError(t, err)
+	defer client.Close()
+
+	server, ok := <-accepted
+	require.True(t, ok, "accept must succeed")
+	defer server.Close()
+
+	srv := New(Config{Capturer: &testCapturer{}, Injector: &StubInputInjector{}})
+	assert.True(t, srv.isAllowedSource(server.RemoteAddr()),
+		"pipe remote %T must pass the source check", server.RemoteAddr())
+}
+
 // A second listener on the same name must fail, so an agent never serves a
 // pipe name some other process created first.
 func TestAgentPipeRefusesExistingName(t *testing.T) {

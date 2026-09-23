@@ -295,7 +295,7 @@ func TestAgentToken_MismatchClosesConnection(t *testing.T) {
 	require.NoError(t, conn.SetDeadline(time.Now().Add(10*time.Second)))
 
 	// Answer the agent's challenge with a tag derived from the wrong token.
-	if err := agentClientHandshake(conn, bytes.Repeat([]byte{0xff}, agentTokenLen), false); err != nil {
+	if err := agentClientHandshake(conn, bytes.Repeat([]byte{0xff}, agentTokenLen), agentGrant{}); err != nil {
 		// Expected: the server rejects and closes. The read below confirms it
 		// never reached the greeting.
 		_ = err
@@ -335,7 +335,8 @@ func TestAgentToken_MatchAllowsHandshake(t *testing.T) {
 	defer conn.Close()
 	require.NoError(t, conn.SetDeadline(time.Now().Add(10*time.Second)))
 
-	require.NoError(t, agentClientHandshake(conn, token, false))
+	const peer = "100.64.0.7:51234"
+	require.NoError(t, agentClientHandshake(conn, token, agentGrant{peerAddr: peer}))
 	// Re-armed because the handshake clears it on the way out.
 	require.NoError(t, conn.SetDeadline(time.Now().Add(10*time.Second)))
 
@@ -350,6 +351,12 @@ func TestAgentToken_MatchAllowsHandshake(t *testing.T) {
 	_, err = io.ReadFull(conn, version[:])
 	require.NoError(t, err, "server must keep the connection open after a valid agent token")
 	assert.Equal(t, "RFB 003.008\n", string(version[:]))
+
+	// The session is registered before the greeting goes out, and must carry
+	// the peer the daemon vouched for rather than the socket it came in on.
+	sessions := srv.ActiveSessions()
+	require.Len(t, sessions, 1, "one session must be active")
+	assert.Equal(t, peer, sessions[0].RemoteAddress, "the session must report the grant's peer")
 }
 
 func TestSessionMode_RejectedWhenNoVMGR(t *testing.T) {

@@ -14,7 +14,14 @@ import (
 
 // runHandshake drives both halves over an in-memory pipe and returns what each
 // side concluded.
-func runHandshake(t *testing.T, daemonToken, agentToken []byte, viewOnly bool) (daemonErr error, gotViewOnly bool, agentErr error) {
+func runHandshake(t *testing.T, daemonToken, agentToken []byte, grant agentGrant) (daemonErr error, got agentGrant, agentErr error) {
+	t.Helper()
+	return runHandshakeOver(t, daemonToken, agentToken, grant, func(c net.Conn) net.Conn { return c })
+}
+
+// runHandshakeOver is runHandshake with the daemon's end of the connection
+// wrapped, so a test can interfere with what the daemon sends.
+func runHandshakeOver(t *testing.T, daemonToken, agentToken []byte, grant agentGrant, wrap func(net.Conn) net.Conn) (daemonErr error, got agentGrant, agentErr error) {
 	t.Helper()
 
 	daemonSide, agentSide := net.Pipe()
@@ -24,34 +31,61 @@ func runHandshake(t *testing.T, daemonToken, agentToken []byte, viewOnly bool) (
 	})
 
 	type agentResult struct {
-		viewOnly bool
-		err      error
+		grant agentGrant
+		err   error
 	}
 	agentDone := make(chan agentResult, 1)
 	go func() {
-		v, err := agentServerHandshake(agentSide, agentToken)
+		g, err := agentServerHandshake(agentSide, agentToken)
 		if err != nil {
 			// What the agent's caller does on rejection, so the daemon sees the
 			// close rather than waiting out its own deadline.
 			_ = agentSide.Close()
 		}
-		agentDone <- agentResult{v, err}
+		agentDone <- agentResult{g, err}
 	}()
 
-	daemonErr = agentClientHandshake(daemonSide, daemonToken, viewOnly)
+	daemonErr = agentClientHandshake(wrap(daemonSide), daemonToken, grant)
 	res := <-agentDone
-	return daemonErr, res.viewOnly, res.err
+	return daemonErr, res.grant, res.err
 }
 
 func TestAgentHandshake_MatchingTokens(t *testing.T) {
 	token := bytes.Repeat([]byte{0xA5}, agentTokenLen)
 
-	for _, viewOnly := range []bool{false, true} {
-		dErr, gotViewOnly, aErr := runHandshake(t, token, token, viewOnly)
+	for _, grant := range []agentGrant{
+		{viewOnly: false, peerAddr: "100.64.0.7:51234"},
+		{viewOnly: true, peerAddr: "[fd00:1234::2]:5900"},
+		{viewOnly: false, peerAddr: ""},
+	} {
+		dErr, got, aErr := runHandshake(t, token, token, grant)
 		require.NoError(t, dErr)
 		require.NoError(t, aErr)
-		assert.Equal(t, viewOnly, gotViewOnly, "the agent must see the flag the daemon authenticated")
+		assert.Equal(t, grant, got, "the agent must see the grant the daemon authenticated")
 	}
+}
+
+// The peer address is covered by the daemon's tag, so rewriting it in flight
+// fails the handshake instead of misattributing the session.
+func TestAgentHandshake_TamperedPeerAddrIsRefused(t *testing.T) {
+	token := bytes.Repeat([]byte{0x5A}, agentTokenLen)
+	grant := agentGrant{peerAddr: "100.64.0.7:51234"}
+
+	_, _, aErr := runHandshakeOver(t, token, token, grant, func(c net.Conn) net.Conn {
+		return &rewriteConn{Conn: c, from: []byte("100.64.0.7"), to: []byte("100.64.0.9")}
+	})
+	require.Error(t, aErr)
+	assert.Contains(t, aErr.Error(), "did not prove it holds the session token")
+}
+
+func TestAgentHandshake_OversizedPeerAddrIsRefused(t *testing.T) {
+	token := bytes.Repeat([]byte{0x6B}, agentTokenLen)
+	daemonSide, agentSide := net.Pipe()
+	defer daemonSide.Close()
+	defer agentSide.Close()
+
+	err := agentClientHandshake(daemonSide, token, agentGrant{peerAddr: string(bytes.Repeat([]byte{'a'}, maxAgentPeerAddrLen+1))})
+	require.Error(t, err, "an address longer than the length byte can carry must not be truncated silently")
 }
 
 // The point of the exchange: an impostor listening on the socket without the
@@ -60,7 +94,7 @@ func TestAgentHandshake_ImpostorAgentIsRefused(t *testing.T) {
 	daemonToken := bytes.Repeat([]byte{0x01}, agentTokenLen)
 	impostorToken := bytes.Repeat([]byte{0x02}, agentTokenLen)
 
-	dErr, _, aErr := runHandshake(t, daemonToken, impostorToken, false)
+	dErr, _, aErr := runHandshake(t, daemonToken, impostorToken, agentGrant{})
 	require.Error(t, aErr, "the impostor cannot verify the daemon's tag")
 	require.Error(t, dErr, "the daemon must not proceed against an unproven peer")
 }
@@ -71,7 +105,7 @@ func TestAgentHandshake_ImpostorDaemonIsRefused(t *testing.T) {
 	agentToken := bytes.Repeat([]byte{0x03}, agentTokenLen)
 	impostorToken := bytes.Repeat([]byte{0x04}, agentTokenLen)
 
-	_, _, aErr := runHandshake(t, impostorToken, agentToken, false)
+	_, _, aErr := runHandshake(t, impostorToken, agentToken, agentGrant{})
 	require.Error(t, aErr)
 	assert.Contains(t, aErr.Error(), "did not prove it holds the session token")
 }
@@ -96,7 +130,7 @@ func TestAgentHandshake_TokenNeverSent(t *testing.T) {
 		_, _ = agentServerHandshake(&teeConn{Conn: agentSide, mu: &mu, read: &wire, written: &wire}, token)
 	}()
 
-	require.NoError(t, agentClientHandshake(daemonSide, token, false))
+	require.NoError(t, agentClientHandshake(daemonSide, token, agentGrant{}))
 	<-done
 	mu.Lock()
 	defer mu.Unlock()
@@ -150,4 +184,15 @@ func (c *teeConn) Write(b []byte) (int, error) {
 		c.mu.Unlock()
 	}
 	return n, err
+}
+
+// rewriteConn replaces the first occurrence of from with to in what is written,
+// standing in for something on the socket altering the daemon's bytes.
+type rewriteConn struct {
+	net.Conn
+	from, to []byte
+}
+
+func (c *rewriteConn) Write(b []byte) (int, error) {
+	return c.Conn.Write(bytes.Replace(b, c.from, c.to, 1))
 }

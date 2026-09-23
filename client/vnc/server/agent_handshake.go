@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
+	"slices"
 	"syscall"
 	"time"
 
@@ -43,6 +45,10 @@ const (
 	// agentHandshakeTimeout bounds the whole exchange. Both ends are local
 	// processes, so this only has to cover scheduling, never a network.
 	agentHandshakeTimeout = 5 * time.Second
+
+	// maxAgentPeerAddrLen is the longest peer address the grant can carry; its
+	// length travels as one byte.
+	maxAgentPeerAddrLen = 255
 )
 
 // Domain separation, so a tag one side produces can never be replayed as the
@@ -62,13 +68,38 @@ func agentMAC(token, label []byte, parts ...[]byte) []byte {
 	return mac.Sum(nil)
 }
 
+// agentGrant is what the daemon authenticates to the agent for one proxied
+// connection: whether it is view-only, and the address of the remote peer the
+// daemon accepted, which the agent otherwise only sees as the local socket.
+type agentGrant struct {
+	viewOnly bool
+	peerAddr string
+}
+
+// encode renders the grant as the bytes the daemon's tag covers: the view-only
+// byte, a one-byte address length, then the address.
+func (g agentGrant) encode() ([]byte, error) {
+	if len(g.peerAddr) > maxAgentPeerAddrLen {
+		return nil, fmt.Errorf("peer address of %d bytes exceeds %d", len(g.peerAddr), maxAgentPeerAddrLen)
+	}
+	b := make([]byte, 0, 2+len(g.peerAddr))
+	b = append(b, viewOnlyByte(g.viewOnly)...)
+	b = append(b, byte(len(g.peerAddr)))
+	return append(b, g.peerAddr...), nil
+}
+
 // agentClientHandshake runs the daemon's half against a freshly dialled agent
 // connection: read the agent's challenge, answer it, then challenge the agent
 // back and check its answer before any session bytes are proxied.
 //
-// viewOnly travels inside the daemon's tag, so an impostor cannot flip a
-// read-only session into a controlling one by rewriting the byte in flight.
-func agentClientHandshake(conn net.Conn, token []byte, viewOnly bool) error {
+// The grant travels inside the daemon's tag, so an impostor cannot flip a
+// read-only session into a controlling one, or change the reported peer, by
+// rewriting bytes in flight.
+func agentClientHandshake(conn net.Conn, token []byte, grant agentGrant) error {
+	payload, err := grant.encode()
+	if err != nil {
+		return err
+	}
 	if err := conn.SetDeadline(time.Now().Add(agentHandshakeTimeout)); err != nil {
 		return fmt.Errorf("set handshake deadline: %w", err)
 	}
@@ -88,11 +119,10 @@ func agentClientHandshake(conn net.Conn, token []byte, viewOnly bool) error {
 		return fmt.Errorf("read random: %w", err)
 	}
 
-	flag := viewOnlyByte(viewOnly)
-	reply := make([]byte, 0, agentMACLen+agentNonceLen+1)
-	reply = append(reply, agentMAC(token, agentDaemonLabel, agentNonce, flag)...)
+	reply := make([]byte, 0, agentMACLen+agentNonceLen+len(payload))
+	reply = append(reply, agentMAC(token, agentDaemonLabel, agentNonce, payload)...)
 	reply = append(reply, daemonNonce...)
-	reply = append(reply, flag...)
+	reply = append(reply, payload...)
 	if _, err := conn.Write(reply); err != nil {
 		return fmt.Errorf("send handshake response: %w", err)
 	}
@@ -109,10 +139,11 @@ func agentClientHandshake(conn net.Conn, token []byte, viewOnly bool) error {
 }
 
 // agentServerHandshake runs the agent's half against an accepted connection,
-// returning the view-only flag the daemon authenticated.
-func agentServerHandshake(conn net.Conn, token []byte) (bool, error) {
+// returning the grant the daemon authenticated.
+func agentServerHandshake(conn net.Conn, token []byte) (agentGrant, error) {
+	var none agentGrant
 	if err := conn.SetDeadline(time.Now().Add(agentHandshakeTimeout)); err != nil {
-		return false, fmt.Errorf("set handshake deadline: %w", err)
+		return none, fmt.Errorf("set handshake deadline: %w", err)
 	}
 	defer func() {
 		if err := conn.SetDeadline(time.Time{}); err != nil {
@@ -122,29 +153,33 @@ func agentServerHandshake(conn net.Conn, token []byte) (bool, error) {
 
 	agentNonce := make([]byte, agentNonceLen)
 	if _, err := rand.Read(agentNonce); err != nil {
-		return false, fmt.Errorf("read random: %w", err)
+		return none, fmt.Errorf("read random: %w", err)
 	}
 	if _, err := conn.Write(agentNonce); err != nil {
-		return false, fmt.Errorf("send challenge: %w", err)
+		return none, fmt.Errorf("send challenge: %w", err)
 	}
 
-	buf := make([]byte, agentMACLen+agentNonceLen+1)
-	if _, err := io.ReadFull(conn, buf); err != nil {
-		return false, fmt.Errorf("read daemon response: %w", err)
+	head := make([]byte, agentMACLen+agentNonceLen+2)
+	if _, err := io.ReadFull(conn, head); err != nil {
+		return none, fmt.Errorf("read daemon response: %w", err)
 	}
-	daemonTag := buf[:agentMACLen]
-	daemonNonce := buf[agentMACLen : agentMACLen+agentNonceLen]
-	flag := buf[agentMACLen+agentNonceLen:]
+	daemonTag := head[:agentMACLen]
+	daemonNonce := head[agentMACLen : agentMACLen+agentNonceLen]
+	addr := make([]byte, head[len(head)-1])
+	if _, err := io.ReadFull(conn, addr); err != nil {
+		return none, fmt.Errorf("read daemon response: %w", err)
+	}
+	payload := slices.Concat(head[agentMACLen+agentNonceLen:], addr)
 
-	want := agentMAC(token, agentDaemonLabel, agentNonce, flag)
+	want := agentMAC(token, agentDaemonLabel, agentNonce, payload)
 	if subtle.ConstantTimeCompare(daemonTag, want) != 1 {
-		return false, fmt.Errorf("caller did not prove it holds the session token")
+		return none, fmt.Errorf("caller did not prove it holds the session token")
 	}
 
 	if _, err := conn.Write(agentMAC(token, agentAgentLabel, daemonNonce)); err != nil {
-		return false, fmt.Errorf("send response: %w", err)
+		return none, fmt.Errorf("send response: %w", err)
 	}
-	return flag[0] != 0, nil
+	return agentGrant{viewOnly: payload[0] != 0, peerAddr: string(addr)}, nil
 }
 
 // isProbeDisconnect reports whether err is a peer that connected and left
@@ -169,7 +204,7 @@ func isProbeDisconnect(err error) bool {
 	case errors.Is(err, syscall.EPIPE), errors.Is(err, syscall.ECONNRESET):
 		return true
 	default:
-		return false
+		return isPipeDisconnect(err)
 	}
 }
 
@@ -179,4 +214,29 @@ func viewOnlyByte(viewOnly bool) []byte {
 		return []byte{1}
 	}
 	return []byte{0}
+}
+
+// peerAddrConn reports the remote peer the daemon authenticated in the grant
+// as the connection's remote address, in place of the local socket the agent
+// actually accepted on.
+type peerAddrConn struct {
+	net.Conn
+	remote net.Addr
+}
+
+func (c *peerAddrConn) RemoteAddr() net.Addr { return c.remote }
+
+// withGrantPeer wraps conn so RemoteAddr returns the grant's peer address. A
+// grant without a parseable address leaves conn as it is.
+func withGrantPeer(conn net.Conn, grant agentGrant) net.Conn {
+	if grant.peerAddr == "" {
+		return conn
+	}
+	ap, err := netip.ParseAddrPort(grant.peerAddr)
+	if err != nil {
+		log.Debugf("agent grant peer address %q: %v", grant.peerAddr, err)
+		return conn
+	}
+	ap = netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port())
+	return &peerAddrConn{Conn: conn, remote: net.TCPAddrFromAddrPort(ap)}
 }
