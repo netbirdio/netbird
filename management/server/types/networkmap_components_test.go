@@ -181,6 +181,20 @@ func TestNetworkMapComponents_NetworkResourceRoutes_RouterPeer(t *testing.T) {
 func TestNetworkMapComponents_SkipRouteFirewallRules(t *testing.T) {
 	ctx := context.Background()
 	account := createComponentTestAccount()
+
+	// The shared fixture leaves peer-router-1 out of every peer ACL, so its
+	// FirewallRules would be empty and the comparison below vacuous. Give the
+	// router a policy of its own.
+	account.Policies = append(account.Policies, &types.Policy{
+		ID: "policy-router", Name: "Router connectivity", Enabled: true,
+		Rules: []*types.PolicyRule{{
+			ID: "rule-router", Name: "Allow all <-> router", Enabled: true,
+			Action: types.PolicyTrafficActionAccept, Protocol: types.PolicyRuleProtocolALL,
+			Bidirectional: true,
+			Sources:       []string{"group-all"}, Destinations: []string{"group-all"},
+		}},
+	})
+
 	validated := allPeersValidated(account)
 
 	components := account.GetPeerNetworkMapComponents(
@@ -196,6 +210,7 @@ func TestNetworkMapComponents_SkipRouteFirewallRules(t *testing.T) {
 
 	full := components.Calculate(ctx)
 	require.NotEmpty(t, full.RoutesFirewallRules, "baseline: router peer must get route firewall rules")
+	require.NotEmpty(t, full.FirewallRules, "baseline: router peer must get peer firewall rules")
 
 	components.SkipRouteFirewallRules = true
 	skipped := components.Calculate(ctx)
