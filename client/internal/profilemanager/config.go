@@ -198,6 +198,11 @@ type Config struct {
 
 	MTU uint16
 
+	// probing marks a config that exists only to be compared against and then
+	// thrown away, so apply() can skip the work that feeds no verdict.
+	// Unexported, so it never reaches the JSON.
+	probing bool
+
 	// policy is the MDM policy that produced the currently-set values
 	// for any MDM-enforced fields. Set by ApplyMDMPolicy on every
 	// invocation. Never persisted to disk. Callers query enforcement
@@ -796,7 +801,11 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if config.ClientCertPath != "" && config.ClientCertKeyPath != "" {
+	// Not on a probe: the loaded pair feeds the connection, never the
+	// comparison, and this would otherwise run on every gated SetConfig and
+	// Login — twice per request — including those that are refused or change
+	// nothing, logging an error per request when the files are missing.
+	if !config.probing && config.ClientCertPath != "" && config.ClientCertKeyPath != "" {
 		cert, err := tls.LoadX509KeyPair(config.ClientCertPath, config.ClientCertKeyPath)
 		if err != nil {
 			log.Error("Failed to load mTLS cert/key pair: ", err)
@@ -1099,6 +1108,7 @@ func (config *Config) WouldChange(input ConfigInput) (bool, error) {
 		}
 		probe = baseline
 	}
+	probe.probing = true
 
 	// Normalize before measuring. apply() reports two different things through
 	// one bool: an input that changed a value, and a field it had to fill in
