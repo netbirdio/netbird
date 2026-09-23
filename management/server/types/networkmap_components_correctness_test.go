@@ -1421,6 +1421,10 @@ func TestPeerSSHEnabledFromPolicies_MatchesMap_Sweep(t *testing.T) {
 func TestPeerSSHEnabledFromPolicies_MatchesMap_BidirectionalNetbirdSSH(t *testing.T) {
 	account, validatedPeers := scalableTestAccountWithoutDefaultPolicy(20, 2)
 	account.Groups["ssh-users"] = &types.Group{ID: "ssh-users", Name: "SSH Users", Peers: []string{}}
+	// A member, so the rule authorizes somebody: with an empty group every map
+	// carries no users either way, and the source-side assertion below could
+	// not fail.
+	account.Users["user-dev"] = &types.User{Id: "user-dev", Role: types.UserRoleUser, AccountID: "test-account", AutoGroups: []string{"ssh-users"}}
 	account.Policies = append(account.Policies, &types.Policy{
 		ID: "policy-ssh-bidi", Name: "SSH Access", Enabled: true, AccountID: "test-account",
 		Rules: []*types.PolicyRule{{
@@ -1446,4 +1450,6 @@ func TestPeerSSHEnabledFromPolicies_MatchesMap_BidirectionalNetbirdSSH(t *testin
 	destination := componentsNetworkMap(account, "peer-10", validatedPeers)
 	require.NotNil(t, destination)
 	assert.True(t, destination.EnableSSH, "the destination-side peer must have SSH enabled")
+	assert.NotEmpty(t, destination.AuthorizedUsers["root"],
+		"the destination-side peer must carry the group's user, or the source-side check proves nothing")
 }

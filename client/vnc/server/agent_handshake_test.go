@@ -5,6 +5,7 @@ package server
 import (
 	"bytes"
 	"net"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -84,17 +85,25 @@ func TestAgentHandshake_TokenNeverSent(t *testing.T) {
 	defer daemonSide.Close()
 	defer agentSide.Close()
 
-	// Tee everything the daemon writes so it can be searched afterwards.
-	var sent bytes.Buffer
+	// Tee both directions on the agent's end: what it reads is everything the
+	// daemon sent, what it writes is its challenge and reply. Either side
+	// leaking the token is the failure this test is for.
+	var wire bytes.Buffer
+	var mu sync.Mutex
+	done := make(chan struct{})
 	go func() {
-		_, _ = agentServerHandshake(&teeConn{Conn: agentSide, read: &sent}, token)
+		defer close(done)
+		_, _ = agentServerHandshake(&teeConn{Conn: agentSide, mu: &mu, read: &wire, written: &wire}, token)
 	}()
 
 	require.NoError(t, agentClientHandshake(daemonSide, token, false))
+	<-done
+	mu.Lock()
+	defer mu.Unlock()
 	// bytes.Contains, not assert.NotContains: testify compares a []byte
 	// haystack element-wise, and a []byte is never an element of a []byte, so
 	// the assertion held whatever crossed the wire — including the whole token.
-	assert.False(t, bytes.Contains(sent.Bytes(), token), "the token must not cross the socket")
+	assert.False(t, bytes.Contains(wire.Bytes(), token), "the token must not cross the socket")
 }
 
 // A tag is bound to the nonce it answered, so replaying one against a fresh
@@ -115,16 +124,30 @@ func TestAgentMAC_IsBoundToNonceAndLabel(t *testing.T) {
 		"the two directions must not share a tag, or one could be replayed as the other")
 }
 
-// teeConn records everything read from the wrapped connection.
+// teeConn records every byte read from and written to the wrapped connection.
 type teeConn struct {
 	net.Conn
-	read *bytes.Buffer
+	mu      *sync.Mutex
+	read    *bytes.Buffer
+	written *bytes.Buffer
 }
 
 func (c *teeConn) Read(b []byte) (int, error) {
 	n, err := c.Conn.Read(b)
-	if n > 0 {
+	if n > 0 && c.read != nil {
+		c.mu.Lock()
 		c.read.Write(b[:n])
+		c.mu.Unlock()
+	}
+	return n, err
+}
+
+func (c *teeConn) Write(b []byte) (int, error) {
+	n, err := c.Conn.Write(b)
+	if n > 0 && c.written != nil {
+		c.mu.Lock()
+		c.written.Write(b[:n])
+		c.mu.Unlock()
 	}
 	return n, err
 }

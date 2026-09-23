@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -17,6 +18,7 @@ import (
 	nbnetworkmap "github.com/netbirdio/netbird/shared/management/networkmap"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/netbirdio/netbird/shared/management/proto"
+	sharedtypes "github.com/netbirdio/netbird/shared/management/types"
 )
 
 // TestEnvelopeToNetworkMap_RoundTrip exercises the full client-side pipeline:
@@ -123,10 +125,30 @@ func TestEnvelopeToNetworkMap_VNCPolicyProducesVncAuth(t *testing.T) {
 
 	// The VNC marker protocol must not reach the firewall rules, for the same
 	// reason NetbirdSSH must not: agents fall into UNKNOWN-protocol handling.
+	// And the rewrite must stay scoped to the VNC port: a portless netbird-vnc
+	// rule that degraded into plain TCP would open every port on the peer.
+	// Requiring rules at all is what keeps the loop from passing vacuously.
+	require.NotEmpty(t, result.NetworkMap.FirewallRules, "a netbird-vnc policy must produce firewall rules")
+	wantPort := strconv.Itoa(sharedtypes.VNCInternalPort)
 	for i, fr := range result.NetworkMap.FirewallRules {
-		require.NotEqualf(t, proto.RuleProtocol_NETBIRD_VNC, fr.Protocol,
+		require.Equalf(t, proto.RuleProtocol_TCP, fr.Protocol,
 			"FirewallRules[%d].Protocol must be the rewritten TCP, not NETBIRD_VNC", i)
+		require.Equalf(t, wantPort, firewallRulePort(fr),
+			"FirewallRules[%d] must be scoped to the VNC port", i)
 	}
+}
+
+// firewallRulePort returns the single port a firewall rule opens, from either
+// the legacy Port field or a single-port PortInfo, or "" when it opens a range
+// or every port.
+func firewallRulePort(fr *proto.FirewallRule) string {
+	if fr.Port != "" {
+		return fr.Port
+	}
+	if p, ok := fr.GetPortInfo().GetPortSelection().(*proto.PortInfo_Port); ok {
+		return strconv.FormatUint(uint64(p.Port), 10)
+	}
+	return ""
 }
 
 // A policy that authorizes nothing VNC-related must leave VncAuth unset, so the
