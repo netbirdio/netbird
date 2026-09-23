@@ -91,7 +91,7 @@ func (s *Server) handleServiceConnection(conn net.Conn, sa sessionAgent) {
 		authedLog.Info("VNC connection approved by user")
 	}
 
-	socketPath, token, peerUID, err := sa.Resolve(s.ctx)
+	socketPath, token, peerID, err := sa.Resolve(s.ctx)
 	if err != nil {
 		code := RejectCodeCapturerError
 		if errors.Is(err, errNoConsoleUser) {
@@ -120,7 +120,7 @@ func (s *Server) handleServiceConnection(conn net.Conn, sa sessionAgent) {
 		Reader: io.MultiReader(&headerBuf, conn),
 		Conn:   conn,
 	}
-	if err := proxyToAgent(s.ctx, replayConn, socketPath, token, peerUID, decision.ViewOnly, authedLog); err != nil {
+	if err := proxyToAgent(s.ctx, replayConn, socketPath, token, peerID, decision.ViewOnly, authedLog); err != nil {
 		rejectConnection(conn, codeMessage(RejectCodeCapturerError, err.Error()))
 		authedLog.Warnf("VNC connection rejected: agent unreachable: %v", err)
 		return
@@ -145,8 +145,8 @@ func generateAuthToken() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-// proxyToAgent dials the per-session agent's Unix socket, checks the peer's
-// kernel-asserted uid, runs the mutual challenge-response that proves both ends
+// proxyToAgent dials the per-session agent's socket (a named pipe on Windows),
+// checks the peer's kernel-asserted identity, runs the mutual challenge-response that proves both ends
 // hold the per-spawn token, then copies bytes both ways until either side
 // closes.
 //
@@ -160,7 +160,7 @@ func generateAuthToken() (string, error) {
 // of a bare timeout. authedLog receives one audit line per established session
 // so an operator can correlate daemon→agent traffic with the remote session
 // that triggered it.
-func proxyToAgent(ctx context.Context, client net.Conn, socketPath, authToken string, peerUID uint32, viewOnly bool, authedLog *log.Entry) error {
+func proxyToAgent(ctx context.Context, client net.Conn, socketPath, authToken string, peerID uint32, viewOnly bool, authedLog *log.Entry) error {
 	tokenBytes, err := hex.DecodeString(authToken)
 	if err != nil || len(tokenBytes) != agentTokenLen {
 		return fmt.Errorf("invalid auth token (len=%d): %w", len(tokenBytes), err)
@@ -171,7 +171,7 @@ func proxyToAgent(ctx context.Context, client net.Conn, socketPath, authToken st
 		return fmt.Errorf("dial agent at %s: %w", socketPath, err)
 	}
 
-	if err := validateAgentPeer(agentConn, peerUID); err != nil {
+	if err := validateAgentPeer(agentConn, peerID); err != nil {
 		_ = agentConn.Close()
 		return fmt.Errorf("agent peer validation failed: %w", err)
 	}
@@ -189,7 +189,7 @@ func proxyToAgent(ctx context.Context, client net.Conn, socketPath, authToken st
 		tokenFp = tokenFp[:8]
 	}
 	if authedLog != nil {
-		authedLog.Infof("VNC IPC: agent authenticated socket=%s peer_uid=%d view_only=%v token_fp=%s", socketPath, peerUID, viewOnly, tokenFp)
+		authedLog.Infof("VNC IPC: agent authenticated socket=%s peer_id=%d view_only=%v token_fp=%s", socketPath, peerID, viewOnly, tokenFp)
 	}
 
 	defer client.Close()
@@ -266,7 +266,6 @@ func relogAgentStream(r io.Reader) {
 // the final error. Aborts early when ctx is cancelled so a Stop() during
 // service-mode startup doesn't leave a goroutine sleeping for 10 s.
 func dialAgentWithRetry(ctx context.Context, addr string) (net.Conn, error) {
-	var d net.Dialer
 	var lastErr error
 	for range 50 {
 		if err := ctx.Err(); err != nil {
@@ -276,7 +275,7 @@ func dialAgentWithRetry(ctx context.Context, addr string) (net.Conn, error) {
 			return nil, lastErr
 		}
 		dialCtx, cancel := context.WithTimeout(ctx, time.Second)
-		c, err := d.DialContext(dialCtx, "unix", addr)
+		c, err := dialAgent(dialCtx, addr)
 		cancel()
 		if err == nil {
 			return c, nil

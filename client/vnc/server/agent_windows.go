@@ -9,9 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"net"
 	"os"
-	"path/filepath"
 	"runtime"
 	"sync"
 	"time"
@@ -244,10 +242,18 @@ func injectEnvVar(envBlock uintptr, key, value string) []uint16 {
 	return newBlock
 }
 
-func spawnAgentInSession(sessionID uint32, socketPath, authToken string, jobHandle windows.Handle) (windows.Handle, error) {
+// spawnedAgent is a running agent process: the handle the daemon holds for
+// the agent's lifetime and the PID its pipe server must report.
+type spawnedAgent struct {
+	process windows.Handle
+	pid     uint32
+}
+
+func spawnAgentInSession(sessionID uint32, socketPath, authToken string, jobHandle windows.Handle) (spawnedAgent, error) {
+	var none spawnedAgent
 	token, err := getSystemTokenForSession(sessionID)
 	if err != nil {
-		return 0, fmt.Errorf("get SYSTEM token for session %d: %w", sessionID, err)
+		return none, fmt.Errorf("get SYSTEM token for session %d: %w", sessionID, err)
 	}
 	defer token.Close()
 
@@ -260,7 +266,7 @@ func spawnAgentInSession(sessionID uint32, socketPath, authToken string, jobHand
 	if r == 0 {
 		// Without an environment block we cannot inject NB_VNC_AGENT_TOKEN;
 		// the agent would start unauthenticated. Abort instead of launching.
-		return 0, fmt.Errorf("CreateEnvironmentBlock: %w", e)
+		return none, fmt.Errorf("CreateEnvironmentBlock: %w", e)
 	}
 	defer func() { _, _, _ = procDestroyEnvironmentBlock.Call(envBlock) }()
 
@@ -271,13 +277,13 @@ func spawnAgentInSession(sessionID uint32, socketPath, authToken string, jobHand
 
 	exePath, err := os.Executable()
 	if err != nil {
-		return 0, fmt.Errorf("get executable path: %w", err)
+		return none, fmt.Errorf("get executable path: %w", err)
 	}
 
-	cmdLine := fmt.Sprintf(`"%s" %s --socket %q`, exePath, vncAgentSubcommand, socketPath)
+	cmdLine := fmt.Sprintf(`%s %s --socket %s`, windows.EscapeArg(exePath), vncAgentSubcommand, windows.EscapeArg(socketPath))
 	cmdLineW, err := windows.UTF16PtrFromString(cmdLine)
 	if err != nil {
-		return 0, fmt.Errorf("UTF16 cmdline: %w", err)
+		return none, fmt.Errorf("UTF16 cmdline: %w", err)
 	}
 
 	// Create an inheritable pipe for the agent's stderr so we can relog
@@ -288,7 +294,7 @@ func spawnAgentInSession(sessionID uint32, socketPath, authToken string, jobHand
 
 	var stderrRead, stderrWrite windows.Handle
 	if err := windows.CreatePipe(&stderrRead, &stderrWrite, &sa, 0); err != nil {
-		return 0, fmt.Errorf("create stderr pipe: %w", err)
+		return none, fmt.Errorf("create stderr pipe: %w", err)
 	}
 	// The read end must NOT be inherited by the child.
 	_ = windows.SetHandleInformation(stderrRead, windows.HANDLE_FLAG_INHERIT, 0)
@@ -329,7 +335,7 @@ func spawnAgentInSession(sessionID uint32, socketPath, authToken string, jobHand
 	_ = windows.CloseHandle(stderrWrite)
 	if err != nil {
 		_ = windows.CloseHandle(stderrRead)
-		return 0, fmt.Errorf("CreateProcessAsUser: %w", err)
+		return none, fmt.Errorf("CreateProcessAsUser: %w", err)
 	}
 
 	if jobHandle != 0 {
@@ -350,7 +356,7 @@ func spawnAgentInSession(sessionID uint32, socketPath, authToken string, jobHand
 		_ = windows.TerminateProcess(pi.Process, 1)
 		_ = windows.CloseHandle(pi.Process)
 		_ = windows.CloseHandle(stderrRead)
-		return 0, fmt.Errorf("ResumeThread: %w", err)
+		return none, fmt.Errorf("ResumeThread: %w", err)
 	}
 	_ = windows.CloseHandle(pi.Thread)
 
@@ -358,17 +364,19 @@ func spawnAgentInSession(sessionID uint32, socketPath, authToken string, jobHand
 	go relogAgentOutput(stderrRead)
 
 	log.Infof("spawned agent PID=%d in session %d on %s", pi.ProcessId, sessionID, socketPath)
-	return pi.Process, nil
+	return spawnedAgent{process: pi.Process, pid: pi.ProcessId}, nil
 }
 
 // sessionManager monitors the active console session and ensures a VNC agent
 // process is running in it. When the session changes (e.g., user switch, RDP
 // connect/disconnect), it kills the old agent and spawns a new one. Each
-// spawn picks a per-session Unix-socket path the agent binds and the
-// daemon dials over local IPC.
+// spawn picks a fresh named-pipe name the agent serves and the daemon dials.
 type sessionManager struct {
-	mu             sync.Mutex
-	agentProc      windows.Handle
+	mu        sync.Mutex
+	agentProc windows.Handle
+	// agentPID is the PID the agent's pipe server must report; it stays valid
+	// while agentProc is held open.
+	agentPID       uint32
 	everSpawned    bool
 	agentStartedAt time.Time
 	spawnFailures  int
@@ -380,30 +388,18 @@ type sessionManager struct {
 	// jobHandle owns the agent processes via a Windows Job Object with
 	// JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE. When the service exits or crashes,
 	// the OS closes the handle and terminates every assigned agent: no
-	// orphaned agent processes holding a socket across restarts.
+	// orphaned agent processes holding a pipe across restarts.
 	jobHandle windows.Handle
 }
 
 const (
-	// agentSocketDirName is the dedicated subdirectory the agent socket lives
-	// in, created with agentSocketDirSDDL under the parent agentSocketParent
-	// picks.
-	agentSocketDirName = "netbird-vnc"
-
-	// agentSocketDirSDDL grants full access to Local System (SY) and the
-	// Builtin Administrators group (BA) only, with the DACL protected
-	// (P) from inheritance so the parent's BUILTIN\Users grant does not
-	// flow in. AI is omitted; PAI marks the DACL protected and auto-
-	// inherited entries cleared.
-	agentSocketDirSDDL = "D:PAI(A;;FA;;;SY)(A;;FA;;;BA)"
-
-	// agentSocketRandomLen is the number of random bytes mixed into each
-	// per-spawn socket name so the path is unguessable before the agent
-	// owns it.
-	agentSocketRandomLen = 16
+	// agentPipeRandomLen is the number of random bytes mixed into each
+	// per-spawn pipe name, so a restarted agent never collides with a pipe a
+	// previous one left behind.
+	agentPipeRandomLen = 16
 
 	// agentReadyTimeout bounds how long the daemon waits for the freshly
-	// spawned agent to bind and accept on its socket before treating the
+	// spawned agent to create and accept on its pipe before treating the
 	// spawn as failed.
 	agentReadyTimeout = 5 * time.Second
 )
@@ -481,12 +477,10 @@ func createKillOnCloseJob() (windows.Handle, error) {
 	return job, nil
 }
 
-// Resolve returns the current agent socket path, shared token, and the
-// uid the agent runs under (0 on Windows since the agent runs as
-// SYSTEM in the interactive session; see validateAgentPeer for the
-// Windows trust model). The path is only published after the spawned
-// agent is confirmed listening, so a caller never receives a socket a
-// squatter could be holding. When no agent is spawned yet (initial
+// Resolve returns the current agent pipe path, shared token, and the PID
+// the pipe server must report (see validateAgentPeer). The path is only
+// published after the spawned agent is confirmed serving it. When no
+// agent is spawned yet (initial
 // boot, between session switches, or permanently disabled when
 // SE_TCB_NAME is missing) it surfaces a distinct error so the daemon
 // can reject the connection with a meaningful message instead of timing
@@ -499,10 +493,10 @@ func (m *sessionManager) Resolve(ctx context.Context) (string, string, uint32, e
 
 	for {
 		m.mu.Lock()
-		socketPath, token := m.socketPath, m.authToken
+		socketPath, token, pid := m.socketPath, m.authToken, m.agentPID
 		m.mu.Unlock()
 		if socketPath != "" {
-			return socketPath, token, 0, nil
+			return socketPath, token, pid, nil
 		}
 
 		// With no session on the console there is nothing to wait for: the
@@ -619,6 +613,7 @@ func (m *sessionManager) reapExitedAgent() {
 		log.Debugf("close agent handle: %v", err)
 	}
 	m.agentProc = 0
+	m.agentPID = 0
 	m.authToken = ""
 	m.socketPath = ""
 }
@@ -649,30 +644,17 @@ func (m *sessionManager) maybeSpawnAgent(sid uint32) bool {
 		return true
 	}
 
-	if err := ensureAgentSocketDir(); err != nil {
-		log.Warnf("prepare agent socket dir: %v", err)
-		m.nextSpawnAt = time.Now().Add(5 * time.Second)
-		return true
-	}
-
-	// The leaf name carries a cryptographically random component so a local
-	// user cannot pre-create the path at a guessable location. The session
-	// id is kept for diagnostics only; security does not rely on it.
-	socketPath, err := newAgentSocketPath(sid)
+	socketPath, err := newAgentPipePath(sid)
 	if err != nil {
-		log.Warnf("generate agent socket path: %v", err)
+		log.Warnf("generate agent pipe path: %v", err)
 		return true
-	}
-	// Covers a previous-run crash that escaped Job Object kill-on-close.
-	if err := os.Remove(socketPath); err != nil && !os.IsNotExist(err) {
-		log.Debugf("clear stale agent socket %s: %v", socketPath, err)
 	}
 	token, err := generateAuthToken()
 	if err != nil {
 		log.Warnf("generate agent auth token: %v", err)
 		return true
 	}
-	h, err := spawnAgentInSession(sid, socketPath, token, m.jobHandle)
+	agent, err := spawnAgentInSession(sid, socketPath, token, m.jobHandle)
 	if err != nil {
 		if errors.Is(err, windows.ERROR_PRIVILEGE_NOT_HELD) {
 			// SE_TCB_NAME (token-impersonation across sessions) is only
@@ -685,127 +667,61 @@ func (m *sessionManager) maybeSpawnAgent(sid uint32) bool {
 		return true
 	}
 
-	// Gate on listen-readiness before publishing the path: do not hand a
-	// caller a socket the agent has not bound yet. On timeout, fail closed
-	// by killing the agent and leaving socketPath/authToken unset so
-	// Resolve keeps returning errAgentNotReady.
-	if err := waitForAgentListening(socketPath, agentReadyTimeout); err != nil {
+	// Gate on readiness before publishing the path: do not hand a caller a
+	// pipe the agent is not serving yet. On failure, kill the agent and leave
+	// socketPath/authToken unset so Resolve keeps returning errAgentNotReady.
+	if err := waitForAgentListening(socketPath, agent.pid, agentReadyTimeout); err != nil {
 		log.Warnf("agent in session %d did not start listening: %v", sid, err)
-		_ = windows.TerminateProcess(h, 1)
-		_ = windows.CloseHandle(h)
-		if rmErr := os.Remove(socketPath); rmErr != nil && !os.IsNotExist(rmErr) {
-			log.Debugf("clear unready agent socket %s: %v", socketPath, rmErr)
-		}
+		_ = windows.TerminateProcess(agent.process, 1)
+		_ = windows.CloseHandle(agent.process)
 		m.scheduleNextSpawn(0, 0)
 		return true
 	}
 
 	m.authToken = token
 	m.socketPath = socketPath
-	m.agentProc = h
+	m.agentProc = agent.process
+	m.agentPID = agent.pid
 	m.agentStartedAt = time.Now()
 	m.everSpawned = true
 	return true
 }
 
-// ensureAgentSocketDir creates the dedicated socket directory with a
-// restrictive DACL (SYSTEM + Administrators only). A pre-existing directory
-// is torn down and recreated rather than reused: it may have been created by
-// an unprivileged user with a permissive ACL, and it only ever holds our
-// transient sockets, so removing it loses nothing. Fails closed: returns an
-// error if the directory cannot be created with the intended security.
-func ensureAgentSocketDir() error {
-	agentSocketDir := agentSocketDirPath()
-	sd, err := windows.SecurityDescriptorFromString(agentSocketDirSDDL)
-	if err != nil {
-		return fmt.Errorf("parse socket dir SDDL: %w", err)
-	}
-	var sa windows.SecurityAttributes
-	sa.Length = uint32(unsafe.Sizeof(sa))
-	sa.SecurityDescriptor = sd
-
-	dirW, err := windows.UTF16PtrFromString(agentSocketDir)
-	if err != nil {
-		return fmt.Errorf("encode socket dir path: %w", err)
-	}
-	err = windows.CreateDirectory(dirW, &sa)
-	if errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
-		if rmErr := os.RemoveAll(agentSocketDir); rmErr != nil {
-			return fmt.Errorf("remove pre-existing socket dir %s: %w", agentSocketDir, rmErr)
-		}
-		err = windows.CreateDirectory(dirW, &sa)
-	}
-	if err != nil {
-		return fmt.Errorf("create socket dir %s: %w", agentSocketDir, err)
-	}
-	return nil
-}
-
-// newAgentSocketPath returns a per-spawn socket path inside the secured
-// socket directory. The leaf name mixes a cryptographically random component
-// with the session id (for diagnostics) so the path is unguessable before the
-// agent binds it.
-func newAgentSocketPath(sessionID uint32) (string, error) {
-	b := make([]byte, agentSocketRandomLen)
+// newAgentPipePath returns a per-spawn pipe path in the protected namespace.
+// The random component keeps a respawned agent from colliding with a pipe a
+// previous one still holds; the session id is there for diagnostics.
+func newAgentPipePath(sessionID uint32) (string, error) {
+	b := make([]byte, agentPipeRandomLen)
 	if _, err := crand.Read(b); err != nil {
 		return "", fmt.Errorf("read random: %w", err)
 	}
-	name := fmt.Sprintf("netbird-vnc-%d-%s.sock", sessionID, hex.EncodeToString(b))
-	return filepath.Join(agentSocketDirPath(), name), nil
+	return fmt.Sprintf("%s%d-%s", agentPipePrefix, sessionID, hex.EncodeToString(b)), nil
 }
 
-// agentSocketDirPath returns the directory the agent socket lives in.
-//
-// The parent is %SystemRoot%\SystemTemp where it exists: the temp directory
-// Windows reserves for SYSTEM, with an ACL that admits SYSTEM and
-// Administrators only. No unprivileged account can create anything in it, so a
-// user cannot pre-create the socket directory, or a junction in its place, to
-// intercept the daemon-to-agent stream. It is present on current Windows 11 and
-// Server 2022 and later, and on Windows 10 and Server 2019 through servicing.
-//
-// Only where it is missing does this fall back to %SystemRoot%\Temp, whose ACL
-// lets Users create entries. The protected DACL on the subdirectory and the
-// tear-down-and-recreate in ensureAgentSocketDir are what hold there.
-func agentSocketDirPath() string {
-	return filepath.Join(agentSocketParent(), agentSocketDirName)
-}
-
-// agentSocketParent picks the parent directory for agentSocketDirPath. A
-// SystemTemp that is a reparse point is not trusted, since only an
-// administrator could have made it one and it no longer names the directory
-// whose ACL is the point of using it.
-func agentSocketParent() string {
-	winDir, err := windows.GetSystemWindowsDirectory()
-	if err != nil || winDir == "" {
-		winDir = `C:\Windows`
-	}
-	systemTemp := filepath.Join(winDir, "SystemTemp")
-	if info, err := os.Lstat(systemTemp); err == nil && info.IsDir() && info.Mode()&os.ModeType == os.ModeDir {
-		return systemTemp
-	}
-	return filepath.Join(winDir, "Temp")
-}
-
-// waitForAgentListening dials the agent's Unix socket until it answers or the
-// timeout elapses. Mirrors the darwin readiness gate so the daemon never
-// exposes a socket path before the legitimate agent owns it.
-func waitForAgentListening(socketPath string, wait time.Duration) error {
-	var d net.Dialer
+// waitForAgentListening dials the agent's pipe until it answers from the
+// expected process or the timeout elapses, so the daemon never publishes a
+// pipe the spawned agent does not serve.
+func waitForAgentListening(pipePath string, agentPID uint32, wait time.Duration) error {
 	deadline := time.Now().Add(wait)
 	var lastErr error
 	for time.Now().Before(deadline) {
-		c, err := d.Dial("unix", socketPath)
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		c, err := dialAgent(ctx, pipePath)
+		cancel()
 		if err == nil {
-			_ = c.Close()
-			return nil
+			err = validateAgentPeer(c, agentPID)
+			if closeErr := c.Close(); closeErr != nil {
+				log.Debugf("close agent readiness probe: %v", closeErr)
+			}
+			return err
 		}
 		lastErr = err
 		time.Sleep(100 * time.Millisecond)
 	}
 	if lastErr == nil {
-		lastErr = fmt.Errorf("timeout")
+		lastErr = errors.New("timeout")
 	}
-	return fmt.Errorf("dial %s: %w", socketPath, lastErr)
+	return fmt.Errorf("dial %s: %w", pipePath, lastErr)
 }
 
 func (m *sessionManager) killAgent() {
@@ -815,6 +731,7 @@ func (m *sessionManager) killAgent() {
 	_ = windows.TerminateProcess(m.agentProc, 0)
 	_ = windows.CloseHandle(m.agentProc)
 	m.agentProc = 0
+	m.agentPID = 0
 	m.authToken = ""
 	m.socketPath = ""
 	log.Info("killed old agent")

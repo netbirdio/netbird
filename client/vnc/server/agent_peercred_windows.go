@@ -3,30 +3,34 @@
 package server
 
 import (
+	"errors"
+	"fmt"
 	"net"
+
+	"golang.org/x/sys/windows"
 )
 
-// validateAgentPeer is a documented no-op on Windows. AF_UNIX on Windows
-// exposes no SO_PEERCRED equivalent and no supported API to recover the
-// peer process from an accepted AF_UNIX connection, so the daemon cannot
-// match the connected peer against the agent PID it spawned the way the
-// darwin path does via LOCAL_PEERCRED. The Windows trust model therefore
-// rests on three other measures, none of which assume the socket path is
-// secret:
-//
-//   - the socket lives in a dedicated directory (agentSocketDirPath) under
-//     %SystemRoot%\SystemTemp, created with a DACL granting only SYSTEM and
-//     Administrators, so an unprivileged local user cannot create or squat a
-//     socket there;
-//   - each spawn uses a cryptographically random socket name, so the path
-//     is unguessable before the agent binds it;
-//   - the daemon publishes the path only after confirming the spawned
-//     agent is listening (see waitForAgentListening), and gates every
-//     connection on the per-spawn auth-token preamble that follows this
-//     call.
-//
-// If a future Windows release exposes peer-PID retrieval for AF_UNIX,
-// this function should verify the peer against the spawned agent PID.
-func validateAgentPeer(_ net.Conn, _ uint32) error {
+// validateAgentPeer checks that the pipe the daemon connected to is served by
+// the agent process it spawned. The pipe name sits in the protected namespace,
+// so only SYSTEM or an administrator could have created it; the PID check pins
+// it to the spawned agent. The daemon holds the agent's process handle for the
+// agent's lifetime, so the PID cannot be recycled underneath the check. Fails
+// closed when no PID is known or the query fails.
+func validateAgentPeer(conn net.Conn, expectedPID uint32) error {
+	if expectedPID == 0 {
+		return errors.New("no agent PID to verify the pipe server against")
+	}
+	// go-winio's pipe connection embeds *win32File, which exposes Fd().
+	fdConn, ok := conn.(interface{ Fd() uintptr })
+	if !ok {
+		return fmt.Errorf("agent connection %T exposes no pipe handle", conn)
+	}
+	var pid uint32
+	if err := windows.GetNamedPipeServerProcessId(windows.Handle(fdConn.Fd()), &pid); err != nil {
+		return fmt.Errorf("query pipe server PID: %w", err)
+	}
+	if pid != expectedPID {
+		return fmt.Errorf("pipe served by PID %d, expected agent PID %d", pid, expectedPID)
+	}
 	return nil
 }

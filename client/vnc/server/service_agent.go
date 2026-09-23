@@ -3,16 +3,15 @@ package server
 import "context"
 
 // sessionAgent abstracts the per-platform manager that spawns and tracks
-// the user-session VNC agent. Resolve returns the agent's Unix-socket
-// path, the shared per-spawn token, and the uid the agent was spawned
-// under (used to validate peer credentials before the daemon hands the
-// token to whoever is on the other end of the socket). Resolve may spawn
-// the agent lazily.
+// the user-session VNC agent. Resolve returns the agent's socket path (a
+// named pipe on Windows), the shared per-spawn token, and the peer identity
+// the daemon expects on the other end: the uid the agent runs under on
+// darwin, the agent's PID on Windows. Resolve may spawn the agent lazily.
 // Release reports that one proxied connection is done with the agent, so a
 // platform that recycles the agent per connection can tear it down once the last
 // one is gone. Every successful Resolve owes exactly one Release.
 type sessionAgent interface {
-	Resolve(ctx context.Context) (socketPath, token string, peerUID uint32, err error)
+	Resolve(ctx context.Context) (socketPath, token string, peerID uint32, err error)
 	Release()
 }
 

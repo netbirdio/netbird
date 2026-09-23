@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"os/exec"
 	"strconv"
@@ -375,14 +374,13 @@ func spawnAgentForUser(uid uint32, socketPath, token string) error {
 // waitForAgent dials the agent's Unix socket until it answers. Used to
 // gate proxy attempts until the spawned process has finished its Start.
 func waitForAgent(ctx context.Context, socketPath string, wait time.Duration) error {
-	var d net.Dialer
 	deadline := time.Now().Add(wait)
 	for time.Now().Before(deadline) {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 		dialCtx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
-		c, err := d.DialContext(dialCtx, "unix", socketPath)
+		c, err := dialAgent(dialCtx, socketPath)
 		cancel()
 		if err == nil {
 			_ = c.Close()

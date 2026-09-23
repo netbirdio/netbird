@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/netip"
 	"os"
 	"strings"
@@ -29,7 +28,7 @@ var (
 const maxAgentTokenLine = 1024
 
 func init() {
-	vncAgentCmd.Flags().StringVar(&vncAgentSocket, "socket", "", "Unix-domain socket path the agent listens on (required)")
+	vncAgentCmd.Flags().StringVar(&vncAgentSocket, "socket", "", "socket the agent listens on: a Unix-domain socket path on darwin, a named pipe path on Windows (required)")
 	vncAgentCmd.Flags().Uint32Var(&vncAgentTargetUID, "target-uid", 0, "uid the agent drops privileges to before listening (darwin only; required there, and must not be 0)")
 	// Must match agentTokenStdinFlag in client/vnc/server/agent_ipc.go.
 	vncAgentCmd.Flags().BoolVar(&vncAgentTokenStdin, "token-stdin", false, "read the per-spawn token from stdin instead of the environment")
@@ -37,9 +36,9 @@ func init() {
 }
 
 // vncAgentCmd runs a VNC server inside the user's interactive session,
-// listening on a Unix-domain socket. The NetBird service spawns it: on
-// Windows via CreateProcessAsUser into the console session, on macOS via
-// launchctl asuser into the Aqua session.
+// listening on a Unix-domain socket (a named pipe on Windows). The NetBird
+// service spawns it: on Windows via CreateProcessAsUser into the console
+// session, on macOS via launchctl asuser into the Aqua session.
 var vncAgentCmd = &cobra.Command{
 	Use:    "vnc-agent",
 	Short:  "Run VNC capture agent (internal, spawned by service)",
@@ -83,15 +82,9 @@ var vncAgentCmd = &cobra.Command{
 			return err
 		}
 
-		if err := os.Remove(vncAgentSocket); err != nil && !os.IsNotExist(err) {
-			log.Debugf("remove stale socket %s: %v", vncAgentSocket, err)
-		}
-		ln, err := net.Listen("unix", vncAgentSocket)
+		ln, err := vncserver.ListenAgentSocket(vncAgentSocket)
 		if err != nil {
 			return fmt.Errorf("listen on %s: %w", vncAgentSocket, err)
-		}
-		if err := os.Chmod(vncAgentSocket, 0o600); err != nil {
-			log.Debugf("chmod %s: %v", vncAgentSocket, err)
 		}
 
 		ctx := cmd.Context()
