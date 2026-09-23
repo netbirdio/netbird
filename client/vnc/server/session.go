@@ -27,6 +27,11 @@ const (
 // pinning a connSem slot.
 const handshakeDeadline = 10 * time.Second
 
+// writeDeadline bounds every server-to-client write. A peer that stops reading
+// otherwise blocks the writer for as long as it likes, holding its connection
+// slot and the encoder goroutine with it.
+const writeDeadline = 30 * time.Second
+
 const tileSize = 64 // pixels per tile for dirty-rect detection
 
 // fullFramePromoteNum/Den trigger full-frame encoding when the dirty area
@@ -89,8 +94,6 @@ type session struct {
 	// encMu by handleSetEncodings and read by the encoder goroutine.
 	clientSupportsDesktopSize         bool
 	clientSupportsExtendedDesktopSize bool
-	clientSupportsDesktopName         bool
-	clientSupportsLastRect            bool
 	clientSupportsQEMUKey             bool
 	clientSupportsExtClipboard        bool
 	clientSupportsCursor              bool
@@ -181,6 +184,17 @@ type fbRequest struct {
 }
 
 func (s *session) addr() string { return s.conn.RemoteAddr().String() }
+
+// lockWrite takes writeMu and arms the write deadline for the writes that
+// follow, returning the unlock. Every server-to-client write goes through it,
+// so no write can outlive writeDeadline.
+func (s *session) lockWrite() func() {
+	s.writeMu.Lock()
+	if err := s.conn.SetWriteDeadline(time.Now().Add(writeDeadline)); err != nil {
+		s.log.Debugf("set write deadline: %v", err)
+	}
+	return s.writeMu.Unlock
+}
 
 // serve runs the full RFB session lifecycle.
 func (s *session) serve() {
@@ -337,8 +351,11 @@ func (s *session) sendServerInit() error {
 func (s *session) messageLoop() error {
 	for {
 		var msgType [1]byte
-		if err := s.conn.SetDeadline(time.Now().Add(readDeadline)); err != nil {
-			return fmt.Errorf("set deadline: %w", err)
+		// Read side only. The encoder writes on this connection concurrently,
+		// and a shared deadline would both time its writes out on the read
+		// loop's schedule and, once cleared below, leave them unbounded.
+		if err := s.conn.SetReadDeadline(time.Now().Add(readDeadline)); err != nil {
+			return fmt.Errorf("set read deadline: %w", err)
 		}
 		if _, err := io.ReadFull(s.conn, msgType[:]); err != nil {
 			return err
@@ -369,7 +386,7 @@ func (s *session) messageLoop() error {
 		}
 		// Clear the deadline only after the full message has been read and
 		// processed so payload reads in the handlers stay bounded.
-		_ = s.conn.SetDeadline(time.Time{})
+		_ = s.conn.SetReadDeadline(time.Time{})
 		if err != nil {
 			return err
 		}
@@ -488,11 +505,13 @@ func (s *session) resetEncodingCaps() {
 	s.useHextile = false
 	s.clientSupportsDesktopSize = false
 	s.clientSupportsExtendedDesktopSize = false
-	s.clientSupportsDesktopName = false
-	s.clientSupportsLastRect = false
 	s.clientSupportsQEMUKey = false
 	s.clientSupportsExtClipboard = false
 	s.clientSupportsCursor = false
+	// The client may drop Cursor and ask for it again later, and must then get
+	// the current sprite: left as it is, the marker says the sprite was already
+	// delivered and it is never sent.
+	s.lastCursorSerial = 0
 	s.clientSupportsExtMouseButtons = false
 	s.cursorSourceFailed = false
 	s.cursorSourceFailures = 0
@@ -517,11 +536,13 @@ func (s *session) applyEncoding(enc int32) string {
 	case pseudoEncExtendedDesktopSize:
 		s.clientSupportsExtendedDesktopSize = true
 		return "ext-desktop-size"
-	case pseudoEncDesktopName:
-		s.clientSupportsDesktopName = true
-		return "desktop-name"
-	case pseudoEncLastRect:
-		s.clientSupportsLastRect = true
+	case pseudoEncDesktopName, pseudoEncLastRect:
+		// Recognised for the debug log only. The server never sends either,
+		// so there is no capability to record: a flag here would suggest a
+		// DesktopName or LastRect path that does not exist.
+		if enc == pseudoEncDesktopName {
+			return "desktop-name"
+		}
 		return "last-rect"
 	case pseudoEncQEMUExtendedKeyEvent:
 		s.clientSupportsQEMUKey = true

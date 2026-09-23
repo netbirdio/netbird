@@ -40,12 +40,9 @@ func (s *Server) serviceAcceptLoop(ln net.Listener) {
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
-			select {
-			case <-s.ctx.Done():
+			if !s.retryAccept(ln, err) {
 				return
-			default:
 			}
-			s.log.Debugf("accept VNC connection: %v", err)
 			continue
 		}
 

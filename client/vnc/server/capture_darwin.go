@@ -116,9 +116,9 @@ type CGCapturer struct {
 	// into the framebuffer's own pixel grid, which differs from it whenever
 	// the display is Retina.
 	logicalW, logicalH int
-	hashSeed  maphash.Seed
-	lastHash  uint64
-	hasHash   bool
+	hashSeed           maphash.Seed
+	lastHash           uint64
+	hasHash            bool
 	// cursor lazily binds the private CGSCreateCurrentCursorImage symbol
 	// so we can emit the Cursor pseudo-encoding without a per-frame cost
 	// on builds that never query it.

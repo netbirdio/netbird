@@ -3,10 +3,14 @@
 package cmd
 
 import (
+	"bufio"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/netip"
 	"os"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -15,13 +19,20 @@ import (
 )
 
 var (
-	vncAgentSocket    string
-	vncAgentTargetUID uint32
+	vncAgentSocket     string
+	vncAgentTargetUID  uint32
+	vncAgentTokenStdin bool
 )
+
+// maxAgentTokenLine bounds the token read from stdin. The token is a short hex
+// string; anything longer is not one.
+const maxAgentTokenLine = 1024
 
 func init() {
 	vncAgentCmd.Flags().StringVar(&vncAgentSocket, "socket", "", "Unix-domain socket path the agent listens on (required)")
 	vncAgentCmd.Flags().Uint32Var(&vncAgentTargetUID, "target-uid", 0, "uid the agent drops privileges to before listening (darwin only; required there, and must not be 0)")
+	// Must match agentTokenStdinFlag in client/vnc/server/agent_ipc.go.
+	vncAgentCmd.Flags().BoolVar(&vncAgentTokenStdin, "token-stdin", false, "read the per-spawn token from stdin instead of the environment")
 	rootCmd.AddCommand(vncAgentCmd)
 }
 
@@ -42,13 +53,9 @@ var vncAgentCmd = &cobra.Command{
 			return fmt.Errorf("--socket is required")
 		}
 
-		token := os.Getenv("NB_VNC_AGENT_TOKEN")
-		if token == "" {
-			return fmt.Errorf("NB_VNC_AGENT_TOKEN not set; agent requires a token from the service")
-		}
-		// Purge the token from env so it doesn't leak via /proc/<pid>/environ.
-		if err := os.Unsetenv("NB_VNC_AGENT_TOKEN"); err != nil {
-			log.Debugf("unset NB_VNC_AGENT_TOKEN: %v", err)
+		token, err := readAgentToken()
+		if err != nil {
+			return err
 		}
 
 		// Drop root privileges to the target console user BEFORE creating
@@ -107,4 +114,32 @@ var vncAgentCmd = &cobra.Command{
 		return srv.Stop()
 	},
 	SilenceUsage: true,
+}
+
+// readAgentToken returns the per-spawn token the service handed over, from
+// stdin when --token-stdin is set and from the environment otherwise. Missing
+// or empty is an error: the agent must never serve without one.
+func readAgentToken() (string, error) {
+	if vncAgentTokenStdin {
+		line, err := bufio.NewReader(io.LimitReader(os.Stdin, maxAgentTokenLine)).ReadString('\n')
+		if err != nil && !errors.Is(err, io.EOF) {
+			return "", fmt.Errorf("read agent token from stdin: %w", err)
+		}
+		_ = os.Stdin.Close()
+		token := strings.TrimSpace(line)
+		if token == "" {
+			return "", fmt.Errorf("no agent token on stdin; agent requires a token from the service")
+		}
+		return token, nil
+	}
+
+	token := os.Getenv("NB_VNC_AGENT_TOKEN")
+	if token == "" {
+		return "", fmt.Errorf("NB_VNC_AGENT_TOKEN not set; agent requires a token from the service")
+	}
+	// Purge the token from env so later reads in this process do not see it.
+	if err := os.Unsetenv("NB_VNC_AGENT_TOKEN"); err != nil {
+		log.Debugf("unset NB_VNC_AGENT_TOKEN: %v", err)
+	}
+	return token, nil
 }

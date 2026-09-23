@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -106,6 +107,11 @@ func (m *darwinAgentManager) Resolve(ctx context.Context) (string, string, uint3
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// A handler that outlived the server's shutdown must not start an agent:
+	// the manager it holds has been stopped and nothing would reap the child.
+	if err := ctx.Err(); err != nil {
+		return "", "", 0, fmt.Errorf("resolve agent: %w", err)
+	}
 	if m.running && m.uid == consoleUID && vncAgentRunning() {
 		m.users++
 		return m.socketPath, m.authToken, m.uid, nil
@@ -335,8 +341,13 @@ func spawnAgentForUser(uid uint32, socketPath, token string) error {
 		// session. validateAgentPeer on the daemon side also relies on
 		// the agent's effective uid matching consoleUID.
 		"--target-uid", strconv.FormatUint(uint64(uid), 10),
+		agentTokenStdinFlag,
 	)
-	cmd.Env = append(os.Environ(), agentTokenEnvVar+"="+token)
+	// The token goes over stdin, not the environment: the agent drops to the
+	// console user, and a user-owned process's startup environment is
+	// readable by every other process of that user. launchctl asuser execs the
+	// command, so the pipe is inherited as the agent's fd 0.
+	cmd.Stdin = strings.NewReader(token + "\n")
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		return fmt.Errorf("agent stderr pipe: %w", err)

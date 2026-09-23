@@ -230,6 +230,17 @@ func createSASEvent() (windows.Handle, bool) {
 	defer freeSecurityDescriptor(sa)
 
 	ev, err := windows.CreateEvent(sa, 0, 0, namePtr)
+	if errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
+		// CreateEvent opens an existing object instead of creating one, and
+		// then ignores sa: the handle carries whatever DACL the object already
+		// has. A named object only survives while someone holds a handle, so an
+		// existing one belongs to another process, possibly an unprivileged one
+		// that created it permissive so it could signal SendSAS itself. Refuse
+		// it rather than wait on an event this process does not control.
+		_ = windows.CloseHandle(ev)
+		log.Warnf("SAS event %s already exists and is not ours; Ctrl+Alt+Del forwarding disabled", sasEventName)
+		return 0, false
+	}
 	if err != nil {
 		log.Warnf("SAS CreateEvent: %v", err)
 		return 0, false
@@ -388,12 +399,9 @@ func (s *Server) serviceAcceptLoop(ln net.Listener) {
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
-			select {
-			case <-s.ctx.Done():
+			if !s.retryAccept(ln, err) {
 				return
-			default:
 			}
-			s.log.Debugf("accept VNC connection: %v", err)
 			continue
 		}
 

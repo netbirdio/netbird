@@ -237,9 +237,9 @@ func (s *session) writeExtClipMessage(payload []byte) error {
 	binary.BigEndian.PutUint32(buf[4:8], uint32(-int32(len(payload))))
 	copy(buf[8:], payload)
 
-	s.writeMu.Lock()
+	unlock := s.lockWrite()
 	_, err := s.conn.Write(buf)
-	s.writeMu.Unlock()
+	unlock()
 	return err
 }
 
@@ -282,8 +282,8 @@ func (s *session) sendServerCutText(text string) error {
 	binary.BigEndian.PutUint32(buf[4:8], uint32(len(data)))
 	copy(buf[8:], data)
 
-	s.writeMu.Lock()
+	unlock := s.lockWrite()
 	_, err := s.conn.Write(buf)
-	s.writeMu.Unlock()
+	unlock()
 	return err
 }

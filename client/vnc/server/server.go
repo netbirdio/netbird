@@ -911,18 +911,21 @@ func (s *Server) Stop() error {
 		s.vmgr.StopAll()
 	}
 
-	s.stopServiceAgent()
-
-	if s.serviceMode {
-		s.platformShutdown()
-	}
-
 	// Let the handlers finish before the capturer and injector go away. Their
 	// sockets are closed above, so each is on its way out, and the last thing a
 	// session does is release the modifiers and buttons the client left held:
 	// closing the injector first would drop those and leave the host with a
 	// stuck Shift or mouse button.
 	s.awaitHandlers(drained)
+
+	// After the drain, not before: a service-mode handler holds the agent
+	// manager for its whole life, and one that reached Resolve after the manager
+	// was stopped would spawn an agent nothing is left to tear down.
+	s.stopServiceAgent()
+
+	if s.serviceMode {
+		s.platformShutdown()
+	}
 
 	if c, ok := s.capturer.(interface{ Close() }); ok {
 		c.Close()
@@ -943,6 +946,26 @@ func (s *Server) Stop() error {
 	return nil
 }
 
+// retryAccept decides what an accept loop does after ln.Accept fails: false
+// when the loop should exit (server stopping, listener closed, or an error that
+// will not clear), true after pausing when the error is worth another try. The
+// pause is what keeps a persistent error from spinning the loop at full CPU.
+func (s *Server) retryAccept(ln net.Listener, err error) bool {
+	if s.ctx.Err() != nil {
+		return false
+	}
+	if errors.Is(err, net.ErrClosed) {
+		s.log.Debugf("VNC listener closed: %v", err)
+		return false
+	}
+	if !acceptRetryable(err) {
+		s.log.Errorf("VNC listener %s gave up: %v", ln.Addr(), err)
+		return false
+	}
+	s.log.Debugf("accept VNC connection: %v", err)
+	return s.sleepOrDone(acceptRetryPause)
+}
+
 // acceptLoop handles VNC connections directly (user session mode).
 func (s *Server) acceptLoop(ln net.Listener) {
 	if ln == nil {
@@ -951,19 +974,7 @@ func (s *Server) acceptLoop(ln net.Listener) {
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
-			if s.ctx.Err() != nil {
-				return
-			}
-			if errors.Is(err, net.ErrClosed) {
-				s.log.Debugf("VNC listener closed: %v", err)
-				return
-			}
-			if !acceptRetryable(err) {
-				s.log.Errorf("VNC listener %s gave up: %v", ln.Addr(), err)
-				return
-			}
-			s.log.Debugf("accept VNC connection: %v", err)
-			if !s.sleepOrDone(acceptRetryPause) {
+			if !s.retryAccept(ln, err) {
 				return
 			}
 			continue

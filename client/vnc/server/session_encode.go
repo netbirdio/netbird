@@ -133,8 +133,8 @@ func (s *session) processIncremental(img *image.RGBA) error {
 	copy(dirty, tiles)
 
 	var moves []copyRectMove
-	if s.useCopyRect && s.copyRectDet != nil {
-		moves, tiles = s.copyRectDet.extractCopyRectTiles(img, tiles)
+	if useCopyRect, det := s.copyRectState(); useCopyRect && det != nil {
+		moves, tiles = det.extractCopyRectTiles(img, tiles)
 	}
 
 	rects := coalesceRects(tiles)
@@ -265,12 +265,12 @@ func (s *session) handleResize() error {
 	// the new dimensions rather than diffing against a stale-sized buffer.
 	s.prevFrame = nil
 	s.curFrame = nil
-	if s.copyRectDet != nil {
+	if _, det := s.copyRectState(); det != nil {
 		// Tile geometry changed; let updateDirty rebuild from scratch on
 		// the next pass instead of reusing stale hashes keyed on old
 		// (cols, rows).
-		s.copyRectDet.prevTiles = nil
-		s.copyRectDet.tileHash = nil
+		det.prevTiles = nil
+		det.tileHash = nil
 	}
 	if err := s.sendDesktopSize(w, h); err != nil {
 		return fmt.Errorf("send desktop size: %w", err)
@@ -294,8 +294,7 @@ func (s *session) sendDesktopSize(w, h int) error {
 	binary.BigEndian.PutUint16(header[2:4], 1)
 
 	body := encodeDesktopSizeBody(w, h)
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
+	defer s.lockWrite()()
 	defer s.markFBU(1)()
 	if _, err := s.conn.Write(header); err != nil {
 		return err
@@ -317,8 +316,7 @@ func (s *session) sendExtMouseAck() error {
 	enc := int32(pseudoEncExtendedMouseButtons)
 	binary.BigEndian.PutUint32(rect[8:12], uint32(enc))
 
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
+	defer s.lockWrite()()
 	defer s.markFBU(1)()
 	if _, err := s.conn.Write(header); err != nil {
 		return err
@@ -331,20 +329,33 @@ func (s *session) sendExtMouseAck() error {
 // Used after full-frame sends, where we don't have a per-tile dirty list to
 // drive an incremental update.
 func (s *session) refreshCopyRectIndex() {
-	if s.copyRectDet == nil || s.prevFrame == nil {
+	_, det := s.copyRectState()
+	if det == nil || s.prevFrame == nil {
 		return
 	}
-	s.copyRectDet.rebuild(s.prevFrame, s.serverW, s.serverH)
+	det.rebuild(s.prevFrame, s.serverW, s.serverH)
 }
 
 // updateCopyRectIndex incrementally updates the CopyRect detector's hash
 // tables for the tiles that just changed. On first use (or after resize)
 // updateDirty internally falls back to a full rebuild.
 func (s *session) updateCopyRectIndex(dirty [][4]int) {
-	if s.copyRectDet == nil || s.prevFrame == nil {
+	_, det := s.copyRectState()
+	if det == nil || s.prevFrame == nil {
 		return
 	}
-	s.copyRectDet.updateDirty(s.prevFrame, s.serverW, s.serverH, dirty)
+	det.updateDirty(s.prevFrame, s.serverW, s.serverH, dirty)
+}
+
+// copyRectState snapshots whether the client negotiated CopyRect and the
+// detector that serves it. Both are published by SetEncodings on the message
+// loop under encMu, so the encoder reads them under the same lock. The
+// detector's own tables are touched only by the encoder goroutine, so holding
+// the pointer past the unlock is safe.
+func (s *session) copyRectState() (bool, *copyRectDetector) {
+	s.encMu.RLock()
+	defer s.encMu.RUnlock()
+	return s.useCopyRect, s.copyRectDet
 }
 
 // captureFrame returns a session-owned frame for this encode cycle.
@@ -530,8 +541,7 @@ func (s *session) encodeZlibSingle(img *image.RGBA, pf clientPixelFormat, w, h i
 // rects is the rectangle count in that header, reported to the metrics wrapper
 // so it knows where this update begins.
 func (s *session) writeFramed(buf []byte, rects int) error {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
+	defer s.lockWrite()()
 	defer s.markFBU(rects)()
 	if _, err := s.conn.Write(buf); err != nil {
 		return err
@@ -583,8 +593,7 @@ func (s *session) sendDirtyAndMoves(img *image.RGBA, moves []copyRectMove, rects
 	header[0] = serverFramebufferUpdate
 	binary.BigEndian.PutUint16(header[2:4], uint16(total))
 
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
+	defer s.lockWrite()()
 
 	defer s.markFBU(total)()
 	if _, err := s.conn.Write(header); err != nil {

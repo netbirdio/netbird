@@ -135,6 +135,16 @@ const (
 	// such as `ps` or Windows tasklist would expose it.
 	agentTokenEnvVar = "NB_VNC_AGENT_TOKEN" // #nosec G101 -- env var name, not a credential
 
+	// agentTokenStdinFlag tells the agent to read its token from stdin
+	// instead of agentTokenEnvVar. Must match the flag cmd.vncAgentCmd
+	// registers. Used where the agent runs as the console user: there the
+	// environment it was started with stays readable by that user's other
+	// processes for the agent's whole life (macOS KERN_PROCARGS2 keeps the
+	// original strings even after unsetenv), and holding the token lets a
+	// process drive the agent directly, past the daemon's gates and with the
+	// agent's Screen Recording grant.
+	agentTokenStdinFlag = "--token-stdin" // #nosec G101 -- flag name, not a credential
+
 	// vncAgentSubcommand is the CLI subcommand the daemon invokes to start
 	// the per-session agent process. Must match cmd.vncAgentCmd.Use in
 	// client/cmd/vnc_agent.go.
