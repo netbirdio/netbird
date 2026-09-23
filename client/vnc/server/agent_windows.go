@@ -385,14 +385,10 @@ type sessionManager struct {
 }
 
 const (
-	// agentSocketDir is a dedicated subdirectory under C:\Windows\Temp that
-	// the daemon creates with a restrictive DACL (SYSTEM + Administrators
-	// only). The default ACL on C:\Windows\Temp grants BUILTIN\Users
-	// create-file rights, so the agent socket must not live directly there:
-	// an unprivileged local user could pre-create a predictable path and
-	// intercept the daemon→agent stream. Both the daemon and the agent run
-	// as SYSTEM, so a SYSTEM-write-only directory is sufficient.
-	agentSocketDir = `C:\Windows\Temp\netbird-vnc`
+	// agentSocketDirName is the dedicated subdirectory the agent socket lives
+	// in, created with agentSocketDirSDDL under the parent agentSocketParent
+	// picks.
+	agentSocketDirName = "netbird-vnc"
 
 	// agentSocketDirSDDL grants full access to Local System (SY) and the
 	// Builtin Administrators group (BA) only, with the DACL protected
@@ -719,6 +715,7 @@ func (m *sessionManager) maybeSpawnAgent(sid uint32) bool {
 // transient sockets, so removing it loses nothing. Fails closed: returns an
 // error if the directory cannot be created with the intended security.
 func ensureAgentSocketDir() error {
+	agentSocketDir := agentSocketDirPath()
 	sd, err := windows.SecurityDescriptorFromString(agentSocketDirSDDL)
 	if err != nil {
 		return fmt.Errorf("parse socket dir SDDL: %w", err)
@@ -754,7 +751,39 @@ func newAgentSocketPath(sessionID uint32) (string, error) {
 		return "", fmt.Errorf("read random: %w", err)
 	}
 	name := fmt.Sprintf("netbird-vnc-%d-%s.sock", sessionID, hex.EncodeToString(b))
-	return filepath.Join(agentSocketDir, name), nil
+	return filepath.Join(agentSocketDirPath(), name), nil
+}
+
+// agentSocketDirPath returns the directory the agent socket lives in.
+//
+// The parent is %SystemRoot%\SystemTemp where it exists: the temp directory
+// Windows reserves for SYSTEM, with an ACL that admits SYSTEM and
+// Administrators only. No unprivileged account can create anything in it, so a
+// user cannot pre-create the socket directory, or a junction in its place, to
+// intercept the daemon-to-agent stream. It is present on current Windows 11 and
+// Server 2022 and later, and on Windows 10 and Server 2019 through servicing.
+//
+// Only where it is missing does this fall back to %SystemRoot%\Temp, whose ACL
+// lets Users create entries. The protected DACL on the subdirectory and the
+// tear-down-and-recreate in ensureAgentSocketDir are what hold there.
+func agentSocketDirPath() string {
+	return filepath.Join(agentSocketParent(), agentSocketDirName)
+}
+
+// agentSocketParent picks the parent directory for agentSocketDirPath. A
+// SystemTemp that is a reparse point is not trusted, since only an
+// administrator could have made it one and it no longer names the directory
+// whose ACL is the point of using it.
+func agentSocketParent() string {
+	winDir, err := windows.GetSystemWindowsDirectory()
+	if err != nil || winDir == "" {
+		winDir = `C:\Windows`
+	}
+	systemTemp := filepath.Join(winDir, "SystemTemp")
+	if info, err := os.Lstat(systemTemp); err == nil && info.IsDir() && info.Mode()&os.ModeType == os.ModeDir {
+		return systemTemp
+	}
+	return filepath.Join(winDir, "Temp")
 }
 
 // waitForAgentListening dials the agent's Unix socket until it answers or the
