@@ -119,7 +119,7 @@ func setupIntegrationTest(t *testing.T) *integrationTestSetup {
 	require.NoError(t, err)
 
 	tokenStore := nbgrpc.NewOneTimeTokenStore(ctx, cacheStore)
-	pkceStore := nbgrpc.NewPKCEVerifierStore(ctx, cacheStore)
+	singleUseStore := nbgrpc.NewSingleUseStore(ctx, cacheStore)
 
 	// Create real users manager
 	usersManager := users.NewManager(testStore)
@@ -136,7 +136,7 @@ func setupIntegrationTest(t *testing.T) *integrationTestSetup {
 	proxyService := nbgrpc.NewProxyServiceServer(
 		&testAccessLogManager{},
 		tokenStore,
-		pkceStore,
+		singleUseStore,
 		oidcConfig,
 		nil,
 		usersManager,
@@ -242,6 +242,10 @@ func (m *testProxyManager) ClusterSupportsCrowdSec(_ context.Context, _ string) 
 
 func (m *testProxyManager) ClusterSupportsPrivate(_ context.Context, _ string) *bool {
 	return nil
+}
+
+func (m *testProxyManager) ClusterSupportsSessionCode(_ context.Context, _ string) bool {
+	return false
 }
 
 func (m *testProxyManager) CleanupStale(_ context.Context, _ time.Duration) error {
