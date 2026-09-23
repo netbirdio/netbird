@@ -37,7 +37,13 @@ func (e *engine) start(t *testing.T) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
+		if err != nil {
+			// FailNow is only valid on the test goroutine, and this is the
+			// server's; report and answer 500 so Inspect sees the failure.
+			t.Errorf("read mirrored body: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 		e.requests++
 		e.gotMethod = r.Method
 		e.gotHeader = r.Header.Clone()

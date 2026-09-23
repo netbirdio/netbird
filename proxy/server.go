@@ -390,6 +390,16 @@ func (s *Server) Start(ctx context.Context) error {
 		return fmt.Errorf("init middleware manager: %w", err)
 	}
 
+	// Must precede the mapping worker: the worker opens the management stream
+	// and reports proxyCapabilities, which reads appsecClient. Building it
+	// afterwards would both race the read and, when the worker won, advertise
+	// the proxy as AppSec-incapable for the lifetime of that stream. It also
+	// runs before the run context and the NetBird client exist, so a config
+	// error here leaves nothing running behind it.
+	if err := s.initAppSec(); err != nil {
+		return err
+	}
+
 	runCtx, runCancel := context.WithCancel(ctx)
 	s.runCancel = runCancel
 
@@ -400,13 +410,6 @@ func (s *Server) Start(ctx context.Context) error {
 
 	s.crowdsecRegistry = crowdsec.NewRegistry(s.CrowdSecAPIURL, s.CrowdSecAPIKey, log.NewEntry(s.Logger))
 	s.crowdsecServices = make(map[types.ServiceID]bool)
-	// Must precede the mapping worker: the worker opens the management stream
-	// and reports proxyCapabilities, which reads appsecClient. Building it
-	// afterwards would both race the read and, when the worker won, advertise
-	// the proxy as AppSec-incapable for the lifetime of that stream.
-	if err := s.initAppSec(); err != nil {
-		return err
-	}
 
 	go s.newManagementMappingWorker(runCtx, s.mgmtClient)
 
@@ -1972,8 +1975,18 @@ func (s *Server) initAppSec() error {
 	}
 
 	s.appsecClient = client
-	s.Logger.Infof("CrowdSec AppSec inspection available at %s", s.CrowdSecAppSecURL)
+	s.Logger.Infof("CrowdSec AppSec inspection available at %s", appSecEndpointForLog(s.CrowdSecAppSecURL))
 	return nil
+}
+
+// appSecEndpointForLog reduces the AppSec URL to scheme, host and path, so
+// credentials in userinfo or the query never reach the log.
+func appSecEndpointForLog(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "<unparseable url>"
+	}
+	return (&url.URL{Scheme: u.Scheme, Host: u.Host, Path: u.Path}).String()
 }
 
 // appSecMode resolves the per-service AppSec mode. A service asking for

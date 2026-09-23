@@ -253,16 +253,6 @@ func (v Verdict) IsCrowdSec() bool {
 	}
 }
 
-// IsAppSec returns true when the verdict originates from an AppSec inspection.
-func (v Verdict) IsAppSec() bool {
-	switch v {
-	case DenyAppSecBan, DenyAppSecCaptcha, DenyAppSecUnavailable:
-		return true
-	default:
-		return false
-	}
-}
-
 // IsObserveOnly returns true when v is a CrowdSec verdict and the filter is in
 // observe mode. Callers should log the verdict but not block the request.
 func (f *Filter) IsObserveOnly(v Verdict) bool {

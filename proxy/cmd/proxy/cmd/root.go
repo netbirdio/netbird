@@ -132,8 +132,8 @@ func init() {
 	rootCmd.Flags().StringVar(&crowdsecAPIKey, "crowdsec-api-key", envStringOrDefault("NB_PROXY_CROWDSEC_API_KEY", ""), "CrowdSec bouncer API key")
 	rootCmd.Flags().StringVar(&appsecURL, "crowdsec-appsec-url", envStringOrDefault("NB_PROXY_CROWDSEC_APPSEC_URL", ""), "CrowdSec AppSec (WAF) endpoint for HTTP request inspection, e.g. http://127.0.0.1:7422/ (reuses the bouncer API key)")
 	rootCmd.Flags().DurationVar(&appsecTimeout, "crowdsec-appsec-timeout", envDurationOrDefault("NB_PROXY_CROWDSEC_APPSEC_TIMEOUT", 0), "Timeout for a single AppSec inspection call (0 = 200ms)")
-	rootCmd.Flags().IntVar(&appsecMaxConcurrent, "crowdsec-appsec-max-concurrent", int(envInt64OrDefault("NB_PROXY_CROWDSEC_APPSEC_MAX_CONCURRENT", 0)), "Cap on AppSec inspections in flight; further requests are denied in enforce mode rather than queued (0 = 256, negative = no cap)")
-	rootCmd.Flags().Int64Var(&captureBudgetBytes, "capture-budget-bytes", envInt64OrDefault("NB_PROXY_CAPTURE_BUDGET_BYTES", 0), "Total in-flight request-body buffering across the proxy, shared by AppSec inspection and agent-network capture (0 = 256MiB)")
+	rootCmd.Flags().IntVar(&appsecMaxConcurrent, "crowdsec-appsec-max-concurrent", envIntOrDefault("NB_PROXY_CROWDSEC_APPSEC_MAX_CONCURRENT", 0), "Cap on AppSec inspections in flight; further requests are denied in enforce mode rather than queued (0 = 256, negative = no cap)")
+	rootCmd.Flags().Int64Var(&captureBudgetBytes, "capture-budget-bytes", envInt64OrDefault("NB_PROXY_CAPTURE_BUDGET_BYTES", 0), "Total in-flight request-body buffering across the proxy, shared by AppSec inspection and agent-network capture (0 or negative = 256MiB)")
 	rootCmd.Flags().Int64Var(&appsecMaxBodyBytes, "crowdsec-appsec-max-body-bytes", envInt64OrDefault("NB_PROXY_CROWDSEC_APPSEC_MAX_BODY_BYTES", 0), "Cap on the request body mirrored to AppSec (0 = 64KiB, negative = headers and URI only)")
 }
 
@@ -321,6 +321,21 @@ func envInt64OrDefault(key string, def int64) int64 {
 		return def
 	}
 	parsed, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
+		log.Warnf("parse %s=%q: %v, using default %d", key, v, err, def)
+		return def
+	}
+	return parsed
+}
+
+// envIntOrDefault parses at the platform int size, so a value that does not fit
+// falls back to the default instead of wrapping on 32-bit builds.
+func envIntOrDefault(key string, def int) int {
+	v, exists := os.LookupEnv(key)
+	if !exists {
+		return def
+	}
+	parsed, err := strconv.Atoi(v)
 	if err != nil {
 		log.Warnf("parse %s=%q: %v, using default %d", key, v, err, def)
 		return def
