@@ -313,7 +313,7 @@ func TestValidateState_RejectsOldTwoPartFormat(t *testing.T) {
 	err := s.singleUseStore.Store("base64url|hmac", "test", 10*time.Minute)
 	require.NoError(t, err)
 
-	_, _, err = s.ValidateState("base64url|hmac")
+	_, _, _, err = s.ValidateState("base64url|hmac")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid state format")
 }
@@ -385,7 +385,7 @@ func TestValidateState_RejectsInvalidHMAC(t *testing.T) {
 	err := s.singleUseStore.Store("dGVzdA==|nonce|wrong-hmac", "test", 10*time.Minute)
 	require.NoError(t, err)
 
-	_, _, err = s.ValidateState("dGVzdA==|nonce|wrong-hmac")
+	_, _, _, err = s.ValidateState("dGVzdA==|nonce|wrong-hmac")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid state signature")
 }

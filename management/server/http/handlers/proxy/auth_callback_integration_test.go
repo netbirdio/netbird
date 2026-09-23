@@ -181,6 +181,10 @@ func (m *testAccessLogManager) GetAllAccessLogs(_ context.Context, _, _ string, 
 }
 
 func setupAuthCallbackTest(t *testing.T) *testSetup {
+	return setupAuthCallbackTestWithProxyManager(t, nil)
+}
+
+func setupAuthCallbackTestWithProxyManager(t *testing.T, proxyManager nbproxy.Manager) *testSetup {
 	t.Helper()
 
 	ctx := context.Background()
@@ -217,7 +221,7 @@ func setupAuthCallbackTest(t *testing.T) *testSetup {
 		nil,
 		usersManager,
 		nil,
-		nil,
+		proxyManager,
 		nil,
 	)
 
@@ -242,6 +246,14 @@ func setupAuthCallbackTest(t *testing.T) *testSetup {
 	}
 }
 
+type testSessionCodeManager struct {
+	nbproxy.Manager
+}
+
+func (testSessionCodeManager) ClusterSupportsSessionCode(_ context.Context, _ string) bool {
+	return true
+}
+
 func createTestReverseProxies(t *testing.T, ctx context.Context, testStore store.Store) {
 	t.Helper()
 
@@ -252,10 +264,11 @@ func createTestReverseProxies(t *testing.T, ctx context.Context, testStore store
 	privKey := base64.StdEncoding.EncodeToString(priv)
 
 	testProxy := &service.Service{
-		ID:        "testProxyId",
-		AccountID: "testAccountId",
-		Name:      "Test Proxy",
-		Domain:    "test-proxy.example.com",
+		ID:           "testProxyId",
+		AccountID:    "testAccountId",
+		Name:         "Test Proxy",
+		Domain:       "test-proxy.example.com",
+		ProxyCluster: "cluster.example.com",
 		Targets: []*service.Target{{
 			Path:       strPtr("/"),
 			Host:       "localhost",
@@ -512,29 +525,36 @@ func createTestState(t *testing.T, ps *nbgrpc.ProxyServiceServer, redirectURL st
 }
 
 func TestAuthCallback_UserAllowedToLogin(t *testing.T) {
-	setup := setupAuthCallbackTest(t)
-	defer setup.cleanup()
+	tests := []struct {
+		name        string
+		manager     nbproxy.Manager
+		wantParam   string
+		absentParam string
+	}{
+		{name: "legacy proxy", wantParam: "session_token", absentParam: "session_code"},
+		{name: "compatible proxy", manager: testSessionCodeManager{}, wantParam: "session_code", absentParam: "session_token"},
+	}
 
-	setup.oidcServer.tokenSubject = "allowedUserId"
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setup := setupAuthCallbackTestWithProxyManager(t, tt.manager)
+			defer setup.cleanup()
 
-	state := createTestState(t, setup.proxyService, "https://test-proxy.example.com/dashboard")
+			setup.oidcServer.tokenSubject = "allowedUserId"
+			state := createTestState(t, setup.proxyService, "https://test-proxy.example.com/dashboard")
+			req := httptest.NewRequest(http.MethodGet, "/reverse-proxy/callback?code=test-auth-code&state="+url.QueryEscape(state), nil)
+			rec := httptest.NewRecorder()
+			setup.router.ServeHTTP(rec, req)
+			require.Equal(t, http.StatusFound, rec.Code)
 
-	req := httptest.NewRequest(http.MethodGet, "/reverse-proxy/callback?code=test-auth-code&state="+url.QueryEscape(state), nil)
-	rec := httptest.NewRecorder()
-
-	setup.router.ServeHTTP(rec, req)
-
-	require.Equal(t, http.StatusFound, rec.Code)
-
-	location := rec.Header().Get("Location")
-	require.NotEmpty(t, location)
-
-	parsedLocation, err := url.Parse(location)
-	require.NoError(t, err)
-
-	require.Equal(t, "test-proxy.example.com", parsedLocation.Host)
-	require.NotEmpty(t, parsedLocation.Query().Get("session_token"), "Should include session token")
-	require.Empty(t, parsedLocation.Query().Get("error"), "Should not have error parameter")
+			location, err := url.Parse(rec.Header().Get("Location"))
+			require.NoError(t, err)
+			require.Equal(t, "test-proxy.example.com", location.Host)
+			require.NotEmpty(t, location.Query().Get(tt.wantParam))
+			require.Empty(t, location.Query().Get(tt.absentParam))
+			require.Empty(t, location.Query().Get("error"))
+		})
+	}
 }
 
 // TestAuthCallback_UserDeniedByAccountStatus asserts that a user whose account

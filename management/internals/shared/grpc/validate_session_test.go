@@ -634,6 +634,10 @@ func (m *testValidateSessionProxyManager) ClusterSupportsPrivate(_ context.Conte
 	return nil
 }
 
+func (m *testValidateSessionProxyManager) ClusterSupportsSessionCode(_ context.Context, _ string) bool {
+	return false
+}
+
 type testValidateSessionUsersManager struct {
 	store store.Store
 }
