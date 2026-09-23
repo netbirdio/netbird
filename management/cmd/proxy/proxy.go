@@ -10,6 +10,7 @@ import (
 	"io"
 	"strings"
 	"text/tabwriter"
+	"unicode"
 
 	"github.com/spf13/cobra"
 
@@ -82,11 +83,11 @@ func runDisconnectAll(ctx context.Context, s store.Store, out io.Writer, in io.R
 		}
 		version := "-"
 		if p.Version != "" {
-			version = p.Version
+			version = sanitizeReportedValue(p.Version)
 		}
 
 		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			p.ID,
+			sanitizeReportedValue(p.ID),
 			p.ClusterAddress,
 			p.IPAddress,
 			version,
@@ -143,4 +144,17 @@ func confirmDisconnectAll(out io.Writer, in io.Reader) (bool, error) {
 	}
 
 	return strings.EqualFold(strings.TrimSpace(scanner.Text()), disconnectAllConfirmation), nil
+}
+
+// sanitizeReportedValue replaces non-printable characters in a value the proxy
+// reports about itself. Both the id and the version arrive unvalidated over
+// gRPC, so a tab would forge a column, a carriage return or ANSI escape would
+// redraw the operator's terminal, and U+202E would reverse the rest of the line.
+func sanitizeReportedValue(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsPrint(r) {
+			return r
+		}
+		return '\uFFFD'
+	}, s)
 }
