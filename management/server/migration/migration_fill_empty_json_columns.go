@@ -277,3 +277,22 @@ func FillEmptyAccountBudgetRulesJsonColumns(ctx context.Context, db *gorm.DB) er
 		return res.Error
 	})
 }
+
+func FillEmptyAgentNetworkPolicyJsonColumns(ctx context.Context, db *gorm.DB) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		res := tx.Exec(`update agent_network_policies set source_groups='[]' where id in (select id from agent_network_policies where source_groups='' or source_groups=null order by id asc)`)
+		if res.Error != nil {
+			return res.Error
+		}
+		res = tx.Exec(`update agent_network_policies set destination_provider_ids='[]' where id in (select id from agent_network_policies where destination_provider_ids='' or destination_provider_ids=null order by id asc)`)
+		if res.Error != nil {
+			return res.Error
+		}
+		res = tx.Exec(`update agent_network_policies set guardrail_ids='[]' where id in (select id from agent_network_policies where guardrail_ids='' or guardrail_ids=null order by id asc)`)
+		if res.Error != nil {
+			return res.Error
+		}
+		res = tx.Exec(`update agent_network_policies set limits='{}' where id in (select id from agent_network_policies where limits='' or limits=null order by id asc)`)
+		return res.Error
+	})
+}
