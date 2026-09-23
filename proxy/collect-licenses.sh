@@ -1,8 +1,8 @@
 #!/bin/sh
 set -eu
 
-if [ "$#" -ne 1 ]; then
-	printf '%s\n' "usage: $0 OUTPUT_DIRECTORY" >&2
+if [ "$#" -lt 2 ]; then
+	printf '%s\n' "usage: $0 OUTPUT_DIRECTORY GOARCH..." >&2
 	exit 2
 fi
 
@@ -14,6 +14,7 @@ if [ -z "$output_name" ] || [ "$output_name" = . ] || [ "$output_name" = .. ] ||
 fi
 output_parent=$(CDPATH= cd -- "$(dirname "$1")" && pwd)
 output="$output_parent/$output_name"
+shift
 modules=$(mktemp "${TMPDIR:-/tmp}/netbird-proxy-licenses.modules.XXXXXX")
 sorted_modules=$(mktemp "${TMPDIR:-/tmp}/netbird-proxy-licenses.sorted.XXXXXX")
 
@@ -32,8 +33,10 @@ cp "$repo_root/LICENSE" "$staging/BSD-3-Clause.txt"
 node "$repo_root/proxy/web/scripts/third-party-licenses.mjs" >"$staging/Web-THIRD-PARTY-LICENSES"
 
 cd "$repo_root"
-GOOS=${GOOS:-linux} GOARCH=${GOARCH:-amd64} CGO_ENABLED=${CGO_ENABLED:-0} \
-	go list -deps -f '{{with .Module}}{{if .Replace}}{{.Replace.Path}}{{"\t"}}{{.Replace.Version}}{{"\t"}}{{.Replace.Dir}}{{else}}{{.Path}}{{"\t"}}{{.Version}}{{"\t"}}{{.Dir}}{{end}}{{end}}' ./proxy/cmd/proxy >"$modules"
+for arch in "$@"; do
+	GOOS=${GOOS:-linux} GOARCH="$arch" CGO_ENABLED=${CGO_ENABLED:-0} \
+		go list -deps -f '{{with .Module}}{{if .Replace}}{{.Replace.Path}}{{"\t"}}{{.Replace.Version}}{{"\t"}}{{.Replace.Dir}}{{else}}{{.Path}}{{"\t"}}{{.Version}}{{"\t"}}{{.Dir}}{{end}}{{end}}' ./proxy/cmd/proxy >>"$modules"
+done
 LC_ALL=C sort -u "$modules" >"$sorted_modules"
 
 goroot=$(go env GOROOT)

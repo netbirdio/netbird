@@ -302,10 +302,12 @@ jobs:
           tag_and_push() {
             local src="$1" img_name tag dst variant=""
             img_name="${src%%:*}"
-            # Client variants share a repository, so keep their tag suffixes.
+            # Variants share a repository with their default image, so keep
+            # their tag suffixes. Order matters: the first matching pattern wins.
             case "$src" in
               *-rootless-ubi-amd64) variant="-rootless-ubi" ;;
               *-rootless-amd64) variant="-rootless" ;;
+              *-ubi-amd64) variant="-ubi" ;;
             esac
             for tag in $(resolve_tags); do
               dst="${img_name}:${tag}${variant}"
