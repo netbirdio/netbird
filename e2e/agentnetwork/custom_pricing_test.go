@@ -23,9 +23,10 @@ import (
 // model the client asks for. The proxy prices off the REQUEST model, not the
 // upstream response model, so a made-up model id billed at operator rates lets
 // these tests assert exact costs without a real vendor key.
+// Sourced from the harness so the counts can't drift from the mock's config.
 const (
-	vllmPromptTokens     = 11
-	vllmCompletionTokens = 2
+	vllmPromptTokens     = harness.VLLMChatInputTokens
+	vllmCompletionTokens = harness.VLLMChatOutputTokens
 )
 
 // pricedEnv is a connected single-provider agent-network deployment pointed at
@@ -162,30 +163,90 @@ func chatOnce(t *testing.T, ctx context.Context, env pricedEnv, model, sessionID
 				break
 			}
 		}
-		time.Sleep(5 * time.Second)
+		if !waitBeforeRetry(ctx, 5*time.Second) {
+			break
+		}
 	}
 	require.Equal(t, 200, code,
 		"chat for %s must return 200; body: %s\n=== proxy logs ===\n%s", model, body, env.proxy.Logs(context.Background()))
 	return body
 }
 
-// findAccessLogBySession polls the access-log page for the row carrying sessionID.
-func findAccessLogBySession(t *testing.T, ctx context.Context, sessionID string) api.AgentNetworkAccessLog {
-	t.Helper()
-	var row api.AgentNetworkAccessLog
-	require.Eventually(t, func() bool {
-		logs, lerr := srv.ListAccessLogs(ctx)
-		if lerr != nil {
-			return false
-		}
-		for _, r := range logs.Data {
-			if r.SessionId != nil && *r.SessionId == sessionID {
-				row = r
-				return true
+// accessLogIngestWindow is how long a single request's access-log row is given
+// to appear before the caller gives up on it.
+// accessLogIngestWindow bounds how long a row may take to appear after its
+// request returned. The proxy streams each entry to management with a 10s send
+// timeout of its own, so a request whose send hits one full timeout and is
+// retried has not yet missed anything real — 30s left barely three send
+// attempts of headroom and lost the race on a loaded runner.
+const accessLogIngestWindow = 60 * time.Second
+
+// accessLogPollInterval is how long the lookup waits between pages. Ingest is
+// asynchronous, so the row lands somewhere inside the window rather than on
+// any particular poll.
+const accessLogPollInterval = 2 * time.Second
+
+// lookupAccessLogBySession polls the access-log page for the row carrying
+// sessionID and reports whether it arrived within the window. It never fails
+// the test: callers that can recover — by firing a fresh request under a new
+// session — need to see the miss rather than die on it.
+func lookupAccessLogBySession(ctx context.Context, sessionID string, within time.Duration) (api.AgentNetworkAccessLog, bool) {
+	deadline := time.Now().Add(within)
+	for {
+		// Each poll is bounded by what is left of the window rather than by the
+		// caller's context: a single stalled request would otherwise hold the
+		// loop open long past the ingest window it is meant to enforce, and the
+		// caller would read the delay as a missing row.
+		if logs, lerr := listAccessLogsBy(ctx, deadline); lerr == nil {
+			for _, r := range logs.Data {
+				if r.SessionId != nil && *r.SessionId == sessionID {
+					return r, true
+				}
 			}
 		}
-		return false
-	}, 30*time.Second, 2*time.Second, "session id %q must be recorded in an access-log row", sessionID)
+		// The wait is bounded by the window as well, so the answer arrives when
+		// the caller's budget runs out rather than a poll interval later: a
+		// full interval slept past the deadline reports "no row" up to two
+		// seconds late, which reads as a slower lookup than the one asked for.
+		wait := time.Until(deadline)
+		if wait > accessLogPollInterval {
+			wait = accessLogPollInterval
+		}
+		if wait <= 0 {
+			return api.AgentNetworkAccessLog{}, false
+		}
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return api.AgentNetworkAccessLog{}, false
+		case <-timer.C:
+		}
+		// Checked after the wait rather than before the request: a poll issued
+		// past the deadline carries no budget and would fail on arrival.
+		if !time.Now().Before(deadline) {
+			return api.AgentNetworkAccessLog{}, false
+		}
+	}
+}
+
+// listAccessLogsBy fetches one access-log page under a context that expires at
+// deadline, so no single call can outlive the window its caller is polling
+// within. The parent's cancellation still applies: the child inherits it.
+func listAccessLogsBy(ctx context.Context, deadline time.Time) (api.AgentNetworkAccessLogsResponse, error) {
+	reqCtx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+	return srv.ListAccessLogs(reqCtx)
+}
+
+// findAccessLogBySession polls the access-log page for the row carrying
+// sessionID, failing the test if it never lands. Use it for a request whose row
+// must exist; where a missing row is a recoverable race, use
+// lookupAccessLogBySession and retry.
+func findAccessLogBySession(t *testing.T, ctx context.Context, sessionID string) api.AgentNetworkAccessLog {
+	t.Helper()
+	row, ok := lookupAccessLogBySession(ctx, sessionID, accessLogIngestWindow)
+	require.True(t, ok, "session id %q must be recorded in an access-log row", sessionID)
 	return row
 }
 
@@ -319,6 +380,11 @@ func TestPriceChangeUpdatesRecordedCost(t *testing.T) {
 		outRateA    = 0.020
 		inRateB     = 0.050 // 5x / 4x the original, so a repriced row is unmistakable
 		outRateB    = 0.080
+		// Per-attempt ingest wait, shorter than the default so a request that
+		// produces no row costs one retry rather than most of the budget, and an
+		// overall deadline long enough to hold several attempts.
+		repriceIngestWindow = 20 * time.Second
+		repriceDeadline     = 180 * time.Second
 	)
 
 	env := provisionPricedProvider(t, ctx, "reprice", []api.AgentNetworkProviderModel{
@@ -353,27 +419,61 @@ func TestPriceChangeUpdatesRecordedCost(t *testing.T) {
 	// reading its cost, so an un-ingested row is never mistaken for "still rate A".
 	// The expected new input cost is unmistakably higher than rate A, so a
 	// lingering old-rate row can't satisfy the check.
+	//
+	// Every way an iteration can come up short — the request failing, its row not
+	// landing, or the row still carrying rate A — is a symptom of the same
+	// in-flight rebuild, so each one retries under a fresh session rather than
+	// ending the test. Only the outer deadline is fatal.
 	wantInputB := float64(vllmPromptTokens) / 1000 * inRateB
 	var repriced api.AgentNetworkAccessLog
 	var lastSession string
-	deadline := time.Now().Add(90 * time.Second)
+	// The cost last read, kept separately: repriced is the zero value on every
+	// path that gives up, so reporting its cost would say "$0.000000" whether
+	// the rows were still at rate A or no row was ever read.
+	var lastCost float64
+	var sawRow bool
+	deadline := time.Now().Add(repriceDeadline)
+	// Everything inside the loop runs under the deadline rather than the
+	// test's own context. An attempt started just before it would otherwise
+	// run well past it: the chat container is capped at 90s of its own and the
+	// row lookup at another 20s, so the loop could report a repricing failure
+	// nearly two minutes after the window it was given had closed.
+	repriceCtx, cancelReprice := context.WithDeadline(ctx, deadline)
+	defer cancelReprice()
 	for time.Now().Before(deadline) {
 		lastSession = fmt.Sprintf("e2e-session-reprice-b-%d", time.Now().UnixNano())
-		code, _, cerr := env.client.Chat(ctx, env.endpoint, env.proxyIP, harness.WireChat, customModel, "Reply with exactly: pong", lastSession)
+		code, _, cerr := env.client.Chat(repriceCtx, env.endpoint, env.proxyIP, harness.WireChat, customModel, "Reply with exactly: pong", lastSession)
 		if cerr != nil || code != 200 {
-			time.Sleep(5 * time.Second)
+			if !waitBeforeRetry(repriceCtx, 5*time.Second) {
+				break
+			}
 			continue
 		}
-		row := findAccessLogBySession(t, ctx, lastSession)
+		row, ok := lookupAccessLogBySession(repriceCtx, lastSession, repriceIngestWindow)
+		if !ok {
+			// No row for this request. The proxy now publishes a rebuilt chain
+			// before the route that reaches it, so a request can no longer be
+			// served unattributed mid-update; this retry covers the ingest
+			// window alone. Fire another one under a fresh session.
+			t.Logf("no access-log row for session %q within %s; retrying under a fresh session", lastSession, repriceIngestWindow)
+			continue
+		}
 		if inDelta(row.InputCostUsd, wantInputB, 1e-6) {
 			repriced = row
 			break
 		}
 		// Still priced at the old rate — the push hasn't landed yet; retry.
-		time.Sleep(5 * time.Second)
+		lastCost, sawRow = row.InputCostUsd, true
+		if !waitBeforeRetry(repriceCtx, 5*time.Second) {
+			break
+		}
 	}
-	require.NotEmpty(t, repriced.Id, "a request after the price change must be priced at the new rate B; last input_cost_usd=$%.6f, wanted $%.6f\n=== proxy logs ===\n%s",
-		repriced.InputCostUsd, wantInputB, env.proxy.Logs(context.Background()))
+	lastSeen := "no row was ever read"
+	if sawRow {
+		lastSeen = fmt.Sprintf("last input_cost_usd=$%.6f", lastCost)
+	}
+	require.NotEmpty(t, repriced.Id, "a request after the price change must be priced at the new rate B; %s, wanted $%.6f\n=== proxy logs ===\n%s",
+		lastSeen, wantInputB, env.proxy.Logs(context.Background()))
 
 	assertOpenAICostAtRates(t, repriced, inRateB, outRateB)
 	verifyUsageRowForSession(t, lastSession, inRateB, outRateB)
@@ -629,4 +729,48 @@ func inDelta(a, b, tol float64) bool {
 		d = -d
 	}
 	return d <= tol
+}
+
+// TestCustomDatedModelKeepsItsOwnPrice covers the review fix that anchored the
+// release-date fallback to Claude ids. Pricing looks every model up through
+// that helper, so while it matched a bare trailing date any operator id ending
+// in eight digits inherited the rate of its undated sibling — a silent
+// mis-bill on models NetBird knows nothing about.
+func TestCustomDatedModelKeepsItsOwnPrice(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
+
+	const (
+		baseModel  = "internal-llm"
+		datedModel = "internal-llm-20250101"
+		baseIn     = 0.010
+		baseOut    = 0.020
+		// An order of magnitude apart, so a row billed at the wrong entry is
+		// unmistakable rather than a rounding argument.
+		datedIn  = 0.100
+		datedOut = 0.200
+	)
+
+	env := provisionPricedProvider(t, ctx, "customdated", []api.AgentNetworkProviderModel{
+		{Id: baseModel, InputPer1k: baseIn, OutputPer1k: baseOut},
+		{Id: datedModel, InputPer1k: datedIn, OutputPer1k: datedOut},
+	})
+
+	t.Run("the undated id bills at its own rate", func(t *testing.T) {
+		session := fmt.Sprintf("e2e-session-customdated-base-%d", time.Now().UnixNano())
+		chatOnce(t, ctx, env, baseModel, session)
+		assertOpenAICostAtRates(t, findAccessLogBySession(t, ctx, session), baseIn, baseOut)
+	})
+
+	t.Run("the dated id keeps its own rate", func(t *testing.T) {
+		session := fmt.Sprintf("e2e-session-customdated-dated-%d", time.Now().UnixNano())
+		chatOnce(t, ctx, env, datedModel, session)
+		row := findAccessLogBySession(t, ctx, session)
+		assertOpenAICostAtRates(t, row, datedIn, datedOut)
+
+		// Spelled out because it is the regression: inheriting the sibling's
+		// rate would bill this request at a tenth of its price.
+		assert.Greater(t, row.InputCostUsd, float64(vllmPromptTokens)/1000*baseIn*2,
+			"a custom dated id must not inherit the undated entry's rate")
+	})
 }

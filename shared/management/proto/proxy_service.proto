@@ -194,6 +194,12 @@ message Authentication {
   bool pin = 4;
   bool oidc = 5;
   repeated HeaderAuth header_auths = 6;
+  // Group ids allowed to reach the service through an OIDC identity. When
+  // non-empty the proxy requires the session token's groups claim to
+  // intersect this list before honouring the cookie, so a token minted for
+  // an identity outside these groups is not a bearer credential for the
+  // service. Empty means group membership does not restrict access.
+  repeated string allowed_group_ids = 7;
 }
 
 message AccessRestrictions {

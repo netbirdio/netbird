@@ -175,3 +175,22 @@ func TestNewTable_NilAndEmpty(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, entries, "nil in, empty (never-matching) map out for the per-record map")
 }
+
+// TestLookup_DatedAnthropicIDFallsBackToUndated covers a client pinning a
+// release date on a model priced under its undated id. Without the
+// fallback the request records no cost at all.
+func TestLookup_DatedAnthropicIDFallsBackToUndated(t *testing.T) {
+	table, err := NewTable(map[string]map[string]EntryJSON{
+		"anthropic": {
+			"claude-sonnet-4-5": {InputPer1K: 0.003, OutputPer1K: 0.015},
+		},
+	})
+	require.NoError(t, err, "table must build from a valid defaults map")
+
+	entry, ok := table.Lookup("anthropic", "claude-sonnet-4-5-20250929")
+	require.True(t, ok, "a dated id must resolve to the undated entry")
+	assert.InDelta(t, 0.003, entry.InputPer1K, 1e-9, "dated id must bill at the registered rate")
+
+	_, ok = table.Lookup("anthropic", "claude-sonnet-9-9-20250929")
+	assert.False(t, ok, "an unknown family must stay unpriced")
+}

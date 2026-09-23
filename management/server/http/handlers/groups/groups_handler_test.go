@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/netip"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"testing"
 
@@ -209,6 +209,33 @@ func TestWriteGroup(t *testing.T) {
 			expectedBody:   false,
 		},
 		{
+			name:        "Write Group POST Empty Resource",
+			requestType: http.MethodPost,
+			requestPath: "/api/groups",
+			requestBody: bytes.NewBuffer(
+				[]byte(`{"name":"With Resource","resources":[{}]}`)),
+			expectedStatus: http.StatusUnprocessableEntity,
+			expectedBody:   false,
+		},
+		{
+			name:        "Write Group PUT Empty Resource",
+			requestType: http.MethodPut,
+			requestPath: "/api/groups/id-existed",
+			requestBody: bytes.NewBuffer(
+				[]byte(`{"name":"With Resource","resources":[{"id":"","type":"host"}]}`)),
+			expectedStatus: http.StatusUnprocessableEntity,
+			expectedBody:   false,
+		},
+		{
+			name:        "Write Group POST Unknown Resource Type",
+			requestType: http.MethodPost,
+			requestPath: "/api/groups",
+			requestBody: bytes.NewBuffer(
+				[]byte(`{"name":"With Resource","resources":[{"id":"res-1","type":"banana"}]}`)),
+			expectedStatus: http.StatusUnprocessableEntity,
+			expectedBody:   false,
+		},
+		{
 			name:        "Write Group PUT OK",
 			requestType: http.MethodPut,
 			requestPath: "/api/groups/id-existed",
@@ -374,6 +401,20 @@ func TestGetAllGroups(t *testing.T) {
 			assert.Equal(t, tc.expectedCount, len(groups))
 		})
 	}
+}
+
+func TestToGroupResponseSkipsEmptyResource(t *testing.T) {
+	group := &types.Group{
+		ID:        "id-resources",
+		Name:      "Resources",
+		Issued:    types.GroupIssuedAPI,
+		Resources: []types.Resource{{}, {ID: "res-1", Type: types.ResourceTypeHost}},
+	}
+
+	got := toGroupResponse(nil, group)
+
+	assert.Equal(t, 1, got.ResourcesCount)
+	assert.Equal(t, []api.Resource{{Id: "res-1", Type: api.ResourceType(types.ResourceTypeHost)}}, got.Resources)
 }
 
 func TestDeleteGroup(t *testing.T) {

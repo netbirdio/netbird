@@ -26,7 +26,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/portforward"
 	"github.com/netbirdio/netbird/client/internal/rosenpass"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
-	"github.com/netbirdio/netbird/client/netstate"
+	"github.com/netbirdio/netbird/client/netevents"
 	"github.com/netbirdio/netbird/route"
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 )
@@ -95,9 +95,9 @@ type ConnConfig struct {
 	// ICEConfig ICE protocol configuration
 	ICEConfig icemaker.Config
 
-	// NetworkState gates the reconnection guard on OS-reported network
+	// NetMgr gates the reconnection guard on OS-reported network
 	// availability; nil disables gating.
-	NetworkState *netstate.State
+	NetMgr *netevents.Manager
 }
 
 type Conn struct {
@@ -135,9 +135,10 @@ type Conn struct {
 	// used to store the remote Rosenpass key for Relayed connection in case of connection update from ice
 	rosenpassRemoteKey []byte
 
-	wgProxyICE   wgproxy.Proxy
-	wgProxyRelay wgproxy.Proxy
-	handshaker   *Handshaker
+	wgProxyICE     wgproxy.Proxy
+	wgProxyRelay   wgproxy.Proxy
+	relayedConnRef *relayClient.Conn
+	handshaker     *Handshaker
 
 	guard *guard.Guard
 	wg    sync.WaitGroup
@@ -259,7 +260,7 @@ func (conn *Conn) open(engineCtx context.Context, firstPacket []byte) error {
 		conn.handshaker.AddICEListener(conn.workerICE.OnNewOffer)
 	}
 
-	conn.guard = guard.NewGuard(conn.Log, conn.isConnectedOnAllWay, conn.config.Timeout, conn.srWatcher, conn.config.NetworkState)
+	conn.guard = guard.NewGuard(conn.Log, conn.isConnectedOnAllWay, conn.config.Timeout, conn.srWatcher, conn.config.NetMgr)
 
 	conn.wg.Add(1)
 	go func() {
@@ -445,7 +446,7 @@ func (conn *Conn) onICEConnectionIsReady(priority conntype.ConnPriority, iceConn
 		conn.dumpState.NewLocalProxy()
 		wgProxy, err = conn.newProxy(iceConnInfo.RemoteConn)
 		if err != nil {
-			conn.Log.Errorf("failed to add turn net.Conn to local proxy: %v", err)
+			conn.Log.Errorf("failed to add relayed net.Conn to local proxy: %v", err)
 			return
 		}
 		ep = wgProxy.EndpointAddr()
@@ -560,7 +561,7 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
-	if conn.ctx.Err() != nil {
+	if conn.ctx.Err() != nil || rci.relayedConn.Context().Err() != nil {
 		if err := rci.relayedConn.Close(); err != nil {
 			conn.Log.Warnf("failed to close unnecessary relayed connection: %v", err)
 		}
@@ -575,7 +576,9 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 		conn.Log.Errorf("failed to add relayed net.Conn to local proxy: %v", err)
 		return
 	}
-	wgProxy.SetDisconnectListener(conn.onRelayDisconnected)
+	wgProxy.SetDisconnectListener(func() {
+		conn.onRelayDisconnected(rci.relayedConn)
+	})
 
 	conn.dumpState.NewLocalProxy()
 
@@ -583,7 +586,7 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 
 	if conn.isICEActive() {
 		conn.Log.Debugf("do not switch to relay because current priority is: %s", conn.currentConnPriority.String())
-		conn.setRelayedProxy(wgProxy)
+		conn.setRelayedProxy(wgProxy, rci.relayedConn)
 		conn.statusRelay.SetConnected()
 		conn.updateRelayStatus(rci.relayedConn.RemoteAddr().String(), rci.rosenpassPubKey, time.Now())
 		return
@@ -614,15 +617,26 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 	conn.rosenpassRemoteKey = rci.rosenpassPubKey
 	conn.currentConnPriority = conntype.Relay
 	conn.statusRelay.SetConnected()
-	conn.setRelayedProxy(wgProxy)
+	conn.setRelayedProxy(wgProxy, rci.relayedConn)
 	conn.updateRelayStatus(rci.relayedConn.RemoteAddr().String(), rci.rosenpassPubKey, updateTime)
 	conn.Log.Infof("start to communicate with peer via relay")
 	conn.doOnConnected(rci.rosenpassPubKey, rci.rosenpassAddr, updateTime)
 }
 
-func (conn *Conn) onRelayDisconnected() {
+// onRelayDisconnected reports the teardown of a relayed connection. relayedConn
+// names the connection the signal belongs to, so a signal that arrives after
+// its connection was replaced is ignored instead of tearing down its successor.
+// A nil relayedConn means the caller does not track generations and the current
+// connection is always torn down.
+func (conn *Conn) onRelayDisconnected(relayedConn *relayClient.Conn) {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
+
+	if relayedConn != nil && conn.relayedConnRef != relayedConn {
+		conn.Log.Debugf("ignoring relay disconnect of a superseded connection")
+		return
+	}
+
 	conn.handleRelayDisconnectedLocked()
 }
 
@@ -646,6 +660,7 @@ func (conn *Conn) handleRelayDisconnectedLocked() {
 		_ = conn.wgProxyRelay.CloseConn()
 		conn.wgProxyRelay = nil
 	}
+	conn.relayedConnRef = nil
 
 	changed := conn.statusRelay.Get() != worker.StatusDisconnected
 	if changed {
@@ -883,9 +898,8 @@ func (conn *Conn) newProxy(remoteConn net.Conn) (wgproxy.Proxy, error) {
 	}
 
 	wgProxy := conn.config.WgConfig.WgInterface.GetProxy()
-	if err := wgProxy.AddTurnConn(conn.ctx, udpAddr, remoteConn); err != nil {
-		conn.Log.Errorf("failed to add turn net.Conn to local proxy: %v", err)
-		return nil, err
+	if err := wgProxy.AddRelayedConn(conn.ctx, udpAddr, remoteConn); err != nil {
+		return nil, fmt.Errorf("add relayed conn to proxy: %w", err)
 	}
 	return wgProxy, nil
 }
@@ -931,13 +945,14 @@ func (conn *Conn) logTraceConnState() {
 	}
 }
 
-func (conn *Conn) setRelayedProxy(proxy wgproxy.Proxy) {
+func (conn *Conn) setRelayedProxy(proxy wgproxy.Proxy, relayedConn *relayClient.Conn) {
 	if conn.wgProxyRelay != nil {
 		if err := conn.wgProxyRelay.CloseConn(); err != nil {
 			conn.Log.Warnf("failed to close deprecated wg proxy conn: %v", err)
 		}
 	}
 	conn.wgProxyRelay = proxy
+	conn.relayedConnRef = relayedConn
 }
 
 // onWGHandshakeSuccess is called when the first WireGuard handshake is detected

@@ -60,6 +60,12 @@ func setupRouterScenario(t *testing.T, directRouterPeer bool) *routerScenario {
 	manager, updateManager, err := createManager(t)
 	require.NoError(t, err)
 
+	return buildRouterScenario(t, manager, updateManager, directRouterPeer)
+}
+
+func buildRouterScenario(t *testing.T, manager *DefaultAccountManager, updateManager *update_channel.PeersUpdateManager, directRouterPeer bool) *routerScenario {
+	t.Helper()
+
 	ctx := context.Background()
 
 	account, err := createAccount(manager, "router_scenario", userID, "")
@@ -162,6 +168,23 @@ func peerToResourcePolicyByGroup(sourceGroupID, resourceGroupID string) *types.P
 				Sources:      []string{sourceGroupID},
 				Destinations: []string{resourceGroupID},
 				Action:       types.PolicyTrafficActionAccept,
+			},
+		},
+	}
+}
+
+// peerToResourcePolicyByPeer builds a policy naming the source peer directly via
+// SourceResource rather than through a group.
+func peerToResourcePolicyByPeer(sourcePeerID, resourceGroupID string) *types.Policy {
+	return &types.Policy{
+		Enabled: true,
+		Name:    "peer-to-resource-by-peer",
+		Rules: []*types.PolicyRule{
+			{
+				Enabled:        true,
+				SourceResource: types.Resource{ID: sourcePeerID, Type: types.ResourceTypePeer},
+				Destinations:   []string{resourceGroupID},
+				Action:         types.PolicyTrafficActionAccept,
 			},
 		},
 	}

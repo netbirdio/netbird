@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/exp/maps"
@@ -26,8 +27,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/client/net"
-	"github.com/netbirdio/netbird/client/netstate"
-	"github.com/netbirdio/netbird/client/netsweep"
+	"github.com/netbirdio/netbird/client/netevents"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/formatter"
 	"github.com/netbirdio/netbird/route"
@@ -82,18 +82,23 @@ type Client struct {
 	deviceName            string
 	uiVersion             string
 	networkChangeListener listener.NetworkChangeListener
-	// netState outlives engine restarts: it mirrors the OS connectivity, not
-	// the engine lifecycle. Run and RunWithoutLogin inject it into each new
-	// ConnectClient, which distributes it to every reconnection loop.
-	netState *netstate.State
-
-	// sweeper also outlives engine restarts; NotifyNetworkChange sweeps it.
-	sweeper *netsweep.Sweeper
+	// netMgr outlives engine restarts: it mirrors the OS connectivity, not
+	// the engine lifecycle. Run and RunWithoutLogin inject its state and
+	// sweeper into each new ConnectClient.
+	netMgr *netevents.Manager
 
 	stateMu       sync.RWMutex
 	connectClient *internal.ConnectClient
 	config        *profilemanager.Config
 	cacheDir      string
+
+	// mdmSource holds the per-Client MDM policy source and its change
+	// detector as one unit. Set by SetMDMPolicyFetcher (called from the
+	// Kotlin side). Each Run passes the loader to the resolved Config so
+	// applyMDMPolicy picks up the active overlay. Nil means "MDM
+	// enforcement off for this Client".
+	mdmSource atomic.Pointer[mdmSource]
+
 	// Identifies the running profile for the SSO login hint; see profile_state.go.
 	cfgPath string
 
@@ -152,16 +157,17 @@ func NewClient(androidSDKVersion int, deviceName string, uiVersion string, tunAd
 	execWorkaround(androidSDKVersion)
 
 	net.SetAndroidProtectSocketFn(tunAdapter.ProtectSocket)
+	system.SetIFaceDiscover(iFaceDiscover)
+	recorder := peer.NewRecorder("")
 	return &Client{
 		deviceName:            deviceName,
 		uiVersion:             uiVersion,
 		tunAdapter:            tunAdapter,
 		iFaceDiscover:         iFaceDiscover,
-		recorder:              peer.NewRecorder(""),
+		recorder:              recorder,
 		ctxCancelLock:         &sync.Mutex{},
 		networkChangeListener: networkChangeListener,
-		netState:              netstate.New(),
-		sweeper:               netsweep.New(),
+		netMgr:                netevents.NewManager(recorder),
 	}
 }
 
@@ -181,6 +187,7 @@ func (c *Client) Run(platformFiles PlatformFiles, urlOpener URLOpener, isAndroid
 	if err != nil {
 		return err
 	}
+	c.applyMDMOverlay(cfg)
 	c.recorder.UpdateManagementAddress(cfg.ManagementURL.String())
 	c.recorder.UpdateRosenpass(cfg.RosenpassEnabled, cfg.RosenpassPermissive)
 
@@ -202,8 +209,9 @@ func (c *Client) Run(platformFiles PlatformFiles, urlOpener URLOpener, isAndroid
 	}
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
+
 	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder,
-		internal.WithNetworkState(c.netState), internal.WithSweeper(c.sweeper))
+		internal.WithNetEvents(c.netMgr))
 	c.setState(cfg, cacheDir, cfgFile, connectClient)
 	// This path runs the interactive SSO flow, so reaching here means the peer
 	// is authenticated again — release the latch Status() reports from. Clear
@@ -231,6 +239,7 @@ func (c *Client) RunWithoutLogin(platformFiles PlatformFiles, dns *DNSList, dnsR
 	if err != nil {
 		return err
 	}
+	c.applyMDMOverlay(cfg)
 	c.recorder.UpdateManagementAddress(cfg.ManagementURL.String())
 	c.recorder.UpdateRosenpass(cfg.RosenpassEnabled, cfg.RosenpassPermissive)
 
@@ -245,7 +254,7 @@ func (c *Client) RunWithoutLogin(platformFiles PlatformFiles, dns *DNSList, dnsR
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
 	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder,
-		internal.WithNetworkState(c.netState), internal.WithSweeper(c.sweeper))
+		internal.WithNetEvents(c.netMgr))
 	c.setState(cfg, cacheDir, cfgFile, connectClient)
 	return connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener, stateFile, cacheDir)
 }
@@ -297,9 +306,12 @@ func (c *Client) GetTunSettings() (*TunSettings, error) {
 // While unavailable, the internal reconnect loops suspend their attempts and
 // the connection listener reports NoNetwork instead of Connecting; when
 // availability returns, the loops resume immediately with a fresh backoff.
+// Losing the last network also sweeps the registered connections: nothing can
+// redial while offline, so the stale sockets would otherwise stay silently
+// "connected" until their own timeouts and the client would keep reporting
+// Connected with no network at all.
 func (c *Client) SetNetworkAvailable(available bool) {
-	c.netState.Set(available)
-	c.recorder.SetNetworkAvailable(available)
+	c.netMgr.SetNetworkAvailable(available)
 }
 
 // NotifyNetworkChange marks the management, signal and relay connections
@@ -307,8 +319,7 @@ func (c *Client) SetNetworkAvailable(available bool) {
 // whatever has not redialed on the new network by then. The engine and the
 // TUN device stay untouched.
 func (c *Client) NotifyNetworkChange() {
-	c.sweeper.MarkNetworkChange()
-	log.Infof("network change: connections marked stale")
+	c.netMgr.NotifyNetworkChange()
 }
 
 // DebugBundle generates a debug bundle, uploads it, and returns the upload key.
@@ -327,6 +338,7 @@ func (c *Client) DebugBundle(platformFiles PlatformFiles, anonymize bool, anonym
 		if err != nil {
 			return "", fmt.Errorf("load config: %w", err)
 		}
+		c.applyMDMOverlay(cfg)
 		cacheDir = platformFiles.CacheDir()
 	}
 

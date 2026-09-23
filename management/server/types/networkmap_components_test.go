@@ -18,6 +18,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
 
 func networkMapFromComponents(t *testing.T, account *types.Account, peerID string, validatedPeers map[string]struct{}) *types.NetworkMap {
@@ -49,7 +50,7 @@ func allPeersValidated(account *types.Account, excludePeerIDs ...string) map[str
 	return validated
 }
 
-func peerIDs(peers []*types.ComponentPeer) []string {
+func peerIDs(peers []*nmdata.Peer) []string {
 	ids := make([]string, len(peers))
 	for i, p := range peers {
 		ids[i] = p.ID
@@ -625,7 +626,7 @@ func TestNetworkMapComponents_DomainNetworkResource(t *testing.T) {
 
 	var hasDomainRoute bool
 	for _, r := range nm.Routes {
-		if r.NetworkType == route.DomainNetwork && len(r.Domains) > 0 && r.Domains[0].SafeString() == "api.example.com" {
+		if r.NetworkType == int(route.DomainNetwork) && len(r.Domains) > 0 && r.Domains[0].SafeString() == "api.example.com" {
 			hasDomainRoute = true
 		}
 	}

@@ -6,16 +6,19 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
-
-	"github.com/netbirdio/netbird/client/netstate"
 )
+
+// ChangeWatcher exposes OS network availability transitions.
+type ChangeWatcher interface {
+	Changed() <-chan struct{}
+}
 
 // Retry mirrors backoff.Retry, but the sleep between attempts also wakes on
 // OS network availability transitions: an operation cut down by a network
 // change retries the moment the network settles instead of sleeping through
-// the recovery. A nil netState never fires, leaving plain backoff.Retry
+// the recovery. A nil watcher never fires, leaving plain backoff.Retry
 // behavior.
-func Retry(ctx context.Context, operation backoff.Operation, bo backoff.BackOff, netState *netstate.State) error {
+func Retry(ctx context.Context, operation backoff.Operation, bo backoff.BackOff, watcher ChangeWatcher) error {
 	bo.Reset()
 	for {
 		err := operation()
@@ -36,10 +39,14 @@ func Retry(ctx context.Context, operation backoff.Operation, bo backoff.BackOff,
 			return err
 		}
 
+		var changed <-chan struct{}
+		if watcher != nil {
+			changed = watcher.Changed()
+		}
 		timer := time.NewTimer(next)
 		select {
 		case <-timer.C:
-		case <-netState.Changed():
+		case <-changed:
 			timer.Stop()
 		case <-ctx.Done():
 			timer.Stop()

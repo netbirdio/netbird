@@ -343,3 +343,52 @@ func TestFactoryNormalisesAllowlist(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, middleware.DecisionAllow, out2.Decision, "trimmed entry must still match")
 }
+
+// TestAllowlistSkipsNonInferenceWithoutModel covers the reported regression:
+// GET /v1/models carries no model anywhere, so the fail-closed rule above
+// denied model discovery for exactly the accounts that configured a provider
+// allowlist — the clients that read a 403 here render an empty model picker.
+// The router authorises those endpoints by path before the guardrail sees
+// them, so an absent model there is expected rather than undeterminable.
+func TestAllowlistSkipsNonInferenceWithoutModel(t *testing.T) {
+	mw := New(providerCfg("gpt-4o"))
+	out, err := mw.Invoke(context.Background(), newInputProvider(testProvider,
+		middleware.KV{Key: middleware.KeyLLMNonInference, Value: "true"},
+	))
+	require.NoError(t, err)
+	require.NotNil(t, out)
+	assert.Equal(t, middleware.DecisionAllow, out.Decision,
+		"model discovery must not be refused because it names no model")
+}
+
+// TestAllowlistStillAppliesToNonInferenceWithModel pins that the exemption is
+// scoped to requests that genuinely name nothing. The per-model lookup
+// (GET /v1/models/{id}) is non-inference too, but the router stamps the model
+// from its path, so the allowlist must still decide it — otherwise the
+// exemption becomes a way to confirm a model the policy blocks.
+func TestAllowlistStillAppliesToNonInferenceWithModel(t *testing.T) {
+	mw := New(providerCfg("gpt-4o"))
+
+	t.Run("model in the allowlist", func(t *testing.T) {
+		out, err := mw.Invoke(context.Background(), newInputProvider(testProvider,
+			middleware.KV{Key: middleware.KeyLLMNonInference, Value: "true"},
+			middleware.KV{Key: middleware.KeyLLMModel, Value: "gpt-4o"},
+		))
+		require.NoError(t, err)
+		assert.Equal(t, middleware.DecisionAllow, out.Decision,
+			"an allowlisted model must stay reachable")
+	})
+
+	t.Run("model outside the allowlist", func(t *testing.T) {
+		out, err := mw.Invoke(context.Background(), newInputProvider(testProvider,
+			middleware.KV{Key: middleware.KeyLLMNonInference, Value: "true"},
+			middleware.KV{Key: middleware.KeyLLMModel, Value: "claude-opus-5"},
+		))
+		require.NoError(t, err)
+		assert.Equal(t, middleware.DecisionDeny, out.Decision,
+			"non-inference must not become a way past the allowlist")
+		require.NotNil(t, out.DenyReason)
+		assert.Equal(t, "llm_policy.model_blocked", out.DenyReason.Code,
+			"a named but blocked model is blocked, not unknown")
+	})
+}

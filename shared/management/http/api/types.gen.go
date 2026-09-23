@@ -95,6 +95,27 @@ func (e AgentNetworkConsumptionDimensionKind) Valid() bool {
 	}
 }
 
+// Defines values for AgentNetworkManagedProxyState.
+const (
+	AgentNetworkManagedProxyStateFailed       AgentNetworkManagedProxyState = "failed"
+	AgentNetworkManagedProxyStateProvisioning AgentNetworkManagedProxyState = "provisioning"
+	AgentNetworkManagedProxyStateReady        AgentNetworkManagedProxyState = "ready"
+)
+
+// Valid indicates whether the value is a known member of the AgentNetworkManagedProxyState enum.
+func (e AgentNetworkManagedProxyState) Valid() bool {
+	switch e {
+	case AgentNetworkManagedProxyStateFailed:
+		return true
+	case AgentNetworkManagedProxyStateProvisioning:
+		return true
+	case AgentNetworkManagedProxyStateReady:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CreateAzureIntegrationRequestHost.
 const (
 	CreateAzureIntegrationRequestHostMicrosoftCom CreateAzureIntegrationRequestHost = "microsoft.com"
@@ -1955,6 +1976,36 @@ type AgentNetworkAccessLogsResponse struct {
 	TotalRecords int `json:"total_records"`
 }
 
+// AgentNetworkAgentConfig The caller-scoped Agent Network connection config backing the self-service "Connect your agent" view. Available to every authenticated user; the providers are computed from the caller's own groups and the answer carries display metadata only.
+type AgentNetworkAgentConfig struct {
+	// Configured False only when the account has no Agent Network set up. A caller that no policy covers yet still reads as configured, with an empty providers list.
+	Configured bool `json:"configured"`
+
+	// Endpoint The account's Agent Network base URL, reachable over the NetBird tunnel only. Returned to every member of a configured account - it authorizes nothing on its own, since the gateway still refuses every request no policy permits. Empty when configured is false.
+	Endpoint string `json:"endpoint"`
+
+	// Providers The providers at least one of the caller's policies authorizes, in creation order. Empty when no policy covers the caller.
+	Providers []AgentNetworkAgentConfigProvider `json:"providers"`
+}
+
+// AgentNetworkAgentConfigProvider One provider the caller may use, reduced to what a local tool needs for configuration.
+type AgentNetworkAgentConfigProvider struct {
+	// AllModelsAllowed True when no model allowlist restricts this provider for the caller; models then lists the declared or catalog models as a courtesy.
+	AllModelsAllowed bool `json:"all_models_allowed"`
+
+	// ApiFlavor Request-body shape the provider speaks ("anthropic", "openai"). Empty when the gateway dispatches it by URL path instead.
+	ApiFlavor string `json:"api_flavor"`
+
+	// CatalogId Catalog entry id naming the provider type.
+	CatalogId string `json:"catalog_id"`
+
+	// Models The effective model allowlist for the caller (or the declared/catalog models when all_models_allowed is true).
+	Models []string `json:"models"`
+
+	// Name Operator-assigned provider label.
+	Name string `json:"name"`
+}
+
 // AgentNetworkBudgetRule Account-level budget rule. A limit-only rule bound to groups and/or users that applies across all policies as a min-wins ceiling. Empty targets means it applies to every caller.
 type AgentNetworkBudgetRule struct {
 	CreatedAt *time.Time `json:"created_at,omitempty"`
@@ -2144,6 +2195,33 @@ type AgentNetworkConsumption struct {
 // AgentNetworkConsumptionDimensionKind Whether this row counts a single end user or a single source group across every member.
 type AgentNetworkConsumptionDimensionKind string
 
+// AgentNetworkDiscoveredModel defines model for AgentNetworkDiscoveredModel.
+type AgentNetworkDiscoveredModel struct {
+	// CacheCreationPer1k Anthropic-shape cache rate — default cost per 1k cache-creation tokens (additive to input tokens), in USD. Absent when the model has no cache-creation rate.
+	CacheCreationPer1k *float64 `json:"cache_creation_per_1k,omitempty"`
+
+	// CacheReadPer1k Anthropic-shape cache rate — default cost per 1k cache-read tokens (additive to input tokens), in USD. Absent when the model has no cache-read rate.
+	CacheReadPer1k *float64 `json:"cache_read_per_1k,omitempty"`
+
+	// CachedInputPer1k OpenAI-shape cache rate — default cost per 1k cached prompt tokens (a subset of input tokens), in USD. Absent when the model has no cached-input discount.
+	CachedInputPer1k *float64 `json:"cached_input_per_1k,omitempty"`
+
+	// Id Identifier to register on the provider record, in the form the vendor issues it. For Bedrock this is the region-prefixed inference-profile id, which is the only form AWS accepts at invoke time.
+	Id string `json:"id"`
+
+	// InputPer1k Default input token price per 1k tokens, in USD, from the same table the proxy bills with. Zero when pricing_known is false.
+	InputPer1k float64 `json:"input_per_1k"`
+
+	// Label Vendor-supplied display name, where the vendor supplies one.
+	Label *string `json:"label,omitempty"`
+
+	// OutputPer1k Default output token price per 1k tokens, in USD. Zero when pricing_known is false.
+	OutputPer1k float64 `json:"output_per_1k"`
+
+	// PricingKnown Whether NetBird's shipped pricing table can price this model. When false the rates below are all zero and the operator must set them, or requests to this model would record a cost of zero.
+	PricingKnown bool `json:"pricing_known"`
+}
+
 // AgentNetworkGuardrail defines model for AgentNetworkGuardrail.
 type AgentNetworkGuardrail struct {
 	// Checks Guardrail check parameters. Each entry has an `enabled` flag plus per-check configuration; disabled entries are inert.
@@ -2189,6 +2267,54 @@ type AgentNetworkGuardrailRequest struct {
 
 	// Name Display name for the guardrail.
 	Name string `json:"name"`
+}
+
+// AgentNetworkManagedProxy A NetBird-managed Agent Network gateway deployment.
+type AgentNetworkManagedProxy struct {
+	// Endpoint The account's gateway hostname.
+	Endpoint string `json:"endpoint"`
+
+	// Id Managed proxy deployment ID.
+	Id string `json:"id"`
+
+	// Message Failure detail reported by the rollout. Only set when state is `failed`.
+	Message *string `json:"message,omitempty"`
+
+	// Region Region of the cluster hosting the deployment.
+	Region *string `json:"region,omitempty"`
+
+	// State Derived deployment state. `provisioning` until the gateway is rolled out and connected, `ready` while the gateway actively serves the endpoint, `failed` when the rollout reported a failure.
+	State AgentNetworkManagedProxyState `json:"state"`
+}
+
+// AgentNetworkManagedProxyState Derived deployment state. `provisioning` until the gateway is rolled out and connected, `ready` while the gateway actively serves the endpoint, `failed` when the rollout reported a failure.
+type AgentNetworkManagedProxyState string
+
+// AgentNetworkManagedProxyConflict Conflict body returned when the account already has an Agent Network endpoint that managed provisioning does not own, naming that endpoint.
+type AgentNetworkManagedProxyConflict struct {
+	// Endpoint The Agent Network endpoint already assigned to the account.
+	Endpoint string `json:"endpoint"`
+}
+
+// AgentNetworkModelDiscoveryRequest defines model for AgentNetworkModelDiscoveryRequest.
+type AgentNetworkModelDiscoveryRequest struct {
+	// ApiKey Credential to query the vendor with, for a provider that has not been saved yet. Mutually exclusive with provider_id.
+	ApiKey *string `json:"api_key,omitempty"`
+
+	// CatalogProviderId Catalog provider to query (AgentNetworkCatalogProvider.id). Determines the listing endpoint, the auth header and the response shape.
+	CatalogProviderId string `json:"catalog_provider_id"`
+
+	// ProviderId Existing Agent Network provider record to query with. Its stored credential is used, and its upstream unless upstream_url overrides it, so the form can refresh the list without the client holding the key.
+	ProviderId *string `json:"provider_id,omitempty"`
+
+	// UpstreamUrl The upstream being configured. Used to reach vendors that serve their listing from the same host as inference, and to read back the region for those whose host embeds one. Sent alongside provider_id, it overrides the stored upstream, so an edit can be listed against the URL on the form before it is saved.
+	UpstreamUrl *string `json:"upstream_url,omitempty"`
+}
+
+// AgentNetworkModelDiscoveryResponse defines model for AgentNetworkModelDiscoveryResponse.
+type AgentNetworkModelDiscoveryResponse struct {
+	// Models Models the credential can reach, in the order the vendor returned them.
+	Models []AgentNetworkDiscoveredModel `json:"models"`
 }
 
 // AgentNetworkPolicy defines model for AgentNetworkPolicy.
@@ -2551,6 +2677,9 @@ type BundleParameters struct {
 	// Anonymize Whether sensitive data should be anonymized in the bundle.
 	Anonymize bool `json:"anonymize"`
 
+	// AnonymizeLevel How much the anonymizer redacts. "default" (or empty) keeps internal IP ranges, "strict" also anonymizes them.
+	AnonymizeLevel *string `json:"anonymize_level,omitempty"`
+
 	// BundleFor Whether to generate a bundle for the given timeframe.
 	BundleFor bool `json:"bundle_for"`
 
@@ -2559,6 +2688,9 @@ type BundleParameters struct {
 
 	// LogFileCount Maximum number of log files to include in the bundle.
 	LogFileCount int `json:"log_file_count"`
+
+	// UploadUrl Service URL the client requests an upload URL from before uploading the bundle. Empty selects the default upload server.
+	UploadUrl *string `json:"upload_url,omitempty"`
 }
 
 // BundleResult defines model for BundleResult.
@@ -4302,6 +4434,9 @@ type PeerLocalFlags struct {
 
 	// LazyConnectionEnabled Indicates whether lazy connection is enabled on this peer
 	LazyConnectionEnabled *bool `json:"lazy_connection_enabled,omitempty"`
+
+	// RemoteJobsAllowed Indicates whether the peer has opted into management-requested remote jobs (e.g. debug bundles)
+	RemoteJobsAllowed *bool `json:"remote_jobs_allowed,omitempty"`
 
 	// RosenpassEnabled Indicates whether Rosenpass is enabled on this peer
 	RosenpassEnabled *bool `json:"rosenpass_enabled,omitempty"`
@@ -6202,6 +6337,9 @@ type PostApiAgentNetworkBudgetRulesJSONRequestBody = AgentNetworkBudgetRuleReque
 
 // PutApiAgentNetworkBudgetRulesRuleIdJSONRequestBody defines body for PutApiAgentNetworkBudgetRulesRuleId for application/json ContentType.
 type PutApiAgentNetworkBudgetRulesRuleIdJSONRequestBody = AgentNetworkBudgetRuleRequest
+
+// PostApiAgentNetworkCatalogProvidersModelsJSONRequestBody defines body for PostApiAgentNetworkCatalogProvidersModels for application/json ContentType.
+type PostApiAgentNetworkCatalogProvidersModelsJSONRequestBody = AgentNetworkModelDiscoveryRequest
 
 // PostApiAgentNetworkGuardrailsJSONRequestBody defines body for PostApiAgentNetworkGuardrails for application/json ContentType.
 type PostApiAgentNetworkGuardrailsJSONRequestBody = AgentNetworkGuardrailRequest
