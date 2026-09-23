@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -27,6 +28,11 @@ type sessionProcess struct {
 	// StartTime is field 22 of /proc/<pid>/stat, in clock ticks since boot.
 	StartTime uint64 `json:"startTime,omitempty"`
 	UID       uint32 `json:"uid,omitempty"`
+	// Command is the base name of the process's argv[0] when it was started.
+	// Matching on it recognises whatever the launcher ran, including a desktop
+	// picked from xsessions or the xterm fallback, which a fixed list of
+	// names misses. Empty on records written before it was recorded.
+	Command string `json:"command,omitempty"`
 }
 
 // ShutdownState tracks VNC virtual session processes for crash recovery.
@@ -115,7 +121,18 @@ func describeProcess(pid int) sessionProcess {
 	} else {
 		log.Debugf("read uid for pid %d: %v", pid, err)
 	}
+	if cmdline, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid)); err == nil {
+		proc.Command = commandName(cmdline)
+	} else {
+		log.Debugf("read cmdline for pid %d: %v", pid, err)
+	}
 	return proc
+}
+
+// commandName returns the base name of argv[0] from a /proc cmdline.
+func commandName(cmdline []byte) string {
+	argv0, _, _ := bytes.Cut(cmdline, []byte{0})
+	return filepath.Base(string(argv0))
 }
 
 // isOurProcess verifies the PID still belongs to the VNC-related process it was
@@ -157,15 +174,25 @@ func isOurProcess(proc sessionProcess, desc string) bool {
 		return false
 	}
 
-	cmd := string(cmdline)
-	// Match against expected process types.
+	// The recorded command covers whatever the launcher ran; the name list
+	// covers records written before it was recorded, and a launcher script
+	// that has since exec'd into the real session binary under another name.
+	if proc.Command != "" && commandName(cmdline) == proc.Command {
+		return true
+	}
+	return matchesKnownSessionProcess(desc, string(cmdline))
+}
+
+// matchesKnownSessionProcess reports whether cmd looks like the X server or
+// desktop process desc describes.
+func matchesKnownSessionProcess(desc, cmd string) bool {
 	if strings.Contains(desc, "xvfb") || strings.Contains(desc, "xorg") {
 		return strings.Contains(cmd, "Xvfb") || strings.Contains(cmd, "Xorg")
 	}
 	if strings.Contains(desc, "desktop") {
 		return strings.Contains(cmd, "session") || strings.Contains(cmd, "plasma") ||
 			strings.Contains(cmd, "gnome") || strings.Contains(cmd, "xfce") ||
-			strings.Contains(cmd, "dbus-launch")
+			strings.Contains(cmd, "dbus-launch") || strings.Contains(cmd, "xterm")
 	}
 	return false
 }

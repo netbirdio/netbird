@@ -102,6 +102,9 @@ type cursorPositionSource interface {
 	CursorPos() (x, y int, err error)
 }
 
+// errServerStopped is returned by Start on a Server that has been stopped.
+var errServerStopped = errors.New("VNC server was stopped and cannot be restarted; build a new one")
+
 // errFrameUnchanged is returned by capturers that hash the raw source
 // bytes (currently macOS) when the new frame is byte-identical to the
 // last one, so the encoder can short-circuit to an empty update.
@@ -186,7 +189,11 @@ type Server struct {
 	network6   netip.Prefix
 	log        *log.Entry
 
-	mu       sync.Mutex
+	mu sync.Mutex
+	// stopped is set by Stop. A Server is single-use: Stop closes the listener
+	// it may have been handed, the capturer and the injector, none of which
+	// it can recreate, so a second Start would run on closed resources.
+	stopped  bool
 	listener net.Listener
 	// extraListeners holds additional listeners (e.g. the v6 overlay), closed
 	// alongside listener on Stop.
@@ -777,26 +784,21 @@ func (s *Server) VNCAuth() *sshauth.Config {
 // Start begins listening for VNC connections on the given address.
 // network is the NetBird overlay prefix used to validate connection sources.
 // When Config.Listener was supplied, addr and network are ignored and the
-// pre-built listener is used (the per-session agent path).
+// pre-built listener is used (the per-session agent path). A Server cannot be
+// started again after Stop; build a new one instead.
 func (s *Server) Start(ctx context.Context, addr netip.AddrPort, network netip.Prefix) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if s.stopped {
+		return errServerStopped
+	}
 	if s.listener != nil {
 		return fmt.Errorf("server already running")
 	}
 	if s.invalidAgentToken {
 		return fmt.Errorf("invalid agent token configuration")
 	}
-
-	// Reopen the door a previous Stop closed, so a restarted server accepts
-	// handlers again, and drop that Stop's drain signal so the next one waits
-	// on a fresh channel rather than on one already closed.
-	s.handlersMu.Lock()
-	s.stopping = false
-	s.handlersDrained = nil
-	s.handlersMu.Unlock()
-	s.resetServiceAgent()
 
 	s.ctx, s.cancel = context.WithCancel(ctx)
 	s.vmgr = s.platformSessionManager()
@@ -887,6 +889,7 @@ func (s *Server) openOverlayListener(addr netip.AddrPort, network netip.Prefix) 
 func (s *Server) Stop() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.stopped = true
 
 	// Before anything is closed, so no connection is admitted into a teardown
 	// already in progress.

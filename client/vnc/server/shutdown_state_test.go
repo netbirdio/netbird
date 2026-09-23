@@ -77,3 +77,28 @@ func TestDescribeProcessRoundTrips(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, start, proc.StartTime)
 }
+
+// A process recorded with its own command is recognised by that command, even
+// when it is not one of the known desktop names. The test binary stands in for
+// an xsessions entry or the xterm fallback: its desc says "desktop" but its name
+// matches nothing on the list.
+func TestIsOurProcessMatchesRecordedCommand(t *testing.T) {
+	if _, err := os.Stat("/proc/self/cmdline"); err != nil {
+		t.Skip("no procfs")
+	}
+
+	proc := describeProcess(os.Getpid())
+	require.NotEmpty(t, proc.Command, "the command name must be recorded")
+	assert.True(t, isOurProcess(proc, "desktop:50"),
+		"a record naming its command must match the live process by that command")
+
+	proc.Command = "something-else"
+	assert.False(t, isOurProcess(proc, "xvfb:50"),
+		"a recorded command that does not match, and no known name, must be refused")
+}
+
+func TestCommandName(t *testing.T) {
+	assert.Equal(t, "xterm", commandName([]byte("/usr/bin/xterm\x00-geometry\x0080x24\x00")))
+	assert.Equal(t, "Xvfb", commandName([]byte("Xvfb\x00:50\x00")))
+	assert.Equal(t, ".", commandName(nil))
+}
