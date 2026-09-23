@@ -1872,7 +1872,7 @@ func (s *ProxyServiceServer) getAccountServiceByDomain(ctx context.Context, acco
 // ValidateSession validates a session token and checks if the user has access to the domain.
 func (s *ProxyServiceServer) ValidateSession(ctx context.Context, req *proto.ValidateSessionRequest) (*proto.ValidateSessionResponse, error) {
 	domain := req.GetDomain()
-	sessionToken := req.GetSessionToken()
+	sessionToken := req.GetSessionToken() //nolint:staticcheck
 
 	// A one-time code from the OIDC callback is redeemed here for the durable
 	// token, so the token never travels in a redirect URL. The redeemed token

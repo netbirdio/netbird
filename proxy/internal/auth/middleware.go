@@ -721,7 +721,7 @@ func (mw *Middleware) validateSessionToken(ctx context.Context, host, token stri
 		if isCode {
 			req.SessionCode = token
 		} else {
-			req.SessionToken = token
+			req.SessionToken = token //nolint:staticcheck
 		}
 		resp, err := mw.sessionValidator.ValidateSession(ctx, req)
 		if err != nil {

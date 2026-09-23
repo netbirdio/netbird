@@ -363,7 +363,7 @@ message GetOIDCURLResponse {
 
 message ValidateSessionRequest {
   string domain = 1;
-  string session_token = 2;
+  string session_token = 2 [deprecated = true];
   // session_code is a short-lived, single-use code exchanged for a session token.
   string session_code = 3;
 }
