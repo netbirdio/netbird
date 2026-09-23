@@ -61,7 +61,7 @@ func (m *Manager) Connect(ctx context.Context, proxyID, sessionID, clusterAddres
 		SessionID:      sessionID,
 		ClusterAddress: clusterAddress,
 		IPAddress:      ipAddress,
-		Version:        version,
+		Version:        truncateVersion(version),
 		AccountID:      accountID,
 		LastSeen:       now,
 		ConnectedAt:    &now,
@@ -79,7 +79,7 @@ func (m *Manager) Connect(ctx context.Context, proxyID, sessionID, clusterAddres
 		"sessionID":      sessionID,
 		"clusterAddress": clusterAddress,
 		"ipAddress":      ipAddress,
-		"version":        version,
+		"version":        p.Version,
 	}).Info("proxy connected")
 
 	return p, nil
@@ -185,4 +185,14 @@ func (m *Manager) DeleteAccountCluster(ctx context.Context, clusterAddress, acco
 		return err
 	}
 	return nil
+}
+
+// truncateVersion cuts a proxy-reported version to the column width so an
+// oversized value cannot fail the save and block the connect.
+func truncateVersion(version string) string {
+	runes := []rune(version)
+	if len(runes) <= proxy.MaxVersionLength {
+		return version
+	}
+	return string(runes[:proxy.MaxVersionLength])
 }

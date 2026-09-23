@@ -9,6 +9,9 @@ const (
 	StatusDisconnected = "disconnected"
 )
 
+// MaxVersionLength is the width of the Version column, in characters.
+const MaxVersionLength = 255
+
 // Capabilities describes what a proxy can handle, as reported via gRPC.
 // Nil fields mean the proxy never reported this capability.
 type Capabilities struct {

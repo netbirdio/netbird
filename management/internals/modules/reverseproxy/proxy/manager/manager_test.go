@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -154,6 +156,29 @@ func TestConnect_WithoutAccountID(t *testing.T) {
 	require.NotNil(t, savedProxy)
 	assert.Nil(t, savedProxy.AccountID)
 	assert.Equal(t, proxy.StatusConnected, savedProxy.Status)
+}
+
+func TestConnect_TruncatesOversizedVersion(t *testing.T) {
+	var savedProxy *proxy.Proxy
+	s := &mockStore{
+		saveProxyFunc: func(_ context.Context, p *proxy.Proxy) error {
+			savedProxy = p
+			return nil
+		},
+	}
+
+	// Multi-byte runes make sure the cut counts characters, as varchar does,
+	// and never splits a rune into invalid UTF-8.
+	version := strings.Repeat("ü", proxy.MaxVersionLength+10)
+
+	mgr := newTestManager(s)
+	_, err := mgr.Connect(context.Background(), "proxy-1", "session-1", "cluster.example.com", "10.0.0.1", version, nil, nil)
+	require.NoError(t, err)
+
+	require.NotNil(t, savedProxy)
+	assert.Equal(t, proxy.MaxVersionLength, utf8.RuneCountInString(savedProxy.Version), "stored version should be cut to the column width")
+	assert.True(t, utf8.ValidString(savedProxy.Version), "stored version should remain valid UTF-8")
+	assert.True(t, strings.HasPrefix(version, savedProxy.Version), "stored version should be a prefix of the reported one")
 }
 
 func TestConnect_StoreError(t *testing.T) {
