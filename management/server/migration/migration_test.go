@@ -67,7 +67,7 @@ func setupDatabase(t *testing.T) *gorm.DB {
 			t.Fatalf("PostgreSQL connection string is empty, ensure the test container is running")
 		}
 
-		db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
+		db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: logger.Default.LogMode(logger.Info)})
 	}
 	if cleanup != nil {
 		t.Cleanup(cleanup)

@@ -33,9 +33,9 @@ type Peer struct {
 	// WireGuard public key
 	Key string // uniqueness index (check migrations)
 	// IP address of the Peer
-	IP netip.Addr `gorm:"serializer:json;default:'{}'"` // uniqueness index per accountID (check migrations)
+	IP netip.Addr `gorm:"serializer:json;default:'\"\"'"` // uniqueness index per accountID (check migrations)
 	// IPv6 overlay address of the Peer, zero value if IPv6 is not enabled for the account.
-	IPv6 netip.Addr `gorm:"serializer:json;default:'{}'"`
+	IPv6 netip.Addr `gorm:"serializer:json;default:'\"\"'"`
 	// Meta is a Peer system meta data
 	Meta PeerSystemMeta `gorm:"embedded;embeddedPrefix:meta_"`
 	// ProxyMeta is metadata related to proxy peers
@@ -103,7 +103,7 @@ type PeerStatus struct { //nolint:revive
 
 // Location is a geo location information of a Peer based on public connection IP
 type Location struct {
-	ConnectionIP net.IP `gorm:"serializer:json;default:'{}'"` // from grpc peer or reverse proxy headers depends on setup
+	ConnectionIP net.IP `gorm:"serializer:json;default:'\"\"'"` // from grpc peer or reverse proxy headers depends on setup
 	CountryCode  string
 	CityName     string
 	GeoNameID    uint // city level geoname id

@@ -24,11 +24,11 @@ func FillEmptyNameserverGroupJsonColumns(ctx context.Context, db *gorm.DB) error
 
 func FillEmptyPeerJsonColumns(ctx context.Context, db *gorm.DB) error {
 	return db.Transaction(func(tx *gorm.DB) error {
-		res := tx.Exec(`update peers set ip='{}' where id in (select id from peers where ip='' or ip=null order by id asc)`)
+		res := tx.Exec(`update peers set ip='\"\"' where id in (select id from peers where ip='' or ip=null order by id asc)`)
 		if res.Error != nil {
 			return res.Error
 		}
-		res = tx.Exec(`update peers set ipv6='{}' where id in (select id from peers where ipv6='' or ipv6=null order by id asc)`)
+		res = tx.Exec(`update peers set ipv6='\"\"' where id in (select id from peers where ipv6='' or ipv6=null order by id asc)`)
 		if res.Error != nil {
 			return res.Error
 		}
@@ -52,7 +52,7 @@ func FillEmptyPeerJsonColumns(ctx context.Context, db *gorm.DB) error {
 		if res.Error != nil {
 			return res.Error
 		}
-		res = tx.Exec(`update peers set location_connection_ip='{}' where id in (select id from peers where location_connection_ip='' or location_connection_ip=null order by id asc)`)
+		res = tx.Exec(`update peers set location_connection_ip='\"\"' where id in (select id from peers where location_connection_ip='' or location_connection_ip=null order by id asc)`)
 		if res.Error != nil {
 			return res.Error
 		}
