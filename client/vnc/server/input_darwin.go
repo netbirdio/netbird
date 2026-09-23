@@ -97,6 +97,9 @@ var (
 	// event, so the receiving app gets those characters whatever the active
 	// keyboard layout would have produced for the keycode.
 	cgEventKeyboardSetUnicodeString func(uintptr, uintptr, *uint16)
+	// cgEventSourceFlagsState reads the modifier flags macOS currently holds
+	// for an event-source state, which is where the real Caps Lock state is.
+	cgEventSourceFlagsState func(int32) uint64
 
 	// CGEventCreateScrollWheelEvent is variadic, call via SyscallN.
 	cgEventCreateScrollWheelEventAddr uintptr
@@ -170,6 +173,9 @@ func initDarwinInput() {
 		purego.RegisterLibFunc(&cgEventCreateForInput, cg, "CGEventCreate")
 		if sym, err := purego.Dlsym(cg, "CGEventKeyboardSetUnicodeString"); err == nil {
 			purego.RegisterFunc(&cgEventKeyboardSetUnicodeString, sym)
+		}
+		if sym, err := purego.Dlsym(cg, "CGEventSourceFlagsState"); err == nil {
+			purego.RegisterFunc(&cgEventSourceFlagsState, sym)
 		}
 
 		sym, err := purego.Dlsym(cg, "CGEventCreateScrollWheelEvent")
@@ -616,13 +622,22 @@ func (m *MacInputInjector) postModifier(src uintptr, keycode uint16, down bool, 
 	if capsLock && !down {
 		return
 	}
+	// Toggle from the state macOS actually has, not from the one this injector
+	// has built up: Caps Lock may already be on when the injector starts, or be
+	// toggled at the local keyboard in the meantime, and toggling a stale copy
+	// would post the state the system is already in instead of a transition.
+	systemCaps, haveSystemCaps := systemCapsLock()
 
 	var flags uint64
 	for {
 		old := m.modifiers.Load()
 		switch {
 		case capsLock:
-			flags = old ^ bit
+			current := old & bit
+			if haveSystemCaps {
+				current = systemCaps
+			}
+			flags = (old &^ bit) | (current ^ bit)
 		case down:
 			flags = old | bit
 		default:
@@ -893,8 +908,11 @@ func (m *MacInputInjector) SetClipboard(text string) {
 // TypeText synthesizes the given text as keystrokes via Core Graphics.
 // Lets a client push host clipboard content to the focused remote app
 // even when the app doesn't honor pbpaste-style clipboard sync (e.g.
-// login screens, locked-down apps). ASCII printable runes only; others
-// are skipped.
+// login screens, locked-down apps). Printable runes, non-ASCII included, are
+// attached to the events as literal text, so they arrive as written whatever
+// the host's keyboard layout. Return and Tab go out as their keys. Where the
+// literal-text call is unavailable, ASCII falls back to US-layout keycodes and
+// anything else is skipped.
 func (m *MacInputInjector) TypeText(text string) {
 	// Same permission the other injection paths need: without it the posted
 	// events are swallowed, so asking here is what makes the prompt appear
@@ -1148,4 +1166,13 @@ func (m *MacInputInjector) typeUnicodeRune(src uintptr, r rune) bool {
 		cfRelease(event)
 	}
 	return true
+}
+
+// systemCapsLock returns the Caps Lock bit macOS currently holds, and false
+// when that cannot be read.
+func systemCapsLock() (uint64, bool) {
+	if cgEventSourceFlagsState == nil {
+		return 0, false
+	}
+	return cgEventSourceFlagsState(kCGEventSourceStateCombinedSessionState) & kCGEventFlagMaskAlphaShift, true
 }

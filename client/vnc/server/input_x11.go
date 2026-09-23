@@ -132,6 +132,10 @@ func (x *X11InputInjector) ensureConnLocked() {
 	x.conn = conn
 	x.root = screen.Root
 	x.screen = &screen
+	// The new server has no buttons down. Keeping the old mask would make a
+	// button still held across the restart look already pressed, so it would
+	// never get the ButtonPress it now needs.
+	x.lastButtons = 0
 	x.cacheKeyboardMapping()
 	log.Infof("X11 input injector reconnected (display=%s)", x.display)
 }

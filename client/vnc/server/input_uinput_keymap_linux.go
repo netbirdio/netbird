@@ -17,12 +17,14 @@ const consoleTTY = "/dev/tty0"
 // kdgkbent is KDGKBENT from linux/kd.h, which reads one keymap entry.
 const kdgkbent = 0x4B46
 
-// Keymap tables (linux/keyboard.h): the character a key produces unmodified,
-// with Shift, and with AltGr.
+// Keymap tables (linux/keyboard.h), indexed by the modifier bits held: the
+// character a key produces unmodified, with Shift (KG_SHIFT), with AltGr
+// (KG_ALTGR), and with both.
 const (
-	kNormTab  = 0
-	kShiftTab = 1
-	kAltGrTab = 2
+	kNormTab       = 0
+	kShiftTab      = 1
+	kAltGrTab      = 2
+	kShiftAltGrTab = 3
 )
 
 // Key types (linux/keyboard.h). KT_LATIN and KT_LETTER carry a Latin-1
@@ -50,9 +52,10 @@ type consoleKey struct {
 }
 
 // readConsoleKeymap reads the active console keymap and returns, for every
-// printable character it can type, the key that types it. The unmodified table
-// wins over the Shift one, and both over AltGr, so a character reachable more
-// than one way gets the simplest.
+// printable character it can type, the key that types it. Tables are read from
+// fewest modifiers to most (plain, Shift, AltGr, Shift+AltGr), and the first
+// one to produce a character wins, so a character reachable more than one way
+// gets the simplest.
 //
 // The kernel decodes uinput key codes with this same keymap, which is what makes
 // it the right source. A fixed US table types the wrong characters on any other
@@ -71,6 +74,7 @@ func readConsoleKeymap(tty string) (map[rune]consoleKey, error) {
 		{kNormTab, consoleKey{}},
 		{kShiftTab, consoleKey{shift: true}},
 		{kAltGrTab, consoleKey{altGr: true}},
+		{kShiftAltGrTab, consoleKey{shift: true, altGr: true}},
 	}
 
 	out := make(map[rune]consoleKey)
