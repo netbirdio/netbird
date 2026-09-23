@@ -334,6 +334,19 @@ func (s *ServiceManager) AddProfile(displayName, username string) (*Profile, err
 	}, nil
 }
 
+// RenameProfile changes a profile's display name. It rewrites the whole
+// profile file, not just the name: the config is read through the normalizing
+// reader, so apply()'s resolved values — the optional booleans, the interface
+// blacklist, the DNS route interval — are persisted along with the new name.
+//
+// That is deliberate. A write that skipped apply() is what left profiles on
+// disk carrying null where a value was meant, and made a diff of the config
+// compare presence instead of value. Two consequences worth knowing: the
+// platform-dependent defaults resolved here are the renaming host's
+// (ServerSSHAllowed and the network monitor differ per OS), and a profile
+// whose stored name does not survive sanitizeDisplayName now fails to rename
+// rather than being rewritten — though apply() rejects such a profile on every
+// other read too, so it was already unusable.
 func (s *ServiceManager) RenameProfile(id ID, username string, newName string) error {
 	displayName, err := sanitizeDisplayName(newName)
 	if err != nil {
