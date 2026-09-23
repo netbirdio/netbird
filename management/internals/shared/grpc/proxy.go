@@ -414,6 +414,7 @@ func (s *ProxyServiceServer) SetProxyController(proxyController proxy.Controller
 type proxyConnectParams struct {
 	proxyID      string
 	address      string
+	version      string
 	capabilities *proto.ProxyCapabilities
 }
 
@@ -424,6 +425,7 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 		return err
 	}
 	params.capabilities = req.GetCapabilities()
+	params.version = req.GetVersion()
 
 	conn, proxyRecord, err := s.registerProxyConnection(stream.Context(), params, &proxyConnection{
 		stream: stream,
@@ -457,6 +459,7 @@ func (s *ProxyServiceServer) SyncMappings(stream proto.ProxyService_SyncMappings
 		return err
 	}
 	params.capabilities = init.GetCapabilities()
+	params.version = init.GetVersion()
 
 	conn, proxyRecord, err := s.registerProxyConnection(stream.Context(), params, &proxyConnection{
 		syncStream: stream,
@@ -568,7 +571,7 @@ func (s *ProxyServiceServer) registerProxyConnection(ctx context.Context, params
 		}
 	}
 
-	proxyRecord, err := s.proxyManager.Connect(ctx, params.proxyID, sessionID, params.address, peerInfo, accountID, caps)
+	proxyRecord, err := s.proxyManager.Connect(ctx, params.proxyID, sessionID, params.address, peerInfo, params.version, accountID, caps)
 	if err != nil {
 		cancel()
 		if accountID != nil {
