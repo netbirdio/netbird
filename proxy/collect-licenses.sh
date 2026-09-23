@@ -16,18 +16,20 @@ output_parent=$(CDPATH= cd -- "$(dirname "$1")" && pwd)
 output="$output_parent/$output_name"
 modules=$(mktemp "${TMPDIR:-/tmp}/netbird-proxy-licenses.modules.XXXXXX")
 sorted_modules=$(mktemp "${TMPDIR:-/tmp}/netbird-proxy-licenses.sorted.XXXXXX")
-trap 'rm -f "$modules" "$sorted_modules"' EXIT HUP INT TERM
 
 if [ -e "$output" ] || [ -L "$output" ]; then
 	printf 'output directory already exists: %s\n' "$output" >&2
 	exit 1
 fi
-mkdir "$output"
-mkdir "$output/third_party"
+# Assemble beside the target and rename on success, so a failed run leaves
+# nothing behind that would block the next attempt.
+staging=$(mktemp -d "$output_parent/.$output_name.XXXXXX")
+trap 'rm -f "$modules" "$sorted_modules"; rm -rf "$staging"' EXIT HUP INT TERM
+mkdir "$staging/third_party"
 
-cp "$repo_root/proxy/LICENSE" "$output/AGPL-3.0.txt"
-cp "$repo_root/LICENSE" "$output/BSD-3-Clause.txt"
-cp "$repo_root/proxy/web/THIRD-PARTY-LICENSES" "$output/Web-THIRD-PARTY-LICENSES"
+cp "$repo_root/proxy/LICENSE" "$staging/AGPL-3.0.txt"
+cp "$repo_root/LICENSE" "$staging/BSD-3-Clause.txt"
+node "$repo_root/proxy/web/scripts/third-party-licenses.mjs" >"$staging/Web-THIRD-PARTY-LICENSES"
 
 cd "$repo_root"
 GOOS=${GOOS:-linux} GOARCH=${GOARCH:-amd64} CGO_ENABLED=${CGO_ENABLED:-0} \
@@ -40,7 +42,7 @@ for term in LICENSE PATENTS; do
 		printf 'missing Go standard-library term: %s\n' "$goroot/$term" >&2
 		exit 1
 	fi
-	cp "$goroot/$term" "$output/Go-$term"
+	cp "$goroot/$term" "$staging/Go-$term"
 done
 
 while IFS='	' read -r module version module_dir; do
@@ -52,7 +54,7 @@ while IFS='	' read -r module version module_dir; do
 		exit 1
 	fi
 
-	destination="$output/third_party/$module/$version"
+	destination="$staging/third_party/$module/$version"
 	mkdir -p "$destination"
 	printf 'module: %s\nversion: %s\n' "$module" "$version" >"$destination/MODULE"
 
@@ -73,3 +75,5 @@ while IFS='	' read -r module version module_dir; do
 		exit 1
 	fi
 done <"$sorted_modules"
+
+mv "$staging" "$output"

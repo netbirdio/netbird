@@ -191,6 +191,14 @@ jobs:
         # requires a changelog. Generated, not committed (see .gitignore).
         # chglog is a go.mod tool directive, so go.sum pins it and its deps.
         run: bash release_files/rpm-changelog.sh
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Install proxy web dependencies for license collection
+        # proxy/collect-licenses.sh reads the UI's license terms from node_modules.
+        working-directory: proxy/web
+        run: npm ci --ignore-scripts
       - name: Set up QEMU
         uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 #v4.1.0
       - name: Set up Docker Buildx
