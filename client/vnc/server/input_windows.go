@@ -4,6 +4,7 @@ package server
 
 import (
 	"runtime"
+	"slices"
 	"sync"
 	"unsafe"
 
@@ -559,6 +560,7 @@ var (
 
 	procGlobalAlloc  = kernel32.NewProc("GlobalAlloc")
 	procGlobalLock   = kernel32.NewProc("GlobalLock")
+	procGlobalSize   = kernel32.NewProc("GlobalSize")
 	procGlobalUnlock = kernel32.NewProc("GlobalUnlock")
 	procGlobalFree   = kernel32.NewProc("GlobalFree")
 )
@@ -673,13 +675,30 @@ func (w *WindowsInputInjector) GetClipboard() string {
 		return ""
 	}
 
+	// Bounded by the block's own size. Whoever set the clipboard decides
+	// what is in it, including whether it ends in a NUL, and this runs as
+	// SYSTEM: scanning for a terminator that is not there reads past the
+	// allocation into the agent's own memory and hands that to the viewer.
+	size, _, _ := procGlobalSize.Call(hData)
+	if size < 2 {
+		return ""
+	}
 	ptr, _, _ := procGlobalLock.Call(hData)
 	if ptr == 0 {
 		return ""
 	}
 	defer logCleanupCallArgs("GlobalUnlock", procGlobalUnlock, hData)
 
-	return windows.UTF16PtrToString((*uint16)(unsafe.Pointer(ptr)))
+	return utf16UpToNUL(unsafe.Slice((*uint16)(unsafe.Pointer(ptr)), size/2))
+}
+
+// utf16UpToNUL decodes units up to the first NUL, or all of them when there
+// is none.
+func utf16UpToNUL(units []uint16) string {
+	if i := slices.Index(units, 0); i >= 0 {
+		units = units[:i]
+	}
+	return windows.UTF16ToString(units)
 }
 
 var _ InputInjector = (*WindowsInputInjector)(nil)
