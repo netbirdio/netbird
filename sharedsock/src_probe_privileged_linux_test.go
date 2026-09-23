@@ -25,16 +25,32 @@ func TestSrcProbe_HonoursControlPlaneMark(t *testing.T) {
 		t.Skip("advanced routing not supported")
 	}
 
-	const table = 4242
+	const (
+		table = 4242
+		// Below the client's own rules, so a default route in the netbird table cannot win.
+		priority = 90
+	)
 	dst := netip.MustParseAddr("192.0.2.1")
 
 	marked, err := netlink.RouteGetWithOptions(net.IP(dst.AsSlice()), &netlink.RouteGetOptions{Mark: nbnet.ControlPlaneMark})
-	if err != nil || len(marked) == 0 || marked[0].Src == nil {
-		t.Skipf("no off-host route to %s: %v", dst, err)
+	if err != nil {
+		t.Skipf("no route to %s: %v", dst, err)
+	}
+	if len(marked) == 0 || marked[0].Src == nil {
+		t.Skipf("marked route to %s has no source address", dst)
 	}
 	markedSrc, ok := netip.AddrFromSlice(marked[0].Src)
 	require.True(t, ok, "parse marked source")
 	markedSrc = markedSrc.Unmap()
+	require.NotEqual(t, netip.MustParseAddr("127.0.0.1"), markedSrc, "the marked lookup must not already resolve to loopback")
+
+	rules, err := netlink.RuleList(unix.AF_INET)
+	require.NoError(t, err)
+	for _, r := range rules {
+		if r.Priority == priority || r.Table == table {
+			t.Skipf("rule priority %d or table %d already in use", priority, table)
+		}
+	}
 
 	lo, err := netlink.LinkByName("lo")
 	require.NoError(t, err)
@@ -52,7 +68,7 @@ func TestSrcProbe_HonoursControlPlaneMark(t *testing.T) {
 
 	rule := netlink.NewRule()
 	rule.Family = unix.AF_INET
-	rule.Priority = 90
+	rule.Priority = priority
 	rule.Table = table
 	rule.Mark = nbnet.ControlPlaneMark
 	rule.Invert = true

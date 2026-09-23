@@ -75,7 +75,7 @@ func TestSrcProbe_IPv6(t *testing.T) {
 	remote := netip.MustParseAddr("2001:db8::1")
 	remoteSrc, ok := routeGetSrc(t, remote)
 	if !ok {
-		return
+		t.Skipf("no route to %s", remote)
 	}
 	src, err = p.resolve(remote)
 	require.NoError(t, err)
