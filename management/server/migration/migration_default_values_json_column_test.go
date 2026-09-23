@@ -3,8 +3,6 @@ package migration_test
 import (
 	"context"
 	"encoding/json"
-	"net"
-	"net/netip"
 	"testing"
 
 	"github.com/netbirdio/netbird/dns"
@@ -37,18 +35,21 @@ func TestDefaultJsonFields(t *testing.T) {
 			createSQL:         `insert into peers (id,account_id) values('id-1','account-id-1')`,
 			querySQL:          `select ip,ipv6,meta_network_addresses,meta_environment,meta_flags,meta_files,meta_capabilities,location_connection_ip,extra_dns_labels from peers where id='id-1'`,
 			setupFuncs:        []func(t *testing.T, db *gorm.DB){setupTestDB[peer.Peer]},
-			unmarshallTargets: []any{&netip.Addr{}, &netip.Addr{}, &[]peer.NetworkAddress{}, &peer.Environment{}, &peer.Flags{}, &[]peer.File{}, &[]int32{}, &net.IP{}, &[]string{}},
+			unmarshallTargets: []any{peer.Peer{}.IP, peer.Peer{}.IP, peer.Peer{}.Meta.NetworkAddresses, peer.Peer{}.Meta.Environment, peer.Peer{}.Meta.Flags, peer.Peer{}.Meta.Files, peer.Peer{}.Meta.Capabilities, peer.Peer{}.Location.ConnectionIP, peer.Peer{}.ExtraDNSLabels},
 		},
 		{
-			description: "empty policy rule json fields",
-			createSQL: `insert into policies (id) values('policy-id-1');insert into policy_rules (id,policy_id,destinations,destination_resource,sources,source_resource,ports,port_ranges,authorized_groups)
-		 values('id-1','policy-id-1','','','','','','','')`,
-			setupFuncs: []func(t *testing.T, db *gorm.DB){setupTestDB[types.Policy], setupTestDB[types.PolicyRule]},
+			description:       "policy rule json fields",
+			createSQL:         `insert into policies (id) values('policy-id-1');insert into policy_rules (id,policy_id) values('id-1','policy-id-1')`,
+			setupFuncs:        []func(t *testing.T, db *gorm.DB){setupTestDB[types.Policy], setupTestDB[types.PolicyRule]},
+			querySQL:          `select destinations,destination_resource,sources,source_resource,ports,port_ranges,authorized_groups from policy_rules where id='id-1'`,
+			unmarshallTargets: []any{types.PolicyRule{}.Destinations, types.PolicyRule{}.DestinationResource, types.PolicyRule{}.Sources, types.PolicyRule{}.SourceResource, types.PolicyRule{}.Ports, types.PolicyRule{}.PortRanges, types.PolicyRule{}.AuthorizedGroups},
 		},
 		{
-			description: "empty policy json fields",
-			createSQL:   `insert into policies (id,source_posture_checks) values('policy-id-1','')`,
-			setupFuncs:  []func(t *testing.T, db *gorm.DB){setupTestDB[types.Policy]},
+			description:       "policy json fields",
+			createSQL:         `insert into policies (id) values('policy-id-1')`,
+			setupFuncs:        []func(t *testing.T, db *gorm.DB){setupTestDB[types.Policy]},
+			querySQL:          `select source_posture_checks from policies where id='policy-id-1'`,
+			unmarshallTargets: []any{types.Policy{}.SourcePostureChecks},
 		},
 		{
 			description: "empty service json fields",
@@ -175,7 +176,7 @@ func TestDefaultJsonFields(t *testing.T) {
 
 			for i, v := range cols {
 				vv, _ := v.(*string)
-				require.NoError(t, json.Unmarshal([]byte(*vv), tt.unmarshallTargets[i]))
+				require.NoError(t, json.Unmarshal([]byte(*vv), &tt.unmarshallTargets[i]))
 			}
 			t.Log(cols)
 		})
