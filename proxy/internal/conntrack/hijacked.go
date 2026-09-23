@@ -3,6 +3,8 @@ package conntrack
 import (
 	"net/http"
 	"sync"
+
+	"github.com/netbirdio/netbird/proxy/internal/netutil"
 )
 
 // HijackTracker tracks connections that have been hijacked (e.g. WebSocket
@@ -84,13 +86,5 @@ func (t *HijackTracker) remove(tc *trackedConn) {
 
 // hostOnly strips the port from a host:port string.
 func hostOnly(hostport string) string {
-	for i := len(hostport) - 1; i >= 0; i-- {
-		if hostport[i] == ':' {
-			return hostport[:i]
-		}
-		if hostport[i] < '0' || hostport[i] > '9' {
-			return hostport
-		}
-	}
-	return hostport
+	return netutil.NormalizeHost(hostport)
 }
