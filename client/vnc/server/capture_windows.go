@@ -133,6 +133,10 @@ type gdiCapturer struct {
 	memDC uintptr
 	bmp   uintptr
 	bits  uintptr
+	// prevBmp is the bitmap memDC held before bmp was selected into it. It
+	// has to go back in before bmp can be deleted: DeleteObject refuses a
+	// bitmap that is still selected into a DC, and the handle leaks.
+	prevBmp uintptr
 }
 
 func newGDICapturer() (*gdiCapturer, error) {
@@ -183,11 +187,12 @@ func (c *gdiCapturer) allocGDI() error {
 		return fmt.Errorf("CreateDIBSection returned 0")
 	}
 
-	_, _, _ = procSelectObject.Call(memDC, bmp)
+	prevBmp, _, _ := procSelectObject.Call(memDC, bmp)
 
 	c.memDC = memDC
 	c.bmp = bmp
 	c.bits = bits
+	c.prevBmp = prevBmp
 	return nil
 }
 
@@ -195,6 +200,10 @@ func (c *gdiCapturer) close() { c.freeGDI() }
 
 // freeGDI releases pre-allocated GDI resources.
 func (c *gdiCapturer) freeGDI() {
+	if c.memDC != 0 && c.prevBmp != 0 {
+		_, _, _ = procSelectObject.Call(c.memDC, c.prevBmp)
+		c.prevBmp = 0
+	}
 	if c.bmp != 0 {
 		_, _, _ = procDeleteObject.Call(c.bmp)
 		c.bmp = 0

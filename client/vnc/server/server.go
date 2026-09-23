@@ -134,6 +134,13 @@ type InputInjector interface {
 	TypeText(text string)
 }
 
+// sessionInputFactory is implemented by injectors that keep input state per
+// client. ForSession returns a view that shares the injector's resources but
+// not what the client has pressed; the view must not close the injector.
+type sessionInputFactory interface {
+	ForSession() InputInjector
+}
+
 // connectionHeader is sent by the client before the RFB handshake to specify
 // the VNC session mode and authenticate.
 type connectionHeader struct {
@@ -1179,6 +1186,13 @@ func (s *Server) handleConnection(conn net.Conn) {
 		Initiator:     initiator,
 	}, conn)
 	defer s.removeSession(sessionID)
+
+	// An injector shared by every attach-mode session can hand each one its
+	// own view, so what one client holds down is not released, or completed
+	// into a shortcut, by another client's events.
+	if f, ok := injector.(sessionInputFactory); ok {
+		injector = f.ForSession()
+	}
 
 	conn = newMetricsConn(conn, s.sessionRecorder)
 	sess := &session{

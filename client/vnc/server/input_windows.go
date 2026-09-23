@@ -123,6 +123,29 @@ type inputCmd struct {
 	serverW     int
 	serverH     int
 	clipText    string
+	// st is the input state of the client that sent this command.
+	st *windowsInputState
+}
+
+// windowsInputState is what one client has pressed. The OS thread and queue are
+// shared by every attach-mode session, but this is not: shared, one client's
+// pointer sample releases a button another client is holding, and one client's
+// Delete completes another client's Ctrl+Alt into a Secure Attention Sequence.
+type windowsInputState struct {
+	// prevButtonMask, ctrlDown and altDown are read and written only on the
+	// input thread, in dispatch.
+	prevButtonMask uint16
+	ctrlDown       bool
+	altDown        bool
+
+	// queueMu guards the enqueue-side bookkeeping, written on the caller's
+	// goroutine. lastQueuedButtonMask is the most recent buttonMask submitted
+	// by InjectPointer, compared against the next sample to decide whether it
+	// is move-only (lossy enqueue) or carries a button/wheel transition
+	// (reliable enqueue).
+	queueMu              sync.Mutex
+	lastQueuedButtonMask uint16
+	lastQueuedMaskValid  bool
 }
 
 // WindowsInputInjector delivers input events from a dedicated OS thread that
@@ -130,20 +153,21 @@ type inputCmd struct {
 // calling thread's desktop, so the injection thread must be on the same
 // desktop the user sees.
 type WindowsInputInjector struct {
-	ch             chan inputCmd
-	closed         chan struct{}
-	done           chan struct{}
-	closeOnce      sync.Once
-	prevButtonMask uint16
-	// lastQueuedButtonMask is the most recent buttonMask submitted to ch
-	// by InjectPointer. Compared against the incoming sample to decide
-	// whether the new event is move-only (lossy enqueue) or carries a
-	// button/wheel transition (reliable enqueue).
-	lastQueuedButtonMask uint16
-	lastQueuedMaskValid  bool
-	queueMu              sync.Mutex
-	ctrlDown             bool
-	altDown              bool
+	ch        chan inputCmd
+	closed    chan struct{}
+	done      chan struct{}
+	closeOnce sync.Once
+	// st is the input state used by callers that do not ask for a per-session
+	// view through ForSession.
+	st *windowsInputState
+}
+
+// windowsSessionInjector is one session's view of a shared
+// WindowsInputInjector: the same input thread, its own input state. It does
+// not implement Close, so a session cannot shut the shared injector down.
+type windowsSessionInjector struct {
+	w  *WindowsInputInjector
+	st *windowsInputState
 }
 
 // NewWindowsInputInjector creates a desktop-aware input injector.
@@ -152,6 +176,7 @@ func NewWindowsInputInjector() *WindowsInputInjector {
 		ch:     make(chan inputCmd, 64),
 		closed: make(chan struct{}),
 		done:   make(chan struct{}),
+		st:     &windowsInputState{},
 	}
 	go w.loop()
 	return w
@@ -185,7 +210,7 @@ func (w *WindowsInputInjector) tryEnqueue(cmd inputCmd) {
 
 // enqueueReliable posts a command and blocks until it's accepted or the
 // injector closes. Used for edge-triggered events (button/wheel) where a
-// drop would desynchronize prevButtonMask in dispatch().
+// drop would desynchronize the sender's prevButtonMask in dispatch().
 func (w *WindowsInputInjector) enqueueReliable(cmd inputCmd) {
 	select {
 	case <-w.closed:
@@ -248,11 +273,11 @@ func (w *WindowsInputInjector) dispatch(cmd inputCmd) {
 	case cmd.isType:
 		w.typeUnicodeText(cmd.clipText)
 	case cmd.isScancode:
-		w.doInjectKeyScancode(cmd.scancode, cmd.keysym, cmd.down)
+		cmd.st.doInjectKeyScancode(cmd.scancode, cmd.keysym, cmd.down)
 	case cmd.isKey:
-		w.doInjectKey(cmd.keysym, cmd.down)
+		cmd.st.doInjectKey(cmd.keysym, cmd.down)
 	default:
-		w.doInjectPointer(cmd.buttonMask, cmd.x, cmd.y, cmd.serverW, cmd.serverH)
+		cmd.st.doInjectPointer(cmd.buttonMask, cmd.x, cmd.y, cmd.serverW, cmd.serverH)
 	}
 }
 
@@ -263,7 +288,11 @@ func (w *WindowsInputInjector) dispatch(cmd inputCmd) {
 // on the host with nothing to lift it. That covers the releases
 // releaseStickyInput sends when a client disconnects mid-keystroke.
 func (w *WindowsInputInjector) InjectKey(keysym uint32, down bool) {
-	w.enqueueReliable(inputCmd{isKey: true, keysym: keysym, down: down})
+	w.injectKey(w.st, keysym, down)
+}
+
+func (w *WindowsInputInjector) injectKey(st *windowsInputState, keysym uint32, down bool) {
+	w.enqueueReliable(inputCmd{isKey: true, keysym: keysym, down: down, st: st})
 }
 
 // InjectKeyScancode queues a raw-scancode key event. PC AT Set 1 maps
@@ -272,11 +301,15 @@ func (w *WindowsInputInjector) InjectKey(keysym uint32, down bool) {
 // KEYEVENTF_EXTENDEDKEY flag. keysym is the client-provided fallback we
 // reach for if the scancode is zero.
 func (w *WindowsInputInjector) InjectKeyScancode(scancode uint32, keysym uint32, down bool) {
+	w.injectKeyScancode(w.st, scancode, keysym, down)
+}
+
+func (w *WindowsInputInjector) injectKeyScancode(st *windowsInputState, scancode, keysym uint32, down bool) {
 	if scancode == 0 {
-		w.InjectKey(keysym, down)
+		w.injectKey(st, keysym, down)
 		return
 	}
-	w.enqueueReliable(inputCmd{isScancode: true, scancode: scancode, keysym: keysym, down: down})
+	w.enqueueReliable(inputCmd{isScancode: true, scancode: scancode, keysym: keysym, down: down, st: st})
 }
 
 // InjectPointer queues a pointer event for injection on the input desktop
@@ -285,12 +318,16 @@ func (w *WindowsInputInjector) InjectKeyScancode(scancode uint32, keysym uint32,
 // queued mask is enqueued reliably so wheel ticks and button transitions
 // can't be dropped under backpressure.
 func (w *WindowsInputInjector) InjectPointer(buttonMask uint16, x, y, serverW, serverH int) {
-	cmd := inputCmd{buttonMask: buttonMask, x: x, y: y, serverW: serverW, serverH: serverH}
-	w.queueMu.Lock()
-	transition := !w.lastQueuedMaskValid || w.lastQueuedButtonMask != buttonMask
-	w.lastQueuedButtonMask = buttonMask
-	w.lastQueuedMaskValid = true
-	w.queueMu.Unlock()
+	w.injectPointer(w.st, buttonMask, x, y, serverW, serverH)
+}
+
+func (w *WindowsInputInjector) injectPointer(st *windowsInputState, buttonMask uint16, x, y, serverW, serverH int) {
+	cmd := inputCmd{buttonMask: buttonMask, x: x, y: y, serverW: serverW, serverH: serverH, st: st}
+	st.queueMu.Lock()
+	transition := !st.lastQueuedMaskValid || st.lastQueuedButtonMask != buttonMask
+	st.lastQueuedButtonMask = buttonMask
+	st.lastQueuedMaskValid = true
+	st.queueMu.Unlock()
 	if transition {
 		w.enqueueReliable(cmd)
 		return
@@ -303,14 +340,14 @@ func (w *WindowsInputInjector) InjectPointer(buttonMask uint16, x, y, serverW, s
 // natively via KEYEVENTF_SCANCODE, so the only work is splitting the
 // optional 0xE0 prefix off into the EXTENDEDKEY flag and tracking
 // modifier state for the SAS Ctrl+Alt+Del shortcut.
-func (w *WindowsInputInjector) doInjectKeyScancode(scancode, keysym uint32, down bool) {
+func (st *windowsInputState) doInjectKeyScancode(scancode, keysym uint32, down bool) {
 	switch keysym {
 	case 0xffe3, 0xffe4:
-		w.ctrlDown = down
+		st.ctrlDown = down
 	case 0xffe9, 0xffea:
-		w.altDown = down
+		st.altDown = down
 	}
-	if (keysym == 0xff9f || keysym == 0xffff) && w.ctrlDown && w.altDown && down {
+	if (keysym == 0xff9f || keysym == 0xffff) && st.ctrlDown && st.altDown && down {
 		signalSAS()
 		return
 	}
@@ -324,15 +361,15 @@ func (w *WindowsInputInjector) doInjectKeyScancode(scancode, keysym uint32, down
 	sendKeyInput(0, qemuScancodeLowByte(scancode), flags)
 }
 
-func (w *WindowsInputInjector) doInjectKey(keysym uint32, down bool) {
+func (st *windowsInputState) doInjectKey(keysym uint32, down bool) {
 	switch keysym {
 	case 0xffe3, 0xffe4:
-		w.ctrlDown = down
+		st.ctrlDown = down
 	case 0xffe9, 0xffea:
-		w.altDown = down
+		st.altDown = down
 	}
 
-	if (keysym == 0xff9f || keysym == 0xffff) && w.ctrlDown && w.altDown && down {
+	if (keysym == 0xff9f || keysym == 0xffff) && st.ctrlDown && st.altDown && down {
 		signalSAS()
 		return
 	}
@@ -377,7 +414,7 @@ func signalSAS() {
 	}
 }
 
-func (w *WindowsInputInjector) doInjectPointer(buttonMask uint16, x, y, serverW, serverH int) {
+func (st *windowsInputState) doInjectPointer(buttonMask uint16, x, y, serverW, serverH int) {
 	if serverW == 0 || serverH == 0 {
 		return
 	}
@@ -387,8 +424,8 @@ func (w *WindowsInputInjector) doInjectPointer(buttonMask uint16, x, y, serverW,
 
 	sendMouseInput(mouseeventfMove|mouseeventfAbsolute, absX, absY, 0)
 
-	changed := buttonMask ^ w.prevButtonMask
-	w.prevButtonMask = buttonMask
+	changed := buttonMask ^ st.prevButtonMask
+	st.prevButtonMask = buttonMask
 
 	type btnMap struct {
 		bit  uint16
@@ -446,6 +483,12 @@ func (w *WindowsInputInjector) doInjectPointer(buttonMask uint16, x, y, serverW,
 func keysym2VK(keysym uint32) (vk uint16, scan uint16, extended bool) {
 	if keysym >= 0x20 && keysym <= 0x7e {
 		r, _, _ := procVkKeyScanA.Call(uintptr(keysym))
+		// VkKeyScanA returns -1 when the active layout has no key for the
+		// character. Narrowing that to its low byte gives VK 0xff, a bogus
+		// key event, so report no mapping instead.
+		if int16(r) == -1 {
+			return 0, 0, false
+		}
 		vk = uint16(r & 0xff)
 		return
 	}
@@ -530,15 +573,21 @@ const (
 // current input desktop. Secure desktops (Winlogon, UAC) have isolated
 // clipboards we cannot reach, so the call is a no-op there; use TypeText
 // to enter text into a secure desktop instead.
+//
+// Enqueued reliably: this is content the user asked to send, and the lossy
+// enqueue is for samples a later one supersedes, like pointer motion. Dropping
+// it under backpressure would lose the paste with nothing to say so.
 func (w *WindowsInputInjector) SetClipboard(text string) {
-	w.tryEnqueue(inputCmd{isClipboard: true, clipText: text})
+	w.enqueueReliable(inputCmd{isClipboard: true, clipText: text})
 }
 
 // TypeText queues a request to synthesize the given text as Unicode
 // keystrokes on the current input desktop. Targets the secure desktop
 // when the user is on Winlogon/UAC, where the clipboard is unreachable.
+//
+// Enqueued reliably, for the reason given on SetClipboard.
 func (w *WindowsInputInjector) TypeText(text string) {
-	w.tryEnqueue(inputCmd{isType: true, clipText: text})
+	w.enqueueReliable(inputCmd{isType: true, clipText: text})
 }
 
 func (w *WindowsInputInjector) doSetClipboard(text string) {
@@ -636,3 +685,37 @@ func (w *WindowsInputInjector) GetClipboard() string {
 var _ InputInjector = (*WindowsInputInjector)(nil)
 
 var _ ScreenCapturer = (*DesktopCapturer)(nil)
+
+// ForSession returns an injector for one client that shares w's input thread
+// and queue but keeps that client's buttons and modifiers to itself.
+func (w *WindowsInputInjector) ForSession() InputInjector {
+	return &windowsSessionInjector{w: w, st: &windowsInputState{}}
+}
+
+// InjectKey queues a key event under this session's input state.
+func (s *windowsSessionInjector) InjectKey(keysym uint32, down bool) {
+	s.w.injectKey(s.st, keysym, down)
+}
+
+// InjectKeyScancode queues a raw-scancode key event under this session's input
+// state.
+func (s *windowsSessionInjector) InjectKeyScancode(scancode, keysym uint32, down bool) {
+	s.w.injectKeyScancode(s.st, scancode, keysym, down)
+}
+
+// InjectPointer queues a pointer event under this session's input state.
+func (s *windowsSessionInjector) InjectPointer(buttonMask uint16, x, y, serverW, serverH int) {
+	s.w.injectPointer(s.st, buttonMask, x, y, serverW, serverH)
+}
+
+// SetClipboard sets the shared clipboard; there is only one per desktop.
+func (s *windowsSessionInjector) SetClipboard(text string) { s.w.SetClipboard(text) }
+
+// GetClipboard reads the shared clipboard.
+func (s *windowsSessionInjector) GetClipboard() string { return s.w.GetClipboard() }
+
+// TypeText types text on the current input desktop. It carries no modifier
+// state, so it needs no per-session view.
+func (s *windowsSessionInjector) TypeText(text string) { s.w.TypeText(text) }
+
+var _ InputInjector = (*windowsSessionInjector)(nil)
