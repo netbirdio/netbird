@@ -47,12 +47,36 @@ func (s *allowedIPStore) set(key string, prefixes []netip.Prefix) {
 }
 
 // add records prefixes on a peer without dropping the ones already there, matching the
-// union semantics of a peer update that does not replace its allowed IPs.
+// union semantics of a peer update that does not replace its allowed IPs. It records the
+// peer if it is not known yet, so it belongs to the operations that create a peer on the
+// device rather than to the update-only ones.
 func (s *allowedIPStore) add(key string, prefixes []netip.Prefix) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	merged := s.peers[peerKey(key)]
+	for _, prefix := range prefixes {
+		prefix = normalizePrefix(prefix)
+		if !slices.Contains(merged, prefix) {
+			merged = append(merged, prefix)
+		}
+	}
+	s.peers[peerKey(key)] = merged
+}
+
+// addExisting is add for an update-only device operation. Such an operation is a silent
+// no-op when the peer is absent, so recording a peer here would leave the store claiming
+// prefixes the device never took, and the peer would then be recreated by the next endpoint
+// removal, stealing those allowed IPs from the peer that legitimately holds them.
+func (s *allowedIPStore) addExisting(key string, prefixes []netip.Prefix) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	merged, ok := s.peers[peerKey(key)]
+	if !ok {
+		return
+	}
+
 	for _, prefix := range prefixes {
 		prefix = normalizePrefix(prefix)
 		if !slices.Contains(merged, prefix) {

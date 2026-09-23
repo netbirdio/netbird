@@ -181,7 +181,7 @@ func (c *KernelConfigurer) AddAllowedIP(peerKey string, allowedIP netip.Prefix) 
 		return fmt.Errorf(`received error "%w" while adding allowed Ip to peer on interface %s with settings: allowed ips %s`, err, c.deviceName, allowedIP)
 	}
 
-	c.allowedIPs.add(peerKey, []netip.Prefix{allowedIP})
+	c.allowedIPs.addExisting(peerKey, []netip.Prefix{allowedIP})
 	return nil
 }
 

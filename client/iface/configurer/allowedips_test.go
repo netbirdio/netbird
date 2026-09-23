@@ -131,3 +131,21 @@ func TestNormalizePrefix(t *testing.T) {
 	assert.Equal(t, v4, normalizePrefix(netip.PrefixFrom(netip.AddrFrom16(v4.Addr().As16()), 16)),
 		"a mapped prefix already carrying v4 bits keeps them")
 }
+
+func TestAllowedIPStoreAddExistingDoesNotCreate(t *testing.T) {
+	s := newAllowedIPStore()
+	routed := netip.MustParsePrefix("10.20.0.0/16")
+
+	// An update-only device operation on an absent peer is a silent no-op, so nothing may be
+	// recorded for a peer the store does not already know.
+	s.addExisting(testPeer, []netip.Prefix{routed})
+	_, ok := s.get(testPeer)
+	assert.False(t, ok, "addExisting must not record an unknown peer")
+
+	overlay := netip.MustParsePrefix("100.64.0.1/32")
+	s.set(testPeer, []netip.Prefix{overlay})
+	s.addExisting(testPeer, []netip.Prefix{routed})
+
+	prefixes, _ := s.get(testPeer)
+	assert.Equal(t, []netip.Prefix{overlay, routed}, prefixes, "addExisting must union onto a known peer")
+}
