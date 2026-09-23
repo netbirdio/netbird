@@ -191,6 +191,9 @@ jobs:
         # requires a changelog. Generated, not committed (see .gitignore).
         # chglog is a go.mod tool directive, so go.sum pins it and its deps.
         run: bash release_files/rpm-changelog.sh
+      - name: Fill the RPM ISA provide version
+        # nfpm cannot emit rpmbuild's ISA provide and GoReleaser cannot template it.
+        run: bash release_files/rpm-provides.sh
       - name: Set up QEMU
         uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 #v4.1.0
       - name: Set up Docker Buildx
