@@ -248,3 +248,10 @@ func FillEmptyGroupJsonColumns(ctx context.Context, db *gorm.DB) error {
 		return res.Error
 	})
 }
+
+func FillEmptyZoneJsonColumns(ctx context.Context, db *gorm.DB) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		res := tx.Exec(`update zones set distribution_groups='[]' where id in (select id from zones where distribution_groups='' or distribution_groups=null order by id asc)`)
+		return res.Error
+	})
+}

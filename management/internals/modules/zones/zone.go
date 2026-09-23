@@ -17,7 +17,7 @@ type Zone struct {
 	Domain             string
 	Enabled            bool
 	EnableSearchDomain bool
-	DistributionGroups []string          `gorm:"serializer:json"`
+	DistributionGroups []string          `gorm:"serializer:json;default:'[]'"`
 	Records            []*records.Record `gorm:"foreignKey:ZoneID;references:ID"`
 }
 

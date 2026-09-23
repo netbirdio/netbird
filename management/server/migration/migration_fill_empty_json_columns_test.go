@@ -6,6 +6,7 @@ import (
 
 	"github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
+	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/server/migration"
 	net_types "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	router_types "github.com/netbirdio/netbird/management/server/networks/routers/types"
@@ -156,6 +157,13 @@ func TestFillEmptyJsonFields(t *testing.T) {
 			querySQL:      "select id from groups where resources='' or resources=null",
 			setupFuncs:    []func(t *testing.T, db *gorm.DB){setupTestDB[types.Group]},
 			migrationFunc: migration.FillEmptyGroupJsonColumns,
+		},
+		{
+			description:   "empty zone.distrobution_groups",
+			createSQL:     `insert into zones (id,distribution_groups) values('id-1','')`,
+			querySQL:      "select id from zones where distribution_groups='' or distribution_groups=null",
+			setupFuncs:    []func(t *testing.T, db *gorm.DB){setupTestDB[zones.Zone]},
+			migrationFunc: migration.FillEmptyZoneJsonColumns,
 		},
 	}
 	for _, tt := range tests {
