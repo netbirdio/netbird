@@ -52,16 +52,18 @@ function App() {
     setError(null);
     setSubmitting(method);
 
-    const formData = new FormData();
+    // URL-encoded, not FormData: the proxy only accepts credentials in this
+    // encoding, the one it can redact before mirroring a request to AppSec.
+    const body = new URLSearchParams();
     if (method === "password") {
-      formData.append(methods.password!, value);
+      body.append(methods.password!, value);
     } else {
-      formData.append(methods.pin!, value);
+      body.append(methods.pin!, value);
     }
 
     fetch(globalThis.location.href, {
       method: "POST",
-      body: formData,
+      body,
       redirect: "manual",
     })
       .then((res) => {

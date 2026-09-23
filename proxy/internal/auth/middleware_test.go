@@ -1,12 +1,14 @@
 package auth
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/tls"
 	"encoding/base64"
 	"errors"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -810,6 +812,69 @@ func TestWasCredentialSubmitted(t *testing.T) {
 
 			result := wasCredentialSubmitted(req, tt.method)
 			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestCredentialFormValue_OnlyURLEncoded(t *testing.T) {
+	multipartBody := func(t *testing.T) (string, string) {
+		t.Helper()
+		var buf bytes.Buffer
+		w := multipart.NewWriter(&buf)
+		require.NoError(t, w.WriteField(passwordFormId, "secret"))
+		require.NoError(t, w.Close())
+		return buf.String(), w.FormDataContentType()
+	}
+
+	tests := []struct {
+		name        string
+		body        func(t *testing.T) (string, string)
+		expected    string
+		description string
+	}{
+		{
+			name: "url-encoded",
+			body: func(*testing.T) (string, string) {
+				return url.Values{passwordFormId: {"secret"}}.Encode(), "application/x-www-form-urlencoded"
+			},
+			expected:    "secret",
+			description: "a url-encoded body carries the credential",
+		},
+		{
+			// What fetch sends for a URLSearchParams body.
+			name: "url-encoded with charset",
+			body: func(*testing.T) (string, string) {
+				return url.Values{passwordFormId: {"secret"}}.Encode(), "application/x-www-form-urlencoded;charset=UTF-8"
+			},
+			expected:    "secret",
+			description: "the charset parameter must not hide the credential",
+		},
+		{
+			// AppSec cannot redact multipart, so a credential in it must not
+			// authenticate, or it would be mirrored to the engine in the clear.
+			name:        "multipart",
+			body:        multipartBody,
+			expected:    "",
+			description: "a multipart body is not a credential submission",
+		},
+		{
+			name: "no content type",
+			body: func(*testing.T) (string, string) {
+				return url.Values{passwordFormId: {"secret"}}.Encode(), ""
+			},
+			expected:    "",
+			description: "a body without a content type is not a credential submission",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body, contentType := tt.body(t)
+			req := httptest.NewRequest(http.MethodPost, "http://example.com/", strings.NewReader(body))
+			if contentType != "" {
+				req.Header.Set("Content-Type", contentType)
+			}
+			assert.Equal(t, tt.expected, credentialFormValue(req, passwordFormId), tt.description)
 		})
 	}
 }
