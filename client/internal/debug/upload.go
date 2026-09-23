@@ -183,7 +183,11 @@ func getURLHash(url string) string {
 // backticks, angle brackets, parens and braces — so the match does not run past
 // the URL and swallow the prose after it. TrimRight below then drops trailing
 // sentence punctuation, which a bare URL at the end of a clause picks up.
-var urlInText = regexp.MustCompile("https?://[^\\s\"'`<>\\[\\]{}()]+")
+//
+// Square brackets are both a wrapper and part of the syntax: they delimit an
+// IPv6 host. The leading group takes a bracketed host when there is one, so an
+// IPv6 URL is still matched and redacted rather than left whole.
+var urlInText = regexp.MustCompile("https?://(?:\\[[^\\]\\s]+\\])?[^\\s\"'`<>\\[\\]{}()]*")
 
 // redactedError keeps the original error reachable for errors.Is/As while
 // presenting a message with every URL cut down to scheme://host.

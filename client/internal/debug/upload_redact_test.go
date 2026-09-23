@@ -68,6 +68,19 @@ func TestRedactURLsInError(t *testing.T) {
 			err:  errors.New("use `https://b.example.com/p` instead"),
 			want: "use `https://b.example.com` instead",
 		},
+		{
+			// Square brackets delimit an IPv6 host, so excluding them from the
+			// match entirely leaves an IPv6 URL — signed query and all —
+			// untouched in the message.
+			name: "bracketed IPv6 host is still redacted",
+			err:  errors.New(`upload failed: Put "https://[2001:db8::1]/k?X-Amz-Signature=abc123": timeout`),
+			want: `upload failed: Put "https://[2001:db8::1]": timeout`,
+		},
+		{
+			name: "IPv6 host with a port is still redacted",
+			err:  errors.New(`Get "https://[2001:db8::1]:8443/upload-url?id=deadbeef": no such host`),
+			want: `Get "https://[2001:db8::1]:8443": no such host`,
+		},
 	}
 
 	for _, tc := range tests {
