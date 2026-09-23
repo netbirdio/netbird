@@ -115,3 +115,40 @@ func Test_SetDownloadOnly_ClearsPendingVersion(t *testing.T) {
 		t.Fatal("Install in download-only mode must not install the staged managed version")
 	}
 }
+
+func Test_ResetMode_DropsForceUpdate(t *testing.T) {
+	tmpFile := path.Join(t.TempDir(), "update-test-force-reset.json")
+	recorder := peer.NewRecorder("")
+	sub := recorder.SubscribeToEvents()
+	defer recorder.UnsubscribeFromEvents(sub)
+
+	mockUpdate := &versionUpdateMock{}
+	m := NewManager(recorder, statemanager.New(tmpFile))
+	m.update = mockUpdate
+	m.currentVersion = "1.0.0"
+	m.autoUpdateSupported = func() bool { return true }
+	m.Start(context.Background())
+	defer m.Stop()
+
+	// Management enforces "latest" before the fetcher has reported any version,
+	// so nothing can be installed while the engine is still up.
+	m.SetVersion(latestVersion, true)
+	if event := waitForAnyEvent(sub, 300*time.Millisecond); event != nil {
+		t.Fatalf("no event expected before the latest version is known, got %v", event)
+	}
+
+	// The engine stop resets the mode. A release published afterwards must not
+	// trigger the stale forced install or any notification.
+	m.ResetMode()
+	mockUpdate.setLatestVersion(v.Must(v.NewSemver("1.0.1")))
+	mockUpdate.onUpdate()
+	if event := waitForAnyEvent(sub, 300*time.Millisecond); event != nil {
+		t.Fatalf("stale force directive must stay silent after reset, got %v", event)
+	}
+
+	m.SetVersion("1.0.1", false)
+	ver, enforced := waitForUpdateEvent(sub, 500*time.Millisecond)
+	if ver != "1.0.1" || !enforced {
+		t.Fatalf("expected enforced event after a fresh directive, got %q enforced=%v", ver, enforced)
+	}
+}

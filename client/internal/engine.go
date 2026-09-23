@@ -455,6 +455,10 @@ func (e *Engine) stopLocked() {
 		e.sessionWatcher.Close()
 	}
 
+	if e.updateManager != nil {
+		e.updateManager.ResetMode()
+	}
+
 	log.Info("cleaning up status recorder states")
 	e.statusRecorder.ReplaceOfflinePeers([]peer.State{})
 	e.statusRecorder.UpdateDNSStates([]peer.NSGroupState{})
