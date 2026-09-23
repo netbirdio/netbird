@@ -29,7 +29,7 @@ function fail(message) {
 function shippedPackages(lock) {
   return Object.entries(lock.packages)
     .filter(([path, meta]) => path !== "" && (!meta.dev || bundledTooling.has(path)))
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    .sort(([a], [b]) => Number(a > b) - Number(a < b));
 }
 
 function packageSection(path, meta) {
