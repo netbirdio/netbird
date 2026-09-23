@@ -307,3 +307,10 @@ func FillEmptyAgentNetworkProviderJsonColumns(ctx context.Context, db *gorm.DB) 
 		return res.Error
 	})
 }
+
+func FillEmptyAgentNetworkGuardrailJsonColumns(ctx context.Context, db *gorm.DB) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		res := tx.Exec(`update agent_network_guardrails set checks='{}' where id in (select id from agent_network_guardrails where checks='' or checks=null order by id asc)`)
+		return res.Error
+	})
+}

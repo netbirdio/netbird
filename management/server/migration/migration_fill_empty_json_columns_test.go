@@ -195,6 +195,13 @@ func TestFillEmptyJsonFields(t *testing.T) {
 			setupFuncs:    []func(t *testing.T, db *gorm.DB){setupTestDB[agn_types.Provider]},
 			migrationFunc: migration.FillEmptyAgentNetworkProviderJsonColumns,
 		},
+		{
+			description:   "empty agent_network_guardrails",
+			createSQL:     `insert into agent_network_guardrails (id,checks) values('id-1','')`,
+			querySQL:      "select id from agent_network_guardrails where checks='' or checks=null",
+			setupFuncs:    []func(t *testing.T, db *gorm.DB){setupTestDB[agn_types.Guardrail]},
+			migrationFunc: migration.FillEmptyAgentNetworkGuardrailJsonColumns,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.description, func(t *testing.T) {
