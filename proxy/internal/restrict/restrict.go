@@ -351,8 +351,9 @@ func (f *Filter) checkAny(addr netip.Addr, geo GeoResolver) Verdict {
 		cidrAllowed ||
 		(countryActive && country != "" && slices.Contains(f.AllowedCountries, country))
 	if !allowed {
-		// Both allowlists missing is reported against the CIDR list, the one
-		// checked first, so the reason stays stable for existing access logs.
+		// When neither allowlist admitted the address, the denial is reported
+		// against the CIDR list, the one checked first, so the reason stays
+		// stable for existing access logs.
 		if cidrActive {
 			return DenyCIDR
 		}
