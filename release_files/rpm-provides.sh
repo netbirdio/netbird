@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# Fill the @RPM_EVR@ placeholder in the nfpm provides entries.
+# Write .goreleaser.generated.yaml with the @RPM_EVR@ placeholder filled in.
 #
 # Red Hat certification (RPM Version Handling) expects rpmbuild's ISA provide,
 # netbird(x86-64) = <evr>. nfpm does not emit it and GoReleaser does not template
@@ -10,6 +10,8 @@
 # prerelease becomes a tilde suffix, and the release defaults to 1.
 
 set -eu
+
+OUT=.goreleaser.generated.yaml
 
 TAG="${GITHUB_REF#refs/tags/}"
 case "$TAG" in
@@ -31,14 +33,14 @@ print("{}-1".format(core))
 PYEOF
 )
 
-# Not sed -i: it takes an argument on BSD but not on GNU.
-sed "s/@RPM_EVR@/${EVR}/g" .goreleaser.yaml > .goreleaser.yaml.tmp
-mv .goreleaser.yaml.tmp .goreleaser.yaml
+# Written to a separate, ignored file: GoReleaser refuses to release from a
+# dirty tree, so .goreleaser.yaml itself must stay untouched.
+sed "s/@RPM_EVR@/${EVR}/g" .goreleaser.yaml > "$OUT"
 
 # A surviving placeholder means the provides entries moved or were renamed.
-if grep -n "@RPM_EVR@" .goreleaser.yaml; then
-	echo "unsubstituted @RPM_EVR@ left in .goreleaser.yaml" >&2
+if grep -n "@RPM_EVR@" "$OUT"; then
+	echo "unsubstituted @RPM_EVR@ left in $OUT" >&2
 	exit 1
 fi
 
-echo "rpm provides version: ${EVR}"
+echo "rpm provides version: ${EVR} -> ${OUT}"

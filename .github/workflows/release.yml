@@ -233,7 +233,7 @@ jobs:
         uses: goreleaser/goreleaser-action@5daf1e915a5f0af01ddbcd89a43b8061ff4f1a89 # v7.2.2
         with:
           version: ${{ env.GORELEASER_VER }}
-          args: release --clean ${{ env.flags }}
+          args: release --config .goreleaser.generated.yaml --clean ${{ env.flags }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
