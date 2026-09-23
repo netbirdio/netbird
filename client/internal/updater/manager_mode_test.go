@@ -116,7 +116,7 @@ func Test_SetDownloadOnly_ClearsPendingVersion(t *testing.T) {
 	}
 }
 
-func Test_ResetMode_DropsForceUpdate(t *testing.T) {
+func Test_ResetMode_SilencesStaleForceDirective(t *testing.T) {
 	tmpFile := path.Join(t.TempDir(), "update-test-force-reset.json")
 	recorder := peer.NewRecorder("")
 	sub := recorder.SubscribeToEvents()
