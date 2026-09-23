@@ -153,3 +153,31 @@ func TestRemoveAllowedIPKeepsTheOtherPrefixes(t *testing.T) {
 	assert.ErrorIs(t, c.RemoveAllowedIP(peerKey, routed), ErrAllowedIPNotFound,
 		"removing a prefix that is no longer configured must be reported")
 }
+
+// TestAddAllowedIPOnAbsentPeerDoesNotResurrectIt covers the lazy connection window documented
+// in #6863: AddAllowedIP is update-only, a silent no-op when the peer is absent, so it must not
+// leave the store claiming prefixes the device never took. RemoveEndpointAddress re-adds a peer
+// without update-only, so a phantom entry would create a peer the device had dropped, and a
+// created peer would steal those allowed IPs from whichever peer legitimately holds them.
+func TestAddAllowedIPOnAbsentPeerDoesNotResurrectIt(t *testing.T) {
+	c := newTestUSPConfigurer(t)
+	seedPeers(t, c, 2)
+
+	priv, err := wgtypes.GeneratePrivateKey()
+	require.NoError(t, err, "generate peer private key")
+	absent := priv.PublicKey().String()
+
+	require.NoError(t, c.AddAllowedIP(absent, netip.MustParsePrefix("10.20.0.0/16")),
+		"update-only add on an absent peer is a silent no-op")
+
+	stats, err := c.FullStats()
+	require.NoError(t, err, "read device stats")
+	require.Len(t, stats.Peers, 2, "the absent peer must not have been created by AddAllowedIP")
+
+	assert.ErrorIs(t, c.RemoveEndpointAddress(absent), ErrPeerNotFound,
+		"clearing the endpoint of a peer the device does not have must fail")
+
+	stats, err = c.FullStats()
+	require.NoError(t, err, "read device stats")
+	assert.Len(t, stats.Peers, 2, "no peer may be created while clearing an endpoint")
+}

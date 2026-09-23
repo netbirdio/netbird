@@ -230,7 +230,7 @@ func (c *WGUSPConfigurer) AddAllowedIP(peerKey string, allowedIP netip.Prefix) e
 		return err
 	}
 
-	c.allowedIPs.add(peerKey, []netip.Prefix{allowedIP})
+	c.allowedIPs.addExisting(peerKey, []netip.Prefix{allowedIP})
 	return nil
 }
 
