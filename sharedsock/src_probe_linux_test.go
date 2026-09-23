@@ -89,12 +89,12 @@ func TestSrcProbe_ReopensAfterError(t *testing.T) {
 	// Connecting to the limited broadcast address without SO_BROADCAST fails.
 	_, err := p.resolve(netip.MustParseAddr("255.255.255.255"))
 	require.Error(t, err, "lookup for the broadcast address should fail")
-	assert.Equal(t, -1, p.fd, "failed lookup should close the probe socket")
+	assert.Nil(t, p.sock, "failed lookup should close the probe socket")
 
 	src, err := p.resolve(netip.MustParseAddr("127.0.0.1"))
 	require.NoError(t, err)
 	assert.Equal(t, netip.MustParseAddr("127.0.0.1"), src, "source after reopening")
-	assert.GreaterOrEqual(t, p.fd, 0, "probe socket should be open again")
+	assert.NotNil(t, p.sock, "probe socket should be open again")
 }
 
 func TestSrcProbe_ClosedRejectsLookups(t *testing.T) {
@@ -105,7 +105,7 @@ func TestSrcProbe_ClosedRejectsLookups(t *testing.T) {
 
 	_, err = p.resolve(netip.MustParseAddr("127.0.0.1"))
 	assert.ErrorIs(t, err, errProbeClosed)
-	assert.Equal(t, -1, p.fd, "closed probe must not reopen")
+	assert.Nil(t, p.sock, "closed probe must not reopen")
 }
 
 func BenchmarkSrcProbe(b *testing.B) {
@@ -134,4 +134,45 @@ func BenchmarkSrcRouteGet(b *testing.B) {
 			b.Skipf("no route to %s: %v", dst, err)
 		}
 	}
+}
+
+// Another component closing the probe's fd number and receiving it for its own
+// socket must not have that socket disconnected or closed by the probe.
+func TestSrcProbe_LeavesReusedFDAlone(t *testing.T) {
+	p := newTestProbe(t, unix.AF_INET)
+	num := p.sock.fd
+
+	peer, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = peer.Close() })
+	peerAddr := peer.LocalAddr().(*net.UDPAddr)
+
+	// Simulate the foreign close and reuse: the probe's number now refers to a
+	// connected UDP socket that the probe did not open.
+	foreign, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM|unix.SOCK_CLOEXEC, 0)
+	require.NoError(t, err)
+	sa := &unix.SockaddrInet4{Port: peerAddr.Port}
+	copy(sa.Addr[:], peerAddr.IP.To4())
+	require.NoError(t, unix.Connect(foreign, sa))
+	require.NoError(t, unix.Dup3(foreign, num, unix.O_CLOEXEC))
+	require.NoError(t, unix.Close(foreign))
+	t.Cleanup(func() { _ = unix.Close(num) })
+
+	src, err := p.resolve(netip.MustParseAddr("127.0.0.1"))
+	require.NoError(t, err)
+	assert.Equal(t, netip.MustParseAddr("127.0.0.1"), src, "source after replacing the probe socket")
+
+	remote, err := unix.Getpeername(num)
+	require.NoError(t, err, "foreign socket must stay open and connected")
+	assert.Equal(t, peerAddr.Port, remote.(*unix.SockaddrInet4).Port, "foreign socket peer")
+}
+
+// A probe fd closed elsewhere is replaced without failing the lookup.
+func TestSrcProbe_RecoversFromForeignClose(t *testing.T) {
+	p := newTestProbe(t, unix.AF_INET)
+	require.NoError(t, unix.Close(p.sock.fd))
+
+	src, err := p.resolve(netip.MustParseAddr("127.0.0.1"))
+	require.NoError(t, err)
+	assert.Equal(t, netip.MustParseAddr("127.0.0.1"), src, "source after the probe socket was closed elsewhere")
 }

@@ -24,19 +24,26 @@ type srcProbe struct {
 	family int
 
 	mu sync.Mutex
-	// fd is -1 while no socket is open. Any failed lookup closes it and the next
+	// sock is nil while no socket is open. Any failed lookup closes it and the next
 	// lookup opens a fresh one, so a socket in an unknown state is never reused.
-	fd     int
+	sock   *probeSocket
 	closed bool
+}
+
+// probeSocket is an open probe socket and the identity it had when it was opened.
+type probeSocket struct {
+	fd  int
+	dev uint64
+	ino uint64
 }
 
 // newSrcProbe opens a probe socket for the given address family.
 func newSrcProbe(family int) (*srcProbe, error) {
-	fd, err := openProbeSocket(family)
+	sock, err := openProbeSocket(family)
 	if err != nil {
 		return nil, err
 	}
-	return &srcProbe{family: family, fd: fd}, nil
+	return &srcProbe{family: family, sock: sock}, nil
 }
 
 // resolve returns the source address the kernel would use for a packet to dst.
@@ -49,17 +56,24 @@ func (p *srcProbe) resolve(dst netip.Addr) (netip.Addr, error) {
 		return netip.Addr{}, errProbeClosed
 	}
 
-	if p.fd < 0 {
-		fd, err := openProbeSocket(p.family)
+	if p.sock != nil && !p.sock.owned() {
+		// The number no longer refers to our socket and may belong to someone else
+		// now, so drop it without closing it.
+		log.Debugf("source probe socket was closed elsewhere, opening a new one")
+		p.sock = nil
+	}
+
+	if p.sock == nil {
+		sock, err := openProbeSocket(p.family)
 		if err != nil {
 			return netip.Addr{}, err
 		}
-		p.fd = fd
+		p.sock = sock
 	}
 
-	src, err := p.lookup(dst)
+	src, err := p.sock.lookup(dst)
 	if err != nil {
-		if closeErr := p.closeFD(); closeErr != nil {
+		if closeErr := p.closeSocket(); closeErr != nil {
 			log.Debugf("failed to close source probe socket: %v", closeErr)
 		}
 		return netip.Addr{}, err
@@ -67,19 +81,48 @@ func (p *srcProbe) resolve(dst netip.Addr) (netip.Addr, error) {
 	return src, nil
 }
 
-// lookup runs one route lookup on the open socket. Callers must hold p.mu.
-func (p *srcProbe) lookup(dst netip.Addr) (netip.Addr, error) {
+// close releases the socket. Later lookups fail with errProbeClosed.
+func (p *srcProbe) close() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.closed = true
+	return p.closeSocket()
+}
+
+// closeSocket closes the socket if the number still refers to it. Callers must hold p.mu.
+func (p *srcProbe) closeSocket() error {
+	sock := p.sock
+	p.sock = nil
+	if sock == nil || !sock.owned() {
+		return nil
+	}
+	return unix.Close(sock.fd)
+}
+
+// owned reports whether the fd still refers to the socket that was opened. The
+// number may have been closed elsewhere and handed out for another file since.
+func (s *probeSocket) owned() bool {
+	var st unix.Stat_t
+	if err := unix.Fstat(s.fd, &st); err != nil {
+		return false
+	}
+	return st.Mode&unix.S_IFMT == unix.S_IFSOCK && uint64(st.Dev) == s.dev && st.Ino == s.ino
+}
+
+// lookup runs one route lookup on the socket.
+func (s *probeSocket) lookup(dst netip.Addr) (netip.Addr, error) {
 	// A connected socket keeps the source address of its first connect and reuses
 	// it for later route lookups, so dissolve the association first.
-	if err := disconnect(p.fd); err != nil {
+	if err := disconnect(s.fd); err != nil {
 		return netip.Addr{}, fmt.Errorf("disconnect probe socket: %w", err)
 	}
 
-	if err := unix.Connect(p.fd, probeSockaddr(dst)); err != nil {
+	if err := unix.Connect(s.fd, probeSockaddr(dst)); err != nil {
 		return netip.Addr{}, fmt.Errorf("route lookup for %s: %w", dst, err)
 	}
 
-	sa, err := unix.Getsockname(p.fd)
+	sa, err := unix.Getsockname(s.fd)
 	if err != nil {
 		return netip.Addr{}, fmt.Errorf("read probe socket address: %w", err)
 	}
@@ -97,37 +140,25 @@ func (p *srcProbe) lookup(dst netip.Addr) (netip.Addr, error) {
 	return src, nil
 }
 
-// close releases the socket. Later lookups fail with errProbeClosed.
-func (p *srcProbe) close() error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	p.closed = true
-	return p.closeFD()
-}
-
-func (p *srcProbe) closeFD() error {
-	if p.fd < 0 {
-		return nil
-	}
-	err := unix.Close(p.fd)
-	p.fd = -1
-	return err
-}
-
-func openProbeSocket(family int) (int, error) {
+func openProbeSocket(family int) (*probeSocket, error) {
 	fd, err := unix.Socket(family, unix.SOCK_DGRAM|unix.SOCK_CLOEXEC, unix.IPPROTO_UDP)
 	if err != nil {
-		return -1, fmt.Errorf("create source probe socket: %w", err)
+		return nil, fmt.Errorf("create source probe socket: %w", err)
 	}
 
 	if nbnet.AdvancedRouting() {
 		if err := unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_MARK, int(nbnet.ControlPlaneMark)); err != nil {
 			_ = unix.Close(fd)
-			return -1, fmt.Errorf("set SO_MARK on source probe socket: %w", err)
+			return nil, fmt.Errorf("set SO_MARK on source probe socket: %w", err)
 		}
 	}
-	return fd, nil
+
+	var st unix.Stat_t
+	if err := unix.Fstat(fd, &st); err != nil {
+		_ = unix.Close(fd)
+		return nil, fmt.Errorf("stat source probe socket: %w", err)
+	}
+	return &probeSocket{fd: fd, dev: uint64(st.Dev), ino: st.Ino}, nil
 }
 
 // disconnect dissolves a UDP socket's association by connecting to AF_UNSPEC, which
