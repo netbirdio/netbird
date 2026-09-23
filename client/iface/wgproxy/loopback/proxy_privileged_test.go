@@ -79,7 +79,7 @@ func TestProxyDemuxesByDestinationAddress(t *testing.T) {
 		seen[endpoint.IP.String()] = true
 	}
 
-	wgSock, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: testWGPort})
+	wgSock, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1")})
 	if err != nil {
 		t.Fatalf("wg socket: %v", err)
 	}
