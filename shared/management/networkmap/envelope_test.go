@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	goproto "google.golang.org/protobuf/proto"
 
@@ -39,7 +40,7 @@ func TestEnvelopeToNetworkMap_RoundTrip(t *testing.T) {
 	var decoded proto.NetworkMapEnvelope
 	require.NoError(t, goproto.Unmarshal(wire, &decoded), "unmarshal envelope")
 
-	result, err := nbnetworkmap.EnvelopeToNetworkMap(context.Background(), &decoded, localPeerKey, "netbird.cloud")
+	result, err := nbnetworkmap.EnvelopeToNetworkMap(context.Background(), &decoded, localPeerKey, "netbird.cloud", false)
 	require.NoError(t, err, "EnvelopeToNetworkMap")
 	require.NotNil(t, result)
 	require.NotNil(t, result.NetworkMap, "decoded NetworkMap must be non-nil")
@@ -80,7 +81,7 @@ func TestCalculate_FirewallRuleProtocol_NeverNetbirdSSH(t *testing.T) {
 	var decoded proto.NetworkMapEnvelope
 	require.NoError(t, goproto.Unmarshal(wire, &decoded))
 
-	result, err := nbnetworkmap.EnvelopeToNetworkMap(context.Background(), &decoded, localPeerKey, "netbird.cloud")
+	result, err := nbnetworkmap.EnvelopeToNetworkMap(context.Background(), &decoded, localPeerKey, "netbird.cloud", false)
 	require.NoError(t, err)
 	require.NotEmpty(t, result.NetworkMap.FirewallRules, "ssh policy should produce firewall rules")
 	for i, fr := range result.NetworkMap.FirewallRules {
@@ -181,13 +182,13 @@ func roundTripComponents(t *testing.T, c *types.NetworkMapComponents, localPeerK
 }
 
 func TestEnvelopeToNetworkMap_NilEnvelope(t *testing.T) {
-	_, err := nbnetworkmap.EnvelopeToNetworkMap(context.Background(), nil, "key", "netbird.cloud")
+	_, err := nbnetworkmap.EnvelopeToNetworkMap(context.Background(), nil, "key", "netbird.cloud", false)
 	require.Error(t, err, "nil envelope must produce an error rather than panic")
 }
 
 func TestEnvelopeToNetworkMap_FullPayloadMissing(t *testing.T) {
 	env := &proto.NetworkMapEnvelope{}
-	_, err := nbnetworkmap.EnvelopeToNetworkMap(context.Background(), env, "key", "netbird.cloud")
+	_, err := nbnetworkmap.EnvelopeToNetworkMap(context.Background(), env, "key", "netbird.cloud", false)
 	require.Error(t, err, "envelope with no Full payload must produce an error")
 }
 
@@ -219,7 +220,7 @@ func TestDecodeEnvelope_MalformedWgKeyPeerSkipped(t *testing.T) {
 	var decoded proto.NetworkMapEnvelope
 	require.NoError(t, goproto.Unmarshal(wire, &decoded), "unmarshal envelope")
 
-	result, err := nbnetworkmap.EnvelopeToNetworkMap(context.Background(), &decoded, localPeerKey, "netbird.cloud")
+	result, err := nbnetworkmap.EnvelopeToNetworkMap(context.Background(), &decoded, localPeerKey, "netbird.cloud", false)
 	require.NoError(t, err, "EnvelopeToNetworkMap must tolerate one bad peer key")
 	require.NotNil(t, result)
 	require.NotNil(t, result.Components)
@@ -288,7 +289,7 @@ func TestEnvelopeRoundTrip_AllGroupShortCircuitParity(t *testing.T) {
 	var decodedEnv proto.NetworkMapEnvelope
 	require.NoError(t, goproto.Unmarshal(wire, &decodedEnv), "unmarshal envelope")
 
-	result, err := nbnetworkmap.EnvelopeToNetworkMap(ctx, &decodedEnv, peers["peer-T"].Key, "netbird.cloud")
+	result, err := nbnetworkmap.EnvelopeToNetworkMap(ctx, &decodedEnv, peers["peer-T"].Key, "netbird.cloud", false)
 	require.NoError(t, err, "EnvelopeToNetworkMap")
 	clientNM := result.NetworkMap
 
@@ -346,7 +347,7 @@ func TestEnvelopeToNetworkMap_EmptyComponents(t *testing.T) {
 	var decoded proto.NetworkMapEnvelope
 	require.NoError(t, goproto.Unmarshal(wire, &decoded), "unmarshal envelope")
 
-	result, err := nbnetworkmap.EnvelopeToNetworkMap(context.Background(), &decoded, localPeerKey, "netbird.cloud")
+	result, err := nbnetworkmap.EnvelopeToNetworkMap(context.Background(), &decoded, localPeerKey, "netbird.cloud", false)
 	require.NoError(t, err, "EnvelopeToNetworkMap must degrade gracefully on empty components")
 	require.Equal(t, uint64(7), result.NetworkMap.Serial)
 	require.Empty(t, result.NetworkMap.RemotePeers, "unvalidated peer connects to nobody")
@@ -369,7 +370,7 @@ func TestEnvelopeToNetworkMap_MissingNetwork(t *testing.T) {
 	var decoded proto.NetworkMapEnvelope
 	require.NoError(t, goproto.Unmarshal(wire, &decoded), "unmarshal envelope")
 
-	result, err := nbnetworkmap.EnvelopeToNetworkMap(context.Background(), &decoded, localPeerKey, "netbird.cloud")
+	result, err := nbnetworkmap.EnvelopeToNetworkMap(context.Background(), &decoded, localPeerKey, "netbird.cloud", false)
 	require.NoError(t, err, "a missing AccountNetwork must not panic the client")
 	require.NotNil(t, result.Components.Network)
 	require.NotEmpty(t, result.NetworkMap.RemotePeers, "the rest of the snapshot stays usable")
@@ -445,4 +446,111 @@ func randomWgKey(t *testing.T) string {
 	_, err := rand.Read(raw[:])
 	require.NoError(t, err)
 	return base64.StdEncoding.EncodeToString(raw[:])
+}
+
+// TestEnvelopeToNetworkMap_SkipRouteFirewallRules covers the flag end to end,
+// through the envelope rather than by poking Calculate directly. The
+// RoutesFirewallRulesIsEmpty derivation is the part that matters: the client's
+// legacy-management probe reads an empty rule list together with that bit, so
+// skipping the rules must set it rather than leave it false.
+func TestEnvelopeToNetworkMap_SkipRouteFirewallRules(t *testing.T) {
+	ctx := context.Background()
+	c, routerKey := buildRoutedResourceComponents(t)
+
+	envelope := mgmtgrpc.EncodeNetworkMapEnvelope(mgmtgrpc.ComponentsEnvelopeInput{
+		Components: c,
+		DNSDomain:  "netbird.cloud",
+	})
+	wire, err := goproto.Marshal(envelope)
+	require.NoError(t, err, "marshal envelope")
+	var decoded proto.NetworkMapEnvelope
+	require.NoError(t, goproto.Unmarshal(wire, &decoded), "unmarshal envelope")
+
+	full, err := nbnetworkmap.EnvelopeToNetworkMap(ctx, &decoded, routerKey, "netbird.cloud", false)
+	require.NoError(t, err, "EnvelopeToNetworkMap without skip")
+	require.NotEmpty(t, full.NetworkMap.RoutesFirewallRules,
+		"baseline: the router peer must receive route firewall rules")
+	require.False(t, full.NetworkMap.RoutesFirewallRulesIsEmpty,
+		"baseline: the empty bit must be false when rules are present")
+
+	var decodedSkip proto.NetworkMapEnvelope
+	require.NoError(t, goproto.Unmarshal(wire, &decodedSkip), "unmarshal envelope")
+	skipped, err := nbnetworkmap.EnvelopeToNetworkMap(ctx, &decodedSkip, routerKey, "netbird.cloud", true)
+	require.NoError(t, err, "EnvelopeToNetworkMap with skip")
+
+	assert.Empty(t, skipped.NetworkMap.RoutesFirewallRules,
+		"route firewall rules must not be computed when skipped")
+	assert.True(t, skipped.NetworkMap.RoutesFirewallRulesIsEmpty,
+		"the empty bit must be derived from the skipped list, or the client misreads it as legacy management")
+	assert.Len(t, skipped.NetworkMap.Routes, len(full.NetworkMap.Routes),
+		"skipping route firewall rules must not change the routes")
+	assert.Len(t, skipped.NetworkMap.RemotePeers, len(full.NetworkMap.RemotePeers),
+		"skipping route firewall rules must not change the remote peers")
+}
+
+// buildRoutedResourceComponents returns components in which the local peer is
+// the routing peer for one enabled network resource, reachable by a second
+// peer through a resource policy — the minimum shape that yields a non-empty
+// RoutesFirewallRules. It also returns the local peer's WG key.
+func buildRoutedResourceComponents(t *testing.T) (*types.NetworkMapComponents, string) {
+	t.Helper()
+
+	routerKey := randomWgKey(t)
+	peers := map[string]*nmdata.Peer{
+		"peer-R": {
+			ID: "peer-R", Key: routerKey, DNSLabel: "router",
+			IP:   netip.AddrFrom4([4]byte{100, 64, 0, 1}),
+			Meta: nmdata.PeerSystemMeta{WtVersion: "0.40.0"},
+		},
+		"peer-S": {
+			ID: "peer-S", Key: randomWgKey(t), DNSLabel: "source",
+			IP:   netip.AddrFrom4([4]byte{100, 64, 0, 2}),
+			Meta: nmdata.PeerSystemMeta{WtVersion: "0.40.0"},
+		},
+	}
+
+	resourcePolicy := &nmdata.Policy{
+		ID: "pol-res", PublicID: "10", Enabled: true,
+		Rules: []*nmdata.PolicyRule{{
+			ID:       "rule-res",
+			Enabled:  true,
+			Action:   string(types.PolicyTrafficActionAccept),
+			Protocol: string(types.PolicyRuleProtocolALL),
+			Sources:  []string{"g-src"},
+		}},
+	}
+
+	c := &types.NetworkMapComponents{
+		PeerID: "peer-R",
+		Network: &nmdata.Network{
+			Identifier: "net-routed-resource",
+			Net:        net.IPNet{IP: net.IP{100, 64, 0, 0}, Mask: net.CIDRMask(10, 32)},
+			Serial:     1,
+		},
+		AccountSettings: &nmdata.AccountSettingsInfo{},
+		DNSSettings:     &nmdata.DNSSettings{},
+		Peers:           peers,
+		Groups: map[string]*nmdata.Group{
+			"g-src":     {PublicID: "1", Name: "sources", Peers: []string{"peer-S"}},
+			"g-routers": {PublicID: "2", Name: "routers", Peers: []string{"peer-R"}},
+		},
+		NetworkResources: []*nmdata.NetworkResource{{
+			ID: "res-1", NetworkID: "netid-1", PublicID: "100", Name: "res1",
+			Type:    "subnet",
+			Prefix:  netip.MustParsePrefix("10.200.0.0/24"),
+			Enabled: true,
+		}},
+		RoutersMap: map[string]map[string]*nmdata.NetworkRouter{
+			"netid-1": {"peer-R": {
+				PublicID: "200", PeerGroups: []string{"g-routers"}, Metric: 9999, Enabled: true,
+			}},
+		},
+		ResourcePoliciesMap: map[string][]*nmdata.Policy{
+			"res-1": {resourcePolicy},
+		},
+		Policies:             []*nmdata.Policy{resourcePolicy},
+		NetworkXIDToPublicID: map[string]string{"netid-1": "1"},
+	}
+
+	return c, routerKey
 }
