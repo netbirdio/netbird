@@ -616,9 +616,16 @@ func TestRefreshRoutedUpstreamsSkipsWhenDNSIsDisabled(t *testing.T) {
 // change replays, and its verdict must not be remembered either.
 func TestApplyConfigurationDoesNotLatchAFailedUpdate(t *testing.T) {
 	server := &DefaultServer{
-		ctx:                context.Background(),
-		handlerChain:       NewHandlerChain(),
-		hostManager:        &noopHostConfigurator{},
+		ctx:          context.Background(),
+		handlerChain: NewHandlerChain(),
+		// Not the noop configurator: enableDNS treats that as "not set up yet"
+		// and builds the real host manager, which on Windows asks the interface
+		// for its GUID and panics on the shared test mock.
+		hostManager: &mockHostConfigurator{
+			applyDNSConfigFunc:    func(HostDNSConfig, *statemanager.Manager) error { return nil },
+			supportCustomPortFunc: func() bool { return true },
+			stringFunc:            func() string { return "mock" },
+		},
 		localResolver:      &local.Resolver{},
 		service:            &mockService{},
 		wgInterface:        &mocWGIface{},
