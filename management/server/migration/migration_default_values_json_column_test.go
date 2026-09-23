@@ -52,15 +52,19 @@ func TestDefaultJsonFields(t *testing.T) {
 			unmarshallTargets: []any{types.Policy{}.SourcePostureChecks},
 		},
 		{
-			description: "empty service json fields",
-			createSQL:   `insert into services (id,account_id,auth,restrictions,access_groups) values('id-1','account-id-1','','','')`,
-			setupFuncs:  []func(t *testing.T, db *gorm.DB){setupTestDB[service.Service], setupTestDB[service.Target]},
+			description:       "service json fields",
+			createSQL:         `insert into services (id,account_id) values('id-1','account-id-1')`,
+			setupFuncs:        []func(t *testing.T, db *gorm.DB){setupTestDB[service.Service], setupTestDB[service.Target]},
+			querySQL:          `select auth,restrictions,access_groups from services where id='id-1'`,
+			unmarshallTargets: []any{service.Service{}.Auth, service.Service{}.Restrictions, service.Service{}.AccessGroups},
 		},
 		{
-			description: "empty service targets json fields",
+			description: "service targets json fields",
 			createSQL: `insert into services (id,account_id) values('id-2','account-id-1');
-			insert into targets (service_id,account_id,custom_headers,middlewares,capture_content_types) values('id-2','account-id-1','','','')`,
-			setupFuncs: []func(t *testing.T, db *gorm.DB){setupTestDB[service.Service], setupTestDB[service.Target]},
+			insert into targets (service_id,account_id) values('id-2','account-id-1')`,
+			setupFuncs:        []func(t *testing.T, db *gorm.DB){setupTestDB[service.Service], setupTestDB[service.Target]},
+			querySQL:          `select custom_headers,middlewares,capture_content_types from targets where service_id='id-2'`,
+			unmarshallTargets: []any{service.Target{}.Options.CustomHeaders, service.Target{}.Options.Middlewares, service.Target{}.Options.CaptureContentTypes},
 		},
 		{
 			description: "empty name_server_groups json fields",
