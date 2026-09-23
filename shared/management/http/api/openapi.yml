@@ -13347,7 +13347,7 @@ paths:
   /api/reverse-proxies/domains/{domainId}:
     delete:
       summary: Delete a Custom domain
-      description: Delete an existing service custom domain
+      description: Delete an existing service custom domain after removing or moving all services that use it or its subdomains, including disabled services.
       tags: [ Services ]
       security:
         - BearerAuth: [ ]
@@ -13370,6 +13370,9 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '404':
           "$ref": "#/components/responses/not_found"
+        '412':
+          description: The domain or one of its subdomains is still used by a service
+          content: { }
         '500':
           "$ref": "#/components/responses/internal_error"
   /api/reverse-proxies/domains/{domainId}/validate:
