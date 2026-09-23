@@ -77,6 +77,9 @@ type UInputInjector struct {
 	fd          int
 	closeOnce   sync.Once
 	keysymToKey map[uint32]uint16
+	// console is the active console keymap, rune to the key that types it, or
+	// nil when it could not be read and the US table is all there is.
+	console     map[rune]consoleKey
 	prevButtons uint16
 	screenW     int
 	screenH     int
@@ -125,7 +128,15 @@ func NewUInputInjector(w, h int) (*UInputInjector, error) {
 		return nil, err
 	}
 
+	console, err := readConsoleKeymap(consoleTTY)
+	if err != nil {
+		log.Debugf("console keymap unavailable, assuming a US layout: %v", err)
+	}
+
 	keymap := buildUInputKeymap()
+	// The console layout may put characters on keys the fixed table does not
+	// list (the ISO <> key, for one); the device has to advertise those too.
+	keymap = appendMissingCodes(keymap, keymapCodes(console))
 	for _, key := range keymap {
 		if err := setBit(fd, uiSetKeyBit, uint32(key)); err != nil {
 			unix.Close(fd)
@@ -160,7 +171,8 @@ func NewUInputInjector(w, h int) (*UInputInjector, error) {
 
 	inj := &UInputInjector{
 		fd:          fd,
-		keysymToKey: keymapByKeysym(keymap),
+		keysymToKey: overlayConsoleKeymap(keymapByKeysym(keymap), console),
+		console:     console,
 		screenW:     w,
 		screenH:     h,
 	}
@@ -331,20 +343,40 @@ func (u *UInputInjector) TypeText(text string) {
 			break
 		}
 		count++
-		code, shift, ok := keyForRune(r)
+		key, ok := u.keyForTypedRune(r)
 		if !ok {
 			continue
 		}
-		if shift {
+		if key.shift {
 			_ = u.emit(evKey, keyLeftShift, 1)
 		}
-		_ = u.emit(evKey, code, 1)
-		_ = u.emit(evKey, code, 0)
-		if shift {
+		if key.altGr {
+			_ = u.emit(evKey, keyRightAlt, 1)
+		}
+		_ = u.emit(evKey, key.code, 1)
+		_ = u.emit(evKey, key.code, 0)
+		if key.altGr {
+			_ = u.emit(evKey, keyRightAlt, 0)
+		}
+		if key.shift {
 			_ = u.emit(evKey, keyLeftShift, 0)
 		}
 		u.sync()
 	}
+}
+
+// keyForTypedRune returns the key and modifiers that type r: from the console's
+// own layout when it could be read, and from the US table otherwise. Return
+// stays a key of its own whatever the layout.
+func (u *UInputInjector) keyForTypedRune(r rune) (consoleKey, bool) {
+	if r == '\n' || r == '\r' {
+		return consoleKey{code: keyEnter}, true
+	}
+	if k, ok := u.console[r]; ok {
+		return k, true
+	}
+	code, shift, ok := keyForRune(r)
+	return consoleKey{code: code, shift: shift}, ok
 }
 
 // Close destroys the virtual uinput device and closes the file descriptor.
@@ -407,15 +439,23 @@ func buildUInputKeymap() []uint16 {
 		seen[code] = struct{}{}
 	}
 	extra := make([]uint16, 0, len(qemuToLinuxKey))
-	for _, code := range qemuToLinuxKey {
+	add := func(code int) {
 		if code <= 0 || code > keyMaxCode {
-			continue
+			return
 		}
 		if _, ok := seen[uint16(code)]; ok {
-			continue
+			return
 		}
 		seen[uint16(code)] = struct{}{}
 		extra = append(extra, uint16(code))
+	}
+	for _, code := range qemuToLinuxKey {
+		add(int(code))
+	}
+	// And over the keysym table, for the same reason: every code InjectKey can
+	// emit has to be one the device advertised.
+	for _, code := range keymapByKeysym(nil) {
+		add(int(code))
 	}
 	// Sorted so the device registers the same set in the same order on every
 	// run; ranging a map alone would not.
@@ -471,6 +511,29 @@ func keymapByKeysym(_ []uint16) map[uint32]uint16 {
 		// Meta_L / Meta_R. X11 clients send these as well as Super_L/Super_R
 		// above, and Linux has no separate Meta code.
 		0xffe7: keyLeftMeta, 0xffe8: keyRightMeta,
+		// AltGr arrives as ISO_Level3_Shift or Mode_switch; on a PC keyboard
+		// both are the right Alt key.
+		0xfe03: keyRightAlt, 0xff7e: keyRightAlt,
+		// Lock, system and menu keys (linux/input-event-codes.h).
+		0xff7f: 69,  // Num_Lock -> KEY_NUMLOCK
+		0xff14: 70,  // Scroll_Lock -> KEY_SCROLLLOCK
+		0xff61: 99,  // Print -> KEY_SYSRQ
+		0xff15: 99,  // Sys_Req -> KEY_SYSRQ
+		0xff13: 119, // Pause -> KEY_PAUSE
+		0xff6b: 119, // Break -> KEY_PAUSE
+		0xff67: 127, // Menu -> KEY_COMPOSE
+		// Keypad. RFB clients send the digit keysyms with Num Lock on and the
+		// navigation ones with it off; both are the same physical keys.
+		0xffb0: 82, 0xffb1: 79, 0xffb2: 80, 0xffb3: 81, 0xffb4: 75, // KP_0..KP_4
+		0xffb5: 76, 0xffb6: 77, 0xffb7: 71, 0xffb8: 72, 0xffb9: 73, // KP_5..KP_9
+		0xffae: 83, 0xffac: 121, // KP_Decimal, KP_Separator -> KEY_KPDOT, KEY_KPCOMMA
+		0xffab: 78, 0xffad: 74, // KP_Add, KP_Subtract
+		0xffaa: 55, 0xffaf: 98, // KP_Multiply, KP_Divide
+		0xff8d: 96, 0xffbd: 117, // KP_Enter, KP_Equal
+		0xff9e: 82, 0xff9c: 79, 0xff99: 80, 0xff9b: 81, // KP_Insert, KP_End, KP_Down, KP_Next
+		0xff96: 75, 0xff9d: 76, 0xff98: 77, // KP_Left, KP_Begin, KP_Right
+		0xff95: 71, 0xff97: 72, 0xff9a: 73, // KP_Home, KP_Up, KP_Prior
+		0xff9f: 83, // KP_Delete
 	}
 	// Letters: register both lowercase and uppercase keysyms onto the same
 	// KEY_ code. The client sends Shift separately for uppercase.
@@ -554,3 +617,37 @@ var punctShifted = map[rune]uint16{
 }
 
 var _ InputInjector = (*UInputInjector)(nil)
+
+// overlayConsoleKeymap replaces the US-table entry for every printable Latin-1
+// keysym with the key the console's layout uses for that character. X11 keysyms
+// in that range are the characters themselves, so the console map applies
+// directly; the client sends the modifiers separately. Without a console map
+// the table is returned unchanged.
+func overlayConsoleKeymap(table map[uint32]uint16, console map[rune]consoleKey) map[uint32]uint16 {
+	for r, k := range console {
+		if r < 0x20 || r > 0xff || r == 0x7f {
+			continue
+		}
+		table[uint32(r)] = k.code
+	}
+	return table
+}
+
+// appendMissingCodes appends each of extra not already in codes.
+func appendMissingCodes(codes, extra []uint16) []uint16 {
+	seen := make(map[uint16]struct{}, len(codes))
+	for _, c := range codes {
+		seen[c] = struct{}{}
+	}
+	for _, c := range extra {
+		if c == 0 || c > keyMaxCode {
+			continue
+		}
+		if _, ok := seen[c]; ok {
+			continue
+		}
+		seen[c] = struct{}{}
+		codes = append(codes, c)
+	}
+	return codes
+}
