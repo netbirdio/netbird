@@ -244,10 +244,6 @@ func (m *testProxyManager) ClusterSupportsPrivate(_ context.Context, _ string) *
 	return nil
 }
 
-func (m *testProxyManager) ClusterSupportsSessionCode(_ context.Context, _ string) bool {
-	return false
-}
-
 func (m *testProxyManager) CleanupStale(_ context.Context, _ time.Duration) error {
 	return nil
 }
