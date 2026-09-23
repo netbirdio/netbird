@@ -216,6 +216,11 @@ func New(cfg Config) (*Client, error) {
 		logger:       logger,
 		http: &http.Client{
 			Timeout: timeout,
+			// Never follow a redirect: net/http would carry the API key header and
+			// the mirrored client request to whatever host the Location names.
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
 			Transport: &http.Transport{
 				MaxIdleConns:        100,
 				MaxIdleConnsPerHost: 32,

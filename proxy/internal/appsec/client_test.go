@@ -420,6 +420,32 @@ func TestInspect_UnreachableEngineIsUnavailable(t *testing.T) {
 	assert.Equal(t, restrict.DenyAppSecUnavailable, res.Verdict)
 }
 
+func TestInspect_RedirectIsNotFollowed(t *testing.T) {
+	// A second host stands in for wherever a hostile or misconfigured engine
+	// points Location. It must never see the request or the API key.
+	var leaked atomic.Bool
+	elsewhere := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		leaked.Store(true)
+		_, _ = w.Write([]byte(`{"action":"allow","http_status":200}`))
+	}))
+	t.Cleanup(elsewhere.Close)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, elsewhere.URL, http.StatusTemporaryRedirect)
+	}))
+	t.Cleanup(srv.Close)
+
+	client := newClient(t, srv.URL)
+	res, err := client.Inspect(context.Background(), Request{
+		HTTP:     inbound(http.MethodGet, "http://svc.example.com/", ""),
+		ClientIP: netip.MustParseAddr("203.0.113.7"),
+	})
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrUnavailable), "a redirect must be treated as an unavailable engine")
+	assert.Equal(t, restrict.DenyAppSecUnavailable, res.Verdict, "a redirect must fail closed")
+	assert.False(t, leaked.Load(), "the redirect target must not receive the mirrored request")
+}
+
 func TestInspect_NilClientFailsClosed(t *testing.T) {
 	var client *Client
 	res, err := client.Inspect(context.Background(), Request{
