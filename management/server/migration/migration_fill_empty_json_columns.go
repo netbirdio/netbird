@@ -262,3 +262,18 @@ func FillEmptyAccessLogEntryJsonColumns(ctx context.Context, db *gorm.DB) error 
 		return res.Error
 	})
 }
+
+func FillEmptyAccountBudgetRulesJsonColumns(ctx context.Context, db *gorm.DB) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		res := tx.Exec(`update agent_network_budget_rules set target_groups='[]' where id in (select id from agent_network_budget_rules where target_groups='' or target_groups=null order by id asc)`)
+		if res.Error != nil {
+			return res.Error
+		}
+		res = tx.Exec(`update agent_network_budget_rules set target_users='[]' where id in (select id from agent_network_budget_rules where target_users='' or target_users=null order by id asc)`)
+		if res.Error != nil {
+			return res.Error
+		}
+		res = tx.Exec(`update agent_network_budget_rules set limits='{}' where id in (select id from agent_network_budget_rules where limits='' or limits=null order by id asc)`)
+		return res.Error
+	})
+}

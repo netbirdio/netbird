@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/netbirdio/netbird/dns"
+	agn_types "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
@@ -172,6 +173,13 @@ func TestFillEmptyJsonFields(t *testing.T) {
 			querySQL:      "select id from access_log_entries where metadata='' or metadata=null",
 			setupFuncs:    []func(t *testing.T, db *gorm.DB){setupTestDB[accesslogs.AccessLogEntry]},
 			migrationFunc: migration.FillEmptyZoneJsonColumns,
+		},
+		{
+			description:   "empty agent_network_budget_rules",
+			createSQL:     `insert into agent_network_budget_rules (id,target_groups,target_users,limits) values('id-1','','','')`,
+			querySQL:      "select id from agent_network_budget_rules where target_groups='' or target_groups=null or target_users='' or target_users=null or limits='' or limits=null",
+			setupFuncs:    []func(t *testing.T, db *gorm.DB){setupTestDB[agn_types.AccountBudgetRule]},
+			migrationFunc: migration.FillEmptyAccountBudgetRulesJsonColumns,
 		},
 	}
 	for _, tt := range tests {

@@ -23,9 +23,9 @@ type AccountBudgetRule struct {
 	AccountID    string `gorm:"index"`
 	Name         string
 	Enabled      bool
-	TargetGroups []string     `gorm:"serializer:json;column:target_groups"`
-	TargetUsers  []string     `gorm:"serializer:json;column:target_users"`
-	Limits       PolicyLimits `gorm:"serializer:json;column:limits"`
+	TargetGroups []string     `gorm:"serializer:json;column:target_groups;default:'[]'"`
+	TargetUsers  []string     `gorm:"serializer:json;column:target_users;default:'[]'"`
+	Limits       PolicyLimits `gorm:"serializer:json;column:limits;default:'{}'"`
 
 	CreatedAt time.Time
 	UpdatedAt time.Time
