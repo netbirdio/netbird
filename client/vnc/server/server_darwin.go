@@ -57,7 +57,7 @@ func (s *Server) serviceAcceptLoop(ln net.Listener) {
 			continue
 		}
 		enableTCPKeepAlive(conn, s.log)
-		metered := newMetricsConn(conn, s.sessionRecorder)
+		metered := newProxyMetricsConn(conn, s.sessionRecorder)
 		s.retrackConn(conn, metered)
 		if !s.beginHandler() {
 			s.releaseConnSlot()

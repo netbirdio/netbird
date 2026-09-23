@@ -100,6 +100,9 @@ type VNCSessionTick struct {
 	MaxFBURects   uint64
 	MaxWriteBytes uint64
 	WriteNanos    uint64
+	// FBUsTracked is false when the FBU fields could not be observed (a
+	// service-mode proxy). They are then unknown rather than zero.
+	FBUsTracked bool
 }
 
 // ConnectionStageTimestamps holds timestamps for each connection stage

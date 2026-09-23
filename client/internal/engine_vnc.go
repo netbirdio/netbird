@@ -153,6 +153,7 @@ func (e *Engine) startVNCServer(authConfig *sshauth.Config) error {
 				MaxFBURects:   t.MaxFBURects,
 				MaxWriteBytes: t.MaxWriteBytes,
 				WriteNanos:    t.WriteNanos,
+				FBUsTracked:   t.FBUsTracked,
 			})
 		}
 	}

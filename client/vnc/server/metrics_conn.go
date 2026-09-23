@@ -23,6 +23,11 @@ type SessionTick struct {
 	MaxFBURects   uint64
 	MaxWriteBytes uint64
 	WriteNanos    uint64
+	// FBUsTracked is false when the connection carried framebuffer updates it
+	// could not see the boundaries of, which is the case for a service-mode
+	// proxy relaying bytes to a per-session agent. FBUs, MaxFBUBytes and
+	// MaxFBURects then mean "unknown", not "none".
+	FBUsTracked bool
 }
 
 // sessionTickInterval is how often metricsConn emits a SessionTick. One
@@ -40,6 +45,9 @@ type metricsConn struct {
 	net.Conn
 
 	recorder func(SessionTick)
+	// framed is true when the session writing through this connection marks
+	// its FramebufferUpdate boundaries with beginFBU/endFBU.
+	framed bool
 
 	bytesOut   atomic.Uint64
 	writes     atomic.Uint64
@@ -72,9 +80,22 @@ type metricsConn struct {
 }
 
 func newMetricsConn(c net.Conn, recorder func(SessionTick)) net.Conn {
+	return newMetricsConnFramed(c, recorder, true)
+}
+
+// newProxyMetricsConn wraps a connection whose bytes are relayed to a session
+// running elsewhere, the service-mode agent. Nothing on this side sees where
+// one FramebufferUpdate ends and the next begins, so its ticks carry byte and
+// write counts only and report the FBU fields as untracked.
+func newProxyMetricsConn(c net.Conn, recorder func(SessionTick)) net.Conn {
+	return newMetricsConnFramed(c, recorder, false)
+}
+
+func newMetricsConnFramed(c net.Conn, recorder func(SessionTick), framed bool) net.Conn {
 	m := &metricsConn{
 		Conn:      c,
 		recorder:  recorder,
+		framed:    framed,
 		tickStart: time.Now(),
 		done:      make(chan struct{}),
 	}
@@ -137,6 +158,7 @@ func (m *metricsConn) flushTick(final bool) {
 		MaxFBURects:   maxRects,
 		MaxWriteBytes: maxPkt,
 		WriteNanos:    dns,
+		FBUsTracked:   m.framed,
 	})
 }
 
