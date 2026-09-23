@@ -196,7 +196,7 @@ func openOrCreateFile(file string) (*os.File, error) {
 // ReadJson reads JSON config file and maps to a provided interface
 func ReadJson(file string, res interface{}) (interface{}, error) {
 
-	f, err := os.Open(file)
+	f, err := openRead(file)
 	if err != nil {
 		return nil, err
 	}
@@ -249,7 +249,7 @@ func ListFiles(dir, pattern string) ([]string, error) {
 func ReadJsonWithEnvSub(file string, res interface{}) (interface{}, error) {
 	envVars := getEnvMap()
 
-	f, err := os.Open(file)
+	f, err := openRead(file)
 	if err != nil {
 		return nil, err
 	}
@@ -292,17 +292,6 @@ func getEnvMap() map[string]string {
 	}
 
 	return envMap
-}
-
-// ReadJsonShareMode reads a JSON config file into res the way ReadJson does,
-// but without holding the file against a rename.
-//
-// Use it for a file the process also rewrites: a write is a temp file renamed
-// over the real one, and on Windows that replace fails while any handle is
-// open on the destination without delete sharing. On every other platform it
-// is ReadJson.
-func ReadJsonShareMode(file string, res interface{}) (interface{}, error) {
-	return readJsonShareMode(file, res)
 }
 
 // CopyFileContents copies contents of the given src file to the dst file

@@ -1,9 +1,11 @@
 package util
 
 import (
+	"context"
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -23,8 +25,8 @@ func seedReplace(t *testing.T) (src, dst string) {
 }
 
 // This is the failure from the field: a switch renamed its new state over the
-// old file while another goroutine was reading it, and Windows refused the
-// replace with "Access is denied".
+// old file while another goroutine read it, and Windows refused the replace
+// with "Access is denied".
 //
 // It takes both halves. The reader has to share the file for delete, or the
 // rename cannot take delete access on it; and the rename has to ask for POSIX
@@ -34,7 +36,7 @@ func TestRenameFile_ReplacesAFileBeingRead(t *testing.T) {
 	t.Run("a reader that shares delete", func(t *testing.T) {
 		src, dst := seedReplace(t)
 
-		f, err := openShared(dst)
+		f, err := openRead(dst)
 		require.NoError(t, err)
 		defer f.Close()
 
@@ -73,4 +75,49 @@ func TestRenameFile_ReplacesAFileBeingRead(t *testing.T) {
 		require.NoError(t, err)
 		assert.JSONEq(t, `{"SomeField": 2}`, string(landed), "the destination holds what replaced it")
 	})
+}
+
+// What the two primitives are for, through the API callers actually use: a
+// config rewritten while it is being read, which is the daemon reading the
+// active profile on every RPC against a profile switch writing it.
+func TestReadJsonWriteJson_Concurrently(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	require.NoError(t, WriteJson(context.Background(), path, &TestConfig{SomeField: 1}))
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 128)
+
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for r := 0; r < 50; r++ {
+				var got TestConfig
+				if _, err := ReadJson(path, &got); err != nil {
+					errs <- err
+					return
+				}
+			}
+		}()
+	}
+
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func(writer int) {
+			defer wg.Done()
+			for r := 0; r < 50; r++ {
+				if err := WriteJson(context.Background(), path, &TestConfig{SomeField: writer}); err != nil {
+					errs <- err
+					return
+				}
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		assert.NoError(t, err, "a read and a write of the same config must not collide")
+	}
 }

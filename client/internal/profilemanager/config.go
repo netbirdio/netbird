@@ -1117,9 +1117,7 @@ func readConfig(configPath string, createIfMissing bool) (*Config, error) {
 		}
 
 		config := &Config{}
-		// Share mode: the daemon re-reads the active profile's config on every
-		// RPC, and SetConfig renames a new one over that same file.
-		if _, err := util.ReadJsonShareMode(configPath, config); err != nil {
+		if _, err := util.ReadJson(configPath, config); err != nil {
 			return nil, err
 		}
 		// initialize through apply() without changes
