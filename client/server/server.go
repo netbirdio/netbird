@@ -1504,9 +1504,16 @@ func (s *Server) handleActiveProfileLogout(ctx context.Context) (*proto.LogoutRe
 	return &proto.LogoutResponse{}, nil
 }
 
-// getConfig resolves the active profile's config, provisions its identity and
-// reports whether the config file already existed.
-func (s *Server) getConfig(activeProf *profilemanager.ActiveProfileState) (*profilemanager.Config, bool, error) {
+// provisionProfileIdentity resolves the active profile's config and puts the
+// keys that identify the peer on disk, reporting whether the config file
+// already existed.
+//
+// This is the daemon's provisioning point: the config resolved here is the one
+// the peer runs with, so it needs its identity, and that has to reach disk — a
+// key that stays in memory would come back different on the next start and
+// re-register the peer. Reads themselves are pure, so the write is here, in
+// the open, instead of hiding inside the reader.
+func provisionProfileIdentity(activeProf *profilemanager.ActiveProfileState) (*profilemanager.Config, bool, error) {
 	cfgPath, err := activeProf.FilePath()
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to get active profile file path: %w", err)
@@ -1522,11 +1529,6 @@ func (s *Server) getConfig(activeProf *profilemanager.ActiveProfileState) (*prof
 		return nil, false, fmt.Errorf("failed to get config: %w", err)
 	}
 
-	// This is the daemon's provisioning point: the config resolved here is the
-	// one the peer runs with, so it needs the keys that identify it, and those
-	// have to reach disk — a key that stays in memory would come back different
-	// on the next start and re-register the peer. Reads themselves are pure, so
-	// the write is here, in the open, instead of hiding inside ReadConfig.
 	generated, err := config.EnsureIdentity()
 	if err != nil {
 		return nil, false, fmt.Errorf("ensure profile identity: %w", err)
@@ -1536,6 +1538,17 @@ func (s *Server) getConfig(activeProf *profilemanager.ActiveProfileState) (*prof
 		if err := profilemanager.WriteOutConfig(cfgPath, config); err != nil {
 			return nil, false, fmt.Errorf("write out profile config: %w", err)
 		}
+	}
+
+	return config, configExisted, nil
+}
+
+// getConfig resolves the active profile's config, provisions its identity and
+// reports whether the config file already existed.
+func (s *Server) getConfig(activeProf *profilemanager.ActiveProfileState) (*profilemanager.Config, bool, error) {
+	config, configExisted, err := provisionProfileIdentity(activeProf)
+	if err != nil {
+		return nil, false, err
 	}
 
 	// Apply the daemon-owned MDM policy on top of the just-resolved Config.
@@ -2776,6 +2789,15 @@ func (s *Server) authorizeAndPrepareLogin(callerCtx context.Context, msg *proto.
 
 	if err := persistLoginOverrides(activeProf, msg); err != nil {
 		return nil, nil, fmt.Errorf("persist login overrides: %w", err)
+	}
+
+	// Provisioning under the same lock as the decision above, and next to the
+	// write it guards. getConfig would otherwise mint the identity and persist
+	// it once this returns: between its read and its write, a SetConfig that
+	// had already answered its caller would be overwritten by the config this
+	// login read before it landed.
+	if _, _, err := provisionProfileIdentity(activeProf); err != nil {
+		return nil, nil, err
 	}
 
 	return ctx, activeProf, nil
