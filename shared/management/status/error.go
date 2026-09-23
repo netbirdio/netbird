@@ -135,6 +135,11 @@ func NewUserPendingApprovalError() error {
 	return Errorf(PermissionDenied, "user is pending approval")
 }
 
+// NewUserPendingApprovalByOwnerError creates a new Error with PermissionDenied type for a blocked user pending approval, naming the masked address of the owner who can approve them
+func NewUserPendingApprovalByOwnerError(ownerEmail string) error {
+	return Errorf(PermissionDenied, "user is pending approval by owner %s", ownerEmail)
+}
+
 // NewPeerNotRegisteredError creates a new Error with Unauthenticated type unregistered peer
 func NewPeerNotRegisteredError() error {
 	return Errorf(Unauthenticated, "peer is not registered")

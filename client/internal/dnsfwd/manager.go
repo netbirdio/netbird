@@ -3,7 +3,6 @@ package dnsfwd
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/netip"
 	"os"
 	"strconv"
@@ -101,7 +100,7 @@ func (m *Manager) Start(fwdEntries []*ForwarderEntry) error {
 	m.dnsForwarder = NewDNSForwarder(listenAddress, dnsTTL, m.firewall, m.statusRecorder, m.wgIface)
 
 	go func() {
-		if err := m.dnsForwarder.Listen(fwdEntries); err != nil {
+		if err := m.dnsForwarder.Listen(fwdEntries); err != nil { //nolint:staticcheck
 			// todo handle close error if it is exists
 			log.Errorf("failed to start DNS forwarder, err: %v", err)
 		}
@@ -116,6 +115,16 @@ func (m *Manager) UpdateDomains(entries []*ForwarderEntry) {
 	}
 
 	m.dnsForwarder.UpdateDomains(entries)
+}
+
+// Domains returns the entries currently being served, or nil when the
+// forwarder is not running.
+func (m *Manager) Domains() []*ForwarderEntry {
+	if m.dnsForwarder == nil {
+		return nil
+	}
+
+	return m.dnsForwarder.Domains()
 }
 
 func (m *Manager) Stop(ctx context.Context) error {
@@ -160,12 +169,13 @@ func (m *Manager) allowDNSFirewall() error {
 		return nil
 	}
 
-	dnsRules, err := m.firewall.AddPeerFiltering(nil, net.IP{0, 0, 0, 0}, firewall.ProtocolUDP, nil, dport, firewall.ActionAccept, "")
+	anyV4 := []netip.Prefix{netip.PrefixFrom(netip.IPv4Unspecified(), 0)}
+	dnsRule, err := m.firewall.AddFilterRule(nil, anyV4, firewall.Network{}, firewall.ProtocolUDP, nil, dport, firewall.ActionAccept)
 	if err != nil {
 		return fmt.Errorf("add udp firewall rule: %w", err)
 	}
 
-	tcpRules, err := m.firewall.AddPeerFiltering(nil, net.IP{0, 0, 0, 0}, firewall.ProtocolTCP, nil, dport, firewall.ActionAccept, "")
+	tcpRule, err := m.firewall.AddFilterRule(nil, anyV4, firewall.Network{}, firewall.ProtocolTCP, nil, dport, firewall.ActionAccept)
 	if err != nil {
 		return fmt.Errorf("add tcp firewall rule: %w", err)
 	}
@@ -174,8 +184,12 @@ func (m *Manager) allowDNSFirewall() error {
 		return fmt.Errorf("flush: %w", err)
 	}
 
-	m.fwRules = dnsRules
-	m.tcpRules = tcpRules
+	if dnsRule != nil {
+		m.fwRules = []firewall.Rule{dnsRule}
+	}
+	if tcpRule != nil {
+		m.tcpRules = []firewall.Rule{tcpRule}
+	}
 
 	m.registerNetstackServices()
 
@@ -209,12 +223,12 @@ func (m *Manager) unregisterNetstackServices() {
 func (m *Manager) dropDNSFirewall() error {
 	var mErr *multierror.Error
 	for _, rule := range m.fwRules {
-		if err := m.firewall.DeletePeerRule(rule); err != nil {
+		if err := m.firewall.DeleteFilterRule(rule); err != nil {
 			mErr = multierror.Append(mErr, fmt.Errorf("failed to delete DNS router rules, err: %v", err))
 		}
 	}
 	for _, rule := range m.tcpRules {
-		if err := m.firewall.DeletePeerRule(rule); err != nil {
+		if err := m.firewall.DeleteFilterRule(rule); err != nil {
 			mErr = multierror.Append(mErr, fmt.Errorf("failed to delete DNS router rules, err: %v", err))
 		}
 	}

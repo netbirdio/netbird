@@ -16,6 +16,7 @@ import (
 	"github.com/netbirdio/netbird/proxy/auth"
 	"github.com/netbirdio/netbird/proxy/internal/types"
 	"github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/trustedproxy"
 )
 
 const (
@@ -66,7 +67,7 @@ type denyBucket struct {
 type Logger struct {
 	client         gRPCClient
 	logger         *log.Logger
-	trustedProxies []netip.Prefix
+	trustedProxies *trustedproxy.List
 
 	usageMux    sync.Mutex
 	domainUsage map[string]*domainUsage
@@ -82,7 +83,7 @@ type Logger struct {
 // NewLogger creates a new access log Logger. The trustedProxies parameter
 // configures which upstream proxy IP ranges are trusted for extracting
 // the real client IP from X-Forwarded-For headers.
-func NewLogger(client gRPCClient, logger *log.Logger, trustedProxies []netip.Prefix) *Logger {
+func NewLogger(client gRPCClient, logger *log.Logger, trustedProxies *trustedproxy.List) *Logger {
 	if logger == nil {
 		logger = log.StandardLogger()
 	}
@@ -220,14 +221,21 @@ func (l *Logger) allowDenyLog(serviceID types.ServiceID, reason string) bool {
 // proxy/internal/middleware/keys.go — only the dimensions management needs to
 // record a usage row (provider / model / tokens / cost / groups).
 var usageMetadataKeys = map[string]struct{}{
-	"llm.provider":             {},
-	"llm.model":                {},
-	"llm.resolved_provider_id": {},
-	"llm.input_tokens":         {},
-	"llm.output_tokens":        {},
-	"llm.total_tokens":         {},
-	"cost.usd_total":           {},
-	"llm.authorising_groups":   {},
+	"llm.provider":              {},
+	"llm.model":                 {},
+	"llm.resolved_provider_id":  {},
+	"llm.input_tokens":          {},
+	"llm.output_tokens":         {},
+	"llm.total_tokens":          {},
+	"llm.cached_input_tokens":   {},
+	"llm.cache_creation_tokens": {},
+	"cost.usd_input":            {},
+	"cost.usd_cached_input":     {},
+	"cost.usd_cache_creation":   {},
+	"cost.usd_output":           {},
+	"cost.usd_total":            {},
+	"cost.usd_cache":            {},
+	"llm.authorising_groups":    {},
 }
 
 // stripAgentNetworkEntryForUsage returns the entry reduced to what's needed to

@@ -24,7 +24,7 @@ import (
 )
 
 // ErrSharedSockStopped indicates that shared socket has been stopped
-var ErrSharedSockStopped = fmt.Errorf("shared socked stopped")
+var ErrSharedSockStopped = fmt.Errorf("shared socket stopped")
 
 // SharedSocket is a net.PacketConn that initiates two raw sockets (ipv4 and ipv6) and listens to UDP packets filtered
 // by BPF instructions (e.g., IncomingSTUNFilter that checks and sends only STUN packets to the listeners (ReadFrom)).

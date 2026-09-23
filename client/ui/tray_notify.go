@@ -25,6 +25,9 @@ type sendFn func(notifications.NotificationOptions) error
 // event-dispatch goroutine that panic is fatal process-wide; recover() turns
 // it into a logged no-op.
 func safeSendNotification(send sendFn, what string, opts notifications.NotificationOptions) (err error) {
+	if services.ShuttingDown() {
+		return nil
+	}
 	defer func() {
 		if r := recover(); r != nil {
 			log.Errorf("notify %s: recovered from panic (notification bus unavailable): %v", what, r)
@@ -41,7 +44,7 @@ func safeSendNotification(send sendFn, what string, opts notifications.Notificat
 // notifyIfDaemonOutdated probes the daemon once and fires an OS toast when it
 // is reachable but too old for this UI. A probe error means the daemon isn't
 // reachable (not outdated), so it is left to the normal connection flow.
-func notifyIfDaemonOutdated(compat *services.Compat, notifier *notifications.NotificationService, loc *Localizer) {
+func notifyIfDaemonOutdated(compat *services.Compat, notifier *Notifier, loc *Localizer) {
 	ready, err := compat.DaemonReady(context.Background())
 	if err != nil {
 		log.Debugf("daemon compatibility probe: %v", err)

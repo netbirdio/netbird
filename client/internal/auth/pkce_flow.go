@@ -306,7 +306,7 @@ func (p *PKCEAuthorizationFlow) parseOAuthToken(token *oauth2.Token) (TokenInfo,
 		audience = p.providerConfig.ClientID
 	}
 
-	if err := isValidAccessToken(tokenInfo.GetTokenToUse(), audience); err != nil {
+	if err := validateTokenAudience(tokenInfo.GetTokenToUse(), audience); err != nil {
 		return TokenInfo{}, fmt.Errorf("authentication failed: invalid access token - %w", err)
 	}
 
@@ -320,6 +320,11 @@ func (p *PKCEAuthorizationFlow) parseOAuthToken(token *oauth2.Token) (TokenInfo,
 	return tokenInfo, nil
 }
 
+// parseEmailFromIDToken extracts the email (or name) claim from an ID token
+// without verifying its signature. The value is best-effort and used only as a
+// UX convenience (login hint prefill and display); it never drives an
+// authorization decision. The authoritative identity is established server-side
+// from the signature-verified token.
 func parseEmailFromIDToken(token string) (string, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) < 2 {

@@ -148,6 +148,45 @@ func TestManager_MatchHostFormat(t *testing.T) {
 		"should use Match host with comma-separated patterns")
 }
 
+func TestManager_HostPatternInjection(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "netbird-ssh-config-test")
+	require.NoError(t, err)
+	defer func() { assert.NoError(t, os.RemoveAll(tempDir)) }()
+
+	manager := &Manager{
+		sshConfigDir:  filepath.Join(tempDir, "ssh_config.d"),
+		sshConfigFile: "99-netbird.conf",
+	}
+
+	// A malicious peer FQDN/hostname attempts to break out of the Match host
+	// directive and inject arbitrary ssh_config (a ProxyCommand executing a
+	// command). It must be rejected, not written to the config.
+	peers := []PeerSSHInfo{
+		{
+			Hostname: "evil\"\n    ProxyCommand touch /tmp/pwned\nHost x",
+			IP:       netip.MustParseAddr("100.125.1.1"),
+			FQDN:     "evil\"\n    ProxyCommand touch /tmp/pwned\nHost x.nb.internal",
+		},
+		{Hostname: "peer2", IP: netip.MustParseAddr("100.125.1.2"), FQDN: "peer2.nb.internal"},
+	}
+
+	err = manager.SetupSSHClientConfig(peers)
+	require.NoError(t, err)
+
+	configPath := filepath.Join(manager.sshConfigDir, manager.sshConfigFile)
+	content, err := os.ReadFile(configPath)
+	require.NoError(t, err)
+	configStr := string(content)
+
+	assert.NotContains(t, configStr, "ProxyCommand touch /tmp/pwned",
+		"injected directive must not appear in generated config")
+	assert.NotContains(t, configStr, "evil",
+		"malicious pattern must be dropped entirely")
+	// The valid peer must still be present, on a single Match host line.
+	assert.Contains(t, configStr, "Match host \"100.125.1.1,100.125.1.2,peer2.nb.internal,peer2\"",
+		"valid peers must survive, injected patterns dropped")
+}
+
 func TestManager_ForcedSSHConfig(t *testing.T) {
 	// Set force environment variable
 	t.Setenv(EnvForceSSHConfig, "true")

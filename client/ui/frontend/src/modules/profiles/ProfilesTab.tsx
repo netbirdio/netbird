@@ -45,7 +45,7 @@ export function ProfilesTab() {
         activeProfileId,
         loaded,
         username,
-        switchProfile,
+        switchProfileNoConnect,
         addProfile,
         removeProfile,
         renameProfile,
@@ -100,7 +100,7 @@ export function ProfilesTab() {
             confirmLabel: t("profile.switch.confirm"),
         });
         if (!ok) return;
-        await guarded(i18next.t("profile.error.switchTitle"), () => switchProfile(id));
+        await guarded(i18next.t("profile.error.switchTitle"), () => switchProfileNoConnect(id));
     };
 
     const handleDeregister = async (id: string, name: string) => {
@@ -129,14 +129,13 @@ export function ProfilesTab() {
         await guarded(i18next.t("profile.error.createTitle"), async () => {
             const id = await addProfile(name);
             // SetConfig is keyed by the new profile's ID, so it writes the
-            // not-yet-active profile. Write before switching so any reconnect
-            // targets the right deployment.
+            // not-yet-active profile before the switch makes it current.
             if (!isNetbirdCloud(managementUrl)) {
                 await SettingsSvc.SetConfig(
                     new SetConfigParams({ profileName: id, username, managementUrl }),
                 );
             }
-            await switchProfile(id);
+            await switchProfileNoConnect(id);
         });
     };
 
@@ -178,7 +177,7 @@ export function ProfilesTab() {
 
                 <div
                     className={cn(
-                        "overflow-hidden rounded-xl border border-nb-gray-900 bg-nb-gray-930/60",
+                        "overflow-hidden rounded-xl border border-nb-gray-800 bg-nb-gray-930/60 dark:border-nb-gray-900",
                     )}
                 >
                     <ProfilesTable
@@ -412,7 +411,7 @@ const ProfileRow = ({
                 "outline-none",
                 isFirst && "rounded-t-xl",
                 isLast && "rounded-b-xl",
-                "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/60",
+                "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-nb-gray-50/60",
             )}
         >
             <td
@@ -561,7 +560,7 @@ const RowMoreMenu = ({
                         "inline-flex h-9 w-9 cursor-default items-center justify-center rounded-md outline-none",
                         "text-nb-gray-400 hover:bg-nb-gray-900 hover:text-nb-gray-100",
                         "transition-colors duration-150",
-                        "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
+                        "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                         "data-[state=open]:bg-nb-gray-900 data-[state=open]:text-nb-gray-100",
                     )}
                 >
@@ -655,7 +654,7 @@ const ActionIconButton = ({
             className={cn(
                 "inline-flex h-9 w-9 cursor-default items-center justify-center rounded-md outline-none",
                 "transition-colors duration-150",
-                "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
+                "focus-visible:ring-2 focus-visible:ring-nb-gray-50/60 focus-visible:ring-offset-2 focus-visible:ring-offset-nb-gray-940",
                 variant === "danger"
                     ? "text-nb-gray-400 hover:bg-red-500/10 hover:text-red-500"
                     : "text-nb-gray-400 hover:bg-nb-gray-900 hover:text-nb-gray-100",

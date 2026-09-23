@@ -52,7 +52,15 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 		}
 
 		if isUpdate {
+			existing, err := transaction.GetPostureChecksByID(ctx, store.LockingStrengthNone, accountID, postureChecks.ID)
+			if err != nil {
+				return err
+			}
+			postureChecks.PublicID = existing.PublicID
+
 			action = activity.PostureCheckUpdated
+		} else {
+			postureChecks.PublicID = xid.New().String()
 		}
 
 		postureChecks.AccountID = accountID

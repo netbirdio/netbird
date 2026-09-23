@@ -2,6 +2,7 @@ import { type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Browser } from "@wailsio/runtime";
 import { DownloadIcon, NotepadText } from "lucide-react";
+import { Update as UpdateSvc } from "@bindings/services";
 import { Button } from "@/components/buttons/Button";
 import { useClientVersion } from "@/contexts/ClientVersionContext";
 import { cn } from "@/lib/cn";
@@ -12,6 +13,12 @@ function openUrl(url: string) {
     Browser.OpenURL(url).catch(() => {
         window.open(url, "_blank");
     });
+}
+
+function openInstallerDownload() {
+    UpdateSvc.DownloadURL()
+        .then(openUrl)
+        .catch(() => openUrl(GITHUB_RELEASES));
 }
 
 export function UpdateVersionCard() {
@@ -37,11 +44,7 @@ export function UpdateVersionCard() {
                         {t("update.card.installNow")}
                     </Button>
                 ) : (
-                    <Button
-                        variant={"primary"}
-                        size={"xs"}
-                        onClick={() => openUrl(GITHUB_RELEASES)}
-                    >
+                    <Button variant={"primary"} size={"xs"} onClick={openInstallerDownload}>
                         <DownloadIcon size={14} />
                         {t("update.card.getInstaller")}
                     </Button>

@@ -1,7 +1,9 @@
 // Package cost_meter implements the SlotOnResponse middleware that
 // converts token-usage metadata emitted by llm_response_parser into a
-// per-request USD cost estimate. The middleware uses the shared pricing
-// loader so operator pricing overrides apply to the chain.
+// per-request USD cost estimate. Pricing arrives from management inside
+// the middleware config: a per-provider-record table (the operator's
+// stored prices, matched via llm.resolved_provider_id) consulted first,
+// then the surface-keyed defaults table.
 package cost_meter
 
 import (
@@ -9,6 +11,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/netbirdio/netbird/proxy/internal/llm"
 	"github.com/netbirdio/netbird/proxy/internal/llm/pricing"
 	"github.com/netbirdio/netbird/proxy/internal/middleware"
 )
@@ -17,7 +20,9 @@ import (
 const ID = "cost_meter"
 
 // Version is the implementation version emitted via the spec merge.
-const Version = "1.0.0"
+// 1.1.0: pricing is config-delivered (defaults + per-provider-record
+// entries) instead of proxy-embedded.
+const Version = "1.1.0"
 
 // Skip reasons emitted under KeyCostSkipped. The set is closed; the
 // dashboard surfaces these verbatim.
@@ -32,24 +37,31 @@ const (
 )
 
 var metadataKeys = []string{
+	middleware.KeyCostUSDInput,
+	middleware.KeyCostUSDCachedInput,
+	middleware.KeyCostUSDCacheCreation,
+	middleware.KeyCostUSDOutput,
 	middleware.KeyCostUSDTotal,
+	middleware.KeyCostUSDCache,
 	middleware.KeyCostSkipped,
 }
 
 // Middleware computes a per-response cost estimate from the token
-// counts emitted upstream by llm_response_parser.
+// counts emitted upstream by llm_response_parser. Both tables are
+// immutable — a pricing change arrives as a mapping push that rebuilds
+// the chain with a fresh instance.
 type Middleware struct {
-	loader *pricing.Loader
-	// cancel stops this instance's pricing-reload goroutine. Non-nil only
-	// when the loader watches an override file; Close calls it so a chain
-	// rebuild doesn't leak a poll goroutine per retired instance.
-	cancel context.CancelFunc
+	// defaults is the surface-keyed table (llm.provider x llm.model).
+	defaults *pricing.Table
+	// perRecord is keyed by provider record id (llm.resolved_provider_id)
+	// then normalized model id; entries arrive fully materialized from
+	// management. Consulted before defaults. May be nil.
+	perRecord map[string]map[string]pricing.Entry
 }
 
-// newMiddleware constructs a Middleware bound to the given pricing loader.
-// cancel may be nil (defaults-only loader with no reloader to stop).
-func newMiddleware(loader *pricing.Loader, cancel context.CancelFunc) *Middleware {
-	return &Middleware{loader: loader, cancel: cancel}
+// newMiddleware constructs a Middleware over the given pricing tables.
+func newMiddleware(defaults *pricing.Table, perRecord map[string]map[string]pricing.Entry) *Middleware {
+	return &Middleware{defaults: defaults, perRecord: perRecord}
 }
 
 // ID returns the registry identifier.
@@ -74,16 +86,9 @@ func (m *Middleware) MetadataKeys() []string {
 // response.
 func (m *Middleware) MutationsSupported() bool { return false }
 
-// Close stops this instance's pricing-reload goroutine, if any. Called by
-// the chain when a rebuild retires the instance, so the mtime-poll loop
-// doesn't outlive the chain it belonged to. Safe to call on a nil receiver
-// and on an instance with no reloader.
-func (m *Middleware) Close() error {
-	if m != nil && m.cancel != nil {
-		m.cancel()
-	}
-	return nil
-}
+// Close releases resources owned by the middleware. Stateless — the
+// pricing tables are plain maps owned by this instance.
+func (m *Middleware) Close() error { return nil }
 
 // Invoke reads provider, model, and token metadata, looks up pricing,
 // and emits either KeyCostUSDTotal or KeyCostSkipped. The decision is
@@ -139,18 +144,72 @@ func (m *Middleware) Invoke(_ context.Context, in *middleware.Input) (*middlewar
 		return out, nil
 	}
 
-	table := m.loader.Get()
-	cost, ok := table.Cost(provider, model, inTokens, outTokens, cachedTokens, cacheCreationTokens)
+	costs, ok := m.lookupCosts(in.Metadata, provider, model, inTokens, outTokens, cachedTokens, cacheCreationTokens)
 	if !ok {
 		out.Metadata = skip(skipUnknownModel)
 		return out, nil
 	}
 
+	// Per-bucket costs first: they're the base of the breakdown, and the two
+	// aggregates that follow are derived from exactly these four values.
 	out.Metadata = []middleware.KV{
-		{Key: middleware.KeyCostUSDTotal, Value: fmt.Sprintf("%.6f", cost)},
+		{Key: middleware.KeyCostUSDInput, Value: usd(costs.InputUSD)},
+		{Key: middleware.KeyCostUSDCachedInput, Value: usd(costs.CachedInputUSD)},
+		{Key: middleware.KeyCostUSDCacheCreation, Value: usd(costs.CacheCreationUSD)},
+		{Key: middleware.KeyCostUSDOutput, Value: usd(costs.OutputUSD)},
+		{Key: middleware.KeyCostUSDTotal, Value: usd(costs.TotalUSD)},
+		{Key: middleware.KeyCostUSDCache, Value: usd(costs.CacheUSD)},
 	}
 	return out, nil
 }
+
+// lookupCosts resolves the price for this request and computes the cost
+// split. Resolution order:
+//
+//  1. Per-provider-record entry: the operator's stored price for the
+//     provider route that served the request, keyed by the
+//     llm.resolved_provider_id metadata llm_router stamped on the allow
+//     path. Absent metadata (e.g. no router in the chain) skips this tier.
+//  2. Surface defaults: the catalog-derived table keyed by llm.provider.
+//
+// The surface always selects the cache formula — a per-record entry for an
+// Anthropic route still bills its cache buckets additively.
+func (m *Middleware) lookupCosts(md []middleware.KV, surface, model string, inTokens, outTokens, cachedTokens, cacheCreationTokens int64) (pricing.Costs, bool) {
+	if recordID := lookupKV(md, middleware.KeyLLMResolvedProviderID); recordID != "" {
+		if entry, ok := perRecordEntry(m.perRecord[recordID], model); ok {
+			return pricing.EntryCosts(entry, surface, inTokens, outTokens, cachedTokens, cacheCreationTokens), true
+		}
+	}
+	return m.defaults.Costs(surface, model, inTokens, outTokens, cachedTokens, cacheCreationTokens)
+}
+
+// perRecordEntry resolves the operator's stored price for a model on one
+// provider record, falling back to the undated form of a dated Anthropic id
+// so a client that pins a release date still bills at the registered rate.
+func perRecordEntry(byModel map[string]pricing.Entry, model string) (pricing.Entry, bool) {
+	if entry, ok := byModel[model]; ok {
+		return entry, true
+	}
+	undated := llm.NormalizeAnthropicModel(model)
+	if undated == model {
+		return pricing.Entry{}, false
+	}
+	entry, ok := byModel[undated]
+	return entry, ok
+}
+
+// usd renders a cost as the fixed-precision string every cost.usd_* key
+// carries, so the per-bucket values and the aggregates round identically.
+//
+// 9 decimals, not 6: these values are summed downstream — per request, per
+// session, and per usage bucket — so the rounding step is applied once per
+// bucket per row and then accumulated. At 6 decimals a single row loses up to
+// 2e-6 across its four buckets (enough to break a 1e-6 reconciliation against
+// published rates), and a bucket smaller than half a microdollar quantises to
+// zero outright: 16 cache-read tokens on a cheap model is 1.6e-9, so summing
+// 10k such rows reports 0.02 instead of 0.016. Nano-dollar precision keeps the
+// per-row error ~1000x below the smallest realistic bucket.
+func usd(v float64) string { return fmt.Sprintf("%.9f", v) }
 
 // skip returns a single-entry metadata slice carrying the given skip
 // reason under KeyCostSkipped.

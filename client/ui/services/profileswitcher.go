@@ -12,13 +12,15 @@ import (
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 )
 
-// ProfileSwitcher holds the reconnect policy shared by the tray and React
-// frontend so both flip profiles identically. The policy keys off prevStatus
-// from DaemonFeed.Get at SwitchActive entry:
+// ProfileSwitcher holds the switch policy shared by the tray and React
+// frontend so both flip profiles identically. SwitchActive (plain selection:
+// header dropdown, tray submenu) always connects after the switch;
+// SwitchActiveNoConnect (manage-profiles screen) never does, so the user can
+// still adjust the management URL before connecting. prevStatus from
+// DaemonFeed.Get at entry only decides the teardown:
 //
-//	Connected/Connecting → Switch + Down + Up; optimistic Connecting paint.
-//	NeedsLogin/LoginFailed/SessionExpired → Switch + Down; clear stale error for re-login.
-//	Idle → Switch only.
+//	Connected/Connecting/NeedsLogin/LoginFailed/SessionExpired → Down first.
+//	Idle → no Down.
 type ProfileSwitcher struct {
 	profiles   *Profiles
 	connection *Connection
@@ -29,29 +31,40 @@ func NewProfileSwitcher(profiles *Profiles, connection *Connection, feed *Daemon
 	return &ProfileSwitcher{profiles: profiles, connection: connection, feed: feed}
 }
 
-// SwitchActive switches to the named profile applying the reconnect policy.
+// SwitchActive switches to the named profile and always connects afterwards.
 func (s *ProfileSwitcher) SwitchActive(ctx context.Context, p ProfileRef) error {
+	return s.switchActive(ctx, p, true)
+}
+
+// SwitchActiveNoConnect switches to the named profile without connecting,
+// tearing down any existing connection first.
+func (s *ProfileSwitcher) SwitchActiveNoConnect(ctx context.Context, p ProfileRef) error {
+	return s.switchActive(ctx, p, false)
+}
+
+func (s *ProfileSwitcher) switchActive(ctx context.Context, p ProfileRef, connect bool) error {
 	prevStatus := ""
-	if st, err := s.feed.Get(ctx); err == nil {
-		prevStatus = st.Status
-	} else {
-		log.Warnf("profileswitcher: get status: %v", err)
+	if s.feed != nil {
+		if st, err := s.feed.Get(ctx); err == nil {
+			prevStatus = st.Status
+		} else {
+			log.Warnf("profileswitcher: get status: %v", err)
+		}
 	}
 
-	wasActive := strings.EqualFold(prevStatus, StatusConnected) ||
-		strings.EqualFold(prevStatus, StatusConnecting)
-	needsDown := wasActive ||
+	needsDown := strings.EqualFold(prevStatus, StatusConnected) ||
+		strings.EqualFold(prevStatus, StatusConnecting) ||
 		strings.EqualFold(prevStatus, StatusNeedsLogin) ||
 		strings.EqualFold(prevStatus, StatusLoginFailed) ||
 		strings.EqualFold(prevStatus, StatusSessionExpired)
 
-	log.Infof("profileswitcher: switch profile=%q prevStatus=%q wasActive=%v needsDown=%v",
-		p.ProfileName, prevStatus, wasActive, needsDown)
+	log.Infof("profileswitcher: switch profile=%q prevStatus=%q connect=%v needsDown=%v",
+		p.ProfileName, prevStatus, connect, needsDown)
 
-	// Optimistic Connecting paint only when wasActive: those prevStatuses emit
-	// stale Connected + transient Idle pushes during Down that must be
-	// suppressed until Up resumes the stream (see DaemonFeed suppression table).
-	if wasActive {
+	// Optimistic Connecting paint plus stale-push suppression during Down (see
+	// DaemonFeed suppression table); also arms the login-watch that pops
+	// browser-login when the new profile turns out to need SSO.
+	if connect && s.feed != nil {
 		s.feed.BeginProfileSwitch()
 	}
 
@@ -76,9 +89,9 @@ func (s *ProfileSwitcher) SwitchActive(ctx context.Context, p ProfileRef) error 
 		}
 	}
 
-	if wasActive {
+	if connect {
 		if err := s.connection.Up(ctx, UpParams(p)); err != nil {
-			return fmt.Errorf("reconnect %q: %w", p.ProfileName, err)
+			return fmt.Errorf("connect %q: %w", p.ProfileName, err)
 		}
 	}
 

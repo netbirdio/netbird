@@ -30,6 +30,12 @@ import (
 
 const deviceNamePrefix = "ingress-proxy-"
 
+// envProxyRosenpass toggles Rosenpass (permissive) on the embedded proxy client. Defaults to on.
+const envProxyRosenpass = "NB_PROXY_ROSENPASS" //nolint:gosec // env var name, not a credential
+
+// envProxyClientLogLevel sets the embedded NetBird client's log level.
+const envProxyClientLogLevel = "NB_PROXY_CLIENT_LOG_LEVEL"
+
 const clientStopTimeout = 30 * time.Second
 
 const createProxyPeerTimeout = 30 * time.Second
@@ -76,10 +82,10 @@ type serviceNotification struct {
 // clientEntry holds an embedded NetBird client and tracks which services use it.
 type clientEntry struct {
 	client    *embed.Client
-	transport *http.Transport
+	transport *upstreamTransport
 	// insecureTransport is a clone of transport with TLS verification disabled,
 	// used when per-target skip_tls_verify is set.
-	insecureTransport *http.Transport
+	insecureTransport *upstreamTransport
 	services          map[ServiceKey]serviceInfo
 	createdAt         time.Time
 	started           bool
@@ -353,11 +359,11 @@ func (n *NetBird) createClientEntry(ctx context.Context, accountID types.Account
 	// NB_PROXY_CLIENT_LOG_LEVEL (e.g. "trace") to surface the embedded NetBird
 	// client's relay / signal / handshake detail for local debugging.
 	clientLogLevel := log.WarnLevel.String()
-	if v := strings.TrimSpace(os.Getenv("NB_PROXY_CLIENT_LOG_LEVEL")); v != "" {
+	if v := strings.TrimSpace(os.Getenv(envProxyClientLogLevel)); v != "" {
 		if lvl, err := log.ParseLevel(v); err == nil {
 			clientLogLevel = lvl.String()
 		} else {
-			n.logger.Warnf("invalid NB_PROXY_CLIENT_LOG_LEVEL %q, using %q: %v", v, clientLogLevel, err)
+			n.logger.Warnf("invalid %s %q, using %q: %v", envProxyClientLogLevel, v, clientLogLevel, err)
 		}
 	}
 
@@ -367,15 +373,26 @@ func (n *NetBird) createClientEntry(ctx context.Context, accountID types.Account
 		}
 	})
 
+	// Rosenpass runs in permissive mode by default so the embedded proxy can
+	// establish connections with Rosenpass-enabled peers (which otherwise fail
+	// on a PSK mismatch) while still falling back to plain WireGuard for peers
+	// that do not run Rosenpass. Set NB_PROXY_ROSENPASS=false to disable it.
+	rosenpassEnabled := true
+	if v, ok := envBool(envProxyRosenpass, n.logger); ok {
+		rosenpassEnabled = v
+	}
+
 	// Create embedded NetBird client with the generated private key.
 	// The peer has already been created via CreateProxyPeer RPC with the public key.
 	wgPort := int(n.clientCfg.WGPort)
 	embedOpts := embed.Options{
-		DeviceName:    deviceNamePrefix + n.proxyID,
-		ManagementURL: n.clientCfg.MgmtAddr,
-		PrivateKey:    privateKey.String(),
-		LogLevel:      clientLogLevel,
-		BlockInbound:  n.clientCfg.BlockInbound,
+		DeviceName:          deviceNamePrefix + n.proxyID,
+		ManagementURL:       n.clientCfg.MgmtAddr,
+		PrivateKey:          privateKey.String(),
+		LogLevel:            clientLogLevel,
+		BlockInbound:        n.clientCfg.BlockInbound,
+		EnableRosenpass:     rosenpassEnabled,
+		RosenpassPermissive: rosenpassEnabled,
 		// The embedded proxy peer must never be a stepping stone into
 		// the proxy host's LAN: it only exists to reach NetBird mesh
 		// targets or, when direct_upstream is set, the host network
@@ -397,7 +414,6 @@ func (n *NetBird) createClientEntry(ctx context.Context, accountID types.Account
 	// not work with reverse proxied requests.
 	transport := &http.Transport{
 		DialContext:           dialWithTimeout(client.DialContext),
-		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          n.transportCfg.maxIdleConns,
 		MaxIdleConnsPerHost:   n.transportCfg.maxIdleConnsPerHost,
 		MaxConnsPerHost:       n.transportCfg.maxConnsPerHost,
@@ -409,15 +425,14 @@ func (n *NetBird) createClientEntry(ctx context.Context, accountID types.Account
 		ReadBufferSize:        n.transportCfg.readBufferSize,
 		DisableCompression:    n.transportCfg.disableCompression,
 	}
-
 	insecureTransport := transport.Clone()
 	insecureTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec
 
 	return &clientEntry{
 		client:            client,
 		services:          map[ServiceKey]serviceInfo{key: si},
-		transport:         transport,
-		insecureTransport: insecureTransport,
+		transport:         newUpstreamTransport(transport, n.transportCfg.upstreamHTTPVersion, n.logger),
+		insecureTransport: newUpstreamTransport(insecureTransport, n.transportCfg.upstreamHTTPVersion, n.logger),
 		createdAt:         time.Now(),
 		started:           false,
 		inflightMap:       make(map[backendKey]chan struct{}),
@@ -899,6 +914,8 @@ func logEmbedOptions(logger *log.Logger, accountID types.AccountID, serviceID ty
 		"mtu":                   mtu,
 		"block_inbound":         opts.BlockInbound,
 		"block_lan_access":      opts.BlockLANAccess,
+		"rosenpass_enabled":     opts.EnableRosenpass,
+		"rosenpass_permissive":  opts.RosenpassPermissive,
 		"disable_ipv6":          opts.DisableIPv6,
 		"disable_client_routes": opts.DisableClientRoutes,
 		"no_userspace":          opts.NoUserspace,

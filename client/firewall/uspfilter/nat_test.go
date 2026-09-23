@@ -15,9 +15,11 @@ import (
 
 // TestDNATTranslationCorrectness verifies DNAT translation works correctly
 func TestDNATTranslationCorrectness(t *testing.T) {
-	manager, err := Create(&IFaceMock{
-		SetFilterFunc: func(device.PacketFilter) error { return nil },
-	}, false, flowLogger, iface.DefaultMTU)
+	manager, err := Create(Config{
+		IFace: &IFaceMock{
+			SetFilterFunc: func(device.PacketFilter) error { return nil },
+		},
+		FlowLogger: flowLogger, MTU: iface.DefaultMTU})
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, manager.Close(nil))
@@ -104,9 +106,11 @@ func parsePacket(t testing.TB, packetData []byte) *decoder {
 
 // TestDNATMappingManagement tests adding/removing DNAT mappings
 func TestDNATMappingManagement(t *testing.T) {
-	manager, err := Create(&IFaceMock{
-		SetFilterFunc: func(device.PacketFilter) error { return nil },
-	}, false, flowLogger, iface.DefaultMTU)
+	manager, err := Create(Config{
+		IFace: &IFaceMock{
+			SetFilterFunc: func(device.PacketFilter) error { return nil },
+		},
+		FlowLogger: flowLogger, MTU: iface.DefaultMTU})
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, manager.Close(nil))
@@ -152,9 +156,11 @@ func TestDNATMappingManagement(t *testing.T) {
 }
 
 func TestInboundPortDNAT(t *testing.T) {
-	manager, err := Create(&IFaceMock{
-		SetFilterFunc: func(device.PacketFilter) error { return nil },
-	}, false, flowLogger, iface.DefaultMTU)
+	manager, err := Create(Config{
+		IFace: &IFaceMock{
+			SetFilterFunc: func(device.PacketFilter) error { return nil },
+		},
+		FlowLogger: flowLogger, MTU: iface.DefaultMTU})
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, manager.Close(nil))
@@ -202,9 +208,11 @@ func TestInboundPortDNAT(t *testing.T) {
 }
 
 func TestInboundPortDNATNegative(t *testing.T) {
-	manager, err := Create(&IFaceMock{
-		SetFilterFunc: func(device.PacketFilter) error { return nil },
-	}, false, flowLogger, iface.DefaultMTU)
+	manager, err := Create(Config{
+		IFace: &IFaceMock{
+			SetFilterFunc: func(device.PacketFilter) error { return nil },
+		},
+		FlowLogger: flowLogger, MTU: iface.DefaultMTU})
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, manager.Close(nil))

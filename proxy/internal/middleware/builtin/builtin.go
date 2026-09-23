@@ -36,15 +36,13 @@ var defaultRegistry = middleware.NewRegistry()
 
 // FactoryContext is the per-process bag that concrete factories may
 // consult during construction. It carries the proxy-lifetime context,
-// the data directory used for static config files (pricing tables,
-// allowlists), the OTel meter, and the proxy logger.
+// the OTel meter, and the proxy logger.
 //
 // Configure must be called once at boot before any chain build calls
 // Resolve. Calling it twice overwrites the prior value; tests may rely
 // on this to reset state.
 type FactoryContext struct {
 	Context    context.Context
-	DataDir    string
 	Meter      metric.Meter
 	Logger     *log.Logger
 	MgmtClient MgmtClient
@@ -58,12 +56,11 @@ var (
 // Configure stores the per-process FactoryContext. Concrete factories
 // reach for it via Context(). mgmt may be nil on tests / standalone
 // builds with no management server; consumers must guard.
-func Configure(ctx context.Context, dataDir string, meter metric.Meter, logger *log.Logger, mgmt MgmtClient) {
+func Configure(ctx context.Context, meter metric.Meter, logger *log.Logger, mgmt MgmtClient) {
 	ctxMu.Lock()
 	defer ctxMu.Unlock()
 	ctxStore = FactoryContext{
 		Context:    ctx,
-		DataDir:    dataDir,
 		Meter:      meter,
 		Logger:     logger,
 		MgmtClient: mgmt,

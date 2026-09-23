@@ -22,6 +22,9 @@ type WelcomeStepTrayProps = {
 export function WelcomeStepTray({ onContinue }: Readonly<WelcomeStepTrayProps>) {
     const { t } = useTranslation();
     const trayScreenshot = trayScreenshotForOS();
+    // macOS has no tray — the icon sits in the menu bar, so the copy says so.
+    const titleKey = isMacOS() ? "welcome.titleMac" : "welcome.title";
+    const descriptionKey = isMacOS() ? "welcome.descriptionMac" : "welcome.description";
 
     return (
         <>
@@ -36,9 +39,9 @@ export function WelcomeStepTray({ onContinue }: Readonly<WelcomeStepTrayProps>) 
 
             <div className={"flex w-full flex-col gap-1"}>
                 <DialogHeading id={"nb-welcome-title"} align={"left"}>
-                    {t("welcome.title")}
+                    {t(titleKey)}
                 </DialogHeading>
-                <DialogDescription align={"left"}>{t("welcome.description")}</DialogDescription>
+                <DialogDescription align={"left"}>{t(descriptionKey)}</DialogDescription>
             </div>
 
             <DialogActions>

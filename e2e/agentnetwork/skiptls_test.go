@@ -66,9 +66,7 @@ func TestProviderSkipTLSVerification(t *testing.T) {
 		}
 	}
 
-	// First create bootstraps the account cluster.
 	insecureReq := newReq("skip-tls", insecureModel, true)
-	insecureReq.BootstrapCluster = ptr(harness.AgentNetworkCluster)
 	insecureProv, err := srv.CreateProvider(ctx, insecureReq)
 	require.NoError(t, err, "create skip-tls provider")
 	t.Cleanup(func() { _ = srv.DeleteProvider(context.Background(), insecureProv.Id) })
@@ -104,11 +102,12 @@ func TestProviderSkipTLSVerification(t *testing.T) {
 	t.Cleanup(func() { _ = cl.Terminate(context.Background()) })
 
 	require.NoError(t, cl.WaitConnected(ctx, 90*time.Second), "client must connect to management")
+	// Probe first: the GET resolves the endpoint (DNS error fails) and its first packet wakes the lazy proxy peer, so WaitProxyPeer sees it connected; any HTTP status counts.
+	proxyIP, err := cl.ResolveProxyIP(ctx, settings.Endpoint)
+	require.NoError(t, err, "resolve endpoint to proxy IP")
 	if err := cl.WaitProxyPeer(ctx, 180*time.Second); err != nil {
 		t.Fatalf("client did not see the proxy peer: %v\n=== proxy logs ===\n%s", err, px.Logs(context.Background()))
 	}
-	proxyIP, err := cl.ResolveProxyIP(ctx, settings.Endpoint)
-	require.NoError(t, err, "resolve endpoint to proxy IP")
 
 	// Positive: skip=true reaches the self-signed upstream. Retry to absorb
 	// tunnel/DNS jitter on the first call; success also proves the path works.

@@ -24,11 +24,7 @@ import (
 )
 
 const (
-	// Skew tolerates a small clock difference between the management
-	// server and this peer before treating a deadline as "in the past".
-	// Slightly above typical NTP drift; tight enough that the UI doesn't
-	// paint a stale expiry as if it were valid.
-	Skew = 30 * time.Second
+	maxPastHorizon = 30 * 24 * time.Hour
 
 	// maxDeadlineHorizon caps how far in the future an accepted deadline
 	// can sit. A timestamp beyond this is almost certainly a protocol
@@ -57,7 +53,7 @@ var (
 	ErrDeadlineTooFarFuture = errors.New("session deadline too far in the future")
 
 	// ErrDeadlineInPast is returned by Update when the supplied deadline
-	// is more than Skew in the past.
+	// is more than maxPastHorizon in the past.
 	ErrDeadlineInPast = errors.New("session deadline in the past")
 )
 
@@ -66,15 +62,14 @@ var (
 // for deadline change/clear, PublishEvent for the two warnings); tests pass
 // a fake recorder so the same surface is observable without an engine.
 //
-// The watcher is the single owner of the deadline propagated to the
-// recorder: every set, clear, sanity-check rejection and Close routes the
-// value through SetSessionExpiresAt, so the SubscribeStatus snapshot the UI
-// reads can never drift from the watcher's timer state. (SetSessionExpiresAt
-// fans out its own state-change notification, so no separate notify is
-// needed.) The recorder is server-scoped and outlives this engine-scoped
-// watcher — without the Close-time clear a teardown (Down, or the Down+Up of
-// a profile switch) would leave the next session showing the previous one's
-// stale "expires in" value.
+// While the watcher runs, it owns the deadline propagated to the recorder:
+// every set, clear and sanity-check rejection routes the value through
+// SetSessionExpiresAt, so the SubscribeStatus snapshot the UI reads can
+// never drift from the watcher's timer state. (SetSessionExpiresAt fans
+// out its own state-change notification, so no separate notify is needed.)
+// The recorder is server-scoped and outlives this engine-scoped watcher;
+// Close deliberately leaves the recorder value in place so transient engine
+// restarts don't blank it — the client run loop clears it on real teardown.
 //
 // PublishEvent's signature mirrors peer.Status.PublishEvent: the watcher
 // composes the metadata internally so the wire format (MetaSession*) is
@@ -135,10 +130,13 @@ func NewWithLeads(lead, final time.Duration, recorder StatusRecorder) *Watcher {
 // was disabled).
 //
 // Same-value updates are no-ops. A different non-zero value cancels any
-// pending timer, resets the "already fired" guard, and arms a new one.
+// pending timer, resets the "already fired" guards, and — when the
+// deadline lies in the future — arms fresh warning timers. A deadline
+// already in the past (within maxPastHorizon) is recorded as-is with no
+// timers: the session has expired and consumers render it that way.
 //
 // Returns one of the sentinel Err* values when the deadline fails the
-// sanity checks (pre-epoch, far future, or in the past beyond Skew).
+// sanity checks (pre-epoch, far future, or past beyond maxPastHorizon).
 // In every error case the watcher first clears its state so it stays
 // consistent with what the caller will push into its other sinks (e.g.
 // applySessionDeadline forces a zero deadline into the status recorder
@@ -163,7 +161,7 @@ func (w *Watcher) Update(deadline time.Time) error {
 	case deadline.After(now.Add(maxDeadlineHorizon)):
 		w.clearLocked()
 		return fmt.Errorf("%w: %v", ErrDeadlineTooFarFuture, deadline)
-	case deadline.Before(now.Add(-Skew)):
+	case deadline.Before(now.Add(-maxPastHorizon)):
 		w.clearLocked()
 		return fmt.Errorf("%w: %v (now=%v)", ErrDeadlineInPast, deadline, now)
 	}
@@ -183,7 +181,9 @@ func (w *Watcher) Update(deadline time.Time) error {
 	w.finalFiredAt = time.Time{}
 	w.dismissedAt = time.Time{}
 
-	w.armTimerLocked(deadline)
+	if deadline.After(now) {
+		w.armTimerLocked(deadline)
+	}
 	recorder := w.recorder
 	w.mu.Unlock()
 	if recorder != nil {
@@ -227,30 +227,25 @@ func (w *Watcher) Dismiss() {
 	log.Infof("auth session final-warning dismissed for deadline %s", w.current.Format(time.RFC3339))
 }
 
-// Close stops any pending timer and drops the deadline on the status
-// recorder. Update calls after Close are ignored. Clearing the recorder
-// here is what keeps a teardown (Down, or the Down+Up of a profile switch)
-// from leaving the next session showing this one's stale "expires in"
-// value — the recorder is server-scoped and outlives this engine-scoped
-// watcher, so nothing else drops the anchor on teardown.
+// Close stops any pending timer. Update calls after Close are ignored.
+// The recorder keeps its deadline: the watcher is engine-scoped and closes
+// on every engine restart (network change, sleep/wake, stream errors)
+// while the SSO deadline stays valid across those, so clearing here would
+// blank the UI's "expires in" row on every transient reconnect. The
+// client run loop clears the server-scoped recorder when it exits for
+// real (Down, profile switch, permanent login failure).
 func (w *Watcher) Close() {
 	w.mu.Lock()
+	defer w.mu.Unlock()
 	if w.closed {
-		w.mu.Unlock()
 		return
 	}
 	w.closed = true
 	w.stopTimerLocked()
-	hadDeadline := !w.current.IsZero()
 	w.current = time.Time{}
 	w.firedAt = time.Time{}
 	w.finalFiredAt = time.Time{}
 	w.dismissedAt = time.Time{}
-	recorder := w.recorder
-	w.mu.Unlock()
-	if recorder != nil && hadDeadline {
-		recorder.SetSessionExpiresAt(time.Time{})
-	}
 }
 
 // clearLocked drops the tracked deadline and notifies the recorder so

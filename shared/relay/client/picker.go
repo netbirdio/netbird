@@ -30,6 +30,7 @@ type ServerPicker struct {
 	MTU               uint16
 	ConnectionTimeout time.Duration
 	TransportFallback *transportFallback
+	NetEvents         NetEvents
 }
 
 func (sp *ServerPicker) PickServer(parentCtx context.Context) (*Client, error) {
@@ -62,7 +63,12 @@ func (sp *ServerPicker) PickServer(parentCtx context.Context) (*Client, error) {
 		if !ok {
 			return nil, <-errChan
 		}
-		log.Infof("chosen home Relay server: %s", cr.Url)
+		instanceURL, serverIP, err := cr.RelayClient.serverInstanceAddress()
+		if err != nil {
+			log.Infof("chosen home Relay server: %s, instance address unavailable: %v", cr.Url, err)
+			return cr.RelayClient, nil
+		}
+		log.Infof("chosen home Relay server: %s, instance URL: %s, server IP: %s", cr.Url, instanceURL, serverIP)
 		return cr.RelayClient, nil
 	case <-ctx.Done():
 		return nil, fmt.Errorf("connect to relay server: %w", ctx.Err())
@@ -73,6 +79,7 @@ func (sp *ServerPicker) startConnection(ctx context.Context, resultChan chan con
 	log.Infof("try to connecting to relay server: %s", url)
 	relayClient := NewClient(url, sp.TokenStore, sp.PeerID, sp.MTU)
 	relayClient.SetTransportFallback(sp.TransportFallback)
+	relayClient.netEvents = sp.NetEvents
 	err := relayClient.Connect(ctx)
 	resultChan <- connResult{
 		RelayClient: relayClient,

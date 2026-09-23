@@ -28,17 +28,22 @@ func newIngestTestEntry() *accesslogs.AccessLogEntry {
 		UserId:       "user-1",
 		AgentNetwork: true,
 		Metadata: map[string]string{
-			metaKeyProvider:           "openai",
-			metaKeyModel:              "gpt-5.4",
-			metaKeyResolvedProviderID: "prov-1",
-			metaKeySessionID:          "sess-1",
-			metaKeyInputTokens:        "100",
-			metaKeyOutputTokens:       "50",
-			metaKeyTotalTokens:        "150",
-			metaKeyCostUSDTotal:       "0.0123",
-			metaKeyStream:             "true",
-			metaKeyRequestPrompt:      "hello",
-			metaKeyResponseCompletion: "world",
+			metaKeyProvider:            "openai",
+			metaKeyModel:               "gpt-5.4",
+			metaKeyResolvedProviderID:  "prov-1",
+			metaKeySessionID:           "sess-1",
+			metaKeyInputTokens:         "100",
+			metaKeyOutputTokens:        "50",
+			metaKeyTotalTokens:         "1174",
+			metaKeyCachedInputTokens:   "256",
+			metaKeyCacheCreationTokens: "768",
+			metaKeyCostUSDInput:        "0.0071",
+			metaKeyCostUSDCachedInput:  "0.0009",
+			metaKeyCostUSDCacheCreate:  "0.0020",
+			metaKeyCostUSDOutput:       "0.0023",
+			metaKeyStream:              "true",
+			metaKeyRequestPrompt:       "hello",
+			metaKeyResponseCompletion:  "world",
 			// repeated id must be de-duplicated before the group rows insert.
 			metaKeyAuthorisingGroups: "grp-eng,grp-eng,grp-ops",
 		},
@@ -65,7 +70,19 @@ func TestIngestAccessLog_RealStore_LogCollectionOff(t *testing.T) {
 	require.Len(t, usage, 1, "usage row must be written even with log collection off")
 	assert.Equal(t, int64(100), usage[0].InputTokens, "input tokens must round-trip from metadata")
 	assert.Equal(t, int64(50), usage[0].OutputTokens, "output tokens must round-trip from metadata")
-	assert.InDelta(t, 0.0123, usage[0].CostUSD, 1e-9, "cost must round-trip from metadata")
+	assert.Equal(t, int64(256), usage[0].CachedInputTokens, "cache-read tokens must round-trip from metadata")
+	assert.Equal(t, int64(768), usage[0].CacheCreationTokens, "cache-write tokens must round-trip from metadata")
+	// The per-bucket breakdown is the only cost state stored, and must survive
+	// the write/read cycle as real columns — usage rows are the only cost
+	// record for accounts with log collection off, so a dropped column here
+	// loses the split permanently.
+	assert.InDelta(t, 0.0071, usage[0].InputCostUSD, 1e-9, "input cost must round-trip from metadata")
+	assert.InDelta(t, 0.0009, usage[0].CachedInputCostUSD, 1e-9, "cache-read cost must round-trip from metadata")
+	assert.InDelta(t, 0.0020, usage[0].CacheCreationCostUSD, 1e-9, "cache-write cost must round-trip from metadata")
+	assert.InDelta(t, 0.0023, usage[0].OutputCostUSD, 1e-9, "output cost must round-trip from metadata")
+	// Aggregates are derived from the stored columns, never stored themselves.
+	assert.InDelta(t, 0.0123, usage[0].TotalCostUSD(), 1e-9, "total is derived from the stored buckets")
+	assert.InDelta(t, 0.0029, usage[0].CacheCostUSD(), 1e-9, "cache cost is derived from the two cache buckets")
 
 	logs, _, err := s.GetAgentNetworkAccessLogs(ctx, store.LockingStrengthNone, testAccountID, types.AgentNetworkAccessLogFilter{})
 	require.NoError(t, err)
@@ -96,6 +113,14 @@ func TestIngestAccessLog_RealStore_LogCollectionOn(t *testing.T) {
 	require.Equal(t, int64(1), total, "exactly one access-log row expected")
 	require.Len(t, logs, 1, "full access-log row must be written when log collection is on")
 	assert.Equal(t, "gpt-5.4", logs[0].Model, "model must flatten from metadata")
+	assert.Equal(t, int64(256), logs[0].CachedInputTokens, "cache-read tokens must flatten from metadata")
+	assert.Equal(t, int64(768), logs[0].CacheCreationTokens, "cache-write tokens must flatten from metadata")
+	assert.InDelta(t, 0.0029, logs[0].CacheCostUSD(), 1e-9, "cache cost is derived from the two cache buckets")
+	assert.InDelta(t, 0.0123, logs[0].TotalCostUSD(), 1e-9, "total is derived from the stored buckets")
+	assert.InDelta(t, 0.0071, logs[0].InputCostUSD, 1e-9, "input cost must flatten from metadata")
+	assert.InDelta(t, 0.0009, logs[0].CachedInputCostUSD, 1e-9, "cache-read cost must flatten from metadata")
+	assert.InDelta(t, 0.0020, logs[0].CacheCreationCostUSD, 1e-9, "cache-write cost must flatten from metadata")
+	assert.InDelta(t, 0.0023, logs[0].OutputCostUSD, 1e-9, "output cost must flatten from metadata")
 	assert.Equal(t, "hello", logs[0].RequestPrompt, "prompt must be retained when log collection is on")
 	assert.Equal(t, "world", logs[0].ResponseCompletion, "completion must be retained when log collection is on")
 	assert.True(t, logs[0].Stream, "stream flag must flatten from metadata")

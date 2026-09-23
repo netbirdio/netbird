@@ -15,6 +15,7 @@ import (
 	"github.com/netbirdio/netbird/relay/protocol"
 	relaylistener "github.com/netbirdio/netbird/relay/server/listener"
 	"github.com/netbirdio/netbird/shared/relay"
+	"github.com/netbirdio/netbird/trustedproxy"
 )
 
 const (
@@ -27,6 +28,9 @@ type Listener struct {
 	Address string
 	// TLSConfig is the TLS configuration for the server.
 	TLSConfig *tls.Config
+	// TrustedProxies is the set of upstream proxies whose X-Real-Ip/X-Real-Port
+	// headers are trusted. Headers from any other immediate peer are ignored.
+	TrustedProxies *trustedproxy.List
 
 	server   *http.Server
 	acceptFn func(conn relaylistener.Conn)
@@ -75,7 +79,7 @@ func (l *Listener) Shutdown(ctx context.Context) error {
 }
 
 func (l *Listener) onAccept(w http.ResponseWriter, r *http.Request) {
-	connRemoteAddr := remoteAddr(r)
+	connRemoteAddr := remoteAddr(r, l.TrustedProxies)
 
 	acceptOptions := &websocket.AcceptOptions{
 		OriginPatterns: []string{"*"},
@@ -102,9 +106,17 @@ func (l *Listener) onAccept(w http.ResponseWriter, r *http.Request) {
 	l.acceptFn(conn)
 }
 
-func remoteAddr(r *http.Request) string {
-	if r.Header.Get("X-Real-Ip") == "" || r.Header.Get("X-Real-Port") == "" {
+func remoteAddr(r *http.Request, trustedProxies *trustedproxy.List) string {
+	realIP := r.Header.Get("X-Real-Ip")
+	realPort := r.Header.Get("X-Real-Port")
+	if realIP == "" || realPort == "" {
 		return r.RemoteAddr
 	}
-	return net.JoinHostPort(r.Header.Get("X-Real-Ip"), r.Header.Get("X-Real-Port"))
+
+	if !trustedProxies.IsTrusted(r.RemoteAddr) {
+		log.Debugf("ignoring X-Real-Ip header from untrusted peer %s", r.RemoteAddr)
+		return r.RemoteAddr
+	}
+
+	return net.JoinHostPort(realIP, realPort)
 }

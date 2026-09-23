@@ -1,0 +1,29 @@
+{
+  "Network": {"Serial": 30},
+  "AccountSettings": {"RoutingPeerDNSResolutionEnabled": true},
+  "Peers": {
+    "proxy-peer": {
+      "IP": "100.64.0.99",
+      "Meta": {"WtVersion": "0.60.0"},
+      "ProxyMeta": {"Embedded": true, "Cluster": "eu.proxy.netbird.io"}
+    },
+    "app-peer": {"IP": "100.64.0.10", "Meta": {"WtVersion": "0.60.0"}}
+  },
+  "Services": [
+    {
+      "ID": "svc-1",
+      "Enabled": true,
+      "Mode": "http",
+      "ProxyCluster": "eu.proxy.netbird.io",
+      "Targets": [
+        {
+          "Enabled": true,
+          "Port": 8080,
+          "Protocol": "http",
+          "TargetID": "app-peer",
+          "TargetType": "peer"
+        }
+      ]
+    }
+  ]
+}

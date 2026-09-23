@@ -2,42 +2,13 @@ package types
 
 import (
 	"slices"
-
-	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
 // PolicyUpdateOperationType operation type
 type PolicyUpdateOperationType int
 
-// PolicyTrafficActionType action type for the firewall
-type PolicyTrafficActionType string
-
-// PolicyRuleProtocolType type of traffic
-type PolicyRuleProtocolType string
-
 // PolicyRuleDirection direction of traffic
 type PolicyRuleDirection string
-
-// RulePortRange represents a range of ports for a firewall rule.
-type RulePortRange struct {
-	Start uint16
-	End   uint16
-}
-
-func (r *RulePortRange) ToProto() *proto.PortInfo {
-	return &proto.PortInfo{
-		PortSelection: &proto.PortInfo_Range_{
-			Range: &proto.PortInfo_Range{
-				Start: uint32(r.Start),
-				End:   uint32(r.End),
-			},
-		},
-	}
-}
-
-func (r *RulePortRange) Equal(other *RulePortRange) bool {
-	return r.Start == other.Start && r.End == other.End
-}
 
 // PolicyRule is the metadata of the policy
 type PolicyRule struct {

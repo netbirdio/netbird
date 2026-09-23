@@ -1,12 +1,9 @@
 package client
 
 import (
-	"container/list"
 	"context"
 	"fmt"
-	"net"
 	"net/netip"
-	"reflect"
 	"sync"
 	"time"
 
@@ -43,8 +40,6 @@ func NewRelayTrack() *RelayTrack {
 	}
 }
 
-type OnServerCloseListener func()
-
 // ManagerOption configures a Manager at construction time.
 type ManagerOption func(*Manager)
 
@@ -63,6 +58,11 @@ type RelayConnState struct {
 // attempts to the home relay. A non-positive value keeps the default.
 func WithMaxBackoffInterval(d time.Duration) ManagerOption {
 	return func(m *Manager) { m.maxBackoffInterval = d }
+}
+
+// WithNetEvents injects the OS network event handling.
+func WithNetEvents(events NetEvents) ManagerOption {
+	return func(m *Manager) { m.netEvents = events }
 }
 
 // Manager is a manager for the relay client instances. It establishes one persistent connection to the given relay URL
@@ -86,12 +86,12 @@ type Manager struct {
 	relayClients      map[string]*RelayTrack
 	relayClientsMutex sync.RWMutex
 
-	onDisconnectedListeners map[string]*list.List
 	onReconnectedListenerFn func()
 	listenerLock            sync.Mutex
 
 	mtu                uint16
 	maxBackoffInterval time.Duration
+	netEvents          NetEvents
 
 	cleanupInterval      time.Duration
 	keepUnusedServerTime time.Duration
@@ -120,16 +120,16 @@ func NewManager(ctx context.Context, serverURLs []string, peerID string, mtu uin
 			ConnectionTimeout: defaultConnectionTimeout,
 			TransportFallback: tf,
 		},
-		relayClients:            make(map[string]*RelayTrack),
-		onDisconnectedListeners: make(map[string]*list.List),
-		cleanupInterval:         relayCleanupInterval,
-		keepUnusedServerTime:    keepUnusedServerTime,
+		relayClients:         make(map[string]*RelayTrack),
+		cleanupInterval:      relayCleanupInterval,
+		keepUnusedServerTime: keepUnusedServerTime,
 	}
 	for _, opt := range opts {
 		opt(m)
 	}
+	m.serverPicker.NetEvents = m.netEvents
 	m.serverPicker.ServerURLs.Store(serverURLs)
-	m.reconnectGuard = NewGuard(m.serverPicker, m.maxBackoffInterval)
+	m.reconnectGuard = NewGuard(m.serverPicker, m.maxBackoffInterval, m.netEvents)
 	return m
 }
 
@@ -161,11 +161,11 @@ func (m *Manager) Serve() error {
 
 // OpenConn opens a connection to the given peer key. If the peer is on the same relay server, the connection will be
 // established via the relay server. If the peer is on a different relay server, the manager will establish a new
-// connection to the relay server. It returns back with a net.Conn what represent the remote peer connection.
+// connection to the relay server. It returns the relayed connection to the remote peer.
 //
 // serverIP, when valid and serverAddress is foreign, is used as a dial target if the FQDN-based dial fails.
 // Ignored for the local home-server path. TLS verification still uses the FQDN via SNI.
-func (m *Manager) OpenConn(ctx context.Context, serverAddress, peerKey string, serverIP netip.Addr) (net.Conn, error) {
+func (m *Manager) OpenConn(ctx context.Context, serverAddress, peerKey string, serverIP netip.Addr) (*Conn, error) {
 	m.relayClientMu.RLock()
 	defer m.relayClientMu.RUnlock()
 
@@ -178,9 +178,7 @@ func (m *Manager) OpenConn(ctx context.Context, serverAddress, peerKey string, s
 		return nil, err
 	}
 
-	var (
-		netConn net.Conn
-	)
+	var netConn *Conn
 	if !foreign {
 		log.Debugf("open peer connection via permanent server: %s", peerKey)
 		netConn, err = m.relayClient.OpenConn(ctx, peerKey)
@@ -213,31 +211,6 @@ func (m *Manager) SetOnReconnectedListener(f func()) {
 	m.onReconnectedListenerFn = f
 }
 
-// AddCloseListener adds a listener to the given server instance address. The listener will be called if the connection
-// closed.
-func (m *Manager) AddCloseListener(serverAddress string, onClosedListener OnServerCloseListener) error {
-	m.relayClientMu.RLock()
-	defer m.relayClientMu.RUnlock()
-
-	if m.relayClient == nil {
-		return ErrRelayClientNotConnected
-	}
-
-	foreign, err := m.isForeignServer(serverAddress)
-	if err != nil {
-		return err
-	}
-
-	var listenerAddr string
-	if foreign {
-		listenerAddr = serverAddress
-	} else {
-		listenerAddr = m.relayClient.connectionURL
-	}
-	m.addListener(listenerAddr, onClosedListener)
-	return nil
-}
-
 // RelayInstanceAddress returns the address and resolved IP of the permanent relay server. It could change if the
 // network connection is lost. The address is sent to the target peer to choose the common relay server for the
 // communication; the IP is sent alongside so remote peers can dial directly without their own DNS lookup. Both
@@ -249,11 +222,7 @@ func (m *Manager) RelayInstanceAddress() (string, netip.Addr, error) {
 	if m.relayClient == nil {
 		return "", netip.Addr{}, ErrRelayClientNotConnected
 	}
-	addr, err := m.relayClient.ServerInstanceURL()
-	if err != nil {
-		return "", netip.Addr{}, err
-	}
-	return addr, m.relayClient.ConnectedIP(), nil
+	return m.relayClient.serverInstanceAddress()
 }
 
 // ServerURLs returns the addresses of the relay servers.
@@ -327,7 +296,7 @@ func (m *Manager) UpdateToken(token *relayAuth.Token) error {
 	return m.tokenStore.UpdateToken(token)
 }
 
-func (m *Manager) openConnVia(ctx context.Context, serverAddress, peerKey string, serverIP netip.Addr) (net.Conn, error) {
+func (m *Manager) openConnVia(ctx context.Context, serverAddress, peerKey string, serverIP netip.Addr) (*Conn, error) {
 	// check if already has a connection to the desired relay server
 	m.relayClientsMutex.RLock()
 	rt, ok := m.relayClients[serverAddress]
@@ -354,6 +323,7 @@ func (m *Manager) openConnVia(ctx context.Context, serverAddress, peerKey string
 
 	relayClient := NewClientWithServerIP(serverAddress, serverIP, m.tokenStore, m.peerID, m.mtu)
 	relayClient.SetTransportFallback(m.transportFallback)
+	relayClient.netEvents = m.netEvents
 	err := relayClient.Connect(m.ctx)
 	if err != nil {
 		rt.Lock()
@@ -379,7 +349,7 @@ func (m *Manager) openConnVia(ctx context.Context, serverAddress, peerKey string
 // waiting for the dial started by another openConnVia call to finish. It waits
 // on rt.ready rather than the track lock, so it neither holds nor contends the
 // track lock across the dial.
-func (m *Manager) openConnOnTrack(ctx context.Context, rt *RelayTrack, peerKey string) (net.Conn, error) {
+func (m *Manager) openConnOnTrack(ctx context.Context, rt *RelayTrack, peerKey string) (*Conn, error) {
 	select {
 	case <-rt.ready:
 	case <-ctx.Done():
@@ -424,8 +394,6 @@ func (m *Manager) onServerDisconnected(serverAddress string) {
 	if !isHome {
 		m.evictForeignRelay(serverAddress)
 	}
-
-	m.notifyOnDisconnectListeners(serverAddress)
 }
 
 func (m *Manager) evictForeignRelay(serverAddress string) {
@@ -517,36 +485,6 @@ func (m *Manager) cleanUpUnusedRelays() {
 		delete(m.relayClients, addr)
 		rt.Unlock()
 	}
-}
-
-func (m *Manager) addListener(serverAddress string, onClosedListener OnServerCloseListener) {
-	m.listenerLock.Lock()
-	defer m.listenerLock.Unlock()
-	l, ok := m.onDisconnectedListeners[serverAddress]
-	if !ok {
-		l = list.New()
-	}
-	for e := l.Front(); e != nil; e = e.Next() {
-		if reflect.ValueOf(e.Value).Pointer() == reflect.ValueOf(onClosedListener).Pointer() {
-			return
-		}
-	}
-	l.PushBack(onClosedListener)
-	m.onDisconnectedListeners[serverAddress] = l
-}
-
-func (m *Manager) notifyOnDisconnectListeners(serverAddress string) {
-	m.listenerLock.Lock()
-	defer m.listenerLock.Unlock()
-
-	l, ok := m.onDisconnectedListeners[serverAddress]
-	if !ok {
-		return
-	}
-	for e := l.Front(); e != nil; e = e.Next() {
-		go e.Value.(OnServerCloseListener)()
-	}
-	delete(m.onDisconnectedListeners, serverAddress)
 }
 
 func relayConnState(c *Client) RelayConnState {

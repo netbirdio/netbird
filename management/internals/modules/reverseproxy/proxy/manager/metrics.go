@@ -3,7 +3,6 @@ package manager
 import (
 	"context"
 
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
 
@@ -48,25 +47,16 @@ func newMetrics(meter metric.Meter) (*metrics, error) {
 	}, nil
 }
 
-func (m *metrics) IncrementProxyConnectionCount(clusterAddr string) {
-	m.proxyConnectionCount.Add(context.Background(), 1,
-		metric.WithAttributes(
-			attribute.String("cluster", clusterAddr),
-		))
+func (m *metrics) IncrementProxyConnectionCount() {
+	m.proxyConnectionCount.Add(context.Background(), 1)
 }
 
-func (m *metrics) DecrementProxyConnectionCount(clusterAddr string) {
-	m.proxyConnectionCount.Add(context.Background(), -1,
-		metric.WithAttributes(
-			attribute.String("cluster", clusterAddr),
-		))
+func (m *metrics) DecrementProxyConnectionCount() {
+	m.proxyConnectionCount.Add(context.Background(), -1)
 }
 
-func (m *metrics) IncrementServiceUpdateSendCount(clusterAddr string) {
-	m.serviceUpdateSendCount.Add(context.Background(), 1,
-		metric.WithAttributes(
-			attribute.String("cluster", clusterAddr),
-		))
+func (m *metrics) IncrementServiceUpdateSendCount() {
+	m.serviceUpdateSendCount.Add(context.Background(), 1)
 }
 
 func (m *metrics) IncrementProxyHeartbeatCount() {
