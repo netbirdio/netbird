@@ -3,9 +3,10 @@ package labelgen
 
 import (
 	"fmt"
-	"math/rand"
 	"sort"
 	"sync"
+
+	"github.com/netbirdio/netbird/management/server/util"
 )
 
 // pickAttempts caps the random retries before falling back to the
@@ -40,16 +41,15 @@ func uniqueWords() []string {
 // PickUnique selects a label not already in `taken`. It tries up to
 // pickAttempts random picks; on exhaustion it scans the deduplicated
 // wordlist for any remaining free entry, and if none is left appends
-// `-<fallbackSuffix>` to a deterministic word and returns. The caller
-// is responsible for seeding rng (math/rand).
-func PickUnique(rng *rand.Rand, taken map[string]struct{}, fallbackSuffix string) string {
+// `-<fallbackSuffix>` to a random word and returns.
+func PickUnique(taken map[string]struct{}, fallbackSuffix string) string {
 	pool := uniqueWords()
 	if len(pool) == 0 {
 		return fallbackSuffix
 	}
 
 	for i := 0; i < pickAttempts; i++ {
-		w := pool[rng.Intn(len(pool))]
+		w := pool[util.RandIntn(len(pool))]
 		if _, ok := taken[w]; !ok {
 			return w
 		}
@@ -61,7 +61,7 @@ func PickUnique(rng *rand.Rand, taken map[string]struct{}, fallbackSuffix string
 		}
 	}
 
-	w := pool[rng.Intn(len(pool))]
+	w := pool[util.RandIntn(len(pool))]
 	return fmt.Sprintf("%s-%s", w, fallbackSuffix)
 }
 
@@ -74,10 +74,10 @@ func PickUnique(rng *rand.Rand, taken map[string]struct{}, fallbackSuffix string
 // a noun spans len(adjectives) * 857 instead. Uniqueness is enforced by a
 // database constraint and retried by the caller, rather than guessed from a
 // pre-read set that a concurrent allocation can invalidate.
-func PickTuple(rng *rand.Rand) string {
+func PickTuple() string {
 	nouns := uniqueWords()
 	if len(nouns) == 0 || len(adjectives) == 0 {
 		return ""
 	}
-	return adjectives[rng.Intn(len(adjectives))] + "-" + nouns[rng.Intn(len(nouns))]
+	return adjectives[util.RandIntn(len(adjectives))] + "-" + nouns[util.RandIntn(len(nouns))]
 }

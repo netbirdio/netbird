@@ -29,6 +29,7 @@ import (
 	route "github.com/netbirdio/netbird/route"
 	auth "github.com/netbirdio/netbird/shared/auth"
 	domain "github.com/netbirdio/netbird/shared/management/domain"
+	nmdata "github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -86,12 +87,12 @@ func (mr *MockManagerMockRecorder) AccountExists(ctx, accountID any) *gomock.Cal
 }
 
 // AddPeer mocks base method.
-func (m *MockManager) AddPeer(ctx context.Context, accountID, setupKey, userID string, p *peer.Peer, temporary bool) (*peer.Peer, *types.Network, []*posture.Checks, bool, error) {
+func (m *MockManager) AddPeer(ctx context.Context, accountID, setupKey, userID string, p *peer.Peer, temporary bool) (*peer.Peer, *types.Network, []*nmdata.PostureChecks, bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "AddPeer", ctx, accountID, setupKey, userID, p, temporary)
 	ret0, _ := ret[0].(*peer.Peer)
 	ret1, _ := ret[1].(*types.Network)
-	ret2, _ := ret[2].([]*posture.Checks)
+	ret2, _ := ret[2].([]*nmdata.PostureChecks)
 	ret3, _ := ret[3].(bool)
 	ret4, _ := ret[4].(error)
 	return ret0, ret1, ret2, ret3, ret4
@@ -1323,12 +1324,12 @@ func (mr *MockManagerMockRecorder) ListUsers(ctx, accountID any) *gomock.Call {
 }
 
 // LoginPeer mocks base method.
-func (m *MockManager) LoginPeer(ctx context.Context, login types.PeerLogin) (*peer.Peer, *types.Network, []*posture.Checks, bool, error) {
+func (m *MockManager) LoginPeer(ctx context.Context, login types.PeerLogin) (*peer.Peer, *types.Network, []*nmdata.PostureChecks, bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "LoginPeer", ctx, login)
 	ret0, _ := ret[0].(*peer.Peer)
 	ret1, _ := ret[1].(*types.Network)
-	ret2, _ := ret[2].([]*posture.Checks)
+	ret2, _ := ret[2].([]*nmdata.PostureChecks)
 	ret3, _ := ret[3].(bool)
 	ret4, _ := ret[4].(error)
 	return ret0, ret1, ret2, ret3, ret4
@@ -1568,12 +1569,12 @@ func (mr *MockManagerMockRecorder) StoreEvent(ctx, initiatorID, targetID, accoun
 }
 
 // SyncAndMarkPeer mocks base method.
-func (m *MockManager) SyncAndMarkPeer(ctx context.Context, accountID, peerPubKey string, meta peer.PeerSystemMeta, realIP net.IP, syncTime time.Time) (*peer.Peer, *types.NetworkMap, []*posture.Checks, int64, error) {
+func (m *MockManager) SyncAndMarkPeer(ctx context.Context, accountID, peerPubKey string, meta peer.PeerSystemMeta, realIP net.IP, syncTime time.Time) (*peer.Peer, *types.NetworkMap, []*nmdata.PostureChecks, int64, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SyncAndMarkPeer", ctx, accountID, peerPubKey, meta, realIP, syncTime)
 	ret0, _ := ret[0].(*peer.Peer)
 	ret1, _ := ret[1].(*types.NetworkMap)
-	ret2, _ := ret[2].([]*posture.Checks)
+	ret2, _ := ret[2].([]*nmdata.PostureChecks)
 	ret3, _ := ret[3].(int64)
 	ret4, _ := ret[4].(error)
 	return ret0, ret1, ret2, ret3, ret4
@@ -1586,12 +1587,12 @@ func (mr *MockManagerMockRecorder) SyncAndMarkPeer(ctx, accountID, peerPubKey, m
 }
 
 // SyncPeer mocks base method.
-func (m *MockManager) SyncPeer(ctx context.Context, sync types.PeerSync, accountID string) (*peer.Peer, *types.NetworkMap, []*posture.Checks, int64, error) {
+func (m *MockManager) SyncPeer(ctx context.Context, sync types.PeerSync, accountID string) (*peer.Peer, *types.NetworkMap, []*nmdata.PostureChecks, int64, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SyncPeer", ctx, sync, accountID)
 	ret0, _ := ret[0].(*peer.Peer)
 	ret1, _ := ret[1].(*types.NetworkMap)
-	ret2, _ := ret[2].([]*posture.Checks)
+	ret2, _ := ret[2].([]*nmdata.PostureChecks)
 	ret3, _ := ret[3].(int64)
 	ret4, _ := ret[4].(error)
 	return ret0, ret1, ret2, ret3, ret4

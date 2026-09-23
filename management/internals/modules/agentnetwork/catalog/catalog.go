@@ -81,6 +81,10 @@ type Provider struct {
 	// surface — the proxy middleware then falls back to URL sniffing
 	// or skips request-side enrichment.
 	ParserID string
+	// RouterVendors declares every parser surface a gateway route can serve.
+	// Leave empty for single-surface providers, where ParserID remains the
+	// router discriminator for backward compatibility.
+	RouterVendors []string
 	// PricingSurfaces names the cost-meter pricing surfaces this
 	// provider's Models are priced under ("openai", "anthropic",
 	// "bedrock" — the llm.Parser surface the request parser stamps as
@@ -116,8 +120,7 @@ type Provider struct {
 	// Discovery, when non-nil, describes how to ask this vendor which
 	// models the operator's own credential can actually reach, so the
 	// provider form can offer a live list instead of only the hand-curated
-	// Models above. Nil for entries with no listing endpoint (gateways
-	// vary too much) — those keep free-text entry.
+	// Models above. Nil entries keep free-text entry.
 	Discovery *Discovery
 }
 
@@ -154,10 +157,13 @@ const (
 // one from the caller is also what keeps this from being an open proxy: the
 // only hosts management will dial are the ones written here.
 type Discovery struct {
-	Host  string
-	Path  string
-	Query string
-	Shape ListingShape
+	Host            string
+	Path            string
+	Query           string
+	Shape           ListingShape
+	// ExactModelsOnly omits wildcard patterns from listings when NetBird's
+	// provider model rows cannot represent the vendor's matching semantics.
+	ExactModelsOnly bool
 	// Headers are static headers the vendor requires beyond the credential
 	// (Anthropic versions its API through one and rejects a request without
 	// it). The auth header itself comes from AuthHeaderName/Template.
@@ -631,6 +637,34 @@ var providers = []Provider{
 				TagsHeader:      "x-litellm-tags",
 				TagsInBody:      true,
 				EndUserIDInBody: true,
+			},
+		},
+		Models: []Model{},
+	},
+	{
+		ID:                 "agentgateway",
+		Kind:               KindGateway,
+		Name:               "agentgateway",
+		Description:        "Bring your own agentgateway with trusted NetBird identity stamped on every request",
+		DefaultHost:        "",
+		AuthHeaderName:     "Authorization",
+		AuthHeaderTemplate: "Bearer ${API_KEY}",
+		DefaultContentType: "application/json",
+		BrandColor:         "#8023C3",
+		// Agentgateway accepts both OpenAI and Anthropic request shapes.
+		// Leave ParserID empty so the proxy detects the shape from the URL.
+		ParserID:        "",
+		RouterVendors:   []string{"openai", "anthropic"},
+		PricingSurfaces: []string{"openai", "anthropic"},
+		Discovery: &Discovery{
+			Path:            "/v1/models",
+			Shape:           ShapeOpenAIData,
+			ExactModelsOnly: true,
+		},
+		IdentityInjection: &IdentityInjection{
+			HeaderPair: &HeaderPairInjection{
+				EndUserIDHeader: "x-netbird-user-id",
+				TagsHeader:      "x-netbird-groups",
 			},
 		},
 		Models: []Model{},

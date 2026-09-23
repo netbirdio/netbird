@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
 
 func TestNetworkMapComponents_IPv6EndToEnd(t *testing.T) {
@@ -105,7 +105,7 @@ func TestNetworkMapComponents_RemotePeerWithoutCapability(t *testing.T) {
 	require.NotNil(t, nm)
 
 	t.Run("AllowedIPs include remote v6", func(t *testing.T) {
-		var dst *types.ComponentPeer
+		var dst *nmdata.Peer
 		for _, p := range nm.Peers {
 			if p.ID == "peer-dst-1" {
 				dst = p

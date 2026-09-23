@@ -91,6 +91,19 @@ func (i Identity) IsPrivileged() bool {
 	return slices.Contains(i.Groups, sidAdministrators)
 }
 
+// SameUser reports whether two identities are the same local principal. Only
+// the account is compared: the group set and the elevation flag describe what a
+// token may do, not who it belongs to. A SID on either side decides the
+// comparison, so a Windows principal never matches a Unix one on the UID both
+// happen to leave at zero. The zero Identity carries uid 0, so callers must
+// establish that both identities are real before the answer means anything.
+func (i Identity) SameUser(other Identity) bool {
+	if i.SID != "" || other.SID != "" {
+		return i.SID == other.SID
+	}
+	return i.UID == other.UID
+}
+
 // String renders the identity for audit logs and denial messages.
 func (i Identity) String() string {
 	if i.IsWindows() {

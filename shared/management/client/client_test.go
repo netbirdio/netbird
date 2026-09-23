@@ -2,9 +2,11 @@ package client
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"os"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -126,7 +128,7 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := mgmt.NewAccountRequestBuffer(ctx, store)
-	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, mgmt.MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(store, peersManger), config)
+	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, mgmt.MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(store, peersManger), config, nil)
 	accountManager, err := mgmt.BuildManager(context.Background(), config, store, networkMapController, jobManager, nil, "", eventStore, nil, false, ia, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManagerMock, false, cacheStore)
 	if err != nil {
 		t.Fatal(err)
@@ -305,7 +307,7 @@ func TestClient_Sync(t *testing.T) {
 	defer cancel()
 
 	go func() {
-		err = client.Sync(ctx, info, func(msg *mgmtProto.SyncResponse) error {
+		err = client.Sync(ctx, func(context.Context) *system.Info { return info }, func(msg *mgmtProto.SyncResponse) error {
 			ch <- msg
 			return nil
 		})
@@ -395,6 +397,75 @@ func wgKeyFromBytes(raw []byte) string {
 	}
 	copy(k[:], raw)
 	return k.String()
+}
+
+func TestClient_SyncGathersInfoOnEveryConnect(t *testing.T) {
+	s, lis, mgmtMockServer, serverKey := startMockManagement(t)
+	defer s.GracefulStop()
+
+	testKey, err := wgtypes.GenerateKey()
+	require.NoError(t, err)
+
+	hostnames := make(chan string, 2)
+	mgmtMockServer.SyncFunc = func(msg *mgmtProto.EncryptedMessage, _ mgmtProto.ManagementService_SyncServer) error {
+		peerKey, err := wgtypes.ParseKey(msg.GetWgPubKey())
+		if err != nil {
+			t.Errorf("invalid peer key: %v", err)
+			return status.Error(codes.InvalidArgument, err.Error())
+		}
+		syncReq := &mgmtProto.SyncRequest{}
+		if err := encryption.DecryptMessage(peerKey, serverKey, msg.Body, syncReq); err != nil {
+			t.Errorf("decrypt sync request: %v", err)
+			return status.Error(codes.InvalidArgument, err.Error())
+		}
+		select {
+		case hostnames <- syncReq.GetMeta().GetHostname():
+		default:
+		}
+		// Returning closes the stream, so the client reconnects and gathers again.
+		return nil
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	client, err := NewClient(ctx, lis.Addr().String(), testKey, false)
+	require.NoError(t, err)
+
+	var gathers atomic.Int32
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = client.Sync(ctx, func(ctx context.Context) *system.Info {
+			info := system.GetInfo(ctx)
+			info.Hostname = fmt.Sprintf("host-%d", gathers.Add(1))
+			return info
+		}, func(*mgmtProto.SyncResponse) error { return nil })
+	}()
+
+	// A connect attempt can fail before it reaches the server, so the sequence
+	// numbers seen here may skip. What matters is that the reconnect carries a
+	// newly gathered info instead of the one sent on the previous stream.
+	var seen []int
+	for len(seen) < 2 {
+		select {
+		case got := <-hostnames:
+			var n int
+			_, err := fmt.Sscanf(got, "host-%d", &n)
+			require.NoError(t, err, "hostname should carry the gather sequence number")
+			seen = append(seen, n)
+		case <-time.After(10 * time.Second):
+			t.Fatalf("timeout waiting for the second sync request, got %v", seen)
+		}
+	}
+	assert.Greater(t, seen[1], seen[0], "the reconnect should carry a newly gathered info")
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("timeout waiting for Sync to return after cancel")
+	}
 }
 
 func Test_SystemMetaDataFromClient(t *testing.T) {

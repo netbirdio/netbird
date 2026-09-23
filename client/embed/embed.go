@@ -21,6 +21,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/mdm"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/shared/management/domain"
@@ -85,6 +86,11 @@ type Options struct {
 	DisableIPv6 bool
 	// BlockInbound blocks all inbound connections from peers
 	BlockInbound bool
+	// EnableRosenpass enables the Rosenpass post-quantum key exchange.
+	EnableRosenpass bool
+	// RosenpassPermissive lets a Rosenpass-enabled peer still connect to peers
+	// that do not run Rosenpass (falling back to the plain WireGuard PSK).
+	RosenpassPermissive bool
 	// BlockLANAccess blocks the embedded peer from reaching the host's
 	// LAN (RFC 1918, link-local, loopback) when it's used as a routing
 	// peer. Mirrors profilemanager.ConfigInput.BlockLANAccess. Useful
@@ -210,6 +216,8 @@ func New(opts Options) (*Client, error) {
 		DisableIPv6:         &opts.DisableIPv6,
 		BlockInbound:        &opts.BlockInbound,
 		BlockLANAccess:      &opts.BlockLANAccess,
+		RosenpassEnabled:    &opts.EnableRosenpass,
+		RosenpassPermissive: &opts.RosenpassPermissive,
 		WireguardPort:       opts.WireguardPort,
 		MTU:                 opts.MTU,
 		DNSLabels:           parsedLabels,
@@ -222,6 +230,10 @@ func New(opts Options) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create config: %w", err)
 	}
+	// Embedded path runs without the daemon Server: apply the active
+	// MDM policy explicitly so a forced ManagementURL / PSK / other
+	// managed key takes effect on this embedded engine instance.
+	config.ApplyMDMPolicy(mdm.NewLoader(nil).Load())
 
 	if opts.PrivateKey != "" {
 		config.PrivateKey = opts.PrivateKey

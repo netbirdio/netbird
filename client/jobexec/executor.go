@@ -28,7 +28,11 @@ func NewExecutor() *Executor {
 	return &Executor{}
 }
 
-func (e *Executor) BundleJob(ctx context.Context, debugBundleDependencies debug.GeneratorDependencies, params debug.BundleConfig, waitForDuration time.Duration, mgmURL string) (string, error) {
+func (e *Executor) BundleJob(ctx context.Context, debugBundleDependencies debug.GeneratorDependencies, params debug.BundleConfig, waitForDuration time.Duration, mgmURL, uploadURL string) (string, error) {
+	if uploadURL == "" {
+		uploadURL = types.DefaultBundleURL
+	}
+
 	if waitForDuration > MaxBundleWaitTime {
 		log.Warnf("bundle wait time %v exceeds maximum %v, capping to maximum", waitForDuration, MaxBundleWaitTime)
 		waitForDuration = MaxBundleWaitTime
@@ -54,7 +58,7 @@ func (e *Executor) BundleJob(ctx context.Context, debugBundleDependencies debug.
 		}
 	}()
 
-	key, err := debug.UploadDebugBundle(ctx, types.DefaultBundleURL, mgmURL, path, false)
+	key, err := debug.UploadDebugBundle(ctx, uploadURL, mgmURL, path, false)
 	if err != nil {
 		log.Errorf("failed to upload debug bundle: %v", err)
 		return "", fmt.Errorf("upload debug bundle: %w", err)

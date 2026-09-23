@@ -2169,6 +2169,7 @@ func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping)
 		IPRestrictions:    ipRestrictions,
 		Private:           mapping.GetPrivate(),
 		AppSecMode:        s.appSecMode(mapping),
+		AllowedGroups:     mapping.GetAuth().GetAllowedGroupIds(),
 	}
 	if err := s.auth.AddDomain(mapping.GetDomain(), settings); err != nil {
 		return fmt.Errorf("auth setup for domain %s: %w", mapping.GetDomain(), err)

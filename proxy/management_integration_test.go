@@ -567,9 +567,10 @@ func TestIntegration_ProxyConnection_ReconnectDoesNotDuplicateState(t *testing.T
 
 				// Apply to real auth middleware (idempotent)
 				err := authMw.AddDomain(mapping.GetDomain(), auth.DomainSettings{
-					AccountID: proxytypes.AccountID(mapping.GetAccountId()),
-					ServiceID: proxytypes.ServiceID(mapping.GetId()),
-					Private:   mapping.GetPrivate(),
+					AccountID:     proxytypes.AccountID(mapping.GetAccountId()),
+					ServiceID:     proxytypes.ServiceID(mapping.GetId()),
+					Private:       mapping.GetPrivate(),
+					AllowedGroups: mapping.GetAuth().GetAllowedGroupIds(),
 				})
 				require.NoError(t, err)
 
