@@ -181,7 +181,7 @@ func (m *testAccessLogManager) GetAllAccessLogs(_ context.Context, _, _ string, 
 }
 
 func setupAuthCallbackTest(t *testing.T) *testSetup {
-	return setupAuthCallbackTestWithProxyManager(t, nil)
+	return setupAuthCallbackTestWithProxyManager(t, testSessionCodeManager{})
 }
 
 func setupAuthCallbackTestWithProxyManager(t *testing.T, proxyManager nbproxy.Manager) *testSetup {
@@ -248,10 +248,11 @@ func setupAuthCallbackTestWithProxyManager(t *testing.T, proxyManager nbproxy.Ma
 
 type testSessionCodeManager struct {
 	nbproxy.Manager
+	supported bool
 }
 
-func (testSessionCodeManager) ClusterSupportsSessionCode(_ context.Context, _ string) bool {
-	return true
+func (m testSessionCodeManager) ClusterSupportsSessionCode(_ context.Context, _ string) bool {
+	return m.supported
 }
 
 func createTestReverseProxies(t *testing.T, ctx context.Context, testStore store.Store) {
@@ -531,8 +532,8 @@ func TestAuthCallback_UserAllowedToLogin(t *testing.T) {
 		wantParam   string
 		absentParam string
 	}{
-		{name: "legacy proxy", wantParam: "session_token", absentParam: "session_code"},
-		{name: "compatible proxy", manager: testSessionCodeManager{}, wantParam: "session_code", absentParam: "session_token"},
+		{name: "legacy proxy", manager: testSessionCodeManager{}, wantParam: "session_token", absentParam: "session_code"},
+		{name: "compatible proxy", manager: testSessionCodeManager{supported: true}, wantParam: "session_code", absentParam: "session_token"},
 	}
 
 	for _, tt := range tests {
