@@ -100,9 +100,10 @@ func (h *AuthCallbackHandler) handleCallback(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Group validation is performed by the proxy via ValidateSession gRPC call.
-	// This allows the proxy to show 403 pages directly without redirect dance.
-
+	// GenerateSessionToken applies the service's group and account-status gates,
+	// so a user without access never receives a token. The proxy re-checks the
+	// installed cookie against the service's allowed groups, and renders the
+	// denial page from the error carried back in the redirect.
 	sessionToken, err := h.proxyService.GenerateSessionToken(r.Context(), redirectURL.Hostname(), userID, auth.MethodOIDC)
 	if err != nil {
 		log.WithError(err).Error("Failed to create session token")
@@ -135,6 +136,9 @@ func sessionTokenErrorDescription(err error) string {
 	}
 	if errors.Is(err, nbgrpc.ErrUserBlocked) {
 		return "Your account is blocked"
+	}
+	if errors.Is(err, nbgrpc.ErrUserNotInGroup) {
+		return "You are not authorized to access this service"
 	}
 	return "Service configuration error"
 }

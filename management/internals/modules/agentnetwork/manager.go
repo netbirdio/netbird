@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/rand"
 	"slices"
 	"strings"
 	"sync"
@@ -133,24 +132,34 @@ type managerImpl struct {
 	proxyController    proxy.Controller
 
 	// modelDiscovery queries vendors for the models a credential can reach.
-	// A field rather than a package call so tests can drive it without
-	// reaching the network.
+	// An interface rather than the concrete client because it is now on a
+	// write path: the credential check runs inside CreateProvider and
+	// UpdateProvider, so every test that saves a provider would otherwise
+	// reach a vendor over the network to do it.
 	//
 	// One instance serves every request for the process's lifetime, so its
 	// fields must stay read-only after construction: lazy initialisation
 	// inside Fetch or httpClient would race across request goroutines.
-	modelDiscovery *modeldiscovery.Client
+	modelDiscovery ModelLister
 
 	// reconcileCache holds the last set of synthesised proxy mappings
 	// per account, each paired with the proxy that served it, so a change
 	// of serving proxy can be diffed without re-deriving it.
 	reconcileMu    sync.Mutex
 	reconcileCache map[string]map[string]syntheticMapping
+}
 
-	// labelRngMu guards labelRng. PickUnique consumes math/rand.Source
-	// state; concurrent provider creates would otherwise race.
-	labelRngMu sync.Mutex
-	labelRng   *rand.Rand
+// ManagerOption replaces a manager dependency at construction. Production
+// passes none; each option exists for something a test cannot let run for
+// real.
+type ManagerOption func(*managerImpl)
+
+// WithModelLister replaces the vendor call behind the provider credential
+// check. A test that saves a provider needs this — the check runs inside
+// CreateProvider and UpdateProvider, so the write path reaches a vendor
+// without it.
+func WithModelLister(lister ModelLister) ManagerOption {
+	return func(m *managerImpl) { m.modelDiscovery = lister }
 }
 
 // NewManager constructs the persistent Agent Network manager. The
@@ -163,16 +172,20 @@ func NewManager(
 	permissionsManager permissions.Manager,
 	accountManager account.Manager,
 	proxyController proxy.Controller,
+	opts ...ManagerOption,
 ) Manager {
-	return &managerImpl{
+	m := &managerImpl{
 		store:              store,
 		accountManager:     accountManager,
 		permissionsManager: permissionsManager,
 		proxyController:    proxyController,
 		modelDiscovery:     &modeldiscovery.Client{},
 		reconcileCache:     make(map[string]map[string]syntheticMapping),
-		labelRng:           rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
 }
 
 // GetAllProviders returns the account's providers for callers holding the
@@ -297,9 +310,11 @@ func (m *managerImpl) redactProvidersForViewer(ctx context.Context, accountID, u
 
 // DiscoverProviderModels asks the vendor which models a credential can reach.
 //
-// recordID, when set, names an existing provider whose stored credential and
-// upstream are used instead of the ones in req — so the dashboard can refresh
-// the list without ever holding the key.
+// recordID, when set, names an existing provider whose stored credential is
+// used instead of the one in req — so the dashboard can refresh the list
+// without ever holding the key. An upstream in req overrides the stored one,
+// which is what lets a form list against a URL the operator has typed but not
+// saved yet, using the credential they cannot retype.
 //
 // Gated on Create rather than Read: this spends the operator's credential
 // against a third party, which is not something a read-only role should be
@@ -320,11 +335,29 @@ func (m *managerImpl) DiscoverProviderModels(ctx context.Context, accountID, use
 		// name a different one would run a provider's credential against
 		// whichever vendor endpoint they picked.
 		req.CatalogID = record.ProviderID
-		req.UpstreamURL = record.UpstreamURL
 		req.APIKey = record.APIKey
+		// The upstream is the one field the caller may override, so that a URL
+		// typed into the form can be listed against before it is saved.
+		//
+		// It sends the stored credential to a host the caller named, which is
+		// a capability they already have: the same permission set updates the
+		// record's upstream, and that write runs this same check against
+		// whatever it is pointed at. What it would not otherwise be is silent,
+		// since the write leaves an activity event behind — so the override is
+		// recorded here.
+		if strings.TrimSpace(req.UpstreamURL) == "" {
+			req.UpstreamURL = record.UpstreamURL
+		} else if req.UpstreamURL != record.UpstreamURL {
+			log.WithContext(ctx).Infof("agent network provider %s listed against caller-supplied upstream %s by user %s",
+				recordID, req.UpstreamURL, userID)
+		}
 	}
 
-	return m.modelDiscovery.Fetch(ctx, req)
+	models, err := m.modelDiscovery.Fetch(ctx, req)
+	if err != nil {
+		return nil, discoveryFailure(ctx, req.CatalogID, err)
+	}
+	return models, nil
 }
 
 // CreateProvider persists a new provider for the account. Providers have no
@@ -341,6 +374,18 @@ func (m *managerImpl) CreateProvider(ctx context.Context, userID string, provide
 	// at create time instead.
 	if strings.TrimSpace(provider.APIKey) == "" {
 		return nil, status.Errorf(status.InvalidArgument, "api_key is required when creating an agent network provider")
+	}
+	// Stored as it will be sent. The vendor call below trims the key before
+	// building the auth header while the synthesiser substitutes the stored
+	// value verbatim, so a key pasted with surrounding whitespace would pass
+	// its check and then fail every request the provider serves.
+	provider.APIKey = strings.TrimSpace(provider.APIKey)
+
+	// Before anything is persisted: a record whose upstream or credential does
+	// not work is rejected here rather than discovered later as a failed
+	// request with nothing pointing back at it.
+	if err := m.checkProviderCredential(ctx, provider); err != nil {
+		return nil, err
 	}
 
 	if provider.ID == "" {
@@ -377,11 +422,47 @@ func (m *managerImpl) UpdateProvider(ctx context.Context, userID string, provide
 	// Preserve the API key if the caller didn't rotate it. A
 	// whitespace-only value is treated as "not rotated" rather than a
 	// real key, but it must not silently overwrite a valid stored key.
-	if provider.APIKey == "" {
-		provider.APIKey = existing.APIKey
-	} else if strings.TrimSpace(provider.APIKey) == "" {
+	switch trimmed := strings.TrimSpace(provider.APIKey); {
+	case provider.APIKey == "":
+		// Trimmed on the way through: a record stored before keys were
+		// normalised carries whitespace the proxy still sends, and an edit
+		// that preserves the key is the occasion to repair it. Doing so makes
+		// the comparison below see a change, which is correct — that key has
+		// never been tested in the form it is about to be sent in.
+		provider.APIKey = strings.TrimSpace(existing.APIKey)
+	case trimmed == "":
 		return nil, status.Errorf(status.InvalidArgument, "api_key must be non-blank when rotating an agent network provider")
+	default:
+		// See CreateProvider: the key is stored in the form the proxy will
+		// send, so the check below tests what the provider will actually use.
+		provider.APIKey = trimmed
 	}
+
+	// Only the fields the vendor would judge are worth a round-trip. This same
+	// call carries renames, model rows and price edits, and none of those
+	// should wait on a vendor — or be refused because one is having a bad day.
+	//
+	// The catalog entry counts as one of them: it decides which vendor is
+	// asked, under which auth header, so moving a record from one to another
+	// sends an unchanged credential somewhere it has never been accepted.
+	//
+	// The comparison runs after the merge above, so an update that changes only
+	// the URL reads as unchanged on the key and is checked against the stored
+	// one, which is the only credential the operator has to offer here.
+	//
+	// Turning TLS verification back on is the fourth: the record was stored
+	// unchecked precisely because that flag was set, so this is the first
+	// moment it can be checked at all, and nothing else about it need change
+	// for that to be true.
+	if provider.UpstreamURL != existing.UpstreamURL ||
+		provider.APIKey != existing.APIKey ||
+		provider.ProviderID != existing.ProviderID ||
+		(existing.SkipTLSVerification && !provider.SkipTLSVerification) {
+		if err := m.checkProviderCredential(ctx, provider); err != nil {
+			return nil, err
+		}
+	}
+
 	// Always preserve the session keypair across updates so existing
 	// session cookies stay valid. The keys are server-managed and
 	// never surfaced through the API.
@@ -955,6 +1036,18 @@ func (m *managerImpl) bootstrapSelfAddressed(ctx context.Context, settings *type
 	if err != nil {
 		return status.Errorf(status.InvalidArgument, "invalid endpoint: %s", err)
 	}
+	if err := m.requireHostNotForeign(ctx, settings.AccountID, hostname); err != nil {
+		return err
+	}
+	// Another account's labeled pin beneath this hostname makes it their
+	// cluster: a proxy serving them there would never serve this endpoint.
+	// The domain unique index already arbitrates two endpoints on one name.
+	if err := m.requireNotClaimedByOtherAccount(ctx, settings.AccountID, hostname, m.store.HasGatewayClusterPinnedByOtherAccount); err != nil {
+		return err
+	}
+	if err := m.validateGatewayCluster(ctx, settings.AccountID, hostname); err != nil {
+		return err
+	}
 
 	settings.Domain = hostname
 	settings.ProxyAddress = hostname
@@ -973,6 +1066,99 @@ func (m *managerImpl) bootstrapSelfAddressed(ctx context.Context, settings *type
 	return nil
 }
 
+// validateGatewayCluster rejects a bootstrap pinned to a cluster that cannot
+// serve the account's gateway — a labeled endpoint beneath the cluster and a
+// self-addressed one on the very address a proxy declares alike, since the
+// service behind either is the same private one.
+//
+// The synthesised gateway service is unconditionally private
+// (buildAccountService): agents reach it over the WireGuard tunnel and are
+// authorised by ValidateTunnelPeer against the policies' source groups, and
+// its single target is the cluster itself with DirectUpstream. Only a cluster
+// with private capabilities can serve that. Management reports it per cluster
+// as the `private` capability, the same flag the dashboard renders as
+// supports_private when it gates NetBird-only services.
+//
+// Without this check the bootstrap happily pins to any cluster the caller
+// names, including one without private capabilities — and the endpoint it
+// allocates is immutable, so the account is left with a dead gateway that only
+// a DeleteSettings/re-bootstrap can undo.
+//
+// Whether management knows the cluster is decided on the proxy rows
+// themselves, never on how fresh their heartbeats are: a cluster's rows
+// outlive its proxies' liveness (only the stale-proxy reaper removes them), so
+// a cluster that exists stays judged as one. Judging on liveness instead would
+// make the same centralised cluster pass or fail depending on whether its
+// proxies happened to have heartbeated in the last couple of minutes.
+//
+// The single opening left is a cluster management holds no proxy row for at
+// all: pinning ahead of a proxy's first connection is a legitimate order — the
+// dedicated path claims an address the same way, before any proxy declares it.
+func (m *managerImpl) validateGatewayCluster(ctx context.Context, accountID, clusterAddr string) error {
+	declared, err := m.accountClusterSpellings(ctx, accountID, clusterAddr)
+	if err != nil {
+		return err
+	}
+	if len(declared) == 0 {
+		// No proxy has ever declared this address: an address-first pin.
+		return nil
+	}
+
+	// A cluster management knows has to prove it can serve the gateway, and
+	// only a live proxy reporting the capability proves that. Both an explicit false and an
+	// unreported capability (nothing live in the cluster, or proxies predating
+	// capability reporting) fail here: unusable and unproven are the same
+	// answer for a decision that cannot be revisited later.
+	//
+	// The capability is read per declared spelling and taken as any-true, the
+	// same way it aggregates over a cluster's proxies: the store matches
+	// cluster_address exactly, so a host two proxies spelled differently must
+	// not come back unproven just because it was asked about under one of them.
+	for _, address := range declared {
+		if private := m.store.GetClusterSupportsPrivate(ctx, address); private != nil && *private {
+			return nil
+		}
+	}
+
+	return status.Errorf(status.InvalidArgument,
+		"proxy cluster %s has no private capabilities: the agent network gateway requires a reverse proxy cluster "+
+			"with private capabilities", clusterAddr)
+}
+
+// accountClusterSpellings returns every proxy cluster address in the account's
+// view — its own (BYOP) clusters plus the shared ones — that names the same
+// host as clusterAddr. Empty means management holds no proxy row for that host
+// in this account's view.
+//
+// A proxy declares its cluster address as the operator spelled it, so identity
+// is compared on the normalised form rather than byte-equal — an in-memory pass
+// over the account's clusters, not a query. What comes back is the stored
+// spelling, because the capability lookup matches cluster_address exactly and
+// would silently find nothing under a spelling the store never held. The
+// cluster listing is not gated on heartbeats, so this answer does not change
+// while a cluster's proxies are merely offline.
+func (m *managerImpl) accountClusterSpellings(ctx context.Context, accountID, clusterAddr string) ([]string, error) {
+	clusters, err := m.store.GetProxyClusters(ctx, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("list proxy clusters: %w", err)
+	}
+
+	var spellings []string
+	for _, cluster := range clusters {
+		normalized, err := types.NormalizeHostname(cluster.Address)
+		if err != nil {
+			// An address declared in a shape we cannot normalise is not one an
+			// endpoint can be allocated beneath.
+			log.WithContext(ctx).Debugf("skipping unusable proxy cluster address %q: %s", cluster.Address, err)
+			continue
+		}
+		if normalized == clusterAddr {
+			spellings = append(spellings, cluster.Address)
+		}
+	}
+	return spellings, nil
+}
+
 // bootstrapLabeled allocates a labeled endpoint one label beneath the given
 // cluster address: Domain = <label>.<proxyAddress>, served by whichever proxy
 // declares the parent. Labels are adjective-noun tuples; a candidate is
@@ -984,11 +1170,23 @@ func (m *managerImpl) bootstrapLabeled(ctx context.Context, settings *types.Sett
 	if err != nil {
 		return status.Errorf(status.InvalidArgument, "invalid proxy_address: %s", err)
 	}
+	if err := m.requireHostNotForeign(ctx, settings.AccountID, parent); err != nil {
+		return err
+	}
+	// Another account's endpoint at this exact hostname means the proxy that
+	// declares it is theirs, so nothing would serve a label beneath it. Other
+	// accounts' labeled pins under the same cluster are not asked about: a
+	// shared cluster carries many of them by design.
+	if err := m.requireNotClaimedByOtherAccount(ctx, settings.AccountID, parent, m.store.HasGatewayEndpointByOtherAccount); err != nil {
+		return err
+	}
+
+	if err := m.validateGatewayCluster(ctx, settings.AccountID, parent); err != nil {
+		return err
+	}
 
 	for attempt := 1; attempt <= maxDomainAllocationAttempts; attempt++ {
-		m.labelRngMu.Lock()
-		label := labelgen.PickTuple(m.labelRng)
-		m.labelRngMu.Unlock()
+		label := labelgen.PickTuple()
 		if label == "" {
 			// Only reachable if either word pool were emptied. An empty label
 			// would produce a broken endpoint like ".example.com", so fail
@@ -1030,6 +1228,41 @@ func (m *managerImpl) bootstrapLabeled(ctx context.Context, settings *types.Sett
 	}
 
 	return fmt.Errorf("allocate agent network endpoint for account %s: %d attempts exhausted", settings.AccountID, maxDomainAllocationAttempts)
+}
+
+// requireHostNotForeign refuses to pin the account's gateway onto a host that
+// another account's proxy declares. The pin's proxy_address is what selects
+// the proxy that serves the endpoint, and an account-scoped proxy only ever
+// receives its own account's mappings, so such a pin could never be served —
+// and the endpoint it assigns is immutable. Shared proxies are not foreign, and
+// a host no proxy has declared stays pinnable: claiming the address before the
+// proxy's first connection is the documented order.
+func (m *managerImpl) requireHostNotForeign(ctx context.Context, accountID, host string) error {
+	foreign, err := m.store.HasForeignAccountProxyAtHost(ctx, host, accountID)
+	if err != nil {
+		return fmt.Errorf("check proxy host ownership: %w", err)
+	}
+	if foreign {
+		return errHostNotAvailable(host)
+	}
+	return nil
+}
+
+// requireNotClaimedByOtherAccount refuses the pin when another account's
+// gateway settings already claim the host in the shape claimed answers for.
+func (m *managerImpl) requireNotClaimedByOtherAccount(ctx context.Context, accountID, host string, claimed func(context.Context, string, string) (bool, error)) error {
+	taken, err := claimed(ctx, host, accountID)
+	if err != nil {
+		return fmt.Errorf("check agent network gateway claims at host: %w", err)
+	}
+	if taken {
+		return errHostNotAvailable(host)
+	}
+	return nil
+}
+
+func errHostNotAvailable(host string) error {
+	return status.Errorf(status.InvalidArgument, "proxy cluster %s is not available to this account", host)
 }
 
 // isUniqueConstraintError reports whether err is a database unique-constraint

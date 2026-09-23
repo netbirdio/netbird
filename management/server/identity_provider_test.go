@@ -7,12 +7,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
-	"go.uber.org/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
@@ -34,6 +35,20 @@ import (
 
 func createManagerWithEmbeddedIdP(t testing.TB) (*DefaultAccountManager, *update_channel.PeersUpdateManager, error) {
 	t.Helper()
+	return createManagerWithEmbeddedIdPMode(t, "netbird.selfhosted")
+}
+
+func createManagerWithEmbeddedIdPMode(t testing.TB, singleAccountModeDomain string) (*DefaultAccountManager, *update_channel.PeersUpdateManager, error) {
+	t.Helper()
+	return createManagerWithEmbeddedIdPModeAndSetup(t, singleAccountModeDomain, nil)
+}
+
+func createManagerWithEmbeddedIdPModeAndSetup(
+	t testing.TB,
+	singleAccountModeDomain string,
+	setupStore func(context.Context, store.Store) error,
+) (*DefaultAccountManager, *update_channel.PeersUpdateManager, error) {
+	t.Helper()
 
 	ctx := context.Background()
 
@@ -43,6 +58,11 @@ func createManagerWithEmbeddedIdP(t testing.TB) (*DefaultAccountManager, *update
 		return nil, nil, err
 	}
 	t.Cleanup(cleanUp)
+	if setupStore != nil {
+		if err := setupStore(ctx, testStore); err != nil {
+			return nil, nil, err
+		}
+	}
 
 	// Create embedded IdP manager
 	embeddedConfig := &idp.EmbeddedIdPConfig{
@@ -93,7 +113,7 @@ func createManagerWithEmbeddedIdP(t testing.TB) (*DefaultAccountManager, *update
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, testStore)
 	networkMapController := controller.NewController(ctx, testStore, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(testStore, peersManager), &config.Config{}, nil)
-	manager, err := BuildManager(ctx, &config.Config{}, testStore, networkMapController, job.NewJobManager(nil, testStore, peersManager), idpManager, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false, cacheStore)
+	manager, err := BuildManager(ctx, &config.Config{}, testStore, networkMapController, job.NewJobManager(nil, testStore, peersManager), idpManager, singleAccountModeDomain, eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false, cacheStore)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -102,7 +122,7 @@ func createManagerWithEmbeddedIdP(t testing.TB) (*DefaultAccountManager, *update
 }
 
 func TestDefaultAccountManager_CreateIdentityProvider_Validation(t *testing.T) {
-	manager, _, err := createManager(t)
+	manager, _, err := createManagerWithEmbeddedIdP(t)
 	require.NoError(t, err)
 
 	userID := "testingUser"
@@ -196,8 +216,25 @@ func TestDefaultAccountManager_GetIdentityProvider_NotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "not found")
 }
 
+func TestUpdateUserAuthWithSingleModeKeepsConfiguredDomain(t *testing.T) {
+	ctx := context.Background()
+	manager, _, err := createManagerWithEmbeddedIdPModeAndSetup(t, "netbird.selfhosted", func(ctx context.Context, testStore store.Store) error {
+		// An account with no domain, as left behind by an IdP that emitted no domain claims.
+		return testStore.SaveAccount(ctx, newAccountWithId(ctx, "account-1", "user-1", "", "", "", false))
+	})
+	require.NoError(t, err)
+	require.True(t, manager.singleAccountMode)
+
+	userAuth := auth.UserAuth{UserId: "user-2"}
+	require.NoError(t, manager.updateUserAuthWithSingleMode(ctx, &userAuth))
+
+	assert.Equal(t, "netbird.selfhosted", userAuth.Domain,
+		"An empty account domain must not clear the configured single account domain")
+	assert.Equal(t, types.PrivateCategory, userAuth.DomainCategory)
+}
+
 func TestDefaultAccountManager_UpdateIdentityProvider_Validation(t *testing.T) {
-	manager, _, err := createManager(t)
+	manager, _, err := createManagerWithEmbeddedIdP(t)
 	require.NoError(t, err)
 
 	userID := "testingUser"
@@ -318,4 +355,46 @@ func TestValidateOIDCIssuer_TrailingSlash(t *testing.T) {
 	// This should fail because the issuer returned doesn't have trailing slash
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, types.ErrIdentityProviderIssuerMismatch))
+}
+
+func TestValidateOIDCIssuer_DoesNotFollowRedirects(t *testing.T) {
+	var reached bool
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		reached = true
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	t.Cleanup(target.Close)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL+"/redirect-target", http.StatusFound)
+	}))
+	t.Cleanup(srv.Close)
+
+	err := validateOIDCIssuer(context.Background(), srv.URL)
+	require.Error(t, err)
+	assert.False(t, reached, "Redirects are not followed")
+}
+
+func TestValidateOIDCIssuer_BoundsResponseSize(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"issuer":"` + strings.Repeat("a", maxDiscoveryDocumentSize) + `"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	err := validateOIDCIssuer(context.Background(), srv.URL)
+	require.ErrorIs(t, err, types.ErrIdentityProviderIssuerUnreachable)
+	assert.NotErrorIs(t, err, types.ErrIdentityProviderIssuerMismatch)
+}
+
+func TestValidateOIDCIssuer_RejectsTrailingContent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"issuer":"http://` + r.Host + `"} {"issuer":"second"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	err := validateOIDCIssuer(context.Background(), srv.URL)
+	require.ErrorIs(t, err, types.ErrIdentityProviderIssuerUnreachable,
+		"Content after the first object is not a valid discovery document")
 }
