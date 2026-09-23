@@ -216,6 +216,64 @@ func TestValidateTargetOptions_CustomHeaders(t *testing.T) {
 	})
 }
 
+func TestValidate_DirectUpstreamHost(t *testing.T) {
+	target := Target{TargetId: "id-1", TargetType: TargetTypePeer, Host: "10.0.0.1", Port: 80, Protocol: "http", Enabled: true, Options: TargetOptions{DirectUpstream: true}}
+	assert.ErrorIs(t, validateDirectUpstreamHost(0, targetWithHost(&target, "127.0.0.2")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.NotNil(t, validateDirectUpstreamHost(0, targetWithHost(&target, "127.0.0.2:80")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.ErrorIs(t, validateDirectUpstreamHost(0, targetWithHost(&target, "::1")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.ErrorIs(t, validateDirectUpstreamHost(0, targetWithHost(&target, "::1%lo0")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.ErrorIs(t, validateDirectUpstreamHost(0, targetWithHost(&target, "[::1]")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.NotNil(t, validateDirectUpstreamHost(0, targetWithHost(&target, "[::1]:80")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.ErrorIs(t, validateDirectUpstreamHost(0, targetWithHost(&target, "[::1%lo0]")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.NotNil(t, validateDirectUpstreamHost(0, targetWithHost(&target, "[::1%lo0]:80")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.ErrorIs(t, validateDirectUpstreamHost(0, targetWithHost(&target, "169.254.100.100")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.ErrorIs(t, validateDirectUpstreamHost(0, targetWithHost(&target, "fe80::1")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.ErrorIs(t, validateDirectUpstreamHost(0, targetWithHost(&target, "[fe80::1]")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.ErrorIs(t, validateDirectUpstreamHost(0, targetWithHost(&target, "224.100.100.100")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.ErrorIs(t, validateDirectUpstreamHost(0, targetWithHost(&target, "ff00::ffff")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.ErrorIs(t, validateDirectUpstreamHost(0, targetWithHost(&target, "[ff00::ffff]")), ErrUnsupportedIPAddressUpstreamHost)
+
+	// empty host
+	assert.Nil(t, validateDirectUpstreamHost(0, &Target{Options: TargetOptions{DirectUpstream: true}, Host: "   "}))
+	// host with a space
+	assert.NotNil(t, validateDirectUpstreamHost(0, &Target{Options: TargetOptions{DirectUpstream: true}, Host: "with space"}))
+	// host with a tab
+	assert.NotNil(t, validateDirectUpstreamHost(0, &Target{Options: TargetOptions{DirectUpstream: true}, Host: "with\ttab"}))
+	// host with a slash
+	assert.NotNil(t, validateDirectUpstreamHost(0, &Target{Options: TargetOptions{DirectUpstream: true}, Host: "with/slash"}))
+}
+
+func TestValidate_ValidateSubnetTarget(t *testing.T) {
+	target := Target{TargetId: "id-1", TargetType: TargetTypeSubnet, Host: "10.0.0.1", Port: 80, Protocol: "http", Enabled: true, Options: TargetOptions{DirectUpstream: true}}
+	assert.ErrorIs(t, validateSubnetTarget(0, targetWithHost(&target, "127.0.0.2")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.NotNil(t, validateSubnetTarget(0, targetWithHost(&target, "127.0.0.2:80")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.ErrorIs(t, validateSubnetTarget(0, targetWithHost(&target, "::1")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.NotNil(t, validateSubnetTarget(0, targetWithHost(&target, "[::1]:80")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.ErrorIs(t, validateSubnetTarget(0, targetWithHost(&target, "::1%lo0")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.ErrorIs(t, validateSubnetTarget(0, targetWithHost(&target, "[::1%lo0]")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.NotNil(t, validateSubnetTarget(0, targetWithHost(&target, "[::1%lo0]:80")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.ErrorIs(t, validateSubnetTarget(0, targetWithHost(&target, "169.254.100.100")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.ErrorIs(t, validateSubnetTarget(0, targetWithHost(&target, "fe80::1")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.ErrorIs(t, validateSubnetTarget(0, targetWithHost(&target, "[fe80::1]")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.ErrorIs(t, validateSubnetTarget(0, targetWithHost(&target, "224.100.100.100")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.ErrorIs(t, validateSubnetTarget(0, targetWithHost(&target, "ff00::ffff")), ErrUnsupportedIPAddressUpstreamHost)
+	assert.ErrorIs(t, validateSubnetTarget(0, targetWithHost(&target, "[ff00::ffff]")), ErrUnsupportedIPAddressUpstreamHost)
+
+	// empty host
+	assert.NotNil(t, validateSubnetTarget(0, &Target{Options: TargetOptions{DirectUpstream: true}, Host: "   "}))
+	// host with a space
+	assert.NotNil(t, validateSubnetTarget(0, &Target{Options: TargetOptions{DirectUpstream: true}, Host: "with space"}))
+	// host with a tab
+	assert.NotNil(t, validateSubnetTarget(0, &Target{Options: TargetOptions{DirectUpstream: true}, Host: "with\ttab"}))
+	// host with a slash
+	assert.NotNil(t, validateSubnetTarget(0, &Target{Options: TargetOptions{DirectUpstream: true}, Host: "with/slash"}))
+}
+
+func targetWithHost(t *Target, host string) *Target {
+	t.Host = host
+	return t
+}
+
 func TestToProtoMapping_TargetOptions(t *testing.T) {
 	rp := &Service{
 		ID:        "svc-1",
@@ -248,6 +306,44 @@ func TestToProtoMapping_TargetOptions(t *testing.T) {
 	assert.Equal(t, map[string]string{"X-Custom": "val"}, opts.CustomHeaders)
 	require.NotNil(t, opts.RequestTimeout)
 	assert.Equal(t, int64(30), opts.RequestTimeout.Seconds)
+}
+
+// TestToProtoMapping_AllowedGroupIds covers the list the proxy gates session
+// cookies on: without it the proxy can only check a cookie's signature, which
+// makes a token minted for a user outside the groups a bearer credential.
+func TestToProtoMapping_AllowedGroupIds(t *testing.T) {
+	t.Run("distribution groups reach the proxy", func(t *testing.T) {
+		rp := &Service{
+			ID:        "svc-1",
+			AccountID: "acc-1",
+			Domain:    "example.com",
+			Auth: AuthConfig{
+				BearerAuth: &BearerAuthConfig{
+					Enabled:            true,
+					DistributionGroups: []string{"grp-1", "grp-2"},
+				},
+			},
+		}
+		pm := rp.ToProtoMapping(Create, "token", proxy.OIDCValidationConfig{})
+
+		assert.True(t, pm.GetAuth().GetOidc())
+		assert.Equal(t, []string{"grp-1", "grp-2"}, pm.GetAuth().GetAllowedGroupIds())
+	})
+
+	t.Run("a service open to the account carries no groups", func(t *testing.T) {
+		rp := &Service{
+			ID:        "svc-1",
+			AccountID: "acc-1",
+			Domain:    "example.com",
+			Auth: AuthConfig{
+				BearerAuth: &BearerAuthConfig{Enabled: true},
+			},
+		}
+		pm := rp.ToProtoMapping(Create, "token", proxy.OIDCValidationConfig{})
+
+		assert.True(t, pm.GetAuth().GetOidc())
+		assert.Empty(t, pm.GetAuth().GetAllowedGroupIds(), "an empty list must not restrict access")
+	})
 }
 
 func TestToProtoMapping_NoOptionsWhenDefault(t *testing.T) {

@@ -2,12 +2,14 @@ package acme
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/proxy/internal/flock"
 	"github.com/netbirdio/netbird/proxy/internal/k8s"
+	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
 // certLocker provides distributed mutual exclusion for certificate operations.
@@ -74,9 +76,15 @@ func newFlockLocker(certDir string, logger *log.Logger) *flockLocker {
 	return &flockLocker{certDir: certDir, logger: logger}
 }
 
-// Lock acquires an advisory file lock for the given domain.
-func (l *flockLocker) Lock(ctx context.Context, domain string) (func(), error) {
-	lockPath := filepath.Join(l.certDir, domain+".lock")
+// Lock acquires an advisory file lock for the given domain. The domain must
+// be a valid hostname so the lock file always resolves to a direct child of
+// certDir; anything else is rejected before touching the filesystem.
+func (l *flockLocker) Lock(ctx context.Context, name string) (func(), error) {
+	if !domain.IsValidDomainNoWildcard(name) {
+		return nil, fmt.Errorf("invalid domain %q for lock file", name)
+	}
+
+	lockPath := filepath.Join(l.certDir, name+".lock")
 	lockFile, err := flock.Lock(ctx, lockPath)
 	if err != nil {
 		return nil, err
@@ -89,7 +97,7 @@ func (l *flockLocker) Lock(ctx context.Context, domain string) (func(), error) {
 
 	return func() {
 		if err := flock.Unlock(lockFile); err != nil {
-			l.logger.Debugf("release cert lock for domain %q: %v", domain, err)
+			l.logger.Debugf("release cert lock for domain %q: %v", name, err)
 		}
 	}, nil
 }

@@ -117,6 +117,16 @@ func (m *Manager) UpdateDomains(entries []*ForwarderEntry) {
 	m.dnsForwarder.UpdateDomains(entries)
 }
 
+// Domains returns the entries currently being served, or nil when the
+// forwarder is not running.
+func (m *Manager) Domains() []*ForwarderEntry {
+	if m.dnsForwarder == nil {
+		return nil
+	}
+
+	return m.dnsForwarder.Domains()
+}
+
 func (m *Manager) Stop(ctx context.Context) error {
 	if m.dnsForwarder == nil {
 		return nil
