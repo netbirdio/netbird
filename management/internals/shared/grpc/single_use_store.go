@@ -39,18 +39,22 @@ func (s *SingleUseStore) Store(key, value string, ttl time.Duration) error {
 	return nil
 }
 
-// Generate stores a value for one-time retrieval and returns its random key.
-func (s *SingleUseStore) Generate(value string, ttl time.Duration) (string, error) {
+// Generate stores a value under a namespaced random key and returns the random key.
+func (s *SingleUseStore) Generate(namespace, value string, ttl time.Duration) (string, error) {
 	buf := make([]byte, 32)
 	if _, err := rand.Read(buf); err != nil {
 		return "", fmt.Errorf("generate single-use key: %w", err)
 	}
 
 	key := base64.RawURLEncoding.EncodeToString(buf)
-	if err := s.Store(key, value, ttl); err != nil {
+	if err := s.Store(singleUseCacheKey(namespace, key), value, ttl); err != nil {
 		return "", err
 	}
 	return key, nil
+}
+
+func singleUseCacheKey(namespace, key string) string {
+	return namespace + ":" + key
 }
 
 // LoadAndDelete retrieves and removes the value for key, returning it and true

@@ -390,6 +390,30 @@ func TestValidateState_RejectsInvalidHMAC(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid state signature")
 }
 
+func TestSessionCodeCannotConsumeOIDCState(t *testing.T) {
+	const verifier = "pkce-verifier"
+
+	store := NewSingleUseStore(context.Background(), testCacheStore(t))
+	server := &ProxyServiceServer{
+		oidcConfig: ProxyOIDCConfig{
+			HMACKey: []byte("test-hmac-key"),
+		},
+		singleUseStore: store,
+	}
+	state := generateState(server, "https://service.example.com/callback")
+	require.NoError(t, store.Store(state, verifier, time.Minute))
+
+	response, err := server.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
+		SessionCode: state,
+	})
+	require.NoError(t, err)
+	assert.False(t, response.GetValid())
+
+	gotVerifier, _, _, err := server.ValidateState(state)
+	require.NoError(t, err)
+	assert.Equal(t, verifier, gotVerifier)
+}
+
 func TestSendServiceUpdateToCluster_FiltersOnCapability(t *testing.T) {
 	tokenStore := NewOneTimeTokenStore(context.Background(), testCacheStore(t))
 

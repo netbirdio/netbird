@@ -85,9 +85,10 @@ func TestSingleUseStoreLoadAndDelete(t *testing.T) {
 }
 
 func TestSingleUseStore_GenerateAndConsumeOnce(t *testing.T) {
+	const namespace = "test"
 	s := NewSingleUseStore(context.Background(), testCacheStore(t))
 
-	key, err := s.Generate("the-value", time.Minute)
+	key, err := s.Generate(namespace, "the-value", time.Minute)
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
@@ -95,23 +96,23 @@ func TestSingleUseStore_GenerateAndConsumeOnce(t *testing.T) {
 		t.Fatalf("unexpected key %q", key)
 	}
 
-	value, found := s.LoadAndDelete(key)
+	value, found := s.LoadAndDelete(singleUseCacheKey(namespace, key))
 	if !found || value != "the-value" {
 		t.Fatalf("expected to load the stored value, got %q found=%v", value, found)
 	}
 
-	if _, found := s.LoadAndDelete(key); found {
+	if _, found := s.LoadAndDelete(singleUseCacheKey(namespace, key)); found {
 		t.Fatal("value must be consumed on first LoadAndDelete")
 	}
 }
 
 func TestSingleUseStore_GenerateUniqueKeys(t *testing.T) {
 	s := NewSingleUseStore(context.Background(), testCacheStore(t))
-	a, err := s.Generate("v", time.Minute)
+	a, err := s.Generate("test", "v", time.Minute)
 	if err != nil {
 		t.Fatalf("generate a: %v", err)
 	}
-	b, err := s.Generate("v", time.Minute)
+	b, err := s.Generate("test", "v", time.Minute)
 	if err != nil {
 		t.Fatalf("generate b: %v", err)
 	}

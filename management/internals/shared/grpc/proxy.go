@@ -159,6 +159,8 @@ const pkceVerifierTTL = 10 * time.Minute
 
 const sessionCodeTTL = 60 * time.Second
 
+const sessionCodeCacheNamespace = "proxy:session"
+
 // The signed nonce binds the handoff mode without changing the state format.
 const sessionCodeNoncePrefix = "code."
 
@@ -312,7 +314,7 @@ func (s *ProxyServiceServer) proxyConnectAuthorizer() ProxyConnectAuthorizer {
 
 // GenerateSessionCode creates a single-use code for the given session token.
 func (s *ProxyServiceServer) GenerateSessionCode(sessionToken string) (code string, ok bool) {
-	code, err := s.singleUseStore.Generate(sessionToken, sessionCodeTTL)
+	code, err := s.singleUseStore.Generate(sessionCodeCacheNamespace, sessionToken, sessionCodeTTL)
 	if err != nil {
 		log.WithError(err).Error("failed to generate proxy session code")
 		return "", false
@@ -1875,7 +1877,7 @@ func (s *ProxyServiceServer) ValidateSession(ctx context.Context, req *proto.Val
 	// is returned to the proxy (mintedToken) to install as the session cookie.
 	mintedToken := ""
 	if code := req.GetSessionCode(); code != "" {
-		redeemed, found := s.singleUseStore.LoadAndDelete(code)
+		redeemed, found := s.singleUseStore.LoadAndDelete(singleUseCacheKey(sessionCodeCacheNamespace, code))
 		if !found {
 			return deniedSessionResponse("invalid or expired session code"), nil
 		}
