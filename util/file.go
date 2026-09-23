@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	//	"syscall"
 	"text/template"
 
 	log "github.com/sirupsen/logrus"
