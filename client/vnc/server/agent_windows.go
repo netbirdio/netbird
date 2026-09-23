@@ -21,6 +21,12 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// agentTokenEnvVar names the environment variable the daemon uses to hand the
+// per-spawn token to the agent child. Out-of-band channels like this keep the
+// secret out of the command line, where tasklist would expose it. The Windows
+// agent runs as SYSTEM, so its environment is not readable by user processes.
+const agentTokenEnvVar = "NB_VNC_AGENT_TOKEN" // #nosec G101 -- env var name, not a credential
+
 const (
 	stillActive = 259
 

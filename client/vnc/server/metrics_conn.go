@@ -75,6 +75,10 @@ type metricsConn struct {
 	busyLastNanos uint64
 	busyFraction  float64
 
+	// writeMu is held shared by each Write for its whole duration and taken
+	// exclusively by Close before the final snapshot, so that snapshot counts
+	// every write that was in flight when the connection was closed.
+	writeMu   sync.RWMutex
 	closeOnce sync.Once
 	done      chan struct{}
 }
@@ -224,6 +228,9 @@ func (m *metricsConn) endFBU() {
 }
 
 func (m *metricsConn) Write(p []byte) (int, error) {
+	m.writeMu.RLock()
+	defer m.writeMu.RUnlock()
+
 	t0 := time.Now()
 	n, err := m.Conn.Write(p)
 	m.writeNanos.Add(uint64(time.Since(t0).Nanoseconds()))
@@ -252,14 +259,29 @@ func (m *metricsConn) flushFBUMax() {
 	}
 }
 
+// Close closes the connection and records the final partial tick. The socket is
+// closed first, which is what unblocks a Write stuck on a peer that stopped
+// reading; the snapshot is taken only once those writes have returned, so the
+// last frame and the last write of a session are counted in it rather than
+// lost.
 func (m *metricsConn) Close() error {
+	closed := false
+	var err error
 	m.closeOnce.Do(func() {
+		closed = true
 		close(m.done)
+		err = m.Conn.Close()
+
+		m.writeMu.Lock()
+		defer m.writeMu.Unlock()
 		if m.recorder == nil {
 			return
 		}
 		m.flushFBUMax()
 		m.flushTick(true)
 	})
-	return m.Conn.Close()
+	if !closed {
+		return m.Conn.Close()
+	}
+	return err
 }

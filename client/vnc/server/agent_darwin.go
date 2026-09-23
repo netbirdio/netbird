@@ -22,6 +22,15 @@ import (
 	"github.com/netbirdio/netbird/client/configs"
 )
 
+// agentTokenStdinFlag tells the agent to read its token from stdin instead of
+// the environment. Must match the flag cmd.vncAgentCmd registers. The agent
+// runs as the console user, and the environment it was started with stays
+// readable by that user's other processes for the agent's whole life (macOS
+// KERN_PROCARGS2 keeps the original strings even after unsetenv): holding the
+// token lets a process drive the agent directly, past the daemon's gates and
+// with the agent's Screen Recording grant.
+const agentTokenStdinFlag = "--token-stdin" // #nosec G101 -- flag name, not a credential
+
 // darwinAgentManager spawns a per-user VNC agent on demand and keeps it alive
 // only while connections are using it. Concurrent connections share one agent;
 // the last one to finish takes it down again.
