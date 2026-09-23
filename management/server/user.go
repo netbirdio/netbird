@@ -273,6 +273,10 @@ func (am *DefaultAccountManager) UpdateUserPassword(ctx context.Context, account
 		return status.Errorf(status.InvalidArgument, "new password is required")
 	}
 
+	if err := validatePassword(newPassword); err != nil {
+		return status.Errorf(status.InvalidArgument, "invalid password: %v", err)
+	}
+
 	embeddedIdp, ok := am.idpManager.(*idp.EmbeddedIdPManager)
 	if !ok {
 		return status.Errorf(status.Internal, "failed to get embedded IdP manager")
@@ -1986,7 +1990,7 @@ func validatePassword(password string) error {
 }
 
 // ValidatePassword checks password strength requirements:
-// - Between 8 and 72 characters
+// - At least 8 characters, and at most 72 bytes (bcrypt's input limit)
 // - At least 1 digit
 // - At least 1 uppercase letter
 // - At least 1 special character
@@ -1996,7 +2000,7 @@ func ValidatePassword(password string) error {
 	}
 
 	if len(password) > maxPasswordLength {
-		return errors.New("password must be at most 72 characters long")
+		return errors.New("password must be at most 72 bytes long")
 	}
 
 	var hasDigit, hasUpper, hasSpecial bool

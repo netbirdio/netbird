@@ -744,6 +744,18 @@ func TestAcceptUserInvite_WeakPassword(t *testing.T) {
 	}
 }
 
+func TestUpdateUserPassword_RejectsOverLength(t *testing.T) {
+	am, cleanup := setupInviteTestManagerWithEmbeddedIdP(t)
+	defer cleanup()
+
+	// A new password past bcrypt's 72-byte limit is rejected by shared
+	// validation, before it reaches the embedded IdP and fails while hashing.
+	longPassword := strings.Repeat("A", 71) + "1!"
+	err := am.UpdateUserPassword(context.Background(), testAccountID, testAdminUserID, testAdminUserID, "OldPass1!", longPassword)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "at most 72")
+}
+
 func TestValidatePassword(t *testing.T) {
 	testCases := []struct {
 		name        string
