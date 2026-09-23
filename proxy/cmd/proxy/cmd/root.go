@@ -14,6 +14,7 @@ import (
 	"golang.org/x/crypto/acme"
 
 	"github.com/netbirdio/netbird/shared/management/domain"
+	"github.com/netbirdio/netbird/shared/profiling"
 
 	"github.com/netbirdio/netbird/client/embed"
 	"github.com/netbirdio/netbird/proxy"
@@ -30,6 +31,8 @@ const (
 	// how many buffers each receive/TUN worker eagerly allocates. Zero
 	// (unset) keeps the platform default.
 	envMaxBatchSize = "NB_PROXY_MAX_BATCH_SIZE"
+
+	applicationName = "proxy"
 )
 
 const DefaultManagementURL = "https://api.netbird.io:443"
@@ -159,6 +162,9 @@ func runServer(cmd *cobra.Command, args []string) error {
 	_ = util.InitLogger(logger, level, util.LogConsole)
 
 	logger.Infof("configured log level: %s", level)
+
+	stopProfiling := profiling.Start(applicationName)
+	defer stopProfiling()
 
 	var wgPool, wgBatch uint64
 	var perf embed.Performance
