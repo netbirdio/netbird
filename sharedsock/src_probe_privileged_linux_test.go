@@ -42,7 +42,9 @@ func TestSrcProbe_HonoursControlPlaneMark(t *testing.T) {
 	markedSrc, ok := netip.AddrFromSlice(marked[0].Src)
 	require.True(t, ok, "parse marked source")
 	markedSrc = markedSrc.Unmap()
-	require.NotEqual(t, netip.MustParseAddr("127.0.0.1"), markedSrc, "the marked lookup must not already resolve to loopback")
+	if markedSrc == netip.MustParseAddr("127.0.0.1") {
+		t.Skipf("marked route to %s already uses loopback, no contrast to test", dst)
+	}
 
 	rules, err := netlink.RuleList(unix.AF_INET)
 	require.NoError(t, err)

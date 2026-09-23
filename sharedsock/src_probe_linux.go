@@ -101,7 +101,9 @@ func (p *srcProbe) closeSocket() error {
 }
 
 // owned reports whether the fd still refers to the socket that was opened. The
-// number may have been closed elsewhere and handed out for another file since.
+// number may have been closed elsewhere and handed out for another file since. The
+// check narrows that window to a single call but cannot close it: a close and reuse
+// between the check and the next syscall on fd goes unnoticed.
 func (s *probeSocket) owned() bool {
 	var st unix.Stat_t
 	if err := unix.Fstat(s.fd, &st); err != nil {
@@ -173,10 +175,10 @@ func disconnect(fd int) error {
 }
 
 func probeSockaddr(dst netip.Addr) unix.Sockaddr {
-	// Nothing is sent, so the port is arbitrary.
-	const port = 9
+	// Port 0 matches the raw send, whose route lookup carries no ports. The kernel
+	// still assigns the probe an ephemeral source port before its lookup.
 	if dst.Is4() {
-		return &unix.SockaddrInet4{Port: port, Addr: dst.As4()}
+		return &unix.SockaddrInet4{Addr: dst.As4()}
 	}
-	return &unix.SockaddrInet6{Port: port, Addr: dst.As16()}
+	return &unix.SockaddrInet6{Addr: dst.As16()}
 }
