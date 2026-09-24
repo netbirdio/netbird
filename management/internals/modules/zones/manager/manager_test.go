@@ -30,6 +30,34 @@ const (
 	testDNSDomain = "netbird.selfhosted"
 )
 
+type peerUpdateCall struct {
+	accountID string
+	reason    types.UpdateReason
+	ctx       context.Context
+}
+
+func trackPeerUpdate(mock *mock_server.MockAccountManager) <-chan peerUpdateCall {
+	calls := make(chan peerUpdateCall, 1)
+	mock.UpdateAccountPeersFunc = func(ctx context.Context, accountID string, reason types.UpdateReason) {
+		calls <- peerUpdateCall{accountID, reason, ctx}
+	}
+	return calls
+}
+
+func assertDetachedPeerUpdate(t *testing.T, calls <-chan peerUpdateCall, cancel context.CancelFunc, operation types.UpdateOperation) {
+	t.Helper()
+	select {
+	case call := <-calls:
+		cancel()
+		assert.Equal(t, testAccountID, call.accountID)
+		assert.Equal(t, types.UpdateResourceZone, call.reason.Resource)
+		assert.Equal(t, operation, call.reason.Operation)
+		assert.NoError(t, call.ctx.Err(), "UpdateAccountPeers context must not be canceled when request context is canceled")
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for UpdateAccountPeers")
+	}
+}
+
 func setupTest(t *testing.T) (*managerImpl, store.Store, *mock_server.MockAccountManager, *permissions.MockManager, *gomock.Controller, func()) {
 	t.Helper()
 
@@ -191,19 +219,7 @@ func TestManagerImpl_CreateZone(t *testing.T) {
 			assert.Equal(t, activity.DNSZoneCreated, activityID)
 		}
 
-		type updateCall struct {
-			accountID string
-			reason    types.UpdateReason
-			callCtx   context.Context
-		}
-		updatePeersCh := make(chan updateCall, 1)
-		mockAccountManager.UpdateAccountPeersFunc = func(callCtx context.Context, accountID string, reason types.UpdateReason) {
-			updatePeersCh <- updateCall{
-				accountID: accountID,
-				reason:    reason,
-				callCtx:   callCtx,
-			}
-		}
+		updatePeersCh := trackPeerUpdate(mockAccountManager)
 
 		result, err := manager.CreateZone(reqCtx, testAccountID, testUserID, inputZone)
 		require.NoError(t, err)
@@ -216,17 +232,7 @@ func TestManagerImpl_CreateZone(t *testing.T) {
 		assert.Equal(t, inputZone.EnableSearchDomain, result.EnableSearchDomain)
 		assert.Equal(t, inputZone.DistributionGroups, result.DistributionGroups)
 
-		var call updateCall
-		select {
-		case call = <-updatePeersCh:
-			reqCancel()
-		case <-time.After(5 * time.Second):
-			t.Fatal("timed out waiting for UpdateAccountPeers")
-		}
-		assert.Equal(t, testAccountID, call.accountID)
-		assert.Equal(t, types.UpdateResourceZone, call.reason.Resource)
-		assert.Equal(t, types.UpdateOperationCreate, call.reason.Operation)
-		assert.NoError(t, call.callCtx.Err(), "UpdateAccountPeers context must not be canceled when request context is canceled")
+		assertDetachedPeerUpdate(t, updatePeersCh, reqCancel, types.UpdateOperationCreate)
 	})
 
 	t.Run("permission denied", func(t *testing.T) {
@@ -382,9 +388,12 @@ func TestManagerImpl_UpdateZone(t *testing.T) {
 			DistributionGroups: []string{testGroupID},
 		}
 
+		reqCtx, reqCancel := context.WithCancel(ctx)
+		defer reqCancel()
 		mockPermissionsManager.EXPECT().
-			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Update).
-			Return(true, ctx, nil)
+			ValidateUserPermissions(reqCtx, testAccountID, testUserID, modules.Dns, operations.Update).
+			Return(true, reqCtx, nil)
+		updatePeersCh := trackPeerUpdate(mockAccountManager)
 
 		storeEventCalled := false
 		mockAccountManager.StoreEventFunc = func(ctx context.Context, initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any) {
@@ -395,13 +404,14 @@ func TestManagerImpl_UpdateZone(t *testing.T) {
 			assert.Equal(t, activity.DNSZoneUpdated, activityID)
 		}
 
-		result, err := manager.UpdateZone(ctx, testAccountID, testUserID, updatedZone)
+		result, err := manager.UpdateZone(reqCtx, testAccountID, testUserID, updatedZone)
 		require.NoError(t, err)
 		assert.NotNil(t, result)
 		assert.Equal(t, updatedZone.Name, result.Name)
 		assert.Equal(t, updatedZone.Enabled, result.Enabled)
 		assert.Equal(t, updatedZone.EnableSearchDomain, result.EnableSearchDomain)
 		assert.True(t, storeEventCalled, "StoreEvent should have been called")
+		assertDetachedPeerUpdate(t, updatePeersCh, reqCancel, types.UpdateOperationUpdate)
 	})
 
 	t.Run("domain change not allowed", func(t *testing.T) {
@@ -499,9 +509,12 @@ func TestManagerImpl_DeleteZone(t *testing.T) {
 		err = testStore.CreateDNSRecord(ctx, record2)
 		require.NoError(t, err)
 
+		reqCtx, reqCancel := context.WithCancel(ctx)
+		defer reqCancel()
 		mockPermissionsManager.EXPECT().
-			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Delete).
-			Return(true, ctx, nil)
+			ValidateUserPermissions(reqCtx, testAccountID, testUserID, modules.Dns, operations.Delete).
+			Return(true, reqCtx, nil)
+		updatePeersCh := trackPeerUpdate(mockAccountManager)
 
 		storeEventCallCount := 0
 		mockAccountManager.StoreEventFunc = func(ctx context.Context, initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any) {
@@ -510,7 +523,7 @@ func TestManagerImpl_DeleteZone(t *testing.T) {
 			assert.Equal(t, testAccountID, accountID)
 		}
 
-		err = manager.DeleteZone(ctx, testAccountID, testUserID, zone.ID)
+		err = manager.DeleteZone(reqCtx, testAccountID, testUserID, zone.ID)
 		require.NoError(t, err)
 		assert.Equal(t, 3, storeEventCallCount)
 
@@ -520,6 +533,7 @@ func TestManagerImpl_DeleteZone(t *testing.T) {
 		zoneRecords, err := testStore.GetZoneDNSRecords(ctx, store.LockingStrengthNone, testAccountID, zone.ID)
 		require.NoError(t, err)
 		assert.Empty(t, zoneRecords)
+		assertDetachedPeerUpdate(t, updatePeersCh, reqCancel, types.UpdateOperationDelete)
 	})
 
 	t.Run("success without records", func(t *testing.T) {
