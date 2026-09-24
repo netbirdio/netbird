@@ -119,6 +119,7 @@ var (
 			if err != nil {
 				return fmt.Errorf("creating signal server: %v", err)
 			}
+			defer srv.Stop()
 			proto.RegisterSignalExchangeServer(grpcServer, srv)
 
 			grpcRootHandler := grpcHandlerFunc(grpcServer, metricsServer.Meter)
