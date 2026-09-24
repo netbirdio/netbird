@@ -356,6 +356,15 @@ up_all_but_proxy() {
   $DOCKER_COMPOSE_COMMAND up -d $services
 }
 
+wait_crowdsec() {
+  $DOCKER_COMPOSE_COMMAND up -d crowdsec || return 1
+  for _ in {1..60}; do
+    $DOCKER_COMPOSE_COMMAND exec -T crowdsec cscli lapi status &> /dev/null && return 0
+    sleep 2
+  done
+  return 1
+}
+
 # start_proxy mints the proxy token and CrowdSec bouncer key, then starts the proxy.
 start_proxy() {
   local token key
@@ -366,7 +375,7 @@ start_proxy() {
 
   if [[ "$NETBIRD_CROWDSEC" == "yes" ]]; then
     echo "Registering the CrowdSec bouncer ..."
-    if $DOCKER_COMPOSE_COMMAND up -d --wait crowdsec; then
+    if wait_crowdsec; then
       # "add" fails if an earlier attempt already registered the bouncer.
       $DOCKER_COMPOSE_COMMAND exec -T crowdsec cscli bouncers delete netbird-proxy &> /dev/null || true
       key=$($DOCKER_COMPOSE_COMMAND exec -T crowdsec cscli bouncers add netbird-proxy -o raw) || true
@@ -571,8 +580,8 @@ enable_features() {
   fi
 
   BACKUP_SUFFIX=".bak.$(date -u +%Y%m%d%H%M%S)"
-  for f in "${STACK_FILES[@]}"; do
-    cp -p "$f" "$f$BACKUP_SUFFIX"
+  for f in "${STACK_FILES[@]}" traefik-dynamic.yaml; do
+    if [[ -f "$f" ]]; then cp -p "$f" "$f$BACKUP_SUFFIX"; fi
   done
   trap rollback EXIT
 
@@ -617,8 +626,9 @@ rollback() {
   local f
   echo "" > /dev/stderr
   echo "Enabling failed. Restoring the previous configuration ..." > /dev/stderr
-  for f in "${STACK_FILES[@]}"; do
-    cp -p "$f$BACKUP_SUFFIX" "$f"
+  # Files without a backup were created by this run.
+  for f in "${STACK_FILES[@]}" traefik-dynamic.yaml; do
+    if [[ -f "$f$BACKUP_SUFFIX" ]]; then cp -p "$f$BACKUP_SUFFIX" "$f"; else rm -f "$f"; fi
   done
   $DOCKER_COMPOSE_COMMAND up -d --remove-orphans
   $DOCKER_COMPOSE_COMMAND restart netbird-server
