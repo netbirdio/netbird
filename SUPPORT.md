@@ -62,12 +62,15 @@ netbird debug for 1m -A -S -U
 ```
 
 `-A` (`--anonymize`) replaces sensitive values consistently across every file in the bundle, so
-it stays readable without exposing your network. Two levels are available:
+it stays readable while masking most identifying details. It is not a guarantee of full redaction:
+internal address ranges survive at the default level, and interface names, indexes, MTUs, and
+flags are never anonymized. Read the bundle before posting it publicly. Two levels are
+available:
 
 | Level | How to select | What it masks |
 | --- | --- | --- |
 | `default` | `-A` / `--anonymize`, or `--anonymize-level default` | Public IP addresses, IPv6 ULA addresses, MAC addresses, and domains other than `netbird.io`, `netbird.cloud`, `netbird.selfhosted`, and `netbird.stage`. IPv4 private, CGNAT, and link-local ranges are kept, and interface names are not anonymized |
-| `strict` | `--anonymize-level strict` (implies `-A`) | The above, plus IPv4 private, CGNAT, and link-local ranges, peer names in front of the NetBird domains, and WireGuard public keys |
+| `strict` | `--anonymize-level strict` (implies `-A`) | The above, plus IPv4 private, CGNAT, and link-local ranges, peer names in front of `netbird.cloud`, `netbird.selfhosted`, and `netbird.stage`, and WireGuard public keys. Labels under `netbird.io` are kept, since it only hosts infrastructure |
 
 Use `strict` when internal addressing or peer naming is itself sensitive. Either way, private
 keys and SSH keys are never included, and the packet capture (`capture.pcap`) is left out of
