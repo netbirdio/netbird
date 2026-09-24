@@ -977,15 +977,20 @@ func TestRemoveStaleBundles(t *testing.T) {
 	fresh := filepath.Join(dir, "netbird.debug.222.zip")
 	other := filepath.Join(dir, "netbird.debug.333.txt")
 	owned := filepath.Join(dir, "netbird.debug.444.zip")
-	for _, p := range []string{stale, fresh, other, owned} {
+	abandoned := filepath.Join(dir, "netbird.debug.555.zip")
+	for _, p := range []string{stale, fresh, other, owned, abandoned} {
 		require.NoError(t, os.WriteFile(p, []byte("x"), 0o600))
 	}
 	exported, err := ExportBundle(owned)
+	require.NoError(t, err)
+	exportedAbandoned, err := ExportBundle(abandoned)
 	require.NoError(t, err)
 	old := time.Now().Add(-2 * time.Hour)
 	for _, p := range []string{stale, other, exported} {
 		require.NoError(t, os.Chtimes(p, old, old))
 	}
+	ancient := time.Now().Add(-exportedBundleMaxAge - time.Hour)
+	require.NoError(t, os.Chtimes(exportedAbandoned, ancient, ancient))
 
 	RemoveStaleBundles(dir, time.Hour)
 
@@ -993,7 +998,8 @@ func TestRemoveStaleBundles(t *testing.T) {
 	assert.FileExists(t, fresh, "bundle younger than maxAge must survive, it may still be uploading")
 	assert.FileExists(t, other, "files outside the bundle pattern must not be touched")
 	assert.NoFileExists(t, owned)
-	assert.FileExists(t, exported, "exported bundle is caller-owned and must survive regardless of age")
+	assert.FileExists(t, exported, "exported bundle is caller-owned and must survive maxAge")
+	assert.NoFileExists(t, exportedAbandoned, "exported bundle older than exportedBundleMaxAge is abandoned")
 }
 
 func TestBundleIncludesNetworkMap(t *testing.T) {
