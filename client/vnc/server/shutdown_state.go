@@ -1,0 +1,229 @@
+//go:build linux && !android
+
+package server
+
+import (
+	"bytes"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+
+	log "github.com/sirupsen/logrus"
+)
+
+// sessionProcess identifies one virtual-session process well enough to be
+// signalled safely after a crash.
+//
+// A PID on its own is not enough: by the time the daemon restarts, the kernel
+// may have handed that number to something else, and Cleanup signals the whole
+// process group. Start time is what makes the identity stable — it is fixed for
+// the life of a process and a reused PID always has a later one — and the UID
+// keeps us from signalling another user's processes even if both matched.
+type sessionProcess struct {
+	PID int `json:"pid"`
+	// StartTime is field 22 of /proc/<pid>/stat, in clock ticks since boot.
+	StartTime uint64 `json:"startTime,omitempty"`
+	UID       uint32 `json:"uid,omitempty"`
+	// Command is the base name of the process's argv[0] when it was started.
+	// Matching on it recognises whatever the launcher ran, including a desktop
+	// picked from xsessions or the xterm fallback, which a fixed list of
+	// names misses. Empty on records written before it was recorded.
+	Command string `json:"command,omitempty"`
+}
+
+// ShutdownState tracks VNC virtual session processes for crash recovery.
+// Persisted by the state manager; on restart, residual processes are killed.
+type ShutdownState struct {
+	// Processes maps a description to the process it names (e.g. "xvfb:50").
+	Processes map[string]sessionProcess `json:"processes,omitempty"`
+}
+
+// Name returns the state name for the state manager.
+func (s *ShutdownState) Name() string {
+	return "vnc_sessions_state"
+}
+
+// Cleanup kills any residual VNC session processes left from a crash.
+func (s *ShutdownState) Cleanup() error {
+	if len(s.Processes) == 0 {
+		return nil
+	}
+
+	for desc, proc := range s.Processes {
+		if proc.PID <= 0 {
+			continue
+		}
+		if !isOurProcess(proc, desc) {
+			log.Debugf("cleanup: skipping PID %d (%s), not ours", proc.PID, desc)
+			continue
+		}
+		log.Infof("cleanup: killing residual process %d (%s)", proc.PID, desc)
+		// Kill the process group (negative PID) to get children too.
+		if err := syscall.Kill(-proc.PID, syscall.SIGTERM); err != nil {
+			// Try individual process if group kill fails.
+			if killErr := syscall.Kill(proc.PID, syscall.SIGKILL); killErr != nil {
+				log.Debugf("cleanup: kill pid %d (%s): group kill: %v, single kill: %v", proc.PID, desc, err, killErr)
+			}
+			continue
+		}
+
+		// An X server or a desktop process may catch or ignore TERM, and this
+		// record is discarded below either way, so nothing would come back for
+		// it. Escalate the way the ordinary virtual-session shutdown does
+		// rather than leaving it running against the next session.
+		if groupGone(proc.PID, cleanupGracePeriod) {
+			continue
+		}
+		log.Debugf("cleanup: pid %d (%s) survived SIGTERM, sending SIGKILL", proc.PID, desc)
+		if err := syscall.Kill(-proc.PID, syscall.SIGKILL); err != nil {
+			log.Debugf("cleanup: SIGKILL pid %d (%s): %v", proc.PID, desc, err)
+		}
+	}
+
+	s.Processes = nil
+	return nil
+}
+
+// cleanupGracePeriod is how long a signalled process group gets to exit on its
+// own before Cleanup escalates to SIGKILL.
+const cleanupGracePeriod = 2 * time.Second
+
+// groupGone polls the process group until it has exited or grace expires, and
+// reports whether it is gone. Signal 0 only probes for existence.
+func groupGone(pid int, grace time.Duration) bool {
+	deadline := time.Now().Add(grace)
+	for {
+		if err := syscall.Kill(-pid, 0); err != nil {
+			return true
+		}
+		if !time.Now().Before(deadline) {
+			return false
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// describeProcess captures the identity of a freshly started process so a later
+// Cleanup can tell it apart from whatever inherits its PID.
+func describeProcess(pid int) sessionProcess {
+	proc := sessionProcess{PID: pid}
+	if start, err := processStartTime(pid); err == nil {
+		proc.StartTime = start
+	} else {
+		log.Debugf("read start time for pid %d: %v", pid, err)
+	}
+	if uid, err := processUID(pid); err == nil {
+		proc.UID = uid
+	} else {
+		log.Debugf("read uid for pid %d: %v", pid, err)
+	}
+	if cmdline, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid)); err == nil {
+		proc.Command = commandName(cmdline)
+	} else {
+		log.Debugf("read cmdline for pid %d: %v", pid, err)
+	}
+	return proc
+}
+
+// commandName returns the base name of argv[0] from a /proc cmdline.
+func commandName(cmdline []byte) string {
+	argv0, _, _ := bytes.Cut(cmdline, []byte{0})
+	return filepath.Base(string(argv0))
+}
+
+// isOurProcess verifies the PID still belongs to the VNC-related process it was
+// recorded for, by matching desc against /proc/<pid>/cmdline and confirming the
+// process start time and owner are the ones recorded. Anything that cannot be
+// read, or does not match, is reported as foreign so cleanup never signals a
+// process it has not identified.
+func isOurProcess(proc sessionProcess, desc string) bool {
+	// Check if the process exists at all.
+	if err := syscall.Kill(proc.PID, 0); err != nil {
+		return false
+	}
+
+	// A recorded start time that no longer matches means the PID was reused.
+	// A record without one predates the check and cannot be trusted to be the
+	// same process, so it is refused as well.
+	if proc.StartTime == 0 {
+		log.Debugf("cleanup: pid %d (%s) has no recorded start time", proc.PID, desc)
+		return false
+	}
+	start, err := processStartTime(proc.PID)
+	if err != nil {
+		log.Debugf("cleanup: cannot read start time for pid %d: %v, treating PID as foreign", proc.PID, err)
+		return false
+	}
+	if start != proc.StartTime {
+		log.Debugf("cleanup: pid %d (%s) started at %d, recorded %d: PID was reused", proc.PID, desc, start, proc.StartTime)
+		return false
+	}
+
+	if uid, err := processUID(proc.PID); err != nil || uid != proc.UID {
+		log.Debugf("cleanup: pid %d (%s) owner mismatch (err=%v): treating PID as foreign", proc.PID, desc, err)
+		return false
+	}
+
+	cmdline, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", proc.PID))
+	if err != nil {
+		log.Debugf("cleanup: cannot read /proc/%d/cmdline: %v, treating PID as foreign", proc.PID, err)
+		return false
+	}
+
+	// The recorded command covers whatever the launcher ran; the name list
+	// covers records written before it was recorded, and a launcher script
+	// that has since exec'd into the real session binary under another name.
+	if proc.Command != "" && commandName(cmdline) == proc.Command {
+		return true
+	}
+	return matchesKnownSessionProcess(desc, string(cmdline))
+}
+
+// matchesKnownSessionProcess reports whether cmd looks like the X server or
+// desktop process desc describes.
+func matchesKnownSessionProcess(desc, cmd string) bool {
+	if strings.Contains(desc, "xvfb") || strings.Contains(desc, "xorg") {
+		return strings.Contains(cmd, "Xvfb") || strings.Contains(cmd, "Xorg")
+	}
+	if strings.Contains(desc, "desktop") {
+		return strings.Contains(cmd, "session") || strings.Contains(cmd, "plasma") ||
+			strings.Contains(cmd, "gnome") || strings.Contains(cmd, "xfce") ||
+			strings.Contains(cmd, "dbus-launch") || strings.Contains(cmd, "xterm")
+	}
+	return false
+}
+
+// processStartTime reads field 22 of /proc/<pid>/stat, the process start time in
+// clock ticks since boot. Parsed from the last ')' so an executable name
+// containing spaces or parentheses cannot shift the field offsets.
+func processStartTime(pid int) (uint64, error) {
+	raw, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if err != nil {
+		return 0, err
+	}
+	closeParen := bytes.LastIndexByte(raw, ')')
+	if closeParen < 0 {
+		return 0, fmt.Errorf("malformed /proc/%d/stat", pid)
+	}
+	// Fields after the executable name: state is field 3, so start time
+	// (field 22) is the 20th entry of the remainder.
+	fields := strings.Fields(string(raw[closeParen+1:]))
+	const startTimeOffset = 19
+	if len(fields) <= startTimeOffset {
+		return 0, fmt.Errorf("/proc/%d/stat has only %d fields after the executable name", pid, len(fields))
+	}
+	return strconv.ParseUint(fields[startTimeOffset], 10, 64)
+}
+
+// processUID reads the real UID that owns a process.
+func processUID(pid int) (uint32, error) {
+	var st syscall.Stat_t
+	if err := syscall.Stat(fmt.Sprintf("/proc/%d", pid), &st); err != nil {
+		return 0, err
+	}
+	return st.Uid, nil
+}

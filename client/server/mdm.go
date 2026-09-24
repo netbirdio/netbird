@@ -171,6 +171,8 @@ func mdmManagedFieldConflicts(msg *proto.SetConfigRequest, policy *mdm.Policy) [
 		mdm.ConflictBool(mdm.KeyDisableAutoConnect, msg.DisableAutoConnect),
 		mdm.ConflictBool(mdm.KeyAllowServerSSH, msg.ServerSSHAllowed),
 		mdm.ConflictBool(mdm.KeyRemoteJobsAllowed, msg.RemoteJobsAllowed),
+		mdm.ConflictBool(mdm.KeyAllowServerVNC, msg.ServerVNCAllowed),
+		mdm.ConflictBool(mdm.KeyDisableVNCApproval, msg.DisableVNCApproval),
 		mdm.ConflictBool(mdm.KeyDisableClientRoutes, msg.DisableClientRoutes),
 		mdm.ConflictBool(mdm.KeyDisableServerRoutes, msg.DisableServerRoutes),
 		mdm.ConflictBool(mdm.KeyBlockInbound, msg.BlockInbound),
@@ -209,6 +211,8 @@ func setConfigRequestHasConfigOverrides(msg *proto.SetConfigRequest) bool {
 		msg.DisableAutoConnect != nil ||
 		msg.ServerSSHAllowed != nil ||
 		msg.RemoteJobsAllowed != nil ||
+		msg.ServerVNCAllowed != nil ||
+		msg.DisableVNCApproval != nil ||
 		msg.NetworkMonitor != nil ||
 		msg.DisableClientRoutes != nil ||
 		msg.DisableServerRoutes != nil ||
@@ -250,6 +254,8 @@ func loginRequestHasConfigOverrides(msg *proto.LoginRequest) bool {
 		msg.DisableAutoConnect != nil ||
 		msg.ServerSSHAllowed != nil ||
 		msg.RemoteJobsAllowed != nil ||
+		msg.ServerVNCAllowed != nil ||
+		msg.DisableVNCApproval != nil ||
 		msg.RosenpassPermissive != nil ||
 		len(msg.ExtraIFaceBlacklist) > 0 ||
 		msg.NetworkMonitor != nil ||
@@ -295,6 +301,8 @@ func loginRequestMDMConflicts(msg *proto.LoginRequest, policy *mdm.Policy) []str
 		mdm.ConflictBool(mdm.KeyDisableAutoConnect, msg.DisableAutoConnect),
 		mdm.ConflictBool(mdm.KeyAllowServerSSH, msg.ServerSSHAllowed),
 		mdm.ConflictBool(mdm.KeyRemoteJobsAllowed, msg.RemoteJobsAllowed),
+		mdm.ConflictBool(mdm.KeyAllowServerVNC, msg.ServerVNCAllowed),
+		mdm.ConflictBool(mdm.KeyDisableVNCApproval, msg.DisableVNCApproval),
 		mdm.ConflictBool(mdm.KeyDisableClientRoutes, msg.DisableClientRoutes),
 		mdm.ConflictBool(mdm.KeyDisableServerRoutes, msg.DisableServerRoutes),
 		mdm.ConflictBool(mdm.KeyBlockInbound, msg.BlockInbound),

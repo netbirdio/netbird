@@ -15,6 +15,7 @@ import (
 
 	netbird "github.com/netbirdio/netbird/client/embed"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
+	"github.com/netbirdio/netbird/client/wasm/internal/netutil"
 )
 
 const (
@@ -64,13 +65,7 @@ func (c *Client) Connect(host string, port int, username, jwtToken string, ipVer
 		Timeout:         sshDialTimeout,
 	}
 
-	network := "tcp"
-	switch ipVersion {
-	case 4:
-		network = "tcp4"
-	case 6:
-		network = "tcp6"
-	}
+	network := netutil.TCPNetwork(ipVersion)
 
 	ctx, cancel := context.WithTimeout(context.Background(), sshDialTimeout)
 	defer cancel()

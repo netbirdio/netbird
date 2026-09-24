@@ -66,7 +66,10 @@ jobs:
 
           echo "Size: ${SIZE} bytes (${SIZE_MB} MB)"
 
-          if [ ${SIZE} -gt 62914560 ]; then
-            echo "Wasm binary size (${SIZE_MB}MB) exceeds 60MB limit!"
+          # 62 MiB. The guard is here to catch the binary ballooning, not to
+          # hold a particular number: raise it when a feature legitimately
+          # needs the bytes, and investigate when it moves without one.
+          if [ ${SIZE} -gt 65011712 ]; then
+            echo "Wasm binary size (${SIZE_MB}MB) exceeds 62MB limit!"
             exit 1
           fi

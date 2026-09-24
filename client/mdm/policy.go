@@ -36,6 +36,8 @@ const (
 	KeyBlockInbound             = "blockInbound"
 	KeyDisableMetricsCollection = "disableMetricsCollection"
 	KeyAllowServerSSH           = "allowServerSSH"
+	KeyAllowServerVNC           = "allowServerVNC"
+	KeyDisableVNCApproval       = "disableVNCApproval"
 	KeyDisableAutoConnect       = "disableAutoConnect"
 	// KeyDisableAutostart suppresses the GUI's fresh-install
 	// launch-on-login default and marks the Settings toggle as

@@ -8,6 +8,7 @@ import {
     BoltIcon,
     InfoIcon,
     LifeBuoyIcon,
+    MonitorIcon,
     NetworkIcon,
     ShieldIcon,
     SlidersHorizontalIcon,
@@ -20,6 +21,7 @@ export const SettingsNavigation = () => {
     const { updateAvailable } = useClientVersion();
     const { mdm, features } = useRestrictions();
     const showSsh = mdm.allowServerSSH ?? !features.disableUpdateSettings;
+    const showVnc = mdm.allowServerVNC ?? !features.disableUpdateSettings;
 
     const aboutAdornment = updateAvailable ? (
         <Tooltip content={t("settings.tabs.updateAvailable")} side={"right"}>
@@ -61,6 +63,13 @@ export const SettingsNavigation = () => {
                         value={"ssh"}
                         icon={SquareTerminalIcon}
                         title={t("settings.tabs.ssh")}
+                    />
+                )}
+                {showVnc && (
+                    <VerticalTabs.Trigger
+                        value={"vnc"}
+                        icon={MonitorIcon}
+                        title={t("settings.tabs.vnc")}
                     />
                 )}
                 {!features.disableUpdateSettings && (

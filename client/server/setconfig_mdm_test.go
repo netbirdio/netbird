@@ -134,6 +134,29 @@ func TestSetConfig_MDMReject_SingleField(t *testing.T) {
 	assert.Equal(t, []string{mdm.KeyManagementURL}, v.GetFields())
 }
 
+func TestSetConfig_MDMReject_VNCFields(t *testing.T) {
+	s, ctx, profName, username, _ := setupServerWithProfile(t)
+	withMDMPolicy(t, s, mdm.NewPolicy(map[string]any{
+		mdm.KeyAllowServerVNC:     true,
+		mdm.KeyDisableVNCApproval: false,
+	}))
+
+	vncAllowed := false
+	disableApproval := true
+	_, err := s.SetConfig(ctx, &proto.SetConfigRequest{
+		ProfileName:        profName,
+		Username:           username,
+		ServerVNCAllowed:   &vncAllowed,
+		DisableVNCApproval: &disableApproval,
+	})
+
+	v := extractViolation(t, err)
+	assert.ElementsMatch(t, []string{
+		mdm.KeyAllowServerVNC,
+		mdm.KeyDisableVNCApproval,
+	}, v.GetFields())
+}
+
 func TestSetConfig_MDMReject_MultipleFields(t *testing.T) {
 	s, ctx, profName, username, _ := setupServerWithProfile(t)
 	withMDMPolicy(t, s, mdm.NewPolicy(map[string]any{

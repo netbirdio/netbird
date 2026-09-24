@@ -26,10 +26,10 @@ import (
 	cryptossh "golang.org/x/crypto/ssh"
 
 	nbssh "github.com/netbirdio/netbird/client/ssh"
-	sshauth "github.com/netbirdio/netbird/client/ssh/auth"
 	"github.com/netbirdio/netbird/client/ssh/server"
 	"github.com/netbirdio/netbird/client/ssh/testutil"
 	nbjwt "github.com/netbirdio/netbird/shared/auth/jwt"
+	sshauth "github.com/netbirdio/netbird/shared/sessionauth"
 	sshuserhash "github.com/netbirdio/netbird/shared/sshauth"
 )
 

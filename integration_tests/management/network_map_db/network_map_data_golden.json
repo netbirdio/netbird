@@ -257,7 +257,9 @@
               "user-2"
             ]
           },
-          "AuthorizedUser": "user-3"
+          "AuthorizedUser": "user-3",
+          "SessionPubKey": "",
+          "SessionDisplayName": ""
         }
       ]
     }

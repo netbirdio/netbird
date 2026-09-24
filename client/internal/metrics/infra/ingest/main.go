@@ -90,6 +90,26 @@ var allowedMeasurements = map[string]measurementSpec{
 			"peer_id":         true,
 		},
 	},
+	// Emitted per VNC session tick by influxDBMetrics.RecordVNCSessionTick.
+	"netbird_vnc_traffic": {
+		allowedFields: map[string]bool{
+			"period_seconds":     true,
+			"bytes_out":          true,
+			"writes":             true,
+			"fbus":               true,
+			"max_fbu_bytes":      true,
+			"max_fbu_rects":      true,
+			"max_write_bytes":    true,
+			"write_time_seconds": true,
+		},
+		allowedTags: map[string]bool{
+			"deployment_type": true,
+			"version":         true,
+			"os":              true,
+			"arch":            true,
+			"peer_id":         true,
+		},
+	},
 }
 
 func main() {

@@ -139,6 +139,19 @@ type SSHServerStateOutput struct {
 	Sessions []SSHSessionOutput `json:"sessions" yaml:"sessions"`
 }
 
+type VNCSessionOutput struct {
+	RemoteAddress string `json:"remoteAddress" yaml:"remoteAddress"`
+	Mode          string `json:"mode" yaml:"mode"`
+	Username      string `json:"username,omitempty" yaml:"username,omitempty"`
+	UserID        string `json:"userID,omitempty" yaml:"userID,omitempty"`
+	Initiator     string `json:"initiator,omitempty" yaml:"initiator,omitempty"`
+}
+
+type VNCServerStateOutput struct {
+	Enabled  bool               `json:"enabled" yaml:"enabled"`
+	Sessions []VNCSessionOutput `json:"sessions" yaml:"sessions"`
+}
+
 type OutputOverview struct {
 	Peers                   PeersStateOutput           `json:"peers" yaml:"peers"`
 	CliVersion              string                     `json:"cliVersion" yaml:"cliVersion"`
@@ -162,6 +175,7 @@ type OutputOverview struct {
 	LazyConnectionEnabled   bool                       `json:"lazyConnectionEnabled" yaml:"lazyConnectionEnabled"`
 	ProfileName             string                     `json:"profileName" yaml:"profileName"`
 	SSHServerState          SSHServerStateOutput       `json:"sshServer" yaml:"sshServer"`
+	VNCServerState          VNCServerStateOutput       `json:"vncServer" yaml:"vncServer"`
 	// SessionExpiresAt is the absolute UTC instant at which the peer's SSO
 	// session expires. nil when the peer is not SSO-tracked or login
 	// expiration is disabled. Pointer (rather than zero-value time.Time) so
@@ -187,6 +201,7 @@ func ConvertToStatusOutputOverview(pbFullStatus *proto.FullStatus, opts ConvertO
 
 	relayOverview := mapRelays(pbFullStatus.GetRelays())
 	sshServerOverview := mapSSHServer(pbFullStatus.GetSshServerState())
+	vncServerOverview := mapVNCServer(pbFullStatus.GetVncServerState())
 	peersOverview := mapPeers(pbFullStatus.GetPeers(), opts.StatusFilter, opts.PrefixNamesFilter, opts.PrefixNamesFilterMap, opts.IPsFilter, opts.ConnectionTypeFilter)
 
 	overview := OutputOverview{
@@ -212,6 +227,7 @@ func ConvertToStatusOutputOverview(pbFullStatus *proto.FullStatus, opts ConvertO
 		LazyConnectionEnabled:   pbFullStatus.GetLazyConnectionEnabled(),
 		ProfileName:             opts.ProfileName,
 		SSHServerState:          sshServerOverview,
+		VNCServerState:          vncServerOverview,
 	}
 	if !opts.SessionExpiresAt.IsZero() {
 		t := opts.SessionExpiresAt
@@ -294,6 +310,26 @@ func mapSSHServer(sshServerState *proto.SSHServerState) SSHServerStateOutput {
 
 	return SSHServerStateOutput{
 		Enabled:  sshServerState.GetEnabled(),
+		Sessions: sessions,
+	}
+}
+
+func mapVNCServer(state *proto.VNCServerState) VNCServerStateOutput {
+	if state == nil {
+		return VNCServerStateOutput{Sessions: []VNCSessionOutput{}}
+	}
+	sessions := make([]VNCSessionOutput, 0, len(state.GetSessions()))
+	for _, sess := range state.GetSessions() {
+		sessions = append(sessions, VNCSessionOutput{
+			RemoteAddress: sess.GetRemoteAddress(),
+			Mode:          sess.GetMode(),
+			Username:      sess.GetUsername(),
+			UserID:        sess.GetUserID(),
+			Initiator:     sess.GetInitiator(),
+		})
+	}
+	return VNCServerStateOutput{
+		Enabled:  state.GetEnabled(),
 		Sessions: sessions,
 	}
 }
@@ -412,69 +448,18 @@ func (o *OutputOverview) YAML() (string, error) {
 }
 
 // GeneralSummary returns a general summary of the status overview.
-func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameServers bool, showSSHSessions bool) string {
-	var managementConnString string
-	if o.ManagementState.Connected {
-		managementConnString = "Connected"
-		if showURL {
-			managementConnString = fmt.Sprintf("%s to %s", managementConnString, o.ManagementState.URL)
-		}
-	} else {
-		managementConnString = "Disconnected"
-		if o.ManagementState.Error != "" {
-			managementConnString = fmt.Sprintf("%s, reason: %s", managementConnString, o.ManagementState.Error)
-		}
-	}
+func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameServers bool, showSessions bool) string {
+	managementConnString := connectionSummary(o.ManagementState.Connected, o.ManagementState.URL, o.ManagementState.Error, showURL)
+	signalConnString := connectionSummary(o.SignalState.Connected, o.SignalState.URL, o.SignalState.Error, showURL)
 
-	var signalConnString string
-	if o.SignalState.Connected {
-		signalConnString = "Connected"
-		if showURL {
-			signalConnString = fmt.Sprintf("%s to %s", signalConnString, o.SignalState.URL)
-		}
-	} else {
-		signalConnString = "Disconnected"
-		if o.SignalState.Error != "" {
-			signalConnString = fmt.Sprintf("%s, reason: %s", signalConnString, o.SignalState.Error)
-		}
-	}
-
-	interfaceTypeString := "Userspace"
-	interfaceIP := o.IP
-	if o.KernelInterface {
-		interfaceTypeString = "Kernel"
-	} else if o.IP == "" {
-		interfaceTypeString = "N/A"
-		interfaceIP = "N/A"
-	}
+	interfaceTypeString, interfaceIP := o.interfaceSummary()
 
 	ipv6Line := ""
 	if o.IPv6 != "" {
 		ipv6Line = fmt.Sprintf("NetBird IPv6: %s\n", o.IPv6)
 	}
 
-	var relaysString string
-	if showRelays {
-		for _, relay := range o.Relays.Details {
-			available := "Available"
-			reason := ""
-
-			if !relay.Available {
-				if relay.Error == probeRelay.ErrCheckInProgress.Error() {
-					available = "Checking..."
-				} else {
-					available = "Unavailable"
-					reason = fmt.Sprintf(", reason: %s", relay.Error)
-				}
-			} else if relay.Transport != "" {
-				available = fmt.Sprintf("%s via %s", available, relay.Transport)
-			}
-
-			relaysString += fmt.Sprintf("\n  [%s] is %s%s", relay.URI, available, reason)
-		}
-	} else {
-		relaysString = fmt.Sprintf("%d/%d Available", o.Relays.Available, o.Relays.Total)
-	}
+	relaysString := o.relaysSummary(showRelays)
 
 	networks := "-"
 	if len(o.Networks) > 0 {
@@ -482,34 +467,7 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 		networks = strings.Join(o.Networks, ", ")
 	}
 
-	var dnsServersString string
-	if showNameServers {
-		for _, nsServerGroup := range o.NSServerGroups {
-			enabled := "Available"
-			if !nsServerGroup.Enabled {
-				enabled = "Unavailable"
-			}
-			errorString := ""
-			if nsServerGroup.Error != "" {
-				errorString = fmt.Sprintf(", reason: %s", nsServerGroup.Error)
-				errorString = strings.TrimSpace(errorString)
-			}
-
-			domainsString := strings.Join(nsServerGroup.Domains, ", ")
-			if domainsString == "" {
-				domainsString = "." // Show "." for the default zone
-			}
-			dnsServersString += fmt.Sprintf(
-				"\n  [%s] for [%s] is %s%s",
-				strings.Join(nsServerGroup.Servers, ", "),
-				domainsString,
-				enabled,
-				errorString,
-			)
-		}
-	} else {
-		dnsServersString = fmt.Sprintf("%d/%d Available", countEnabled(o.NSServerGroups), len(o.NSServerGroups))
-	}
+	dnsServersString := o.nameserversSummary(showNameServers)
 
 	rosenpassEnabledStatus := "false"
 	if o.RosenpassEnabled {
@@ -524,43 +482,8 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 		lazyConnectionEnabledStatus = "true"
 	}
 
-	sshServerStatus := "Disabled"
-	if o.SSHServerState.Enabled {
-		sessionCount := len(o.SSHServerState.Sessions)
-		if sessionCount > 0 {
-			sessionWord := "session"
-			if sessionCount > 1 {
-				sessionWord = "sessions"
-			}
-			sshServerStatus = fmt.Sprintf("Enabled (%d active %s)", sessionCount, sessionWord)
-		} else {
-			sshServerStatus = "Enabled"
-		}
-
-		if showSSHSessions && sessionCount > 0 {
-			for _, session := range o.SSHServerState.Sessions {
-				var sessionDisplay string
-				if session.JWTUsername != "" {
-					sessionDisplay = fmt.Sprintf("[%s@%s -> %s] %s",
-						session.JWTUsername,
-						session.RemoteAddress,
-						session.Username,
-						session.Command,
-					)
-				} else {
-					sessionDisplay = fmt.Sprintf("[%s@%s] %s",
-						session.Username,
-						session.RemoteAddress,
-						session.Command,
-					)
-				}
-				sshServerStatus += "\n  " + sessionDisplay
-				for _, pf := range session.PortForwards {
-					sshServerStatus += "\n    " + pf
-				}
-			}
-		}
-	}
+	sshServerStatus := o.sshServerSummary(showSessions)
+	vncServerStatus := o.vncServerSummary(showSessions)
 
 	peersCountString := fmt.Sprintf("%d/%d Connected", o.Peers.Connected, o.Peers.Total)
 
@@ -578,22 +501,7 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 		forwardingRulesString = fmt.Sprintf("Forwarding rules: %d\n", o.NumberOfForwardingRules)
 	}
 
-	goos := runtime.GOOS
-	goarch := runtime.GOARCH
-	goarm := ""
-	if goarch == "arm" {
-		goarm = fmt.Sprintf(" (ARMv%s)", os.Getenv("GOARM"))
-	}
-
-	daemonVersion := "N/A"
-	if o.DaemonVersion != "" {
-		daemonVersion = o.DaemonVersion
-	}
-
-	cliVersion := version.NetbirdVersion()
-	if o.CliVersion != "" {
-		cliVersion = o.CliVersion
-	}
+	osString, daemonVersion, cliVersion := o.versionSummary()
 
 	wgPortString := "N/A"
 	if o.WgPort > 0 {
@@ -617,11 +525,12 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 			"Quantum resistance: %s\n"+
 			"Lazy connection: %s\n"+
 			"SSH Server: %s\n"+
+			"VNC Server: %s\n"+
 			"Networks: %s\n"+
 			"%s"+
 			"%s"+
 			"Peers count: %s\n",
-		fmt.Sprintf("%s/%s%s", goos, goarch, goarm),
+		osString,
 		daemonVersion,
 		cliVersion,
 		o.ProfileName,
@@ -637,12 +546,176 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 		rosenpassEnabledStatus,
 		lazyConnectionEnabledStatus,
 		sshServerStatus,
+		vncServerStatus,
 		networks,
 		forwardingRulesString,
 		sessionExpiryString,
 		peersCountString,
 	)
 	return summary
+}
+
+// connectionSummary describes a management or signal connection in one line:
+// where it is connected to, or why it is not.
+func connectionSummary(connected bool, url, errMsg string, showURL bool) string {
+	if !connected {
+		if errMsg != "" {
+			return fmt.Sprintf("Disconnected, reason: %s", errMsg)
+		}
+		return "Disconnected"
+	}
+	if showURL {
+		return fmt.Sprintf("Connected to %s", url)
+	}
+	return "Connected"
+}
+
+// interfaceSummary reports the WireGuard interface type and the address to
+// print for it.
+func (o *OutputOverview) interfaceSummary() (string, string) {
+	if o.KernelInterface {
+		return "Kernel", o.IP
+	}
+	if o.IP == "" {
+		return "N/A", "N/A"
+	}
+	return "Userspace", o.IP
+}
+
+// relaysSummary lists each relay and its availability when showRelays is set,
+// and otherwise reduces them to an available-of-total count.
+func (o *OutputOverview) relaysSummary(showRelays bool) string {
+	if !showRelays {
+		return fmt.Sprintf("%d/%d Available", o.Relays.Available, o.Relays.Total)
+	}
+
+	var summary string
+	for _, relay := range o.Relays.Details {
+		available := "Available"
+		reason := ""
+
+		if !relay.Available {
+			if relay.Error == probeRelay.ErrCheckInProgress.Error() {
+				available = "Checking..."
+			} else {
+				available = "Unavailable"
+				reason = fmt.Sprintf(", reason: %s", relay.Error)
+			}
+		} else if relay.Transport != "" {
+			available = fmt.Sprintf("%s via %s", available, relay.Transport)
+		}
+
+		summary += fmt.Sprintf("\n  [%s] is %s%s", relay.URI, available, reason)
+	}
+	return summary
+}
+
+// nameserversSummary lists each nameserver group and the domains it serves
+// when showNameServers is set, and otherwise reduces them to a count.
+func (o *OutputOverview) nameserversSummary(showNameServers bool) string {
+	if !showNameServers {
+		return fmt.Sprintf("%d/%d Available", countEnabled(o.NSServerGroups), len(o.NSServerGroups))
+	}
+
+	var summary string
+	for _, nsServerGroup := range o.NSServerGroups {
+		enabled := "Available"
+		if !nsServerGroup.Enabled {
+			enabled = "Unavailable"
+		}
+		errorString := ""
+		if nsServerGroup.Error != "" {
+			errorString = strings.TrimSpace(fmt.Sprintf(", reason: %s", nsServerGroup.Error))
+		}
+
+		domainsString := strings.Join(nsServerGroup.Domains, ", ")
+		if domainsString == "" {
+			domainsString = "." // Show "." for the default zone
+		}
+		summary += fmt.Sprintf(
+			"\n  [%s] for [%s] is %s%s",
+			strings.Join(nsServerGroup.Servers, ", "),
+			domainsString,
+			enabled,
+			errorString,
+		)
+	}
+	return summary
+}
+
+// sshServerSummary reports whether the SSH server runs and how many sessions
+// it carries, listing them when showSessions is set.
+func (o *OutputOverview) sshServerSummary(showSessions bool) string {
+	if !o.SSHServerState.Enabled {
+		return "Disabled"
+	}
+
+	sessions := o.SSHServerState.Sessions
+	summary := serverEnabledLine(len(sessions))
+	if !showSessions {
+		return summary
+	}
+
+	for _, session := range sessions {
+		summary += "\n  " + formatSSHSessionLine(session)
+		for _, pf := range session.PortForwards {
+			summary += "\n    " + pf
+		}
+	}
+	return summary
+}
+
+// vncServerSummary is sshServerSummary for the VNC server.
+func (o *OutputOverview) vncServerSummary(showSessions bool) string {
+	if !o.VNCServerState.Enabled {
+		return "Disabled"
+	}
+
+	sessions := o.VNCServerState.Sessions
+	summary := serverEnabledLine(len(sessions))
+	if !showSessions {
+		return summary
+	}
+
+	for _, sess := range sessions {
+		summary += "\n  " + formatVNCSessionLine(sess)
+	}
+	return summary
+}
+
+// serverEnabledLine states that a remote-access server is enabled, naming the
+// session count when it carries any.
+func serverEnabledLine(sessionCount int) string {
+	if sessionCount == 0 {
+		return "Enabled"
+	}
+	sessionWord := "session"
+	if sessionCount > 1 {
+		sessionWord = "sessions"
+	}
+	return fmt.Sprintf("Enabled (%d active %s)", sessionCount, sessionWord)
+}
+
+// versionSummary reports the platform this binary runs on, plus the daemon and
+// CLI versions to print.
+func (o *OutputOverview) versionSummary() (string, string, string) {
+	goarch := runtime.GOARCH
+	goarm := ""
+	if goarch == "arm" {
+		goarm = fmt.Sprintf(" (ARMv%s)", os.Getenv("GOARM"))
+	}
+	osString := fmt.Sprintf("%s/%s%s", runtime.GOOS, goarch, goarm)
+
+	daemonVersion := "N/A"
+	if o.DaemonVersion != "" {
+		daemonVersion = o.DaemonVersion
+	}
+
+	cliVersion := version.NetbirdVersion()
+	if o.CliVersion != "" {
+		cliVersion = o.CliVersion
+	}
+	return osString, daemonVersion, cliVersion
 }
 
 // FullDetailSummary returns a full detailed summary with peer details and events.
@@ -1000,6 +1073,46 @@ func anonymizePeerDetail(a *anonymize.Anonymizer, peer *PeerStateDetailOutput) {
 	}
 }
 
+// formatSSHSessionLine renders a single SSH session row for the detailed
+// status output. A JWT-authenticated session names both the identity that
+// authenticated and the OS user it landed on; a key-authenticated one has only
+// the latter.
+func formatSSHSessionLine(session SSHSessionOutput) string {
+	if session.JWTUsername != "" {
+		return fmt.Sprintf("[%s@%s -> %s] %s",
+			session.JWTUsername,
+			session.RemoteAddress,
+			session.Username,
+			session.Command,
+		)
+	}
+	return fmt.Sprintf("[%s@%s] %s",
+		session.Username,
+		session.RemoteAddress,
+		session.Command,
+	)
+}
+
+// formatVNCSessionLine renders a single VNC session row for the detailed
+// status output. The leading slot identifies the initiator (display name
+// when known, hashed UserID otherwise); the post-arrow slot is the OS
+// user the session targets and is omitted in attach mode where the
+// destination is the current console user (unknown to the daemon).
+func formatVNCSessionLine(sess VNCSessionOutput) string {
+	who := sess.Initiator
+	if who == "" {
+		who = sess.UserID
+	}
+	prefix := sess.RemoteAddress
+	if who != "" {
+		prefix = fmt.Sprintf("%s@%s", who, sess.RemoteAddress)
+	}
+	if sess.Username != "" {
+		return fmt.Sprintf("[%s -> %s] mode=%s", prefix, sess.Username, sess.Mode)
+	}
+	return fmt.Sprintf("[%s] mode=%s", prefix, sess.Mode)
+}
+
 func anonymizeOverview(a *anonymize.Anonymizer, overview *OutputOverview) {
 	for i, peer := range overview.Peers.Details {
 		peer := peer
@@ -1021,6 +1134,19 @@ func anonymizeOverview(a *anonymize.Anonymizer, overview *OutputOverview) {
 		overview.Relays.Details[i] = detail
 	}
 
+	anonymizeNSServerGroups(a, overview)
+
+	for i, route := range overview.Networks {
+		overview.Networks[i] = a.AnonymizeRoute(route)
+	}
+
+	overview.FQDN = a.AnonymizeDomain(overview.FQDN)
+
+	anonymizeEvents(a, overview)
+	anonymizeServerSessions(a, overview)
+}
+
+func anonymizeNSServerGroups(a *anonymize.Anonymizer, overview *OutputOverview) {
 	for i, nsGroup := range overview.NSServerGroups {
 		for j, domain := range nsGroup.Domains {
 			overview.NSServerGroups[i].Domains[j] = a.AnonymizeDomain(domain)
@@ -1032,13 +1158,9 @@ func anonymizeOverview(a *anonymize.Anonymizer, overview *OutputOverview) {
 			}
 		}
 	}
+}
 
-	for i, route := range overview.Networks {
-		overview.Networks[i] = a.AnonymizeRoute(route)
-	}
-
-	overview.FQDN = a.AnonymizeDomain(overview.FQDN)
-
+func anonymizeEvents(a *anonymize.Anonymizer, overview *OutputOverview) {
 	for i, event := range overview.Events {
 		overview.Events[i].Message = a.AnonymizeString(event.Message)
 		overview.Events[i].UserMessage = a.AnonymizeString(event.UserMessage)
@@ -1047,14 +1169,25 @@ func anonymizeOverview(a *anonymize.Anonymizer, overview *OutputOverview) {
 			event.Metadata[k] = a.AnonymizeString(v)
 		}
 	}
+}
 
+func anonymizeRemoteAddress(a *anonymize.Anonymizer, addr string) string {
+	if host, port, err := net.SplitHostPort(addr); err == nil {
+		return fmt.Sprintf("%s:%s", a.AnonymizeIPString(host), port)
+	}
+	return a.AnonymizeIPString(addr)
+}
+
+func anonymizeServerSessions(a *anonymize.Anonymizer, overview *OutputOverview) {
 	for i, session := range overview.SSHServerState.Sessions {
-		if host, port, err := net.SplitHostPort(session.RemoteAddress); err == nil {
-			overview.SSHServerState.Sessions[i].RemoteAddress = fmt.Sprintf("%s:%s", a.AnonymizeIPString(host), port)
-		} else {
-			overview.SSHServerState.Sessions[i].RemoteAddress = a.AnonymizeIPString(session.RemoteAddress)
-		}
+		overview.SSHServerState.Sessions[i].RemoteAddress = anonymizeRemoteAddress(a, session.RemoteAddress)
 		overview.SSHServerState.Sessions[i].Command = a.AnonymizeString(session.Command)
+	}
+	for i, sess := range overview.VNCServerState.Sessions {
+		overview.VNCServerState.Sessions[i].RemoteAddress = anonymizeRemoteAddress(a, sess.RemoteAddress)
+		overview.VNCServerState.Sessions[i].Username = a.AnonymizeString(sess.Username)
+		overview.VNCServerState.Sessions[i].UserID = a.AnonymizeString(sess.UserID)
+		overview.VNCServerState.Sessions[i].Initiator = a.AnonymizeString(sess.Initiator)
 	}
 }
 
