@@ -42,7 +42,7 @@ require (
 	github.com/c-robinson/iplib v1.0.3
 	github.com/caarlos0/env/v11 v11.4.1
 	github.com/caddyserver/certmagic v0.21.3
-	github.com/cilium/ebpf v0.19.0
+	github.com/cilium/ebpf v0.22.0
 	github.com/coder/websocket v1.8.14
 	github.com/coreos/go-iptables v0.7.0
 	github.com/coreos/go-oidc/v3 v3.18.0
