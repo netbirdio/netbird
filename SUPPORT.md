@@ -74,7 +74,7 @@ keys and SSH keys are never included, and the packet capture (`capture.pcap`) is
 anonymized bundles because it holds raw decrypted packets.
 
 `-U` (`--upload-bundle`) uploads the bundle and returns a file key you can paste into the thread
-instead of attaching an archive. Uploaded bundles are automatically deleted after 30 days.
+Retention is controlled by the upload service; check its policy before uploading, and configure cleanup for self-hosted deployments.
 
 For more detail, see [troubleshooting client issues](https://docs.netbird.io/help/troubleshooting-client),
 which explains [what a debug bundle contains](https://docs.netbird.io/help/troubleshooting-client#debug-bundle),
