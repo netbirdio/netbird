@@ -43,6 +43,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
+	sharedMetrics "github.com/netbirdio/netbird/shared/metrics"
 	"github.com/netbirdio/netbird/util/crypt"
 )
 
@@ -62,9 +63,32 @@ var (
 	}
 )
 
+// MetricsRegistry returns the shared registry every module registers its metrics
+// with. A registry created here is shut down with the server; an injected one,
+// such as the combined binary's, stays with its owner.
+func (s *BaseServer) MetricsRegistry() *sharedMetrics.Metrics {
+	registry, created := maybeCreate(s, func() *sharedMetrics.Metrics {
+		registry, err := sharedMetrics.New(telemetry.InstrumentationScope())
+		if err != nil {
+			log.Fatalf("error while creating metrics registry: %s", err)
+		}
+		return registry
+	})
+	if created {
+		s.OnStop(func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := registry.Shutdown(ctx); err != nil {
+				log.Errorf("failed to shut down metrics registry: %v", err)
+			}
+		})
+	}
+	return registry
+}
+
 func (s *BaseServer) Metrics() telemetry.AppMetrics {
 	return Create(s, func() telemetry.AppMetrics {
-		appMetrics, err := telemetry.NewDefaultAppMetrics(context.Background())
+		appMetrics, err := telemetry.NewAppMetrics(context.Background(), s.MetricsRegistry())
 		if err != nil {
 			log.Fatalf("error while creating app metrics: %s", err)
 		}

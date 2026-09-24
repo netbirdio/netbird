@@ -154,8 +154,7 @@ func (s *BaseServer) start(ctx context.Context) error {
 	s.PeersManager()
 	s.GeoLocationManager()
 
-	err := s.Metrics().Expose(srvCtx, s.mgmtMetricsPort, "/metrics")
-	if err != nil {
+	if err := s.MetricsRegistry().Serve(srvCtx, s.mgmtMetricsPort, "/metrics"); err != nil {
 		return fmt.Errorf("failed to expose metrics: %v", err)
 	}
 	s.EphemeralManager().LoadInitialPeers(srvCtx)
@@ -305,7 +304,6 @@ func (s *BaseServer) Stop() error {
 		_ = s.GeoLocationManager().Stop()
 	}
 	s.EphemeralManager().Stop()
-	_ = s.Metrics().Close()
 	if s.listener != nil {
 		_ = s.listener.Close()
 	}

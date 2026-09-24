@@ -28,7 +28,6 @@ import (
 	agentnetworkpricing "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/pricing"
 	mgmtServer "github.com/netbirdio/netbird/management/internals/server"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
-	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/relay/healthcheck"
 	relayServer "github.com/netbirdio/netbird/relay/server"
 	"github.com/netbirdio/netbird/relay/server/listener"
@@ -303,13 +302,8 @@ func (s *serverInstances) createManagementServer(ctx context.Context, cfg *Combi
 		return fmt.Errorf("failed to create management server: %w", err)
 	}
 
-	// Inject externally-managed AppMetrics so management uses the shared metrics server
-	appMetrics, err := telemetry.NewAppMetricsWithMeter(ctx, s.metricsServer.Meter)
-	if err != nil {
-		cleanupSTUNListeners(s.stunListeners)
-		return fmt.Errorf("failed to create management app metrics: %w", err)
-	}
-	mgmtServer.Inject[telemetry.AppMetrics](s.mgmtSrv, appMetrics)
+	// Inject the shared metrics registry so management registers its metrics with the combined server
+	mgmtServer.Inject[*sharedMetrics.Metrics](s.mgmtSrv, s.metricsServer)
 
 	log.Infof("Management server created")
 	return nil

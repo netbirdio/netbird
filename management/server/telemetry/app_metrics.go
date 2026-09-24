@@ -3,26 +3,17 @@ package telemetry
 import (
 	"context"
 	"fmt"
-	"net"
-	"net/http"
 	"reflect"
 
-	"github.com/gorilla/mux"
-	prometheus2 "github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-	log "github.com/sirupsen/logrus"
-	"go.opentelemetry.io/otel/exporters/prometheus"
 	metric2 "go.opentelemetry.io/otel/metric"
-	"go.opentelemetry.io/otel/sdk/metric"
-)
 
-const defaultEndpoint = "/metrics"
+	sharedMetrics "github.com/netbirdio/netbird/shared/metrics"
+)
 
 // MockAppMetrics mocks the AppMetrics interface
 type MockAppMetrics struct {
 	GetMeterFunc                 func() metric2.Meter
-	CloseFunc                    func() error
-	ExposeFunc                   func(ctx context.Context, port int, endpoint string) error
+	RegistryFunc                 func() *sharedMetrics.Metrics
 	IDPMetricsFunc               func() *IDPMetrics
 	HTTPMiddlewareFunc           func() *HTTPMiddleware
 	GRPCMetricsFunc              func() *GRPCMetrics
@@ -40,20 +31,12 @@ func (mock *MockAppMetrics) GetMeter() metric2.Meter {
 	return nil
 }
 
-// Close mocks the Close function of the AppMetrics interface
-func (mock *MockAppMetrics) Close() error {
-	if mock.CloseFunc != nil {
-		return mock.CloseFunc()
+// Registry mocks the Registry function of the AppMetrics interface
+func (mock *MockAppMetrics) Registry() *sharedMetrics.Metrics {
+	if mock.RegistryFunc != nil {
+		return mock.RegistryFunc()
 	}
-	return fmt.Errorf("unimplemented")
-}
-
-// Expose mocks the Expose function of the AppMetrics interface
-func (mock *MockAppMetrics) Expose(ctx context.Context, port int, endpoint string) error {
-	if mock.ExposeFunc != nil {
-		return mock.ExposeFunc(ctx, port, endpoint)
-	}
-	return fmt.Errorf("unimplemented")
+	return nil
 }
 
 // IDPMetrics mocks the IDPMetrics function of the IDPMetrics interface
@@ -115,8 +98,7 @@ func (mock *MockAppMetrics) EphemeralPeersMetrics() *EphemeralPeersMetrics {
 // AppMetrics is metrics interface
 type AppMetrics interface {
 	GetMeter() metric2.Meter
-	Close() error
-	Expose(ctx context.Context, port int, endpoint string) error
+	Registry() *sharedMetrics.Metrics
 	IDPMetrics() *IDPMetrics
 	HTTPMiddleware() *HTTPMiddleware
 	GRPCMetrics() *GRPCMetrics
@@ -128,11 +110,7 @@ type AppMetrics interface {
 
 // defaultAppMetrics are core application metrics based on OpenTelemetry https://opentelemetry.io/
 type defaultAppMetrics struct {
-	// Meter can be used by different application parts to create counters and measure things
-	Meter                 metric2.Meter
-	listener              net.Listener
-	ctx                   context.Context
-	externallyManaged     bool
+	registry              *sharedMetrics.Metrics
 	idpMetrics            *IDPMetrics
 	httpMiddleware        *HTTPMiddleware
 	grpcMetrics           *GRPCMetrics
@@ -177,150 +155,70 @@ func (appMetrics *defaultAppMetrics) EphemeralPeersMetrics() *EphemeralPeersMetr
 	return appMetrics.ephemeralMetrics
 }
 
-// Close stop application metrics HTTP handler and closes listener.
-func (appMetrics *defaultAppMetrics) Close() error {
-	if appMetrics.listener == nil {
-		return nil
-	}
-	return appMetrics.listener.Close()
-}
-
-// Expose metrics on a given port and endpoint. If endpoint is empty a defaultEndpoint one will be used.
-// Exposes metrics in the Prometheus format https://prometheus.io/
-func (appMetrics *defaultAppMetrics) Expose(ctx context.Context, port int, endpoint string) error {
-	if appMetrics.externallyManaged {
-		return nil
-	}
-	if endpoint == "" {
-		endpoint = defaultEndpoint
-	}
-	rootRouter := mux.NewRouter()
-	rootRouter.Handle(endpoint, promhttp.HandlerFor(
-		prometheus2.DefaultGatherer,
-		promhttp.HandlerOpts{EnableOpenMetrics: true}))
-	listener, err := net.Listen("tcp4", fmt.Sprintf(":%d", port))
-	if err != nil {
-		return err
-	}
-	appMetrics.listener = listener
-	go func() {
-		if err := http.Serve(listener, rootRouter); err != nil && err != http.ErrServerClosed {
-			log.WithContext(ctx).Errorf("metrics server error: %v", err)
-		}
-		log.WithContext(ctx).Info("metrics server stopped")
-	}()
-
-	log.WithContext(ctx).Infof("enabled application metrics and exposing on http://%s", listener.Addr().String())
-
-	return nil
+// Registry returns the shared registry that modules register their own instruments with.
+func (appMetrics *defaultAppMetrics) Registry() *sharedMetrics.Metrics {
+	return appMetrics.registry
 }
 
 // GetMeter returns metrics meter that can be used to add various counters
 func (appMetrics *defaultAppMetrics) GetMeter() metric2.Meter {
-	return appMetrics.Meter
+	return appMetrics.registry.Meter
 }
 
-// NewDefaultAppMetrics and expose them via defaultEndpoint on a given HTTP port
+// InstrumentationScope names the management instrumentation; the Prometheus
+// exporter reports it as the otel_scope_name label.
+func InstrumentationScope() string {
+	return reflect.TypeOf(defaultAppMetrics{}).PkgPath()
+}
+
+// NewDefaultAppMetrics creates its own registry and registers the management metrics with it.
 func NewDefaultAppMetrics(ctx context.Context) (AppMetrics, error) {
-	exporter, err := prometheus.New()
+	registry, err := sharedMetrics.New(InstrumentationScope())
 	if err != nil {
-		return nil, fmt.Errorf("failed to create prometheus exporter: %w", err)
+		return nil, fmt.Errorf("failed to create metrics registry: %w", err)
 	}
-
-	provider := metric.NewMeterProvider(metric.WithReader(exporter))
-	pkg := reflect.TypeOf(defaultEndpoint).PkgPath()
-	meter := provider.Meter(pkg)
-
-	idpMetrics, err := NewIDPMetrics(ctx, meter)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize IDP metrics: %w", err)
-	}
-
-	middleware, err := NewMetricsMiddleware(ctx, meter)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize HTTP middleware metrics: %w", err)
-	}
-
-	grpcMetrics, err := NewGRPCMetrics(ctx, meter)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize gRPC metrics: %w", err)
-	}
-
-	storeMetrics, err := NewStoreMetrics(ctx, meter)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize store metrics: %w", err)
-	}
-
-	updateChannelMetrics, err := NewUpdateChannelMetrics(ctx, meter)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize update channel metrics: %w", err)
-	}
-
-	accountManagerMetrics, err := NewAccountManagerMetrics(ctx, meter)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize account manager metrics: %w", err)
-	}
-
-	ephemeralMetrics, err := NewEphemeralPeersMetrics(ctx, meter)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize ephemeral peers metrics: %w", err)
-	}
-
-	return &defaultAppMetrics{
-		Meter:                 meter,
-		ctx:                   ctx,
-		idpMetrics:            idpMetrics,
-		httpMiddleware:        middleware,
-		grpcMetrics:           grpcMetrics,
-		storeMetrics:          storeMetrics,
-		updateChannelMetrics:  updateChannelMetrics,
-		accountManagerMetrics: accountManagerMetrics,
-		ephemeralMetrics:      ephemeralMetrics,
-	}, nil
+	return NewAppMetrics(ctx, registry)
 }
 
-// NewAppMetricsWithMeter creates AppMetrics using an externally provided meter.
-// The caller is responsible for exposing metrics via HTTP. Expose() and Close() are no-ops.
-func NewAppMetricsWithMeter(ctx context.Context, meter metric2.Meter) (AppMetrics, error) {
-	idpMetrics, err := NewIDPMetrics(ctx, meter)
+// NewAppMetrics registers the management metrics with the given registry.
+func NewAppMetrics(ctx context.Context, registry *sharedMetrics.Metrics) (AppMetrics, error) {
+	idpMetrics, err := sharedMetrics.Register(ctx, registry, NewIDPMetrics)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize IDP metrics: %w", err)
 	}
 
-	middleware, err := NewMetricsMiddleware(ctx, meter)
+	middleware, err := sharedMetrics.Register(ctx, registry, NewMetricsMiddleware)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize HTTP middleware metrics: %w", err)
 	}
 
-	grpcMetrics, err := NewGRPCMetrics(ctx, meter)
+	grpcMetrics, err := sharedMetrics.Register(ctx, registry, NewGRPCMetrics)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize gRPC metrics: %w", err)
 	}
 
-	storeMetrics, err := NewStoreMetrics(ctx, meter)
+	storeMetrics, err := sharedMetrics.Register(ctx, registry, NewStoreMetrics)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize store metrics: %w", err)
 	}
 
-	updateChannelMetrics, err := NewUpdateChannelMetrics(ctx, meter)
+	updateChannelMetrics, err := sharedMetrics.Register(ctx, registry, NewUpdateChannelMetrics)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize update channel metrics: %w", err)
 	}
 
-	accountManagerMetrics, err := NewAccountManagerMetrics(ctx, meter)
+	accountManagerMetrics, err := sharedMetrics.Register(ctx, registry, NewAccountManagerMetrics)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize account manager metrics: %w", err)
 	}
 
-	ephemeralMetrics, err := NewEphemeralPeersMetrics(ctx, meter)
+	ephemeralMetrics, err := sharedMetrics.Register(ctx, registry, NewEphemeralPeersMetrics)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize ephemeral peers metrics: %w", err)
 	}
 
 	return &defaultAppMetrics{
-		Meter:                 meter,
-		ctx:                   ctx,
-		externallyManaged:     true,
+		registry:              registry,
 		idpMetrics:            idpMetrics,
 		httpMiddleware:        middleware,
 		grpcMetrics:           grpcMetrics,
