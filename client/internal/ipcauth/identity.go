@@ -21,8 +21,6 @@ import (
 // Well-known Windows SIDs that identify a fully privileged principal.
 const (
 	sidLocalSystem    = "S-1-5-18"     // NT AUTHORITY\SYSTEM
-	sidLocalService   = "S-1-5-19"     // NT AUTHORITY\LOCAL SERVICE
-	sidNetworkService = "S-1-5-20"     // NT AUTHORITY\NETWORK SERVICE
 	sidAdministrators = "S-1-5-32-544" // BUILTIN\Administrators
 )
 
@@ -83,8 +81,7 @@ func (i Identity) IsPrivileged() bool {
 		return true
 	}
 
-	switch i.SID {
-	case sidLocalSystem, sidLocalService, sidNetworkService:
+	if i.SID == sidLocalSystem {
 		return true
 	}
 

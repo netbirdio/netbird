@@ -64,3 +64,61 @@ func TestIdentitySameUser(t *testing.T) {
 		})
 	}
 }
+
+func TestIdentityIsPrivileged(t *testing.T) {
+	sidLocalService := "S-1-5-19"       // NT AUTHORITY\LOCAL SERVICE
+	sidNetworkService := "S-1-5-20"     // NT AUTHORITY\NETWORK SERVICE
+	sidAdministrators := "S-1-5-32-544" // BUILTIN\Administrators
+	tests := []struct {
+		name string
+		id   Identity
+		want bool
+	}{
+		{
+			name: "Root",
+			id:   Identity{UID: 0, GID: 0},
+			want: true,
+		},
+		{
+			name: "Non-root",
+			id:   Identity{UID: 1000, GID: 1000},
+			want: false,
+		},
+		{
+			name: "Local system windows",
+			id:   Identity{SID: sidLocalSystem},
+			want: true,
+		},
+		{
+			name: "Windows elevated",
+			id:   Identity{SID: "S-1-5-21-1927267129-3959769253-3036563910-1001", Elevated: true},
+			want: true,
+		},
+		{
+			name: "Admin group windows",
+			id:   Identity{SID: "S-1-5-21-1927267129-3959769253-3036563910-1001", Groups: []string{sidAdministrators}},
+			want: true,
+		},
+		{
+			name: "Regular user windows",
+			id:   Identity{SID: "S-1-5-21-1927267129-3959769253-3036563910-1001"},
+			want: false,
+		},
+		{
+			name: "Network service windows",
+			id:   Identity{SID: sidNetworkService},
+			want: false,
+		},
+		{
+			name: "Local service windows",
+			id:   Identity{SID: sidLocalService},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.id.IsPrivileged())
+		})
+	}
+}
