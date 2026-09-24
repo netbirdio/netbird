@@ -1048,7 +1048,7 @@ func mysqlTableNames(ctx context.Context, sqlDB *sql.DB, dbName string) ([]strin
 // cloneMysqlSchema replays the template's CREATE TABLE statements into the
 // database the DSN points at.
 func cloneMysqlSchema(ctx context.Context, dsn string, tableDDL []string) error {
-	gormDB, err := gorm.Open(mysql.Open(dsn+"?charset=utf8&parseTime=True&loc=Local"), db.GormConfig())
+	gormDB, err := gorm.Open(mysql.Open(db.MysqlDSN(dsn)), db.GormConfig())
 	if err != nil {
 		return fmt.Errorf("connect to test database: %w", err)
 	}
@@ -1092,19 +1092,19 @@ func closeGormDB(db *gorm.DB) {
 }
 
 func openDBWithRetry(dsn string, engine types.Engine, maxRetries int) (*gorm.DB, error) {
-	var db *gorm.DB
+	var gormDB *gorm.DB
 	var err error
 
 	for i := range maxRetries {
 		switch engine {
 		case types.PostgresStoreEngine:
-			db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
+			gormDB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
 		case types.MysqlStoreEngine:
-			db, err = gorm.Open(mysql.Open(dsn+"?charset=utf8&parseTime=True&loc=Local"), &gorm.Config{})
+			gormDB, err = gorm.Open(mysql.Open(db.MysqlDSN(dsn)), &gorm.Config{})
 		}
 
 		if err == nil {
-			return db, nil
+			return gormDB, nil
 		}
 
 		if i < maxRetries-1 {
@@ -1118,14 +1118,14 @@ func openDBWithRetry(dsn string, engine types.Engine, maxRetries int) (*gorm.DB,
 
 // createRandomDB creates a uniquely named database for one test. On postgres a
 // non-empty template is copied server-side with CREATE DATABASE ... TEMPLATE.
-func createRandomDB(dsn string, db *gorm.DB, engine types.Engine, template string) (string, func(), error) {
+func createRandomDB(dsn string, admin *gorm.DB, engine types.Engine, template string) (string, func(), error) {
 	dbName := newTestDBName("test_db")
 
 	createStmt := fmt.Sprintf("CREATE DATABASE %s", dbName)
 	if template != "" && engine == types.PostgresStoreEngine {
 		createStmt = fmt.Sprintf("CREATE DATABASE %s TEMPLATE %s", dbName, template)
 	}
-	if err := execWithTemplateRetry(db, createStmt); err != nil {
+	if err := execWithTemplateRetry(admin, createStmt); err != nil {
 		return "", nil, fmt.Errorf("failed to create database: %v", err)
 	}
 
@@ -1160,7 +1160,7 @@ func createRandomDB(dsn string, db *gorm.DB, engine types.Engine, template strin
 			err = dropDB.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS %s WITH (FORCE)", dbName)).Error
 
 		case types.MysqlStoreEngine:
-			dropDB, err = gorm.Open(mysql.Open(originalDSN+"?charset=utf8&parseTime=True&loc=Local"), &gorm.Config{
+			dropDB, err = gorm.Open(mysql.Open(db.MysqlDSN(originalDSN)), &gorm.Config{
 				SkipDefaultTransaction: true,
 				PrepareStmt:            false,
 			})

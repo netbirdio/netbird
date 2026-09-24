@@ -11,14 +11,11 @@ import (
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	"github.com/netbirdio/netbird/management/internals/shared/db"
+	"github.com/netbirdio/netbird/management/internals/shared/db/dbtest"
 )
 
 func newTestRepository(t *testing.T) (accesslogs.Repository, *db.Conn) {
-	t.Helper()
-	conn, err := db.OpenSqlite(context.Background(), t.TempDir())
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = conn.Close() })
-	require.NoError(t, conn.AutoMigrate(&accesslogs.AccessLogEntry{}))
+	conn := dbtest.NewConn(t, &accesslogs.AccessLogEntry{})
 	return NewRepository(conn), conn
 }
 
@@ -93,4 +90,32 @@ func TestSqlRepository_CreateInsideTransactionRollsBack(t *testing.T) {
 	_, total, err := repo.ListByAccount(ctx, nil, db.LockingStrengthNone, "acc", accesslogs.AccessLogFilter{Page: 1, PageSize: 10})
 	require.NoError(t, err)
 	assert.Zero(t, total)
+}
+
+func TestSqlRepository_ListByAccount_StatusFilter(t *testing.T) {
+	repo, _ := newTestRepository(t)
+	ctx := context.Background()
+	statusCodes := map[string]int{"l4": 0, "info": 101, "ok": 200, "notfound": 404}
+	for id, code := range statusCodes {
+		entry := newEntry(id, "acc", "GET", time.Hour)
+		entry.StatusCode = code
+		require.NoError(t, repo.Create(ctx, nil, entry))
+	}
+	foreign := newEntry("foreign", "other", "GET", time.Hour)
+	foreign.StatusCode = 500
+	require.NoError(t, repo.Create(ctx, nil, foreign))
+
+	listIDs := func(status string) []string {
+		logs, total, err := repo.ListByAccount(ctx, nil, db.LockingStrengthNone, "acc", accesslogs.AccessLogFilter{Page: 1, PageSize: 10, Status: &status, SortBy: "status_code", SortOrder: "asc"})
+		require.NoError(t, err)
+		require.EqualValues(t, len(logs), total)
+		ids := make([]string, 0, len(logs))
+		for _, entry := range logs {
+			ids = append(ids, entry.ID)
+		}
+		return ids
+	}
+
+	assert.Equal(t, []string{"info", "notfound"}, listIDs("failed"))
+	assert.Equal(t, []string{"ok"}, listIDs("success"))
 }

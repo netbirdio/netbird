@@ -18,7 +18,10 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-const SqliteFileName = "store.db"
+const (
+	SqliteFileName = "store.db"
+	sqliteInMemory = ":memory:"
+)
 
 // PoolConfig sizes the pgx pool a Postgres deployment uses for the read paths
 // that bypass gorm.
@@ -56,7 +59,7 @@ func OpenSqlite(ctx context.Context, dataDir string) (*Conn, error) {
 	filePath, query, hasQuery := strings.Cut(storeFile, "?")
 
 	connStr := filePath
-	if !filepath.IsAbs(filePath) {
+	if filePath != sqliteInMemory && !filepath.IsAbs(filePath) {
 		connStr = filepath.Join(dataDir, filePath)
 	}
 
@@ -104,9 +107,19 @@ func OpenPostgres(ctx context.Context, dsn string, pool PoolConfig) (*Conn, erro
 	return NewConn(ctx, gormDB, PostgresStoreEngine, pgxPool)
 }
 
+// MysqlDSN adds the connection parameters every MySQL handle needs, keeping
+// the options already present in dsn.
+func MysqlDSN(dsn string) string {
+	separator := "?"
+	if strings.Contains(dsn, "?") {
+		separator = "&"
+	}
+	return dsn + separator + "charset=utf8&parseTime=True&loc=Local"
+}
+
 // OpenMysql opens a MySQL database through gorm.
 func OpenMysql(ctx context.Context, dsn string) (*Conn, error) {
-	gormDB, err := gorm.Open(mysql.Open(dsn+"?charset=utf8&parseTime=True&loc=Local"), GormConfig())
+	gormDB, err := gorm.Open(mysql.Open(MysqlDSN(dsn)), GormConfig())
 	if err != nil {
 		return nil, err
 	}

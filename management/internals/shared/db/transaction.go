@@ -34,19 +34,17 @@ func (c *Conn) RunInTx(ctx context.Context, fn func(tx *Tx) error) error {
 		}
 	}()
 
-	if err := c.applyTxSettings(tx); err != nil {
+	if err := c.applyStatementTimeouts(tx); err != nil {
 		tx.Rollback()
 		return err
 	}
 
-	if err := fn(&Tx{db: tx}); err != nil {
+	err := c.withForeignKeyChecksDisabled(tx, func() error {
+		return fn(&Tx{db: tx})
+	})
+	if err != nil {
 		tx.Rollback()
 		c.logIfTimedOut(ctx, timeoutCtx, err, "transaction", startTime)
-		return err
-	}
-
-	if err := c.setForeignKeyChecks(tx, true); err != nil {
-		tx.Rollback()
 		return err
 	}
 
@@ -66,45 +64,48 @@ func (c *Conn) RunInTx(ctx context.Context, fn func(tx *Tx) error) error {
 // open transaction becomes a savepoint, with the MySQL FK workaround applied.
 func (c *Conn) Transaction(handle *gorm.DB, fn func(tx *gorm.DB) error) error {
 	return handle.Transaction(func(tx *gorm.DB) error {
-		if err := c.setForeignKeyChecks(tx, false); err != nil {
-			return err
-		}
-		if err := fn(tx); err != nil {
-			return err
-		}
-		return c.setForeignKeyChecks(tx, true)
+		return c.withForeignKeyChecksDisabled(tx, func() error {
+			return fn(tx)
+		})
 	})
 }
 
-func (c *Conn) applyTxSettings(tx *gorm.DB) error {
-	if c.engine == PostgresStoreEngine {
-		if err := tx.Exec("SET LOCAL statement_timeout = '1min'").Error; err != nil {
-			return fmt.Errorf("failed to set statement timeout: %w", err)
-		}
-		if err := tx.Exec("SET LOCAL lock_timeout = '1min'").Error; err != nil {
-			return fmt.Errorf("failed to set lock timeout: %w", err)
-		}
+func (c *Conn) applyStatementTimeouts(tx *gorm.DB) error {
+	if c.engine != PostgresStoreEngine {
+		return nil
 	}
-	return c.setForeignKeyChecks(tx, false)
+	if err := tx.Exec("SET LOCAL statement_timeout = '1min'").Error; err != nil {
+		return fmt.Errorf("failed to set statement timeout: %w", err)
+	}
+	if err := tx.Exec("SET LOCAL lock_timeout = '1min'").Error; err != nil {
+		return fmt.Errorf("failed to set lock timeout: %w", err)
+	}
+	return nil
 }
 
-// setForeignKeyChecks toggles MySQL's session FK checks. Disabling them for the
-// duration of a transaction avoids deadlocks on MySQL and Aurora and needs no
-// SUPER privilege; other engines are left untouched.
-func (c *Conn) setForeignKeyChecks(tx *gorm.DB, enabled bool) error {
+// withForeignKeyChecksDisabled runs fn with MySQL's FK checks off, which avoids
+// deadlocks on MySQL and Aurora without needing SUPER privilege. The setting is
+// session-scoped and survives a rollback, so it is turned back on whenever fn
+// returns or panics; otherwise the pooled connection would keep it disabled.
+func (c *Conn) withForeignKeyChecksDisabled(tx *gorm.DB, fn func() error) (err error) {
 	if c.engine != MysqlStoreEngine {
-		return nil
-	}
-	if enabled {
-		if err := tx.Exec("SET FOREIGN_KEY_CHECKS = 1").Error; err != nil {
-			return fmt.Errorf("failed to re-enable FK checks: %w", err)
-		}
-		return nil
+		return fn()
 	}
 	if err := tx.Exec("SET FOREIGN_KEY_CHECKS = 0").Error; err != nil {
 		return fmt.Errorf("failed to disable FK checks: %w", err)
 	}
-	return nil
+	defer func() {
+		restoreErr := tx.Exec("SET FOREIGN_KEY_CHECKS = 1").Error
+		if restoreErr == nil {
+			return
+		}
+		if err == nil {
+			err = fmt.Errorf("failed to re-enable FK checks: %w", restoreErr)
+			return
+		}
+		log.WithContext(tx.Statement.Context).Warnf("failed to re-enable FK checks after failed transaction: %v", restoreErr)
+	}()
+	return fn()
 }
 
 func (c *Conn) logIfTimedOut(ctx, timeoutCtx context.Context, err error, phase string, startTime time.Time) {

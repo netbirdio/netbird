@@ -3,12 +3,14 @@ package db
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -19,6 +21,7 @@ type testRow struct {
 
 func openTestConn(t *testing.T) *Conn {
 	t.Helper()
+	t.Setenv("NB_STORE_ENGINE_SQLITE_FILE", "")
 	conn, err := OpenSqlite(context.Background(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, conn.Close()) })
@@ -148,4 +151,21 @@ type recordingMetrics struct {
 
 func (m *recordingMetrics) CountTransactionDuration(time.Duration) {
 	m.calls++
+}
+
+func TestNewConn_MaxOpenConnsFromEnv(t *testing.T) {
+	t.Setenv("NB_SQL_MAX_OPEN_CONNS", "7")
+
+	gormDB, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "store.db")), GormConfig())
+	require.NoError(t, err)
+	conn, err := NewConn(context.Background(), gormDB, PostgresStoreEngine, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	sqlDB, err := conn.DB(nil).DB()
+	require.NoError(t, err)
+	assert.Equal(t, 7, sqlDB.Stats().MaxOpenConnections)
+
+	sqliteDB, err := openTestConn(t).DB(nil).DB()
+	require.NoError(t, err)
+	assert.Equal(t, 1, sqliteDB.Stats().MaxOpenConnections)
 }

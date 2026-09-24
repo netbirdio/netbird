@@ -102,9 +102,9 @@ func applyFilters(query *db.Query, filter accesslogs.AccessLogFilter) *db.Query 
 	if filter.Status != nil {
 		switch *filter.Status {
 		case "success":
-			query.Where("status_code >= ? AND status_code < ?", 200, 400)
+			query.Where("(status_code >= ? AND status_code < ?)", 200, 400)
 		case "failed":
-			query.Where("status_code < ? OR status_code >= ?", 200, 400)
+			query.Where("((status_code >= ? AND status_code < ?) OR status_code >= ?)", 100, 200, 400)
 		}
 	}
 

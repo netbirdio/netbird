@@ -15,6 +15,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -443,5 +444,37 @@ func TestSqlStore_ExecuteInTransaction_NestedJoinsOuterTransaction(t *testing.T)
 		require.NoError(t, err)
 		_, err = store.GetGroupByID(ctx, LockingStrengthNone, accountID, inner.ID)
 		require.NoError(t, err)
+	})
+}
+
+func TestSqlStore_ExecuteInTransaction_RestoresForeignKeyChecksOnMysql(t *testing.T) {
+	runTestForAllEngines(t, "", func(t *testing.T, store Store) {
+		sqlStore := store.(*SqlStore)
+		if sqlStore.conn.Engine() != types.MysqlStoreEngine {
+			t.Skip("FOREIGN_KEY_CHECKS is MySQL specific")
+		}
+		sqlDB, err := sqlStore.GetDB().DB()
+		require.NoError(t, err)
+		sqlDB.SetMaxOpenConns(1)
+		ctx := context.Background()
+
+		foreignKeyChecks := func() int {
+			var enabled int
+			require.NoError(t, sqlStore.GetDB().Raw("SELECT @@SESSION.foreign_key_checks").Scan(&enabled).Error)
+			return enabled
+		}
+
+		err = store.ExecuteInTransaction(ctx, func(Store) error { return assert.AnError })
+		require.ErrorIs(t, err, assert.AnError)
+		assert.Equal(t, 1, foreignKeyChecks())
+
+		require.Panics(t, func() {
+			_ = store.ExecuteInTransaction(ctx, func(Store) error { panic("boom") })
+		})
+		assert.Equal(t, 1, foreignKeyChecks())
+
+		err = sqlStore.conn.Transaction(sqlStore.GetDB(), func(*gorm.DB) error { return assert.AnError })
+		require.ErrorIs(t, err, assert.AnError)
+		assert.Equal(t, 1, foreignKeyChecks())
 	})
 }

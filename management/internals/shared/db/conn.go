@@ -45,11 +45,6 @@ func NewConn(ctx context.Context, gormDB *gorm.DB, engine Engine, pool *pgxpool.
 		return nil, err
 	}
 
-	conns, err := strconv.Atoi(os.Getenv("NB_SQL_MAX_OPEN_CONNS"))
-	if err != nil {
-		conns = runtime.NumCPU()
-	}
-
 	txTimeout := defaultTransactionTimeout
 	if v := os.Getenv("NB_STORE_TRANSACTION_TIMEOUT"); v != "" {
 		if parsed, err := time.ParseDuration(v); err == nil {
@@ -58,8 +53,14 @@ func NewConn(ctx context.Context, gormDB *gorm.DB, engine Engine, pool *pgxpool.
 	}
 	log.WithContext(ctx).Infof("Setting transaction timeout to %v", txTimeout)
 
+	conns := runtime.NumCPU()
+	configuredConns, err := strconv.Atoi(os.Getenv("NB_SQL_MAX_OPEN_CONNS"))
+	connsConfigured := err == nil
+	if connsConfigured {
+		conns = configuredConns
+	}
 	if engine == SqliteStoreEngine {
-		if err == nil {
+		if connsConfigured {
 			log.WithContext(ctx).Warnf("setting NB_SQL_MAX_OPEN_CONNS is not supported for sqlite, using default value 1")
 		}
 		conns = 1
