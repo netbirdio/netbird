@@ -478,3 +478,26 @@ func TestSqlStore_ExecuteInTransaction_RestoresForeignKeyChecksOnMysql(t *testin
 		assert.Equal(t, 1, foreignKeyChecks())
 	})
 }
+
+func TestSqlStore_ExecuteInTransaction_NestedHonoursNestedContext(t *testing.T) {
+	runTestForAllEngines(t, "../testdata/extended-store.sql", func(t *testing.T, store Store) {
+		ctx := context.Background()
+		accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+		group := &types.Group{ID: "canceled-group", AccountID: accountID, Name: "canceled", Issued: "api"}
+
+		err := store.ExecuteInTransaction(ctx, func(transaction Store) error {
+			canceled, cancel := context.WithCancel(ctx)
+			cancel()
+			err := transaction.ExecuteInTransaction(canceled, func(nested Store) error {
+				require.ErrorIs(t, nested.(*SqlStore).GetDB().Exec("SELECT 1").Error, context.Canceled)
+				return nested.CreateGroup(ctx, group)
+			})
+			require.Error(t, err)
+			return nil
+		})
+		require.NoError(t, err)
+
+		_, err = store.GetGroupByID(ctx, LockingStrengthNone, accountID, group.ID)
+		require.Error(t, err)
+	})
+}

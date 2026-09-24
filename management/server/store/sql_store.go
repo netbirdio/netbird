@@ -277,7 +277,7 @@ func newMysqlStoreFromSqlStore(ctx context.Context, sqliteStore *SqlStore, dsn s
 // bound to one joins it instead of opening a second, independent transaction.
 func (s *SqlStore) ExecuteInTransaction(ctx context.Context, operation func(store Store) error) error {
 	if s.tx != nil {
-		return operation(s)
+		return operation(s.withContext(ctx))
 	}
 	return s.conn.RunInTx(ctx, func(tx *db.Tx) error {
 		return operation(s.withTx(tx))
@@ -289,6 +289,17 @@ func (s *SqlStore) withTx(tx *db.Tx) Store {
 		conn:         s.conn,
 		db:           s.conn.DB(tx),
 		tx:           tx,
+		fieldEncrypt: s.fieldEncrypt,
+	}
+}
+
+// withContext keeps the store on its transaction but runs its statements
+// under ctx, so a nested call honours its own cancellation and deadline.
+func (s *SqlStore) withContext(ctx context.Context) Store {
+	return &SqlStore{
+		conn:         s.conn,
+		db:           s.db.WithContext(ctx),
+		tx:           s.tx,
 		fieldEncrypt: s.fieldEncrypt,
 	}
 }
