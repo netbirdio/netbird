@@ -22,6 +22,7 @@ type mockStore struct {
 	updateProxyHeartbeatFunc                 func(ctx context.Context, p *proxy.Proxy) error
 	getActiveProxyClusterAddressesFunc       func(ctx context.Context) ([]string, error)
 	getActiveProxyClusterAddressesForAccFunc func(ctx context.Context, accountID string) ([]string, error)
+	getActiveProxyVersionsFunc               func(ctx context.Context, clusterAddress string) ([]string, error)
 	cleanupStaleProxiesFunc                  func(ctx context.Context, d time.Duration) error
 	getProxyByAccountIDFunc                  func(ctx context.Context, accountID string) (*proxy.Proxy, error)
 	countProxiesByAccountIDFunc              func(ctx context.Context, accountID string) (int64, error)
@@ -104,6 +105,12 @@ func (m *mockStore) GetClusterSupportsCrowdSec(_ context.Context, _ string) *boo
 func (m *mockStore) GetClusterSupportsPrivate(_ context.Context, _ string) *bool {
 	return nil
 }
+func (m *mockStore) GetActiveProxyVersions(ctx context.Context, clusterAddress string) ([]string, error) {
+	if m.getActiveProxyVersionsFunc != nil {
+		return m.getActiveProxyVersionsFunc(ctx, clusterAddress)
+	}
+	return nil, nil
+}
 
 func newTestManager(s store) *Manager {
 	meter := noop.NewMeterProvider().Meter("test")
@@ -112,6 +119,34 @@ func newTestManager(s store) *Manager {
 		panic(err)
 	}
 	return m
+}
+
+func TestClusterSupportsSessionCode(t *testing.T) {
+	tests := []struct {
+		name     string
+		versions []string
+		storeErr error
+		want     bool
+	}{
+		{name: "all supported", versions: []string{"0.80.0", "0.81.2"}, want: true},
+		{name: "one old proxy", versions: []string{"0.80.0", "0.79.9"}},
+		{name: "missing version", versions: []string{"0.80.0", ""}},
+		{name: "no active proxies"},
+		{name: "store error", storeErr: errors.New("db error")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &mockStore{
+				getActiveProxyVersionsFunc: func(_ context.Context, _ string) ([]string, error) {
+					return tt.versions, tt.storeErr
+				},
+			}
+
+			got := newTestManager(s).ClusterSupportsSessionCode(context.Background(), "cluster.example.com")
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }
 
 func TestConnect_WithAccountID(t *testing.T) {

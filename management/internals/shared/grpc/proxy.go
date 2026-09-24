@@ -27,8 +27,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/netbirdio/netbird/shared/management/domain"
-
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
@@ -42,6 +40,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/users"
 	proxyauth "github.com/netbirdio/netbird/proxy/auth"
 	"github.com/netbirdio/netbird/shared/hash/argon2id"
+	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	nbstatus "github.com/netbirdio/netbird/shared/management/status"
 )
@@ -142,7 +141,7 @@ type ProxyServiceServer struct {
 	// OIDC configuration for proxy authentication
 	oidcConfig ProxyOIDCConfig
 
-	// Store for PKCE verifiers
+	// singleUseStore backs both PKCE verifiers and OIDC session exchange codes.
 	singleUseStore *SingleUseStore
 
 	// tokenTTL is the lifetime of one-time tokens generated for proxy
@@ -157,6 +156,13 @@ type ProxyServiceServer struct {
 }
 
 const pkceVerifierTTL = 10 * time.Minute
+
+const sessionCodeTTL = 60 * time.Second
+
+const sessionCodeCacheNamespace = "proxy:session"
+
+// The signed nonce binds the handoff mode without changing the state format.
+const sessionCodeNoncePrefix = "code."
 
 const defaultProxyTokenTTL = 5 * time.Minute
 
@@ -304,6 +310,16 @@ func (s *ProxyServiceServer) proxyConnectAuthorizer() ProxyConnectAuthorizer {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.connectAuthorizer
+}
+
+// GenerateSessionCode creates a single-use code for the given session token.
+func (s *ProxyServiceServer) GenerateSessionCode(sessionToken string) (code string, ok bool) {
+	code, err := s.singleUseStore.Generate(sessionCodeCacheNamespace, sessionToken, sessionCodeTTL)
+	if err != nil {
+		log.WithError(err).Error("failed to generate proxy session code")
+		return "", false
+	}
+	return code, true
 }
 
 // CheckLLMPolicyLimits is the pre-flight policy gate the proxy calls before
@@ -1536,17 +1552,19 @@ func (s *ProxyServiceServer) GetOIDCURL(ctx context.Context, req *proto.GetOIDCU
 		log.WithContext(ctx).Errorf("failed to get account services: %v", err)
 		return nil, status.Errorf(codes.FailedPrecondition, "get account services: %v", err)
 	}
-	var found bool
+	var matchedService *rpservice.Service
 	for _, service := range services {
 		if service.Domain == redirectURL.Hostname() {
-			found = true
+			matchedService = service
 			break
 		}
 	}
-	if !found {
+	if matchedService == nil {
 		log.WithContext(ctx).Debugf("OIDC redirect URL %q does not match any service domain", redirectURL.Hostname())
 		return nil, status.Errorf(codes.FailedPrecondition, "service not found in store")
 	}
+
+	useSessionCode := s.proxyManager.ClusterSupportsSessionCode(ctx, matchedService.ProxyCluster)
 
 	provider, err := oidc.NewProvider(ctx, s.oidcConfig.Issuer)
 	if err != nil {
@@ -1567,9 +1585,12 @@ func (s *ProxyServiceServer) GetOIDCURL(ctx context.Context, req *proto.GetOIDCU
 		return nil, status.Errorf(codes.Internal, "generate nonce: %v", err)
 	}
 	nonceB64 := base64.URLEncoding.EncodeToString(nonce)
+	if useSessionCode {
+		nonceB64 = sessionCodeNoncePrefix + nonceB64
+	}
 
 	// Using an HMAC here to avoid redirection state being modified.
-	// State format: base64(redirectURL)|nonce|hmac(redirectURL|nonce)
+	// State format: base64(redirectURL)|[code.]nonce|hmac(redirectURL|nonce)
 	payload := redirectURL.String() + "|" + nonceB64
 	hmacSum := s.generateHMAC(payload)
 	state := fmt.Sprintf("%s|%s|%s", base64.URLEncoding.EncodeToString([]byte(redirectURL.String())), nonceB64, hmacSum)
@@ -1612,15 +1633,12 @@ func (s *ProxyServiceServer) generateHMAC(input string) string {
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
-// ValidateState validates the state parameter from an OAuth callback.
-// Returns the original redirect URL if valid, or an error if invalid.
-// The HMAC is verified before consuming the PKCE verifier to prevent
-// an attacker from invalidating a legitimate user's auth flow.
-func (s *ProxyServiceServer) ValidateState(state string) (verifier, redirectURL string, err error) {
-	// State format: base64(redirectURL)|nonce|hmac(redirectURL|nonce)
+// ValidateState validates and consumes an OIDC state.
+func (s *ProxyServiceServer) ValidateState(state string) (verifier, redirectURL string, useSessionCode bool, err error) {
+	// State format: base64(redirectURL)|[code.]nonce|hmac(redirectURL|nonce)
 	parts := strings.Split(state, "|")
 	if len(parts) != 3 {
-		return "", "", errors.New("invalid state format")
+		return "", "", false, errors.New("invalid state format")
 	}
 
 	encodedURL := parts[0]
@@ -1629,7 +1647,7 @@ func (s *ProxyServiceServer) ValidateState(state string) (verifier, redirectURL 
 
 	redirectURLBytes, err := base64.URLEncoding.DecodeString(encodedURL)
 	if err != nil {
-		return "", "", fmt.Errorf("invalid state encoding: %w", err)
+		return "", "", false, fmt.Errorf("invalid state encoding: %w", err)
 	}
 	redirectURL = string(redirectURLBytes)
 
@@ -1637,16 +1655,17 @@ func (s *ProxyServiceServer) ValidateState(state string) (verifier, redirectURL 
 	expectedHMAC := s.generateHMAC(payload)
 
 	if !hmac.Equal([]byte(providedHMAC), []byte(expectedHMAC)) {
-		return "", "", errors.New("invalid state signature")
+		return "", "", false, errors.New("invalid state signature")
 	}
+	useSessionCode = strings.HasPrefix(nonce, sessionCodeNoncePrefix)
 
 	// Consume the PKCE verifier only after HMAC validation passes.
 	verifier, ok := s.singleUseStore.LoadAndDelete(state)
 	if !ok {
-		return "", "", errors.New("no verifier for state")
+		return "", "", false, errors.New("no verifier for state")
 	}
 
-	return verifier, redirectURL, nil
+	return verifier, redirectURL, useSessionCode, nil
 }
 
 // Denied reasons reported to the proxy when access is refused because of the
@@ -1851,7 +1870,20 @@ func (s *ProxyServiceServer) getAccountServiceByDomain(ctx context.Context, acco
 // ValidateSession validates a session token and checks if the user has access to the domain.
 func (s *ProxyServiceServer) ValidateSession(ctx context.Context, req *proto.ValidateSessionRequest) (*proto.ValidateSessionResponse, error) {
 	domain := req.GetDomain()
-	sessionToken := req.GetSessionToken()
+	sessionToken := req.GetSessionToken() //nolint:staticcheck
+
+	// A one-time code from the OIDC callback is redeemed here for the durable
+	// token, so the token never travels in a redirect URL. The redeemed token
+	// is returned to the proxy (mintedToken) to install as the session cookie.
+	mintedToken := ""
+	if code := req.GetSessionCode(); code != "" {
+		redeemed, found := s.singleUseStore.LoadAndDelete(singleUseCacheKey(sessionCodeCacheNamespace, code))
+		if !found {
+			return deniedSessionResponse("invalid or expired session code"), nil
+		}
+		sessionToken = redeemed
+		mintedToken = redeemed
+	}
 
 	if domain == "" || sessionToken == "" {
 		return deniedSessionResponse("missing domain or session_token"), nil
@@ -1924,6 +1956,7 @@ func (s *ProxyServiceServer) ValidateSession(ctx context.Context, req *proto.Val
 		UserEmail:      user.Email,
 		PeerGroupIds:   groupIDs,
 		PeerGroupNames: groupNames,
+		SessionToken:   mintedToken,
 	}, nil
 }
 

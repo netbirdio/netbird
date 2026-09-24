@@ -59,7 +59,7 @@ func (h *AuthCallbackHandler) handleCallback(w http.ResponseWriter, r *http.Requ
 
 	state := r.URL.Query().Get("state")
 
-	codeVerifier, originalURL, err := h.proxyService.ValidateState(state)
+	codeVerifier, originalURL, useSessionCode, err := h.proxyService.ValidateState(state)
 	if err != nil {
 		log.WithError(err).Error("OAuth callback state validation failed")
 		http.Error(w, "Invalid state parameter", http.StatusBadRequest)
@@ -119,10 +119,19 @@ func (h *AuthCallbackHandler) handleCallback(w http.ResponseWriter, r *http.Requ
 	redirectURL.Scheme = "https"
 
 	query := redirectURL.Query()
-	query.Set("session_token", sessionToken)
+	if useSessionCode {
+		code, ok := h.proxyService.GenerateSessionCode(sessionToken)
+		if !ok {
+			http.Error(w, "Failed to create session", http.StatusInternalServerError)
+			return
+		}
+		query.Set("session_code", code)
+	} else {
+		query.Set("session_token", sessionToken)
+	}
 	redirectURL.RawQuery = query.Encode()
 
-	log.WithField("redirect", redirectURL.Host).Debug("OAuth callback: redirecting user with session token")
+	log.WithField("redirect", redirectURL.Host).Debug("OAuth callback: redirecting user to proxy")
 	http.Redirect(w, r, redirectURL.String(), http.StatusFound)
 }
 

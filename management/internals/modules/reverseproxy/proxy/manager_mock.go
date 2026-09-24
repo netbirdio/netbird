@@ -112,6 +112,20 @@ func (mr *MockManagerMockRecorder) ClusterSupportsPrivate(ctx, clusterAddr any) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClusterSupportsPrivate", reflect.TypeOf((*MockManager)(nil).ClusterSupportsPrivate), ctx, clusterAddr)
 }
 
+// ClusterSupportsSessionCode mocks base method.
+func (m *MockManager) ClusterSupportsSessionCode(ctx context.Context, clusterAddr string) bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClusterSupportsSessionCode", ctx, clusterAddr)
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// ClusterSupportsSessionCode indicates an expected call of ClusterSupportsSessionCode.
+func (mr *MockManagerMockRecorder) ClusterSupportsSessionCode(ctx, clusterAddr any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClusterSupportsSessionCode", reflect.TypeOf((*MockManager)(nil).ClusterSupportsSessionCode), ctx, clusterAddr)
+}
+
 // Connect mocks base method.
 func (m *MockManager) Connect(ctx context.Context, proxyID, sessionID, clusterAddress, ipAddress, version string, accountID *string, capabilities *Capabilities) (*Proxy, error) {
 	m.ctrl.T.Helper()

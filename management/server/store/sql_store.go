@@ -6675,6 +6675,21 @@ func (s *SqlStore) GetClusterSupportsCrowdSec(ctx context.Context, clusterAddr s
 	return s.getClusterUnanimousCapability(ctx, clusterAddr, "supports_crowdsec")
 }
 
+// GetActiveProxyVersions returns every active proxy version in a cluster.
+func (s *SqlStore) GetActiveProxyVersions(ctx context.Context, clusterAddr string) ([]string, error) {
+	var versions []string
+	err := s.db.WithContext(ctx).
+		Model(&proxy.Proxy{}).
+		Where("LOWER(cluster_address) = LOWER(?) AND status = ? AND last_seen > ?",
+			clusterAddr, proxy.StatusConnected, time.Now().Add(-proxyActiveThreshold)).
+		Pluck("version", &versions).Error
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get active proxy versions for %s: %v", clusterAddr, err)
+		return nil, status.Errorf(status.Internal, "get active proxy versions")
+	}
+	return versions, nil
+}
+
 // getClusterUnanimousCapability returns an aggregated boolean capability
 // requiring all active proxies in the cluster to report true.
 func (s *SqlStore) getClusterUnanimousCapability(ctx context.Context, clusterAddr, column string) *bool {

@@ -181,6 +181,7 @@ func ServeAccessDeniedPage(w http.ResponseWriter, r *http.Request, code int, tit
 func stripAuthParams(u *url.URL) string {
 	q := u.Query()
 	q.Del("session_token")
+	q.Del("session_code")
 	q.Del("error")
 	q.Del("error_description")
 	clean := *u
