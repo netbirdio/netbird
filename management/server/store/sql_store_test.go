@@ -410,3 +410,38 @@ func TestNewSqliteStore_BusyTimeoutRespectsUserOverride(t *testing.T) {
 		})
 	}
 }
+
+func TestSqlStore_ExecuteInTransaction_NestedJoinsOuterTransaction(t *testing.T) {
+	runTestForAllEngines(t, "../testdata/extended-store.sql", func(t *testing.T, store Store) {
+		ctx := context.Background()
+		accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+		outer := &types.Group{ID: "outer-group", AccountID: accountID, Name: "outer", Issued: "api"}
+		inner := &types.Group{ID: "inner-group", AccountID: accountID, Name: "inner", Issued: "api"}
+
+		err := store.ExecuteInTransaction(ctx, func(transaction Store) error {
+			require.NoError(t, transaction.CreateGroup(ctx, outer))
+			err := transaction.ExecuteInTransaction(ctx, func(nested Store) error {
+				_, err := nested.GetGroupByID(ctx, LockingStrengthNone, accountID, outer.ID)
+				require.NoError(t, err)
+				return nested.CreateGroup(ctx, inner)
+			})
+			require.NoError(t, err)
+			return assert.AnError
+		})
+		require.ErrorIs(t, err, assert.AnError)
+
+		_, err = store.GetGroupByID(ctx, LockingStrengthNone, accountID, outer.ID)
+		require.Error(t, err)
+		_, err = store.GetGroupByID(ctx, LockingStrengthNone, accountID, inner.ID)
+		require.Error(t, err)
+
+		err = store.ExecuteInTransaction(ctx, func(transaction Store) error {
+			return transaction.ExecuteInTransaction(ctx, func(nested Store) error {
+				return nested.CreateGroup(ctx, inner)
+			})
+		})
+		require.NoError(t, err)
+		_, err = store.GetGroupByID(ctx, LockingStrengthNone, accountID, inner.ID)
+		require.NoError(t, err)
+	})
+}

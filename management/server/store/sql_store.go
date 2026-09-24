@@ -273,7 +273,12 @@ func newMysqlStoreFromSqlStore(ctx context.Context, sqliteStore *SqlStore, dsn s
 	return store, nil
 }
 
+// ExecuteInTransaction runs operation in a transaction. A store that is already
+// bound to one joins it instead of opening a second, independent transaction.
 func (s *SqlStore) ExecuteInTransaction(ctx context.Context, operation func(store Store) error) error {
+	if s.tx != nil {
+		return operation(s)
+	}
 	return s.conn.RunInTx(ctx, func(tx *db.Tx) error {
 		return operation(s.withTx(tx))
 	})
