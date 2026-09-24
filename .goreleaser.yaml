@@ -40,6 +40,32 @@ builds:
     tags:
       - load_wgnt_from_rsrc
 
+  # Single-arch builds: nfpm provides is not templated, so the RPM splits per arch.
+  - &netbird_rpm_build
+    id: netbird-rpm-amd64
+    dir: client
+    binary: netbird
+    env: [CGO_ENABLED=0]
+    goos: [linux]
+    goarch: [amd64]
+    ldflags:
+      - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    tags:
+      - load_wgnt_from_rsrc
+
+  - <<: *netbird_rpm_build
+    id: netbird-rpm-arm64
+    goarch: [arm64]
+
+  - <<: *netbird_rpm_build
+    id: netbird-rpm-arm
+    goarch: [arm]
+
+  - <<: *netbird_rpm_build
+    id: netbird-rpm-386
+    goarch: [386]
+
   - id: netbird-static
     dir: client
     binary: netbird
@@ -223,17 +249,22 @@ nfpms:
       postinstall: "release_files/post_install.sh"
       preremove: "release_files/pre_remove.sh"
 
-  - maintainer: Netbird <dev@netbird.io>
+  - &netbird_rpm
+    maintainer: Netbird <dev@netbird.io>
     description: Netbird client.
     homepage: https://netbird.io/
     license: BSD-3-Clause
     vendor: NetBird
-    id: netbird_rpm
+    id: netbird_rpm_amd64
     bindir: /usr/bin
-    builds:
-      - netbird
+    ids:
+      - netbird-rpm-amd64
     formats:
       - rpm
+    # Red Hat certification (RPM Version Handling) requires rpmbuild's ISA
+    # provide, which nfpm does not emit. The version is filled in by the release job.
+    provides:
+      - "netbird(x86-64) = @RPM_EVR@"
     # The client verifies TLS to management and signal against the system trust
     # store. Red Hat software certification (RPM Dependency Tracking) also
     # rejects packages that declare no dependencies at all.
@@ -263,6 +294,27 @@ nfpms:
       packager: NetBird <dev@netbird.io>
       signature:
         key_file: '{{ if index .Env "GPG_RPM_KEY_FILE" }}{{ .Env.GPG_RPM_KEY_FILE }}{{ end }}'
+
+  - <<: *netbird_rpm
+    id: netbird_rpm_arm64
+    ids:
+      - netbird-rpm-arm64
+    provides:
+      - "netbird(aarch-64) = @RPM_EVR@"
+
+  - <<: *netbird_rpm
+    id: netbird_rpm_arm
+    ids:
+      - netbird-rpm-arm
+    provides:
+      - "netbird(armv6hl-32) = @RPM_EVR@"
+
+  - <<: *netbird_rpm
+    id: netbird_rpm_386
+    ids:
+      - netbird-rpm-386
+    provides:
+      - "netbird(x86-32) = @RPM_EVR@"
 dockers_v2:
    - id: netbird
      disable: "{{ .Env.SKIP_DOCKER_PUSH }}"
@@ -513,7 +565,10 @@ uploads:
   - name: yum
     skip: "{{ .Env.SKIP_PUBLISH }}"
     ids:
-      - netbird_rpm
+      - netbird_rpm_amd64
+      - netbird_rpm_arm64
+      - netbird_rpm_arm
+      - netbird_rpm_386
     mode: archive
     target: https://pkgs.wiretrustee.com/yum/{{ .Arch }}{{ if .Arm }}{{ .Arm }}{{ end }}
     username: dev@wiretrustee.com
