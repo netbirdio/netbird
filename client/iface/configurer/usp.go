@@ -101,7 +101,16 @@ func (c *WGUSPConfigurer) SetPresharedKey(peerKey string, psk wgtypes.Key, updat
 	}
 
 	cfg := buildPresharedKeyConfig(parsedPeerKey, psk, updateOnly)
-	return c.device.IpcSet(toWgUserspaceString(cfg))
+	if err := c.device.IpcSet(toWgUserspaceString(cfg)); err != nil {
+		return err
+	}
+
+	// Without updateOnly this creates the peer when it is absent, so the store has to
+	// know about it even though no allowed IP was configured.
+	if !updateOnly {
+		c.allowedIPs.ensure(peerKey)
+	}
+	return nil
 }
 
 func (c *WGUSPConfigurer) UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {

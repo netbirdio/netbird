@@ -207,3 +207,31 @@ func TestRemoveEndpointAddressDoesNotStealAPrefixFromAnotherPeer(t *testing.T) {
 	assert.Contains(t, peerAllowedIPs(t, c, peerB), routed.String(),
 		"B must still hold the prefix")
 }
+
+// TestPresharedKeyCreatedPeerTakesPartInPrefixHandover covers a peer created by a preshared
+// key write rather than by a peer update. Rosenpass applies a peer's first key without
+// updateOnly, which creates the peer on the device, so a store that ignored that operation
+// would treat the peer as unknown and would not account for a prefix later handed over to it.
+func TestPresharedKeyCreatedPeerTakesPartInPrefixHandover(t *testing.T) {
+	c := newTestUSPConfigurer(t)
+	peerA := seedPeers(t, c, 1)[0]
+	routed := netip.MustParsePrefix("10.20.0.0/16")
+	require.NoError(t, c.AddAllowedIP(peerA, routed), "give the prefix to A")
+
+	priv, err := wgtypes.GeneratePrivateKey()
+	require.NoError(t, err, "generate peer private key")
+	peerB := priv.PublicKey().String()
+
+	psk, err := wgtypes.GenerateKey()
+	require.NoError(t, err, "generate preshared key")
+	require.NoError(t, c.SetPresharedKey(peerB, psk, false), "a first key creates the peer")
+
+	require.NoError(t, c.AddAllowedIP(peerB, routed), "hand the prefix over to B")
+	require.Contains(t, peerAllowedIPs(t, c, peerB), routed.String(), "B must hold the prefix")
+
+	require.NoError(t, c.RemoveEndpointAddress(peerA), "clear A's endpoint")
+
+	assert.NotContains(t, peerAllowedIPs(t, c, peerA), routed.String(),
+		"clearing A's endpoint must not take the prefix back from B")
+	assert.Contains(t, peerAllowedIPs(t, c, peerB), routed.String(), "B must still hold the prefix")
+}
