@@ -45,13 +45,8 @@ type MethodPolicy struct {
 	Audit          bool
 	TargetsProfile bool
 
-	// Action and Command turn a privilege denial into guidance the caller can
-	// act on. Action reads as the subject of a sentence ("claiming a profile"),
-	// Command is the same operation run with the privileges it needs. Only read
-	// when Level is AuthzLevelPrivileged, the one denial a caller can fix by
-	// running as somebody else.
-	Action  string
-	Command string
+	// Action reads as the subject of a refusal message ("claiming a profile").
+	Action string
 }
 
 // RequireHolderForFullStatus escalates a StatusRequest that asks for peer detail
@@ -133,14 +128,12 @@ var methodPolicies = map[string]MethodPolicy{
 	servicePath + "TracePacket":                {Level: AuthzLevelSessionHolder, Action: "tracing a packet"},
 	servicePath + "TriggerUpdate":              {Level: AuthzLevelSessionHolder, Audit: true, Action: "starting an update"},
 
-	// Root or administrator only. Claiming names an arbitrary principal, so the
-	// caller asserts who a profile belongs to. Ownership does not enter it.
+	// Root or administrator only.
 	servicePath + "ClaimProfile": {
 		Level:          AuthzLevelPrivileged,
 		TargetsProfile: true,
 		Audit:          true,
 		Action:         "claiming a profile",
-		Command:        ElevatedCommand("netbird profile claim <profile>"),
 	},
 }
 

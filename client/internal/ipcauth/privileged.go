@@ -36,6 +36,10 @@ const (
 	// not what the method asked for, so telling the caller to elevate would send
 	// them the wrong way.
 	ErrorReasonNotProfileOwner = "NOT_PROFILE_OWNER"
+
+	// ErrorReasonProfileUnowned identifies a refusal caused by the profile
+	// recording no owner. It carries the command that records one.
+	ErrorReasonProfileUnowned = "PROFILE_UNOWNED"
 )
 
 // The identity of the process evaluating callers, captured once because it cannot
@@ -210,13 +214,44 @@ func PrivilegeError(summary, command string) error {
 // SessionHeldError refuses an operation because another user has the machine
 // connected.
 func SessionHeldError(action string) error {
-	return denialError(ErrorReasonSessionHeld, sessionHeldSummary(action), ElevatedCommand("netbird down"))
+	actor, command := RequiredActor(DownCommand())
+	return denialError(ErrorReasonSessionHeld, sessionHeldSummary(action)+remedyNote(actor, command), command)
 }
 
 // NotOwnerError refuses an operation because the profile it addresses belongs to
 // somebody else.
 func NotOwnerError(action string) error {
 	return denialError(ErrorReasonNotProfileOwner, notOwnerSummary(action), "")
+}
+
+// UnownedError refuses an operation because the profile it addresses has no
+// owner on record, and names the command that gives it one. atConsole is whether
+// the caller sits at one of this machine's consoles.
+func UnownedError(action, handle string, atConsole bool) error {
+	actor, command := RequiredActor(ClaimCommand(handle))
+	return denialError(ErrorReasonProfileUnowned, unownedSummary(action, atConsole)+remedyNote(actor, command), command)
+}
+
+// remedyNote names who has to run the command a refusal offers.
+func remedyNote(actor, command string) string {
+	if strings.HasPrefix(command, "sudo ") {
+		return ""
+	}
+	return " Running this requires " + actor + "."
+}
+
+// DownCommand renders the elevated command that ends the live session.
+func DownCommand() string {
+	return ElevatedCommand("netbird down")
+}
+
+// ClaimCommand renders the elevated command that records an owner for a profile.
+// With no profile to name it keeps the placeholder for the caller to fill in.
+func ClaimCommand(handle string) string {
+	if handle == "" {
+		handle = "<profile>"
+	}
+	return ElevatedCommand("netbird profile claim " + handle)
 }
 
 // sessionHeldSummary says whose the connection is and why that settles it.
@@ -231,6 +266,19 @@ func notOwnerSummary(action string) string {
 	return refusedSubject(action) + " refused because the profile it addresses belongs to another user. " +
 		"A profile and the configuration on it stay with the account that created or claimed it, " +
 		"so use one of your own or ask an administrator to hand this one over."
+}
+
+// unownedSummary says the profile belongs to nobody yet and what changes that.
+// Only a caller away from the console is told about it, since a profile left
+// unclaimed while somebody is at one got that way for another reason.
+func unownedSummary(action string, atConsole bool) string {
+	cause := ""
+	if !atConsole {
+		cause = "A profile is claimed by the user who sets it up at this machine's console (in front of the machine), " +
+			"and nobody has done that here. "
+	}
+	return refusedSubject(action) + " refused because the profile it addresses has no owner on record. " +
+		cause + "An explicit claim of the profile is needed."
 }
 
 // refusedSubject opens a refusal with what was refused, falling back to the
@@ -266,9 +314,7 @@ func denialError(reason, summary, command string) error {
 }
 
 // RequiredActor names who may perform the operation and adjusts the command to
-// match. A daemon that is not itself privileged delegates to its own identity, so
-// telling that host's user to become root is wrong twice over: root is not what the
-// daemon checks for, and a rootless container has neither root nor sudo.
+// match.
 func RequiredActor(command string) (string, string) {
 	self, delegates := SelfDelegatesTo()
 	if !delegates {

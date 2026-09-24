@@ -26,6 +26,8 @@ func denialCode(reason string) (string, bool) {
 		return "session_held", true
 	case ipcauth.ErrorReasonNotProfileOwner:
 		return "not_profile_owner", true
+	case ipcauth.ErrorReasonProfileUnowned:
+		return "profile_unowned", true
 	default:
 		return "permission_denied", false
 	}

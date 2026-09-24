@@ -25,6 +25,10 @@ func IsConsoleUser(id Identity) bool {
 	return guardConsoleLookup(id, isConsoleUser)
 }
 
+// consoleLookup is a variable so a test can decide whether a caller is at the
+// console without the machine running it having a seat of its own.
+var consoleLookup = IsConsoleUser
+
 // guardConsoleLookup runs a platform lookup and turns a panic out of it into
 // "cannot confirm".
 func guardConsoleLookup(id Identity, lookup func(Identity) bool) (atConsole bool) {

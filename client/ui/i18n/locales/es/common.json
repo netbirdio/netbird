@@ -1404,5 +1404,8 @@
     },
     "error.not_profile_owner": {
         "message": "Este perfil pertenece a otro usuario."
+    },
+    "error.profile_unowned": {
+        "message": "Este perfil aún no tiene propietario."
     }
 }

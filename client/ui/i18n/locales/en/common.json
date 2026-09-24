@@ -1870,5 +1870,9 @@
     "error.not_profile_owner": {
         "message": "This profile belongs to another user.",
         "description": "Short headline when the daemon refuses an action because the profile it addresses is owned by a different user account."
+    },
+    "error.profile_unowned": {
+        "message": "This profile has no owner yet.",
+        "description": "Short headline when the daemon refuses an action because the profile it addresses has no owner recorded yet. The daemon's own sentence is shown as the detail, followed by a copyable command that records an owner."
     }
 }

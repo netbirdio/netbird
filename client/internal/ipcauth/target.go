@@ -6,6 +6,11 @@ import "context"
 type Target struct {
 	Path  string
 	Owned bool
+	// UnOwned reports that the resolved profile records no owner.
+	UnOwned bool
+	// Handle is the resolved profile's ID, which a refusal names in the command
+	// it hands the caller. A request that named nothing still has one.
+	Handle string
 }
 
 type targetKey struct{}

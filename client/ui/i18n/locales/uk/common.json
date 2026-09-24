@@ -1402,5 +1402,8 @@
     },
     "error.not_profile_owner": {
         "message": "Цей профіль належить іншому користувачеві."
+    },
+    "error.profile_unowned": {
+        "message": "Цей профіль ще не має власника."
     }
 }

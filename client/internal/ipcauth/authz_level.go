@@ -64,17 +64,14 @@ func denyLevel(r Request, want AuthzLevel) error {
 
 // denyPolicyLevel refuses a caller at the gate, where the policy is in hand.
 //
-// Requiring privilege is the one denial a caller can act on, so it carries the
-// elevated command rather than a bare refusal. A privileged method that declares
-// no action keeps the plain message. Rules deny through denyLevel instead: they
-// cannot reach the policy table without an initialization cycle, and no rule
-// requires privilege.
-func denyPolicyLevel(r Request, p MethodPolicy) error {
+// A privileged method that declares no action keeps the plain message. Rules
+// deny through denyLevel instead: they cannot reach the policy table without an
+// initialization cycle, and no rule requires privilege.
+func denyPolicyLevel(r Request, p MethodPolicy, target Target) error {
 	switch p.Level {
 	case AuthzLevelPrivileged:
 		if p.Action != "" {
-			actor, command := RequiredActor(p.Command)
-			return PrivilegeError(PrivilegeSummary(p.Action, actor), command)
+			return denyPrivileged(p, target)
 		}
 
 	case AuthzLevelSessionHolder:
@@ -83,11 +80,27 @@ func denyPolicyLevel(r Request, p MethodPolicy) error {
 		if r.Level == AuthzLevelProfileOwner {
 			return SessionHeldError(p.Action)
 		}
-		return NotOwnerError(p.Action)
+		return denyOwnership(p.Action, r.Identity, target)
 
 	case AuthzLevelProfileOwner:
-		return NotOwnerError(p.Action)
+		return denyOwnership(p.Action, r.Identity, target)
 	}
 
 	return denyLevel(r, p.Level)
+}
+
+// denyPrivileged refuses a method that needs a privileged caller.
+// Claiming a profile is currently the only privileged method
+func denyPrivileged(p MethodPolicy, target Target) error {
+	actor, command := RequiredActor(ClaimCommand(target.Handle))
+	return PrivilegeError(PrivilegeSummary(p.Action, actor), command)
+}
+
+// denyOwnership refuses a caller with no standing on the profile. Only a profile
+// nobody has claimed is theirs to put right, so only that one carries a command.
+func denyOwnership(action string, id Identity, target Target) error {
+	if target.UnOwned {
+		return UnownedError(action, target.Handle, consoleLookup(id))
+	}
+	return NotOwnerError(action)
 }

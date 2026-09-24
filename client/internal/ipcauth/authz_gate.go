@@ -143,7 +143,7 @@ func (g *AuthzGate) authorize(ctx context.Context, method string, msg any) (cont
 		if presentable := presentableHandleError(handle, handleErr); presentable != nil {
 			return ctx, presentable
 		}
-		return ctx, denyPolicyLevel(req, policy)
+		return ctx, denyPolicyLevel(req, policy, target)
 	}
 	for _, rule := range policy.Rules {
 		if err := rule(req); err != nil {

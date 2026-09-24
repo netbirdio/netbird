@@ -70,6 +70,7 @@ func TestClassifyMapsEveryDaemonReason(t *testing.T) {
 		{"privilege", ipcauth.PrivilegeError("Claiming a profile requires root.", "sudo netbird profile claim"), "privilege_required", true},
 		{"session held", ipcauth.SessionHeldError("switching profile"), "session_held", true},
 		{"not owner", ipcauth.NotOwnerError("reading the profile configuration"), "not_profile_owner", false},
+		{"unowned", ipcauth.UnownedError("connecting", "default", false), "profile_unowned", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := c.classify(tc.err)
@@ -115,6 +116,12 @@ func TestDenialHeadlinesResolveInTheShippedBundle(t *testing.T) {
 			ipcauth.NotOwnerError("reading the profile configuration"),
 			"This profile belongs to another user.",
 			"Reading the profile configuration is refused because the profile it addresses belongs to another user.",
+		},
+		{
+			"unowned",
+			ipcauth.UnownedError("connecting", "default", false),
+			"This profile has no owner yet.",
+			"Connecting is refused because the profile it addresses has no owner on record.",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

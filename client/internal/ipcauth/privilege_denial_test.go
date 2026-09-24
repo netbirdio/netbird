@@ -20,27 +20,24 @@ func TestPoliciesDeclareAnAction(t *testing.T) {
 	}
 }
 
-// A privileged method must also say how to satisfy it, since that is the one
-// refusal the caller can act on.
-func TestPrivilegedPoliciesDeclareGuidance(t *testing.T) {
+// A refusal that names no action cannot say what was refused, and a privileged
+// method drops to a bare message without one.
+func TestPrivilegedPoliciesDeclareAnAction(t *testing.T) {
 	for method, policy := range methodPolicies {
 		if policy.Level != AuthzLevelPrivileged {
 			continue
 		}
-		assert.NotEmpty(t, policy.Command, "%s requires privilege but declares no Command", method)
+		assert.NotEmpty(t, policy.Action, "%s requires privilege but declares no Action", method)
 	}
 }
 
-// Only privilege is something the caller can run their way out of. The other
-// refusals explain and stop there.
-func TestOnlyPrivilegedPoliciesDeclareACommand(t *testing.T) {
-	for method, policy := range methodPolicies {
-		if policy.Level == AuthzLevelPrivileged {
-			continue
-		}
-		assert.Empty(t, policy.Command, "%s is not privileged but offers a command", method)
-	}
-}
+// ownedByAnother is the profile most of these refusals are about: it exists and
+// records an owner, that owner is simply not this caller.
+var ownedByAnother = Target{Path: "/profiles/someone-else.json"}
+
+// unownedProfile records no owner, which is what a machine set up with nobody at
+// its console leaves behind.
+var unownedProfile = Target{Path: "/profiles/default.json", UnOwned: true, Handle: "default"}
 
 func TestDenyPolicyLevelCarriesPrivilegeGuidance(t *testing.T) {
 	req := Request{
@@ -49,7 +46,7 @@ func TestDenyPolicyLevelCarriesPrivilegeGuidance(t *testing.T) {
 		Method:   servicePath + "ClaimProfile",
 	}
 
-	err := denyPolicyLevel(req, methodPolicies[servicePath+"ClaimProfile"])
+	err := denyPolicyLevel(req, methodPolicies[servicePath+"ClaimProfile"], unownedProfile)
 	require.Error(t, err)
 
 	st := gstatus.Convert(err)
@@ -65,7 +62,8 @@ func TestDenyPolicyLevelCarriesPrivilegeGuidance(t *testing.T) {
 	assert.Equal(t, ErrorReasonPrivilegeRequired, info.GetReason())
 	assert.Equal(t, ErrorDomain, info.GetDomain())
 	assert.NotEmpty(t, info.GetMetadata()[ErrorMetaSummary])
-	assert.NotEmpty(t, info.GetMetadata()[ErrorMetaCommand])
+	assert.Contains(t, info.GetMetadata()[ErrorMetaCommand], "netbird profile claim default",
+		"the guidance names the profile the request resolved to, not a placeholder")
 }
 
 // A profile that belongs to somebody else is explained, not answered with sudo.
@@ -77,7 +75,7 @@ func TestDenyPolicyLevelExplainsAProfileOwnedByAnother(t *testing.T) {
 		State:    stubState{},
 	}
 
-	info := denialDetail(t, denyPolicyLevel(req, methodPolicies[servicePath+"SetConfig"]))
+	info := denialDetail(t, denyPolicyLevel(req, methodPolicies[servicePath+"SetConfig"], ownedByAnother))
 	assert.Equal(t, ErrorReasonNotProfileOwner, info.GetReason())
 	assert.Contains(t, info.GetMetadata()[ErrorMetaSummary], "belongs to another user")
 
@@ -94,7 +92,7 @@ func TestDenyPolicyLevelWithoutGuidanceStaysBare(t *testing.T) {
 		Method:   servicePath + "NotARealMethod",
 	}
 
-	err := denyPolicyLevel(req, methodPolicyFor(req.Method))
+	err := denyPolicyLevel(req, methodPolicyFor(req.Method), ownedByAnother)
 	require.Error(t, err)
 	assert.Equal(t, codes.PermissionDenied, gstatus.Convert(err).Code())
 	assert.Empty(t, gstatus.Convert(err).Details())
@@ -126,7 +124,7 @@ func TestDenyPolicyLevelExplainsAHeldSession(t *testing.T) {
 		Method:   servicePath + "Up",
 	}
 
-	info := denialDetail(t, denyPolicyLevel(req, methodPolicies[servicePath+"Up"]))
+	info := denialDetail(t, denyPolicyLevel(req, methodPolicies[servicePath+"Up"], ownedByAnother))
 	assert.Equal(t, ErrorReasonSessionHeld, info.GetReason())
 
 	summary := info.GetMetadata()[ErrorMetaSummary]
@@ -148,7 +146,7 @@ func TestDenyPolicyLevelBelowProfileOwnerBlamesOwnership(t *testing.T) {
 		Method:   servicePath + "Up",
 	}
 
-	info := denialDetail(t, denyPolicyLevel(req, methodPolicies[servicePath+"Up"]))
+	info := denialDetail(t, denyPolicyLevel(req, methodPolicies[servicePath+"Up"], ownedByAnother))
 	assert.Equal(t, ErrorReasonNotProfileOwner, info.GetReason())
 	assert.Contains(t, info.GetMetadata()[ErrorMetaSummary], "belongs to another user")
 	assert.NotContains(t, info.GetMetadata()[ErrorMetaSummary], "connected",
@@ -235,4 +233,153 @@ func TestDenialFromFallsBackToTheStatusMessage(t *testing.T) {
 	denial, ok := DenialFrom(st.Err())
 	require.True(t, ok)
 	assert.Equal(t, "refused for reasons", denial.Summary)
+}
+
+// A profile nobody has claimed is the headless install: the caller is not being
+// kept out of somebody else's profile, they are being told to record an owner.
+func TestDenyPolicyLevelOffersTheClaimForAnUnownedProfile(t *testing.T) {
+	req := Request{
+		Identity: KnownForTest(Identity{UID: 1000}),
+		Level:    AuthzLevelIdentified,
+		Method:   servicePath + "Up",
+	}
+
+	stubConsoleLookup(t, false)
+
+	info := denialDetail(t, denyPolicyLevel(req, methodPolicies[servicePath+"Up"], unownedProfile))
+	assert.Equal(t, ErrorReasonProfileUnowned, info.GetReason())
+
+	summary := info.GetMetadata()[ErrorMetaSummary]
+	assert.Contains(t, summary, "Connecting", "the summary names what was refused")
+	assert.Contains(t, summary, "no owner on record")
+	assert.NotContains(t, summary, "another user",
+		"nobody owns it, so blaming another user would be untrue")
+
+	// Without the sudo prefix, which RequiredActor drops for a daemon that is
+	// not itself privileged, as this test process is not.
+	assert.Contains(t, info.GetMetadata()[ErrorMetaCommand], "netbird profile claim default",
+		"the command names the profile that was refused")
+}
+
+// The same refusal reaches a method that only needs profile owner, so a settings
+// read on a fresh headless machine explains itself the same way connecting does.
+func TestDenyPolicyLevelOffersTheClaimBelowSessionHolderToo(t *testing.T) {
+	req := Request{
+		Identity: KnownForTest(Identity{UID: 1000}),
+		Level:    AuthzLevelIdentified,
+		Method:   servicePath + "GetConfig",
+	}
+
+	info := denialDetail(t, denyPolicyLevel(req, methodPolicies[servicePath+"GetConfig"], unownedProfile))
+	assert.Equal(t, ErrorReasonProfileUnowned, info.GetReason())
+	assert.Contains(t, info.GetMetadata()[ErrorMetaCommand], "netbird profile claim default")
+}
+
+// A session somebody else holds outranks the profile having no owner: the
+// connection is what is in the way, and ending it is the remedy.
+func TestDenyPolicyLevelKeepsTheHeldSessionAheadOfOwnership(t *testing.T) {
+	req := Request{
+		Identity: KnownForTest(Identity{UID: 1000}),
+		Level:    AuthzLevelProfileOwner,
+		Method:   servicePath + "Up",
+	}
+
+	info := denialDetail(t, denyPolicyLevel(req, methodPolicies[servicePath+"Up"], unownedProfile))
+	assert.Equal(t, ErrorReasonSessionHeld, info.GetReason())
+}
+
+// The claim command names the profile it is going to act on.
+func TestClaimCommandNamesTheProfile(t *testing.T) {
+	assert.Equal(t, ElevatedCommand("netbird profile claim default"), ClaimCommand("default"))
+	assert.Equal(t, ElevatedCommand("netbird profile claim <profile>"), ClaimCommand(""),
+		"with no profile to name the caller fills in the placeholder")
+}
+
+// stubConsoleLookup decides whether a caller counts as being at the console,
+// without the machine running the test having a seat of its own.
+func stubConsoleLookup(t *testing.T, atConsole bool) {
+	t.Helper()
+	orig := consoleLookup
+	consoleLookup = func(Identity) bool { return atConsole }
+	t.Cleanup(func() { consoleLookup = orig })
+}
+
+// A caller away from the console is told what normally claims a profile, since
+// a machine set up without one is how it goes unclaimed.
+func TestUnownedSummaryNamesTheConsoleAwayFromIt(t *testing.T) {
+	summary := unownedSummary("connecting", false)
+
+	assert.Contains(t, summary, "has no owner on record")
+	assert.Contains(t, summary, "console")
+	assert.Contains(t, summary, "An explicit claim of the profile is needed.")
+}
+
+// A caller at the console who still finds no owner got here another way, a
+// migration that did not finish among them.
+func TestUnownedSummaryStaysQuietAboutTheConsoleAtIt(t *testing.T) {
+	summary := unownedSummary("connecting", true)
+
+	assert.Contains(t, summary, "has no owner on record")
+	assert.NotContains(t, summary, "console")
+	assert.Contains(t, summary, "An explicit claim of the profile is needed.",
+		"the remedy is the same wherever the caller is sitting")
+}
+
+// The reason and the command do not move with the caller, only the explanation
+// of how the profile came to be unowned does.
+func TestDenyOwnershipKeepsTheClaimForAConsoleCaller(t *testing.T) {
+	stubConsoleLookup(t, true)
+
+	info := denialDetail(t, denyOwnership("connecting", KnownForTest(Identity{UID: 1000}), unownedProfile))
+	assert.Equal(t, ErrorReasonProfileUnowned, info.GetReason())
+	assert.Contains(t, info.GetMetadata()[ErrorMetaCommand], "netbird profile claim default")
+	assert.NotContains(t, info.GetMetadata()[ErrorMetaSummary], "console")
+}
+
+// Two commands put an authorization refusal right, ending the session and
+// recording an owner. Whatever a denial hands the caller is one of them.
+func TestDenialsOfferOnlyTheTwoRemedies(t *testing.T) {
+	_, down := RequiredActor(DownCommand())
+	_, claim := RequiredActor(ClaimCommand(unownedProfile.Handle))
+
+	for name, err := range map[string]error{
+		"privileged":   denyPrivileged(methodPolicies[servicePath+"ClaimProfile"], unownedProfile),
+		"session held": SessionHeldError("connecting"),
+		"unowned":      UnownedError("connecting", unownedProfile.Handle, false),
+		"not owner":    NotOwnerError("connecting"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			denial, ok := DenialFrom(err)
+			require.True(t, ok, "every refusal has to be machine readable")
+			if denial.Command == "" {
+				return
+			}
+			assert.Contains(t, []string{down, claim}, denial.Command,
+				"a refusal offered a command that is neither remedy")
+		})
+	}
+}
+
+// A sudo prefix already says who has to run the command, so repeating it in the
+// summary would be noise.
+func TestRemedyNoteStaysQuietBehindSudo(t *testing.T) {
+	assert.Empty(t, remedyNote("root", "sudo netbird down"))
+}
+
+// Windows has no sudo to prefix and neither does a delegating daemon, so the
+// summary is the only place that can name who must run the command.
+func TestRemedyNoteNamesTheActorWithoutSudo(t *testing.T) {
+	assert.Equal(t, " Running this requires administrator privileges.",
+		remedyNote("administrator privileges", "netbird down"))
+}
+
+// The refusal a user hits when somebody else holds the session has to say what
+// running the command it offers takes.
+func TestSessionHeldSaysWhatRunningTheCommandTakes(t *testing.T) {
+	denial, ok := DenialFrom(SessionHeldError("switching profile"))
+	require.True(t, ok)
+
+	actor, command := RequiredActor(DownCommand())
+	require.NotContains(t, command, "sudo ", "this test process runs a delegating daemon")
+	assert.Contains(t, denial.Summary, "Running this requires "+actor)
 }

@@ -137,6 +137,28 @@ func TestResolveTarget_AnotherUsersProfileIsNotOwned(t *testing.T) {
 	target, err := s.ResolveTarget(foreignIdentity(), activeProfile)
 	require.NoError(t, err, "the profile is there, so nothing about the handle is wrong")
 	require.False(t, target.Owned, "a profile the caller does not own is not theirs to act on")
+	require.False(t, target.UnOwned, "it has an owner, just not this caller")
+}
+
+// A profile nobody has claimed resolves like any other and reports itself
+// unowned, so the refusal can point at the claim.
+func TestResolveTarget_UnownedProfileResolvesAsUnOwned(t *testing.T) {
+	s, _, _, _, _ := setupServerWithProfile(t)
+
+	// Not the default profile, whose own claim path would stamp an owner on it
+	// the moment a caller at a console resolved it.
+	unowned := "unowned-profile"
+	_, err := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
+		ConfigPath:    filepath.Join(profilemanager.DefaultConfigPathDir, unowned+".json"),
+		ManagementURL: "https://api.netbird.io:443",
+	})
+	require.NoError(t, err)
+
+	target, err := s.ResolveTarget(unprivilegedIdentity(), unowned)
+	require.NoError(t, err, "the profile is there, so nothing about the handle is wrong")
+	require.False(t, target.Owned, "an unclaimed profile is nobody's to act on")
+	require.True(t, target.UnOwned, "nothing was ever stamped on it")
+	require.Equal(t, unowned, target.Handle, "the refusal names this in the claim command")
 }
 
 // Only a handle matching two of the caller's own profiles is genuinely

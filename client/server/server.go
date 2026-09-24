@@ -2932,7 +2932,7 @@ func targetFromMatch(id ipcauth.Identity, handle string, match profilemanager.Ha
 
 	switch {
 	case len(owned) == 1:
-		return ipcauth.Target{Path: owned[0].Path, Owned: true}, nil
+		return targetForProfile(owned[0], true), nil
 
 	case len(owned) > 1:
 		return ipcauth.Target{}, gstatus.Errorf(codes.InvalidArgument, "%v", &profilemanager.ErrAmbiguousHandle{
@@ -2943,10 +2943,22 @@ func targetFromMatch(id ipcauth.Identity, handle string, match profilemanager.Ha
 
 	case len(match.Profiles) > 0:
 		// The handle names a profile that is real but not the caller's.
-		return ipcauth.Target{Path: match.Profiles[0].Path}, nil
+		return targetForProfile(match.Profiles[0], false), nil
 
 	default:
 		return ipcauth.Target{}, gstatus.Errorf(codes.NotFound, "profile %q not found", handle)
+	}
+}
+
+// targetForProfile describes a resolved profile for the gate. UnOwned comes
+// off the profile rather than from owned, since a privileged caller may address
+// a profile nobody has claimed.
+func targetForProfile(p profilemanager.Profile, owned bool) ipcauth.Target {
+	return ipcauth.Target{
+		Path:    p.Path,
+		Owned:   owned,
+		UnOwned: len(p.Owners) == 0,
+		Handle:  p.ID.String(),
 	}
 }
 
