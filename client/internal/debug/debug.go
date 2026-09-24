@@ -404,7 +404,9 @@ func RemoveStaleBundles(dir string, maxAge time.Duration) {
 			continue
 		}
 		if err := os.Remove(path); err != nil {
-			log.Debugf("remove stale debug bundle %s: %v", path, err)
+			if !errors.Is(err, fs.ErrNotExist) {
+				log.Warnf("remove stale debug bundle %s: %v", path, err)
+			}
 			continue
 		}
 		log.Infof("removed stale debug bundle %s", path)
