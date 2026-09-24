@@ -128,8 +128,14 @@ func TestNormalizePrefix(t *testing.T) {
 	assert.Equal(t, v6, normalizePrefix(v6), "a real v6 prefix is unchanged")
 	assert.Equal(t, v4, normalizePrefix(netip.PrefixFrom(netip.AddrFrom16(v4.Addr().As16()), 112)),
 		"a mapped prefix under a 128 bit mask becomes plain v4")
-	assert.Equal(t, v4, normalizePrefix(netip.PrefixFrom(netip.AddrFrom16(v4.Addr().As16()), 16)),
-		"a mapped prefix already carrying v4 bits keeps them")
+	// A prefix shorter than /96 inside the mapped range is a genuine v6 prefix. Unmapping it
+	// would pair a v4 address with a v6 sized mask, which is invalid, and the store would then
+	// record a zero prefix that can never recreate the allowed IP.
+	for _, tc := range []string{"::ffff:0:0/64", "::ffff:1.2.3.4/80", "::ffff:1.2.3.4/95"} {
+		got := normalizePrefix(netip.MustParsePrefix(tc))
+		assert.True(t, got.IsValid(), "%s must normalize to a valid prefix", tc)
+		assert.False(t, got.Addr().Is4(), "%s must stay v6", tc)
+	}
 }
 
 func TestAllowedIPStoreAddExistingDoesNotCreate(t *testing.T) {

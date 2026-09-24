@@ -142,21 +142,22 @@ func (s *allowedIPStore) releaseLocked(k peerKey) {
 	}
 }
 
-// normalizePrefix puts a prefix into the form the store recognises it by. It unmaps a
-// v4-mapped v6 prefix so that it compares equal to, and marshals like, the plain v4 prefix
-// for the same network, and it clears the host bits, which a device does on its own: a
-// caller passing 10.20.0.1/16 must still match the 10.20.0.0/16 read back from the device.
+// normalizePrefix puts a prefix into the form the store recognises it by. It clears the
+// host bits, which a device does on its own, so a caller passing 10.20.0.1/16 still matches
+// the 10.20.0.0/16 read back from the device; and it unmaps a v4-mapped prefix so that it
+// compares equal to, and marshals like, the plain v4 prefix for the same network.
+//
+// Masking comes first because it also decides the address family: only a prefix at least 96
+// bits long keeps the mapped marker through the mask, so a shorter prefix inside the mapped
+// range is a genuine v6 prefix and unmapping it would yield an invalid v4 prefix.
 func normalizePrefix(prefix netip.Prefix) netip.Prefix {
-	addr := prefix.Addr()
-	if !addr.Is4In6() {
-		return prefix.Masked()
-	}
+	masked := prefix.Masked()
 
-	bits := prefix.Bits()
-	if bits >= 96 {
-		bits -= 96
+	addr := masked.Addr()
+	if !addr.Is4In6() {
+		return masked
 	}
-	return netip.PrefixFrom(addr.Unmap(), bits).Masked()
+	return netip.PrefixFrom(addr.Unmap(), masked.Bits()-96)
 }
 
 func normalizePrefixes(prefixes []netip.Prefix) []netip.Prefix {
