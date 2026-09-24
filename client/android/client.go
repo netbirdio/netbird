@@ -330,8 +330,6 @@ func (c *Client) DebugBundleFile(platformFiles PlatformFiles, anonymize bool, an
 	return c.debugBundle(platformFiles, anonymize, anonymizeLevel, false)
 }
 
-// debugBundle builds the bundle zip and either uploads it, returning the upload
-// key and removing the file, or leaves the file in place and returns its path.
 func (c *Client) debugBundle(platformFiles PlatformFiles, anonymize bool, anonymizeLevel string, upload bool) (string, error) {
 	cfg, cacheDir, cc := c.stateSnapshot()
 
