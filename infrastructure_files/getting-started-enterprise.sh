@@ -6,10 +6,13 @@ set -o pipefail
 # NetBird Enterprise — Getting Started
 # Single-node bootstrap for a self-hosted NetBird Enterprise stack with the
 # embedded identity provider. Owner is created via first-login flow.
+# Add features to an existing install with --enable-proxy or --enable-traffic-events.
 
 SED_STRIP_PADDING='s/=//g'
 
 NETBIRD_EULA_URL="https://netbird.io/self-hosted-EULA"
+
+STACK_FILES=(.env docker-compose.yml config.yaml)
 
 # Static IP for Traefik inside the compose bridge network. The management
 # server trusts X-Forwarded-* headers from this address only.
@@ -42,6 +45,28 @@ check_openssl() {
     echo "openssl is not installed or not in PATH." > /dev/stderr
     exit 1
   fi
+}
+
+die() {
+  echo "$1" > /dev/stderr
+  exit 1
+}
+
+# env_get KEY [DEFAULT] prints KEY's value from .env, or DEFAULT if unset.
+env_get() {
+  local value
+  value=$(sed -n "s/^$1=//p" .env | tail -n 1)
+  echo "${value:-$2}"
+}
+
+# merge_env upserts the KEY=VALUE lines from stdin into .env, in place.
+merge_env() {
+  local merged
+  merged=$(awk -F= 'NR == FNR { v[$1] = $0; o[++n] = $1; next }
+    $1 in v { print v[$1]; delete v[$1]; next }
+    { print }
+    END { for (i = 1; i <= n; i++) if (o[i] in v) print v[o[i]] }' - .env)
+  printf '%s\n' "$merged" > .env
 }
 
 rand_secret() {
@@ -169,6 +194,15 @@ read_yes_no() {
     [Yy] | [Yy][Ee][Ss]) echo "yes" ;;
     *) echo "no" ;;
   esac
+}
+
+read_crowdsec_option() {
+  echo ""
+  echo "CrowdSec:"
+  echo "  Checks client IPs against a community threat intelligence database and"
+  echo "  blocks known malicious sources before they reach services exposed through"
+  echo "  the proxy. Adds a CrowdSec container to the stack."
+  NETBIRD_CROWDSEC=$(read_yes_no "Enable CrowdSec" "n")
 }
 
 # Gate the install on explicit acceptance of the NetBird On-Premise EULA.
@@ -314,15 +348,66 @@ report_license_verdict() {
   return 0
 }
 
+# up_all_but_proxy skips the proxy, which needs a token from the running server.
+up_all_but_proxy() {
+  local services
+  services=$($DOCKER_COMPOSE_COMMAND config --services | grep -vx proxy)
+  # shellcheck disable=SC2086
+  $DOCKER_COMPOSE_COMMAND up -d $services
+}
+
+# start_proxy mints the proxy token and CrowdSec bouncer key, then starts the proxy.
+start_proxy() {
+  local token key
+  echo "Creating the proxy access token ..."
+  token=$($DOCKER_COMPOSE_COMMAND run --rm --no-deps -T netbird-server \
+    admin token create --name default-proxy --config /etc/netbird/config.yaml | awk '/^Token:/ {print $2}') || true
+  [[ -n "$token" ]] || die "Could not create the proxy access token. Check the netbird-server logs, then re-run with --enable-proxy."
+
+  if [[ "$NETBIRD_CROWDSEC" == "yes" ]]; then
+    echo "Registering the CrowdSec bouncer ..."
+    if $DOCKER_COMPOSE_COMMAND up -d --wait crowdsec; then
+      # "add" fails if an earlier attempt already registered the bouncer.
+      $DOCKER_COMPOSE_COMMAND exec -T crowdsec cscli bouncers delete netbird-proxy &> /dev/null || true
+      key=$($DOCKER_COMPOSE_COMMAND exec -T crowdsec cscli bouncers add netbird-proxy -o raw) || true
+    fi
+    [[ -n "$key" ]] || die "Could not register the CrowdSec bouncer. Check the crowdsec logs, then re-run with --enable-proxy."
+  fi
+
+  # Saved last: a stored token marks the proxy as set up.
+  {
+    echo "NETBIRD_PROXY_TOKEN=${token}"
+    if [[ -n "$key" ]]; then echo "NETBIRD_CROWDSEC_BOUNCER_KEY=${key}"; fi
+  } | merge_env
+  $DOCKER_COMPOSE_COMMAND up -d proxy
+}
+
+print_proxy_notes() {
+  echo ""
+  echo "NetBird Proxy:"
+  echo "  Every domain other than ${NETBIRD_DOMAIN} is passed through to the proxy,"
+  echo "  which issues its own TLS certificates. Point proxy domains at this host:"
+  echo ""
+  echo "    *.${NETBIRD_DOMAIN}  CNAME  ${NETBIRD_DOMAIN}"
+  echo ""
+  echo "  Open 51820/udp (optional) for peer-to-peer proxy connections."
+  if [[ "$NETBIRD_CROWDSEC" == "yes" ]]; then
+    echo "  CrowdSec is running. Enable it per service in the dashboard under Access Control."
+  fi
+}
+
 init_environment() {
   check_openssl
   DOCKER_COMPOSE_COMMAND=$(check_docker_compose)
 
   if [[ -f .env ]] || [[ -f docker-compose.yml ]] || [[ -f config.yaml ]]; then
     echo "Generated files already exist in $(pwd)."
+    echo "To add the proxy or traffic events to this installation, re-run with"
+    echo "--enable-proxy or --enable-traffic-events."
+    echo ""
     echo "If you want to reinitialize the environment, please remove them first:"
     echo "  $DOCKER_COMPOSE_COMMAND down --volumes # removes all containers and volumes"
-    echo "  rm -f .env docker-compose.yml config.yaml"
+    echo "  rm -f .env docker-compose.yml config.yaml traefik-dynamic.yaml"
     echo "Be aware this will remove all data from the database."
     exit 1
   fi
@@ -340,6 +425,16 @@ init_environment() {
   echo "  It still has to be turned on from the dashboard settings afterwards."
   echo "  See https://docs.netbird.io/manage/activity/traffic-events-logging"
   NETBIRD_TRAFFIC_FLOW=$(read_yes_no "Enable traffic flow" "n")
+
+  echo ""
+  echo "NetBird Proxy:"
+  echo "  Exposes selected resources from your NetBird network to the internet."
+  echo "  You choose which resources are exposed from the dashboard."
+  NETBIRD_PROXY=$(read_yes_no "Enable the NetBird Proxy" "n")
+  NETBIRD_CROWDSEC="no"
+  if [[ "$NETBIRD_PROXY" == "yes" ]]; then
+    read_crowdsec_option
+  fi
 
   echo ""
   NETBIRD_DOMAIN=$(read_nb_domain)
@@ -364,6 +459,8 @@ init_environment() {
   echo ""
   echo "Selected:"
   echo "  Traffic flow: ${NETBIRD_TRAFFIC_FLOW}"
+  echo "  Proxy:        ${NETBIRD_PROXY}"
+  echo "  CrowdSec:     ${NETBIRD_CROWDSEC}"
   echo "  Domain:       ${NETBIRD_DOMAIN}"
   echo "  ACME email:   ${NETBIRD_LETSENCRYPT_EMAIL}"
   echo ""
@@ -371,9 +468,8 @@ init_environment() {
   install -m 600 /dev/null .env
   render_env >> .env
   render_docker_compose > docker-compose.yml
-
-  if [[ -z "${NETBIRD_LICENSE_SERVER_BASE_URL:-}" ]]; then
-    sed -i.bak '/NETBIRD_LICENSE_SERVER_BASE_URL/d' docker-compose.yml && rm -f docker-compose.yml.bak
+  if [[ "$NETBIRD_PROXY" == "yes" ]]; then
+    render_traefik_dynamic > traefik-dynamic.yaml
   fi
   install -m 600 /dev/null config.yaml
   render_config_yaml >> config.yaml
@@ -390,10 +486,15 @@ init_environment() {
 
   echo ""
   echo "Starting remaining services ..."
-  $DOCKER_COMPOSE_COMMAND up -d
+  up_all_but_proxy
 
   echo ""
   wait_for_license_verdict
+
+  if [[ "$NETBIRD_PROXY" == "yes" ]]; then
+    echo ""
+    start_proxy
+  fi
 
   echo ""
   echo "Done."
@@ -402,6 +503,9 @@ init_environment() {
   echo ""
   echo "Open the dashboard in a browser to complete the first-login owner setup."
   echo "All configuration and secrets are stored (mode 600) in $(pwd)/.env"
+  if [[ "$NETBIRD_PROXY" == "yes" ]]; then
+    print_proxy_notes
+  fi
   echo ""
   echo "Tail logs:"
   echo "  cd $(pwd) && $DOCKER_COMPOSE_COMMAND logs -f netbird-server traefik"
@@ -411,6 +515,113 @@ init_environment() {
   if [[ "$LICENSE_VERDICT" == "rejected" ]]; then
     exit 1
   fi
+}
+
+# enable_features adds the proxy and/or traffic events to the install in the
+# current directory, restoring the backed-up files if any step fails.
+enable_features() {
+  local want_proxy="$1" want_flow="$2" f compose
+  DOCKER_COMPOSE_COMMAND=$(check_docker_compose)
+
+  for f in "${STACK_FILES[@]}"; do
+    [[ -f "$f" ]] || die "$f not found in $(pwd). Run this from an existing installation directory."
+  done
+  grep -q '^# Generated by getting-started-enterprise.sh' .env || die ".env was not generated by getting-started-enterprise.sh."
+  # Installs from before the move to Traefik run Caddy and can't be re-rendered.
+  [[ -n "$(env_get NETBIRD_TRAEFIK_IP)" ]] || die "This installation predates the Traefik layout and can't be updated in place."
+
+  NETBIRD_DOMAIN=$(env_get NETBIRD_DOMAIN)
+  NETBIRD_LICENSE_SERVER_BASE_URL=$(env_get NETBIRD_LICENSE_SERVER_BASE_URL)
+  NETBIRD_TRAFFIC_FLOW=$(env_get NETBIRD_TRAFFIC_FLOW_ENABLED no)
+  NETBIRD_PROXY=$(env_get NETBIRD_PROXY_ENABLED no)
+  NETBIRD_CROWDSEC=$(env_get NETBIRD_CROWDSEC_ENABLED no)
+
+  if [[ "$want_flow" == "yes" && "$NETBIRD_TRAFFIC_FLOW" == "yes" ]]; then
+    echo "Traffic events are already enabled."
+    want_flow="no"
+  fi
+  # No token means an earlier proxy setup failed, so let it run again.
+  if [[ "$want_proxy" == "yes" && -n "$(env_get NETBIRD_PROXY_TOKEN)" ]]; then
+    echo "The NetBird Proxy is already enabled."
+    want_proxy="no"
+  fi
+  if [[ "$want_flow" == "no" && "$want_proxy" == "no" ]]; then
+    exit 0
+  fi
+
+  if [[ "$want_flow" == "yes" ]]; then
+    NETBIRD_TRAFFIC_FLOW="yes"
+  fi
+  # A retry keeps the CrowdSec choice made at install time.
+  if [[ "$want_proxy" == "yes" && "$NETBIRD_PROXY" != "yes" ]]; then
+    read_crowdsec_option
+  fi
+  if [[ "$want_proxy" == "yes" ]]; then
+    NETBIRD_PROXY="yes"
+  fi
+
+  compose=$(render_docker_compose)
+  echo ""
+  echo "Changes to docker-compose.yml:"
+  printf '%s\n' "$compose" | diff -u docker-compose.yml - || true
+  echo ""
+  if [[ "$(read_yes_no "Apply these changes and restart the affected services?" "y")" != "yes" ]]; then
+    echo "Aborted."
+    exit 0
+  fi
+
+  BACKUP_SUFFIX=".bak.$(date -u +%Y%m%d%H%M%S)"
+  for f in "${STACK_FILES[@]}"; do
+    cp -p "$f" "$f$BACKUP_SUFFIX"
+  done
+  trap rollback EXIT
+
+  printf '%s\n' "$compose" > docker-compose.yml
+  {
+    echo "NETBIRD_TRAFFIC_FLOW_ENABLED=${NETBIRD_TRAFFIC_FLOW}"
+    echo "NETBIRD_PROXY_ENABLED=${NETBIRD_PROXY}"
+    echo "NETBIRD_CROWDSEC_ENABLED=${NETBIRD_CROWDSEC}"
+    if [[ "$want_flow" == "yes" ]]; then render_env_flow; fi
+    if [[ "$want_proxy" == "yes" ]]; then render_env_proxy; fi
+  } | merge_env
+  if [[ "$want_flow" == "yes" ]] && ! grep -q '^  trafficFlow:' config.yaml; then
+    render_config_flow >> config.yaml
+  fi
+  if [[ "$want_proxy" == "yes" ]]; then
+    render_traefik_dynamic > traefik-dynamic.yaml
+  fi
+
+  up_all_but_proxy
+  if [[ "$want_flow" == "yes" ]]; then
+    # Compose does not notice changes to the bind-mounted config.yaml.
+    $DOCKER_COMPOSE_COMMAND restart netbird-server
+  fi
+  if [[ "$want_proxy" == "yes" ]]; then
+    start_proxy
+  fi
+  trap - EXIT
+
+  echo ""
+  echo "Done. The previous files are kept with the ${BACKUP_SUFFIX} suffix."
+  if [[ "$want_flow" == "yes" ]]; then
+    echo ""
+    echo "Traffic events still have to be turned on from the dashboard settings."
+    echo "  See https://docs.netbird.io/manage/activity/traffic-events-logging"
+  fi
+  if [[ "$want_proxy" == "yes" ]]; then
+    print_proxy_notes
+  fi
+}
+
+rollback() {
+  local f
+  echo "" > /dev/stderr
+  echo "Enabling failed. Restoring the previous configuration ..." > /dev/stderr
+  for f in "${STACK_FILES[@]}"; do
+    cp -p "$f$BACKUP_SUFFIX" "$f"
+  done
+  $DOCKER_COMPOSE_COMMAND up -d --remove-orphans
+  $DOCKER_COMPOSE_COMMAND restart netbird-server
 }
 
 # ------------------------------------------------------------------
@@ -427,8 +638,10 @@ NETBIRD_EULA_ACCEPTED=yes
 NETBIRD_EULA_ACCEPTED_AT=${NETBIRD_EULA_ACCEPTED_AT}
 NETBIRD_EULA_URL=${NETBIRD_EULA_URL}
 
-# Features (set by the script; don't edit without re-running)
+# Features (change with --enable-proxy or --enable-traffic-events, not by hand)
 NETBIRD_TRAFFIC_FLOW_ENABLED=${NETBIRD_TRAFFIC_FLOW}
+NETBIRD_PROXY_ENABLED=${NETBIRD_PROXY}
+NETBIRD_CROWDSEC_ENABLED=${NETBIRD_CROWDSEC}
 
 # Domain
 NETBIRD_DOMAIN=${NETBIRD_DOMAIN}
@@ -444,10 +657,11 @@ NETBIRD_SERVER_TAG=${NETBIRD_SERVER_TAG:-latest}
 EOF
 
   if [[ "$NETBIRD_TRAFFIC_FLOW" == "yes" ]]; then
-    cat <<EOF
-NETBIRD_ENRICHER_TAG=${NETBIRD_ENRICHER_TAG:-latest}
-NETBIRD_RECEIVER_TAG=${NETBIRD_RECEIVER_TAG:-latest}
-EOF
+    render_env_flow
+  fi
+  if [[ "$NETBIRD_PROXY" == "yes" ]]; then
+    printf '\n# NetBird Proxy (token and bouncer key are filled in after startup)\n'
+    render_env_proxy
   fi
 
   cat <<EOF
@@ -483,15 +697,34 @@ NETBIRD_AUTH_SUPPORTED_SCOPES=${NETBIRD_AUTH_SUPPORTED_SCOPES:-openid profile em
 EOF
 }
 
-render_docker_compose() {
-  render_compose_header
-  render_compose_common
-  render_compose_server
-  if [[ "$NETBIRD_TRAFFIC_FLOW" == "yes" ]]; then
-    render_compose_flow
+render_env_flow() {
+  echo "NETBIRD_ENRICHER_TAG=${NETBIRD_ENRICHER_TAG:-latest}"
+  echo "NETBIRD_RECEIVER_TAG=${NETBIRD_RECEIVER_TAG:-latest}"
+}
+
+render_env_proxy() {
+  echo "NETBIRD_PROXY_TAG=${NETBIRD_PROXY_TAG:-latest}"
+  echo "NETBIRD_PROXY_TOKEN="
+  if [[ "$NETBIRD_CROWDSEC" == "yes" ]]; then
+    echo "NETBIRD_CROWDSEC_TAG=${NETBIRD_CROWDSEC_TAG:-v1.7.7}"
+    echo "NETBIRD_CROWDSEC_BOUNCER_KEY="
   fi
-  render_compose_postgres
-  render_compose_footer
+}
+
+render_docker_compose() {
+  {
+    render_compose_header
+    render_compose_common
+    render_compose_server
+    if [[ "$NETBIRD_TRAFFIC_FLOW" == "yes" ]]; then
+      render_compose_flow
+    fi
+    if [[ "$NETBIRD_PROXY" == "yes" ]]; then
+      render_compose_proxy
+    fi
+    render_compose_postgres
+    render_compose_footer
+  } | if [[ -n "${NETBIRD_LICENSE_SERVER_BASE_URL:-}" ]]; then cat; else sed '/NETBIRD_LICENSE_SERVER_BASE_URL/d'; fi
 }
 
 render_compose_header() {
@@ -544,12 +777,22 @@ render_compose_common() {
       - "--certificatesresolvers.letsencrypt.acme.email=${NETBIRD_LETSENCRYPT_EMAIL}"
       - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
       - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
+EOF
+  if [[ "$NETBIRD_PROXY" == "yes" ]]; then
+    echo '      - "--providers.file.filename=/etc/traefik/dynamic.yaml"'
+  fi
+  cat <<'EOF'
     ports:
       - '443:443'
       - '80:80'
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - netbird_traefik_letsencrypt:/letsencrypt
+EOF
+  if [[ "$NETBIRD_PROXY" == "yes" ]]; then
+    echo '      - ./traefik-dynamic.yaml:/etc/traefik/dynamic.yaml:ro'
+  fi
+  cat <<'EOF'
     labels:
       - traefik.enable=true
       # Shared security headers, referenced by every NetBird router below. A
@@ -719,6 +962,69 @@ render_compose_flow() {
 EOF
 }
 
+render_compose_proxy() {
+  cat <<'EOF'
+  # Traefik passes TLS for every other domain through to the proxy, which issues
+  # its own certificates. PROXY protocol v2 preserves the client IP.
+  proxy:
+    <<: *default
+    image: ghcr.io/netbirdio/reverse-proxy:${NETBIRD_PROXY_TAG}
+    container_name: netbird-proxy
+    networks: [netbird]
+    depends_on:
+      netbird-server:
+        condition: service_started
+    ports:
+      - '51820:51820/udp'
+    volumes:
+      - netbird_proxy_certs:/certs
+    labels:
+      - traefik.enable=true
+      - traefik.tcp.routers.proxy-passthrough.rule=HostSNI(`*`)
+      - traefik.tcp.routers.proxy-passthrough.entrypoints=websecure
+      - traefik.tcp.routers.proxy-passthrough.tls.passthrough=true
+      - traefik.tcp.routers.proxy-passthrough.service=proxy-tls
+      - traefik.tcp.routers.proxy-passthrough.priority=1
+      - traefik.tcp.services.proxy-tls.loadbalancer.server.port=8443
+      - traefik.tcp.services.proxy-tls.loadbalancer.serverstransport=pp-v2@file
+    environment:
+      # Plaintext gRPC over the internal network, not the public address.
+      - NB_PROXY_MANAGEMENT_ADDRESS=http://netbird-server:80
+      - NB_PROXY_ALLOW_INSECURE=true
+      - NB_PROXY_TOKEN=${NETBIRD_PROXY_TOKEN}
+      - NB_PROXY_DOMAIN=${NETBIRD_DOMAIN}
+      - NB_PROXY_ADDRESS=:8443
+      - NB_PROXY_CERTIFICATE_DIRECTORY=/certs
+      - NB_PROXY_ACME_CERTIFICATES=true
+      - NB_PROXY_FORWARDED_PROTO=https
+      - NB_PROXY_PROXY_PROTOCOL=true
+      - NB_PROXY_TRUSTED_PROXIES=${NETBIRD_TRAEFIK_IP}
+EOF
+  if [[ "$NETBIRD_CROWDSEC" == "yes" ]]; then
+    cat <<'EOF'
+      - NB_PROXY_CROWDSEC_API_URL=http://crowdsec:8080
+      - NB_PROXY_CROWDSEC_API_KEY=${NETBIRD_CROWDSEC_BOUNCER_KEY}
+
+  crowdsec:
+    <<: *default
+    image: crowdsecurity/crowdsec:${NETBIRD_CROWDSEC_TAG}
+    container_name: netbird-crowdsec
+    networks: [netbird]
+    environment:
+      - COLLECTIONS=crowdsecurity/linux
+    volumes:
+      - netbird_crowdsec_config:/etc/crowdsec
+      - netbird_crowdsec_data:/var/lib/crowdsec/data
+    healthcheck:
+      test: ["CMD", "cscli", "lapi", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+EOF
+  fi
+  echo ""
+}
+
 render_compose_postgres() {
   cat <<'EOF'
   postgres:
@@ -751,6 +1057,12 @@ EOF
   netbird_nats_data:
   netbird_enricher:
 EOF
+  fi
+  if [[ "$NETBIRD_PROXY" == "yes" ]]; then
+    echo "  netbird_proxy_certs:"
+  fi
+  if [[ "$NETBIRD_CROWDSEC" == "yes" ]]; then
+    printf '  %s:\n' netbird_crowdsec_config netbird_crowdsec_data
   fi
   cat <<'EOF'
   netbird_postgres:
@@ -827,14 +1139,61 @@ server:
 EOF
 
   if [[ "$NETBIRD_TRAFFIC_FLOW" == "yes" ]]; then
-    cat <<EOF
+    render_config_flow
+  fi
+}
+
+render_config_flow() {
+  cat <<EOF
 
   trafficFlow:
     enabled: true
     address: "https://${NETBIRD_DOMAIN}:443"
     interval: "60s"
 EOF
+}
+
+render_traefik_dynamic() {
+  cat <<'EOF'
+tcp:
+  serversTransports:
+    pp-v2:
+      proxyProtocol:
+        version: 2
+EOF
+}
+
+usage() {
+  cat <<EOF
+Usage: $0 [--enable-proxy] [--enable-traffic-events]
+
+Without flags, bootstraps a new NetBird Enterprise stack in the current
+directory. With flags, turns the feature on for the existing installation in
+the current directory.
+
+  --enable-proxy           add the NetBird Proxy, optionally with CrowdSec
+  --enable-traffic-events  add traffic events logging (NATS, receiver, enricher)
+  -h, --help               show this help
+EOF
+}
+
+main() {
+  local enable_proxy="no" enable_flow="no"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --enable-proxy) enable_proxy="yes" ;;
+      --enable-traffic-events) enable_flow="yes" ;;
+      -h | --help) usage; exit 0 ;;
+      *) usage > /dev/stderr; exit 1 ;;
+    esac
+    shift
+  done
+
+  if [[ "$enable_proxy" == "no" && "$enable_flow" == "no" ]]; then
+    init_environment
+  else
+    enable_features "$enable_proxy" "$enable_flow"
   fi
 }
 
-init_environment
+main "$@"
