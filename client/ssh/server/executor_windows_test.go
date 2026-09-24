@@ -63,7 +63,7 @@ func TestIsLocalUser_LocalAccount(t *testing.T) {
 	netbios, err := netbiosComputerName()
 	require.NoError(t, err, "read NetBIOS computer name")
 	require.NotEmpty(t, netbios, "NetBIOS computer name must not be empty")
-	assert.LessOrEqual(t, len(netbios), windows.MAX_COMPUTERNAME_LENGTH,
+	assert.LessOrEqual(t, len([]rune(netbios)), windows.MAX_COMPUTERNAME_LENGTH,
 		"NetBIOS computer name is capped at MAX_COMPUTERNAME_LENGTH")
 
 	account, err := user.Lookup(localAccountNameByRID(t, 500))
