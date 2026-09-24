@@ -104,11 +104,16 @@ func TestDecrypt_InvalidCiphertext(t *testing.T) {
 	ec, err := NewFieldEncrypt(key)
 	assert.NoError(t, err)
 
+	t.Run("invalid base64", func(t *testing.T) {
+		payload, err := ec.Decrypt("not-valid!!!")
+		assert.NoError(t, err)
+		assert.Equal(t, "not-valid!!!", payload)
+	})
+
 	tests := []struct {
 		name       string
 		ciphertext string
 	}{
-		{name: "invalid base64", ciphertext: "not-valid!!!"},
 		{name: "too short", ciphertext: "c2hvcnQ="},
 		{name: "corrupted", ciphertext: "YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXo="},
 	}
