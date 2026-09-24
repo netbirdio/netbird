@@ -3,6 +3,7 @@ package manager
 import (
 	"context"
 	"testing"
+	"time"
 
 	"go.uber.org/mock/gomock"
 	"github.com/stretchr/testify/assert"
@@ -199,6 +200,54 @@ func TestManagerImpl_CreateRecord(t *testing.T) {
 		assert.Equal(t, inputRecord.Type, result.Type)
 		assert.Equal(t, inputRecord.Content, result.Content)
 		assert.Equal(t, inputRecord.TTL, result.TTL)
+	})
+
+	t.Run("success - context cancellation does not cancel UpdateAccountPeers", func(t *testing.T) {
+		manager, _, zone, mockAccountManager, mockPermissionsManager, ctrl, cleanup := setupTest(t)
+		defer cleanup()
+		defer ctrl.Finish()
+
+		inputRecord := &records.Record{
+			Name:    "cancel-test.example.com",
+			Type:    records.RecordTypeA,
+			Content: "192.168.1.50",
+			TTL:     300,
+		}
+
+		mockPermissionsManager.EXPECT().
+			ValidateUserPermissions(gomock.Any(), testAccountID, testUserID, modules.Dns, operations.Create).
+			Return(true, ctx, nil)
+
+		reqCtx, reqCancel := context.WithCancel(context.Background())
+
+		type updateCall struct {
+			accountID string
+			reason    types.UpdateReason
+			ctxErr    error
+		}
+		updatePeersCh := make(chan updateCall, 1)
+		mockAccountManager.UpdateAccountPeersFunc = func(callCtx context.Context, accountID string, reason types.UpdateReason) {
+			updatePeersCh <- updateCall{
+				accountID: accountID,
+				reason:    reason,
+				ctxErr:    callCtx.Err(),
+			}
+		}
+
+		result, err := manager.CreateRecord(reqCtx, testAccountID, testUserID, zone.ID, inputRecord)
+		reqCancel()
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+
+		select {
+		case call := <-updatePeersCh:
+			assert.Equal(t, testAccountID, call.accountID)
+			assert.Equal(t, types.UpdateResourceZoneRecord, call.reason.Resource)
+			assert.Equal(t, types.UpdateOperationCreate, call.reason.Operation)
+			assert.NoError(t, call.ctxErr, "UpdateAccountPeers context must not be canceled when request context is canceled")
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for UpdateAccountPeers")
+		}
 	})
 
 	t.Run("success - AAAA record", func(t *testing.T) {
@@ -399,6 +448,59 @@ func TestManagerImpl_UpdateRecord(t *testing.T) {
 		assert.True(t, storeEventCalled, "StoreEvent should have been called")
 	})
 
+	t.Run("success - context cancellation does not cancel UpdateAccountPeers", func(t *testing.T) {
+		manager, testStore, zone, mockAccountManager, mockPermissionsManager, ctrl, cleanup := setupTest(t)
+		defer cleanup()
+		defer ctrl.Finish()
+
+		existingRecord := records.NewRecord(testAccountID, zone.ID, "api-cancel.example.com", records.RecordTypeA, "192.168.1.1", 300)
+		err := testStore.CreateDNSRecord(ctx, existingRecord)
+		require.NoError(t, err)
+
+		updatedRecord := &records.Record{
+			ID:      existingRecord.ID,
+			Name:    "api-cancel.example.com",
+			Type:    records.RecordTypeA,
+			Content: "192.168.1.200",
+			TTL:     600,
+		}
+
+		mockPermissionsManager.EXPECT().
+			ValidateUserPermissions(gomock.Any(), testAccountID, testUserID, modules.Dns, operations.Update).
+			Return(true, ctx, nil)
+
+		reqCtx, reqCancel := context.WithCancel(context.Background())
+
+		type updateCall struct {
+			accountID string
+			reason    types.UpdateReason
+			ctxErr    error
+		}
+		updatePeersCh := make(chan updateCall, 1)
+		mockAccountManager.UpdateAccountPeersFunc = func(callCtx context.Context, accountID string, reason types.UpdateReason) {
+			updatePeersCh <- updateCall{
+				accountID: accountID,
+				reason:    reason,
+				ctxErr:    callCtx.Err(),
+			}
+		}
+
+		result, err := manager.UpdateRecord(reqCtx, testAccountID, testUserID, zone.ID, updatedRecord)
+		reqCancel()
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+
+		select {
+		case call := <-updatePeersCh:
+			assert.Equal(t, testAccountID, call.accountID)
+			assert.Equal(t, types.UpdateResourceZoneRecord, call.reason.Resource)
+			assert.Equal(t, types.UpdateOperationUpdate, call.reason.Operation)
+			assert.NoError(t, call.ctxErr, "UpdateAccountPeers context must not be canceled when request context is canceled")
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for UpdateAccountPeers")
+		}
+	})
+
 	t.Run("update only TTL - no validation", func(t *testing.T) {
 		manager, testStore, zone, mockAccountManager, mockPermissionsManager, ctrl, cleanup := setupTest(t)
 		defer cleanup()
@@ -540,6 +642,50 @@ func TestManagerImpl_DeleteRecord(t *testing.T) {
 
 		_, err = testStore.GetDNSRecordByID(ctx, store.LockingStrengthNone, testAccountID, zone.ID, record.ID)
 		require.Error(t, err)
+	})
+
+	t.Run("success - context cancellation does not cancel UpdateAccountPeers", func(t *testing.T) {
+		manager, testStore, zone, mockAccountManager, mockPermissionsManager, ctrl, cleanup := setupTest(t)
+		defer cleanup()
+		defer ctrl.Finish()
+
+		record := records.NewRecord(testAccountID, zone.ID, "del-cancel.example.com", records.RecordTypeA, "192.168.1.1", 300)
+		err := testStore.CreateDNSRecord(ctx, record)
+		require.NoError(t, err)
+
+		mockPermissionsManager.EXPECT().
+			ValidateUserPermissions(gomock.Any(), testAccountID, testUserID, modules.Dns, operations.Delete).
+			Return(true, ctx, nil)
+
+		reqCtx, reqCancel := context.WithCancel(context.Background())
+
+		type updateCall struct {
+			accountID string
+			reason    types.UpdateReason
+			ctxErr    error
+		}
+		updatePeersCh := make(chan updateCall, 1)
+		mockAccountManager.UpdateAccountPeersFunc = func(callCtx context.Context, accountID string, reason types.UpdateReason) {
+			updatePeersCh <- updateCall{
+				accountID: accountID,
+				reason:    reason,
+				ctxErr:    callCtx.Err(),
+			}
+		}
+
+		err = manager.DeleteRecord(reqCtx, testAccountID, testUserID, zone.ID, record.ID)
+		reqCancel()
+		require.NoError(t, err)
+
+		select {
+		case call := <-updatePeersCh:
+			assert.Equal(t, testAccountID, call.accountID)
+			assert.Equal(t, types.UpdateResourceZoneRecord, call.reason.Resource)
+			assert.Equal(t, types.UpdateOperationDelete, call.reason.Operation)
+			assert.NoError(t, call.ctxErr, "UpdateAccountPeers context must not be canceled when request context is canceled")
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for UpdateAccountPeers")
+		}
 	})
 
 	t.Run("permission denied", func(t *testing.T) {
