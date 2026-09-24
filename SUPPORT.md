@@ -66,8 +66,8 @@ it stays readable without exposing your network. Two levels are available:
 
 | Level | How to select | What it masks |
 | --- | --- | --- |
-| `default` | `-A` / `--anonymize`, or `--anonymize-level default` | Public IP addresses, MAC addresses, and non-netbird.io domains. Private, CGNAT, and link-local ranges are kept, and interface names are not anonymized |
-| `strict` | `--anonymize-level strict` (implies `-A`) | The above, plus private, CGNAT, and link-local ranges, peer names, and WireGuard public keys |
+| `default` | `-A` / `--anonymize`, or `--anonymize-level default` | Public IP addresses, IPv6 ULA addresses, MAC addresses, and domains other than `netbird.io`, `netbird.cloud`, `netbird.selfhosted`, and `netbird.stage`. IPv4 private, CGNAT, and link-local ranges are kept, and interface names are not anonymized |
+| `strict` | `--anonymize-level strict` (implies `-A`) | The above, plus IPv4 private, CGNAT, and link-local ranges, peer names in front of the NetBird domains, and WireGuard public keys |
 
 Use `strict` when internal addressing or peer naming is itself sensitive. Either way, private
 keys and SSH keys are never included, and the packet capture (`capture.pcap`) is left out of
