@@ -61,10 +61,17 @@ netbird status -d -A
 netbird debug for 1m -A -S -U
 ```
 
-`-A` (`--anonymize`) replaces public IP addresses, MAC addresses, and non-netbird.io domains
-consistently across the bundle, so it stays readable without exposing your network. Private,
-CGNAT, and link-local ranges are kept. Use `--anonymize-level strict` to mask those too, along
-with peer names and WireGuard public keys. Private keys and SSH keys are never included.
+`-A` (`--anonymize`) replaces sensitive values consistently across every file in the bundle, so
+it stays readable without exposing your network. Two levels are available:
+
+| Level | How to select | What it masks |
+| --- | --- | --- |
+| `default` | `-A` / `--anonymize`, or `--anonymize-level default` | Public IP addresses, MAC addresses, and non-netbird.io domains. Private, CGNAT, and link-local ranges are kept, and interface names are not anonymized |
+| `strict` | `--anonymize-level strict` (implies `-A`) | The above, plus private, CGNAT, and link-local ranges, peer names, and WireGuard public keys |
+
+Use `strict` when internal addressing or peer naming is itself sensitive. Either way, private
+keys and SSH keys are never included, and the packet capture (`capture.pcap`) is left out of
+anonymized bundles because it holds raw decrypted packets.
 
 `-U` (`--upload-bundle`) uploads the bundle and returns a file key you can paste into the thread
 instead of attaching an archive. Uploaded bundles are automatically deleted after 30 days.

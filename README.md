@@ -144,9 +144,15 @@ netbird status -d -A
 netbird debug for 1m -A -S -U
 ```
 
-`-A` anonymizes public IPs, MAC addresses, and non-netbird.io domains, which matters on a public
-thread. `-U` uploads the bundle and prints a file key you can paste instead of attaching the
-archive. See [collecting a debug bundle](https://docs.netbird.io/help/troubleshooting-client#debug-bundle)
+`-U` uploads the bundle and prints a file key you can paste instead of attaching the archive.
+`-A` anonymizes the output, which matters on a public thread. Two levels are available:
+
+| Level | How to select | What it masks |
+| --- | --- | --- |
+| `default` | `-A` / `--anonymize` | Public IP addresses, MAC addresses, and non-netbird.io domains. Private, CGNAT, and link-local ranges are kept |
+| `strict` | `--anonymize-level strict` (implies `-A`) | The above, plus private, CGNAT, and link-local ranges, peer names, and WireGuard public keys |
+
+See [collecting a debug bundle](https://docs.netbird.io/help/troubleshooting-client#debug-bundle)
 and the [CLI reference](https://docs.netbird.io/get-started/cli#debug-for) for details.
 
 See [How to use Discussions, Issues, and Pull Requests](https://github.com/netbirdio/netbird/discussions/6075)
