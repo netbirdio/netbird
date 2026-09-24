@@ -1507,3 +1507,21 @@ func TestOverlayAddrsFromAllowedIPs(t *testing.T) {
 		})
 	}
 }
+
+func TestEngine_SyncResponsePersistence(t *testing.T) {
+	e := &Engine{}
+
+	_, err := e.GetLatestSyncResponse()
+	require.Error(t, err, "persistence is disabled by default")
+
+	e.SetSyncResponsePersistence(true)
+	e.persistSyncResponse(&mgmtProto.SyncResponse{NetworkMap: &mgmtProto.NetworkMap{Serial: 7}})
+
+	got, err := e.GetLatestSyncResponse()
+	require.NoError(t, err)
+	assert.Equal(t, uint64(7), got.GetNetworkMap().GetSerial())
+
+	e.SetSyncResponsePersistence(false)
+	_, err = e.GetLatestSyncResponse()
+	require.Error(t, err)
+}

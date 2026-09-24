@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/netip"
 	"net/url"
@@ -993,4 +994,22 @@ func TestRemoveStaleBundles(t *testing.T) {
 	assert.FileExists(t, other, "files outside the bundle pattern must not be touched")
 	assert.NoFileExists(t, owned)
 	assert.FileExists(t, exported, "exported bundle is caller-owned and must survive regardless of age")
+}
+
+func TestBundleIncludesNetworkMap(t *testing.T) {
+	for _, anonymize := range []bool{false, true} {
+		t.Run(fmt.Sprintf("anonymize=%t", anonymize), func(t *testing.T) {
+			g := NewBundleGenerator(GeneratorDependencies{
+				SyncResponse: &mgmProto.SyncResponse{NetworkMap: &mgmProto.NetworkMap{Serial: 1}},
+			}, BundleConfig{Anonymize: anonymize})
+
+			require.Contains(t, bundleEntries(t, g), "network_map.json")
+		})
+	}
+}
+
+func TestBundleOmitsNetworkMapWithoutSyncResponse(t *testing.T) {
+	g := NewBundleGenerator(GeneratorDependencies{}, BundleConfig{})
+
+	require.NotContains(t, bundleEntries(t, g), "network_map.json")
 }
