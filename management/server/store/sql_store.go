@@ -2,25 +2,13 @@ package store
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"net/url"
-	"os"
-	"path/filepath"
-	"runtime"
-	"runtime/debug"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	log "github.com/sirupsen/logrus"
-	"gorm.io/driver/mysql"
-	"gorm.io/driver/postgres"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
@@ -30,6 +18,7 @@ import (
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
+	"github.com/netbirdio/netbird/management/internals/shared/db"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
@@ -42,7 +31,6 @@ import (
 )
 
 const (
-	storeSqliteFileName            = "store.db"
 	idQueryCondition               = "id = ?"
 	keyQueryCondition              = "key = ?"
 	mysqlKeyQueryCondition         = "`key` = ?"
@@ -52,71 +40,44 @@ const (
 	accountAndIDsQueryCondition    = "account_id = ? AND id IN ?"
 	accountIDCondition             = "account_id = ?"
 	peerNotFoundFMT                = "peer %s not found"
-
-	pgMaxConnections    = 30
-	pgMinConnections    = 1
-	pgMaxConnLifetime   = 60 * time.Minute
-	pgHealthCheckPeriod = 1 * time.Minute
 )
+
+var testPoolConfig = db.PoolConfig{
+	MaxConns:          5,
+	MinConns:          1,
+	MaxConnLifetime:   30 * time.Second,
+	HealthCheckPeriod: 10 * time.Second,
+}
 
 // SqlStore represents an account storage backed by a Sql DB persisted to disk
 type SqlStore struct {
-	db                 *gorm.DB
-	globalAccountLock  sync.Mutex
-	metrics            telemetry.AppMetrics
-	installationPK     int
-	storeEngine        types.Engine
-	pool               *pgxpool.Pool
-	fieldEncrypt       *crypt.FieldEncrypt
-	transactionTimeout time.Duration
+	conn              *db.Conn
+	db                *gorm.DB
+	tx                *db.Tx
+	globalAccountLock sync.Mutex
+	metrics           telemetry.AppMetrics
+	installationPK    int
+	fieldEncrypt      *crypt.FieldEncrypt
 }
 
 type migrationFunc func(*gorm.DB) error
 
-// NewSqlStore creates a new SqlStore instance.
-func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, metrics telemetry.AppMetrics, skipMigration bool) (*SqlStore, error) {
-	sql, err := db.DB()
-	if err != nil {
-		return nil, err
+// NewSqlStore creates a new SqlStore instance on top of an open connection.
+func NewSqlStore(ctx context.Context, conn *db.Conn, metrics telemetry.AppMetrics, skipMigration bool) (*SqlStore, error) {
+	if metrics != nil {
+		conn.SetTxMetrics(metrics.StoreMetrics())
 	}
-
-	conns, err := strconv.Atoi(os.Getenv("NB_SQL_MAX_OPEN_CONNS"))
-	if err != nil {
-		conns = runtime.NumCPU()
-	}
-
-	transactionTimeout := 5 * time.Minute
-	if v := os.Getenv("NB_STORE_TRANSACTION_TIMEOUT"); v != "" {
-		if parsed, err := time.ParseDuration(v); err == nil {
-			transactionTimeout = parsed
-		}
-	}
-	log.WithContext(ctx).Infof("Setting transaction timeout to %v", transactionTimeout)
-
-	if storeEngine == types.SqliteStoreEngine {
-		if err == nil {
-			log.WithContext(ctx).Warnf("setting NB_SQL_MAX_OPEN_CONNS is not supported for sqlite, using default value 1")
-		}
-		conns = 1
-	}
-
-	sql.SetMaxOpenConns(conns)
-	sql.SetMaxIdleConns(conns)
-	sql.SetConnMaxLifetime(time.Hour)
-	sql.SetConnMaxIdleTime(3 * time.Minute)
-
-	log.WithContext(ctx).Infof("Set max open db connections to %d, max idle to %d, max lifetime to %v, max idle time to %v",
-		conns, conns, time.Hour, 3*time.Minute)
+	store := &SqlStore{conn: conn, db: conn.DB(nil), metrics: metrics, installationPK: 1}
 
 	if skipMigration {
 		log.WithContext(ctx).Infof("skipping migration")
-		return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1, transactionTimeout: transactionTimeout}, nil
+		return store, nil
 	}
 
-	if err := migratePreAuto(ctx, db); err != nil {
+	if err := migratePreAuto(ctx, store.db); err != nil {
 		return nil, fmt.Errorf("migratePreAuto: %w", err)
 	}
-	err = db.AutoMigrate(
+	err := conn.AutoMigrate(
 		&types.SetupKey{}, &nbpeer.Peer{}, &types.User{}, &types.PersonalAccessToken{}, &types.ProxyAccessToken{},
 		&types.Group{}, &types.GroupPeer{},
 		&types.Account{}, &types.Policy{}, &types.PolicyRule{}, &route.Route{}, &nbdns.NameServerGroup{},
@@ -132,15 +93,34 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 	if err != nil {
 		return nil, fmt.Errorf("auto migratePreAuto: %w", err)
 	}
-	if err := migratePostAuto(ctx, db); err != nil {
+	if err := migratePostAuto(ctx, store.db); err != nil {
 		return nil, fmt.Errorf("migratePostAuto: %w", err)
 	}
 
-	return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1, transactionTimeout: transactionTimeout}, nil
+	return store, nil
+}
+
+// newStore runs the migrations on conn and releases it when they fail.
+func newStore(ctx context.Context, conn *db.Conn, metrics telemetry.AppMetrics, skipMigration bool) (*SqlStore, error) {
+	store, err := NewSqlStore(ctx, conn, metrics, skipMigration)
+	if err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	return store, nil
+}
+
+// Conn returns the shared connection so domain repositories can run alongside this store.
+func (s *SqlStore) Conn() *db.Conn {
+	return s.conn
+}
+
+func (s *SqlStore) pgxPool() *pgxpool.Pool {
+	return s.conn.Pool(s.tx)
 }
 
 func GetKeyQueryCondition(s *SqlStore) string {
-	if s.storeEngine == types.MysqlStoreEngine {
+	if s.conn.Engine() == db.MysqlStoreEngine {
 		return mysqlKeyQueryCondition
 	}
 	return keyQueryCondition
@@ -168,145 +148,39 @@ func (s *SqlStore) AcquireGlobalLock(ctx context.Context) (unlock func()) {
 
 // Close closes the underlying DB connection
 func (s *SqlStore) Close(_ context.Context) error {
-	sql, err := s.db.DB()
-	if err != nil {
-		return fmt.Errorf("get db: %w", err)
-	}
-	return sql.Close()
+	return s.conn.Close()
 }
 
 // GetStoreEngine returns underlying store engine
 func (s *SqlStore) GetStoreEngine() types.Engine {
-	return s.storeEngine
+	return s.conn.Engine()
 }
 
 // NewSqliteStore creates a new SQLite store.
 func NewSqliteStore(ctx context.Context, dataDir string, metrics telemetry.AppMetrics, skipMigration bool) (*SqlStore, error) {
-	storeFile := storeSqliteFileName
-	if envFile, ok := os.LookupEnv("NB_STORE_ENGINE_SQLITE_FILE"); ok && envFile != "" {
-		storeFile = envFile
-	}
-
-	// Separate file path from any SQLite URI query parameters (e.g., "store.db?mode=rwc")
-	filePath, query, hasQuery := strings.Cut(storeFile, "?")
-
-	connStr := filePath
-	if !filepath.IsAbs(filePath) {
-		connStr = filepath.Join(dataDir, filePath)
-	}
-
-	// Compose query parameters. User-provided ?_busy_timeout (or its mattn alias
-	// ?_timeout) overrides our default; otherwise inject 30s so SQLite waits at
-	// most that long on a lock instead of blocking the only Go-side connection.
-	// mattn/go-sqlite3 applies PRAGMA from the DSN on every fresh connection, so
-	// the value survives ConnMaxIdleTime/ConnMaxLifetime recycling. cache=shared
-	// stays the default on non-Windows for the same reason as before.
-	parsed, _ := url.ParseQuery(query)
-	var defaults []string
-	if parsed.Get("_busy_timeout") == "" && parsed.Get("_timeout") == "" {
-		defaults = append(defaults, "_busy_timeout=30000")
-	}
-	if !hasQuery && runtime.GOOS != "windows" {
-		// To avoid `The process cannot access the file because it is being used by another process` on Windows
-		defaults = append(defaults, "cache=shared")
-	}
-	parts := defaults
-	if hasQuery {
-		parts = append(parts, query)
-	}
-	if len(parts) > 0 {
-		connStr += "?" + strings.Join(parts, "&")
-	}
-
-	db, err := gorm.Open(sqlite.Open(connStr), getGormConfig())
+	conn, err := db.OpenSqlite(ctx, dataDir)
 	if err != nil {
 		return nil, err
 	}
-
-	return NewSqlStore(ctx, db, types.SqliteStoreEngine, metrics, skipMigration)
+	return newStore(ctx, conn, metrics, skipMigration)
 }
 
 // NewPostgresqlStore creates a new Postgres store.
 func NewPostgresqlStore(ctx context.Context, dsn string, metrics telemetry.AppMetrics, skipMigration bool) (*SqlStore, error) {
-	db, err := gorm.Open(postgres.Open(dsn), getGormConfig())
+	conn, err := db.OpenPostgres(ctx, dsn, db.DefaultPoolConfig)
 	if err != nil {
 		return nil, err
 	}
-	pool, err := connectToPgDb(context.Background(), dsn)
-	if err != nil {
-		return nil, err
-	}
-	store, err := NewSqlStore(ctx, db, types.PostgresStoreEngine, metrics, skipMigration)
-	if err != nil {
-		pool.Close()
-		return nil, err
-	}
-	store.pool = pool
-	return store, nil
-}
-
-func connectToPgDb(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
-	config, err := pgxpool.ParseConfig(dsn)
-	if err != nil {
-		return nil, fmt.Errorf("unable to parse database config: %w", err)
-	}
-
-	config.MaxConns = pgMaxConnections
-	config.MinConns = pgMinConnections
-	config.MaxConnLifetime = pgMaxConnLifetime
-	config.HealthCheckPeriod = pgHealthCheckPeriod
-
-	pool, err := pgxpool.NewWithConfig(ctx, config)
-	if err != nil {
-		return nil, fmt.Errorf("unable to create connection pool: %w", err)
-	}
-
-	if err := pool.Ping(ctx); err != nil {
-		pool.Close()
-		return nil, fmt.Errorf("unable to ping database: %w", err)
-	}
-
-	return pool, nil
+	return newStore(ctx, conn, metrics, skipMigration)
 }
 
 // NewMysqlStore creates a new MySQL store.
 func NewMysqlStore(ctx context.Context, dsn string, metrics telemetry.AppMetrics, skipMigration bool) (*SqlStore, error) {
-	db, err := gorm.Open(mysql.Open(dsn+"?charset=utf8&parseTime=True&loc=Local"), getGormConfig())
+	conn, err := db.OpenMysql(ctx, dsn)
 	if err != nil {
 		return nil, err
 	}
-
-	store, err := NewSqlStore(ctx, db, types.MysqlStoreEngine, metrics, skipMigration)
-	if err != nil {
-		closeGormDB(db)
-		return nil, err
-	}
-	return store, nil
-}
-
-func getGormConfig() *gorm.Config {
-	return &gorm.Config{
-		Logger:          logger.Default.LogMode(logger.Silent),
-		CreateBatchSize: 400,
-	}
-}
-
-// newPostgresStore initializes a new Postgres store.
-func newPostgresStore(ctx context.Context, metrics telemetry.AppMetrics, skipMigration bool) (Store, error) {
-	dsn, ok := lookupDSNEnv(PostgresDsnEnv, PostgresDsnEnvLegacy)
-	if !ok {
-		return nil, fmt.Errorf("%s is not set", PostgresDsnEnv)
-	}
-	return NewPostgresqlStore(ctx, dsn, metrics, skipMigration)
-}
-
-// newMysqlStore initializes a new MySQL store.
-func newMysqlStore(ctx context.Context, metrics telemetry.AppMetrics, skipMigration bool) (Store, error) {
-	dsn, ok := lookupDSNEnv(mysqlDsnEnv, mysqlDsnEnvLegacy)
-	if !ok {
-		return nil, fmt.Errorf("%s is not set", mysqlDsnEnv)
-	}
-	return NewMysqlStore(ctx, dsn, metrics, skipMigration)
+	return newStore(ctx, conn, metrics, skipMigration)
 }
 
 // NewSqliteStoreFromFileStore restores a store from FileStore and stores SQLite DB in the file located in datadir.
@@ -350,7 +224,7 @@ func newPostgresqlStoreFromSqlStore(ctx context.Context, sqliteStore *SqlStore, 
 	}
 
 	if err := seedFromSqliteStore(ctx, store, sqliteStore); err != nil {
-		closeStore(ctx, store)
+		_ = store.Close(ctx)
 		return nil, err
 	}
 
@@ -359,49 +233,11 @@ func newPostgresqlStoreFromSqlStore(ctx context.Context, sqliteStore *SqlStore, 
 
 // used for tests only
 func NewPostgresqlStoreForTests(ctx context.Context, dsn string, metrics telemetry.AppMetrics, skipMigration bool) (*SqlStore, error) {
-	db, err := gorm.Open(postgres.Open(dsn), getGormConfig())
+	conn, err := db.OpenPostgres(ctx, dsn, testPoolConfig)
 	if err != nil {
 		return nil, err
 	}
-	pool, err := connectToPgDbForTests(context.Background(), dsn)
-	if err != nil {
-		closeGormDB(db)
-		return nil, err
-	}
-	store, err := NewSqlStore(ctx, db, types.PostgresStoreEngine, metrics, skipMigration)
-	if err != nil {
-		// Release the sessions, or the caller cannot drop the database.
-		pool.Close()
-		closeGormDB(db)
-		return nil, err
-	}
-	store.pool = pool
-	return store, nil
-}
-
-// used for tests only
-func connectToPgDbForTests(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
-	config, err := pgxpool.ParseConfig(dsn)
-	if err != nil {
-		return nil, fmt.Errorf("unable to parse database config: %w", err)
-	}
-
-	config.MaxConns = 5
-	config.MinConns = 1
-	config.MaxConnLifetime = 30 * time.Second
-	config.HealthCheckPeriod = 10 * time.Second
-
-	pool, err := pgxpool.NewWithConfig(ctx, config)
-	if err != nil {
-		return nil, fmt.Errorf("unable to create connection pool: %w", err)
-	}
-
-	if err := pool.Ping(ctx); err != nil {
-		pool.Close()
-		return nil, fmt.Errorf("unable to ping database: %w", err)
-	}
-
-	return pool, nil
+	return newStore(ctx, conn, metrics, skipMigration)
 }
 
 // NewMysqlStoreFromSqlStore restores a store from SqlStore and stores MySQL DB.
@@ -423,15 +259,6 @@ func seedFromSqliteStore(ctx context.Context, store, sqliteStore *SqlStore) erro
 	return nil
 }
 
-// closeStore releases a store that is not handed to the caller, so a failed
-// seed does not leak its connection and pool.
-func closeStore(ctx context.Context, store *SqlStore) {
-	store.Close(ctx)
-	if store.pool != nil {
-		store.pool.Close()
-	}
-}
-
 func newMysqlStoreFromSqlStore(ctx context.Context, sqliteStore *SqlStore, dsn string, metrics telemetry.AppMetrics, skipMigration bool) (*SqlStore, error) {
 	store, err := NewMysqlStore(ctx, dsn, metrics, skipMigration)
 	if err != nil {
@@ -439,7 +266,7 @@ func newMysqlStoreFromSqlStore(ctx context.Context, sqliteStore *SqlStore, dsn s
 	}
 
 	if err := seedFromSqliteStore(ctx, store, sqliteStore); err != nil {
-		closeStore(ctx, store)
+		_ = store.Close(ctx)
 		return nil, err
 	}
 
@@ -447,106 +274,18 @@ func newMysqlStoreFromSqlStore(ctx context.Context, sqliteStore *SqlStore, dsn s
 }
 
 func (s *SqlStore) ExecuteInTransaction(ctx context.Context, operation func(store Store) error) error {
-	timeoutCtx, cancel := context.WithTimeout(ctx, s.transactionTimeout)
-	defer cancel()
-
-	startTime := time.Now()
-	tx := s.db.WithContext(timeoutCtx).Begin()
-	if tx.Error != nil {
-		return tx.Error
-	}
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
-			panic(r)
-		}
-	}()
-
-	if s.storeEngine == types.PostgresStoreEngine {
-		if err := tx.Exec("SET LOCAL statement_timeout = '1min'").Error; err != nil {
-			tx.Rollback()
-			return fmt.Errorf("failed to set statement timeout: %w", err)
-		}
-		if err := tx.Exec("SET LOCAL lock_timeout = '1min'").Error; err != nil {
-			tx.Rollback()
-			return fmt.Errorf("failed to set lock timeout: %w", err)
-		}
-	}
-
-	// For MySQL, disable FK checks within this transaction to avoid deadlocks
-	// This is session-scoped and doesn't require SUPER privileges
-	if s.storeEngine == types.MysqlStoreEngine {
-		if err := tx.Exec("SET FOREIGN_KEY_CHECKS = 0").Error; err != nil {
-			tx.Rollback()
-			return fmt.Errorf("failed to disable FK checks: %w", err)
-		}
-	}
-
-	repo := s.withTx(tx)
-	err := operation(repo)
-	if err != nil {
-		tx.Rollback()
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(timeoutCtx.Err(), context.DeadlineExceeded) {
-			log.WithContext(ctx).Warnf("transaction exceeded %s timeout after %v, stack: %s", s.transactionTimeout, time.Since(startTime), debug.Stack())
-		}
-		return err
-	}
-
-	// Re-enable FK checks before commit (optional, as transaction end resets it)
-	if s.storeEngine == types.MysqlStoreEngine {
-		if err := tx.Exec("SET FOREIGN_KEY_CHECKS = 1").Error; err != nil {
-			tx.Rollback()
-			return fmt.Errorf("failed to re-enable FK checks: %w", err)
-		}
-	}
-
-	err = tx.Commit().Error
-	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(timeoutCtx.Err(), context.DeadlineExceeded) {
-			log.WithContext(ctx).Warnf("transaction commit exceeded %s timeout after %v, stack: %s", s.transactionTimeout, time.Since(startTime), debug.Stack())
-		}
-		return err
-	}
-
-	log.WithContext(ctx).Tracef("transaction took %v", time.Since(startTime))
-	if s.metrics != nil {
-		s.metrics.StoreMetrics().CountTransactionDuration(time.Since(startTime))
-	}
-
-	return nil
+	return s.conn.RunInTx(ctx, func(tx *db.Tx) error {
+		return operation(s.withTx(tx))
+	})
 }
 
-func (s *SqlStore) withTx(tx *gorm.DB) Store {
+func (s *SqlStore) withTx(tx *db.Tx) Store {
 	return &SqlStore{
-		db:           tx,
-		storeEngine:  s.storeEngine,
+		conn:         s.conn,
+		db:           s.conn.DB(tx),
+		tx:           tx,
 		fieldEncrypt: s.fieldEncrypt,
 	}
-}
-
-// transaction wraps a GORM transaction with MySQL-specific FK checks handling
-// Use this instead of db.Transaction() directly to avoid deadlocks on MySQL/Aurora
-func (s *SqlStore) transaction(fn func(*gorm.DB) error) error {
-	return s.db.Transaction(func(tx *gorm.DB) error {
-		// For MySQL, disable FK checks within this transaction to avoid deadlocks
-		// This is session-scoped and doesn't require SUPER privileges
-		if s.storeEngine == types.MysqlStoreEngine {
-			if err := tx.Exec("SET FOREIGN_KEY_CHECKS = 0").Error; err != nil {
-				return fmt.Errorf("failed to disable FK checks: %w", err)
-			}
-		}
-
-		err := fn(tx)
-
-		// Re-enable FK checks before commit (optional, as transaction end resets it)
-		if s.storeEngine == types.MysqlStoreEngine && err == nil {
-			if fkErr := tx.Exec("SET FOREIGN_KEY_CHECKS = 1").Error; fkErr != nil {
-				return fmt.Errorf("failed to re-enable FK checks: %w", fkErr)
-			}
-		}
-
-		return err
-	})
 }
 
 func (s *SqlStore) GetDB() *gorm.DB {

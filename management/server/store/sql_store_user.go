@@ -108,7 +108,7 @@ func (s *SqlStore) GetUserByUserID(ctx context.Context, lockStrength LockingStre
 }
 
 func (s *SqlStore) DeleteUser(ctx context.Context, accountID, userID string) error {
-	err := s.transaction(func(tx *gorm.DB) error {
+	err := s.conn.Transaction(s.db, func(tx *gorm.DB) error {
 		result := tx.Delete(&types.PersonalAccessToken{}, "user_id = ?", userID)
 		if result.Error != nil {
 			return result.Error
@@ -173,7 +173,7 @@ func (s *SqlStore) GetAccountOwner(ctx context.Context, lockStrength LockingStre
 
 func (s *SqlStore) getUsers(ctx context.Context, accountID string) ([]types.User, error) {
 	const query = `SELECT id, account_id, role, is_service_user, non_deletable, service_user_name, auto_groups, blocked, pending_approval, last_login, created_at, issued, integration_ref_id, integration_ref_integration_type, email, name FROM users WHERE account_id = $1`
-	rows, err := s.pool.Query(ctx, query, accountID)
+	rows, err := s.pgxPool().Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
 	}

@@ -5,28 +5,29 @@ import (
 	"testing"
 	"time"
 
-	"go.uber.org/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
-	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
+	"github.com/netbirdio/netbird/management/internals/shared/db"
 )
 
 func TestCleanupOldAccessLogs(t *testing.T) {
 	tests := []struct {
 		name          string
 		retentionDays int
-		setupMock     func(*store.MockStore)
+		setupMock     func(*accesslogs.MockRepository)
 		expectedCount int64
 		expectedError bool
 	}{
 		{
 			name:          "cleanup logs older than retention period",
 			retentionDays: 30,
-			setupMock: func(mockStore *store.MockStore) {
-				mockStore.EXPECT().
-					DeleteOldAccessLogs(gomock.Any(), gomock.Any()).
-					DoAndReturn(func(ctx context.Context, olderThan time.Time) (int64, error) {
+			setupMock: func(mockRepo *accesslogs.MockRepository) {
+				mockRepo.EXPECT().
+					DeleteOlderThan(gomock.Any(), gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, tx *db.Tx, olderThan time.Time) (int64, error) {
 						expectedCutoff := time.Now().AddDate(0, 0, -30)
 						timeDiff := olderThan.Sub(expectedCutoff)
 						if timeDiff.Abs() > time.Second {
@@ -41,9 +42,9 @@ func TestCleanupOldAccessLogs(t *testing.T) {
 		{
 			name:          "no logs to cleanup",
 			retentionDays: 30,
-			setupMock: func(mockStore *store.MockStore) {
-				mockStore.EXPECT().
-					DeleteOldAccessLogs(gomock.Any(), gomock.Any()).
+			setupMock: func(mockRepo *accesslogs.MockRepository) {
+				mockRepo.EXPECT().
+					DeleteOlderThan(gomock.Any(), gomock.Any(), gomock.Any()).
 					Return(int64(0), nil)
 			},
 			expectedCount: 0,
@@ -52,8 +53,8 @@ func TestCleanupOldAccessLogs(t *testing.T) {
 		{
 			name:          "zero retention days skips cleanup",
 			retentionDays: 0,
-			setupMock: func(mockStore *store.MockStore) {
-				// No expectations - DeleteOldAccessLogs should not be called
+			setupMock: func(mockRepo *accesslogs.MockRepository) {
+				// No expectations - DeleteOlderThan should not be called
 			},
 			expectedCount: 0,
 			expectedError: false,
@@ -61,8 +62,8 @@ func TestCleanupOldAccessLogs(t *testing.T) {
 		{
 			name:          "negative retention days skips cleanup",
 			retentionDays: -10,
-			setupMock: func(mockStore *store.MockStore) {
-				// No expectations - DeleteOldAccessLogs should not be called
+			setupMock: func(mockRepo *accesslogs.MockRepository) {
+				// No expectations - DeleteOlderThan should not be called
 			},
 			expectedCount: 0,
 			expectedError: false,
@@ -74,11 +75,11 @@ func TestCleanupOldAccessLogs(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
 
-			mockStore := store.NewMockStore(ctrl)
-			tt.setupMock(mockStore)
+			mockRepo := accesslogs.NewMockRepository(ctrl)
+			tt.setupMock(mockRepo)
 
 			manager := &managerImpl{
-				store: mockStore,
+				repo: mockRepo,
 			}
 
 			ctx := context.Background()
@@ -98,11 +99,11 @@ func TestCleanupWithExactBoundary(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockStore := store.NewMockStore(ctrl)
+	mockRepo := accesslogs.NewMockRepository(ctrl)
 
-	mockStore.EXPECT().
-		DeleteOldAccessLogs(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(ctx context.Context, olderThan time.Time) (int64, error) {
+	mockRepo.EXPECT().
+		DeleteOlderThan(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(ctx context.Context, tx *db.Tx, olderThan time.Time) (int64, error) {
 			expectedCutoff := time.Now().AddDate(0, 0, -30)
 			timeDiff := olderThan.Sub(expectedCutoff)
 			assert.Less(t, timeDiff.Abs(), time.Second, "cutoff time should be close to expected value")
@@ -110,7 +111,7 @@ func TestCleanupWithExactBoundary(t *testing.T) {
 		})
 
 	manager := &managerImpl{
-		store: mockStore,
+		repo: mockRepo,
 	}
 
 	ctx := context.Background()
@@ -125,11 +126,11 @@ func TestStartPeriodicCleanup(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 
-		mockStore := store.NewMockStore(ctrl)
+		mockRepo := accesslogs.NewMockRepository(ctrl)
 		// No expectations - cleanup should not run
 
 		manager := &managerImpl{
-			store: mockStore,
+			repo: mockRepo,
 		}
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -139,22 +140,22 @@ func TestStartPeriodicCleanup(t *testing.T) {
 
 		time.Sleep(100 * time.Millisecond)
 
-		// If DeleteOldAccessLogs was called, the test will fail due to unexpected call
+		// If DeleteOlderThan was called, the test will fail due to unexpected call
 	})
 
 	t.Run("periodic cleanup runs immediately on start", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 
-		mockStore := store.NewMockStore(ctrl)
+		mockRepo := accesslogs.NewMockRepository(ctrl)
 
-		mockStore.EXPECT().
-			DeleteOldAccessLogs(gomock.Any(), gomock.Any()).
+		mockRepo.EXPECT().
+			DeleteOlderThan(gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(int64(2), nil).
 			Times(1)
 
 		manager := &managerImpl{
-			store: mockStore,
+			repo: mockRepo,
 		}
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -171,15 +172,15 @@ func TestStartPeriodicCleanup(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 
-		mockStore := store.NewMockStore(ctrl)
+		mockRepo := accesslogs.NewMockRepository(ctrl)
 
-		mockStore.EXPECT().
-			DeleteOldAccessLogs(gomock.Any(), gomock.Any()).
+		mockRepo.EXPECT().
+			DeleteOlderThan(gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(int64(1), nil).
 			Times(1)
 
 		manager := &managerImpl{
-			store: mockStore,
+			repo: mockRepo,
 		}
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -198,15 +199,15 @@ func TestStartPeriodicCleanup(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 
-		mockStore := store.NewMockStore(ctrl)
+		mockRepo := accesslogs.NewMockRepository(ctrl)
 
-		mockStore.EXPECT().
-			DeleteOldAccessLogs(gomock.Any(), gomock.Any()).
+		mockRepo.EXPECT().
+			DeleteOlderThan(gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(int64(0), nil).
 			Times(1)
 
 		manager := &managerImpl{
-			store: mockStore,
+			repo: mockRepo,
 		}
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -223,15 +224,15 @@ func TestStartPeriodicCleanup(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 
-		mockStore := store.NewMockStore(ctrl)
+		mockRepo := accesslogs.NewMockRepository(ctrl)
 
-		mockStore.EXPECT().
-			DeleteOldAccessLogs(gomock.Any(), gomock.Any()).
+		mockRepo.EXPECT().
+			DeleteOlderThan(gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(int64(3), nil).
 			Times(1)
 
 		manager := &managerImpl{
-			store: mockStore,
+			repo: mockRepo,
 		}
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -249,15 +250,15 @@ func TestStopPeriodicCleanup(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockStore := store.NewMockStore(ctrl)
+	mockRepo := accesslogs.NewMockRepository(ctrl)
 
-	mockStore.EXPECT().
-		DeleteOldAccessLogs(gomock.Any(), gomock.Any()).
+	mockRepo.EXPECT().
+		DeleteOlderThan(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(int64(1), nil).
 		Times(1)
 
 	manager := &managerImpl{
-		store: mockStore,
+		repo: mockRepo,
 	}
 
 	ctx := context.Background()

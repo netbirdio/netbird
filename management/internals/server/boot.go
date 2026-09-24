@@ -32,6 +32,7 @@ import (
 	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 	networkmapdbfactory "github.com/netbirdio/netbird/management/internals/network_map_db/factory"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/internals/shared/db"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/activity"
 	activitystore "github.com/netbirdio/netbird/management/server/activity/store"
@@ -84,9 +85,20 @@ func (s *BaseServer) CacheStore() nbcache.Store {
 	})
 }
 
+// DBConn opens the database connection shared by the store and the domain repositories.
+func (s *BaseServer) DBConn() *db.Conn {
+	return Create(s, func() *db.Conn {
+		conn, err := store.OpenConn(context.Background(), s.Config.StoreConfig.Engine, s.Config.Datadir)
+		if err != nil {
+			log.Fatalf("failed to open database connection: %v", err)
+		}
+		return conn
+	})
+}
+
 func (s *BaseServer) Store() store.Store {
 	return Create(s, func() store.Store {
-		store, err := store.NewStore(context.Background(), s.Config.StoreConfig.Engine, s.Config.Datadir, s.Metrics(), false)
+		store, err := store.NewSqlStore(context.Background(), s.DBConn(), s.Metrics(), false)
 		if err != nil {
 			log.Fatalf("failed to create store: %v", err)
 		}
@@ -308,7 +320,7 @@ func (s *BaseServer) ProxyActivityManager() proxyactivity.Manager {
 
 func (s *BaseServer) AccessLogsManager() accesslogs.Manager {
 	return Create(s, func() accesslogs.Manager {
-		accessLogManager := accesslogsmanager.NewManager(s.Store(), s.PermissionsManager(), s.GeoLocationManager())
+		accessLogManager := accesslogsmanager.NewManager(accesslogs.NewRepository(s.DBConn()), s.Store(), s.PermissionsManager(), s.GeoLocationManager())
 		accessLogManager.StartPeriodicCleanup(
 			context.Background(),
 			s.Config.ReverseProxy.AccessLogRetentionDays,

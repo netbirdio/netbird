@@ -44,7 +44,7 @@ func (s *SqlStore) getAccountOnboarding(ctx context.Context, accountID string, a
 	const query = `SELECT account_id, onboarding_flow_pending, signup_form_pending, created_at, updated_at FROM account_onboardings WHERE account_id = $1`
 	var onboardingFlowPending, signupFormPending sql.NullBool
 	var createdAt, updatedAt sql.NullTime
-	err := s.pool.QueryRow(ctx, query, accountID).Scan(
+	err := s.pgxPool().QueryRow(ctx, query, accountID).Scan(
 		&account.Onboarding.AccountID,
 		&onboardingFlowPending,
 		&signupFormPending,

@@ -57,11 +57,11 @@ func (s *SqlStore) ListUsers(ctx context.Context) ([]*types.User, error) {
 // txDeferFKConstraints defers foreign key constraint checks for the duration of the transaction.
 // MySQL is already handled by s.transaction (SET FOREIGN_KEY_CHECKS = 0).
 func (s *SqlStore) txDeferFKConstraints(tx *gorm.DB) error {
-	if s.storeEngine == types.SqliteStoreEngine {
+	if s.conn.Engine() == types.SqliteStoreEngine {
 		return tx.Exec("PRAGMA defer_foreign_keys = ON").Error
 	}
 
-	if s.storeEngine != types.PostgresStoreEngine {
+	if s.conn.Engine() != types.PostgresStoreEngine {
 		return nil
 	}
 
@@ -86,7 +86,7 @@ func (s *SqlStore) txDeferFKConstraints(tx *gorm.DB) error {
 // txRestoreFKConstraints reverts FK constraints back to NOT DEFERRABLE after the
 // deferred updates are done but before the transaction commits.
 func (s *SqlStore) txRestoreFKConstraints(tx *gorm.DB) error {
-	if s.storeEngine != types.PostgresStoreEngine {
+	if s.conn.Engine() != types.PostgresStoreEngine {
 		return nil
 	}
 
@@ -138,7 +138,7 @@ func (s *SqlStore) UpdateUserID(ctx context.Context, accountID, oldUserID, newUs
 	}
 
 	log.Info("Updating user ID in the store")
-	err := s.transaction(func(tx *gorm.DB) error {
+	err := s.conn.Transaction(s.db, func(tx *gorm.DB) error {
 		if err := s.txDeferFKConstraints(tx); err != nil {
 			return err
 		}
@@ -161,7 +161,7 @@ func (s *SqlStore) UpdateUserID(ctx context.Context, accountID, oldUserID, newUs
 	}
 
 	log.Info("Restoring FK constraints")
-	err = s.transaction(func(tx *gorm.DB) error {
+	err = s.conn.Transaction(s.db, func(tx *gorm.DB) error {
 		if err := s.txRestoreFKConstraints(tx); err != nil {
 			return fmt.Errorf("restore FK constraints: %w", err)
 		}

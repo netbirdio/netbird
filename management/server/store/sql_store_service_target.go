@@ -26,7 +26,7 @@ const targetSelectColumns = `id, account_id, service_id, path, host, port, proto
 func (s *SqlStore) getServiceTargets(ctx context.Context, serviceIDs []string) ([]*rpservice.Target, error) {
 	const targetsQuery = `SELECT ` + targetSelectColumns + ` FROM targets WHERE service_id = ANY($1)`
 
-	rows, err := s.pool.Query(ctx, targetsQuery, serviceIDs)
+	rows, err := s.pgxPool().Query(ctx, targetsQuery, serviceIDs)
 	if err != nil {
 		return nil, err
 	}

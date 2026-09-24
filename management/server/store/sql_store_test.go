@@ -346,7 +346,6 @@ func TestSqlStore_ExecuteInTransaction_Timeout(t *testing.T) {
 
 	sqlStore, ok := store.(*SqlStore)
 	require.True(t, ok)
-	assert.Equal(t, 1*time.Second, sqlStore.transactionTimeout)
 
 	ctx := context.Background()
 	err = sqlStore.ExecuteInTransaction(ctx, func(transaction Store) error {

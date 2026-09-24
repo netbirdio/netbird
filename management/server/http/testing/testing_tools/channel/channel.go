@@ -14,6 +14,7 @@ import (
 
 	"github.com/netbirdio/management-integrations/integrations"
 
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	accesslogsmanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain/manager"
 	proxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy/manager"
@@ -46,14 +47,14 @@ import (
 	"github.com/netbirdio/netbird/management/server/networks/routers"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
-	"github.com/netbirdio/netbird/management/server/store"
+	nbstore "github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/users"
 	"github.com/netbirdio/netbird/shared/auth"
 )
 
 func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPeerUpdate *network_map.UpdateMessage, validateUpdate bool) (http.Handler, account.Manager, chan struct{}) {
-	store, cleanup, err := store.NewTestStoreFromSQL(context.Background(), sqlFile, t.TempDir())
+	store, cleanup, err := nbstore.NewTestStoreFromSQL(context.Background(), sqlFile, t.TempDir())
 	if err != nil {
 		t.Fatalf("Failed to create test store: %v", err)
 	}
@@ -108,7 +109,7 @@ func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPee
 		t.Fatalf("Failed to create manager: %v", err)
 	}
 
-	accessLogsManager := accesslogsmanager.NewManager(store, permissionsManager, nil)
+	accessLogsManager := accesslogsmanager.NewManager(accesslogs.NewRepository(store.(*nbstore.SqlStore).Conn()), store, permissionsManager, nil)
 	proxyTokenStore := nbgrpc.NewOneTimeTokenStore(ctx, cacheStore)
 	pkceverifierStore := nbgrpc.NewPKCEVerifierStore(ctx, cacheStore)
 	noopMeter := noop.NewMeterProvider().Meter("")
@@ -204,7 +205,7 @@ func PeerShouldNotReceiveAnyUpdate(t testing_tools.TB, updateMessage <-chan *net
 // BuildApiBlackBoxWithDBStateAndPeerChannel creates the API handler and returns
 // the peer update channel directly so tests can verify updates inline.
 func BuildApiBlackBoxWithDBStateAndPeerChannel(t testing_tools.TB, sqlFile string) (http.Handler, account.Manager, <-chan *network_map.UpdateMessage) {
-	store, cleanup, err := store.NewTestStoreFromSQL(context.Background(), sqlFile, t.TempDir())
+	store, cleanup, err := nbstore.NewTestStoreFromSQL(context.Background(), sqlFile, t.TempDir())
 	if err != nil {
 		t.Fatalf("Failed to create test store: %v", err)
 	}
@@ -248,7 +249,7 @@ func BuildApiBlackBoxWithDBStateAndPeerChannel(t testing_tools.TB, sqlFile strin
 		t.Fatalf("Failed to create manager: %v", err)
 	}
 
-	accessLogsManager := accesslogsmanager.NewManager(store, permissionsManager, nil)
+	accessLogsManager := accesslogsmanager.NewManager(accesslogs.NewRepository(store.(*nbstore.SqlStore).Conn()), store, permissionsManager, nil)
 	proxyTokenStore := nbgrpc.NewOneTimeTokenStore(ctx, cacheStore)
 	pkceverifierStore := nbgrpc.NewPKCEVerifierStore(ctx, cacheStore)
 	noopMeter := noop.NewMeterProvider().Meter("")

@@ -30,7 +30,7 @@ const serviceSelectColumns = `id, account_id, name, domain, enabled, auth, restr
 func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpservice.Service, error) {
 	const serviceQuery = `SELECT ` + serviceSelectColumns + ` FROM services WHERE account_id = $1`
 
-	serviceRows, err := s.pool.Query(ctx, serviceQuery, accountID)
+	serviceRows, err := s.pgxPool().Query(ctx, serviceQuery, accountID)
 	if err != nil {
 		return nil, err
 	}
