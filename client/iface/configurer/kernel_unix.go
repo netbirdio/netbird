@@ -248,6 +248,13 @@ func (c *KernelConfigurer) peerAllowedIPs(peerKey string) ([]netip.Prefix, error
 }
 
 func (c *KernelConfigurer) getPeer(ifaceName, peerPubKey string) (wgtypes.Peer, error) {
+	// Compare the parsed key: wgtypes.Key is an array, while Key.String base64 encodes it
+	// into a fresh allocation, which a scan would pay once per peer on the device.
+	parsedKey, err := wgtypes.ParseKey(peerPubKey)
+	if err != nil {
+		return wgtypes.Peer{}, fmt.Errorf("parse peer key: %w", err)
+	}
+
 	wg, err := wgctrl.New()
 	if err != nil {
 		return wgtypes.Peer{}, fmt.Errorf("wgctl: %w", err)
@@ -264,7 +271,7 @@ func (c *KernelConfigurer) getPeer(ifaceName, peerPubKey string) (wgtypes.Peer, 
 		return wgtypes.Peer{}, fmt.Errorf("get device %s: %w", ifaceName, err)
 	}
 	for _, peer := range wgDevice.Peers {
-		if peer.PublicKey.String() == peerPubKey {
+		if peer.PublicKey == parsedKey {
 			return peer, nil
 		}
 	}
