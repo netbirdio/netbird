@@ -68,7 +68,13 @@ services:
     # todo: change to a secure secret
     - NB_AUTH_SECRET=$NETBIRD_RELAY_AUTH_SECRET
     ports:
-      - $NETBIRD_RELAY_PORT:$NETBIRD_RELAY_PORT
+      # Relay listens on TCP (WebSocket) and UDP (QUIC) on the same port.
+      # Docker's HOST:CONTAINER shorthand defaults to TCP only, so /udp
+      # must be specified explicitly or QUIC handshakes are silently
+      # dropped at docker-proxy and every relay connection falls back
+      # to WebSocket.
+      - $NETBIRD_RELAY_PORT:$NETBIRD_RELAY_PORT/tcp
+      - $NETBIRD_RELAY_PORT:$NETBIRD_RELAY_PORT/udp
 
   # Management
   management:
