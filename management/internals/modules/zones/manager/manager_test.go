@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"go.uber.org/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
@@ -194,19 +194,18 @@ func TestManagerImpl_CreateZone(t *testing.T) {
 		type updateCall struct {
 			accountID string
 			reason    types.UpdateReason
-			ctxErr    error
+			callCtx   context.Context
 		}
 		updatePeersCh := make(chan updateCall, 1)
 		mockAccountManager.UpdateAccountPeersFunc = func(callCtx context.Context, accountID string, reason types.UpdateReason) {
 			updatePeersCh <- updateCall{
 				accountID: accountID,
 				reason:    reason,
-				ctxErr:    callCtx.Err(),
+				callCtx:   callCtx,
 			}
 		}
 
 		result, err := manager.CreateZone(reqCtx, testAccountID, testUserID, inputZone)
-		reqCancel()
 		require.NoError(t, err)
 		assert.NotNil(t, result)
 		assert.NotEmpty(t, result.ID)
@@ -217,15 +216,17 @@ func TestManagerImpl_CreateZone(t *testing.T) {
 		assert.Equal(t, inputZone.EnableSearchDomain, result.EnableSearchDomain)
 		assert.Equal(t, inputZone.DistributionGroups, result.DistributionGroups)
 
+		var call updateCall
 		select {
-		case call := <-updatePeersCh:
-			assert.Equal(t, testAccountID, call.accountID)
-			assert.Equal(t, types.UpdateResourceZone, call.reason.Resource)
-			assert.Equal(t, types.UpdateOperationCreate, call.reason.Operation)
-			assert.NoError(t, call.ctxErr, "UpdateAccountPeers context must not be canceled when request context is canceled")
+		case call = <-updatePeersCh:
+			reqCancel()
 		case <-time.After(5 * time.Second):
 			t.Fatal("timed out waiting for UpdateAccountPeers")
 		}
+		assert.Equal(t, testAccountID, call.accountID)
+		assert.Equal(t, types.UpdateResourceZone, call.reason.Resource)
+		assert.Equal(t, types.UpdateOperationCreate, call.reason.Operation)
+		assert.NoError(t, call.callCtx.Err(), "UpdateAccountPeers context must not be canceled when request context is canceled")
 	})
 
 	t.Run("permission denied", func(t *testing.T) {
