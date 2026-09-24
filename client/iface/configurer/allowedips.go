@@ -91,6 +91,20 @@ func (s *allowedIPStore) addExisting(key string, prefixes []netip.Prefix) {
 	s.mergeLocked(k, prefixes)
 }
 
+// ensure records a peer with no prefixes unless it is already known. A device operation
+// that is not update-only creates the peer when it is absent, so it has to be recorded even
+// when it configures nothing else; otherwise the peer exists on the device while the store
+// treats it as unknown, and a prefix later handed over to it is not accounted for.
+func (s *allowedIPStore) ensure(key string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	k := peerKey(key)
+	if _, ok := s.peers[k]; !ok {
+		s.peers[k] = nil
+	}
+}
+
 // forget drops every prefix recorded for a peer.
 func (s *allowedIPStore) forget(key string) {
 	s.mu.Lock()
