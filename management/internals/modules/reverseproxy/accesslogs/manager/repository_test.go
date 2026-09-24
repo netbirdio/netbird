@@ -1,4 +1,4 @@
-package accesslogs
+package manager
 
 import (
 	"context"
@@ -9,20 +9,21 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	"github.com/netbirdio/netbird/management/internals/shared/db"
 )
 
-func newTestRepository(t *testing.T) (Repository, *db.Conn) {
+func newTestRepository(t *testing.T) (accesslogs.Repository, *db.Conn) {
 	t.Helper()
 	conn, err := db.OpenSqlite(context.Background(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
-	require.NoError(t, conn.AutoMigrate(&AccessLogEntry{}))
+	require.NoError(t, conn.AutoMigrate(&accesslogs.AccessLogEntry{}))
 	return NewRepository(conn), conn
 }
 
-func newEntry(id, accountID, method string, age time.Duration) *AccessLogEntry {
-	return &AccessLogEntry{
+func newEntry(id, accountID, method string, age time.Duration) *accesslogs.AccessLogEntry {
+	return &accesslogs.AccessLogEntry{
 		ID:         id,
 		AccountID:  accountID,
 		Method:     method,
@@ -36,7 +37,7 @@ func newEntry(id, accountID, method string, age time.Duration) *AccessLogEntry {
 func TestSqlRepository_ListByAccount(t *testing.T) {
 	repo, _ := newTestRepository(t)
 	ctx := context.Background()
-	for _, entry := range []*AccessLogEntry{
+	for _, entry := range []*accesslogs.AccessLogEntry{
 		newEntry("a1", "acc-a", "GET", 3*time.Hour),
 		newEntry("a2", "acc-a", "POST", 2*time.Hour),
 		newEntry("a3", "acc-a", "GET", time.Hour),
@@ -45,7 +46,7 @@ func TestSqlRepository_ListByAccount(t *testing.T) {
 		require.NoError(t, repo.Create(ctx, nil, entry))
 	}
 
-	logs, total, err := repo.ListByAccount(ctx, nil, db.LockingStrengthNone, "acc-a", AccessLogFilter{Page: 1, PageSize: 2})
+	logs, total, err := repo.ListByAccount(ctx, nil, db.LockingStrengthNone, "acc-a", accesslogs.AccessLogFilter{Page: 1, PageSize: 2})
 	require.NoError(t, err)
 	assert.EqualValues(t, 3, total)
 	require.Len(t, logs, 2)
@@ -53,7 +54,7 @@ func TestSqlRepository_ListByAccount(t *testing.T) {
 	assert.Equal(t, "a2", logs[1].ID)
 
 	method := "GET"
-	logs, total, err = repo.ListByAccount(ctx, nil, db.LockingStrengthNone, "acc-a", AccessLogFilter{Page: 1, PageSize: 10, Method: &method, SortOrder: "asc"})
+	logs, total, err = repo.ListByAccount(ctx, nil, db.LockingStrengthNone, "acc-a", accesslogs.AccessLogFilter{Page: 1, PageSize: 10, Method: &method, SortOrder: "asc"})
 	require.NoError(t, err)
 	assert.EqualValues(t, 2, total)
 	require.Len(t, logs, 2)
@@ -71,7 +72,7 @@ func TestSqlRepository_DeleteOlderThan(t *testing.T) {
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, deleted)
 
-	logs, total, err := repo.ListByAccount(ctx, nil, db.LockingStrengthNone, "acc", AccessLogFilter{Page: 1, PageSize: 10})
+	logs, total, err := repo.ListByAccount(ctx, nil, db.LockingStrengthNone, "acc", accesslogs.AccessLogFilter{Page: 1, PageSize: 10})
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, total)
 	require.Len(t, logs, 1)
@@ -89,7 +90,7 @@ func TestSqlRepository_CreateInsideTransactionRollsBack(t *testing.T) {
 	})
 	require.ErrorIs(t, err, failure)
 
-	_, total, err := repo.ListByAccount(ctx, nil, db.LockingStrengthNone, "acc", AccessLogFilter{Page: 1, PageSize: 10})
+	_, total, err := repo.ListByAccount(ctx, nil, db.LockingStrengthNone, "acc", accesslogs.AccessLogFilter{Page: 1, PageSize: 10})
 	require.NoError(t, err)
 	assert.Zero(t, total)
 }

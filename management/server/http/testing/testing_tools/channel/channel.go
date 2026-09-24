@@ -14,7 +14,6 @@ import (
 
 	"github.com/netbirdio/management-integrations/integrations"
 
-	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	accesslogsmanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain/manager"
 	proxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy/manager"
@@ -109,7 +108,7 @@ func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPee
 		t.Fatalf("Failed to create manager: %v", err)
 	}
 
-	accessLogsManager := accesslogsmanager.NewManager(accesslogs.NewRepository(store.(*nbstore.SqlStore).Conn()), store, permissionsManager, nil)
+	accessLogsManager := accesslogsmanager.NewManager(accesslogsmanager.NewRepository(store.(*nbstore.SqlStore).Conn()), store, permissionsManager, nil)
 	proxyTokenStore := nbgrpc.NewOneTimeTokenStore(ctx, cacheStore)
 	pkceverifierStore := nbgrpc.NewPKCEVerifierStore(ctx, cacheStore)
 	noopMeter := noop.NewMeterProvider().Meter("")
@@ -249,7 +248,7 @@ func BuildApiBlackBoxWithDBStateAndPeerChannel(t testing_tools.TB, sqlFile strin
 		t.Fatalf("Failed to create manager: %v", err)
 	}
 
-	accessLogsManager := accesslogsmanager.NewManager(accesslogs.NewRepository(store.(*nbstore.SqlStore).Conn()), store, permissionsManager, nil)
+	accessLogsManager := accesslogsmanager.NewManager(accesslogsmanager.NewRepository(store.(*nbstore.SqlStore).Conn()), store, permissionsManager, nil)
 	proxyTokenStore := nbgrpc.NewOneTimeTokenStore(ctx, cacheStore)
 	pkceverifierStore := nbgrpc.NewPKCEVerifierStore(ctx, cacheStore)
 	noopMeter := noop.NewMeterProvider().Meter("")
