@@ -16,6 +16,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/util"
 
+	"github.com/netbirdio/netbird/management/internals/modules/permissions"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -181,10 +182,10 @@ func TestTokenHandlers(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/users/{userId}/tokens", p.getAllTokens).Methods("GET")
-			router.HandleFunc("/api/users/{userId}/tokens/{tokenId}", p.getToken).Methods("GET")
-			router.HandleFunc("/api/users/{userId}/tokens", p.createToken).Methods("POST")
-			router.HandleFunc("/api/users/{userId}/tokens/{tokenId}", p.deleteToken).Methods("DELETE")
+			router.HandleFunc("/api/users/{userId}/tokens", permissions.WrapHandler(p.getAllTokens)).Methods("GET")
+			router.HandleFunc("/api/users/{userId}/tokens/{tokenId}", permissions.WrapHandler(p.getToken)).Methods("GET")
+			router.HandleFunc("/api/users/{userId}/tokens", permissions.WrapHandler(p.createToken)).Methods("POST")
+			router.HandleFunc("/api/users/{userId}/tokens/{tokenId}", permissions.WrapHandler(p.deleteToken)).Methods("DELETE")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

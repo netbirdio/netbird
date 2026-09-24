@@ -30,13 +30,13 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	ephemeral_manager "github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions"
 	"github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/internals/shared/grpc"
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	"github.com/netbirdio/netbird/management/server/http/testing/testing_tools"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/job"
-	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -553,7 +553,7 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 		return
 	}
 
-	// the user can see its own peer
+	// authorization is enforced at the HTTP layer, the manager returns any peer of the account
 	peer, err := manager.GetPeer(context.Background(), accountID, peer1.ID, someUser)
 	if err != nil {
 		t.Fatal(err)
@@ -561,12 +561,13 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 	}
 	assert.NotNil(t, peer)
 
-	// the user can NOT see peer2 because it is not owned by them.
-	// Regular users only see peers they directly own.
-	_, err = manager.GetPeer(context.Background(), accountID, peer2.ID, someUser)
-	assert.Error(t, err)
+	peer, err = manager.GetPeer(context.Background(), accountID, peer2.ID, someUser)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+	assert.NotNil(t, peer)
 
-	// admin users can always access all the peers
 	peer, err = manager.GetPeer(context.Background(), accountID, peer1.ID, adminUser)
 	if err != nil {
 		t.Fatal(err)
@@ -602,7 +603,7 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 			role:                types.UserRoleUser,
 			limitedViewSettings: false,
 			isServiceUser:       true,
-			expectedPeerCount:   2,
+			expectedPeerCount:   1,
 		},
 		{
 			name:                "Regular user, limited view settings",
@@ -616,7 +617,7 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 			role:                types.UserRoleUser,
 			limitedViewSettings: true,
 			isServiceUser:       true,
-			expectedPeerCount:   2,
+			expectedPeerCount:   0,
 		},
 		{
 			name:                "Admin, no limited view settings, not a service user",
@@ -718,7 +719,7 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 				return
 			}
 
-			peers, err := manager.GetPeers(context.Background(), accountID, someUser, "", "")
+			peers, err := manager.GetPeers(context.Background(), accountID, someUser, "", "", false)
 			if err != nil {
 				t.Fatal(err)
 				return
@@ -934,7 +935,7 @@ func BenchmarkGetPeers(b *testing.B) {
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				_, err := manager.GetPeers(context.Background(), accountID, userID, "", "")
+				_, err := manager.GetPeers(context.Background(), accountID, userID, "", "", true)
 				if err != nil {
 					b.Fatalf("GetPeers failed: %v", err)
 				}
@@ -1292,7 +1293,7 @@ func Test_RegisterPeerByUser(t *testing.T) {
 	t.Cleanup(ctrl.Finish)
 	settingsMockManager := settings.NewMockManager(ctrl)
 	permissionsManager := permissions.NewManager(s)
-	peersManager := peers.NewManager(s, permissionsManager)
+	peersManager := peers.NewManager(s)
 
 	ctx := context.Background()
 
@@ -1301,7 +1302,7 @@ func Test_RegisterPeerByUser(t *testing.T) {
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, s)
-	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager)), &config.Config{}, nil)
+	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s)), &config.Config{}, nil)
 
 	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false, cacheStore)
 	assert.NoError(t, err)
@@ -1383,7 +1384,7 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 		Return(&types.ExtraSettings{}, nil).
 		AnyTimes()
 	permissionsManager := permissions.NewManager(s)
-	peersManager := peers.NewManager(s, permissionsManager)
+	peersManager := peers.NewManager(s)
 
 	ctx := context.Background()
 
@@ -1392,7 +1393,7 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, s)
-	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager)), &config.Config{}, nil)
+	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s)), &config.Config{}, nil)
 
 	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false, cacheStore)
 	assert.NoError(t, err)
@@ -1542,7 +1543,7 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 	settingsMockManager := settings.NewMockManager(ctrl)
 
 	permissionsManager := permissions.NewManager(s)
-	peersManager := peers.NewManager(s, permissionsManager)
+	peersManager := peers.NewManager(s)
 
 	ctx := context.Background()
 
@@ -1551,7 +1552,7 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, s)
-	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager)), &config.Config{}, nil)
+	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s)), &config.Config{}, nil)
 
 	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false, cacheStore)
 	assert.NoError(t, err)
@@ -1627,7 +1628,7 @@ func Test_LoginPeer(t *testing.T) {
 		Return(&types.ExtraSettings{}, nil).
 		AnyTimes()
 	permissionsManager := permissions.NewManager(s)
-	peersManager := peers.NewManager(s, permissionsManager)
+	peersManager := peers.NewManager(s)
 
 	ctx := context.Background()
 
@@ -1636,7 +1637,7 @@ func Test_LoginPeer(t *testing.T) {
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, s)
-	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager)), &config.Config{}, nil)
+	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s)), &config.Config{}, nil)
 
 	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false, cacheStore)
 	assert.NoError(t, err)

@@ -18,7 +18,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/networks/routers"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
-	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 )
@@ -101,11 +100,10 @@ func buildRouterScenario(t *testing.T, manager *DefaultAccountManager, updateMan
 		require.NoError(t, manager.CreateGroup(ctx, accountID, userID, g))
 	}
 
-	permissionsManager := permissions.NewManager(manager.Store)
-	groupsManager := groups.NewManager(manager.Store, permissionsManager, manager)
-	resourcesManager := resources.NewManager(manager.Store, permissionsManager, groupsManager, manager, manager.serviceManager)
-	routersManager := routers.NewManager(manager.Store, permissionsManager, manager)
-	networksManager := networks.NewManager(manager.Store, permissionsManager, resourcesManager, routersManager, manager)
+	groupsManager := groups.NewManager(manager.Store, manager)
+	resourcesManager := resources.NewManager(manager.Store, groupsManager, manager, manager.serviceManager)
+	routersManager := routers.NewManager(manager.Store, manager)
+	networksManager := networks.NewManager(manager.Store, resourcesManager, routersManager, manager)
 
 	network, err := networksManager.CreateNetwork(ctx, userID, &networkTypes.Network{
 		ID:        "rs-network",
@@ -332,9 +330,8 @@ func TestAffectedPeers_ResourceSideBridgesToRoutingPeer_DirectRouter(t *testing.
 	// policies whose destinations reference the resource's groups, folds in the
 	// source groups, and loads the network's routers, so it reaches both the
 	// source peer and the routing peer.
-	permissionsManager := permissions.NewManager(s.manager.Store)
-	groupsManager := groups.NewManager(s.manager.Store, permissionsManager, s.manager)
-	rm := resources.NewManager(s.manager.Store, permissionsManager, groupsManager, s.manager, s.manager.serviceManager)
+	groupsManager := groups.NewManager(s.manager.Store, s.manager)
+	rm := resources.NewManager(s.manager.Store, groupsManager, s.manager, s.manager.serviceManager)
 
 	srcCh := s.updateManager.CreateChannel(ctx, s.sourcePeerID)
 	routerCh := s.updateManager.CreateChannel(ctx, s.routerPeerID)
@@ -507,11 +504,10 @@ func TestAffectedPeers_E2E_DeletePolicy_RoutingPeer(t *testing.T) {
 }
 
 func (s *routerScenario) managers() (resources.Manager, routers.Manager, networks.Manager) {
-	permissionsManager := permissions.NewManager(s.manager.Store)
-	groupsManager := groups.NewManager(s.manager.Store, permissionsManager, s.manager)
-	resourcesManager := resources.NewManager(s.manager.Store, permissionsManager, groupsManager, s.manager, s.manager.serviceManager)
-	routersManager := routers.NewManager(s.manager.Store, permissionsManager, s.manager)
-	networksManager := networks.NewManager(s.manager.Store, permissionsManager, resourcesManager, routersManager, s.manager)
+	groupsManager := groups.NewManager(s.manager.Store, s.manager)
+	resourcesManager := resources.NewManager(s.manager.Store, groupsManager, s.manager, s.manager.serviceManager)
+	routersManager := routers.NewManager(s.manager.Store, s.manager)
+	networksManager := networks.NewManager(s.manager.Store, resourcesManager, routersManager, s.manager)
 	return resourcesManager, routersManager, networksManager
 }
 

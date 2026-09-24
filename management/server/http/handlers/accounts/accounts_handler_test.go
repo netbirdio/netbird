@@ -16,6 +16,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/netbirdio/netbird/management/internals/modules/permissions"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/settings"
@@ -416,8 +417,8 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/accounts", handler.getAllAccounts).Methods("GET")
-			router.HandleFunc("/api/accounts/{accountId}", handler.updateAccount).Methods("PUT")
+			router.HandleFunc("/api/accounts", permissions.WrapHandler(handler.getAllAccounts)).Methods("GET")
+			router.HandleFunc("/api/accounts/{accountId}", permissions.WrapHandler(handler.updateAccount)).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

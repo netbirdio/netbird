@@ -13,6 +13,8 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator/validator"
 
+	"github.com/netbirdio/netbird/management/internals/modules/permissions"
+
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
@@ -29,7 +31,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
-	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -97,7 +98,7 @@ func startManagement(t *testing.T, config *config.Config, testFile string) (*grp
 	t.Cleanup(ctrl.Finish)
 
 	permissionsManagerMock := permissions.NewMockManager(ctrl)
-	peersmanager := peers.NewManager(store, permissionsManagerMock)
+	peersmanager := peers.NewManager(store)
 	settingsManagerMock := settings.NewMockManager(ctrl)
 
 	jobManager := job.NewJobManager(nil, store, peersmanager)

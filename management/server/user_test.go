@@ -13,10 +13,10 @@ import (
 	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions/modules"
+	roles2 "github.com/netbirdio/netbird/management/internals/modules/permissions/roles"
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
-	"github.com/netbirdio/netbird/management/server/permissions"
-	"github.com/netbirdio/netbird/management/server/permissions/modules"
-	"github.com/netbirdio/netbird/management/server/permissions/roles"
 	"github.com/netbirdio/netbird/management/server/users"
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/shared/auth"
@@ -775,6 +775,52 @@ func TestUser_DeleteUser_ServiceUser(t *testing.T) {
 	}
 }
 
+func TestUser_DeleteUser_CrossAccountRejected(t *testing.T) {
+	s, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+	if err != nil {
+		t.Fatalf("Error when creating store: %s", err)
+	}
+	t.Cleanup(cleanup)
+
+	// Create two accounts with users
+	account1 := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
+	targetServiceUser := &types.User{
+		Id:              mockServiceUserID,
+		IsServiceUser:   true,
+		ServiceUserName: mockServiceUserName,
+	}
+	account1.Users[mockServiceUserID] = targetServiceUser
+
+	otherAccountID := "otherAccountID"
+	otherUserID := "otherUserID"
+	account2 := newAccountWithId(context.Background(), otherAccountID, otherUserID, "", "", "", false)
+
+	err = s.SaveAccount(context.Background(), account1)
+	if err != nil {
+		t.Fatalf("Error when saving account1: %s", err)
+	}
+	err = s.SaveAccount(context.Background(), account2)
+	if err != nil {
+		t.Fatalf("Error when saving account2: %s", err)
+	}
+
+	permissionsManager := permissions.NewManager(s)
+	am := DefaultAccountManager{
+		Store:              s,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissionsManager,
+	}
+
+	// otherUserID (from account2) tries to delete mockServiceUserID (from account1)
+	err = am.DeleteUser(context.Background(), otherAccountID, otherUserID, mockServiceUserID)
+	assert.Error(t, err, "cross-account user deletion should be rejected")
+
+	// Verify the target user still exists
+	account, err := s.GetAccount(context.Background(), mockAccountID)
+	assert.NoError(t, err)
+	assert.NotNil(t, account.Users[mockServiceUserID], "target user should not have been deleted")
+}
+
 func TestUser_DeleteUser_SelfDelete(t *testing.T) {
 	store, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
 	if err != nil {
@@ -1368,8 +1414,8 @@ func TestUser_GetUsersFromAccount_ForUser(t *testing.T) {
 		t.Fatalf("Error when getting users from account: %s", err)
 	}
 
-	// Service users should see all users
-	assert.Equal(t, 2, len(users))
+	// Service users follow their role like any other user, a role user only sees themselves
+	assert.Equal(t, 1, len(users))
 }
 
 func TestDefaultAccountManager_SaveUser(t *testing.T) {
@@ -1515,13 +1561,14 @@ func TestDefaultAccountManager_SaveUser(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 
 			// create an account and an admin user
-			account, err := manager.GetOrCreateAccountByUser(context.Background(), auth.UserAuth{UserId: ownerUserID, Domain: "netbird.io"})
+			account, err := manager.GetOrCreateAccountByUser(context.Background(), auth.UserAuth{UserId: tc.name, Domain: "netbird.io"})
 			if err != nil {
 				t.Fatal(err)
 			}
 
 			// create other users
 			account.Users[regularUserID] = types.NewRegularUser(regularUserID, "", "")
+			account.Users[ownerUserID] = types.NewOwnerUser(ownerUserID, "", "")
 			account.Users[adminUserID] = types.NewAdminUser(adminUserID)
 			account.Users[serviceUserID] = &types.User{IsServiceUser: true, Id: serviceUserID, Role: types.UserRoleAdmin, ServiceUserName: "service"}
 			err = manager.Store.SaveAccount(context.Background(), account)
@@ -1834,11 +1881,6 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 			expectedErr: status.NewUserNotFoundError("not-found"),
 		},
 		{
-			name:        "not part of account",
-			userAuth:    auth.UserAuth{AccountId: account1.Id, UserId: "account2Owner"},
-			expectedErr: status.NewUserNotPartOfAccountError(),
-		},
-		{
 			name:        "blocked",
 			userAuth:    auth.UserAuth{AccountId: account1.Id, UserId: "blocked-user"},
 			expectedErr: status.NewUserBlockedError(),
@@ -1893,7 +1935,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 					Issued:               "api",
 					IntegrationReference: integration_reference.IntegrationReference{},
 				},
-				Permissions: mergeRolePermissions(roles.Owner),
+				Permissions: mergeRolePermissions(roles2.Owner),
 			},
 		},
 		{
@@ -1912,7 +1954,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 					Issued:               "api",
 					IntegrationReference: integration_reference.IntegrationReference{},
 				},
-				Permissions: mergeRolePermissions(roles.User),
+				Permissions: mergeRolePermissions(roles2.User),
 			},
 		},
 		{
@@ -1931,7 +1973,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 					Issued:               "api",
 					IntegrationReference: integration_reference.IntegrationReference{},
 				},
-				Permissions: mergeRolePermissions(roles.Admin),
+				Permissions: mergeRolePermissions(roles2.Admin),
 			},
 		},
 		{
@@ -1950,7 +1992,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 					Issued:               "api",
 					IntegrationReference: integration_reference.IntegrationReference{},
 				},
-				Permissions: mergeRolePermissions(roles.User),
+				Permissions: mergeRolePermissions(roles2.User),
 				Restricted:  true,
 			},
 		},
@@ -1971,7 +2013,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 					Issued:               "api",
 					IntegrationReference: integration_reference.IntegrationReference{},
 				},
-				Permissions: mergeRolePermissions(roles.User),
+				Permissions: mergeRolePermissions(roles2.User),
 				Restricted:  false,
 			},
 		},
@@ -1992,7 +2034,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 					Issued:               "api",
 					IntegrationReference: integration_reference.IntegrationReference{},
 				},
-				Permissions: mergeRolePermissions(roles.Owner),
+				Permissions: mergeRolePermissions(roles2.Owner),
 			},
 		},
 	}
@@ -2002,7 +2044,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 			result, err := am.GetCurrentUserInfo(context.Background(), tc.userAuth)
 
 			if tc.expectedErr != nil {
-				assert.Equal(t, err, tc.expectedErr)
+				assert.Equal(t, tc.expectedErr, err)
 				return
 			}
 
@@ -2012,8 +2054,8 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 	}
 }
 
-func mergeRolePermissions(role roles.RolePermissions) roles.Permissions {
-	permissions := roles.Permissions{}
+func mergeRolePermissions(role roles2.RolePermissions) roles2.Permissions {
+	permissions := roles2.Permissions{}
 
 	for k := range modules.All {
 		if rolePermissions, ok := role.Permissions[k]; ok {
@@ -2067,22 +2109,6 @@ func TestApproveUser(t *testing.T) {
 	_, err = manager.ApproveUser(context.Background(), account.Id, adminUser.Id, pendingUser.Id)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not pending approval")
-
-	// Test approval by non-admin should fail
-	regularUser := types.NewRegularUser("regular-user", "", "")
-	regularUser.AccountID = account.Id
-	err = manager.Store.SaveUser(context.Background(), regularUser)
-	require.NoError(t, err)
-
-	pendingUser2 := types.NewRegularUser("pending-user-2", "", "")
-	pendingUser2.AccountID = account.Id
-	pendingUser2.Blocked = true
-	pendingUser2.PendingApproval = true
-	err = manager.Store.SaveUser(context.Background(), pendingUser2)
-	require.NoError(t, err)
-
-	_, err = manager.ApproveUser(context.Background(), account.Id, regularUser.Id, pendingUser2.Id)
-	require.Error(t, err)
 }
 
 func TestRejectUser(t *testing.T) {
@@ -2127,17 +2153,6 @@ func TestRejectUser(t *testing.T) {
 	err = manager.RejectUser(context.Background(), account.Id, adminUser.Id, regularUser.Id)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not pending approval")
-
-	// Test rejection by non-admin should fail
-	pendingUser2 := types.NewRegularUser("pending-user-2", "", "")
-	pendingUser2.AccountID = account.Id
-	pendingUser2.Blocked = true
-	pendingUser2.PendingApproval = true
-	err = manager.Store.SaveUser(context.Background(), pendingUser2)
-	require.NoError(t, err)
-
-	err = manager.RejectUser(context.Background(), account.Id, regularUser.Id, pendingUser2.Id)
-	require.Error(t, err)
 }
 
 func TestUser_Operations_WithEmbeddedIDP(t *testing.T) {

@@ -298,7 +298,7 @@ func TestSqlStore_DeleteUserInvite(t *testing.T) {
 		require.NoError(t, err)
 
 		// Delete the invite
-		err = store.DeleteUserInvite(ctx, invite.ID)
+		err = store.DeleteUserInvite(ctx, invite.AccountID, invite.ID)
 		require.NoError(t, err)
 
 		// Verify invite is deleted
@@ -346,7 +346,7 @@ func TestSqlStore_DeleteUserInvite_NonExistent(t *testing.T) {
 		ctx := context.Background()
 
 		// Deleting a non-existent invite should not return an error
-		err := store.DeleteUserInvite(ctx, "non-existent-invite-id")
+		err := store.DeleteUserInvite(ctx, "non-existent-account", "non-existent-invite-id")
 		require.NoError(t, err)
 	})
 }

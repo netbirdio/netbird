@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/management/internals/modules/permissions"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/util"
@@ -501,10 +502,10 @@ func TestRoutesHandlers(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/routes/{routeId}", p.getRoute).Methods("GET")
-			router.HandleFunc("/api/routes/{routeId}", p.deleteRoute).Methods("DELETE")
-			router.HandleFunc("/api/routes", p.createRoute).Methods("POST")
-			router.HandleFunc("/api/routes/{routeId}", p.updateRoute).Methods("PUT")
+			router.HandleFunc("/api/routes/{routeId}", permissions.WrapHandler(p.getRoute)).Methods("GET")
+			router.HandleFunc("/api/routes/{routeId}", permissions.WrapHandler(p.deleteRoute)).Methods("DELETE")
+			router.HandleFunc("/api/routes", permissions.WrapHandler(p.createRoute)).Methods("POST")
+			router.HandleFunc("/api/routes/{routeId}", permissions.WrapHandler(p.updateRoute)).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

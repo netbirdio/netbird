@@ -14,9 +14,6 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/management/server/permissions"
-	"github.com/netbirdio/netbird/management/server/permissions/modules"
-	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	nbstore "github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	nbdomain "github.com/netbirdio/netbird/shared/management/domain"
@@ -48,32 +45,22 @@ type proxyManager interface {
 }
 
 type Manager struct {
-	store              store
-	validator          domain.Validator
-	proxyManager       proxyManager
-	permissionsManager permissions.Manager
-	accountManager     account.Manager
+	store          store
+	validator      domain.Validator
+	proxyManager   proxyManager
+	accountManager account.Manager
 }
 
-func NewManager(store store, proxyMgr proxyManager, permissionsManager permissions.Manager, accountManager account.Manager) Manager {
+func NewManager(store store, proxyMgr proxyManager, accountManager account.Manager) Manager {
 	return Manager{
-		store:              store,
-		proxyManager:       proxyMgr,
-		validator:          domain.Validator{Resolver: net.DefaultResolver},
-		permissionsManager: permissionsManager,
-		accountManager:     accountManager,
+		store:          store,
+		proxyManager:   proxyMgr,
+		validator:      domain.Validator{Resolver: net.DefaultResolver},
+		accountManager: accountManager,
 	}
 }
 
 func (m Manager) GetDomains(ctx context.Context, accountID, userID string) ([]*domain.Domain, error) {
-	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	domains, err := m.store.ListCustomDomains(ctx, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("list custom domains: %w", err)
@@ -133,14 +120,6 @@ func (m Manager) GetDomains(ctx context.Context, accountID, userID string) ([]*d
 
 // CreateDomain registers a normalized custom domain and attempts DNS validation.
 func (m Manager) CreateDomain(ctx context.Context, accountID, userID, domainName, targetCluster string) (*domain.Domain, error) {
-	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Create)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	parsed, err := nbdomain.FromString(strings.TrimSuffix(domainName, "."))
 	if err != nil {
 		return nil, status.Errorf(status.InvalidArgument, "invalid domain: %v", err)
@@ -204,14 +183,6 @@ func (m Manager) checkDomainAvailable(ctx context.Context, domainName string) er
 }
 
 func (m Manager) DeleteDomain(ctx context.Context, accountID, userID, domainID string) error {
-	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Delete)
-	if err != nil {
-		return status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return status.NewPermissionDeniedError()
-	}
-
 	d, err := m.store.GetCustomDomain(ctx, accountID, domainID)
 	if err != nil {
 		return fmt.Errorf("get domain from store: %w", err)
@@ -228,23 +199,6 @@ func (m Manager) DeleteDomain(ctx context.Context, accountID, userID, domainID s
 }
 
 func (m Manager) ValidateDomain(ctx context.Context, accountID, userID, domainID string) {
-	ok, _, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Create)
-	if err != nil {
-		log.WithFields(log.Fields{
-			"accountID": accountID,
-			"domainID":  domainID,
-		}).WithError(err).Error("validate domain")
-		return
-	}
-	if !ok {
-		log.WithFields(log.Fields{
-			"accountID": accountID,
-			"domainID":  domainID,
-			"userID":    userID,
-		}).Error("validate domain: permission denied")
-		return
-	}
-
 	log.WithFields(log.Fields{
 		"accountID": accountID,
 		"domainID":  domainID,

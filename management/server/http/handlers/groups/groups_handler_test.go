@@ -15,8 +15,12 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/mock/gomock"
 	"golang.org/x/exp/maps"
 
+	"github.com/netbirdio/netbird/management/internals/modules/permissions"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions/modules"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions/operations"
 	"github.com/netbirdio/netbird/management/server"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/mock_server"
@@ -33,8 +37,18 @@ var TestPeers = map[string]*nbpeer.Peer{
 	"B": {Key: "B", ID: "peer-B-ID", IP: netip.MustParseAddr("200.200.200.200")},
 }
 
-func initGroupTestData(initGroups ...*types.Group) *handler {
+func initGroupTestData(t *testing.T, initGroups ...*types.Group) *handler {
+	t.Helper()
+
+	ctrl := gomock.NewController(t)
+	permissionsManagerMock := permissions.NewMockManager(ctrl)
+	permissionsManagerMock.EXPECT().
+		ValidateUserPermissions(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Eq(modules.Peers), gomock.Eq(operations.Read)).
+		Return(true, context.Background(), nil).
+		AnyTimes()
+
 	return &handler{
+		permissionsManager: permissionsManagerMock,
 		accountManager: &mock_server.MockAccountManager{
 			SaveGroupFunc: func(_ context.Context, accountID, userID string, group *types.Group, create bool) error {
 				if !strings.HasPrefix(group.ID, "id-") {
@@ -71,14 +85,14 @@ func initGroupTestData(initGroups ...*types.Group) *handler {
 
 				return groups, nil
 			},
-			GetGroupByNameFunc: func(ctx context.Context, groupName, _, _ string) (*types.Group, error) {
+			GetGroupByNameFunc: func(ctx context.Context, groupName, _ string) (*types.Group, error) {
 				if groupName == "All" {
 					return &types.Group{ID: "id-all", Name: "All", Issued: types.GroupIssuedAPI}, nil
 				}
 
 				return nil, status.Errorf(status.NotFound, "unknown group name")
 			},
-			GetPeersFunc: func(ctx context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error) {
+			GetPeersFunc: func(ctx context.Context, accountID, userID, nameFilter, ipFilter string, _ bool) ([]*nbpeer.Peer, error) {
 				return maps.Values(TestPeers), nil
 			},
 			DeleteGroupFunc: func(_ context.Context, accountID, userId, groupID string) error {
@@ -128,7 +142,7 @@ func TestGetGroup(t *testing.T) {
 		Name: "Group",
 	}
 
-	p := initGroupTestData(group)
+	p := initGroupTestData(t, group)
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
@@ -141,7 +155,7 @@ func TestGetGroup(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/groups/{groupId}", p.getGroup).Methods("GET")
+			router.HandleFunc("/api/groups/{groupId}", permissions.WrapHandler(p.getGroup)).Methods("GET")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -281,7 +295,7 @@ func TestWriteGroup(t *testing.T) {
 		},
 	}
 
-	p := initGroupTestData()
+	p := initGroupTestData(t)
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
@@ -294,8 +308,8 @@ func TestWriteGroup(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/groups", p.createGroup).Methods("POST")
-			router.HandleFunc("/api/groups/{groupId}", p.updateGroup).Methods("PUT")
+			router.HandleFunc("/api/groups", permissions.WrapHandler(p.createGroup)).Methods("POST")
+			router.HandleFunc("/api/groups/{groupId}", permissions.WrapHandler(p.updateGroup)).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -359,7 +373,7 @@ func TestGetAllGroups(t *testing.T) {
 		},
 	}
 
-	p := initGroupTestData()
+	p := initGroupTestData(t)
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
@@ -372,7 +386,7 @@ func TestGetAllGroups(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/groups", p.getAllGroups).Methods("GET")
+			router.HandleFunc("/api/groups", permissions.WrapHandler(p.getAllGroups)).Methods("GET")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -455,7 +469,7 @@ func TestDeleteGroup(t *testing.T) {
 		},
 	}
 
-	p := initGroupTestData()
+	p := initGroupTestData(t)
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
@@ -467,7 +481,7 @@ func TestDeleteGroup(t *testing.T) {
 				AccountId: "test_id",
 			})
 			router := mux.NewRouter()
-			router.HandleFunc("/api/groups/{groupId}", p.deleteGroup).Methods("DELETE")
+			router.HandleFunc("/api/groups/{groupId}", permissions.WrapHandler(p.deleteGroup)).Methods("DELETE")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

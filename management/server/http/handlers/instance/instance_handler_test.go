@@ -10,12 +10,13 @@ import (
 	"net/mail"
 	"testing"
 
-	"go.uber.org/mock/gomock"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	"github.com/netbirdio/netbird/management/server/account"
+	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/idp"
 	nbinstance "github.com/netbirdio/netbird/management/server/instance"
 	"github.com/netbirdio/netbird/management/server/mock_server"
@@ -551,6 +552,7 @@ func TestGetVersionInfo_Success(t *testing.T) {
 	AddVersionEndpoint(manager, router)
 
 	req := httptest.NewRequest(http.MethodGet, "/instance/version", nil)
+	req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{})
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -579,6 +581,7 @@ func TestGetVersionInfo_Error(t *testing.T) {
 	AddVersionEndpoint(manager, router)
 
 	req := httptest.NewRequest(http.MethodGet, "/instance/version", nil)
+	req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{})
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)

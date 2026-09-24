@@ -22,9 +22,6 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/sessionkey"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/management/server/permissions"
-	"github.com/netbirdio/netbird/management/server/permissions/modules"
-	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -86,24 +83,22 @@ type CapabilityProvider interface {
 }
 
 type Manager struct {
-	store              store.Store
-	accountManager     account.Manager
-	permissionsManager permissions.Manager
-	proxyController    proxy.Controller
-	capabilities       CapabilityProvider
-	clusterDeriver     ClusterDeriver
-	exposeReaper       *exposeReaper
+	store           store.Store
+	accountManager  account.Manager
+	proxyController proxy.Controller
+	capabilities    CapabilityProvider
+	clusterDeriver  ClusterDeriver
+	exposeReaper    *exposeReaper
 }
 
 // NewManager creates a new service manager.
-func NewManager(store store.Store, accountManager account.Manager, permissionsManager permissions.Manager, proxyController proxy.Controller, capabilities CapabilityProvider, clusterDeriver ClusterDeriver) *Manager {
+func NewManager(store store.Store, accountManager account.Manager, proxyController proxy.Controller, capabilities CapabilityProvider, clusterDeriver ClusterDeriver) *Manager {
 	mgr := &Manager{
-		store:              store,
-		accountManager:     accountManager,
-		permissionsManager: permissionsManager,
-		proxyController:    proxyController,
-		capabilities:       capabilities,
-		clusterDeriver:     clusterDeriver,
+		store:           store,
+		accountManager:  accountManager,
+		proxyController: proxyController,
+		capabilities:    capabilities,
+		clusterDeriver:  clusterDeriver,
 	}
 	mgr.exposeReaper = &exposeReaper{manager: mgr}
 	return mgr
@@ -120,14 +115,6 @@ func (m *Manager) StartExposeReaper(ctx context.Context) {
 // capability flags reported by its active proxies so the dashboard can
 // render feature support without a second round-trip.
 func (m *Manager) GetClusters(ctx context.Context, accountID, userID string) ([]proxy.Cluster, error) {
-	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	clusters, err := m.store.GetProxyClusters(ctx, accountID)
 	if err != nil {
 		return nil, err
@@ -146,26 +133,10 @@ func (m *Manager) GetClusters(ctx context.Context, accountID, userID string) ([]
 // DeleteAccountCluster removes all proxy registrations for the given cluster address
 // owned by the account.
 func (m *Manager) DeleteAccountCluster(ctx context.Context, accountID, userID, clusterAddress string) error {
-	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Delete)
-	if err != nil {
-		return status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return status.NewPermissionDeniedError()
-	}
-
 	return m.store.DeleteAccountCluster(ctx, clusterAddress, accountID)
 }
 
 func (m *Manager) GetAllServices(ctx context.Context, accountID, userID string) ([]*service.Service, error) {
-	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	services, err := m.store.GetAccountServices(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get services: %w", err)
@@ -222,14 +193,6 @@ func (m *Manager) replaceHostByLookup(ctx context.Context, accountID string, s *
 }
 
 func (m *Manager) GetService(ctx context.Context, accountID, userID, serviceID string) (*service.Service, error) {
-	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	service, err := m.store.GetServiceByID(ctx, store.LockingStrengthNone, accountID, serviceID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get service: %w", err)
@@ -243,14 +206,6 @@ func (m *Manager) GetService(ctx context.Context, accountID, userID, serviceID s
 }
 
 func (m *Manager) CreateService(ctx context.Context, accountID, userID string, s *service.Service) (*service.Service, error) {
-	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Create)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	if err := m.initializeServiceForCreate(ctx, accountID, s); err != nil {
 		return nil, err
 	}
@@ -261,7 +216,7 @@ func (m *Manager) CreateService(ctx context.Context, accountID, userID string, s
 
 	m.accountManager.StoreEvent(ctx, userID, s.ID, accountID, activity.ServiceCreated, s.EventMeta())
 
-	err = m.replaceHostByLookup(ctx, accountID, s)
+	err := m.replaceHostByLookup(ctx, accountID, s)
 	if err != nil {
 		return nil, fmt.Errorf("failed to replace host by lookup for service %s: %w", s.ID, err)
 	}
@@ -528,14 +483,6 @@ func (m *Manager) checkDomainAvailable(ctx context.Context, transaction store.St
 }
 
 func (m *Manager) UpdateService(ctx context.Context, accountID, userID string, service *service.Service) (*service.Service, error) {
-	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Update)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	if err := service.Auth.HashSecrets(); err != nil {
 		return nil, fmt.Errorf("hash secrets: %w", err)
 	}
@@ -864,16 +811,8 @@ func validateResourceTargetType(target *service.Target, resource *resourcetypes.
 }
 
 func (m *Manager) DeleteService(ctx context.Context, accountID, userID, serviceID string) error {
-	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Delete)
-	if err != nil {
-		return status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return status.NewPermissionDeniedError()
-	}
-
 	var s *service.Service
-	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+	err := m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		var err error
 		s, err = transaction.GetServiceByID(ctx, store.LockingStrengthUpdate, accountID, serviceID)
 		if err != nil {
@@ -897,51 +836,6 @@ func (m *Manager) DeleteService(ctx context.Context, accountID, userID, serviceI
 	m.accountManager.StoreEvent(ctx, userID, serviceID, accountID, activity.ServiceDeleted, s.EventMeta())
 
 	m.proxyController.SendServiceUpdateToCluster(ctx, accountID, s.ToProtoMapping(service.Delete, "", m.proxyController.GetOIDCValidationConfig()), s.ProxyCluster)
-
-	m.accountManager.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceService, Operation: types.UpdateOperationDelete})
-
-	return nil
-}
-
-func (m *Manager) DeleteAllServices(ctx context.Context, accountID, userID string) error {
-	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Delete)
-	if err != nil {
-		return status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return status.NewPermissionDeniedError()
-	}
-
-	var services []*service.Service
-	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		var err error
-		services, err = transaction.GetAccountServices(ctx, store.LockingStrengthUpdate, accountID)
-		if err != nil {
-			return err
-		}
-
-		for _, svc := range services {
-			if err = transaction.DeleteServiceTargets(ctx, accountID, svc.ID); err != nil {
-				return fmt.Errorf("failed to delete service targets: %w", err)
-			}
-
-			if err = transaction.DeleteService(ctx, accountID, svc.ID); err != nil {
-				return fmt.Errorf("failed to delete service: %w", err)
-			}
-		}
-
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-
-	oidcCfg := m.proxyController.GetOIDCValidationConfig()
-
-	for _, svc := range services {
-		m.accountManager.StoreEvent(ctx, userID, svc.ID, accountID, activity.ServiceDeleted, svc.EventMeta())
-		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, svc.ToProtoMapping(service.Delete, "", oidcCfg), svc.ProxyCluster)
-	}
 
 	m.accountManager.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceService, Operation: types.UpdateOperationDelete})
 
@@ -1208,7 +1102,7 @@ func (m *Manager) getGroupIDsFromNames(ctx context.Context, accountID string, gr
 	}
 	groupIDs := make([]string, 0, len(groupNames))
 	for _, groupName := range groupNames {
-		g, err := m.accountManager.GetGroupByName(ctx, groupName, accountID, activity.SystemInitiator)
+		g, err := m.accountManager.GetGroupByName(ctx, groupName, accountID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get group by name %s: %w", groupName, err)
 		}

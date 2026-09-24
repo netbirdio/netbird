@@ -6,9 +6,10 @@ import (
 
 	"github.com/gorilla/mux"
 
+	"github.com/netbirdio/netbird/management/internals/modules/permissions"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/geolocation"
-	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -27,8 +28,8 @@ type geolocationsHandler struct {
 
 func AddLocationsEndpoints(accountManager account.Manager, locationManager geolocation.Geolocation, permissionsManager permissions.Manager, router *mux.Router) {
 	locationHandler := newGeolocationsHandlerHandler(accountManager, locationManager, permissionsManager)
-	router.HandleFunc("/locations/countries", locationHandler.getAllCountries).Methods("GET", "OPTIONS")
-	router.HandleFunc("/locations/countries/{country}/cities", locationHandler.getCitiesByCountry).Methods("GET", "OPTIONS")
+	router.HandleFunc("/locations/countries", permissions.WrapHandler(locationHandler.getAllCountries)).Methods("GET", "OPTIONS")
+	router.HandleFunc("/locations/countries/{country}/cities", permissions.WrapHandler(locationHandler.getCitiesByCountry)).Methods("GET", "OPTIONS")
 }
 
 // newGeolocationsHandlerHandler creates a new Geolocations handler
@@ -41,7 +42,7 @@ func newGeolocationsHandlerHandler(accountManager account.Manager, geolocationMa
 }
 
 // getAllCountries retrieves a list of all countries
-func (l *geolocationsHandler) getAllCountries(w http.ResponseWriter, r *http.Request) {
+func (l *geolocationsHandler) getAllCountries(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
 	if l.geolocationManager == nil {
 		// TODO: update error message to include geo db self hosted doc link when ready
 		util.WriteError(r.Context(), status.Errorf(status.PreconditionFailed, "Geo location database is not initialized"), w)
@@ -62,7 +63,7 @@ func (l *geolocationsHandler) getAllCountries(w http.ResponseWriter, r *http.Req
 }
 
 // getCitiesByCountry retrieves a list of cities based on the given country code
-func (l *geolocationsHandler) getCitiesByCountry(w http.ResponseWriter, r *http.Request) {
+func (l *geolocationsHandler) getCitiesByCountry(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
 	vars := mux.Vars(r)
 	countryCode := vars["country"]
 	if !countryCodeRegex.MatchString(countryCode) {

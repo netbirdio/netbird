@@ -10,6 +10,7 @@ import (
 	"github.com/rs/cors"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/management/internals/modules/permissions"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain/manager"
 
 	"github.com/netbirdio/netbird/management/server/types"
@@ -31,8 +32,6 @@ import (
 	recordsManager "github.com/netbirdio/netbird/management/internals/modules/zones/records/manager"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/settings"
-
-	"github.com/netbirdio/netbird/management/server/permissions"
 
 	"github.com/netbirdio/netbird/management/server/http/handlers/proxy"
 
@@ -109,23 +108,23 @@ func NewAPIHandler(ctx context.Context, router *mux.Router, accountManager accou
 		return nil, fmt.Errorf("failed to create instance manager: %w", err)
 	}
 
-	accounts.AddEndpoints(accountManager, settingsManager, router)
+	accounts.AddEndpoints(accountManager, settingsManager, router, permissionsManager)
 	peers.AddEndpoints(accountManager, router, networkMapController, permissionsManager)
-	users.AddEndpoints(accountManager, router)
-	users.AddInvitesEndpoints(accountManager, router)
+	users.AddEndpoints(accountManager, router, permissionsManager)
+	users.AddInvitesEndpoints(accountManager, router, permissionsManager)
 	users.AddPublicInvitesEndpoints(accountManager, router)
-	setup_keys.AddEndpoints(accountManager, router)
-	policies.AddEndpoints(accountManager, LocationManager, router)
-	policies.AddPostureCheckEndpoints(accountManager, LocationManager, router)
+	setup_keys.AddEndpoints(accountManager, router, permissionsManager)
+	policies.AddEndpoints(accountManager, LocationManager, router, permissionsManager)
+	policies.AddPostureCheckEndpoints(accountManager, LocationManager, router, permissionsManager)
 	policies.AddLocationsEndpoints(accountManager, LocationManager, permissionsManager, router)
-	groups.AddEndpoints(accountManager, router)
-	routes.AddEndpoints(accountManager, router)
-	dns.AddEndpoints(accountManager, router)
-	events.AddEndpoints(accountManager, router)
-	networks.AddEndpoints(networksManager, resourceManager, routerManager, groupsManager, accountManager, router)
-	zonesManager.RegisterEndpoints(router, zManager)
-	recordsManager.RegisterEndpoints(router, rManager)
-	idp.AddEndpoints(accountManager, router)
+	groups.AddEndpoints(accountManager, router, permissionsManager)
+	routes.AddEndpoints(accountManager, router, permissionsManager)
+	dns.AddEndpoints(accountManager, router, permissionsManager)
+	events.AddEndpoints(accountManager, router, permissionsManager)
+	networks.AddEndpoints(networksManager, resourceManager, routerManager, groupsManager, accountManager, permissionsManager, router)
+	zonesManager.RegisterEndpoints(router, zManager, permissionsManager)
+	recordsManager.RegisterEndpoints(router, rManager, permissionsManager)
+	idp.AddEndpoints(accountManager, router, permissionsManager)
 	if agentNetworkManager != nil {
 		agentnetworkhandlers.RegisterEndpoints(agentNetworkManager, router)
 	}

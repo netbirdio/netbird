@@ -13,7 +13,6 @@ import (
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/mock_server"
-	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
@@ -36,7 +35,7 @@ func withRealDomainManager(t *testing.T, mgr *Manager, testStore store.Store) {
 	accountMgr := &mock_server.MockAccountManager{
 		StoreEventFunc: func(context.Context, string, string, string, activity.ActivityDescriber, map[string]any) {},
 	}
-	mgr.clusterDeriver = domainmanager.NewManager(testStore, proxyMgr, permissions.NewManager(testStore), accountMgr)
+	mgr.clusterDeriver = domainmanager.NewManager(testStore, proxyMgr, accountMgr)
 }
 
 func newTestService(domain string) *rpservice.Service {

@@ -8,10 +8,13 @@ import (
 	"gorm.io/gorm"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/modules/zones"
+	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
@@ -219,4 +222,55 @@ func VerifyNetworkRouterNotInDB(t *testing.T, db *gorm.DB, routerID string) {
 	var count int64
 	db.Model(&routerTypes.NetworkRouter{}).Where("id = ? AND account_id = ?", routerID, TestAccountId).Count(&count)
 	assert.Equal(t, int64(0), count, "Expected network router %s to NOT exist in DB", routerID)
+}
+
+// VerifyPostureCheckInDB reads a posture check directly from the DB and returns it.
+func VerifyPostureCheckInDB(t *testing.T, db *gorm.DB, postureCheckID string) *posture.Checks {
+	t.Helper()
+	var check posture.Checks
+	err := db.Where("id = ? AND account_id = ?", postureCheckID, TestAccountId).First(&check).Error
+	require.NoError(t, err, "Expected posture check %s to exist in DB", postureCheckID)
+	return &check
+}
+
+// VerifyPostureCheckNotInDB verifies that a posture check does not exist in the DB.
+func VerifyPostureCheckNotInDB(t *testing.T, db *gorm.DB, postureCheckID string) {
+	t.Helper()
+	var count int64
+	db.Model(&posture.Checks{}).Where("id = ? AND account_id = ?", postureCheckID, TestAccountId).Count(&count)
+	assert.Equal(t, int64(0), count, "Expected posture check %s to NOT exist in DB", postureCheckID)
+}
+
+// VerifyZoneInDB reads a zone directly from the DB and returns it.
+func VerifyZoneInDB(t *testing.T, db *gorm.DB, zoneID string) *zones.Zone {
+	t.Helper()
+	var zone zones.Zone
+	err := db.Where("id = ? AND account_id = ?", zoneID, TestAccountId).First(&zone).Error
+	require.NoError(t, err, "Expected zone %s to exist in DB", zoneID)
+	return &zone
+}
+
+// VerifyZoneNotInDB verifies that a zone does not exist in the DB.
+func VerifyZoneNotInDB(t *testing.T, db *gorm.DB, zoneID string) {
+	t.Helper()
+	var count int64
+	db.Model(&zones.Zone{}).Where("id = ? AND account_id = ?", zoneID, TestAccountId).Count(&count)
+	assert.Equal(t, int64(0), count, "Expected zone %s to NOT exist in DB", zoneID)
+}
+
+// VerifyRecordInDB reads a record directly from the DB and returns it.
+func VerifyRecordInDB(t *testing.T, db *gorm.DB, recordID string) *records.Record {
+	t.Helper()
+	var record records.Record
+	err := db.Where("id = ? AND account_id = ?", recordID, TestAccountId).First(&record).Error
+	require.NoError(t, err, "Expected record %s to exist in DB", recordID)
+	return &record
+}
+
+// VerifyRecordNotInDB verifies that a record does not exist in the DB.
+func VerifyRecordNotInDB(t *testing.T, db *gorm.DB, recordID string) {
+	t.Helper()
+	var count int64
+	db.Model(&records.Record{}).Where("id = ? AND account_id = ?", recordID, TestAccountId).Count(&count)
+	assert.Equal(t, int64(0), count, "Expected record %s to NOT exist in DB", recordID)
 }

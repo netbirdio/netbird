@@ -23,7 +23,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator/validator"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/job"
-	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -119,7 +119,7 @@ func startManagement(t *testing.T, signalAddr string) string {
 	eventStore := &activity.InMemoryEventStore{}
 
 	permissionsManager := permissions.NewManager(testStore)
-	peersManager := peers.NewManager(testStore, permissionsManager)
+	peersManager := peers.NewManager(testStore)
 	jobManager := job.NewJobManager(nil, testStore, peersManager)
 
 	cacheStore, err := nbcache.NewStore(context.Background(), 100*time.Millisecond, 300*time.Millisecond, 100)

@@ -1039,8 +1039,8 @@ func (s *SqlStore) GetAccountUserInvites(ctx context.Context, lockStrength Locki
 }
 
 // DeleteUserInvite deletes a user invite by its ID
-func (s *SqlStore) DeleteUserInvite(ctx context.Context, inviteID string) error {
-	result := s.db.Delete(&types.UserInviteRecord{}, idQueryCondition, inviteID)
+func (s *SqlStore) DeleteUserInvite(ctx context.Context, accountID, inviteID string) error {
+	result := s.db.Delete(&types.UserInviteRecord{}, accountAndIDQueryCondition, accountID, inviteID)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to delete user invite from store: %s", result.Error)
 		return status.Errorf(status.Internal, "failed to delete user invite from store")
@@ -3233,6 +3233,10 @@ func newPostgresqlStoreFromSqlStore(ctx context.Context, sqliteStore *SqlStore, 
 		return nil, err
 	}
 
+	if err = copyZonesAndRecords(sqliteStore, store); err != nil {
+		return nil, err
+	}
+
 	return store, nil
 }
 
@@ -3322,7 +3326,26 @@ func newMysqlStoreFromSqlStore(ctx context.Context, sqliteStore *SqlStore, dsn s
 		return nil, err
 	}
 
+	if err = copyZonesAndRecords(sqliteStore, store); err != nil {
+		return nil, err
+	}
+
 	return store, nil
+}
+
+func copyZonesAndRecords(src, dst *SqlStore) error {
+	var srcZones []*zones.Zone
+	if err := src.db.Preload("Records").Find(&srcZones).Error; err != nil {
+		return fmt.Errorf("failed to read zones from source store: %w", err)
+	}
+
+	for _, zone := range srcZones {
+		if err := dst.db.Create(zone).Error; err != nil {
+			return fmt.Errorf("failed to copy zone %s: %w", zone.ID, err)
+		}
+	}
+
+	return nil
 }
 
 func (s *SqlStore) GetSetupKeyBySecret(ctx context.Context, lockStrength LockingStrength, key string) (*types.SetupKey, error) {

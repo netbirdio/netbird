@@ -39,7 +39,7 @@ type MockAccountManager struct {
 	GetAccountIDByUserIdFunc              func(ctx context.Context, userAuth auth.UserAuth) (string, error)
 	GetUserFromUserAuthFunc               func(ctx context.Context, userAuth auth.UserAuth) (*types.User, error)
 	ListUsersFunc                         func(ctx context.Context, accountID string) ([]*types.User, error)
-	GetPeersFunc                          func(ctx context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error)
+	GetPeersFunc                          func(ctx context.Context, accountID, userID, nameFilter, ipFilter string, all bool) ([]*nbpeer.Peer, error)
 	MarkPeerConnectedFunc                 func(ctx context.Context, peerKey string, accountID string, sessionStartedAt int64, nmap *types.NetworkMap) error
 	MarkPeerDisconnectedFunc              func(ctx context.Context, peerKey string, accountID string, sessionStartedAt int64) error
 	SyncAndMarkPeerFunc                   func(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP, syncTime time.Time) (*nbpeer.Peer, *types.NetworkMap, []*nmdata.PostureChecks, int64, error)
@@ -49,7 +49,7 @@ type MockAccountManager struct {
 	AddPeerFunc                           func(ctx context.Context, accountID string, setupKey string, userId string, peer *nbpeer.Peer, temporary bool) (*nbpeer.Peer, *types.Network, []*nmdata.PostureChecks, bool, error)
 	GetGroupFunc                          func(ctx context.Context, accountID, groupID, userID string) (*types.Group, error)
 	GetAllGroupsFunc                      func(ctx context.Context, accountID, userID string) ([]*types.Group, error)
-	GetGroupByNameFunc                    func(ctx context.Context, groupName, accountID, userID string) (*types.Group, error)
+	GetGroupByNameFunc                    func(ctx context.Context, groupName, accountID string) (*types.Group, error)
 	SaveGroupFunc                         func(ctx context.Context, accountID, userID string, group *types.Group, create bool) error
 	SaveGroupsFunc                        func(ctx context.Context, accountID, userID string, groups []*types.Group, create bool) error
 	DeleteGroupFunc                       func(ctx context.Context, accountID, userId, groupID string) error
@@ -433,9 +433,9 @@ func (am *MockAccountManager) AddPeer(
 }
 
 // GetGroupByName mock implementation of GetGroupByName from server.AccountManager interface
-func (am *MockAccountManager) GetGroupByName(ctx context.Context, groupName, accountID, userID string) (*types.Group, error) {
+func (am *MockAccountManager) GetGroupByName(ctx context.Context, groupName, accountID string) (*types.Group, error) {
 	if am.GetGroupByNameFunc != nil {
-		return am.GetGroupByNameFunc(ctx, groupName, accountID, userID)
+		return am.GetGroupByNameFunc(ctx, groupName, accountID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetGroupByName is not implemented")
 }
@@ -807,9 +807,9 @@ func (am *MockAccountManager) GetAccountIDFromUserAuth(ctx context.Context, user
 }
 
 // GetPeers mocks GetPeers of the AccountManager interface
-func (am *MockAccountManager) GetPeers(ctx context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error) {
+func (am *MockAccountManager) GetPeers(ctx context.Context, accountID, userID, nameFilter, ipFilter string, all bool) ([]*nbpeer.Peer, error) {
 	if am.GetPeersFunc != nil {
-		return am.GetPeersFunc(ctx, accountID, userID, nameFilter, ipFilter)
+		return am.GetPeersFunc(ctx, accountID, userID, nameFilter, ipFilter, all)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetPeers is not implemented")
 }

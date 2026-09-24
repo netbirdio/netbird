@@ -18,8 +18,6 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/idp"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
-	"github.com/netbirdio/netbird/management/server/permissions/modules"
-	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 
@@ -45,20 +43,15 @@ const (
 	peerExpirationUserBlocked      peerExpirationReason = "blocked owner account"
 )
 
-// GetPeers returns peers visible to the user within an account.
-// Users with "peers:read" see all peers. Otherwise, users see only their own peers, or none if restricted by account settings.
-func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error) {
+// GetPeers returns a list of peers under the given account filtering out peers that do not belong to a user if
+// the current user is not an admin.
+func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID, nameFilter, ipFilter string, all bool) ([]*nbpeer.Peer, error) {
 	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-
-	if allowed {
+	if all || user.HasAdminPower() {
 		return am.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, nameFilter, ipFilter)
 	}
 
@@ -240,15 +233,8 @@ func (am *DefaultAccountManager) resolvePeerLocation(ctx context.Context, peer *
 
 // UpdatePeer updates peer. Only Peer.Name, Peer.SSHEnabled, Peer.LoginExpirationEnabled and Peer.InactivityExpirationEnabled can be updated.
 func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, userID string, update *nbpeer.Peer) (*nbpeer.Peer, error) {
-	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Update)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	var peer *nbpeer.Peer
+	var err error
 	var settings *types.Settings
 	var peerGroupList []string
 	var peerLabelChanged bool
@@ -388,14 +374,6 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 }
 
 func (am *DefaultAccountManager) CreatePeerJob(ctx context.Context, accountID, peerID, userID string, job *types.Job) error {
-	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.RemoteJobs, operations.Create)
-	if err != nil {
-		return status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return status.NewPermissionDeniedError()
-	}
-
 	p, err := am.Store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
 	if err != nil {
 		return err
@@ -463,15 +441,6 @@ func (am *DefaultAccountManager) CreatePeerJob(ctx context.Context, accountID, p
 }
 
 func (am *DefaultAccountManager) GetAllPeerJobs(ctx context.Context, accountID, userID, peerID string) ([]*types.Job, error) {
-	// todo: Create permissions for job
-	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.RemoteJobs, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	peerAccountID, err := am.Store.GetAccountIDByPeerID(ctx, store.LockingStrengthNone, peerID)
 	if err != nil {
 		return nil, err
@@ -490,14 +459,6 @@ func (am *DefaultAccountManager) GetAllPeerJobs(ctx context.Context, accountID, 
 }
 
 func (am *DefaultAccountManager) GetPeerJobByID(ctx context.Context, accountID, userID, peerID, jobID string) (*types.Job, error) {
-	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.RemoteJobs, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	peerAccountID, err := am.Store.GetAccountIDByPeerID(ctx, store.LockingStrengthNone, peerID)
 	if err != nil {
 		return nil, err
@@ -517,14 +478,6 @@ func (am *DefaultAccountManager) GetPeerJobByID(ctx context.Context, accountID, 
 
 // DeletePeer removes peer from the account by its IP
 func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peerID, userID string) error {
-	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Delete)
-	if err != nil {
-		return status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return status.NewPermissionDeniedError()
-	}
-
 	peerAccountID, err := am.Store.GetAccountIDByPeerID(ctx, store.LockingStrengthNone, peerID)
 	if err != nil {
 		return err
@@ -688,16 +641,11 @@ func (am *DefaultAccountManager) handleUserAddedPeer(ctx context.Context, accoun
 	if user.PendingApproval {
 		return status.Errorf(status.PermissionDenied, "user pending approval cannot add peers")
 	}
+	if temporary && !user.IsAdminOrServiceUser() {
+		return status.Errorf(status.PermissionDenied, "only admin or service users can add peers")
+	}
 
-	if temporary {
-		allowed, _, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Create)
-		if err != nil {
-			return status.NewPermissionValidationError(err)
-		}
-		if !allowed {
-			return status.NewPermissionDeniedError()
-		}
-	} else {
+	if !temporary {
 		config.AccountID = user.AccountID
 		config.GroupsToAdd = user.AutoGroups
 	}
@@ -1505,33 +1453,10 @@ func peerLoginExpired(ctx context.Context, peer *nbpeer.Peer, settings *types.Se
 	return false
 }
 
-// GetPeer returns a peer visible to the user within an account.
-// Users with "peers:read" permission can access any peer. Otherwise, users can access only their own peer.
+// GetPeer returns a peer within an account. Callers are expected to have passed the
+// "peers:read" permission check at the HTTP layer.
 func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID, userID string) (*nbpeer.Peer, error) {
-	peer, err := am.Store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
-	if err != nil {
-		return nil, err
-	}
-
-	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if allowed {
-		return peer, nil
-	}
-
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
-	if err != nil {
-		return nil, err
-	}
-
-	// if admin or user owns this peer, return peer
-	if user.IsAdminOrServiceUser() || peer.UserID == userID {
-		return peer, nil
-	}
-
-	return nil, status.Errorf(status.Internal, "user %s has no access to peer %s under account %s", userID, peer.ID, accountID)
+	return am.Store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
 }
 
 // UpdateAccountPeers updates all peers that belong to an account.

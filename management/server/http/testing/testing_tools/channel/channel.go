@@ -13,7 +13,7 @@ import (
 	"go.opentelemetry.io/otel/metric/noop"
 
 	"github.com/netbirdio/management-integrations/integrations"
-
+	"github.com/netbirdio/netbird/management/internals/modules/permissions"
 	accesslogsmanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain/manager"
 	proxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy/manager"
@@ -44,7 +44,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/networks"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
 	"github.com/netbirdio/netbird/management/server/networks/routers"
-	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -91,8 +90,8 @@ func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPee
 	proxyController := integrations.NewController(store)
 	userManager := users.NewManager(store)
 	permissionsManager := permissions.NewManager(store)
-	settingsManager := settings.NewManager(store, userManager, integrations.NewManager(&activity.InMemoryEventStore{}), permissionsManager, settings.IdpConfig{})
-	peersManager := peers.NewManager(store, permissionsManager)
+	settingsManager := settings.NewManager(store, userManager, integrations.NewManager(&activity.InMemoryEventStore{}), settings.IdpConfig{})
+	peersManager := peers.NewManager(store)
 
 	jobManager := job.NewJobManager(nil, store, peersManager)
 
@@ -108,7 +107,7 @@ func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPee
 		t.Fatalf("Failed to create manager: %v", err)
 	}
 
-	accessLogsManager := accesslogsmanager.NewManager(store, permissionsManager, nil)
+	accessLogsManager := accesslogsmanager.NewManager(store, nil)
 	proxyTokenStore := nbgrpc.NewOneTimeTokenStore(ctx, cacheStore)
 	pkceverifierStore := nbgrpc.NewPKCEVerifierStore(ctx, cacheStore)
 	noopMeter := noop.NewMeterProvider().Meter("")
@@ -121,12 +120,12 @@ func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPee
 	// from context.Background(), independent of the cancellable ctx above;
 	// Close() cancels it so the goroutine does not outlive the test.
 	t.Cleanup(proxyServiceServer.Close)
-	domainManager := manager.NewManager(store, proxyMgr, permissionsManager, am)
+	domainManager := manager.NewManager(store, proxyMgr, am)
 	serviceProxyController, err := proxymanager.NewGRPCController(proxyServiceServer, noopMeter)
 	if err != nil {
 		t.Fatalf("Failed to create proxy controller: %v", err)
 	}
-	serviceManager := reverseproxymanager.NewManager(store, am, permissionsManager, serviceProxyController, proxyMgr, domainManager)
+	serviceManager := reverseproxymanager.NewManager(store, am, serviceProxyController, proxyMgr, domainManager)
 	proxyServiceServer.SetServiceManager(serviceManager)
 	am.SetServiceManager(serviceManager)
 
@@ -139,15 +138,15 @@ func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPee
 		GetPATInfoFunc:                  authManager.GetPATInfo,
 	}
 
-	groupsManager := groups.NewManager(store, permissionsManager, am)
-	routersManager := routers.NewManager(store, permissionsManager, am)
-	resourcesManager := resources.NewManager(store, permissionsManager, groupsManager, am, serviceManager)
-	networksManager := networks.NewManager(store, permissionsManager, resourcesManager, routersManager, am)
-	customZonesManager := zonesManager.NewManager(store, am, permissionsManager, "")
-	zoneRecordsManager := recordsManager.NewManager(store, am, permissionsManager)
+	groupsManager := groups.NewManager(store, am)
+	routersManager := routers.NewManager(store, am)
+	resourcesManager := resources.NewManager(store, groupsManager, am, serviceManager)
+	networksManager := networks.NewManager(store, resourcesManager, routersManager, am)
+	customZonesManager := zonesManager.NewManager(store, am, "")
+	zoneRecordsManager := recordsManager.NewManager(store, am)
 
 	apiRouter := mux.NewRouter().PathPrefix("/api").Subrouter()
-	apiHandler, err := http2.NewAPIHandler(ctx, apiRouter, am, networksManager, resourcesManager, routersManager, groupsManager, geoMock, authManagerMock, metrics, permissionsManager, settingsManager, customZonesManager, zoneRecordsManager, networkMapController, nil, serviceManager, nil, nil, nil, nil, nil, nil, nil)
+	apiHandler, err := http2.NewAPIHandler(ctx, apiRouter, am, networksManager, resourcesManager, routersManager, groupsManager, geoMock, authManagerMock, metrics, permissionsManager, settingsManager, customZonesManager, zoneRecordsManager, networkMapController, nil, serviceManager, &domainManager, accessLogsManager, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Failed to create API handler: %v", err)
 	}
@@ -231,8 +230,8 @@ func BuildApiBlackBoxWithDBStateAndPeerChannel(t testing_tools.TB, sqlFile strin
 	proxyController := integrations.NewController(store)
 	userManager := users.NewManager(store)
 	permissionsManager := permissions.NewManager(store)
-	settingsManager := settings.NewManager(store, userManager, integrations.NewManager(&activity.InMemoryEventStore{}), permissionsManager, settings.IdpConfig{})
-	peersManager := peers.NewManager(store, permissionsManager)
+	settingsManager := settings.NewManager(store, userManager, integrations.NewManager(&activity.InMemoryEventStore{}), settings.IdpConfig{})
+	peersManager := peers.NewManager(store)
 
 	jobManager := job.NewJobManager(nil, store, peersManager)
 
@@ -248,7 +247,7 @@ func BuildApiBlackBoxWithDBStateAndPeerChannel(t testing_tools.TB, sqlFile strin
 		t.Fatalf("Failed to create manager: %v", err)
 	}
 
-	accessLogsManager := accesslogsmanager.NewManager(store, permissionsManager, nil)
+	accessLogsManager := accesslogsmanager.NewManager(store, nil)
 	proxyTokenStore := nbgrpc.NewOneTimeTokenStore(ctx, cacheStore)
 	pkceverifierStore := nbgrpc.NewPKCEVerifierStore(ctx, cacheStore)
 	noopMeter := noop.NewMeterProvider().Meter("")
@@ -261,12 +260,12 @@ func BuildApiBlackBoxWithDBStateAndPeerChannel(t testing_tools.TB, sqlFile strin
 	// from context.Background(), independent of the cancellable ctx above;
 	// Close() cancels it so the goroutine does not outlive the test.
 	t.Cleanup(proxyServiceServer.Close)
-	domainManager := manager.NewManager(store, proxyMgr, permissionsManager, am)
+	domainManager := manager.NewManager(store, proxyMgr, am)
 	serviceProxyController, err := proxymanager.NewGRPCController(proxyServiceServer, noopMeter)
 	if err != nil {
 		t.Fatalf("Failed to create proxy controller: %v", err)
 	}
-	serviceManager := reverseproxymanager.NewManager(store, am, permissionsManager, serviceProxyController, proxyMgr, domainManager)
+	serviceManager := reverseproxymanager.NewManager(store, am, serviceProxyController, proxyMgr, domainManager)
 	proxyServiceServer.SetServiceManager(serviceManager)
 	am.SetServiceManager(serviceManager)
 
@@ -279,15 +278,15 @@ func BuildApiBlackBoxWithDBStateAndPeerChannel(t testing_tools.TB, sqlFile strin
 		GetPATInfoFunc:                  authManager.GetPATInfo,
 	}
 
-	groupsManager := groups.NewManager(store, permissionsManager, am)
-	routersManager := routers.NewManager(store, permissionsManager, am)
-	resourcesManager := resources.NewManager(store, permissionsManager, groupsManager, am, serviceManager)
-	networksManager := networks.NewManager(store, permissionsManager, resourcesManager, routersManager, am)
-	customZonesManager := zonesManager.NewManager(store, am, permissionsManager, "")
-	zoneRecordsManager := recordsManager.NewManager(store, am, permissionsManager)
+	groupsManager := groups.NewManager(store, am)
+	routersManager := routers.NewManager(store, am)
+	resourcesManager := resources.NewManager(store, groupsManager, am, serviceManager)
+	networksManager := networks.NewManager(store, resourcesManager, routersManager, am)
+	customZonesManager := zonesManager.NewManager(store, am, "")
+	zoneRecordsManager := recordsManager.NewManager(store, am)
 
 	apiRouter := mux.NewRouter().PathPrefix("/api").Subrouter()
-	apiHandler, err := http2.NewAPIHandler(ctx, apiRouter, am, networksManager, resourcesManager, routersManager, groupsManager, geoMock, authManagerMock, metrics, permissionsManager, settingsManager, customZonesManager, zoneRecordsManager, networkMapController, nil, serviceManager, nil, nil, nil, nil, nil, nil, nil)
+	apiHandler, err := http2.NewAPIHandler(ctx, apiRouter, am, networksManager, resourcesManager, routersManager, groupsManager, geoMock, authManagerMock, metrics, permissionsManager, settingsManager, customZonesManager, zoneRecordsManager, networkMapController, nil, serviceManager, &domainManager, accessLogsManager, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Failed to create API handler: %v", err)
 	}
@@ -299,7 +298,7 @@ func mockValidateAndParseToken(_ context.Context, token string) (auth.UserAuth, 
 	userAuth := auth.UserAuth{}
 
 	switch token {
-	case "testUserId", "testAdminId", "testOwnerId", "testServiceUserId", "testServiceAdminId", "blockedUserId":
+	case "testUserId", "testAdminId", "testOwnerId", "testAuditorId", "testServiceUserId", "testServiceAdminId", "blockedUserId":
 		userAuth.UserId = token
 		userAuth.AccountId = "testAccountId"
 		userAuth.Domain = "test.com"

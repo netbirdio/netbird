@@ -11,13 +11,15 @@ package permissions
 
 import (
 	context "context"
+	http "net/http"
 	reflect "reflect"
 
+	modules "github.com/netbirdio/netbird/management/internals/modules/permissions/modules"
+	operations "github.com/netbirdio/netbird/management/internals/modules/permissions/operations"
+	roles "github.com/netbirdio/netbird/management/internals/modules/permissions/roles"
 	account "github.com/netbirdio/netbird/management/server/account"
-	modules "github.com/netbirdio/netbird/management/server/permissions/modules"
-	operations "github.com/netbirdio/netbird/management/server/permissions/operations"
-	roles "github.com/netbirdio/netbird/management/server/permissions/roles"
 	types "github.com/netbirdio/netbird/management/server/types"
+	auth "github.com/netbirdio/netbird/shared/auth"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -115,4 +117,23 @@ func (m *MockManager) ValidateUserPermissions(ctx context.Context, accountID, us
 func (mr *MockManagerMockRecorder) ValidateUserPermissions(ctx, accountID, userID, module, operation any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateUserPermissions", reflect.TypeOf((*MockManager)(nil).ValidateUserPermissions), ctx, accountID, userID, module, operation)
+}
+
+// WithPermission mocks base method.
+func (m *MockManager) WithPermission(module modules.Module, operation operations.Operation, handlerFunc func(http.ResponseWriter, *http.Request, *auth.UserAuth), onDenied ...PermissionDeniedHandler) http.HandlerFunc {
+	m.ctrl.T.Helper()
+	varargs := []any{module, operation, handlerFunc}
+	for _, a := range onDenied {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "WithPermission", varargs...)
+	ret0, _ := ret[0].(http.HandlerFunc)
+	return ret0
+}
+
+// WithPermission indicates an expected call of WithPermission.
+func (mr *MockManagerMockRecorder) WithPermission(module, operation, handlerFunc any, onDenied ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{module, operation, handlerFunc}, onDenied...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WithPermission", reflect.TypeOf((*MockManager)(nil).WithPermission), varargs...)
 }

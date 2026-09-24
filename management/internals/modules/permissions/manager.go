@@ -4,21 +4,30 @@ package permissions
 
 import (
 	"context"
+	"net/http"
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/management/internals/modules/permissions/modules"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions/operations"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions/roles"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
-	"github.com/netbirdio/netbird/management/server/permissions/modules"
-	"github.com/netbirdio/netbird/management/server/permissions/operations"
-	"github.com/netbirdio/netbird/management/server/permissions/roles"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/auth"
+	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
+// PermissionDeniedHandler is called when the user's role does not grant the requested operation.
+// It is not called for validation failures such as blocked users or foreign accounts.
+// If it returns true, the request is considered handled and the default 403 response is skipped.
+type PermissionDeniedHandler func(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) bool
+
 type Manager interface {
+	WithPermission(module modules.Module, operation operations.Operation, handlerFunc func(w http.ResponseWriter, r *http.Request, auth *auth.UserAuth), onDenied ...PermissionDeniedHandler) http.HandlerFunc
 	ValidateUserPermissions(ctx context.Context, accountID, userID string, module modules.Module, operation operations.Operation) (bool, context.Context, error)
 	ValidateRoleModuleAccess(ctx context.Context, accountID string, role roles.RolePermissions, module modules.Module, operation operations.Operation) bool
 	ValidateAccountAccess(ctx context.Context, accountID string, user *types.User, allowOwnerAndAdmin bool) (context.Context, error)
@@ -34,6 +43,61 @@ type managerImpl struct {
 func NewManager(store store.Store) Manager {
 	return &managerImpl{
 		store: store,
+	}
+}
+
+func (m *managerImpl) WithPermission(
+	module modules.Module,
+	operation operations.Operation,
+	handlerFunc func(w http.ResponseWriter, r *http.Request, auth *auth.UserAuth),
+	onDenied ...PermissionDeniedHandler,
+) http.HandlerFunc {
+	return WithPermission(m, module, operation, handlerFunc, onDenied...)
+}
+
+// WithPermission wraps an HTTP handler with permission checking performed by the given manager.
+// Implementations embedding another Manager must route their own WithPermission through this
+// function so that their ValidateUserPermissions override is the one consulted.
+// An optional PermissionDeniedHandler can serve a reduced, self-scoped response when the role denies the operation.
+// The wrapped handler receives a request whose context is enriched by the permission validation.
+func WithPermission(
+	m Manager,
+	module modules.Module,
+	operation operations.Operation,
+	handlerFunc func(w http.ResponseWriter, r *http.Request, auth *auth.UserAuth),
+	onDenied ...PermissionDeniedHandler,
+) http.HandlerFunc {
+	var deniedHandler PermissionDeniedHandler
+	if len(onDenied) > 0 {
+		deniedHandler = onDenied[0]
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+		if err != nil {
+			log.WithContext(r.Context()).Errorf("failed to get user auth from context: %v", err)
+			util.WriteError(r.Context(), err, w)
+			return
+		}
+
+		allowed, ctx, err := m.ValidateUserPermissions(r.Context(), userAuth.AccountId, userAuth.UserId, module, operation)
+		if err != nil {
+			log.WithContext(ctx).Errorf("failed to validate permissions for user %s on account %s: %v", userAuth.UserId, userAuth.AccountId, err)
+			util.WriteError(ctx, status.NewPermissionValidationError(err), w)
+			return
+		}
+
+		enriched := r.WithContext(ctx)
+		if !allowed {
+			if deniedHandler != nil && deniedHandler(w, enriched, &userAuth) {
+				return
+			}
+			log.WithContext(ctx).Tracef("user %s on account %s is not allowed to %s in %s", userAuth.UserId, userAuth.AccountId, operation, module)
+			util.WriteError(ctx, status.NewPermissionDeniedError(), w)
+			return
+		}
+
+		handlerFunc(w, enriched, &userAuth)
 	}
 }
 
@@ -68,10 +132,6 @@ func (m *managerImpl) ValidateUserPermissions(
 	ctxEnriched, err := m.ValidateAccountAccess(ctx, accountID, user, false)
 	if err != nil {
 		return false, ctx, err
-	}
-
-	if operation == operations.Read && user.IsServiceUser {
-		return true, ctxEnriched, nil // this should be replaced by proper granular access role
 	}
 
 	role, ok := roles.RolesMap[user.Role]
@@ -149,4 +209,18 @@ func (m *managerImpl) GetPermissionsByRole(ctx context.Context, role types.UserR
 
 func (m *managerImpl) SetAccountManager(accountManager account.Manager) {
 	// no-op
+}
+
+// WrapHandler wraps a handler that expects UserAuth with context extraction.
+// Unlike WithPermission, it does not perform any permission checks.
+func WrapHandler(h func(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+		if err != nil {
+			log.WithContext(r.Context()).Errorf("failed to get user auth from context: %v", err)
+			util.WriteError(r.Context(), err, w)
+			return
+		}
+		h(w, r, &userAuth)
+	}
 }

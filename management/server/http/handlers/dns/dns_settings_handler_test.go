@@ -17,6 +17,7 @@ import (
 
 	"github.com/gorilla/mux"
 
+	"github.com/netbirdio/netbird/management/internals/modules/permissions"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/shared/auth"
 
@@ -115,8 +116,8 @@ func TestDNSSettingsHandlers(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/dns/settings", p.getDNSSettings).Methods("GET")
-			router.HandleFunc("/api/dns/settings", p.updateDNSSettings).Methods("PUT")
+			router.HandleFunc("/api/dns/settings", permissions.WrapHandler(p.getDNSSettings)).Methods("GET")
+			router.HandleFunc("/api/dns/settings", permissions.WrapHandler(p.updateDNSSettings)).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

@@ -6,16 +6,15 @@ import (
 	"testing"
 	"time"
 
-	"go.uber.org/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 )
@@ -87,18 +86,17 @@ func setupL4Test(t *testing.T, customPortsSupported *bool) (*Manager, store.Stor
 	accountMgr := &mock_server.MockAccountManager{
 		StoreEventFunc:         func(_ context.Context, _, _, _ string, _ activity.ActivityDescriber, _ map[string]any) {},
 		UpdateAccountPeersFunc: func(_ context.Context, _ string, _ types.UpdateReason) {},
-		GetGroupByNameFunc: func(ctx context.Context, groupName, accountID, userID string) (*types.Group, error) {
+		GetGroupByNameFunc: func(ctx context.Context, groupName, accountID string) (*types.Group, error) {
 			return testStore.GetGroupByName(ctx, store.LockingStrengthNone, accountID, groupName)
 		},
 	}
 
 	mgr := &Manager{
-		store:              testStore,
-		accountManager:     accountMgr,
-		permissionsManager: permissions.NewManager(testStore),
-		proxyController:    mockCtrl,
-		capabilities:       mockCaps,
-		clusterDeriver:     &testClusterDeriver{domains: []string{"test.netbird.io"}},
+		store:           testStore,
+		accountManager:  accountMgr,
+		proxyController: mockCtrl,
+		capabilities:    mockCaps,
+		clusterDeriver:  &testClusterDeriver{domains: []string{"test.netbird.io"}},
 	}
 	mgr.exposeReaper = &exposeReaper{manager: mgr}
 

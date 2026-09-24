@@ -13,6 +13,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/netbirdio/netbird/management/internals/modules/permissions"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/shared/auth"
 
@@ -196,7 +197,7 @@ func TestEvents_GetEvents(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/events/", handler.getAllEvents).Methods("GET")
+			router.HandleFunc("/api/events/", permissions.WrapHandler(handler.getAllEvents)).Methods("GET")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

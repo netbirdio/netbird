@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"go.uber.org/mock/gomock"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -21,6 +21,8 @@ import (
 
 	ephemeral_manager "github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator/validator"
+
+	"github.com/netbirdio/netbird/management/internals/modules/permissions"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
@@ -37,7 +39,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/mock_server"
-	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -94,7 +95,7 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 		Return(true, context.Background(), nil).
 		AnyTimes()
 
-	peersManger := peers.NewManager(store, permissionsManagerMock)
+	peersManger := peers.NewManager(store)
 	settingsManagerMock := settings.NewMockManager(ctrl)
 	jobManager := job.NewJobManager(nil, store, peersManger)
 

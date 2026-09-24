@@ -17,8 +17,6 @@ import (
 	"github.com/netbirdio/netbird/idp/dex"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/idp"
-	"github.com/netbirdio/netbird/management/server/permissions/modules"
-	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
@@ -95,14 +93,6 @@ func validateIdentityProviderConfig(ctx context.Context, idpConfig *types.Identi
 
 // GetIdentityProviders returns all identity providers for an account
 func (am *DefaultAccountManager) GetIdentityProviders(ctx context.Context, accountID, userID string) ([]*types.IdentityProvider, error) {
-	ok, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.IdentityProviders, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	embeddedManager, ok := am.idpManager.(*idp.EmbeddedIdPManager)
 	if !ok {
 		log.Warn("identity provider management requires embedded IdP")
@@ -124,14 +114,6 @@ func (am *DefaultAccountManager) GetIdentityProviders(ctx context.Context, accou
 
 // GetIdentityProvider returns a specific identity provider by ID
 func (am *DefaultAccountManager) GetIdentityProvider(ctx context.Context, accountID, idpID, userID string) (*types.IdentityProvider, error) {
-	ok, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.IdentityProviders, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	embeddedManager, ok := am.idpManager.(*idp.EmbeddedIdPManager)
 	if !ok {
 		return nil, status.Errorf(status.Internal, "identity provider management requires embedded IdP")
@@ -150,21 +132,13 @@ func (am *DefaultAccountManager) GetIdentityProvider(ctx context.Context, accoun
 
 // CreateIdentityProvider creates a new identity provider
 func (am *DefaultAccountManager) CreateIdentityProvider(ctx context.Context, accountID, userID string, idpConfig *types.IdentityProvider) (*types.IdentityProvider, error) {
-	ok, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.IdentityProviders, operations.Create)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return nil, status.NewPermissionDeniedError()
+	if err := validateIdentityProviderConfig(ctx, idpConfig); err != nil {
+		return nil, err
 	}
 
 	embeddedManager, ok := am.idpManager.(*idp.EmbeddedIdPManager)
 	if !ok {
 		return nil, status.Errorf(status.Internal, "identity provider management requires embedded IdP")
-	}
-
-	if err := validateIdentityProviderConfig(ctx, idpConfig); err != nil {
-		return nil, err
 	}
 
 	// Generate ID if not provided
@@ -175,7 +149,7 @@ func (am *DefaultAccountManager) CreateIdentityProvider(ctx context.Context, acc
 
 	connCfg := identityProviderToConnectorConfig(idpConfig)
 
-	_, err = embeddedManager.CreateConnector(ctx, connCfg)
+	_, err := embeddedManager.CreateConnector(ctx, connCfg)
 	if err != nil {
 		return nil, status.Errorf(status.Internal, "failed to create identity provider: %v", err)
 	}
@@ -187,21 +161,13 @@ func (am *DefaultAccountManager) CreateIdentityProvider(ctx context.Context, acc
 
 // UpdateIdentityProvider updates an existing identity provider
 func (am *DefaultAccountManager) UpdateIdentityProvider(ctx context.Context, accountID, idpID, userID string, idpConfig *types.IdentityProvider) (*types.IdentityProvider, error) {
-	ok, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.IdentityProviders, operations.Update)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return nil, status.NewPermissionDeniedError()
+	if err := validateIdentityProviderConfig(ctx, idpConfig); err != nil {
+		return nil, err
 	}
 
 	embeddedManager, ok := am.idpManager.(*idp.EmbeddedIdPManager)
 	if !ok {
 		return nil, status.Errorf(status.Internal, "identity provider management requires embedded IdP")
-	}
-
-	if err := validateIdentityProviderConfig(ctx, idpConfig); err != nil {
-		return nil, err
 	}
 
 	idpConfig.ID = idpID
@@ -220,14 +186,6 @@ func (am *DefaultAccountManager) UpdateIdentityProvider(ctx context.Context, acc
 
 // DeleteIdentityProvider deletes an identity provider
 func (am *DefaultAccountManager) DeleteIdentityProvider(ctx context.Context, accountID, idpID, userID string) error {
-	ok, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.IdentityProviders, operations.Delete)
-	if err != nil {
-		return status.NewPermissionValidationError(err)
-	}
-	if !ok {
-		return status.NewPermissionDeniedError()
-	}
-
 	embeddedManager, ok := am.idpManager.(*idp.EmbeddedIdPManager)
 	if !ok {
 		return status.Errorf(status.Internal, "identity provider management requires embedded IdP")

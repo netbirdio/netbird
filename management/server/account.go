@@ -25,6 +25,9 @@ import (
 	"github.com/netbirdio/netbird/formatter/hook"
 	"github.com/netbirdio/netbird/idp/dex"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions/modules"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions/operations"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/account"
@@ -38,9 +41,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/job"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/permissions"
-	"github.com/netbirdio/netbird/management/server/permissions/modules"
-	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -287,15 +287,6 @@ func (am *DefaultAccountManager) GetIdpManager() idp.Manager {
 // User that performs the update has to belong to the account.
 // Returns an updated Settings
 func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, accountID, userID string, newSettings *types.Settings) (*types.Settings, error) {
-	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Settings, operations.Update)
-	if err != nil {
-		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
-	}
-
-	if !allowed {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	// Canonicalize the incoming range so a caller-supplied prefix with host bits
 	// (e.g. 100.64.1.1/16) compares equal to the masked form stored on network.Net.
 	newSettings.NetworkRange = newSettings.NetworkRange.Masked()
@@ -306,8 +297,9 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	var reloadReverseProxy bool
 	var effectiveOldNetworkRange netip.Prefix
 
-	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		var groupsUpdated bool
+		var err error
 
 		oldSettings, err = transaction.GetAccountSettings(ctx, store.LockingStrengthUpdate, accountID)
 		if err != nil {
@@ -875,15 +867,6 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 		return err
 	}
 
-	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Accounts, operations.Delete)
-	if err != nil {
-		return fmt.Errorf("failed to validate user permissions: %w", err)
-	}
-
-	if !allowed {
-		return status.Errorf(status.PermissionDenied, "user is not allowed to delete account. Only account owner can delete account")
-	}
-
 	userInfosMap, err := am.BuildUserInfosForAccount(ctx, accountID, userID, maps.Values(account.Users))
 	if err != nil {
 		return status.Errorf(status.Internal, "failed to build user infos for account %s: %v", accountID, err)
@@ -1129,6 +1112,10 @@ func (am *DefaultAccountManager) lookupUserInCache(ctx context.Context, userID s
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed finding user %s in account %s", userID, accountID)
 		return nil, err
+	}
+
+	if user.AccountID != accountID {
+		return nil, fmt.Errorf("user %s does not belong to account %s", userID, accountID)
 	}
 
 	key := user.IntegrationReference.CacheKey(accountID, userID)
@@ -1442,41 +1429,16 @@ func (am *DefaultAccountManager) GetAccount(ctx context.Context, accountID strin
 
 // GetAccountByID returns an account associated with this account ID.
 func (am *DefaultAccountManager) GetAccountByID(ctx context.Context, accountID string, userID string) (*types.Account, error) {
-	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Accounts, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	return am.Store.GetAccount(ctx, accountID)
 }
 
 // GetAccountMeta returns the account metadata associated with this account ID.
 func (am *DefaultAccountManager) GetAccountMeta(ctx context.Context, accountID string, userID string) (*types.AccountMeta, error) {
-	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Accounts, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	return am.Store.GetAccountMeta(ctx, store.LockingStrengthNone, accountID)
 }
 
 // GetAccountOnboarding retrieves the onboarding information for a specific account.
 func (am *DefaultAccountManager) GetAccountOnboarding(ctx context.Context, accountID string, userID string) (*types.AccountOnboarding, error) {
-	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Accounts, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-
-	if !allowed {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	onboarding, err := am.Store.GetAccountOnboarding(ctx, accountID)
 	if err != nil && err.Error() != status.NewAccountOnboardingNotFoundError(accountID).Error() {
 		log.Errorf("failed to get account onboarding for account %s: %v", accountID, err)
@@ -1493,15 +1455,6 @@ func (am *DefaultAccountManager) GetAccountOnboarding(ctx context.Context, accou
 }
 
 func (am *DefaultAccountManager) UpdateAccountOnboarding(ctx context.Context, accountID, userID string, newOnboarding *types.AccountOnboarding) (*types.AccountOnboarding, error) {
-	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Settings, operations.Update)
-	if err != nil {
-		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
-	}
-
-	if !allowed {
-		return nil, status.NewPermissionDeniedError()
-	}
-
 	oldOnboarding, err := am.Store.GetAccountOnboarding(ctx, accountID)
 	if err != nil && err.Error() != status.NewAccountOnboardingNotFoundError(accountID).Error() {
 		return nil, fmt.Errorf("failed to get account onboarding: %w", err)
@@ -1560,10 +1513,8 @@ func (am *DefaultAccountManager) GetAccountIDFromUserAuth(ctx context.Context, u
 		return accountID, user.Id, nil
 	}
 
-	ctx, err = am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false)
-	if err != nil {
-		return "", "", err
-	}
+	// Permission checks are now handled by the HTTP middleware via WithPermission wrapper
+	// User account association is already validated above by GetUserByUserID
 
 	if !user.IsServiceUser && userAuth.Invited {
 		err = am.redeemInvite(ctx, accountID, user.Id)
@@ -1981,7 +1932,7 @@ func (am *DefaultAccountManager) onPeersInvalidated(ctx context.Context, account
 	peers := []*nbpeer.Peer{}
 	log.WithContext(ctx).Debugf("invalidating peers %v for account %s", peerIDs, accountID)
 	for _, peerID := range peerIDs {
-		peer, err := am.GetPeer(ctx, accountID, peerID, activity.SystemInitiator)
+		peer, err := am.Store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
 		if err != nil {
 			log.WithContext(ctx).Errorf("failed to get invalidated peer %s for account %s: %v", peerID, accountID, err)
 			continue
@@ -2033,13 +1984,6 @@ func (am *DefaultAccountManager) handleUserPeer(ctx context.Context, transaction
 }
 
 func (am *DefaultAccountManager) GetAccountSettings(ctx context.Context, accountID string, userID string) (*types.Settings, error) {
-	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Settings, operations.Read)
-	if err != nil {
-		return nil, status.NewPermissionValidationError(err)
-	}
-	if !allowed {
-		return nil, status.NewPermissionDeniedError()
-	}
 	return am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 }
 
@@ -2595,14 +2539,6 @@ func (am *DefaultAccountManager) validateIPForUpdate(account *types.Account, pee
 }
 
 func (am *DefaultAccountManager) UpdatePeerIP(ctx context.Context, accountID, userID, peerID string, newIP netip.Addr) error {
-	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Update)
-	if err != nil {
-		return fmt.Errorf("validate user permissions: %w", err)
-	}
-	if !allowed {
-		return status.NewPermissionDeniedError()
-	}
-
 	updateNetworkMap, err := am.updatePeerIPInTransaction(ctx, accountID, userID, peerID, newIP)
 	if err != nil {
 		return fmt.Errorf("update peer IP transaction: %w", err)

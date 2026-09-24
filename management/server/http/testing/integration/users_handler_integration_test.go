@@ -26,7 +26,8 @@ func Test_Users_GetAll(t *testing.T) {
 		{"Regular user", testing_tools.TestUserId, true},
 		{"Admin user", testing_tools.TestAdminId, true},
 		{"Owner user", testing_tools.TestOwnerId, true},
-		{"Regular service user", testing_tools.TestServiceUserId, true},
+		{"Auditor user", testing_tools.TestAuditorId, true},
+		{"Regular service user", testing_tools.TestServiceUserId, false},
 		{"Admin service user", testing_tools.TestServiceAdminId, true},
 		{"Blocked user", testing_tools.BlockedUserId, false},
 		{"Other user", testing_tools.OtherUserId, false},
@@ -58,6 +59,49 @@ func Test_Users_GetAll(t *testing.T) {
 			case <-time.After(time.Second):
 				t.Error("timeout waiting for peerShouldNotReceiveUpdate")
 			}
+		})
+	}
+}
+
+func Test_Users_GetAll_ReadOnlyRoleSeesAllUsers(t *testing.T) {
+	apiHandler, _, _ := channel.BuildApiBlackBoxWithDBState(t, "../testdata/users_integration.sql", nil, false)
+
+	req := testing_tools.BuildRequest(t, []byte{}, http.MethodGet, "/api/users", testing_tools.TestAuditorId)
+	recorder := httptest.NewRecorder()
+	apiHandler.ServeHTTP(recorder, req)
+
+	content, _ := testing_tools.ReadResponse(t, recorder, http.StatusOK, true)
+
+	got := []api.User{}
+	if err := json.Unmarshal(content, &got); err != nil {
+		t.Fatalf("Sent content is not in correct json format; %v", err)
+	}
+
+	assert.Greater(t, len(got), 1, "auditor must see every user of the account, not only themselves")
+}
+
+func Test_Users_ChangePassword(t *testing.T) {
+	tt := []struct {
+		name           string
+		userId         string
+		targetUserId   string
+		expectedStatus int
+	}{
+		{"Regular user changes own password", testing_tools.TestUserId, testing_tools.TestUserId, http.StatusPreconditionFailed},
+		{"Regular user changes another user's password", testing_tools.TestUserId, testing_tools.TestAdminId, http.StatusForbidden},
+		{"Admin changes another user's password", testing_tools.TestAdminId, testing_tools.TestUserId, http.StatusPreconditionFailed},
+	}
+
+	body := []byte(`{"old_password":"OldPass123!","new_password":"NewPass456!"}`)
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			apiHandler, _, _ := channel.BuildApiBlackBoxWithDBState(t, "../testdata/users_integration.sql", nil, false)
+
+			req := testing_tools.BuildRequest(t, body, http.MethodPut, "/api/users/"+tc.targetUserId+"/password", tc.userId)
+			recorder := httptest.NewRecorder()
+			apiHandler.ServeHTTP(recorder, req)
+
+			assert.Equal(t, tc.expectedStatus, recorder.Code, "unexpected status, body: %s", recorder.Body.String())
 		})
 	}
 }
@@ -635,6 +679,38 @@ func Test_PATs_Create(t *testing.T) {
 			})
 		}
 	}
+}
+
+func Test_Users_Update_CrossAccountAttack(t *testing.T) {
+	t.Run("Admin attempts to update user from other account", func(t *testing.T) {
+		apiHandler, _, _ := channel.BuildApiBlackBoxWithDBState(t, "../testdata/users_integration.sql", nil, false)
+
+		body, _ := json.Marshal(&api.UserRequest{
+			Role:       "user",
+			AutoGroups: []string{},
+			IsBlocked:  true,
+		})
+
+		// TestAdminId belongs to testAccountId, but targets otherUserId which belongs to otherAccountId
+		req := testing_tools.BuildRequest(t, body, http.MethodPut, "/api/users/otherUserId", testing_tools.TestAdminId)
+		recorder := httptest.NewRecorder()
+		apiHandler.ServeHTTP(recorder, req)
+
+		assert.NotEqual(t, http.StatusOK, recorder.Code, "cross-account user update must be rejected")
+	})
+}
+
+func Test_Users_Delete_CrossAccountAttack(t *testing.T) {
+	t.Run("Admin attempts to delete service user from other account", func(t *testing.T) {
+		apiHandler, _, _ := channel.BuildApiBlackBoxWithDBState(t, "../testdata/users_integration.sql", nil, false)
+
+		// TestAdminId belongs to testAccountId, but targets otherServiceUserId which belongs to otherAccountId
+		req := testing_tools.BuildRequest(t, []byte{}, http.MethodDelete, "/api/users/otherServiceUserId", testing_tools.TestAdminId)
+		recorder := httptest.NewRecorder()
+		apiHandler.ServeHTTP(recorder, req)
+
+		assert.NotEqual(t, http.StatusOK, recorder.Code, "cross-account user delete must be rejected")
+	})
 }
 
 func Test_PATs_Delete(t *testing.T) {

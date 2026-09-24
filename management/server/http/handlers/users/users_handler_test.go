@@ -15,10 +15,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/management/internals/modules/permissions"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions/modules"
+	roles2 "github.com/netbirdio/netbird/management/internals/modules/permissions/roles"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/mock_server"
-	"github.com/netbirdio/netbird/management/server/permissions/modules"
-	"github.com/netbirdio/netbird/management/server/permissions/roles"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/users"
 	"github.com/netbirdio/netbird/shared/auth"
@@ -38,6 +39,7 @@ var usersTestAccount = &types.Account{
 	Users: map[string]*types.User{
 		existingUserID: {
 			Id:            existingUserID,
+			AccountID:     existingAccountID,
 			Role:          "admin",
 			IsServiceUser: false,
 			AutoGroups:    []string{"group_1"},
@@ -45,6 +47,7 @@ var usersTestAccount = &types.Account{
 		},
 		regularUserID: {
 			Id:            regularUserID,
+			AccountID:     existingAccountID,
 			Role:          "user",
 			IsServiceUser: false,
 			AutoGroups:    []string{"group_1"},
@@ -52,6 +55,7 @@ var usersTestAccount = &types.Account{
 		},
 		serviceUserID: {
 			Id:            serviceUserID,
+			AccountID:     existingAccountID,
 			Role:          "user",
 			IsServiceUser: true,
 			AutoGroups:    []string{"group_1"},
@@ -59,6 +63,7 @@ var usersTestAccount = &types.Account{
 		},
 		nonDeletableServiceUserID: {
 			Id:            nonDeletableServiceUserID,
+			AccountID:     existingAccountID,
 			Role:          "admin",
 			IsServiceUser: true,
 			NonDeletable:  true,
@@ -151,7 +156,7 @@ func initUsersTestData() *handler {
 							NonDeletable:  false,
 							Issued:        "api",
 						},
-						Permissions: mergeRolePermissions(roles.Owner),
+						Permissions: mergeRolePermissions(roles2.Owner),
 					}, nil
 				case "regular-user":
 					return &users.UserInfoWithPermissions{
@@ -165,7 +170,7 @@ func initUsersTestData() *handler {
 							NonDeletable:  false,
 							Issued:        "api",
 						},
-						Permissions: mergeRolePermissions(roles.User),
+						Permissions: mergeRolePermissions(roles2.User),
 					}, nil
 
 				case "admin-user":
@@ -181,7 +186,7 @@ func initUsersTestData() *handler {
 							LastLogin:     time.Time{},
 							Issued:        "api",
 						},
-						Permissions: mergeRolePermissions(roles.Admin),
+						Permissions: mergeRolePermissions(roles2.Admin),
 					}, nil
 				case "restricted-user":
 					return &users.UserInfoWithPermissions{
@@ -196,7 +201,7 @@ func initUsersTestData() *handler {
 							LastLogin:     time.Time{},
 							Issued:        "api",
 						},
-						Permissions: mergeRolePermissions(roles.User),
+						Permissions: mergeRolePermissions(roles2.User),
 						Restricted:  true,
 					}, nil
 				}
@@ -232,7 +237,11 @@ func TestGetUsers(t *testing.T) {
 				AccountId: existingAccountID,
 			})
 
-			userHandler.getAllUsers(recorder, req)
+			userAuth := &auth.UserAuth{
+				UserId:    existingUserID,
+				AccountId: existingAccountID,
+			}
+			userHandler.getAllUsers(recorder, req, userAuth)
 
 			res := recorder.Result()
 			defer res.Body.Close()
@@ -343,7 +352,7 @@ func TestUpdateUser(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/users/{userId}", userHandler.updateUser).Methods("PUT")
+			router.HandleFunc("/api/users/{userId}", permissions.WrapHandler(userHandler.updateUser)).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -439,7 +448,11 @@ func TestCreateUser(t *testing.T) {
 				AccountId: existingAccountID,
 			})
 
-			userHandler.createUser(rr, req)
+			userAuth := &auth.UserAuth{
+				UserId:    existingUserID,
+				AccountId: existingAccountID,
+			}
+			userHandler.createUser(rr, req, userAuth)
 
 			res := rr.Result()
 			defer res.Body.Close()
@@ -490,7 +503,11 @@ func TestInviteUser(t *testing.T) {
 
 			rr := httptest.NewRecorder()
 
-			userHandler.inviteUser(rr, req)
+			userAuth := &auth.UserAuth{
+				UserId:    existingUserID,
+				AccountId: existingAccountID,
+			}
+			userHandler.inviteUser(rr, req, userAuth)
 
 			res := rr.Result()
 			defer res.Body.Close()
@@ -549,7 +566,11 @@ func TestDeleteUser(t *testing.T) {
 
 			rr := httptest.NewRecorder()
 
-			userHandler.deleteUser(rr, req)
+			userAuth := &auth.UserAuth{
+				UserId:    existingUserID,
+				AccountId: existingAccountID,
+			}
+			userHandler.deleteUser(rr, req, userAuth)
 
 			res := rr.Result()
 			defer res.Body.Close()
@@ -608,7 +629,7 @@ func TestCurrentUser(t *testing.T) {
 				Issued:        ptr("api"),
 				LastLogin:     ptr(time.Time{}),
 				Permissions: &api.UserPermissions{
-					Modules: stringifyPermissionsKeys(mergeRolePermissions(roles.Owner)),
+					Modules: stringifyPermissionsKeys(mergeRolePermissions(roles2.Owner)),
 				},
 			},
 		},
@@ -627,7 +648,7 @@ func TestCurrentUser(t *testing.T) {
 				Issued:        ptr("api"),
 				LastLogin:     ptr(time.Time{}),
 				Permissions: &api.UserPermissions{
-					Modules: stringifyPermissionsKeys(mergeRolePermissions(roles.User)),
+					Modules: stringifyPermissionsKeys(mergeRolePermissions(roles2.User)),
 				},
 			},
 		},
@@ -646,7 +667,7 @@ func TestCurrentUser(t *testing.T) {
 				Issued:        ptr("api"),
 				LastLogin:     ptr(time.Time{}),
 				Permissions: &api.UserPermissions{
-					Modules: stringifyPermissionsKeys(mergeRolePermissions(roles.Admin)),
+					Modules: stringifyPermissionsKeys(mergeRolePermissions(roles2.Admin)),
 				},
 			},
 		},
@@ -666,7 +687,7 @@ func TestCurrentUser(t *testing.T) {
 				LastLogin:     ptr(time.Time{}),
 				Permissions: &api.UserPermissions{
 					IsRestricted: true,
-					Modules:      stringifyPermissionsKeys(mergeRolePermissions(roles.User)),
+					Modules:      stringifyPermissionsKeys(mergeRolePermissions(roles2.User)),
 				},
 			},
 		},
@@ -682,7 +703,11 @@ func TestCurrentUser(t *testing.T) {
 
 			rr := httptest.NewRecorder()
 
-			userHandler.getCurrentUser(rr, req)
+			userAuth := &auth.UserAuth{
+				UserId:    tc.requestAuth.UserId,
+				AccountId: existingAccountID,
+			}
+			userHandler.getCurrentUser(rr, req, userAuth)
 
 			res := rr.Result()
 			defer res.Body.Close()
@@ -702,8 +727,8 @@ func ptr[T any, PT *T](x T) PT {
 	return &x
 }
 
-func mergeRolePermissions(role roles.RolePermissions) roles.Permissions {
-	permissions := roles.Permissions{}
+func mergeRolePermissions(role roles2.RolePermissions) roles2.Permissions {
+	permissions := roles2.Permissions{}
 
 	for k := range modules.All {
 		if rolePermissions, ok := role.Permissions[k]; ok {
@@ -716,7 +741,7 @@ func mergeRolePermissions(role roles.RolePermissions) roles.Permissions {
 	return permissions
 }
 
-func stringifyPermissionsKeys(permissions roles.Permissions) map[string]map[string]bool {
+func stringifyPermissionsKeys(permissions roles2.Permissions) map[string]map[string]bool {
 	modules := make(map[string]map[string]bool)
 	for module, operations := range permissions {
 		modules[string(module)] = make(map[string]bool)
@@ -779,7 +804,7 @@ func TestApproveUserEndpoint(t *testing.T) {
 
 			handler := newHandler(am)
 			router := mux.NewRouter()
-			router.HandleFunc("/users/{userId}/approve", handler.approveUser).Methods("POST")
+			router.HandleFunc("/users/{userId}/approve", permissions.WrapHandler(handler.approveUser)).Methods("POST")
 
 			req, err := http.NewRequest("POST", "/users/pending-user/approve", nil)
 			require.NoError(t, err)
@@ -837,7 +862,7 @@ func TestRejectUserEndpoint(t *testing.T) {
 
 			handler := newHandler(am)
 			router := mux.NewRouter()
-			router.HandleFunc("/users/{userId}/reject", handler.rejectUser).Methods("DELETE")
+			router.HandleFunc("/users/{userId}/reject", permissions.WrapHandler(handler.rejectUser)).Methods("DELETE")
 
 			req, err := http.NewRequest("DELETE", "/users/pending-user/reject", nil)
 			require.NoError(t, err)
@@ -928,7 +953,7 @@ func TestChangePasswordEndpoint(t *testing.T) {
 
 			handler := newHandler(am)
 			router := mux.NewRouter()
-			router.HandleFunc("/users/{userId}/password", handler.changePassword).Methods("PUT")
+			router.HandleFunc("/users/{userId}/password", permissions.WrapHandler(handler.changePassword)).Methods("PUT")
 
 			reqPath := "/users/" + tc.targetUserID + "/password"
 			req, err := http.NewRequest("PUT", reqPath, bytes.NewBufferString(tc.requestBody))
@@ -967,7 +992,7 @@ func TestChangePasswordEndpoint_WrongMethod(t *testing.T) {
 	req = nbcontext.SetUserAuthInRequest(req, userAuth)
 
 	rr := httptest.NewRecorder()
-	handler.changePassword(rr, req)
+	handler.changePassword(rr, req, &userAuth)
 
 	assert.Equal(t, http.StatusMethodNotAllowed, rr.Code)
 }

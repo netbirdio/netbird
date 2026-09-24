@@ -22,9 +22,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	resourcetypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/permissions"
-	"github.com/netbirdio/netbird/management/server/permissions/modules"
-	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -711,12 +708,10 @@ func setupIntegrationTest(t *testing.T) (*Manager, store.Store) {
 	err = testStore.AddPeerToGroup(ctx, testAccountID, testPeerID, testGroupID)
 	require.NoError(t, err)
 
-	permsMgr := permissions.NewManager(testStore)
-
 	accountMgr := &mock_server.MockAccountManager{
 		StoreEventFunc:         func(_ context.Context, _, _, _ string, _ activity.ActivityDescriber, _ map[string]any) {},
 		UpdateAccountPeersFunc: func(_ context.Context, _ string, _ types.UpdateReason) {},
-		GetGroupByNameFunc: func(ctx context.Context, groupName, accountID, userID string) (*types.Group, error) {
+		GetGroupByNameFunc: func(ctx context.Context, groupName, accountID string) (*types.Group, error) {
 			return testStore.GetGroupByName(ctx, store.LockingStrengthNone, accountID, groupName)
 		},
 	}
@@ -729,10 +724,9 @@ func setupIntegrationTest(t *testing.T) (*Manager, store.Store) {
 	require.NoError(t, err)
 
 	mgr := &Manager{
-		store:              testStore,
-		accountManager:     accountMgr,
-		permissionsManager: permsMgr,
-		proxyController:    proxyController,
+		store:           testStore,
+		accountManager:  accountMgr,
+		proxyController: proxyController,
 		clusterDeriver: &testClusterDeriver{
 			domains: []string{"test.netbird.io"},
 		},
@@ -1058,30 +1052,6 @@ func TestDeleteService_DeletesEphemeralExpose(t *testing.T) {
 	assert.NoError(t, err, "new expose should succeed after API delete")
 }
 
-func TestDeleteAllServices_DeletesEphemeralExposes(t *testing.T) {
-	ctx := context.Background()
-	mgr, _ := setupIntegrationTest(t)
-
-	for i := range 3 {
-		_, err := mgr.CreateServiceFromPeer(ctx, testAccountID, testPeerID, &rpservice.ExposeServiceRequest{
-			Port: uint16(8080 + i),
-			Mode: "http",
-		})
-		require.NoError(t, err)
-	}
-
-	count, err := mgr.store.CountEphemeralServicesByPeer(ctx, store.LockingStrengthNone, testAccountID, testPeerID)
-	require.NoError(t, err)
-	assert.Equal(t, int64(3), count, "all ephemeral services should exist")
-
-	err = mgr.DeleteAllServices(ctx, testAccountID, testUserID)
-	require.NoError(t, err)
-
-	count, err = mgr.store.CountEphemeralServicesByPeer(ctx, store.LockingStrengthNone, testAccountID, testPeerID)
-	require.NoError(t, err)
-	assert.Equal(t, int64(0), count, "all ephemeral services should be deleted after DeleteAllServices")
-}
-
 func TestRenewServiceFromPeer(t *testing.T) {
 	ctx := context.Background()
 
@@ -1142,7 +1112,6 @@ func TestDeleteService_DeletesTargets(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockPerms := permissions.NewMockManager(ctrl)
 	mockAcct := account.NewMockManager(ctrl)
 
 	tokenStore := nbgrpc.NewOneTimeTokenStore(ctx, testCacheStore(t))
@@ -1153,10 +1122,9 @@ func TestDeleteService_DeletesTargets(t *testing.T) {
 	require.NoError(t, err)
 
 	mgr := &Manager{
-		store:              sqlStore,
-		permissionsManager: mockPerms,
-		accountManager:     mockAcct,
-		proxyController:    proxyController,
+		store:           sqlStore,
+		accountManager:  mockAcct,
+		proxyController: proxyController,
 	}
 
 	service := &rpservice.Service{
@@ -1179,9 +1147,6 @@ func TestDeleteService_DeletesTargets(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, retrievedService.Targets, 3, "Service should have 3 targets before deletion")
 
-	mockPerms.EXPECT().
-		ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Delete).
-		Return(true, ctx, nil)
 	mockAcct.EXPECT().
 		StoreEvent(ctx, userID, service.ID, accountID, activity.ServiceDeleted, gomock.Any())
 	mockAcct.EXPECT().

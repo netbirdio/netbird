@@ -27,7 +27,6 @@ import (
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	peer2 "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -978,11 +977,10 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 	// Saving a group linked to network router should update account peers and send peer update
 	t.Run("saving group linked to network router", func(t *testing.T) {
-		permissionsManager := permissions.NewManager(manager.Store)
-		groupsManager := groups.NewManager(manager.Store, permissionsManager, manager)
-		resourcesManager := resources.NewManager(manager.Store, permissionsManager, groupsManager, manager, manager.serviceManager)
-		routersManager := routers.NewManager(manager.Store, permissionsManager, manager)
-		networksManager := networks.NewManager(manager.Store, permissionsManager, resourcesManager, routersManager, manager)
+		groupsManager := groups.NewManager(manager.Store, manager)
+		resourcesManager := resources.NewManager(manager.Store, groupsManager, manager, manager.serviceManager)
+		routersManager := routers.NewManager(manager.Store, manager)
+		networksManager := networks.NewManager(manager.Store, resourcesManager, routersManager, manager)
 
 		network, err := networksManager.CreateNetwork(context.Background(), userID, &networkTypes.Network{
 			ID:          "network_test",

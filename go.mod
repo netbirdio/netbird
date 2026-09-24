@@ -86,7 +86,7 @@ require (
 	github.com/mitchellh/hashstructure/v2 v2.0.2
 	github.com/moby/moby/api v1.54.1
 	github.com/netbirdio/go-nat v0.0.0-20260821095157-6b2c8c5c74e8
-	github.com/netbirdio/management-integrations/integrations v0.0.0-20260803100840-78e79ba20f87
+	github.com/netbirdio/management-integrations/integrations v0.0.0-20260416163311-004852ffaf34
 	github.com/netbirdio/signal-dispatcher/dispatcher v0.0.0-20250805121659-6b4ac470ca45
 	github.com/oapi-codegen/runtime v1.1.2
 	github.com/okta/okta-sdk-golang/v2 v2.18.0

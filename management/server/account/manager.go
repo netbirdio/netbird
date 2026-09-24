@@ -62,7 +62,7 @@ type Manager interface {
 	GetUserByID(ctx context.Context, id string) (*types.User, error)
 	GetUserFromUserAuth(ctx context.Context, userAuth auth.UserAuth) (*types.User, error)
 	ListUsers(ctx context.Context, accountID string) ([]*types.User, error)
-	GetPeers(ctx context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error)
+	GetPeers(ctx context.Context, accountID, userID, nameFilter, ipFilter string, all bool) ([]*nbpeer.Peer, error)
 	MarkPeerConnected(ctx context.Context, peerKey string, accountID string, sessionStartedAt int64, nmap *types.NetworkMap) error
 	MarkPeerDisconnected(ctx context.Context, peerKey string, accountID string, sessionStartedAt int64) error
 	DeletePeer(ctx context.Context, accountID, peerID, userID string) error
@@ -79,7 +79,7 @@ type Manager interface {
 	GetUsersFromAccount(ctx context.Context, accountID, userID string) (map[string]*types.UserInfo, error)
 	GetGroup(ctx context.Context, accountId, groupID, userID string) (*types.Group, error)
 	GetAllGroups(ctx context.Context, accountID, userID string) ([]*types.Group, error)
-	GetGroupByName(ctx context.Context, groupName, accountID, userID string) (*types.Group, error)
+	GetGroupByName(ctx context.Context, groupName, accountID string) (*types.Group, error)
 	CreateGroup(ctx context.Context, accountID, userID string, group *types.Group) error
 	UpdateGroup(ctx context.Context, accountID, userID string, group *types.Group) error
 	CreateGroups(ctx context.Context, accountID, userID string, newGroups []*types.Group) error

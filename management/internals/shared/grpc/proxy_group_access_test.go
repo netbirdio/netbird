@@ -24,10 +24,6 @@ type mockReverseProxyManager struct {
 	err              error
 }
 
-func (m *mockReverseProxyManager) DeleteAllServices(ctx context.Context, accountID, userID string) error {
-	return nil
-}
-
 func (m *mockReverseProxyManager) GetAccountServices(ctx context.Context, accountID string) ([]*service.Service, error) {
 	if m.err != nil {
 		return nil, m.err

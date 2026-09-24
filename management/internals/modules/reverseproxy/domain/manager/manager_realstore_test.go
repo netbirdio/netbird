@@ -14,7 +14,6 @@ import (
 	proxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy/manager"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/mock_server"
-	"github.com/netbirdio/netbird/management/server/permissions"
 	nbstore "github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -105,10 +104,9 @@ func setupDomainTest(t *testing.T) *domainTestEnv {
 	resolver := &stubResolver{cnames: make(map[string]string)}
 
 	mgr := Manager{
-		store:              testStore,
-		proxyManager:       proxyMgr,
-		validator:          domain.Validator{Resolver: resolver},
-		permissionsManager: permissions.NewManager(testStore),
+		store:        testStore,
+		proxyManager: proxyMgr,
+		validator:    domain.Validator{Resolver: resolver},
 		accountManager: &mock_server.MockAccountManager{
 			StoreEventFunc: func(context.Context, string, string, string, activity.ActivityDescriber, map[string]any) {},
 		},
@@ -268,32 +266,6 @@ func TestStore_DuplicateDomainRejectedByIndexAsConflict(t *testing.T) {
 	sErr, ok := status.FromError(err)
 	require.True(t, ok, "the losing insert must return a typed status error")
 	assert.Equal(t, status.AlreadyExists, sErr.Type(), "a lost race is a 409, not a 500")
-}
-
-// Validation is what decides whether a domain routes traffic, so a caller
-// without permission to it must not be able to flip the flag. The check logged
-// the denial and then carried on, which was inert while nothing read Validated
-// and is not once cluster derivation gates on it.
-func TestValidateDomain_PermissionDeniedDoesNotValidate(t *testing.T) {
-	ctx := context.Background()
-	env := setupDomainTest(t)
-
-	created, err := env.manager.CreateDomain(ctx, accountA, accountAUser, "guarded.example.com", testCluster)
-	require.NoError(t, err)
-	require.False(t, created.Validated)
-
-	// The CNAME is in place, so the only thing standing between this caller and
-	// a validated domain is the permission check.
-	env.resolver.set("validation.guarded.example.com", testCluster)
-
-	env.manager.ValidateDomain(ctx, accountA, accountAMember, created.ID)
-
-	stored := storedDomain(t, env.store, accountA, "guarded.example.com")
-	require.NotNil(t, stored)
-	assert.False(t, stored.Validated, "a caller without permission must not validate the domain")
-
-	_, err = env.manager.DeriveClusterFromDomain(ctx, accountA, "guarded.example.com")
-	assert.Error(t, err, "the domain must still be unservable")
 }
 
 // A validation finishing after deletion must reject the stale write, without

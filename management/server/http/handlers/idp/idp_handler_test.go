@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/management/internals/modules/permissions"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -120,7 +121,7 @@ func TestGetAllIdentityProviders(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/identity-providers", h.getAllIdentityProviders).Methods("GET")
+			router.HandleFunc("/api/identity-providers", permissions.WrapHandler(h.getAllIdentityProviders)).Methods("GET")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -180,7 +181,7 @@ func TestGetIdentityProvider(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/identity-providers/{idpId}", h.getIdentityProvider).Methods("GET")
+			router.HandleFunc("/api/identity-providers/{idpId}", permissions.WrapHandler(h.getIdentityProvider)).Methods("GET")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -242,7 +243,7 @@ func TestCreateIdentityProvider(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/identity-providers", h.createIdentityProvider).Methods("POST")
+			router.HandleFunc("/api/identity-providers", permissions.WrapHandler(h.createIdentityProvider)).Methods("POST")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -328,7 +329,7 @@ func TestUpdateIdentityProvider(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/identity-providers/{idpId}", h.updateIdentityProvider).Methods("PUT")
+			router.HandleFunc("/api/identity-providers/{idpId}", permissions.WrapHandler(h.updateIdentityProvider)).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -388,7 +389,7 @@ func TestDeleteIdentityProvider(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/identity-providers/{idpId}", h.deleteIdentityProvider).Methods("DELETE")
+			router.HandleFunc("/api/identity-providers/{idpId}", permissions.WrapHandler(h.deleteIdentityProvider)).Methods("DELETE")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
