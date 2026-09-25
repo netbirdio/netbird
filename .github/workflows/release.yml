@@ -415,7 +415,7 @@ jobs:
       - name: Install preflight
         run: |
           set -euo pipefail
-          curl -fsSL -o preflight \
+          curl -fsSL --proto '=https' --proto-redir '=https' -o preflight \
             "https://github.com/redhat-openshift-ecosystem/openshift-preflight/releases/download/${PREFLIGHT_VERSION}/preflight-linux-amd64"
           echo "${PREFLIGHT_SHA256}  preflight" | sha256sum -c -
           chmod +x preflight
@@ -473,7 +473,7 @@ jobs:
           tag="${VERSION}-rootless-ubi"
           url="https://catalog.redhat.com/api/containers/v1/projects/certification/id/${COMPONENT_ID}/images?page_size=100"
           for attempt in $(seq 1 20); do
-            certified="$(curl -fsS -H "X-API-KEY: ${PFLT_PYXIS_API_TOKEN}" "$url" \
+            certified="$(curl -fsS --proto '=https' --proto-redir '=https' -H "X-API-KEY: ${PFLT_PYXIS_API_TOKEN}" "$url" \
               | jq -r --arg t "$tag" '[.data[] | select(.repositories[]?.tags[]?.name == $t) | select(.certified == true) | .architecture] | unique | join(",")')"
             echo "attempt ${attempt}: certified architectures for ${tag}: ${certified:-none}"
             if [[ "$certified" == "amd64,arm64" ]]; then
