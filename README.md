@@ -115,6 +115,56 @@ export NETBIRD_DOMAIN=netbird.example.com; curl -fsSL https://github.com/netbird
 
 See a complete [architecture overview](https://docs.netbird.io/about-netbird/how-netbird-works#architecture) for details.
 
+### Reporting bugs and requesting features
+
+NetBird uses a discussion-first workflow. Bug reports and feature requests start in
+[Discussions](https://github.com/netbirdio/netbird/discussions), not as issues.
+
+| What you want to do | Where to go |
+| --- | --- |
+| Report a bug, regression, or unexpected behavior | [Issue Triage](https://github.com/netbirdio/netbird/discussions/new?category=issue-triage) |
+| Request a feature or share an idea | [Ideas & Feature Requests](https://github.com/netbirdio/netbird/discussions/new?category=ideas-feature-requests) |
+| Ask about setup, configuration, or self-hosting | [Q&A / Support](https://github.com/netbirdio/netbird/discussions/new?category=q-a-support) |
+| Report a security vulnerability | [Security policy](https://github.com/netbirdio/netbird/security/policy), never a public thread |
+
+Our team and maintainers triage discussions, ask follow-up questions, check for duplicates,
+and reproduce bugs. Validated reports are promoted to issues. This keeps the issue tracker a clear
+answer to one question: what is the team working on.
+
+Please search existing discussions and issues first, including closed ones. If something similar
+already exists, upvote it and add your details there instead of opening a duplicate.
+
+For bug reports, include your NetBird version, operating system, deployment type (Cloud,
+self-hosted, Kubernetes, or Docker), reproduction steps, expected and actual behavior, and a debug
+bundle where relevant:
+
+```shell
+netbird version
+netbird status -d -A
+netbird debug for 1m -A -S -U
+```
+
+`-U` uploads the bundle and prints a file key you can paste instead of attaching the archive.
+`-A` anonymizes the output, which matters on a public thread. It masks most identifying details
+but is not full redaction, so read the bundle before posting it. Two levels are available:
+
+| Level | How to select | What it masks |
+| --- | --- | --- |
+| `default` | `-A` / `--anonymize` | Public IP addresses, IPv6 ULA addresses, MAC addresses, and domains other than `netbird.io`, `netbird.cloud`, `netbird.selfhosted`, and `netbird.stage`. IPv4 private, CGNAT, and link-local ranges are kept |
+| `strict` | `--anonymize-level strict` (implies `-A`) | The above, plus IPv4 private, CGNAT, and link-local ranges, peer names in front of `netbird.cloud`, `netbird.selfhosted`, and `netbird.stage`, and WireGuard public keys. Labels under `netbird.io` are kept, since it only hosts infrastructure |
+
+See [collecting a debug bundle](https://docs.netbird.io/help/troubleshooting-client#debug-bundle)
+and the [CLI reference](https://docs.netbird.io/get-started/cli#debug-for) for details.
+
+See [How to use Discussions, Issues, and Pull Requests](https://github.com/netbirdio/netbird/discussions/6075)
+for the full workflow, or [SUPPORT.md](SUPPORT.md) for a shorter version.
+
+### Contributing
+
+Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) first. NetBird works ticket
+first, anything that changes behavior needs an issue the team has agreed on before you open a pull
+request.
+
 ### Community projects
 - [NetBird installer script](https://github.com/physk/netbird-installer)
 - [netbird-tui](https://github.com/n0pashkov/netbird-tui) - terminal UI for managing NetBird peers, routes, and settings
