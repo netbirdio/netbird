@@ -14,6 +14,11 @@ NETBIRD_EULA_URL="https://netbird.io/self-hosted-EULA"
 
 STACK_FILES=(.env docker-compose.yml config.yaml)
 
+# Host directory of a custom TLS certificate mounted at /certs, see
+# https://docs.netbird.io/selfhosted/enterprise/getting-started#appendix-using-a-custom-tls-certificate
+CUSTOM_TLS_CERTS=""
+PROXY_TOKEN_ID=""
+
 # Static IP for Traefik inside the compose bridge network. The management
 # server trusts X-Forwarded-* headers from this address only.
 TRAEFIK_IP="172.30.0.10"
@@ -365,12 +370,25 @@ wait_crowdsec() {
   return 1
 }
 
+admin_token() {
+  $DOCKER_COMPOSE_COMMAND run --rm --no-deps -T netbird-server admin token "$@" --config /etc/netbird/config.yaml
+}
+
+# revoke_proxy_token revokes the token this run minted if the proxy never started.
+revoke_proxy_token() {
+  if [[ -n "$PROXY_TOKEN_ID" ]]; then
+    admin_token revoke "$PROXY_TOKEN_ID" > /dev/null || true
+    PROXY_TOKEN_ID=""
+  fi
+}
+
 # start_proxy mints the proxy token and CrowdSec bouncer key, then starts the proxy.
 start_proxy() {
-  local token key
+  local out token key
   echo "Creating the proxy access token ..."
-  token=$($DOCKER_COMPOSE_COMMAND run --rm --no-deps -T netbird-server \
-    admin token create --name default-proxy --config /etc/netbird/config.yaml | awk '/^Token:/ {print $2}') || true
+  out=$(admin_token create --name default-proxy) || true
+  token=$(awk '/^Token:/ {print $2}' <<< "$out")
+  PROXY_TOKEN_ID=$(awk '/^Token ID:/ {print $3}' <<< "$out")
   [[ -n "$token" ]] || die "Could not create the proxy access token. Check the netbird-server logs, then re-run with --enable-proxy."
 
   if [[ "$NETBIRD_CROWDSEC" == "yes" ]]; then
@@ -380,15 +398,23 @@ start_proxy() {
       $DOCKER_COMPOSE_COMMAND exec -T crowdsec cscli bouncers delete netbird-proxy &> /dev/null || true
       key=$($DOCKER_COMPOSE_COMMAND exec -T crowdsec cscli bouncers add netbird-proxy -o raw) || true
     fi
-    [[ -n "$key" ]] || die "Could not register the CrowdSec bouncer. Check the crowdsec logs, then re-run with --enable-proxy."
+    if [[ -z "$key" ]]; then
+      revoke_proxy_token
+      die "Could not register the CrowdSec bouncer. Check the crowdsec logs, then re-run with --enable-proxy."
+    fi
   fi
 
-  # Saved last: a stored token marks the proxy as set up.
+  # A stored token marks the proxy as set up, so it is cleared again on failure.
   {
     echo "NETBIRD_PROXY_TOKEN=${token}"
     if [[ -n "$key" ]]; then echo "NETBIRD_CROWDSEC_BOUNCER_KEY=${key}"; fi
   } | merge_env
-  $DOCKER_COMPOSE_COMMAND up -d proxy
+  if ! $DOCKER_COMPOSE_COMMAND up -d proxy; then
+    revoke_proxy_token
+    echo "NETBIRD_PROXY_TOKEN=" | merge_env
+    die "Could not start the proxy. Check the proxy logs, then re-run with --enable-proxy."
+  fi
+  PROXY_TOKEN_ID=""
 }
 
 print_proxy_notes() {
@@ -416,7 +442,7 @@ init_environment() {
     echo ""
     echo "If you want to reinitialize the environment, please remove them first:"
     echo "  $DOCKER_COMPOSE_COMMAND down --volumes # removes all containers and volumes"
-    echo "  rm -f .env docker-compose.yml config.yaml traefik-dynamic.yaml"
+    echo "  rm -rf .env docker-compose.yml config.yaml traefik"
     echo "Be aware this will remove all data from the database."
     exit 1
   fi
@@ -477,8 +503,9 @@ init_environment() {
   install -m 600 /dev/null .env
   render_env >> .env
   render_docker_compose > docker-compose.yml
+  mkdir -p traefik
   if [[ "$NETBIRD_PROXY" == "yes" ]]; then
-    render_traefik_dynamic > traefik-dynamic.yaml
+    render_traefik_proxy > traefik/proxy.yaml
   fi
   install -m 600 /dev/null config.yaml
   render_config_yaml >> config.yaml
@@ -526,6 +553,11 @@ init_environment() {
   fi
 }
 
+# service_block NAME prints a service's definition from the compose file on stdin.
+service_block() {
+  awk -v s="  $1:" '$0 == s { p = 1; print; next } p && (/^[^ ]/ || /^  [^ ]/) { exit } p'
+}
+
 # enable_features adds the proxy and/or traffic events to the install in the
 # current directory, restoring the backed-up files if any step fails.
 enable_features() {
@@ -544,6 +576,7 @@ enable_features() {
   NETBIRD_TRAFFIC_FLOW=$(env_get NETBIRD_TRAFFIC_FLOW_ENABLED no)
   NETBIRD_PROXY=$(env_get NETBIRD_PROXY_ENABLED no)
   NETBIRD_CROWDSEC=$(env_get NETBIRD_CROWDSEC_ENABLED no)
+  CUSTOM_TLS_CERTS=$(awk '/:\/certs:ro$/ { sub(/^ *- /, ""); sub(/:\/certs:ro$/, ""); print; exit }' docker-compose.yml)
 
   if [[ "$want_flow" == "yes" && "$NETBIRD_TRAFFIC_FLOW" == "yes" ]]; then
     echo "Traffic events are already enabled."
@@ -573,14 +606,33 @@ enable_features() {
   echo ""
   echo "Changes to docker-compose.yml:"
   printf '%s\n' "$compose" | diff -u docker-compose.yml - || true
+
+  # Lines the new file drops are most likely local edits, so don't default to applying.
+  local lost s restarts="" apply="y"
+  lost=$(printf '%s\n' "$compose" | awk 'NR == FNR { keep[$0]; next } !($0 in keep)' - docker-compose.yml)
+  if [[ -n "$lost" ]]; then
+    echo ""
+    echo "These lines are not in the new docker-compose.yml and will be lost:"
+    printf '%s\n' "$lost"
+    apply="n"
+  fi
+  for s in $($DOCKER_COMPOSE_COMMAND config --services); do
+    if [[ "$(service_block "$s" < docker-compose.yml)" != "$(printf '%s\n' "$compose" | service_block "$s")" ]] \
+      || [[ "$s" == "netbird-server" && "$want_flow" == "yes" ]]; then
+      restarts+=" $s"
+    fi
+  done
   echo ""
-  if [[ "$(read_yes_no "Apply these changes and restart the affected services?" "y")" != "yes" ]]; then
+  if [[ -n "$restarts" ]]; then
+    echo "These services will restart:${restarts}"
+  fi
+  if [[ "$(read_yes_no "Apply these changes?" "$apply")" != "yes" ]]; then
     echo "Aborted."
     exit 0
   fi
 
   BACKUP_SUFFIX=".bak.$(date -u +%Y%m%d%H%M%S)"
-  for f in "${STACK_FILES[@]}" traefik-dynamic.yaml; do
+  for f in "${STACK_FILES[@]}" traefik/proxy.yaml; do
     if [[ -f "$f" ]]; then cp -p "$f" "$f$BACKUP_SUFFIX"; fi
   done
   trap rollback EXIT
@@ -596,8 +648,9 @@ enable_features() {
   if [[ "$want_flow" == "yes" ]] && ! grep -q '^  trafficFlow:' config.yaml; then
     render_config_flow >> config.yaml
   fi
+  mkdir -p traefik
   if [[ "$want_proxy" == "yes" ]]; then
-    render_traefik_dynamic > traefik-dynamic.yaml
+    render_traefik_proxy > traefik/proxy.yaml
   fi
 
   up_all_but_proxy
@@ -626,8 +679,9 @@ rollback() {
   local f
   echo "" > /dev/stderr
   echo "Enabling failed. Restoring the previous configuration ..." > /dev/stderr
+  revoke_proxy_token
   # Files without a backup were created by this run.
-  for f in "${STACK_FILES[@]}" traefik-dynamic.yaml; do
+  for f in "${STACK_FILES[@]}" traefik/proxy.yaml; do
     if [[ -f "$f$BACKUP_SUFFIX" ]]; then cp -p "$f$BACKUP_SUFFIX" "$f"; else rm -f "$f"; fi
   done
   $DOCKER_COMPOSE_COMMAND up -d --remove-orphans
@@ -734,7 +788,8 @@ render_docker_compose() {
     fi
     render_compose_postgres
     render_compose_footer
-  } | if [[ -n "${NETBIRD_LICENSE_SERVER_BASE_URL:-}" ]]; then cat; else sed '/NETBIRD_LICENSE_SERVER_BASE_URL/d'; fi
+  } | if [[ -n "${NETBIRD_LICENSE_SERVER_BASE_URL:-}" ]]; then cat; else sed '/NETBIRD_LICENSE_SERVER_BASE_URL/d'; fi \
+    | if [[ -n "$CUSTOM_TLS_CERTS" ]]; then sed -e '/certificatesresolvers/d' -e '/certresolver/d'; else cat; fi
 }
 
 render_compose_header() {
@@ -787,20 +842,18 @@ render_compose_common() {
       - "--certificatesresolvers.letsencrypt.acme.email=${NETBIRD_LETSENCRYPT_EMAIL}"
       - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
       - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
-EOF
-  if [[ "$NETBIRD_PROXY" == "yes" ]]; then
-    echo '      - "--providers.file.filename=/etc/traefik/dynamic.yaml"'
-  fi
-  cat <<'EOF'
+      # Dynamic config in ./traefik: the proxy transport and an optional custom certificate
+      - "--providers.file.directory=/etc/traefik/dynamic"
     ports:
       - '443:443'
       - '80:80'
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - netbird_traefik_letsencrypt:/letsencrypt
+      - ./traefik:/etc/traefik/dynamic:ro
 EOF
-  if [[ "$NETBIRD_PROXY" == "yes" ]]; then
-    echo '      - ./traefik-dynamic.yaml:/etc/traefik/dynamic.yaml:ro'
+  if [[ -n "$CUSTOM_TLS_CERTS" ]]; then
+    echo "      - ${CUSTOM_TLS_CERTS}:/certs:ro"
   fi
   cat <<'EOF'
     labels:
@@ -1163,7 +1216,7 @@ render_config_flow() {
 EOF
 }
 
-render_traefik_dynamic() {
+render_traefik_proxy() {
   cat <<'EOF'
 tcp:
   serversTransports:
