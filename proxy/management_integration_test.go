@@ -204,7 +204,7 @@ func (m *testAccessLogManager) GetAllAccessLogs(_ context.Context, _, _ string, 
 // testProxyManager is a mock implementation of proxy.Manager for testing.
 type testProxyManager struct{}
 
-func (m *testProxyManager) Connect(_ context.Context, proxyID, sessionID, _, _ string, _ *string, _ *nbproxy.Capabilities) (*nbproxy.Proxy, error) {
+func (m *testProxyManager) Connect(_ context.Context, proxyID, sessionID, _, _, _ string, _ *string, _ *nbproxy.Capabilities) (*nbproxy.Proxy, error) {
 	return &nbproxy.Proxy{ID: proxyID, SessionID: sessionID, Status: nbproxy.StatusConnected}, nil
 }
 
@@ -571,6 +571,7 @@ func TestIntegration_ProxyConnection_ReconnectDoesNotDuplicateState(t *testing.T
 					proxytypes.ServiceID(mapping.GetId()),
 					nil,
 					mapping.GetPrivate(),
+					mapping.GetAuth().GetAllowedGroupIds(),
 				)
 				require.NoError(t, err)
 

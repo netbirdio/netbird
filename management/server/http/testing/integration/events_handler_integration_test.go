@@ -3,6 +3,7 @@
 package integration
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/server/http/testing/testing_tools"
 	"github.com/netbirdio/netbird/management/server/http/testing/testing_tools/channel"
@@ -34,7 +36,7 @@ func Test_Events_GetAll(t *testing.T) {
 
 	for _, user := range users {
 		t.Run(user.name+" - Get all events", func(t *testing.T) {
-			apiHandler, _, _ := channel.BuildApiBlackBoxWithDBState(t, "../testdata/events.sql", nil, false)
+			apiHandler, accountManager, _ := channel.BuildApiBlackBoxWithDBState(t, "../testdata/events.sql", nil, false)
 
 			// First, perform a mutation to generate an event (create a group as admin)
 			groupBody, err := json.Marshal(&api.GroupRequest{Name: "eventTestGroup"})
@@ -44,7 +46,14 @@ func Test_Events_GetAll(t *testing.T) {
 			createReq := testing_tools.BuildRequest(t, groupBody, http.MethodPost, "/api/groups", testing_tools.TestAdminId)
 			createRecorder := httptest.NewRecorder()
 			apiHandler.ServeHTTP(createRecorder, createReq)
-			assert.Equal(t, http.StatusOK, createRecorder.Code, "Failed to create group to generate event")
+			require.Equal(t, http.StatusOK, createRecorder.Code, "Failed to create group to generate event")
+
+			// Group creation returns before its asynchronous audit write finishes.
+			require.EventuallyWithT(t, func(c *assert.CollectT) {
+				events, err := accountManager.GetEvents(context.Background(), testing_tools.TestAccountId, testing_tools.TestAdminId)
+				assert.NoError(c, err)
+				assert.NotEmpty(c, events, "wait for the group creation event before checking permissions")
+			}, time.Second, 10*time.Millisecond)
 
 			// Now query events
 			req := testing_tools.BuildRequest(t, []byte{}, http.MethodGet, "/api/events", user.userId)

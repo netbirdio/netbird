@@ -8,12 +8,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
 
 func TestSplitPeerSourcesByFamily(t *testing.T) {
-	peers := []*ComponentPeer{
+	peers := []*nmdata.Peer{
 		{
 			IP:   netip.MustParseAddr("100.64.0.1"),
 			IPv6: netip.MustParseAddr("fd00::1"),
@@ -35,7 +35,7 @@ func TestSplitPeerSourcesByFamily(t *testing.T) {
 }
 
 func TestGenerateRouteFirewallRules_V4Route(t *testing.T) {
-	peers := []*ComponentPeer{
+	peers := []*nmdata.Peer{
 		{
 			IP:   netip.MustParseAddr("100.64.0.1"),
 			IPv6: netip.MustParseAddr("fd00::1"),
@@ -45,15 +45,15 @@ func TestGenerateRouteFirewallRules_V4Route(t *testing.T) {
 		},
 	}
 
-	r := &route.Route{
+	r := &nmdata.Route{
 		ID:      "route1",
 		Network: netip.MustParsePrefix("10.0.0.0/24"),
 	}
-	rule := &PolicyRule{
+	rule := &nmdata.PolicyRule{
 		PolicyID: "policy1",
 		ID:       "rule1",
-		Action:   PolicyTrafficActionAccept,
-		Protocol: PolicyRuleProtocolALL,
+		Action:   string(PolicyTrafficActionAccept),
+		Protocol: string(PolicyRuleProtocolALL),
 	}
 
 	rules := GenerateRouteFirewallRules(context.Background(), r, rule, peers, FirewallRuleDirectionIN, true)
@@ -64,7 +64,7 @@ func TestGenerateRouteFirewallRules_V4Route(t *testing.T) {
 }
 
 func TestGenerateRouteFirewallRules_V6Route(t *testing.T) {
-	peers := []*ComponentPeer{
+	peers := []*nmdata.Peer{
 		{
 			IP:   netip.MustParseAddr("100.64.0.1"),
 			IPv6: netip.MustParseAddr("fd00::1"),
@@ -74,15 +74,15 @@ func TestGenerateRouteFirewallRules_V6Route(t *testing.T) {
 		},
 	}
 
-	r := &route.Route{
+	r := &nmdata.Route{
 		ID:      "route1",
 		Network: netip.MustParsePrefix("2001:db8::/32"),
 	}
-	rule := &PolicyRule{
+	rule := &nmdata.PolicyRule{
 		PolicyID: "policy1",
 		ID:       "rule1",
-		Action:   PolicyTrafficActionAccept,
-		Protocol: PolicyRuleProtocolALL,
+		Action:   string(PolicyTrafficActionAccept),
+		Protocol: string(PolicyRuleProtocolALL),
 	}
 
 	rules := GenerateRouteFirewallRules(context.Background(), r, rule, peers, FirewallRuleDirectionIN, true)
@@ -92,7 +92,7 @@ func TestGenerateRouteFirewallRules_V6Route(t *testing.T) {
 }
 
 func TestGenerateRouteFirewallRules_DynamicRoute_DualStack(t *testing.T) {
-	peers := []*ComponentPeer{
+	peers := []*nmdata.Peer{
 		{
 			IP:   netip.MustParseAddr("100.64.0.1"),
 			IPv6: netip.MustParseAddr("fd00::1"),
@@ -102,16 +102,16 @@ func TestGenerateRouteFirewallRules_DynamicRoute_DualStack(t *testing.T) {
 		},
 	}
 
-	r := &route.Route{
+	r := &nmdata.Route{
 		ID:          "route1",
-		NetworkType: route.DomainNetwork,
+		NetworkType: nmdata.NetworkTypeDomain,
 		Domains:     domain.List{"example.com"},
 	}
-	rule := &PolicyRule{
+	rule := &nmdata.PolicyRule{
 		PolicyID: "policy1",
 		ID:       "rule1",
-		Action:   PolicyTrafficActionAccept,
-		Protocol: PolicyRuleProtocolALL,
+		Action:   string(PolicyTrafficActionAccept),
+		Protocol: string(PolicyRuleProtocolALL),
 	}
 
 	rules := GenerateRouteFirewallRules(context.Background(), r, rule, peers, FirewallRuleDirectionIN, true)
@@ -125,21 +125,21 @@ func TestGenerateRouteFirewallRules_DynamicRoute_DualStack(t *testing.T) {
 }
 
 func TestGenerateRouteFirewallRules_DynamicRoute_NoV6Peers(t *testing.T) {
-	peers := []*ComponentPeer{
+	peers := []*nmdata.Peer{
 		{IP: netip.MustParseAddr("100.64.0.1")},
 		{IP: netip.MustParseAddr("100.64.0.2")},
 	}
 
-	r := &route.Route{
+	r := &nmdata.Route{
 		ID:          "route1",
-		NetworkType: route.DomainNetwork,
+		NetworkType: nmdata.NetworkTypeDomain,
 		Domains:     domain.List{"example.com"},
 	}
-	rule := &PolicyRule{
+	rule := &nmdata.PolicyRule{
 		PolicyID: "policy1",
 		ID:       "rule1",
-		Action:   PolicyTrafficActionAccept,
-		Protocol: PolicyRuleProtocolALL,
+		Action:   string(PolicyTrafficActionAccept),
+		Protocol: string(PolicyRuleProtocolALL),
 	}
 
 	rules := GenerateRouteFirewallRules(context.Background(), r, rule, peers, FirewallRuleDirectionIN, true)
@@ -149,7 +149,7 @@ func TestGenerateRouteFirewallRules_DynamicRoute_NoV6Peers(t *testing.T) {
 }
 
 func TestGenerateRouteFirewallRules_IncludeIPv6False(t *testing.T) {
-	peers := []*ComponentPeer{
+	peers := []*nmdata.Peer{
 		{
 			IP:   netip.MustParseAddr("100.64.0.1"),
 			IPv6: netip.MustParseAddr("fd00::1"),
@@ -161,15 +161,15 @@ func TestGenerateRouteFirewallRules_IncludeIPv6False(t *testing.T) {
 	}
 
 	t.Run("v6 route excluded", func(t *testing.T) {
-		r := &route.Route{
+		r := &nmdata.Route{
 			ID:      "route1",
 			Network: netip.MustParsePrefix("2001:db8::/32"),
 		}
-		rule := &PolicyRule{
+		rule := &nmdata.PolicyRule{
 			PolicyID: "policy1",
 			ID:       "rule1",
-			Action:   PolicyTrafficActionAccept,
-			Protocol: PolicyRuleProtocolALL,
+			Action:   string(PolicyTrafficActionAccept),
+			Protocol: string(PolicyRuleProtocolALL),
 		}
 
 		rules := GenerateRouteFirewallRules(context.Background(), r, rule, peers, FirewallRuleDirectionIN, false)
@@ -177,16 +177,16 @@ func TestGenerateRouteFirewallRules_IncludeIPv6False(t *testing.T) {
 	})
 
 	t.Run("dynamic route only v4", func(t *testing.T) {
-		r := &route.Route{
+		r := &nmdata.Route{
 			ID:          "route1",
-			NetworkType: route.DomainNetwork,
+			NetworkType: nmdata.NetworkTypeDomain,
 			Domains:     domain.List{"example.com"},
 		}
-		rule := &PolicyRule{
+		rule := &nmdata.PolicyRule{
 			PolicyID: "policy1",
 			ID:       "rule1",
-			Action:   PolicyTrafficActionAccept,
-			Protocol: PolicyRuleProtocolALL,
+			Action:   string(PolicyTrafficActionAccept),
+			Protocol: string(PolicyRuleProtocolALL),
 		}
 
 		rules := GenerateRouteFirewallRules(context.Background(), r, rule, peers, FirewallRuleDirectionIN, false)

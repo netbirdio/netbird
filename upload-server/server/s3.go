@@ -12,6 +12,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/management/server/http/middleware"
+
 	"github.com/netbirdio/netbird/upload-server/types"
 )
 
@@ -21,7 +23,7 @@ type sThree struct {
 	presignClient *s3.PresignClient
 }
 
-func configureS3Handlers(mux *http.ServeMux) error {
+func configureS3Handlers(mux *http.ServeMux, limiter *middleware.APIRateLimiter) error {
 	bucket := os.Getenv(bucketVar)
 	region, ok := os.LookupEnv("AWS_REGION")
 	if !ok {
@@ -40,7 +42,7 @@ func configureS3Handlers(mux *http.ServeMux) error {
 		bucket:        bucket,
 		presignClient: s3.NewPresignClient(client),
 	}
-	mux.HandleFunc(types.GetURLPath, handler.handlerGetUploadURL)
+	mux.Handle(types.GetURLPath, limiter.Middleware(http.HandlerFunc(handler.handlerGetUploadURL)))
 	return nil
 }
 
