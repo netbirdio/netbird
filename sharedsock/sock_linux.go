@@ -96,13 +96,18 @@ func Listen(port int, filter BPFFilter, mtu uint16) (_ net.PacketConn, err error
 	var sockErr error
 	rawSock.conn6, sockErr = socket.Socket(unix.AF_INET6, unix.SOCK_RAW, unix.IPPROTO_UDP, "raw_udp6", nil)
 	if sockErr != nil {
-		log.Errorf("Failed to create ipv6 raw socket: %v", err)
+		log.Errorf("Failed to create ipv6 raw socket: %v", sockErr)
 	} else {
 		if err = nbnet.SetSocketMark(rawSock.conn6); err != nil {
 			return nil, fmt.Errorf("set SO_MARK on ipv6 socket: %w", err)
 		}
-		if rawSock.probe6, err = newSrcProbe(unix.AF_INET6); err != nil {
-			return nil, err
+		rawSock.probe6, sockErr = newSrcProbe(unix.AF_INET6)
+		if sockErr != nil {
+			log.Errorf("Failed to create ipv6 source probe, continuing without ipv6: %v", sockErr)
+			if closeErr := rawSock.conn6.Close(); closeErr != nil {
+				log.Debugf("failed to close ipv6 raw socket: %v", closeErr)
+			}
+			rawSock.conn6 = nil
 		}
 	}
 
