@@ -21,3 +21,11 @@ func TestNewConn_IgnoresSqliteFileOverride(t *testing.T) {
 	_, err := os.Stat(override)
 	require.ErrorIs(t, err, os.ErrNotExist)
 }
+
+func TestNewConn_Parallel(t *testing.T) {
+	t.Parallel()
+
+	conn := NewConn(t)
+
+	assert.Equal(t, db.SqliteStoreEngine, conn.Engine())
+}

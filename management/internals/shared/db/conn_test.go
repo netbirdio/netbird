@@ -21,8 +21,7 @@ type testRow struct {
 
 func openTestConn(t *testing.T) *Conn {
 	t.Helper()
-	t.Setenv("NB_STORE_ENGINE_SQLITE_FILE", "")
-	conn, err := OpenSqlite(context.Background(), t.TempDir())
+	conn, err := OpenSqliteFile(context.Background(), t.TempDir(), SqliteFileName)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, conn.Close()) })
 	require.NoError(t, conn.AutoMigrate(&testRow{}))

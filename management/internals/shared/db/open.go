@@ -18,10 +18,8 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-const (
-	SqliteFileName = "store.db"
-	sqliteInMemory = ":memory:"
-)
+// SqliteFileName is the default SQLite database file inside the data directory.
+const SqliteFileName = "store.db"
 
 // PoolConfig sizes the pgx pool a Postgres deployment uses for the read paths
 // that bypass gorm.
@@ -54,12 +52,17 @@ func OpenSqlite(ctx context.Context, dataDir string) (*Conn, error) {
 	if envFile, ok := os.LookupEnv("NB_STORE_ENGINE_SQLITE_FILE"); ok && envFile != "" {
 		storeFile = envFile
 	}
+	return OpenSqliteFile(ctx, dataDir, storeFile)
+}
 
+// OpenSqliteFile opens the SQLite database storeFile, resolved against dataDir
+// when relative. storeFile may carry SQLite URI query parameters.
+func OpenSqliteFile(ctx context.Context, dataDir, storeFile string) (*Conn, error) {
 	// Separate file path from any SQLite URI query parameters (e.g., "store.db?mode=rwc")
 	filePath, query, hasQuery := strings.Cut(storeFile, "?")
 
 	connStr := filePath
-	if filePath != sqliteInMemory && !filepath.IsAbs(filePath) {
+	if !filepath.IsAbs(filePath) {
 		connStr = filepath.Join(dataDir, filePath)
 	}
 
