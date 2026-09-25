@@ -7,6 +7,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	"github.com/netbirdio/netbird/management/internals/shared/db"
@@ -23,7 +24,7 @@ func NewRepository(conn *db.Conn) accesslogs.Repository {
 }
 
 func (r *sqlRepository) Create(ctx context.Context, tx *db.Tx, entry *accesslogs.AccessLogEntry) error {
-	if err := r.conn.DB(tx).WithContext(ctx).Create(entry).Error; err != nil {
+	if err := r.conn.DB(tx).Create(entry).Error; err != nil {
 		log.WithContext(ctx).WithFields(log.Fields{
 			"service_id": entry.ServiceID,
 			"method":     entry.Method,
@@ -38,7 +39,7 @@ func (r *sqlRepository) Create(ctx context.Context, tx *db.Tx, entry *accesslogs
 // ListByAccount returns one page of an account's access logs together with the
 // total number of entries matching the filter.
 func (r *sqlRepository) ListByAccount(ctx context.Context, tx *db.Tx, lockStrength db.LockingStrength, accountID string, filter accesslogs.AccessLogFilter) ([]*accesslogs.AccessLogEntry, int64, error) {
-	handle := r.conn.DB(tx).WithContext(ctx)
+	handle := r.conn.DB(tx)
 
 	var totalCount int64
 	countQuery := applyFilters(handle.Model(&accesslogs.AccessLogEntry{}).Where("account_id = ?", accountID), filter)
@@ -54,7 +55,10 @@ func (r *sqlRepository) ListByAccount(ctx context.Context, tx *db.Tx, lockStreng
 			query = query.Order(column + " " + sortOrder)
 		}
 	}
-	query = db.WithLock(query.Limit(filter.GetLimit()).Offset(filter.GetOffset()), lockStrength)
+	query = query.Limit(filter.GetLimit()).Offset(filter.GetOffset())
+	if lockStrength != db.LockingStrengthNone {
+		query = query.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
 
 	var logs []*accesslogs.AccessLogEntry
 	if err := query.Find(&logs).Error; err != nil {
@@ -66,7 +70,7 @@ func (r *sqlRepository) ListByAccount(ctx context.Context, tx *db.Tx, lockStreng
 }
 
 func (r *sqlRepository) DeleteOlderThan(ctx context.Context, tx *db.Tx, olderThan time.Time) (int64, error) {
-	result := r.conn.DB(tx).WithContext(ctx).Where("timestamp < ?", olderThan).Delete(&accesslogs.AccessLogEntry{})
+	result := r.conn.DB(tx).Where("timestamp < ?", olderThan).Delete(&accesslogs.AccessLogEntry{})
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to delete old access logs: %v", result.Error)
 		return 0, status.Errorf(status.Internal, "failed to delete old access logs")
