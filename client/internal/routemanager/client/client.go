@@ -63,6 +63,7 @@ type WatcherConfig struct {
 	StatusRecorder   *peer.Status
 	Route            *route.Route
 	Handler          RouteHandler
+	DNSServer        nbdns.Server
 }
 
 // Watcher watches route and peer changes and updates allowed IPs accordingly.
@@ -81,6 +82,10 @@ type Watcher struct {
 	currentChosenStatus *routerPeerStatus
 	handler             RouteHandler
 	updateSerial        uint64
+	// dnsServer is notified when this watcher installs or removes allowed
+	// IPs, because that changes which upstream nameservers are reachable.
+	// Nil on the paths that build a watcher without one.
+	dnsServer nbdns.Server
 }
 
 func NewWatcher(config WatcherConfig) *Watcher {
@@ -97,6 +102,7 @@ func NewWatcher(config WatcherConfig) *Watcher {
 		peerStateUpdate:     make(chan map[string]peer.RouterState),
 		handler:             config.Handler,
 		currentChosenStatus: nil,
+		dnsServer:           config.DNSServer,
 	}
 	return client
 }
@@ -298,8 +304,22 @@ func (w *Watcher) addAllowedIPs(route *route.Route) error {
 		log.Warnf("Failed to update peer state: %v", err)
 	}
 
+	log.Infof("Installed allowed IPs of route %s for network [%v] on peer %s", route.ID, w.handler, route.Peer)
+	w.notifyDNSServer()
+
 	w.connectEvent(route)
 	return nil
+}
+
+// notifyDNSServer tells the DNS server that the installed routes changed, so
+// it can re-decide which upstream nameservers it has a route to. The call is
+// non-blocking by contract: this runs with the route manager's lock held on
+// some paths, and the DNS server reaches back into it.
+func (w *Watcher) notifyDNSServer() {
+	if w.dnsServer == nil {
+		return
+	}
+	w.dnsServer.OnInstalledRoutesChanged()
 }
 
 func (w *Watcher) removeAllowedIPs(route *route.Route, rsn reason) error {
@@ -310,6 +330,9 @@ func (w *Watcher) removeAllowedIPs(route *route.Route, rsn reason) error {
 	if err := w.handler.RemoveAllowedIPs(); err != nil {
 		return fmt.Errorf("remove allowed IPs: %w", err)
 	}
+
+	log.Infof("Removed allowed IPs of route %s for network [%v] from peer %s", route.ID, w.handler, route.Peer)
+	w.notifyDNSServer()
 
 	w.disconnectEvent(route, rsn)
 

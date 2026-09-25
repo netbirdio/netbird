@@ -1313,7 +1313,7 @@ func TestExtraDomains(t *testing.T) {
 
 			// Apply initial configuration
 			if tt.initialConfig.ServiceEnable {
-				err := server.applyConfiguration(tt.initialConfig)
+				err := server.applyConfiguration(tt.initialConfig, nil)
 				assert.NoError(t, err)
 			}
 
@@ -1329,7 +1329,7 @@ func TestExtraDomains(t *testing.T) {
 
 			// Apply final configuration if specified
 			if tt.finalConfig.ServiceEnable {
-				err := server.applyConfiguration(tt.finalConfig)
+				err := server.applyConfiguration(tt.finalConfig, nil)
 				assert.NoError(t, err)
 			}
 
@@ -1456,7 +1456,7 @@ func TestUpdateConfigWithExistingExtraDomains(t *testing.T) {
 			{Domain: "config.example.com"},
 		},
 	}
-	err := server.applyConfiguration(initialConfig)
+	err := server.applyConfiguration(initialConfig, nil)
 	assert.NoError(t, err)
 
 	var domains []string
@@ -1474,7 +1474,7 @@ func TestUpdateConfigWithExistingExtraDomains(t *testing.T) {
 			{Domain: "extra.example.com"},
 		},
 	}
-	err = server.applyConfiguration(updatedConfig)
+	err = server.applyConfiguration(updatedConfig, nil)
 	assert.NoError(t, err)
 
 	// Verify both domains are in config, but no duplicates
@@ -1542,7 +1542,7 @@ func TestDomainCaseHandling(t *testing.T) {
 			{Domain: "config.example.com"},
 		},
 	}
-	err := server.applyConfiguration(config)
+	err := server.applyConfiguration(config, nil)
 	assert.NoError(t, err)
 
 	var domains []string
@@ -1596,7 +1596,7 @@ func TestLocalResolverPriorityInServer(t *testing.T) {
 	localMuxUpdates, _, err := server.buildLocalHandlerUpdate(config.CustomZones)
 	assert.NoError(t, err)
 
-	upstreamMuxUpdates, err := server.buildUpstreamHandlerUpdate(config.NameServerGroups)
+	upstreamMuxUpdates, err := server.buildUpstreamHandlerUpdate(config.NameServerGroups, nil)
 	assert.NoError(t, err)
 
 	// Verify that local handler has higher priority than upstream for same domain
@@ -1692,7 +1692,7 @@ func TestBuildUpstreamHandler_MergesGroupsPerDomain(t *testing.T) {
 		},
 	}
 
-	muxUpdates, err := server.buildUpstreamHandlerUpdate(groups)
+	muxUpdates, err := server.buildUpstreamHandlerUpdate(groups, nil)
 	require.NoError(t, err)
 	require.Len(t, muxUpdates, 1, "same-domain groups should merge into one handler")
 	assert.Equal(t, "example.com", muxUpdates[0].domain)
@@ -2365,7 +2365,7 @@ func TestDNSLoopPrevention(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			muxUpdates, err := server.buildUpstreamHandlerUpdate(tt.nsGroups)
+			muxUpdates, err := server.buildUpstreamHandlerUpdate(tt.nsGroups, nil)
 			assert.NoError(t, err)
 			assert.Len(t, muxUpdates, tt.expectedHandlers)
 

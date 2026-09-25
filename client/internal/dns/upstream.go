@@ -886,3 +886,32 @@ func haMapContains(hm route.HAMap, ip netip.Addr) (matched, haveDynamic bool) {
 	}
 	return false, haveDynamic
 }
+
+// haMapLongestMatch returns the most specific concrete prefix in hm that covers
+// ip, which is the one that would actually carry traffic to it — the same
+// longest-prefix rule the kernel applies. ok is false when nothing covers ip.
+//
+// "Is ip in this map at all" is not enough for a caller that wants to know
+// whether a particular route is up: a default route covers every address, so a
+// plain containment check cannot tell "reached through the exit node" from
+// "the specific route this address needed is gone and the default route is
+// swallowing it".
+//
+// Dynamic routes are skipped for the same reason as in haMapContains: their
+// Network is a placeholder, so they can be neither matched nor ranked.
+func haMapLongestMatch(hm route.HAMap, ip netip.Addr) (netip.Prefix, bool) {
+	var best netip.Prefix
+	found := false
+	for _, routes := range hm {
+		for _, r := range routes {
+			if r.IsDynamic() || !r.Network.Contains(ip) {
+				continue
+			}
+			if !found || r.Network.Bits() > best.Bits() {
+				best = r.Network
+				found = true
+			}
+		}
+	}
+	return best, found
+}
