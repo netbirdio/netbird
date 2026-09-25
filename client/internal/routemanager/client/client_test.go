@@ -1033,6 +1033,22 @@ func TestLatencySwitchDwellTime(t *testing.T) {
 // the smoothed latencies of two equivalent peers keep drifting apart by tens of
 // milliseconds, and that difference must not move the route even though it
 // clears the fixed margins.
+// Measurements on slow paths must keep their order: a peer measured at 1.2s is
+// better than one at 2.5s, and a peer without a sample still ranks below both.
+func TestSlowPathLatenciesKeepTheirOrder(t *testing.T) {
+	w := newTestWatcher(t, time.Time{})
+
+	chosen, _ := w.getBestRouteFromStatuses(map[route.ID]routerPeerStatus{
+		"route1": {status: peer.StatusConnected, latency: 2500 * time.Millisecond},
+		"route2": {status: peer.StatusConnected, latency: 1200 * time.Millisecond},
+	})
+	assert.Equal(t, route.ID("route2"), chosen, "a 1.3s gain on a 2.5s path must move the route")
+
+	unsampled := newRouteCandidate(w.routes["route1"], routerPeerStatus{status: peer.StatusConnected})
+	slow := newRouteCandidate(w.routes["route2"], routerPeerStatus{status: peer.StatusConnected, latency: 5 * time.Second})
+	assert.True(t, slow.betterThan(unsampled), "a measured peer must rank above one without a sample")
+}
+
 func TestLatencySwitchNoiseMargin(t *testing.T) {
 	t.Run("a gain within the measurement noise does not switch", func(t *testing.T) {
 		w := newTestWatcher(t, time.Time{})

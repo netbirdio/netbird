@@ -61,8 +61,9 @@ const (
 
 	// unknownLatency ranks peers without a latency sample below any peer with a
 	// real measurement, without excluding them from selection. It doubles as the
-	// upper bound for samples, so a pathological value cannot dominate.
-	unknownLatency = 999 * time.Millisecond
+	// upper bound for samples, so a pathological value cannot dominate, and sits
+	// well above any usable path so that slow paths keep their order.
+	unknownLatency = 10 * time.Second
 
 	// holdReportInterval is how long a routing peer held back by a switch rule
 	// is reported at debug level only, after being reported at info level once.
