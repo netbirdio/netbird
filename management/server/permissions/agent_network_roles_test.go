@@ -62,6 +62,49 @@ func TestAgentNetworkAdminRole(t *testing.T) {
 	}
 }
 
+// TestAgentNetworkViewerRole pins the read-only Agent Network role: read on
+// every agent_network submodule (the parent grant cascades), including the
+// request-level logs, read-only on the account objects the dashboard needs,
+// and no write anywhere.
+func TestAgentNetworkViewerRole(t *testing.T) {
+	manager := NewManager(nil)
+	ctx := context.Background()
+
+	role, ok := roles.RolesMap[types.UserRoleAgentNetworkViewer]
+	require.True(t, ok, "agent_network_viewer must exist in RolesMap")
+
+	readOnly := []modules.Module{
+		modules.AgentNetwork,
+		modules.AgentNetworkProviders,
+		modules.AgentNetworkPolicies,
+		modules.AgentNetworkGuardrails,
+		modules.AgentNetworkBudgets,
+		modules.AgentNetworkUsage,
+		modules.AgentNetworkLogs,
+		modules.AgentNetworkSettings,
+		modules.Users,
+		modules.Groups,
+		modules.Peers,
+		modules.Accounts,
+		modules.Settings,
+	}
+	for _, m := range readOnly {
+		assert.True(t, manager.ValidateRoleModuleAccess(ctx, "account", role, m, operations.Read),
+			"agent_network_viewer must read %s", m)
+		for _, op := range []operations.Operation{operations.Create, operations.Update, operations.Delete} {
+			assert.False(t, manager.ValidateRoleModuleAccess(ctx, "account", role, m, op),
+				"agent_network_viewer must not have %s on %s", op, m)
+		}
+	}
+
+	for _, m := range []modules.Module{modules.Networks, modules.Dns, modules.SetupKeys, modules.Routes, modules.Policies} {
+		for _, op := range allOps {
+			assert.False(t, manager.ValidateRoleModuleAccess(ctx, "account", role, m, op),
+				"agent_network_viewer must not have %s on %s", op, m)
+		}
+	}
+}
+
 // TestUsageViewerRole pins the least-privilege cost role: read on the
 // aggregated usage overview plus read-only on the resources its filters
 // and display columns resolve against (users, groups, peers, the provider
@@ -135,6 +178,7 @@ func TestBillingAdminRoleResolves(t *testing.T) {
 // released.
 func TestNewRolesParse(t *testing.T) {
 	assert.Equal(t, types.UserRoleAgentNetworkAdmin, types.StrRoleToUserRole("agent_network_admin"))
+	assert.Equal(t, types.UserRoleAgentNetworkViewer, types.StrRoleToUserRole("agent_network_viewer"))
 	assert.Equal(t, types.UserRoleUsageViewer, types.StrRoleToUserRole("usage_viewer"))
 	assert.Equal(t, types.UserRoleBillingAdmin, types.StrRoleToUserRole("billing_admin"))
 }
