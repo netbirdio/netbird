@@ -16,20 +16,20 @@ import (
 
 type sqlRepository struct {
 	conn *db.Conn
-	tx   *db.Tx
+	db   *gorm.DB
 }
 
 // NewRepository returns the access log repository backed by conn.
 func NewRepository(conn *db.Conn) accesslogs.Repository {
-	return &sqlRepository{conn: conn}
+	return &sqlRepository{conn: conn, db: conn.DB(nil)}
 }
 
 func (r *sqlRepository) WithTx(tx *db.Tx) accesslogs.Repository {
-	return &sqlRepository{conn: r.conn, tx: tx}
+	return &sqlRepository{conn: r.conn, db: r.conn.DB(tx)}
 }
 
 func (r *sqlRepository) Create(ctx context.Context, entry *accesslogs.AccessLogEntry) error {
-	if err := r.conn.DB(r.tx).Create(entry).Error; err != nil {
+	if err := r.db.Create(entry).Error; err != nil {
 		log.WithContext(ctx).WithFields(log.Fields{
 			"service_id": entry.ServiceID,
 			"method":     entry.Method,
@@ -44,16 +44,14 @@ func (r *sqlRepository) Create(ctx context.Context, entry *accesslogs.AccessLogE
 // ListByAccount returns one page of an account's access logs together with the
 // total number of entries matching the filter.
 func (r *sqlRepository) ListByAccount(ctx context.Context, lockStrength db.LockingStrength, accountID string, filter accesslogs.AccessLogFilter) ([]*accesslogs.AccessLogEntry, int64, error) {
-	handle := r.conn.DB(r.tx)
-
 	var totalCount int64
-	countQuery := applyFilters(handle.Model(&accesslogs.AccessLogEntry{}).Where("account_id = ?", accountID), filter)
+	countQuery := applyFilters(r.db.Model(&accesslogs.AccessLogEntry{}).Where("account_id = ?", accountID), filter)
 	if err := countQuery.Count(&totalCount).Error; err != nil {
 		log.WithContext(ctx).Errorf("failed to count access logs: %v", err)
 		return nil, 0, status.Errorf(status.Internal, "failed to count access logs")
 	}
 
-	query := applyFilters(handle.Where("account_id = ?", accountID), filter)
+	query := applyFilters(r.db.Where("account_id = ?", accountID), filter)
 	sortOrder := strings.ToUpper(filter.GetSortOrder())
 	for _, column := range strings.Split(filter.GetSortColumn(), ",") {
 		if column = strings.TrimSpace(column); column != "" {
@@ -75,7 +73,7 @@ func (r *sqlRepository) ListByAccount(ctx context.Context, lockStrength db.Locki
 }
 
 func (r *sqlRepository) DeleteOlderThan(ctx context.Context, olderThan time.Time) (int64, error) {
-	result := r.conn.DB(r.tx).Where("timestamp < ?", olderThan).Delete(&accesslogs.AccessLogEntry{})
+	result := r.db.Where("timestamp < ?", olderThan).Delete(&accesslogs.AccessLogEntry{})
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to delete old access logs: %v", result.Error)
 		return 0, status.Errorf(status.Internal, "failed to delete old access logs")
