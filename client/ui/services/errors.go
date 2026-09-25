@@ -112,6 +112,8 @@ func (c errorClassifier) classify(err error) *ClientError {
 
 	code := "unknown"
 	switch {
+	case grpcCode == gcodes.Unavailable && isSocketDenial(lower):
+		code = "daemon_access_denied"
 	case strings.Contains(lower, "token used before issued"),
 		strings.Contains(lower, "token is not valid yet"):
 		code = "jwt_clock_skew"
@@ -150,6 +152,13 @@ func (c errorClassifier) classify(err error) *ClientError {
 		Short: c.translateShort(code),
 		Long:  msg,
 	}
+}
+
+// isSocketDenial reports whether a lowercased Unavailable message carries an OS
+// access denial on the daemon socket or pipe. Matches English Windows text only.
+func isSocketDenial(lower string) bool {
+	return strings.Contains(lower, "connect: permission denied") ||
+		strings.Contains(lower, "access is denied")
 }
 
 // classifyDenial presents a refusal the daemon explained: a localised headline

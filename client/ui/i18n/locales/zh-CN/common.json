@@ -1407,5 +1407,17 @@
     },
     "error.profile_unowned": {
         "message": "此配置文件尚未设置所有者。"
+    },
+    "tray.status.daemonAccessDenied": {
+        "message": "无访问权限"
+    },
+    "daemon.accessDenied.title": {
+        "message": "无权访问 NetBird 服务"
+    },
+    "daemon.accessDenied.description": {
+        "message": "管理员已将此设备上的 NetBird 服务限制为指定的用户或组，而您的帐户不在其中。请联系管理员获取访问权限。"
+    },
+    "error.daemon_access_denied": {
+        "message": "您的帐户无权在此设备上使用 NetBird 服务。请联系管理员获取访问权限。"
     }
 }

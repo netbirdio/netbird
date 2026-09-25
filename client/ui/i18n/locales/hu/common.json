@@ -1407,5 +1407,17 @@
     },
     "error.profile_unowned": {
         "message": "Ennek a profilnak még nincs tulajdonosa."
+    },
+    "tray.status.daemonAccessDenied": {
+        "message": "Nincs hozzáférés"
+    },
+    "daemon.accessDenied.title": {
+        "message": "Nincs hozzáférés a NetBird szolgáltatáshoz"
+    },
+    "daemon.accessDenied.description": {
+        "message": "A rendszergazda ezen az eszközön kiválasztott felhasználókra vagy csoportokra korlátozta a NetBird szolgáltatást, és az Ön fiókja nincs köztük. A hozzáférésért forduljon a rendszergazdához."
+    },
+    "error.daemon_access_denied": {
+        "message": "Az Ön fiókja nem használhatja a NetBird szolgáltatást ezen az eszközön. A hozzáférésért forduljon a rendszergazdához."
     }
 }

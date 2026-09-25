@@ -819,7 +819,7 @@ func (s *WindowManager) watchTriggerLogin() {
 			return
 		}
 		switch st.Status {
-		case StatusConnected, StatusLoginFailed, StatusDaemonUnavailable:
+		case StatusConnected, StatusLoginFailed, StatusDaemonUnavailable, StatusDaemonAccessDenied:
 			s.scheduleHeadlessTeardown()
 		}
 	})
