@@ -74,7 +74,7 @@ func listenOnAddress(addr string, allowed []string) (*socketListener, error) {
 func parseListenAddress(addr string) (string, string, error) {
 	network, address, ok := strings.Cut(addr, "://")
 	if !ok || network == "" || address == "" {
-		return "", "", fmt.Errorf("address must be in [unix|tcp|npipe]://[path|host:port|name] format: %q", addr)
+		return "", "", fmt.Errorf("address must be in [unix|npipe]://[path|name] format, or the deprecated tcp://host:port: %q", addr)
 	}
 
 	switch network {
