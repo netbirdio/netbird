@@ -273,6 +273,10 @@ func (am *DefaultAccountManager) UpdateUserPassword(ctx context.Context, account
 		return status.Errorf(status.InvalidArgument, "new password is required")
 	}
 
+	if err := validatePassword(newPassword); err != nil {
+		return status.Errorf(status.InvalidArgument, "invalid password: %v", err)
+	}
+
 	embeddedIdp, ok := am.idpManager.(*idp.EmbeddedIdPManager)
 	if !ok {
 		return status.Errorf(status.Internal, "failed to get embedded IdP manager")
@@ -1975,19 +1979,28 @@ func (am *DefaultAccountManager) DeleteUserInvite(ctx context.Context, accountID
 
 const minPasswordLength = 8
 
+// maxPasswordLength is bcrypt's maximum input size in bytes. Longer passwords
+// are rejected here so callers fail validation instead of failing later during
+// hashing. The limit is on bytes, not characters, which is what len reports.
+const maxPasswordLength = 72
+
 // validatePassword checks password strength requirements.
 func validatePassword(password string) error {
 	return ValidatePassword(password)
 }
 
 // ValidatePassword checks password strength requirements:
-// - Minimum 8 characters
+// - At least 8 characters, and at most 72 bytes (bcrypt's input limit)
 // - At least 1 digit
 // - At least 1 uppercase letter
 // - At least 1 special character
 func ValidatePassword(password string) error {
 	if len(password) < minPasswordLength {
 		return errors.New("password must be at least 8 characters long")
+	}
+
+	if len(password) > maxPasswordLength {
+		return errors.New("password must be at most 72 bytes long")
 	}
 
 	var hasDigit, hasUpper, hasSpecial bool
