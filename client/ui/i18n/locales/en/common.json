@@ -11,6 +11,10 @@
         "message": "Not running",
         "description": "Tray status: the background NetBird service (daemon) is not running."
     },
+    "tray.status.daemonAccessDenied": {
+        "message": "No access",
+        "description": "Tray status: the NetBird background service is running, but this user account is not allowed to use it. Keep short."
+    },
     "tray.status.error": {
         "message": "Error",
         "description": "Tray status: the client is in an error state."
@@ -1775,6 +1779,14 @@
         "message": "Documentation",
         "description": "Documentation link on the daemon-unavailable overlay."
     },
+    "daemon.accessDenied.title": {
+        "message": "No Access to the NetBird Service",
+        "description": "Title of the overlay shown when the NetBird background service is running but refuses this user account."
+    },
+    "daemon.accessDenied.description": {
+        "message": "Your administrator has restricted the NetBird service on this device to selected users or groups, and your account is not one of them. Contact your administrator for access.",
+        "description": "Body of the access-denied overlay: the service is limited to certain accounts by an administrator and this one is not allowed."
+    },
     "daemon.outdated.title": {
         "message": "NetBird Client Is Outdated",
         "description": "Title of the overlay shown when the NetBird client (daemon) is too old to drive this UI."
@@ -1814,6 +1826,10 @@
     "error.daemon_unreachable": {
         "message": "The NetBird daemon is not responding. Please check that the service is running.",
         "description": "Error: the NetBird background service isn't responding. 'daemon' = the background service."
+    },
+    "error.daemon_access_denied": {
+        "message": "Your account is not allowed to use the NetBird service on this device. Contact your administrator for access.",
+        "description": "Error: the NetBird background service refused this user account because an administrator restricted it to other users or groups."
     },
     "error.unknown": {
         "message": "Operation failed.",

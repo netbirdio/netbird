@@ -1407,5 +1407,17 @@
     },
     "error.profile_unowned": {
         "message": "Este perfil aún no tiene propietario."
+    },
+    "tray.status.daemonAccessDenied": {
+        "message": "Sin acceso"
+    },
+    "daemon.accessDenied.title": {
+        "message": "Sin acceso al servicio NetBird"
+    },
+    "daemon.accessDenied.description": {
+        "message": "Su administrador ha restringido el servicio NetBird en este dispositivo a determinados usuarios o grupos, y su cuenta no es uno de ellos. Póngase en contacto con su administrador para obtener acceso."
+    },
+    "error.daemon_access_denied": {
+        "message": "Su cuenta no tiene permiso para usar el servicio NetBird en este dispositivo. Póngase en contacto con su administrador para obtener acceso."
     }
 }

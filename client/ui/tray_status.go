@@ -90,7 +90,7 @@ func (t *Tray) consumePendingConnectLogin(status string) bool {
 		strings.EqualFold(status, services.StatusIdle),
 		strings.EqualFold(status, services.StatusLoginFailed),
 		strings.EqualFold(status, services.StatusSessionExpired),
-		strings.EqualFold(status, services.StatusDaemonUnavailable):
+		services.IsDaemonOutage(status):
 		t.pendingConnectLogin = false
 	}
 	return false
@@ -118,7 +118,7 @@ func statusIndicatorBitmap(status string) []byte {
 	case strings.EqualFold(status, services.StatusLoginFailed),
 		strings.EqualFold(status, statusError):
 		return iconMenuDotError
-	case strings.EqualFold(status, services.StatusDaemonUnavailable):
+	case services.IsDaemonOutage(status):
 		return iconMenuDotOffline
 	default:
 		return iconMenuDotIdle

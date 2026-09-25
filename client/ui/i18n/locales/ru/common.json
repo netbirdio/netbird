@@ -1407,5 +1407,17 @@
     },
     "error.profile_unowned": {
         "message": "У этого профиля пока нет владельца."
+    },
+    "tray.status.daemonAccessDenied": {
+        "message": "Нет доступа"
+    },
+    "daemon.accessDenied.title": {
+        "message": "Нет доступа к службе NetBird"
+    },
+    "daemon.accessDenied.description": {
+        "message": "Администратор ограничил доступ к службе NetBird на этом устройстве выбранными пользователями или группами, и ваша учётная запись в их число не входит. Обратитесь к администратору за доступом."
+    },
+    "error.daemon_access_denied": {
+        "message": "Вашей учётной записи не разрешено использовать службу NetBird на этом устройстве. Обратитесь к администратору за доступом."
     }
 }

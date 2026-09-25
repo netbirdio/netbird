@@ -37,6 +37,9 @@ const (
 	// StatusDaemonUnavailable is the synthetic Status emitted when the daemon's
 	// gRPC socket is unreachable. No internal.Status* collides with this label.
 	StatusDaemonUnavailable = "DaemonUnavailable"
+	// StatusDaemonAccessDenied is the synthetic Status emitted when the daemon
+	// socket refuses this user.
+	StatusDaemonAccessDenied = "DaemonAccessDenied"
 
 	// Daemon connection status strings — mirror internal.Status* in
 	// client/internal/state.go.
@@ -245,20 +248,21 @@ func (s *DaemonFeed) ServiceShutdown() error {
 }
 
 // Get returns the current daemon status snapshot. An unreachable daemon socket
-// yields Status{Status: StatusDaemonUnavailable} rather than an error, so the
-// frontend keys off a single status enum without a parallel "error" path.
+// yields a synthetic StatusDaemonUnavailable or StatusDaemonAccessDenied rather
+// than an error, so the frontend keys off a single status enum without a
+// parallel "error" path.
 func (s *DaemonFeed) Get(ctx context.Context) (Status, error) {
 	cli, err := s.conn.Client()
 	if err != nil {
 		if isDaemonUnreachable(err) {
-			return Status{Status: StatusDaemonUnavailable}, nil
+			return Status{Status: s.unreachableStatus(ctx)}, nil
 		}
 		return Status{}, err
 	}
 	resp, err := cli.Status(ctx, &proto.StatusRequest{GetFullPeerStatus: true})
 	if err != nil {
 		if isDaemonUnreachable(err) {
-			return Status{Status: StatusDaemonUnavailable}, nil
+			return Status{Status: s.unreachableStatus(ctx)}, nil
 		}
 		return Status{}, err
 	}
@@ -291,7 +295,7 @@ func (s *DaemonFeed) consumeForSwitch(st Status) (suppress, triggerLogin bool) {
 			strings.EqualFold(st.Status, StatusNeedsLogin),
 			strings.EqualFold(st.Status, StatusLoginFailed),
 			strings.EqualFold(st.Status, StatusSessionExpired),
-			strings.EqualFold(st.Status, StatusDaemonUnavailable):
+			IsDaemonOutage(st.Status):
 			// New flow has begun (Up started, or daemon refused it).
 			s.switchInProgress = false
 		default:
@@ -311,7 +315,7 @@ func (s *DaemonFeed) consumeForSwitch(st Status) (suppress, triggerLogin bool) {
 			return false, true
 		case strings.EqualFold(st.Status, StatusConnected),
 			strings.EqualFold(st.Status, StatusIdle),
-			strings.EqualFold(st.Status, StatusDaemonUnavailable):
+			IsDaemonOutage(st.Status):
 			// Terminal but not SSO — disarm without triggering.
 			s.switchLoginWatch = false
 		}
@@ -336,18 +340,19 @@ func (s *DaemonFeed) statusStreamLoop(ctx context.Context) {
 		Clock:               backoff.SystemClock,
 	}, ctx)
 
-	// unavailable fires the synthetic event once per outage, not on every retry.
-	unavailable := false
+	// outage is the synthetic status last emitted, reset once the stream recovers.
+	outage := ""
 	emitUnavailable := func() {
-		if unavailable {
+		st := s.unreachableStatus(ctx)
+		if st == outage {
 			return
 		}
-		unavailable = true
-		s.emitter.Emit(EventStatusSnapshot, Status{Status: StatusDaemonUnavailable})
+		outage = st
+		s.emitter.Emit(EventStatusSnapshot, Status{Status: st})
 	}
 
 	op := func() error {
-		return s.subscribeAndStreamStatus(ctx, &unavailable, emitUnavailable)
+		return s.subscribeAndStreamStatus(ctx, &outage, emitUnavailable)
 	}
 
 	if err := backoff.Retry(op, bo); err != nil && ctx.Err() == nil {
@@ -358,7 +363,7 @@ func (s *DaemonFeed) statusStreamLoop(ctx context.Context) {
 // subscribeAndStreamStatus is one attempt of the status backoff loop: open
 // SubscribeStatus and re-emit every snapshot until it errors. A daemon-
 // unreachable failure also flips the synthetic-unavailable signal.
-func (s *DaemonFeed) subscribeAndStreamStatus(ctx context.Context, unavailable *bool, emitUnavailable func()) error {
+func (s *DaemonFeed) subscribeAndStreamStatus(ctx context.Context, outage *string, emitUnavailable func()) error {
 	cli, err := s.conn.Client()
 	if err != nil {
 		emitUnavailable()
@@ -376,7 +381,7 @@ func (s *DaemonFeed) subscribeAndStreamStatus(ctx context.Context, unavailable *
 		if err != nil {
 			return s.handleStatusRecvErr(ctx, err, emitUnavailable)
 		}
-		*unavailable = false
+		*outage = ""
 		s.emitStatus(statusFromProto(resp))
 	}
 }
@@ -572,6 +577,21 @@ func systemEventFromProto(e *proto.SystemEvent) SystemEvent {
 		out.Metadata[k] = v
 	}
 	return out
+}
+
+// IsDaemonOutage reports whether status is a synthetic unreachable status.
+func IsDaemonOutage(status string) bool {
+	return strings.EqualFold(status, StatusDaemonUnavailable) ||
+		strings.EqualFold(status, StatusDaemonAccessDenied)
+}
+
+// unreachableStatus returns StatusDaemonAccessDenied when the daemon socket
+// refuses this user, and StatusDaemonUnavailable otherwise.
+func (s *DaemonFeed) unreachableStatus(ctx context.Context) string {
+	if p, ok := s.conn.(AccessProber); ok && p.DeniesCaller(ctx) {
+		return StatusDaemonAccessDenied
+	}
+	return StatusDaemonUnavailable
 }
 
 // isDaemonUnreachable reports whether a gRPC error means the daemon socket isn't
