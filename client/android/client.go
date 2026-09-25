@@ -475,7 +475,7 @@ func (c *Client) Networks() *NetworkArray {
 	routesMap := routeManager.GetClientRoutesWithNetID()
 	v6Merged := route.V6ExitMergeSet(routesMap)
 	resolvedDomains := c.recorder.GetResolvedDomainsStates()
-	owners := routeOwners(c.recorder.GetPeerStates())
+	activeRoutePeers := c.recorder.GetActiveRoutePeers()
 
 	networkArray := &NetworkArray{
 		items: make([]Network, 0),
@@ -489,7 +489,7 @@ func (c *Client) Networks() *NetworkArray {
 			continue
 		}
 
-		network := c.buildNetwork(id, routes, routeSelector.IsSelected(id), resolvedDomains, v6Merged, owners)
+		network := c.buildNetwork(id, routes, routeSelector.IsSelected(id), resolvedDomains, v6Merged, activeRoutePeers)
 		if network == nil {
 			continue
 		}
@@ -498,14 +498,14 @@ func (c *Client) Networks() *NetworkArray {
 	return networkArray
 }
 
-func (c *Client) buildNetwork(id route.NetID, routes []*route.Route, selected bool, resolvedDomains map[domain.Domain]peer.ResolvedDomainInfo, v6Merged map[route.NetID]struct{}, owners map[string]peer.State) *Network {
+func (c *Client) buildNetwork(id route.NetID, routes []*route.Route, selected bool, resolvedDomains map[domain.Domain]peer.ResolvedDomainInfo, v6Merged map[route.NetID]struct{}, activeRoutePeers map[route.HAUniqueID]string) *Network {
 	r := routes[0]
 	netStr := r.Network.String()
 	if r.IsDynamic() {
 		netStr = r.Domains.SafeString()
 	}
 
-	routePeer, err := c.findBestRoutePeer(routes, owners)
+	routePeer, err := c.findBestRoutePeer(routes, activeRoutePeers)
 	if err != nil {
 		log.Errorf("could not get peer info for route %s: %v", id, err)
 		return nil
@@ -529,9 +529,11 @@ func (c *Client) buildNetwork(id route.NetID, routes []*route.Route, selected bo
 
 // findBestRoutePeer returns the peer actively routing traffic for the given
 // HA route group. Falls back to the first connected peer, then the first peer.
-func (c *Client) findBestRoutePeer(routes []*route.Route, owners map[string]peer.State) (peer.State, error) {
-	if p, ok := owners[routes[0].Network.String()]; ok {
-		return p, nil
+func (c *Client) findBestRoutePeer(routes []*route.Route, activeRoutePeers map[route.HAUniqueID]string) (peer.State, error) {
+	if peerKey, ok := activeRoutePeers[routes[0].GetHAUniqueID()]; ok {
+		if p, err := c.recorder.GetPeer(peerKey); err == nil {
+			return p, nil
+		}
 	}
 
 	for _, r := range routes {
