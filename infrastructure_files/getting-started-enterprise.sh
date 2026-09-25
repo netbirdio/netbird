@@ -555,7 +555,8 @@ init_environment() {
 
 # service_block NAME prints a service's definition from the compose file on stdin.
 service_block() {
-  awk -v s="  $1:" '$0 == s { p = 1; print; next } p && (/^[^ ]/ || /^  [^ ]/) { exit } p'
+  local name="$1"
+  awk -v s="  ${name}:" '$0 == s { p = 1; print; next } p && (/^[^ ]/ || /^  [^ ]/) { exit } p'
 }
 
 # enable_features adds the proxy and/or traffic events to the install in the
