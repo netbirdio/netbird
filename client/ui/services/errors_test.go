@@ -45,6 +45,21 @@ func TestErrorClassifier_Classify(t *testing.T) {
 		require.Equal(t, "daemon_unreachable", ce.Code)
 	})
 
+	// The OS denial on the socket must not be read as a management sign-in
+	// rejection.
+	t.Run("socket denial maps to daemon_access_denied", func(t *testing.T) {
+		unix := gstatus.Error(gcodes.Unavailable, `connection error: desc = "transport: Error while dialing: dial unix /var/run/netbird.sock: connect: permission denied"`)
+		assert.Equal(t, "daemon_access_denied", c.classify(unix).Code, "unix EACCES")
+
+		pipe := gstatus.Error(gcodes.Unavailable, `connection error: desc = "transport: Error while dialing: open \\.\pipe\ProtectedPrefix\Administrators\netbird: Access is denied."`)
+		assert.Equal(t, "daemon_access_denied", c.classify(pipe).Code, "windows ERROR_ACCESS_DENIED")
+	})
+
+	t.Run("missing socket stays daemon_unreachable", func(t *testing.T) {
+		err := gstatus.Error(gcodes.Unavailable, `connection error: desc = "transport: Error while dialing: dial unix /var/run/netbird.sock: connect: no such file or directory"`)
+		assert.Equal(t, "daemon_unreachable", c.classify(err).Code, "a stopped daemon is not a denial")
+	})
+
 	t.Run("unmatched stays unknown", func(t *testing.T) {
 		ce := c.classify(errors.New("something odd"))
 		require.Equal(t, "unknown", ce.Code)

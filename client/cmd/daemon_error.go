@@ -14,6 +14,21 @@ import (
 	"github.com/netbirdio/netbird/client/internal/ipcauth"
 )
 
+// errDaemonAccessDenied reports that the daemon socket refuses this user.
+var errDaemonAccessDenied = errors.New("this account is not allowed to use the NetBird daemon on this device: " +
+	"an administrator restricted it to other users or groups")
+
+// daemonConnectError explains a failed dial.
+func daemonConnectError(err error) error {
+	if errors.Is(err, errDaemonAccessDenied) {
+		return err
+	}
+	//nolint
+	return fmt.Errorf("failed to connect to daemon error: %v\n"+
+		"If the daemon is not running please run: "+
+		"\nnetbird service install \nnetbird service start\n", err)
+}
+
 // daemonCallError adds the context a failed daemon call happened in.
 func daemonCallError(context string, err error) error {
 	return fmt.Errorf("%s: %w", context, err)

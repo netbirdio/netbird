@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -296,7 +297,35 @@ func DialClientGRPCServer(ctx context.Context, addr string) (*grpc.ClientConn, e
 		grpc.WithChainStreamInterceptor(denialStreamInterceptor),
 	)
 
-	return grpc.DialContext(ctx, target, opts...)
+	denied := watchAccessDenied(ctx, cancel, addr)
+	conn, err := grpc.DialContext(ctx, target, opts...)
+	if err != nil && denied.Load() {
+		return nil, errDaemonAccessDenied
+	}
+	return conn, err
+}
+
+// accessProbeDelay is how long a dial may block before the socket is probed.
+const accessProbeDelay = 500 * time.Millisecond
+
+// watchAccessDenied probes addr after accessProbeDelay and cancels the dial if
+// the socket refuses this user.
+func watchAccessDenied(ctx context.Context, cancel context.CancelFunc, addr string) *atomic.Bool {
+	denied := &atomic.Bool{}
+	go func() {
+		timer := time.NewTimer(accessProbeDelay)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+		}
+		if daddr.DeniesCaller(ctx, addr) {
+			denied.Store(true)
+			cancel()
+		}
+	}()
+	return denied
 }
 
 // WithBackOff execute function in backoff cycle.
@@ -459,10 +488,7 @@ func getClient(cmd *cobra.Command) (*grpc.ClientConn, error) {
 
 	conn, err := DialClientGRPCServer(cmd.Context(), daemonAddr)
 	if err != nil {
-		//nolint
-		return nil, fmt.Errorf("failed to connect to daemon error: %v\n"+
-			"If the daemon is not running please run: "+
-			"\nnetbird service install \nnetbird service start\n", err)
+		return nil, daemonConnectError(err)
 	}
 
 	return conn, nil
