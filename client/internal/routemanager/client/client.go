@@ -235,13 +235,15 @@ type WatcherConfig struct {
 // Once stopped, it cannot be reused.
 // The methods are not thread-safe and should be synchronized externally.
 type Watcher struct {
-	ctx                 context.Context
-	cancel              context.CancelFunc
-	statusRecorder      *peer.Status
-	wgInterface         iface.WGIface
-	routes              map[route.ID]*route.Route
-	routeUpdate         chan RoutesUpdate
-	peerStateUpdate     chan map[string]peer.RouterState
+	ctx            context.Context
+	cancel         context.CancelFunc
+	statusRecorder *peer.Status
+	wgInterface    iface.WGIface
+	routes         map[route.ID]*route.Route
+	routeUpdate    chan RoutesUpdate
+	// peerStateUpdate holds at most one pending routing peer state notification,
+	// see watchPeerStatusChanges
+	peerStateUpdate     chan struct{}
 	routePeersNotifiers map[string]chan struct{} // map of peer key to channel for peer state changes
 	currentChosen       *route.Route
 	currentChosenStatus *routerPeerStatus
@@ -297,6 +299,10 @@ type Watcher struct {
 	updateSerial uint64
 }
 
+func newPeerStateUpdate() chan struct{} {
+	return make(chan struct{}, 1)
+}
+
 func NewWatcher(config WatcherConfig) *Watcher {
 	ctx, cancel := context.WithCancel(config.Context)
 
@@ -308,7 +314,7 @@ func NewWatcher(config WatcherConfig) *Watcher {
 		routes:              make(map[route.ID]*route.Route),
 		routePeersNotifiers: make(map[string]chan struct{}),
 		routeUpdate:         make(chan RoutesUpdate),
-		peerStateUpdate:     make(chan map[string]peer.RouterState),
+		peerStateUpdate:     newPeerStateUpdate(),
 		done:                make(chan struct{}),
 		handler:             config.Handler,
 		currentChosenStatus: nil,
@@ -598,7 +604,12 @@ func switchMargin(current, candidate routeCandidate) time.Duration {
 	return margin
 }
 
-func (w *Watcher) watchPeerStatusChanges(ctx context.Context, peerKey string, peerStateUpdate chan map[string]peer.RouterState, closer chan struct{}) {
+// watchPeerStatusChanges forwards the state changes of a routing peer to the
+// watcher as a notification to re-evaluate. The watcher reads the current peer
+// states when it gets to it, so a notification still pending covers any number
+// of later changes, and the forwarder never waits for a busy watcher: that
+// would stop it draining the subscription and in turn block the peer's updates.
+func (w *Watcher) watchPeerStatusChanges(ctx context.Context, peerKey string, peerStateUpdate chan<- struct{}, closer chan struct{}) {
 	// the subscription gets its own context so a delivery blocked on it is
 	// released as soon as this forwarder exits, not only when the watcher stops
 	subCtx, cancel := context.WithCancel(ctx)
@@ -613,14 +624,11 @@ func (w *Watcher) watchPeerStatusChanges(ctx context.Context, peerKey string, pe
 			return
 		case <-closer:
 			return
-		case routerStates := <-subscription.Events():
+		case <-subscription.Events():
 			select {
-			case peerStateUpdate <- routerStates:
+			case peerStateUpdate <- struct{}{}:
 				log.Debugf("triggered route state update for Peer: %s", peerKey)
-			case <-ctx.Done():
-				return
-			case <-closer:
-				return
+			default:
 			}
 		}
 	}

@@ -1268,12 +1268,12 @@ func TestStopWaitsForStart(t *testing.T) {
 
 	w.ctx, w.cancel = context.WithCancel(context.Background())
 	w.done = make(chan struct{})
-	w.peerStateUpdate = make(chan map[string]peer.RouterState)
+	w.peerStateUpdate = make(chan struct{})
 	go w.Start()
 
 	// the unbuffered send returns once the loop took the notification, so the
 	// loop is running and about to recalculate
-	w.peerStateUpdate <- nil
+	w.peerStateUpdate <- struct{}{}
 	select {
 	case <-handler.entered:
 	case <-time.After(2 * time.Second):
@@ -1304,37 +1304,85 @@ func TestStopWaitsForStart(t *testing.T) {
 	assert.Equal(t, []string{"add peer1", "remove"}, handler.calls, "Stop must clean up after the recalculation, not before it")
 }
 
-// A peer state notification can reach the watcher after a newer one: each
-// routing peer has its own subscription and forwarder, and all of them feed the
-// same channel. The watcher must act on the recorded peer states rather than on
-// the states the notification carried, or it could move the route back onto a
-// routing peer that has since gone away.
-func TestOutdatedPeerStateNotificationIsNotApplied(t *testing.T) {
+// A notification carries no peer states: every routing peer has its own
+// subscription and forwarder feeding the same channel, so a snapshot could
+// arrive after a newer one. The watcher acts on the states in the recorder as
+// of when it handles the notification.
+func TestPeerStateNotificationUsesRecordedStates(t *testing.T) {
 	w, handler := newRecalcWatcher(t)
 
 	recorder := w.statusRecorder
 	for _, key := range []string{"peer1", "peer2"} {
 		require.NoError(t, recorder.AddPeer(key, key+".netbird.cloud", "100.64.0.1", ""))
 	}
-	require.NoError(t, recorder.UpdatePeerState(peer.State{PubKey: "peer1", ConnStatus: peer.StatusConnected}))
-	require.NoError(t, recorder.UpdatePeerState(peer.State{PubKey: "peer2", ConnStatus: peer.StatusConnecting}))
+	require.NoError(t, recorder.UpdatePeerICEState(peer.State{PubKey: "peer1", ConnStatus: peer.StatusConnected}))
+	require.NoError(t, recorder.UpdatePeerICEState(peer.State{PubKey: "peer2", ConnStatus: peer.StatusConnecting}))
 
 	require.NoError(t, w.recalculateRoutes(reasonPeerUpdate, w.getRouterPeerStatuses()))
 	require.Equal(t, []string{"peer1"}, handler.added)
 
 	w.ctx, w.cancel = context.WithCancel(context.Background())
 	w.done = make(chan struct{})
-	w.peerStateUpdate = make(chan map[string]peer.RouterState)
+	w.peerStateUpdate = make(chan struct{})
 	go w.Start()
 
-	// built while peer2 was still up and peer1 was not, delivered late
-	w.peerStateUpdate <- map[string]peer.RouterState{
-		"peer1": {Status: peer.StatusConnecting},
-		"peer2": {Status: peer.StatusConnected},
-	}
+	require.NoError(t, recorder.UpdatePeerICEState(peer.State{PubKey: "peer1", ConnStatus: peer.StatusConnecting}))
+	require.NoError(t, recorder.UpdatePeerICEState(peer.State{PubKey: "peer2", ConnStatus: peer.StatusConnected}))
+	w.peerStateUpdate <- struct{}{}
 	w.Stop()
 
-	assert.Equal(t, []string{"peer1"}, handler.added, "an outdated notification must not move the route to a routing peer that is gone")
+	assert.Equal(t, []string{"peer1", "peer2"}, handler.added, "the notification must move the route according to the recorded states")
+}
+
+// While the watcher is busy, for instance inside a recalculation, the peer state
+// forwarder must keep draining its subscription. Otherwise the subscription
+// buffer fills up and the peer's next state update blocks its caller, the
+// peer's connection handling, until the watcher is free again.
+func TestPeerStateForwarderDoesNotBlockWhileWatcherIsBusy(t *testing.T) {
+	w, _ := newRecalcWatcher(t)
+	w.peerStateUpdate = newPeerStateUpdate()
+
+	recorder := w.statusRecorder
+	require.NoError(t, recorder.AddPeer("peer1", "peer1.netbird.cloud", "100.64.0.1", ""))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	closer := make(chan struct{})
+	go w.watchPeerStatusChanges(ctx, "peer1", w.peerStateUpdate, closer)
+
+	// wait for the forwarder's subscription to exist, so the updates below reach it
+	require.Eventually(t, func() bool {
+		require.NoError(t, recorder.UpdatePeerICEState(peer.State{PubKey: "peer1", ConnStatus: peer.StatusConnected}))
+		require.NoError(t, recorder.UpdatePeerICEState(peer.State{PubKey: "peer1", ConnStatus: peer.StatusConnecting}))
+		select {
+		case <-w.peerStateUpdate:
+			return true
+		case <-time.After(50 * time.Millisecond):
+			return false
+		}
+	}, 2*time.Second, 10*time.Millisecond, "the forwarder must pass on a notification")
+
+	// nobody reads peerStateUpdate: the watcher is busy
+	updated := make(chan struct{})
+	go func() {
+		defer close(updated)
+		for i := 0; i < 50; i++ {
+			status := peer.StatusConnected
+			if i%2 == 1 {
+				status = peer.StatusConnecting
+			}
+			if err := recorder.UpdatePeerICEState(peer.State{PubKey: "peer1", ConnStatus: status}); err != nil {
+				t.Errorf("update peer state: %v", err)
+				return
+			}
+		}
+	}()
+
+	select {
+	case <-updated:
+	case <-time.After(2 * time.Second):
+		t.Fatal("peer state updates must not block while the watcher is busy")
+	}
 }
 
 // TestStopWithoutStart covers a watcher whose Start goroutine never ran, or ran

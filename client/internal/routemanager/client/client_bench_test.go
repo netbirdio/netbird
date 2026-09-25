@@ -142,7 +142,7 @@ func BenchmarkRecalculateRoutes(b *testing.B) {
 				routes:              routes,
 				routePeersNotifiers: make(map[string]chan struct{}),
 				routeUpdate:         make(chan RoutesUpdate),
-				peerStateUpdate:     make(chan map[string]peer.RouterState),
+				peerStateUpdate:     newPeerStateUpdate(),
 				handler:             &mockRouteHandler{network: "benchmark"},
 				currentChosenStatus: nil,
 			}
