@@ -277,7 +277,7 @@ func newMysqlStoreFromSqlStore(ctx context.Context, sqliteStore *SqlStore, dsn s
 // bound to one joins it instead of opening a second, independent transaction.
 func (s *SqlStore) ExecuteInTransaction(ctx context.Context, operation func(store Store) error) error {
 	if s.tx != nil {
-		return operation(s.withContext(ctx))
+		return operation(s)
 	}
 	return s.conn.RunInTx(ctx, func(tx *db.Tx) error {
 		return operation(s.withTx(tx))
@@ -293,15 +293,15 @@ func (s *SqlStore) withTx(tx *db.Tx) Store {
 	}
 }
 
-// withContext keeps the store on its transaction but runs its statements
-// under ctx, so a nested call honours its own cancellation and deadline.
-func (s *SqlStore) withContext(ctx context.Context) Store {
-	return &SqlStore{
-		conn:         s.conn,
-		db:           s.db.WithContext(ctx),
-		tx:           s.tx,
-		fieldEncrypt: s.fieldEncrypt,
+// transaction runs fn as a savepoint of the bound transaction, or in a new
+// transaction when the store is not bound to one.
+func (s *SqlStore) transaction(ctx context.Context, fn func(tx *gorm.DB) error) error {
+	if s.tx != nil {
+		return s.db.Transaction(fn)
 	}
+	return s.conn.RunInTx(ctx, func(tx *db.Tx) error {
+		return fn(s.conn.DB(tx))
+	})
 }
 
 func (s *SqlStore) GetDB() *gorm.DB {

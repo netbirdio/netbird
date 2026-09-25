@@ -122,28 +122,6 @@ func TestConn_PoolIsUnavailableInsideTransaction(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestTransaction_NestedCallBecomesSavepoint(t *testing.T) {
-	conn := openTestConn(t)
-	failure := errors.New("inner")
-
-	err := conn.RunInTx(context.Background(), func(tx *Tx) error {
-		if err := conn.DB(tx).Create(&testRow{Name: "outer"}).Error; err != nil {
-			return err
-		}
-		err := conn.Transaction(conn.DB(tx), func(inner *gorm.DB) error {
-			require.NoError(t, inner.Create(&testRow{Name: "inner"}).Error)
-			return failure
-		})
-		require.ErrorIs(t, err, failure)
-		return nil
-	})
-	require.NoError(t, err)
-
-	var names []string
-	require.NoError(t, conn.DB(nil).Model(&testRow{}).Pluck("name", &names).Error)
-	assert.Equal(t, []string{"outer"}, names)
-}
-
 type recordingMetrics struct {
 	calls int
 }

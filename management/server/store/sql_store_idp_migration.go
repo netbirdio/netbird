@@ -138,7 +138,7 @@ func (s *SqlStore) UpdateUserID(ctx context.Context, accountID, oldUserID, newUs
 	}
 
 	log.Info("Updating user ID in the store")
-	err := s.conn.Transaction(s.db, func(tx *gorm.DB) error {
+	err := s.transaction(ctx, func(tx *gorm.DB) error {
 		if err := s.txDeferFKConstraints(tx); err != nil {
 			return err
 		}
@@ -161,7 +161,7 @@ func (s *SqlStore) UpdateUserID(ctx context.Context, accountID, oldUserID, newUs
 	}
 
 	log.Info("Restoring FK constraints")
-	err = s.conn.Transaction(s.db, func(tx *gorm.DB) error {
+	err = s.transaction(ctx, func(tx *gorm.DB) error {
 		if err := s.txRestoreFKConstraints(tx); err != nil {
 			return fmt.Errorf("restore FK constraints: %w", err)
 		}

@@ -60,16 +60,6 @@ func (c *Conn) RunInTx(ctx context.Context, fn func(tx *Tx) error) error {
 	return nil
 }
 
-// Transaction runs fn on handle through gorm's Transaction, so a call on an
-// open transaction becomes a savepoint, with the MySQL FK workaround applied.
-func (c *Conn) Transaction(handle *gorm.DB, fn func(tx *gorm.DB) error) error {
-	return handle.Transaction(func(tx *gorm.DB) error {
-		return c.withForeignKeyChecksDisabled(tx, func() error {
-			return fn(tx)
-		})
-	})
-}
-
 func (c *Conn) applyStatementTimeouts(tx *gorm.DB) error {
 	if c.engine != PostgresStoreEngine {
 		return nil

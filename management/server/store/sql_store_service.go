@@ -205,7 +205,7 @@ func (s *SqlStore) UpdateService(ctx context.Context, service *rpservice.Service
 	targetType := &rpservice.Target{}
 
 	// Use a transaction to ensure atomic updates of the service and its targets
-	err := s.db.Transaction(func(tx *gorm.DB) error {
+	err := s.transaction(ctx, func(tx *gorm.DB) error {
 		// Delete existing targets
 		if err := tx.Where("service_id = ?", serviceCopy.ID).Delete(targetType).Error; err != nil {
 			return err

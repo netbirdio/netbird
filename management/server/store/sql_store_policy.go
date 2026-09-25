@@ -128,7 +128,7 @@ func (s *SqlStore) SavePolicy(ctx context.Context, policy *types.Policy) error {
 }
 
 func (s *SqlStore) DeletePolicy(ctx context.Context, accountID, policyID string) error {
-	return s.conn.Transaction(s.db, func(tx *gorm.DB) error {
+	return s.transaction(ctx, func(tx *gorm.DB) error {
 		if err := tx.Where("policy_id = ?", policyID).Delete(&types.PolicyRule{}).Error; err != nil {
 			return fmt.Errorf("delete policy rules: %w", err)
 		}

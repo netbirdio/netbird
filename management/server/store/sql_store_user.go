@@ -108,7 +108,7 @@ func (s *SqlStore) GetUserByUserID(ctx context.Context, lockStrength LockingStre
 }
 
 func (s *SqlStore) DeleteUser(ctx context.Context, accountID, userID string) error {
-	err := s.conn.Transaction(s.db, func(tx *gorm.DB) error {
+	err := s.transaction(ctx, func(tx *gorm.DB) error {
 		result := tx.Delete(&types.PersonalAccessToken{}, "user_id = ?", userID)
 		if result.Error != nil {
 			return result.Error

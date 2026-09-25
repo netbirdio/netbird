@@ -37,7 +37,7 @@ func (s *SqlStore) CreateGroups(ctx context.Context, accountID string, groups []
 		return nil
 	}
 
-	return s.db.Transaction(func(tx *gorm.DB) error {
+	return s.transaction(ctx, func(tx *gorm.DB) error {
 		result := tx.
 			Clauses(
 				clause.OnConflict{
@@ -63,7 +63,7 @@ func (s *SqlStore) UpdateGroups(ctx context.Context, accountID string, groups []
 		return nil
 	}
 
-	return s.db.Transaction(func(tx *gorm.DB) error {
+	return s.transaction(ctx, func(tx *gorm.DB) error {
 		result := tx.
 			Clauses(
 				clause.OnConflict{
