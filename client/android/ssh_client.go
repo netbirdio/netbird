@@ -31,6 +31,8 @@ const (
 // PasswordRequiredMarker tells Java to prompt for a password and retry. It is
 // a string because gomobile flattens errors to their message, so a sentinel
 // value would not survive the binding.
+//
+//nolint:gosec // G101 false positive: a sentinel marker, not a credential
 const PasswordRequiredMarker = "netbird-ssh-password-required"
 
 // HostKeyUnknownMarker tells Java to show the fingerprint and, on confirmation,
