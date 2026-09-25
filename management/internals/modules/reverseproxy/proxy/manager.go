@@ -1,6 +1,6 @@
 package proxy
 
-//go:generate go run github.com/golang/mock/mockgen -package proxy -destination=manager_mock.go -source=./manager.go -build_flags=-mod=mod
+//go:generate go tool mockgen -package proxy -destination=manager_mock.go -source=./manager.go -build_flags=-mod=mod
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 
 // Manager defines the interface for proxy operations
 type Manager interface {
-	Connect(ctx context.Context, proxyID, sessionID, clusterAddress, ipAddress string, accountID *string, capabilities *Capabilities) (*Proxy, error)
+	Connect(ctx context.Context, proxyID, sessionID, clusterAddress, ipAddress, version string, accountID *string, capabilities *Capabilities) (*Proxy, error)
 	Disconnect(ctx context.Context, proxyID, sessionID string) error
 	Heartbeat(ctx context.Context, p *Proxy) error
 	GetActiveClusterAddresses(ctx context.Context) ([]string, error)

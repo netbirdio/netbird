@@ -8,21 +8,19 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/configs"
 	"github.com/netbirdio/netbird/client/ui/guilog"
 )
 
-// uiLogFileName must stay in sync with the daemon's "gui-client*.log.*" glob
-// for rotated siblings (addUILog in client/internal/debug).
-const uiLogFileName = "gui-client.log"
-
 // uiLogPath returns the GUI log path with native separators, since the daemon
-// opens it directly for debug-bundle collection.
+// opens it directly for debug-bundle collection. The file name comes from
+// configs.UILogFile so the daemon validates and collects the same name.
 func uiLogPath() (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "netbird", uiLogFileName), nil
+	return filepath.Join(dir, "netbird", configs.UILogFile), nil
 }
 
 // newDebugLog builds the GUI debug log, disabled when userSetLogFile is set

@@ -252,7 +252,7 @@ func NewDefaultServerPermanentUpstream(
 	ds.hostsDNSHolder.set(hostsDnsList)
 	ds.permanent = true
 	ds.currentConfig = dnsConfigToHostDNSConfig(config, ds.service.RuntimeIP(), ds.service.RuntimePort())
-	ds.searchDomainNotifier = newNotifier(ds.SearchDomains())
+	ds.searchDomainNotifier = newNotifier(ds.searchDomains())
 	ds.searchDomainNotifier.setListener(listener)
 	setServerDns(ds)
 	return ds
@@ -602,6 +602,12 @@ func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) erro
 }
 
 func (s *DefaultServer) SearchDomains() []string {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+	return s.searchDomains()
+}
+
+func (s *DefaultServer) searchDomains() []string {
 	var searchDomains []string
 
 	for _, dConf := range s.currentConfig.Domains {
@@ -686,7 +692,7 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 	}()
 
 	if s.searchDomainNotifier != nil {
-		s.searchDomainNotifier.onNewSearchDomains(s.SearchDomains())
+		s.searchDomainNotifier.onNewSearchDomains(s.searchDomains())
 	}
 
 	s.updateNSGroupStates(update.NameServerGroups)

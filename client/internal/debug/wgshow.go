@@ -35,14 +35,14 @@ func (g *BundleGenerator) toWGShowFormat(s *configurer.Stats) string {
 	var sb strings.Builder
 
 	sb.WriteString(fmt.Sprintf("interface: %s\n", s.DeviceName))
-	sb.WriteString(fmt.Sprintf("  public key: %s\n", s.PublicKey))
+	sb.WriteString(fmt.Sprintf("  public key: %s\n", g.anonymizer.AnonymizeWGKey(s.PublicKey)))
 	sb.WriteString(fmt.Sprintf("  listen port: %d\n", s.ListenPort))
 	if s.FWMark != 0 {
 		sb.WriteString(fmt.Sprintf("  fwmark: %#x\n", s.FWMark))
 	}
 
 	for _, peer := range s.Peers {
-		sb.WriteString(fmt.Sprintf("\npeer: %s\n", peer.PublicKey))
+		sb.WriteString(fmt.Sprintf("\npeer: %s\n", g.anonymizer.AnonymizeWGKey(peer.PublicKey)))
 		if peer.Endpoint.IP != nil {
 			if g.anonymize {
 				anonEndpoint := g.anonymizer.AnonymizeUDPAddr(peer.Endpoint)
@@ -54,7 +54,11 @@ func (g *BundleGenerator) toWGShowFormat(s *configurer.Stats) string {
 		if len(peer.AllowedIPs) > 0 {
 			var ipStrings []string
 			for _, ipnet := range peer.AllowedIPs {
-				ipStrings = append(ipStrings, ipnet.String())
+				ipStr := ipnet.String()
+				if g.anonymize {
+					ipStr = g.anonymizer.AnonymizeIPString(ipStr)
+				}
+				ipStrings = append(ipStrings, ipStr)
 			}
 			sb.WriteString(fmt.Sprintf("  allowed ips: %s\n", strings.Join(ipStrings, ", ")))
 		}

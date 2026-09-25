@@ -10,6 +10,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	nbroute "github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 )
 
 const (
@@ -50,7 +51,7 @@ func (r *FirewallRule) Equal(other *FirewallRule) bool {
 // For static routes, source ranges match the destination family (v4 or v6).
 // For dynamic routes (domain-based), separate v4 and v6 rules are generated
 // so the routing peer's forwarding chain allows both address families.
-func GenerateRouteFirewallRules(ctx context.Context, route *nbroute.Route, rule *PolicyRule, groupPeers []*ComponentPeer, direction int, includeIPv6 bool) []*RouteFirewallRule {
+func GenerateRouteFirewallRules(ctx context.Context, route *nmdata.Route, rule *nmdata.PolicyRule, groupPeers []*nmdata.Peer, direction int, includeIPv6 bool) []*RouteFirewallRule {
 	rulesExists := make(map[string]struct{})
 	rules := make([]*RouteFirewallRule, 0)
 
@@ -71,11 +72,11 @@ func GenerateRouteFirewallRules(ctx context.Context, route *nbroute.Route, rule 
 
 	baseRule := RouteFirewallRule{
 		PolicyID:     rule.PolicyID,
-		RouteID:      route.ID,
+		RouteID:      nbroute.ID(route.ID),
 		SourceRanges: sourceRanges,
-		Action:       string(rule.Action),
+		Action:       rule.Action,
 		Destination:  route.Network.String(),
-		Protocol:     string(rule.Protocol),
+		Protocol:     rule.Protocol,
 		Domains:      route.Domains,
 		IsDynamic:    route.IsDynamic(),
 	}
@@ -93,7 +94,7 @@ func GenerateRouteFirewallRules(ctx context.Context, route *nbroute.Route, rule 
 		v6Rule.SourceRanges = v6Sources
 		if isDefaultV4 {
 			v6Rule.Destination = "::/0"
-			v6Rule.RouteID = route.ID + "-v6-default"
+			v6Rule.RouteID = nbroute.ID(route.ID + "-v6-default")
 		}
 		if len(rule.Ports) == 0 {
 			rules = append(rules, generateRulesWithPortRanges(v6Rule, rule, rulesExists)...)
@@ -106,7 +107,7 @@ func GenerateRouteFirewallRules(ctx context.Context, route *nbroute.Route, rule 
 }
 
 // splitPeerSourcesByFamily separates peer IPs into v4 (/32) and v6 (/128) source ranges.
-func splitPeerSourcesByFamily(groupPeers []*ComponentPeer) (v4, v6 []string) {
+func splitPeerSourcesByFamily(groupPeers []*nmdata.Peer) (v4, v6 []string) {
 	v4 = make([]string, 0, len(groupPeers))
 	v6 = make([]string, 0, len(groupPeers))
 	for _, peer := range groupPeers {
@@ -122,7 +123,7 @@ func splitPeerSourcesByFamily(groupPeers []*ComponentPeer) (v4, v6 []string) {
 }
 
 // generateRulesForPeer generates rules for a given peer based on ports and port ranges.
-func generateRulesWithPortRanges(baseRule RouteFirewallRule, rule *PolicyRule, rulesExists map[string]struct{}) []*RouteFirewallRule {
+func generateRulesWithPortRanges(baseRule RouteFirewallRule, rule *nmdata.PolicyRule, rulesExists map[string]struct{}) []*RouteFirewallRule {
 	rules := make([]*RouteFirewallRule, 0)
 
 	ruleIDBase := generateRuleIDBase(rule, baseRule)
@@ -138,7 +139,7 @@ func generateRulesWithPortRanges(baseRule RouteFirewallRule, rule *PolicyRule, r
 				if _, ok := rulesExists[ruleID]; !ok {
 					rulesExists[ruleID] = struct{}{}
 					pr := baseRule
-					pr.PortRange = portRange
+					pr.PortRange = RulePortRange{Start: portRange.Start, End: portRange.End}
 					rules = append(rules, &pr)
 				}
 			}
@@ -150,7 +151,7 @@ func generateRulesWithPortRanges(baseRule RouteFirewallRule, rule *PolicyRule, r
 }
 
 // generateRulesWithPorts generates rules when specific ports are provided.
-func generateRulesWithPorts(ctx context.Context, baseRule RouteFirewallRule, rule *PolicyRule, rulesExists map[string]struct{}) []*RouteFirewallRule {
+func generateRulesWithPorts(ctx context.Context, baseRule RouteFirewallRule, rule *nmdata.PolicyRule, rulesExists map[string]struct{}) []*RouteFirewallRule {
 	rules := make([]*RouteFirewallRule, 0)
 	ruleIDBase := generateRuleIDBase(rule, baseRule)
 
@@ -176,6 +177,6 @@ func generateRulesWithPorts(ctx context.Context, baseRule RouteFirewallRule, rul
 }
 
 // generateRuleIDBase generates the base rule ID for checking duplicates.
-func generateRuleIDBase(rule *PolicyRule, baseRule RouteFirewallRule) string {
+func generateRuleIDBase(rule *nmdata.PolicyRule, baseRule RouteFirewallRule) string {
 	return rule.ID + strings.Join(baseRule.SourceRanges, ",") + strconv.Itoa(FirewallRuleDirectionIN) + baseRule.Protocol + baseRule.Action
 }

@@ -58,11 +58,7 @@ func Setup(wgIface iface) (map[string]int, error) {
 			continue
 		}
 
-		// Escape '%' and '.' so they survive the dot-to-slash conversion in Set()
-		safeName := strings.ReplaceAll(intf.Name, "%", percentEscape)
-		safeName = strings.ReplaceAll(safeName, ".", dotEscape)
-
-		i := fmt.Sprintf(rpFilterInterfacePath, safeName)
+		i := fmt.Sprintf(rpFilterInterfacePath, EscapeInterfaceName(intf.Name))
 		oldVal, err := Set(i, 2, true)
 		if err != nil {
 			result = multierror.Append(result, err)
@@ -72,6 +68,13 @@ func Setup(wgIface iface) (map[string]int, error) {
 	}
 
 	return keys, nberrors.FormatErrorOrNil(result)
+}
+
+// EscapeInterfaceName escapes '%' and '.' in an interface name (e.g. VLANs
+// like eth0.100) so the name survives the dot-to-slash conversion in Set.
+func EscapeInterfaceName(name string) string {
+	safe := strings.ReplaceAll(name, "%", percentEscape)
+	return strings.ReplaceAll(safe, ".", dotEscape)
 }
 
 // Set sets a sysctl configuration, if onlyIfOne is true it will only set the new value if it's set to 1

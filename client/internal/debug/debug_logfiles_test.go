@@ -97,7 +97,7 @@ func runAddRotatedLogFilesPrefix(t *testing.T, dir, prefix string, logFileCount 
 		archive:      zip.NewWriter(&buf),
 		logFileCount: logFileCount,
 	}
-	g.addRotatedLogFiles(dir, prefix)
+	g.addRotatedLogFiles(openLogFile, dir, prefix)
 	require.NoError(t, g.archive.Close())
 
 	zr, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))

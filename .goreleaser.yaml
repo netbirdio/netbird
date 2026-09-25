@@ -40,6 +40,32 @@ builds:
     tags:
       - load_wgnt_from_rsrc
 
+  # Single-arch builds: nfpm provides is not templated, so the RPM splits per arch.
+  - &netbird_rpm_build
+    id: netbird-rpm-amd64
+    dir: client
+    binary: netbird
+    env: [CGO_ENABLED=0]
+    goos: [linux]
+    goarch: [amd64]
+    ldflags:
+      - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    tags:
+      - load_wgnt_from_rsrc
+
+  - <<: *netbird_rpm_build
+    id: netbird-rpm-arm64
+    goarch: [arm64]
+
+  - <<: *netbird_rpm_build
+    id: netbird-rpm-arm
+    goarch: [arm]
+
+  - <<: *netbird_rpm_build
+    id: netbird-rpm-386
+    goarch: [386]
+
   - id: netbird-static
     dir: client
     binary: netbird
@@ -223,23 +249,72 @@ nfpms:
       postinstall: "release_files/post_install.sh"
       preremove: "release_files/pre_remove.sh"
 
-  - maintainer: Netbird <dev@netbird.io>
+  - &netbird_rpm
+    maintainer: Netbird <dev@netbird.io>
     description: Netbird client.
     homepage: https://netbird.io/
     license: BSD-3-Clause
     vendor: NetBird
-    id: netbird_rpm
+    id: netbird_rpm_amd64
     bindir: /usr/bin
-    builds:
-      - netbird
+    ids:
+      - netbird-rpm-amd64
     formats:
       - rpm
+    # Red Hat certification (RPM Version Handling) requires rpmbuild's ISA
+    # provide, which nfpm does not emit. The version is filled in by the release job.
+    provides:
+      - "netbird(x86-64) = @RPM_EVR@"
+    # The client verifies TLS to management and signal against the system trust
+    # store. Red Hat software certification (RPM Dependency Tracking) also
+    # rejects packages that declare no dependencies at all.
+    dependencies:
+      - ca-certificates
+    # Generated in CI by chglog from git tags; Red Hat certification requires an
+    # RPM changelog (RPM Version Handling subtest).
+    changelog: changelog.yml
+    # License, documentation and a config file so the RPM Provenance subtest sees
+    # %license, %doc and %config entries instead of a bare binary.
+    contents:
+      - src: LICENSE
+        dst: /usr/share/licenses/netbird/LICENSE
+        type: license
+      - src: README.md
+        dst: /usr/share/doc/netbird/README.md
+        type: doc
+      - src: release_files/netbird.sysconfig
+        dst: /etc/sysconfig/netbird
+        type: config|noreplace
     scripts:
       postinstall: "release_files/post_install.sh"
       preremove: "release_files/pre_remove.sh"
     rpm:
+      summary: NetBird client
+      group: Applications/Internet
+      packager: NetBird <dev@netbird.io>
       signature:
         key_file: '{{ if index .Env "GPG_RPM_KEY_FILE" }}{{ .Env.GPG_RPM_KEY_FILE }}{{ end }}'
+
+  - <<: *netbird_rpm
+    id: netbird_rpm_arm64
+    ids:
+      - netbird-rpm-arm64
+    provides:
+      - "netbird(aarch-64) = @RPM_EVR@"
+
+  - <<: *netbird_rpm
+    id: netbird_rpm_arm
+    ids:
+      - netbird-rpm-arm
+    provides:
+      - "netbird(armv6hl-32) = @RPM_EVR@"
+
+  - <<: *netbird_rpm
+    id: netbird_rpm_386
+    ids:
+      - netbird-rpm-386
+    provides:
+      - "netbird(x86-32) = @RPM_EVR@"
 dockers_v2:
    - id: netbird
      disable: "{{ .Env.SKIP_DOCKER_PUSH }}"
@@ -282,6 +357,43 @@ dockers_v2:
        - linux/amd64
        - linux/arm64
        - linux/arm/6
+     annotations:
+       "org.opencontainers.image.created": "{{.Date}}"
+       "org.opencontainers.image.title": "{{.ProjectName}}"
+       "org.opencontainers.image.version": "{{.Version}}"
+       "org.opencontainers.image.revision": "{{.FullCommit}}"
+       "org.opencontainers.image.source": "{{.GitURL}}"
+       "maintainer": "dev@netbird.io"
+   - id: netbird-rootless-ubi
+     disable: "{{ .Env.SKIP_DOCKER_PUSH }}"
+     ids:
+       - netbird
+     images:
+       - netbirdio/netbird
+       - ghcr.io/netbirdio/netbird
+     tags:
+       - "{{ .Version }}-rootless-ubi"
+       - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}rootless-ubi-latest{{ end }}"
+     dockerfile: client/Dockerfile-rootless.ubi
+     extra_files:
+       - client/netbird-entrypoint.sh
+     platforms:
+       - linux/amd64
+       - linux/arm64
+     build_args:
+       VERSION: "{{ .Version }}"
+       RELEASE: "{{ .Timestamp }}"
+     hooks:
+       pre:
+         - cmd: 'sh client/collect-licenses.sh "{{ .ContextDir }}/licenses" amd64 arm64'
+           env:
+             - GOOS=linux
+             - CGO_ENABLED=0
+     labels:
+       "org.opencontainers.image.created": "{{.Date}}"
+       "org.opencontainers.image.version": "{{.Version}}"
+       "org.opencontainers.image.revision": "{{.FullCommit}}"
+       "org.opencontainers.image.source": "{{.GitURL}}"
      annotations:
        "org.opencontainers.image.created": "{{.Date}}"
        "org.opencontainers.image.title": "{{.ProjectName}}"
@@ -365,7 +477,7 @@ dockers_v2:
      tags:
        - "{{ .Version }}"
        - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}latest{{ end }}"
-     dockerfile: upload-server/Dockerfile
+     dockerfile: upload-server/Dockerfile.release
      platforms:
        - linux/amd64
        - linux/arm64
@@ -453,7 +565,10 @@ uploads:
   - name: yum
     skip: "{{ .Env.SKIP_PUBLISH }}"
     ids:
-      - netbird_rpm
+      - netbird_rpm_amd64
+      - netbird_rpm_arm64
+      - netbird_rpm_arm
+      - netbird_rpm_386
     mode: archive
     target: https://pkgs.wiretrustee.com/yum/{{ .Arch }}{{ if .Arm }}{{ .Arm }}{{ end }}
     username: dev@wiretrustee.com
@@ -468,6 +583,13 @@ checksum:
     - glob: ./infrastructure_files/migrate-to-enterprise.sh
 
 release:
+  # The signing pipeline (netbirdio/sign-pipelines, dispatched by
+  # trigger_signer) marks the release latest once the Windows and macOS
+  # artifacts are signed. Without this override goreleaser marks it latest
+  # at publish time, while those artifacts are still unsigned.
+  make_latest: false
+  # Mark x.y.z-rc.* and other prerelease tags as prereleases on GitHub.
+  prerelease: auto
   extra_files:
     - glob: ./infrastructure_files/getting-started-with-zitadel.sh
     - glob: ./release_files/install.sh

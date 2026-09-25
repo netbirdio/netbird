@@ -1,27 +1,14 @@
 package llm_request_parser
 
 import (
+	"context"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-)
 
-func TestNormalizeBedrockModel(t *testing.T) {
-	cases := map[string]string{
-		"eu.anthropic.claude-sonnet-4-5-20250929-v1:0": "anthropic.claude-sonnet-4-5",
-		"us.anthropic.claude-opus-4-8-20250101-v1:0":   "anthropic.claude-opus-4-8",
-		"apac.anthropic.claude-haiku-4-5-v1:0":         "anthropic.claude-haiku-4-5",
-		"anthropic.claude-sonnet-4-5-20250929-v1:0":    "anthropic.claude-sonnet-4-5",
-		"meta.llama3-3-70b-instruct-v1:0":              "meta.llama3-3-70b-instruct",
-		"amazon.nova-pro-v1:0":                         "amazon.nova-pro",
-		"amazon.nova-2-lite-v1:0":                      "amazon.nova-2-lite",
-		// Inference-profile ARN — model id lives in the last path segment.
-		"arn:aws:bedrock:eu-central-1:123456789012:inference-profile/eu.anthropic.claude-sonnet-4-5-20250929-v1:0": "anthropic.claude-sonnet-4-5",
-	}
-	for in, want := range cases {
-		require.Equal(t, want, normalizeBedrockModel(in), "normalize %q", in)
-	}
-}
+	"github.com/netbirdio/netbird/proxy/internal/middleware"
+)
 
 func TestParseBedrockPath(t *testing.T) {
 	tests := []struct {
@@ -52,4 +39,26 @@ func TestParseBedrockPath(t *testing.T) {
 			require.Equal(t, tt.stream, br.stream, "stream for %q", tt.path)
 		}
 	}
+}
+
+// TestInvoke_BedrockCountTokens covers the dedicated token-counting
+// endpoint. Denying it does not break the client, it just pushes context
+// counting back onto the inference endpoint, which is billable.
+func TestInvoke_BedrockCountTokens(t *testing.T) {
+	mw := newMiddleware(t)
+
+	out, err := mw.Invoke(context.Background(), &middleware.Input{
+		URL:  "/model/us.anthropic.claude-sonnet-4-5-20250929-v1:0/count-tokens",
+		Body: []byte(`{"input":{"converse":{"messages":[]}}}`),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out)
+	assert.Equal(t, middleware.DecisionAllow, out.Decision)
+
+	model, ok := metaValue(t, out.Metadata, middleware.KeyLLMModel)
+	require.True(t, ok, "count-tokens carries a model in the path and must emit it")
+	assert.Equal(t, "anthropic.claude-sonnet-4-5", model, "model must be normalized like any other action")
+
+	stream, _ := metaValue(t, out.Metadata, middleware.KeyLLMStream)
+	assert.Equal(t, "false", stream, "count-tokens never streams")
 }

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/golang/mock/gomock"
+	"go.uber.org/mock/gomock"
 	"github.com/stretchr/testify/require"
 
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"

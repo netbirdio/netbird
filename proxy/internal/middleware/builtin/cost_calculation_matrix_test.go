@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	mgmtpricing "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/pricing"
 	"github.com/netbirdio/netbird/proxy/internal/middleware"
 	"github.com/netbirdio/netbird/proxy/internal/middleware/builtin"
 	"github.com/netbirdio/netbird/proxy/internal/middleware/builtin/cost_meter"
@@ -19,17 +20,20 @@ import (
 	"github.com/netbirdio/netbird/proxy/internal/middleware/builtin/llm_response_parser"
 )
 
-// Drives the real pipeline (llm_request_parser → llm_response_parser → cost_meter) on the embedded default pricing
-// table and asserts exact USD amounts hardcoded from the vendors' published prices, including the cache split.
+// Drives the real pipeline (llm_request_parser → llm_response_parser → cost_meter) on the REAL default pricing
+// table management ships (mgmtpricing.DefaultTable, catalog-derived) and asserts exact USD amounts hardcoded from
+// the vendors' published prices, including the cache split. This is the cross-stack pricing contract test: the
+// management-side Entry JSON must decode into the proxy-side table and produce these exact costs.
 func TestCostCalculation_ProviderMatrix(t *testing.T) {
-	// Empty data dir → embedded defaults, like a proxy with no pricing override.
-	builtin.Configure(context.Background(), t.TempDir(), nil, nil, nil)
+	builtin.Configure(context.Background(), nil, nil, nil)
 
 	reqMW, err := llm_request_parser.Factory{}.New(nil)
 	require.NoError(t, err, "build llm_request_parser")
 	respMW, err := llm_response_parser.Factory{}.New(nil)
 	require.NoError(t, err, "build llm_response_parser")
-	costMW, err := cost_meter.Factory{}.New(nil)
+	costCfgJSON, err := json.Marshal(map[string]any{"pricing": map[string]any{"defaults": mgmtpricing.DefaultTable()}})
+	require.NoError(t, err, "marshal management default table into cost_meter config")
+	costMW, err := cost_meter.Factory{}.New(costCfgJSON)
 	require.NoError(t, err, "build cost_meter")
 	t.Cleanup(func() { _ = costMW.Close() })
 

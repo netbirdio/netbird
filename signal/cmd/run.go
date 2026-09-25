@@ -10,6 +10,7 @@ import (
 	"net/http"
 	// nolint:gosec
 	_ "net/http/pprof"
+	"os"
 	"time"
 
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
@@ -118,6 +119,7 @@ var (
 			if err != nil {
 				return fmt.Errorf("creating signal server: %v", err)
 			}
+			defer srv.Stop()
 			proto.RegisterSignalExchangeServer(grpcServer, srv)
 
 			grpcRootHandler := grpcHandlerFunc(grpcServer, metricsServer.Meter)
@@ -195,12 +197,14 @@ var (
 )
 
 func startPprof() {
-	go func() {
-		log.Debugf("Starting pprof server on 127.0.0.1:6060")
-		if err := http.ListenAndServe("127.0.0.1:6060", nil); err != nil {
-			log.Fatalf("pprof server failed: %v", err)
-		}
-	}()
+	if pprofAddr := os.Getenv("NB_PPROF_ADDR"); pprofAddr != "" {
+		log.Infof("pprof enabled, listening on: %s", pprofAddr)
+		go func() {
+			if err := http.ListenAndServe(pprofAddr, nil); err != nil {
+				log.Fatalf("pprof server failed: %v", err)
+			}
+		}()
+	}
 }
 
 func getTLSConfigurations() ([]grpc.ServerOption, *autocert.Manager, *tls.Config, error) {

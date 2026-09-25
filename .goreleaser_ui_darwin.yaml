@@ -43,3 +43,11 @@ checksum:
   name_template: "{{ .ProjectName }}_darwin_checksums.txt"
 changelog:
   disable: true
+
+release:
+  # Uploads into the release created by the main .goreleaser.yaml run.
+  # make_latest stays false everywhere: the signing pipeline
+  # (netbirdio/sign-pipelines) marks the release latest after the Windows
+  # and macOS artifacts are signed.
+  make_latest: false
+  prerelease: auto

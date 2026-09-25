@@ -43,8 +43,17 @@ func (r *SysOps) RemoveVPNRoute(prefix netip.Prefix, intf *net.Interface) error 
 	return r.genericRemoveVPNRoute(prefix, intf)
 }
 
-func EnableIPForwarding() error {
-	log.Infof("Enable IP forwarding is not implemented on %s", runtime.GOOS)
+func EnableV4IPForwarding() error {
+	log.Infof("Enable IPv4 forwarding is not implemented on %s", runtime.GOOS)
+	return nil
+}
+
+func EnableV6IPForwarding(string) (map[string]int, error) {
+	log.Infof("Enable IPv6 forwarding is not implemented on %s", runtime.GOOS)
+	return map[string]int{}, nil
+}
+
+func DisableV6IPForwarding(map[string]int) error {
 	return nil
 }
 

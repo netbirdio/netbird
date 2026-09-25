@@ -30,8 +30,8 @@ func (m *MockManager) Init() error {
 	return nil
 }
 
-// InitialRouteRange mock implementation of InitialRouteRange from Manager interface
-func (m *MockManager) InitialRouteRange() []string {
+// CurrentRouteRange mock implementation of CurrentRouteRange from Manager interface
+func (m *MockManager) CurrentRouteRange() []string {
 	return nil
 }
 

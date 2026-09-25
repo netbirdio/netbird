@@ -73,7 +73,6 @@ func TestGuardrailGroupSwitchTakesEffectAfterTTL(t *testing.T) {
 			{Id: modelA, InputPer1k: 0.001, OutputPer1k: 0.001},
 			{Id: modelB, InputPer1k: 0.001, OutputPer1k: 0.001},
 		},
-		BootstrapCluster: ptr(harness.AgentNetworkCluster),
 	})
 	require.NoError(t, err, "create provider")
 	t.Cleanup(func() { _ = srv.DeleteProvider(context.Background(), prov.Id) })
