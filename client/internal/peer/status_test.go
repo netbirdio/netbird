@@ -78,6 +78,23 @@ func TestUpdateLatencyNotifiesRouteWatchers(t *testing.T) {
 	default:
 		t.Fatal("expected a router state notification for a significant latency change")
 	}
+
+	// the noise feeds the switch margin, so a large change in it matters on its
+	// own even when the latency stays put
+	require.NoError(t, status.UpdateLatency(key, LatencySample{Latency: 100 * time.Millisecond, Noise: 20 * time.Millisecond}))
+	select {
+	case states := <-sub.Events():
+		assert.Equal(t, 20*time.Millisecond, states[key].LatencyNoise, "a significant noise change should notify")
+	default:
+		t.Fatal("expected a router state notification for a significant noise change")
+	}
+
+	require.NoError(t, status.UpdateLatency(key, LatencySample{Latency: 100 * time.Millisecond, Noise: 21 * time.Millisecond}))
+	select {
+	case <-sub.Events():
+		t.Fatal("a noise change below the threshold should not notify")
+	default:
+	}
 }
 
 // TestSubscriptionDeliverOrdering covers the sequence stamping: snapshots are

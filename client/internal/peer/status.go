@@ -30,7 +30,7 @@ import (
 
 const eventQueueSize = 10
 
-// routerLatencyNotifyThreshold is the latency change that notifies the route
+// routerLatencyNotifyThreshold is the latency or noise change that notifies the route
 // watchers subscribed to a peer. Latency is resampled continuously, so without
 // a threshold every sample would wake every watcher of every routing peer.
 const routerLatencyNotifyThreshold = 5 * time.Millisecond
@@ -1149,12 +1149,14 @@ func (d *Status) UpdateLatency(pubKey string, sample LatencySample) error {
 		return errors.New("peer doesn't exist")
 	}
 
-	previous := peerState.Latency
+	previous, previousNoise := peerState.Latency, peerState.LatencyNoise
 	peerState.Latency = sample.Latency
 	peerState.LatencyNoise = sample.Noise
 	d.peers[pubKey] = peerState
 
-	notifyRouter := absDuration(sample.Latency-previous) >= routerLatencyNotifyThreshold
+	// the noise sets the switch margin, so it counts on its own
+	notifyRouter := absDuration(sample.Latency-previous) >= routerLatencyNotifyThreshold ||
+		absDuration(sample.Noise-previousNoise) >= routerLatencyNotifyThreshold
 	routerSnapshot := d.snapshotRouterPeersLocked(pubKey, notifyRouter)
 
 	d.mux.Unlock()
