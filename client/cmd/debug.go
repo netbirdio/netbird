@@ -32,7 +32,7 @@ const errCloseConnection = "Failed to close connection: %v"
 // and PUTs its own logs and state to whatever it returns.
 const uploadBundleURLUsage = "Upload service URL to get an upload URL from. " +
 	"Defaults to the one the management server publishes, or to NetBird's service when it publishes none; " +
-	"naming any host other than NetBird's requires root"
+	"naming any host other than NetBird's requires root, and an MDM policy overrides whatever is named here"
 
 var (
 	logFileCount             uint32
