@@ -3,6 +3,7 @@ package ipcauth
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -255,8 +256,6 @@ func TestDenyPolicyLevelOffersTheClaimForAnUnownedProfile(t *testing.T) {
 	assert.NotContains(t, summary, "another user",
 		"nobody owns it, so blaming another user would be untrue")
 
-	// Without the sudo prefix, which RequiredActor drops for a daemon that is
-	// not itself privileged, as this test process is not.
 	assert.Contains(t, info.GetMetadata()[ErrorMetaCommand], "netbird profile claim default",
 		"the command names the profile that was refused")
 }
@@ -373,13 +372,41 @@ func TestRemedyNoteNamesTheActorWithoutSudo(t *testing.T) {
 		remedyNote("administrator privileges", "netbird down"))
 }
 
-// The refusal a user hits when somebody else holds the session has to say what
-// running the command it offers takes.
-func TestSessionHeldSaysWhatRunningTheCommandTakes(t *testing.T) {
-	denial, ok := DenialFrom(SessionHeldError("switching profile"))
-	require.True(t, ok)
+// stubSelfDaemon pins what the daemon runs as, so a refusal's wording does not
+// follow from how the test process was started.
+func stubSelfDaemon(t *testing.T, self Identity) {
+	t.Helper()
+	prevID, prevDelegate := selfIdentity, selfMayDelegate
+	t.Cleanup(func() { selfIdentity, selfMayDelegate = prevID, prevDelegate })
 
-	actor, command := RequiredActor(DownCommand())
-	require.NotContains(t, command, "sudo ", "this test process runs a delegating daemon")
-	assert.Contains(t, denial.Summary, "Running this requires "+actor)
+	selfIdentity = self
+	selfMayDelegate = self.Known() && !self.IsPrivileged()
+}
+
+// Whoever the daemon runs as, the caller ends up told who has to run the command
+// they were offered. A sudo prefix says it, and where there is none the summary
+// does.
+func TestSessionHeldSaysWhatRunningTheCommandTakes(t *testing.T) {
+	for name, self := range map[string]Identity{
+		"privileged daemon": KnownForTest(Identity{UID: 0}),
+		"delegating daemon": KnownForTest(Identity{UID: 1000, GID: 1000}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			stubSelfDaemon(t, self)
+
+			denial, ok := DenialFrom(SessionHeldError("switching profile"))
+			require.True(t, ok)
+
+			actor, command := RequiredActor(DownCommand())
+			assert.Equal(t, command, denial.Command)
+
+			if strings.HasPrefix(command, "sudo ") {
+				assert.NotContains(t, denial.Summary, "Running this requires",
+					"the prefix already names who has to run it")
+				return
+			}
+			assert.Contains(t, denial.Summary, "Running this requires "+actor,
+				"nothing else names who has to run it")
+		})
+	}
 }
