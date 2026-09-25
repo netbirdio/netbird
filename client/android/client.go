@@ -382,7 +382,7 @@ func (c *Client) DebugBundle(platformFiles PlatformFiles, anonymize bool, anonym
 
 	// An MDM override wins; otherwise the destination this deployment publishes
 	// is used, and failing that the service NetBird runs.
-	uploadURL := debug.ResolveUploadURL(cfg.DebugBundleUploadURL, publishedUploadURL)
+	uploadURL := debug.ResolveUploadURL(cfg.DebugBundleUploadURL, "", publishedUploadURL)
 
 	path, err := bundleGenerator.Generate()
 	if err != nil {

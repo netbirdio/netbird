@@ -49,7 +49,7 @@ func (s *Server) DebugBundle(callerCtx context.Context, req *proto.DebugBundleRe
 	// it is the operator of this deployment naming their own upload service, and
 	// the peer already trusts that server for its whole configuration. Only a
 	// URL the local caller named goes through requirePrivilegeForUploadURL above.
-	uploadURL := debug.ResolveUploadURL(req.GetUploadURL(), publishedUploadURL)
+	uploadURL := debug.ResolveUploadURL("", req.GetUploadURL(), publishedUploadURL)
 
 	// The upload runs without s.mutex held: it does network I/O to a possibly
 	// slow destination and must not block the other RPCs that take the lock. The

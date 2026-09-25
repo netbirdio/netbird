@@ -1479,16 +1479,13 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobR
 		log.Warnf("get latest sync response: %v", err)
 	}
 
-	// Resolve the upload destination: an MDM override, when set, takes
-	// precedence over the job's URL. Both are validated the same way. With
-	// neither, the destination this deployment publishes is used, and failing
-	// that the service NetBird runs.
-	uploadURL := params.GetUploadUrl()
-	if override := e.config.ProfileConfig.DebugBundleUploadURL; override != "" {
+	// Resolve the upload destination: the MDM policy, then the job's URL, then
+	// what this deployment publishes, then the service NetBird runs.
+	mdmUploadURL := e.config.ProfileConfig.DebugBundleUploadURL
+	if mdmUploadURL != "" && params.GetUploadUrl() != "" && mdmUploadURL != params.GetUploadUrl() {
 		log.Infof("using MDM debug bundle upload URL override instead of the management-supplied value")
-		uploadURL = override
 	}
-	uploadURL = debug.ResolveUploadURL(uploadURL, e.DebugUploadURL())
+	uploadURL := debug.ResolveUploadURL(mdmUploadURL, params.GetUploadUrl(), e.DebugUploadURL())
 
 	// Validated after resolution, so the destination this deployment published
 	// meets the same rule as one named in the job. Management validates it at

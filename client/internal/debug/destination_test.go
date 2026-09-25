@@ -14,12 +14,29 @@ func TestResolveUploadURL(t *testing.T) {
 		requestedURL = "https://requested.example.com/upload-url"
 	)
 
+	const mdmURL = "https://mdm.example.com/upload-url"
+
 	tests := []struct {
 		name      string
+		mdm       string
 		requested string
 		published string
 		want      string
 	}{
+		{
+			// Pinning the destination on a managed device is pointless if the
+			// person at the keyboard can name another one.
+			name:      "MDM outranks a URL the caller named",
+			mdm:       mdmURL,
+			requested: requestedURL,
+			published: operatorURL,
+			want:      mdmURL,
+		},
+		{
+			name: "MDM alone wins",
+			mdm:  mdmURL,
+			want: mdmURL,
+		},
 		{
 			name:      "requested wins over published",
 			requested: requestedURL,
@@ -47,7 +64,7 @@ func TestResolveUploadURL(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, ResolveUploadURL(tc.requested, tc.published))
+			assert.Equal(t, tc.want, ResolveUploadURL(tc.mdm, tc.requested, tc.published))
 		})
 	}
 }
