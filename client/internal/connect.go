@@ -292,6 +292,10 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			return nil
 		}
 
+		if c.updateManager != nil {
+			c.updateManager.ResetMode()
+		}
+
 		// suspend connection attempts while the OS reports no usable network
 		if waited, err := c.netMgr.Wait(c.ctx); err != nil {
 			return nil
