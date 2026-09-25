@@ -467,6 +467,11 @@ initialize_default_values() {
       docker rmi "$OPENSSL_IMAGE"
     fi
   fi
+
+  if [[ -z "$NETBIRD_RELAY_AUTH_SECRET" || -z "$DATASTORE_ENCRYPTION_KEY" || -z "$SESSION_COOKIE_ENCRYPTION_KEY" ]]; then
+    echo "Failed to generate encryption keys. Exiting..."
+    exit 2
+  fi
   
   # Docker images
   DASHBOARD_IMAGE=${DASHBOARD_IMAGE:-"netbirdio/dashboard:latest"}
