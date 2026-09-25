@@ -1,0 +1,228 @@
+openapi: 3.1.0
+servers:
+  - url: https://api.netbird.io
+    description: Default server
+info:
+  title: NetBird REST API
+  description: API to manipulate groups, rules, policies and retrieve information about peers and users
+  version: 1.0.0-alpha1
+tags:
+  - name: Users
+    description: Interact with and view information about users.
+  - name: Tokens
+    description: Interact with and view information about tokens.
+  - name: Peers
+    description: Interact with and view information about peers.
+  - name: Setup Keys
+    description: Interact with and view information about setup keys.
+  - name: Groups
+    description: Interact with and view information about groups.
+  - name: Policies
+    description: Interact with and view information about policies.
+  - name: Posture Checks
+    description: Interact with and view information about posture checks.
+  - name: Routes
+    description: Interact with and view information about routes.
+  - name: DNS
+    description: Interact with and view information about DNS configuration.
+  - name: DNS Zones
+    description: Interact with and view information about custom DNS zones.
+  - name: Events
+    description: View information about the account and network events.
+  - name: Accounts
+    description: View information about the accounts.
+  - name: Ingress Ports
+    description: Interact with and view information about the ingress peers and ports.
+    x-cloud-only: true
+  - name: Identity Providers
+    description: Interact with and view information about identity providers.
+  - name: Services
+    description: Interact with and view information about reverse proxy services.
+  - name: Instance
+    description: Instance setup and status endpoints for initial configuration.
+  - name: Jobs
+    description: Interact with and view information about remote jobs.
+    x-experimental: true
+
+  - name: Usage
+    description: Retrieve current usage statistics for the account.
+    x-cloud-only: true
+  - name: Subscription
+    description: Manage and view information about account subscriptions.
+    x-cloud-only: true
+  - name: Plans
+    description: Retrieve available plans and products.
+    x-cloud-only: true
+  - name: Checkout
+    description: Manage checkout sessions for plan subscriptions.
+    x-cloud-only: true
+  - name: AWS Marketplace
+    description: Manage AWS Marketplace subscriptions.
+    x-cloud-only: true
+  - name: Portal
+    description: Access customer portal for subscription management.
+    x-cloud-only: true
+  - name: Invoice
+    description: Manage and retrieve account invoices.
+    x-cloud-only: true
+  - name: MSP
+    description: MSP portal for Tenant management.
+    x-cloud-only: true
+  - name: IDP SCIM Integrations
+    description: Manage generic SCIM identity provider integrations for user and group sync.
+    x-cloud-only: true
+  - name: IDP Google Integrations
+    description: Manage Google Workspace identity provider integrations for user and group sync.
+    x-cloud-only: true
+  - name: IDP Azure Integrations
+    description: Manage Azure AD identity provider integrations for user and group sync.
+    x-cloud-only: true
+  - name: IDP Okta SCIM Integrations
+    description: Manage Okta SCIM identity provider integrations for user and group sync.
+    x-cloud-only: true
+  - name: EDR Intune Integrations
+    description: Manage Microsoft Intune EDR integrations.
+    x-cloud-only: true
+  - name: EDR SentinelOne Integrations
+    description: Manage SentinelOne EDR integrations.
+    x-cloud-only: true
+  - name: EDR Falcon Integrations
+    description: Manage CrowdStrike Falcon EDR integrations.
+    x-cloud-only: true
+  - name: EDR Huntress Integrations
+    description: Manage Huntress EDR integrations.
+    x-cloud-only: true
+  - name: EDR FleetDM Integrations
+    description: Manage FleetDM EDR integrations.
+    x-cloud-only: true
+  - name: EDR Peers
+    description: Manage EDR compliance bypass for peers.
+    x-cloud-only: true
+  - name: Event Streaming Integrations
+    description: Manage event streaming integrations.
+    x-cloud-only: true
+  - name: Notifications
+    description: Manage notification channels for account event alerts.
+    x-cloud-only: true
+
+components:
+  schemas:
+    CountryCode:
+      description: 2-letter ISO 3166-1 alpha-2 code that represents the country
+      type: string
+      example: "DE"
+    CityName:
+      description: Commonly used English name of the city
+      type: string
+      example: "Berlin"
+    Country:
+      description: Describe country geographical location information
+      type: object
+      properties:
+        country_name:
+          description: Commonly used English name of the country
+          type: string
+          example: "Germany"
+        country_code:
+          $ref: '#/components/schemas/CountryCode'
+      required:
+        - country_name
+        - country_code
+    City:
+      description: Describe city geographical location information
+      type: object
+      properties:
+        geoname_id:
+          description: Integer ID of the record in GeoNames database
+          type: integer
+          example: 2950158
+        city_name:
+          description: Commonly used English name of the city
+          type: string
+          example: "Berlin"
+      required:
+        - geoname_id
+        - city_name
+    ErrorResponse:
+      type: object
+      description: "Standard error response. Note: The exact structure of this error response is inferred from `util.WriteErrorResponse` and `util.WriteError` usage in the provided Go code, as a specific Go struct for errors was not provided."
+      properties:
+        message:
+          type: string
+          description: A human-readable error message.
+          example: "couldn't parse JSON request"
+    GroupMinimum:
+      $ref: './group/components.yaml#/components/schemas/GroupMinimum'
+    PeerRequest:
+      $ref: './peer/components.yaml#/components/schemas/PeerRequest'
+    Peer:
+      $ref: './peer/components.yaml#/components/schemas/Peer'
+    PeerBatch:
+      $ref: './peer/components.yaml#/components/schemas/PeerBatch'
+    PeerMinumum:
+      $ref: './peer/components.yaml#/components/schemas/PeerMinimum'
+  responses:
+    not_found:
+      description: Resource not found
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
+      content: { }
+    validation_failed_simple:
+      description: Validation failed
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
+      content: { }
+    bad_request:
+      description: Bad Request
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
+      content: { }
+    internal_error:
+      description: Internal Server Error
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
+      content: { }
+    validation_failed:
+      description: Validation failed
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
+      content: { }
+    forbidden:
+      description: Forbidden
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
+      content: { }
+    requires_authentication:
+      description: Requires authentication
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
+      content: { }
+    conflict:
+      description: Conflict
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'   
+  headers:
+    X-Request-Id:
+      description: |
+        Unique identifier assigned to the request by the server and set on every
+        response. Useful for correlating client requests with server-side logs.
+      schema:
+        type: string
+        example: cot7r4n3l3vh3qj4qveg
+paths:
+  /peers:
+    $ref: './peer/peers.yaml'
+  /peers/{peerId}:
+    $ref: 'peer/peer.yaml'

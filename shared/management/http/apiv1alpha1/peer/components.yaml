@@ -1,0 +1,257 @@
+components:
+  schemas:
+    PeerRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          example: stage-host-1
+        ssh_enabled:
+          type: boolean
+          example: true
+        login_expiration_enabled:
+          type: boolean
+          example: false
+        inactivity_expiration_enabled:
+          type: boolean
+          example: false
+        approval_required:
+          description: (Cloud only) Indicates whether peer needs approval
+          type: boolean
+          example: true
+        ip:
+          description: Peer's IP address
+          type: string
+          format: ipv4
+          example: 100.64.0.15
+        ipv6:
+          description: Peer's IPv6 overlay address. Omitted if IPv6 is not enabled for the account.
+          type: string
+          format: ipv6
+          example: "fd00:4e42:ab12::1"
+      required:
+        - name
+        - ssh_enabled
+        - login_expiration_enabled
+        - inactivity_expiration_enabled
+    PeerMinimum:
+      type: object
+      properties:
+        id:
+          description: Peer ID
+          type: string
+          example: chacbco6lnnbn6cg5s90
+        name:
+          description: Peer's hostname
+          type: string
+          example: stage-host-1
+      required:
+        - id
+        - name
+    Peer:
+      allOf:
+        - $ref: '#/components/schemas/PeerMinimum'
+        - type: object
+          properties:
+            created_at:
+              description: Peer creation date (UTC)
+              type: string
+              format: date-time
+              example: "2023-05-05T09:00:35.477782Z"
+            ip:
+              description: Peer's IP address
+              type: string
+              example: 10.64.0.1
+            ipv6:
+              description: Peer's IPv6 overlay address
+              type: string
+              format: ipv6
+              example: "fd00:4e42:ab12::1"
+            connection_ip:
+              description: Peer's public connection IP address
+              type: string
+              example: 35.64.0.1
+            connected:
+              description: Peer to Management connection status
+              type: boolean
+              example: true
+            last_seen:
+              description: Last time peer connected to Netbird's management service
+              type: string
+              format: date-time
+              example: "2023-05-05T10:05:26.420578Z"
+            os:
+              description: Peer's operating system and version
+              type: string
+              example: Darwin 13.2.1
+            kernel_version:
+              description: Peer's operating system kernel version
+              type: string
+              example: 23.2.0
+            geoname_id:
+              description: Unique identifier from the GeoNames database for a specific geographical location.
+              type: integer
+              example: 2643743
+            version:
+              description: Peer's daemon or cli version
+              type: string
+              example: 0.14.0
+            groups:
+              description: Groups that the peer belongs to
+              type: array
+              items:
+                $ref: '../group/components.yaml#/components/schemas/GroupMinimum'
+            ssh_enabled:
+              description: Indicates whether SSH server is enabled on this peer
+              type: boolean
+              example: true
+            user_id:
+              description: User ID of the user that enrolled this peer
+              type: string
+              example: google-oauth2|277474792786460067937
+            hostname:
+              description: Hostname of the machine
+              type: string
+              example: stage-host-1
+            ui_version:
+              description: Peer's desktop UI version
+              type: string
+              example: 0.14.0
+            dns_label:
+              description: Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
+              type: string
+              example: stage-host-1.netbird.cloud
+            login_expiration_enabled:
+              description: Indicates whether peer login expiration has been enabled or not
+              type: boolean
+              example: false
+            login_expired:
+              description: Indicates whether peer's login expired or not
+              type: boolean
+              example: false
+            last_login:
+              description: Last time this peer performed log in (authentication). E.g., user authenticated.
+              type: string
+              format: date-time
+              example: "2023-05-05T09:00:35.477782Z"
+            inactivity_expiration_enabled:
+              description: Indicates whether peer inactivity expiration has been enabled or not
+              type: boolean
+              example: false
+            approval_required:
+              description: (Cloud only) Indicates whether peer needs approval
+              type: boolean
+              example: true
+            disapproval_reason:
+              description: (Cloud only) Reason why the peer requires approval
+              type: string
+            country_code:
+              $ref: '../openapi.yaml#/components/schemas/CountryCode'
+            city_name:
+              $ref: '../openapi.yaml#/components/schemas/CityName'
+            serial_number:
+              description: System serial number
+              type: string
+              example: "C02XJ0J0JGH7"
+            extra_dns_labels:
+              description: Extra DNS labels added to the peer
+              type: array
+              items:
+                type: string
+                example: "stage-host-1"
+            ephemeral:
+              description: Indicates whether the peer is ephemeral or not
+              type: boolean
+              example: false
+            local_flags:
+              $ref: '#/components/schemas/PeerLocalFlags'
+          required:
+            - city_name
+            - connected
+            - connection_ip
+            - country_code
+            - created_at
+            - dns_label
+            - geoname_id
+            - groups
+            - hostname
+            - ip
+            - kernel_version
+            - last_login
+            - last_seen
+            - login_expiration_enabled
+            - login_expired
+            - inactivity_expiration_enabled
+            - os
+            - ssh_enabled
+            - user_id
+            - version
+            - ui_version
+            - approval_required
+            - serial_number
+            - extra_dns_labels
+            - ephemeral
+    PeerLocalFlags:
+      type: object
+      properties:
+        rosenpass_enabled:
+          description: Indicates whether Rosenpass is enabled on this peer
+          type: boolean
+          example: true
+        rosenpass_permissive:
+          description: Indicates whether Rosenpass is in permissive mode or not
+          type: boolean
+          example: false
+        server_ssh_allowed:
+          description: Indicates whether SSH access this peer is allowed or not
+          type: boolean
+          example: true
+        remote_jobs_allowed:
+          description: Indicates whether the peer has opted into management-requested remote jobs (e.g. debug bundles)
+          type: boolean
+          example: true
+        disable_client_routes:
+          description: Indicates whether client routes are disabled on this peer or not
+          type: boolean
+          example: false
+        disable_server_routes:
+          description: Indicates whether server routes are disabled on this peer or not
+          type: boolean
+          example: false
+        disable_dns:
+          description: Indicates whether DNS management is disabled on this peer or not
+          type: boolean
+          example: false
+        disable_firewall:
+          description: Indicates whether firewall management is disabled on this peer or not
+          type: boolean
+          example: false
+        block_lan_access:
+          description: Indicates whether LAN access is blocked on this peer when used as a routing peer
+          type: boolean
+          example: false
+        block_inbound:
+          description: Indicates whether inbound traffic is blocked on this peer
+          type: boolean
+          example: false
+        lazy_connection_enabled:
+          description: Indicates whether lazy connection is enabled on this peer
+          type: boolean
+          example: false
+    PeerBatch:
+      allOf:
+        - $ref: '#/components/schemas/Peer'
+        - type: object
+          properties:
+            created_at:
+              description: Peer creation date (UTC)
+              type: string
+              format: date-time
+              example: "2023-05-05T09:00:35.477782Z"
+            accessible_peers_count:
+              description: Number of accessible peers
+              type: integer
+              example: 5
+          required:
+            - created_at
+            - accessible_peers_count

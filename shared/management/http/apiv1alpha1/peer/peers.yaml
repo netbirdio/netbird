@@ -1,0 +1,35 @@
+get:
+  summary: List all Peers
+  description: Returns a list of all peers
+  tags: [ Peers ]
+  parameters:
+    - in: query
+      name: name
+      schema:
+        type: string
+      description: Filter peers by name
+    - in: query
+      name: ip
+      schema:
+        type: string
+      description: Filter peers by IP address
+  security:
+    - BearerAuth: [ ]
+    - TokenAuth: [ ]
+  responses:
+    '200':
+      description: A JSON Array of Peers
+      content:
+        application/json:
+          schema:
+            type: array
+            items:
+              $ref: './components.yaml#/components/schemas/PeerBatch'
+    '400':
+      "$ref": "../openapi.yaml#/components/responses/bad_request"
+    '401':
+      "$ref": "../openapi.yaml#/components/responses/requires_authentication"
+    '403':
+      "$ref": "../openapi.yaml#/components/responses/forbidden"
+    '500':
+      "$ref": "../openapi.yaml#/components/responses/internal_error"

@@ -1,0 +1,90 @@
+get:
+  summary: Retrieve a Peer
+  description: Get information about a peer
+  tags: [ Peers ]
+  security:
+    - BearerAuth: [ ]
+    - TokenAuth: [ ]
+  parameters:
+    - in: path
+      name: peerId
+      required: true
+      schema:
+        type: string
+      description: The unique identifier of a peer
+  responses:
+    '200':
+      description: A Peer object
+      content:
+        application/json:
+          schema:
+            $ref: './components.yaml#/components/schemas/Peer'
+    '400':
+      "$ref": '../openapi.yaml#/components/responses/bad_request'
+    '401':
+      "$ref": '../openapi.yaml#/components/responses/requires_authentication'
+    '403':
+      "$ref": '../openapi.yaml#/components/responses/forbidden'
+    '500':
+      "$ref": '../openapi.yaml#/components/responses/internal_error'
+put:
+  summary: Update a Peer
+  description: Update information about a peer
+  tags: [ Peers ]
+  security:
+    - BearerAuth: [ ]
+    - TokenAuth: [ ]
+  parameters:
+    - in: path
+      name: peerId
+      required: true
+      schema:
+        type: string
+      description: The unique identifier of a peer
+  requestBody:
+    description: update a peer
+    content:
+      'application/json':
+        schema:
+          $ref: './components.yaml#/components/schemas/PeerRequest'
+  responses:
+    '200':
+      description: A Peer object
+      content:
+        application/json:
+          schema:
+            $ref: './components.yaml#/components/schemas/Peer'
+     '400':
+      "$ref": '../openapi.yaml#/components/responses/bad_request'
+    '401':
+      "$ref": '../openapi.yaml#/components/responses/requires_authentication'
+    '403':
+      "$ref": '../openapi.yaml#/components/responses/forbidden'
+    '500':
+      "$ref": '../openapi.yaml#/components/responses/internal_error'
+delete:
+  summary: Delete a Peer
+  description: Delete a peer
+  tags: [ Peers ]
+  security:
+    - BearerAuth: [ ]
+    - TokenAuth: [ ]
+  parameters:
+    - in: path
+      name: peerId
+      required: true
+      schema:
+        type: string
+      description: The unique identifier of a peer
+  responses:
+    '200':
+      description: Delete status code
+      content: { }
+    '400':
+      "$ref": '../openapi.yaml#/components/responses/bad_request'
+    '401':
+      "$ref": '../openapi.yaml#/components/responses/requires_authentication'
+    '403':
+      "$ref": '../openapi.yaml#/components/responses/forbidden'
+    '500':
+      "$ref": '../openapi.yaml#/components/responses/internal_error'
