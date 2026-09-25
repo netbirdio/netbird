@@ -80,3 +80,49 @@ jobs:
           skip-save-cache: true
           cache-invalidation-interval: 0
           args: --timeout=20m
+
+  # Separate job rather than extra rows in the matrix above: those rows pick a
+  # GOOS by picking a runner OS, while android/ios are cross-compiled from
+  # ubuntu — an `include` entry with os: ubuntu-latest would merge into the
+  # Linux row instead of adding one. The package path is restricted because a
+  # whole-repo run under GOOS=android pulls *_linux.go files into packages that
+  # have no android counterpart.
+  golangci-mobile:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: android
+            goarch: arm64
+            packages: ./client/android/...
+            display_name: Android
+          - goos: ios
+            goarch: arm64
+            packages: ./client/ios/...
+            display_name: iOS
+    name: ${{ matrix.display_name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CGO_ENABLED: 0
+      GOOS: ${{ matrix.goos }}
+      GOARCH: ${{ matrix.goarch }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Install Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: "go.mod"
+          cache: false
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@82606bf257cbaff209d206a39f5134f0cfbfd2ee #v9.2.1
+        with:
+          version: latest
+          install-mode: binary
+          skip-cache: true
+          skip-save-cache: true
+          cache-invalidation-interval: 0
+          args: --timeout=20m ${{ matrix.packages }}
