@@ -45,12 +45,12 @@ type Net struct {
 }
 
 // NewNetWithDiscover creates a new StdNet instance.
-func NewNetWithDiscover(ctx context.Context, iFaceDiscover ExternalIFaceDiscover, disallowList []string) (*Net, error) {
+func NewNetWithDiscover(ctx context.Context, iFaceDiscover ExternalIFaceDiscover, disallowList []string, detector *WGDetector) (*Net, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	n := &Net{
-		interfaceFilter: InterfaceFilter(disallowList),
+		interfaceFilter: InterfaceFilter(disallowList, detector),
 		ctx:             ctx,
 	}
 	// current ExternalIFaceDiscover implement in android-client https://github.dev/netbirdio/android-client
@@ -64,13 +64,13 @@ func NewNetWithDiscover(ctx context.Context, iFaceDiscover ExternalIFaceDiscover
 }
 
 // NewNet creates a new StdNet instance.
-func NewNet(ctx context.Context, disallowList []string) (*Net, error) {
+func NewNet(ctx context.Context, disallowList []string, detector *WGDetector) (*Net, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	n := &Net{
 		iFaceDiscover:   pionDiscover{},
-		interfaceFilter: InterfaceFilter(disallowList),
+		interfaceFilter: InterfaceFilter(disallowList, detector),
 		ctx:             ctx,
 	}
 	return n, n.UpdateInterfaces()

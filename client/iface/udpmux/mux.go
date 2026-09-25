@@ -201,7 +201,7 @@ func (m *SingleSocketUDPMux) updateLocalAddresses() {
 		if len(networks) > 0 {
 			if m.params.Net == nil {
 				var err error
-				if m.params.Net, err = stdnet.NewNet(context.Background(), nil); err != nil {
+				if m.params.Net, err = stdnet.NewNet(context.Background(), nil, nil); err != nil {
 					m.params.Logger.Errorf("failed to get create network: %v", err)
 				}
 			}

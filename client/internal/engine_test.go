@@ -696,7 +696,7 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 				StatusRecorder: peer.NewRecorder("https://mgm"),
 			}, MobileDependency{})
 			engine.ctx = ctx
-			newNet, err := stdnet.NewNet(context.Background(), nil)
+			newNet, err := stdnet.NewNet(context.Background(), nil, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -904,7 +904,7 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 			}, MobileDependency{})
 			engine.ctx = ctx
 
-			newNet, err := stdnet.NewNet(context.Background(), nil)
+			newNet, err := stdnet.NewNet(context.Background(), nil, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
