@@ -1330,9 +1330,11 @@ func CreateInMemoryConfig(input ConfigInput) (*Config, error) {
 	return createProvisionedConfig(input)
 }
 
-// ReadOrGenerateConfig reads the profile config at configPath if it exists, or
-// generates one in memory from the defaults.
-func ReadOrGenerateConfig(configPath string) (*Config, error) {
+// ReadConfigOrDefault reads the profile config at configPath, or resolves the
+// default config in memory when the file does not exist. It never writes, and
+// never mints an identity — EnsureIdentity is where that happens, so the
+// caller that provisions is also the one that persists.
+func ReadConfigOrDefault(configPath string) (*Config, error) {
 	return readConfig(configPath, true)
 }
 
@@ -1457,7 +1459,7 @@ func ConfigToJSON(config *Config) (string, error) {
 //
 // The peer identity is deliberately none of its business, in either direction.
 // It does not generate one: a read cannot hand back keys that nothing will
-// write down (see ReadOrGenerateConfig). Nor does it refuse a document that
+// write down (see ReadConfigOrDefault). Nor does it refuse a document that
 // carries none, because a config legitimately has no identity between a logout
 // and the next login — mobile logout clears both keys in place — and this is
 // also the deserializer the iOS SDK copies a config through. Whoever goes on

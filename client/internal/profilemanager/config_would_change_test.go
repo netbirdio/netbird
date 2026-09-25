@@ -112,8 +112,8 @@ func TestReadsDoNotWriteTheConfigBack(t *testing.T) {
 	denormalized := []byte(`{"WgIface":"wt0"}`)
 
 	for name, read := range map[string]func(string) (*Config, error){
-		"GetExistingConfig":    GetExistingConfig,
-		"ReadOrGenerateConfig": ReadOrGenerateConfig,
+		"GetExistingConfig":   GetExistingConfig,
+		"ReadConfigOrDefault": ReadConfigOrDefault,
 	} {
 		t.Run(name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "profile.json")
@@ -131,17 +131,17 @@ func TestReadsDoNotWriteTheConfigBack(t *testing.T) {
 	}
 }
 
-// ReadConfig resolves a default config for a profile that has no file yet, and
-// that must not create the file either.
+// ReadConfigOrDefault resolves a default config for a profile that has no file
+// yet, and that must not create the file either.
 func TestReadConfigDoesNotCreateTheFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "absent.json")
 
-	cfg, err := ReadOrGenerateConfig(path)
+	cfg, err := ReadConfigOrDefault(path)
 	require.NoError(t, err)
 	require.Equal(t, DefaultManagementURL, cfg.ManagementURL.String())
 
 	_, err = os.Stat(path)
-	require.True(t, os.IsNotExist(err), "ReadConfig created the config file")
+	require.True(t, os.IsNotExist(err), "ReadConfigOrDefault created the config file")
 }
 
 // The identity is the one thing a read cannot recompute, so it is provisioned
@@ -310,8 +310,8 @@ func TestWouldChangeIgnoresRestatedCertificatePaths(t *testing.T) {
 // A read that lands on a missing file must not hand back keys: nothing would
 // write them down, so the caller would connect with an identity that changes on
 // the next run and registers a second peer.
-func TestReadOrGenerateConfigCarriesNoIdentity(t *testing.T) {
-	cfg, err := ReadOrGenerateConfig(filepath.Join(t.TempDir(), "absent.json"))
+func TestReadConfigOrDefaultCarriesNoIdentity(t *testing.T) {
+	cfg, err := ReadConfigOrDefault(filepath.Join(t.TempDir(), "absent.json"))
 	require.NoError(t, err)
 
 	require.Empty(t, cfg.PrivateKey, "a read minted a WireGuard key")

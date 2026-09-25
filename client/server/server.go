@@ -1524,7 +1524,7 @@ func provisionProfileIdentity(activeProf *profilemanager.ActiveProfileState) (*p
 
 	log.Infof("active profile config existed: %t, err %v", configExisted, err)
 
-	config, err := profilemanager.ReadOrGenerateConfig(cfgPath)
+	config, err := profilemanager.ReadConfigOrDefault(cfgPath)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to get config: %w", err)
 	}
