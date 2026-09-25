@@ -331,7 +331,7 @@ func Test_AccountSettings_SaveAndRetrieve(t *testing.T) {
 		settings := types.Settings{}
 		numOfExportedFields, err := populateFields.PopulateAll(reflect.ValueOf(&settings).Elem())
 		assert.NoError(t, err)
-		assert.Equal(t, 27, numOfExportedFields)
+		assert.Equal(t, 28, numOfExportedFields)
 		account.Settings = &settings
 
 		err = store.SaveAccount(context.Background(), account)
