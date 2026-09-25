@@ -3,6 +3,7 @@ package peer
 import (
 	"context"
 	"fmt"
+	"math"
 	"net"
 	"strconv"
 	"sync"
@@ -19,6 +20,26 @@ import (
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/route"
 )
+
+const (
+	// latencySampleInterval is how often the round trip time of the selected
+	// candidate pair is read. The ICE agent refreshes it on every consent
+	// binding request, so sampling is cheap and needs no extra traffic.
+	latencySampleInterval = 4 * time.Second
+
+	// latencyEWMAAlpha is the weight of a new sample in the exponentially
+	// weighted moving average. At latencySampleInterval this yields a time
+	// constant of roughly 27 seconds: a sustained change is reflected within
+	// tens of seconds, while the residual movement on a jittery path stays
+	// below the switch margin that route selection applies, so noise alone
+	// cannot move a route. Raising it widens that residual movement.
+	latencyEWMAAlpha = 0.15
+)
+
+// latencySmoothedNoiseFactor converts the spread of the raw samples into the
+// spread of the smoothed value: for an exponentially weighted moving average
+// with weight a, the variance of the output is a/(2-a) of the input variance.
+var latencySmoothedNoiseFactor = math.Sqrt(latencyEWMAAlpha / (2 - latencyEWMAAlpha))
 
 type ICEConnInfo struct {
 	RemoteConn                 net.Conn
@@ -67,6 +88,11 @@ type WorkerICE struct {
 
 	// dialFunc, when non-nil, replaces agentDial in connect(). Only for tests.
 	dialFunc func(ctx context.Context, agent *icemaker.ThreadSafeAgent, remoteOfferAnswer *OfferAnswer) (net.Conn, error)
+
+	// sampleNow wakes the latency sampler outside its regular interval, so a
+	// selected candidate pair change is reflected in the recorded latency
+	// immediately instead of describing the previous path until the next tick
+	sampleNow chan struct{}
 }
 
 func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, conn *Conn, signaler *Signaler, ifaceDiscover stdnet.ExternalIFaceDiscover, statusRecorder *Status, hasRelayOnLocally bool) (*WorkerICE, error) {
@@ -86,6 +112,7 @@ func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, conn *
 		hasRelayOnLocally: hasRelayOnLocally,
 		lastKnownState:    ice.ConnectionStateDisconnected,
 		sessionID:         sessionID,
+		sampleNow:         make(chan struct{}, 1),
 	}
 
 	localUfrag, localPwd, err := icemaker.GenerateICECredentials()
@@ -233,9 +260,7 @@ func (w *WorkerICE) reCreateAgent(dialerCancel context.CancelFunc, candidates []
 		return nil, err
 	}
 
-	if err := agent.OnSelectedCandidatePairChange(func(c1, c2 ice.Candidate) {
-		w.onICESelectedCandidatePair(agent, c1, c2)
-	}); err != nil {
+	if err := agent.OnSelectedCandidatePairChange(w.onICESelectedCandidatePair); err != nil {
 		return nil, err
 	}
 
@@ -342,6 +367,9 @@ func (w *WorkerICE) connect(ctx context.Context, dialerCancel context.CancelFunc
 	w.agentConnecting = false
 	w.lastSuccess = time.Now()
 	w.muxAgent.Unlock()
+
+	// ctx is the agent's dialer context, so sampling stops when the agent is closed
+	go w.sampleLatency(ctx, agent)
 
 	// todo: the potential problem is a race between the onConnectionStateChange
 	// and the delivery below: after this unlock, a newer offer can replace
@@ -525,20 +553,54 @@ func (w *WorkerICE) createForwardedCandidate(srflxCandidate ice.Candidate, mappi
 	return candidate, nil
 }
 
-func (w *WorkerICE) onICESelectedCandidatePair(agent *icemaker.ThreadSafeAgent, c1, c2 ice.Candidate) {
+func (w *WorkerICE) onICESelectedCandidatePair(c1, c2 ice.Candidate) {
 	w.log.Debugf("selected candidate pair [local <-> remote] -> [%s <-> %s], peer %s", c1.String(), c2.String(),
 		w.config.Key)
 
+	// refresh the recorded latency right away: it still describes the previous
+	// path, and route selection may run before the next sampling tick
+	select {
+	case w.sampleNow <- struct{}{}:
+	default:
+	}
+}
+
+// sampleLatency records the smoothed round trip time of the agent's selected
+// candidate pair until the agent is closed. Route selection compares the
+// recorded latencies of high availability peers, so it has to keep following
+// the path instead of freezing at the value observed when the pair was chosen.
+func (w *WorkerICE) sampleLatency(ctx context.Context, agent *icemaker.ThreadSafeAgent) {
+	var sampler latencySampler
+
+	ticker := time.NewTicker(latencySampleInterval)
+	defer ticker.Stop()
+
+	for {
+		w.updateLatency(agent, &sampler)
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		case <-w.sampleNow:
+		}
+	}
+}
+
+func (w *WorkerICE) updateLatency(agent *icemaker.ThreadSafeAgent, sampler *latencySampler) {
 	pairStat, ok := agent.GetSelectedCandidatePairStats()
 	if !ok {
-		w.log.Warnf("failed to get selected candidate pair stats")
+		w.log.Debugf("failed to get selected candidate pair stats")
 		return
 	}
 
-	duration := time.Duration(pairStat.CurrentRoundTripTime * float64(time.Second))
-	if err := w.statusRecorder.UpdateLatency(w.config.Key, duration); err != nil {
-		w.log.Debugf("failed to update latency for peer: %s", err)
+	sample := sampler.observe(pairStat)
+	if sample.Latency <= 0 {
 		return
+	}
+
+	if err := w.statusRecorder.UpdateLatency(w.config.Key, sample); err != nil {
+		w.log.Debugf("failed to update latency for peer: %s", err)
 	}
 }
 
@@ -602,6 +664,59 @@ func (w *WorkerICE) agentDial(ctx context.Context, agent *icemaker.ThreadSafeAge
 		return agent.Dial(ctx, remoteOfferAnswer.IceCredentials.UFrag, remoteOfferAnswer.IceCredentials.Pwd)
 	} else {
 		return agent.Accept(ctx, remoteOfferAnswer.IceCredentials.UFrag, remoteOfferAnswer.IceCredentials.Pwd)
+	}
+}
+
+// latencySampler smooths the round trip time samples of a single ICE agent and
+// tracks how much they scatter, so consumers can tell a real difference between
+// two paths from the noise of a jittery one.
+type latencySampler struct {
+	smoothed  time.Duration
+	deviation time.Duration
+	localID   string
+	remoteID  string
+}
+
+// observe folds a candidate pair stat into the moving average and returns the
+// smoothed latency with the uncertainty of that estimate. A different candidate
+// pair starts over: the path changed, so the previous samples describe a route
+// that no longer carries the traffic.
+func (s *latencySampler) observe(stat ice.CandidatePairStats) LatencySample {
+	rtt := time.Duration(stat.CurrentRoundTripTime * float64(time.Second))
+	if rtt <= 0 {
+		return LatencySample{}
+	}
+
+	if s.smoothed <= 0 || s.localID != stat.LocalCandidateID || s.remoteID != stat.RemoteCandidateID {
+		s.localID = stat.LocalCandidateID
+		s.remoteID = stat.RemoteCandidateID
+		s.smoothed = rtt
+		// A fresh path is described by a single raw sample, which is exactly
+		// when the estimate deserves the least trust: a lucky outlier reported
+		// with no uncertainty could move a route on its own. Seed the deviation
+		// at half the observed value so the reported noise stays conservative
+		// until real samples accumulate, and keep a larger deviation carried
+		// over from the previous path, since the link's jitter usually outlives
+		// a candidate pair change.
+		if seed := rtt / 2; s.deviation < seed {
+			s.deviation = seed
+		}
+		return s.sample()
+	}
+
+	// mean absolute deviation of the samples around the average, the same
+	// estimator TCP keeps next to its smoothed round trip time
+	delta := absDuration(rtt - s.smoothed)
+	s.deviation = time.Duration(latencyEWMAAlpha*float64(delta) + (1-latencyEWMAAlpha)*float64(s.deviation))
+	s.smoothed = time.Duration(latencyEWMAAlpha*float64(rtt) + (1-latencyEWMAAlpha)*float64(s.smoothed))
+
+	return s.sample()
+}
+
+func (s *latencySampler) sample() LatencySample {
+	return LatencySample{
+		Latency: s.smoothed,
+		Noise:   time.Duration(latencySmoothedNoiseFactor * float64(s.deviation)),
 	}
 }
 

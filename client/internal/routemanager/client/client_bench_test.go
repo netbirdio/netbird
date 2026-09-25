@@ -23,6 +23,12 @@ var benchmarkTiers = []benchmarkTier{
 	{"Small", 100, 50, 4},
 	{"Medium", 1000, 200, 16},
 	{"Large", 5000, 500, 32},
+	// the tiers below are deliberately past anything realistic: a watcher holds
+	// the routes of a single network, while these give one watcher every route
+	// in the account at once
+	{"ManyPeers", 20000, 500, 32},
+	{"ManyRoutes", 1000, 5000, 16},
+	{"ManyBoth", 20000, 5000, 32},
 }
 
 type mockRouteHandler struct {

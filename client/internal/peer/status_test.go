@@ -42,6 +42,167 @@ func TestGetPeer(t *testing.T) {
 	assert.Error(t, err, "should return error when peer doesn't exist")
 }
 
+func TestUpdateLatencyNotifiesRouteWatchers(t *testing.T) {
+	key := "abc"
+	status := NewRecorder("https://mgm")
+	require.NoError(t, status.AddPeer(key, "abc.netbird", "100.108.254.1", ""))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	sub := status.SubscribeToPeerStateChanges(ctx, key)
+
+	require.NoError(t, status.UpdateLatency(key, LatencySample{Latency: 40 * time.Millisecond}))
+	select {
+	case states := <-sub.Events():
+		assert.Equal(t, 40*time.Millisecond, states[key].Latency, "the notified state should carry the new latency")
+	default:
+		t.Fatal("expected a router state notification for the first latency sample")
+	}
+
+	// below routerLatencyNotifyThreshold: recorded, but not worth waking the watchers
+	require.NoError(t, status.UpdateLatency(key, LatencySample{Latency: 42 * time.Millisecond}))
+	select {
+	case <-sub.Events():
+		t.Fatal("a latency change below the threshold should not notify")
+	default:
+	}
+
+	peerState, err := status.GetPeer(key)
+	require.NoError(t, err)
+	assert.Equal(t, 42*time.Millisecond, peerState.Latency, "the latency should be recorded even without a notification")
+
+	require.NoError(t, status.UpdateLatency(key, LatencySample{Latency: 100 * time.Millisecond}))
+	select {
+	case states := <-sub.Events():
+		assert.Equal(t, 100*time.Millisecond, states[key].Latency, "a significant latency change should notify")
+	default:
+		t.Fatal("expected a router state notification for a significant latency change")
+	}
+}
+
+// TestSubscriptionDeliverOrdering covers the sequence stamping: snapshots are
+// built under the status lock but delivered outside it, so a dispatcher that
+// is descheduled between the two can deliver an outdated snapshot after a
+// newer one. The older snapshot must be dropped, not delivered.
+func TestSubscriptionDeliverOrdering(t *testing.T) {
+	sub := newStatusChangeSubscription(context.Background(), "peer")
+
+	newer := &routerSnapshot{seq: 2, states: map[string]RouterState{"peer": {Status: StatusConnecting}}}
+	older := &routerSnapshot{seq: 1, states: map[string]RouterState{"peer": {Status: StatusConnected}}}
+
+	sub.deliver(newer, true)
+	sub.deliver(older, true)
+
+	select {
+	case states := <-sub.Events():
+		assert.Equal(t, StatusConnecting, states["peer"].Status, "the newer snapshot should be delivered")
+	default:
+		t.Fatal("expected the newer snapshot to be delivered")
+	}
+
+	select {
+	case <-sub.Events():
+		t.Fatal("the outdated snapshot must be dropped, not delivered after the newer one")
+	default:
+	}
+}
+
+// TestSubscriptionDeliverNonBlocking covers the latency dispatch path: a
+// backlogged subscriber must not block the sender, and the dropped snapshot is
+// recovered from the recorder by the route watchers' periodic re-evaluation.
+func TestSubscriptionDeliverNonBlocking(t *testing.T) {
+	sub := newStatusChangeSubscription(context.Background(), "peer")
+
+	// fill the subscription buffer with no consumer draining it
+	seq := uint64(1)
+	for {
+		before := len(sub.eventsChan)
+		sub.deliver(&routerSnapshot{seq: seq, states: map[string]RouterState{}}, false)
+		seq++
+		if len(sub.eventsChan) == before {
+			break
+		}
+	}
+
+	done := make(chan struct{})
+	go func() {
+		sub.deliver(&routerSnapshot{seq: seq, states: map[string]RouterState{}}, false)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("a non-blocking deliver must return with the buffer full")
+	}
+}
+
+// A snapshot the subscriber never received must not count as delivered: a
+// state transition dispatched just before it, but delivered just after, would
+// otherwise be dropped as outdated and never reach the subscriber.
+func TestSubscriptionDroppedDeliveryDoesNotSupersede(t *testing.T) {
+	sub := newStatusChangeSubscription(context.Background(), "peer")
+
+	for seq := uint64(1); seq <= uint64(cap(sub.eventsChan)); seq++ {
+		sub.deliver(&routerSnapshot{seq: seq, states: map[string]RouterState{}}, false)
+	}
+	require.Len(t, sub.eventsChan, cap(sub.eventsChan), "the buffer must be full")
+
+	// a latency refresh stamped after the transition wins the race to the
+	// subscriber and is dropped on the full buffer
+	transition := &routerSnapshot{seq: 100, states: map[string]RouterState{"peer": {Status: StatusConnecting}}}
+	latency := &routerSnapshot{seq: 101, states: map[string]RouterState{"peer": {Status: StatusConnected}}}
+	sub.deliver(latency, false)
+
+	for range cap(sub.eventsChan) {
+		<-sub.eventsChan
+	}
+	sub.deliver(transition, true)
+
+	select {
+	case states := <-sub.Events():
+		assert.Equal(t, StatusConnecting, states["peer"].Status, "the transition must be delivered")
+	default:
+		t.Fatal("a transition must not be dropped because a later snapshot was dropped")
+	}
+}
+
+// Latency is only measured over a direct connection. Once it is gone the last
+// sample describes a path the traffic no longer takes, and must not be compared
+// against other routing peers as if it were current.
+func TestLatencyClearedWithDirectConnection(t *testing.T) {
+	const key = "abc"
+
+	newStatus := func(t *testing.T) *Status {
+		t.Helper()
+		status := NewRecorder("https://mgm")
+		require.NoError(t, status.AddPeer(key, "peer-a.netbird.local", "10.10.10.10", ""))
+		require.NoError(t, status.UpdatePeerICEState(State{PubKey: key, ConnStatus: StatusConnected}))
+		require.NoError(t, status.UpdateLatency(key, LatencySample{Latency: 20 * time.Millisecond, Noise: time.Millisecond}))
+		return status
+	}
+
+	assertCleared := func(t *testing.T, status *Status) {
+		t.Helper()
+		state, err := status.GetPeer(key)
+		require.NoError(t, err)
+		assert.Zero(t, state.Latency, "the latency of the lost direct path must be cleared")
+		assert.Zero(t, state.LatencyNoise, "the noise of the lost direct path must be cleared")
+	}
+
+	t.Run("ice disconnected, relayed", func(t *testing.T) {
+		status := newStatus(t)
+		require.NoError(t, status.UpdatePeerICEStateToDisconnected(State{PubKey: key, ConnStatus: StatusConnected, Relayed: true}))
+		assertCleared(t, status)
+	})
+
+	t.Run("connection closed", func(t *testing.T) {
+		status := newStatus(t)
+		require.NoError(t, status.UpdatePeerState(State{PubKey: key, ConnStatus: StatusIdle}))
+		assertCleared(t, status)
+	})
+}
+
 func TestUpdatePeerState(t *testing.T) {
 	key := "abc"
 	ip := "10.10.10.10"
