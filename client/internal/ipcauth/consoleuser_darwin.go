@@ -1,3 +1,5 @@
+//go:build darwin && !ios
+
 package ipcauth
 
 import (
