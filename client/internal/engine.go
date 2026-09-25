@@ -58,6 +58,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/rosenpass"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
+	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/client/internal/syncstore"
 	"github.com/netbirdio/netbird/client/internal/updater"
 	"github.com/netbirdio/netbird/client/jobexec"
@@ -246,6 +247,9 @@ type Engine struct {
 
 	udpMux *udpmux.UniversalUDPMuxDefault
 
+	// wgDetector is shared by every ICE agent through the ICE config.
+	wgDetector *stdnet.WGDetector
+
 	// networkSerial is the latest CurrentSerial (state ID) of the network sent by the Management service
 	networkSerial uint64
 
@@ -364,6 +368,7 @@ func NewEngine(
 		mgmClient:          services.MgmClient,
 		relayManager:       services.RelayManager,
 		peerStore:          peerstore.NewConnStore(),
+		wgDetector:         stdnet.NewWGDetector(),
 		syncMsgMux:         &sync.Mutex{},
 		config:             config,
 		mobileDep:          mobileDep,
