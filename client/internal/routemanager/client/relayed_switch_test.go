@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -261,6 +262,63 @@ func TestRelayedHoldTimerAppliesSwitch(t *testing.T) {
 		}
 		return false
 	}, 2*time.Second, 10*time.Millisecond, "the held switch must be applied once the delay passed")
+}
+
+// A route update can keep a route's ID and hand it to a different routing peer.
+// That is a switch like any other: it is reported, and the new peer is tracked
+// from its own state rather than inheriting the previous peer's.
+func TestRouteReassignedToDifferentPeerIsASwitch(t *testing.T) {
+	w, handler := newRecalcWatcher(t)
+
+	require.NoError(t, w.recalculateRoutes(reasonPeerUpdate, map[route.ID]routerPeerStatus{
+		"route1": {status: peer.StatusConnected},
+	}))
+	require.Equal(t, []string{"peer1"}, handler.added)
+
+	reassigned := *w.routes["route1"]
+	reassigned.Peer = "peer3"
+	w.routes["route1"] = &reassigned
+
+	require.NoError(t, w.recalculateRoutes(reasonRouteUpdate, map[route.ID]routerPeerStatus{
+		"route1": {status: peer.StatusConnected, relayed: true},
+	}))
+	assert.Equal(t, []string{"peer1", "peer3"}, handler.added, "the allowed IPs must move to the new routing peer")
+	assert.Equal(t, "peer3", w.trackedPeer, "the new routing peer must be tracked")
+	assert.False(t, w.trackedDirect, "the new routing peer is tracked from its own state")
+
+	events := w.statusRecorder.GetEventHistory()
+	require.Len(t, events, 1, "the reassignment must publish a switch event")
+	assert.Equal(t, "Routing peer changed", events[0].Message)
+	assert.Equal(t, "peer1", events[0].Metadata["previous_peer"])
+	assert.Equal(t, "peer3", events[0].Metadata["peer"])
+	assert.Equal(t, string(switchReasonRouteChanged), events[0].Metadata["reason"])
+}
+
+// Exit nodes report their own connect and disconnect events, but those carry
+// no reason: the switch event is published for default routes too.
+func TestDefaultRouteSwitchPublishesEvent(t *testing.T) {
+	w, _ := newRecalcWatcher(t)
+	for _, r := range w.routes {
+		r.Network = netip.MustParsePrefix("0.0.0.0/0")
+	}
+
+	require.NoError(t, w.recalculateRoutes(reasonPeerUpdate, map[route.ID]routerPeerStatus{
+		"route1": {status: peer.StatusConnected},
+	}))
+	require.NoError(t, w.recalculateRoutes(reasonPeerUpdate, map[route.ID]routerPeerStatus{
+		"route1": {status: peer.StatusConnecting},
+		"route2": {status: peer.StatusConnected},
+	}))
+
+	var switchEvents []*proto.SystemEvent
+	for _, e := range w.statusRecorder.GetEventHistory() {
+		if e.Message == "Routing peer changed" {
+			switchEvents = append(switchEvents, e)
+		}
+	}
+	require.Len(t, switchEvents, 1, "an exit node switch must publish a switch event")
+	assert.Equal(t, string(switchReasonUnavailable), switchEvents[0].Metadata["reason"])
+	assert.Empty(t, switchEvents[0].UserMessage, "the switch event must not notify the user a second time")
 }
 
 func TestRoutingPeerSwitchPublishesEvent(t *testing.T) {

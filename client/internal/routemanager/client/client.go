@@ -83,12 +83,13 @@ const (
 type switchReason string
 
 const (
-	switchReasonNone        switchReason = ""
-	switchReasonUnavailable switchReason = "current routing peer unavailable"
-	switchReasonConnected   switchReason = "connected peer preferred over idle"
-	switchReasonMetric      switchReason = "lower route metric"
-	switchReasonDirect      switchReason = "direct connection preferred over relayed"
-	switchReasonLatency     switchReason = "lower latency"
+	switchReasonNone         switchReason = ""
+	switchReasonUnavailable  switchReason = "current routing peer unavailable"
+	switchReasonConnected    switchReason = "connected peer preferred over idle"
+	switchReasonMetric       switchReason = "lower route metric"
+	switchReasonDirect       switchReason = "direct connection preferred over relayed"
+	switchReasonLatency      switchReason = "lower latency"
+	switchReasonRouteChanged switchReason = "route assigned to a different routing peer"
 )
 
 // holdKind is the rule that keeps the current routing peer over a better one.
@@ -260,11 +261,12 @@ type Watcher struct {
 	// to relayed is kept over an otherwise equivalent direct one. The zero value
 	// switches at once.
 	relayedSwitch relayedSwitchPolicy
-	// trackedCurrent and trackedDirect are the current routing peer and whether
-	// it was connected directly as of the previous evaluation, used to tell a
-	// peer that dropped to relay while carrying the route from one that was
-	// never direct
+	// trackedCurrent, trackedPeer and trackedDirect are the current route, its
+	// routing peer and whether that peer was connected directly as of the
+	// previous evaluation, used to tell a peer that dropped to relay while
+	// carrying the route from one that was never direct
 	trackedCurrent route.ID
+	trackedPeer    string
 	trackedDirect  bool
 	// degradedSince is when the current routing peer dropped from direct to
 	// relayed, zero if it is direct or was already relayed when chosen
@@ -445,12 +447,12 @@ func (w *Watcher) reportUnassigned() {
 // keep the route on the slower path.
 func (w *Watcher) trackRelayed(current routeCandidate, haveCurrent bool) {
 	if !haveCurrent {
-		w.trackedCurrent, w.trackedDirect, w.degradedSince = "", false, time.Time{}
+		w.trackedCurrent, w.trackedPeer, w.trackedDirect, w.degradedSince = "", "", false, time.Time{}
 		return
 	}
 
 	switch {
-	case current.id != w.trackedCurrent, !current.relayed:
+	case current.id != w.trackedCurrent, current.peer != w.trackedPeer, !current.relayed:
 		w.degradedSince = time.Time{}
 	case w.trackedDirect:
 		w.degradedSince = time.Now()
@@ -458,7 +460,7 @@ func (w *Watcher) trackRelayed(current routeCandidate, haveCurrent bool) {
 		// back the same candidate
 		w.heldCandidate = ""
 	}
-	w.trackedCurrent, w.trackedDirect = current.id, current.isDirect()
+	w.trackedCurrent, w.trackedPeer, w.trackedDirect = current.id, current.peer, current.isDirect()
 }
 
 // shouldSwitchRoute reports whether the current routing peer should be replaced
@@ -597,7 +599,12 @@ func switchMargin(current, candidate routeCandidate) time.Duration {
 }
 
 func (w *Watcher) watchPeerStatusChanges(ctx context.Context, peerKey string, peerStateUpdate chan map[string]peer.RouterState, closer chan struct{}) {
-	subscription := w.statusRecorder.SubscribeToPeerStateChanges(ctx, peerKey)
+	// the subscription gets its own context so a delivery blocked on it is
+	// released as soon as this forwarder exits, not only when the watcher stops
+	subCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	subscription := w.statusRecorder.SubscribeToPeerStateChanges(subCtx, peerKey)
 	defer w.statusRecorder.UnsubscribePeerStateChanges(subscription)
 
 	for {
@@ -706,8 +713,16 @@ func (w *Watcher) recalculateRoutes(rsn reason, routerPeerStatuses map[route.ID]
 		return nil
 	}
 
-	switched := w.currentChosen == nil || w.currentChosen.ID != newChosenID
 	previous := w.currentChosen
+	newChosenRoute := w.routes[newChosenID]
+	// a route update can hand the same route to a different routing peer
+	peerReplaced := previous != nil && previous.ID == newChosenID && previous.Peer != newChosenRoute.Peer
+	switched := previous == nil || previous.ID != newChosenID || peerReplaced
+	if peerReplaced {
+		w.switchReason = switchReasonRouteChanged
+		log.Warnf("switching routing peer for network [%v] from %s to %s: %s",
+			w.handler, previous.Peer, newChosenRoute.Peer, w.switchReason)
+	}
 
 	// If the chosen route was assigned to a different peer, remove the allowed IPs first
 	if isNew := w.currentChosen == nil; !isNew {
@@ -716,7 +731,6 @@ func (w *Watcher) recalculateRoutes(rsn reason, routerPeerStatuses map[route.ID]
 		}
 	}
 
-	newChosenRoute := w.routes[newChosenID]
 	if err := w.addAllowedIPs(newChosenRoute); err != nil {
 		return fmt.Errorf("add new: %w", err)
 	}
@@ -732,7 +746,8 @@ func (w *Watcher) recalculateRoutes(rsn reason, routerPeerStatuses map[route.ID]
 
 	// start tracking the new routing peer from the state it was chosen in, so a
 	// drop to relay seen by the next evaluation counts as a degradation
-	w.trackedCurrent, w.trackedDirect, w.degradedSince = newChosenID, newStatus.isDirect(), time.Time{}
+	w.trackedCurrent, w.trackedPeer = newChosenID, newChosenRoute.Peer
+	w.trackedDirect, w.degradedSince = newStatus.isDirect(), time.Time{}
 	if w.latencySwitch {
 		w.lastSwitch = time.Now()
 	}
@@ -745,10 +760,12 @@ func (w *Watcher) recalculateRoutes(rsn reason, routerPeerStatuses map[route.ID]
 
 // routingPeerSwitchEvent publishes a replaced routing peer as a system event,
 // so it shows in the status output and debug bundles whatever the log level.
-// Moving a masqueraded route resets the connections that used it. Default
-// routes are left to disconnectEvent and connectEvent.
+// Moving a masqueraded route resets the connections that used it. For default
+// routes this adds the reason to the events of disconnectEvent and
+// connectEvent, and carries no user message so it is not shown as a
+// notification a second time.
 func (w *Watcher) routingPeerSwitchEvent(previous, next *route.Route) {
-	if w.statusRecorder == nil || w.hasDefaultRoute() {
+	if w.statusRecorder == nil {
 		return
 	}
 

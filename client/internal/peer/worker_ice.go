@@ -88,11 +88,6 @@ type WorkerICE struct {
 
 	// dialFunc, when non-nil, replaces agentDial in connect(). Only for tests.
 	dialFunc func(ctx context.Context, agent *icemaker.ThreadSafeAgent, remoteOfferAnswer *OfferAnswer) (net.Conn, error)
-
-	// sampleNow wakes the latency sampler outside its regular interval, so a
-	// selected candidate pair change is reflected in the recorded latency
-	// immediately instead of describing the previous path until the next tick
-	sampleNow chan struct{}
 }
 
 func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, conn *Conn, signaler *Signaler, ifaceDiscover stdnet.ExternalIFaceDiscover, statusRecorder *Status, hasRelayOnLocally bool) (*WorkerICE, error) {
@@ -112,7 +107,6 @@ func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, conn *
 		hasRelayOnLocally: hasRelayOnLocally,
 		lastKnownState:    ice.ConnectionStateDisconnected,
 		sessionID:         sessionID,
-		sampleNow:         make(chan struct{}, 1),
 	}
 
 	localUfrag, localPwd, err := icemaker.GenerateICECredentials()
@@ -167,7 +161,7 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 		w.log.Debugf("recreate ICE agent: %s / %s", w.sessionID, *remoteOfferAnswer.SessionID)
 	}
 	dialerCtx, dialerCancel := context.WithCancel(w.ctx)
-	agent, err := w.reCreateAgent(dialerCancel, preferredCandidateTypes)
+	agent, sampleNow, err := w.reCreateAgent(dialerCancel, preferredCandidateTypes)
 	if err != nil {
 		w.log.Errorf("failed to recreate ICE Agent: %s", err)
 		return
@@ -183,7 +177,7 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 
 	// Capture the cancel func at spawn time: connect reads it from the argument
 	// instead of the field, which a newer OnNewOffer may already have replaced.
-	go w.connect(dialerCtx, dialerCancel, agent, remoteOfferAnswer)
+	go w.connect(dialerCtx, dialerCancel, agent, sampleNow, remoteOfferAnswer)
 }
 
 // OnRemoteCandidate Handles ICE connection Candidate provided by the remote peer.
@@ -244,27 +238,33 @@ func (w *WorkerICE) Close() {
 	w.abandonNegotiation()
 }
 
-func (w *WorkerICE) reCreateAgent(dialerCancel context.CancelFunc, candidates []ice.CandidateType) (*icemaker.ThreadSafeAgent, error) {
+// reCreateAgent creates a new ICE agent with its callbacks registered. The
+// returned channel wakes that agent's latency sampler when its selected
+// candidate pair changes.
+func (w *WorkerICE) reCreateAgent(dialerCancel context.CancelFunc, candidates []ice.CandidateType) (*icemaker.ThreadSafeAgent, chan struct{}, error) {
 	w.portForwardAttempted = false
 
 	agent, err := icemaker.NewAgent(w.ctx, w.iFaceDiscover, w.config.ICEConfig, candidates, w.localUfrag, w.localPwd)
 	if err != nil {
-		return nil, fmt.Errorf("create agent: %w", err)
+		return nil, nil, fmt.Errorf("create agent: %w", err)
 	}
 
 	if err := agent.OnCandidate(w.onICECandidate); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if err := agent.OnConnectionStateChange(w.onConnectionStateChange(agent, dialerCancel)); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	if err := agent.OnSelectedCandidatePairChange(w.onICESelectedCandidatePair); err != nil {
-		return nil, err
+	// one channel per agent, so the sampler of a replaced agent cannot take a
+	// wakeup meant for the new one
+	sampleNow := make(chan struct{}, 1)
+	if err := agent.OnSelectedCandidatePairChange(w.onICESelectedCandidatePair(sampleNow)); err != nil {
+		return nil, nil, err
 	}
 
-	return agent, nil
+	return agent, sampleNow, nil
 }
 
 func (w *WorkerICE) SessionID() ICESessionID {
@@ -277,7 +277,7 @@ func (w *WorkerICE) SessionID() ICESessionID {
 // will block until connection succeeded
 // but it won't release if ICE Agent went into Disconnected or Failed state,
 // so we have to cancel it with the provided context once agent detected a broken connection
-func (w *WorkerICE) connect(ctx context.Context, dialerCancel context.CancelFunc, agent *icemaker.ThreadSafeAgent, remoteOfferAnswer *OfferAnswer) {
+func (w *WorkerICE) connect(ctx context.Context, dialerCancel context.CancelFunc, agent *icemaker.ThreadSafeAgent, sampleNow <-chan struct{}, remoteOfferAnswer *OfferAnswer) {
 	w.log.Debugf("gather candidates")
 	if err := agent.GatherCandidates(); err != nil {
 		w.log.Warnf("failed to gather candidates: %s", err)
@@ -369,7 +369,7 @@ func (w *WorkerICE) connect(ctx context.Context, dialerCancel context.CancelFunc
 	w.muxAgent.Unlock()
 
 	// ctx is the agent's dialer context, so sampling stops when the agent is closed
-	go w.sampleLatency(ctx, agent)
+	go w.sampleLatency(ctx, agent, sampleNow)
 
 	// todo: the potential problem is a race between the onConnectionStateChange
 	// and the delivery below: after this unlock, a newer offer can replace
@@ -553,15 +553,17 @@ func (w *WorkerICE) createForwardedCandidate(srflxCandidate ice.Candidate, mappi
 	return candidate, nil
 }
 
-func (w *WorkerICE) onICESelectedCandidatePair(c1, c2 ice.Candidate) {
-	w.log.Debugf("selected candidate pair [local <-> remote] -> [%s <-> %s], peer %s", c1.String(), c2.String(),
-		w.config.Key)
+func (w *WorkerICE) onICESelectedCandidatePair(sampleNow chan<- struct{}) func(c1, c2 ice.Candidate) {
+	return func(c1, c2 ice.Candidate) {
+		w.log.Debugf("selected candidate pair [local <-> remote] -> [%s <-> %s], peer %s", c1.String(), c2.String(),
+			w.config.Key)
 
-	// refresh the recorded latency right away: it still describes the previous
-	// path, and route selection may run before the next sampling tick
-	select {
-	case w.sampleNow <- struct{}{}:
-	default:
+		// refresh the recorded latency right away: it still describes the previous
+		// path, and route selection may run before the next sampling tick
+		select {
+		case sampleNow <- struct{}{}:
+		default:
+		}
 	}
 }
 
@@ -569,25 +571,25 @@ func (w *WorkerICE) onICESelectedCandidatePair(c1, c2 ice.Candidate) {
 // candidate pair until the agent is closed. Route selection compares the
 // recorded latencies of high availability peers, so it has to keep following
 // the path instead of freezing at the value observed when the pair was chosen.
-func (w *WorkerICE) sampleLatency(ctx context.Context, agent *icemaker.ThreadSafeAgent) {
+func (w *WorkerICE) sampleLatency(ctx context.Context, agent *icemaker.ThreadSafeAgent, sampleNow <-chan struct{}) {
 	var sampler latencySampler
 
 	ticker := time.NewTicker(latencySampleInterval)
 	defer ticker.Stop()
 
 	for {
-		w.updateLatency(agent, &sampler)
+		w.updateLatency(ctx, agent, &sampler)
 
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-		case <-w.sampleNow:
+		case <-sampleNow:
 		}
 	}
 }
 
-func (w *WorkerICE) updateLatency(agent *icemaker.ThreadSafeAgent, sampler *latencySampler) {
+func (w *WorkerICE) updateLatency(ctx context.Context, agent *icemaker.ThreadSafeAgent, sampler *latencySampler) {
 	pairStat, ok := agent.GetSelectedCandidatePairStats()
 	if !ok {
 		w.log.Debugf("failed to get selected candidate pair stats")
@@ -596,6 +598,12 @@ func (w *WorkerICE) updateLatency(agent *icemaker.ThreadSafeAgent, sampler *late
 
 	sample := sampler.observe(pairStat)
 	if sample.Latency <= 0 {
+		return
+	}
+
+	// the agent may have been closed while sampling, and its connection's
+	// latency cleared: a late sample must not bring the stale value back
+	if ctx.Err() != nil {
 		return
 	}
 

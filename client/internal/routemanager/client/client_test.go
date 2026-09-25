@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
+	"sync"
 	"testing"
 	"time"
 
@@ -1220,23 +1221,64 @@ func TestFailoverDoesNotArmDwellTime(t *testing.T) {
 	assert.Equal(t, []string{"peer1", "peer2", "peer1"}, handler.added, "the recovered better peer should take the route back immediately")
 }
 
-// TestStopWaitsForStart covers the shutdown ordering: Stop must not clean up
-// while the Start loop may still be inside a recalculation triggered by the
-// periodic re-evaluation.
-func TestStopWaitsForStart(t *testing.T) {
-	handler := &recordingHandler{}
-	w := NewWatcher(WatcherConfig{
-		Context:        context.Background(),
-		StatusRecorder: peer.NewRecorder("https://mgm"),
-		Handler:        handler,
-	})
+// blockingHandler records the allowed IPs calls in order and blocks the first
+// AddAllowedIPs until released, to hold a recalculation in flight.
+type blockingHandler struct {
+	mu      sync.Mutex
+	calls   []string
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
 
-	started := make(chan struct{})
-	go func() {
-		close(started)
-		w.Start()
-	}()
-	<-started
+func (h *blockingHandler) String() string                 { return "blocking" }
+func (h *blockingHandler) AddRoute(context.Context) error { return nil }
+func (h *blockingHandler) RemoveRoute() error             { return nil }
+
+func (h *blockingHandler) AddAllowedIPs(peerKey string) error {
+	h.once.Do(func() {
+		close(h.entered)
+		<-h.release
+	})
+	h.record("add " + peerKey)
+	return nil
+}
+
+func (h *blockingHandler) RemoveAllowedIPs() error {
+	h.record("remove")
+	return nil
+}
+
+func (h *blockingHandler) record(call string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.calls = append(h.calls, call)
+}
+
+// TestStopWaitsForStart covers the shutdown ordering: Stop must not clean up
+// while the Start loop is still inside a recalculation, or it would remove the
+// allowed IPs before the recalculation adds them and leave them behind.
+func TestStopWaitsForStart(t *testing.T) {
+	w, _ := newRecalcWatcher(t)
+	handler := &blockingHandler{entered: make(chan struct{}), release: make(chan struct{})}
+	w.handler = handler
+
+	require.NoError(t, w.statusRecorder.AddPeer("peer1", "peer1.netbird.cloud", "100.64.0.1", ""))
+	require.NoError(t, w.statusRecorder.UpdatePeerState(peer.State{PubKey: "peer1", ConnStatus: peer.StatusConnected}))
+
+	w.ctx, w.cancel = context.WithCancel(context.Background())
+	w.done = make(chan struct{})
+	w.peerStateUpdate = make(chan map[string]peer.RouterState)
+	go w.Start()
+
+	// the unbuffered send returns once the loop took the notification, so the
+	// loop is running and about to recalculate
+	w.peerStateUpdate <- nil
+	select {
+	case <-handler.entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the notification should start a recalculation")
+	}
 
 	finished := make(chan struct{})
 	go func() {
@@ -1246,14 +1288,22 @@ func TestStopWaitsForStart(t *testing.T) {
 
 	select {
 	case <-finished:
+		t.Fatal("Stop must wait for the recalculation in flight")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(handler.release)
+	select {
+	case <-finished:
 	case <-time.After(2 * time.Second):
 		t.Fatal("Stop should return once the Start loop has exited")
 	}
+
+	handler.mu.Lock()
+	defer handler.mu.Unlock()
+	assert.Equal(t, []string{"add peer1", "remove"}, handler.calls, "Stop must clean up after the recalculation, not before it")
 }
 
-// TestStopWithoutStart covers a watcher whose Start goroutine never ran, or ran
-// only after Stop: Stop must return instead of waiting for a loop that does not
-// exist, and a late Start must not begin working on a stopped watcher.
 // A peer state notification can reach the watcher after a newer one: each
 // routing peer has its own subscription and forwarder, and all of them feed the
 // same channel. The watcher must act on the recorded peer states rather than on
@@ -1287,6 +1337,9 @@ func TestOutdatedPeerStateNotificationIsNotApplied(t *testing.T) {
 	assert.Equal(t, []string{"peer1"}, handler.added, "an outdated notification must not move the route to a routing peer that is gone")
 }
 
+// TestStopWithoutStart covers a watcher whose Start goroutine never ran, or ran
+// only after Stop: Stop must return instead of waiting for a loop that does not
+// exist, and a late Start must not begin working on a stopped watcher.
 func TestStopWithoutStart(t *testing.T) {
 	w := NewWatcher(WatcherConfig{
 		Context:        context.Background(),
