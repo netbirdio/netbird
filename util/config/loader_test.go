@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/netip"
 	"os"
@@ -12,8 +13,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
-
-	"github.com/netbirdio/netbird/util/envtemplate"
 )
 
 type testConfig struct {
@@ -137,15 +136,16 @@ server:
 }
 
 func TestLoadTransformsConfig(t *testing.T) {
-	t.Setenv("CONFIG_ADDRESS", ":8443")
 	configPath := writeConfigFile(t, "config.yaml", `
 server:
-  address: "{{ .CONFIG_ADDRESS }}"
+  address: "PLACEHOLDER"
 `)
 
 	cfg, err := Load(configPath, defaultTestConfig(), Options{
-		TagName:   "yaml",
-		Transform: envtemplate.Expand,
+		TagName: "yaml",
+		Transform: func(data []byte) ([]byte, error) {
+			return bytes.ReplaceAll(data, []byte("PLACEHOLDER"), []byte(":8443")), nil
+		},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, ":8443", cfg.Server.Address, "The transform should run before decoding")

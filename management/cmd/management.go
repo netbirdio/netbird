@@ -19,7 +19,6 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 
 	"github.com/netbirdio/netbird/management/server/types"
 
@@ -61,7 +60,7 @@ var (
 			// detect whether user specified a port
 			userPort := cmd.Flag("port").Changed
 
-			config, err = LoadMgmtConfig(ctx, nbconfig.MgmtConfigPath, cmd.Flags())
+			config, err = LoadMgmtConfig(ctx, nbconfig.MgmtConfigPath)
 			if err != nil {
 				return fmt.Errorf("failed reading provided config file: %s: %v", nbconfig.MgmtConfigPath, err)
 			}
@@ -172,15 +171,15 @@ var (
 	}
 )
 
-func LoadMgmtConfig(ctx context.Context, mgmtConfigPath string, flags *pflag.FlagSet) (*nbconfig.Config, error) {
-	loadedConfig, err := loadManagementConfig(mgmtConfigPath)
-	if err != nil {
+func LoadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*nbconfig.Config, error) {
+	loadedConfig := &nbconfig.Config{}
+	if _, err := util.ReadJsonWithEnvSub(mgmtConfigPath, loadedConfig); err != nil {
 		return nil, err
 	}
 
-	ApplyCommandLineOverrides(loadedConfig, flags)
+	ApplyCommandLineOverrides(loadedConfig)
 
-	err = grpc.ValidateSyncMessageVersion(loadedConfig.HighestSupportedSyncMessageVersion)
+	err := grpc.ValidateSyncMessageVersion(loadedConfig.HighestSupportedSyncMessageVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -212,18 +211,14 @@ func LoadMgmtConfig(ctx context.Context, mgmtConfigPath string, flags *pflag.Fla
 }
 
 // ApplyCommandLineOverrides applies command-line flag overrides to the config
-func ApplyCommandLineOverrides(cfg *nbconfig.Config, _ *pflag.FlagSet) {
-	hasCertOverride := certKey != "" && certFile != ""
-	if (mgmtLetsencryptDomain != "" || hasCertOverride) && cfg.HttpConfig == nil {
-		cfg.HttpConfig = &nbconfig.HttpServerConfig{}
-	}
+func ApplyCommandLineOverrides(cfg *nbconfig.Config) {
 	if mgmtLetsencryptDomain != "" {
 		cfg.HttpConfig.LetsEncryptDomain = mgmtLetsencryptDomain
 	}
 	if mgmtDataDir != "" {
 		cfg.Datadir = mgmtDataDir
 	}
-	if hasCertOverride {
+	if certKey != "" && certFile != "" {
 		cfg.HttpConfig.CertFile = certFile
 		cfg.HttpConfig.CertKey = certKey
 	}
@@ -378,17 +373,11 @@ func EnsureEncryptionKey(ctx context.Context, configPath string, cfg *nbconfig.C
 	if err != nil {
 		return fmt.Errorf("failed to generate datastore encryption key: %v", err)
 	}
+	cfg.DataStoreEncryptionKey = key
 
-	fileConfig, err := decodeManagementConfig(configPath, &nbconfig.Config{})
-	if err != nil {
-		return fmt.Errorf("reload config before saving encryption key: %w", err)
-	}
-	fileConfig.DataStoreEncryptionKey = key
-	if err := util.DirectWriteJson(ctx, configPath, fileConfig); err != nil {
+	if err := util.DirectWriteJson(ctx, configPath, cfg); err != nil {
 		return fmt.Errorf("failed to save config with new encryption key: %v", err)
 	}
-
-	cfg.DataStoreEncryptionKey = key
 	log.WithContext(ctx).Infof("DataStoreEncryptionKey generated and saved to config")
 	return nil
 }

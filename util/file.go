@@ -1,6 +1,7 @@
 package util
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,10 +10,10 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
+	"text/template"
 
 	log "github.com/sirupsen/logrus"
-
-	"github.com/netbirdio/netbird/util/envtemplate"
 )
 
 func WriteBytesWithRestrictedPermission(ctx context.Context, file string, bs []byte) error {
@@ -232,6 +233,8 @@ func ListFiles(dir, pattern string) ([]string, error) {
 
 // ReadJsonWithEnvSub reads JSON config file and maps to a provided interface with environment variable substitution
 func ReadJsonWithEnvSub(file string, res interface{}) (interface{}, error) {
+	envVars := getEnvMap()
+
 	f, err := os.Open(file)
 	if err != nil {
 		return nil, err
@@ -243,17 +246,38 @@ func ReadJsonWithEnvSub(file string, res interface{}) (interface{}, error) {
 		return nil, err
 	}
 
-	output, err := envtemplate.Expand(bs)
+	t, err := template.New("").Parse(string(bs))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error parsing template: %v", err)
 	}
 
-	err = json.Unmarshal(output, &res)
+	var output bytes.Buffer
+	// Execute the template, substituting environment variables
+	err = t.Execute(&output, envVars)
+	if err != nil {
+		return nil, fmt.Errorf("error executing template: %v", err)
+	}
+
+	err = json.Unmarshal(output.Bytes(), &res)
 	if err != nil {
 		return nil, fmt.Errorf("failed parsing Json file after template was executed, err: %v", err)
 	}
 
 	return res, nil
+}
+
+// getEnvMap Convert the output of os.Environ() to a map
+func getEnvMap() map[string]string {
+	envMap := make(map[string]string)
+
+	for _, env := range os.Environ() {
+		parts := strings.SplitN(env, "=", 2)
+		if len(parts) == 2 {
+			envMap[parts[0]] = parts[1]
+		}
+	}
+
+	return envMap
 }
 
 // CopyFileContents copies contents of the given src file to the dst file
