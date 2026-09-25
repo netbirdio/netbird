@@ -68,6 +68,7 @@ type BaseServer struct {
 	mgmtMetricsPort             int
 	mgmtPort                    int
 	disableLegacyManagementPort bool
+	letsEncryptListenAddress    string
 	autoResolveDomains          bool
 
 	proxyAuthClose    func()
@@ -82,6 +83,8 @@ type BaseServer struct {
 	tlsConfig   *tls.Config
 	certManager *autocert.Manager
 	update      *version.Update
+	// certListener serves Let's Encrypt challenges when mgmtPort is not 443.
+	certListener net.Listener
 
 	errCh  chan error
 	wg     sync.WaitGroup
@@ -103,6 +106,9 @@ type Config struct {
 	UserDeleteFromIDPEnabled    bool
 	AutoResolveDomains          bool
 	TLSConfig                   *tls.Config
+	// LetsEncryptListenAddress is the separate Let's Encrypt challenge listener
+	// used when MgmtPort is not 443. Empty disables it.
+	LetsEncryptListenAddress string
 }
 
 // NewServer initializes and configures a new Server instance
@@ -117,6 +123,7 @@ func NewServer(cfg *Config) *BaseServer {
 		userDeleteFromIDPEnabled:    cfg.UserDeleteFromIDPEnabled,
 		mgmtPort:                    cfg.MgmtPort,
 		disableLegacyManagementPort: cfg.DisableLegacyManagementPort,
+		letsEncryptListenAddress:    cfg.LetsEncryptListenAddress,
 		mgmtMetricsPort:             cfg.MgmtMetricsPort,
 		autoResolveDomains:          cfg.AutoResolveDomains,
 		tlsConfig:                   cfg.TLSConfig,
@@ -210,19 +217,18 @@ func (s *BaseServer) start(ctx context.Context) error {
 	rootHandler := s.handlerFunc(srvCtx, s.GRPCServer(), s.APIHandler(), s.IDPHandler(), s.Metrics().GetMeter())
 	switch {
 	case s.certManager != nil:
-		// a call to certManager.Listener() always creates a new listener so we do it once
-		cml := s.certManager.Listener()
 		if s.mgmtPort == 443 {
 			// CertManager, HTTP and gRPC API all on the same port
 			rootHandler = s.certManager.HTTPHandler(rootHandler)
-			s.listener = cml
+			s.listener = s.certManager.Listener()
 		} else {
 			s.listener, err = tls.Listen("tcp", fmt.Sprintf(":%d", s.mgmtPort), s.certManager.TLSConfig())
 			if err != nil {
 				return fmt.Errorf("failed creating TLS listener on port %d: %v", s.mgmtPort, err)
 			}
-			log.WithContext(ctx).Infof("running HTTP server (LetsEncrypt challenge handler): %s", cml.Addr().String())
-			s.serveHTTP(ctx, cml, s.certManager.HTTPHandler(nil))
+			if err := s.serveLetsEncryptChallenges(ctx); err != nil {
+				return err
+			}
 		}
 	case s.tlsConfig != nil:
 		s.listener, err = tls.Listen("tcp", fmt.Sprintf(":%d", s.mgmtPort), s.tlsConfig)
@@ -309,8 +315,8 @@ func (s *BaseServer) Stop() error {
 	if s.listener != nil {
 		_ = s.listener.Close()
 	}
-	if s.certManager != nil {
-		_ = s.certManager.Listener().Close()
+	if s.certListener != nil {
+		_ = s.certListener.Close()
 	}
 	s.GRPCServer().Stop()
 	if s.proxyAuthClose != nil {
@@ -414,6 +420,26 @@ func (s *BaseServer) serveGRPC(ctx context.Context, grpcServer *grpc.Server, por
 	}()
 
 	return listener, nil
+}
+
+// serveLetsEncryptChallenges starts the separate Let's Encrypt challenge listener
+// unless it is disabled. The main TLS listener uses the cert manager's TLS
+// config, so it still answers TLS-ALPN-01 challenges when public port 443 is
+// forwarded to it.
+func (s *BaseServer) serveLetsEncryptChallenges(ctx context.Context) error {
+	if s.letsEncryptListenAddress == "" {
+		log.WithContext(ctx).Infof("LetsEncrypt challenge server disabled, challenges are answered on port %d", s.mgmtPort)
+		return nil
+	}
+
+	cml, err := tls.Listen("tcp", s.letsEncryptListenAddress, s.certManager.TLSConfig())
+	if err != nil {
+		return fmt.Errorf("failed creating LetsEncrypt challenge listener on %s: %v", s.letsEncryptListenAddress, err)
+	}
+	s.certListener = cml
+	log.WithContext(ctx).Infof("running HTTP server (LetsEncrypt challenge handler): %s", cml.Addr().String())
+	s.serveHTTP(ctx, cml, s.certManager.HTTPHandler(nil))
+	return nil
 }
 
 func (s *BaseServer) serveHTTP(ctx context.Context, httpListener net.Listener, handler http.Handler) {
