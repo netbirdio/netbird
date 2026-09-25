@@ -86,7 +86,7 @@ func TestSrcProbe_HonoursControlPlaneMark(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = p.close() })
 
-	src, err := p.resolve(dst)
+	src, err := p.resolve(rawSockaddr(dst, 0))
 	require.NoError(t, err)
 	assert.Equal(t, markedSrc, src, "probe should resolve the source of the marked lookup")
 }

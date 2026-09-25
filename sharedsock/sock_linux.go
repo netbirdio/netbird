@@ -135,28 +135,36 @@ func Listen(port int, filter BPFFilter, mtu uint16) (_ net.PacketConn, err error
 	return rawSock, nil
 }
 
-// resolveSrc returns the source IP the kernel will pick for a packet sent to
-// dst by these raw sockets, mirroring the fwmark the kernel will see on send.
-func (s *SharedSocket) resolveSrc(dst net.IP) (net.IP, error) {
-	addr, ok := netip.AddrFromSlice(dst)
-	if !ok {
-		return nil, fmt.Errorf("invalid destination %s", dst)
+// sockaddr returns the raw send address for dst, carrying the scope of its zone.
+func (s *SharedSocket) sockaddr(dst netip.Addr) (unix.Sockaddr, error) {
+	if dst.Zone() == "" {
+		return rawSockaddr(dst, 0), nil
 	}
-	addr = addr.Unmap()
-
-	probe := s.probe4
-	if addr.Is6() {
-		probe = s.probe6
+	if s.conn6 == nil {
+		return nil, fmt.Errorf("no raw socket for %s", dst)
 	}
-	if probe == nil {
-		return nil, fmt.Errorf("no raw socket for %s", addr)
+	rc, err := s.conn6.SyscallConn()
+	if err != nil {
+		return nil, fmt.Errorf("ipv6 raw socket: %w", err)
 	}
-
-	src, err := probe.resolve(addr)
+	scope, err := zoneIndex(rc, dst.Zone())
 	if err != nil {
 		return nil, err
 	}
-	return src.AsSlice(), nil
+	return rawSockaddr(dst, scope), nil
+}
+
+// resolveSrc returns the source IP the kernel will pick for a packet sent to sa
+// by these raw sockets, mirroring the fwmark the kernel will see on send.
+func (s *SharedSocket) resolveSrc(dst netip.Addr, sa unix.Sockaddr) (netip.Addr, error) {
+	probe := s.probe4
+	if dst.Is6() {
+		probe = s.probe6
+	}
+	if probe == nil {
+		return netip.Addr{}, fmt.Errorf("no raw socket for %s", dst)
+	}
+	return probe.resolve(sa)
 }
 
 // LocalAddr returns the local address, preferring IPv4 for backward compatibility.
@@ -322,14 +330,24 @@ func (s *SharedSocket) WriteTo(buf []byte, rAddr net.Addr) (n int, err error) {
 		DstPort: layers.UDPPort(rUDPAddr.Port),
 	}
 
-	src, err := s.resolveSrc(rUDPAddr.IP)
-	if err != nil {
-		return 0, fmt.Errorf("resolve source for %s: %w", rUDPAddr.IP, err)
+	dst := rUDPAddr.AddrPort().Addr().Unmap()
+	if !dst.IsValid() {
+		return 0, fmt.Errorf("invalid destination %s", rUDPAddr)
 	}
 
-	rSockAddr, conn, nwLayer := s.getWriterObjects(src, rUDPAddr.IP)
+	rSockAddr, err := s.sockaddr(dst)
+	if err != nil {
+		return 0, err
+	}
+
+	src, err := s.resolveSrc(dst, rSockAddr)
+	if err != nil {
+		return 0, fmt.Errorf("resolve source for %s: %w", dst, err)
+	}
+
+	conn, nwLayer := s.getWriterObjects(src, dst)
 	if conn == nil {
-		return 0, fmt.Errorf("no raw socket for %s", rUDPAddr.IP)
+		return 0, fmt.Errorf("no raw socket for %s", dst)
 	}
 
 	if err := udp.SetNetworkLayerForChecksum(nwLayer); err != nil {
@@ -346,28 +364,23 @@ func (s *SharedSocket) WriteTo(buf []byte, rAddr net.Addr) (n int, err error) {
 }
 
 // getWriterObjects returns the specific IP version objects that are used to build a packet and send it using the raw socket
-func (s *SharedSocket) getWriterObjects(src, dest net.IP) (sa unix.Sockaddr, conn *socket.Conn, layer gopacket.NetworkLayer) {
-	if dest.To4() == nil {
-		sa = &unix.SockaddrInet6{}
-		copy(sa.(*unix.SockaddrInet6).Addr[:], dest.To16())
+func (s *SharedSocket) getWriterObjects(src, dest netip.Addr) (conn *socket.Conn, layer gopacket.NetworkLayer) {
+	if dest.Is6() {
 		conn = s.conn6
-
 		layer = &layers.IPv6{
-			SrcIP: src,
-			DstIP: dest,
+			SrcIP: src.AsSlice(),
+			DstIP: dest.AsSlice(),
 		}
 	} else {
-		sa = &unix.SockaddrInet4{}
-		copy(sa.(*unix.SockaddrInet4).Addr[:], dest.To4())
 		conn = s.conn4
 		layer = &layers.IPv4{
 			Version:  4,
 			TTL:      64,
 			Protocol: layers.IPProtocolUDP,
-			SrcIP:    src,
-			DstIP:    dest,
+			SrcIP:    src.AsSlice(),
+			DstIP:    dest.AsSlice(),
 		}
 	}
 
-	return sa, conn, layer
+	return conn, layer
 }

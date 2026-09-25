@@ -6,9 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"strconv"
 	"sync"
+	"syscall"
 	"unsafe"
 
+	"github.com/mdlayher/socket"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 
@@ -24,31 +27,25 @@ type srcProbe struct {
 	family int
 
 	mu sync.Mutex
-	// sock is nil while no socket is open. Any failed lookup closes it and the next
-	// lookup opens a fresh one, so a socket in an unknown state is never reused.
-	sock   *probeSocket
+	// conn is nil while no socket is open. A failed route lookup keeps the socket,
+	// any other failure closes it and the next lookup opens a fresh one, so a socket
+	// in an unknown state is never reused.
+	conn   *socket.Conn
 	closed bool
-}
-
-// probeSocket is an open probe socket and the identity it had when it was opened.
-type probeSocket struct {
-	fd  int
-	dev uint64
-	ino uint64
 }
 
 // newSrcProbe opens a probe socket for the given address family.
 func newSrcProbe(family int) (*srcProbe, error) {
-	sock, err := openProbeSocket(family)
+	conn, err := openProbeSocket(family)
 	if err != nil {
 		return nil, err
 	}
-	return &srcProbe{family: family, sock: sock}, nil
+	return &srcProbe{family: family, conn: conn}, nil
 }
 
-// resolve returns the source address the kernel would use for a packet to dst.
-// It is safe for concurrent use.
-func (p *srcProbe) resolve(dst netip.Addr) (netip.Addr, error) {
+// resolve returns the source address the kernel would use for a packet to sa, a
+// sockaddr of the probe's family. It is safe for concurrent use.
+func (p *srcProbe) resolve(sa unix.Sockaddr) (netip.Addr, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -56,25 +53,21 @@ func (p *srcProbe) resolve(dst netip.Addr) (netip.Addr, error) {
 		return netip.Addr{}, errProbeClosed
 	}
 
-	if p.sock != nil && !p.sock.owned() {
-		// The number no longer refers to our socket and may belong to someone else
-		// now, so drop it without closing it.
-		log.Debugf("source probe socket was closed elsewhere, opening a new one")
-		p.sock = nil
-	}
-
-	if p.sock == nil {
-		sock, err := openProbeSocket(p.family)
+	if p.conn == nil {
+		conn, err := openProbeSocket(p.family)
 		if err != nil {
 			return netip.Addr{}, err
 		}
-		p.sock = sock
+		p.conn = conn
 	}
 
-	src, err := p.sock.lookup(dst)
+	src, err := p.lookup(sa)
 	if err != nil {
-		if closeErr := p.closeSocket(); closeErr != nil {
-			log.Debugf("failed to close source probe socket: %v", closeErr)
+		var rErr *routeError
+		if !errors.As(err, &rErr) {
+			if closeErr := p.closeSocket(); closeErr != nil {
+				log.Debugf("failed to close source probe socket: %v", closeErr)
+			}
 		}
 		return netip.Addr{}, err
 	}
@@ -90,77 +83,86 @@ func (p *srcProbe) close() error {
 	return p.closeSocket()
 }
 
-// closeSocket closes the socket if the number still refers to it. Callers must hold p.mu.
+// closeSocket closes the socket if one is open. Callers must hold p.mu.
 func (p *srcProbe) closeSocket() error {
-	sock := p.sock
-	p.sock = nil
-	if sock == nil || !sock.owned() {
+	conn := p.conn
+	p.conn = nil
+	if conn == nil {
 		return nil
 	}
-	return unix.Close(sock.fd)
+	return conn.Close()
 }
 
-// owned reports whether the fd still refers to the socket that was opened. The
-// number may have been closed elsewhere and handed out for another file since. The
-// check narrows that window to a single call but cannot close it: a close and reuse
-// between the check and the next syscall on fd goes unnoticed.
-func (s *probeSocket) owned() bool {
-	var st unix.Stat_t
-	if err := unix.Fstat(s.fd, &st); err != nil {
-		return false
+// lookup runs one route lookup on the socket. Callers must hold p.mu.
+func (p *srcProbe) lookup(sa unix.Sockaddr) (netip.Addr, error) {
+	rc, err := p.conn.SyscallConn()
+	if err != nil {
+		return netip.Addr{}, fmt.Errorf("probe socket: %w", err)
 	}
-	return st.Mode&unix.S_IFMT == unix.S_IFSOCK && uint64(st.Dev) == s.dev && st.Ino == s.ino
+
+	var src netip.Addr
+	var lookupErr error
+	if err := rc.Control(func(fd uintptr) {
+		src, lookupErr = lookupFD(int(fd), sa)
+	}); err != nil {
+		return netip.Addr{}, fmt.Errorf("probe socket: %w", err)
+	}
+	return src, lookupErr
 }
 
-// lookup runs one route lookup on the socket.
-func (s *probeSocket) lookup(dst netip.Addr) (netip.Addr, error) {
+// routeError is a route lookup the kernel refused. The socket is still usable after it.
+type routeError struct {
+	err error
+}
+
+func (e *routeError) Error() string {
+	return fmt.Sprintf("route lookup: %v", e.err)
+}
+
+func (e *routeError) Unwrap() error {
+	return e.err
+}
+
+func lookupFD(fd int, sa unix.Sockaddr) (netip.Addr, error) {
 	// A connected socket keeps the source address of its first connect and reuses
 	// it for later route lookups, so dissolve the association first.
-	if err := disconnect(s.fd); err != nil {
+	if err := disconnect(fd); err != nil {
 		return netip.Addr{}, fmt.Errorf("disconnect probe socket: %w", err)
 	}
 
-	if err := unix.Connect(s.fd, probeSockaddr(dst)); err != nil {
-		return netip.Addr{}, fmt.Errorf("route lookup for %s: %w", dst, err)
+	if err := unix.Connect(fd, sa); err != nil {
+		return netip.Addr{}, &routeError{err: err}
 	}
 
-	sa, err := unix.Getsockname(s.fd)
+	local, err := unix.Getsockname(fd)
 	if err != nil {
 		return netip.Addr{}, fmt.Errorf("read probe socket address: %w", err)
 	}
 
 	var src netip.Addr
-	switch a := sa.(type) {
+	switch a := local.(type) {
 	case *unix.SockaddrInet4:
 		src = netip.AddrFrom4(a.Addr)
 	case *unix.SockaddrInet6:
 		src = netip.AddrFrom16(a.Addr)
 	}
 	if !src.IsValid() || src.IsUnspecified() {
-		return netip.Addr{}, fmt.Errorf("no source address for %s", dst)
+		return netip.Addr{}, &routeError{err: errors.New("no source address")}
 	}
 	return src, nil
 }
 
-func openProbeSocket(family int) (*probeSocket, error) {
-	fd, err := unix.Socket(family, unix.SOCK_DGRAM|unix.SOCK_CLOEXEC, unix.IPPROTO_UDP)
+func openProbeSocket(family int) (*socket.Conn, error) {
+	conn, err := socket.Socket(family, unix.SOCK_DGRAM, unix.IPPROTO_UDP, "udp_src_probe", nil)
 	if err != nil {
 		return nil, fmt.Errorf("create source probe socket: %w", err)
 	}
 
-	if nbnet.AdvancedRouting() {
-		if err := unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_MARK, int(nbnet.ControlPlaneMark)); err != nil {
-			_ = unix.Close(fd)
-			return nil, fmt.Errorf("set SO_MARK on source probe socket: %w", err)
-		}
+	if err := nbnet.SetSocketMark(conn); err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("set SO_MARK on source probe socket: %w", err)
 	}
-
-	var st unix.Stat_t
-	if err := unix.Fstat(fd, &st); err != nil {
-		_ = unix.Close(fd)
-		return nil, fmt.Errorf("stat source probe socket: %w", err)
-	}
-	return &probeSocket{fd: fd, dev: uint64(st.Dev), ino: st.Ino}, nil
+	return conn, nil
 }
 
 // disconnect dissolves a UDP socket's association by connecting to AF_UNSPEC, which
@@ -174,11 +176,39 @@ func disconnect(fd int) error {
 	return nil
 }
 
-func probeSockaddr(dst netip.Addr) unix.Sockaddr {
-	// Port 0 matches the raw send, whose route lookup carries no ports. The kernel
-	// still assigns the probe an ephemeral source port before its lookup.
+// rawSockaddr returns the sockaddr for dst with port 0 and the given scope. Port 0
+// matches a raw send, whose route lookup carries no ports. A UDP probe connected
+// to it still gets an ephemeral source port before its lookup.
+func rawSockaddr(dst netip.Addr, scope uint32) unix.Sockaddr {
 	if dst.Is4() {
 		return &unix.SockaddrInet4{Addr: dst.As4()}
 	}
-	return &unix.SockaddrInet6{Addr: dst.As16()}
+	return &unix.SockaddrInet6{Addr: dst.As16(), ZoneId: scope}
+}
+
+// zoneIndex returns the interface index for an IPv6 zone, which is either an
+// interface name or a numeric index. An empty zone is index 0. A name costs one
+// SIOCGIFINDEX ioctl on rc, which may be any socket.
+func zoneIndex(rc syscall.RawConn, zone string) (uint32, error) {
+	if zone == "" {
+		return 0, nil
+	}
+	if idx, err := strconv.ParseUint(zone, 10, 32); err == nil {
+		return uint32(idx), nil
+	}
+
+	ifr, err := unix.NewIfreq(zone)
+	if err != nil {
+		return 0, fmt.Errorf("zone %q: %w", zone, err)
+	}
+	var ioctlErr error
+	if err := rc.Control(func(fd uintptr) {
+		ioctlErr = unix.IoctlIfreq(int(fd), unix.SIOCGIFINDEX, ifr)
+	}); err != nil {
+		return 0, fmt.Errorf("zone %q: %w", zone, err)
+	}
+	if ioctlErr != nil {
+		return 0, fmt.Errorf("resolve zone %q: %w", zone, ioctlErr)
+	}
+	return ifr.Uint32(), nil
 }
