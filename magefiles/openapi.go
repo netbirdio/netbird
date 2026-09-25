@@ -35,7 +35,6 @@ func (Openapi) GenerateV1Bindings(generateflags *string) error {
 		TransformSiblingRefs:      true,                    // enable openapi 3.1 compliance by default
 		MergeReferencedProperties: true,                    // enable enhanced resolution by default
 		PropertyMergeStrategy:     datamodel.PreserveLocal, // local properties take precedence
-
 	})
 	if err != nil {
 		return err
@@ -45,13 +44,13 @@ func (Openapi) GenerateV1Bindings(generateflags *string) error {
 		return err
 	}
 
-	bundleConfig := &bundler.BundleInlineConfig{
-		ResolveDiscriminatorExternalRefs: true,
-	}
-	bundle, err := bundler.BundleDocumentWithConfig(&multiFileModel.Model, bundleConfig)
+	bundle, err := bundler.BundleDocumentComposed(&multiFileModel.Model, &bundler.BundleCompositionConfig{
+		StrictValidation: true,
+	})
 	if err != nil {
 		return err
 	}
+
 	doc, err := libopenapi.NewDocumentWithConfiguration(bundle, &datamodel.DocumentConfiguration{
 		Logger: slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 			Level: slog.LevelError,
