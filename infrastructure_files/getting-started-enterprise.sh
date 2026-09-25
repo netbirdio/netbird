@@ -375,11 +375,15 @@ admin_token() {
 }
 
 # revoke_proxy_token revokes the token this run minted if the proxy never started.
+# On failure the ID is kept, so rollback retries it.
 revoke_proxy_token() {
-  if [[ -n "$PROXY_TOKEN_ID" ]]; then
-    admin_token revoke "$PROXY_TOKEN_ID" > /dev/null || true
+  [[ -n "$PROXY_TOKEN_ID" ]] || return 0
+  if admin_token revoke "$PROXY_TOKEN_ID" > /dev/null; then
     PROXY_TOKEN_ID=""
+    return 0
   fi
+  echo "Could not revoke the unused proxy token ${PROXY_TOKEN_ID}. Revoke it with:" > /dev/stderr
+  echo "  $DOCKER_COMPOSE_COMMAND run --rm netbird-server admin token revoke ${PROXY_TOKEN_ID} --config /etc/netbird/config.yaml" > /dev/stderr
 }
 
 # start_proxy mints the proxy token and CrowdSec bouncer key, then starts the proxy.
@@ -577,7 +581,13 @@ enable_features() {
   NETBIRD_TRAFFIC_FLOW=$(env_get NETBIRD_TRAFFIC_FLOW_ENABLED no)
   NETBIRD_PROXY=$(env_get NETBIRD_PROXY_ENABLED no)
   NETBIRD_CROWDSEC=$(env_get NETBIRD_CROWDSEC_ENABLED no)
-  CUSTOM_TLS_CERTS=$(awk '/:\/certs:ro$/ { sub(/^ *- /, ""); sub(/:\/certs:ro$/, ""); print; exit }' docker-compose.yml)
+  # A custom certificate counts only once Traefik mounts it and ACME is already gone,
+  # so the re-render never removes a working Let's Encrypt setup.
+  local traefik_block
+  traefik_block=$(service_block traefik < docker-compose.yml)
+  if ! grep -q certificatesresolvers <<< "$traefik_block"; then
+    CUSTOM_TLS_CERTS=$(awk '/:\/certs:ro$/ { sub(/^ *- /, ""); sub(/:\/certs:ro$/, ""); print; exit }' <<< "$traefik_block")
+  fi
 
   if [[ "$want_flow" == "yes" && "$NETBIRD_TRAFFIC_FLOW" == "yes" ]]; then
     echo "Traffic events are already enabled."
