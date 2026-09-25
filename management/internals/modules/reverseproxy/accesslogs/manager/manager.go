@@ -57,7 +57,7 @@ func (m *managerImpl) SaveAccessLog(ctx context.Context, logEntry *accesslogs.Ac
 		}
 	}
 
-	if err := m.repo.Create(ctx, nil, logEntry); err != nil {
+	if err := m.repo.Create(ctx, logEntry); err != nil {
 		log.WithContext(ctx).WithFields(log.Fields{
 			"service_id": logEntry.ServiceID,
 			"method":     logEntry.Method,
@@ -85,7 +85,7 @@ func (m *managerImpl) GetAllAccessLogs(ctx context.Context, accountID, userID st
 		log.WithContext(ctx).Warnf("failed to resolve user filters: %v", err)
 	}
 
-	logs, totalCount, err := m.repo.ListByAccount(ctx, nil, db.LockingStrengthNone, accountID, *filter)
+	logs, totalCount, err := m.repo.ListByAccount(ctx, db.LockingStrengthNone, accountID, *filter)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -101,7 +101,7 @@ func (m *managerImpl) CleanupOldAccessLogs(ctx context.Context, retentionDays in
 	}
 
 	cutoffTime := time.Now().AddDate(0, 0, -retentionDays)
-	deletedCount, err := m.repo.DeleteOlderThan(ctx, nil, cutoffTime)
+	deletedCount, err := m.repo.DeleteOlderThan(ctx, cutoffTime)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to cleanup old access logs: %v", err)
 		return 0, err

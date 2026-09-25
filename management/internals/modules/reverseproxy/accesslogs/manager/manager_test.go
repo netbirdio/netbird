@@ -10,7 +10,6 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
-	"github.com/netbirdio/netbird/management/internals/shared/db"
 )
 
 func TestCleanupOldAccessLogs(t *testing.T) {
@@ -26,8 +25,8 @@ func TestCleanupOldAccessLogs(t *testing.T) {
 			retentionDays: 30,
 			setupMock: func(mockRepo *accesslogs.MockRepository) {
 				mockRepo.EXPECT().
-					DeleteOlderThan(gomock.Any(), gomock.Any(), gomock.Any()).
-					DoAndReturn(func(ctx context.Context, tx *db.Tx, olderThan time.Time) (int64, error) {
+					DeleteOlderThan(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(ctx context.Context, olderThan time.Time) (int64, error) {
 						expectedCutoff := time.Now().AddDate(0, 0, -30)
 						timeDiff := olderThan.Sub(expectedCutoff)
 						if timeDiff.Abs() > time.Second {
@@ -44,7 +43,7 @@ func TestCleanupOldAccessLogs(t *testing.T) {
 			retentionDays: 30,
 			setupMock: func(mockRepo *accesslogs.MockRepository) {
 				mockRepo.EXPECT().
-					DeleteOlderThan(gomock.Any(), gomock.Any(), gomock.Any()).
+					DeleteOlderThan(gomock.Any(), gomock.Any()).
 					Return(int64(0), nil)
 			},
 			expectedCount: 0,
@@ -102,8 +101,8 @@ func TestCleanupWithExactBoundary(t *testing.T) {
 	mockRepo := accesslogs.NewMockRepository(ctrl)
 
 	mockRepo.EXPECT().
-		DeleteOlderThan(gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(ctx context.Context, tx *db.Tx, olderThan time.Time) (int64, error) {
+		DeleteOlderThan(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(ctx context.Context, olderThan time.Time) (int64, error) {
 			expectedCutoff := time.Now().AddDate(0, 0, -30)
 			timeDiff := olderThan.Sub(expectedCutoff)
 			assert.Less(t, timeDiff.Abs(), time.Second, "cutoff time should be close to expected value")
@@ -150,7 +149,7 @@ func TestStartPeriodicCleanup(t *testing.T) {
 		mockRepo := accesslogs.NewMockRepository(ctrl)
 
 		mockRepo.EXPECT().
-			DeleteOlderThan(gomock.Any(), gomock.Any(), gomock.Any()).
+			DeleteOlderThan(gomock.Any(), gomock.Any()).
 			Return(int64(2), nil).
 			Times(1)
 
@@ -175,7 +174,7 @@ func TestStartPeriodicCleanup(t *testing.T) {
 		mockRepo := accesslogs.NewMockRepository(ctrl)
 
 		mockRepo.EXPECT().
-			DeleteOlderThan(gomock.Any(), gomock.Any(), gomock.Any()).
+			DeleteOlderThan(gomock.Any(), gomock.Any()).
 			Return(int64(1), nil).
 			Times(1)
 
@@ -202,7 +201,7 @@ func TestStartPeriodicCleanup(t *testing.T) {
 		mockRepo := accesslogs.NewMockRepository(ctrl)
 
 		mockRepo.EXPECT().
-			DeleteOlderThan(gomock.Any(), gomock.Any(), gomock.Any()).
+			DeleteOlderThan(gomock.Any(), gomock.Any()).
 			Return(int64(0), nil).
 			Times(1)
 
@@ -227,7 +226,7 @@ func TestStartPeriodicCleanup(t *testing.T) {
 		mockRepo := accesslogs.NewMockRepository(ctrl)
 
 		mockRepo.EXPECT().
-			DeleteOlderThan(gomock.Any(), gomock.Any(), gomock.Any()).
+			DeleteOlderThan(gomock.Any(), gomock.Any()).
 			Return(int64(3), nil).
 			Times(1)
 
@@ -253,7 +252,7 @@ func TestStopPeriodicCleanup(t *testing.T) {
 	mockRepo := accesslogs.NewMockRepository(ctrl)
 
 	mockRepo.EXPECT().
-		DeleteOlderThan(gomock.Any(), gomock.Any(), gomock.Any()).
+		DeleteOlderThan(gomock.Any(), gomock.Any()).
 		Return(int64(1), nil).
 		Times(1)
 

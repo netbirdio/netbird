@@ -11,7 +11,8 @@ import (
 
 // Repository persists reverse proxy access log entries.
 type Repository interface {
-	Create(ctx context.Context, tx *db.Tx, entry *AccessLogEntry) error
-	ListByAccount(ctx context.Context, tx *db.Tx, lockStrength db.LockingStrength, accountID string, filter AccessLogFilter) ([]*AccessLogEntry, int64, error)
-	DeleteOlderThan(ctx context.Context, tx *db.Tx, olderThan time.Time) (int64, error)
+	WithTx(tx *db.Tx) Repository
+	Create(ctx context.Context, entry *AccessLogEntry) error
+	ListByAccount(ctx context.Context, lockStrength db.LockingStrength, accountID string, filter AccessLogFilter) ([]*AccessLogEntry, int64, error)
+	DeleteOlderThan(ctx context.Context, olderThan time.Time) (int64, error)
 }

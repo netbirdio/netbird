@@ -40,10 +40,10 @@ func TestSqlRepository_ListByAccount(t *testing.T) {
 		newEntry("a3", "acc-a", "GET", time.Hour),
 		newEntry("b1", "acc-b", "GET", time.Hour),
 	} {
-		require.NoError(t, repo.Create(ctx, nil, entry))
+		require.NoError(t, repo.Create(ctx, entry))
 	}
 
-	logs, total, err := repo.ListByAccount(ctx, nil, db.LockingStrengthNone, "acc-a", accesslogs.AccessLogFilter{Page: 1, PageSize: 2})
+	logs, total, err := repo.ListByAccount(ctx, db.LockingStrengthNone, "acc-a", accesslogs.AccessLogFilter{Page: 1, PageSize: 2})
 	require.NoError(t, err)
 	assert.EqualValues(t, 3, total)
 	require.Len(t, logs, 2)
@@ -51,7 +51,7 @@ func TestSqlRepository_ListByAccount(t *testing.T) {
 	assert.Equal(t, "a2", logs[1].ID)
 
 	method := "GET"
-	logs, total, err = repo.ListByAccount(ctx, nil, db.LockingStrengthNone, "acc-a", accesslogs.AccessLogFilter{Page: 1, PageSize: 10, Method: &method, SortOrder: "asc"})
+	logs, total, err = repo.ListByAccount(ctx, db.LockingStrengthNone, "acc-a", accesslogs.AccessLogFilter{Page: 1, PageSize: 10, Method: &method, SortOrder: "asc"})
 	require.NoError(t, err)
 	assert.EqualValues(t, 2, total)
 	require.Len(t, logs, 2)
@@ -62,14 +62,14 @@ func TestSqlRepository_ListByAccount(t *testing.T) {
 func TestSqlRepository_DeleteOlderThan(t *testing.T) {
 	repo, _ := newTestRepository(t)
 	ctx := context.Background()
-	require.NoError(t, repo.Create(ctx, nil, newEntry("old", "acc", "GET", 48*time.Hour)))
-	require.NoError(t, repo.Create(ctx, nil, newEntry("new", "acc", "GET", time.Hour)))
+	require.NoError(t, repo.Create(ctx, newEntry("old", "acc", "GET", 48*time.Hour)))
+	require.NoError(t, repo.Create(ctx, newEntry("new", "acc", "GET", time.Hour)))
 
-	deleted, err := repo.DeleteOlderThan(ctx, nil, time.Now().Add(-24*time.Hour))
+	deleted, err := repo.DeleteOlderThan(ctx, time.Now().Add(-24*time.Hour))
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, deleted)
 
-	logs, total, err := repo.ListByAccount(ctx, nil, db.LockingStrengthNone, "acc", accesslogs.AccessLogFilter{Page: 1, PageSize: 10})
+	logs, total, err := repo.ListByAccount(ctx, db.LockingStrengthNone, "acc", accesslogs.AccessLogFilter{Page: 1, PageSize: 10})
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, total)
 	require.Len(t, logs, 1)
@@ -82,12 +82,16 @@ func TestSqlRepository_CreateInsideTransactionRollsBack(t *testing.T) {
 	failure := errors.New("abort")
 
 	err := conn.RunInTx(ctx, func(tx *db.Tx) error {
-		require.NoError(t, repo.Create(ctx, tx, newEntry("tx", "acc", "GET", 0)))
+		txRepo := repo.WithTx(tx)
+		require.NoError(t, txRepo.Create(ctx, newEntry("tx", "acc", "GET", 0)))
+		_, total, err := txRepo.ListByAccount(ctx, db.LockingStrengthNone, "acc", accesslogs.AccessLogFilter{Page: 1, PageSize: 10})
+		require.NoError(t, err)
+		assert.EqualValues(t, 1, total)
 		return failure
 	})
 	require.ErrorIs(t, err, failure)
 
-	_, total, err := repo.ListByAccount(ctx, nil, db.LockingStrengthNone, "acc", accesslogs.AccessLogFilter{Page: 1, PageSize: 10})
+	_, total, err := repo.ListByAccount(ctx, db.LockingStrengthNone, "acc", accesslogs.AccessLogFilter{Page: 1, PageSize: 10})
 	require.NoError(t, err)
 	assert.Zero(t, total)
 }
@@ -99,14 +103,14 @@ func TestSqlRepository_ListByAccount_StatusFilter(t *testing.T) {
 	for id, code := range statusCodes {
 		entry := newEntry(id, "acc", "GET", time.Hour)
 		entry.StatusCode = code
-		require.NoError(t, repo.Create(ctx, nil, entry))
+		require.NoError(t, repo.Create(ctx, entry))
 	}
 	foreign := newEntry("foreign", "other", "GET", time.Hour)
 	foreign.StatusCode = 500
-	require.NoError(t, repo.Create(ctx, nil, foreign))
+	require.NoError(t, repo.Create(ctx, foreign))
 
 	listIDs := func(status string) []string {
-		logs, total, err := repo.ListByAccount(ctx, nil, db.LockingStrengthNone, "acc", accesslogs.AccessLogFilter{Page: 1, PageSize: 10, Status: &status, SortBy: "status_code", SortOrder: "asc"})
+		logs, total, err := repo.ListByAccount(ctx, db.LockingStrengthNone, "acc", accesslogs.AccessLogFilter{Page: 1, PageSize: 10, Status: &status, SortBy: "status_code", SortOrder: "asc"})
 		require.NoError(t, err)
 		require.EqualValues(t, len(logs), total)
 		ids := make([]string, 0, len(logs))

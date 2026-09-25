@@ -43,38 +43,38 @@ func (m *MockRepository) EXPECT() *MockRepositoryMockRecorder {
 }
 
 // Create mocks base method.
-func (m *MockRepository) Create(ctx context.Context, tx *db.Tx, entry *AccessLogEntry) error {
+func (m *MockRepository) Create(ctx context.Context, entry *AccessLogEntry) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Create", ctx, tx, entry)
+	ret := m.ctrl.Call(m, "Create", ctx, entry)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Create indicates an expected call of Create.
-func (mr *MockRepositoryMockRecorder) Create(ctx, tx, entry any) *gomock.Call {
+func (mr *MockRepositoryMockRecorder) Create(ctx, entry any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Create", reflect.TypeOf((*MockRepository)(nil).Create), ctx, tx, entry)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Create", reflect.TypeOf((*MockRepository)(nil).Create), ctx, entry)
 }
 
 // DeleteOlderThan mocks base method.
-func (m *MockRepository) DeleteOlderThan(ctx context.Context, tx *db.Tx, olderThan time.Time) (int64, error) {
+func (m *MockRepository) DeleteOlderThan(ctx context.Context, olderThan time.Time) (int64, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteOlderThan", ctx, tx, olderThan)
+	ret := m.ctrl.Call(m, "DeleteOlderThan", ctx, olderThan)
 	ret0, _ := ret[0].(int64)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // DeleteOlderThan indicates an expected call of DeleteOlderThan.
-func (mr *MockRepositoryMockRecorder) DeleteOlderThan(ctx, tx, olderThan any) *gomock.Call {
+func (mr *MockRepositoryMockRecorder) DeleteOlderThan(ctx, olderThan any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteOlderThan", reflect.TypeOf((*MockRepository)(nil).DeleteOlderThan), ctx, tx, olderThan)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteOlderThan", reflect.TypeOf((*MockRepository)(nil).DeleteOlderThan), ctx, olderThan)
 }
 
 // ListByAccount mocks base method.
-func (m *MockRepository) ListByAccount(ctx context.Context, tx *db.Tx, lockStrength db.LockingStrength, accountID string, filter AccessLogFilter) ([]*AccessLogEntry, int64, error) {
+func (m *MockRepository) ListByAccount(ctx context.Context, lockStrength db.LockingStrength, accountID string, filter AccessLogFilter) ([]*AccessLogEntry, int64, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListByAccount", ctx, tx, lockStrength, accountID, filter)
+	ret := m.ctrl.Call(m, "ListByAccount", ctx, lockStrength, accountID, filter)
 	ret0, _ := ret[0].([]*AccessLogEntry)
 	ret1, _ := ret[1].(int64)
 	ret2, _ := ret[2].(error)
@@ -82,7 +82,21 @@ func (m *MockRepository) ListByAccount(ctx context.Context, tx *db.Tx, lockStren
 }
 
 // ListByAccount indicates an expected call of ListByAccount.
-func (mr *MockRepositoryMockRecorder) ListByAccount(ctx, tx, lockStrength, accountID, filter any) *gomock.Call {
+func (mr *MockRepositoryMockRecorder) ListByAccount(ctx, lockStrength, accountID, filter any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByAccount", reflect.TypeOf((*MockRepository)(nil).ListByAccount), ctx, tx, lockStrength, accountID, filter)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByAccount", reflect.TypeOf((*MockRepository)(nil).ListByAccount), ctx, lockStrength, accountID, filter)
+}
+
+// WithTx mocks base method.
+func (m *MockRepository) WithTx(tx *db.Tx) Repository {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "WithTx", tx)
+	ret0, _ := ret[0].(Repository)
+	return ret0
+}
+
+// WithTx indicates an expected call of WithTx.
+func (mr *MockRepositoryMockRecorder) WithTx(tx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WithTx", reflect.TypeOf((*MockRepository)(nil).WithTx), tx)
 }
