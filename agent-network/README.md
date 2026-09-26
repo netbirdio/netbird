@@ -104,11 +104,15 @@ Agent Network permissions build on the account permission matrix
 `.policies`, `.guardrails`, `.budgets`, `.usage`, `.logs`, `.settings`); a role may
 grant a single submodule or the parent, which cascades to all of them.
 
-Two roles delegate Agent Network access without account-admin rights:
+Three roles delegate Agent Network access without account-admin rights:
 
 - **`agent_network_admin`** — full control over the whole `agent_network` area plus
   read-only users, groups, peers, and account info (needed to build policies).
   Nothing else in the account.
+- **`agent_network_viewer`** — read-only on the whole `agent_network` area,
+  including account-wide usage and request-level access logs, plus the same
+  read-only account objects as `agent_network_admin`. Provider connection config
+  is redacted, since the role cannot update providers.
 - **`usage_viewer`** — the regular User baseline plus read on
   `agent_network.usage` (the aggregated usage and cost overview) and read-only
   access to the resources the usage filters resolve against: users, groups,
