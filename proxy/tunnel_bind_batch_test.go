@@ -20,8 +20,8 @@ import (
 // IdealBatchSize and, with UDP GRO enabled, reads into the tail of that array.
 // Slots the Device did not attach a buffer to receive nothing, so the kernel
 // truncates the datagram and it is dropped. The test below states that a
-// smaller batch must still deliver every datagram and FAILS on the current
-// fork; it passes once the bind sizes its message array by len(bufs).
+// smaller batch must still deliver every datagram; it failed on the fork before
+// netbirdio/wireguard-go#22 made the bind read one message per buffer.
 
 const (
 	bindProbeDatagrams = 4
@@ -29,9 +29,17 @@ const (
 )
 
 type bindReceiveResult struct {
-	delivered int
-	panicked  bool
-	panicMsg  string
+	payloads []string
+	panicked bool
+	panicMsg string
+}
+
+func probeDatagrams() []string {
+	var out []string
+	for i := 0; i < bindProbeDatagrams; i++ {
+		out = append(out, fmt.Sprintf("datagram-%d", i))
+	}
+	return out
 }
 
 // freeUDPPort returns a UDP port that was free a moment ago.
@@ -44,9 +52,10 @@ func freeUDPPort(t *testing.T) uint16 {
 	return uint16(port)
 }
 
-// receiveWithBatch opens a fresh StdNetBind, drains its receive functions with
-// batch buffers per call (what a Device created under a batch override does),
-// sends bindProbeDatagrams to it and reports how many came out.
+// receiveWithBatch opens a fresh StdNetBind, queues bindProbeDatagrams on it,
+// then drains its receive functions with batch buffers per call (what a Device
+// created under a batch override does) and reports what came out. The burst
+// is queued before the first read so that one recvmmsg sees all of it.
 func receiveWithBatch(t *testing.T, batch int) bindReceiveResult {
 	t.Helper()
 
@@ -58,6 +67,15 @@ func receiveWithBatch(t *testing.T, batch int) bindReceiveResult {
 	require.NoError(t, err)
 	require.NotEmpty(t, fns, "bind must expose at least one receive function")
 	t.Cleanup(func() { _ = bind.Close() })
+
+	sender, err := net.DialUDP("udp4", nil, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: int(port)})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sender.Close() })
+	for _, payload := range probeDatagrams() {
+		_, err := sender.Write([]byte(payload))
+		require.NoError(t, err)
+	}
+	time.Sleep(50 * time.Millisecond)
 
 	payloads := make(chan []byte, 64)
 	panics := make(chan string, len(fns))
@@ -92,22 +110,14 @@ func receiveWithBatch(t *testing.T, batch int) bindReceiveResult {
 		}(fn)
 	}
 
-	sender, err := net.DialUDP("udp4", nil, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: int(port)})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = sender.Close() })
-	for i := 0; i < bindProbeDatagrams; i++ {
-		_, err := sender.Write([]byte(fmt.Sprintf("datagram-%d", i)))
-		require.NoError(t, err)
-	}
-
 	var res bindReceiveResult
 	deadline := time.After(bindProbeTimeout)
 collect:
 	for {
 		select {
-		case <-payloads:
-			res.delivered++
-			if res.delivered == bindProbeDatagrams {
+		case p := <-payloads:
+			res.payloads = append(res.payloads, string(p))
+			if len(res.payloads) == bindProbeDatagrams {
 				break collect
 			}
 		case msg := <-panics:
@@ -129,12 +139,12 @@ collect:
 func TestBindReceive_IdealBatchDeliversDatagrams(t *testing.T) {
 	res := receiveWithBatch(t, wgconn.IdealBatchSize)
 	assert.False(t, res.panicked, "receive function panicked: %s", res.panicMsg)
-	assert.Equal(t, bindProbeDatagrams, res.delivered, "all datagrams must be delivered with the ideal batch size")
+	assert.ElementsMatch(t, probeDatagrams(), res.payloads, "all datagrams must be delivered with the ideal batch size")
 }
 
 // TestBindReceive_BatchOverrideOneMustDeliverDatagrams states that
 // NB_PROXY_MAX_BATCH_SIZE=1 must not cost direct UDP reception on Linux. On
-// the current fork, with UDP GRO (kernel 5.12+) the receive function reads into
+// a fork that reads the whole message array, with UDP GRO (kernel 5.12+) the receive function reads into
 // message slots that carry no buffer and every datagram is truncated and
 // dropped; without GRO a burst overruns the one-element sizes slice and the
 // receive goroutine panics. Either way direct peer traffic to the proxy is lost
@@ -142,6 +152,6 @@ func TestBindReceive_IdealBatchDeliversDatagrams(t *testing.T) {
 func TestBindReceive_BatchOverrideOneMustDeliverDatagrams(t *testing.T) {
 	res := receiveWithBatch(t, 1)
 	assert.False(t, res.panicked, "the receive goroutine panicked with a batch override of 1: %s", res.panicMsg)
-	assert.Equal(t, bindProbeDatagrams, res.delivered,
+	assert.ElementsMatch(t, probeDatagrams(), res.payloads,
 		"the bind lost direct UDP datagrams with a batch override of 1 (recvmmsg slots beyond len(bufs) carry no buffer)")
 }

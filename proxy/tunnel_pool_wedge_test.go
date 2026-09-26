@@ -21,18 +21,21 @@ import (
 
 // These tests state what one account's tunnel Device has to keep doing under
 // the proxy's tuning (NB_PROXY_PREALLOCATED_BUFFERS=16 with
-// NB_PROXY_MAX_BATCH_SIZE=1) and FAIL on the current wireguard-go fork.
+// NB_PROXY_MAX_BATCH_SIZE=1). They failed on the wireguard-go fork before
+// netbirdio/wireguard-go#22.
 //
 // Two things drain a sixteen-buffer pool: packets staged for a peer that
 // cannot complete its handshake (an offline backend, or a lazy-connection
 // placeholder whose activation never succeeds), and a burst of inbound packets
-// whose replies the netstack emits synchronously. Once the pool is empty the
-// fork parks the TUN reader and the receive goroutines in WaitPool.Get instead
-// of dropping, so the whole account stops, and anything that then waits for a
-// peer routine (a peer removal, Device.Close) blocks for good while holding the
-// locks the stats and status paths need. Every failure message below names the
-// goroutines that are parked at that moment. The tests pass once the fork drops
-// packets on an exhausted pool and bounds staged packets below the cap.
+// whose replies the netstack emits synchronously. Once the pool was empty that
+// fork parked the TUN reader and the receive goroutines in WaitPool.Get instead
+// of dropping, so the whole account stopped, and anything that then waited for
+// a peer routine (a peer removal, Device.Close) blocked for good while holding
+// the locks the stats and status paths need. Every failure message below names
+// the goroutines that are parked at that moment. The fork now drops on an
+// exhausted pool and keeps staging for peers without a session to half the
+// cap; the recovery steps in the tests exist so a regression cannot hang the
+// package.
 
 const (
 	// operatorPoolCap and operatorBatchSize mirror the production settings
@@ -129,8 +132,8 @@ func newTunnelPair(t *testing.T, poolCap, batch uint32) [2]tunnelPeer {
 	device.SetMaxBatchSizeOverride(0)
 
 	t.Cleanup(func() {
-		// Lift the cap before closing: on the current fork Close waits for
-		// goroutines parked in the pool and would hang a failed test forever.
+		// Lift the cap before closing: a fork that parks in the pool would wait
+		// in Close for those goroutines and hang a failed test forever.
 		pair[0].dev.SetPreallocatedBuffersPerPool(0)
 		for i := range pair {
 			pair[i].dev.Close()
@@ -230,10 +233,15 @@ func afterDeviceClose(t *testing.T) <-chan struct{} {
 func floodTUN(t *testing.T, tun *tuntest.ChannelTUN, pkt []byte) (stop func()) {
 	t.Helper()
 	ch := make(chan struct{})
+	done := make(chan struct{})
 	var once sync.Once
-	stop = func() { once.Do(func() { close(ch) }) }
+	stop = func() {
+		once.Do(func() { close(ch) })
+		<-done
+	}
 	t.Cleanup(stop)
 	go func() {
+		defer close(done)
 		for {
 			select {
 			case tun.Outbound <- pkt:
@@ -330,7 +338,7 @@ func drainTUN(t *testing.T, tun *tuntest.ChannelTUN, stop <-chan struct{}) *atom
 
 // sendInboundVia points dev1 at one of dev0's two channel-bind sockets (port 2
 // is dev0's first receive function, port 4 its second) and sends one packet.
-// On the current fork this parks that receive goroutine on the replacement
+// On a fork that parks in the pool this parks that receive goroutine on the replacement
 // buffer it needs after handing the packet off; in production keepalives and
 // handshakes on the v4, v6 and relay sockets do this within seconds of the
 // pool draining.
@@ -420,7 +428,7 @@ func wedgeDiagnostics() string {
 
 // TestCappedPool_UnreachablePeerMustNotStallHealthyPeer: one peer that cannot
 // complete its handshake must not stop traffic for the other peers on the same
-// Device. On the current fork twelve packets staged for that peer exhaust the
+// Device. On a fork that parks in the pool twelve packets staged for that peer exhaust the
 // sixteen-buffer pool, the TUN reader parks in WaitPool.Get, and traffic for
 // the healthy peer never leaves: every service of the account times out.
 func TestCappedPool_UnreachablePeerMustNotStallHealthyPeer(t *testing.T) {
@@ -434,7 +442,7 @@ func TestCappedPool_UnreachablePeerMustNotStallHealthyPeer(t *testing.T) {
 // TestCappedPool_InboundBurstMustNotStallHealthyAccount needs no unreachable
 // peer at all. Every inbound segment the netstack accepts makes it emit a reply
 // synchronously inside the receiver's Write, and that reply has to be taken by
-// the TUN reader, which needs a buffer for it. On the current fork a burst of
+// the TUN reader, which needs a buffer for it. On a fork that parks in the pool a burst of
 // inbound packets fills the pool from the receive side, the TUN reader parks
 // on the buffer for its reply, the receiver blocks handing over the next one,
 // and no timer ever returns a buffer: the 38-minute wedge from the production
@@ -454,7 +462,7 @@ func TestCappedPool_InboundBurstMustNotStallHealthyAccount(t *testing.T) {
 	assert.Greater(t, answered.Load(), before,
 		"the account stopped answering inbound traffic (%d answered, then none for 3s)\n%s", before, wedgeDiagnostics())
 
-	// Recovery so the Devices can close on the current fork.
+	// Recovery so the Devices can close on a fork that parks in the pool.
 	pair[0].dev.SetPreallocatedBuffersPerPool(0)
 	stopFlood()
 	waitQuiescent(t, answered)
@@ -463,7 +471,7 @@ func TestCappedPool_InboundBurstMustNotStallHealthyAccount(t *testing.T) {
 // TestCappedPool_PeerRemovalMustNotHangOnExhaustedPool is the chain the
 // production dump showed: removing a peer (what a network map update or the
 // lazy inactivity check does) runs Peer.Stop, which waits for the sequential
-// receiver; on the current fork that receiver is stuck delivering into the
+// receiver; on a fork that parks in the pool that receiver is stuck delivering into the
 // netstack behind the parked TUN reader, so the removal never returns, the
 // IpcSet holds ipcMutex for as long as that takes, the stats call behind every
 // status check queues on it, and in the proxy the same removal also holds the
@@ -504,7 +512,7 @@ func TestCappedPool_PeerRemovalMustNotHangOnExhaustedPool(t *testing.T) {
 		t.Errorf("IpcGet (the stats and status path) hung behind ipcMutex held by the peer removal")
 	}
 
-	// Recovery so the Devices can close on the current fork.
+	// Recovery so the Devices can close on a fork that parks in the pool.
 	pair[0].dev.SetPreallocatedBuffersPerPool(0)
 	if !removalDone {
 		select {
@@ -520,7 +528,7 @@ func TestCappedPool_PeerRemovalMustNotHangOnExhaustedPool(t *testing.T) {
 }
 
 // TestCappedPool_CloseMustNotHangOnExhaustedPool is the form reached through
-// client.Stop. On the current fork, once inbound datagrams have parked every
+// client.Stop. On a fork that parks in the pool, once inbound datagrams have parked every
 // receive goroutine in the pool, Device.Close waits for those goroutines in
 // closeBindLocked before it flushes the peers that hold the buffers, while
 // holding ipcMutex, so the account can be neither stopped nor inspected.
