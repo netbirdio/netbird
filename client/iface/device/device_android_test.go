@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/unix"
+	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun"
 
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
@@ -87,4 +89,24 @@ func TestWGTunDeviceCreateAsksTheHost(t *testing.T) {
 		assert.ErrorIs(t, err, adapter.err)
 		assert.Equal(t, []tunArgs{want}, adapter.configured)
 	})
+}
+
+// A host that supplies the device also renews it, behind that device. A descriptor handed to a
+// running provider-backed device must not become a device of its own and replace the host's.
+func TestWGTunDeviceRenewTunRefusesADescriptorFromAProvider(t *testing.T) {
+	address, err := wgaddr.ParseWGAddress("100.64.0.1/16")
+	require.NoError(t, err)
+	dev := NewTunDevice(address, 51820, "", 1280, nil, &providerAdapter{}, false)
+	dev.device = &device.Device{}
+
+	fds := make([]int, 2)
+	require.NoError(t, unix.Pipe(fds))
+	defer func() { _ = unix.Close(fds[1]) }()
+
+	err = dev.RenewTun(fds[0])
+
+	assert.ErrorIs(t, err, errHostSuppliedTun)
+	assert.Empty(t, dev.renewableTun.devices, "the descriptor must not become a device")
+	_, err = unix.FcntlInt(uintptr(fds[0]), unix.F_GETFD, 0)
+	assert.ErrorIs(t, err, unix.EBADF, "the refused descriptor is closed, as on every other RenewTun failure")
 }

@@ -3,6 +3,7 @@
 package device
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -130,7 +131,17 @@ func (t *WGTunDevice) Up() (*udpmux.UniversalUDPMuxDefault, error) {
 	return udpMux, nil
 }
 
+// errHostSuppliedTun is what RenewTun answers a TunDeviceProvider with; see TunDeviceProvider.
+var errHostSuppliedTun = errors.New("the tun device is supplied by the host, so it cannot be renewed from a descriptor")
+
 func (t *WGTunDevice) RenewTun(fd int) error {
+	if _, ok := t.tunAdapter.(TunDeviceProvider); ok {
+		// The host owns the tun and renews it behind the device it supplied. Opening this
+		// descriptor would replace that device and take NetBird off the host's routing.
+		_ = unix.Close(fd)
+		return errHostSuppliedTun
+	}
+
 	if t.device == nil {
 		return fmt.Errorf("device not initialized")
 	}

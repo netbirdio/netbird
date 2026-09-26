@@ -23,6 +23,9 @@ type TunAdapter interface {
 // A TunAdapter that implements this is asked for a device and never for a descriptor. One that does
 // not is unaffected: the descriptor path is unchanged, and gomobile bindings — which cannot express
 // a Go interface return — simply do not implement this.
+//
+// The host also owns renewal. When it re-establishes its tun, it swaps the new one in behind the
+// device it supplied; RenewTun refuses a descriptor for such a host rather than replacing that device.
 type TunDeviceProvider interface {
 	// TunDevice returns the device NetBird should read and write, given the same interface
 	// parameters ConfigureInterface receives, and the name to report for it.
