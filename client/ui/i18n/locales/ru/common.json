@@ -812,7 +812,7 @@
         "message": "Повышает уровень журналирования до TRACE и затем восстанавливает прежний."
     },
     "settings.troubleshooting.capture.label": {
-        "message": "Сеанс записи"
+        "message": "Запись сеанса"
     },
     "settings.troubleshooting.capture.help": {
         "message": "Переподключается и ожидает, чтобы вы могли воспроизвести проблему."
@@ -821,13 +821,13 @@
         "message": "Записывать сетевые пакеты"
     },
     "settings.troubleshooting.packets.help": {
-        "message": "Сохраняет .pcap сетевого трафика во время сеанса записи."
+        "message": "Сохраняет .pcap сетевого трафика во время записи сеанса."
     },
     "settings.troubleshooting.duration.label": {
         "message": "Длительность записи"
     },
     "settings.troubleshooting.duration.help": {
-        "message": "Как долго длится сеанс записи."
+        "message": "Как долго длится запись сеанса."
     },
     "settings.troubleshooting.duration.suffix": {
         "message": "мин."
