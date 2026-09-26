@@ -284,8 +284,10 @@ func (n *NetBird) registerExistingClient(accountID types.AccountID, key ServiceK
 	n.clientsMux.Unlock()
 
 	n.logger.WithFields(log.Fields{
-		"account_id":  accountID,
-		"service_key": key,
+		"account_id":     accountID,
+		"service_id":     si.serviceID,
+		"service_key":    key,
+		"client_started": started,
 	}).Debug("registered service with existing client")
 
 	if started && n.statusNotifier != nil {
@@ -331,6 +333,7 @@ func (n *NetBird) createClientEntry(ctx context.Context, accountID types.Account
 
 	createCtx, cancel := context.WithTimeout(ctx, createProxyPeerTimeout)
 	defer cancel()
+	createStart := time.Now()
 	resp, err := n.mgmtClient.CreateProxyPeer(createCtx, &proto.CreateProxyPeerRequest{
 		ServiceId:          string(serviceID),
 		AccountId:          string(accountID),
@@ -338,6 +341,14 @@ func (n *NetBird) createClientEntry(ctx context.Context, accountID types.Account
 		WireguardPublicKey: publicKey.String(),
 		Cluster:            n.proxyAddr,
 	})
+	n.logger.WithFields(log.Fields{
+		"account_id": accountID,
+		"service_id": serviceID,
+		"rpc":        "CreateProxyPeer",
+		"duration":   time.Since(createStart),
+		"grpc_code":  grpcstatus.Code(err),
+		"accepted":   resp.GetSuccess(),
+	}).Debug("management RPC completed")
 	if err != nil {
 		return nil, fmt.Errorf("authenticate proxy peer with management: %w", err)
 	}
@@ -451,7 +462,15 @@ func (n *NetBird) runClientStartup(accountID types.AccountID, client *embed.Clie
 	startCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if err := client.Start(startCtx); err != nil {
+	n.logger.WithField("account_id", accountID).Debug("embedded client start initiated")
+	start := time.Now()
+	err := client.Start(startCtx)
+	n.logger.WithFields(log.Fields{
+		"account_id": accountID,
+		"duration":   time.Since(start),
+		"failed":     err != nil,
+	}).Debug("embedded client start completed")
+	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			n.logger.WithField("account_id", accountID).Warn("netbird client start timed out, will retry on first request")
 		} else {
