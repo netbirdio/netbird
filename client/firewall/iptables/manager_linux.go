@@ -25,9 +25,8 @@ type Manager struct {
 
 	wgIface iFaceMapper
 
-	ipv4Client   *iptables.IPTables
-	family4      *family
-	rawSupported bool
+	ipv4Client *iptables.IPTables
+	family4    *family
 
 	// IPv6 counterparts, nil when no v6 overlay
 	ipv6Client *iptables.IPTables
@@ -106,10 +105,6 @@ func (m *Manager) Init(stateManager *statemanager.Manager) error {
 
 	if err := m.initChains(stateManager); err != nil {
 		return err
-	}
-
-	if err := m.initNoTrackChain(); err != nil {
-		log.Warnf("raw table not available, notrack rules will be disabled: %v", err)
 	}
 
 	// Trust after all fatal init steps so a later failure doesn't leave the
@@ -285,10 +280,6 @@ func (m *Manager) Close(stateManager *statemanager.Manager) error {
 
 	var merr *multierror.Error
 
-	if err := m.cleanupNoTrackChain(); err != nil {
-		merr = multierror.Append(merr, fmt.Errorf("cleanup notrack chain: %w", err))
-	}
-
 	if m.hasIPv6() {
 		if err := m.family6.Reset(); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("reset v6 family: %w", err))
@@ -438,134 +429,6 @@ func (m *Manager) RemoveOutputDNAT(localAddr netip.Addr, protocol firewall.Proto
 		return m.family6.RemoveOutputDNAT(localAddr, protocol, originalPort, translatedPort)
 	}
 	return m.family4.RemoveOutputDNAT(localAddr, protocol, originalPort, translatedPort)
-}
-
-const (
-	chainNameRaw = "NETBIRD-RAW"
-	chainOutput  = "OUTPUT"
-	tableRaw     = "raw"
-)
-
-// SetupEBPFProxyNoTrack creates notrack rules for eBPF proxy loopback traffic.
-// This prevents conntrack from tracking WireGuard proxy traffic on loopback, which
-// can interfere with MASQUERADE rules (e.g., from container runtimes like Podman/netavark).
-//
-// Traffic flows that need NOTRACK:
-//
-//  1. Egress: WireGuard -> fake endpoint (before eBPF rewrite)
-//     src=127.0.0.1:wgPort -> dst=127.0.0.1:fakePort
-//     Matched by: sport=wgPort
-//
-//  2. Egress: Proxy -> WireGuard (via raw socket)
-//     src=127.0.0.1:fakePort -> dst=127.0.0.1:wgPort
-//     Matched by: dport=wgPort
-//
-//  3. Ingress: Packets to WireGuard
-//     dst=127.0.0.1:wgPort
-//     Matched by: dport=wgPort
-//
-//  4. Ingress: Packets to proxy (after eBPF rewrite)
-//     dst=127.0.0.1:proxyPort
-//     Matched by: dport=proxyPort
-//
-// Rules are cleaned up when the firewall manager is closed.
-func (m *Manager) SetupEBPFProxyNoTrack(proxyPort, wgPort uint16) error {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-
-	if !m.rawSupported {
-		return fmt.Errorf("raw table not available")
-	}
-
-	wgPortStr := fmt.Sprintf("%d", wgPort)
-	proxyPortStr := fmt.Sprintf("%d", proxyPort)
-
-	// Egress rules: match outgoing loopback UDP packets
-	outputRuleSport := []string{"-o", "lo", "-s", "127.0.0.1", "-d", "127.0.0.1", "-p", "udp", "--sport", wgPortStr, "-j", "NOTRACK"}
-	if err := m.ipv4Client.AppendUnique(tableRaw, chainNameRaw, outputRuleSport...); err != nil {
-		return fmt.Errorf("add output sport notrack rule: %w", err)
-	}
-
-	outputRuleDport := []string{"-o", "lo", "-s", "127.0.0.1", "-d", "127.0.0.1", "-p", "udp", "--dport", wgPortStr, "-j", "NOTRACK"}
-	if err := m.ipv4Client.AppendUnique(tableRaw, chainNameRaw, outputRuleDport...); err != nil {
-		return fmt.Errorf("add output dport notrack rule: %w", err)
-	}
-
-	// Ingress rules: match incoming loopback UDP packets
-	preroutingRuleWg := []string{"-i", "lo", "-s", "127.0.0.1", "-d", "127.0.0.1", "-p", "udp", "--dport", wgPortStr, "-j", "NOTRACK"}
-	if err := m.ipv4Client.AppendUnique(tableRaw, chainNameRaw, preroutingRuleWg...); err != nil {
-		return fmt.Errorf("add prerouting wg notrack rule: %w", err)
-	}
-
-	preroutingRuleProxy := []string{"-i", "lo", "-s", "127.0.0.1", "-d", "127.0.0.1", "-p", "udp", "--dport", proxyPortStr, "-j", "NOTRACK"}
-	if err := m.ipv4Client.AppendUnique(tableRaw, chainNameRaw, preroutingRuleProxy...); err != nil {
-		return fmt.Errorf("add prerouting proxy notrack rule: %w", err)
-	}
-
-	log.Debugf("set up ebpf proxy notrack rules for ports %d,%d", proxyPort, wgPort)
-	return nil
-}
-
-func (m *Manager) initNoTrackChain() error {
-	if err := m.cleanupNoTrackChain(); err != nil {
-		log.Debugf("cleanup notrack chain: %v", err)
-	}
-
-	if err := m.ipv4Client.NewChain(tableRaw, chainNameRaw); err != nil {
-		return fmt.Errorf("create chain: %w", err)
-	}
-
-	jumpRule := []string{"-j", chainNameRaw}
-
-	if err := m.ipv4Client.InsertUnique(tableRaw, chainOutput, 1, jumpRule...); err != nil {
-		if delErr := m.ipv4Client.DeleteChain(tableRaw, chainNameRaw); delErr != nil {
-			log.Debugf("delete orphan chain: %v", delErr)
-		}
-		return fmt.Errorf("add output jump rule: %w", err)
-	}
-
-	if err := m.ipv4Client.InsertUnique(tableRaw, chainPrerouting, 1, jumpRule...); err != nil {
-		if delErr := m.ipv4Client.DeleteIfExists(tableRaw, chainOutput, jumpRule...); delErr != nil {
-			log.Debugf("delete output jump rule: %v", delErr)
-		}
-		if delErr := m.ipv4Client.DeleteChain(tableRaw, chainNameRaw); delErr != nil {
-			log.Debugf("delete orphan chain: %v", delErr)
-		}
-		return fmt.Errorf("add prerouting jump rule: %w", err)
-	}
-
-	m.rawSupported = true
-	return nil
-}
-
-func (m *Manager) cleanupNoTrackChain() error {
-	exists, err := m.ipv4Client.ChainExists(tableRaw, chainNameRaw)
-	if err != nil {
-		if !m.rawSupported {
-			return nil
-		}
-		return fmt.Errorf("check chain exists: %w", err)
-	}
-	if !exists {
-		return nil
-	}
-
-	jumpRule := []string{"-j", chainNameRaw}
-
-	if err := m.ipv4Client.DeleteIfExists(tableRaw, chainOutput, jumpRule...); err != nil {
-		return fmt.Errorf("remove output jump rule: %w", err)
-	}
-
-	if err := m.ipv4Client.DeleteIfExists(tableRaw, chainPrerouting, jumpRule...); err != nil {
-		return fmt.Errorf("remove prerouting jump rule: %w", err)
-	}
-
-	if err := m.ipv4Client.ClearAndDeleteChain(tableRaw, chainNameRaw); err != nil {
-		return fmt.Errorf("clear and delete chain: %w", err)
-	}
-
-	m.rawSupported = false
-	return nil
 }
 
 func getConntrackEstablished() []string {

@@ -879,12 +879,6 @@ func (m *Manager) resetState() {
 	}
 }
 
-// SetupEBPFProxyNoTrack is not supported by the userspace firewall: eBPF isn't
-// used in userspace mode, so this should never be called.
-func (m *Manager) SetupEBPFProxyNoTrack(uint16, uint16) error {
-	return errNotSupported
-}
-
 // UpdateSet updates the rule destinations associated with the given set
 // by merging the existing prefixes with the new ones, then deduplicating.
 func (m *Manager) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {

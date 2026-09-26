@@ -1,7 +1,7 @@
 # Privileged tests
 
 Some tests in this repo need `root` or mutate host network state: they create
-TUN/WireGuard interfaces, open netlink/raw sockets, run eBPF programs, or shell
+TUN/WireGuard interfaces, open netlink/raw sockets, or shell
 out to `ip`/`iptables`/`nft`/`ifconfig`/`route`. Running them on a developer
 machine would require `sudo` and could leave stray interfaces or routes behind.
 
@@ -44,7 +44,6 @@ A test is privileged if it does any of:
 
 - creates a real interface via `iface.NewWGIFace(...).Create()`,
 - opens a netlink or raw socket that hard-fails without `CAP_NET_ADMIN`,
-- runs an eBPF program (`ebpf.*.Listen()`),
 - shells out to `ip`, `iptables`, `nft`, `ifconfig`, or `route` to change state.
 
 Add the tag to the **top** of the file, combined with any existing platform
