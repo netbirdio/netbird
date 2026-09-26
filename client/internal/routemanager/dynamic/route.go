@@ -33,6 +33,11 @@ const (
 
 type domainMap map[domain.Domain][]netip.Prefix
 
+type allowedIPRef struct {
+	prefix  netip.Prefix
+	peerKey string
+}
+
 type resolveResult struct {
 	domain domain.Domain
 	prefix netip.Prefix
@@ -45,6 +50,8 @@ type Route struct {
 	allowedIPsRefcounter *refcounter.AllowedIPsRefCounter
 	interval             time.Duration
 	dynamicDomains       domainMap
+	allowedIPRefs        map[allowedIPRef]int
+	pendingAllowedIPRefs map[allowedIPRef]struct{}
 	mu                   sync.Mutex
 	currentPeerKey       string
 	cancel               context.CancelFunc
@@ -63,6 +70,8 @@ func NewRoute(params common.HandlerParams, resolverAddr netip.AddrPort) *Route {
 		wgInterface:          params.WgInterface,
 		resolverAddr:         resolverAddr,
 		dynamicDomains:       domainMap{},
+		allowedIPRefs:        map[allowedIPRef]int{},
+		pendingAllowedIPRefs: map[allowedIPRef]struct{}{},
 	}
 }
 
@@ -86,7 +95,6 @@ func (r *Route) AddRoute(ctx context.Context) error {
 }
 
 // RemoveRoute will stop the dynamic resolver and remove all dynamic routes.
-// It doesn't touch allowed IPs, these should be removed separately and before calling this method.
 func (r *Route) RemoveRoute() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -96,18 +104,30 @@ func (r *Route) RemoveRoute() error {
 	}
 
 	var merr *multierror.Error
+
+	if err := r.releaseAllowedIPsLocked(); err != nil {
+		return fmt.Errorf("release allowed IPs: %w", err)
+	}
+
+	remainingDomains := domainMap{}
 	for domain, prefixes := range r.dynamicDomains {
+		var remainingPrefixes []netip.Prefix
 		for _, prefix := range prefixes {
 			if _, err := r.routeRefCounter.Decrement(prefix); err != nil {
 				merr = multierror.Append(merr, fmt.Errorf("remove dynamic route for IP %s: %w", prefix, err))
+				remainingPrefixes = append(remainingPrefixes, prefix)
 			}
+		}
+		if len(remainingPrefixes) > 0 {
+			remainingDomains[domain] = remainingPrefixes
+			continue
 		}
 		log.Debugf("Removed dynamic route(s) for [%s]: %s", domain.SafeString(), strings.ReplaceAll(fmt.Sprintf("%s", prefixes), " ", ", "))
 
 		r.statusRecorder.DeleteResolvedDomainsStates(domain)
 	}
 
-	r.dynamicDomains = domainMap{}
+	r.dynamicDomains = remainingDomains
 
 	return nberrors.FormatErrorOrNil(merr)
 }
@@ -132,17 +152,59 @@ func (r *Route) RemoveAllowedIPs() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	return r.releaseAllowedIPsLocked()
+}
+
+// releaseAllowedIPsLocked releases every allowed IP reference owned by this route.
+// The caller must hold r.mu.
+func (r *Route) releaseAllowedIPsLocked() error {
 	var merr *multierror.Error
-	for _, domainPrefixes := range r.dynamicDomains {
-		for _, prefix := range domainPrefixes {
-			if _, err := r.allowedIPsRefcounter.Decrement(prefix, r.currentPeerKey); err != nil {
-				merr = multierror.Append(merr, fmt.Errorf("remove allowed IP %s: %w", prefix, err))
+	if err := r.retryPendingAllowedIPsLocked(); err != nil {
+		merr = multierror.Append(merr, err)
+	}
+	for ref, count := range r.allowedIPRefs {
+		for range count {
+			if err := r.releaseAllowedIPLocked(ref); err != nil {
+				merr = multierror.Append(merr, fmt.Errorf("remove allowed IP %s: %w", ref.prefix, err))
 			}
 		}
 	}
 
+	if err := nberrors.FormatErrorOrNil(merr); err != nil {
+		return err
+	}
+
 	r.currentPeerKey = ""
+	return nil
+}
+
+func (r *Route) retryPendingAllowedIPsLocked() error {
+	var merr *multierror.Error
+	for ref := range r.pendingAllowedIPRefs {
+		if _, err := r.allowedIPsRefcounter.Decrement(ref.prefix, ref.peerKey); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("remove allowed IP %s: %w", ref.prefix, err))
+			continue
+		}
+		delete(r.pendingAllowedIPRefs, ref)
+	}
 	return nberrors.FormatErrorOrNil(merr)
+}
+
+func (r *Route) releaseAllowedIPLocked(ref allowedIPRef) error {
+	if r.allowedIPRefs[ref] == 0 {
+		return nil
+	}
+
+	r.allowedIPRefs[ref]--
+	if r.allowedIPRefs[ref] == 0 {
+		delete(r.allowedIPRefs, ref)
+	}
+
+	if _, err := r.allowedIPsRefcounter.Decrement(ref.prefix, ref.peerKey); err != nil {
+		r.pendingAllowedIPRefs[ref] = struct{}{}
+		return err
+	}
+	return nil
 }
 
 func (r *Route) startResolver(ctx context.Context) {
@@ -259,6 +321,9 @@ func (r *Route) updateDynamicRoutes(ctx context.Context, newDomains domainMap) e
 	}
 
 	var merr *multierror.Error
+	if err := r.retryPendingAllowedIPsLocked(); err != nil {
+		merr = multierror.Append(merr, err)
+	}
 
 	for domain, newPrefixes := range newDomains {
 		oldPrefixes := r.dynamicDomains[domain]
@@ -320,7 +385,8 @@ func (r *Route) removeRoutes(prefixes []netip.Prefix) ([]netip.Prefix, error) {
 			merr = multierror.Append(merr, fmt.Errorf("remove dynamic route for IP %s: %w", prefix, err))
 		}
 		if r.currentPeerKey != "" {
-			if _, err := r.allowedIPsRefcounter.Decrement(prefix, r.currentPeerKey); err != nil {
+			ref := allowedIPRef{prefix: prefix, peerKey: r.currentPeerKey}
+			if err := r.releaseAllowedIPLocked(ref); err != nil {
 				merr = multierror.Append(merr, fmt.Errorf("remove allowed IP %s: %w", prefix, err))
 			}
 		}
@@ -341,6 +407,9 @@ func (r *Route) incrementAllowedIP(domain domain.Domain, prefix netip.Prefix, pe
 		)
 
 	}
+	allowedRef := allowedIPRef{prefix: prefix, peerKey: peerKey}
+	r.allowedIPRefs[allowedRef]++
+	delete(r.pendingAllowedIPRefs, allowedRef)
 	return nil
 }
 
