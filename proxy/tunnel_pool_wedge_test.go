@@ -6,6 +6,8 @@ import (
 	"net/netip"
 	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -172,18 +174,120 @@ func addUnreachablePeer(t *testing.T, dev *device.Device) netip.Addr {
 // pins a message buffer from dev0's pool.
 func floodUnreachablePeer(t *testing.T, pair [2]tunnelPeer, deadIP netip.Addr) {
 	t.Helper()
+	floodTUN(t, pair[0].tun, tuntest.Ping(deadIP, pair[0].ip))
+}
+
+// afterDeviceClose returns a channel that is closed only after the Devices of
+// a pair created later in the test have been closed. Helpers that drain a TUN
+// must keep running through Device.Close: a receiver that finds nobody reading
+// its TUN fills the peer queues, the other Device's sender then blocks inside
+// bind.Send holding the bind lock, and Close never gets it.
+func afterDeviceClose(t *testing.T) <-chan struct{} {
+	t.Helper()
 	stop := make(chan struct{})
 	t.Cleanup(func() { close(stop) })
+	return stop
+}
+
+// floodTUN keeps writing pkt into tun until the returned stop function is
+// called or the test ends. The feed always stops before the Devices close: a
+// sender still pushing into a closed peer's channel bind would hold the bind
+// lock and block its own Close.
+func floodTUN(t *testing.T, tun *tuntest.ChannelTUN, pkt []byte) (stop func()) {
+	t.Helper()
+	ch := make(chan struct{})
+	var once sync.Once
+	stop = func() { once.Do(func() { close(ch) }) }
+	t.Cleanup(stop)
 	go func() {
-		pkt := tuntest.Ping(deadIP, pair[0].ip)
 		for {
 			select {
-			case pair[0].tun.Outbound <- pkt:
+			case tun.Outbound <- pkt:
+			case <-ch:
+				return
+			}
+		}
+	}()
+	return stop
+}
+
+// waitQuiescent returns once counter has stopped changing. The channel binds
+// queue up to 8192 packets per direction and a Device whose pool was capped
+// lets that queue fill; closing a Device while its sender still drains into a
+// peer that is already gone deadlocks its Close, so tests settle first.
+func waitQuiescent(t *testing.T, counter *atomic.Int64) {
+	t.Helper()
+	deadline := time.Now().Add(wedgeSettleTimeout)
+	for time.Now().Before(deadline) {
+		before := counter.Load()
+		time.Sleep(300 * time.Millisecond)
+		if counter.Load() == before {
+			return
+		}
+	}
+	t.Fatal("traffic did not settle before the Devices close")
+}
+
+// startReplyingStack stands in for gVisor on dev0's TUN: it answers every
+// packet the tunnel delivers with one packet back to dev1 before it accepts
+// the next one, the way the netstack emits an ACK or a RST synchronously
+// inside the receiver's Write. It returns the number of packets answered.
+func startReplyingStack(t *testing.T, pair [2]tunnelPeer, stop <-chan struct{}) *atomic.Int64 {
+	t.Helper()
+	var answered atomic.Int64
+	go func() {
+		reply := tuntest.Ping(pair[1].ip, pair[0].ip)
+		for {
+			select {
+			case _, ok := <-pair[0].tun.Inbound:
+				if !ok {
+					return
+				}
+			case <-stop:
+				return
+			}
+			select {
+			case pair[0].tun.Outbound <- reply:
+				answered.Add(1)
 			case <-stop:
 				return
 			}
 		}
 	}()
+	return &answered
+}
+
+// drainTUN discards everything that arrives at tun so its Device's receiver
+// never blocks on the test, and counts the packets.
+func drainTUN(t *testing.T, tun *tuntest.ChannelTUN, stop <-chan struct{}) *atomic.Int64 {
+	t.Helper()
+	var received atomic.Int64
+	go func() {
+		for {
+			select {
+			case _, ok := <-tun.Inbound:
+				if !ok {
+					return
+				}
+				received.Add(1)
+			case <-stop:
+				return
+			}
+		}
+	}()
+	return &received
+}
+
+// goroutineIn reports whether some goroutine's stack contains both fnA and fnB.
+func goroutineIn(fnA, fnB string) bool {
+	buf := make([]byte, 4<<20)
+	n := runtime.Stack(buf, true)
+	for _, g := range strings.Split(string(buf[:n]), "\n\n") {
+		if strings.Contains(g, fnA) && strings.Contains(g, fnB) {
+			return true
+		}
+	}
+	return false
 }
 
 // waitPoolDrained blocks until dev's message buffer pool refuses a TryGet.
@@ -348,6 +452,57 @@ func TestRepro_CappedPool_CloseHangsOnWedgedDevice(t *testing.T) {
 
 func goroutineWaitingInCloseBind() bool {
 	return goroutineWaitingIn("device.closeBindLocked")
+}
+
+// TestRepro_CappedPool_InboundBurstWedgesHealthyAccount needs no unreachable
+// peer at all. Every inbound segment the netstack accepts makes it emit a reply
+// synchronously inside the receiver's Write, and that reply has to be taken by
+// the TUN reader, which needs a buffer for it. A burst of inbound packets fills
+// the sixteen-buffer pool from the receive side, the TUN reader parks on the
+// buffer for its reply, the receiver blocks handing over the next one, and no
+// timer ever returns a buffer. This is the 38-minute wedge from the production
+// dump: the sequential receiver stuck in WriteNotify while replying with a RST.
+func TestRepro_CappedPool_InboundBurstWedgesHealthyAccount(t *testing.T) {
+	stop := afterDeviceClose(t)
+	pair := newTunnelPair(t, operatorPoolCap, operatorBatchSize)
+	answered := startReplyingStack(t, pair, stop)
+	drainTUN(t, pair[1].tun, stop)
+	stopFlood := floodTUN(t, pair[1].tun, tuntest.Ping(pair[0].ip, pair[1].ip))
+
+	require.Eventually(t, func() bool { return goroutineParkedInPool("RoutineReadFromTUN") },
+		wedgeSettleTimeout, 20*time.Millisecond, "RoutineReadFromTUN must park in WaitPool.Get")
+	require.Eventually(t, func() bool { return goroutineIn("RoutineSequentialReceiver", "(*chTun).Write") },
+		wedgeSettleTimeout, 20*time.Millisecond, "the sequential receiver must block delivering into the stack")
+
+	before := answered.Load()
+	time.Sleep(2 * time.Second)
+	assert.Equal(t, before, answered.Load(), "no packet may be answered while the Device is wedged")
+
+	pair[0].dev.SetPreallocatedBuffersPerPool(0)
+	require.Eventually(t, func() bool { return answered.Load() > before },
+		wedgeSettleTimeout, 20*time.Millisecond, "traffic must resume once the cap is lifted")
+
+	stopFlood()
+	waitQuiescent(t, answered)
+}
+
+// TestCappedPool_InboundBurstUncappedKeepsFlowing is the control: the same
+// burst against an uncapped Device keeps being answered.
+func TestCappedPool_InboundBurstUncappedKeepsFlowing(t *testing.T) {
+	stop := afterDeviceClose(t)
+	pair := newTunnelPair(t, 0, operatorBatchSize)
+	answered := startReplyingStack(t, pair, stop)
+	drainTUN(t, pair[1].tun, stop)
+	stopFlood := floodTUN(t, pair[1].tun, tuntest.Ping(pair[0].ip, pair[1].ip))
+
+	time.Sleep(time.Second)
+	first := answered.Load()
+	time.Sleep(time.Second)
+	assert.Greater(t, first, int64(0), "the stack must be answering packets")
+	assert.Greater(t, answered.Load(), first, "answers must keep flowing with an uncapped pool")
+
+	stopFlood()
+	waitQuiescent(t, answered)
 }
 
 // TestCappedPool_UncappedDeviceUnaffected is the control for the wedge: with
