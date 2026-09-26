@@ -248,6 +248,9 @@ message LoginRequest {
   // remoteJobsAllowed opts the peer into management-requested remote jobs
   // (e.g. debug bundles). Absent leaves the stored value unchanged.
   optional bool remoteJobsAllowed = 43;
+  // useDeviceAuth forces the OAuth 2.0 Device Authorization Grant instead of
+  // the PKCE/browser flow.
+  optional bool useDeviceAuth = 44;
 }
 
 message LoginResponse {
