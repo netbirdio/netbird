@@ -741,6 +741,14 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 func (e *Engine) createFirewall() error {
 	if e.config.DisableFirewall {
 		log.Infof("firewall is disabled")
+
+		// The DNS hooks are not firewall rules. Without the filter that carries
+		// them the resolver never receives a query, while the system is still
+		// pointed at it.
+		if err := firewall.InstallDNSHooksFilter(e.wgInterface); err != nil {
+			log.Errorf("failed to install DNS hooks filter, DNS will not work: %v", err)
+		}
+
 		return nil
 	}
 
