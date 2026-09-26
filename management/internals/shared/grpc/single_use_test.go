@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-func TestPKCEVerifierStoreLoadAndDelete(t *testing.T) {
+func TestSingleUseStoreLoadAndDelete(t *testing.T) {
 	const (
 		state    = "state"
 		verifier = "verifier"
@@ -14,7 +14,7 @@ func TestPKCEVerifierStoreLoadAndDelete(t *testing.T) {
 	)
 
 	t.Run("exactly one concurrent caller consumes the verifier", func(t *testing.T) {
-		store := NewPKCEVerifierStore(context.Background(), testCacheStore(t))
+		store := NewSingleUseStore(context.Background(), testCacheStore(t))
 		if err := store.Store(state, verifier, time.Minute); err != nil {
 			t.Fatalf("couldn't store PKCE verifier: %s", err)
 		}
@@ -50,7 +50,7 @@ func TestPKCEVerifierStoreLoadAndDelete(t *testing.T) {
 	})
 
 	t.Run("replayed state is rejected", func(t *testing.T) {
-		store := NewPKCEVerifierStore(context.Background(), testCacheStore(t))
+		store := NewSingleUseStore(context.Background(), testCacheStore(t))
 		if err := store.Store(state, verifier, time.Minute); err != nil {
 			t.Fatalf("couldn't store PKCE verifier: %s", err)
 		}
@@ -64,7 +64,7 @@ func TestPKCEVerifierStoreLoadAndDelete(t *testing.T) {
 	})
 
 	t.Run("unknown state is rejected", func(t *testing.T) {
-		store := NewPKCEVerifierStore(context.Background(), testCacheStore(t))
+		store := NewSingleUseStore(context.Background(), testCacheStore(t))
 
 		if got, found := store.LoadAndDelete("never-stored"); found {
 			t.Fatalf("unknown state should not resolve, got %q", got)
@@ -72,7 +72,7 @@ func TestPKCEVerifierStoreLoadAndDelete(t *testing.T) {
 	})
 
 	t.Run("expired verifier is rejected", func(t *testing.T) {
-		store := NewPKCEVerifierStore(context.Background(), testCacheStore(t))
+		store := NewSingleUseStore(context.Background(), testCacheStore(t))
 		if err := store.Store(state, verifier, 50*time.Millisecond); err != nil {
 			t.Fatalf("couldn't store PKCE verifier: %s", err)
 		}
