@@ -25,8 +25,8 @@ type Metrics struct {
 	*http.Server
 }
 
-// NewServer initializes and returns a new Metrics instance
-func NewServer(port int, endpoint string) (*Metrics, error) {
+// NewServer initializes a metrics server listening on address (host:port).
+func NewServer(address string, endpoint string) (*Metrics, error) {
 	exporter, err := prometheus.New()
 	if err != nil {
 		return nil, err
@@ -48,7 +48,7 @@ func NewServer(port int, endpoint string) (*Metrics, error) {
 		promhttp.HandlerOpts{EnableOpenMetrics: true}))
 
 	server := &http.Server{
-		Addr:    fmt.Sprintf(":%d", port),
+		Addr:    address,
 		Handler: router,
 	}
 
