@@ -19,8 +19,9 @@ import (
 // receiver that copies its logic) still sizes its recvmmsg message array at
 // IdealBatchSize and, with UDP GRO enabled, reads into the tail of that array.
 // Slots the Device did not attach a buffer to receive nothing, so the kernel
-// truncates the datagram and it is dropped. This test reproduces that on the
-// real bind.
+// truncates the datagram and it is dropped. The test below states that a
+// smaller batch must still deliver every datagram and FAILS on the current
+// fork; it passes once the bind sizes its message array by len(bufs).
 
 const (
 	bindProbeDatagrams = 4
@@ -131,15 +132,16 @@ func TestBindReceive_IdealBatchDeliversDatagrams(t *testing.T) {
 	assert.Equal(t, bindProbeDatagrams, res.delivered, "all datagrams must be delivered with the ideal batch size")
 }
 
-// TestRepro_BindReceive_BatchOverrideOneLosesDatagrams shows what
-// NB_PROXY_MAX_BATCH_SIZE=1 does to direct UDP reception on Linux. With UDP GRO
-// (kernel 5.12+) the receive function reads into message slots that carry no
-// buffer and every datagram is truncated and dropped; without GRO a burst
-// overruns the one-element sizes slice and the receive goroutine panics. Either
-// way direct peer traffic to the proxy is lost and only relayed traffic works.
-func TestRepro_BindReceive_BatchOverrideOneLosesDatagrams(t *testing.T) {
+// TestBindReceive_BatchOverrideOneMustDeliverDatagrams states that
+// NB_PROXY_MAX_BATCH_SIZE=1 must not cost direct UDP reception on Linux. On
+// the current fork, with UDP GRO (kernel 5.12+) the receive function reads into
+// message slots that carry no buffer and every datagram is truncated and
+// dropped; without GRO a burst overruns the one-element sizes slice and the
+// receive goroutine panics. Either way direct peer traffic to the proxy is lost
+// and only relayed traffic works.
+func TestBindReceive_BatchOverrideOneMustDeliverDatagrams(t *testing.T) {
 	res := receiveWithBatch(t, 1)
-	t.Logf("batch=1: delivered=%d/%d panicked=%v %s", res.delivered, bindProbeDatagrams, res.panicked, res.panicMsg)
-	assert.True(t, res.panicked || res.delivered < bindProbeDatagrams,
-		"expected datagram loss or a panic with a batch override of 1; the bind delivered everything")
+	assert.False(t, res.panicked, "the receive goroutine panicked with a batch override of 1: %s", res.panicMsg)
+	assert.Equal(t, bindProbeDatagrams, res.delivered,
+		"the bind lost direct UDP datagrams with a batch override of 1 (recvmmsg slots beyond len(bufs) carry no buffer)")
 }

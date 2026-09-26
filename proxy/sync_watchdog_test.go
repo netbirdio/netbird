@@ -26,7 +26,9 @@ import (
 // MappingBatchWatchdog the proxy drops the stream, reconnects and starts the
 // snapshot again. Accounts created before the trip are reused, so every pass
 // ratchets forward, but the stream never acks a batch, initial sync never
-// completes, and management sees a proxy that connects and disconnects.
+// completes, and management sees a proxy that connects and disconnects. The
+// first test below states that a slow batch must still complete the initial
+// sync and FAILS on the current code.
 
 const (
 	watchdogSnapshotAccounts = 600
@@ -145,27 +147,26 @@ func runMappingWorker(t *testing.T, mgmt *snapshotMgmtClient, watchdog time.Dura
 	return s, checker
 }
 
-// TestRepro_SyncSnapshot_WatchdogReconnectLoop: 600 new accounts at 10 ms per
-// CreateProxyPeer need 6 s per batch, the watchdog fires after 500 ms. Within
-// the observation window the worker reconnects repeatedly, no batch is ever
-// acked and the startup probe stays red.
-func TestRepro_SyncSnapshot_WatchdogReconnectLoop(t *testing.T) {
+// TestSyncSnapshot_SlowBatchMustCompleteInitialSync: 600 new accounts at 10 ms
+// per CreateProxyPeer need 6 s per batch while the watchdog fires after 500 ms.
+// A batch that is slow but making progress must still be acked and the initial
+// sync must complete. On the current code the worker reconnects on every trip,
+// restarts the snapshot from the first batch, never acks, and the startup
+// probe stays red for as long as management is slow.
+func TestSyncSnapshot_SlowBatchMustCompleteInitialSync(t *testing.T) {
 	mgmt := &snapshotMgmtClient{
 		latencyMockClient: latencyMockClient{createPeerDelay: watchdogCreatePeerDelay, createPeerFail: true},
 		snapshot:          snapshotOfNewAccounts(watchdogSnapshotAccounts),
 	}
 	_, checker := runMappingWorker(t, mgmt, 500*time.Millisecond)
 
-	time.Sleep(3 * time.Second)
-
-	connects := mgmt.connects.Load()
-	acks := mgmt.acks.Load()
-	t.Logf("after 3s: connects=%d acks=%d startup probe=%v",
-		connects, acks, checker.StartupProbe(context.Background()))
-
-	assert.GreaterOrEqual(t, connects, int32(2), "the worker must reconnect after the watchdog fires")
-	assert.Equal(t, int32(0), acks, "no batch may be acked while every pass trips the watchdog")
-	assert.False(t, checker.StartupProbe(context.Background()), "initial sync must not complete")
+	// Three full passes' worth of time for a snapshot that costs one.
+	completed := assert.Eventually(t, func() bool { return checker.StartupProbe(context.Background()) },
+		18*time.Second, 100*time.Millisecond, "initial sync must complete although one batch outlives the watchdog")
+	if !completed {
+		t.Errorf("the mapping worker reconnected %d times and acked %d batches: every trip of the watchdog restarts the snapshot from batch one",
+			mgmt.connects.Load(), mgmt.acks.Load())
+	}
 }
 
 // TestSyncSnapshot_WatchdogAboveBatchCost is the control: with the watchdog

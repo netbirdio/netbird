@@ -26,13 +26,13 @@ import (
 	signalserver "github.com/netbirdio/netbird/signal/server"
 )
 
-// End-to-end reproduction of the blocked-account symptom of the shared reverse
-// proxy: an embedded netstack client created with the operator's tunnel
-// tuning (NB_PROXY_PREALLOCATED_BUFFERS=16, NB_PROXY_MAX_BATCH_SIZE=1) stops
-// serving HTTP through the tunnel under an ordinary burst of inbound data. The
-// setup is real: an in-process management, signal and relay, two embedded
-// clients registered with the same setup key, and HTTP responses fetched from
-// one client's netstack through the other's.
+// End-to-end statement of what the shared reverse proxy needs from an embedded
+// netstack client created with its tunnel tuning (NB_PROXY_PREALLOCATED_BUFFERS=16,
+// NB_PROXY_MAX_BATCH_SIZE=1): it must keep serving HTTP through the tunnel
+// under an ordinary burst of inbound data. On the current fork it does not, and
+// the test FAILS. The setup is real: an in-process management, signal and
+// relay, two embedded clients registered with the same setup key, and HTTP
+// responses fetched from one client's netstack through the other's.
 //
 // A batch override of 1 also makes the Linux bind drop every direct UDP
 // datagram, so the capped client reaches its peer through the relay, exactly
@@ -212,17 +212,30 @@ func fetchThrough(front *Client, backendIP netip.Addr, timeout time.Duration) er
 	return nil
 }
 
+// fetchCounters reports how the download loops are doing.
+type fetchCounters struct {
+	mu        sync.Mutex
+	completed int64
+	failed    int64
+	lastErr   error
+}
+
+func (c *fetchCounters) snapshot() (completed, failed int64, lastErr error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.completed, c.failed, c.lastErr
+}
+
 // keepFetching runs wedgeReproFetchers download loops through front until stop
-// is closed and reports how many downloads completed.
-func keepFetching(t *testing.T, front *Client, backendIP netip.Addr) (completed func() int64, stop func()) {
+// is closed and counts completed and failed downloads.
+func keepFetching(t *testing.T, front *Client, backendIP netip.Addr) (counters *fetchCounters, stop func()) {
 	t.Helper()
 	var (
-		mu    sync.Mutex
-		done  int64
 		quit  = make(chan struct{})
 		once  sync.Once
 		group sync.WaitGroup
 	)
+	counters = &fetchCounters{}
 	stop = func() {
 		once.Do(func() { close(quit) })
 		group.Wait()
@@ -238,20 +251,19 @@ func keepFetching(t *testing.T, front *Client, backendIP netip.Addr) (completed 
 					return
 				default:
 				}
-				if err := fetchThrough(front, backendIP, 15*time.Second); err == nil {
-					mu.Lock()
-					done++
-					mu.Unlock()
+				err := fetchThrough(front, backendIP, 15*time.Second)
+				counters.mu.Lock()
+				if err == nil {
+					counters.completed++
+				} else {
+					counters.failed++
+					counters.lastErr = err
 				}
+				counters.mu.Unlock()
 			}
 		}()
 	}
-	completed = func() int64 {
-		mu.Lock()
-		defer mu.Unlock()
-		return done
-	}
-	return completed, stop
+	return counters, stop
 }
 
 // keepProbingClosedPort has the backend dial a port nobody listens on at the
@@ -337,15 +349,15 @@ func startTunnelPair(t *testing.T, perf Performance) (front, backend *Client, ba
 	return front, backend, backendIP
 }
 
-// TestRepro_NetstackClient_CappedPoolStallsUnderInboundBurst is the operator
-// scenario end to end. A few concurrent downloads fill the front client's
-// sixteen-buffer pool from the receive side and park its TUN reader in
-// WaitPool.Get; while it is parked, a stray SYN to a closed port makes the
-// netstack reply with a RST inside the tunnel receiver, which then waits for
-// the parked reader with its buffers checked out. From there every request
-// through that client times out until the cap is lifted, the way
-// `netbird-proxy debug perf` does.
-func TestRepro_NetstackClient_CappedPoolStallsUnderInboundBurst(t *testing.T) {
+// TestNetstackClient_CappedTuningMustKeepServing is the operator scenario end
+// to end: with the proxy's tuning, a few concurrent downloads plus stray SYNs
+// to a closed port must not stop the client. On the current fork the downloads
+// fill the front client's sixteen-buffer pool from the receive side and park
+// its TUN reader in WaitPool.Get; while it is parked the netstack replies to a
+// SYN with a RST inside the tunnel receiver, which then waits for the parked
+// reader with its buffers checked out, and from there every request through
+// that client times out until the cap is lifted or the process restarts.
+func TestNetstackClient_CappedTuningMustKeepServing(t *testing.T) {
 	if testing.Short() {
 		t.Skip("starts management, signal, relay and two embedded clients")
 	}
@@ -353,21 +365,29 @@ func TestRepro_NetstackClient_CappedPoolStallsUnderInboundBurst(t *testing.T) {
 	batch := uint32(wedgeReproBatchSize)
 	front, backend, backendIP := startTunnelPair(t, Performance{PreallocatedBuffersPerPool: &poolCap, MaxBatchSize: &batch})
 
-	completed, stopFetching := keepFetching(t, front, backendIP)
+	counters, stopFetching := keepFetching(t, front, backendIP)
 	keepProbingClosedPort(t, backend, localOverlayIP(t, front))
-	require.Eventually(t, func() bool { return tunReaderParkedFor(6, 500*time.Millisecond) },
-		wedgeReproSettleFor, 100*time.Millisecond, "the front client's TUN reader must stay parked in WaitPool.Get")
 
-	stalledAt := completed()
-	err := fetchThrough(front, backendIP, 10*time.Second)
-	assert.Error(t, err, "a request through the wedged client must not complete")
-	assert.Equal(t, stalledAt, completed(), "no download may complete while the Device is wedged (%d done before)", stalledAt)
-	assert.True(t, goroutineParkedInPool("RoutineReadFromTUN"), "the TUN reader must still be parked")
+	// Watch for a stall over the observation window: a client that keeps
+	// serving completes downloads in every 3 s slice and fails none.
+	const window = 15 * time.Second
+	deadline := time.Now().Add(window)
+	stalled := false
+	for time.Now().Before(deadline) && !stalled {
+		before, _, _ := counters.snapshot()
+		time.Sleep(3 * time.Second)
+		after, _, _ := counters.snapshot()
+		stalled = after == before
+	}
+	completed, failed, lastErr := counters.snapshot()
+	parked := tunReaderParkedFor(3, 200*time.Millisecond)
+	assert.False(t, stalled, "downloads through the client stopped: %d completed, %d failed (last: %v), TUN reader parked in WaitPool.Get: %v",
+		completed, failed, lastErr, parked)
+	assert.Zero(t, failed, "%d downloads failed through the client (last: %v), TUN reader parked in WaitPool.Get: %v", failed, lastErr, parked)
 
+	// Recovery so the clients can stop on the current fork.
 	lifted := uint32(4096)
 	require.NoError(t, front.SetPerformance(Performance{PreallocatedBuffersPerPool: &lifted}))
-	require.Eventually(t, func() bool { return fetchThrough(front, backendIP, 10*time.Second) == nil },
-		wedgeReproSettleFor, 500*time.Millisecond, "requests must succeed again once the cap is lifted")
 	stopFetching()
 }
 
@@ -379,9 +399,9 @@ func TestNetstackClient_DefaultTuningServesInboundBurst(t *testing.T) {
 	}
 	front, backend, backendIP := startTunnelPair(t, Performance{})
 
-	completed, stopFetching := keepFetching(t, front, backendIP)
+	counters, stopFetching := keepFetching(t, front, backendIP)
 	keepProbingClosedPort(t, backend, localOverlayIP(t, front))
-	require.Eventually(t, func() bool { return completed() >= 20 },
+	require.Eventually(t, func() bool { c, _, _ := counters.snapshot(); return c >= 20 },
 		wedgeReproSettleFor, 250*time.Millisecond, "downloads must keep completing with default tuning")
 	assert.False(t, goroutineParkedInPool("RoutineReadFromTUN"), "no TUN reader may park with an uncapped pool")
 	stopFetching()
