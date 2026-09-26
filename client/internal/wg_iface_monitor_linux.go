@@ -5,6 +5,7 @@ package internal
 import (
 	"context"
 	"fmt"
+	"net"
 	"syscall"
 
 	log "github.com/sirupsen/logrus"
@@ -92,7 +93,7 @@ func inspectLinkEvent(update netlink.LinkUpdate, ifaceName string, expectedIndex
 	case syscall.RTM_DELLINK:
 		return inspectDelLink(eventIndex, ifaceName, expectedIndex)
 	case syscall.RTM_NEWLINK:
-		return inspectNewLink(eventIndex, eventName, ifaceName, expectedIndex)
+		return inspectNewLink(eventIndex, eventName, ifaceName, expectedIndex, update.Attrs())
 	}
 	return false, nil
 }
@@ -117,9 +118,10 @@ func inspectDelLink(eventIndex int, ifaceName string, expectedIndex int) (bool, 
 //     this implicitly because net.InterfaceByName(ifaceName) would
 //     start failing; the event-driven version has to test it.
 //
-// Same name + same index is just a flag/state change on the existing
-// interface and is ignored.
-func inspectNewLink(eventIndex int, eventName, ifaceName string, expectedIndex int) (bool, error) {
+//  3. Reports the interface brought down (IFF_UP cleared).
+//
+// Same name + same index with IFF_UP remaining set is ignored.
+func inspectNewLink(eventIndex int, eventName, ifaceName string, expectedIndex int, attrs *netlink.LinkAttrs) (bool, error) {
 	if eventName == ifaceName && eventIndex != expectedIndex {
 		log.Infof("Interface monitor: %s recreated (index changed from %d to %d), restarting engine",
 			ifaceName, expectedIndex, eventIndex)
@@ -129,6 +131,10 @@ func inspectNewLink(eventIndex int, eventName, ifaceName string, expectedIndex i
 		log.Infof("Interface monitor: %s renamed to %s (index %d), restarting engine",
 			ifaceName, eventName, expectedIndex)
 		return true, fmt.Errorf("interface %s renamed to %s", ifaceName, eventName)
+	}
+	if eventIndex == expectedIndex && attrs != nil && attrs.Flags&net.FlagUp == 0 {
+		log.Infof("Interface monitor: %s link down (IFF_UP cleared), restarting engine", ifaceName)
+		return true, fmt.Errorf("interface %s down", ifaceName)
 	}
 	return false, nil
 }

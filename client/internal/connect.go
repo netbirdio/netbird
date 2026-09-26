@@ -490,6 +490,10 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		}
 		c.statusRecorder.ClientTeardown()
 
+		if currentStatus, _ := state.Status(); currentStatus == StatusConnected {
+			state.Set(StatusConnecting)
+		}
+
 		backOff.Reset()
 
 		log.Info("stopped NetBird client")

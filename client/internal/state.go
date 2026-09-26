@@ -29,7 +29,15 @@ func CtxInitState(ctx context.Context) context.Context {
 
 // CtxGetState object to get/update state/errors of process.
 func CtxGetState(ctx context.Context) *contextState {
-	return ctx.Value(stateCtx).(*contextState)
+	if ctx == nil {
+		return nil
+	}
+	val := ctx.Value(stateCtx)
+	if val == nil {
+		return nil
+	}
+	state, _ := val.(*contextState)
+	return state
 }
 
 type contextState struct {
