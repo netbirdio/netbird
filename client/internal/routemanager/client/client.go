@@ -403,7 +403,7 @@ func (w *Watcher) connectEvent(route *route.Route) {
 		proto.SystemEvent_INFO,
 		proto.SystemEvent_NETWORK,
 		"Default route added",
-		"Exit node connected.",
+		proto.NewUserMessage(proto.UserMsgExitNodeConnected),
 		meta,
 	)
 }
@@ -423,7 +423,7 @@ func (w *Watcher) disconnectEvent(route *route.Route, rsn reason) {
 
 	var severity proto.SystemEvent_Severity
 	var message string
-	var userMessage string
+	var userMessage *proto.UserMessage
 	meta := make(map[string]string)
 
 	if route != nil {
@@ -435,22 +435,22 @@ func (w *Watcher) disconnectEvent(route *route.Route, rsn reason) {
 	case reasonShutdown:
 		severity = proto.SystemEvent_INFO
 		message = "Default route removed"
-		userMessage = "Exit node disconnected."
+		userMessage = proto.NewUserMessage(proto.UserMsgExitNodeDisconnected)
 	case reasonRouteUpdate:
 		severity = proto.SystemEvent_INFO
 		message = "Default route updated due to configuration change"
 	case reasonPeerUpdate:
 		severity = proto.SystemEvent_WARNING
 		message = "Default route disconnected due to peer unreachability"
-		userMessage = "Exit node connection lost. Your internet access might be affected."
+		userMessage = proto.NewUserMessage(proto.UserMsgExitNodeConnectionLost)
 	case reasonHA:
 		severity = proto.SystemEvent_INFO
 		message = "Default route disconnected due to high availability change"
-		userMessage = "Exit node disconnected due to high availability change."
+		userMessage = proto.NewUserMessage(proto.UserMsgExitNodeHAChange)
 	default:
 		severity = proto.SystemEvent_ERROR
 		message = "Default route disconnected for unknown reasons"
-		userMessage = "Exit node disconnected for unknown reasons."
+		userMessage = proto.NewUserMessage(proto.UserMsgExitNodeDisconnectedUnknown)
 	}
 
 	w.statusRecorder.PublishEvent(

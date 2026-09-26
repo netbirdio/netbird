@@ -43,10 +43,10 @@ const (
 	// UIs to re-fetch their cached config + features. UserMessage is empty so
 	// the change is silent; the source is carried in MetadataSourceKey.
 	MetadataTypeConfigChanged = "config_changed"
-	// MetadataTypePolicyApplied marks an MDM-policy-driven config change. The
-	// daemon stamps it with a (non-localised) UserMessage; the UI suppresses
-	// that and builds its own localised toast off the paired config_changed
-	// event instead.
+	// MetadataTypePolicyApplied marks an MDM-policy-driven config change. It is
+	// the user-facing half of the pair: the daemon stamps it with the message
+	// and title keys a UI localises, while the paired config_changed event stays
+	// silent and only drives the cache refresh.
 	MetadataTypePolicyApplied = "policy_applied"
 
 	// MetadataSourceKey is the SystemEvent.metadata key carrying what
