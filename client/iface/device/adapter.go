@@ -26,6 +26,11 @@ type TunAdapter interface {
 //
 // The host also owns renewal. When it re-establishes its tun, it swaps the new one in behind the
 // device it supplied; RenewTun refuses a descriptor for such a host rather than replacing that device.
+//
+// NetBird owns the returned device and closes it when the interface is closed, just as it closes a
+// descriptor from ConfigureInterface. A host that shares one tun among several backends should
+// therefore return a device of NetBird's own, one it feeds from the shared tun, and never the shared
+// tun itself.
 type TunDeviceProvider interface {
 	// TunDevice returns the device NetBird should read and write, given the same interface
 	// parameters ConfigureInterface receives, and the name to report for it.

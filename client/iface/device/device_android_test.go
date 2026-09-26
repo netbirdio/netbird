@@ -3,6 +3,8 @@ package device
 import (
 	"errors"
 	"net/netip"
+	"os"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -10,7 +12,9 @@ import (
 	"golang.org/x/sys/unix"
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
+	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
@@ -40,12 +44,60 @@ func (a *descriptorAdapter) ProtectSocket(int32) bool { return true }
 // providerAdapter also implements TunDeviceProvider, so Create must ask it for the device.
 type providerAdapter struct {
 	descriptorAdapter
+	dev      tun.Device
+	name     string
 	provided []tunArgs
 }
 
 func (a *providerAdapter) TunDevice(address, addressV6 string, mtu int, dns, searchDomains, routes string) (tun.Device, string, error) {
 	a.provided = append(a.provided, tunArgs{address, addressV6, mtu, dns, searchDomains, routes})
-	return nil, "", a.err
+	return a.dev, a.name, a.err
+}
+
+// hostDevice stands in for the device a host keeps for NetBird. It carries no packets; it only
+// blocks reads until it is closed, and records that it was.
+type hostDevice struct {
+	events chan tun.Event
+	done   chan struct{}
+	once   sync.Once
+}
+
+func newHostDevice() *hostDevice {
+	return &hostDevice{events: make(chan tun.Event, 1), done: make(chan struct{})}
+}
+
+func (d *hostDevice) File() *os.File { return nil }
+
+func (d *hostDevice) Read([][]byte, []int, int) (int, error) {
+	<-d.done
+	return 0, os.ErrClosed
+}
+
+func (d *hostDevice) Write(bufs [][]byte, _ int) (int, error) { return len(bufs), nil }
+
+func (d *hostDevice) MTU() (int, error) { return 1280, nil }
+
+func (d *hostDevice) Name() (string, error) { return "host0", nil }
+
+func (d *hostDevice) Events() <-chan tun.Event { return d.events }
+
+func (d *hostDevice) BatchSize() int { return 1 }
+
+func (d *hostDevice) Close() error {
+	d.once.Do(func() {
+		close(d.done)
+		close(d.events)
+	})
+	return nil
+}
+
+func (d *hostDevice) closed() bool {
+	select {
+	case <-d.done:
+		return true
+	default:
+		return false
+	}
 }
 
 // Both adapters fail, so Create returns before it builds a WireGuard device: what is under test is
@@ -109,4 +161,29 @@ func TestWGTunDeviceRenewTunRefusesADescriptorFromAProvider(t *testing.T) {
 	assert.Empty(t, dev.renewableTun.devices, "the descriptor must not become a device")
 	_, err = unix.FcntlInt(uintptr(fds[0]), unix.F_GETFD, 0)
 	assert.ErrorIs(t, err, unix.EBADF, "the refused descriptor is closed, as on every other RenewTun failure")
+}
+
+// NetBird runs on the device and name the provider returns, and owns that device from then on:
+// closing the interface closes it, just as it closes a descriptor from ConfigureInterface.
+func TestWGTunDeviceRunsOnTheProvidedDevice(t *testing.T) {
+	address, err := wgaddr.ParseWGAddress("100.64.0.1/16")
+	require.NoError(t, err)
+	key, err := wgtypes.GeneratePrivateKey()
+	require.NoError(t, err)
+	host := newHostDevice()
+	adapter := &providerAdapter{dev: host, name: "host0"}
+	dev := NewTunDevice(address, 0, key.String(), 1280, bind.NewICEBind(nil, address, 1280), adapter, false)
+
+	_, err = dev.Create(nil, "", nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, "host0", dev.DeviceName())
+	assert.Empty(t, adapter.configured)
+	dev.renewableTun.mu.Lock()
+	require.Len(t, dev.renewableTun.devices, 1)
+	assert.Same(t, host, dev.renewableTun.devices[0].Device)
+	dev.renewableTun.mu.Unlock()
+
+	require.NoError(t, dev.Close())
+	assert.True(t, host.closed(), "closing the interface closes the device the host supplied")
 }
