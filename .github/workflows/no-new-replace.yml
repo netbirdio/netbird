@@ -120,8 +120,7 @@ jobs:
           fi
           echo "No new replace directives."
 
-      - name: Report new replace directives on the pull request
-        if: steps.compare.outputs.new != '' || steps.compare.outputs.retargeted != ''
+      - name: Report replace directives on the pull request
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           NEW: ${{ steps.compare.outputs.new }}
@@ -134,6 +133,17 @@ jobs:
             const head = pr.head.sha.slice(0, 7);
             const added = process.env.NEW.trim();
             const retargeted = process.env.RETARGETED.trim();
+
+            // A comment from an earlier push is updated even when there is
+            // nothing left to report, so it never describes a replace the PR
+            // no longer carries.
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number: pr.number, per_page: 100,
+            });
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            if (!added && !retargeted && !existing) {
+              return;
+            }
 
             const sections = [`${marker}\n## Replace directives\n`, `Checked \`go.mod\` on \`${head}\` against the base branch.`];
             if (added) {
@@ -148,12 +158,11 @@ jobs:
             if (retargeted) {
               sections.push('This PR retargets an existing replace directive:\n\n```\n' + retargeted + '\n```');
             }
+            if (!added && !retargeted) {
+              sections.push('No replace directive is added or retargeted any more.');
+            }
             const body = sections.join('\n\n');
 
-            const comments = await github.paginate(github.rest.issues.listComments, {
-              owner, repo, issue_number: pr.number, per_page: 100,
-            });
-            const existing = comments.find(c => c.body && c.body.includes(marker));
             try {
               if (existing) {
                 await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });

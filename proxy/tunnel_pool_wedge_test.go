@@ -98,6 +98,20 @@ func newTunnelPair(t *testing.T, poolCap, batch uint32) [2]tunnelPeer {
 		device.SetPreallocatedBuffersPerPool(0)
 		device.SetMaxBatchSizeOverride(0)
 	})
+	// Registered before setup so a failed IpcSet or Up still closes whatever
+	// came up.
+	t.Cleanup(func() {
+		if pair[0].dev != nil {
+			// Lift the cap before closing: a fork that parks in the pool would
+			// wait in Close for those goroutines and hang a failed test forever.
+			pair[0].dev.SetPreallocatedBuffersPerPool(0)
+		}
+		for i := range pair {
+			if pair[i].dev != nil {
+				pair[i].dev.Close()
+			}
+		}
+	})
 	for i := range pair {
 		if i == 0 {
 			device.SetPreallocatedBuffersPerPool(poolCap)
@@ -130,15 +144,6 @@ func newTunnelPair(t *testing.T, poolCap, batch uint32) [2]tunnelPeer {
 	}
 	device.SetPreallocatedBuffersPerPool(0)
 	device.SetMaxBatchSizeOverride(0)
-
-	t.Cleanup(func() {
-		// Lift the cap before closing: a fork that parks in the pool would wait
-		// in Close for those goroutines and hang a failed test forever.
-		pair[0].dev.SetPreallocatedBuffersPerPool(0)
-		for i := range pair {
-			pair[i].dev.Close()
-		}
-	})
 
 	require.True(t, pingThrough(t, pair, 0, 1, 5*time.Second), "baseline ping dev0 -> dev1 must succeed")
 	require.True(t, pingThrough(t, pair, 1, 0, 5*time.Second), "baseline ping dev1 -> dev0 must succeed")

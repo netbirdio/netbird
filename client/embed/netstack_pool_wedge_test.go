@@ -82,16 +82,35 @@ func startRelayServer(t *testing.T) string {
 		AuthValidator:  &allow.Auth{},
 	})
 	require.NoError(t, err)
+	listenErr := make(chan error, 1)
 	go func() {
-		if err := srv.Listen(relayserver.ListenerConfig{Address: addr}); err != nil {
-			t.Error(err)
-		}
+		listenErr <- srv.Listen(relayserver.ListenerConfig{Address: addr})
 	}()
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(ctx)
 	})
+
+	// Wait until the relay accepts connections, so a port lost between the
+	// probe and the listen fails here rather than as a client timeout later.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		select {
+		case err := <-listenErr:
+			require.NoError(t, err, "relay must listen on %s", addr)
+			t.Fatalf("relay listener on %s returned before serving", addr)
+		default:
+		}
+		if conn, err := net.DialTimeout("tcp", addr, 200*time.Millisecond); err == nil {
+			_ = conn.Close()
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("relay did not start listening on %s", addr)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 	return "rel://" + addr
 }
 
