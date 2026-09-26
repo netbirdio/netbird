@@ -9,6 +9,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
+	"github.com/netbirdio/netbird/management/internals/shared/db"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
@@ -18,14 +19,16 @@ import (
 )
 
 type managerImpl struct {
+	repo               accesslogs.Repository
 	store              store.Store
 	permissionsManager permissions.Manager
 	geo                geolocation.Geolocation
 	cleanupCancel      context.CancelFunc
 }
 
-func NewManager(store store.Store, permissionsManager permissions.Manager, geo geolocation.Geolocation) accesslogs.Manager {
+func NewManager(repo accesslogs.Repository, store store.Store, permissionsManager permissions.Manager, geo geolocation.Geolocation) accesslogs.Manager {
 	return &managerImpl{
+		repo:               repo,
 		store:              store,
 		permissionsManager: permissionsManager,
 		geo:                geo,
@@ -54,7 +57,7 @@ func (m *managerImpl) SaveAccessLog(ctx context.Context, logEntry *accesslogs.Ac
 		}
 	}
 
-	if err := m.store.CreateAccessLog(ctx, logEntry); err != nil {
+	if err := m.repo.Create(ctx, logEntry); err != nil {
 		log.WithContext(ctx).WithFields(log.Fields{
 			"service_id": logEntry.ServiceID,
 			"method":     logEntry.Method,
@@ -82,7 +85,7 @@ func (m *managerImpl) GetAllAccessLogs(ctx context.Context, accountID, userID st
 		log.WithContext(ctx).Warnf("failed to resolve user filters: %v", err)
 	}
 
-	logs, totalCount, err := m.store.GetAccountAccessLogs(ctx, store.LockingStrengthNone, accountID, *filter)
+	logs, totalCount, err := m.repo.ListByAccount(ctx, db.LockingStrengthNone, accountID, *filter)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -98,7 +101,7 @@ func (m *managerImpl) CleanupOldAccessLogs(ctx context.Context, retentionDays in
 	}
 
 	cutoffTime := time.Now().AddDate(0, 0, -retentionDays)
-	deletedCount, err := m.store.DeleteOldAccessLogs(ctx, cutoffTime)
+	deletedCount, err := m.repo.DeleteOlderThan(ctx, cutoffTime)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to cleanup old access logs: %v", err)
 		return 0, err

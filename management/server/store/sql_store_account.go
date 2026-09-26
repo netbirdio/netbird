@@ -51,7 +51,7 @@ func (s *SqlStore) SaveAccount(ctx context.Context, account *types.Account) erro
 		group.StoreGroupPeers()
 	}
 
-	err := s.transaction(func(tx *gorm.DB) error {
+	err := s.transaction(ctx, func(tx *gorm.DB) error {
 		result := tx.Select(clause.Associations).Delete(account.Policies, "account_id = ?", account.Id)
 		if result.Error != nil {
 			return result.Error
@@ -146,7 +146,7 @@ func (s *SqlStore) checkAccountDomainBeforeSave(ctx context.Context, accountID, 
 func (s *SqlStore) DeleteAccount(ctx context.Context, account *types.Account) error {
 	start := time.Now()
 
-	err := s.transaction(func(tx *gorm.DB) error {
+	err := s.transaction(ctx, func(tx *gorm.DB) error {
 		result := tx.Select(clause.Associations).Delete(account.Policies, "account_id = ?", account.Id)
 		if result.Error != nil {
 			return result.Error
@@ -281,7 +281,7 @@ func (s *SqlStore) GetAccountMeta(ctx context.Context, lockStrength LockingStren
 }
 
 func (s *SqlStore) GetAccount(ctx context.Context, accountID string) (*types.Account, error) {
-	if s.pool != nil {
+	if s.pgxPool() != nil {
 		return s.getAccountPgx(ctx, accountID)
 	}
 	return s.getAccountGorm(ctx, accountID)
@@ -761,7 +761,7 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		networkSerial                    sql.NullInt64
 		createdAt                        sql.NullTime
 	)
-	err := s.pool.QueryRow(ctx, accountQuery, accountID).Scan(
+	err := s.pgxPool().QueryRow(ctx, accountQuery, accountID).Scan(
 		&account.Id, &account.CreatedBy, &createdAt, &account.Domain, &account.DomainCategory, &account.IsDomainPrimaryAccount,
 		&networkIdentifier, &networkNet, &networkNetV6, &networkDns, &networkSerial,
 		&dnsSettingsDisabledGroups,

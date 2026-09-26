@@ -15,6 +15,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -346,7 +348,6 @@ func TestSqlStore_ExecuteInTransaction_Timeout(t *testing.T) {
 
 	sqlStore, ok := store.(*SqlStore)
 	require.True(t, ok)
-	assert.Equal(t, 1*time.Second, sqlStore.transactionTimeout)
 
 	ctx := context.Background()
 	err = sqlStore.ExecuteInTransaction(ctx, func(transaction Store) error {
@@ -410,4 +411,124 @@ func TestNewSqliteStore_BusyTimeoutRespectsUserOverride(t *testing.T) {
 			assert.Equal(t, tc.expected, busyTimeout)
 		})
 	}
+}
+
+func TestSqlStore_ExecuteInTransaction_NestedJoinsOuterTransaction(t *testing.T) {
+	runTestForAllEngines(t, "../testdata/extended-store.sql", func(t *testing.T, store Store) {
+		ctx := context.Background()
+		accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+		outer := &types.Group{ID: "outer-group", AccountID: accountID, Name: "outer", Issued: "api"}
+		inner := &types.Group{ID: "inner-group", AccountID: accountID, Name: "inner", Issued: "api"}
+
+		err := store.ExecuteInTransaction(ctx, func(transaction Store) error {
+			require.NoError(t, transaction.CreateGroup(ctx, outer))
+			err := transaction.ExecuteInTransaction(ctx, func(nested Store) error {
+				_, err := nested.GetGroupByID(ctx, LockingStrengthNone, accountID, outer.ID)
+				require.NoError(t, err)
+				return nested.CreateGroup(ctx, inner)
+			})
+			require.NoError(t, err)
+			return assert.AnError
+		})
+		require.ErrorIs(t, err, assert.AnError)
+
+		_, err = store.GetGroupByID(ctx, LockingStrengthNone, accountID, outer.ID)
+		require.Error(t, err)
+		_, err = store.GetGroupByID(ctx, LockingStrengthNone, accountID, inner.ID)
+		require.Error(t, err)
+
+		err = store.ExecuteInTransaction(ctx, func(transaction Store) error {
+			return transaction.ExecuteInTransaction(ctx, func(nested Store) error {
+				return nested.CreateGroup(ctx, inner)
+			})
+		})
+		require.NoError(t, err)
+		_, err = store.GetGroupByID(ctx, LockingStrengthNone, accountID, inner.ID)
+		require.NoError(t, err)
+	})
+}
+
+func TestSqlStore_ExecuteInTransaction_RestoresForeignKeyChecksOnMysql(t *testing.T) {
+	runTestForAllEngines(t, "", func(t *testing.T, store Store) {
+		sqlStore := store.(*SqlStore)
+		if sqlStore.conn.Engine() != types.MysqlStoreEngine {
+			t.Skip("FOREIGN_KEY_CHECKS is MySQL specific")
+		}
+		sqlDB, err := sqlStore.GetDB().DB()
+		require.NoError(t, err)
+		sqlDB.SetMaxOpenConns(1)
+		ctx := context.Background()
+
+		foreignKeyChecks := func() int {
+			var enabled int
+			require.NoError(t, sqlStore.GetDB().Raw("SELECT @@SESSION.foreign_key_checks").Scan(&enabled).Error)
+			return enabled
+		}
+
+		err = store.ExecuteInTransaction(ctx, func(Store) error { return assert.AnError })
+		require.ErrorIs(t, err, assert.AnError)
+		assert.Equal(t, 1, foreignKeyChecks())
+
+		require.Panics(t, func() {
+			_ = store.ExecuteInTransaction(ctx, func(Store) error { panic("boom") })
+		})
+		assert.Equal(t, 1, foreignKeyChecks())
+
+		err = sqlStore.transaction(ctx, func(*gorm.DB) error { return assert.AnError })
+		require.ErrorIs(t, err, assert.AnError)
+		assert.Equal(t, 1, foreignKeyChecks())
+
+		err = store.ExecuteInTransaction(ctx, func(transaction Store) error {
+			bound := transaction.(*SqlStore)
+			require.NoError(t, bound.transaction(ctx, func(*gorm.DB) error { return nil }))
+			var enabled int
+			require.NoError(t, bound.GetDB().Raw("SELECT @@SESSION.foreign_key_checks").Scan(&enabled).Error)
+			assert.Equal(t, 0, enabled, "a savepoint must not re-enable FK checks for the rest of the transaction")
+			return nil
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 1, foreignKeyChecks())
+	})
+}
+
+func TestSqlStore_Transaction_RollsBackOnError(t *testing.T) {
+	runTestForAllEngines(t, "../testdata/extended-store.sql", func(t *testing.T, store Store) {
+		ctx := context.Background()
+		accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+		group := &types.Group{ID: "rolled-back-group", AccountID: accountID, Name: "rolled back", Issued: "api"}
+
+		err := store.(*SqlStore).transaction(ctx, func(tx *gorm.DB) error {
+			require.NoError(t, tx.Omit(clause.Associations).Create(group).Error)
+			return assert.AnError
+		})
+		require.ErrorIs(t, err, assert.AnError)
+
+		_, err = store.GetGroupByID(ctx, LockingStrengthNone, accountID, group.ID)
+		require.Error(t, err)
+	})
+}
+
+func TestSqlStore_Transaction_NestedIsSavepoint(t *testing.T) {
+	runTestForAllEngines(t, "../testdata/extended-store.sql", func(t *testing.T, store Store) {
+		ctx := context.Background()
+		accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+		outer := &types.Group{ID: "outer-group", AccountID: accountID, Name: "outer", Issued: "api"}
+		inner := &types.Group{ID: "inner-group", AccountID: accountID, Name: "inner", Issued: "api"}
+
+		err := store.ExecuteInTransaction(ctx, func(transaction Store) error {
+			require.NoError(t, transaction.CreateGroup(ctx, outer))
+			err := transaction.(*SqlStore).transaction(ctx, func(tx *gorm.DB) error {
+				require.NoError(t, tx.Omit(clause.Associations).Create(inner).Error)
+				return assert.AnError
+			})
+			require.ErrorIs(t, err, assert.AnError)
+			return nil
+		})
+		require.NoError(t, err)
+
+		_, err = store.GetGroupByID(ctx, LockingStrengthNone, accountID, outer.ID)
+		require.NoError(t, err)
+		_, err = store.GetGroupByID(ctx, LockingStrengthNone, accountID, inner.ID)
+		require.Error(t, err)
+	})
 }

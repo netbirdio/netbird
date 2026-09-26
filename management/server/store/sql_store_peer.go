@@ -25,7 +25,7 @@ func (s *SqlStore) SavePeer(ctx context.Context, accountID string, peer *nbpeer.
 	peerCopy := peer.Copy()
 	peerCopy.AccountID = accountID
 
-	err := s.transaction(func(tx *gorm.DB) error {
+	err := s.transaction(ctx, func(tx *gorm.DB) error {
 		// check if peer exists before saving
 		var peerID string
 		result := tx.Model(&nbpeer.Peer{}).Select("id").Take(&peerID, accountAndIDQueryCondition, accountID, peer.ID)
@@ -190,7 +190,7 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 	peer_status_connected, peer_status_login_expired, peer_status_requires_approval, location_connection_ip,
 	location_country_code, location_city_name, location_geo_name_id, proxy_meta_embedded, proxy_meta_cluster, ipv6, meta_sync_message_version
 	FROM peers WHERE account_id = $1`
-	rows, err := s.pool.Query(ctx, query, accountID)
+	rows, err := s.pgxPool().Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
 	}
