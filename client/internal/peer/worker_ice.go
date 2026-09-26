@@ -212,19 +212,41 @@ func (w *WorkerICE) Close() {
 	w.agent = nil
 }
 
-func (w *WorkerICE) reCreateAgent(dialerCancel context.CancelFunc, candidates []ice.CandidateType) (*icemaker.ThreadSafeAgent, error) {
+func (w *WorkerICE) reCreateAgent(dialerCancel context.CancelFunc, candidates []ice.CandidateType) (_ *icemaker.ThreadSafeAgent, err error) {
 	w.portForwardAttempted = false
+
+	// Keep the registration for the agent's entire lifetime, including after
+	// ICE connects. The sweep must invalidate direct paths as well as control
+	// sockets, without waiting for ICE's disconnected timeout.
+	registration := w.config.NetMgr.StartDial(w.ctx)
+	cancel := func() {
+		dialerCancel()
+		registration.Release()
+	}
+	defer func() {
+		if err != nil {
+			cancel()
+		}
+	}()
 
 	agent, err := icemaker.NewAgent(w.ctx, w.iFaceDiscover, w.config.ICEConfig, candidates, w.localUfrag, w.localPwd)
 	if err != nil {
 		return nil, fmt.Errorf("create agent: %w", err)
 	}
 
+	defer func() {
+		if err != nil {
+			if closeErr := agent.Close(); closeErr != nil {
+				w.log.Warnf("failed to close ICE agent after setup error: %s", closeErr)
+			}
+		}
+	}()
+
 	if err := agent.OnCandidate(w.onICECandidate); err != nil {
 		return nil, err
 	}
 
-	if err := agent.OnConnectionStateChange(w.onConnectionStateChange(agent, dialerCancel)); err != nil {
+	if err := agent.OnConnectionStateChange(w.onConnectionStateChange(agent, cancel)); err != nil {
 		return nil, err
 	}
 
@@ -234,6 +256,13 @@ func (w *WorkerICE) reCreateAgent(dialerCancel context.CancelFunc, candidates []
 		return nil, err
 	}
 
+	if w.config.NetMgr != nil {
+		context.AfterFunc(registration.Ctx(), func() {
+			if err := agent.Close(); err != nil {
+				w.log.Warnf("failed to close ICE agent after network change: %s", err)
+			}
+		})
+	}
 	return agent, nil
 }
 

@@ -411,6 +411,9 @@ func (c *Client) IsLoginRequiredCached() bool {
 	return c.recorder.IsLoginRequired()
 }
 
+// IsLoginRequired reports confirmed missing or expired credentials. A transport
+// failure is not an authentication verdict: Run must retry it with the existing
+// credentials instead of sending the user back through browser login.
 func (c *Client) IsLoginRequired() bool {
 	//nolint
 	ctxWithValues := context.WithValue(context.Background(), system.DeviceNameCtxKey, c.deviceName)
@@ -450,15 +453,15 @@ func (c *Client) IsLoginRequired() bool {
 	authClient, err := auth.NewAuth(ctx, cfg.PrivateKey, cfg.ManagementURL, cfg)
 	if err != nil {
 		log.Errorf("IsLoginRequired: failed to create auth client: %v", err)
-		return true // Assume login is required if we can't create auth client
+		return false // The engine will surface configuration errors or retry transport failures.
 	}
 	defer authClient.Close()
 
 	needsLogin, err := authClient.IsLoginRequired(ctx)
 	if err != nil {
 		log.Errorf("IsLoginRequired: check failed: %v", err)
-		// If the check fails, assume login is required to be safe
-		return true
+		// No auth verdict was received. Let the engine retry, preserving credentials.
+		return false
 	}
 	log.Infof("IsLoginRequired: needsLogin=%v", needsLogin)
 	return needsLogin

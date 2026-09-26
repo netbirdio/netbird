@@ -95,8 +95,8 @@ type ConnConfig struct {
 	// ICEConfig ICE protocol configuration
 	ICEConfig icemaker.Config
 
-	// NetMgr gates the reconnection guard on OS-reported network
-	// availability; nil disables gating.
+	// NetMgr gates reconnects on OS network availability and sweeps stale
+	// ICE agents after handovers; nil disables OS network event handling.
 	NetMgr *netevents.Manager
 }
 
