@@ -162,6 +162,37 @@ func (c *Combined) DeleteSettings(ctx context.Context) error {
 	return anDelete(ctx, c, "/api/agent-network/settings")
 }
 
+// The conditional-request wrappers go through the typed REST client rather
+// than anRequest, so the e2e run exercises the client's own header handling —
+// the quoting on the way out and the unquoting on the way back — against a
+// real server, which is the path the Terraform provider takes.
+
+// GetSettingsWithETag reads the settings along with the entity-tag that makes
+// a following write conditional.
+func (c *Combined) GetSettingsWithETag(ctx context.Context) (api.AgentNetworkSettings, string, error) {
+	settings, etag, err := c.api.AgentNetwork.GetSettingsWithETag(ctx)
+	if err != nil {
+		return api.AgentNetworkSettings{}, "", err
+	}
+	return *settings, etag, nil
+}
+
+// UpdateSettingsIfMatch applies the update only if etag is still current,
+// returning the entity-tag of the row it wrote.
+func (c *Combined) UpdateSettingsIfMatch(ctx context.Context, req api.AgentNetworkSettingsRequest, etag string) (api.AgentNetworkSettings, string, error) {
+	settings, newETag, err := c.api.AgentNetwork.UpdateSettingsIfMatch(ctx, req, etag)
+	if err != nil {
+		return api.AgentNetworkSettings{}, "", err
+	}
+	return *settings, newETag, nil
+}
+
+// DeleteSettingsIfMatch deletes the settings row only if etag is still
+// current.
+func (c *Combined) DeleteSettingsIfMatch(ctx context.Context, etag string) error {
+	return c.api.AgentNetwork.DeleteSettingsIfMatch(ctx, etag)
+}
+
 // ListConsumption returns the account's consumption rows (possibly empty).
 func (c *Combined) ListConsumption(ctx context.Context) ([]api.AgentNetworkConsumption, error) {
 	return anRequest[[]api.AgentNetworkConsumption](ctx, c, http.MethodGet, "/api/agent-network/consumption", nil)
