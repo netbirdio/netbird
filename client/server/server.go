@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/netip"
 	"os"
 	"os/exec"
 	"runtime"
@@ -1691,6 +1692,9 @@ func (s *Server) buildStatusResponse(ctx context.Context, msg *proto.StatusReque
 	}
 
 	statusResponse := proto.StatusResponse{Status: string(status), DaemonVersion: version.NetbirdVersion()}
+	if address, ok := s.getDNSResolverAddress(); ok {
+		statusResponse.DnsResolverAddress = address.String()
+	}
 
 	if deadline := s.statusRecorder.GetSessionExpiresAt(); !deadline.IsZero() {
 		statusResponse.SessionExpiresAt = timestamppb.New(deadline)
@@ -1710,6 +1714,21 @@ func (s *Server) buildStatusResponse(ctx context.Context, msg *proto.StatusReque
 	}
 
 	return &statusResponse, nil
+}
+
+func (s *Server) getDNSResolverAddress() (netip.AddrPort, bool) {
+	s.mutex.Lock()
+	connectClient := s.connectClient
+	s.mutex.Unlock()
+
+	if connectClient == nil {
+		return netip.AddrPort{}, false
+	}
+	engine := connectClient.Engine()
+	if engine == nil {
+		return netip.AddrPort{}, false
+	}
+	return engine.DNSResolverAddress()
 }
 
 // getSSHServerState retrieves the current SSH server state including enabled status and active sessions
