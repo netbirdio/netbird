@@ -41,6 +41,27 @@ func safeSendNotification(send sendFn, what string, opts notifications.Notificat
 	return nil
 }
 
+// registerNotificationResponses installs the single Wails notification-response
+// callback and fans it out per category; a second OnNotificationResponse call
+// would silently replace the first, so every category must branch here.
+func (t *Tray) registerNotificationResponses() {
+	if t.svc.Notifier == nil {
+		return
+	}
+	t.svc.Notifier.OnNotificationResponse(func(result notifications.NotificationResult) {
+		if result.Error != nil {
+			log.Debugf("notification response error: %v", result.Error)
+			return
+		}
+		switch result.Response.CategoryID {
+		case notifyCategorySessionWarning:
+			t.handleSessionWarningResponse(result.Response)
+		case notifyCategoryFileDropOffer:
+			t.handleFileDropResponse(result.Response)
+		}
+	})
+}
+
 // notifyIfDaemonOutdated probes the daemon once and fires an OS toast when it
 // is reachable but too old for this UI. A probe error means the daemon isn't
 // reachable (not outdated), so it is left to the normal connection flow.

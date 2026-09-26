@@ -33,6 +33,9 @@ const (
 	// subscribers needn't filter the notification firehose. Consumers branch on
 	// SessionWarning.Final to tell the T-10 event from the T-2 fallback.
 	EventSessionWarning = "netbird:session:warning"
+	// EventFileDrop is a typed sibling of EventDaemonNotification for file
+	// transfer milestones; the payload is a FileDropEvent.
+	EventFileDrop = "netbird:filedrop"
 
 	// StatusDaemonUnavailable is the synthetic Status emitted when the daemon's
 	// gRPC socket is unreachable. No internal.Status* collides with this label.
@@ -55,6 +58,29 @@ const (
 // Emitter sends a named payload to the frontend. Satisfied by Wails app.Event.
 type Emitter interface {
 	Emit(name string, data ...any) bool
+}
+
+// FileDropEvent is the payload of EventFileDrop. Kind is one of "offer",
+// "completed", "failed", "withdrawn".
+type FileDropEvent struct {
+	Kind       string `json:"kind"`
+	TransferID string `json:"transferId"`
+	Message    string `json:"message"`
+}
+
+func fileDropEventKind(metaKind string) (string, bool) {
+	switch metaKind {
+	case proto.MetadataKindFileDropOffer:
+		return "offer", true
+	case proto.MetadataKindFileDropCompleted:
+		return "completed", true
+	case proto.MetadataKindFileDropFailed:
+		return "failed", true
+	case proto.MetadataKindFileDropWithdrawn:
+		return "withdrawn", true
+	default:
+		return "", false
+	}
 }
 
 // SystemEvent is the frontend-facing shape of a daemon SystemEvent.
@@ -485,6 +511,16 @@ func (s *DaemonFeed) dispatchSystemEvent(ev *proto.SystemEvent) {
 			s.logCtl.Apply(se.Metadata[proto.MetadataLevelKey])
 		}
 		return
+	}
+	if kind, ok := fileDropEventKind(se.Metadata[proto.MetadataKindKey]); ok {
+		s.emitter.Emit(EventFileDrop, FileDropEvent{
+			Kind:       kind,
+			TransferID: se.Metadata[proto.MetadataFileDropTransferKey],
+			Message:    se.UserMessage,
+		})
+		if se.UserMessage == "" {
+			return
+		}
 	}
 	s.emitter.Emit(EventDaemonNotification, se)
 	if warn, ok := authsession.WarningFromMetadata(se.Metadata); ok {
