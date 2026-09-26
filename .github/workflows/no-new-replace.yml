@@ -136,11 +136,18 @@ jobs:
 
             // A comment from an earlier push is updated even when there is
             // nothing left to report, so it never describes a replace the PR
-            // no longer carries.
-            const comments = await github.paginate(github.rest.issues.listComments, {
-              owner, repo, issue_number: pr.number, per_page: 100,
-            });
-            const existing = comments.find(c => c.body && c.body.includes(marker));
+            // no longer carries. The report is best effort: an API failure
+            // warns rather than failing the check.
+            let existing;
+            try {
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner, repo, issue_number: pr.number, per_page: 100,
+              });
+              existing = comments.find(c => c.body && c.body.includes(marker));
+            } catch (error) {
+              core.warning(`Could not read the pull request comments: ${error.message}`);
+              return;
+            }
             if (!added && !retargeted && !existing) {
               return;
             }
