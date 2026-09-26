@@ -31,6 +31,8 @@ import (
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	sleephandler "github.com/netbirdio/netbird/client/internal/sleep/handler"
 	"github.com/netbirdio/netbird/client/mdm"
+	"github.com/netbirdio/netbird/client/netevents"
+	"github.com/netbirdio/netbird/client/netevents/watcher"
 	"github.com/netbirdio/netbird/client/system"
 	mgm "github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/management/domain"
@@ -128,6 +130,8 @@ type Server struct {
 	connectClient *internal.ConnectClient
 
 	statusRecorder *peer.Status
+	netMgr         *netevents.Manager
+	networkWatcher watcher.Watcher
 	sessionWatcher *internal.SessionWatcher
 	localMetrics   *localmetrics.Manager
 
@@ -218,6 +222,8 @@ func New(ctx context.Context, logFile string, configFile string, profilesDisable
 	s.sleepHandler = sleephandler.New(agent)
 	s.startSleepDetector()
 
+	s.netMgr = netevents.NewManager(s.statusRecorder)
+
 	s.localMetrics = localmetrics.NewManager(ctx, s.statusRecorder, s.clientMetricsGatherer)
 
 	return s
@@ -288,6 +294,10 @@ func (s *Server) Start() error {
 	if s.mdmTicker == nil {
 		s.mdmTicker = mdm.NewTicker(mdm.DefaultReloadInterval, s.mdmLoader)
 		go s.mdmTicker.Run(s.rootCtx, s.onMDMPolicyChange)
+	}
+
+	if s.networkWatcher == nil {
+		s.startNetworkWatcher()
 	}
 
 	// if current state contains any error, return it
@@ -1128,6 +1138,9 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpResponse, error) {
 	log.Infof("up request received")
 	s.mutex.Lock()
+	if s.netMgr != nil && !s.netMgr.IsOnline() {
+		s.netMgr.SetNetworkAvailable(true)
+	}
 	// clientRunning is the daemon-intent flag (set by previous Up/Start, cleared
 	// by Down). connectionGoroutineRunning() reports whether the previous retry-loop
 	// goroutine is still trying. When intent is up AND goroutine is alive,
@@ -1484,6 +1497,9 @@ func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownRes
 	// failed to log in.
 	s.statusRecorder.MarkManagementDisconnected(nil)
 	s.statusRecorder.MarkSignalDisconnected(nil)
+	if s.netMgr != nil && !s.netMgr.IsOnline() {
+		s.netMgr.SetNetworkAvailable(true)
+	}
 
 	return &proto.DownResponse{}, nil
 }
@@ -2835,7 +2851,8 @@ func profileOwner(config *profilemanager.Config) (string, bool) {
 
 func (s *Server) connect(ctx context.Context, config *profilemanager.Config, statusRecorder *peer.Status, runningChan chan struct{}) error {
 	log.Tracef("running client connection")
-	client := internal.NewConnectClient(ctx, config, statusRecorder, profileOwnerOption(config))
+	client := internal.NewConnectClient(ctx, config, statusRecorder,
+		profileOwnerOption(config), internal.WithNetEvents(s.netMgr))
 	client.SetUpdateManager(s.updateManager)
 	client.SetSyncResponsePersistence(s.persistSyncResponse)
 

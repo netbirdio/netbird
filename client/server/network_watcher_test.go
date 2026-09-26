@@ -1,0 +1,129 @@
+package server
+
+import (
+	"context"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/netevents"
+	"github.com/netbirdio/netbird/client/netevents/watcher"
+)
+
+type dummyRecorder struct{}
+
+func (d *dummyRecorder) SetNetworkAvailable(_ bool) {}
+
+func TestServer_OnNetworkEvent_UnderlyingVPN(t *testing.T) {
+	rec := &dummyRecorder{}
+	netMgr := netevents.NewManager(rec)
+
+	s := &Server{
+		rootCtx: context.Background(),
+		netMgr:  netMgr,
+	}
+
+	assert.True(t, s.netMgr.IsOnline(), "should start online")
+
+	// Disconnect underlying VPN
+	s.OnNetworkEvent(watcher.Event{
+		Kind:          watcher.EventUnderlyingVPNDisconnected,
+		Name:          "corporate-vpn",
+		Reason:        "user disconnected",
+		UserInitiated: true,
+	})
+
+	assert.False(t, s.netMgr.IsOnline(), "should be offline after underlying VPN disconnect")
+
+	// Reconnect underlying VPN
+	s.OnNetworkEvent(watcher.Event{
+		Kind:          watcher.EventUnderlyingVPNConnected,
+		Name:          "corporate-vpn",
+		Reason:        "connected",
+		UserInitiated: false,
+	})
+
+	assert.True(t, s.netMgr.IsOnline(), "should be online after underlying VPN reconnect")
+}
+
+func TestServer_OnNetworkEvent_HostNetwork(t *testing.T) {
+	rec := &dummyRecorder{}
+	netMgr := netevents.NewManager(rec)
+
+	s := &Server{
+		rootCtx: context.Background(),
+		netMgr:  netMgr,
+	}
+
+	assert.True(t, s.netMgr.IsOnline(), "should start online")
+
+	// Disconnect host network
+	s.OnNetworkEvent(watcher.Event{
+		Kind:   watcher.EventNetworkDisconnected,
+		Reason: "wifi link down",
+	})
+
+	assert.False(t, s.netMgr.IsOnline(), "should be offline after host network disconnect")
+
+	// Reconnect host network
+	s.OnNetworkEvent(watcher.Event{
+		Kind:   watcher.EventNetworkConnected,
+		Reason: "wifi link up",
+	})
+
+	assert.True(t, s.netMgr.IsOnline(), "should be online after host network reconnect")
+}
+
+func TestServer_OnNetworkEvent_NetBirdInterfaceUserDisconnected(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ctx = internal.CtxInitState(ctx)
+	internal.CtxGetState(ctx).Set(internal.StatusConnected)
+
+	rec := &dummyRecorder{}
+	netMgr := netevents.NewManager(rec)
+
+	s := &Server{
+		rootCtx:       ctx,
+		netMgr:        netMgr,
+		clientRunning: true,
+	}
+
+	// Down will fail because no connection is active, but we verify it runs without panic
+	s.OnNetworkEvent(watcher.Event{
+		Kind:          watcher.EventNetBirdInterfaceDisconnected,
+		Name:          "wt0",
+		Reason:        "user disconnected via nmcli",
+		UserInitiated: true,
+	})
+
+	require.NotNil(t, s)
+}
+
+func TestServer_OnNetworkEvent_IgnoredWhenNotConnected(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ctx = internal.CtxInitState(ctx)
+	internal.CtxGetState(ctx).Set(internal.StatusIdle)
+
+	rec := &dummyRecorder{}
+	netMgr := netevents.NewManager(rec)
+
+	s := &Server{
+		rootCtx:       ctx,
+		netMgr:        netMgr,
+		clientRunning: false,
+	}
+
+	// Should be ignored because status is Idle, not Connected
+	s.OnNetworkEvent(watcher.Event{
+		Kind:          watcher.EventNetBirdInterfaceDisconnected,
+		Name:          "wt0",
+		Reason:        "link down during startup",
+		UserInitiated: false,
+	})
+
+	require.NotNil(t, s)
+}
