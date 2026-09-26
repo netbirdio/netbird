@@ -25,10 +25,13 @@ import (
 )
 
 // latencyMockClient simulates realistic gRPC latency for management calls.
+// With createPeerFail set, CreateProxyPeer still pays the delay but reports
+// failure, so the proxy never builds an embedded client for the account.
 type latencyMockClient struct {
 	proto.ProxyServiceClient
 	createPeerDelay   time.Duration
 	statusUpdateDelay time.Duration
+	createPeerFail    bool
 }
 
 func (m *latencyMockClient) SendStatusUpdate(ctx context.Context, _ *proto.SendStatusUpdateRequest, _ ...grpc.CallOption) (*proto.SendStatusUpdateResponse, error) {
@@ -50,6 +53,10 @@ func (m *latencyMockClient) CreateProxyPeer(ctx context.Context, _ *proto.Create
 			return nil, ctx.Err()
 		}
 	}
+	if m.createPeerFail {
+		msg := "simulated management failure"
+		return &proto.CreateProxyPeerResponse{Success: false, ErrorMessage: &msg}, nil
+	}
 	return &proto.CreateProxyPeerResponse{Success: true}, nil
 }
 
@@ -59,21 +66,28 @@ func (discardWriter) Write(p []byte) (int, error) { return len(p), nil }
 
 func benchServerWithLatency(b *testing.B, createPeerDelay, statusDelay time.Duration) *Server {
 	b.Helper()
+	return newServerWithMgmtClient(b, &latencyMockClient{
+		createPeerDelay:   createPeerDelay,
+		statusUpdateDelay: statusDelay,
+	})
+}
+
+// newServerWithMgmtClient builds a Server whose management RPCs and per-account
+// embedded clients are backed by mgmtClient. No listener is bound and no
+// goroutine is started; tests drive the mapping worker or processMappings
+// directly.
+func newServerWithMgmtClient(tb testing.TB, mgmtClient proto.ProxyServiceClient) *Server {
+	tb.Helper()
 	logger := log.New()
 	logger.SetLevel(log.FatalLevel)
 	logger.SetOutput(&discardWriter{})
 
 	meter, err := proxymetrics.New(context.Background(), noop.Meter{})
 	if err != nil {
-		b.Fatal(err)
+		tb.Fatal(err)
 	}
 
-	mgmtClient := &latencyMockClient{
-		createPeerDelay:   createPeerDelay,
-		statusUpdateDelay: statusDelay,
-	}
-
-	nb := roundtrip.NewNetBird(b.Context(), "bench-proxy", "bench.test",
+	nb := roundtrip.NewNetBird(tb.Context(), "bench-proxy", "bench.test",
 		roundtrip.ClientConfig{MgmtAddr: "http://bench.test:9999"},
 		logger, nil, mgmtClient)
 
