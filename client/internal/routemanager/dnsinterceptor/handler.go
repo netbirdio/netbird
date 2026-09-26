@@ -22,7 +22,6 @@ import (
 	nbdns "github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/dns/resutil"
 	"github.com/netbirdio/netbird/client/internal/peer"
-	"github.com/netbirdio/netbird/client/internal/peerstore"
 	"github.com/netbirdio/netbird/client/internal/routemanager/common"
 	"github.com/netbirdio/netbird/client/internal/routemanager/fakeip"
 	iface "github.com/netbirdio/netbird/client/internal/routemanager/iface"
@@ -40,6 +39,61 @@ type internalDNATer interface {
 	AddInternalDNATMapping(netip.Addr, netip.Addr) error
 }
 
+// peerAllowedIPs reports the tunnel address a peer is reachable on.
+type peerAllowedIPs interface {
+	AllowedIP(pubKey string) (netip.Addr, bool)
+}
+
+// disposition says where a query for a given record type has to be answered.
+type disposition int
+
+const (
+	// dispositionPeer: the routing peer owns the answer. Address records are
+	// what a DNS route exists for, and their answer programs the routes,
+	// allowed IPs and firewall sets, so they are never resolved anywhere else.
+	dispositionPeer disposition = iota
+	// dispositionPeerFirst: the peer's forwarder resolves the type, and the
+	// records may only exist inside the routed network, so it has to be asked.
+	// A peer running a client that predates that support cannot answer, which
+	// only its reply reveals.
+	dispositionPeerFirst
+	// dispositionChain: no forwarder resolves the type, so asking would cost a
+	// tunnel round trip for a reply that says nothing. Public records for the
+	// name are still better than none, so the query goes to the rest of the
+	// chain.
+	dispositionChain
+)
+
+func dispositionFor(qtype uint16) disposition {
+	switch {
+	case qtype == dns.TypeA || qtype == dns.TypeAAAA:
+		return dispositionPeer
+	case resutil.SupportedRecordQtype(qtype):
+		return dispositionPeerFirst
+	default:
+		return dispositionChain
+	}
+}
+
+// peerCannotAnswer reports whether a forwarder reply means the peer is unable to
+// resolve this query type, as opposed to having resolved it and found nothing.
+// A forwarder older than the one that learned to resolve non-address types
+// answers NOTIMP to all of them, before it even looks at the domain; FORMERR
+// covers one that cannot parse the EDNS0 we add to the query.
+//
+// REFUSED is deliberately not here. It says the peer does not hold the name,
+// which happens while the client and the peer disagree about the route set, and
+// falling through then would hand the name of an internal-only domain to a
+// public resolver. No forwarder version reports a missing record type that way.
+func peerCannotAnswer(rcode int) bool {
+	switch rcode {
+	case dns.RcodeNotImplemented, dns.RcodeFormatError:
+		return true
+	default:
+		return false
+	}
+}
+
 type DnsInterceptor struct {
 	mu                   sync.RWMutex
 	route                *route.Route
@@ -50,7 +104,7 @@ type DnsInterceptor struct {
 	currentPeerKey       string
 	interceptedDomains   domainMap
 	wgInterface          iface.WGIface
-	peerStore            *peerstore.Store
+	peerStore            peerAllowedIPs
 	firewall             firewall.Manager
 	fakeIPManager        *fakeip.Manager
 	forwarderPort        *atomic.Uint32
@@ -226,11 +280,14 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 
-	// All query types for an intercepted domain are forwarded to the peer's
-	// DNS forwarder, which owns the name. Falling through to the system
-	// resolver would let it answer NXDOMAIN for a name it isn't authoritative
-	// for, poisoning the whole name (including the A/AAAA records the route
-	// does serve). The forwarder answers NODATA for types it cannot resolve.
+	qtype := r.Question[0].Qtype
+	dispose := dispositionFor(qtype)
+
+	if dispose == dispositionChain {
+		d.deferToChain(w, r, logger, "unsupported-qtype")
+		return
+	}
+
 	d.mu.RLock()
 	peerKey := d.currentPeerKey
 	d.mu.RUnlock()
@@ -246,39 +303,61 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 
-	if r.Extra == nil {
-		r.MsgHdr.AuthenticatedData = true
-	}
-
-	// Advertise EDNS0 to the forwarder so it may return an Extended DNS Error
-	// describing why a lookup failed. The OPT is stripped from the reply when
-	// the original client did not request EDNS0.
-	hadEdns := r.IsEdns0() != nil
-	if !hadEdns {
-		r.SetEdns0(dns.DefaultMsgSize, false)
-	}
+	query, hadEdns := peerQuery(r)
 
 	upstream := net.JoinHostPort(upstreamIP.String(), strconv.FormatUint(uint64(d.forwarderPort.Load()), 10))
 	ctx, cancel := context.WithTimeout(context.Background(), dnsTimeout)
 	defer cancel()
 
-	reply := d.queryUpstreamDNS(ctx, w, r, upstream, upstreamIP, peerKey, logger)
+	reply := d.queryUpstreamDNS(ctx, w, query, upstream, upstreamIP, peerKey, logger)
 	if reply == nil {
+		// queryUpstreamDNS already logged the failure and answered the client
+		return
+	}
+
+	// The peer owns the name but its forwarder cannot resolve this type. No
+	// capability is announced anywhere, so the round trip above is the probe.
+	if dispose == dispositionPeerFirst && peerCannotAnswer(reply.Rcode) {
+		d.deferToChain(w, r, logger, "peer-rcode-"+dns.RcodeToString[reply.Rcode])
 		return
 	}
 
 	if ede, ok := resutil.ExtractEDE(reply); ok {
-		resutil.SetMeta(w, "ede", fmt.Sprintf("%d %s", ede.InfoCode, ede.ExtraText))
+		resutil.SetMeta(w, resutil.MetaKeyEDE, fmt.Sprintf("%d %s", ede.InfoCode, ede.ExtraText))
 	}
 	if !hadEdns {
 		resutil.StripOPT(reply)
 	}
 
-	resutil.SetMeta(w, "peer", peerKey)
+	resutil.SetMeta(w, resutil.MetaKeyPeer, peerKey)
 
 	reply.Id = r.Id
 	if err := d.writeMsg(w, reply, logger); err != nil {
 		logger.Errorf("failed writing DNS response: %v", err)
+	}
+}
+
+// deferToChain hands the query to the next handler in the chain and asks the
+// chain to soften the negative verdict of whatever answers instead. The
+// resolvers below cannot prove a name inside the routed network absent, so their
+// NXDOMAIN must not reach the client: it would be cached for the name and every
+// type under it, taking the addresses this route does serve with it.
+func (d *DnsInterceptor) deferToChain(w dns.ResponseWriter, r *dns.Msg, logger *log.Entry, reason string) {
+	logger.Tracef("continuing to next handler for domain=%s type=%s reason=%s",
+		r.Question[0].Name, dns.TypeToString[r.Question[0].Qtype], reason)
+
+	resutil.RequestSoftNegative(w)
+	// Carried to the chain's response log line: without it the answer looks like
+	// it came from the fallthrough resolver on its own.
+	resutil.SetMeta(w, resutil.MetaKeyDeferredBy, "dns-route")
+	resutil.SetMeta(w, resutil.MetaKeyDeferredReason, reason)
+
+	resp := new(dns.Msg)
+	resp.SetRcode(r, dns.RcodeNameError)
+	// Set Zero bit to signal handler chain to continue
+	resp.MsgHdr.Zero = true
+	if err := w.WriteMsg(resp); err != nil {
+		logger.Errorf("failed writing DNS continue response: %v", err)
 	}
 }
 
@@ -620,4 +699,27 @@ func (d *DnsInterceptor) debugPeerTimeout(peerIP netip.Addr, peerKey string) str
 	}
 
 	return fmt.Sprintf(" (peer %s)", nbdns.FormatPeerStatus(&peerState))
+}
+
+// peerQuery builds the query sent to a peer's DNS forwarder and reports whether
+// the client itself advertised EDNS0. EDNS0 is added so the forwarder can return
+// an Extended DNS Error describing an upstream failure, and the OPT is stripped
+// from the reply again when the client did not ask for it. The client's message
+// is left untouched: it may still be handed to the next handler in the chain,
+// and neither the OPT nor the AD bit is ours to put on the wire on its behalf.
+func peerQuery(r *dns.Msg) (query *dns.Msg, hadEdns bool) {
+	query = r.Copy()
+	hadEdns = query.IsEdns0() != nil
+
+	// AD tells the forwarder we understand authenticated data. Only set when the
+	// client sent no additional section of its own, so we never overrule what it
+	// asked for.
+	if len(query.Extra) == 0 {
+		query.MsgHdr.AuthenticatedData = true
+	}
+	if !hadEdns {
+		query.SetEdns0(dns.DefaultMsgSize, false)
+	}
+
+	return query, hadEdns
 }

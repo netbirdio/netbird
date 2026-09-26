@@ -3,15 +3,19 @@ package dns_test
 import (
 	"context"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/miekg/dns"
+	log "github.com/sirupsen/logrus"
+	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	nbdns "github.com/netbirdio/netbird/client/internal/dns"
+	"github.com/netbirdio/netbird/client/internal/dns/resutil"
 	"github.com/netbirdio/netbird/client/internal/dns/test"
 )
 
@@ -1236,6 +1240,276 @@ func TestHandlerChain_ResolveInternal_HonorsContextTimeout(t *testing.T) {
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
 	assert.Less(t, elapsed, 500*time.Millisecond, "ResolveInternal must return shortly after ctx deadline")
+}
+
+// requestSoftNegative asks the chain to soften a negative verdict produced by
+// the handlers that run after the caller defers, reporting whether the chain
+// supports the signal. Written as a type assertion so these tests compile
+// against a chain that does not support it yet.
+func requestSoftNegative(w dns.ResponseWriter) bool {
+	sn, ok := w.(interface{ RequestSoftNegative() })
+	if ok {
+		sn.RequestSoftNegative()
+	}
+	return ok
+}
+
+// deferringHandler defers to the next handler in the chain, optionally asking
+// for the negative verdict of whatever answers instead to be softened. This is
+// what a DNS route handler does for a record type its routing peer cannot
+// resolve.
+type deferringHandler struct {
+	softNegative bool
+	called       bool
+	supported    bool
+}
+
+func (h *deferringHandler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
+	h.called = true
+	if h.softNegative {
+		h.supported = requestSoftNegative(w)
+		// The real handler records why it stepped aside, for the response log
+		// line of whichever handler answers instead.
+		resutil.SetMeta(w, resutil.MetaKeyDeferredBy, "test handler")
+	}
+	resp := new(dns.Msg)
+	resp.SetRcode(r, dns.RcodeNameError)
+	resp.MsgHdr.Zero = true
+	_ = w.WriteMsg(resp)
+}
+
+// nxdomainHandler answers an authoritative NXDOMAIN with an SOA in the
+// authority section, the way a public resolver answers for a name that only
+// exists inside the routed network.
+type nxdomainHandler struct{}
+
+func (h *nxdomainHandler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
+	resp := new(dns.Msg)
+	resp.SetRcode(r, dns.RcodeNameError)
+	resp.Ns = []dns.RR{&dns.SOA{
+		Hdr:     dns.RR_Header{Name: "example.com.", Rrtype: dns.TypeSOA, Class: dns.ClassINET, Ttl: 3600},
+		Ns:      "ns1.example.com.",
+		Mbox:    "hostmaster.example.com.",
+		Minttl:  3600,
+		Expire:  604800,
+		Refresh: 7200,
+		Retry:   3600,
+	}}
+	_ = w.WriteMsg(resp)
+}
+
+// TestHandlerChain_SoftNegative_DowngradesDownstreamNXDOMAIN is the whole point
+// of the soft-negative signal: a route handler may only defer a query to the
+// public chain if the answer cannot poison the routed name. NXDOMAIN is cached
+// for the name and every type under it (RFC 2308, RFC 8020), so it has to be
+// rewritten to NODATA, which is cached per name and type only.
+func TestHandlerChain_SoftNegative_DowngradesDownstreamNXDOMAIN(t *testing.T) {
+	chain := nbdns.NewHandlerChain()
+
+	route := &deferringHandler{softNegative: true}
+	chain.AddHandler("*.example.com.", route, nbdns.PriorityDNSRoute)
+	chain.AddHandler(".", &nxdomainHandler{}, nbdns.PriorityDefault)
+
+	r := new(dns.Msg)
+	r.SetQuestion("_mongodb._tcp.db.example.com.", dns.TypeSRV)
+
+	mw := &test.MockResponseWriter{}
+	chain.ServeDNS(&nbdns.ResponseWriterChain{ResponseWriter: mw}, r)
+
+	resp := mw.GetLastResponse()
+	require.NotNil(t, resp, "a response must reach the client")
+	assert.True(t, route.called, "the route handler must run first")
+	require.True(t, route.supported, "the chain writer must accept a soft-negative request")
+	assert.Equal(t, dns.RcodeSuccess, resp.Rcode, "NXDOMAIN must be softened to NODATA")
+	assert.Empty(t, resp.Answer, "a softened negative carries no answer")
+	assert.Empty(t, resp.Ns, "the downstream zone's SOA must not set the negative TTL for a name we overrode")
+}
+
+// responseLineFor returns the chain's response log line for one query. Raising
+// the level to trace also unmutes whatever else is logging in this package, so
+// the line has to be picked by the name it was asked about rather than by being
+// the last one seen.
+func responseLineFor(hook *logtest.Hook, qname string) string {
+	for _, e := range hook.AllEntries() {
+		if strings.HasPrefix(e.Message, "response:") && strings.Contains(e.Message, qname) {
+			return e.Message
+		}
+	}
+	return ""
+}
+
+// TestHandlerChain_SoftNegative_IsVisibleToTheClient covers observability of the
+// rewrite. The reply we hand the application travels over loopback, which the
+// bundle capture does not see, so a softened verdict has to say so on the wire:
+// without it an empty answer is indistinguishable from a real "no such record"
+// in a dig output or a capture taken next to the application.
+func TestHandlerChain_SoftNegative_IsVisibleToTheClient(t *testing.T) {
+	// One hook for the whole test: logtest installs it on the standard logger
+	// and logrus has no way to take it off again, so a hook per subtest would
+	// leave several behind buffering every later line in the package.
+	hook := logtest.NewGlobal()
+	t.Cleanup(hook.Reset)
+
+	newChain := func() *nbdns.HandlerChain {
+		chain := nbdns.NewHandlerChain()
+		chain.AddHandler("*.example.com.", &deferringHandler{softNegative: true}, nbdns.PriorityDNSRoute)
+		chain.AddHandler(".", &nxdomainHandler{}, nbdns.PriorityDefault)
+		return chain
+	}
+
+	t.Run("EDNS0 client gets an extended error", func(t *testing.T) {
+		r := new(dns.Msg)
+		r.SetQuestion("_mongodb._tcp.db.example.com.", dns.TypeSRV)
+		r.SetEdns0(dns.DefaultMsgSize, false)
+
+		mw := &test.MockResponseWriter{}
+		newChain().ServeDNS(&nbdns.ResponseWriterChain{ResponseWriter: mw}, r)
+
+		resp := mw.GetLastResponse()
+		require.NotNil(t, resp)
+		require.Equal(t, dns.RcodeSuccess, resp.Rcode)
+
+		ede, ok := resutil.ExtractEDE(resp)
+		require.True(t, ok, "a softened verdict must carry an extended DNS error")
+		assert.Equal(t, resutil.EDENetbirdSoftenedNegative, ede.InfoCode)
+		assert.Contains(t, ede.ExtraText, "netbird", "the text must name us as the source of the rewrite")
+	})
+
+	t.Run("plain client gets no OPT", func(t *testing.T) {
+		r := new(dns.Msg)
+		r.SetQuestion("_mongodb._tcp.db.example.com.", dns.TypeSRV)
+
+		mw := &test.MockResponseWriter{}
+		newChain().ServeDNS(&nbdns.ResponseWriterChain{ResponseWriter: mw}, r)
+
+		resp := mw.GetLastResponse()
+		require.NotNil(t, resp)
+		assert.Nil(t, resp.IsEdns0(), "RFC 6891 forbids an OPT toward a client that did not advertise EDNS0")
+	})
+
+	// The response line is what support reads out of a debug bundle, and it now
+	// carries several annotations at once. Built from a map, their order would
+	// differ on every query, so the same event never looks the same twice.
+	t.Run("log fields keep a stable order", func(t *testing.T) {
+		const qname = "_mongodb._tcp.stable.example.com."
+
+		prev := log.GetLevel()
+		log.SetLevel(log.TraceLevel)
+		t.Cleanup(func() { log.SetLevel(prev) })
+
+		lineFor := func() string {
+			hook.Reset()
+
+			r := new(dns.Msg)
+			r.SetQuestion(qname, dns.TypeSRV)
+
+			mw := &test.MockResponseWriter{}
+			newChain().ServeDNS(&nbdns.ResponseWriterChain{ResponseWriter: mw}, r)
+
+			line := responseLineFor(hook, qname)
+			// The duration differs per query and is not what we compare.
+			line, _, _ = strings.Cut(line, " took=")
+			return line
+		}
+
+		first := lineFor()
+		require.NotEmpty(t, first, "the chain must log the response it wrote")
+		require.Contains(t, first, "deferred_by=", "the line must carry more than one annotation to be worth ordering")
+		require.Contains(t, first, "softened=")
+
+		for range 20 {
+			assert.Equal(t, first, lineFor(), "the same event must produce the same line")
+		}
+	})
+
+	t.Run("logged with the reason it was deferred", func(t *testing.T) {
+		const qname = "_mongodb._tcp.reason.example.com."
+
+		hook.Reset()
+
+		prev := log.GetLevel()
+		log.SetLevel(log.TraceLevel)
+		t.Cleanup(func() { log.SetLevel(prev) })
+
+		r := new(dns.Msg)
+		r.SetQuestion(qname, dns.TypeSRV)
+
+		mw := &test.MockResponseWriter{}
+		newChain().ServeDNS(&nbdns.ResponseWriterChain{ResponseWriter: mw}, r)
+
+		response := responseLineFor(hook, qname)
+		require.NotEmpty(t, response, "the chain must log the response it wrote")
+		assert.Contains(t, response, "softened=", "the log must show the verdict was rewritten")
+		assert.Contains(t, response, "deferred_by=", "the log must name the handler that deferred")
+	})
+}
+
+// TestHandlerChain_SoftNegative_NoHandlerBelow covers a client with no primary
+// nameserver group: the deferred query reaches the end of the chain unanswered.
+// REFUSED would say the name is not served here while the route serves its
+// addresses, and a stub that acts on that by asking elsewhere can bring back an
+// NXDOMAIN for the whole name. The answer must be an empty, uncacheable NODATA.
+func TestHandlerChain_SoftNegative_NoHandlerBelow(t *testing.T) {
+	chain := nbdns.NewHandlerChain()
+
+	route := &deferringHandler{softNegative: true}
+	chain.AddHandler("*.example.com.", route, nbdns.PriorityDNSRoute)
+
+	r := new(dns.Msg)
+	r.SetQuestion("db.example.com.", dns.TypeHTTPS)
+
+	mw := &test.MockResponseWriter{}
+	chain.ServeDNS(&nbdns.ResponseWriterChain{ResponseWriter: mw}, r)
+
+	resp := mw.GetLastResponse()
+	require.NotNil(t, resp, "a response must reach the client")
+	assert.Equal(t, dns.RcodeSuccess, resp.Rcode, "an unanswered soft-negative query must be NODATA, not REFUSED")
+	assert.Empty(t, resp.Answer)
+	assert.Empty(t, resp.Ns,
+		"no SOA, so RFC 2308 keeps the empty answer out of negative caches and it cannot outlive the route")
+}
+
+// TestHandlerChain_SoftNegative_KeepsRealAnswers guards the other direction:
+// softening applies to negative verdicts only. A real answer from a downstream
+// handler must reach the client untouched.
+func TestHandlerChain_SoftNegative_KeepsRealAnswers(t *testing.T) {
+	chain := nbdns.NewHandlerChain()
+
+	route := &deferringHandler{softNegative: true}
+	chain.AddHandler("*.example.com.", route, nbdns.PriorityDNSRoute)
+	chain.AddHandler(".", &answeringHandler{name: "public", ip: "203.0.113.10"}, nbdns.PriorityDefault)
+
+	r := new(dns.Msg)
+	r.SetQuestion("db.example.com.", dns.TypeA)
+
+	mw := &test.MockResponseWriter{}
+	chain.ServeDNS(&nbdns.ResponseWriterChain{ResponseWriter: mw}, r)
+
+	resp := mw.GetLastResponse()
+	require.NotNil(t, resp, "a response must reach the client")
+	assert.Equal(t, dns.RcodeSuccess, resp.Rcode)
+	require.Len(t, resp.Answer, 1, "the downstream answer must pass through")
+}
+
+// TestHandlerChain_NXDOMAINPreservedWithoutSoftNegative makes sure the
+// softening is opt-in: an ordinary chain continuation still yields NXDOMAIN, so
+// genuine non-existence keeps being reported.
+func TestHandlerChain_NXDOMAINPreservedWithoutSoftNegative(t *testing.T) {
+	chain := nbdns.NewHandlerChain()
+
+	route := &deferringHandler{}
+	chain.AddHandler("*.example.com.", route, nbdns.PriorityDNSRoute)
+	chain.AddHandler(".", &nxdomainHandler{}, nbdns.PriorityDefault)
+
+	r := new(dns.Msg)
+	r.SetQuestion("nope.example.com.", dns.TypeA)
+
+	mw := &test.MockResponseWriter{}
+	chain.ServeDNS(&nbdns.ResponseWriterChain{ResponseWriter: mw}, r)
+
+	resp := mw.GetLastResponse()
+	require.NotNil(t, resp, "a response must reach the client")
+	assert.Equal(t, dns.RcodeNameError, resp.Rcode, "without the signal a real NXDOMAIN must survive")
 }
 
 func TestHandlerChain_HasRootHandlerAtOrBelow(t *testing.T) {
