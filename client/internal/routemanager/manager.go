@@ -376,6 +376,12 @@ func (m *DefaultManager) updateSystemRoutes(newRoutes route.HAMap) error {
 		}()
 	}
 
+	// Each AddVPNRoute/RemoveVPNRoute below announces the whole prefix set to the
+	// mobile listener, and on iOS every announcement reconfigures the tunnel. This
+	// batch also ends on error: routes added before a failure are in the system.
+	m.notifier.BeginBatch()
+	defer m.notifier.EndBatch()
+
 	for id, handler := range toRemove {
 		if err := handler.RemoveRoute(); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("remove route %s: %w", handler.String(), err))
