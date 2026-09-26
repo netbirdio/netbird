@@ -297,12 +297,12 @@ func (s *ICEBind) createReceiverFn(pc wgConn.BatchReader, conn *net.UDPConn, rxO
 // and are truncated to nothing. Without GRO the kernel delivers one datagram
 // per message, and that read works with any batch.
 //
-// A socket opened under the global batch size override, which is what the
-// proxy sets, never has GRO on in the first place. This path only serves a
-// Device with a per-instance override, and it costs whatever the kernel
-// coalesced before the first read, which then arrives as one datagram. Should
-// the socket option fail, one datagram per slot is still the only read that
-// fits the buffers at hand.
+// The Device hands the bind its batch size before Open, so a socket read in
+// small batches never has GRO on in the first place. This path only serves a
+// receiver driven without that, as the tests do, and it costs whatever the
+// kernel coalesced before the first read, which then arrives as one datagram.
+// Should the socket option fail, one datagram per slot is still the only read
+// that fits the buffers at hand.
 func keepRxOffloadForSmallBatch(conn *net.UDPConn, batch int) bool {
 	if err := disableUDPGRO(conn); err != nil {
 		log.Debugf("failed to disable UDP GRO for a receive batch of %d: %v", batch, err)
