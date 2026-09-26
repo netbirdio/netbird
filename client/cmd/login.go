@@ -235,7 +235,7 @@ func getActiveProfile(ctx context.Context, pm *profilemanager.ProfileManager, pr
 	if profileName != "" {
 		prof, err := switchProfileOnDaemon(ctx, pm, profileName, username)
 		if err != nil {
-			return nil, fmt.Errorf("switch profile: %v", err)
+			return nil, fmt.Errorf("switch profile: %w", err)
 		}
 		return prof, nil
 	}
@@ -258,7 +258,7 @@ func switchProfileOnDaemon(ctx context.Context, pm *profilemanager.ProfileManage
 	}
 
 	if err := pm.SwitchProfile(resolvedID); err != nil {
-		return nil, fmt.Errorf("switch profile: %v", err)
+		return nil, fmt.Errorf("switch profile: %w", err)
 	}
 
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)

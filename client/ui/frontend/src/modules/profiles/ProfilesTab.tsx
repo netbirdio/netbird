@@ -2,6 +2,7 @@ import { type KeyboardEvent, useLayoutEffect, useMemo, useRef, useState } from "
 import { useTranslation } from "react-i18next";
 import {
     CircleMinus,
+    Lock,
     LogIn,
     MoreVertical,
     PencilLine,
@@ -34,7 +35,7 @@ import { isNetbirdCloud } from "@/hooks/useManagementUrl.ts";
 import { SectionGroup, SettingsBottomBar } from "@/modules/settings/SettingsSection.tsx";
 import { cn } from "@/lib/cn";
 import { reconcileOrder } from "@/lib/sorting";
-import { errorDialog, formatErrorMessage } from "@/lib/errors";
+import { errorDialogFor } from "@/lib/errors";
 
 const DEFAULT_PROFILE_ID = "default";
 
@@ -43,6 +44,7 @@ export function ProfilesTab() {
     const {
         profiles,
         activeProfileId,
+        activeProfileForeign,
         loaded,
         username,
         switchProfileNoConnect,
@@ -84,10 +86,7 @@ export function ProfilesTab() {
         try {
             await fn();
         } catch (e) {
-            await errorDialog({
-                Title: title,
-                Message: formatErrorMessage(e),
-            });
+            await errorDialogFor(title, e);
         } finally {
             setBusy(false);
         }
@@ -175,6 +174,8 @@ export function ProfilesTab() {
             <SectionGroup title={t("settings.profiles.section.profiles")}>
                 <HelpText className={"-mt-2 mb-0"}>{t("settings.profiles.intro")}</HelpText>
 
+                {activeProfileForeign && <ForeignProfileNotice />}
+
                 <div
                     className={cn(
                         "overflow-hidden rounded-xl border border-nb-gray-800 bg-nb-gray-930/60 dark:border-nb-gray-900",
@@ -235,6 +236,25 @@ export function ProfilesTab() {
         </div>
     );
 }
+
+// ForeignProfileNotice explains why no row carries the active badge: the daemon
+// is on a profile belonging to somebody else, which this table cannot list.
+const ForeignProfileNotice = () => {
+    const { t } = useTranslation();
+    return (
+        <div
+            role={"note"}
+            className={cn(
+                "flex items-start gap-2 rounded-lg px-3 py-2.5",
+                "border border-nb-gray-800 bg-nb-gray-930/60 dark:border-nb-gray-900",
+                "text-xs leading-snug text-nb-gray-300",
+            )}
+        >
+            <Lock size={14} aria-hidden={"true"} className={"mt-px shrink-0"} />
+            <span>{t("profile.ownedByAnother.hint")}</span>
+        </div>
+    );
+};
 
 type ProfilesTableProps = {
     ordered: Profile[];

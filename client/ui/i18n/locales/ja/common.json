@@ -1389,5 +1389,23 @@
     },
     "settings.ssh.privilege.authorizePending": {
         "message": "承認を待っています…"
+    },
+    "profile.ownedByAnother.name": {
+        "message": "別のユーザー"
+    },
+    "profile.ownedByAnother.hint": {
+        "message": "アクティブなプロファイルは別のユーザーのものです。変更や切断はその所有者のみが行えます。"
+    },
+    "error.privilege_required": {
+        "message": "この操作には昇格した権限が必要です。"
+    },
+    "error.session_held": {
+        "message": "別のユーザーがこのマシンを接続しています。"
+    },
+    "error.not_profile_owner": {
+        "message": "このプロファイルは別のユーザーのものです。"
+    },
+    "error.profile_unowned": {
+        "message": "このプロファイルにはまだ所有者がいません。"
     }
 }

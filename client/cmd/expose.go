@@ -147,8 +147,7 @@ func exposeFn(cmd *cobra.Command, args []string) error {
 	SetFlagsFromEnvVars(rootCmd)
 
 	if err := util.InitLog(logLevel, util.LogConsole); err != nil {
-		log.Errorf("failed initializing log %v", err)
-		return err
+		return fmt.Errorf("initialize log: %w", err)
 	}
 
 	cmd.Root().SilenceUsage = false

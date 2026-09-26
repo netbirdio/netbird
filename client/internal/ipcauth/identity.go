@@ -12,7 +12,14 @@ package ipcauth
 import (
 	"context"
 	"fmt"
+	"os"
+	"runtime"
 	"slices"
+	"strconv"
+	"strings"
+	"sync"
+
+	log "github.com/sirupsen/logrus"
 
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/peer"
@@ -25,6 +32,38 @@ const (
 	sidNetworkService = "S-1-5-20"     // NT AUTHORITY\NETWORK SERVICE
 	sidAdministrators = "S-1-5-32-544" // BUILTIN\Administrators
 )
+
+const EnvDisableProfileOwnership = "NB_DISABLE_PROFILE_OWNERSHIP"
+
+var logProfileOwnershipDisabledOrError sync.Once
+
+// ProfileOwnershipDisabled reports whether profile ownership is turned off, so
+// every identified caller reaches every profile and controls its session.
+//
+// Mobile records no owners. The app is the only caller and the platform sandbox
+// already isolates one install from another.
+func ProfileOwnershipDisabled() bool {
+	if runtime.GOOS == "android" || runtime.GOOS == "ios" {
+		return true
+	}
+	val := os.Getenv(EnvDisableProfileOwnership)
+	if val == "" {
+		return false
+	}
+	disabled, err := strconv.ParseBool(val)
+	if err != nil {
+		logProfileOwnershipDisabledOrError.Do(func() {
+			log.Warnf("failed to parse %s: %v", EnvDisableProfileOwnership, err)
+		})
+		return false
+	}
+	if disabled {
+		logProfileOwnershipDisabledOrError.Do(func() {
+			log.Infof("%s is set, ownership of profiles are disabled and any identified caller can use the profile", EnvDisableProfileOwnership)
+		})
+	}
+	return disabled
+}
 
 // Identity is the kernel-authenticated identity of a local IPC caller. The
 // zero value is not a valid identity: consumers must only use one obtained
@@ -54,7 +93,14 @@ type Identity struct {
 	// process dialling itself, which is what the JSON gateway does, and is never
 	// used to grant anything.
 	PID int32
+
+	// known marks if an identity was provided by the kernel. Without it, an
+	// empty Identity struct would resolve as root.
+	known bool
 }
+
+// Known reports whether this identity came from a kernel credential read.
+func (i Identity) Known() bool { return i.known }
 
 // IsWindows reports whether this identity is a Windows principal (SID-based)
 // rather than a Unix uid/gid principal.
@@ -75,6 +121,9 @@ func (i Identity) IsWindows() bool {
 // (Domain Admins and friends) are deliberately not consulted: they say
 // nothing about what this token may do on this machine.
 func (i Identity) IsPrivileged() bool {
+	if !i.known {
+		return false
+	}
 	if !i.IsWindows() {
 		return i.UID == 0
 	}
@@ -98,6 +147,9 @@ func (i Identity) IsPrivileged() bool {
 // happen to leave at zero. The zero Identity carries uid 0, so callers must
 // establish that both identities are real before the answer means anything.
 func (i Identity) SameUser(other Identity) bool {
+	if !i.known || !other.known {
+		return false
+	}
 	if i.SID != "" || other.SID != "" {
 		return i.SID == other.SID
 	}
@@ -106,6 +158,11 @@ func (i Identity) SameUser(other Identity) bool {
 
 // String renders the identity for audit logs and denial messages.
 func (i Identity) String() string {
+	// An unknown identity has a zero UID, which would print as "uid=0" and read
+	// as root in an audit trail.
+	if !i.known {
+		return "unidentified"
+	}
 	if i.IsWindows() {
 		return fmt.Sprintf("sid=%s elevated=%t", i.SID, i.Elevated)
 	}
@@ -138,3 +195,156 @@ func IdentityFromContext(ctx context.Context) (Identity, bool) {
 	}
 	return info.Identity, true
 }
+
+// PrincipalKind is the type of an owner principal.
+type PrincipalKind string
+
+const (
+	KindUID PrincipalKind = "uid" // Unix user ID
+	KindGID PrincipalKind = "gid" // Unix group ID
+	KindSID PrincipalKind = "sid" // Windows user or group SID
+)
+
+// Principal is a parsed owner entry from a profile's Owners list.
+type Principal struct {
+	Kind  PrincipalKind
+	Value string
+}
+
+// ParsePrincipal parses a "kind:value" owner string. Returns false for empty
+// values or unknown kinds so malformed entries are ignored rather than trusted.
+func ParsePrincipal(s string) (Principal, bool) {
+	kind, value, ok := strings.Cut(s, ":")
+	if !ok || value == "" {
+		return Principal{}, false
+	}
+	switch PrincipalKind(kind) {
+	case KindUID, KindGID, KindSID:
+		return Principal{Kind: PrincipalKind(kind), Value: value}, true
+	default:
+		return Principal{}, false
+	}
+}
+
+// UIDPrincipal builds the owner string for a Unix user ID.
+func UIDPrincipal(uid uint32) string {
+	return string(KindUID) + ":" + strconv.FormatUint(uint64(uid), 10)
+}
+
+// GIDPrincipal builds the principal string for a Unix group ID.
+func GIDPrincipal(gid uint32) string {
+	return string(KindGID) + ":" + strconv.FormatUint(uint64(gid), 10)
+}
+
+// SIDPrincipal builds the owner string for a Windows SID.
+func SIDPrincipal(sid string) string { return string(KindSID) + ":" + sid }
+
+// OwnerPrincipalForIdentity returns the self-ownership principal for an identity:
+// the user's UID on Unix, or the user's SID on Windows.
+func OwnerPrincipalForIdentity(id Identity) string {
+	if id.IsWindows() {
+		return SIDPrincipal(id.SID)
+	}
+	return UIDPrincipal(id.UID)
+}
+
+// ValidatePrincipal checks an owner principal typed by a user, as opposed to one
+// read back off disk.
+func ValidatePrincipal(s string) (Principal, error) {
+	p, ok := ParsePrincipal(s)
+	if !ok {
+		return Principal{}, fmt.Errorf("owner %q is not a %s: or %s: principal", s, KindUID, KindSID)
+	}
+	if err := p.Validate(); err != nil {
+		return Principal{}, err
+	}
+	return p, nil
+}
+
+// Validate reports whether a principal is one a caller on this platform could
+// ever hold.
+func (p Principal) Validate() error {
+	switch p.Kind {
+	case KindUID:
+		if runtime.GOOS == "windows" {
+			return fmt.Errorf("owner %q names a Unix user ID, which no caller on this platform can hold", p.String())
+		}
+		if _, err := strconv.ParseUint(p.Value, 10, 32); err != nil {
+			return fmt.Errorf("owner %q does not carry a user ID", p.String())
+		}
+	case KindSID:
+		if runtime.GOOS != "windows" {
+			return fmt.Errorf("owner %q names a Windows SID, which no caller on this platform can hold", p.String())
+		}
+		if !looksLikeSID(p.Value) {
+			return fmt.Errorf("owner %q does not carry a SID", p.String())
+		}
+	default:
+		return fmt.Errorf("owner %q is not a %s: or %s: principal", p.String(), KindUID, KindSID)
+	}
+	return nil
+}
+
+// looksLikeSID reports whether a value has the shape of a security identifier,
+// "S-1-<authority>" followed by one to fifteen sub-authorities. A shape check
+// only, since the account it names need not exist yet.
+func looksLikeSID(v string) bool {
+	parts := strings.Split(v, "-")
+	if len(parts) < 4 || parts[0] != "S" || parts[1] != "1" {
+		return false
+	}
+	// The identifier authority is a 48-bit field, unlike the 32-bit
+	// sub-authorities that follow it, of which a SID carries at most 15.
+	if _, err := strconv.ParseUint(parts[2], 10, 48); err != nil {
+		return false
+	}
+	subAuthorities := parts[3:]
+	if len(subAuthorities) > 15 {
+		return false
+	}
+	for _, part := range subAuthorities {
+		if _, err := strconv.ParseUint(part, 10, 32); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
+// Matches reports whether a kernel-attested caller satisfies this stored owner
+// principal.
+//
+// A principal is a config value, not a caller, so it is never converted into an
+// Identity.
+func (p Principal) Matches(id Identity) bool {
+	if !id.Known() {
+		return false
+	}
+	switch p.Kind {
+	case KindUID:
+		if id.IsWindows() {
+			return false
+		}
+		uid, err := strconv.ParseUint(p.Value, 10, 32)
+		return err == nil && uint32(uid) == id.UID
+	case KindSID:
+		if !id.IsWindows() {
+			return false
+		}
+		// Only the user SID. Group ownership is not supported yet.
+		return id.SID == p.Value
+	case KindGID:
+		// A group principal never confers ownership. It exists for the daemon
+		// socket restriction, which the kernel enforces at connect() from the
+		// caller's full group set; the identity here carries only the primary
+		// GID, so matching on it would grant ownership to members of a group
+		// and deny it to others in the same group, depending on which one
+		// happens to be primary. Deciding this properly is the group-ownership
+		// work that is still ahead.
+		return false
+	default:
+		return false
+	}
+}
+
+// String renders the principal as the kind:value form it is stored in.
+func (p Principal) String() string { return string(p.Kind) + ":" + p.Value }

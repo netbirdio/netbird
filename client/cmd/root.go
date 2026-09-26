@@ -91,6 +91,9 @@ var (
 		Short:        "",
 		Long:         "",
 		SilenceUsage: true,
+		// Execute prints the error instead, so a refusal the daemon already
+		// explained is not reprinted inside a gRPC envelope.
+		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			SetFlagsFromEnvVars(cmd.Root())
 
@@ -111,7 +114,11 @@ func Execute() error {
 	if isUpdateBinary() {
 		return updateCmd.Execute()
 	}
-	return rootCmd.Execute()
+	err := rootCmd.Execute()
+	if err != nil {
+		printCommandError(rootCmd, err)
+	}
+	return err
 }
 
 // init initialises package-level defaults and configures the root
@@ -153,7 +160,7 @@ func init() {
 		defaultDaemonAddr = daddr.WindowsPipeAddr
 	}
 
-	rootCmd.PersistentFlags().StringVar(&daemonAddr, "daemon-addr", defaultDaemonAddr, "Daemon service address to serve CLI requests [unix|tcp|npipe]://[path|host:port|name]")
+	rootCmd.PersistentFlags().StringVar(&daemonAddr, "daemon-addr", defaultDaemonAddr, "Daemon service address to serve CLI requests [unix|npipe]://[path|name]. tcp://host:port is deprecated: it carries no caller identity, so the daemon refuses every request on it")
 	rootCmd.PersistentFlags().StringVarP(&managementURL, "management-url", "m", "", fmt.Sprintf("Management Service URL [http|https]://[host]:[port] (default \"%s\")", profilemanager.DefaultManagementURL))
 	rootCmd.PersistentFlags().StringVar(&adminURL, "admin-url", "", fmt.Sprintf("Admin Panel URL [http|https]://[host]:[port] (default \"%s\")", profilemanager.DefaultAdminURL))
 	rootCmd.PersistentFlags().StringVarP(&logLevel, "log-level", "l", "info", "sets NetBird log level")
@@ -203,6 +210,7 @@ func init() {
 	profileCmd.AddCommand(profileRenameCmd)
 	profileCmd.AddCommand(profileRemoveCmd)
 	profileCmd.AddCommand(profileSelectCmd)
+	profileCmd.AddCommand(profileClaimCmd)
 
 	upCmd.PersistentFlags().StringSliceVar(&natExternalIPs, externalIPMapFlag, nil,
 		`Sets external IPs maps between local addresses and interfaces.`+
@@ -280,7 +288,13 @@ func DialClientGRPCServer(ctx context.Context, addr string) (*grpc.ClientConn, e
 	defer cancel()
 
 	target, opts := daddr.DialTarget(addr)
-	opts = append(opts, grpc.WithBlock())
+	// Refusals are re-presented here, at the one place every command dials, so
+	// no command has to remember to render them.
+	opts = append(opts,
+		grpc.WithBlock(),
+		grpc.WithChainUnaryInterceptor(denialInterceptor),
+		grpc.WithChainStreamInterceptor(denialStreamInterceptor),
+	)
 
 	return grpc.DialContext(ctx, target, opts...)
 }

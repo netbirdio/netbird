@@ -35,5 +35,5 @@ func PeerIdentity(conn net.Conn) (Identity, error) {
 		return Identity{}, fmt.Errorf("read SO_PEERCRED: %w", credErr)
 	}
 
-	return Identity{UID: cred.Uid, GID: cred.Gid, PID: cred.Pid}, nil
+	return Identity{UID: cred.Uid, GID: cred.Gid, PID: cred.Pid, known: true}, nil
 }
