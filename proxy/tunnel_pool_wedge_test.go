@@ -20,13 +20,18 @@ import (
 )
 
 // These tests reproduce what NB_PROXY_PREALLOCATED_BUFFERS=16 together with
-// NB_PROXY_MAX_BATCH_SIZE=1 does to one account's tunnel Device as soon as a
-// peer with allowed IPs cannot complete its handshake: an offline backend, or a
-// lazy-connection placeholder peer whose activation never succeeds.
+// NB_PROXY_MAX_BATCH_SIZE=1 does to one account's tunnel Device. Two things
+// drain the sixteen-buffer pool: packets staged for a peer that cannot complete
+// its handshake (an offline backend, or a lazy-connection placeholder whose
+// activation never succeeds), and a burst of inbound packets whose replies the
+// netstack emits synchronously. Once the pool is empty the TUN reader and the
+// receive goroutines park in WaitPool.Get, and anything that then waits for a
+// peer routine (a peer removal, Device.Close) blocks for good while holding the
+// locks the stats and status paths need.
 //
 // The tests assert the defective behaviour on purpose. They document the
-// failure mode the operator sees in production and must be inverted once the
-// wireguard-go fork drops packets instead of blocking on an exhausted pool.
+// failure modes seen in production goroutine dumps and must be inverted once
+// the wireguard-go fork drops packets instead of blocking on an exhausted pool.
 
 const (
 	// operatorPoolCap and operatorBatchSize mirror the production settings
@@ -396,12 +401,12 @@ func TestRepro_CappedPool_UnreachablePeerWedgesAccount(t *testing.T) {
 	assert.False(t, delivered, "ping to the healthy peer must not be delivered while the pool is exhausted")
 }
 
-// TestRepro_CappedPool_CloseHangsOnWedgedDevice is the permanent form the
-// operator sees as "debug status hangs, only a restart helps". Once inbound
-// datagrams have parked every receive goroutine in the pool, Device.Close waits
-// for those goroutines in closeBindLocked before it flushes the peers that hold
-// the buffers, while holding ipcMutex. Every client.Stop, IpcGet and status
-// call on that account blocks until the cap is lifted or the process restarts.
+// TestRepro_CappedPool_CloseHangsOnWedgedDevice is the permanent form reached
+// through client.Stop. Once inbound datagrams have parked every receive
+// goroutine in the pool, Device.Close waits for those goroutines in
+// closeBindLocked before it flushes the peers that hold the buffers, while
+// holding ipcMutex. Every IpcGet and status call on that account blocks until
+// the cap is lifted or the process restarts.
 func TestRepro_CappedPool_CloseHangsOnWedgedDevice(t *testing.T) {
 	pair := newTunnelPair(t, operatorPoolCap, operatorBatchSize)
 	wedgeDevice(t, pair)
@@ -484,6 +489,88 @@ func TestRepro_CappedPool_InboundBurstWedgesHealthyAccount(t *testing.T) {
 
 	stopFlood()
 	waitQuiescent(t, answered)
+}
+
+// TestRepro_CappedPool_PeerRemovalHangsOnWedgedDevice is the chain the
+// production dump showed: with the inbound loop wedged, removing the peer
+// (what a network map update or the lazy inactivity check does) runs
+// Peer.Stop, which waits for the sequential receiver that is stuck delivering
+// into the netstack. The IpcSet holds ipcMutex for as long as that takes, so
+// the stats call behind every status check queues on it, and in the proxy the
+// same removal also holds the engine's syncMsgMux and the interface mutex the
+// dials need. Lifting the cap is the only thing that releases the chain.
+func TestRepro_CappedPool_PeerRemovalHangsOnWedgedDevice(t *testing.T) {
+	stop := afterDeviceClose(t)
+	pair := newTunnelPair(t, operatorPoolCap, operatorBatchSize)
+	answered := startReplyingStack(t, pair, stop)
+	drainTUN(t, pair[1].tun, stop)
+	stopFlood := floodTUN(t, pair[1].tun, tuntest.Ping(pair[0].ip, pair[1].ip))
+
+	require.Eventually(t, func() bool { return goroutineParkedInPool("RoutineReadFromTUN") },
+		wedgeSettleTimeout, 20*time.Millisecond, "RoutineReadFromTUN must park in WaitPool.Get")
+	require.Eventually(t, func() bool { return goroutineIn("RoutineSequentialReceiver", "(*chTun).Write") },
+		wedgeSettleTimeout, 20*time.Millisecond, "the sequential receiver must block delivering into the stack")
+
+	dev1Pub := pair[1].key.PublicKey()
+	removed := make(chan error, 1)
+	go func() {
+		removed <- pair[0].dev.IpcSet(uapiConfig(
+			"public_key", hex.EncodeToString(dev1Pub[:]),
+			"remove", "true",
+		))
+	}()
+	require.Eventually(t, func() bool { return goroutineWaitingIn("(*Peer).Stop") },
+		wedgeSettleTimeout, 20*time.Millisecond, "the removal must reach Peer.Stop")
+
+	statsDone := make(chan struct{})
+	go func() {
+		_, _ = pair[0].dev.IpcGet()
+		close(statsDone)
+	}()
+
+	select {
+	case err := <-removed:
+		t.Fatalf("peer removal returned (%v) on a wedged Device; expected Peer.Stop to wait for the stuck receiver", err)
+	case <-time.After(wedgeProbeTimeout):
+	}
+	select {
+	case <-statsDone:
+		t.Fatal("IpcGet returned while the removal held ipcMutex; expected the stats path to hang")
+	default:
+	}
+
+	pair[0].dev.SetPreallocatedBuffersPerPool(0)
+	select {
+	case err := <-removed:
+		require.NoError(t, err, "peer removal must succeed once the cap is lifted")
+	case <-time.After(wedgeSettleTimeout):
+		t.Fatal("peer removal did not complete after the pool cap was lifted")
+	}
+	select {
+	case <-statsDone:
+	case <-time.After(wedgeSettleTimeout):
+		t.Fatal("IpcGet did not complete after the pool cap was lifted")
+	}
+
+	stopFlood()
+	waitQuiescent(t, answered)
+	waitSendersIdle(t)
+}
+
+// waitSendersIdle returns once no sequential sender is blocked inside the
+// channel bind, so a Device can close without a peer that is already gone
+// holding its bind lock.
+func waitSendersIdle(t *testing.T) {
+	t.Helper()
+	idle := 0
+	require.Eventually(t, func() bool {
+		if goroutineIn("RoutineSequentialSender", "(*ChannelBind).Send") {
+			idle = 0
+			return false
+		}
+		idle++
+		return idle >= 3
+	}, wedgeSettleTimeout, 100*time.Millisecond, "a sequential sender stayed blocked inside the channel bind")
 }
 
 // TestCappedPool_InboundBurstUncappedKeepsFlowing is the control: the same
