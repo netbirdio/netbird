@@ -219,6 +219,9 @@ func (s *ICEBind) createReceiverFn(pc wgConn.BatchReader, conn *net.UDPConn, rxO
 	s.createOrUpdateMux()
 
 	return func(bufs [][]byte, sizes []int, eps []wgConn.Endpoint) (n int, err error) {
+		if rxOffload && len(bufs) < wgConn.IdealBatchSize {
+			rxOffload = keepRxOffloadForSmallBatch(conn, len(bufs))
+		}
 		msgs := getMessages(msgsPool)
 		for i := range bufs {
 			(*msgs)[i].Buffers[0] = bufs[i]
@@ -240,7 +243,7 @@ func (s *ICEBind) createReceiverFn(pc wgConn.BatchReader, conn *net.UDPConn, rxO
 					return 0, err
 				}
 			} else {
-				numMsgs, err = pc.ReadBatch(*msgs, 0)
+				numMsgs, err = pc.ReadBatch((*msgs)[:len(bufs)], 0)
 				if err != nil {
 					return 0, err
 				}
@@ -284,6 +287,22 @@ func (s *ICEBind) createReceiverFn(pc wgConn.BatchReader, conn *net.UDPConn, rxO
 		}
 		return numMsgs, nil
 	}
+}
+
+// keepRxOffloadForSmallBatch turns UDP GRO off on conn and reports false, the
+// rxOffload value for every read that follows. A coalesced read uses the tail
+// of a full IdealBatchSize message array as scratch space and needs up to
+// UdpSegmentMaxDatagrams buffers per message. A tunnel reading smaller batches,
+// which is what the proxy's batch size override produces, provides neither: its
+// datagrams land in message slots that carry no buffer and are truncated to
+// nothing. Without GRO the kernel delivers one datagram per message, and that
+// read works with any batch. Should the socket option fail, one datagram per
+// slot is still the only read that fits the buffers at hand.
+func keepRxOffloadForSmallBatch(conn *net.UDPConn, batch int) bool {
+	if err := disableUDPGRO(conn); err != nil {
+		log.Debugf("failed to disable UDP GRO for a receive batch of %d: %v", batch, err)
+	}
+	return false
 }
 
 // createOrUpdateMux creates or updates the UDP mux with the available connections.
