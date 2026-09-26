@@ -140,7 +140,7 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 		w.log.Debugf("recreate ICE agent: %s / %s", w.sessionID, *remoteOfferAnswer.SessionID)
 	}
 	dialerCtx, dialerCancel := context.WithCancel(w.ctx)
-	agent, err := w.reCreateAgent(dialerCancel, preferredCandidateTypes)
+	agent, dialerCancel, err := w.reCreateAgent(dialerCancel, preferredCandidateTypes)
 	if err != nil {
 		w.log.Errorf("failed to recreate ICE Agent: %s", err)
 		return
@@ -217,7 +217,9 @@ func (w *WorkerICE) Close() {
 	w.abandonNegotiation()
 }
 
-func (w *WorkerICE) reCreateAgent(dialerCancel context.CancelFunc, candidates []ice.CandidateType) (_ *icemaker.ThreadSafeAgent, err error) {
+// reCreateAgent returns the agent and its teardown function. Every owner must use
+// that function to release network registrations even when ICE emits no callback.
+func (w *WorkerICE) reCreateAgent(dialerCancel context.CancelFunc, candidates []ice.CandidateType) (_ *icemaker.ThreadSafeAgent, _ context.CancelFunc, err error) {
 	w.portForwardAttempted = false
 
 	// Keep the registration for the agent's entire lifetime, including after
@@ -236,7 +238,7 @@ func (w *WorkerICE) reCreateAgent(dialerCancel context.CancelFunc, candidates []
 
 	agent, err := icemaker.NewAgent(w.ctx, w.iFaceDiscover, w.config.ICEConfig, candidates, w.localUfrag, w.localPwd)
 	if err != nil {
-		return nil, fmt.Errorf("create agent: %w", err)
+		return nil, nil, fmt.Errorf("create agent: %w", err)
 	}
 
 	defer func() {
@@ -248,17 +250,17 @@ func (w *WorkerICE) reCreateAgent(dialerCancel context.CancelFunc, candidates []
 	}()
 
 	if err := agent.OnCandidate(w.onICECandidate); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if err := agent.OnConnectionStateChange(w.onConnectionStateChange(agent, cancel)); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if err := agent.OnSelectedCandidatePairChange(func(c1, c2 ice.Candidate) {
 		w.onICESelectedCandidatePair(agent, c1, c2)
 	}); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if w.config.NetMgr != nil {
@@ -268,7 +270,7 @@ func (w *WorkerICE) reCreateAgent(dialerCancel context.CancelFunc, candidates []
 			}
 		})
 	}
-	return agent, nil
+	return agent, cancel, nil
 }
 
 func (w *WorkerICE) SessionID() ICESessionID {
