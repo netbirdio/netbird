@@ -297,6 +297,7 @@ func (w *Watcher) addAllowedIPs(route *route.Route) error {
 	if err := w.statusRecorder.AddPeerStateRoute(route.Peer, w.handler.String(), route.GetResourceID()); err != nil {
 		log.Warnf("Failed to update peer state: %v", err)
 	}
+	w.statusRecorder.AddActiveRoutePeer(route.GetHAUniqueID(), route.Peer)
 
 	w.connectEvent(route)
 	return nil
@@ -306,6 +307,7 @@ func (w *Watcher) removeAllowedIPs(route *route.Route, rsn reason) error {
 	if err := w.statusRecorder.RemovePeerStateRoute(route.Peer, w.handler.String()); err != nil {
 		log.Warnf("Failed to update peer state: %v", err)
 	}
+	w.statusRecorder.RemoveActiveRoutePeer(route.GetHAUniqueID())
 
 	if err := w.handler.RemoveAllowedIPs(); err != nil {
 		return fmt.Errorf("remove allowed IPs: %w", err)

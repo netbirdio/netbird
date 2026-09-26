@@ -196,6 +196,7 @@ type Status struct {
 	muxRelays           sync.RWMutex
 	peers               map[string]State
 	ipToKey             map[string]string
+	activeRoutePeers    map[route.HAUniqueID]string
 	changeNotify        map[string]map[string]*StatusChangeSubscription // map[peerID]map[subscriptionID]*StatusChangeSubscription
 	signalState         bool
 	signalError         error
@@ -257,6 +258,7 @@ func NewRecorder(mgmAddress string) *Status {
 	return &Status{
 		peers:                 make(map[string]State),
 		ipToKey:               make(map[string]string),
+		activeRoutePeers:      make(map[route.HAUniqueID]string),
 		changeNotify:          make(map[string]map[string]*StatusChangeSubscription),
 		eventStreams:          make(map[string]chan *proto.SystemEvent),
 		eventQueue:            NewEventQueue(eventQueueSize),
@@ -479,6 +481,24 @@ func (d *Status) RemovePeerStateRoute(peer string, route string) error {
 	d.notifier.peerListChanged(numPeers)
 	d.notifyStateChange()
 	return nil
+}
+
+func (d *Status) AddActiveRoutePeer(haID route.HAUniqueID, peer string) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	d.activeRoutePeers[haID] = peer
+}
+
+func (d *Status) RemoveActiveRoutePeer(haID route.HAUniqueID) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	delete(d.activeRoutePeers, haID)
+}
+
+func (d *Status) GetActiveRoutePeers() map[route.HAUniqueID]string {
+	d.mux.RLock()
+	defer d.mux.RUnlock()
+	return maps.Clone(d.activeRoutePeers)
 }
 
 // CheckRoutes checks if the source and destination addresses are within the same route
