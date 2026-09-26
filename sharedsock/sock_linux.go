@@ -10,13 +10,13 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/netip"
 	"time"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/mdlayher/socket"
 	log "github.com/sirupsen/logrus"
-	"github.com/vishvananda/netlink"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sys/unix"
 
@@ -33,6 +33,8 @@ type SharedSocket struct {
 	ctx         context.Context
 	conn4       *socket.Conn
 	conn6       *socket.Conn
+	probe4      *srcProbe
+	probe6      *srcProbe
 	port        int
 	mtu         uint16
 	packetDemux chan rcvdPacket
@@ -87,6 +89,10 @@ func Listen(port int, filter BPFFilter, mtu uint16) (_ net.PacketConn, err error
 		return nil, fmt.Errorf("set SO_MARK on ipv4 socket: %w", err)
 	}
 
+	if rawSock.probe4, err = newSrcProbe(unix.AF_INET); err != nil {
+		return nil, err
+	}
+
 	var sockErr error
 	rawSock.conn6, sockErr = socket.Socket(unix.AF_INET6, unix.SOCK_RAW, unix.IPPROTO_UDP, "raw_udp6", nil)
 	if sockErr != nil {
@@ -94,6 +100,9 @@ func Listen(port int, filter BPFFilter, mtu uint16) (_ net.PacketConn, err error
 	} else {
 		if err = nbnet.SetSocketMark(rawSock.conn6); err != nil {
 			return nil, fmt.Errorf("set SO_MARK on ipv6 socket: %w", err)
+		}
+		if rawSock.probe6, err = newSrcProbe(unix.AF_INET6); err != nil {
+			return nil, err
 		}
 	}
 
@@ -124,20 +133,25 @@ func Listen(port int, filter BPFFilter, mtu uint16) (_ net.PacketConn, err error
 // resolveSrc returns the source IP the kernel will pick for a packet sent to
 // dst by these raw sockets, mirroring the fwmark the kernel will see on send.
 func (s *SharedSocket) resolveSrc(dst net.IP) (net.IP, error) {
-	opts := &netlink.RouteGetOptions{}
-	if nbnet.AdvancedRouting() {
-		opts.Mark = nbnet.ControlPlaneMark
+	addr, ok := netip.AddrFromSlice(dst)
+	if !ok {
+		return nil, fmt.Errorf("invalid destination %s", dst)
 	}
-	routes, err := netlink.RouteGetWithOptions(dst, opts)
+	addr = addr.Unmap()
+
+	probe := s.probe4
+	if addr.Is6() {
+		probe = s.probe6
+	}
+	if probe == nil {
+		return nil, fmt.Errorf("no raw socket for %s", addr)
+	}
+
+	src, err := probe.resolve(addr)
 	if err != nil {
-		return nil, fmt.Errorf("route get %s: %w", dst, err)
+		return nil, err
 	}
-	for _, r := range routes {
-		if r.Src != nil {
-			return r.Src, nil
-		}
-	}
-	return nil, fmt.Errorf("no source IP for %s", dst)
+	return src.AsSlice(), nil
 }
 
 // LocalAddr returns the local address, preferring IPv4 for backward compatibility.
@@ -221,6 +235,13 @@ func (s *SharedSocket) Close() error {
 
 	if s.conn6 != nil {
 		errGrp.Go(s.conn6.Close)
+	}
+
+	if s.probe4 != nil {
+		errGrp.Go(s.probe4.close)
+	}
+	if s.probe6 != nil {
+		errGrp.Go(s.probe6.close)
 	}
 	return errGrp.Wait()
 }
