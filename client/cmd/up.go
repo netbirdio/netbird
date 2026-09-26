@@ -23,6 +23,8 @@ import (
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/mdm"
 	nbnet "github.com/netbirdio/netbird/client/net"
+	"github.com/netbirdio/netbird/client/netevents"
+	"github.com/netbirdio/netbird/client/netevents/watcher"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/server"
 	"github.com/netbirdio/netbird/client/system"
@@ -272,7 +274,26 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *pr
 	r := peer.NewRecorder(config.ManagementURL.String())
 	r.GetFullStatus()
 
-	connectClient := internal.NewConnectClient(ctx, config, r)
+	netMgr := netevents.NewManager(r)
+	w := watcher.New(config.WgIface)
+	go func() {
+		_ = w.Start(ctx, watcher.HandlerFunc(func(ev watcher.Event) {
+			switch ev.Kind {
+			case watcher.EventUnderlyingVPNDisconnected, watcher.EventNetworkDisconnected:
+				netMgr.SetNetworkAvailable(false)
+			case watcher.EventUnderlyingVPNConnected, watcher.EventNetworkConnected:
+				netMgr.SetNetworkAvailable(true)
+			case watcher.EventNetBirdInterfaceDisconnected:
+				if ev.UserInitiated {
+					cancel()
+				} else {
+					netMgr.SetNetworkAvailable(false)
+				}
+			}
+		}))
+	}()
+
+	connectClient := internal.NewConnectClient(ctx, config, r, internal.WithNetEvents(netMgr))
 	SetupDebugHandler(ctx, config, r, connectClient, "")
 
 	return connectClient.Run(nil, util.FindFirstLogPath(logFiles))
