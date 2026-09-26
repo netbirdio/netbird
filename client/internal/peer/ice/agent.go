@@ -39,10 +39,7 @@ func NewAgent(ctx context.Context, iFaceDiscover stdnet.ExternalIFaceDiscover, c
 	iceFailedTimeout := iceFailedTimeout()
 	iceRelayAcceptanceMinWait := iceRelayAcceptanceMinWait()
 
-	transportNet, err := newStdNet(ctx, iFaceDiscover, config.InterfaceBlackList)
-	if err != nil {
-		log.Errorf("failed to create pion's stdnet: %s", err)
-	}
+	transportNet := newStdNet(ctx, iFaceDiscover, config.InterfaceBlackList)
 
 	fac := logging.NewDefaultLoggerFactory()
 
