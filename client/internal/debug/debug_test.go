@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/netip"
 	"net/url"
@@ -968,4 +969,53 @@ func renderAddConfigSpecific(g *BundleGenerator) string {
 
 func newAnonymizerForTest() *anonymize.Anonymizer {
 	return anonymize.NewAnonymizer(anonymize.DefaultAddresses())
+}
+
+func TestRemoveStaleBundles(t *testing.T) {
+	dir := t.TempDir()
+	stale := filepath.Join(dir, "netbird.debug.111.zip")
+	fresh := filepath.Join(dir, "netbird.debug.222.zip")
+	other := filepath.Join(dir, "netbird.debug.333.txt")
+	owned := filepath.Join(dir, "netbird.debug.444.zip")
+	abandoned := filepath.Join(dir, "netbird.debug.555.zip")
+	for _, p := range []string{stale, fresh, other, owned, abandoned} {
+		require.NoError(t, os.WriteFile(p, []byte("x"), 0o600))
+	}
+	exported, err := ExportBundle(owned)
+	require.NoError(t, err)
+	exportedAbandoned, err := ExportBundle(abandoned)
+	require.NoError(t, err)
+	old := time.Now().Add(-2 * time.Hour)
+	for _, p := range []string{stale, other, exported} {
+		require.NoError(t, os.Chtimes(p, old, old))
+	}
+	ancient := time.Now().Add(-exportedBundleMaxAge - time.Hour)
+	require.NoError(t, os.Chtimes(exportedAbandoned, ancient, ancient))
+
+	RemoveStaleBundles(dir, time.Hour)
+
+	assert.NoFileExists(t, stale, "bundle older than maxAge should be removed")
+	assert.FileExists(t, fresh, "bundle younger than maxAge must survive, it may still be uploading")
+	assert.FileExists(t, other, "files outside the bundle pattern must not be touched")
+	assert.NoFileExists(t, owned)
+	assert.FileExists(t, exported, "exported bundle is caller-owned and must survive maxAge")
+	assert.NoFileExists(t, exportedAbandoned, "exported bundle older than exportedBundleMaxAge is abandoned")
+}
+
+func TestBundleIncludesNetworkMap(t *testing.T) {
+	for _, anonymize := range []bool{false, true} {
+		t.Run(fmt.Sprintf("anonymize=%t", anonymize), func(t *testing.T) {
+			g := NewBundleGenerator(GeneratorDependencies{
+				SyncResponse: &mgmProto.SyncResponse{NetworkMap: &mgmProto.NetworkMap{Serial: 1}},
+			}, BundleConfig{Anonymize: anonymize})
+
+			require.Contains(t, bundleEntries(t, g), "network_map.json")
+		})
+	}
+}
+
+func TestBundleOmitsNetworkMapWithoutSyncResponse(t *testing.T) {
+	g := NewBundleGenerator(GeneratorDependencies{}, BundleConfig{})
+
+	require.NotContains(t, bundleEntries(t, g), "network_map.json")
 }
