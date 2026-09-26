@@ -15,8 +15,7 @@ import (
 const (
 	mapKeyFeatures uint32 = 0
 
-	featureFlagWGProxy      = 0b00000001
-	featureFlagDnsForwarder = 0b00000010
+	featureFlagWGProxy = 0b00000001
 )
 
 var (
@@ -28,9 +27,9 @@ var (
 
 // GeneralManager is used to load multiple eBPF programs with a custom check (if then) done in prog.c
 // The manager simply adds a feature (byte) of each program to a map that is shared between the userspace and kernel.
-// When packet arrives, the C code checks for each feature (if it is set) and executes each enabled program (e.g., dns_fwd.c and wg_proxy.c).
+// When packet arrives, the C code checks for each feature (if it is set) and executes each enabled program (e.g., wg_proxy.c).
 //
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang-14 bpf src/prog.c -- -I /usr/x86_64-linux-gnu/include
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang-14 bpf src/prog.c -- -I /usr/x86_64-linux-gnu/include -include src/bpf_map_def.h
 type GeneralManager struct {
 	lock         sync.Mutex
 	link         link.Link

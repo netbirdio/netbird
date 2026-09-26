@@ -102,7 +102,8 @@ type ProxyServiceServer struct {
 
 	mu sync.RWMutex
 	// Manager for reverse proxy operations
-	serviceManager rpservice.Manager
+	serviceManager   rpservice.Manager
+	credentialLimits credentialVerificationLimiter
 	// agentNetworkSynth produces synthesised reverse-proxy services from
 	// Agent Network state. Optional — when nil the snapshot path only ships
 	// persisted services.
@@ -242,9 +243,10 @@ func (s *ProxyServiceServer) cleanupStaleProxies(ctx context.Context) {
 	}
 }
 
-// Close stops background goroutines.
+// Close stops background goroutines and releases credential verification state.
 func (s *ProxyServiceServer) Close() {
 	s.cancel()
+	s.credentialLimits.close()
 }
 
 // SetServiceManager sets the service manager. Must be called before serving.
@@ -412,6 +414,7 @@ func (s *ProxyServiceServer) SetProxyController(proxyController proxy.Controller
 type proxyConnectParams struct {
 	proxyID      string
 	address      string
+	version      string
 	capabilities *proto.ProxyCapabilities
 }
 
@@ -422,6 +425,7 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 		return err
 	}
 	params.capabilities = req.GetCapabilities()
+	params.version = req.GetVersion()
 
 	conn, proxyRecord, err := s.registerProxyConnection(stream.Context(), params, &proxyConnection{
 		stream: stream,
@@ -455,6 +459,7 @@ func (s *ProxyServiceServer) SyncMappings(stream proto.ProxyService_SyncMappings
 		return err
 	}
 	params.capabilities = init.GetCapabilities()
+	params.version = init.GetVersion()
 
 	conn, proxyRecord, err := s.registerProxyConnection(stream.Context(), params, &proxyConnection{
 		syncStream: stream,
@@ -566,7 +571,7 @@ func (s *ProxyServiceServer) registerProxyConnection(ctx context.Context, params
 		}
 	}
 
-	proxyRecord, err := s.proxyManager.Connect(ctx, params.proxyID, sessionID, params.address, peerInfo, accountID, caps)
+	proxyRecord, err := s.proxyManager.Connect(ctx, params.proxyID, sessionID, params.address, peerInfo, params.version, accountID, caps)
 	if err != nil {
 		cancel()
 		if accountID != nil {
@@ -1223,6 +1228,7 @@ func shallowCloneMapping(m *proto.ProxyMapping) *proto.ProxyMapping {
 	}
 }
 
+// Authenticate verifies service credentials and issues a session token.
 func (s *ProxyServiceServer) Authenticate(ctx context.Context, req *proto.AuthenticateRequest) (*proto.AuthenticateResponse, error) {
 	if err := enforceAccountScope(ctx, req.GetAccountId()); err != nil {
 		return nil, err
@@ -1232,6 +1238,14 @@ func (s *ProxyServiceServer) Authenticate(ctx context.Context, req *proto.Authen
 	if err != nil {
 		log.WithContext(ctx).Debugf("failed to get service from store: %v", err)
 		return nil, status.Errorf(codes.FailedPrecondition, "get service from store: %v", err)
+	}
+
+	switch req.GetRequest().(type) {
+	case *proto.AuthenticateRequest_Pin, *proto.AuthenticateRequest_Password:
+		key := credentialVerificationKey{accountID: credentialAccountID(service.AccountID), serviceID: credentialServiceID(service.ID)}
+		if err := s.credentialLimits.allow(key); err != nil {
+			return nil, err
+		}
 	}
 
 	authenticated, userId, method := s.authenticateRequest(ctx, req, service)
@@ -1651,6 +1665,10 @@ var (
 	// ErrUserBlocked reports a blocked user, who may not hold a proxy session.
 	ErrUserBlocked = errors.New("user blocked")
 
+	// ErrUserNotInGroup reports a user outside the service's distribution
+	// groups, who may not hold a proxy session for it.
+	ErrUserNotInGroup = errors.New("user not in allowed groups")
+
 	errUserUnresolved = errors.New("user could not be resolved")
 )
 
@@ -1689,8 +1707,10 @@ func sameAccount(userAccountID, serviceAccountID string) bool {
 // GenerateSessionToken creates a signed session JWT for the given domain and
 // user. The user's group memberships are embedded in the token so policy-aware
 // middlewares on the proxy can authorise without an extra management round-trip.
-// A user the store cannot resolve, or whose account is pending approval or
-// blocked, gets no token at all, so the browser never receives a session cookie.
+// A user the store cannot resolve, whose account is pending approval or blocked,
+// or who is outside the service's distribution groups, gets no token at all: the
+// token is a bearer credential for the service, so authorisation has to run
+// before it is signed rather than only when the proxy presents it back.
 func (s *ProxyServiceServer) GenerateSessionToken(ctx context.Context, domain, userID string, method proxyauth.Method) (string, error) {
 	service, err := s.getServiceByDomain(ctx, domain)
 	if err != nil {
@@ -1724,6 +1744,14 @@ func (s *ProxyServiceServer) GenerateSessionToken(ctx context.Context, domain, u
 
 	if _, err := checkUserStatus(user); err != nil {
 		return "", fmt.Errorf("session token for user %s: %w", userID, err)
+	}
+
+	if err := s.checkGroupAccess(service, user); err != nil {
+		log.WithContext(ctx).WithFields(log.Fields{
+			"domain":  domain,
+			"user_id": userID,
+		}).Debug("GenerateSessionToken: user not in the service's distribution groups")
+		return "", fmt.Errorf("session token for user %s: %w", userID, ErrUserNotInGroup)
 	}
 
 	groupIDs, groupNames := pairGroupIDsAndNames(userGroups)

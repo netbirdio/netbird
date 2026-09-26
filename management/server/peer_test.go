@@ -16,11 +16,11 @@ import (
 	"testing"
 	"time"
 
-	"go.uber.org/mock/gomock"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 	"golang.org/x/exp/maps"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
@@ -1170,11 +1170,11 @@ func TestToSyncResponse(t *testing.T) {
 		},
 	}
 	dnsName := "example.com"
-	checks := []*posture.Checks{
+	checks := []*nmdata.PostureChecks{
 		{
-			Checks: posture.ChecksDefinition{
-				ProcessCheck: &posture.ProcessCheck{
-					Processes: []posture.Process{{LinuxPath: "/usr/bin/netbird"}},
+			Checks: nmdata.ChecksDefinition{
+				ProcessCheck: &nmdata.ProcessCheck{
+					Processes: []nmdata.Process{{LinuxPath: "/usr/bin/netbird"}},
 				},
 			},
 		},

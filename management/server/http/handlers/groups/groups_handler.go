@@ -148,13 +148,10 @@ func (h *handler) updateGroup(w http.ResponseWriter, r *http.Request) {
 		peers = *req.Peers
 	}
 
-	resources := make([]types.Resource, 0)
-	if req.Resources != nil {
-		for _, res := range *req.Resources {
-			resource := types.Resource{}
-			resource.FromAPIRequest(&res)
-			resources = append(resources, resource)
-		}
+	resources, err := resourcesFromAPIRequest(req.Resources)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
 	}
 
 	group := types.Group{
@@ -210,13 +207,10 @@ func (h *handler) createGroup(w http.ResponseWriter, r *http.Request) {
 		peers = *req.Peers
 	}
 
-	resources := make([]types.Resource, 0)
-	if req.Resources != nil {
-		for _, res := range *req.Resources {
-			resource := types.Resource{}
-			resource.FromAPIRequest(&res)
-			resources = append(resources, resource)
-		}
+	resources, err := resourcesFromAPIRequest(req.Resources)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
 	}
 
 	group := types.Group{
@@ -335,11 +329,30 @@ func toGroupResponse(peers []*nbpeer.Peer, group *types.Group) *api.Group {
 	gr.PeersCount = len(gr.Peers)
 
 	for _, res := range group.Resources {
-		resResp := res.ToAPIResponse()
-		gr.Resources = append(gr.Resources, *resResp)
+		if resResp := res.ToAPIResponse(); resResp != nil {
+			gr.Resources = append(gr.Resources, *resResp)
+		}
 	}
 
 	gr.ResourcesCount = len(gr.Resources)
 
 	return &gr
+}
+
+func resourcesFromAPIRequest(req *[]api.Resource) ([]types.Resource, error) {
+	resources := make([]types.Resource, 0)
+	if req == nil {
+		return resources, nil
+	}
+
+	for _, res := range *req {
+		if res.Id == "" || !types.ResourceType(res.Type).Valid() {
+			return nil, status.Errorf(status.InvalidArgument, "resource id shouldn't be empty and type must be one of: peer, domain, host, subnet")
+		}
+		resource := types.Resource{}
+		resource.FromAPIRequest(&res)
+		resources = append(resources, resource)
+	}
+
+	return resources, nil
 }

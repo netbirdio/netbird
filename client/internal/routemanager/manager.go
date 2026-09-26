@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"net/url"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -472,27 +473,13 @@ func (m *DefaultManager) CurrentRouteRange() []string {
 	m.mux.Lock()
 	defer m.mux.Unlock()
 
-	if m.disableClientRoutes {
-		return nil
-	}
-
-	filtered := m.routeSelector.FilterSelectedExitNodes(m.clientRoutes)
-	var nets []string
-	for _, routes := range filtered {
-		for _, r := range routes {
-			if r.IsDynamic() {
-				continue
-			}
-			nets = append(nets, r.NetString())
-		}
-	}
-
-	if m.fakeIPManager != nil {
-		nets = append(nets, m.fakeIPManager.GetFakeIPBlock().String(), m.fakeIPManager.GetFakeIPv6Block().String())
+	nets := m.overlayNetworks()
+	if !m.disableClientRoutes {
+		nets = append(nets, m.clientRouteRange()...)
 	}
 
 	sort.Strings(nets)
-	return nets
+	return slices.Compact(nets)
 }
 
 // GetRouteSelector returns the route selector
@@ -854,6 +841,42 @@ func (m *DefaultManager) enforceSingleExitNode(preferred route.NetID, allIDs []r
 func (m *DefaultManager) logExitNodeUpdate(info exitNodeInfo, preferred route.NetID) {
 	log.Debugf("Exit node selection: %d available, preferred=%q (%d user-selected, %d user-deselected, %d management-selected)",
 		len(info.allIDs), preferred, len(info.userSelected), len(info.userDeselected), len(info.selectedByManagement))
+}
+
+// overlayNetworks returns the v4 and v6 overlay networks of the WireGuard interface, each only when it is set.
+func (m *DefaultManager) overlayNetworks() []string {
+	if m.wgInterface == nil {
+		return nil
+	}
+
+	addr := m.wgInterface.Address()
+	var nets []string
+	if addr.Network.IsValid() {
+		nets = append(nets, addr.Network.String())
+	}
+	if addr.IPv6Net.IsValid() {
+		nets = append(nets, addr.IPv6Net.String())
+	}
+	return nets
+}
+
+// clientRouteRange returns the static client route networks of the selected exit nodes together with the fake IP blocks.
+func (m *DefaultManager) clientRouteRange() []string {
+	filtered := m.routeSelector.FilterSelectedExitNodes(m.clientRoutes)
+	var nets []string
+	for _, routes := range filtered {
+		for _, r := range routes {
+			if r.IsDynamic() {
+				continue
+			}
+			nets = append(nets, r.NetString())
+		}
+	}
+
+	if m.fakeIPManager != nil {
+		nets = append(nets, m.fakeIPManager.GetFakeIPBlock().String(), m.fakeIPManager.GetFakeIPv6Block().String())
+	}
+	return nets
 }
 
 // minNetID returns the lexicographically smallest NetID, for a deterministic

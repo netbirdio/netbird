@@ -61,6 +61,7 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 	rosenpassEnabled := true
 	rosenpassPermissive := true
 	serverSSHAllowed := true
+	remoteJobsAllowed := true
 	interfaceName := "utun100"
 	wireguardPort := int64(51820)
 	preSharedKey := "test-psk"
@@ -87,6 +88,7 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 		RosenpassEnabled:     &rosenpassEnabled,
 		RosenpassPermissive:  &rosenpassPermissive,
 		ServerSSHAllowed:     &serverSSHAllowed,
+		RemoteJobsAllowed:    &remoteJobsAllowed,
 		InterfaceName:        &interfaceName,
 		WireguardPort:        &wireguardPort,
 		OptionalPreSharedKey: &preSharedKey,
@@ -132,6 +134,8 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 	require.Equal(t, rosenpassPermissive, cfg.RosenpassPermissive)
 	require.NotNil(t, cfg.ServerSSHAllowed)
 	require.Equal(t, serverSSHAllowed, *cfg.ServerSSHAllowed)
+	require.NotNil(t, cfg.RemoteJobsAllowed)
+	require.Equal(t, remoteJobsAllowed, *cfg.RemoteJobsAllowed)
 	require.Equal(t, interfaceName, cfg.WgIface)
 	require.Equal(t, int(wireguardPort), cfg.WgPort)
 	require.Equal(t, preSharedKey, cfg.PreSharedKey)
@@ -186,6 +190,7 @@ func verifyAllFieldsCovered(t *testing.T, req *proto.SetConfigRequest) {
 		"RosenpassEnabled":              true,
 		"RosenpassPermissive":           true,
 		"ServerSSHAllowed":              true,
+		"RemoteJobsAllowed":             true,
 		"InterfaceName":                 true,
 		"WireguardPort":                 true,
 		"OptionalPreSharedKey":          true,
@@ -248,6 +253,7 @@ func TestCLIFlags_MappedToSetConfig(t *testing.T) {
 		"enable-rosenpass":                  "RosenpassEnabled",
 		"rosenpass-permissive":              "RosenpassPermissive",
 		"allow-server-ssh":                  "ServerSSHAllowed",
+		"allow-remote-jobs":                 "RemoteJobsAllowed",
 		"interface-name":                    "InterfaceName",
 		"wireguard-port":                    "WireguardPort",
 		"preshared-key":                     "OptionalPreSharedKey",

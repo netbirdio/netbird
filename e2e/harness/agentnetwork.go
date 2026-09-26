@@ -100,6 +100,15 @@ func (c *Combined) SetProviderEnabled(ctx context.Context, id string, enabled bo
 	return err
 }
 
+// GetAgentConfig returns the caller-scoped self-service connection config —
+// the answer the dashboard's "Connect Agent" view renders for the PAT's user.
+// Providers appear only when the caller's own groups intersect an enabled
+// policy's source groups, so tests must place the PAT user into the policy's
+// source group first (via the Users API auto-groups).
+func (c *Combined) GetAgentConfig(ctx context.Context) (api.AgentNetworkAgentConfig, error) {
+	return anRequest[api.AgentNetworkAgentConfig](ctx, c, http.MethodGet, "/api/agent-network/agent-config", nil)
+}
+
 // CreatePolicy creates an agent-network policy.
 func (c *Combined) CreatePolicy(ctx context.Context, req api.AgentNetworkPolicyRequest) (api.AgentNetworkPolicy, error) {
 	return anRequest[api.AgentNetworkPolicy](ctx, c, http.MethodPost, "/api/agent-network/policies", req)

@@ -571,6 +571,21 @@
     "settings.general.language.empty": {
         "message": "Nincs találat."
     },
+    "settings.general.theme.label": {
+        "message": "Téma"
+    },
+    "settings.general.theme.help": {
+        "message": "Válassza a világos vagy sötét témát, vagy kövesse a rendszer beállítását."
+    },
+    "settings.general.theme.system": {
+        "message": "Rendszer"
+    },
+    "settings.general.theme.light": {
+        "message": "Világos"
+    },
+    "settings.general.theme.dark": {
+        "message": "Sötét"
+    },
     "settings.general.management.label": {
         "message": "Felügyeleti szerver"
     },
