@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 
 	log "github.com/sirupsen/logrus"
@@ -59,10 +60,11 @@ func (t *Tray) loadConfig() {
 	t.profileMu.Unlock()
 }
 
-// loadProfiles fetches the profile list and relayouts the menu. Also called
-// from applyStatus to catch flips from another channel (CLI, autoconnect),
-// since the daemon emits no active-profile event. Full relayout (not
-// Clear()+Add()) is required for KDE/Plasma — see relayoutMenu's doc comment.
+// loadProfiles fetches the profile list and relayouts the menu when the rows
+// changed. Also called from applyStatus to catch flips from another channel
+// (CLI, autoconnect), since the daemon emits no active-profile event. Full
+// relayout (not Clear()+Add()) is required for KDE/Plasma — see relayoutMenu's
+// doc comment.
 func (t *Tray) loadProfiles() {
 	t.profileLoadMu.Lock()
 	defer t.profileLoadMu.Unlock()
@@ -80,11 +82,14 @@ func (t *Tray) loadProfiles() {
 	}
 
 	t.profilesMu.Lock()
+	changed := username != t.profilesUser || !slices.Equal(profiles, t.profiles)
 	t.profiles = profiles
 	t.profilesUser = username
 	t.profilesMu.Unlock()
 
-	t.relayoutMenu()
+	if changed {
+		t.relayoutMenu()
+	}
 }
 
 // fillProfileSubmenu paints cached profile rows into the freshly built submenu.
