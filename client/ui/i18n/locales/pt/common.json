@@ -1363,6 +1363,12 @@
     "error.daemon_unreachable": {
         "message": "O daemon do NetBird não está respondendo. Verifique se o serviço está em execução."
     },
+    "error.settings_locked": {
+        "message": "As configurações não podem ser alteradas neste dispositivo: um administrador bloqueou-as."
+    },
+    "error.settings_managed_by_mdm": {
+        "message": "Esta configuração é gerida pela sua organização e não pode ser alterada."
+    },
     "error.unknown": {
         "message": "A operação falhou."
     },
