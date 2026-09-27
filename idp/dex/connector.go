@@ -11,6 +11,10 @@ import (
 	"github.com/dexidp/dex/storage"
 )
 
+// ErrIncompatibleClaimMapping prevents a groups mapping from changing the
+// precedence of an existing claim mapping in Dex.
+var ErrIncompatibleClaimMapping = errors.New("cannot enable groups claim override with an existing claim mapping")
+
 // ConnectorConfig represents the configuration for an identity provider connector
 type ConnectorConfig struct {
 	// ID is the unique identifier for the connector
@@ -27,6 +31,11 @@ type ConnectorConfig struct {
 	ClientSecret string
 	// RedirectURI is the OAuth2 redirect URI
 	RedirectURI string
+	// AdditionalScopes and GroupsClaim apply only to generic OIDC connectors.
+	// Nil values leave existing settings unchanged on update.
+	AdditionalScopes []string
+	GroupsClaim      *string
+	GetUserInfo      *bool
 }
 
 // CreateConnector creates a new connector in Dex storage.
@@ -96,11 +105,15 @@ func (p *Provider) ListConnectors(ctx context.Context) ([]*ConnectorConfig, erro
 // and userIDKey.
 func (p *Provider) UpdateConnector(ctx context.Context, cfg *ConnectorConfig) error {
 	if err := p.storage.UpdateConnector(ctx, cfg.ID, func(old storage.Connector) (storage.Connector, error) {
-		if cfg.Type != "" && cfg.Type != inferIdentityProviderType(old.Type, cfg.ID, nil) {
+		providerType := inferIdentityProviderType(old.Type, cfg.ID, nil)
+		if cfg.Type != "" && cfg.Type != providerType {
 			return storage.Connector{}, errors.New("connector type change not allowed")
 		}
+		if providerType != "oidc" && (len(cfg.AdditionalScopes) > 0 || (cfg.GroupsClaim != nil && *cfg.GroupsClaim != "") || (cfg.GetUserInfo != nil && *cfg.GetUserInfo)) {
+			return storage.Connector{}, errors.New("custom OIDC options require a generic OIDC connector")
+		}
 
-		configData, err := overlayConnectorConfig(old.Config, cfg)
+		configData, err := overlayConnectorConfig(old.Config, cfg, providerType)
 		if err != nil {
 			return storage.Connector{}, fmt.Errorf("failed to overlay connector config: %w", err)
 		}
@@ -127,7 +140,7 @@ func (p *Provider) UpdateConnector(ctx context.Context, cfg *ConnectorConfig) er
 // overlayConnectorConfig writes only the user-mutable fields onto the existing
 // stored config, preserving every other field (scopes, claimMapping, userIDKey,
 // insecure flags, etc.). Empty fields on cfg leave the existing value alone.
-func overlayConnectorConfig(oldConfig []byte, cfg *ConnectorConfig) ([]byte, error) {
+func overlayConnectorConfig(oldConfig []byte, cfg *ConnectorConfig, providerType string) ([]byte, error) {
 	var m map[string]any
 	if err := decodeConnectorConfig(oldConfig, &m); err != nil {
 		return nil, err
@@ -144,7 +157,51 @@ func overlayConnectorConfig(oldConfig []byte, cfg *ConnectorConfig) ([]byte, err
 	if cfg.RedirectURI != "" {
 		m["redirectURI"] = cfg.RedirectURI
 	}
+	if providerType == "oidc" && cfg.AdditionalScopes != nil {
+		m["scopes"] = oidcScopes(cfg.AdditionalScopes)
+	}
+	if providerType == "oidc" && cfg.GetUserInfo != nil {
+		m["getUserInfo"] = *cfg.GetUserInfo
+	}
+	if providerType == "oidc" && cfg.GroupsClaim != nil {
+		mapping, _ := m["claimMapping"].(map[string]any)
+		if mapping == nil {
+			mapping = make(map[string]any)
+		}
+		if *cfg.GroupsClaim == "" {
+			delete(mapping, "groups")
+		} else {
+			if override, _ := m["overrideClaimMapping"].(bool); !override {
+				for key := range mapping {
+					if key != "groups" {
+						return nil, fmt.Errorf("%w: %q", ErrIncompatibleClaimMapping, key)
+					}
+				}
+			}
+			mapping["groups"] = *cfg.GroupsClaim
+			// Dex otherwise prefers a standard groups claim over the configured one.
+			m["overrideClaimMapping"] = true
+		}
+		if len(mapping) == 0 {
+			delete(m, "claimMapping")
+			delete(m, "overrideClaimMapping")
+		} else {
+			m["claimMapping"] = mapping
+		}
+	}
 	return encodeConnectorConfig(m)
+}
+
+func oidcScopes(additional []string) []string {
+	scopes := []string{"openid", "profile", "email"}
+	seen := map[string]bool{"openid": true, "profile": true, "email": true}
+	for _, scope := range additional {
+		if !seen[scope] {
+			scopes = append(scopes, scope)
+			seen[scope] = true
+		}
+	}
+	return scopes
 }
 
 // DeleteConnector removes a connector from Dex storage.
@@ -177,6 +234,9 @@ func (p *Provider) GetRedirectURI() string {
 // buildStorageConnector creates a storage.Connector from ConnectorConfig.
 // It handles the type-specific configuration for each connector type.
 func (p *Provider) buildStorageConnector(cfg *ConnectorConfig) (storage.Connector, error) {
+	if cfg.Type != "oidc" && (len(cfg.AdditionalScopes) > 0 || (cfg.GroupsClaim != nil && *cfg.GroupsClaim != "") || (cfg.GetUserInfo != nil && *cfg.GetUserInfo)) {
+		return storage.Connector{}, errors.New("custom OIDC options require a generic OIDC connector")
+	}
 	redirectURI := p.resolveRedirectURI(cfg.RedirectURI)
 
 	var dexType string
@@ -228,6 +288,16 @@ func buildOIDCConnectorConfig(cfg *ConnectorConfig, redirectURI string) ([]byte,
 		"insecureSkipEmailVerified": true,
 	}
 	switch cfg.Type {
+	case "oidc":
+		oidcConfig["scopes"] = oidcScopes(cfg.AdditionalScopes)
+		if cfg.GetUserInfo != nil {
+			oidcConfig["getUserInfo"] = *cfg.GetUserInfo
+		}
+		if cfg.GroupsClaim != nil && *cfg.GroupsClaim != "" {
+			oidcConfig["claimMapping"] = map[string]string{"groups": *cfg.GroupsClaim}
+			// Honor the explicit mapping even if the upstream also sends groups.
+			oidcConfig["overrideClaimMapping"] = true
+		}
 	case "zitadel":
 		oidcConfig["getUserInfo"] = true
 	case "entra":
@@ -289,6 +359,24 @@ func (p *Provider) parseStorageConnector(conn storage.Connector) (*ConnectorConf
 
 	// Infer the original identity provider type from Dex connector type and ID
 	cfg.Type = inferIdentityProviderType(conn.Type, conn.ID, configMap)
+	if cfg.Type == "oidc" {
+		if getUserInfo, ok := configMap["getUserInfo"].(bool); ok {
+			cfg.GetUserInfo = &getUserInfo
+		}
+		if scopes, ok := configMap["scopes"].([]any); ok {
+			for _, scope := range scopes {
+				name, ok := scope.(string)
+				if ok && name != "openid" && name != "profile" && name != "email" {
+					cfg.AdditionalScopes = append(cfg.AdditionalScopes, name)
+				}
+			}
+		}
+		if mapping, ok := configMap["claimMapping"].(map[string]any); ok {
+			if claim, ok := mapping["groups"].(string); ok {
+				cfg.GroupsClaim = &claim
+			}
+		}
+	}
 
 	return cfg, nil
 }

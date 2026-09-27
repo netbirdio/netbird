@@ -8,14 +8,17 @@ import (
 
 // Identity provider validation errors
 var (
-	ErrIdentityProviderNameRequired      = errors.New("identity provider name is required")
-	ErrIdentityProviderTypeRequired      = errors.New("identity provider type is required")
-	ErrIdentityProviderTypeUnsupported   = errors.New("unsupported identity provider type")
-	ErrIdentityProviderIssuerRequired    = errors.New("identity provider issuer is required")
-	ErrIdentityProviderIssuerInvalid     = errors.New("identity provider issuer must be a valid URL")
-	ErrIdentityProviderIssuerUnreachable = errors.New("identity provider issuer is unreachable")
-	ErrIdentityProviderIssuerMismatch    = errors.New("identity provider issuer does not match the issuer returned by the provider")
-	ErrIdentityProviderClientIDRequired  = errors.New("identity provider client ID is required")
+	ErrIdentityProviderNameRequired       = errors.New("identity provider name is required")
+	ErrIdentityProviderTypeRequired       = errors.New("identity provider type is required")
+	ErrIdentityProviderTypeUnsupported    = errors.New("unsupported identity provider type")
+	ErrIdentityProviderIssuerRequired     = errors.New("identity provider issuer is required")
+	ErrIdentityProviderIssuerInvalid      = errors.New("identity provider issuer must be a valid URL")
+	ErrIdentityProviderIssuerUnreachable  = errors.New("identity provider issuer is unreachable")
+	ErrIdentityProviderIssuerMismatch     = errors.New("identity provider issuer does not match the issuer returned by the provider")
+	ErrIdentityProviderClientIDRequired   = errors.New("identity provider client ID is required")
+	ErrIdentityProviderOIDCOptions        = errors.New("custom OIDC options require a generic OIDC provider")
+	ErrIdentityProviderScopeInvalid       = errors.New("additional OIDC scopes must be non-empty tokens without whitespace")
+	ErrIdentityProviderGroupsClaimInvalid = errors.New("OIDC groups claim must be a token without whitespace")
 )
 
 // IdentityProviderType is the type of identity provider
@@ -60,11 +63,16 @@ type IdentityProvider struct {
 	ClientID string
 	// ClientSecret is the OAuth2 client secret
 	ClientSecret string
+	// OIDC options are stored in the embedded Dex connector.
+	// Nil means that an update leaves the existing setting unchanged.
+	AdditionalScopes []string `gorm:"-"`
+	GroupsClaim      *string  `gorm:"-"`
+	GetUserInfo      *bool    `gorm:"-"`
 }
 
 // Copy returns a copy of the IdentityProvider
 func (idp *IdentityProvider) Copy() *IdentityProvider {
-	return &IdentityProvider{
+	copy := &IdentityProvider{
 		ID:           idp.ID,
 		AccountID:    idp.AccountID,
 		Type:         idp.Type,
@@ -73,6 +81,18 @@ func (idp *IdentityProvider) Copy() *IdentityProvider {
 		ClientID:     idp.ClientID,
 		ClientSecret: idp.ClientSecret,
 	}
+	if idp.AdditionalScopes != nil {
+		copy.AdditionalScopes = append([]string{}, idp.AdditionalScopes...)
+	}
+	if idp.GroupsClaim != nil {
+		claim := *idp.GroupsClaim
+		copy.GroupsClaim = &claim
+	}
+	if idp.GetUserInfo != nil {
+		getUserInfo := *idp.GetUserInfo
+		copy.GetUserInfo = &getUserInfo
+	}
+	return copy
 }
 
 // EventMeta returns a map of metadata for activity events
@@ -116,7 +136,30 @@ func (idp *IdentityProvider) Validate() error {
 	if idp.ClientID == "" {
 		return ErrIdentityProviderClientIDRequired
 	}
+	if idp.Type != IdentityProviderTypeOIDC && (len(idp.AdditionalScopes) > 0 || (idp.GroupsClaim != nil && *idp.GroupsClaim != "") || (idp.GetUserInfo != nil && *idp.GetUserInfo)) {
+		return ErrIdentityProviderOIDCOptions
+	}
+	for _, scope := range idp.AdditionalScopes {
+		if !validOIDCToken(scope) {
+			return ErrIdentityProviderScopeInvalid
+		}
+	}
+	if idp.GroupsClaim != nil && *idp.GroupsClaim != "" && !validOIDCToken(*idp.GroupsClaim) {
+		return ErrIdentityProviderGroupsClaimInvalid
+	}
 	return nil
+}
+
+func validOIDCToken(value string) bool {
+	if value == "" || len(value) > 256 {
+		return false
+	}
+	for _, r := range value {
+		if r < '!' || r > '~' || r == '"' || r == '\\' {
+			return false
+		}
+	}
+	return true
 }
 
 // IsValid checks if the given type is a supported identity provider type
