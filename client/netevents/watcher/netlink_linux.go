@@ -131,6 +131,12 @@ func (w *netlinkWatcher) handleLinkUpdate(update netlink.LinkUpdate, handler Han
 			Reason:        "interface IFF_UP flag cleared",
 			UserInitiated: false,
 		})
+	} else if !wasUp && isUp {
+		handler.OnNetworkEvent(Event{
+			Kind:   EventNetworkConnected,
+			Name:   attrs.Name,
+			Reason: "interface IFF_UP flag set",
+		})
 	}
 }
 

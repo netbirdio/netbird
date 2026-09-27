@@ -282,9 +282,11 @@ func TestNetlinkWatcher_HandleLinkUpdate(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	require.Len(t, events, 1)
+	require.Len(t, events, 2)
 	assert.Equal(t, EventNetBirdInterfaceDisconnected, events[0].Kind)
 	assert.Equal(t, "wt0", events[0].Name)
+	assert.Equal(t, EventNetworkConnected, events[1].Kind)
+	assert.Equal(t, "wt0", events[1].Name)
 }
 
 func TestSystemdNetworkdWatcher_HandleSignal(t *testing.T) {
