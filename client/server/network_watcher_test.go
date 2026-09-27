@@ -217,10 +217,23 @@ func TestServer_EnsureNetworkWatcher_ClearsStaleOfflineMarkers(t *testing.T) {
 	rec := &dummyRecorder{}
 	netMgr := netevents.NewManager(rec)
 
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately so started watcher goroutine exits without side effects
+
 	s := &Server{
-		rootCtx: context.Background(),
+		rootCtx: ctx,
 		netMgr:  netMgr,
 	}
+
+	t.Cleanup(func() {
+		s.mutex.Lock()
+		w := s.networkWatcher
+		s.networkWatcher = nil
+		s.mutex.Unlock()
+		if w != nil {
+			_ = w.Stop()
+		}
+	})
 
 	// Simulate offline markers set by a failing or previous watcher
 	s.mutex.Lock()

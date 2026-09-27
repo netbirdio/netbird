@@ -418,6 +418,66 @@ func TestNetlinkWatcher_UnderlyingCarrierLoss(t *testing.T) {
 	assert.Equal(t, "eth0", events[1].Name)
 }
 
+func TestNetlinkWatcher_MultipathDefaultRoute(t *testing.T) {
+	w := newNetlinkWatcher("wt0")
+	w.lastNetworkOnline = true
+	w.routeListFn = func() ([]netlink.Route, error) {
+		return []netlink.Route{
+			{
+				Dst:   nil,
+				Table: syscall.RT_TABLE_MAIN,
+				MultiPath: []*netlink.NexthopInfo{
+					{LinkIndex: 2},
+					{LinkIndex: 3},
+				},
+			},
+		}, nil
+	}
+
+	links := map[int]*netlink.LinkAttrs{
+		2: {Index: 2, Name: "eth0", Flags: net.FlagUp, OperState: netlink.OperUp},
+		3: {Index: 3, Name: "eth1", Flags: net.FlagUp, OperState: netlink.OperUp},
+	}
+	w.linkByIndexFn = func(idx int) (netlink.Link, error) {
+		if a, ok := links[idx]; ok {
+			return &netlink.GenericLink{LinkAttrs: *a}, nil
+		}
+		return nil, assert.AnError
+	}
+
+	var events []Event
+	var mu sync.Mutex
+	handler := HandlerFunc(func(ev Event) {
+		mu.Lock()
+		events = append(events, ev)
+		mu.Unlock()
+	})
+
+	// eth0 loses carrier, but eth1 is still operational -> still online, no disconnect
+	links[2].OperState = netlink.OperDown
+	updateEth0Down := netlink.LinkUpdate{
+		Link: &netlink.GenericLink{LinkAttrs: *links[2]},
+	}
+	w.handleLinkUpdate(updateEth0Down, handler)
+
+	mu.Lock()
+	require.Empty(t, events, "multipath route with remaining active path should not disconnect")
+	mu.Unlock()
+
+	// eth1 also loses carrier -> now all paths down -> disconnect
+	links[3].OperState = netlink.OperDown
+	updateEth1Down := netlink.LinkUpdate{
+		Link: &netlink.GenericLink{LinkAttrs: *links[3]},
+	}
+	w.handleLinkUpdate(updateEth1Down, handler)
+
+	mu.Lock()
+	require.Len(t, events, 1)
+	assert.Equal(t, EventNetworkDisconnected, events[0].Kind)
+	assert.Equal(t, "eth1", events[0].Name)
+	mu.Unlock()
+}
+
 func TestSystemdNetworkdWatcher_HandleSignal(t *testing.T) {
 	w := newSystemdNetworkdWatcher("wt0")
 	w.linkMatcher = func(path dbus.ObjectPath) bool {
