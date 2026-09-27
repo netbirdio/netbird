@@ -258,7 +258,7 @@ func TestNetlinkWatcher_HandleLinkUpdate(t *testing.T) {
 	}
 	w.handleLinkUpdate(updateDown, handler)
 
-	// wt0 with FlagUp set should not emit
+	// Re-raised NetBird interface emits EventNetworkConnected for symmetric recovery.
 	updateUp := netlink.LinkUpdate{
 		Link: &netlink.GenericLink{
 			LinkAttrs: netlink.LinkAttrs{
