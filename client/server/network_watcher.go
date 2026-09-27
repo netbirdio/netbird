@@ -16,20 +16,16 @@ func (s *Server) ensureNetworkWatcher(ifaceName string) {
 		ifaceName = "wt0"
 	}
 
-	s.mutex.Lock()
 	if s.networkWatcher != nil && s.networkWatcherIface == ifaceName {
-		s.mutex.Unlock()
 		return
 	}
 	oldWatcher := s.networkWatcher
 	w := watcher.New(ifaceName)
 	if w == nil {
-		s.mutex.Unlock()
 		return
 	}
 	s.networkWatcher = w
 	s.networkWatcherIface = ifaceName
-	s.mutex.Unlock()
 
 	if oldWatcher != nil {
 		_ = oldWatcher.Stop()
