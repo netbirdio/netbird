@@ -155,3 +155,60 @@ func TestServer_OnNetworkEvent_IgnoredWhenNotConnected(t *testing.T) {
 		// Succeeded: Down was not called
 	}
 }
+
+func TestServer_OnNetworkEvent_AggregateAvailability(t *testing.T) {
+	rec := &dummyRecorder{}
+	netMgr := netevents.NewManager(rec)
+
+	s := &Server{
+		rootCtx: context.Background(),
+		netMgr:  netMgr,
+	}
+
+	assert.True(t, s.netMgr.IsOnline(), "should start online")
+
+	// 1. Host network disconnects -> offline
+	s.OnNetworkEvent(watcher.Event{
+		Kind:   watcher.EventNetworkDisconnected,
+		Reason: "wifi link down",
+	})
+	assert.False(t, s.netMgr.IsOnline(), "should be offline after host network disconnect")
+
+	// 2. Underlying VPN connects while host network is still down -> must remain offline!
+	s.OnNetworkEvent(watcher.Event{
+		Kind:   watcher.EventUnderlyingVPNConnected,
+		Name:   "corp-vpn",
+		Reason: "vpn connected",
+	})
+	assert.False(t, s.netMgr.IsOnline(), "should remain offline when host network is down even if VPN reports connected")
+
+	// 3. Host network connects -> now both are online -> online!
+	s.OnNetworkEvent(watcher.Event{
+		Kind:   watcher.EventNetworkConnected,
+		Reason: "wifi link up",
+	})
+	assert.True(t, s.netMgr.IsOnline(), "should be online when both host network and VPN are up")
+
+	// 4. Underlying VPN disconnects -> offline
+	s.OnNetworkEvent(watcher.Event{
+		Kind:   watcher.EventUnderlyingVPNDisconnected,
+		Name:   "corp-vpn",
+		Reason: "vpn dropped",
+	})
+	assert.False(t, s.netMgr.IsOnline(), "should be offline when underlying VPN drops")
+
+	// 5. Host network reports connected -> must remain offline because VPN is still down!
+	s.OnNetworkEvent(watcher.Event{
+		Kind:   watcher.EventNetworkConnected,
+		Reason: "wifi roaming",
+	})
+	assert.False(t, s.netMgr.IsOnline(), "should remain offline when VPN is down even if host network reports connected")
+
+	// 6. Underlying VPN reconnects -> online!
+	s.OnNetworkEvent(watcher.Event{
+		Kind:   watcher.EventUnderlyingVPNConnected,
+		Name:   "corp-vpn",
+		Reason: "vpn reconnected",
+	})
+	assert.True(t, s.netMgr.IsOnline(), "should be online after both host network and VPN are restored")
+}

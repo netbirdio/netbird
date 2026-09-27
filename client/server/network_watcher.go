@@ -50,6 +50,46 @@ func (s *Server) ensureNetworkWatcher(ifaceName string) {
 	}()
 }
 
+func (s *Server) setNetworkOffline(offline bool) {
+	s.mutex.Lock()
+	s.hostNetworkOffline = offline
+	s.mutex.Unlock()
+	s.publishAggregateNetworkAvailability()
+}
+
+func (s *Server) setVPNOffline(name string, offline bool) {
+	s.mutex.Lock()
+	if s.offlineVPNs == nil {
+		s.offlineVPNs = make(map[string]struct{})
+	}
+	if offline {
+		if name != "" {
+			s.offlineVPNs[name] = struct{}{}
+		} else {
+			s.offlineVPNs["default"] = struct{}{}
+		}
+	} else {
+		if name != "" {
+			delete(s.offlineVPNs, name)
+		} else {
+			clear(s.offlineVPNs)
+		}
+	}
+	s.mutex.Unlock()
+	s.publishAggregateNetworkAvailability()
+}
+
+func (s *Server) publishAggregateNetworkAvailability() {
+	s.mutex.Lock()
+	available := !s.hostNetworkOffline && len(s.offlineVPNs) == 0
+	netMgr := s.netMgr
+	s.mutex.Unlock()
+
+	if netMgr != nil {
+		netMgr.SetNetworkAvailable(available)
+	}
+}
+
 // OnNetworkEvent handles events forwarded from the OS network watcher.
 func (s *Server) OnNetworkEvent(ev watcher.Event) {
 	log.Infof("network event received: kind=%s, name=%s, reason=%s, userInitiated=%t",
@@ -61,31 +101,23 @@ func (s *Server) OnNetworkEvent(ev watcher.Event) {
 
 	case watcher.EventUnderlyingVPNDisconnected:
 		log.Infof("underlying VPN %s disconnected, marking network unavailable", ev.Name)
-		if s.netMgr != nil {
-			s.netMgr.SetNetworkAvailable(false)
-		}
+		s.setVPNOffline(ev.Name, true)
 
 	case watcher.EventUnderlyingVPNConnected:
-		log.Infof("underlying VPN %s connected, resuming network availability", ev.Name)
-		if s.netMgr != nil {
-			s.netMgr.SetNetworkAvailable(true)
-		}
+		log.Infof("underlying VPN %s connected, evaluating network availability", ev.Name)
+		s.setVPNOffline(ev.Name, false)
 
 	case watcher.EventNetworkDisconnected:
 		log.Info("host network disconnected, marking network unavailable")
-		if s.netMgr != nil {
-			s.netMgr.SetNetworkAvailable(false)
-		}
+		s.setNetworkOffline(true)
 		state := internal.CtxGetState(s.rootCtx)
 		if status, _ := state.Status(); status == internal.StatusConnected {
 			state.Set(internal.StatusConnecting)
 		}
 
 	case watcher.EventNetworkConnected:
-		log.Info("host network connected, resuming network availability")
-		if s.netMgr != nil {
-			s.netMgr.SetNetworkAvailable(true)
-		}
+		log.Info("host network connected, evaluating network availability")
+		s.setNetworkOffline(false)
 	}
 }
 
