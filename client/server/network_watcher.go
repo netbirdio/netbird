@@ -52,13 +52,14 @@ func (s *Server) ensureNetworkWatcher(ifaceName string) {
 
 func (s *Server) setNetworkOffline(offline bool) {
 	s.mutex.Lock()
+	defer s.mutex.Unlock()
 	s.hostNetworkOffline = offline
-	s.mutex.Unlock()
-	s.publishAggregateNetworkAvailability()
+	s.publishAggregateNetworkAvailabilityLocked()
 }
 
 func (s *Server) setVPNOffline(name string, offline bool) {
 	s.mutex.Lock()
+	defer s.mutex.Unlock()
 	if s.offlineVPNs == nil {
 		s.offlineVPNs = make(map[string]struct{})
 	}
@@ -75,18 +76,13 @@ func (s *Server) setVPNOffline(name string, offline bool) {
 			clear(s.offlineVPNs)
 		}
 	}
-	s.mutex.Unlock()
-	s.publishAggregateNetworkAvailability()
+	s.publishAggregateNetworkAvailabilityLocked()
 }
 
-func (s *Server) publishAggregateNetworkAvailability() {
-	s.mutex.Lock()
+func (s *Server) publishAggregateNetworkAvailabilityLocked() {
 	available := !s.hostNetworkOffline && len(s.offlineVPNs) == 0
-	netMgr := s.netMgr
-	s.mutex.Unlock()
-
-	if netMgr != nil {
-		netMgr.SetNetworkAvailable(available)
+	if s.netMgr != nil {
+		s.netMgr.SetNetworkAvailable(available)
 	}
 }
 

@@ -1000,9 +1000,7 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpResponse, error) {
 	log.Infof("up request received")
 	s.mutex.Lock()
-	if s.netMgr != nil && !s.netMgr.IsOnline() {
-		s.netMgr.SetNetworkAvailable(true)
-	}
+	s.publishAggregateNetworkAvailabilityLocked()
 	// clientRunning is the daemon-intent flag (set by previous Up/Start, cleared
 	// by Down). connectionGoroutineRunning() reports whether the previous retry-loop
 	// goroutine is still trying. When intent is up AND goroutine is alive,
@@ -1345,9 +1343,6 @@ func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownRes
 	// failed to log in.
 	s.statusRecorder.MarkManagementDisconnected(nil)
 	s.statusRecorder.MarkSignalDisconnected(nil)
-	if s.netMgr != nil && !s.netMgr.IsOnline() {
-		s.netMgr.SetNetworkAvailable(true)
-	}
 
 	return &proto.DownResponse{}, nil
 }
