@@ -5,6 +5,7 @@ package watcher
 import (
 	"net"
 	"sync"
+	"syscall"
 	"testing"
 
 	"github.com/godbus/dbus/v5"
@@ -237,6 +238,29 @@ func TestNetworkManagerWatcher_HandleNMPropertiesChanged(t *testing.T) {
 func TestNetlinkWatcher_HandleLinkUpdate(t *testing.T) {
 	w := newNetlinkWatcher("wt0")
 	w.lastLinkUp = true
+	w.lastNetworkOnline = true
+	w.routeListFn = func() ([]netlink.Route, error) {
+		return []netlink.Route{
+			{
+				Dst:       nil,
+				Table:     syscall.RT_TABLE_MAIN,
+				LinkIndex: 10,
+			},
+		}, nil
+	}
+	w.linkByIndexFn = func(idx int) (netlink.Link, error) {
+		if idx == 10 {
+			return &netlink.GenericLink{
+				LinkAttrs: netlink.LinkAttrs{
+					Index:     10,
+					Name:      "eth1",
+					Flags:     net.FlagUp,
+					OperState: netlink.OperUp,
+				},
+			}, nil
+		}
+		return nil, assert.AnError
+	}
 
 	var events []Event
 	var mu sync.Mutex
@@ -287,6 +311,111 @@ func TestNetlinkWatcher_HandleLinkUpdate(t *testing.T) {
 	assert.Equal(t, "wt0", events[0].Name)
 	assert.Equal(t, EventNetworkConnected, events[1].Kind)
 	assert.Equal(t, "wt0", events[1].Name)
+}
+
+func TestNetlinkWatcher_NetBirdCarrierLoss(t *testing.T) {
+	w := newNetlinkWatcher("wt0")
+	w.lastLinkUp = true
+
+	var events []Event
+	var mu sync.Mutex
+
+	handler := HandlerFunc(func(ev Event) {
+		mu.Lock()
+		events = append(events, ev)
+		mu.Unlock()
+	})
+
+	// wt0 with FlagUp still set but OperStateDown emits disconnect
+	updateDown := netlink.LinkUpdate{
+		Link: &netlink.GenericLink{
+			LinkAttrs: netlink.LinkAttrs{
+				Name:      "wt0",
+				Flags:     net.FlagUp,
+				OperState: netlink.OperDown,
+			},
+		},
+	}
+	w.handleLinkUpdate(updateDown, handler)
+
+	// wt0 operational state restored
+	updateUp := netlink.LinkUpdate{
+		Link: &netlink.GenericLink{
+			LinkAttrs: netlink.LinkAttrs{
+				Name:      "wt0",
+				Flags:     net.FlagUp,
+				OperState: netlink.OperUp,
+			},
+		},
+	}
+	w.handleLinkUpdate(updateUp, handler)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, events, 2)
+	assert.Equal(t, EventNetBirdInterfaceDisconnected, events[0].Kind)
+	assert.Equal(t, "wt0", events[0].Name)
+	assert.Contains(t, events[0].Reason, "carrier or operational state lost")
+	assert.Equal(t, EventNetworkConnected, events[1].Kind)
+	assert.Equal(t, "wt0", events[1].Name)
+}
+
+func TestNetlinkWatcher_UnderlyingCarrierLoss(t *testing.T) {
+	w := newNetlinkWatcher("wt0")
+	w.lastNetworkOnline = true
+	w.routeListFn = func() ([]netlink.Route, error) {
+		return []netlink.Route{
+			{
+				Dst:       nil, // default route
+				Table:     syscall.RT_TABLE_MAIN,
+				LinkIndex: 2,
+			},
+		}, nil
+	}
+
+	var events []Event
+	var mu sync.Mutex
+
+	handler := HandlerFunc(func(ev Event) {
+		mu.Lock()
+		events = append(events, ev)
+		mu.Unlock()
+	})
+
+	// eth0 (index 2) carrier lost
+	updateDown := netlink.LinkUpdate{
+		Link: &netlink.GenericLink{
+			LinkAttrs: netlink.LinkAttrs{
+				Index:     2,
+				Name:      "eth0",
+				Flags:     net.FlagUp,
+				OperState: netlink.OperLowerLayerDown,
+			},
+		},
+	}
+	w.handleLinkUpdate(updateDown, handler)
+
+	// eth0 carrier restored
+	updateUp := netlink.LinkUpdate{
+		Link: &netlink.GenericLink{
+			LinkAttrs: netlink.LinkAttrs{
+				Index:     2,
+				Name:      "eth0",
+				Flags:     net.FlagUp,
+				OperState: netlink.OperUp,
+			},
+		},
+	}
+	w.handleLinkUpdate(updateUp, handler)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, events, 2)
+	assert.Equal(t, EventNetworkDisconnected, events[0].Kind)
+	assert.Equal(t, "eth0", events[0].Name)
+	assert.Contains(t, events[0].Reason, "lost carrier")
+	assert.Equal(t, EventNetworkConnected, events[1].Kind)
+	assert.Equal(t, "eth0", events[1].Name)
 }
 
 func TestSystemdNetworkdWatcher_HandleSignal(t *testing.T) {

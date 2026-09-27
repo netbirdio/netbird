@@ -212,3 +212,29 @@ func TestServer_OnNetworkEvent_AggregateAvailability(t *testing.T) {
 	})
 	assert.True(t, s.netMgr.IsOnline(), "should be online after both host network and VPN are restored")
 }
+
+func TestServer_EnsureNetworkWatcher_ClearsStaleOfflineMarkers(t *testing.T) {
+	rec := &dummyRecorder{}
+	netMgr := netevents.NewManager(rec)
+
+	s := &Server{
+		rootCtx: context.Background(),
+		netMgr:  netMgr,
+	}
+
+	// Simulate offline markers set by a failing or previous watcher
+	s.mutex.Lock()
+	s.hostNetworkOffline = true
+	s.offlineVPNs = map[string]struct{}{"corp-vpn": {}}
+	s.publishAggregateNetworkAvailabilityLocked()
+	s.mutex.Unlock()
+
+	assert.False(t, s.netMgr.IsOnline(), "should be offline with stale markers")
+
+	// Calling ensureNetworkWatcher replaces/resynchronizes the watcher
+	s.mutex.Lock()
+	s.ensureNetworkWatcher("wt0")
+	s.mutex.Unlock()
+
+	assert.True(t, s.netMgr.IsOnline(), "should be online after ensureNetworkWatcher clears stale markers")
+}
