@@ -117,6 +117,8 @@ type Server struct {
 	netMgr              *netevents.Manager
 	networkWatcher      watcher.Watcher
 	networkWatcherIface string
+	hostNetworkOffline  bool
+	offlineVPNs         map[string]struct{}
 	downFn              func(context.Context, *proto.DownRequest) (*proto.DownResponse, error)
 	sessionWatcher      *internal.SessionWatcher
 	localMetrics   *localmetrics.Manager
