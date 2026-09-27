@@ -67,8 +67,15 @@ func (s *Server) OnNetworkEvent(ev watcher.Event) {
 		}
 
 		s.mutex.Lock()
+		currentIface := s.networkWatcherIface
 		running := s.clientRunning
 		s.mutex.Unlock()
+
+		if currentIface != "" && ev.Name != "" && ev.Name != currentIface {
+			log.Infof("ignoring disconnect event for %s because current watcher interface is %s", ev.Name, currentIface)
+			return
+		}
+
 		if !running {
 			log.Infof("ignoring disconnect event for %s because daemon is not running", ev.Name)
 			return
