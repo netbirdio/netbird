@@ -118,20 +118,8 @@ func (idp *IdentityProvider) Validate() error {
 	if !idp.Type.HasBuiltInIssuer() && idp.Issuer == "" {
 		return ErrIdentityProviderIssuerRequired
 	}
-	if idp.Issuer != "" {
-		parsedURL, err := url.Parse(idp.Issuer)
-		if err != nil || parsedURL.Host == "" {
-			return ErrIdentityProviderIssuerInvalid
-		}
-		if parsedURL.Scheme != "https" {
-			return ErrIdentityProviderIssuerInvalid
-		}
-		if parsedURL.User != nil {
-			return ErrIdentityProviderIssuerInvalid
-		}
-		if strings.ContainsAny(idp.Issuer, "?#") {
-			return ErrIdentityProviderIssuerInvalid
-		}
+	if idp.Issuer != "" && !validIdentityProviderIssuer(idp.Issuer) {
+		return ErrIdentityProviderIssuerInvalid
 	}
 	if idp.ClientID == "" {
 		return ErrIdentityProviderClientIDRequired
@@ -148,6 +136,11 @@ func (idp *IdentityProvider) Validate() error {
 		return ErrIdentityProviderGroupsClaimInvalid
 	}
 	return nil
+}
+
+func validIdentityProviderIssuer(issuer string) bool {
+	parsedURL, err := url.Parse(issuer)
+	return err == nil && parsedURL.Host != "" && parsedURL.Scheme == "https" && parsedURL.User == nil && !strings.ContainsAny(issuer, "?#")
 }
 
 func validOIDCToken(value string) bool {

@@ -164,32 +164,39 @@ func overlayConnectorConfig(oldConfig []byte, cfg *ConnectorConfig, providerType
 		m["getUserInfo"] = *cfg.GetUserInfo
 	}
 	if providerType == "oidc" && cfg.GroupsClaim != nil {
-		mapping, _ := m["claimMapping"].(map[string]any)
-		if mapping == nil {
-			mapping = make(map[string]any)
-		}
-		if *cfg.GroupsClaim == "" {
-			delete(mapping, "groups")
-		} else {
-			if override, _ := m["overrideClaimMapping"].(bool); !override {
-				for key := range mapping {
-					if key != "groups" {
-						return nil, fmt.Errorf("%w: %q", ErrIncompatibleClaimMapping, key)
-					}
-				}
-			}
-			mapping["groups"] = *cfg.GroupsClaim
-			// Dex otherwise prefers a standard groups claim over the configured one.
-			m["overrideClaimMapping"] = true
-		}
-		if len(mapping) == 0 {
-			delete(m, "claimMapping")
-			delete(m, "overrideClaimMapping")
-		} else {
-			m["claimMapping"] = mapping
+		if err := overlayGroupsClaim(m, *cfg.GroupsClaim); err != nil {
+			return nil, err
 		}
 	}
 	return encodeConnectorConfig(m)
+}
+
+func overlayGroupsClaim(config map[string]any, claim string) error {
+	mapping, _ := config["claimMapping"].(map[string]any)
+	if mapping == nil {
+		mapping = make(map[string]any)
+	}
+	if claim == "" {
+		delete(mapping, "groups")
+	} else {
+		if override, _ := config["overrideClaimMapping"].(bool); !override {
+			for key := range mapping {
+				if key != "groups" {
+					return fmt.Errorf("%w: %q", ErrIncompatibleClaimMapping, key)
+				}
+			}
+		}
+		mapping["groups"] = claim
+		// Dex otherwise prefers a standard groups claim over the configured one.
+		config["overrideClaimMapping"] = true
+	}
+	if len(mapping) == 0 {
+		delete(config, "claimMapping")
+		delete(config, "overrideClaimMapping")
+	} else {
+		config["claimMapping"] = mapping
+	}
+	return nil
 }
 
 func oidcScopes(additional []string) []string {
