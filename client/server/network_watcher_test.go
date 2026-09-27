@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/netevents"
@@ -125,10 +124,19 @@ func TestServer_OnNetworkEvent_IgnoredWhenNotConnected(t *testing.T) {
 	rec := &dummyRecorder{}
 	netMgr := netevents.NewManager(rec)
 
+	downCalled := make(chan struct{}, 1)
 	s := &Server{
-		rootCtx:       ctx,
-		netMgr:        netMgr,
-		clientRunning: false,
+		rootCtx:             ctx,
+		netMgr:              netMgr,
+		clientRunning:       true,
+		networkWatcherIface: "wt0",
+		downFn: func(_ context.Context, _ *proto.DownRequest) (*proto.DownResponse, error) {
+			select {
+			case downCalled <- struct{}{}:
+			default:
+			}
+			return &proto.DownResponse{}, nil
+		},
 	}
 
 	// Should be ignored because status is Idle, not Connected
@@ -139,5 +147,10 @@ func TestServer_OnNetworkEvent_IgnoredWhenNotConnected(t *testing.T) {
 		UserInitiated: false,
 	})
 
-	require.NotNil(t, s)
+	select {
+	case <-downCalled:
+		t.Fatal("expected idle disconnect to be ignored, but Down was invoked")
+	case <-time.After(100 * time.Millisecond):
+		// Succeeded: Down was not called
+	}
 }

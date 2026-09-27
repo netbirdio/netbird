@@ -54,6 +54,7 @@ type activeConnInfo struct {
 	cType  string
 	vpn    bool
 	device string
+	state  uint32
 }
 
 type networkManagerWatcher struct {
@@ -256,9 +257,9 @@ func (w *networkManagerWatcher) refreshActiveConnections(conn *dbus.Conn, handle
 		if _, wasActive := oldConns[newPath]; !wasActive {
 			isNetBird := (newInfo.id == w.netbirdIface || newInfo.device == w.netbirdIface)
 			isVPN := (newInfo.vpn || newInfo.cType == "vpn" || newInfo.cType == "wireguard")
-			if isNetBird {
+			if isNetBird && newInfo.state == nmActiveStateActivated {
 				w.notifyNetbirdActivated()
-			} else if isVPN {
+			} else if isVPN && newInfo.state == nmActiveStateActivated {
 				handler.OnNetworkEvent(Event{
 					Kind:   EventUnderlyingVPNConnected,
 					Name:   newInfo.id,
@@ -325,6 +326,9 @@ func (w *networkManagerWatcher) fetchConnectionInfo(conn *dbus.Conn, path dbus.O
 		if devices, ok := v.Value().([]dbus.ObjectPath); ok && len(devices) > 0 {
 			info.device = w.fetchDeviceInterface(conn, devices[0])
 		}
+	}
+	if v, err := obj.GetProperty(nmActiveConnIface + ".State"); err == nil {
+		info.state, _ = v.Value().(uint32)
 	}
 	return info
 }
