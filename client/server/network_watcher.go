@@ -20,12 +20,20 @@ func (s *Server) ensureNetworkWatcher(ifaceName string) {
 		return
 	}
 	oldWatcher := s.networkWatcher
+	s.hostNetworkOffline = false
+	if s.offlineVPNs != nil {
+		clear(s.offlineVPNs)
+	}
 	w := watcher.New(ifaceName)
 	if w == nil {
+		s.networkWatcher = nil
+		s.networkWatcherIface = ""
+		s.publishAggregateNetworkAvailabilityLocked()
 		return
 	}
 	s.networkWatcher = w
 	s.networkWatcherIface = ifaceName
+	s.publishAggregateNetworkAvailabilityLocked()
 
 	if oldWatcher != nil {
 		go func(ow watcher.Watcher) {
@@ -42,6 +50,11 @@ func (s *Server) ensureNetworkWatcher(ifaceName string) {
 			if s.networkWatcher == w {
 				s.networkWatcher = nil
 				s.networkWatcherIface = ""
+				s.hostNetworkOffline = false
+				if s.offlineVPNs != nil {
+					clear(s.offlineVPNs)
+				}
+				s.publishAggregateNetworkAvailabilityLocked()
 			}
 			s.mutex.Unlock()
 		} else {

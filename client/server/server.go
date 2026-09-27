@@ -121,7 +121,7 @@ type Server struct {
 	offlineVPNs         map[string]struct{}
 	downFn              func(context.Context, *proto.DownRequest) (*proto.DownResponse, error)
 	sessionWatcher      *internal.SessionWatcher
-	localMetrics   *localmetrics.Manager
+	localMetrics        *localmetrics.Manager
 
 	probeThrottle       *probeThrottle
 	persistSyncResponse bool
@@ -1000,6 +1000,13 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpResponse, error) {
 	log.Infof("up request received")
 	s.mutex.Lock()
+	if s.networkWatcher == nil {
+		iface := "wt0"
+		if s.config != nil && s.config.WgIface != "" {
+			iface = s.config.WgIface
+		}
+		s.ensureNetworkWatcher(iface)
+	}
 	s.publishAggregateNetworkAvailabilityLocked()
 	// clientRunning is the daemon-intent flag (set by previous Up/Start, cleared
 	// by Down). connectionGoroutineRunning() reports whether the previous retry-loop
