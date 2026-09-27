@@ -76,12 +76,18 @@ func (c *compositeWatcher) Start(ctx context.Context, handler Handler) error {
 	}()
 
 	select {
-	case <-ctx.Done():
-		<-doneCh
-		return ctx.Err()
 	case err := <-errCh:
+		cancel()
 		<-doneCh
 		return err
+	case <-ctx.Done():
+		<-doneCh
+		select {
+		case err := <-errCh:
+			return err
+		default:
+			return ctx.Err()
+		}
 	}
 }
 
