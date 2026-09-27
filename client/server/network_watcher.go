@@ -101,7 +101,7 @@ func (s *Server) handleInterfaceDisconnected(ev watcher.Event) {
 	running := s.clientRunning
 	s.mutex.Unlock()
 
-	if currentIface != "" && ev.Name != "" && ev.Name != currentIface {
+	if currentIface == "" || ev.Name == "" || ev.Name != currentIface {
 		log.Infof("ignoring disconnect event for %s because current watcher interface is %s", ev.Name, currentIface)
 		return
 	}
