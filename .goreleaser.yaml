@@ -477,7 +477,7 @@ dockers_v2:
      tags:
        - "{{ .Version }}"
        - "{{ if eq .Env.SKIP_PUBLISH \"false\" }}latest{{ end }}"
-     dockerfile: upload-server/Dockerfile
+     dockerfile: upload-server/Dockerfile.release
      platforms:
        - linux/amd64
        - linux/arm64
