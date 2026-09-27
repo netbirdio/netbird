@@ -27,17 +27,18 @@ func CtxInitState(ctx context.Context) context.Context {
 	})
 }
 
-// CtxGetState object to get/update state/errors of process.
+// CtxGetState returns the process contextState from the context tree.
+// If the context is nil or state is uninitialized, it returns a safe default
+// contextState with StatusIdle instead of panicking or returning nil.
 func CtxGetState(ctx context.Context) *contextState {
-	if ctx == nil {
-		return nil
+	if ctx != nil {
+		if val := ctx.Value(stateCtx); val != nil {
+			if state, ok := val.(*contextState); ok {
+				return state
+			}
+		}
 	}
-	val := ctx.Value(stateCtx)
-	if val == nil {
-		return nil
-	}
-	state, _ := val.(*contextState)
-	return state
+	return &contextState{status: StatusIdle}
 }
 
 type contextState struct {
