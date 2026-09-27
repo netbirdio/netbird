@@ -256,7 +256,9 @@ func (w *networkManagerWatcher) refreshActiveConnections(conn *dbus.Conn, handle
 		if _, wasActive := oldConns[newPath]; !wasActive {
 			isNetBird := (newInfo.id == w.netbirdIface || newInfo.device == w.netbirdIface)
 			isVPN := (newInfo.vpn || newInfo.cType == "vpn" || newInfo.cType == "wireguard")
-			if isVPN && !isNetBird {
+			if isNetBird {
+				w.notifyNetbirdActivated()
+			} else if isVPN {
 				handler.OnNetworkEvent(Event{
 					Kind:   EventUnderlyingVPNConnected,
 					Name:   newInfo.id,
@@ -502,7 +504,7 @@ func (w *networkManagerWatcher) handleActiveConnProperties(conn *dbus.Conn, path
 		return
 	}
 	state, ok := v.Value().(uint32)
-	if !ok || (state != nmActiveStateDeactivating && state != nmActiveStateDeactivated) {
+	if !ok {
 		return
 	}
 
@@ -513,7 +515,17 @@ func (w *networkManagerWatcher) handleActiveConnProperties(conn *dbus.Conn, path
 		info = w.fetchConnectionInfo(conn, path)
 	}
 
-	if info.id == w.netbirdIface || info.device == w.netbirdIface {
+	isNetBird := (info.id == w.netbirdIface || info.device == w.netbirdIface)
+	if isNetBird && state == nmActiveStateActivated {
+		w.notifyNetbirdActivated()
+		return
+	}
+
+	if state != nmActiveStateDeactivating && state != nmActiveStateDeactivated {
+		return
+	}
+
+	if isNetBird {
 		w.notifyNetbirdDisconnected(fmt.Sprintf("active connection state property %d", state), true, handler)
 		return
 	}
@@ -621,7 +633,9 @@ func (w *networkManagerWatcher) handleActiveConnectionStateChanged(conn *dbus.Co
 		}
 
 	case nmActiveStateActivated:
-		if isVPN && !isNetBird {
+		if isNetBird {
+			w.notifyNetbirdActivated()
+		} else if isVPN {
 			handler.OnNetworkEvent(Event{
 				Kind:   EventUnderlyingVPNConnected,
 				Name:   info.id,

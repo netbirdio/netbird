@@ -28,7 +28,9 @@ func (s *Server) ensureNetworkWatcher(ifaceName string) {
 	s.networkWatcherIface = ifaceName
 
 	if oldWatcher != nil {
-		_ = oldWatcher.Stop()
+		go func(ow watcher.Watcher) {
+			_ = ow.Stop()
+		}(oldWatcher)
 	}
 
 	ctx := s.rootCtx

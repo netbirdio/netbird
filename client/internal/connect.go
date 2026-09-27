@@ -529,6 +529,9 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		}
 		c.statusRecorder.ClientTeardown()
 
+		_, statusErr := state.Status()
+		isResetErr := errors.Is(statusErr, ErrResetConnection)
+
 		if c.ctx.Err() == nil && state.CurrentStatus() == StatusConnected {
 			state.Set(StatusConnecting)
 		}
@@ -537,8 +540,8 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 
 		log.Info("stopped NetBird client")
 
-		if _, err := state.Status(); errors.Is(err, ErrResetConnection) {
-			return err
+		if isResetErr {
+			return statusErr
 		}
 
 		return nil
