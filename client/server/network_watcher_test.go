@@ -88,9 +88,10 @@ func TestServer_OnNetworkEvent_NetBirdInterfaceUserDisconnected(t *testing.T) {
 
 	downCalled := make(chan struct{}, 1)
 	s := &Server{
-		rootCtx:       ctx,
-		netMgr:        netMgr,
-		clientRunning: true,
+		rootCtx:             ctx,
+		netMgr:              netMgr,
+		clientRunning:       true,
+		networkWatcherIface: "wt0",
 		downFn: func(_ context.Context, _ *proto.DownRequest) (*proto.DownResponse, error) {
 			select {
 			case downCalled <- struct{}{}:
