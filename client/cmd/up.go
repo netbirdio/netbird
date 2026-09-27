@@ -275,9 +275,8 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *pr
 	r.GetFullStatus()
 
 	netMgr := netevents.NewManager(r)
-	w := watcher.New(config.WgIface)
 	go func() {
-		_ = w.Start(ctx, watcher.HandlerFunc(func(ev watcher.Event) {
+		handler := watcher.HandlerFunc(func(ev watcher.Event) {
 			switch ev.Kind {
 			case watcher.EventUnderlyingVPNDisconnected, watcher.EventNetworkDisconnected:
 				netMgr.SetNetworkAvailable(false)
@@ -290,7 +289,21 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *pr
 					netMgr.SetNetworkAvailable(false)
 				}
 			}
-		}))
+		})
+
+		for {
+			w := watcher.New(config.WgIface)
+			if err := w.Start(ctx, handler); err != nil && !errors.Is(err, context.Canceled) {
+				log.Debugf("network watcher stopped: %v, retrying in 2s", err)
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(2 * time.Second):
+					continue
+				}
+			}
+			return
+		}
 	}()
 
 	connectClient := internal.NewConnectClient(ctx, config, r, internal.WithNetEvents(netMgr))
