@@ -201,6 +201,29 @@ func isDefaultRoute(dst *net.IPNet) bool {
 	return ones == 0 && (bits == 32 || bits == 128)
 }
 
+func (w *netlinkWatcher) isLinkIndexOperational(linkIndex int, currentAttrs *netlink.LinkAttrs, linkByIndex func(int) (netlink.Link, error)) bool {
+	if linkIndex <= 0 {
+		return false
+	}
+	var attrs *netlink.LinkAttrs
+	if currentAttrs != nil && currentAttrs.Index == linkIndex {
+		attrs = currentAttrs
+	} else {
+		link, err := linkByIndex(linkIndex)
+		if err != nil || link == nil {
+			return false
+		}
+		attrs = link.Attrs()
+	}
+	if attrs == nil || attrs.Name == w.netbirdIface {
+		return false
+	}
+	if attrs.Flags&net.FlagLoopback != 0 || attrs.Name == "lo" {
+		return false
+	}
+	return isLinkOperational(attrs)
+}
+
 func (w *netlinkWatcher) hasUsableDefaultRoute(currentAttrs *netlink.LinkAttrs) bool {
 	routeList := w.routeListFn
 	if routeList == nil {
@@ -221,27 +244,13 @@ func (w *netlinkWatcher) hasUsableDefaultRoute(currentAttrs *netlink.LinkAttrs) 
 		if !isDefaultRoute(r.Dst) || r.Table != syscall.RT_TABLE_MAIN {
 			continue
 		}
-		if r.LinkIndex <= 0 {
-			continue
-		}
-		var attrs *netlink.LinkAttrs
-		if currentAttrs != nil && currentAttrs.Index == r.LinkIndex {
-			attrs = currentAttrs
-		} else {
-			link, err := linkByIndex(r.LinkIndex)
-			if err != nil || link == nil {
-				continue
-			}
-			attrs = link.Attrs()
-		}
-		if attrs == nil || attrs.Name == w.netbirdIface {
-			continue
-		}
-		if attrs.Flags&net.FlagLoopback != 0 || attrs.Name == "lo" {
-			continue
-		}
-		if isLinkOperational(attrs) {
+		if r.LinkIndex > 0 && w.isLinkIndexOperational(r.LinkIndex, currentAttrs, linkByIndex) {
 			return true
+		}
+		for _, nh := range r.MultiPath {
+			if nh != nil && w.isLinkIndexOperational(nh.LinkIndex, currentAttrs, linkByIndex) {
+				return true
+			}
 		}
 	}
 	return false
