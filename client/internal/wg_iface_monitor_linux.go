@@ -39,17 +39,23 @@ func watchInterface(ctx context.Context, ifaceName string, expectedIndex int) (b
 		return true, fmt.Errorf("subscribe to link updates: %w", err)
 	}
 
-	// Race window: the interface could have been deleted (or recreated)
-	// between the initial getInterfaceIndex() in Start and LinkSubscribe
+	// Race window: the interface could have been deleted, recreated, or brought
+	// down between the initial getInterfaceIndex() in Start and LinkSubscribe
 	// completing its handshake with the kernel. Re-check explicitly so we
 	// do not block forever waiting for an event that already fired.
-	if currentIndex, err := getInterfaceIndex(ifaceName); err != nil {
+	link, err := netlink.LinkByName(ifaceName)
+	if err != nil {
 		log.Infof("Interface monitor: %s deleted before subscription completed", ifaceName)
 		return true, fmt.Errorf("interface %s deleted: %w", ifaceName, err)
-	} else if currentIndex != expectedIndex {
+	}
+	if link.Attrs().Index != expectedIndex {
 		log.Infof("Interface monitor: %s recreated (index changed from %d to %d) before subscription completed",
-			ifaceName, expectedIndex, currentIndex)
+			ifaceName, expectedIndex, link.Attrs().Index)
 		return true, nil
+	}
+	if link.Attrs().Flags&net.FlagUp == 0 {
+		log.Infof("Interface monitor: %s link down (IFF_UP cleared) before subscription completed", ifaceName)
+		return true, fmt.Errorf("interface %s link is down", ifaceName)
 	}
 
 	for {

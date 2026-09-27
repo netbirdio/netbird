@@ -490,7 +490,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		}
 		c.statusRecorder.ClientTeardown()
 
-		if currentStatus, _ := state.Status(); currentStatus == StatusConnected {
+		if c.ctx.Err() == nil && state.CurrentStatus() == StatusConnected {
 			state.Set(StatusConnecting)
 		}
 

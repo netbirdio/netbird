@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -10,6 +11,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/netevents"
 	"github.com/netbirdio/netbird/client/netevents/watcher"
+	"github.com/netbirdio/netbird/client/proto"
 )
 
 type dummyRecorder struct{}
@@ -85,13 +87,20 @@ func TestServer_OnNetworkEvent_NetBirdInterfaceUserDisconnected(t *testing.T) {
 	rec := &dummyRecorder{}
 	netMgr := netevents.NewManager(rec)
 
+	downCalled := make(chan struct{}, 1)
 	s := &Server{
 		rootCtx:       ctx,
 		netMgr:        netMgr,
 		clientRunning: true,
+		downFn: func(_ context.Context, _ *proto.DownRequest) (*proto.DownResponse, error) {
+			select {
+			case downCalled <- struct{}{}:
+			default:
+			}
+			return &proto.DownResponse{}, nil
+		},
 	}
 
-	// Down will fail because no connection is active, but we verify it runs without panic
 	s.OnNetworkEvent(watcher.Event{
 		Kind:          watcher.EventNetBirdInterfaceDisconnected,
 		Name:          "wt0",
@@ -99,7 +108,12 @@ func TestServer_OnNetworkEvent_NetBirdInterfaceUserDisconnected(t *testing.T) {
 		UserInitiated: true,
 	})
 
-	require.NotNil(t, s)
+	select {
+	case <-downCalled:
+		// Succeeded: Down was invoked
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected Down to be invoked on user-initiated disconnect")
+	}
 }
 
 func TestServer_OnNetworkEvent_IgnoredWhenNotConnected(t *testing.T) {

@@ -91,6 +91,7 @@ func TestNetworkManagerWatcher_HandleActiveConnectionStateChanged(t *testing.T) 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			w := newNetworkManagerWatcher("wt0")
+			w.lastDeviceActive = true
 			w.activeConns = tt.conns
 
 			var events []Event
@@ -123,6 +124,7 @@ func TestNetworkManagerWatcher_HandleActiveConnectionStateChanged(t *testing.T) 
 
 func TestNetworkManagerWatcher_HandleDeviceStateChanged(t *testing.T) {
 	w := newNetworkManagerWatcher("wt0")
+	w.lastDeviceActive = true
 	w.deviceIfaces["/org/freedesktop/NetworkManager/Devices/9"] = "wt0"
 
 	var events []Event
@@ -234,6 +236,7 @@ func TestNetworkManagerWatcher_HandleNMPropertiesChanged(t *testing.T) {
 
 func TestNetlinkWatcher_HandleLinkUpdate(t *testing.T) {
 	w := newNetlinkWatcher("wt0")
+	w.lastLinkUp = true
 
 	var events []Event
 	var mu sync.Mutex
@@ -286,6 +289,9 @@ func TestNetlinkWatcher_HandleLinkUpdate(t *testing.T) {
 
 func TestSystemdNetworkdWatcher_HandleSignal(t *testing.T) {
 	w := newSystemdNetworkdWatcher("wt0")
+	w.linkMatcher = func(path dbus.ObjectPath) bool {
+		return path == "/org/freedesktop/network1/link/_12"
+	}
 
 	var events []Event
 	var mu sync.Mutex

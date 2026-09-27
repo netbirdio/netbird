@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"sync"
 
 	"github.com/godbus/dbus/v5"
@@ -22,10 +23,11 @@ const (
 type systemdNetworkdWatcher struct {
 	netbirdIface string
 
-	mu     sync.Mutex
-	conn   *dbus.Conn
-	cancel context.CancelFunc
-	done   chan struct{}
+	mu          sync.Mutex
+	conn        *dbus.Conn
+	cancel      context.CancelFunc
+	done        chan struct{}
+	linkMatcher func(path dbus.ObjectPath) bool
 }
 
 func newSystemdNetworkdWatcher(netbirdIface string) *systemdNetworkdWatcher {
@@ -101,6 +103,32 @@ func (w *systemdNetworkdWatcher) Stop() error {
 	return nil
 }
 
+func parseOperationalState(state string) (EventKind, string, bool) {
+	switch state {
+	case "off", "dormant", "no-carrier":
+		return EventNetworkDisconnected, fmt.Sprintf("systemd-networkd state: %s", state), true
+	case "routable", "degraded", "carrier":
+		return EventNetworkConnected, fmt.Sprintf("systemd-networkd state: %s", state), true
+	default:
+		return 0, "", false
+	}
+}
+
+func (w *systemdNetworkdWatcher) isNetBirdLink(path dbus.ObjectPath) bool {
+	if w.linkMatcher != nil {
+		return w.linkMatcher(path)
+	}
+	if w.netbirdIface == "" {
+		return false
+	}
+	iface, err := net.InterfaceByName(w.netbirdIface)
+	if err != nil {
+		return false
+	}
+	expected := dbus.ObjectPath(fmt.Sprintf("%s/link/_%d", systemdNetworkdPath, iface.Index))
+	return path == expected
+}
+
 func (w *systemdNetworkdWatcher) handleSignal(sig *dbus.Signal, handler Handler) {
 	if sig == nil || len(sig.Body) < 2 {
 		return
@@ -118,28 +146,35 @@ func (w *systemdNetworkdWatcher) handleSignal(sig *dbus.Signal, handler Handler)
 	case systemdNetworkdManagerIface:
 		if v, exists := changed["OperationalState"]; exists {
 			if state, ok := v.Value().(string); ok {
-				switch state {
-				case "off", "dormant", "no-carrier":
+				if kind, reason, match := parseOperationalState(state); match {
 					handler.OnNetworkEvent(Event{
-						Kind:   EventNetworkDisconnected,
-						Reason: fmt.Sprintf("systemd-networkd state: %s", state),
-					})
-				case "routable", "degraded", "carrier":
-					handler.OnNetworkEvent(Event{
-						Kind:   EventNetworkConnected,
-						Reason: fmt.Sprintf("systemd-networkd state: %s", state),
+						Kind:   kind,
+						Reason: reason,
 					})
 				}
 			}
 		}
 
 	case systemdNetworkdLinkIface:
+		if !w.isNetBirdLink(sig.Path) {
+			return
+		}
 		if v, exists := changed["AdministrativeState"]; exists {
 			if state, ok := v.Value().(string); ok && state == "down" {
 				handler.OnNetworkEvent(Event{
 					Kind:   EventNetBirdInterfaceDisconnected,
-					Name:   string(sig.Path),
-					Reason: "systemd-networkd link down",
+					Name:   w.netbirdIface,
+					Reason: "systemd-networkd administrative state down",
+				})
+				return
+			}
+		}
+		if v, exists := changed["OperationalState"]; exists {
+			if state, ok := v.Value().(string); ok && (state == "off" || state == "no-carrier" || state == "dormant") {
+				handler.OnNetworkEvent(Event{
+					Kind:   EventNetBirdInterfaceDisconnected,
+					Name:   w.netbirdIface,
+					Reason: fmt.Sprintf("systemd-networkd link operational state %s", state),
 				})
 			}
 		}

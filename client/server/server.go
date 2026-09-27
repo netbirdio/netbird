@@ -113,10 +113,12 @@ type Server struct {
 
 	connectClient *internal.ConnectClient
 
-	statusRecorder *peer.Status
-	netMgr         *netevents.Manager
-	networkWatcher watcher.Watcher
-	sessionWatcher *internal.SessionWatcher
+	statusRecorder      *peer.Status
+	netMgr              *netevents.Manager
+	networkWatcher      watcher.Watcher
+	networkWatcherIface string
+	downFn              func(context.Context, *proto.DownRequest) (*proto.DownResponse, error)
+	sessionWatcher      *internal.SessionWatcher
 	localMetrics   *localmetrics.Manager
 
 	probeThrottle       *probeThrottle
@@ -272,10 +274,6 @@ func (s *Server) Start() error {
 		go s.mdmTicker.Run(s.rootCtx, s.onMDMPolicyChange)
 	}
 
-	if s.networkWatcher == nil {
-		s.startNetworkWatcher()
-	}
-
 	// if current state contains any error, return it
 	// in all other cases we can continue execution only if status is idle and up command was
 	// not in the progress or already successfully established connection.
@@ -309,6 +307,7 @@ func (s *Server) Start() error {
 		return err
 	}
 	s.config = config
+	s.ensureNetworkWatcher(config.WgIface)
 
 	s.statusRecorder.UpdateManagementAddress(config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(config.RosenpassEnabled, config.RosenpassPermissive)
