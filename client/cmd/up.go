@@ -275,8 +275,6 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *pr
 			case watcher.EventNetBirdInterfaceDisconnected:
 				if ev.UserInitiated {
 					cancel()
-				} else {
-					netMgr.SetNetworkAvailable(false)
 				}
 			}
 		}))

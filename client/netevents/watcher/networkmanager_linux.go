@@ -116,6 +116,7 @@ func (w *networkManagerWatcher) Start(ctx context.Context, handler Handler) erro
 
 	w.refreshActiveConnections(conn, nil)
 	w.findNetbirdDevice(conn)
+	w.checkInitialState(conn, handler)
 
 	signalChan := make(chan *dbus.Signal, 64)
 	conn.Signal(signalChan)
@@ -162,6 +163,48 @@ func (w *networkManagerWatcher) Stop() error {
 	return nil
 }
 
+func (w *networkManagerWatcher) notifyNetbirdActivated() {
+	w.mu.Lock()
+	w.lastDeviceActive = true
+	w.mu.Unlock()
+}
+
+func (w *networkManagerWatcher) notifyNetbirdDisconnected(reason string, userInitiated bool, handler Handler) {
+	w.mu.Lock()
+	if !w.lastDeviceActive {
+		w.mu.Unlock()
+		return
+	}
+	w.lastDeviceActive = false
+	w.mu.Unlock()
+
+	log.Infof("NetworkManager watcher: NetBird device %s disconnected: %s", w.netbirdIface, reason)
+	if handler != nil {
+		handler.OnNetworkEvent(Event{
+			Kind:          EventNetBirdInterfaceDisconnected,
+			Name:          w.netbirdIface,
+			Reason:        reason,
+			UserInitiated: userInitiated,
+		})
+	}
+}
+
+func (w *networkManagerWatcher) checkInitialState(conn *dbus.Conn, handler Handler) {
+	if conn == nil || handler == nil {
+		return
+	}
+	obj := conn.Object(nmDest, nmPath)
+	if v, err := obj.GetProperty(nmInterface + ".Connectivity"); err == nil {
+		if connectivity, ok := v.Value().(uint32); ok && connectivity == nmConnectivityNone {
+			handler.OnNetworkEvent(Event{
+				Kind:   EventNetworkDisconnected,
+				Reason: "no network connectivity on startup",
+			})
+		}
+	}
+	w.checkNetbirdDeviceState(conn, handler)
+}
+
 func (w *networkManagerWatcher) refreshActiveConnections(conn *dbus.Conn, handler Handler) {
 	obj := conn.Object(nmDest, nmPath)
 	v, err := obj.GetProperty(nmInterface + ".ActiveConnections")
@@ -197,12 +240,7 @@ func (w *networkManagerWatcher) refreshActiveConnections(conn *dbus.Conn, handle
 			isVPN := (oldInfo.vpn || oldInfo.cType == "vpn" || oldInfo.cType == "wireguard")
 
 			if isNetBird {
-				handler.OnNetworkEvent(Event{
-					Kind:          EventNetBirdInterfaceDisconnected,
-					Name:          oldInfo.id,
-					Reason:        "connection removed from active connections",
-					UserInitiated: true,
-				})
+				w.notifyNetbirdDisconnected("connection removed from active connections", true, handler)
 			} else if isVPN {
 				handler.OnNetworkEvent(Event{
 					Kind:          EventUnderlyingVPNDisconnected,
@@ -237,26 +275,12 @@ func (w *networkManagerWatcher) checkNetbirdDeviceState(conn *dbus.Conn, handler
 	var devPath dbus.ObjectPath
 	err := obj.Call(nmInterface+".GetDeviceByIpIface", 0, w.netbirdIface).Store(&devPath)
 	if err != nil || devPath == "/" || devPath == "" {
-		w.mu.Lock()
-		wasActive := w.lastDeviceActive
-		w.lastDeviceActive = false
-		w.mu.Unlock()
-
-		if wasActive {
-			log.Infof("NetworkManager watcher: NetBird device %s disappeared from NetworkManager", w.netbirdIface)
-			handler.OnNetworkEvent(Event{
-				Kind:          EventNetBirdInterfaceDisconnected,
-				Name:          w.netbirdIface,
-				Reason:        "device disappeared from network manager",
-				UserInitiated: true,
-			})
-		}
+		w.notifyNetbirdDisconnected("device disappeared from network manager", true, handler)
 		return
 	}
 
 	w.mu.Lock()
 	w.deviceIfaces[devPath] = w.netbirdIface
-	wasActive := w.lastDeviceActive
 	w.mu.Unlock()
 
 	devObj := conn.Object(nmDest, devPath)
@@ -270,24 +294,12 @@ func (w *networkManagerWatcher) checkNetbirdDeviceState(conn *dbus.Conn, handler
 	}
 
 	if state == nmDeviceStateActivated {
-		w.mu.Lock()
-		w.lastDeviceActive = true
-		w.mu.Unlock()
+		w.notifyNetbirdActivated()
 		return
 	}
 
-	if wasActive && (state == nmDeviceStateDisconnected || state == nmDeviceStateDeactivating || state == nmDeviceStateFailed) {
-		w.mu.Lock()
-		w.lastDeviceActive = false
-		w.mu.Unlock()
-
-		log.Infof("NetworkManager watcher: detected NetBird device %s state %d (was active)", w.netbirdIface, state)
-		handler.OnNetworkEvent(Event{
-			Kind:          EventNetBirdInterfaceDisconnected,
-			Name:          w.netbirdIface,
-			Reason:        fmt.Sprintf("network manager device state %d", state),
-			UserInitiated: true,
-		})
+	if state == nmDeviceStateDisconnected || state == nmDeviceStateDeactivating || state == nmDeviceStateFailed {
+		w.notifyNetbirdDisconnected(fmt.Sprintf("network manager device state %d", state), true, handler)
 	}
 }
 
@@ -351,6 +363,21 @@ func (w *networkManagerWatcher) fetchDeviceInterface(conn *dbus.Conn, path dbus.
 	return ""
 }
 
+func (w *networkManagerWatcher) handleDeviceRemoved(devPath dbus.ObjectPath, handler Handler) {
+	w.mu.Lock()
+	devIface := w.deviceIfaces[devPath]
+	delete(w.deviceIfaces, devPath)
+	w.mu.Unlock()
+
+	if devIface == w.netbirdIface {
+		w.notifyNetbirdDisconnected("device removed from network manager", true, handler)
+	}
+}
+
+func (w *networkManagerWatcher) handleDeviceAdded(conn *dbus.Conn, devPath dbus.ObjectPath) {
+	w.fetchDeviceInterface(conn, devPath)
+}
+
 func (w *networkManagerWatcher) handleSignal(conn *dbus.Conn, sig *dbus.Signal, handler Handler) {
 	if sig == nil {
 		return
@@ -361,32 +388,14 @@ func (w *networkManagerWatcher) handleSignal(conn *dbus.Conn, sig *dbus.Signal, 
 	case sig.Path == nmPath && strings.HasSuffix(sig.Name, "DeviceRemoved"):
 		if len(sig.Body) > 0 {
 			if devPath, ok := sig.Body[0].(dbus.ObjectPath); ok {
-				w.mu.Lock()
-				devIface := w.deviceIfaces[devPath]
-				delete(w.deviceIfaces, devPath)
-				w.mu.Unlock()
-
-				if devIface == w.netbirdIface || devIface == "" {
-					w.findNetbirdDevice(conn)
-					w.mu.Lock()
-					_, stillExists := w.deviceIfaces[devPath]
-					w.mu.Unlock()
-					if !stillExists {
-						handler.OnNetworkEvent(Event{
-							Kind:          EventNetBirdInterfaceDisconnected,
-							Name:          w.netbirdIface,
-							Reason:        "device removed from network manager",
-							UserInitiated: true,
-						})
-					}
-				}
+				w.handleDeviceRemoved(devPath, handler)
 			}
 		}
 
 	case sig.Path == nmPath && strings.HasSuffix(sig.Name, "DeviceAdded"):
 		if len(sig.Body) > 0 {
 			if devPath, ok := sig.Body[0].(dbus.ObjectPath); ok {
-				w.fetchDeviceInterface(conn, devPath)
+				w.handleDeviceAdded(conn, devPath)
 			}
 		}
 
@@ -424,87 +433,98 @@ func (w *networkManagerWatcher) handlePropertiesChanged(conn *dbus.Conn, sig *db
 
 	switch {
 	case sig.Path == nmPath && iface == nmInterface:
-		if _, exists := changed["ActiveConnections"]; exists {
-			w.refreshActiveConnections(conn, handler)
-		}
-		if v, exists := changed["Connectivity"]; exists {
-			if connectivity, ok := v.Value().(uint32); ok {
-				if connectivity == nmConnectivityNone {
-					handler.OnNetworkEvent(Event{
-						Kind:   EventNetworkDisconnected,
-						Reason: "connectivity lost",
-					})
-				} else if connectivity >= 3 {
-					handler.OnNetworkEvent(Event{
-						Kind:   EventNetworkConnected,
-						Reason: "connectivity restored",
-					})
-				}
-			}
-		}
+		w.handleNMProperties(conn, changed, handler)
 
 	case strings.HasPrefix(string(sig.Path), "/org/freedesktop/NetworkManager/Devices/"):
-		devIface := w.fetchDeviceInterface(conn, sig.Path)
-		if devIface == "" {
-			w.findNetbirdDevice(conn)
-			devIface = w.fetchDeviceInterface(conn, sig.Path)
-		}
-		if devIface == w.netbirdIface {
-			if v, exists := changed["State"]; exists {
-				if state, ok := v.Value().(uint32); ok {
-					if state == nmDeviceStateDisconnected || state == nmDeviceStateDeactivating || state == nmDeviceStateFailed {
-						handler.OnNetworkEvent(Event{
-							Kind:          EventNetBirdInterfaceDisconnected,
-							Name:          devIface,
-							Reason:        fmt.Sprintf("device state property %d", state),
-							UserInitiated: true,
-						})
-					}
-				}
-			}
-			if v, exists := changed["ActiveConnection"]; exists {
-				if activeConn, ok := v.Value().(dbus.ObjectPath); ok && (activeConn == "/" || activeConn == "") {
-					handler.OnNetworkEvent(Event{
-						Kind:          EventNetBirdInterfaceDisconnected,
-						Name:          devIface,
-						Reason:        "device active connection cleared",
-						UserInitiated: true,
-					})
-				}
-			}
-		}
+		w.handleDeviceProperties(conn, sig.Path, changed, handler)
 
 	case strings.HasPrefix(string(sig.Path), "/org/freedesktop/NetworkManager/ActiveConnection/"):
-		if v, exists := changed["State"]; exists {
-			if state, ok := v.Value().(uint32); ok {
-				w.mu.Lock()
-				info, found := w.activeConns[sig.Path]
-				w.mu.Unlock()
-				if !found {
-					info = w.fetchConnectionInfo(conn, sig.Path)
-				}
-				isNetBird := (info.id == w.netbirdIface || info.device == w.netbirdIface)
-				isVPN := (info.vpn || info.cType == "vpn" || info.cType == "wireguard")
+		w.handleActiveConnProperties(conn, sig.Path, changed, handler)
+	}
+}
 
-				if state == nmActiveStateDeactivating || state == nmActiveStateDeactivated {
-					if isNetBird {
-						handler.OnNetworkEvent(Event{
-							Kind:          EventNetBirdInterfaceDisconnected,
-							Name:          info.id,
-							Reason:        fmt.Sprintf("active connection state property %d", state),
-							UserInitiated: true,
-						})
-					} else if isVPN {
-						handler.OnNetworkEvent(Event{
-							Kind:          EventUnderlyingVPNDisconnected,
-							Name:          info.id,
-							Reason:        fmt.Sprintf("vpn connection state property %d", state),
-							UserInitiated: true,
-						})
-					}
-				}
+func (w *networkManagerWatcher) handleNMProperties(conn *dbus.Conn, changed map[string]dbus.Variant, handler Handler) {
+	if _, exists := changed["ActiveConnections"]; exists {
+		w.refreshActiveConnections(conn, handler)
+	}
+	v, exists := changed["Connectivity"]
+	if !exists {
+		return
+	}
+	connectivity, ok := v.Value().(uint32)
+	if !ok {
+		return
+	}
+	if connectivity == nmConnectivityNone {
+		handler.OnNetworkEvent(Event{
+			Kind:   EventNetworkDisconnected,
+			Reason: "connectivity lost",
+		})
+	} else if connectivity >= 3 {
+		handler.OnNetworkEvent(Event{
+			Kind:   EventNetworkConnected,
+			Reason: "connectivity restored",
+		})
+	}
+}
+
+func (w *networkManagerWatcher) handleDeviceProperties(conn *dbus.Conn, path dbus.ObjectPath, changed map[string]dbus.Variant, handler Handler) {
+	devIface := w.fetchDeviceInterface(conn, path)
+	if devIface == "" {
+		w.findNetbirdDevice(conn)
+		devIface = w.fetchDeviceInterface(conn, path)
+	}
+	if devIface != w.netbirdIface {
+		return
+	}
+
+	if v, exists := changed["State"]; exists {
+		if state, ok := v.Value().(uint32); ok {
+			switch state {
+			case nmDeviceStateActivated:
+				w.notifyNetbirdActivated()
+			case nmDeviceStateDisconnected, nmDeviceStateDeactivating, nmDeviceStateFailed:
+				w.notifyNetbirdDisconnected(fmt.Sprintf("device state property %d", state), true, handler)
 			}
 		}
+	}
+
+	if v, exists := changed["ActiveConnection"]; exists {
+		if activeConn, ok := v.Value().(dbus.ObjectPath); ok && (activeConn == "/" || activeConn == "") {
+			w.notifyNetbirdDisconnected("device active connection cleared", true, handler)
+		}
+	}
+}
+
+func (w *networkManagerWatcher) handleActiveConnProperties(conn *dbus.Conn, path dbus.ObjectPath, changed map[string]dbus.Variant, handler Handler) {
+	v, exists := changed["State"]
+	if !exists {
+		return
+	}
+	state, ok := v.Value().(uint32)
+	if !ok || (state != nmActiveStateDeactivating && state != nmActiveStateDeactivated) {
+		return
+	}
+
+	w.mu.Lock()
+	info, found := w.activeConns[path]
+	w.mu.Unlock()
+	if !found {
+		info = w.fetchConnectionInfo(conn, path)
+	}
+
+	if info.id == w.netbirdIface || info.device == w.netbirdIface {
+		w.notifyNetbirdDisconnected(fmt.Sprintf("active connection state property %d", state), true, handler)
+		return
+	}
+
+	if info.vpn || info.cType == "vpn" || info.cType == "wireguard" {
+		handler.OnNetworkEvent(Event{
+			Kind:          EventUnderlyingVPNDisconnected,
+			Name:          info.id,
+			Reason:        fmt.Sprintf("vpn connection state property %d", state),
+			UserInitiated: true,
+		})
 	}
 }
 
@@ -585,12 +605,7 @@ func (w *networkManagerWatcher) handleActiveConnectionStateChanged(conn *dbus.Co
 	switch state {
 	case nmActiveStateDeactivating, nmActiveStateDeactivated:
 		if isNetBird {
-			handler.OnNetworkEvent(Event{
-				Kind:          EventNetBirdInterfaceDisconnected,
-				Name:          info.id,
-				Reason:        fmt.Sprintf("active connection state %d reason %d", state, reason),
-				UserInitiated: userInitiated,
-			})
+			w.notifyNetbirdDisconnected(fmt.Sprintf("active connection state %d reason %d", state, reason), userInitiated, handler)
 		} else if isVPN {
 			handler.OnNetworkEvent(Event{
 				Kind:          EventUnderlyingVPNDisconnected,
@@ -634,13 +649,12 @@ func (w *networkManagerWatcher) handleDeviceStateChanged(conn *dbus.Conn, sig *d
 	}
 
 	if devIface == w.netbirdIface {
-		if newState == nmDeviceStateDisconnected || newState == nmDeviceStateDeactivating || newState == nmDeviceStateFailed {
-			handler.OnNetworkEvent(Event{
-				Kind:          EventNetBirdInterfaceDisconnected,
-				Name:          devIface,
-				Reason:        fmt.Sprintf("device state changed %d -> %d reason %d", oldState, newState, reason),
-				UserInitiated: true,
-			})
+		switch newState {
+		case nmDeviceStateActivated:
+			w.notifyNetbirdActivated()
+		case nmDeviceStateDisconnected, nmDeviceStateDeactivating, nmDeviceStateFailed:
+			userInitiated := (reason == nmDeviceReasonUserRequested)
+			w.notifyNetbirdDisconnected(fmt.Sprintf("device state changed %d -> %d reason %d", oldState, newState, reason), userInitiated, handler)
 		}
 	}
 }

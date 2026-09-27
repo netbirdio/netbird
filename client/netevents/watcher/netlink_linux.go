@@ -16,9 +16,10 @@ import (
 type netlinkWatcher struct {
 	netbirdIface string
 
-	mu     sync.Mutex
-	cancel context.CancelFunc
-	done   chan struct{}
+	mu         sync.Mutex
+	lastLinkUp bool
+	cancel     context.CancelFunc
+	done       chan struct{}
 }
 
 func newNetlinkWatcher(netbirdIface string) *netlinkWatcher {
@@ -56,6 +57,28 @@ func (w *netlinkWatcher) Start(ctx context.Context, handler Handler) error {
 		return fmt.Errorf("subscribe to route updates: %w", err)
 	}
 
+	if iface, err := net.InterfaceByName(w.netbirdIface); err == nil && iface.Flags&net.FlagUp != 0 {
+		w.mu.Lock()
+		w.lastLinkUp = true
+		w.mu.Unlock()
+	}
+
+	if routes, err := netlink.RouteList(nil, netlink.FAMILY_ALL); err == nil {
+		hasDefault := false
+		for _, r := range routes {
+			if isDefaultRoute(r.Dst) && r.Table == syscall.RT_TABLE_MAIN {
+				hasDefault = true
+				break
+			}
+		}
+		if !hasDefault && handler != nil {
+			handler.OnNetworkEvent(Event{
+				Kind:   EventNetworkDisconnected,
+				Reason: "no default route on startup",
+			})
+		}
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -91,23 +114,36 @@ func (w *netlinkWatcher) Stop() error {
 
 func (w *netlinkWatcher) handleLinkUpdate(update netlink.LinkUpdate, handler Handler) {
 	attrs := update.Attrs()
-	if attrs == nil {
+	if attrs == nil || attrs.Name != w.netbirdIface {
 		return
 	}
-	if attrs.Name == w.netbirdIface {
-		if attrs.Flags&net.FlagUp == 0 {
-			handler.OnNetworkEvent(Event{
-				Kind:          EventNetBirdInterfaceDisconnected,
-				Name:          attrs.Name,
-				Reason:        "interface IFF_UP flag cleared",
-				UserInitiated: false,
-			})
-		}
+
+	w.mu.Lock()
+	wasUp := w.lastLinkUp
+	isUp := attrs.Flags&net.FlagUp != 0
+	w.lastLinkUp = isUp
+	w.mu.Unlock()
+
+	if wasUp && !isUp {
+		handler.OnNetworkEvent(Event{
+			Kind:          EventNetBirdInterfaceDisconnected,
+			Name:          attrs.Name,
+			Reason:        "interface IFF_UP flag cleared",
+			UserInitiated: false,
+		})
 	}
 }
 
+func isDefaultRoute(dst *net.IPNet) bool {
+	if dst == nil {
+		return true
+	}
+	ones, bits := dst.Mask.Size()
+	return ones == 0 && (bits == 32 || bits == 128)
+}
+
 func (w *netlinkWatcher) handleRouteUpdate(update netlink.RouteUpdate, handler Handler) {
-	if update.Dst != nil || update.Table != syscall.RT_TABLE_MAIN {
+	if !isDefaultRoute(update.Dst) || update.Table != syscall.RT_TABLE_MAIN {
 		return
 	}
 	switch update.Type {
@@ -118,7 +154,7 @@ func (w *netlinkWatcher) handleRouteUpdate(update netlink.RouteUpdate, handler H
 		}
 		hasDefault := false
 		for _, r := range routes {
-			if r.Dst == nil && r.Table == syscall.RT_TABLE_MAIN {
+			if isDefaultRoute(r.Dst) && r.Table == syscall.RT_TABLE_MAIN {
 				hasDefault = true
 				break
 			}

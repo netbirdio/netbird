@@ -18,6 +18,7 @@ const (
 	EventNetBirdInterfaceDisconnected
 )
 
+// String returns the human-readable string representation of an EventKind.
 func (k EventKind) String() string {
 	switch k {
 	case EventNetworkDisconnected:
