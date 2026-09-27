@@ -144,39 +144,50 @@ func (w *systemdNetworkdWatcher) handleSignal(sig *dbus.Signal, handler Handler)
 
 	switch iface {
 	case systemdNetworkdManagerIface:
-		if v, exists := changed["OperationalState"]; exists {
-			if state, ok := v.Value().(string); ok {
-				if kind, reason, match := parseOperationalState(state); match {
-					handler.OnNetworkEvent(Event{
-						Kind:   kind,
-						Reason: reason,
-					})
-				}
-			}
-		}
-
+		w.handleManagerProperties(changed, handler)
 	case systemdNetworkdLinkIface:
-		if !w.isNetBirdLink(sig.Path) {
+		w.handleLinkProperties(sig.Path, changed, handler)
+	}
+}
+
+func (w *systemdNetworkdWatcher) handleManagerProperties(changed map[string]dbus.Variant, handler Handler) {
+	v, exists := changed["OperationalState"]
+	if !exists {
+		return
+	}
+	state, ok := v.Value().(string)
+	if !ok {
+		return
+	}
+	if kind, reason, match := parseOperationalState(state); match {
+		handler.OnNetworkEvent(Event{
+			Kind:   kind,
+			Reason: reason,
+		})
+	}
+}
+
+func (w *systemdNetworkdWatcher) handleLinkProperties(path dbus.ObjectPath, changed map[string]dbus.Variant, handler Handler) {
+	if !w.isNetBirdLink(path) {
+		return
+	}
+	if v, exists := changed["AdministrativeState"]; exists {
+		if state, ok := v.Value().(string); ok && state == "down" {
+			handler.OnNetworkEvent(Event{
+				Kind:   EventNetBirdInterfaceDisconnected,
+				Name:   w.netbirdIface,
+				Reason: "systemd-networkd administrative state down",
+			})
 			return
 		}
-		if v, exists := changed["AdministrativeState"]; exists {
-			if state, ok := v.Value().(string); ok && state == "down" {
-				handler.OnNetworkEvent(Event{
-					Kind:   EventNetBirdInterfaceDisconnected,
-					Name:   w.netbirdIface,
-					Reason: "systemd-networkd administrative state down",
-				})
-				return
-			}
-		}
-		if v, exists := changed["OperationalState"]; exists {
-			if state, ok := v.Value().(string); ok && (state == "off" || state == "no-carrier" || state == "dormant") {
-				handler.OnNetworkEvent(Event{
-					Kind:   EventNetBirdInterfaceDisconnected,
-					Name:   w.netbirdIface,
-					Reason: fmt.Sprintf("systemd-networkd link operational state %s", state),
-				})
-			}
+	}
+	if v, exists := changed["OperationalState"]; exists {
+		if state, ok := v.Value().(string); ok && (state == "off" || state == "no-carrier" || state == "dormant") {
+			handler.OnNetworkEvent(Event{
+				Kind:   EventNetBirdInterfaceDisconnected,
+				Name:   w.netbirdIface,
+				Reason: fmt.Sprintf("systemd-networkd link operational state %s", state),
+			})
 		}
 	}
 }
