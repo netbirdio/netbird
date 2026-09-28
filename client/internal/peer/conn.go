@@ -493,9 +493,9 @@ func (conn *Conn) onICEConnectionIsReady(priority conntype.ConnPriority, iceConn
 	conn.doOnConnected(iceConnInfo.RosenpassPubKey, iceConnInfo.RosenpassAddr, updateTime)
 }
 
-func (conn *Conn) onICEStateDisconnected(sessionChanged bool) {
-	conn.mu.Lock()
-	defer conn.mu.Unlock()
+// onICEStateDisconnectedLocked runs with conn.mu and workerICE.muxAgent held,
+// so a retired agent cannot disconnect a replacement's endpoint.
+func (conn *Conn) onICEStateDisconnectedLocked(sessionChanged bool) {
 
 	if conn.ctx.Err() != nil {
 		return

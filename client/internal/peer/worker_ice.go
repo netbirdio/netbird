@@ -59,7 +59,7 @@ type WorkerICE struct {
 	localUfrag string
 	localPwd   string
 
-	// we record the last known state of the ICE agent to avoid duplicate on disconnected events
+	// Last state of the current agent; guarded by muxAgent.
 	lastKnownState ice.ConnectionState
 
 	// portForwardAttempted tracks if we've already tried port forwarding this session
@@ -99,6 +99,8 @@ func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, conn *
 
 func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	w.log.Debugf("OnNewOffer for ICE, serial: %s", remoteOfferAnswer.SessionIDString())
+	w.conn.mu.Lock()
+	defer w.conn.mu.Unlock()
 	w.muxAgent.Lock()
 	defer w.muxAgent.Unlock()
 
@@ -114,6 +116,13 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 		}
 		w.log.Debugf("agent already exists, recreate the connection")
 		w.remoteSessionChanged = true
+		// Retire the old endpoint before publishing a replacement. Its delayed
+		// terminal callback will no longer own the worker and must be ignored.
+		if w.lastKnownState == ice.ConnectionStateConnected {
+			w.lastKnownState = ice.ConnectionStateDisconnected
+			w.conn.onICEStateDisconnectedLocked(true)
+			w.remoteSessionChanged = false
+		}
 		w.agentDialerCancel()
 		if w.agent != nil {
 			if err := w.agent.Close(); err != nil {
@@ -146,6 +155,7 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 		return
 	}
 	w.agent = agent
+	w.lastKnownState = ice.ConnectionStateDisconnected
 	w.agentDialerCancel = dialerCancel
 	w.agentConnecting = true
 	if remoteOfferAnswer.SessionID != nil {
@@ -388,21 +398,28 @@ func (w *WorkerICE) closeAgent(agent *icemaker.ThreadSafeAgent, cancel context.C
 		w.log.Warnf("failed to close ICE agent: %s", err)
 	}
 
+	// Match Conn teardown's lock order. Keep ownership stable until the peer
+	// endpoint update has completed; a check followed by an unlock is not enough.
+	w.conn.mu.Lock()
+	defer w.conn.mu.Unlock()
 	w.muxAgent.Lock()
 	defer w.muxAgent.Unlock()
 
+	if w.agent != agent {
+		return false
+	}
 	sessionChanged := w.remoteSessionChanged
 	w.remoteSessionChanged = false
-
-	// Only the owner of the current session may reset its state: a stale dial
-	// goroutine waking after a newer attempt must not clobber it.
-	if w.agent == agent {
-		sessionID, err := NewICESessionID()
-		if err != nil {
-			w.log.Errorf("failed to create new session ID: %s", err)
-		}
-		w.sessionID = sessionID
-		w.abandonNegotiation()
+	wasConnected := w.lastKnownState == ice.ConnectionStateConnected
+	w.lastKnownState = ice.ConnectionStateDisconnected
+	sessionID, err := NewICESessionID()
+	if err != nil {
+		w.log.Errorf("failed to create new session ID: %s", err)
+	}
+	w.sessionID = sessionID
+	w.abandonNegotiation()
+	if wasConnected {
+		w.conn.onICEStateDisconnectedLocked(sessionChanged)
 	}
 	return sessionChanged
 }
@@ -609,19 +626,20 @@ func (w *WorkerICE) onConnectionStateChange(agent *icemaker.ThreadSafeAgent, dia
 		w.log.Debugf("ICE ConnectionState has changed to %s", state.String())
 		switch state {
 		case ice.ConnectionStateConnected:
+			w.muxAgent.Lock()
+			if w.agent != agent {
+				w.muxAgent.Unlock()
+				return
+			}
 			w.lastKnownState = ice.ConnectionStateConnected
+			w.muxAgent.Unlock()
 			w.logSuccessfulPaths(agent)
 			return
 		case ice.ConnectionStateFailed, ice.ConnectionStateDisconnected, ice.ConnectionStateClosed:
 			// ice.ConnectionStateClosed happens when we recreate the agent. The P2P to relay switch requires
-			// notifying conn.onICEStateDisconnected so it can update the currently used priority.
+			// retiring the current endpoint so it can update the currently used priority.
 
-			sessionChanged := w.closeAgent(agent, dialerCancel)
-
-			if w.lastKnownState == ice.ConnectionStateConnected {
-				w.lastKnownState = ice.ConnectionStateDisconnected
-				w.conn.onICEStateDisconnected(sessionChanged)
-			}
+			w.closeAgent(agent, dialerCancel)
 		default:
 			return
 		}
