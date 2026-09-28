@@ -29,7 +29,9 @@ func TestDeleteDomain_ServiceDependencies(t *testing.T) {
 		{"exact", "example.com", "example.com", accountA, true, true},
 		{"subdomain", "example.com", "deep.app.example.com", accountA, true, true},
 		{"disabled", "example.com", "app.example.com", accountA, false, true},
-		{"other account", "example.com", "app.example.com", accountB, true, true},
+		// A service is authorized by its own account's registration, so another
+		// account's service under this namespace is not a dependency of it.
+		{"other account", "example.com", "app.example.com", accountB, true, false},
 		{"case and trailing dot", "example.com", "APP.EXAMPLE.COM.", accountA, true, true},
 		{"suffix boundary", "example.com", "notexample.com", accountA, true, false},
 		{"literal underscore", "a_b.example.com", "app.a_b.example.com", accountA, true, true},

@@ -109,6 +109,27 @@ func TestDeleteCustomDomain_ServiceDependencies(t *testing.T) {
 	})
 }
 
+func TestDeleteCustomDomain_OtherAccountSubdomainIsNotADependency(t *testing.T) {
+	runTestForAllEngines(t, "", func(t *testing.T, store Store) {
+		ctx := context.Background()
+		require.NoError(t, store.SaveAccount(ctx, newAccountWithId(ctx, "owner", "admin", "")))
+		require.NoError(t, store.SaveAccount(ctx, newAccountWithId(ctx, "other", "admin", "")))
+
+		// Registrations are unique by name, so a second account can hold a
+		// subdomain of the first account's registration and serve from it.
+		parent, err := store.CreateCustomDomain(ctx, "owner", "example.com", "cluster", true)
+		require.NoError(t, err)
+		_, err = store.CreateCustomDomain(ctx, "other", "team.example.com", "cluster", true)
+		require.NoError(t, err)
+		require.NoError(t, store.CreateService(ctx, &rpservice.Service{
+			ID: "service", AccountID: "other", Domain: "app.team.example.com",
+		}))
+
+		require.NoError(t, store.DeleteCustomDomain(ctx, "owner", parent.ID),
+			"another account's service must not hold the registration open")
+	})
+}
+
 func TestDeleteCustomDomain_ConcurrentServiceCreation(t *testing.T) {
 	runTestForAllEngines(t, "", func(t *testing.T, store Store) {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
