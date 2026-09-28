@@ -13,11 +13,8 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// A computer name longer than MAX_COMPUTERNAME_LENGTH makes the DNS host name
-// and the NetBIOS name differ, and Windows qualifies local accounts with the
-// NetBIOS one. Comparing against the DNS host name, as this code did before,
-// classified every local account on such a machine as a domain account and sent
-// it down the Kerberos S4U path in search of a domain controller.
+// Past 15 characters the DNS host name and the NetBIOS name differ, and Windows
+// qualifies local accounts with the NetBIOS one.
 func TestIsLocalDomain(t *testing.T) {
 	const dnsHostname = "WINTESTMACHINE01XYZ" // 19 characters
 	netbios := dnsHostname[:windows.MAX_COMPUTERNAME_LENGTH]
@@ -39,9 +36,7 @@ func TestIsLocalDomain(t *testing.T) {
 		{"netbios_name_lowercase", strings.ToLower(netbios), name, true},
 		{"untruncated_dns_host_name", dnsHostname, name, false},
 		{"real_domain", "CORP", name, false},
-		// A machine that cannot name itself must not resolve to local: that
-		// would authenticate a same named local account in place of the
-		// domain one.
+		// Must not resolve to local: that could authenticate the wrong account.
 		{"unreadable_machine_name", netbios, unreadable, false},
 	}
 
@@ -53,12 +48,9 @@ func TestIsLocalDomain(t *testing.T) {
 	}
 }
 
-// The built-in Administrator (RID 500) exists on every Windows installation and
-// is always a local account, so Windows qualifies it with this machine's
-// NetBIOS name. This checks end to end that the name Windows puts on a local
-// account is the name isLocalUser compares against. The test process itself is
-// not usable here: CI runs the suite as SYSTEM, whose qualified name carries
-// the NT AUTHORITY prefix rather than a machine name.
+// RID 500 exists on every installation and is always local, so Windows qualifies
+// it with this machine's NetBIOS name. The test process is unusable here: CI runs
+// as SYSTEM, whose name carries an NT AUTHORITY prefix.
 func TestIsLocalUser_LocalAccount(t *testing.T) {
 	netbios, err := netbiosComputerName()
 	require.NoError(t, err, "read NetBIOS computer name")

@@ -505,15 +505,16 @@ func userExists(fullUsername, username, domain string) error {
 	return nil
 }
 
-// isLocalUser reports whether the domain part of an account name refers to this
-// machine rather than to a Windows domain.
+// isLocalUser reports whether domain refers to this machine rather than to a
+// Windows domain.
 func (pd *PrivilegeDropper) isLocalUser(domain string) bool {
 	return isLocalDomain(domain, netbiosComputerName)
 }
 
-// isLocalDomain reports whether domain names this machine. Windows qualifies a
-// local account as NETBIOS\user, and the NetBIOS name is the DNS host name
-// truncated to MAX_COMPUTERNAME_LENGTH, so the two differ on a longer name.
+// isLocalDomain compares against the NetBIOS name because Windows qualifies local
+// accounts with it, and it is the DNS host name truncated to 15 characters.
+// An unknown name falls back to the domain path: treating it as local could
+// authenticate a same named local account instead.
 // https://learn.microsoft.com/en-us/windows/win32/sysinfo/computer-names
 func isLocalDomain(domain string, machineName func() (string, error)) bool {
 	if domain == "" || domain == "." {
@@ -522,16 +523,12 @@ func isLocalDomain(domain string, machineName func() (string, error)) bool {
 
 	name, err := machineName()
 	if err != nil {
-		// Treating an unknown prefix as local would authenticate a same named
-		// local account in place of the domain one.
 		log.Debugf("read NetBIOS computer name: %v", err)
 		return false
 	}
 	return strings.EqualFold(domain, name)
 }
 
-// netbiosComputerName returns this machine's NetBIOS name. It is capped at
-// MAX_COMPUTERNAME_LENGTH, so the buffer never needs to grow.
 func netbiosComputerName() (string, error) {
 	buf := make([]uint16, windows.MAX_COMPUTERNAME_LENGTH+1)
 	size := uint32(len(buf))
