@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -351,6 +352,42 @@ func TestRevokeToken_GuardAllows(t *testing.T) {
 
 	h.revokeToken(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestRevokeToken_GuardFailure(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	accountID := "acc-123"
+
+	// No RevokeProxyAccessToken expectation: a guard that cannot decide must
+	// not let the revocation through.
+	mockStore := store.NewMockStore(ctrl)
+	mockStore.EXPECT().GetProxyAccessTokenByID(gomock.Any(), store.LockingStrengthNone, "tok-1").Return(&types.ProxyAccessToken{
+		ID:        "tok-1",
+		AccountID: &accountID,
+	}, nil)
+
+	permsMgr := permissions.NewMockManager(ctrl)
+	permsMgr.EXPECT().ValidateUserPermissions(gomock.Any(), accountID, "user-1", modules.Services, operations.Delete).Return(true, context.Background(), nil)
+
+	h := &handler{
+		store:              mockStore,
+		permissionsManager: permsMgr,
+		revocationGuard: revocationGuardFunc(func(context.Context, *types.ProxyAccessToken) error {
+			return errors.New("connection refused")
+		}),
+	}
+
+	req := httptest.NewRequest("DELETE", "/reverse-proxies/proxy-tokens/tok-1", nil)
+	req = req.WithContext(authContext(accountID, "user-1"))
+	req = mux.SetURLVars(req, map[string]string{"tokenId": "tok-1"})
+	w := httptest.NewRecorder()
+
+	h.revokeToken(w, req)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Contains(t, w.Body.String(), "internal server error")
+	assert.NotContains(t, w.Body.String(), "connection refused")
 }
 
 func TestRevokeToken_GuardNotConsultedForForeignToken(t *testing.T) {

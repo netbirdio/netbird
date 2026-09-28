@@ -23,8 +23,9 @@ import (
 // token. Implementations are supplied by integrations; none is installed by
 // default, so every token the caller's account owns may be revoked. It is
 // consulted after the ownership check and before the token is revoked. A
-// returned status error is sent to the caller unchanged; any other error is
-// reported as an internal error.
+// returned status error is written with util.WriteError: its type selects the
+// HTTP status and its message is shown to the caller, so it must not carry
+// internal detail. Any other error is reported as a generic internal error.
 type RevocationGuard interface {
 	CheckProxyAccessTokenRevocation(ctx context.Context, token *types.ProxyAccessToken) error
 }
