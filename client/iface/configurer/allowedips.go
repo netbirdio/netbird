@@ -21,9 +21,16 @@ type peerKey string
 // owner of each prefix and performs the same handover, so rewriting one peer's list never
 // takes a prefix back from the peer that owns it now.
 //
-// An operator reconfiguring the device out of band, through `wg set` or the UAPI socket, is
-// the one way the mirror can still go stale; callers fall back to the device when a peer is
-// missing from it, which also reseats ownership of that peer's prefixes.
+// Its own lock guards the map alone, not the device write it accompanies. Consistency
+// between the two rests on the caller serializing every configurer call, which WGIface
+// does with its mutex; two unserialized writers would interleave a device write with the
+// record of a different one.
+//
+// An operator reconfiguring the device out of band, through `wg set` or the UAPI socket,
+// is the one way the mirror can still go stale. A peer missing from it falls back to the
+// device, which reseats that peer's prefixes and their ownership; a peer that is present
+// does not, so one recorded from empty while the device already held prefixes keeps only
+// what was recorded, and the next endpoint removal drops the rest.
 type allowedIPStore struct {
 	mu     sync.RWMutex
 	peers  map[peerKey][]netip.Prefix
