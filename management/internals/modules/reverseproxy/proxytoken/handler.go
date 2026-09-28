@@ -1,6 +1,7 @@
 package proxytoken
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"time"
@@ -18,13 +19,28 @@ import (
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
+// RevocationGuard vetoes the tenant-facing revocation of a proxy access
+// token. Implementations are supplied by integrations; none is installed by
+// default, so every token the caller's account owns may be revoked. It is
+// consulted after the ownership check and before the token is revoked. A
+// returned status error is sent to the caller unchanged; any other error is
+// reported as an internal error.
+type RevocationGuard interface {
+	CheckProxyAccessTokenRevocation(ctx context.Context, token *types.ProxyAccessToken) error
+}
+
 type handler struct {
 	store              store.Store
 	permissionsManager permissions.Manager
+	// revocationGuard vetoes revocations. Optional — when nil every owned
+	// token may be revoked.
+	revocationGuard RevocationGuard
 }
 
-func RegisterEndpoints(s store.Store, permissionsManager permissions.Manager, router *mux.Router) {
-	h := &handler{store: s, permissionsManager: permissionsManager}
+// RegisterEndpoints registers the proxy token endpoints. revocationGuard is
+// optional; pass nil for no revocation policy.
+func RegisterEndpoints(s store.Store, permissionsManager permissions.Manager, revocationGuard RevocationGuard, router *mux.Router) {
+	h := &handler{store: s, permissionsManager: permissionsManager, revocationGuard: revocationGuard}
 	router.HandleFunc("/reverse-proxies/proxy-tokens", h.listTokens).Methods("GET", "OPTIONS")
 	router.HandleFunc("/reverse-proxies/proxy-tokens", h.createToken).Methods("POST", "OPTIONS")
 	router.HandleFunc("/reverse-proxies/proxy-tokens/{tokenId}", h.revokeToken).Methods("DELETE", "OPTIONS")
@@ -152,6 +168,13 @@ func (h *handler) revokeToken(w http.ResponseWriter, r *http.Request) {
 	if token.AccountID == nil || *token.AccountID != userAuth.AccountId {
 		util.WriteErrorResponse("token not found", http.StatusNotFound, w)
 		return
+	}
+
+	if h.revocationGuard != nil {
+		if err := h.revocationGuard.CheckProxyAccessTokenRevocation(ctx, token); err != nil {
+			util.WriteError(ctx, err, w)
+			return
+		}
 	}
 
 	if err := h.store.RevokeProxyAccessToken(ctx, tokenID); err != nil {
