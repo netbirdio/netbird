@@ -285,6 +285,53 @@ func (s *LoginFilterTestSuite) TestBanDurationIsCappedAtMaxLevel() {
 	s.InDelta(expected, s.filter.logged[pubKey].banExpiresAt.Sub(s.filter.logged[pubKey].lastSeen), float64(time.Millisecond))
 }
 
+func (s *LoginFilterTestSuite) TestEstablishedPeerReconnectingOnceIsAllowed() {
+	pubKey := "PUB_KEY_A"
+	meta := uint64(1)
+	longAgo := time.Now().Add(-time.Hour)
+
+	s.filter.logged[pubKey] = &peerState{
+		currentHash:           meta,
+		sessionCounter:        1,
+		sessionStart:          longAgo,
+		lastSeen:              longAgo,
+		metaChangeWindowStart: longAgo,
+		metaChangeCounter:     1,
+	}
+
+	s.True(s.filter.allowLogin(pubKey, meta))
+	s.filter.addLogin(pubKey, meta)
+
+	s.True(s.filter.allowLogin(pubKey, meta))
+	s.False(s.filter.logged[pubKey].isBanned)
+	s.Equal(1, s.filter.logged[pubKey].sessionCounter)
+}
+
+func (s *LoginFilterTestSuite) TestLoginsDuringActiveBanDoNotExtendIt() {
+	pubKey := "PUB_KEY_A"
+	meta := uint64(1)
+	limit := s.filter.cfg.reconnLimitForBan
+
+	for i := 0; i <= limit; i++ {
+		s.filter.addLogin(pubKey, meta)
+	}
+	s.Require().Contains(s.filter.logged, pubKey)
+	s.Require().True(s.filter.logged[pubKey].isBanned)
+	expiresAt := time.Now().Add(time.Hour)
+	s.filter.logged[pubKey].banExpiresAt = expiresAt
+	lastSeen := s.filter.logged[pubKey].lastSeen
+
+	for i := 0; i <= limit; i++ {
+		s.filter.addLogin(pubKey, meta)
+	}
+
+	s.True(s.filter.logged[pubKey].isBanned)
+	s.Equal(1, s.filter.logged[pubKey].banLevel)
+	s.Equal(expiresAt, s.filter.logged[pubKey].banExpiresAt)
+	s.Equal(lastSeen, s.filter.logged[pubKey].lastSeen)
+	s.Equal(0, s.filter.logged[pubKey].sessionCounter)
+}
+
 func BenchmarkHashingMethods(b *testing.B) {
 	meta := nbpeer.PeerSystemMeta{
 		WtVersion:          "1.25.1",

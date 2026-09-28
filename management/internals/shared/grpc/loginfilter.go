@@ -105,7 +105,10 @@ func (l *loginFilter) addLogin(wgPubKey string, metaHash uint64) {
 		return
 	}
 
-	if state.isBanned && now.After(state.banExpiresAt) {
+	if state.isBanned {
+		if now.Before(state.banExpiresAt) {
+			return
+		}
 		state.isBanned = false
 	}
 
