@@ -20,6 +20,7 @@ func testAdvancedCfg() *lfConfig {
 		baseBlockDuration: 100 * time.Millisecond,
 		reconnLimitForBan: 3,
 		metaChangeLimit:   2,
+		maxBanLevel:       3,
 	}
 }
 
@@ -155,6 +156,133 @@ func (s *LoginFilterTestSuite) TestMetaChangeIsAllowedAfterWindowResets() {
 
 	s.filter.addLogin(pubKey, meta3)
 	s.Equal(1, s.filter.logged[pubKey].metaChangeCounter, "meta change counter should reset")
+}
+
+func (s *LoginFilterTestSuite) TestReconnectStormAfterQuietPeriodTriggersBan() {
+	pubKey := "PUB_KEY_A"
+	meta := uint64(1)
+	limit := s.filter.cfg.reconnLimitForBan
+
+	s.filter.addLogin(pubKey, meta)
+	s.Require().Contains(s.filter.logged, pubKey)
+	s.filter.logged[pubKey].sessionStart = time.Now().Add(-(s.filter.cfg.reconnThreshold + time.Second))
+
+	for i := 0; i <= limit; i++ {
+		s.filter.addLogin(pubKey, meta)
+	}
+
+	s.False(s.filter.allowLogin(pubKey, meta))
+	s.True(s.filter.logged[pubKey].isBanned)
+}
+
+func (s *LoginFilterTestSuite) TestReconnectStormAfterBanExpiresTriggersBanAgain() {
+	pubKey := "PUB_KEY_A"
+	meta := uint64(1)
+	limit := s.filter.cfg.reconnLimitForBan
+
+	for i := 0; i <= limit; i++ {
+		s.filter.addLogin(pubKey, meta)
+	}
+	s.Require().Contains(s.filter.logged, pubKey)
+	s.Require().True(s.filter.logged[pubKey].isBanned)
+
+	expired := time.Now().Add(-(s.filter.cfg.baseBlockDuration + time.Second))
+	s.filter.logged[pubKey].banExpiresAt = expired
+	s.filter.logged[pubKey].sessionStart = expired
+
+	for i := 0; i <= limit; i++ {
+		s.filter.addLogin(pubKey, meta)
+	}
+
+	s.True(s.filter.logged[pubKey].isBanned)
+	s.Equal(2, s.filter.logged[pubKey].banLevel)
+}
+
+func (s *LoginFilterTestSuite) TestSlowReconnectsAcrossWindowsDoNotBan() {
+	pubKey := "PUB_KEY_A"
+	meta := uint64(1)
+	limit := s.filter.cfg.reconnLimitForBan
+
+	for i := 0; i < limit; i++ {
+		s.filter.addLogin(pubKey, meta)
+	}
+	s.Require().Contains(s.filter.logged, pubKey)
+	s.filter.logged[pubKey].sessionStart = time.Now().Add(-(s.filter.cfg.reconnThreshold + time.Second))
+
+	for i := 0; i < limit; i++ {
+		s.filter.addLogin(pubKey, meta)
+	}
+
+	s.True(s.filter.allowLogin(pubKey, meta))
+	s.False(s.filter.logged[pubKey].isBanned)
+}
+
+func (s *LoginFilterTestSuite) TestBanLevelEscalatesWhenStormResumesRightAfterBan() {
+	pubKey := "PUB_KEY_A"
+	meta := uint64(1)
+	limit := s.filter.cfg.reconnLimitForBan
+	banTime := time.Now().Add(-3 * s.filter.cfg.baseBlockDuration)
+
+	s.filter.logged[pubKey] = &peerState{
+		currentHash:  meta,
+		isBanned:     true,
+		banLevel:     1,
+		banExpiresAt: time.Now().Add(-time.Millisecond),
+		sessionStart: banTime,
+		lastSeen:     banTime,
+	}
+
+	for i := 0; i <= limit; i++ {
+		s.filter.addLogin(pubKey, meta)
+	}
+
+	s.True(s.filter.logged[pubKey].isBanned)
+	s.Equal(2, s.filter.logged[pubKey].banLevel)
+}
+
+func (s *LoginFilterTestSuite) TestBanLevelResetsAfterQuietPeriodFollowingBan() {
+	pubKey := "PUB_KEY_A"
+	meta := uint64(1)
+	quiet := 2*s.filter.cfg.baseBlockDuration + time.Second
+
+	s.filter.logged[pubKey] = &peerState{
+		currentHash:  meta,
+		banLevel:     2,
+		banExpiresAt: time.Now().Add(-s.filter.cfg.baseBlockDuration),
+		lastSeen:     time.Now().Add(-2 * quiet),
+	}
+
+	s.filter.addLogin(pubKey, meta)
+	s.Equal(2, s.filter.logged[pubKey].banLevel, "ban ended more recently than the quiet period")
+
+	s.filter.logged[pubKey].banExpiresAt = time.Now().Add(-quiet)
+	s.filter.logged[pubKey].lastSeen = time.Now().Add(-2 * quiet)
+
+	s.filter.addLogin(pubKey, meta)
+	s.Equal(0, s.filter.logged[pubKey].banLevel)
+}
+
+func (s *LoginFilterTestSuite) TestBanDurationIsCappedAtMaxLevel() {
+	pubKey := "PUB_KEY_A"
+	meta := uint64(1)
+	limit := s.filter.cfg.reconnLimitForBan
+	maxLevel := s.filter.cfg.maxBanLevel
+
+	s.filter.logged[pubKey] = &peerState{
+		currentHash:  meta,
+		banLevel:     maxLevel,
+		sessionStart: time.Now(),
+		lastSeen:     time.Now(),
+	}
+
+	for i := 0; i <= limit; i++ {
+		s.filter.addLogin(pubKey, meta)
+	}
+
+	s.True(s.filter.logged[pubKey].isBanned)
+	s.Equal(maxLevel, s.filter.logged[pubKey].banLevel)
+	expected := s.filter.cfg.baseBlockDuration << (maxLevel - 1)
+	s.InDelta(expected, s.filter.logged[pubKey].banExpiresAt.Sub(s.filter.logged[pubKey].lastSeen), float64(time.Millisecond))
 }
 
 func BenchmarkHashingMethods(b *testing.B) {
