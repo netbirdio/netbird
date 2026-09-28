@@ -29,7 +29,6 @@ import (
 	"github.com/netbirdio/netbird/formatter"
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
-	types "github.com/netbirdio/netbird/upload-server/types"
 )
 
 // AnonymizeLevelDefault and AnonymizeLevelStrict are the accepted
@@ -298,6 +297,11 @@ func (c *Client) DebugBundle(anonymize bool, anonymizeLevel string) (string, err
 		LogPath:        c.logFilePath,
 	}
 
+	// Empty unless an engine is running and has synced: a bundle generated with
+	// the client stopped has no management-published destination and goes to the
+	// service NetBird runs.
+	var publishedUploadURL string
+
 	if cc != nil {
 		resp, err := cc.GetLatestSyncResponse()
 		if err != nil {
@@ -306,6 +310,7 @@ func (c *Client) DebugBundle(anonymize bool, anonymizeLevel string) (string, err
 		deps.SyncResponse = resp
 
 		if e := cc.Engine(); e != nil {
+			publishedUploadURL = e.DebugUploadURL()
 			deps.RefreshStatus = func() {
 				e.RunHealthProbes(context.Background(), true)
 			}
@@ -324,6 +329,10 @@ func (c *Client) DebugBundle(anonymize bool, anonymizeLevel string) (string, err
 		},
 	)
 
+	// An MDM override wins; otherwise the destination this deployment publishes
+	// is used, and failing that the service NetBird runs.
+	uploadURL := debug.ResolveUploadURL(cfg.DebugBundleUploadURL, "", publishedUploadURL)
+
 	path, err := bundleGenerator.Generate()
 	if err != nil {
 		return "", fmt.Errorf("generate debug bundle: %w", err)
@@ -337,7 +346,7 @@ func (c *Client) DebugBundle(anonymize bool, anonymizeLevel string) (string, err
 	uploadCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	key, err := debug.UploadDebugBundle(uploadCtx, types.DefaultBundleURL, cfg.ManagementURL.String(), path, false)
+	key, err := debug.UploadDebugBundle(uploadCtx, uploadURL, cfg.ManagementURL.String(), path, false)
 	if err != nil {
 		return "", fmt.Errorf("upload debug bundle: %w", err)
 	}

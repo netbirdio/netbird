@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"go.uber.org/mock/gomock"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
+	"go.uber.org/mock/gomock"
 
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator/validator"
 

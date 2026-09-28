@@ -363,7 +363,8 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 			oldSettings.AutoUpdateAlways != newSettings.AutoUpdateAlways ||
 			oldSettings.PeerLoginExpirationEnabled != newSettings.PeerLoginExpirationEnabled ||
 			oldSettings.PeerLoginExpiration != newSettings.PeerLoginExpiration ||
-			oldSettings.MetricsPushEnabled != newSettings.MetricsPushEnabled {
+			oldSettings.MetricsPushEnabled != newSettings.MetricsPushEnabled ||
+			oldSettings.DebugBundleUploadURL != newSettings.DebugBundleUploadURL {
 			// Session deadline is derived from LastLogin + PeerLoginExpiration
 			// on every Login/Sync response. Without a fan-out push, connected
 			// peers keep the deadline they received at login time and only see
@@ -415,6 +416,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	am.handleAutoUpdateAlwaysSettings(ctx, oldSettings, newSettings, userID, accountID)
 	am.handlePeerExposeSettings(ctx, oldSettings, newSettings, userID, accountID)
 	am.handleMetricsPushSettings(ctx, oldSettings, newSettings, userID, accountID)
+	am.handleDebugBundleUploadURLSettings(ctx, oldSettings, newSettings, userID, accountID)
 	if err = am.handleInactivityExpirationSettings(ctx, oldSettings, newSettings, userID, accountID); err != nil {
 		return nil, err
 	}
@@ -576,6 +578,17 @@ func (am *DefaultAccountManager) handleMetricsPushSettings(ctx context.Context, 
 		} else {
 			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountMetricsPushDisabled, nil)
 		}
+	}
+}
+
+// handleDebugBundleUploadURLSettings records a change of debug-bundle
+// destination. The value decides whose infrastructure the account's peer logs,
+// routes and firewall state land on, so a change is worth an audit entry even
+// though it is not a permission change. The URL itself is not recorded: it is
+// operator-supplied free text that can carry a host or a token.
+func (am *DefaultAccountManager) handleDebugBundleUploadURLSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) {
+	if oldSettings.DebugBundleUploadURL != newSettings.DebugBundleUploadURL {
+		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountDebugBundleUploadURLUpdated, nil)
 	}
 }
 

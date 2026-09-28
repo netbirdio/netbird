@@ -1686,6 +1686,12 @@ type AccountSettings struct {
 	// DashboardFeatures Per-account dashboard section visibility overrides. Omitted keys follow the default dashboard behavior.
 	DashboardFeatures *AccountDashboardFeatures `json:"dashboard_features,omitempty"`
 
+	// DebugBundleUploadUrl Upload service the peers of this account send debug bundles to. A bundle carries peer logs, routes, DNS and
+	// firewall state, so setting this keeps that data inside infrastructure the account controls. Must be an https
+	// URL with a host. Empty falls back to the deployment-wide value configured on the management server, and with
+	// neither to the upload service NetBird runs.
+	DebugBundleUploadUrl *string `json:"debug_bundle_upload_url,omitempty"`
+
 	// DnsDomain Allows to define a custom dns domain for the account
 	DnsDomain *string `json:"dns_domain,omitempty"`
 

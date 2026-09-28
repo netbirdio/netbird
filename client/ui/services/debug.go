@@ -20,8 +20,12 @@ type DebugBundleParams struct {
 	// private IP ranges, peer names, and WireGuard public keys.
 	AnonymizeLevel string `json:"anonymizeLevel"`
 	SystemInfo     bool   `json:"systemInfo"`
-	UploadURL      string `json:"uploadUrl"`
-	LogFileCount   uint32 `json:"logFileCount"`
+	// Upload asks the daemon to upload the bundle. The UI carries no
+	// destination of its own: the daemon resolves it from what the management
+	// server publishes, so a self-hosted deployment's bundles do not leave the
+	// operator's control sphere.
+	Upload       bool   `json:"upload"`
+	LogFileCount uint32 `json:"logFileCount"`
 }
 
 // DebugBundleResult: Path is set for local-only bundles, UploadedKey on upload
@@ -54,7 +58,7 @@ func (s *Debug) Bundle(ctx context.Context, p DebugBundleParams) (DebugBundleRes
 		Anonymize:      p.Anonymize,
 		AnonymizeLevel: p.AnonymizeLevel,
 		SystemInfo:     p.SystemInfo,
-		UploadURL:      p.UploadURL,
+		Upload:         p.Upload,
 		LogFileCount:   p.LogFileCount,
 		CliVersion:     version.NetbirdVersion(),
 	})

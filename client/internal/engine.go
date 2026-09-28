@@ -228,6 +228,13 @@ type Engine struct {
 	TURNs    []*stun.URI
 	stunTurn icemaker.StunTurn
 
+	// debugUploadURL is the debug-bundle upload service the management server
+	// publishes for this deployment, refreshed on every NetbirdConfig update.
+	// Atomic because the bundle paths (remote job, daemon RPC, mobile SDK) read
+	// it off the engine loop. Empty when the deployment publishes none, in which
+	// case the callers fall back to the service NetBird runs.
+	debugUploadURL atomic.Pointer[string]
+
 	clientCtx    context.Context
 	clientCancel context.CancelFunc
 
@@ -614,6 +621,13 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	if err := e.PopulateNetbirdConfig(netbirdConfig, mgmtURL); err != nil {
 		log.Warnf("failed to populate DNS cache: %v", err)
 	}
+
+	// The login response carries the same NetbirdConfig a sync does, but Start
+	// does not run it through updateNetbirdConfig. Without this, a bundle
+	// requested between login and the first sync sees no published destination
+	// and falls back to the service NetBird runs, even where the deployment
+	// configured its own.
+	e.handleDebugUploadUpdate(netbirdConfig.GetDebug())
 
 	e.routeManager = routemanager.NewManager(routemanager.ManagerConfig{
 		Context:             e.ctx,
@@ -1157,6 +1171,8 @@ func (e *Engine) updateNetbirdConfig(wCfg *mgmProto.NetbirdConfig) error {
 
 	e.handleMetricsUpdate(wCfg.GetMetrics())
 
+	e.handleDebugUploadUpdate(wCfg.GetDebug())
+
 	if err := e.PopulateNetbirdConfig(wCfg, nil); err != nil {
 		log.Warnf("Failed to update DNS server config: %v", err)
 	}
@@ -1232,6 +1248,35 @@ func (e *Engine) handleMetricsUpdate(config *mgmProto.MetricsConfig) {
 	}
 	log.Infof("received metrics configuration from management: enabled=%v", config.GetEnabled())
 	e.clientMetrics.UpdatePushFromMgm(e.metricsCtx, config.GetEnabled())
+}
+
+// handleDebugUploadUpdate records the debug-bundle destination the management
+// server published.
+//
+// A nil DebugConfig carries no information and is left alone: the partial
+// updates that refresh TURN and relay credentials ship a NetbirdConfig holding
+// only those fields, and treating their absent Debug as "no destination" would
+// silently drop the operator's choice on every credential refresh. An operator
+// clearing the destination is an empty UploadUrl on a full config, which does
+// reach the store below.
+func (e *Engine) handleDebugUploadUpdate(config *mgmProto.DebugConfig) {
+	if config == nil {
+		return
+	}
+
+	url := config.GetUploadUrl()
+	e.debugUploadURL.Store(&url)
+}
+
+// DebugUploadURL returns the debug-bundle upload service the management server
+// published, or empty when it published none or the engine never synced. The
+// callers treat empty as "this deployment names no destination" and fall back to
+// the service NetBird runs; see debug.ResolveUploadURL.
+func (e *Engine) DebugUploadURL() string {
+	if url := e.debugUploadURL.Load(); url != nil {
+		return *url
+	}
+	return ""
 }
 
 func toFlowLoggerConfig(config *mgmProto.FlowConfig) (*nftypes.FlowConfig, error) {
@@ -1441,21 +1486,26 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobR
 		params.GetAnonymize(), params.GetAnonymizeLevel(), params.GetLogFileCount(), params.GetBundleFor(), params.GetBundleForTime())
 	log.Debugf("remote debug bundle request parameters: %s", params.String())
 
-	// Resolve the upload destination: an MDM override, when set, takes
-	// precedence over the management-supplied URL. Both are validated the same
-	// way; an empty result falls back to the default upload server downstream.
-	uploadURL := params.GetUploadUrl()
-	if override := e.config.ProfileConfig.DebugBundleUploadURL; override != "" {
-		log.Infof("using MDM debug bundle upload URL override instead of the management-supplied value")
-		uploadURL = override
-	}
-	if err := validateBundleUploadURL(uploadURL); err != nil {
-		return nil, err
-	}
-
 	syncResponse, err := e.GetLatestSyncResponse()
 	if err != nil {
 		log.Warnf("get latest sync response: %v", err)
+	}
+
+	// Resolve the upload destination: the MDM policy, then the job's URL, then
+	// what this deployment publishes, then the service NetBird runs.
+	mdmUploadURL := e.config.ProfileConfig.DebugBundleUploadURL
+	if mdmUploadURL != "" && params.GetUploadUrl() != "" && mdmUploadURL != params.GetUploadUrl() {
+		log.Infof("using MDM debug bundle upload URL override instead of the management-supplied value")
+	}
+	uploadURL := debug.ResolveUploadURL(mdmUploadURL, params.GetUploadUrl(), e.DebugUploadURL())
+
+	// Validated after resolution, so the destination this deployment published
+	// meets the same rule as one named in the job. Management validates it at
+	// write time, but a peer can be talking to an older or mismatched server,
+	// and a bad value should surface here rather than as a transport error
+	// halfway through the upload.
+	if err := validateBundleUploadURL(uploadURL); err != nil {
+		return nil, err
 	}
 
 	bundleDeps := debug.GeneratorDependencies{

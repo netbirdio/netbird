@@ -76,6 +76,14 @@ type Settings struct {
 	// MetricsPushEnabled globally enables or disables client metrics push for the account
 	MetricsPushEnabled bool `gorm:"default:false"`
 
+	// DebugBundleUploadURL is the debug-bundle upload service the peers of this
+	// account send their bundles to. A bundle carries peer logs, routes, DNS and
+	// firewall state, so the destination decides whose infrastructure that data
+	// lands on. Empty falls back to the deployment-wide DebugUpload.URL from the
+	// management server config, and with neither to the service NetBird runs.
+	// Must be an https URL with a host.
+	DebugBundleUploadURL string
+
 	// AgentNetworkOnly limits the dashboard to the Agent Network surface for this account.
 	// Set for accounts created via netbird.ai signups; users can disable it later.
 	AgentNetworkOnly bool `gorm:"default:false"`
@@ -123,6 +131,7 @@ func (s *Settings) Copy() *Settings {
 		AutoUpdateAlways:                s.AutoUpdateAlways,
 		IPv6EnabledGroups:               slices.Clone(s.IPv6EnabledGroups),
 		MetricsPushEnabled:              s.MetricsPushEnabled,
+		DebugBundleUploadURL:            s.DebugBundleUploadURL,
 		AgentNetworkOnly:                s.AgentNetworkOnly,
 		EmbeddedIdpEnabled:              s.EmbeddedIdpEnabled,
 		LocalAuthDisabled:               s.LocalAuthDisabled,

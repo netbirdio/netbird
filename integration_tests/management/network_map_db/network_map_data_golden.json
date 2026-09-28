@@ -400,7 +400,8 @@
     "LazyConnectionEnabled": false,
     "AutoUpdateVersion": "disabled",
     "AutoUpdateAlways": false,
-    "MetricsPushEnabled": false
+    "MetricsPushEnabled": false,
+    "DebugBundleUploadURL": ""
   },
   "PostureChecks": {
     "posturecheck-331": {

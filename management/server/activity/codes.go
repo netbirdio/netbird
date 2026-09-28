@@ -287,6 +287,10 @@ const (
 	// CustomDomainValidationExpired indicates that an unvalidated domain registration expired.
 	CustomDomainValidationExpired Activity = 143
 
+	// AccountDebugBundleUploadURLUpdated indicates that a user changed where the
+	// account's peers upload their debug bundles
+	AccountDebugBundleUploadURLUpdated Activity = 144
+
 	AccountDeleted Activity = 99999
 )
 
@@ -458,8 +462,9 @@ var activityMap = map[Activity]Code{
 	AgentNetworkBudgetRuleUpdated: {"Agent Network budget rule updated", "agent_network.budget_rule.update"},
 	AgentNetworkBudgetRuleDeleted: {"Agent Network budget rule deleted", "agent_network.budget_rule.delete"},
 
-	AgentNetworkSettingsUpdated: {"Agent Network settings updated", "agent_network.settings.update"},
-	AgentNetworkSettingsDeleted: {"Agent Network settings deleted", "agent_network.settings.delete"},
+	AgentNetworkSettingsUpdated:        {"Agent Network settings updated", "agent_network.settings.update"},
+	AgentNetworkSettingsDeleted:        {"Agent Network settings deleted", "agent_network.settings.delete"},
+	AccountDebugBundleUploadURLUpdated: {"Account debug bundle upload URL updated", "account.setting.debug.upload.url.update"},
 
 	AccountMetricsPushEnabled:  {"Account metrics push enabled", "account.setting.metrics.push.enable"},
 	AccountMetricsPushDisabled: {"Account metrics push disabled", "account.setting.metrics.push.disable"},
