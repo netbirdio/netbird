@@ -18,7 +18,7 @@ import (
 
 func (s *SqlStore) getPolicies(ctx context.Context, accountID string) ([]*types.Policy, error) {
 	const query = `SELECT id, account_id, public_id, name, description, enabled, source_posture_checks FROM policies WHERE account_id = $1`
-	rows, err := s.pool.Query(ctx, query, accountID)
+	rows, err := s.pgxPool().Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -128,7 +128,7 @@ func (s *SqlStore) SavePolicy(ctx context.Context, policy *types.Policy) error {
 }
 
 func (s *SqlStore) DeletePolicy(ctx context.Context, accountID, policyID string) error {
-	return s.transaction(func(tx *gorm.DB) error {
+	return s.transaction(ctx, func(tx *gorm.DB) error {
 		if err := tx.Where("policy_id = ?", policyID).Delete(&types.PolicyRule{}).Error; err != nil {
 			return fmt.Errorf("delete policy rules: %w", err)
 		}
