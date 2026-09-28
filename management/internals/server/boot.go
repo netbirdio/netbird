@@ -35,6 +35,7 @@ import (
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/activity"
 	activitystore "github.com/netbirdio/netbird/management/server/activity/store"
+	"github.com/netbirdio/netbird/management/server/api/v1alpha1"
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
 	nbhttp "github.com/netbirdio/netbird/management/server/http"
@@ -46,7 +47,10 @@ import (
 	"github.com/netbirdio/netbird/util/crypt"
 )
 
-const apiPrefix = "/api"
+const (
+	apiPrefix   = "/api"
+	apiV1Prefix = "/apiv1alpha1"
+)
 
 var (
 	kaep = keepalive.EnforcementPolicy{
@@ -147,11 +151,43 @@ func (s *BaseServer) EventStore() activity.Store {
 
 func (s *BaseServer) APIHandler() http.Handler {
 	return Create(s, func() http.Handler {
-		httpAPIHandler, err := nbhttp.NewAPIHandler(context.Background(), s.Router(), s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(), s.GroupsManager(), s.GeoLocationManager(), s.AuthManager(), s.Metrics(), s.PermissionsManager(), s.SettingsManager(), s.ZonesManager(), s.RecordsManager(), s.NetworkMapController(), s.IdpManager(), s.ServiceManager(), s.ReverseProxyDomainManager(), s.AccessLogsManager(), s.ReverseProxyGRPCServer(), s.Config.ReverseProxy.TrustedHTTPProxies, s.RateLimiter(), s.IsValidChildAccount, s.AgentNetworkManager())
+		rateLimiter := s.RateLimiter()
+
+		if rateLimiter == nil {
+			log.Warn("NewAPIHandler: nil rate limiter, rate limiting disabled")
+			rateLimiter = middleware.NewAPIRateLimiter(nil)
+			rateLimiter.SetEnabled(false)
+		}
+
+		authMiddleware := middleware.NewAuthMiddleware(
+			s.AuthManager(),
+			s.AccountManager().GetAccountIDFromUserAuth,
+			s.AccountManager().SyncUserJWTGroups,
+			s.AccountManager().GetUserFromUserAuth,
+			rateLimiter,
+			s.Metrics().GetMeter(),
+			s.IsValidChildAccount,
+		)
+
+		corsMiddleware := cors.AllowAll()
+		metricsMiddleware := s.Metrics().HTTPMiddleware()
+
+		router := s.Router()
+		router.Use(metricsMiddleware.Handler, corsMiddleware.Handler, authMiddleware.Handler)
+
+		apiRouter := router.PathPrefix(apiPrefix).Subrouter()
+		_, err := nbhttp.NewAPIHandler(context.Background(), apiRouter, s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(), s.GroupsManager(), s.GeoLocationManager(), s.PermissionsManager(), s.SettingsManager(), s.ZonesManager(), s.RecordsManager(), s.NetworkMapController(), s.IdpManager(), s.ServiceManager(), s.ReverseProxyDomainManager(), s.AccessLogsManager(), s.ReverseProxyGRPCServer(), s.Config.ReverseProxy.TrustedHTTPProxies, s.AgentNetworkManager())
 		if err != nil {
 			log.Fatalf("failed to create API handler: %v", err)
 		}
-		return httpAPIHandler
+
+		apiv1Router := router.PathPrefix(apiV1Prefix).Subrouter()
+		_, err = v1alpha1.NewAPIV1Handler(context.Background(), apiv1Router, s.AccountManager(), s.NetworkMapController(), s.PermissionsManager())
+		if err != nil {
+			log.Fatalf("failed to create API handler: %v", err)
+		}
+
+		return router
 	})
 }
 
@@ -167,7 +203,7 @@ func (s *BaseServer) IDPHandler() http.Handler {
 
 func (s *BaseServer) Router() *mux.Router {
 	return Create(s, func() *mux.Router {
-		return mux.NewRouter().PathPrefix(apiPrefix).Subrouter()
+		return mux.NewRouter()
 	})
 }
 
