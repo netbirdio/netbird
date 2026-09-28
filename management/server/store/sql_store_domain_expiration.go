@@ -53,7 +53,10 @@ func customDomainServices(db *gorm.DB, d *domain.Domain) *gorm.DB {
 	// Shared domain validation permits underscores, and older rows may contain
 	// other LIKE metacharacters.
 	escaped := strings.NewReplacer("!", "!!", "%", "!%", "_", "!_").Replace(name)
-	return db.Model(&rpservice.Service{}).Where(
+	// Registrations are unique by name, so another account can hold a subdomain
+	// of this one and serve from it. Its services derive their cluster from that
+	// account's own registration and are not dependents of this one.
+	return db.Model(&rpservice.Service{}).Where(accountIDCondition, d.AccountID).Where(
 		"LOWER(domain) IN ? OR LOWER(domain) LIKE ? ESCAPE '!' OR LOWER(domain) LIKE ? ESCAPE '!'",
 		[]string{name, name + "."}, "%."+escaped, "%."+escaped+".",
 	)
