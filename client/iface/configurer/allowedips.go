@@ -37,6 +37,7 @@ type allowedIPStore struct {
 	owners map[netip.Prefix]wgtypes.Key
 }
 
+// newAllowedIPStore returns an empty store with no known peers or prefix owners.
 func newAllowedIPStore() *allowedIPStore {
 	return &allowedIPStore{
 		peers:  make(map[wgtypes.Key][]netip.Prefix),
@@ -57,7 +58,8 @@ func (s *allowedIPStore) get(key wgtypes.Key) ([]netip.Prefix, bool) {
 	return slices.Clone(prefixes), true
 }
 
-// set replaces the prefixes recorded for a peer.
+// set replaces the prefixes recorded for a peer with a normalized copy, taking
+// ownership of those prefixes from any previous peers. An empty list keeps the peer known.
 func (s *allowedIPStore) set(key wgtypes.Key, prefixes []netip.Prefix) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -112,7 +114,7 @@ func (s *allowedIPStore) ensure(key wgtypes.Key) {
 	}
 }
 
-// forget drops every prefix recorded for a peer.
+// forget removes a peer and releases its prefix ownership, making the peer unknown.
 func (s *allowedIPStore) forget(key wgtypes.Key) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -131,6 +133,8 @@ func (s *allowedIPStore) reset() {
 	s.owners = make(map[netip.Prefix]wgtypes.Key)
 }
 
+// mergeLocked adds normalized prefixes without duplicates and transfers their ownership
+// to k, recording the peer even for an empty list. The caller must hold s.mu for writing.
 func (s *allowedIPStore) mergeLocked(k wgtypes.Key, prefixes []netip.Prefix) {
 	merged := s.peers[k]
 	for _, prefix := range prefixes {
@@ -145,6 +149,7 @@ func (s *allowedIPStore) mergeLocked(k wgtypes.Key, prefixes []netip.Prefix) {
 
 // claimLocked hands a prefix over to a peer, taking it from its previous owner the way the
 // device does when the same prefix is configured on a second peer.
+// The caller must hold s.mu for writing and supply a normalized prefix.
 func (s *allowedIPStore) claimLocked(k wgtypes.Key, prefix netip.Prefix) {
 	if owner, ok := s.owners[prefix]; ok && owner != k {
 		s.peers[owner] = slices.DeleteFunc(s.peers[owner], func(p netip.Prefix) bool {
@@ -154,7 +159,8 @@ func (s *allowedIPStore) claimLocked(k wgtypes.Key, prefix netip.Prefix) {
 	s.owners[prefix] = k
 }
 
-// releaseLocked drops a peer's claim on every prefix it currently holds.
+// releaseLocked drops a peer's claim on every prefix it currently holds, leaving its
+// recorded prefix list intact. The caller must hold s.mu for writing.
 func (s *allowedIPStore) releaseLocked(k wgtypes.Key) {
 	for _, prefix := range s.peers[k] {
 		if s.owners[prefix] == k {
@@ -181,6 +187,7 @@ func normalizePrefix(prefix netip.Prefix) netip.Prefix {
 	return netip.PrefixFrom(addr.Unmap(), masked.Bits()-96)
 }
 
+// normalizePrefixes returns a normalized copy, preserving order and duplicates.
 func normalizePrefixes(prefixes []netip.Prefix) []netip.Prefix {
 	normalized := make([]netip.Prefix, len(prefixes))
 	for i, prefix := range prefixes {
@@ -189,8 +196,9 @@ func normalizePrefixes(prefixes []netip.Prefix) []netip.Prefix {
 	return normalized
 }
 
-// ipNetsToPrefixes converts addresses read back from a device. Unmap keeps a v4-mapped v6
-// address comparable to the plain v4 prefix the configurer was given.
+// ipNetsToPrefixes converts device addresses to masked prefixes, unmapping IPv4-mapped
+// addresses only when the mask describes IPv4. Entries with unparseable addresses or
+// invalid resulting prefixes are skipped.
 func ipNetsToPrefixes(ipNets []net.IPNet) []netip.Prefix {
 	prefixes := make([]netip.Prefix, 0, len(ipNets))
 	for _, ipNet := range ipNets {

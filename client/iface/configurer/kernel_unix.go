@@ -22,6 +22,8 @@ type KernelConfigurer struct {
 	allowedIPs *allowedIPStore
 }
 
+// NewKernelConfigurer prepares a configurer for the named WireGuard interface without
+// accessing or changing the device.
 func NewKernelConfigurer(deviceName string) *KernelConfigurer {
 	c := &KernelConfigurer{
 		deviceName: deviceName,
@@ -31,6 +33,9 @@ func NewKernelConfigurer(deviceName string) *KernelConfigurer {
 	return c
 }
 
+// ConfigureInterface sets the base64 private key, UDP listen port, and firewall mark,
+// removing all existing peers. A zero port requests an automatically selected port.
+// It returns key parsing or device configuration errors.
 func (c *KernelConfigurer) ConfigureInterface(privateKey string, port int) error {
 	log.Debugf("adding Wireguard private key")
 	key, err := wgtypes.ParseKey(privateKey)
@@ -56,6 +61,8 @@ func (c *KernelConfigurer) ConfigureInterface(privateKey string, port int) error
 
 // SetPresharedKey sets the preshared key for a peer.
 // If updateOnly is true, only updates the existing peer; if false, creates or updates.
+// An absent peer with updateOnly set is a no-op. Key parsing and device configuration
+// errors are returned.
 func (c *KernelConfigurer) SetPresharedKey(peerKey string, psk wgtypes.Key, updateOnly bool) error {
 	parsedPeerKey, err := wgtypes.ParseKey(peerKey)
 	if err != nil {
@@ -75,6 +82,10 @@ func (c *KernelConfigurer) SetPresharedKey(peerKey string, psk wgtypes.Key, upda
 	return nil
 }
 
+// UpdatePeer creates or updates a peer, adding normalized allowed IPs to its existing
+// set and taking those prefixes from any previous owner. A nil endpoint or preSharedKey
+// leaves that setting unchanged. A zero keepAlive disables persistent keepalives.
+// It returns peer key parsing or device configuration errors.
 func (c *KernelConfigurer) UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
 	if err != nil {
@@ -105,6 +116,9 @@ func (c *KernelConfigurer) UpdatePeer(peerKey string, allowedIps []netip.Prefix,
 // RemoveEndpointAddress clears the endpoint of a peer while keeping it configured.
 // Neither the netlink API nor the userspace one can clear an endpoint in place, so the peer
 // is removed and re-added with the allowed IPs it already had.
+// The preshared key and persistent keepalive setting are not restored.
+// It returns key parsing, peer lookup (including ErrPeerNotFound), or device write
+// errors. A failed re-add is not rolled back and removes the peer from the mirror.
 func (c *KernelConfigurer) RemoveEndpointAddress(peerKey string) error {
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
 	if err != nil {
@@ -142,6 +156,8 @@ func (c *KernelConfigurer) RemoveEndpointAddress(peerKey string) error {
 	return nil
 }
 
+// RemovePeer removes a peer. An absent peer is a no-op.
+// It returns key parsing or device configuration errors; on error, the mirror is retained.
 func (c *KernelConfigurer) RemovePeer(peerKey string) error {
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
 	if err != nil {
@@ -165,6 +181,9 @@ func (c *KernelConfigurer) RemovePeer(peerKey string) error {
 	return nil
 }
 
+// AddAllowedIP adds a normalized prefix to an existing peer, taking it from any
+// previous owner. An absent peer is a no-op. It returns key parsing or device
+// configuration errors.
 func (c *KernelConfigurer) AddAllowedIP(peerKey string, allowedIP netip.Prefix) error {
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
 	if err != nil {
@@ -189,6 +208,10 @@ func (c *KernelConfigurer) AddAllowedIP(peerKey string, allowedIP netip.Prefix) 
 	return nil
 }
 
+// RemoveAllowedIP removes the matching normalized prefix while preserving the other
+// allowed IPs. An absent prefix is a no-op.
+// It also returns key parsing, peer lookup (including ErrPeerNotFound), or device
+// configuration errors.
 func (c *KernelConfigurer) RemoveAllowedIP(peerKey string, allowedIP netip.Prefix) error {
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
 	if err != nil {
@@ -227,6 +250,8 @@ func (c *KernelConfigurer) RemoveAllowedIP(peerKey string, allowedIP netip.Prefi
 // peerAllowedIPs returns the allowed IPs configured for a peer, reading them from the device
 // only for a peer the store has not seen. Dumping the device costs a netlink round trip
 // proportional to the whole network map, and this runs on every relay and ICE transition.
+// A successful device lookup seeds the store; the returned slice may be modified freely.
+// It returns device access errors or an error wrapping ErrPeerNotFound.
 func (c *KernelConfigurer) peerAllowedIPs(peerKey wgtypes.Key) ([]netip.Prefix, error) {
 	if prefixes, ok := c.allowedIPs.get(peerKey); ok {
 		return prefixes, nil
@@ -244,6 +269,7 @@ func (c *KernelConfigurer) peerAllowedIPs(peerKey wgtypes.Key) ([]netip.Prefix, 
 
 // getPeer scans the device for one peer. wgtypes.Key is an array, so the comparison is a
 // plain equality: Key.String would base64 encode into a fresh allocation for every peer.
+// It returns ErrPeerNotFound if absent, or an error opening the client or reading the device.
 func (c *KernelConfigurer) getPeer(ifaceName string, peerPubKey wgtypes.Key) (wgtypes.Peer, error) {
 	wg, err := wgctrl.New()
 	if err != nil {

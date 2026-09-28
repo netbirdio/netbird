@@ -47,6 +47,8 @@ type WGUSPConfigurer struct {
 	uapiListener net.Listener
 }
 
+// NewUSPConfigurer wraps a userspace device and attempts to start its UAPI listener.
+// Failure to open the listener does not prevent returning the configurer.
 func NewUSPConfigurer(device *device.Device, deviceName string, activityRecorder *bind.ActivityRecorder) *WGUSPConfigurer {
 	wgCfg := &WGUSPConfigurer{
 		device:           device,
@@ -59,6 +61,7 @@ func NewUSPConfigurer(device *device.Device, deviceName string, activityRecorder
 	return wgCfg
 }
 
+// NewUSPConfigurerNoUAPI wraps a userspace device without starting a UAPI listener.
 func NewUSPConfigurerNoUAPI(device *device.Device, deviceName string, activityRecorder *bind.ActivityRecorder) *WGUSPConfigurer {
 	wgCfg := &WGUSPConfigurer{
 		device:           device,
@@ -70,6 +73,9 @@ func NewUSPConfigurerNoUAPI(device *device.Device, deviceName string, activityRe
 	return wgCfg
 }
 
+// ConfigureInterface sets the base64 private key, UDP listen port, and firewall mark,
+// removing all existing peers. A zero port requests an automatically selected port.
+// It returns key parsing or device configuration errors.
 func (c *WGUSPConfigurer) ConfigureInterface(privateKey string, port int) error {
 	log.Debugf("adding Wireguard private key")
 	key, err := wgtypes.ParseKey(privateKey)
@@ -94,6 +100,8 @@ func (c *WGUSPConfigurer) ConfigureInterface(privateKey string, port int) error 
 
 // SetPresharedKey sets the preshared key for a peer.
 // If updateOnly is true, only updates the existing peer; if false, creates or updates.
+// An absent peer with updateOnly set is a no-op. Key parsing and device configuration
+// errors are returned.
 func (c *WGUSPConfigurer) SetPresharedKey(peerKey string, psk wgtypes.Key, updateOnly bool) error {
 	parsedPeerKey, err := wgtypes.ParseKey(peerKey)
 	if err != nil {
@@ -113,6 +121,10 @@ func (c *WGUSPConfigurer) SetPresharedKey(peerKey string, psk wgtypes.Key, updat
 	return nil
 }
 
+// UpdatePeer creates or updates a peer, adding normalized allowed IPs to its existing
+// set and taking those prefixes from any previous owner. A nil endpoint or preSharedKey
+// leaves that setting unchanged. A zero keepAlive disables persistent keepalives.
+// It returns peer key or endpoint address parsing errors and device configuration errors.
 func (c *WGUSPConfigurer) UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
 	if err != nil {
@@ -160,6 +172,9 @@ func (c *WGUSPConfigurer) UpdatePeer(peerKey string, allowedIps []netip.Prefix, 
 // RemoveEndpointAddress clears the endpoint of a peer while keeping it configured.
 // The UAPI cannot clear an endpoint in place, so the peer is removed and re-added with the
 // allowed IPs it already had.
+// The preshared key and persistent keepalive setting are not restored.
+// It returns key parsing, peer lookup (including ErrPeerNotFound), or device write
+// errors. A failed re-add is not rolled back and removes the peer from the mirror.
 func (c *WGUSPConfigurer) RemoveEndpointAddress(peerKey string) error {
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
 	if err != nil {
@@ -201,6 +216,8 @@ func (c *WGUSPConfigurer) RemoveEndpointAddress(peerKey string) error {
 	return nil
 }
 
+// RemovePeer removes a peer and its activity record. An absent peer is a no-op.
+// It returns key parsing or device configuration errors; on error, the mirror is retained.
 func (c *WGUSPConfigurer) RemovePeer(peerKey string) error {
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
 	if err != nil {
@@ -224,6 +241,9 @@ func (c *WGUSPConfigurer) RemovePeer(peerKey string) error {
 	return nil
 }
 
+// AddAllowedIP adds a normalized prefix to an existing peer, taking it from any
+// previous owner. An absent peer is a no-op. It returns key parsing or device
+// configuration errors.
 func (c *WGUSPConfigurer) AddAllowedIP(peerKey string, allowedIP netip.Prefix) error {
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
 	if err != nil {
@@ -248,6 +268,10 @@ func (c *WGUSPConfigurer) AddAllowedIP(peerKey string, allowedIP netip.Prefix) e
 	return nil
 }
 
+// RemoveAllowedIP removes the matching normalized prefix while preserving the other
+// allowed IPs. It returns ErrAllowedIPNotFound if the prefix is absent.
+// It also returns key parsing, peer lookup (including ErrPeerNotFound), or device
+// configuration errors.
 func (c *WGUSPConfigurer) RemoveAllowedIP(peerKey string, allowedIP netip.Prefix) error {
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
 	if err != nil {
@@ -286,6 +310,8 @@ func (c *WGUSPConfigurer) RemoveAllowedIP(peerKey string, allowedIP netip.Prefix
 // peerAllowedIPs returns the allowed IPs configured for a peer, reading them from the device
 // only for a peer the store has not seen. Reading them back means dumping and parsing the
 // whole device configuration, and this runs on every relay and ICE transition.
+// A successful device lookup seeds the store; the returned slice may be modified freely.
+// It returns device read errors or ErrPeerNotFound; malformed status fields are skipped.
 func (c *WGUSPConfigurer) peerAllowedIPs(peerKey wgtypes.Key) ([]netip.Prefix, error) {
 	if prefixes, ok := c.allowedIPs.get(peerKey); ok {
 		return prefixes, nil
