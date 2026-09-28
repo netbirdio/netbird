@@ -1061,7 +1061,11 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 			// back to empty if the FQDN doesn't have the expected shape.
 			dnsName = extractDNSDomainFromFQDN(pc.GetFqdn())
 		}
-		result, err := nbnetworkmap.EnvelopeToNetworkMap(e.ctx, envelope, localKey, dnsName)
+		// With the firewall disabled there is no ACL manager to program, so
+		// RoutesFirewallRules would be built and then dropped. On a peer that
+		// routes many network resources that is the single most expensive
+		// step of the sync.
+		result, err := nbnetworkmap.EnvelopeToNetworkMap(e.ctx, envelope, localKey, dnsName, e.config.DisableFirewall)
 		if err != nil {
 			return fmt.Errorf("decode network map envelope: %w", err)
 		}

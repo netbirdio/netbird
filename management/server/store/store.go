@@ -36,6 +36,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/testutil"
 	"github.com/netbirdio/netbird/management/server/types"
+	nbdomain "github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/util/crypt"
 
@@ -138,6 +139,7 @@ type Store interface {
 
 	GetAccountPolicies(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.Policy, error)
 	GetPolicyByID(ctx context.Context, lockStrength LockingStrength, accountID, policyID string) (*types.Policy, error)
+	GetPolicyByIDOrPublicID(ctx context.Context, lockStrength LockingStrength, accountID, policyID string) (*types.Policy, error)
 	CreatePolicy(ctx context.Context, policy *types.Policy) error
 	SavePolicy(ctx context.Context, policy *types.Policy) error
 	DeletePolicy(ctx context.Context, accountID, policyID string) error
@@ -208,6 +210,7 @@ type Store interface {
 
 	GetAccountRoutes(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*route.Route, error)
 	GetRouteByID(ctx context.Context, lockStrength LockingStrength, accountID, routeID string) (*route.Route, error)
+	GetRouteByIDOrPublicID(ctx context.Context, lockStrength LockingStrength, accountID, routeID string) (*route.Route, error)
 	SaveRoute(ctx context.Context, route *route.Route) error
 	DeleteRoute(ctx context.Context, accountID, routeID string) error
 
@@ -248,6 +251,7 @@ type Store interface {
 	GetNetworkResourcesByNetID(ctx context.Context, lockStrength LockingStrength, accountID, netID string) ([]*resourceTypes.NetworkResource, error)
 	GetNetworkResourcesByAccountID(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*resourceTypes.NetworkResource, error)
 	GetNetworkResourceByID(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) (*resourceTypes.NetworkResource, error)
+	GetNetworkResourceByIDOrPublicID(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) (*resourceTypes.NetworkResource, error)
 	GetNetworkResourceByName(ctx context.Context, lockStrength LockingStrength, accountID, resourceName string) (*resourceTypes.NetworkResource, error)
 	SaveNetworkResource(ctx context.Context, resource *resourceTypes.NetworkResource) error
 	DeleteNetworkResource(ctx context.Context, accountID, resourceID string) error
@@ -304,6 +308,7 @@ type Store interface {
 	GetCustomDomain(ctx context.Context, accountID string, domainID string) (*domain.Domain, error)
 	ListFreeDomains(ctx context.Context, accountID string) ([]string, error)
 	ListCustomDomains(ctx context.Context, accountID string) ([]*domain.Domain, error)
+	LockCustomDomains(ctx context.Context, accountID string, serviceDomain nbdomain.Domain) ([]*domain.Domain, error)
 	GetCustomDomainByName(ctx context.Context, domainName string) (*domain.Domain, error)
 	CreateCustomDomain(ctx context.Context, accountID string, domainName string, targetCluster string, validated bool) (*domain.Domain, error)
 	UpdateCustomDomain(ctx context.Context, accountID string, d *domain.Domain) (*domain.Domain, error)
