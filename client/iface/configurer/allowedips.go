@@ -5,9 +5,9 @@ import (
 	"net/netip"
 	"slices"
 	"sync"
-)
 
-type peerKey string
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+)
 
 // allowedIPStore mirrors the allowed IPs configured on each peer of a device.
 //
@@ -33,24 +33,24 @@ type peerKey string
 // what was recorded, and the next endpoint removal drops the rest.
 type allowedIPStore struct {
 	mu     sync.RWMutex
-	peers  map[peerKey][]netip.Prefix
-	owners map[netip.Prefix]peerKey
+	peers  map[wgtypes.Key][]netip.Prefix
+	owners map[netip.Prefix]wgtypes.Key
 }
 
 func newAllowedIPStore() *allowedIPStore {
 	return &allowedIPStore{
-		peers:  make(map[peerKey][]netip.Prefix),
-		owners: make(map[netip.Prefix]peerKey),
+		peers:  make(map[wgtypes.Key][]netip.Prefix),
+		owners: make(map[netip.Prefix]wgtypes.Key),
 	}
 }
 
 // get returns the prefixes recorded for a peer, and whether the peer is known at all.
 // The caller receives a copy and may retain or modify it freely.
-func (s *allowedIPStore) get(key string) ([]netip.Prefix, bool) {
+func (s *allowedIPStore) get(key wgtypes.Key) ([]netip.Prefix, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	prefixes, ok := s.peers[peerKey(key)]
+	prefixes, ok := s.peers[key]
 	if !ok {
 		return nil, false
 	}
@@ -58,11 +58,11 @@ func (s *allowedIPStore) get(key string) ([]netip.Prefix, bool) {
 }
 
 // set replaces the prefixes recorded for a peer.
-func (s *allowedIPStore) set(key string, prefixes []netip.Prefix) {
+func (s *allowedIPStore) set(key wgtypes.Key, prefixes []netip.Prefix) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	k := peerKey(key)
+	k := key
 	s.releaseLocked(k)
 
 	normalized := normalizePrefixes(prefixes)
@@ -76,22 +76,22 @@ func (s *allowedIPStore) set(key string, prefixes []netip.Prefix) {
 // union semantics of a peer update that does not replace its allowed IPs. It records the
 // peer if it is not known yet, so it belongs to the operations that create a peer on the
 // device rather than to the update-only ones.
-func (s *allowedIPStore) add(key string, prefixes []netip.Prefix) {
+func (s *allowedIPStore) add(key wgtypes.Key, prefixes []netip.Prefix) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.mergeLocked(peerKey(key), prefixes)
+	s.mergeLocked(key, prefixes)
 }
 
 // addExisting is add for an update-only device operation. Such an operation is a silent
 // no-op when the peer is absent, so recording a peer here would leave the store claiming
 // prefixes the device never took, and the peer would then be recreated by the next endpoint
 // removal, stealing those allowed IPs from the peer that legitimately holds them.
-func (s *allowedIPStore) addExisting(key string, prefixes []netip.Prefix) {
+func (s *allowedIPStore) addExisting(key wgtypes.Key, prefixes []netip.Prefix) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	k := peerKey(key)
+	k := key
 	if _, ok := s.peers[k]; !ok {
 		return
 	}
@@ -102,22 +102,22 @@ func (s *allowedIPStore) addExisting(key string, prefixes []netip.Prefix) {
 // that is not update-only creates the peer when it is absent, so it has to be recorded even
 // when it configures nothing else; otherwise the peer exists on the device while the store
 // treats it as unknown, and a prefix later handed over to it is not accounted for.
-func (s *allowedIPStore) ensure(key string) {
+func (s *allowedIPStore) ensure(key wgtypes.Key) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	k := peerKey(key)
+	k := key
 	if _, ok := s.peers[k]; !ok {
 		s.peers[k] = nil
 	}
 }
 
 // forget drops every prefix recorded for a peer.
-func (s *allowedIPStore) forget(key string) {
+func (s *allowedIPStore) forget(key wgtypes.Key) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	k := peerKey(key)
+	k := key
 	s.releaseLocked(k)
 	delete(s.peers, k)
 }
@@ -127,11 +127,11 @@ func (s *allowedIPStore) reset() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.peers = make(map[peerKey][]netip.Prefix)
-	s.owners = make(map[netip.Prefix]peerKey)
+	s.peers = make(map[wgtypes.Key][]netip.Prefix)
+	s.owners = make(map[netip.Prefix]wgtypes.Key)
 }
 
-func (s *allowedIPStore) mergeLocked(k peerKey, prefixes []netip.Prefix) {
+func (s *allowedIPStore) mergeLocked(k wgtypes.Key, prefixes []netip.Prefix) {
 	merged := s.peers[k]
 	for _, prefix := range prefixes {
 		prefix = normalizePrefix(prefix)
@@ -145,7 +145,7 @@ func (s *allowedIPStore) mergeLocked(k peerKey, prefixes []netip.Prefix) {
 
 // claimLocked hands a prefix over to a peer, taking it from its previous owner the way the
 // device does when the same prefix is configured on a second peer.
-func (s *allowedIPStore) claimLocked(k peerKey, prefix netip.Prefix) {
+func (s *allowedIPStore) claimLocked(k wgtypes.Key, prefix netip.Prefix) {
 	if owner, ok := s.owners[prefix]; ok && owner != k {
 		s.peers[owner] = slices.DeleteFunc(s.peers[owner], func(p netip.Prefix) bool {
 			return p == prefix
@@ -155,7 +155,7 @@ func (s *allowedIPStore) claimLocked(k peerKey, prefix netip.Prefix) {
 }
 
 // releaseLocked drops a peer's claim on every prefix it currently holds.
-func (s *allowedIPStore) releaseLocked(k peerKey) {
+func (s *allowedIPStore) releaseLocked(k wgtypes.Key) {
 	for _, prefix := range s.peers[k] {
 		if s.owners[prefix] == k {
 			delete(s.owners, prefix)

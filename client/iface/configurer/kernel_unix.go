@@ -70,7 +70,7 @@ func (c *KernelConfigurer) SetPresharedKey(peerKey string, psk wgtypes.Key, upda
 	// Without updateOnly this creates the peer when it is absent, so the store has to
 	// know about it even though no allowed IP was configured.
 	if !updateOnly {
-		c.allowedIPs.ensure(peerKey)
+		c.allowedIPs.ensure(parsedPeerKey)
 	}
 	return nil
 }
@@ -98,7 +98,7 @@ func (c *KernelConfigurer) UpdatePeer(peerKey string, allowedIps []netip.Prefix,
 		return fmt.Errorf(`received error "%w" while updating peer on interface %s with settings: allowed ips %s, endpoint %s`, err, c.deviceName, allowedIps, endpoint.String())
 	}
 
-	c.allowedIPs.add(peerKey, allowedIps)
+	c.allowedIPs.add(peerKeyParsed, allowedIps)
 	return nil
 }
 
@@ -111,7 +111,7 @@ func (c *KernelConfigurer) RemoveEndpointAddress(peerKey string) error {
 		return err
 	}
 
-	allowedIPs, err := c.peerAllowedIPs(peerKey)
+	allowedIPs, err := c.peerAllowedIPs(peerKeyParsed)
 	if err != nil {
 		return err
 	}
@@ -132,7 +132,7 @@ func (c *KernelConfigurer) RemoveEndpointAddress(peerKey string) error {
 	}
 
 	if err := c.configure(wgtypes.Config{Peers: []wgtypes.PeerConfig{reAddPeerCfg}}); err != nil {
-		c.allowedIPs.forget(peerKey)
+		c.allowedIPs.forget(peerKeyParsed)
 		return fmt.Errorf(
 			"re-add peer %s to interface %s with allowed IPs %v: %w",
 			peerKey, c.deviceName, allowedIPs, err,
@@ -161,7 +161,7 @@ func (c *KernelConfigurer) RemovePeer(peerKey string) error {
 		return fmt.Errorf(`received error "%w" while removing peer %s from interface %s`, err, peerKey, c.deviceName)
 	}
 
-	c.allowedIPs.forget(peerKey)
+	c.allowedIPs.forget(peerKeyParsed)
 	return nil
 }
 
@@ -185,7 +185,7 @@ func (c *KernelConfigurer) AddAllowedIP(peerKey string, allowedIP netip.Prefix) 
 		return fmt.Errorf(`received error "%w" while adding allowed Ip to peer on interface %s with settings: allowed ips %s`, err, c.deviceName, allowedIP)
 	}
 
-	c.allowedIPs.addExisting(peerKey, []netip.Prefix{allowedIP})
+	c.allowedIPs.addExisting(peerKeyParsed, []netip.Prefix{allowedIP})
 	return nil
 }
 
@@ -195,7 +195,7 @@ func (c *KernelConfigurer) RemoveAllowedIP(peerKey string, allowedIP netip.Prefi
 		return fmt.Errorf("parse peer key: %w", err)
 	}
 
-	currentAllowedIPs, err := c.peerAllowedIPs(peerKey)
+	currentAllowedIPs, err := c.peerAllowedIPs(peerKeyParsed)
 	if err != nil {
 		return err
 	}
@@ -220,14 +220,14 @@ func (c *KernelConfigurer) RemoveAllowedIP(peerKey string, allowedIP netip.Prefi
 		return fmt.Errorf("remove allowed IP %s on interface %s: %w", allowedIP, c.deviceName, err)
 	}
 
-	c.allowedIPs.set(peerKey, newAllowedIPs)
+	c.allowedIPs.set(peerKeyParsed, newAllowedIPs)
 	return nil
 }
 
 // peerAllowedIPs returns the allowed IPs configured for a peer, reading them from the device
 // only for a peer the store has not seen. Dumping the device costs a netlink round trip
 // proportional to the whole network map, and this runs on every relay and ICE transition.
-func (c *KernelConfigurer) peerAllowedIPs(peerKey string) ([]netip.Prefix, error) {
+func (c *KernelConfigurer) peerAllowedIPs(peerKey wgtypes.Key) ([]netip.Prefix, error) {
 	if prefixes, ok := c.allowedIPs.get(peerKey); ok {
 		return prefixes, nil
 	}
@@ -242,14 +242,9 @@ func (c *KernelConfigurer) peerAllowedIPs(peerKey string) ([]netip.Prefix, error
 	return prefixes, nil
 }
 
-func (c *KernelConfigurer) getPeer(ifaceName, peerPubKey string) (wgtypes.Peer, error) {
-	// Compare the parsed key: wgtypes.Key is an array, while Key.String base64 encodes it
-	// into a fresh allocation, which a scan would pay once per peer on the device.
-	parsedKey, err := wgtypes.ParseKey(peerPubKey)
-	if err != nil {
-		return wgtypes.Peer{}, fmt.Errorf("parse peer key: %w", err)
-	}
-
+// getPeer scans the device for one peer. wgtypes.Key is an array, so the comparison is a
+// plain equality: Key.String would base64 encode into a fresh allocation for every peer.
+func (c *KernelConfigurer) getPeer(ifaceName string, peerPubKey wgtypes.Key) (wgtypes.Peer, error) {
 	wg, err := wgctrl.New()
 	if err != nil {
 		return wgtypes.Peer{}, fmt.Errorf("wgctl: %w", err)
@@ -266,7 +261,7 @@ func (c *KernelConfigurer) getPeer(ifaceName, peerPubKey string) (wgtypes.Peer, 
 		return wgtypes.Peer{}, fmt.Errorf("get device %s: %w", ifaceName, err)
 	}
 	for _, peer := range wgDevice.Peers {
-		if peer.PublicKey == parsedKey {
+		if peer.PublicKey == peerPubKey {
 			return peer, nil
 		}
 	}

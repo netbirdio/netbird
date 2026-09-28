@@ -134,7 +134,7 @@ func TestRemoveEndpointAddressFallsBackToDevice(t *testing.T) {
 	assert.ElementsMatch(t, before, peerAllowedIPs(t, c, peerKey),
 		"allowed IPs recovered from the device must be preserved")
 
-	recovered, ok := c.allowedIPs.get(peerKey)
+	recovered, ok := c.allowedIPs.get(mustParseKey(t, peerKey))
 	assert.True(t, ok, "the fallback must seed the store so the next call skips the device dump")
 	assert.Len(t, recovered, 2, "seeded prefixes")
 }
@@ -254,7 +254,7 @@ func TestUpdatePeerDoesNotWidenAMappedPrefixOnTheDevice(t *testing.T) {
 	assert.NotContains(t, onDevice, "0.0.0.0/0", "the device must not be given a catch-all allowed IP")
 	assert.Equal(t, []string{"10.1.0.0/16"}, onDevice, "the device holds the normalized prefix")
 
-	recorded, ok := c.allowedIPs.get(peerKey)
+	recorded, ok := c.allowedIPs.get(mustParseKey(t, peerKey))
 	require.True(t, ok, "the peer must be recorded")
 	require.Len(t, recorded, 1, "one prefix recorded")
 	assert.Equal(t, onDevice[0], recorded[0].String(), "device and store must agree")
@@ -280,7 +280,7 @@ func TestUpdatePeerWithAnUnusableEndpointTouchesNothing(t *testing.T) {
 	require.NoError(t, err, "read device stats")
 	assert.Len(t, stats.Peers, 2, "the peer must not have reached the device")
 
-	_, ok := c.allowedIPs.get(peerKey)
+	_, ok := c.allowedIPs.get(mustParseKey(t, peerKey))
 	assert.False(t, ok, "the peer must not have been recorded either")
 }
 
@@ -293,7 +293,7 @@ func TestRemovePeerKeepsTheRecordWhenTheDeviceRefuses(t *testing.T) {
 	peerKey := seedPeers(t, c, 1)[0]
 	require.NoError(t, c.AddAllowedIP(peerKey, netip.MustParsePrefix("10.20.0.0/16")), "add routed prefix")
 
-	before, ok := c.allowedIPs.get(peerKey)
+	before, ok := c.allowedIPs.get(mustParseKey(t, peerKey))
 	require.True(t, ok, "the peer must be recorded before the removal")
 	require.Len(t, before, 2, "overlay address plus routed prefix")
 
@@ -302,7 +302,17 @@ func TestRemovePeerKeepsTheRecordWhenTheDeviceRefuses(t *testing.T) {
 
 	require.Error(t, c.RemovePeer(peerKey), "the removal must report the failure")
 
-	after, ok := c.allowedIPs.get(peerKey)
+	after, ok := c.allowedIPs.get(mustParseKey(t, peerKey))
 	require.True(t, ok, "a peer still on the device must stay recorded")
 	assert.Equal(t, before, after, "the record must describe the peer the device kept")
+}
+
+// mustParseKey turns the textual key the configurer API takes into the form the store
+// keys on.
+func mustParseKey(t *testing.T, key string) wgtypes.Key {
+	t.Helper()
+
+	parsed, err := wgtypes.ParseKey(key)
+	require.NoError(t, err, "parse peer key")
+	return parsed
 }

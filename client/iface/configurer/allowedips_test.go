@@ -7,9 +7,14 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
-const testPeer = "b85996fecc9c7f1fc6d2572a76eda11d59bcd20be8e543b15ce4bd85a8e75a33"
+// The store keys on the parsed key, so the tests use two distinct ones rather than names.
+var (
+	testPeer  = wgtypes.Key{1}
+	otherPeer = wgtypes.Key{2}
+)
 
 func TestAllowedIPStoreUnknownPeer(t *testing.T) {
 	s := newAllowedIPStore()
@@ -49,16 +54,16 @@ func TestAllowedIPStoreGetReturnsCopy(t *testing.T) {
 func TestAllowedIPStoreForgetAndReset(t *testing.T) {
 	s := newAllowedIPStore()
 	s.set(testPeer, []netip.Prefix{netip.MustParsePrefix("100.64.0.1/32")})
-	s.set("other", []netip.Prefix{netip.MustParsePrefix("100.64.0.2/32")})
+	s.set(otherPeer, []netip.Prefix{netip.MustParsePrefix("100.64.0.2/32")})
 
 	s.forget(testPeer)
 	_, ok := s.get(testPeer)
 	assert.False(t, ok, "a forgotten peer must be unknown")
-	_, ok = s.get("other")
+	_, ok = s.get(otherPeer)
 	assert.True(t, ok, "forgetting one peer must not touch the others")
 
 	s.reset()
-	_, ok = s.get("other")
+	_, ok = s.get(otherPeer)
 	assert.False(t, ok, "reset must drop every peer")
 }
 
@@ -159,7 +164,7 @@ func TestAllowedIPStoreAddExistingDoesNotCreate(t *testing.T) {
 func TestAllowedIPStoreHandsPrefixOverToTheNewOwner(t *testing.T) {
 	s := newAllowedIPStore()
 	routed := netip.MustParsePrefix("10.20.0.0/16")
-	other := "other"
+	other := otherPeer
 
 	s.set(testPeer, []netip.Prefix{netip.MustParsePrefix("100.64.0.1/32"), routed})
 	s.set(other, []netip.Prefix{netip.MustParsePrefix("100.64.0.2/32")})
@@ -180,12 +185,12 @@ func TestAllowedIPStoreForgetReleasesOwnership(t *testing.T) {
 
 	s.set(testPeer, []netip.Prefix{routed})
 	s.forget(testPeer)
-	s.set("other", []netip.Prefix{routed})
+	s.set(otherPeer, []netip.Prefix{routed})
 
 	// A forgotten peer must not be resurrected as a key in the peer map by a later claim.
 	_, ok := s.get(testPeer)
 	assert.False(t, ok, "the forgotten peer must stay unknown")
-	current, _ := s.get("other")
+	current, _ := s.get(otherPeer)
 	assert.Equal(t, []netip.Prefix{routed}, current, "the new owner must hold the prefix")
 }
 
