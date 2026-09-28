@@ -1,6 +1,7 @@
 package configurer
 
 import (
+	"net"
 	"net/netip"
 	"testing"
 	"time"
@@ -257,4 +258,28 @@ func TestUpdatePeerDoesNotWidenAMappedPrefixOnTheDevice(t *testing.T) {
 	require.True(t, ok, "the peer must be recorded")
 	require.Len(t, recorded, 1, "one prefix recorded")
 	assert.Equal(t, onDevice[0], recorded[0].String(), "device and store must agree")
+}
+
+// TestUpdatePeerWithAnUnusableEndpointTouchesNothing pins the ordering: the endpoint is
+// parsed before the device is configured, so a failure cannot leave the device holding a
+// peer that the store never learned about, with the prefix handover skipped along with it.
+func TestUpdatePeerWithAnUnusableEndpointTouchesNothing(t *testing.T) {
+	c := newTestUSPConfigurer(t)
+	seedPeers(t, c, 2)
+
+	priv, err := wgtypes.GeneratePrivateKey()
+	require.NoError(t, err, "generate peer private key")
+	peerKey := priv.PublicKey().String()
+
+	// A three byte address has no textual form netip can parse back.
+	endpoint := &net.UDPAddr{IP: net.IP{1, 2, 3}, Port: 51820}
+	require.Error(t, c.UpdatePeer(peerKey, []netip.Prefix{netip.MustParsePrefix("10.30.0.0/16")},
+		25*time.Second, endpoint, nil), "an unusable endpoint must fail the update")
+
+	stats, err := c.FullStats()
+	require.NoError(t, err, "read device stats")
+	assert.Len(t, stats.Peers, 2, "the peer must not have reached the device")
+
+	_, ok := c.allowedIPs.get(peerKey)
+	assert.False(t, ok, "the peer must not have been recorded either")
 }

@@ -118,6 +118,19 @@ func (c *WGUSPConfigurer) UpdatePeer(peerKey string, allowedIps []netip.Prefix, 
 	if err != nil {
 		return err
 	}
+
+	// Everything that can fail is done before the device is touched, so a failure here
+	// cannot leave the device holding a peer that the activity recorder and the allowed
+	// IP store never learned about.
+	var addrPort netip.AddrPort
+	if endpoint != nil {
+		addr, err := netip.ParseAddr(endpoint.IP.String())
+		if err != nil {
+			return fmt.Errorf("parse endpoint address: %w", err)
+		}
+		addrPort = netip.AddrPortFrom(addr.Unmap(), uint16(endpoint.Port))
+	}
+
 	peer := wgtypes.PeerConfig{
 		PublicKey:         peerKeyParsed,
 		ReplaceAllowedIPs: false,
@@ -137,11 +150,6 @@ func (c *WGUSPConfigurer) UpdatePeer(peerKey string, allowedIps []netip.Prefix, 
 	}
 
 	if endpoint != nil {
-		addr, err := netip.ParseAddr(endpoint.IP.String())
-		if err != nil {
-			return fmt.Errorf("failed to parse endpoint address: %w", err)
-		}
-		addrPort := netip.AddrPortFrom(addr.Unmap(), uint16(endpoint.Port))
 		c.activityRecorder.UpsertAddress(peerKey, addrPort)
 	}
 
