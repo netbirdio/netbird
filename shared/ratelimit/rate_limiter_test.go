@@ -66,6 +66,8 @@ func TestAPIRateLimiter_Middleware(t *testing.T) {
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 	assert.Equal(t, http.StatusTooManyRequests, rr.Code)
+	assert.Equal(t, "application/json; charset=UTF-8", rr.Header().Get("Content-Type"))
+	assert.JSONEq(t, `{"message":"rate limit exceeded, please try again later","code":429}`, rr.Body.String())
 }
 
 func TestAPIRateLimiter_Middleware_DifferentIPs(t *testing.T) {

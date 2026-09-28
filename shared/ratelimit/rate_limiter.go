@@ -2,6 +2,7 @@ package ratelimit
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"net/http"
 	"os"
@@ -13,7 +14,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/time/rate"
 
-	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/trustedproxy"
 )
 
@@ -264,11 +264,29 @@ func (rl *APIRateLimiter) Middleware(next http.Handler) http.Handler {
 		}
 		clientIP := getClientIP(r, rl.config.TrustedProxies)
 		if !rl.Allow(clientIP) {
-			util.WriteErrorResponse("rate limit exceeded, please try again later", http.StatusTooManyRequests, w)
+			writeTooManyRequests(w)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// errorResponse is the JSON body of a rejected request.
+type errorResponse struct {
+	Message string `json:"message"`
+	Code    int    `json:"code"`
+}
+
+// writeTooManyRequests writes a JSON error response with status 429 Too Many Requests.
+func writeTooManyRequests(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+	w.WriteHeader(http.StatusTooManyRequests)
+	if err := json.NewEncoder(w).Encode(errorResponse{
+		Message: "rate limit exceeded, please try again later",
+		Code:    http.StatusTooManyRequests,
+	}); err != nil {
+		log.Debugf("writing rate limit response: %v", err)
+	}
 }
 
 // getClientIP extracts the client IP address from the request. Forwarding headers
