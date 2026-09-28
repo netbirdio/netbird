@@ -283,3 +283,26 @@ func TestUpdatePeerWithAnUnusableEndpointTouchesNothing(t *testing.T) {
 	_, ok := c.allowedIPs.get(peerKey)
 	assert.False(t, ok, "the peer must not have been recorded either")
 }
+
+// TestRemovePeerKeepsTheRecordWhenTheDeviceRefuses covers a removal that never reached the
+// device. A single peer removal is one write, so a failure leaves the peer on the device
+// exactly as it was, and the record still describes it; dropping it would only force the
+// next caller to read the whole device back for an answer it already had.
+func TestRemovePeerKeepsTheRecordWhenTheDeviceRefuses(t *testing.T) {
+	c := newTestUSPConfigurer(t)
+	peerKey := seedPeers(t, c, 1)[0]
+	require.NoError(t, c.AddAllowedIP(peerKey, netip.MustParsePrefix("10.20.0.0/16")), "add routed prefix")
+
+	before, ok := c.allowedIPs.get(peerKey)
+	require.True(t, ok, "the peer must be recorded before the removal")
+	require.Len(t, before, 2, "overlay address plus routed prefix")
+
+	// A closed device refuses every write, which is the shape of any failed removal.
+	c.device.Close()
+
+	require.Error(t, c.RemovePeer(peerKey), "the removal must report the failure")
+
+	after, ok := c.allowedIPs.get(peerKey)
+	require.True(t, ok, "a peer still on the device must stay recorded")
+	assert.Equal(t, before, after, "the record must describe the peer the device kept")
+}

@@ -215,11 +215,13 @@ func (c *WGUSPConfigurer) RemovePeer(peerKey string) error {
 	config := wgtypes.Config{
 		Peers: []wgtypes.PeerConfig{peer},
 	}
-	ipcErr := c.device.IpcSet(toWgUserspaceString(config))
+	if ipcErr := c.device.IpcSet(toWgUserspaceString(config)); ipcErr != nil {
+		return ipcErr
+	}
 
 	c.activityRecorder.Remove(peerKey)
 	c.allowedIPs.forget(peerKey)
-	return ipcErr
+	return nil
 }
 
 func (c *WGUSPConfigurer) AddAllowedIP(peerKey string, allowedIP netip.Prefix) error {
