@@ -844,7 +844,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 		}
 
 		var freeLabel string
-		if ephemeral || attempt > 1 {
+		if attempt > 1 {
 			freeLabel, err = getPeerIPDNSLabel(freeIP, peer.Meta.Hostname)
 			if err != nil {
 				return nil, nil, nil, false, fmt.Errorf("failed to get free DNS label: %w", err)
