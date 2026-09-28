@@ -166,11 +166,6 @@ func (c *KernelConfigurer) RemovePeer(peerKey string) error {
 }
 
 func (c *KernelConfigurer) AddAllowedIP(peerKey string, allowedIP netip.Prefix) error {
-	ipNet := net.IPNet{
-		IP:   allowedIP.Addr().AsSlice(),
-		Mask: net.CIDRMask(allowedIP.Bits(), allowedIP.Addr().BitLen()),
-	}
-
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
 	if err != nil {
 		return err
@@ -179,7 +174,7 @@ func (c *KernelConfigurer) AddAllowedIP(peerKey string, allowedIP netip.Prefix) 
 		PublicKey:         peerKeyParsed,
 		UpdateOnly:        true,
 		ReplaceAllowedIPs: false,
-		AllowedIPs:        []net.IPNet{ipNet},
+		AllowedIPs:        prefixesToIPNets([]netip.Prefix{allowedIP}),
 	}
 
 	config := wgtypes.Config{

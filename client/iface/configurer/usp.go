@@ -215,11 +215,6 @@ func (c *WGUSPConfigurer) RemovePeer(peerKey string) error {
 }
 
 func (c *WGUSPConfigurer) AddAllowedIP(peerKey string, allowedIP netip.Prefix) error {
-	ipNet := net.IPNet{
-		IP:   allowedIP.Addr().AsSlice(),
-		Mask: net.CIDRMask(allowedIP.Bits(), allowedIP.Addr().BitLen()),
-	}
-
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
 	if err != nil {
 		return err
@@ -228,7 +223,7 @@ func (c *WGUSPConfigurer) AddAllowedIP(peerKey string, allowedIP netip.Prefix) e
 		PublicKey:         peerKeyParsed,
 		UpdateOnly:        true,
 		ReplaceAllowedIPs: false,
-		AllowedIPs:        []net.IPNet{ipNet},
+		AllowedIPs:        prefixesToIPNets([]netip.Prefix{allowedIP}),
 	}
 
 	config := wgtypes.Config{

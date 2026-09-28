@@ -235,3 +235,26 @@ func TestPresharedKeyCreatedPeerTakesPartInPrefixHandover(t *testing.T) {
 		"clearing A's endpoint must not take the prefix back from B")
 	assert.Contains(t, peerAllowedIPs(t, c, peerB), routed.String(), "B must still hold the prefix")
 }
+
+// TestUpdatePeerDoesNotWidenAMappedPrefixOnTheDevice is the end to end form of the
+// conversion: a v4-mapped prefix must not reach the device as a zero length allowed IP,
+// which would route every v4 address to that peer.
+func TestUpdatePeerDoesNotWidenAMappedPrefixOnTheDevice(t *testing.T) {
+	c := newTestUSPConfigurer(t)
+
+	priv, err := wgtypes.GeneratePrivateKey()
+	require.NoError(t, err, "generate peer private key")
+	peerKey := priv.PublicKey().String()
+
+	mapped := netip.MustParsePrefix("::ffff:10.1.2.3/112")
+	require.NoError(t, c.UpdatePeer(peerKey, []netip.Prefix{mapped}, 25*time.Second, nil, nil), "add peer")
+
+	onDevice := peerAllowedIPs(t, c, peerKey)
+	assert.NotContains(t, onDevice, "0.0.0.0/0", "the device must not be given a catch-all allowed IP")
+	assert.Equal(t, []string{"10.1.0.0/16"}, onDevice, "the device holds the normalized prefix")
+
+	recorded, ok := c.allowedIPs.get(peerKey)
+	require.True(t, ok, "the peer must be recorded")
+	require.Len(t, recorded, 1, "one prefix recorded")
+	assert.Equal(t, onDevice[0], recorded[0].String(), "device and store must agree")
+}
