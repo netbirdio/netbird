@@ -3392,6 +3392,18 @@ components:
             - "observe"
           default: "off"
           description: CrowdSec IP reputation mode. Only available when the proxy cluster supports CrowdSec.
+        allow_match:
+          type: string
+          enum:
+            - "all"
+            - "any"
+          default: "all"
+          description: >-
+            How the allowlists (allowed_cidrs, allowed_countries) combine.
+            "all" (default) requires a connection to match every configured
+            allowlist (AND); "any" requires it to match at least one (OR), e.g.
+            an allowed country OR an allowed CIDR. Blocklists always reject on
+            match regardless of this setting.
     PasswordAuthConfig:
       type: object
       properties:
