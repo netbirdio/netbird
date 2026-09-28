@@ -34,14 +34,12 @@ type Conn struct {
 	metrics   TxMetrics
 }
 
-// NewConn takes ownership of an open gorm handle and pool, applying the
-// connection limits and transaction timeout configured through the environment.
+// NewConn takes ownership of an open gorm handle and pool once it returns
+// without error, applying the connection limits and transaction timeout
+// configured through the environment.
 func NewConn(ctx context.Context, gormDB *gorm.DB, engine Engine, pool *pgxpool.Pool) (*Conn, error) {
 	sqlDB, err := gormDB.DB()
 	if err != nil {
-		if pool != nil {
-			pool.Close()
-		}
 		return nil, err
 	}
 
