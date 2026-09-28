@@ -766,7 +766,7 @@ func (s *Server) beginSSOLogin(ctx context.Context, config *profilemanager.Confi
 	if msg.Hint != nil {
 		hint = *msg.Hint
 	}
-	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.IsUnixDesktopClient, false, hint)
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.IsUnixDesktopClient, msg.GetUseDeviceAuth(), hint)
 	if err != nil {
 		state.Set(internal.StatusLoginFailed)
 		return nil, err
@@ -800,16 +800,20 @@ func (s *Server) beginSSOLogin(ctx context.Context, config *profilemanager.Confi
 }
 
 // pendingOAuthFlowResponse returns the in-flight flow's response when it
-// targets the same IdP client and has enough time left for the user to finish
-// the browser leg, so a second login joins the pending flow instead of opening
-// a competing one. A flow too close to expiry has its waiter cancelled and nil
+// targets the same IdP client with the same flow type and has enough time left
+// for the user to finish the browser leg, so a second login joins the pending
+// flow instead of opening a competing one. A flow that no longer matches — too
+// close to expiry, or a different flow type — has its waiter cancelled and nil
 // returned, leaving the caller to start a fresh flow.
 func (s *Server) pendingOAuthFlowResponse(ctx context.Context, oAuthFlow auth.OAuthFlow) *proto.LoginResponse {
 	if s.oauthAuthFlow.flow == nil || s.oauthAuthFlow.flow.GetClientID(ctx) != oAuthFlow.GetClientID(ctx) {
 		return nil
 	}
 
-	if s.oauthAuthFlow.expiresAt.After(time.Now().Add(90 * time.Second)) {
+	_, cachedIsDevice := s.oauthAuthFlow.flow.(*auth.DeviceAuthorizationFlow)
+	_, requestedIsDevice := oAuthFlow.(*auth.DeviceAuthorizationFlow)
+
+	if cachedIsDevice == requestedIsDevice && s.oauthAuthFlow.expiresAt.After(time.Now().Add(90*time.Second)) {
 		log.Debugf("using previous oauth flow info")
 		return &proto.LoginResponse{
 			NeedsSSOLogin:           true,
@@ -935,13 +939,12 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 
 	s.mutex.Lock()
 	s.oauthAuthFlow.waitCancel = cancel
+	waitingOn := s.oauthAuthFlow.flow
 	s.mutex.Unlock()
 
-	tokenInfo, err := s.oauthAuthFlow.flow.WaitToken(waitCTX, flowInfo)
+	tokenInfo, err := waitingOn.WaitToken(waitCTX, flowInfo)
 	if err != nil {
-		s.mutex.Lock()
-		s.oauthAuthFlow.expiresAt = time.Now()
-		s.mutex.Unlock()
+		s.expireOAuthFlow(waitingOn)
 		switch {
 		case errors.Is(err, context.Canceled):
 			// External abort. If our caller cancelled (the client closed
@@ -953,9 +956,7 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 			// Login/WaitSSOLogin, callerCtx still live) leaves the flow for
 			// the new owner — don't clobber it.
 			if callerCtx.Err() != nil {
-				s.mutex.Lock()
-				s.oauthAuthFlow = oauthAuthFlow{}
-				s.mutex.Unlock()
+				s.clearOAuthFlow(waitingOn)
 			}
 		case errors.Is(err, context.DeadlineExceeded):
 			// OAuth device-code window expired with no user action.
@@ -970,9 +971,7 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 		return nil, err
 	}
 
-	s.mutex.Lock()
-	s.oauthAuthFlow.expiresAt = time.Now()
-	s.mutex.Unlock()
+	s.expireOAuthFlow(waitingOn)
 
 	if loginStatus, err := s.attemptLogin(ctx, "", tokenInfo.GetTokenToUse()); err != nil {
 		state.Set(loginStatus)
@@ -983,6 +982,24 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 	return &proto.WaitSSOLoginResponse{
 		Email: tokenInfo.Email,
 	}, nil
+}
+
+func (s *Server) expireOAuthFlow(waitingOn auth.OAuthFlow) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if s.oauthAuthFlow.flow == waitingOn {
+		s.oauthAuthFlow.expiresAt = time.Now()
+	}
+}
+
+func (s *Server) clearOAuthFlow(waitingOn auth.OAuthFlow) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if s.oauthAuthFlow.flow == waitingOn {
+		s.oauthAuthFlow = oauthAuthFlow{}
+	}
 }
 
 // Up starts engine work in the daemon.
@@ -1992,7 +2009,7 @@ func (s *Server) RequestExtendAuthSession(
 	}
 
 	// the daemon has no graphical session of its own, only the caller can answer this
-	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.GetHasGraphicalSession(), false, hint)
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.GetHasGraphicalSession(), msg.GetUseDeviceAuth(), hint)
 	if err != nil {
 		return nil, gstatus.Errorf(codes.Internal, "failed to create OAuth flow: %v", err)
 	}

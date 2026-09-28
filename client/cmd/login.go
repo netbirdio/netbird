@@ -31,6 +31,7 @@ var extendSessionFlag bool
 
 func init() {
 	loginCmd.PersistentFlags().BoolVar(&noBrowser, noBrowserFlag, false, noBrowserDesc)
+	loginCmd.PersistentFlags().BoolVar(&useDeviceAuth, useDeviceAuthFlag, false, useDeviceAuthDesc)
 	loginCmd.PersistentFlags().BoolVar(&showQR, showQRFlag, false, showQRDesc)
 	loginCmd.PersistentFlags().StringVar(&profileName, profileNameFlag, "", profileNameDesc)
 	loginCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "(DEPRECATED) Netbird config file location")
@@ -138,6 +139,10 @@ func doDaemonLogin(ctx context.Context, cmd *cobra.Command, providedSetupKey str
 		loginRequest.OptionalPreSharedKey = &preSharedKey
 	}
 
+	if cmd.Flags().Changed(useDeviceAuthFlag) {
+		loginRequest.UseDeviceAuth = &useDeviceAuth
+	}
+
 	var loginErr error
 
 	var loginResp *proto.LoginResponse
@@ -190,6 +195,9 @@ func doExtendSession(ctx context.Context, cmd *cobra.Command, activeProf *profil
 
 	// the CLI runs in the user's session, the daemon does not: tell it what we can see
 	req := &proto.RequestExtendAuthSessionRequest{HasGraphicalSession: util.HasGraphicalSession()}
+	if cmd.Flags().Changed(useDeviceAuthFlag) {
+		req.UseDeviceAuth = &useDeviceAuth
+	}
 	// Pre-fill the IdP login hint from the resolved profile so the user
 	// doesn't have to retype their email. Best-effort: we still proceed
 	// without a hint if the lookup fails.
@@ -412,7 +420,7 @@ func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *pro
 		hint = profileState.Email
 	}
 
-	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, util.HasGraphicalSession(), false, hint)
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, util.HasGraphicalSession(), useDeviceAuth, hint)
 	if err != nil {
 		return nil, err
 	}
