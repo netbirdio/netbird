@@ -224,3 +224,47 @@ func TestICEReplacementRetiresOldEndpointBeforeNewAgent(t *testing.T) {
 	require.Equal(t, 1, endpoint.removals, "old endpoint must retire before a new agent takes ownership")
 	require.Equal(t, conntype.None, conn.currentConnPriority, "dead direct path must not block relay fallback")
 }
+
+// Network expiry must retire the endpoint even if ICE never emits a terminal callback.
+func TestNetworkExpiryRetiresICEWithoutStateCallback(t *testing.T) {
+	for _, offline := range []bool{false, true} {
+		name := "handover"
+		if offline {
+			name = "offline"
+		}
+		t.Run(name, func(t *testing.T) {
+			w := newTestWorkerICE(t)
+			conn, endpoint := connectedCallbackTestConn()
+			w.conn = conn
+			manager := netevents.NewManager(networkRecorderStub{})
+			w.config.NetMgr = manager
+			dialCtx, dialCancel := context.WithCancel(w.ctx)
+			agent, release, err := w.reCreateAgent(dialCancel, []ice.CandidateType{ice.CandidateTypeHost})
+			require.NoError(t, err)
+			t.Cleanup(release)
+			t.Cleanup(func() { require.NoError(t, agent.Close()) })
+			require.NoError(t, agent.OnConnectionStateChange(func(ice.ConnectionState) {}))
+			w.muxAgent.Lock()
+			w.agent = agent
+			w.agentDialerCancel = release
+			w.agentConnecting = true
+			w.lastKnownState = ice.ConnectionStateConnected
+			w.muxAgent.Unlock()
+			if offline {
+				manager.SetNetworkAvailable(false)
+			} else {
+				manager.NotifyNetworkChange()
+			}
+			require.Eventually(t, func() bool {
+				conn.mu.Lock()
+				defer conn.mu.Unlock()
+				w.muxAgent.Lock()
+				defer w.muxAgent.Unlock()
+				return w.agent == nil && !w.agentConnecting &&
+					w.lastKnownState == ice.ConnectionStateDisconnected &&
+					endpoint.removals == 1 && conn.currentConnPriority == conntype.None
+			}, 2*time.Second, time.Millisecond, "expiry must clear worker and endpoint without a callback")
+			require.ErrorIs(t, dialCtx.Err(), context.Canceled)
+		})
+	}
+}

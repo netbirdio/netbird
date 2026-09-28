@@ -101,6 +101,8 @@ type ConnConfig struct {
 }
 
 type Conn struct {
+	// lifecycleMu serializes open/close while shutdown waits without holding mu.
+	lifecycleMu        sync.Mutex
 	Log                *log.Entry
 	mu                 sync.Mutex
 	ctx                context.Context
@@ -229,6 +231,8 @@ func (conn *Conn) OpenWithFirstPacket(engineCtx context.Context, firstPacket []b
 }
 
 func (conn *Conn) open(engineCtx context.Context, firstPacket []byte) error {
+	conn.lifecycleMu.Lock()
+	defer conn.lifecycleMu.Unlock()
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
@@ -293,8 +297,13 @@ func (conn *Conn) open(engineCtx context.Context, firstPacket []byte) error {
 
 // Close closes this peer Conn issuing a close event to the Conn closeCh
 func (conn *Conn) Close(signalToRemote bool) {
+	conn.lifecycleMu.Lock()
+	defer conn.lifecycleMu.Unlock()
 	conn.mu.Lock()
+	// Handshake callbacks need mu to observe shutdown and finish. Keep lifecycle
+	// serialization until both groups exit, but release mu before waiting.
 	defer conn.wgWatcherWg.Wait()
+	defer conn.wg.Wait()
 	defer conn.mu.Unlock()
 
 	if !conn.opened {
@@ -347,7 +356,6 @@ func (conn *Conn) Close(signalToRemote bool) {
 
 	conn.setStatusToDisconnected()
 	conn.opened = false
-	conn.wg.Wait()
 	conn.Log.Infof("peer connection closed")
 }
 

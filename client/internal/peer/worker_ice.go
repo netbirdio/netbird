@@ -104,6 +104,10 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	w.muxAgent.Lock()
 	defer w.muxAgent.Unlock()
 
+	if w.ctx.Err() != nil {
+		return
+	}
+
 	if w.agent != nil || w.agentConnecting {
 		// backward compatibility with old clients that do not send session ID
 		if remoteOfferAnswer.SessionID == nil {
@@ -275,9 +279,7 @@ func (w *WorkerICE) reCreateAgent(dialerCancel context.CancelFunc, candidates []
 
 	if w.config.NetMgr != nil {
 		context.AfterFunc(registration.Ctx(), func() {
-			if err := agent.Close(); err != nil {
-				w.log.Warnf("failed to close ICE agent after network change: %s", err)
-			}
+			w.closeAgent(agent, cancel)
 		})
 	}
 	return agent, cancel, nil
