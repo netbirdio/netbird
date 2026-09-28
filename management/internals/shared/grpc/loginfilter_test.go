@@ -167,9 +167,16 @@ func (s *LoginFilterTestSuite) TestReconnectStormAfterQuietPeriodTriggersBan() {
 	s.Require().Contains(s.filter.logged, pubKey)
 	s.filter.logged[pubKey].sessionStart = time.Now().Add(-(s.filter.cfg.reconnThreshold + time.Second))
 
-	for i := 0; i <= limit; i++ {
+	s.filter.addLogin(pubKey, meta)
+	s.Equal(1, s.filter.logged[pubKey].sessionCounter, "expired window should restart the count")
+
+	for i := 1; i < limit; i++ {
 		s.filter.addLogin(pubKey, meta)
 	}
+	s.True(s.filter.allowLogin(pubKey, meta))
+	s.False(s.filter.logged[pubKey].isBanned)
+
+	s.filter.addLogin(pubKey, meta)
 
 	s.False(s.filter.allowLogin(pubKey, meta))
 	s.True(s.filter.logged[pubKey].isBanned)
