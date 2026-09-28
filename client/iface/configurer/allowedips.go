@@ -131,6 +131,8 @@ func (s *allowedIPStore) reset() {
 	s.owners = make(map[netip.Prefix]wgtypes.Key)
 }
 
+// mergeLocked unions normalized prefixes into a peer and transfers their ownership.
+// The caller must hold s.mu for writing.
 func (s *allowedIPStore) mergeLocked(k wgtypes.Key, prefixes []netip.Prefix) {
 	merged := s.peers[k]
 	for _, prefix := range prefixes {
@@ -181,6 +183,7 @@ func normalizePrefix(prefix netip.Prefix) netip.Prefix {
 	return netip.PrefixFrom(addr.Unmap(), masked.Bits()-96)
 }
 
+// normalizePrefixes returns a normalized copy without changing the caller's slice.
 func normalizePrefixes(prefixes []netip.Prefix) []netip.Prefix {
 	normalized := make([]netip.Prefix, len(prefixes))
 	for i, prefix := range prefixes {
