@@ -3,7 +3,6 @@ package peer
 import (
 	"context"
 	"errors"
-	"net"
 	"net/netip"
 	"sync"
 	"sync/atomic"
@@ -14,7 +13,7 @@ import (
 )
 
 type RelayConnInfo struct {
-	relayedConn     net.Conn
+	relayedConn     *relayClient.Conn
 	rosenpassPubKey []byte
 	rosenpassAddr   string
 }
@@ -27,7 +26,7 @@ type WorkerRelay struct {
 	conn         *Conn
 	relayManager *relayClient.Manager
 
-	relayedConn net.Conn
+	relayedConn *relayClient.Conn
 	relayLock   sync.Mutex
 
 	relaySupportedOnRemotePeer atomic.Bool
@@ -80,12 +79,7 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	w.relayedConn = relayedConn
 	w.relayLock.Unlock()
 
-	err = w.relayManager.AddCloseListener(srv, w.onRelayClientDisconnected)
-	if err != nil {
-		log.Errorf("failed to add close listener: %s", err)
-		_ = relayedConn.Close()
-		return
-	}
+	go w.watchRelayedConn(relayedConn)
 
 	w.log.Debugf("peer conn opened via Relay: %s", srv)
 	go w.conn.onRelayConnectionIsReady(RelayConnInfo{
@@ -109,12 +103,15 @@ func (w *WorkerRelay) RelayIsSupportedLocally() bool {
 
 func (w *WorkerRelay) CloseConn() {
 	w.relayLock.Lock()
-	defer w.relayLock.Unlock()
-	if w.relayedConn == nil {
+	conn := w.relayedConn
+	w.relayedConn = nil
+	w.relayLock.Unlock()
+
+	if conn == nil {
 		return
 	}
 
-	if err := w.relayedConn.Close(); err != nil {
+	if err := conn.Close(); err != nil {
 		w.log.Warnf("failed to close relay connection: %v", err)
 	}
 }
@@ -133,6 +130,8 @@ func (w *WorkerRelay) preferredRelayServer(myRelayAddress, remoteRelayAddress st
 	return remoteRelayAddress
 }
 
-func (w *WorkerRelay) onRelayClientDisconnected() {
-	go w.conn.onRelayDisconnected()
+func (w *WorkerRelay) watchRelayedConn(relayedConn *relayClient.Conn) {
+	<-relayedConn.Context().Done()
+
+	w.conn.onRelayDisconnected(relayedConn)
 }

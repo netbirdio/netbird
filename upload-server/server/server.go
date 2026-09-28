@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/management/server/http/middleware"
 	"github.com/netbirdio/netbird/upload-server/types"
 )
 
@@ -19,7 +20,8 @@ const (
 )
 
 type Server struct {
-	srv *http.Server
+	srv     *http.Server
+	limiter *middleware.APIRateLimiter
 }
 
 func NewServer() *Server {
@@ -29,7 +31,7 @@ func NewServer() *Server {
 		address = "0.0.0.0:8080"
 	}
 	mux := http.NewServeMux()
-	err := configureMux(mux)
+	limiter, err := configureMux(mux)
 	if err != nil {
 		log.Fatalf("Failed to configure server: %v", err)
 	}
@@ -38,7 +40,8 @@ func NewServer() *Server {
 	})
 
 	return &Server{
-		srv: &http.Server{Addr: address, Handler: mux},
+		srv:     &http.Server{Addr: address, Handler: mux},
+		limiter: limiter,
 	}
 }
 
@@ -48,6 +51,9 @@ func (s *Server) Start() error {
 }
 
 func (s *Server) Stop() error {
+	if s.limiter != nil {
+		s.limiter.Stop()
+	}
 	if s.srv != nil {
 		log.Infof("Stopping upload server on %s", s.srv.Addr)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -57,13 +63,14 @@ func (s *Server) Stop() error {
 	return nil
 }
 
-func configureMux(mux *http.ServeMux) error {
+func configureMux(mux *http.ServeMux) (*middleware.APIRateLimiter, error) {
+	limiter := newRateLimiter()
+
 	_, ok := os.LookupEnv(bucketVar)
 	if ok {
-		return configureS3Handlers(mux)
-	} else {
-		return configureLocalHandlers(mux)
+		return limiter, configureS3Handlers(mux, limiter)
 	}
+	return limiter, configureLocalHandlers(mux, limiter)
 }
 
 func getObjectKey(w http.ResponseWriter, r *http.Request) string {
