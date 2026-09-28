@@ -369,31 +369,10 @@ func (w *WorkerICE) connect(ctx context.Context, dialerCancel context.CancelFunc
 	w.log.Debugf("on ICE conn is ready to use")
 
 	w.log.Infof("connection succeeded with offer session: %s", remoteOfferAnswer.SessionIDString())
-	w.muxAgent.Lock()
-	// Authoritative ownership guard: a negotiation that lost w.agent to a newer
-	// one between the post-dial check and the commit must not clear agentConnecting,
-	// record lastSuccess or report the connection, so the state commit has to be
-	// atomic with the check.
-	if w.agent != agent {
-		w.muxAgent.Unlock()
-		if err := remoteConn.Close(); err != nil {
-			w.log.Warnf("failed to close stale ICE connection: %s", err)
-		}
-		w.log.Warnf("discarding connection from a stale ICE negotiation")
-		return
-	}
-	w.agentConnecting = false
-	w.lastSuccess = time.Now()
-	w.muxAgent.Unlock()
-
-	// todo: the potential problem is a race between the onConnectionStateChange
-	// and the delivery below: after this unlock, a newer offer can replace
-	// w.agent before onICEConnectionIsReady runs, delivering this (now stale)
-	// connection. The newer negotiation overwrites it with its own delivery,
-	// so the window only ever downgrades an endpoint transiently.
-	w.conn.onICEConnectionIsReady(selectedPriority(pair), ci)
+	w.conn.onICEConnectionIsReady(w, agent, selectedPriority(pair), ci)
 }
 
+// closeAgent releases the agent and retires its endpoint only if it still owns the worker.
 func (w *WorkerICE) closeAgent(agent *icemaker.ThreadSafeAgent, cancel context.CancelFunc) bool {
 	cancel()
 	if err := agent.Close(); err != nil {

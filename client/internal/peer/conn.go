@@ -419,19 +419,29 @@ func (conn *Conn) ConnID() id.ConnID {
 	return id.ConnID(conn)
 }
 
-// configureConnection starts proxying traffic from/to local Wireguard and sets connection status to StatusConnected
-func (conn *Conn) onICEConnectionIsReady(priority conntype.ConnPriority, iceConnInfo ICEConnInfo) {
-	conn.mu.Lock()
-	defer conn.mu.Unlock()
-
-	if conn.ctx.Err() != nil {
-		return
-	}
-
+// onICEConnectionIsReady publishes a dial result only while its agent still owns
+// the worker. Publication and retirement use the same conn.mu -> muxAgent order.
+func (conn *Conn) onICEConnectionIsReady(source *WorkerICE, agent *icemaker.ThreadSafeAgent, priority conntype.ConnPriority, iceConnInfo ICEConnInfo) {
 	if remoteConnNil(conn.Log, iceConnInfo.RemoteConn) {
 		conn.Log.Errorf("remote ICE connection is nil")
 		return
 	}
+
+	conn.mu.Lock()
+	source.muxAgent.Lock()
+	if conn.ctx.Err() != nil || source.ctx.Err() != nil || conn.workerICE != source || source.agent != agent {
+		source.muxAgent.Unlock()
+		conn.mu.Unlock()
+		if err := iceConnInfo.RemoteConn.Close(); err != nil {
+			conn.Log.Warnf("failed to close stale ICE connection: %s", err)
+		}
+		return
+	}
+	defer conn.mu.Unlock()
+	defer source.muxAgent.Unlock()
+
+	source.agentConnecting = false
+	source.lastSuccess = time.Now()
 
 	// this never should happen, because Relay is the lower priority and ICE always close the deprecated connection before upgrade
 	// todo consider to remove this check
