@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"os/user"
 	"testing"
@@ -12,7 +13,11 @@ import (
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 )
 
-func TestDebugCPUStartStop(t *testing.T) {
+// startDebugTestDaemon starts an in-process daemon with an isolated profile
+// directory and returns the address the CLI should dial.
+func startDebugTestDaemon(t *testing.T) string {
+	t.Helper()
+
 	tempDir := t.TempDir()
 	origDefaultProfileDir := profilemanager.DefaultConfigPathDir
 	origActiveProfileStatePath := profilemanager.ActiveProfileStatePath
@@ -45,12 +50,30 @@ func TestDebugCPUStartStop(t *testing.T) {
 		cancel()
 		srv.Stop()
 	})
-	addr := "tcp://" + lis.Addr().String()
+
+	return "tcp://" + lis.Addr().String()
+}
+
+// runDebugCmd runs `netbird debug <args>` against the daemon at addr and
+// returns everything the command printed.
+func runDebugCmd(addr string, args ...string) (string, error) {
+	daemonAddr = addr
+	var out bytes.Buffer
+	rootCmd.SetOut(&out)
+	rootCmd.SetErr(&out)
+	rootCmd.SetArgs(append(append([]string{"debug"}, args...), "--daemon-addr", addr, "--log-file", ""))
+	err := rootCmd.Execute()
+	rootCmd.SetOut(nil)
+	rootCmd.SetErr(nil)
+	return out.String(), err
+}
+
+func TestDebugCPUStartStop(t *testing.T) {
+	addr := startDebugTestDaemon(t)
 
 	run := func(args ...string) error {
-		daemonAddr = addr
-		rootCmd.SetArgs(append([]string{"debug", "cpu"}, append(args, "--daemon-addr", addr, "--log-file", "")...))
-		return rootCmd.Execute()
+		_, err := runDebugCmd(addr, append([]string{"cpu"}, args...)...)
+		return err
 	}
 
 	require.Error(t, run("stop"), "stop without a running profile must fail")
@@ -60,4 +83,14 @@ func TestDebugCPUStartStop(t *testing.T) {
 	assert.Error(t, run("stop"), "second stop must be rejected")
 	assert.NoError(t, run("start"), "profiling can be started again after a stop")
 	assert.NoError(t, run("stop"))
+}
+
+func TestDebugForNoUpDown(t *testing.T) {
+	addr := startDebugTestDaemon(t)
+
+	out, err := runDebugCmd(addr, "for", "1s", "-S=false", "--no-updown")
+	require.NoError(t, err, "output: %s", out)
+	assert.NotContains(t, out, "netbird down", "--no-updown must not bring the daemon down")
+	assert.NotContains(t, out, "netbird up", "--no-updown must not bring the daemon up")
+	assert.Contains(t, out, "Local file:", "the bundle must still be created")
 }
