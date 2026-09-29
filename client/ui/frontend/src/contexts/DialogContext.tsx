@@ -8,6 +8,28 @@ import {
     useState,
 } from "react";
 import { ConfirmModal } from "@/components/dialog/ConfirmModal";
+import i18next from "@/lib/i18n";
+
+// Nothing on the daemon path carries a deadline, so a hung call would leave the
+// modal spinning with no way out. Cancel comes back once the wait stops looking
+// normal, and the wait is abandoned entirely at the deadline.
+const CANCELLABLE_AFTER_MS = 5_000;
+const TIMEOUT_MS = 30_000;
+
+const withTimeout = async (action: () => Promise<unknown>) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expiry = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+            () => reject(new Error(i18next.t("error.daemon_unreachable"))),
+            TIMEOUT_MS,
+        );
+    });
+    try {
+        await Promise.race([action(), expiry]);
+    } finally {
+        clearTimeout(timer);
+    }
+};
 
 export type ConfirmOptions = {
     title: ReactNode;
@@ -15,6 +37,7 @@ export type ConfirmOptions = {
     confirmLabel: string;
     cancelLabel?: string;
     danger?: boolean;
+    onConfirm?: () => Promise<unknown>;
 };
 
 type DialogContextValue = {
@@ -23,23 +46,48 @@ type DialogContextValue = {
 
 const DialogContext = createContext<DialogContextValue | null>(null);
 
+type Settler = { resolve: (result: boolean) => void; reject: (reason: unknown) => void };
+
 export function DialogProvider({ children }: Readonly<{ children: ReactNode }>) {
     const [open, setOpen] = useState(false);
+    const [busy, setBusy] = useState(false);
+    const [stalled, setStalled] = useState(false);
     const [options, setOptions] = useState<ConfirmOptions | null>(null);
-    const resolverRef = useRef<((result: boolean) => void) | null>(null);
+    const resolverRef = useRef<Settler | null>(null);
 
     const confirm = useCallback((opts: ConfirmOptions) => {
         setOptions(opts);
         setOpen(true);
-        return new Promise<boolean>((resolve) => {
-            resolverRef.current = resolve;
+        return new Promise<boolean>((resolve, reject) => {
+            resolverRef.current = { resolve, reject };
         });
     }, []);
 
-    const settle = (result: boolean) => {
-        resolverRef.current?.(result);
+    const take = () => {
+        const settler = resolverRef.current;
         resolverRef.current = null;
+        setBusy(false);
+        setStalled(false);
         setOpen(false);
+        return settler;
+    };
+
+    const handleConfirm = async () => {
+        const action = options?.onConfirm;
+        if (!action) {
+            take()?.resolve(true);
+            return;
+        }
+        setBusy(true);
+        const stallTimer = setTimeout(() => setStalled(true), CANCELLABLE_AFTER_MS);
+        try {
+            await withTimeout(action);
+            take()?.resolve(true);
+        } catch (e) {
+            take()?.reject(e);
+        } finally {
+            clearTimeout(stallTimer);
+        }
     };
 
     const value = useMemo<DialogContextValue>(() => ({ confirm }), [confirm]);
@@ -54,8 +102,10 @@ export function DialogProvider({ children }: Readonly<{ children: ReactNode }>) 
                 confirmLabel={options?.confirmLabel ?? ""}
                 cancelLabel={options?.cancelLabel}
                 danger={options?.danger}
-                onConfirm={() => settle(true)}
-                onCancel={() => settle(false)}
+                busy={busy}
+                cancellable={!busy || stalled}
+                onConfirm={() => void handleConfirm()}
+                onCancel={() => take()?.resolve(false)}
             />
         </DialogContext.Provider>
     );
