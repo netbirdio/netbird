@@ -425,7 +425,6 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			log.Error(err)
 			return wrapErr(err)
 		}
-		c.notifyWgPortFallback(engineConfig.WgPort)
 		engineConfig.TempDir = mobileDependency.TempDir
 		// Leave StateDir empty when there is no state path so a disk-backed
 		// syncstore falls back to os.TempDir() instead of filepath.Dir("") == ".".
@@ -472,6 +471,8 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			log.Errorf("error while starting Netbird Connection Engine: %s", err)
 			return wrapErr(err)
 		}
+
+		c.notifyWgPortFallback(engineConfig.WgPort)
 
 		// Seed the session-expiry deadline from the LoginResponse. Subsequent
 		// changes flow in through SyncResponse and are applied in handleSync.
