@@ -128,6 +128,23 @@ func TestNotifyWgPortFallback(t *testing.T) {
 		assert.Equal(t, "51820", events[0].Metadata["configured_port"])
 	})
 
+	t.Run("publishes once across reconnect cycles", func(t *testing.T) {
+		c := newClient(51820)
+		// every cycle draws a different random fallback port
+		c.notifyWgPortFallback(40000)
+		c.notifyWgPortFallback(40001)
+		c.notifyWgPortFallback(40002)
+		assert.Len(t, c.statusRecorder.GetEventHistory(), 1)
+	})
+
+	t.Run("publishes again after the configured port recovered", func(t *testing.T) {
+		c := newClient(51820)
+		c.notifyWgPortFallback(40000)
+		c.notifyWgPortFallback(51820)
+		c.notifyWgPortFallback(40001)
+		assert.Len(t, c.statusRecorder.GetEventHistory(), 2)
+	})
+
 	t.Run("silent when the configured port is used", func(t *testing.T) {
 		c := newClient(51820)
 		c.notifyWgPortFallback(51820)

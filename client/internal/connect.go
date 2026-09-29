@@ -78,6 +78,10 @@ type ConnectClient struct {
 
 	persistSyncResponse bool
 
+	// wgPortWarned is the configured listen port for which the fallback warning
+	// was already published, so reconnect cycles do not repeat it. Zero when none.
+	wgPortWarned atomic.Int32
+
 	// netMgr gates every reconnection loop on OS-reported network
 	// availability and sweeps connections on network change.
 	netMgr *netevents.Manager
@@ -705,16 +709,22 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 }
 
 // notifyWgPortFallback publishes a warning event when the configured listen
-// port was taken and a different one is used.
+// port could not be used and a different one is used instead. It publishes once
+// per configured port until that port is usable again.
 func (c *ConnectClient) notifyWgPortFallback(port int) {
-	if c.config.WgPort == 0 || port == c.config.WgPort {
+	configured := c.config.WgPort
+	if configured == 0 || port == configured {
+		c.wgPortWarned.Store(0)
+		return
+	}
+	if c.wgPortWarned.Swap(int32(configured)) == int32(configured) {
 		return
 	}
 	c.statusRecorder.PublishEvent(
 		cProto.SystemEvent_WARNING,
 		cProto.SystemEvent_NETWORK,
-		fmt.Sprintf("WireGuard port %d is in use, using %d", c.config.WgPort, port),
-		fmt.Sprintf("Port %d is already in use by another application. NetBird is using port %d instead.", c.config.WgPort, port),
+		fmt.Sprintf("WireGuard port %d is unavailable, using %d", configured, port),
+		fmt.Sprintf("Port %d could not be used, it may be in use by another application. NetBird is using port %d instead.", configured, port),
 		map[string]string{"configured_port": strconv.Itoa(c.config.WgPort), "port": strconv.Itoa(port)},
 	)
 }
