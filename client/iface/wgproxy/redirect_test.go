@@ -227,6 +227,37 @@ func TestRedirectAs_eBPF_IPv4(t *testing.T) {
 	testRedirectAs(t, proxy, wgPort, nbAddr, p2pEndpoint)
 }
 
+// TestRedirectAs_eBPF_IPv4_RemoteOnWGPort covers a remote peer whose ICE
+// endpoint uses the same port as the local WireGuard interface, the default on
+// both sides. The redirected packets carry that endpoint as source, so an XDP
+// rule matching the source port alone diverts them back into the proxy.
+func TestRedirectAs_eBPF_IPv4_RemoteOnWGPort(t *testing.T) {
+	wgPort := 51857
+	ebpfProxy := ebpf.NewWGEBPFProxy(wgPort, 1280)
+	if err := ebpfProxy.Listen(); err != nil {
+		t.Fatalf("failed to initialize ebpf proxy: %v", err)
+	}
+	defer func() {
+		if err := ebpfProxy.Free(); err != nil {
+			t.Errorf("failed to free ebpf proxy: %v", err)
+		}
+	}()
+
+	proxy := ebpf.NewProxyWrapper(ebpfProxy)
+
+	nbAddr := &net.UDPAddr{
+		IP:   net.ParseIP("100.108.111.177"),
+		Port: 38746,
+	}
+
+	p2pEndpoint := &net.UDPAddr{
+		IP:   net.ParseIP("192.168.0.56"),
+		Port: wgPort,
+	}
+
+	testRedirectAs(t, proxy, wgPort, nbAddr, p2pEndpoint)
+}
+
 // TestRedirectAs_eBPF_IPv6 tests RedirectAs with eBPF proxy using IPv6 addresses
 func TestRedirectAs_eBPF_IPv6(t *testing.T) {
 	wgPort := 51851

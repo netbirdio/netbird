@@ -42,6 +42,13 @@ int xdp_wg_proxy(struct iphdr  *ip, struct udphdr *udp) {
         return XDP_PASS;
     }
 
+    // WireGuard reaches a relayed endpoint from the loopback address. Packets the
+    // proxy injects with a remote endpoint as source must reach WireGuard, even
+    // when that endpoint uses the WireGuard port too.
+    if (ip->saddr != htonl(2130706433)) {
+        return XDP_PASS;
+    }
+
     if (udp->source != wg_port){
         return XDP_PASS;
     }
