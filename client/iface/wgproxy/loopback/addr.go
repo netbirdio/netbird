@@ -66,5 +66,5 @@ func inRange(addr netip.Addr) bool {
 	}
 	b := addr.As4()
 	v := uint32(b[0])<<24 | uint32(b[1])<<16 | uint32(b[2])<<8 | uint32(b[3])
-	return v >= addrRangeBase && v < addrRangeBase+addrRangeSize
+	return v >= addrRangeBase && v < addrRangeBase+addrRangeSize && b[3] != 0 && b[3] != 0xff
 }

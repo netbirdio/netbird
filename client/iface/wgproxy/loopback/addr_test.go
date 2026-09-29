@@ -89,6 +89,8 @@ func TestInRange(t *testing.T) {
 	}{
 		{"127.128.0.1", true},
 		{"127.255.255.254", true},
+		{"127.128.0.0", false},     // network host, never handed out
+		{"127.128.5.255", false},   // broadcast host, never handed out
 		{"127.127.255.255", false}, // below the range, where 127.0.0.53 and friends live
 		{"127.0.0.1", false},
 		{"127.0.0.53", false},
