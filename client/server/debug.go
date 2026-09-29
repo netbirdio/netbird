@@ -27,7 +27,8 @@ import (
 
 // DebugBundle creates a debug bundle and returns the location.
 func (s *Server) DebugBundle(callerCtx context.Context, req *proto.DebugBundleRequest) (resp *proto.DebugBundleResponse, err error) {
-	if err := requirePrivilegeForUploadURL(callerCtx, req.GetUploadURL(), req.GetUploadInsecure(), req.GetUpload()); err != nil {
+	mdmUploadURL := s.mdmDebugUploadURL()
+	if err := requirePrivilegeForUploadURL(callerCtx, req.GetUploadURL(), req.GetUploadInsecure(), req.GetUpload(), mdmUploadURL != ""); err != nil {
 		return nil, err
 	}
 
@@ -36,7 +37,7 @@ func (s *Server) DebugBundle(callerCtx context.Context, req *proto.DebugBundleRe
 	// socket that carries no identity, which skips the UI log.
 	callerID, callerIdentified := ipcauth.CallerIdentity(callerCtx)
 
-	path, managementURL, publishedUploadURL, mdmUploadURL, err := s.generateDebugBundle(req, uiLogOpener(callerID, callerIdentified))
+	path, managementURL, publishedUploadURL, err := s.generateDebugBundle(req, uiLogOpener(callerID, callerIdentified))
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +87,7 @@ func redactUploadURL(raw string) string {
 // the management URL and the upload service the management server publishes,
 // both captured under the lock, so the caller can run the upload without
 // holding the lock.
-func (s *Server) generateDebugBundle(req *proto.DebugBundleRequest, uiOpener debug.LogOpener) (path string, managementURL string, publishedUploadURL string, mdmUploadURL string, err error) {
+func (s *Server) generateDebugBundle(req *proto.DebugBundleRequest, uiOpener debug.LogOpener) (path string, managementURL string, publishedUploadURL string, err error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -155,17 +156,28 @@ func (s *Server) generateDebugBundle(req *proto.DebugBundleRequest, uiOpener deb
 
 	path, err = bundleGenerator.Generate()
 	if err != nil {
-		return "", "", "", "", fmt.Errorf("generate debug bundle: %w", err)
+		return "", "", "", fmt.Errorf("generate debug bundle: %w", err)
 	}
 
-	if s.config != nil {
-		if s.config.ManagementURL != nil {
-			managementURL = s.config.ManagementURL.String()
-		}
-		mdmUploadURL = s.config.DebugBundleUploadURL
+	if s.config != nil && s.config.ManagementURL != nil {
+		managementURL = s.config.ManagementURL.String()
 	}
 
-	return path, managementURL, publishedUploadURL, mdmUploadURL, nil
+	return path, managementURL, publishedUploadURL, nil
+}
+
+// mdmDebugUploadURL reports the debug-bundle destination an MDM policy pins on
+// this device, empty when none does. Read before the bundle is generated,
+// because the privilege gate needs to know whether the caller's own URL can have
+// any effect.
+func (s *Server) mdmDebugUploadURL() string {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if s.config == nil {
+		return ""
+	}
+	return s.config.DebugBundleUploadURL
 }
 
 // GetLogLevel gets the current logging level for the server.

@@ -52,7 +52,16 @@ func uiLogOpener(id ipcauth.Identity, identified bool) debug.LogOpener {
 // for a self-hosted server. It weakens a root-privileged upload, so it is
 // refused for an unprivileged caller regardless of the host. upload says whether
 // the request asks for an upload at all; without one there is nothing to weaken.
-func requirePrivilegeForUploadURL(ctx context.Context, rawURL string, insecure, upload bool) error {
+//
+// mdmPinned says an MDM policy already fixes the destination. The caller's URL
+// is then discarded before the upload, so gating on it would only turn a bundle
+// that was going to the pinned host anyway into a refusal. Transport security
+// still is gated: relaxing TLS towards the pinned host is a real weakening.
+func requirePrivilegeForUploadURL(ctx context.Context, rawURL string, insecure, upload, mdmPinned bool) error {
+	if mdmPinned {
+		rawURL = ""
+	}
+
 	if rawURL == "" {
 		// An empty URL with upload requested is not "no upload": the daemon then
 		// resolves the destination the management server published. Relaxing TLS
