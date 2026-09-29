@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
-	"reflect"
 	"runtime"
 	"slices"
 	"strings"
@@ -540,7 +539,14 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if input.NATExternalIPs != nil && !reflect.DeepEqual(config.NATExternalIPs, input.NATExternalIPs) {
+	// slices.Equal, not reflect.DeepEqual, and for the same reason the DNS
+	// labels below use it: DeepEqual calls a nil slice and an empty one
+	// different, while both mean "no NAT mappings". A profile stores the
+	// absent list as JSON null and reads it back nil, and `netbird up` sends
+	// CleanNATExternalIPs — an empty list — whenever NB_EXTERNAL_IP_MAP is set
+	// to nothing, so the two met on every start and the gate read a no-op as a
+	// settings change.
+	if input.NATExternalIPs != nil && !slices.Equal(config.NATExternalIPs, input.NATExternalIPs) {
 		log.Infof("updating NAT External IP [ %s ] (old value: [ %s ])",
 			strings.Join(input.NATExternalIPs, " "),
 			strings.Join(config.NATExternalIPs, " "))

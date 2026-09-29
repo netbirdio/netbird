@@ -492,3 +492,38 @@ func TestServiceURLPortIsNormalizedNumerically(t *testing.T) {
 
 	require.True(t, SameServiceURL(padded, plain))
 }
+
+// A list the profile does not have and a list the request empties are the same
+// thing: no NAT mappings, no DNS labels. The profile stores an absent list as
+// JSON null and reads it back as a nil slice, while `netbird up` sends the
+// emptied list — CleanNATExternalIPs / CleanDNSLabels — whenever the matching
+// environment variable is set to nothing, which a deployment template does by
+// default. Judging nil and empty as different made the gate refuse that start,
+// which is the very deadlock this branch exists to remove, on another field.
+func TestWouldChangeIgnoresAnEmptiedListThatWasAlreadyAbsent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "lists.json")
+	_, err := UpdateOrCreateConfig(ConfigInput{ConfigPath: path, ManagementURL: DefaultManagementURL})
+	require.NoError(t, err)
+
+	stored, err := GetExistingConfig(path)
+	require.NoError(t, err)
+	require.Nil(t, stored.NATExternalIPs, "the fixture is only useful while the stored list is absent")
+	require.Nil(t, stored.DNSLabels)
+
+	changed, err := stored.WouldChange(ConfigInput{NATExternalIPs: make([]string, 0)})
+	require.NoError(t, err)
+	require.False(t, changed, "emptying a NAT list the profile never had is not a change")
+
+	changed, err = stored.WouldChange(ConfigInput{DNSLabels: domain.List{}})
+	require.NoError(t, err)
+	require.False(t, changed, "emptying a DNS label list the profile never had is not a change")
+
+	// A list that does hold something still moves when the request empties it.
+	withEntries, err := UpdateConfig(ConfigInput{ConfigPath: path, NATExternalIPs: []string{"1.2.3.4"}})
+	require.NoError(t, err)
+	require.Equal(t, []string{"1.2.3.4"}, withEntries.NATExternalIPs)
+
+	changed, err = withEntries.WouldChange(ConfigInput{NATExternalIPs: make([]string, 0)})
+	require.NoError(t, err)
+	require.True(t, changed, "clearing a NAT list that had an entry is a change")
+}
