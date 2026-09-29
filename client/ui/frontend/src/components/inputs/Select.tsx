@@ -44,7 +44,7 @@ export function Select<T extends string>({
                     type={"button"}
                     tabIndex={0}
                     disabled={disabled}
-                    aria-label={ariaLabel}
+                    aria-label={current ? `${ariaLabel}: ${current.label}` : ariaLabel}
                     className={cn(
                         "inline-flex h-[40px] min-w-[160px] items-center gap-2 px-3",
                         "rounded-md border bg-white dark:bg-nb-gray-900",
