@@ -74,6 +74,8 @@ function Accent({ onDone }: Readonly<{ onDone: () => void }>) {
         const dpr = window.devicePixelRatio || 1;
         let columns = 0;
         let drops: number[] = [];
+        let latestBuild = 0;
+        let rebuild: ReturnType<typeof setTimeout> | undefined;
 
         const resize = () => {
             canvas.width = window.innerWidth * dpr;
@@ -86,10 +88,16 @@ function Accent({ onDone }: Readonly<{ onDone: () => void }>) {
             if (next !== columns) {
                 columns = next;
                 drops = Array.from({ length: columns }, () => random() * -60);
+                mask = null;
             }
-            void buildMask().then((m) => {
-                if (!disposed) mask = m;
-            });
+
+            globalThis.clearTimeout(rebuild);
+            rebuild = globalThis.setTimeout(() => {
+                const build = ++latestBuild;
+                void buildMask().then((m) => {
+                    if (!disposed && build === latestBuild) mask = m;
+                });
+            }, 100);
         };
         resize();
         window.addEventListener("resize", resize);
@@ -140,6 +148,7 @@ function Accent({ onDone }: Readonly<{ onDone: () => void }>) {
             disposed = true;
             cancelAnimationFrame(raf);
             globalThis.clearTimeout(timeout);
+            globalThis.clearTimeout(rebuild);
             window.removeEventListener("resize", resize);
         };
     }, [onDone]);
