@@ -118,6 +118,13 @@ func (p *srcProbe) resolve(sa unix.Sockaddr) (netip.Addr, error) {
 	default:
 	}
 
+	// Waiting for the shared socket means waiting for whoever holds it to finish.
+	// A closed probe has nothing to wait for, so check before queuing rather than
+	// inside resolveShared.
+	if p.closed.Load() {
+		return netip.Addr{}, errProbeClosed
+	}
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.resolveShared(sa)

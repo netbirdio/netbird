@@ -384,3 +384,30 @@ func TestTransientProbeFD_CloseOnExec(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotZero(t, flags&unix.FD_CLOEXEC, "transient probe descriptor must be close-on-exec")
 }
+
+// With every permit taken the caller falls through to the shared socket. A closed
+// probe has nothing to wait for, so it must not queue behind the mutex holder.
+func TestSrcProbe_ClosedRejectsWhenTransientTierIsSaturated(t *testing.T) {
+	p, err := newSrcProbe(unix.AF_INET)
+	require.NoError(t, err)
+	require.NoError(t, p.close())
+
+	for i := 0; i < cap(p.transient); i++ {
+		p.transient <- struct{}{}
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := p.resolve(rawSockaddr(netip.MustParseAddr("127.0.0.1"), 0))
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		assert.ErrorIs(t, err, errProbeClosed)
+	case <-time.After(5 * time.Second):
+		t.Fatal("a closed probe must not wait for the shared socket")
+	}
+}
