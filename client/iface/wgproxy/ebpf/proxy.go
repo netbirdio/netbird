@@ -214,14 +214,14 @@ func (p *WGEBPFProxy) storeRelayedConn(relayedConn net.Conn) (uint16, error) {
 	return np, nil
 }
 
-func (p *WGEBPFProxy) removeRelayedConn(relayedConnID uint16) {
+func (p *WGEBPFProxy) removeRelayedConn(relayedConnID uint16, conn net.Conn) {
 	p.relayedConnMutex.Lock()
 	defer p.relayedConnMutex.Unlock()
 
-	_, ok := p.relayedConnStore[relayedConnID]
-	if ok {
-		log.Debugf("remove relayed conn from store by port: %d", relayedConnID)
+	if current, ok := p.relayedConnStore[relayedConnID]; !ok || current != conn {
+		return
 	}
+	log.Debugf("remove relayed conn from store by port: %d", relayedConnID)
 	delete(p.relayedConnStore, relayedConnID)
 }
 

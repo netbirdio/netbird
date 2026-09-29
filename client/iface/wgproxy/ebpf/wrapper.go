@@ -111,6 +111,8 @@ type ProxyWrapper struct {
 	isStarted  bool
 
 	closeListener *listener.CloseListener
+	closeOnce     sync.Once
+	closeErr      error
 }
 
 func NewProxyWrapper(proxy *WGEBPFProxy) *ProxyWrapper {
@@ -121,11 +123,16 @@ func NewProxyWrapper(proxy *WGEBPFProxy) *ProxyWrapper {
 	}
 }
 
-func (p *ProxyWrapper) AddRelayedConn(ctx context.Context, _ *net.UDPAddr, remoteConn net.Conn) error {
+func (p *ProxyWrapper) AddRelayedConn(ctx context.Context, _ *net.UDPAddr, remoteConn net.Conn) (err error) {
 	addr, err := p.wgeBPFProxy.AddRelayedConn(remoteConn)
 	if err != nil {
 		return fmt.Errorf("add relayed conn: %w", err)
 	}
+	defer func() {
+		if err != nil {
+			p.wgeBPFProxy.removeRelayedConn(uint16(addr.Port), remoteConn)
+		}
+	}()
 
 	headers, err := NewPacketHeaders(p.wgeBPFProxy.localWGListenPort, addr)
 	if err != nil {
@@ -230,29 +237,33 @@ func (p *ProxyWrapper) InjectPacket(b []byte) error {
 	return nil
 }
 
-// CloseConn close the remoteConn and automatically remove the conn instance from the map
+// CloseConn releases the proxy port and closes the remote connection once.
 func (p *ProxyWrapper) CloseConn() error {
 	if p.cancel == nil {
 		return fmt.Errorf("proxy not started")
 	}
 
-	p.cancel()
+	p.closeOnce.Do(func() {
+		p.cancel()
+		p.closeListener.SetCloseListener(nil)
+		// Standby proxies may never start their reader, so cleanup cannot
+		// depend on proxyToLocal exiting.
+		p.wgeBPFProxy.removeRelayedConn(uint16(p.wgRelayedEndpointAddr.Port), p.remoteConn)
 
-	p.closeListener.SetCloseListener(nil)
+		p.pausedCond.L.Lock()
+		p.paused = false
+		p.pausedCond.Signal()
+		p.pausedCond.L.Unlock()
 
-	p.pausedCond.L.Lock()
-	p.paused = false
-	p.pausedCond.Signal()
-	p.pausedCond.L.Unlock()
-
-	if err := p.remoteConn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
-		return fmt.Errorf("failed to close remote conn: %w", err)
-	}
-	return nil
+		if err := p.remoteConn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			p.closeErr = fmt.Errorf("close remote conn: %w", err)
+		}
+	})
+	return p.closeErr
 }
 
 func (p *ProxyWrapper) proxyToLocal(ctx context.Context) {
-	defer p.wgeBPFProxy.removeRelayedConn(uint16(p.wgRelayedEndpointAddr.Port))
+	defer p.wgeBPFProxy.removeRelayedConn(uint16(p.wgRelayedEndpointAddr.Port), p.remoteConn)
 
 	buf := make([]byte, p.wgeBPFProxy.mtu+bufsize.WGBufferOverhead)
 	for {
@@ -262,8 +273,12 @@ func (p *ProxyWrapper) proxyToLocal(ctx context.Context) {
 		}
 
 		p.pausedCond.L.Lock()
-		for p.paused {
+		for p.paused && ctx.Err() == nil {
 			p.pausedCond.Wait()
+		}
+		if ctx.Err() != nil {
+			p.pausedCond.L.Unlock()
+			return
 		}
 
 		err = p.sendPkg(buf[:n], p.headerCurrentUsed)
