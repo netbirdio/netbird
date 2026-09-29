@@ -5,6 +5,7 @@ package ebpf
 import (
 	"context"
 	"fmt"
+	"math"
 	"net"
 	"sync"
 
@@ -225,19 +226,23 @@ func (p *WGEBPFProxy) removeRelayedConn(relayedConnID uint16, conn net.Conn) {
 	delete(p.relayedConnStore, relayedConnID)
 }
 
+// nextFreePort returns the next port no relayed connection holds, visiting each
+// port at most once. It never returns the WireGuard listen port: packets injected
+// from it would match the XDP redirect and loop back into the proxy.
 func (p *WGEBPFProxy) nextFreePort() (uint16, error) {
-	if len(p.relayedConnStore) == 65535 {
-		return 0, fmt.Errorf("reached maximum relayed connection numbers")
-	}
-generatePort:
-	if p.lastUsedPort == 65535 {
-		p.lastUsedPort = 1
-	} else {
-		p.lastUsedPort++
-	}
+	for range math.MaxUint16 {
+		if p.lastUsedPort == math.MaxUint16 {
+			p.lastUsedPort = 1
+		} else {
+			p.lastUsedPort++
+		}
 
-	if _, ok := p.relayedConnStore[p.lastUsedPort]; ok {
-		goto generatePort
+		if int(p.lastUsedPort) == p.localWGListenPort {
+			continue
+		}
+		if _, ok := p.relayedConnStore[p.lastUsedPort]; !ok {
+			return p.lastUsedPort, nil
+		}
 	}
-	return p.lastUsedPort, nil
+	return 0, fmt.Errorf("reached maximum relayed connection numbers")
 }
