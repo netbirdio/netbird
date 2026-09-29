@@ -831,7 +831,8 @@ func (conn *Conn) evalStatus() ConnStatus {
 //
 // The result is a tri-state:
 //   - ConnStatusConnected:          all available transports are up
-//   - ConnStatusPartiallyConnected: relay is up but ICE is still pending/reconnecting
+//   - ConnStatusPartiallyConnected: one transport is up while the other is still pending:
+//     relay is up and ICE is reconnecting, or ICE is connected and the relay is down
 //   - ConnStatusDisconnected:       no working transport
 func (conn *Conn) isConnectedOnAllWay() (status guard.ConnStatus) {
 	defer func() {
@@ -848,13 +849,13 @@ func (conn *Conn) isConnectedOnAllWay() (status guard.ConnStatus) {
 	}
 
 	return evalConnStatus(connStatusInputs{
-		forceRelay:          IsForceRelayed(),
-		peerUsesRelay:       conn.workerRelay.IsRelayConnectionSupportedWithPeer(),
-		relayConnected:      conn.statusRelay.Get() == worker.StatusConnected,
-		remoteSupportsICE:   conn.handshaker.RemoteICESupported(),
-		iceWorkerCreated:    iceWorkerCreated,
-		iceStatusConnecting: conn.statusICE.Get() != worker.StatusDisconnected,
-		iceInProgress:       iceInProgress,
+		forceRelay:        IsForceRelayed(),
+		peerUsesRelay:     conn.workerRelay.IsRelayConnectionSupportedWithPeer(),
+		relayConnected:    conn.statusRelay.Get() == worker.StatusConnected,
+		remoteSupportsICE: conn.handshaker.RemoteICESupported(),
+		iceWorkerCreated:  iceWorkerCreated,
+		iceConnected:      conn.statusICE.Get() == worker.StatusConnected,
+		iceInProgress:     iceInProgress,
 	})
 }
 
@@ -1063,9 +1064,9 @@ func evalConnStatus(in connStatusInputs) guard.ConnStatus {
 		return boolToConnStatus(relayUsedAndUp)
 	}
 
-	// ICE counts as "up" when the status is anything other than Disconnected, OR
-	// when a negotiation is currently in progress (so we don't spam offers while one is in flight).
-	iceUp := in.iceStatusConnecting || in.iceInProgress
+	// ICE counts as "up" when it is connected, OR when a negotiation is currently
+	// in progress (so we don't spam offers while one is in flight).
+	iceUp := in.iceConnected || in.iceInProgress
 
 	// Relay side is acceptable if the peer doesn't rely on relay, or relay is connected.
 	relayOK := !in.peerUsesRelay || in.relayConnected
@@ -1075,6 +1076,10 @@ func evalConnStatus(in connStatusInputs) guard.ConnStatus {
 		return guard.ConnStatusConnected
 	case relayUsedAndUp:
 		// Relay is up but ICE is down — partially connected.
+		return guard.ConnStatusPartiallyConnected
+	case in.iceConnected:
+		// P2P carries the traffic and only the relay standby is down. A negotiation
+		// in flight does not count: with the relay down nothing would carry traffic.
 		return guard.ConnStatusPartiallyConnected
 	default:
 		return guard.ConnStatusDisconnected
