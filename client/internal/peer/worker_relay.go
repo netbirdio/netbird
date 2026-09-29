@@ -3,6 +3,7 @@ package peer
 import (
 	"context"
 	"errors"
+	"net"
 	"net/netip"
 	"sync"
 	"sync/atomic"
@@ -112,6 +113,21 @@ func (w *WorkerRelay) CloseConn() {
 	}
 
 	if err := conn.Close(); err != nil {
+		w.log.Warnf("failed to close relay connection: %v", err)
+	}
+}
+
+// closeConnIfCurrent closes relayedConn and stops tracking it if no newer
+// connection replaced it, so the next offer opens a fresh one. Closing a stale
+// handle never reaches a newer connection to the same peer.
+func (w *WorkerRelay) closeConnIfCurrent(relayedConn *relayClient.Conn) {
+	w.relayLock.Lock()
+	if w.relayedConn == relayedConn {
+		w.relayedConn = nil
+	}
+	w.relayLock.Unlock()
+
+	if err := relayedConn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 		w.log.Warnf("failed to close relay connection: %v", err)
 	}
 }

@@ -574,6 +574,9 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 	wgProxy, err := conn.newProxy(rci.relayedConn)
 	if err != nil {
 		conn.Log.Errorf("failed to add relayed net.Conn to local proxy: %v", err)
+		// Left open, the relay client keeps the connection registered and later
+		// offers reuse it, although nothing proxies it to WireGuard.
+		conn.workerRelay.closeConnIfCurrent(rci.relayedConn)
 		return
 	}
 	wgProxy.SetDisconnectListener(func() {
