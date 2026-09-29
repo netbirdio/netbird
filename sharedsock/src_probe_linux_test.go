@@ -6,7 +6,9 @@ import (
 	"net"
 	"net/netip"
 	"strconv"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -215,4 +217,152 @@ func BenchmarkSrcRouteGet(b *testing.B) {
 			b.Skipf("no route to %s: %v", dst, err)
 		}
 	}
+}
+
+// A caller that finds the shared socket busy must still get an answer, from a
+// throwaway socket of its own. Against a probe that only has the shared socket
+// this blocks until the holder releases it.
+func TestSrcProbe_ResolvesWhileSharedSocketBusy(t *testing.T) {
+	loopback := netip.MustParseAddr("127.0.0.1")
+	p := newTestProbe(t, unix.AF_INET)
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	type result struct {
+		src netip.Addr
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		src, err := p.resolve(rawSockaddr(loopback, 0))
+		done <- result{src, err}
+	}()
+
+	select {
+	case r := <-done:
+		require.NoError(t, r.err)
+		assert.Equal(t, loopback, r.src, "source resolved while the shared socket was held")
+	case <-time.After(5 * time.Second):
+		t.Fatal("resolve blocked on the shared socket instead of using a transient one")
+	}
+}
+
+// Past the ceiling a caller waits for the shared socket rather than opening an
+// unbounded number of descriptors.
+func TestSrcProbe_WaitsForSharedSocketPastTheCeiling(t *testing.T) {
+	loopback := netip.MustParseAddr("127.0.0.1")
+	p := newTestProbe(t, unix.AF_INET)
+
+	// Take every permit, so no transient socket is available.
+	for i := 0; i < cap(p.transient); i++ {
+		p.transient <- struct{}{}
+	}
+	p.mu.Lock()
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := p.resolve(rawSockaddr(loopback, 0))
+		done <- err
+	}()
+
+	select {
+	case <-done:
+		p.mu.Unlock()
+		t.Fatal("resolve should have waited for the shared socket")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	p.mu.Unlock()
+	select {
+	case err := <-done:
+		require.NoError(t, err, "resolve should succeed once the shared socket is free")
+	case <-time.After(5 * time.Second):
+		t.Fatal("resolve did not complete after the shared socket was released")
+	}
+}
+
+// A closed probe rejects immediately, without waiting for the shared socket.
+func TestSrcProbe_ClosedRejectsWhileSharedSocketBusy(t *testing.T) {
+	p, err := newSrcProbe(unix.AF_INET)
+	require.NoError(t, err)
+	require.NoError(t, p.close())
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := p.resolve(rawSockaddr(netip.MustParseAddr("127.0.0.1"), 0))
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		assert.ErrorIs(t, err, errProbeClosed)
+	case <-time.After(5 * time.Second):
+		t.Fatal("a closed probe must not wait for the shared socket")
+	}
+}
+
+// Concurrent lookups to different destinations must not read each other's source
+// address, whichever socket each one lands on.
+func TestSrcProbe_ConcurrentDestinationsDoNotCrossTalk(t *testing.T) {
+	loopback := netip.MustParseAddr("127.0.0.1")
+	remote := netip.MustParseAddr("192.0.2.1")
+
+	remoteSrc, ok := routeGetSrc(t, remote)
+	if !ok {
+		t.Skip("no route to an off-host IPv4 destination")
+	}
+	require.NotEqual(t, loopback, remoteSrc, "off-host destination must not route via loopback")
+
+	p := newTestProbe(t, unix.AF_INET)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			want, dst := loopback, loopback
+			if i%2 == 1 {
+				want, dst = remoteSrc, remote
+			}
+			for j := 0; j < 20; j++ {
+				src, err := p.resolve(rawSockaddr(dst, 0))
+				if !assert.NoError(t, err) {
+					return
+				}
+				if !assert.Equal(t, want, src, "source for %s", dst) {
+					return
+				}
+			}
+		}(i)
+	}
+	wg.Wait()
+}
+
+// One probe, many senders: the shape WriteTo has on a peer whose ICE agents all
+// share a single shared socket. Guards against a change that puts the lookups
+// back behind one lock.
+func BenchmarkSrcProbeParallel(b *testing.B) {
+	p, err := newSrcProbe(unix.AF_INET)
+	if err != nil {
+		b.Skip(err)
+	}
+	defer func() { _ = p.close() }()
+
+	dst := netip.MustParseAddr("192.0.2.1")
+	if _, err := p.resolve(rawSockaddr(dst, 0)); err != nil {
+		b.Skipf("no route to %s: %v", dst, err)
+	}
+
+	b.ReportAllocs()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			if _, err := p.resolve(rawSockaddr(dst, 0)); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
 }

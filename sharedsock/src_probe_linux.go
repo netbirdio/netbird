@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"runtime"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"unsafe"
 
@@ -20,9 +22,21 @@ import (
 
 var errProbeClosed = errors.New("source probe closed")
 
+// maxTransientProbes caps how many throwaway probe sockets may exist at once. A
+// lookup is CPU and syscall bound, so concurrency beyond the number of usable
+// cores buys nothing, and the ceiling keeps a burst of senders from turning into
+// a burst of file descriptors on a peer that already holds thousands.
+const maxTransientProbes = 16
+
 // srcProbe finds the source address the kernel picks for a destination by connecting
 // a UDP socket that carries the raw sockets' fwmark and reading back its local address.
 // Connecting a UDP socket runs the output route lookup without sending anything.
+//
+// One socket cannot be shared concurrently: a lookup disconnects and reconnects it,
+// so two callers would read each other's source address. Rather than serialising every
+// sender on the shared socket, a caller that finds it busy runs its lookup on a
+// throwaway socket of its own, up to maxTransientProbes at a time. Past that it waits
+// for the shared socket, which is the behaviour when no overflow is available at all.
 type srcProbe struct {
 	family int
 
@@ -30,8 +44,14 @@ type srcProbe struct {
 	// conn is nil while no socket is open. A failed route lookup keeps the socket,
 	// any other failure closes it and the next lookup opens a fresh one, so a socket
 	// in an unknown state is never reused.
-	conn   *socket.Conn
-	closed bool
+	conn *socket.Conn
+
+	// closed is read by lookups that never take mu, so it is not guarded by it.
+	closed atomic.Bool
+
+	// transient hands out the permits for throwaway sockets. A send is buffered
+	// permit; an empty channel means the ceiling is reached.
+	transient chan struct{}
 }
 
 // newSrcProbe opens a probe socket for the given address family.
@@ -40,21 +60,62 @@ func newSrcProbe(family int) (*srcProbe, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &srcProbe{family: family, conn: conn}, nil
+
+	permits := runtime.GOMAXPROCS(0)
+	if permits > maxTransientProbes {
+		permits = maxTransientProbes
+	}
+	if permits < 1 {
+		permits = 1
+	}
+
+	return &srcProbe{
+		family:    family,
+		conn:      conn,
+		transient: make(chan struct{}, permits),
+	}, nil
 }
 
 // resolve returns the source address the kernel would use for a packet to sa, a
 // sockaddr of the probe's family. It is safe for concurrent use.
 func (p *srcProbe) resolve(sa unix.Sockaddr) (netip.Addr, error) {
+	if p.closed.Load() {
+		return netip.Addr{}, errProbeClosed
+	}
+
+	if p.mu.TryLock() {
+		defer p.mu.Unlock()
+		return p.resolveShared(sa)
+	}
+
+	select {
+	case p.transient <- struct{}{}:
+		src, err := p.resolveTransient(sa)
+		<-p.transient
+
+		if err == nil {
+			return src, nil
+		}
+		var rErr *routeError
+		if errors.As(err, &rErr) {
+			// The kernel answered, it just refused the route. The shared socket
+			// would answer the same, so report it.
+			return netip.Addr{}, err
+		}
+		// The throwaway socket itself failed. Fall through to the shared one rather
+		// than failing a send over a socket the caller never asked for.
+		log.Debugf("transient source probe failed, falling back to the shared socket: %v", err)
+	default:
+	}
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
-
 	return p.resolveShared(sa)
 }
 
 // resolveShared runs a lookup on the long-lived socket. Callers must hold p.mu.
 func (p *srcProbe) resolveShared(sa unix.Sockaddr) (netip.Addr, error) {
-	if p.closed {
+	if p.closed.Load() {
 		return netip.Addr{}, errProbeClosed
 	}
 
@@ -79,12 +140,33 @@ func (p *srcProbe) resolveShared(sa unix.Sockaddr) (netip.Addr, error) {
 	return src, nil
 }
 
+// resolveTransient runs a lookup on a socket that lives only for this call. The
+// descriptor is opened and closed inside this frame and is never shared, so it
+// needs neither the mutex nor the runtime poller.
+func (p *srcProbe) resolveTransient(sa unix.Sockaddr) (netip.Addr, error) {
+	fd, err := unix.Socket(p.family, unix.SOCK_DGRAM, unix.IPPROTO_UDP)
+	if err != nil {
+		return netip.Addr{}, fmt.Errorf("create transient source probe socket: %w", err)
+	}
+	defer func() {
+		if err := unix.Close(fd); err != nil {
+			log.Debugf("failed to close transient source probe socket: %v", err)
+		}
+	}()
+
+	if err := nbnet.SetSocketMarkFD(fd); err != nil {
+		return netip.Addr{}, fmt.Errorf("set SO_MARK on transient source probe socket: %w", err)
+	}
+
+	return lookupFD(fd, sa)
+}
+
 // close releases the socket. Later lookups fail with errProbeClosed.
 func (p *srcProbe) close() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	p.closed = true
+	p.closed.Store(true)
 	return p.closeSocket()
 }
 
