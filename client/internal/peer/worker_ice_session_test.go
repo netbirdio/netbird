@@ -373,3 +373,66 @@ func TestWorkerICE_StaleCleanupKeepsAdvertisedSession(t *testing.T) {
 	assert.Same(t, current, local.agent(), "a stale cleanup must keep the current negotiation")
 	assertSettles(t, offerPatterns[1], local, remote, 0)
 }
+
+// installDetachedAgent installs an agent the way a running negotiation leaves
+// it, but without callbacks into the worker, so its cleanup only runs when the
+// test calls it.
+func installDetachedAgent(t *testing.T, w *WorkerICE, remoteSession ICESessionID) (*icemaker.ThreadSafeAgent, context.CancelFunc) {
+	t.Helper()
+	agent, err := icemaker.NewAgent(context.Background(), nil, w.config.ICEConfig, icemaker.CandidateTypes(), w.localUfrag, w.localPwd)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = agent.Close() })
+	cancel := func() {}
+
+	w.muxAgent.Lock()
+	defer w.muxAgent.Unlock()
+	w.agent = agent
+	w.agentDialerCancel = cancel
+	w.agentConnecting = false
+	w.remoteSessionID = remoteSession
+	return agent, cancel
+}
+
+// TestWorkerICE_OnlyReplacedAgentReportsRemoteRestart pins which cleanup
+// reports that an agent was torn down to follow a remote restart. The
+// replacement failing first must not take the report, or the replaced agent's
+// teardown reaches the guard as a plain disconnect and refills its budget.
+func TestWorkerICE_OnlyReplacedAgentReportsRemoteRestart(t *testing.T) {
+	w := newTestWorkerICE(t)
+	w.dialFunc = parkDial
+	t.Cleanup(w.Close)
+
+	replaced, replacedCancel := installDetachedAgent(t, w, newTestSessionID(t))
+	restarted := newTestSessionID(t)
+	w.OnNewOffer(&OfferAnswer{
+		IceCredentials: IceCredentials{UFrag: "remoteufrag", Pwd: "remote-password-long-enough"},
+		SessionID:      &restarted,
+	})
+	w.muxAgent.Lock()
+	replacement, replacementCancel := w.agent, w.agentDialerCancel
+	w.muxAgent.Unlock()
+	require.NotSame(t, replaced, replacement, "the remote restart must replace the agent")
+
+	assert.False(t, w.closeAgent(replacement, replacementCancel), "the replacement's own failure is not a remote restart")
+	assert.True(t, w.closeAgent(replaced, replacedCancel), "the replaced agent's cleanup must report the remote restart")
+	assert.False(t, w.closeAgent(replaced, replacedCancel), "the restart must be reported once")
+}
+
+// TestWorkerICE_CloseTurnsRestartIntoLocalTeardown covers an explicit Close,
+// as on a WireGuard timeout, right after following a remote restart. No
+// renegotiation runs any more, so the replaced agent's cleanup must report a
+// plain disconnect.
+func TestWorkerICE_CloseTurnsRestartIntoLocalTeardown(t *testing.T) {
+	w := newTestWorkerICE(t)
+	w.dialFunc = parkDial
+
+	replaced, replacedCancel := installDetachedAgent(t, w, newTestSessionID(t))
+	restarted := newTestSessionID(t)
+	w.OnNewOffer(&OfferAnswer{
+		IceCredentials: IceCredentials{UFrag: "remoteufrag", Pwd: "remote-password-long-enough"},
+		SessionID:      &restarted,
+	})
+
+	w.Close()
+	assert.False(t, w.closeAgent(replaced, replacedCancel), "after Close the replaced agent's cleanup is a local teardown")
+}

@@ -23,6 +23,12 @@ type iceRetryState struct {
 
 func (s *iceRetryState) reset() {
 	s.retries = 0
+	s.leaveHourlyMode()
+}
+
+// leaveHourlyMode stops the hourly retry but keeps the spent budget, so the
+// next check that finds the budget exhausted enters hourly mode again.
+func (s *iceRetryState) leaveHourlyMode() {
 	if s.hourly != nil {
 		s.hourly.Stop()
 		s.hourly = nil

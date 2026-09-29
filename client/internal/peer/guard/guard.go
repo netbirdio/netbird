@@ -47,6 +47,7 @@ type Guard struct {
 	netWatcher              NetworkWatcher
 	relayedConnDisconnected chan struct{}
 	iCEConnDisconnected     chan struct{}
+	iCEConnRenegotiating    chan struct{}
 }
 
 // NewGuard creates a reconnection guard for a peer connection. A nil netWatcher
@@ -60,6 +61,7 @@ func NewGuard(log *log.Entry, isConnectedFn connStatusFunc, timeout time.Duratio
 		netWatcher:              netWatcher,
 		relayedConnDisconnected: make(chan struct{}, 1),
 		iCEConnDisconnected:     make(chan struct{}, 1),
+		iCEConnRenegotiating:    make(chan struct{}, 1),
 	}
 }
 
@@ -82,6 +84,17 @@ func (g *Guard) SetICEConnDisconnected() {
 	}
 }
 
+// SetICEConnRenegotiating reports an ICE connection torn down to follow a
+// remote restart, with the replacement negotiation already running. Unlike
+// SetICEConnDisconnected it neither restarts the backoff nor refills the retry
+// budget, so a remote that keeps restarting cannot keep this peer offering.
+func (g *Guard) SetICEConnRenegotiating() {
+	select {
+	case g.iCEConnRenegotiating <- struct{}{}:
+	default:
+	}
+}
+
 // reconnectLoopWithRetry periodically checks the connection status and sends offers to re-establish connectivity.
 //
 // Behavior depends on the connection state reported by isConnectedOnAllWay:
@@ -93,7 +106,9 @@ func (g *Guard) SetICEConnDisconnected() {
 //     connectivity.
 //
 // External events (relay/ICE disconnect, signal/relay reconnect, candidate changes) reset the retry
-// counter and backoff ticker, giving ICE a fresh chance after network conditions change.
+// counter and backoff ticker, giving ICE a fresh chance after network conditions change. An ICE
+// connection torn down to follow a remote restart is no such event: it only ends hourly mode, so a
+// renegotiation that fails is retried on the regular schedule.
 func (g *Guard) reconnectLoopWithRetry(ctx context.Context, callback func()) {
 	srReconnectedChan := g.srWatcher.NewListener()
 	defer g.srWatcher.RemoveListener(srReconnectedChan)
@@ -151,6 +166,15 @@ func (g *Guard) reconnectLoopWithRetry(ctx context.Context, callback func()) {
 			ticker = g.newReconnectTicker(ctx)
 			tickerChannel = ticker.C
 			iceState.reset()
+
+		case <-g.iCEConnRenegotiating:
+			if iceState.hourlyC() == nil {
+				continue
+			}
+			g.log.Debugf("ICE connection renegotiating, leave hourly retry")
+			iceState.leaveHourlyMode()
+			ticker = g.newReconnectTicker(ctx)
+			tickerChannel = ticker.C
 
 		case <-srReconnectedChan:
 			g.log.Debugf("has network changes, reset reconnection ticker")

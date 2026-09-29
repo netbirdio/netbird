@@ -52,9 +52,11 @@ type WorkerICE struct {
 	// increase by one when disconnecting the agent
 	// with it the remote peer can discard the already deprecated offer/answer
 	// Without it the remote peer may recreate a workable ICE connection
-	sessionID            ICESessionID
-	remoteSessionChanged bool
-	muxAgent             sync.Mutex
+	sessionID ICESessionID
+	// replacedAgent was torn down to follow a remote restart. Its own cleanup
+	// reports that, not whichever agent happens to clean up first.
+	replacedAgent *icemaker.ThreadSafeAgent
+	muxAgent      sync.Mutex
 
 	localUfrag string
 	localPwd   string
@@ -113,7 +115,7 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 			return
 		}
 		w.log.Debugf("agent already exists, recreate the connection")
-		w.remoteSessionChanged = true
+		w.replacedAgent = w.agent
 		w.agentDialerCancel()
 		if w.agent != nil {
 			if err := w.agent.Close(); err != nil {
@@ -215,6 +217,8 @@ func (w *WorkerICE) Close() {
 	// (closeAgent finds a nil agent), so the flags must be dropped here too or
 	// the reconnection guard reads the stale state as Connected forever.
 	w.abandonNegotiation()
+	// No renegotiation runs after a local teardown.
+	w.replacedAgent = nil
 }
 
 func (w *WorkerICE) reCreateAgent(dialerCancel context.CancelFunc, candidates []ice.CandidateType) (*icemaker.ThreadSafeAgent, error) {
@@ -360,8 +364,10 @@ func (w *WorkerICE) closeAgent(agent *icemaker.ThreadSafeAgent, cancel context.C
 	w.muxAgent.Lock()
 	defer w.muxAgent.Unlock()
 
-	sessionChanged := w.remoteSessionChanged
-	w.remoteSessionChanged = false
+	sessionChanged := agent == w.replacedAgent
+	if sessionChanged {
+		w.replacedAgent = nil
+	}
 
 	// Only the owner of the current session may reset its state: a stale dial
 	// goroutine waking after a newer attempt must not clobber it.

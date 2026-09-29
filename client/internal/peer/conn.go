@@ -535,7 +535,10 @@ func (conn *Conn) onICEStateDisconnected(sessionChanged bool) {
 	}
 
 	changed := conn.statusICE.Get() != worker.StatusDisconnected
-	if changed {
+	switch {
+	case changed && sessionChanged:
+		conn.guard.SetICEConnRenegotiating()
+	case changed:
 		conn.guard.SetICEConnDisconnected()
 	}
 	conn.statusICE.SetDisconnected()
