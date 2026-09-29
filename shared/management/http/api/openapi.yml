@@ -1795,7 +1795,7 @@ components:
           type: string
           example: "C:\ProgramData\NetBird\netbird.exe"
     CertificateCheck:
-      description: Posture check for a certificate held by the peer that chains to one of the given CA certificates
+      description: Posture check for a certificate held by the peer that chains to one of the given CA certificates. Not supported on mobile devices (iOS and Android), which always fail this check and are denied access
       type: object
       properties:
         ca_certificates:
