@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,6 +22,7 @@ type mockStore struct {
 	updateProxyHeartbeatFunc                 func(ctx context.Context, p *proxy.Proxy) error
 	getActiveProxyClusterAddressesFunc       func(ctx context.Context) ([]string, error)
 	getActiveProxyClusterAddressesForAccFunc func(ctx context.Context, accountID string) ([]string, error)
+	getActiveProxyVersionsFunc               func(ctx context.Context, clusterAddress string) ([]string, error)
 	cleanupStaleProxiesFunc                  func(ctx context.Context, d time.Duration) error
 	getProxyByAccountIDFunc                  func(ctx context.Context, accountID string) (*proxy.Proxy, error)
 	countProxiesByAccountIDFunc              func(ctx context.Context, accountID string) (int64, error)
@@ -102,6 +105,12 @@ func (m *mockStore) GetClusterSupportsCrowdSec(_ context.Context, _ string) *boo
 func (m *mockStore) GetClusterSupportsPrivate(_ context.Context, _ string) *bool {
 	return nil
 }
+func (m *mockStore) GetActiveProxyVersions(ctx context.Context, clusterAddress string) ([]string, error) {
+	if m.getActiveProxyVersionsFunc != nil {
+		return m.getActiveProxyVersionsFunc(ctx, clusterAddress)
+	}
+	return nil, nil
+}
 
 func newTestManager(s store) *Manager {
 	meter := noop.NewMeterProvider().Meter("test")
@@ -110,6 +119,34 @@ func newTestManager(s store) *Manager {
 		panic(err)
 	}
 	return m
+}
+
+func TestClusterSupportsSessionCode(t *testing.T) {
+	tests := []struct {
+		name     string
+		versions []string
+		storeErr error
+		want     bool
+	}{
+		{name: "all supported", versions: []string{"0.81.0", "0.81.2"}, want: true},
+		{name: "one old proxy", versions: []string{"0.81.0", "0.80.0"}},
+		{name: "missing version", versions: []string{"0.81.0", ""}},
+		{name: "no active proxies"},
+		{name: "store error", storeErr: errors.New("db error")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &mockStore{
+				getActiveProxyVersionsFunc: func(_ context.Context, _ string) ([]string, error) {
+					return tt.versions, tt.storeErr
+				},
+			}
+
+			got := newTestManager(s).ClusterSupportsSessionCode(context.Background(), "cluster.example.com")
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }
 
 func TestConnect_WithAccountID(t *testing.T) {
@@ -124,7 +161,7 @@ func TestConnect_WithAccountID(t *testing.T) {
 	}
 
 	mgr := newTestManager(s)
-	_, err := mgr.Connect(context.Background(), "proxy-1", "session-1", "cluster.example.com", "10.0.0.1", &accountID, nil)
+	_, err := mgr.Connect(context.Background(), "proxy-1", "session-1", "cluster.example.com", "10.0.0.1", "0.60.0", &accountID, nil)
 	require.NoError(t, err)
 
 	require.NotNil(t, savedProxy)
@@ -132,6 +169,7 @@ func TestConnect_WithAccountID(t *testing.T) {
 	assert.Equal(t, "session-1", savedProxy.SessionID)
 	assert.Equal(t, "cluster.example.com", savedProxy.ClusterAddress)
 	assert.Equal(t, "10.0.0.1", savedProxy.IPAddress)
+	assert.Equal(t, "0.60.0", savedProxy.Version, "reported proxy version should be stored")
 	assert.Equal(t, &accountID, savedProxy.AccountID)
 	assert.Equal(t, proxy.StatusConnected, savedProxy.Status)
 	assert.NotNil(t, savedProxy.ConnectedAt)
@@ -147,12 +185,35 @@ func TestConnect_WithoutAccountID(t *testing.T) {
 	}
 
 	mgr := newTestManager(s)
-	_, err := mgr.Connect(context.Background(), "proxy-1", "session-1", "eu.proxy.netbird.io", "10.0.0.1", nil, nil)
+	_, err := mgr.Connect(context.Background(), "proxy-1", "session-1", "eu.proxy.netbird.io", "10.0.0.1", "", nil, nil)
 	require.NoError(t, err)
 
 	require.NotNil(t, savedProxy)
 	assert.Nil(t, savedProxy.AccountID)
 	assert.Equal(t, proxy.StatusConnected, savedProxy.Status)
+}
+
+func TestConnect_TruncatesOversizedVersion(t *testing.T) {
+	var savedProxy *proxy.Proxy
+	s := &mockStore{
+		saveProxyFunc: func(_ context.Context, p *proxy.Proxy) error {
+			savedProxy = p
+			return nil
+		},
+	}
+
+	// Multi-byte runes make sure the cut counts characters, as varchar does,
+	// and never splits a rune into invalid UTF-8.
+	version := strings.Repeat("ü", proxy.MaxVersionLength+10)
+
+	mgr := newTestManager(s)
+	_, err := mgr.Connect(context.Background(), "proxy-1", "session-1", "cluster.example.com", "10.0.0.1", version, nil, nil)
+	require.NoError(t, err)
+
+	require.NotNil(t, savedProxy)
+	assert.Equal(t, proxy.MaxVersionLength, utf8.RuneCountInString(savedProxy.Version), "stored version should be cut to the column width")
+	assert.True(t, utf8.ValidString(savedProxy.Version), "stored version should remain valid UTF-8")
+	assert.True(t, strings.HasPrefix(version, savedProxy.Version), "stored version should be a prefix of the reported one")
 }
 
 func TestConnect_StoreError(t *testing.T) {
@@ -163,7 +224,7 @@ func TestConnect_StoreError(t *testing.T) {
 	}
 
 	mgr := newTestManager(s)
-	_, err := mgr.Connect(context.Background(), "proxy-1", "session-1", "cluster.example.com", "10.0.0.1", nil, nil)
+	_, err := mgr.Connect(context.Background(), "proxy-1", "session-1", "cluster.example.com", "10.0.0.1", "", nil, nil)
 	assert.Error(t, err)
 }
 
