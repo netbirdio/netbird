@@ -102,7 +102,8 @@ type ProxyServiceServer struct {
 
 	mu sync.RWMutex
 	// Manager for reverse proxy operations
-	serviceManager rpservice.Manager
+	serviceManager   rpservice.Manager
+	credentialLimits credentialVerificationLimiter
 	// agentNetworkSynth produces synthesised reverse-proxy services from
 	// Agent Network state. Optional — when nil the snapshot path only ships
 	// persisted services.
@@ -142,7 +143,7 @@ type ProxyServiceServer struct {
 	oidcConfig ProxyOIDCConfig
 
 	// Store for PKCE verifiers
-	pkceVerifierStore *PKCEVerifierStore
+	singleUseStore *SingleUseStore
 
 	// tokenTTL is the lifetime of one-time tokens generated for proxy
 	// authentication. Defaults to defaultProxyTokenTTL when zero.
@@ -207,13 +208,13 @@ func enforceAccountScope(ctx context.Context, requestAccountID string) error {
 }
 
 // NewProxyServiceServer creates a new proxy service server.
-func NewProxyServiceServer(accessLogMgr accesslogs.Manager, tokenStore *OneTimeTokenStore, pkceStore *PKCEVerifierStore, oidcConfig ProxyOIDCConfig, peersManager peers.Manager, usersManager users.Manager, idpManager idp.Manager, proxyMgr proxy.Manager, tokenChecker ProxyTokenChecker) *ProxyServiceServer {
+func NewProxyServiceServer(accessLogMgr accesslogs.Manager, tokenStore *OneTimeTokenStore, singleUseStore *SingleUseStore, oidcConfig ProxyOIDCConfig, peersManager peers.Manager, usersManager users.Manager, idpManager idp.Manager, proxyMgr proxy.Manager, tokenChecker ProxyTokenChecker) *ProxyServiceServer {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &ProxyServiceServer{
 		accessLogManager:  accessLogMgr,
 		oidcConfig:        oidcConfig,
 		tokenStore:        tokenStore,
-		pkceVerifierStore: pkceStore,
+		singleUseStore:    singleUseStore,
 		peersManager:      peersManager,
 		usersManager:      usersManager,
 		idpManager:        idpManager,
@@ -242,9 +243,10 @@ func (s *ProxyServiceServer) cleanupStaleProxies(ctx context.Context) {
 	}
 }
 
-// Close stops background goroutines.
+// Close stops background goroutines and releases credential verification state.
 func (s *ProxyServiceServer) Close() {
 	s.cancel()
+	s.credentialLimits.close()
 }
 
 // SetServiceManager sets the service manager. Must be called before serving.
@@ -412,6 +414,7 @@ func (s *ProxyServiceServer) SetProxyController(proxyController proxy.Controller
 type proxyConnectParams struct {
 	proxyID      string
 	address      string
+	version      string
 	capabilities *proto.ProxyCapabilities
 }
 
@@ -422,6 +425,7 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 		return err
 	}
 	params.capabilities = req.GetCapabilities()
+	params.version = req.GetVersion()
 
 	conn, proxyRecord, err := s.registerProxyConnection(stream.Context(), params, &proxyConnection{
 		stream: stream,
@@ -455,6 +459,7 @@ func (s *ProxyServiceServer) SyncMappings(stream proto.ProxyService_SyncMappings
 		return err
 	}
 	params.capabilities = init.GetCapabilities()
+	params.version = init.GetVersion()
 
 	conn, proxyRecord, err := s.registerProxyConnection(stream.Context(), params, &proxyConnection{
 		syncStream: stream,
@@ -566,7 +571,7 @@ func (s *ProxyServiceServer) registerProxyConnection(ctx context.Context, params
 		}
 	}
 
-	proxyRecord, err := s.proxyManager.Connect(ctx, params.proxyID, sessionID, params.address, peerInfo, accountID, caps)
+	proxyRecord, err := s.proxyManager.Connect(ctx, params.proxyID, sessionID, params.address, peerInfo, params.version, accountID, caps)
 	if err != nil {
 		cancel()
 		if accountID != nil {
@@ -1223,6 +1228,7 @@ func shallowCloneMapping(m *proto.ProxyMapping) *proto.ProxyMapping {
 	}
 }
 
+// Authenticate verifies service credentials and issues a session token.
 func (s *ProxyServiceServer) Authenticate(ctx context.Context, req *proto.AuthenticateRequest) (*proto.AuthenticateResponse, error) {
 	if err := enforceAccountScope(ctx, req.GetAccountId()); err != nil {
 		return nil, err
@@ -1232,6 +1238,14 @@ func (s *ProxyServiceServer) Authenticate(ctx context.Context, req *proto.Authen
 	if err != nil {
 		log.WithContext(ctx).Debugf("failed to get service from store: %v", err)
 		return nil, status.Errorf(codes.FailedPrecondition, "get service from store: %v", err)
+	}
+
+	switch req.GetRequest().(type) {
+	case *proto.AuthenticateRequest_Pin, *proto.AuthenticateRequest_Password:
+		key := credentialVerificationKey{accountID: credentialAccountID(service.AccountID), serviceID: credentialServiceID(service.ID)}
+		if err := s.credentialLimits.allow(key); err != nil {
+			return nil, err
+		}
 	}
 
 	authenticated, userId, method := s.authenticateRequest(ctx, req, service)
@@ -1561,7 +1575,7 @@ func (s *ProxyServiceServer) GetOIDCURL(ctx context.Context, req *proto.GetOIDCU
 	state := fmt.Sprintf("%s|%s|%s", base64.URLEncoding.EncodeToString([]byte(redirectURL.String())), nonceB64, hmacSum)
 
 	codeVerifier := oauth2.GenerateVerifier()
-	if err := s.pkceVerifierStore.Store(state, codeVerifier, pkceVerifierTTL); err != nil {
+	if err := s.singleUseStore.Store(state, codeVerifier, pkceVerifierTTL); err != nil {
 		log.WithContext(ctx).Errorf("failed to store PKCE verifier: %v", err)
 		return nil, status.Errorf(codes.Internal, "store PKCE verifier: %v", err)
 	}
@@ -1627,7 +1641,7 @@ func (s *ProxyServiceServer) ValidateState(state string) (verifier, redirectURL 
 	}
 
 	// Consume the PKCE verifier only after HMAC validation passes.
-	verifier, ok := s.pkceVerifierStore.LoadAndDelete(state)
+	verifier, ok := s.singleUseStore.LoadAndDelete(state)
 	if !ok {
 		return "", "", errors.New("no verifier for state")
 	}
