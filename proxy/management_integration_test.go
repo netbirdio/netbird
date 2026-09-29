@@ -119,7 +119,7 @@ func setupIntegrationTest(t *testing.T) *integrationTestSetup {
 	require.NoError(t, err)
 
 	tokenStore := nbgrpc.NewOneTimeTokenStore(ctx, cacheStore)
-	pkceStore := nbgrpc.NewPKCEVerifierStore(ctx, cacheStore)
+	singleUseStore := nbgrpc.NewSingleUseStore(ctx, cacheStore)
 
 	// Create real users manager
 	usersManager := users.NewManager(testStore)
@@ -136,7 +136,7 @@ func setupIntegrationTest(t *testing.T) *integrationTestSetup {
 	proxyService := nbgrpc.NewProxyServiceServer(
 		&testAccessLogManager{},
 		tokenStore,
-		pkceStore,
+		singleUseStore,
 		oidcConfig,
 		nil,
 		usersManager,
