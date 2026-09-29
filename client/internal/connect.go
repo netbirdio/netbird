@@ -817,12 +817,14 @@ func freePort(initPort int) (int, error) {
 	return 0, fmt.Errorf("unable to get a free port: %w", lastErr)
 }
 
-// probePort binds the wildcard udp4 and udp6 sockets on the port the same way
-// wireguard-go does and releases them again. With port 0 the system picks the
-// port. A family the host does not support is skipped, like wireguard-go does.
+// probePort checks that the port is free for the wildcard udp4 and udp6 sockets
+// wireguard-go binds, and for a dual-stack socket. Some platforms only report a
+// conflict between sockets of the same kind, so each kind is probed on its own,
+// one after the other. With port 0 the system picks the port. A family the host
+// does not support is skipped, like wireguard-go does.
 func probePort(port int) (int, error) {
 	supported := 0
-	for _, network := range []string{"udp4", "udp6"} {
+	for _, network := range []string{"udp", "udp4", "udp6"} {
 		conn, err := net.ListenUDP(network, &net.UDPAddr{Port: port})
 		if errors.Is(err, syscall.EAFNOSUPPORT) {
 			continue
@@ -830,8 +832,8 @@ func probePort(port int) (int, error) {
 		if err != nil {
 			return 0, fmt.Errorf("listen %s :%d: %w", network, port, err)
 		}
-		defer closeConnWithLog(conn)
 		port = conn.LocalAddr().(*net.UDPAddr).Port
+		closeConnWithLog(conn)
 		supported++
 	}
 

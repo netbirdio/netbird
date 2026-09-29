@@ -88,10 +88,11 @@ func Test_freePort(t *testing.T) {
 	})
 }
 
-// A holder on a single address family must make the port unusable, because
-// wireguard-go binds both families on the same port.
+// A holder on any one socket kind must make the port unusable. wireguard-go
+// binds udp4 and udp6, and some platforms only report a conflict between
+// sockets of the same kind, so a dual-stack holder is checked as well.
 func Test_freePort_singleFamilyHolder(t *testing.T) {
-	for _, network := range []string{"udp4", "udp6"} {
+	for _, network := range []string{"udp", "udp4", "udp6"} {
 		t.Run(network, func(t *testing.T) {
 			busy, err := net.ListenUDP(network, &net.UDPAddr{Port: 0})
 			if err != nil {
