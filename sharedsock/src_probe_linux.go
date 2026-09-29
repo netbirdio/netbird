@@ -49,8 +49,10 @@ type srcProbe struct {
 	// closed is read by lookups that never take mu, so it is not guarded by it.
 	closed atomic.Bool
 
-	// transient hands out the permits for throwaway sockets. A send is buffered
-	// permit; an empty channel means the ceiling is reached.
+	// transient hands out the permits for throwaway sockets. A permit is claimed
+	// by sending into the channel and released by receiving from it, so an empty
+	// channel means every permit is free and a full one means the ceiling is
+	// reached.
 	transient chan struct{}
 }
 
@@ -90,6 +92,16 @@ func (p *srcProbe) resolve(sa unix.Sockaddr) (netip.Addr, error) {
 
 	select {
 	case p.transient <- struct{}{}:
+		// close may have landed while this caller was waiting for a permit. The
+		// window cannot be closed entirely without making close wait for every
+		// transient lookup; a lookup that slips through returns an address the
+		// kernel would still have picked, and the send it feeds fails on the
+		// closed raw socket anyway.
+		if p.closed.Load() {
+			<-p.transient
+			return netip.Addr{}, errProbeClosed
+		}
+
 		src, err := p.resolveTransient(sa)
 		<-p.transient
 
@@ -144,9 +156,9 @@ func (p *srcProbe) resolveShared(sa unix.Sockaddr) (netip.Addr, error) {
 // descriptor is opened and closed inside this frame and is never shared, so it
 // needs neither the mutex nor the runtime poller.
 func (p *srcProbe) resolveTransient(sa unix.Sockaddr) (netip.Addr, error) {
-	fd, err := unix.Socket(p.family, unix.SOCK_DGRAM, unix.IPPROTO_UDP)
+	fd, err := openTransientProbeFD(p.family)
 	if err != nil {
-		return netip.Addr{}, fmt.Errorf("create transient source probe socket: %w", err)
+		return netip.Addr{}, err
 	}
 	defer func() {
 		if err := unix.Close(fd); err != nil {
@@ -237,6 +249,19 @@ func lookupFD(fd int, sa unix.Sockaddr) (netip.Addr, error) {
 		return netip.Addr{}, &routeError{err: errors.New("no source address")}
 	}
 	return src, nil
+}
+
+// openTransientProbeFD opens a bare descriptor for a single lookup. SOCK_CLOEXEC
+// matters even for a descriptor this short-lived: the daemon forks helpers
+// (resolvconf, ip, ps) from other goroutines, and a descriptor opened this way is
+// unknown to the runtime, so a child spawned inside the lookup would inherit it.
+// mdlayher/socket sets the same flag on the shared probe socket.
+func openTransientProbeFD(family int) (int, error) {
+	fd, err := unix.Socket(family, unix.SOCK_DGRAM|unix.SOCK_CLOEXEC, unix.IPPROTO_UDP)
+	if err != nil {
+		return 0, fmt.Errorf("create transient source probe socket: %w", err)
+	}
+	return fd, nil
 }
 
 func openProbeSocket(family int) (*socket.Conn, error) {

@@ -360,9 +360,24 @@ func BenchmarkSrcProbeParallel(b *testing.B) {
 	b.ReportAllocs()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
+			// b.Error, not b.Fatal: FailNow has to run on the benchmark's own
+			// goroutine, and RunParallel calls this body on others.
 			if _, err := p.resolve(rawSockaddr(dst, 0)); err != nil {
-				b.Fatal(err)
+				b.Error(err)
+				return
 			}
 		}
 	})
+}
+
+// The daemon forks helpers from other goroutines, so a probe descriptor must not
+// be inheritable by a child spawned while a lookup is in flight.
+func TestTransientProbeFD_CloseOnExec(t *testing.T) {
+	fd, err := openTransientProbeFD(unix.AF_INET)
+	require.NoError(t, err)
+	defer func() { _ = unix.Close(fd) }()
+
+	flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0)
+	require.NoError(t, err)
+	assert.NotZero(t, flags&unix.FD_CLOEXEC, "transient probe descriptor must be close-on-exec")
 }
