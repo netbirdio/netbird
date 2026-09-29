@@ -63,8 +63,9 @@ export function DialogProvider({ children }: Readonly<{ children: ReactNode }>) 
         });
     }, []);
 
-    const take = () => {
+    const take = (expected?: Settler | null) => {
         const settler = resolverRef.current;
+        if (expected && settler !== expected) return null;
         resolverRef.current = null;
         setBusy(false);
         setStalled(false);
@@ -78,13 +79,14 @@ export function DialogProvider({ children }: Readonly<{ children: ReactNode }>) 
             take()?.resolve(true);
             return;
         }
+        const dispatched = resolverRef.current;
         setBusy(true);
         const stallTimer = setTimeout(() => setStalled(true), CANCELLABLE_AFTER_MS);
         try {
             await withTimeout(action);
-            take()?.resolve(true);
+            take(dispatched)?.resolve(true);
         } catch (e) {
-            take()?.reject(e);
+            take(dispatched)?.reject(e);
         } finally {
             clearTimeout(stallTimer);
         }
