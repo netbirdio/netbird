@@ -13,7 +13,7 @@ import i18next from "@/lib/i18n";
 // Nothing on the daemon path carries a deadline, so a hung call would leave the
 // modal spinning with no way out. Cancel comes back once the wait stops looking
 // normal, and the wait is abandoned entirely at the deadline.
-const CANCELLABLE_AFTER_MS = 5_000;
+const CANCELLABLE_AFTER_MS = 15_000;
 const TIMEOUT_MS = 30_000;
 
 const withTimeout = async (action: () => Promise<unknown>) => {
