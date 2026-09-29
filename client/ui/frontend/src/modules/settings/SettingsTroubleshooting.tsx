@@ -21,7 +21,7 @@ import FancyToggleSwitch from "@/components/switches/FancyToggleSwitch";
 import HelpText from "@/components/typography/HelpText.tsx";
 import { Input } from "@/components/inputs/Input";
 import { Label } from "@/components/typography/Label";
-import { SettingSelect } from "@/components/SettingSelect";
+import { Select } from "@/components/inputs/Select";
 import { SquareIcon } from "@/components/SquareIcon";
 import { Tooltip } from "@/components/Tooltip";
 import { formatRemaining } from "@/lib/formatters";
@@ -97,7 +97,7 @@ export function SettingsTroubleshooting() {
                     </HelpText>
                 </div>
                 <div className={"shrink-0"}>
-                    <SettingSelect
+                    <Select
                         value={anonymizeLevel}
                         options={ANONYMIZE_LEVELS.map(({ value, icon }) => ({
                             value,

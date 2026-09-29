@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MonitorIcon, MoonIcon, SunMediumIcon, type LucideIcon } from "lucide-react";
-import { SettingSelect } from "@/components/SettingSelect";
+import { Select } from "@/components/inputs/Select";
 import { HelpText } from "@/components/typography/HelpText";
 import { Label } from "@/components/typography/Label";
 import { useTheme, type ThemePreference } from "@/contexts/ThemeContext";
@@ -40,7 +40,7 @@ export function ThemePicker() {
                 <HelpText margin={false}>{t("settings.general.theme.help")}</HelpText>
             </div>
             <div className={"shrink-0"}>
-                <SettingSelect
+                <Select
                     value={theme}
                     options={OPTIONS.map(({ value, icon, labelKey }) => ({
                         value,
