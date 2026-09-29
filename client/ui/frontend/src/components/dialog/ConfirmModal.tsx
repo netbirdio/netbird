@@ -14,6 +14,7 @@ type ConfirmModalProps = {
     cancelLabel?: string;
     danger?: boolean;
     busy?: boolean;
+    cancellable?: boolean;
     onConfirm: () => void;
     onCancel: () => void;
 };
@@ -26,11 +27,13 @@ export const ConfirmModal = ({
     cancelLabel,
     danger = false,
     busy = false,
+    cancellable,
     onConfirm,
     onCancel,
 }: ConfirmModalProps) => {
     const { t } = useTranslation();
     const resolvedCancel = cancelLabel ?? t("common.cancel");
+    const canCancel = cancellable ?? !busy;
 
     const srTitle = typeof title === "string" ? title : undefined;
     const srDescription = typeof description === "string" ? description : undefined;
@@ -39,7 +42,7 @@ export const ConfirmModal = ({
         <Dialog.Root
             open={open}
             onOpenChange={(next) => {
-                if (!next && !busy) onCancel();
+                if (!next && canCancel) onCancel();
             }}
         >
             <Dialog.Content
@@ -62,7 +65,7 @@ export const ConfirmModal = ({
                         <Button
                             variant={"secondary"}
                             size={"sm"}
-                            disabled={busy}
+                            disabled={!canCancel}
                             onClick={onCancel}
                         >
                             {resolvedCancel}
@@ -71,7 +74,7 @@ export const ConfirmModal = ({
                             autoFocus
                             variant={danger ? "danger" : "primary"}
                             size={"sm"}
-                            disabled={busy}
+                            loading={busy}
                             onClick={onConfirm}
                         >
                             {confirmLabel}
