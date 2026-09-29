@@ -79,6 +79,7 @@ func (e AgentNetworkConsumptionDimensionKind) Valid() bool {
 
 // Defines values for AgentNetworkManagedProxyState.
 const (
+	AgentNetworkManagedProxyStateDisabled     AgentNetworkManagedProxyState = "disabled"
 	AgentNetworkManagedProxyStateFailed       AgentNetworkManagedProxyState = "failed"
 	AgentNetworkManagedProxyStateProvisioning AgentNetworkManagedProxyState = "provisioning"
 	AgentNetworkManagedProxyStateReady        AgentNetworkManagedProxyState = "ready"
@@ -87,6 +88,8 @@ const (
 // Valid indicates whether the value is a known member of the AgentNetworkManagedProxyState enum.
 func (e AgentNetworkManagedProxyState) Valid() bool {
 	switch e {
+	case AgentNetworkManagedProxyStateDisabled:
+		return true
 	case AgentNetworkManagedProxyStateFailed:
 		return true
 	case AgentNetworkManagedProxyStateProvisioning:
@@ -2259,11 +2262,11 @@ type AgentNetworkManagedProxy struct {
 	// Region Region of the cluster hosting the deployment.
 	Region *string `json:"region,omitempty"`
 
-	// State Derived deployment state. `provisioning` until the gateway is rolled out and connected, `ready` while the gateway actively serves the endpoint, `failed` when the rollout reported a failure.
+	// State Derived deployment state. `provisioning` until the gateway is rolled out and connected, `ready` while the gateway actively serves the endpoint, `failed` when the rollout reported a failure, `disabled` while the gateway is turned off and the endpoint is not served.
 	State AgentNetworkManagedProxyState `json:"state"`
 }
 
-// AgentNetworkManagedProxyState Derived deployment state. `provisioning` until the gateway is rolled out and connected, `ready` while the gateway actively serves the endpoint, `failed` when the rollout reported a failure.
+// AgentNetworkManagedProxyState Derived deployment state. `provisioning` until the gateway is rolled out and connected, `ready` while the gateway actively serves the endpoint, `failed` when the rollout reported a failure, `disabled` while the gateway is turned off and the endpoint is not served.
 type AgentNetworkManagedProxyState string
 
 // AgentNetworkManagedProxyConflict Conflict body returned when the account already has an Agent Network endpoint that managed provisioning does not own, naming that endpoint.
