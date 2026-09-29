@@ -31,7 +31,7 @@ type store interface {
 	DeleteAccountCluster(ctx context.Context, clusterAddress, accountID string) error
 }
 
-const minSessionCodeVersion = "0.80.0"
+const minSessionCodeVersion = "0.81.0"
 
 // Manager handles all proxy operations
 type Manager struct {

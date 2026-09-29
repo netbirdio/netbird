@@ -128,9 +128,9 @@ func TestClusterSupportsSessionCode(t *testing.T) {
 		storeErr error
 		want     bool
 	}{
-		{name: "all supported", versions: []string{"0.80.0", "0.81.2"}, want: true},
-		{name: "one old proxy", versions: []string{"0.80.0", "0.79.9"}},
-		{name: "missing version", versions: []string{"0.80.0", ""}},
+		{name: "all supported", versions: []string{"0.81.0", "0.81.2"}, want: true},
+		{name: "one old proxy", versions: []string{"0.81.0", "0.80.0"}},
+		{name: "missing version", versions: []string{"0.81.0", ""}},
 		{name: "no active proxies"},
 		{name: "store error", storeErr: errors.New("db error")},
 	}
