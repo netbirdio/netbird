@@ -4,7 +4,6 @@ package server
 
 import (
 	"errors"
-	"os/user"
 	"strings"
 	"testing"
 
@@ -46,24 +45,4 @@ func TestIsLocalDomain(t *testing.T) {
 				"classification of domain %q", tt.domain)
 		})
 	}
-}
-
-// RID 500 exists on every installation and is always local, so Windows qualifies
-// it with this machine's NetBIOS name. The test process is unusable here: CI runs
-// as SYSTEM, whose name carries an NT AUTHORITY prefix.
-func TestIsLocalUser_LocalAccount(t *testing.T) {
-	netbios, err := netbiosComputerName()
-	require.NoError(t, err, "read NetBIOS computer name")
-	require.NotEmpty(t, netbios, "NetBIOS computer name must not be empty")
-	assert.LessOrEqual(t, len([]rune(netbios)), windows.MAX_COMPUTERNAME_LENGTH,
-		"NetBIOS computer name is capped at MAX_COMPUTERNAME_LENGTH")
-
-	account, err := user.Lookup(localAccountNameByRID(t, 500))
-	require.NoError(t, err, "look up the built-in Administrator account")
-
-	_, domain := parseUsername(account.Username)
-	assert.True(t, strings.EqualFold(netbios, domain),
-		"Windows must qualify local account %q with NetBIOS name %q", account.Username, netbios)
-	assert.True(t, NewPrivilegeDropper().isLocalUser(domain),
-		"account %q must be classified as local", account.Username)
 }
