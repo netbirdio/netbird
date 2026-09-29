@@ -80,11 +80,9 @@ func newSrcProbe(family int) (*srcProbe, error) {
 
 // resolve returns the source address the kernel would use for a packet to sa, a
 // sockaddr of the probe's family. It is safe for concurrent use.
+// Each tier checks closed for itself rather than once up front, so the check
+// always sits next to the resource it guards.
 func (p *srcProbe) resolve(sa unix.Sockaddr) (netip.Addr, error) {
-	if p.closed.Load() {
-		return netip.Addr{}, errProbeClosed
-	}
-
 	if p.mu.TryLock() {
 		defer p.mu.Unlock()
 		return p.resolveShared(sa)
@@ -92,8 +90,8 @@ func (p *srcProbe) resolve(sa unix.Sockaddr) (netip.Addr, error) {
 
 	select {
 	case p.transient <- struct{}{}:
-		// close may have landed while this caller was waiting for a permit. The
-		// window cannot be closed entirely without making close wait for every
+		// close may have landed while this caller was claiming a permit. The
+		// window cannot be shut entirely without making close wait for every
 		// transient lookup; a lookup that slips through returns an address the
 		// kernel would still have picked, and the send it feeds fails on the
 		// closed raw socket anyway.

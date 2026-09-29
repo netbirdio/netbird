@@ -282,7 +282,9 @@ func TestSrcProbe_WaitsForSharedSocketPastTheCeiling(t *testing.T) {
 	}
 }
 
-// A closed probe rejects immediately, without waiting for the shared socket.
+// A closed probe rejects immediately, without waiting for the shared socket. With
+// the shared socket held the caller reaches the transient tier, so this also covers
+// the close check that runs after a permit is claimed, and the permit's release.
 func TestSrcProbe_ClosedRejectsWhileSharedSocketBusy(t *testing.T) {
 	p, err := newSrcProbe(unix.AF_INET)
 	require.NoError(t, err)
@@ -300,6 +302,7 @@ func TestSrcProbe_ClosedRejectsWhileSharedSocketBusy(t *testing.T) {
 	select {
 	case err := <-done:
 		assert.ErrorIs(t, err, errProbeClosed)
+		assert.Empty(t, p.transient, "the permit must be released when the probe is closed")
 	case <-time.After(5 * time.Second):
 		t.Fatal("a closed probe must not wait for the shared socket")
 	}
