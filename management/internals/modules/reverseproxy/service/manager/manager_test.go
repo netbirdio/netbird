@@ -655,6 +655,10 @@ func (d *testClusterDeriver) GetClusterDomains() []string {
 	return d.domains
 }
 
+func (d *testClusterDeriver) ValidateServiceDomain(context.Context, store.Store, string, string, string) error {
+	return nil
+}
+
 const (
 	testAccountID = "test-account"
 	testPeerID    = "test-peer-1"

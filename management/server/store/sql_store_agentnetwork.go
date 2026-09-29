@@ -619,7 +619,7 @@ func (s *SqlStore) IncrementAgentNetworkConsumptionBatch(
 	}
 
 	const tbl = "agent_network_consumption"
-	err := s.db.Transaction(func(tx *gorm.DB) error {
+	err := s.transaction(ctx, func(tx *gorm.DB) error {
 		for _, k := range keys {
 			if k.DimID == "" || k.WindowSeconds <= 0 {
 				return status.Errorf(status.InvalidArgument, "dim_id and window_seconds must be set")

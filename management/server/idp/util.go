@@ -2,6 +2,8 @@ package idp
 
 import (
 	"encoding/json"
+	"errors"
+	"net/http"
 	"net/url"
 	"os"
 	"strings"
@@ -80,6 +82,23 @@ const (
 	// Sets the defaultTimeout to 10s.
 	defaultTimeout = 10 * time.Second
 )
+
+// errRedirectRefused is returned instead of http.ErrUseLastResponse so the
+// client closes the redirect response rather than handing it back unread.
+var errRedirectRefused = errors.New("redirect refused")
+
+func newHTTPClient() *http.Client {
+	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
+	httpTransport.MaxIdleConns = 5
+
+	return &http.Client{
+		Timeout:   idpTimeout(),
+		Transport: httpTransport,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return errRedirectRefused
+		},
+	}
+}
 
 // idpTimeout returns a timeout value for the IDP
 func idpTimeout() time.Duration {

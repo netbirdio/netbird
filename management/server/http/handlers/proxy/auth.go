@@ -16,21 +16,21 @@ import (
 	"golang.org/x/oauth2"
 
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
-	"github.com/netbirdio/netbird/management/server/http/middleware"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/proxy/auth"
+	"github.com/netbirdio/netbird/shared/ratelimit"
 )
 
 // AuthCallbackHandler handles OAuth callbacks for proxy authentication.
 type AuthCallbackHandler struct {
 	proxyService   *nbgrpc.ProxyServiceServer
-	rateLimiter    *middleware.APIRateLimiter
+	rateLimiter    *ratelimit.APIRateLimiter
 	trustedProxies []netip.Prefix
 }
 
 // NewAuthCallbackHandler creates a new OAuth callback handler.
 func NewAuthCallbackHandler(proxyService *nbgrpc.ProxyServiceServer, trustedProxies []netip.Prefix) *AuthCallbackHandler {
-	rateLimiterConfig := &middleware.RateLimiterConfig{
+	rateLimiterConfig := &ratelimit.RateLimiterConfig{
 		RequestsPerMinute: 10,
 		Burst:             15,
 		CleanupInterval:   5 * time.Minute,
@@ -39,7 +39,7 @@ func NewAuthCallbackHandler(proxyService *nbgrpc.ProxyServiceServer, trustedProx
 
 	return &AuthCallbackHandler{
 		proxyService:   proxyService,
-		rateLimiter:    middleware.NewAPIRateLimiter(rateLimiterConfig),
+		rateLimiter:    ratelimit.NewAPIRateLimiter(rateLimiterConfig),
 		trustedProxies: trustedProxies,
 	}
 }

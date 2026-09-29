@@ -13,11 +13,7 @@ import (
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
 )
 
-// SingleUseStore holds short-lived, single-use values in the shared cache
-// (memory or Redis via NB_IDP_CACHE_REDIS_ADDRESS). It backs both the OAuth
-// PKCE verifiers (keyed by the caller's state) and the OIDC session exchange
-// codes (keyed by a generated random code). LoadAndDelete consumes a value so
-// only one caller can redeem it.
+// SingleUseStore stores short-lived values that can be retrieved only once.
 type SingleUseStore struct {
 	cache nbcache.Store
 	ctx   context.Context
@@ -57,8 +53,7 @@ func singleUseCacheKey(namespace, key string) string {
 	return namespace + ":" + key
 }
 
-// LoadAndDelete retrieves and removes the value for key, returning it and true
-// when present. This enforces single-use semantics.
+// LoadAndDelete retrieves and removes the value for a key.
 func (s *SingleUseStore) LoadAndDelete(key string) (string, bool) {
 	value, found, err := s.cache.GetDel(s.ctx, key)
 	if err != nil {

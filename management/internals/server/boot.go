@@ -32,17 +32,18 @@ import (
 	networkmapdb "github.com/netbirdio/netbird/management/internals/network_map_db"
 	networkmapdbfactory "github.com/netbirdio/netbird/management/internals/network_map_db/factory"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/internals/shared/db"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/activity"
 	activitystore "github.com/netbirdio/netbird/management/server/activity/store"
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
 	nbhttp "github.com/netbirdio/netbird/management/server/http"
-	"github.com/netbirdio/netbird/management/server/http/middleware"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/shared/ratelimit"
 	"github.com/netbirdio/netbird/util/crypt"
 )
 
@@ -84,9 +85,20 @@ func (s *BaseServer) CacheStore() nbcache.Store {
 	})
 }
 
+// DBConn opens the database connection shared by the store and the domain repositories.
+func (s *BaseServer) DBConn() *db.Conn {
+	return Create(s, func() *db.Conn {
+		conn, err := store.OpenConn(context.Background(), s.Config.StoreConfig.Engine, s.Config.Datadir)
+		if err != nil {
+			log.Fatalf("failed to open database connection: %v", err)
+		}
+		return conn
+	})
+}
+
 func (s *BaseServer) Store() store.Store {
 	return Create(s, func() store.Store {
-		store, err := store.NewStore(context.Background(), s.Config.StoreConfig.Engine, s.Config.Datadir, s.Metrics(), false)
+		store, err := store.NewSqlStore(context.Background(), s.DBConn(), s.Metrics(), false)
 		if err != nil {
 			log.Fatalf("failed to create store: %v", err)
 		}
@@ -147,7 +159,7 @@ func (s *BaseServer) EventStore() activity.Store {
 
 func (s *BaseServer) APIHandler() http.Handler {
 	return Create(s, func() http.Handler {
-		httpAPIHandler, err := nbhttp.NewAPIHandler(context.Background(), s.Router(), s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(), s.GroupsManager(), s.GeoLocationManager(), s.AuthManager(), s.Metrics(), s.PermissionsManager(), s.SettingsManager(), s.ZonesManager(), s.RecordsManager(), s.NetworkMapController(), s.IdpManager(), s.ServiceManager(), s.ReverseProxyDomainManager(), s.AccessLogsManager(), s.ReverseProxyGRPCServer(), s.Config.ReverseProxy.TrustedHTTPProxies, s.RateLimiter(), s.IsValidChildAccount, s.AgentNetworkManager())
+		httpAPIHandler, err := nbhttp.NewAPIHandler(context.Background(), s.Router(), s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(), s.GroupsManager(), s.GeoLocationManager(), s.AuthManager(), s.Metrics(), s.PermissionsManager(), s.SettingsManager(), s.ZonesManager(), s.RecordsManager(), s.NetworkMapController(), s.IdpManager(), s.ServiceManager(), s.ReverseProxyDomainManager(), s.AccessLogsManager(), s.ReverseProxyGRPCServer(), s.Config.ReverseProxy.TrustedHTTPProxies, s.RateLimiter(), s.IsValidChildAccount, s.AgentNetworkManager(), nil)
 		if err != nil {
 			log.Fatalf("failed to create API handler: %v", err)
 		}
@@ -171,10 +183,10 @@ func (s *BaseServer) Router() *mux.Router {
 	})
 }
 
-func (s *BaseServer) RateLimiter() *middleware.APIRateLimiter {
-	return Create(s, func() *middleware.APIRateLimiter {
-		cfg, enabled := middleware.RateLimiterConfigFromEnv()
-		limiter := middleware.NewAPIRateLimiter(cfg)
+func (s *BaseServer) RateLimiter() *ratelimit.APIRateLimiter {
+	return Create(s, func() *ratelimit.APIRateLimiter {
+		cfg, enabled := ratelimit.RateLimiterConfigFromEnv()
+		limiter := ratelimit.NewAPIRateLimiter(cfg)
 		limiter.SetEnabled(enabled)
 		return limiter
 	})
@@ -308,7 +320,7 @@ func (s *BaseServer) ProxyActivityManager() proxyactivity.Manager {
 
 func (s *BaseServer) AccessLogsManager() accesslogs.Manager {
 	return Create(s, func() accesslogs.Manager {
-		accessLogManager := accesslogsmanager.NewManager(s.Store(), s.PermissionsManager(), s.GeoLocationManager())
+		accessLogManager := accesslogsmanager.NewManager(accesslogsmanager.NewRepository(s.DBConn()), s.Store(), s.PermissionsManager(), s.GeoLocationManager())
 		accessLogManager.StartPeriodicCleanup(
 			context.Background(),
 			s.Config.ReverseProxy.AccessLogRetentionDays,

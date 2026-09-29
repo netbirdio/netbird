@@ -66,7 +66,7 @@ func ValidateSessionJWT(tokenString, domain string, publicKey ed25519.PublicKey)
 			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 		}
 		return publicKey, nil
-	}, jwt.WithAudience(domain), jwt.WithIssuer(SessionJWTIssuer))
+	}, jwt.WithAudience(domain), jwt.WithIssuer(SessionJWTIssuer), jwt.WithStrictDecoding())
 	if err != nil {
 		return "", "", "", nil, nil, fmt.Errorf("parse token: %w", err)
 	}
