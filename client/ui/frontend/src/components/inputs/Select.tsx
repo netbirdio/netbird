@@ -25,9 +25,6 @@ type SelectProps<T extends string> = {
     className?: string;
 };
 
-// Mirrors the LanguagePicker, which has to build its own trigger and popover
-// for the search field a long list needs. Shorter lists get the same control
-// from here without that machinery.
 export function Select<T extends string>({
     value,
     options,
