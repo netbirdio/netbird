@@ -16,7 +16,15 @@ func TestDebugCPUStartStop(t *testing.T) {
 	tempDir := t.TempDir()
 	origDefaultProfileDir := profilemanager.DefaultConfigPathDir
 	origActiveProfileStatePath := profilemanager.ActiveProfileStatePath
+	origConfigDirOverride := profilemanager.ConfigDirOverride
 	origDaemonAddr := daemonAddr
+	t.Cleanup(func() {
+		profilemanager.DefaultConfigPathDir = origDefaultProfileDir
+		profilemanager.ActiveProfileStatePath = origActiveProfileStatePath
+		profilemanager.ConfigDirOverride = origConfigDirOverride
+		daemonAddr = origDaemonAddr
+	})
+
 	profilemanager.DefaultConfigPathDir = tempDir
 	profilemanager.ActiveProfileStatePath = tempDir + "/active_profile.json"
 	profilemanager.ConfigDirOverride = tempDir
@@ -31,15 +39,12 @@ func TestDebugCPUStartStop(t *testing.T) {
 		Username: currUser.Username,
 	}))
 
+	ctx, cancel := context.WithCancel(internal.CtxInitState(context.Background()))
+	srv, lis := startClientDaemon(t, ctx, "", tempDir+"/config.json")
 	t.Cleanup(func() {
-		profilemanager.DefaultConfigPathDir = origDefaultProfileDir
-		profilemanager.ActiveProfileStatePath = origActiveProfileStatePath
-		profilemanager.ConfigDirOverride = ""
-		daemonAddr = origDaemonAddr
+		cancel()
+		srv.Stop()
 	})
-
-	ctx := internal.CtxInitState(context.Background())
-	_, lis := startClientDaemon(t, ctx, "", tempDir+"/config.json")
 	addr := "tcp://" + lis.Addr().String()
 
 	run := func(args ...string) error {
