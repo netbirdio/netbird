@@ -16,7 +16,7 @@ import (
 
 func (s *SqlStore) getPostureChecks(ctx context.Context, accountID string) ([]*posture.Checks, error) {
 	const query = `SELECT id, account_id, public_id, name, description, checks FROM posture_checks WHERE account_id = $1`
-	rows, err := s.pool.Query(ctx, query, accountID)
+	rows, err := s.pgxPool().Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
 	}

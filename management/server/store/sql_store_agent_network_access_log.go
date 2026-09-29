@@ -16,7 +16,7 @@ import (
 // entry together with its authorising-group child rows in a single
 // transaction.
 func (s *SqlStore) CreateAgentNetworkAccessLog(ctx context.Context, entry *agentNetworkTypes.AgentNetworkAccessLog, groups []agentNetworkTypes.AgentNetworkAccessLogGroup) error {
-	err := s.db.Transaction(func(tx *gorm.DB) error {
+	err := s.transaction(ctx, func(tx *gorm.DB) error {
 		// Idempotent on the log id / (log_id, group_id) so a proxy resend of the
 		// same entry can't fail the request.
 		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(entry).Error; err != nil {
@@ -46,7 +46,7 @@ func (s *SqlStore) CreateAgentNetworkAccessLog(ctx context.Context, entry *agent
 // deleted.
 func (s *SqlStore) DeleteOldAgentNetworkAccessLogs(ctx context.Context, accountID string, olderThan time.Time) (int64, error) {
 	var deleted int64
-	err := s.db.Transaction(func(tx *gorm.DB) error {
+	err := s.transaction(ctx, func(tx *gorm.DB) error {
 		// Remove group child rows for the soon-to-be-deleted logs first.
 		if err := tx.Exec(
 			"DELETE FROM agent_network_access_log_group WHERE account_id = ? AND log_id IN (SELECT id FROM agent_network_access_log WHERE account_id = ? AND timestamp < ?)",
