@@ -9,9 +9,11 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -51,6 +53,10 @@ import (
 	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/version"
 )
+
+// freePortAttempts bounds how often a random port is drawn until both address
+// families accept it.
+const freePortAttempts = 10
 
 // androidRunOverride is set on Android to inject mobile dependencies
 // when using embed.Client (which calls Run() with empty MobileDependency).
@@ -415,6 +421,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			log.Error(err)
 			return wrapErr(err)
 		}
+		c.notifyWgPortFallback(engineConfig.WgPort)
 		engineConfig.TempDir = mobileDependency.TempDir
 		// Leave StateDir empty when there is no state path so a disk-backed
 		// syncstore falls back to os.TempDir() instead of filepath.Dir("") == ".".
@@ -697,6 +704,21 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 	return engineConf, nil
 }
 
+// notifyWgPortFallback publishes a warning event when the configured listen
+// port was taken and a different one is used.
+func (c *ConnectClient) notifyWgPortFallback(port int) {
+	if c.config.WgPort == 0 || port == c.config.WgPort {
+		return
+	}
+	c.statusRecorder.PublishEvent(
+		cProto.SystemEvent_WARNING,
+		cProto.SystemEvent_NETWORK,
+		fmt.Sprintf("WireGuard port %d is in use, using %d", c.config.WgPort, port),
+		fmt.Sprintf("Port %d is already in use by another application. NetBird is using port %d instead.", c.config.WgPort, port),
+		map[string]string{"configured_port": strconv.Itoa(c.config.WgPort), "port": strconv.Itoa(port)},
+	)
+}
+
 func selectMTU(localMTU uint16, peerMTU int32) uint16 {
 	var finalMTU uint16 = iface.DefaultMTU
 	if localMTU > 0 {
@@ -769,28 +791,44 @@ func statusRecorderToSignalConnStateNotifier(statusRecorder *peer.Status) signal
 
 // freePort attempts to determine if the provided port is available, if not it will ask the system for a free port.
 func freePort(initPort int) (int, error) {
-	addr := net.UDPAddr{Port: initPort}
-
-	conn, err := net.ListenUDP("udp", &addr)
+	port, err := probePort(initPort)
 	if err == nil {
-		returnPort := conn.LocalAddr().(*net.UDPAddr).Port
-		closeConnWithLog(conn)
-		return returnPort, nil
+		return port, nil
 	}
 
 	// if the port is already in use, ask the system for a free port
-	addr.Port = 0
-	conn, err = net.ListenUDP("udp", &addr)
-	if err != nil {
-		return 0, fmt.Errorf("unable to get a free port: %v", err)
+	var lastErr error
+	for range freePortAttempts {
+		port, lastErr = probePort(0)
+		if lastErr == nil {
+			return port, nil
+		}
+	}
+	return 0, fmt.Errorf("unable to get a free port: %w", lastErr)
+}
+
+// probePort binds the wildcard udp4 and udp6 sockets on the port the same way
+// wireguard-go does and releases them again. With port 0 the system picks the
+// port. A family the host does not support is skipped, like wireguard-go does.
+func probePort(port int) (int, error) {
+	supported := 0
+	for _, network := range []string{"udp4", "udp6"} {
+		conn, err := net.ListenUDP(network, &net.UDPAddr{Port: port})
+		if errors.Is(err, syscall.EAFNOSUPPORT) {
+			continue
+		}
+		if err != nil {
+			return 0, fmt.Errorf("listen %s :%d: %w", network, port, err)
+		}
+		defer closeConnWithLog(conn)
+		port = conn.LocalAddr().(*net.UDPAddr).Port
+		supported++
 	}
 
-	udpAddr, ok := conn.LocalAddr().(*net.UDPAddr)
-	if !ok {
-		return 0, errors.New("wrong address type when getting a free port")
+	if supported == 0 {
+		return 0, errors.New("neither IPv4 nor IPv6 UDP is supported")
 	}
-	closeConnWithLog(conn)
-	return udpAddr.Port, nil
+	return port, nil
 }
 
 func closeConnWithLog(conn *net.UDPConn) {
