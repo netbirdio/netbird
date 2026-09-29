@@ -84,8 +84,8 @@ func TestSharedKeyCache_StaysBounded(t *testing.T) {
 		assert.LessOrEqual(t, len(c.keys), c.limit, "cache must not grow past its cap")
 	}
 	assert.Len(t, c.keys, c.limit, "a full cache keeps evicting one entry per new peer")
-	c.Clear()
-	assert.Empty(t, c.keys, "Clear must drop every entry")
+	c.Close()
+	assert.Empty(t, c.keys, "Close must drop every entry")
 }
 
 func TestSharedKeyCache_Concurrent(t *testing.T) {
@@ -142,4 +142,43 @@ func BenchmarkEncryptDecryptCached(b *testing.B) {
 		_, err = bob.Decrypt(enc, alicePub)
 		require.NoError(b, err)
 	}
+}
+
+// A forged sender key must not populate the cache: the key of an incoming message
+// is only trusted once the message opens.
+func TestSharedKeyCache_FailedDecryptDoesNotCache(t *testing.T) {
+	alicePriv, alicePub := newKeyPair(t)
+	bobPriv, bobPub := newKeyPair(t)
+	_, forgedPub := newKeyPair(t)
+	alice := NewSharedKeyCache(alicePriv)
+
+	enc, err := Encrypt([]byte("hi"), alicePub, bobPriv)
+	require.NoError(t, err)
+
+	_, err = alice.Decrypt(enc, forgedPub)
+	require.Error(t, err)
+	assert.Empty(t, alice.keys, "a message that fails to open must not add a cache entry")
+
+	_, err = alice.Decrypt(enc, bobPub)
+	require.NoError(t, err)
+	assert.Len(t, alice.keys, 1, "a message that opens caches its sender's key")
+}
+
+// After Close the cache still works but no longer keeps key material.
+func TestSharedKeyCache_ClosedDoesNotRepopulate(t *testing.T) {
+	alicePriv, alicePub := newKeyPair(t)
+	bobPriv, bobPub := newKeyPair(t)
+	alice := NewSharedKeyCache(alicePriv)
+
+	_, err := alice.Encrypt([]byte("x"), bobPub)
+	require.NoError(t, err)
+	alice.Close()
+	assert.Empty(t, alice.keys)
+
+	enc, err := alice.Encrypt([]byte("y"), bobPub)
+	require.NoError(t, err)
+	dec, err := Decrypt(enc, alicePub, bobPriv)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("y"), dec, "a closed cache must still encrypt correctly")
+	assert.Empty(t, alice.keys, "a closed cache must not cache new keys")
 }

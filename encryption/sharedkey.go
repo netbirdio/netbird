@@ -22,8 +22,9 @@ type SharedKeyCache struct {
 	privateKey wgtypes.Key
 	limit      int
 
-	mu   sync.RWMutex
-	keys map[wgtypes.Key]*[32]byte
+	mu     sync.RWMutex
+	keys   map[wgtypes.Key]*[32]byte
+	closed bool
 }
 
 // NewSharedKeyCache returns a cache for messages sent and received with privateKey.
@@ -54,9 +55,21 @@ func (c *SharedKeyCache) Decrypt(encryptedMsg []byte, peerPublicKey wgtypes.Key)
 	var nonce [nonceSize]byte
 	copy(nonce[:], encryptedMsg[:nonceSize])
 
-	opened, ok := box.OpenAfterPrecomputation(nil, encryptedMsg[nonceSize:], &nonce, c.sharedKey(peerPublicKey))
+	shared, cached := c.cached(peerPublicKey)
+	if !cached {
+		shared = c.derive(peerPublicKey)
+	}
+
+	opened, ok := box.OpenAfterPrecomputation(nil, encryptedMsg[nonceSize:], &nonce, shared)
 	if !ok {
 		return nil, fmt.Errorf("failed to decrypt message from peer %s", peerPublicKey.String())
+	}
+
+	// The sender key of an incoming message is not authenticated until it opens, so
+	// only a key that produced a valid message is cached. Forged senders cannot fill
+	// the cache or evict real peers.
+	if !cached {
+		c.store(peerPublicKey, shared)
 	}
 	return opened, nil
 }
@@ -82,28 +95,47 @@ func (c *SharedKeyCache) DecryptMessage(peerPublicKey wgtypes.Key, encryptedMess
 	return nil
 }
 
-// Clear drops every cached shared key.
-func (c *SharedKeyCache) Clear() {
+// Close drops every cached shared key and stops caching new ones. Encrypt and
+// Decrypt keep working afterwards by deriving the key for each message.
+func (c *SharedKeyCache) Close() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.closed = true
 	clear(c.keys)
 }
 
 func (c *SharedKeyCache) sharedKey(peerPublicKey wgtypes.Key) *[32]byte {
-	c.mu.RLock()
-	shared, ok := c.keys[peerPublicKey]
-	c.mu.RUnlock()
-	if ok {
+	if shared, ok := c.cached(peerPublicKey); ok {
 		return shared
 	}
 
-	// Derive outside the lock: two goroutines racing on a new peer compute the same
-	// value, and holding the lock would serialise the x25519 work this cache avoids.
-	shared = new([32]byte)
-	box.Precompute(shared, toByte32(peerPublicKey), toByte32(c.privateKey))
+	shared := c.derive(peerPublicKey)
+	c.store(peerPublicKey, shared)
+	return shared
+}
 
+func (c *SharedKeyCache) cached(peerPublicKey wgtypes.Key) (*[32]byte, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	shared, ok := c.keys[peerPublicKey]
+	return shared, ok
+}
+
+// derive computes the shared key outside the lock: two goroutines racing on a new
+// peer compute the same value, and holding the lock would serialise the x25519 work
+// this cache avoids.
+func (c *SharedKeyCache) derive(peerPublicKey wgtypes.Key) *[32]byte {
+	shared := new([32]byte)
+	box.Precompute(shared, toByte32(peerPublicKey), toByte32(c.privateKey))
+	return shared
+}
+
+func (c *SharedKeyCache) store(peerPublicKey wgtypes.Key, shared *[32]byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.closed {
+		return
+	}
 	if len(c.keys) >= c.limit {
 		// Map iteration order is random, so this evicts an arbitrary entry.
 		for k := range c.keys {
@@ -112,5 +144,4 @@ func (c *SharedKeyCache) sharedKey(peerPublicKey wgtypes.Key) *[32]byte {
 		}
 	}
 	c.keys[peerPublicKey] = shared
-	return shared
 }

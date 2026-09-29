@@ -160,7 +160,7 @@ func (c *GrpcClient) Close() error {
 	}
 	c.decryptionWg.Wait()
 	c.decryptionWorker = nil
-	c.sharedKeys.Clear()
+	c.sharedKeys.Close()
 
 	return c.signalConn.Close()
 }
