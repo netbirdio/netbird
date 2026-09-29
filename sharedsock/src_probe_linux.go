@@ -49,6 +49,11 @@ func (p *srcProbe) resolve(sa unix.Sockaddr) (netip.Addr, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	return p.resolveShared(sa)
+}
+
+// resolveShared runs a lookup on the long-lived socket. Callers must hold p.mu.
+func (p *srcProbe) resolveShared(sa unix.Sockaddr) (netip.Addr, error) {
 	if p.closed {
 		return netip.Addr{}, errProbeClosed
 	}
