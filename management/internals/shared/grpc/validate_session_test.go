@@ -634,6 +634,10 @@ func (m *testValidateSessionProxyManager) ClusterSupportsPrivate(_ context.Conte
 	return nil
 }
 
+func (m *testValidateSessionProxyManager) ClusterSupportsSessionCode(_ context.Context, _ string) bool {
+	return false
+}
+
 type testValidateSessionUsersManager struct {
 	store store.Store
 }
@@ -661,4 +665,48 @@ func (m *testValidateSessionUsersManager) GetUserWithGroups(ctx context.Context,
 		}
 	}
 	return user, groups, nil
+}
+
+func TestValidateSession_RedeemsSessionCode(t *testing.T) {
+	setup := setupValidateSessionTest(t)
+	defer setup.cleanup()
+
+	proxy, err := setup.store.GetServiceByID(context.Background(), store.LockingStrengthNone, "testAccountId", "testProxyId")
+	require.NoError(t, err)
+
+	token := createSessionToken(t, proxy.SessionPrivateKey, "allowedUserId", "test-proxy.example.com")
+	code, ok := setup.proxyService.GenerateSessionCode(token)
+	require.True(t, ok)
+	require.NotEqual(t, token, code, "code must not be the token itself")
+
+	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
+		Domain:      "test-proxy.example.com",
+		SessionCode: code,
+	})
+	require.NoError(t, err)
+	assert.True(t, resp.Valid, "redeemed code should authorize the user")
+	assert.Equal(t, "allowedUserId", resp.UserId)
+	assert.Equal(t, token, resp.GetSessionToken(), "response must carry the durable token for the cookie")
+
+	// Single-use: the same code must not redeem again.
+	resp2, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
+		Domain:      "test-proxy.example.com",
+		SessionCode: code,
+	})
+	require.NoError(t, err)
+	assert.False(t, resp2.Valid, "a consumed code must be rejected")
+	assert.Empty(t, resp2.GetSessionToken())
+}
+
+func TestValidateSession_InvalidSessionCode(t *testing.T) {
+	setup := setupValidateSessionTest(t)
+	defer setup.cleanup()
+
+	resp, err := setup.proxyService.ValidateSession(context.Background(), &proto.ValidateSessionRequest{
+		Domain:      "test-proxy.example.com",
+		SessionCode: "does-not-exist",
+	})
+	require.NoError(t, err)
+	assert.False(t, resp.Valid)
+	assert.Empty(t, resp.GetSessionToken())
 }
