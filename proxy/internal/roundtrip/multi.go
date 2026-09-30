@@ -64,6 +64,9 @@ func NewMultiTransport(embedded http.RoundTripper, logger *log.Logger) *MultiTra
 		ReadBufferSize:        cfg.readBufferSize,
 		DisableCompression:    cfg.disableCompression,
 	}
+	// Clone runs the transport's one-time protocol setup, so the HTTP
+	// version must be applied first or the source loses HTTP/2 for good.
+	applyUpstreamHTTPVersion(direct, cfg.upstreamHTTPVersion)
 	insecure := direct.Clone()
 	insecure.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // matches the embedded NetBird transport's per-target opt-in
 

@@ -40,9 +40,14 @@ func (OIDC) Type() auth.Method {
 
 // Authenticate checks for an OIDC session token or obtains the OIDC redirect URL.
 func (o OIDC) Authenticate(r *http.Request) (string, string, error) {
-	// Check for the session_token query param (from OIDC redirects).
-	// The management server passes the token in the URL because it cannot set
-	// cookies for the proxy's domain (cookies are domain-scoped per RFC 6265).
+	// Check for the session credential returned by the OIDC callback. The management
+	// server passes it in the URL because it cannot set a cookie for the proxy's
+	// domain (cookies are domain-scoped per RFC 6265). The current flow uses a
+	// single-use session_code to keep the durable token out of the URL.
+	// session_token remains supported for backward compatibility.
+	if code := r.URL.Query().Get("session_code"); code != "" {
+		return code, "", nil
+	}
 	if token := r.URL.Query().Get("session_token"); token != "" {
 		return token, "", nil
 	}
