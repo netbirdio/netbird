@@ -80,7 +80,7 @@ func TestAccountDelete_RemovesAgentNetworkState(t *testing.T) {
 
 	// The proxy is told to drop the gateway. A proxy that only learns on its
 	// next resync keeps serving the deleted account with its provider API keys.
-	if !eventually(ctx, 60*time.Second, func() bool { return !proxyRunsAccount(t, ctx, env.proxy, accountID) }) {
+	if !eventually(ctx, 60*time.Second, func() bool { return proxyDroppedAccount(t, ctx, env.proxy, accountID) }) {
 		t.Errorf("proxy still runs a client for deleted account %s\n=== proxy logs ===\n%s",
 			accountID, env.proxy.Logs(context.Background()))
 	}
@@ -222,17 +222,33 @@ func chatThrough(t *testing.T, ctx context.Context, env accountDeleteEnv) {
 		code, body, env.proxy.Logs(context.Background()))
 }
 
-// proxyRunsAccount reports whether the proxy runs a client for the account.
-// A failed lookup counts as "not known to run it" only for the caller's poll:
-// it is logged so a broken debug endpoint cannot pass the test silently.
+// proxyRunsAccount reports whether a lookup succeeded and shows the proxy
+// running a client for the account.
 func proxyRunsAccount(t *testing.T, ctx context.Context, px *harness.Proxy, accountID string) bool {
+	t.Helper()
+	runs, ok := lookupProxyAccount(t, ctx, px, accountID)
+	return ok && runs
+}
+
+// proxyDroppedAccount reports whether a lookup succeeded and shows the proxy
+// no longer running a client for the account. A failed lookup confirms
+// nothing, so it keeps the caller polling rather than passing the check.
+func proxyDroppedAccount(t *testing.T, ctx context.Context, px *harness.Proxy, accountID string) bool {
+	t.Helper()
+	runs, ok := lookupProxyAccount(t, ctx, px, accountID)
+	return ok && !runs
+}
+
+// lookupProxyAccount asks the proxy whether it runs a client for the account;
+// ok is false when the lookup itself failed.
+func lookupProxyAccount(t *testing.T, ctx context.Context, px *harness.Proxy, accountID string) (runs, ok bool) {
 	t.Helper()
 	clients, err := px.DebugClients(ctx)
 	if err != nil {
 		t.Logf("proxy debug clients: %v", err)
-		return false
+		return false, false
 	}
-	return slices.ContainsFunc(clients, func(c harness.ProxyDebugClient) bool { return c.AccountID == accountID })
+	return slices.ContainsFunc(clients, func(c harness.ProxyDebugClient) bool { return c.AccountID == accountID }), true
 }
 
 // accountRowCounts counts the account's rows in each table, read from a
