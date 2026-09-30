@@ -1,0 +1,65 @@
+# sqlc reads the goose migration files as the schema, so the generated code is
+# always checked against what the runner ships. One configuration parses with
+# the Postgres engine; the same generated queries run on SQLite through the
+# dialect adapter in querier.go.
+version: "2"
+sql:
+  - engine: "postgresql"
+    schema: "../../../../server/store/migrations/postgres"
+    queries: "queries"
+    gen:
+      go:
+        package: "gen"
+        out: "gen"
+        sql_package: "database/sql"
+        emit_interface: true
+        emit_empty_slices: true
+        omit_unused_structs: true
+        overrides:
+          # gorm created every column nullable but never writes NULL into
+          # non-pointer fields; the overrides state that per column until
+          # migrations add NOT NULL. Pointer fields keep their sql.Null types.
+          - column: "setup_keys.id"
+            go_type: "string"
+            nullable: true
+          - column: "setup_keys.account_id"
+            go_type: "string"
+            nullable: true
+          - column: "setup_keys.key"
+            go_type: "string"
+            nullable: true
+          - column: "setup_keys.key_secret"
+            go_type: "string"
+            nullable: true
+          - column: "setup_keys.name"
+            go_type: "string"
+            nullable: true
+          - column: "setup_keys.type"
+            go_type: "string"
+            nullable: true
+          - column: "setup_keys.created_at"
+            go_type: "time.Time"
+            nullable: true
+          - column: "setup_keys.updated_at"
+            go_type: "time.Time"
+            nullable: true
+          - column: "setup_keys.revoked"
+            go_type: "bool"
+            nullable: true
+          - column: "setup_keys.used_times"
+            go_type: "int64"
+            nullable: true
+          - column: "setup_keys.usage_limit"
+            go_type: "int64"
+            nullable: true
+          - column: "setup_keys.ephemeral"
+            go_type: "bool"
+            nullable: true
+          - column: "setup_keys.allow_extra_dns_labels"
+            go_type: "bool"
+            nullable: true
+          - column: "setup_keys.auto_groups"
+            go_type:
+              import: "github.com/netbirdio/netbird/management/internals/shared/db/sqlc/sqltypes"
+              type: "Strings"
+            nullable: true
