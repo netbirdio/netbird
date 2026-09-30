@@ -68,17 +68,23 @@ func runDebugCmd(addr string, args ...string) (string, error) {
 	rootCmd.SetOut(nil)
 	rootCmd.SetErr(nil)
 	rootCmd.SetArgs(nil)
-	resetFlags(forCmd)
+	resetFlags(rootCmd)
 	return out.String(), err
 }
 
-// resetFlags puts every flag of the shared command back to its default so a
-// value parsed in one run does not leak into the next in-process execution.
+// resetFlags puts every flag of the command and its subcommands back to its
+// default so a value parsed in one run does not leak into the next in-process
+// execution.
 func resetFlags(cmd *cobra.Command) {
-	cmd.Flags().VisitAll(func(f *pflag.Flag) {
+	reset := func(f *pflag.Flag) {
 		_ = f.Value.Set(f.DefValue)
 		f.Changed = false
-	})
+	}
+	cmd.Flags().VisitAll(reset)
+	cmd.PersistentFlags().VisitAll(reset)
+	for _, sub := range cmd.Commands() {
+		resetFlags(sub)
+	}
 }
 
 func TestDebugCPUStartStop(t *testing.T) {
