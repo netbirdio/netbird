@@ -1833,29 +1833,6 @@ func (s *Server) conflictingMappingOwners(mapping *proto.ProxyMapping) []*proto.
 	return conflicts
 }
 
-func (s *Server) restoreMapping(ctx context.Context, mapping *proto.ProxyMapping) error {
-	accountID := types.AccountID(mapping.GetAccountId())
-	svcID := types.ServiceID(mapping.GetId())
-	addPeer := s.addPeer
-	if addPeer == nil {
-		addPeer = s.netbird.AddPeer
-	}
-	if err := addPeer(ctx, accountID, s.serviceKeyForMapping(mapping), mapping.GetAuthToken(), svcID); err != nil {
-		return fmt.Errorf("restore peer: %w", err)
-	}
-	if err := s.setupMappingRoutes(ctx, mapping); err != nil {
-		s.cleanupMappingRoutes(mapping)
-		removePeer := s.removePeer
-		if removePeer == nil {
-			removePeer = s.netbird.RemovePeer
-		}
-		_ = removePeer(ctx, accountID, s.serviceKeyForMapping(mapping))
-		return fmt.Errorf("restore routes: %w", err)
-	}
-	s.storeMapping(mapping)
-	return nil
-}
-
 // modifyMapping updates a service mapping in place without tearing down the
 // NetBird peer. It cleans up old routes using the previously stored mapping
 // state and re-applies them from the new mapping.

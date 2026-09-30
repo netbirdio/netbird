@@ -221,11 +221,17 @@ func (r *Router) RemoveRoute(host SNIHost, svcID types.ServiceID) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	r.routes[host] = slices.DeleteFunc(r.routes[host], func(route Route) bool {
+	routes := r.routes[host]
+	remaining := slices.DeleteFunc(routes, func(route Route) bool {
 		return route.ServiceID == svcID
 	})
-	if len(r.routes[host]) == 0 {
+	if len(remaining) == len(routes) {
+		return
+	}
+	if len(remaining) == 0 {
 		delete(r.routes, host)
+	} else {
+		r.routes[host] = remaining
 	}
 	r.cancelServiceLocked(svcID)
 }
