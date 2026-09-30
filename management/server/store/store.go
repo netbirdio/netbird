@@ -13,7 +13,6 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -23,7 +22,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
 	"github.com/netbirdio/netbird/dns"
@@ -716,29 +714,19 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 		kind = types.SqliteStoreEngine
 	}
 
-	storeStr := fmt.Sprintf("%s?cache=shared", db.SqliteFileName)
-	if runtime.GOOS == "windows" {
-		// Vo avoid `The process cannot access the file because it is being used by another process` on Windows
-		storeStr = db.SqliteFileName
-	}
-
-	file := filepath.Join(dataDir, storeStr)
-	gormDB, err := gorm.Open(sqlite.Open(file), db.GormConfig())
+	conn, err := db.OpenSqliteFile(ctx, dataDir, db.SqliteFileName)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("failed to create test store: %v", err)
 	}
 
 	if filename != "" {
-		err = LoadSQL(gormDB, filename)
+		err = LoadSQL(conn.DB(nil), filename)
 		if err != nil {
+			_ = conn.Close()
 			return nil, nil, fmt.Errorf("failed to load SQL file: %v", err)
 		}
 	}
 
-	conn, err := db.NewConn(ctx, gormDB, db.SqliteStoreEngine, nil)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create test store: %v", err)
-	}
 	store, err := NewSqlStore(ctx, conn, nil, false)
 	if err != nil {
 		_ = conn.Close()
@@ -747,6 +735,7 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 
 	err = addAllGroupToAccount(ctx, store)
 	if err != nil {
+		_ = store.Close(ctx)
 		return nil, nil, fmt.Errorf("failed to add all group to account: %v", err)
 	}
 
