@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	log "github.com/sirupsen/logrus"
+	goproto "google.golang.org/protobuf/proto"
 
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -82,17 +83,19 @@ func (m *managerImpl) reconcile(ctx context.Context, accountID string) {
 	}
 	m.reconcileMu.Unlock()
 
-	for _, entry := range creates {
-		entry.mapping.Type = proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED
-		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, entry.mapping, entry.cluster)
-	}
-	for _, entry := range updates {
-		entry.mapping.Type = proto.ProxyMappingUpdateType_UPDATE_TYPE_MODIFIED
-		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, entry.mapping, entry.cluster)
-	}
-	for _, entry := range deletes {
-		entry.mapping.Type = proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED
-		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, entry.mapping, entry.cluster)
+	m.sendMappings(ctx, accountID, creates, proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED)
+	m.sendMappings(ctx, accountID, updates, proto.ProxyMappingUpdateType_UPDATE_TYPE_MODIFIED)
+	m.sendMappings(ctx, accountID, deletes, proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED)
+}
+
+// sendMappings sends each entry as updateType. It sends a copy: the entries'
+// mappings are shared with reconcileCache, which another reconcile or
+// RemoveAccountGateway may be reading, so they are never written.
+func (m *managerImpl) sendMappings(ctx context.Context, accountID string, entries []syntheticMapping, updateType proto.ProxyMappingUpdateType) {
+	for _, entry := range entries {
+		update := goproto.Clone(entry.mapping).(*proto.ProxyMapping)
+		update.Type = updateType
+		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, update, entry.cluster)
 	}
 }
 
@@ -134,10 +137,11 @@ func (m *managerImpl) RemoveAccountGateway(ctx context.Context, accountID string
 	delete(m.reconcileCache, accountID)
 	m.reconcileMu.Unlock()
 
+	entries := make([]syntheticMapping, 0, len(removed))
 	for _, entry := range removed {
-		entry.mapping.Type = proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED
-		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, entry.mapping, entry.cluster)
+		entries = append(entries, entry)
 	}
+	m.sendMappings(ctx, accountID, entries, proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED)
 	return nil
 }
 

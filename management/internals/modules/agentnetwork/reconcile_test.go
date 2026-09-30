@@ -2,6 +2,8 @@ package agentnetwork
 
 import (
 	"context"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"go.uber.org/mock/gomock"
@@ -380,3 +382,62 @@ func TestRemoveAccountGateway_NilProxyController_NoOp(t *testing.T) {
 	// Must not panic and must not query the store.
 	assert.NoError(t, mgr.RemoveAccountGateway(context.Background(), "acct-1"))
 }
+
+// TestReconcile_ConcurrentWithGatewayChanges — while an account's gateway
+// flaps (its policy is removed and re-added between reads), concurrent
+// reconciles and RemoveAccountGateway share the cached mappings: one caches a
+// mapping and sends it, another finds it gone and sends its removal. Run under
+// -race: neither path may write a cached mapping, only copies of it.
+func TestReconcile_ConcurrentWithGatewayChanges(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mgr, mockStore, mockProxy := newReconcileMgr(t, ctrl)
+	// gomock serialises every call on the controller's mutex, which would give
+	// the race detector the ordering the code under test lacks. The sends go
+	// through a fake that takes no lock.
+	mgr.proxyController = unsyncedSender{MockController: mockProxy}
+	provider := newReconcileTestProvider()
+	policy := newReconcileTestPolicy(provider.ID, "grp-eng")
+
+	var reads atomic.Int64
+	mockStore.EXPECT().GetAgentNetworkSettings(ctx, store.LockingStrengthNone, "acct-1").Return(newReconcileTestSettings(), nil).AnyTimes()
+	mockStore.EXPECT().GetAccountAgentNetworkProviders(ctx, store.LockingStrengthNone, "acct-1").Return([]*types.Provider{provider}, nil).AnyTimes()
+	mockStore.EXPECT().GetAccountAgentNetworkPolicies(ctx, store.LockingStrengthNone, "acct-1").
+		DoAndReturn(func(context.Context, store.LockingStrength, string) ([]*types.Policy, error) {
+			if reads.Add(1)%2 == 0 {
+				return []*types.Policy{}, nil
+			}
+			return []*types.Policy{policy}, nil
+		}).AnyTimes()
+	mockStore.EXPECT().GetAccountAgentNetworkGuardrails(ctx, store.LockingStrengthNone, "acct-1").Return([]*types.Guardrail{}, nil).AnyTimes()
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(remove bool) {
+			defer wg.Done()
+			for j := 0; j < 50; j++ {
+				if remove && j%10 == 0 {
+					_ = mgr.RemoveAccountGateway(ctx, "acct-1")
+					continue
+				}
+				mgr.reconcile(ctx, "acct-1")
+			}
+		}(i == 0)
+	}
+	wg.Wait()
+}
+
+// unsyncedSender answers the calls reconcile makes on every pass without any
+// locking, so concurrent callers are not ordered by the fake itself.
+type unsyncedSender struct {
+	*proxy.MockController
+}
+
+func (unsyncedSender) GetOIDCValidationConfig() proxy.OIDCValidationConfig {
+	return proxy.OIDCValidationConfig{}
+}
+
+func (unsyncedSender) SendServiceUpdateToCluster(context.Context, string, *proto.ProxyMapping, string) {}
