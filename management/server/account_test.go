@@ -1021,6 +1021,15 @@ func TestAccountManager_DeleteAccount_DeletionHookErrorAbortsDeletion(t *testing
 	assert.NoError(t, err, "account owner should survive a failing hook")
 }
 
+func TestAccountManager_AddAccountDeletionHook_RejectsNil(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	assert.PanicsWithValue(t, "nil account deletion hook", func() {
+		manager.AddAccountDeletionHook(nil)
+	}, "registering a nil hook should panic instead of breaking a later deletion")
+}
+
 func TestAccountManager_DeleteAccount_DeletionHooksSkippedWithoutPermission(t *testing.T) {
 	manager, _, err := createManager(t)
 	require.NoError(t, err)

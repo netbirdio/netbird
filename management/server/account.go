@@ -125,7 +125,12 @@ func (am *DefaultAccountManager) SetServiceManager(serviceManager service.Manage
 
 // AddAccountDeletionHook registers hook to run on every account deletion. Hooks run in
 // registration order, and the first one to fail stops the rest and aborts the deletion.
+// It panics on a nil hook: dropping one silently would skip that hook's cleanup on every
+// deletion, so the wiring bug surfaces at startup instead.
 func (am *DefaultAccountManager) AddAccountDeletionHook(hook account.DeletionHook) {
+	if hook == nil {
+		panic("nil account deletion hook")
+	}
 	am.deletionHooksMu.Lock()
 	defer am.deletionHooksMu.Unlock()
 	am.deletionHooks = append(am.deletionHooks, hook)
