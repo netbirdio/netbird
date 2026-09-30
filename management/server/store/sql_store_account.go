@@ -163,11 +163,8 @@ func (s *SqlStore) DeleteAccount(ctx context.Context, account *types.Account) er
 			return result.Error
 		}
 
-		// Not an account association: the settings row holds the account's globally unique
-		// gateway domain, which would otherwise stay claimed after the account is gone.
-		result = tx.Delete(&agentNetworkTypes.Settings{}, "account_id = ?", account.Id)
-		if result.Error != nil {
-			return result.Error
+		if err := deleteAgentNetworkAccountConfig(tx, account.Id); err != nil {
+			return err
 		}
 
 		result = tx.Select(clause.Associations).Delete(account)
@@ -185,6 +182,27 @@ func (s *SqlStore) DeleteAccount(ctx context.Context, account *types.Account) er
 	log.WithContext(ctx).Tracef("took %d ms to delete an account to the store", took.Milliseconds())
 
 	return err
+}
+
+// deleteAgentNetworkAccountConfig removes the account's agent network configuration. These
+// tables are not account associations, so deleting the account does not reach them. The
+// settings row holds the account's globally unique gateway domain and the provider rows
+// hold its upstream API keys. Access logs and usage records are left alone.
+func deleteAgentNetworkAccountConfig(tx *gorm.DB, accountID string) error {
+	models := []any{
+		&agentNetworkTypes.Settings{},
+		&agentNetworkTypes.Provider{},
+		&agentNetworkTypes.Policy{},
+		&agentNetworkTypes.Guardrail{},
+		&agentNetworkTypes.AccountBudgetRule{},
+		&agentNetworkTypes.Consumption{},
+	}
+	for _, model := range models {
+		if err := tx.Delete(model, "account_id = ?", accountID).Error; err != nil {
+			return fmt.Errorf("delete %T rows: %w", model, err)
+		}
+	}
+	return nil
 }
 
 func (s *SqlStore) UpdateAccountDomainAttributes(ctx context.Context, accountID string, domain string, category string, isPrimaryDomain bool) error {

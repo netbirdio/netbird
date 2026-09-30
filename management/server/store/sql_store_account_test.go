@@ -409,6 +409,19 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	agentNetworkConfig := []any{
+		&agentNetworkTypes.Provider{ID: "an_provider", AccountID: account.Id, APIKey: "sk-test"},
+		&agentNetworkTypes.Policy{ID: "an_policy", AccountID: account.Id},
+		&agentNetworkTypes.Guardrail{ID: "an_guardrail", AccountID: account.Id},
+		&agentNetworkTypes.AccountBudgetRule{ID: "an_budget_rule", AccountID: account.Id},
+		&agentNetworkTypes.Consumption{AccountID: account.Id, DimensionID: "an_dimension", WindowSeconds: 3600},
+	}
+	for _, row := range agentNetworkConfig {
+		require.NoError(t, store.(*SqlStore).db.Create(row).Error, "creating %T", row)
+	}
+	otherProvider := &agentNetworkTypes.Provider{ID: "other_provider", AccountID: "other_account"}
+	require.NoError(t, store.(*SqlStore).db.Create(otherProvider).Error)
+
 	err = store.DeleteAccount(context.Background(), account)
 	require.NoError(t, err)
 
@@ -487,6 +500,18 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 		ProxyAddress: "gw.example.com",
 	})
 	require.NoError(t, err, "expecting the deleted account's gateway domain to be free for another account")
+
+	for _, row := range agentNetworkConfig {
+		var count int64
+		err = store.(*SqlStore).db.Model(row).Where("account_id = ?", account.Id).Count(&count).Error
+		require.NoError(t, err, "counting %T rows after DeleteAccount", row)
+		assert.Zero(t, count, "expecting no %T rows to be found after DeleteAccount", row)
+	}
+
+	var otherProviders int64
+	err = store.(*SqlStore).db.Model(&agentNetworkTypes.Provider{}).Where("account_id = ?", "other_account").Count(&otherProviders).Error
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), otherProviders, "expecting another account's agent network provider to survive DeleteAccount")
 }
 
 func Test_GetAccount(t *testing.T) {
