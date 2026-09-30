@@ -1410,7 +1410,7 @@ func (s *Service) Copy() *Service {
 		}
 		targets[i] = &targetCopy
 	}
-	portMappings := make([]*PortMapping, len(s.PortMappings))
+	portMappings := slices.Clone(s.PortMappings)
 	for i, mapping := range s.PortMappings {
 		if mapping == nil {
 			continue
