@@ -1054,7 +1054,7 @@ func evalConnStatus(in connStatusInputs) guard.ConnStatus {
 	case relayUsedAndUp:
 		// Relay is up but ICE is down — partially connected.
 		return guard.ConnStatusPartiallyConnected
-	case iceRunning && !in.relayTransportConnected:
+	case in.iceStatusConnected && !in.relayTransportConnected:
 		// ICE is up and the shared relay transport is down — offers cannot restore it.
 		return guard.ConnStatusPartiallyConnected
 	default:
