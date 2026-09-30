@@ -14,7 +14,10 @@ var debugCPUCmd = &cobra.Command{
 	Use:   "cpu",
 	Short: "Profile the daemon's CPU usage",
 	Long: `Starts and stops CPU profiling in the running daemon without restarting it.
-The profile is included in the next debug bundle as cpu.prof.`,
+The profile is included in the next debug bundle as cpu.prof.
+
+Profiling is not time limited: it keeps running, and keeps costing CPU, until
+"netbird debug cpu stop" is run.`,
 }
 
 var debugCPUStartCmd = &cobra.Command{
@@ -50,7 +53,7 @@ func debugCPUStart(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("start CPU profiling: %v", status.Convert(err).Message())
 	}
 
-	cmd.Println("CPU profiling started. Run `netbird debug cpu stop` and then `netbird debug bundle` to collect it.")
+	cmd.Println("CPU profiling started and runs until stopped. Run `netbird debug cpu stop` and then `netbird debug bundle` to collect it.")
 	return nil
 }
 

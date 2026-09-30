@@ -296,7 +296,12 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 
 	cpuProfilingStarted := false
 	if _, err := client.StartCPUProfile(cmd.Context(), &proto.StartCPUProfileRequest{}); err != nil {
-		cmd.PrintErrf("Failed to start CPU profiling: %v\n", err)
+		if msg := status.Convert(err).Message(); strings.Contains(msg, "already in progress") {
+			cmd.PrintErrln("CPU profiling is already running (started with `netbird debug cpu start`). " +
+				"It is left running and is included in a bundle created after `netbird debug cpu stop`.")
+		} else {
+			cmd.PrintErrf("Failed to start CPU profiling: %v\n", msg)
+		}
 	} else {
 		cpuProfilingStarted = true
 		defer func() {
@@ -572,5 +577,5 @@ func init() {
 	forCmd.Flags().StringVar(&uploadBundleURLFlag, "upload-bundle-url", types.DefaultBundleURL, "Service URL to get an URL to upload the debug bundle")
 	forCmd.Flags().BoolVar(&uploadBundleInsecureFlag, "upload-bundle-insecure", false, "Allow uploading to an http or untrusted-TLS upload server (self-hosted); requires root")
 	forCmd.Flags().Bool("capture", false, "Capture packets during the debug duration and include in bundle")
-	forCmd.Flags().Bool(noUpDownFlag, false, "Keep the daemon running instead of bringing it down and up before collecting")
+	forCmd.Flags().Bool(noUpDownFlag, false, "Keep the daemon running instead of bringing it down and up before collecting. The bundle only includes the network map if a sync arrives during the run")
 }

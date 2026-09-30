@@ -93,6 +93,10 @@ func resetFlags(cmd *cobra.Command) {
 	}
 	cmd.Flags().VisitAll(reset)
 	cmd.PersistentFlags().VisitAll(reset)
+	// Commands pin their writers to the buffer of the run that first used
+	// them, so a later run would print into the old buffer.
+	cmd.SetOut(nil)
+	cmd.SetErr(nil)
 	for _, sub := range cmd.Commands() {
 		resetFlags(sub)
 	}
@@ -128,6 +132,25 @@ func TestDebugCPUStartStop(t *testing.T) {
 	assert.Error(t, run("stop"), "second stop must be rejected")
 	assert.NoError(t, run("start"), "profiling can be started again after a stop")
 	assert.NoError(t, run("stop"))
+}
+
+// TestDebugForKeepsRunningCPUProfile covers `debug for` started while a
+// profile from `debug cpu start` is running: it must say so, leave the
+// profile alone, and still create the bundle.
+func TestDebugForKeepsRunningCPUProfile(t *testing.T) {
+	addr := startDebugTestDaemon(t)
+
+	_, err := runDebugCmd(addr, "cpu", "start")
+	require.NoError(t, err)
+
+	out, err := runDebugCmd(addr, "for", "1s", "-S=false", "--no-updown")
+	require.NoError(t, err, "output: %s", out)
+	assert.Contains(t, out, "CPU profiling is already running", "the conflict must be explained")
+	assert.NotContains(t, out, "rpc error", "the raw RPC error must not reach the user")
+	assert.Contains(t, out, "Local file:", "the bundle must still be created")
+
+	_, err = runDebugCmd(addr, "cpu", "stop")
+	assert.NoError(t, err, "the profile started by the user must still be running")
 }
 
 func TestDebugForNoUpDown(t *testing.T) {
