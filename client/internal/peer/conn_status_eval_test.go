@@ -123,7 +123,7 @@ func TestEvalConnStatus_FullyAvailable(t *testing.T) {
 			mutator: func(in *connStatusInputs) {
 				in.peerUsesRelay = true
 				in.relayConnected = true
-				in.iceStatusConnecting = true
+				in.iceConnected = true
 			},
 			want: guard.ConnStatusConnected,
 		},
@@ -132,7 +132,7 @@ func TestEvalConnStatus_FullyAvailable(t *testing.T) {
 			mutator: func(in *connStatusInputs) {
 				in.peerUsesRelay = false
 				in.relayConnected = false
-				in.iceStatusConnecting = true
+				in.iceConnected = true
 			},
 			want: guard.ConnStatusConnected,
 		},
@@ -140,7 +140,7 @@ func TestEvalConnStatus_FullyAvailable(t *testing.T) {
 			name: "ICE InProgress only, peer does NOT use relay",
 			mutator: func(in *connStatusInputs) {
 				in.peerUsesRelay = false
-				in.iceStatusConnecting = false
+				in.iceConnected = false
 				in.iceInProgress = true
 			},
 			want: guard.ConnStatusConnected,
@@ -150,7 +150,7 @@ func TestEvalConnStatus_FullyAvailable(t *testing.T) {
 			mutator: func(in *connStatusInputs) {
 				in.peerUsesRelay = true
 				in.relayConnected = true
-				in.iceStatusConnecting = false
+				in.iceConnected = false
 				in.iceInProgress = false
 			},
 			want: guard.ConnStatusPartiallyConnected,
@@ -160,21 +160,42 @@ func TestEvalConnStatus_FullyAvailable(t *testing.T) {
 			mutator: func(in *connStatusInputs) {
 				in.peerUsesRelay = false
 				in.relayConnected = false
-				in.iceStatusConnecting = false
+				in.iceConnected = false
 				in.iceInProgress = false
 			},
 			want: guard.ConnStatusDisconnected,
 		},
 		{
-			name: "ICE up, peer uses relay but relay down -> partial (relay required, ICE ignored)",
+			// P2P carries the traffic; only the relay standby is missing, so the
+			// guard retries within the partial budget instead of indefinitely.
+			name: "ICE connected, peer uses relay but relay down -> partial",
 			mutator: func(in *connStatusInputs) {
 				in.peerUsesRelay = true
 				in.relayConnected = false
-				in.iceStatusConnecting = true
+				in.iceConnected = true
 			},
-			// relayOK = false (peer uses relay but it's down), iceUp = true
-			// first switch arm fails (relayOK false), relayUsedAndUp = false (relay down),
-			// falls into default: Disconnected.
+			want: guard.ConnStatusPartiallyConnected,
+		},
+		{
+			name: "ICE connected and renegotiating, relay down -> partial",
+			mutator: func(in *connStatusInputs) {
+				in.peerUsesRelay = true
+				in.relayConnected = false
+				in.iceConnected = true
+				in.iceInProgress = true
+			},
+			want: guard.ConnStatusPartiallyConnected,
+		},
+		{
+			// A negotiation in flight is not a working path: with the relay down
+			// nothing carries traffic, so the guard must keep retrying.
+			name: "ICE negotiating only, peer uses relay but relay down -> disconnected",
+			mutator: func(in *connStatusInputs) {
+				in.peerUsesRelay = true
+				in.relayConnected = false
+				in.iceConnected = false
+				in.iceInProgress = true
+			},
 			want: guard.ConnStatusDisconnected,
 		},
 		{
@@ -182,7 +203,7 @@ func TestEvalConnStatus_FullyAvailable(t *testing.T) {
 			mutator: func(in *connStatusInputs) {
 				in.peerUsesRelay = false
 				in.relayConnected = true // not actually used since peer doesn't rely on it
-				in.iceStatusConnecting = false
+				in.iceConnected = false
 				in.iceInProgress = false
 			},
 			want: guard.ConnStatusDisconnected,
