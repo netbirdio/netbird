@@ -79,12 +79,37 @@ func (t *Tray) loadProfiles() {
 		return
 	}
 
+	// Resolved before the lock: it is another daemon round trip, and
+	// profilesMu is what the menu repaint reads its rows under.
+	foreign := activeIsForeign(ctx, t.svc.Profiles, profiles)
+
 	t.profilesMu.Lock()
 	t.profiles = profiles
 	t.profilesUser = username
+	t.profilesForeign = foreign
 	t.profilesMu.Unlock()
 
 	t.relayoutMenu()
+}
+
+// activeIsForeign reports whether the daemon's active profile is one this user
+// cannot address. The listing holds every profile they may act on, so an active
+// profile missing from it is somebody else's, and the daemon withholds its name.
+func activeIsForeign(ctx context.Context, svc *services.Profiles, profiles []services.Profile) bool {
+	active, err := svc.GetActive(ctx)
+	if err != nil {
+		log.Debugf("get active profile: %v", err)
+		return false
+	}
+	if active.ID == "" {
+		return false
+	}
+	for _, p := range profiles {
+		if p.ID == active.ID {
+			return false
+		}
+	}
+	return true
 }
 
 // fillProfileSubmenu paints cached profile rows into the freshly built submenu.
@@ -96,6 +121,7 @@ func (t *Tray) fillProfileSubmenu() {
 	t.profilesMu.Lock()
 	profiles := append([]services.Profile(nil), t.profiles...)
 	username := t.profilesUser
+	foreign := t.profilesForeign
 	t.profilesMu.Unlock()
 
 	sort.Slice(profiles, func(i, j int) bool {
@@ -144,8 +170,14 @@ func (t *Tray) fillProfileSubmenu() {
 	})
 	manageProfiles.SetEnabled(!disableProfiles)
 	log.Infof("tray fillProfileSubmenu: %d profile(s) for user %q, active=%q", len(profiles), username, activeName)
-	if t.profileSubmenuItem != nil && activeName != "" {
-		t.profileSubmenuItem.SetLabel(activeName)
+	if t.profileSubmenuItem != nil {
+		// Without this the row would keep the name of whatever was active
+		// before, since a profile belonging to somebody else marks no row.
+		if foreign {
+			t.profileSubmenuItem.SetLabel(t.loc.T("profile.ownedByAnother.name"))
+		} else if activeName != "" {
+			t.profileSubmenuItem.SetLabel(activeName)
+		}
 	}
 	if t.profileEmailItem != nil {
 		if activeEmail != "" {

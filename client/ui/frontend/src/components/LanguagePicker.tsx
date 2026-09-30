@@ -11,7 +11,7 @@ import { Label } from "@/components/typography/Label";
 import { useFocusVisible } from "@/hooks/useFocusVisible";
 import { loadLanguages } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
-import { errorDialog, formatErrorMessage } from "@/lib/errors";
+import { errorDialogFor } from "@/lib/errors";
 
 // No flag icons: flags represent countries, not languages. https://www.flagsarenotlanguages.com/blog/
 
@@ -66,10 +66,7 @@ export function LanguagePicker() {
         try {
             await Preferences.SetLanguage(code as LanguageCode);
         } catch (e) {
-            await errorDialog({
-                Title: t("settings.error.saveTitle"),
-                Message: formatErrorMessage(e),
-            });
+            await errorDialogFor(t("settings.error.saveTitle"), e);
         } finally {
             setBusy(false);
         }

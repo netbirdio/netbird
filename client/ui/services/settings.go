@@ -133,14 +133,16 @@ func NewSettings(conn DaemonConn, translator ErrorTranslator, prefs LanguagePref
 func (s *Settings) GetConfig(ctx context.Context, p ConfigParams) (Config, error) {
 	cli, err := s.conn.Client()
 	if err != nil {
-		return Config{}, err
+		return Config{}, s.classifier.classify(err)
 	}
 	resp, err := cli.GetConfig(ctx, &proto.GetConfigRequest{
 		ProfileName: p.ProfileName,
 		Username:    p.Username,
 	})
 	if err != nil {
-		return Config{}, err
+		// Reading another user's profile is refused here, and the settings
+		// screen puts the result straight in front of the user.
+		return Config{}, s.classifier.classify(err)
 	}
 	return Config{
 		ManagementURL:                 resp.GetManagementUrl(),
@@ -175,7 +177,7 @@ func (s *Settings) GetConfig(ctx context.Context, p ConfigParams) (Config, error
 func (s *Settings) SetConfig(ctx context.Context, p SetConfigParams) (SaveOutcome, error) {
 	cli, err := s.conn.Client()
 	if err != nil {
-		return SaveOutcome{}, err
+		return SaveOutcome{}, s.classifier.classify(err)
 	}
 	req := &proto.SetConfigRequest{
 		ProfileName:                   p.ProfileName,
@@ -207,7 +209,7 @@ func (s *Settings) SetConfig(ctx context.Context, p SetConfigParams) (SaveOutcom
 		SshJWTCacheTTL:                p.SSHJWTCacheTTL,
 	}
 	if _, err := cli.SetConfig(ctx, req); err != nil {
-		if _, refused := privilegeErrorInfo(err); refused {
+		if privilegeRefused(err) {
 			return s.setConfigElevated(ctx, p, req, err)
 		}
 		// Classified so the frontend gets the daemon's guidance instead of the
@@ -251,7 +253,7 @@ func (s *Settings) setConfigElevated(ctx context.Context, p SetConfigParams, req
 
 	cli, err := s.conn.Client()
 	if err != nil {
-		return SaveOutcome{}, err
+		return SaveOutcome{}, s.classifier.classify(err)
 	}
 	if _, err := cli.SetConfig(ctx, req); err != nil {
 		return SaveOutcome{}, s.classifier.classify(err)

@@ -11,7 +11,8 @@ import "os"
 // Identity.IsPrivileged the daemon applies.
 func CurrentProcessIdentity() (Identity, error) {
 	return Identity{
-		UID: uint32(os.Geteuid()),
-		GID: uint32(os.Getegid()),
+		UID:   uint32(os.Geteuid()),
+		GID:   uint32(os.Getegid()),
+		known: true,
 	}, nil
 }

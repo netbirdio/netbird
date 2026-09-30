@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -47,7 +48,7 @@ func TestLogout_ActiveProfileAllowedWhenProfilesDisabled(t *testing.T) {
 
 	s.profilesDisabled = true
 
-	_, err := s.Logout(userCtx(), &proto.LogoutRequest{
+	_, err := s.Logout(withTarget(userCtx(), cfgPath), &proto.LogoutRequest{
 		ProfileName: &activeProfile,
 		Username:    &username,
 	})
@@ -66,15 +67,17 @@ func TestLogout_OtherProfileStaysGatedWhenProfilesDisabled(t *testing.T) {
 	s.rootCtx = internal.CtxInitState(context.Background())
 
 	other := "other-profile"
+	otherPath := filepath.Join(profilemanager.DefaultConfigPathDir, other+".json")
 	_, err := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
-		ConfigPath:    filepath.Join(profilemanager.DefaultConfigPathDir, other+".json"),
+		ConfigPath:    otherPath,
 		ManagementURL: unreachableManagementURL,
+		Owner:         testProfileOwner(),
 	})
 	require.NoError(t, err)
 
 	s.profilesDisabled = true
 
-	_, err = s.Logout(userCtx(), &proto.LogoutRequest{
+	_, err = s.Logout(withTarget(userCtx(), otherPath), &proto.LogoutRequest{
 		ProfileName: &other,
 		Username:    &username,
 	})
@@ -86,28 +89,18 @@ func TestLogout_OtherProfileStaysGatedWhenProfilesDisabled(t *testing.T) {
 
 // A legacy profile ID is a display name, so two users can hold the same ID in
 // their own profile directories. Matching on the ID alone would let one user's
-// logout pass the gate against the other user's active profile, so the username
-// is part of the comparison.
+// logout pass the gate against the other user's active profile, so the config
+// file, not the ID, decides which profile is the active one.
 func TestLogout_ForeignUserProfileStaysGatedWhenProfilesDisabled(t *testing.T) {
 	s, _, _, username, _ := setupServerWithProfile(t)
 	s.rootCtx = internal.CtxInitState(context.Background())
 
-	// A legacy-style profile whose ID is its filename stem, and an active state
-	// claiming that same ID for a different user.
 	shared := "shared-legacy-name"
-	_, err := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
-		ConfigPath:    filepath.Join(profilemanager.DefaultConfigPathDir, shared+".json"),
-		ManagementURL: unreachableManagementURL,
-	})
-	require.NoError(t, err)
-	require.NoError(t, s.profileManager.SetActiveProfileState(&profilemanager.ActiveProfileState{
-		ID:       profilemanager.ID(shared),
-		Username: "someone-else",
-	}))
+	ownPath := plantNamesakeProfiles(t, s, shared)
 
 	s.profilesDisabled = true
 
-	_, err = s.Logout(userCtx(), &proto.LogoutRequest{
+	_, err := s.Logout(withTarget(userCtx(), ownPath), &proto.LogoutRequest{
 		ProfileName: &shared,
 		Username:    &username,
 	})
@@ -115,6 +108,38 @@ func TestLogout_ForeignUserProfileStaysGatedWhenProfilesDisabled(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, codes.Unavailable, gstatus.Code(err),
 		"another user's profile must not pass the gate on an ID match alone: %v", err)
+}
+
+// plantNamesakeProfiles creates two profiles that share one legacy ID: the
+// caller's own, and another user's in that user's legacy profile directory,
+// which is the one made active. Only the caller's copy carries an owner, so
+// that is the one a handle resolves to, while the active profile stays the
+// other file.
+func plantNamesakeProfiles(t *testing.T, s *Server, id string) string {
+	t.Helper()
+
+	foreignDir := filepath.Join(profilemanager.DefaultConfigPathDir, "someone-else")
+	require.NoError(t, os.MkdirAll(foreignDir, 0700))
+	_, err := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
+		ConfigPath:    filepath.Join(foreignDir, id+".json"),
+		ManagementURL: unreachableManagementURL,
+	})
+	require.NoError(t, err)
+
+	ownPath := filepath.Join(profilemanager.DefaultConfigPathDir, id+".json")
+	_, err = profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
+		ConfigPath:    ownPath,
+		ManagementURL: unreachableManagementURL,
+		Owner:         testProfileOwner(),
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, s.profileManager.SetActiveProfileState(&profilemanager.ActiveProfileState{
+		ID:       profilemanager.ID(id),
+		Username: "someone-else",
+	}))
+
+	return ownPath
 }
 
 // Deregistering a namesake profile must not go out with the running config.
@@ -135,19 +160,11 @@ func TestLogout_ForeignUserProfileDoesNotUseTheRunningConfig(t *testing.T) {
 	s.connectClient = newDummyConnectClient(context.Background())
 
 	shared := "shared-legacy-name"
-	_, err = profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
-		ConfigPath:    filepath.Join(profilemanager.DefaultConfigPathDir, shared+".json"),
-		ManagementURL: unreachableManagementURL,
-	})
-	require.NoError(t, err)
-	require.NoError(t, s.profileManager.SetActiveProfileState(&profilemanager.ActiveProfileState{
-		ID:       profilemanager.ID(shared),
-		Username: "someone-else",
-	}))
+	ownPath := plantNamesakeProfiles(t, s, shared)
 
 	// Bounded so the deregistration the fixed path attempts fails on the dial
 	// rather than sitting in gRPC backoff for the whole test timeout.
-	ctx, cancel := context.WithTimeout(userCtx(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(withTarget(userCtx(), ownPath), 2*time.Second)
 	t.Cleanup(cancel)
 
 	_, err = s.Logout(ctx, &proto.LogoutRequest{
@@ -165,18 +182,21 @@ func TestLogout_ForeignUserProfileDoesNotUseTheRunningConfig(t *testing.T) {
 // guardedConfigMu, which the logout path does not hold, so a login that landed
 // meanwhile must keep its connection.
 func TestCleanupAfterProfileLogout_FollowsTheCurrentActiveProfile(t *testing.T) {
-	s, _, activeProfile, username, _ := setupServerWithProfile(t)
+	s, _, activeProfile, _, cfgPath := setupServerWithProfile(t)
 	s.rootCtx = internal.CtxInitState(context.Background())
 
 	state := internal.CtxGetState(s.rootCtx)
 
-	s.cleanupAfterProfileLogout("some-other-profile", username)
+	s.cleanupAfterProfileLogout(&profilemanager.Profile{ID: "some-other-profile"})
 	status, err := state.Status()
 	require.NoError(t, err)
 	require.NotEqual(t, internal.StatusNeedsLogin, status,
 		"logging out of a profile that is not active must not ask for a new login")
 
-	s.cleanupAfterProfileLogout(profilemanager.ID(activeProfile), username)
+	s.cleanupAfterProfileLogout(&profilemanager.Profile{
+		ID:   profilemanager.ID(activeProfile),
+		Path: cfgPath,
+	})
 	status, err = state.Status()
 	require.NoError(t, err)
 	require.Equal(t, internal.StatusNeedsLogin, status,
@@ -190,7 +210,7 @@ func TestLogout_ActiveProfileAllowedWhenProfilesEnabled(t *testing.T) {
 	s.rootCtx = internal.CtxInitState(context.Background())
 	enableSSHOnProfile(t, cfgPath)
 
-	_, err := s.Logout(userCtx(), &proto.LogoutRequest{
+	_, err := s.Logout(withTarget(userCtx(), cfgPath), &proto.LogoutRequest{
 		ProfileName: &activeProfile,
 		Username:    &username,
 	})

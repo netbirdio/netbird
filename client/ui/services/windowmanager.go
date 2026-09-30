@@ -269,7 +269,15 @@ func NewWindowManager(app *application.App, mainWindow *application.WebviewWindo
 	return s
 }
 
-func (s *WindowManager) newSettingsWindow() *application.WebviewWindow {
+// settingsWindowURL is the start URL for a settings window showing tab. The tab
+// travels in the URL so the first render already has it. EventSettingsOpen
+// reaches the frontend only after it reports ready, by which point a tab that
+// reads the daemon config has mounted and sent its read.
+func settingsWindowURL(tab string) string {
+	return "/#/settings?tab=" + url.QueryEscape(tab)
+}
+
+func (s *WindowManager) newSettingsWindow(tab string) *application.WebviewWindow {
 	a := CurrentAppearance()
 	w := s.app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:                windowSettings,
@@ -282,7 +290,7 @@ func (s *WindowManager) newSettingsWindow() *application.WebviewWindow {
 		MaximiseButtonState: application.ButtonHidden,
 		CloseButtonState:    application.ButtonEnabled,
 		BackgroundColour:    WindowBackgroundColour(a),
-		URL:                 "/#/settings",
+		URL:                 settingsWindowURL(tab),
 		Mac:                 AppleMacOSAppearanceOptions(a),
 		Windows:             MicrosoftWindowsAppearanceOptions(a),
 		Linux:               LinuxAppearanceOptions(s.linuxIcon),
@@ -305,7 +313,8 @@ func (s *WindowManager) OpenSettings(tab string) {
 		target = "general"
 	}
 
-	s.withWindow(windowSettings, &s.settings, s.newSettingsWindow, func(w *application.WebviewWindow, _ bool) {
+	factory := func() *application.WebviewWindow { return s.newSettingsWindow(target) }
+	s.withWindow(windowSettings, &s.settings, factory, func(w *application.WebviewWindow, _ bool) {
 		s.mu.Lock()
 		ready := s.ready[w.ID()]
 		if !ready {

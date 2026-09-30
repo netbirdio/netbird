@@ -1389,5 +1389,23 @@
     },
     "settings.ssh.privilege.authorizePending": {
         "message": "Várakozás az engedélyezésre…"
+    },
+    "profile.ownedByAnother.name": {
+        "message": "Másik felhasználó"
+    },
+    "profile.ownedByAnother.hint": {
+        "message": "Az aktív profil egy másik felhasználóé. Csak a tulajdonosa módosíthatja vagy bonthatja a kapcsolatot."
+    },
+    "error.privilege_required": {
+        "message": "Ehhez a művelethez emelt szintű jogosultság szükséges."
+    },
+    "error.session_held": {
+        "message": "Egy másik felhasználó csatlakoztatta ezt a gépet."
+    },
+    "error.not_profile_owner": {
+        "message": "Ez a profil egy másik felhasználóé."
+    },
+    "error.profile_unowned": {
+        "message": "Ennek a profilnak még nincs tulajdonosa."
     }
 }

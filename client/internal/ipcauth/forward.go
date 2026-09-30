@@ -216,6 +216,7 @@ func forwardedIdentity(ctx context.Context) (Identity, bool) {
 			// the forwarding proof has been verified.
 			Groups:   md.Get(mdFwdGroup),
 			Elevated: mdSingle(md, mdFwdElevated) == "1",
+			known:    true,
 		}, true
 	}
 
@@ -224,7 +225,7 @@ func forwardedIdentity(ctx context.Context) (Identity, bool) {
 		return Identity{}, false
 	}
 
-	id := Identity{UID: uint32(uid)}
+	id := Identity{UID: uint32(uid), known: true}
 	if gid, err := strconv.ParseUint(mdSingle(md, mdFwdGID), 10, 32); err == nil {
 		id.GID = uint32(gid)
 	}

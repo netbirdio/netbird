@@ -1389,5 +1389,23 @@
     },
     "settings.ssh.privilege.authorizePending": {
         "message": "正在等待授权…"
+    },
+    "profile.ownedByAnother.name": {
+        "message": "其他用户"
+    },
+    "profile.ownedByAnother.hint": {
+        "message": "活动配置文件属于其他用户。只有其所有者才能更改或断开连接。"
+    },
+    "error.privilege_required": {
+        "message": "此操作需要提升的权限。"
+    },
+    "error.session_held": {
+        "message": "其他用户已连接此机器。"
+    },
+    "error.not_profile_owner": {
+        "message": "此配置文件属于其他用户。"
+    },
+    "error.profile_unowned": {
+        "message": "此配置文件尚未设置所有者。"
     }
 }

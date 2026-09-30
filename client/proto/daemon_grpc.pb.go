@@ -49,6 +49,7 @@ const (
 	DaemonService_AddProfile_FullMethodName                 = "/daemon.DaemonService/AddProfile"
 	DaemonService_RenameProfile_FullMethodName              = "/daemon.DaemonService/RenameProfile"
 	DaemonService_RemoveProfile_FullMethodName              = "/daemon.DaemonService/RemoveProfile"
+	DaemonService_ClaimProfile_FullMethodName               = "/daemon.DaemonService/ClaimProfile"
 	DaemonService_ListProfiles_FullMethodName               = "/daemon.DaemonService/ListProfiles"
 	DaemonService_GetActiveProfile_FullMethodName           = "/daemon.DaemonService/GetActiveProfile"
 	DaemonService_Logout_FullMethodName                     = "/daemon.DaemonService/Logout"
@@ -130,6 +131,7 @@ type DaemonServiceClient interface {
 	AddProfile(ctx context.Context, in *AddProfileRequest, opts ...grpc.CallOption) (*AddProfileResponse, error)
 	RenameProfile(ctx context.Context, in *RenameProfileRequest, opts ...grpc.CallOption) (*RenameProfileResponse, error)
 	RemoveProfile(ctx context.Context, in *RemoveProfileRequest, opts ...grpc.CallOption) (*RemoveProfileResponse, error)
+	ClaimProfile(ctx context.Context, in *ClaimProfileRequest, opts ...grpc.CallOption) (*ClaimProfileResponse, error)
 	ListProfiles(ctx context.Context, in *ListProfilesRequest, opts ...grpc.CallOption) (*ListProfilesResponse, error)
 	GetActiveProfile(ctx context.Context, in *GetActiveProfileRequest, opts ...grpc.CallOption) (*GetActiveProfileResponse, error)
 	// Logout disconnects from the network and deletes the peer from the management server
@@ -508,6 +510,16 @@ func (c *daemonServiceClient) RemoveProfile(ctx context.Context, in *RemoveProfi
 	return out, nil
 }
 
+func (c *daemonServiceClient) ClaimProfile(ctx context.Context, in *ClaimProfileRequest, opts ...grpc.CallOption) (*ClaimProfileResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ClaimProfileResponse)
+	err := c.cc.Invoke(ctx, DaemonService_ClaimProfile_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *daemonServiceClient) ListProfiles(ctx context.Context, in *ListProfilesRequest, opts ...grpc.CallOption) (*ListProfilesResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListProfilesResponse)
@@ -740,6 +752,7 @@ type DaemonServiceServer interface {
 	AddProfile(context.Context, *AddProfileRequest) (*AddProfileResponse, error)
 	RenameProfile(context.Context, *RenameProfileRequest) (*RenameProfileResponse, error)
 	RemoveProfile(context.Context, *RemoveProfileRequest) (*RemoveProfileResponse, error)
+	ClaimProfile(context.Context, *ClaimProfileRequest) (*ClaimProfileResponse, error)
 	ListProfiles(context.Context, *ListProfilesRequest) (*ListProfilesResponse, error)
 	GetActiveProfile(context.Context, *GetActiveProfileRequest) (*GetActiveProfileResponse, error)
 	// Logout disconnects from the network and deletes the peer from the management server
@@ -880,6 +893,9 @@ func (UnimplementedDaemonServiceServer) RenameProfile(context.Context, *RenamePr
 }
 func (UnimplementedDaemonServiceServer) RemoveProfile(context.Context, *RemoveProfileRequest) (*RemoveProfileResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RemoveProfile not implemented")
+}
+func (UnimplementedDaemonServiceServer) ClaimProfile(context.Context, *ClaimProfileRequest) (*ClaimProfileResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ClaimProfile not implemented")
 }
 func (UnimplementedDaemonServiceServer) ListProfiles(context.Context, *ListProfilesRequest) (*ListProfilesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListProfiles not implemented")
@@ -1469,6 +1485,24 @@ func _DaemonService_RemoveProfile_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DaemonService_ClaimProfile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ClaimProfileRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).ClaimProfile(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DaemonService_ClaimProfile_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).ClaimProfile(ctx, req.(*ClaimProfileRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _DaemonService_ListProfiles_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListProfilesRequest)
 	if err := dec(in); err != nil {
@@ -1864,6 +1898,10 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RemoveProfile",
 			Handler:    _DaemonService_RemoveProfile_Handler,
+		},
+		{
+			MethodName: "ClaimProfile",
+			Handler:    _DaemonService_ClaimProfile_Handler,
 		},
 		{
 			MethodName: "ListProfiles",

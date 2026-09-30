@@ -1389,5 +1389,23 @@
     },
     "settings.ssh.privilege.authorizePending": {
         "message": "In attesa dell'autorizzazione…"
+    },
+    "profile.ownedByAnother.name": {
+        "message": "Altro utente"
+    },
+    "profile.ownedByAnother.hint": {
+        "message": "Il profilo attivo appartiene a un altro utente. Solo il suo proprietario può modificarlo o disconnetterlo."
+    },
+    "error.privilege_required": {
+        "message": "Questa azione richiede privilegi elevati."
+    },
+    "error.session_held": {
+        "message": "Un altro utente è già connesso su questa macchina."
+    },
+    "error.not_profile_owner": {
+        "message": "Questo profilo appartiene a un altro utente."
+    },
+    "error.profile_unowned": {
+        "message": "Questo profilo non ha ancora un proprietario."
     }
 }

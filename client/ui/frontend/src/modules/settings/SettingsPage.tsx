@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 import { Events } from "@wailsio/runtime";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { cn } from "@/lib/cn";
@@ -31,6 +31,17 @@ const enum Tab {
     About = "about",
 }
 
+// Tabs that render the daemon's profile configuration. Only these mount
+// SettingsProvider, so a profile whose configuration this user may not read
+// still leaves the rest of the page reachable.
+const CONFIG_TABS: ReadonlySet<Tab> = new Set([
+    Tab.General,
+    Tab.Network,
+    Tab.Security,
+    Tab.SSH,
+    Tab.Advanced,
+]);
+
 const TAB_CONTENT: Record<Tab, ReactNode> = {
     [Tab.General]: <SettingsGeneral />,
     [Tab.Network]: <SettingsNetwork />,
@@ -42,9 +53,16 @@ const TAB_CONTENT: Record<Tab, ReactNode> = {
     [Tab.About]: <SettingsAbout />,
 };
 
+// WithSettings reads the daemon's profile configuration for the tabs that need
+// it. Radix keeps only the active tab's content mounted, so gating on the active
+// tab is what keeps the read off the tabs that do not use it.
+const WithSettings = ({ enabled, children }: { enabled: boolean; children: ReactNode }) =>
+    enabled ? <SettingsProvider>{children}</SettingsProvider> : <>{children}</>;
+
 export const SettingsPage = () => {
     const location = useLocation();
     const navState = location.state as { tab?: string } | null;
+    const [searchParams] = useSearchParams();
     const { mdm, features } = useRestrictions();
 
     const visibleTabs = useMemo<Tab[]>(() => {
@@ -63,7 +81,11 @@ export const SettingsPage = () => {
     }, [features.disableUpdateSettings, features.disableProfiles, mdm.allowServerSSH]);
 
     const defaultTab = visibleTabs[0];
-    const [active, setActive] = useState<string>(() => navState?.tab ?? defaultTab);
+    // The window carries its tab in the URL, so the first render opens on the
+    // requested one rather than on the default and then correcting itself.
+    const [active, setActive] = useState<string>(
+        () => navState?.tab ?? searchParams.get("tab") ?? defaultTab,
+    );
 
     useEffect(() => {
         if (navState?.tab) setActive(navState.tab);
@@ -92,7 +114,7 @@ export const SettingsPage = () => {
                     <SettingsNavigation />
                     <AppRightPanel>
                         <AutostartSettingsProvider>
-                            <SettingsProvider>
+                            <WithSettings enabled={CONFIG_TABS.has(active as Tab)}>
                                 <ScrollArea.Root
                                     key={active}
                                     type={"auto"}
@@ -121,7 +143,7 @@ export const SettingsPage = () => {
                                         />
                                     </ScrollArea.Scrollbar>
                                 </ScrollArea.Root>
-                            </SettingsProvider>
+                            </WithSettings>
                         </AutostartSettingsProvider>
                     </AppRightPanel>
                 </VerticalTabs>
