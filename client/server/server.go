@@ -1111,10 +1111,14 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	}
 
 	if msg != nil && msg.ProfileName != nil {
-		if _, err := s.switchProfileIfNeeded(*msg.ProfileName, msg.Username, activeProf); err != nil {
+		switched, err := s.switchProfileIfNeeded(*msg.ProfileName, msg.Username, activeProf)
+		if err != nil {
 			s.mutex.Unlock()
 			log.Errorf("failed to switch profile: %v", err)
 			return nil, err
+		}
+		if switched {
+			s.dropPendingAuthFlows()
 		}
 	}
 
@@ -1248,12 +1252,12 @@ func (s *Server) resolveProfileHandle(handle, username string) (*profilemanager.
 }
 
 // switchProfileIfNeeded resolves the user-supplied handle, updates the
-// active profile state if it differs from the current one, and returns
-// the resolved profile so callers can include its ID in RPC responses.
-func (s *Server) switchProfileIfNeeded(handle string, userName *string, activeProf *profilemanager.ActiveProfileState) (*profilemanager.Profile, error) {
+// active profile state if it differs from the current one, and reports
+// whether the active profile changed.
+func (s *Server) switchProfileIfNeeded(handle string, userName *string, activeProf *profilemanager.ActiveProfileState) (bool, error) {
 	if handle != profilemanager.DefaultProfileName && (userName == nil || *userName == "") {
 		log.Errorf("profile name is set to %s, but username is not provided", handle)
-		return nil, fmt.Errorf("profile name is set to %s, but username is not provided", handle)
+		return false, fmt.Errorf("profile name is set to %s, but username is not provided", handle)
 	}
 
 	var username string
@@ -1263,26 +1267,46 @@ func (s *Server) switchProfileIfNeeded(handle string, userName *string, activePr
 
 	resolved, err := s.resolveProfileHandle(handle, username)
 	if err != nil {
-		return nil, err
+		return false, err
 	}
 
-	if resolved.ID != activeProf.ID || username != activeProf.Username {
-		if s.checkProfilesDisabled() {
-			log.Errorf("profiles are disabled, you cannot use this feature without profiles enabled")
-			return nil, gstatus.Errorf(codes.Unavailable, errProfilesDisabled)
-		}
-
-		log.Infof("switching to profile %s (%s) for user %s", resolved.Name, resolved.ID, username)
-		if err := s.profileManager.SetActiveProfileState(&profilemanager.ActiveProfileState{
-			ID:       resolved.ID,
-			Username: username,
-		}); err != nil {
-			log.Errorf("failed to set active profile state: %v", err)
-			return nil, fmt.Errorf("failed to set active profile state: %w", err)
-		}
+	if resolved.ID == activeProf.ID && username == activeProf.Username {
+		return false, nil
 	}
 
-	return resolved, nil
+	if s.checkProfilesDisabled() {
+		log.Errorf("profiles are disabled, you cannot use this feature without profiles enabled")
+		return false, gstatus.Errorf(codes.Unavailable, errProfilesDisabled)
+	}
+
+	log.Infof("switching to profile %s (%s) for user %s", resolved.Name, resolved.ID, username)
+	if err := s.profileManager.SetActiveProfileState(&profilemanager.ActiveProfileState{
+		ID:       resolved.ID,
+		Username: username,
+	}); err != nil {
+		log.Errorf("failed to set active profile state: %v", err)
+		return false, fmt.Errorf("failed to set active profile state: %w", err)
+	}
+
+	return true, nil
+}
+
+func (s *Server) dropPendingAuthFlows() {
+	// A pending login flow and the account-prompt flag describe the previous
+	// profile's login; carried across a switch they would judge the new
+	// profile's token against the old profile's account. CancelFunc is
+	// non-blocking, so calling it under the mutex is safe.
+	if cancel := s.oauthAuthFlow.waitCancel; cancel != nil {
+		cancel()
+	}
+	s.oauthAuthFlow = oauthAuthFlow{}
+	s.forceAccountPrompt = false
+
+	// A pending session extend belongs to the previous profile too: its device
+	// code was issued by that profile's IdP client, and WaitExtendAuthSession
+	// would submit the resulting token against the new profile's engine.
+	s.extendAuthSessionFlow.CancelWait()
+	s.extendAuthSessionFlow.Clear()
 }
 
 // SwitchProfile switches the active profile in the daemon.
@@ -1315,21 +1339,7 @@ func (s *Server) SwitchProfile(callerCtx context.Context, msg *proto.SwitchProfi
 
 	s.config = config
 
-	// A pending login flow and the account-prompt flag describe the previous
-	// profile's login; carried across a switch they would judge the new
-	// profile's token against the old profile's account. CancelFunc is
-	// non-blocking, so calling it under the mutex is safe.
-	if cancel := s.oauthAuthFlow.waitCancel; cancel != nil {
-		cancel()
-	}
-	s.oauthAuthFlow = oauthAuthFlow{}
-	s.forceAccountPrompt = false
-
-	// A pending session extend belongs to the previous profile too: its device
-	// code was issued by that profile's IdP client, and WaitExtendAuthSession
-	// would submit the resulting token against the new profile's engine.
-	s.extendAuthSessionFlow.CancelWait()
-	s.extendAuthSessionFlow.Clear()
+	s.dropPendingAuthFlows()
 
 	if msg != nil && msg.ProfileName != nil {
 		s.publishProfileListChanged(*msg.ProfileName)
@@ -2686,8 +2696,14 @@ func (s *Server) authorizeAndPrepareLogin(callerCtx context.Context, msg *proto.
 	}
 
 	if msg.ProfileName != nil {
-		if _, err := s.switchProfileIfNeeded(*msg.ProfileName, msg.Username, activeProf); err != nil {
+		switched, err := s.switchProfileIfNeeded(*msg.ProfileName, msg.Username, activeProf)
+		if err != nil {
 			return nil, nil, fmt.Errorf("switch profile: %w", err)
+		}
+		if switched {
+			s.mutex.Lock()
+			s.dropPendingAuthFlows()
+			s.mutex.Unlock()
 		}
 	}
 
