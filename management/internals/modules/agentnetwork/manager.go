@@ -150,10 +150,6 @@ type managerImpl struct {
 	// of serving proxy can be diffed without re-deriving it.
 	reconcileMu    sync.Mutex
 	reconcileCache map[string]map[string]syntheticMapping
-	// removedGateways marks accounts whose gateway RemoveAccountGateway took
-	// down, until the time given; reconcile sends only removals for them.
-	// Guarded by reconcileMu, and per instance like reconcileCache.
-	removedGateways map[string]time.Time
 }
 
 // ManagerOption replaces a manager dependency at construction. Production

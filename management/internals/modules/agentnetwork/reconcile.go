@@ -3,10 +3,8 @@ package agentnetwork
 import (
 	"context"
 	"fmt"
-	"time"
 
 	log "github.com/sirupsen/logrus"
-	goproto "google.golang.org/protobuf/proto"
 
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -71,11 +69,6 @@ func (m *managerImpl) reconcile(ctx context.Context, accountID string) {
 	}
 
 	m.reconcileMu.Lock()
-	if m.gatewayRemovedLocked(accountID) {
-		// The account is being deleted: its rows can still be read, but the
-		// gateway RemoveAccountGateway took down must not come back.
-		current = nil
-	}
 	previous := m.reconcileCache[accountID]
 	if previous == nil {
 		previous = make(map[string]syntheticMapping)
@@ -89,41 +82,18 @@ func (m *managerImpl) reconcile(ctx context.Context, accountID string) {
 	}
 	m.reconcileMu.Unlock()
 
-	// Sent outside the lock: a CREATED or MODIFIED send stores a one-time
-	// token per proxy, which can be a Redis round trip.
-	m.sendMappings(ctx, accountID, creates, proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED)
-	m.sendMappings(ctx, accountID, updates, proto.ProxyMappingUpdateType_UPDATE_TYPE_MODIFIED)
-	m.sendMappings(ctx, accountID, deletes, proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED)
-}
-
-// sendMappings sends each entry as updateType. It sends a copy: the entries'
-// mappings are shared with reconcileCache, which another reconcile or
-// RemoveAccountGateway may be reading, so they are never written.
-func (m *managerImpl) sendMappings(ctx context.Context, accountID string, entries []syntheticMapping, updateType proto.ProxyMappingUpdateType) {
-	for _, entry := range entries {
-		update := goproto.Clone(entry.mapping).(*proto.ProxyMapping)
-		update.Type = updateType
-		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, update, entry.cluster)
+	for _, entry := range creates {
+		entry.mapping.Type = proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED
+		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, entry.mapping, entry.cluster)
 	}
-}
-
-// gatewayRemovalTTL is how long reconcile keeps a removed gateway down: far
-// longer than an account deletion takes after its hooks have run.
-const gatewayRemovalTTL = 5 * time.Minute
-
-// gatewayRemovedLocked reports whether RemoveAccountGateway took the account's
-// gateway down within gatewayRemovalTTL, dropping an expired mark. The caller
-// holds reconcileMu.
-func (m *managerImpl) gatewayRemovedLocked(accountID string) bool {
-	until, ok := m.removedGateways[accountID]
-	if !ok {
-		return false
+	for _, entry := range updates {
+		entry.mapping.Type = proto.ProxyMappingUpdateType_UPDATE_TYPE_MODIFIED
+		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, entry.mapping, entry.cluster)
 	}
-	if time.Now().Before(until) {
-		return true
+	for _, entry := range deletes {
+		entry.mapping.Type = proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED
+		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, entry.mapping, entry.cluster)
 	}
-	delete(m.removedGateways, accountID)
-	return false
 }
 
 // RemoveAccountGateway tells the proxies to drop every mapping of the account's
@@ -131,17 +101,9 @@ func (m *managerImpl) gatewayRemovedLocked(accountID string) bool {
 // not linger in proxy memory until the next resync. It is an account deletion
 // hook: it runs before the account's data is removed, the last point at which
 // the mappings can be synthesised from the store. The cache alone would miss
-// them, since it is per instance and empty after a restart.
-//
-// Until the account's rows are gone, a reconcile triggered by a concurrent
-// change would still find the gateway, so the account is marked for
-// gatewayRemovalTTL and reconcile sends only removals for it meanwhile. That
-// leaves two ways for the gateway to come back, which the proxy then keeps
-// until its next resync: a reconcile on this instance that took its diff just
-// before the mark and sends after these removals, and a reconcile on another
-// management instance, which has its own mark and cache. If the deletion
-// fails, the gateway stays down until the mark has expired and the account's
-// next change reconciles it back.
+// them, since it is per instance and empty after a restart. If the deletion
+// then fails, the gateway stays down until the account's next change reconciles
+// it back.
 func (m *managerImpl) RemoveAccountGateway(ctx context.Context, accountID string) error {
 	if m.proxyController == nil {
 		return nil
@@ -163,26 +125,19 @@ func (m *managerImpl) RemoveAccountGateway(ctx context.Context, accountID string
 		}
 	}
 
-	// Removals carry no token, so unlike reconcile's sends these are cheap
-	// enough to make under the lock, ordered with the mark.
 	m.reconcileMu.Lock()
-	defer m.reconcileMu.Unlock()
 	for id, entry := range m.reconcileCache[accountID] {
 		if _, ok := removed[id]; !ok {
 			removed[id] = entry
 		}
 	}
 	delete(m.reconcileCache, accountID)
-	if m.removedGateways == nil {
-		m.removedGateways = make(map[string]time.Time)
-	}
-	m.removedGateways[accountID] = time.Now().Add(gatewayRemovalTTL)
+	m.reconcileMu.Unlock()
 
-	entries := make([]syntheticMapping, 0, len(removed))
 	for _, entry := range removed {
-		entries = append(entries, entry)
+		entry.mapping.Type = proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED
+		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, entry.mapping, entry.cluster)
 	}
-	m.sendMappings(ctx, accountID, entries, proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED)
 	return nil
 }
 
