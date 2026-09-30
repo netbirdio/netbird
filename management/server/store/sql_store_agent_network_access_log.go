@@ -69,19 +69,19 @@ func (s *SqlStore) DeleteOldAgentNetworkAccessLogs(ctx context.Context, accountI
 	return deleted, nil
 }
 
-// GetAgentNetworkAccessLogAccountsWithoutSettings returns the IDs of accounts that have
-// access-log rows but no agent network settings row, such as deleted accounts. The
-// retention sweep is driven by settings rows, so it uses this to find logs it would
+// GetDeletedAccountIDsWithAgentNetworkAccessLogs returns the IDs of accounts that no
+// longer exist but still have access-log rows. The retention sweep is driven by settings
+// rows, which are deleted with the account, so it uses this to find logs it would
 // otherwise never expire.
-func (s *SqlStore) GetAgentNetworkAccessLogAccountsWithoutSettings(ctx context.Context) ([]string, error) {
+func (s *SqlStore) GetDeletedAccountIDsWithAgentNetworkAccessLogs(ctx context.Context) ([]string, error) {
 	var accountIDs []string
 	err := s.db.Model(&agentNetworkTypes.AgentNetworkAccessLog{}).
 		Distinct("account_id").
-		Where("NOT EXISTS (SELECT 1 FROM agent_network_settings WHERE agent_network_settings.account_id = agent_network_access_log.account_id)").
+		Where("NOT EXISTS (SELECT 1 FROM accounts WHERE accounts.id = agent_network_access_log.account_id)").
 		Pluck("account_id", &accountIDs).Error
 	if err != nil {
-		log.WithContext(ctx).Errorf("failed to get agent-network access-log accounts without settings: %v", err)
-		return nil, status.Errorf(status.Internal, "failed to get agent-network access-log accounts without settings")
+		log.WithContext(ctx).Errorf("failed to get deleted accounts with agent-network access logs: %v", err)
+		return nil, status.Errorf(status.Internal, "failed to get deleted accounts with agent-network access logs")
 	}
 	return accountIDs, nil
 }

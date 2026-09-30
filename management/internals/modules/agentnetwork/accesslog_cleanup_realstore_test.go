@@ -10,24 +10,30 @@ import (
 
 	"github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	"github.com/netbirdio/netbird/management/server/store"
+	nbtypes "github.com/netbirdio/netbird/management/server/types"
 )
 
-// TestCleanupAccessLogs_RealStore_AccountWithoutSettings covers an account whose settings
-// row is gone, as after account deletion. The sweep is driven by settings rows, so without
-// a fallback that account's access logs would never expire. They get the default
-// retention instead, while an account that keeps its logs indefinitely is left alone.
-func TestCleanupAccessLogs_RealStore_AccountWithoutSettings(t *testing.T) {
+// TestCleanupAccessLogs_RealStore_DeletedAccount covers a deleted account's access logs.
+// The sweep is driven by settings rows, which go with the account, so without a fallback
+// those logs would never expire. They get the default retention instead. A live account
+// can delete its own settings row, so "no settings" must not be mistaken for "deleted":
+// that account's logs are left alone, as are those of an account that keeps logs forever.
+func TestCleanupAccessLogs_RealStore_DeletedAccount(t *testing.T) {
 	ctx := context.Background()
 	s, cleanup, err := store.NewTestStoreFromSQL(ctx, "", t.TempDir())
 	require.NoError(t, err, "real sqlite test store must come up")
 	defer cleanup()
 
 	const (
-		deletedAccountID = "acc-deleted"
-		keepAccountID    = "acc-keep-forever"
+		deletedAccountID    = "acc-deleted"
+		keepAccountID       = "acc-keep-forever"
+		noSettingsAccountID = "acc-live-no-settings"
 	)
 	old := time.Now().UTC().AddDate(0, 0, -(types.DefaultAccessLogRetentionDays + 10))
 	recent := time.Now().UTC().AddDate(0, 0, -1)
+
+	require.NoError(t, s.SaveAccount(ctx, &nbtypes.Account{Id: keepAccountID}))
+	require.NoError(t, s.SaveAccount(ctx, &nbtypes.Account{Id: noSettingsAccountID}))
 
 	keepSettings := types.DefaultSettings(keepAccountID)
 	keepSettings.Domain = "keep.gw.example.com"
@@ -45,6 +51,7 @@ func TestCleanupAccessLogs_RealStore_AccountWithoutSettings(t *testing.T) {
 	mkLog("deleted-old", deletedAccountID, old)
 	mkLog("deleted-recent", deletedAccountID, recent)
 	mkLog("keep-old", keepAccountID, old)
+	mkLog("no-settings-old", noSettingsAccountID, old)
 
 	m := &managerImpl{store: s}
 	m.cleanupAccessLogsOnce(ctx)
@@ -61,7 +68,9 @@ func TestCleanupAccessLogs_RealStore_AccountWithoutSettings(t *testing.T) {
 		return ids
 	}
 	assert.Equal(t, []string{"deleted-recent"}, logIDs(deletedAccountID),
-		"an account without settings should have logs past the default retention swept")
+		"a deleted account should have logs past the default retention swept")
 	assert.Equal(t, []string{"keep-old"}, logIDs(keepAccountID),
 		"an account with retention disabled should keep its old logs")
+	assert.Equal(t, []string{"no-settings-old"}, logIDs(noSettingsAccountID),
+		"a live account without a settings row should keep its old logs")
 }

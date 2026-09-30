@@ -1375,9 +1375,9 @@ func (m *managerImpl) StartAccessLogCleanup(ctx context.Context, cleanupInterval
 }
 
 // cleanupAccessLogsOnce sweeps every account's expired access-log rows against
-// its configured retention. Accounts with logs but no settings row, such as
-// deleted accounts, get the default retention. Best-effort: a per-account
-// failure is logged and the sweep continues.
+// its configured retention. Deleted accounts, whose settings rows went with
+// them, get the default retention. Best-effort: a per-account failure is
+// logged and the sweep continues.
 func (m *managerImpl) cleanupAccessLogsOnce(ctx context.Context) {
 	settings, err := m.store.GetAllAgentNetworkSettings(ctx, store.LockingStrengthNone)
 	if err != nil {
@@ -1388,12 +1388,12 @@ func (m *managerImpl) cleanupAccessLogsOnce(ctx context.Context) {
 		m.cleanupAccountAccessLogs(ctx, s.AccountID, s.AccessLogRetentionDays)
 	}
 
-	orphaned, err := m.store.GetAgentNetworkAccessLogAccountsWithoutSettings(ctx)
+	deleted, err := m.store.GetDeletedAccountIDsWithAgentNetworkAccessLogs(ctx)
 	if err != nil {
-		log.WithContext(ctx).Errorf("agent-network access-log cleanup: list accounts without settings: %v", err)
+		log.WithContext(ctx).Errorf("agent-network access-log cleanup: list deleted accounts: %v", err)
 		return
 	}
-	for _, accountID := range orphaned {
+	for _, accountID := range deleted {
 		m.cleanupAccountAccessLogs(ctx, accountID, types.DefaultAccessLogRetentionDays)
 	}
 }
