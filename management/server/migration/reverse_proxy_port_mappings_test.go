@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"runtime"
-	"strings"
 	"testing"
 	"time"
 
@@ -119,7 +118,8 @@ func TestMigrateReverseProxyPortMappingsSerializesConcurrentBackfills(t *testing
 			var interleaved bool
 			var secondErr error
 			require.NoError(t, db.Callback().Query().After("gorm:query").Register("interleave_port_mapping_backfill", func(tx *gorm.DB) {
-				if interleaved || tx.Statement.Table != "service_port_mappings" || !strings.Contains(tx.Statement.SQL.String(), "count(*)") {
+				_, isCount := tx.Statement.Dest.(*int64)
+				if interleaved || tx.Statement.Table != (rpservice.PortMapping{}).TableName() || !isCount {
 					return
 				}
 				interleaved = true

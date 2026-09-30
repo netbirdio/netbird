@@ -255,8 +255,8 @@ func TestSqlStore_ServiceDomainLockSerializesAbsentHostname(t *testing.T) {
 		}()
 
 		if sqlDB.Stats().MaxOpenConnections == 1 {
-			// SQLite serializes at its single-connection pool, before the
-			// transaction callback runs. Wait until the second caller is queued.
+			// Any single-connection pool serializes before the transaction callback
+			// runs, including SQLite. Wait until the second caller is queued.
 			require.Eventually(t, func() bool {
 				return sqlDB.Stats().WaitCount > waitCount
 			}, time.Second, time.Millisecond)
