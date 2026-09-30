@@ -47,7 +47,7 @@ type Scheme interface {
 	// an authenticated user. An empty token indicates an unauthenticated
 	// request; optionally, promptData may be returned for the login UI.
 	// An error indicates an infrastructure failure (e.g. gRPC unavailable).
-	Authenticate(*http.Request) (token string, promptData string, err error)
+	Authenticate(*http.Request) (token, promptData string, err error)
 }
 
 // DomainConfig holds the authentication and restriction settings for a protected domain.
@@ -78,6 +78,8 @@ type validationResult struct {
 	// Groups for tokens minted before names were embedded; the consumer
 	// falls back to ids for missing positions.
 	GroupNames []string
+	// MintedToken is the session token issued when a one-time code is redeemed.
+	MintedToken string
 }
 
 // Middleware applies per-domain authentication and IP restriction checks.
@@ -88,6 +90,7 @@ type Middleware struct {
 	sessionValidator SessionValidator
 	geo              restrict.GeoResolver
 	tunnelCache      *tunnelValidationCache
+	credentials      *credentialLimiter
 }
 
 // NewMiddleware creates a new authentication middleware. The sessionValidator is
@@ -102,6 +105,7 @@ func NewMiddleware(logger *log.Logger, sessionValidator SessionValidator, geo re
 		sessionValidator: sessionValidator,
 		geo:              geo,
 		tunnelCache:      newTunnelValidationCache(),
+		credentials:      newCredentialLimiter(),
 	}
 }
 
@@ -131,7 +135,7 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 			if mw.forwardWithTunnelPeer(w, r, host, config, next) {
 				return
 			}
-			http.Error(w, "Forbidden", http.StatusForbidden)
+			denyPrivate(w)
 			return
 		}
 
@@ -227,7 +231,7 @@ func (mw *Middleware) checkIPRestrictions(w http.ResponseWriter, r *http.Request
 	clientIP := mw.resolveClientIP(r)
 	if !clientIP.IsValid() {
 		mw.logger.Debugf("IP restriction: cannot resolve client address for %q, denying", r.RemoteAddr)
-		http.Error(w, "Forbidden", http.StatusForbidden)
+		denyForbidden(w, config)
 		return false
 	}
 
@@ -262,8 +266,28 @@ func (mw *Middleware) checkIPRestrictions(w http.ResponseWriter, r *http.Request
 
 	reason := verdict.String()
 	mw.blockIPRestriction(r, reason)
-	http.Error(w, "Forbidden", http.StatusForbidden)
+	denyForbidden(w, config)
 	return false
+}
+
+// denyForbidden writes a 403, dropping the client connection when the
+// domain is private so a later retry cannot reuse it.
+func denyForbidden(w http.ResponseWriter, config DomainConfig) {
+	if config.Private {
+		denyPrivate(w)
+		return
+	}
+	http.Error(w, "Forbidden", http.StatusForbidden)
+}
+
+// denyPrivate writes a 403 and closes the connection, so a client refused
+// before joining the overlay cannot keep retrying on the same warm socket.
+// Go's HTTP/2 server turns the exact lowercase "close" token into a GOAWAY.
+func denyPrivate(w http.ResponseWriter) {
+	h := w.Header()
+	h.Set("Connection", "close")
+	h.Set("Cache-Control", "no-store")
+	http.Error(w, "Forbidden", http.StatusForbidden)
 }
 
 // resolveClientIP extracts the real client IP from CapturedData, falling back to r.RemoteAddr.
@@ -522,13 +546,9 @@ func (mw *Middleware) authenticateWithSchemes(w http.ResponseWriter, r *http.Req
 	var attemptedMethod string
 
 	for _, scheme := range config.Schemes {
-		token, promptData, err := scheme.Authenticate(r)
+		token, promptData, err := mw.authenticateScheme(r, config, scheme)
 		if err != nil {
-			mw.logger.WithField("scheme", scheme.Type().String()).Warnf("authentication infrastructure error: %v", err)
-			if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
-				cd.SetOrigin(proxy.OriginAuth)
-			}
-			http.Error(w, "authentication service unavailable", http.StatusBadGateway)
+			mw.writeAuthenticationError(w, r, scheme.Type(), err)
 			return
 		}
 
@@ -562,7 +582,8 @@ func (mw *Middleware) authenticateWithSchemes(w http.ResponseWriter, r *http.Req
 // handleAuthenticatedToken validates the token, handles denied access, and on
 // success sets a session cookie and redirects to the original URL.
 func (mw *Middleware) handleAuthenticatedToken(w http.ResponseWriter, r *http.Request, host, token string, config DomainConfig, scheme Scheme) {
-	result, err := mw.validateSessionToken(r.Context(), host, token, config.SessionPublicKey, scheme.Type())
+	isCode := scheme.Type() == auth.MethodOIDC && r.URL.Query().Get("session_code") != ""
+	result, err := mw.validateSessionToken(r.Context(), host, token, isCode, config.SessionPublicKey, scheme.Type())
 	if err != nil {
 		if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
 			cd.SetOrigin(proxy.OriginAuth)
@@ -593,7 +614,13 @@ func (mw *Middleware) handleAuthenticatedToken(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	setSessionCookie(w, token, config.SessionExpiration)
+	// When a code was redeemed, the cookie must hold the durable token the
+	// server returned, not the single-use code.
+	cookieValue := token
+	if result.MintedToken != "" {
+		cookieValue = result.MintedToken
+	}
+	setSessionCookie(w, cookieValue, config.SessionExpiration)
 
 	// Redirect instead of forwarding the auth POST to the backend.
 	// The browser will follow with a GET carrying the new session cookie.
@@ -629,11 +656,11 @@ func setSessionCookie(w http.ResponseWriter, token string, expiration time.Durat
 func wasCredentialSubmitted(r *http.Request, method auth.Method) bool {
 	switch method {
 	case auth.MethodPIN:
-		return r.FormValue("pin") != ""
+		return credentialFormValue(r, pinFormId) != ""
 	case auth.MethodPassword:
-		return r.FormValue("password") != ""
+		return credentialFormValue(r, passwordFormId) != ""
 	case auth.MethodOIDC:
-		return r.URL.Query().Get("session_token") != ""
+		return r.URL.Query().Get("session_token") != "" || r.URL.Query().Get("session_code") != ""
 	}
 	return false
 }
@@ -709,12 +736,15 @@ func (mw *Middleware) RemoveDomainForService(domain string, serviceID types.Serv
 
 // validateSessionToken validates a session token. OIDC tokens with a configured
 // validator go through gRPC for group access checks; other methods validate locally.
-func (mw *Middleware) validateSessionToken(ctx context.Context, host, token string, publicKey ed25519.PublicKey, method auth.Method) (*validationResult, error) {
+func (mw *Middleware) validateSessionToken(ctx context.Context, host, token string, isCode bool, publicKey ed25519.PublicKey, method auth.Method) (*validationResult, error) {
 	if method == auth.MethodOIDC && mw.sessionValidator != nil {
-		resp, err := mw.sessionValidator.ValidateSession(ctx, &proto.ValidateSessionRequest{
-			Domain:       host,
-			SessionToken: token,
-		})
+		req := &proto.ValidateSessionRequest{Domain: host}
+		if isCode {
+			req.SessionCode = token
+		} else {
+			req.SessionToken = token //nolint:staticcheck
+		}
+		resp, err := mw.sessionValidator.ValidateSession(ctx, req)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %w", errValidationUnavailable, err)
 		}
@@ -732,11 +762,12 @@ func (mw *Middleware) validateSessionToken(ctx context.Context, host, token stri
 			}, nil
 		}
 		return &validationResult{
-			UserID:     resp.UserId,
-			UserEmail:  resp.GetUserEmail(),
-			Valid:      true,
-			Groups:     resp.GetPeerGroupIds(),
-			GroupNames: resp.GetPeerGroupNames(),
+			UserID:      resp.UserId,
+			UserEmail:   resp.GetUserEmail(),
+			Valid:       true,
+			Groups:      resp.GetPeerGroupIds(),
+			GroupNames:  resp.GetPeerGroupNames(),
+			MintedToken: resp.GetSessionToken(),
 		}, nil
 	}
 
@@ -791,14 +822,16 @@ func sessionGroupsAllowed(allowed map[string]struct{}, method auth.Method, group
 	}
 }
 
-// stripSessionTokenParam returns the request URI with the session_token query
-// parameter removed so it doesn't linger in the browser's address bar or history.
+// stripSessionTokenParam returns the request URI with the session hand-off
+// query parameters removed so they don't linger in the browser's address bar
+// or history.
 func stripSessionTokenParam(u *url.URL) string {
 	q := u.Query()
-	if !q.Has("session_token") {
+	if !q.Has("session_token") && !q.Has("session_code") {
 		return u.RequestURI()
 	}
 	q.Del("session_token")
+	q.Del("session_code")
 	clean := *u
 	clean.RawQuery = q.Encode()
 	return clean.RequestURI()

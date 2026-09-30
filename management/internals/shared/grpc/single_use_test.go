@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-func TestPKCEVerifierStoreLoadAndDelete(t *testing.T) {
+func TestSingleUseStoreLoadAndDelete(t *testing.T) {
 	const (
 		state    = "state"
 		verifier = "verifier"
@@ -14,7 +14,7 @@ func TestPKCEVerifierStoreLoadAndDelete(t *testing.T) {
 	)
 
 	t.Run("exactly one concurrent caller consumes the verifier", func(t *testing.T) {
-		store := NewPKCEVerifierStore(context.Background(), testCacheStore(t))
+		store := NewSingleUseStore(context.Background(), testCacheStore(t))
 		if err := store.Store(state, verifier, time.Minute); err != nil {
 			t.Fatalf("couldn't store PKCE verifier: %s", err)
 		}
@@ -50,7 +50,7 @@ func TestPKCEVerifierStoreLoadAndDelete(t *testing.T) {
 	})
 
 	t.Run("replayed state is rejected", func(t *testing.T) {
-		store := NewPKCEVerifierStore(context.Background(), testCacheStore(t))
+		store := NewSingleUseStore(context.Background(), testCacheStore(t))
 		if err := store.Store(state, verifier, time.Minute); err != nil {
 			t.Fatalf("couldn't store PKCE verifier: %s", err)
 		}
@@ -64,7 +64,7 @@ func TestPKCEVerifierStoreLoadAndDelete(t *testing.T) {
 	})
 
 	t.Run("unknown state is rejected", func(t *testing.T) {
-		store := NewPKCEVerifierStore(context.Background(), testCacheStore(t))
+		store := NewSingleUseStore(context.Background(), testCacheStore(t))
 
 		if got, found := store.LoadAndDelete("never-stored"); found {
 			t.Fatalf("unknown state should not resolve, got %q", got)
@@ -72,7 +72,7 @@ func TestPKCEVerifierStoreLoadAndDelete(t *testing.T) {
 	})
 
 	t.Run("expired verifier is rejected", func(t *testing.T) {
-		store := NewPKCEVerifierStore(context.Background(), testCacheStore(t))
+		store := NewSingleUseStore(context.Background(), testCacheStore(t))
 		if err := store.Store(state, verifier, 50*time.Millisecond); err != nil {
 			t.Fatalf("couldn't store PKCE verifier: %s", err)
 		}
@@ -82,4 +82,41 @@ func TestPKCEVerifierStoreLoadAndDelete(t *testing.T) {
 			t.Fatalf("expired verifier should not resolve, got %q", got)
 		}
 	})
+}
+
+func TestSingleUseStore_GenerateAndConsumeOnce(t *testing.T) {
+	const namespace = "test"
+	s := NewSingleUseStore(context.Background(), testCacheStore(t))
+
+	key, err := s.Generate(namespace, "the-value", time.Minute)
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if key == "" || key == "the-value" {
+		t.Fatalf("unexpected key %q", key)
+	}
+
+	value, found := s.LoadAndDelete(singleUseCacheKey(namespace, key))
+	if !found || value != "the-value" {
+		t.Fatalf("expected to load the stored value, got %q found=%v", value, found)
+	}
+
+	if _, found := s.LoadAndDelete(singleUseCacheKey(namespace, key)); found {
+		t.Fatal("value must be consumed on first LoadAndDelete")
+	}
+}
+
+func TestSingleUseStore_GenerateUniqueKeys(t *testing.T) {
+	s := NewSingleUseStore(context.Background(), testCacheStore(t))
+	a, err := s.Generate("test", "v", time.Minute)
+	if err != nil {
+		t.Fatalf("generate a: %v", err)
+	}
+	b, err := s.Generate("test", "v", time.Minute)
+	if err != nil {
+		t.Fatalf("generate b: %v", err)
+	}
+	if a == b {
+		t.Fatal("generated keys must be distinct")
+	}
 }

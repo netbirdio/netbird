@@ -11,15 +11,15 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/account"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
-	"github.com/netbirdio/netbird/management/server/http/middleware"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/shared/management/status"
+	"github.com/netbirdio/netbird/shared/ratelimit"
 )
 
 // publicInviteRateLimiter limits public invite requests by IP address to prevent brute-force attacks
-var publicInviteRateLimiter = middleware.NewAPIRateLimiter(&middleware.RateLimiterConfig{
+var publicInviteRateLimiter = ratelimit.NewAPIRateLimiter(&ratelimit.RateLimiterConfig{
 	RequestsPerMinute: 10, // 10 attempts per minute per IP
 	Burst:             5,  // Allow burst of 5 requests
 	CleanupInterval:   10 * time.Minute,

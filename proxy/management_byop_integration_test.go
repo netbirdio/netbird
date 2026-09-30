@@ -104,7 +104,7 @@ func setupBYOPIntegrationTest(t *testing.T) *byopTestSetup {
 	require.NoError(t, err)
 
 	tokenStore := nbgrpc.NewOneTimeTokenStore(ctx, cacheStore)
-	pkceStore := nbgrpc.NewPKCEVerifierStore(ctx, cacheStore)
+	singleUseStore := nbgrpc.NewSingleUseStore(ctx, cacheStore)
 
 	meter := noop.NewMeterProvider().Meter("test")
 	realProxyManager, err := proxymanager.NewManager(testStore, meter)
@@ -121,7 +121,7 @@ func setupBYOPIntegrationTest(t *testing.T) *byopTestSetup {
 	proxyService := nbgrpc.NewProxyServiceServer(
 		&testAccessLogManager{},
 		tokenStore,
-		pkceStore,
+		singleUseStore,
 		oidcConfig,
 		nil,
 		usersManager,

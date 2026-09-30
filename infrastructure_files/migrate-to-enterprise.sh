@@ -220,6 +220,21 @@ detect_exposed_address() {
   yq eval '.server.exposedAddress // ""' "$CONFIG_YAML_HOST"
 }
 
+detect_relay_auth_secret() {
+  local secret=""
+  local external_relay_count
+  external_relay_count=$(yq eval '(.server.relays.addresses // []) | length' "$CONFIG_YAML_HOST")
+
+  if (( external_relay_count > 0 )); then
+    secret=$(yq eval '.server.relays.secret // ""' "$CONFIG_YAML_HOST")
+  fi
+  if [[ -z "$secret" ]] || [[ "$secret" == "null" ]]; then
+    secret=$(yq eval '.server.authSecret // ""' "$CONFIG_YAML_HOST")
+  fi
+
+  printf '%s' "$secret"
+}
+
 # The engine is a config.yaml-only setting — there is no env override for it
 # (combined/cmd/root.go reads it from YAML and derives the env vars), so
 # config.yaml is authoritative. Absent means the sqlite default.
@@ -945,11 +960,10 @@ init_migration() {
   if [[ "$MIGRATE_POSTGRES" == "yes" ]] || [[ "$EXISTING_POSTGRES" == "yes" ]]; then
     ENABLE_FLOW=$(read_yes_no "Step 3: Enable traffic flow? (requires Postgres)" "n")
     if [[ "$ENABLE_FLOW" == "yes" ]]; then
-      # Auth secret MUST match server.authSecret from config.yaml
-      NB_FLOW_AUTH_SECRET=$(yq eval '.server.authSecret // ""' "$CONFIG_YAML_HOST")
+      NB_FLOW_AUTH_SECRET=$(detect_relay_auth_secret)
       if [[ -z "$NB_FLOW_AUTH_SECRET" ]] || [[ "$NB_FLOW_AUTH_SECRET" == "null" ]]; then
-        echo "Could not read server.authSecret from $CONFIG_YAML_HOST." > /dev/stderr
-        echo "Flow receiver auth must match the combined server's authSecret." > /dev/stderr
+        echo "Could not resolve the Relay auth secret from $CONFIG_YAML_HOST." > /dev/stderr
+        echo "Set server.relays.secret for external Relays or server.authSecret for the local Relay." > /dev/stderr
         exit 1
       fi
 

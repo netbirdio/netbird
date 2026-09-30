@@ -253,8 +253,8 @@ func TestSynthesizeServiceForDomain_CanonicalAlias(t *testing.T) {
 	provider := newSynthTestProvider()
 	policy := newSynthTestPolicy(provider.ID, "grp-eng", "")
 	mockStore.EXPECT().
-		GetAgentNetworkSettingsByCluster(ctx, store.LockingStrengthNone, testCluster).
-		Return([]*types.Settings{settings}, nil)
+		GetAgentNetworkSettingsByDomain(ctx, store.LockingStrengthNone, testEndpoint).
+		Return(settings, nil)
 	expectSynthBaseInputs(
 		mockStore,
 		ctx,
