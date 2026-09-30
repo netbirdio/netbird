@@ -2,6 +2,7 @@ package agentnetwork
 
 import (
 	"context"
+	"fmt"
 
 	log "github.com/sirupsen/logrus"
 
@@ -93,6 +94,51 @@ func (m *managerImpl) reconcile(ctx context.Context, accountID string) {
 		entry.mapping.Type = proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED
 		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, entry.mapping, entry.cluster)
 	}
+}
+
+// RemoveAccountGateway tells the proxies to drop every mapping of the account's
+// gateway, so a deleted account's proxy config, provider API keys included, does
+// not linger in proxy memory until the next resync. It is an account deletion
+// hook: it runs before the account's data is removed, the last point at which
+// the mappings can be synthesised from the store. The cache alone would miss
+// them, since it is per instance and empty after a restart. If the deletion
+// then fails, the gateway stays down until the account's next change reconciles
+// it back.
+func (m *managerImpl) RemoveAccountGateway(ctx context.Context, accountID string) error {
+	if m.proxyController == nil {
+		return nil
+	}
+
+	services, err := SynthesizeServices(ctx, m.store, accountID)
+	if err != nil {
+		return fmt.Errorf("synthesise agent network services: %w", err)
+	}
+	oidcCfg := m.proxyController.GetOIDCValidationConfig()
+	removed := make(map[string]syntheticMapping, len(services))
+	for _, svc := range services {
+		if svc == nil || svc.ID == "" {
+			continue
+		}
+		removed[svc.ID] = syntheticMapping{
+			mapping: svc.ToProtoMapping(rpservice.Delete, "", oidcCfg),
+			cluster: svc.ProxyCluster,
+		}
+	}
+
+	m.reconcileMu.Lock()
+	for id, entry := range m.reconcileCache[accountID] {
+		if _, ok := removed[id]; !ok {
+			removed[id] = entry
+		}
+	}
+	delete(m.reconcileCache, accountID)
+	m.reconcileMu.Unlock()
+
+	for _, entry := range removed {
+		entry.mapping.Type = proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED
+		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, entry.mapping, entry.cluster)
+	}
+	return nil
 }
 
 // diffMappings classifies the previous→current transition for a single

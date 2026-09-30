@@ -80,6 +80,9 @@ type Manager interface {
 	ListAccessLogSessions(ctx context.Context, accountID, userID string, filter types.AgentNetworkAccessLogFilter) ([]*types.AgentNetworkAccessLogSession, int64, error)
 	GetUsageOverview(ctx context.Context, accountID, userID string, filter types.AgentNetworkAccessLogFilter, granularity types.UsageGranularity) ([]*types.AgentNetworkUsageBucket, error)
 	StartAccessLogCleanup(ctx context.Context, cleanupIntervalHours int)
+	// RemoveAccountGateway drops the account's gateway mappings from the
+	// proxies. It runs as an account deletion hook.
+	RemoveAccountGateway(ctx context.Context, accountID string) error
 	RecordConsumption(ctx context.Context, accountID string, kind types.ConsumptionDimension, dimID string, windowSeconds, tokensIn, tokensOut int64, costUSD float64) error
 	RecordAccountBudgetUsage(ctx context.Context, accountID, userID string, groupIDs []string, tokensIn, tokensOut int64, costUSD float64) error
 	RecordUsage(ctx context.Context, in RecordUsageInput) error
@@ -1576,6 +1579,8 @@ func (*mockManager) GetUsageOverview(_ context.Context, _, _ string, _ types.Age
 }
 
 func (*mockManager) StartAccessLogCleanup(_ context.Context, _ int) {}
+
+func (*mockManager) RemoveAccountGateway(_ context.Context, _ string) error { return nil }
 
 func (*mockManager) RecordConsumption(_ context.Context, _ string, _ types.ConsumptionDimension, _ string, _, _, _ int64, _ float64) error {
 	return nil
