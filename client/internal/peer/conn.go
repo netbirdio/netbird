@@ -95,12 +95,14 @@ type ConnConfig struct {
 	// ICEConfig ICE protocol configuration
 	ICEConfig icemaker.Config
 
-	// NetMgr gates the reconnection guard on OS-reported network
-	// availability; nil disables gating.
+	// NetMgr gates reconnects on OS network availability and sweeps stale
+	// ICE agents after handovers; nil disables OS network event handling.
 	NetMgr *netevents.Manager
 }
 
 type Conn struct {
+	// lifecycleMu serializes open/close while shutdown waits without holding mu.
+	lifecycleMu        sync.Mutex
 	Log                *log.Entry
 	mu                 sync.Mutex
 	ctx                context.Context
@@ -229,6 +231,8 @@ func (conn *Conn) OpenWithFirstPacket(engineCtx context.Context, firstPacket []b
 }
 
 func (conn *Conn) open(engineCtx context.Context, firstPacket []byte) error {
+	conn.lifecycleMu.Lock()
+	defer conn.lifecycleMu.Unlock()
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
@@ -293,8 +297,13 @@ func (conn *Conn) open(engineCtx context.Context, firstPacket []byte) error {
 
 // Close closes this peer Conn issuing a close event to the Conn closeCh
 func (conn *Conn) Close(signalToRemote bool) {
+	conn.lifecycleMu.Lock()
+	defer conn.lifecycleMu.Unlock()
 	conn.mu.Lock()
+	// Handshake callbacks need mu to observe shutdown and finish. Keep lifecycle
+	// serialization until both groups exit, but release mu before waiting.
 	defer conn.wgWatcherWg.Wait()
+	defer conn.wg.Wait()
 	defer conn.mu.Unlock()
 
 	if !conn.opened {
@@ -347,7 +356,6 @@ func (conn *Conn) Close(signalToRemote bool) {
 
 	conn.setStatusToDisconnected()
 	conn.opened = false
-	conn.wg.Wait()
 	conn.Log.Infof("peer connection closed")
 }
 
@@ -411,19 +419,29 @@ func (conn *Conn) ConnID() id.ConnID {
 	return id.ConnID(conn)
 }
 
-// configureConnection starts proxying traffic from/to local Wireguard and sets connection status to StatusConnected
-func (conn *Conn) onICEConnectionIsReady(priority conntype.ConnPriority, iceConnInfo ICEConnInfo) {
-	conn.mu.Lock()
-	defer conn.mu.Unlock()
-
-	if conn.ctx.Err() != nil {
-		return
-	}
-
+// onICEConnectionIsReady publishes a dial result only while its agent still owns
+// the worker. Publication and retirement use the same conn.mu -> muxAgent order.
+func (conn *Conn) onICEConnectionIsReady(source *WorkerICE, agent *icemaker.ThreadSafeAgent, priority conntype.ConnPriority, iceConnInfo ICEConnInfo) {
 	if remoteConnNil(conn.Log, iceConnInfo.RemoteConn) {
 		conn.Log.Errorf("remote ICE connection is nil")
 		return
 	}
+
+	conn.mu.Lock()
+	source.muxAgent.Lock()
+	if conn.ctx.Err() != nil || source.ctx.Err() != nil || conn.workerICE != source || source.agent != agent {
+		source.muxAgent.Unlock()
+		conn.mu.Unlock()
+		if err := iceConnInfo.RemoteConn.Close(); err != nil {
+			conn.Log.Warnf("failed to close stale ICE connection: %s", err)
+		}
+		return
+	}
+	defer conn.mu.Unlock()
+	defer source.muxAgent.Unlock()
+
+	source.agentConnecting = false
+	source.lastSuccess = time.Now()
 
 	// this never should happen, because Relay is the lower priority and ICE always close the deprecated connection before upgrade
 	// todo consider to remove this check
@@ -493,9 +511,9 @@ func (conn *Conn) onICEConnectionIsReady(priority conntype.ConnPriority, iceConn
 	conn.doOnConnected(iceConnInfo.RosenpassPubKey, iceConnInfo.RosenpassAddr, updateTime)
 }
 
-func (conn *Conn) onICEStateDisconnected(sessionChanged bool) {
-	conn.mu.Lock()
-	defer conn.mu.Unlock()
+// onICEStateDisconnectedLocked runs with conn.mu and workerICE.muxAgent held,
+// so a retired agent cannot disconnect a replacement's endpoint.
+func (conn *Conn) onICEStateDisconnectedLocked(sessionChanged bool) {
 
 	if conn.ctx.Err() != nil {
 		return

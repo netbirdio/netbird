@@ -166,7 +166,7 @@ func TestRepeatedMarksCoalesce(t *testing.T) {
 	for _, conn := range []net.Conn{first, second} {
 		_ = conn.SetReadDeadline(time.Now().Add(time.Second))
 		_, err := conn.Read(buf)
-		require.ErrorIs(t, err, net.ErrClosed, "every pre-mark connection must be swept by the rescheduled sweep")
+		require.ErrorIs(t, err, net.ErrClosed, "every pre-mark connection must be swept by the coalesced sweep")
 	}
 	assert.Equal(t, 1, sweeper.sweepAll(), "only the newest-generation connection may remain")
 }
@@ -238,4 +238,26 @@ func connPair(t *testing.T) net.Conn {
 // sweepAll cuts every registration regardless of generation.
 func (s *Sweeper) sweepAll() int {
 	return s.sweep(math.MaxUint64)
+}
+
+func TestContinuousNetworkChangesDoNotStarveRecovery(t *testing.T) {
+	sweeper := NewWithConfig(Config{SweepDelay: 50 * time.Millisecond})
+	stale := sweeper.StartDial(context.Background())
+	defer stale.Release()
+	sweeper.MarkNetworkChange()
+
+	changes := time.NewTicker(5 * time.Millisecond)
+	defer changes.Stop()
+	timeout := time.NewTimer(time.Second)
+	defer timeout.Stop()
+	for {
+		select {
+		case <-stale.Ctx().Done():
+			return
+		case <-changes.C:
+			sweeper.MarkNetworkChange()
+		case <-timeout.C:
+			t.Fatal("continuous path changes left the old network's dial running")
+		}
+	}
 }

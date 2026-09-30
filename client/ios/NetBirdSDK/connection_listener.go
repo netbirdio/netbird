@@ -38,6 +38,11 @@ type connectionListenerAdapter struct {
 	ConnectionListener
 }
 
-// OnStateChanged is dropped on iOS until the app adopts the state callback;
-// the legacy per-state callbacks continue to fire.
-func (a connectionListenerAdapter) OnStateChanged(peer.ClientState) {}
+// OnStateChanged maps NoNetwork to the legacy reconnecting callback. NoNetwork
+// has no per-state callback in peer.notifyListener, so dropping it leaves iOS
+// displaying Connected during an outage. Other states already have callbacks.
+func (a connectionListenerAdapter) OnStateChanged(state peer.ClientState) {
+	if state == peer.ClientStateNoNetwork {
+		a.OnConnecting()
+	}
+}

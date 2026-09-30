@@ -59,7 +59,7 @@ type WorkerICE struct {
 	localUfrag string
 	localPwd   string
 
-	// we record the last known state of the ICE agent to avoid duplicate on disconnected events
+	// Last state of the current agent; guarded by muxAgent.
 	lastKnownState ice.ConnectionState
 
 	// portForwardAttempted tracks if we've already tried port forwarding this session
@@ -99,8 +99,14 @@ func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, conn *
 
 func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	w.log.Debugf("OnNewOffer for ICE, serial: %s", remoteOfferAnswer.SessionIDString())
+	w.conn.mu.Lock()
+	defer w.conn.mu.Unlock()
 	w.muxAgent.Lock()
 	defer w.muxAgent.Unlock()
+
+	if w.ctx.Err() != nil {
+		return
+	}
 
 	if w.agent != nil || w.agentConnecting {
 		// backward compatibility with old clients that do not send session ID
@@ -114,6 +120,13 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 		}
 		w.log.Debugf("agent already exists, recreate the connection")
 		w.remoteSessionChanged = true
+		// Retire the old endpoint before publishing a replacement. Its delayed
+		// terminal callback will no longer own the worker and must be ignored.
+		if w.lastKnownState == ice.ConnectionStateConnected {
+			w.lastKnownState = ice.ConnectionStateDisconnected
+			w.conn.onICEStateDisconnectedLocked(true)
+			w.remoteSessionChanged = false
+		}
 		w.agentDialerCancel()
 		if w.agent != nil {
 			if err := w.agent.Close(); err != nil {
@@ -140,12 +153,13 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 		w.log.Debugf("recreate ICE agent: %s / %s", w.sessionID, *remoteOfferAnswer.SessionID)
 	}
 	dialerCtx, dialerCancel := context.WithCancel(w.ctx)
-	agent, err := w.reCreateAgent(dialerCancel, preferredCandidateTypes)
+	agent, dialerCancel, err := w.reCreateAgent(dialerCancel, preferredCandidateTypes)
 	if err != nil {
 		w.log.Errorf("failed to recreate ICE Agent: %s", err)
 		return
 	}
 	w.agent = agent
+	w.lastKnownState = ice.ConnectionStateDisconnected
 	w.agentDialerCancel = dialerCancel
 	w.agentConnecting = true
 	if remoteOfferAnswer.SessionID != nil {
@@ -217,29 +231,58 @@ func (w *WorkerICE) Close() {
 	w.abandonNegotiation()
 }
 
-func (w *WorkerICE) reCreateAgent(dialerCancel context.CancelFunc, candidates []ice.CandidateType) (*icemaker.ThreadSafeAgent, error) {
+// reCreateAgent returns the agent and its teardown function. Every owner must use
+// that function to release network registrations even when ICE emits no callback.
+func (w *WorkerICE) reCreateAgent(dialerCancel context.CancelFunc, candidates []ice.CandidateType) (_ *icemaker.ThreadSafeAgent, _ context.CancelFunc, err error) {
 	w.portForwardAttempted = false
+
+	// Keep the registration for the agent's entire lifetime, including after
+	// ICE connects. The sweep must invalidate direct paths as well as control
+	// sockets, without waiting for ICE's disconnected timeout.
+	registration := w.config.NetMgr.StartDial(w.ctx)
+	cancel := func() {
+		dialerCancel()
+		registration.Release()
+	}
+	defer func() {
+		if err != nil {
+			cancel()
+		}
+	}()
 
 	agent, err := icemaker.NewAgent(w.ctx, w.iFaceDiscover, w.config.ICEConfig, candidates, w.localUfrag, w.localPwd)
 	if err != nil {
-		return nil, fmt.Errorf("create agent: %w", err)
+		return nil, nil, fmt.Errorf("create agent: %w", err)
 	}
+
+	defer func() {
+		if err != nil {
+			if closeErr := agent.Close(); closeErr != nil {
+				w.log.Warnf("failed to close ICE agent after setup error: %s", closeErr)
+			}
+		}
+	}()
 
 	if err := agent.OnCandidate(w.onICECandidate); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	if err := agent.OnConnectionStateChange(w.onConnectionStateChange(agent, dialerCancel)); err != nil {
-		return nil, err
+	if err := agent.OnConnectionStateChange(w.onConnectionStateChange(agent, cancel)); err != nil {
+		return nil, nil, err
 	}
 
 	if err := agent.OnSelectedCandidatePairChange(func(c1, c2 ice.Candidate) {
 		w.onICESelectedCandidatePair(agent, c1, c2)
 	}); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return agent, nil
+	if w.config.NetMgr != nil {
+		context.AfterFunc(registration.Ctx(), func() {
+			w.closeAgent(agent, cancel)
+		})
+	}
+	return agent, cancel, nil
 }
 
 func (w *WorkerICE) SessionID() ICESessionID {
@@ -326,52 +369,38 @@ func (w *WorkerICE) connect(ctx context.Context, dialerCancel context.CancelFunc
 	w.log.Debugf("on ICE conn is ready to use")
 
 	w.log.Infof("connection succeeded with offer session: %s", remoteOfferAnswer.SessionIDString())
-	w.muxAgent.Lock()
-	// Authoritative ownership guard: a negotiation that lost w.agent to a newer
-	// one between the post-dial check and the commit must not clear agentConnecting,
-	// record lastSuccess or report the connection, so the state commit has to be
-	// atomic with the check.
-	if w.agent != agent {
-		w.muxAgent.Unlock()
-		if err := remoteConn.Close(); err != nil {
-			w.log.Warnf("failed to close stale ICE connection: %s", err)
-		}
-		w.log.Warnf("discarding connection from a stale ICE negotiation")
-		return
-	}
-	w.agentConnecting = false
-	w.lastSuccess = time.Now()
-	w.muxAgent.Unlock()
-
-	// todo: the potential problem is a race between the onConnectionStateChange
-	// and the delivery below: after this unlock, a newer offer can replace
-	// w.agent before onICEConnectionIsReady runs, delivering this (now stale)
-	// connection. The newer negotiation overwrites it with its own delivery,
-	// so the window only ever downgrades an endpoint transiently.
-	w.conn.onICEConnectionIsReady(selectedPriority(pair), ci)
+	w.conn.onICEConnectionIsReady(w, agent, selectedPriority(pair), ci)
 }
 
+// closeAgent releases the agent and retires its endpoint only if it still owns the worker.
 func (w *WorkerICE) closeAgent(agent *icemaker.ThreadSafeAgent, cancel context.CancelFunc) bool {
 	cancel()
 	if err := agent.Close(); err != nil {
 		w.log.Warnf("failed to close ICE agent: %s", err)
 	}
 
+	// Match Conn teardown's lock order. Keep ownership stable until the peer
+	// endpoint update has completed; a check followed by an unlock is not enough.
+	w.conn.mu.Lock()
+	defer w.conn.mu.Unlock()
 	w.muxAgent.Lock()
 	defer w.muxAgent.Unlock()
 
+	if w.agent != agent {
+		return false
+	}
 	sessionChanged := w.remoteSessionChanged
 	w.remoteSessionChanged = false
-
-	// Only the owner of the current session may reset its state: a stale dial
-	// goroutine waking after a newer attempt must not clobber it.
-	if w.agent == agent {
-		sessionID, err := NewICESessionID()
-		if err != nil {
-			w.log.Errorf("failed to create new session ID: %s", err)
-		}
-		w.sessionID = sessionID
-		w.abandonNegotiation()
+	wasConnected := w.lastKnownState == ice.ConnectionStateConnected
+	w.lastKnownState = ice.ConnectionStateDisconnected
+	sessionID, err := NewICESessionID()
+	if err != nil {
+		w.log.Errorf("failed to create new session ID: %s", err)
+	}
+	w.sessionID = sessionID
+	w.abandonNegotiation()
+	if wasConnected {
+		w.conn.onICEStateDisconnectedLocked(sessionChanged)
 	}
 	return sessionChanged
 }
@@ -578,19 +607,20 @@ func (w *WorkerICE) onConnectionStateChange(agent *icemaker.ThreadSafeAgent, dia
 		w.log.Debugf("ICE ConnectionState has changed to %s", state.String())
 		switch state {
 		case ice.ConnectionStateConnected:
+			w.muxAgent.Lock()
+			if w.agent != agent {
+				w.muxAgent.Unlock()
+				return
+			}
 			w.lastKnownState = ice.ConnectionStateConnected
+			w.muxAgent.Unlock()
 			w.logSuccessfulPaths(agent)
 			return
 		case ice.ConnectionStateFailed, ice.ConnectionStateDisconnected, ice.ConnectionStateClosed:
 			// ice.ConnectionStateClosed happens when we recreate the agent. The P2P to relay switch requires
-			// notifying conn.onICEStateDisconnected so it can update the currently used priority.
+			// retiring the current endpoint so it can update the currently used priority.
 
-			sessionChanged := w.closeAgent(agent, dialerCancel)
-
-			if w.lastKnownState == ice.ConnectionStateConnected {
-				w.lastKnownState = ice.ConnectionStateDisconnected
-				w.conn.onICEStateDisconnected(sessionChanged)
-			}
+			w.closeAgent(agent, dialerCancel)
 		default:
 			return
 		}

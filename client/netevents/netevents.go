@@ -67,7 +67,7 @@ func (m *Manager) SetNetworkAvailable(available bool) {
 	m.recorder.SetNetworkAvailable(available)
 }
 
-// NotifyNetworkChange marks the management, signal and relay connections
+// NotifyNetworkChange marks the management, signal, relay and ICE connections
 // stale after the OS switched networks and schedules a sweep that cuts
 // whatever has not redialed on the new network by then. The engine and the
 // TUN device stay untouched.

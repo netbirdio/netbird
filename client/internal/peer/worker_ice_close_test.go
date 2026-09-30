@@ -42,7 +42,7 @@ func newTestWorkerICE(t *testing.T) *WorkerICE {
 	stunTurn.Store(nil)
 	config.ICEConfig.StunTurn = stunTurn
 
-	w, err := NewWorkerICE(context.Background(), log.WithField("test", t.Name()), config, nil,
+	w, err := NewWorkerICE(context.Background(), log.WithField("test", t.Name()), config, &Conn{ctx: context.Background()},
 		NewSignaler(stubSignalClient{}, wgtypes.Key{}), nil, nil, false)
 	require.NoError(t, err, "worker setup must succeed")
 	return w
