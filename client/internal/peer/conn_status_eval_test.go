@@ -31,6 +31,21 @@ func TestEvalConnStatus_ForceRelay(t *testing.T) {
 			want: guard.ConnStatusDisconnected,
 		},
 		{
+			name: "force relay, relay up but the shared transport reports down",
+			in: connStatusInputs{
+				forceRelay:              true,
+				peerUsesRelay:           true,
+				relayConnected:          true,
+				relayTransportConnected: false,
+				// The ICE inputs are set so that the force-relay return is the only branch
+				// that can produce Connected here: without it the peer would fall through to
+				// relayUsedAndUp and report PartiallyConnected.
+				remoteSupportsICE: true,
+				iceWorkerCreated:  true,
+			},
+			want: guard.ConnStatusConnected,
+		},
+		{
 			name: "force relay, peer does NOT use relay - disconnected forever",
 			in: connStatusInputs{
 				forceRelay:     true,
@@ -123,17 +138,21 @@ func TestEvalConnStatus_FullyAvailable(t *testing.T) {
 			mutator: func(in *connStatusInputs) {
 				in.peerUsesRelay = true
 				in.relayConnected = true
+				in.relayTransportConnected = true
 				in.iceStatusConnected = true
 			},
 			want: guard.ConnStatusConnected,
 		},
 		{
-			name: "ICE connected, peer does NOT use relay",
+			name: "ICE connected, peer does NOT use relay, shared transport down",
 			mutator: func(in *connStatusInputs) {
 				in.peerUsesRelay = false
 				in.relayConnected = false
+				in.relayTransportConnected = false
 				in.iceStatusConnected = true
 			},
+			// A peer that does not rely on relay is unaffected by the shared transport:
+			// relayOK is true, so the first arm matches before the transport is considered.
 			want: guard.ConnStatusConnected,
 		},
 		{
@@ -150,6 +169,7 @@ func TestEvalConnStatus_FullyAvailable(t *testing.T) {
 			mutator: func(in *connStatusInputs) {
 				in.peerUsesRelay = true
 				in.relayConnected = true
+				in.relayTransportConnected = true
 				in.iceStatusConnected = false
 				in.iceInProgress = false
 			},
@@ -166,7 +186,7 @@ func TestEvalConnStatus_FullyAvailable(t *testing.T) {
 			want: guard.ConnStatusDisconnected,
 		},
 		{
-			name: "ICE up, relay down for this peer but the shared transport is up -> disconnected",
+			name: "ICE connected, relay down for this peer but the shared transport is up -> disconnected",
 			mutator: func(in *connStatusInputs) {
 				in.peerUsesRelay = true
 				in.relayConnected = false
@@ -178,7 +198,7 @@ func TestEvalConnStatus_FullyAvailable(t *testing.T) {
 			want: guard.ConnStatusDisconnected,
 		},
 		{
-			name: "ICE up, the shared relay transport is down -> partial",
+			name: "ICE connected, the shared relay transport is down -> partial",
 			mutator: func(in *connStatusInputs) {
 				in.peerUsesRelay = true
 				in.relayConnected = false
@@ -188,6 +208,22 @@ func TestEvalConnStatus_FullyAvailable(t *testing.T) {
 			// ICE carries the traffic and the relay transport is restored by the relay client's
 			// own guard, not by offers, so this must not trigger the aggressive retry.
 			want: guard.ConnStatusPartiallyConnected,
+		},
+		{
+			name: "ICE only negotiating while the shared relay transport is down -> disconnected",
+			mutator: func(in *connStatusInputs) {
+				in.peerUsesRelay = true
+				in.relayConnected = false
+				in.relayTransportConnected = false
+				in.iceStatusConnected = false
+				in.iceInProgress = true
+			},
+			// A negotiation in flight is not a working transport, so this peer has no path at
+			// all and must keep the aggressive retry. Calling it partially connected spends the
+			// ICE retry budget and parks the guard on the hourly ticker, and nothing wakes it
+			// when the negotiation then fails: onICEStateDisconnected is only reached once ICE
+			// has reached Connected (worker_ice.go onConnectionStateChange).
+			want: guard.ConnStatusDisconnected,
 		},
 		{
 			name: "ICE down and the shared relay transport is down -> disconnected",
