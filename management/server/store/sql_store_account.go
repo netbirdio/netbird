@@ -18,6 +18,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
@@ -158,6 +159,13 @@ func (s *SqlStore) DeleteAccount(ctx context.Context, account *types.Account) er
 		}
 
 		result = tx.Select(clause.Associations).Delete(account.Services, "account_id = ?", account.Id)
+		if result.Error != nil {
+			return result.Error
+		}
+
+		// Not an account association: the settings row holds the account's globally unique
+		// gateway domain, which would otherwise stay claimed after the account is gone.
+		result = tx.Delete(&agentNetworkTypes.Settings{}, "account_id = ?", account.Id)
 		if result.Error != nil {
 			return result.Error
 		}

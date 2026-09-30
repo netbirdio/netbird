@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	agentNetworkTypes "github.com/netbirdio/netbird/management/internals/modules/agentnetwork/types"
 	proxydomain "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
@@ -401,6 +402,13 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, o.AccountID, account.Id)
 
+	err = store.CreateAgentNetworkSettings(context.Background(), &agentNetworkTypes.Settings{
+		AccountID:    account.Id,
+		Domain:       "gw.example.com",
+		ProxyAddress: "gw.example.com",
+	})
+	require.NoError(t, err)
+
 	err = store.DeleteAccount(context.Background(), account)
 	require.NoError(t, err)
 
@@ -465,6 +473,20 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 	err = store.(*SqlStore).db.Model(&rpservice.Target{}).Find(&targets, "account_id = ?", account.Id).Error
 	require.NoError(t, err, "expecting no error after DeleteAccount when searching for service targets")
 	require.Len(t, targets, 0, "expecting no service targets to be found after DeleteAccount")
+
+	_, err = store.GetAgentNetworkSettings(context.Background(), LockingStrengthNone, account.Id)
+	require.Error(t, err, "expecting agent network settings to be deleted with the account")
+	sErr, ok := status.FromError(err)
+	require.True(t, ok, "expecting a status error when getting agent network settings, got %v", err)
+	require.Equal(t, status.NotFound, sErr.Type(), "expecting agent network settings to be deleted with the account")
+
+	// The domain is globally unique, so a leftover row would keep it from another account.
+	err = store.CreateAgentNetworkSettings(context.Background(), &agentNetworkTypes.Settings{
+		AccountID:    "other_account",
+		Domain:       "gw.example.com",
+		ProxyAddress: "gw.example.com",
+	})
+	require.NoError(t, err, "expecting the deleted account's gateway domain to be free for another account")
 }
 
 func Test_GetAccount(t *testing.T) {
