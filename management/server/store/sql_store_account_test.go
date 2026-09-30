@@ -414,7 +414,6 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 		&agentNetworkTypes.Policy{ID: "an_policy", AccountID: account.Id},
 		&agentNetworkTypes.Guardrail{ID: "an_guardrail", AccountID: account.Id},
 		&agentNetworkTypes.AccountBudgetRule{ID: "an_budget_rule", AccountID: account.Id},
-		&agentNetworkTypes.Consumption{AccountID: account.Id, DimensionID: "an_dimension", WindowSeconds: 3600},
 	}
 	for _, row := range agentNetworkConfig {
 		require.NoError(t, store.(*SqlStore).db.Create(row).Error, "creating %T", row)

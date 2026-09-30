@@ -187,7 +187,8 @@ func (s *SqlStore) DeleteAccount(ctx context.Context, account *types.Account) er
 // deleteAgentNetworkAccountConfig removes the account's agent network configuration. These
 // tables are not account associations, so deleting the account does not reach them. The
 // settings row holds the account's globally unique gateway domain and the provider rows
-// hold its upstream API keys. Access logs and usage records are left alone.
+// hold its upstream API keys. Tables that grow with traffic are left out: consumption
+// counters and access logs are swept in the background, and usage records are kept.
 func deleteAgentNetworkAccountConfig(tx *gorm.DB, accountID string) error {
 	models := []any{
 		&agentNetworkTypes.Settings{},
@@ -195,7 +196,6 @@ func deleteAgentNetworkAccountConfig(tx *gorm.DB, accountID string) error {
 		&agentNetworkTypes.Policy{},
 		&agentNetworkTypes.Guardrail{},
 		&agentNetworkTypes.AccountBudgetRule{},
-		&agentNetworkTypes.Consumption{},
 	}
 	for _, model := range models {
 		if err := tx.Delete(model, "account_id = ?", accountID).Error; err != nil {

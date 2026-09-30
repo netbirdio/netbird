@@ -1350,8 +1350,8 @@ func (m *managerImpl) scopeFilterToCaller(ctx context.Context, accountID, userID
 
 // StartAccessLogCleanup launches a background sweep that periodically deletes
 // each account's agent-network access-log rows older than that account's
-// AccessLogRetentionDays. Usage records are never swept. A non-positive
-// interval defaults to 24h.
+// AccessLogRetentionDays, and the consumption counters of deleted accounts.
+// Usage records are never swept. A non-positive interval defaults to 24h.
 func (m *managerImpl) StartAccessLogCleanup(ctx context.Context, cleanupIntervalHours int) {
 	if cleanupIntervalHours <= 0 {
 		cleanupIntervalHours = 24
@@ -1362,16 +1362,34 @@ func (m *managerImpl) StartAccessLogCleanup(ctx context.Context, cleanupInterval
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
-		m.cleanupAccessLogsOnce(ctx) // run once on startup
+		m.cleanupOnce(ctx) // run once on startup
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				m.cleanupAccessLogsOnce(ctx)
+				m.cleanupOnce(ctx)
 			}
 		}
 	}()
+}
+
+func (m *managerImpl) cleanupOnce(ctx context.Context) {
+	m.cleanupAccessLogsOnce(ctx)
+	m.cleanupDeletedAccountConsumption(ctx)
+}
+
+// cleanupDeletedAccountConsumption deletes the consumption counters of accounts
+// that no longer exist. Best-effort: a failure is logged and retried next sweep.
+func (m *managerImpl) cleanupDeletedAccountConsumption(ctx context.Context) {
+	deleted, err := m.store.DeleteAgentNetworkConsumptionOfDeletedAccounts(ctx)
+	if err != nil {
+		log.WithContext(ctx).Warnf("agent-network consumption cleanup: %v", err)
+		return
+	}
+	if deleted > 0 {
+		log.WithContext(ctx).Infof("agent-network consumption cleanup: deleted %d counters of deleted accounts", deleted)
+	}
 }
 
 // cleanupAccessLogsOnce sweeps every account's expired access-log rows against
