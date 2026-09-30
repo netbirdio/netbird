@@ -69,6 +69,23 @@ func (s *SqlStore) DeleteOldAgentNetworkAccessLogs(ctx context.Context, accountI
 	return deleted, nil
 }
 
+// GetAgentNetworkAccessLogAccountsWithoutSettings returns the IDs of accounts that have
+// access-log rows but no agent network settings row, such as deleted accounts. The
+// retention sweep is driven by settings rows, so it uses this to find logs it would
+// otherwise never expire.
+func (s *SqlStore) GetAgentNetworkAccessLogAccountsWithoutSettings(ctx context.Context) ([]string, error) {
+	var accountIDs []string
+	err := s.db.Model(&agentNetworkTypes.AgentNetworkAccessLog{}).
+		Distinct("account_id").
+		Where("NOT EXISTS (SELECT 1 FROM agent_network_settings WHERE agent_network_settings.account_id = agent_network_access_log.account_id)").
+		Pluck("account_id", &accountIDs).Error
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get agent-network access-log accounts without settings: %v", err)
+		return nil, status.Errorf(status.Internal, "failed to get agent-network access-log accounts without settings")
+	}
+	return accountIDs, nil
+}
+
 // GetAgentNetworkAccessLogs retrieves flattened agent-network access logs for
 // an account with server-side pagination, filtering and sorting. Authorising
 // group ids are hydrated from the group child table for the returned page.

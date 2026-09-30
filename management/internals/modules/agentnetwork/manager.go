@@ -1375,8 +1375,9 @@ func (m *managerImpl) StartAccessLogCleanup(ctx context.Context, cleanupInterval
 }
 
 // cleanupAccessLogsOnce sweeps every account's expired access-log rows against
-// its configured retention. Best-effort: a per-account failure is logged and
-// the sweep continues.
+// its configured retention. Accounts with logs but no settings row, such as
+// deleted accounts, get the default retention. Best-effort: a per-account
+// failure is logged and the sweep continues.
 func (m *managerImpl) cleanupAccessLogsOnce(ctx context.Context) {
 	settings, err := m.store.GetAllAgentNetworkSettings(ctx, store.LockingStrengthNone)
 	if err != nil {
@@ -1384,18 +1385,31 @@ func (m *managerImpl) cleanupAccessLogsOnce(ctx context.Context) {
 		return
 	}
 	for _, s := range settings {
-		if s.AccessLogRetentionDays <= 0 {
-			continue // keep indefinitely
-		}
-		cutoff := time.Now().UTC().AddDate(0, 0, -s.AccessLogRetentionDays)
-		deleted, err := m.store.DeleteOldAgentNetworkAccessLogs(ctx, s.AccountID, cutoff)
-		if err != nil {
-			log.WithContext(ctx).Warnf("agent-network access-log cleanup for account %s: %v", s.AccountID, err)
-			continue
-		}
-		if deleted > 0 {
-			log.WithContext(ctx).Infof("agent-network access-log cleanup: deleted %d rows for account %s (retention %d days)", deleted, s.AccountID, s.AccessLogRetentionDays)
-		}
+		m.cleanupAccountAccessLogs(ctx, s.AccountID, s.AccessLogRetentionDays)
+	}
+
+	orphaned, err := m.store.GetAgentNetworkAccessLogAccountsWithoutSettings(ctx)
+	if err != nil {
+		log.WithContext(ctx).Errorf("agent-network access-log cleanup: list accounts without settings: %v", err)
+		return
+	}
+	for _, accountID := range orphaned {
+		m.cleanupAccountAccessLogs(ctx, accountID, types.DefaultAccessLogRetentionDays)
+	}
+}
+
+func (m *managerImpl) cleanupAccountAccessLogs(ctx context.Context, accountID string, retentionDays int) {
+	if retentionDays <= 0 {
+		return // keep indefinitely
+	}
+	cutoff := time.Now().UTC().AddDate(0, 0, -retentionDays)
+	deleted, err := m.store.DeleteOldAgentNetworkAccessLogs(ctx, accountID, cutoff)
+	if err != nil {
+		log.WithContext(ctx).Warnf("agent-network access-log cleanup for account %s: %v", accountID, err)
+		return
+	}
+	if deleted > 0 {
+		log.WithContext(ctx).Infof("agent-network access-log cleanup: deleted %d rows for account %s (retention %d days)", deleted, accountID, retentionDays)
 	}
 }
 

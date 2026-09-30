@@ -1554,6 +1554,21 @@ func (mr *MockStoreMockRecorder) GetActiveProxyVersions(ctx, clusterAddr any) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetActiveProxyVersions", reflect.TypeOf((*MockStore)(nil).GetActiveProxyVersions), ctx, clusterAddr)
 }
 
+// GetAgentNetworkAccessLogAccountsWithoutSettings mocks base method.
+func (m *MockStore) GetAgentNetworkAccessLogAccountsWithoutSettings(ctx context.Context) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAgentNetworkAccessLogAccountsWithoutSettings", ctx)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAgentNetworkAccessLogAccountsWithoutSettings indicates an expected call of GetAgentNetworkAccessLogAccountsWithoutSettings.
+func (mr *MockStoreMockRecorder) GetAgentNetworkAccessLogAccountsWithoutSettings(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAgentNetworkAccessLogAccountsWithoutSettings", reflect.TypeOf((*MockStore)(nil).GetAgentNetworkAccessLogAccountsWithoutSettings), ctx)
+}
+
 // GetAgentNetworkAccessLogSessions mocks base method.
 func (m *MockStore) GetAgentNetworkAccessLogSessions(ctx context.Context, lockStrength LockingStrength, accountID string, filter types.AgentNetworkAccessLogFilter) ([]*types.AgentNetworkAccessLogSession, int64, error) {
 	m.ctrl.T.Helper()
