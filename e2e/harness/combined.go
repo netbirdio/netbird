@@ -238,6 +238,11 @@ func resolveImage(ctx context.Context, root, envKey, localTag, dockerfile string
 func buildImage(ctx context.Context, root, dockerfile, tag string) error {
 	args := []string{"buildx", "build", "-f", dockerfile, "-t", tag, "--load"}
 	if dir := os.Getenv("NB_E2E_BUILDX_CACHE"); dir != "" {
+		unlock, err := lockBuildCache(ctx, dir)
+		if err != nil {
+			return err
+		}
+		defer unlock()
 		args = append(args,
 			"--cache-from", "type=local,src="+dir,
 			"--cache-to", "type=local,dest="+dir+",mode=max",
