@@ -225,4 +225,4 @@ paths:
   /peers:
     $ref: './peer/peers.yaml'
   /peers/{peerId}:
-    $ref: 'peer/peer.yaml'
+    $ref: './peer/peer.yaml'

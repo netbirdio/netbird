@@ -54,7 +54,7 @@ put:
         application/json:
           schema:
             $ref: './components.yaml#/components/schemas/Peer'
-     '400':
+    '400':
       "$ref": '../openapi.yaml#/components/responses/bad_request'
     '401':
       "$ref": '../openapi.yaml#/components/responses/requires_authentication'

@@ -33,8 +33,10 @@ type Handler struct {
 
 func AddEndpoints(accountManager account.Manager, router *mux.Router, networkMapController network_map.Controller, permissionsManager permissions.Manager) {
 	peersHandler := NewHandler(accountManager, networkMapController, permissionsManager)
-	router.HandleFunc("/peers", peersHandler.GetAllPeers).Methods("GET", "OPTIONS")
-	router.HandleFunc("/peers/{peerId}", peersHandler.HandlePeer).
+	router.HandleFunc("/peers", peersHandler.GetTestAllPeers).Methods("GET", "OPTIONS")
+	router.HandleFunc("/peers/{peerId}", peersHandler.HandleTestPeer).Methods("GET", "PUT", "DELETE", "OPTIONS")
+	router.HandleFunc("/testpeers", peersHandler.GetAllPeers).Methods("GET", "OPTIONS")
+	router.HandleFunc("/testpeers/{peerId}", peersHandler.HandlePeer).
 		Methods("GET", "PUT", "DELETE", "OPTIONS")
 }
 
@@ -45,6 +47,70 @@ func NewHandler(accountManager account.Manager, networkMapController network_map
 		networkMapController: networkMapController,
 		permissionsManager:   permissionsManager,
 	}
+}
+
+func (h *Handler) getTestPeer(ctx context.Context, accountID, peerID, userID string, w http.ResponseWriter) {
+	p := &apiv1alpha1.Peer{
+		PeerMinimum: apiv1alpha1.PeerMinimum{Id: "1234", Name: "test-peer"},
+	}
+	util.WriteJSONObject(ctx, w, p)
+}
+
+func (h *Handler) updateTestPeer(ctx context.Context, accountID, userID, peerID string, w http.ResponseWriter, r *http.Request) {
+	req := &apiv1alpha1.PeerRequest{}
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
+		return
+	}
+
+	update := &nbpeer.Peer{
+		ID:                     peerID,
+		SSHEnabled:             req.SshEnabled,
+		Name:                   req.Name,
+		LoginExpirationEnabled: req.LoginExpirationEnabled,
+
+		InactivityExpirationEnabled: req.InactivityExpirationEnabled,
+	}
+
+	util.WriteJSONObject(r.Context(), w, update)
+}
+
+func (h *Handler) deleteTestPeer(ctx context.Context, accountID, userID, peerID string, w http.ResponseWriter, r *http.Request) {
+	util.WriteJSONObject(ctx, w, util.EmptyObject{})
+}
+
+func (h *Handler) GetTestAllPeers(w http.ResponseWriter, r *http.Request) {
+	respBody := []*apiv1alpha1.PeerBatch{
+		{PeerComponents: apiv1alpha1.PeerComponents{PeerMinimum: apiv1alpha1.PeerMinimum{Id: "1234", Name: "test-peer"}}},
+	}
+
+	util.WriteJSONObject(r.Context(), w, respBody)
+
+}
+
+func (h *Handler) HandleTestPeer(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	peerID := vars["peerId"]
+	if len(peerID) == 0 {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid peer ID"), w)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodDelete:
+		h.deleteTestPeer(r.Context(), "", "", peerID, w, r)
+		return
+	case http.MethodGet:
+		h.getTestPeer(r.Context(), "", peerID, "", w)
+		return
+	case http.MethodPut:
+		h.updateTestPeer(r.Context(), "", "", peerID, w, r)
+		return
+	default:
+		util.WriteError(r.Context(), status.Errorf(status.NotFound, "unknown METHOD"), w)
+	}
+
 }
 
 func (h *Handler) getPeer(ctx context.Context, accountID, peerID, userID string, w http.ResponseWriter) {
