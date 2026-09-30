@@ -288,7 +288,9 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 	}
 
 	needsRestoreUp := false
-	if !noUpDown {
+	if noUpDown {
+		enableSyncResponsePersistence(cmd, client)
+	} else {
 		needsRestoreUp = restartDaemon(cmd, client, stateWasDown)
 	}
 
@@ -441,6 +443,17 @@ func setSyncResponsePersistence(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// enableSyncResponsePersistence asks the daemon to keep the latest sync
+// response so the bundle carries the network map. With a running daemon only
+// syncs received after the call are kept.
+func enableSyncResponsePersistence(cmd *cobra.Command, client proto.DaemonServiceClient) {
+	if _, err := client.SetSyncResponsePersistence(cmd.Context(), &proto.SetSyncResponsePersistenceRequest{
+		Enabled: true,
+	}); err != nil {
+		cmd.PrintErrf("Failed to enable sync response persistence: %v\n", status.Convert(err).Message())
+	}
+}
+
 // restartDaemon cycles the daemon down and up with sync response persistence
 // enabled so the bundle carries the network map. It reports whether the
 // daemon was left down although it was running before, so the caller can
@@ -457,11 +470,7 @@ func restartDaemon(cmd *cobra.Command, client proto.DaemonServiceClient, stateWa
 	time.Sleep(1 * time.Second)
 
 	// Enable sync response persistence before bringing the service up
-	if _, err := client.SetSyncResponsePersistence(cmd.Context(), &proto.SetSyncResponsePersistenceRequest{
-		Enabled: true,
-	}); err != nil {
-		cmd.PrintErrf("Failed to enable sync response persistence: %v\n", status.Convert(err).Message())
-	}
+	enableSyncResponsePersistence(cmd, client)
 
 	if _, err := client.Up(cmd.Context(), &proto.UpRequest{}); err != nil {
 		cmd.PrintErrf("Failed to bring service up: %v\n", status.Convert(err).Message())

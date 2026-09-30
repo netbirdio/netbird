@@ -6,6 +6,8 @@ import (
 	"os/user"
 	"testing"
 
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -65,7 +67,18 @@ func runDebugCmd(addr string, args ...string) (string, error) {
 	err := rootCmd.Execute()
 	rootCmd.SetOut(nil)
 	rootCmd.SetErr(nil)
+	rootCmd.SetArgs(nil)
+	resetFlags(forCmd)
 	return out.String(), err
+}
+
+// resetFlags puts every flag of the shared command back to its default so a
+// value parsed in one run does not leak into the next in-process execution.
+func resetFlags(cmd *cobra.Command) {
+	cmd.Flags().VisitAll(func(f *pflag.Flag) {
+		_ = f.Value.Set(f.DefValue)
+		f.Changed = false
+	})
 }
 
 func TestDebugCPUStartStop(t *testing.T) {
