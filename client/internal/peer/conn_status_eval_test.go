@@ -123,7 +123,7 @@ func TestEvalConnStatus_FullyAvailable(t *testing.T) {
 			mutator: func(in *connStatusInputs) {
 				in.peerUsesRelay = true
 				in.relayConnected = true
-				in.iceStatusConnecting = true
+				in.iceStatusConnected = true
 			},
 			want: guard.ConnStatusConnected,
 		},
@@ -132,7 +132,7 @@ func TestEvalConnStatus_FullyAvailable(t *testing.T) {
 			mutator: func(in *connStatusInputs) {
 				in.peerUsesRelay = false
 				in.relayConnected = false
-				in.iceStatusConnecting = true
+				in.iceStatusConnected = true
 			},
 			want: guard.ConnStatusConnected,
 		},
@@ -140,7 +140,7 @@ func TestEvalConnStatus_FullyAvailable(t *testing.T) {
 			name: "ICE InProgress only, peer does NOT use relay",
 			mutator: func(in *connStatusInputs) {
 				in.peerUsesRelay = false
-				in.iceStatusConnecting = false
+				in.iceStatusConnected = false
 				in.iceInProgress = true
 			},
 			want: guard.ConnStatusConnected,
@@ -150,7 +150,7 @@ func TestEvalConnStatus_FullyAvailable(t *testing.T) {
 			mutator: func(in *connStatusInputs) {
 				in.peerUsesRelay = true
 				in.relayConnected = true
-				in.iceStatusConnecting = false
+				in.iceStatusConnected = false
 				in.iceInProgress = false
 			},
 			want: guard.ConnStatusPartiallyConnected,
@@ -160,7 +160,7 @@ func TestEvalConnStatus_FullyAvailable(t *testing.T) {
 			mutator: func(in *connStatusInputs) {
 				in.peerUsesRelay = false
 				in.relayConnected = false
-				in.iceStatusConnecting = false
+				in.iceStatusConnected = false
 				in.iceInProgress = false
 			},
 			want: guard.ConnStatusDisconnected,
@@ -171,7 +171,7 @@ func TestEvalConnStatus_FullyAvailable(t *testing.T) {
 				in.peerUsesRelay = true
 				in.relayConnected = false
 				in.relayTransportConnected = true
-				in.iceStatusConnecting = true
+				in.iceStatusConnected = true
 			},
 			// The transport is fine, so the peer itself is unreachable over relay: it may have
 			// moved to another server, and only an offer carries its new relay address.
@@ -183,7 +183,7 @@ func TestEvalConnStatus_FullyAvailable(t *testing.T) {
 				in.peerUsesRelay = true
 				in.relayConnected = false
 				in.relayTransportConnected = false
-				in.iceStatusConnecting = true
+				in.iceStatusConnected = true
 			},
 			// ICE carries the traffic and the relay transport is restored by the relay client's
 			// own guard, not by offers, so this must not trigger the aggressive retry.
@@ -195,7 +195,7 @@ func TestEvalConnStatus_FullyAvailable(t *testing.T) {
 				in.peerUsesRelay = true
 				in.relayConnected = false
 				in.relayTransportConnected = false
-				in.iceStatusConnecting = false
+				in.iceStatusConnected = false
 				in.iceInProgress = false
 			},
 			want: guard.ConnStatusDisconnected,
@@ -205,7 +205,7 @@ func TestEvalConnStatus_FullyAvailable(t *testing.T) {
 			mutator: func(in *connStatusInputs) {
 				in.peerUsesRelay = false
 				in.relayConnected = true // not actually used since peer doesn't rely on it
-				in.iceStatusConnecting = false
+				in.iceStatusConnected = false
 				in.iceInProgress = false
 			},
 			want: guard.ConnStatusDisconnected,

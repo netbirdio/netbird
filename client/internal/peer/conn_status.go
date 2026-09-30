@@ -23,7 +23,7 @@ type connStatusInputs struct {
 	relayTransportConnected bool // the relay transport shared by all peers on that server is up
 	remoteSupportsICE       bool // remote peer sent ICE credentials
 	iceWorkerCreated        bool // local WorkerICE exists (false in force-relay mode)
-	iceStatusConnecting     bool // statusICE is anything other than Disconnected
+	iceStatusConnected      bool // statusICE reports Connected
 	iceInProgress           bool // a negotiation is currently in flight
 }
 
