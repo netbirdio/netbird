@@ -44,18 +44,13 @@ const createProxyPeerTimeout = 30 * time.Second
 type backendKey string
 
 // ServiceKey uniquely identifies a service (HTTP reverse proxy or L4 service)
-// that holds a reference to an embedded NetBird client. Callers should use the
-// DomainServiceKey and L4ServiceKey constructors to avoid namespace collisions.
+// that holds a reference to an embedded NetBird client. Runtime mappings use
+// ServiceIDKey to keep their identity stable across domain and mode changes.
 type ServiceKey string
 
 // DomainServiceKey returns a ServiceKey for an HTTP domain-based service.
 func DomainServiceKey(domain string) ServiceKey {
 	return ServiceKey("domain:" + domain)
-}
-
-// L4ServiceKey returns a ServiceKey for an L4 service (TCP/UDP/TLS).
-func L4ServiceKey(id types.ServiceID) ServiceKey {
-	return ServiceKey("l4:" + id)
 }
 
 // ServiceIDKey returns a mode- and domain-independent service key. Proxy

@@ -226,16 +226,12 @@ func reverseProxyMappingKinds(db *gorm.DB) (mappedServices map[string]struct{}, 
 	for _, mapping := range mappings {
 		mappedServices[mapping.ServiceID] = struct{}{}
 		if mapping.Protocol == rpservice.ModeTLS {
-			if !hasStart || mapping.ListenPortStart == 0 {
-				continue
-			}
 			end := mapping.ListenPortEnd
 			if !hasEnd || end == 0 {
 				end = mapping.ListenPortStart
 			}
-			if end == 0 {
-				continue
-			}
+			// Unresolved listeners still own their TLS hostname. The overlap
+			// validator separately skips ranges without assigned ports.
 			tlsListeners[mapping.ServiceID] = append(tlsListeners[mapping.ServiceID], reverseProxyTLSListener{
 				ServiceID: mapping.ServiceID,
 				Start:     mapping.ListenPortStart,

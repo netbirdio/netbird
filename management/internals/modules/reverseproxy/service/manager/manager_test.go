@@ -113,10 +113,10 @@ func TestCheckDomainAvailable(t *testing.T) {
 		},
 		{
 			name:      "HTTP may share domain with L4",
-			candidate: &rpservice.Service{Domain: "shared.com", Mode: rpservice.ModeHTTP},
+			candidate: &rpservice.Service{AccountID: "account-1", Domain: "shared.com", Mode: rpservice.ModeHTTP},
 			existing: []*rpservice.Service{
-				{ID: "tcp", Domain: "shared.com", Mode: rpservice.ModeTCP},
-				{ID: "udp", Domain: "shared.com", Mode: rpservice.ModeUDP},
+				{ID: "tcp", AccountID: "account-1", Domain: "shared.com", Mode: rpservice.ModeTCP},
+				{ID: "udp", AccountID: "account-1", Domain: "shared.com", Mode: rpservice.ModeUDP},
 			},
 		},
 		{
@@ -136,22 +136,23 @@ func TestCheckDomainAvailable(t *testing.T) {
 		},
 		{
 			name:      "HTTP cannot share domain with TLS passthrough",
-			candidate: &rpservice.Service{Domain: "shared.com", Mode: rpservice.ModeHTTP},
-			existing:  []*rpservice.Service{{ID: "tls", Domain: "shared.com", Mode: rpservice.ModeTLS}},
+			candidate: &rpservice.Service{AccountID: "account-1", Domain: "shared.com", Mode: rpservice.ModeHTTP},
+			existing:  []*rpservice.Service{{ID: "tls", AccountID: "account-1", Domain: "shared.com", Mode: rpservice.ModeTLS}},
 			wantErr:   true,
 			errorType: status.AlreadyExists,
 		},
 		{
 			name: "mapped TLS cannot share domain with HTTP",
 			candidate: &rpservice.Service{
-				Domain: "shared.com",
-				Mode:   rpservice.ModeTCP,
+				AccountID: "account-1",
+				Domain:    "shared.com",
+				Mode:      rpservice.ModeTCP,
 				PortMappings: []*rpservice.PortMapping{
 					{Protocol: rpservice.ModeTCP},
 					{Protocol: rpservice.ModeTLS},
 				},
 			},
-			existing:  []*rpservice.Service{{ID: "http", Domain: "shared.com", Mode: rpservice.ModeHTTP}},
+			existing:  []*rpservice.Service{{ID: "http", AccountID: "account-1", Domain: "shared.com", Mode: rpservice.ModeHTTP}},
 			wantErr:   true,
 			errorType: status.AlreadyExists,
 		},

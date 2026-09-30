@@ -212,6 +212,10 @@ func TestSqlStore_ServiceDomainLockSerializesAbsentHostname(t *testing.T) {
 	runTestForAllEngines(t, "", func(t *testing.T, sqlStore Store) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
+		concreteStore, ok := sqlStore.(*SqlStore)
+		require.True(t, ok)
+		sqlDB, err := concreteStore.db.DB()
+		require.NoError(t, err)
 
 		firstLocked := make(chan struct{})
 		releaseFirst := make(chan struct{})
@@ -240,12 +244,32 @@ func TestSqlStore_ServiceDomainLockSerializesAbsentHostname(t *testing.T) {
 			t.Fatal("timed out acquiring first domain lock")
 		}
 
+		waitCount := sqlDB.Stats().WaitCount
+		secondStarted := make(chan struct{})
 		secondResult := make(chan error, 1)
 		go func() {
 			secondResult <- sqlStore.ExecuteInTransaction(ctx, func(tx Store) error {
+				close(secondStarted)
 				return tx.AcquireServiceDomainLock(ctx, "lock.example")
 			})
 		}()
+
+		if sqlDB.Stats().MaxOpenConnections == 1 {
+			// SQLite serializes at its single-connection pool, before the
+			// transaction callback runs. Wait until the second caller is queued.
+			require.Eventually(t, func() bool {
+				return sqlDB.Stats().WaitCount > waitCount
+			}, time.Second, time.Millisecond)
+		} else {
+			select {
+			case <-secondStarted:
+			case err := <-secondResult:
+				require.NoError(t, err)
+				t.Fatal("second transaction completed before starting the test lock attempt")
+			case <-ctx.Done():
+				t.Fatal("timed out starting second domain lock transaction")
+			}
+		}
 
 		select {
 		case err := <-secondResult:
@@ -258,8 +282,6 @@ func TestSqlStore_ServiceDomainLockSerializesAbsentHostname(t *testing.T) {
 		require.NoError(t, <-firstResult)
 		require.NoError(t, <-secondResult)
 
-		concreteStore, ok := sqlStore.(*SqlStore)
-		require.True(t, ok)
 		var count int64
 		require.NoError(t, concreteStore.db.Model(&rpservice.DomainLock{}).
 			Where("domain = ?", "lock.example").Count(&count).Error)

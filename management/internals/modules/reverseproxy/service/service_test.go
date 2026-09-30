@@ -1431,9 +1431,23 @@ func TestCanonicalizeDomainRefreshesHTTPOwnership(t *testing.T) {
 			wantDomain: "game.example",
 		},
 		{
+			name:       "TCP clears stale HTTP ownership",
+			service:    Service{Domain: "Game.Example.", Mode: ModeTCP, HTTPDomain: new("game.example")},
+			wantDomain: "game.example",
+		},
+		{
 			name: "mapping collection is L4 even with an empty mode",
 			service: Service{
 				Domain:       "Game.Example.",
+				PortMappings: []*PortMapping{{Protocol: ModeUDP}},
+			},
+			wantDomain: "game.example",
+		},
+		{
+			name: "mapping collection clears stale HTTP ownership",
+			service: Service{
+				Domain:       "Game.Example.",
+				HTTPDomain:   new("game.example"),
 				PortMappings: []*PortMapping{{Protocol: ModeUDP}},
 			},
 			wantDomain: "game.example",

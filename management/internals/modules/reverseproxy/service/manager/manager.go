@@ -399,7 +399,7 @@ func (m *Manager) ensureL4Port(ctx context.Context, tx store.Store, svc *service
 		svc.ListenPort = 0
 	}
 	if svc.ListenPort == 0 {
-		port, err := m.assignPort(ctx, tx, svc.ProxyCluster)
+		port, err := m.assignPort(ctx, tx, svc)
 		if err != nil {
 			return err
 		}
@@ -510,29 +510,13 @@ func portRangesOverlap(startA, endA, startB, endB uint16) bool {
 }
 
 // assignPort picks a random available port on the cluster within the auto-assign range.
-func (m *Manager) assignPort(ctx context.Context, tx store.Store, cluster string) (uint16, error) {
-	services, err := tx.GetServicesByCluster(ctx, store.LockingStrengthUpdate, cluster)
+func (m *Manager) assignPort(ctx context.Context, tx store.Store, svc *service.Service) (uint16, error) {
+	services, err := tx.GetServicesByCluster(ctx, store.LockingStrengthUpdate, svc.ProxyCluster)
 	if err != nil {
 		return 0, fmt.Errorf("query cluster ports: %w", err)
 	}
 
-	occupied := make(map[uint16]struct{}, len(services))
-	for _, s := range services {
-		s.PopulatePortMappingsFromLegacy()
-		if len(s.PortMappings) == 0 && s.ListenPort > 0 {
-			occupied[s.ListenPort] = struct{}{}
-			continue
-		}
-		for _, mapping := range s.PortMappings {
-			if mapping == nil {
-				continue
-			}
-			for port := uint32(mapping.ListenPortStart); port <= uint32(mapping.ListenPortEnd); port++ {
-				occupied[uint16(port)] = struct{}{} //nolint:gosec // mapping ports are uint16
-			}
-		}
-	}
-
+	occupied := occupiedListenerPorts(svc, services)
 	portRange := int(autoAssignPortMax-autoAssignPortMin) + 1
 	for range 100 {
 		port := autoAssignPortMin + uint16(rand.IntN(portRange))
@@ -548,7 +532,28 @@ func (m *Manager) assignPort(ctx context.Context, tx store.Store, cluster string
 		}
 	}
 
-	return 0, status.Errorf(status.PreconditionFailed, "no available ports on cluster %s", cluster)
+	return 0, status.Errorf(status.PreconditionFailed, "no available ports on cluster %s", svc.ProxyCluster)
+}
+
+func occupiedListenerPorts(svc *service.Service, services []*service.Service) map[uint16]struct{} {
+	occupied := make(map[uint16]struct{}, len(services))
+	candidate := &service.PortMapping{Protocol: svc.Mode}
+	for _, s := range services {
+		s.PopulatePortMappingsFromLegacy()
+		mappings := s.PortMappings
+		if len(mappings) == 0 && s.ListenPort > 0 {
+			mappings = []*service.PortMapping{{Protocol: s.Mode, ListenPortStart: s.ListenPort, ListenPortEnd: s.ListenPort}}
+		}
+		for _, mapping := range mappings {
+			if !listenerOwnershipConflicts(svc.Domain, candidate, s.Domain, mapping) {
+				continue
+			}
+			for port := uint32(mapping.ListenPortStart); port <= uint32(mapping.ListenPortEnd); port++ {
+				occupied[uint16(port)] = struct{}{} //nolint:gosec // mapping ports are uint16
+			}
+		}
+	}
+	return occupied
 }
 
 // persistNewEphemeralService creates an ephemeral service inside a single transaction

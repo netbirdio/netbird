@@ -119,6 +119,9 @@ type Server struct {
 	lastMappings       map[types.ServiceID]*proto.ProxyMapping
 	portRouterWg       sync.WaitGroup
 
+	// httpMappingMu serializes ownership checks with HTTP setup and cleanup.
+	httpMappingMu sync.Mutex
+
 	// hijackTracker tracks hijacked connections (e.g. WebSocket upgrades)
 	// so they can be closed during graceful shutdown, since http.Server.Shutdown
 	// does not handle them.
@@ -1695,6 +1698,7 @@ func (s *Server) addMapping(ctx context.Context, mapping *proto.ProxyMapping) er
 		restoreErrors := []error{err}
 		for _, old := range conflicts {
 			if restoreErr := s.setupMappingRoutes(ctx, old); restoreErr != nil {
+				s.cleanupMappingRoutes(old)
 				restoreErrors = append(restoreErrors, fmt.Errorf("restore superseded service %s: %w", old.GetId(), restoreErr))
 				continue
 			}
@@ -2037,6 +2041,9 @@ func singlePortMapping(parent *proto.ProxyMapping, protocol, targetHost string, 
 
 // setupHTTPMapping configures HTTP reverse proxy, auth, and ACME routes.
 func (s *Server) setupHTTPMapping(ctx context.Context, mapping *proto.ProxyMapping) error {
+	s.httpMappingMu.Lock()
+	defer s.httpMappingMu.Unlock()
+
 	host := netutil.NormalizeHost(mapping.GetDomain())
 	d := domain.Domain(host)
 	accountID := types.AccountID(mapping.GetAccountId())
@@ -2044,6 +2051,10 @@ func (s *Server) setupHTTPMapping(ctx context.Context, mapping *proto.ProxyMappi
 
 	if len(mapping.GetPath()) == 0 {
 		return nil
+	}
+	// Check before publishing certificate, SNI, auth, or middleware state.
+	if owner, exists := s.proxy.MappingOwner(host); exists && owner != svcID {
+		return fmt.Errorf("HTTP route for domain %s is owned by service %s", host, owner)
 	}
 
 	var wildcardHit bool
@@ -2648,6 +2659,10 @@ func (s *Server) cleanupMappingRoutes(mapping *proto.ProxyMapping) {
 	svcID := types.ServiceID(mapping.GetId())
 	host := netutil.NormalizeHost(mapping.GetDomain())
 	l4 := isL4Mapping(mapping)
+	if !l4 {
+		s.httpMappingMu.Lock()
+		defer s.httpMappingMu.Unlock()
+	}
 
 	s.invalidateMiddlewareChains(svcID)
 
@@ -2813,7 +2828,7 @@ func (s *Server) protoToMapping(ctx context.Context, mapping *proto.ProxyMapping
 	m := proxy.Mapping{
 		ID:               types.ServiceID(mapping.GetId()),
 		AccountID:        types.AccountID(mapping.GetAccountId()),
-		Host:             mapping.GetDomain(),
+		Host:             netutil.NormalizeHost(mapping.GetDomain()),
 		Paths:            paths,
 		PassHostHeader:   mapping.GetPassHostHeader(),
 		RewriteRedirects: mapping.GetRewriteRedirects(),

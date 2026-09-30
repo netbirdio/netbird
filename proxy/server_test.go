@@ -18,6 +18,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 
@@ -641,8 +642,7 @@ func TestSnapshotCreateWithUnchangedL4RuntimePreservesListenersAndConnection(t *
 		_, _ = io.Copy(conn, conn)
 	}()
 
-	tcpPort := reserveTCPPort(t)
-	udpPort := reserveUDPPort(t)
+	var tcpPort, udpPort uint16
 	logger := quietLifecycleLogger()
 	meter, err := proxymetrics.New(t.Context(), noop.Meter{})
 	require.NoError(t, err)
@@ -670,7 +670,16 @@ func TestSnapshotCreateWithUnchangedL4RuntimePreservesListenersAndConnection(t *
 			{Protocol: "udp", ListenPortStart: uint32(udpPort), ListenPortEnd: uint32(udpPort), TargetPortStart: 9, TargetPortEnd: 9},
 		},
 	}
-	require.NoError(t, srv.setupMappingRoutes(t.Context(), mapping))
+	retryListenerSetup(t, func() error {
+		tcpPort, udpPort = reserveTCPPort(t), reserveUDPPort(t)
+		mapping.PortMappings[0].ListenPortStart, mapping.PortMappings[0].ListenPortEnd = uint32(tcpPort), uint32(tcpPort)
+		mapping.PortMappings[1].ListenPortStart, mapping.PortMappings[1].ListenPortEnd = uint32(udpPort), uint32(udpPort)
+		return srv.setupMappingRoutes(t.Context(), mapping)
+	}, func() {
+		srv.cleanupMappingRoutes(mapping)
+		srv.portRouterWg.Wait()
+		srv.udpRelayWg.Wait()
+	})
 	srv.storeMapping(mapping)
 	t.Cleanup(func() {
 		srv.cleanupMappingRoutes(mapping)
@@ -921,7 +930,7 @@ func protectedDomainStatus(middleware *auth.Middleware, host string) int {
 }
 
 func TestHTTPRemovalPreservesSharedDomainL4Listener(t *testing.T) {
-	port := reserveTCPPort(t)
+	var port uint16
 	logger := quietLifecycleLogger()
 	meter, err := proxymetrics.New(t.Context(), noop.Meter{})
 	require.NoError(t, err)
@@ -956,7 +965,14 @@ func TestHTTPRemovalPreservesSharedDomainL4Listener(t *testing.T) {
 		ListenPort: int32(port),
 		Path:       []*proto.PathMapping{{Target: "127.0.0.1:22"}},
 	}
-	require.NoError(t, srv.setupTCPMapping(t.Context(), l4Mapping))
+	retryListenerSetup(t, func() error {
+		port = reserveTCPPort(t)
+		l4Mapping.ListenPort = int32(port)
+		return srv.setupTCPMapping(t.Context(), l4Mapping)
+	}, func() {
+		srv.cleanupMappingRoutes(l4Mapping)
+		srv.portRouterWg.Wait()
+	})
 	t.Cleanup(func() {
 		srv.cleanupMappingRoutes(l4Mapping)
 		srv.portRouterWg.Wait()
@@ -991,7 +1007,7 @@ func TestHTTPRemovalPreservesSharedDomainL4Listener(t *testing.T) {
 }
 
 func TestSnapshotReplacementPreservesSharedHTTPAndRebindsTCPRangeAndUDP(t *testing.T) {
-	start := reserveTCPPortRange(t, 2)
+	var start uint16
 	logger := quietLifecycleLogger()
 	meter, err := proxymetrics.New(t.Context(), noop.Meter{})
 	require.NoError(t, err)
@@ -1028,12 +1044,23 @@ func TestSnapshotReplacementPreservesSharedHTTPAndRebindsTCPRangeAndUDP(t *testi
 			},
 		}
 	}
-	old := makeL4("svc-old")
-	require.NoError(t, srv.setupMappingRoutes(t.Context(), old))
-	srv.storeMapping(old)
-
-	replacement := makeL4("svc-new")
-	require.NoError(t, srv.addMapping(t.Context(), replacement))
+	var old, replacement *proto.ProxyMapping
+	retryListenerSetup(t, func() error {
+		start = reserveTCPPortRange(t, 2)
+		old, replacement = makeL4("svc-old"), makeL4("svc-new")
+		if err := srv.setupMappingRoutes(t.Context(), old); err != nil {
+			return err
+		}
+		srv.storeMapping(old)
+		return srv.addMapping(t.Context(), replacement)
+	}, func() {
+		for _, mapping := range []*proto.ProxyMapping{old, replacement} {
+			srv.cleanupMappingRoutes(mapping)
+			srv.deleteMapping(types.ServiceID(mapping.Id))
+		}
+		srv.portRouterWg.Wait()
+		srv.udpRelayWg.Wait()
+	})
 	assert.Nil(t, srv.loadMapping("svc-old"))
 	assert.NotNil(t, srv.loadMapping("svc-new"))
 	owner, ok := srv.proxy.MappingOwner("SHARED.EXAMPLE.TEST.")
@@ -1079,11 +1106,7 @@ func TestSnapshotReplacementPreservesSharedHTTPAndRebindsTCPRangeAndUDP(t *testi
 }
 
 func TestSetupPortMappingsCreatesEveryTCPListener(t *testing.T) {
-	first := reserveTCPPort(t)
-	second := reserveTCPPort(t)
-	for second == first {
-		second = reserveTCPPort(t)
-	}
+	var first, second uint16
 
 	meter, err := proxymetrics.New(context.Background(), noop.Meter{})
 	require.NoError(t, err)
@@ -1117,7 +1140,19 @@ func TestSetupPortMappingsCreatesEveryTCPListener(t *testing.T) {
 			{Protocol: "tcp", ListenPortStart: uint32(second), ListenPortEnd: uint32(second), TargetPortStart: 19000, TargetPortEnd: 19000},
 		},
 	}
-	require.NoError(t, srv.setupPortMappings(context.Background(), mapping))
+	retryListenerSetup(t, func() error {
+		first, second = reserveTCPPort(t), reserveTCPPort(t)
+		for second == first {
+			second = reserveTCPPort(t)
+		}
+		mapping.ListenPort = int32(first)
+		mapping.PortMappings[0].ListenPortStart, mapping.PortMappings[0].ListenPortEnd = uint32(first), uint32(first)
+		mapping.PortMappings[1].ListenPortStart, mapping.PortMappings[1].ListenPortEnd = uint32(second), uint32(second)
+		return srv.setupPortMappings(t.Context(), mapping)
+	}, func() {
+		srv.cleanupMappingRoutes(mapping)
+		srv.portRouterWg.Wait()
+	})
 
 	srv.portMu.RLock()
 	tracked := append([]uint16(nil), srv.svcPorts[types.ServiceID(mapping.Id)]...)
@@ -1142,11 +1177,7 @@ func TestSetupPortMappingsRejectsExcessExpandedListeners(t *testing.T) {
 }
 
 func TestSetupPortMappingsAllowsEqualTCPUDPPortAndMultipleUDPRelays(t *testing.T) {
-	sharedPort := reserveTCPPort(t)
-	secondUDPPort := reserveUDPPort(t)
-	for secondUDPPort == sharedPort {
-		secondUDPPort = reserveUDPPort(t)
-	}
+	var sharedPort, secondUDPPort uint16
 
 	meter, err := proxymetrics.New(context.Background(), noop.Meter{})
 	require.NoError(t, err)
@@ -1191,7 +1222,22 @@ func TestSetupPortMappingsAllowsEqualTCPUDPPortAndMultipleUDPRelays(t *testing.T
 			{Protocol: "udp", ListenPortStart: uint32(secondUDPPort), ListenPortEnd: uint32(secondUDPPort), TargetPortStart: 9002, TargetPortEnd: 9002},
 		},
 	}
-	require.NoError(t, srv.setupPortMappings(context.Background(), mapping))
+	retryListenerSetup(t, func() error {
+		sharedPort, secondUDPPort = reserveTCPPort(t), reserveUDPPort(t)
+		for secondUDPPort == sharedPort {
+			secondUDPPort = reserveUDPPort(t)
+		}
+		mapping.ListenPort = int32(sharedPort)
+		for _, pm := range mapping.PortMappings[:3] {
+			pm.ListenPortStart, pm.ListenPortEnd = uint32(sharedPort), uint32(sharedPort)
+		}
+		mapping.PortMappings[3].ListenPortStart, mapping.PortMappings[3].ListenPortEnd = uint32(secondUDPPort), uint32(secondUDPPort)
+		return srv.setupPortMappings(t.Context(), mapping)
+	}, func() {
+		srv.cleanupMappingRoutes(mapping)
+		srv.portRouterWg.Wait()
+		srv.udpRelayWg.Wait()
+	})
 
 	srv.portMu.RLock()
 	_, tcpExists := srv.portRouters[sharedPort]
@@ -1206,7 +1252,7 @@ func TestSetupPortMappingsAllowsEqualTCPUDPPortAndMultipleUDPRelays(t *testing.T
 }
 
 func TestModifyPortMappingsKeepsEmbeddedPeerState(t *testing.T) {
-	port := reserveTCPPort(t)
+	var port uint16
 	meter, err := proxymetrics.New(context.Background(), noop.Meter{})
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1242,7 +1288,6 @@ func TestModifyPortMappingsKeepsEmbeddedPeerState(t *testing.T) {
 		Id: "svc-update", AccountId: "account-1", Mode: "tcp",
 		ListenPort: int32(port), Path: []*proto.PathMapping{{Target: "127.0.0.1:8080"}},
 	}
-	srv.storeMapping(old)
 	updated := goproto.Clone(old).(*proto.ProxyMapping)
 	updated.Type = proto.ProxyMappingUpdateType_UPDATE_TYPE_MODIFIED
 	updated.PortMappings = []*proto.ServicePortMapping{
@@ -1250,13 +1295,23 @@ func TestModifyPortMappingsKeepsEmbeddedPeerState(t *testing.T) {
 	}
 
 	require.Zero(t, srv.netbird.ClientCount())
-	require.NoError(t, srv.modifyMapping(context.Background(), updated))
+	retryListenerSetup(t, func() error {
+		port = reserveTCPPort(t)
+		old.ListenPort, updated.ListenPort = int32(port), int32(port)
+		updated.PortMappings[0].ListenPortStart, updated.PortMappings[0].ListenPortEnd = uint32(port), uint32(port)
+		srv.storeMapping(old)
+		return srv.modifyMapping(t.Context(), updated)
+	}, func() {
+		srv.cleanupMappingRoutes(updated)
+		srv.deleteMapping(types.ServiceID(updated.Id))
+		srv.portRouterWg.Wait()
+	})
 	assert.Zero(t, srv.netbird.ClientCount(), "route modification must not create or replace an embedded peer")
 	assert.Same(t, updated, srv.loadMapping("svc-update"))
 }
 
 func TestFailedModifyRestoresPreviousRuntimeAndCache(t *testing.T) {
-	port := reserveTCPPort(t)
+	var port uint16
 	meter, err := proxymetrics.New(t.Context(), noop.Meter{})
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(t.Context())
@@ -1272,7 +1327,14 @@ func TestFailedModifyRestoresPreviousRuntimeAndCache(t *testing.T) {
 		Id: "svc-rollback", AccountId: "acct", Domain: "shared.example.test", Mode: "tcp", ListenPort: int32(port),
 		Path: []*proto.PathMapping{{Target: "127.0.0.1:1773"}},
 	}
-	require.NoError(t, srv.setupMappingRoutes(t.Context(), old))
+	retryListenerSetup(t, func() error {
+		port = reserveTCPPort(t)
+		old.ListenPort = int32(port)
+		return srv.setupMappingRoutes(t.Context(), old)
+	}, func() {
+		srv.cleanupMappingRoutes(old)
+		srv.portRouterWg.Wait()
+	})
 	srv.storeMapping(old)
 	t.Cleanup(func() {
 		if current := srv.loadMapping("svc-rollback"); current != nil {
@@ -1293,7 +1355,7 @@ func TestFailedModifyRestoresPreviousRuntimeAndCache(t *testing.T) {
 }
 
 func TestFailedSnapshotReplacementRestoresPreviousOwner(t *testing.T) {
-	port := reserveTCPPort(t)
+	var port uint16
 	logger := quietLifecycleLogger()
 	meter, err := proxymetrics.New(t.Context(), noop.Meter{})
 	require.NoError(t, err)
@@ -1322,7 +1384,14 @@ func TestFailedSnapshotReplacementRestoresPreviousOwner(t *testing.T) {
 		Id: "svc-old", AccountId: "acct", Domain: "shared.example.test", Mode: "tcp", ListenPort: int32(port),
 		Path: []*proto.PathMapping{{Target: "127.0.0.1:1773"}},
 	}
-	require.NoError(t, srv.setupMappingRoutes(t.Context(), old))
+	retryListenerSetup(t, func() error {
+		port = reserveTCPPort(t)
+		old.ListenPort = int32(port)
+		return srv.setupMappingRoutes(t.Context(), old)
+	}, func() {
+		srv.cleanupMappingRoutes(old)
+		srv.portRouterWg.Wait()
+	})
 	srv.storeMapping(old)
 	t.Cleanup(func() {
 		if current := srv.loadMapping("svc-old"); current != nil {
@@ -1344,6 +1413,45 @@ func TestFailedSnapshotReplacementRestoresPreviousOwner(t *testing.T) {
 	assert.Equal(t, types.ServiceID("svc-old"), owner)
 }
 
+// retryListenerSetup rebuilds test listeners if another process acquired a
+// released reservation. Every failed attempt is cleaned up before retrying.
+func retryListenerSetup(t *testing.T, setup func() error, cleanup func()) {
+	t.Helper()
+	var err error
+	for range 10 {
+		err = setup()
+		if err == nil {
+			return
+		}
+		cleanup()
+		if !errors.Is(err, syscall.EADDRINUSE) {
+			break
+		}
+	}
+	require.NoError(t, err, "listener setup failed")
+}
+
+func TestRetryListenerSetupRecoversAfterBindCollision(t *testing.T) {
+	blocker, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = blocker.Close() })
+	var listener net.Listener
+	attempts, cleanups := 0, 0
+	retryListenerSetup(t, func() error {
+		attempts++
+		address := blocker.Addr().String()
+		if attempts > 1 {
+			address = "127.0.0.1:0"
+		}
+		var listenErr error
+		listener, listenErr = net.Listen("tcp", address)
+		return listenErr
+	}, func() { cleanups++ })
+	t.Cleanup(func() { _ = listener.Close() })
+	assert.Equal(t, 2, attempts)
+	assert.Equal(t, 1, cleanups)
+}
+
 func reserveTCPPort(t *testing.T) uint16 {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -1361,11 +1469,11 @@ func reserveTCPPortRange(t *testing.T, count uint16) uint16 {
 			continue
 		}
 		listeners := make([]net.Listener, 0, count)
-		available := true
+		var bindErr error
 		for offset := uint16(0); offset < count; offset++ {
 			listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", start+offset))
 			if err != nil {
-				available = false
+				bindErr = err
 				break
 			}
 			listeners = append(listeners, listener)
@@ -1373,9 +1481,10 @@ func reserveTCPPortRange(t *testing.T, count uint16) uint16 {
 		for _, listener := range listeners {
 			require.NoError(t, listener.Close())
 		}
-		if available {
+		if bindErr == nil {
 			return start
 		}
+		require.ErrorIs(t, bindErr, syscall.EADDRINUSE)
 	}
 	t.Fatal("failed to reserve a contiguous TCP port range")
 	return 0
@@ -1391,11 +1500,7 @@ func reserveUDPPort(t *testing.T) uint16 {
 }
 
 func TestCustomTCPPortRouterOutlivesMappingBatchContext(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	port := uint16(ln.Addr().(*net.TCPAddr).Port) //nolint:gosec // test port allocated by the OS
-	require.NoError(t, ln.Close())
-
+	var port uint16
 	meter, err := proxymetrics.New(context.Background(), noop.Meter{})
 	require.NoError(t, err)
 
@@ -1424,8 +1529,14 @@ func TestCustomTCPPortRouterOutlivesMappingBatchContext(t *testing.T) {
 	})
 
 	batchCtx, cancelBatch := context.WithCancel(context.Background())
-	_, err = srv.getOrCreatePortRouter(batchCtx, port)
-	require.NoError(t, err)
+	retryListenerSetup(t, func() error {
+		port = reserveTCPPort(t)
+		_, err := srv.getOrCreatePortRouter(batchCtx, port)
+		return err
+	}, func() {
+		srv.cleanupPortIfEmpty(port)
+		srv.portRouterWg.Wait()
+	})
 
 	cancelBatch()
 

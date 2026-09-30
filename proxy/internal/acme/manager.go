@@ -302,8 +302,10 @@ func (mgr *Manager) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate
 // When AddDomain returns true the caller is responsible for sending any
 // certificate-ready notifications after the surrounding operation (e.g.
 // mapping update) has committed successfully.
+// This legacy API replaces existing ownership; use AddDomainForService when
+// registration must reject a different owner.
 func (mgr *Manager) AddDomain(d domain.Domain, accountID types.AccountID, serviceID types.ServiceID) (wildcardHit bool) {
-	wildcardHit, _ = mgr.AddDomainForService(d, accountID, serviceID)
+	wildcardHit, _ = mgr.addDomain(d, accountID, serviceID, false)
 	return wildcardHit
 }
 
@@ -311,10 +313,14 @@ func (mgr *Manager) AddDomain(d domain.Domain, accountID types.AccountID, servic
 // serviceID. The ownership check prevents a stale or conflicting mapping from
 // replacing another HTTP service's certificate lifecycle state.
 func (mgr *Manager) AddDomainForService(d domain.Domain, accountID types.AccountID, serviceID types.ServiceID) (wildcardHit bool, ok bool) {
+	return mgr.addDomain(d, accountID, serviceID, true)
+}
+
+func (mgr *Manager) addDomain(d domain.Domain, accountID types.AccountID, serviceID types.ServiceID, enforceOwner bool) (wildcardHit bool, ok bool) {
 	name := d.PunycodeString()
 	if e := mgr.findWildcardEntry(name); e != nil {
 		mgr.mu.Lock()
-		if existing, exists := mgr.domains[d]; exists && existing.serviceID != serviceID {
+		if existing, exists := mgr.domains[d]; exists && enforceOwner && existing.serviceID != serviceID {
 			mgr.mu.Unlock()
 			return false, false
 		}
@@ -329,7 +335,7 @@ func (mgr *Manager) AddDomainForService(d domain.Domain, accountID types.Account
 	}
 
 	mgr.mu.Lock()
-	if existing, exists := mgr.domains[d]; exists && existing.serviceID != serviceID {
+	if existing, exists := mgr.domains[d]; exists && enforceOwner && existing.serviceID != serviceID {
 		mgr.mu.Unlock()
 		return false, false
 	}

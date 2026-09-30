@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"go.uber.org/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
@@ -461,6 +461,72 @@ func TestAutoAssign_TCPNoListenPort(t *testing.T) {
 	assert.True(t, svc.PortAutoAssigned, "PortAutoAssigned should be set")
 }
 
+func TestAutoAssign_RespectsListenerOwnership(t *testing.T) {
+	// Use a small configured range so one valid service can exhaust it.
+	previousMin, previousMax := autoAssignPortMin, autoAssignPortMax
+	autoAssignPortMin, autoAssignPortMax = 12000, 12010
+	t.Cleanup(func() {
+		autoAssignPortMin, autoAssignPortMax = previousMin, previousMax
+	})
+
+	tests := []struct {
+		name             string
+		protocol         string
+		occupiedProtocol string
+		sameDomain       bool
+		wantExhausted    bool
+	}{
+		{name: "TCP can share UDP ports", protocol: rpservice.ModeTCP, occupiedProtocol: rpservice.ModeUDP},
+		{name: "UDP can share TCP ports", protocol: rpservice.ModeUDP, occupiedProtocol: rpservice.ModeTCP},
+		{name: "TCP fallback can share TLS ports", protocol: rpservice.ModeTCP, occupiedProtocol: rpservice.ModeTLS},
+		{name: "TLS can share TCP fallback ports", protocol: rpservice.ModeTLS, occupiedProtocol: rpservice.ModeTCP},
+		{name: "TLS can share ports with another SNI", protocol: rpservice.ModeTLS, occupiedProtocol: rpservice.ModeTLS},
+		{name: "TCP reserves its range", protocol: rpservice.ModeTCP, occupiedProtocol: rpservice.ModeTCP, wantExhausted: true},
+		{name: "UDP reserves its range", protocol: rpservice.ModeUDP, occupiedProtocol: rpservice.ModeUDP, wantExhausted: true},
+		{name: "TLS reserves ports for the same SNI", protocol: rpservice.ModeTLS, occupiedProtocol: rpservice.ModeTLS, sameDomain: true, wantExhausted: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mgr, testStore, _ := setupL4Test(t, boolPtr(false))
+			ctx := context.Background()
+			occupied := multiPortService("occupied", "occupied."+testCluster, testCluster, &rpservice.PortMapping{
+				Protocol: tt.occupiedProtocol, ListenPortStart: autoAssignPortMin, ListenPortEnd: autoAssignPortMax,
+				TargetPortStart: autoAssignPortMin, TargetPortEnd: autoAssignPortMax,
+			})
+			require.NoError(t, occupied.Validate())
+			require.NoError(t, testStore.CreateService(ctx, occupied))
+
+			candidate := &rpservice.Service{
+				AccountID: testAccountID, Name: "candidate", Domain: "candidate." + testCluster,
+				ProxyCluster: testCluster, Mode: tt.protocol, Enabled: true,
+				Targets: []*rpservice.Target{{
+					AccountID: testAccountID, TargetId: testPeerID, TargetType: rpservice.TargetTypePeer,
+					Protocol: rpservice.TargetProtoTCP, Port: 8080, Enabled: true,
+				}},
+			}
+			if tt.sameDomain {
+				candidate.Domain = occupied.Domain
+			}
+			candidate.InitNewRecord()
+
+			err := mgr.persistNewService(ctx, testAccountID, candidate)
+			if tt.wantExhausted {
+				require.ErrorContains(t, err, "no available ports on cluster")
+				return
+			}
+			require.NoError(t, err)
+			persisted, err := testStore.GetServiceByID(ctx, store.LockingStrengthNone, testAccountID, candidate.ID)
+			require.NoError(t, err)
+			assert.GreaterOrEqual(t, persisted.ListenPort, autoAssignPortMin)
+			assert.LessOrEqual(t, persisted.ListenPort, autoAssignPortMax)
+			require.Len(t, persisted.PortMappings, 1)
+			assert.Equal(t, tt.protocol, persisted.PortMappings[0].Protocol)
+			assert.Equal(t, persisted.ListenPort, persisted.PortMappings[0].ListenPortStart)
+		})
+	}
+}
+
 func TestAutoAssign_TCPCustomPortRejectedWhenNotSupported(t *testing.T) {
 	mgr, _, _ := setupL4Test(t, boolPtr(false))
 	ctx := context.Background()
@@ -640,6 +706,35 @@ func TestUpdate_PreservesExistingListenPort(t *testing.T) {
 	_, err := mgr.persistServiceUpdate(ctx, testAccountID, updated)
 	require.NoError(t, err)
 	assert.Equal(t, uint16(12345), updated.ListenPort, "existing listen port should be preserved when update sends 0")
+}
+
+func TestUpdate_OmittedModeDoesNotChangeL4Service(t *testing.T) {
+	for _, mode := range []string{rpservice.ModeTCP, rpservice.ModeUDP, rpservice.ModeTLS} {
+		t.Run(mode, func(t *testing.T) {
+			mgr, testStore, _ := setupL4Test(t, boolPtr(true))
+			ctx := context.Background()
+			existing := seedService(t, testStore, "existing", mode, "app."+testCluster, testCluster, 12345)
+			updated := existing.Copy()
+			updated.Mode = ""
+			updated.ListenPort = 0
+			updated.PortMappings = nil
+			updated.PortMappingsSet = false
+
+			// The HTTP handler validates the request before calling the manager;
+			// omitted mode has always defaulted to HTTP at this boundary.
+			require.NoError(t, updated.Validate())
+			require.Equal(t, rpservice.ModeHTTP, updated.Mode)
+			_, err := mgr.persistServiceUpdate(ctx, testAccountID, updated)
+			require.ErrorContains(t, err, "changing between HTTP and L4 service modes")
+
+			persisted, err := testStore.GetServiceByID(ctx, store.LockingStrengthNone, testAccountID, existing.ID)
+			require.NoError(t, err)
+			assert.Equal(t, mode, persisted.Mode)
+			assert.Equal(t, uint16(12345), persisted.ListenPort)
+			assert.Nil(t, persisted.HTTPDomain)
+			assert.Empty(t, persisted.PortMappings, "a rejected request must preserve the legacy scalar representation")
+		})
+	}
 }
 
 func TestUpdate_AllowsPortChange(t *testing.T) {

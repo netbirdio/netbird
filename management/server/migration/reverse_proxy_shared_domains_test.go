@@ -224,7 +224,7 @@ func TestPrepareReverseProxySharedDomainsRejectsCanonicalMappedTLSRangeCollision
 	assert.True(t, db.Migrator().HasIndex(&legacyTLSSharedDomainService{}, "idx_services_domain"))
 }
 
-func TestPrepareReverseProxySharedDomainsSkipsTLSMappingsWithoutPorts(t *testing.T) {
+func TestPrepareReverseProxySharedDomainsCanonicalizesTLSMappingsWithoutPorts(t *testing.T) {
 	t.Setenv("NETBIRD_STORE_ENGINE", "sqlite")
 	db := setupDatabase(t)
 	require.NoError(t, db.Migrator().DropTable(&rpservice.PortMapping{}, &rpservice.Service{}))
@@ -244,6 +244,46 @@ func TestPrepareReverseProxySharedDomainsSkipsTLSMappingsWithoutPorts(t *testing
 	}
 
 	require.NoError(t, migration.PrepareReverseProxySharedDomains(context.Background(), db))
+	assert.False(t, db.Migrator().HasIndex(&legacyTLSSharedDomainService{}, "idx_services_domain"))
+	var domains []string
+	require.NoError(t, db.Model(&legacyTLSSharedDomainService{}).Order("id ASC").Pluck("domain", &domains).Error)
+	assert.Equal(t, []string{"tls.example", "tls.example"}, domains)
+}
+
+func TestPrepareReverseProxySharedDomainsRejectsHTTPAndUnresolvedMappedTLS(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		missingPorts bool
+	}{
+		{name: "missing port columns", missingPorts: true},
+		{name: "zero listener port"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("NETBIRD_STORE_ENGINE", "sqlite")
+			db := setupDatabase(t)
+			require.NoError(t, db.Migrator().DropTable(&rpservice.PortMapping{}, &rpservice.Service{}))
+			if tc.missingPorts {
+				require.NoError(t, db.AutoMigrate(&legacyTLSSharedDomainService{}, &legacyTLSMappingWithoutPort{}))
+				require.NoError(t, db.Create(&legacyTLSMappingWithoutPort{ServiceID: "tls", Protocol: rpservice.ModeTLS}).Error)
+			} else {
+				require.NoError(t, db.AutoMigrate(&legacyTLSSharedDomainService{}, &rpservice.PortMapping{}))
+				require.NoError(t, db.Create(&rpservice.PortMapping{AccountID: "account-1", ServiceID: "tls", Protocol: rpservice.ModeTLS}).Error)
+			}
+			for _, service := range []*legacyTLSSharedDomainService{
+				{ID: "http", AccountID: "account-1", Domain: "Shared.Example", Mode: rpservice.ModeHTTP},
+				{ID: "tls", AccountID: "account-1", Domain: "shared.example.", Mode: rpservice.ModeTCP},
+			} {
+				require.NoError(t, db.Create(service).Error)
+			}
+
+			err := migration.PrepareReverseProxySharedDomains(context.Background(), db)
+			require.ErrorContains(t, err, "HTTP service http and TLS passthrough service tls")
+			assert.True(t, db.Migrator().HasIndex(&legacyTLSSharedDomainService{}, "idx_services_domain"))
+			var domains []string
+			require.NoError(t, db.Model(&legacyTLSSharedDomainService{}).Order("id ASC").Pluck("domain", &domains).Error)
+			assert.Equal(t, []string{"Shared.Example", "shared.example."}, domains, "ownership validation must precede mutation")
+		})
+	}
 }
 
 func TestPrepareReverseProxySharedDomainsRejectsCrossAccountCanonicalAlias(t *testing.T) {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"reflect"
 	"slices"
 	"sync"
 	"time"
@@ -245,11 +246,36 @@ func (r *Router) SetFallback(route Route) bool {
 	if r.fallback != nil && r.fallback.ServiceID != route.ServiceID {
 		return false
 	}
-	if r.fallback != nil {
+	if r.fallback != nil && !sameRoute(*r.fallback, route) {
 		r.cancelServiceLocked(route.ServiceID)
 	}
 	r.fallback = &route
 	return true
+}
+
+func sameRoute(a, b Route) bool {
+	left, right := a.Filter, b.Filter
+	a.Filter, b.Filter = nil, nil
+	return a == b && sameFilter(left, right)
+}
+
+func sameFilter(a, b *restrict.Filter) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	// Compare the checker itself, without inspecting its mutable internal state.
+	// A non-comparable implementation is conservatively treated as changed.
+	if (a.CrowdSec != nil && !reflect.TypeOf(a.CrowdSec).Comparable()) || a.CrowdSec != b.CrowdSec {
+		return false
+	}
+	return a.CrowdSecMode == b.CrowdSecMode &&
+		slices.Equal(a.AllowedCIDRs, b.AllowedCIDRs) &&
+		slices.Equal(a.BlockedCIDRs, b.BlockedCIDRs) &&
+		slices.Equal(a.AllowedCountries, b.AllowedCountries) &&
+		slices.Equal(a.BlockedCountries, b.BlockedCountries)
 }
 
 // RemoveFallback clears the catch-all fallback route and closes any

@@ -29,7 +29,7 @@ func (t *HijackTracker) Middleware(next http.Handler) http.Handler {
 		next.ServeHTTP(&trackingWriter{
 			ResponseWriter: w,
 			tracker:        t,
-			host:           hostOnly(r.Host),
+			host:           netutil.NormalizeHost(r.Host),
 		}, r)
 	})
 }
@@ -50,7 +50,7 @@ func (t *HijackTracker) CloseAll() int {
 // CloseByHost closes all tracked hijacked connections for the given host
 // and returns the number of connections closed.
 func (t *HijackTracker) CloseByHost(host string) int {
-	host = hostOnly(host)
+	host = netutil.NormalizeHost(host)
 	t.mu.Lock()
 	var toClose []*trackedConn
 	for tc := range t.conns {
@@ -82,9 +82,4 @@ func (t *HijackTracker) remove(tc *trackedConn) {
 	t.mu.Lock()
 	delete(t.conns, tc)
 	t.mu.Unlock()
-}
-
-// hostOnly strips the port from a host:port string.
-func hostOnly(hostport string) string {
-	return netutil.NormalizeHost(hostport)
 }

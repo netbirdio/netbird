@@ -2,6 +2,7 @@ package conntrack
 
 import (
 	"bufio"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -123,7 +124,7 @@ func TestTrackedConn_AutoDeregister(t *testing.T) {
 	tracker.mu.Unlock()
 }
 
-func TestHostOnly(t *testing.T) {
+func TestMiddlewareAndCloseByHostCanonicalizeHost(t *testing.T) {
 	tests := []struct {
 		input string
 		want  string
@@ -133,11 +134,27 @@ func TestHostOnly(t *testing.T) {
 		{"127.0.0.1:8080", "127.0.0.1"},
 		{"[::1]:443", "::1"},
 		{"Example.COM.:443", "example.com"},
+		{"BÜCHER.example.:443", "xn--bcher-kva.example"},
 		{"", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			assert.Equal(t, tt.want, hostOnly(tt.input))
+			var tracker HijackTracker
+			conn, peer := net.Pipe()
+			t.Cleanup(func() { _ = conn.Close() })
+			t.Cleanup(func() { _ = peer.Close() })
+			handler := tracker.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				hijacker, ok := w.(http.Hijacker)
+				require.True(t, ok)
+				_, _, err := hijacker.Hijack()
+				require.NoError(t, err)
+			}))
+			req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+			req.Host = tt.input
+			handler.ServeHTTP(&fakeHijackWriter{ResponseWriter: httptest.NewRecorder(), conn: conn}, req)
+			require.Equal(t, 1, tracker.CloseByHost(tt.want))
+			_, err := peer.Read(make([]byte, 1))
+			require.ErrorIs(t, err, io.EOF)
 		})
 	}
 }

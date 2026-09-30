@@ -6,6 +6,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 )
@@ -15,6 +16,7 @@ import (
 // retained, making downgrades non-destructive: older binaries ignore the new
 // table and continue to see their original one-port representation.
 func MigrateReverseProxyPortMappings(ctx context.Context, db *gorm.DB) error {
+	db = db.WithContext(ctx)
 	if !db.Migrator().HasTable(&rpservice.Service{}) ||
 		!db.Migrator().HasTable(&rpservice.Target{}) ||
 		!db.Migrator().HasTable(&rpservice.PortMapping{}) {
@@ -22,16 +24,18 @@ func MigrateReverseProxyPortMappings(ctx context.Context, db *gorm.DB) error {
 		return nil
 	}
 
-	var services []*rpservice.Service
-	if err := db.
-		Preload("Targets", func(tx *gorm.DB) *gorm.DB { return tx.Order("id ASC") }).
-		Where("mode IN ?", []string{rpservice.ModeTCP, rpservice.ModeUDP, rpservice.ModeTLS}).
-		Find(&services).Error; err != nil {
-		return fmt.Errorf("load legacy reverse-proxy services: %w", err)
-	}
-
 	var migrated int
 	err := db.Transaction(func(tx *gorm.DB) error {
+		// Lock before checking child rows so concurrent startups cannot both
+		// backfill the same service. Use a stable order to avoid lock inversions.
+		var services []*rpservice.Service
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Preload("Targets", func(tx *gorm.DB) *gorm.DB { return tx.Order("id ASC") }).
+			Where("mode IN ?", []string{rpservice.ModeTCP, rpservice.ModeUDP, rpservice.ModeTLS}).
+			Order("id ASC").Find(&services).Error; err != nil {
+			return fmt.Errorf("load legacy reverse-proxy services: %w", err)
+		}
+
 		for _, service := range services {
 			var count int64
 			if err := tx.Model(&rpservice.PortMapping{}).
@@ -42,7 +46,7 @@ func MigrateReverseProxyPortMappings(ctx context.Context, db *gorm.DB) error {
 			if count > 0 {
 				continue
 			}
-			if service.ListenPort == 0 || len(service.Targets) == 0 || service.Targets[0].Port == 0 {
+			if service.ListenPort == 0 || len(service.Targets) != 1 || service.Targets[0].Port == 0 {
 				log.WithContext(ctx).Warnf(
 					"skipping invalid legacy reverse-proxy service %s during port-mapping migration: mode=%s listen_port=%d targets=%d",
 					service.ID,

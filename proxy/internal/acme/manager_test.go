@@ -244,6 +244,7 @@ func TestDomainOwnershipPreventsStaleRemoval(t *testing.T) {
 	assert.False(t, mgr.RemoveDomainForService("foo.example.com", "old"))
 	assert.Equal(t, 1, mgr.TotalDomains())
 	assert.True(t, mgr.RemoveDomainForService("foo.example.com", "new"))
+	assert.Zero(t, mgr.TotalDomains(), "successful removal must delete the wildcard domain")
 }
 
 func TestWildcardGetCertificate(t *testing.T) {

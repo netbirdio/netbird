@@ -246,12 +246,20 @@ func TestProtect_CanonicalHostCannotBypassAuthAndUsesCanonicalAudience(t *testin
 	require.NoError(t, err)
 
 	backendCalled := false
-	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		backendCalled = true
+		cd := proxy.CapturedDataFromContext(r.Context())
+		require.NotNil(t, cd)
+		assert.Equal(t, "test-user", cd.GetUserID(), "the session must authenticate instead of bypassing an unknown host")
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	req := httptest.NewRequest(http.MethodGet, "https://example.com/", nil)
 	req.Host = "EXAMPLE.COM.:443"
+	req = req.WithContext(proxy.WithCapturedData(req.Context(), proxy.NewCapturedData("")))
+	unauthenticated := httptest.NewRecorder()
+	handler.ServeHTTP(unauthenticated, req)
+	require.False(t, backendCalled, "the canonical host must be protected without a session")
+
 	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: token})
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)

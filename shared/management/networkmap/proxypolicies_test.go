@@ -55,3 +55,24 @@ func TestInjectProxyPolicies_UsesTargetPortWithoutPortMappings(t *testing.T) {
 	assert.Equal(t, "udp", nmd.Policies[0].Rules[0].Protocol)
 	assert.Equal(t, []nmdata.RulePortRange{{Start: 53, End: 53}}, nmd.Policies[0].Rules[0].PortRanges)
 }
+
+func TestInjectProxyPolicies_SingleMappingPreservesLegacyRuleID(t *testing.T) {
+	proxyPeer := newPeer("proxy-peer", 1)
+	proxyPeer.ProxyMeta = nmdata.ProxyMeta{Embedded: true, Cluster: "proxy.example.test"}
+	nmd := newNMD(proxyPeer, newPeer("target-peer", 2))
+	nmd.Services = []*nmdata.Service{{
+		ID: "legacy", Enabled: true, Mode: "udp", ProxyCluster: "proxy.example.test",
+		Targets:      []*nmdata.ServiceTarget{{Enabled: true, TargetID: "target-peer", TargetType: "peer", Port: 53}},
+		PortMappings: []*nmdata.PortMapping{{Protocol: "udp", TargetPortStart: 53, TargetPortEnd: 53}},
+	}}
+
+	nmd.InjectProxyPolicies()
+
+	require.Len(t, nmd.Policies, 1)
+	policy := nmd.Policies[0]
+	assert.Equal(t, "proxy-access-legacy-proxy-peer-", policy.ID)
+	require.Len(t, policy.Rules, 1)
+	assert.Equal(t, policy.ID, policy.Rules[0].ID)
+	assert.Equal(t, "udp", policy.Rules[0].Protocol)
+	assert.Equal(t, []nmdata.RulePortRange{{Start: 53, End: 53}}, policy.Rules[0].PortRanges)
+}

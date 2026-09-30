@@ -2,6 +2,7 @@ package netutil
 
 import (
 	"net"
+	"net/netip"
 	"strings"
 
 	"github.com/netbirdio/netbird/shared/management/domain"
@@ -17,19 +18,24 @@ func NormalizeHost(authority string) string {
 	}
 	host = strings.Trim(host, "[]")
 	host = strings.TrimRight(host, ".")
+	host = strings.ToLower(host)
 	if canonical, err := domain.FromString(host); err == nil {
 		return canonical.PunycodeString()
 	}
-	return strings.ToLower(host)
+	return host
 }
 
 // NormalizeAuthority canonicalizes the hostname portion of an HTTP authority
-// while retaining an explicitly supplied port for redirect URI generation.
+// while retaining IPv6 brackets and any explicit port for redirect URIs.
 func NormalizeAuthority(authority string) string {
 	authority = strings.TrimSpace(authority)
 	host, port, err := net.SplitHostPort(authority)
 	if err != nil {
-		return NormalizeHost(authority)
+		host = NormalizeHost(authority)
+		if addr, err := netip.ParseAddr(host); err == nil && addr.Is6() {
+			return "[" + host + "]"
+		}
+		return host
 	}
 	return net.JoinHostPort(NormalizeHost(host), port)
 }

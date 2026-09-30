@@ -510,9 +510,9 @@ func TestSendServiceUpdateToCluster_FiltersOnCapability(t *testing.T) {
 	s.SendServiceUpdateToCluster(ctx, multiPortMapping, cluster)
 
 	require.NotNil(t, drainMapping(chMultiPort), "capable proxy should receive the repeated mapping")
-	assert.Nil(t, drainMapping(chModern), "custom-port-only proxy must not receive repeated mappings")
-	assert.Nil(t, drainMapping(chLegacy), "legacy proxy must not receive repeated mappings")
-	assert.Nil(t, drainMapping(chNewNoCustom), "proxy without the repeated-mapping capability must be filtered")
+	assert.True(t, drainEmpty(chModern), "custom-port-only proxy must not receive repeated mappings")
+	assert.True(t, drainEmpty(chLegacy), "legacy proxy must not receive repeated mappings")
+	assert.True(t, drainEmpty(chNewNoCustom), "proxy without the repeated-mapping capability must be filtered")
 
 	// If a previously compatible service is modified into a repeated mapping,
 	// incapable proxies must remove their stale scalar listener rather than
