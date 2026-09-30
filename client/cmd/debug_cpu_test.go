@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"os/user"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -77,7 +78,17 @@ func runDebugCmd(addr string, args ...string) (string, error) {
 // execution.
 func resetFlags(cmd *cobra.Command) {
 	reset := func(f *pflag.Flag) {
-		_ = f.Value.Set(f.DefValue)
+		// Set appends to a slice flag and would parse the "[a,b]" default
+		// text as elements, so slices are replaced instead.
+		if sv, ok := f.Value.(pflag.SliceValue); ok {
+			var def []string
+			if trimmed := strings.Trim(f.DefValue, "[]"); trimmed != "" {
+				def = strings.Split(trimmed, ",")
+			}
+			_ = sv.Replace(def)
+		} else {
+			_ = f.Value.Set(f.DefValue)
+		}
 		f.Changed = false
 	}
 	cmd.Flags().VisitAll(reset)
@@ -85,6 +96,21 @@ func resetFlags(cmd *cobra.Command) {
 	for _, sub := range cmd.Commands() {
 		resetFlags(sub)
 	}
+}
+
+// TestResetFlagsSliceDefault guards against Set("[]") on slice flags, which
+// stores a literal "[]" element instead of the empty default.
+func TestResetFlagsSliceDefault(t *testing.T) {
+	cmd := &cobra.Command{Use: "x"}
+	var env, withDefault []string
+	cmd.Flags().StringSliceVar(&env, "env", nil, "")
+	cmd.Flags().StringSliceVar(&withDefault, "names", []string{"a", "b"}, "")
+	require.NoError(t, cmd.Flags().Parse([]string{"--env", "K=V", "--names", "c"}))
+
+	resetFlags(cmd)
+
+	assert.Empty(t, env, "slice flag with no default must reset to empty")
+	assert.Equal(t, []string{"a", "b"}, withDefault, "slice flag must reset to its default")
 }
 
 func TestDebugCPUStartStop(t *testing.T) {
