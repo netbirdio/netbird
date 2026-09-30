@@ -42,7 +42,7 @@ func NewAPIV1Handler(
 		return nil, err
 	}
 
-	// TODO figureout document validation: rn it's possible to have a spec
+	// TODO figure out document validation: rn it's possible to have a spec
 	// that's not entirely correct -- parts of it fail to parse, but silently
 	v := validator.NewValidatorFromV3Model(model,
 		config.WithoutSecurityValidation(),
@@ -121,7 +121,7 @@ type V1ValidatorMiddleware struct {
 
 func (v *V1ValidatorMiddleware) Handler(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		valid, errs := v.v.ValidateHttpRequest(r)
+		valid, errs := v.v.ValidateHttpRequestSync(r)
 		if !valid {
 			validationErrs := make([]string, 0, len(errs))
 			for _, err := range errs {
