@@ -190,12 +190,14 @@ func (s *SqlStore) DeleteAccount(ctx context.Context, account *types.Account) er
 // hold its upstream API keys. Tables that grow with traffic are left out: consumption
 // counters and access logs are swept in the background, and usage records are kept.
 func deleteAgentNetworkAccountConfig(tx *gorm.DB, accountID string) error {
+	// Dependents first: policies point at providers and guardrails, and settings
+	// go last, as DeleteSettings refuses while providers exist.
 	models := []any{
-		&agentNetworkTypes.Settings{},
-		&agentNetworkTypes.Provider{},
 		&agentNetworkTypes.Policy{},
+		&agentNetworkTypes.Provider{},
 		&agentNetworkTypes.Guardrail{},
 		&agentNetworkTypes.AccountBudgetRule{},
+		&agentNetworkTypes.Settings{},
 	}
 	for _, model := range models {
 		if err := tx.Delete(model, "account_id = ?", accountID).Error; err != nil {
