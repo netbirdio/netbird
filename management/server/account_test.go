@@ -958,6 +958,92 @@ func TestAccountManager_DeleteAccount(t *testing.T) {
 	assert.Len(t, pats, 0)
 }
 
+func TestAccountManager_DeleteAccount_RunsDeletionHooks(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	ownerID := "account_creator"
+	account, err := createAccount(manager, "test_account", ownerID, "")
+	require.NoError(t, err)
+
+	// Each hook records its call and checks the account is still in the store, which is
+	// the point of running before deletion: a hook must be able to read what it cleans up.
+	var calls []string
+	hook := func(name string) nbAccount.DeletionHook {
+		return func(ctx context.Context, accountID string) error {
+			calls = append(calls, name+":"+accountID)
+			_, err := manager.Store.GetAccount(ctx, accountID)
+			assert.NoError(t, err, "account should still exist while hook %s runs", name)
+			return nil
+		}
+	}
+	manager.AddAccountDeletionHook(hook("first"))
+	manager.AddAccountDeletionHook(hook("second"))
+
+	require.NoError(t, manager.DeleteAccount(context.Background(), account.Id, ownerID))
+
+	assert.Equal(t, []string{"first:" + account.Id, "second:" + account.Id}, calls,
+		"hooks should run once each, in registration order, with the deleted account's ID")
+	_, err = manager.Store.GetAccount(context.Background(), account.Id)
+	assert.Error(t, err, "account should be deleted after the hooks succeed")
+}
+
+func TestAccountManager_DeleteAccount_DeletionHookErrorAbortsDeletion(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	ownerID := "account_creator"
+	account, err := createAccount(manager, "test_account", ownerID, "")
+	require.NoError(t, err)
+
+	manager.AddAccountDeletionHook(func(context.Context, string) error {
+		return status.Errorf(status.PreconditionFailed, "teardown refused")
+	})
+	secondCalled := false
+	manager.AddAccountDeletionHook(func(context.Context, string) error {
+		secondCalled = true
+		return nil
+	})
+
+	err = manager.DeleteAccount(context.Background(), account.Id, ownerID)
+	require.Error(t, err)
+
+	// The hook's status type has to survive the wrapping, since the HTTP layer maps it
+	// to the response code.
+	sErr, ok := status.FromError(err)
+	require.True(t, ok, "error should carry the hook's status error, got %v", err)
+	assert.Equal(t, status.PreconditionFailed, sErr.Type(), "status type should be the hook's")
+	assert.False(t, secondCalled, "hooks after a failing one should not run")
+
+	_, err = manager.Store.GetAccount(context.Background(), account.Id)
+	assert.NoError(t, err, "account should survive a failing hook")
+	_, err = manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthNone, ownerID)
+	assert.NoError(t, err, "account owner should survive a failing hook")
+}
+
+func TestAccountManager_DeleteAccount_DeletionHooksSkippedWithoutPermission(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	ownerID := "account_creator"
+	account, err := createAccount(manager, "test_account", ownerID, "")
+	require.NoError(t, err)
+
+	adminID := "regular_admin"
+	account.Users[adminID] = types.NewAdminUser(adminID)
+	require.NoError(t, manager.Store.SaveAccount(context.Background(), account))
+
+	called := false
+	manager.AddAccountDeletionHook(func(context.Context, string) error {
+		called = true
+		return nil
+	})
+
+	err = manager.DeleteAccount(context.Background(), account.Id, adminID)
+	require.Error(t, err, "only the owner may delete the account")
+	assert.False(t, called, "hooks should not run for a caller who may not delete the account")
+}
+
 func BenchmarkTest_GetAccountWithclaims(b *testing.B) {
 	claims := auth.UserAuth{
 		Domain:         "example.com",
