@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/internals/shared/db"
+	"github.com/netbirdio/netbird/management/server/store"
 )
 
 func TestNewConn_IgnoresSqliteFileOverride(t *testing.T) {
@@ -22,10 +23,13 @@ func TestNewConn_IgnoresSqliteFileOverride(t *testing.T) {
 	require.ErrorIs(t, err, os.ErrNotExist)
 }
 
-func TestNewConn_Parallel(t *testing.T) {
+func TestNewConn_HoldsTheStoreSchema(t *testing.T) {
 	t.Parallel()
 
 	conn := NewConn(t)
 
-	assert.Equal(t, db.SqliteStoreEngine, conn.Engine())
+	migrator := conn.DB(nil).Migrator()
+	assert.True(t, migrator.HasTable("accounts"))
+	assert.True(t, migrator.HasTable("access_log_entries"))
+	assert.True(t, migrator.HasTable(store.MigrationTable))
 }

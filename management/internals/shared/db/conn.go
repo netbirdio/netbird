@@ -103,11 +103,6 @@ func (c *Conn) SetTxMetrics(metrics TxMetrics) {
 	c.metrics = metrics
 }
 
-// AutoMigrate creates or updates the tables of the given models.
-func (c *Conn) AutoMigrate(models ...any) error {
-	return c.db.AutoMigrate(models...)
-}
-
 // Close releases the gorm connection and the pgx pool.
 func (c *Conn) Close() error {
 	if c.pool != nil {

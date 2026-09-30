@@ -102,6 +102,7 @@ require (
 	github.com/pion/turn/v3 v3.0.1
 	github.com/pires/go-proxyproto v0.11.0
 	github.com/pkg/sftp v1.13.9
+	github.com/pressly/goose/v3 v3.26.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/client_model v0.6.2
 	github.com/quic-go/quic-go v0.62.0
@@ -112,7 +113,6 @@ require (
 	github.com/songgao/water v0.0.0-20200317203138-2b4b6d7c09d8
 	github.com/stretchr/testify v1.12.1
 	github.com/testcontainers/testcontainers-go v0.37.0
-	github.com/testcontainers/testcontainers-go/modules/mysql v0.37.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.37.0
 	github.com/testcontainers/testcontainers-go/modules/redis v0.37.0
 	github.com/things-go/go-socks5 v0.0.4
@@ -141,7 +141,6 @@ require (
 	google.golang.org/api v0.276.0
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260401024825-9d38bb4040a9
 	gopkg.in/yaml.v3 v3.0.1
-	gorm.io/driver/mysql v1.5.7
 	gorm.io/driver/postgres v1.5.7
 	gorm.io/driver/sqlite v1.5.7
 	gorm.io/gorm v1.25.12
@@ -279,6 +278,7 @@ require (
 	github.com/mdelapenya/tlscert v0.2.0 // indirect
 	github.com/mdlayher/genetlink v1.3.2 // indirect
 	github.com/mdlayher/netlink v1.7.3-0.20250113171957-fbb4dce95f42 // indirect
+	github.com/mfridman/interpolate v0.0.2 // indirect
 	github.com/mholt/acmez/v2 v2.0.1 // indirect
 	github.com/mitchellh/copystructure v1.2.0 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
@@ -315,6 +315,7 @@ require (
 	github.com/ryanuber/go-glob v1.0.0 // indirect
 	github.com/sagikazarmark/locafero v0.11.0 // indirect
 	github.com/sergi/go-diff v1.4.0 // indirect
+	github.com/sethvargo/go-retry v0.3.0 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/skeema/knownhosts v1.3.2 // indirect
 	github.com/sourcegraph/conc v0.3.1-0.20240121214520-5f936abd7ae8 // indirect

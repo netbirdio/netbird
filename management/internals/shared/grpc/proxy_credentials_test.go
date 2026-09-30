@@ -21,6 +21,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	servicemanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/sessionkey"
+	"github.com/netbirdio/netbird/management/internals/shared/db/migrate"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -30,7 +31,7 @@ import (
 func credentialServer(t *testing.T) (*nbgrpc.ProxyServiceServer, context.Context, grpc.UnaryServerInterceptor) {
 	t.Helper()
 	ctx := context.Background()
-	s, err := store.NewStore(ctx, types.SqliteStoreEngine, t.TempDir(), nil, false)
+	s, err := store.NewStore(ctx, types.SqliteStoreEngine, t.TempDir(), nil, migrate.ModeAuto)
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, s.Close(ctx)) })
 	require.NoError(t, s.SaveAccount(ctx, &types.Account{Id: "account"}))

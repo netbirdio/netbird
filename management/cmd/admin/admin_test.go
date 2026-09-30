@@ -16,6 +16,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	nbdex "github.com/netbirdio/netbird/idp/dex"
+	"github.com/netbirdio/netbird/management/internals/shared/db/migrate"
 	"github.com/netbirdio/netbird/management/server/idp"
 	mgmtstore "github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -137,7 +138,7 @@ func TestSetIDPClientsMFA(t *testing.T) {
 func newTestManagementStore(t *testing.T, localMFAEnabled bool) mgmtstore.Store {
 	t.Helper()
 	ctx := context.Background()
-	st, err := mgmtstore.NewStore(ctx, types.SqliteStoreEngine, t.TempDir(), nil, false)
+	st, err := mgmtstore.NewStore(ctx, types.SqliteStoreEngine, t.TempDir(), nil, migrate.ModeAuto)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, st.Close(ctx)) })
 	require.NoError(t, st.SaveAccount(ctx, &types.Account{

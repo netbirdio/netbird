@@ -11,7 +11,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -32,17 +31,6 @@ func setupDatabase(t *testing.T) *gorm.DB {
 	var dsn string
 	var cleanup func()
 	switch os.Getenv("NETBIRD_STORE_ENGINE") {
-	case "mysql":
-		cleanup, dsn, err = testutil.CreateMysqlTestContainer()
-		if err != nil {
-			t.Fatalf("Failed to create MySQL test container: %v", err)
-		}
-
-		if dsn == "" {
-			t.Fatal("MySQL connection string is empty, ensure the test container is running")
-		}
-
-		db, err = gorm.Open(mysql.Open(dsn+"?charset=utf8&parseTime=True&loc=Local"), &gorm.Config{})
 	case "postgres":
 		cleanup, dsn, err = testutil.CreatePostgresTestContainer()
 		if err != nil {
@@ -598,8 +586,8 @@ func TestCleanupOrphanedResources_Idempotent(t *testing.T) {
 
 func TestCleanupOrphanedResources_SkipsWhenForeignKeyExists(t *testing.T) {
 	engine := os.Getenv("NETBIRD_STORE_ENGINE")
-	if engine != "postgres" && engine != "mysql" {
-		t.Skip("FK constraint early-exit test requires postgres or mysql")
+	if engine != "postgres" {
+		t.Skip("FK constraint early-exit test requires postgres")
 	}
 
 	db := setupDatabase(t)
@@ -614,24 +602,12 @@ func TestCleanupOrphanedResources_SkipsWhenForeignKeyExists(t *testing.T) {
 	require.NoError(t, db.Create(&testChildWithFK{ID: "c1", ParentID: "p1"}).Error)
 	require.NoError(t, db.Create(&testChildWithFK{ID: "c2", ParentID: "p2"}).Error)
 
-	switch engine {
-	case "postgres":
-		require.NoError(t, db.Exec("ALTER TABLE test_children DROP CONSTRAINT fk_test_children_parent").Error)
-		require.NoError(t, db.Exec("DELETE FROM test_parents WHERE id = ?", "p2").Error)
-		require.NoError(t, db.Exec(
-			"ALTER TABLE test_children ADD CONSTRAINT fk_test_children_parent "+
-				"FOREIGN KEY (parent_id) REFERENCES test_parents(id) NOT VALID",
-		).Error)
-	case "mysql":
-		require.NoError(t, db.Exec("SET FOREIGN_KEY_CHECKS = 0").Error)
-		require.NoError(t, db.Exec("ALTER TABLE test_children DROP FOREIGN KEY fk_test_children_parent").Error)
-		require.NoError(t, db.Exec("DELETE FROM test_parents WHERE id = ?", "p2").Error)
-		require.NoError(t, db.Exec(
-			"ALTER TABLE test_children ADD CONSTRAINT fk_test_children_parent "+
-				"FOREIGN KEY (parent_id) REFERENCES test_parents(id)",
-		).Error)
-		require.NoError(t, db.Exec("SET FOREIGN_KEY_CHECKS = 1").Error)
-	}
+	require.NoError(t, db.Exec("ALTER TABLE test_children DROP CONSTRAINT fk_test_children_parent").Error)
+	require.NoError(t, db.Exec("DELETE FROM test_parents WHERE id = ?", "p2").Error)
+	require.NoError(t, db.Exec(
+		"ALTER TABLE test_children ADD CONSTRAINT fk_test_children_parent "+
+			"FOREIGN KEY (parent_id) REFERENCES test_parents(id) NOT VALID",
+	).Error)
 
 	err = migration.CleanupOrphanedResources[testChildWithFK, testParent](context.Background(), db, "parent_id")
 	require.NoError(t, err)

@@ -15,6 +15,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	proxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy/manager"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
+	"github.com/netbirdio/netbird/management/internals/shared/db/migrate"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -1140,7 +1141,7 @@ func TestDeleteService_DeletesTargets(t *testing.T) {
 	accountID := "test-account"
 	userID := "test-user"
 
-	sqlStore, err := store.NewStore(ctx, types.SqliteStoreEngine, t.TempDir(), nil, false)
+	sqlStore, err := store.NewStore(ctx, types.SqliteStoreEngine, t.TempDir(), nil, migrate.ModeAuto)
 	require.NoError(t, err)
 
 	ctrl := gomock.NewController(t)

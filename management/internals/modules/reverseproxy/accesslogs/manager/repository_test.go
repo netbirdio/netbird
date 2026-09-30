@@ -15,7 +15,7 @@ import (
 )
 
 func newTestRepository(t *testing.T) (accesslogs.Repository, *db.Conn) {
-	conn := dbtest.NewConn(t, &accesslogs.AccessLogEntry{})
+	conn := dbtest.NewConn(t)
 	return NewRepository(conn), conn
 }
 

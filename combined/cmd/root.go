@@ -69,6 +69,7 @@ func init() {
 
 	rootCmd.AddCommand(newAdminCommands())
 	rootCmd.AddCommand(newLegacyTokenCommand())
+	rootCmd.AddCommand(newMigrateCommand())
 }
 
 func RootCmd() *cobra.Command {
@@ -127,13 +128,8 @@ func execute(cmd *cobra.Command, _ []string) error {
 
 // initializeConfig loads and validates the configuration, then initializes logging.
 func applyServerStoreEnv(storeConfig StoreConfig) {
-	if dsn := storeConfig.DSN; dsn != "" {
-		switch strings.ToLower(storeConfig.Engine) {
-		case "postgres":
-			os.Setenv("NB_STORE_ENGINE_POSTGRES_DSN", dsn)
-		case "mysql":
-			os.Setenv("NB_STORE_ENGINE_MYSQL_DSN", dsn)
-		}
+	if dsn := storeConfig.DSN; dsn != "" && strings.ToLower(storeConfig.Engine) == "postgres" {
+		os.Setenv("NB_STORE_ENGINE_POSTGRES_DSN", dsn)
 	}
 	if file := storeConfig.File; file != "" {
 		os.Setenv("NB_STORE_ENGINE_SQLITE_FILE", file)

@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/management/internals/shared/db/migrate"
 )
 
 type benchCase struct {
@@ -16,7 +18,7 @@ type benchCase struct {
 
 var newSqlite = func(b *testing.B) Store {
 	b.Helper()
-	store, _ := NewSqliteStore(context.Background(), b.TempDir(), nil, false)
+	store, _ := NewSqliteStore(context.Background(), b.TempDir(), nil, migrate.ModeAuto)
 	return store
 }
 

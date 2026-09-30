@@ -33,6 +33,7 @@ import (
 	networkmapdbfactory "github.com/netbirdio/netbird/management/internals/network_map_db/factory"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/internals/shared/db"
+	"github.com/netbirdio/netbird/management/internals/shared/db/migrate"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/activity"
 	activitystore "github.com/netbirdio/netbird/management/server/activity/store"
@@ -96,9 +97,20 @@ func (s *BaseServer) DBConn() *db.Conn {
 	})
 }
 
+// MigrationMode is the schema migration mode every store of the server starts with.
+func (s *BaseServer) MigrationMode() migrate.Mode {
+	return Create(s, func() migrate.Mode {
+		mode, err := migrate.ResolveMode(s.Config.StoreConfig.MigrationMode)
+		if err != nil {
+			log.Fatalf("invalid store migration mode: %v", err)
+		}
+		return mode
+	})
+}
+
 func (s *BaseServer) Store() store.Store {
 	return Create(s, func() store.Store {
-		store, err := store.NewSqlStore(context.Background(), s.DBConn(), s.Metrics(), false)
+		store, err := store.NewSqlStore(context.Background(), s.DBConn(), s.Metrics(), s.MigrationMode())
 		if err != nil {
 			log.Fatalf("failed to create store: %v", err)
 		}
@@ -148,7 +160,7 @@ func (s *BaseServer) EventStore() activity.Store {
 			}
 		}
 
-		eventStore, err := activitystore.NewSqlStore(context.Background(), s.Config.Datadir, key)
+		eventStore, err := activitystore.NewSqlStore(context.Background(), s.Config.Datadir, key, s.MigrationMode())
 		if err != nil {
 			log.Fatalf("failed to initialize event store: %v", err)
 		}

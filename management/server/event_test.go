@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/management/internals/shared/db/migrate"
 	"github.com/netbirdio/netbird/management/server/activity"
 	activitystore "github.com/netbirdio/netbird/management/server/activity/store"
 	"github.com/netbirdio/netbird/util/crypt"
@@ -21,7 +22,7 @@ func TestStoreEvent_CanceledContext(t *testing.T) {
 			dir := t.TempDir()
 			key, err := crypt.GenerateKey()
 			require.NoError(t, err)
-			eventStore, err := activitystore.NewSqlStore(context.Background(), dir, key)
+			eventStore, err := activitystore.NewSqlStore(context.Background(), dir, key, migrate.ModeAuto)
 			require.NoError(t, err)
 			t.Cleanup(func() { assert.NoError(t, eventStore.Close(context.Background())) })
 			manager := &DefaultAccountManager{eventStore: eventStore}
@@ -39,7 +40,7 @@ func TestStoreEvent_CanceledContext(t *testing.T) {
 			}
 			require.NoError(t, eventStore.Close(context.Background()))
 
-			reopened, err := activitystore.NewSqlStore(context.Background(), dir, key)
+			reopened, err := activitystore.NewSqlStore(context.Background(), dir, key, migrate.ModeAuto)
 			require.NoError(t, err)
 			t.Cleanup(func() { assert.NoError(t, reopened.Close(context.Background())) })
 			events, err := reopened.Get(context.Background(), "account-id", 0, 10, true)

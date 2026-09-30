@@ -43,6 +43,7 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller/cache"
 	networkmap_pgsql "github.com/netbirdio/netbird/management/internals/network_map_db/pgsql"
+	"github.com/netbirdio/netbird/management/internals/shared/db/migrate"
 	mgmtgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -61,7 +62,7 @@ func BenchmarkGetAccount(b *testing.B) {
 	require.NoError(b, err, "connect stats connection")
 	b.Cleanup(func() { statsConn.Close(ctx) })
 
-	testStore, err := store.NewPostgresqlStore(ctx, dsn, nil, true)
+	testStore, err := store.NewPostgresqlStore(ctx, dsn, nil, migrate.ModeSkip)
 	require.NoError(b, err, "connect to postgres")
 	b.Cleanup(func() { testStore.Close(ctx) })
 
@@ -124,7 +125,7 @@ func BenchmarkAccountFullRound(b *testing.B) {
 	require.NoError(b, err, "connect stats connection")
 	b.Cleanup(func() { statsConn.Close(ctx) })
 
-	testStore, err := store.NewPostgresqlStore(ctx, dsn, nil, true)
+	testStore, err := store.NewPostgresqlStore(ctx, dsn, nil, migrate.ModeSkip)
 	require.NoError(b, err, "connect to postgres")
 	b.Cleanup(func() { testStore.Close(ctx) })
 
