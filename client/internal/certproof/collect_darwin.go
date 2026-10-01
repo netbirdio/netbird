@@ -8,15 +8,12 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/shared/management/certposture"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
-
-const helperTimeout = 30 * time.Second
 
 // CollectProofs answers the certificate challenges in checks from every store this Mac
 // can reach. The root daemon reads the System keychain itself, which is where MDM
@@ -77,9 +74,6 @@ func collectAsConsoleUser(ctx context.Context, owner string, challenges []*proto
 	if err != nil {
 		return nil, fmt.Errorf("resolve own binary: %w", err)
 	}
-
-	ctx, cancel := context.WithTimeout(ctx, helperTimeout)
-	defer cancel()
 
 	// Absolute paths, because the daemon's PATH is configurable through the service
 	// environment, and sudo selects the user by uid so the name never has to round-trip.
