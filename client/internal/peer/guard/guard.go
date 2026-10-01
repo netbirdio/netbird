@@ -14,7 +14,8 @@ type ConnStatus int
 const (
 	// ConnStatusDisconnected means neither ICE nor Relay is connected.
 	ConnStatusDisconnected ConnStatus = iota
-	// ConnStatusPartiallyConnected means Relay is connected but ICE is not.
+	// ConnStatusPartiallyConnected means one transport is usable and the other is not:
+	// relay connected with ICE down, or ICE connected with the shared relay transport down.
 	ConnStatusPartiallyConnected
 	// ConnStatusConnected means all required connections are established.
 	ConnStatusConnected
@@ -75,8 +76,9 @@ func (g *Guard) SetICEConnDisconnected() {
 //   - Connected: no action, the peer is fully reachable.
 //   - Disconnected (neither ICE nor Relay): retries aggressively with exponential backoff (800ms doubling
 //     up to timeout), never gives up. This ensures rapid recovery when the peer has no connectivity at all.
-//   - PartiallyConnected (Relay up, ICE not): retries up to 3 times with exponential backoff, then switches
-//     to one attempt per hour. This limits signaling traffic when relay already provides connectivity.
+//   - PartiallyConnected (one transport usable, the other not): retries up to 3 times
+//     with exponential backoff, then switches to one attempt per hour. This limits
+//     signaling traffic while the peer still has a working path.
 //
 // External events (relay/ICE disconnect, signal/relay reconnect, candidate changes) reset the retry
 // counter and backoff ticker, giving ICE a fresh chance after network conditions change.
