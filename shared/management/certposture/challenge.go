@@ -5,11 +5,26 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
+	"os"
+	"sync"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 )
 
 const (
+	// Window is the default challenge window. A nonce is accepted for its own window
+	// and the one before it, so a peer re-proves possession of its key between once
+	// and twice per window.
 	Window = 12 * time.Hour
+
+	// EnvWindow overrides Window, for end-to-end tests that cannot wait half a day to
+	// watch a renewal. Every management instance has to be given the same value: the
+	// window is part of the nonce, so instances that disagree reject each other's.
+	EnvWindow = "NB_CERT_CHALLENGE_WINDOW"
+
+	minWindow = time.Second
+	maxWindow = 24 * time.Hour
 
 	challengeDomain = "netbird-cert-challenge-v1"
 	windowLen       = 8
@@ -18,6 +33,37 @@ const (
 	// NonceSize is the length of every nonce a Challenger issues.
 	NonceSize = nonceLen
 )
+
+var effectiveWindow = sync.OnceValue(resolveWindow)
+
+// EffectiveWindow returns the challenge window in force, which is Window unless
+// EnvWindow overrides it. Everything timed against the window derives from this, so a
+// test that shortens it shortens the renewal that goes with it.
+func EffectiveWindow() time.Duration {
+	return effectiveWindow()
+}
+
+func resolveWindow() time.Duration {
+	val := os.Getenv(EnvWindow)
+	if val == "" {
+		return Window
+	}
+
+	window, err := time.ParseDuration(val)
+	if err != nil {
+		log.Warnf("failed to parse %s, keeping the %s certificate challenge window: %v", EnvWindow, Window, err)
+		return Window
+	}
+	if window < minWindow || window > maxWindow {
+		log.Warnf("%s of %s is outside %s..%s, keeping the %s certificate challenge window", EnvWindow, window, minWindow, maxWindow, Window)
+		return Window
+	}
+
+	// Loud on purpose: this sets how long a device can pass the certificate check after
+	// its key has gone, and it has to match on every instance.
+	log.Warnf("certificate challenge window overridden to %s by %s", window, EnvWindow)
+	return window
+}
 
 var (
 	ErrNonceMalformed = errors.New("certificate challenge nonce is malformed")
@@ -33,7 +79,7 @@ type Challenger struct {
 }
 
 func NewChallenger(secret []byte) *Challenger {
-	return &Challenger{secret: secret, window: Window}
+	return &Challenger{secret: secret, window: EffectiveWindow()}
 }
 
 func (c *Challenger) Nonce(peerKey []byte, now time.Time) []byte {
