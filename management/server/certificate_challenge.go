@@ -15,18 +15,26 @@ import (
 )
 
 const (
-	// certChallengePeriod is how often an account whose policies carry a certificate
-	// posture check is pushed a fresh challenge. A nonce is accepted for its own window
-	// and the one before it, so one issued at the very end of a window lives only
-	// certposture.Window. A third of that leaves a missed run well clear of the edge,
-	// where a half would put it exactly on it.
-	certChallengePeriod = certposture.Window / 3
-
-	// certChallengeTick is how often the refresher looks for accounts that are due. The
-	// period is measured in hours, so this only has to be fine enough to spread the
-	// accounts over it.
-	certChallengeTick = 15 * time.Minute
+	minCertChallengeTick = time.Second
+	maxCertChallengeTick = 15 * time.Minute
 )
+
+// certChallengePeriod is how often an account whose policies carry a certificate
+// posture check is pushed a fresh challenge. A nonce is accepted for its own window and
+// the one before it, so one issued at the very end of a window lives only one window. A
+// third of that leaves a missed run well clear of the edge, where a half would put it
+// exactly on it.
+func certChallengePeriod() time.Duration {
+	return certposture.EffectiveWindow() / 3
+}
+
+// certChallengeTick is how often the refresher looks for accounts that are due. It is
+// derived from the period rather than fixed, so shortening the challenge window for a
+// test shortens this with it; the bounds keep a tiny window from spinning and a normal
+// one from checking less often than is useful.
+func certChallengeTick(period time.Duration) time.Duration {
+	return min(max(period/10, minCertChallengeTick), maxCertChallengeTick)
+}
 
 // certChallengeRefresher pushes a fresh certificate challenge to the peers of every
 // account that needs one, from a single goroutine.
@@ -52,10 +60,11 @@ type certChallengeRefresher struct {
 }
 
 func newCertChallengeRefresher(refresh func(ctx context.Context, accountID string) bool) *certChallengeRefresher {
+	period := certChallengePeriod()
 	return &certChallengeRefresher{
 		due:     map[string]time.Time{},
-		period:  certChallengePeriod,
-		tick:    certChallengeTick,
+		period:  period,
+		tick:    certChallengeTick(period),
 		now:     time.Now,
 		refresh: refresh,
 	}

@@ -58,8 +58,22 @@ func TestCertChallengePeriod_LeavesRoomForAMissedRun(t *testing.T) {
 	// A nonce issued at the very end of a window is accepted for that window and the
 	// next one only, so the shortest life a peer can be handed is one window. Renewing
 	// has to stay clear of that edge even when a run is missed.
-	assert.Less(t, 2*certChallengePeriod, certposture.Window,
+	assert.Less(t, 2*certChallengePeriod(), certposture.EffectiveWindow(),
 		"a missed refresh must still leave the peer's nonce valid, with margin")
+}
+
+func TestCertChallengeTick_FollowsTheWindow(t *testing.T) {
+	// An end-to-end test shortens the challenge window to watch a renewal happen. The
+	// tick has to come down with it, or the refresher would still be looking for due
+	// accounts every quarter of an hour and never renew anything in time.
+	short := certChallengeTick(30 * time.Second)
+	assert.Less(t, short, 30*time.Second, "the tick must be shorter than the period it serves")
+	assert.GreaterOrEqual(t, short, minCertChallengeTick, "the tick must not spin")
+
+	assert.Equal(t, maxCertChallengeTick, certChallengeTick(24*time.Hour),
+		"a long period must not stretch the tick without bound")
+	assert.Equal(t, minCertChallengeTick, certChallengeTick(time.Millisecond),
+		"a tiny period must not drive the tick below its floor")
 }
 
 func TestCertChallengeRefresher_SpreadsAccountsOverThePeriod(t *testing.T) {
@@ -85,9 +99,9 @@ func TestCertChallengeRefresher_SpreadsAccountsOverThePeriod(t *testing.T) {
 }
 
 func TestCertChallengeOffset_IsStablePerAccount(t *testing.T) {
-	assert.Equal(t, offsetWithin("account-a", certChallengePeriod), offsetWithin("account-a", certChallengePeriod),
+	assert.Equal(t, offsetWithin("account-a", certChallengePeriod()), offsetWithin("account-a", certChallengePeriod()),
 		"the same account must keep its slot across restarts")
-	assert.NotEqual(t, offsetWithin("account-a", certChallengePeriod), offsetWithin("account-b", certChallengePeriod),
+	assert.NotEqual(t, offsetWithin("account-a", certChallengePeriod()), offsetWithin("account-b", certChallengePeriod()),
 		"two accounts must not share a slot")
 }
 
@@ -124,7 +138,7 @@ func TestCertChallengeRefresher_TrackIsIdempotent(t *testing.T) {
 	r.Track(context.Background(), "account-a")
 	first := r.due["account-a"]
 
-	clock.Advance(certChallengePeriod)
+	clock.Advance(certChallengePeriod())
 	r.Track(context.Background(), "account-a")
 
 	assert.Equal(t, first, r.due["account-a"], "re-tracking must not push the next run further out")
