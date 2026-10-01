@@ -25,6 +25,12 @@ const (
 	EnvDisableCompression    = "NB_PROXY_DISABLE_COMPRESSION"
 	EnvMaxInflight           = "NB_PROXY_MAX_INFLIGHT"
 	EnvUpstreamHTTPVersion   = "NB_PROXY_UPSTREAM_HTTP_VERSION"
+	// EnvDirectUpstreamBlockPrivate refuses direct-upstream dials to
+	// addresses that are not globally reachable (loopback, private,
+	// link-local, CGNAT, ...). Off by default: private and self-hosted
+	// proxies use direct_upstream to reach LAN and localhost services.
+	// Proxies that serve untrusted accounts must turn it on.
+	EnvDirectUpstreamBlockPrivate = "NB_PROXY_DIRECT_UPSTREAM_BLOCK_PRIVATE"
 )
 
 // upstreamHTTPVersion selects the HTTP version the proxy uses towards an
@@ -69,6 +75,9 @@ type transportConfig struct {
 	// explicit values are for backends whose advertised h2 support is
 	// unusable and whose failure mode the negotiation cannot see.
 	upstreamHTTPVersion upstreamHTTPVersion
+	// blockPrivateUpstreams guards the direct branches' dialer with
+	// guardUpstreamDial. It has no effect on the embedded branch.
+	blockPrivateUpstreams bool
 }
 
 func defaultTransportConfig() transportConfig {
@@ -122,6 +131,9 @@ func loadTransportConfig(logger *log.Logger) transportConfig {
 	if v, ok := envUpstreamHTTPVersion(EnvUpstreamHTTPVersion, logger); ok {
 		cfg.upstreamHTTPVersion = v
 	}
+	if v, ok := envBool(EnvDirectUpstreamBlockPrivate, logger); ok {
+		cfg.blockPrivateUpstreams = v
+	}
 
 	logger.WithFields(log.Fields{
 		"max_idle_conns":          cfg.maxIdleConns,
@@ -136,6 +148,7 @@ func loadTransportConfig(logger *log.Logger) transportConfig {
 		"disable_compression":     cfg.disableCompression,
 		"max_inflight":            cfg.maxInflight,
 		"upstream_http_version":   cfg.upstreamHTTPVersion,
+		"block_private_upstreams": cfg.blockPrivateUpstreams,
 	}).Debug("backend transport configuration")
 
 	return cfg
