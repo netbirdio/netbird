@@ -34,6 +34,8 @@ type Domain struct {
 	SupportsCrowdSec *bool `gorm:"-"`
 	// SupportsPrivate is populated at query time from proxy cluster capabilities. Not persisted.
 	SupportsPrivate *bool `gorm:"-"`
+	// SupportsTargetAccessControl is populated from active proxies, not persisted.
+	SupportsTargetAccessControl *bool `gorm:"-"`
 }
 
 // EventMeta returns activity event metadata for a domain

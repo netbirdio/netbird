@@ -62,15 +62,163 @@ func TestValidate_InvalidTargetType(t *testing.T) {
 
 func TestValidate_ResourceTarget(t *testing.T) {
 	rp := validProxy()
+	resourcePath := "/resource"
 	rp.Targets = append(rp.Targets, &Target{
 		TargetId:   "resource-1",
 		TargetType: TargetTypeHost,
+		Path:       &resourcePath,
 		Host:       "example.org",
 		Port:       443,
 		Protocol:   "https",
 		Enabled:    true,
 	})
 	require.NoError(t, rp.Validate())
+}
+
+func TestValidateTargetAccessAction(t *testing.T) {
+	t.Run("valid actions", func(t *testing.T) {
+		for _, action := range []TargetAccessAction{
+			TargetAccessActionInherit,
+			TargetAccessActionBypass,
+			TargetAccessActionBlock,
+		} {
+			rp := validProxy()
+			rp.Targets[0].AccessAction = action
+			require.NoError(t, rp.Validate(), "action %q should be valid", action)
+		}
+	})
+
+	t.Run("unknown action", func(t *testing.T) {
+		rp := validProxy()
+		rp.Targets[0].AccessAction = "allow"
+		assert.ErrorContains(t, rp.Validate(), `unknown access_action "allow"`)
+	})
+
+	t.Run("explicit empty action", func(t *testing.T) {
+		rp := validProxy()
+		rp.Targets[0].AccessActionProvided = true
+		assert.ErrorContains(t, rp.Validate(), `unknown access_action ""`)
+	})
+
+	t.Run("private bypass", func(t *testing.T) {
+		rp := validProxy()
+		rp.Private = true
+		rp.AccessGroups = []string{"group-1"}
+		rp.Targets[0].AccessAction = TargetAccessActionBypass
+		assert.ErrorContains(t, rp.Validate(), "not supported for private services")
+	})
+
+	t.Run("Agent Network bypass", func(t *testing.T) {
+		rp := validProxy()
+		rp.Targets[0].AccessAction = TargetAccessActionBypass
+		rp.Targets[0].Options.AgentNetwork = true
+		assert.ErrorContains(t, rp.Validate(), "not supported for Agent Network targets")
+	})
+
+	t.Run("block remains available to private services", func(t *testing.T) {
+		rp := validProxy()
+		rp.Private = true
+		rp.AccessGroups = []string{"group-1"}
+		rp.Targets[0].AccessAction = TargetAccessActionBlock
+		require.NoError(t, rp.Validate())
+	})
+
+	t.Run("non HTTP service", func(t *testing.T) {
+		rp := validProxy()
+		rp.Mode = ModeTCP
+		rp.ListenPort = 8080
+		rp.Targets[0].Protocol = TargetProtoTCP
+		rp.Targets[0].AccessAction = TargetAccessActionBlock
+		assert.ErrorContains(t, rp.Validate(), "only supported for HTTP services")
+	})
+
+	t.Run("nil non HTTP target", func(t *testing.T) {
+		rp := validProxy()
+		rp.Mode = ModeTCP
+		rp.ListenPort = 8080
+		rp.Targets[0] = nil
+		assert.ErrorContains(t, rp.Validate(), "target 0 is nil")
+	})
+}
+
+func TestValidateTargetAccessActionPath(t *testing.T) {
+	for _, value := range []string{"api", "/api/../admin", "/api/./admin", "/api//admin", "/api%2Fadmin", `/api\admin`, "/api?x=1", "/api#fragment", "/api;admin", "/api/\x00"} {
+		t.Run(fmt.Sprintf("path_%q", value), func(t *testing.T) {
+			rp := validProxy()
+			rp.Targets[0].Path = &value
+			rp.Targets[0].AccessAction = TargetAccessActionBypass
+			assert.ErrorContains(t, rp.Validate(), "access_action path")
+		})
+	}
+
+	t.Run("nil path is canonical root", func(t *testing.T) {
+		rp := validProxy()
+		rp.Targets[0].AccessAction = TargetAccessActionBlock
+		require.NoError(t, rp.Validate())
+	})
+
+	t.Run("empty path is legacy root", func(t *testing.T) {
+		value := ""
+		rp := validProxy()
+		rp.Targets[0].Path = &value
+		rp.Targets[0].AccessAction = TargetAccessActionBlock
+		require.NoError(t, rp.Validate())
+	})
+
+	t.Run("trailing slash is a distinct valid prefix", func(t *testing.T) {
+		value := "/api/"
+		rp := validProxy()
+		rp.Targets[0].Path = &value
+		rp.Targets[0].AccessAction = TargetAccessActionBypass
+		require.NoError(t, rp.Validate())
+	})
+}
+
+func TestValidateDuplicateEnabledTargetPaths(t *testing.T) {
+	for _, secondPath := range []*string{nil, func() *string { v := ""; return &v }(), func() *string { v := "/"; return &v }()} {
+		rp := validProxy()
+		rp.Targets = append(rp.Targets, &Target{
+			TargetId:   "peer-2",
+			TargetType: TargetTypePeer,
+			Path:       secondPath,
+			Host:       "10.0.0.2",
+			Port:       80,
+			Protocol:   TargetProtoHTTP,
+			Enabled:    true,
+		})
+		assert.ErrorContains(t, rp.Validate(), `duplicate path "/"`)
+	}
+
+	t.Run("disabled target does not collide", func(t *testing.T) {
+		rp := validProxy()
+		rp.Targets = append(rp.Targets, &Target{
+			TargetId:   "peer-2",
+			TargetType: TargetTypePeer,
+			Host:       "10.0.0.2",
+			Port:       80,
+			Protocol:   TargetProtoHTTP,
+			Enabled:    false,
+		})
+		require.NoError(t, rp.Validate())
+	})
+
+	t.Run("trailing slash remains distinct", func(t *testing.T) {
+		apiPath := "/api"
+		apiSlashPath := "/api/"
+		rp := validProxy()
+		rp.Targets[0].Path = &apiPath
+		rp.Targets = append(rp.Targets, &Target{
+			TargetId:     "peer-2",
+			TargetType:   TargetTypePeer,
+			Path:         &apiSlashPath,
+			Host:         "10.0.0.2",
+			Port:         80,
+			Protocol:     TargetProtoHTTP,
+			Enabled:      true,
+			AccessAction: TargetAccessActionBlock,
+		})
+		require.NoError(t, rp.Validate())
+	})
 }
 
 func TestValidate_MultipleTargetsOneInvalid(t *testing.T) {
@@ -306,6 +454,90 @@ func TestToProtoMapping_TargetOptions(t *testing.T) {
 	assert.Equal(t, map[string]string{"X-Custom": "val"}, opts.CustomHeaders)
 	require.NotNil(t, opts.RequestTimeout)
 	assert.Equal(t, int64(30), opts.RequestTimeout.Seconds)
+}
+
+func TestTargetAccessActionConversions(t *testing.T) {
+	t.Run("API presence", func(t *testing.T) {
+		bypass := api.ServiceTargetAccessActionBypass
+		empty := api.ServiceTargetAccessAction("")
+		apiTargets := []api.ServiceTarget{
+			{
+				TargetId:   "peer-1",
+				TargetType: api.ServiceTargetTargetTypePeer,
+				Protocol:   api.ServiceTargetProtocolHttp,
+				Port:       80,
+				Enabled:    true,
+			},
+			{
+				TargetId:     "peer-2",
+				TargetType:   api.ServiceTargetTargetTypePeer,
+				Protocol:     api.ServiceTargetProtocolHttp,
+				Port:         80,
+				Enabled:      true,
+				AccessAction: &bypass,
+			},
+			{
+				TargetId:     "peer-3",
+				TargetType:   api.ServiceTargetTargetTypePeer,
+				Protocol:     api.ServiceTargetProtocolHttp,
+				Port:         80,
+				Enabled:      true,
+				AccessAction: &empty,
+			},
+		}
+
+		targets, err := targetsFromAPI("account-1", &apiTargets)
+		require.NoError(t, err)
+		require.Len(t, targets, 3)
+		assert.Equal(t, TargetAccessActionInherit, targets[0].AccessAction)
+		assert.False(t, targets[0].AccessActionProvided)
+		assert.Equal(t, TargetAccessActionBypass, targets[1].AccessAction)
+		assert.True(t, targets[1].AccessActionProvided)
+		assert.Empty(t, targets[2].AccessAction)
+		assert.True(t, targets[2].AccessActionProvided)
+
+		rp := &Service{Name: "test", Domain: "example.com", Targets: []*Target{targets[2]}}
+		assert.ErrorContains(t, rp.Validate(), `unknown access_action ""`)
+	})
+
+	t.Run("API response", func(t *testing.T) {
+		rp := validProxy()
+		rp.Targets[0].AccessAction = TargetAccessActionBlock
+		response := rp.ToAPIResponse()
+		require.Len(t, response.Targets, 1)
+		require.NotNil(t, response.Targets[0].AccessAction)
+		assert.Equal(t, api.ServiceTargetAccessActionBlock, *response.Targets[0].AccessAction)
+	})
+
+	t.Run("proto mapping", func(t *testing.T) {
+		root := "/"
+		bypassPath := "/bypass"
+		blockPath := "/block"
+		rp := &Service{
+			ID:        "svc-1",
+			AccountID: "acc-1",
+			Domain:    "example.com",
+			Targets: []*Target{
+				{Path: &root, Host: "10.0.0.1", Port: 80, Protocol: TargetProtoHTTP, Enabled: true},
+				{Path: &bypassPath, Host: "10.0.0.1", Port: 80, Protocol: TargetProtoHTTP, Enabled: true, AccessAction: TargetAccessActionBypass},
+				{Path: &blockPath, Host: "10.0.0.1", Port: 80, Protocol: TargetProtoHTTP, Enabled: true, AccessAction: TargetAccessActionBlock},
+			},
+		}
+
+		mapping := rp.ToProtoMapping(Create, "token", proxy.OIDCValidationConfig{})
+		require.Len(t, mapping.Path, 3)
+		assert.Equal(t, proto.TargetAccessAction_TARGET_ACCESS_ACTION_INHERIT, mapping.Path[0].GetAccessAction())
+		assert.Equal(t, proto.TargetAccessAction_TARGET_ACCESS_ACTION_BYPASS, mapping.Path[1].GetAccessAction())
+		assert.Equal(t, proto.TargetAccessAction_TARGET_ACCESS_ACTION_BLOCK, mapping.Path[2].GetAccessAction())
+	})
+}
+
+func TestHasTargetAccessControl(t *testing.T) {
+	rp := validProxy()
+	assert.False(t, rp.HasTargetAccessControl())
+
+	rp.Targets[0].AccessAction = TargetAccessActionBypass
+	assert.True(t, rp.HasTargetAccessControl())
 }
 
 // TestToProtoMapping_AllowedGroupIds covers the list the proxy gates session

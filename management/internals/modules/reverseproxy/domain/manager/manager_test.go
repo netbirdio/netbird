@@ -51,6 +51,10 @@ func (m *mockProxyManager) ClusterSupportsPrivate(_ context.Context, _ string) *
 	return nil
 }
 
+func (m *mockProxyManager) ClusterSupportsTargetAccessControl(_ context.Context, _ string) *bool {
+	return nil
+}
+
 func TestGetClusterAllowList_BYOPMergedWithPublic(t *testing.T) {
 	pm := &mockProxyManager{
 		getActiveClusterAddressesForAccountFunc: func(_ context.Context, accID string) ([]string, error) {

@@ -246,6 +246,11 @@ func (m *testProxyManager) ClusterSupportsPrivate(_ context.Context, _ string) *
 	return nil
 }
 
+func (m *testProxyManager) ClusterSupportsTargetAccessControl(_ context.Context, _ string) *bool {
+	supported := true
+	return &supported
+}
+
 func (m *testProxyManager) ClusterSupportsSessionCode(_ context.Context, _ string) bool {
 	return m.supportsSessionCode
 }

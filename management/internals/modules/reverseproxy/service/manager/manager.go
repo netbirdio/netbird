@@ -84,6 +84,7 @@ type CapabilityProvider interface {
 	ClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
 	ClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
 	ClusterSupportsPrivate(ctx context.Context, clusterAddr string) *bool
+	ClusterSupportsTargetAccessControl(ctx context.Context, clusterAddr string) *bool
 }
 
 type Manager struct {
@@ -139,6 +140,7 @@ func (m *Manager) GetClusters(ctx context.Context, accountID, userID string) ([]
 		clusters[i].RequireSubdomain = m.capabilities.ClusterRequireSubdomain(ctx, clusters[i].Address)
 		clusters[i].SupportsCrowdSec = m.capabilities.ClusterSupportsCrowdSec(ctx, clusters[i].Address)
 		clusters[i].Private = m.capabilities.ClusterSupportsPrivate(ctx, clusters[i].Address)
+		clusters[i].SupportsTargetAccessControl = m.capabilities.ClusterSupportsTargetAccessControl(ctx, clusters[i].Address)
 	}
 
 	return clusters, nil
@@ -333,6 +335,9 @@ func (m *Manager) persistNewService(ctx context.Context, accountID string, svc *
 	}
 
 	return m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		if err := validateTargetAccessControl(ctx, transaction, svc); err != nil {
+			return err
+		}
 		if err := m.validateServiceDomain(ctx, transaction, accountID, svc, svc.ProxyCluster); err != nil {
 			return err
 		}
@@ -657,6 +662,12 @@ func (m *Manager) executeServiceUpdate(ctx context.Context, transaction store.St
 	}
 
 	m.preserveExistingAuthSecrets(service, existingService)
+	if err := preserveTargetAccessActions(service, existingService); err != nil {
+		return err
+	}
+	if err := validateTargetAccessControl(ctx, transaction, service); err != nil {
+		return err
+	}
 	if err := validateHeaderAuthValues(service.Auth.HeaderAuths); err != nil {
 		return err
 	}
@@ -692,6 +703,76 @@ func (m *Manager) validateServiceDomain(ctx context.Context, tx store.Store, acc
 		return nil
 	}
 	return m.clusterDeriver.ValidateServiceDomain(ctx, tx, accountID, svc.Domain, cluster)
+}
+
+func validateTargetAccessControl(ctx context.Context, tx store.Store, svc *service.Service) error {
+	if !svc.HasTargetAccessControl() {
+		return nil
+	}
+	// Legacy requests may acquire an existing action during the update merge.
+	if err := svc.Validate(); err != nil {
+		return status.Errorf(status.InvalidArgument, "%s", err)
+	}
+	if !svc.Enabled {
+		return nil
+	}
+	supported := tx.GetClusterSupportsTargetAccessControl(ctx, svc.ProxyCluster)
+	if supported == nil || !*supported {
+		return status.Errorf(status.PreconditionFailed,
+			"all active proxies in the cluster must support target access control")
+	}
+	return nil
+}
+
+func preserveTargetAccessActions(updated, existing *service.Service) error {
+	if !existing.HasTargetAccessControl() {
+		return nil
+	}
+	if slices.ContainsFunc(updated.Targets, func(target *service.Target) bool {
+		return target == nil
+	}) {
+		return status.Errorf(status.InvalidArgument, "target must not be nil")
+	}
+	if len(updated.Targets) > 0 && !slices.ContainsFunc(updated.Targets, func(target *service.Target) bool {
+		return !target.AccessActionProvided
+	}) {
+		return nil
+	}
+	byPath := make(map[string]*service.Target, len(existing.Targets))
+	for _, target := range existing.Targets {
+		location := effectiveTargetPath(target)
+		if _, duplicate := byPath[location]; duplicate {
+			return status.Errorf(status.InvalidArgument,
+				"cannot preserve target access control for duplicate location %q", location)
+		}
+		byPath[location] = target
+	}
+	actionsProvided := false
+	for _, target := range updated.Targets {
+		actionsProvided = actionsProvided || target.AccessActionProvided
+		location := effectiveTargetPath(target)
+		if previous := byPath[location]; previous != nil && !target.AccessActionProvided {
+			target.AccessAction = previous.AccessAction
+		}
+		delete(byPath, location)
+	}
+	if actionsProvided {
+		return nil
+	}
+	for location, target := range byPath {
+		if target.AccessAction != "" && target.AccessAction != service.TargetAccessActionInherit {
+			return status.Errorf(status.InvalidArgument,
+				"include access_action when removing or changing controlled target location %q", location)
+		}
+	}
+	return nil
+}
+
+func effectiveTargetPath(target *service.Target) string {
+	if target.Path == nil || *target.Path == "" {
+		return "/"
+	}
+	return *target.Path
 }
 
 // validateL4PortDiffOnClusterDiff checks if custom L4 ports are configured and validates port changes across clusters.

@@ -196,15 +196,16 @@ func (h *handler) getClusters(w http.ResponseWriter, r *http.Request) {
 	apiClusters := make([]api.ProxyCluster, 0, len(clusters))
 	for _, c := range clusters {
 		apiClusters = append(apiClusters, api.ProxyCluster{
-			Id:                  c.ID,
-			Address:             c.Address,
-			Type:                api.ProxyClusterType(c.Type),
-			Online:              c.Online,
-			ConnectedProxies:    c.ConnectedProxies,
-			SupportsCustomPorts: c.SupportsCustomPorts,
-			RequireSubdomain:    c.RequireSubdomain,
-			SupportsCrowdsec:    c.SupportsCrowdSec,
-			Private:             c.Private,
+			Id:                          c.ID,
+			Address:                     c.Address,
+			Type:                        api.ProxyClusterType(c.Type),
+			Online:                      c.Online,
+			ConnectedProxies:            c.ConnectedProxies,
+			SupportsCustomPorts:         c.SupportsCustomPorts,
+			RequireSubdomain:            c.RequireSubdomain,
+			SupportsCrowdsec:            c.SupportsCrowdSec,
+			SupportsTargetAccessControl: c.SupportsTargetAccessControl,
+			Private:                     c.Private,
 		})
 	}
 

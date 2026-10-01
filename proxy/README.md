@@ -33,6 +33,43 @@ If any authentication methods are registered for the Host domain, then the Proxy
 If the user is successfully authenticated, their request will be forwarded through to the Proxy to be proxied to the relevant Peer.
 Successful authentication does not guarantee a successful forwarding of the request as there may be failures behind the Proxy, such as with Peer connectivity or the underlying resource.
 
+### Target access control
+
+HTTP targets have an optional `access_action` setting, configured under
+**Edit Target → Optional Settings → Access** in the dashboard:
+
+| Value | Behavior |
+| --- | --- |
+| `inherit` | Use the service's authentication settings. This is the default. A service without authentication remains public. |
+| `bypass` | Forward anonymously without prompting for service authentication. |
+| `block` | Return HTTP 403, including for authenticated users. |
+
+The longest matching Location prefix selects both the target and its access
+action. Prefixes are literal and case-sensitive: `/api` also matches `/apiv2`,
+while `/api/` only matches requests beginning with `/api/` and does not match
+`/api` itself. Wildcards and regular expressions are not supported. A blocked
+request or failed authentication never falls through to another target. Disabling
+or deleting a target removes its rule, so a less-specific target may then match.
+
+Service IP, country, and reputation restrictions still apply to bypassed paths.
+Bypass is unavailable for private services and Agent Network targets. Bypassed
+requests have no NetBird user identity; configured header-auth credentials,
+NetBird session cookies, and client-supplied NetBird identity headers are still
+removed before forwarding. Custom upstream headers remain target settings, so
+consider their effect when making a target public.
+
+Services using target access overrides reject ambiguous request paths, including
+encoded separators and traversal segments, before forwarding. Path rewriting
+continues to use the selected Location prefix after access checks.
+
+All active proxies in a cluster must advertise target access control support
+before an override can be enabled. An older proxy cannot receive a service whose
+target actions it cannot enforce. API updates that omit an existing Location's
+`access_action` preserve its setting; send `"access_action": "inherit"` explicitly
+to restore service authentication. Requests omitting all access actions cannot
+remove or rename a controlled Location; use an updated client and explicitly
+include the intended actions when changing those targets.
+
 ## TLS
 
 Due to the authentication provided, the Proxy uses HTTPS for its endpoint, even if the underlying service is HTTP.

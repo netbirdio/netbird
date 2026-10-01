@@ -73,6 +73,8 @@ message ProxyCapabilities {
   optional bool private = 4;
   // Whether the proxy enforces ProxyMapping.private (fails closed on ValidateTunnelPeer failure). Management MUST NOT stream private mappings to proxies that don't claim this.
   optional bool supports_private_service = 5;
+  // Whether the proxy enforces per-target access actions on PathMapping.
+  optional bool supports_target_access_control = 6;
 }
 
 // GetMappingUpdateRequest is sent to initialise a mapping stream.
@@ -103,6 +105,12 @@ enum ProxyMappingUpdateType {
 enum PathRewriteMode {
   PATH_REWRITE_DEFAULT = 0;
   PATH_REWRITE_PRESERVE = 1;
+}
+
+enum TargetAccessAction {
+  TARGET_ACCESS_ACTION_INHERIT = 0;
+  TARGET_ACCESS_ACTION_BYPASS = 1;
+  TARGET_ACCESS_ACTION_BLOCK = 2;
 }
 
 message PathTargetOptions {
@@ -178,6 +186,7 @@ message PathMapping {
   string path = 1;
   string target = 2;
   PathTargetOptions options = 3;
+  TargetAccessAction access_action = 4;
 }
 
 message HeaderAuth {

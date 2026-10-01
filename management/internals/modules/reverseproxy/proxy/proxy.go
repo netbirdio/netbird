@@ -23,6 +23,8 @@ type Capabilities struct {
 	RequireSubdomain *bool
 	// SupportsCrowdsec indicates whether this proxy has CrowdSec configured.
 	SupportsCrowdsec *bool
+	// SupportsTargetAccessControl indicates whether target access actions are enforced.
+	SupportsTargetAccessControl *bool
 	// Private indicates whether this proxy supports inbound access via Wireguard
 	// tunnel and netbird-only authentication policies
 	Private *bool
@@ -75,8 +77,9 @@ type Cluster struct {
 	Online           bool
 	ConnectedProxies int
 	// *bool: nil = no proxy reported the capability; the dashboard renders that as unknown.
-	SupportsCustomPorts *bool
-	RequireSubdomain    *bool
-	SupportsCrowdSec    *bool
-	Private             *bool
+	SupportsCustomPorts         *bool
+	RequireSubdomain            *bool
+	SupportsCrowdSec            *bool
+	SupportsTargetAccessControl *bool
+	Private                     *bool
 }

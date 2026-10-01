@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/rs/xid"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -36,6 +38,7 @@ const (
 
 type Status string
 type TargetType string
+type TargetAccessAction string
 
 const (
 	StatusPending            Status = "pending"
@@ -50,6 +53,10 @@ const (
 	TargetTypeDomain  TargetType = "domain"
 	TargetTypeSubnet  TargetType = "subnet"
 	TargetTypeCluster TargetType = "cluster"
+
+	TargetAccessActionInherit TargetAccessAction = "inherit"
+	TargetAccessActionBypass  TargetAccessAction = "bypass"
+	TargetAccessActionBlock   TargetAccessAction = "block"
 
 	SourcePermanent = "permanent"
 	SourceEphemeral = "ephemeral"
@@ -116,18 +123,20 @@ type MiddlewareConfig struct {
 }
 
 type Target struct {
-	ID            uint          `gorm:"primaryKey" json:"-"`
-	AccountID     string        `gorm:"index:idx_target_account;not null" json:"-"`
-	ServiceID     string        `gorm:"index:idx_service_targets;not null" json:"-"`
-	Path          *string       `json:"path,omitempty"`
-	Host          string        `json:"host"`
-	Port          uint16        `gorm:"index:idx_target_port" json:"port"`
-	Protocol      string        `gorm:"index:idx_target_protocol" json:"protocol"`
-	TargetId      string        `gorm:"index:idx_target_id" json:"target_id"`
-	TargetType    TargetType    `gorm:"index:idx_target_type" json:"target_type"`
-	Enabled       bool          `gorm:"index:idx_target_enabled" json:"enabled"`
-	Options       TargetOptions `gorm:"embedded" json:"options"`
-	ProxyProtocol bool          `json:"proxy_protocol"`
+	ID                   uint               `gorm:"primaryKey" json:"-"`
+	AccountID            string             `gorm:"index:idx_target_account;not null" json:"-"`
+	ServiceID            string             `gorm:"index:idx_service_targets;not null" json:"-"`
+	Path                 *string            `json:"path,omitempty"`
+	Host                 string             `json:"host"`
+	Port                 uint16             `gorm:"index:idx_target_port" json:"port"`
+	Protocol             string             `gorm:"index:idx_target_protocol" json:"protocol"`
+	TargetId             string             `gorm:"index:idx_target_id" json:"target_id"`
+	TargetType           TargetType         `gorm:"index:idx_target_type" json:"target_type"`
+	Enabled              bool               `gorm:"index:idx_target_enabled" json:"enabled"`
+	AccessAction         TargetAccessAction `gorm:"type:varchar(16);not null;default:'inherit'" json:"access_action"`
+	AccessActionProvided bool               `gorm:"-" json:"-"`
+	Options              TargetOptions      `gorm:"embedded" json:"options"`
+	ProxyProtocol        bool               `json:"proxy_protocol"`
 }
 
 type PasswordAuthConfig struct {
@@ -309,14 +318,16 @@ func (s *Service) ToAPIResponse() *api.Service {
 	// Convert internal targets to API targets
 	apiTargets := make([]api.ServiceTarget, 0, len(s.Targets))
 	for _, target := range s.Targets {
+		accessAction := api.ServiceTargetAccessAction(target.effectiveAccessAction())
 		st := api.ServiceTarget{
-			Path:       target.Path,
-			Host:       &target.Host,
-			Port:       int(target.Port),
-			Protocol:   api.ServiceTargetProtocol(target.Protocol),
-			TargetId:   target.TargetId,
-			TargetType: api.ServiceTargetTargetType(target.TargetType),
-			Enabled:    target.Enabled && !s.Terminated,
+			Path:         target.Path,
+			Host:         &target.Host,
+			Port:         int(target.Port),
+			Protocol:     api.ServiceTargetProtocol(target.Protocol),
+			TargetId:     target.TargetId,
+			TargetType:   api.ServiceTargetTargetType(target.TargetType),
+			Enabled:      target.Enabled && !s.Terminated,
+			AccessAction: &accessAction,
 		}
 		opts := targetOptionsToAPI(target.Options)
 		if opts == nil {
@@ -463,8 +474,9 @@ func (s *Service) buildPathMappings() []*proto.PathMapping {
 		}
 
 		pm := &proto.PathMapping{
-			Path:   path,
-			Target: targetURL.String(),
+			Path:         path,
+			Target:       targetURL.String(),
+			AccessAction: targetAccessActionToProto(target.effectiveAccessAction()),
 		}
 		pm.Options = targetOptionsToProto(target.Options)
 		pathMappings = append(pathMappings, pm)
@@ -518,6 +530,36 @@ func pathRewriteToProto(mode PathRewriteMode) proto.PathRewriteMode {
 	default:
 		return proto.PathRewriteMode_PATH_REWRITE_DEFAULT
 	}
+}
+
+func (t *Target) effectiveAccessAction() TargetAccessAction {
+	if t.AccessAction == "" {
+		return TargetAccessActionInherit
+	}
+	return t.AccessAction
+}
+
+func targetAccessActionToProto(action TargetAccessAction) proto.TargetAccessAction {
+	switch action {
+	case TargetAccessActionInherit:
+		return proto.TargetAccessAction_TARGET_ACCESS_ACTION_INHERIT
+	case TargetAccessActionBypass:
+		return proto.TargetAccessAction_TARGET_ACCESS_ACTION_BYPASS
+	case TargetAccessActionBlock:
+		return proto.TargetAccessAction_TARGET_ACCESS_ACTION_BLOCK
+	default:
+		return proto.TargetAccessAction_TARGET_ACCESS_ACTION_BLOCK
+	}
+}
+
+// HasTargetAccessControl reports whether any target overrides service authentication.
+func (s *Service) HasTargetAccessControl() bool {
+	for _, target := range s.Targets {
+		if target != nil && target.effectiveAccessAction() != TargetAccessActionInherit {
+			return true
+		}
+	}
+	return false
 }
 
 func targetOptionsToAPI(opts TargetOptions) *api.ServiceTargetOptions {
@@ -727,13 +769,18 @@ func targetsFromAPI(accountID string, apiTargetsPtr *[]api.ServiceTarget) ([]*Ta
 	targets := make([]*Target, 0, len(apiTargets))
 	for i, apiTarget := range apiTargets {
 		target := &Target{
-			AccountID:  accountID,
-			Path:       apiTarget.Path,
-			Port:       uint16(apiTarget.Port), //nolint:gosec // validated by API layer
-			Protocol:   string(apiTarget.Protocol),
-			TargetId:   apiTarget.TargetId,
-			TargetType: TargetType(apiTarget.TargetType),
-			Enabled:    apiTarget.Enabled,
+			AccountID:    accountID,
+			Path:         apiTarget.Path,
+			Port:         uint16(apiTarget.Port), //nolint:gosec // validated by API layer
+			Protocol:     string(apiTarget.Protocol),
+			TargetId:     apiTarget.TargetId,
+			TargetType:   TargetType(apiTarget.TargetType),
+			Enabled:      apiTarget.Enabled,
+			AccessAction: TargetAccessActionInherit,
+		}
+		if apiTarget.AccessAction != nil {
+			target.AccessAction = TargetAccessAction(*apiTarget.AccessAction)
+			target.AccessActionProvided = true
 		}
 		if apiTarget.Host != nil {
 			target.Host = *apiTarget.Host
@@ -953,7 +1000,14 @@ func (s *Service) validateTLSMode() error {
 }
 
 func (s *Service) validateHTTPTargets() error {
+	paths := make(map[string]int, len(s.Targets))
 	for i, target := range s.Targets {
+		if target == nil {
+			return fmt.Errorf("target %d is nil", i)
+		}
+		if err := validateTargetAccessAction(i, target, s.Private); err != nil {
+			return err
+		}
 		switch target.TargetType {
 		case TargetTypePeer, TargetTypeHost, TargetTypeDomain:
 			// Host is normally overwritten by replaceHostByLookup with the
@@ -982,6 +1036,13 @@ func (s *Service) validateHTTPTargets() error {
 		}
 		if err := validateTargetOptions(i, &target.Options); err != nil {
 			return err
+		}
+		if target.Enabled {
+			normalizedPath := normalizedTargetPath(target.Path)
+			if previous, ok := paths[normalizedPath]; ok {
+				return fmt.Errorf("targets %d and %d have duplicate path %q", previous, i, normalizedPath)
+			}
+			paths[normalizedPath] = i
 		}
 	}
 
@@ -1063,10 +1124,20 @@ func validateDirectUpstreamHost(idx int, target *Target) error {
 }
 
 func (s *Service) validateL4Target(target *Target) error {
+	if target == nil {
+		return errors.New("target 0 is nil")
+	}
 	// L4 services have a single target; per-target disable is meaningless
 	// (use the service-level Enabled flag instead). Force it on so that
 	// buildPathMappings always includes the target in the proto.
 	target.Enabled = true
+	action, err := validatedTargetAccessAction(0, target)
+	if err != nil {
+		return err
+	}
+	if action != TargetAccessActionInherit {
+		return errors.New("access_action is only supported for HTTP services")
+	}
 
 	if target.TargetId == "" {
 		return errors.New("target_id is required for L4 services")
@@ -1110,6 +1181,72 @@ func (s *Service) validateL4Target(target *Target) error {
 	}
 	if len(target.Options.CustomHeaders) > 0 {
 		return errors.New("custom_headers is not supported for L4 services")
+	}
+	return nil
+}
+
+func validateTargetAccessAction(idx int, target *Target, private bool) error {
+	action, err := validatedTargetAccessAction(idx, target)
+	if err != nil {
+		return err
+	}
+	if action == TargetAccessActionBypass {
+		if private {
+			return fmt.Errorf("target %d: bypass access_action is not supported for private services", idx)
+		}
+		if target.Options.AgentNetwork {
+			return fmt.Errorf("target %d: bypass access_action is not supported for Agent Network targets", idx)
+		}
+	}
+
+	if action == TargetAccessActionInherit {
+		return nil
+	}
+	return validateAccessActionPath(idx, target.Path)
+}
+
+func validatedTargetAccessAction(idx int, target *Target) (TargetAccessAction, error) {
+	if target.AccessActionProvided && target.AccessAction == "" {
+		return "", fmt.Errorf("target %d: unknown access_action %q", idx, target.AccessAction)
+	}
+	action := target.effectiveAccessAction()
+	switch action {
+	case TargetAccessActionInherit, TargetAccessActionBypass, TargetAccessActionBlock:
+		return action, nil
+	default:
+		return "", fmt.Errorf("target %d: unknown access_action %q", idx, target.AccessAction)
+	}
+}
+
+func normalizedTargetPath(configured *string) string {
+	if configured == nil || *configured == "" {
+		return "/"
+	}
+	return *configured
+}
+
+func validateAccessActionPath(idx int, configured *string) error {
+	if configured == nil {
+		return nil
+	}
+	value := *configured
+	if value == "" {
+		return nil
+	}
+	if !strings.HasPrefix(value, "/") {
+		return fmt.Errorf("target %d: access_action path %q must start with /", idx, value)
+	}
+	if !utf8.ValidString(value) || strings.ContainsAny(value, "%\\?#;") || strings.IndexFunc(value, unicode.IsControl) >= 0 {
+		return fmt.Errorf("target %d: access_action path %q contains invalid characters", idx, value)
+	}
+	segments := strings.Split(strings.TrimPrefix(value, "/"), "/")
+	for i, segment := range segments {
+		if segment == "." || segment == ".." {
+			return fmt.Errorf("target %d: access_action path %q is not canonical", idx, value)
+		}
+		if segment == "" && value != "/" && i != len(segments)-1 {
+			return fmt.Errorf("target %d: access_action path %q is not canonical", idx, value)
+		}
 	}
 	return nil
 }

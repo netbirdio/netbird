@@ -82,7 +82,15 @@ func NewReverseProxy(transport http.RoundTripper, forwardedProto string, trusted
 }
 
 func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	result, exists := p.findTargetForRequest(r)
+	resolution, pinned := targetResolutionFromContext(r.Context())
+	result, exists := resolution.result, resolution.matched
+	if !pinned {
+		result, exists = p.findTargetForRequest(r)
+		if result.requirePinned {
+			p.serveProxyUnavailable(w, r)
+			return
+		}
+	}
 	if !exists {
 		p.serveRouteError(w, r, http.StatusNotFound, "Service Not Found",
 			"The requested service could not be found. Please check the URL, try refreshing, or check if the peer is running. If that doesn't work, see our documentation for help.")
@@ -120,11 +128,37 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	chain := p.resolveChain(result)
+	if targetRequiresMiddleware(pt) && (chain == nil || chain.Empty()) {
+		p.serveProxyUnavailable(w, r)
+		return
+	}
 	if chain == nil || chain.Empty() {
 		p.serveDirect(w, r, ctx, result, rewriteMatchedPath)
 		return
 	}
 	p.serveWithChain(w, r, ctx, result, chain, rewriteMatchedPath, capturedData)
+}
+
+func (p *ReverseProxy) serveProxyUnavailable(w http.ResponseWriter, r *http.Request) {
+	if cd := CapturedDataFromContext(r.Context()); cd != nil {
+		cd.SetOrigin(OriginProxyError)
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	web.ServeErrorPage(w, r, http.StatusServiceUnavailable, "Service Unavailable",
+		"The requested service is being updated. Please try again shortly.", getRequestID(r),
+		web.ErrorStatus{Proxy: true, Destination: false})
+}
+
+func targetRequiresMiddleware(target *PathTarget) bool {
+	if target == nil {
+		return false
+	}
+	for _, spec := range target.Middlewares {
+		if spec.Enabled {
+			return true
+		}
+	}
+	return false
 }
 
 // serveRouteError marks the request as un-routed on any captured-data
