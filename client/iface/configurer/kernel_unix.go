@@ -3,10 +3,12 @@
 package configurer
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
 	"slices"
+	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -16,18 +18,38 @@ import (
 	"github.com/netbirdio/netbird/monotime"
 )
 
+var errConfigurerClosed = errors.New("configurer closed")
+
+type wgClient interface {
+	Device(name string) (*wgtypes.Device, error)
+	ConfigureDevice(name string, cfg wgtypes.Config) error
+	Close() error
+}
+
 type KernelConfigurer struct {
-	deviceName string
-	statsCache *statsCache
-	allowedIPs *allowedIPStore
+	deviceName  string
+	statsCache  *statsCache
+	allowedIPs  *allowedIPStore
+	newWgctrlFn func() (wgClient, error)
+
+	clientMu sync.Mutex
+	client   wgClient
+	closed   bool
 }
 
 // NewKernelConfigurer creates a configurer with an empty allowed IP mirror
 // and a statistics cache for the named kernel device.
 func NewKernelConfigurer(deviceName string) *KernelConfigurer {
+	return newKernelConfigurer(deviceName, func() (wgClient, error) {
+		return wgctrl.New()
+	})
+}
+
+func newKernelConfigurer(deviceName string, newWgctrlFn func() (wgClient, error)) *KernelConfigurer {
 	c := &KernelConfigurer{
-		deviceName: deviceName,
-		allowedIPs: newAllowedIPStore(),
+		deviceName:  deviceName,
+		allowedIPs:  newAllowedIPStore(),
+		newWgctrlFn: newWgctrlFn,
 	}
 	c.statsCache = newStatsCache(statsCacheTTL, c.fetchStats)
 	return c
@@ -242,7 +264,7 @@ func (c *KernelConfigurer) peerAllowedIPs(peerKey wgtypes.Key) ([]netip.Prefix, 
 		return prefixes, nil
 	}
 
-	existingPeer, err := c.getPeer(c.deviceName, peerKey)
+	existingPeer, err := c.getPeer(peerKey)
 	if err != nil {
 		return nil, fmt.Errorf("get peer: %w", err)
 	}
@@ -254,21 +276,10 @@ func (c *KernelConfigurer) peerAllowedIPs(peerKey wgtypes.Key) ([]netip.Prefix, 
 
 // getPeer scans the device for one peer. wgtypes.Key is an array, so the comparison is a
 // plain equality: Key.String would base64 encode into a fresh allocation for every peer.
-func (c *KernelConfigurer) getPeer(ifaceName string, peerPubKey wgtypes.Key) (wgtypes.Peer, error) {
-	wg, err := wgctrl.New()
+func (c *KernelConfigurer) getPeer(peerPubKey wgtypes.Key) (wgtypes.Peer, error) {
+	wgDevice, err := c.device()
 	if err != nil {
-		return wgtypes.Peer{}, fmt.Errorf("wgctl: %w", err)
-	}
-	defer func() {
-		err = wg.Close()
-		if err != nil {
-			log.Errorf("Got error while closing wgctl: %v", err)
-		}
-	}()
-
-	wgDevice, err := wg.Device(ifaceName)
-	if err != nil {
-		return wgtypes.Peer{}, fmt.Errorf("get device %s: %w", ifaceName, err)
+		return wgtypes.Peer{}, err
 	}
 	for _, peer := range wgDevice.Peers {
 		if peer.PublicKey == peerPubKey {
@@ -279,37 +290,73 @@ func (c *KernelConfigurer) getPeer(ifaceName string, peerPubKey wgtypes.Key) (wg
 }
 
 func (c *KernelConfigurer) configure(config wgtypes.Config) error {
-	wg, err := wgctrl.New()
+	c.clientMu.Lock()
+	defer c.clientMu.Unlock()
+
+	client, err := c.clientLocked()
 	if err != nil {
 		return err
 	}
-	defer func() {
-		if err := wg.Close(); err != nil {
-			log.Errorf("Failed to close wgctrl client: %v", err)
-		}
-	}()
-
-	return wg.ConfigureDevice(c.deviceName, config)
+	if err := client.ConfigureDevice(c.deviceName, config); err != nil {
+		c.discardLocked()
+		return err
+	}
+	return nil
 }
 
-func (c *KernelConfigurer) Close() {
+func (c *KernelConfigurer) device() (*wgtypes.Device, error) {
+	c.clientMu.Lock()
+	defer c.clientMu.Unlock()
+
+	client, err := c.clientLocked()
+	if err != nil {
+		return nil, err
+	}
+	wgDevice, err := client.Device(c.deviceName)
+	if err != nil {
+		c.discardLocked()
+		return nil, fmt.Errorf("get device %s: %w", c.deviceName, err)
+	}
+	return wgDevice, nil
 }
 
-func (c *KernelConfigurer) FullStats() (*Stats, error) {
-	wg, err := wgctrl.New()
+func (c *KernelConfigurer) clientLocked() (wgClient, error) {
+	if c.closed {
+		return nil, errConfigurerClosed
+	}
+	if c.client != nil {
+		return c.client, nil
+	}
+	client, err := c.newWgctrlFn()
 	if err != nil {
 		return nil, fmt.Errorf("wgctl: %w", err)
 	}
-	defer func() {
-		err = wg.Close()
-		if err != nil {
-			log.Errorf("Got error while closing wgctl: %v", err)
-		}
-	}()
+	c.client = client
+	return client, nil
+}
 
-	wgDevice, err := wg.Device(c.deviceName)
+func (c *KernelConfigurer) discardLocked() {
+	if c.client == nil {
+		return
+	}
+	if err := c.client.Close(); err != nil {
+		log.Debugf("failed to close wgctrl client: %v", err)
+	}
+	c.client = nil
+}
+
+func (c *KernelConfigurer) Close() {
+	c.clientMu.Lock()
+	defer c.clientMu.Unlock()
+
+	c.closed = true
+	c.discardLocked()
+}
+
+func (c *KernelConfigurer) FullStats() (*Stats, error) {
+	wgDevice, err := c.device()
 	if err != nil {
-		return nil, fmt.Errorf("get device %s: %w", c.deviceName, err)
+		return nil, err
 	}
 	fullStats := &Stats{
 		DeviceName: wgDevice.Name,
@@ -345,23 +392,12 @@ func (c *KernelConfigurer) LastActivities() map[string]monotime.Time {
 }
 
 func (c *KernelConfigurer) fetchStats() (map[string]WGStats, error) {
+	wgDevice, err := c.device()
+	if err != nil {
+		return nil, err
+	}
+
 	stats := make(map[string]WGStats)
-	wg, err := wgctrl.New()
-	if err != nil {
-		return nil, fmt.Errorf("wgctl: %w", err)
-	}
-	defer func() {
-		err = wg.Close()
-		if err != nil {
-			log.Errorf("Got error while closing wgctl: %v", err)
-		}
-	}()
-
-	wgDevice, err := wg.Device(c.deviceName)
-	if err != nil {
-		return nil, fmt.Errorf("get device %s: %w", c.deviceName, err)
-	}
-
 	for _, peer := range wgDevice.Peers {
 		stats[peer.PublicKey.String()] = WGStats{
 			LastHandshake: peer.LastHandshakeTime,
