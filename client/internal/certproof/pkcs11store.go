@@ -193,7 +193,20 @@ func (s *PKCS11Store) open() (*pkcs11.Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	return module.OpenSession(s.uri.Token, pin)
+	if pin == nil {
+		return module.OpenSession(s.uri.Token, nil)
+	}
+
+	key := rejectedPINKey(s.uri.Module(), s.uri.Token, pin)
+	if rejectedPINs.has(key) {
+		return nil, errPINRejectedBefore
+	}
+	session, err := module.OpenSession(s.uri.Token, pin)
+	if pkcs11.PINRejected(err) {
+		rejectedPINs.add(key)
+		return nil, fmt.Errorf("%s rejected the PIN, not retrying it until the daemon restarts: %w", s, err)
+	}
+	return session, err
 }
 
 func (s *PKCS11Store) userPIN() ([]byte, error) {

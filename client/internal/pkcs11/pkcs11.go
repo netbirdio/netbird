@@ -44,6 +44,11 @@ const (
 	MGF1SHA384 = 0x3
 
 	rvOK                  = 0x0
+	rvPINIncorrect        = 0xa0
+	rvPINInvalid          = 0xa1
+	rvPINLenRange         = 0xa2
+	rvPINExpired          = 0xa3
+	rvPINLocked           = 0xa4
 	rvUserAlreadyLoggedIn = 0x100
 	rvAlreadyInitialized  = 0x191
 )
@@ -63,6 +68,20 @@ func (e Error) Error() string {
 	return fmt.Sprintf("%s: CKR 0x%x", e.Op, e.Code)
 }
 
+// PINRejected reports whether err is the token refusing the user PIN. Retrying the same
+// PIN cannot succeed, and each attempt counts towards the token's lockout.
+func PINRejected(err error) bool {
+	var e Error
+	if !errors.As(err, &e) {
+		return false
+	}
+	switch e.Code {
+	case rvPINIncorrect, rvPINInvalid, rvPINLenRange, rvPINExpired, rvPINLocked:
+		return true
+	}
+	return false
+}
+
 var returnValueNames = map[uint]string{
 	0x2:   "CKR_HOST_MEMORY",
 	0x3:   "CKR_SLOT_ID_INVALID",
@@ -77,6 +96,9 @@ var returnValueNames = map[uint]string{
 	0x71:  "CKR_MECHANISM_PARAM_INVALID",
 	0x82:  "CKR_OBJECT_HANDLE_INVALID",
 	0xa0:  "CKR_PIN_INCORRECT",
+	0xa1:  "CKR_PIN_INVALID",
+	0xa2:  "CKR_PIN_LEN_RANGE",
+	0xa3:  "CKR_PIN_EXPIRED",
 	0xa4:  "CKR_PIN_LOCKED",
 	0xb3:  "CKR_SESSION_HANDLE_INVALID",
 	0xd0:  "CKR_TEMPLATE_INCOMPLETE",
