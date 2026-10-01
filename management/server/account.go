@@ -102,6 +102,8 @@ type DefaultAccountManager struct {
 
 	peerInactivityExpiry Scheduler
 
+	certChallenges *certChallengeRefresher
+
 	// userDeleteFromIDPEnabled allows to delete user from IDP when user is deleted from account
 	userDeleteFromIDPEnabled bool
 
@@ -229,6 +231,10 @@ func BuildManager(
 		permissionsManager:       permissionsManager,
 		disableDefaultPolicy:     disableDefaultPolicy,
 	}
+
+	am.certChallenges = newCertChallengeRefresher(am.refreshCertificateChallenges)
+	// The loop outlives this call, so it must not inherit its cancellation.
+	am.certChallenges.Start(context.WithoutCancel(ctx))
 
 	am.networkMapController.StartWarmup(ctx)
 
@@ -900,6 +906,7 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 	}
 	// cancel peer login expiry job
 	am.peerLoginExpiry.Cancel(ctx, []string{account.Id})
+	am.certChallenges.Forget(account.Id)
 
 	meta := map[string]any{"account_id": account.Id, "domain": account.Domain, "created_at": account.CreatedAt}
 	am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountDeleted, meta)
