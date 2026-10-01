@@ -10,14 +10,6 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// Service account SIDs a client trusts as a pipe owner. They are not privileged
-// identities for the daemon's own caller checks, so they live here rather than in
-// identity.go.
-const (
-	sidLocalService   = "S-1-5-19" // NT AUTHORITY\LOCAL SERVICE
-	sidNetworkService = "S-1-5-20" // NT AUTHORITY\NETWORK SERVICE
-)
-
 // PipeServerTrusted reports an error unless the pipe behind conn was created by a
 // principal this client may hand secrets to. Clients call it for a pipe whose name
 // carries no guarantee of its own, which is any name outside the

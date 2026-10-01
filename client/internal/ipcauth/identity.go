@@ -18,9 +18,12 @@ import (
 	"google.golang.org/grpc/peer"
 )
 
-// Well-known Windows SIDs that identify a fully privileged principal.
+// Well-known Windows SIDs. Only LocalSystem and BUILTIN\Administrators identify a
+// privileged principal; the service accounts are shared by unrelated services.
 const (
 	sidLocalSystem    = "S-1-5-18"     // NT AUTHORITY\SYSTEM
+	sidLocalService   = "S-1-5-19"     // NT AUTHORITY\LOCAL SERVICE
+	sidNetworkService = "S-1-5-20"     // NT AUTHORITY\NETWORK SERVICE
 	sidAdministrators = "S-1-5-32-544" // BUILTIN\Administrators
 )
 
